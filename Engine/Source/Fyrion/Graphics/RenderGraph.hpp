@@ -9,6 +9,7 @@
 
 namespace Fyrion
 {
+    class Scene;
     class RenderGraph;
     class RenderGraphPass;
 
@@ -45,7 +46,7 @@ namespace Fyrion
         virtual ~RenderGraphPassHandler() = default;
 
         RenderGraphPass* pass = nullptr;
-        RenderGraph* rg = nullptr;
+        RenderGraph*     rg = nullptr;
 
         virtual void Init() {}
         virtual void Update(f64 deltaTime) {}
@@ -101,7 +102,7 @@ namespace Fyrion
         RenderPassBuilder& Handler(RenderGraphPassHandler* handler);
 
     private:
-        RenderGraph* rg;
+        RenderGraph*     rg;
         RenderGraphPass* pass;
     };
 
@@ -111,8 +112,9 @@ namespace Fyrion
         RenderPassBuilder    AddPass(StringView name, RenderGraphPassType type);
         RenderGraphResource* Create(const RenderGraphResourceCreation& creation);
         void                 Resize(Extent extent);
-        void                 Bake(Extent extent);
+        void                 Create(Scene* scene, Extent extent);
         Extent               GetViewportExtent() const;
+        Scene*               GetScene() const;
         void                 SetCameraData(const CameraData& cameraData);
         const CameraData&    GetCameraData() const;
         void                 ColorOutput(RenderGraphResource* resource);
@@ -120,8 +122,11 @@ namespace Fyrion
         Texture              GetColorOutput() const;
         Texture              GetDepthOutput() const;
 
+        ~RenderGraph();
+
     private:
         Extent                                viewportExtent;
+        Scene*                                scene = nullptr;
         Array<SharedPtr<RenderGraphResource>> resources;
         Array<SharedPtr<RenderGraphPass>>     passes;
         CameraData                            cameraData;

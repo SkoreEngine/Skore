@@ -71,6 +71,7 @@ namespace Fyrion
             return {position, rotation, scale};
         }
 
+        void OnStart() override;
         void OnChange() override;
 
         static void RegisterType(NativeTypeHandler<TransformComponent>& type);

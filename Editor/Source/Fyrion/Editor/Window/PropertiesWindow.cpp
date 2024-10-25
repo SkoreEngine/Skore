@@ -138,13 +138,12 @@ namespace Fyrion
                     .instance = component,
                     .flags = readOnly ? ImGui::ImGuiDrawTypeFlags_ReadOnly : 0u,
                     .userData = this,
-                    .callback = [](ImGui::DrawTypeDesc& desc, VoidPtr newValue)
+                    .callback = [](ImGui::DrawTypeDesc& desc)
                     {
                         PropertiesWindow* propertiesWindow = static_cast<PropertiesWindow*>(desc.userData);
 
                         propertiesWindow->sceneEditor.UpdateComponent(propertiesWindow->selectedObject,
-                                                                      static_cast<Component*>(desc.instance),
-                                                                      static_cast<Component*>(newValue));
+                                                                      static_cast<Component*>(desc.instance));
                     },
                 });
                 ImGui::Unindent();

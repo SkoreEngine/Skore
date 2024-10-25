@@ -22,5 +22,14 @@ namespace Fyrion
         usize                 verticesCount = 0;
         Array<MaterialAsset*> materials;
         Array<MeshPrimitive>  primitives{};
+
+        Buffer GetVertexBuffer();
+        Buffer GetIndexBuffer();
+
+        ~MeshAsset() override;
+
+    private:
+        Buffer vertexBuffer{};
+        Buffer indexBuffer{};
     };
 }

@@ -197,8 +197,18 @@ namespace Fyrion
 	u64 FileSystem::ReadFileAt(FileHandler fileHandler, VoidPtr data, usize size, usize offset)
     {
     	OVERLAPPED overlapped{};
-    	overlapped.Offset = LOWORD(offset);
-    	overlapped.OffsetHigh = HIWORD(offset);
+
+    	union {
+    		u64 value{};
+    		struct {
+    			u32 low;
+    			u32 hi;
+    		};
+    	};
+    	value = offset;
+
+    	overlapped.Offset = low;
+    	overlapped.OffsetHigh = hi;
 
     	DWORD nRead;
     	::ReadFile(fileHandler.handler, data, size, &nRead, &overlapped);

@@ -184,13 +184,23 @@ namespace Fyrion
 
             Extent extent = {static_cast<u32>(size.x), static_cast<u32>(size.y)};
 
-            if (!renderGraph)
+            if (!renderPipeline)
             {
-                renderGraph = Alloc<RenderGraph>();
                 TypeHandler* type = Registry::FindTypeByName("Fyrion::DefaultRenderPipeline");
                 renderPipeline = type->Cast<RenderPipeline>(type->NewInstance());
+            }
+
+            bool renderGraphDirty = renderGraph == nullptr || sceneEditor.GetScene() != renderGraph->GetScene();
+
+            if (renderPipeline && renderGraphDirty)
+            {
+                if (renderGraph)
+                {
+                    DestroyAndFree(renderGraph);
+                }
+                renderGraph = Alloc<RenderGraph>();
                 renderPipeline->BuildRenderGraph(*renderGraph);
-                renderGraph->Bake(extent);
+                renderGraph->Create(sceneEditor.GetScene(), extent);
             }
 
             if (extent != renderGraph->GetViewportExtent())

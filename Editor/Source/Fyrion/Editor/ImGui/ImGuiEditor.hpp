@@ -25,7 +25,7 @@ namespace ImGui
     typedef u32 ImGuiContentTableFlags;
     typedef u32 ImGuiDrawTypeFlags;
 
-    typedef void (*DrawTypeCallbackFn)(DrawTypeDesc& desc, VoidPtr newValue);
+    typedef void (*DrawTypeCallbackFn)(DrawTypeDesc& desc);
 
     struct DrawTypeDesc
     {
@@ -40,7 +40,6 @@ namespace ImGui
     struct DrawTypeContent
     {
         DrawTypeDesc  desc{};
-        VoidPtr       instance{};
         u64           lastFrameUsage{};
         bool          readOnly{};
         bool          hasChanged{};

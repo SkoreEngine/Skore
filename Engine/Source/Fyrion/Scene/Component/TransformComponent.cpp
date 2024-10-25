@@ -39,6 +39,11 @@ namespace Fyrion
         }
     }
 
+    void TransformComponent::OnStart()
+    {
+        UpdateTransform();
+    }
+
     void TransformComponent::OnChange()
     {
         UpdateTransform();

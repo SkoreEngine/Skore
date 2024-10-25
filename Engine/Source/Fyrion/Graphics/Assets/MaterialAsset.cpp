@@ -2,6 +2,8 @@
 
 #include "Fyrion/Core/Attributes.hpp"
 #include "Fyrion/Core/Registry.hpp"
+#include "Fyrion/Graphics/Graphics.hpp"
+#include "Fyrion/Graphics/Assets/ShaderAsset.hpp"
 
 namespace Fyrion
 {
@@ -153,6 +155,25 @@ namespace Fyrion
     void MaterialAsset::SetUvScale(const Vec2& uvScale)
     {
         this->uvScale = uvScale;
+    }
+
+    BindingSet* MaterialAsset::GetBindingSet()
+    {
+        if (bindingSet == nullptr)
+        {
+            bindingSet = Graphics::CreateBindingSet(Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/TestRender.raster"));
+            bindingSet->GetVar("albedo")->SetTexture(baseColorTexture ? baseColorTexture->GetTexture() : Graphics::GetDefaultTexture());
+        }
+        return bindingSet;
+    }
+
+    MaterialAsset::~MaterialAsset()
+    {
+        if (bindingSet)
+        {
+            Graphics::DestroyBindingSet(bindingSet);
+            bindingSet = nullptr;
+        }
     }
 
     void MaterialAsset::RegisterType(NativeTypeHandler<MaterialAsset>& type)

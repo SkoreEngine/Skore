@@ -27,7 +27,7 @@ namespace Fyrion
         void       AddComponent(GameObject* gameObject, TypeHandler* typeHandler);
         void       ResetComponent(GameObject* gameObject, Component* component);
         void       RemoveComponent(GameObject* gameObject, Component* component);
-        void       UpdateComponent(GameObject* gameObject, Component* instance, Component* newValue);
+        void       UpdateComponent(GameObject* gameObject, Component* instance);
 
 
         HashSet<GameObject*>& GetSelectedObjects();

@@ -168,17 +168,13 @@ namespace Fyrion
             {
                 if (it.second->desc.callback)
                 {
-                    it.second->desc.callback(it.second->desc, it.second->instance);
+                    it.second->desc.callback(it.second->desc);
                 }
                 it.second->hasChanged = false;
             }
 
             if (it.second->lastFrameUsage + 60 < frame)
             {
-                if (!it.second->readOnly)
-                {
-                    it.second->desc.typeHandler->Destroy(it.second->instance);
-                }
                 toErase.EmplaceBack(it.first);
             }
         }
@@ -219,10 +215,6 @@ void ImGui::DrawType(const DrawTypeDesc& desc)
 
     if (it != drawTypes.end() && it->second->desc.typeHandler->GetTypeInfo().typeId != desc.typeHandler->GetTypeInfo().typeId)
     {
-        if (!it->second->readOnly && it->second->instance != nullptr)
-        {
-            it->second->desc.typeHandler->Destroy(it->second->instance);
-        }
         drawTypes.Erase(it);
     }
 
@@ -233,12 +225,9 @@ void ImGui::DrawType(const DrawTypeDesc& desc)
             MakeShared<DrawTypeContent>(
                 DrawTypeContent{
                     .desc = desc,
-                    .instance = !readOnly ? desc.typeHandler->NewInstance() : const_cast<VoidPtr>(desc.instance),
                     .readOnly = readOnly,
                     .tableRender = true
                 })).first;
-
-        desc.typeHandler->DeepCopy(desc.instance, it->second->instance);
     }
 
     DrawTypeContent* content = it->second.Get();
@@ -268,7 +257,7 @@ void ImGui::DrawType(const DrawTypeDesc& desc)
                 TableNextColumn();
 
 
-                VoidPtr fieldPointer = field->GetFieldPointer(content->instance);
+                VoidPtr fieldPointer = field->GetFieldPointer(content->desc.instance);
                 for (FieldRendererFn render : fieldRenders)
                 {
                     render(content, field->GetFieldInfo().typeInfo, fieldPointer, &content->hasChanged);
@@ -283,10 +272,6 @@ void ImGui::DrawType(const DrawTypeDesc& desc)
 
 void ImGui::ClearDrawData(VoidPtr ptr, bool clearActiveId)
 {
-    if (auto it = drawTypes.Find(reinterpret_cast<usize>(ptr)))
-    {
-        it->second->desc.typeHandler->DeepCopy(it->second->desc.instance, it->second->instance);
-    }
     if (clearActiveId)
     {
         ClearActiveID();

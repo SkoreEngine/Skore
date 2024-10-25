@@ -14,7 +14,7 @@ namespace Fyrion
         transform = gameObject->GetComponent<TransformComponent>();
         renderService = gameObject->GetScene()->GetService<RenderService>();
 
-        if (mesh && transform)
+        if (renderService && mesh && transform)
         {
             renderService->SetMesh(this, mesh, materials, transform->GetWorldTransform());
         }
@@ -35,12 +35,16 @@ namespace Fyrion
         if (mesh)
         {
             materials = mesh->materials;
-            renderService->SetMesh(this, mesh, materials, transform->GetWorldTransform());
         }
         else
         {
             materials.Clear();
-            renderService->RemoveMesh(this);
+        }
+
+        //maybe test if object is active?
+        if (renderService)
+        {
+            renderService->SetMesh(this, mesh, materials, transform->GetWorldTransform());
         }
     }
 

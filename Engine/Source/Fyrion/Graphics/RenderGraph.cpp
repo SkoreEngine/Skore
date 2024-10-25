@@ -218,9 +218,10 @@ namespace Fyrion
         }
     }
 
-    void RenderGraph::Bake(Extent extent)
+    void RenderGraph::Create(Scene* scene, Extent extent)
     {
         this->viewportExtent = extent;
+        this->scene = scene;
 
         FY_ASSERT(this->colorOutput, "color output must be provided");
         FY_ASSERT(this->depthOutput, "depth output must be provided");
@@ -266,6 +267,11 @@ namespace Fyrion
         return viewportExtent;
     }
 
+    Scene* RenderGraph::GetScene() const
+    {
+        return scene;
+    }
+
     void RenderGraph::SetCameraData(const CameraData& cameraData)
     {
         this->cameraData = cameraData;
@@ -302,6 +308,12 @@ namespace Fyrion
             return depthOutput->texture;
         }
         return {};
+    }
+
+    RenderGraph::~RenderGraph()
+    {
+        Graphics::WaitQueue();
+        Event::Unbind<OnRecordRenderCommands, &RenderGraph::RecordCommands>(this);
     }
 
     void RenderGraph::RecordCommands(RenderCommands& cmd, f64 deltaTime)

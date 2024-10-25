@@ -23,6 +23,8 @@ namespace Fyrion
 
     void SceneEditor::SetScene(AssetFile* assetFile)
     {
+        ClearSelection();
+
         this->assetFile = assetFile;
         scene = Assets::Load<Scene>(assetFile->uuid);
         if (scene)
@@ -176,16 +178,11 @@ namespace Fyrion
         assetFile->currentVersion++;
     }
 
-    void SceneEditor::UpdateComponent(GameObject* gameObject, Component* instance, Component* newValue)
+    void SceneEditor::UpdateComponent(GameObject* gameObject, Component* instance)
     {
-        if (TypeHandler* typeHandler = Registry::FindTypeById(newValue->typeId))
-        {
-            typeHandler->Copy(newValue, instance);
-            instance->OnChange();
-
-            ImGui::ClearDrawData(instance);
-            assetFile->currentVersion++;
-        }
+        instance->OnChange();
+        ImGui::ClearDrawData(instance);
+        assetFile->currentVersion++;
     }
 
     HashSet<GameObject*>& SceneEditor::GetSelectedObjects()

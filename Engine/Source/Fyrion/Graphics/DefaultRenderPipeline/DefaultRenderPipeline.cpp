@@ -4,19 +4,32 @@
 #include "Fyrion/Graphics/RenderPipeline.hpp"
 #include "Fyrion/Graphics/Assets/MeshAsset.hpp"
 #include "Fyrion/Graphics/Assets/ShaderAsset.hpp"
+#include "Fyrion/Scene/Scene.hpp"
+#include "Fyrion/Scene/Service/RenderService.hpp"
 
 namespace Fyrion
 {
+
+    struct SceneData
+    {
+        Mat4 viewProjection;
+    };
 
     struct TestHandler : RenderGraphPassHandler
     {
         PipelineState pipelineState{};
         BindingSet*   bindingSet{};
+        RenderService* renderService;
 
         void Init() override
         {
+            if (rg->GetScene())
+            {
+                renderService = rg->GetScene()->GetService<RenderService>();
+            }
+
             GraphicsPipelineCreation graphicsPipelineCreation{
-                .shader = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/GBufferRender.raster"),
+                .shader = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/TestRender.raster"),
                 .renderPass = pass->GetRenderPass(),
                 .depthWrite = true,
                 .cullMode = CullMode::Back,
@@ -29,30 +42,44 @@ namespace Fyrion
 
         void Render(RenderCommands& cmd) override
         {
-            // cmd.BindPipelineState(pipelineState);
-            // cmd.BindBindingSet(pipelineState, bindingSet);
-            //
-            // for (MeshRenderData& meshRenderData : meshes)
-            // {
-            //     if (MeshAsset* mesh = meshRenderData.mesh)
-            //     {
-            //         Span<MeshPrimitive> primitives = mesh->GetPrimitives();
-            //
-            //         cmd.BindVertexBuffer(mesh->GetVertexBuffer());
-            //         cmd.BindIndexBuffer(mesh->GetIndexBuffeer());
-            //
-            //         cmd.PushConstants(pipelineState, ShaderStage::Vertex, &meshRenderData.model, sizeof(Mat4));
-            //
-            //         for (MeshPrimitive& primitive : primitives)
-            //         {
-            //             if (MaterialAsset* material = meshRenderData.materials[primitive.materialIndex])
-            //             {
-            //                 cmd.BindBindingSet(pipelineState, material->GetBindingSet());
-            //                 cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
-            //             }
-            //         }
-            //     }
-            // }
+            const CameraData& cameraData = rg->GetCameraData();
+
+            SceneData data{.viewProjection = cameraData.projection * cameraData.view};
+            bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
+
+            cmd.BindPipelineState(pipelineState);
+            cmd.BindBindingSet(pipelineState, bindingSet);
+
+            if (renderService != nullptr)
+            {
+                for (MeshRenderData& meshRenderData : renderService->GetMeshesToRender())
+                {
+                    if (MeshAsset* mesh = meshRenderData.mesh)
+                    {
+                        Span<MeshPrimitive> primitives = mesh->GetPrimitives();
+
+                        cmd.BindVertexBuffer(mesh->GetVertexBuffer());
+                        cmd.BindIndexBuffer(mesh->GetIndexBuffer());
+
+                        cmd.PushConstants(pipelineState, ShaderStage::Vertex, &meshRenderData.matrix, sizeof(Mat4));
+
+                        for (MeshPrimitive& primitive : primitives)
+                        {
+                            if (MaterialAsset* material = meshRenderData.materials[primitive.materialIndex])
+                            {
+                                cmd.BindBindingSet(pipelineState, material->GetBindingSet());
+                                cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        void Destroy() override
+        {
+            Graphics::DestroyBindingSet(bindingSet);
+            Graphics::DestroyGraphicsPipelineState(pipelineState);
         }
     };
 

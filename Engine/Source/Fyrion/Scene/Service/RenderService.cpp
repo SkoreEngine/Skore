@@ -12,6 +12,12 @@ namespace Fyrion
 
     void RenderService::SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix)
     {
+        if (mesh == nullptr)
+        {
+            RemoveMesh(pointer);
+            return;
+        }
+
         auto it = meshRendersLookup.Find(pointer);
         if (it == meshRendersLookup.end())
         {

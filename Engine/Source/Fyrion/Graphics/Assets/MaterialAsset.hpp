@@ -42,6 +42,10 @@ namespace Fyrion
         Vec2          GetUvScale() const;
         void          SetUvScale(const Vec2& uvScale);
 
+        BindingSet* GetBindingSet();
+
+        ~MaterialAsset() override;
+
         static void RegisterType(NativeTypeHandler<MaterialAsset>& type);
 
     private:
