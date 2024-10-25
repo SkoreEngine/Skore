@@ -14,7 +14,10 @@ namespace Fyrion
         transform = gameObject->GetComponent<TransformComponent>();
         renderService = gameObject->GetScene()->GetService<RenderService>();
 
-        meshRID = renderService->RegisterItem();
+        if (mesh && transform)
+        {
+            renderService->SetMesh(this, mesh, materials, transform->GetWorldTransform());
+        }
     }
 
     MeshAsset* RenderComponent::GetMesh() const
@@ -32,12 +35,18 @@ namespace Fyrion
         if (mesh)
         {
             materials = mesh->materials;
+            renderService->SetMesh(this, mesh, materials, transform->GetWorldTransform());
+        }
+        else
+        {
+            materials.Clear();
+            renderService->RemoveMesh(this);
         }
     }
 
     void RenderComponent::OnDestroy()
     {
-        renderService->RemoveItem(meshRID);
+        renderService->RemoveMesh(this);
     }
 
     void RenderComponent::ProcessEvent(const SceneEventDesc& event)
@@ -46,6 +55,7 @@ namespace Fyrion
         {
             case SceneEventType::TransformChanged:
             {
+                OnChange();
                 break;
             }
         }

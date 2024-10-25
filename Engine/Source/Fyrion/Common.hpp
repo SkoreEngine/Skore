@@ -69,26 +69,6 @@ namespace Fyrion
         virtual ~Object() = default;
     };
 
-    //types
-    struct RID
-    {
-        u64 id{};
-
-        explicit operator bool() const noexcept
-        {
-            return this->id > 0;
-        }
-
-        bool operator==(const RID& rid) const
-        {
-            return this->id == rid.id;
-        }
-
-        bool operator!=(const RID& rid) const
-        {
-            return !(*this == rid);
-        }
-    };
 }
 
 inline void* operator new(Fyrion::usize, Fyrion::PlaceHolder, Fyrion::VoidPtr ptr)

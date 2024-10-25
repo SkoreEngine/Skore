@@ -4,8 +4,11 @@
 
 namespace Fyrion
 {
+    class Scene;
+
     struct FY_API Service
     {
+        Scene*  scene = nullptr;
         virtual ~Service() = default;
 
         virtual void OnStart() {}

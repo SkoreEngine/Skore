@@ -1,11 +1,16 @@
 #include "SceneEditor.hpp"
 
+#include "Fyrion/Core/Logger.hpp"
 #include "Fyrion/Editor/Asset/AssetEditor.hpp"
 #include "Fyrion/Editor/ImGui/ImGuiEditor.hpp"
 #include "Fyrion/Scene/Component/Component.hpp"
 
 namespace Fyrion
 {
+    namespace
+    {
+        Logger& logger = Logger::GetLogger("Fyrion::Scene");
+    }
     Scene* SceneEditor::GetScene() const
     {
         return scene;
@@ -20,6 +25,10 @@ namespace Fyrion
     {
         this->assetFile = assetFile;
         scene = Assets::Load<Scene>(assetFile->uuid);
+        if (scene)
+        {
+            scene->Start();
+        }
     }
 
     void SceneEditor::ClearSelection()
@@ -119,6 +128,23 @@ namespace Fyrion
 
     void SceneEditor::AddComponent(GameObject* gameObject, TypeHandler* typeHandler)
     {
+        if (const ComponentDesc* componentDesc = typeHandler->GetAttribute<ComponentDesc>())
+        {
+            if (!componentDesc->allowMultiple)
+            {
+                if (gameObject->GetComponent(typeHandler->GetTypeInfo().typeId))
+                {
+                    logger.Warn("multiple components of type {} are not allowed", typeHandler->GetName());
+                    return;
+                }
+            }
+
+            for(TypeID dependency : componentDesc->dependencies)
+            {
+                gameObject->GetOrAddComponent(dependency);
+            }
+        }
+
         gameObject->AddComponent(typeHandler->GetTypeInfo().typeId);
         assetFile->currentVersion++;
     }
@@ -130,6 +156,22 @@ namespace Fyrion
 
     void SceneEditor::RemoveComponent(GameObject* gameObject, Component* component)
     {
+        for(Component* otherComps: gameObject->GetComponents())
+        {
+            if (otherComps == component) continue;
+
+            if (const ComponentDesc* componentDesc = Registry::FindTypeById(otherComps->typeId)->GetAttribute<ComponentDesc>())
+            {
+                for(TypeID dependency : componentDesc->dependencies)
+                {
+                    if (dependency == component->typeId)
+                    {
+                        gameObject->RemoveComponent(otherComps);
+                    }
+                }
+            }
+        }
+
         gameObject->RemoveComponent(component);
         assetFile->currentVersion++;
     }

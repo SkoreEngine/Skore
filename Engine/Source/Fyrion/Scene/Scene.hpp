@@ -27,7 +27,8 @@ namespace Fyrion
         void DestroyGameObject(GameObject* gameObject);
 
         void FlushQueues();
-        void DoUpdate();
+        void Update();
+        void Start();
 
         Service* GetService(TypeID typeId);
 
@@ -39,11 +40,19 @@ namespace Fyrion
 
         friend class GameObject;
 
+        usize GetObjectCount() const
+        {
+            return objectsById.Size();
+        }
+
     private:
         GameObject                 root = {this};
-        Array<GameObject*>         queueToDestroy;
         HashMap<UUID, GameObject*> objectsById;
         HashMap<TypeID, Service*>  services;
+
+        Array<GameObject*> queueToDestroy;
+        Array<GameObject*> queueToStart;
+        Array<Component*>  componentsToStart;
     };
 
 

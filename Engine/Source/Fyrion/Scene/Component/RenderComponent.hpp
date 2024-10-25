@@ -34,6 +34,5 @@ namespace Fyrion
 
         TransformComponent* transform = nullptr;
         RenderService*      renderService = nullptr;
-        RID                 meshRID;
     };
 }

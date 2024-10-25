@@ -176,6 +176,17 @@ namespace Fyrion
                     TypeHandler* typeHandler = Registry::FindTypeById(derivedType.typeId);
                     if (typeHandler)
                     {
+                        if (const ComponentDesc* componentDesc = typeHandler->GetAttribute<ComponentDesc>())
+                        {
+                            if (!componentDesc->allowMultiple)
+                            {
+                                if (gameObject->GetComponent(typeHandler->GetTypeInfo().typeId))
+                                {
+                                    continue;
+                                }
+                            }
+                        }
+
                         String name = FormatName(typeHandler->GetSimpleName());
                         if (ImGui::Selectable(name.CStr()))
                         {

@@ -1,5 +1,6 @@
 #include "Scene.hpp"
 
+#include "Component/Component.hpp"
 #include "Fyrion/Core/Registry.hpp"
 
 namespace Fyrion
@@ -8,6 +9,10 @@ namespace Fyrion
     Scene::Scene()
     {
         services = Registry::InstantiateDerivedAsMap<Service>();
+        for(auto it  : services)
+        {
+            it.second->scene = this;
+        }
     }
 
     Scene::~Scene()
@@ -28,6 +33,20 @@ namespace Fyrion
 
     void Scene::FlushQueues()
     {
+        for(GameObject* gameObject : queueToStart)
+        {
+            gameObject->Start();
+        }
+        queueToStart.Clear();
+
+
+        for(Component* component : componentsToStart)
+        {
+            component->OnStart();
+        }
+
+        componentsToStart.Clear();
+
         for (GameObject* gameObject : queueToDestroy)
         {
             MemoryGlobals::GetDefaultAllocator().DestroyAndFree(gameObject);
@@ -35,13 +54,22 @@ namespace Fyrion
         queueToDestroy.Clear();
     }
 
-    void Scene::DoUpdate()
+    void Scene::Update()
     {
         for(auto& it: services)
         {
             it.second->OnUpdate();
         }
         FlushQueues();
+    }
+
+    void Scene::Start()
+    {
+        for(auto& it: services)
+        {
+            it.second->OnStart();
+        }
+        root.Start();
     }
 
     Service* Scene::GetService(TypeID typeId)

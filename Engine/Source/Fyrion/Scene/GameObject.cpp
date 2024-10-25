@@ -87,6 +87,7 @@ namespace Fyrion
         gameObject->uuid = uuid;
         children.EmplaceBack(gameObject);
         scene->objectsById.Insert(uuid, gameObject);
+        scene->queueToStart.EmplaceBack(gameObject);
         return gameObject;
     }
 
@@ -153,6 +154,11 @@ namespace Fyrion
             component->gameObject = this;
             component->typeId = typeId;
             components.EmplaceBack(component);
+
+            if (started)
+            {
+                scene->componentsToStart.EmplaceBack(component);
+            }
 
             return component;
         }
@@ -275,6 +281,21 @@ namespace Fyrion
                     Serialization::Deserialize(typeHandler, reader, vlComponent, component);
                 }
             }
+        }
+    }
+
+    void GameObject::Start()
+    {
+        started = true;
+
+        for (Component* component : components)
+        {
+            component->OnStart();
+        }
+
+        for (GameObject* child : children)
+        {
+            child->Start();
         }
     }
 

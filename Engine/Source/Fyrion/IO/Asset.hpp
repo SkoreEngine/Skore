@@ -83,7 +83,7 @@ namespace Fyrion
     struct AssetApi
     {
         Asset* (*CastAsset)(VoidPtr ptr);
-        void (*SetAsset)(VoidPtr ptr, Asset* asset);
+        void (*  SetAsset)(VoidPtr ptr, Asset* asset);
     };
 
     template <typename T>

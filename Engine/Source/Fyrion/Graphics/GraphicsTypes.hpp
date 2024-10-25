@@ -635,8 +635,8 @@ namespace Fyrion
 
     struct MeshRenderData
     {
-        usize                 address{};
-        Mat4                  model;
+        VoidPtr               pointer;
+        Mat4                  matrix;
         MeshAsset*            mesh = nullptr;
         Array<MaterialAsset*> materials{};
     };

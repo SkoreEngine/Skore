@@ -76,9 +76,11 @@ namespace Fyrion
         GameObject* parent;
         String      name;
         UUID        uuid;
+        bool        started = false;
 
         Array<GameObject*> children;
+        Array<Component*>  components;
 
-        Array<Component*> components;
+        void Start();
     };
 }
