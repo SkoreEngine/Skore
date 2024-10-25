@@ -1,5 +1,6 @@
 #pragma once
 
+#include "SceneTypes.hpp"
 #include "Fyrion/Common.hpp"
 #include "Fyrion/Core/Array.hpp"
 #include "Fyrion/Core/HashMap.hpp"
@@ -35,6 +36,7 @@ namespace Fyrion
         GameObject*       FindChildByName(StringView name) const;
 
         Component*       GetComponent(TypeID typeId) const;
+        Component*       GetOrAddComponent(TypeID typeId);
         void             GetComponentsOfType(TypeID typeId, Array<Component*> arrComponents) const;
         Component*       AddComponent(TypeID typeId);
         void             RemoveComponent(Component* component);
@@ -43,13 +45,19 @@ namespace Fyrion
         ArchiveValue Serialize(ArchiveWriter& writer) const;
         void         Deserialize(ArchiveReader& reader, ArchiveValue value);
 
-        void Notify(i64 notification);
+        void NotifyEvent(const SceneEventDesc& event);
         void Destroy();
 
         template<typename T>
         T* GetComponent()
         {
             return static_cast<T*>(GetComponent(GetTypeID<T>()));
+        }
+
+        template<typename T>
+        T* GetOrAddComponent()
+        {
+            return static_cast<T*>(GetOrAddComponent(GetTypeID<T>()));
         }
 
         template<typename T>

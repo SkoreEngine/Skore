@@ -139,6 +139,11 @@ namespace Fyrion
         }
     }
 
+    Span<ParamHandler> ConstructorHandler::GetParams() const
+    {
+        return params;
+    }
+
     FieldHandler::FieldHandler(const String& name, TypeHandler& owner) : name(name), owner(owner)
     {
         ownerCast = ForwardDerived;
@@ -283,6 +288,11 @@ namespace Fyrion
     Span<ConstructorHandler*> TypeHandler::GetConstructors() const
     {
         return constructorArray;
+    }
+
+    ConstructorHandler* TypeHandler::GetDefaultConstructor() const
+    {
+        return defaultConstructor.Get();
     }
 
     FieldHandler* TypeHandler::FindField(const StringView& fieldName) const
@@ -694,6 +704,12 @@ namespace Fyrion
             it = typeHandler.constructors.Emplace(constructorId, MakeShared<ConstructorHandler>(params, size)).first;
             typeHandler.constructorArray.EmplaceBack(it->second.Get());
         }
+
+        if (ids == nullptr && params == nullptr)
+        {
+            typeHandler.defaultConstructor = it->second;
+        }
+
         return *it->second;
     }
 

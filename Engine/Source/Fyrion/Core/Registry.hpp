@@ -175,9 +175,10 @@ namespace Fyrion
 
         ConstructorHandler(FieldInfo* params,usize paramsCount);
 
-        VoidPtr     NewInstance(Allocator& allocator, VoidPtr* params);
-        Object*     NewObject(Allocator& allocator, VoidPtr* params);
-        void        Construct(VoidPtr memory, VoidPtr* params);
+        VoidPtr            NewInstance(Allocator& allocator, VoidPtr* params);
+        Object*            NewObject(Allocator& allocator, VoidPtr* params);
+        void               Construct(VoidPtr memory, VoidPtr* params);
+        Span<ParamHandler> GetParams() const;
 
         friend class ConstructorBuilder;
     private:
@@ -306,6 +307,7 @@ namespace Fyrion
 
         HashMap<usize, SharedPtr<ConstructorHandler>> constructors{};
         Array<ConstructorHandler*>                    constructorArray{};
+        SharedPtr<ConstructorHandler>                 defaultConstructor{};
         HashMap<String, SharedPtr<FieldHandler>>      fields{};
         Array<FieldHandler*>                          fieldArray{};
         HashMap<String, SharedPtr<FunctionHandler>>   functions{};
@@ -322,6 +324,7 @@ namespace Fyrion
 
         ConstructorHandler*             FindConstructor(TypeID* ids, usize size) const;
         Span<ConstructorHandler*>       GetConstructors() const;
+        ConstructorHandler*             GetDefaultConstructor() const;
 
         FieldHandler*                   FindField(const StringView& fieldName) const;
         Span<FieldHandler*>             GetFields() const;
@@ -1284,6 +1287,28 @@ namespace Fyrion
                         if (T* instance = type->Cast<T>(type->NewInstance()))
                         {
                             ret.EmplaceBack(instance);
+                        }
+                    }
+                }
+            }
+            return ret;
+        }
+
+        template<typename T>
+        HashMap<TypeID, T*> InstantiateDerivedAsMap()
+        {
+            HashMap<TypeID, T*> ret;
+
+            if (TypeHandler* baseTypeHandler = FindType<T>())
+            {
+                Span<DerivedType> derivedTypes = baseTypeHandler->GetDerivedTypes();
+                for (const DerivedType& derivedType : derivedTypes)
+                {
+                    if (TypeHandler* type = FindTypeById(derivedType.typeId))
+                    {
+                        if (T* instance = type->Cast<T>(type->NewInstance()))
+                        {
+                            ret.Insert(type->GetTypeInfo().typeId, instance);
                         }
                     }
                 }

@@ -1,9 +1,11 @@
 #pragma once
 
 #include "GameObject.hpp"
+#include "SceneTypes.hpp"
 #include "Fyrion/Common.hpp"
 #include "Fyrion/Core/HashMap.hpp"
 #include "Fyrion/IO/Asset.hpp"
+#include "Service/Service.hpp"
 
 namespace Fyrion
 {
@@ -11,6 +13,9 @@ namespace Fyrion
     {
     public:
         FY_BASE_TYPES(Asset);
+
+        ~Scene() override;
+        Scene();
 
         static void RegisterType(NativeTypeHandler<Scene>& type);
 
@@ -24,11 +29,21 @@ namespace Fyrion
         void FlushQueues();
         void DoUpdate();
 
+        Service* GetService(TypeID typeId);
+
+        template<typename T>
+        T* GetService()
+        {
+            return static_cast<T*>(GetService(GetTypeID<T>()));
+        }
+
         friend class GameObject;
+
     private:
         GameObject                 root = {this};
         Array<GameObject*>         queueToDestroy;
         HashMap<UUID, GameObject*> objectsById;
+        HashMap<TypeID, Service*>  services;
     };
 
 

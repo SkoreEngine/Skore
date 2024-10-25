@@ -24,7 +24,11 @@ namespace Fyrion
     {
         worldTransform = parentTransform != nullptr ? parentTransform->GetWorldTransform() * GetLocalTransform() : GetLocalTransform();
 
-        gameObject->Notify(NotificationType::TransformChanged);
+        SceneEventDesc desc{
+            .type = SceneEventType::TransformChanged
+        };
+
+        gameObject->NotifyEvent(desc);
 
         for (GameObject* child : gameObject->GetChildren())
         {
@@ -45,6 +49,8 @@ namespace Fyrion
         type.Field<&TransformComponent::position, &TransformComponent::GetPosition, &TransformComponent::SetPosition>("position").Attribute<UIProperty>();
         type.Field<&TransformComponent::rotation, &TransformComponent::GetRotation, &TransformComponent::SetRotation>("rotation").Attribute<UIProperty>();
         type.Field<&TransformComponent::scale, &TransformComponent::GetScale, &TransformComponent::SetScale>("scale").Attribute<UIProperty>();
+
+        type.Attribute<ComponentDesc>(ComponentDesc{.allowMultiple = false});
     }
 
 

@@ -10,7 +10,7 @@ namespace Fyrion
 {
     struct AssetLoader;
 
-    class FY_API Asset
+    class FY_API Asset : public Object
     {
     public:
         UUID         GetUUID() const;

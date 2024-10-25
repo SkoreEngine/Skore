@@ -15,23 +15,23 @@ namespace Fyrion
 
         void Init() override
         {
-            // GraphicsPipelineCreation graphicsPipelineCreation{
-            //     .shader = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/GBufferRender.raster"),
-            //     .renderPass = pass->GetRenderPass(),
-            //     .depthWrite = true,
-            //     .cullMode = CullMode::Back,
-            //     .compareOperator = CompareOp::Less,
-            // };
-            //
-            // pipelineState = Graphics::CreateGraphicsPipelineState(graphicsPipelineCreation);
-            // bindingSet = Graphics::CreateBindingSet(graphicsPipelineCreation.shader);
+            GraphicsPipelineCreation graphicsPipelineCreation{
+                .shader = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/GBufferRender.raster"),
+                .renderPass = pass->GetRenderPass(),
+                .depthWrite = true,
+                .cullMode = CullMode::Back,
+                .compareOperator = CompareOp::Less,
+            };
+
+            pipelineState = Graphics::CreateGraphicsPipelineState(graphicsPipelineCreation);
+            bindingSet = Graphics::CreateBindingSet(graphicsPipelineCreation.shader);
         }
 
         void Render(RenderCommands& cmd) override
         {
             // cmd.BindPipelineState(pipelineState);
             // cmd.BindBindingSet(pipelineState, bindingSet);
-
+            //
             // for (MeshRenderData& meshRenderData : meshes)
             // {
             //     if (MeshAsset* mesh = meshRenderData.mesh)
@@ -59,10 +59,10 @@ namespace Fyrion
 
     class DefaultRenderPipeline : public RenderPipeline
     {
-    private:
-        TestHandler testHandler;
     public:
         FY_BASE_TYPES(RenderPipeline);
+
+        TestHandler testHandler;
 
         void BuildRenderGraph(RenderGraph& rg) override
         {
@@ -93,7 +93,6 @@ namespace Fyrion
             rg.DepthOutput(depth);
         }
     };
-
 
     void RegisterDefaultRenderPipeline()
     {

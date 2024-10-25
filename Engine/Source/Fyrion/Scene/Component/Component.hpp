@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Fyrion/Common.hpp"
+#include "Fyrion/Scene/SceneTypes.hpp"
 
 namespace Fyrion
 {
@@ -12,9 +13,10 @@ namespace Fyrion
         friend class GameObject;
 
         virtual void OnStart() {}
-        virtual void OnNotify(u64 type) {}
         virtual void OnDestroy() {}
         virtual void OnChange() {}
+
+        virtual void ProcessEvent(const SceneEventDesc& event) {}
 
         GameObject* gameObject = nullptr;
         TypeID      typeId = 0;

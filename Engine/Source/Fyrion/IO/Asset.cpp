@@ -1,6 +1,7 @@
 #include "Asset.hpp"
 
 #include "Fyrion/Core/HashMap.hpp"
+#include "Fyrion/Core/Logger.hpp"
 #include "Fyrion/Core/Registry.hpp"
 
 namespace Fyrion
@@ -16,6 +17,8 @@ namespace Fyrion
 
         HashMap<UUID, AssetCache> assetCache = {};
         HashMap<String, UUID>     assetsByPath = {};
+
+        Logger& logger = Logger::GetLogger("Fyrion::Assets", LogLevel::Debug);
     }
 
     UUID Asset::GetUUID() const
@@ -122,6 +125,7 @@ namespace Fyrion
 
     void Assets::SetPath(UUID uuid, StringView path)
     {
+        logger.Debug("Path registered to {} ", path);
         assetsByPath.Insert(path, uuid);
     }
 }

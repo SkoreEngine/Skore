@@ -134,7 +134,7 @@ namespace Fyrion
             }
 
             AssetEditorInit();
-            AssetEditor::AddPackage("Fyrion", "C:\\dev\\Fyrion\\v0\\Fyrion");
+            AssetEditor::AddPackage("Fyrion", "C:\\dev\\Fyrion\\Fyrion");
             AssetEditor::SetProject("Refactor", "C:\\dev\\Fyrion\\Projects\\Refactor");
         }
 

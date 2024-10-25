@@ -123,6 +123,16 @@ namespace Fyrion
         return nullptr;
     }
 
+    Component* GameObject::GetOrAddComponent(TypeID typeId)
+    {
+        Component* component = GetComponent(typeId);
+        if (component == nullptr)
+        {
+            component = AddComponent(typeId);
+        }
+        return component;
+    }
+
     void GameObject::GetComponentsOfType(TypeID typeId, Array<Component*> arrComponents) const
     {
         arrComponents.Clear();
@@ -268,11 +278,11 @@ namespace Fyrion
         }
     }
 
-    void GameObject::Notify(i64 notification)
+    void GameObject::NotifyEvent(const SceneEventDesc& event)
     {
         for (Component* component : components)
         {
-            component->OnNotify(notification);
+            component->ProcessEvent(event);
         }
     }
 
