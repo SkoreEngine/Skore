@@ -13,6 +13,8 @@ namespace Fyrion
     class FY_API Asset : public Object
     {
     public:
+        ~Asset() override = default;
+
         UUID         GetUUID() const;
         TypeHandler* GetTypeHandler() const;
         Array<u8>    LoadStream(usize offset, usize size) const;

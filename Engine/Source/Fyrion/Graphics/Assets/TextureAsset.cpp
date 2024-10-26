@@ -13,51 +13,70 @@ namespace Fyrion
         }
     }
 
-    void TextureAsset::SetProperties(u32 width, u32 height, Format format)
-    {
-        this->format = format;
-        this->extent = {width, height, 1};
-    }
-
     Texture TextureAsset::GetTexture()
     {
         if (!texture)
         {
-            usize sizeInBytes = extent.width * extent.height * 4; //TODO check Format.
+            Array<u8> textureBytes = LoadStream(0, totalSizeInDisk);
+            if (textureBytes.Size() == 0)
+            {
+                return {};
+            }
 
-            texture = Graphics::CreateTexture(TextureCreation{
-                .extent = extent,
+            Texture texture = Graphics::CreateTexture(TextureCreation{
+                .extent = {images[0].extent.width, images[0].extent.height, 1},
                 .format = format,
+                .mipLevels = std::max(mipLevels, 1u),
+                .arrayLayers = 1u,
             });
 
-            Array<u8> data = LoadStream(0, sizeInBytes);
+            Array<TextureDataRegion> regions{};
+            regions.Reserve(images.Size());
 
-            TextureDataRegion region{
-                .extent = extent,
-            };
+            for (const TextureAssetImage& textureAssetImage : images)
+            {
+                regions.EmplaceBack(TextureDataRegion{
+                    .dataOffset = textureAssetImage.byteOffset,
+                    .mipLevel = textureAssetImage.mip,
+                    .arrayLayer = textureAssetImage.arrayLayer,
+                    .extent = Extent3D{textureAssetImage.extent.width, textureAssetImage.extent.height, 1},
+                });
+            }
 
             Graphics::UpdateTextureData(TextureDataInfo{
                 .texture = texture,
-                .data = data.Data(),
-                .size = data.Size(),
-                .regions = {&region, 1}
+                .data = textureBytes.Data(),
+                .size = textureBytes.Size(),
+                .regions = regions
             });
+
+            return texture;
         }
         return texture;
     }
 
     Image TextureAsset::GetImage() const
     {
-        usize sizeInBytes = extent.width * extent.height * 4; //TODO check Format.
-        Image image(extent.width, extent.height, 4);
-        image.data =  LoadStream(0, sizeInBytes);
+        const TextureAssetImage& textureImage = images[0];
+        Image image(textureImage.extent.width, textureImage.extent.height, 4);
+        image.data = LoadStream(0, textureImage.size);
         return image;
     }
 
     void TextureAsset::RegisterType(NativeTypeHandler<TextureAsset>& type)
     {
-        type.Field<&TextureAsset::extent>("extent");
+        type.Field<&TextureAsset::images>("images");
         type.Field<&TextureAsset::format>("format");
-       // type.Field<&TextureAsset::textureData>("textureData");
+        type.Field<&TextureAsset::mipLevels>("mipLevels");
+        type.Field<&TextureAsset::totalSizeInDisk>("totalSizeInDisk");
+    }
+
+    void TextureAssetImage::RegisterType(NativeTypeHandler<TextureAssetImage>& type)
+    {
+        type.Field<&TextureAssetImage::byteOffset>("byteOffset");
+        type.Field<&TextureAssetImage::mip>("mip");
+        type.Field<&TextureAssetImage::arrayLayer>("arrayLayer");
+        type.Field<&TextureAssetImage::extent>("extent");
+        type.Field<&TextureAssetImage::size>("size");
     }
 }

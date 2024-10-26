@@ -18,7 +18,7 @@ namespace Fyrion
         HashMap<UUID, AssetCache> assetCache = {};
         HashMap<String, UUID>     assetsByPath = {};
 
-        Logger& logger = Logger::GetLogger("Fyrion::Assets", LogLevel::Debug);
+        Logger& logger = Logger::GetLogger("Fyrion::Assets");
     }
 
     UUID Asset::GetUUID() const

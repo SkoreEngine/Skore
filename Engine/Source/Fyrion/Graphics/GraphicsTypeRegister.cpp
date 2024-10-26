@@ -49,6 +49,7 @@ namespace Fyrion
         Registry::Type<MeshPrimitive>();
         Registry::Type<MaterialAsset>();
 
+        Registry::Type<TextureAssetImage>();
         Registry::Type<TextureAsset>();
 
         auto bufferUsage = Registry::Type<BufferUsage>();

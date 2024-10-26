@@ -2,6 +2,8 @@
 #include "Path.hpp"
 
 #include <filesystem>
+
+#include "Fyrion/Core/Logger.hpp"
 namespace fs = std::filesystem;
 
 namespace Fyrion
@@ -9,6 +11,8 @@ namespace Fyrion
     namespace
     {
         char homeDir[512] = {};
+
+        Logger& logger = Logger::GetLogger("Fyrion::FileSystem");
     }
 
     String FileSystem::AssetFolder()
@@ -39,7 +43,15 @@ namespace Fyrion
 
     bool FileSystem::Remove(const StringView& path)
     {
-        return fs::remove_all(path.CStr());
+        try
+        {
+            return fs::remove_all(path.CStr());
+        }
+        catch (std::exception& ex)
+        {
+            logger.Error("error on remove {} error: {} ", path, ex.what());
+        }
+        return false;
     }
 
     bool FileSystem::Rename(const StringView& oldName, const StringView& newName)
@@ -65,7 +77,7 @@ namespace Fyrion
 
     String FileSystem::ReadFileAsString(const StringView& path)
     {
-        String      ret{};
+        String ret{};
         if (FileHandler fileHandler = OpenFile(path, AccessMode::ReadOnly))
         {
             ret.Resize(GetFileSize(fileHandler));
@@ -77,7 +89,7 @@ namespace Fyrion
 
     Array<u8> FileSystem::ReadFileAsByteArray(const StringView& path)
     {
-        Array<u8>   ret{};
+        Array<u8> ret{};
         if (FileHandler fileHandler = OpenFile(path, AccessMode::ReadOnly))
         {
             ret.Resize(GetFileSize(fileHandler));
@@ -103,7 +115,7 @@ namespace Fyrion
 
     OutputFileStream::OutputFileStream(StringView file)
     {
-        stream.open(file.CStr(), std::ios::out|std::ios::binary);
+        stream.open(file.CStr(), std::ios::out | std::ios::binary);
     }
 
     usize OutputFileStream::Write(u8* data, usize size)
@@ -114,9 +126,8 @@ namespace Fyrion
         return offset;
     }
 
-    void  OutputFileStream::Close()
+    void OutputFileStream::Close()
     {
         stream.close();
     }
 }
-

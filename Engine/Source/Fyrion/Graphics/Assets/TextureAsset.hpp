@@ -7,23 +7,35 @@
 
 namespace Fyrion
 {
+    struct TextureAssetImage
+    {
+        u32    byteOffset{};
+        u32    mip{};
+        u32    arrayLayer{};
+        Extent extent{};
+        usize  size{};
+
+        static void RegisterType(NativeTypeHandler<TextureAssetImage>& type);
+    };
+
     class FY_API TextureAsset : public Asset
     {
     public:
         FY_BASE_TYPES(Asset);
 
-        ~TextureAsset();
-        void SetProperties(u32 width, u32 height, Format format);
+        ~TextureAsset() override;
 
         Texture GetTexture();
-        Image GetImage() const;
+        Image   GetImage() const;
 
         static void RegisterType(NativeTypeHandler<TextureAsset>& type);
 
-    private:
-        Extent3D     extent;
-        Format       format = Format::Undefined;
+        Array<TextureAssetImage> images{};
+        Format                   format = Format::Undefined;
+        u32                      mipLevels = 0;
+        u64                      totalSizeInDisk = 0;
 
+    private:
         Texture texture = {};
     };
 }
