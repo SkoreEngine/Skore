@@ -39,6 +39,7 @@ namespace Fyrion
         RGBA16F,
         RGBA32F,
         BGRA,
+        R11G11B10F,
         Depth,
         Undefined,
         //TODO : add ohter formats
@@ -305,7 +306,7 @@ namespace Fyrion
         Vec4  direction;
         Color color;
         f32   intensity;
-        f32   indirectMultipler;
+        f32   indirectMultiplier;
         bool  castShadows;
     };
 

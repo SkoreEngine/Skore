@@ -326,20 +326,24 @@ namespace Fyrion
             }
 
             cmd.BeginLabel(pass->name, {0, 0, 0, 1});
-            for (const auto& input : pass->inputs)
-            {
-                if (input.resource->creation.type == RenderGraphResourceType::Texture)
-                {
-                    ResourceLayout newLayout = input.resource->creation.format != Format::Depth ? ResourceLayout::ShaderReadOnly : ResourceLayout::DepthStencilReadOnly;
-                    if (input.resource->currentLayout != newLayout)
-                    {
-                        ResourceBarrierInfo resourceBarrierInfo{};
-                        resourceBarrierInfo.texture = input.resource->texture;
-                        resourceBarrierInfo.oldLayout = input.resource->currentLayout;
-                        resourceBarrierInfo.newLayout = newLayout;
-                        cmd.ResourceBarrier(resourceBarrierInfo);
 
-                        input.resource->currentLayout = newLayout;
+            if (pass->type == RenderGraphPassType::Compute)
+            {
+                for (const auto& input : pass->inputs)
+                {
+                    if (input.resource->creation.type == RenderGraphResourceType::Texture || input.resource->creation.type == RenderGraphResourceType::Attachment)
+                    {
+                        ResourceLayout newLayout = input.resource->creation.format != Format::Depth ? ResourceLayout::ShaderReadOnly : ResourceLayout::DepthStencilReadOnly;
+                        if (input.resource->currentLayout != newLayout)
+                        {
+                            ResourceBarrierInfo resourceBarrierInfo{};
+                            resourceBarrierInfo.texture = input.resource->texture;
+                            resourceBarrierInfo.oldLayout = input.resource->currentLayout;
+                            resourceBarrierInfo.newLayout = newLayout;
+                            cmd.ResourceBarrier(resourceBarrierInfo);
+
+                            input.resource->currentLayout = newLayout;
+                        }
                     }
                 }
             }
@@ -476,6 +480,7 @@ namespace Fyrion
                         FY_ASSERT(false, "texture without size");
                     }
 
+                    resource->textureCreation.name = resource->creation.name;
                     resource->textureCreation.format = resource->creation.format;
 
                     if (resource->textureCreation.format != Format::Depth)

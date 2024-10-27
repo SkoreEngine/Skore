@@ -2,6 +2,7 @@
 #include "Service.hpp"
 #include "Fyrion/Core/HashMap.hpp"
 #include "Fyrion/Core/Math.hpp"
+#include "Fyrion/Core/Optional.hpp"
 #include "Fyrion/Core/Span.hpp"
 #include "Fyrion/Graphics/GraphicsTypes.hpp"
 
@@ -22,10 +23,16 @@ namespace Fyrion
         void                 RemoveMesh(VoidPtr pointer);
         Span<MeshRenderData> GetMeshesToRender();
 
+        void              AddDirectionalLight(VoidPtr address, const DirectionalLight& directionalLight);
+        void              RemoveDirectionalLight(VoidPtr address);
+        DirectionalLight* GetDirectionalLight();
+
         static void RegisterType(NativeTypeHandler<RenderService>& type);
 
     private:
-        Array<MeshRenderData> meshRenders;
+        Array<MeshRenderData>   meshRenders;
         HashMap<VoidPtr, usize> meshRendersLookup;
+
+        Optional<DirectionalLight> directionalLight;
     };
 }

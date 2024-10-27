@@ -7,6 +7,17 @@
 
 namespace Fyrion
 {
+    struct MaterialData
+    {
+        Vec4 baseColorAlphaCutOff;
+        Vec4 uvScaleNormalMultiplierAlphaMode;
+        Vec4 metallicRoughness;
+        Vec4 emissiveFactor;
+        Vec4 textureProps; //hasNormal. hasMetallic, hasRoughness,  hasMetallicRoughness
+    };
+
+
+
     Color MaterialAsset::GetBaseColor() const
     {
         return baseColor;
@@ -161,8 +172,44 @@ namespace Fyrion
     {
         if (bindingSet == nullptr)
         {
-            bindingSet = Graphics::CreateBindingSet(Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/TestRender.raster"));
-            bindingSet->GetVar("albedo")->SetTexture(baseColorTexture ? baseColorTexture->GetTexture() : Graphics::GetDefaultTexture());
+            MaterialData materialData{
+                .baseColorAlphaCutOff = Math::MakeVec4(GetBaseColor().ToVec3(), alphaCutoff),
+                .uvScaleNormalMultiplierAlphaMode = Math::MakeVec4(GetUvScale(), Math::MakeVec2(GetNormalMultiplier(), static_cast<f32>(GetAlphaMode()))),
+                .metallicRoughness = Vec4{GetRoughness(), GetMetallic(), 0.0f, 0.0f},
+                .emissiveFactor = Math::MakeVec4(GetEmissiveFactor(), 0.0),
+                .textureProps = {0.0, 0.0, 0.0, 0.0},
+            };
+
+            bindingSet = Graphics::CreateBindingSet(Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/GBufferRender.raster"));
+            bindingSet->GetVar("baseColorTexture")->SetTexture(baseColorTexture ? baseColorTexture->GetTexture() : Graphics::GetDefaultTexture());
+            //bindingSet->GetVar("defaultSampler")->SetSampler(baseColorTexture ? baseColorTexture->GetSampler() : Graphics::GetDefaultSampler());
+
+
+            if (normalTexture)
+            {
+                bindingSet->GetVar("normalTexture")->SetTexture(normalTexture->GetTexture());
+                materialData.textureProps[0] = 1.0;
+            }
+
+            if (metallicTexture)
+            {
+                bindingSet->GetVar("metallicTexture")->SetTexture(metallicTexture->GetTexture());
+                materialData.textureProps[1] = 1.0;
+            }
+
+            if (roughnessTexture)
+            {
+                bindingSet->GetVar("roughnessTexture")->SetTexture(roughnessTexture->GetTexture());
+                materialData.textureProps[2] = 1.0;
+            }
+
+            if (metallicRoughnessTexture)
+            {
+                bindingSet->GetVar("metallicRoughnessTexture")->SetTexture(metallicRoughnessTexture->GetTexture());
+                materialData.textureProps[3] = 1.0;
+            }
+
+            bindingSet->GetVar("material")->SetValue(&materialData, sizeof(MaterialData));
         }
         return bindingSet;
     }

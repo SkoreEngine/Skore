@@ -42,4 +42,38 @@ float3 LinearToGamma(float3 input)
     return pow(max(input,0.0f), 1.0f/2.2f);
 }
 
+float3 DecodeNormals(float2 f)
+{
+    f = f * 2.0 - 1.0;
+    // https://twitter.com/Stubbesaurus/status/937994790553227264
+    float3 n = float3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
+    float t = saturate(-n.z);
+    n.xy += select(n.xy >= 0.0,-t,  t);
+    return normalize(n);
+}
+
+float2 OctWrap(float2 v)
+{
+    return (1.0 - abs(v.yx)) * select(v.xy >= 0.0, 1.0, 1.0);
+}
+
+float2 EncodeNormal(float3 n)
+{
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    n.xy = n.z >= 0.0 ? n.xy : OctWrap(n.xy);
+    n.xy = n.xy * 0.5 + 0.5;
+    return n.xy;
+}
+
+float3 GetWorldPositionFromDepth(float2 uv, float near, float far, float depth, float4x4 viewProjInverse)
+{
+    float projA = far / (far - near);
+    float projB = (-far * near) / (far - near);
+    float linearDepth = projB / (depth - projA);
+
+    float4 vProjectedPos = float4(uv * 2.0f - 1.0f, linearDepth, 1.0f);
+    float4 vPositionVS = mul(vProjectedPos, viewProjInverse);
+    return vPositionVS.xyz / vPositionVS.w;
+}
+
 

@@ -1,99 +1,51 @@
+#include "GBufferPass.hpp"
+#include "LightingPass.hpp"
+#include "PostProcessRenderPass.hpp"
 #include "Fyrion/Core/Registry.hpp"
-#include "Fyrion/Graphics/Graphics.hpp"
 #include "Fyrion/Graphics/RenderGraph.hpp"
 #include "Fyrion/Graphics/RenderPipeline.hpp"
-#include "Fyrion/Graphics/Assets/MeshAsset.hpp"
-#include "Fyrion/Graphics/Assets/ShaderAsset.hpp"
-#include "Fyrion/Scene/Scene.hpp"
-#include "Fyrion/Scene/Service/RenderService.hpp"
 
 namespace Fyrion
 {
-
-    struct SceneData
-    {
-        Mat4 viewProjection;
-    };
-
-    struct TestHandler : RenderGraphPassHandler
-    {
-        PipelineState pipelineState{};
-        BindingSet*   bindingSet{};
-        RenderService* renderService;
-
-        void Init() override
-        {
-            if (rg->GetScene())
-            {
-                renderService = rg->GetScene()->GetService<RenderService>();
-            }
-
-            GraphicsPipelineCreation graphicsPipelineCreation{
-                .shader = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/TestRender.raster"),
-                .renderPass = pass->GetRenderPass(),
-                .depthWrite = true,
-                .cullMode = CullMode::Back,
-                .compareOperator = CompareOp::Less,
-            };
-
-            pipelineState = Graphics::CreateGraphicsPipelineState(graphicsPipelineCreation);
-            bindingSet = Graphics::CreateBindingSet(graphicsPipelineCreation.shader);
-        }
-
-        void Render(RenderCommands& cmd) override
-        {
-            const CameraData& cameraData = rg->GetCameraData();
-
-            SceneData data{.viewProjection = cameraData.projection * cameraData.view};
-            bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
-
-            cmd.BindPipelineState(pipelineState);
-            cmd.BindBindingSet(pipelineState, bindingSet);
-
-            if (renderService != nullptr)
-            {
-                for (MeshRenderData& meshRenderData : renderService->GetMeshesToRender())
-                {
-                    if (MeshAsset* mesh = meshRenderData.mesh)
-                    {
-                        Span<MeshPrimitive> primitives = mesh->GetPrimitives();
-
-                        cmd.BindVertexBuffer(mesh->GetVertexBuffer());
-                        cmd.BindIndexBuffer(mesh->GetIndexBuffer());
-
-                        cmd.PushConstants(pipelineState, ShaderStage::Vertex, &meshRenderData.matrix, sizeof(Mat4));
-
-                        for (MeshPrimitive& primitive : primitives)
-                        {
-                            if (MaterialAsset* material = meshRenderData.materials[primitive.materialIndex])
-                            {
-                                cmd.BindBindingSet(pipelineState, material->GetBindingSet());
-                                cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        void Destroy() override
-        {
-            Graphics::DestroyBindingSet(bindingSet);
-            Graphics::DestroyGraphicsPipelineState(pipelineState);
-        }
-    };
-
-
     class DefaultRenderPipeline : public RenderPipeline
     {
     public:
         FY_BASE_TYPES(RenderPipeline);
 
-        TestHandler testHandler;
+        GBufferPass           gBufferPass;
+        LightingPass          lightingPass;
+        PostProcessRenderPass postProcessRenderPass;
 
         void BuildRenderGraph(RenderGraph& rg) override
         {
-            Array<MeshRenderData> meshes;
+            //gbuffer textures
+            RenderGraphResource* gbuffer1 = rg.Create(RenderGraphResourceCreation{
+                .name = "gbuffer1",
+                .type = RenderGraphResourceType::Attachment,
+                .scale = {1, 1},
+                .format = Format::RGBA
+            });
+
+            RenderGraphResource* gbuffer2 = rg.Create(RenderGraphResourceCreation{
+                .name = "gbuffer2",
+                .type = RenderGraphResourceType::Attachment,
+                .scale = {1, 1},
+                .format = Format::RG
+            });
+
+            RenderGraphResource* gbuffer3 = rg.Create(RenderGraphResourceCreation{
+                .name = "gbuffer3",
+                .type = RenderGraphResourceType::Attachment,
+                .scale = {1, 1},
+                .format = Format::R11G11B10F
+            });
+
+            RenderGraphResource* posTest = rg.Create(RenderGraphResourceCreation{
+                .name = "posTest",
+                .type = RenderGraphResourceType::Attachment,
+                .scale = {1, 1},
+                .format = Format::RGBA32F
+            });
 
             RenderGraphResource* depth = rg.Create(RenderGraphResourceCreation{
                 .name = "depth",
@@ -102,21 +54,59 @@ namespace Fyrion
                 .format = Format::Depth,
             });
 
-            RenderGraphResource* color = rg.Create(RenderGraphResourceCreation{
-                .name = "color",
-                .type = RenderGraphResourceType::Attachment,
+            //light textures
+            RenderGraphResource* lightOutput = rg.Create(RenderGraphResourceCreation{
+                .name = "lightOutput",
+                .type = RenderGraphResourceType::Texture,
+                .scale = {1, 1},
+                .format = Format::RGBA32F
+            });
+
+            //output color
+            RenderGraphResource* colorOutput = rg.Create(RenderGraphResourceCreation{
+                .name = "colorOutput",
+                .type = RenderGraphResourceType::Texture,
                 .scale = {1, 1},
                 .format = Format::RGBA
             });
 
+            //setup gbuffer
             rg.AddPass("GBuffer", RenderGraphPassType::Graphics)
-              .Write(color)
+              .Write(gbuffer1)
+              .Write(gbuffer2)
+              .Write(gbuffer3)
+              .Write(posTest)
               .Write(depth)
-              .ClearColor(Color::CORNFLOWER_BLUE.ToVec4())
+              .ClearColor(Color::BLACK.ToVec4())
               .ClearDepth(true)
-              .Handler(&testHandler);
+              .Handler(&gBufferPass);
 
-            rg.ColorOutput(color);
+            //setup lighting pass
+            lightingPass.gbuffer1 = gbuffer1;
+            lightingPass.gbuffer2 = gbuffer2;
+            lightingPass.gbuffer3 = gbuffer3;
+            lightingPass.depth = depth;
+            lightingPass.lightOutput = lightOutput;
+
+            rg.AddPass("LightingPass", RenderGraphPassType::Compute)
+              .Read(gbuffer1)
+              .Read(gbuffer2)
+              .Read(gbuffer3)
+              .Read(depth)
+              .Write(lightOutput)
+              .Handler(&lightingPass);
+
+            //post-processing output
+            postProcessRenderPass.lightColor = lightOutput;
+            postProcessRenderPass.outputColor = colorOutput;
+
+            rg.AddPass("PostProcessRenderPass", RenderGraphPassType::Compute)
+              .Read(lightOutput)
+              .Write(colorOutput)
+              .Handler(&postProcessRenderPass);
+
+            //define outputs
+            rg.ColorOutput(colorOutput);
             rg.DepthOutput(depth);
         }
     };

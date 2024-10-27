@@ -23,7 +23,7 @@ namespace Fyrion
                 return {};
             }
 
-            Texture texture = Graphics::CreateTexture(TextureCreation{
+            texture = Graphics::CreateTexture(TextureCreation{
                 .extent = {images[0].extent.width, images[0].extent.height, 1},
                 .format = format,
                 .mipLevels = std::max(mipLevels, 1u),
@@ -49,8 +49,6 @@ namespace Fyrion
                 .size = textureBytes.Size(),
                 .regions = regions
             });
-
-            return texture;
         }
         return texture;
     }

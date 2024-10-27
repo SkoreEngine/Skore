@@ -58,9 +58,10 @@ struct Material
 
 struct PSOutput
 {
-    float4 outAlbedoMetallic    :  SV_TARGET0;
-    float4 outNormalRoughness   :  SV_TARGET1;
-    float4 outPositionAo        :  SV_TARGET2;
+    float4 outAlbedoMetallic      :  SV_TARGET0;
+    float2 outRoughnessAo         :  SV_TARGET1;
+    float3 outNormal              :  SV_TARGET2;
+    float4 test                   :  SV_TARGET3;
 };
 
 ConstantBuffer<Material> material       : register(b0, space1);
@@ -75,9 +76,9 @@ Texture2D       metallicRoughnessTexture    : register(t6, space1);
 
 PSOutput MainPS(VSOutput input)
 {
-    float2 uv = input.uv;
+    float2 uv           = input.uv;
     float3 baseColor    = material.baseColorAlphaCutOff.rgb;
-    float  alphaCutOff   = material.baseColorAlphaCutOff.a;
+    float  alphaCutOff  = material.baseColorAlphaCutOff.a;
 
     float4 color = baseColorTexture.Sample(defaultSampler, uv) * float4(baseColor, 1.0);
 
@@ -98,8 +99,8 @@ PSOutput MainPS(VSOutput input)
         float3 binormal = input.tangent.w * cross(input.normal, input.tangent.xyz);
         float3x3 TBN    = transpose(float3x3(input.tangent.xyz, binormal, input.normal));
         float3 n        = normalTexture.Sample(defaultSampler, uv).xyz * 2.0 - 1.0; //replace sampler
-
-        normal   = mul(TBN, n);
+        //tangent space to world space.
+        normal          = mul(TBN, n);
     }
 
     if (material.textureProps.y == 1.0)
@@ -121,9 +122,10 @@ PSOutput MainPS(VSOutput input)
 
     PSOutput output = (PSOutput)0;
     output.outAlbedoMetallic  = float4(color.rgb, metallic);
-    output.outNormalRoughness = float4(normal, roughness);
-    output.outPositionAo      = float4(input.fragPos, 1.0);
+    output.outRoughnessAo = float2(roughness, 1.0);
+    output.outNormal = normal;
+
+    output.test = float4(input.fragPos, 1.0);
 
     return output;
 }
-//end pixel shader

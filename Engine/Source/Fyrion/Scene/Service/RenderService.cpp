@@ -52,6 +52,25 @@ namespace Fyrion
         return meshRenders;
     }
 
+    void RenderService::AddDirectionalLight(VoidPtr address, const DirectionalLight& directionalLight)
+    {
+        this->directionalLight = directionalLight;
+    }
+
+    void RenderService::RemoveDirectionalLight(VoidPtr address)
+    {
+        directionalLight.reset();
+    }
+
+    DirectionalLight* RenderService::GetDirectionalLight()
+    {
+        if (directionalLight)
+        {
+            return &directionalLight.value();
+        }
+        return nullptr;
+    }
+
     void RenderService::RegisterType(NativeTypeHandler<RenderService>& type)
     {
 
