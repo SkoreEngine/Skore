@@ -40,13 +40,6 @@ namespace Fyrion
                 .format = Format::R11G11B10F
             });
 
-            RenderGraphResource* posTest = rg.Create(RenderGraphResourceCreation{
-                .name = "posTest",
-                .type = RenderGraphResourceType::Attachment,
-                .scale = {1, 1},
-                .format = Format::RGBA32F
-            });
-
             RenderGraphResource* depth = rg.Create(RenderGraphResourceCreation{
                 .name = "depth",
                 .type = RenderGraphResourceType::Attachment,
@@ -75,7 +68,6 @@ namespace Fyrion
               .Write(gbuffer1)
               .Write(gbuffer2)
               .Write(gbuffer3)
-              .Write(posTest)
               .Write(depth)
               .ClearColor(Color::BLACK.ToVec4())
               .ClearDepth(true)
@@ -87,13 +79,11 @@ namespace Fyrion
             lightingPass.gbuffer3 = gbuffer3;
             lightingPass.depth = depth;
             lightingPass.lightOutput = lightOutput;
-            lightingPass.posTest = posTest;
 
             rg.AddPass("LightingPass", RenderGraphPassType::Compute)
               .Read(gbuffer1)
               .Read(gbuffer2)
               .Read(gbuffer3)
-              .Read(posTest)
               .Read(depth)
               .Write(lightOutput)
               .Handler(&lightingPass);

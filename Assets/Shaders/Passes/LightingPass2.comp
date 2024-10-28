@@ -1,9 +1,21 @@
 #include "Fyrion://Shaders/Includes/PBR.inc"
 
-
 struct LightingData
 {
     float4x4 viewProjInverse;
+    float4   data0;
+    Light    lights[128];
+
+
+    float3 GetViewPos()
+    {
+        return data0.xyz;
+    }
+
+    int GetLightCount()
+    {
+        return int(data0.w);
+    }
 };
 
 
@@ -13,8 +25,8 @@ Texture2D               gbuffer3            : register(t2);
 Texture2D               posTest             : register(t2);
 Texture2D<float>        depth               : register(t3);
 RWTexture2D<float4>     lightOutput         : register(u4);
-ConstantBuffer<LightingData> data           : register(b5);
 
+ConstantBuffer<LightingData> data           : register(b5);
 
 [numthreads(16, 16, 1)]
 void MainCS(in uint2 px : SV_DispatchThreadID)
@@ -22,7 +34,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     const float depthValue   = depth[px];
     if (depthValue == 1.0)
     {
-        lightOutput[px] = float4(0.1, 0.1, 0.1, 1.0);
+        lightOutput[px] = float4(0.0, 0.0, 0.0, 1.0);
         return;
     }
 
@@ -30,13 +42,61 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     lightOutput.GetDimensions(outDim.x, outDim.y);
     float2 uv = (float2(px) + 0.5) / outDim.xy;
 
-//    float3  albedo          = gbuffer1[px].rgb;
-//    float   metallic        = gbuffer1[px].a;
-//    float   roughness       = gbuffer2[px].x;
-//    float   ao              = gbuffer2[px].y;
-//    float3  normals         = gbuffer3[px].rgb;
-
     float3  worldPosition  = GetWorldPositionFromDepth(uv, depthValue, data.viewProjInverse);
+    float3  albedo          = gbuffer1[px].rgb;
+    float   metallic        = gbuffer1[px].a;
+    float   roughness       = gbuffer2[px].x;
+    float   ao              = gbuffer2[px].y;
+    float3  N               = gbuffer3[px].rgb;
 
-    lightOutput[px] = float4(worldPosition, 1.0);
+    float3 V = normalize(data.GetViewPos() - worldPosition);
+
+    float3 F0 = 0.04;
+    F0 = lerp(F0, albedo, metallic);
+
+    float3 Lo = 0.0;
+
+    for(int i = 0; i < data.GetLightCount(); ++i)
+    {
+        float attenuation = 1.0;
+        float3 wi = 0.0; //wi = L
+
+        if (data.lights[i].GetType() == LIGHT_TYPE_DIRECTIONAL)
+        {
+            wi = data.lights[i].GetDirection();
+        }
+        else if (data.lights[i].GetType() == LIGHT_TYPE_POINT)
+        {
+            wi = normalize(data.lights[i].GetPosition() - worldPosition);
+            float distance = length(wi);
+            attenuation = (1.0f / (distance * distance));
+        }
+        else
+        {
+            //TODO
+        }
+
+        float NdotL = max(dot(N, wi), 0.0);
+        float3 H = normalize(V + wi);
+
+        // Cook-Torrance BRDF
+        float  NDF  = DistributionGGX(N, H, roughness);
+        float  G    = GeometrySmith(N, V, wi, roughness);
+        float3 F    = FresnelSchlick(clamp(dot(H, V), 0.0, 1.0), F0);
+
+        float3 numerator    = NDF * G * F;
+        float  denominator  = 4.0 * max(dot(N, V), 0.0) * max(dot(N, wi), 0.0) + 0.0001;
+        float3 specular     = numerator / denominator;
+
+        float3 kD = 1.0 - F;
+        kD *= 1.0 - metallic;
+
+        float3 radiance = data.lights[i].GetColor() * attenuation;
+
+        Lo += (kD * (albedo / PI) + specular) * radiance * NdotL;
+    }
+
+    Lo += albedo * 0.3;
+
+    lightOutput[px] = float4(Lo, 1.0);
 }
