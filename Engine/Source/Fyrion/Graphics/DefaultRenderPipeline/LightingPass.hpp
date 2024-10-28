@@ -7,7 +7,6 @@ namespace Fyrion
     struct LightingData
     {
         Mat4 viewProjInverse;
-        Vec4 nearFar;
     };
 
     struct LightingPass : RenderGraphPassHandler
@@ -20,6 +19,7 @@ namespace Fyrion
         RenderGraphResource* gbuffer3;
         RenderGraphResource* lightOutput{};
         RenderGraphResource* depth;
+        RenderGraphResource* posTest;
 
         void Init() override
         {
@@ -33,18 +33,13 @@ namespace Fyrion
         void Render(RenderCommands& cmd) override
         {
             LightingData data =  {
-                //.viewProjInverse = Math::Inverse(rg->GetCameraData().projection * rg->GetCameraData().view),
-                .viewProjInverse = Math::Inverse(rg->GetCameraData().projectionInverse),
-                .nearFar = {
-                    rg->GetCameraData().nearClip,
-                    rg->GetCameraData().farClip,
-                    0.0f, 0.0f
-                }
+                .viewProjInverse = Math::Inverse(rg->GetCameraData().projection * rg->GetCameraData().view),
             };
 
             bindingSet->GetVar("gbuffer1")->SetTexture(gbuffer1->texture);
             bindingSet->GetVar("gbuffer2")->SetTexture(gbuffer2->texture);
             bindingSet->GetVar("gbuffer3")->SetTexture(gbuffer3->texture);
+            bindingSet->GetVar("posTest")->SetTexture(posTest->texture);
             bindingSet->GetVar("depth")->SetTexture(depth->texture);
             bindingSet->GetVar("data")->SetValue(&data, sizeof(LightingData));
 

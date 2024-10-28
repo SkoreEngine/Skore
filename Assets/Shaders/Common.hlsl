@@ -65,15 +65,21 @@ float2 EncodeNormal(float3 n)
     return n.xy;
 }
 
-float3 GetWorldPositionFromDepth(float2 uv, float near, float far, float depth, float4x4 viewProjInverse)
+float3 GetWorldPositionFromDepth(float2 uv, float depth, float4x4 viewProjInverse)
 {
-    float projA = far / (far - near);
-    float projB = (-far * near) / (far - near);
-    float linearDepth = projB / (depth - projA);
+    // Take texture coordinate and remap to [-1.0, 1.0] range.
+    //float2 screenPos = uv * 2.0f - 1.0f;
 
-    float4 vProjectedPos = float4(uv * 2.0f - 1.0f, linearDepth, 1.0f);
-    float4 vPositionVS = mul(vProjectedPos, viewProjInverse);
-    return vPositionVS.xyz / vPositionVS.w;
+    float2 screenPos = uv;
+
+    // Create NDC position.
+    float4 ndcDepth = float4(uv, depth, 1.0f);
+
+    // Transform back into world position.
+    float4 worldPos = mul(viewProjInverse, ndcDepth);
+
+    // Undo projection.
+    return worldPos.xyz / worldPos.w;
 }
 
 

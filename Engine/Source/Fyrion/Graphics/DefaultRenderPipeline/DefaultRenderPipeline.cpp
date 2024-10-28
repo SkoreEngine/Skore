@@ -87,11 +87,13 @@ namespace Fyrion
             lightingPass.gbuffer3 = gbuffer3;
             lightingPass.depth = depth;
             lightingPass.lightOutput = lightOutput;
+            lightingPass.posTest = posTest;
 
             rg.AddPass("LightingPass", RenderGraphPassType::Compute)
               .Read(gbuffer1)
               .Read(gbuffer2)
               .Read(gbuffer3)
+              .Read(posTest)
               .Read(depth)
               .Write(lightOutput)
               .Handler(&lightingPass);

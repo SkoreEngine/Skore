@@ -4,16 +4,15 @@
 struct LightingData
 {
     float4x4 viewProjInverse;
-    float4 nearFar;
 };
 
 
 Texture2D               gbuffer1            : register(t0);
 Texture2D               gbuffer2            : register(t1);
 Texture2D               gbuffer3            : register(t2);
+Texture2D               posTest             : register(t2);
 Texture2D<float>        depth               : register(t3);
 RWTexture2D<float4>     lightOutput         : register(u4);
-
 ConstantBuffer<LightingData> data           : register(b5);
 
 
@@ -29,15 +28,15 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
 
     int2 outDim;
     lightOutput.GetDimensions(outDim.x, outDim.y);
-    const float2 uv = (float2(px) + 0.5) / outDim.xy;
+    float2 uv = (float2(px) + 0.5) / outDim.xy;
 
-    float3  albedo          = gbuffer1[px].rgb;
-    float   metallic        = gbuffer1[px].a;
-    float   roughness       = gbuffer2[px].x;
-    float   ao              = gbuffer2[px].y;
-    float3  normals         = gbuffer3[px].rgb;
+//    float3  albedo          = gbuffer1[px].rgb;
+//    float   metallic        = gbuffer1[px].a;
+//    float   roughness       = gbuffer2[px].x;
+//    float   ao              = gbuffer2[px].y;
+//    float3  normals         = gbuffer3[px].rgb;
 
-    float3  worldPosition  = GetWorldPositionFromDepth(uv, data.nearFar.x, data.nearFar.y, depth[px].r, data.viewProjInverse);
+    float3  worldPosition  = GetWorldPositionFromDepth(uv, depthValue, data.viewProjInverse);
 
-    lightOutput[px] = float4(worldPosition, depth[px].r);
+    lightOutput[px] = float4(worldPosition, 1.0);
 }
