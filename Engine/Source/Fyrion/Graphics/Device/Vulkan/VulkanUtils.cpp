@@ -231,7 +231,7 @@ namespace Fyrion::Vulkan
 			case Format::RGB: return VK_FORMAT_R8G8B8_UNORM;
 			case Format::RGB16F: return VK_FORMAT_R16G16B16_SFLOAT;
 			case Format::RGB32F: return VK_FORMAT_R32G32B32_SFLOAT;
-			case Format::R11G11B10F: return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+			case Format::R11G11B10UF: return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
 			case Format::Undefined:
 				break;
 			default:

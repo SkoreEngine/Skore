@@ -14,6 +14,8 @@ namespace Fyrion
     {
         transformComponent = gameObject->GetComponent<TransformComponent>();
         renderService = gameObject->GetScene()->GetService<RenderService>();
+
+        OnChange();
     }
 
     LightType LightComponent::GetType() const
@@ -76,34 +78,24 @@ namespace Fyrion
     {
         if (renderService && transformComponent)
         {
-            switch (type)
-            {
-                case LightType::Directional:
-                {
-                    renderService->AddDirectionalLight(this, DirectionalLight{
-                                                           .direction = Math::MakeVec4(transformComponent->GetRotation() * Vec3::AxisY()),
-                                                           .color = this->color,
-                                                           .intensity = this->intensity,
-                                                           .indirectMultiplier = this->indirectMultiplier,
-                                                           .castShadows = this->castShadows,
-                                                       });
-                    break;
-                }
-                case LightType::Point:
-                    break;
-                case LightType::Spot:
-                    break;
-                case LightType::Area:
-                    break;
-            }
+            LightProperties properties;
+            properties.type = type;
+            properties.direction = transformComponent->GetRotation() * Vec3::AxisY();
+            properties.position = transformComponent->GetPosition();
+            properties.color = color;
+            properties.range = range;
+            properties.intensity = intensity;
+            properties.indirectMultiplier = indirectMultiplier;
+            properties.castShadows = castShadows;
+
+            renderService->AddLight(this, properties);
         }
     }
 
 
-
     void LightComponent::OnDestroy()
     {
-        renderService->RemoveDirectionalLight(this);
+        renderService->RemoveLight(this);
     }
 
     void LightComponent::RegisterType(NativeTypeHandler<LightComponent>& type)
@@ -112,6 +104,7 @@ namespace Fyrion
         type.Field<&LightComponent::color>("color").Attribute<UIProperty>();
         type.Field<&LightComponent::intensity>("intensity").Attribute<UIProperty>();
         type.Field<&LightComponent::indirectMultiplier>("indirectMultiplier").Attribute<UIProperty>();
+        type.Field<&LightComponent::range>("range").Attribute<UIProperty>();
         type.Field<&LightComponent::castShadows>("castShadows").Attribute<UIProperty>();
 
         type.Attribute<ComponentDesc>(ComponentDesc{.dependencies = {GetTypeID<TransformComponent>()}});

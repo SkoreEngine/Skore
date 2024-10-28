@@ -39,7 +39,7 @@ namespace Fyrion
         RGBA16F,
         RGBA32F,
         BGRA,
-        R11G11B10F,
+        R11G11B10UF,
         Depth,
         Undefined,
         //TODO : add ohter formats
@@ -301,13 +301,18 @@ namespace Fyrion
         Area        = 3
     };
 
-    struct DirectionalLight
+    struct LightProperties
     {
-        Vec4  direction;
-        Color color;
-        f32   intensity;
-        f32   indirectMultiplier;
-        bool  castShadows;
+        LightType type;
+        Vec3      direction;
+        Vec3      position;
+        Color     color;
+        f32       intensity;
+        f32       indirectMultiplier;
+        f32       range;
+        f32       innerCutoff;
+        f32       outerCutoff;
+        bool      castShadows;
     };
 
     struct SwapchainCreation
@@ -640,6 +645,12 @@ namespace Fyrion
         Mat4                  matrix;
         MeshAsset*            mesh = nullptr;
         Array<MaterialAsset*> materials{};
+    };
+
+    struct LightRenderData
+    {
+        VoidPtr         pointer;
+        LightProperties properties;
     };
 
     struct TextureArrayElement

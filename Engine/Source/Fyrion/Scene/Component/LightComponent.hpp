@@ -40,6 +40,7 @@ namespace Fyrion
         Color     color = Color::WHITE;
         f32       intensity = 2.0;
         f32       indirectMultiplier = 1.0;
+        f32       range = 10;
         bool      castShadows = false;
 
         TransformComponent* transformComponent = nullptr;

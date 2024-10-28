@@ -9,7 +9,6 @@ namespace Fyrion
         meshRenders.Reserve(scene->GetObjectCount());
     }
 
-
     void RenderService::SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix)
     {
         if (mesh == nullptr)
@@ -52,23 +51,66 @@ namespace Fyrion
         return meshRenders;
     }
 
-    void RenderService::AddDirectionalLight(VoidPtr address, const DirectionalLight& directionalLight)
+    void RenderService::AddLight(VoidPtr address, const LightProperties& directionalLight)
     {
-        this->directionalLight = directionalLight;
-    }
-
-    void RenderService::RemoveDirectionalLight(VoidPtr address)
-    {
-        directionalLight.reset();
-    }
-
-    DirectionalLight* RenderService::GetDirectionalLight()
-    {
-        if (directionalLight)
+        auto it = lightsLookup.Find(address);
+        if (it == lightsLookup.end())
         {
-            return &directionalLight.value();
+            it = lightsLookup.Emplace(address, lights.Size()).first;
+            lights.EmplaceBack();
         }
-        return nullptr;
+
+        lights[it->second] = LightRenderData{address, directionalLight};
+
+
+        if (directionalLight.type == LightType::Directional && directionalLight.castShadows && directionalShadowCaster == U32_MAX)
+        {
+            directionalShadowCaster = it->second;
+        }
+    }
+
+    void RenderService::RemoveLight(VoidPtr address)
+    {
+        if (auto it = lightsLookup.Find(address); it != lightsLookup.end())
+        {
+            if (!lights.Empty())
+            {
+                LightRenderData& back = lights.Back();
+                lightsLookup[back.pointer] = it->second;
+                lights[it->second] = Traits::Move(back);
+                lights.PopBack();
+            }
+
+            lightsLookup.Erase(it);
+
+            //replace directional shadow caster
+            if (it->second == directionalShadowCaster)
+            {
+                directionalShadowCaster = U32_MAX;
+                for (int i = 0; i < lights.Size(); ++i)
+                {
+                    if (lights[i].properties.type == LightType::Directional && lights[i].properties.castShadows)
+                    {
+                        directionalShadowCaster = i;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Span<LightRenderData> RenderService::GetLights()
+    {
+        return lights;
+    }
+
+    Optional<LightProperties> RenderService::GetDirectionalShadowCaster()
+    {
+        if (directionalShadowCaster != U32_MAX)
+        {
+            return std::make_optional(lights[directionalShadowCaster].properties);
+        }
+        return {};
     }
 
     void RenderService::RegisterType(NativeTypeHandler<RenderService>& type)

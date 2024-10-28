@@ -47,7 +47,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     float   metallic        = gbuffer1[px].a;
     float   roughness       = gbuffer2[px].x;
     float   ao              = gbuffer2[px].y;
-    float3  N               = gbuffer3[px].rgb;
+    float3  N               = OctohedralToDirection(gbuffer3[px].rg);
 
     float3 V = normalize(data.GetViewPos() - worldPosition);
 
@@ -96,7 +96,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
         Lo += (kD * (albedo / PI) + specular) * radiance * NdotL;
     }
 
-    Lo += albedo * 0.3;
+    //Lo += albedo * 0.3;
 
     lightOutput[px] = float4(Lo, 1.0);
 }

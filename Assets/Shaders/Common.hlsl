@@ -12,7 +12,7 @@ struct Light
     float4 directionType;
     float4 positionMultiplier;
     float4 color;
-    float4 rangeTheta;
+    float4 rangeCutoff;
 
     float3 GetDirection()
     {
@@ -41,17 +41,17 @@ struct Light
 
     float GetRange()
     {
-        return rangeTheta.x;
+        return rangeCutoff.x;
     }
 
-    float GetCosThetaOuter()
+    float GetInnerCutoff()
     {
-        return rangeTheta.y;
+        return rangeCutoff.y;
     }
 
-    float GetCosThetaInner()
+    float GetaOuterCutoff()
     {
-        return rangeTheta.z;
+        return rangeCutoff.z;
     }
 };
 
@@ -95,27 +95,21 @@ float3 LinearToGamma(float3 input)
     return pow(max(input,0.0f), 1.0f/2.2f);
 }
 
-float3 DecodeNormals(float2 f)
+
+float3 OctohedralToDirection(float2 e)
 {
-    f = f * 2.0 - 1.0;
-    // https://twitter.com/Stubbesaurus/status/937994790553227264
-    float3 n = float3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
-    float t = saturate(-n.z);
-    n.xy += select(n.xy >= 0.0,-t,  t);
-    return normalize(n);
+    float3 v = float3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0)
+    {
+        v.xy = (1.0 - abs(v.yx)) * (step(0.0, v.xy) * 2.0 - float2(1.0, 1.0));
+    }
+    return normalize(v);
 }
 
-float2 OctWrap(float2 v)
+float2 DirectionToOctohedral(float3 normal)
 {
-    return (1.0 - abs(v.yx)) * select(v.xy >= 0.0, 1.0, 1.0);
-}
-
-float2 EncodeNormal(float3 n)
-{
-    n /= (abs(n.x) + abs(n.y) + abs(n.z));
-    n.xy = n.z >= 0.0 ? n.xy : OctWrap(n.xy);
-    n.xy = n.xy * 0.5 + 0.5;
-    return n.xy;
+    float2 p = normal.xy * (1.0f / dot(abs(normal), float3(1.0f, 1.0f, 1.0f)));
+    return normal.z > 0.0f ? p : (1.0f - abs(p.yx)) * (step(0.0f, p) * 2.0f - float2(1.0f, 1.0f));
 }
 
 float3 GetWorldPositionFromDepth(float2 uv, float depth, float4x4 viewProjInverse)

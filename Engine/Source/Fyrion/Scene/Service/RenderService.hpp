@@ -23,9 +23,10 @@ namespace Fyrion
         void                 RemoveMesh(VoidPtr pointer);
         Span<MeshRenderData> GetMeshesToRender();
 
-        void              AddDirectionalLight(VoidPtr address, const DirectionalLight& directionalLight);
-        void              RemoveDirectionalLight(VoidPtr address);
-        DirectionalLight* GetDirectionalLight();
+        void                      AddLight(VoidPtr address, const LightProperties& directionalLight);
+        void                      RemoveLight(VoidPtr address);
+        Span<LightRenderData>     GetLights();
+        Optional<LightProperties> GetDirectionalShadowCaster();
 
         static void RegisterType(NativeTypeHandler<RenderService>& type);
 
@@ -33,6 +34,8 @@ namespace Fyrion
         Array<MeshRenderData>   meshRenders;
         HashMap<VoidPtr, usize> meshRendersLookup;
 
-        Optional<DirectionalLight> directionalLight;
+        Array<LightRenderData>  lights;
+        HashMap<VoidPtr, usize> lightsLookup;
+        u32                     directionalShadowCaster = U32_MAX;
     };
 }

@@ -1,3 +1,5 @@
+#include "Fyrion://Shaders/Common.hlsl"
+
 struct VSInput
 {
     float3 position  : POSITION0;
@@ -60,7 +62,7 @@ struct PSOutput
 {
     float4 outAlbedoMetallic      :  SV_TARGET0;
     float2 outRoughnessAo         :  SV_TARGET1;
-    float3 outNormal              :  SV_TARGET2;
+    float2 outNormal              :  SV_TARGET2;
 };
 
 ConstantBuffer<Material> material       : register(b0, space1);
@@ -120,9 +122,9 @@ PSOutput MainPS(VSOutput input)
     }
 
     PSOutput output = (PSOutput)0;
-    output.outAlbedoMetallic  = float4(color.rgb, metallic);
-    output.outRoughnessAo = float2(roughness, 1.0);
-    output.outNormal = normal;
+    output.outAlbedoMetallic    = float4(color.rgb, metallic);
+    output.outRoughnessAo       = float2(roughness, 1.0);
+    output.outNormal            = DirectionToOctohedral(normal);
 
     return output;
 }

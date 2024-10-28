@@ -272,10 +272,10 @@ void ImGui::DrawType(const DrawTypeDesc& desc)
 
 void ImGui::ClearDrawData(VoidPtr ptr, bool clearActiveId)
 {
-    if (clearActiveId)
-    {
-        ClearActiveID();
-    }
+    // if (clearActiveId)
+    // {
+    //     ClearActiveID();
+    // }
 }
 
 bool ImGui::BeginContentTable(const char* tableId, f32 thumbnailScale)

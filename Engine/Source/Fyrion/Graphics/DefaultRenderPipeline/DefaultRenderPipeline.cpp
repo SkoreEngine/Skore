@@ -1,6 +1,8 @@
+#include "DRPTypes.hpp"
 #include "GBufferPass.hpp"
 #include "LightingPass.hpp"
 #include "PostProcessRenderPass.hpp"
+
 #include "Fyrion/Core/Registry.hpp"
 #include "Fyrion/Graphics/RenderGraph.hpp"
 #include "Fyrion/Graphics/RenderPipeline.hpp"
@@ -37,7 +39,7 @@ namespace Fyrion
                 .name = "gbuffer3",
                 .type = RenderGraphResourceType::Attachment,
                 .scale = {1, 1},
-                .format = Format::R11G11B10F
+                .format = Format::RG16F
             });
 
             RenderGraphResource* depth = rg.Create(RenderGraphResourceCreation{
@@ -52,7 +54,7 @@ namespace Fyrion
                 .name = "lightOutput",
                 .type = RenderGraphResourceType::Texture,
                 .scale = {1, 1},
-                .format = Format::RGBA32F
+                .format = Format::RGBA16F
             });
 
             //output color
