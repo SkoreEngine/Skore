@@ -1241,8 +1241,6 @@ namespace Fyrion
         ShaderAsset* shader = creation.shader;
         FY_ASSERT(shader, "shader is null");
 
-
-
         ShaderStageInfo& stage = shader->stages[0];
         ShaderInfo       shaderInfo = shader->shaderInfo;
 

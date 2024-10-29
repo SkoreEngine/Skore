@@ -40,20 +40,16 @@ namespace Fyrion
         void DrawTreeNode(AssetFile* assetFile);
         void SetOpenDirectory(AssetFile* directory);
 
-
         static bool CheckSelectedAsset(const MenuItemEventData& eventData);
         static void AssetRename(const MenuItemEventData& eventData);
         static void Shutdown();
         static void AssetNewFolder(const MenuItemEventData& eventData);
-        static void AssetNewScene(const MenuItemEventData& eventData);
+        static void AssetNew(const MenuItemEventData& eventData);
         static void AssetNewMaterial(const MenuItemEventData& eventData);
         static void AssetDelete(const MenuItemEventData& eventData);
         static void AssetShowInExplorer(const MenuItemEventData& eventData);
         static void AssetCopyPathToClipboard(const MenuItemEventData& eventData);
-        static void AssetNewResourceGraph(const MenuItemEventData& eventData);
-        static void AssetNewRenderGraph(const MenuItemEventData& eventData);
         static bool CheckCanReimport(const MenuItemEventData& eventData);
         static void AssetReimport(const MenuItemEventData& eventData);
-        static void AssetNew(const MenuItemEventData& eventData);
     };
 }

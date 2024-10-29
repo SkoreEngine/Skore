@@ -1,6 +1,7 @@
 #include "Scene.hpp"
 #include "GameObject.hpp"
 #include "Component/Component.hpp"
+#include "Component/EnvironmentComponent.hpp"
 #include "Component/LightComponent.hpp"
 #include "Component/RenderComponent.hpp"
 #include "Component/TransformComponent.hpp"
@@ -20,6 +21,7 @@ namespace Fyrion
         Registry::Type<TransformComponent>();
         Registry::Type<RenderComponent>();
         Registry::Type<LightComponent>();
+        Registry::Type<EnvironmentComponent>();
 
         //services
         Registry::Type<RenderService>();

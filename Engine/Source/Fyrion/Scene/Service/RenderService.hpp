@@ -6,6 +6,10 @@
 #include "Fyrion/Core/Span.hpp"
 #include "Fyrion/Graphics/GraphicsTypes.hpp"
 
+namespace Fyrion {
+    class TextureAsset;
+}
+
 namespace Fyrion
 {
     class MaterialAsset;
@@ -28,6 +32,10 @@ namespace Fyrion
         Span<LightRenderData>     GetLights();
         Optional<LightProperties> GetDirectionalShadowCaster();
 
+
+        void                      SetPanoramaSky(TextureAsset* panoramaSky);
+        TextureAsset*             GetPanoramaSky() const;
+
         static void RegisterType(NativeTypeHandler<RenderService>& type);
 
     private:
@@ -37,5 +45,7 @@ namespace Fyrion
         Array<LightRenderData>  lights;
         HashMap<VoidPtr, usize> lightsLookup;
         u32                     directionalShadowCaster = U32_MAX;
+
+        TextureAsset*           panoramaSky = nullptr;
     };
 }

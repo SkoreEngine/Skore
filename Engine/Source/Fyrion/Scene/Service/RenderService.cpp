@@ -113,6 +113,16 @@ namespace Fyrion
         return {};
     }
 
+    void RenderService::SetPanoramaSky(TextureAsset* panoramaSky)
+    {
+        this->panoramaSky = panoramaSky;
+    }
+
+    TextureAsset* RenderService::GetPanoramaSky() const
+    {
+        return panoramaSky;
+    }
+
     void RenderService::RegisterType(NativeTypeHandler<RenderService>& type)
     {
 

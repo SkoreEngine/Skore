@@ -65,11 +65,11 @@ namespace Fyrion
 
     void Scene::Start()
     {
-        for(auto& it: services)
-        {
-            it.second->OnStart();
-        }
-        root.Start();
+        // for(auto& it: services)
+        // {
+        //     it.second->OnStart();
+        // }
+        // root.Start();
     }
 
     Service* Scene::GetService(TypeID typeId)

@@ -67,13 +67,14 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
         }
         else if (data.lights[i].GetType() == LIGHT_TYPE_POINT)
         {
+            //TODO - improve point lights
             wi = normalize(data.lights[i].GetPosition() - worldPosition);
             float distance = length(wi);
             attenuation = (1.0f / (distance * distance));
         }
         else
         {
-            //TODO
+            //TODO - spot lights
         }
 
         float NdotL = max(dot(N, wi), 0.0);
@@ -96,7 +97,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
         Lo += (kD * (albedo / PI) + specular) * radiance * NdotL;
     }
 
-    //Lo += albedo * 0.3;
+    Lo += albedo * 0.3;
 
     lightOutput[px] = float4(Lo, 1.0);
 }

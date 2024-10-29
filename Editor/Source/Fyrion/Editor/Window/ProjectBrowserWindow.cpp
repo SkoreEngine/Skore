@@ -444,11 +444,10 @@ namespace Fyrion
         projectBrowserWindow->lastSelectedItem = newDirectory;
     }
 
-    void ProjectBrowserWindow::AssetNewScene(const MenuItemEventData& eventData)
+    void ProjectBrowserWindow::AssetNew(const MenuItemEventData& eventData)
     {
         ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-
-        if (AssetFile* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->openDirectory, GetTypeID<Scene>()))
+        if (AssetFile* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->openDirectory, eventData.userData))
         {
             projectBrowserWindow->renamingItem = newAsset;
             projectBrowserWindow->selectedItems.Clear();
@@ -488,8 +487,6 @@ namespace Fyrion
     }
 
     void ProjectBrowserWindow::AssetCopyPathToClipboard(const MenuItemEventData& eventData) {}
-    void ProjectBrowserWindow::AssetNewResourceGraph(const MenuItemEventData& eventData) {}
-    void ProjectBrowserWindow::AssetNewRenderGraph(const MenuItemEventData& eventData) {}
 
     bool ProjectBrowserWindow::CheckCanReimport(const MenuItemEventData& eventData)
     {
@@ -497,8 +494,6 @@ namespace Fyrion
     }
 
     void ProjectBrowserWindow::AssetReimport(const MenuItemEventData& eventData) {}
-
-    void ProjectBrowserWindow::AssetNew(const MenuItemEventData& eventData) {}
 
     void ProjectBrowserWindow::OpenProjectBrowser(const MenuItemEventData& eventData)
     {
@@ -517,7 +512,7 @@ namespace Fyrion
         Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Project Browser", .action = OpenProjectBrowser});
 
         AddMenuItem(MenuItemCreation{.itemName = "New Folder", .icon = ICON_FA_FOLDER, .priority = 0, .action = AssetNewFolder});
-        AddMenuItem(MenuItemCreation{.itemName = "New Scene", .icon = ICON_FA_GLOBE, .priority = 10, .action = AssetNewScene});
+        AddMenuItem(MenuItemCreation{.itemName = "New Scene", .icon = ICON_FA_CLAPPERBOARD, .priority = 10, .action = AssetNew, .userData = GetTypeID<Scene>()});
         AddMenuItem(MenuItemCreation{.itemName = "New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 15, .action = AssetNewMaterial});
         AddMenuItem(MenuItemCreation{.itemName = "Delete", .icon = ICON_FA_TRASH, .priority = 20, .itemShortcut{.presKey = Key::Delete}, .action = AssetDelete, .enable = CheckSelectedAsset});
         AddMenuItem(MenuItemCreation{.itemName = "Rename", .icon = ICON_FA_PEN_TO_SQUARE, .priority = 30, .itemShortcut{.presKey = Key::F2}, .action = AssetRename, .enable = CheckSelectedAsset});
@@ -528,7 +523,7 @@ namespace Fyrion
         // AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Shader", .icon = ICON_FA_BRUSH, .priority = 10, .action = AssetNew, .menuData = (VoidPtr)GetTypeID<ShaderAsset>()});
         // AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Resource Graph", .icon = ICON_FA_DIAGRAM_PROJECT, .priority = 10, .action = AssetNewResourceGraph});
         // AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Behavior Graph", .icon = ICON_FA_DIAGRAM_PROJECT, .priority = 20});
-        AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Render Graph", .icon = ICON_FA_DIAGRAM_PROJECT, .priority = 30, .action = AssetNewRenderGraph});
+        AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Environment", .icon = ICON_FA_GLOBE, .priority = 10, .action = AssetNew, .userData = 0});
 
 
         type.Attribute<EditorWindowProperties>(EditorWindowProperties{

@@ -2,6 +2,7 @@
 #include "GBufferPass.hpp"
 #include "LightingPass.hpp"
 #include "PostProcessRenderPass.hpp"
+#include "SkyRenderPass.hpp"
 
 #include "Fyrion/Core/Registry.hpp"
 #include "Fyrion/Graphics/RenderGraph.hpp"
@@ -17,6 +18,7 @@ namespace Fyrion
         GBufferPass           gBufferPass;
         LightingPass          lightingPass;
         PostProcessRenderPass postProcessRenderPass;
+        SkyRenderPass         skyRenderPass;
 
         void BuildRenderGraph(RenderGraph& rg) override
         {
@@ -89,6 +91,16 @@ namespace Fyrion
               .Read(depth)
               .Write(lightOutput)
               .Handler(&lightingPass);
+
+            //sky render
+            skyRenderPass.depth = depth;
+            skyRenderPass.colorTexture = lightOutput;
+
+            rg.AddPass("SkyRenderPass", RenderGraphPassType::Compute)
+              .Read(depth)
+              .Read(lightOutput)
+              .Write(lightOutput)
+              .Handler(&skyRenderPass);
 
             //post-processing output
             postProcessRenderPass.lightColor = lightOutput;

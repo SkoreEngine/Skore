@@ -92,7 +92,6 @@ namespace Fyrion
         }
     }
 
-
     void LightComponent::OnDestroy()
     {
         renderService->RemoveLight(this);
@@ -104,7 +103,7 @@ namespace Fyrion
         type.Field<&LightComponent::color>("color").Attribute<UIProperty>();
         type.Field<&LightComponent::intensity>("intensity").Attribute<UIProperty>();
         type.Field<&LightComponent::indirectMultiplier>("indirectMultiplier").Attribute<UIProperty>();
-        type.Field<&LightComponent::range>("range").Attribute<UIProperty>();
+        // type.Field<&LightComponent::range>("range").Attribute<UIProperty>();
         type.Field<&LightComponent::castShadows>("castShadows").Attribute<UIProperty>();
 
         type.Attribute<ComponentDesc>(ComponentDesc{.dependencies = {GetTypeID<TransformComponent>()}});

@@ -37,7 +37,6 @@ namespace Fyrion
             data.viewProjInverse = Math::Inverse(rg->GetCameraData().projection * rg->GetCameraData().view);
             data.SetViewPos(rg->GetCameraData().viewPos);
 
-
             if (renderService)
             {
                 Span<LightRenderData> lights = renderService->GetLights();
