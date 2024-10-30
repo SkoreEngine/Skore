@@ -7,6 +7,13 @@ static const float minGGXAlpha = 0.0064f;
 #define LIGHT_TYPE_POINT 1
 #define LIGHT_TYPE_SPOT 2
 
+static const float4x4 biasMat = float4x4(
+	0.5, 0.0, 0.0, 0.5,
+	0.0, 0.5, 0.0, 0.5,
+	0.0, 0.0, 1.0, 0.0,
+	0.0, 0.0, 0.0, 1.0
+);
+
 struct Light
 {
     float4 directionType;

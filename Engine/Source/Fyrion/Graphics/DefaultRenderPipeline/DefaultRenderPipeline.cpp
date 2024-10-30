@@ -3,6 +3,7 @@
 #include "LightingPass.hpp"
 #include "PostProcessRenderPass.hpp"
 #include "SkyRenderPass.hpp"
+#include "ShadowPass.hpp"
 
 #include "Fyrion/Core/Registry.hpp"
 #include "Fyrion/Graphics/RenderGraph.hpp"
@@ -16,6 +17,7 @@ namespace Fyrion
         FY_BASE_TYPES(RenderPipeline);
 
         GBufferPass           gBufferPass;
+        ShadowPass            shadowPass;
         LightingPass          lightingPass;
         PostProcessRenderPass postProcessRenderPass;
         SkyRenderPass         skyRenderPass;
@@ -51,6 +53,12 @@ namespace Fyrion
                 .format = Format::Depth,
             });
 
+            //shadow texture
+            RenderGraphResource* shadowMap = rg.Create(RenderGraphResourceCreation{
+                .name = "shadowMap",
+                .type = RenderGraphResourceType::Reference,
+            });
+
             //light textures
             RenderGraphResource* lightOutput = rg.Create(RenderGraphResourceCreation{
                 .name = "lightOutput",
@@ -77,10 +85,18 @@ namespace Fyrion
               .ClearDepth(true)
               .Handler(&gBufferPass);
 
+
+            //setup shadowmap pass
+            shadowPass.shadowMap = shadowMap;
+            rg.AddPass("ShadowMap", RenderGraphPassType::Other)
+              .Write(shadowMap)
+              .Handler(&shadowPass);
+
             //setup lighting pass
             lightingPass.gbuffer1 = gbuffer1;
             lightingPass.gbuffer2 = gbuffer2;
             lightingPass.gbuffer3 = gbuffer3;
+            lightingPass.shadowMap = shadowMap;
             lightingPass.depth = depth;
             lightingPass.lightOutput = lightOutput;
 
@@ -88,6 +104,7 @@ namespace Fyrion
               .Read(gbuffer1)
               .Read(gbuffer2)
               .Read(gbuffer3)
+              .Read(shadowMap)
               .Read(depth)
               .Write(lightOutput)
               .Handler(&lightingPass);

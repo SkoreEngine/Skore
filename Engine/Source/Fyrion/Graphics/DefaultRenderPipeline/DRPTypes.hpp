@@ -3,8 +3,18 @@
 #include "Fyrion/Core/Math.hpp"
 #include "Fyrion/Graphics/GraphicsTypes.hpp"
 
+#define FY_SHADOW_MAP_CASCADE_COUNT 4
+#define FY_SHADOW_MAP_DIM 4096
+
+
 namespace Fyrion
 {
+    struct ShadowMapDataInfo
+    {
+        f32  cascadeSplit[FY_SHADOW_MAP_CASCADE_COUNT];
+        Mat4 cascadeViewProjMat[FY_SHADOW_MAP_CASCADE_COUNT];
+    };
+
     struct ShaderLight
     {
         Vec4 directionType;
@@ -63,7 +73,10 @@ namespace Fyrion
 
     struct LightingData
     {
+        Vec4        cascadeSplits;
+        Mat4        cascadeViewProjMat[FY_SHADOW_MAP_CASCADE_COUNT];
         Mat4        viewProjInverse = {};
+        Mat4        view = {};
         Vec4        data0 = {};
         ShaderLight lights[128];
 

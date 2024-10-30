@@ -10,9 +10,9 @@
 static const uint   NumSamples      = 64 * 1024;
 static const float  InvNumSamples   = 1.0 / float(NumSamples);
 
-TextureCube                 inputTexture    : register(t0);
-RWTexture2DArray<float4>    outputTexture   : register(u1);
-SamplerState                defaultSampler  : register(s2);
+Texture2D                   inputTexture;
+RWTexture2DArray<float4>    outputTexture;
+SamplerState                defaultSampler;
 
 float2 SampleHammersley(uint i)
 {
@@ -39,7 +39,7 @@ void MainCS(uint3 threadID : SV_DispatchThreadID)
 		float cosTheta = max(0.0, dot(Li, N));
 
 		// PIs here cancel out because of division by pdf.
-		irradiance += 2.0 * inputTexture.SampleLevel(defaultSampler, Li, 0).rgb * cosTheta;
+		irradiance += 2.0 * inputTexture.SampleLevel(defaultSampler, SampleSphericalMap(Li), 0).rgb * cosTheta;
 	}
 	irradiance /= float(NumSamples);
 	outputTexture[threadID] = float4(irradiance, 1.0);

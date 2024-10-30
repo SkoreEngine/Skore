@@ -1,7 +1,7 @@
 #include "Fyrion://Shaders/Includes/Tonemaps.hlsl"
 
-Texture2D<float4>       inputTexture    : register(t0);
-RWTexture2D<float4>     outputTexture   : register(u1);
+Texture2D<float4>       inputTexture;
+RWTexture2D<float4>     outputTexture;
 
 //TODO create parameters for exposure and tonemap selection
 

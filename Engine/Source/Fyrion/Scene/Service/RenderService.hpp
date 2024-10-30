@@ -5,8 +5,10 @@
 #include "Fyrion/Core/Optional.hpp"
 #include "Fyrion/Core/Span.hpp"
 #include "Fyrion/Graphics/GraphicsTypes.hpp"
+#include "Fyrion/Graphics/RenderUtils.hpp"
 
-namespace Fyrion {
+namespace Fyrion
+{
     class TextureAsset;
 }
 
@@ -22,6 +24,7 @@ namespace Fyrion
         FY_BASE_TYPES(Service);
 
         void OnStart() override;
+        void OnDestroy() override;
 
         void                 SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix);
         void                 RemoveMesh(VoidPtr pointer);
@@ -33,8 +36,11 @@ namespace Fyrion
         Optional<LightProperties> GetDirectionalShadowCaster();
 
 
-        void                      SetPanoramaSky(TextureAsset* panoramaSky);
-        TextureAsset*             GetPanoramaSky() const;
+        void          SetPanoramaSky(TextureAsset* panoramaSky);
+        TextureAsset* GetPanoramaSky() const;
+
+        Texture GetDiffuseIrradiance();
+        Texture GetSpecularMap();
 
         static void RegisterType(NativeTypeHandler<RenderService>& type);
 
@@ -46,6 +52,8 @@ namespace Fyrion
         HashMap<VoidPtr, usize> lightsLookup;
         u32                     directionalShadowCaster = U32_MAX;
 
-        TextureAsset*           panoramaSky = nullptr;
+        TextureAsset*              panoramaSky = nullptr;
+        SpecularMapGenerator       specularMapGenerator;
+        DiffuseIrradianceGenerator diffuseIrradianceGenerator;
     };
 }

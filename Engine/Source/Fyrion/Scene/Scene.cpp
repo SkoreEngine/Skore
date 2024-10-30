@@ -19,6 +19,7 @@ namespace Fyrion
     {
         for(auto& it: services)
         {
+            it.second->OnDestroy();
             if (TypeHandler* handler = Registry::FindTypeById(it.first))
             {
                 handler->Destroy(it.second);
@@ -65,11 +66,10 @@ namespace Fyrion
 
     void Scene::Start()
     {
-        // for(auto& it: services)
-        // {
-        //     it.second->OnStart();
-        // }
-        // root.Start();
+        for(auto& it: services)
+        {
+            it.second->OnStart();
+        }
     }
 
     Service* Scene::GetService(TypeID typeId)

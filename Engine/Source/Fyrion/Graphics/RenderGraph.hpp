@@ -19,12 +19,9 @@ namespace Fyrion
         TextureCreation             textureCreation{};
         ResourceLayout              currentLayout = ResourceLayout::Undefined;
 
-        union
-        {
-            Texture texture = {};
-            Buffer  buffer;
-            VoidPtr reference;
-        };
+        Texture texture = {};
+        Buffer  buffer = {};
+        VoidPtr reference = {};
 
         struct ResourceEdges
         {

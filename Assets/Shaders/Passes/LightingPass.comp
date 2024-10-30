@@ -1,41 +1,41 @@
 #include "Fyrion://Shaders/Includes/PBR.inc"
 
 #define SHADOW_MAP_CASCADE_COUNT 4
-#define FY_CASCADE_DEBUG 0
-
-struct DirectionalLight
-{
-	float4 direction;
-	float4 color;
-	float4 intensityIndirect;
-};
 
 struct LightingData
 {
-	float4              cascadeSplits;
-	float4x4            cascadeViewProjMat[SHADOW_MAP_CASCADE_COUNT];
-    float4              viewPos;
-    float4x4            view;
-    DirectionalLight    directionalLight[4];
-    uint4               lightCount;
+	float4   cascadeSplits;
+	float4x4 cascadeViewProjMat[SHADOW_MAP_CASCADE_COUNT];
+    float4x4 viewProjInverse;
+    float4x4 view;
+    float4   data0;
+    Light    lights[128];
+
+
+    float3 GetViewPos()
+    {
+        return data0.xyz;
+    }
+
+    int GetLightCount()
+    {
+        return int(data0.w);
+    }
 };
 
-Texture2D               gbufferColorMetallic    : register(t0);
-Texture2D               gbufferNormalRoughness  : register(t1);
-Texture2D               gBufferPositionAO       : register(t2);
+Texture2D                       gbuffer1;
+Texture2D                       gbuffer2;
+Texture2D                       gbuffer3;
+TextureCube<float4>             diffuseIrradiance;
+TextureCube<float4>             specularMap;
+Texture2D                       brdfLUT;
+Texture2DArray                  shadowMapTexture;
+SamplerState                    shadowMapSampler;
+Texture2D<float>                depth;
+RWTexture2D<float4>             lightOutput;
+ConstantBuffer<LightingData>    data;
+SamplerState                    defaultSampler;
 
-Texture2D<float>        depthTex                : register(t3);
-RWTexture2D<float4>     lightColor              : register(u4);
-SamplerState            samplerState            : register(s5);
-TextureCube<float4>     diffuseIrradiance       : register(t6);
-Texture2D               brdfLUT                 : register(t7);
-SamplerState            brdfLUTSampler          : register(s8);
-TextureCube<float4>     specularMap             : register(t9);
-Texture2DArray          shadowMapTexture        : register(t10);
-SamplerState            shadowMapSampler        : register(s11);
-ConstantBuffer<LightingData> data               : register(b12);
-
-Texture2D<float>        ssaoTexture            : register(t13);
 
 uint QuerySpecularTextureLevels()
 {
@@ -44,16 +44,7 @@ uint QuerySpecularTextureLevels()
 	return levels;
 }
 
-
-//TODO move
-static const float4x4 biasMat = float4x4(
-	0.5, 0.0, 0.0, 0.5,
-	0.0, 0.5, 0.0, 0.5,
-	0.0, 0.0, 1.0, 0.0,
-	0.0, 0.0, 0.0, 1.0
-);
-
-float textureProj(float4 shadowCoord, float2 offset, uint cascadeIndex)
+float TextureProj(float4 shadowCoord, float2 offset, uint cascadeIndex)
 {
 	float shadow = 1.0;
 	float bias = 0.0005;
@@ -67,7 +58,7 @@ float textureProj(float4 shadowCoord, float2 offset, uint cascadeIndex)
 	return shadow;
 }
 
-float filterPCF(float4 sc, uint cascadeIndex)
+float FilterPCF(float4 sc, uint cascadeIndex)
 {
 	int3 texDim;
 	shadowMapTexture.GetDimensions(texDim.x, texDim.y, texDim.z);
@@ -81,39 +72,35 @@ float filterPCF(float4 sc, uint cascadeIndex)
 
 	for (int x = -range; x <= range; x++) {
 		for (int y = -range; y <= range; y++) {
-			shadowFactor += textureProj(sc, float2(dx*x, dy*y), cascadeIndex);
+			shadowFactor += TextureProj(sc, float2(dx*x, dy*y), cascadeIndex);
 			count++;
 		}
 	}
 	return shadowFactor / count;
 }
-//TODO move end
-
 
 [numthreads(16, 16, 1)]
 void MainCS(in uint2 px : SV_DispatchThreadID)
 {
-    const float depth   = depthTex[px];
-    if (depth == 1.0)
+    const float depthValue   = depth[px];
+    if (depthValue == 1.0)
     {
-        lightColor[px] = float4(0.0, 0.0, 0.0, 1.0);
+        lightOutput[px] = float4(0.0, 0.0, 0.0, 1.0);
         return;
     }
 
-	int2 outDim;
-	lightColor.GetDimensions(outDim.x, outDim.y);
-    const float2 uv = (float2(px) + 0.5) / outDim.xy;
+    int2 outDim;
+    lightOutput.GetDimensions(outDim.x, outDim.y);
+    float2 uv = (float2(px) + 0.5) / outDim.xy;
 
-    float3  baseColor   = gbufferColorMetallic[px].rgb;
-    float3  N           = gbufferNormalRoughness[px].rgb;
-    float   metallic    = gbufferColorMetallic[px].a;
-    float   roughness   = gbufferNormalRoughness[px].a;
-    float3  fragPos     = gBufferPositionAO[px].xyz;
-    float3  ao          = gBufferPositionAO[px].a;
+    float3  worldPosition  = GetWorldPositionFromDepth(uv, depthValue, data.viewProjInverse);
+    float3  albedo          = gbuffer1[px].rgb;
+    float   metallic        = gbuffer1[px].a;
+    float   roughness       = gbuffer2[px].x;
+    float   ao              = gbuffer2[px].y;
+    float3  N               = OctohedralToDirection(gbuffer3[px].rg);
 
-    float   ssao        = ssaoTexture.SampleLevel(samplerState, uv, 0.0).r;
-
-    float3  fragViewPos  = mul(data.view, float4(fragPos, 1.0)).xyz;
+    float3  fragViewPos  = mul(data.view, float4(worldPosition, 1.0)).xyz;
 
     uint cascadeIndex = 0;
     for(uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; ++i)
@@ -125,88 +112,80 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     }
 
     // Depth compare for shadowing
-    float4 shadowCoord = mul(biasMat, mul(data.cascadeViewProjMat[cascadeIndex], float4(fragPos, 1.0)));
-    float  shadow = filterPCF(shadowCoord / shadowCoord.w, cascadeIndex);
+    float4 shadowCoord = mul(biasMat, mul(data.cascadeViewProjMat[cascadeIndex], float4(worldPosition, 1.0)));
+    float  shadow = FilterPCF(shadowCoord / shadowCoord.w, cascadeIndex);
 
-	float3 V    = normalize(data.viewPos.xyz - fragPos);
-	float cosLo = max(dot(N, V), 0.0);
-
-	float3 Lr   = 2.0 * cosLo * N - V;
+    float3 V = normalize(data.GetViewPos() - worldPosition);
+    float cosLo = max(dot(N, V), 0.0);
+    float3 Lr   = 2.0 * cosLo * N - V;
 
     float3 F0 = 0.04;
-    F0 = lerp(F0, baseColor, metallic);
+    F0 = lerp(F0, albedo, metallic);
 
-    float3 directLightColor = 0.0;
-    float indirectMultiplier = 1.0;
+    float3 Lo = 0.0;
 
-    //direct light
-    if (data.lightCount.x > 0)
+    float indirectMultiplier = 0.0;
+
+    for(int i = 0; i < data.GetLightCount(); ++i)
     {
-        DirectionalLight light = data.directionalLight[0];
-        indirectMultiplier = light.intensityIndirect.y;
+        float attenuation = 1.0;
+        float3 wi = 0.0; //wi = L
 
-        float3 L = normalize(light.direction.xyz);
-        float3 H = normalize(V + L);
+        if (data.lights[i].GetType() == LIGHT_TYPE_DIRECTIONAL)
+        {
+            wi = data.lights[i].GetDirection();
+            indirectMultiplier += data.lights[i].GetIndirectMultiplier();
+        }
+        else if (data.lights[i].GetType() == LIGHT_TYPE_POINT)
+        {
+            //TODO - improve point lights
+            wi = normalize(data.lights[i].GetPosition() - worldPosition);
+            float distance = length(wi);
+            attenuation = (1.0f / (distance * distance));
+        }
+        else
+        {
+            //TODO - spot lights
+        }
+
+        float NdotL = max(dot(N, wi), 0.0);
+        float3 H = normalize(V + wi);
 
         // Cook-Torrance BRDF
         float  NDF  = DistributionGGX(N, H, roughness);
-        float  G    = GeometrySmith(N, V, L, roughness);
+        float  G    = GeometrySmith(N, V, wi, roughness);
         float3 F    = FresnelSchlick(clamp(dot(H, V), 0.0, 1.0), F0);
 
         float3 numerator    = NDF * G * F;
-        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
-        float3 specular = numerator / denominator;
+        float  denominator  = 4.0 * max(dot(N, V), 0.0) * max(dot(N, wi), 0.0) + 0.0001;
+        float3 specular     = numerator / denominator;
 
         float3 kD = 1.0 - F;
         kD *= 1.0 - metallic;
-        float NdotL = max(dot(N, L), 0.0);
 
-        float3 directLight = (kD * (baseColor / PI) + specular) * light.intensityIndirect.x * NdotL;
-        directLightColor += directLight;
-        directLightColor *= shadow;
+        float3 radiance = data.lights[i].GetColor() * attenuation * shadow; //TODO shadows should only check the shadow light.
+
+        Lo += (kD * (albedo / PI) + specular) * radiance * NdotL;
     }
 
-    float3 indirectLight = 0.0;
 
     //indirect light
-    {
-        float3 irradiance = diffuseIrradiance.SampleLevel(samplerState, N, 0.0).rgb;
+    float3 irradiance = diffuseIrradiance.SampleLevel(defaultSampler, N, 0.0).rgb;
 
-        float3 F = FresnelSchlickRoughness(cosLo, F0, roughness);
-        float3 kd = lerp(1.0 - F, 0.0, metallic);
+    float3 F = FresnelSchlickRoughness(cosLo, F0, roughness);
+    float3 kd = lerp(1.0 - F, 0.0, metallic);
 
-        //diffuse irradiance
-        float3 diffuseIBL = (kd * baseColor * irradiance * ssao);
+    //diffuse irradiance
+    float3 diffuseIBL = (kd * albedo * irradiance);
 
-        //specular
-        uint    specularTextureLevels   = QuerySpecularTextureLevels();
-        float3  specularIrradiance      = specularMap.SampleLevel(samplerState, Lr, roughness * specularTextureLevels).rgb;
+    //specular
+    uint    specularTextureLevels   = QuerySpecularTextureLevels();
+    float3  specularIrradiance      = specularMap.SampleLevel(defaultSampler, Lr, roughness * specularTextureLevels).rgb;
 
-        float2  specularBRDF            = brdfLUT.SampleLevel(brdfLUTSampler, float2(cosLo, roughness), 0).rg;
-        float3  specularIBL             = specularIrradiance * (F * specularBRDF.x + specularBRDF.y);
+    float2  specularBRDF            = brdfLUT.SampleLevel(defaultSampler, float2(cosLo, roughness), 0).rg;
+    float3  specularIBL             = specularIrradiance * (F * specularBRDF.x + specularBRDF.y);
 
-        indirectLight = diffuseIBL + specularIBL;
-        indirectLight *= indirectMultiplier;
-    }
+    Lo += (diffuseIBL + specularIBL) * indirectMultiplier;
 
-    lightColor[px] = float4(directLightColor + indirectLight, 1.0);
-
-
-#if FY_CASCADE_DEBUG
-
-    switch(cascadeIndex) {
-        case 0 :
-            lightColor[px].rgb *= float3(1.0f, 0.25f, 0.25f);
-            break;
-        case 1 :
-            lightColor[px].rgb *= float3(0.25f, 1.0f, 0.25f);
-            break;
-        case 2 :
-            lightColor[px].rgb *= float3(0.25f, 0.25f, 1.0f);
-            break;
-        case 3 :
-            lightColor[px].rgb *= float3(1.0f, 1.0f, 0.25f);
-            break;
-    }
-#endif
+    lightOutput[px] = float4(Lo, 1.0);
 }

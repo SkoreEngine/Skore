@@ -1,12 +1,23 @@
 #include "RenderService.hpp"
 
 #include "Fyrion/Scene/Scene.hpp"
+#include "Fyrion/Graphics/Graphics.hpp"
+#include "Fyrion/Graphics/Assets/TextureAsset.hpp"
 
 namespace Fyrion
 {
     void RenderService::OnStart()
     {
         meshRenders.Reserve(scene->GetObjectCount());
+
+        diffuseIrradianceGenerator.Init({64, 64});
+        specularMapGenerator.Init({128, 128}, 6);
+    }
+
+    void RenderService::OnDestroy()
+    {
+        specularMapGenerator.Destroy();
+        diffuseIrradianceGenerator.Destroy();
     }
 
     void RenderService::SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix)
@@ -115,12 +126,33 @@ namespace Fyrion
 
     void RenderService::SetPanoramaSky(TextureAsset* panoramaSky)
     {
+        if (panoramaSky != nullptr && this->panoramaSky != panoramaSky)
+        {
+            Texture texture = panoramaSky->GetTexture();
+
+            RenderCommands& cmd = Graphics::GetCmd();
+            cmd.Begin();
+            diffuseIrradianceGenerator.Generate(cmd, texture);
+            specularMapGenerator.Generate(cmd, texture);
+            cmd.SubmitAndWait(Graphics::GetMainQueue());
+
+        }
         this->panoramaSky = panoramaSky;
     }
 
     TextureAsset* RenderService::GetPanoramaSky() const
     {
         return panoramaSky;
+    }
+
+    Texture RenderService::GetDiffuseIrradiance()
+    {
+        return diffuseIrradianceGenerator.GetTexture();
+    }
+
+    Texture RenderService::GetSpecularMap()
+    {
+        return specularMapGenerator.GetTexture();
     }
 
     void RenderService::RegisterType(NativeTypeHandler<RenderService>& type)
