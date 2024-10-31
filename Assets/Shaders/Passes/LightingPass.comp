@@ -29,6 +29,7 @@ Texture2D                       gbuffer3;
 TextureCube<float4>             diffuseIrradiance;
 TextureCube<float4>             specularMap;
 Texture2D                       brdfLUT;
+SamplerState                    brdfLUTSampler;
 Texture2DArray                  shadowMapTexture;
 SamplerState                    shadowMapSampler;
 Texture2D<float>                depth;
@@ -182,7 +183,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     uint    specularTextureLevels   = QuerySpecularTextureLevels();
     float3  specularIrradiance      = specularMap.SampleLevel(defaultSampler, Lr, roughness * specularTextureLevels).rgb;
 
-    float2  specularBRDF            = brdfLUT.SampleLevel(defaultSampler, float2(cosLo, roughness), 0).rg;
+    float2  specularBRDF            = brdfLUT.SampleLevel(brdfLUTSampler, float2(cosLo, roughness), 0).rg;
     float3  specularIBL             = specularIrradiance * (F * specularBRDF.x + specularBRDF.y);
 
     Lo += (diffuseIBL + specularIBL) * indirectMultiplier;

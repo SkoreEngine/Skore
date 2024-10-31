@@ -23,8 +23,8 @@ namespace Fyrion
     public:
         FY_BASE_TYPES(Service);
 
-        void OnStart() override;
-        void OnDestroy() override;
+        RenderService();
+        ~RenderService() override;
 
         void                 SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix);
         void                 RemoveMesh(VoidPtr pointer);

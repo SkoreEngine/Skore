@@ -6,15 +6,13 @@
 
 namespace Fyrion
 {
-    void RenderService::OnStart()
+    RenderService::RenderService()
     {
-        meshRenders.Reserve(scene->GetObjectCount());
-
         diffuseIrradianceGenerator.Init({64, 64});
         specularMapGenerator.Init({128, 128}, 6);
     }
 
-    void RenderService::OnDestroy()
+    RenderService::~RenderService()
     {
         specularMapGenerator.Destroy();
         diffuseIrradianceGenerator.Destroy();
@@ -130,13 +128,22 @@ namespace Fyrion
         {
             Texture texture = panoramaSky->GetTexture();
 
+            EquirectangularToCubemap toCubemap{};
+            toCubemap.Init({256, 256}, Format::RGBA16F);
+
             RenderCommands& cmd = Graphics::GetCmd();
             cmd.Begin();
-            diffuseIrradianceGenerator.Generate(cmd, texture);
-            specularMapGenerator.Generate(cmd, texture);
+            toCubemap.Convert(cmd, texture);
+
+            Texture cubemap = toCubemap.GetTexture();
+
+            diffuseIrradianceGenerator.Generate(cmd, cubemap);
+            specularMapGenerator.Generate(cmd, cubemap);
             cmd.SubmitAndWait(Graphics::GetMainQueue());
 
+            toCubemap.Destroy();
         }
+
         this->panoramaSky = panoramaSky;
     }
 

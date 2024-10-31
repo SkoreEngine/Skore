@@ -4,7 +4,7 @@
 
 #include "Fyrion://Shaders/Includes/PBR.inc"
 
-Texture2D                   inputTexture;
+TextureCube                 inputTexture;
 RWTexture2DArray<float4>    outputTexture;
 SamplerState                defaultSampler;
 
@@ -68,7 +68,7 @@ void MainCS(uint3 threadID : SV_DispatchthreadID)
 			// Mip level to sample from.
 			float mipLevel = max(0.5 * log2(ws / wt) + 1.0, 0.0);
 
-			color  += inputTexture.SampleLevel(defaultSampler, SampleSphericalMap(Li), mipLevel).rgb * cosLi;
+			color  += inputTexture.SampleLevel(defaultSampler, Li, 0).rgb * cosLi;
 			weight += cosLi;
 		}
 	}

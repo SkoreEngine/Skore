@@ -18,15 +18,12 @@ float2 IntegrateBRDF(float cosLo, float roughness)
 	float DFG1 = 0;
 	float DFG2 = 0;
 
-
-	float3 N = float3(0.0, 0.0, 1.0);
-
 	for(uint i=0; i<NumSamples; ++i)
 	{
 		float2 u = SampleHammersley(i);
 
 		// Sample directly in tangent/shading space since we don't care about reference frame as long as it's consistent.
-		float3 Lh = ImportanceSampleGGX(u, N, roughness);
+		float3 Lh = SampleGGX(u.x, u.y, roughness);
 
 		// Compute incident direction (Li) by reflecting viewing direction (Lo) around half-vector (Lh).
 		float3 Li = normalize(2.0 * dot(Lo, Lh) * Lh - Lo);
@@ -37,7 +34,7 @@ float2 IntegrateBRDF(float cosLo, float roughness)
 
 		if(cosLi > 0.0)
 		{
-			float G  = GeometrySmith(N, cosLi, cosLo, roughness);
+			float G  = GaSchlickGGXIBL(cosLi, cosLo, roughness);
 			float Gv = G * cosLoLh / (cosLh * cosLo);
 			float Fc = pow(1.0 - cosLoLh, 5);
 

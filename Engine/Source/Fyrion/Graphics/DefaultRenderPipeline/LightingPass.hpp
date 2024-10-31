@@ -21,6 +21,7 @@ namespace Fyrion
 
         BRDFLUTGenerator brdflutGenerator;
         Sampler          shadowMapSampler;
+        Sampler          brdfLutSampler;
 
 
         void Init() override
@@ -42,6 +43,12 @@ namespace Fyrion
                 .addressMode = TextureAddressMode::ClampToEdge,
                 .maxLod = 1.0,
                 .borderColor = BorderColor::FloatOpaqueWhite
+            });
+
+            brdfLutSampler = Graphics::CreateSampler({
+                .addressMode = TextureAddressMode::ClampToEdge,
+                .anisotropyEnable = false,
+                .borderColor = BorderColor::FloatTransparentBlack,
             });
         }
 
@@ -86,6 +93,7 @@ namespace Fyrion
             bindingSet->GetVar("diffuseIrradiance")->SetTexture(renderService->GetDiffuseIrradiance());
             bindingSet->GetVar("specularMap")->SetTexture(renderService->GetSpecularMap());
             bindingSet->GetVar("brdfLUT")->SetTexture(brdflutGenerator.GetTexture());
+            bindingSet->GetVar("brdfLUTSampler")->SetSampler(brdfLutSampler);
             bindingSet->GetVar("shadowMapTexture")->SetTexture(shadowMap->texture);
             bindingSet->GetVar("shadowMapSampler")->SetSampler(shadowMapSampler);
             bindingSet->GetVar("depth")->SetTexture(depth->texture);
@@ -104,6 +112,7 @@ namespace Fyrion
         void Destroy() override
         {
             Graphics::DestroySampler(shadowMapSampler);
+            Graphics::DestroySampler(brdfLutSampler);
             Graphics::DestroyBindingSet(bindingSet);
             Graphics::DestroyComputePipelineState(lightingPSO);
 

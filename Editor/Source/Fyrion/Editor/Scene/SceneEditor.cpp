@@ -23,9 +23,8 @@ namespace Fyrion
 
     void SceneEditor::SetScene(AssetFile* assetFile)
     {
-        ClearSelection();
-
         this->assetFile = assetFile;
+
         scene = Assets::Load<Scene>(assetFile->uuid);
         if (scene)
         {

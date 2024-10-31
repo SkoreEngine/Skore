@@ -1,8 +1,11 @@
 #include "ProjectBrowserWindow.hpp"
 
+#include <regex>
+
 #include "imgui_internal.h"
 #include "Fyrion/Engine.hpp"
 #include "Fyrion/Core/Registry.hpp"
+#include "Fyrion/Core/StringUtils.hpp"
 #include "Fyrion/Editor/Editor.hpp"
 #include "Fyrion/Editor/ImGui/ImGuiEditor.hpp"
 #include "Fyrion/ImGui/IconsFontAwesome6.h"
@@ -209,6 +212,8 @@ namespace Fyrion
                 ImGui::EndChild();
             }
 
+             auto rx = std::regex{searchString.CStr(), std::regex_constants::icase};
+
             ImGui::TableNextColumn();
             {
                 ImGui::StyleColor childBg(ImGuiCol_ChildBg, IM_COL32(27, 28, 30, 255));
@@ -239,6 +244,16 @@ namespace Fyrion
                                 //workaround to show directories first.
                                 if (i == 0 && !assetFile->isDirectory) continue;
                                 if (i == 1 && assetFile->isDirectory) continue;
+
+
+                                //TODO slow!!!! cache it on AssetEditor.
+                                if (!searchString.Empty())
+                                {
+                                    if (!std::regex_search(assetFile->fileName.CStr(), rx))
+                                    {
+                                        continue;
+                                    }
+                                }
 
                                 labelCache.Clear();
 

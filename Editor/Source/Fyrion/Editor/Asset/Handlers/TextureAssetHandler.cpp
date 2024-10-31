@@ -150,29 +150,7 @@ namespace Fyrion
             AssetFile* assetFile = AssetEditor::CreateAsset(parent, GetTypeID<TextureAsset>(), Path::Name(path));
 
             TextureAsset* textureAsset = Assets::Load<TextureAsset>(assetFile->uuid);
-
-            bool hdr = Path::Extension(path) == ".hdr";
-
-            i32 width{};
-            i32 height{};
-            i32 channels{};
-
-            OutputFileStream stream = assetFile->CreateStream();
-
-            if (!hdr)
-            {
-                u8* bytes = stbi_load(path.CStr(), &width, &height, &channels, 4);
-                ProcessTexture(textureAsset, stream, bytes, width, height, 4, true);
-                stbi_image_free(bytes);
-            }
-            else
-            {
-                f32* bytes = stbi_loadf(path.CStr(), &width, &height, &channels, 4);
-                ProcessTexture(textureAsset, stream, bytes, width, height, 4, false);
-                stbi_image_free(bytes);
-            }
-
-            stream.Close();
+            TextureImporter::ImportTextureFromFile(assetFile, textureAsset, path);
 
             return true;
         }
@@ -184,7 +162,7 @@ namespace Fyrion
         Registry::Type<TextureAssetHandler>();
     }
 
-    void TextureImporter::ImportTexture(AssetFile* assetFile, TextureAsset* textureAsset, Span<const u8> imageBuffer)
+    void TextureImporter::ImportTextureFromMemory(AssetFile* assetFile, TextureAsset* textureAsset, Span<const u8> imageBuffer)
     {
         i32 width{};
         i32 height{};
@@ -195,5 +173,30 @@ namespace Fyrion
         ProcessTexture(textureAsset, stream, bytes, width, height, 4, true);
         stream.Close();
         stbi_image_free(bytes);
+    }
+
+    void TextureImporter::ImportTextureFromFile(AssetFile* assetFile, TextureAsset* textureAsset, StringView path)
+    {
+        bool hdr = Path::Extension(path) == ".hdr";
+
+        i32 width{};
+        i32 height{};
+        i32 channels{};
+
+        OutputFileStream stream = assetFile->CreateStream();
+
+        if (!hdr)
+        {
+            u8* bytes = stbi_load(path.CStr(), &width, &height, &channels, 4);
+            ProcessTexture(textureAsset, stream, bytes, width, height, 4, true);
+            stbi_image_free(bytes);
+        }
+        else
+        {
+            f32* bytes = stbi_loadf(path.CStr(), &width, &height, &channels, 4);
+            ProcessTexture(textureAsset, stream, bytes, width, height, 4, false);
+            stbi_image_free(bytes);
+        }
+        stream.Close();
     }
 }

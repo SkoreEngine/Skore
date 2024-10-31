@@ -327,6 +327,7 @@ namespace Fyrion
 
     void AssetEditor::AddPackage(StringView name, StringView directory)
     {
+        logger.Info("start scanning files");
         String assetFolder = Path::Join(directory, "Assets");
         if (AssetFile* assetFile = ScanForAssets(assetFolder))
         {
@@ -339,6 +340,7 @@ namespace Fyrion
                 child->UpdatePath();
             }
         }
+        logger.Info("end scanning files");
     }
 
     void AssetEditor::SetProject(StringView name, StringView directory)
@@ -363,6 +365,8 @@ namespace Fyrion
             FileSystem::CreateDirectory(assetFolder);
         }
 
+        logger.Info("start scanning files");
+
         if (AssetFile* assetFile = ScanForAssets(assetFolder))
         {
             assetFile->fileName = name;
@@ -374,6 +378,8 @@ namespace Fyrion
                 child->UpdatePath();
             }
         }
+
+        logger.Info("files scanned successfully ");
     }
 
     AssetFile* AssetEditor::CreateDirectory(AssetFile* parent)
@@ -408,7 +414,14 @@ namespace Fyrion
             String       assetName = suggestedName.Empty() ? String("New ").Append(typeHandler->GetSimpleName()) : String(suggestedName);
             String       absolutePath = Path::Join(parent->absolutePath, assetName, it->second->Extension());
 
-            //TODO find if absolutePath exists.
+            for(AssetFile* child: parent->children)
+            {
+                if (child->absolutePath == absolutePath)
+                {
+                    child->currentVersion++;
+                    return child;
+                }
+            }
 
             AssetFile* newAsset = MemoryGlobals::GetDefaultAllocator().Alloc<AssetFile>();
             newAsset->fileName = CreateUniqueName(parent, assetName);

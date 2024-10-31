@@ -38,23 +38,6 @@ namespace Fyrion
 
         static TextureAsset* FindTexture(StringView assetPath, const ImportedTextureMap& textureMap, cgltf_texture* texture)
         {
-            if (texture->image->uri != nullptr)
-            {
-                String texturePath = Path::Join(assetPath, StringView{texture->image->uri});
-
-                // TextureAsset* textureAsset = AssetManager::LoadByPath<TextureAsset>(texturePath);
-                // if (textureAsset == nullptr)
-                // {
-                //     // textureAsset = AssetDatabase::Create<TextureAsset>();
-                //     // textureAsset->SetPath(texturePath);
-                //     logger.Error("texture {} not found", texture->image->uri);
-                // }
-                //
-                // return textureAsset;
-
-                return nullptr;
-            }
-
             if (auto it = textureMap.Find(reinterpret_cast<usize>(texture)))
             {
                 return it->second;
@@ -399,7 +382,18 @@ namespace Fyrion
                         static_cast<const u8*>(texture.image->buffer_view->buffer->data) + texture.image->buffer_view->offset + texture.image->buffer_view->size
                     };
 
-                    TextureImporter::ImportTexture(assetFile, textureAsset, imageBuffer);
+                    TextureImporter::ImportTextureFromMemory(assetFile, textureAsset, imageBuffer);
+
+                    textureMap.Insert(reinterpret_cast<usize>(&texture), textureAsset);
+                }
+                else if (texture.image->uri != nullptr)
+                {
+                    String texturePath = Path::Join(Path::Parent(path), StringView{texture.image->uri});
+
+                    AssetFile* assetFile = AssetEditor::CreateAsset(parent, GetTypeID<TextureAsset>(), StringView{texture.image->uri});
+                    TextureAsset* textureAsset = Assets::Load<TextureAsset>(assetFile->uuid);
+
+                    TextureImporter::ImportTextureFromFile(assetFile, textureAsset, texturePath);
 
                     textureMap.Insert(reinterpret_cast<usize>(&texture), textureAsset);
                 }
@@ -417,6 +411,8 @@ namespace Fyrion
                 if (material.has_pbr_metallic_roughness)
                 {
                     materialAsset->SetBaseColor(Color::FromVec4Gamma(material.pbr_metallic_roughness.base_color_factor));
+                    materialAsset->SetRoughness(material.pbr_metallic_roughness.roughness_factor);
+                    materialAsset->SetMetallic(material.pbr_metallic_roughness.metallic_factor);
                     materialAsset->SetUvScale(Vec2{material.pbr_metallic_roughness.base_color_texture.scale, material.pbr_metallic_roughness.base_color_texture.scale});
 
                     if (material.pbr_metallic_roughness.base_color_texture.texture)

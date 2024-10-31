@@ -43,6 +43,16 @@ namespace Fyrion
         return ret;
     }
 
+    inline void ToUpper(const StringView& string, String& ret)
+    {
+        ret.Resize(string.Size());
+
+        for(usize i = 0; i < string.Size(); ++i)
+        {
+            ret[i] = toupper(string[i]);
+        }
+    }
+
     inline bool ContainsIgnoreCase(const StringView& string, const StringView& search)
     {
         String buffer{};
