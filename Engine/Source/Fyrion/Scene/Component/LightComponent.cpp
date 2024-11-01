@@ -94,7 +94,10 @@ namespace Fyrion
 
     void LightComponent::OnDestroy()
     {
-        renderService->RemoveLight(this);
+        if (renderService)
+        {
+            renderService->RemoveLight(this);
+        }
     }
 
     void LightComponent::RegisterType(NativeTypeHandler<LightComponent>& type)

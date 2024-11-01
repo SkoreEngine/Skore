@@ -11,6 +11,7 @@
 
 namespace Fyrion
 {
+    struct AssetFile;
     class GameObject;
 
     using OnGameObjectSelection = EventType<"Fyrion::Editor::OnGameObjectSelection"_h, void(GameObject*)>;
@@ -44,6 +45,12 @@ namespace Fyrion
         virtual void Init(u32 id, VoidPtr userData) {}
         virtual void Draw(u32 id, bool& open) = 0;
         virtual ~EditorWindow() = default;
+    };
+
+    struct AssetPayload
+    {
+        AssetFile* assetFile;
+        TypeID     assetType;
     };
 
 }

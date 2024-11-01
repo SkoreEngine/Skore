@@ -40,6 +40,7 @@ namespace Fyrion
     {
     public:
         static void   Create(UUID uuid, AssetLoader* loader);
+        static Asset* Get(UUID uuid);
         static Asset* Load(UUID uuid);
         static void   Unload(UUID uuid);
         static Asset* Reload(UUID uuid);
@@ -85,7 +86,7 @@ namespace Fyrion
     struct AssetApi
     {
         Asset* (*CastAsset)(VoidPtr ptr);
-        void (*  SetAsset)(VoidPtr ptr, Asset* asset);
+        void (*SetAsset)(VoidPtr ptr, Asset* asset);
     };
 
     template <typename T>

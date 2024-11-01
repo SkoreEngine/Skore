@@ -8,9 +8,12 @@ namespace Fyrion
 {
     void JsonAssetHandler::Save(StringView newPath, AssetFile* assetFile)
     {
-        JsonArchiveWriter writer;
-        ArchiveValue      assetArchive = Serialization::Serialize(GetAssetTypeID(), writer, Assets::Load(assetFile->uuid));
-        FileSystem::SaveFileAsString(newPath, JsonArchiveWriter::Stringify(assetArchive));
+        if (Asset* asset = Assets::Get(assetFile->uuid))
+        {
+            JsonArchiveWriter writer;
+            ArchiveValue      assetArchive = Serialization::Serialize(GetAssetTypeID(), writer, asset);
+            FileSystem::SaveFileAsString(newPath, JsonArchiveWriter::Stringify(assetArchive));
+        }
     }
 
     void JsonAssetHandler::Load(AssetFile* assetFile, TypeHandler* typeHandler, VoidPtr instance)

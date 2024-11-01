@@ -1,13 +1,10 @@
 #pragma once
 #include "Component.hpp"
 
-namespace Fyrion {
-    class RenderService;
-}
-
 namespace Fyrion
 {
     class TextureAsset;
+    class RenderService;
 
     class EnvironmentComponent : public Component
     {

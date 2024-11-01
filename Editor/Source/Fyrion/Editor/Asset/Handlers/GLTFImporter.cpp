@@ -255,7 +255,7 @@ namespace Fyrion
             GameObject* object = parent->FindChildByName(nodeName);
             if (object == nullptr)
             {
-                object = parent->CreateChildWithUUID(UUID::RandomUUID());
+                object = parent->Create();
                 object->SetName(nodeName);
 
                 object->AddComponent<TransformComponent>();

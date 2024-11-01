@@ -32,7 +32,6 @@ namespace Fyrion
 
         bool               usingGuizmo{};
         Transform          gizmoInitialTransform = {};
-        EditorTransaction* gizmoTransaction = nullptr;
 
         static void OpenSceneView(const MenuItemEventData& eventData);
     };

@@ -98,12 +98,12 @@ namespace Fyrion
 
         ImGui::EndHorizontal();
 
-        if (gameObject->GetPrototype() != nullptr)
+        if (gameObject->GetPrefab() != nullptr)
         {
             ImGui::BeginHorizontal(9999, ImVec2(width, size));
             ImGui::Spring(1.f);
 
-            if (ImGui::BorderedButton("Open Prototype", ImVec2((width * 2) / 3, size)))
+            if (ImGui::BorderedButton("Open Prefab", ImVec2((width * 2) / 3, size)))
             {
                 //TODO defer open scene.
             }
@@ -118,10 +118,8 @@ namespace Fyrion
 
         for (Component* component : gameObject->GetComponents())
         {
-            TypeHandler* typeHandler = Registry::FindTypeById(component->typeId);
-
             bool propClicked = false;
-            bool open = ImGui::CollapsingHeaderProps(HashValue(reinterpret_cast<usize>(component)), FormatName(typeHandler->GetSimpleName()).CStr(), &propClicked);
+            bool open = ImGui::CollapsingHeaderProps(HashValue(reinterpret_cast<usize>(component)), FormatName(component->typeHandler->GetSimpleName()).CStr(), &propClicked);
             if (propClicked)
             {
                 openComponentSettings = true;
@@ -134,7 +132,7 @@ namespace Fyrion
                 ImGui::Indent();
                 ImGui::DrawType(ImGui::DrawTypeDesc{
                     .itemId = reinterpret_cast<usize>(component),
-                    .typeHandler = typeHandler,
+                    .typeHandler = component->typeHandler,
                     .instance = component,
                     .flags = readOnly ? ImGui::ImGuiDrawTypeFlags_ReadOnly : 0u,
                     .userData = this,

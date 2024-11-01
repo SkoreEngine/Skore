@@ -3,7 +3,7 @@
 #include "SceneTypes.hpp"
 #include "Fyrion/Common.hpp"
 #include "Fyrion/Core/Array.hpp"
-#include "Fyrion/Core/HashMap.hpp"
+#include "Fyrion/Core/HashSet.hpp"
 #include "Fyrion/Core/Span.hpp"
 #include "Fyrion/Core/String.hpp"
 #include "Fyrion/Core/StringView.hpp"
@@ -27,40 +27,46 @@ namespace Fyrion
         void        SetName(StringView newName);
         UUID        GetUUID() const;
 
-        GameObject*       GetPrototype() const;
+        GameObject* GetPrefab() const;
 
-        GameObject*       CreateChild();
-        GameObject*       CreateChildWithUUID(UUID uuid);
+        GameObject*       Create();
+        GameObject*       Create(GameObject* prefab);
         Span<GameObject*> GetChildren() const;
         void              RemoveChild(GameObject* gameObject);
         GameObject*       FindChildByName(StringView name) const;
 
         Component*       GetComponent(TypeID typeId) const;
+        Component*       GetComponentByUUID(UUID uuid) const;
         Component*       GetOrAddComponent(TypeID typeId);
         void             GetComponentsOfType(TypeID typeId, Array<Component*> arrComponents) const;
         Component*       AddComponent(TypeID typeId);
+        Component*       AddComponent(TypeHandler* typeHandler, UUID uuid);
         void             RemoveComponent(Component* component);
         Span<Component*> GetComponents() const;
+        void             AddPrefabOverride(Component* component);
 
         ArchiveValue Serialize(ArchiveWriter& writer) const;
         void         Deserialize(ArchiveReader& reader, ArchiveValue value);
 
+
+
+
         void NotifyEvent(const SceneEventDesc& event);
         void Destroy();
 
-        template<typename T>
+        template <typename T>
         T* GetComponent()
         {
             return static_cast<T*>(GetComponent(GetTypeID<T>()));
         }
 
-        template<typename T>
+        template <typename T>
         T* GetOrAddComponent()
         {
             return static_cast<T*>(GetOrAddComponent(GetTypeID<T>()));
         }
 
-        template<typename T>
+        template <typename T>
         T* AddComponent()
         {
             return static_cast<T*>(AddComponent(GetTypeID<T>()));
@@ -74,13 +80,18 @@ namespace Fyrion
 
         Scene*      scene;
         GameObject* parent;
+        GameObject* prefab = nullptr;
         String      name;
         UUID        uuid;
         bool        started = false;
 
         Array<GameObject*> children;
         Array<Component*>  components;
+        HashSet<UUID>      prefabOverride;
 
-        void Start();
+        void        Start();
+        GameObject* CreateInternal(UUID uuid);
+        static void CopyComponents(GameObject* dest, GameObject* origin);
+        static void InitPrefab(GameObject* object);
     };
 }

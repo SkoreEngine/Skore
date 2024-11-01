@@ -4,6 +4,7 @@
 #include "Fyrion/Editor/Asset/AssetEditor.hpp"
 #include "Fyrion/Editor/ImGui/ImGuiEditor.hpp"
 #include "Fyrion/Scene/Component/Component.hpp"
+#include "Fyrion/Scene/Component/TransformComponent.hpp"
 
 namespace Fyrion
 {
@@ -65,11 +66,6 @@ namespace Fyrion
                 {
                     return true;
                 }
-
-                if (IsParentOfSelected(*parent))
-                {
-                    return true;
-                }
             }
         }
         return false;
@@ -88,27 +84,37 @@ namespace Fyrion
             it.first->Destroy();
         }
         ClearSelection();
+        assetFile->currentVersion++;
     }
 
-    void SceneEditor::CreateGameObject()
+    void SceneEditor::CreateGameObject(Scene* prefab, bool checkSelected)
     {
         if (scene == nullptr) return;
 
-
-        if (selectedObjects.Empty())
+        String prefabName = "";
+        if (prefab != nullptr)
         {
-            GameObject* gameObject = scene->GetRootObject().CreateChild();
-            gameObject->SetName("Object");
+            AssetFile* assetFile = AssetEditor::FindAssetFileByUUID(prefab->GetUUID());
+            prefabName = assetFile->fileName;
+        }
+
+        if (!checkSelected || selectedObjects.Empty())
+        {
+            GameObject* gameObject = scene->GetRootObject().Create(prefab != nullptr ? &prefab->GetRootObject(): nullptr);
+            gameObject->SetName(!prefabName.Empty() ? prefabName : "Object");
+
+            ClearSelection();
             SelectObject(*gameObject);
-        } else
+        }
+        else
         {
             Array<GameObject*> newObjects;
             newObjects.Reserve(selectedObjects.Size());
 
             for(auto it: selectedObjects)
             {
-                GameObject* gameObject = it.first->CreateChild();
-                gameObject->SetName("Object");
+                GameObject* gameObject = it.first->Create(prefab != nullptr ? &prefab->GetRootObject(): nullptr);
+                gameObject->SetName(!prefabName.Empty() ? prefabName : "Object");
                 newObjects.EmplaceBack(gameObject);
             }
 
@@ -146,7 +152,7 @@ namespace Fyrion
             }
         }
 
-        gameObject->AddComponent(typeHandler->GetTypeInfo().typeId);
+        gameObject->AddComponent(typeHandler, UUID::RandomUUID());
         assetFile->currentVersion++;
     }
 
@@ -161,11 +167,11 @@ namespace Fyrion
         {
             if (otherComps == component) continue;
 
-            if (const ComponentDesc* componentDesc = Registry::FindTypeById(otherComps->typeId)->GetAttribute<ComponentDesc>())
+            if (const ComponentDesc* componentDesc = otherComps->typeHandler->GetAttribute<ComponentDesc>())
             {
                 for(TypeID dependency : componentDesc->dependencies)
                 {
-                    if (dependency == component->typeId)
+                    if (dependency == component->typeHandler->GetTypeInfo().typeId)
                     {
                         gameObject->RemoveComponent(otherComps);
                     }
@@ -181,6 +187,15 @@ namespace Fyrion
     {
         instance->OnChange();
         ImGui::ClearDrawData(instance);
+        assetFile->currentVersion++;
+    }
+
+    void SceneEditor::UpdateTransform(GameObject* gameObject, const Transform& oldTransform, TransformComponent* transformComponent)
+    {
+        if (gameObject->GetPrefab() != nullptr)
+        {
+            gameObject->AddPrefabOverride(transformComponent);
+        }
         assetFile->currentVersion++;
     }
 

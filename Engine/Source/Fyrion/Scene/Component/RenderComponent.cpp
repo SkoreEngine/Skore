@@ -50,7 +50,10 @@ namespace Fyrion
 
     void RenderComponent::OnDestroy()
     {
-        renderService->RemoveMesh(this);
+        if (renderService)
+        {
+            renderService->RemoveMesh(this);
+        }
     }
 
     void RenderComponent::ProcessEvent(const SceneEventDesc& event)

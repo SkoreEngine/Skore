@@ -66,6 +66,15 @@ namespace Fyrion
                            });
     }
 
+    Asset* Assets::Get(UUID uuid)
+    {
+        if (auto it = assetCache.Find(uuid))
+        {
+            return it->second.instance;
+        }
+        return nullptr;
+    }
+
     Asset* Assets::Load(UUID uuid)
     {
         if (auto it = assetCache.Find(uuid))

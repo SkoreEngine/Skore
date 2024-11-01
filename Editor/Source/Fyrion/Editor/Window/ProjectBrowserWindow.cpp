@@ -87,7 +87,12 @@ namespace Fyrion
 
         if (file->parent != nullptr && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover | ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
         {
-            ImGui::SetDragDropPayload(FY_ASSET_PAYLOAD, nullptr, 0);
+            AssetPayload payload ={
+                .assetFile = file,
+                .assetType = file->handler != nullptr ? file->handler->GetAssetTypeID() : 0
+            };
+            ImGui::SetDragDropPayload(FY_ASSET_PAYLOAD, &payload, sizeof(AssetPayload));
+
             ImGui::Text("%s", file->fileName.CStr());
             ImGui::EndDragDropSource();
         }
@@ -331,7 +336,12 @@ namespace Fyrion
 
                                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
                                 {
-                                    ImGui::SetDragDropPayload(FY_ASSET_PAYLOAD, nullptr, 0);
+                                    AssetPayload payload ={
+                                        .assetFile = assetFile,
+                                        .assetType = assetFile->handler != nullptr ? assetFile->handler->GetAssetTypeID() : 0
+                                    };
+
+                                    ImGui::SetDragDropPayload(FY_ASSET_PAYLOAD, &payload, sizeof(AssetPayload));
                                     ImGui::Text("%s", desc.label.CStr());
                                     ImGui::EndDragDropSource();
                                 }

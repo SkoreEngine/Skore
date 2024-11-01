@@ -1,5 +1,6 @@
 #include "SceneViewWindow.hpp"
 
+#include "imgui_internal.h"
 #include "Fyrion/Engine.hpp"
 #include "Fyrion/Editor/Editor.hpp"
 #include "Fyrion/Graphics/RenderPipeline.hpp"
@@ -53,6 +54,7 @@ namespace Fyrion
                 ImGui::StyleVar windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(style.ScaleFactor * 2, style.ScaleFactor * 2));
                 ImGui::StyleVar space(ImGuiStyleVar_ItemSpacing, ImVec2(1, 1));
                 ImGui::BeginChild(id + 1000, ImVec2(0, buttonSize.y + (5 * style.ScaleFactor)), false, ImGuiWindowFlags_AlwaysUseWindowPadding | ImGuiWindowFlags_NoScrollbar);
+
                 //ImGui::StyleVar itemSpacing(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
                 ImGui::BeginHorizontal("horizontal-sceneview-top", ImVec2(ImGui::GetContentRegionAvail().x, buttonSize.y));
 
@@ -182,7 +184,7 @@ namespace Fyrion
             size -= diffCursor;
             Rect bb{(i32)cursor.x, (i32)cursor.y, u32(cursor.x + size.x), u32(cursor.y + size.y)};
 
-            Extent extent = {static_cast<u32>(size.x), static_cast<u32>(size.y)};
+            Extent extent = {static_cast<u32>(size.x) , static_cast<u32>(size.y)};
 
             if (!renderPipeline)
             {
@@ -258,10 +260,7 @@ namespace Fyrion
                         if (!usingGuizmo)
                         {
                             usingGuizmo = true;
-
                             gizmoInitialTransform = transformComponent->GetTransform();
-
-                            gizmoTransaction = Editor::CreateTransaction();
 
                             // if (object->GetPrototype() != nullptr && !object->IsComponentOverride(transformComponent))
                             // {
@@ -280,14 +279,27 @@ namespace Fyrion
                         Vec3 position, rotation, scale;
                         Math::Decompose(worldMatrix, position, rotation, scale);
                         auto deltaRotation = rotation - Math::EulerAngles(transformComponent->GetRotation());
-
                         transformComponent->SetTransform(position, Math::EulerAngles(transformComponent->GetRotation()) + deltaRotation, scale);
                     }
                     else if (usingGuizmo)
                     {
-                        //gizmoTransaction->CreateAction<MoveTransformObjectAction>(sceneEditor, object, transformComponent, gizmoInitialTransform)->Commit();
+                        sceneEditor.UpdateTransform(object, gizmoInitialTransform, transformComponent);
                         usingGuizmo = false;
                     }
+                }
+            }
+
+            if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
+            {
+                AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data);
+                f32 pad = 4.0f;
+                if (assetPayload && assetPayload->assetType == GetTypeID<Scene>() && ImGui::BeginDragDropTargetCustom(ImRect(bb.x + pad, bb.y + pad, bb.width - pad, bb.height - pad), id))
+                {
+                    if (ImGui::AcceptDragDropPayload(FY_ASSET_PAYLOAD))
+                    {
+                        sceneEditor.CreateGameObject(Assets::Load<Scene>(assetPayload->assetFile->uuid), false);
+                    }
+                    ImGui::EndDragDropTarget();
                 }
             }
         }

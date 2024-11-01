@@ -47,7 +47,7 @@ namespace Fyrion
             ImGui::SetNextItemOpen(true, ImGuiCond_Always);
         }
 
-        if (gameObject.GetPrototype() != nullptr)
+        if (gameObject.GetPrefab() != nullptr)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(143, 131, 34, 255));
         }
@@ -101,7 +101,7 @@ namespace Fyrion
             ImGui::TreeLeaf(treeId, stringCache.CStr(), treeFlags);
         }
 
-        if (gameObject.GetPrototype() != nullptr)
+        if (gameObject.GetPrefab() != nullptr)
         {
             ImGui::PopStyleColor();
         }
@@ -257,7 +257,7 @@ namespace Fyrion
 
     void SceneTreeWindow::AddSceneObject(const MenuItemEventData& eventData)
     {
-        static_cast<SceneTreeWindow*>(eventData.drawData)->sceneEditor.CreateGameObject();
+        static_cast<SceneTreeWindow*>(eventData.drawData)->sceneEditor.CreateGameObject(nullptr, true);
     }
 
     void SceneTreeWindow::AddSceneObjectFromAsset(const MenuItemEventData& eventData) {}

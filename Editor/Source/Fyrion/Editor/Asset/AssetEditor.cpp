@@ -497,8 +497,8 @@ namespace Fyrion
                         String newBufferFile = Path::Join(newAbsolutePath, ".buffer");
                         FileSystem::Rename(oldBufferFile, newBufferFile);
 
-                        FileSystem::Remove(Path::Join(assetFile->absolutePath, ".info"));
-                        FileSystem::Remove(assetFile->absolutePath);
+                        FileSystem::Rename(Path::Join(assetFile->absolutePath, ".info"), Path::Join(newAbsolutePath, ".info"));
+                        FileSystem::Rename(assetFile->absolutePath, newAbsolutePath);
                     }
 
                     if (auto it = handlersByExtension.Find(assetFile->extension))

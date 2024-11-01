@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Fyrion/Common.hpp"
+#include "Fyrion/Core/UUID.hpp"
 #include "Fyrion/Scene/SceneTypes.hpp"
 
 namespace Fyrion
@@ -18,8 +19,9 @@ namespace Fyrion
 
         virtual void ProcessEvent(const SceneEventDesc& event) {}
 
-        GameObject* gameObject = nullptr;
-        TypeID      typeId = 0;
+        GameObject*  gameObject = nullptr;
+        TypeHandler* typeHandler = nullptr;
+        UUID         uuid = {};
 
         static void RegisterType(NativeTypeHandler<Component>& type);
     };

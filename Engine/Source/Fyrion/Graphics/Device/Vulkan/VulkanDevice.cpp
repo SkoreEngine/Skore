@@ -475,7 +475,9 @@ namespace Fyrion
             }
         }
 
-        defaultSampler = CreateSampler(SamplerCreation{});
+        defaultSampler = CreateSampler(SamplerCreation{
+            //.filter = SamplerFilter::Nearest
+        });
 
         logger.Info("Vulkan API {}.{}.{} Device: {} ",
                     VK_VERSION_MAJOR(vulkanDeviceProperties.apiVersion),

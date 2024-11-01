@@ -6,6 +6,7 @@
 
 namespace Fyrion
 {
+    class TransformComponent;
     struct AssetFile;
     class Component;
 
@@ -22,12 +23,13 @@ namespace Fyrion
         bool       IsParentOfSelected(GameObject& object) const;
         void       RenameObject(GameObject& object, StringView newName);
         void       DestroySelectedObjects();
-        void       CreateGameObject();
+        void       CreateGameObject(Scene* prefab, bool checkSelected);
         bool       IsValidSelection();
         void       AddComponent(GameObject* gameObject, TypeHandler* typeHandler);
         void       ResetComponent(GameObject* gameObject, Component* component);
         void       RemoveComponent(GameObject* gameObject, Component* component);
         void       UpdateComponent(GameObject* gameObject, Component* instance);
+        void       UpdateTransform(GameObject* gameObject, const Transform& oldTransform, TransformComponent* transformComponent);
 
 
         HashSet<GameObject*>& GetSelectedObjects();
