@@ -26,6 +26,11 @@ namespace Fyrion
         return uuid;
     }
 
+    StringView Asset::GetName() const
+    {
+        return loader->GetName();
+    }
+
     TypeHandler* Asset::GetTypeHandler() const
     {
         return typeHandler;

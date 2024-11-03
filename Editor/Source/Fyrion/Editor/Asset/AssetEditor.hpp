@@ -40,8 +40,9 @@ namespace Fyrion
         Texture thumbnail = {};
         bool    thumbnailVerified = false;
 
-        Asset*    LoadAsset() override;
-        Array<u8> LoadStream(usize offset, usize size) override;
+        Asset*     LoadAsset() override;
+        Array<u8>  LoadStream(usize offset, usize size) override;
+        StringView GetName() override;
 
         OutputFileStream CreateStream();
 

@@ -86,6 +86,15 @@ namespace Fyrion
         return root;
     }
 
+    GameObject* Scene::FindObjectByUUID(UUID uuid) const
+    {
+        if (auto it = objectsById.Find(uuid))
+        {
+            return it->second;
+        }
+        return nullptr;
+    }
+
     ArchiveValue Scene::Serialize(ArchiveWriter& writer) const
     {
         ArchiveValue sceneValue = writer.CreateObject();

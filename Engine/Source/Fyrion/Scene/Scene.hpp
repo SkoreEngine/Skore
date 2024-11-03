@@ -20,6 +20,7 @@ namespace Fyrion
         static void RegisterType(NativeTypeHandler<Scene>& type);
 
         GameObject& GetRootObject();
+        GameObject* FindObjectByUUID(UUID uuid) const;
 
         ArchiveValue Serialize(ArchiveWriter& writer) const;
         void         Deserialize(ArchiveReader& reader, ArchiveValue value);

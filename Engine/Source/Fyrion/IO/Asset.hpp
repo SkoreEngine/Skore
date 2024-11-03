@@ -16,6 +16,7 @@ namespace Fyrion
         ~Asset() override = default;
 
         UUID         GetUUID() const;
+        StringView   GetName() const;
         TypeHandler* GetTypeHandler() const;
         Array<u8>    LoadStream(usize offset, usize size) const;
         void         SetTypeHandler(TypeHandler* typeHandler);
@@ -32,8 +33,9 @@ namespace Fyrion
     {
         virtual ~AssetLoader() = default;
 
-        virtual Asset*    LoadAsset() = 0;
-        virtual Array<u8> LoadStream(usize offset, usize size) = 0;
+        virtual Asset*     LoadAsset() = 0;
+        virtual Array<u8>  LoadStream(usize offset, usize size) = 0;
+        virtual StringView GetName() = 0;
     };
 
     class FY_API Assets

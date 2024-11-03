@@ -201,7 +201,7 @@ namespace Fyrion
         }
 
         bool popupOpenSettings = ImGui::BeginPopupMenu("open-component-settings", 0, false);
-        if (popupOpenSettings)
+        if (popupOpenSettings && selectedComponent)
         {
             if (ImGui::MenuItem("Reset"))
             {
@@ -209,21 +209,14 @@ namespace Fyrion
                 ImGui::CloseCurrentPopup();
             }
 
-            // if (gameObject->GetPrototype() != nullptr && !gameObject.IsComponentOverride(selectedComponent))
-            // {
-            //     if (ImGui::MenuItem("Override"))
-            //     {
-            //         sceneEditor.OverridePrototypeComponent(&gameObject, selectedComponent);
-            //     }
-            // }
-            //
-            // if (gameObject->GetPrototype() != nullptr && gameObject.IsComponentOverride(selectedComponent))
-            // {
-            //     if (ImGui::MenuItem("Remove prototype override"))
-            //     {
-            //         sceneEditor.RemoveOverridePrototypeComponent(&gameObject, selectedComponent);
-            //     }
-            // }
+
+            if (gameObject->GetPrefab() != nullptr && gameObject->IsComponentOverride(selectedComponent))
+            {
+                if (ImGui::MenuItem("Remove prefab override"))
+                {
+                    sceneEditor.RemoveComponentOverride(gameObject, selectedComponent);
+                }
+            }
 
             if (ImGui::MenuItem("Remove"))
             {

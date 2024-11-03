@@ -100,7 +100,7 @@ namespace Fyrion
 
         if (!checkSelected || selectedObjects.Empty())
         {
-            GameObject* gameObject = scene->GetRootObject().Create(prefab != nullptr ? &prefab->GetRootObject(): nullptr);
+            GameObject* gameObject = scene->GetRootObject().Create(prefab != nullptr ? prefab: nullptr);
             gameObject->SetName(!prefabName.Empty() ? prefabName : "Object");
 
             ClearSelection();
@@ -113,7 +113,7 @@ namespace Fyrion
 
             for(auto it: selectedObjects)
             {
-                GameObject* gameObject = it.first->Create(prefab != nullptr ? &prefab->GetRootObject(): nullptr);
+                GameObject* gameObject = it.first->Create(prefab != nullptr ? prefab: nullptr);
                 gameObject->SetName(!prefabName.Empty() ? prefabName : "Object");
                 newObjects.EmplaceBack(gameObject);
             }
@@ -194,8 +194,14 @@ namespace Fyrion
     {
         if (gameObject->GetPrefab() != nullptr)
         {
-            gameObject->AddPrefabOverride(transformComponent);
+            gameObject->AddComponentOverride(transformComponent);
         }
+        assetFile->currentVersion++;
+    }
+
+    void SceneEditor::RemoveComponentOverride(GameObject* gameObject, Component* component)
+    {
+        gameObject->RemoveComponentOverride(component);
         assetFile->currentVersion++;
     }
 

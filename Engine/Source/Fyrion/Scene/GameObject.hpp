@@ -3,6 +3,7 @@
 #include "SceneTypes.hpp"
 #include "Fyrion/Common.hpp"
 #include "Fyrion/Core/Array.hpp"
+#include "Fyrion/Core/HashMap.hpp"
 #include "Fyrion/Core/HashSet.hpp"
 #include "Fyrion/Core/Span.hpp"
 #include "Fyrion/Core/String.hpp"
@@ -30,7 +31,7 @@ namespace Fyrion
         GameObject* GetPrefab() const;
 
         GameObject*       Create();
-        GameObject*       Create(GameObject* prefab);
+        GameObject*       Create(Scene* prefab);
         Span<GameObject*> GetChildren() const;
         void              RemoveChild(GameObject* gameObject);
         GameObject*       FindChildByName(StringView name) const;
@@ -43,12 +44,12 @@ namespace Fyrion
         Component*       AddComponent(TypeHandler* typeHandler, UUID uuid);
         void             RemoveComponent(Component* component);
         Span<Component*> GetComponents() const;
-        void             AddPrefabOverride(Component* component);
+        void             AddComponentOverride(Component* component);
+        void             RemoveComponentOverride(Component* component, bool resetValue = true);
+        bool             IsComponentOverride(Component* component);
 
         ArchiveValue Serialize(ArchiveWriter& writer) const;
         void         Deserialize(ArchiveReader& reader, ArchiveValue value);
-
-
 
 
         void NotifyEvent(const SceneEventDesc& event);
@@ -85,13 +86,17 @@ namespace Fyrion
         UUID        uuid;
         bool        started = false;
 
-        Array<GameObject*> children;
-        Array<Component*>  components;
-        HashSet<UUID>      prefabOverride;
+        Array<GameObject*>        children;
+        Array<Component*>         components;
+        HashMap<UUID, Component*> overrideComponents;
 
         void        Start();
         GameObject* CreateInternal(UUID uuid);
         static void CopyComponents(GameObject* dest, GameObject* origin);
-        static void InitPrefab(GameObject* object);
+
+        void       InitPrefab(GameObject* objectPrefab);
+        void       AddComponentInternal(Component* component);
+
+        GameObject* GetPrefabInstance();
     };
 }

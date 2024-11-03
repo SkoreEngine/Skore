@@ -189,6 +189,11 @@ namespace Fyrion
         return arr;
     }
 
+    StringView AssetFile::GetName()
+    {
+        return fileName;
+    }
+
     OutputFileStream AssetFile::CreateStream()
     {
         tempBuffer = Path::Join(bufferTempFolder, uuid.ToString(), ".buffer");
