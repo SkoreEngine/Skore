@@ -37,7 +37,6 @@ namespace Fyrion
         GameObject*       FindChildByName(StringView name) const;
 
         Component*       GetComponent(TypeID typeId) const;
-        Component*       GetComponentByUUID(UUID uuid) const;
         Component*       GetOrAddComponent(TypeID typeId);
         void             GetComponentsOfType(TypeID typeId, Array<Component*> arrComponents) const;
         Component*       AddComponent(TypeID typeId);
@@ -76,27 +75,32 @@ namespace Fyrion
         friend class Scene;
 
     private:
+        struct Instance
+        {
+            Scene*        scene = nullptr;
+            GameObject*   object = nullptr;
+            UUID          id = {};
+            HashSet<UUID> removedComponents;
+        };
+
         GameObject(Scene* scene);
         GameObject(Scene* scene, GameObject* parent);
 
         Scene*      scene;
         GameObject* parent;
-        GameObject* prefab = nullptr;
+        Instance    instance;
         String      name;
         UUID        uuid;
         bool        started = false;
 
-        Array<GameObject*>        children;
-        Array<Component*>         components;
-        HashMap<UUID, Component*> overrideComponents;
+        Array<GameObject*> children;
+        Array<Component*>  components;
 
         void        Start();
         GameObject* CreateInternal(UUID uuid);
         static void CopyComponents(GameObject* dest, GameObject* origin);
+        GameObject* FindByInstance(UUID uuid) const;
 
-        void       InitPrefab(GameObject* objectPrefab);
-        void       AddComponentInternal(Component* component);
-
-        GameObject* GetPrefabInstance();
+        void InitPrefab(GameObject* objectPrefab);
     };
 }

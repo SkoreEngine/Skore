@@ -8,7 +8,6 @@ namespace Fyrion
     GameObject::GameObject(Scene* scene) : scene(scene), parent(nullptr) {}
     GameObject::GameObject(Scene* scene, GameObject* parent) : scene(scene), parent(parent) {}
 
-
     GameObject::~GameObject()
     {
         if (parent)
@@ -23,7 +22,6 @@ namespace Fyrion
 
         for (Component* component : components)
         {
-            RemoveComponentOverride(component, false);
             component->OnDestroy();
             component->typeHandler->Destroy(component);
         }
@@ -70,7 +68,7 @@ namespace Fyrion
 
     GameObject* GameObject::GetPrefab() const
     {
-        return prefab;
+        return instance.object;
     }
 
     Span<GameObject*> GameObject::GetChildren() const
@@ -94,53 +92,51 @@ namespace Fyrion
     {
         for (Component* component : origin->components)
         {
-            Component* newComponent = dest->AddComponent(component->typeHandler, component->uuid);
+            Component* newComponent = dest->AddComponent(component->typeHandler, UUID::RandomUUID());
             newComponent->typeHandler->DeepCopy(component, newComponent);
         }
     }
 
+    GameObject* GameObject::FindByInstance(UUID uuid) const
+    {
+        for (GameObject* child : children)
+        {
+            if (child->instance.id == uuid)
+            {
+                return child;
+            }
+        }
+        return nullptr;
+    }
+
     void GameObject::InitPrefab(GameObject* objectPrefab)
     {
-        prefab = objectPrefab;
+        instance.object = objectPrefab;
 
-        SetName(objectPrefab->GetName());
+        if (name.Empty())
+        {
+            SetName(objectPrefab->GetName());
+        }
 
         for (Component* component : objectPrefab->components)
         {
-            if (auto it = GetPrefabInstance()->overrideComponents.Find(component->uuid))
-            {
-                AddComponentInternal(it->second);
-            }
-            else
-            {
-                Component* newComponent = AddComponent(component->typeHandler, component->uuid);
-                newComponent->typeHandler->DeepCopy(component, newComponent);
-            }
+            //check if GameObject already have this component.
+            Component* newComponent = AddComponent(component->typeHandler, UUID::RandomUUID());
+            newComponent->typeHandler->DeepCopy(component, newComponent);
+            newComponent->prefab = component;
         }
 
         for (GameObject* child : objectPrefab->children)
         {
-            GameObject* childPrefab = this->CreateInternal(UUID::RandomUUID());
-            childPrefab->prefab = prefab;
-            childPrefab->SetName(child->GetName());
+            GameObject* childPrefab = FindByInstance(child->uuid);
+            if (!childPrefab)
+            {
+                childPrefab = this->CreateInternal(UUID::RandomUUID());
+            }
+            childPrefab->instance.id = child->uuid;
             childPrefab->InitPrefab(child);
             childPrefab->Start();
         }
-    }
-
-    GameObject* GameObject::GetPrefabInstance()
-    {
-        //TODO, maybe cache it in the object?
-        if (parent != nullptr)
-        {
-            if (parent->prefab == nullptr)
-            {
-                return this;
-            }
-
-            return parent->GetPrefabInstance();
-        }
-        return nullptr;
     }
 
     GameObject* GameObject::Create()
@@ -148,12 +144,14 @@ namespace Fyrion
         return CreateInternal(UUID::RandomUUID());
     }
 
-    GameObject* GameObject::Create(Scene* prefab)
+    GameObject* GameObject::Create(Scene* scene)
     {
         GameObject* gameObject = CreateInternal(UUID::RandomUUID());
-        if (prefab)
+
+        if (scene)
         {
-            gameObject->InitPrefab(&prefab->GetRootObject());
+            gameObject->instance.scene = scene;
+            gameObject->InitPrefab(&scene->GetRootObject());
         }
 
         return gameObject;
@@ -185,18 +183,6 @@ namespace Fyrion
         for (Component* component : components)
         {
             if (component->typeHandler->GetTypeInfo().typeId == typeId)
-            {
-                return component;
-            }
-        }
-        return nullptr;
-    }
-
-    Component* GameObject::GetComponentByUUID(UUID uuid) const
-    {
-        for (Component* component : components)
-        {
-            if (component->uuid == uuid)
             {
                 return component;
             }
@@ -239,19 +225,14 @@ namespace Fyrion
     {
         Component* component = static_cast<Component*>(typeHandler->NewObject());
         component->typeHandler = typeHandler;
-        component->uuid = uuid;
-        AddComponentInternal(component);
-        return component;
-    }
-
-    void GameObject::AddComponentInternal(Component* component)
-    {
         component->gameObject = this;
+        component->uuid = uuid;
         components.EmplaceBack(component);
         if (started)
         {
             scene->componentsToStart.EmplaceBack(component);
         }
+        return component;
     }
 
     void GameObject::RemoveComponent(Component* component)
@@ -272,182 +253,145 @@ namespace Fyrion
 
     void GameObject::AddComponentOverride(Component* component)
     {
-        if (prefab != nullptr)
-        {
-            if (GameObject* prefabInstance = GetPrefabInstance())
-            {
-                prefabInstance->overrideComponents.Insert(component->uuid, component);
-            }
-        }
+        // if (prefab != nullptr)
+        // {
+        //     overrideComponents.Insert(component->uuid, component);
+        // }
     }
 
     void GameObject::RemoveComponentOverride(Component* component, bool resetValue)
     {
-        if (prefab != nullptr)
-        {
-            if (GameObject* prefabInstance = GetPrefabInstance())
-            {
-                prefabInstance->overrideComponents.Erase(component->uuid);
-                if (resetValue)
-                {
-                    if (Component* originalValue = prefab->GetComponentByUUID(component->uuid))
-                    {
-                        component->typeHandler->DeepCopy(originalValue, component);
-                        component->OnChange();
-                    }
-                }
-            }
-        }
+        // if (prefab != nullptr)
+        // {
+        //     overrideComponents.Erase(component->uuid);
+        //     if (resetValue)
+        //     {
+        //         if (Component* originalValue = prefab->GetComponentByUUID(component->uuid))
+        //         {
+        //             component->typeHandler->DeepCopy(originalValue, component);
+        //             component->OnChange();
+        //         }
+        //     }
+        // }
     }
 
     bool GameObject::IsComponentOverride(Component* component)
     {
-        if (GameObject* prefabInstance = GetPrefabInstance())
-        {
-            return prefabInstance->overrideComponents.Has(component->uuid);
-        }
+        //return overrideComponents.Has(component->uuid);
         return false;
-
     }
 
     ArchiveValue GameObject::Serialize(ArchiveWriter& writer) const
     {
         ArchiveValue object = writer.CreateObject();
 
-        if (!name.Empty() && prefab == nullptr)
+        if (!name.Empty() && (!instance.object || instance.object->name != name))
         {
             writer.AddToObject(object, "name", writer.StringValue(name));
         }
 
         writer.AddToObject(object, "uuid", writer.StringValue(uuid.ToString()));
 
-        if (!prefab)
+        if (instance.id)
         {
-            ArchiveValue childrenArr{};
+            writer.AddToObject(object, "instance", writer.StringValue(instance.id.ToString()));
+        }
 
-            for (GameObject* child : children)
+        if (instance.scene)
+        {
+            writer.AddToObject(object, "scene", writer.StringValue(instance.scene->GetUUID().ToString()));
+        }
+
+        ArchiveValue childrenArr{};
+
+        for (GameObject* child : children)
+        {
+            if (ArchiveValue valueChild = child->Serialize(writer))
             {
-                if (ArchiveValue valueChild = child->Serialize(writer))
+                if (!childrenArr)
                 {
-                    if (!childrenArr)
-                    {
-                        childrenArr = writer.CreateArray();
-                    }
-                    writer.AddToArray(childrenArr, valueChild);
+                    childrenArr = writer.CreateArray();
                 }
-            }
-
-            if (childrenArr)
-            {
-                writer.AddToObject(object, "children", childrenArr);
-            }
-
-            ArchiveValue componentArr{};
-
-            for (const Component* component : components)
-            {
-                ArchiveValue componentValue = Serialization::Serialize(component->typeHandler, writer, component);
-                writer.AddToObject(componentValue, "_type", writer.StringValue(component->typeHandler->GetName()));
-                writer.AddToObject(componentValue, "_uuid", writer.StringValue(component->uuid.ToString()));
-                if (!componentArr)
-                {
-                    componentArr = writer.CreateArray();
-                }
-                writer.AddToArray(componentArr, componentValue);
-            }
-
-            if (componentArr)
-            {
-                writer.AddToObject(object, "components", componentArr);
+                writer.AddToArray(childrenArr, valueChild);
             }
         }
-        else
-        {
-            writer.AddToObject(object, "prefab", writer.StringValue(prefab->GetUUID().ToString()));
 
-            if (!overrideComponents.Empty())
-            {
-                ArchiveValue overrideArr = writer.CreateArray();
-                for (auto it : overrideComponents)
-                {
-                    Component*   component = it.second;
-                    ArchiveValue componentValue = Serialization::Serialize(component->typeHandler, writer, component);
-                    writer.AddToObject(componentValue, "_type", writer.StringValue(component->typeHandler->GetName()));
-                    writer.AddToObject(componentValue, "_uuid", writer.StringValue(component->uuid.ToString()));
-                    writer.AddToArray(overrideArr, componentValue);
-                }
-                writer.AddToObject(object, "componentOverrides", overrideArr);
-            }
+        if (childrenArr)
+        {
+            writer.AddToObject(object, "children", childrenArr);
         }
+
+        ArchiveValue componentArr{};
+
+        for (const Component* component : components)
+        {
+            if (component->prefab != nullptr) continue;
+
+            ArchiveValue componentValue = Serialization::Serialize(component->typeHandler, writer, component);
+            writer.AddToObject(componentValue, "_type", writer.StringValue(component->typeHandler->GetName()));
+            writer.AddToObject(componentValue, "_uuid", writer.StringValue(component->uuid.ToString()));
+            if (!componentArr)
+            {
+                componentArr = writer.CreateArray();
+            }
+            writer.AddToArray(componentArr, componentValue);
+        }
+
+        if (componentArr)
+        {
+            writer.AddToObject(object, "components", componentArr);
+        }
+
         return object;
     }
 
     void GameObject::Deserialize(ArchiveReader& reader, ArchiveValue value)
     {
-        auto deserializeComponent = [](ArchiveReader& reader, ArchiveValue vlComponent) -> Component*
-        {
-            if (StringView typeName = reader.StringValue(reader.GetObjectValue(vlComponent, "_type")); !typeName.Empty())
-            {
-                if (TypeHandler* typeHandler = Registry::FindTypeByName(typeName))
-                {
-                    Component* component = static_cast<Component*>(typeHandler->NewObject());
-                    Serialization::Deserialize(typeHandler, reader, vlComponent, component);
-                    component->uuid = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlComponent, "_uuid")));
-                    component->typeHandler = typeHandler;
-                    return component;
-                }
-            }
-            return nullptr;
-        };
-
-
         if (StringView name = reader.StringValue(reader.GetObjectValue(value, "name")); !name.Empty())
         {
             SetName(name);
         }
 
-        if (UUID prefabId = UUID::FromString(reader.StringValue(reader.GetObjectValue(value, "prefab"))))
-        {
-            if (Scene* prefabScene = Assets::Load<Scene>(prefabId))
-            {
-                ArchiveValue arrComponentOverrides = reader.GetObjectValue(value, "componentOverrides");
-                usize        arrComponentOverridesSize = reader.ArraySize(arrComponentOverrides);
+        ArchiveValue arrChildren = reader.GetObjectValue(value, "children");
+        usize        arrChildrenSize = reader.ArraySize(arrChildren);
 
-                ArchiveValue vlComponenOverride{};
-                for (usize c = 0; c < arrComponentOverridesSize; ++c)
+        ArchiveValue vlChild{};
+        for (usize c = 0; c < arrChildrenSize; ++c)
+        {
+            vlChild = reader.ArrayNext(arrChildren, vlChild);
+            UUID childUUID   = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlChild, "uuid")));
+            GameObject* child = CreateInternal(childUUID);
+
+            child->Deserialize(reader, vlChild);
+        }
+
+        ArchiveValue arrComponent = reader.GetObjectValue(value, "components");
+        usize        arrComponentSize = reader.ArraySize(arrComponent);
+
+        ArchiveValue vlComponent{};
+        for (usize c = 0; c < arrComponentSize; ++c)
+        {
+            vlComponent = reader.ArrayNext(arrComponent, vlComponent);
+
+            if (StringView typeName = reader.StringValue(reader.GetObjectValue(vlComponent, "_type")); !typeName.Empty())
+            {
+                if (TypeHandler* typeHandler = Registry::FindTypeByName(typeName))
                 {
-                    vlComponenOverride = reader.ArrayNext(arrComponentOverrides, vlComponenOverride);
-                    if (Component* component = deserializeComponent(reader, vlComponenOverride))
-                    {
-                        overrideComponents.Insert(component->uuid, component);
-                    }
+                    UUID uuid = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlComponent, "_uuid")));
+                    Component* component = AddComponent(typeHandler, uuid);
+                    Serialization::Deserialize(typeHandler, reader, vlComponent, component);
                 }
-                InitPrefab(&prefabScene->GetRootObject());
             }
         }
-        else
+
+        instance.id = UUID::FromString(reader.StringValue(reader.GetObjectValue(value, "instance")));
+
+        if (UUID sceneId = UUID::FromString(reader.StringValue(reader.GetObjectValue(value, "scene"))))
         {
-            ArchiveValue arrChildren = reader.GetObjectValue(value, "children");
-            usize        arrChildrenSize = reader.ArraySize(arrChildren);
-
-            ArchiveValue vlChild{};
-            for (usize c = 0; c < arrChildrenSize; ++c)
+            instance.scene = Assets::Load<Scene>(sceneId);
+            if (instance.scene)
             {
-                vlChild = reader.ArrayNext(arrChildren, vlChild);
-                UUID childUUID   = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlChild, "uuid")));
-                GameObject* child = CreateInternal(childUUID);
-
-                child->Deserialize(reader, vlChild);
-            }
-
-            ArchiveValue arrComponent = reader.GetObjectValue(value, "components");
-            usize        arrComponentSize = reader.ArraySize(arrComponent);
-
-            ArchiveValue vlComponent{};
-            for (usize c = 0; c < arrComponentSize; ++c)
-            {
-                vlComponent = reader.ArrayNext(arrComponent, vlComponent);
-                AddComponentInternal(deserializeComponent(reader, vlComponent));
+                InitPrefab(&instance.scene->GetRootObject());
             }
         }
     }
