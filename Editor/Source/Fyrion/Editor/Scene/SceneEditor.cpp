@@ -81,27 +81,31 @@ namespace Fyrion
     {
         for (auto it : selectedObjects)
         {
+            if (it.first->GetParent() != nullptr)
+            {
+                it.first->GetParent()->RemoveInstanceObject(it.first);
+            }
             it.first->Destroy();
         }
         ClearSelection();
         assetFile->currentVersion++;
     }
 
-    void SceneEditor::CreateGameObject(Scene* prefab, bool checkSelected)
+    void SceneEditor::CreateGameObject(Scene* instance, bool checkSelected)
     {
         if (scene == nullptr) return;
 
-        String prefabName = "";
-        if (prefab != nullptr)
+        String instanceName = "";
+        if (instance != nullptr)
         {
-            AssetFile* assetFile = AssetEditor::FindAssetFileByUUID(prefab->GetUUID());
-            prefabName = assetFile->fileName;
+            AssetFile* assetFile = AssetEditor::FindAssetFileByUUID(instance->GetUUID());
+            instanceName = assetFile->fileName;
         }
 
         if (!checkSelected || selectedObjects.Empty())
         {
-            GameObject* gameObject = scene->GetRootObject().Create(prefab != nullptr ? prefab: nullptr);
-            gameObject->SetName(!prefabName.Empty() ? prefabName : "Object");
+            GameObject* gameObject = scene->GetRootObject().Create(instance != nullptr ? instance: nullptr);
+            gameObject->SetName(!instanceName.Empty() ? instanceName : "Object");
 
             ClearSelection();
             SelectObject(*gameObject);
@@ -113,8 +117,8 @@ namespace Fyrion
 
             for(auto it: selectedObjects)
             {
-                GameObject* gameObject = it.first->Create(prefab != nullptr ? prefab: nullptr);
-                gameObject->SetName(!prefabName.Empty() ? prefabName : "Object");
+                GameObject* gameObject = it.first->Create(instance != nullptr ? instance: nullptr);
+                gameObject->SetName(!instanceName.Empty() ? instanceName : "Object");
                 newObjects.EmplaceBack(gameObject);
             }
 
@@ -173,13 +177,16 @@ namespace Fyrion
                 {
                     if (dependency == component->typeHandler->GetTypeInfo().typeId)
                     {
+                        gameObject->RemoveInstanceComponent(otherComps);
                         gameObject->RemoveComponent(otherComps);
                     }
                 }
             }
         }
 
+        gameObject->RemoveInstanceComponent(component);
         gameObject->RemoveComponent(component);
+
         assetFile->currentVersion++;
     }
 
@@ -192,10 +199,7 @@ namespace Fyrion
 
     void SceneEditor::UpdateTransform(GameObject* gameObject, const Transform& oldTransform, TransformComponent* transformComponent)
     {
-        if (gameObject->GetPrefab() != nullptr)
-        {
-            gameObject->AddComponentOverride(transformComponent);
-        }
+        gameObject->AddComponentOverride(transformComponent);
         assetFile->currentVersion++;
     }
 

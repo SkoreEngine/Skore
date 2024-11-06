@@ -23,7 +23,7 @@ namespace Fyrion
         bool       IsParentOfSelected(GameObject& object) const;
         void       RenameObject(GameObject& object, StringView newName);
         void       DestroySelectedObjects();
-        void       CreateGameObject(Scene* prefab, bool checkSelected);
+        void       CreateGameObject(Scene* instance, bool checkSelected);
         bool       IsValidSelection();
         void       AddComponent(GameObject* gameObject, TypeHandler* typeHandler);
         void       ResetComponent(GameObject* gameObject, Component* component);
