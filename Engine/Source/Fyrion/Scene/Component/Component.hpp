@@ -22,6 +22,7 @@ namespace Fyrion
         GameObject*  gameObject = nullptr;
         TypeHandler* typeHandler = nullptr;
         UUID         uuid = {};
+        Component*   instance = nullptr;
 
         static void RegisterType(NativeTypeHandler<Component>& type);
     };

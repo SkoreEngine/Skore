@@ -47,7 +47,7 @@ namespace Fyrion
             ImGui::SetNextItemOpen(true, ImGuiCond_Always);
         }
 
-        if (gameObject.GetPrefab() != nullptr)
+        if (gameObject.GetInstance() != nullptr)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(143, 131, 34, 255));
         }
@@ -101,7 +101,7 @@ namespace Fyrion
             ImGui::TreeLeaf(treeId, stringCache.CStr(), treeFlags);
         }
 
-        if (gameObject.GetPrefab() != nullptr)
+        if (gameObject.GetInstance() != nullptr)
         {
             ImGui::PopStyleColor();
         }

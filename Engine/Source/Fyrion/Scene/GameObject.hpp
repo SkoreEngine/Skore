@@ -28,17 +28,18 @@ namespace Fyrion
         void        SetName(StringView newName);
         UUID        GetUUID() const;
 
-        GameObject* GetPrefab() const;
+        GameObject* GetInstance() const;
+        Scene*      GetSceneInstance() const;
 
         GameObject*       Create();
-        GameObject*       Create(Scene* prefab);
+        GameObject*       Create(Scene* instance);
         Span<GameObject*> GetChildren() const;
         void              RemoveChild(GameObject* gameObject);
         GameObject*       FindChildByName(StringView name) const;
 
         Component*       GetComponent(TypeID typeId) const;
-        Component*       GetComponentByUUID(UUID uuid) const;
         Component*       GetOrAddComponent(TypeID typeId);
+        Component*       FindComponentByUUID(UUID uuid) const;
         void             GetComponentsOfType(TypeID typeId, Array<Component*> arrComponents) const;
         Component*       AddComponent(TypeID typeId);
         Component*       AddComponent(TypeHandler* typeHandler, UUID uuid);
@@ -50,6 +51,11 @@ namespace Fyrion
 
         ArchiveValue Serialize(ArchiveWriter& writer) const;
         void         Deserialize(ArchiveReader& reader, ArchiveValue value);
+
+
+        //instance functions
+        void RemoveInstanceObject(GameObject* gameObject);
+        void RemoveInstanceComponent(Component* component);
 
 
         void NotifyEvent(const SceneEventDesc& event);
@@ -76,27 +82,34 @@ namespace Fyrion
         friend class Scene;
 
     private:
+        struct Instance
+        {
+            Scene*        scene = nullptr;      //TODO: maybe it's possible to remove scene, it can be get from object.
+            GameObject*   object = nullptr;
+            HashSet<UUID> modifiedComponents;
+            HashSet<UUID> removedComponents;
+            HashSet<UUID> removedObjects;
+        };
+
         GameObject(Scene* scene);
         GameObject(Scene* scene, GameObject* parent);
 
         Scene*      scene;
         GameObject* parent;
-        GameObject* prefab = nullptr;
+        Instance    instance;
         String      name;
         UUID        uuid;
         bool        started = false;
 
-        Array<GameObject*>        children;
-        Array<Component*>         components;
-        HashMap<UUID, Component*> overrideComponents;
+        Array<GameObject*> children;
+        Array<Component*>  components;
 
         void        Start();
         GameObject* CreateInternal(UUID uuid);
         static void CopyComponents(GameObject* dest, GameObject* origin);
+        GameObject* FindByInstance(UUID uuid) const;
+        Component*  FindComponentByInstance(UUID uuid) const;
 
-        void       InitPrefab(GameObject* objectPrefab);
-        void       AddComponentInternal(Component* component);
-
-        GameObject* GetPrefabInstance();
+        void InitInstance();
     };
 }
