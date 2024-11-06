@@ -332,9 +332,8 @@ namespace Fyrion
 
     void AssetEditor::AddPackage(StringView name, StringView directory)
     {
-        logger.Info("start scanning files");
-        String assetFolder = Path::Join(directory, "Assets");
-        if (AssetFile* assetFile = ScanForAssets(assetFolder))
+        logger.Info("start scanning package files {} ", directory);
+        if (AssetFile* assetFile = ScanForAssets(directory))
         {
             assetFile->fileName = name;
             packages.EmplaceBack(assetFile);
@@ -370,7 +369,7 @@ namespace Fyrion
             FileSystem::CreateDirectory(assetFolder);
         }
 
-        logger.Info("start scanning files");
+        logger.Info("start scanning project files {}", assetFolder);
 
         if (AssetFile* assetFile = ScanForAssets(assetFolder))
         {
