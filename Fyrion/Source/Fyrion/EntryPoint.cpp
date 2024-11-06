@@ -16,18 +16,17 @@ int main(i32 argc, char** argv)
 
     String projectPath = args.Get("projectPath");
     //
-    // if (projectPath.Empty())
-    // {
-    //     Engine::Init(argc, argv);
-    //     Launcher::Init();
-    //     Engine::Run();
-    //     projectPath = Launcher::GetProject();
-    //     Launcher::Shutdown();
-    //     Engine::Destroy();
-    // }
+    if (projectPath.Empty())
+    {
+        Engine::Init(argc, argv);
+        Launcher::Init();
+        Engine::Run();
+        projectPath = Launcher::GetProject();
+        Launcher::Shutdown();
+        Engine::Destroy();
+    }
 
-    //if (!projectPath.Empty())
-    if (true)
+    if (!projectPath.Empty())
     {
         Engine::Init(argc, argv);
         Editor::Init(projectPath);

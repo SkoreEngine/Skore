@@ -9,8 +9,11 @@
 
 #include "LauncherTypes.hpp"
 #include "Fyrion/Core/Registry.hpp"
+#include "Fyrion/Core/StaticContent.hpp"
 #include "Fyrion/Core/StringUtils.hpp"
 #include "Fyrion/Editor/Editor.hpp"
+#include "Fyrion/Editor/ImGui/ImGuiEditor.hpp"
+#include "Fyrion/Graphics/Graphics.hpp"
 
 #define PROJECT_NAME_EMPTY          2
 #define PROJECT_ALREADY_EXISTS      3
@@ -25,8 +28,8 @@ namespace Fyrion
         String                   projectSearch{};
         String                   searchText{};
         String                   appFolder{};
-        String                   settingsFolder{};
-        ProjectLauncherSettings* projectLauncherSettings = nullptr;
+        String                   launcherCfg{};
+        ProjectLauncherSettings  projectLauncherSettings;
 
         String newProjectPath{};
         String newProjectName = "New Project";
@@ -40,22 +43,17 @@ namespace Fyrion
         Texture iconTexture = {};
     }
 
+    void SaveConfig()
+    {
+        JsonArchiveWriter archiveWriter;
+        ArchiveValue value = Serialization::Serialize(Registry::FindType<ProjectLauncherSettings>(), archiveWriter, &projectLauncherSettings);
+        FileSystem::SaveFileAsString(launcherCfg, JsonArchiveWriter::Stringify(value));
+    }
+
 
     void LauncherInit()
     {
-        // if (TextureAsset* textureAsset = AssetManager::LoadByPath<TextureAsset>("Fyrion://Textures/LogoSmall.jpeg"))
-        // {
-        //     iconTexture = textureAsset->GetTexture();
-        // }
-
-        if (projectLauncherSettings->defaultPath.Empty())
-        {
-            newProjectPath = Path::Join(FileSystem::DocumentsDir(), "Fyrion Projects");
-        }
-        else
-        {
-            newProjectPath = projectLauncherSettings->defaultPath;
-        }
+        iconTexture = StaticContent::GetTextureFile("Content/Images/LogoSmall.jpeg");
     }
 
 
@@ -126,14 +124,14 @@ namespace Fyrion
 
                     FileFilter filter{
                         .name = "Fyrion Project",
-                        .spec = "fy_project"
+                        .spec = "fyrion"
                     };
 
                     if (Platform::OpenDialog(path, {filter}, {}) == DialogResult::OK)
                     {
                         if (FileSystem::GetFileStatus(path).exists)
                         {
-                            projectLauncherSettings->recentProjects.EmplaceBack(path);
+                            projectLauncherSettings.recentProjects.EmplaceBack(path);
                             projectFilePath = path;
                             Engine::Shutdown();
                         }
@@ -158,19 +156,55 @@ namespace Fyrion
                 {
                     ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.01f, 0.5f));
 
+                    if (ImGui::BeginContentTable("asset-selection", 1.0))
+                    {
+                        for(auto& recentProject : projectLauncherSettings.recentProjects)
+                        {
+                            String projectName = Path::Name(recentProject);
+
+                            ImGui::ContentItemDesc contentItem{};
+                            contentItem.id = HashValue(projectName);
+                            contentItem.label = projectName;
+                            contentItem.thumbnailScale = 1.0;
+                            contentItem.texture = iconTexture;
+
+                            ImGui::ContentItemState state = ImGui::ContentItem(contentItem);
+
+                            if (state.doubleClicked)
+                            {
+                                projectFilePath = recentProject;
+                                Engine::Shutdown();
+                            }
+
+                            if (state.clicked)
+                            {
+                                selectedProject = recentProject;
+                            }
+
+                            if (state.hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+                            {
+                                openPopup = true;
+                            }
+                        }
+                        ImGui::EndContentTable();
+                    }
+
+
+
+
                     // ImGui::BeginContentTable(30001, 96 * ImGui::GetStyle().ScaleFactor);
                     //
                     // i32 c = 0;
                     //
-                    // auto it = projectLauncherSettings->recentProjects.begin();
-                    // while (it != projectLauncherSettings->recentProjects.end())
+                    // auto it = projectLauncherSettings.recentProjects.begin();
+                    // while (it != projectLauncherSettings.recentProjects.end())
                     // {
                     //     const String& recentProject = *it;
                     //
                     //     if (!FileSystem::GetFileStatus(recentProject).exists)
                     //     {
-                    //         projectLauncherSettings->SetModified();
-                    //         it = projectLauncherSettings->recentProjects.Erase(it);
+                    //         projectLauncherSettings.SetModified();
+                    //         it = projectLauncherSettings.recentProjects.Erase(it);
                     //         continue;
                     //     }
                     //
@@ -197,14 +231,10 @@ namespace Fyrion
                     //
                     //     if (ImGui::DrawContentItem(contentItem))
                     //     {
-                    //         projectFilePath = recentProject;
-                    //         Engine::Shutdown();
+
                     //     }
                     //
-                    //     if (ImGui::ContentItemHovered(contentItem.ItemId) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
-                    //     {
-                    //         openPopup = true;
-                    //     }
+
                     //     //
                     //     if (ImGui::ContentItemFocused(contentItem.ItemId))
                     //     {
@@ -350,8 +380,8 @@ namespace Fyrion
                         projectFilePath = Editor::CreateProject(newProjectPath, newProjectName);
                         if (!projectFilePath.Empty())
                         {
-                            projectLauncherSettings->defaultPath = newProjectPath;
-                            projectLauncherSettings->recentProjects.EmplaceBack(projectFilePath);
+                            projectLauncherSettings.defaultPath = newProjectPath;
+                            projectLauncherSettings.recentProjects.EmplaceBack(projectFilePath);
                             Engine::Shutdown();
                         }
                     }
@@ -389,9 +419,9 @@ namespace Fyrion
 
             if (ImGui::MenuItem(ICON_FA_TRASH " Remove"))
             {
-                if (auto it = FindFirst(projectLauncherSettings->recentProjects.begin(), projectLauncherSettings->recentProjects.end(), selectedProject))
+                if (auto it = FindFirst(projectLauncherSettings.recentProjects.begin(), projectLauncherSettings.recentProjects.end(), selectedProject))
                 {
-                    projectLauncherSettings->recentProjects.Erase(it);
+                    projectLauncherSettings.recentProjects.Erase(it);
                 }
             }
         }
@@ -408,7 +438,8 @@ namespace Fyrion
 
     void OnLauncherShutdown()
     {
-      //  AssetManager::SaveOnDirectory(settingsDir, settingsFolder);
+        Graphics::DestroyTexture(iconTexture);
+        SaveConfig();
     }
 
     void Launcher::Shutdown()
@@ -428,22 +459,35 @@ namespace Fyrion
             FileSystem::CreateDirectory(appFolder);
         }
 
-        settingsFolder = Path::Join(appFolder, "Settings");
-
-        if (!FileSystem::GetFileStatus(settingsFolder).exists)
+        launcherCfg = Path::Join(appFolder, "Launcher.cfg");
+        if (String cfgFile = FileSystem::ReadFileAsString(launcherCfg); !cfgFile.Empty())
         {
-            FileSystem::CreateDirectory(settingsFolder);
+            JsonArchiveReader jsonArchiveReader(cfgFile);
+            Serialization::Deserialize(Registry::FindType<ProjectLauncherSettings>(),
+                                       jsonArchiveReader,
+                                       jsonArchiveReader.GetRootObject(),
+                                       &projectLauncherSettings);
+
+            auto it = projectLauncherSettings.recentProjects.begin();
+            while (it != projectLauncherSettings.recentProjects.end())
+            {
+                const String& recentProject = *it;
+                if (!FileSystem::GetFileStatus(recentProject).exists)
+                {
+                    it = projectLauncherSettings.recentProjects.Erase(it);
+                    continue;
+                }
+                ++it;
+            }
         }
 
-        //settingsDir = AssetManager::LoadFromDirectory("Settings", settingsFolder);
-
-        projectLauncherSettings = Assets::LoadByPath<ProjectLauncherSettings>("Settings://ProjectLauncherSettings.fy_asset");
-        if (projectLauncherSettings == nullptr)
+        if (projectLauncherSettings.defaultPath.Empty())
         {
-            // projectLauncherSettings = AssetManager::Create<ProjectLauncherSettings>({
-            //     .name = "ProjectLauncherSettings",
-            //     .directoryAsset = settingsDir,
-            // });
+            newProjectPath = Path::Join(FileSystem::DocumentsDir(), "Fyrion Projects");
+        }
+        else
+        {
+            newProjectPath = projectLauncherSettings.defaultPath;
         }
 
         Event::Bind<OnInit, &LauncherInit>();
