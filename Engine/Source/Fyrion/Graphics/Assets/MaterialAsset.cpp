@@ -214,6 +214,16 @@ namespace Fyrion
         return bindingSet;
     }
 
+    void MaterialAsset::OnChange()
+    {
+        if (bindingSet)
+        {
+            Graphics::WaitQueue();
+            Graphics::DestroyBindingSet(bindingSet);
+            bindingSet = nullptr;
+        }
+    }
+
     MaterialAsset::~MaterialAsset()
     {
         if (bindingSet)

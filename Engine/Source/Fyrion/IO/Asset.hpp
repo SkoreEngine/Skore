@@ -20,6 +20,7 @@ namespace Fyrion
         TypeHandler* GetTypeHandler() const;
         Array<u8>    LoadStream(usize offset, usize size) const;
         void         SetTypeHandler(TypeHandler* typeHandler);
+        virtual void OnChange() {}
 
         friend class Assets;
 
@@ -88,7 +89,7 @@ namespace Fyrion
     struct AssetApi
     {
         Asset* (*CastAsset)(VoidPtr ptr);
-        void (*SetAsset)(VoidPtr ptr, Asset* asset);
+        void (*  SetAsset)(VoidPtr ptr, Asset* asset);
     };
 
     template <typename T>

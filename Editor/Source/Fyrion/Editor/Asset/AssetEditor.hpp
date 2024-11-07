@@ -66,6 +66,7 @@ namespace Fyrion
         FY_API AssetFile*       GetProject();
         FY_API AssetFile*       CreateDirectory(AssetFile* parent);
         FY_API AssetFile*       CreateAsset(AssetFile* parent, TypeID typeId, StringView suggestedName = "");
+        FY_API void             UpdateAssetValue(AssetFile* assetFile, Asset* asset);
         FY_API void             Rename(AssetFile* assetFile, StringView newName);
         FY_API void             GetUpdatedAssets(Array<AssetFile*>& updatedAssets);
         FY_API void             SaveAssets(Span<AssetFile*> assetsToSave);

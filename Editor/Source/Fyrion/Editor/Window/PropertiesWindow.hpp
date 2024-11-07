@@ -3,7 +3,6 @@
 #include "Fyrion/Editor/EditorTypes.hpp"
 #include "Fyrion/Editor/MenuItem.hpp"
 #include "Fyrion/Editor/Scene/SceneEditor.hpp"
-#include "Fyrion/Scene/Component/Component.hpp"
 
 namespace Fyrion
 {
@@ -28,11 +27,16 @@ namespace Fyrion
         String       searchComponentString{};
         Component*   selectedComponent = {};
 
+        AssetFile* selectedAsset = {};
+
         void ClearSelection();
 
         static void OpenProperties(const MenuItemEventData& eventData);
 
         void DrawSceneObject(u32 id, GameObject* gameObject);
+        void DrawAsset(u32 id, AssetFile* assetFile);
+
         void GameObjectSelection(GameObject* object);
+        void AssetSelection(AssetFile* assetFile);
     };
 }

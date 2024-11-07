@@ -5,15 +5,21 @@
 #include "Fyrion/Editor/ImGui/ImGuiEditor.hpp"
 #include "Fyrion/ImGui/IconsFontAwesome6.h"
 #include "Fyrion/ImGui/ImGui.hpp"
+#include "Fyrion/Scene/Component/Component.hpp"
 
 namespace Fyrion
 {
     PropertiesWindow::PropertiesWindow() : sceneEditor(Editor::GetSceneEditor())
     {
         Event::Bind<OnGameObjectSelection, &PropertiesWindow::GameObjectSelection>(this);
+        Event::Bind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
     }
 
-    PropertiesWindow::~PropertiesWindow() {}
+    PropertiesWindow::~PropertiesWindow()
+    {
+        Event::Unbind<OnGameObjectSelection, &PropertiesWindow::GameObjectSelection>(this);
+        Event::Unbind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
+    }
 
     void PropertiesWindow::DrawSceneObject(u32 id, GameObject* gameObject)
     {
@@ -227,12 +233,83 @@ namespace Fyrion
         ImGui::EndPopupMenu(popupOpenSettings);
     }
 
+    void PropertiesWindow::DrawAsset(u32 id, AssetFile* assetFile)
+    {
+        ImGuiStyle& style = ImGui::GetStyle();
+
+
+        if (ImGui::BeginTable("#object-table", 2))
+        {
+            ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+            ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+
+            ImGui::Text("Name");
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(-1);
+
+            stringCache = assetFile->GetName();
+
+            u32 hash = HashValue(reinterpret_cast<usize>(&assetFile->fileName));
+
+            if (ImGui::InputText(hash, stringCache))
+            {
+                renamingCache = stringCache;
+                renamingFocus = true;
+            }
+
+            if (!ImGui::IsItemActive() && renamingFocus)
+            {
+                AssetEditor::Rename(assetFile, renamingCache);
+                renamingFocus = false;
+                renamingCache.Clear();
+            }
+
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("UUID");
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(-1);
+
+            String uuid = assetFile->uuid.ToString();
+            ImGui::InputText(hash + 10, uuid, ImGuiInputTextFlags_ReadOnly);
+            ImGui::EndTable();
+        }
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5 * style.ScaleFactor);
+
+        TypeHandler* typeHandler = Registry::FindTypeById(assetFile->handler->GetAssetTypeID());
+
+        if (ImGui::CollapsingHeader(FormatName(typeHandler->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
+        {
+            ImGui::Indent();
+            ImGui::DrawType(ImGui::DrawTypeDesc{
+                .itemId = assetFile->hash,
+                .typeHandler = typeHandler,
+                .instance = Assets::Load(assetFile->uuid),
+                .flags = ImGui::ImGuiDrawTypeFlags_None,
+                .userData = this,
+                .callback = [](ImGui::DrawTypeDesc& desc)
+                {
+                    PropertiesWindow* propertiesWindow = static_cast<PropertiesWindow*>(desc.userData);
+                    AssetEditor::UpdateAssetValue(propertiesWindow->selectedAsset, static_cast<Asset*>(desc.instance));
+                },
+            });
+            ImGui::Unindent();
+        }
+    }
+
     void PropertiesWindow::Draw(u32 id, bool& open)
     {
         ImGui::Begin(id, ICON_FA_CIRCLE_INFO " Properties", &open, ImGuiWindowFlags_NoScrollbar);
         if (selectedObject)
         {
             DrawSceneObject(id, selectedObject);
+        }
+        else if (selectedAsset)
+        {
+            DrawAsset(id, selectedAsset);
         }
         ImGui::End();
     }
@@ -254,6 +331,13 @@ namespace Fyrion
         if (object == nullptr && selectedObject == nullptr) return;
         ClearSelection();
         selectedObject = object;
+    }
+
+    void PropertiesWindow::AssetSelection(AssetFile* assetFile)
+    {
+        if (assetFile == nullptr && selectedAsset == nullptr) return;
+        ClearSelection();
+        selectedAsset = assetFile;
     }
 
 

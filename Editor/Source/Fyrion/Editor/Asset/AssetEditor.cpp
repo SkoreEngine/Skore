@@ -452,6 +452,12 @@ namespace Fyrion
         return nullptr;
     }
 
+    void AssetEditor::UpdateAssetValue(AssetFile* assetFile, Asset* asset)
+    {
+        asset->OnChange();
+        assetFile->currentVersion++;
+    }
+
     void AssetEditor::Rename(AssetFile* assetFile, StringView newName)
     {
         assetFile->fileName = newName;

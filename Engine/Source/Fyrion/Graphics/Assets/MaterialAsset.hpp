@@ -44,6 +44,8 @@ namespace Fyrion
 
         BindingSet* GetBindingSet();
 
+        void OnChange() override;
+
         ~MaterialAsset() override;
 
         static void RegisterType(NativeTypeHandler<MaterialAsset>& type);

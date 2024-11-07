@@ -45,7 +45,6 @@ namespace Fyrion
         static void Shutdown();
         static void AssetNewFolder(const MenuItemEventData& eventData);
         static void AssetNew(const MenuItemEventData& eventData);
-        static void AssetNewMaterial(const MenuItemEventData& eventData);
         static void AssetDelete(const MenuItemEventData& eventData);
         static void AssetShowInExplorer(const MenuItemEventData& eventData);
         static void AssetCopyPathToClipboard(const MenuItemEventData& eventData);
