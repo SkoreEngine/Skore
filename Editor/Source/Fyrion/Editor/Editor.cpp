@@ -327,6 +327,7 @@ namespace Fyrion
                             if (ImGui::BeginTable("table-pending-to-save", 3, flags))
                             {
                                 ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_None, 200.f * style.ScaleFactor);
+                                ImGui::TableSetupColumn("Path", ImGuiTableColumnFlags_None, 300.f * style.ScaleFactor);
                                 ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_None, 400.f * style.ScaleFactor);
                                 ImGui::TableHeadersRow();
 
@@ -337,7 +338,21 @@ namespace Fyrion
                                     ImGui::TableSetColumnIndex(0);
                                     ImGui::Text("%s%s", assetFile->fileName.CStr(), assetFile->extension.CStr());
                                     ImGui::TableSetColumnIndex(1);
-                                    ImGui::Text("%s", "Unknown");
+                                    ImGui::Text("%s", assetFile->path.CStr());
+
+                                    ImGui::TableSetColumnIndex(2);
+                                    if (!assetFile->active)
+                                    {
+                                        ImGui::Text("Deleted");
+                                    }
+                                    else if (assetFile->persistedVersion == 0)
+                                    {
+                                        ImGui::Text("Created");
+                                    }
+                                    else
+                                    {
+                                        ImGui::Text("Updated");
+                                    }
                                 }
                                 ImGui::EndTable();
                             }
