@@ -332,15 +332,19 @@ ImGui::ContentItemState ImGui::ContentItem(const ContentItemDesc& contentItemDes
         .size = ImVec2(thumbnailSize, thumbnailSize)
     };
 
-    ImGui::DrawTexture(contentItemDesc.texture, {
-                           i32(screenCursorPos.x + imagePadding * 2),
-                           i32(screenCursorPos.y + imagePadding),
-                           (u32)(screenCursorPos.x + thumbnailSize - imagePadding * 2),
-                           (u32)(screenCursorPos.y + thumbnailSize - imagePadding * 3)
-                       });
+    ImVec2 rectTexture = ImVec2{(f32)thumbnailSize, (f32)thumbnailSize - imagePadding * 3.f};
 
-    //rect size for texture
-    ImGui::Dummy(ImVec2{(f32)thumbnailSize, (f32)thumbnailSize - imagePadding * 3.f});
+    const ImRect bb(screenCursorPos, screenCursorPos + rectTexture);
+    ItemSize(rectTexture);
+    if (ItemAdd(bb, 0))
+    {
+        ImGui::DrawTexture(contentItemDesc.texture, {
+                       i32(screenCursorPos.x + imagePadding * 2),
+                       i32(screenCursorPos.y + imagePadding),
+                       (u32)(screenCursorPos.x + thumbnailSize - imagePadding * 2),
+                       (u32)(screenCursorPos.y + thumbnailSize - imagePadding * 3)
+                   });
+    }
 
     ImGui::BeginVertical(contentItemDesc.id + 10, ImVec2(thumbnailSize, thumbnailSize - (ImGui::GetCursorScreenPos().y - screenCursorPos.y)));
     {
