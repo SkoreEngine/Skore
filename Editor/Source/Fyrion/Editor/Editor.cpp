@@ -47,10 +47,10 @@ namespace Fyrion
 
     namespace
     {
-        Array<EditorWindowStorage>   editorWindowStorages{};
-        Array<OpenWindowStorage>     openWindows{};
-        Array<AssetFile*>            updatedItems{};
-        bool                         shouldOpenPopup = false;
+        Array<EditorWindowStorage> editorWindowStorages{};
+        Array<OpenWindowStorage>   openWindows{};
+        Array<AssetFile*>          updatedItems{};
+        bool                       shouldOpenPopup = false;
 
         std::mutex                   callsMutex;
         Array<std::function<void()>> calls{};
@@ -72,6 +72,7 @@ namespace Fyrion
         Array<SharedPtr<EditorTransaction>> redoActions{};
 
         SceneEditor sceneEditor{};
+        String      projectFile;
 
         void SaveAll(Span<AssetFile*> assets);
 
@@ -104,6 +105,8 @@ namespace Fyrion
 
             calls.Clear();
             calls.ShrinkToFit();
+
+            projectFile.Clear();
         }
 
         void InitEditor()
@@ -136,7 +139,7 @@ namespace Fyrion
             AssetEditorInit();
 
             AssetEditor::AddPackage("Fyrion", FileSystem::AssetFolder());
-            AssetEditor::SetProject("Refactor", "C:\\dev\\Fyrion\\Projects\\Refactor");
+            AssetEditor::SetProject(Path::Name(projectFile), Path::Parent(projectFile));
         }
 
         void CloseEngine(const MenuItemEventData& eventData)
@@ -297,7 +300,6 @@ namespace Fyrion
         {
             if (!updatedItems.Empty())
             {
-
                 if (shouldOpenPopup)
                 {
                     ImGui::OpenPopup("Save Content");
@@ -389,7 +391,7 @@ namespace Fyrion
                 callsMoved = Traits::Move(calls);
             }
 
-            for(const auto& func: callsMoved)
+            for (const auto& func : callsMoved)
             {
                 func();
             }
@@ -462,19 +464,18 @@ namespace Fyrion
     {
         String fullProjectPath = Path::Join(newProjectPath, projectName);
         String assetsPath = Path::Join(fullProjectPath, "Assets");
-        String dataPath = Path::Join(fullProjectPath, "Data");
+        String tempPath = Path::Join(fullProjectPath, "Temp");
         String settingsPath = Path::Join(fullProjectPath, "Settings");
         String projectFilePath = Path::Join(fullProjectPath, projectName, FY_PROJECT_EXTENSION);
 
         FileSystem::CreateDirectory(assetsPath);
-        FileSystem::CreateDirectory(dataPath);
+        FileSystem::CreateDirectory(tempPath);
         FileSystem::CreateDirectory(settingsPath);
 
-        // JsonAssetWriter jsonAssetWriter;
-        // auto            object = jsonAssetWriter.CreateObject();
-        // jsonAssetWriter.WriteString(object, "engineVersion", FY_VERSION);
-        //
-        // FileSystem::SaveFileAsString(projectFilePath, JsonAssetWriter::Stringify(object));
+        JsonArchiveWriter jsonAssetWriter;
+        ArchiveValue      object = jsonAssetWriter.CreateObject();
+        jsonAssetWriter.AddToObject(object, "engineVersion", jsonAssetWriter.StringValue(FY_VERSION));
+        FileSystem::SaveFileAsString(projectFilePath, JsonArchiveWriter::Stringify(object));
 
         return projectFilePath;
     }
@@ -485,14 +486,14 @@ namespace Fyrion
         calls.EmplaceBack(func);
     }
 
-    void Editor::Init(StringView projectFile)
+    void Editor::Init(StringView currentProjectFile)
     {
-        // if (Path::Extension(projectFile) != FY_PROJECT_EXTENSION)
-        // {
-        //     return;
-        // }
+        projectFile = currentProjectFile;
 
-        //projectPath = Path::Parent(projectFile);
+        if (Path::Extension(projectFile) != FY_PROJECT_EXTENSION)
+        {
+            return;
+        }
 
         ShaderManagerInit();
 

@@ -87,7 +87,7 @@ inline void operator delete(void*, Fyrion::PlaceHolder, Fyrion::VoidPtr) noexcep
 #define FY_META_EXTENSION ".meta"
 #define FY_ASSET_EXTENSION ".asset"
 #define FY_BUFFER_EXTENSION ".buffer"
-#define FY_PROJECT_EXTENSION ".fy_project"
+#define FY_PROJECT_EXTENSION ".fyrion"
 
 //---platform defines
 #if _WIN64

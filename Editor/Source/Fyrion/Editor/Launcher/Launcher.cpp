@@ -23,13 +23,12 @@ namespace Fyrion
 {
     namespace
     {
-        String                   projectFilePath{};
-        bool                     creatingNewProject{};
-        String                   projectSearch{};
-        String                   searchText{};
-        String                   appFolder{};
-        String                   launcherCfg{};
-        ProjectLauncherSettings  projectLauncherSettings;
+        String                  projectFilePath{};
+        String                  projectSearch{};
+        String                  searchText{};
+        String                  appFolder{};
+        String                  launcherCfg{};
+        ProjectLauncherSettings projectLauncherSettings;
 
         String newProjectPath{};
         String newProjectName = "New Project";
@@ -46,7 +45,7 @@ namespace Fyrion
     void SaveConfig()
     {
         JsonArchiveWriter archiveWriter;
-        ArchiveValue value = Serialization::Serialize(Registry::FindType<ProjectLauncherSettings>(), archiveWriter, &projectLauncherSettings);
+        ArchiveValue      value = Serialization::Serialize(Registry::FindType<ProjectLauncherSettings>(), archiveWriter, &projectLauncherSettings);
         FileSystem::SaveFileAsString(launcherCfg, JsonArchiveWriter::Stringify(value));
     }
 
@@ -94,8 +93,8 @@ namespace Fyrion
         ImGui::SameLine();
 
         bool openPopup = false;
+        bool creatingNewProject{};
 
-        if (!creatingNewProject)
         {
             ImGui::StyleColor childBg(ImGuiCol_ChildBg, IM_COL32(22, 23, 25, 255));
             ImGui::StyleColor frameBg(ImGuiCol_FrameBg, IM_COL32(22, 23, 25, 255));
@@ -158,7 +157,7 @@ namespace Fyrion
 
                     if (ImGui::BeginContentTable("asset-selection", 1.0))
                     {
-                        for(auto& recentProject : projectLauncherSettings.recentProjects)
+                        for (auto& recentProject : projectLauncherSettings.recentProjects)
                         {
                             String projectName = Path::Name(recentProject);
 
@@ -188,8 +187,6 @@ namespace Fyrion
                         }
                         ImGui::EndContentTable();
                     }
-
-
 
 
                     // ImGui::BeginContentTable(30001, 96 * ImGui::GetStyle().ScaleFactor);
@@ -250,6 +247,7 @@ namespace Fyrion
             }
             ImGui::EndChild();
         }
+        /*
         else if (creatingNewProject)
         {
             {
@@ -289,118 +287,17 @@ namespace Fyrion
                 ImGui::StyleVar childPadding(ImGuiStyleVar_WindowPadding, padding);
                 if (ImGui::BeginChild(520245, ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysUseWindowPadding))
                 {
-                    projectNameValidation = 0;
-                    projectPathValidation = 0;
 
-                    String projectFullPath = Path::Join(newProjectPath, newProjectName);
-
-                    bool valid = true;
-                    if (newProjectName.Empty())
-                    {
-                        projectNameValidation = PROJECT_NAME_EMPTY;
-                        valid = false;
-                    }
-                    else
-                    {
-                        auto stat = FileSystem::GetFileStatus(projectFullPath);
-                        if (stat.exists)
-                        {
-                            projectNameValidation = PROJECT_ALREADY_EXISTS;
-                            valid = false;
-                        }
-                    }
-
-                    if (newProjectPath.Empty())
-                    {
-                        projectPathValidation = PATH_EMPTY;
-                        valid = false;
-                    }
-
-                    auto h = ImGui::GetContentRegionAvail().y;
-
-                    ImGui::BeginVertical(5555, ImVec2(0, h));
-                    ImGui::Text("Project Name:");
-
-                    if (projectNameValidation == PROJECT_NAME_EMPTY)
-                    {
-                        ImGui::SameLine();
-                        ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.2f, 1.f), " Project Name is mandatory");
-                    }
-                    else if (projectNameValidation == PROJECT_ALREADY_EXISTS)
-                    {
-                        ImGui::SameLine();
-                        ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.2f, 1.f), " Project already exists");
-                    }
-
-
-                    ImGui::SetNextItemWidth(-1);
-
-                    ImGui::InputText(996633, newProjectName);
-
-                    ImGui::Text("Project Path:");
-
-                    if (projectPathValidation == PATH_EMPTY)
-                    {
-                        ImGui::SameLine();
-                        ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.2f, 1.f), " Project Path is mandatory");
-                    }
-
-
-                    ImGui::BeginHorizontal(55551);
-
-                    ImGui::SetNextItemWidth(-60 * ImGui::GetStyle().ScaleFactor);
-
-                    ImGui::InputText(99663328, newProjectPath);
-
-                    ImGui::Spring(1);
-
-                    if (ImGui::Button("Browse"))
-                    {
-                        String path;
-                        if (Platform::PickFolder(path, {}) == DialogResult::OK)
-                        {
-                            auto stat = FileSystem::GetFileStatus(path);
-                            if (stat.exists)
-                            {
-                                newProjectPath = path;
-                            }
-                        }
-                    }
-
-                    ImGui::EndHorizontal();
-
-                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8 * ImGui::GetStyle().ScaleFactor);
-
-                    ImGui::Spring(1);
-
-                    ImGui::BeginDisabled(!valid);
-
-                    if (ImGui::Button("OK", ImVec2(120, 0)) && valid)
-                    {
-                        projectFilePath = Editor::CreateProject(newProjectPath, newProjectName);
-                        if (!projectFilePath.Empty())
-                        {
-                            projectLauncherSettings.defaultPath = newProjectPath;
-                            projectLauncherSettings.recentProjects.EmplaceBack(projectFilePath);
-                            Engine::Shutdown();
-                        }
-                    }
-
-                    ImGui::EndDisabled();
-
-                    ImGui::SetItemDefaultFocus();
-                    ImGui::SameLine();
-
-
-                    if (ImGui::Button("Cancel", ImVec2(120, 0)))
-                    {
-                        creatingNewProject = false;
-                    }
-
-                    ImGui::EndVertical();
                 }
                 ImGui::EndChild();
             }
+        }
+
+        */
+
+        if (creatingNewProject)
+        {
+            ImGui::OpenPopup("New Project");
         }
 
         if (!selectedProject.Empty() && openPopup)
@@ -427,6 +324,134 @@ namespace Fyrion
         }
 
         ImGui::EndPopupMenu(popupRes);
+
+        {
+            ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_Appearing);
+
+            ImGui::StyleVar windowPopupPadding(ImGuiStyleVar_WindowPadding, padding);
+
+            bool newProjectModal = true;
+
+            if (ImGui::BeginPopupModal("New Project", &newProjectModal))
+            {
+                projectNameValidation = 0;
+                projectPathValidation = 0;
+
+                String projectFullPath = Path::Join(newProjectPath, newProjectName);
+
+                bool valid = true;
+                if (newProjectName.Empty())
+                {
+                    projectNameValidation = PROJECT_NAME_EMPTY;
+                    valid = false;
+                }
+                else
+                {
+                    auto stat = FileSystem::GetFileStatus(projectFullPath);
+                    if (stat.exists)
+                    {
+                        projectNameValidation = PROJECT_ALREADY_EXISTS;
+                        valid = false;
+                    }
+                }
+
+                if (newProjectPath.Empty())
+                {
+                    projectPathValidation = PATH_EMPTY;
+                    valid = false;
+                }
+
+                auto h = ImGui::GetContentRegionAvail().y;
+
+                ImGui::BeginVertical(5555, ImVec2(0, h));
+                ImGui::Text("Project Name:");
+
+                if (projectNameValidation == PROJECT_NAME_EMPTY)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.2f, 1.f), " Project Name is mandatory");
+                }
+                else if (projectNameValidation == PROJECT_ALREADY_EXISTS)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.2f, 1.f), " Project already exists");
+                }
+
+
+                ImGui::SetNextItemWidth(-1);
+
+                ImGui::InputText(996633, newProjectName);
+
+                ImGui::Text("Project Path:");
+
+                if (projectPathValidation == PATH_EMPTY)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.8f, 0.2f, 0.2f, 1.f), " Project Path is mandatory");
+                }
+
+
+                ImGui::BeginHorizontal(55551);
+
+                ImGui::SetNextItemWidth(-60 * ImGui::GetStyle().ScaleFactor);
+
+                ImGui::InputText(99663328, newProjectPath);
+
+                ImGui::Spring(1);
+
+                ImGui::SetNextItemWidth(-1);
+
+                if (ImGui::Button("Browse"))
+                {
+                    String path;
+                    if (Platform::PickFolder(path, {}) == DialogResult::OK)
+                    {
+                        auto stat = FileSystem::GetFileStatus(path);
+                        if (stat.exists)
+                        {
+                            newProjectPath = path;
+                        }
+                    }
+                }
+
+                ImGui::EndHorizontal();
+
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8 * ImGui::GetStyle().ScaleFactor);
+
+                ImGui::Spring(1);
+
+                ImGui::BeginDisabled(!valid);
+
+                if (ImGui::Button("OK", ImVec2(120, 0)) && valid)
+                {
+                    projectFilePath = Editor::CreateProject(newProjectPath, newProjectName);
+                    if (!projectFilePath.Empty())
+                    {
+                        projectLauncherSettings.defaultPath = newProjectPath;
+                        projectLauncherSettings.recentProjects.EmplaceBack(projectFilePath);
+                        Engine::Shutdown();
+                    }
+                }
+
+                ImGui::EndDisabled();
+
+                ImGui::SetItemDefaultFocus();
+                ImGui::SameLine();
+
+
+                if (ImGui::Button("Cancel", ImVec2(120, 0)))
+                {
+                    ImGui::CloseCurrentPopup();
+                }
+
+                ImGui::EndVertical();
+
+                ImGui::EndPopup();
+            }
+        }
+
 
         ImGui::End();
     }
