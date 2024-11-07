@@ -24,6 +24,7 @@ namespace Fyrion
         void       RenameObject(GameObject& object, StringView newName);
         void       DestroySelectedObjects();
         void       CreateGameObject(Scene* instance, bool checkSelected);
+        void       DuplicateSelected();
         bool       IsValidSelection();
         void       AddComponent(GameObject* gameObject, TypeHandler* typeHandler);
         void       ResetComponent(GameObject* gameObject, Component* component);

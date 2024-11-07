@@ -90,11 +90,11 @@ namespace Fyrion
         return children;
     }
 
-    GameObject* GameObject::CreateInternal(UUID uuid)
+    GameObject* GameObject::CreateInternal(UUID uuid, GameObject* parent) const
     {
-        GameObject* gameObject = new(MemoryGlobals::GetDefaultAllocator().MemAlloc(sizeof(GameObject), alignof(GameObject))) GameObject{scene, this};
+        GameObject* gameObject = new(MemoryGlobals::GetDefaultAllocator().MemAlloc(sizeof(GameObject), alignof(GameObject))) GameObject{parent->scene, parent};
         gameObject->uuid = uuid;
-        children.EmplaceBack(gameObject);
+        parent->children.EmplaceBack(gameObject);
 
         scene->objectsById.Insert(uuid, gameObject);
         scene->queueToStart.EmplaceBack(gameObject);
@@ -162,7 +162,7 @@ namespace Fyrion
             GameObject* childInstance = FindByInstance(child->uuid);
             if (!childInstance)
             {
-                childInstance = this->CreateInternal(UUID::RandomUUID());
+                childInstance = this->CreateInternal(UUID::RandomUUID(), this);
                 childInstance->instance.object = child;
             }
             childInstance->InitInstance();
@@ -172,17 +172,49 @@ namespace Fyrion
 
     GameObject* GameObject::Create()
     {
-        return CreateInternal(UUID::RandomUUID());
+        return CreateInternal(UUID::RandomUUID(), this);
     }
 
     GameObject* GameObject::Create(Scene* scene)
     {
-        GameObject* gameObject = CreateInternal(UUID::RandomUUID());
+        GameObject* gameObject = CreateInternal(UUID::RandomUUID(), this);
 
         if (scene)
         {
             gameObject->instance.scene = scene;
             gameObject->instance.object = &scene->GetRootObject();
+            gameObject->InitInstance();
+        }
+
+        return gameObject;
+    }
+
+    GameObject* GameObject::Duplicate() const
+    {
+        return Duplicate(parent);
+    }
+
+    GameObject* GameObject::Duplicate(GameObject* parent) const
+    {
+        GameObject* gameObject = CreateInternal(UUID::RandomUUID(), parent);
+        gameObject->SetName(GetName());
+        gameObject->instance = instance;
+
+        for (Component* component : components)
+        {
+            if (component->instance != nullptr && !instance.modifiedComponents.Has(component->uuid)) continue;
+
+            Component* newComponent = gameObject->AddComponent(component->typeHandler, UUID::RandomUUID());
+            newComponent->typeHandler->DeepCopy(component, newComponent);
+        }
+
+        for (GameObject* child : children)
+        {
+            child->Duplicate(gameObject);
+        }
+
+        if (gameObject->instance.scene)
+        {
             gameObject->InitInstance();
         }
 
@@ -468,7 +500,7 @@ namespace Fyrion
         {
             vlChild = reader.ArrayNext(arrChildren, vlChild);
             UUID childUUID   = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlChild, "uuid")));
-            GameObject* child = CreateInternal(childUUID);
+            GameObject* child = CreateInternal(childUUID, this);
 
             child->Deserialize(reader, vlChild);
         }

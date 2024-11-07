@@ -19,6 +19,7 @@ namespace Fyrion
 		HashSet();
 		HashSet(const HashSet& other);
 		HashSet(HashSet&& other) noexcept;
+		HashSet& operator=(const HashSet& other);
 
 		Iterator begin();
 		Iterator end();
@@ -46,6 +47,8 @@ namespace Fyrion
 
 		template<typename ParamKey>
 		bool Has(const ParamKey& key) const;
+
+		void Swap(HashSet& other);
 
 		~HashSet();
 
@@ -83,6 +86,13 @@ namespace Fyrion
 	{
 		m_buckets.Swap(other.m_buckets);
 		other.m_size = 0;
+	}
+
+	template <typename Key>
+	HashSet<Key>& HashSet<Key>::operator=(const HashSet& other)
+	{
+		HashSet(other).Swap(*this);
+		return *this;
 	}
 
 	template<typename Key>
@@ -268,6 +278,15 @@ namespace Fyrion
 			}
 		}
 		return false;
+	}
+
+	template <typename Key>
+	void HashSet<Key>::Swap(HashSet& other)
+	{
+		m_buckets.Swap(other.m_buckets);
+		usize size = other.m_size;
+		other.m_size = this->m_size;
+		other.m_size = size;
 	}
 
 	template<typename Key>

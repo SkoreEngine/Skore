@@ -33,6 +33,8 @@ namespace Fyrion
 
         GameObject*       Create();
         GameObject*       Create(Scene* instance);
+        GameObject*       Duplicate() const;
+        GameObject*       Duplicate(GameObject* parent) const;
         Span<GameObject*> GetChildren() const;
         void              RemoveChild(GameObject* gameObject);
         GameObject*       FindChildByName(StringView name) const;
@@ -105,7 +107,7 @@ namespace Fyrion
         Array<Component*>  components;
 
         void        Start();
-        GameObject* CreateInternal(UUID uuid);
+        GameObject* CreateInternal(UUID uuid, GameObject* parent) const;
         static void CopyComponents(GameObject* dest, GameObject* origin);
         GameObject* FindByInstance(UUID uuid) const;
         Component*  FindComponentByInstance(UUID uuid) const;

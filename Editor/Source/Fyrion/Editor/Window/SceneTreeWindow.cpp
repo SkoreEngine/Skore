@@ -271,7 +271,7 @@ namespace Fyrion
 
     void SceneTreeWindow::DuplicateSceneObject(const MenuItemEventData& eventData)
     {
-
+        static_cast<SceneTreeWindow*>(eventData.drawData)->sceneEditor.DuplicateSelected();
     }
 
     void SceneTreeWindow::DeleteSceneObject(const MenuItemEventData& eventData)

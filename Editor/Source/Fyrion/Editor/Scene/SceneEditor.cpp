@@ -132,6 +132,26 @@ namespace Fyrion
         assetFile->currentVersion++;
     }
 
+    void SceneEditor::DuplicateSelected()
+    {
+        Array<GameObject*> newObjects;
+        newObjects.Reserve(selectedObjects.Size());
+
+        for(auto it: selectedObjects)
+        {
+            newObjects.EmplaceBack(it.first->Duplicate());
+        }
+
+        ClearSelection();
+
+        for(GameObject* object : newObjects)
+        {
+            SelectObject(*object);
+        }
+
+        assetFile->currentVersion++;
+    }
+
     bool SceneEditor::IsValidSelection()
     {
         return scene != nullptr;
@@ -162,7 +182,8 @@ namespace Fyrion
 
     void SceneEditor::ResetComponent(GameObject* gameObject, Component* component)
     {
-
+        gameObject->AddComponentOverride(component);
+        assetFile->currentVersion++;
     }
 
     void SceneEditor::RemoveComponent(GameObject* gameObject, Component* component)
