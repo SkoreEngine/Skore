@@ -1,5 +1,10 @@
 # Third party libraries
 
+## binn
+- Upstream https://github.com/liteserver/binn/commit/4790cfee4c0f09b4c0678a8e6bc0436b73d0dbf0
+- Version v3.0
+- License Apache 2.0
+
 ## cgltf
 - Upstream https://github.com/jkuhlmann/cgltf/tree/fa3b80fa762790192c9532b63c441627416ff300
 - Version 1.14
@@ -14,7 +19,6 @@
 - Upstream: https://github.com/onqtam/doctest
 - Version: 2.4.11 (ae7a13539fb71f270b87eb2e874fbac80bc8dda2, 2023)
 - License: MIT
-
 
 ## glfw
 - Upstream: https://github.com/glfw/glfw
@@ -59,9 +63,6 @@
 - Upstream: https://github.com/nothings/stb
 - Version 013ac3beddff3dbffafd5177e7972067cd2b5083
 - License Public Domain
-
-Files
-- `stb_image.h`
 
 ## tinystl
 - Upstream: https://github.com/mendsley/tinystl

@@ -390,7 +390,7 @@ namespace Fyrion
                 {
                     String texturePath = Path::Join(Path::Parent(path), StringView{texture.image->uri});
 
-                    AssetFile* assetFile = AssetEditor::CreateAsset(parent, GetTypeID<TextureAsset>(), StringView{texture.image->uri});
+                    AssetFile* assetFile = AssetEditor::CreateAsset(parent, GetTypeID<TextureAsset>(), Path::Name(texture.image->uri));
                     TextureAsset* textureAsset = Assets::Load<TextureAsset>(assetFile->uuid);
 
                     TextureImporter::ImportTextureFromFile(assetFile, textureAsset, texturePath);

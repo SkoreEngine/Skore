@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Span.hpp"
 #include "String.hpp"
 #include "TypeID.hpp"
 #include "Fyrion/Common.hpp"
@@ -136,6 +137,49 @@ namespace Fyrion
 
     private:
         yyjson_doc* doc = nullptr;
+    };
+
+    class FY_API BinaryArchiveWriter : public ArchiveWriter
+    {
+    public:
+        FY_NO_COPY_CONSTRUCTOR(BinaryArchiveWriter);
+        FY_BASE_TYPES(ArchiveWriter);
+
+        BinaryArchiveWriter() = default;
+
+        ArchiveValue CreateObject() override;
+        ArchiveValue CreateArray() override;
+        ArchiveValue BoolValue(bool value) override;
+        ArchiveValue IntValue(i64 value) override;
+        ArchiveValue UIntValue(u64 value) override;
+        ArchiveValue FloatValue(f64 value) override;
+        ArchiveValue StringValue(StringView value) override;
+        void         AddToObject(ArchiveValue object, StringView name, ArchiveValue value) override;
+        void         AddToArray(ArchiveValue array, ArchiveValue value) override;
+
+        static Span<u8> GetBytes(ArchiveValue object);
+        static void     Free(ArchiveValue object);
+    };
+
+    class FY_API BinaryArchiveReader : public ArchiveReader
+    {
+    public:
+        FY_NO_COPY_CONSTRUCTOR(BinaryArchiveReader);
+        FY_BASE_TYPES(ArchiveReader);
+
+        BinaryArchiveReader() = default;
+
+        static ArchiveValue Open(Span<u8> data);
+
+        bool         BoolValue(ArchiveValue value) override;
+        i64          IntValue(ArchiveValue value) override;
+        u64          UIntValue(ArchiveValue value) override;
+        f64          FloatValue(ArchiveValue value) override;
+        StringView   StringValue(ArchiveValue value) override;
+        ArchiveValue GetRootObject() override;
+        ArchiveValue GetObjectValue(ArchiveValue object, StringView name) override;
+        usize        ArraySize(ArchiveValue array) override;
+        ArchiveValue ArrayNext(ArchiveValue array, ArchiveValue item) override;
     };
 
 

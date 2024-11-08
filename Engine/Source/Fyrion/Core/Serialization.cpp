@@ -1,10 +1,10 @@
 #include "Serialization.hpp"
 #include "Registry.hpp"
 #include "yyjson.h"
+#include "binn.h"
 
 namespace Fyrion
 {
-
     namespace
     {
         VoidPtr Malloc(VoidPtr ctx, usize size)
@@ -28,6 +28,35 @@ namespace Fyrion
             .free = Free,
             .ctx = nullptr
         };
+
+
+        VoidPtr BinnMalloc(size_t size)
+        {
+            return MemoryGlobals::GetDefaultAllocator().MemAlloc(size, 1);
+        }
+
+        VoidPtr BinnRealloc(VoidPtr ptr, size_t size)
+        {
+            return MemoryGlobals::GetDefaultAllocator().MemRealloc(ptr, size);
+        }
+
+        void BinnFree(VoidPtr ptr)
+        {
+            MemoryGlobals::GetDefaultAllocator().MemFree(ptr);
+        }
+
+        void BinnFreeStr(VoidPtr ptr)
+        {
+            MemoryGlobals::GetDefaultAllocator().MemFree(ptr);
+        }
+
+        bool SetBinnAllocFuncs()
+        {
+            binn_set_alloc_functions(BinnMalloc, BinnRealloc, BinnFree);
+            return true;
+        }
+
+        bool binAllocations = SetBinnAllocFuncs();
     }
 
     JsonArchiveWriter::JsonArchiveWriter(SerializationOptions serializationOptions) : serializationOptions(serializationOptions)
@@ -127,7 +156,7 @@ namespace Fyrion
 
     bool JsonArchiveReader::BoolValue(ArchiveValue value)
     {
-        if(value)
+        if (value)
         {
             return yyjson_get_bool(static_cast<yyjson_val*>(value.handler));
         }
@@ -194,6 +223,124 @@ namespace Fyrion
         }
 
         return {unsafe_yyjson_get_next(static_cast<yyjson_val*>(item.handler))};
+    }
+
+    ArchiveValue BinaryArchiveWriter::CreateObject()
+    {
+        return {binn_object()};
+    }
+
+    ArchiveValue BinaryArchiveWriter::CreateArray()
+    {
+        return {binn_list()};
+    }
+
+    ArchiveValue BinaryArchiveWriter::BoolValue(bool value)
+    {
+        return {binn_bool(value)};
+    }
+
+    ArchiveValue BinaryArchiveWriter::IntValue(i64 value)
+    {
+        return {binn_int64(value)};
+    }
+
+    ArchiveValue BinaryArchiveWriter::UIntValue(u64 value)
+    {
+        return {binn_uint64(value)};
+    }
+
+    ArchiveValue BinaryArchiveWriter::FloatValue(f64 value)
+    {
+        return {binn_double(value)};
+    }
+
+    ArchiveValue BinaryArchiveWriter::StringValue(StringView value)
+    {
+        //needs copy
+        return {binn_string(const_cast<char*>(value.CStr()), BINN_TRANSIENT)};
+    }
+
+    void BinaryArchiveWriter::AddToObject(ArchiveValue object, StringView name, ArchiveValue value)
+    {
+        binn* binnValue = static_cast<binn*>(value.handler);
+        binn_object_set_value(static_cast<binn*>(object.handler), name.CStr(), binnValue);
+        binn_free(binnValue);
+    }
+
+    void BinaryArchiveWriter::AddToArray(ArchiveValue array, ArchiveValue value)
+    {
+        binn* binnValue = static_cast<binn*>(value.handler);
+        binn_list_add_value(static_cast<binn*>(array.handler), binnValue);
+        binn_free(binnValue);
+    }
+
+    Span<u8> BinaryArchiveWriter::GetBytes(ArchiveValue object)
+    {
+        return {static_cast<u8*>(binn_ptr(object.handler)), static_cast<usize>(binn_size(object.handler))};
+    }
+
+    void BinaryArchiveWriter::Free(ArchiveValue object)
+    {
+        binn_free(static_cast<binn*>(object.handler));
+    }
+
+    ArchiveValue BinaryArchiveReader::Open(Span<u8> data)
+    {
+        return {binn_open_ex(data.Data(), static_cast<int>(data.Size()))};
+    }
+
+    bool BinaryArchiveReader::BoolValue(ArchiveValue value)
+    {
+        return {};
+    }
+
+    i64 BinaryArchiveReader::IntValue(ArchiveValue value)
+    {
+        return {};
+    }
+
+    u64 BinaryArchiveReader::UIntValue(ArchiveValue value)
+    {
+
+        return {};
+    }
+
+    f64 BinaryArchiveReader::FloatValue(ArchiveValue value)
+    {
+        return {};
+    }
+
+    StringView BinaryArchiveReader::StringValue(ArchiveValue value)
+    {
+        return {};
+    }
+
+    ArchiveValue BinaryArchiveReader::GetRootObject()
+    {
+        return {};
+    }
+
+    ArchiveValue BinaryArchiveReader::GetObjectValue(ArchiveValue object, StringView name)
+    {
+        // binn* value = (binn*) binn_malloc(sizeof(binn));
+        //
+        // binn_object_get_value(object.handler, name.CStr(), &value);
+
+
+        // binn_object_get
+        // binn_object_get_value()
+        return {};
+    }
+
+    usize BinaryArchiveReader::ArraySize(ArchiveValue array)
+    {
+        return {};
+    }
+
+    ArchiveValue BinaryArchiveReader::ArrayNext(ArchiveValue array, ArchiveValue item)
+    {
+        return {};
     }
 
     ArchiveValue Serialization::Serialize(TypeID typeId, ArchiveWriter& writer, ConstPtr instance)
