@@ -7,31 +7,27 @@ using namespace Fyrion;
 
 namespace
 {
-    TEST_CASE("Core::BinarySerialization")
+    TEST_CASE("Core::Serialization")
     {
-        Array<u8> bytes;
+        String json;
         {
-            BinaryArchiveWriter archiveWriter;
+            JsonArchiveWriter archiveWriter;
             ArchiveValue object = archiveWriter.CreateObject();
 
             archiveWriter.AddToObject(object, "intValue", archiveWriter.IntValue(456546564));
-            archiveWriter.AddToObject(object, "strValue", archiveWriter.StringValue("blah"));
+            archiveWriter.AddToObject(object, "strValue", archiveWriter.StringValue("teststr"));
 
-            bytes = BinaryArchiveWriter::GetBytes(object);
-
-            BinaryArchiveWriter::Free(object);
+            json = JsonArchiveWriter::Stringify(object, false, true);
         }
-        CHECK(!bytes.Empty());
+        CHECK(!json.Empty());
 
         {
-            BinaryArchiveReader reader;
+            JsonArchiveReader reader(json, true);
 
-            ArchiveValue object = BinaryArchiveReader::Open(bytes);
-
-
+            ArchiveValue object = reader.GetRoot();
+            CHECK(reader.IntValue(reader.GetObjectValue(object, "intValue")) == 456546564);
+            CHECK(reader.StringValue(reader.GetObjectValue(object, "strValue")) == "teststr");
         }
-
-
 
     }
 }

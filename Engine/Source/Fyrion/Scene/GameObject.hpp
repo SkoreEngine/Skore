@@ -33,6 +33,7 @@ namespace Fyrion
 
         GameObject*       Create();
         GameObject*       Create(Scene* instance);
+        GameObject*       Create(UUID uuid, Scene* instance);
         GameObject*       Duplicate() const;
         GameObject*       Duplicate(GameObject* parent) const;
         Span<GameObject*> GetChildren() const;
@@ -83,6 +84,8 @@ namespace Fyrion
 
         friend class Scene;
 
+        void InitInstance();
+
     private:
         struct Instance
         {
@@ -91,6 +94,7 @@ namespace Fyrion
             HashSet<UUID> modifiedComponents;
             HashSet<UUID> removedComponents;
             HashSet<UUID> removedObjects;
+            bool initialized = false;
         };
 
         GameObject(Scene* scene);
@@ -111,7 +115,5 @@ namespace Fyrion
         static void CopyComponents(GameObject* dest, GameObject* origin);
         GameObject* FindByInstance(UUID uuid) const;
         Component*  FindComponentByInstance(UUID uuid) const;
-
-        void InitInstance();
     };
 }

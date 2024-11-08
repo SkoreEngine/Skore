@@ -1,10 +1,5 @@
 # Third party libraries
 
-## binn
-- Upstream https://github.com/liteserver/binn/commit/4790cfee4c0f09b4c0678a8e6bc0436b73d0dbf0
-- Version v3.0
-- License Apache 2.0
-
 ## cgltf
 - Upstream https://github.com/jkuhlmann/cgltf/tree/fa3b80fa762790192c9532b63c441627416ff300
 - Version 1.14
@@ -87,3 +82,8 @@ Additional Info:
 - Upstream: https://github.com/KhronosGroup/Vulkan-Headers
 - Version: vulkan-sdk-1.3.280.0 (577baa05033cf1d9236b3d078ca4b3269ed87a2b, 2024)
   License: Apache 2.0
+
+## zstd
+- Upstream: https://github.com/facebook/zstd/releases/tag/v1.5.6
+- Version: v1.5.6
+- License: BSD License

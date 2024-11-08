@@ -1,7 +1,6 @@
 #pragma once
 
 #include "GameObject.hpp"
-#include "SceneTypes.hpp"
 #include "Fyrion/Common.hpp"
 #include "Fyrion/Core/HashMap.hpp"
 #include "Fyrion/IO/Asset.hpp"

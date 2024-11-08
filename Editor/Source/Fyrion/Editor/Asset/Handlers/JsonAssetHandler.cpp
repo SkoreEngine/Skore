@@ -21,7 +21,7 @@ namespace Fyrion
         if (String str = FileSystem::ReadFileAsString(assetFile->absolutePath); !str.Empty())
         {
             JsonArchiveReader reader(str);
-            Serialization::Deserialize(typeHandler, reader, reader.GetRootObject(), instance);
+            Serialization::Deserialize(typeHandler, reader, reader.GetRoot(), instance);
         }
     }
 }

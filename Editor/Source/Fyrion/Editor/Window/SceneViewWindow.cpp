@@ -13,6 +13,9 @@
 
 namespace Fyrion
 {
+
+    MenuItemContext SceneViewWindow::menuItemContext = {};
+
     SceneViewWindow::SceneViewWindow() : sceneEditor(Editor::GetSceneEditor()), guizmoOperation(ImGuizmo::TRANSLATE) {}
 
     SceneViewWindow::~SceneViewWindow()
@@ -303,18 +306,46 @@ namespace Fyrion
                 }
             }
         }
+
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
+        {
+            menuItemContext.ExecuteHotKeys(this);
+        }
         ImGui::End();
     }
 
+    void SceneViewWindow::AddMenuItem(const MenuItemCreation& menuItem)
+    {
+        menuItemContext.AddMenuItem(menuItem);
+    }
 
     void SceneViewWindow::OpenSceneView(const MenuItemEventData& eventData)
     {
         Editor::OpenWindow<SceneViewWindow>();
     }
 
+    void SceneViewWindow::DuplicateSceneObject(const MenuItemEventData& eventData)
+    {
+        static_cast<SceneViewWindow*>(eventData.drawData)->sceneEditor.DuplicateSelected();
+    }
+
+    void SceneViewWindow::DeleteSceneObject(const MenuItemEventData& eventData)
+    {
+        static_cast<SceneViewWindow*>(eventData.drawData)->sceneEditor.DestroySelectedObjects();
+    }
+
+    bool SceneViewWindow::CheckSelectedObject(const MenuItemEventData& eventData)
+    {
+        return static_cast<SceneViewWindow*>(eventData.drawData)->sceneEditor.IsValidSelection();
+    }
+
+
     void SceneViewWindow::RegisterType(NativeTypeHandler<SceneViewWindow>& type)
     {
         Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Scene Viewport", .action = OpenSceneView});
+
+        AddMenuItem(MenuItemCreation{.itemName = "Duplicate", .priority = 210, .itemShortcut = {.ctrl = true, .presKey = Key::D}, .action = DuplicateSceneObject, .enable = CheckSelectedObject});
+        AddMenuItem(MenuItemCreation{.itemName = "Delete", .priority = 220, .itemShortcut = {.presKey = Key::Delete}, .action = DeleteSceneObject, .enable = CheckSelectedObject});
 
         type.Attribute<EditorWindowProperties>(EditorWindowProperties{
             .dockPosition = DockPosition::Center,

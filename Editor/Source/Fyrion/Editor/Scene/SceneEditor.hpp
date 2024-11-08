@@ -32,6 +32,7 @@ namespace Fyrion
         void       UpdateComponent(GameObject* gameObject, Component* instance);
         void       UpdateTransform(GameObject* gameObject, const Transform& oldTransform, TransformComponent* transformComponent);
         void       RemoveComponentOverride(GameObject* gameObject, Component* component);
+        void       MarkDirty();
 
 
         HashSet<GameObject*>& GetSelectedObjects();

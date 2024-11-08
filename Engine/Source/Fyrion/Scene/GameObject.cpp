@@ -137,6 +137,8 @@ namespace Fyrion
 
     void GameObject::InitInstance()
     {
+        if (!instance.object) return;
+
         if (name.Empty())
         {
             SetName(instance.object->GetName());
@@ -175,14 +177,19 @@ namespace Fyrion
         return CreateInternal(UUID::RandomUUID(), this);
     }
 
-    GameObject* GameObject::Create(Scene* scene)
+    GameObject* GameObject::Create(Scene* instance)
     {
-        GameObject* gameObject = CreateInternal(UUID::RandomUUID(), this);
+        return Create(UUID::RandomUUID(), instance);
+    }
 
-        if (scene)
+    GameObject* GameObject::Create(UUID uuid, Scene* instance)
+    {
+        GameObject* gameObject = CreateInternal(uuid, this);
+
+        if (instance)
         {
-            gameObject->instance.scene = scene;
-            gameObject->instance.object = &scene->GetRootObject();
+            gameObject->instance.scene = instance;
+            gameObject->instance.object = &instance->GetRootObject();
             gameObject->InitInstance();
         }
 

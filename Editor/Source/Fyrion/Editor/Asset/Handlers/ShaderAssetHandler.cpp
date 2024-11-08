@@ -10,7 +10,7 @@ namespace Fyrion
 {
     namespace
     {
-        Logger& logger = Logger::GetLogger("Fyrion::ShaderAssetHandler", LogLevel::Debug);
+        Logger& logger = Logger::GetLogger("Fyrion::ShaderAssetHandler");
     }
 
     class ShaderAssetHandler : public AssetHandler

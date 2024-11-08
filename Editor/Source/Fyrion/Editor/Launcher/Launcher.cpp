@@ -187,113 +187,11 @@ namespace Fyrion
                         }
                         ImGui::EndContentTable();
                     }
-
-
-                    // ImGui::BeginContentTable(30001, 96 * ImGui::GetStyle().ScaleFactor);
-                    //
-                    // i32 c = 0;
-                    //
-                    // auto it = projectLauncherSettings.recentProjects.begin();
-                    // while (it != projectLauncherSettings.recentProjects.end())
-                    // {
-                    //     const String& recentProject = *it;
-                    //
-                    //     if (!FileSystem::GetFileStatus(recentProject).exists)
-                    //     {
-                    //         projectLauncherSettings.SetModified();
-                    //         it = projectLauncherSettings.recentProjects.Erase(it);
-                    //         continue;
-                    //     }
-                    //
-                    //     String projectName = Path::Name(*it);
-                    //
-                    //     if (!searchText.Empty())
-                    //     {
-                    //         if (!ContainsIgnoreCase(ToUpper(projectName), searchText))
-                    //         {
-                    //             ++it;
-                    //             continue;
-                    //         }
-                    //     }
-                    //
-                    //     c++;
-                    //
-                    //     ImGui::ContentItemDesc contentItem{};
-                    //     contentItem.ItemId = 30001 + c;
-                    //     contentItem.CanRename = false;
-                    //     contentItem.ShowDetails = true;
-                    //     contentItem.DetailsDesc = "Project";
-                    //     contentItem.Label = projectName.CStr();
-                    //     contentItem.Texture = iconTexture;
-                    //
-                    //     if (ImGui::DrawContentItem(contentItem))
-                    //     {
-
-                    //     }
-                    //
-
-                    //     //
-                    //     if (ImGui::ContentItemFocused(contentItem.ItemId))
-                    //     {
-                    //         selectedProject = recentProject;
-                    //     }
-                    //
-                    //     ++it;
-                    // }
-                    //
-                    // ImGui::EndContentTable();
                     ImGui::PopStyleVar(); //ImGuiStyleVar_SelectableTextAlign
                 }
             }
             ImGui::EndChild();
         }
-        /*
-        else if (creatingNewProject)
-        {
-            {
-                ImGui::StyleColor childBg(ImGuiCol_ChildBg, IM_COL32(22, 23, 25, 255));
-                ImGui::StyleColor frameBg(ImGuiCol_FrameBg, IM_COL32(22, 23, 25, 255));
-                ImGui::StyleVar   frameBorderSize(ImGuiStyleVar_FrameBorderSize, 0.f);
-                ImGui::StyleVar   windowPadding(ImGuiStyleVar_WindowPadding, padding);
-
-                if (ImGui::BeginChild(52020, ImVec2(availableSpace * 0.6, 0), false, ImGuiWindowFlags_AlwaysUseWindowPadding))
-                {
-                    ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x + padding.x * 1.5f, ImGui::GetCursorPos().y + padding.y * 1.5f));
-
-                    // ImGui::BeginContentTable(templateProjectId, 96 * ImGui::GetStyle().ScaleFactor, ImGuiContentTableFlags_SelectionNoFocus);
-                    //
-                    // if (!ImGui::GetSelectedContentItem())
-                    // {
-                    //     ImGui::SelectContentItem(30010, templateProjectId);
-                    // }
-                    //
-                    // ImGui::ContentItemDesc contentItem{};
-                    // contentItem.ItemId = 30010;
-                    // contentItem.CanRename = false;
-                    // contentItem.ShowDetails = true;
-                    // contentItem.DetailsDesc = "Template";
-                    // contentItem.Label = "Default";
-                    // contentItem.Texture = iconTexture;
-                    //
-                    // ImGui::DrawContentItem(contentItem);
-                    //
-                    // ImGui::EndContentTable();
-                }
-                ImGui::EndChild();
-            }
-
-            ImGui::SameLine();
-            {
-                ImGui::StyleVar childPadding(ImGuiStyleVar_WindowPadding, padding);
-                if (ImGui::BeginChild(520245, ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysUseWindowPadding))
-                {
-
-                }
-                ImGui::EndChild();
-            }
-        }
-
-        */
 
         if (creatingNewProject)
         {
@@ -490,7 +388,7 @@ namespace Fyrion
             JsonArchiveReader jsonArchiveReader(cfgFile);
             Serialization::Deserialize(Registry::FindType<ProjectLauncherSettings>(),
                                        jsonArchiveReader,
-                                       jsonArchiveReader.GetRootObject(),
+                                       jsonArchiveReader.GetRoot(),
                                        &projectLauncherSettings);
 
             auto it = projectLauncherSettings.recentProjects.begin();

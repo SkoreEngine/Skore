@@ -125,7 +125,7 @@ namespace Fyrion
                 if (FileSystem::GetFileStatus(infoFile).exists)
                 {
                     JsonArchiveReader jsonAssetReader(FileSystem::ReadFileAsString(infoFile));
-                    ArchiveValue      root = jsonAssetReader.GetRootObject();
+                    ArchiveValue      root = jsonAssetReader.GetRoot();
                     assetFile->uuid = UUID::FromString(jsonAssetReader.StringValue(jsonAssetReader.GetObjectValue(root, "uuid")));
                 }
                 else

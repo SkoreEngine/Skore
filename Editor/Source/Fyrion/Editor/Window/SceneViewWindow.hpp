@@ -19,6 +19,9 @@ namespace Fyrion
 
         void Draw(u32 id, bool& open) override;
 
+        //menu items only work with hotkeys on SceneView
+        static void AddMenuItem(const MenuItemCreation& menuItem);
+
         static void RegisterType(NativeTypeHandler<SceneViewWindow>& type);
 
     private:
@@ -34,5 +37,13 @@ namespace Fyrion
         Transform          gizmoInitialTransform = {};
 
         static void OpenSceneView(const MenuItemEventData& eventData);
+
+
+
+        static void DuplicateSceneObject(const MenuItemEventData& eventData);
+        static void DeleteSceneObject(const MenuItemEventData& eventData);
+        static bool CheckSelectedObject(const MenuItemEventData& eventData);
+
+        static MenuItemContext menuItemContext;
     };
 }

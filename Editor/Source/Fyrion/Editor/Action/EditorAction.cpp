@@ -38,7 +38,9 @@ namespace Fyrion
 
     void EditorTransaction::AddAction(TypeID typeId, EditorAction* action)
     {
-        if (TypeHandler* typeHandler = Registry::FindTypeById(typeId))
+        TypeHandler* typeHandler = Registry::FindTypeById(typeId);
+        FY_ASSERT(typeHandler, "type handler not found for action");
+        if (typeHandler)
         {
             actions.EmplaceBack(MakePair(typeHandler, action));
         }

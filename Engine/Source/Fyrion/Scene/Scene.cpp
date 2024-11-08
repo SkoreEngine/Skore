@@ -92,6 +92,12 @@ namespace Fyrion
         {
             return it->second;
         }
+
+        if (GetUUID() == uuid)
+        {
+            return const_cast<GameObject*>(&root);
+        }
+
         return nullptr;
     }
 
