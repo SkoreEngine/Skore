@@ -40,5 +40,8 @@ namespace Fyrion
 
     private:
         Texture texture = {};
+
+
+        Array<u8> GetTextureBytes() const;
     };
 }

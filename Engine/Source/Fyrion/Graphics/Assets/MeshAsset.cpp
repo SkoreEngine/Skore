@@ -9,7 +9,7 @@ namespace Fyrion
 {
     namespace
     {
-        Logger& logger = Logger::GetLogger("Fyrion::MeshAsset", LogLevel::Debug);
+        Logger& logger = Logger::GetLogger("Fyrion::MeshAsset");
     }
 
     Span<MeshPrimitive> MeshAsset::GetPrimitives() const

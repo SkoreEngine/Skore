@@ -8,7 +8,7 @@ namespace Fyrion
 {
     namespace
     {
-        Logger& logger = Logger::GetLogger("Fyrion::TextureAsset", LogLevel::Debug);
+        Logger& logger = Logger::GetLogger("Fyrion::TextureAsset");
     }
 
 
@@ -25,20 +25,7 @@ namespace Fyrion
         if (!texture)
         {
             logger.Debug("starting loading texture {}", GetName());
-            Array<u8> textureBytes;
-
-            if (compressionMode != CompressionMode::None)
-            {
-                Array<u8> diskBuffer = LoadStream(0, totalSizeInDisk);
-                logger.Debug("stream loaded {}", GetName());
-                textureBytes.Resize(totalSize);
-                Compression::Decompress(textureBytes.begin(), totalSize, diskBuffer.begin(), totalSizeInDisk, compressionMode);
-                logger.Debug("decompressed {}", GetName());
-            }
-            else
-            {
-                textureBytes = LoadStream(0, totalSizeInDisk);
-            }
+            Array<u8> textureBytes = GetTextureBytes();
 
             logger.Debug("bytes loaded {}", GetName());
             if (textureBytes.Size() == 0)
@@ -81,11 +68,30 @@ namespace Fyrion
         return texture;
     }
 
+    Array<u8> TextureAsset::GetTextureBytes() const
+    {
+        if (compressionMode != CompressionMode::None)
+        {
+            Array<u8> diskBuffer = LoadStream(0, totalSizeInDisk);
+            logger.Debug("stream loaded {}", GetName());
+
+            Array<u8> textureBytes;
+            textureBytes.Resize(totalSize);
+
+            Compression::Decompress(textureBytes.begin(), totalSize, diskBuffer.begin(), totalSizeInDisk, compressionMode);
+            logger.Debug("decompressed {}", GetName());
+
+            return textureBytes;
+        }
+
+        return LoadStream(0, totalSizeInDisk);
+    }
+
     Image TextureAsset::GetImage() const
     {
         const TextureAssetImage& textureImage = images[0];
         Image image(textureImage.extent.width, textureImage.extent.height, 4);
-        image.data = LoadStream(0, textureImage.size);
+        image.data = GetTextureBytes();
         return image;
     }
 
