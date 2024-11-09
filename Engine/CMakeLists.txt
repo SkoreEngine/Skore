@@ -3,8 +3,6 @@ set(FT_DISABLE_HARFBUZZ ON)
 
 add_subdirectory(ThirdParty)
 
-
-
 cmrc_add_resource_library(
 				FyrionContent
 				ALIAS FyrionContent::RS
@@ -20,7 +18,6 @@ cmrc_add_resource_library(
 )
 
 
-
 file(GLOB_RECURSE FYRION_ENGINE_SOURCES Source/*.hpp Source/*.cpp Source/*.h Source/*.c)
 add_library(FyrionEngine SHARED ${FYRION_ENGINE_SOURCES})
 
@@ -29,7 +26,22 @@ target_include_directories(FyrionEngine PUBLIC Source/Fyrion/ImGui/Lib)
 
 target_compile_definitions(FyrionEngine PUBLIC FMT_LIB_EXPORT=1)
 
-target_link_libraries(FyrionEngine PRIVATE mimalloc glfw vma volk vulkan-sdk freetype nfd cpptrace::cpptrace yyjson stb zstd mikktspace FyrionContent::RS)
+target_link_libraries(FyrionEngine PRIVATE
+				mimalloc
+				glfw
+				vma
+				volk
+				vulkan-sdk
+				freetype
+				nfd
+				cpptrace::cpptrace
+				stb
+				zstd
+				lz4
+				yyjson
+				mikktspace
+				FyrionContent::RS
+)
 
 ##tests
 file(GLOB_RECURSE FYRION_ENGINE_TESTS_SOURCES Test/*.hpp Test/*.cpp Test/*.h Test/*.c)

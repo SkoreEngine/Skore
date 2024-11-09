@@ -7,6 +7,10 @@
 
 namespace Fyrion
 {
+    namespace
+    {
+        Logger& logger = Logger::GetLogger("Fyrion::MeshAsset", LogLevel::Debug);
+    }
 
     Span<MeshPrimitive> MeshAsset::GetPrimitives() const
     {
@@ -22,7 +26,9 @@ namespace Fyrion
     {
         if (!vertexBuffer)
         {
+            logger.Debug("starting mesh texture {}", GetName());
             Array<u8> data = this->LoadStream(0, verticesCount * sizeof(VertexStride));
+            logger.Debug("mesh data loaded {}", GetName());
 
             BufferCreation creation{
                 .usage = BufferUsage::VertexBuffer,
@@ -32,11 +38,13 @@ namespace Fyrion
 
             vertexBuffer = Graphics::CreateBuffer(creation);
 
+
             Graphics::UpdateBufferData(BufferDataInfo{
                 .buffer = vertexBuffer,
                 .data = data.Data(),
                 .size = data.Size(),
             });
+            logger.Debug("mesh data uploaded {}", GetName());
         }
         return vertexBuffer;
     }

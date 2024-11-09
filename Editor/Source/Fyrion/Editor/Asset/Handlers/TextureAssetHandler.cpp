@@ -93,14 +93,31 @@ namespace Fyrion
         template<typename T>
         void ProcessTexture(TextureAsset* texture, OutputFileStream& stream, T* bytes, i32 width, i32 height, u16 channels, bool generateMips)
         {
-            u32 pixelSize = channels * sizeof(T);
+            texture->compressionMode = CompressionMode::LZ4;
 
+            u32 pixelSize = channels * sizeof(T);
             texture->format = TextureImportType<T>::GetFormat();
             texture->mipLevels = generateMips ? static_cast<u32>(std::floor(std::log2(std::max(width, height)))) + 1 : 1;
+
+            usize totalUncompressedSize{};
+            //calc bytes
+            {
+                u32 mipWidth = width;
+                u32 mipHeight = height;
+                for (u32 i = 0; i < texture->mipLevels; i++)
+                {
+                    totalUncompressedSize += mipWidth * mipHeight * pixelSize;
+                    if (mipWidth > 1) mipWidth /= 2;
+                    if (mipHeight > 1) mipHeight /= 2;
+                }
+            }
 
             Array<T> data{};
             data.Resize(width * height * pixelSize);
             MemCopy(data.begin(), bytes, data.Size());
+
+            Array<T> dataToCompress{};
+            dataToCompress.Resize(totalUncompressedSize);
 
             i32 mipWidth = width;
             i32 mipHeight = height;
@@ -108,16 +125,18 @@ namespace Fyrion
 
             for (u32 i = 0; i < texture->mipLevels; i++)
             {
+                usize totalMipSize = mipWidth * mipHeight * pixelSize;
+
                 texture->images.EmplaceBack(TextureAssetImage{
                     .byteOffset = offset,
                     .mip = i,
                     .arrayLayer = 0,
                     .extent = Extent{static_cast<u32>(mipWidth), static_cast<u32>(mipHeight)},
-                    .size = static_cast<usize>(mipWidth * mipHeight * pixelSize)
+                    .size = totalMipSize
                 });
 
-                stream.Write(reinterpret_cast<u8*>(data.begin()), mipWidth * mipHeight * pixelSize);
-                texture->totalSizeInDisk += mipWidth * mipHeight * pixelSize;
+                MemCopy(dataToCompress.begin() + offset, data.begin(), totalMipSize);
+                texture->totalSize += totalMipSize;
 
                 Array<T> temp = data;
 
@@ -132,6 +151,14 @@ namespace Fyrion
                 if (mipWidth > 1) mipWidth /= 2;
                 if (mipHeight > 1) mipHeight /= 2;
             }
+
+            usize sizeInDisk = Compression::GetMaxCompressedBufferSize(totalUncompressedSize, texture->compressionMode);
+
+            Array<u8> compressedData;
+            compressedData.Resize(sizeInDisk);
+
+            texture->totalSizeInDisk = Compression::Compress(compressedData.begin(), sizeInDisk, reinterpret_cast<u8*>(dataToCompress.begin()), totalUncompressedSize, texture->compressionMode);
+            stream.Write(compressedData.begin(), texture->totalSizeInDisk);
         }
     }
 

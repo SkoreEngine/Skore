@@ -1,10 +1,17 @@
 #include "TextureAsset.hpp"
 
+#include "Fyrion/Core/Logger.hpp"
 #include "Fyrion/Core/Registry.hpp"
 #include "Fyrion/Graphics/Graphics.hpp"
 
 namespace Fyrion
 {
+    namespace
+    {
+        Logger& logger = Logger::GetLogger("Fyrion::TextureAsset", LogLevel::Debug);
+    }
+
+
     TextureAsset::~TextureAsset()
     {
         if (texture)
@@ -17,7 +24,23 @@ namespace Fyrion
     {
         if (!texture)
         {
-            Array<u8> textureBytes = LoadStream(0, totalSizeInDisk);
+            logger.Debug("starting loading texture {}", GetName());
+            Array<u8> textureBytes;
+
+            if (compressionMode != CompressionMode::None)
+            {
+                Array<u8> diskBuffer = LoadStream(0, totalSizeInDisk);
+                logger.Debug("stream loaded {}", GetName());
+                textureBytes.Resize(totalSize);
+                Compression::Decompress(textureBytes.begin(), totalSize, diskBuffer.begin(), totalSizeInDisk, compressionMode);
+                logger.Debug("decompressed {}", GetName());
+            }
+            else
+            {
+                textureBytes = LoadStream(0, totalSizeInDisk);
+            }
+
+            logger.Debug("bytes loaded {}", GetName());
             if (textureBytes.Size() == 0)
             {
                 return {};
@@ -43,12 +66,17 @@ namespace Fyrion
                 });
             }
 
+            logger.Debug("texture created {}", GetName());
+
             Graphics::UpdateTextureData(TextureDataInfo{
                 .texture = texture,
                 .data = textureBytes.Data(),
                 .size = textureBytes.Size(),
                 .regions = regions
             });
+
+            logger.Debug("texture data uploaded {}", GetName());
+            logger.Debug("------------------------------");
         }
         return texture;
     }
@@ -66,7 +94,9 @@ namespace Fyrion
         type.Field<&TextureAsset::images>("images");
         type.Field<&TextureAsset::format>("format");
         type.Field<&TextureAsset::mipLevels>("mipLevels");
+        type.Field<&TextureAsset::totalSize>("totalSize");
         type.Field<&TextureAsset::totalSizeInDisk>("totalSizeInDisk");
+        type.Field<&TextureAsset::compressionMode>("compressionMode");
     }
 
     void TextureAssetImage::RegisterType(NativeTypeHandler<TextureAssetImage>& type)

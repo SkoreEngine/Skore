@@ -4,6 +4,7 @@
 
 #include "Fyrion/Graphics/GraphicsTypes.hpp"
 #include "Fyrion/IO/Asset.hpp"
+#include "Fyrion/IO/Compression.hpp"
 
 namespace Fyrion
 {
@@ -33,7 +34,9 @@ namespace Fyrion
         Array<TextureAssetImage> images{};
         Format                   format = Format::Undefined;
         u32                      mipLevels = 0;
+        u64                      totalSize = 0;
         u64                      totalSizeInDisk = 0;
+        CompressionMode          compressionMode = CompressionMode::None;
 
     private:
         Texture texture = {};

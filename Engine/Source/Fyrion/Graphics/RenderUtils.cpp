@@ -13,7 +13,7 @@ namespace Fyrion
 {
     namespace
     {
-        Logger& logger = Logger::GetLogger("Fyrion::RenderUtils");
+        Logger& logger = Logger::GetLogger("Fyrion::RenderUtils", LogLevel::Debug);
 
         struct SpecularMapFilterSettings
         {
