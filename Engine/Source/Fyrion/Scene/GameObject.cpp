@@ -1,10 +1,16 @@
 #include "GameObject.hpp"
 #include "Scene.hpp"
 #include "Component/Component.hpp"
+#include "Fyrion/Core/Logger.hpp"
 #include "Fyrion/Core/Registry.hpp"
 
 namespace Fyrion
 {
+    namespace
+    {
+        Logger& logger = Logger::GetLogger("Fyrion::GameObject");
+    }
+
     GameObject::GameObject(Scene* scene) : scene(scene), parent(nullptr) {}
     GameObject::GameObject(Scene* scene, GameObject* parent) : scene(scene), parent(parent) {}
 
@@ -249,6 +255,43 @@ namespace Fyrion
         return nullptr;
     }
 
+    void GameObject::SetPrefab(UUID prefabId)
+    {
+        if (prefabId)
+        {
+            if (!parent)
+            {
+                logger.Error("prefabs cannot be set on the root entity");
+                return;
+            }
+
+            if (parent->prefab == nullptr)
+            {
+                if (Scene* prefabScene = Assets::Load<Scene>(prefabId))
+                {
+                    prefab = &prefabScene->GetRootObject();
+                }
+                else
+                {
+                    logger.Error("prefab id {} is not found", prefabId.ToString());
+                }
+            }
+            else
+            {
+                prefab = parent->prefab->GetScene()->FindObjectByUUID(prefabId);
+            }
+
+            if (prefab)
+            {
+
+            }
+        }
+        else
+        {
+            //TODO remove prefab?
+        }
+    }
+
     Component* GameObject::GetComponent(TypeID typeId) const
     {
         for (Component* component : components)
@@ -373,7 +416,10 @@ namespace Fyrion
             writer.AddToObject(object, "name", writer.StringValue(name));
         }
 
-        writer.AddToObject(object, "uuid", writer.StringValue(uuid.ToString()));
+        if (uuid)
+        {
+            writer.AddToObject(object, "uuid", writer.StringValue(uuid.ToString()));
+        }
 
         if (instance.object && instance.object->uuid)
         {

@@ -8,6 +8,11 @@ namespace Fyrion
 {
     void JsonAssetHandler::Save(StringView newPath, AssetFile* assetFile)
     {
+        if (assetFile->IsNewAsset())
+        {
+            Assets::Load(assetFile->uuid);
+        }
+
         if (Asset* asset = Assets::Get(assetFile->uuid))
         {
             JsonArchiveWriter writer;

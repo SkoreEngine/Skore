@@ -40,6 +40,9 @@ namespace Fyrion
         void              RemoveChild(GameObject* gameObject);
         GameObject*       FindChildByName(StringView name) const;
 
+        //prefabs
+        void             SetPrefab(UUID prefabId);
+
         Component*       GetComponent(TypeID typeId) const;
         Component*       GetOrAddComponent(TypeID typeId);
         Component*       FindComponentByUUID(UUID uuid) const;
@@ -106,6 +109,9 @@ namespace Fyrion
         String      name;
         UUID        uuid;
         bool        started = false;
+
+        //prefabs
+        GameObject* prefab;
 
         Array<GameObject*> children;
         Array<Component*>  components;

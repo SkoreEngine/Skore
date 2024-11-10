@@ -53,6 +53,7 @@ namespace Fyrion
         void Destroy();
 
         void UpdatePath();
+        bool IsNewAsset() const;
 
         ~AssetFile() override;
     };

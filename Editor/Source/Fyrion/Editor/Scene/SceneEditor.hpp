@@ -10,7 +10,7 @@ namespace Fyrion
     struct AssetFile;
     class Component;
 
-    class SceneEditor
+    class FY_API SceneEditor
     {
     public:
         Scene*     GetScene() const;
@@ -23,7 +23,7 @@ namespace Fyrion
         bool       IsParentOfSelected(GameObject& object) const;
         void       RenameObject(GameObject& object, StringView newName);
         void       DestroySelectedObjects();
-        void       CreateGameObject(Scene* instance, bool checkSelected);
+        void       CreateGameObject(UUID prefab, bool checkSelected);
         void       DuplicateSelected();
         bool       IsValidSelection();
         void       AddComponent(GameObject* gameObject, TypeHandler* typeHandler);
@@ -48,6 +48,8 @@ namespace Fyrion
         Scene*               scene = nullptr;
         HashSet<GameObject*> selectedObjects{};
 
-        EventHandler<OnGameObjectSelection> onGameObjectSelectionHandler{};
+        EventHandler<OnGameObjectSelection>   onGameObjectSelectionHandler{};
+        EventHandler<OnGameObjectDeselection> onGameObjectDeselectionHandler{};
+
     };
 }

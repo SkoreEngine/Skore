@@ -15,6 +15,7 @@ namespace Fyrion
     class GameObject;
 
     using OnGameObjectSelection = EventType<"Fyrion::Editor::OnGameObjectSelection"_h, void(GameObject*)>;
+    using OnGameObjectDeselection = EventType<"Fyrion::Editor::OnGameObjectDeselection"_h, void(GameObject*)>;
     using OnAssetSelection = EventType<"Fyrion::Editor::OnAssetSelection"_h, void(AssetFile*)>;
 
     enum class DockPosition

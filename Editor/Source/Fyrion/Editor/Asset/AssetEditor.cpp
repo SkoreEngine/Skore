@@ -322,6 +322,11 @@ namespace Fyrion
         }
     }
 
+    bool AssetFile::IsNewAsset() const
+    {
+        return persistedVersion == 0;
+    }
+
     AssetFile::~AssetFile()
     {
         if (thumbnail)
@@ -332,7 +337,7 @@ namespace Fyrion
 
     void AssetEditor::AddPackage(StringView name, StringView directory)
     {
-        logger.Info("start scanning package files {} ", directory);
+        logger.Debug("start scanning package files {} ", directory);
         if (AssetFile* assetFile = ScanForAssets(directory))
         {
             assetFile->fileName = name;
@@ -344,7 +349,7 @@ namespace Fyrion
                 child->UpdatePath();
             }
         }
-        logger.Info("end scanning files");
+        logger.Debug("end scanning files");
     }
 
     void AssetEditor::SetProject(StringView name, StringView directory)
@@ -369,7 +374,7 @@ namespace Fyrion
             FileSystem::CreateDirectory(assetFolder);
         }
 
-        logger.Info("start scanning project files {}", assetFolder);
+        logger.Debug("start scanning project files {}", assetFolder);
 
         if (AssetFile* assetFile = ScanForAssets(assetFolder))
         {
@@ -383,7 +388,7 @@ namespace Fyrion
             }
         }
 
-        logger.Info("files scanned successfully ");
+        logger.Debug("files scanned successfully ");
     }
 
     AssetFile* AssetEditor::CreateDirectory(AssetFile* parent)

@@ -12,12 +12,14 @@ namespace Fyrion
     PropertiesWindow::PropertiesWindow() : sceneEditor(Editor::GetSceneEditor())
     {
         Event::Bind<OnGameObjectSelection, &PropertiesWindow::GameObjectSelection>(this);
+        Event::Bind<OnGameObjectDeselection, &PropertiesWindow::GameObjectDeselection>(this);
         Event::Bind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
     }
 
     PropertiesWindow::~PropertiesWindow()
     {
         Event::Unbind<OnGameObjectSelection, &PropertiesWindow::GameObjectSelection>(this);
+        Event::Unbind<OnGameObjectDeselection, &PropertiesWindow::GameObjectDeselection>(this);
         Event::Unbind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
     }
 
@@ -331,6 +333,15 @@ namespace Fyrion
         if (object == nullptr && selectedObject == nullptr) return;
         ClearSelection();
         selectedObject = object;
+    }
+
+    void PropertiesWindow::GameObjectDeselection(GameObject* object)
+    {
+        if (object == nullptr && selectedObject == nullptr) return;
+        if (selectedObject == object)
+        {
+            ClearSelection();
+        }
     }
 
     void PropertiesWindow::AssetSelection(AssetFile* assetFile)

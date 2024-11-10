@@ -92,6 +92,71 @@ namespace Fyrion
             }
         };
 
+        struct CreateGameObjectAction : EditorAction
+        {
+            FY_BASE_TYPES(EditorAction);
+
+            struct NewGameObject
+            {
+                UUID uuid;
+                UUID parent;
+            };
+
+            SceneEditor&         sceneEditor;
+            UUID                 prefab;
+            bool                 childrenOfSelected;
+            Array<NewGameObject> newObjects;
+
+            CreateGameObjectAction(SceneEditor& sceneEditor, UUID prefab, bool childrenOfSelected)
+                : sceneEditor(sceneEditor),
+                  prefab(prefab),
+                  childrenOfSelected(childrenOfSelected)
+            {
+                if (childrenOfSelected && !sceneEditor.GetSelectedObjects().Empty())
+                {
+                    newObjects.Reserve(sceneEditor.GetSelectedObjects().Size());
+                    for (auto& it : sceneEditor.GetSelectedObjects())
+                    {
+                        newObjects.EmplaceBack(UUID::RandomUUID(), it.first->GetUUID());
+                    }
+                }
+                else
+                {
+                    newObjects.EmplaceBack(UUID::RandomUUID(), sceneEditor.GetScene()->GetRootObject().GetUUID());
+                }
+            }
+
+            void Commit() override
+            {
+                sceneEditor.ClearSelection();
+                for (NewGameObject& newGameObject : newObjects)
+                {
+                    if (GameObject* parent = sceneEditor.GetScene()->FindObjectByUUID(newGameObject.parent))
+                    {
+                        GameObject* child = parent->Create(newGameObject.uuid, nullptr);
+                        child->SetPrefab(prefab);
+                        child->SetName("Object"); // find a unique name here?
+                        sceneEditor.SelectObject(*child);
+                    }
+                }
+                sceneEditor.MarkDirty();
+            }
+
+            void Rollback() override
+            {
+                for (NewGameObject& newGameObject : newObjects)
+                {
+                    if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(newGameObject.uuid))
+                    {
+                        sceneEditor.DeselectObject(*object);
+                        object->Destroy();
+                    }
+                }
+                sceneEditor.MarkDirty();
+            }
+
+        };
+
         struct DestroyObjectAction : EditorAction
         {
             FY_BASE_TYPES(EditorAction);
@@ -184,8 +249,11 @@ namespace Fyrion
 
     void SceneEditor::ClearSelection()
     {
+        for (const auto& it : selectedObjects)
+        {
+            onGameObjectDeselectionHandler.Invoke(it.first);
+        }
         selectedObjects.Clear();
-        onGameObjectSelectionHandler.Invoke(nullptr);
     }
 
     void SceneEditor::SelectObject(GameObject& object)
@@ -196,6 +264,7 @@ namespace Fyrion
 
     void SceneEditor::DeselectObject(GameObject& object)
     {
+        onGameObjectDeselectionHandler.Invoke(&object);
         selectedObjects.Erase(&object);
     }
 
@@ -230,45 +299,10 @@ namespace Fyrion
         Editor::CreateTransaction()->CreateAction<DestroyObjectAction>(*this)->Commit();
     }
 
-    void SceneEditor::CreateGameObject(Scene* instance, bool checkSelected)
+    void SceneEditor::CreateGameObject(UUID prefab, bool checkSelected)
     {
         if (scene == nullptr) return;
-
-        String instanceName = "";
-        if (instance != nullptr)
-        {
-            AssetFile* assetFile = AssetEditor::FindAssetFileByUUID(instance->GetUUID());
-            instanceName = assetFile->fileName;
-        }
-
-        if (!checkSelected || selectedObjects.Empty())
-        {
-            GameObject* gameObject = scene->GetRootObject().Create(instance != nullptr ? instance : nullptr);
-            gameObject->SetName(!instanceName.Empty() ? instanceName : "Object");
-
-            ClearSelection();
-            SelectObject(*gameObject);
-        }
-        else
-        {
-            Array<GameObject*> newObjects;
-            newObjects.Reserve(selectedObjects.Size());
-
-            for (auto it : selectedObjects)
-            {
-                GameObject* gameObject = it.first->Create(instance != nullptr ? instance : nullptr);
-                gameObject->SetName(!instanceName.Empty() ? instanceName : "Object");
-                newObjects.EmplaceBack(gameObject);
-            }
-
-            ClearSelection();
-
-            for (GameObject* object : newObjects)
-            {
-                SelectObject(*object);
-            }
-        }
-        assetFile->currentVersion++;
+        Editor::CreateTransaction()->CreateAction<CreateGameObjectAction>(*this, prefab, checkSelected)->Commit();
     }
 
     void SceneEditor::DuplicateSelected()
@@ -407,5 +441,6 @@ namespace Fyrion
         Registry::Type<TransformUpdateAction>();
         Registry::Type<RenameAction>();
         Registry::Type<DestroyObjectAction>();
+        Registry::Type<CreateGameObjectAction>();
     }
 }

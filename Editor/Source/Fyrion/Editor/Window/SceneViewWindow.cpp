@@ -300,7 +300,7 @@ namespace Fyrion
                 {
                     if (ImGui::AcceptDragDropPayload(FY_ASSET_PAYLOAD))
                     {
-                        sceneEditor.CreateGameObject(Assets::Load<Scene>(assetPayload->assetFile->uuid), false);
+                        sceneEditor.CreateGameObject(assetPayload->assetFile->uuid, false);
                     }
                     ImGui::EndDragDropTarget();
                 }

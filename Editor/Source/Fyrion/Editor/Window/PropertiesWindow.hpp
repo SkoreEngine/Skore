@@ -37,6 +37,7 @@ namespace Fyrion
         void DrawAsset(u32 id, AssetFile* assetFile);
 
         void GameObjectSelection(GameObject* object);
+        void GameObjectDeselection(GameObject* object);
         void AssetSelection(AssetFile* assetFile);
     };
 }

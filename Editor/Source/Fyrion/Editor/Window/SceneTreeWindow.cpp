@@ -257,7 +257,7 @@ namespace Fyrion
 
     void SceneTreeWindow::AddSceneObject(const MenuItemEventData& eventData)
     {
-        static_cast<SceneTreeWindow*>(eventData.drawData)->sceneEditor.CreateGameObject(nullptr, true);
+        static_cast<SceneTreeWindow*>(eventData.drawData)->sceneEditor.CreateGameObject({}, true);
     }
 
     void SceneTreeWindow::AddSceneObjectFromAsset(const MenuItemEventData& eventData) {}
