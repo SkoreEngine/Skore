@@ -35,6 +35,7 @@ namespace Fyrion
         Span<GameObject*> GetChildren() const;
         void              RemoveChild(GameObject* gameObject);
         GameObject*       FindChildByName(StringView name) const;
+        GameObject*       FindChildByUUID(UUID uuid) const;
 
         //prefabs
         void        SetPrefab(UUID prefabId);

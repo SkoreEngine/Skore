@@ -162,20 +162,14 @@ namespace Fyrion
 
         for (Component* component : components)
         {
-            if (component->instance != nullptr && !gameObject->prefab.modifiedComponents.Has(component->uuid)) continue;
-
             Component* newComponent = gameObject->AddComponent(component->typeHandler, UUID::RandomUUID());
             newComponent->typeHandler->DeepCopy(component, newComponent);
+            newComponent->instance = component;
         }
 
         for (GameObject* child : children)
         {
             child->Duplicate(gameObject);
-        }
-
-        if (prefab.object)
-        {
-//            gameObject->InitPrefab();
         }
 
         return gameObject;
@@ -202,28 +196,21 @@ namespace Fyrion
         return nullptr;
     }
 
-    void GameObject::SetPrefab(GameObject* gameObject)
+    GameObject* GameObject::FindChildByUUID(UUID uuid) const
     {
-        prefab.object = gameObject;
-        SetName(prefab.object->GetName());
-
-        for (Component* component : prefab.object->components)
+        for (GameObject* child : children)
         {
-            Component* newComponent = AddComponent(component->typeHandler, UUID::RandomUUID());
-            newComponent->typeHandler->DeepCopy(component, newComponent);
-            newComponent->instance = component;
+            if (child->uuid == uuid)
+            {
+                return child;
+            }
         }
-
-        for (GameObject* child : prefab.object->children)
-        {
-            GameObject* childPrefab = this->Create();
-            childPrefab->SetPrefab(child);
-        }
+        return nullptr;
     }
 
-    void GameObject::SetPrefab(UUID prefabId)
+    void GameObject::SetPrefab(GameObject* gameObject)
     {
-        if (prefabId)
+        if (gameObject)
         {
             if (!parent)
             {
@@ -231,18 +218,42 @@ namespace Fyrion
                 return;
             }
 
+            prefab.object = gameObject;
+            SetName(prefab.object->GetName());
+
+            for (Component* component : prefab.object->components)
+            {
+                Component* newComponent = AddComponent(component->typeHandler, UUID::RandomUUID());
+                newComponent->typeHandler->DeepCopy(component, newComponent);
+                newComponent->instance = component;
+            }
+
+            for (GameObject* child : prefab.object->children)
+            {
+                GameObject* childPrefab = this->Create();
+                childPrefab->SetPrefab(child);
+            }
+        } else if (prefab.object != nullptr)
+        {
+            //TODO remove prefab?
+        }
+    }
+
+    void GameObject::SetPrefab(UUID prefabId)
+    {
+        if (prefabId)
+        {
             GameObject* gameObject = GetPrefabObject(prefabId);
             if (!gameObject)
             {
                 logger.Error("prefab id {} not found", prefabId.ToString());
                 return;
             }
-
             SetPrefab(gameObject);
         }
-        else if (prefab.object != nullptr)
+        else
         {
-            //TODO remove prefab?
+            SetPrefab(nullptr);
         }
     }
 
@@ -338,17 +349,17 @@ namespace Fyrion
 
     void GameObject::AddComponentOverride(Component* component)
     {
-        if (prefab.object)
+        if (component->instance)
         {
-            prefab.modifiedComponents.Emplace(component->uuid);
+            prefab.modifiedComponents.Emplace(component->instance->uuid);
         }
     }
 
     void GameObject::RemoveComponentOverride(Component* component, bool resetValue)
     {
-        if (prefab.object)
+        if (component->instance)
         {
-            prefab.modifiedComponents.Erase(component->uuid);
+            prefab.modifiedComponents.Erase(component->instance->uuid);
             if (resetValue)
             {
                 component->typeHandler->DeepCopy(component->instance, component);
@@ -359,9 +370,9 @@ namespace Fyrion
 
     bool GameObject::IsComponentOverride(Component* component)
     {
-        if (prefab.object)
+        if (component->instance)
         {
-            return prefab.modifiedComponents.Has(component->uuid);
+            return prefab.modifiedComponents.Has(component->instance->uuid);
         }
         return false;
     }
@@ -428,7 +439,7 @@ namespace Fyrion
 
         for (const Component* component : components)
         {
-            if (component->instance != nullptr && !prefab.modifiedComponents.Has(component->uuid)) continue;
+            if (component->instance != nullptr && !prefab.modifiedComponents.Has(component->instance->uuid)) continue;
 
             ArchiveValue componentValue = Serialization::Serialize(component->typeHandler, writer, component);
             writer.AddToObject(componentValue, "_type", writer.StringValue(component->typeHandler->GetName()));
@@ -485,6 +496,11 @@ namespace Fyrion
         if (UUID prefabId = UUID::FromString(reader.StringValue(reader.GetObjectValue(value, "prefab"))))
         {
             prefab.object = GetPrefabObject(prefabId);
+
+            if (name.Empty())
+            {
+                SetName(prefab.object->GetName());
+            }
         }
 
         ArchiveValue arrChildren = reader.GetObjectValue(value, "children");
@@ -517,7 +533,7 @@ namespace Fyrion
                     if (UUID instanceComp = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlComponent, "_instance"))); instanceComp && prefab.object)
                     {
                         component->instance = prefab.object->FindComponentByUUID(instanceComp);
-                        prefab.modifiedComponents.Emplace(uuid);
+                        prefab.modifiedComponents.Emplace(instanceComp);
                     }
 
                     Serialization::Deserialize(typeHandler, reader, vlComponent, component);
@@ -525,8 +541,17 @@ namespace Fyrion
             }
         }
 
-        //init is done at end because of "modifiedComponents"
-//        InitPrefab();
+        if (prefab.object)
+        {
+            for (Component* component : prefab.object->components)
+            {
+                if (prefab.modifiedComponents.Has(component->uuid)) continue;
+
+                Component* newComponent = AddComponent(component->typeHandler, UUID::RandomUUID());
+                newComponent->typeHandler->DeepCopy(component, newComponent);
+                newComponent->instance = component;
+            }
+        }
     }
 
     void GameObject::RemovePrefabObject(GameObject* gameObject)

@@ -224,6 +224,61 @@ namespace Fyrion
                 sceneEditor.MarkDirty();
             }
         };
+
+        struct DuplicateObjectAction : EditorAction
+        {
+            FY_BASE_TYPES(EditorAction);
+            SceneEditor& sceneEditor;
+
+            struct NewGameObject
+            {
+                UUID origin;
+                UUID uuid;
+            };
+
+            Array<NewGameObject> newGameObjects;
+
+            explicit DuplicateObjectAction(SceneEditor& sceneEditor)
+                : sceneEditor(sceneEditor)
+            {
+                for (auto& it : sceneEditor.GetSelectedObjects())
+                {
+                    newGameObjects.EmplaceBack(
+                        it.first->GetUUID()
+                    );
+                }
+            }
+
+            void Commit() override
+            {
+                sceneEditor.ClearSelection();
+
+                for (NewGameObject& data : newGameObjects)
+                {
+                    if (GameObject* origin = sceneEditor.GetScene()->FindObjectByUUID(data.origin))
+                    {
+                        GameObject* newObject = origin->Duplicate(origin->GetParent());
+                        data.uuid = newObject->GetUUID();   //is it possible to keep the same UUID?
+                        newObject->SetName(SceneEditor::GetUniqueObjectName(*newObject));
+                        sceneEditor.SelectObject(*newObject);
+                    }
+                }
+                sceneEditor.MarkDirty();
+            }
+
+            void Rollback() override
+            {
+                for (NewGameObject& data : newGameObjects)
+                {
+                    if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(data.uuid))
+                    {
+                        object->Destroy();
+                        sceneEditor.DeselectObject(*object);
+                    }
+                }
+                sceneEditor.MarkDirty();
+            }
+        };
     }
 
     Scene* SceneEditor::GetScene() const
@@ -307,22 +362,11 @@ namespace Fyrion
 
     void SceneEditor::DuplicateSelected()
     {
-        Array<GameObject*> newObjects;
-        newObjects.Reserve(selectedObjects.Size());
-
-        for (auto it : selectedObjects)
+        if (scene == nullptr) return;
+        if (!selectedObjects.Empty())
         {
-            newObjects.EmplaceBack(it.first->Duplicate());
+            Editor::CreateTransaction()->CreateAction<DuplicateObjectAction>(*this)->Commit();
         }
-
-        ClearSelection();
-
-        for (GameObject* object : newObjects)
-        {
-            SelectObject(*object);
-        }
-
-        assetFile->currentVersion++;
     }
 
     bool SceneEditor::IsValidSelection()
@@ -450,7 +494,7 @@ namespace Fyrion
                 nameFound = true;
                 for (GameObject* child : object.GetParent()->GetChildren())
                 {
-                    if (finalName == child->GetName())
+                    if (child != &object && finalName == child->GetName())
                     {
                         finalName = desiredName;
                         finalName += " (";
@@ -472,5 +516,6 @@ namespace Fyrion
         Registry::Type<RenameAction>();
         Registry::Type<DestroyObjectAction>();
         Registry::Type<CreateGameObjectAction>();
+        Registry::Type<DuplicateObjectAction>();
     }
 }

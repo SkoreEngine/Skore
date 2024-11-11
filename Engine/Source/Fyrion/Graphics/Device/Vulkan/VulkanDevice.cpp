@@ -1472,7 +1472,6 @@ namespace Fyrion
     void VulkanDevice::WaitQueue()
     {
         vkQueueWaitIdle(graphicsQueue);
-        vkDeviceWaitIdle(device);
     }
 
     GPUQueue VulkanDevice::GetMainQueue()
