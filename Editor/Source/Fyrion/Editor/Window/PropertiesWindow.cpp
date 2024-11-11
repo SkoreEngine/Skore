@@ -106,12 +106,12 @@ namespace Fyrion
 
         ImGui::EndHorizontal();
 
-        if (gameObject->GetInstance() != nullptr)
+        if (gameObject->GetPrefab() != nullptr)
         {
             ImGui::BeginHorizontal(9999, ImVec2(width, size));
             ImGui::Spring(1.f);
 
-            if (ImGui::BorderedButton("Open Instance", ImVec2((width * 2) / 3, size)))
+            if (ImGui::BorderedButton("Open Prefab", ImVec2((width * 2) / 3, size)))
             {
                 //TODO defer open scene.
             }
@@ -218,9 +218,9 @@ namespace Fyrion
             }
 
 
-            if (gameObject->GetInstance() != nullptr && gameObject->IsComponentOverride(selectedComponent))
+            if (gameObject->GetPrefab() != nullptr && gameObject->IsComponentOverride(selectedComponent))
             {
-                if (ImGui::MenuItem("Remove instance override"))
+                if (ImGui::MenuItem("Remove prefab override"))
                 {
                     sceneEditor.RemoveComponentOverride(gameObject, selectedComponent);
                 }

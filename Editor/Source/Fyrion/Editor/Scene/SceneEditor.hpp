@@ -35,6 +35,7 @@ namespace Fyrion
         void       MarkDirty();
 
 
+
         HashSet<GameObject*>& GetSelectedObjects();
 
         bool IsSimulating() const;
@@ -43,6 +44,7 @@ namespace Fyrion
 
         void DoUpdate();
 
+        static String GetUniqueObjectName(GameObject& object);
     private:
         AssetFile*           assetFile = nullptr;
         Scene*               scene = nullptr;

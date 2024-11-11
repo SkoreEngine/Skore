@@ -1,6 +1,7 @@
 #include "SceneEditor.hpp"
 
 #include "Fyrion/Core/Logger.hpp"
+#include "Fyrion/Core/StringUtils.hpp"
 #include "Fyrion/Editor/Editor.hpp"
 #include "Fyrion/Editor/Asset/AssetEditor.hpp"
 #include "Fyrion/Editor/ImGui/ImGuiEditor.hpp"
@@ -133,9 +134,9 @@ namespace Fyrion
                 {
                     if (GameObject* parent = sceneEditor.GetScene()->FindObjectByUUID(newGameObject.parent))
                     {
-                        GameObject* child = parent->Create(newGameObject.uuid, nullptr);
+                        GameObject* child = parent->Create(newGameObject.uuid);
                         child->SetPrefab(prefab);
-                        child->SetName("Object"); // find a unique name here?
+                        child->SetName(SceneEditor::GetUniqueObjectName(*child));
                         sceneEditor.SelectObject(*child);
                     }
                 }
@@ -189,7 +190,7 @@ namespace Fyrion
                     {
                         if (object->GetParent() != nullptr)
                         {
-                            object->GetParent()->RemoveInstanceObject(object);
+                            object->GetParent()->RemovePrefabObject(object);
                         }
                         object->Destroy();
                     }
@@ -215,9 +216,8 @@ namespace Fyrion
                     if (GameObject* parent = sceneEditor.GetScene()->FindObjectByUUID(parentUUID))
                     {
                         reader.GetObjectValue(item, "object");
-                        GameObject* obj = parent->Create(uuid, nullptr);
+                        GameObject* obj = parent->Create(uuid);
                         obj->Deserialize(reader, item);
-                        obj->InitInstance();
                     }
                 }
 
@@ -371,14 +371,14 @@ namespace Fyrion
                 {
                     if (dependency == component->typeHandler->GetTypeInfo().typeId)
                     {
-                        gameObject->RemoveInstanceComponent(otherComps);
+                        gameObject->RemovePrefabComponent(otherComps);
                         gameObject->RemoveComponent(otherComps);
                     }
                 }
             }
         }
 
-        gameObject->RemoveInstanceComponent(component);
+        gameObject->RemovePrefabComponent(component);
         gameObject->RemoveComponent(component);
 
         assetFile->currentVersion++;
@@ -434,6 +434,36 @@ namespace Fyrion
         {
             scene->FlushQueues();
         }
+    }
+
+    String SceneEditor::GetUniqueObjectName(GameObject& object)
+    {
+        String desiredName = object.GetPrefab() != nullptr ? object.GetPrefab()->GetName() : "Object";
+        String finalName = desiredName;
+
+        if (object.GetParent() != nullptr)
+        {
+            u32  count{};
+            bool nameFound;
+            do
+            {
+                nameFound = true;
+                for (GameObject* child : object.GetParent()->GetChildren())
+                {
+                    if (finalName == child->GetName())
+                    {
+                        finalName = desiredName;
+                        finalName += " (";
+                        finalName.Append(ToString(++count));
+                        finalName += ")";
+                        nameFound = false;
+                        break;
+                    }
+                }
+            }
+            while (!nameFound);
+        }
+        return finalName;
     }
 
     void RegistrySceneEditorTypes()

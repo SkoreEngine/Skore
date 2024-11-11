@@ -28,12 +28,8 @@ namespace Fyrion
         void        SetName(StringView newName);
         UUID        GetUUID() const;
 
-        GameObject* GetInstance() const;
-        Scene*      GetSceneInstance() const;
-
         GameObject*       Create();
-        GameObject*       Create(Scene* instance);
-        GameObject*       Create(UUID uuid, Scene* instance);
+        GameObject*       Create(UUID uuid);
         GameObject*       Duplicate() const;
         GameObject*       Duplicate(GameObject* parent) const;
         Span<GameObject*> GetChildren() const;
@@ -41,7 +37,12 @@ namespace Fyrion
         GameObject*       FindChildByName(StringView name) const;
 
         //prefabs
-        void             SetPrefab(UUID prefabId);
+        void        SetPrefab(UUID prefabId);
+        void        SetPrefab(GameObject* gameObject);
+        GameObject* GetPrefab() const;
+        GameObject* FindChildByPrefab(UUID uuid) const;
+        void        RemovePrefabObject(GameObject* gameObject);
+        void        RemovePrefabComponent(Component* component);
 
         Component*       GetComponent(TypeID typeId) const;
         Component*       GetOrAddComponent(TypeID typeId);
@@ -51,18 +52,14 @@ namespace Fyrion
         Component*       AddComponent(TypeHandler* typeHandler, UUID uuid);
         void             RemoveComponent(Component* component);
         Span<Component*> GetComponents() const;
-        void             AddComponentOverride(Component* component);
-        void             RemoveComponentOverride(Component* component, bool resetValue = true);
-        bool             IsComponentOverride(Component* component);
+
+        //prefab components
+        void AddComponentOverride(Component* component);
+        void RemoveComponentOverride(Component* component, bool resetValue = true);
+        bool IsComponentOverride(Component* component);
 
         ArchiveValue Serialize(ArchiveWriter& writer) const;
         void         Deserialize(ArchiveReader& reader, ArchiveValue value);
-
-
-        //instance functions
-        void RemoveInstanceObject(GameObject* gameObject);
-        void RemoveInstanceComponent(Component* component);
-
 
         void NotifyEvent(const SceneEventDesc& event);
         void Destroy();
@@ -87,31 +84,26 @@ namespace Fyrion
 
         friend class Scene;
 
-        void InitInstance();
-
     private:
-        struct Instance
+        GameObject(Scene* scene);
+        GameObject(Scene* scene, GameObject* parent);
+
+        struct PrefabInstance
         {
-            Scene*        scene = nullptr;      //TODO: maybe it's possible to remove scene, it can be get from object.
             GameObject*   object = nullptr;
             HashSet<UUID> modifiedComponents;
             HashSet<UUID> removedComponents;
             HashSet<UUID> removedObjects;
-            bool initialized = false;
         };
-
-        GameObject(Scene* scene);
-        GameObject(Scene* scene, GameObject* parent);
 
         Scene*      scene;
         GameObject* parent;
-        Instance    instance;
         String      name;
         UUID        uuid;
         bool        started = false;
 
         //prefabs
-        GameObject* prefab;
+        PrefabInstance prefab;
 
         Array<GameObject*> children;
         Array<Component*>  components;
@@ -119,7 +111,8 @@ namespace Fyrion
         void        Start();
         GameObject* CreateInternal(UUID uuid, GameObject* parent) const;
         static void CopyComponents(GameObject* dest, GameObject* origin);
-        GameObject* FindByInstance(UUID uuid) const;
         Component*  FindComponentByInstance(UUID uuid) const;
+
+        GameObject* GetPrefabObject(UUID uuid) const;
     };
 }
