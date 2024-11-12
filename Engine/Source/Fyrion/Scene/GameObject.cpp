@@ -51,7 +51,7 @@ namespace Fyrion
 
     StringView GameObject::GetName() const
     {
-        if (parent == nullptr)
+        if (parent == nullptr && scene != nullptr)
         {
             return scene->GetName();
         }
@@ -65,7 +65,7 @@ namespace Fyrion
 
     UUID GameObject::GetUUID() const
     {
-        if (parent == nullptr)
+        if (parent == nullptr && scene != nullptr)
         {
             return scene->GetUUID();
         }
@@ -79,12 +79,21 @@ namespace Fyrion
 
     GameObject* GameObject::CreateInternal(UUID uuid, GameObject* parent) const
     {
-        GameObject* gameObject = new(MemoryGlobals::GetDefaultAllocator().MemAlloc(sizeof(GameObject), alignof(GameObject))) GameObject{parent->scene, parent};
-        gameObject->uuid = uuid;
-        parent->children.EmplaceBack(gameObject);
+        GameObject* gameObject = new(MemoryGlobals::GetDefaultAllocator().MemAlloc(
+            sizeof(GameObject), alignof(GameObject))) GameObject{parent != nullptr ? parent->scene : nullptr, parent};
 
-        scene->objectsById.Insert(uuid, gameObject);
-        scene->queueToStart.EmplaceBack(gameObject);
+        gameObject->uuid = uuid;
+
+        if (parent)
+        {
+            parent->children.EmplaceBack(gameObject);
+
+            if (parent->scene)
+            {
+                scene->objectsById.Insert(uuid, gameObject);
+                scene->queueToStart.EmplaceBack(gameObject);
+            }
+        }
 
         return gameObject;
     }
@@ -324,7 +333,7 @@ namespace Fyrion
         component->gameObject = this;
         component->uuid = uuid;
         components.EmplaceBack(component);
-        if (started)
+        if (started && scene)
         {
             scene->componentsToStart.EmplaceBack(component);
         }
@@ -595,6 +604,14 @@ namespace Fyrion
 
     void GameObject::Destroy()
     {
-        scene->DestroyGameObject(this);
+        if (scene)
+        {
+            scene->DestroyGameObject(this);
+        }
+        else
+        {
+            MemoryGlobals::GetDefaultAllocator().DestroyAndFree(this);
+        }
+
     }
 }

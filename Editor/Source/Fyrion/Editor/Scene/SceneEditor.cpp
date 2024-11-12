@@ -21,21 +21,44 @@ namespace Fyrion
             SceneEditor& sceneEditor;
             UUID         gameObjectId;
             UUID         transformUUID;
+            UUID         instanceUUID;
             Transform    oldTransform;
             Transform    newTransform;
 
-            TransformUpdateAction(SceneEditor& sceneEditor, const UUID& gameObjectId, const UUID& transformUUID, const Transform& oldTransform, const Transform& newTransform)
+            TransformUpdateAction(SceneEditor& sceneEditor, const UUID& gameObjectId, TransformComponent* transformComponent, const Transform& oldTransform, const Transform& newTransform)
                 : sceneEditor(sceneEditor),
                   gameObjectId(gameObjectId),
-                  transformUUID(transformUUID),
+                  transformUUID(transformComponent->uuid),
+                  instanceUUID(transformComponent->instance != nullptr ? transformComponent->instance->uuid : UUID{}),
                   oldTransform(oldTransform),
                   newTransform(newTransform) {}
+
+
+            TransformComponent* GetComponent()
+            {
+                if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(gameObjectId))
+                {
+                    if (TransformComponent* transformComponent = static_cast<TransformComponent*>(object->FindComponentByUUID(transformUUID)))
+                    {
+                        return transformComponent;
+                    }
+
+                    if (instanceUUID)
+                    {
+                        if (TransformComponent* transformComponent = static_cast<TransformComponent*>(object->FindComponentByInstance(instanceUUID)))
+                        {
+                            return transformComponent;
+                        }
+                    }
+                }
+                return nullptr;
+            }
 
             void Commit() override
             {
                 if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(gameObjectId))
                 {
-                    if (TransformComponent* transformComponent = static_cast<TransformComponent*>(object->FindComponentByUUID(transformUUID)))
+                    if (TransformComponent* transformComponent = GetComponent())
                     {
                         transformComponent->SetTransform(newTransform);
                         object->AddComponentOverride(transformComponent);
@@ -48,7 +71,7 @@ namespace Fyrion
             {
                 if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(gameObjectId))
                 {
-                    if (TransformComponent* transformComponent = static_cast<TransformComponent*>(object->FindComponentByUUID(transformUUID)))
+                    if (TransformComponent* transformComponent = GetComponent())
                     {
                         transformComponent->SetTransform(oldTransform);
                         object->AddComponentOverride(transformComponent);
@@ -230,50 +253,64 @@ namespace Fyrion
             FY_BASE_TYPES(EditorAction);
             SceneEditor& sceneEditor;
 
-            struct NewGameObject
-            {
-                UUID origin;
-                UUID uuid;
-            };
-
-            Array<NewGameObject> newGameObjects;
+            String json;
+            Array<UUID> newObjects;
 
             explicit DuplicateObjectAction(SceneEditor& sceneEditor)
                 : sceneEditor(sceneEditor)
             {
+                JsonArchiveWriter writer;
+                ArchiveValue arr = writer.CreateArray();
+
                 for (auto& it : sceneEditor.GetSelectedObjects())
                 {
-                    newGameObjects.EmplaceBack(
-                        it.first->GetUUID()
-                    );
+                    GameObject* newObject = it.first->Duplicate(nullptr);
+                    newObject->SetName(SceneEditor::GetUniqueObjectName(*it.first));
+                    newObjects.EmplaceBack(newObject->GetUUID());
+                    ArchiveValue obj = newObject->Serialize(writer);
+                    writer.AddToObject(obj, "_parent", writer.StringValue(it.first->GetParent()->GetUUID().ToString()));
+                    writer.AddToArray(arr, obj);
+
                 }
+                json = JsonArchiveWriter::Stringify(arr, false, true);
             }
 
             void Commit() override
             {
                 sceneEditor.ClearSelection();
 
-                for (NewGameObject& data : newGameObjects)
+                JsonArchiveReader reader(json, true);
+                ArchiveValue      arr = reader.GetRoot();
+
+                usize size = reader.ArraySize(arr);
+                ArchiveValue item{};
+
+                for (int i = 0; i < size; ++i)
                 {
-                    if (GameObject* origin = sceneEditor.GetScene()->FindObjectByUUID(data.origin))
+                    item = reader.ArrayNext(arr, item);
+                    UUID uuid = UUID::FromString(reader.StringValue(reader.GetObjectValue(item, "uuid")));
+                    UUID parentUUID = UUID::FromString(reader.StringValue(reader.GetObjectValue(item, "_parent")));
+
+                    if (GameObject* parent = sceneEditor.GetScene()->FindObjectByUUID(parentUUID))
                     {
-                        GameObject* newObject = origin->Duplicate(origin->GetParent());
-                        data.uuid = newObject->GetUUID();   //is it possible to keep the same UUID?
-                        newObject->SetName(SceneEditor::GetUniqueObjectName(*newObject));
-                        sceneEditor.SelectObject(*newObject);
+                        reader.GetObjectValue(item, "object");
+                        GameObject* obj = parent->Create(uuid);
+                        obj->Deserialize(reader, item);
+                        sceneEditor.SelectObject(*obj);
                     }
                 }
+
                 sceneEditor.MarkDirty();
             }
 
             void Rollback() override
             {
-                for (NewGameObject& data : newGameObjects)
+                for (UUID& uuid : newObjects)
                 {
-                    if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(data.uuid))
+                    if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(uuid))
                     {
-                        object->Destroy();
                         sceneEditor.DeselectObject(*object);
+                        object->Destroy();
                     }
                 }
                 sceneEditor.MarkDirty();
@@ -438,7 +475,7 @@ namespace Fyrion
     void SceneEditor::UpdateTransform(GameObject* gameObject, const Transform& oldTransform, TransformComponent* transformComponent)
     {
         EditorTransaction* newTransaction = Editor::CreateTransaction();
-        newTransaction->CreateAction<TransformUpdateAction>(*this, gameObject->GetUUID(), transformComponent->uuid, oldTransform, transformComponent->GetTransform())->Commit();
+        newTransaction->CreateAction<TransformUpdateAction>(*this, gameObject->GetUUID(), transformComponent, oldTransform, transformComponent->GetTransform())->Commit();
     }
 
     void SceneEditor::RemoveComponentOverride(GameObject* gameObject, Component* component)

@@ -48,6 +48,7 @@ namespace Fyrion
         Component*       GetComponent(TypeID typeId) const;
         Component*       GetOrAddComponent(TypeID typeId);
         Component*       FindComponentByUUID(UUID uuid) const;
+        Component*       FindComponentByInstance(UUID uuid) const;
         void             GetComponentsOfType(TypeID typeId, Array<Component*> arrComponents) const;
         Component*       AddComponent(TypeID typeId);
         Component*       AddComponent(TypeHandler* typeHandler, UUID uuid);
@@ -112,7 +113,6 @@ namespace Fyrion
         void        Start();
         GameObject* CreateInternal(UUID uuid, GameObject* parent) const;
         static void CopyComponents(GameObject* dest, GameObject* origin);
-        Component*  FindComponentByInstance(UUID uuid) const;
 
         GameObject* GetPrefabObject(UUID uuid) const;
     };
