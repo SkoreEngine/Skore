@@ -217,6 +217,48 @@ namespace Fyrion
         return nullptr;
     }
 
+
+    usize GameObject::GetIndex() const
+    {
+        if (parent == nullptr)
+        {
+            return nPos;
+        }
+        return FindFirstIndex(parent->children.begin(), parent->children.end(), const_cast<GameObject*>(this));
+    }
+
+    void GameObject::MoveTo(usize index)
+    {
+        if (parent == nullptr)
+        {
+            return;
+        }
+
+        auto oldIndex = FindFirstIndex(parent->children.begin(), parent->children.end(), this);
+
+        if(oldIndex == index)
+        {
+            return;
+        }
+
+        if (oldIndex == nPos)
+        {
+            return;
+        }
+
+        parent->children.Erase(parent->children.begin() + oldIndex);
+
+        if (index >= parent->children.Size() || index == U32_MAX)
+        {
+            parent->children.EmplaceBack(this);
+        }
+        else
+        {
+            usize newIndex = oldIndex > index ? index : index - 1;
+            parent->children.Insert(parent->children.begin() + newIndex, this);
+        }
+    }
+
     void GameObject::SetPrefab(GameObject* gameObject)
     {
         if (gameObject)

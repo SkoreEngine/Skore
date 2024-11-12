@@ -199,7 +199,6 @@ namespace ImGui
             ImGuiTreeNodeFlags_OpenOnDoubleClick |
             ImGuiTreeNodeFlags_SpanAvailWidth |
             ImGuiTreeNodeFlags_SpanFullWidth;
-
         return ImGui::TreeNodeEx((void*)(usize)id, flags, "%s", label);
     }
 
@@ -319,6 +318,15 @@ namespace ImGui
         const ImRect bb(min, max);
         ItemSize(max - min);
         ItemAdd(bb, 0);
+    }
+
+    ImVec2 GetParentWorkRectMin()
+    {
+        return GetCurrentWindow()->ParentWorkRect.Min;
+    }
+    ImVec2 GetParentWorkRectMax()
+    {
+        return GetCurrentWindow()->ParentWorkRect.Max;
     }
 
     ImU32 TextToColor(const char* str)

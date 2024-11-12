@@ -36,6 +36,8 @@ namespace Fyrion
         void              RemoveChild(GameObject* gameObject);
         GameObject*       FindChildByName(StringView name) const;
         GameObject*       FindChildByUUID(UUID uuid) const;
+        usize             GetIndex() const;
+        void              MoveTo(usize index);
 
         //prefabs
         void        SetPrefab(UUID prefabId);

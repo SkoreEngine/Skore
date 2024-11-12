@@ -3,7 +3,8 @@
 #include "Fyrion/Editor/MenuItem.hpp"
 
 
-namespace Fyrion {
+namespace Fyrion
+{
     class GameObject;
 }
 
@@ -41,8 +42,8 @@ namespace Fyrion
         String       renamingStringCache{};
         bool         newObjectIsSelected = false;
 
-        void        CheckDragDropAsset();
-
         static MenuItemContext menuItemContext;
+
+        void DrawMovePayload(u32 id, usize index);
     };
 }

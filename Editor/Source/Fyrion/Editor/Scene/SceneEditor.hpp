@@ -20,6 +20,10 @@ namespace Fyrion
         void       ClearSelection(EditorTransaction* transaction);
         void       SelectObject(GameObject& object, EditorTransaction* transaction);
         void       DeselectObject(GameObject& object, EditorTransaction* transaction);
+        void       ClearSelectionNoHistory();
+        void       SelectObjectNoHistory(GameObject& object);
+        void       SelectObjectsNoHistory(Span<UUID> ids);
+        void       DeselectObjectNoHistory(GameObject& object);
         bool       IsSelected(GameObject& object) const;
         bool       IsParentOfSelected(GameObject& object) const;
         void       RenameObject(GameObject& object, StringView newName);
@@ -36,8 +40,8 @@ namespace Fyrion
         void       MarkDirty();
 
 
-
         HashSet<GameObject*>& GetSelectedObjects();
+        Array<UUID>           GetSelectObjectUUIDS() const;
 
         bool IsSimulating() const;
         void StartSimulation();

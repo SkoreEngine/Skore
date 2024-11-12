@@ -72,6 +72,8 @@ namespace ImGui
     FY_API bool BorderedButton(const char* label, const ImVec2& size = ImVec2(0, 0));
     FY_API bool CollapsingHeaderProps(i32 id, const char* label, bool* buttonClicked);
     FY_API void DummyRect(ImVec2 min, ImVec2 max);
+    FY_API ImVec2 GetParentWorkRectMin();
+    FY_API ImVec2 GetParentWorkRectMax();
 
     FY_API ImU32 TextToColor(const char* str);
     FY_API bool CurrentTableHovered();

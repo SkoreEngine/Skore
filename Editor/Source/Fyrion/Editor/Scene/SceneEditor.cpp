@@ -130,6 +130,7 @@ namespace Fyrion
             UUID                 prefab;
             bool                 childrenOfSelected;
             Array<NewGameObject> newObjects;
+            Array<UUID>          selectedObjects;
 
             CreateGameObjectAction(SceneEditor& sceneEditor, UUID prefab, bool childrenOfSelected)
                 : sceneEditor(sceneEditor),
@@ -148,11 +149,14 @@ namespace Fyrion
                 {
                     newObjects.EmplaceBack(UUID::RandomUUID(), sceneEditor.GetScene()->GetRootObject().GetUUID());
                 }
+
+                selectedObjects = sceneEditor.GetSelectObjectUUIDS();
             }
 
             void Commit() override
             {
-                sceneEditor.ClearSelection(transaction);
+                sceneEditor.ClearSelectionNoHistory();
+
                 for (NewGameObject& newGameObject : newObjects)
                 {
                     if (GameObject* parent = sceneEditor.GetScene()->FindObjectByUUID(newGameObject.parent))
@@ -160,7 +164,7 @@ namespace Fyrion
                         GameObject* child = parent->Create(newGameObject.uuid);
                         child->SetPrefab(prefab);
                         child->SetName(SceneEditor::GetUniqueObjectName(*child));
-                        sceneEditor.SelectObject(*child, transaction);
+                        sceneEditor.SelectObjectNoHistory(*child);
                     }
                 }
                 sceneEditor.MarkDirty();
@@ -172,10 +176,12 @@ namespace Fyrion
                 {
                     if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(newGameObject.uuid))
                     {
-                        sceneEditor.DeselectObject(*object, transaction);
+                        sceneEditor.DeselectObjectNoHistory(*object);
                         object->Destroy();
                     }
                 }
+
+                sceneEditor.SelectObjectsNoHistory(selectedObjects);
                 sceneEditor.MarkDirty();
             }
         };
@@ -190,17 +196,17 @@ namespace Fyrion
 
             DestroyObjectAction(SceneEditor& sceneEditor) : sceneEditor(sceneEditor)
             {
+                selectedObjects = sceneEditor.GetSelectObjectUUIDS();
+
                 JsonArchiveWriter writer;
 
                 ArchiveValue arr = writer.CreateArray();
                 for (auto& it : sceneEditor.GetSelectedObjects())
                 {
-                    selectedObjects.EmplaceBack(it.first->GetUUID());
                     ArchiveValue obj = it.first->Serialize(writer);
                     writer.AddToObject(obj, "_parent", writer.StringValue(it.first->GetParent()->GetUUID().ToString()));
                     writer.AddToArray(arr, obj);
                 }
-
                 json = JsonArchiveWriter::Stringify(arr, false, true);
             }
 
@@ -217,12 +223,14 @@ namespace Fyrion
                         object->Destroy();
                     }
                 }
-                sceneEditor.ClearSelection(transaction);
+                sceneEditor.ClearSelectionNoHistory();
                 sceneEditor.MarkDirty();
             }
 
             void Rollback() override
             {
+                sceneEditor.ClearSelectionNoHistory();
+
                 JsonArchiveReader reader(json, true);
                 ArchiveValue      arr = reader.GetRoot();
 
@@ -240,6 +248,7 @@ namespace Fyrion
                         reader.GetObjectValue(item, "object");
                         GameObject* obj = parent->Create(uuid);
                         obj->Deserialize(reader, item);
+                        sceneEditor.SelectObjectNoHistory(*obj);
                     }
                 }
 
@@ -254,10 +263,13 @@ namespace Fyrion
 
             String      json;
             Array<UUID> newObjects;
+            Array<UUID> selectedObejcts;
 
             explicit DuplicateObjectAction(SceneEditor& sceneEditor)
                 : sceneEditor(sceneEditor)
             {
+                selectedObejcts = sceneEditor.GetSelectObjectUUIDS();
+
                 JsonArchiveWriter writer;
                 ArchiveValue      arr = writer.CreateArray();
 
@@ -277,7 +289,7 @@ namespace Fyrion
 
             void Commit() override
             {
-                sceneEditor.ClearSelection(transaction);
+                sceneEditor.ClearSelectionNoHistory();
 
                 JsonArchiveReader reader(json, true);
                 ArchiveValue      arr = reader.GetRoot();
@@ -296,7 +308,7 @@ namespace Fyrion
                         reader.GetObjectValue(item, "object");
                         GameObject* obj = parent->Create(uuid);
                         obj->Deserialize(reader, item);
-                        sceneEditor.SelectObject(*obj, transaction);
+                        sceneEditor.SelectObjectNoHistory(*obj);
                     }
                 }
 
@@ -305,14 +317,15 @@ namespace Fyrion
 
             void Rollback() override
             {
+                sceneEditor.ClearSelectionNoHistory();
                 for (UUID& uuid : newObjects)
                 {
                     if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(uuid))
                     {
-                        sceneEditor.DeselectObject(*object, transaction);
                         object->Destroy();
                     }
                 }
+                sceneEditor.SelectObjectsNoHistory(selectedObejcts);
                 sceneEditor.MarkDirty();
             }
         };
@@ -458,6 +471,38 @@ namespace Fyrion
         transaction->CreateAction<ObjectSelectionAction>(*this, ObjectSelectionAction::Type::Deselect, object.GetUUID())->Commit();
     }
 
+    void SceneEditor::ClearSelectionNoHistory()
+    {
+        for (const auto& it : selectedObjects)
+        {
+            onGameObjectDeselectionHandler.Invoke(it.first);
+        }
+        selectedObjects.Clear();
+    }
+
+    void SceneEditor::SelectObjectNoHistory(GameObject& object)
+    {
+        selectedObjects.Emplace(&object);
+        onGameObjectSelectionHandler.Invoke(&object);
+    }
+
+    void SceneEditor::SelectObjectsNoHistory(Span<UUID> ids)
+    {
+        for(UUID& id: ids)
+        {
+            if (GameObject* gameObject = scene->FindObjectByUUID(id))
+            {
+                SelectObjectNoHistory(*gameObject);
+            }
+        }
+    }
+
+    void SceneEditor::DeselectObjectNoHistory(GameObject& object)
+    {
+        onGameObjectDeselectionHandler.Invoke(&object);
+        selectedObjects.Erase(&object);
+    }
+
     bool SceneEditor::IsSelected(GameObject& object) const
     {
         return selectedObjects.Has(&object);
@@ -590,6 +635,17 @@ namespace Fyrion
     HashSet<GameObject*>& SceneEditor::GetSelectedObjects()
     {
         return selectedObjects;
+    }
+
+    Array<UUID> SceneEditor::GetSelectObjectUUIDS() const
+    {
+        Array<UUID> ret;
+        ret.Reserve(selectedObjects.Size());
+        for(auto& it : selectedObjects)
+        {
+            ret.EmplaceBack(it.first->GetUUID());
+        }
+        return ret;
     }
 
     bool SceneEditor::IsSimulating() const

@@ -61,6 +61,7 @@ namespace Fyrion
         void PopBack();
 
         void Assign(const T* first, const T* last);
+        void Insert(Iterator where, const T& value);
         void Insert(Iterator where, const T* first, const T* last);
         Iterator Erase(Iterator first, Iterator last);
         Iterator Erase(Iterator first);
@@ -375,6 +376,12 @@ namespace Fyrion
         T* where = m_last - 1;
         where->~T();
         --m_last;
+    }
+
+    template <typename T>
+    void Array<T>::Insert(Iterator where, const T& value)
+    {
+        Insert(where, &value, &value + 1);
     }
 
     template <typename T>

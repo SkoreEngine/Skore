@@ -54,4 +54,9 @@ namespace Fyrion
         AssetFile* assetFile;
         TypeID     assetType;
     };
+
+    struct GameObjectPayload
+    {
+        GameObject* gameObject;
+    };
 }

@@ -1,5 +1,6 @@
 #include "SceneTreeWindow.hpp"
 
+#include "imgui_internal.h"
 #include "Fyrion/Editor/Editor.hpp"
 #include "Fyrion/Editor/Scene/SceneEditor.hpp"
 #include "Fyrion/ImGui/IconsFontAwesome6.h"
@@ -14,14 +15,18 @@ namespace Fyrion
     SceneTreeWindow::SceneTreeWindow() : sceneEditor(Editor::GetSceneEditor()) {}
 
 
-    void SceneTreeWindow::CheckDragDropAsset() {}
-
     void SceneTreeWindow::DrawGameObject(GameObject& gameObject)
     {
+        bool root = gameObject.GetParent() == nullptr;
+        ImGuiID treeId = static_cast<ImGuiID>(HashValue(reinterpret_cast<usize>(&gameObject)));
+
+        if (!root)
+        {
+            DrawMovePayload(treeId + 4, gameObject.GetIndex());
+        }
+
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-
-        bool root = gameObject.GetParent() == nullptr;
 
         Span<GameObject*> children = gameObject.GetChildren();
 
@@ -34,8 +39,6 @@ namespace Fyrion
 
         auto treeFlags = isSelected ? ImGuiTreeNodeFlags_Selected | ImGuiTreeNodeFlags_SpanAllColumns : ImGuiTreeNodeFlags_SpanAllColumns;
         bool open = false;
-
-        ImGuiID treeId = static_cast<ImGuiID>(HashValue(reinterpret_cast<usize>(&gameObject)));
 
         if (root)
         {
@@ -52,9 +55,10 @@ namespace Fyrion
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(143, 131, 34, 255));
         }
 
+        ImVec2 cursorPos = ImGui::GetCursorPos();
+
         if (isSelected && renamingSelected)
         {
-            ImVec2 cursorPos = ImGui::GetCursorPos();
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetTreeNodeToLabelSpacing());
 
             if (!renamingFocus)
@@ -106,18 +110,6 @@ namespace Fyrion
             ImGui::PopStyleColor();
         }
 
-        CheckDragDropAsset();
-
-        if (ImGui::BeginDragDropTarget())
-        {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(FY_GAME_OBJECT_PAYLOAD))
-            {
-                // moveEntitiesTo = FY_NULL_ENTITY;
-                // removeSelectionParent = true;
-            }
-            ImGui::EndDragDropTarget();
-        }
-
         bool isHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
 
         if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
@@ -133,6 +125,27 @@ namespace Fyrion
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) && isHovered)
         {
             newObjectIsSelected = true;
+        }
+
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
+        {
+            GameObjectPayload payload = {
+                .gameObject = &gameObject
+            };
+
+            ImGui::SetDragDropPayload(FY_GAME_OBJECT_PAYLOAD, &payload, sizeof(GameObjectPayload));
+            ImGui::Text("%s", gameObject.GetName().CStr());
+            ImGui::EndDragDropSource();
+        }
+
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(FY_GAME_OBJECT_PAYLOAD))
+            {
+                // moveEntitiesTo = FY_NULL_ENTITY;
+                // removeSelectionParent = true;
+            }
+            ImGui::EndDragDropTarget();
         }
 
         ImGui::TableNextColumn();
@@ -154,8 +167,6 @@ namespace Fyrion
     void SceneTreeWindow::Draw(u32 id, bool& open)
     {
         newObjectIsSelected = false;
-        // skipDragDrop = false;
-
         auto& style = ImGui::GetStyle();
         auto  originalWindowPadding = style.WindowPadding;
 
@@ -202,6 +213,7 @@ namespace Fyrion
                     {
                         ImGui::BeginTreeNode();
                         DrawGameObject(scene->GetRootObject());
+                        DrawMovePayload(98765, U32_MAX);
                         ImGui::EndTreeNode();
                     }
 
@@ -209,9 +221,7 @@ namespace Fyrion
                 }
             }
             ImGui::EndChild();
-            CheckDragDropAsset();
         }
-
 
         bool closePopup = false;
 
@@ -283,6 +293,29 @@ namespace Fyrion
     bool SceneTreeWindow::CheckSelectedObject(const MenuItemEventData& eventData)
     {
         return static_cast<SceneTreeWindow*>(eventData.drawData)->sceneEditor.IsValidSelection();
+    }
+
+    void SceneTreeWindow::DrawMovePayload(u32 id, usize index)
+    {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+
+        ImGui::PushID(id);
+        ImGui::SetCursorPosX(0);
+        ImGui::InvisibleButton("", ImVec2(ImGui::GetContentRegionMax().x, std::ceil(1 * ImGui::GetStyle().ScaleFactor)));
+
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(FY_GAME_OBJECT_PAYLOAD))
+            {
+                GameObjectPayload& gameObjectPayload = *static_cast<GameObjectPayload*>(payload->Data);
+                gameObjectPayload.gameObject->MoveTo(index);
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        ImGui::PopID();
+        ImGui::TableNextColumn();
     }
 
     void SceneTreeWindow::AddMenuItem(const MenuItemCreation& menuItem)
