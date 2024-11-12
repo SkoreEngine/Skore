@@ -44,7 +44,7 @@ namespace Fyrion
 
         void DoUpdate();
 
-        static String GetUniqueObjectName(GameObject& object);
+        static String GetUniqueObjectName(GameObject& object, GameObject* parent = nullptr);
     private:
         AssetFile*           assetFile = nullptr;
         Scene*               scene = nullptr;

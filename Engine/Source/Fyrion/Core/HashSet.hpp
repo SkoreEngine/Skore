@@ -286,7 +286,7 @@ namespace Fyrion
 		m_buckets.Swap(other.m_buckets);
 		usize size = other.m_size;
 		other.m_size = this->m_size;
-		other.m_size = size;
+		m_size = size;
 	}
 
 	template<typename Key>

@@ -173,7 +173,7 @@ namespace Fyrion
         {
             Component* newComponent = gameObject->AddComponent(component->typeHandler, UUID::RandomUUID());
             newComponent->typeHandler->DeepCopy(component, newComponent);
-            newComponent->instance = component;
+            newComponent->instance = component->instance;
         }
 
         for (GameObject* child : children)

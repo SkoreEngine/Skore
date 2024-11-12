@@ -265,11 +265,13 @@ namespace Fyrion
                 for (auto& it : sceneEditor.GetSelectedObjects())
                 {
                     GameObject* newObject = it.first->Duplicate(nullptr);
-                    newObject->SetName(SceneEditor::GetUniqueObjectName(*it.first));
-                    newObjects.EmplaceBack(newObject->GetUUID());
+                    newObject->SetName(SceneEditor::GetUniqueObjectName(*newObject, it.first->GetParent()));
+
                     ArchiveValue obj = newObject->Serialize(writer);
                     writer.AddToObject(obj, "_parent", writer.StringValue(it.first->GetParent()->GetUUID().ToString()));
                     writer.AddToArray(arr, obj);
+
+                    newObjects.EmplaceBack(newObject->GetUUID());
 
                 }
                 json = JsonArchiveWriter::Stringify(arr, false, true);
@@ -517,19 +519,21 @@ namespace Fyrion
         }
     }
 
-    String SceneEditor::GetUniqueObjectName(GameObject& object)
+    String SceneEditor::GetUniqueObjectName(GameObject& object, GameObject* parent)
     {
+        GameObject* parentToUse = parent != nullptr ? parent : object.GetParent();
+
         String desiredName = object.GetPrefab() != nullptr ? object.GetPrefab()->GetName() : "Object";
         String finalName = desiredName;
 
-        if (object.GetParent() != nullptr)
+        if (parentToUse != nullptr)
         {
             u32  count{};
             bool nameFound;
             do
             {
                 nameFound = true;
-                for (GameObject* child : object.GetParent()->GetChildren())
+                for (GameObject* child : parentToUse->GetChildren())
                 {
                     if (child != &object && finalName == child->GetName())
                     {
