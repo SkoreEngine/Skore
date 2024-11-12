@@ -122,11 +122,12 @@ namespace Fyrion
 
         if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
         {
+            EditorTransaction* transaction = Editor::CreateTransaction();
             if (!(ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl))))
             {
-                sceneEditor.ClearSelection();
+                sceneEditor.ClearSelection(transaction);
             }
-            sceneEditor.SelectObject(gameObject);
+            sceneEditor.SelectObject(gameObject, transaction);
         }
 
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) && isHovered)
@@ -225,7 +226,7 @@ namespace Fyrion
             {
                 if (!newObjectIsSelected)
                 {
-                    sceneEditor.ClearSelection();
+                    sceneEditor.ClearSelection(Editor::CreateTransaction());
                     renamingSelected = false;
                 }
                 openPopup = true;

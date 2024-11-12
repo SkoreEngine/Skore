@@ -15,6 +15,8 @@ namespace Fyrion
     public:
         virtual ~EditorAction() = default;
 
+        EditorTransaction* transaction;
+
         virtual void Commit() = 0;
         virtual void Rollback() = 0;
     };

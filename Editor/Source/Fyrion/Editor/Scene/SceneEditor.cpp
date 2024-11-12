@@ -152,7 +152,7 @@ namespace Fyrion
 
             void Commit() override
             {
-                sceneEditor.ClearSelection();
+                sceneEditor.ClearSelection(transaction);
                 for (NewGameObject& newGameObject : newObjects)
                 {
                     if (GameObject* parent = sceneEditor.GetScene()->FindObjectByUUID(newGameObject.parent))
@@ -160,7 +160,7 @@ namespace Fyrion
                         GameObject* child = parent->Create(newGameObject.uuid);
                         child->SetPrefab(prefab);
                         child->SetName(SceneEditor::GetUniqueObjectName(*child));
-                        sceneEditor.SelectObject(*child);
+                        sceneEditor.SelectObject(*child, transaction);
                     }
                 }
                 sceneEditor.MarkDirty();
@@ -172,13 +172,12 @@ namespace Fyrion
                 {
                     if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(newGameObject.uuid))
                     {
-                        sceneEditor.DeselectObject(*object);
+                        sceneEditor.DeselectObject(*object, transaction);
                         object->Destroy();
                     }
                 }
                 sceneEditor.MarkDirty();
             }
-
         };
 
         struct DestroyObjectAction : EditorAction
@@ -186,8 +185,8 @@ namespace Fyrion
             FY_BASE_TYPES(EditorAction);
 
             SceneEditor& sceneEditor;
-            String json;
-            Array<UUID> selectedObjects;
+            String       json;
+            Array<UUID>  selectedObjects;
 
             DestroyObjectAction(SceneEditor& sceneEditor) : sceneEditor(sceneEditor)
             {
@@ -218,7 +217,7 @@ namespace Fyrion
                         object->Destroy();
                     }
                 }
-                sceneEditor.ClearSelection();
+                sceneEditor.ClearSelection(transaction);
                 sceneEditor.MarkDirty();
             }
 
@@ -253,14 +252,14 @@ namespace Fyrion
             FY_BASE_TYPES(EditorAction);
             SceneEditor& sceneEditor;
 
-            String json;
+            String      json;
             Array<UUID> newObjects;
 
             explicit DuplicateObjectAction(SceneEditor& sceneEditor)
                 : sceneEditor(sceneEditor)
             {
                 JsonArchiveWriter writer;
-                ArchiveValue arr = writer.CreateArray();
+                ArchiveValue      arr = writer.CreateArray();
 
                 for (auto& it : sceneEditor.GetSelectedObjects())
                 {
@@ -272,19 +271,18 @@ namespace Fyrion
                     writer.AddToArray(arr, obj);
 
                     newObjects.EmplaceBack(newObject->GetUUID());
-
                 }
                 json = JsonArchiveWriter::Stringify(arr, false, true);
             }
 
             void Commit() override
             {
-                sceneEditor.ClearSelection();
+                sceneEditor.ClearSelection(transaction);
 
                 JsonArchiveReader reader(json, true);
                 ArchiveValue      arr = reader.GetRoot();
 
-                usize size = reader.ArraySize(arr);
+                usize        size = reader.ArraySize(arr);
                 ArchiveValue item{};
 
                 for (int i = 0; i < size; ++i)
@@ -298,7 +296,7 @@ namespace Fyrion
                         reader.GetObjectValue(item, "object");
                         GameObject* obj = parent->Create(uuid);
                         obj->Deserialize(reader, item);
-                        sceneEditor.SelectObject(*obj);
+                        sceneEditor.SelectObject(*obj, transaction);
                     }
                 }
 
@@ -311,11 +309,115 @@ namespace Fyrion
                 {
                     if (GameObject* object = sceneEditor.GetScene()->FindObjectByUUID(uuid))
                     {
-                        sceneEditor.DeselectObject(*object);
+                        sceneEditor.DeselectObject(*object, transaction);
                         object->Destroy();
                     }
                 }
                 sceneEditor.MarkDirty();
+            }
+        };
+
+
+        struct ObjectSelectionAction : EditorAction
+        {
+            FY_BASE_TYPES(EditorAction);
+
+            enum class Type
+            {
+                Select,
+                Deselect,
+                ClearSelection
+            };
+
+            SceneEditor& sceneEditor;
+            Type         selectionType;
+            UUID         objectId;
+            Array<UUID>  selectedObjects;
+
+            ObjectSelectionAction(SceneEditor& sceneEditor, Type selectionType, const UUID& objectId)
+                : sceneEditor(sceneEditor),
+                  selectionType(selectionType),
+                  objectId(objectId)
+            {
+                if (selectionType == Type::ClearSelection)
+                {
+                    for (const auto& it : sceneEditor.selectedObjects)
+                    {
+                        selectedObjects.EmplaceBack(it.first->GetUUID());
+                    }
+                }
+            }
+
+
+            void Commit() override
+            {
+                switch (selectionType)
+                {
+                    case Type::Select:
+                    {
+                        if (GameObject* gameObject = sceneEditor.GetScene()->FindObjectByUUID(objectId))
+                        {
+                            sceneEditor.selectedObjects.Emplace(gameObject);
+                            sceneEditor.onGameObjectSelectionHandler.Invoke(gameObject);
+                        }
+                        break;
+                    }
+                    case Type::Deselect:
+                        if (GameObject* gameObject = sceneEditor.GetScene()->FindObjectByUUID(objectId))
+                        {
+                            sceneEditor.selectedObjects.Erase(gameObject);
+                            sceneEditor.onGameObjectDeselectionHandler.Invoke(gameObject);
+                        }
+                        break;
+                    case Type::ClearSelection:
+                    {
+                        for (UUID& id : selectedObjects)
+                        {
+                            if (GameObject* gameObject = sceneEditor.GetScene()->FindObjectByUUID(id))
+                            {
+                                sceneEditor.onGameObjectDeselectionHandler.Invoke(gameObject);
+                            }
+                        }
+                        sceneEditor.selectedObjects.Clear();
+                    }
+                    break;
+                }
+            }
+
+            void Rollback() override
+            {
+                switch (selectionType)
+                {
+                    case Type::Select:
+                    {
+                        if (GameObject* gameObject = sceneEditor.GetScene()->FindObjectByUUID(objectId))
+                        {
+                            sceneEditor.selectedObjects.Erase(gameObject);
+                            sceneEditor.onGameObjectDeselectionHandler.Invoke(gameObject);
+                        }
+                        break;
+                    }
+                    case Type::Deselect:
+                        if (GameObject* gameObject = sceneEditor.GetScene()->FindObjectByUUID(objectId))
+                        {
+                            sceneEditor.selectedObjects.Emplace(gameObject);
+                            sceneEditor.onGameObjectSelectionHandler.Invoke(gameObject);
+                        }
+                        break;
+                    case Type::ClearSelection:
+                    {
+                        sceneEditor.selectedObjects.Clear();
+                        for (UUID& id : selectedObjects)
+                        {
+                            if (GameObject* gameObject = sceneEditor.GetScene()->FindObjectByUUID(id))
+                            {
+                                sceneEditor.selectedObjects.Insert(gameObject);
+                                sceneEditor.onGameObjectSelectionHandler.Invoke(gameObject);
+                            }
+                        }
+                    }
+                    break;
+                }
             }
         };
     }
@@ -341,25 +443,19 @@ namespace Fyrion
         }
     }
 
-    void SceneEditor::ClearSelection()
+    void SceneEditor::ClearSelection(EditorTransaction* transaction)
     {
-        for (const auto& it : selectedObjects)
-        {
-            onGameObjectDeselectionHandler.Invoke(it.first);
-        }
-        selectedObjects.Clear();
+        transaction->CreateAction<ObjectSelectionAction>(*this, ObjectSelectionAction::Type::ClearSelection, UUID{})->Commit();
     }
 
-    void SceneEditor::SelectObject(GameObject& object)
+    void SceneEditor::SelectObject(GameObject& object, EditorTransaction* transaction)
     {
-        selectedObjects.Emplace(&object);
-        onGameObjectSelectionHandler.Invoke(&object);
+        transaction->CreateAction<ObjectSelectionAction>(*this, ObjectSelectionAction::Type::Select, object.GetUUID())->Commit();
     }
 
-    void SceneEditor::DeselectObject(GameObject& object)
+    void SceneEditor::DeselectObject(GameObject& object, EditorTransaction* transaction)
     {
-        onGameObjectDeselectionHandler.Invoke(&object);
-        selectedObjects.Erase(&object);
+        transaction->CreateAction<ObjectSelectionAction>(*this, ObjectSelectionAction::Type::Deselect, object.GetUUID())->Commit();
     }
 
     bool SceneEditor::IsSelected(GameObject& object) const
@@ -558,5 +654,6 @@ namespace Fyrion
         Registry::Type<DestroyObjectAction>();
         Registry::Type<CreateGameObjectAction>();
         Registry::Type<DuplicateObjectAction>();
+        Registry::Type<ObjectSelectionAction>();
     }
 }

@@ -24,6 +24,7 @@ namespace Fyrion
                 VoidPtr instance = constructor->NewInstance(MemoryGlobals::GetDefaultAllocator(), params);
                 if (EditorAction* editorAction = typeHandler->Cast<EditorAction>(instance))
                 {
+                    editorAction->transaction = this;
                     actions.EmplaceBack(MakePair(typeHandler, editorAction));
                     return editorAction;
                 }
@@ -38,6 +39,7 @@ namespace Fyrion
 
     void EditorTransaction::AddAction(TypeID typeId, EditorAction* action)
     {
+        action->transaction = this;
         TypeHandler* typeHandler = Registry::FindTypeById(typeId);
         FY_ASSERT(typeHandler, "type handler not found for action");
         if (typeHandler)

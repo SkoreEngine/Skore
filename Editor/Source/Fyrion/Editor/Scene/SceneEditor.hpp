@@ -6,6 +6,7 @@
 
 namespace Fyrion
 {
+    class EditorTransaction;
     class TransformComponent;
     struct AssetFile;
     class Component;
@@ -16,9 +17,9 @@ namespace Fyrion
         Scene*     GetScene() const;
         AssetFile* GetAssetFile() const;
         void       SetScene(AssetFile* assetFile);
-        void       ClearSelection();
-        void       SelectObject(GameObject& object);
-        void       DeselectObject(GameObject& object);
+        void       ClearSelection(EditorTransaction* transaction);
+        void       SelectObject(GameObject& object, EditorTransaction* transaction);
+        void       DeselectObject(GameObject& object, EditorTransaction* transaction);
         bool       IsSelected(GameObject& object) const;
         bool       IsParentOfSelected(GameObject& object) const;
         void       RenameObject(GameObject& object, StringView newName);
@@ -45,13 +46,13 @@ namespace Fyrion
         void DoUpdate();
 
         static String GetUniqueObjectName(GameObject& object, GameObject* parent = nullptr);
-    private:
-        AssetFile*           assetFile = nullptr;
-        Scene*               scene = nullptr;
-        HashSet<GameObject*> selectedObjects{};
 
+        HashSet<GameObject*>                  selectedObjects{};
         EventHandler<OnGameObjectSelection>   onGameObjectSelectionHandler{};
         EventHandler<OnGameObjectDeselection> onGameObjectDeselectionHandler{};
 
+    private:
+        AssetFile*           assetFile = nullptr;
+        Scene*               scene = nullptr;
     };
 }
