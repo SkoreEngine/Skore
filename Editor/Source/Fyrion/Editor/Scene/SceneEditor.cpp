@@ -12,7 +12,7 @@ namespace Fyrion
 {
     namespace
     {
-        Logger& logger = Logger::GetLogger("Fyrion::Scene");
+        Logger& logger = Logger::GetLogger("Fyrion::Scene", LogLevel::Debug);
 
         struct TransformUpdateAction : EditorAction
         {
@@ -630,6 +630,41 @@ namespace Fyrion
     void SceneEditor::MarkDirty()
     {
         assetFile->currentVersion++;
+    }
+
+    void SceneEditor::MoveEntities(GameObject* parent, usize index, Span<GameObject*> entities)
+    {
+        Array sorted = entities;
+        Sort(sorted.begin(), sorted.begin(), [](GameObject* l, GameObject* r)
+        {
+            return l->GetIndex() < r->GetIndex();
+        });
+
+        for(GameObject* obj: sorted)
+        {
+            if (obj->GetParent() != parent)
+            {
+                obj->SetParent(parent);
+            }
+            obj->MoveTo(index);
+        }
+        MarkDirty();
+    }
+
+    void SceneEditor::ChangeParent(GameObject* parent, Span<GameObject*> entities)
+    {
+        Array sorted = entities;
+        Sort(sorted.begin(), sorted.begin(), [](GameObject* l, GameObject* r)
+        {
+            return l->GetIndex() < r->GetIndex();
+        });
+
+        for (GameObject* obj : sorted)
+        {
+            logger.Debug("moving {} to {} ", obj->GetName(), parent->GetName());
+            obj->SetParent(parent);
+        }
+        MarkDirty();
     }
 
     HashSet<GameObject*>& SceneEditor::GetSelectedObjects()

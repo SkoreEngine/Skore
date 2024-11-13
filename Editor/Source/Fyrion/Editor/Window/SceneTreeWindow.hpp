@@ -42,8 +42,10 @@ namespace Fyrion
         String       renamingStringCache{};
         bool         newObjectIsSelected = false;
 
+        Array<GameObject*> selectedCache;
+
         static MenuItemContext menuItemContext;
 
-        void DrawMovePayload(u32 id, usize index);
+        void DrawMovePayload(u32 id, GameObject* parent, usize index) const;
     };
 }

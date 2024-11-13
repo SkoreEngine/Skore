@@ -38,6 +38,8 @@ namespace Fyrion
         void       UpdateTransform(GameObject* gameObject, const Transform& oldTransform, TransformComponent* transformComponent);
         void       RemoveComponentOverride(GameObject* gameObject, Component* component);
         void       MarkDirty();
+        void       MoveEntities(GameObject* parent, usize index, Span<GameObject*> entities);
+        void       ChangeParent(GameObject* parent, Span<GameObject*> entities);
 
 
         HashSet<GameObject*>& GetSelectedObjects();
@@ -56,7 +58,7 @@ namespace Fyrion
         EventHandler<OnGameObjectDeselection> onGameObjectDeselectionHandler{};
 
     private:
-        AssetFile*           assetFile = nullptr;
-        Scene*               scene = nullptr;
+        AssetFile* assetFile = nullptr;
+        Scene*     scene = nullptr;
     };
 }

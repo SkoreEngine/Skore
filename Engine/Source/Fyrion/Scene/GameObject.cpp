@@ -236,7 +236,7 @@ namespace Fyrion
 
         auto oldIndex = FindFirstIndex(parent->children.begin(), parent->children.end(), this);
 
-        if(oldIndex == index)
+        if (oldIndex == index)
         {
             return;
         }
@@ -248,7 +248,7 @@ namespace Fyrion
 
         parent->children.Erase(parent->children.begin() + oldIndex);
 
-        if (index >= parent->children.Size() || index == U32_MAX)
+        if (index > parent->children.Size() || index == U32_MAX)
         {
             parent->children.EmplaceBack(this);
         }
@@ -257,6 +257,48 @@ namespace Fyrion
             usize newIndex = oldIndex > index ? index : index - 1;
             parent->children.Insert(parent->children.begin() + newIndex, this);
         }
+    }
+
+    void GameObject::SetParent(GameObject* newParent)
+    {
+        if (newParent == nullptr)
+        {
+            logger.Error("parent cannot be null");
+            return;
+        }
+
+        if (this->IsParentOf(newParent))
+        {
+            logger.Error("object is parent of {} ", newParent->GetName());
+            return;
+        }
+
+        parent->RemoveChild(this);
+        this->parent = newParent;
+
+        if (this->scene != nullptr && this->scene != newParent->scene)
+        {
+            this->scene->objectsById.Erase(this->GetUUID());
+            newParent->scene->objectsById.Insert(this->GetUUID(), this);
+        }
+
+        this->scene = newParent->scene;
+        this->parent->children.EmplaceBack(this);
+    }
+
+    bool GameObject::IsParentOf(GameObject* object) const
+    {
+        if (object->GetParent() == nullptr)
+        {
+            return false;
+        }
+
+        if (this == object->GetParent())
+        {
+            return true;
+        }
+
+        return this->IsParentOf(object->GetParent());
     }
 
     void GameObject::SetPrefab(GameObject* gameObject)
@@ -284,7 +326,8 @@ namespace Fyrion
                 GameObject* childPrefab = this->Create();
                 childPrefab->SetPrefab(child);
             }
-        } else if (prefab.object != nullptr)
+        }
+        else if (prefab.object != nullptr)
         {
             //TODO remove prefab?
         }
@@ -450,7 +493,7 @@ namespace Fyrion
         if (!prefab.removedObjects.Empty())
         {
             ArchiveValue removedArr = writer.CreateArray();
-            for(auto& it: prefab.removedObjects)
+            for (auto& it : prefab.removedObjects)
             {
                 writer.AddToArray(removedArr, writer.StringValue(it.first.ToString()));
             }
@@ -460,7 +503,7 @@ namespace Fyrion
         if (!prefab.removedComponents.Empty())
         {
             ArchiveValue removedArr = writer.CreateArray();
-            for(auto& it: prefab.removedComponents)
+            for (auto& it : prefab.removedComponents)
             {
                 writer.AddToArray(removedArr, writer.StringValue(it.first.ToString()));
             }
@@ -561,7 +604,7 @@ namespace Fyrion
         for (usize c = 0; c < arrChildrenSize; ++c)
         {
             vlChild = reader.ArrayNext(arrChildren, vlChild);
-            UUID childUUID = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlChild, "uuid")));
+            UUID        childUUID = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlChild, "uuid")));
             GameObject* child = CreateInternal(childUUID, this);
             child->Deserialize(reader, vlChild);
         }
@@ -578,7 +621,7 @@ namespace Fyrion
             {
                 if (TypeHandler* typeHandler = Registry::FindTypeByName(typeName))
                 {
-                    UUID uuid = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlComponent, "_uuid")));
+                    UUID       uuid = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlComponent, "_uuid")));
                     Component* component = AddComponent(typeHandler, uuid);
 
                     if (UUID instanceComp = UUID::FromString(reader.StringValue(reader.GetObjectValue(vlComponent, "_instance"))); instanceComp && prefab.object)
@@ -654,6 +697,5 @@ namespace Fyrion
         {
             MemoryGlobals::GetDefaultAllocator().DestroyAndFree(this);
         }
-
     }
 }

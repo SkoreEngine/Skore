@@ -3,6 +3,7 @@
 #include "Fyrion/Common.hpp"
 #include "Fyrion/Core/Event.hpp"
 #include "Fyrion/Core/Hash.hpp"
+#include "Fyrion/Core/Span.hpp"
 
 
 #define FY_ASSET_PAYLOAD "fy-asset-payload"
@@ -57,6 +58,6 @@ namespace Fyrion
 
     struct GameObjectPayload
     {
-        GameObject* gameObject;
+        Span<GameObject*> objects;
     };
 }

@@ -180,6 +180,7 @@ namespace ImGui
 
     void BeginTreeNode()
     {
+       // ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, std::ceil(1 * ImGui::GetStyle().ScaleFactor)));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0f, 0.0f});
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.26f, 0.59f, 0.98f, 0.67f)); //TODO - get from config (selected item)
@@ -198,7 +199,8 @@ namespace ImGui
         flags |= ImGuiTreeNodeFlags_OpenOnArrow |
             ImGuiTreeNodeFlags_OpenOnDoubleClick |
             ImGuiTreeNodeFlags_SpanAvailWidth |
-            ImGuiTreeNodeFlags_SpanFullWidth;
+            ImGuiTreeNodeFlags_SpanFullWidth |
+                ImGuiTreeNodeFlags_FramePadding;
         return ImGui::TreeNodeEx((void*)(usize)id, flags, "%s", label);
     }
 
@@ -207,7 +209,9 @@ namespace ImGui
         flags |= ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick |
             ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Leaf |
             ImGuiTreeNodeFlags_SpanFullWidth |
-            ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            ImGuiTreeNodeFlags_NoTreePushOnOpen |
+            ImGuiTreeNodeFlags_FramePadding;
+
         return ImGui::TreeNodeEx((void*)(usize)id, flags, "%s", label);
     }
 

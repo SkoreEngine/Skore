@@ -38,6 +38,8 @@ namespace Fyrion
         GameObject*       FindChildByUUID(UUID uuid) const;
         usize             GetIndex() const;
         void              MoveTo(usize index);
+        void              SetParent(GameObject* newParent);
+        bool              IsParentOf(GameObject* object) const;
 
         //prefabs
         void        SetPrefab(UUID prefabId);

@@ -10,8 +10,6 @@
 namespace Fyrion
 {
     MenuItemContext SceneTreeWindow::menuItemContext = {};
-
-
     SceneTreeWindow::SceneTreeWindow() : sceneEditor(Editor::GetSceneEditor()) {}
 
 
@@ -20,13 +18,15 @@ namespace Fyrion
         bool root = gameObject.GetParent() == nullptr;
         ImGuiID treeId = static_cast<ImGuiID>(HashValue(reinterpret_cast<usize>(&gameObject)));
 
-        if (!root)
-        {
-            DrawMovePayload(treeId + 4, gameObject.GetIndex());
-        }
+
 
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
+
+        if (!root)
+        {
+            DrawMovePayload(treeId + 4, gameObject.GetParent(), gameObject.GetIndex());
+        }
 
         Span<GameObject*> children = gameObject.GetChildren();
 
@@ -111,26 +111,31 @@ namespace Fyrion
         }
 
         bool isHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+        bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
 
         if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
         {
-            EditorTransaction* transaction = Editor::CreateTransaction();
-            if (!(ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl))))
+            if (!sceneEditor.IsSelected(gameObject))
             {
-                sceneEditor.ClearSelection(transaction);
+                EditorTransaction* transaction = Editor::CreateTransaction();
+                if (!ctrlDown)
+                {
+                    sceneEditor.ClearSelection(transaction);
+                }
+                sceneEditor.SelectObject(gameObject, transaction);
             }
-            sceneEditor.SelectObject(gameObject, transaction);
-        }
-
-        if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) && isHovered)
-        {
-            newObjectIsSelected = true;
         }
 
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
         {
-            GameObjectPayload payload = {
-                .gameObject = &gameObject
+            selectedCache.Clear();
+            for(auto it: sceneEditor.GetSelectedObjects())
+            {
+                selectedCache.EmplaceBack(it.first);
+            }
+
+            GameObjectPayload payload{
+                .objects = selectedCache
             };
 
             ImGui::SetDragDropPayload(FY_GAME_OBJECT_PAYLOAD, &payload, sizeof(GameObjectPayload));
@@ -138,12 +143,17 @@ namespace Fyrion
             ImGui::EndDragDropSource();
         }
 
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) && isHovered)
+        {
+            newObjectIsSelected = true;
+        }
+
         if (ImGui::BeginDragDropTarget())
         {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(FY_GAME_OBJECT_PAYLOAD))
             {
-                // moveEntitiesTo = FY_NULL_ENTITY;
-                // removeSelectionParent = true;
+                GameObjectPayload& gameObjectPayload = *static_cast<GameObjectPayload*>(payload->Data);
+                sceneEditor.ChangeParent(&gameObject, gameObjectPayload.objects);
             }
             ImGui::EndDragDropTarget();
         }
@@ -213,7 +223,11 @@ namespace Fyrion
                     {
                         ImGui::BeginTreeNode();
                         DrawGameObject(scene->GetRootObject());
-                        DrawMovePayload(98765, U32_MAX);
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        DrawMovePayload(98765, &scene->GetRootObject(), U32_MAX);
+
                         ImGui::EndTreeNode();
                     }
 
@@ -295,27 +309,19 @@ namespace Fyrion
         return static_cast<SceneTreeWindow*>(eventData.drawData)->sceneEditor.IsValidSelection();
     }
 
-    void SceneTreeWindow::DrawMovePayload(u32 id, usize index)
+    void SceneTreeWindow::DrawMovePayload(u32 id, GameObject* parent, usize index) const
     {
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-
-        ImGui::PushID(id);
-        ImGui::SetCursorPosX(0);
-        ImGui::InvisibleButton("", ImVec2(ImGui::GetContentRegionMax().x, std::ceil(1 * ImGui::GetStyle().ScaleFactor)));
-
-        if (ImGui::BeginDragDropTarget())
+        ImVec2 screenPos = ImVec2(ImGui::GetWindowPos().x, ImGui::GetCursorScreenPos().y);
+        if (ImGui::BeginDragDropTargetCustom(ImRect(screenPos, screenPos + ImVec2(ImGui::GetContentRegionMax().x, std::ceil(1 * ImGui::GetStyle().ScaleFactor))), id))
         {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(FY_GAME_OBJECT_PAYLOAD))
             {
                 GameObjectPayload& gameObjectPayload = *static_cast<GameObjectPayload*>(payload->Data);
-                gameObjectPayload.gameObject->MoveTo(index);
+                sceneEditor.MoveEntities(parent, index, gameObjectPayload.objects);
+
             }
             ImGui::EndDragDropTarget();
         }
-
-        ImGui::PopID();
-        ImGui::TableNextColumn();
     }
 
     void SceneTreeWindow::AddMenuItem(const MenuItemCreation& menuItem)
