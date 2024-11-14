@@ -13,19 +13,23 @@
 
 namespace Fyrion
 {
-
     MenuItemContext SceneViewWindow::menuItemContext = {};
 
-    SceneViewWindow::SceneViewWindow() : sceneEditor(Editor::GetSceneEditor()), guizmoOperation(ImGuizmo::TRANSLATE) {}
+    SceneViewWindow::SceneViewWindow() : sceneEditor(Editor::GetSceneEditor()), guizmoOperation(ImGuizmo::TRANSLATE)
+    {
+        Event::Bind<OnRecordRenderCommands, &SceneViewWindow::RecordRenderCommands>(this);
+    }
 
     SceneViewWindow::~SceneViewWindow()
     {
+        Event::Unbind<OnRecordRenderCommands, &SceneViewWindow::RecordRenderCommands>(this);
+
         if (renderGraph)
         {
             DestroyAndFree(renderGraph);
         }
 
-        if(renderPipeline)
+        if (renderPipeline)
         {
             DestroyAndFree(renderPipeline);
         }
@@ -187,7 +191,7 @@ namespace Fyrion
             size -= diffCursor;
             Rect bb{(i32)cursor.x, (i32)cursor.y, u32(cursor.x + size.x), u32(cursor.y + size.y)};
 
-            Extent extent = {static_cast<u32>(size.x) , static_cast<u32>(size.y)};
+            Extent extent = {static_cast<u32>(size.x), static_cast<u32>(size.y)};
 
             if (!renderPipeline)
             {
@@ -195,7 +199,7 @@ namespace Fyrion
                 renderPipeline = type->Cast<RenderPipeline>(type->NewInstance());
             }
 
-            bool renderGraphDirty = renderGraph == nullptr || sceneEditor.GetScene() != renderGraph->GetScene();
+            bool renderGraphDirty = renderGraph == nullptr || sceneEditor.GetActiveScene() != renderGraph->GetScene();
 
             if (renderPipeline && renderGraphDirty)
             {
@@ -205,7 +209,7 @@ namespace Fyrion
                 }
                 renderGraph = Alloc<RenderGraph>();
                 renderPipeline->BuildRenderGraph(*renderGraph);
-                renderGraph->Create(sceneEditor.GetScene(), extent);
+                renderGraph->Create(sceneEditor.GetActiveScene(), extent);
             }
 
             if (extent != renderGraph->GetViewportExtent())
@@ -241,53 +245,55 @@ namespace Fyrion
             ImGuizmo::SetDrawlist();
             ImGuizmo::SetRect(cursor.x, cursor.y, size.x, size.y);
 
-            for (auto it : sceneEditor.GetSelectedObjects())
+            for (auto it : sceneEditor.selectedObjects)
             {
-                GameObject* object = it.first;
-                if (TransformComponent* transformComponent = object->GetComponent<TransformComponent>())
+                if (GameObject* object = sceneEditor.GetActiveScene()->FindObjectByUUID(it.first))
                 {
-                    Mat4 worldMatrix = transformComponent->GetWorldTransform();
-
-                    static float snap[3] = {0.0f, 0.0f, 0.0f};
-
-                    ImGuizmo::Manipulate(&cameraData.view[0][0],
-                                         &cameraData.projection[0][0],
-                                         static_cast<ImGuizmo::OPERATION>(guizmoOperation),
-                                         ImGuizmo::LOCAL,
-                                         &worldMatrix[0][0],
-                                         nullptr,
-                                         snap);
-
-                    if (ImGuizmo::IsUsing())
+                    if (TransformComponent* transformComponent = object->GetComponent<TransformComponent>())
                     {
-                        if (!usingGuizmo)
-                        {
-                            usingGuizmo = true;
-                            gizmoInitialTransform = transformComponent->GetTransform();
+                        Mat4 worldMatrix = transformComponent->GetWorldTransform();
 
-                            // if (object->GetPrototype() != nullptr && !object->IsComponentOverride(transformComponent))
-                            // {
-                            //     gizmoTransaction->CreateAction<OverridePrototypeComponentAction>(sceneEditor, object, static_cast<Component*>(transformComponent))->Commit();
-                            // }
-                        }
+                        static float snap[3] = {0.0f, 0.0f, 0.0f};
 
-                        if (object->GetParent() != nullptr)
+                        ImGuizmo::Manipulate(&cameraData.view[0][0],
+                                             &cameraData.projection[0][0],
+                                             static_cast<ImGuizmo::OPERATION>(guizmoOperation),
+                                             ImGuizmo::LOCAL,
+                                             &worldMatrix[0][0],
+                                             nullptr,
+                                             snap);
+
+                        if (ImGuizmo::IsUsing())
                         {
-                            if (TransformComponent* parentTransform = object->GetParent()->GetComponent<TransformComponent>())
+                            if (!usingGuizmo)
                             {
-                                worldMatrix = Math::Inverse(parentTransform->GetWorldTransform()) * worldMatrix;
-                            }
-                        }
+                                usingGuizmo = true;
+                                gizmoInitialTransform = transformComponent->GetTransform();
 
-                        Vec3 position, rotation, scale;
-                        Math::Decompose(worldMatrix, position, rotation, scale);
-                        auto deltaRotation = rotation - Math::EulerAngles(transformComponent->GetRotation());
-                        transformComponent->SetTransform(position, Math::EulerAngles(transformComponent->GetRotation()) + deltaRotation, scale);
-                    }
-                    else if (usingGuizmo)
-                    {
-                        sceneEditor.UpdateTransform(object, gizmoInitialTransform, transformComponent);
-                        usingGuizmo = false;
+                                // if (object->GetPrototype() != nullptr && !object->IsComponentOverride(transformComponent))
+                                // {
+                                //     gizmoTransaction->CreateAction<OverridePrototypeComponentAction>(sceneEditor, object, static_cast<Component*>(transformComponent))->Commit();
+                                // }
+                            }
+
+                            if (object->GetParent() != nullptr)
+                            {
+                                if (TransformComponent* parentTransform = object->GetParent()->GetComponent<TransformComponent>())
+                                {
+                                    worldMatrix = Math::Inverse(parentTransform->GetWorldTransform()) * worldMatrix;
+                                }
+                            }
+
+                            Vec3 position, rotation, scale;
+                            Math::Decompose(worldMatrix, position, rotation, scale);
+                            auto deltaRotation = rotation - Math::EulerAngles(transformComponent->GetRotation());
+                            transformComponent->SetTransform(position, Math::EulerAngles(transformComponent->GetRotation()) + deltaRotation, scale);
+                        }
+                        else if (usingGuizmo)
+                        {
+                            sceneEditor.UpdateTransform(object, gizmoInitialTransform, transformComponent);
+                            usingGuizmo = false;
+                        }
                     }
                 }
             }
@@ -295,7 +301,7 @@ namespace Fyrion
             if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
             {
                 AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data);
-                f32 pad = 4.0f;
+                f32           pad = 4.0f;
                 if (assetPayload && assetPayload->assetType == GetTypeID<Scene>() && ImGui::BeginDragDropTargetCustom(ImRect(bb.x + pad, bb.y + pad, bb.width - pad, bb.height - pad), id))
                 {
                     if (ImGui::AcceptDragDropPayload(FY_ASSET_PAYLOAD))
@@ -337,6 +343,14 @@ namespace Fyrion
     bool SceneViewWindow::CheckSelectedObject(const MenuItemEventData& eventData)
     {
         return static_cast<SceneViewWindow*>(eventData.drawData)->sceneEditor.IsValidSelection();
+    }
+
+    void SceneViewWindow::RecordRenderCommands(RenderCommands& cmd, f64 deltaTime)
+    {
+        if (renderGraph != nullptr && sceneEditor.GetActiveScene() == renderGraph->GetScene())
+        {
+            renderGraph->RecordCommands(cmd, deltaTime);
+        }
     }
 
 

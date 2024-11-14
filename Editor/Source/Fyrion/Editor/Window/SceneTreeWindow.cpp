@@ -129,9 +129,12 @@ namespace Fyrion
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
         {
             selectedCache.Clear();
-            for(auto it: sceneEditor.GetSelectedObjects())
+            for(auto& it: sceneEditor.selectedObjects)
             {
-                selectedCache.EmplaceBack(it.first);
+                if (GameObject* object = sceneEditor.GetActiveScene()->FindObjectByUUID(it.first))
+                {
+                    selectedCache.EmplaceBack(object);
+                }
             }
 
             GameObjectPayload payload{
@@ -219,7 +222,7 @@ namespace Fyrion
                     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 35 * style.ScaleFactor);
                     ImGui::TableHeadersRow();
 
-                    if (Scene* scene = sceneEditor.GetScene())
+                    if (Scene* scene = sceneEditor.GetActiveScene())
                     {
                         ImGui::BeginTreeNode();
                         DrawGameObject(scene->GetRootObject());

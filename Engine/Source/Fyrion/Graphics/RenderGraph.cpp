@@ -258,8 +258,6 @@ namespace Fyrion
 
             logger.Debug("pass {} created ", pass->name);
         }
-
-        Event::Bind<OnRecordRenderCommands, &RenderGraph::RecordCommands>(this);
     }
 
     Extent RenderGraph::GetViewportExtent() const
@@ -313,7 +311,6 @@ namespace Fyrion
     RenderGraph::~RenderGraph()
     {
         Graphics::WaitQueue();
-        Event::Unbind<OnRecordRenderCommands, &RenderGraph::RecordCommands>(this);
     }
 
     void RenderGraph::RecordCommands(RenderCommands& cmd, f64 deltaTime)

@@ -11,10 +11,20 @@ namespace Fyrion
     struct AssetFile;
     class Component;
 
+    enum class SimulationStatus
+    {
+        None       = 0,
+        Simulating = 1,
+        Paused     = 2
+    };
+
     class FY_API SceneEditor
     {
     public:
-        Scene*     GetScene() const;
+        ~SceneEditor();
+
+        Scene* GetActiveScene() const;
+
         AssetFile* GetAssetFile() const;
         void       SetScene(AssetFile* assetFile);
         void       ClearSelection(EditorTransaction* transaction);
@@ -42,7 +52,6 @@ namespace Fyrion
         void       ChangeParent(GameObject* parent, Span<GameObject*> objects);
 
 
-        HashSet<GameObject*>& GetSelectedObjects();
         Array<UUID>           GetSelectObjectUUIDS() const;
 
         bool IsSimulating() const;
@@ -53,12 +62,16 @@ namespace Fyrion
 
         static String GetUniqueObjectName(GameObject& object, GameObject* parent = nullptr);
 
-        HashSet<GameObject*>                  selectedObjects{};
+        HashSet<UUID>                         selectedObjects{};
         EventHandler<OnGameObjectSelection>   onGameObjectSelectionHandler{};
         EventHandler<OnGameObjectDeselection> onGameObjectDeselectionHandler{};
 
     private:
         AssetFile* assetFile = nullptr;
-        Scene*     scene = nullptr;
+        Scene*     editorScene = nullptr;
+        Scene*     simulationScene = nullptr;
+
+        bool shouldStartSimulation{};
+        bool shouldStopSimulation{};
     };
 }

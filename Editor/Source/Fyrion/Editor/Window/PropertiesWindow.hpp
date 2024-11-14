@@ -20,12 +20,12 @@ namespace Fyrion
     private:
         SceneEditor& sceneEditor;
         String       stringCache{};
-        GameObject*  selectedObject{};
+        UUID         selectedObject{};
         bool         renamingFocus{};
         String       renamingCache{};
         GameObject*  renamingObject{};
         String       searchComponentString{};
-        Component*   selectedComponent = {};
+        UUID         selectedComponent = {};
 
         AssetFile* selectedAsset = {};
 
@@ -36,8 +36,8 @@ namespace Fyrion
         void DrawSceneObject(u32 id, GameObject* gameObject);
         void DrawAsset(u32 id, AssetFile* assetFile);
 
-        void GameObjectSelection(GameObject* object);
-        void GameObjectDeselection(GameObject* object);
+        void GameObjectSelection(UUID objectId);
+        void GameObjectDeselection(UUID objectId);
         void AssetSelection(AssetFile* assetFile);
     };
 }

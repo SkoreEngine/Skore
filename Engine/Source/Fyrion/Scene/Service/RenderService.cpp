@@ -14,6 +14,7 @@ namespace Fyrion
 
     RenderService::~RenderService()
     {
+        Graphics::WaitQueue();
         specularMapGenerator.Destroy();
         diffuseIrradianceGenerator.Destroy();
     }

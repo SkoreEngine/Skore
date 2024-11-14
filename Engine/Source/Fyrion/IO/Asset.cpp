@@ -26,6 +26,11 @@ namespace Fyrion
         return uuid;
     }
 
+    void Asset::SetUUID(UUID uuid)
+    {
+        this->uuid = uuid;
+    }
+
     StringView Asset::GetName() const
     {
         return loader->GetName();

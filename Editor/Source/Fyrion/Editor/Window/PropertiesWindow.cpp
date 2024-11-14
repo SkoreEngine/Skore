@@ -25,7 +25,7 @@ namespace Fyrion
 
     void PropertiesWindow::DrawSceneObject(u32 id, GameObject* gameObject)
     {
-        bool root = &sceneEditor.GetScene()->GetRootObject() == gameObject;
+        bool root = &sceneEditor.GetActiveScene()->GetRootObject() == gameObject;
 
         ImGuiStyle& style = ImGui::GetStyle();
         bool        readOnly = false;
@@ -131,7 +131,7 @@ namespace Fyrion
             if (propClicked)
             {
                 openComponentSettings = true;
-                selectedComponent = component;
+                selectedComponent = component->uuid;
             }
 
             if (open)
@@ -147,8 +147,7 @@ namespace Fyrion
                     .callback = [](ImGui::DrawTypeDesc& desc)
                     {
                         PropertiesWindow* propertiesWindow = static_cast<PropertiesWindow*>(desc.userData);
-
-                        propertiesWindow->sceneEditor.UpdateComponent(propertiesWindow->selectedObject,
+                        propertiesWindow->sceneEditor.UpdateComponent(propertiesWindow->sceneEditor.GetActiveScene()->FindObjectByUUID(propertiesWindow->selectedObject),
                                                                       static_cast<Component*>(desc.instance));
                     },
                 });
@@ -213,22 +212,22 @@ namespace Fyrion
         {
             if (ImGui::MenuItem("Reset"))
             {
-                sceneEditor.ResetComponent(gameObject, selectedComponent);
+                sceneEditor.ResetComponent(gameObject, gameObject->FindComponentByUUID(selectedComponent));
                 ImGui::CloseCurrentPopup();
             }
 
 
-            if (gameObject->GetPrefab() != nullptr && gameObject->IsComponentOverride(selectedComponent))
+            if (gameObject->GetPrefab() != nullptr && gameObject->IsComponentOverride(gameObject->FindComponentByUUID(selectedComponent)))
             {
                 if (ImGui::MenuItem("Remove prefab override"))
                 {
-                    sceneEditor.RemoveComponentOverride(gameObject, selectedComponent);
+                    sceneEditor.RemoveComponentOverride(gameObject, gameObject->FindComponentByUUID(selectedComponent));
                 }
             }
 
             if (ImGui::MenuItem("Remove"))
             {
-                sceneEditor.RemoveComponent(gameObject, selectedComponent);
+                sceneEditor.RemoveComponent(gameObject, gameObject->FindComponentByUUID(selectedComponent));
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -307,7 +306,10 @@ namespace Fyrion
         ImGui::Begin(id, ICON_FA_CIRCLE_INFO " Properties", &open, ImGuiWindowFlags_NoScrollbar);
         if (selectedObject)
         {
-            DrawSceneObject(id, selectedObject);
+            if (GameObject* gameObject = sceneEditor.GetActiveScene()->FindObjectByUUID(selectedObject))
+            {
+                DrawSceneObject(id, gameObject);
+            }
         }
         else if (selectedAsset)
         {
@@ -319,8 +321,8 @@ namespace Fyrion
 
     void PropertiesWindow::ClearSelection()
     {
-        selectedObject = nullptr;
-        selectedComponent = nullptr;
+        selectedObject = {};
+        selectedComponent = {};
     }
 
     void PropertiesWindow::OpenProperties(const MenuItemEventData& eventData)
@@ -328,17 +330,18 @@ namespace Fyrion
         Editor::OpenWindow<PropertiesWindow>();
     }
 
-    void PropertiesWindow::GameObjectSelection(GameObject* object)
+    void PropertiesWindow::GameObjectSelection(UUID objectId)
     {
-        if (object == nullptr && selectedObject == nullptr) return;
+        if (!objectId && !selectedObject) return;
+
         ClearSelection();
-        selectedObject = object;
+        selectedObject = objectId;
     }
 
-    void PropertiesWindow::GameObjectDeselection(GameObject* object)
+    void PropertiesWindow::GameObjectDeselection(UUID objectId)
     {
-        if (object == nullptr && selectedObject == nullptr) return;
-        if (selectedObject == object)
+        if (!objectId && !selectedObject) return;
+        if (selectedObject == objectId)
         {
             ClearSelection();
         }

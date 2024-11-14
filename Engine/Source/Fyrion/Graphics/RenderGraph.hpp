@@ -118,6 +118,7 @@ namespace Fyrion
         void                 DepthOutput(RenderGraphResource* resource);
         Texture              GetColorOutput() const;
         Texture              GetDepthOutput() const;
+        void                 RecordCommands(RenderCommands& cmd, f64 deltaTime);
 
         ~RenderGraph();
 
@@ -130,7 +131,6 @@ namespace Fyrion
         RenderGraphResource*                  colorOutput = {};
         RenderGraphResource*                  depthOutput = {};
 
-        void RecordCommands(RenderCommands& cmd, f64 deltaTime);
 
         void CreateResources();
     };

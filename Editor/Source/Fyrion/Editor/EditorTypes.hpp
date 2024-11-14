@@ -4,6 +4,7 @@
 #include "Fyrion/Core/Event.hpp"
 #include "Fyrion/Core/Hash.hpp"
 #include "Fyrion/Core/Span.hpp"
+#include "Fyrion/Core/UUID.hpp"
 
 
 #define FY_ASSET_PAYLOAD "fy-asset-payload"
@@ -15,8 +16,8 @@ namespace Fyrion
     struct AssetFile;
     class GameObject;
 
-    using OnGameObjectSelection = EventType<"Fyrion::Editor::OnGameObjectSelection"_h, void(GameObject*)>;
-    using OnGameObjectDeselection = EventType<"Fyrion::Editor::OnGameObjectDeselection"_h, void(GameObject*)>;
+    using OnGameObjectSelection = EventType<"Fyrion::Editor::OnGameObjectSelection"_h, void(UUID)>;
+    using OnGameObjectDeselection = EventType<"Fyrion::Editor::OnGameObjectDeselection"_h, void(UUID)>;
     using OnAssetSelection = EventType<"Fyrion::Editor::OnAssetSelection"_h, void(AssetFile*)>;
 
     enum class DockPosition

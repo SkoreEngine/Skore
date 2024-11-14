@@ -33,16 +33,17 @@ namespace Fyrion
         RenderPipeline* renderPipeline{};
         FreeViewCamera  freeViewCamera{};
 
-        bool               usingGuizmo{};
-        Transform          gizmoInitialTransform = {};
+        bool      usingGuizmo{};
+        Transform gizmoInitialTransform = {};
+
+        void RecordRenderCommands(RenderCommands& cmd, f64 deltaTime);
 
         static void OpenSceneView(const MenuItemEventData& eventData);
-
-
 
         static void DuplicateSceneObject(const MenuItemEventData& eventData);
         static void DeleteSceneObject(const MenuItemEventData& eventData);
         static bool CheckSelectedObject(const MenuItemEventData& eventData);
+
 
         static MenuItemContext menuItemContext;
     };

@@ -72,13 +72,14 @@ namespace Fyrion
         Array<SharedPtr<EditorTransaction>> undoActions{};
         Array<SharedPtr<EditorTransaction>> redoActions{};
 
-        SceneEditor sceneEditor{};
-        String      projectFile;
+        SharedPtr<SceneEditor> sceneEditor{};
+        String                 projectFile;
 
         void SaveAll(Span<AssetFile*> assets);
 
         void Shutdown()
         {
+            sceneEditor = {};
             menuContext = {};
 
             for (OpenWindowStorage& openWindow : openWindows)
@@ -136,6 +137,8 @@ namespace Fyrion
                     .createOnInit = properties.createOnInit
                 });
             }
+
+            sceneEditor = MakeShared<SceneEditor>();
 
             AssetEditorInit();
 
@@ -427,7 +430,7 @@ namespace Fyrion
             DrawMenu();
             ImGui::End();
 
-            sceneEditor.DoUpdate();
+            sceneEditor->DoUpdate();
 
             ProjectUpdate();
         }
@@ -473,7 +476,7 @@ namespace Fyrion
 
     SceneEditor& Editor::GetSceneEditor()
     {
-        return sceneEditor;
+        return *sceneEditor;
     }
 
     String Editor::CreateProject(StringView newProjectPath, StringView projectName)
