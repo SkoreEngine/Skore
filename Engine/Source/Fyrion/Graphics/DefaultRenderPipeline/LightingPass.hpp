@@ -40,8 +40,10 @@ namespace Fyrion
             brdflutGenerator.Init({512, 512});
 
             shadowMapSampler = Graphics::CreateSampler({
+                .filter = SamplerFilter::Linear,
                 .addressMode = TextureAddressMode::ClampToEdge,
-                .maxLod = 1.0,
+                .comparedEnabled = true,
+                .compareOperator = CompareOp::LessOrEqual,
                 .borderColor = BorderColor::FloatOpaqueWhite
             });
 

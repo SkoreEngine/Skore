@@ -376,6 +376,7 @@ namespace Fyrion
     {
         SamplerFilter      filter{SamplerFilter::Linear};
         TextureAddressMode addressMode{TextureAddressMode::Repeat};
+        bool               comparedEnabled = false;
         CompareOp          compareOperator{CompareOp::Always};
         f32                mipLodBias = 0.0f;
         f32                minLod{};

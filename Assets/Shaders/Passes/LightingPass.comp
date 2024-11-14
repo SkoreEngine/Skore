@@ -31,7 +31,7 @@ TextureCube<float4>             specularMap;
 Texture2D                       brdfLUT;
 SamplerState                    brdfLUTSampler;
 Texture2DArray                  shadowMapTexture;
-SamplerState                    shadowMapSampler;
+SamplerComparisonState          shadowMapSampler;
 Texture2D<float>                depth;
 RWTexture2D<float4>             lightOutput;
 ConstantBuffer<LightingData>    data;
@@ -50,9 +50,11 @@ float TextureProj(float4 shadowCoord, float2 offset, uint cascadeIndex)
 	float shadow = 1.0;
 	float bias = 0.0005;
 
-	if ( shadowCoord.z > -1.0 && shadowCoord.z < 1.0 ) {
-		float dist = shadowMapTexture.SampleLevel(shadowMapSampler, float3(shadowCoord.xy + offset, cascadeIndex), 0.0).r;
-		if (shadowCoord.w > 0 && dist < shadowCoord.z - bias) {
+	if ( shadowCoord.z > -1.0 && shadowCoord.z < 1.0 )
+	{
+		float dist = shadowMapTexture.SampleCmpLevelZero(shadowMapSampler, float3(shadowCoord.xy + offset, cascadeIndex), shadowCoord.z - bias).r;
+		if (shadowCoord.w > 0 && dist < shadowCoord.z - bias)
+		{
 			shadow = 0.0;
 		}
 	}

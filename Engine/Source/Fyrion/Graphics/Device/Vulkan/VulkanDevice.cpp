@@ -916,7 +916,7 @@ namespace Fyrion
         vkSamplerInfo.maxAnisotropy = vulkanDeviceProperties.limits.maxSamplerAnisotropy;
         vkSamplerInfo.borderColor = Vulkan::CasterBorderColor(samplerCreation.borderColor);
         vkSamplerInfo.unnormalizedCoordinates = VK_FALSE;
-        vkSamplerInfo.compareEnable = VK_FALSE;
+        vkSamplerInfo.compareEnable = samplerCreation.comparedEnabled;
         vkSamplerInfo.compareOp =  Vulkan::CastCompareOp(samplerCreation.compareOperator);
         vkSamplerInfo.mipmapMode = Vulkan::CastSamplerMipmapMode(samplerCreation.samplerMipmapMode);
         vkSamplerInfo.mipLodBias = samplerCreation.mipLodBias;
