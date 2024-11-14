@@ -8,7 +8,7 @@ Fyrion is an in development open-source MIT licensed multi-platform 2D and 3D ga
 [license-image]: https://img.shields.io/badge/License-MIT-yellow.svg
 [license-url]: https://opensource.org/licenses/MIT
 
-![Scene](Docs/Images/Sponza.png)
+![Scene](Docs/Images/scene.png)
 
 
 ## Important Note:
@@ -21,10 +21,9 @@ Fyrion is an in development open-source MIT licensed multi-platform 2D and 3D ga
 - Easy to build, no extra steps required to build the engine, just clone and build, pre-built shared libraries are only allowed if dynamically loaded 
 - Editable, features should be replaced without editing a single engine LoC.
 - Full API control, external libraries and STL types are not recommended in public API header files.
-- Use it as a full engine with editor, or framework, importing the library to the project.   
 
 ### Current Features
-* Scene Object System
+* Game Object System
 * Asset system
 * Custom STL types
 * 3D Renderer with PBR, Cascade Shadow Maps and HDR Sky Rendering
@@ -34,8 +33,6 @@ Fyrion is an in development open-source MIT licensed multi-platform 2D and 3D ga
 * HLSL Shaders
 * Vulkan RHI
 * Runtime reflection system
-* Asset and Shader hot-reload
-
 
 ### Working in progress
 * C++ scripting using plugin pattern (no need to recompile the engine)
