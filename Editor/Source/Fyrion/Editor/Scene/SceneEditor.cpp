@@ -433,6 +433,131 @@ namespace Fyrion
                 }
             }
         };
+
+        struct ChangeParentAction : EditorAction
+        {
+            FY_BASE_TYPES(EditorAction);
+
+            SceneEditor& sceneEditor;
+            GameObject* parent;
+
+            struct ChangeParentData
+            {
+                GameObject* object;
+                GameObject* oldParent;
+                usize currentIndex;
+            };
+
+            Array<ChangeParentData> sorted;
+
+            ChangeParentAction(SceneEditor& sceneEditor, GameObject* parent, Span<GameObject*> objects)
+                : sceneEditor(sceneEditor), parent(parent)
+            {
+                for(GameObject* object : objects)
+                {
+                    sorted.EmplaceBack(ChangeParentData{
+                        .object =  object,
+                        .oldParent =  object->GetParent(),
+                        .currentIndex = object->GetIndex()
+                    });
+                }
+
+                Sort(sorted.begin(), sorted.end(), [](const ChangeParentData& l, const ChangeParentData& r)
+                {
+                    return l.currentIndex < r.currentIndex;
+                });
+            }
+
+            void Commit() override
+            {
+                for(auto& data: sorted)
+                {
+                    data.object->SetParent(parent);
+                }
+                sceneEditor.MarkDirty();
+            }
+
+            void Rollback() override
+            {
+                for(auto& data: sorted)
+                {
+                    data.object->SetParent(data.oldParent);
+                    data.object->MoveTo(data.currentIndex);
+                }
+                sceneEditor.MarkDirty();
+            }
+        };
+
+        struct MoveObjectsAction : EditorAction
+        {
+            FY_BASE_TYPES(EditorAction);
+
+            SceneEditor& sceneEditor;
+            GameObject* parent;
+            usize index;
+
+            struct MoveObjectsData
+            {
+                GameObject* object;
+                GameObject* oldParent;
+                usize currentIndex;
+            };
+
+            Array<MoveObjectsData> sorted;
+
+            MoveObjectsAction(SceneEditor& sceneEditor, GameObject* parent, usize index, Span<GameObject*> objects)
+                : sceneEditor(sceneEditor), parent(parent), index(index)
+            {
+                for(GameObject* object : objects)
+                {
+                    sorted.EmplaceBack(MoveObjectsData{
+                        .object =  object,
+                        .oldParent =  object->GetParent(),
+                        .currentIndex = object->GetIndex()
+                    });
+                }
+
+                Sort(sorted.begin(), sorted.end(), [](const MoveObjectsData& l, const MoveObjectsData& r)
+                {
+                    return l.currentIndex < r.currentIndex;
+                });
+            }
+
+            void Commit() override
+            {
+                auto toIndex = index;
+
+                for(auto& data: sorted)
+                {
+                    if (data.object->GetParent() != parent)
+                    {
+                        data.object->SetParent(parent);
+                    }
+                    bool curIndexHigh = data.currentIndex > toIndex;
+
+                    data.object->MoveTo(toIndex);
+
+                    if (curIndexHigh)
+                    {
+                        toIndex++;
+                    }
+                }
+                sceneEditor.MarkDirty();
+            }
+
+            void Rollback() override
+            {
+                for (auto& data : sorted)
+                {
+                    if (data.oldParent != parent)
+                    {
+                        data.object->SetParent(data.oldParent);
+                    }
+                    data.object->MoveTo(data.currentIndex);
+                }
+                sceneEditor.MarkDirty();
+            }
+        };
     }
 
     Scene* SceneEditor::GetScene() const
@@ -632,43 +757,14 @@ namespace Fyrion
         assetFile->currentVersion++;
     }
 
-    void SceneEditor::MoveEntities(GameObject* parent, usize index, Span<GameObject*> entities)
+    void SceneEditor::MoveEntities(GameObject* parent, usize index, Span<GameObject*> objects)
     {
-        Array sorted = entities;
-        Sort(sorted.begin(), sorted.end(), [](GameObject* l, GameObject* r)
-        {
-            return l->GetIndex() < r->GetIndex();
-        });
-
-        for(GameObject* obj: sorted)
-        {
-            if (obj->GetParent() != parent)
-            {
-                obj->SetParent(parent);
-            }
-            bool curIndexHigh = obj->GetIndex() > index;
-            obj->MoveTo(index);
-            if (curIndexHigh)
-            {
-                index++;
-            }
-        }
-        MarkDirty();
+        Editor::CreateTransaction()->CreateAction<MoveObjectsAction>(*this, parent, index, objects)->Commit();
     }
 
-    void SceneEditor::ChangeParent(GameObject* parent, Span<GameObject*> entities)
+    void SceneEditor::ChangeParent(GameObject* parent, Span<GameObject*> objects)
     {
-        Array sorted = entities;
-        Sort(sorted.begin(), sorted.end(), [](GameObject* l, GameObject* r)
-        {
-            return l->GetIndex() < r->GetIndex();
-        });
-
-        for (GameObject* obj : sorted)
-        {
-            obj->SetParent(parent);
-        }
-        MarkDirty();
+        Editor::CreateTransaction()->CreateAction<ChangeParentAction>(*this, parent, objects)->Commit();
     }
 
     HashSet<GameObject*>& SceneEditor::GetSelectedObjects()
@@ -750,5 +846,7 @@ namespace Fyrion
         Registry::Type<CreateGameObjectAction>();
         Registry::Type<DuplicateObjectAction>();
         Registry::Type<ObjectSelectionAction>();
+        Registry::Type<ChangeParentAction>();
+        Registry::Type<MoveObjectsAction>();
     }
 }

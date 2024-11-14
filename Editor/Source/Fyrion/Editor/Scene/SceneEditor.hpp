@@ -38,8 +38,8 @@ namespace Fyrion
         void       UpdateTransform(GameObject* gameObject, const Transform& oldTransform, TransformComponent* transformComponent);
         void       RemoveComponentOverride(GameObject* gameObject, Component* component);
         void       MarkDirty();
-        void       MoveEntities(GameObject* parent, usize index, Span<GameObject*> entities);
-        void       ChangeParent(GameObject* parent, Span<GameObject*> entities);
+        void       MoveEntities(GameObject* parent, usize index, Span<GameObject*> objects);
+        void       ChangeParent(GameObject* parent, Span<GameObject*> objects);
 
 
         HashSet<GameObject*>& GetSelectedObjects();
