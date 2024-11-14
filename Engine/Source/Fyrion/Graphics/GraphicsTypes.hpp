@@ -679,6 +679,7 @@ namespace Fyrion
 
         virtual BindingVar* GetVar(const StringView& name) = 0;
         virtual void        Reload() = 0;
+        virtual void        RemoveShaderDependency() = 0;
     };
 
     struct RenderGraphResourceCreation

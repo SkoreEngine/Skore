@@ -12,7 +12,7 @@ namespace Fyrion
 {
     namespace
     {
-        Logger& logger = Logger::GetLogger("Fyrion::Scene", LogLevel::Debug);
+        Logger& logger = Logger::GetLogger("Fyrion::Scene");
 
         struct TransformUpdateAction : EditorAction
         {
@@ -635,7 +635,7 @@ namespace Fyrion
     void SceneEditor::MoveEntities(GameObject* parent, usize index, Span<GameObject*> entities)
     {
         Array sorted = entities;
-        Sort(sorted.begin(), sorted.begin(), [](GameObject* l, GameObject* r)
+        Sort(sorted.begin(), sorted.end(), [](GameObject* l, GameObject* r)
         {
             return l->GetIndex() < r->GetIndex();
         });
@@ -646,7 +646,12 @@ namespace Fyrion
             {
                 obj->SetParent(parent);
             }
+            bool curIndexHigh = obj->GetIndex() > index;
             obj->MoveTo(index);
+            if (curIndexHigh)
+            {
+                index++;
+            }
         }
         MarkDirty();
     }
@@ -654,14 +659,13 @@ namespace Fyrion
     void SceneEditor::ChangeParent(GameObject* parent, Span<GameObject*> entities)
     {
         Array sorted = entities;
-        Sort(sorted.begin(), sorted.begin(), [](GameObject* l, GameObject* r)
+        Sort(sorted.begin(), sorted.end(), [](GameObject* l, GameObject* r)
         {
             return l->GetIndex() < r->GetIndex();
         });
 
         for (GameObject* obj : sorted)
         {
-            logger.Debug("moving {} to {} ", obj->GetName(), parent->GetName());
             obj->SetParent(parent);
         }
         MarkDirty();

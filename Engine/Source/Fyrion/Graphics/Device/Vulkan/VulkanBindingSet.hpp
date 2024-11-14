@@ -109,6 +109,7 @@ namespace Fyrion
 
         BindingVar* GetVar(const StringView& name) override;
         void        Reload() override;
+        void        RemoveShaderDependency() override;
         void        LoadInfo();
 
         void Bind(VulkanCommands& cmd, const PipelineState& pipeline);

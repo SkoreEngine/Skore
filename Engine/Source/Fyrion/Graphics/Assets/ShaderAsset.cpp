@@ -3,6 +3,14 @@
 
 namespace Fyrion
 {
+    ShaderAsset::~ShaderAsset()
+    {
+        for(auto& it : bindingSetDependencies)
+        {
+            it.first->RemoveShaderDependency();
+        }
+    }
+
     void ShaderAsset::AddPipelineDependency(PipelineState pipelineState)
     {
         pipelineDependencies.EmplaceBack(pipelineState);

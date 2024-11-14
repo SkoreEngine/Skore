@@ -218,6 +218,7 @@ namespace Fyrion
     }
 
 
+    //TODO cache index?
     usize GameObject::GetIndex() const
     {
         if (parent == nullptr)

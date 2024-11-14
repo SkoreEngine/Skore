@@ -21,6 +21,8 @@ namespace Fyrion
     {
         FY_BASE_TYPES(Asset);
 
+        ~ShaderAsset() override;
+
         void AddPipelineDependency(PipelineState pipelineState);
         void AddShaderDependency(ShaderAsset* shaderAsset);
         void AddBindingSetDependency(BindingSet* bindingSet);

@@ -53,6 +53,11 @@ namespace Fyrion
         }
     }
 
+    void VulkanBindingSet::RemoveShaderDependency()
+    {
+        shaderAsset = nullptr;
+    }
+
     void VulkanBindingSet::LoadInfo()
     {
         for (const DescriptorLayout& descriptorLayout : descriptorLayouts)
