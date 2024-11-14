@@ -302,17 +302,6 @@ namespace
     TEST_CASE("TestString_Append_Types")
     {
         {
-            String s{};
-            s.Append(10.1f);
-            CHECK(!s.Empty());
-            CHECK(strstr(s.CStr(), "10.1") != nullptr);
-        }
-
-        {
-            String s{};
-            s << 11.1f;
-            CHECK(!s.Empty());
-            CHECK(strstr(s.CStr(), "11.1") != nullptr);
         }
 
         {

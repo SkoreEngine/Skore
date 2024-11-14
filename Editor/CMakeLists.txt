@@ -1,5 +1,4 @@
-
-add_subdirectory(Thirdparty)
+add_subdirectory(ThirdParty)
 
 file(GLOB_RECURSE FYRION_EDITOR_SOURCES Source/*.hpp Source/*.cpp Source/*.h Source/*.c)
 add_library(FyrionEditor SHARED ${FYRION_EDITOR_SOURCES})
