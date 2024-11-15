@@ -142,6 +142,10 @@ namespace Fyrion
         viewType.Value<ViewType::TypeCubeArray>("TypeCubeArray");
         viewType.Value<ViewType::Undefined>("Undefined");
 
+        auto projection = Registry::Type<CameraProjection>();
+        projection.Value<CameraProjection::Perspective>("Perspective");
+        projection.Value<CameraProjection::Orthogonal>("Orthogonal");
+
         RegisterDefaultRenderPipeline();
     }
 }

@@ -301,6 +301,13 @@ namespace Fyrion
         Area        = 3
     };
 
+    enum class CameraProjection : i32
+    {
+        Perspective = 1,
+        Orthogonal  = 2
+    };
+
+
     struct LightProperties
     {
         LightType type;
@@ -630,14 +637,17 @@ namespace Fyrion
 
     struct CameraData
     {
-        Mat4 view{1.0};
-        Mat4 viewInverse{1.0};
-        Mat4 projection{1.0};
-        Mat4 projectionInverse{1.0};
-        Mat4 lastViewProj{1.0};
-        Vec3 viewPos{};
-        f32  nearClip{};
-        f32  farClip{};
+        Mat4             view{1.0};
+        Mat4             viewInverse{1.0};
+        Mat4             projection{1.0};
+        Mat4             projectionInverse{1.0};
+        Mat4             projView{1.0};
+        Mat4             lastProjView{1.0};
+        Vec3             viewPos{};
+        CameraProjection projectionType = CameraProjection::Perspective;
+        f32              fov = 60;
+        f32              nearClip{};
+        f32              farClip{};
     };
 
     struct MeshRenderData

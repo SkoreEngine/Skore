@@ -10,6 +10,7 @@
 #include "Fyrion/ImGui/Lib/ImGuizmo.h"
 #include "Fyrion/IO/Input.hpp"
 #include "Fyrion/Scene/Component/TransformComponent.hpp"
+#include "Fyrion/Scene/Service/RenderService.hpp"
 
 namespace Fyrion
 {
@@ -217,21 +218,43 @@ namespace Fyrion
                 renderGraph->Resize(extent);
             }
 
-            f32 near = 0.1f;
-            f32 far = 300.f;
+            RenderService* renderService = nullptr;
+            if (Scene* scene = sceneEditor.GetActiveScene())
+            {
+                renderService = scene->GetService<RenderService>();
+            }
 
-            CameraData cameraData = CameraData{
-                .view = freeViewCamera.GetView(),
-                .projection = Math::Perspective(Math::Radians(60.f),
-                                                (f32)extent.width / (f32)extent.height,
-                                                near,
-                                                far),
-                .lastViewProj = Mat4{1.0},
-                .viewPos = freeViewCamera.GetPosition(),
-                .nearClip = near,
-                .farClip = far
-            };
+            if (sceneEditor.IsSimulating() && renderService != nullptr && renderService->GetCamera() != nullptr)
+            {
+                const CameraData* gameCamera = renderService->GetCamera();
 
+                cameraData.view = gameCamera->view;
+                cameraData.projectionType = gameCamera->projectionType;
+                cameraData.fov = gameCamera->fov;
+                cameraData.viewPos = gameCamera->viewPos;
+                cameraData.nearClip = gameCamera->nearClip;
+                cameraData.farClip = gameCamera->farClip;
+            }
+            else
+            {
+                cameraData.view = freeViewCamera.GetView();
+                cameraData.projectionType = CameraProjection::Perspective;
+                cameraData.fov = 60.f;
+                cameraData.viewPos = freeViewCamera.GetPosition();
+                cameraData.nearClip = 0.1f;
+                cameraData.farClip = 300.f;
+            }
+
+            if (cameraData.projectionType == CameraProjection::Perspective)
+            {
+                cameraData.projection = Math::Perspective(Math::Radians(cameraData.fov),
+                                                          (f32)extent.width / (f32)extent.height,
+                                                          cameraData.nearClip,
+                                                          cameraData.farClip);
+            }
+
+            cameraData.lastProjView = cameraData.projView;
+            cameraData.projView = cameraData.projection * cameraData.view;
             cameraData.viewInverse = Math::Inverse(cameraData.view);
             cameraData.projectionInverse = Math::Inverse(cameraData.projection);
 

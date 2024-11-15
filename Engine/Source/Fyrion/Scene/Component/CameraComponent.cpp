@@ -13,13 +13,28 @@ namespace Fyrion
     {
         transformComponent = gameObject->GetComponent<TransformComponent>();
         renderService = gameObject->GetScene()->GetService<RenderService>();
-
         OnChange();
     }
 
     void CameraComponent::OnChange()
     {
-
+        if (renderService)
+        {
+            if (transformComponent && current)
+            {
+                renderService->AddCamera(this, CameraData{
+                                             .view = Math::Inverse(transformComponent->GetWorldTransform()),
+                                             .viewPos = Math::GetTranslation(transformComponent->GetWorldTransform()),
+                                             .fov = fov,
+                                             .nearClip = near,
+                                             .farClip = far
+                                         });
+            }
+            else
+            {
+                renderService->RemoveCamera(this);
+            }
+        }
     }
 
     void CameraComponent::ProcessEvent(const SceneEventDesc& event)
@@ -36,7 +51,7 @@ namespace Fyrion
 
     void CameraComponent::OnDestroy()
     {
-
+        renderService->RemoveCamera(this);
     }
 
     void CameraComponent::RegisterType(NativeTypeHandler<CameraComponent>& type)

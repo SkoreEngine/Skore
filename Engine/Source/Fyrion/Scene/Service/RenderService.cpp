@@ -163,6 +163,29 @@ namespace Fyrion
         return specularMapGenerator.GetTexture();
     }
 
+    void RenderService::AddCamera(VoidPtr pointer, const CameraData& camera)
+    {
+        cameraData = MakeOptional<CameraStorage>(CameraStorage{pointer, camera});
+    }
+
+    void RenderService::RemoveCamera(VoidPtr pointer)
+    {
+        if (cameraData && cameraData->ptr == pointer)
+        {
+            cameraData = {};
+        }
+    }
+
+    const CameraData* RenderService::GetCamera() const
+    {
+        if (cameraData)
+        {
+            return &cameraData->data;
+        }
+        return nullptr;
+    }
+
+
     void RenderService::RegisterType(NativeTypeHandler<RenderService>& type)
     {
 

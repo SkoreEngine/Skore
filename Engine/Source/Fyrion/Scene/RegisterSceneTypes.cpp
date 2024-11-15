@@ -27,11 +27,5 @@ namespace Fyrion
 
         //services
         Registry::Type<RenderService>();
-
-
-        //enums
-        auto projection = Registry::Type<Projection>();
-        projection.Value<Projection::Perspective>("Perspective");
-        projection.Value<Projection::Orthogonal>("Orthogonal");
     }
 }

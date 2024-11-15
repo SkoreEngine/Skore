@@ -32,6 +32,7 @@ namespace Fyrion
         RenderGraph*    renderGraph{};
         RenderPipeline* renderPipeline{};
         FreeViewCamera  freeViewCamera{};
+        CameraData      cameraData = {};
 
         bool      usingGuizmo{};
         Transform gizmoInitialTransform = {};

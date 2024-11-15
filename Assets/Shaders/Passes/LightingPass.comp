@@ -47,7 +47,7 @@ uint QuerySpecularTextureLevels()
 
 float TextureProj(float4 shadowCoord, float2 offset, uint cascadeIndex)
 {
-	float bias = 0.0005;
+	float bias = 0.0015;
 	if ( shadowCoord.z > -1.0 && shadowCoord.z < 1.0 )
 	{
 		return shadowMapTexture.SampleCmpLevelZero(shadowMapSampler, float3(shadowCoord.xy + offset, cascadeIndex), shadowCoord.z - bias).r;

@@ -774,12 +774,20 @@ namespace Fyrion
 
     void SceneEditor::MoveEntities(GameObject* parent, usize index, Span<GameObject*> objects)
     {
-        Editor::CreateTransaction()->CreateAction<MoveObjectsAction>(*this, parent, index, objects)->Commit();
+        MoveObjectsAction* action = Editor::CreateTransaction()->CreateAction<MoveObjectsAction>(*this, parent, index, objects);
+        Editor::ExecuteOnMainThread([action]
+        {
+            action->Commit();
+        });
     }
 
     void SceneEditor::ChangeParent(GameObject* parent, Span<GameObject*> objects)
     {
-        Editor::CreateTransaction()->CreateAction<ChangeParentAction>(*this, parent, objects)->Commit();
+        ChangeParentAction* action = Editor::CreateTransaction()->CreateAction<ChangeParentAction>(*this, parent, objects);
+        Editor::ExecuteOnMainThread([action]
+        {
+            action->Commit();
+        });
     }
 
     Array<UUID> SceneEditor::GetSelectObjectUUIDS() const
@@ -800,11 +808,13 @@ namespace Fyrion
 
     void SceneEditor::StartSimulation()
     {
+        if (!editorScene) return;
         shouldStartSimulation = true;
     }
 
     void SceneEditor::StopSimulation()
     {
+        if (!editorScene) return;
         shouldStopSimulation = true;
     }
 

@@ -42,6 +42,10 @@ namespace Fyrion
         Texture GetDiffuseIrradiance();
         Texture GetSpecularMap();
 
+        void              AddCamera(VoidPtr pointer, const CameraData& camera);
+        void              RemoveCamera(VoidPtr pointer);
+        const CameraData* GetCamera() const;
+
         static void RegisterType(NativeTypeHandler<RenderService>& type);
 
     private:
@@ -55,5 +59,14 @@ namespace Fyrion
         TextureAsset*              panoramaSky = nullptr;
         SpecularMapGenerator       specularMapGenerator;
         DiffuseIrradianceGenerator diffuseIrradianceGenerator;
+
+
+        struct CameraStorage
+        {
+            VoidPtr    ptr;
+            CameraData data;
+        };
+
+        Optional<CameraStorage> cameraData;
     };
 }

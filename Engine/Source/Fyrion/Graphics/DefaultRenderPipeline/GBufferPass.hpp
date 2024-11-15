@@ -44,7 +44,7 @@ namespace Fyrion
         {
             const CameraData& cameraData = rg->GetCameraData();
 
-            SceneData data{.viewProjection = cameraData.projection * cameraData.view};
+            SceneData data{.viewProjection = cameraData.projView};
             bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
 
             cmd.BindPipelineState(pipelineState);
