@@ -62,6 +62,11 @@ namespace Fyrion
             it.second->OnUpdate();
         }
         FlushQueues();
+
+        for (Component* component : componentsToUpdate)
+        {
+            component->OnUpdate();
+        }
     }
 
     void Scene::Start()

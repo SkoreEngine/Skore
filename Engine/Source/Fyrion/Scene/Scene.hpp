@@ -3,6 +3,7 @@
 #include "GameObject.hpp"
 #include "Fyrion/Common.hpp"
 #include "Fyrion/Core/HashMap.hpp"
+#include "Fyrion/Core/UnorderedDense.hpp"
 #include "Fyrion/IO/Asset.hpp"
 #include "Service/Service.hpp"
 
@@ -32,27 +33,30 @@ namespace Fyrion
 
         Service* GetService(TypeID typeId);
 
-        template<typename T>
+        template <typename T>
         T* GetService()
         {
             return static_cast<T*>(GetService(GetTypeID<T>()));
         }
-
-        friend class GameObject;
 
         usize GetObjectCount() const
         {
             return objectsById.Size();
         }
 
+        friend class GameObject;
+        friend class Component;
+
     private:
         GameObject                 root = {this};
         HashMap<UUID, GameObject*> objectsById;
         HashMap<TypeID, Service*>  services;
 
-        Array<GameObject*> queueToDestroy;
-        Array<GameObject*> queueToStart;
-        Array<Component*>  componentsToStart;
+        Array<GameObject*>                       queueToDestroy;
+        Array<GameObject*>                       queueToStart;
+        Array<Component*>                        componentsToStart;
+
+        ankerl::unordered_dense::set<Component*> componentsToUpdate;
     };
 
 

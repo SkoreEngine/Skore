@@ -423,6 +423,7 @@ namespace Fyrion
         {
             scene->componentsToStart.EmplaceBack(component);
         }
+
         return component;
     }
 

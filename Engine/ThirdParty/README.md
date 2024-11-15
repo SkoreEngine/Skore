@@ -68,6 +68,11 @@ Additional Info:
 - files are converted and heavily modified inside Engine/Source/Fyrion/Core
 - merge included from https://github.com/mendsley/tinystl/pull/11
 
+## ankerl::unordered_dense
+- Upstream https://github.com/martinus/unordered_dense
+- Version 4.4.0
+- License MIT
+
 ## vma
 - Upstream: https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
 - Version: git(19b940e864bd3a5afb3c79e3c6788869d01a19eb, 2024)
