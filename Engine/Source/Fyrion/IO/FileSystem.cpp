@@ -17,6 +17,10 @@ namespace Fyrion
 
     String FileSystem::AssetFolder()
     {
+#ifdef FY_DEV_ASSETS_PATH
+        return FY_DEV_ASSETS_PATH;
+#endif
+
         String currentDir = CurrentDir();
         String assetDir = Path::Join(currentDir, "Assets");
         while (!GetFileStatus(assetDir).exists)

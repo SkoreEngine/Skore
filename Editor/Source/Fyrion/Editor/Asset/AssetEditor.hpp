@@ -65,6 +65,7 @@ namespace Fyrion
         FY_API void             SetProject(StringView name, StringView directory);
         FY_API Span<AssetFile*> GetPackages();
         FY_API AssetFile*       GetProject();
+        FY_API AssetFile*       GetAssetFolder();
         FY_API AssetFile*       CreateDirectory(AssetFile* parent);
         FY_API AssetFile*       CreateAsset(AssetFile* parent, TypeID typeId, StringView suggestedName = "");
         FY_API void             UpdateAssetValue(AssetFile* assetFile, Asset* asset);
@@ -77,5 +78,8 @@ namespace Fyrion
         FY_API void             FilterExtensions(Array<FileFilter>& extensions);
         FY_API Span<AssetFile*> GetAssetsOfType(TypeID typeId);
         FY_API AssetFile*       FindAssetFileByUUID(UUID uuid);
+
+        FY_API void             CreateCMakeProject();
+        FY_API bool             CanCreateCMakeProject();
     }
 }

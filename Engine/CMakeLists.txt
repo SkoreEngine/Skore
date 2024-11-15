@@ -25,6 +25,7 @@ target_include_directories(FyrionEngine PUBLIC Source)
 target_include_directories(FyrionEngine PUBLIC Source/Fyrion/ImGui/Lib)
 
 target_compile_definitions(FyrionEngine PUBLIC FMT_LIB_EXPORT=1)
+target_compile_definitions(FyrionEngine PUBLIC FY_DEV_ASSETS_PATH="${FY_DEV_ASSET_FILES}")
 
 target_link_libraries(FyrionEngine PRIVATE
 				mimalloc

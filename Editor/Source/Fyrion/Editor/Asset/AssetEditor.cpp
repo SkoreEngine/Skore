@@ -21,6 +21,7 @@ namespace Fyrion
     {
         Array<AssetFile*>                  packages;
         AssetFile*                         project;
+        AssetFile*                         projectAsset;
         HashMap<UUID, AssetFile*>          assets;
         HashMap<TypeID, Array<AssetFile*>> assetsByType;
 
@@ -374,21 +375,40 @@ namespace Fyrion
             FileSystem::CreateDirectory(assetFolder);
         }
 
-        logger.Debug("start scanning project files {}", assetFolder);
-
-        if (AssetFile* assetFile = ScanForAssets(assetFolder))
+        String binaries = Path::Join(directory, "Binaries");
+        if (FileSystem::GetFileStatus(binaries).exists)
         {
-            assetFile->fileName = name;
-            project = assetFile;
+            String projectLibrary = Path::Join(binaries, name);
+            VoidPtr library = Platform::LoadDynamicLib(projectLibrary);   //TODO need to free this thing.
+            if (auto func = static_cast<void(*)()>(Platform::GetFunctionAddress(library, "FY_LoadPlugin")))
+            {
+                func();
+            }
+        }
 
-            assetFile->path = String{name} + ":/";
-            for(AssetFile* child : assetFile->children)
+        project = AllocateNew(name);
+        project->absolutePath = directory;
+        project->isDirectory = true;
+        project->persistedVersion = 1;
+        project->uuid = UUID::RandomUUID();//TODO read from project file.
+
+        logger.Debug("start scanning asset files {}", assetFolder);
+
+        projectAsset = ScanForAssets(assetFolder);
+
+        if (projectAsset)
+        {
+            project->children.EmplaceBack(projectAsset);
+
+            projectAsset->parent = project;
+            projectAsset->path = String{name} + ":/";
+            for (AssetFile* child : projectAsset->children)
             {
                 child->UpdatePath();
             }
         }
 
-        logger.Debug("files scanned successfully ");
+        logger.Debug("asset files scanned successfully ");
     }
 
     AssetFile* AssetEditor::CreateDirectory(AssetFile* parent)
@@ -620,6 +640,11 @@ namespace Fyrion
         return project;
     }
 
+    AssetFile* AssetEditor::GetAssetFolder()
+    {
+        return projectAsset;
+    }
+
     void AssetEditorShutdown()
     {
         Graphics::WaitQueue();
@@ -663,6 +688,26 @@ namespace Fyrion
             return it->second;
         }
         return nullptr;
+    }
+
+    void AssetEditor::CreateCMakeProject()
+    {
+        String cmakePath = Path::Join(project->absolutePath, "CMakeLists.txt");
+        String source = Path::Join(project->absolutePath, "Source");
+
+    }
+
+    bool AssetEditor::CanCreateCMakeProject()
+    {
+        for (const String& dir : DirectoryEntries{project->absolutePath})
+        {
+            String name = Path::Name(dir) + Path::Extension(dir);
+            if (name == "CMakeLists.txt")
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     void AssetEditorInit()

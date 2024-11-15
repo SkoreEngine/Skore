@@ -17,7 +17,7 @@ namespace Fyrion
         Raytrace
     };
 
-    struct FY_API ShaderAsset : public Asset
+    struct FY_API ShaderAsset : Asset
     {
         FY_BASE_TYPES(Asset);
 

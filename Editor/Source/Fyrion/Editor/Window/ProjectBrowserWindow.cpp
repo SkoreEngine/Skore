@@ -22,7 +22,7 @@ namespace Fyrion
 
     void ProjectBrowserWindow::Init(u32 id, VoidPtr userData)
     {
-        openDirectory = AssetEditor::GetProject();
+        openDirectory = AssetEditor::GetAssetFolder();
     }
 
     void ProjectBrowserWindow::DrawPathItems() {}
@@ -34,6 +34,13 @@ namespace Fyrion
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
 
         bool openDir = openTreeFolders[file->absolutePath];
+
+
+        if (!openDir && openDirectory != nullptr && openDirectory->IsChildOf(file))
+        {
+            openTreeFolders[file->absolutePath] = true;
+            openDir = true;
+        }
 
         if (openDir)
         {
