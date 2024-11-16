@@ -21,6 +21,7 @@ namespace Fyrion
     {
         Array<AssetFile*>                  packages;
         AssetFile*                         project;
+        VoidPtr                            projectlibrary;
         AssetFile*                         projectAsset;
         HashMap<UUID, AssetFile*>          assets;
         HashMap<TypeID, Array<AssetFile*>> assetsByType;
@@ -378,9 +379,8 @@ namespace Fyrion
         String binaries = Path::Join(directory, "Binaries");
         if (FileSystem::GetFileStatus(binaries).exists)
         {
-            String projectLibrary = Path::Join(binaries, name);
-            VoidPtr library = Platform::LoadDynamicLib(projectLibrary);   //TODO need to free this thing.
-            if (auto func = static_cast<void(*)()>(Platform::GetFunctionAddress(library, "FY_LoadPlugin")))
+            projectlibrary = Platform::LoadDynamicLib(Path::Join(binaries, name));
+            if (auto func = reinterpret_cast<void(*)()>(Platform::GetFunctionAddress(projectlibrary, "FY_LoadPlugin")))
             {
                 func();
             }
@@ -391,6 +391,7 @@ namespace Fyrion
         project->isDirectory = true;
         project->persistedVersion = 1;
         project->uuid = UUID::RandomUUID();//TODO read from project file.
+        project->canAcceptNewAssets = false;
 
         logger.Debug("start scanning asset files {}", assetFolder);
 
@@ -669,6 +670,8 @@ namespace Fyrion
         extensionImporters.Clear();
 
         handlers.Clear();
+
+        Platform::FreeDynamicLib(projectlibrary);
     }
 
     Span<AssetFile*> AssetEditor::GetAssetsOfType(TypeID typeId)

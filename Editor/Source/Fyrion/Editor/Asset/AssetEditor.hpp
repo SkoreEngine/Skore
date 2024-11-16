@@ -12,6 +12,13 @@
 
 namespace Fyrion
 {
+
+    enum class AssetType
+    {
+        Asset,
+        Source
+    };
+
     struct AssetFile : AssetLoader
     {
         u32    hash;
@@ -33,6 +40,9 @@ namespace Fyrion
         AssetHandler* handler;
 
         bool active = true;
+        bool canAcceptNewAssets = true;
+
+        AssetType assetType = AssetType::Asset;
 
         bool IsDirty() const;
         void RemoveFromParent();

@@ -67,24 +67,27 @@ namespace Fyrion
 
         if (ImGui::BeginDragDropTarget())
         {
-            bool canAcceptDragDrop = false;
-
-            for(auto& it: selectedItems)
+            if (file->canAcceptNewAssets)
             {
-                if (!file->IsChildOf(it.first))
-                {
-                    canAcceptDragDrop = true;
-                    break;
-                }
-            }
+                bool canAcceptDragDrop = false;
 
-            if (canAcceptDragDrop && ImGui::AcceptDragDropPayload(FY_ASSET_PAYLOAD))
-            {
-                for (auto& it : selectedItems)
+                for(auto& it: selectedItems)
                 {
                     if (!file->IsChildOf(it.first))
                     {
-                        it.first->MoveTo(file);
+                        canAcceptDragDrop = true;
+                        break;
+                    }
+                }
+
+                if (canAcceptDragDrop && ImGui::AcceptDragDropPayload(FY_ASSET_PAYLOAD))
+                {
+                    for (auto& it : selectedItems)
+                    {
+                        if (!file->IsChildOf(it.first))
+                        {
+                            it.first->MoveTo(file);
+                        }
                     }
                 }
             }
@@ -517,12 +520,11 @@ namespace Fyrion
 
     void ProjectBrowserWindow::AssetCopyPathToClipboard(const MenuItemEventData& eventData) {}
 
-    bool ProjectBrowserWindow::CheckCanReimport(const MenuItemEventData& eventData)
+    bool ProjectBrowserWindow::CanCreateAsset(const MenuItemEventData& eventData)
     {
-        return false;
+        ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
+        return projectBrowserWindow->openDirectory != nullptr && projectBrowserWindow->openDirectory->canAcceptNewAssets;
     }
-
-    void ProjectBrowserWindow::AssetReimport(const MenuItemEventData& eventData) {}
 
     void ProjectBrowserWindow::OpenProjectBrowser(const MenuItemEventData& eventData)
     {
@@ -540,13 +542,13 @@ namespace Fyrion
 
         Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Project Browser", .action = OpenProjectBrowser});
 
-        AddMenuItem(MenuItemCreation{.itemName = "New Folder", .icon = ICON_FA_FOLDER, .priority = 0, .action = AssetNewFolder});
-        AddMenuItem(MenuItemCreation{.itemName = "New Scene", .icon = ICON_FA_CLAPPERBOARD, .priority = 10, .action = AssetNew, .userData = GetTypeID<Scene>()});
-        AddMenuItem(MenuItemCreation{.itemName = "New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 15, .action = AssetNew, .userData = GetTypeID<MaterialAsset>()});
+        AddMenuItem(MenuItemCreation{.itemName = "New Folder", .icon = ICON_FA_FOLDER, .priority = 0, .action = AssetNewFolder, .enable = CanCreateAsset});
+        AddMenuItem(MenuItemCreation{.itemName = "New Scene", .icon = ICON_FA_CLAPPERBOARD, .priority = 10, .action = AssetNew, .enable = CanCreateAsset, .userData = GetTypeID<Scene>()});
+        AddMenuItem(MenuItemCreation{.itemName = "New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 15, .action = AssetNew, .enable = CanCreateAsset, .userData = GetTypeID<MaterialAsset>()});
         AddMenuItem(MenuItemCreation{.itemName = "Delete", .icon = ICON_FA_TRASH, .priority = 20, .itemShortcut{.presKey = Key::Delete}, .action = AssetDelete, .enable = CheckSelectedAsset});
         AddMenuItem(MenuItemCreation{.itemName = "Rename", .icon = ICON_FA_PEN_TO_SQUARE, .priority = 30, .itemShortcut{.presKey = Key::F2}, .action = AssetRename, .enable = CheckSelectedAsset});
         AddMenuItem(MenuItemCreation{.itemName = "Show in Explorer", .icon = ICON_FA_FOLDER, .priority = 40, .action = AssetShowInExplorer});
-        AddMenuItem(MenuItemCreation{.itemName = "Reimport", .icon = ICON_FA_REPEAT, .priority = 50, .action = AssetReimport, .enable = CheckCanReimport});
+        //AddMenuItem(MenuItemCreation{.itemName = "Reimport", .icon = ICON_FA_REPEAT, .priority = 50, .action = AssetReimport, .enable = CheckCanReimport});
         AddMenuItem(MenuItemCreation{.itemName = "Copy Path", .priority = 1000, .action = AssetCopyPathToClipboard});
         //AddMenuItem(MenuItemCreation{.itemName = "Create New Asset", .icon = ICON_FA_PLUS, .priority = 150});
         // AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Shader", .icon = ICON_FA_BRUSH, .priority = 10, .action = AssetNew, .menuData = (VoidPtr)GetTypeID<ShaderAsset>()});

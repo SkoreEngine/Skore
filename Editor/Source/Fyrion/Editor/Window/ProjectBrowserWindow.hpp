@@ -48,7 +48,6 @@ namespace Fyrion
         static void AssetDelete(const MenuItemEventData& eventData);
         static void AssetShowInExplorer(const MenuItemEventData& eventData);
         static void AssetCopyPathToClipboard(const MenuItemEventData& eventData);
-        static bool CheckCanReimport(const MenuItemEventData& eventData);
-        static void AssetReimport(const MenuItemEventData& eventData);
+        static bool CanCreateAsset(const MenuItemEventData& eventData);
     };
 }
