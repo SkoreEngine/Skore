@@ -2,6 +2,7 @@
 
 #include "Fyrion/Common.hpp"
 #include "Fyrion/Core/UUID.hpp"
+#include "Fyrion/Physics/PhysicsTypes.hpp"
 #include "Fyrion/Scene/SceneTypes.hpp"
 
 namespace Fyrion
@@ -21,6 +22,7 @@ namespace Fyrion
         virtual void OnUpdate() {}
 
         virtual void ProcessEvent(const SceneEventDesc& event) {}
+        virtual void CollectShapes(Array<BodyShapeBuilder>& shapes) {}
 
         void EnableUpdate();
         void DisableUpdate();

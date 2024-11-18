@@ -700,4 +700,14 @@ namespace Fyrion
             MemoryGlobals::GetDefaultAllocator().DestroyAndFree(this);
         }
     }
+
+    u64 GameObject::GetPhysicsRef() const
+    {
+        return physicsRef;
+    }
+
+    void GameObject::SetPhysicsRef(u64 physicsRef)
+    {
+        this->physicsRef = physicsRef;
+    }
 }

@@ -671,7 +671,7 @@ namespace Fyrion
 
         handlers.Clear();
 
-        Platform::FreeDynamicLib(projectlibrary);
+        //Platform::FreeDynamicLib(projectlibrary);
     }
 
     Span<AssetFile*> AssetEditor::GetAssetsOfType(TypeID typeId)

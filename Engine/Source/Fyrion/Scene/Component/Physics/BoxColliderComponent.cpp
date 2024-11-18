@@ -9,15 +9,6 @@
 
 namespace Fyrion
 {
-    void BoxColliderComponent::OnStart()
-    {
-        //ignore if has ridigbody
-        if (gameObject->GetComponent<RigidBodyComponent>() != nullptr)
-        {
-            return;
-        }
-    }
-
     const Vec3& BoxColliderComponent::GetHalfSize() const
     {
         return halfSize;
@@ -46,6 +37,16 @@ namespace Fyrion
     void BoxColliderComponent::SetIsSensor(bool isSensor)
     {
         this->isSensor = isSensor;
+    }
+
+    void BoxColliderComponent::CollectShapes(Array<BodyShapeBuilder>& shapes)
+    {
+        shapes.EmplaceBack(BodyShapeBuilder{
+            .bodyShape = BodyShapeType::Box,
+            .size = halfSize,
+            .density = density,
+            .sensor = isSensor
+        });
     }
 
     void BoxColliderComponent::RegisterType(NativeTypeHandler<BoxColliderComponent>& type)

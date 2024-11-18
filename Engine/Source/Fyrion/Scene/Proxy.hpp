@@ -2,6 +2,10 @@
 
 #include "Fyrion/Common.hpp"
 
+namespace Fyrion {
+    class GameObject;
+}
+
 namespace Fyrion
 {
     class Scene;
@@ -14,5 +18,6 @@ namespace Fyrion
         virtual void OnStart() {}
         virtual void OnUpdate() {}
         virtual void OnDestroy() {}
+        virtual void OnGameObjectStarted(GameObject* gameObject) {}
     };
 }

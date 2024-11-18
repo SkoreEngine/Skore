@@ -37,6 +37,10 @@ namespace Fyrion
         for(GameObject* gameObject : queueToStart)
         {
             gameObject->Start();
+            for(auto& it: proxies)
+            {
+                it.second->OnGameObjectStarted(gameObject);
+            }
         }
         queueToStart.Clear();
 

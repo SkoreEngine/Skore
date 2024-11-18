@@ -5,6 +5,7 @@
 #include "Fyrion/Editor/Editor.hpp"
 #include "Fyrion/Editor/Asset/AssetEditor.hpp"
 #include "Fyrion/Editor/ImGui/ImGuiEditor.hpp"
+#include "Fyrion/Physics/PhysicsProxy.hpp"
 #include "Fyrion/Scene/Component/Component.hpp"
 #include "Fyrion/Scene/Component/TransformComponent.hpp"
 
@@ -825,11 +826,19 @@ namespace Fyrion
             if (shouldStartSimulation)
             {
                 simulationScene = Alloc<Scene>();
+                if (PhysicsProxy* physicsProxy = this->simulationScene->GetProxy<PhysicsProxy>())
+                {
+                    physicsProxy->EnableSimulation();
+                }
+
                 simulationScene->SetUUID(editorScene->GetUUID());
 
                 JsonArchiveWriter writer;
                 JsonArchiveReader reader(JsonArchiveWriter::Stringify(editorScene->Serialize(writer), false));
                 simulationScene->Deserialize(reader, reader.GetRoot());
+                simulationScene->Start();
+
+
 
                 shouldStartSimulation = false;
             }

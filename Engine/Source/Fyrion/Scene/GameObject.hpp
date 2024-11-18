@@ -88,6 +88,10 @@ namespace Fyrion
             return static_cast<T*>(AddComponent(GetTypeID<T>()));
         }
 
+        u64  GetPhysicsRef() const;
+        void SetPhysicsRef(u64 physicsRef);
+
+
         friend class Scene;
 
     private:
@@ -107,6 +111,8 @@ namespace Fyrion
         String      name;
         UUID        uuid;
         bool        started = false;
+
+        u64         physicsRef = U64_MAX;
 
         //prefabs
         PrefabInstance prefab;

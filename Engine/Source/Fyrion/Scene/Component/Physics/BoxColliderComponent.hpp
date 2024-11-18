@@ -8,14 +8,14 @@ namespace Fyrion
     public:
         FY_BASE_TYPES(Component);
 
-        void OnStart() override;
-
         const Vec3& GetHalfSize() const;
         void        SetHalfSize(const Vec3& halfSize);
         f32         GetDensity() const;
         void        SetDensity(float density);
         bool        IsIsSensor() const;
         void        SetIsSensor(bool isSensor);
+
+        void CollectShapes(Array<BodyShapeBuilder>& shapes) override;
 
         static void RegisterType(NativeTypeHandler<BoxColliderComponent>& type);
 

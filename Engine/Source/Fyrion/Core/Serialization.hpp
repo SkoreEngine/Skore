@@ -164,7 +164,9 @@ namespace Fyrion
 
         static void FromValue(ArchiveReader& reader, ArchiveValue archiveValue, T& typeValue)
         {
-            Serialization::ValueToEnum(GetTypeID<T>(), reader, archiveValue, *reinterpret_cast<i64*>(&typeValue));
+            i64 value = 0;
+            Serialization::ValueToEnum(GetTypeID<T>(), reader, archiveValue, value);
+            typeValue = static_cast<T>(value);
         }
     };
 

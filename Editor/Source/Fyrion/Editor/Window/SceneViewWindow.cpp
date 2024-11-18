@@ -268,54 +268,57 @@ namespace Fyrion
             ImGuizmo::SetDrawlist();
             ImGuizmo::SetRect(cursor.x, cursor.y, size.x, size.y);
 
-            for (auto it : sceneEditor.selectedObjects)
+            if (!sceneEditor.IsSimulating())
             {
-                if (GameObject* object = sceneEditor.GetActiveScene()->FindObjectByUUID(it.first))
+                for (auto it : sceneEditor.selectedObjects)
                 {
-                    if (TransformComponent* transformComponent = object->GetComponent<TransformComponent>())
+                    if (GameObject* object = sceneEditor.GetActiveScene()->FindObjectByUUID(it.first))
                     {
-                        Mat4 worldMatrix = transformComponent->GetWorldTransform();
-
-                        static float snap[3] = {0.0f, 0.0f, 0.0f};
-
-                        ImGuizmo::Manipulate(&cameraData.view[0][0],
-                                             &cameraData.projection[0][0],
-                                             static_cast<ImGuizmo::OPERATION>(guizmoOperation),
-                                             ImGuizmo::LOCAL,
-                                             &worldMatrix[0][0],
-                                             nullptr,
-                                             snap);
-
-                        if (ImGuizmo::IsUsing())
+                        if (TransformComponent* transformComponent = object->GetComponent<TransformComponent>())
                         {
-                            if (!usingGuizmo)
-                            {
-                                usingGuizmo = true;
-                                gizmoInitialTransform = transformComponent->GetTransform();
+                            Mat4 worldMatrix = transformComponent->GetWorldTransform();
 
-                                // if (object->GetPrototype() != nullptr && !object->IsComponentOverride(transformComponent))
-                                // {
-                                //     gizmoTransaction->CreateAction<OverridePrototypeComponentAction>(sceneEditor, object, static_cast<Component*>(transformComponent))->Commit();
-                                // }
-                            }
+                            static float snap[3] = {0.0f, 0.0f, 0.0f};
 
-                            if (object->GetParent() != nullptr)
+                            ImGuizmo::Manipulate(&cameraData.view[0][0],
+                                                 &cameraData.projection[0][0],
+                                                 static_cast<ImGuizmo::OPERATION>(guizmoOperation),
+                                                 ImGuizmo::LOCAL,
+                                                 &worldMatrix[0][0],
+                                                 nullptr,
+                                                 snap);
+
+                            if (ImGuizmo::IsUsing())
                             {
-                                if (TransformComponent* parentTransform = object->GetParent()->GetComponent<TransformComponent>())
+                                if (!usingGuizmo)
                                 {
-                                    worldMatrix = Math::Inverse(parentTransform->GetWorldTransform()) * worldMatrix;
-                                }
-                            }
+                                    usingGuizmo = true;
+                                    gizmoInitialTransform = transformComponent->GetTransform();
 
-                            Vec3 position, rotation, scale;
-                            Math::Decompose(worldMatrix, position, rotation, scale);
-                            auto deltaRotation = rotation - Math::EulerAngles(transformComponent->GetRotation());
-                            transformComponent->SetTransform(position, Math::EulerAngles(transformComponent->GetRotation()) + deltaRotation, scale);
-                        }
-                        else if (usingGuizmo)
-                        {
-                            sceneEditor.UpdateTransform(object, gizmoInitialTransform, transformComponent);
-                            usingGuizmo = false;
+                                    // if (object->GetPrototype() != nullptr && !object->IsComponentOverride(transformComponent))
+                                    // {
+                                    //     gizmoTransaction->CreateAction<OverridePrototypeComponentAction>(sceneEditor, object, static_cast<Component*>(transformComponent))->Commit();
+                                    // }
+                                }
+
+                                if (object->GetParent() != nullptr)
+                                {
+                                    if (TransformComponent* parentTransform = object->GetParent()->GetComponent<TransformComponent>())
+                                    {
+                                        worldMatrix = Math::Inverse(parentTransform->GetWorldTransform()) * worldMatrix;
+                                    }
+                                }
+
+                                Vec3 position, rotation, scale;
+                                Math::Decompose(worldMatrix, position, rotation, scale);
+                                auto deltaRotation = rotation - Math::EulerAngles(transformComponent->GetRotation());
+                                transformComponent->SetTransform(position, Math::EulerAngles(transformComponent->GetRotation()) + deltaRotation, scale);
+                            }
+                            else if (usingGuizmo)
+                            {
+                                sceneEditor.UpdateTransform(object, gizmoInitialTransform, transformComponent);
+                                usingGuizmo = false;
+                            }
                         }
                     }
                 }
