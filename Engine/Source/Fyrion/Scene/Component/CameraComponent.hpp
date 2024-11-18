@@ -4,7 +4,7 @@
 
 namespace Fyrion
 {
-    class RenderService;
+    class RenderProxy;
     class TransformComponent;
 
     class CameraComponent : public Component
@@ -28,6 +28,6 @@ namespace Fyrion
         bool             current = false;
 
         TransformComponent* transformComponent = nullptr;
-        RenderService*      renderService = nullptr;
+        RenderProxy*        renderProxy = nullptr;
     };
 }

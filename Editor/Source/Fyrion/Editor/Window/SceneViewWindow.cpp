@@ -10,7 +10,7 @@
 #include "Fyrion/ImGui/Lib/ImGuizmo.h"
 #include "Fyrion/IO/Input.hpp"
 #include "Fyrion/Scene/Component/TransformComponent.hpp"
-#include "Fyrion/Scene/Service/RenderService.hpp"
+#include "Fyrion/Graphics/RenderProxy.hpp"
 
 namespace Fyrion
 {
@@ -218,15 +218,15 @@ namespace Fyrion
                 renderGraph->Resize(extent);
             }
 
-            RenderService* renderService = nullptr;
+            RenderProxy* renderProxy = nullptr;
             if (Scene* scene = sceneEditor.GetActiveScene())
             {
-                renderService = scene->GetService<RenderService>();
+                renderProxy = scene->GetProxy<RenderProxy>();
             }
 
-            if (sceneEditor.IsSimulating() && renderService != nullptr && renderService->GetCamera() != nullptr)
+            if (sceneEditor.IsSimulating() && renderProxy != nullptr && renderProxy->GetCamera() != nullptr)
             {
-                const CameraData* gameCamera = renderService->GetCamera();
+                const CameraData* gameCamera = renderProxy->GetCamera();
 
                 cameraData.view = gameCamera->view;
                 cameraData.projectionType = gameCamera->projectionType;

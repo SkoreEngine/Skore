@@ -4,7 +4,6 @@
 
 namespace Fyrion
 {
-
     struct SkyboxRenderData
     {
         Mat4 viewInverse;
@@ -15,18 +14,18 @@ namespace Fyrion
     struct SkyRenderPass : RenderGraphPassHandler
     {
         PipelineState pipelineState = {};
-        BindingSet* bindingSet = {};
+        BindingSet*   bindingSet = {};
 
         RenderGraphResource* depth = nullptr;
         RenderGraphResource* colorTexture = nullptr;
 
-        RenderService* renderService = nullptr;
+        RenderProxy* renderProxy = nullptr;
 
         void Init() override
         {
             if (rg->GetScene())
             {
-                renderService = rg->GetScene()->GetService<RenderService>();
+                renderProxy = rg->GetScene()->GetProxy<RenderProxy>();
             }
 
             ShaderAsset* shaderAsset = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/SkyboxRender.comp");
@@ -40,7 +39,7 @@ namespace Fyrion
 
         void Render(RenderCommands& cmd) override
         {
-            TextureAsset* skyTexture = renderService ? renderService->GetPanoramaSky() : nullptr;
+            TextureAsset* skyTexture = renderProxy ? renderProxy->GetPanoramaSky() : nullptr;
 
             SkyboxRenderData data{
                 .viewInverse = rg->GetCameraData().viewInverse,

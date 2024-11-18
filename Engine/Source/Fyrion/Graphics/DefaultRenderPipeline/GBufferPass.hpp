@@ -4,7 +4,7 @@
 #include "Fyrion/Graphics/Assets/MeshAsset.hpp"
 #include "Fyrion/Graphics/Assets/ShaderAsset.hpp"
 #include "Fyrion/Scene/Scene.hpp"
-#include "Fyrion/Scene/Service/RenderService.hpp"
+#include "Fyrion/Graphics/RenderProxy.hpp"
 
 
 namespace Fyrion
@@ -16,16 +16,15 @@ namespace Fyrion
 
     struct GBufferPass : RenderGraphPassHandler
     {
-
-        PipelineState  pipelineState{};
-        BindingSet*    bindingSet{};
-        RenderService* renderService = nullptr;
+        PipelineState pipelineState{};
+        BindingSet*   bindingSet{};
+        RenderProxy*  renderProxy = nullptr;
 
         void Init() override
         {
             if (rg->GetScene())
             {
-                renderService = rg->GetScene()->GetService<RenderService>();
+                renderProxy = rg->GetScene()->GetProxy<RenderProxy>();
             }
 
             GraphicsPipelineCreation graphicsPipelineCreation{
@@ -50,9 +49,9 @@ namespace Fyrion
             cmd.BindPipelineState(pipelineState);
             cmd.BindBindingSet(pipelineState, bindingSet);
 
-            if (renderService != nullptr)
+            if (renderProxy != nullptr)
             {
-                for (MeshRenderData& meshRenderData : renderService->GetMeshesToRender())
+                for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
                 {
                     if (MeshAsset* mesh = meshRenderData.mesh)
                     {

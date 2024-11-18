@@ -5,34 +5,34 @@
 #include "Fyrion/Core/Registry.hpp"
 #include "Fyrion/Scene/GameObject.hpp"
 #include "Fyrion/Scene/Scene.hpp"
-#include "Fyrion/Scene/Service/RenderService.hpp"
+#include "Fyrion/Graphics/RenderProxy.hpp"
 
 namespace Fyrion
 {
     void CameraComponent::OnStart()
     {
         transformComponent = gameObject->GetComponent<TransformComponent>();
-        renderService = gameObject->GetScene()->GetService<RenderService>();
+        renderProxy = gameObject->GetScene()->GetProxy<RenderProxy>();
         OnChange();
     }
 
     void CameraComponent::OnChange()
     {
-        if (renderService)
+        if (renderProxy)
         {
             if (transformComponent && current)
             {
-                renderService->AddCamera(this, CameraData{
-                                             .view = Math::Inverse(transformComponent->GetWorldTransform()),
-                                             .viewPos = Math::GetTranslation(transformComponent->GetWorldTransform()),
-                                             .fov = fov,
-                                             .nearClip = near,
-                                             .farClip = far
-                                         });
+                renderProxy->AddCamera(this, CameraData{
+                                           .view = Math::Inverse(transformComponent->GetWorldTransform()),
+                                           .viewPos = Math::GetTranslation(transformComponent->GetWorldTransform()),
+                                           .fov = fov,
+                                           .nearClip = near,
+                                           .farClip = far
+                                       });
             }
             else
             {
-                renderService->RemoveCamera(this);
+                renderProxy->RemoveCamera(this);
             }
         }
     }
@@ -51,7 +51,7 @@ namespace Fyrion
 
     void CameraComponent::OnDestroy()
     {
-        renderService->RemoveCamera(this);
+        renderProxy->RemoveCamera(this);
     }
 
     void CameraComponent::RegisterType(NativeTypeHandler<CameraComponent>& type)

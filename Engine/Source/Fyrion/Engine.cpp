@@ -28,6 +28,7 @@ namespace Fyrion
     void            EventShutdown();
     void            InputInit();
     void            AssetsShutdown();
+    void            PhysicsInit();
 
 
     namespace
@@ -92,6 +93,8 @@ namespace Fyrion
         });
 
         ImGui::Init(window, swapchain);
+
+        PhysicsInit();
 
         onInitHandler.Invoke();
 

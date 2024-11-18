@@ -391,7 +391,7 @@ namespace Fyrion
         return nullptr;
     }
 
-    void GameObject::GetComponentsOfType(TypeID typeId, Array<Component*> arrComponents) const
+    void GameObject::GetComponentsOfType(TypeID typeId, Array<Component*>& arrComponents) const
     {
         arrComponents.Clear();
         for (Component* component : components)

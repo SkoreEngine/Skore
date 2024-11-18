@@ -10,7 +10,7 @@ namespace Fyrion
         PipelineState lightingPSO{};
         BindingSet*   bindingSet{};
 
-        RenderService* renderService = nullptr;
+        RenderProxy* renderProxy = nullptr;
 
         RenderGraphResource* gbuffer1;
         RenderGraphResource* gbuffer2;
@@ -28,7 +28,7 @@ namespace Fyrion
         {
             if (rg->GetScene())
             {
-                renderService = rg->GetScene()->GetService<RenderService>();
+                renderProxy = rg->GetScene()->GetProxy<RenderProxy>();
             }
 
             ComputePipelineCreation creation{
@@ -56,16 +56,16 @@ namespace Fyrion
 
         void Render(RenderCommands& cmd) override
         {
-            if (!renderService) return;
+            if (!renderProxy) return;
 
             LightingData data;
             data.viewProjInverse = Math::Inverse(rg->GetCameraData().projection * rg->GetCameraData().view);
             data.view = rg->GetCameraData().view;
             data.SetViewPos(rg->GetCameraData().viewPos);
 
-            if (renderService)
+            if (renderProxy)
             {
-                Span<LightRenderData> lights = renderService->GetLights();
+                Span<LightRenderData> lights = renderProxy->GetLights();
                 data.SetLightCount(static_cast<i32>(lights.Size()));
 
                 for (int l = 0; l < lights.Size(); ++l)
@@ -92,8 +92,8 @@ namespace Fyrion
             bindingSet->GetVar("gbuffer1")->SetTexture(gbuffer1->texture);
             bindingSet->GetVar("gbuffer2")->SetTexture(gbuffer2->texture);
             bindingSet->GetVar("gbuffer3")->SetTexture(gbuffer3->texture);
-            bindingSet->GetVar("diffuseIrradiance")->SetTexture(renderService->GetDiffuseIrradiance());
-            bindingSet->GetVar("specularMap")->SetTexture(renderService->GetSpecularMap());
+            bindingSet->GetVar("diffuseIrradiance")->SetTexture(renderProxy->GetDiffuseIrradiance());
+            bindingSet->GetVar("specularMap")->SetTexture(renderProxy->GetSpecularMap());
             bindingSet->GetVar("brdfLUT")->SetTexture(brdflutGenerator.GetTexture());
             bindingSet->GetVar("brdfLUTSampler")->SetSampler(brdfLutSampler);
             bindingSet->GetVar("shadowMapTexture")->SetTexture(shadowMap->texture);

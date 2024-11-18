@@ -2,8 +2,8 @@
 #include "Component.hpp"
 #include "TransformComponent.hpp"
 #include "Fyrion/Core/Array.hpp"
+#include "Fyrion/Graphics/RenderProxy.hpp"
 #include "Fyrion/Graphics/Assets/MaterialAsset.hpp"
-#include "Fyrion/Scene/Service/RenderService.hpp"
 
 
 namespace Fyrion
@@ -33,6 +33,6 @@ namespace Fyrion
         Array<MaterialAsset*> materials = {};
 
         TransformComponent* transform = nullptr;
-        RenderService*      renderService = nullptr;
+        RenderProxy*        renderProxy = nullptr;
     };
 }

@@ -5,7 +5,7 @@
 #include "Fyrion/Scene/GameObject.hpp"
 #include "TransformComponent.hpp"
 #include "Fyrion/Scene/Scene.hpp"
-#include "Fyrion/Scene/Service/RenderService.hpp"
+#include "Fyrion/Graphics/RenderProxy.hpp"
 
 
 namespace Fyrion
@@ -13,7 +13,7 @@ namespace Fyrion
     void LightComponent::OnStart()
     {
         transformComponent = gameObject->GetComponent<TransformComponent>();
-        renderService = gameObject->GetScene()->GetService<RenderService>();
+        renderProxy = gameObject->GetScene()->GetProxy<RenderProxy>();
 
         OnChange();
     }
@@ -76,7 +76,7 @@ namespace Fyrion
 
     void LightComponent::OnChange()
     {
-        if (renderService && transformComponent)
+        if (renderProxy && transformComponent)
         {
             LightProperties properties;
             properties.type = type;
@@ -88,15 +88,15 @@ namespace Fyrion
             properties.indirectMultiplier = indirectMultiplier;
             properties.castShadows = castShadows;
 
-            renderService->AddLight(this, properties);
+            renderProxy->AddLight(this, properties);
         }
     }
 
     void LightComponent::OnDestroy()
     {
-        if (renderService)
+        if (renderProxy)
         {
-            renderService->RemoveLight(this);
+            renderProxy->RemoveLight(this);
         }
     }
 

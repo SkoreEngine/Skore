@@ -6,8 +6,9 @@
 #include "Component/LightComponent.hpp"
 #include "Component/RenderComponent.hpp"
 #include "Component/TransformComponent.hpp"
+#include "Component/Physics/BoxColliderComponent.hpp"
+#include "Component/Physics/RigidBodyComponent.hpp"
 #include "Fyrion/Core/Registry.hpp"
-#include "Service/RenderService.hpp"
 
 namespace Fyrion
 {
@@ -15,7 +16,7 @@ namespace Fyrion
     {
         Registry::Type<Scene>();
         Registry::Type<GameObject>();
-        Registry::Type<Service>();
+        Registry::Type<Proxy>();
         Registry::Type<Component>();
 
         //components
@@ -24,8 +25,7 @@ namespace Fyrion
         Registry::Type<LightComponent>();
         Registry::Type<EnvironmentComponent>();
         Registry::Type<CameraComponent>();
-
-        //services
-        Registry::Type<RenderService>();
+        Registry::Type<BoxColliderComponent>();
+        Registry::Type<RigidBodyComponent>();
     }
 }

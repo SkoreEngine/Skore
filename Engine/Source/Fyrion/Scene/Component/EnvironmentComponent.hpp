@@ -4,7 +4,7 @@
 namespace Fyrion
 {
     class TextureAsset;
-    class RenderService;
+    class RenderProxy;
 
     class EnvironmentComponent : public Component
     {
@@ -16,9 +16,9 @@ namespace Fyrion
         void OnChange() override;
 
         static void RegisterType(NativeTypeHandler<EnvironmentComponent>& type);
+
     private:
         TextureAsset* panoramaSky = nullptr;
-
-        RenderService* renderService = nullptr;
+        RenderProxy* renderProxy = nullptr;
     };
 }

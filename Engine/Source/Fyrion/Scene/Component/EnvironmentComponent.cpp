@@ -5,34 +5,33 @@
 #include "Fyrion/Graphics/Assets/TextureAsset.hpp"
 #include "Fyrion/Scene/GameObject.hpp"
 #include "Fyrion/Scene/Scene.hpp"
-#include "Fyrion/Scene/Service/RenderService.hpp"
+#include "Fyrion/Graphics/RenderProxy.hpp"
 
 namespace Fyrion
 {
     void EnvironmentComponent::OnStart()
     {
-        renderService = gameObject->GetScene()->GetService<RenderService>();
+        renderProxy = gameObject->GetScene()->GetProxy<RenderProxy>();
 
-        if (renderService != nullptr && panoramaSky != nullptr)
+        if (renderProxy != nullptr && panoramaSky != nullptr)
         {
-            renderService->SetPanoramaSky(panoramaSky);
+            renderProxy->SetPanoramaSky(panoramaSky);
         }
     }
 
     void EnvironmentComponent::OnDestroy()
     {
-        if (renderService)
+        if (renderProxy)
         {
-            renderService->SetPanoramaSky(nullptr);
+            renderProxy->SetPanoramaSky(nullptr);
         }
-
     }
 
     void EnvironmentComponent::OnChange()
     {
-        if (renderService)
+        if (renderProxy)
         {
-            renderService->SetPanoramaSky(panoramaSky);
+            renderProxy->SetPanoramaSky(panoramaSky);
         }
     }
 

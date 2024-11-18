@@ -3,8 +3,9 @@
 #include "Fyrion/Graphics/GraphicsTypes.hpp"
 
 
-namespace Fyrion {
-    class RenderService;
+namespace Fyrion
+{
+    class RenderProxy;
 }
 
 namespace Fyrion
@@ -44,6 +45,6 @@ namespace Fyrion
         bool      castShadows = false;
 
         TransformComponent* transformComponent = nullptr;
-        RenderService* renderService = nullptr;
+        RenderProxy*        renderProxy = nullptr;
     };
 }

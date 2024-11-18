@@ -53,7 +53,7 @@ namespace Fyrion
         Component*       GetOrAddComponent(TypeID typeId);
         Component*       FindComponentByUUID(UUID uuid) const;
         Component*       FindComponentByInstance(UUID uuid) const;
-        void             GetComponentsOfType(TypeID typeId, Array<Component*> arrComponents) const;
+        void             GetComponentsOfType(TypeID typeId, Array<Component*>& arrComponents) const;
         Component*       AddComponent(TypeID typeId);
         Component*       AddComponent(TypeHandler* typeHandler, UUID uuid);
         void             RemoveComponent(Component* component);

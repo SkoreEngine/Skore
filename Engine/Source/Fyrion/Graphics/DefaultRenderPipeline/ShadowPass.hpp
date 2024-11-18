@@ -6,7 +6,6 @@ namespace Fyrion
 {
     struct ShadowPass : RenderGraphPassHandler
     {
-
         float cascadeSplitLambda = 0.75f;
 
         PipelineState pipelineState{};
@@ -18,7 +17,7 @@ namespace Fyrion
 
         ShadowMapDataInfo shadowMapDataInfo{};
 
-        RenderService* renderService = nullptr;
+        RenderProxy* renderProxy = nullptr;
 
         struct ShadowPushConsts
         {
@@ -30,7 +29,7 @@ namespace Fyrion
         {
             if (rg->GetScene())
             {
-                renderService = rg->GetScene()->GetService<RenderService>();
+                renderProxy = rg->GetScene()->GetProxy<RenderProxy>();
             }
 
             shadowMap->texture = Graphics::CreateTexture(TextureCreation{
@@ -74,11 +73,11 @@ namespace Fyrion
 
         void Render(RenderCommands& cmd) override
         {
-            if (!renderService) return;
+            if (!renderProxy) return;
 
             float cascadeSplits[FY_SHADOW_MAP_CASCADE_COUNT];
 
-            if (auto light = renderService->GetDirectionalShadowCaster(); light && light->castShadows)
+            if (auto light = renderProxy->GetDirectionalShadowCaster(); light && light->castShadows)
             {
                 const CameraData& cameraData = rg->GetCameraData();
 
@@ -185,7 +184,7 @@ namespace Fyrion
                     cmd.SetScissor(Rect{0, 0, FY_SHADOW_MAP_DIM, FY_SHADOW_MAP_DIM});
                     cmd.BindPipelineState(pipelineState);
 
-                    for (MeshRenderData& meshRenderData : renderService->GetMeshesToRender())
+                    for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
                     {
                         if (MeshAsset* mesh = meshRenderData.mesh)
                         {

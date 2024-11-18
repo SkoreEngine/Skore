@@ -12,11 +12,11 @@ namespace Fyrion
     void RenderComponent::OnStart()
     {
         transform = gameObject->GetComponent<TransformComponent>();
-        renderService = gameObject->GetScene()->GetService<RenderService>();
+        renderProxy = gameObject->GetScene()->GetProxy<RenderProxy>();
 
-        if (renderService && mesh && transform)
+        if (renderProxy && mesh && transform)
         {
-            renderService->SetMesh(this, mesh, materials, transform->GetWorldTransform());
+            renderProxy->SetMesh(this, mesh, materials, transform->GetWorldTransform());
         }
     }
 
@@ -42,17 +42,17 @@ namespace Fyrion
         }
 
         //maybe test if object is active?
-        if (renderService)
+        if (renderProxy)
         {
-            renderService->SetMesh(this, mesh, materials, transform->GetWorldTransform());
+            renderProxy->SetMesh(this, mesh, materials, transform->GetWorldTransform());
         }
     }
 
     void RenderComponent::OnDestroy()
     {
-        if (renderService)
+        if (renderProxy)
         {
-            renderService->RemoveMesh(this);
+            renderProxy->RemoveMesh(this);
         }
     }
 

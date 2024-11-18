@@ -5,7 +5,7 @@
 #include "Fyrion/Core/HashMap.hpp"
 #include "Fyrion/Core/UnorderedDense.hpp"
 #include "Fyrion/IO/Asset.hpp"
-#include "Service/Service.hpp"
+#include "Proxy.hpp"
 
 namespace Fyrion
 {
@@ -31,12 +31,12 @@ namespace Fyrion
         void Update();
         void Start();
 
-        Service* GetService(TypeID typeId);
+        Proxy* GetProxy(TypeID typeId);
 
         template <typename T>
-        T* GetService()
+        T* GetProxy()
         {
-            return static_cast<T*>(GetService(GetTypeID<T>()));
+            return static_cast<T*>(GetProxy(GetTypeID<T>()));
         }
 
         usize GetObjectCount() const
@@ -50,11 +50,11 @@ namespace Fyrion
     private:
         GameObject                 root = {this};
         HashMap<UUID, GameObject*> objectsById;
-        HashMap<TypeID, Service*>  services;
+        HashMap<TypeID, Proxy*>    proxies;
 
-        Array<GameObject*>                       queueToDestroy;
-        Array<GameObject*>                       queueToStart;
-        Array<Component*>                        componentsToStart;
+        Array<GameObject*> queueToDestroy;
+        Array<GameObject*> queueToStart;
+        Array<Component*>  componentsToStart;
 
         ankerl::unordered_dense::set<Component*> componentsToUpdate;
     };

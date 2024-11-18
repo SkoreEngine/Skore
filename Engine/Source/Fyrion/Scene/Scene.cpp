@@ -8,8 +8,8 @@ namespace Fyrion
 
     Scene::Scene()
     {
-        services = Registry::InstantiateDerivedAsMap<Service>();
-        for(auto it  : services)
+        proxies = Registry::InstantiateDerivedAsMap<Proxy>();
+        for(auto it  : proxies)
         {
             it.second->scene = this;
         }
@@ -17,7 +17,7 @@ namespace Fyrion
 
     Scene::~Scene()
     {
-        for(auto& it: services)
+        for(auto& it: proxies)
         {
             it.second->OnDestroy();
             if (TypeHandler* handler = Registry::FindTypeById(it.first))
@@ -57,7 +57,7 @@ namespace Fyrion
 
     void Scene::Update()
     {
-        for(auto& it: services)
+        for(auto& it: proxies)
         {
             it.second->OnUpdate();
         }
@@ -71,15 +71,15 @@ namespace Fyrion
 
     void Scene::Start()
     {
-        for(auto& it: services)
+        for(auto& it: proxies)
         {
             it.second->OnStart();
         }
     }
 
-    Service* Scene::GetService(TypeID typeId)
+    Proxy* Scene::GetProxy(TypeID typeId)
     {
-        if (auto it = services.Find(typeId))
+        if (auto it = proxies.Find(typeId))
         {
             return it->second;
         }

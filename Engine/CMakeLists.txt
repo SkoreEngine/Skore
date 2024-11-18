@@ -42,6 +42,7 @@ target_link_libraries(FyrionEngine PRIVATE
 				yyjson
 				mikktspace
 				FyrionContent::RS
+				Jolt
 )
 
 ##tests
