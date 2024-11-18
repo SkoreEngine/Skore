@@ -7,6 +7,7 @@
 #include "Component/RenderComponent.hpp"
 #include "Component/TransformComponent.hpp"
 #include "Component/Physics/BoxColliderComponent.hpp"
+#include "Component/Physics/CharacterComponent.hpp"
 #include "Component/Physics/RigidBodyComponent.hpp"
 #include "Fyrion/Core/Registry.hpp"
 
@@ -27,5 +28,6 @@ namespace Fyrion
         Registry::Type<CameraComponent>();
         Registry::Type<BoxColliderComponent>();
         Registry::Type<RigidBodyComponent>();
+        Registry::Type<CharacterComponent>();
     }
 }

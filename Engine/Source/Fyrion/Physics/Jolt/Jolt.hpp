@@ -17,7 +17,9 @@
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
 #include "Fyrion/Common.hpp"
+#include "Fyrion/Core/UnorderedDense.hpp"
 #include "Fyrion/Physics/PhysicsTypes.hpp"
+#include "Jolt/Physics/Character/CharacterVirtual.h"
 
 
 namespace Fyrion
@@ -159,5 +161,7 @@ namespace Fyrion
         ObjectVsBroadPhaseLayerFilterImpl objectVsBroadPhaseLayerFilterImpl = {};
         ObjectLayerPairFilterImpl         objectLayerPairFilterImpl = {};
         JPH::JobSystemThreadPool          jobSystem = JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
+
+        ankerl::unordered_dense::set<JPH::CharacterVirtual*> virtualCharacters;
     };
 }

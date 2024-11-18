@@ -44,6 +44,11 @@ namespace Fyrion
             return objectsById.Size();
         }
 
+        bool IsDestroyed() const
+        {
+            return destroyed;
+        }
+
         friend class GameObject;
         friend class Component;
 
@@ -55,6 +60,8 @@ namespace Fyrion
         Array<GameObject*> queueToDestroy;
         Array<GameObject*> queueToStart;
         Array<Component*>  componentsToStart;
+
+        bool destroyed = false;
 
         ankerl::unordered_dense::set<Component*> componentsToUpdate;
     };

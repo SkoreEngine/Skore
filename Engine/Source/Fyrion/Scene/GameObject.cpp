@@ -16,6 +16,11 @@ namespace Fyrion
 
     GameObject::~GameObject()
     {
+        for(auto& it: scene->proxies)
+        {
+            it.second->OnGameObjectDestroyed(this);
+        }
+
         if (parent)
         {
             parent->RemoveChild(this);

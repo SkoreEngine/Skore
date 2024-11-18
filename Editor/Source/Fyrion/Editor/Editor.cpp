@@ -451,6 +451,13 @@ namespace Fyrion
         {
             if (forceClose) return;
 
+            if (sceneEditor->IsSimulating())
+            {
+                sceneEditor->StopSimulation();
+                *canClose = false;
+                return;
+            }
+
             updatedItems.Clear();
             AssetEditor::GetUpdatedAssets(updatedItems);
 

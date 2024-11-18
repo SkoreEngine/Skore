@@ -3,11 +3,17 @@
 #include "Fyrion/Engine.hpp"
 #include "Fyrion/Core/Allocator.hpp"
 #include "Fyrion/Core/Array.hpp"
+#include "Fyrion/Core/Logger.hpp"
 #include "Fyrion/Scene/GameObject.hpp"
+#include "Fyrion/Scene/Scene.hpp"
 #include "Fyrion/Scene/Component/Component.hpp"
 #include "Fyrion/Scene/Component/TransformComponent.hpp"
+#include "Fyrion/Scene/Component/Physics/CharacterComponent.hpp"
 #include "Fyrion/Scene/Component/Physics/RigidBodyComponent.hpp"
 #include "Jolt/Jolt.hpp"
+#include "Jolt/Physics/Character/CharacterVirtual.h"
+#include "Jolt/Physics/Collision/Shape/CapsuleShape.h"
+#include "Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h"
 #include "Jolt/Physics/Collision/Shape/ScaledShape.h"
 #include "Jolt/Physics/Collision/Shape/StaticCompoundShape.h"
 
@@ -38,11 +44,47 @@ namespace Fyrion
 
         if (simulationEnabled && context)
         {
-            JPH::BodyInterface &bodyInterface = context->physicsSystem.GetBodyInterface();
+            JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
 
             accumulator += Engine::DeltaTime();
             while (accumulator >= context->stepSize)
             {
+                for(JPH::CharacterVirtual* characterVirtual: context->virtualCharacters)
+                {
+                    CharacterComponent* characterComponent = reinterpret_cast<CharacterComponent*>(characterVirtual->GetUserData());
+
+                    characterVirtual->SetUp(Cast(characterComponent->GetUp()));
+                    characterVirtual->SetLinearVelocity(Cast(characterComponent->GetLinearVelocity()));
+
+                    characterVirtual->UpdateGroundVelocity();
+
+                    JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings{};
+                    updateSettings.mWalkStairsMinStepForward *= 4.0f;
+
+                    characterVirtual->ExtendedUpdate(
+                        context->stepSize,
+                        -characterVirtual->GetUp() * context->physicsSystem.GetGravity().Length(),
+                        updateSettings,
+                        context->physicsSystem.GetDefaultBroadPhaseLayerFilter(PhysicsLayers::MOVING),
+                        context->physicsSystem.GetDefaultLayerFilter(PhysicsLayers::MOVING),
+                        {},
+                        {},
+                        context->tempAllocator);
+
+                    //Mat4 math = Math::Inverse(parentTransform.value) * Math::Translate(Mat4{1.0}, Cast(position)) * Math::ToMatrix4(Cast(rotation)) * Math::Scale(Mat4{1.0}, localTransform.scale);
+
+                    //TODO parent transform
+                    if (TransformComponent* transformComponent = characterComponent->gameObject->GetComponent<TransformComponent>())
+                    {
+                        transformComponent->SetTransform(Cast(characterVirtual->GetPosition()),
+                                                         Cast(characterVirtual->GetRotation()),
+                                                         transformComponent->GetScale());
+                    }
+
+                    characterComponent->SetOnGround(characterVirtual->IsSupported());
+                }
+
+
                 context->physicsSystem.Update(
                     context->stepSize,
                     collisionSteps,
@@ -62,7 +104,7 @@ namespace Fyrion
 
                 GameObject* gameObject = reinterpret_cast<GameObject*>(bodyInterface.GetUserData(bodyId));
 
-                //TODO parent
+                //TODO parent transform
                 if (TransformComponent* transformComponent = gameObject->GetComponent<TransformComponent>())
                 {
                     transformComponent->SetTransform(Cast(position), Cast(rotation), transformComponent->GetScale());
@@ -70,10 +112,18 @@ namespace Fyrion
 
                 if (RigidBodyComponent* rigidBodyComponent = gameObject->GetComponent<RigidBodyComponent>())
                 {
-                    // rigidBodyComponent->linearVelocity = Cast(bodyInterface.GetLinearVelocity(bodyId));
-                    // rigidBodyComponent->angularVelocity = Cast(bodyInterface.GetAngularVelocity(bodyId));
+                    rigidBodyComponent->linearVelocity = Cast(bodyInterface.GetLinearVelocity(bodyId));
+                    rigidBodyComponent->angularVelocity = Cast(bodyInterface.GetAngularVelocity(bodyId));
                 }
             }
+        }
+    }
+
+    void PhysicsProxy::OnDestroy()
+    {
+        if (context)
+        {
+            DestroyAndFree(context);
         }
     }
 
@@ -90,9 +140,34 @@ namespace Fyrion
             return;
         }
 
+        //TODO need to integrate with shapes, if no shape is added, create a default capsule?
+        if (CharacterComponent* characterComponent = gameObject->GetComponent<CharacterComponent>())
+        {
+            JPH::RefConst shape = JPH::RotatedTranslatedShapeSettings(
+                JPH::Vec3(0, 0.5f * characterComponent->GetHeight() + characterComponent->GetRadius(), 0),
+                JPH::Quat::sIdentity(),
+                new JPH::CapsuleShape(0.5f * characterComponent->GetHeight(), characterComponent->GetRadius())).Create().Get();
+
+            JPH::CharacterVirtualSettings settings{};
+            settings.mShape = shape;
+            settings.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -characterComponent->GetRadius());
+
+            JPH::CharacterVirtual* characterVirtual = new JPH::CharacterVirtual(&settings,
+                                                                                Cast(Math::GetTranslation(transformComponent->GetWorldTransform())),
+                                                                                Cast(Math::GetQuaternion(transformComponent->GetWorldTransform())),
+                                                                                reinterpret_cast<u64>(characterComponent),
+                                                                                &context->physicsSystem);
+
+            gameObject->SetPhysicsRef(reinterpret_cast<u64>(characterVirtual));
+
+            context->virtualCharacters.insert(characterVirtual);
+
+            return;
+        }
+
         Array<BodyShapeBuilder> shapes;
 
-        for(Component* component : gameObject->GetComponents())
+        for (Component* component : gameObject->GetComponents())
         {
             component->CollectShapes(shapes);
         }
@@ -100,7 +175,7 @@ namespace Fyrion
         if (!shapes.Empty())
         {
             Array<JPH::RefConst<JPH::Shape>> arrShapes{};
-            bool isSensor = false;
+            bool                             isSensor = false;
 
             for (BodyShapeBuilder& shape : shapes)
             {
@@ -168,10 +243,21 @@ namespace Fyrion
                 bodyCreationSettings.mObjectLayer = PhysicsLayers::NON_MOVING;
             }
 
-            JPH::BodyInterface &bodyInterface = context->physicsSystem.GetBodyInterface();
-            JPH::BodyID id = bodyInterface.CreateAndAddBody(bodyCreationSettings, JPH::EActivation::Activate);
+            JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+            JPH::BodyID         id = bodyInterface.CreateAndAddBody(bodyCreationSettings, JPH::EActivation::Activate);
 
             gameObject->SetPhysicsRef(id.GetIndexAndSequenceNumber());
+        }
+    }
+
+    void PhysicsProxy::OnGameObjectDestroyed(GameObject* gameObject)
+    {
+        if (!gameObject->GetScene()->IsDestroyed() && gameObject->GetPhysicsRef() != U64_MAX)
+        {
+            JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+            JPH::BodyID         bodyId(gameObject->GetPhysicsRef());
+            bodyInterface.RemoveBody(bodyId);
+            bodyInterface.DestroyBody(bodyId);
         }
     }
 
@@ -179,7 +265,7 @@ namespace Fyrion
     {
         if (gameObject->GetPhysicsRef() != U64_MAX)
         {
-            JPH::BodyInterface &bodyInterface = context->physicsSystem.GetBodyInterface();
+            JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
             bodyInterface.SetLinearAndAngularVelocity(JPH::BodyID(gameObject->GetPhysicsRef()), Cast(linearVelocity), Cast(angularVelocity));
         }
     }
@@ -193,6 +279,4 @@ namespace Fyrion
     {
         simulationEnabled = false;
     }
-
-
 }

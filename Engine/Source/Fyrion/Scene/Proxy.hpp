@@ -19,5 +19,6 @@ namespace Fyrion
         virtual void OnUpdate() {}
         virtual void OnDestroy() {}
         virtual void OnGameObjectStarted(GameObject* gameObject) {}
+        virtual void OnGameObjectDestroyed(GameObject* gameObject) {}
     };
 }
