@@ -44,47 +44,47 @@ namespace Fyrion
 
         if (simulationEnabled && context)
         {
+
+            for(JPH::CharacterVirtual* characterVirtual: context->virtualCharacters)
+            {
+                CharacterComponent* characterComponent = reinterpret_cast<CharacterComponent*>(characterVirtual->GetUserData());
+
+                characterVirtual->SetUp(Cast(characterComponent->GetUp()));
+                characterVirtual->SetLinearVelocity(Cast(characterComponent->GetLinearVelocity()));
+
+                characterVirtual->UpdateGroundVelocity();
+
+                JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings{};
+                updateSettings.mWalkStairsMinStepForward *= 4.0f;
+
+                characterVirtual->ExtendedUpdate(
+                    context->stepSize,
+                    -characterVirtual->GetUp() * context->physicsSystem.GetGravity().Length(),
+                    updateSettings,
+                    context->physicsSystem.GetDefaultBroadPhaseLayerFilter(PhysicsLayers::MOVING),
+                    context->physicsSystem.GetDefaultLayerFilter(PhysicsLayers::MOVING),
+                    {},
+                    {},
+                    context->tempAllocator);
+
+                //Mat4 math = Math::Inverse(parentTransform.value) * Math::Translate(Mat4{1.0}, Cast(position)) * Math::ToMatrix4(Cast(rotation)) * Math::Scale(Mat4{1.0}, localTransform.scale);
+
+                //TODO parent transform
+                if (TransformComponent* transformComponent = characterComponent->gameObject->GetComponent<TransformComponent>())
+                {
+                    transformComponent->SetTransform(Cast(characterVirtual->GetPosition()),
+                                                     Cast(characterVirtual->GetRotation()),
+                                                     transformComponent->GetScale());
+                }
+
+                characterComponent->SetOnGround(characterVirtual->IsSupported());
+            }
+
             JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
 
             accumulator += Engine::DeltaTime();
             while (accumulator >= context->stepSize)
             {
-                for(JPH::CharacterVirtual* characterVirtual: context->virtualCharacters)
-                {
-                    CharacterComponent* characterComponent = reinterpret_cast<CharacterComponent*>(characterVirtual->GetUserData());
-
-                    characterVirtual->SetUp(Cast(characterComponent->GetUp()));
-                    characterVirtual->SetLinearVelocity(Cast(characterComponent->GetLinearVelocity()));
-
-                    characterVirtual->UpdateGroundVelocity();
-
-                    JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings{};
-                    updateSettings.mWalkStairsMinStepForward *= 4.0f;
-
-                    characterVirtual->ExtendedUpdate(
-                        context->stepSize,
-                        -characterVirtual->GetUp() * context->physicsSystem.GetGravity().Length(),
-                        updateSettings,
-                        context->physicsSystem.GetDefaultBroadPhaseLayerFilter(PhysicsLayers::MOVING),
-                        context->physicsSystem.GetDefaultLayerFilter(PhysicsLayers::MOVING),
-                        {},
-                        {},
-                        context->tempAllocator);
-
-                    //Mat4 math = Math::Inverse(parentTransform.value) * Math::Translate(Mat4{1.0}, Cast(position)) * Math::ToMatrix4(Cast(rotation)) * Math::Scale(Mat4{1.0}, localTransform.scale);
-
-                    //TODO parent transform
-                    if (TransformComponent* transformComponent = characterComponent->gameObject->GetComponent<TransformComponent>())
-                    {
-                        transformComponent->SetTransform(Cast(characterVirtual->GetPosition()),
-                                                         Cast(characterVirtual->GetRotation()),
-                                                         transformComponent->GetScale());
-                    }
-
-                    characterComponent->SetOnGround(characterVirtual->IsSupported());
-                }
-
-
                 context->physicsSystem.Update(
                     context->stepSize,
                     collisionSteps,
