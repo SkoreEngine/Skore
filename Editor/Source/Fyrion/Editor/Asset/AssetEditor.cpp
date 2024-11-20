@@ -180,11 +180,16 @@ namespace Fyrion
     Array<u8> AssetFile::LoadStream(usize offset, usize size)
     {
         String bufferFile = tempBuffer.Empty() ? Path::Join(absolutePath, ".buffer") : tempBuffer;
+        FileHandler file = FileSystem::OpenFile(bufferFile, AccessMode::ReadOnly);
+
+        if (size == 0)
+        {
+            size = FileSystem::GetFileSize(file);
+        }
 
         Array<u8> arr;
         arr.Resize(size);
 
-        FileHandler file = FileSystem::OpenFile(bufferFile, AccessMode::ReadOnly);
         FileSystem::ReadFileAt(file, arr.Data(), size, offset);
         FileSystem::CloseFile(file);
 
@@ -711,6 +716,50 @@ namespace Fyrion
             }
         }
         return true;
+    }
+
+    void AssetEditor::Export(StringView directory)
+    {
+        OutputFileStream stream(Path::Join(directory, project->fileName, ".pak"));
+
+        JsonArchiveWriter writer;
+        ArchiveValue arr = writer.CreateArray();
+
+        for (auto& it : assets)
+        {
+            if (!it.second->isDirectory)
+            {
+                if (Asset* asset = Assets::LoadNoCache(it.second->uuid))
+                {
+                    ArchiveValue assetObj = writer.CreateObject();
+
+                    String    assetStr = JsonArchiveWriter::Stringify(Serialization::Serialize(asset->GetTypeHandler(), writer, asset), false, true);
+                    Array<u8> assetStream = asset->LoadStream(0, 0);
+
+                    usize     assetOffset = stream.Write(reinterpret_cast<u8*>(assetStr.begin()), assetStr.Size());
+                    usize     streamOffset = stream.Write(assetStream.begin(), assetStream.Size());
+
+
+                    writer.AddToObject(assetObj, "uuid", writer.StringValue(it.second->uuid.ToString()));
+                    writer.AddToObject(assetObj, "path", writer.StringValue(it.second->path));
+
+                    //TODO asset format
+                    //TODO asset compression
+
+                    writer.AddToObject(assetObj, "assetOffset", writer.UIntValue(assetOffset));
+                    writer.AddToObject(assetObj, "assetSize", writer.UIntValue(assetStr.Size()));
+                    writer.AddToObject(assetObj, "streamOffset", writer.UIntValue(streamOffset));
+                    writer.AddToObject(assetObj, "streamSize", writer.UIntValue(assetStream.Size()));
+
+                    writer.AddToArray(arr, assetObj);
+
+                    DestroyAndFree(asset);
+                }
+            }
+        }
+
+        FileSystem::SaveFileAsString(Path::Join(directory, project->fileName, ".assets"), JsonArchiveWriter::Stringify(arr));
+        stream.Close();
     }
 
     void AssetEditorInit()

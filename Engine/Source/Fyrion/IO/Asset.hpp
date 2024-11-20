@@ -46,6 +46,7 @@ namespace Fyrion
         static void   Create(UUID uuid, AssetLoader* loader);
         static Asset* Get(UUID uuid);
         static Asset* Load(UUID uuid);
+        static Asset* LoadNoCache(UUID uuid);
         static void   Unload(UUID uuid);
         static Asset* Reload(UUID uuid);
         static Asset* LoadByPath(StringView path);

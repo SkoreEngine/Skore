@@ -202,16 +202,45 @@ namespace Fyrion
             AssetEditor::CreateCMakeProject();
         }
 
+        void OpenScene(const MenuItemEventData& eventData)
+        {
+
+        }
+
+        void Call(const MenuItemEventData& eventData)
+        {
+
+        }
+
+        void Build(const MenuItemEventData& eventData)
+        {
+            String path;
+            if (Platform::PickFolder(path, {}) == DialogResult::OK)
+            {
+                auto stat = FileSystem::GetFileStatus(path);
+                if (!stat.exists)
+                {
+                    FileSystem::CreateDirectory(path);
+                }
+                AssetEditor::Export(path);
+            }
+        }
+
         void CreateMenuItems()
         {
             Editor::AddMenuItem(MenuItemCreation{.itemName = "File", .priority = 0});
-            Editor::AddMenuItem(MenuItemCreation{.itemName = "File/New Project", .priority = 0, .action = NewProject});
+            // Editor::AddMenuItem(MenuItemCreation{.itemName = "File/New Scene", .priority = 0, .action = NewProject});
+            // Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Open Scene", .priority = 10, .action = OpenScene});
+            // Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Recent Scenes", .priority = 10, .action = OpenScene});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Save All", .priority = 1000, .itemShortcut{.ctrl = true, .presKey = Key::S}, .action = SaveAll});
+            // Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Build Settings...", .priority = 2000, .action = Build});
+            Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Build", .priority = 2000, .action = Build});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Exit", .priority = I32_MAX, .itemShortcut{.ctrl = true, .presKey = Key::Q}, .action = CloseEngine});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit", .priority = 30});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Undo", .priority = 10, .itemShortcut{.ctrl = true, .presKey = Key::Z}, .action = Undo, .enable = UndoEnabled});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Redo", .priority = 20, .itemShortcut{.ctrl = true, .shift = true, .presKey = Key::Z}, .action = Redo, .enable = RedoEnabled});
-            Editor::AddMenuItem(MenuItemCreation{.itemName = "Build", .priority = 40});
+            Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Editor Preferences...", .priority = 1000, .action = Call});
+            Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Project Settings...", .priority = 1010, .action = Call});
             // Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
             // Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .enable = CreateCMakeProjectEnabled});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Window", .priority = 60});
@@ -427,6 +456,8 @@ namespace Fyrion
                 func();
             }
 
+            sceneEditor->DoUpdate();
+
             ImGuiUpdate();
 
             ImGuiStyle& style = ImGui::GetStyle();
@@ -441,8 +472,6 @@ namespace Fyrion
 
             DrawMenu();
             ImGui::End();
-
-            sceneEditor->DoUpdate();
 
             ProjectUpdate();
         }

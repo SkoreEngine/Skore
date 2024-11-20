@@ -44,7 +44,6 @@ namespace Fyrion
 
         if (simulationEnabled && context)
         {
-
             for(JPH::CharacterVirtual* characterVirtual: context->virtualCharacters)
             {
                 CharacterComponent* characterComponent = reinterpret_cast<CharacterComponent*>(characterVirtual->GetUserData());

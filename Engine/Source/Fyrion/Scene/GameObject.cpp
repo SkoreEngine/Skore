@@ -598,7 +598,7 @@ namespace Fyrion
         {
             prefab.object = GetPrefabObject(prefabId);
 
-            if (name.Empty())
+            if (prefab.object && name.Empty())
             {
                 SetName(prefab.object->GetName());
             }

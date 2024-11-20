@@ -89,6 +89,8 @@ namespace Fyrion
         FY_API Span<AssetFile*> GetAssetsOfType(TypeID typeId);
         FY_API AssetFile*       FindAssetFileByUUID(UUID uuid);
 
+        FY_API void             Export(StringView directory);
+
         FY_API void             CreateCMakeProject();
         FY_API bool             CanCreateCMakeProject();
     }

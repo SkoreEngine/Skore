@@ -102,6 +102,23 @@ namespace Fyrion
         return nullptr;
     }
 
+    Asset* Assets::LoadNoCache(UUID uuid)
+    {
+        if (auto it = assetCache.Find(uuid))
+        {
+            if (it->second.loader)
+            {
+                Asset* instance = it->second.loader->LoadAsset();
+                FY_ASSERT(instance, "instance not created");
+                FY_ASSERT(instance->typeHandler, "type handler must be provided");
+                instance->loader = it->second.loader;
+                instance->uuid = it->second.uuid;
+                return instance;
+            }
+        }
+        return nullptr;
+    }
+
     void Assets::Unload(UUID uuid)
     {
         if (auto it = assetCache.Find(uuid))
