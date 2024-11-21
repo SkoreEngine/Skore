@@ -15,13 +15,13 @@ namespace Fyrion
     public:
         ~Asset() override = default;
 
-        UUID         GetUUID() const;
-        void         SetUUID(UUID uuid);
-        StringView   GetName() const;
-        TypeHandler* GetTypeHandler() const;
-        Array<u8>    LoadStream(usize offset, usize size) const;
-        void         SetTypeHandler(TypeHandler* typeHandler);
-        virtual void OnChange() {}
+        UUID              GetUUID() const;
+        void              SetUUID(UUID uuid);
+        StringView        GetName() const;
+        TypeHandler*      GetTypeHandler() const;
+        virtual Array<u8> LoadStream(usize offset, usize size) const;
+        void              SetTypeHandler(TypeHandler* typeHandler);
+        virtual void      OnChange() {}
 
         friend class Assets;
 

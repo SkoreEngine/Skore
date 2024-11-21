@@ -31,10 +31,10 @@ namespace Fyrion
             ShaderAsset* shaderAsset = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/SkyboxRender.comp");
 
             pipelineState = Graphics::CreateComputePipelineState({
-                .shader = shaderAsset
+                .shaderState = shaderAsset->GetDefaultState()
             });
 
-            bindingSet = Graphics::CreateBindingSet(shaderAsset);
+            bindingSet = Graphics::CreateBindingSet(shaderAsset->GetDefaultState());
         }
 
         void Render(RenderCommands& cmd) override

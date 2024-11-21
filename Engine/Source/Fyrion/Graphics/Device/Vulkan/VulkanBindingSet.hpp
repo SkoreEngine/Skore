@@ -9,6 +9,7 @@
 
 namespace Fyrion
 {
+    struct ShaderState;
     struct VulkanBindingVar;
     struct VulkanCommands;
     struct VulkanBindingSet;
@@ -50,7 +51,7 @@ namespace Fyrion
     struct VulkanUpdateDescriptorArray
     {
         Texture texture;
-        usize index;
+        usize   index;
     };
 
     struct VulkanBindingVar : BindingVar
@@ -67,22 +68,22 @@ namespace Fyrion
         VulkanBindingVar(VulkanBindingSet& bindingSet) : bindingSet(bindingSet) {}
         ~VulkanBindingVar() override;
 
-        VulkanTexture*      texture{};
-        VulkanTextureView*  textureView{};
-        VulkanSampler*      sampler{};
-        VulkanBuffer*       buffer{};      //external buffers, BindingSet don't own it
+        VulkanTexture*     texture{};
+        VulkanTextureView* textureView{};
+        VulkanSampler*     sampler{};
+        VulkanBuffer*      buffer{}; //external buffers, BindingSet don't own it
 
         Array<VulkanUpdateDescriptorArray> pendingTextures{};
 
         FixedArray<u8, FY_FRAMES_IN_FLIGHT> bufferFrames{0, 0};
         Array<VulkanBindingVarBuffer>       valueBuffer{}; //internal buffers created for "SetValue"
 
-        void  SetTexture(const Texture& texture) override;
-        void  SetTextureAt(const Texture& texture, usize index) override;
-        void  SetTextureView(const TextureView& textureView) override;
-        void  SetSampler(const Sampler& sampler) override;
-        void  SetBuffer(const Buffer& buffer) override;
-        void  SetValue(ConstPtr ptr, usize size) override;
+        void SetTexture(const Texture& texture) override;
+        void SetTextureAt(const Texture& texture, usize index) override;
+        void SetTextureView(const TextureView& textureView) override;
+        void SetSampler(const Sampler& sampler) override;
+        void SetBuffer(const Buffer& buffer) override;
+        void SetValue(ConstPtr ptr, usize size) override;
 
         void MarkDirty();
     };
@@ -90,7 +91,7 @@ namespace Fyrion
     struct VulkanBindingSet : BindingSet
     {
         VulkanDevice&          vulkanDevice;
-        ShaderAsset*           shaderAsset = nullptr;
+        ShaderState*           shaderState = nullptr;
         Span<DescriptorLayout> descriptorLayouts;
 
         //shader reflection data
@@ -103,7 +104,7 @@ namespace Fyrion
         //runtime vulkan data
         HashMap<u32, SharedPtr<VulkanDescriptorSet>> descriptorSets{};
 
-        VulkanBindingSet(ShaderAsset* shaderAsset, VulkanDevice& vulkanDevice);
+        VulkanBindingSet(ShaderState* shaderState, VulkanDevice& vulkanDevice);
         VulkanBindingSet(Span<DescriptorLayout> descriptorLayouts, VulkanDevice& vulkanDevice);
         ~VulkanBindingSet() override;
 

@@ -7,11 +7,11 @@
 
 namespace Fyrion
 {
-    VulkanBindingSet::VulkanBindingSet(ShaderAsset* shaderAsset, VulkanDevice& vulkanDevice) : vulkanDevice(vulkanDevice),
-                                                                                               shaderAsset(shaderAsset),
-                                                                                               descriptorLayouts(shaderAsset->shaderInfo.descriptors)
+    VulkanBindingSet::VulkanBindingSet(ShaderState* shaderState, VulkanDevice& vulkanDevice) : vulkanDevice(vulkanDevice),
+                                                                                               shaderState(shaderState),
+                                                                                               descriptorLayouts(shaderState->shaderInfo.descriptors)
     {
-        shaderAsset->AddBindingSetDependency(this);
+        shaderState->AddBindingSetDependency(this);
         LoadInfo();
     }
 
@@ -55,7 +55,7 @@ namespace Fyrion
 
     void VulkanBindingSet::RemoveShaderDependency()
     {
-        shaderAsset = nullptr;
+        shaderState = nullptr;
     }
 
     void VulkanBindingSet::LoadInfo()
@@ -81,9 +81,9 @@ namespace Fyrion
 
     VulkanBindingSet::~VulkanBindingSet()
     {
-        if (shaderAsset)
+        if (shaderState)
         {
-            shaderAsset->RemoveBindingSetDependency(this);
+            shaderState->RemoveBindingSetDependency(this);
         }
 
 
@@ -426,12 +426,11 @@ namespace Fyrion
                     }
                     else if (!vulkanBindingVar->pendingTextures.Empty())
                     {
-                        Array<VkWriteDescriptorSet> writeDescriptorses(vulkanBindingVar->pendingTextures.Size());
+                        Array<VkWriteDescriptorSet>  writeDescriptorses(vulkanBindingVar->pendingTextures.Size());
                         Array<VkDescriptorImageInfo> descriptorImageInfo(vulkanBindingVar->pendingTextures.Size());
 
                         for (int i = 0; i < vulkanBindingVar->pendingTextures.Size(); ++i)
                         {
-
                             VkWriteDescriptorSet& writeDescriptorSet = writeDescriptorses[b];
                             writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                             writeDescriptorSet.dstSet = data.descriptorSet;

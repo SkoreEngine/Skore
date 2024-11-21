@@ -928,14 +928,14 @@ namespace Fyrion
 
     PipelineState VulkanDevice::CreateGraphicsPipelineState(const GraphicsPipelineCreation& creation)
     {
-        ShaderAsset* shader = creation.shader;
-        FY_ASSERT(shader, "shader is null");
+        ShaderState* shaderState = creation.shaderState;
+        FY_ASSERT(shaderState, "shader is null");
         bool invalidPass = creation.attachments.Empty() && !creation.renderPass && !creation.pipelineState && creation.depthFormat == Format::Undefined;
         FY_ASSERT(!invalidPass, "creation needs attachments or renderpass or pipelineState");
 
 
-        Span<ShaderStageInfo> stages = shader->stages;
-        ShaderInfo            shaderInfo = shader->shaderInfo;
+        Span<ShaderStageInfo> stages = shaderState->stages;
+        ShaderInfo            shaderInfo = shaderState->shaderInfo;
 
 
         VulkanPipelineState* vulkanPipelineState;
@@ -944,7 +944,7 @@ namespace Fyrion
             vulkanPipelineState = allocator.Alloc<VulkanPipelineState>();
             vulkanPipelineState->graphicsPipelineCreation = creation;
 
-            shader->AddPipelineDependency({vulkanPipelineState});
+            shaderState->AddPipelineDependency({vulkanPipelineState});
         }
         else
         {
@@ -964,13 +964,15 @@ namespace Fyrion
         Array<VkPipelineShaderStageCreateInfo> shaderStages{};
         shaderStages.Resize(stages.Size());
 
+        Array<u8> bytes = shaderState->shaderAsset->LoadStream(shaderState->streamOffset, shaderState->streamSize);
+
         for (u32 i = 0; i < stages.Size(); ++i)
         {
             const ShaderStageInfo& shaderStageAsset = stages[i];
 
             Span<u8> data = Span<u8>{
-                shader->bytes.begin() + shaderStageAsset.offset,
-                shader->bytes.begin() + shaderStageAsset.offset + shaderStageAsset.size
+                bytes.begin() + shaderStageAsset.offset,
+                bytes.begin() + shaderStageAsset.offset + shaderStageAsset.size
             };
 
             VkShaderModuleCreateInfo createInfo{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
@@ -1240,11 +1242,11 @@ namespace Fyrion
 
     PipelineState VulkanDevice::CreateComputePipelineState(const ComputePipelineCreation& creation)
     {
-        ShaderAsset* shader = creation.shader;
-        FY_ASSERT(shader, "shader is null");
+        ShaderState* shaderState = creation.shaderState;
+        FY_ASSERT(shaderState, "shader is null");
 
-        ShaderStageInfo& stage = shader->stages[0];
-        ShaderInfo       shaderInfo = shader->shaderInfo;
+        ShaderStageInfo& stage = shaderState->stages[0];
+        ShaderInfo       shaderInfo = shaderState->shaderInfo;
 
         VkShaderModule shaderModule{};
         VulkanPipelineState* vulkanPipelineState;
@@ -1252,7 +1254,7 @@ namespace Fyrion
         {
             vulkanPipelineState = allocator.Alloc<VulkanPipelineState>();
             vulkanPipelineState->computePipelineCreation = creation;
-            shader->AddPipelineDependency({vulkanPipelineState});
+            shaderState->AddPipelineDependency({vulkanPipelineState});
         }
         else
         {
@@ -1265,9 +1267,11 @@ namespace Fyrion
 
         vulkanPipelineState->bindingPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
 
+        Array<u8> bytes = shaderState->shaderAsset->LoadStream(shaderState->streamOffset, shaderState->streamSize);
+
         VkShaderModuleCreateInfo createInfo{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-        createInfo.codeSize = shader->bytes.Size();
-        createInfo.pCode = reinterpret_cast<const u32*>(shader->bytes.Data());
+        createInfo.codeSize = bytes.Size();
+        createInfo.pCode = reinterpret_cast<const u32*>(bytes.Data());
         vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule);
 
         Vulkan::CreatePipelineLayout(device, shaderInfo.descriptors, shaderInfo.pushConstants, &vulkanPipelineState->layout);
@@ -1288,9 +1292,9 @@ namespace Fyrion
         return {vulkanPipelineState};
     }
 
-    BindingSet* VulkanDevice::CreateBindingSet(ShaderAsset* shaderAsset)
+    BindingSet* VulkanDevice::CreateBindingSet(ShaderState* shaderState)
     {
-        return allocator.Alloc<VulkanBindingSet>(shaderAsset, *this);
+        return allocator.Alloc<VulkanBindingSet>(shaderState, *this);
     }
 
     BindingSet* VulkanDevice::CreateBindingSet(Span<DescriptorLayout> descriptorLayouts)

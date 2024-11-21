@@ -110,7 +110,6 @@ namespace Fyrion
         return name;
     }
 
-
     inline String ToString(i64 value)
     {
         char buffer[20]{};

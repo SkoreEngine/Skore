@@ -16,7 +16,7 @@ namespace Fyrion
         virtual Sampler         CreateSampler(const SamplerCreation& samplerCreation) = 0;
         virtual PipelineState   CreateGraphicsPipelineState(const GraphicsPipelineCreation& graphicsPipelineCreation) = 0;
         virtual PipelineState   CreateComputePipelineState(const ComputePipelineCreation& computePipelineCreation) = 0;
-        virtual BindingSet*     CreateBindingSet(ShaderAsset* shaderAsset) = 0;
+        virtual BindingSet*     CreateBindingSet(ShaderState* shaderState) = 0;
         virtual BindingSet*     CreateBindingSet(Span<DescriptorLayout> descriptorLayouts) = 0;
         virtual void            DestroySwapchain(const Swapchain& swapchain) = 0;
         virtual void            DestroyRenderPass(const RenderPass& renderPass) = 0;

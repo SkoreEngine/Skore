@@ -208,10 +208,10 @@ namespace Fyrion
         ShaderAsset* shaderAsset = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Utils/EquirectToCube.comp");
 
         pipelineState = Graphics::CreateComputePipelineState({
-            .shader = shaderAsset
+            .shaderState = shaderAsset->GetDefaultState()
         });
 
-        bindingSet = Graphics::CreateBindingSet(shaderAsset);
+        bindingSet = Graphics::CreateBindingSet(shaderAsset->GetDefaultState());
     }
 
     void EquirectangularToCubemap::Destroy()
@@ -277,10 +277,10 @@ namespace Fyrion
         ShaderAsset* shaderAsset = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Utils/IRMap.comp");
 
         pipelineState = Graphics::CreateComputePipelineState({
-            .shader = shaderAsset
+            .shaderState = shaderAsset->GetDefaultState()
         });
 
-        bindingSet = Graphics::CreateBindingSet(shaderAsset);
+        bindingSet = Graphics::CreateBindingSet(shaderAsset->GetDefaultState());
     }
 
     void DiffuseIrradianceGenerator::Generate(RenderCommands& cmd, Texture cubemap)
@@ -332,10 +332,10 @@ namespace Fyrion
         ShaderAsset* shader = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Utils/GenBRDFLUT.comp");
 
         PipelineState pipelineState = Graphics::CreateComputePipelineState({
-            .shader = shader
+            .shaderState = shader->GetDefaultState()
         });
 
-        BindingSet* bindingSet = Graphics::CreateBindingSet(shader);
+        BindingSet* bindingSet = Graphics::CreateBindingSet(shader->GetDefaultState());
         bindingSet->GetVar("texture")->SetTexture(texture);
 
         RenderCommands& cmd = Graphics::GetCmd();
@@ -400,7 +400,7 @@ namespace Fyrion
         ShaderAsset* shaderAsset = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Utils/SpecularMap.comp");
 
         pipelineState = Graphics::CreateComputePipelineState({
-            .shader = shaderAsset
+            .shaderState = shaderAsset->GetDefaultState()
         });
 
         bindingSets.Resize(mips);
@@ -408,7 +408,7 @@ namespace Fyrion
 
         for (u32 i = 0; i < mips; ++i)
         {
-            bindingSets[i] = Graphics::CreateBindingSet(shaderAsset);
+            bindingSets[i] = Graphics::CreateBindingSet(shaderAsset->GetDefaultState());
             textureViews[i] = Graphics::CreateTextureView(TextureViewCreation{
                 .texture = texture,
                 .viewType = ViewType::Type2DArray,

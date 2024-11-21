@@ -13,6 +13,7 @@ namespace Fyrion
     class MaterialAsset;
     class MeshAsset;
     struct ShaderAsset;
+    struct ShaderState;
 
     FY_HANDLER(Adapter);
     FY_HANDLER(Swapchain);
@@ -403,7 +404,7 @@ namespace Fyrion
 
     struct GraphicsPipelineCreation
     {
-        ShaderAsset*               shader{};
+        ShaderState*               shaderState{};
         Span<Format>               attachments{};
         Format                     depthFormat = Format::Undefined;
         RenderPass                 renderPass{};
@@ -423,7 +424,7 @@ namespace Fyrion
 
     struct ComputePipelineCreation
     {
-        ShaderAsset*  shader{};
+        ShaderState*  shaderState{};
         PipelineState pipelineState{};
     };
 

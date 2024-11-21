@@ -1,5 +1,7 @@
 #include "AssetEditor.hpp"
 
+#include <algorithm>
+#include <regex>
 #include <thread>
 
 #include "AssetTypes.hpp"
@@ -199,6 +201,15 @@ namespace Fyrion
     StringView AssetFile::GetName()
     {
         return fileName;
+    }
+
+    String AssetFile::MakePathName() const
+    {
+        String pathName = path;
+        pathName = std::regex_replace(pathName.begin(), std::regex("//"), "_").c_str();
+        pathName = std::regex_replace(pathName.begin(), std::regex(":"), "").c_str();
+        std::replace(pathName.begin(), pathName.end(), '/', '_');
+        return pathName;
     }
 
     OutputFileStream AssetFile::CreateStream()
@@ -698,11 +709,15 @@ namespace Fyrion
         return nullptr;
     }
 
+    String AssetEditor::GetTempFolder()
+    {
+        return tempFolder;
+    }
+
     void AssetEditor::CreateCMakeProject()
     {
         String cmakePath = Path::Join(project->absolutePath, "CMakeLists.txt");
         String source = Path::Join(project->absolutePath, "Source");
-
     }
 
     bool AssetEditor::CanCreateCMakeProject()
@@ -718,48 +733,64 @@ namespace Fyrion
         return true;
     }
 
-    void AssetEditor::Export(StringView directory)
+    void ExportAssetFile(AssetFile* assetFile, OutputFileStream& stream, ArchiveWriter& writer, ArchiveValue arr)
     {
-        OutputFileStream stream(Path::Join(directory, project->fileName, ".pak"));
-
-        JsonArchiveWriter writer;
-        ArchiveValue arr = writer.CreateArray();
-
-        for (auto& it : assets)
+        if (!assetFile->isDirectory)
         {
-            if (!it.second->isDirectory)
+            if (Asset* asset = Assets::LoadNoCache(assetFile->uuid))
             {
-                if (Asset* asset = Assets::LoadNoCache(it.second->uuid))
-                {
-                    ArchiveValue assetObj = writer.CreateObject();
+                ArchiveValue assetObj = writer.CreateObject();
 
-                    String    assetStr = JsonArchiveWriter::Stringify(Serialization::Serialize(asset->GetTypeHandler(), writer, asset), false, true);
-                    Array<u8> assetStream = asset->LoadStream(0, 0);
+                String    assetStr = JsonArchiveWriter::Stringify(Serialization::Serialize(asset->GetTypeHandler(), writer, asset), false, true);
+                Array<u8> assetStream = asset->LoadStream(0, 0);
 
-                    usize     assetOffset = stream.Write(reinterpret_cast<u8*>(assetStr.begin()), assetStr.Size());
-                    usize     streamOffset = stream.Write(assetStream.begin(), assetStream.Size());
+                usize assetOffset = stream.Write(reinterpret_cast<u8*>(assetStr.begin()), assetStr.Size());
+                usize streamOffset = stream.Write(assetStream.begin(), assetStream.Size());
 
 
-                    writer.AddToObject(assetObj, "uuid", writer.StringValue(it.second->uuid.ToString()));
-                    writer.AddToObject(assetObj, "path", writer.StringValue(it.second->path));
+                writer.AddToObject(assetObj, "uuid", writer.StringValue(assetFile->uuid.ToString()));
+                writer.AddToObject(assetObj, "path", writer.StringValue(assetFile->path));
 
-                    //TODO asset format
-                    //TODO asset compression
+                //TODO asset format
+                //TODO asset compression
 
-                    writer.AddToObject(assetObj, "assetOffset", writer.UIntValue(assetOffset));
-                    writer.AddToObject(assetObj, "assetSize", writer.UIntValue(assetStr.Size()));
-                    writer.AddToObject(assetObj, "streamOffset", writer.UIntValue(streamOffset));
-                    writer.AddToObject(assetObj, "streamSize", writer.UIntValue(assetStream.Size()));
+                writer.AddToObject(assetObj, "assetOffset", writer.UIntValue(assetOffset));
+                writer.AddToObject(assetObj, "assetSize", writer.UIntValue(assetStr.Size()));
+                writer.AddToObject(assetObj, "streamOffset", writer.UIntValue(streamOffset));
+                writer.AddToObject(assetObj, "streamSize", writer.UIntValue(assetStream.Size()));
 
-                    writer.AddToArray(arr, assetObj);
+                writer.AddToArray(arr, assetObj);
 
-                    DestroyAndFree(asset);
-                }
+                DestroyAndFree(asset);
             }
         }
+        else
+        {
+            for (AssetFile* childAssetFile : assetFile->children)
+            {
+                ExportAssetFile(childAssetFile, stream, writer, arr);
+            }
+        }
+    }
 
-        FileSystem::SaveFileAsString(Path::Join(directory, project->fileName, ".assets"), JsonArchiveWriter::Stringify(arr));
+    void ExportAssetFile(AssetFile* file, StringView directory)
+    {
+        OutputFileStream stream(Path::Join(directory, file->fileName, ".pak"));
+        JsonArchiveWriter writer;
+        ArchiveValue arr = writer.CreateArray();
+        ExportAssetFile(file, stream, writer, arr);
+        FileSystem::SaveFileAsString(Path::Join(directory, file->fileName, ".assets"), JsonArchiveWriter::Stringify(arr));
         stream.Close();
+    }
+
+
+    void AssetEditor::Export(StringView directory)
+    {
+        for (AssetFile* package : packages)
+        {
+            ExportAssetFile(package, directory);
+        }
+        ExportAssetFile(project, directory);
     }
 
     void AssetEditorInit()

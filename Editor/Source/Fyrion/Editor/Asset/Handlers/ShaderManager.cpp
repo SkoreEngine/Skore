@@ -113,7 +113,7 @@ namespace Fyrion
             utils->CreateBlob(source.CStr(), source.Size(), CP_UTF8, &blobEncoding);
             *ppIncludeSource = blobEncoding;
 
-            shaderInclude->AddShaderDependency(shader);
+            shaderInclude->GetDefaultState()->AddShaderDependency(shader);
 
             return S_OK;
         }

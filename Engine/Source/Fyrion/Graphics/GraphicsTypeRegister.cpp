@@ -44,6 +44,7 @@ namespace Fyrion
         Registry::Type<RenderPipeline>();
 
 
+        Registry::Type<ShaderState>();
         Registry::Type<ShaderAsset>();
         Registry::Type<MeshAsset>();
         Registry::Type<MeshPrimitive>();
@@ -145,6 +146,13 @@ namespace Fyrion
         auto projection = Registry::Type<CameraProjection>();
         projection.Value<CameraProjection::Perspective>("Perspective");
         projection.Value<CameraProjection::Orthogonal>("Orthogonal");
+
+        auto shaderAssetType = Registry::Type<ShaderAssetType>();
+        shaderAssetType.Value<ShaderAssetType::None>("None");
+        shaderAssetType.Value<ShaderAssetType::Include>("Include");
+        shaderAssetType.Value<ShaderAssetType::Graphics>("Graphics");
+        shaderAssetType.Value<ShaderAssetType::Compute>("Compute");
+        shaderAssetType.Value<ShaderAssetType::Raytrace>("Raytrace");
 
         RegisterDefaultRenderPipeline();
     }

@@ -19,10 +19,10 @@ namespace Fyrion
             ShaderAsset* shader = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/PostProcessRender.comp");
 
             pipelineState = Graphics::CreateComputePipelineState({
-                .shader = shader
+                .shaderState = shader->GetDefaultState()
             });
 
-            bindingSet = Graphics::CreateBindingSet(shader);
+            bindingSet = Graphics::CreateBindingSet(shader->GetDefaultState());
         }
 
         void Render(RenderCommands& cmd) override

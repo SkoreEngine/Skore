@@ -143,9 +143,9 @@ namespace Fyrion
         return renderDevice->CreateComputePipelineState(computePipelineCreation);
     }
 
-    BindingSet* Graphics::CreateBindingSet(ShaderAsset* shaderAsset)
+    BindingSet* Graphics::CreateBindingSet(ShaderState* shaderState)
     {
-        return renderDevice->CreateBindingSet(shaderAsset);
+        return renderDevice->CreateBindingSet(shaderState);
     }
 
     BindingSet* Graphics::CreateBindingSet(Span<DescriptorLayout> descriptorLayouts)

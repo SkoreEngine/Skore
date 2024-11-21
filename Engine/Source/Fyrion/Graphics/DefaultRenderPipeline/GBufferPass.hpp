@@ -28,7 +28,7 @@ namespace Fyrion
             }
 
             GraphicsPipelineCreation graphicsPipelineCreation{
-                .shader = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/GBufferRender.raster"),
+                .shaderState = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/GBufferRender.raster")->GetDefaultState(),
                 .renderPass = pass->GetRenderPass(),
                 .depthWrite = true,
                 .cullMode = CullMode::Back,
@@ -36,7 +36,7 @@ namespace Fyrion
             };
 
             pipelineState = Graphics::CreateGraphicsPipelineState(graphicsPipelineCreation);
-            bindingSet = Graphics::CreateBindingSet(graphicsPipelineCreation.shader);
+            bindingSet = Graphics::CreateBindingSet(graphicsPipelineCreation.shaderState);
         }
 
         void Render(RenderCommands& cmd) override

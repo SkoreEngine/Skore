@@ -32,10 +32,10 @@ namespace Fyrion
             }
 
             ComputePipelineCreation creation{
-                .shader = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/LightingPass.comp")
+                .shaderState = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/LightingPass.comp")->GetDefaultState()
             };
             lightingPSO = Graphics::CreateComputePipelineState(creation);
-            bindingSet = Graphics::CreateBindingSet(creation.shader);
+            bindingSet = Graphics::CreateBindingSet(creation.shaderState);
 
             brdflutGenerator.Init({512, 512});
 

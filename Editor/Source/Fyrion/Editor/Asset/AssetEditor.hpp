@@ -53,6 +53,7 @@ namespace Fyrion
         Asset*     LoadAsset() override;
         Array<u8>  LoadStream(usize offset, usize size) override;
         StringView GetName() override;
+        String     MakePathName() const;
 
         OutputFileStream CreateStream();
 
@@ -88,6 +89,7 @@ namespace Fyrion
         FY_API void             FilterExtensions(Array<FileFilter>& extensions);
         FY_API Span<AssetFile*> GetAssetsOfType(TypeID typeId);
         FY_API AssetFile*       FindAssetFileByUUID(UUID uuid);
+        FY_API String           GetTempFolder();
 
         FY_API void             Export(StringView directory);
 

@@ -180,7 +180,7 @@ namespace Fyrion
                 .textureProps = {0.0, 0.0, 0.0, 0.0},
             };
 
-            bindingSet = Graphics::CreateBindingSet(Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/GBufferRender.raster"));
+            bindingSet = Graphics::CreateBindingSet(Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Passes/GBufferRender.raster")->GetDefaultState());
             bindingSet->GetVar("baseColorTexture")->SetTexture(baseColorTexture ? baseColorTexture->GetTexture() : Graphics::GetDefaultTexture());
             //bindingSet->GetVar("defaultSampler")->SetSampler(baseColorTexture ? baseColorTexture->GetSampler() : Graphics::GetDefaultSampler());
 

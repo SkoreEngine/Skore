@@ -5,6 +5,7 @@
 #include "Fyrion/Graphics/Graphics.hpp"
 #include "Fyrion/Graphics/Assets/ShaderAsset.hpp"
 #include "Fyrion/IO/FileSystem.hpp"
+#include "Fyrion/IO/Path.hpp"
 
 namespace Fyrion
 {
@@ -31,6 +32,20 @@ namespace Fyrion
 
         void Load(AssetFile* assetFile, TypeHandler* typeHandler, VoidPtr instance) override
         {
+            //TODO - Shader Temp Cache
+
+            // String name = assetFile->MakePathName();
+            // String shaderPath = Path::Join(AssetEditor::GetTempFolder(), "ShaderCache");
+            // if (!FileSystem::GetFileStatus(shaderPath).exists)
+            // {
+            //     FileSystem::CreateDirectory(shaderPath);
+            // }
+            //
+            // String shaderFile = Path::Join(shaderPath, name, ".bin");
+            // String shaderData = Path::Join(shaderPath, name, ".info");
+            //
+            // FileSystem::GetFileStatus(assetFile->absolutePath);
+
             Array<u8>              bytes{};
             Array<ShaderStageInfo> tempStages{};
 
@@ -109,35 +124,39 @@ namespace Fyrion
                 });
             }
 
-            shaderAsset->stages = Traits::Move(tempStages);
-            shaderAsset->shaderInfo = ShaderManager::ExtractShaderInfo(bytes, shaderAsset->stages, renderApi);
+            ShaderState* state = shaderAsset->GetDefaultState();
+
+            state->stages = Traits::Move(tempStages);
+            state->shaderInfo = ShaderManager::ExtractShaderInfo(bytes, state->stages, renderApi);
+            state->streamOffset = 0;
+            state->streamSize = bytes.Size();
+
             shaderAsset->bytes = bytes;
 
-
-            for (PipelineState pipelineState : shaderAsset->pipelineDependencies)
+            for (PipelineState pipelineState : state->pipelineDependencies)
             {
                 if (shaderAsset->type == ShaderAssetType::Graphics)
                 {
                     Graphics::CreateGraphicsPipelineState({
-                        .shader = shaderAsset,
+                        .shaderState = state,
                         .pipelineState = pipelineState
                     });
                 }
                 else if (shaderAsset->type == ShaderAssetType::Compute)
                 {
                     Graphics::CreateComputePipelineState({
-                        .shader = shaderAsset,
+                        .shaderState = state,
                         .pipelineState = pipelineState
                     });
                 }
             }
 
-            for (const auto it : shaderAsset->shaderDependencies)
+            for (const auto it : state->shaderDependencies)
             {
                 Assets::Reload(it.first->GetUUID());
             }
 
-            for (const auto it : shaderAsset->bindingSetDependencies)
+            for (const auto it : state->bindingSetDependencies)
             {
                 it.first->Reload();
             }

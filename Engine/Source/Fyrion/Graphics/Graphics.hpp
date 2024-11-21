@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Assets/ShaderAsset.hpp"
 #include "Fyrion/Core/Image.hpp"
 #include "Fyrion/Graphics/GraphicsTypes.hpp"
 
@@ -15,7 +16,7 @@ namespace Fyrion::Graphics
     FY_API Sampler         CreateSampler(const SamplerCreation& samplerCreation);
     FY_API PipelineState   CreateGraphicsPipelineState(const GraphicsPipelineCreation& graphicsPipelineCreation);
     FY_API PipelineState   CreateComputePipelineState(const ComputePipelineCreation& computePipelineCreation);
-    FY_API BindingSet*     CreateBindingSet(ShaderAsset* shaderAsset);
+    FY_API BindingSet*     CreateBindingSet(ShaderState* shaderState);
     FY_API BindingSet*     CreateBindingSet(Span<DescriptorLayout> descriptorLayouts);
     FY_API void            DestroySwapchain(const Swapchain& swapchain);
     FY_API void            DestroyRenderPass(const RenderPass& renderPass);
