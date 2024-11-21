@@ -7,12 +7,15 @@
 #include "VulkanBindingSet.hpp"
 #include "VulkanPlatform.hpp"
 #include "VulkanUtils.hpp"
+#include "Fyrion/Engine.hpp"
 #include "Fyrion/Graphics/Assets/ShaderAsset.hpp"
 #include "Fyrion/Platform/Platform.hpp"
 #include "Fyrion/ImGui/Lib/imgui_impl_vulkan.h"
 
 namespace Fyrion
 {
+    EventHandler<OnSwapchainResize> onSwapchainResize;
+
     VulkanDevice::~VulkanDevice()
     {
         ImGui_ImplVulkan_Shutdown();
@@ -55,8 +58,8 @@ namespace Fyrion
             logger.FatalError("vulkan cannot be initialized");
         }
 
-#ifdef FY_DEBUG
        enableValidationLayers = true;
+#ifdef FY_DEBUG
 #endif
 
         Platform::SetVulkanLoader(vkGetInstanceProcAddr);
@@ -1412,6 +1415,8 @@ namespace Fyrion
             vkDeviceWaitIdle(device);
             DestroySwapchain(vulkanSwapchain);
             CreateSwapchain(vulkanSwapchain);
+
+            onSwapchainResize.Invoke(extent);
         }
 
         VkResult result = vkAcquireNextImageKHR(device,

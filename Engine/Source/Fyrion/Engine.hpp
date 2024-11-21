@@ -19,6 +19,7 @@ namespace Fyrion
     using OnShutdownRequest = EventType<"Fyrion::OnShutdownRequest"_h, void(bool* canClose)>;
     using OnRecordRenderCommands = EventType<"Fyrion::OnRecordRenderCommands"_h, void(RenderCommands& renderCommands, f64 deltaTime)>;
     using OnSwapchainRender = EventType<"Fyrion::OnSwapchainRender"_h, void(RenderCommands& renderCommands)>;
+    using OnSwapchainResize = EventType<"Fyrion::OnSwapchainResize"_h, void(Extent newExtend)>;
 
     struct EngineContextCreation
     {

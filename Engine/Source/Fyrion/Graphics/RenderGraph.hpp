@@ -103,9 +103,18 @@ namespace Fyrion
         RenderGraphPass* pass;
     };
 
+    struct RenderGraphCreation
+    {
+        bool drawToSwapChain = false;
+        bool updateCamera = false;
+    };
+
     class FY_API RenderGraph
     {
     public:
+        RenderGraph(const RenderGraphCreation& graphCreation);
+        ~RenderGraph();
+
         RenderPassBuilder    AddPass(StringView name, RenderGraphPassType type);
         RenderGraphResource* Create(const RenderGraphResourceCreation& creation);
         void                 Resize(Extent extent);
@@ -120,9 +129,9 @@ namespace Fyrion
         Texture              GetDepthOutput() const;
         void                 RecordCommands(RenderCommands& cmd, f64 deltaTime);
 
-        ~RenderGraph();
 
     private:
+        RenderGraphCreation                   renderGraphCreation;
         Extent                                viewportExtent;
         Scene*                                scene = nullptr;
         Array<SharedPtr<RenderGraphResource>> resources;
@@ -131,6 +140,12 @@ namespace Fyrion
         RenderGraphResource*                  colorOutput = {};
         RenderGraphResource*                  depthOutput = {};
 
+
+        PipelineState fullscreenPipeline;
+        BindingSet*   bindingSet;
+
+        void SwapchainRender(RenderCommands& cmd);
+        void SwapchainResize(Extent extent);
 
         void CreateResources();
     };

@@ -1,9 +1,11 @@
 #include "RenderGraph.hpp"
 
 #include "Graphics.hpp"
+#include "RenderProxy.hpp"
 #include "Fyrion/Engine.hpp"
 #include "Fyrion/Core/Graph.hpp"
 #include "Fyrion/Core/Logger.hpp"
+#include "Fyrion/Scene/Scene.hpp"
 
 namespace Fyrion
 {
@@ -152,6 +154,31 @@ namespace Fyrion
     }
 
 
+    RenderGraph::RenderGraph(const RenderGraphCreation& graphCreation) : renderGraphCreation(graphCreation)
+    {
+        if (renderGraphCreation.drawToSwapChain)
+        {
+            Event::Bind<OnSwapchainRender, &RenderGraph::SwapchainRender>(this);
+            Event::Bind<OnSwapchainResize, &RenderGraph::SwapchainResize>(this);
+            Event::Bind<OnRecordRenderCommands, &RenderGraph::RecordCommands>(this);
+        }
+    }
+
+    RenderGraph::~RenderGraph()
+    {
+        Graphics::WaitQueue();
+
+        if (renderGraphCreation.drawToSwapChain)
+        {
+            Graphics::DestroyGraphicsPipelineState(fullscreenPipeline);
+            Graphics::DestroyBindingSet(bindingSet);
+
+            Event::Unbind<OnSwapchainRender, &RenderGraph::SwapchainRender>(this);
+            Event::Unbind<OnSwapchainResize, &RenderGraph::SwapchainResize>(this);
+            Event::Unbind<OnRecordRenderCommands, &RenderGraph::RecordCommands>(this);
+        }
+    }
+
     RenderPassBuilder RenderGraph::AddPass(StringView name, RenderGraphPassType type)
     {
         SharedPtr<RenderGraphPass> pass = MakeShared<RenderGraphPass>();
@@ -258,6 +285,21 @@ namespace Fyrion
 
             logger.Debug("pass {} created ", pass->name);
         }
+
+
+        if (renderGraphCreation.drawToSwapChain)
+        {
+            auto format = Format::BGRA;
+            GraphicsPipelineCreation creation = {
+                .shaderState = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Fullscreen.raster")->GetDefaultState(),
+                .attachments = {&format, 1},
+            };
+
+            fullscreenPipeline = Graphics::CreateGraphicsPipelineState(creation);
+            bindingSet = Graphics::CreateBindingSet(creation.shaderState);
+
+            bindingSet->GetVar("texture")->SetTexture(GetColorOutput());
+        }
     }
 
     Extent RenderGraph::GetViewportExtent() const
@@ -308,13 +350,37 @@ namespace Fyrion
         return {};
     }
 
-    RenderGraph::~RenderGraph()
-    {
-        Graphics::WaitQueue();
-    }
-
     void RenderGraph::RecordCommands(RenderCommands& cmd, f64 deltaTime)
     {
+        if (renderGraphCreation.updateCamera)
+        {
+            RenderProxy* renderProxy = scene->GetProxy<RenderProxy>();
+            if (renderProxy != nullptr && renderProxy->GetCamera() != nullptr)
+            {
+                const CameraData* gameCamera = renderProxy->GetCamera();
+
+                cameraData.view = gameCamera->view;
+                cameraData.projectionType = gameCamera->projectionType;
+                cameraData.fov = gameCamera->fov;
+                cameraData.viewPos = gameCamera->viewPos;
+                cameraData.nearClip = gameCamera->nearClip;
+                cameraData.farClip = gameCamera->farClip;
+            }
+
+            if (cameraData.projectionType == CameraProjection::Perspective)
+            {
+                cameraData.projection = Math::Perspective(Math::Radians(cameraData.fov),
+                                                          static_cast<f32>(viewportExtent.width) / static_cast<f32>(viewportExtent.height),
+                                                          cameraData.nearClip,
+                                                          cameraData.farClip);
+            }
+
+            cameraData.lastProjView = cameraData.projView;
+            cameraData.projView = cameraData.projection * cameraData.view;
+            cameraData.viewInverse = Math::Inverse(cameraData.view);
+            cameraData.projectionInverse = Math::Inverse(cameraData.projection);
+        }
+
         for (auto& pass : passes)
         {
             if (pass->handler)
@@ -438,6 +504,19 @@ namespace Fyrion
 
             depthOutput->currentLayout = ResourceLayout::DepthStencilReadOnly;
         }
+    }
+
+    void RenderGraph::SwapchainRender(RenderCommands& cmd)
+    {
+        cmd.BindPipelineState(fullscreenPipeline);
+        cmd.BindBindingSet(fullscreenPipeline, bindingSet);
+        cmd.Draw(3, 1, 0, 0);
+    }
+
+    void RenderGraph::SwapchainResize(Extent extent)
+    {
+        this->Resize(extent);
+        bindingSet->GetVar("texture")->SetTexture(GetColorOutput());
     }
 
     void RenderGraph::CreateResources()

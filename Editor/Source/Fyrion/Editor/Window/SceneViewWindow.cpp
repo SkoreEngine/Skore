@@ -208,7 +208,9 @@ namespace Fyrion
                 {
                     DestroyAndFree(renderGraph);
                 }
-                renderGraph = Alloc<RenderGraph>();
+                renderGraph = Alloc<RenderGraph>(RenderGraphCreation{
+                    .drawToSwapChain = false
+                });
                 renderPipeline->BuildRenderGraph(*renderGraph);
                 renderGraph->Create(sceneEditor.GetActiveScene(), extent);
             }

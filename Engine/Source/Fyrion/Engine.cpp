@@ -132,9 +132,9 @@ namespace Fyrion
                 RenderCommands& cmd = GraphicsBeginFrame();
                 cmd.Begin();
 
-                onRecordRenderCommands.Invoke(cmd, deltaTime);
-
                 RenderPass renderPass = Graphics::AcquireNextRenderPass(swapchain);
+
+                onRecordRenderCommands.Invoke(cmd, deltaTime);
 
                 cmd.BeginLabel("Swapchain", {0, 0, 0, 1});
 
