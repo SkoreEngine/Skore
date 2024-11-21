@@ -4,6 +4,7 @@
 #include "Fyrion/Core/StringView.hpp"
 #include "Fyrion/Core/Math.hpp"
 #include "Fyrion/Core/Event.hpp"
+#include "Graphics/GraphicsTypes.hpp"
 #include "Platform/PlatformTypes.hpp"
 
 namespace Fyrion
@@ -31,17 +32,18 @@ namespace Fyrion
 
     struct FY_API Engine
     {
-        static void   Init();
-        static void   Init(i32 argc, char** argv);
-        static void   CreateContext(const EngineContextCreation& contextCreation);
-        static void   Run();
-        static void   Shutdown();
-        static void   Destroy();
-        static bool   IsRunning();
-        static u64    GetFrame();
-        static f64    DeltaTime();
-        static Window GetActiveWindow();
-        static Extent GetViewportExtent();
+        static void      Init();
+        static void      Init(i32 argc, char** argv);
+        static void      CreateContext(const EngineContextCreation& contextCreation);
+        static void      Run();
+        static void      Shutdown();
+        static void      Destroy();
+        static bool      IsRunning();
+        static u64       GetFrame();
+        static f64       DeltaTime();
+        static Window    GetActiveWindow();
+        static Swapchain GetSwapchain();
+        static Extent    GetViewportExtent();
 
         static StringView GetArgByName(const StringView& name);
         static StringView GetArgByIndex(usize i);

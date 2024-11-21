@@ -747,9 +747,14 @@ namespace Fyrion
                 usize assetOffset = stream.Write(reinterpret_cast<u8*>(assetStr.begin()), assetStr.Size());
                 usize streamOffset = stream.Write(assetStream.begin(), assetStream.Size());
 
-
                 writer.AddToObject(assetObj, "uuid", writer.StringValue(assetFile->uuid.ToString()));
+                writer.AddToObject(assetObj, "name", writer.StringValue(assetFile->fileName));
                 writer.AddToObject(assetObj, "path", writer.StringValue(assetFile->path));
+
+                if (TypeHandler* typeHandler = Registry::FindTypeById(assetFile->handler->GetAssetTypeID()))
+                {
+                    writer.AddToObject(assetObj, "type", writer.StringValue(typeHandler->GetName()));
+                }
 
                 //TODO asset format
                 //TODO asset compression
@@ -783,14 +788,19 @@ namespace Fyrion
         stream.Close();
     }
 
-
     void AssetEditor::Export(StringView directory)
     {
+        String assetDir = Path::Join(directory, "Assets");
+        if (!FileSystem::GetFileStatus(assetDir).exists)
+        {
+            FileSystem::CreateDirectory(assetDir);
+        }
+
         for (AssetFile* package : packages)
         {
-            ExportAssetFile(package, directory);
+            ExportAssetFile(package, assetDir);
         }
-        ExportAssetFile(project, directory);
+        ExportAssetFile(project, assetDir);
     }
 
     void AssetEditorInit()

@@ -46,6 +46,11 @@ namespace Fyrion
     {
         if (bytes.Size() >= offset + size)
         {
+            if (size == 0)
+            {
+                size = bytes.Size();
+            }
+
             Array<u8> ret;
             ret.Resize(size);
             MemCopy(ret.begin(), bytes.begin() + offset, size);

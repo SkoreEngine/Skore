@@ -51,7 +51,10 @@ namespace Fyrion
 
     void CameraComponent::OnDestroy()
     {
-        renderProxy->RemoveCamera(this);
+        if (renderProxy)
+        {
+            renderProxy->RemoveCamera(this);
+        }
     }
 
     void CameraComponent::RegisterType(NativeTypeHandler<CameraComponent>& type)

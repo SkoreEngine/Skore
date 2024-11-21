@@ -207,6 +207,11 @@ namespace Fyrion
         return window;
     }
 
+    Swapchain Engine::GetSwapchain()
+    {
+        return swapchain;
+    }
+
     Extent Engine::GetViewportExtent()
     {
         return Platform::GetWindowExtent(window);

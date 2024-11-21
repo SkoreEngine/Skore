@@ -127,7 +127,7 @@ namespace Fyrion
         glfwWindowHint(GLFW_MAXIMIZED, maximized);
 
         float xScale = 1.f, yScale = 1.f;
-        glfwGetMonitorContentScale(glfwGetPrimaryMonitor(), &xScale, &yScale);
+        //glfwGetMonitorContentScale(glfwGetPrimaryMonitor(), &xScale, &yScale);
         Extent size = {u32(extent.width * xScale), u32(extent.height * yScale)};
 
         GLFWwindow* window = glfwCreateWindow(size.width, size.height, title.CStr(), nullptr, nullptr);
