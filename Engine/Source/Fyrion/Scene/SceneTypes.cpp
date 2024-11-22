@@ -9,10 +9,23 @@
 #include "Component/Physics/BoxColliderComponent.hpp"
 #include "Component/Physics/CharacterComponent.hpp"
 #include "Component/Physics/RigidBodyComponent.hpp"
+#include "Fyrion/Core/Attributes.hpp"
 #include "Fyrion/Core/Registry.hpp"
 
 namespace Fyrion
 {
+
+    void SceneSettings::RegisterType(NativeTypeHandler<SceneSettings>& type)
+    {
+        type.Field<&SceneSettings::defaultScene>("defaultScene").Attribute<UIProperty>();
+        type.Attribute<Settings>(Settings{
+            .path = "Application/Scene Settings",
+            .type = GetTypeID<ProjectSettings>(
+            )
+        });
+    }
+
+
     void RegisterSceneTypes()
     {
         Registry::Type<Scene>();
@@ -29,5 +42,7 @@ namespace Fyrion
         Registry::Type<BoxColliderComponent>();
         Registry::Type<RigidBodyComponent>();
         Registry::Type<CharacterComponent>();
+
+        Registry::Type<SceneSettings>();
     }
 }

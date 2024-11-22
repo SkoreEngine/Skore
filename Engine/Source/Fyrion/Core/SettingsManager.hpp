@@ -10,6 +10,16 @@ namespace Fyrion
     public:
         ~SettingsItem();
 
+        void                SetLabel(StringView label);
+        StringView          GetLabel() const;
+        void                AddChild(SettingsItem* child);
+        void                SetTypeHandler(TypeHandler* typeHandler);
+        TypeHandler*        GetTypeHandler() const;
+        VoidPtr             GetInstance() const;
+        Span<SettingsItem*> GetChildren() const;
+
+        void Instantiate();
+
     private:
         String               label;
         VoidPtr              instance{};

@@ -1,9 +1,11 @@
 #include "SettingsWindow.hpp"
 
 #include "SceneViewWindow.hpp"
+#include "Fyrion/Core/SettingsManager.hpp"
 #include "Fyrion/Core/StringUtils.hpp"
 
 #include "Fyrion/Editor/Editor.hpp"
+#include "Fyrion/Editor/ImGui/ImGuiEditor.hpp"
 #include "Fyrion/ImGui/ImGui.hpp"
 
 namespace Fyrion
@@ -22,7 +24,7 @@ namespace Fyrion
         auto&  style = ImGui::GetStyle();
         ImVec2 padding = style.WindowPadding;
 
-        ImGui::StyleVar windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::StyleVar   windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         ImGui::StyleColor tableBorderStyleColor(ImGuiCol_TableBorderLight, IM_COL32(0, 0, 0, 0));
 
         ImGui::CenterWindow(ImGuiCond_Appearing);
@@ -61,22 +63,71 @@ namespace Fyrion
 
         ImGui::BeginTreeNode();
 
-        ImGui::TreeLeaf(40001, "test1");
-        ImGui::TreeLeaf(40002, "test2");
+        for (SettingsItem* item : SettingsManager::GetItems(type))
+        {
+            DrawItem(item);
+        }
 
         ImGui::EndTreeNode();
 
         ImGui::EndChild();
     }
 
-    void SettingsWindow::DrawSelected()
+    void SettingsWindow::DrawItem(SettingsItem* settingsItem)
     {
-        ImGui::BeginChild(5000);
+        Span<SettingsItem*> children = settingsItem->GetChildren();
 
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
+        if (selectedItem == settingsItem)
+        {
+            flags |= ImGuiTreeNodeFlags_Selected;
+        }
 
+        bool open = false;
 
+        if (!children.Empty())
+        {
+            open = ImGui::TreeNode(HashInt32(reinterpret_cast<usize>(settingsItem)), settingsItem->GetLabel().CStr(), flags);
+        }
+        else
+        {
+            ImGui::TreeLeaf(HashInt32(reinterpret_cast<usize>(settingsItem)), settingsItem->GetLabel().CStr(), flags);
+        }
 
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+        {
+            selectedItem = settingsItem;
+        }
 
-        ImGui::EndChild();
+        if (open)
+        {
+            for (SettingsItem* item : children)
+            {
+                DrawItem(item);
+            }
+
+            ImGui::TreePop();
+        }
     }
+}
+
+void SettingsWindow::DrawSelected()
+{
+    ImGui::BeginChild(5000, ImVec2(0, 0), 0, ImGuiWindowFlags_AlwaysUseWindowPadding);
+
+    if (selectedItem != nullptr && selectedItem->GetInstance() != nullptr)
+    {
+        ImGui::DrawType(ImGui::DrawTypeDesc{
+            .itemId = HashInt32(reinterpret_cast<usize>(selectedItem)),
+            .typeHandler = selectedItem->GetTypeHandler(),
+            .instance = selectedItem->GetInstance(),
+            .userData = selectedItem,
+            .callback = [](ImGui::DrawTypeDesc& desc)
+            {
+
+            }
+        });
+    }
+
+    ImGui::EndChild();
 }

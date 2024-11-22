@@ -2,6 +2,7 @@
 
 #include "Attributes.hpp"
 #include "Registry.hpp"
+#include "StringUtils.hpp"
 
 namespace Fyrion
 {
@@ -11,7 +12,53 @@ namespace Fyrion
         HashMap<String, SettingsItem*>        itemsByPath;
     }
 
-    SettingsItem::~SettingsItem() {}
+    SettingsItem::~SettingsItem()
+    {
+
+    }
+
+    void SettingsItem::SetLabel(StringView label)
+    {
+        this->label = label;
+    }
+
+    StringView SettingsItem::GetLabel() const
+    {
+        return this->label;
+    }
+
+    void SettingsItem::AddChild(SettingsItem* child)
+    {
+        children.EmplaceBack(child);
+    }
+
+    void SettingsItem::SetTypeHandler(TypeHandler* typeHandler)
+    {
+        this->typeHandler = typeHandler;
+    }
+
+    TypeHandler* SettingsItem::GetTypeHandler() const
+    {
+        return typeHandler;
+    }
+
+    VoidPtr SettingsItem::GetInstance() const
+    {
+        return instance;
+    }
+
+    Span<SettingsItem*> SettingsItem::GetChildren() const
+    {
+        return children;
+    }
+
+    void SettingsItem::Instantiate()
+    {
+        if (typeHandler != nullptr)
+        {
+            instance = typeHandler->NewInstance();
+        }
+    }
 
     void SettingsManager::Init(TypeID typeId)
     {
@@ -35,16 +82,34 @@ namespace Fyrion
                     }
 
                     String path = "";
+                    SettingsItem* lastItem = nullptr;
                     for (int i = 0; i < items.Size(); ++i)
                     {
-                        const String& item = items[i];
-                        path += "/" + item;
+                        const String& itemLabel = items[i];
+                        path += "/" + itemLabel;
                         auto itByPath = itemsByPath.Find(path);
                         if (itByPath == itemsByPath.end())
                         {
-                            SettingsItem* settingsItem = Alloc<SettingsItem>();
-                            itemsByPath.Insert(path, settingsItem);
+                            SettingsItem* newItem = Alloc<SettingsItem>();
+                            newItem->SetLabel(itemLabel);
+                            itByPath = itemsByPath.Insert(path, newItem).first;
+
+                            if (lastItem != nullptr)
+                            {
+                                lastItem->AddChild(newItem);
+                            }
+                            else
+                            {
+                                itemsArr.EmplaceBack(newItem);
+                            }
                         }
+                        lastItem = itByPath->second;
+                    }
+
+                    if (lastItem != nullptr)
+                    {
+                        lastItem->SetTypeHandler(type);
+                        lastItem->Instantiate();
                     }
                 }
             }

@@ -5,6 +5,8 @@
 
 namespace Fyrion
 {
+    class SettingsItem;
+
     class FY_API SettingsWindow : public EditorWindow
     {
     public:
@@ -14,12 +16,15 @@ namespace Fyrion
         void Draw(u32 id, bool& open) override;
 
         static void Open(const MenuItemEventData& eventData);
+
     private:
-        String title;
-        TypeID type = 0;
-        String searchText;
+        String        title;
+        TypeID        type = 0;
+        String        searchText;
+        SettingsItem* selectedItem = nullptr;
 
         void DrawTree();
         void DrawSelected();
+        void DrawItem(SettingsItem* settingsItem);
     };
 }

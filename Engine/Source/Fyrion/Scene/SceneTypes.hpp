@@ -5,6 +5,8 @@
 
 namespace Fyrion
 {
+    class Scene;
+
     namespace SceneEventType
     {
         constexpr static i32 TransformChanged = 1000;
@@ -20,5 +22,12 @@ namespace Fyrion
     {
         i64     type;
         VoidPtr eventData;
+    };
+
+    struct SceneSettings
+    {
+        Scene* defaultScene;
+
+        static void RegisterType(NativeTypeHandler<SceneSettings>& type);
     };
 }
