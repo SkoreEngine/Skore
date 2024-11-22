@@ -16,6 +16,9 @@ namespace Fyrion
         u32 maxBodyPairs = 65536;
         u32 maxContactConstraints = 10240;
         u32 physicsTicksPerSeconds = 75;
+
+
+        static void RegisterType(NativeTypeHandler<PhysicsSettings>& type);
     };
 
     enum class BodyShapeType

@@ -61,4 +61,6 @@ namespace Fyrion
     {
         Span<GameObject*> objects;
     };
+
+    struct EditorPreferences{};
 }

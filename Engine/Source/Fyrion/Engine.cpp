@@ -8,7 +8,9 @@
 #include "Fyrion/Graphics/GraphicsTypes.hpp"
 #include "Fyrion/Graphics/Graphics.hpp"
 #include "TypeRegister.hpp"
+#include "Core/Attributes.hpp"
 #include "Core/Registry.hpp"
+#include "Core/SettingsManager.hpp"
 #include "Fyrion/Core/StaticContent.hpp"
 #include "Fyrion/ImGui/ImGui.hpp"
 #include "Fyrion/Core/ArgParser.hpp"
@@ -68,6 +70,8 @@ namespace Fyrion
 
     void Engine::CreateContext(const EngineContextCreation& contextCreation)
     {
+        SettingsManager::Init(GetTypeID<ProjectSettings>());
+
         PlatformInit();
 
         WindowFlags windowFlags = WindowFlags::SubscriveInput;

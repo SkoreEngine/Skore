@@ -38,6 +38,11 @@ namespace Fyrion
 
         Registry::Type<UIProperty>();
         Registry::Type<UIFloatProperty>();
+        Registry::Type<ProjectSettings>();
+
+        auto settings = Registry::Type<Settings>();
+        settings.Field<&Settings::path>("path");
+        settings.Field<&Settings::type>("type");
     }
 
     void RegisterMathTypes()

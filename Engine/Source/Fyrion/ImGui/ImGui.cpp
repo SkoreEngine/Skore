@@ -81,7 +81,8 @@ namespace ImGui
     bool Begin(u32 id, const char* name, bool* pOpen, ImGuiWindowFlags flags)
     {
         ImGuiStyle& style = ImGui::GetStyle();
-        ImGui::SetNextWindowSize({800 * style.ScaleFactor, 400 * style.ScaleFactor}, ImGuiCond_Once);
+
+        ImGui::SetNextWindowSize(ImVec2(1024, 576) * style.ScaleFactor, ImGuiCond_Once);
 
         char str[100];
         sprintf(str, "%s###%d", name, id);
@@ -128,6 +129,12 @@ namespace ImGui
         char str[20];
         sprintf(str, "###%d", windowId);
         ImGui::DockBuilderDockWindow(str, nodeId);
+    }
+
+    void CenterWindow(ImGuiCond cond)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), cond, ImVec2(0.5f, 0.5f));
     }
 
     bool InputText(u32 idx, Fyrion::String& string, ImGuiInputTextFlags flags)

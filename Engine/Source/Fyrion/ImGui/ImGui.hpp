@@ -57,6 +57,7 @@ namespace ImGui
     FY_API bool BeginFullscreen(u32 id, bool* pOpen = nullptr, ImGuiWindowFlags flags = 0);
     FY_API void DockBuilderReset(ImGuiID dockSpaceId);
     FY_API void DockBuilderDockWindow(ImGuiID windowId, ImGuiID nodeId);
+    FY_API void CenterWindow(ImGuiCond cond);
     FY_API bool InputText(u32 idx, Fyrion::String& string, ImGuiInputTextFlags flags = 0);
     FY_API bool SearchInputText(ImGuiID idx, Fyrion::String& string, ImGuiInputTextFlags flags = 0);
     FY_API void BeginTreeNode();
