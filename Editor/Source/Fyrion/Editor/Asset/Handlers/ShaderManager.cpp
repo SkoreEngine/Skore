@@ -653,6 +653,11 @@ namespace Fyrion
                                     .viewType = SpirvUtils::DimToViewType(descriptorBind->image.dim, descriptorBind->image.arrayed),
                                 };
 
+                                if (descriptorBind->name == "g_srcRawDepth")
+                                {
+                                    int a = 0;
+                                }
+
                                 for (int m = 0; m < descriptorBind->type_description->member_count; ++m)
                                 {
                                     SpirvUtils::GetTypeDescription(descriptorBinding, descriptorBinding.members, &descriptorBind->type_description->members[m]);

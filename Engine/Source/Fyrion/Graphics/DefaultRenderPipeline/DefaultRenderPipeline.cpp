@@ -4,7 +4,7 @@
 #include "PostProcessRenderPass.hpp"
 #include "SkyRenderPass.hpp"
 #include "ShadowPass.hpp"
-#include "XeGTAOPass.hpp"
+#include "Effects/XeGTAO.hpp"
 
 #include "Fyrion/Core/Registry.hpp"
 #include "Fyrion/Graphics/RenderGraph.hpp"
@@ -22,7 +22,6 @@ namespace Fyrion
         LightingPass          lightingPass;
         PostProcessRenderPass postProcessRenderPass;
         SkyRenderPass         skyRenderPass;
-        XeGTAOPass            xeGtaoPass;
 
         void BuildRenderGraph(RenderGraph& rg) override
         {
@@ -87,7 +86,6 @@ namespace Fyrion
               .ClearDepth(true)
               .Handler(&gBufferPass);
 
-
             //setup shadowmap pass
             shadowPass.shadowMap = shadowMap;
             rg.AddPass("ShadowMap", RenderGraphPassType::Other)
@@ -130,9 +128,8 @@ namespace Fyrion
               .Write(colorOutput)
               .Handler(&postProcessRenderPass);
 
-            rg.AddPass("XeGTAOPass", RenderGraphPassType::Other)
-              .Handler(&xeGtaoPass);
 
+            XeGTAOSetup(rg, depth);
 
             //define outputs
             rg.ColorOutput(colorOutput);

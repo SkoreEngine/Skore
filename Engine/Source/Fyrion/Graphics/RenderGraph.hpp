@@ -19,9 +19,11 @@ namespace Fyrion
         TextureCreation             textureCreation{};
         ResourceLayout              currentLayout = ResourceLayout::Undefined;
 
-        Texture texture = {};
-        Buffer  buffer = {};
-        VoidPtr reference = {};
+        Texture     texture = {};
+        Buffer      buffer = {};
+        Sampler     sampler = {};
+        TextureView textureView = {};
+        VoidPtr     reference = {};
 
         struct ResourceEdges
         {
@@ -44,9 +46,10 @@ namespace Fyrion
 
         RenderGraphPass* pass = nullptr;
         RenderGraph*     rg = nullptr;
+        PipelineState    pipelineState = {};
+        BindingSet*      bindingSet = nullptr;
 
         virtual void Init() {}
-        virtual void Update(f64 deltaTime) {}
         virtual void Resize(Extent3D extent) {}
         virtual void Render(RenderCommands& cmd) {}
         virtual void Destroy() {}
@@ -80,8 +83,13 @@ namespace Fyrion
         Optional<Vec4>          clearValue;
         bool                    clearDepth{};
         RenderGraphPassHandler* handler = nullptr;
+        bool                    ownInstanceInstance = false;
+        ShaderState*            shaderState = nullptr;
+        PipelineState           pipelineState = {};
+        BindingSet*             bindingSet = nullptr;
 
         void CreateRenderPass();
+        void CreatePipeline();
     };
 
     class FY_API RenderPassBuilder
@@ -92,11 +100,21 @@ namespace Fyrion
         FY_NO_COPY_CONSTRUCTOR(RenderPassBuilder);
 
         RenderPassBuilder& Read(RenderGraphResource* resource);
+        RenderPassBuilder& Read(StringView name, RenderGraphResource* resource);
         RenderPassBuilder& Write(RenderGraphResource* resource);
+        RenderPassBuilder& Write(StringView name, RenderGraphResource* resource);
         RenderPassBuilder& ClearColor(const Vec4& color);
         RenderPassBuilder& ClearDepth(bool clear);
+        RenderPassBuilder& Shader(StringView path, StringView state);
 
-        RenderPassBuilder& Handler(RenderGraphPassHandler* handler);
+        RenderPassBuilder& Handler(RenderGraphPassHandler* handler, bool ownInstance = false);
+
+
+        template<typename Type, typename ...Args>
+        RenderPassBuilder& Handler(Args&&...args)
+        {
+            return Handler(Alloc<Type>(Traits::Forward<Args>(args)...), true);
+        }
 
     private:
         RenderGraph*     rg;
@@ -141,8 +159,8 @@ namespace Fyrion
         RenderGraphResource*                  depthOutput = {};
 
 
-        PipelineState fullscreenPipeline;
-        BindingSet*   bindingSet;
+        PipelineState fullscreenPipeline{};
+        BindingSet*   bindingSet{};
 
         void SwapchainRender(RenderCommands& cmd);
         void SwapchainResize(Extent extent);

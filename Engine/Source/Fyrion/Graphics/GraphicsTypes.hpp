@@ -10,10 +10,12 @@
 
 namespace Fyrion
 {
+    struct RenderGraphResource;
     class MaterialAsset;
     class MeshAsset;
     struct ShaderAsset;
     struct ShaderState;
+    struct RenderCommands;
 
     FY_HANDLER(Adapter);
     FY_HANDLER(Swapchain);
@@ -264,11 +266,13 @@ namespace Fyrion
 
     enum class RenderGraphResourceType
     {
-        None       = 0,
-        Buffer     = 1,
-        Texture    = 2,
-        Attachment = 3,
-        Reference  = 4,
+        None        = 0,
+        Buffer      = 1,
+        Texture     = 2,
+        TextureView = 3,
+        Attachment  = 4,
+        Sampler     = 5,
+        Reference   = 6,
     };
 
     enum class RenderGraphPassType
@@ -541,10 +545,10 @@ namespace Fyrion
 
     struct BufferDataInfo
     {
-        Buffer      buffer{};
-        const void* data{};
-        usize       size{};
-        usize       offset{};
+        Buffer          buffer{};
+        const void*     data{};
+        usize           size{};
+        usize           offset{};
     };
 
     struct BufferImageCopy
@@ -694,16 +698,40 @@ namespace Fyrion
         virtual void        RemoveShaderDependency() = 0;
     };
 
+    struct ResourceTextureViewCreation
+    {
+        RenderGraphResource* texture;
+        ViewType             viewType{ViewType::Type2D};
+        u32                  baseMipLevel = 0;
+        u32                  levelCount = 1;
+        u32                  baseArrayLayer = 0;
+        u32                  layerCount = 1;
+
+
+        TextureViewCreation ToTextureViewCreation() const
+        {
+            return TextureViewCreation {
+                .viewType = viewType,
+                .baseMipLevel = baseMipLevel,
+                .levelCount = levelCount,
+                .baseArrayLayer = baseArrayLayer,
+                .layerCount = layerCount,
+            };
+        }
+
+    };
+
     struct RenderGraphResourceCreation
     {
-        String                  name{};
-        RenderGraphResourceType type{};
-        Extent3D                size{};
-        Vec2                    scale{};
-        Format                  format{};
-        BufferUsage             bufferUsage{};
-        BufferAllocation        bufferAllocation{BufferAllocation::GPUOnly};
-        usize                   bufferInitialSize{};
+        String                      name{};
+        RenderGraphResourceType     type{};
+        Extent3D                    size{};
+        Vec2                        scale{};
+        Format                      format{};
+        u32                         mipLevels{1};
+        BufferCreation              bufferCreation{};
+        SamplerCreation             samplerCreation{};
+        ResourceTextureViewCreation textureViewCreation{};
     };
 
     struct RenderGraphPassCreation

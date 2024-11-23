@@ -17,37 +17,31 @@
 #include "vaShared.hlsl"
 #include "vaNoise.hlsl"
 
-#ifndef __INTELLISENSE__    // avoids some pesky intellisense errors
 #include "XeGTAO.h"
-#endif
-
-cbuffer GTAOConstantBuffer                      : register( b0 )
-{
-    GTAOConstants               g_GTAOConsts;
-}
-
 #include "XeGTAO.hlsli"
 
+ConstantBuffer<GTAOConstants> g_GTAOConsts;
+
 // input output textures for the first pass (XeGTAO_PrefilterDepths16x16)
-Texture2D<float>            g_srcRawDepth           : register( t0 );   // source depth buffer data (in NDC space in DirectX)
-RWTexture2D<lpfloat>        g_outWorkingDepthMIP0   : register( u0 );   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
-RWTexture2D<lpfloat>        g_outWorkingDepthMIP1   : register( u1 );   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
-RWTexture2D<lpfloat>        g_outWorkingDepthMIP2   : register( u2 );   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
-RWTexture2D<lpfloat>        g_outWorkingDepthMIP3   : register( u3 );   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
-RWTexture2D<lpfloat>        g_outWorkingDepthMIP4   : register( u4 );   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
+Texture2D<float>            g_srcRawDepth;           // source depth buffer data (in NDC space in DirectX)
+RWTexture2D<lpfloat>        g_outWorkingDepthMIP0;   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
+RWTexture2D<lpfloat>        g_outWorkingDepthMIP1;   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
+RWTexture2D<lpfloat>        g_outWorkingDepthMIP2;   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
+RWTexture2D<lpfloat>        g_outWorkingDepthMIP3;   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
+RWTexture2D<lpfloat>        g_outWorkingDepthMIP4;   // output viewspace depth MIP (these are views into g_srcWorkingDepth MIP levels)
 
 // input output textures for the second pass (XeGTAO_MainPass)
-Texture2D<lpfloat>          g_srcWorkingDepth       : register( t0 );   // viewspace depth with MIPs, output by XeGTAO_PrefilterDepths16x16 and consumed by XeGTAO_MainPass
-Texture2D<uint>             g_srcNormalmap          : register( t1 );   // source normal map (if used)
-Texture2D<uint>             g_srcHilbertLUT         : register( t5 );   // hilbert lookup table  (if any)
-RWTexture2D<uint>           g_outWorkingAOTerm      : register( u0 );   // output AO term (includes bent normals if enabled - packed as R11G11B10 scaled by AO)
-RWTexture2D<unorm float>    g_outWorkingEdges       : register( u1 );   // output depth-based edges used by the denoiser
-RWTexture2D<uint>           g_outNormalmap          : register( u0 );   // output viewspace normals if generating from depth
+Texture2D<lpfloat>          g_srcWorkingDepth;   // viewspace depth with MIPs, output by XeGTAO_PrefilterDepths16x16 and consumed by XeGTAO_MainPass
+Texture2D<uint>             g_srcNormalmap;   // source normal map (if used)
+Texture2D<uint>             g_srcHilbertLUT;   // hilbert lookup table  (if any)
+RWTexture2D<uint>           g_outWorkingAOTerm;   // output AO term (includes bent normals if enabled - packed as R11G11B10 scaled by AO)
+RWTexture2D<unorm float>    g_outWorkingEdges;   // output depth-based edges used by the denoiser
+RWTexture2D<uint>           g_outNormalmap;   // output viewspace normals if generating from depth
 
 // input output textures for the third pass (XeGTAO_Denoise)
-Texture2D<uint>             g_srcWorkingAOTerm      : register( t0 );   // coming from previous pass
-Texture2D<lpfloat>          g_srcWorkingEdges       : register( t1 );   // coming from previous pass
-RWTexture2D<uint>           g_outFinalAOTerm        : register( u0 );   // final AO term - just 'visibility' or 'visibility + bent normals'
+Texture2D<uint>             g_srcWorkingAOTerm;   // coming from previous pass
+Texture2D<lpfloat>          g_srcWorkingEdges;   // coming from previous pass
+RWTexture2D<uint>           g_outFinalAOTerm;   // final AO term - just 'visibility' or 'visibility + bent normals'
 
 // Engine-specific normal map loader
 lpfloat3 LoadNormal( int2 pos )
@@ -155,5 +149,3 @@ void CSGenerateNormals( const uint2 pixCoord : SV_DispatchThreadID )
     // pack from [-1, 1] to [0, 1] and then to R11G11B10_UNORM
     g_outNormalmap[ pixCoord ] = XeGTAO_FLOAT3_to_R11G11B10_UNORM( saturate( viewspaceNormal * 0.5 + 0.5 ) );
 }
-///
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -45,6 +45,16 @@ namespace Fyrion
         {
             Graphics::DestroyBuffer(buffer);
         }
+
+        if (sampler && creation.type == RenderGraphResourceType::Sampler)
+        {
+            Graphics::DestroySampler(sampler);
+        }
+
+        if (textureView && creation.type == RenderGraphResourceType::TextureView)
+        {
+            Graphics::DestroyTextureView(textureView);
+        }
     }
 
     RenderPass RenderGraphPass::GetRenderPass() const
@@ -64,9 +74,27 @@ namespace Fyrion
             handler->Destroy();
         }
 
+        if (ownInstanceInstance)
+        {
+            DestroyAndFree(handler);
+        }
+
         if (renderPass)
         {
             Graphics::DestroyRenderPass(renderPass);
+        }
+
+        if (pipelineState)
+        {
+            if (type == RenderGraphPassType::Compute)
+            {
+                Graphics::DestroyComputePipelineState(pipelineState);
+            }
+        }
+
+        if (bindingSet)
+        {
+            Graphics::DestroyBindingSet(bindingSet);
         }
     }
 
@@ -117,19 +145,51 @@ namespace Fyrion
         }
     }
 
+    void RenderGraphPass::CreatePipeline()
+    {
+        if (shaderState)
+        {
+            if (type == RenderGraphPassType::Compute)
+            {
+                pipelineState = Graphics::CreateComputePipelineState({
+                    .shaderState = shaderState
+                });
+
+                handler->pipelineState = pipelineState;
+            }
+
+            bindingSet = Graphics::CreateBindingSet(shaderState);
+            handler->bindingSet = bindingSet;
+        }
+    }
+
     RenderPassBuilder::RenderPassBuilder(RenderGraph* rg, RenderGraphPass* pass) : rg(rg), pass(pass) {}
 
     RenderPassBuilder& RenderPassBuilder::Read(RenderGraphResource* resource)
     {
         resource->ReadIn(pass);
-        pass->inputs.EmplaceBack(resource);
+        pass->inputs.EmplaceBack(resource, resource->creation.name);
+        return *this;
+    }
+
+    RenderPassBuilder& RenderPassBuilder::Read(StringView name, RenderGraphResource* resource)
+    {
+        resource->ReadIn(pass);
+        pass->inputs.EmplaceBack(resource, name);
         return *this;
     }
 
     RenderPassBuilder& RenderPassBuilder::Write(RenderGraphResource* resource)
     {
         resource->WriteIn(pass);
-        pass->outputs.EmplaceBack(resource);
+        pass->outputs.EmplaceBack(resource, resource->creation.name);
+        return *this;
+    }
+
+    RenderPassBuilder& RenderPassBuilder::Write(StringView name, RenderGraphResource* resource)
+    {
+        resource->WriteIn(pass);
+        pass->outputs.EmplaceBack(resource, name);
         return *this;
     }
 
@@ -145,11 +205,18 @@ namespace Fyrion
         return *this;
     }
 
-    RenderPassBuilder& RenderPassBuilder::Handler(RenderGraphPassHandler* handler)
+    RenderPassBuilder& RenderPassBuilder::Shader(StringView path, StringView state)
+    {
+        pass->shaderState = Assets::LoadByPath<ShaderAsset>(path)->GetState(state);
+        return *this;
+    }
+
+    RenderPassBuilder& RenderPassBuilder::Handler(RenderGraphPassHandler* handler, bool ownInstance)
     {
         handler->pass = pass;
         handler->rg = rg;
         pass->handler = handler;
+        pass->ownInstanceInstance = ownInstance;
         return *this;
     }
 
@@ -225,6 +292,19 @@ namespace Fyrion
                     resource->currentLayout = ResourceLayout::ShaderReadOnly;
                 }
             }
+
+            if (resource->creation.type == RenderGraphResourceType::TextureView)
+            {
+                if (resource->textureView)
+                {
+                    Graphics::DestroyTextureView(resource->textureView);
+                }
+
+                TextureViewCreation creation = resource->creation.textureViewCreation.ToTextureViewCreation();
+                creation.texture = resource->creation.textureViewCreation.texture->texture;
+                resource->textureView = Graphics::CreateTextureView(creation);
+                resource->currentLayout = ResourceLayout::Undefined;
+            }
         }
 
         for (auto& pass : passes)
@@ -267,7 +347,10 @@ namespace Fyrion
             {
                 for (auto& read : edge.readPass)
                 {
-                    graph.AddEdge(read->id, edge.writePass->id);
+                    if (edge.writePass)
+                    {
+                        graph.AddEdge(read->id, edge.writePass->id);
+                    }
                 }
             }
         }
@@ -277,6 +360,7 @@ namespace Fyrion
         for (auto& pass : passes)
         {
             pass->CreateRenderPass();
+            pass->CreatePipeline();
 
             if (pass->handler)
             {
@@ -383,11 +467,6 @@ namespace Fyrion
 
         for (auto& pass : passes)
         {
-            if (pass->handler)
-            {
-                pass->handler->Update(deltaTime);
-            }
-
             cmd.BeginLabel(pass->name, {0, 0, 0, 1});
 
             if (pass->type == RenderGraphPassType::Compute)
@@ -413,12 +492,21 @@ namespace Fyrion
 
             for (const auto& output : pass->outputs)
             {
-                if (output.resource->creation.type == RenderGraphResourceType::Texture)
+                if (output.resource->creation.type == RenderGraphResourceType::Texture ||
+                    output.resource->creation.type == RenderGraphResourceType::TextureView)
                 {
                     if (output.resource->currentLayout != ResourceLayout::General)
                     {
                         ResourceBarrierInfo resourceBarrierInfo{};
-                        resourceBarrierInfo.texture = output.resource->texture;
+                        if (output.resource->creation.type == RenderGraphResourceType::Texture)
+                        {
+                            resourceBarrierInfo.texture = output.resource->texture;
+                        }
+                        else if (output.resource->creation.type == RenderGraphResourceType::TextureView)
+                        {
+                            resourceBarrierInfo.texture = output.resource->creation.textureViewCreation.texture->texture;
+                            resourceBarrierInfo.mipLevel = output.resource->creation.textureViewCreation.baseMipLevel;
+                        }
                         resourceBarrierInfo.oldLayout = output.resource->currentLayout;
                         resourceBarrierInfo.newLayout = ResourceLayout::General;
                         cmd.ResourceBarrier(resourceBarrierInfo);
@@ -461,6 +549,46 @@ namespace Fyrion
                 auto scissor = Rect{0, 0, pass->extent.width, pass->extent.height};
                 cmd.SetScissor(scissor);
             }
+
+            auto SetResource = [this](RenderGraphPass* pass, const RenderGraphPass::Resource& input)
+            {
+                if (input.resource->creation.type == RenderGraphResourceType::Texture ||
+                    input.resource->creation.type == RenderGraphResourceType::Attachment)
+                {
+                    pass->bindingSet->GetVar(input.name)->SetTexture(input.resource->texture);
+                }
+                else if (input.resource->creation.type == RenderGraphResourceType::Buffer)
+                {
+                    pass->bindingSet->GetVar(input.name)->SetBuffer(input.resource->buffer);
+                }
+                else if (input.resource->creation.type == RenderGraphResourceType::TextureView)
+                {
+                    pass->bindingSet->GetVar(input.name)->SetTextureView(input.resource->textureView);
+                }
+            };
+
+            if (pass->bindingSet)
+            {
+                for (auto& input : pass->inputs)
+                {
+                    SetResource(pass.Get(), input);
+                }
+
+                for (auto& output : pass->outputs)
+                {
+                    SetResource(pass.Get(), output);
+                }
+            }
+
+            // if (pass->pipelineState)
+            // {
+            //     cmd.BindPipelineState(pass->pipelineState);
+            // }
+            //
+            // if (pass->pipelineState && pass->bindingSet)
+            // {
+            //     cmd.BindBindingSet(pass->pipelineState, pass->bindingSet);
+            // }
 
             if (pass->handler)
             {
@@ -529,14 +657,24 @@ namespace Fyrion
                     break;
                 case RenderGraphResourceType::Buffer:
                 {
-                    if (resource->creation.bufferInitialSize > 0)
+                    if (resource->creation.bufferCreation.size > 0)
                     {
-                        resource->buffer = Graphics::CreateBuffer(BufferCreation{
-                            .usage = resource->creation.bufferUsage,
-                            .size = resource->creation.bufferInitialSize,
-                            .allocation = resource->creation.bufferAllocation
-                        });
+                        resource->buffer = Graphics::CreateBuffer(resource->creation.bufferCreation);
                     }
+                    break;
+                }
+                case RenderGraphResourceType::Sampler:
+                {
+                    resource->sampler = Graphics::CreateSampler(resource->creation.samplerCreation);
+                    break;
+                }
+                case RenderGraphResourceType::TextureView:
+                {
+                    FY_ASSERT(resource->creation.textureViewCreation.texture->texture, "something went wrong");
+
+                    TextureViewCreation creation = resource->creation.textureViewCreation.ToTextureViewCreation();
+                    creation.texture = resource->creation.textureViewCreation.texture->texture;
+                    resource->textureView = Graphics::CreateTextureView(creation);
                     break;
                 }
                 case RenderGraphResourceType::Texture:
@@ -558,21 +696,24 @@ namespace Fyrion
 
                     resource->textureCreation.name = resource->creation.name;
                     resource->textureCreation.format = resource->creation.format;
+                    resource->textureCreation.mipLevels = resource->creation.mipLevels;
 
-                    if (resource->textureCreation.format != Format::Depth)
+                    resource->textureCreation.usage = TextureUsage::ShaderResource;
+
+                    if (resource->creation.type == RenderGraphResourceType::Attachment)
                     {
-                        if (resource->creation.type == RenderGraphResourceType::Attachment)
+                        if (resource->textureCreation.format == Format::Depth)
                         {
-                            resource->textureCreation.usage = TextureUsage::RenderPass | TextureUsage::ShaderResource;
+                            resource->textureCreation.usage |= TextureUsage::DepthStencil;
                         }
-                        else if (resource->creation.type == RenderGraphResourceType::Texture)
+                        else
                         {
-                            resource->textureCreation.usage = TextureUsage::Storage | TextureUsage::ShaderResource;
+                            resource->textureCreation.usage |= TextureUsage::RenderPass;
                         }
                     }
-                    else
+                    else if (resource->creation.type == RenderGraphResourceType::Texture)
                     {
-                        resource->textureCreation.usage = TextureUsage::DepthStencil | TextureUsage::ShaderResource;
+                        resource->textureCreation.usage |= TextureUsage::Storage;
                     }
 
                     resource->texture = Graphics::CreateTexture(resource->textureCreation);
