@@ -75,6 +75,8 @@ namespace Fyrion
         {
             if (!renderProxy) return;
 
+            cmd.BeginLabel("Fyrion::ShadowPass", Vec4{0, 0, 0, 1});
+
             float cascadeSplits[FY_SHADOW_MAP_CASCADE_COUNT];
 
             if (auto light = renderProxy->GetDirectionalShadowCaster(); light && light->castShadows)
@@ -219,6 +221,7 @@ namespace Fyrion
                     });
                 }
             }
+            cmd.EndLabel();
         }
 
         void Destroy() override

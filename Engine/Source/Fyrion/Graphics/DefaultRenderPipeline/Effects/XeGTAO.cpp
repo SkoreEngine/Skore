@@ -24,7 +24,7 @@ namespace Fyrion
         {
             Extent viewport = rg->GetViewportExtent();
 
-            XeGTAO::GTAOSettings settings{};
+            XeGTAO::GTAOSettings  settings{};
             XeGTAO::GTAOConstants gtaoConstants{};
             GTAOUpdateConstants(gtaoConstants, viewport.width, viewport.height, settings, rg->GetCameraData().projection.a, false, 0);
 
@@ -33,19 +33,6 @@ namespace Fyrion
                 .data = &gtaoConstants,
                 .size = sizeof(XeGTAO::GTAOConstants)
             });
-        }
-    };
-
-    struct XeGTAOPrefilterPass : RenderGraphPassHandler
-    {
-        void Render(RenderCommands& cmd) override
-        {
-            Extent viewport = rg->GetViewportExtent();
-
-            cmd.BindPipelineState(pipelineState);
-            cmd.BindBindingSet(pipelineState, bindingSet);
-
-            cmd.Dispatch((viewport.width + 16 - 1) / 16, (viewport.height + 16 - 1) / 16, 1);
         }
     };
 
@@ -92,21 +79,44 @@ namespace Fyrion
             });
         }
 
+        RenderGraphResource* workingEdges = rg.Create(RenderGraphResourceCreation{
+            .name = "xeGTAOWorkingEdges",
+            .type = RenderGraphResourceType::Texture,
+            .scale = {1, 1},
+            .format = Format::R,
+        });
+
+        RenderGraphResource* workingAOTerm = rg.Create(RenderGraphResourceCreation{
+            .name = "XeGTAOWorkingAOTerm",
+            .type = RenderGraphResourceType::Texture,
+            .scale = {1, 1},
+            .format = Format::R,
+        });
+
         rg.AddPass("XeGTASetupPass", RenderGraphPassType::Other)
           .Write(constantBuffers)
           .Handler<XeGTASetupPass>(constantBuffers);
 
-        RenderPassBuilder& xeGTAOPrefilterPass = rg.AddPass("XeGTAOPrefilterPass", RenderGraphPassType::Compute)
-          .Shader("Fyrion://Shaders/Effects/XeGTAO/vaGTAO.comp", "Prefilter")
-          .Read(constantBuffers)
-          .Read(sampler)
-          .Read("g_srcRawDepth", depth)
-          .Handler<XeGTAOPrefilterPass>();
+        RenderPassBuilder& xeGTAOPrefilterPass =
+            rg.AddPass("XeGTAOPrefilterPass", RenderGraphPassType::Compute)
+              .Shader("Fyrion://Shaders/Effects/XeGTAO/vaGTAO.comp", "Prefilter")
+              .Read(constantBuffers)
+              .Read(sampler)
+              .Read("g_srcRawDepth", depth)
+              .Dispatch(16, 16, 1);
 
         for (int i = 0; i < XE_GTAO_DEPTH_MIP_LEVELS; ++i)
         {
             xeGTAOPrefilterPass.Write(depthMipNames[i], workingDepthMips[i]);
         }
+
+        // rg.AddPass("XeGTAOMainPass", RenderGraphPassType::Compute)
+        //   .Shader("Fyrion://Shaders/Effects/XeGTAO/vaGTAO.comp", "CSGTAOUltra")
+        //   .Read("g_srcWorkingDepth", outWorkingDepth)
+        //   .Read(sampler)
+        //   .Write("g_outWorkingAOTerm", workingAOTerm)
+        //   .Write("g_outWorkingEdges", workingEdges)
+        //   .Dispatch(XE_GTAO_NUMTHREADS_X, XE_GTAO_NUMTHREADS_Y, 1);
 
     }
 }

@@ -27,7 +27,7 @@ namespace Fyrion
     template<typename T, typename ...Args>
     Optional<T> MakeOptional(Args&&... args)
     {
-        return Optional(Traits::Forward<Args>(args)...);
+        return Optional(T{Traits::Forward<Args>(args)...});
     }
 
 }

@@ -430,6 +430,11 @@ namespace Fyrion
             return Vec3{Max(lhs.x, rhs.x), Max(lhs.y, rhs.y), Max(lhs.z, rhs.z)};
         }
 
+        inline decltype(auto) Max(const Extent3D& lhs, const Extent3D& rhs)
+        {
+            return Extent3D{Max(lhs.width, rhs.width), Max(lhs.height, rhs.height), Max(lhs.depth, rhs.depth)};
+        }
+
         constexpr auto MakeVec3(const Float* value)
         {
             return Vec3{value[0], value[1], value[2]};

@@ -155,11 +155,22 @@ namespace Fyrion
                     .shaderState = shaderState
                 });
 
-                handler->pipelineState = pipelineState;
+                if (handler)
+                {
+                    handler->pipelineState = pipelineState;
+                }
+
+                for (auto& output : outputs)
+                {
+                    extent = Math::Max(extent, output.resource->textureCreation.extent);
+                }
             }
 
             bindingSet = Graphics::CreateBindingSet(shaderState);
-            handler->bindingSet = bindingSet;
+            if (handler)
+            {
+                handler->bindingSet = bindingSet;
+            }
         }
     }
 
@@ -208,6 +219,12 @@ namespace Fyrion
     RenderPassBuilder& RenderPassBuilder::Shader(StringView path, StringView state)
     {
         pass->shaderState = Assets::LoadByPath<ShaderAsset>(path)->GetState(state);
+        return *this;
+    }
+
+    RenderPassBuilder& RenderPassBuilder::Dispatch(u32 x, u32 y, u32 z)
+    {
+        pass->dispatch = MakeOptional<Extent3D>(x, y, z);
         return *this;
     }
 
@@ -299,6 +316,7 @@ namespace Fyrion
                 {
                     Graphics::DestroyTextureView(resource->textureView);
                 }
+                resource->textureCreation.extent = resource->creation.textureViewCreation.texture->textureCreation.extent / resource->creation.textureViewCreation.baseMipLevel;
 
                 TextureViewCreation creation = resource->creation.textureViewCreation.ToTextureViewCreation();
                 creation.texture = resource->creation.textureViewCreation.texture->texture;
@@ -316,6 +334,13 @@ namespace Fyrion
                     Graphics::DestroyRenderPass(pass->renderPass);
                 }
                 pass->CreateRenderPass();
+            }
+            else if (pass->type == RenderGraphPassType::Compute)
+            {
+                for (auto& output : pass->outputs)
+                {
+                    pass->extent = Math::Max(pass->extent, output.resource->textureCreation.extent);
+                }
             }
 
             if (pass->handler)
@@ -467,7 +492,10 @@ namespace Fyrion
 
         for (auto& pass : passes)
         {
-            cmd.BeginLabel(pass->name, {0, 0, 0, 1});
+            if (pass->type != RenderGraphPassType::Other)
+            {
+                cmd.BeginLabel(pass->name, {0, 0, 0, 1});
+            }
 
             if (pass->type == RenderGraphPassType::Compute)
             {
@@ -580,6 +608,16 @@ namespace Fyrion
                 }
             }
 
+
+            if (pass->dispatch && pass->pipelineState && pass->bindingSet)
+            {
+                cmd.BindPipelineState(pass->pipelineState);
+                cmd.BindBindingSet(pass->pipelineState, pass->bindingSet);
+                cmd.Dispatch((pass->extent.width + pass->dispatch->width - 1) / pass->dispatch->width,
+                             (pass->extent.height + pass->dispatch->height - 1) / pass->dispatch->height,
+                             pass->dispatch->depth);
+            }
+
             // if (pass->pipelineState)
             // {
             //     cmd.BindPipelineState(pass->pipelineState);
@@ -608,7 +646,10 @@ namespace Fyrion
                 }
             }
 
-            cmd.EndLabel();
+            if (pass->type != RenderGraphPassType::Other)
+            {
+                cmd.EndLabel();
+            }
         }
 
         if (colorOutput && colorOutput->currentLayout != ResourceLayout::ShaderReadOnly)

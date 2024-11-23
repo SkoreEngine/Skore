@@ -81,6 +81,7 @@ namespace Fyrion
         Array<Resource>         inputs;
         Array<Resource>         outputs;
         Optional<Vec4>          clearValue;
+        Optional<Extent3D>      dispatch;
         bool                    clearDepth{};
         RenderGraphPassHandler* handler = nullptr;
         bool                    ownInstanceInstance = false;
@@ -106,12 +107,12 @@ namespace Fyrion
         RenderPassBuilder& ClearColor(const Vec4& color);
         RenderPassBuilder& ClearDepth(bool clear);
         RenderPassBuilder& Shader(StringView path, StringView state);
-
+        RenderPassBuilder& Dispatch(u32 x, u32 y, u32 z);
         RenderPassBuilder& Handler(RenderGraphPassHandler* handler, bool ownInstance = false);
 
 
-        template<typename Type, typename ...Args>
-        RenderPassBuilder& Handler(Args&&...args)
+        template <typename Type, typename... Args>
+        RenderPassBuilder& Handler(Args&&... args)
         {
             return Handler(Alloc<Type>(Traits::Forward<Args>(args)...), true);
         }
@@ -146,7 +147,6 @@ namespace Fyrion
         Texture              GetColorOutput() const;
         Texture              GetDepthOutput() const;
         void                 RecordCommands(RenderCommands& cmd, f64 deltaTime);
-
 
     private:
         RenderGraphCreation                   renderGraphCreation;
