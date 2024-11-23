@@ -14,6 +14,7 @@ namespace Fyrion
         StringView    entryPoint{};
         ShaderStage   shaderStage{};
         RenderApiType renderApi{};
+        Array<String> macros;
     };
 }
 

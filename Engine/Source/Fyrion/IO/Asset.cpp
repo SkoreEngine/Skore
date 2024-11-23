@@ -51,6 +51,11 @@ namespace Fyrion
         this->typeHandler = typeHandler;
     }
 
+    void Asset::SetLoader(AssetLoader* loader)
+    {
+        this->loader = loader;
+    }
+
     //---------------assets------------
 
     void AssetsShutdown()

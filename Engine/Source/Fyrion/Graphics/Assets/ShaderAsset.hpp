@@ -49,13 +49,17 @@ namespace Fyrion
         FY_BASE_TYPES(Asset);
 
         ShaderAssetType type = ShaderAssetType::None;
-        ShaderState     shaderState{this};
+
+        HashMap<String, ShaderState> states;
 
         Array<u8> bytes{};
 
         Array<u8> LoadStream(usize offset, usize size) const override;
 
         ShaderState* GetDefaultState();
+        ShaderState* GetState(StringView name);
+
+        ShaderState* FindOrCreateState(StringView name);
 
         static void RegisterType(NativeTypeHandler<ShaderAsset>& type);
     };

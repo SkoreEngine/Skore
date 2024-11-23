@@ -14,6 +14,42 @@ namespace Fyrion
         Logger& logger = Logger::GetLogger("Fyrion::ShaderAssetHandler");
     }
 
+    struct ShaderConfigStage
+    {
+        String        entryPoint;
+        ShaderStage   stage;
+        Array<String> macros;
+
+        static void RegisterType(NativeTypeHandler<ShaderConfigStage>& type)
+        {
+            type.Field<&ShaderConfigStage::entryPoint>("entryPoint");
+            type.Field<&ShaderConfigStage::stage>("stage");
+            type.Field<&ShaderConfigStage::macros>("macros");
+        }
+    };
+
+    struct ShaderPermutation
+    {
+        String name;
+        Array<ShaderConfigStage> stages;
+
+        static void RegisterType(NativeTypeHandler<ShaderPermutation>& type)
+        {
+            type.Field<&ShaderPermutation::name>("name");
+            type.Field<&ShaderPermutation::stages>("stages");
+        }
+    };
+
+    struct ShaderConfig
+    {
+        Array<ShaderPermutation> permutations;
+
+        static void RegisterType(NativeTypeHandler<ShaderConfig>& type)
+        {
+            type.Field<&ShaderConfig::permutations>("permutations");
+        }
+    };
+
     class ShaderAssetHandler : public AssetHandler
     {
     public:
@@ -46,8 +82,7 @@ namespace Fyrion
             //
             // FileSystem::GetFileStatus(assetFile->absolutePath);
 
-            Array<u8>              bytes{};
-            Array<ShaderStageInfo> tempStages{};
+
 
             ShaderAsset* shaderAsset = static_cast<ShaderAsset*>(instance);
             shaderAsset->type = GetType();
@@ -55,110 +90,135 @@ namespace Fyrion
             RenderApiType   renderApi = Graphics::GetRenderApi();
             String          source = FileSystem::ReadFileAsString(assetFile->absolutePath);
 
-            if (shaderAsset->type == ShaderAssetType::Graphics)
+            ShaderConfig config{};
+
+            String configPath = Path::Join(Path::Parent(assetFile->absolutePath), Path::Name(assetFile->fileName), ".shader");
+            if (FileSystem::GetFileStatus(configPath).exists)
             {
-                if (!ShaderManager::CompileShader(ShaderCreation{.asset = shaderAsset, .source = source, .entryPoint = "MainVS", .shaderStage = ShaderStage::Vertex, .renderApi = renderApi}, bytes))
+                String str = FileSystem::ReadFileAsString(configPath);
+                if (!str.Empty())
                 {
-                    return;
+                    JsonArchiveReader reader(str);
+                    Serialization::Deserialize(GetTypeID<ShaderConfig>(), reader, reader.GetRoot(), &config);
                 }
+            }
 
-                tempStages.EmplaceBack(ShaderStageInfo{
-                    .stage = ShaderStage::Vertex,
-                    .entryPoint = "MainVS",
-                    .offset = 0,
-                    .size = (u32)bytes.Size()
-                });
+            std::string_view str = {source.CStr(), source.Size()};
+            bool hasDefaultGeometry = str.find("MainGS") != std::string_view::npos;
 
-                u32 offset = (u32)bytes.Size();
-
-                if (!ShaderManager::CompileShader(ShaderCreation{.asset = shaderAsset, .source = source, .entryPoint = "MainPS", .shaderStage = ShaderStage::Pixel, .renderApi = renderApi}, bytes))
+            if (config.permutations.Empty())
+            {
+                if (shaderAsset->type == ShaderAssetType::Graphics)
                 {
-                    return;
+                    ShaderPermutation shaderPermutation = ShaderPermutation{
+                        .name = "Default",
+                        .stages = {
+                            ShaderConfigStage{
+                                .entryPoint = "MainVS",
+                                .stage = ShaderStage::Vertex
+                            },
+                            ShaderConfigStage{
+                                .entryPoint = "MainPS",
+                                .stage = ShaderStage::Pixel
+                            },
+                        }
+                    };
+
+                    if (hasDefaultGeometry)
+                    {
+                        shaderPermutation.stages.EmplaceBack(ShaderConfigStage{
+                            .entryPoint = "MainGS",
+                            .stage = ShaderStage::Geometry
+                        });
+                    }
+
+                    config.permutations.EmplaceBack(shaderPermutation);
                 }
-
-                tempStages.EmplaceBack(ShaderStageInfo{
-                    .stage = ShaderStage::Pixel,
-                    .entryPoint = "MainPS",
-                    .offset = offset,
-                    .size = (u32)bytes.Size() - offset
-                });
-
-                offset = (u32)bytes.Size();
-
-
-                std::string_view str = {source.CStr(), source.Size()};
-                if (str.find("MainGS") != std::string_view::npos)
+                else if (shaderAsset->type == ShaderAssetType::Compute)
                 {
-                    if (!ShaderManager::CompileShader(ShaderCreation{.asset = shaderAsset, .source = source, .entryPoint = "MainGS", .shaderStage = ShaderStage::Geometry, .renderApi = renderApi}, bytes))
+                    config.permutations.EmplaceBack(ShaderPermutation{
+                        .name = "Default",
+                        .stages = {
+                            ShaderConfigStage{
+                                .entryPoint = "MainCS",
+                                .stage = ShaderStage::Compute
+                            }
+                        }
+                    });
+                }
+            }
+
+
+            u32 permOffset = 0;
+
+            for (ShaderPermutation& shaderPermutation : config.permutations)
+            {
+                Array<u8> bytes{};
+                Array<ShaderStageInfo> tempStages{};
+
+                u32 stageOffset = 0;
+                for (ShaderConfigStage& configStage : shaderPermutation.stages)
+                {
+                    if (!ShaderManager::CompileShader(ShaderCreation{
+                                                          .asset = shaderAsset,
+                                                          .source = source,
+                                                          .entryPoint = configStage.entryPoint,
+                                                          .shaderStage = configStage.stage,
+                                                          .renderApi = renderApi,
+                                                          .macros = configStage.macros
+                                                      },
+                                                      bytes))
                     {
                         return;
                     }
 
                     tempStages.EmplaceBack(ShaderStageInfo{
-                        .stage = ShaderStage::Geometry,
-                        .entryPoint = "MainGS",
-                        .offset = offset,
-                        .size = (u32)bytes.Size() - offset
+                        .stage = configStage.stage,
+                        .entryPoint = configStage.entryPoint,
+                        .offset = stageOffset,
+                        .size = (u32)bytes.Size() - stageOffset
                     });
-
-                    offset = (u32)bytes.Size();
+                    stageOffset += static_cast<u32>(bytes.Size());
                 }
-            }
-            else if (shaderAsset->type == ShaderAssetType::Compute)
-            {
-                if (!ShaderManager::CompileShader(ShaderCreation{
-                                                      .asset = shaderAsset,
-                                                      .source = source,
-                                                      .entryPoint = "MainCS",
-                                                      .shaderStage = ShaderStage::Compute,
-                                                      .renderApi = renderApi
-                                                  }, bytes))
+
+                ShaderState* state = shaderAsset->FindOrCreateState(shaderPermutation.name);
+
+                state->stages = Traits::Move(tempStages);
+                state->shaderInfo = ShaderManager::ExtractShaderInfo(bytes, state->stages, renderApi);
+                state->streamOffset = permOffset;
+                state->streamSize = bytes.Size();
+
+                shaderAsset->bytes.Insert(shaderAsset->bytes.end(), bytes.begin(), bytes.end());
+
+                for (PipelineState pipelineState : state->pipelineDependencies)
                 {
-                    return;
+                    if (shaderAsset->type == ShaderAssetType::Graphics)
+                    {
+                        Graphics::CreateGraphicsPipelineState({
+                            .shaderState = state,
+                            .pipelineState = pipelineState
+                        });
+                    }
+                    else if (shaderAsset->type == ShaderAssetType::Compute)
+                    {
+                        Graphics::CreateComputePipelineState({
+                            .shaderState = state,
+                            .pipelineState = pipelineState
+                        });
+                    }
                 }
 
-                tempStages.EmplaceBack(ShaderStageInfo{
-                    .stage = ShaderStage::Compute,
-                    .entryPoint = "MainCS",
-                    .size = (u32)bytes.Size()
-                });
-            }
-
-            ShaderState* state = shaderAsset->GetDefaultState();
-
-            state->stages = Traits::Move(tempStages);
-            state->shaderInfo = ShaderManager::ExtractShaderInfo(bytes, state->stages, renderApi);
-            state->streamOffset = 0;
-            state->streamSize = bytes.Size();
-
-            shaderAsset->bytes = bytes;
-
-            for (PipelineState pipelineState : state->pipelineDependencies)
-            {
-                if (shaderAsset->type == ShaderAssetType::Graphics)
+                for (const auto it : state->shaderDependencies)
                 {
-                    Graphics::CreateGraphicsPipelineState({
-                        .shaderState = state,
-                        .pipelineState = pipelineState
-                    });
+                    Assets::Reload(it.first->GetUUID());
                 }
-                else if (shaderAsset->type == ShaderAssetType::Compute)
+
+                for (const auto it : state->bindingSetDependencies)
                 {
-                    Graphics::CreateComputePipelineState({
-                        .shaderState = state,
-                        .pipelineState = pipelineState
-                    });
+                    it.first->Reload();
                 }
-            }
 
-            for (const auto it : state->shaderDependencies)
-            {
-                Assets::Reload(it.first->GetUUID());
-            }
-
-            for (const auto it : state->bindingSetDependencies)
-            {
-                it.first->Reload();
+                permOffset += (u32)bytes.Size();
             }
 
             logger.Debug("shader {} compiled sucessfully", assetFile->path);
@@ -259,5 +319,8 @@ namespace Fyrion
         Registry::Type<ShaderIncludeHandler>();
         Registry::Type<HLSLShaderIncludeHandler>();
         Registry::Type<IncShaderIncludeHandler>();
+        Registry::Type<ShaderConfig>();
+        Registry::Type<ShaderPermutation>();
+        Registry::Type<ShaderConfigStage>();
     }
 }

@@ -518,7 +518,14 @@ namespace Fyrion
         }
     }
 
-    void ProjectBrowserWindow::AssetCopyPathToClipboard(const MenuItemEventData& eventData) {}
+    void ProjectBrowserWindow::AssetCopyPathToClipboard(const MenuItemEventData& eventData)
+    {
+        ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
+        if (projectBrowserWindow->lastSelectedItem)
+        {
+            Platform::SetClipboardString(Engine::GetActiveWindow(), projectBrowserWindow->lastSelectedItem->path);
+        }
+    }
 
     bool ProjectBrowserWindow::CanCreateAsset(const MenuItemEventData& eventData)
     {

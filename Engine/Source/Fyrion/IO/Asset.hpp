@@ -21,6 +21,7 @@ namespace Fyrion
         TypeHandler*      GetTypeHandler() const;
         virtual Array<u8> LoadStream(usize offset, usize size) const;
         void              SetTypeHandler(TypeHandler* typeHandler);
+        void              SetLoader(AssetLoader* loader);
         virtual void      OnChange() {}
 
         friend class Assets;

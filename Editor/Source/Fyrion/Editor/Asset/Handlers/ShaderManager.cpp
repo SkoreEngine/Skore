@@ -17,6 +17,7 @@
 #include "Fyrion/Editor/Asset/AssetEditor.hpp"
 #include "Fyrion/Graphics/Assets/ShaderAsset.hpp"
 #include "Fyrion/IO/FileSystem.hpp"
+#include "Fyrion/IO/Path.hpp"
 
 #define SHADER_MODEL "6_7"
 
@@ -85,7 +86,8 @@ namespace Fyrion
 
         HRESULT STDMETHODCALLTYPE LoadSource(LPCWSTR pFilename, IDxcBlob** ppIncludeSource) override
         {
-            String includePath = FormatFilePath(pFilename);
+            String formatedName = FormatFilePath(pFilename);
+            String includePath = formatedName;
 
             //check if that's a path
             if (StringView(includePath).FindFirstOf("://") == nPos)
@@ -97,23 +99,38 @@ namespace Fyrion
                 }
             }
 
-            ShaderAsset* shaderInclude = Assets::LoadByPath<ShaderAsset>(includePath);
-            if (!shaderInclude)
+            String source;
+
+            if (ShaderAsset* shaderInclude = Assets::LoadByPath<ShaderAsset>(includePath))
+            {
+                AssetFile* includeAssetFile = AssetEditor::FindAssetFileByUUID(shaderInclude->GetUUID());
+                if (!includeAssetFile)
+                {
+                    return S_FALSE;
+                }
+
+                source = FileSystem::ReadFileAsString(includeAssetFile->absolutePath);
+                shaderInclude->GetDefaultState()->AddShaderDependency(shader);
+            }
+            else
+            {
+                if (AssetFile* shaderAssetFile = AssetEditor::FindAssetFileByUUID(shader->GetUUID()))
+                {
+                    String includeAbsolutePath = Path::Join(Path::Parent(shaderAssetFile->absolutePath), formatedName);
+                    if (FileSystem::GetFileStatus(includeAbsolutePath).exists)
+                    {
+                        source = FileSystem::ReadFileAsString(includeAbsolutePath);
+                    }
+                }
+            }
+
+            if (source.Empty())
             {
                 return S_FALSE;
             }
 
-            AssetFile* includeAssetFile = AssetEditor::FindAssetFileByUUID(shaderInclude->GetUUID());
-            if (!includeAssetFile)
-            {
-                return S_FALSE;
-            }
-
-            String source = FileSystem::ReadFileAsString(includeAssetFile->absolutePath);
             utils->CreateBlob(source.CStr(), source.Size(), CP_UTF8, &blobEncoding);
             *ppIncludeSource = blobEncoding;
-
-            shaderInclude->GetDefaultState()->AddShaderDependency(shader);
 
             return S_OK;
         }
@@ -173,6 +190,11 @@ namespace Fyrion
         }
     }
 
+    std::wstring ToWString(String str)
+    {
+        return std::wstring{str.begin(), str.end()};
+    }
+
     bool ShaderManager::CompileShader(const ShaderCreation& shaderCreation, Array<u8>& bytes)
     {
         bool shaderCompilerValid = utils && compiler;
@@ -190,7 +212,7 @@ namespace Fyrion
         source.Size = pSource->GetBufferSize();
         source.Encoding = DXC_CP_ACP;
 
-        std::wstring entryPoint = std::wstring{shaderCreation.entryPoint.begin(), shaderCreation.entryPoint.end()};
+        std::wstring entryPoint = ToWString(shaderCreation.entryPoint);
 
         Array<LPCWSTR> args;
         args.EmplaceBack(L"-E");
@@ -206,6 +228,13 @@ namespace Fyrion
             args.EmplaceBack(L"-fspv-target-env=vulkan1.2");
             args.EmplaceBack(L"-fvk-use-dx-layout");
             args.EmplaceBack(L"-fvk-use-dx-position-w");
+        }
+
+        Array<std::wstring> macrosCache;
+        macrosCache.Reserve(shaderCreation.macros.Size());
+        for (const String& macro : shaderCreation.macros)
+        {
+            args.EmplaceBack(macrosCache.EmplaceBack(std::wstring().append(L"-D").append(ToWString(macro))).c_str());
         }
 
         IDxcResult*    pResults{};

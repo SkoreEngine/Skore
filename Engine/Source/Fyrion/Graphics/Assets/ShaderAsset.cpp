@@ -61,12 +61,31 @@ namespace Fyrion
 
     ShaderState* ShaderAsset::GetDefaultState()
     {
-        return &shaderState;
+        return FindOrCreateState("Default");
+    }
+
+    ShaderState* ShaderAsset::GetState(StringView name)
+    {
+        auto it = states.Find(name);
+        if (it != states.end())
+        {
+            return &it->second;
+        }
+        return nullptr;
+    }
+
+    ShaderState* ShaderAsset::FindOrCreateState(StringView name)
+    {
+        auto it = states.Find(name);
+        if (it == states.end())
+        {
+            it = states.Insert(name, ShaderState{.shaderAsset = this}).first;
+        }
+        return &it->second;
     }
 
     void ShaderAsset::RegisterType(NativeTypeHandler<ShaderAsset>& type)
     {
         type.Field<&ShaderAsset::type>("type");
-        type.Field<&ShaderAsset::shaderState>("shaderState");
     }
 }

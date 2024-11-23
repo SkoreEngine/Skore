@@ -173,6 +173,8 @@ namespace Fyrion
         {
             Asset* asset = typeHandler->Cast<Asset>(typeHandler->NewInstance());
             asset->SetTypeHandler(typeHandler);
+            asset->SetUUID(uuid);
+            asset->SetLoader(this);
             handler->Load(this, typeHandler, asset);
             return asset;
         }
