@@ -218,6 +218,7 @@ namespace Fyrion::Vulkan
 		switch (textureFormat)
 		{
 			case Format::R: return VK_FORMAT_R8_UNORM;
+			case Format::R8U: return VK_FORMAT_R8_UINT;
 			case Format::RG16F: return VK_FORMAT_R16G16_SFLOAT;
 			case Format::RGBA: return VK_FORMAT_R8G8B8A8_UNORM;
 			case Format::RGBA16F: return VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -225,6 +226,7 @@ namespace Fyrion::Vulkan
 			case Format::BGRA: return VK_FORMAT_B8G8R8A8_UNORM;
 			case Format::Depth: return VK_FORMAT_D32_SFLOAT; //TODO should check if format is available
 			case Format::R16F: return VK_FORMAT_R16_SFLOAT;
+			case Format::R32U: return VK_FORMAT_R32_UINT;
 			case Format::R32F: return VK_FORMAT_R32_SFLOAT;
 			case Format::RG: return VK_FORMAT_R8G8_UNORM;
 			case Format::RG32F: return VK_FORMAT_R32G32_SFLOAT;

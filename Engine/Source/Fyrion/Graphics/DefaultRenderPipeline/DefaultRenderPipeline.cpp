@@ -54,6 +54,14 @@ namespace Fyrion
                 .format = Format::Depth,
             });
 
+            //gbuffer textures
+            RenderGraphResource* aoOutput = rg.Create(RenderGraphResourceCreation{
+                .name = "aoOutput",
+                .type = RenderGraphResourceType::Texture,
+                .scale = {1, 1},
+                .format = Format::R32U
+            });
+
             //shadow texture
             RenderGraphResource* shadowMap = rg.Create(RenderGraphResourceCreation{
                 .name = "shadowMap",
@@ -86,6 +94,10 @@ namespace Fyrion
               .ClearDepth(true)
               .Handler(&gBufferPass);
 
+
+            //GTAO
+            XeGTAOSetup(rg, depth, gbuffer3, aoOutput);
+
             //setup shadowmap pass
             shadowPass.shadowMap = shadowMap;
             rg.AddPass("ShadowMap", RenderGraphPassType::Other)
@@ -96,6 +108,7 @@ namespace Fyrion
             lightingPass.gbuffer1 = gbuffer1;
             lightingPass.gbuffer2 = gbuffer2;
             lightingPass.gbuffer3 = gbuffer3;
+            lightingPass.aoTexture = aoOutput;
             lightingPass.shadowMap = shadowMap;
             lightingPass.depth = depth;
             lightingPass.lightOutput = lightOutput;
@@ -127,9 +140,6 @@ namespace Fyrion
               .Read(lightOutput)
               .Write(colorOutput)
               .Handler(&postProcessRenderPass);
-
-
-            XeGTAOSetup(rg, depth);
 
             //define outputs
             rg.ColorOutput(colorOutput);

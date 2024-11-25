@@ -3,5 +3,5 @@
 
 namespace Fyrion
 {
-    void XeGTAOSetup(RenderGraph& rg, RenderGraphResource* depth);
+    void XeGTAOSetup(RenderGraph& rg, RenderGraphResource* depth, RenderGraphResource* normals, RenderGraphResource* aoOutput);
 }

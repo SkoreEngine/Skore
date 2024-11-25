@@ -36,6 +36,8 @@ namespace Fyrion
         void WriteIn(RenderGraphPass* pass);
         void ReadIn(RenderGraphPass* pass);
 
+        Extent3D GetExtent() const;
+
         ~RenderGraphResource();
     };
 

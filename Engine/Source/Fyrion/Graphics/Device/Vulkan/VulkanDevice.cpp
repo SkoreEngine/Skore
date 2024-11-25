@@ -58,7 +58,7 @@ namespace Fyrion
             logger.FatalError("vulkan cannot be initialized");
         }
 
-       enableValidationLayers = true;
+       enableValidationLayers = false;
 #ifdef FY_DEBUG
 #endif
 

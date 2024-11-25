@@ -137,3 +137,54 @@ float3 GetWorldPositionFromDepth(float2 uv, float depth, float4x4 viewProjInvers
     return worldPos.xyz / worldPos.w;
 }
 
+float4 FY_R8G8B8A8_UNORM_to_FLOAT4( uint packedInput )
+{
+	float4 unpackedOutput;
+	unpackedOutput.x = (float)( packedInput & 0x000000ff ) / 255;
+	unpackedOutput.y = (float)( ( ( packedInput >> 8 ) & 0x000000ff ) ) / 255;
+	unpackedOutput.z = (float)( ( ( packedInput >> 16 ) & 0x000000ff ) ) / 255;
+	unpackedOutput.w = (float)( packedInput >> 24 ) / 255;
+	return unpackedOutput;
+}
+
+uint FY_FLOAT4_to_R8G8B8A8_UNORM( float4 unpackedInput )
+{
+	return ( ( uint( saturate( unpackedInput.x ) * 255 + 0.5 ) ) |
+	         ( uint( saturate( unpackedInput.y ) * 255 + 0.5 ) << 8 ) |
+	         ( uint( saturate( unpackedInput.z ) * 255 + 0.5 ) << 16 ) |
+	         ( uint( saturate( unpackedInput.w ) * 255 + 0.5 ) << 24 ) );
+}
+
+void FY_DecodeVisibilityBentNormal( const uint packedValue, out float visibility, out float3 bentNormal )
+{
+	float4 decoded = FY_R8G8B8A8_UNORM_to_FLOAT4( packedValue );
+	bentNormal = decoded.xyz * 2.0.xxx - 1.0.xxx;   // could normalize - don't want to since it's done so many times, better to do it at the final step only
+	visibility = decoded.w;
+}
+
+float FY_DecodeVisibilityBentNormal_VisibilityOnly( const uint packedValue )
+{
+	float visibility; float3 bentNormal;
+	FY_DecodeVisibilityBentNormal( packedValue, visibility, bentNormal );
+	return visibility;
+}
+
+float3 FY_R11G11B10_UNORM_to_FLOAT3( uint packedInput )
+{
+	float3 unpackedOutput;
+	unpackedOutput.x = (float)( ( packedInput       ) & 0x000007ff ) / 2047.0f;
+	unpackedOutput.y = (float)( ( packedInput >> 11 ) & 0x000007ff ) / 2047.0f;
+	unpackedOutput.z = (float)( ( packedInput >> 22 ) & 0x000003ff ) / 1023.0f;
+	return unpackedOutput;
+}
+
+// 'unpackedInput' is float3 and not float3 on purpose as half float lacks precision for below!
+uint FY_FLOAT3_to_R11G11B10_UNORM( float3 unpackedInput )
+{
+	uint packedOutput;
+	packedOutput =( ( uint( saturate( unpackedInput.x ) * 2047 + 0.5f ) ) |
+	                ( uint( saturate( unpackedInput.y ) * 2047 + 0.5f ) << 11 ) |
+	                ( uint( saturate( unpackedInput.z ) * 1023 + 0.5f ) << 22 ) );
+	return packedOutput;
+}
+

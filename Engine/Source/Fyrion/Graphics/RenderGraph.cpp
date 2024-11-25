@@ -34,6 +34,23 @@ namespace Fyrion
         edges.Back().readPass.EmplaceBack(pass);
     }
 
+    Extent3D RenderGraphResource::GetExtent() const
+    {
+        if (creation.type == RenderGraphResourceType::Texture)
+        {
+            return textureCreation.extent;
+        }
+
+        if (creation.type == RenderGraphResourceType::TextureView)
+        {
+            if (creation.textureViewCreation.texture != nullptr)
+            {
+                return creation.textureViewCreation.texture->textureCreation.extent;
+            }
+        }
+        return {};
+    }
+
     RenderGraphResource::~RenderGraphResource()
     {
         if (texture && (creation.type == RenderGraphResourceType::Texture || creation.type == RenderGraphResourceType::Attachment))
@@ -162,7 +179,7 @@ namespace Fyrion
 
                 for (auto& output : outputs)
                 {
-                    extent = Math::Max(extent, output.resource->textureCreation.extent);
+                    extent = Math::Max(extent, output.resource->GetExtent());
                 }
             }
 
@@ -316,7 +333,6 @@ namespace Fyrion
                 {
                     Graphics::DestroyTextureView(resource->textureView);
                 }
-                resource->textureCreation.extent = resource->creation.textureViewCreation.texture->textureCreation.extent / resource->creation.textureViewCreation.baseMipLevel;
 
                 TextureViewCreation creation = resource->creation.textureViewCreation.ToTextureViewCreation();
                 creation.texture = resource->creation.textureViewCreation.texture->texture;
@@ -339,7 +355,7 @@ namespace Fyrion
             {
                 for (auto& output : pass->outputs)
                 {
-                    pass->extent = Math::Max(pass->extent, output.resource->textureCreation.extent);
+                    pass->extent = Math::Max(pass->extent, output.resource->GetExtent());
                 }
             }
 
@@ -506,11 +522,15 @@ namespace Fyrion
                         ResourceLayout newLayout = input.resource->creation.format != Format::Depth ? ResourceLayout::ShaderReadOnly : ResourceLayout::DepthStencilReadOnly;
                         if (input.resource->currentLayout != newLayout)
                         {
-                            ResourceBarrierInfo resourceBarrierInfo{};
-                            resourceBarrierInfo.texture = input.resource->texture;
-                            resourceBarrierInfo.oldLayout = input.resource->currentLayout;
-                            resourceBarrierInfo.newLayout = newLayout;
-                            cmd.ResourceBarrier(resourceBarrierInfo);
+                            for (int m = 0; m < input.resource->textureCreation.mipLevels; ++m)
+                            {
+                                ResourceBarrierInfo resourceBarrierInfo{};
+                                resourceBarrierInfo.texture = input.resource->texture;
+                                resourceBarrierInfo.oldLayout = input.resource->currentLayout;
+                                resourceBarrierInfo.newLayout = newLayout;
+                                resourceBarrierInfo.mipLevel = m;
+                                cmd.ResourceBarrier(resourceBarrierInfo);
+                            }
 
                             input.resource->currentLayout = newLayout;
                         }
@@ -617,16 +637,6 @@ namespace Fyrion
                              (pass->extent.height + pass->dispatch->height - 1) / pass->dispatch->height,
                              pass->dispatch->depth);
             }
-
-            // if (pass->pipelineState)
-            // {
-            //     cmd.BindPipelineState(pass->pipelineState);
-            // }
-            //
-            // if (pass->pipelineState && pass->bindingSet)
-            // {
-            //     cmd.BindBindingSet(pass->pipelineState, pass->bindingSet);
-            // }
 
             if (pass->handler)
             {

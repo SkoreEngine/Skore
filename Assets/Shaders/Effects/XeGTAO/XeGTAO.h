@@ -80,6 +80,8 @@ namespace XeGTAO
         float                   ThinOccluderCompensation;
         float                   DepthMIPSamplingOffset;
         int                     NoiseIndex;                         // frameIndex % 64 if using TAA or 0 otherwise
+
+        Matrix4x4               View;
     };
 
     // This is used only for the development (ray traced ground truth).

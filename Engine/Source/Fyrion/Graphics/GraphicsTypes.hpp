@@ -30,7 +30,9 @@ namespace Fyrion
     enum class Format
     {
         R,
+        R8U,
         R16F,
+        R32U,
         R32F,
         RG,
         RG16F,

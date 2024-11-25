@@ -28,6 +28,7 @@ Texture2D                       gbuffer2;
 Texture2D                       gbuffer3;
 TextureCube<float4>             diffuseIrradiance;
 TextureCube<float4>             specularMap;
+Texture2D<uint>                 aoTexture;
 Texture2D                       brdfLUT;
 SamplerState                    brdfLUTSampler;
 Texture2DArray                  shadowMapTexture;
@@ -86,6 +87,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
         return;
     }
 
+
     int2 outDim;
     lightOutput.GetDimensions(outDim.x, outDim.y);
     float2 uv = (float2(px) + 0.5) / outDim.xy;
@@ -96,6 +98,9 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     float   roughness       = gbuffer2[px].x;
     float   ao              = gbuffer2[px].y;
     float3  N               = OctohedralToDirection(gbuffer3[px].rg);
+
+	//float ssao = FY_DecodeVisibilityBentNormal_VisibilityOnly(aoTexture[px].x);
+	ao = min(ao, (aoTexture[px].x / 255.0f));
 
     float3  fragViewPos  = mul(data.view, float4(worldPosition, 1.0)).xyz;
 
@@ -161,7 +166,6 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
         kD *= 1.0 - metallic;
 
         float3 radiance = data.lights[i].GetColor() * attenuation * shadow; //TODO shadows should only check the shadow light.
-
         Lo += (kD * (albedo / PI) + specular) * radiance * NdotL;
     }
 
@@ -182,7 +186,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     float2  specularBRDF            = brdfLUT.SampleLevel(brdfLUTSampler, float2(cosLo, roughness), 0).rg;
     float3  specularIBL             = specularIrradiance * (F * specularBRDF.x + specularBRDF.y);
 
-    Lo += (diffuseIBL + specularIBL) * indirectMultiplier;
+    Lo += ((diffuseIBL + specularIBL) * ao) * indirectMultiplier;
 
     lightOutput[px] = float4(Lo, 1.0);
 }

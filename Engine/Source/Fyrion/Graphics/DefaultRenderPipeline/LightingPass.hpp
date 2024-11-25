@@ -15,6 +15,7 @@ namespace Fyrion
         RenderGraphResource* gbuffer1;
         RenderGraphResource* gbuffer2;
         RenderGraphResource* gbuffer3;
+        RenderGraphResource* aoTexture;
         RenderGraphResource* shadowMap;
         RenderGraphResource* lightOutput{};
         RenderGraphResource* depth;
@@ -94,6 +95,8 @@ namespace Fyrion
             bindingSet->GetVar("gbuffer3")->SetTexture(gbuffer3->texture);
             bindingSet->GetVar("diffuseIrradiance")->SetTexture(renderProxy->GetDiffuseIrradiance());
             bindingSet->GetVar("specularMap")->SetTexture(renderProxy->GetSpecularMap());
+            bindingSet->GetVar("aoTexture")->SetTexture(aoTexture->texture);
+
             bindingSet->GetVar("brdfLUT")->SetTexture(brdflutGenerator.GetTexture());
             bindingSet->GetVar("brdfLUTSampler")->SetSampler(brdfLutSampler);
             bindingSet->GetVar("shadowMapTexture")->SetTexture(shadowMap->texture);
