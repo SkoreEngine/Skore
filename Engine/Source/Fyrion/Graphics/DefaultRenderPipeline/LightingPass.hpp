@@ -64,23 +64,31 @@ namespace Fyrion
             data.view = rg->GetCameraData().view;
             data.SetViewPos(rg->GetCameraData().viewPos);
 
-            if (renderProxy)
+            if (renderProxy->cubemapTest.has_value())
             {
-                Span<LightRenderData> lights = renderProxy->GetLights();
-                data.SetLightCount(static_cast<i32>(lights.Size()));
-
-                for (int l = 0; l < lights.Size(); ++l)
-                {
-                    data.lights[l].SetType(lights[l].properties.type);
-                    data.lights[l].SetDirection(lights[l].properties.direction);
-                    data.lights[l].SetPosition(lights[l].properties.position);
-                    data.lights[l].SetColor(lights[l].properties.color.ToVec3() * lights[l].properties.intensity);
-                    data.lights[l].SetIndirectMultiplier(lights[l].properties.indirectMultiplier);
-                    data.lights[l].SetRange(lights[l].properties.range);
-                    data.lights[l].SetInnerCutoff(lights[l].properties.innerCutoff);
-                    data.lights[l].SetOuterCutoff(lights[l].properties.outerCutoff);
-                }
+                data.data1.x = 1.0f;
+                bindingSet->GetVar("cubemapTest")->SetTexture(*renderProxy->cubemapTest);
+            } else
+            {
+                bindingSet->GetVar("cubemapTest")->SetTexture(renderProxy->GetSpecularMap());
             }
+
+
+            Span<LightRenderData> lights = renderProxy->GetLights();
+            data.SetLightCount(static_cast<i32>(lights.Size()));
+
+            for (int l = 0; l < lights.Size(); ++l)
+            {
+                data.lights[l].SetType(lights[l].properties.type);
+                data.lights[l].SetDirection(lights[l].properties.direction);
+                data.lights[l].SetPosition(lights[l].properties.position);
+                data.lights[l].SetColor(lights[l].properties.color.ToVec3() * lights[l].properties.intensity);
+                data.lights[l].SetIndirectMultiplier(lights[l].properties.indirectMultiplier);
+                data.lights[l].SetRange(lights[l].properties.range);
+                data.lights[l].SetInnerCutoff(lights[l].properties.innerCutoff);
+                data.lights[l].SetOuterCutoff(lights[l].properties.outerCutoff);
+            }
+
 
             ShadowMapDataInfo* shadowMapDataInfo = static_cast<ShadowMapDataInfo*>(shadowMap->reference);
 

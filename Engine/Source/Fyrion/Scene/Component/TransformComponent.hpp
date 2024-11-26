@@ -46,6 +46,11 @@ namespace Fyrion
             return position;
         }
 
+        FY_FINLINE Vec3 GetWorldPosition() const
+        {
+            return Math::GetTranslation(worldTransform);
+        }
+
         FY_FINLINE const Quat& GetRotation() const
         {
             return rotation;

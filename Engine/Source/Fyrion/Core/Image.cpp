@@ -1,6 +1,7 @@
 #include "Image.hpp"
 #include <stb_image.h>
 #include <stb_image_resize.h>
+#include <stb_image_write.h>
 
 #include "Span.hpp"
 
@@ -97,5 +98,11 @@ namespace Fyrion
     template<> void TImage<f32>::Resize(u32 width, u32 height)
     {
 
+    }
+
+    template <>
+    void TImage<u8>::SaveAsPNG(StringView path)
+    {
+        stbi_write_png(path.CStr(), width, height, channels, data.Data(), width * channels);
     }
 }

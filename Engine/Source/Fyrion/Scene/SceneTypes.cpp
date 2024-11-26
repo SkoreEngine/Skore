@@ -4,6 +4,7 @@
 #include "Component/Component.hpp"
 #include "Component/EnvironmentComponent.hpp"
 #include "Component/LightComponent.hpp"
+#include "Component/ReflectionProbe.hpp"
 #include "Component/RenderComponent.hpp"
 #include "Component/TransformComponent.hpp"
 #include "Component/Physics/BoxColliderComponent.hpp"
@@ -42,6 +43,7 @@ namespace Fyrion
         Registry::Type<BoxColliderComponent>();
         Registry::Type<RigidBodyComponent>();
         Registry::Type<CharacterComponent>();
+        Registry::Type<ReflectionProbe>();
 
         Registry::Type<SceneSettings>();
     }

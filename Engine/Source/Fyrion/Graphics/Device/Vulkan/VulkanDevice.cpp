@@ -58,8 +58,8 @@ namespace Fyrion
             logger.FatalError("vulkan cannot be initialized");
         }
 
-       enableValidationLayers = false;
 #ifdef FY_DEBUG
+       enableValidationLayers = true;
 #endif
 
         Platform::SetVulkanLoader(vkGetInstanceProcAddr);

@@ -540,25 +540,19 @@ namespace Fyrion
 
             for (const auto& output : pass->outputs)
             {
-                if (output.resource->creation.type == RenderGraphResourceType::Texture ||
-                    output.resource->creation.type == RenderGraphResourceType::TextureView)
+                if (output.resource->creation.type == RenderGraphResourceType::Texture)
                 {
                     if (output.resource->currentLayout != ResourceLayout::General)
                     {
-                        ResourceBarrierInfo resourceBarrierInfo{};
-                        if (output.resource->creation.type == RenderGraphResourceType::Texture)
+                        for (int m = 0; m < output.resource->textureCreation.mipLevels; ++m)
                         {
+                            ResourceBarrierInfo resourceBarrierInfo{};
                             resourceBarrierInfo.texture = output.resource->texture;
+                            resourceBarrierInfo.oldLayout = output.resource->currentLayout;
+                            resourceBarrierInfo.newLayout = ResourceLayout::General;
+                            resourceBarrierInfo.mipLevel = m;
+                            cmd.ResourceBarrier(resourceBarrierInfo);
                         }
-                        else if (output.resource->creation.type == RenderGraphResourceType::TextureView)
-                        {
-                            resourceBarrierInfo.texture = output.resource->creation.textureViewCreation.texture->texture;
-                            resourceBarrierInfo.mipLevel = output.resource->creation.textureViewCreation.baseMipLevel;
-                        }
-                        resourceBarrierInfo.oldLayout = output.resource->currentLayout;
-                        resourceBarrierInfo.newLayout = ResourceLayout::General;
-                        cmd.ResourceBarrier(resourceBarrierInfo);
-
                         output.resource->currentLayout = ResourceLayout::General;
                     }
                 }
@@ -749,7 +743,7 @@ namespace Fyrion
                     resource->textureCreation.format = resource->creation.format;
                     resource->textureCreation.mipLevels = resource->creation.mipLevels;
 
-                    resource->textureCreation.usage = TextureUsage::ShaderResource;
+                    resource->textureCreation.usage = TextureUsage::ShaderResource | TextureUsage::TransferSrc;
 
                     if (resource->creation.type == RenderGraphResourceType::Attachment)
                     {

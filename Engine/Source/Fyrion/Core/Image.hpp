@@ -120,6 +120,7 @@ namespace Fyrion
         }
 
         void Resize(u32 width, u32 height);
+        void SaveAsPNG(StringView path);
 
         Array<T> data;
     private:

@@ -17,6 +17,12 @@ namespace Fyrion
         Graphics::WaitQueue();
         specularMapGenerator.Destroy();
         diffuseIrradianceGenerator.Destroy();
+
+        if (cubemapTest)
+        {
+            Graphics::DestroyTexture(*cubemapTest);
+        }
+
     }
 
     void RenderProxy::SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix)

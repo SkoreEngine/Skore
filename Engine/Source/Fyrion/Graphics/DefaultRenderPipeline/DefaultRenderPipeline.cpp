@@ -54,7 +54,6 @@ namespace Fyrion
                 .format = Format::Depth,
             });
 
-            //gbuffer textures
             RenderGraphResource* aoOutput = rg.Create(RenderGraphResourceCreation{
                 .name = "aoOutput",
                 .type = RenderGraphResourceType::Texture,

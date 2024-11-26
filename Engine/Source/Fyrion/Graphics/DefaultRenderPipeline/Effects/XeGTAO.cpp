@@ -26,7 +26,7 @@ namespace Fyrion
 
             //TODO: get it from some config
             XeGTAO::GTAOSettings  settings{};
-            settings.Radius = 5.0f;
+            settings.Radius = 3.0f;
             XeGTAO::GTAOConstants gtaoConstants{};
             GTAOUpdateConstants(gtaoConstants, viewport.width, viewport.height, settings, rg->GetCameraData().projection.a, false, 0);
             MemCopy(gtaoConstants.View.m, rg->GetCameraData().view.a, sizeof(float[16]));
@@ -117,11 +117,11 @@ namespace Fyrion
                 }
                 else
                 {
-                    // cmd.ResourceBarrier({
-                    //     .texture = aoOutput->texture,
-                    //     .oldLayout = ResourceLayout::ShaderReadOnly,
-                    //     .newLayout = ResourceLayout::General
-                    // });
+                    cmd.ResourceBarrier({
+                        .texture = aoOutput->texture,
+                        .oldLayout = ResourceLayout::ShaderReadOnly,
+                        .newLayout = ResourceLayout::General
+                    });
 
 
                     Extent3D size = aoOutput->textureCreation.extent;
@@ -130,11 +130,11 @@ namespace Fyrion
                     cmd.Dispatch((size.width + (XE_GTAO_NUMTHREADS_X * 2) - 1) / XE_GTAO_NUMTHREADS_X, (size.height + (XE_GTAO_NUMTHREADS_Y * 2) - 1) / XE_GTAO_NUMTHREADS_Y, 1);
 
 
-                    // cmd.ResourceBarrier({
-                    //     .texture = aoOutput->texture,
-                    //     .oldLayout = ResourceLayout::General,
-                    //     .newLayout = ResourceLayout::ShaderReadOnly,
-                    // });
+                    cmd.ResourceBarrier({
+                        .texture = aoOutput->texture,
+                        .oldLayout = ResourceLayout::General,
+                        .newLayout = ResourceLayout::ShaderReadOnly,
+                    });
                 }
             }
         }

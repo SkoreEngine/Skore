@@ -6,6 +6,7 @@
 #include "Fyrion/ImGui/IconsFontAwesome6.h"
 #include "Fyrion/ImGui/ImGui.hpp"
 #include "Fyrion/Scene/Component/Component.hpp"
+#include "Fyrion/Scene/Component/ReflectionProbe.hpp"
 
 namespace Fyrion
 {
@@ -153,6 +154,20 @@ namespace Fyrion
                 });
                 ImGui::Unindent();
                 // ImGui::EndDisabled();
+
+
+                if (component->typeHandler->GetTypeInfo().typeId == GetTypeID<ReflectionProbe>())
+                {
+                    ImGui::BeginHorizontal("bake-01", ImVec2(width, size));
+                    ImGui::Spring(1.0f);
+                    if (ImGui::BorderedButton("Bake", ImVec2(width * 2 / 3, size)))
+                    {
+                        static_cast<ReflectionProbe*>(component)->Bake();
+                    }
+                    ImGui::Spring(1.0f);
+                    ImGui::EndHorizontal();
+                }
+
             }
         }
 

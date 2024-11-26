@@ -48,6 +48,7 @@ namespace Fyrion
 
         static void RegisterType(NativeTypeHandler<RenderProxy>& type);
 
+        Optional<Texture> cubemapTest;
     private:
         Array<MeshRenderData>   meshRenders;
         HashMap<VoidPtr, usize> meshRendersLookup;

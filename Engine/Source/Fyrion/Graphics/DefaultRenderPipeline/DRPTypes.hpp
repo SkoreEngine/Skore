@@ -78,6 +78,7 @@ namespace Fyrion
         Mat4        viewProjInverse = {};
         Mat4        view = {};
         Vec4        data0 = {};
+        Vec4        data1 = {};
         ShaderLight lights[128];
 
         void SetViewPos(Vec3 viewPos)
