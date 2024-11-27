@@ -193,7 +193,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     }
     else
     {
-        float3  specularIrradiance      = cubemapTest.SampleLevel(defaultSampler, Lr, 0).rgb;
+        float3  specularIrradiance      = cubemapTest.SampleLevel(defaultSampler, Lr, roughness * 6).rgb;
         float2  specularBRDF            = brdfLUT.SampleLevel(brdfLUTSampler, float2(cosLo, roughness), 0).rg;
         specularIBL                     = specularIrradiance * (F * specularBRDF.x + specularBRDF.y);
     }

@@ -25,14 +25,16 @@ namespace Fyrion
 
     void ReflectionProbe::Bake()
     {
+        u16 mips = 6;
         u32 size = 256;
+        specularMapGenerator.Init({size, size}, 6);
 
         RenderProxy* renderProxy = gameObject->GetScene()->GetProxy<RenderProxy>();
-
 
         Texture cubemapTest = Graphics::CreateTexture({
             .extent = {size, size, 1},
             .format = Format::RGBA,
+            //.mipLevels = mips,
             .arrayLayers = 6,
             .defaultView = ViewType::TypeCube,
             .name = "CubemapTest"
@@ -70,22 +72,18 @@ namespace Fyrion
             }
             else if (i == 2)
             {
-                //right
                 view = Math::Inverse(Math::Translate(Mat4{1.0}, transformComponent->GetWorldPosition()) * Math::ToMatrix4(Quat(Vec3{Math::Radians(90.f), 0, 0})));
             }
             else if (i == 3)
             {
-                //right
                 view = Math::Inverse(Math::Translate(Mat4{1.0}, transformComponent->GetWorldPosition()) * Math::ToMatrix4(Quat(Vec3{Math::Radians(-90.f), 0, 0})));
             }
             else if (i == 4)
             {
-                //right
                 view = Math::Inverse(Math::Translate(Mat4{1.0}, transformComponent->GetWorldPosition()) * Math::ToMatrix4(Quat(Vec3{0, Math::Radians(180.f), 0})));
             }
             else
             {
-                //right, but inverted?
                 view = Math::Inverse(Math::Translate(Mat4{1.0}, transformComponent->GetWorldPosition()) * Math::ToMatrix4(Quat(Vec3{0, 0, 0})));
             }
 
@@ -116,16 +114,7 @@ namespace Fyrion
                             cubemapTest, ResourceLayout::CopyDest,
                             {&textureCopy, 1});
 
-
-            cmd.ResourceBarrier({
-                .texture = cubemapTest,
-                .oldLayout = ResourceLayout::CopyDest,
-                .newLayout = ResourceLayout::ShaderReadOnly,
-                .baseArrayLayer = i,
-            });
-
             cmd.SubmitAndWait(Graphics::GetMainQueue());
-
 
             // Array<u8> textureData;
             //
@@ -143,10 +132,18 @@ namespace Fyrion
             // image.SaveAsPNG(str);
         }
 
+        Graphics::UpdateTextureLayout(cubemapTest, ResourceLayout::CopyDest, ResourceLayout::ShaderReadOnly);
+        //RenderUtils::GenerateCubemapMips(cubemapTest, {size, size}, mips);
+
+        RenderCommands& cmd = Graphics::GetCmd();
+        cmd.Begin();
+        specularMapGenerator.Generate(cmd, cubemapTest);
+        cmd.SubmitAndWait(Graphics::GetMainQueue());
+
         DestroyAndFree(renderGraph);
         DestroyAndFree(renderPipeline);
 
-        renderProxy->cubemapTest = cubemapTest;
+        renderProxy->cubemapTest = specularMapGenerator.GetTexture();
         logger.Info("bake finished");
     }
 }

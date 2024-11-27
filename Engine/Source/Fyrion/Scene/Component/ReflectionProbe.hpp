@@ -1,5 +1,6 @@
 #pragma once
 #include "Component.hpp"
+#include "Fyrion/Graphics/RenderUtils.hpp"
 
 
 namespace Fyrion
@@ -13,6 +14,6 @@ namespace Fyrion
 
         void Bake();
     private:
-
+        SpecularMapGenerator specularMapGenerator;
     };
 }

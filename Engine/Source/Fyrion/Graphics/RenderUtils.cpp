@@ -186,6 +186,80 @@ namespace Fyrion
         return {};
     }
 
+    void RenderUtils::GenerateCubemapMips(Texture texture, Extent extent, u32 mips)
+    {
+        ShaderState*  shaderState = Assets::LoadByPath<ShaderAsset>("Fyrion://Shaders/Utils/DownsampleArray.comp")->GetDefaultState();
+        PipelineState pipelineState = Graphics::CreateComputePipelineState({
+            .shaderState = shaderState
+        });
+
+        Array<BindingSet*> bindingSets;
+        bindingSets.Resize(mips - 1);
+
+        Array<TextureView> views;
+        views.Resize(mips);
+
+        for (u32 i = 0; i < mips; ++i)
+        {
+            views[i] = Graphics::CreateTextureView({
+                .texture = texture,
+                .viewType = ViewType::Type2DArray,
+                .baseMipLevel = i,
+                .layerCount = 6,
+            });
+
+            if (i > 0)
+            {
+                bindingSets[i - 1] = Graphics::CreateBindingSet(shaderState);
+                bindingSets[i - 1]->GetVar("inputTexture")->SetTextureView(views[i - 1]);
+                bindingSets[i - 1]->GetVar("outputTexture")->SetTextureView(views[i]);
+            }
+        }
+
+        RenderCommands& cmd = Graphics::GetCmd();
+        cmd.Begin();
+        cmd.BindPipelineState(pipelineState);
+        for (u32 mip = 1; mip < mips; ++mip)
+        {
+            u32 mipWidth  = extent.width * std::pow(0.5, mip);
+            u32 mipHeight = extent.height * std::pow(0.5, mip);
+
+            cmd.ResourceBarrier({
+                .texture = texture,
+                .oldLayout = ResourceLayout::ShaderReadOnly,
+                .newLayout = ResourceLayout::General,
+                .mipLevel = mip,
+                .layerCount = 6
+            });
+
+            cmd.BindBindingSet(pipelineState, bindingSets[mip-1]);
+            cmd.Dispatch(std::ceil(mipWidth / 8.f),
+                         std::ceil(mipHeight / 8.f),
+                         6);
+
+            cmd.ResourceBarrier({
+                .texture = texture,
+                .oldLayout = ResourceLayout::General,
+                .newLayout = ResourceLayout::ShaderReadOnly,
+                .mipLevel = mip,
+                .layerCount = 6
+            });
+        }
+        cmd.SubmitAndWait(Graphics::GetMainQueue());
+
+        for (BindingSet* bindingSet : bindingSets)
+        {
+            Graphics::DestroyBindingSet(bindingSet);
+        }
+
+        for (TextureView textureView : views)
+        {
+            Graphics::DestroyTextureView(textureView);
+        }
+
+        Graphics::DestroyComputePipelineState(pipelineState);
+    }
+
     void EquirectangularToCubemap::Init(Extent extent, Format format)
     {
         this->format = format;

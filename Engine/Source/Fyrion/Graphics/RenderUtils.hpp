@@ -76,4 +76,5 @@ namespace Fyrion::RenderUtils
     FY_API AABB    CalculateMeshAABB(const Array<VertexStride>& vertices);
     FY_API void    CalcTangents(Array<VertexStride>& vertices, const Array<u32>& indices, bool useMikktspace = true);
     FY_API Texture GenerateBRDFLUT();
+    FY_API void    GenerateCubemapMips(Texture texture, Extent extent, u32 mips);
 }

@@ -141,9 +141,12 @@ namespace Fyrion
             RenderCommands& cmd = Graphics::GetCmd();
             cmd.Begin();
             toCubemap.Convert(cmd, texture);
+            cmd.SubmitAndWait(Graphics::GetMainQueue());
+            //RenderUtils::GenerateCubemapMips(toCubemap.GetTexture(), {256, 256}, 6);
 
             Texture cubemap = toCubemap.GetTexture();
 
+            cmd.Begin();
             diffuseIrradianceGenerator.Generate(cmd, cubemap);
             specularMapGenerator.Generate(cmd, cubemap);
             cmd.SubmitAndWait(Graphics::GetMainQueue());
