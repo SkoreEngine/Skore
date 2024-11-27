@@ -1,4 +1,4 @@
-#include "Fyrion://Shaders/Includes/PBR.inc"
+#include "Skore://Shaders/Includes/PBR.inc"
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 
@@ -101,7 +101,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     float   ao              = gbuffer2[px].y;
     float3  N               = OctohedralToDirection(gbuffer3[px].rg);
 
-	//float ssao = FY_DecodeVisibilityBentNormal_VisibilityOnly(aoTexture[px].x);
+	//float ssao = SK_DecodeVisibilityBentNormal_VisibilityOnly(aoTexture[px].x);
 	ao = min(ao, (aoTexture[px].x / 255.0f));
 
     float3  fragViewPos  = mul(data.view, float4(worldPosition, 1.0)).xyz;

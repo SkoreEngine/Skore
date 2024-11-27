@@ -1,4 +1,4 @@
-#include "Fyrion://Shaders/Includes/Tonemaps.hlsl"
+#include "Skore://Shaders/Includes/Tonemaps.hlsl"
 
 Texture2D<float4>       inputTexture;
 RWTexture2D<float4>     outputTexture;

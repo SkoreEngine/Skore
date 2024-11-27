@@ -1,2 +1,2 @@
-add_executable(FyrionPlayer Source/Fyrion/EntryPoint.cpp)
-target_link_libraries(FyrionPlayer PUBLIC FyrionEngine)
+add_executable(SkorePlayer Source/Skore/EntryPoint.cpp)
+target_link_libraries(SkorePlayer PUBLIC SkoreEngine)

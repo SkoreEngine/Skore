@@ -1,12 +1,12 @@
 #define DOCTEST_CONFIG_IMPLEMENT
 #include "doctest.h"
 
-#include "Fyrion/Core/Allocator.hpp"
-#include "Fyrion/Core/Event.hpp"
-#include "Fyrion/Core/Logger.hpp"
-#include "Fyrion/Core/Sinks.hpp"
+#include "Skore/Core/Allocator.hpp"
+#include "Skore/Core/Event.hpp"
+#include "Skore/Core/Logger.hpp"
+#include "Skore/Core/Sinks.hpp"
 
-using namespace Fyrion;
+using namespace Skore;
 
 int main(int argc, char** argv)
 {

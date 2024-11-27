@@ -5,7 +5,7 @@
 // Computes diffuse irradiance cubemap convolution for image-based lighting.
 // Uses quasi Monte Carlo sampling with Hammersley sequence.
 
-#include "Fyrion://Shaders/Includes/PBR.inc"
+#include "Skore://Shaders/Includes/PBR.inc"
 
 static const uint   NumSamples      = 64 * 1024;
 static const float  InvNumSamples   = 1.0 / float(NumSamples);

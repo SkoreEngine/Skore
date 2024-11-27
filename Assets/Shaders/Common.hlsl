@@ -137,7 +137,7 @@ float3 GetWorldPositionFromDepth(float2 uv, float depth, float4x4 viewProjInvers
     return worldPos.xyz / worldPos.w;
 }
 
-float4 FY_R8G8B8A8_UNORM_to_FLOAT4( uint packedInput )
+float4 SK_R8G8B8A8_UNORM_to_FLOAT4( uint packedInput )
 {
 	float4 unpackedOutput;
 	unpackedOutput.x = (float)( packedInput & 0x000000ff ) / 255;
@@ -147,7 +147,7 @@ float4 FY_R8G8B8A8_UNORM_to_FLOAT4( uint packedInput )
 	return unpackedOutput;
 }
 
-uint FY_FLOAT4_to_R8G8B8A8_UNORM( float4 unpackedInput )
+uint SK_FLOAT4_to_R8G8B8A8_UNORM( float4 unpackedInput )
 {
 	return ( ( uint( saturate( unpackedInput.x ) * 255 + 0.5 ) ) |
 	         ( uint( saturate( unpackedInput.y ) * 255 + 0.5 ) << 8 ) |
@@ -155,21 +155,21 @@ uint FY_FLOAT4_to_R8G8B8A8_UNORM( float4 unpackedInput )
 	         ( uint( saturate( unpackedInput.w ) * 255 + 0.5 ) << 24 ) );
 }
 
-void FY_DecodeVisibilityBentNormal( const uint packedValue, out float visibility, out float3 bentNormal )
+void SK_DecodeVisibilityBentNormal( const uint packedValue, out float visibility, out float3 bentNormal )
 {
-	float4 decoded = FY_R8G8B8A8_UNORM_to_FLOAT4( packedValue );
+	float4 decoded = SK_R8G8B8A8_UNORM_to_FLOAT4( packedValue );
 	bentNormal = decoded.xyz * 2.0.xxx - 1.0.xxx;   // could normalize - don't want to since it's done so many times, better to do it at the final step only
 	visibility = decoded.w;
 }
 
-float FY_DecodeVisibilityBentNormal_VisibilityOnly( const uint packedValue )
+float SK_DecodeVisibilityBentNormal_VisibilityOnly( const uint packedValue )
 {
 	float visibility; float3 bentNormal;
-	FY_DecodeVisibilityBentNormal( packedValue, visibility, bentNormal );
+	SK_DecodeVisibilityBentNormal( packedValue, visibility, bentNormal );
 	return visibility;
 }
 
-float3 FY_R11G11B10_UNORM_to_FLOAT3( uint packedInput )
+float3 SK_R11G11B10_UNORM_to_FLOAT3( uint packedInput )
 {
 	float3 unpackedOutput;
 	unpackedOutput.x = (float)( ( packedInput       ) & 0x000007ff ) / 2047.0f;
@@ -179,7 +179,7 @@ float3 FY_R11G11B10_UNORM_to_FLOAT3( uint packedInput )
 }
 
 // 'unpackedInput' is float3 and not float3 on purpose as half float lacks precision for below!
-uint FY_FLOAT3_to_R11G11B10_UNORM( float3 unpackedInput )
+uint SK_FLOAT3_to_R11G11B10_UNORM( float3 unpackedInput )
 {
 	uint packedOutput;
 	packedOutput =( ( uint( saturate( unpackedInput.x ) * 2047 + 0.5f ) ) |

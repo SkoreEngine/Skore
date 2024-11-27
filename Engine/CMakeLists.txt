@@ -4,8 +4,8 @@ set(FT_DISABLE_HARFBUZZ ON)
 add_subdirectory(ThirdParty)
 
 cmrc_add_resource_library(
-				FyrionContent
-				ALIAS FyrionContent::RS
+				SkoreContent
+				ALIAS SkoreContent::RS
 				NAMESPACE StaticContent
 
 				Content/Fonts/DejaVuSans.ttf
@@ -19,15 +19,15 @@ cmrc_add_resource_library(
 
 
 file(GLOB_RECURSE FYRION_ENGINE_SOURCES Source/*.hpp Source/*.cpp Source/*.h Source/*.c)
-add_library(FyrionEngine SHARED ${FYRION_ENGINE_SOURCES})
+add_library(SkoreEngine SHARED ${FYRION_ENGINE_SOURCES})
 
-target_include_directories(FyrionEngine PUBLIC Source)
-target_include_directories(FyrionEngine PUBLIC Source/Fyrion/ImGui/Lib)
+target_include_directories(SkoreEngine PUBLIC Source)
+target_include_directories(SkoreEngine PUBLIC Source/Skore/ImGui/Lib)
 
-target_compile_definitions(FyrionEngine PUBLIC FMT_LIB_EXPORT=1)
-target_compile_definitions(FyrionEngine PUBLIC FY_DEV_ASSETS_PATH="${FY_DEV_ASSET_FILES}")
+target_compile_definitions(SkoreEngine PUBLIC FMT_LIB_EXPORT=1)
+target_compile_definitions(SkoreEngine PUBLIC SK_DEV_ASSETS_PATH="${SK_DEV_ASSET_FILES}")
 
-target_link_libraries(FyrionEngine PRIVATE
+target_link_libraries(SkoreEngine PRIVATE
 				mimalloc
 				glfw
 				vma
@@ -41,19 +41,19 @@ target_link_libraries(FyrionEngine PRIVATE
 				lz4
 				yyjson
 				mikktspace
-				FyrionContent::RS
+				SkoreContent::RS
 				Jolt
-				FyrionAssets
+				SkoreAssets
 )
 
 ##tests
 file(GLOB_RECURSE FYRION_ENGINE_TESTS_SOURCES Test/*.hpp Test/*.cpp Test/*.h Test/*.c)
-add_executable(FyrionEngineTests ${FYRION_ENGINE_TESTS_SOURCES})
+add_executable(SkoreEngineTests ${FYRION_ENGINE_TESTS_SOURCES})
 
-target_link_libraries(FyrionEngineTests PUBLIC FyrionEngine)
+target_link_libraries(SkoreEngineTests PUBLIC SkoreEngine)
 
-target_include_directories(FyrionEngineTests PUBLIC ThirdParty/doctest)
-target_include_directories(FyrionEngineTests PUBLIC Test)
-target_compile_definitions(FyrionEngineTests PRIVATE FY_TEST_FILES="${CMAKE_CURRENT_SOURCE_DIR}/Test/Files")
+target_include_directories(SkoreEngineTests PUBLIC ThirdParty/doctest)
+target_include_directories(SkoreEngineTests PUBLIC Test)
+target_compile_definitions(SkoreEngineTests PRIVATE SK_TEST_FILES="${CMAKE_CURRENT_SOURCE_DIR}/Test/Files")
 
-add_test(NAME FyrionEngineTests COMMAND FyrionEngineTests)
+add_test(NAME SkoreEngineTests COMMAND SkoreEngineTests)

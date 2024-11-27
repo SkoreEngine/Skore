@@ -27,6 +27,6 @@ function(add_plugin name)
 	configure_plugin(${name})
 
 	target_include_directories(${name} PUBLIC Source)
-	target_link_libraries(${name} PUBLIC FyrionEngine)
+	target_link_libraries(${name} PUBLIC SkoreEngine)
 
 endfunction(add_plugin)

@@ -20,7 +20,7 @@
 #include "XeGTAO.h"
 #include "XeGTAO.hlsli"
 
-#include "Fyrion://Shaders/Common.hlsl"
+#include "Skore://Shaders/Common.hlsl"
 
 ConstantBuffer<GTAOConstants> g_GTAOConsts;
 

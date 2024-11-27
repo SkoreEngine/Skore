@@ -1,9 +1,9 @@
-# Fyrion Engine
+# Skore Engine
 
 [![The MIT License][license-image]][license-url]
 [![Language](https://img.shields.io/badge/language-C++-blue.svg)](https://isocpp.org/)
 
-Fyrion is an in development open-source MIT licensed multi-platform 2D and 3D game engine   
+Skore is an in development open-source MIT licensed multi-platform 2D and 3D game engine   
 
 [license-image]: https://img.shields.io/badge/License-MIT-yellow.svg
 [license-url]: https://opensource.org/licenses/MIT
@@ -13,7 +13,7 @@ Fyrion is an in development open-source MIT licensed multi-platform 2D and 3D ga
 
 ## Important Note:
 
->Fyrion is under constant development and is not a stable tool, it lacks important features and the API can change drastically, so it should not be used for production.
+>Skore is under constant development and is not a stable tool, it lacks important features and the API can change drastically, so it should not be used for production.
 
 ### Principles
 - Easy to use, simple and straightforward API, no hidden or complicated structures, no complicated configuration steps
@@ -51,12 +51,12 @@ Fyrion is an in development open-source MIT licensed multi-platform 2D and 3D ga
 * And more...
 
 ### Building
-Fyrion uses cmake to build, all external libraries are included in the build system and compiles together with the engine for each platform
+Skore uses cmake to build, all external libraries are included in the build system and compiles together with the engine for each platform
 but some platforms like linux might require some library installation like xorg-dev,  libglu1-mesa-dev and libgtk-3-dev
 
 ```
-git clone https://github.com/FyrionEngine/Fyrion.git
-cd Fyrion
+git clone https://github.com/SkoreEngine/Skore.git
+cd Skore
 mkdir Build
 cd Build
 cmake ..
@@ -65,4 +65,4 @@ cmake --build .
 
 ---
 ### License
-Fyrion is licensed under MIT License.
+Skore is licensed under MIT License.

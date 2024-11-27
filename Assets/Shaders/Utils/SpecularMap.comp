@@ -2,7 +2,7 @@
 // Physically Based Rendering
 // Copyright (c) 2017-2018 Michał Siejak
 
-#include "Fyrion://Shaders/Includes/PBR.inc"
+#include "Skore://Shaders/Includes/PBR.inc"
 
 TextureCube                 inputTexture;
 RWTexture2DArray<float4>    outputTexture;

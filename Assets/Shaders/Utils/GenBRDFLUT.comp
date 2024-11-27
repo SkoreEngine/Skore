@@ -1,4 +1,4 @@
-#include "Fyrion://Shaders/Includes/PBR.inc"
+#include "Skore://Shaders/Includes/PBR.inc"
 
 RWTexture2D<float2> texture : register(u0);
 

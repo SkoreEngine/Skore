@@ -31,7 +31,7 @@
 - License: The FreeType Project LICENSE
 
 ## ImGui
-- Upstream: https://github.com/FyrionEngine/imgui
+- Upstream: https://github.com/SkoreEngine/imgui
 - License: MIT
 
 ## mimalloc
@@ -65,7 +65,7 @@
 - License: MIT
 
 Additional Info:
-- files are converted and heavily modified inside Engine/Source/Fyrion/Core
+- files are converted and heavily modified inside Engine/Source/Skore/Core
 - merge included from https://github.com/mendsley/tinystl/pull/11
 
 ## ankerl::unordered_dense

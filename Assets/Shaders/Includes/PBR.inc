@@ -1,4 +1,4 @@
-#include "Fyrion://Shaders/Common.hlsl"
+#include "Skore://Shaders/Common.hlsl"
 
 float RadicalInverseVDC(uint bits)
 {
