@@ -8,6 +8,7 @@ namespace Skore
 {
     RenderProxy::RenderProxy()
     {
+        toCubemap.Init({256, 256}, Format::RGBA16F);
         diffuseIrradianceGenerator.Init({64, 64});
         specularMapGenerator.Init({128, 128}, 6);
     }
@@ -17,6 +18,7 @@ namespace Skore
         Graphics::WaitQueue();
         specularMapGenerator.Destroy();
         diffuseIrradianceGenerator.Destroy();
+        toCubemap.Destroy();
     }
 
     void RenderProxy::SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix)
@@ -129,14 +131,10 @@ namespace Skore
         {
             Texture texture = panoramaSky->GetTexture();
 
-            EquirectangularToCubemap toCubemap{};
-            toCubemap.Init({256, 256}, Format::RGBA16F);
-
             RenderCommands& cmd = Graphics::GetCmd();
             cmd.Begin();
             toCubemap.Convert(cmd, texture);
             cmd.SubmitAndWait(Graphics::GetMainQueue());
-            //RenderUtils::GenerateCubemapMips(toCubemap.GetTexture(), {256, 256}, 6);
 
             Texture cubemap = toCubemap.GetTexture();
 
@@ -145,7 +143,7 @@ namespace Skore
             specularMapGenerator.Generate(cmd, cubemap);
             cmd.SubmitAndWait(Graphics::GetMainQueue());
 
-            toCubemap.Destroy();
+            //toCubemap.Destroy();
         }
 
         this->panoramaSky = panoramaSky;
@@ -163,7 +161,8 @@ namespace Skore
 
     Texture RenderProxy::GetSpecularMap()
     {
-        return specularMapGenerator.GetTexture();
+        //return specularMapGenerator.GetTexture();
+        return toCubemap.GetTexture();
     }
 
     void RenderProxy::AddCamera(VoidPtr pointer, const CameraData& camera)

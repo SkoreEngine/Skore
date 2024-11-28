@@ -63,23 +63,26 @@ namespace Skore
         DescriptorType       descriptorType{};
         RenderType           renderType{};
         u32                  size{};
-        u64                  arrCount{};
+        u32                  dstArrayElement{0};
 
         VulkanBindingVar(VulkanBindingSet& bindingSet) : bindingSet(bindingSet) {}
         ~VulkanBindingVar() override;
 
-        VulkanTexture*     texture{};
-        VulkanTextureView* textureView{};
-        VulkanSampler*     sampler{};
-        VulkanBuffer*      buffer{}; //external buffers, BindingSet don't own it
+        VulkanTexture*            texture{};
+        VulkanTextureView*        textureView{};
+        VulkanSampler*            sampler{};
+        VulkanBuffer*             buffer{}; //external buffers, BindingSet don't own it
+        Array<VulkanTextureView*> textureViewArray;
 
         Array<VulkanUpdateDescriptorArray> pendingTextures{};
+
 
         FixedArray<u8, SK_FRAMES_IN_FLIGHT> bufferFrames{0, 0};
         Array<VulkanBindingVarBuffer>       valueBuffer{}; //internal buffers created for "SetValue"
 
         void SetTexture(const Texture& texture) override;
         void SetTextureAt(const Texture& texture, usize index) override;
+        void SetTextureViewArray(Span<TextureView> textureViews) override;
         void SetTextureView(const TextureView& textureView) override;
         void SetSampler(const Sampler& sampler) override;
         void SetBuffer(const Buffer& buffer) override;

@@ -60,6 +60,7 @@ namespace Skore
         TextureAsset*              panoramaSky = nullptr;
         SpecularMapGenerator       specularMapGenerator;
         DiffuseIrradianceGenerator diffuseIrradianceGenerator;
+        EquirectangularToCubemap   toCubemap;
 
 
         struct CameraStorage

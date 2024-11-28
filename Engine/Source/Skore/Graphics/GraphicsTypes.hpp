@@ -685,6 +685,7 @@ namespace Skore
 
         virtual void  SetTexture(const Texture& texture) = 0;
         virtual void  SetTextureAt(const Texture& texture, usize index) = 0;
+        virtual void  SetTextureViewArray(Span<TextureView> textureViews) = 0;
         virtual void  SetTextureView(const TextureView& textureView) = 0;
         virtual void  SetSampler(const Sampler& sampler) = 0;
         virtual void  SetBuffer(const Buffer& buffer) = 0;

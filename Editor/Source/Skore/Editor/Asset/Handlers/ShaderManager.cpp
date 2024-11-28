@@ -598,9 +598,6 @@ namespace Skore
                         };
                         shaderInfo.outputVariables.EmplaceBack(interfaceVariable);
                     }
-                } else
-                {
-                    int a = 0;
                 }
 
                 spvReflectEnumeratePushConstantBlocks(&module, &varCount, nullptr);
@@ -652,11 +649,6 @@ namespace Skore
                                     .renderType = SpirvUtils::CastRenderType(descriptorBind->type_description->op),
                                     .viewType = SpirvUtils::DimToViewType(descriptorBind->image.dim, descriptorBind->image.arrayed),
                                 };
-
-                                if (descriptorBind->name == "g_srcRawDepth")
-                                {
-                                    int a = 0;
-                                }
 
                                 for (int m = 0; m < descriptorBind->type_description->member_count; ++m)
                                 {

@@ -10,12 +10,24 @@ namespace Skore
         void Init(Texture texture);
         void Destroy() const;
         void Generate(RenderCommands& cmd);
-    private:
-        Texture       texture = {};
-        PipelineState downscaleState = {};
-        BindingSet*   bindingSet = {};
-    };
 
+    private:
+        struct DownscaleData
+        {
+            Vec4 mipInfo;
+        };
+
+        Texture            texture = {};
+        PipelineState      downscaleState = {};
+        Array<BindingSet*> bindingSets = {};
+        Array<TextureView> allViews{};
+        DownscaleData      mipData;
+        Sampler            linearSampler{};
+        u32                arrayLayers{};
+        u32                threadGroupX;
+        u32                threadGroupy;
+        Buffer             atomicCounter;
+    };
 
     class EquirectangularToCubemap
     {
@@ -33,7 +45,7 @@ namespace Skore
         TextureView      textureArrayView = {};
         PipelineState    pipelineState = {};
         BindingSet*      bindingSet = nullptr;
-        TextureDownscale downscale;
+        TextureDownscale downscale{};
     };
 
     class DiffuseIrradianceGenerator
@@ -89,11 +101,8 @@ namespace Skore::RenderUtils
 {
     SK_FINLINE u32 CalcMips(Extent extent)
     {
-        return std::max(static_cast<u32>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1, 12u);
+        return std::min(static_cast<u32>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1, 12u);
     }
-
     SK_API AABB    CalculateMeshAABB(const Array<VertexStride>& vertices);
     SK_API void    CalcTangents(Array<VertexStride>& vertices, const Array<u32>& indices, bool useMikktspace = true);
-    SK_API Texture GenerateBRDFLUT();
-    SK_API void    GenerateCubemapMips(Texture texture, Extent extent, u32 mips);
 }

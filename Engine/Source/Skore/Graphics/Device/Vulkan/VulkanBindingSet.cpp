@@ -226,6 +226,39 @@ namespace Skore
         MarkDirty();
     }
 
+    void VulkanBindingVar::SetTextureViewArray(Span<TextureView> textureViews)
+    {
+        if (textureViews.Size() != textureViewArray.Size())
+        {
+            textureViewArray.Clear();
+            textureViewArray.Resize(textureViews.Size());
+
+            for (int i = 0; i < textureViews.Size(); ++i)
+            {
+                textureViewArray[i] = static_cast<VulkanTextureView*>(textureViews[i].handler);
+            }
+
+            MarkDirty();
+            return;
+        }
+
+        bool dirty = false;
+
+        for (int i = 0; i < textureViews.Size(); ++i)
+        {
+            if (textureViewArray[i] != textureViews[i].handler)
+            {
+                textureViewArray[i] = static_cast<VulkanTextureView*>(textureViews[i].handler);
+                dirty = true;
+            }
+        }
+
+        if (dirty)
+        {
+            MarkDirty();
+        }
+    }
+
     void VulkanBindingVar::SetTextureView(const TextureView& p_textureView)
     {
         if (textureView != p_textureView.handler)
@@ -342,114 +375,84 @@ namespace Skore
             VulkanDescriptorSetData& data = descriptorSet->data[descriptorIt.second->frames[vulkanDevice.currentFrame]];
             if (data.dirty)
             {
-                u32 updatecount = 0;
                 for (int b = 0; b < descriptorSet->descriptorWrites.Size(); ++b)
                 {
                     VulkanBindingVar* vulkanBindingVar = descriptorSet->bindingVars[b];
 
-                    if (vulkanBindingVar->renderType != RenderType::RuntimeArray)
+                    VkWriteDescriptorSet& writeDescriptorSet = descriptorSet->descriptorWrites[b];
+                    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    writeDescriptorSet.dstSet = data.descriptorSet;
+                    writeDescriptorSet.descriptorCount = 1;
+                    writeDescriptorSet.descriptorType = Vulkan::CastDescriptorType(vulkanBindingVar->descriptorType);
+                    writeDescriptorSet.dstBinding = vulkanBindingVar->binding;
+                    writeDescriptorSet.dstArrayElement = vulkanBindingVar->dstArrayElement;
+
+                    switch (vulkanBindingVar->descriptorType)
                     {
-                        updatecount++;
-                        VkWriteDescriptorSet& writeDescriptorSet = descriptorSet->descriptorWrites[b];
-
-                        writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                        writeDescriptorSet.dstSet = data.descriptorSet;
-                        writeDescriptorSet.descriptorCount = 1;
-                        writeDescriptorSet.descriptorType = Vulkan::CastDescriptorType(vulkanBindingVar->descriptorType);
-                        writeDescriptorSet.dstBinding = vulkanBindingVar->binding;
-                        writeDescriptorSet.dstArrayElement = 0;
-
-                        switch (vulkanBindingVar->descriptorType)
+                        case DescriptorType::SampledImage:
+                        case DescriptorType::StorageImage:
                         {
-                            case DescriptorType::SampledImage:
-                            case DescriptorType::StorageImage:
+                            bool depthFormat = false;
+
+                            if (vulkanBindingVar->textureView)
                             {
-                                bool depthFormat = false;
-
-                                if (vulkanBindingVar->textureView)
-                                {
-                                    descriptorSet->descriptorImageInfos[b].imageView = vulkanBindingVar->textureView->imageView;
-                                }
-                                else if (vulkanBindingVar->texture)
-                                {
-                                    depthFormat = vulkanBindingVar->texture->creation.format == Format::Depth;
-                                    descriptorSet->descriptorImageInfos[b].imageView = static_cast<VulkanTextureView*>(vulkanBindingVar->texture->textureView.handler)->imageView;
-                                }
-                                else
-                                {
-                                    descriptorSet->descriptorImageInfos[b].imageView = static_cast<VulkanTextureView*>(static_cast<VulkanTexture*>(Graphics::GetDefaultTexture().handler)->textureView.
-                                        handler)->imageView;
-                                }
-
-                                descriptorSet->descriptorImageInfos[b].imageLayout = depthFormat
-                                                                                         ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-                                                                                         : vulkanBindingVar->descriptorType == DescriptorType::SampledImage
-                                                                                         ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                                                                                         : VK_IMAGE_LAYOUT_GENERAL;
-
-                                writeDescriptorSet.pImageInfo = &descriptorSet->descriptorImageInfos[b];
-                                break;
+                                descriptorSet->descriptorImageInfos[b].imageView = vulkanBindingVar->textureView->imageView;
                             }
-                            case DescriptorType::Sampler:
+                            else if (vulkanBindingVar->texture)
                             {
-                                descriptorSet->descriptorImageInfos[b].sampler = vulkanBindingVar->sampler
-                                                                                     ? vulkanBindingVar->sampler->sampler
-                                                                                     : static_cast<VulkanSampler*>(Graphics::GetDefaultSampler().handler)->sampler;
-                                writeDescriptorSet.pImageInfo = &descriptorSet->descriptorImageInfos[b];
-                                break;
+                                depthFormat = vulkanBindingVar->texture->creation.format == Format::Depth;
+                                descriptorSet->descriptorImageInfos[b].imageView = static_cast<VulkanTextureView*>(vulkanBindingVar->texture->textureView.handler)->imageView;
                             }
-                            case DescriptorType::UniformBuffer:
-                            case DescriptorType::StorageBuffer:
+                            else
+                            {
+                                descriptorSet->descriptorImageInfos[b].imageView = static_cast<VulkanTextureView*>(static_cast<VulkanTexture*>(Graphics::GetDefaultTexture().handler)->textureView.
+                                    handler)->imageView;
+                            }
 
-                                if (vulkanBindingVar->buffer)
-                                {
-                                    descriptorSet->descriptorBufferInfos[b].offset = 0;
-                                    descriptorSet->descriptorBufferInfos[b].buffer = vulkanBindingVar->buffer->buffer;
-                                    descriptorSet->descriptorBufferInfos[b].range = vulkanBindingVar->buffer->bufferCreation.size;
-                                }
-                                else if (!vulkanBindingVar->valueBuffer.Empty())
-                                {
-                                    VulkanBuffer& vulkanBuffer = vulkanBindingVar->valueBuffer[vulkanBindingVar->bufferFrames[vulkanDevice.currentFrame]].buffer;
-                                    descriptorSet->descriptorBufferInfos[b].offset = 0;
-                                    descriptorSet->descriptorBufferInfos[b].buffer = vulkanBuffer.buffer;
-                                    descriptorSet->descriptorBufferInfos[b].range = vulkanBuffer.bufferCreation.size;
-                                }
-                                else
-                                {
-                                    //TODO make a default buffer?
-                                }
-                                writeDescriptorSet.pBufferInfo = &descriptorSet->descriptorBufferInfos[b];
-                                break;
-                            case DescriptorType::AccelerationStructure:
-                                break;
+                            descriptorSet->descriptorImageInfos[b].imageLayout = depthFormat
+                                                                                     ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                                                                                     : vulkanBindingVar->descriptorType == DescriptorType::SampledImage
+                                                                                     ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                                                                     : VK_IMAGE_LAYOUT_GENERAL;
+
+                            writeDescriptorSet.pImageInfo = &descriptorSet->descriptorImageInfos[b];
+                            break;
                         }
-                    }
-                    else if (!vulkanBindingVar->pendingTextures.Empty())
-                    {
-                        Array<VkWriteDescriptorSet>  writeDescriptorses(vulkanBindingVar->pendingTextures.Size());
-                        Array<VkDescriptorImageInfo> descriptorImageInfo(vulkanBindingVar->pendingTextures.Size());
-
-                        for (int i = 0; i < vulkanBindingVar->pendingTextures.Size(); ++i)
+                        case DescriptorType::Sampler:
                         {
-                            VkWriteDescriptorSet& writeDescriptorSet = writeDescriptorses[b];
-                            writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                            writeDescriptorSet.dstSet = data.descriptorSet;
-                            writeDescriptorSet.descriptorCount = 1;
-                            writeDescriptorSet.descriptorType = Vulkan::CastDescriptorType(vulkanBindingVar->descriptorType);
-                            writeDescriptorSet.dstBinding = vulkanBindingVar->binding;
-                            writeDescriptorSet.dstArrayElement = vulkanBindingVar->pendingTextures[i].index;
-
-                            descriptorImageInfo[i].imageView = static_cast<VulkanTextureView*>(vulkanBindingVar->pendingTextures[i].texture.handler)->imageView;
-                            writeDescriptorses[i].pImageInfo = &descriptorImageInfo[i];
+                            descriptorSet->descriptorImageInfos[b].sampler = vulkanBindingVar->sampler
+                                                                                 ? vulkanBindingVar->sampler->sampler
+                                                                                 : static_cast<VulkanSampler*>(Graphics::GetDefaultSampler().handler)->sampler;
+                            writeDescriptorSet.pImageInfo = &descriptorSet->descriptorImageInfos[b];
+                            break;
                         }
-                        vkUpdateDescriptorSets(vulkanDevice.device, writeDescriptorses.Size(), writeDescriptorses.Data(), 0, nullptr);
+                        case DescriptorType::UniformBuffer:
+                        case DescriptorType::StorageBuffer:
+
+                            if (vulkanBindingVar->buffer)
+                            {
+                                descriptorSet->descriptorBufferInfos[b].offset = 0;
+                                descriptorSet->descriptorBufferInfos[b].buffer = vulkanBindingVar->buffer->buffer;
+                                descriptorSet->descriptorBufferInfos[b].range = vulkanBindingVar->buffer->bufferCreation.size;
+                            }
+                            else if (!vulkanBindingVar->valueBuffer.Empty())
+                            {
+                                VulkanBuffer& vulkanBuffer = vulkanBindingVar->valueBuffer[vulkanBindingVar->bufferFrames[vulkanDevice.currentFrame]].buffer;
+                                descriptorSet->descriptorBufferInfos[b].offset = 0;
+                                descriptorSet->descriptorBufferInfos[b].buffer = vulkanBuffer.buffer;
+                                descriptorSet->descriptorBufferInfos[b].range = vulkanBuffer.bufferCreation.size;
+                            }
+                            else
+                            {
+                                //TODO make a default buffer?
+                            }
+                            writeDescriptorSet.pBufferInfo = &descriptorSet->descriptorBufferInfos[b];
+                            break;
+                        case DescriptorType::AccelerationStructure:
+                            break;
                     }
                 }
-                if (updatecount > 0)
-                {
-                    vkUpdateDescriptorSets(vulkanDevice.device, descriptorSet->descriptorWrites.Size(), descriptorSet->descriptorWrites.Data(), 0, nullptr);
-                }
-
+                vkUpdateDescriptorSets(vulkanDevice.device, descriptorSet->descriptorWrites.Size(), descriptorSet->descriptorWrites.Data(), 0, nullptr);
                 data.dirty = false;
             }
 
