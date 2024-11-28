@@ -4,6 +4,19 @@
 
 namespace Skore
 {
+    class TextureDownscale
+    {
+    public:
+        void Init(Texture texture);
+        void Destroy() const;
+        void Generate(RenderCommands& cmd);
+    private:
+        Texture       texture = {};
+        PipelineState downscaleState = {};
+        BindingSet*   bindingSet = {};
+    };
+
+
     class EquirectangularToCubemap
     {
     public:
@@ -14,12 +27,13 @@ namespace Skore
         Texture GetTexture() const;
 
     private:
-        Format        format{};
-        Extent        extent{};
-        Texture       texture = {};
-        TextureView   textureArrayView = {};
-        PipelineState pipelineState = {};
-        BindingSet*   bindingSet = nullptr;
+        Format           format{};
+        Extent           extent{};
+        Texture          texture = {};
+        TextureView      textureArrayView = {};
+        PipelineState    pipelineState = {};
+        BindingSet*      bindingSet = nullptr;
+        TextureDownscale downscale;
     };
 
     class DiffuseIrradianceGenerator
@@ -73,6 +87,11 @@ namespace Skore
 
 namespace Skore::RenderUtils
 {
+    SK_FINLINE u32 CalcMips(Extent extent)
+    {
+        return std::max(static_cast<u32>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1, 12u);
+    }
+
     SK_API AABB    CalculateMeshAABB(const Array<VertexStride>& vertices);
     SK_API void    CalcTangents(Array<VertexStride>& vertices, const Array<u32>& indices, bool useMikktspace = true);
     SK_API Texture GenerateBRDFLUT();

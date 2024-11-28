@@ -33,13 +33,8 @@ Skore is an in development open-source MIT licensed multi-platform 2D and 3D gam
 * HLSL Shaders
 * Vulkan RHI
 * Runtime reflection system
-
-### Working in progress
 * C++ scripting using plugin pattern (no need to recompile the engine)
-* Start/Stop Simulation
 * 3D Physics using Jolt Physics
-* Export game
-
 
 ### Planned features
 * Animation system

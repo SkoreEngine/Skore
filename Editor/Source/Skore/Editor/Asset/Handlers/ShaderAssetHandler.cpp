@@ -287,29 +287,22 @@ namespace Skore
         }
     };
 
-
-    class HLSLShaderIncludeHandler : public ShaderIncludeHandler
-    {
-    public:
-        SK_BASE_TYPES(ShaderIncludeHandler);
-
-        StringView Extension() override
-        {
-            return ".hlsl";
+    #define FY_SHADER_INCLUDE(Name, StrExtension)                       \
+        class Name##ShaderIncludeHandler : public ShaderIncludeHandler  \
+        {                                                               \
+        public:                                                         \
+            SK_BASE_TYPES(ShaderIncludeHandler);                        \
+                                                                        \
+            StringView Extension() override                             \
+            {                                                           \
+                return StrExtension;                                    \
+            }                                                           \
         }
-    };
 
-    class IncShaderIncludeHandler : public ShaderIncludeHandler
-    {
-    public:
-        SK_BASE_TYPES(ShaderIncludeHandler);
-
-        StringView Extension() override
-        {
-            return ".inc";
-        }
-    };
-
+    FY_SHADER_INCLUDE(HLSL, ".hlsl");
+    FY_SHADER_INCLUDE(Inc, ".inc");
+    FY_SHADER_INCLUDE(CHeader, ".h");
+    FY_SHADER_INCLUDE(CPPHeader, ".hpp");
 
     void RegisterShaderAssetHandlers()
     {
@@ -319,6 +312,8 @@ namespace Skore
         Registry::Type<ShaderIncludeHandler>();
         Registry::Type<HLSLShaderIncludeHandler>();
         Registry::Type<IncShaderIncludeHandler>();
+        Registry::Type<CHeaderShaderIncludeHandler>();
+        Registry::Type<CPPHeaderShaderIncludeHandler>();
         Registry::Type<ShaderConfig>();
         Registry::Type<ShaderPermutation>();
         Registry::Type<ShaderConfigStage>();

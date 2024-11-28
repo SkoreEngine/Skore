@@ -10,10 +10,16 @@ namespace Skore
     public:
         SK_BASE_TYPES(Component);
 
+        void OnStart() override;
+        void OnDestroy() override;
+
         static void RegisterType(NativeTypeHandler<ReflectionProbe>& type);
 
         void Bake();
     private:
         SpecularMapGenerator specularMapGenerator;
+
+        u16 mips = 6;
+        u32 size = 256;
     };
 }

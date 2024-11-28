@@ -4,6 +4,7 @@
 #include <mikktspace.h>
 
 #include "Graphics.hpp"
+#include "RenderPipeline.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/IO/Asset.hpp"
 #include "Skore/Graphics/Assets/ShaderAsset.hpp"
@@ -269,6 +270,7 @@ namespace Skore
             .extent = {extent.width, extent.height, 1},
             .format = format,
             .usage = TextureUsage::Storage | TextureUsage::ShaderResource,
+            .mipLevels = RenderUtils::CalcMips(extent),
             .arrayLayers = 6,
             .name = "EquirectangularToCubemap"
         });
@@ -286,6 +288,7 @@ namespace Skore
         });
 
         bindingSet = Graphics::CreateBindingSet(shaderAsset->GetDefaultState());
+        downscale.Init(texture);
     }
 
     void EquirectangularToCubemap::Destroy()
@@ -321,6 +324,8 @@ namespace Skore
             .newLayout = ResourceLayout::ShaderReadOnly,
             .layerCount = 6
         });
+
+        downscale.Generate(cmd);
     }
 
     Texture EquirectangularToCubemap::GetTexture() const
@@ -538,6 +543,30 @@ namespace Skore
     Texture SpecularMapGenerator::GetTexture() const
     {
         return texture;
+    }
+
+    void TextureDownscale::Init(Texture texture)
+    {
+        this->texture = texture;
+        ShaderState* state = Assets::LoadByPath<ShaderAsset>("Skore://Shaders/Utils/SpdDownsample.comp")->GetDefaultState();
+        downscaleState = Graphics::CreateComputePipelineState({
+            .shaderState = state
+        });
+        bindingSet = Graphics::CreateBindingSet(state);
+    }
+
+    void TextureDownscale::Destroy() const
+    {
+        Graphics::DestroyBindingSet(bindingSet);
+        Graphics::DestroyComputePipelineState(downscaleState);
+    }
+
+    void TextureDownscale::Generate(RenderCommands& cmd)
+    {
+        TextureCreation textureCreation = Graphics::GetTextureCreationInfo(texture);
+
+
+
     }
 
     void SpecularMapGenerator::Destroy()

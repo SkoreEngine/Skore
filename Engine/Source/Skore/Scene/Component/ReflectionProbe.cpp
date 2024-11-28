@@ -18,6 +18,16 @@ namespace Skore
         Logger& logger = Logger::GetLogger("Skore::ReflectionProbe");
     }
 
+    void ReflectionProbe::OnStart()
+    {
+        specularMapGenerator.Init({size, size}, mips);
+    }
+
+    void ReflectionProbe::OnDestroy()
+    {
+        specularMapGenerator.Destroy();
+    }
+
     void ReflectionProbe::RegisterType(NativeTypeHandler<ReflectionProbe>& type)
     {
         type.Attribute<ComponentDesc>(ComponentDesc{.dependencies = {GetTypeID<TransformComponent>()}});
@@ -25,10 +35,6 @@ namespace Skore
 
     void ReflectionProbe::Bake()
     {
-        u16 mips = 6;
-        u32 size = 256;
-        specularMapGenerator.Init({size, size}, 6);
-
         RenderProxy* renderProxy = gameObject->GetScene()->GetProxy<RenderProxy>();
 
         Texture cubemapTest = Graphics::CreateTexture({
@@ -143,7 +149,9 @@ namespace Skore
         DestroyAndFree(renderGraph);
         DestroyAndFree(renderPipeline);
 
+        Graphics::DestroyTexture(cubemapTest);
         renderProxy->cubemapTest = specularMapGenerator.GetTexture();
+
         logger.Info("bake finished");
     }
 }

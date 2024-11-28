@@ -24,6 +24,11 @@
 - Upstream: https://github.com/fmtlib/fmt
 - Version: 10.2.1 (e69e5f977d458f2650bb346dadf2ad30c5320281, 2024)
 - License: MIT
+
+## FidelityFX
+- Upstream: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
+- Version: 1.1.2 
+- License: MIT
  
 ## freetype
 - Upstream: https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz

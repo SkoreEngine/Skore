@@ -2,7 +2,6 @@
 
 #include <mutex>
 
-#include "Skore/Core/FixedArray.hpp"
 #include "Skore/Core/Image.hpp"
 #include "Skore/Graphics/Device/RenderDevice.hpp"
 #include "Skore/Core/SharedPtr.hpp"
