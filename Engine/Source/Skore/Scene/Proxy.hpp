@@ -2,13 +2,10 @@
 
 #include "Skore/Common.hpp"
 
-namespace Skore {
-    class GameObject;
-}
-
 namespace Skore
 {
     class Scene;
+    class GameObject;
 
     struct SK_API Proxy
     {

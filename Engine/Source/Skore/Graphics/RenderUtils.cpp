@@ -191,7 +191,7 @@ namespace Skore
             .extent = {extent.width, extent.height, 1},
             .format = format,
             .usage = TextureUsage::Storage | TextureUsage::ShaderResource,
-            .mipLevels = RenderUtils::CalcMips(extent),
+            //.mipLevels = RenderUtils::CalcMips(extent),
             .arrayLayers = 6,
             .name = "EquirectangularToCubemap"
         });
@@ -211,7 +211,7 @@ namespace Skore
         });
 
         bindingSet = Graphics::CreateBindingSet(shaderAsset->GetDefaultState());
-        downscale.Init(texture);
+       // downscale.Init(texture);
     }
 
     void EquirectangularToCubemap::Destroy()
@@ -248,7 +248,7 @@ namespace Skore
             .layerCount = 6
         });
 
-        downscale.Generate(cmd);
+       // downscale.Generate(cmd);
     }
 
     Texture EquirectangularToCubemap::GetTexture() const
@@ -470,7 +470,6 @@ namespace Skore
 
     void TextureDownscale::Init(Texture texture)
     {
-
         atomicCounter = Graphics::CreateBuffer(BufferCreation{
             .usage = BufferUsage::StorageBuffer,
             .size = sizeof(u32),

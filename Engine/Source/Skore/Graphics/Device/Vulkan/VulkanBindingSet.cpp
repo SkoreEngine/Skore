@@ -375,7 +375,7 @@ namespace Skore
             VulkanDescriptorSetData& data = descriptorSet->data[descriptorIt.second->frames[vulkanDevice.currentFrame]];
             if (data.dirty)
             {
-                for (int b = 0; b < descriptorSet->descriptorWrites.Size(); ++b)
+                for (u32 b = 0; b < descriptorSet->descriptorWrites.Size(); ++b)
                 {
                     VulkanBindingVar* vulkanBindingVar = descriptorSet->bindingVars[b];
 

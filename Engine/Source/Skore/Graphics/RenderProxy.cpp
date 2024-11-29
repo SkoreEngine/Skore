@@ -161,8 +161,7 @@ namespace Skore
 
     Texture RenderProxy::GetSpecularMap()
     {
-        //return specularMapGenerator.GetTexture();
-        return toCubemap.GetTexture();
+        return specularMapGenerator.GetTexture();
     }
 
     void RenderProxy::AddCamera(VoidPtr pointer, const CameraData& camera)

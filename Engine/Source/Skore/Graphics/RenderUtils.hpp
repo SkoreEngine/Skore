@@ -24,9 +24,9 @@ namespace Skore
         DownscaleData      mipData;
         Sampler            linearSampler{};
         u32                arrayLayers{};
-        u32                threadGroupX;
-        u32                threadGroupy;
-        Buffer             atomicCounter;
+        u32                threadGroupX{};
+        u32                threadGroupy{};
+        Buffer             atomicCounter{};
     };
 
     class EquirectangularToCubemap
