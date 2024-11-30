@@ -3,6 +3,7 @@
 #include "ResourceObject.hpp"
 #include "ResourceTypes.hpp"
 #include "Skore/Core/TypeID.hpp"
+#include "Skore/Core/UUID.hpp"
 
 namespace Skore
 {
@@ -13,15 +14,19 @@ namespace Skore
 
         static RID            CreateObjectOf(TypeID typeId, TransactionScope* transactionScope = nullptr);
         static RID            CreateObjectFrom(RID rid, TransactionScope* transactionScope = nullptr);
+        static void           RegisterHandler(RID rid, UUID uuid, ResourceHandler* resourceHandler);
+        static void           SetPath(RID rid, StringView path);
+        static RID            GetFromUUID(UUID uuid);
+        static RID            GetFromPath(StringView path);
         static ResourceObject Write(RID rid);
         static ResourceObject Read(RID rid);
 
         static VoidPtr Instantiate(RID rid);
 
         template <typename T>
-        static RID CreateObjectOf()
+        static RID CreateObjectOf(TransactionScope* transactionScope = nullptr)
         {
-            return CreateObjectOf(GetTypeID<T>());
+            return CreateObjectOf(GetTypeID<T>(), transactionScope);
         }
 
         template <typename T>
@@ -29,5 +34,11 @@ namespace Skore
         {
             return static_cast<T*>(Instantiate(rid));
         }
+
+
+        //temporary
+
+        static void NewResourceSystemEnabled();
+        static bool IsNewResourceSystemEnabled();
     };
 }

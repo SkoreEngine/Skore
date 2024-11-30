@@ -371,8 +371,8 @@ namespace Skore
         this->viewportExtent = extent;
         this->scene = scene;
 
-        SK_ASSERT(this->colorOutput, "color output must be provided");
-        SK_ASSERT(this->depthOutput, "depth output must be provided");
+        // SK_ASSERT(this->colorOutput, "color output must be provided");
+        // SK_ASSERT(this->depthOutput, "depth output must be provided");
 
         CreateResources();
 

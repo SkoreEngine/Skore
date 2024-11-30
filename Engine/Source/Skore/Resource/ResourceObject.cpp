@@ -14,11 +14,21 @@ namespace Skore
 
 
     void ResourceObject::SetInt(u32 index, i64 value) {}
+
     void ResourceObject::SetString(u32 index, StringView value) {}
+
     void ResourceObject::SetVec2(u32 index, Vec2 value) {}
+
     void ResourceObject::SetVec3(u32 index, Vec3 value) {}
-    void ResourceObject::SetVec4(u32 index, Vec4 value) {}
-    void ResourceObject::SetQuat(u32 index, Quat value) {}
+
+    void ResourceObject::SetVec4(u32 index, Vec4 value)
+    {
+
+    }
+    void ResourceObject::SetQuat(u32 index, Quat value)
+    {
+
+    }
 
     i64 ResourceObject::GetInt(u32 index) const
     {

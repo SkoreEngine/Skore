@@ -29,7 +29,7 @@ namespace Skore
 
     void ProjectBrowserWindow::DrawTreeNode(AssetFile* file)
     {
-        if (!file->isDirectory) return;
+        if (!file || !file->isDirectory) return;
 
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
 

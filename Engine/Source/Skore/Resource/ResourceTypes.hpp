@@ -2,9 +2,12 @@
 
 #include "Skore/Common.hpp"
 #include "Skore/Core/Hash.hpp"
+#include "Skore/Core/UUID.hpp"
 
 namespace Skore
 {
+    class ResourceObject;
+
     enum class ResourceFieldType
     {
         None = 0,
@@ -45,5 +48,13 @@ namespace Skore
         {
             return Hash<u64>::Value(rid.id);
         }
+    };
+
+    struct ResourceHandler
+    {
+        virtual ~ResourceHandler() = default;
+
+        virtual void Load(ResourceObject* resourceObject) = 0;
+        virtual void OnChange(ResourceObject* resourceObject) = 0;
     };
 }

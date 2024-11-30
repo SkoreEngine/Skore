@@ -24,7 +24,6 @@ namespace Skore
         void SetVec4(u32 index, Vec4 value);
         void SetQuat(u32 index, Quat value);
 
-
         i64  GetInt(u32 index) const;
 
         void Commit(TransactionScope* transactionScope = nullptr);

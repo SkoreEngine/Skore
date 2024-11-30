@@ -5,6 +5,7 @@
 #include "EditorTypes.hpp"
 #include "Action/EditorAction.hpp"
 #include "Asset/AssetTypes.hpp"
+#include "Resource/ResourceEditor.hpp"
 #include "Skore/Engine.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Event.hpp"
@@ -14,6 +15,7 @@
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
 #include "Scene/SceneEditor.hpp"
+#include "Skore/Resource/Repository.hpp"
 #include "Window/ProjectBrowserWindow.hpp"
 #include "Window/PropertiesWindow.hpp"
 #include "Window/SceneTreeWindow.hpp"
@@ -144,8 +146,19 @@ namespace Skore
 
             AssetEditorInit();
 
-            AssetEditor::AddPackage("Skore", FileSystem::AssetFolder());
-            AssetEditor::SetProject(Path::Name(projectFile), Path::Parent(projectFile));
+            JsonArchiveReader reader(FileSystem::ReadFileAsString(projectFile));
+            bool newResourceSystem = reader.BoolValue(reader.GetObjectValue(reader.GetRoot(), "newResourceSystem"));
+
+            if (!newResourceSystem)
+            {
+                AssetEditor::AddPackage("Skore", FileSystem::AssetFolder());
+                AssetEditor::SetProject(Path::Name(projectFile), Path::Parent(projectFile));
+            }
+            else
+            {
+                Repository::NewResourceSystemEnabled();
+                ResourceEditor::SetProject(Path::Name(projectFile), Path::Parent(projectFile));
+            }
         }
 
         void CloseEngine(const MenuItemEventData& eventData)

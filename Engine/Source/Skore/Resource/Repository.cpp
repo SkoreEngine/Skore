@@ -3,6 +3,14 @@
 
 namespace Skore
 {
+
+
+    namespace
+    {
+        bool enabled = false;
+    }
+
+
     TransactionScope* Repository::CreateTransactionScope()
     {
         return nullptr;
@@ -14,6 +22,27 @@ namespace Skore
     }
 
     RID Repository::CreateObjectFrom(RID rid, TransactionScope* transactionScope)
+    {
+        return {};
+    }
+
+    void Repository::RegisterHandler(RID rid, UUID uuid, ResourceHandler* resourceHandler)
+    {
+
+    }
+
+    void Repository::SetPath(RID rid, StringView path)
+    {
+
+    }
+
+
+    RID Repository::GetFromUUID(UUID uuid)
+    {
+        return {};
+    }
+
+    RID Repository::GetFromPath(StringView path)
     {
         return {};
     }
@@ -31,5 +60,15 @@ namespace Skore
     VoidPtr Repository::Instantiate(RID rid)
     {
         return nullptr;
+    }
+
+    bool Repository::IsNewResourceSystemEnabled()
+    {
+        return enabled;
+    }
+
+    void Repository::NewResourceSystemEnabled()
+    {
+        enabled = true;
     }
 }
