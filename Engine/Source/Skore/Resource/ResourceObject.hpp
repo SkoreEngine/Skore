@@ -1,12 +1,11 @@
 #pragma once
 
 #include "ResourceTypes.hpp"
-#include "Skore/Core/Math.hpp"
 #include "Skore/Core/StringView.hpp"
 
 namespace Skore
 {
-    struct ResourceObjectInternal;
+    struct ResourceObjectStorage;
     class TransactionScope;
 
 
@@ -17,19 +16,23 @@ namespace Skore
 
         ResourceFieldType GetType(u32 index) const;
 
+        void SetBool(u32 index, bool value);
         void SetInt(u32 index, i64 value);
+        void SetUInt(u32 index, u64 value);
+        void SetFloat(u32 index, f64 value);
         void SetString(u32 index, StringView value);
-        void SetVec2(u32 index, Vec2 value);
-        void SetVec3(u32 index, Vec3 value);
-        void SetVec4(u32 index, Vec4 value);
-        void SetQuat(u32 index, Quat value);
 
-        i64  GetInt(u32 index) const;
+        bool       GetBool(u32 index) const;
+        i64        GetInt(u32 index) const;
+        u64        GetUInt(u32 index) const;
+        f64        GetFloat(u32 index) const;
+        StringView GetString(u32 index) const;
+
 
         void Commit(TransactionScope* transactionScope = nullptr);
 
         ~ResourceObject();
     private:
-        ResourceObjectInternal* internal = nullptr;
+        ResourceObjectStorage* data = nullptr;
     };
 }

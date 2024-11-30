@@ -16,7 +16,7 @@ namespace
         {
             RID rid = Repository::CreateObjectOf<TransformComponent>();
             ResourceObject obj = Repository::Write(rid);
-            obj.SetVec3(obj.GetIndex("position"), Vec3{});
+//            obj.SetVec3(obj.GetIndex("position"), Vec3{});
             obj.Commit();
         }
         Engine::Destroy();

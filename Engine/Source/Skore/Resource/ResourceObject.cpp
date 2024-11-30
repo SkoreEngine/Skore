@@ -2,6 +2,20 @@
 
 namespace Skore
 {
+
+    struct ResourceObjectValue
+    {
+        union
+        {
+            u64 intValue;
+        };
+    };
+
+    struct ResourceObjectStorage
+    {
+
+    };
+
     u32 ResourceObject::GetIndex(StringView name)
     {
         return 0;
@@ -13,19 +27,14 @@ namespace Skore
     }
 
 
-    void ResourceObject::SetInt(u32 index, i64 value) {}
-
-    void ResourceObject::SetString(u32 index, StringView value) {}
-
-    void ResourceObject::SetVec2(u32 index, Vec2 value) {}
-
-    void ResourceObject::SetVec3(u32 index, Vec3 value) {}
-
-    void ResourceObject::SetVec4(u32 index, Vec4 value)
+    void ResourceObject::SetInt(u32 index, i64 value)
     {
+        SK_ASSERT(data, "data is null");
 
+     //   data->fields[]
     }
-    void ResourceObject::SetQuat(u32 index, Quat value)
+
+    void ResourceObject::SetString(u32 index, StringView value)
     {
 
     }
@@ -36,7 +45,10 @@ namespace Skore
     }
 
 
-    void ResourceObject::Commit(TransactionScope* scope) {}
+    void ResourceObject::Commit(TransactionScope* scope)
+    {
+
+    }
 
     ResourceObject::~ResourceObject()
     {
