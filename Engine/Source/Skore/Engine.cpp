@@ -21,8 +21,6 @@ namespace Skore
 {
     void            PlatformInit();
     void            PlatformShutdown();
-    void            RepositoryInit();
-    void            RepositoryShutdown();
     void            GraphicsInit();
     void            GraphicsCreateDevice(Adapter adapter);
     RenderCommands& GraphicsBeginFrame();
@@ -68,7 +66,6 @@ namespace Skore
 
         TypeRegister();
         InputInit();
-        RepositoryInit();
     }
 
     void Engine::CreateContext(const EngineContextCreation& contextCreation)
@@ -258,6 +255,5 @@ namespace Skore
     {
         RegistryShutdown();
         EventShutdown();
-        RepositoryShutdown();
     }
 }
