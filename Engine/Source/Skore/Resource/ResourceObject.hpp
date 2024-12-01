@@ -5,7 +5,7 @@
 
 namespace Skore
 {
-    struct ResourceObjectStorage;
+    struct ResourceData;
     class TransactionScope;
 
 
@@ -33,6 +33,6 @@ namespace Skore
 
         ~ResourceObject();
     private:
-        ResourceObjectStorage* data = nullptr;
+        ResourceData* data = nullptr;
     };
 }

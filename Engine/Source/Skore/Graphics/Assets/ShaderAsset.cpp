@@ -35,6 +35,7 @@ namespace Skore
 
     void ShaderState::RegisterType(NativeTypeHandler<ShaderState>& type)
     {
+        type.Field<&ShaderState::name>("name");
         type.Field<&ShaderState::shaderInfo>("shaderInfo");
         type.Field<&ShaderState::stages>("stages");
         type.Field<&ShaderState::streamSize>("streamSize");
@@ -66,26 +67,29 @@ namespace Skore
 
     ShaderState* ShaderAsset::GetState(StringView name)
     {
-        auto it = states.Find(name);
-        if (it != states.end())
+        for (auto& state : states)
         {
-            return &it->second;
+            if (state.name == name)
+            {
+                state.shaderAsset = this;
+                return &state;
+            }
         }
         return nullptr;
     }
 
     ShaderState* ShaderAsset::FindOrCreateState(StringView name)
     {
-        auto it = states.Find(name);
-        if (it == states.end())
+        if (ShaderState* state = GetState(name))
         {
-            it = states.Insert(name, ShaderState{.shaderAsset = this}).first;
+            return state;
         }
-        return &it->second;
+        return &states.EmplaceBack(ShaderState{.shaderAsset = this, .name = name});
     }
 
     void ShaderAsset::RegisterType(NativeTypeHandler<ShaderAsset>& type)
     {
         type.Field<&ShaderAsset::type>("type");
+        type.Field<&ShaderAsset::states>("states");
     }
 }

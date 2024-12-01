@@ -88,6 +88,7 @@ inline void operator delete(void*, Skore::PlaceHolder, Skore::VoidPtr) noexcept
 #define SK_ASSET_EXTENSION ".asset"
 #define SK_BUFFER_EXTENSION ".buffer"
 #define SK_PROJECT_EXTENSION ".skore"
+#define SK_REPO_PAGE_SIZE 4096
 
 //---platform defines
 #if _WIN64

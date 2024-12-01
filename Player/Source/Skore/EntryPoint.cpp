@@ -1,3 +1,4 @@
+#include "imgui.h"
 #include "Skore/Engine.hpp"
 #include "Skore/Core/Registry.hpp"
 #include "Skore/Core/SharedPtr.hpp"
@@ -119,7 +120,7 @@ void InitPlayer()
     }
 
     //load scene;
-    scene = Assets::Load<Scene>(Skore::UUID::FromString("f50a3b10-ea41-2abd-feee-847bd4ac35d8"));
+    scene = Assets::Load<Scene>(Skore::UUID::FromString("ec4936c5-29b5-7842-10f3-d483a125aaf7"));
     if (scene)
     {
         scene->Start();
@@ -143,6 +144,16 @@ void UpdatePlayer(f64 deltaTime)
     {
         scene->Update();
     }
+
+    // ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+    // ImGui::SetNextWindowBgAlpha(0.35f); // Transparent background
+    // if (ImGui::Begin("FPS", 0, window_flags))
+    // {
+    //     auto& io = ImGui::GetIO();
+    //     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+    //     ImGui::End();
+    // }
+
 }
 
 void ShutdownPlayer()

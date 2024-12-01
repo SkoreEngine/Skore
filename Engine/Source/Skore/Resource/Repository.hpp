@@ -12,9 +12,9 @@ namespace Skore
     public:
         static TransactionScope* CreateTransactionScope();
 
-        static RID            CreateObjectOf(TypeID typeId, TransactionScope* transactionScope = nullptr);
-        static RID            CreateObjectFrom(RID rid, TransactionScope* transactionScope = nullptr);
-        static void           RegisterHandler(RID rid, UUID uuid, ResourceHandler* resourceHandler);
+        static RID            CreateObjectOf(TypeID typeId, UUID uuid, TransactionScope* transactionScope = nullptr);
+        static RID            CreateObjectFromPrototype(RID rid, TransactionScope* transactionScope = nullptr);
+        static void           RegisterHandler(RID rid, ResourceHandler* resourceHandler);
         static void           SetPath(RID rid, StringView path);
         static RID            GetFromUUID(UUID uuid);
         static RID            GetFromPath(StringView path);
@@ -24,9 +24,9 @@ namespace Skore
         static VoidPtr Instantiate(RID rid);
 
         template <typename T>
-        static RID CreateObjectOf(TransactionScope* transactionScope = nullptr)
+        static RID CreateObjectOf(UUID uuid, TransactionScope* transactionScope = nullptr)
         {
-            return CreateObjectOf(GetTypeID<T>(), transactionScope);
+            return CreateObjectOf(GetTypeID<T>(), uuid, transactionScope);
         }
 
         template <typename T>
@@ -34,7 +34,6 @@ namespace Skore
         {
             return static_cast<T*>(Instantiate(rid));
         }
-
 
         //temporary
 

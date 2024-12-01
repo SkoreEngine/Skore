@@ -31,6 +31,8 @@ namespace Skore
         void AddBindingSetDependency(BindingSet* bindingSet);
         void RemoveBindingSetDependency(BindingSet* bindingSet);
 
+
+        String                 name;
         ShaderInfo             shaderInfo;
         Array<ShaderStageInfo> stages{};
         u32                    streamSize{};
@@ -50,7 +52,7 @@ namespace Skore
 
         ShaderAssetType type = ShaderAssetType::None;
 
-        HashMap<String, ShaderState> states;
+        Array<ShaderState> states;
 
         Array<u8> bytes{};
 

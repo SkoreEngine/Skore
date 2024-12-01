@@ -1,6 +1,7 @@
 #include <doctest.h>
 
 #include "Skore/Engine.hpp"
+#include "Skore/Core/Registry.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Resource/Repository.hpp"
 #include "Skore/Resource/ResourceTypes.hpp"
@@ -14,7 +15,7 @@ namespace
     {
         Engine::Init();
         {
-            RID rid = Repository::CreateObjectOf<TransformComponent>();
+            RID rid = Repository::CreateObjectOf<TransformComponent>(UUID::RandomUUID());
             ResourceObject obj = Repository::Write(rid);
 //            obj.SetVec3(obj.GetIndex("position"), Vec3{});
             obj.Commit();

@@ -3,12 +3,20 @@
 namespace Skore
 {
 
-    struct ResourceObjectValue
+    struct ResourceValue
     {
         union
         {
-            u64 intValue;
+            u64  intValue;
+            char buffer[20];
         };
+
+        usize allocSize = {};
+    };
+
+    struct ResourceData
+    {
+        Array<ResourceValue> fields;
     };
 
     struct ResourceObjectStorage
@@ -30,13 +38,13 @@ namespace Skore
     void ResourceObject::SetInt(u32 index, i64 value)
     {
         SK_ASSERT(data, "data is null");
-
-     //   data->fields[]
+        data->fields[index].intValue = value;
     }
 
     void ResourceObject::SetString(u32 index, StringView value)
     {
-
+        //if (value.Size() > bu)
+        //data->fields[index].
     }
 
     i64 ResourceObject::GetInt(u32 index) const
