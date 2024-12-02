@@ -1,5 +1,7 @@
 #include "ReflectionProbe.hpp"
 
+#include <Skore/Graphics/DefaultRenderPipeline/DefaultRenderPipeline.hpp>
+
 #include "TransformComponent.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Registry.hpp"
@@ -39,8 +41,9 @@ namespace Skore
 
         Texture cubemapTest = Graphics::CreateTexture({
             .extent = {size, size, 1},
-            .format = Format::RGBA,
-            //.mipLevels = mips,
+            .format = Format::RGBA16F,
+            .usage = TextureUsage::ShaderResource | TextureUsage::Storage | TextureUsage::TransferDst,
+            .mipLevels = mips,
             .arrayLayers = 6,
             .defaultView = ViewType::TypeCube,
             .name = "CubemapTest"
@@ -51,15 +54,15 @@ namespace Skore
         TransformComponent* transformComponent = gameObject->GetComponent<TransformComponent>();
 
         logger.Info("starting bake");
-        TypeHandler* type = Registry::FindTypeByName("Skore::DefaultRenderPipeline");
-        RenderPipeline* renderPipeline = type->Cast<RenderPipeline>(type->NewInstance());
+        DefaultRenderPipeline renderPipeline;
+        renderPipeline.outputFormat = Format::RGBA16F;
 
         RenderGraph* renderGraph = Alloc<RenderGraph>(RenderGraphCreation{
             .drawToSwapChain = false,
             .updateCamera = false
         });
 
-        renderPipeline->BuildRenderGraph(*renderGraph);
+        renderPipeline.BuildRenderGraph(*renderGraph);
         renderGraph->Create(gameObject->GetScene(), Extent{size, size});
 
         Mat4 projection = Math::Perspective(Math::Radians(90.f), 1, 0.1, 200);
@@ -139,7 +142,15 @@ namespace Skore
         }
 
         Graphics::UpdateTextureLayout(cubemapTest, ResourceLayout::CopyDest, ResourceLayout::ShaderReadOnly);
-        //RenderUtils::GenerateCubemapMips(cubemapTest, {size, size}, mips);
+        {
+            TextureDownscale textureDownscale{};
+            textureDownscale.Init(cubemapTest);
+            RenderCommands& cmd = Graphics::GetCmd();
+            cmd.Begin();
+            textureDownscale.Generate(cmd);
+            cmd.SubmitAndWait(Graphics::GetMainQueue());
+            textureDownscale.Destroy();
+        }
 
         RenderCommands& cmd = Graphics::GetCmd();
         cmd.Begin();
@@ -147,7 +158,6 @@ namespace Skore
         cmd.SubmitAndWait(Graphics::GetMainQueue());
 
         DestroyAndFree(renderGraph);
-        DestroyAndFree(renderPipeline);
 
         Graphics::DestroyTexture(cubemapTest);
         renderProxy->cubemapTest = specularMapGenerator.GetTexture();

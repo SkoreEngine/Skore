@@ -1,7 +1,10 @@
-#pragma once
-#include "DRPTypes.hpp"
-#include "Skore/Graphics/RenderGraph.hpp"
-#include "Skore/Graphics/RenderUtils.hpp"
+#include "LightingPass.hpp"
+
+#include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderProxy.hpp"
+#include "Skore/Graphics/DefaultRenderPipeline/DefaultRenderPipelineTypes.hpp"
+#include "Skore/Scene/Scene.hpp"
+
 
 namespace Skore
 {
@@ -17,8 +20,19 @@ namespace Skore
         RenderGraphResource* gbuffer3;
         RenderGraphResource* aoTexture;
         RenderGraphResource* shadowMap;
-        RenderGraphResource* lightOutput{};
         RenderGraphResource* depth;
+        RenderGraphResource* lightOutput;
+
+        LightingPass(RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* aoTexture, RenderGraphResource* shadowMap,
+                     RenderGraphResource* depth, RenderGraphResource* lightOutput)
+            : gbuffer1(gbuffer1),
+              gbuffer2(gbuffer2),
+              gbuffer3(gbuffer3),
+              aoTexture(aoTexture),
+              shadowMap(shadowMap),
+              depth(depth),
+              lightOutput(lightOutput) {}
+
 
         BRDFLUTGenerator brdflutGenerator;
         Sampler          shadowMapSampler;
@@ -132,4 +146,17 @@ namespace Skore
             brdflutGenerator.Destroy();
         }
     };
+
+    void LightingPassSetup(RenderGraph& rg, RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* aoTexture, RenderGraphResource* shadowMap,
+        RenderGraphResource* depth, RenderGraphResource* lightOutput)
+    {
+        rg.AddPass("LightingPass", RenderGraphPassType::Compute)
+          .Read(gbuffer1)
+          .Read(gbuffer2)
+          .Read(gbuffer3)
+          .Read(shadowMap)
+          .Read(depth)
+          .Write(lightOutput)
+          .Handler<LightingPass>(gbuffer1, gbuffer2, gbuffer3, aoTexture, shadowMap, depth, lightOutput);
+    }
 }

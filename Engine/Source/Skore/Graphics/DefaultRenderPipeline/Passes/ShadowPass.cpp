@@ -1,6 +1,12 @@
-#pragma once
-#include "Skore/Graphics/RenderGraph.hpp"
+#include "ShadowPass.hpp"
 
+#include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/GraphicsTypes.hpp"
+#include "Skore/Graphics/RenderGraph.hpp"
+#include "Skore/Graphics/RenderProxy.hpp"
+#include "Skore/Graphics/Assets/MeshAsset.hpp"
+#include "Skore/Graphics/DefaultRenderPipeline/DefaultRenderPipelineTypes.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
@@ -18,6 +24,9 @@ namespace Skore
         ShadowMapDataInfo shadowMapDataInfo{};
 
         RenderProxy* renderProxy = nullptr;
+
+        ShadowPass(RenderGraphResource* shadowMap)
+            : shadowMap(shadowMap) {}
 
         struct ShadowPushConsts
         {
@@ -236,4 +245,11 @@ namespace Skore
             Graphics::DestroyGraphicsPipelineState(pipelineState);
         }
     };
+
+    void ShadowPassSetup(RenderGraph& rg, RenderGraphResource* shadowMap)
+    {
+        rg.AddPass("ShadowMap", RenderGraphPassType::Other)
+          .Write(shadowMap)
+          .Handler<ShadowPass>(shadowMap);
+    }
 }

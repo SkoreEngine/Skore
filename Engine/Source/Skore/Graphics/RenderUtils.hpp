@@ -21,7 +21,7 @@ namespace Skore
         PipelineState      downscaleState = {};
         Array<BindingSet*> bindingSets = {};
         Array<TextureView> allViews{};
-        DownscaleData      mipData;
+        DownscaleData      mipData{};
         Sampler            linearSampler{};
         u32                arrayLayers{};
         u32                threadGroupX{};

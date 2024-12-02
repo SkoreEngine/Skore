@@ -1,6 +1,11 @@
-#pragma once
+#include "SkyRenderPass.hpp"
 
-#include "Skore/Graphics/Assets/ShaderAsset.hpp"
+#include "Skore/Core/Math.hpp"
+#include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderGraph.hpp"
+#include "Skore/Graphics/RenderProxy.hpp"
+#include "Skore/Graphics/Assets/TextureAsset.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
@@ -16,8 +21,12 @@ namespace Skore
         PipelineState pipelineState = {};
         BindingSet*   bindingSet = {};
 
-        RenderGraphResource* depth = nullptr;
         RenderGraphResource* colorTexture = nullptr;
+        RenderGraphResource* depth = nullptr;
+
+        SkyRenderPass(RenderGraphResource* colorTexture, RenderGraphResource* depth)
+            : colorTexture(colorTexture),
+              depth(depth) {}
 
         RenderProxy* renderProxy = nullptr;
 
@@ -70,4 +79,13 @@ namespace Skore
             Graphics::DestroyBindingSet(bindingSet);
         }
     };
+
+    void SkyRenderPassSetup(RenderGraph& rg, RenderGraphResource* colorTexture, RenderGraphResource* depth)
+    {
+        rg.AddPass("SkyRenderPass", RenderGraphPassType::Compute)
+          .Read(colorTexture)
+          .Read(depth)
+          .Write(colorTexture)
+          .Handler<SkyRenderPass>(colorTexture, depth);
+    }
 }

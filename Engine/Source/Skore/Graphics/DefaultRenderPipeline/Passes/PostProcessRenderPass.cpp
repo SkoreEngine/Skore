@@ -1,11 +1,11 @@
-#pragma once
-#include "Skore/Graphics/RenderGraph.hpp"
+#include "PostProcessRenderPass.hpp"
 
+#include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderGraph.hpp"
+#include "Skore/IO/Asset.hpp"
 
 namespace Skore
 {
-
-
     struct PostProcessRenderPass : RenderGraphPassHandler
     {
         PipelineState pipelineState;
@@ -13,6 +13,10 @@ namespace Skore
 
         RenderGraphResource* lightColor;
         RenderGraphResource* outputColor;
+
+        PostProcessRenderPass(RenderGraphResource* lightColor, RenderGraphResource* outputColor)
+            : lightColor(lightColor),
+              outputColor(outputColor) {}
 
         void Init() override
         {
@@ -45,4 +49,18 @@ namespace Skore
         }
     };
 
+
+    void PostProcessRenderPassSetup(RenderGraph& rg)
+    {
+
+    }
+
+    void PostProcessRenderPassSetup(RenderGraph& rg, RenderGraphResource* lightOutput, RenderGraphResource* colorOutput)
+    {
+        rg.AddPass("PostProcessRenderPass", RenderGraphPassType::Compute)
+          .Read(lightOutput)
+          .Write(colorOutput)
+          .Handler<PostProcessRenderPass>(lightOutput, colorOutput);
+    }
 }
+

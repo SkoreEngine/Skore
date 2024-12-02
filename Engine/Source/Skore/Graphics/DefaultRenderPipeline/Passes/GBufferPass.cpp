@@ -1,11 +1,11 @@
-#pragma once
+#include "GBufferPass.hpp"
+
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderGraph.hpp"
+#include "Skore/Graphics/RenderProxy.hpp"
 #include "Skore/Graphics/Assets/MeshAsset.hpp"
 #include "Skore/Graphics/Assets/ShaderAsset.hpp"
 #include "Skore/Scene/Scene.hpp"
-#include "Skore/Graphics/RenderProxy.hpp"
-
 
 namespace Skore
 {
@@ -81,4 +81,16 @@ namespace Skore
             Graphics::DestroyGraphicsPipelineState(pipelineState);
         }
     };
+
+    void GBufferPassSetup(RenderGraph& rg, RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* depth)
+    {
+        rg.AddPass("GBuffer", RenderGraphPassType::Graphics)
+          .Write(gbuffer1)
+          .Write(gbuffer2)
+          .Write(gbuffer3)
+          .Write(depth)
+          .ClearColor(Color::BLACK.ToVec4())
+          .ClearDepth(true)
+          .Handler<GBufferPass>();
+    }
 }

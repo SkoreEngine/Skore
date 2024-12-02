@@ -17,11 +17,11 @@ struct SkyboxRenderData
     }
 };
 
-Texture2D<float>                    depthTexture        : register(t0);
-Texture2D<float4>                   panoramicTexture    : register(t1);
-RWTexture2D<float4>                 colorTexture        : register(u2);
-ConstantBuffer<SkyboxRenderData>    data                : register(b3);
-SamplerState                        defaultSampler      : register(s4);
+Texture2D<float>                    depthTexture;
+Texture2D<float4>                   panoramicTexture;
+RWTexture2D<float4>                 colorTexture;
+ConstantBuffer<SkyboxRenderData>    data;
+SamplerState                        defaultSampler;
 
 [numthreads(16, 16, 1)]
 void MainCS(in uint2 px : SV_DispatchThreadID)
