@@ -445,7 +445,7 @@ namespace Skore
             u32 mipHeight = extent.height * std::pow(0.5, mip);
 
             SpecularMapFilterSettings settings{
-                .roughness = static_cast<float>(mip) / static_cast<float>(mips - 1)
+                .roughness = Max(static_cast<float>(mip) / static_cast<float>(mips - 1), 0.01f)
             };
 
             cmd.PushConstants(pipelineState, ShaderStage::Compute, &settings, sizeof(settings));
@@ -477,10 +477,7 @@ namespace Skore
             .allocation = BufferAllocation::GPUOnly
         });
 
-        linearSampler = Graphics::CreateSampler(SamplerCreation{
-            .addressMode = TextureAddressMode::Repeat,
-            .maxLod = 100
-        });
+        linearSampler = Graphics::CreateSampler({});
 
 
         u32 value = 0;

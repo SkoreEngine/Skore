@@ -41,6 +41,7 @@ namespace Skore
 
         Texture GetDiffuseIrradiance();
         Texture GetSpecularMap();
+        Texture GetSkyCubeMap();
 
         void              AddCamera(VoidPtr pointer, const CameraData& camera);
         void              RemoveCamera(VoidPtr pointer);

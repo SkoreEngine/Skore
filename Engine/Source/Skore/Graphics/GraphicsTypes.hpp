@@ -394,7 +394,7 @@ namespace Skore
         CompareOp          compareOperator{CompareOp::Always};
         f32                mipLodBias = 0.0f;
         f32                minLod{};
-        f32                maxLod{1.0};
+        f32                maxLod{100.0};
         bool               anisotropyEnable = true;
         BorderColor        borderColor{BorderColor::IntOpaqueBlack};
         SamplerMipmapMode  samplerMipmapMode = SamplerMipmapMode::Linear;

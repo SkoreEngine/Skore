@@ -70,7 +70,7 @@ namespace Skore
                 bindingSet->GetVar("cubemapTest")->SetTexture(*renderProxy->cubemapTest);
             } else
             {
-                bindingSet->GetVar("cubemapTest")->SetTexture(renderProxy->GetSpecularMap());
+                bindingSet->GetVar("cubemapTest")->SetTexture(renderProxy->GetSkyCubeMap());
             }
 
 

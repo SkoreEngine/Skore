@@ -8,7 +8,7 @@ namespace Skore
 {
     RenderProxy::RenderProxy()
     {
-        toCubemap.Init({256, 256}, Format::RGBA16F);
+        toCubemap.Init({512, 512}, Format::RGBA16F);
         diffuseIrradianceGenerator.Init({64, 64});
         specularMapGenerator.Init({128, 128}, 6);
     }
@@ -162,6 +162,11 @@ namespace Skore
     Texture RenderProxy::GetSpecularMap()
     {
         return specularMapGenerator.GetTexture();
+    }
+
+    Texture RenderProxy::GetSkyCubeMap()
+    {
+        return toCubemap.GetTexture();
     }
 
     void RenderProxy::AddCamera(VoidPtr pointer, const CameraData& camera)

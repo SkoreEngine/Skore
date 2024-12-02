@@ -6,7 +6,7 @@
 
 //TODO: replace
 #define UAV_MIP_COUNT 12
-#define MAX 1
+#define AVERAGE 1
 
 #include "Skore://Shaders/FidelityFX/ffx_a.h"
 
