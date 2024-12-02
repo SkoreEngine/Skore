@@ -35,8 +35,6 @@ namespace Skore
 
         Array<VulkanBindingVar*>      bindingVars{};
         Array<VkWriteDescriptorSet>   descriptorWrites;
-        Array<VkDescriptorImageInfo>  descriptorImageInfos;
-        Array<VkDescriptorBufferInfo> descriptorBufferInfos;
 
         void MarkDirty();
         void CheckDescriptorSetData();
@@ -58,21 +56,23 @@ namespace Skore
     {
         VulkanBindingSet& bindingSet;
 
-        VulkanDescriptorSet* descriptorSet{};
-        u32                  binding{};
-        DescriptorType       descriptorType{};
-        RenderType           renderType{};
-        u32                  size{};
-        u32                  dstArrayElement{0};
+        VulkanDescriptorSet*          descriptorSet{};
+        u32                           binding{};
+        DescriptorType                descriptorType{};
+        RenderType                    renderType{};
+        u32                           size{};
+        u32                           count{};
+        u32                           descriptorArrayOffset = 0;
+        Array<VkDescriptorImageInfo>  descriptorImageInfos = {};
+        Array<VkDescriptorBufferInfo> descriptorBufferInfos = {};
 
         VulkanBindingVar(VulkanBindingSet& bindingSet) : bindingSet(bindingSet) {}
         ~VulkanBindingVar() override;
 
-        VulkanTexture*            texture{};
-        VulkanTextureView*        textureView{};
-        VulkanSampler*            sampler{};
-        VulkanBuffer*             buffer{}; //external buffers, BindingSet don't own it
-        Array<VulkanTextureView*> textureViewArray;
+        VulkanSampler*               sampler{};
+        VulkanBuffer*                buffer{}; //external buffers, BindingSet don't own it
+        Array<VulkanTexture*>        vulkanTextures;
+        Array<VulkanTextureView*>    vulkanTextureViews;
 
         Array<VulkanUpdateDescriptorArray> pendingTextures{};
 
@@ -81,6 +81,7 @@ namespace Skore
         Array<VulkanBindingVarBuffer>       valueBuffer{}; //internal buffers created for "SetValue"
 
         void SetTexture(const Texture& texture) override;
+        void SetTextureArray(Span<Texture> textureArray) override;
         void SetTextureAt(const Texture& texture, usize index) override;
         void SetTextureViewArray(Span<TextureView> textureViews) override;
         void SetTextureView(const TextureView& textureView) override;

@@ -43,7 +43,8 @@ namespace Skore
         });
 
         defaultTexture = renderDevice->CreateTexture({
-            .extent = {1, 1, 1}
+            .extent = {1, 1, 1},
+            .usage  = TextureUsage::Storage | TextureUsage::ShaderResource | TextureUsage::TransferDst
         });
 
         Image image(1, 1, 4);

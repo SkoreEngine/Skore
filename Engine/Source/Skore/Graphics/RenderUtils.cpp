@@ -191,7 +191,7 @@ namespace Skore
             .extent = {extent.width, extent.height, 1},
             .format = format,
             .usage = TextureUsage::Storage | TextureUsage::ShaderResource,
-            //.mipLevels = RenderUtils::CalcMips(extent),
+            .mipLevels = RenderUtils::CalcMips(extent),
             .arrayLayers = 6,
             .name = "EquirectangularToCubemap"
         });
@@ -211,11 +211,12 @@ namespace Skore
         });
 
         bindingSet = Graphics::CreateBindingSet(shaderAsset->GetDefaultState());
-       // downscale.Init(texture);
+        downscale.Init(texture);
     }
 
     void EquirectangularToCubemap::Destroy()
     {
+        downscale.Destroy();
         Graphics::DestroyBindingSet(bindingSet);
         Graphics::DestroyComputePipelineState(pipelineState);
         Graphics::DestroyTextureView(textureArrayView);
@@ -248,7 +249,7 @@ namespace Skore
             .layerCount = 6
         });
 
-       // downscale.Generate(cmd);
+        downscale.Generate(cmd);
     }
 
     Texture EquirectangularToCubemap::GetTexture() const
@@ -476,6 +477,11 @@ namespace Skore
             .allocation = BufferAllocation::GPUOnly
         });
 
+        linearSampler = Graphics::CreateSampler(SamplerCreation{
+            .addressMode = TextureAddressMode::Repeat,
+            .maxLod = 100
+        });
+
 
         u32 value = 0;
         Graphics::UpdateBufferData({
@@ -507,13 +513,12 @@ namespace Skore
         });
 
         bindingSets.Resize(textureCreation.arrayLayers);
-        Array<TextureView> views;
-        views.Resize(textureCreation.mipLevels);
+
         for (u32 arr = 0; arr < textureCreation.arrayLayers; ++arr)
         {
             bindingSets[arr] = Graphics::CreateBindingSet(state);
 
-            views.Clear();
+            Array<TextureView> views;
             for (int mip = 1; mip < textureCreation.mipLevels; mip++)
             {
                 TextureViewCreation viewCreation{};
@@ -561,28 +566,38 @@ namespace Skore
 
     void TextureDownscale::Generate(RenderCommands& cmd)
     {
+        TextureCreation textureCreation = Graphics::GetTextureCreationInfo(texture);
+
         cmd.BindPipelineState(downscaleState);
 
         for (u32 arr = 0; arr < arrayLayers; ++arr)
         {
-            cmd.ResourceBarrier(ResourceBarrierInfo{
-                .texture = texture,
-                .oldLayout = ResourceLayout::ShaderReadOnly,
-                .newLayout = ResourceLayout::General,
-                .baseArrayLayer = arr,
-                .layerCount = 6
-            });
+            for (u32 m = 0; m < textureCreation.mipLevels; ++m)
+            {
+                cmd.ResourceBarrier(ResourceBarrierInfo{
+                    .texture = texture,
+                    .oldLayout = ResourceLayout::ShaderReadOnly,
+                    .newLayout = ResourceLayout::General,
+                    .mipLevel = m,
+                    .baseArrayLayer = arr
+                });
+            }
+
 
             cmd.BindBindingSet(downscaleState, bindingSets[arr]);
+            cmd.PushConstants(downscaleState, ShaderStage::Compute, &mipData, sizeof(DownscaleData));
             cmd.Dispatch(threadGroupX, threadGroupy, 1);
 
-            cmd.ResourceBarrier(ResourceBarrierInfo{
-                .texture = texture,
-                .oldLayout = ResourceLayout::General,
-                .newLayout = ResourceLayout::ShaderReadOnly,
-                .baseArrayLayer = arr,
-                .layerCount = 6
-            });
+            for (u32 m = 0; m < textureCreation.mipLevels; ++m)
+            {
+                cmd.ResourceBarrier(ResourceBarrierInfo{
+                    .texture = texture,
+                    .oldLayout = ResourceLayout::General,
+                    .newLayout = ResourceLayout::ShaderReadOnly,
+                    .mipLevel = m,
+                    .baseArrayLayer = arr
+                });
+            }
         }
     }
 

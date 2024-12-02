@@ -684,6 +684,7 @@ namespace Skore
         virtual ~BindingVar() = default;
 
         virtual void  SetTexture(const Texture& texture) = 0;
+        virtual void  SetTextureArray(Span<Texture> textureArray) = 0;
         virtual void  SetTextureAt(const Texture& texture, usize index) = 0;
         virtual void  SetTextureViewArray(Span<TextureView> textureViews) = 0;
         virtual void  SetTextureView(const TextureView& textureView) = 0;

@@ -145,6 +145,7 @@ namespace Skore
 
     void VulkanCommands::BindPipelineState(const PipelineState& pipeline)
     {
+        SK_ASSERT(pipeline.handler, "PipelineState is null");
         auto& pipelineState = *static_cast<VulkanPipelineState*>(pipeline.handler);
         vkCmdBindPipeline(commandBuffer, pipelineState.bindingPoint, pipelineState.pipeline);
     }
