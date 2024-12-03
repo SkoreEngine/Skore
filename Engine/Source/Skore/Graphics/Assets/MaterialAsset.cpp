@@ -209,6 +209,12 @@ namespace Skore
                 materialData.textureProps[3] = 1.0;
             }
 
+            if (emissiveTexture)
+            {
+                bindingSet->GetVar("emissiveTexture")->SetTexture(emissiveTexture->GetTexture());
+                materialData.emissiveFactor[3] = 1.0;
+            }
+
             bindingSet->GetVar("material")->SetValue(&materialData, sizeof(MaterialData));
         }
         return bindingSet;

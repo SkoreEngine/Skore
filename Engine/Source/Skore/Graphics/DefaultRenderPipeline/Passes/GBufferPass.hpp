@@ -9,5 +9,6 @@ namespace Skore
                                  RenderGraphResource* gbuffer1,
                                  RenderGraphResource* gbuffer2,
                                  RenderGraphResource* gbuffer3,
+                                 RenderGraphResource* emissive,
                                  RenderGraphResource* depth);
 }

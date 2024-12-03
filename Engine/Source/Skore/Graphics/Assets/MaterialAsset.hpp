@@ -54,7 +54,7 @@ namespace Skore
         Color         baseColor{Color::WHITE};
         TextureAsset* baseColorTexture{};
         TextureAsset* normalTexture{};
-        f32           normalMultiplier{};
+        f32           normalMultiplier{1.0};
         f32           metallic{0.0};
         TextureAsset* metallicTexture{};
         f32           roughness{1.0};
@@ -62,7 +62,7 @@ namespace Skore
         TextureAsset* metallicRoughnessTexture{};
         TextureAsset* aoTexture{};
         TextureAsset* emissiveTexture{};
-        Vec3          emissiveFactor{};
+        Vec3          emissiveFactor{1.0, 1.0, 1.0};
         f32           alphaCutoff{0.5};
         AlphaMode     alphaMode{};
         Vec2          uvScale{1.0f, 1.0f};

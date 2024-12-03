@@ -27,6 +27,7 @@ struct LightingData
 Texture2D                       gbuffer1;
 Texture2D                       gbuffer2;
 Texture2D                       gbuffer3;
+Texture2D                       emissiveTexture;
 TextureCube<float4>             diffuseIrradiance;
 TextureCube<float4>             specularMap;
 TextureCube                     cubemapTest;
@@ -96,6 +97,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
 
     float3  worldPosition  = GetWorldPositionFromDepth(uv, depthValue, data.viewProjInverse);
     float3  albedo          = gbuffer1[px].rgb;
+    float3  emissive        = emissiveTexture[px].rgb;
     float   metallic        = gbuffer1[px].a;
     float   roughness       = gbuffer2[px].x;
     float   ao              = gbuffer2[px].y;
@@ -200,6 +202,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
 
 
     Lo += ((diffuseIBL + specularIBL) * ao) * indirectMultiplier;
+    Lo += emissive;
 
     lightOutput[px] = float4(Lo, 1.0);
 }

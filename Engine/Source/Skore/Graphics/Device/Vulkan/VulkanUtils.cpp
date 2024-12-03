@@ -234,6 +234,7 @@ namespace Skore::Vulkan
 			case Format::RGB16F: return VK_FORMAT_R16G16B16_SFLOAT;
 			case Format::RGB32F: return VK_FORMAT_R32G32B32_SFLOAT;
 			case Format::R11G11B10UF: return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+			case Format::RGB9E5 : return VK_FORMAT_E5B9G9R9_UFLOAT_PACK32;
 			case Format::Undefined:
 				break;
 			default:

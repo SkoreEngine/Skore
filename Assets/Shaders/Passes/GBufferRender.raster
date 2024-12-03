@@ -63,6 +63,7 @@ struct PSOutput
     float4 outAlbedoMetallic      :  SV_TARGET0;
     float2 outRoughnessAo         :  SV_TARGET1;
     float2 outNormal              :  SV_TARGET2;
+    float3 outEmissive            :  SV_TARGET3;
 };
 
 ConstantBuffer<Material> material       : register(b0, space1);
@@ -73,6 +74,7 @@ Texture2D       normalTexture               : register(t3, space1);
 Texture2D       roughnessTexture            : register(t4, space1);
 Texture2D       metallicTexture             : register(t5, space1);
 Texture2D       metallicRoughnessTexture    : register(t6, space1);
+Texture2D       emissiveTexture             : register(t7, space1);
 
 
 PSOutput MainPS(VSOutput input)
@@ -82,6 +84,7 @@ PSOutput MainPS(VSOutput input)
     float  alphaCutOff  = material.baseColorAlphaCutOff.a;
 
     float4 color = baseColorTexture.Sample(defaultSampler, uv) * float4(baseColor, 1.0);
+    float3 emissive = 0.0;
 
     if (color.a < alphaCutOff)
     {
@@ -121,10 +124,16 @@ PSOutput MainPS(VSOutput input)
         roughness = metallicRoughness.y;
     }
 
+    if(material.emissiveFactor.w == 1.0)
+    {
+        emissive = emissiveTexture.Sample(defaultSampler, uv).xyz;
+    }
+
     PSOutput output = (PSOutput)0;
     output.outAlbedoMetallic    = float4(color.rgb, metallic);
     output.outRoughnessAo       = float2(roughness, 1.0);
     output.outNormal            = DirectionToOctohedral(normal);
+    output.outEmissive          = emissive;
 
     return output;
 }

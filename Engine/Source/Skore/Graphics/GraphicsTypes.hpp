@@ -45,6 +45,7 @@ namespace Skore
         RGBA32F,
         BGRA,
         R11G11B10UF,
+        RGB9E5,
         Depth,
         Undefined,
         //TODO : add ohter formats

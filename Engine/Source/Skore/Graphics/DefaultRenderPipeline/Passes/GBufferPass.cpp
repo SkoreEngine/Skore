@@ -82,12 +82,13 @@ namespace Skore
         }
     };
 
-    void GBufferPassSetup(RenderGraph& rg, RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* depth)
+    void GBufferPassSetup(RenderGraph& rg, RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* emissive, RenderGraphResource* depth)
     {
         rg.AddPass("GBuffer", RenderGraphPassType::Graphics)
           .Write(gbuffer1)
           .Write(gbuffer2)
           .Write(gbuffer3)
+          .Write(emissive)
           .Write(depth)
           .ClearColor(Color::BLACK.ToVec4())
           .ClearDepth(true)

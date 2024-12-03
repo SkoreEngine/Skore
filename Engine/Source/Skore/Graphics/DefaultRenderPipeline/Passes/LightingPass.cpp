@@ -18,16 +18,19 @@ namespace Skore
         RenderGraphResource* gbuffer1;
         RenderGraphResource* gbuffer2;
         RenderGraphResource* gbuffer3;
+        RenderGraphResource* emissive;
         RenderGraphResource* aoTexture;
         RenderGraphResource* shadowMap;
         RenderGraphResource* depth;
         RenderGraphResource* lightOutput;
 
-        LightingPass(RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* aoTexture, RenderGraphResource* shadowMap,
+        LightingPass(RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* emissive, RenderGraphResource* aoTexture,
+                     RenderGraphResource* shadowMap,
                      RenderGraphResource* depth, RenderGraphResource* lightOutput)
             : gbuffer1(gbuffer1),
               gbuffer2(gbuffer2),
               gbuffer3(gbuffer3),
+              emissive(emissive),
               aoTexture(aoTexture),
               shadowMap(shadowMap),
               depth(depth),
@@ -82,7 +85,8 @@ namespace Skore
             {
                 data.data1.x = 1.0f;
                 bindingSet->GetVar("cubemapTest")->SetTexture(*renderProxy->cubemapTest);
-            } else
+            }
+            else
             {
                 bindingSet->GetVar("cubemapTest")->SetTexture(renderProxy->GetSkyCubeMap());
             }
@@ -115,6 +119,7 @@ namespace Skore
             bindingSet->GetVar("gbuffer1")->SetTexture(gbuffer1->texture);
             bindingSet->GetVar("gbuffer2")->SetTexture(gbuffer2->texture);
             bindingSet->GetVar("gbuffer3")->SetTexture(gbuffer3->texture);
+            bindingSet->GetVar("emissiveTexture")->SetTexture(emissive->texture);
             bindingSet->GetVar("diffuseIrradiance")->SetTexture(renderProxy->GetDiffuseIrradiance());
             bindingSet->GetVar("specularMap")->SetTexture(renderProxy->GetSpecularMap());
             bindingSet->GetVar("aoTexture")->SetTexture(aoTexture->texture);
@@ -147,16 +152,18 @@ namespace Skore
         }
     };
 
-    void LightingPassSetup(RenderGraph& rg, RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* aoTexture, RenderGraphResource* shadowMap,
-        RenderGraphResource* depth, RenderGraphResource* lightOutput)
+    void LightingPassSetup(RenderGraph& rg, RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* emissive, RenderGraphResource* aoTexture,
+                           RenderGraphResource* shadowMap,
+                           RenderGraphResource* depth, RenderGraphResource* lightOutput)
     {
         rg.AddPass("LightingPass", RenderGraphPassType::Compute)
           .Read(gbuffer1)
           .Read(gbuffer2)
           .Read(gbuffer3)
+          .Read(emissive)
           .Read(shadowMap)
           .Read(depth)
           .Write(lightOutput)
-          .Handler<LightingPass>(gbuffer1, gbuffer2, gbuffer3, aoTexture, shadowMap, depth, lightOutput);
+          .Handler<LightingPass>(gbuffer1, gbuffer2, gbuffer3, emissive, aoTexture, shadowMap, depth, lightOutput);
     }
 }

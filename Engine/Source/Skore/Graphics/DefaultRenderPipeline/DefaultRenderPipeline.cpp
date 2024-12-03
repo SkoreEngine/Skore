@@ -36,6 +36,13 @@ namespace Skore
             .format = Format::RG16F
         });
 
+        RenderGraphResource* emissive = rg.Create(RenderGraphResourceCreation{
+            .name = "emissive",
+            .type = RenderGraphResourceType::Attachment,
+            .scale = {1, 1},
+            .format = Format::R11G11B10UF
+        });
+
         RenderGraphResource* depth = rg.Create(RenderGraphResourceCreation{
             .name = "depth",
             .type = RenderGraphResourceType::Attachment,
@@ -73,7 +80,7 @@ namespace Skore
         });
 
         //setup gbuffer
-        GBufferPassSetup(rg, gbuffer1, gbuffer2, gbuffer3, depth);
+        GBufferPassSetup(rg, gbuffer1, gbuffer2, gbuffer3, emissive, depth);
 
         //GTAO
         XeGTAOSetup(rg, depth, gbuffer3, aoOutput);
@@ -86,6 +93,7 @@ namespace Skore
                           gbuffer1,
                           gbuffer2,
                           gbuffer3,
+                          emissive,
                           aoOutput,
                           shadowMap,
                           depth,
