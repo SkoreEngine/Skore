@@ -298,11 +298,13 @@ namespace Skore
     void Graphics::GetTextureData(const TextureGetDataInfo& info, Array<u8>& data)
     {
         RenderCommands& tempCmd = renderDevice->GetTempCmd();
-        usize           size = info.extent.width * info.extent.height * GetFormatSize(info.format);
-        data.Resize(size);
+        if (data.Empty())
+        {
+            data.Resize(info.extent.width * info.extent.height * GetFormatSize(info.format));
+        }
 
         Buffer buffer = CreateBuffer(BufferCreation{
-            .size = size,
+            .size = data.Size(),
             .allocation = BufferAllocation::TransferToCPU
         });
 
@@ -314,7 +316,7 @@ namespace Skore
         tempCmd.CopyTextureToBuffer(info.texture, info.textureLayout, buffer, {&region, 1});
         tempCmd.SubmitAndWait(renderDevice->GetMainQueue());
 
-        MemCopy(data.Data(), GetBufferMappedMemory(buffer), size);
+        MemCopy(data.Data(), GetBufferMappedMemory(buffer), data.Size());
 
         DestroyBuffer(buffer);
     }

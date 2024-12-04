@@ -4,7 +4,7 @@
 
 namespace Skore
 {
-    class TextureDownscale
+    class SK_API TextureDownscale
     {
     public:
         void Init(Texture texture);
@@ -29,7 +29,7 @@ namespace Skore
         Buffer             atomicCounter{};
     };
 
-    class EquirectangularToCubemap
+    class SK_API EquirectangularToCubemap
     {
     public:
         void Init(Extent extent, Format format);
@@ -48,7 +48,7 @@ namespace Skore
         TextureDownscale downscale{};
     };
 
-    class DiffuseIrradianceGenerator
+    class SK_API DiffuseIrradianceGenerator
     {
     public:
         void    Init(Extent extent);
@@ -64,7 +64,7 @@ namespace Skore
         BindingSet*   bindingSet{};
     };
 
-    class BRDFLUTGenerator
+    class SK_API BRDFLUTGenerator
     {
     public:
         void    Init(Extent extent);
@@ -77,7 +77,7 @@ namespace Skore
         Sampler sampler{};
     };
 
-    class SpecularMapGenerator
+    class SK_API SpecularMapGenerator
     {
     public:
         void Init(Extent extent, u32 mips);
@@ -95,6 +95,26 @@ namespace Skore
         Array<BindingSet*> bindingSets;
         Array<TextureView> textureViews;
     };
+
+
+    class SK_API TextureBlockCompressor
+    {
+    public:
+        void    Init(Format format, Texture src);
+        void    Compress(RenderCommands& cmd);
+        Texture GetRawTexture() const;
+        Format  GetRawFormat() const;
+        Extent  GetRawExtent() const;
+        void    Destroy() const;
+    private:
+        ShaderState*  shaderState = {};
+        PipelineState pipelineState = {};
+        BindingSet* bindingSet{};
+        Texture src = {};
+        Texture rawDest = {};
+        Sampler sampler = {};
+        Extent rawExtent = {};
+    };
 }
 
 namespace Skore::RenderUtils
@@ -103,6 +123,6 @@ namespace Skore::RenderUtils
     {
         return std::min(static_cast<u32>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1, 12u);
     }
-    SK_API AABB    CalculateMeshAABB(const Array<VertexStride>& vertices);
-    SK_API void    CalcTangents(Array<VertexStride>& vertices, const Array<u32>& indices, bool useMikktspace = true);
+    SK_API AABB CalculateMeshAABB(const Array<VertexStride>& vertices);
+    SK_API void CalcTangents(Array<VertexStride>& vertices, const Array<u32>& indices, bool useMikktspace = true);
 }

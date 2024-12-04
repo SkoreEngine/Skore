@@ -8,7 +8,7 @@
 #define UAV_MIP_COUNT 12
 #define AVERAGE 1
 
-#include "Skore://Shaders/FidelityFX/ffx_a.h"
+#include "Skore://Shaders/Libraries/FidelityFX/ffx_a.h"
 
 groupshared AF4 spd_intermediate[16][16];
 groupshared AU1 spd_counter;
@@ -76,7 +76,7 @@ void SpdResetAtomicCounter(AU1 slice)
 	GAtomicCounter[0] = 0;
 }
 
-#include "Skore://Shaders/FidelityFX/ffx_spd.h"
+#include "Skore://Shaders/Libraries/FidelityFX/ffx_spd.h"
 
 [numthreads(256, 1, 1)]
 void MainCS(uint3 work_group_id : SV_GroupID, uint local_thread_index : SV_GroupIndex)

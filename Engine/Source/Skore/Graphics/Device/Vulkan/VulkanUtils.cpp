@@ -230,16 +230,23 @@ namespace Skore::Vulkan
 			case Format::R32F: return VK_FORMAT_R32_SFLOAT;
 			case Format::RG: return VK_FORMAT_R8G8_UNORM;
 			case Format::RG32F: return VK_FORMAT_R32G32_SFLOAT;
+			case Format::RG32U: return VK_FORMAT_R32G32_UINT;
 			case Format::RGB: return VK_FORMAT_R8G8B8_UNORM;
 			case Format::RGB16F: return VK_FORMAT_R16G16B16_SFLOAT;
 			case Format::RGB32F: return VK_FORMAT_R32G32B32_SFLOAT;
 			case Format::R11G11B10UF: return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
 			case Format::RGB9E5 : return VK_FORMAT_E5B9G9R9_UFLOAT_PACK32;
+			case Format::BC1U: return VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+			case Format::BC1U_SRGB: return VK_FORMAT_BC1_RGB_SRGB_BLOCK;
+			case Format::BC3U: return VK_FORMAT_BC3_UNORM_BLOCK;
+			case Format::BC4U: return VK_FORMAT_BC4_UNORM_BLOCK;
+			case Format::BC5U: return VK_FORMAT_BC5_UNORM_BLOCK;
+			case Format::BC6H_UF16: return VK_FORMAT_BC6H_UFLOAT_BLOCK;
 			case Format::Undefined:
 				break;
 			default:
 				SK_ASSERT(false, "[VulkanDevice] VkFormat not found");
-				return VK_FORMAT_UNDEFINED;
+			return VK_FORMAT_UNDEFINED;
 		}
 		return {};
 	}

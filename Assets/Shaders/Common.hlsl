@@ -188,3 +188,20 @@ uint SK_FLOAT3_to_R11G11B10_UNORM( float3 unpackedInput )
 	return packedOutput;
 }
 
+inline uint Align(uint value, uint alignment)
+{
+    return ((value + alignment - 1) / alignment) * alignment;
+}
+inline uint2 Align(uint2 value, uint2 alignment)
+{
+    return ((value + alignment - 1) / alignment) * alignment;
+}
+inline uint3 Align(uint3 value, uint3 alignment)
+{
+    return ((value + alignment - 1) / alignment) * alignment;
+}
+inline uint4 Align(uint4 value, uint4 alignment)
+{
+    return ((value + alignment - 1) / alignment) * alignment;
+}
+

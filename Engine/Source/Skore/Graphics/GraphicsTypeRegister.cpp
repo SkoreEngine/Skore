@@ -83,6 +83,14 @@ namespace Skore
         format.Value<Format::RGBA16F>("RGBA16F");
         format.Value<Format::RGBA32F>("RGBA32F");
         format.Value<Format::BGRA>("BGRA");
+        format.Value<Format::R11G11B10UF>("R11G11B10UF");
+        format.Value<Format::RGB9E5>("RGB9E5");
+        format.Value<Format::BC1U>("BC1U");
+        format.Value<Format::BC1U_SRGB>("BC1U_SRGB");
+        format.Value<Format::BC3U>("BC3U");
+        format.Value<Format::BC4U>("BC4U");
+        format.Value<Format::BC5U>("BC5U");
+        format.Value<Format::BC6H_UF16>("BC6H_UF16");
         format.Value<Format::Depth>("Depth");
         format.Value<Format::Undefined>("Undefined");
 

@@ -37,6 +37,7 @@ namespace Skore
         RG,
         RG16F,
         RG32F,
+        RG32U,
         RGB,
         RGB16F,
         RGB32F,
@@ -46,6 +47,12 @@ namespace Skore
         BGRA,
         R11G11B10UF,
         RGB9E5,
+        BC1U,
+        BC1U_SRGB,
+        BC3U,
+        BC4U,
+        BC5U,
+        BC6H_UF16,
         Depth,
         Undefined,
         //TODO : add ohter formats
@@ -789,24 +796,61 @@ namespace Skore
     {
         switch (format)
         {
-        case Format::R: return 8;
-        case Format::R16F: return 16;
-        case Format::R32F: return 32;
-        case Format::RG: return 8 * 2;
-        case Format::RG16F: return 16 * 2;
-        case Format::RG32F: return 32 * 2;
-        case Format::RGB: return 8 * 3;
-        case Format::RGB16F: return 16 * 3;
-        case Format::RGB32F: return 32 * 3;
-        case Format::RGBA: return 8 * 4;
-        case Format::RGBA16F: return sizeof(Vec4) / 2;
-        case Format::RGBA32F: return sizeof(Vec4);
-        case Format::BGRA: return 8 * 4;
-        case Format::Depth:
-        case Format::Undefined:
-            break;
+            case Format::R: return 8;
+            case Format::R16F: return 16;
+            case Format::R32F: return 32;
+            case Format::RG: return 8 * 2;
+            case Format::RG16F: return 16 * 2;
+            case Format::RG32F: return 32 * 2;
+            case Format::RGB: return 8 * 3;
+            case Format::RGB16F: return 16 * 3;
+            case Format::RGB32F: return 32 * 3;
+            case Format::RGBA: return 8 * 4;
+            case Format::RGBA16F: return sizeof(Vec4) / 2;
+            case Format::RGBA32F: return sizeof(Vec4);
+            case Format::BGRA: return 8 * 4;
+            case Format::R8U: return 8;
+            case Format::R32U: return 32;
+            case Format::RG32U: return 64;
+            case Format::R11G11B10UF:
+            case Format::RGB9E5:
+            case Format::BC1U:
+            case Format::BC1U_SRGB:
+            case Format::BC3U:
+            case Format::BC4U:
+            case Format::BC5U:
+            case Format::BC6H_UF16:
+            case Format::Depth:
+            case Format::Undefined:
+                break;
         }
+        SK_ASSERT(false, "format not found");
         return 0;
+    }
+
+    constexpr bool IsFormatBlockCompressed(Format format)
+    {
+        switch (format)
+        {
+            case Format::BC1U:
+            case Format::BC1U_SRGB:
+            case Format::BC3U:
+            case Format::BC4U:
+            case Format::BC5U:
+            case Format::BC6H_UF16:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    constexpr u32 GetFormatBlockSize(Format format)
+    {
+        if (IsFormatBlockCompressed(format))
+        {
+            return 4u;
+        }
+        return 1u;
     }
 
     typedef void (*FnGraphicsTask)(VoidPtr userData, RenderCommands& cmd, GPUQueue queue);

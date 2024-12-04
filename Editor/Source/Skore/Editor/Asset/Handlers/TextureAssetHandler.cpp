@@ -11,6 +11,11 @@
 
 #include <stb_image_resize.h>
 
+#include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderUtils.hpp"
+
+#define SK_BLOCK_COMPRESS 0
+
 namespace Skore
 {
     struct TextureAssetHandler : JsonAssetHandler
@@ -35,9 +40,12 @@ namespace Skore
 
         Image GenerateThumbnail(AssetFile* assetFile) override
         {
+#if SK_BLOCK_COMPRESS
+            return {};
+#endif;
             //TODO HDR
             TextureAsset* textureAsset = Assets::Load<TextureAsset>(assetFile->uuid);
-            Image image = textureAsset->GetImage();
+            Image         image = textureAsset->GetImage();
             image.Resize(128, 128);
             return image;
         }
@@ -46,14 +54,11 @@ namespace Skore
 
     namespace
     {
-
-        template<typename T>
-        struct TextureImportType
-        {
-        };
+        template <typename T>
+        struct TextureImportType {};
 
 
-        template<>
+        template <>
         struct TextureImportType<u8>
         {
             static Format GetFormat()
@@ -71,7 +76,7 @@ namespace Skore
             }
         };
 
-        template<>
+        template <>
         struct TextureImportType<f32>
         {
             static Format GetFormat()
@@ -90,7 +95,7 @@ namespace Skore
         };
 
 
-        template<typename T>
+        template <typename T>
         void ProcessTexture(TextureAsset* texture, OutputFileStream& stream, T* bytes, i32 width, i32 height, u16 channels, bool generateMips)
         {
             texture->compressionMode = CompressionMode::LZ4;
@@ -215,7 +220,66 @@ namespace Skore
         if (!hdr)
         {
             u8* bytes = stbi_load(path.CStr(), &width, &height, &channels, 4);
-            ProcessTexture(textureAsset, stream, bytes, width, height, 4, true);
+
+#if SK_BLOCK_COMPRESS
+            if (channels == 3)
+            {
+                Texture texture = Graphics::CreateTexture({
+                    .extent = {static_cast<u32>(width), static_cast<u32>(height), 1},
+                    .format = Format::RGBA
+                });
+
+                TextureDataRegion region{
+                    .extent = {static_cast<u32>(width), static_cast<u32>(height), 1},
+                };
+
+                Graphics::UpdateTextureData({
+                    .texture = texture,
+                    .data = bytes,
+                    .size = static_cast<u32>(width * height * 4),
+                    .regions = {&region, 1}
+                });
+
+                TextureBlockCompressor compressor;
+                compressor.Init(Format::BC1U, texture);
+
+                RenderCommands& cmd = Graphics::GetCmd();
+                cmd.Begin();
+                compressor.Compress(cmd);
+                cmd.SubmitAndWait(Graphics::GetMainQueue());
+
+                Array<u8> bytes;
+                bytes.Resize(static_cast<f32>(width) * static_cast<f32>(height) * 0.5f);
+
+                Graphics::GetTextureData(TextureGetDataInfo{
+                                             .texture = compressor.GetRawTexture(),
+                                             .format = compressor.GetRawFormat(),
+                                             .extent = compressor.GetRawExtent(),
+                                             .textureLayout = ResourceLayout::General
+                                         }, bytes);
+
+                textureAsset->compressionMode = CompressionMode::None;
+                textureAsset->format = Format::BC1U;
+                textureAsset->totalSize = bytes.Size();
+                textureAsset->totalSizeInDisk = textureAsset->totalSize;
+                textureAsset->images.EmplaceBack(TextureAssetImage{
+                    .byteOffset = 0,
+                    .mip = 0,
+                    .arrayLayer = 0,
+                    .extent = {static_cast<u32>(width), static_cast<u32>(height)},
+                    .size = bytes.Size()
+                });
+
+                stream.Write(bytes.begin(), textureAsset->totalSizeInDisk);
+
+                compressor.Destroy();
+                Graphics::DestroyTexture(texture);
+            }
+            else
+#endif
+            {
+                ProcessTexture(textureAsset, stream, bytes, width, height, 4, true);
+            }
             stbi_image_free(bytes);
         }
         else

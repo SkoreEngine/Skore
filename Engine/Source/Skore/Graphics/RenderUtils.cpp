@@ -12,6 +12,7 @@
 
 namespace Skore
 {
+
     namespace
     {
         Logger& logger = Logger::GetLogger("Skore::RenderUtils", LogLevel::Debug);
@@ -468,6 +469,83 @@ namespace Skore
     {
         return texture;
     }
+
+
+    void TextureBlockCompressor::Init(Format format, Texture src)
+    {
+        this->src = src;
+
+        TextureCreation creation = Graphics::GetTextureCreationInfo(src);
+
+        shaderState = Assets::LoadByPath<ShaderAsset>("Skore://Shaders/Utils/BlockCompress.comp")->GetState("BC1Compress");
+        pipelineState = Graphics::CreateComputePipelineState({
+            .shaderState = shaderState
+        });
+        bindingSet = Graphics::CreateBindingSet(shaderState);
+
+        sampler = Graphics::CreateSampler({
+            .filter = SamplerFilter::Linear,
+            .addressMode = TextureAddressMode::ClampToBorder
+        });
+
+        const u32 blockSize = GetFormatBlockSize(format);
+        rawExtent.width = std::max(1u, creation.extent.width / blockSize);
+        rawExtent.height = std::max(1u, creation.extent.height / blockSize);
+
+        rawDest = Graphics::CreateTexture(TextureCreation{
+            .extent = {rawExtent.width, rawExtent.height, 1},
+            .format = Format::RG32U,
+            .usage = TextureUsage::Storage | TextureUsage::TransferSrc
+        });
+
+        Graphics::UpdateTextureLayout(rawDest, ResourceLayout::Undefined, ResourceLayout::General);
+
+        bindingSet->GetVar("input")->SetTexture(this->src);
+        bindingSet->GetVar("output")->SetTexture(rawDest);
+        bindingSet->GetVar("defaultSampler")->SetSampler(sampler);
+    }
+
+    void TextureBlockCompressor::Compress(RenderCommands& cmd)
+    {
+        TextureCreation creation = Graphics::GetTextureCreationInfo(src);
+
+        u32 mips = 1;
+
+        cmd.BindPipelineState(pipelineState);
+
+        for (u32 mip = 0; mip < mips; ++mip)
+        {
+            const u32 width = std::max(1u, creation.extent.width >> mip);
+            const u32 height = std::max(1u, creation.extent.height >> mip);
+
+            cmd.BindBindingSet(pipelineState, bindingSet);
+            cmd.Dispatch((width + 7u) / 8u, (height + 7u) / 8u, creation.arrayLayers);
+        }
+    }
+
+    Texture TextureBlockCompressor::GetRawTexture() const
+    {
+        return rawDest;
+    }
+
+    Format TextureBlockCompressor::GetRawFormat() const
+    {
+        return Format::RG32U;
+    }
+
+    Extent TextureBlockCompressor::GetRawExtent() const
+    {
+        return rawExtent;
+    }
+
+    void TextureBlockCompressor::Destroy() const
+    {
+        Graphics::DestroyComputePipelineState(pipelineState);
+        Graphics::DestroyBindingSet(bindingSet);
+        Graphics::DestroyTexture(rawDest);
+        Graphics::DestroySampler(sampler);
+    }
+
 
     void TextureDownscale::Init(Texture texture)
     {
