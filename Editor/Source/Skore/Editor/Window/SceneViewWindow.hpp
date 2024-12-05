@@ -30,7 +30,6 @@ namespace Skore
         bool            windowStartedSimulation{};
         bool            movingScene{};
         RenderGraph*    renderGraph{};
-        RenderPipeline* renderPipeline{};
         FreeViewCamera  freeViewCamera{};
         CameraData      cameraData = {};
 

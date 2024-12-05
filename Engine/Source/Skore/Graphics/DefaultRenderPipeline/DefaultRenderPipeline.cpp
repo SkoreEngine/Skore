@@ -6,6 +6,7 @@
 #include "Passes/PostProcessRenderPass.hpp"
 #include "Passes/ShadowPass.hpp"
 #include "Passes/SkyRenderPass.hpp"
+#include "Passes/TAAPass.hpp"
 
 #include "Skore/Core/Registry.hpp"
 #include "Skore/Graphics/RenderGraph.hpp"
@@ -68,36 +69,8 @@ namespace Skore
         //post-processing output
         PostProcessRenderPassSetup(rg, lightOutput, colorOutput);
 
- #if SK_ENABLE_TAA
         //TAA
-        //output color
-        RenderGraphResource* historyBuffer = rg.Create(RenderGraphResourceCreation{
-            .name = "historyBuffer",
-            .type = RenderGraphResourceType::Texture,
-            .scale = {1, 1},
-            .format = Format::RGBA16F
-        });
-
-
-        RenderGraphResource*  nearestSampler = rg.Create(RenderGraphResourceCreation{
-            .name = "nearestSampler",
-            .type = RenderGraphResourceType::Sampler,
-            .samplerCreation = {
-                .filter = SamplerFilter::Linear
-            }
-        });
-
-        rg.AddPass("TAAResolve", RenderGraphPassType::Compute)
-          .Shader("Skore://Shaders/Passes/ResolveTAA.comp")
-          .Read(nearestSampler)
-          .Read(gbufferOutput.depth)
-          .Read("velocity", gbufferOutput.velocity)
-          .Read("historyBuffer", historyBuffer)
-          .Read("color", colorOutput)
-          .Write("historyOutput", historyBuffer)
-          .Write("colorOutput", colorOutput)
-          .Dispatch(8, 8, 1);
-#endif
+        TAASetup(rg, gbufferOutput.velocity, gbufferOutput.depth, colorOutput);
 
         //define outputs
         rg.ColorOutput(colorOutput);

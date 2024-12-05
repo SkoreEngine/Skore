@@ -647,7 +647,7 @@ namespace Skore
 
         for (u32 arr = 0; arr < arrayLayers; ++arr)
         {
-            for (u32 m = 0; m < textureCreation.mipLevels; ++m)
+            for (u32 m = 1; m < textureCreation.mipLevels; ++m)
             {
                 cmd.ResourceBarrier(ResourceBarrierInfo{
                     .texture = texture,
@@ -663,7 +663,7 @@ namespace Skore
             cmd.PushConstants(downscaleState, ShaderStage::Compute, &mipData, sizeof(DownscaleData));
             cmd.Dispatch(threadGroupX, threadGroupy, 1);
 
-            for (u32 m = 0; m < textureCreation.mipLevels; ++m)
+            for (u32 m = 1; m < textureCreation.mipLevels; ++m)
             {
                 cmd.ResourceBarrier(ResourceBarrierInfo{
                     .texture = texture,

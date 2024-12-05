@@ -25,7 +25,7 @@ namespace Skore
             Extent viewport = rg->GetViewportExtent();
 
             //TODO: get it from some config
-            XeGTAO::GTAOSettings  settings{};
+            XeGTAO::GTAOSettings settings{};
             settings.Radius = 3.0f;
             XeGTAO::GTAOConstants gtaoConstants{};
             GTAOUpdateConstants(gtaoConstants, viewport.width, viewport.height, settings, rg->GetCameraData().projection.a, false, 0);
@@ -43,7 +43,7 @@ namespace Skore
     struct XeGTADenoisePass : RenderGraphPassHandler
     {
         //TODO: get it from some config
-        XeGTAO::GTAOSettings  settings{};
+        XeGTAO::GTAOSettings settings{};
 
 
         RenderGraphResource* constantBuffers;
@@ -54,9 +54,9 @@ namespace Skore
         RenderGraphResource* aoOutput;
 
         PipelineState denoisePass{};
-        BindingSet* denoisePassBs{};
+        BindingSet*   denoisePassBs{};
         PipelineState denoiseLastPass{};
-        BindingSet* denoiseLastPassBs{};
+        BindingSet*   denoiseLastPassBs{};
 
         XeGTADenoisePass(RenderGraphResource* constantBuffers,
                          RenderGraphResource* workingAoTerm,
@@ -117,24 +117,31 @@ namespace Skore
                 }
                 else
                 {
-                    cmd.ResourceBarrier({
-                        .texture = aoOutput->texture,
-                        .oldLayout = ResourceLayout::ShaderReadOnly,
-                        .newLayout = ResourceLayout::General
-                    });
+                    if (aoOutput->currentLayout == ResourceLayout::ShaderReadOnly)
+                    {
+                        cmd.ResourceBarrier({
+                            .texture = aoOutput->texture,
+                            .oldLayout = ResourceLayout::ShaderReadOnly,
+                            .newLayout = ResourceLayout::General
+                        });
 
+                        aoOutput->currentLayout = ResourceLayout::General;
+                    }
 
                     Extent3D size = aoOutput->textureCreation.extent;
                     cmd.BindPipelineState(denoiseLastPass);
                     cmd.BindBindingSet(denoiseLastPass, denoiseLastPassBs);
                     cmd.Dispatch((size.width + (XE_GTAO_NUMTHREADS_X * 2) - 1) / XE_GTAO_NUMTHREADS_X, (size.height + (XE_GTAO_NUMTHREADS_Y * 2) - 1) / XE_GTAO_NUMTHREADS_Y, 1);
 
-
-                    cmd.ResourceBarrier({
-                        .texture = aoOutput->texture,
-                        .oldLayout = ResourceLayout::General,
-                        .newLayout = ResourceLayout::ShaderReadOnly,
-                    });
+                    if (aoOutput->currentLayout == ResourceLayout::General)
+                    {
+                        cmd.ResourceBarrier({
+                            .texture = aoOutput->texture,
+                            .oldLayout = ResourceLayout::General,
+                            .newLayout = ResourceLayout::ShaderReadOnly,
+                        });
+                        aoOutput->currentLayout = ResourceLayout::ShaderReadOnly;
+                    }
                 }
             }
         }

@@ -1,12 +1,17 @@
 #include "Skore://Shaders/Common.hlsl"
 
+
 Texture2D<float2>   velocity;
 Texture2D           historyBuffer;
-Texture2D           color;
+Texture2D           color;          //??
 Texture2D           depth;
 
-RWTexture2D<float4> historyOutput;
+
+RWTexture2D<float4> outputBuffer;
 RWTexture2D<float4> colorOutput;
+
+//RWTexture2D<float4> historyOutput;
+//RWTexture2D<float4> colorOutput;
 
 SamplerState        nearestSampler;
 SamplerState        defaultSampler;
@@ -91,25 +96,34 @@ float3 SampleHistoryCatmullRom(in float2 uv, in float2 texelSize)
 
 
 [numthreads(8, 8, 1)]
-void MainCS(in uint2 px : SV_DispatchThreadID)
+void ResolveTemporal(in uint2 px : SV_DispatchThreadID)
 {
     int2 colorOutputSize;
     color.GetDimensions(colorOutputSize.x, colorOutputSize.y);
+
+    float2 texelSize = 1.0f / colorOutputSize;
+
+
     float2 uv = GetUV(px, colorOutputSize);
 
     float closestDepth;
-    float2 currentVelocity =  GetClosestVelocity(uv, colorOutputSize, closestDepth);
+    float2 currentVelocity =  GetClosestVelocity(uv, texelSize, closestDepth);
+    float3 currentColor = color.SampleLevel(nearestSampler, uv, 0.0f).rgb;
 
     // History sampling: read previous frame samples and apply a filter to it.
-    float3 historyColor = historyBuffer.SampleLevel(nearestSampler, uv - currentVelocity, 0.0f).rgb;
-    //float3 historyColor = SampleHistoryCatmullRom(uv, colorOutputSize);
+    //float3 historyColor = historyBuffer.SampleLevel(nearestSampler, uv - currentVelocity, 0.0f).rgb;
+    float3 historyColor =  SampleHistoryCatmullRom(uv - currentVelocity, texelSize);
 
-    float3 currentColor = color.SampleLevel(nearestSampler, uv, 0.0f).rgb;
     float weight = 0.9;
     float3 finalColor = lerp(currentColor, historyColor, weight);
 
-    colorOutput[px].xyz = finalColor;
-    historyOutput[px].xyz = finalColor;
+    outputBuffer[px].xyz = finalColor;
 }
 
 
+[numthreads(8, 8, 1)]
+void UpdateHistory(in uint2 px : SV_DispatchThreadID)
+{
+    colorOutput[px].rgb = historyBuffer[px].rgb;
+    outputBuffer[px].rgb = historyBuffer[px].rgb;
+}

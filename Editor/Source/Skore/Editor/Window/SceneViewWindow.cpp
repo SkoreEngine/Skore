@@ -11,6 +11,7 @@
 #include "Skore/IO/Input.hpp"
 #include "Skore/Scene/Component/TransformComponent.hpp"
 #include "Skore/Graphics/RenderProxy.hpp"
+#include "Skore/Graphics/DefaultRenderPipeline/DefaultRenderPipeline.hpp"
 
 namespace Skore
 {
@@ -28,11 +29,6 @@ namespace Skore
         if (renderGraph)
         {
             DestroyAndFree(renderGraph);
-        }
-
-        if (renderPipeline)
-        {
-            DestroyAndFree(renderPipeline);
         }
     }
 
@@ -194,18 +190,10 @@ namespace Skore
 
             Extent extent = {static_cast<u32>(size.x), static_cast<u32>(size.y)};
 
-            // extent.width /= 2.f;
-            // extent.height /= 2.f;
+            // extent.width /= 3.f;
+            // extent.height /= 3.f;
 
-            if (!renderPipeline)
-            {
-                TypeHandler* type = Registry::FindTypeByName("Skore::DefaultRenderPipeline");
-                renderPipeline = type->Cast<RenderPipeline>(type->NewInstance());
-            }
-
-            bool renderGraphDirty = renderGraph == nullptr || sceneEditor.GetActiveScene() != renderGraph->GetScene();
-
-            if (renderPipeline && renderGraphDirty)
+            if (bool renderGraphDirty = renderGraph == nullptr || sceneEditor.GetActiveScene() != renderGraph->GetScene())
             {
                 if (renderGraph)
                 {
@@ -214,7 +202,8 @@ namespace Skore
                 renderGraph = Alloc<RenderGraph>(RenderGraphCreation{
                     .drawToSwapChain = false
                 });
-                renderPipeline->BuildRenderGraph(*renderGraph);
+                DefaultRenderPipeline defaultRenderPipeline;
+                defaultRenderPipeline.BuildRenderGraph(*renderGraph);
                 renderGraph->Create(sceneEditor.GetActiveScene(), extent);
             }
 

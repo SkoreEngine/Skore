@@ -5,7 +5,7 @@
 
 namespace Skore
 {
-    class DefaultRenderPipeline : public RenderPipeline
+    class SK_API DefaultRenderPipeline : public RenderPipeline
     {
     public:
         SK_BASE_TYPES(RenderPipeline);
