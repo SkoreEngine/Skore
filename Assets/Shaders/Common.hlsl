@@ -205,3 +205,15 @@ inline uint4 Align(uint4 value, uint4 alignment)
     return ((value + alignment - 1) / alignment) * alignment;
 }
 
+float2 GetUV(uint2 px, float2 size)
+{
+    return (float2(px) + 0.5) / size;
+}
+
+float2 CalculateMotionVector(float4 currentPos, float4 previousPos)
+{
+    float2 currentUV = 0.5f * currentPos.xy / currentPos.w;
+    float2 previousUV = 0.5f * previousPos.xy / previousPos.w;
+    return (currentUV - previousUV) * float2(1.0f, -1.0f);
+}
+

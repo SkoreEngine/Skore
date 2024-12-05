@@ -12,7 +12,9 @@ struct VSInput
 struct VSOutput
 {
     float4 pos      : SV_POSITION;
-    float3 fragPos  : POSITION0;
+    float4 current  : POSITION0;
+    float4 prevPos  : POSITION1;
+    float3 fragPos  : POSITION2;
     float3 color    : COLOR0;
     float2 uv       : TEXCOORD0;
     float3 normal   : NORMAL1;
@@ -22,11 +24,13 @@ struct VSOutput
 struct PushConsts
 {
     float4x4 model;
+    float4x4 prevMatrix;
 };
 
 struct Scene
 {
     float4x4 viewProjection;
+    float4x4 prevViewProjection;
 };
 
 ConstantBuffer<Scene> scene : register(b0);
@@ -34,10 +38,14 @@ ConstantBuffer<Scene> scene : register(b0);
 
 VSOutput MainVS(VSInput input)
 {
+    float3 prevPos   =(float3)mul(pushConsts.prevMatrix, float4(input.position, 1.0));
+
     VSOutput output = (VSOutput)0;
     output.fragPos    = (float3)mul(pushConsts.model, float4(input.position, 1.0));
     output.color      = input.color;
     output.pos        = mul(scene.viewProjection, float4(output.fragPos, 1.0));
+    output.current    = output.pos;
+    output.prevPos    = mul(scene.prevViewProjection, float4(prevPos, 1.0));
     output.uv         = input.uv;
 
     float3x3 normalMat = (float3x3)pushConsts.model;
@@ -64,6 +72,7 @@ struct PSOutput
     float2 outRoughnessAo         :  SV_TARGET1;
     float2 outNormal              :  SV_TARGET2;
     float3 outEmissive            :  SV_TARGET3;
+    float2 outVelocity            :  SV_TARGET4;
 };
 
 ConstantBuffer<Material> material       : register(b0, space1);
@@ -134,6 +143,7 @@ PSOutput MainPS(VSOutput input)
     output.outRoughnessAo       = float2(roughness, 1.0);
     output.outNormal            = DirectionToOctohedral(normal);
     output.outEmissive          = emissive;
+    output.outVelocity          = CalculateMotionVector(input.current, input.prevPos);
 
     return output;
 }

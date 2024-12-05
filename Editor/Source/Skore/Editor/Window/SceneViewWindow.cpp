@@ -194,6 +194,9 @@ namespace Skore
 
             Extent extent = {static_cast<u32>(size.x), static_cast<u32>(size.y)};
 
+            // extent.width /= 2.f;
+            // extent.height /= 2.f;
+
             if (!renderPipeline)
             {
                 TypeHandler* type = Registry::FindTypeByName("Skore::DefaultRenderPipeline");
@@ -254,6 +257,27 @@ namespace Skore
                                                           cameraData.nearClip,
                                                           cameraData.farClip);
             }
+
+            //check parameter to apply jitter
+#if SK_ENABLE_TAA
+            if (true)
+            {
+                static u32 jitterIndex = 0;
+                static u32 jitterPeriod = 4;
+                Vec2 jitterValues = Halton23Sequence(jitterIndex);
+
+                jitterIndex = ( jitterIndex + 1 ) % jitterPeriod;
+                Vec2 jitterOffsets = Vec2{jitterValues.x * 2 - 1.0f, jitterValues.y * 2 - 1.0f };
+
+                static f32 jitterScale = 0.8f;
+
+                jitterOffsets.x *= jitterScale;
+                jitterOffsets.y *= jitterScale;
+
+                Mat4 jitterMattrix = Math::Translate(Mat4{1.0}, Vec3{jitterOffsets.x / static_cast<f32>(extent.width), jitterOffsets.x / static_cast<f32>(extent.height), 0.f});
+                cameraData.projection = jitterMattrix * cameraData.projection;
+            }
+#endif
 
             cameraData.lastProjView = cameraData.projView;
             cameraData.projView = cameraData.projection * cameraData.view;

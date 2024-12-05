@@ -33,7 +33,8 @@ namespace Skore
         if (it == meshRendersLookup.end())
         {
             it = meshRendersLookup.Emplace(pointer, meshRenders.Size()).first;
-            meshRenders.EmplaceBack();
+            MeshRenderData& render = meshRenders.EmplaceBack();
+            render.prevMatrix = matrix;
         }
 
         meshRenders[it->second].pointer = pointer;

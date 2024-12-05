@@ -108,6 +108,7 @@ namespace Skore
         RenderPassBuilder& Write(StringView name, RenderGraphResource* resource);
         RenderPassBuilder& ClearColor(const Vec4& color);
         RenderPassBuilder& ClearDepth(bool clear);
+        RenderPassBuilder& Shader(StringView path);
         RenderPassBuilder& Shader(StringView path, StringView state);
         RenderPassBuilder& Dispatch(u32 x, u32 y, u32 z);
         RenderPassBuilder& Handler(RenderGraphPassHandler* handler, bool ownInstance = false);

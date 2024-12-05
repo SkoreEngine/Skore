@@ -5,10 +5,15 @@
 
 namespace Skore
 {
-    SK_API void GBufferPassSetup(RenderGraph&         rg,
-                                 RenderGraphResource* gbuffer1,
-                                 RenderGraphResource* gbuffer2,
-                                 RenderGraphResource* gbuffer3,
-                                 RenderGraphResource* emissive,
-                                 RenderGraphResource* depth);
+    struct GBufferOutput
+    {
+        RenderGraphResource* gbuffer1;
+        RenderGraphResource* gbuffer2;
+        RenderGraphResource* gbuffer3;
+        RenderGraphResource* emissive;
+        RenderGraphResource* velocity;
+        RenderGraphResource* depth;
+    };
+
+    SK_API GBufferOutput GBufferPassSetup(RenderGraph& rg);
 }

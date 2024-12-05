@@ -223,3 +223,6 @@ inline ENUMNAME operator ^ (ENUMNAME a, ENUMNAME b)    noexcept { return ENUMNAM
 #  define SK_ASSERT(condition, message) assert(condition && message)
 #  define SK_DEBUG
 #endif
+
+#define SK_ENABLE_TAA 0
+#define SK_ENABLE_TEXTURE_COMPRESSION 0

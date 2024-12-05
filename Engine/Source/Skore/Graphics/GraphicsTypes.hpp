@@ -669,6 +669,7 @@ namespace Skore
     {
         VoidPtr               pointer;
         Mat4                  matrix;
+        Mat4                  prevMatrix;
         MeshAsset*            mesh = nullptr;
         Array<MaterialAsset*> materials{};
     };

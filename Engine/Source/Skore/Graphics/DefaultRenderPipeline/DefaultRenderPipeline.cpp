@@ -14,42 +14,6 @@ namespace Skore
 {
     void DefaultRenderPipeline::BuildRenderGraph(RenderGraph& rg)
     {
-        //gbuffer textures
-        RenderGraphResource* gbuffer1 = rg.Create(RenderGraphResourceCreation{
-            .name = "gbuffer1",
-            .type = RenderGraphResourceType::Attachment,
-            .scale = {1, 1},
-            .format = Format::RGBA
-        });
-
-        RenderGraphResource* gbuffer2 = rg.Create(RenderGraphResourceCreation{
-            .name = "gbuffer2",
-            .type = RenderGraphResourceType::Attachment,
-            .scale = {1, 1},
-            .format = Format::RG
-        });
-
-        RenderGraphResource* gbuffer3 = rg.Create(RenderGraphResourceCreation{
-            .name = "gbuffer3",
-            .type = RenderGraphResourceType::Attachment,
-            .scale = {1, 1},
-            .format = Format::RG16F
-        });
-
-        RenderGraphResource* emissive = rg.Create(RenderGraphResourceCreation{
-            .name = "emissive",
-            .type = RenderGraphResourceType::Attachment,
-            .scale = {1, 1},
-            .format = Format::R11G11B10UF
-        });
-
-        RenderGraphResource* depth = rg.Create(RenderGraphResourceCreation{
-            .name = "depth",
-            .type = RenderGraphResourceType::Attachment,
-            .scale = {1, 1},
-            .format = Format::Depth,
-        });
-
         RenderGraphResource* aoOutput = rg.Create(RenderGraphResourceCreation{
             .name = "aoOutput",
             .type = RenderGraphResourceType::Texture,
@@ -79,35 +43,65 @@ namespace Skore
             .format = outputFormat
         });
 
-        //setup gbuffer
-        GBufferPassSetup(rg, gbuffer1, gbuffer2, gbuffer3, emissive, depth);
+        GBufferOutput gbufferOutput = GBufferPassSetup(rg);
 
         //GTAO
-        XeGTAOSetup(rg, depth, gbuffer3, aoOutput);
+        XeGTAOSetup(rg, gbufferOutput.depth, gbufferOutput.gbuffer3, aoOutput);
 
         //setup shadowMap pass
         ShadowPassSetup(rg, shadowMap);
 
         //setup lighting pass
         LightingPassSetup(rg,
-                          gbuffer1,
-                          gbuffer2,
-                          gbuffer3,
-                          emissive,
+                          gbufferOutput.gbuffer1,
+                          gbufferOutput.gbuffer2,
+                          gbufferOutput.gbuffer3,
+                          gbufferOutput.emissive,
                           aoOutput,
                           shadowMap,
-                          depth,
+                          gbufferOutput.depth,
                           lightOutput);
 
         //sky render
-        SkyRenderPassSetup(rg, lightOutput, depth);
+        SkyRenderPassSetup(rg, lightOutput, gbufferOutput.depth);
 
         //post-processing output
         PostProcessRenderPassSetup(rg, lightOutput, colorOutput);
 
+ #if SK_ENABLE_TAA
+        //TAA
+        //output color
+        RenderGraphResource* historyBuffer = rg.Create(RenderGraphResourceCreation{
+            .name = "historyBuffer",
+            .type = RenderGraphResourceType::Texture,
+            .scale = {1, 1},
+            .format = Format::RGBA16F
+        });
+
+
+        RenderGraphResource*  nearestSampler = rg.Create(RenderGraphResourceCreation{
+            .name = "nearestSampler",
+            .type = RenderGraphResourceType::Sampler,
+            .samplerCreation = {
+                .filter = SamplerFilter::Linear
+            }
+        });
+
+        rg.AddPass("TAAResolve", RenderGraphPassType::Compute)
+          .Shader("Skore://Shaders/Passes/ResolveTAA.comp")
+          .Read(nearestSampler)
+          .Read(gbufferOutput.depth)
+          .Read("velocity", gbufferOutput.velocity)
+          .Read("historyBuffer", historyBuffer)
+          .Read("color", colorOutput)
+          .Write("historyOutput", historyBuffer)
+          .Write("colorOutput", colorOutput)
+          .Dispatch(8, 8, 1);
+#endif
+
         //define outputs
         rg.ColorOutput(colorOutput);
-        rg.DepthOutput(depth);
+        rg.DepthOutput(gbufferOutput.depth);
     }
 
     void RegisterDefaultRenderPipeline()

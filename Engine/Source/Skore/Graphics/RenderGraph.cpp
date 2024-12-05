@@ -233,6 +233,12 @@ namespace Skore
         return *this;
     }
 
+    RenderPassBuilder& RenderPassBuilder::Shader(StringView path)
+    {
+        pass->shaderState = Assets::LoadByPath<ShaderAsset>(path)->GetDefaultState();
+        return *this;
+    }
+
     RenderPassBuilder& RenderPassBuilder::Shader(StringView path, StringView state)
     {
         pass->shaderState = Assets::LoadByPath<ShaderAsset>(path)->GetState(state);

@@ -12,6 +12,13 @@ namespace Skore
     struct SceneData
     {
         Mat4 viewProjection;
+        Mat4 prevViewProjection;
+    };
+
+    struct PushConst
+    {
+        Mat4 matrix;
+        Mat4 prevMatrix;
     };
 
     struct GBufferPass : RenderGraphPassHandler
@@ -43,7 +50,10 @@ namespace Skore
         {
             const CameraData& cameraData = rg->GetCameraData();
 
-            SceneData data{.viewProjection = cameraData.projView};
+            SceneData data{
+                .viewProjection = cameraData.projView,
+                .prevViewProjection = cameraData.lastProjView
+            };
             bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
 
             cmd.BindPipelineState(pipelineState);
@@ -60,7 +70,15 @@ namespace Skore
                         cmd.BindVertexBuffer(mesh->GetVertexBuffer());
                         cmd.BindIndexBuffer(mesh->GetIndexBuffer());
 
-                        cmd.PushConstants(pipelineState, ShaderStage::Vertex, &meshRenderData.matrix, sizeof(Mat4));
+
+                        PushConst pushConst;
+                        pushConst.matrix = meshRenderData.matrix;
+                        pushConst.prevMatrix = meshRenderData.prevMatrix;
+
+                        meshRenderData.prevMatrix = meshRenderData.matrix;
+
+                        cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConst, sizeof(PushConst));
+
 
                         for (MeshPrimitive& primitive : primitives)
                         {
@@ -82,16 +100,65 @@ namespace Skore
         }
     };
 
-    void GBufferPassSetup(RenderGraph& rg, RenderGraphResource* gbuffer1, RenderGraphResource* gbuffer2, RenderGraphResource* gbuffer3, RenderGraphResource* emissive, RenderGraphResource* depth)
+
+    GBufferOutput GBufferPassSetup(RenderGraph& rg)
     {
+        GBufferOutput output{};
+
+        //gbuffer textures
+        output.gbuffer1 = rg.Create(RenderGraphResourceCreation{
+            .name = "gbuffer1",
+            .type = RenderGraphResourceType::Attachment,
+            .scale = {1, 1},
+            .format = Format::RGBA
+        });
+
+        output.gbuffer2 = rg.Create(RenderGraphResourceCreation{
+            .name = "gbuffer2",
+            .type = RenderGraphResourceType::Attachment,
+            .scale = {1, 1},
+            .format = Format::RG
+        });
+
+        output.gbuffer3 = rg.Create(RenderGraphResourceCreation{
+            .name = "gbuffer3",
+            .type = RenderGraphResourceType::Attachment,
+            .scale = {1, 1},
+            .format = Format::RG16F
+        });
+
+        output.emissive = rg.Create(RenderGraphResourceCreation{
+            .name = "emissive",
+            .type = RenderGraphResourceType::Attachment,
+            .scale = {1, 1},
+            .format = Format::R11G11B10UF
+        });
+
+        output.velocity = rg.Create(RenderGraphResourceCreation{
+            .name = "velocity",
+            .type = RenderGraphResourceType::Attachment,
+            .scale = {1, 1},
+            .format = Format::RG16F
+        });
+
+        output.depth = rg.Create(RenderGraphResourceCreation{
+            .name = "depth",
+            .type = RenderGraphResourceType::Attachment,
+            .scale = {1, 1},
+            .format = Format::Depth,
+        });
+
         rg.AddPass("GBuffer", RenderGraphPassType::Graphics)
-          .Write(gbuffer1)
-          .Write(gbuffer2)
-          .Write(gbuffer3)
-          .Write(emissive)
-          .Write(depth)
+          .Write(output.gbuffer1)
+          .Write(output.gbuffer2)
+          .Write(output.gbuffer3)
+          .Write(output.emissive)
+          .Write(output.velocity)
+          .Write(output.depth)
           .ClearColor(Color::BLACK.ToVec4())
           .ClearDepth(true)
           .Handler<GBufferPass>();
+
+        return output;
     }
 }

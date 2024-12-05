@@ -1759,6 +1759,29 @@ namespace Skore
         return true;
     }
 
+
+    inline f32 Halton(i32 i, i32 b)
+    {
+        // Creates a halton sequence of values between 0 and 1.
+        // https://en.wikipedia.org/wiki/Halton_sequence
+        // Used for jittering based on a constant set of 2D points.
+        f32 f = 1.0f;
+        f32 r = 0.0f;
+        while (i > 0)
+        {
+            f = f / f32(b);
+            r = r + f * f32(i % b);
+            i = i / b;
+        }
+        return r;
+    }
+
+    inline Vec2 Halton23Sequence(i32 index)
+    {
+        return Vec2{Halton(index, 2), Halton(index, 3)};
+    }
+
+
     //hash impl
 
     template <>

@@ -14,8 +14,6 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderUtils.hpp"
 
-#define SK_BLOCK_COMPRESS 0
-
 namespace Skore
 {
     struct TextureAssetHandler : JsonAssetHandler
@@ -40,14 +38,15 @@ namespace Skore
 
         Image GenerateThumbnail(AssetFile* assetFile) override
         {
-#if SK_BLOCK_COMPRESS
-            return {};
-#endif;
             //TODO HDR
             TextureAsset* textureAsset = Assets::Load<TextureAsset>(assetFile->uuid);
-            Image         image = textureAsset->GetImage();
-            image.Resize(128, 128);
-            return image;
+            if (textureAsset->format != Format::BC1U)
+            {
+                Image image = textureAsset->GetImage();
+                image.Resize(128, 128);
+                return image;
+            }
+            return {};
         }
     };
 
@@ -221,7 +220,7 @@ namespace Skore
         {
             u8* bytes = stbi_load(path.CStr(), &width, &height, &channels, 4);
 
-#if SK_BLOCK_COMPRESS
+#if SK_ENABLE_TEXTURE_COMPRESSION
             if (channels == 3)
             {
                 Texture texture = Graphics::CreateTexture({
