@@ -56,6 +56,7 @@ namespace Skore
         logger.Info("starting bake");
         DefaultRenderPipeline renderPipeline;
         renderPipeline.outputFormat = Format::RGBA16F;
+        renderPipeline.antiAliasing = AntiAliasingType::None;
 
         RenderGraph* renderGraph = Alloc<RenderGraph>(RenderGraphCreation{
             .drawToSwapChain = false,

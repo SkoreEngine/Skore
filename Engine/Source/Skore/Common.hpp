@@ -224,5 +224,4 @@ inline ENUMNAME operator ^ (ENUMNAME a, ENUMNAME b)    noexcept { return ENUMNAM
 #  define SK_DEBUG
 #endif
 
-#define SK_ENABLE_TAA 1
 #define SK_ENABLE_TEXTURE_COMPRESSION 0

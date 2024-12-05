@@ -190,9 +190,6 @@ namespace Skore
 
             Extent extent = {static_cast<u32>(size.x), static_cast<u32>(size.y)};
 
-            // extent.width /= 3.f;
-            // extent.height /= 3.f;
-
             if (bool renderGraphDirty = renderGraph == nullptr || sceneEditor.GetActiveScene() != renderGraph->GetScene())
             {
                 if (renderGraph)
@@ -248,7 +245,6 @@ namespace Skore
             }
 
             //check parameter to apply jitter
-#if SK_ENABLE_TAA
             if (true)
             {
                 static u32 jitterIndex = 0;
@@ -266,7 +262,6 @@ namespace Skore
                 Mat4 jitterMattrix = Math::Translate(Mat4{1.0}, Vec3{jitterOffsets.x / static_cast<f32>(extent.width), jitterOffsets.x / static_cast<f32>(extent.height), 0.f});
                 cameraData.projection = jitterMattrix * cameraData.projection;
             }
-#endif
 
             cameraData.lastProjView = cameraData.projView;
             cameraData.projView = cameraData.projection * cameraData.view;

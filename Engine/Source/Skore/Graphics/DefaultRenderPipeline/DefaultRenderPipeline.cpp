@@ -69,8 +69,11 @@ namespace Skore
         //post-processing output
         PostProcessRenderPassSetup(rg, lightOutput, colorOutput);
 
-        //TAA
-        TAASetup(rg, gbufferOutput.velocity, gbufferOutput.depth, colorOutput);
+        if (antiAliasing == AntiAliasingType::TAA)
+        {
+            //TAA
+            TAASetup(rg, gbufferOutput.velocity, gbufferOutput.depth, colorOutput);
+        }
 
         //define outputs
         rg.ColorOutput(colorOutput);

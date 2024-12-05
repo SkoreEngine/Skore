@@ -117,8 +117,6 @@ namespace Skore
 
     void TAASetup(RenderGraph& rg, RenderGraphResource* velocity, RenderGraphResource* depth, RenderGraphResource* colorOutput)
     {
-#if SK_ENABLE_TAA
-
         RenderGraphResource* historyBuffer = rg.Create(RenderGraphResourceCreation{
             .name = "historyBuffer",
             .type = RenderGraphResourceType::Texture,
@@ -138,6 +136,5 @@ namespace Skore
           .Read(velocity)
           .Write(colorOutput)
           .Handler<TAAPass>(velocity, depth, colorOutput, historyBuffer, outputBuffer);
-#endif
     }
 }

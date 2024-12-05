@@ -217,3 +217,13 @@ float2 CalculateMotionVector(float4 currentPos, float4 previousPos)
     return (currentUV - previousUV) * float2(1.0f, -1.0f);
 }
 
+float Luminance( float3 rgb ) {
+    float l = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+    return l;
+}
+
+float Squared(const float value)
+{
+    return value * value;
+}
+

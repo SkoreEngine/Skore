@@ -94,6 +94,53 @@ float3 SampleHistoryCatmullRom(in float2 uv, in float2 texelSize)
     return max(result, 0.0f);
 }
 
+// https://github.com/TheRealMJP/MSAAFilter/blob/master/MSAAFilter/Resolve.hlsl
+float FilterCubic(in float x, in float B, in float C) {
+    float y = 0.0f;
+    float x2 = x * x;
+    float x3 = x * x * x;
+    if(x < 1)
+    {
+        y = (12 - 9 * B - 6 * C) * x3 + (-18 + 12 * B + 6 * C) * x2 + (6 - 2 * B);
+    }
+
+    else if (x <= 2)
+    {
+        y = (-B - 6 * C) * x3 + (6 * B + 30 * C) * x2 + (-12 * B - 48 * C) * x + (8 * B + 24 * C);
+    }
+    return y / 6.0f;
+}
+
+
+float FilterCatmullRom(float value)
+{
+    return FilterCubic(value, 0, 0.5f);
+}
+
+
+float SubsampleFilter(float value)
+{
+    return FilterCatmullRom( value * 2 );
+}
+
+float4 ClipAABB(float3 aabbMin, float3 aabbMax, float4 previousSample, float averageAlpha) {
+    // Note: Only clips towards AABB center (but fast!)
+    float3 pClip = 0.5f * (aabbMax + aabbMin);
+    float3 eClip = 0.5f * (aabbMax - aabbMin) + 0.000000001f;
+
+    float4 vClip = previousSample - float4(pClip, averageAlpha);
+    float3 vUnit = vClip.xyz / eClip;
+    float3 aUnit = abs(vUnit);
+    float maUnit = max(aUnit.x, max(aUnit.y, aUnit.z));
+
+    if (maUnit > 1.0f) {
+        return float4(pClip, averageAlpha) + vClip / maUnit;
+    } else {
+        // Point inside AABB
+        return previousSample;
+    }
+}
+
 
 [numthreads(8, 8, 1)]
 void ResolveTemporal(in uint2 px : SV_DispatchThreadID)
@@ -102,28 +149,167 @@ void ResolveTemporal(in uint2 px : SV_DispatchThreadID)
     color.GetDimensions(colorOutputSize.x, colorOutputSize.y);
 
     float2 texelSize = 1.0f / colorOutputSize;
-
-
     float2 uv = GetUV(px, colorOutputSize);
 
     float closestDepth;
     float2 currentVelocity =  GetClosestVelocity(uv, texelSize, closestDepth);
-    float3 currentColor = color.SampleLevel(nearestSampler, uv, 0.0f).rgb;
+    float2 reprojectedUV = uv - currentVelocity;
 
-    // History sampling: read previous frame samples and apply a filter to it.
-    //float3 historyColor = historyBuffer.SampleLevel(nearestSampler, uv - currentVelocity, 0.0f).rgb;
-    float3 historyColor =  SampleHistoryCatmullRom(uv - currentVelocity, texelSize);
+    // Current sampling: read a 3x3 neighborhood and cache color and other data to process history and final resolve.
+    // Accumulate current sample and weights.
 
-    float weight = 0.9;
-    float3 finalColor = lerp(currentColor, historyColor, weight);
+    float3 currentSampleTotal = float3(0, 0, 0);
+    float currentSampleWeight = 0.0f;
+    // Min and Max used for history clipping
+    float3 neighborhoodMin = float3(10000, 10000, 10000);
+    float3 neighborhoodMax = float3(-10000, -10000, -10000);
+    // Cache of moments used in the resolve phase
+    float3 m1 = float3(0, 0, 0);
+    float3 m2 = float3(0, 0, 0);
 
-    outputBuffer[px].xyz = finalColor;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            int2 pixelPosition = px + int2(x, y);
+            pixelPosition = clamp(pixelPosition, int2(0, 0), int2(colorOutputSize.x - 1, colorOutputSize.y - 1));
+
+            float3 currentSample = color[pixelPosition].rgb;
+            float2 subsamplePosition = float2(x * 1.0f, y * 1.0f);
+            float subsampleDistance = length(subsamplePosition);
+            float subsampleWeight = SubsampleFilter(subsampleDistance);
+
+            currentSampleTotal += currentSample * subsampleWeight;
+            currentSampleWeight += subsampleWeight;
+
+            neighborhoodMin = min(neighborhoodMin, currentSample);
+            neighborhoodMax = max(neighborhoodMax, currentSample);
+
+            m1 += currentSample;
+            m2 += currentSample * currentSample;
+        }
+    }
+
+    // Calculate current sample color
+    float3 currentSample = currentSampleTotal / currentSampleWeight;
+
+    if (any(reprojectedUV <= float2(0.0, 0.0)) || any(reprojectedUV >= float2(1.0, 1.0)))
+    {
+        outputBuffer[px].xyz = currentSample;
+        return;
+    }
+
+    float3 historyColor =  SampleHistoryCatmullRom(reprojectedUV, texelSize);
+
+    #if defined(SK_HISTORY_CONSTRAINT_MODE_VARIANCE_CLIP_CLAMP)
+        float rcpSampleCount = 1.0f / 9.0f;
+        float gamma = 1.0f;
+        float3 mu = m1 * rcpSampleCount;
+        float3 sigma = sqrt(abs((m2 * rcpSampleCount) - (mu * mu)));
+        float3 minC = mu - gamma * sigma;
+        float3 maxC = mu + gamma * sigma;
+
+        float3 clampedHistoryColor = clamp(historyColor.rgb, neighborhoodMin, neighborhoodMax);
+        historyColor.rgb = ClipAABB(minC, maxC, float4(clampedHistoryColor, 1), 1.0f).rgb;
+    #else
+        historyColor.rgb = clamp(historyColor.rgb, neighborhoodMin, neighborhoodMax);
+    #endif
+
+    //color filter
+    float3 currentWeight = 0.1;
+    float3 historyWeight = 1.0 - currentWeight;
+
+    #ifdef SK_USE_TEMPORAL_FILTERING
+        float3 temporalWeight = clamp(abs(neighborhoodMax - neighborhoodMin) / currentSample, float3(0, 0, 0), float3(1, 1, 1));
+        historyWeight = clamp(lerp(float3(0.25, 0.25, 0.25), float3(0.85, 0.85, 0.85), temporalWeight), float3(0, 0, 0), float3(1, 1, 1));
+        currentWeight = 1.0f - historyWeight;
+    #endif
+
+    #if defined(SK_USE_INVERSE_LUMINANCE_FILTERING) || defined(SK_USE_LUMINANCE_DIFFERENCE_FILTERING)
+
+        // Calculate compressed colors and luminances
+        float3 compressedSource = currentSample / (max(max(currentSample.r, currentSample.g), currentSample.b) + 1.0f);
+        float3 compressedHistory = historyColor / (max(max(historyColor.r, historyColor.g), historyColor.b) + 1.0f);
+        float luminanceSource = Luminance(compressedSource);
+        float luminanceHistory = Luminance(compressedHistory);
+
+        #if defined(SK_USE_LUMINANCE_DIFFERENCE_FILTERING)
+
+            float unbiasedDiff = abs(luminanceSource - luminanceHistory) / max(luminanceSource, max(luminanceHistory, 0.2));
+            float unbiasedWeight = 1.0f - unbiasedDiff;
+            float unbiasedWeightSqr = unbiasedWeight * unbiasedWeight;
+            float kFeedback = lerp(0.0f, 1.0f, unbiasedWeightSqr);
+
+            historyWeight = 1.0f - kFeedback;
+            currentWeight = kFeedback;
+        #endif
+
+        currentWeight *= 1.0f / (1.0f + luminanceSource);
+        historyWeight *= 1.0f / (1.0f + luminanceHistory);
+    #endif
+
+    float3 result = (currentSample * currentWeight + historyColor * historyWeight) / max(currentWeight + historyWeight, 0.00001f);
+    outputBuffer[px].xyz = result;
+}
+
+
+float3 ApplySharpening(in float3 center, in float3 top, in float3 left, in float3 right, in float3 bottom)
+{
+    float sharpenAmount = 0.25f;
+
+    float accum  = 0.0f;
+    float weight = 0.0f;
+    float result = sqrt(Luminance(center));
+
+    {
+        float n0 = sqrt(Luminance(top));
+        float n1 = sqrt(Luminance(bottom));
+        float n2 = sqrt(Luminance(left));
+        float n3 = sqrt(Luminance(right));
+
+        float w0 = max(1.0f - 6.0f * (abs(result - n0) + abs(result - n1)), 0.0f);
+        float w1 = max(1.0f - 6.0f * (abs(result - n2) + abs(result - n3)), 0.0f);
+
+        w0 = min(1.25f * sharpenAmount * w0, w0);
+        w1 = min(1.25f * sharpenAmount * w1, w1);
+
+        accum += n0 * w0;
+        accum += n1 * w0;
+        accum += n2 * w1;
+        accum += n3 * w1;
+
+        weight += 2.0f * w0;
+        weight += 2.0f * w1;
+    }
+
+    result = max(result * (weight + 1.0f) - accum, 0.0f);
+    result = Squared(result);
+
+    return min(center * result / max(Luminance(center), 1e-5f), 1.0f);
 }
 
 
 [numthreads(8, 8, 1)]
 void UpdateHistory(in uint2 px : SV_DispatchThreadID)
 {
+
+#ifdef SK_APPLY_SHARPENING
+    int2 bufferDimensions;
+    outputBuffer.GetDimensions(bufferDimensions.x, bufferDimensions.y);
+
+    float2 texelSize = 1.0f / bufferDimensions;
+    float2 uv        = (px + 0.5f) * texelSize;
+
+    float3 top        = historyBuffer.SampleLevel(nearestSampler, uv + float2( 0.0f,          texelSize.y), 0.0f).xyz;
+    float3 left       = historyBuffer.SampleLevel(nearestSampler, uv + float2(-texelSize.x,  0.0f        ), 0.0f).xyz;
+    float3 right      = historyBuffer.SampleLevel(nearestSampler, uv + float2( texelSize.x,  0.0f        ), 0.0f).xyz;
+    float3 bottom     = historyBuffer.SampleLevel(nearestSampler, uv + float2( 0.0f,         -texelSize.y), 0.0f).xyz;
+
+    float3 center     = historyBuffer.Load(int3(px, 0)).xyz;
+    float3 color      = ApplySharpening(center, top, left, right, bottom);
+
+    colorOutput[px] = float4(color, 1.0f);
+    outputBuffer[px] = float4(center, 1.0f);
+#else
     colorOutput[px].rgb = historyBuffer[px].rgb;
     outputBuffer[px].rgb = historyBuffer[px].rgb;
+#endif
 }
