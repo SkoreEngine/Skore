@@ -190,7 +190,7 @@ namespace Skore
             size -= diffCursor;
             Rect bb{(i32)cursor.x, (i32)cursor.y, u32(cursor.x + size.x), u32(cursor.y + size.y)};
 
-            f32 scale = 1;
+            f32 scale = 1.0;
             Extent extent = {static_cast<u32>(size.x * scale), static_cast<u32>(size.y * scale)};
 
 

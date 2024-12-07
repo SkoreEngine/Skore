@@ -51,6 +51,7 @@ namespace Skore
         bool    thumbnailVerified = false;
 
         Asset*     LoadAsset() override;
+        void       Reload(Asset* asset) override;
         Array<u8>  LoadStream(usize offset, usize size) override;
         StringView GetName() override;
         String     MakePathName() const;

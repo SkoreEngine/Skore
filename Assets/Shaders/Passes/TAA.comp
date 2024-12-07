@@ -211,8 +211,8 @@ void ResolveTemporal(in uint2 px : SV_DispatchThreadID)
         float gamma = 1.0f;
         float3 mu = m1 * rcpSampleCount;
         float3 sigma = sqrt(abs((m2 * rcpSampleCount) - (mu * mu)));
-        float3 minC = mu - gamma * sigma;
-        float3 maxC = mu + gamma * sigma;
+        float3 minC = clamp(mu - gamma * sigma, neighborhoodMin, neighborhoodMax);
+        float3 maxC = clamp(mu + gamma * sigma, neighborhoodMin, neighborhoodMax);
 
         float3 clampedHistoryColor = clamp(historyColor.rgb, neighborhoodMin, neighborhoodMax);
         historyColor.rgb = ClipAABB(minC, maxC, float4(clampedHistoryColor, 1), 1.0f).rgb;

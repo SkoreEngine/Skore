@@ -13,6 +13,7 @@
 #include "Skore/ImGui/Lib/imgui_internal.h"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Graphics/Assets/ShaderAsset.hpp"
 #include "Scene/SceneEditor.hpp"
 #include "Window/ProjectBrowserWindow.hpp"
 #include "Window/PropertiesWindow.hpp"
@@ -229,6 +230,18 @@ namespace Skore
             }
         }
 
+        void ReloadShaders(const MenuItemEventData& eventData)
+        {
+            for (AssetFile* assetFile : AssetEditor::GetAssetsOfType(GetTypeID<ShaderAsset>()))
+            {
+                if (ShaderAsset* shaderAsset = Assets::Get<ShaderAsset>(assetFile->uuid))
+                {
+                    Assets::Reload(assetFile->uuid);
+                }
+
+            }
+        }
+
         void CreateMenuItems()
         {
             Editor::AddMenuItem(MenuItemCreation{.itemName = "File", .priority = 0});
@@ -244,8 +257,9 @@ namespace Skore
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Redo", .priority = 20, .itemShortcut{.ctrl = true, .shift = true, .presKey = Key::Z}, .action = Redo, .enable = RedoEnabled});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Editor Preferences...", .priority = 1000, .action = SettingsWindow::Open, .userData = GetTypeID<EditorPreferences>()});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Project Settings...", .priority = 1010, .action = SettingsWindow::Open, .userData = GetTypeID<ProjectSettings>()});
-            // Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
-            // Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .enable = CreateCMakeProjectEnabled});
+            Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
+            Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .enable = CreateCMakeProjectEnabled});
+            Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Reload Shaders", .priority = 100, .itemShortcut = {.presKey = Key::F5}, .action = ReloadShaders});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Window", .priority = 60});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Help", .priority = 70});
             Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Dear ImGui Demo", .priority = I32_MAX, .action = ShowImGuiDemo});

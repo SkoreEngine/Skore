@@ -37,6 +37,7 @@ namespace Skore
         virtual ~AssetLoader() = default;
 
         virtual Asset*     LoadAsset() = 0;
+        virtual void       Reload(Asset* asset) {}
         virtual Array<u8>  LoadStream(usize offset, usize size) = 0;
         virtual StringView GetName() = 0;
     };
@@ -63,6 +64,12 @@ namespace Skore
         static T* Load(UUID uuid)
         {
             return static_cast<T*>(Load(uuid));
+        }
+
+        template <typename T>
+        static T* Get(UUID uuid)
+        {
+            return static_cast<T*>(Get(uuid));
         }
     };
 

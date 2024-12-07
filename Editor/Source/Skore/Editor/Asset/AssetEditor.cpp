@@ -181,6 +181,14 @@ namespace Skore
         return nullptr;
     }
 
+    void AssetFile::Reload(Asset* asset)
+    {
+        if (TypeHandler* typeHandler = Registry::FindTypeById(handler->GetAssetTypeID()))
+        {
+            handler->Load(this, typeHandler, asset);
+        }
+    }
+
     Array<u8> AssetFile::LoadStream(usize offset, usize size)
     {
         String bufferFile = tempBuffer.Empty() ? Path::Join(absolutePath, ".buffer") : tempBuffer;

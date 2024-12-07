@@ -86,6 +86,7 @@ namespace Skore
 
             ShaderAsset* shaderAsset = static_cast<ShaderAsset*>(instance);
             shaderAsset->type = GetType();
+            shaderAsset->bytes.Clear();
 
             RenderApiType   renderApi = Graphics::GetRenderApi();
             String          source = FileSystem::ReadFileAsString(assetFile->absolutePath);

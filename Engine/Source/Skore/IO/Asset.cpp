@@ -142,14 +142,8 @@ namespace Skore
         {
             if (it->second.instance)
             {
-                it->second.instance->GetTypeHandler()->Destroy(it->second.instance);
+                it->second.loader->Reload(it->second.instance);
             }
-
-            it->second.instance = it->second.loader->LoadAsset();
-            SK_ASSERT(it->second.instance, "instance not created");
-            SK_ASSERT(it->second.instance->typeHandler, "type handler must be provided");
-            it->second.instance->loader = it->second.loader;
-            it->second.instance->uuid = it->second.uuid;
             return it->second.instance;
         }
         return nullptr;
