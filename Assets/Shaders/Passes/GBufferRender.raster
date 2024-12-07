@@ -145,7 +145,6 @@ PSOutput MainPS(VSOutput input)
     output.outNormal            = DirectionToOctohedral(normal);
     output.outEmissive          = emissive;
     output.outVelocity          = CalculateMotionVector(input.current, input.prevPos, scene.currentJitter, scene.previousJitter);
-//    output.outVelocity          =  0.0;
 
     return output;
 }

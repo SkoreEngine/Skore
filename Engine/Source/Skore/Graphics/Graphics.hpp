@@ -38,7 +38,8 @@ namespace Skore::Graphics
     SK_API RenderCommands& GetCmd();
     SK_API GPUQueue        GetMainQueue();
     SK_API RenderApiType   GetRenderApi();
-    SK_API Sampler         GetDefaultSampler();
+    SK_API Sampler         GetLinearSampler();
+    SK_API Sampler         GetNearestSampler();
     SK_API Texture         GetDefaultTexture();
     SK_API void            AddTask(GraphicsTaskType graphicsTask, VoidPtr userData, FnGraphicsTask task);
 }

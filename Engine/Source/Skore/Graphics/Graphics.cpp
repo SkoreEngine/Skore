@@ -17,7 +17,8 @@ namespace Skore
     namespace
     {
         SharedPtr<RenderDevice> renderDevice = {};
-        Sampler                 defaultSampler = {};
+        Sampler                 linearSampler = {};
+        Sampler                 nearestSampler = {};
         Texture                 defaultTexture = {};
         std::mutex mutex;
     }
@@ -29,7 +30,8 @@ namespace Skore
 
     void GraphicsShutdown()
     {
-        renderDevice->DestroySampler(defaultSampler);
+        renderDevice->DestroySampler(nearestSampler);
+        renderDevice->DestroySampler(linearSampler);
         renderDevice->DestroyTexture(defaultTexture);
         renderDevice = {};
     }
@@ -38,7 +40,15 @@ namespace Skore
     {
         renderDevice->CreateDevice(adapter);
 
-        defaultSampler = renderDevice->CreateSampler({
+        linearSampler = renderDevice->CreateSampler({
+            .filter = SamplerFilter::Linear,
+            .addressMode = TextureAddressMode::ClampToEdge,
+            .maxLod = 200
+        });
+
+        nearestSampler = renderDevice->CreateSampler({
+            .filter = SamplerFilter::Nearest,
+            .addressMode = TextureAddressMode::ClampToEdge,
             .maxLod = 200
         });
 
@@ -331,9 +341,14 @@ namespace Skore
         return RenderApiType::Vulkan;
     }
 
-    Sampler Graphics::GetDefaultSampler()
+    Sampler Graphics::GetLinearSampler()
     {
-        return defaultSampler;
+        return linearSampler;
+    }
+
+    Sampler Graphics::GetNearestSampler()
+    {
+        return nearestSampler;
     }
 
     Texture Graphics::GetDefaultTexture()

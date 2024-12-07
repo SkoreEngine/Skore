@@ -21,7 +21,7 @@ Texture2D<float>                    depthTexture;
 Texture2D<float4>                   panoramicTexture;
 RWTexture2D<float4>                 colorTexture;
 ConstantBuffer<SkyboxRenderData>    data;
-SamplerState                        defaultSampler;
+SamplerState                        samplerState;
 
 [numthreads(16, 16, 1)]
 void MainCS(in uint2 px : SV_DispatchThreadID)
@@ -39,7 +39,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
             float2 d            = uv * 2.0 - 1.0;
             float4 target       = mul(data.projInverse, float4(d.x, d.y * -1.0, 1, 1));
             float4 direction    = mul(data.viewInverse, float4(normalize(target.xyz), 0));
-            float3 output       = panoramicTexture.SampleLevel(defaultSampler, SampleSphericalMap(direction.xyz), 0).rgb * data.skyboxProperties.rgb;
+            float3 output       = panoramicTexture.SampleLevel(samplerState, SampleSphericalMap(direction.xyz), 0).rgb * data.skyboxProperties.rgb;
 
             colorTexture[px] = float4(output.rgb, 1.0);
         }

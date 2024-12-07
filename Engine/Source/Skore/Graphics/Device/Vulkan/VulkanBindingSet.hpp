@@ -33,8 +33,8 @@ namespace Skore
         FixedArray<u8, SK_FRAMES_IN_FLIGHT> frames{0, 0};
         Array<VulkanDescriptorSetData>      data;
 
-        Array<VulkanBindingVar*>      bindingVars{};
-        Array<VkWriteDescriptorSet>   descriptorWrites;
+        Array<VulkanBindingVar*>    bindingVars{};
+        Array<VkWriteDescriptorSet> descriptorWrites;
 
         void MarkDirty();
         void CheckDescriptorSetData();
@@ -54,8 +54,8 @@ namespace Skore
 
     struct VulkanBindingVar : BindingVar
     {
-        VulkanBindingSet& bindingSet;
-
+        VulkanBindingSet&             bindingSet;
+        String                        name;
         VulkanDescriptorSet*          descriptorSet{};
         u32                           binding{};
         DescriptorType                descriptorType{};
@@ -66,13 +66,13 @@ namespace Skore
         Array<VkDescriptorImageInfo>  descriptorImageInfos = {};
         Array<VkDescriptorBufferInfo> descriptorBufferInfos = {};
 
-        VulkanBindingVar(VulkanBindingSet& bindingSet) : bindingSet(bindingSet) {}
+        VulkanBindingVar(VulkanBindingSet& bindingSet, StringView name) : bindingSet(bindingSet), name(name) {}
         ~VulkanBindingVar() override;
 
-        VulkanSampler*               sampler{};
-        VulkanBuffer*                buffer{}; //external buffers, BindingSet don't own it
-        Array<VulkanTexture*>        vulkanTextures;
-        Array<VulkanTextureView*>    vulkanTextureViews;
+        VulkanSampler*            sampler{};
+        VulkanBuffer*             buffer{}; //external buffers, BindingSet don't own it
+        Array<VulkanTexture*>     vulkanTextures;
+        Array<VulkanTextureView*> vulkanTextureViews;
 
         Array<VulkanUpdateDescriptorArray> pendingTextures{};
 
@@ -94,8 +94,8 @@ namespace Skore
 
     struct VulkanBindingSet : BindingSet
     {
-        VulkanDevice&          vulkanDevice;
-        ShaderState*           shaderState = nullptr;
+        VulkanDevice&           vulkanDevice;
+        ShaderState*            shaderState = nullptr;
         Array<DescriptorLayout> descriptorLayouts = {};
 
         //shader reflection data

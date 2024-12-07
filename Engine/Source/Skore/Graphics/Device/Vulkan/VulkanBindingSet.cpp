@@ -162,7 +162,7 @@ namespace Skore
             {
                 const DescriptorBinding& descriptorBinding = descriptorLayout.bindings[i];
 
-                VulkanBindingVar* bindingVar = bindingSet.bindingVars.Emplace(descriptorBinding.name, vulkanDevice.allocator.Alloc<VulkanBindingVar>(bindingSet)).first->second;
+                VulkanBindingVar* bindingVar = bindingSet.bindingVars.Emplace(descriptorBinding.name, vulkanDevice.allocator.Alloc<VulkanBindingVar>(bindingSet, descriptorBinding.name)).first->second;
                 bindingVar->descriptorSet = this;
                 bindingVar->binding = descriptorBinding.binding;
                 bindingVar->descriptorType = descriptorBinding.descriptorType;
@@ -393,7 +393,7 @@ namespace Skore
             auto varDescriptorSetIt = valueDescriptorSetLookup.Find(name);
             if (varDescriptorSetIt == valueDescriptorSetLookup.end())
             {
-                return bindingVars.Emplace(name, vulkanDevice.allocator.Alloc<VulkanBindingVar>(*this)).first->second;
+                return bindingVars.Emplace(name, vulkanDevice.allocator.Alloc<VulkanBindingVar>(*this, name)).first->second;
             }
 
             u32 set = varDescriptorSetIt->second;
@@ -478,9 +478,20 @@ namespace Skore
                             }
                             case DescriptorType::Sampler:
                             {
-                                vulkanBindingVar->descriptorImageInfos[arrayElement].sampler = vulkanBindingVar->sampler
-                                                                                     ? vulkanBindingVar->sampler->sampler
-                                                                                     : static_cast<VulkanSampler*>(Graphics::GetDefaultSampler().handler)->sampler;
+                                VkSampler sampler = nullptr;
+
+                                if (vulkanBindingVar->sampler)
+                                {
+                                    sampler = vulkanBindingVar->sampler->sampler;
+                                } else if (vulkanBindingVar->name == "nearestSampler")
+                                {
+                                    sampler = static_cast<VulkanSampler*>(Graphics::GetNearestSampler().handler)->sampler;
+                                }
+                                else
+                                {
+                                    sampler = static_cast<VulkanSampler*>(Graphics::GetLinearSampler().handler)->sampler;
+                                }
+                                vulkanBindingVar->descriptorImageInfos[arrayElement].sampler = sampler;
                                 writeDescriptorSet.pImageInfo = &vulkanBindingVar->descriptorImageInfos[arrayElement];
                                 break;
                             }

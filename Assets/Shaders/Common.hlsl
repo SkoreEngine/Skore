@@ -212,12 +212,11 @@ float2 GetUV(uint2 px, float2 size)
 
 float2 CalculateMotionVector(float4 currentPos, float4 previousPos, float2 currentJitter, float2 previousJitter)
 {
-    float2 currentUV = 0.5f * currentPos.xy / currentPos.w;
-    float2 previousUV = 0.5f * previousPos.xy / previousPos.w;
-    float2 motionVector = (currentUV - previousUV);
-    motionVector *= (currentJitter - previousJitter) * 0.5f;
-    motionVector *= float2(1.0f, -1.0f);
-    return motionVector;
+    float2 cancelJitter = previousJitter - currentJitter;
+    float2 motionVectors = (previousPos.xy / previousPos.w) - (currentPos.xy / currentPos.w) - cancelJitter;
+    // Transform motion vectors from NDC space to UV space (+Y is top-down).
+    motionVectors *= float2(0.5f, -0.5f);
+    return motionVectors;
 }
 
 float Luminance( float3 rgb ) {

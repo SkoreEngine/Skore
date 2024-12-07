@@ -176,8 +176,6 @@ namespace Skore
                 ImGui::EndFrame();
             }
 
-            //std::this_thread::sleep_for(std::chrono::milliseconds(20));
-
             onEndFrameHandler.Invoke();
 
             frame++;

@@ -20,6 +20,7 @@ namespace Skore
     {
         PipelineState pipelineState = {};
         BindingSet*   bindingSet = {};
+        Sampler       sampler;
 
         RenderGraphResource* colorTexture = nullptr;
         RenderGraphResource* depth = nullptr;
@@ -44,6 +45,11 @@ namespace Skore
             });
 
             bindingSet = Graphics::CreateBindingSet(shaderAsset->GetDefaultState());
+
+            sampler = Graphics::CreateSampler({
+                .filter = SamplerFilter::Linear,
+                .addressMode = TextureAddressMode::Repeat
+            });
         }
 
         void Render(RenderCommands& cmd) override
@@ -63,6 +69,8 @@ namespace Skore
 
             bindingSet->GetVar("colorTexture")->SetTexture(colorTexture->texture);
             bindingSet->GetVar("depthTexture")->SetTexture(depth->texture);
+            bindingSet->GetVar("samplerState")->SetSampler(sampler);
+
             bindingSet->GetVar("data")->SetValue(&data, sizeof(data));
 
             cmd.BindPipelineState(pipelineState);
@@ -77,6 +85,7 @@ namespace Skore
         {
             Graphics::DestroyComputePipelineState(pipelineState);
             Graphics::DestroyBindingSet(bindingSet);
+            Graphics::DestroySampler(sampler);
         }
     };
 

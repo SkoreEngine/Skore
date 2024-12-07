@@ -46,7 +46,7 @@ namespace Skore
         Quat rotation{0, 0, 0, 1};
         Vec3 scale{1, 1, 1};
 
-        f32  cameraSpeed = 20.0f;
+        f32  cameraSpeed = 10.0f;
         f32  yaw{};
         f32  pitch{};
         f32  lastX = 0;

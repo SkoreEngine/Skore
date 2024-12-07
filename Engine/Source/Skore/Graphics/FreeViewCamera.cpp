@@ -1,5 +1,6 @@
 #include "FreeViewCamera.hpp"
 
+#include "Skore/Core/Logger.hpp"
 #include "Skore/IO/Input.hpp"
 
 namespace Skore
@@ -24,40 +25,38 @@ namespace Skore
                 firstMouse = false;
             }
 
-            if (Input::IsMouseMoving())
+
+            Vec2 mousePos = Input::GetMousePosition();
+
+            float xOffset = mousePos.x - lastX;
+            float yOffset = lastY - mousePos.y;
+
+            lastX = mousePos.x;
+            lastY = mousePos.y;
+
+            float sensitivity = 0.1f;
+            xOffset *= sensitivity;
+            yOffset *= sensitivity;
+
+            xOffset *= deltaTime;
+            yOffset *= deltaTime;
+
+            yaw += xOffset;
+            pitch -= yOffset;
+
+            if (pitch > Math::Radians(89.0f))
             {
-                Vec2 mousePos = Input::GetMousePosition();
-
-                float xOffset = mousePos.x - lastX;
-                float yOffset = lastY - mousePos.y;
-
-                lastX = mousePos.x;
-                lastY = mousePos.y;
-
-                float sensitivity = 0.1f;
-                xOffset *= sensitivity;
-                yOffset *= sensitivity;
-
-                xOffset *= deltaTime;
-                yOffset *= deltaTime;
-
-                yaw += xOffset;
-                pitch -= yOffset;
-
-                if (pitch > Math::Radians(89.0f))
-                {
-                    pitch = Math::Radians(89.0f);
-                }
-
-                if (pitch < -Math::Radians(89.0f))
-                {
-                    pitch = -Math::Radians(89.0f);
-                }
-
-                Quat pitchRotation = Math::AngleAxis(pitch, Vec3{1.0f, 0.0f, 0.0f});
-                Quat yawRotation = Math::AngleAxis(yaw, Vec3{0.0f, 1.0f, 0.0f});
-                rotation = Math::Normalize(pitchRotation * yawRotation);
+                pitch = Math::Radians(89.0f);
             }
+
+            if (pitch < -Math::Radians(89.0f))
+            {
+                pitch = -Math::Radians(89.0f);
+            }
+
+            Quat pitchRotation = Math::AngleAxis(pitch, Vec3{1.0f, 0.0f, 0.0f});
+            Quat yawRotation = Math::AngleAxis(yaw, Vec3{0.0f, 1.0f, 0.0f});
+            rotation = Math::Normalize(pitchRotation * yawRotation);
 
             Vec3 movement{};
 

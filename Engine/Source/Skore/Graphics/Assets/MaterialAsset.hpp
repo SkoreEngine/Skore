@@ -67,6 +67,9 @@ namespace Skore
         AlphaMode     alphaMode{};
         Vec2          uvScale{1.0f, 1.0f};
 
+        //TODO replace by texture sampler
+        Sampler sampler;
+
         BindingSet* bindingSet = nullptr;
     };
 }

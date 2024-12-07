@@ -67,9 +67,9 @@ namespace Skore
                 .newLayout = ResourceLayout::General,
             });
 
-            resolveTemporalBindingSet->GetVar("velocity")->SetTexture(velocity->texture);
-            resolveTemporalBindingSet->GetVar("depth")->SetTexture(depth->texture);
-            resolveTemporalBindingSet->GetVar("color")->SetTexture(colorOutput->texture);
+            resolveTemporalBindingSet->GetVar("velocityBuffer")->SetTexture(velocity->texture);
+            resolveTemporalBindingSet->GetVar("depthBuffer")->SetTexture(depth->texture);
+            resolveTemporalBindingSet->GetVar("colorBuffer")->SetTexture(colorOutput->texture);
             resolveTemporalBindingSet->GetVar("historyBuffer")->SetTexture(historyBuffer->texture);
             resolveTemporalBindingSet->GetVar("outputBuffer")->SetTexture(outputBuffer->texture);
             resolveTemporalBindingSet->GetVar("nearestSampler")->SetSampler(nearestSampler);

@@ -172,6 +172,12 @@ namespace Skore
     {
         if (bindingSet == nullptr)
         {
+            if (!sampler)
+            {
+                sampler = Graphics::CreateSampler({
+                });
+            }
+
             MaterialData materialData{
                 .baseColorAlphaCutOff = Math::MakeVec4(GetBaseColor().ToVec3(), alphaCutoff),
                 .uvScaleNormalMultiplierAlphaMode = Math::MakeVec4(GetUvScale(), Math::MakeVec2(GetNormalMultiplier(), static_cast<f32>(GetAlphaMode()))),
@@ -182,7 +188,7 @@ namespace Skore
 
             bindingSet = Graphics::CreateBindingSet(Assets::LoadByPath<ShaderAsset>("Skore://Shaders/Passes/GBufferRender.raster")->GetDefaultState());
             bindingSet->GetVar("baseColorTexture")->SetTexture(baseColorTexture ? baseColorTexture->GetTexture() : Graphics::GetDefaultTexture());
-            //bindingSet->GetVar("defaultSampler")->SetSampler(baseColorTexture ? baseColorTexture->GetSampler() : Graphics::GetDefaultSampler());
+            bindingSet->GetVar("defaultSampler")->SetSampler(sampler);
 
 
             if (normalTexture)
@@ -236,6 +242,12 @@ namespace Skore
         {
             Graphics::DestroyBindingSet(bindingSet);
             bindingSet = nullptr;
+        }
+
+        if (sampler)
+        {
+            Graphics::DestroySampler(sampler);
+            sampler = {};
         }
     }
 
