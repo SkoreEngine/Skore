@@ -18,7 +18,11 @@ namespace Skore
         {
             HashMap<String, SharedPtr<Logger>>  loggers{};
             Array<LogSink*>                     sinks{};
+#ifdef SK_DEBUG
+            LogLevel                            defaultLevel = LogLevel::Debug;
+#else
             LogLevel                            defaultLevel = LogLevel::Info;
+#endif
         };
 
         LogContext& GetContext()

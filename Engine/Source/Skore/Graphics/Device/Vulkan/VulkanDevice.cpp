@@ -940,22 +940,21 @@ namespace Skore
         Span<ShaderStageInfo> stages = shaderState->stages;
         ShaderInfo            shaderInfo = shaderState->shaderInfo;
 
-
         VulkanPipelineState* vulkanPipelineState;
+
         if (!creation.pipelineState)
         {
             vulkanPipelineState = allocator.Alloc<VulkanPipelineState>();
-            vulkanPipelineState->graphicsPipelineCreation = creation;
-
             shaderState->AddPipelineDependency({vulkanPipelineState});
+            vulkanPipelineState->graphicsPipelineCreation = creation;
         }
         else
         {
             vulkanPipelineState = static_cast<VulkanPipelineState*>(creation.pipelineState.handler);
-
             vkDeviceWaitIdle(device);
             vkDestroyPipelineLayout(device, vulkanPipelineState->layout, nullptr);
             vkDestroyPipeline(device, vulkanPipelineState->pipeline, nullptr);
+            vulkanPipelineState->graphicsPipelineCreation.shaderState = creation.shaderState;
         }
 
         Array<VkPushConstantRange>                 pushConstants{};
@@ -999,14 +998,14 @@ namespace Skore
         }
 
         u32 stride = shaderInfo.stride;
-        if (creation.stride > 0)
+        if (vulkanPipelineState->graphicsPipelineCreation.stride > 0)
         {
-            stride = creation.stride;
+            stride = vulkanPipelineState->graphicsPipelineCreation.stride;
         }
 
-        if (!creation.inputs.Empty())
+        if (!vulkanPipelineState->graphicsPipelineCreation.inputs.Empty())
         {
-            for (const auto& input : creation.inputs)
+            for (const auto& input : vulkanPipelineState->graphicsPipelineCreation.inputs)
             {
                 attributeDescriptions.EmplaceBack(VkVertexInputAttributeDescription{
                     .location = input.location,
@@ -1028,7 +1027,6 @@ namespace Skore
                 });
             }
         }
-
 
         for (const auto& output : shaderInfo.outputVariables)
         {
@@ -1150,9 +1148,9 @@ namespace Skore
             }
         }
 
-        if (!creation.attachments.Empty() && vulkanPipelineState->attachments.Empty())
+        if (!vulkanPipelineState->graphicsPipelineCreation.attachments.Empty() && vulkanPipelineState->attachments.Empty())
         {
-            for(Format format: creation.attachments)
+            for(Format format: vulkanPipelineState->graphicsPipelineCreation.attachments)
             {
                 vulkanPipelineState->attachments.EmplaceBack(Vulkan::CastFormat(format));
             }
@@ -1240,6 +1238,9 @@ namespace Skore
 
         vkDestroyRenderPass(device, pipelineInfo.renderPass, nullptr);
 
+        String name = String().Append(shaderState->shaderAsset->GetName()).Append(shaderState->name);
+        Vulkan::SetObjectName(*this, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<u64>(vulkanPipelineState->pipeline), name.CStr());
+
         return {vulkanPipelineState};
     }
 
@@ -1256,18 +1257,16 @@ namespace Skore
         if (!creation.pipelineState)
         {
             vulkanPipelineState = allocator.Alloc<VulkanPipelineState>();
-            vulkanPipelineState->computePipelineCreation = creation;
             shaderState->AddPipelineDependency({vulkanPipelineState});
+            vulkanPipelineState->computePipelineCreation = creation;
         }
         else
         {
             vulkanPipelineState = static_cast<VulkanPipelineState*>(creation.pipelineState.handler);
-
             vkDeviceWaitIdle(device);
             vkDestroyPipelineLayout(device, vulkanPipelineState->layout, nullptr);
             vkDestroyPipeline(device, vulkanPipelineState->pipeline, nullptr);
         }
-
         vulkanPipelineState->bindingPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
 
         Array<u8> bytes = shaderState->shaderAsset->LoadStream(shaderState->streamOffset, shaderState->streamSize);
@@ -1291,6 +1290,9 @@ namespace Skore
 
         vkCreateComputePipelines(device, 0, 1, &computePipelineCreateInfo, nullptr, &vulkanPipelineState->pipeline);
         vkDestroyShaderModule(device, shaderModule, nullptr);
+
+        String name = String().Append(shaderState->shaderAsset->GetName()).Append("::").Append(shaderState->name);
+        Vulkan::SetObjectName(*this, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<u64>(vulkanPipelineState->pipeline), name.CStr());
 
         return {vulkanPipelineState};
     }
@@ -1377,6 +1379,12 @@ namespace Skore
         {
             vkDestroyPipelineLayout(device, vulkanPipelineState->layout, nullptr);
         }
+
+        if (vulkanPipelineState->graphicsPipelineCreation.shaderState)
+        {
+            vulkanPipelineState->graphicsPipelineCreation.shaderState->RemovePipelineDependency(pipelineState);
+        }
+
         allocator.DestroyAndFree(vulkanPipelineState);
     }
 
@@ -1392,6 +1400,12 @@ namespace Skore
             {
                 vkDestroyPipelineLayout(device, vulkanPipelineState->layout, nullptr);
             }
+
+            if (vulkanPipelineState->computePipelineCreation.shaderState)
+            {
+                vulkanPipelineState->computePipelineCreation.shaderState->RemovePipelineDependency(pipelineState);
+            }
+
             allocator.DestroyAndFree(vulkanPipelineState);
         }
     }

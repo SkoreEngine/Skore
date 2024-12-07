@@ -96,7 +96,7 @@ namespace Skore
     {
         VulkanDevice&          vulkanDevice;
         ShaderState*           shaderState = nullptr;
-        Span<DescriptorLayout> descriptorLayouts;
+        Array<DescriptorLayout> descriptorLayouts = {};
 
         //shader reflection data
         HashMap<String, u32>           valueDescriptorSetLookup{};

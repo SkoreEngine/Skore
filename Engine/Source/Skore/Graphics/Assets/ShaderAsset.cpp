@@ -1,10 +1,13 @@
 #include "ShaderAsset.hpp"
 
+#include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Registry.hpp"
 
 
 namespace Skore
 {
+    Logger& logger = Logger::GetLogger("Skore::ShaderState");
+
     ShaderState::~ShaderState()
     {
         for(auto& it : bindingSetDependencies)
@@ -16,6 +19,11 @@ namespace Skore
     void ShaderState::AddPipelineDependency(PipelineState pipelineState)
     {
         pipelineDependencies.EmplaceBack(pipelineState);
+    }
+
+    void ShaderState::RemovePipelineDependency(PipelineState pipelineState)
+    {
+        pipelineDependencies.Erase(std::find(pipelineDependencies.begin(), pipelineDependencies.end(), pipelineState), pipelineDependencies.end());
     }
 
     void ShaderState::AddShaderDependency(ShaderAsset* shaderAsset)
@@ -69,10 +77,10 @@ namespace Skore
     {
         for (auto& state : states)
         {
-            if (state.name == name)
+            if (state->name == name)
             {
-                state.shaderAsset = this;
-                return &state;
+                state->shaderAsset = this;
+                return state.Get();
             }
         }
         return nullptr;
@@ -84,7 +92,9 @@ namespace Skore
         {
             return state;
         }
-        return &states.EmplaceBack(ShaderState{.shaderAsset = this, .name = name});
+
+        logger.Debug("shader state {} created for shader {}", name, GetName());
+        return states.EmplaceBack(MakeShared<ShaderState>(ShaderState{.shaderAsset = this, .name = name})).Get();
     }
 
     void ShaderAsset::RegisterType(NativeTypeHandler<ShaderAsset>& type)

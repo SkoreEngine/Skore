@@ -27,6 +27,7 @@ namespace Skore
         ShaderAsset* shaderAsset;
 
         void AddPipelineDependency(PipelineState pipelineState);
+        void RemovePipelineDependency(PipelineState pipelineState);
         void AddShaderDependency(ShaderAsset* shaderAsset);
         void AddBindingSetDependency(BindingSet* bindingSet);
         void RemoveBindingSetDependency(BindingSet* bindingSet);
@@ -52,7 +53,7 @@ namespace Skore
 
         ShaderAssetType type = ShaderAssetType::None;
 
-        Array<ShaderState> states;
+        Array<SharedPtr<ShaderState>> states;
 
         Array<u8> bytes{};
 

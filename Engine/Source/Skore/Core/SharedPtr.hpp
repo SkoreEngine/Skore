@@ -4,6 +4,8 @@
 #include "Traits.hpp"
 #include "Allocator.hpp"
 
+#include "Serialization.hpp"
+
 namespace Skore
 {
     template<typename Type>
@@ -224,5 +226,22 @@ namespace Skore
 //        const auto ptr = static_cast<typename SharedPtr<Type1>::Base*>(sharedPtr.get());
 //        return SharedPtr<Type1>(Traits::Move(sharedPtr), ptr);
 //    }
+
+    template <typename T>
+    struct ArchiveType<SharedPtr<T>>
+    {
+        constexpr static bool hasArchiveImpl = true;
+
+        static ArchiveValue ToValue(ArchiveWriter& writer, const SharedPtr<T>& value)
+        {
+            return Serialization::Serialize(GetTypeID<T>(), writer, value.Get());
+        }
+
+        static void FromValue(ArchiveReader& reader, ArchiveValue archiveValue, SharedPtr<T>& typeValue)
+        {
+            typeValue = MakeShared<T>();
+            Serialization::Deserialize(GetTypeID<T>(), reader, archiveValue, typeValue.Get());
+        }
+    };
 }
 

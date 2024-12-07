@@ -220,9 +220,9 @@ namespace Skore
                 }
 
                 permOffset += (u32)bytes.Size();
-            }
 
-            logger.Debug("shader {} compiled sucessfully", assetFile->path);
+                logger.Debug("shader {} permutation {} created successfully", assetFile->path, state->name);
+            }
         }
 
         void OpenAsset(AssetFile* assetFile) override

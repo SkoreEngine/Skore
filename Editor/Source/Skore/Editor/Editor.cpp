@@ -236,9 +236,11 @@ namespace Skore
             {
                 if (ShaderAsset* shaderAsset = Assets::Get<ShaderAsset>(assetFile->uuid))
                 {
-                    Assets::Reload(assetFile->uuid);
+                    if (shaderAsset->type != ShaderAssetType::Include)
+                    {
+                        Assets::Reload(assetFile->uuid);
+                    }
                 }
-
             }
         }
 

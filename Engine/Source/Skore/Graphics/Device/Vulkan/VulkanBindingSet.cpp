@@ -8,8 +8,7 @@
 namespace Skore
 {
     VulkanBindingSet::VulkanBindingSet(ShaderState* shaderState, VulkanDevice& vulkanDevice) : vulkanDevice(vulkanDevice),
-                                                                                               shaderState(shaderState),
-                                                                                               descriptorLayouts(shaderState->shaderInfo.descriptors)
+                                                                                               shaderState(shaderState)
     {
         shaderState->AddBindingSetDependency(this);
         LoadInfo();
@@ -47,9 +46,9 @@ namespace Skore
             VulkanBindingVar* newVar = static_cast<VulkanBindingVar*>(GetVar(bindingVarIt.first));
             newVar->vulkanTextures = Traits::Move(oldVar->vulkanTextures);
             newVar->vulkanTextureViews = Traits::Move(oldVar->vulkanTextureViews);
+            newVar->valueBuffer = Traits::Move(oldVar->valueBuffer);
             newVar->sampler = oldVar->sampler;
             newVar->buffer = oldVar->buffer;
-            newVar->valueBuffer = Traits::Move(oldVar->valueBuffer);
         }
     }
 
@@ -60,6 +59,11 @@ namespace Skore
 
     void VulkanBindingSet::LoadInfo()
     {
+        if (shaderState)
+        {
+            descriptorLayouts = shaderState->shaderInfo.descriptors;
+        }
+
         for (const DescriptorLayout& descriptorLayout : descriptorLayouts)
         {
             auto setIt = descriptorLayoutLookup.Find(descriptorLayout.set);

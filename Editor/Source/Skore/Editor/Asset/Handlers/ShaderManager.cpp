@@ -110,7 +110,7 @@ namespace Skore
                 }
 
                 source = FileSystem::ReadFileAsString(includeAssetFile->absolutePath);
-                shaderInclude->GetDefaultState()->AddShaderDependency(shader);
+                //shaderInclude->GetDefaultState()->AddShaderDependency(shader);
             }
             else
             {
