@@ -663,6 +663,8 @@ namespace Skore
         f32              fov = 60;
         f32              nearClip{};
         f32              farClip{};
+        Vec2             jitter{};
+        Vec2             previousJitter{};
     };
 
     struct MeshRenderData

@@ -2,6 +2,7 @@
 
 #include "imgui_internal.h"
 #include "Skore/Engine.hpp"
+#include "Skore/Core/Logger.hpp"
 #include "Skore/Editor/Editor.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
@@ -34,6 +35,8 @@ namespace Skore
 
     void SceneViewWindow::Draw(u32 id, bool& open)
     {
+        bool openSceneOptions = false;
+
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar;
         auto&            style = ImGui::GetStyle();
         ImGui::StyleVar  windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -48,7 +51,6 @@ namespace Skore
             bool   moving = ImGui::IsMouseDown(ImGuiMouseButton_Right);
             bool   canChangeGuizmo = !moving && !ImGui::GetIO().WantCaptureKeyboard;
             bool   hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
-            bool   openPopup = false;
             ImVec2 size = ImGui::GetWindowSize();
             ImVec2 initCursor = ImGui::GetCursorScreenPos();
             ImVec2 buttonSize = ImVec2(25 * style.ScaleFactor, 22 * style.ScaleFactor);
@@ -87,7 +89,7 @@ namespace Skore
 
                 if (ImGui::Button(ICON_FA_ELLIPSIS, buttonSize))
                 {
-                    openPopup = true;
+                    openSceneOptions = true;
                 }
 
                 //				auto operation = m_guizmoOperation;
@@ -188,9 +190,11 @@ namespace Skore
             size -= diffCursor;
             Rect bb{(i32)cursor.x, (i32)cursor.y, u32(cursor.x + size.x), u32(cursor.y + size.y)};
 
-            Extent extent = {static_cast<u32>(size.x), static_cast<u32>(size.y)};
+            f32 scale = 1;
+            Extent extent = {static_cast<u32>(size.x * scale), static_cast<u32>(size.y * scale)};
 
-            if (bool renderGraphDirty = renderGraph == nullptr || sceneEditor.GetActiveScene() != renderGraph->GetScene())
+
+            if (bool renderGraphDirty = renderGraph == nullptr || sceneEditor.GetActiveScene() != renderGraph->GetScene() || renderDirty)
             {
                 if (renderGraph)
                 {
@@ -199,9 +203,10 @@ namespace Skore
                 renderGraph = Alloc<RenderGraph>(RenderGraphCreation{
                     .drawToSwapChain = false
                 });
-                DefaultRenderPipeline defaultRenderPipeline;
                 defaultRenderPipeline.BuildRenderGraph(*renderGraph);
                 renderGraph->Create(sceneEditor.GetActiveScene(), extent);
+
+                renderDirty = false;
             }
 
             if (extent != renderGraph->GetViewportExtent())
@@ -245,7 +250,7 @@ namespace Skore
             }
 
             //check parameter to apply jitter
-            if (true)
+            if (defaultRenderPipeline.antiAliasing == AntiAliasingType::TAA)
             {
                 static u32 jitterIndex = 0;
                 static u32 jitterPeriod = 4;
@@ -254,12 +259,15 @@ namespace Skore
                 jitterIndex = ( jitterIndex + 1 ) % jitterPeriod;
                 Vec2 jitterOffsets = Vec2{jitterValues.x * 2 - 1.0f, jitterValues.y * 2 - 1.0f };
 
-                static f32 jitterScale = 0.8f;
+                static f32 jitterScale = 1.0f;
 
                 jitterOffsets.x *= jitterScale;
                 jitterOffsets.y *= jitterScale;
 
-                Mat4 jitterMattrix = Math::Translate(Mat4{1.0}, Vec3{jitterOffsets.x / static_cast<f32>(extent.width), jitterOffsets.x / static_cast<f32>(extent.height), 0.f});
+                cameraData.previousJitter = cameraData.jitter;
+                cameraData.jitter = Vec2{jitterOffsets.x / static_cast<f32>(extent.width), jitterOffsets.y / static_cast<f32>(extent.height)};
+
+                Mat4 jitterMattrix = Math::Translate(Mat4{1.0}, Vec3{cameraData.jitter.x, cameraData.jitter.y, 0.f});
                 cameraData.projection = jitterMattrix * cameraData.projection;
             }
 
@@ -353,6 +361,35 @@ namespace Skore
         {
             menuItemContext.ExecuteHotKeys(this);
         }
+
+
+        if (openSceneOptions)
+        {
+            ImGui::OpenPopup("scene-options-modal");
+        }
+
+        auto popupRes = ImGui::BeginPopupMenu("scene-options-modal", 0, false);
+        if (popupRes)
+        {
+            bool taaEnabled = defaultRenderPipeline.antiAliasing == AntiAliasingType::TAA;
+
+            ImGui::Checkbox("TAA Enabled", &taaEnabled);
+            if (!taaEnabled && defaultRenderPipeline.antiAliasing == AntiAliasingType::TAA)
+            {
+                defaultRenderPipeline.antiAliasing = AntiAliasingType::None;
+                renderDirty = true;
+            }
+
+            if (taaEnabled && defaultRenderPipeline.antiAliasing != AntiAliasingType::TAA)
+            {
+                defaultRenderPipeline.antiAliasing = AntiAliasingType::TAA;
+                renderDirty = true;
+            }
+
+        }
+        ImGui::EndPopupMenu(popupRes);
+
+
         ImGui::End();
     }
 

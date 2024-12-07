@@ -3,15 +3,12 @@
 
 Texture2D<float2>   velocity;
 Texture2D           historyBuffer;
-Texture2D           color;          //??
+Texture2D           color;
 Texture2D           depth;
 
 
 RWTexture2D<float4> outputBuffer;
 RWTexture2D<float4> colorOutput;
-
-//RWTexture2D<float4> historyOutput;
-//RWTexture2D<float4> colorOutput;
 
 SamplerState        nearestSampler;
 SamplerState        defaultSampler;
@@ -151,13 +148,25 @@ void ResolveTemporal(in uint2 px : SV_DispatchThreadID)
     float2 texelSize = 1.0f / colorOutputSize;
     float2 uv = GetUV(px, colorOutputSize);
 
+#if SK_SIMPLE_TAA
+    {
+        float2 currentVelocity = velocity[px].rg;
+        float2 reprojectedUV = uv - currentVelocity;
+
+        float3 historyColor = historyBuffer.SampleLevel(defaultSampler, reprojectedUV, 0).rgb;
+        float3 currentColor = color.SampleLevel(defaultSampler, uv, 0).rgb;
+        outputBuffer[px].rgb = lerp(currentColor, historyColor, 0.9);
+
+        return;
+    }
+#endif
     float closestDepth;
     float2 currentVelocity =  GetClosestVelocity(uv, texelSize, closestDepth);
     float2 reprojectedUV = uv - currentVelocity;
+    float3 historyColor =  SampleHistoryCatmullRom(reprojectedUV, texelSize);
 
     // Current sampling: read a 3x3 neighborhood and cache color and other data to process history and final resolve.
     // Accumulate current sample and weights.
-
     float3 currentSampleTotal = float3(0, 0, 0);
     float currentSampleWeight = 0.0f;
     // Min and Max used for history clipping
@@ -197,9 +206,7 @@ void ResolveTemporal(in uint2 px : SV_DispatchThreadID)
         return;
     }
 
-    float3 historyColor =  SampleHistoryCatmullRom(reprojectedUV, texelSize);
-
-    #if defined(SK_HISTORY_CONSTRAINT_MODE_VARIANCE_CLIP_CLAMP)
+    #if SK_HISTORY_CONSTRAINT_MODE_VARIANCE_CLIP_CLAMP
         float rcpSampleCount = 1.0f / 9.0f;
         float gamma = 1.0f;
         float3 mu = m1 * rcpSampleCount;
@@ -217,13 +224,13 @@ void ResolveTemporal(in uint2 px : SV_DispatchThreadID)
     float3 currentWeight = 0.1;
     float3 historyWeight = 1.0 - currentWeight;
 
-    #ifdef SK_USE_TEMPORAL_FILTERING
+    #if SK_USE_TEMPORAL_FILTERING
         float3 temporalWeight = clamp(abs(neighborhoodMax - neighborhoodMin) / currentSample, float3(0, 0, 0), float3(1, 1, 1));
         historyWeight = clamp(lerp(float3(0.25, 0.25, 0.25), float3(0.85, 0.85, 0.85), temporalWeight), float3(0, 0, 0), float3(1, 1, 1));
         currentWeight = 1.0f - historyWeight;
     #endif
 
-    #if defined(SK_USE_INVERSE_LUMINANCE_FILTERING) || defined(SK_USE_LUMINANCE_DIFFERENCE_FILTERING)
+    #if SK_USE_INVERSE_LUMINANCE_FILTERING || SK_USE_LUMINANCE_DIFFERENCE_FILTERING
 
         // Calculate compressed colors and luminances
         float3 compressedSource = currentSample / (max(max(currentSample.r, currentSample.g), currentSample.b) + 1.0f);
@@ -231,7 +238,7 @@ void ResolveTemporal(in uint2 px : SV_DispatchThreadID)
         float luminanceSource = Luminance(compressedSource);
         float luminanceHistory = Luminance(compressedHistory);
 
-        #if defined(SK_USE_LUMINANCE_DIFFERENCE_FILTERING)
+        #if SK_USE_LUMINANCE_DIFFERENCE_FILTERING
 
             float unbiasedDiff = abs(luminanceSource - luminanceHistory) / max(luminanceSource, max(luminanceHistory, 0.2));
             float unbiasedWeight = 1.0f - unbiasedDiff;
@@ -290,8 +297,7 @@ float3 ApplySharpening(in float3 center, in float3 top, in float3 left, in float
 [numthreads(8, 8, 1)]
 void UpdateHistory(in uint2 px : SV_DispatchThreadID)
 {
-
-#ifdef SK_APPLY_SHARPENING
+#if SK_APPLY_SHARPENING
     int2 bufferDimensions;
     outputBuffer.GetDimensions(bufferDimensions.x, bufferDimensions.y);
 

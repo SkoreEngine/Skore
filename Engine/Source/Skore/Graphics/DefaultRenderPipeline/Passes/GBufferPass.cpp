@@ -9,10 +9,12 @@
 
 namespace Skore
 {
-    struct SceneData
+    struct alignas(16) SceneData
     {
         Mat4 viewProjection;
         Mat4 prevViewProjection;
+        Vec2 currentJitter;
+        Vec2 previousJitter;
     };
 
     struct PushConst
@@ -52,7 +54,9 @@ namespace Skore
 
             SceneData data{
                 .viewProjection = cameraData.projView,
-                .prevViewProjection = cameraData.lastProjView
+                .prevViewProjection = cameraData.lastProjView,
+                .currentJitter = cameraData.jitter,
+                .previousJitter = cameraData.previousJitter
             };
             bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
 

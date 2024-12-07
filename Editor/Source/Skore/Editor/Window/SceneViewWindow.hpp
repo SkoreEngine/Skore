@@ -6,6 +6,7 @@
 #include "Skore/Graphics/FreeViewCamera.hpp"
 #include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
+#include "Skore/Graphics/DefaultRenderPipeline/DefaultRenderPipeline.hpp"
 
 namespace Skore
 {
@@ -32,6 +33,8 @@ namespace Skore
         RenderGraph*    renderGraph{};
         FreeViewCamera  freeViewCamera{};
         CameraData      cameraData = {};
+        DefaultRenderPipeline defaultRenderPipeline{};
+        bool    renderDirty = false;
 
         bool      usingGuizmo{};
         Transform gizmoInitialTransform = {};

@@ -31,6 +31,8 @@ struct Scene
 {
     float4x4 viewProjection;
     float4x4 prevViewProjection;
+    float2   currentJitter;
+    float2   previousJitter;
 };
 
 ConstantBuffer<Scene> scene : register(b0);
@@ -47,7 +49,6 @@ VSOutput MainVS(VSInput input)
     output.current    = output.pos;
     output.prevPos    = mul(scene.prevViewProjection, float4(prevPos, 1.0));
     output.uv         = input.uv;
-
     float3x3 normalMat = (float3x3)pushConsts.model;
     output.normal      = normalize(mul(normalMat, input.normal));
     output.tangent     = float4(normalize(mul(normalMat, input.tangent.xyz)), input.tangent.w);
@@ -143,7 +144,8 @@ PSOutput MainPS(VSOutput input)
     output.outRoughnessAo       = float2(roughness, 1.0);
     output.outNormal            = DirectionToOctohedral(normal);
     output.outEmissive          = emissive;
-    output.outVelocity          = CalculateMotionVector(input.current, input.prevPos);
+    output.outVelocity          = CalculateMotionVector(input.current, input.prevPos, scene.currentJitter, scene.previousJitter);
+//    output.outVelocity          =  0.0;
 
     return output;
 }

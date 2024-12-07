@@ -20,6 +20,9 @@ namespace Skore
         BindingSet* resolveTemporalBindingSet;
         BindingSet* updateHistoryBindingSet;
 
+
+        Sampler nearestSampler;
+
         TAAPass(RenderGraphResource* velocity, RenderGraphResource* depth, RenderGraphResource* colorOutput, RenderGraphResource* historyBuffer, RenderGraphResource* outputBuffer)
             : velocity(velocity),
               depth(depth),
@@ -42,6 +45,11 @@ namespace Skore
 
             resolveTemporalBindingSet = Graphics::CreateBindingSet(resolveTemporalState);
             updateHistoryBindingSet = Graphics::CreateBindingSet(updateHistoryState);
+
+            nearestSampler = Graphics::CreateSampler({
+                .filter = SamplerFilter::Nearest,
+                .addressMode = TextureAddressMode::ClampToBorder
+            });
         }
 
         void Render(RenderCommands& cmd) override
@@ -64,6 +72,7 @@ namespace Skore
             resolveTemporalBindingSet->GetVar("color")->SetTexture(colorOutput->texture);
             resolveTemporalBindingSet->GetVar("historyBuffer")->SetTexture(historyBuffer->texture);
             resolveTemporalBindingSet->GetVar("outputBuffer")->SetTexture(outputBuffer->texture);
+            resolveTemporalBindingSet->GetVar("nearestSampler")->SetSampler(nearestSampler);
 
 
             cmd.BindPipelineState(resolveTemporal);
@@ -111,6 +120,7 @@ namespace Skore
             Graphics::DestroyComputePipelineState(updateHistory);
             Graphics::DestroyBindingSet(resolveTemporalBindingSet);
             Graphics::DestroyBindingSet(updateHistoryBindingSet);
+            Graphics::DestroySampler(nearestSampler);
         }
     };
 

@@ -210,11 +210,14 @@ float2 GetUV(uint2 px, float2 size)
     return (float2(px) + 0.5) / size;
 }
 
-float2 CalculateMotionVector(float4 currentPos, float4 previousPos)
+float2 CalculateMotionVector(float4 currentPos, float4 previousPos, float2 currentJitter, float2 previousJitter)
 {
     float2 currentUV = 0.5f * currentPos.xy / currentPos.w;
     float2 previousUV = 0.5f * previousPos.xy / previousPos.w;
-    return (currentUV - previousUV) * float2(1.0f, -1.0f);
+    float2 motionVector = (currentUV - previousUV);
+    motionVector *= (currentJitter - previousJitter) * 0.5f;
+    motionVector *= float2(1.0f, -1.0f);
+    return motionVector;
 }
 
 float Luminance( float3 rgb ) {
