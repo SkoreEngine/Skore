@@ -19,7 +19,7 @@ namespace Skore
         void              SetUUID(UUID uuid);
         StringView        GetName() const;
         TypeHandler*      GetTypeHandler() const;
-        virtual Array<u8> LoadStream(usize offset, usize size) const;
+        virtual usize     LoadStream(usize offset, usize size, Array<u8>& array) const;
         void              SetTypeHandler(TypeHandler* typeHandler);
         void              SetLoader(AssetLoader* loader);
         virtual void      OnChange() {}
@@ -38,7 +38,7 @@ namespace Skore
 
         virtual Asset*     LoadAsset() = 0;
         virtual void       Reload(Asset* asset) {}
-        virtual Array<u8>  LoadStream(usize offset, usize size) = 0;
+        virtual usize      LoadStream(usize offset, usize size, Array<u8>& array) = 0;
         virtual StringView GetName() = 0;
     };
 

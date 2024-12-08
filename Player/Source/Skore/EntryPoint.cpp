@@ -42,17 +42,19 @@ struct BinaryAssetLoader : AssetLoader
         return nullptr;
     }
 
-    Array<u8> LoadStream(usize offset, usize size) override
+    usize LoadStream(usize offset, usize size, Array<u8>& array) override
     {
         FileHandler file = FileSystem::OpenFile(pakFile, AccessMode::ReadOnly);
 
-        Array<u8> temp;
-        temp.Resize(size);
+        if (array.Size() < size)
+        {
+            array.Resize(size);
+        }
 
-        FileSystem::ReadFileAt(file, temp.begin(), size, streamOffset + offset);
+        FileSystem::ReadFileAt(file, array.begin(), size, streamOffset + offset);
         FileSystem::CloseFile(file);
 
-        return temp;
+        return size;
     }
 
     StringView GetName() override

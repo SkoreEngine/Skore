@@ -1,5 +1,6 @@
 #include "TextureAsset.hpp"
 
+#include "Skore/Core/Chronometer.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Registry.hpp"
 #include "Skore/Graphics/Graphics.hpp"
@@ -9,6 +10,8 @@ namespace Skore
     namespace
     {
         Logger& logger = Logger::GetLogger("Skore::TextureAsset");
+        Array<u8> diskBuffer;
+        Array<u8> textureBytes;
     }
 
 
@@ -24,10 +27,10 @@ namespace Skore
     {
         if (!texture)
         {
-            logger.Debug("starting loading texture {}", GetName());
-            Array<u8> textureBytes = GetTextureBytes();
+            Chronometer c;
 
-            logger.Debug("bytes loaded {}", GetName());
+            LoadTextureBytes();
+
             if (textureBytes.Size() == 0)
             {
                 return {};
@@ -53,45 +56,42 @@ namespace Skore
                 });
             }
 
-            logger.Debug("texture created {}", GetName());
-
-            Graphics::UpdateTextureData(TextureDataInfo{
-                .texture = texture,
-                .data = textureBytes.Data(),
-                .size = textureBytes.Size(),
-                .regions = regions
-            });
-
-            logger.Debug("texture data uploaded {}", GetName());
-            logger.Debug("------------------------------");
+            {
+                Chronometer d;
+                Graphics::UpdateTextureData(TextureDataInfo{
+                    .texture = texture,
+                    .data = textureBytes.Data(),
+                    .size = totalSize,
+                    .regions = regions
+                });
+            }
+            logger.Debug("time spend to load {} {}ms ", GetName(), c.Diff());
         }
         return texture;
     }
 
-    Array<u8> TextureAsset::GetTextureBytes() const
+    void TextureAsset::LoadTextureBytes() const
     {
         if (compressionMode != CompressionMode::None)
         {
-            Array<u8> diskBuffer = LoadStream(0, totalSizeInDisk);
-            logger.Debug("stream loaded {}", GetName());
+            LoadStream(0, totalSizeInDisk, diskBuffer);
 
-            Array<u8> textureBytes;
-            textureBytes.Resize(totalSize);
-
+            if (totalSize > textureBytes.Size())
+            {
+                textureBytes.Resize(totalSize);
+            }
             Compression::Decompress(textureBytes.begin(), totalSize, diskBuffer.begin(), totalSizeInDisk, compressionMode);
-            logger.Debug("decompressed {}", GetName());
-
-            return textureBytes;
+            return;
         }
-
-        return LoadStream(0, totalSizeInDisk);
+        LoadStream(0, totalSizeInDisk, textureBytes);
     }
 
     Image TextureAsset::GetImage() const
     {
         const TextureAssetImage& textureImage = images[0];
         Image image(textureImage.extent.width, textureImage.extent.height, 4);
-        image.data = GetTextureBytes();
+        LoadTextureBytes();
+        image.data = Span{textureBytes.Data(), totalSize};
         return image;
     }
 

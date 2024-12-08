@@ -6,6 +6,7 @@
 
 #include "AssetTypes.hpp"
 #include "Skore/Engine.hpp"
+#include "Skore/Core/Chronometer.hpp"
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Registry.hpp"
@@ -189,7 +190,7 @@ namespace Skore
         }
     }
 
-    Array<u8> AssetFile::LoadStream(usize offset, usize size)
+    usize AssetFile::LoadStream(usize offset, usize size, Array<u8>& arr)
     {
         String bufferFile = tempBuffer.Empty() ? Path::Join(absolutePath, ".buffer") : tempBuffer;
         FileHandler file = FileSystem::OpenFile(bufferFile, AccessMode::ReadOnly);
@@ -199,13 +200,15 @@ namespace Skore
             size = FileSystem::GetFileSize(file);
         }
 
-        Array<u8> arr;
-        arr.Resize(size);
+        if (size >= arr.Size())
+        {
+            arr.Resize(size);
+        }
 
         FileSystem::ReadFileAt(file, arr.Data(), size, offset);
         FileSystem::CloseFile(file);
 
-        return arr;
+        return size;
     }
 
     StringView AssetFile::GetName()
@@ -749,13 +752,14 @@ namespace Skore
         {
             if (Asset* asset = Assets::LoadNoCache(assetFile->uuid))
             {
+                Array<u8>    tempArray;
                 ArchiveValue assetObj = writer.CreateObject();
 
                 String    assetStr = JsonArchiveWriter::Stringify(Serialization::Serialize(asset->GetTypeHandler(), writer, asset), false, true);
-                Array<u8> assetStream = asset->LoadStream(0, 0);
+                usize size = asset->LoadStream(0, 0, tempArray);
 
                 usize assetOffset = stream.Write(reinterpret_cast<u8*>(assetStr.begin()), assetStr.Size());
-                usize streamOffset = stream.Write(assetStream.begin(), assetStream.Size());
+                usize streamOffset = stream.Write(tempArray.begin(), size);
 
                 writer.AddToObject(assetObj, "uuid", writer.StringValue(assetFile->uuid.ToString()));
                 writer.AddToObject(assetObj, "name", writer.StringValue(assetFile->fileName));
@@ -772,7 +776,7 @@ namespace Skore
                 writer.AddToObject(assetObj, "assetOffset", writer.UIntValue(assetOffset));
                 writer.AddToObject(assetObj, "assetSize", writer.UIntValue(assetStr.Size()));
                 writer.AddToObject(assetObj, "streamOffset", writer.UIntValue(streamOffset));
-                writer.AddToObject(assetObj, "streamSize", writer.UIntValue(assetStream.Size()));
+                writer.AddToObject(assetObj, "streamSize", writer.UIntValue(size));
 
                 writer.AddToArray(arr, assetObj);
 
@@ -813,9 +817,15 @@ namespace Skore
         ExportAssetFile(project, assetDir);
     }
 
+    void AssetEditorUpdate(f64 deltaTime)
+    {
+
+    }
+
     void AssetEditorInit()
     {
         Event::Bind<OnShutdown, AssetEditorShutdown>();
+        Event::Bind<OnUpdate, AssetEditorUpdate>();
 
         importers = Registry::InstantiateDerived<AssetImporter>();
 

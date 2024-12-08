@@ -966,7 +966,8 @@ namespace Skore
         Array<VkPipelineShaderStageCreateInfo> shaderStages{};
         shaderStages.Resize(stages.Size());
 
-        Array<u8> bytes = shaderState->shaderAsset->LoadStream(shaderState->streamOffset, shaderState->streamSize);
+        Array<u8> bytes;
+        shaderState->shaderAsset->LoadStream(shaderState->streamOffset, shaderState->streamSize, bytes);
 
         for (u32 i = 0; i < stages.Size(); ++i)
         {
@@ -1269,7 +1270,8 @@ namespace Skore
         }
         vulkanPipelineState->bindingPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
 
-        Array<u8> bytes = shaderState->shaderAsset->LoadStream(shaderState->streamOffset, shaderState->streamSize);
+        Array<u8> bytes;
+        shaderState->shaderAsset->LoadStream(shaderState->streamOffset, shaderState->streamSize, bytes);
 
         VkShaderModuleCreateInfo createInfo{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         createInfo.codeSize = bytes.Size();

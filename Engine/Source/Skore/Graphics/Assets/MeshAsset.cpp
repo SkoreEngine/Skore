@@ -1,5 +1,6 @@
 #include "MeshAsset.hpp"
 
+#include "Skore/Core/Chronometer.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Registry.hpp"
 #include "Skore/Graphics/Graphics.hpp"
@@ -26,9 +27,9 @@ namespace Skore
     {
         if (!vertexBuffer)
         {
-            logger.Debug("starting mesh texture {}", GetName());
-            Array<u8> data = this->LoadStream(0, verticesCount * sizeof(VertexStride));
-            logger.Debug("mesh data loaded {}", GetName());
+            Chronometer chronometer;
+            Array<u8> data;
+            this->LoadStream(0, verticesCount * sizeof(VertexStride), data);
 
             BufferCreation creation{
                 .usage = BufferUsage::VertexBuffer,
@@ -44,7 +45,7 @@ namespace Skore
                 .data = data.Data(),
                 .size = data.Size(),
             });
-            logger.Debug("mesh data uploaded {}", GetName());
+            logger.Debug("time to load mesh {} - {}ms", GetName(), chronometer.Diff());
         }
         return vertexBuffer;
     }
@@ -53,7 +54,8 @@ namespace Skore
     {
         if (!indexBuffer)
         {
-            Array<u8> data = this->LoadStream(verticesCount * sizeof(VertexStride), indicesCount * sizeof(u32));
+            Array<u8> data;
+            this->LoadStream(verticesCount * sizeof(VertexStride), indicesCount * sizeof(u32), data);
 
             BufferCreation creation{
                 .usage = BufferUsage::IndexBuffer,

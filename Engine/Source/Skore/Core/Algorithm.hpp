@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstring>
+
 #include "Skore/Common.hpp"
 #include "Traits.hpp"
 
@@ -131,13 +133,7 @@ namespace Skore
 
     SK_FINLINE void MemCopy(VoidPtr dest, ConstPtr src, usize size)
     {
-        char* c_src = (char*) src;
-        char* c_dest = (char*) dest;
-
-        for (int i = 0; i < size; i++)
-        {
-            c_dest[i] = c_src[i];
-        }
+        memcpy(dest, src, size);
     }
 
     template<typename Type, typename Func>

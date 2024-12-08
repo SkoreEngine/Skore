@@ -37,11 +37,8 @@ namespace Skore
         u64                      totalSize = 0;
         u64                      totalSizeInDisk = 0;
         CompressionMode          compressionMode = CompressionMode::None;
-
     private:
         Texture texture = {};
-
-
-        Array<u8> GetTextureBytes() const;
+        void LoadTextureBytes() const;
     };
 }

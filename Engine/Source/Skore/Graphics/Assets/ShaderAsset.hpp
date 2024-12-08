@@ -57,7 +57,7 @@ namespace Skore
 
         Array<u8> bytes{};
 
-        Array<u8> LoadStream(usize offset, usize size) const override;
+        usize LoadStream(usize offset, usize size, Array<u8>& bytes) const override;
 
         ShaderState* GetDefaultState();
         ShaderState* GetState(StringView name);

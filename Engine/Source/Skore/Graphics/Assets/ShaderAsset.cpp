@@ -51,21 +51,22 @@ namespace Skore
     }
 
     //TODO: temp it should read from the temp ShaderCache folder.
-    Array<u8> ShaderAsset::LoadStream(usize offset, usize size) const
+    usize ShaderAsset::LoadStream(usize offset, usize size, Array<u8>& ret) const
     {
-        if (bytes.Size() >= offset + size)
+        if (!bytes.Empty())
         {
             if (size == 0)
             {
                 size = bytes.Size();
             }
-
-            Array<u8> ret;
-            ret.Resize(size);
+            if (ret.Size() < size)
+            {
+                ret.Resize(size);
+            }
             MemCopy(ret.begin(), bytes.begin() + offset, size);
-            return ret;
+            return bytes.Size();
         }
-        return Asset::LoadStream(offset, size);
+        return Asset::LoadStream(offset, size, ret);
     }
 
     ShaderState* ShaderAsset::GetDefaultState()

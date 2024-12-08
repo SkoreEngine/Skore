@@ -52,7 +52,7 @@ namespace Skore
 
         Asset*     LoadAsset() override;
         void       Reload(Asset* asset) override;
-        Array<u8>  LoadStream(usize offset, usize size) override;
+        usize      LoadStream(usize offset, usize size, Array<u8>& array) override;
         StringView GetName() override;
         String     MakePathName() const;
 

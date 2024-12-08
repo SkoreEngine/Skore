@@ -181,8 +181,8 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     float3 kd = lerp(1.0 - F, 0.0, metallic);
 
     //diffuse irradiance
-    float3 diffuseIBL = (kd * albedo * irradiance);
-    float3  specularIBL;
+    float3 diffuseIBL = kd * albedo * irradiance;
+    float3  specularIBL = 0.0;
 
     //specular
     if (data.data1.x == 0.0f)
@@ -199,7 +199,6 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
         float2  specularBRDF            = brdfLUT.SampleLevel(brdfLUTSampler, float2(cosLo, roughness), 0).rg;
         specularIBL                     = specularIrradiance * (F * specularBRDF.x + specularBRDF.y);
     }
-
 
     Lo += ((diffuseIBL + specularIBL) * ao) * indirectMultiplier;
     Lo += emissive;

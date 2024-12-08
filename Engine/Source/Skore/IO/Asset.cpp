@@ -41,9 +41,9 @@ namespace Skore
         return typeHandler;
     }
 
-    Array<u8> Asset::LoadStream(usize offset, usize size) const
+    usize Asset::LoadStream(usize offset, usize size, Array<u8>& array) const
     {
-        return loader->LoadStream(offset, size);
+        return loader->LoadStream(offset, size, array);
     }
 
     void Asset::SetTypeHandler(TypeHandler* typeHandler)
