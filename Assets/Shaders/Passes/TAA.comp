@@ -206,7 +206,7 @@ void ResolveTemporal(in uint2 globalID : SV_DispatchThreadID)
     float alpha = isnan(antiFlickerWeight) ? 0.1 : 0.0625f * antiFlickerWeight;
     float3 result = lerp(history, currentSample, alpha);
 
-    outputBuffer[globalID].xyz = result;
+    outputBuffer[globalID] = float4(result, 1.0);
 }
 
 
@@ -263,6 +263,6 @@ void UpdateHistory(in uint2 globalID : SV_DispatchThreadID)
     float3 center     = historyBuffer.Load(int3(globalID, 0)).xyz;
     float3 color      = ApplySharpening(center, top, left, right, bottom);
 
-    colorOutput[globalID].rgb = color;
-    outputBuffer[globalID] = float4(center, 1.0f);
+    colorOutput[globalID] = float4(color, 1.0);
+    outputBuffer[globalID] = float4(center, 1.0);
 }

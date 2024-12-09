@@ -3,6 +3,8 @@
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Registry.hpp"
 
+#include <algorithm>
+
 
 namespace Skore
 {

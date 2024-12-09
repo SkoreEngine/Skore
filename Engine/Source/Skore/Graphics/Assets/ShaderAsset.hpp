@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Skore/Common.hpp"
-#include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/SharedPtr.hpp"
 #include "Skore/Graphics/GraphicsTypes.hpp"
