@@ -1,4 +1,5 @@
 #include "Skore://Shaders/Common.hlsl"
+#include "Skore://Shaders/Bindings.h"
 
 struct VSInput
 {
@@ -58,13 +59,25 @@ VSOutput MainVS(VSInput input)
 
 //pixel shader
 
+struct TextureIndices
+{
+    uint baseColorIndex;
+    uint normalIndex;
+    uint roughnessIndex;
+    uint metallicIndex;
+    uint metallicRoughnessIndex;
+    uint emissiveIndex;
+    uint _pad0;
+    uint _pad1;
+};
+
 struct Material
 {
     float4 baseColorAlphaCutOff;
     float4 uvScaleNormalMultiplier;
     float4 metallicRoughness;
     float4 emissiveFactor;
-    float4 textureProps; //hasNormal. hasMetallic, hasRoughness,  hasMetallicRoughness
+    TextureIndices textureIndices;
 };
 
 struct PSOutput
@@ -77,14 +90,7 @@ struct PSOutput
 };
 
 ConstantBuffer<Material> material       : register(b0, space1);
-
-Texture2D       baseColorTexture            : register(t1, space1);
 SamplerState    defaultSampler              : register(s2, space1);
-Texture2D       normalTexture               : register(t3, space1);
-Texture2D       roughnessTexture            : register(t4, space1);
-Texture2D       metallicTexture             : register(t5, space1);
-Texture2D       metallicRoughnessTexture    : register(t6, space1);
-Texture2D       emissiveTexture             : register(t7, space1);
 
 
 PSOutput MainPS(VSOutput input)
@@ -93,7 +99,9 @@ PSOutput MainPS(VSOutput input)
     float3 baseColor    = material.baseColorAlphaCutOff.rgb;
     float  alphaCutOff  = material.baseColorAlphaCutOff.a;
 
-    float4 color = baseColorTexture.Sample(defaultSampler, uv) * float4(baseColor, 1.0);
+    float4 color = bindlessTextures[NonUniformResourceIndex(material.textureIndices.baseColorIndex)].Sample(defaultSampler, uv) * float4(baseColor, 1.0);
+    //float4 color = baseColorTexture.Sample(defaultSampler, uv) * float4(baseColor, 1.0);
+
     float3 emissive = 0.0;
 
     if (color.a < alphaCutOff)
@@ -108,35 +116,35 @@ PSOutput MainPS(VSOutput input)
 
     float3 normal = input.normal;
 
-    if (material.textureProps.x == 1.0)
+    if (material.textureIndices.normalIndex != 0)
     {
         float3 binormal = input.tangent.w * cross(input.normal, input.tangent.xyz);
         float3x3 TBN    = transpose(float3x3(input.tangent.xyz, binormal, input.normal));
-        float3 n        = normalTexture.Sample(defaultSampler, uv).xyz * 2.0 - 1.0; //replace sampler
+        float3 n        = bindlessTextures[NonUniformResourceIndex(material.textureIndices.normalIndex)].Sample(defaultSampler, uv).rgb * 2.0 - 1.0;
         //tangent space to world space.
         normal          = mul(TBN, n);
     }
 
-    if (material.textureProps.y == 1.0)
+    if (material.textureIndices.metallicIndex != 0)
     {
-        metallic = metallicTexture.Sample(defaultSampler, uv).r;
+        metallic = bindlessTextures[NonUniformResourceIndex(material.textureIndices.metallicIndex)].Sample(defaultSampler, uv).r;
     }
 
-    if (material.textureProps.z == 1.0)
+    if (material.textureIndices.roughnessIndex != 0)
     {
-        roughness = roughnessTexture.Sample(defaultSampler, uv).r;
+        roughness = bindlessTextures[NonUniformResourceIndex(material.textureIndices.roughnessIndex)].Sample(defaultSampler, uv).r;
     }
 
-    if (material.textureProps.w == 1.0)
+    if (material.textureIndices.metallicRoughnessIndex != 0)
     {
-        float2 metallicRoughness = metallicRoughnessTexture.Sample(defaultSampler, uv).zy;
+        float2 metallicRoughness = bindlessTextures[NonUniformResourceIndex(material.textureIndices.metallicRoughnessIndex)].Sample(defaultSampler, uv).zy;
         metallic = metallicRoughness.x;
         roughness = metallicRoughness.y;
     }
 
-    if(material.emissiveFactor.w == 1.0)
+    if (material.textureIndices.emissiveIndex != 0)
     {
-        emissive = emissiveTexture.Sample(defaultSampler, uv).xyz;
+        emissive = bindlessTextures[NonUniformResourceIndex(material.textureIndices.emissiveIndex)].Sample(defaultSampler, uv).xyz;
     }
 
     PSOutput output = (PSOutput)0;

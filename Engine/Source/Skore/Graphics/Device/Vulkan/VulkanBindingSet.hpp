@@ -7,6 +7,9 @@
 #include "VulkanTypes.hpp"
 #include "Skore/Core/FixedArray.hpp"
 
+
+//TODO - binding set has similar behavior between graphics apis, maybe it should be implemented outside RHI.
+
 namespace Skore
 {
     struct ShaderState;
@@ -24,7 +27,7 @@ namespace Skore
         bool                  dirty = true;
     };
 
-    struct VulkanDescriptorSet
+    struct VulkanBindingSetDescriptor
     {
         u32               set;
         VulkanDevice&     vulkanDevice;
@@ -56,7 +59,7 @@ namespace Skore
     {
         VulkanBindingSet&             bindingSet;
         String                        name;
-        VulkanDescriptorSet*          descriptorSet{};
+        VulkanBindingSetDescriptor*   descriptorSet{};
         u32                           binding{};
         DescriptorType                descriptorType{};
         RenderType                    renderType{};
@@ -106,10 +109,9 @@ namespace Skore
         HashMap<String, VulkanBindingVar*> bindingVars;
 
         //runtime vulkan data
-        HashMap<u32, SharedPtr<VulkanDescriptorSet>> descriptorSets{};
+        HashMap<u32, SharedPtr<VulkanBindingSetDescriptor>> descriptorSets{};
 
         VulkanBindingSet(ShaderState* shaderState, VulkanDevice& vulkanDevice);
-        VulkanBindingSet(Span<DescriptorLayout> descriptorLayouts, VulkanDevice& vulkanDevice);
         ~VulkanBindingSet() override;
 
         BindingVar* GetVar(const StringView& name) override;

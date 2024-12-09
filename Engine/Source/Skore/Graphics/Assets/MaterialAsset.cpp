@@ -7,17 +7,6 @@
 
 namespace Skore
 {
-    struct MaterialData
-    {
-        Vec4 baseColorAlphaCutOff;
-        Vec4 uvScaleNormalMultiplierAlphaMode;
-        Vec4 metallicRoughness;
-        Vec4 emissiveFactor;
-        Vec4 textureProps; //hasNormal. hasMetallic, hasRoughness,  hasMetallicRoughness
-    };
-
-
-
     Color MaterialAsset::GetBaseColor() const
     {
         return baseColor;
@@ -168,88 +157,30 @@ namespace Skore
         this->uvScale = uvScale;
     }
 
-    BindingSet* MaterialAsset::GetBindingSet()
-    {
-        if (bindingSet == nullptr)
-        {
-            if (!sampler)
-            {
-                sampler = Graphics::CreateSampler({
-                });
-            }
-
-            MaterialData materialData{
-                .baseColorAlphaCutOff = Math::MakeVec4(GetBaseColor().ToVec3(), alphaCutoff),
-                .uvScaleNormalMultiplierAlphaMode = Math::MakeVec4(GetUvScale(), Math::MakeVec2(GetNormalMultiplier(), static_cast<f32>(GetAlphaMode()))),
-                .metallicRoughness = Vec4{GetRoughness(), GetMetallic(), 0.0f, 0.0f},
-                .emissiveFactor = Math::MakeVec4(GetEmissiveFactor(), 0.0),
-                .textureProps = {0.0, 0.0, 0.0, 0.0},
-            };
-
-            bindingSet = Graphics::CreateBindingSet(Assets::LoadByPath<ShaderAsset>("Skore://Shaders/Passes/GBufferRender.raster")->GetDefaultState());
-            bindingSet->GetVar("baseColorTexture")->SetTexture(baseColorTexture ? baseColorTexture->GetTexture() : Graphics::GetDefaultTexture());
-            bindingSet->GetVar("defaultSampler")->SetSampler(sampler);
-
-
-            if (normalTexture)
-            {
-                bindingSet->GetVar("normalTexture")->SetTexture(normalTexture->GetTexture());
-                materialData.textureProps[0] = 1.0;
-            }
-
-            if (metallicTexture)
-            {
-                bindingSet->GetVar("metallicTexture")->SetTexture(metallicTexture->GetTexture());
-                materialData.textureProps[1] = 1.0;
-            }
-
-            if (roughnessTexture)
-            {
-                bindingSet->GetVar("roughnessTexture")->SetTexture(roughnessTexture->GetTexture());
-                materialData.textureProps[2] = 1.0;
-            }
-
-            if (metallicRoughnessTexture)
-            {
-                bindingSet->GetVar("metallicRoughnessTexture")->SetTexture(metallicRoughnessTexture->GetTexture());
-                materialData.textureProps[3] = 1.0;
-            }
-
-            if (emissiveTexture)
-            {
-                bindingSet->GetVar("emissiveTexture")->SetTexture(emissiveTexture->GetTexture());
-                materialData.emissiveFactor[3] = 1.0;
-            }
-
-            bindingSet->GetVar("material")->SetValue(&materialData, sizeof(MaterialData));
-        }
-        return bindingSet;
-    }
-
-    void MaterialAsset::OnChange()
-    {
-        if (bindingSet)
-        {
-            Graphics::WaitQueue();
-            Graphics::DestroyBindingSet(bindingSet);
-            bindingSet = nullptr;
-        }
-    }
-
-    MaterialAsset::~MaterialAsset()
-    {
-        if (bindingSet)
-        {
-            Graphics::DestroyBindingSet(bindingSet);
-            bindingSet = nullptr;
-        }
-
-        if (sampler)
-        {
-            Graphics::DestroySampler(sampler);
-            sampler = {};
-        }
-    }
+    // void MaterialAsset::OnChange()
+    // {
+    //     if (bindingSet)
+    //     {
+    //         Graphics::WaitQueue();
+    //         Graphics::DestroyBindingSet(bindingSet);
+    //         bindingSet = nullptr;
+    //     }
+    // }
+    //
+    // MaterialAsset::~MaterialAsset()
+    // {
+    //     if (bindingSet)
+    //     {
+    //         Graphics::DestroyBindingSet(bindingSet);
+    //         bindingSet = nullptr;
+    //     }
+    //
+    //     if (sampler)
+    //     {
+    //         Graphics::DestroySampler(sampler);
+    //         sampler = {};
+    //     }
+    // }
 
     void MaterialAsset::RegisterType(NativeTypeHandler<MaterialAsset>& type)
     {

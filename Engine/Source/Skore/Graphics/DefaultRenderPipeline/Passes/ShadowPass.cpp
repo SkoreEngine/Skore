@@ -213,7 +213,7 @@ namespace Skore
 
                             for (MeshPrimitive& primitive : primitives)
                             {
-                                if (MaterialAsset* material = meshRenderData.materials[primitive.materialIndex])
+                                if (MaterialInstance* material = meshRenderData.materials[primitive.materialIndex])
                                 {
                                     cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
                                 }

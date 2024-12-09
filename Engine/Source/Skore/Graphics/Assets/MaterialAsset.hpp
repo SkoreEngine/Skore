@@ -42,11 +42,7 @@ namespace Skore
         Vec2          GetUvScale() const;
         void          SetUvScale(const Vec2& uvScale);
 
-        BindingSet* GetBindingSet();
-
-        void OnChange() override;
-
-        ~MaterialAsset() override;
+        //void          OnChange() override;
 
         static void RegisterType(NativeTypeHandler<MaterialAsset>& type);
 
@@ -66,10 +62,5 @@ namespace Skore
         f32           alphaCutoff{0.5};
         AlphaMode     alphaMode{};
         Vec2          uvScale{1.0f, 1.0f};
-
-        //TODO replace by texture sampler
-        Sampler sampler;
-
-        BindingSet* bindingSet = nullptr;
     };
 }

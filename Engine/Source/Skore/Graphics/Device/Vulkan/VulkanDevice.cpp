@@ -175,6 +175,7 @@ namespace Skore
             VkPhysicalDeviceFeatures2                  deviceFeatures2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &indexingFeatures};
             vkGetPhysicalDeviceFeatures2(physicalDevice, &deviceFeatures2);
             deviceFeatures.bindlessSupported =
+                indexingFeatures.shaderSampledImageArrayNonUniformIndexing &&
                 indexingFeatures.descriptorBindingPartiallyBound &&
                 indexingFeatures.runtimeDescriptorArray &&
                 indexingFeatures.descriptorBindingSampledImageUpdateAfterBind &&
@@ -351,6 +352,7 @@ namespace Skore
 
         if (deviceFeatures.bindlessSupported)
         {
+            indexingFeatures.shaderSampledImageArrayNonUniformIndexing = true;
             indexingFeatures.descriptorBindingPartiallyBound = true;
             indexingFeatures.runtimeDescriptorArray = true;
             indexingFeatures.descriptorBindingSampledImageUpdateAfterBind = true;
@@ -1304,9 +1306,151 @@ namespace Skore
         return allocator.Alloc<VulkanBindingSet>(shaderState, *this);
     }
 
-    BindingSet* VulkanDevice::CreateBindingSet(Span<DescriptorLayout> descriptorLayouts)
+    DescriptorSet VulkanDevice::CreateDescriptorSet(const DescriptorSetCreation& descriptorSetCreation)
     {
-        return allocator.Alloc<VulkanBindingSet>(descriptorLayouts, *this);
+        if (descriptorSetCreation.bindless && !deviceFeatures.bindlessSupported)
+        {
+            logger.Error("Descriptor set cannot be created, descriptorSetCreation.bindless=true, but bindless is not supported");
+            return {};
+        }
+
+        VulkanDescriptorSet* vulkanDescriptorSet = allocator.Alloc<VulkanDescriptorSet>();
+        vulkanDescriptorSet->descriptorPool = !descriptorSetCreation.bindless ? descriptorPool : bindlessDescriptorPool;
+
+        Array<VkDescriptorSetLayoutBinding> bindings;
+        bindings.Resize(descriptorSetCreation.bindings.Size());
+
+        Array<VkDescriptorBindingFlags> bindingFlags;
+        if (descriptorSetCreation.bindless)
+        {
+            bindingFlags.Resize(descriptorSetCreation.bindings.Size());
+        }
+
+        for (int i = 0; i < descriptorSetCreation.bindings.Size(); ++i)
+        {
+            const DescriptorBinding& binding = descriptorSetCreation.bindings[i];
+
+            bindings[i] = VkDescriptorSetLayoutBinding{
+                .binding = binding.binding,
+                .descriptorType = Vulkan::CastDescriptorType(binding.descriptorType),
+                .descriptorCount = binding.count,
+                .stageFlags = Vulkan::CastStage(binding.shaderStage)
+            };
+
+            if (descriptorSetCreation.bindless)
+            {
+                bindingFlags[i] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
+            }
+        }
+
+        VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+
+        descriptorSetLayoutCreateInfo.bindingCount = bindings.Size();
+        descriptorSetLayoutCreateInfo.pBindings = bindings.Data();
+
+        //bindless
+        VkDescriptorSetLayoutBindingFlagsCreateInfoEXT extendedInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT, nullptr};
+        if (descriptorSetCreation.bindless)
+        {
+            extendedInfo.bindingCount = bindingFlags.Size();
+            extendedInfo.pBindingFlags = bindingFlags.Data();
+
+            descriptorSetLayoutCreateInfo.pNext = &extendedInfo;
+            descriptorSetLayoutCreateInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT;
+        }
+
+        if (vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, nullptr, &vulkanDescriptorSet->descriptorSetLayout) != VK_SUCCESS)
+        {
+            logger.Critical("error on create vkCreateDescriptorSetLayout");
+        }
+
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = vulkanDescriptorSet->descriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &vulkanDescriptorSet->descriptorSetLayout;
+
+        VkDescriptorSetVariableDescriptorCountAllocateInfoEXT countInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT};
+
+        u32 maxBinding = MaxBindlessResources - 1;
+        countInfo.descriptorSetCount = 1;
+        countInfo.pDescriptorCounts = &maxBinding;
+
+        if (descriptorSetCreation.bindless)
+        {
+            allocInfo.pNext = &countInfo;
+        }
+
+        VkResult result = vkAllocateDescriptorSets(device, &allocInfo, &vulkanDescriptorSet->descriptorSet);
+
+        if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL)
+        {
+            //TODO -- needs a pool of "descriptor pool"
+            logger.Error("VK_ERROR_OUT_OF_POOL_MEMORY");
+        }
+        else if (result != VK_SUCCESS)
+        {
+            logger.Error("Error on vkAllocateDescriptorSets");
+        }
+
+        return {vulkanDescriptorSet};
+    }
+
+    void VulkanDevice::WriteDescriptorSet(DescriptorSet descriptorSet, Span<DescriptorSetWriteInfo> bindings)
+    {
+
+        VulkanDescriptorSet* vulkanDescriptorSet = static_cast<VulkanDescriptorSet*>(descriptorSet.handler);
+
+        //TODO - heap cache here?
+        Array<VkWriteDescriptorSet> descriptorWrites;
+        descriptorWrites.Resize(bindings.Size());
+
+        Array<VkDescriptorImageInfo> descriptorImageInfos;
+        descriptorImageInfos.Resize(CountWrites(bindings, DescriptorType::SampledImage, DescriptorType::StorageImage, DescriptorType::Sampler));
+        usize usedDescriptorImageInfos = 0;
+
+        for (int i = 0; i < bindings.Size(); ++i)
+        {
+            descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[i].dstSet = vulkanDescriptorSet->descriptorSet;
+            descriptorWrites[i].descriptorCount = 1;
+            descriptorWrites[i].descriptorType = Vulkan::CastDescriptorType(bindings[i].descriptorType);
+            descriptorWrites[i].dstBinding = bindings[i].binding;
+            descriptorWrites[i].dstArrayElement = bindings[i].arrayElement;
+
+            switch (bindings[i].descriptorType)
+            {
+                case DescriptorType::SampledImage:
+                case DescriptorType::StorageImage:
+                case DescriptorType::Sampler:
+                {
+                    VkDescriptorImageInfo& info = descriptorImageInfos[usedDescriptorImageInfos++];
+                    if (bindings[i].texture)
+                    {
+                        info.imageView = static_cast<VulkanTextureView*>(static_cast<VulkanTexture*>(bindings[i].texture.handler)->textureView.handler)->imageView;
+                    }
+                    else if (bindings[i].textureView)
+                    {
+                        info.imageView = static_cast<VulkanTextureView*>(bindings[i].textureView.handler)->imageView;
+                    }
+
+                    else if (bindings[i].sampler)
+                    {
+                        info.sampler = static_cast<VulkanSampler*>(bindings[i].sampler.handler)->sampler;
+                    }
+
+                    //TODO: get the correcly layout
+                    info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    descriptorWrites[i].pImageInfo = &info;
+                }
+                case DescriptorType::UniformBuffer:
+                case DescriptorType::StorageBuffer:
+                case DescriptorType::AccelerationStructure:
+                    break;
+            }
+        }
+
+        vkUpdateDescriptorSets(device, descriptorWrites.Size(), descriptorWrites.Data(), 0, nullptr);
     }
 
     void VulkanDevice::DestroySwapchain(const Swapchain& swapchain)
@@ -1415,6 +1559,16 @@ namespace Skore
     void VulkanDevice::DestroyBindingSet(BindingSet* bindingSet)
     {
         allocator.DestroyAndFree(static_cast<VulkanBindingSet*>(bindingSet));
+    }
+
+    void VulkanDevice::DestroyDescriptorSet(DescriptorSet descriptorSet)
+    {
+        VulkanDescriptorSet* vulkanDescriptorSet = static_cast<VulkanDescriptorSet*>(descriptorSet.handler);
+
+        vkDestroyDescriptorSetLayout(device, vulkanDescriptorSet->descriptorSetLayout, nullptr);
+        vkFreeDescriptorSets(device, vulkanDescriptorSet->descriptorPool, 1, &vulkanDescriptorSet->descriptorSet);
+
+        allocator.DestroyAndFree(vulkanDescriptorSet);
     }
 
     RenderPass VulkanDevice::AcquireNextRenderPass(Swapchain swapchain)

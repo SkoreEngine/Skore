@@ -14,11 +14,6 @@ namespace Skore
         LoadInfo();
     }
 
-    VulkanBindingSet::VulkanBindingSet(Span<DescriptorLayout> descriptorLayouts, VulkanDevice& vulkanDevice) : vulkanDevice(vulkanDevice), descriptorLayouts(descriptorLayouts)
-    {
-        LoadInfo();
-    }
-
     void VulkanBindingSet::Reload()
     {
         for (auto& descriptorIt : descriptorSets)
@@ -106,7 +101,7 @@ namespace Skore
         }
     }
 
-    void VulkanDescriptorSet::MarkDirty()
+    void VulkanBindingSetDescriptor::MarkDirty()
     {
         for (auto& d : data)
         {
@@ -114,7 +109,7 @@ namespace Skore
         }
     }
 
-    void VulkanDescriptorSet::CheckDescriptorSetData()
+    void VulkanBindingSetDescriptor::CheckDescriptorSetData()
     {
         if (data.Empty() || data[frames[vulkanDevice.currentFrame]].frame != vulkanDevice.currentFrame)
         {
@@ -403,10 +398,10 @@ namespace Skore
             //if there is no VulkanDescriptorSet for the attribute, create one.
             if (descriptorSetIt == descriptorSets.end())
             {
-                descriptorSetIt = descriptorSets.Emplace(set, MakeShared<VulkanDescriptorSet>(set, vulkanDevice, *this)).first;
+                descriptorSetIt = descriptorSets.Emplace(set, MakeShared<VulkanBindingSetDescriptor>(set, vulkanDevice, *this)).first;
             }
 
-            SharedPtr<VulkanDescriptorSet> vulkanDescriptorSet = descriptorSetIt->second;
+            SharedPtr<VulkanBindingSetDescriptor> vulkanDescriptorSet = descriptorSetIt->second;
             vulkanDescriptorSet->CheckDescriptorSetData();
             it = bindingVars.Find(name);
             if (it != bindingVars.end())
@@ -428,7 +423,7 @@ namespace Skore
 
         for (auto& descriptorIt : descriptorSets)
         {
-            VulkanDescriptorSet*     descriptorSet = descriptorIt.second.Get();
+            VulkanBindingSetDescriptor*     descriptorSet = descriptorIt.second.Get();
             VulkanDescriptorSetData& data = descriptorSet->data[descriptorIt.second->frames[vulkanDevice.currentFrame]];
             if (data.dirty)
             {

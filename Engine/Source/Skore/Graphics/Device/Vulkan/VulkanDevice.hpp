@@ -72,7 +72,8 @@ namespace Skore
         PipelineState   CreateGraphicsPipelineState(const GraphicsPipelineCreation& graphicsPipelineCreation) override;
         PipelineState   CreateComputePipelineState(const ComputePipelineCreation& computePipelineCreation) override;
         BindingSet*     CreateBindingSet(ShaderState* shaderState) override;
-        BindingSet*     CreateBindingSet(Span<DescriptorLayout> descriptorLayouts) override;
+        DescriptorSet   CreateDescriptorSet(const DescriptorSetCreation& descriptorSetCreation) override;
+        void            WriteDescriptorSet(DescriptorSet descriptorSet, Span<DescriptorSetWriteInfo> bindings) override;
         void            DestroySwapchain(const Swapchain& swapchain) override;
         void            DestroyRenderPass(const RenderPass& renderPass) override;
         void            DestroyBuffer(const Buffer& buffer) override;
@@ -82,6 +83,7 @@ namespace Skore
         void            DestroyGraphicsPipelineState(const PipelineState& pipelineState) override;
         void            DestroyComputePipelineState(const PipelineState& pipelineState) override;
         void            DestroyBindingSet(BindingSet* bindingSet) override;
+        void            DestroyDescriptorSet(DescriptorSet descriptorSet) override;
         RenderCommands& BeginFrame() override;
         RenderPass      AcquireNextRenderPass(Swapchain swapchain) override;
         void            EndFrame(Swapchain swapchain) override;

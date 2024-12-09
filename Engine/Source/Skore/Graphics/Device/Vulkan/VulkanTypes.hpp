@@ -11,8 +11,6 @@ namespace Skore
 {
     class VulkanDevice;
 
-    static const u32 MaxBindlessResources = 8192;
-
     struct VulkanSwapChainSupportDetails
     {
         VkSurfaceCapabilitiesKHR  capabilities{};
@@ -91,5 +89,12 @@ namespace Skore
         VkPipeline               pipeline{};
         VkPipelineLayout         layout{};
         VkPipelineCache          cache{};
+    };
+
+    struct VulkanDescriptorSet
+    {
+        VkDescriptorPool      descriptorPool{};
+        VkDescriptorSet       descriptorSet{};
+        VkDescriptorSetLayout descriptorSetLayout{};
     };
 }

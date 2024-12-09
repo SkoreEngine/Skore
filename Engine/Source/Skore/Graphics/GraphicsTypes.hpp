@@ -21,6 +21,7 @@ namespace Skore
     SK_HANDLER(Swapchain);
     SK_HANDLER(RenderPass);
     SK_HANDLER(PipelineState);
+    SK_HANDLER(DescriptorSet);
     SK_HANDLER(Texture);
     SK_HANDLER(TextureView);
     SK_HANDLER(Buffer);
@@ -522,6 +523,23 @@ namespace Skore
         static void RegisterType(NativeTypeHandler<DescriptorLayout>& type);
     };
 
+    struct DescriptorSetCreation
+    {
+        bool bindless = false;
+        Array<DescriptorBinding> bindings{};
+    };
+
+
+    struct DescriptorSetWriteInfo
+    {
+        u32            binding{};
+        DescriptorType descriptorType{};
+        u32            arrayElement{};
+        Texture        texture{};
+        TextureView    textureView{};
+        Sampler        sampler{};
+    };
+
     struct ShaderPushConstant
     {
         String      name{};
@@ -667,15 +685,6 @@ namespace Skore
         Vec2             previousJitter{};
     };
 
-    struct MeshRenderData
-    {
-        VoidPtr               pointer;
-        Mat4                  matrix;
-        Mat4                  prevMatrix;
-        MeshAsset*            mesh = nullptr;
-        Array<MaterialAsset*> materials{};
-    };
-
     struct LightRenderData
     {
         VoidPtr         pointer;
@@ -771,6 +780,7 @@ namespace Skore
         virtual void Draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance) = 0;
         virtual void PushConstants(const PipelineState& pipeline, ShaderStage stages, const void* data, usize size) = 0;
         virtual void BindBindingSet(const PipelineState& pipeline, BindingSet* bindingSet) = 0;
+        virtual void BindDescriptorSet(const PipelineState& pipeline, DescriptorSet descriptorSet, u32 space) = 0;
         virtual void DrawIndexedIndirect(const Buffer& buffer, usize offset, u32 drawCount, u32 stride) = 0;
         virtual void BindPipelineState(const PipelineState& pipeline) = 0;
         virtual void Dispatch(u32 x, u32 y, u32 z) = 0;
@@ -854,6 +864,20 @@ namespace Skore
             return 4u;
         }
         return 1u;
+    }
+
+    template<typename ...T>
+    usize CountWrites(Span<DescriptorSetWriteInfo> writes, const T&... types)
+    {
+        usize ret = 0;
+        for (DescriptorSetWriteInfo& write: writes)
+        {
+            if (((write.descriptorType == types) || ...))
+            {
+                ret++;
+            }
+        }
+        return ret;
     }
 
     typedef void (*FnGraphicsTask)(VoidPtr userData, RenderCommands& cmd, GPUQueue queue);

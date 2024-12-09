@@ -17,7 +17,8 @@ namespace Skore
         virtual PipelineState   CreateGraphicsPipelineState(const GraphicsPipelineCreation& graphicsPipelineCreation) = 0;
         virtual PipelineState   CreateComputePipelineState(const ComputePipelineCreation& computePipelineCreation) = 0;
         virtual BindingSet*     CreateBindingSet(ShaderState* shaderState) = 0;
-        virtual BindingSet*     CreateBindingSet(Span<DescriptorLayout> descriptorLayouts) = 0;
+        virtual DescriptorSet   CreateDescriptorSet(const DescriptorSetCreation& descriptorSetCreation) = 0;
+        virtual void            WriteDescriptorSet(DescriptorSet descriptorSet, Span<DescriptorSetWriteInfo> bindings) = 0;
         virtual void            DestroySwapchain(const Swapchain& swapchain) = 0;
         virtual void            DestroyRenderPass(const RenderPass& renderPass) = 0;
         virtual void            DestroyBuffer(const Buffer& buffer) = 0;
@@ -27,6 +28,7 @@ namespace Skore
         virtual void            DestroyGraphicsPipelineState(const PipelineState& pipelineState) = 0;
         virtual void            DestroyComputePipelineState(const PipelineState& pipelineState) = 0;
         virtual void            DestroyBindingSet(BindingSet* bindingSet) = 0;
+        virtual void            DestroyDescriptorSet(DescriptorSet descriptorSet) = 0;
         virtual RenderCommands& BeginFrame() = 0;
         virtual RenderPass      AcquireNextRenderPass(Swapchain swapchain) = 0;
         virtual void            EndFrame(Swapchain swapchain) = 0;

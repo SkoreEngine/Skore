@@ -158,9 +158,14 @@ namespace Skore
         return renderDevice->CreateBindingSet(shaderState);
     }
 
-    BindingSet* Graphics::CreateBindingSet(Span<DescriptorLayout> descriptorLayouts)
+    DescriptorSet Graphics::CreateDescriptorSet(const DescriptorSetCreation& descriptorSetCreation)
     {
-        return renderDevice->CreateBindingSet(descriptorLayouts);
+        return renderDevice->CreateDescriptorSet(descriptorSetCreation);
+    }
+
+    void Graphics::WriteDescriptorSet(DescriptorSet descriptorSet, Span<DescriptorSetWriteInfo> bindings)
+    {
+        renderDevice->WriteDescriptorSet(descriptorSet, bindings);
     }
 
     void Graphics::DestroySwapchain(const Swapchain& swapchain)
@@ -206,6 +211,11 @@ namespace Skore
     void Graphics::DestroyBindingSet(BindingSet* bindingSet)
     {
         renderDevice->DestroyBindingSet(bindingSet);
+    }
+
+    void Graphics::DestroyDescriptorSet(DescriptorSet descriptorSet)
+    {
+        renderDevice->DestroyDescriptorSet(descriptorSet);
     }
 
     RenderPass Graphics::AcquireNextRenderPass(Swapchain swapchain)

@@ -137,6 +137,22 @@ namespace Skore
         vulkanBindingSet->Bind(*this,pipeline);
     }
 
+    void VulkanCommands::BindDescriptorSet(const PipelineState& pipeline, DescriptorSet descriptorSet, u32 space)
+    {
+        VulkanPipelineState* vulkanPipelineState = static_cast<VulkanPipelineState*>(pipeline.handler);
+        VulkanDescriptorSet* vulkanDescriptorSet = static_cast<VulkanDescriptorSet*>(descriptorSet.handler);
+
+        vkCmdBindDescriptorSets(commandBuffer,
+                                vulkanPipelineState->bindingPoint,
+                                vulkanPipelineState->layout,
+                                space,
+                                1,
+                                &vulkanDescriptorSet->descriptorSet,
+                                0,
+                                nullptr);
+
+    }
+
     void VulkanCommands::DrawIndexedIndirect(const Buffer& buffer, usize offset, u32 drawCount, u32 stride)
     {
         const VulkanBuffer& vulkanBuffer = *static_cast<const VulkanBuffer*>(buffer.handler);

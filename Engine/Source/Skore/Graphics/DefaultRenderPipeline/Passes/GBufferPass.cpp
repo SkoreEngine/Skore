@@ -50,6 +50,11 @@ namespace Skore
 
         void Render(RenderCommands& cmd) override
         {
+            if (renderProxy == nullptr)
+            {
+                return;
+            }
+
             const CameraData& cameraData = rg->GetCameraData();
 
             SceneData data{
@@ -58,39 +63,38 @@ namespace Skore
                 .currentJitter = cameraData.jitter,
                 .previousJitter = cameraData.previousJitter
             };
+
             bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
 
             cmd.BindPipelineState(pipelineState);
             cmd.BindBindingSet(pipelineState, bindingSet);
+            cmd.BindDescriptorSet(pipelineState, renderProxy->bindlessResources, 2);
 
-            if (renderProxy != nullptr)
+            for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
             {
-                for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
+                if (MeshAsset* mesh = meshRenderData.mesh)
                 {
-                    if (MeshAsset* mesh = meshRenderData.mesh)
+                    Span<MeshPrimitive> primitives = mesh->GetPrimitives();
+
+                    cmd.BindVertexBuffer(mesh->GetVertexBuffer());
+                    cmd.BindIndexBuffer(mesh->GetIndexBuffer());
+
+
+                    PushConst pushConst;
+                    pushConst.matrix = meshRenderData.matrix;
+                    pushConst.prevMatrix = meshRenderData.prevMatrix;
+
+                    meshRenderData.prevMatrix = meshRenderData.matrix;
+
+                    cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConst, sizeof(PushConst));
+
+
+                    for (MeshPrimitive& primitive : primitives)
                     {
-                        Span<MeshPrimitive> primitives = mesh->GetPrimitives();
-
-                        cmd.BindVertexBuffer(mesh->GetVertexBuffer());
-                        cmd.BindIndexBuffer(mesh->GetIndexBuffer());
-
-
-                        PushConst pushConst;
-                        pushConst.matrix = meshRenderData.matrix;
-                        pushConst.prevMatrix = meshRenderData.prevMatrix;
-
-                        meshRenderData.prevMatrix = meshRenderData.matrix;
-
-                        cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConst, sizeof(PushConst));
-
-
-                        for (MeshPrimitive& primitive : primitives)
+                        if (MaterialInstance* material = meshRenderData.materials[primitive.materialIndex])
                         {
-                            if (MaterialAsset* material = meshRenderData.materials[primitive.materialIndex])
-                            {
-                                cmd.BindBindingSet(pipelineState, material->GetBindingSet());
-                                cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
-                            }
+                            cmd.BindBindingSet(pipelineState, material->bindingSet);
+                            cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
                         }
                     }
                 }

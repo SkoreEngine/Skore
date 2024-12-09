@@ -45,6 +45,8 @@ namespace Skore
     constexpr u64 Prime = 1099511628211ULL;
     constexpr u64 OffsetBias = 14695981039346656037ULL;
 
+    static const u32 MaxBindlessResources = 8192;
+
     template<typename Type>
     class NativeTypeHandler;
 

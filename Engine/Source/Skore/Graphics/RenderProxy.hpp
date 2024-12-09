@@ -2,7 +2,9 @@
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Optional.hpp"
+#include "Skore/Core/SharedPtr.hpp"
 #include "Skore/Core/Span.hpp"
+#include "Skore/Core/UUID.hpp"
 #include "Skore/Graphics/GraphicsTypes.hpp"
 #include "Skore/Graphics/RenderUtils.hpp"
 #include "Skore/Scene/Proxy.hpp"
@@ -16,6 +18,23 @@ namespace Skore
 {
     class MaterialAsset;
     class MeshAsset;
+
+
+    struct SK_API MaterialInstance
+    {
+        BindingSet* bindingSet;
+
+        ~MaterialInstance();
+    };
+
+    struct MeshRenderData
+    {
+        VoidPtr               pointer;
+        Mat4                  matrix;
+        Mat4                  prevMatrix;
+        MeshAsset*            mesh = nullptr;
+        Array<MaterialInstance*> materials{};
+    };
 
     // maybe make it abstract and implement it in the RenderPipeline??
     class SK_API RenderProxy final : public Proxy
@@ -50,6 +69,8 @@ namespace Skore
         static void RegisterType(NativeTypeHandler<RenderProxy>& type);
 
         Optional<Texture> cubemapTest;
+
+        DescriptorSet bindlessResources;
     private:
         Array<MeshRenderData>   meshRenders;
         HashMap<VoidPtr, usize> meshRendersLookup;
@@ -63,6 +84,8 @@ namespace Skore
         DiffuseIrradianceGenerator diffuseIrradianceGenerator;
         EquirectangularToCubemap   toCubemap;
 
+        HashMap<UUID, SharedPtr<MaterialInstance>> materials;
+        u32 currentBindlessIndex = 1;
 
         struct CameraStorage
         {
@@ -71,5 +94,9 @@ namespace Skore
         };
 
         Optional<CameraStorage> cameraData;
+
+        Sampler materialSampler;
+
+        MaterialInstance* FindOrCreateMaterialInstance(const MaterialAsset* materialAsset);
     };
 }
