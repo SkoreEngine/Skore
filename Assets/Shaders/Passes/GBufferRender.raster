@@ -1,5 +1,5 @@
 #include "Skore://Shaders/Common.hlsl"
-#include "Skore://Shaders/Bindings.h"
+#include "Skore://Shaders/Material.inc"
 
 struct VSInput
 {
@@ -20,12 +20,17 @@ struct VSOutput
     float2 uv       : TEXCOORD0;
     float3 normal   : NORMAL1;
     float4 tangent  : TANGENT1;
+   uint materialIndex : MATERIAL1;
 };
 
 struct PushConsts
 {
     float4x4 model;
     float4x4 prevMatrix;
+    uint materialIndex;
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
 };
 
 struct Scene
@@ -53,32 +58,9 @@ VSOutput MainVS(VSInput input)
     float3x3 normalMat = (float3x3)pushConsts.model;
     output.normal      = normalize(mul(normalMat, input.normal));
     output.tangent     = float4(normalize(mul(normalMat, input.tangent.xyz)), input.tangent.w);
-
+    output.materialIndex = pushConsts.materialIndex;
     return output;
 }
-
-//pixel shader
-
-struct TextureIndices
-{
-    uint baseColorIndex;
-    uint normalIndex;
-    uint roughnessIndex;
-    uint metallicIndex;
-    uint metallicRoughnessIndex;
-    uint emissiveIndex;
-    uint _pad0;
-    uint _pad1;
-};
-
-struct Material
-{
-    float4 baseColorAlphaCutOff;
-    float4 uvScaleNormalMultiplier;
-    float4 metallicRoughness;
-    float4 emissiveFactor;
-    TextureIndices textureIndices;
-};
 
 struct PSOutput
 {
@@ -89,70 +71,18 @@ struct PSOutput
     float2 outVelocity            :  SV_TARGET4;
 };
 
-ConstantBuffer<Material> material       : register(b0, space1);
-SamplerState    defaultSampler              : register(s2, space1);
-
 
 PSOutput MainPS(VSOutput input)
 {
-    float2 uv           = input.uv;
-    float3 baseColor    = material.baseColorAlphaCutOff.rgb;
-    float  alphaCutOff  = material.baseColorAlphaCutOff.a;
-
-    float4 color = bindlessTextures[NonUniformResourceIndex(material.textureIndices.baseColorIndex)].Sample(defaultSampler, uv) * float4(baseColor, 1.0);
-    //float4 color = baseColorTexture.Sample(defaultSampler, uv) * float4(baseColor, 1.0);
-
-    float3 emissive = 0.0;
-
-    if (color.a < alphaCutOff)
-    {
-        discard;
-    }
-
-    color = pow(color,2.2);
-
-    float roughness     = material.metallicRoughness.x;
-    float metallic      = material.metallicRoughness.y;
-
-    float3 normal = input.normal;
-
-    if (material.textureIndices.normalIndex != 0)
-    {
-        float3 binormal = input.tangent.w * cross(input.normal, input.tangent.xyz);
-        float3x3 TBN    = transpose(float3x3(input.tangent.xyz, binormal, input.normal));
-        float3 n        = bindlessTextures[NonUniformResourceIndex(material.textureIndices.normalIndex)].Sample(defaultSampler, uv).rgb * 2.0 - 1.0;
-        //tangent space to world space.
-        normal          = mul(TBN, n);
-    }
-
-    if (material.textureIndices.metallicIndex != 0)
-    {
-        metallic = bindlessTextures[NonUniformResourceIndex(material.textureIndices.metallicIndex)].Sample(defaultSampler, uv).r;
-    }
-
-    if (material.textureIndices.roughnessIndex != 0)
-    {
-        roughness = bindlessTextures[NonUniformResourceIndex(material.textureIndices.roughnessIndex)].Sample(defaultSampler, uv).r;
-    }
-
-    if (material.textureIndices.metallicRoughnessIndex != 0)
-    {
-        float2 metallicRoughness = bindlessTextures[NonUniformResourceIndex(material.textureIndices.metallicRoughnessIndex)].Sample(defaultSampler, uv).zy;
-        metallic = metallicRoughness.x;
-        roughness = metallicRoughness.y;
-    }
-
-    if (material.textureIndices.emissiveIndex != 0)
-    {
-        emissive = bindlessTextures[NonUniformResourceIndex(material.textureIndices.emissiveIndex)].Sample(defaultSampler, uv).xyz;
-    }
+    MaterialSample materialSample = SampleMaterial(input.materialIndex, input.uv, input.normal, input.tangent);
 
     PSOutput output = (PSOutput)0;
-    output.outAlbedoMetallic    = float4(color.rgb, metallic);
-    output.outRoughnessAo       = float2(roughness, 1.0);
-    output.outNormal            = DirectionToOctohedral(normal);
-    output.outEmissive          = emissive;
+    output.outAlbedoMetallic    = float4(materialSample.baseColor.rgb, materialSample.metallic);
+    output.outRoughnessAo       = float2(materialSample.roughness, materialSample.occlusion);
+    output.outNormal            = DirectionToOctohedral(materialSample.normal);
+    output.outEmissive          = materialSample.emissive;
     output.outVelocity          = CalculateMotionVector(input.current, input.prevPos, scene.currentJitter, scene.previousJitter);
 
     return output;
+
 }

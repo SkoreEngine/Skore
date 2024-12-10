@@ -40,6 +40,7 @@ namespace Skore
         BRDFLUTGenerator brdflutGenerator;
         Sampler          shadowMapSampler;
         Sampler          brdfLutSampler;
+        Sampler          aoSampler;
 
 
         void Init() override
@@ -69,6 +70,11 @@ namespace Skore
                 .addressMode = TextureAddressMode::ClampToEdge,
                 .anisotropyEnable = false,
                 .borderColor = BorderColor::FloatTransparentBlack,
+            });
+
+            aoSampler = Graphics::CreateSampler({
+                .filter = SamplerFilter::Nearest,
+                .samplerMipmapMode = SamplerMipmapMode::Nearest
             });
         }
 
@@ -123,7 +129,7 @@ namespace Skore
             bindingSet->GetVar("diffuseIrradiance")->SetTexture(renderProxy->GetDiffuseIrradiance());
             bindingSet->GetVar("specularMap")->SetTexture(renderProxy->GetSpecularMap());
             bindingSet->GetVar("aoTexture")->SetTexture(aoTexture->texture);
-
+            bindingSet->GetVar("aoSampler")->SetSampler(aoSampler);
             bindingSet->GetVar("brdfLUT")->SetTexture(brdflutGenerator.GetTexture());
             bindingSet->GetVar("brdfLUTSampler")->SetSampler(brdfLutSampler);
             bindingSet->GetVar("shadowMapTexture")->SetTexture(shadowMap->texture);
@@ -145,6 +151,7 @@ namespace Skore
         {
             Graphics::DestroySampler(shadowMapSampler);
             Graphics::DestroySampler(brdfLutSampler);
+            Graphics::DestroySampler(aoSampler);
             Graphics::DestroyBindingSet(bindingSet);
             Graphics::DestroyComputePipelineState(lightingPSO);
 

@@ -1409,6 +1409,10 @@ namespace Skore
         descriptorImageInfos.Resize(CountWrites(bindings, DescriptorType::SampledImage, DescriptorType::StorageImage, DescriptorType::Sampler));
         usize usedDescriptorImageInfos = 0;
 
+        Array<VkDescriptorBufferInfo> descriptorBufferInfos;
+        descriptorBufferInfos.Resize(CountWrites(bindings, DescriptorType::StorageBuffer, DescriptorType::UniformBuffer));
+        usize usedDescriptorBufferInfos = 0;
+
         for (int i = 0; i < bindings.Size(); ++i)
         {
             descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1442,9 +1446,22 @@ namespace Skore
                     //TODO: get the correcly layout
                     info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                     descriptorWrites[i].pImageInfo = &info;
+
+                    break;
                 }
                 case DescriptorType::UniformBuffer:
                 case DescriptorType::StorageBuffer:
+                {
+                    VulkanBuffer* vulkanBuffer = static_cast<VulkanBuffer*>(bindings[i].buffer.handler);
+
+                    VkDescriptorBufferInfo& info = descriptorBufferInfos[usedDescriptorBufferInfos++];
+                    info.offset = 0;
+                    info.buffer = vulkanBuffer->buffer;
+                    info.range = vulkanBuffer->bufferCreation.size;
+
+                    descriptorWrites[i].pBufferInfo = &info;
+                    break;
+                }
                 case DescriptorType::AccelerationStructure:
                     break;
             }

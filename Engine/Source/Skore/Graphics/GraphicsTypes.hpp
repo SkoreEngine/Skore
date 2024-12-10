@@ -538,6 +538,7 @@ namespace Skore
         Texture        texture{};
         TextureView    textureView{};
         Sampler        sampler{};
+        Buffer         buffer{};
     };
 
     struct ShaderPushConstant

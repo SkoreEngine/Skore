@@ -21,6 +21,10 @@ namespace Skore
     {
         Mat4 matrix;
         Mat4 prevMatrix;
+        u32 materialIndex;
+        u32 _pad0;
+        u32 _pad1;
+        u32 _pad2;
     };
 
     struct GBufferPass : RenderGraphPassHandler
@@ -68,6 +72,7 @@ namespace Skore
 
             cmd.BindPipelineState(pipelineState);
             cmd.BindBindingSet(pipelineState, bindingSet);
+            cmd.BindDescriptorSet(pipelineState, renderProxy->materialDescriptor, 1);
             cmd.BindDescriptorSet(pipelineState, renderProxy->bindlessResources, 2);
 
             for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
@@ -86,14 +91,12 @@ namespace Skore
 
                     meshRenderData.prevMatrix = meshRenderData.matrix;
 
-                    cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConst, sizeof(PushConst));
-
-
                     for (MeshPrimitive& primitive : primitives)
                     {
-                        if (MaterialInstance* material = meshRenderData.materials[primitive.materialIndex])
+                        if (u32 material = meshRenderData.materials[primitive.materialIndex]; material != U32_MAX)
                         {
-                            cmd.BindBindingSet(pipelineState, material->bindingSet);
+                            pushConst.materialIndex = material;
+                            cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConst, sizeof(PushConst));
                             cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
                         }
                     }

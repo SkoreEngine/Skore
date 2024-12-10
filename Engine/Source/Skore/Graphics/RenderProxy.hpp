@@ -12,28 +12,16 @@
 namespace Skore
 {
     class TextureAsset;
-}
-
-namespace Skore
-{
     class MaterialAsset;
     class MeshAsset;
 
-
-    struct SK_API MaterialInstance
-    {
-        BindingSet* bindingSet;
-
-        ~MaterialInstance();
-    };
-
     struct MeshRenderData
     {
-        VoidPtr               pointer;
-        Mat4                  matrix;
-        Mat4                  prevMatrix;
-        MeshAsset*            mesh = nullptr;
-        Array<MaterialInstance*> materials{};
+        VoidPtr    pointer;
+        Mat4       matrix;
+        Mat4       prevMatrix;
+        MeshAsset* mesh = nullptr;
+        Array<u32> materials{};
     };
 
     // maybe make it abstract and implement it in the RenderPipeline??
@@ -71,6 +59,7 @@ namespace Skore
         Optional<Texture> cubemapTest;
 
         DescriptorSet bindlessResources;
+        DescriptorSet materialDescriptor;
     private:
         Array<MeshRenderData>   meshRenders;
         HashMap<VoidPtr, usize> meshRendersLookup;
@@ -84,8 +73,11 @@ namespace Skore
         DiffuseIrradianceGenerator diffuseIrradianceGenerator;
         EquirectangularToCubemap   toCubemap;
 
-        HashMap<UUID, SharedPtr<MaterialInstance>> materials;
+        HashMap<UUID, u32> materials;
         u32 currentBindlessIndex = 1;
+
+        Buffer  materialStorageBuffer;
+        u32     currentMaterialCount = 0;
 
         struct CameraStorage
         {
@@ -97,6 +89,6 @@ namespace Skore
 
         Sampler materialSampler;
 
-        MaterialInstance* FindOrCreateMaterialInstance(const MaterialAsset* materialAsset);
+        u32 FindOrCreateMaterialInstance(const MaterialAsset* materialAsset);
     };
 }

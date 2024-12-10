@@ -9,32 +9,21 @@
 
 namespace Skore
 {
-
-    struct alignas(16) TextureIndices
-    {
-        u32 baseColorIndex;
-        u32 normalIndex;
-        u32 roughnessIndex;
-        u32 metallicIndex;
-        u32 metallicRoughnessIndex;
-        u32 emissiveIndex;
-    };
-
-
-    struct alignas(16) MaterialData
+    struct alignas(16) MaterialConstants
     {
         Vec4 baseColorAlphaCutOff;
         Vec4 uvScaleNormalMultiplierAlphaMode;
         Vec4 metallicRoughness;
         Vec4 emissiveFactor;
-        TextureIndices textureIndices{};
+        u32  baseColorIndex{};
+        u32  normalIndex{};
+        u32  roughnessIndex{};
+        u32  metallicIndex{};
+        u32  metallicRoughnessIndex{};
+        u32  emissiveIndex{};
+        u32  occlusionIndex{};
+        u32 _pad0{};
     };
-
-
-    MaterialInstance::~MaterialInstance()
-    {
-        Graphics::DestroyBindingSet(bindingSet);
-    }
 
     RenderProxy::RenderProxy()
     {
@@ -63,6 +52,54 @@ namespace Skore
                                      });
 
         materialSampler = Graphics::CreateSampler({});
+
+        materialStorageBuffer = Graphics::CreateBuffer({
+            .usage = BufferUsage::StorageBuffer,
+            .size = 1000 * sizeof(MaterialConstants),
+            .allocation = BufferAllocation::TransferToGPU
+        });
+
+        materialDescriptor = Graphics::CreateDescriptorSet({
+            .bindings = {
+                DescriptorBinding{
+                    .binding = 0,
+                    .count = 1,
+                    .descriptorType = DescriptorType::StorageBuffer
+                },
+                DescriptorBinding{
+                    .binding = 1,
+                    .count = 1,
+                    .descriptorType = DescriptorType::Sampler
+                },
+            }
+        });
+
+        Graphics::WriteDescriptorSet(materialDescriptor, {
+                                         DescriptorSetWriteInfo{
+                                             .binding = 0,
+                                             .descriptorType = DescriptorType::StorageBuffer,
+                                             .buffer = materialStorageBuffer
+                                         },
+                                         DescriptorSetWriteInfo{
+                                             .binding = 1,
+                                             .descriptorType = DescriptorType::Sampler,
+                                             .sampler = materialSampler
+                                         },
+                                     });
+
+        MaterialConstants materialConstants {
+            .baseColorAlphaCutOff = {1, 1, 1, 0.5},
+            .metallicRoughness = {0.0, 1.0, 0.0, 0.0}
+        };
+
+        Graphics::UpdateBufferData({
+            .buffer = materialStorageBuffer,
+            .data = &materialConstants,
+            .size = sizeof(MaterialConstants),
+            .offset = 0
+        });
+        currentMaterialCount++;
+
     }
 
     RenderProxy::~RenderProxy()
@@ -70,7 +107,9 @@ namespace Skore
         Graphics::WaitQueue();
 
         Graphics::DestroyDescriptorSet(bindlessResources);
+        Graphics::DestroyDescriptorSet(materialDescriptor);
         Graphics::DestroySampler(materialSampler);
+        Graphics::DestroyBuffer(materialStorageBuffer);
 
         specularMapGenerator.Destroy();
         diffuseIrradianceGenerator.Destroy();
@@ -256,49 +295,43 @@ namespace Skore
         return nullptr;
     }
 
-    MaterialInstance* RenderProxy::FindOrCreateMaterialInstance(const MaterialAsset* materialAsset)
+    u32 RenderProxy::FindOrCreateMaterialInstance(const MaterialAsset* materialAsset)
     {
+        if (materialAsset == nullptr)
+        {
+            return U32_MAX;
+        }
+
         auto it = materials.Find(materialAsset->GetUUID());
         if (it == materials.end())
         {
-            it = materials.Emplace(materialAsset->GetUUID(), MakeShared<MaterialInstance>()).first;
-            MaterialInstance* instance = it->second.Get();
-
-
-            MaterialData materialData{
+            MaterialConstants materialConstants{
                 .baseColorAlphaCutOff = Math::MakeVec4(materialAsset->GetBaseColor().ToVec3(), materialAsset->GetAlphaCutoff()),
                 .uvScaleNormalMultiplierAlphaMode = Math::MakeVec4(materialAsset->GetUvScale(), Math::MakeVec2(materialAsset->GetNormalMultiplier(), static_cast<f32>(materialAsset->GetAlphaMode()))),
                 .metallicRoughness = Vec4{materialAsset->GetRoughness(), materialAsset->GetMetallic(), 0.0f, 0.0f},
                 .emissiveFactor = Math::MakeVec4(materialAsset->GetEmissiveFactor(), 0.0),
-                .textureIndices = {}
             };
 
-            instance->bindingSet = Graphics::CreateBindingSet(Assets::LoadByPath<ShaderAsset>("Skore://Shaders/Passes/GBufferRender.raster")->GetDefaultState());
-
             Array<DescriptorSetWriteInfo> infos;
-
             if (materialAsset->GetBaseColorTexture())
             {
-                materialData.textureIndices.baseColorIndex = currentBindlessIndex++;
+                materialConstants.baseColorIndex = currentBindlessIndex++;
                 infos.EmplaceBack(DescriptorSetWriteInfo{
                     .binding = 0,
                     .descriptorType = DescriptorType::SampledImage,
-                    .arrayElement = materialData.textureIndices.baseColorIndex,
+                    .arrayElement = materialConstants.baseColorIndex,
                     .texture = materialAsset->GetBaseColorTexture()->GetTexture(),
                 });
             }
 
-            instance->bindingSet->GetVar("defaultSampler")->SetSampler(materialSampler);
-
-
             if (materialAsset->GetNormalTexture())
             {
-                materialData.textureIndices.normalIndex = currentBindlessIndex++;
+                materialConstants.normalIndex = currentBindlessIndex++;
                 Graphics::WriteDescriptorSet(bindlessResources, {
                                                  DescriptorSetWriteInfo{
                                                      .binding = 0,
                                                      .descriptorType = DescriptorType::SampledImage,
-                                                     .arrayElement = materialData.textureIndices.normalIndex,
+                                                     .arrayElement = materialConstants.normalIndex,
                                                      .texture = materialAsset->GetNormalTexture()->GetTexture(),
                                                  }
                                              });
@@ -306,12 +339,12 @@ namespace Skore
 
             if (materialAsset->GetMetallicTexture())
             {
-                materialData.textureIndices.metallicIndex = currentBindlessIndex++;
+                materialConstants.metallicIndex = currentBindlessIndex++;
                 Graphics::WriteDescriptorSet(bindlessResources, {
                                                  DescriptorSetWriteInfo{
                                                      .binding = 0,
                                                      .descriptorType = DescriptorType::SampledImage,
-                                                     .arrayElement = materialData.textureIndices.metallicIndex,
+                                                     .arrayElement = materialConstants.metallicIndex,
                                                      .texture = materialAsset->GetMetallicTexture()->GetTexture(),
                                                  }
                                              });
@@ -319,12 +352,12 @@ namespace Skore
 
             if (materialAsset->GetRoughnessTexture())
             {
-                materialData.textureIndices.roughnessIndex = currentBindlessIndex++;
+                materialConstants.roughnessIndex = currentBindlessIndex++;
                 Graphics::WriteDescriptorSet(bindlessResources, {
                                                  DescriptorSetWriteInfo{
                                                      .binding = 0,
                                                      .descriptorType = DescriptorType::SampledImage,
-                                                     .arrayElement = materialData.textureIndices.roughnessIndex,
+                                                     .arrayElement = materialConstants.roughnessIndex,
                                                      .texture = materialAsset->GetRoughnessTexture()->GetTexture(),
                                                  }
                                              });
@@ -332,12 +365,12 @@ namespace Skore
 
             if (materialAsset->GetMetallicRoughnessTexture())
             {
-                materialData.textureIndices.metallicRoughnessIndex = currentBindlessIndex++;
+                materialConstants.metallicRoughnessIndex = currentBindlessIndex++;
                 Graphics::WriteDescriptorSet(bindlessResources, {
                                                  DescriptorSetWriteInfo{
                                                      .binding = 0,
                                                      .descriptorType = DescriptorType::SampledImage,
-                                                     .arrayElement = materialData.textureIndices.metallicRoughnessIndex,
+                                                     .arrayElement = materialConstants.metallicRoughnessIndex,
                                                      .texture = materialAsset->GetMetallicRoughnessTexture()->GetTexture(),
                                                  }
                                              });
@@ -345,28 +378,35 @@ namespace Skore
 
             if (materialAsset->GetEmissiveTexture())
             {
-                materialData.textureIndices.emissiveIndex = currentBindlessIndex++;
+                materialConstants.emissiveIndex = currentBindlessIndex++;
                 Graphics::WriteDescriptorSet(bindlessResources, {
                                                  DescriptorSetWriteInfo{
                                                      .binding = 0,
                                                      .descriptorType = DescriptorType::SampledImage,
-                                                     .arrayElement = materialData.textureIndices.emissiveIndex,
+                                                     .arrayElement = materialConstants.emissiveIndex,
                                                      .texture = materialAsset->GetEmissiveTexture()->GetTexture(),
                                                  }
                                              });
             }
-
 
             if (!infos.Empty())
             {
                 Graphics::WriteDescriptorSet(bindlessResources, infos);
             }
 
+            u32 index = currentMaterialCount++;
 
-            instance->bindingSet->GetVar("material")->SetValue(&materialData, sizeof(MaterialData));
+            Graphics::UpdateBufferData({
+                .buffer = materialStorageBuffer,
+                .data = &materialConstants,
+                .size = sizeof(MaterialConstants),
+                .offset = sizeof(MaterialConstants) * index
+            });
 
+            it = materials.Insert(materialAsset->GetUUID(), index).first;
         }
-        return it->second.Get();
+
+        return it->second;
     }
 
 

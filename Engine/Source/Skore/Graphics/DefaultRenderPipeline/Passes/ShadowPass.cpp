@@ -213,7 +213,7 @@ namespace Skore
 
                             for (MeshPrimitive& primitive : primitives)
                             {
-                                if (MaterialInstance* material = meshRenderData.materials[primitive.materialIndex])
+                                if (meshRenderData.materials[primitive.materialIndex] != U32_MAX)
                                 {
                                     cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
                                 }
