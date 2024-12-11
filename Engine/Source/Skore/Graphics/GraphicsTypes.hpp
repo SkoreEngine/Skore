@@ -403,7 +403,7 @@ namespace Skore
         CompareOp          compareOperator{CompareOp::Always};
         f32                mipLodBias = 0.0f;
         f32                minLod{};
-        f32                maxLod{100.0};
+        f32                maxLod{F32_MAX};
         bool               anisotropyEnable = true;
         BorderColor        borderColor{BorderColor::IntOpaqueBlack};
         SamplerMipmapMode  samplerMipmapMode = SamplerMipmapMode::Linear;
@@ -577,7 +577,8 @@ namespace Skore
         Buffer          buffer{};
         const void*     data{};
         usize           size{};
-        usize           offset{};
+        usize           srcOffset{};
+        usize           dstOffset{};
     };
 
     struct BufferImageCopy

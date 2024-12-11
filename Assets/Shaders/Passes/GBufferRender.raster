@@ -27,10 +27,7 @@ struct PushConsts
 {
     float4x4 model;
     float4x4 prevMatrix;
-    uint materialIndex;
-    uint _pad0;
-    uint _pad1;
-    uint _pad2;
+    uint4 materialIndex;
 };
 
 struct Scene
@@ -44,7 +41,7 @@ struct Scene
 ConstantBuffer<Scene> scene : register(b0);
 [[vk::push_constant]]  ConstantBuffer<PushConsts>  pushConsts;
 
-VSOutput MainVS(VSInput input)
+VSOutput MainVS(VSInput input /*,[[vk::builtin("BaseInstance")]] uint instanceId : SV_StartInstanceLocation*/)
 {
     float3 prevPos   =(float3)mul(pushConsts.prevMatrix, float4(input.position, 1.0));
 
@@ -58,7 +55,7 @@ VSOutput MainVS(VSInput input)
     float3x3 normalMat = (float3x3)pushConsts.model;
     output.normal      = normalize(mul(normalMat, input.normal));
     output.tangent     = float4(normalize(mul(normalMat, input.tangent.xyz)), input.tangent.w);
-    output.materialIndex = pushConsts.materialIndex;
+    output.materialIndex = pushConsts.materialIndex.x;
     return output;
 }
 

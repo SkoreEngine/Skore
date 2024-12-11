@@ -26,6 +26,12 @@ namespace Skore
         Buffer GetVertexBuffer();
         Buffer GetIndexBuffer();
 
+        void LoadVertexData(Array<u8>& data) const;
+        void LoadIndexData(Array<u8>& data) const;
+
+        usize GetVertexSize() const;
+        usize GetIndexSize() const;
+
         ~MeshAsset() override;
 
     private:

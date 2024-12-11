@@ -51,7 +51,12 @@ namespace Skore
                                          }
                                      });
 
-        materialSampler = Graphics::CreateSampler({});
+        materialSampler = Graphics::CreateSampler(SamplerCreation{
+            .filter = SamplerFilter::Linear,
+            .addressMode = TextureAddressMode::Repeat,
+            .comparedEnabled = true,
+            .anisotropyEnable = true
+        });
 
         materialStorageBuffer = Graphics::CreateBuffer({
             .usage = BufferUsage::StorageBuffer,
@@ -96,9 +101,21 @@ namespace Skore
             .buffer = materialStorageBuffer,
             .data = &materialConstants,
             .size = sizeof(MaterialConstants),
-            .offset = 0
         });
         currentMaterialCount++;
+
+
+        globalVertexBuffer = Graphics::CreateBuffer({
+            .usage = BufferUsage::VertexBuffer,
+            .size = 209715200,
+            .allocation = BufferAllocation::GPUOnly
+        });
+
+        globalIndexBuffer = Graphics::CreateBuffer({
+            .usage = BufferUsage::IndexBuffer,
+            .size = 209715200,
+            .allocation = BufferAllocation::GPUOnly
+        });
 
     }
 
@@ -110,6 +127,9 @@ namespace Skore
         Graphics::DestroyDescriptorSet(materialDescriptor);
         Graphics::DestroySampler(materialSampler);
         Graphics::DestroyBuffer(materialStorageBuffer);
+
+        Graphics::DestroyBuffer(globalVertexBuffer);
+        Graphics::DestroyBuffer(globalIndexBuffer);
 
         specularMapGenerator.Destroy();
         diffuseIrradianceGenerator.Destroy();
@@ -142,8 +162,10 @@ namespace Skore
             meshRenders[it->second].materials[i] = FindOrCreateMaterialInstance(materials[i]);
         }
 
-        //meshRenders[it->second].materials = materials;
         meshRenders[it->second].matrix = matrix;
+
+        //new code:
+        meshRenders[it->second].meshLookupData = GetMeshLookupData(mesh);
     }
 
     void RenderProxy::RemoveMesh(VoidPtr pointer)
@@ -394,19 +416,69 @@ namespace Skore
                 Graphics::WriteDescriptorSet(bindlessResources, infos);
             }
 
+            //TODO RESIZE BUFFER!!!
+
             u32 index = currentMaterialCount++;
 
             Graphics::UpdateBufferData({
                 .buffer = materialStorageBuffer,
                 .data = &materialConstants,
                 .size = sizeof(MaterialConstants),
-                .offset = sizeof(MaterialConstants) * index
+                .dstOffset = sizeof(MaterialConstants) * index
             });
 
             it = materials.Insert(materialAsset->GetUUID(), index).first;
         }
 
         return it->second;
+    }
+
+    MeshLookupData* RenderProxy::GetMeshLookupData(const MeshAsset* meshAsset)
+    {
+        auto it = meshLookupData.Find(meshAsset->GetUUID());
+        if (it == meshLookupData.end())
+        {
+            it = meshLookupData.Emplace(meshAsset->GetUUID(), MakeShared<MeshLookupData>()).first;
+            MeshLookupData* data = it->second.Get();
+
+            data->vertexOffset = globalVertexBufferOffset * sizeof(VertexStride);
+            data->indexOffset = globalIndexBufferOffset * sizeof(u32);
+
+            usize vertexSize = meshAsset->GetVertexSize();
+            usize indexSize = meshAsset->GetIndexSize();
+
+            Array<u8> buffer;
+
+            //vertex data
+            {
+                buffer.Resize(meshAsset->GetVertexSize());
+                meshAsset->LoadVertexData(buffer);
+
+                //TODO RESIZE BUFFERS!!!
+                Graphics::UpdateBufferData({
+                    .buffer = globalVertexBuffer,
+                    .data = buffer.Data(),
+                    .size = vertexSize,
+                    .dstOffset = data->vertexOffset,
+                });
+
+                globalVertexBufferOffset += buffer.Size();
+            }
+
+            //index data
+            {
+                meshAsset->LoadIndexData(buffer);
+                Graphics::UpdateBufferData({
+                    .buffer = globalVertexBuffer,
+                    .data = buffer.Data(),
+                    .size = indexSize,
+                    .dstOffset = data->indexOffset,
+                });
+
+                globalIndexBufferOffset += indexSize;
+            }
+        }
+        return it->second.Get();
     }
 
 

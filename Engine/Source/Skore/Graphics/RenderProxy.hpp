@@ -1,4 +1,5 @@
 #pragma once
+#include <Skore/Graphics/Assets/MeshAsset.hpp>
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Optional.hpp"
@@ -15,13 +16,20 @@ namespace Skore
     class MaterialAsset;
     class MeshAsset;
 
+    struct MeshLookupData
+    {
+        u64 vertexOffset;
+        u64 indexOffset;
+    };
+
     struct MeshRenderData
     {
-        VoidPtr    pointer;
-        Mat4       matrix;
-        Mat4       prevMatrix;
-        MeshAsset* mesh = nullptr;
-        Array<u32> materials{};
+        VoidPtr         pointer;
+        Mat4            matrix;
+        Mat4            prevMatrix;
+        MeshAsset*      mesh = nullptr;
+        MeshLookupData* meshLookupData = nullptr;
+        Array<u32>      materials{};
     };
 
     // maybe make it abstract and implement it in the RenderPipeline??
@@ -60,6 +68,9 @@ namespace Skore
 
         DescriptorSet bindlessResources;
         DescriptorSet materialDescriptor;
+
+        Buffer globalVertexBuffer;
+        Buffer globalIndexBuffer;
     private:
         Array<MeshRenderData>   meshRenders;
         HashMap<VoidPtr, usize> meshRendersLookup;
@@ -79,6 +90,12 @@ namespace Skore
         Buffer  materialStorageBuffer;
         u32     currentMaterialCount = 0;
 
+        HashMap<UUID, SharedPtr<MeshLookupData>> meshLookupData;
+
+        u64 globalVertexBufferOffset = 0;
+        u64 globalIndexBufferOffset = 0;
+
+
         struct CameraStorage
         {
             VoidPtr    ptr;
@@ -90,5 +107,7 @@ namespace Skore
         Sampler materialSampler;
 
         u32 FindOrCreateMaterialInstance(const MaterialAsset* materialAsset);
+
+        MeshLookupData* GetMeshLookupData(const MeshAsset* meshAsset);
     };
 }

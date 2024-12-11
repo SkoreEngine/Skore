@@ -74,6 +74,26 @@ namespace Skore
         return indexBuffer;
     }
 
+    void MeshAsset::LoadIndexData(Array<u8>& data) const
+    {
+        this->LoadStream(verticesCount * sizeof(VertexStride), indicesCount * sizeof(u32), data);
+    }
+
+    void MeshAsset::LoadVertexData(Array<u8>& data) const
+    {
+        this->LoadStream(0, verticesCount * sizeof(VertexStride), data);
+    }
+
+    usize MeshAsset::GetIndexSize() const
+    {
+        return indicesCount * sizeof(u32);
+    }
+
+    usize MeshAsset::GetVertexSize() const
+    {
+        return verticesCount * sizeof(VertexStride);
+    }
+
     MeshAsset::~MeshAsset()
     {
         if (vertexBuffer)

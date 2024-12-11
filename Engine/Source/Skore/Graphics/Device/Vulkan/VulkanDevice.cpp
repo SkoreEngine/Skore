@@ -380,7 +380,6 @@ namespace Skore
             deviceFeatures2.pNext = &deviceRayTracingPipelineFeatures;
         }
 
-
         VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
         bufferDeviceAddressFeatures.bufferDeviceAddress = true;
 
@@ -389,6 +388,17 @@ namespace Skore
             bufferDeviceAddressFeatures.pNext = deviceFeatures2.pNext;
             deviceFeatures2.pNext = &bufferDeviceAddressFeatures;
         }
+
+        VkPhysicalDeviceShaderDrawParametersFeatures drawParametersFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
+        drawParametersFeatures.shaderDrawParameters = true;
+
+        //TODO check if drawParametersFeatures.shaderDrawParameters is available
+        if (true)
+        {
+            drawParametersFeatures.pNext = deviceFeatures2.pNext;
+            deviceFeatures2.pNext = &drawParametersFeatures;
+        }
+
         //--------------  end feature chain
 
 
@@ -1690,7 +1700,8 @@ namespace Skore
         {
             if (bufferDataInfo.data)
             {
-                memcpy((i8*)vulkanBuffer.allocInfo.pMappedData + bufferDataInfo.offset, bufferDataInfo.data, bufferDataInfo.size);
+                memcpy((i8*)vulkanBuffer.allocInfo.pMappedData + bufferDataInfo.dstOffset,
+                       (i8*)bufferDataInfo.data + bufferDataInfo.srcOffset, bufferDataInfo.size);
             }
         }
         else
@@ -1712,8 +1723,8 @@ namespace Skore
             temporaryCmd->Begin();
 
             BufferCopyInfo copy{};
-            copy.dstOffset = 0;
-            copy.srcOffset = bufferDataInfo.offset;
+            copy.dstOffset = bufferDataInfo.dstOffset;
+            copy.srcOffset = bufferDataInfo.srcOffset;
             copy.size = bufferDataInfo.size;
 
             temporaryCmd->CopyBuffer({&stagingBuffer}, bufferDataInfo.buffer, &copy);

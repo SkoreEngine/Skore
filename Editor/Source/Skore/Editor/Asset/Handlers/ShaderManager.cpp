@@ -19,17 +19,17 @@
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
 
-#define SHADER_MODEL "6_7"
+#define SHADER_MODEL "6_8"
 
-#define COMPUTE_SHADER_MODEL    L"cs_" SHADER_MODEL
-#define DOMAIN_SHADER_MODEL     L"ds_" SHADER_MODEL
-#define GEOMETRY_SHADER_MODEL   L"gs_" SHADER_MODEL
-#define HULL_SHADER_MODEL       L"hs_" SHADER_MODEL
-#define PIXEL_SHADER_MODELS     L"ps_" SHADER_MODEL
-#define VERTEX_SHADER_MODEL     L"vs_" SHADER_MODEL
-#define MESH_SHADER_MODEL              L"ms_" SHADER_MODEL
-#define AMPLIFICATION_SHADER_MODEL     L"as_" SHADER_MODEL
-#define LIB_SHADER_MODEL        L"lib_" SHADER_MODEL
+#define COMPUTE_SHADER_MODEL            L"cs_" SHADER_MODEL
+#define DOMAIN_SHADER_MODEL             L"ds_" SHADER_MODEL
+#define GEOMETRY_SHADER_MODEL           L"gs_" SHADER_MODEL
+#define HULL_SHADER_MODEL               L"hs_" SHADER_MODEL
+#define PIXEL_SHADER_MODELS             L"ps_" SHADER_MODEL
+#define VERTEX_SHADER_MODEL             L"vs_" SHADER_MODEL
+#define MESH_SHADER_MODEL               L"ms_" SHADER_MODEL
+#define AMPLIFICATION_SHADER_MODEL      L"as_" SHADER_MODEL
+#define LIB_SHADER_MODEL                L"lib_" SHADER_MODEL
 
 namespace Skore
 {

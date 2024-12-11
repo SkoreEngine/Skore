@@ -19,18 +19,19 @@ namespace Skore
         Allocator& allocator = MemoryGlobals::GetDefaultAllocator();
         VkInstance instance{};
 
-        VkPhysicalDevice           physicalDevice{};
-        DeviceFeatures             deviceFeatures{};
-        VkPhysicalDeviceFeatures   vulkanDeviceFeatures{};
-        VkPhysicalDeviceProperties vulkanDeviceProperties{};
-        VkDevice                   device{};
-        VmaAllocator               vmaAllocator{};
-        VkDescriptorPool           descriptorPool{};
-        VkDescriptorPool           bindlessDescriptorPool{};
-        bool                       maintenance4Available = false;
-        bool                       debugUtilsExtensionPresent = false;
-        bool                       deviceAddressAvailable = false;
-        Array<Adapter>             adapters{};
+        VkPhysicalDevice                 physicalDevice{};
+        DeviceFeatures                   deviceFeatures{};
+        VkPhysicalDeviceFeatures         vulkanDeviceFeatures{};
+        VkPhysicalDeviceProperties       vulkanDeviceProperties{};
+
+        VkDevice         device{};
+        VmaAllocator     vmaAllocator{};
+        VkDescriptorPool descriptorPool{};
+        VkDescriptorPool bindlessDescriptorPool{};
+        bool             maintenance4Available = false;
+        bool             debugUtilsExtensionPresent = false;
+        bool             deviceAddressAvailable = false;
+        Array<Adapter>   adapters{};
 
         //raytrace
         VkPhysicalDeviceRayTracingPipelinePropertiesKHR    rayTracingPipelineProperties{};
@@ -98,11 +99,10 @@ namespace Skore
         bool CreateSwapchain(VulkanSwapchain* vulkanSwapchain);
         void DestroySwapchain(VulkanSwapchain* vulkanSwapchain);
 
-        void            ImGuiInit(Swapchain renderSwapchain) override;
-        void            ImGuiNewFrame() override;
-        void            ImGuiRender(RenderCommands& renderCommands) override;
-        VoidPtr         GetImGuiTexture(const Texture& texture) override;
-
+        void    ImGuiInit(Swapchain renderSwapchain) override;
+        void    ImGuiNewFrame() override;
+        void    ImGuiRender(RenderCommands& renderCommands) override;
+        VoidPtr GetImGuiTexture(const Texture& texture) override;
     };
 
 

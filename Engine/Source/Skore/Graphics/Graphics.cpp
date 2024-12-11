@@ -42,14 +42,12 @@ namespace Skore
 
         linearSampler = renderDevice->CreateSampler({
             .filter = SamplerFilter::Linear,
-            .addressMode = TextureAddressMode::ClampToEdge,
-            .maxLod = 200
+            .addressMode = TextureAddressMode::Repeat
         });
 
         nearestSampler = renderDevice->CreateSampler({
             .filter = SamplerFilter::Nearest,
-            .addressMode = TextureAddressMode::ClampToEdge,
-            .maxLod = 200
+            .addressMode = TextureAddressMode::ClampToEdge
         });
 
         defaultTexture = renderDevice->CreateTexture({
