@@ -39,13 +39,13 @@ namespace Skore
         Image GenerateThumbnail(AssetFile* assetFile) override
         {
             //TODO HDR
-            TextureAsset* textureAsset = Assets::Load<TextureAsset>(assetFile->uuid);
-            if (textureAsset->format != Format::BC1U)
-            {
-                Image image = textureAsset->GetImage();
-                image.Resize(128, 128);
-                return image;
-            }
+            // TextureAsset* textureAsset = Assets::Load<TextureAsset>(assetFile->uuid);
+            // if (textureAsset->format != Format::BC1U)
+            // {
+            //     Image image = textureAsset->GetImage();
+            //     image.Resize(128, 128);
+            //     return image;
+            // }
             return {};
         }
     };

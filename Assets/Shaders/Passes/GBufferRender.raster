@@ -1,13 +1,13 @@
 #include "Skore://Shaders/Common.hlsl"
 #include "Skore://Shaders/Material.inc"
 
-struct VSInput
+struct VertexData
 {
-    float3 position  : POSITION0;
-    float3 normal    : NORMAL1;
-    float3 color     : COLOR2;
-    float2 uv        : UV2;
-    float4 tangent   : TANGENT1;
+    float4 position;
+    float4 normal;
+    float4 color;
+    float4 uv;
+    float4 tangent;
 };
 
 struct VSOutput
@@ -27,7 +27,10 @@ struct PushConsts
 {
     float4x4 model;
     float4x4 prevMatrix;
-    uint4 materialIndex;
+    uint     materialIndex;
+    uint     vertexOffset;
+    uint     _pad1;
+    uint     _pad2;
 };
 
 struct Scene
@@ -38,24 +41,28 @@ struct Scene
     float2   previousJitter;
 };
 
-ConstantBuffer<Scene> scene : register(b0);
+ConstantBuffer<Scene>        scene;
+StructuredBuffer<VertexData> vertices;
+
 [[vk::push_constant]]  ConstantBuffer<PushConsts>  pushConsts;
 
-VSOutput MainVS(VSInput input /*,[[vk::builtin("BaseInstance")]] uint instanceId : SV_StartInstanceLocation*/)
+VSOutput MainVS(uint vid: SV_VertexID /*,[[vk::builtin("BaseInstance")]] uint instanceId : SV_StartInstanceLocation*/)
 {
-    float3 prevPos   =(float3)mul(pushConsts.prevMatrix, float4(input.position, 1.0));
+    VertexData input = vertices[NonUniformResourceIndex(vid + pushConsts.vertexOffset)];
+
+    float3 prevPos   =(float3)mul(pushConsts.prevMatrix, float4(input.position.xyz, 1.0));
 
     VSOutput output = (VSOutput)0;
-    output.fragPos    = (float3)mul(pushConsts.model, float4(input.position, 1.0));
-    output.color      = input.color;
+    output.fragPos    = (float3)mul(pushConsts.model, float4(input.position.xyz, 1.0));
+    output.color      = input.color.rgb;
     output.pos        = mul(scene.viewProjection, float4(output.fragPos, 1.0));
     output.current    = output.pos;
     output.prevPos    = mul(scene.prevViewProjection, float4(prevPos, 1.0));
-    output.uv         = input.uv;
+    output.uv         = input.uv.xy;
     float3x3 normalMat = (float3x3)pushConsts.model;
-    output.normal      = normalize(mul(normalMat, input.normal));
+    output.normal      = normalize(mul(normalMat, input.normal.xyz));
     output.tangent     = float4(normalize(mul(normalMat, input.tangent.xyz)), input.tangent.w);
-    output.materialIndex = pushConsts.materialIndex.x;
+    output.materialIndex = pushConsts.materialIndex;
     return output;
 }
 

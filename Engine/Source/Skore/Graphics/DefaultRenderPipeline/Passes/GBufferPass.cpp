@@ -22,7 +22,7 @@ namespace Skore
         Mat4 matrix;
         Mat4 prevMatrix;
         u32 materialIndex;
-        u32 _pad0;
+        u32 vertexOffset;
         u32 _pad1;
         u32 _pad2;
     };
@@ -69,21 +69,25 @@ namespace Skore
             };
 
             bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
+            bindingSet->GetVar("vertices")->SetBuffer(renderProxy->globalVertexBuffer);
 
             cmd.BindPipelineState(pipelineState);
             cmd.BindBindingSet(pipelineState, bindingSet);
             cmd.BindDescriptorSet(pipelineState, renderProxy->materialDescriptor, 1);
             cmd.BindDescriptorSet(pipelineState, renderProxy->bindlessResources, 2);
 
+            cmd.BindIndexBuffer(renderProxy->globalIndexBuffer);
+
             for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
             {
+                u64 firstIndex = meshRenderData.meshLookupData->indexOffset / sizeof(u32);
+
                 if (MeshAsset* mesh = meshRenderData.mesh)
                 {
                     Span<MeshPrimitive> primitives = mesh->GetPrimitives();
 
-                    cmd.BindVertexBuffer(mesh->GetVertexBuffer());
-                    cmd.BindIndexBuffer(mesh->GetIndexBuffer());
-
+                    // cmd.BindVertexBuffer(mesh->GetVertexBuffer());
+                    // cmd.BindIndexBuffer(mesh->GetIndexBuffer());
 
                     PushConst pushConst;
                     pushConst.matrix = meshRenderData.matrix;
@@ -96,8 +100,9 @@ namespace Skore
                         if (u32 material = meshRenderData.materials[primitive.materialIndex]; material != U32_MAX)
                         {
                             pushConst.materialIndex = material;
+                            pushConst.vertexOffset = meshRenderData.meshLookupData->vertexOffset / sizeof(VertexStride);
                             cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConst, sizeof(PushConst));
-                            cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
+                            cmd.DrawIndexed(primitive.indexCount, 1, firstIndex + primitive.firstIndex, 0, 0);
                         }
                     }
                 }

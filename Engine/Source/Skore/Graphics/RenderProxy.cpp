@@ -104,16 +104,15 @@ namespace Skore
         });
         currentMaterialCount++;
 
-
         globalVertexBuffer = Graphics::CreateBuffer({
-            .usage = BufferUsage::VertexBuffer,
-            .size = 209715200,
+            .usage = BufferUsage::StorageBuffer,
+            .size = 2097152000, //TODO find a good number here
             .allocation = BufferAllocation::GPUOnly
         });
 
         globalIndexBuffer = Graphics::CreateBuffer({
             .usage = BufferUsage::IndexBuffer,
-            .size = 209715200,
+            .size = 2097152000, //TODO find a good number here
             .allocation = BufferAllocation::GPUOnly
         });
 
@@ -468,8 +467,10 @@ namespace Skore
             //index data
             {
                 meshAsset->LoadIndexData(buffer);
+
+                //TODO RESIZE BUFFERS!!!
                 Graphics::UpdateBufferData({
-                    .buffer = globalVertexBuffer,
+                    .buffer = globalIndexBuffer,
                     .data = buffer.Data(),
                     .size = indexSize,
                     .dstOffset = data->indexOffset,

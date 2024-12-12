@@ -632,9 +632,13 @@ namespace Skore
     struct VertexStride final
     {
         Vec3 position{};
+        f32  pad0;
         Vec3 normal{};
+        f32  pad1;
         Vec3 color{};
+        f32  pad2;
         Vec2 uv{};
+        Vec2 pad3;
         Vec4 tangent{};
     };
 
