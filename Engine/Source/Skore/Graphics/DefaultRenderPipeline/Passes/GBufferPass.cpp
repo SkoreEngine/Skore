@@ -1,6 +1,7 @@
 #include "GBufferPass.hpp"
 
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderGlobals.hpp"
 #include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderProxy.hpp"
 #include "Skore/Graphics/Assets/MeshAsset.hpp"
@@ -69,18 +70,18 @@ namespace Skore
             };
 
             bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
-            bindingSet->GetVar("vertices")->SetBuffer(renderProxy->globalVertexBuffer);
+            bindingSet->GetVar("vertices")->SetBuffer(RenderGlobals::GetGlobalVertexBuffer());
+            bindingSet->GetVar("instances")->SetBuffer(renderProxy->instanceBuffer);
 
             cmd.BindPipelineState(pipelineState);
             cmd.BindBindingSet(pipelineState, bindingSet);
-            cmd.BindDescriptorSet(pipelineState, renderProxy->materialDescriptor, 1);
-            cmd.BindDescriptorSet(pipelineState, renderProxy->bindlessResources, 2);
-
-            cmd.BindIndexBuffer(renderProxy->globalIndexBuffer);
+            cmd.BindDescriptorSet(pipelineState, RenderGlobals::GetMaterialDescriptor(), 1);
+            cmd.BindDescriptorSet(pipelineState, RenderGlobals::GetBindlessResources(), 2);
+            cmd.BindIndexBuffer(RenderGlobals::GetGlobalIndexBuffer());
 
             for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
             {
-                u64 firstIndex = meshRenderData.meshLookupData->indexOffset / sizeof(u32);
+                u64 firstIndex = meshRenderData.meshLookupData->indexBufferOffset / sizeof(u32);
 
                 if (MeshAsset* mesh = meshRenderData.mesh)
                 {
@@ -100,7 +101,7 @@ namespace Skore
                         if (u32 material = meshRenderData.materials[primitive.materialIndex]; material != U32_MAX)
                         {
                             pushConst.materialIndex = material;
-                            pushConst.vertexOffset = meshRenderData.meshLookupData->vertexOffset / sizeof(VertexStride);
+                            pushConst.vertexOffset = meshRenderData.meshLookupData->vertexBufferOffset;
                             cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConst, sizeof(PushConst));
                             cmd.DrawIndexed(primitive.indexCount, 1, firstIndex + primitive.firstIndex, 0, 0);
                         }

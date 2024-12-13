@@ -11,6 +11,8 @@ namespace Skore
     void GraphicsInit();
     void GraphicsShutdown();
     void GraphicsCreateDevice(Adapter adapter);
+    void RenderGlobalsInit();
+    void RenderGlobalsShutdown();
 
     SharedPtr<RenderDevice> CreateVulkanDevice();
 
@@ -30,6 +32,7 @@ namespace Skore
 
     void GraphicsShutdown()
     {
+        RenderGlobalsShutdown();
         renderDevice->DestroySampler(nearestSampler);
         renderDevice->DestroySampler(linearSampler);
         renderDevice->DestroyTexture(defaultTexture);
@@ -68,6 +71,8 @@ namespace Skore
             .size = image.GetData().Size(),
             .regions = {&region, 1}
         });
+
+        RenderGlobalsInit();
     }
 
     RenderCommands& GraphicsBeginFrame()

@@ -1,9 +1,11 @@
 struct InstanceData
 {
-     float4x4 model;
-     float4x4 prevModel;
+     float4x4 current;
+     float4x4 previous;
      uint     materialIndex;
-     uint3   _pad;
+     uint     vertexOffset;
+     uint     _pad0;
+     uint     _pad1;
 };
 
 StructuredBuffer<InstanceData> instances : register(t0, space3);

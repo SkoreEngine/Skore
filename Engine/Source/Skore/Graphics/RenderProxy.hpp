@@ -18,8 +18,8 @@ namespace Skore
 
     struct MeshLookupData
     {
-        u64 vertexOffset;
-        u64 indexOffset;
+        u64 vertexBufferOffset;
+        u64 indexBufferOffset;
     };
 
     struct MeshRenderData
@@ -29,6 +29,7 @@ namespace Skore
         Mat4            prevMatrix;
         MeshAsset*      mesh = nullptr;
         MeshLookupData* meshLookupData = nullptr;
+        u64             index{};
         Array<u32>      materials{};
     };
 
@@ -40,6 +41,9 @@ namespace Skore
 
         RenderProxy();
         ~RenderProxy() override;
+
+        void OnStart() override;
+        void OnDestroy() override;
 
         void                 SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix);
         void                 RemoveMesh(VoidPtr pointer);
@@ -66,11 +70,7 @@ namespace Skore
 
         Optional<Texture> cubemapTest;
 
-        DescriptorSet bindlessResources;
-        DescriptorSet materialDescriptor;
-
-        Buffer globalVertexBuffer;
-        Buffer globalIndexBuffer;
+        Buffer instanceBuffer;
     private:
         Array<MeshRenderData>   meshRenders;
         HashMap<VoidPtr, usize> meshRendersLookup;
@@ -84,16 +84,7 @@ namespace Skore
         DiffuseIrradianceGenerator diffuseIrradianceGenerator;
         EquirectangularToCubemap   toCubemap;
 
-        HashMap<UUID, u32> materials;
-        u32 currentBindlessIndex = 1;
-
-        Buffer  materialStorageBuffer;
-        u32     currentMaterialCount = 0;
-
-        HashMap<UUID, SharedPtr<MeshLookupData>> meshLookupData;
-
-        u64 globalVertexBufferOffset = 0;
-        u64 globalIndexBufferOffset = 0;
+        u64 instanceBufferCurrentIndex = 0;
 
 
         struct CameraStorage
@@ -104,10 +95,6 @@ namespace Skore
 
         Optional<CameraStorage> cameraData;
 
-        Sampler materialSampler;
 
-        u32 FindOrCreateMaterialInstance(const MaterialAsset* materialAsset);
-
-        MeshLookupData* GetMeshLookupData(const MeshAsset* meshAsset);
     };
 }
