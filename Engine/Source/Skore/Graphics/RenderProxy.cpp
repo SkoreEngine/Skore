@@ -26,48 +26,92 @@ namespace Skore
 
         instanceBuffer = Graphics::CreateBuffer({
             .usage = BufferUsage::StorageBuffer,
-            .size = sizeof(InstanceData) * 1000,
+            .size = sizeof(InstanceData) * 50000,
             .allocation = BufferAllocation::TransferToCPU
+        });
+
+        indirectDrawBuffer = Graphics::CreateBuffer({
+            .usage = BufferUsage::StorageBuffer | BufferUsage::IndirectBuffer,
+            .size = sizeof(DrawIndexedIndirectArguments) * 50000,
+            .allocation = BufferAllocation::GPUOnly
         });
     }
 
     RenderProxy::~RenderProxy()
     {
         Graphics::WaitQueue();
+        Graphics::DestroyBuffer(instanceBuffer);
+        Graphics::DestroyBuffer(indirectDrawBuffer);
+
         specularMapGenerator.Destroy();
         diffuseIrradianceGenerator.Destroy();
         toCubemap.Destroy();
     }
 
-    void RenderProxy::SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix)
+    void RenderProxy::AddMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix)
     {
-        if (mesh == nullptr)
-        {
-            RemoveMesh(pointer);
-            return;
-        }
+        //TODO need to update cache.
 
         auto it = meshRendersLookup.Find(pointer);
         if (it == meshRendersLookup.end())
         {
-            it = meshRendersLookup.Emplace(pointer, meshRenders.Size()).first;
+            meshRendersLookup.Emplace(pointer, meshRenders.Size()).first;
+
             MeshRenderData& render = meshRenders.EmplaceBack();
-            render.prevMatrix = matrix;
-            render.index = instanceBufferCurrentIndex++;
+            render.pointer = pointer;
+            render.mesh = mesh;
+            render.drawCalls.Resize(materials.Size());
+
+            MeshLookupData* meshLookupData = RenderGlobals::GetMeshLookupData(mesh);
+
+            for (int i = 0; i < materials.Size(); ++i)
+            {
+                MeshPrimitive& primitive = mesh->primitives[i];
+
+                render.drawCalls[i].instanceIndex = instanceBufferCurrentIndex++;
+
+                InstanceData& instanceData = *reinterpret_cast<InstanceData*>(
+                    static_cast<u8*>(Graphics::GetBufferMappedMemory(instanceBuffer)) +
+                    render.drawCalls[i].instanceIndex * sizeof(InstanceData));
+
+                instanceData.current = matrix;
+                instanceData.previous = matrix;
+                instanceData.materialIndex = RenderGlobals::FindOrCreateMaterialInstance(materials[i]);
+                instanceData.vertexOffset = meshLookupData->vertexBufferOffset;
+
+                DrawIndexedIndirectArguments indirectArguments{
+                    .indexCountPerInstance = primitive.indexCount,
+                    .instanceCount = 1,
+                    .startIndexLocation = primitive.firstIndex + static_cast<u32>(meshLookupData->indexBufferOffset / sizeof(u32)),
+                    .startInstanceLocation = static_cast<u32>(render.drawCalls[i].instanceIndex),
+                };
+
+                Graphics::UpdateBufferData({
+                    .buffer = indirectDrawBuffer,
+                    .data = &indirectArguments,
+                    .size = sizeof(DrawIndexedIndirectArguments),
+                    .dstOffset = render.drawCalls[i].instanceIndex * sizeof(DrawIndexedIndirectArguments)
+                });
+                indirectDrawCount++;
+            }
         }
+    }
 
-        meshRenders[it->second].pointer = pointer;
-        meshRenders[it->second].mesh = mesh;
-        meshRenders[it->second].materials.Resize(materials.Size());
-
-        for (int i = 0; i < materials.Size(); ++i)
+    void RenderProxy::UpdateMeshTransform(VoidPtr pointer, const Mat4& matrix)
+    {
+        auto it = meshRendersLookup.Find(pointer);
+        if (it != meshRendersLookup.end())
         {
-            meshRenders[it->second].materials[i] = RenderGlobals::FindOrCreateMaterialInstance(materials[i]);
-        }
-        meshRenders[it->second].matrix = matrix;
+            for (RenderDrawCall& drawCall : meshRenders[it->second].drawCalls)
+            {
+                InstanceData& instanceData = *reinterpret_cast<InstanceData*>(
+                    static_cast<u8*>(Graphics::GetBufferMappedMemory(instanceBuffer)) +
+                    drawCall.instanceIndex * sizeof(InstanceData));
 
-        //new code:
-        meshRenders[it->second].meshLookupData = RenderGlobals::GetMeshLookupData(mesh);
+                instanceData.previous = instanceData.current;
+                instanceData.current = matrix;
+            }
+        }
     }
 
     void RenderProxy::RemoveMesh(VoidPtr pointer)
@@ -82,6 +126,9 @@ namespace Skore
                 meshRenders.PopBack();
             }
             meshRendersLookup.Erase(it);
+
+
+            //TODO: need to free drawcall.index
         }
     }
 

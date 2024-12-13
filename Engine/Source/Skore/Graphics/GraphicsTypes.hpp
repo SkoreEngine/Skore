@@ -693,10 +693,13 @@ namespace Skore
         LightProperties properties;
     };
 
-    struct TextureArrayElement
+    struct DrawIndexedIndirectArguments
     {
-        Texture texture;
-        usize   index;
+        u32 indexCountPerInstance;
+        u32 instanceCount;
+        u32 startIndexLocation;
+        i32 baseVertexLocation;
+        u32 startInstanceLocation;
     };
 
     struct BindingVar;

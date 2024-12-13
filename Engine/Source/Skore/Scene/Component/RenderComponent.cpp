@@ -16,7 +16,7 @@ namespace Skore
 
         if (renderProxy && mesh && transform)
         {
-            renderProxy->SetMesh(this, mesh, materials, transform->GetWorldTransform());
+            renderProxy->AddMesh(this, mesh, materials, transform->GetWorldTransform());
         }
     }
 
@@ -44,7 +44,14 @@ namespace Skore
         //maybe test if object is active?
         if (renderProxy)
         {
-            renderProxy->SetMesh(this, mesh, materials, transform->GetWorldTransform());
+            if (mesh)
+            {
+                renderProxy->AddMesh(this, mesh, materials, transform->GetWorldTransform());
+            } else
+            {
+                renderProxy->RemoveMesh(this);
+            }
+
         }
     }
 
@@ -62,7 +69,10 @@ namespace Skore
         {
             case SceneEventType::TransformChanged:
             {
-                OnChange();
+                if (renderProxy)
+                {
+                    renderProxy->UpdateMeshTransform(this, transform->GetWorldTransform());
+                }
                 break;
             }
         }

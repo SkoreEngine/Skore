@@ -195,31 +195,32 @@ namespace Skore
                     cmd.SetScissor(Rect{0, 0, SK_SHADOW_MAP_DIM, SK_SHADOW_MAP_DIM});
                     cmd.BindPipelineState(pipelineState);
 
-                    for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
-                    {
-                        if (MeshAsset* mesh = meshRenderData.mesh)
-                        {
-                            Span<MeshPrimitive> primitives = mesh->GetPrimitives();
+                    // for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
+                    // {
+                    //     if (MeshAsset* mesh = meshRenderData.mesh)
+                    //     {
+                    //         Span<MeshPrimitive> primitives = mesh->GetPrimitives();
+                    //
+                    //         cmd.BindVertexBuffer(mesh->GetVertexBuffer());
+                    //         cmd.BindIndexBuffer(mesh->GetIndexBuffer());
+                    //
+                    //         ShadowPushConsts pushConsts{
+                    //             .model = meshRenderData.matrix,
+                    //             .viewProjection = shadowMapDataInfo.cascadeViewProjMat[i],
+                    //         };
+                    //
+                    //         cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConsts, sizeof(ShadowPushConsts));
+                    //
+                    //         for (MeshPrimitive& primitive : primitives)
+                    //         {
+                    //             if (meshRenderData.materials[primitive.materialIndex] != U32_MAX)
+                    //             {
+                    //                 cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
+                    //             }
+                    //         }
+                    //     }
+                    // }
 
-                            cmd.BindVertexBuffer(mesh->GetVertexBuffer());
-                            cmd.BindIndexBuffer(mesh->GetIndexBuffer());
-
-                            ShadowPushConsts pushConsts{
-                                .model = meshRenderData.matrix,
-                                .viewProjection = shadowMapDataInfo.cascadeViewProjMat[i],
-                            };
-
-                            cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConsts, sizeof(ShadowPushConsts));
-
-                            for (MeshPrimitive& primitive : primitives)
-                            {
-                                if (meshRenderData.materials[primitive.materialIndex] != U32_MAX)
-                                {
-                                    cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
-                                }
-                            }
-                        }
-                    }
                     cmd.EndRenderPass();
 
                     cmd.ResourceBarrier(ResourceBarrierInfo{

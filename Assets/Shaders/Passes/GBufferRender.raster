@@ -14,12 +14,7 @@ struct VSOutput
     float2 uv       : TEXCOORD0;
     float3 normal   : NORMAL1;
     float4 tangent  : TANGENT1;
-   uint materialIndex : MATERIAL1;
-};
-
-struct PushConsts
-{
-    uint instanceId;
+    uint materialIndex : MATERIAL1;
 };
 
 struct Scene
@@ -33,11 +28,9 @@ struct Scene
 ConstantBuffer<Scene>        scene;
 ByteAddressBuffer            vertices;
 
-[[vk::push_constant]]  ConstantBuffer<PushConsts>  pushConsts;
-
-VSOutput MainVS(uint vid: SV_VertexID /*,[[vk::builtin("BaseInstance")]] uint locationId : SV_StartInstanceLocation*/)
+VSOutput MainVS(uint vid: SV_VertexID, [[vk::builtin("BaseInstance")]] uint locationId : SV_StartInstanceLocation)
 {
-    InstanceData instance = instances.Load(NonUniformResourceIndex(pushConsts.instanceId));
+    InstanceData instance = instances.Load(NonUniformResourceIndex(locationId));
 
     VertexData input = GetVertexData(vertices, vid, instance.vertexOffset);
     float3 prevPos   = (float3)mul(instance.previous, float4(input.position.xyz, 1.0));

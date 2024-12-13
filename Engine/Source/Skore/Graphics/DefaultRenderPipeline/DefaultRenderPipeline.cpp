@@ -15,12 +15,12 @@ namespace Skore
 {
     void DefaultRenderPipeline::BuildRenderGraph(RenderGraph& rg)
     {
-        RenderGraphResource* aoOutput = rg.Create(RenderGraphResourceCreation{
-            .name = "aoOutput",
-            .type = RenderGraphResourceType::Texture,
-            .scale = {1, 1},
-            .format = Format::R32U
-        });
+        // RenderGraphResource* aoOutput = rg.Create(RenderGraphResourceCreation{
+        //     .name = "aoOutput",
+        //     .type = RenderGraphResourceType::Texture,
+        //     .scale = {1, 1},
+        //     .format = Format::R32U
+        // });
 
         //shadow texture
         RenderGraphResource* shadowMap = rg.Create(RenderGraphResourceCreation{
@@ -47,7 +47,7 @@ namespace Skore
         GBufferOutput gbufferOutput = GBufferPassSetup(rg);
 
         //GTAO
-        XeGTAOSetup(rg, gbufferOutput.depth, gbufferOutput.gbuffer3, aoOutput);
+        //XeGTAOSetup(rg, gbufferOutput.depth, gbufferOutput.gbuffer3, aoOutput);
 
         //setup shadowMap pass
         ShadowPassSetup(rg, shadowMap);
@@ -58,7 +58,7 @@ namespace Skore
                           gbufferOutput.gbuffer2,
                           gbufferOutput.gbuffer3,
                           gbufferOutput.emissive,
-                          aoOutput,
+                          nullptr,
                           shadowMap,
                           gbufferOutput.depth,
                           lightOutput);

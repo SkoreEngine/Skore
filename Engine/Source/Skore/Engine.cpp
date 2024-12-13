@@ -93,7 +93,7 @@ namespace Skore
 
         swapchain = Graphics::CreateSwapchain(SwapchainCreation{
             .window = window,
-            .vsync = true
+            .vsync = false
         });
 
         ImGui::Init(window, swapchain);

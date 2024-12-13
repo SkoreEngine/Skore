@@ -1,5 +1,6 @@
 #include "GBufferPass.hpp"
 
+#include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderGlobals.hpp"
 #include "Skore/Graphics/RenderGraph.hpp"
@@ -78,36 +79,7 @@ namespace Skore
             cmd.BindDescriptorSet(pipelineState, RenderGlobals::GetMaterialDescriptor(), 1);
             cmd.BindDescriptorSet(pipelineState, RenderGlobals::GetBindlessResources(), 2);
             cmd.BindIndexBuffer(RenderGlobals::GetGlobalIndexBuffer());
-
-            for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
-            {
-                u64 firstIndex = meshRenderData.meshLookupData->indexBufferOffset / sizeof(u32);
-
-                if (MeshAsset* mesh = meshRenderData.mesh)
-                {
-                    Span<MeshPrimitive> primitives = mesh->GetPrimitives();
-
-                    // cmd.BindVertexBuffer(mesh->GetVertexBuffer());
-                    // cmd.BindIndexBuffer(mesh->GetIndexBuffer());
-
-                    PushConst pushConst;
-                    pushConst.matrix = meshRenderData.matrix;
-                    pushConst.prevMatrix = meshRenderData.prevMatrix;
-
-                    meshRenderData.prevMatrix = meshRenderData.matrix;
-
-                    for (MeshPrimitive& primitive : primitives)
-                    {
-                        if (u32 material = meshRenderData.materials[primitive.materialIndex]; material != U32_MAX)
-                        {
-                            pushConst.materialIndex = material;
-                            pushConst.vertexOffset = meshRenderData.meshLookupData->vertexBufferOffset;
-                            cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConst, sizeof(PushConst));
-                            cmd.DrawIndexed(primitive.indexCount, 1, firstIndex + primitive.firstIndex, 0, 0);
-                        }
-                    }
-                }
-            }
+            cmd.DrawIndexedIndirect(renderProxy->indirectDrawBuffer, 0, renderProxy->indirectDrawCount, sizeof(DrawIndexedIndirectArguments));
         }
 
         void Destroy() override

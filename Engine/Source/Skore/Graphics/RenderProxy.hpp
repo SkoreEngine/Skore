@@ -22,15 +22,16 @@ namespace Skore
         u64 indexBufferOffset;
     };
 
+    struct RenderDrawCall
+    {
+        u64 instanceIndex{};
+    };
+
     struct MeshRenderData
     {
-        VoidPtr         pointer;
-        Mat4            matrix;
-        Mat4            prevMatrix;
-        MeshAsset*      mesh = nullptr;
-        MeshLookupData* meshLookupData = nullptr;
-        u64             index{};
-        Array<u32>      materials{};
+        VoidPtr               pointer;
+        MeshAsset*            mesh = nullptr;
+        Array<RenderDrawCall> drawCalls;
     };
 
     // maybe make it abstract and implement it in the RenderPipeline??
@@ -42,10 +43,8 @@ namespace Skore
         RenderProxy();
         ~RenderProxy() override;
 
-        void OnStart() override;
-        void OnDestroy() override;
-
-        void                 SetMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix);
+        void                 AddMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix);
+        void                 UpdateMeshTransform(VoidPtr pointer, const Mat4& matrix);
         void                 RemoveMesh(VoidPtr pointer);
         Span<MeshRenderData> GetMeshesToRender();
 
@@ -70,7 +69,9 @@ namespace Skore
 
         Optional<Texture> cubemapTest;
 
-        Buffer instanceBuffer;
+        Buffer instanceBuffer{};
+        Buffer indirectDrawBuffer{};
+        u64    indirectDrawCount{};
     private:
         Array<MeshRenderData>   meshRenders;
         HashMap<VoidPtr, usize> meshRendersLookup;
