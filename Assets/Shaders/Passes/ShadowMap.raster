@@ -1,13 +1,7 @@
 #define SHADOW_MAP_CASCADE_COUNT 4
 
-struct VSInput
-{
-    float3 position  : POSITION0;
-    float3 normal    : NORMAL1;
-    float3 color     : COLOR2;
-    float2 uv        : UV2;
-    float4 tangent   : TANGENT1;
-};
+#include "Skore://Shaders/Mesh.inc"
+#include "Skore://Shaders/Instance.inc"
 
 struct VSOutput
 {
@@ -15,17 +9,20 @@ struct VSOutput
     float2 uv       : TEXCOORD0;
 };
 
-struct PushConsts
+struct Camera
 {
-    float4x4 model;
     float4x4 viewProjection;
 };
 
-[[vk::push_constant]]  ConstantBuffer<PushConsts>  pushConsts;
-VSOutput MainVS(VSInput input)
+ConstantBuffer<Camera> camera;
+
+VSOutput MainVS(uint vid: SV_VertexID, [[vk::builtin("BaseInstance")]] uint locationId : SV_StartInstanceLocation)
 {
+    InstanceData instance = instances.Load(NonUniformResourceIndex(locationId));
+    VertexData input = GetVertexData(vertices, vid, instance.vertexOffset);
+
     VSOutput output = (VSOutput)0;
-    output.pos = mul(pushConsts.viewProjection, mul(pushConsts.model, float4(input.position, 1.0)));
+    output.pos = mul(camera.viewProjection, mul(instance.current, float4(input.position, 1.0)));
     output.uv  = input.uv;
     return output;
 }

@@ -8,4 +8,4 @@ struct InstanceData
      uint     _pad1;
 };
 
-StructuredBuffer<InstanceData> instances : register(t0, space3);
+StructuredBuffer<InstanceData> instances;

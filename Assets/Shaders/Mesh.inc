@@ -23,3 +23,5 @@ VertexData GetVertexData(ByteAddressBuffer bytes, uint vertexId, uint vertexOffs
     data.tangent  = asfloat(bytes.Load4(vertexId * sizeof(VertexData) + vertexOffset + tangentOffset));
     return data;
 }
+
+ByteAddressBuffer            vertices;

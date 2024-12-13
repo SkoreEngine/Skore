@@ -128,7 +128,7 @@ namespace Skore
             bindingSet->GetVar("emissiveTexture")->SetTexture(emissive->texture);
             bindingSet->GetVar("diffuseIrradiance")->SetTexture(renderProxy->GetDiffuseIrradiance());
             bindingSet->GetVar("specularMap")->SetTexture(renderProxy->GetSpecularMap());
-            //bindingSet->GetVar("aoTexture")->SetTexture(aoTexture->texture);
+            bindingSet->GetVar("aoTexture")->SetTexture(aoTexture->texture);
             bindingSet->GetVar("aoSampler")->SetSampler(aoSampler);
             bindingSet->GetVar("brdfLUT")->SetTexture(brdflutGenerator.GetTexture());
             bindingSet->GetVar("brdfLUTSampler")->SetSampler(brdfLutSampler);

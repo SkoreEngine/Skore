@@ -4,6 +4,7 @@
 
 #include "Skore/Core/Image.hpp"
 #include "Skore/Graphics/Device/RenderDevice.hpp"
+#include "Skore/Graphics/Device/ArrayBufferImpl.hpp"
 #include "Skore/Core/SharedPtr.hpp"
 
 namespace Skore
@@ -110,6 +111,11 @@ namespace Skore
         return renderDevice->CreateBuffer(bufferCreation);
     }
 
+    ArrayBuffer* Graphics::CreateArrayBuffer(const ArrayBufferCreation& arrayBufferCreation)
+    {
+        return Alloc<ArrayBufferImpl>(arrayBufferCreation);
+    }
+
     Texture Graphics::CreateTexture(const TextureCreation& textureCreation)
     {
         return renderDevice->CreateTexture(textureCreation);
@@ -184,6 +190,11 @@ namespace Skore
     void Graphics::DestroyBuffer(const Buffer& buffer)
     {
         renderDevice->DestroyBuffer(buffer);
+    }
+
+    void Graphics::DestroyArrayBuffer(ArrayBuffer* arrayBuffer)
+    {
+        DestroyAndFree(arrayBuffer);
     }
 
     void Graphics::DestroyTexture(const Texture& texture)

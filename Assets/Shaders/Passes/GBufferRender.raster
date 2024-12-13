@@ -26,7 +26,6 @@ struct Scene
 };
 
 ConstantBuffer<Scene>        scene;
-ByteAddressBuffer            vertices;
 
 VSOutput MainVS(uint vid: SV_VertexID, [[vk::builtin("BaseInstance")]] uint locationId : SV_StartInstanceLocation)
 {
@@ -36,7 +35,7 @@ VSOutput MainVS(uint vid: SV_VertexID, [[vk::builtin("BaseInstance")]] uint loca
     float3 prevPos   = (float3)mul(instance.previous, float4(input.position.xyz, 1.0));
 
     VSOutput output = (VSOutput)0;
-    output.fragPos    = (float3)mul(instance.previous, float4(input.position.xyz, 1.0));
+    output.fragPos    = (float3)mul(instance.current, float4(input.position.xyz, 1.0));
     output.color      = input.color.rgb;
     output.pos        = mul(scene.viewProjection, float4(output.fragPos, 1.0));
     output.current    = output.pos;

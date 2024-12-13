@@ -27,6 +27,7 @@ namespace Skore
     SK_HANDLER(Buffer);
     SK_HANDLER(Sampler);
     SK_HANDLER(GPUQueue);
+    SK_HANDLER(ArrayBufferAllocation);
 
     enum class Format
     {
@@ -769,6 +770,30 @@ namespace Skore
         Array<RenderGraphResourceCreation> inputs{};
         Array<RenderGraphResourceCreation> outputs{};
         RenderGraphPassType                type{};
+    };
+
+    struct ArrayBufferCreation
+    {
+        BufferUsage      usage{BufferUsage::None};
+        u64              initialSize{};
+        BufferAllocation allocation{BufferAllocation::GPUOnly};
+    };
+
+
+    struct ArrayBufferInfo
+    {
+        ArrayBufferAllocation allocation;
+        u64 offset;
+    };
+
+    struct ArrayBuffer
+    {
+        virtual                 ~ArrayBuffer() = default;
+        virtual Buffer          GetGPUBuffer() = 0;
+        virtual ArrayBufferInfo Create(u64 size, VoidPtr userData) = 0;
+        virtual u64             Reserve(u64 size) = 0;
+        virtual void            Set(u64 offset, VoidPtr data, u64 size) = 0;
+        virtual VoidPtr         GetMappedMemory(u64 offset) = 0;
     };
 
     struct RenderCommands

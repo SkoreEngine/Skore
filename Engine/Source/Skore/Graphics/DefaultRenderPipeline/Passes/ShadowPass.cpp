@@ -2,6 +2,7 @@
 
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsTypes.hpp"
+#include "Skore/Graphics/RenderGlobals.hpp"
 #include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderProxy.hpp"
 #include "Skore/Graphics/Assets/MeshAsset.hpp"
@@ -15,6 +16,7 @@ namespace Skore
         float cascadeSplitLambda = 0.75f;
 
         PipelineState pipelineState{};
+        BindingSet* bindingSet[SK_SHADOW_MAP_CASCADE_COUNT];
 
         RenderGraphResource* shadowMap;
 
@@ -73,11 +75,16 @@ namespace Skore
                 .renderPass = shadowMapPass[0],
                 .depthWrite = true,
                 .cullMode = CullMode::Front,
-                .compareOperator = CompareOp::LessOrEqual,
-                .stride = sizeof(VertexStride)
+                .compareOperator = CompareOp::LessOrEqual
             };
 
             pipelineState = Graphics::CreateGraphicsPipelineState(graphicsPipelineCreation);
+
+            for (u32 i = 0; i < SK_SHADOW_MAP_CASCADE_COUNT; ++i)
+            {
+                bindingSet[i] = Graphics::CreateBindingSet(graphicsPipelineCreation.shaderState);
+            }
+
         }
 
         void Render(RenderCommands& cmd) override
@@ -192,34 +199,15 @@ namespace Skore
                         .maxDepth = 1.0f,
                     });
 
+                    bindingSet[i]->GetVar("camera")->SetValue(&shadowMapDataInfo.cascadeViewProjMat[i], sizeof(Mat4));
+                    bindingSet[i]->GetVar("vertices")->SetBuffer(RenderGlobals::GetGlobalVertexBuffer());
+                    bindingSet[i]->GetVar("instances")->SetBuffer(renderProxy->instanceBuffer);
+
                     cmd.SetScissor(Rect{0, 0, SK_SHADOW_MAP_DIM, SK_SHADOW_MAP_DIM});
                     cmd.BindPipelineState(pipelineState);
-
-                    // for (MeshRenderData& meshRenderData : renderProxy->GetMeshesToRender())
-                    // {
-                    //     if (MeshAsset* mesh = meshRenderData.mesh)
-                    //     {
-                    //         Span<MeshPrimitive> primitives = mesh->GetPrimitives();
-                    //
-                    //         cmd.BindVertexBuffer(mesh->GetVertexBuffer());
-                    //         cmd.BindIndexBuffer(mesh->GetIndexBuffer());
-                    //
-                    //         ShadowPushConsts pushConsts{
-                    //             .model = meshRenderData.matrix,
-                    //             .viewProjection = shadowMapDataInfo.cascadeViewProjMat[i],
-                    //         };
-                    //
-                    //         cmd.PushConstants(pipelineState, ShaderStage::Vertex, &pushConsts, sizeof(ShadowPushConsts));
-                    //
-                    //         for (MeshPrimitive& primitive : primitives)
-                    //         {
-                    //             if (meshRenderData.materials[primitive.materialIndex] != U32_MAX)
-                    //             {
-                    //                 cmd.DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
-                    //             }
-                    //         }
-                    //     }
-                    // }
+                    cmd.BindBindingSet(pipelineState, bindingSet[i]);
+                    cmd.BindIndexBuffer(RenderGlobals::GetGlobalIndexBuffer());
+                    cmd.DrawIndexedIndirect(renderProxy->indirectDrawBuffer, 0, renderProxy->indirectDrawCount, sizeof(DrawIndexedIndirectArguments));
 
                     cmd.EndRenderPass();
 
@@ -240,8 +228,8 @@ namespace Skore
             {
                 Graphics::DestroyRenderPass(shadowMapPass[i]);
                 Graphics::DestroyTextureView(shadowMapTextureViews[i]);
+                Graphics::DestroyBindingSet(bindingSet[i]);
             }
-
             Graphics::DestroyTexture(shadowMap->texture);
             Graphics::DestroyGraphicsPipelineState(pipelineState);
         }

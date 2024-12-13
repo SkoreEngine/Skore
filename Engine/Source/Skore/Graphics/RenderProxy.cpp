@@ -26,15 +26,21 @@ namespace Skore
 
         instanceBuffer = Graphics::CreateBuffer({
             .usage = BufferUsage::StorageBuffer,
-            .size = sizeof(InstanceData) * 50000,
+            .size = sizeof(InstanceData) * 500000,
             .allocation = BufferAllocation::TransferToCPU
         });
 
         indirectDrawBuffer = Graphics::CreateBuffer({
             .usage = BufferUsage::StorageBuffer | BufferUsage::IndirectBuffer,
-            .size = sizeof(DrawIndexedIndirectArguments) * 50000,
+            .size = sizeof(DrawIndexedIndirectArguments) * 500000,
             .allocation = BufferAllocation::GPUOnly
         });
+
+        // instanceArrayBuffer = Graphics::CreateArrayBuffer({
+        //     .usage = BufferUsage::StorageBuffer | BufferUsage::IndirectBuffer,
+        //     .initialSize = sizeof(DrawIndexedIndirectArguments) * 5000,
+        //     .allocation = BufferAllocation::GPUOnly
+        // });
     }
 
     RenderProxy::~RenderProxy()

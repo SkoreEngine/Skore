@@ -10,6 +10,7 @@ namespace Skore::Graphics
     SK_API Swapchain       CreateSwapchain(const SwapchainCreation& swapchainCreation);
     SK_API RenderPass      CreateRenderPass(const RenderPassCreation& renderPassCreation);
     SK_API Buffer          CreateBuffer(const BufferCreation& bufferCreation);
+    SK_API ArrayBuffer*    CreateArrayBuffer(const ArrayBufferCreation& arrayBufferCreation);
     SK_API Texture         CreateTexture(const TextureCreation& textureCreation);
     SK_API Texture         CreateTextureFromImage(const Image& image);
     SK_API TextureView     CreateTextureView(const TextureViewCreation& textureViewCreation);
@@ -22,6 +23,7 @@ namespace Skore::Graphics
     SK_API void            DestroySwapchain(const Swapchain& swapchain);
     SK_API void            DestroyRenderPass(const RenderPass& renderPass);
     SK_API void            DestroyBuffer(const Buffer& buffer);
+    SK_API void            DestroyArrayBuffer(ArrayBuffer* arrayBuffer);
     SK_API void            DestroyTexture(const Texture& texture);
     SK_API void            DestroyTextureView(const TextureView& textureView);
     SK_API void            DestroySampler(const Sampler& sampler);

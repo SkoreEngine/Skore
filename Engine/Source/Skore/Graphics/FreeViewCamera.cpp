@@ -34,7 +34,7 @@ namespace Skore
             lastX = mousePos.x;
             lastY = mousePos.y;
 
-            float sensitivity = 0.1f;
+            float sensitivity = 0.2f;
             xOffset *= sensitivity;
             yOffset *= sensitivity;
 

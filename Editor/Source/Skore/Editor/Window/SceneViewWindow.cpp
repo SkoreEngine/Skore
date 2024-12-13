@@ -238,7 +238,7 @@ namespace Skore
                 cameraData.fov = 60.f;
                 cameraData.viewPos = freeViewCamera.GetPosition();
                 cameraData.nearClip = 0.1f;
-                cameraData.farClip = 1000.f;
+                cameraData.farClip = 300.f;
             }
 
             if (cameraData.projectionType == CameraProjection::Perspective)

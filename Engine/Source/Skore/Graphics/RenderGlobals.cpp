@@ -318,8 +318,8 @@ namespace Skore
                 Graphics::WriteDescriptorSet(bindlessResources, infos);
             }
 
-            //TODO RESIZE BUFFER!!!
 
+            //TODO RESIZE BUFFER!!!
             u32 index = currentMaterialCount++;
 
             Graphics::UpdateBufferData({
