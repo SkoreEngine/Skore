@@ -47,7 +47,7 @@ namespace Skore
         GBufferOutput gbufferOutput = GBufferPassSetup(rg);
 
         //GTAO
-        //XeGTAOSetup(rg, gbufferOutput.depth, gbufferOutput.gbuffer3, aoOutput);
+        XeGTAOSetup(rg, gbufferOutput.depth, gbufferOutput.gbuffer3, aoOutput);
 
         //setup shadowMap pass
         ShadowPassSetup(rg, shadowMap);

@@ -662,6 +662,14 @@ namespace Skore
             }
         }
 
+        for (auto& pass : passes)
+        {
+            if (pass->handler)
+            {
+                pass->handler->PostRender(cmd);
+            }
+        }
+
         if (colorOutput && colorOutput->currentLayout != ResourceLayout::ShaderReadOnly)
         {
             ResourceBarrierInfo resourceBarrierInfo{};

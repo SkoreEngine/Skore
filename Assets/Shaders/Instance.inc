@@ -1,7 +1,5 @@
 struct InstanceData
 {
-     float4x4 current;
-     float4x4 previous;
      uint     materialIndex;
      uint     vertexOffset;
      uint     _pad0;
@@ -9,3 +7,5 @@ struct InstanceData
 };
 
 StructuredBuffer<InstanceData> instances;
+StructuredBuffer<float4x4>     transformBuffer;
+StructuredBuffer<float4x4>     prevTransformBuffer;

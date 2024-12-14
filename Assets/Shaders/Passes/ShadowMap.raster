@@ -19,10 +19,13 @@ ConstantBuffer<Camera> camera;
 VSOutput MainVS(uint vid: SV_VertexID, [[vk::builtin("BaseInstance")]] uint locationId : SV_StartInstanceLocation)
 {
     InstanceData instance = instances.Load(NonUniformResourceIndex(locationId));
+    float4x4 current = transformBuffer.Load(NonUniformResourceIndex(locationId));
+
     VertexData input = GetVertexData(vertices, vid, instance.vertexOffset);
 
+
     VSOutput output = (VSOutput)0;
-    output.pos = mul(camera.viewProjection, mul(instance.current, float4(input.position, 1.0)));
+    output.pos = mul(camera.viewProjection, mul(current, float4(input.position, 1.0)));
     output.uv  = input.uv;
     return output;
 }

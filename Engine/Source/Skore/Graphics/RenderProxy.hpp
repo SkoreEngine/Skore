@@ -69,9 +69,13 @@ namespace Skore
 
         Optional<Texture> cubemapTest;
 
+        //frames in flight?
         Buffer instanceBuffer{};
         Buffer indirectDrawBuffer{};
-        u64    indirectDrawCount{};
+        Buffer transformBuffer{};
+        Buffer prevTransformBuffer{};
+
+        u64    instanceCount{};
     private:
         Array<MeshRenderData>   meshRenders;
         HashMap<VoidPtr, usize> meshRendersLookup;

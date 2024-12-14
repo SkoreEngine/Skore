@@ -127,7 +127,9 @@ namespace Skore
         IndirectBuffer               = 1 << 5,
         AccelerationStructureBuild   = 1 << 6,
         AccelerationStructureStorage = 1 << 7,
-        All                          = VertexBuffer | IndexBuffer | UniformBuffer | StorageBuffer | IndirectBuffer | AccelerationStructureBuild | AccelerationStructureStorage
+        TransferSrc                  = 1 << 8,
+        TransferDst                  = 1 << 9,
+        All                          = VertexBuffer | IndexBuffer | UniformBuffer | StorageBuffer | IndirectBuffer | AccelerationStructureBuild | AccelerationStructureStorage | TransferSrc | TransferDst
     };
 
     ENUM_FLAGS(BufferUsage, u32)

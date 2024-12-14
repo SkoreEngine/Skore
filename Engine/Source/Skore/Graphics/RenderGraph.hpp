@@ -54,6 +54,7 @@ namespace Skore
         virtual void Init() {}
         virtual void Resize(Extent3D extent) {}
         virtual void Render(RenderCommands& cmd) {}
+        virtual void PostRender(RenderCommands& cmd) {}
         virtual void Destroy() {}
     };
 

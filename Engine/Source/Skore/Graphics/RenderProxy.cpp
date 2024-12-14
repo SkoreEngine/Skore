@@ -10,8 +10,6 @@ namespace Skore
 {
     struct InstanceData
     {
-        Mat4 current;
-        Mat4 previous;
         u32  materialIndex;
         u32  vertexOffset;
         u32  _pad0;
@@ -26,28 +24,37 @@ namespace Skore
 
         instanceBuffer = Graphics::CreateBuffer({
             .usage = BufferUsage::StorageBuffer,
-            .size = sizeof(InstanceData) * 500000,
+            .size = sizeof(InstanceData) * 50000,
             .allocation = BufferAllocation::TransferToCPU
         });
 
         indirectDrawBuffer = Graphics::CreateBuffer({
             .usage = BufferUsage::StorageBuffer | BufferUsage::IndirectBuffer,
-            .size = sizeof(DrawIndexedIndirectArguments) * 500000,
+            .size = sizeof(DrawIndexedIndirectArguments) * 50000,
             .allocation = BufferAllocation::GPUOnly
         });
 
-        // instanceArrayBuffer = Graphics::CreateArrayBuffer({
-        //     .usage = BufferUsage::StorageBuffer | BufferUsage::IndirectBuffer,
-        //     .initialSize = sizeof(DrawIndexedIndirectArguments) * 5000,
-        //     .allocation = BufferAllocation::GPUOnly
-        // });
+        transformBuffer = Graphics::CreateBuffer({
+            .usage = BufferUsage::StorageBuffer | BufferUsage::TransferSrc,
+            .size = sizeof(Mat4) * 50000,
+            .allocation = BufferAllocation::TransferToCPU
+        });
+
+        prevTransformBuffer = Graphics::CreateBuffer({
+            .usage = BufferUsage::StorageBuffer | BufferUsage::TransferDst,
+            .size = sizeof(Mat4) * 50000,
+            .allocation = BufferAllocation::TransferToCPU
+        });
     }
 
     RenderProxy::~RenderProxy()
     {
         Graphics::WaitQueue();
+
         Graphics::DestroyBuffer(instanceBuffer);
         Graphics::DestroyBuffer(indirectDrawBuffer);
+        Graphics::DestroyBuffer(transformBuffer);
+        Graphics::DestroyBuffer(prevTransformBuffer);
 
         specularMapGenerator.Destroy();
         diffuseIrradianceGenerator.Destroy();
@@ -80,8 +87,9 @@ namespace Skore
                     static_cast<u8*>(Graphics::GetBufferMappedMemory(instanceBuffer)) +
                     render.drawCalls[i].instanceIndex * sizeof(InstanceData));
 
-                instanceData.current = matrix;
-                instanceData.previous = matrix;
+                *reinterpret_cast<Mat4*>(static_cast<u8*>(Graphics::GetBufferMappedMemory(transformBuffer)) + render.drawCalls[i].instanceIndex * sizeof(Mat4)) = matrix;
+                *reinterpret_cast<Mat4*>(static_cast<u8*>(Graphics::GetBufferMappedMemory(prevTransformBuffer)) + render.drawCalls[i].instanceIndex * sizeof(Mat4)) = matrix;
+
                 instanceData.materialIndex = RenderGlobals::FindOrCreateMaterialInstance(materials[i]);
                 instanceData.vertexOffset = meshLookupData->vertexBufferOffset;
 
@@ -98,7 +106,7 @@ namespace Skore
                     .size = sizeof(DrawIndexedIndirectArguments),
                     .dstOffset = render.drawCalls[i].instanceIndex * sizeof(DrawIndexedIndirectArguments)
                 });
-                indirectDrawCount++;
+                instanceCount++;
             }
         }
     }
@@ -110,12 +118,7 @@ namespace Skore
         {
             for (RenderDrawCall& drawCall : meshRenders[it->second].drawCalls)
             {
-                InstanceData& instanceData = *reinterpret_cast<InstanceData*>(
-                    static_cast<u8*>(Graphics::GetBufferMappedMemory(instanceBuffer)) +
-                    drawCall.instanceIndex * sizeof(InstanceData));
-
-                instanceData.previous = instanceData.current;
-                instanceData.current = matrix;
+                *reinterpret_cast<Mat4*>(static_cast<u8*>(Graphics::GetBufferMappedMemory(transformBuffer)) + drawCall.instanceIndex * sizeof(Mat4)) = matrix;
             }
         }
     }

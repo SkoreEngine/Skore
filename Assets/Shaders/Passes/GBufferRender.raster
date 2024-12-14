@@ -30,18 +30,20 @@ ConstantBuffer<Scene>        scene;
 VSOutput MainVS(uint vid: SV_VertexID, [[vk::builtin("BaseInstance")]] uint locationId : SV_StartInstanceLocation)
 {
     InstanceData instance = instances.Load(NonUniformResourceIndex(locationId));
+    float4x4 current = transformBuffer.Load(NonUniformResourceIndex(locationId));
+    float4x4 previous = prevTransformBuffer.Load(NonUniformResourceIndex(locationId));
 
     VertexData input = GetVertexData(vertices, vid, instance.vertexOffset);
-    float3 prevPos   = (float3)mul(instance.previous, float4(input.position.xyz, 1.0));
+    float3 prevPos   = (float3)mul(previous, float4(input.position.xyz, 1.0));
 
     VSOutput output = (VSOutput)0;
-    output.fragPos    = (float3)mul(instance.current, float4(input.position.xyz, 1.0));
+    output.fragPos    = (float3)mul(current, float4(input.position.xyz, 1.0));
     output.color      = input.color.rgb;
     output.pos        = mul(scene.viewProjection, float4(output.fragPos, 1.0));
     output.current    = output.pos;
     output.prevPos    = mul(scene.prevViewProjection, float4(prevPos, 1.0));
     output.uv         = input.uv.xy;
-    float3x3 normalMat = (float3x3)instance.current;
+    float3x3 normalMat = (float3x3)current;
     output.normal      = normalize(mul(normalMat, input.normal.xyz));
     output.tangent     = float4(normalize(mul(normalMat, input.tangent.xyz)), input.tangent.w);
     output.materialIndex = instance.materialIndex;

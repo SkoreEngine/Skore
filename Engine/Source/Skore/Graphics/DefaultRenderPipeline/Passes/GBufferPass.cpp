@@ -73,13 +73,27 @@ namespace Skore
             bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
             bindingSet->GetVar("vertices")->SetBuffer(RenderGlobals::GetGlobalVertexBuffer());
             bindingSet->GetVar("instances")->SetBuffer(renderProxy->instanceBuffer);
+            bindingSet->GetVar("transformBuffer")->SetBuffer(renderProxy->transformBuffer);
+            bindingSet->GetVar("prevTransformBuffer")->SetBuffer(renderProxy->prevTransformBuffer);
 
             cmd.BindPipelineState(pipelineState);
             cmd.BindBindingSet(pipelineState, bindingSet);
             cmd.BindDescriptorSet(pipelineState, RenderGlobals::GetMaterialDescriptor(), 1);
             cmd.BindDescriptorSet(pipelineState, RenderGlobals::GetBindlessResources(), 2);
             cmd.BindIndexBuffer(RenderGlobals::GetGlobalIndexBuffer());
-            cmd.DrawIndexedIndirect(renderProxy->indirectDrawBuffer, 0, renderProxy->indirectDrawCount, sizeof(DrawIndexedIndirectArguments));
+            cmd.DrawIndexedIndirect(renderProxy->indirectDrawBuffer, 0, renderProxy->instanceCount, sizeof(DrawIndexedIndirectArguments));
+        }
+
+        void PostRender(RenderCommands& cmd) override
+        {
+            if (renderProxy)
+            {
+                BufferCopyInfo bufferCopyInfo{
+                    .size = sizeof(Mat4) * renderProxy->instanceCount
+                };
+
+                cmd.CopyBuffer(renderProxy->transformBuffer, renderProxy->prevTransformBuffer, &bufferCopyInfo);
+            }
         }
 
         void Destroy() override

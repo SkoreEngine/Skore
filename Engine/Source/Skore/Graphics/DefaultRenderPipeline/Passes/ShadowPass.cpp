@@ -202,12 +202,13 @@ namespace Skore
                     bindingSet[i]->GetVar("camera")->SetValue(&shadowMapDataInfo.cascadeViewProjMat[i], sizeof(Mat4));
                     bindingSet[i]->GetVar("vertices")->SetBuffer(RenderGlobals::GetGlobalVertexBuffer());
                     bindingSet[i]->GetVar("instances")->SetBuffer(renderProxy->instanceBuffer);
+                    bindingSet[i]->GetVar("transformBuffer")->SetBuffer(renderProxy->transformBuffer);
 
                     cmd.SetScissor(Rect{0, 0, SK_SHADOW_MAP_DIM, SK_SHADOW_MAP_DIM});
                     cmd.BindPipelineState(pipelineState);
                     cmd.BindBindingSet(pipelineState, bindingSet[i]);
                     cmd.BindIndexBuffer(RenderGlobals::GetGlobalIndexBuffer());
-                    cmd.DrawIndexedIndirect(renderProxy->indirectDrawBuffer, 0, renderProxy->indirectDrawCount, sizeof(DrawIndexedIndirectArguments));
+                    cmd.DrawIndexedIndirect(renderProxy->indirectDrawBuffer, 0, renderProxy->instanceCount, sizeof(DrawIndexedIndirectArguments));
 
                     cmd.EndRenderPass();
 

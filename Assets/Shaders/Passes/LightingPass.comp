@@ -105,7 +105,7 @@ void MainCS(in uint2 px : SV_DispatchThreadID)
     float3  N               = OctohedralToDirection(gbuffer3[px].rg);
 
 	//float ssao = SK_DecodeVisibilityBentNormal_VisibilityOnly(aoTexture[px].x);
-	//ao = min(ao, (aoTexture.SampleLevel(aoSampler, uv, 0).x / 255.0f));
+	ao = min(ao, (aoTexture.SampleLevel(aoSampler, uv, 0).x / 255.0f));
 
     float3  fragViewPos  = mul(data.view, float4(worldPosition, 1.0)).xyz;
 

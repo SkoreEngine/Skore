@@ -210,6 +210,17 @@ namespace Skore::Vulkan
 		{
 			flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
 		}
+
+		if (bufferUsage && BufferUsage::TransferDst)
+		{
+			flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		}
+
+		if (bufferUsage && BufferUsage::TransferSrc)
+		{
+			flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		}
+
 		return flags;
 	}
 
