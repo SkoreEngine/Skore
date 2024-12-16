@@ -126,13 +126,13 @@ namespace Skore
 
         globalVertexBuffer = Graphics::CreateBuffer({
             .usage = BufferUsage::StorageBuffer,
-            .size = 40097152, //TODO find a good number here
+            .size = 80097152, //TODO find a good number here
             .allocation = BufferAllocation::GPUOnly
         });
 
         globalIndexBuffer = Graphics::CreateBuffer({
             .usage = BufferUsage::IndexBuffer,
-            .size = 40097152, //TODO find a good number here
+            .size = 80097152, //TODO find a good number here
             .allocation = BufferAllocation::GPUOnly
         });
     }

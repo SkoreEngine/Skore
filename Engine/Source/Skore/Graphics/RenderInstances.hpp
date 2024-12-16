@@ -9,13 +9,13 @@ namespace Skore
     {
         u32  materialIndex;
         u32  vertexOffset;
-        u32  _pad0;
+        u32  instanceIndex;
         u32  _pad1;
     };
 
     struct RenderDrawCall
     {
-        u64 instanceIndex{U64_MAX};
+        u32 instanceIndex{U32_MAX};
     };
 
     struct RenderMesh
@@ -46,11 +46,15 @@ namespace Skore
         //frames in flight?
 
         Array<u64> freeItems;
-        u32 count = 0;
 
         HashMap<VoidPtr, RenderMesh> meshes;
-
         Array<DrawIndexedIndirectArguments> pendingIndirectDraws;
+        Array<BufferCopyInfo>               updatedIndirectDrawsCopyInfo;
+    private:
+        void CreateBuffers(u32 size);
+        void Resize();
+
+        void RemoveDrawCall(const RenderDrawCall& drawCall);
 
     };
 }
