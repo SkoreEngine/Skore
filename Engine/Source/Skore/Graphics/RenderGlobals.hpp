@@ -5,7 +5,6 @@
 
 namespace Skore
 {
-    struct MeshLookupData;
     class MeshAsset;
     class MaterialAsset;
 }

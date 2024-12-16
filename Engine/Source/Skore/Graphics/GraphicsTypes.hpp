@@ -705,6 +705,12 @@ namespace Skore
         u32 startInstanceLocation;
     };
 
+    struct MeshLookupData
+    {
+        u64 vertexBufferOffset;
+        u64 indexBufferOffset;
+    };
+
     struct BindingVar;
 
     struct SK_API BindingVar

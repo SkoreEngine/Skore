@@ -1,5 +1,7 @@
 #pragma once
 #include <Skore/Graphics/Assets/MeshAsset.hpp>
+
+#include "RenderInstances.hpp"
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Optional.hpp"
@@ -16,23 +18,6 @@ namespace Skore
     class MaterialAsset;
     class MeshAsset;
 
-    struct MeshLookupData
-    {
-        u64 vertexBufferOffset;
-        u64 indexBufferOffset;
-    };
-
-    struct RenderDrawCall
-    {
-        u64 instanceIndex{};
-    };
-
-    struct MeshRenderData
-    {
-        VoidPtr               pointer;
-        MeshAsset*            mesh = nullptr;
-        Array<RenderDrawCall> drawCalls;
-    };
 
     // maybe make it abstract and implement it in the RenderPipeline??
     class SK_API RenderProxy final : public Proxy
@@ -42,11 +27,6 @@ namespace Skore
 
         RenderProxy();
         ~RenderProxy() override;
-
-        void                 AddMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix);
-        void                 UpdateMeshTransform(VoidPtr pointer, const Mat4& matrix);
-        void                 RemoveMesh(VoidPtr pointer);
-        Span<MeshRenderData> GetMeshesToRender();
 
         void                      AddLight(VoidPtr address, const LightProperties& directionalLight);
         void                      RemoveLight(VoidPtr address);
@@ -69,16 +49,9 @@ namespace Skore
 
         Optional<Texture> cubemapTest;
 
-        //frames in flight?
-        Buffer instanceBuffer{};
-        Buffer indirectDrawBuffer{};
-        Buffer transformBuffer{};
-        Buffer prevTransformBuffer{};
-
-        u64    instanceCount{};
+        RenderInstances& GetInstances();
     private:
-        Array<MeshRenderData>   meshRenders;
-        HashMap<VoidPtr, usize> meshRendersLookup;
+        RenderInstances instances;
 
         Array<LightRenderData>  lights;
         HashMap<VoidPtr, usize> lightsLookup;

@@ -1,6 +1,7 @@
 #include "DefaultRenderPipeline.hpp"
 
 #include "Effects/XeGTAO.hpp"
+#include "Passes/CullingPass.hpp"
 #include "Passes/GBufferPass.hpp"
 #include "Passes/LightingPass.hpp"
 #include "Passes/PostProcessRenderPass.hpp"
@@ -44,7 +45,8 @@ namespace Skore
             .format = outputFormat
         });
 
-        GBufferOutput gbufferOutput = GBufferPassSetup(rg);
+        CullingOutput cullingOutput = CullingPassSetup(rg);
+        GBufferOutput gbufferOutput = GBufferPassSetup(rg, cullingOutput);
 
         //GTAO
         XeGTAOSetup(rg, gbufferOutput.depth, gbufferOutput.gbuffer3, aoOutput);

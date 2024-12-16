@@ -1,4 +1,5 @@
 #pragma once
+#include "CullingPass.hpp"
 #include "Skore/Common.hpp"
 #include "Skore/Graphics/RenderGraph.hpp"
 
@@ -15,5 +16,5 @@ namespace Skore
         RenderGraphResource* depth;
     };
 
-    SK_API GBufferOutput GBufferPassSetup(RenderGraph& rg);
+    SK_API GBufferOutput GBufferPassSetup(RenderGraph& rg, const CullingOutput& cullingOutput);
 }

@@ -1,3 +1,12 @@
+struct DrawIndexedIndirectArguments
+{
+     uint indexCountPerInstance;
+     uint instanceCount;
+     uint startIndexLocation;
+     int baseVertexLocation;
+     uint startInstanceLocation;
+};
+
 struct InstanceData
 {
      uint     materialIndex;
@@ -5,7 +14,3 @@ struct InstanceData
      uint     _pad0;
      uint     _pad1;
 };
-
-StructuredBuffer<InstanceData> instances;
-StructuredBuffer<float4x4>     transformBuffer;
-StructuredBuffer<float4x4>     prevTransformBuffer;

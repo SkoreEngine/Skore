@@ -19,7 +19,7 @@ namespace Skore
     private:
         SpecularMapGenerator specularMapGenerator;
 
-        u16 mips = 6;
-        u32 size = 256;
+        u16 mips = 4;
+        u32 size = 128;
     };
 }

@@ -19,21 +19,18 @@ namespace Skore
         Vec2 previousJitter;
     };
 
-    struct PushConst
-    {
-        Mat4 matrix;
-        Mat4 prevMatrix;
-        u32 materialIndex;
-        u32 vertexOffset;
-        u32 _pad1;
-        u32 _pad2;
-    };
-
     struct GBufferPass : RenderGraphPassHandler
     {
         PipelineState pipelineState{};
         BindingSet*   bindingSet{};
         RenderProxy*  renderProxy = nullptr;
+
+        RenderGraphResource* drawIndirectCommands;
+        RenderGraphResource* drawIndirectCount;
+
+        GBufferPass(RenderGraphResource* drawIndirectCommands, RenderGraphResource* drawIndirectCount)
+            : drawIndirectCommands(drawIndirectCommands),
+              drawIndirectCount(drawIndirectCount) {}
 
         void Init() override
         {
@@ -62,6 +59,7 @@ namespace Skore
             }
 
             const CameraData& cameraData = rg->GetCameraData();
+            RenderInstances& instances = renderProxy->GetInstances();
 
             SceneData data{
                 .viewProjection = cameraData.projView,
@@ -72,27 +70,34 @@ namespace Skore
 
             bindingSet->GetVar("scene")->SetValue(&data, sizeof(SceneData));
             bindingSet->GetVar("vertices")->SetBuffer(RenderGlobals::GetGlobalVertexBuffer());
-            bindingSet->GetVar("instances")->SetBuffer(renderProxy->instanceBuffer);
-            bindingSet->GetVar("transformBuffer")->SetBuffer(renderProxy->transformBuffer);
-            bindingSet->GetVar("prevTransformBuffer")->SetBuffer(renderProxy->prevTransformBuffer);
+            bindingSet->GetVar("instances")->SetBuffer(instances.instanceBuffer);
+            bindingSet->GetVar("transformBuffer")->SetBuffer(instances.transformBuffer);
+            bindingSet->GetVar("prevTransformBuffer")->SetBuffer(instances.prevTransformBuffer);
 
             cmd.BindPipelineState(pipelineState);
             cmd.BindBindingSet(pipelineState, bindingSet);
             cmd.BindDescriptorSet(pipelineState, RenderGlobals::GetMaterialDescriptor(), 1);
             cmd.BindDescriptorSet(pipelineState, RenderGlobals::GetBindlessResources(), 2);
             cmd.BindIndexBuffer(RenderGlobals::GetGlobalIndexBuffer());
-            cmd.DrawIndexedIndirect(renderProxy->indirectDrawBuffer, 0, renderProxy->instanceCount, sizeof(DrawIndexedIndirectArguments));
+
+            //TODO DrawIndexedIndirectCount
+           // cmd.DrawIndexedIndirect(drawIndirectCommands->buffer, 0, instances.instanceCount, sizeof(DrawIndexedIndirectArguments));
+            cmd.DrawIndexedIndirect(instances.allDrawCommands, 0, instances.instanceCount, sizeof(DrawIndexedIndirectArguments));
         }
 
         void PostRender(RenderCommands& cmd) override
         {
             if (renderProxy)
             {
-                BufferCopyInfo bufferCopyInfo{
-                    .size = sizeof(Mat4) * renderProxy->instanceCount
-                };
+                RenderInstances& instances = renderProxy->GetInstances();
+                if (instances.instanceCount > 0)
+                {
+                    BufferCopyInfo bufferCopyInfo{
+                        .size = sizeof(Mat4) * instances.instanceCount
+                    };
 
-                cmd.CopyBuffer(renderProxy->transformBuffer, renderProxy->prevTransformBuffer, &bufferCopyInfo);
+                    cmd.CopyBuffer(instances.transformBuffer, instances.prevTransformBuffer, &bufferCopyInfo);
+                }
             }
         }
 
@@ -104,7 +109,7 @@ namespace Skore
     };
 
 
-    GBufferOutput GBufferPassSetup(RenderGraph& rg)
+    GBufferOutput GBufferPassSetup(RenderGraph& rg, const CullingOutput& cullingOutput)
     {
         GBufferOutput output{};
 
@@ -152,6 +157,8 @@ namespace Skore
         });
 
         rg.AddPass("GBuffer", RenderGraphPassType::Graphics)
+          .Read(cullingOutput.drawIndirectCommands)
+          .Read(cullingOutput.drawIndirectCount)
           .Write(output.gbuffer1)
           .Write(output.gbuffer2)
           .Write(output.gbuffer3)
@@ -160,7 +167,7 @@ namespace Skore
           .Write(output.depth)
           .ClearColor(Color::BLACK.ToVec4())
           .ClearDepth(true)
-          .Handler<GBufferPass>();
+          .Handler<GBufferPass>(cullingOutput.drawIndirectCommands, cullingOutput.drawIndirectCount);
 
         return output;
     }

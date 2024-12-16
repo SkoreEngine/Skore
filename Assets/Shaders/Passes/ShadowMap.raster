@@ -14,7 +14,9 @@ struct Camera
     float4x4 viewProjection;
 };
 
-ConstantBuffer<Camera> camera;
+ConstantBuffer<Camera>         camera;
+StructuredBuffer<InstanceData> instances;
+StructuredBuffer<float4x4>     transformBuffer;
 
 VSOutput MainVS(uint vid: SV_VertexID, [[vk::builtin("BaseInstance")]] uint locationId : SV_StartInstanceLocation)
 {

@@ -46,4 +46,11 @@ namespace Skore::Graphics
     SK_API Sampler         GetNearestSampler();
     SK_API Texture         GetDefaultTexture();
     SK_API void            AddTask(GraphicsTaskType graphicsTask, VoidPtr userData, FnGraphicsTask task);
+
+    template <typename T>
+    T* GetBufferMappedMemory(Buffer buffer, u32 index)
+    {
+        return reinterpret_cast<T*>(static_cast<u8*>(GetBufferMappedMemory(buffer)) + index * sizeof(T));
+    }
+
 }

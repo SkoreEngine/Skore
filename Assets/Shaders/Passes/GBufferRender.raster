@@ -25,7 +25,10 @@ struct Scene
     float2   previousJitter;
 };
 
-ConstantBuffer<Scene>        scene;
+ConstantBuffer<Scene>          scene;
+StructuredBuffer<InstanceData> instances;
+StructuredBuffer<float4x4>     transformBuffer;
+StructuredBuffer<float4x4>     prevTransformBuffer;
 
 VSOutput MainVS(uint vid: SV_VertexID, [[vk::builtin("BaseInstance")]] uint locationId : SV_StartInstanceLocation)
 {

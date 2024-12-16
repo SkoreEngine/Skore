@@ -1,0 +1,36 @@
+#include "Skore://Shaders/Instance.inc"
+
+
+
+struct CullingPassData
+{
+    uint instanceCount;
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
+};
+
+
+StructuredBuffer<InstanceData>                      instances;
+RWByteAddressBuffer                                 drawCount;
+RWStructuredBuffer<DrawIndexedIndirectArguments>    drawCommands;
+ConstantBuffer<CullingPassData>                     data;
+
+[numthreads(256, 1, 1)]
+void MainCS(uint3 globalInvocationID : SV_DispatchThreadID)
+{
+	uint idx = globalInvocationID.x;
+
+	if (idx >= data.instanceCount)
+	{
+        return;
+	}
+
+    drawCommands[idx].instanceCount = 1;
+    drawCommands[idx].indexCountPerInstance = 0;//index count(mesh data)
+    drawCommands[idx].startIndexLocation = 0; // start index(mesh data)
+    drawCommands[idx].startInstanceLocation = idx;
+
+    uint index;
+    drawCount.InterlockedAdd(0, 1, index);
+}

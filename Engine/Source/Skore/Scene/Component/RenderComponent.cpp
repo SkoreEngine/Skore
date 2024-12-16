@@ -16,7 +16,7 @@ namespace Skore
 
         if (renderProxy && mesh && transform)
         {
-            renderProxy->AddMesh(this, mesh, materials, transform->GetWorldTransform());
+            renderProxy->GetInstances().AddMesh(this, mesh, materials, transform->GetWorldTransform());
         }
     }
 
@@ -46,10 +46,10 @@ namespace Skore
         {
             if (mesh)
             {
-                renderProxy->AddMesh(this, mesh, materials, transform->GetWorldTransform());
+                renderProxy->GetInstances().AddMesh(this, mesh, materials, transform->GetWorldTransform());
             } else
             {
-                renderProxy->RemoveMesh(this);
+                renderProxy->GetInstances().RemoveMesh(this);
             }
 
         }
@@ -59,7 +59,7 @@ namespace Skore
     {
         if (renderProxy)
         {
-            renderProxy->RemoveMesh(this);
+            renderProxy->GetInstances().RemoveMesh(this);
         }
     }
 
@@ -71,7 +71,7 @@ namespace Skore
             {
                 if (renderProxy)
                 {
-                    renderProxy->UpdateMeshTransform(this, transform->GetWorldTransform());
+                    renderProxy->GetInstances().UpdateTransform(this, transform->GetWorldTransform());
                 }
                 break;
             }

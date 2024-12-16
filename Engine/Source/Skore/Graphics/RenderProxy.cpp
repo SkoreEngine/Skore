@@ -8,143 +8,27 @@
 
 namespace Skore
 {
-    struct InstanceData
-    {
-        u32  materialIndex;
-        u32  vertexOffset;
-        u32  _pad0;
-        u32  _pad1;
-    };
-
     RenderProxy::RenderProxy()
     {
         toCubemap.Init({512, 512}, Format::RGBA16F);
         diffuseIrradianceGenerator.Init({64, 64});
         specularMapGenerator.Init({128, 128}, 6);
 
-        instanceBuffer = Graphics::CreateBuffer({
-            .usage = BufferUsage::StorageBuffer,
-            .size = sizeof(InstanceData) * 50000,
-            .allocation = BufferAllocation::TransferToCPU
-        });
-
-        indirectDrawBuffer = Graphics::CreateBuffer({
-            .usage = BufferUsage::StorageBuffer | BufferUsage::IndirectBuffer,
-            .size = sizeof(DrawIndexedIndirectArguments) * 50000,
-            .allocation = BufferAllocation::GPUOnly
-        });
-
-        transformBuffer = Graphics::CreateBuffer({
-            .usage = BufferUsage::StorageBuffer | BufferUsage::TransferSrc,
-            .size = sizeof(Mat4) * 50000,
-            .allocation = BufferAllocation::TransferToCPU
-        });
-
-        prevTransformBuffer = Graphics::CreateBuffer({
-            .usage = BufferUsage::StorageBuffer | BufferUsage::TransferDst,
-            .size = sizeof(Mat4) * 50000,
-            .allocation = BufferAllocation::TransferToCPU
-        });
+        instances.Init(5000);
     }
 
     RenderProxy::~RenderProxy()
     {
         Graphics::WaitQueue();
-
-        Graphics::DestroyBuffer(instanceBuffer);
-        Graphics::DestroyBuffer(indirectDrawBuffer);
-        Graphics::DestroyBuffer(transformBuffer);
-        Graphics::DestroyBuffer(prevTransformBuffer);
-
+        instances.Destroy();
         specularMapGenerator.Destroy();
         diffuseIrradianceGenerator.Destroy();
         toCubemap.Destroy();
     }
 
-    void RenderProxy::AddMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& matrix)
+    RenderInstances& RenderProxy::GetInstances()
     {
-        //TODO need to update cache.
-
-        auto it = meshRendersLookup.Find(pointer);
-        if (it == meshRendersLookup.end())
-        {
-            meshRendersLookup.Emplace(pointer, meshRenders.Size()).first;
-
-            MeshRenderData& render = meshRenders.EmplaceBack();
-            render.pointer = pointer;
-            render.mesh = mesh;
-            render.drawCalls.Resize(materials.Size());
-
-            MeshLookupData* meshLookupData = RenderGlobals::GetMeshLookupData(mesh);
-
-            for (int i = 0; i < materials.Size(); ++i)
-            {
-                MeshPrimitive& primitive = mesh->primitives[i];
-
-                render.drawCalls[i].instanceIndex = instanceBufferCurrentIndex++;
-
-                InstanceData& instanceData = *reinterpret_cast<InstanceData*>(
-                    static_cast<u8*>(Graphics::GetBufferMappedMemory(instanceBuffer)) +
-                    render.drawCalls[i].instanceIndex * sizeof(InstanceData));
-
-                *reinterpret_cast<Mat4*>(static_cast<u8*>(Graphics::GetBufferMappedMemory(transformBuffer)) + render.drawCalls[i].instanceIndex * sizeof(Mat4)) = matrix;
-                *reinterpret_cast<Mat4*>(static_cast<u8*>(Graphics::GetBufferMappedMemory(prevTransformBuffer)) + render.drawCalls[i].instanceIndex * sizeof(Mat4)) = matrix;
-
-                instanceData.materialIndex = RenderGlobals::FindOrCreateMaterialInstance(materials[i]);
-                instanceData.vertexOffset = meshLookupData->vertexBufferOffset;
-
-                DrawIndexedIndirectArguments indirectArguments{
-                    .indexCountPerInstance = primitive.indexCount,
-                    .instanceCount = 1,
-                    .startIndexLocation = primitive.firstIndex + static_cast<u32>(meshLookupData->indexBufferOffset / sizeof(u32)),
-                    .startInstanceLocation = static_cast<u32>(render.drawCalls[i].instanceIndex),
-                };
-
-                Graphics::UpdateBufferData({
-                    .buffer = indirectDrawBuffer,
-                    .data = &indirectArguments,
-                    .size = sizeof(DrawIndexedIndirectArguments),
-                    .dstOffset = render.drawCalls[i].instanceIndex * sizeof(DrawIndexedIndirectArguments)
-                });
-                instanceCount++;
-            }
-        }
-    }
-
-    void RenderProxy::UpdateMeshTransform(VoidPtr pointer, const Mat4& matrix)
-    {
-        auto it = meshRendersLookup.Find(pointer);
-        if (it != meshRendersLookup.end())
-        {
-            for (RenderDrawCall& drawCall : meshRenders[it->second].drawCalls)
-            {
-                *reinterpret_cast<Mat4*>(static_cast<u8*>(Graphics::GetBufferMappedMemory(transformBuffer)) + drawCall.instanceIndex * sizeof(Mat4)) = matrix;
-            }
-        }
-    }
-
-    void RenderProxy::RemoveMesh(VoidPtr pointer)
-    {
-        if (auto it = meshRendersLookup.Find(pointer); it != meshRendersLookup.end())
-        {
-            if (!meshRenders.Empty())
-            {
-                MeshRenderData& back = meshRenders.Back();
-                meshRendersLookup[back.pointer] = it->second;
-                meshRenders[it->second] = Traits::Move(back);
-                meshRenders.PopBack();
-            }
-            meshRendersLookup.Erase(it);
-
-
-            //TODO: need to free drawcall.index
-        }
-    }
-
-
-    Span<MeshRenderData> RenderProxy::GetMeshesToRender()
-    {
-        return meshRenders;
+        return instances;
     }
 
     void RenderProxy::AddLight(VoidPtr address, const LightProperties& directionalLight)
