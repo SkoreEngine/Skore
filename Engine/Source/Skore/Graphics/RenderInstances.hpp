@@ -9,7 +9,7 @@ namespace Skore
     {
         u32  materialIndex;
         u32  vertexOffset;
-        u32  instanceIndex;
+        u32  _pad0;
         u32  _pad1;
     };
 
@@ -22,6 +22,13 @@ namespace Skore
     {
         VoidPtr               pointer;
         Array<RenderDrawCall> drawCalls;
+    };
+
+    struct InstanceStorage
+    {
+        DrawIndexedIndirectArguments drawIndexedIndirectArguments;
+        u32  materialIndex;
+        u32  vertexOffset;
     };
 
     class RenderInstances
@@ -41,15 +48,15 @@ namespace Skore
         Buffer prevTransformBuffer{};
         Buffer allDrawCommands{};
         u64    allDrawsOffset{};
-        u32    instanceCount{};
         u32    maxInstanceCount = 0;
         //frames in flight?
 
-        Array<u64> freeItems;
+//        Array<u64> freeItems;
 
         HashMap<VoidPtr, RenderMesh> meshes;
+        Array<InstanceStorage>       storage;
+
         Array<DrawIndexedIndirectArguments> pendingIndirectDraws;
-        Array<BufferCopyInfo>               updatedIndirectDrawsCopyInfo;
     private:
         void CreateBuffers(u32 size);
         void Resize();

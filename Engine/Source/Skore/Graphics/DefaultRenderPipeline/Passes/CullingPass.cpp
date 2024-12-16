@@ -64,7 +64,7 @@ namespace Skore
             }
 
             CullingPassData data{
-                .instanceCount = instances.instanceCount
+                .instanceCount = static_cast<u32>(instances.storage.Size())
             };
 
             bindingSet->GetVar("instances")->SetBuffer(instances.instanceBuffer);
@@ -76,7 +76,7 @@ namespace Skore
             cmd.BindPipelineState(pipelineState);
             cmd.BindBindingSet(pipelineState, bindingSet);
 
-            cmd.Dispatch(std::ceil(instances.instanceCount / 128), 1, 1);
+            cmd.Dispatch(std::ceil(instances.storage.Size() / 128), 1, 1);
         }
 
         void Destroy() override

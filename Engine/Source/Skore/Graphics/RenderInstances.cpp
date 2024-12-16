@@ -11,16 +11,7 @@ namespace Skore
     void RenderInstances::Init(u64 initSize)
     {
         CreateBuffers(initSize);
-
         pendingIndirectDraws.Reserve(initSize);
-        updatedIndirectDrawsCopyInfo.Reserve(initSize);
-
-        freeItems.Resize(initSize);
-        for (int i = 0; i < initSize; ++i)
-        {
-            freeItems[i] = initSize - i - 1;
-        }
-        instanceCount = 0;
         maxInstanceCount = initSize;
     }
 
@@ -61,19 +52,6 @@ namespace Skore
 
             pendingIndirectDraws.Clear();
         }
-        //
-        // if (!updatedIndirectDrawsCopyInfo.Empty())
-        // {
-        //     RenderCommands& tempCmd = Graphics::GetCmd();
-        //     tempCmd.Begin();
-        //     for (BufferCopyInfo& bufferCopyInfo : updatedIndirectDrawsCopyInfo)
-        //     {
-        //         tempCmd.CopyBuffer(allDrawCommands, allDrawCommands, &bufferCopyInfo);
-        //     }
-        //     tempCmd.SubmitAndWait(Graphics::GetMainQueue());
-        //
-        //     updatedIndirectDrawsCopyInfo.Clear();
-        // }
     }
 
     void RenderInstances::AddMesh(VoidPtr pointer, MeshAsset* mesh, Span<MaterialAsset*> materials, const Mat4& initialTransform)
@@ -116,34 +94,31 @@ namespace Skore
 
             if (drawCall.instanceIndex == U32_MAX)
             {
-                if (freeItems.Empty())
+                if (storage.Size() >= maxInstanceCount)
                 {
                     Resize();
                 }
 
-                instanceCount++;
+                drawCall.instanceIndex = storage.Size();
 
-                drawCall.instanceIndex = freeItems.Back();
-                freeItems.PopBack();
-
-                // DrawIndexedIndirectArguments& drawIndexedIndirectArguments = *Graphics::GetBufferMappedMemory<DrawIndexedIndirectArguments>(allDrawCommands, drawCall.instanceIndex);
-                // drawIndexedIndirectArguments.indexCountPerInstance = primitive.indexCount;
-                // drawIndexedIndirectArguments.instanceCount = 1;
-                // drawIndexedIndirectArguments.startIndexLocation = primitive.firstIndex + static_cast<u32>(meshLookupData->indexBufferOffset / sizeof(u32));
-                // drawIndexedIndirectArguments.startInstanceLocation = drawCall.instanceIndex;
-
-                pendingIndirectDraws.EmplaceBack(DrawIndexedIndirectArguments{
+                DrawIndexedIndirectArguments drawIndexedIndirectArguments = DrawIndexedIndirectArguments{
                     .indexCountPerInstance = primitive.indexCount,
                     .instanceCount = 1,
                     .startIndexLocation = primitive.firstIndex + static_cast<u32>(meshLookupData->indexBufferOffset / sizeof(u32)),
                     .startInstanceLocation = drawCall.instanceIndex,
-                });
+                };
+
+                storage.EmplaceBack(drawIndexedIndirectArguments);
+                pendingIndirectDraws.EmplaceBack(drawIndexedIndirectArguments);
             }
 
             InstanceGPUData* gpuData = Graphics::GetBufferMappedMemory<InstanceGPUData>(instanceBuffer, drawCall.instanceIndex);
             gpuData->materialIndex = RenderGlobals::FindOrCreateMaterialInstance(materials[i]);
             gpuData->vertexOffset = meshLookupData->vertexBufferOffset;
-            gpuData->instanceIndex = drawCall.instanceIndex;
+
+            InstanceStorage& item = storage[drawCall.instanceIndex];
+            item.materialIndex = gpuData->materialIndex;
+            item.vertexOffset = gpuData->vertexOffset;
 
             *Graphics::GetBufferMappedMemory<Mat4>(transformBuffer, drawCall.instanceIndex) = initialTransform;
         }
@@ -187,12 +162,6 @@ namespace Skore
         u32 newSize = (maxInstanceCount * 3) / 2;
         CreateBuffers(newSize);
 
-        u32 diff = newSize - maxInstanceCount;
-        freeItems.Resize(diff);
-        for (int i = 0; i < diff; ++i)
-        {
-            freeItems[i] = newSize - i - 1;
-        }
         RenderCommands& tempCmd = Graphics::GetCmd();
         tempCmd.Begin();
 
@@ -223,21 +192,35 @@ namespace Skore
 
     void RenderInstances::RemoveDrawCall(const RenderDrawCall& drawCall)
     {
-        //copy data
-        *Graphics::GetBufferMappedMemory<InstanceGPUData>(instanceBuffer, drawCall.instanceIndex) =
-            *Graphics::GetBufferMappedMemory<InstanceGPUData>(instanceBuffer, instanceCount - 1);
-
-        //copy matrix
-        *Graphics::GetBufferMappedMemory<Mat4>(transformBuffer, drawCall.instanceIndex) =
-            *Graphics::GetBufferMappedMemory<Mat4>(transformBuffer, instanceCount - 1);
+        // if (instanceCount - 1 != drawCall.instanceIndex)
+        // {
+        //     //copy data
+        //     *Graphics::GetBufferMappedMemory<InstanceGPUData>(instanceBuffer, drawCall.instanceIndex) =
+        //         *Graphics::GetBufferMappedMemory<InstanceGPUData>(instanceBuffer, instanceCount - 1);
         //
-        // //copy DrawIndexedIndirectArguments
-        // *Graphics::GetBufferMappedMemory<DrawIndexedIndirectArguments>(allDrawCommands, drawCall.instanceIndex) =
-        //     *Graphics::GetBufferMappedMemory<DrawIndexedIndirectArguments>(allDrawCommands, instanceCount - 1);
-
-        //delete last one
-        freeItems.EmplaceBack(instanceCount - 1);
-        instanceCount--;
+        //     //copy matrix
+        //     *Graphics::GetBufferMappedMemory<Mat4>(transformBuffer, drawCall.instanceIndex) =
+        //         *Graphics::GetBufferMappedMemory<Mat4>(transformBuffer, instanceCount - 1);
+        //
+        //     BufferCopyInfo bufferCopyInfo{
+        //         .srcOffset = (instanceCount - 1) * sizeof(DrawIndexedIndirectArguments),
+        //         .dstOffset = drawCall.instanceIndex * sizeof(DrawIndexedIndirectArguments),
+        //         .size = sizeof(DrawIndexedIndirectArguments)
+        //     };
+        //
+        //     //last drawCall.instanceIndex needs to receive drawCall.instanceIndex
+        //
+        //     //instanceCount - 1
+        //
+        //     RenderCommands& tempCmd = Graphics::GetCmd();
+        //     tempCmd.Begin();
+        //     tempCmd.CopyBuffer(allDrawCommands, allDrawCommands, &bufferCopyInfo);
+        //     tempCmd.SubmitAndWait(Graphics::GetMainQueue());
+        // }
+        //
+        // //delete last one
+        // freeItems.EmplaceBack(instanceCount - 1);
+        // instanceCount--;
     }
 
     void RenderInstances::CreateBuffers(u32 size)
@@ -265,5 +248,7 @@ namespace Skore
             .size = size * sizeof(DrawIndexedIndirectArguments),
             .allocation = BufferAllocation::GPUOnly
         });
+
+        storage.Reserve(size);
     }
 }
