@@ -28,6 +28,8 @@ namespace Skore
     SK_HANDLER(Sampler);
     SK_HANDLER(GPUQueue);
     SK_HANDLER(ArrayBufferAllocation);
+    SK_HANDLER(BottomLevelAS);
+    SK_HANDLER(TopLevelAS);
 
     enum class Format
     {
@@ -530,6 +532,11 @@ namespace Skore
     {
         bool bindless = false;
         Array<DescriptorBinding> bindings{};
+    };
+
+    struct BottomLevelASCreation
+    {
+        //TODO
     };
 
 

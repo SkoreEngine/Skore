@@ -16,5 +16,5 @@ namespace Skore::RenderGlobals
     SK_API Buffer          GetGlobalVertexBuffer();
     SK_API Buffer          GetGlobalIndexBuffer();
     SK_API u32             FindOrCreateMaterialInstance(const MaterialAsset* materialAsset);
-    SK_API MeshLookupData* GetMeshLookupData(const MeshAsset* meshAsset);
+    SK_API MeshLookupData* FindOrCreateMeshLookupData(const MeshAsset* meshAsset);
 }

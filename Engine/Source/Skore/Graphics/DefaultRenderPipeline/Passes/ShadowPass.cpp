@@ -210,7 +210,7 @@ namespace Skore
                     cmd.BindPipelineState(pipelineState);
                     cmd.BindBindingSet(pipelineState, bindingSet[i]);
                     cmd.BindIndexBuffer(RenderGlobals::GetGlobalIndexBuffer());
-                    cmd.DrawIndexedIndirect(instances.allDrawCommands, 0, instances.storage.Size(), sizeof(DrawIndexedIndirectArguments));
+                    cmd.DrawIndexedIndirect(instances.allDrawCommands, 0, instances.drawCalls.Size(), sizeof(DrawIndexedIndirectArguments));
 
                     cmd.EndRenderPass();
 

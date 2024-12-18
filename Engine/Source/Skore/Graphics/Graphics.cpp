@@ -172,6 +172,11 @@ namespace Skore
         return renderDevice->CreateDescriptorSet(descriptorSetCreation);
     }
 
+    BottomLevelAS Graphics::CreateBottomLevelAS(const BottomLevelASCreation& bottomLevelAsCreation)
+    {
+        return {};
+    }
+
     void Graphics::WriteDescriptorSet(DescriptorSet descriptorSet, Span<DescriptorSetWriteInfo> bindings)
     {
         renderDevice->WriteDescriptorSet(descriptorSet, bindings);

@@ -19,6 +19,7 @@ namespace Skore::Graphics
     SK_API PipelineState   CreateComputePipelineState(const ComputePipelineCreation& computePipelineCreation);
     SK_API BindingSet*     CreateBindingSet(ShaderState* shaderState);
     SK_API DescriptorSet   CreateDescriptorSet(const DescriptorSetCreation& descriptorSetCreation);
+    SK_API BottomLevelAS   CreateBottomLevelAS(const BottomLevelASCreation& bottomLevelAsCreation);
     SK_API void            WriteDescriptorSet(DescriptorSet descriptorSet, Span<DescriptorSetWriteInfo> bindings);
     SK_API void            DestroySwapchain(const Swapchain& swapchain);
     SK_API void            DestroyRenderPass(const RenderPass& renderPass);

@@ -82,7 +82,7 @@ namespace Skore
 
             //TODO DrawIndexedIndirectCount
            // cmd.DrawIndexedIndirect(drawIndirectCommands->buffer, 0, instances.instanceCount, sizeof(DrawIndexedIndirectArguments));
-            cmd.DrawIndexedIndirect(instances.allDrawCommands, 0, instances.storage.Size(), sizeof(DrawIndexedIndirectArguments));
+            cmd.DrawIndexedIndirect(instances.allDrawCommands, 0, instances.drawCalls.Size(), sizeof(DrawIndexedIndirectArguments));
         }
 
         void PostRender(RenderCommands& cmd) override
@@ -90,12 +90,11 @@ namespace Skore
             if (renderProxy)
             {
                 RenderInstances& instances = renderProxy->GetInstances();
-                if (instances.storage.Size() > 0)
+                if (instances.drawCalls.Size() > 0)
                 {
                     BufferCopyInfo bufferCopyInfo{
-                        .size = sizeof(Mat4) * instances.storage.Size()
+                        .size = sizeof(Mat4) * instances.drawCalls.Size()
                     };
-
                     cmd.CopyBuffer(instances.transformBuffer, instances.prevTransformBuffer, &bufferCopyInfo);
                 }
             }

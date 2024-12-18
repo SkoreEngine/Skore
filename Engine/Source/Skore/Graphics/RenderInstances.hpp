@@ -4,37 +4,26 @@
 
 namespace Skore
 {
-
-    struct InstanceGPUData
-    {
-        u32  materialIndex;
-        u32  vertexOffset;
-        u32  _pad0;
-        u32  _pad1;
-    };
-
     struct RenderDrawCall
     {
-        u32 instanceIndex{U32_MAX};
+        VoidPtr        owner;
+        u32            drawIndex;
+        Mat4           transform;
+        MaterialAsset* materialAsset;
+        u32            indexCount;
+        u32            firstIndex;
+        u64            vertexOffset;
+        u32            materialIndex;
     };
 
-    struct RenderMesh
+    struct RenderMeshStorage
     {
-        VoidPtr               pointer;
-        Array<RenderDrawCall> drawCalls;
-    };
-
-    struct InstanceStorage
-    {
-        DrawIndexedIndirectArguments drawIndexedIndirectArguments;
-        u32  materialIndex;
-        u32  vertexOffset;
+        Array<u32> drawcalls;
     };
 
     class RenderInstances
     {
     public:
-
         void Init(u64 initSize);
         void Destroy() const;
         void Flush(RenderCommands& cmd);
@@ -47,21 +36,17 @@ namespace Skore
         Buffer transformBuffer{};
         Buffer prevTransformBuffer{};
         Buffer allDrawCommands{};
-        u64    allDrawsOffset{};
+        Buffer stagingBuffer{};
         u32    maxInstanceCount = 0;
-        //frames in flight?
 
-//        Array<u64> freeItems;
-
-        HashMap<VoidPtr, RenderMesh> meshes;
-        Array<InstanceStorage>       storage;
+        Array<RenderDrawCall>               drawCalls;
+        HashMap<VoidPtr, RenderMeshStorage> meshes;
 
         Array<DrawIndexedIndirectArguments> pendingIndirectDraws;
+
     private:
         void CreateBuffers(u32 size);
         void Resize();
-
-        void RemoveDrawCall(const RenderDrawCall& drawCall);
-
+        // void RemoveDrawCall(const RenderDrawCall& drawCall);
     };
 }

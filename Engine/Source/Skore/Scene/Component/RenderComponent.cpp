@@ -44,14 +44,12 @@ namespace Skore
         //maybe test if object is active?
         if (renderProxy)
         {
+            renderProxy->GetInstances().RemoveMesh(this);
+
             if (mesh)
             {
                 renderProxy->GetInstances().AddMesh(this, mesh, materials, transform->GetWorldTransform());
-            } else
-            {
-                renderProxy->GetInstances().RemoveMesh(this);
             }
-
         }
     }
 

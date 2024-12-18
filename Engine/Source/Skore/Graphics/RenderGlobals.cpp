@@ -168,7 +168,7 @@ namespace Skore
         return globalIndexBuffer;
     }
 
-    MeshLookupData* RenderGlobals::GetMeshLookupData(const MeshAsset* meshAsset)
+    MeshLookupData* RenderGlobals::FindOrCreateMeshLookupData(const MeshAsset* meshAsset)
     {
         auto it = meshLookupData.Find(meshAsset->GetUUID());
         if (it == meshLookupData.end())
