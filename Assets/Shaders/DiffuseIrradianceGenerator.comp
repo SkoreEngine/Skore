@@ -1,0 +1,46 @@
+// https://github.com/Nadrin/PBR/blob/master/data/shaders/hlsl/irmap.hlsl
+// Physically Based Rendering
+// Copyright (c) 2017-2018 Michał Siejak
+
+// Computes diffuse irradiance cubemap convolution for image-based lighting.
+// Uses quasi Monte Carlo sampling with Hammersley sequence.
+
+#include "PBR.hlsli"
+
+static const uint   NumSamples      = 64 * 1024;
+static const float  InvNumSamples   = 1.0 / float(NumSamples);
+
+TextureCube                 inputTexture;
+RWTexture2DArray<float4>    outputTexture;
+SamplerState                linearSampler;
+
+float2 SampleHammersley(uint i)
+{
+	return float2(i * InvNumSamples, RadicalInverseVDC(i));
+}
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 threadID : SV_DispatchThreadID)
+{
+	float outputWidth, outputHeight, outputDepth;
+	outputTexture.GetDimensions(outputWidth, outputHeight, outputDepth);
+
+	float3 N = GetSamplingVector(outputWidth, outputHeight, outputDepth, threadID);
+
+	float3 S, T;
+	ComputeBasisVectors(N, S, T);
+
+	float3 irradiance = 0.0;
+
+	for(uint i = 0; i < NumSamples; ++i)
+	{
+		float2 u  = SampleHammersley(i);
+		float3 Li = TangentToWorld(SampleHemisphere(u.x, u.y), N, S, T);
+		float cosTheta = max(0.0, dot(Li, N));
+
+		// PIs here cancel out because of division by pdf.
+		irradiance += 2.0 * inputTexture.SampleLevel(linearSampler, Li, 0).rgb * cosTheta;
+	}
+	irradiance /= float(NumSamples);
+	outputTexture[threadID] = float4(irradiance, 1.0);
+}

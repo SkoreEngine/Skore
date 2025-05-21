@@ -1,0 +1,22 @@
+#include "Common.hlsli"
+
+Texture2D                       inputTexture    :   register(t0);
+RWTexture2DArray<float4>        outputTexture   :   register(u1);
+SamplerState                    defaultSampler  :   register(s2);
+
+[numthreads(32, 32, 1)]
+void MainCS(uint3 threadID : SV_DispatchThreadID)
+{
+    float outputWidth, outputHeight, outputDepth;
+	outputTexture.GetDimensions(outputWidth, outputHeight, outputDepth);
+
+	float3 v = GetSamplingVector(outputWidth, outputHeight, outputDepth, threadID);
+
+    float2 uv;
+    uv.x = 0.5 + (atan2(v.z, v.x) / (2.0 * PI));
+    uv.y = 0.5 - (asin(v.y) / PI);
+
+    float4 color = inputTexture.SampleLevel(defaultSampler, uv, 0);
+    color = min(color, 10.0);
+    outputTexture[threadID] = color;
+}

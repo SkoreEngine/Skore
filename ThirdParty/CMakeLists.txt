@@ -1,0 +1,27 @@
+set(SDL_STATIC OFF)
+set(SDL_SHARED ON)
+set(SDL_RENDER_GPU OFF)
+
+set(FT_DISABLE_ZLIB ON)
+set(FT_DISABLE_BZIP2 ON)
+set(FT_DISABLE_PNG ON)
+set(FT_DISABLE_HARFBUZZ ON)
+set(FT_DISABLE_BROTLI ON)
+
+set(SPIRV_CROSS_ENABLE_TESTS OFF)
+
+add_subdirectory(base64)
+add_subdirectory(cgltf)
+add_subdirectory(dxc)
+add_subdirectory(stb)
+add_subdirectory(SDL3)
+#add_subdirectory(SPIRV-Cross) -- not used
+add_subdirectory(SPIRV-Reflect)
+add_subdirectory(imgui)
+add_subdirectory(mikktspace)
+add_subdirectory(freetype)
+add_subdirectory(ufbx)
+add_subdirectory(vma)
+add_subdirectory(volk)
+add_subdirectory(vulkan)
+add_subdirectory(yyjson)

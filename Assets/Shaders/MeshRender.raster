@@ -1,0 +1,108 @@
+// MIT License
+//
+// Copyright (c) 2025 Paulo Marangoni (Daethalus)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#include "Materials.hlsli"
+#include "Lights.hlsli"
+
+
+cbuffer CameraBuffer
+{
+	matrix viewProjection;
+    matrix view;
+    matrix projection;
+	float3 cameraPosition;
+	float  pad;
+};
+
+struct PushConstants
+{
+	matrix world;
+};
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+struct VertexInput
+{
+	float3 position : POSITION;
+	float3 normal 	: NORMAL;
+	float2 texCoord : TEXCOORD0;
+	float3 color 	: COLOR;
+	float4 tangent 	: TANGENT;
+};
+
+struct PixelInput
+{
+	float4 position 	: SV_POSITION;	
+	float3 normal 		: NORMAL;
+	float2 texCoord 	: TEXCOORD0;
+	float3 color 		: COLOR;
+	float3x3 TBN    	: TBN1;
+	float3 worldPos 	: POSITION1;
+	float3 viewPos		: POSITION2;
+    float3 fragViewPos 	: POSITION3;
+};
+
+// Vertex Shader
+PixelInput MainVS(VertexInput input)
+{
+	PixelInput output;
+
+	// Transform the position from object space to clip space
+	float4 worldPosition = mul(pushConstants.world, float4(input.position, 1.0f));
+	output.position 	 = mul(viewProjection, worldPosition);
+	output.worldPos 	 = worldPosition.xyz;
+
+	// Pass texture coordinates through
+	output.texCoord = input.texCoord;
+
+	// Transform normal to world space
+	float3x3 normalMat 	= (float3x3)pushConstants.world;
+	output.normal 		= normalize(mul(normalMat, input.normal.xyz));
+	
+	float4 tangent  = float4(normalize(mul(normalMat, input.tangent.xyz)), input.tangent.w);
+	float3 binormal = tangent.w * cross(output.normal, tangent.xyz);
+	output.TBN 		= transpose(float3x3(tangent.xyz, binormal, output.normal));
+
+	output.color = input.color;	
+	output.viewPos = cameraPosition;
+    output.fragViewPos  = mul(view, worldPosition).xyz;
+
+	return output;
+}
+
+// Pixel Shader
+float4 MainPS(PixelInput input) : SV_TARGET
+{
+	MaterialSample material = SampleMaterial(input.texCoord, input.normal, input.TBN);
+
+	LightPixelData lightData;	
+	lightData.baseColor 	= material.baseColor * input.color;
+	lightData.normal 		= material.normal;
+	lightData.roughness 	= material.roughness;
+	lightData.metallic 		= material.metallic;
+	lightData.viewPos 		= input.viewPos;
+	lightData.fragViewPos 	= input.fragViewPos;
+	lightData.worldPos 		= input.worldPos;
+
+	float3 color = SampleLights(lightData);
+	return float4(color, material.alpha);
+}

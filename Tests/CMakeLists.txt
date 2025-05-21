@@ -1,0 +1,8 @@
+file(GLOB_RECURSE SKORE_TEST_SOURCES Source/*.hpp Source/*.cpp Source/*.h Source/*.c)
+add_executable(SkoreTests ${SKORE_TEST_SOURCES})
+target_link_libraries(SkoreTests PUBLIC SkoreRuntime)
+target_include_directories(SkoreTests PUBLIC Source)
+target_include_directories(SkoreTests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/doctest)
+target_compile_definitions(SkoreTests PUBLIC SK_EDITOR_TEST_FILES="${CMAKE_CURRENT_SOURCE_DIR}/Files")
+target_precompile_headers(SkoreTests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../Runtime/Source/Skore/PCH.hpp)
+add_test(NAME SkoreTests COMMAND SkoreTests)

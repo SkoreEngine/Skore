@@ -1,0 +1,82 @@
+// MIT License
+//
+// Copyright (c) 2025 Paulo Marangoni (Daethalus)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#include "Skore://Shaders/PBR.hlsli"
+
+RWTexture2D<float2> texture : register(u0);
+
+static const uint   NumSamples = 1024;
+static const float  InvNumSamples = 1.0 / float(NumSamples);
+
+float2 SampleHammersley(uint i)
+{
+	return float2(i * InvNumSamples, RadicalInverseVDC(i));
+}
+
+
+float2 IntegrateBRDF(float cosLo, float roughness)
+{
+	float3 Lo = float3(sqrt(1.0 - cosLo*cosLo), 0.0, cosLo);
+
+	float DFG1 = 0;
+	float DFG2 = 0;
+
+	for(uint i=0; i<NumSamples; ++i)
+	{
+		float2 u = SampleHammersley(i);
+
+		// Sample directly in tangent/shading space since we don't care about reference frame as long as it's consistent.
+		float3 Lh = SampleGGX(u.x, u.y, roughness);
+
+		// Compute incident direction (Li) by reflecting viewing direction (Lo) around half-vector (Lh).
+		float3 Li = normalize(2.0 * dot(Lo, Lh) * Lh - Lo);
+
+		float cosLi   = max(Li.z, 0.0);
+		float cosLh   = max(Lh.z, 0.0);
+		float cosLoLh = max(dot(Lo, Lh), 0.0);
+
+		if(cosLi > 0.0)
+		{
+			float G  = GaSchlickGGXIBL(cosLi, cosLo, roughness);
+			float Gv = G * cosLoLh / (cosLh * cosLo);
+			float Fc = pow(1.0 - cosLoLh, 5);
+
+			DFG1 += (1 - Fc) * Gv;
+			DFG2 += Fc * Gv;
+		}
+	}
+
+	return float2(DFG1, DFG2) * InvNumSamples;
+}
+
+[numthreads(32, 32, 1)]
+void MainCS(uint2 threadID : SV_DispatchthreadID)
+{
+	float outputWidth, outputHeight;
+	texture.GetDimensions(outputWidth, outputHeight);
+
+    float cosLo         = threadID.x / outputWidth;
+    float roughness     = threadID.y / outputHeight;
+
+    cosLo = max(cosLo, Epsilon);
+    texture[threadID] = IntegrateBRDF(cosLo, roughness);
+}

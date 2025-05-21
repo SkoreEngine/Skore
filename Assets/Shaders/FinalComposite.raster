@@ -1,0 +1,92 @@
+// MIT License
+//
+// Copyright (c) 2025 Paulo Marangoni (Daethalus)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+struct VSOutput
+{
+	float4 pos  : SV_POSITION;
+	float2 uv   : TEXCOORD0;
+};
+
+VSOutput MainVS(uint vertexIndex : SV_VertexID)
+{
+	VSOutput output = (VSOutput)0;
+	output.uv       = float2((vertexIndex << 1) & 2, vertexIndex & 2);
+	output.pos      = float4(output.uv * 2.0f - 1.0f, 0.0f, 1.0f);
+	return output;
+}
+
+//TODO: move tonemaps to a common file
+
+// sRGB => XYZ => D65_2_D60 => AP1 => RRT_SAT
+static const float3x3 ACESInputMat =
+{
+    {0.59719, 0.35458, 0.04823},
+    {0.07600, 0.90834, 0.01566},
+    {0.02840, 0.13383, 0.83777}
+};
+
+// ODT_SAT => XYZ => D60_2_D65 => sRGB
+static const float3x3 ACESOutputMat =
+{
+    { 1.60475, -0.53108, -0.07367},
+    {-0.10208,  1.10813, -0.00605},
+    {-0.00327, -0.07276,  1.07602}
+};
+
+float3 RRTAndODTFit(float3 v)
+{
+    float3 a = v * (v + 0.0245786f) - 0.000090537f;
+    float3 b = v * (0.983729f * v + 0.4329510f) + 0.238081f;
+    return a / b;
+}
+
+float3 ACESTonemap(float3 color)
+{
+    color = mul(ACESInputMat, color);
+    // Apply RRT and ODT
+    color = RRTAndODTFit(color);
+    color = mul(ACESOutputMat, color);
+    // Clamp to [0, 1]
+    color = saturate(color);
+    return color;
+}
+
+Texture2D texture;
+SamplerState samplerState;
+
+float4 MainPS(VSOutput input) : SV_TARGET
+{
+    float4 color = texture.Sample(samplerState, input.uv);
+
+    if (color.a < 0.0001)
+    {
+       discard;
+    }
+
+    float exposure = 1.4;
+    color.rgb *= exposure;
+    color.rgb = ACESTonemap(color.rgb);
+    color.rgb = pow(color.rgb, 1.0/2.2);
+
+	return float4(color.rgb, 1.0);
+}
