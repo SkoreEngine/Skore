@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "Color.hpp"
 #include "Hash.hpp"
 #include "UUID.hpp"
 #include "Span.hpp"
@@ -45,6 +46,7 @@ namespace Skore
 			Float,
 			String,
 			UUID,
+			Color,
 			Vec2,
 			Vec3,
 			Vec4,
@@ -55,6 +57,9 @@ namespace Skore
 		};
 
 		Type GetType() const;
+
+		Variant(const Variant& variant);
+		Variant(Variant&& variant) noexcept;
 
 		Variant(bool value);
 		Variant(u8 value);
@@ -71,6 +76,7 @@ namespace Skore
 		Variant(const char* value);
 		Variant(const String& value);
 		Variant(const UUID& value);
+		Variant(const Color& value);
 		Variant(const Vec2& value);
 		Variant(const Vec3& value);
 		Variant(const Vec4& value);
@@ -93,7 +99,9 @@ namespace Skore
 		operator f32() const;
 		operator f64() const;
 		operator StringView() const;
+		operator String() const;
 		operator UUID() const;
+		operator Color() const;
 		operator Vec2() const;
 		operator Vec3() const;
 		operator Vec4() const;
@@ -112,24 +120,25 @@ namespace Skore
 
 		union
 		{
-			bool boolValue;
-			u64  u64Value;
-			i64  i64Value;
-			f64  f64Value;
-			UUID uuidValue;
-			Vec2 vec2Value;
-			Vec3 vec3Value;
-			Vec4 vec4Value;
-			Quat quatValue;
-			Mat4 mat4Value;
-			char strBuffer[sizeof(String)];
-			char arrBuffer[sizeof(Array<Variant>)];
-			char dictBuffer[sizeof(Dictionary)];
+			bool  boolValue;
+			u64   u64Value;
+			i64   i64Value;
+			f64   f64Value;
+			UUID  uuidValue;
+			Color colorValue;
+			Vec2  vec2Value;
+			Vec3  vec3Value;
+			Vec4  vec4Value;
+			Quat  quatValue;
+			Mat4  mat4Value;
+			char  strBuffer[sizeof(String)];
+			char  arrBuffer[sizeof(Array<Variant>)];
+			char  dictBuffer[sizeof(Dictionary)];
 		} m_data alignas(8){};
 	};
 
 
-	template<>
+	template <>
 	struct Hash<Variant>
 	{
 		constexpr static bool hasHash = true;
@@ -138,4 +147,46 @@ namespace Skore
 			return variant.Hash();
 		}
 	};
+
+	template<typename T>
+	struct VariantCast
+	{
+		constexpr static bool hasSpecialization = false;
+	};
+
+#define DEFINE_VARIANT_CAST(TYPE)	\
+	template <>						\
+	struct VariantCast<TYPE>		\
+	{	\
+		constexpr static bool hasSpecialization = true;	\
+		static Variant ToVariant(const TYPE& value)	\
+		{							\
+			return {value};			\
+		}							\
+		\
+		static TYPE FromVariant(const Variant& variant)	\
+		{												\
+			return variant;								\
+		}												\
+	}
+
+	DEFINE_VARIANT_CAST(bool);
+	DEFINE_VARIANT_CAST(u8);
+	DEFINE_VARIANT_CAST(u16);
+	DEFINE_VARIANT_CAST(u32);
+	DEFINE_VARIANT_CAST(u64);
+	DEFINE_VARIANT_CAST(i8);
+	DEFINE_VARIANT_CAST(i16);
+	DEFINE_VARIANT_CAST(i32);
+	DEFINE_VARIANT_CAST(i64);
+	DEFINE_VARIANT_CAST(f32);
+	DEFINE_VARIANT_CAST(f64);
+	DEFINE_VARIANT_CAST(String);
+	DEFINE_VARIANT_CAST(UUID);
+	DEFINE_VARIANT_CAST(Color);
+	DEFINE_VARIANT_CAST(Vec2);
+	DEFINE_VARIANT_CAST(Vec3);
+	DEFINE_VARIANT_CAST(Vec4);
+	DEFINE_VARIANT_CAST(Quat);
+	DEFINE_VARIANT_CAST(Mat4);
 }

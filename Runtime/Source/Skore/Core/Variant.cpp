@@ -31,6 +31,34 @@ namespace Skore
 		return m_type;
 	}
 
+	Variant::Variant(const Variant& variant)
+	{
+		m_type = variant.m_type;
+
+		switch (m_type)
+		{
+			case Type::String:
+				new(m_data.strBuffer) String(*reinterpret_cast<const String*>(variant.m_data.strBuffer));
+				break;
+			case Type::VariantArray:
+				new(m_data.arrBuffer) Array(*reinterpret_cast<const Array<Variant>*>(variant.m_data.strBuffer));
+				break;
+			case Type::Dictionary:
+				new (m_data.dictBuffer) Dictionary(*reinterpret_cast<const Dictionary*>(variant.m_data.strBuffer));
+			default:
+				memcpy(&m_data, &variant.m_data, sizeof(m_data));
+				break;
+		}
+	}
+
+	Variant::Variant(Variant&& variant) noexcept
+	{
+		m_type = variant.m_type;
+		m_data = variant.m_data;
+		variant.m_data = {};
+		variant.m_type = Type::None;
+	}
+
 	Variant::Variant(bool value) : m_type(Type::Bool)
 	{
 		m_data.boolValue = value;
@@ -101,6 +129,11 @@ namespace Skore
 		m_data.uuidValue = uuid;
 	}
 
+	Variant::Variant(const Color& value) : m_type(Type::Color)
+	{
+		m_data.colorValue = value;
+	}
+
 	Variant::Variant(const char* value) : m_type(Type::String)
 	{
 		new(m_data.strBuffer) String(value);
@@ -151,6 +184,8 @@ namespace Skore
 			case Type::VariantArray:
 				reinterpret_cast<Array<Variant>*>(m_data.strBuffer)->~Array<Variant>();
 				break;
+			case Type::Dictionary:
+				reinterpret_cast<Dictionary*>(m_data.strBuffer)->~Dictionary();
 			default:
 				break;
 		}
@@ -201,9 +236,9 @@ namespace Skore
 		return m_data.i64Value;
 	}
 
-	Variant::operator float() const
+	Variant::operator f32() const
 	{
-		return m_data.f64Value;
+		return static_cast<f32>(m_data.f64Value);
 	}
 
 	Variant::operator f64() const
@@ -217,9 +252,20 @@ namespace Skore
 		return *str;
 	}
 
+	Variant::operator String() const
+	{
+		const String* str = reinterpret_cast<const String*>(m_data.strBuffer);
+		return *str;
+	}
+
 	Variant::operator UUID() const
 	{
 		return m_data.uuidValue;
+	}
+
+	Variant::operator Color() const
+	{
+		return m_data.colorValue;
 	}
 
 	Variant::operator Vec2() const
@@ -287,6 +333,8 @@ namespace Skore
 				return m_data.quatValue == variant.m_data.quatValue;
 			case Type::Mat4:
 				return m_data.mat4Value == variant.m_data.mat4Value;
+			case Type::VariantArray:
+				return *reinterpret_cast<const Array<Variant>*>(m_data.arrBuffer) == *reinterpret_cast<const Array<Variant>*>(variant.m_data.arrBuffer);
 			default:
 				break;
 		}

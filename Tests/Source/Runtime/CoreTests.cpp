@@ -1597,10 +1597,30 @@ namespace
 			set.Insert(20);
 			set.Insert("Hello");
 
-
 			CHECK(set.Has(Variant(10)));
 			CHECK(set.Has(Variant("Hello")));
+		}
 
+		{
+			Variant a = 10;
+			Variant b = a;
+			CHECK(a == b);
+		}
+
+		{
+			Variant a = "MyLargeStringThatIsLargerThenTheBuffer";
+			Variant b = a;
+			CHECK(a == b);
+		}
+
+		{
+			Array<Variant> arr;
+			arr.EmplaceBack(10);
+			arr.EmplaceBack(20);
+			arr.EmplaceBack(30);
+			Variant a{arr};
+			Variant b = a;
+			CHECK(a == b);
 		}
 
 	}
