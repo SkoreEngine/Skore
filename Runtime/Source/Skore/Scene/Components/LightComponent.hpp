@@ -42,7 +42,7 @@ namespace Skore
 		};
 
 
-		void Init() override;
+		void OnAttach() override;
 		void Destroy() override;
 		void ProcessEvent(const SceneEventDesc& event) override;
 

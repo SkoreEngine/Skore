@@ -56,7 +56,7 @@ namespace Skore
 			return static_cast<f32>(alpha) / 255;
 		}
 
-		bool operator==(TColor& other)
+		bool operator==(const TColor& other) const
 		{
 			return this->red == other.red && this->green == other.green && this->blue == other.blue && this->alpha == other.alpha;
 		}
@@ -120,6 +120,11 @@ namespace Skore
 			};
 		}
 
+		constexpr static u32 ToU32(const TColor& color)
+		{
+			return (color.red << SK_COL32_R_SHIFT) | (color.green << SK_COL32_G_SHIFT) | (color.blue << SK_COL32_B_SHIFT) | (color.alpha << SK_COL32_A_SHIFT);
+		}
+
 		static Vec4 FromRGBA(u8 r, u8 g, u8 b, u8 a)
 		{
 			return {
@@ -156,5 +161,17 @@ namespace Skore
 	template<> inline Color Color::CORNFLOWER_BLUE = {100, 149, 237, 255};
 	template<> inline Color Color::TRANSPARENT_BLACK = {0, 0, 0, 0};
 	template<> inline Color Color::NORMAL = {127, 127, 255, 255};
+
+
+	template <>
+	struct Hash<Color>
+	{
+		constexpr static bool hasHash = true;
+
+		constexpr static usize Value(const Color& color)
+		{
+			return Color::ToU32(color);
+		}
+	};
 
 }

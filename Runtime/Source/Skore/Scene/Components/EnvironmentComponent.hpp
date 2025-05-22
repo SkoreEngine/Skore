@@ -37,7 +37,7 @@ namespace Skore
 		SK_CLASS(EnvironmentComponent, Component);
 
 
-		void Init() override;
+		void OnAttach() override;
 		void Destroy() override;
 		void ProcessEvent(const SceneEventDesc& event) override;
 

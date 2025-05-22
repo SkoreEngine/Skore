@@ -25,12 +25,13 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/GraphicsAssets.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
+#include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneTypes.hpp"
 
 namespace Skore
 {
-	void MeshRenderComponent::Init()
+	void MeshRenderComponent::OnAttach()
 	{
 		m_renderStorage = GetScene()->GetRenderStorage();
 		m_renderStorage->RegisterMeshProxy(this);

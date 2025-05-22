@@ -33,12 +33,12 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
-#include "Skore/Scene/Scene.hpp"
 
 #include "SDL3/SDL.h"
 #include "Skore/Events.hpp"
 #include "Skore/Graphics/GraphicsAssets.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Scene/SceneAsset.hpp"
 
 namespace Skore
 {
@@ -698,7 +698,7 @@ namespace Skore
 		Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Project Browser", .action = OpenProjectBrowser});
 
 		AddMenuItem(MenuItemCreation{.itemName = "New Folder", .icon = ICON_FA_FOLDER, .priority = 1000, .action = AssetNewFolder, .enable = CanCreateAsset});
-		AddMenuItem(MenuItemCreation{.itemName = "New Scene", .icon = ICON_FA_CLAPPERBOARD, .priority = 1010, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<Scene>::ID()});
+		AddMenuItem(MenuItemCreation{.itemName = "New Scene", .icon = ICON_FA_CLAPPERBOARD, .priority = 1010, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<SceneAsset>::ID()});
 		AddMenuItem(MenuItemCreation{.itemName = "New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 1015, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<MaterialAsset>::ID()});
 		AddMenuItem(MenuItemCreation{.itemName = "Delete", .icon = ICON_FA_TRASH, .priority = 1020, .itemShortcut{.presKey = Key::Delete}, .action = AssetDelete, .visible = CheckSelectedAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "Rename", .icon = ICON_FA_PEN_TO_SQUARE, .priority = 1030, .itemShortcut{.presKey = Key::F2}, .action = AssetRename, .visible = CheckSelectedAsset});

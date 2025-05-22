@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 #include "RenderStorage.hpp"
-#include "Skore/Scene/Components/LightComponent.hpp"
 
 namespace Skore
 {
@@ -73,9 +72,9 @@ namespace Skore
 		}
 	}
 
-	void RenderStorage::SetMeshCastShadows(MeshRenderComponent* meshRenderComponent, bool castShadows)
+	void RenderStorage::SetMeshCastShadows(VoidPtr ptr, bool castShadows)
 	{
-		if (const auto& it = meshes.find(PtrToInt(meshRenderComponent)); it != meshes.end())
+		if (const auto& it = meshes.find(PtrToInt(ptr)); it != meshes.end())
 		{
 			it->second.castShadows = castShadows;
 		}
@@ -111,7 +110,7 @@ namespace Skore
 	void RenderStorage::RegisterLightProxy(VoidPtr ptr)
 	{
 		lights.emplace(PtrToInt(ptr), LightRenderData{
-			               .type = LightTypeData::Directional,
+			               .type = 0,
 			               .transform = {},
 			               .color = Color::WHITE,
 			               .intensity = 1.0f,
@@ -135,22 +134,11 @@ namespace Skore
 		}
 	}
 
-	void RenderStorage::SetLightType(VoidPtr ptr, LightComponent::LightType type)
+	void RenderStorage::SetLightType(VoidPtr ptr,u32 type)
 	{
 		if (const auto& it = lights.find(PtrToInt(ptr)); it != lights.end())
 		{
-			switch (type)
-			{
-				case LightComponent::LightType::Directional:
-					it->second.type = LightTypeData::Directional;
-					break;
-				case LightComponent::LightType::Point:
-					it->second.type = LightTypeData::Point;
-					break;
-				case LightComponent::LightType::Spot:
-					it->second.type = LightTypeData::Spot;
-					break;
-			}
+			it->second.type = type;
 		}
 	}
 

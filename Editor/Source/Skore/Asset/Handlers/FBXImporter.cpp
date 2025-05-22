@@ -35,6 +35,7 @@
 
 namespace Skore
 {
+#if 0
 	static Logger& logger = Logger::GetLogger("Skore::FBXImporter");
 
 	Vec2 ToVec2(const ufbx_vec2& vec)
@@ -742,9 +743,10 @@ namespace Skore
 			return TypeInfo<Scene>::ID();
 		}
 	};
+#endif
 
 	void RegisterFBXImporter()
 	{
-		Reflection::Type<FBXImporter>();
+	//	Reflection::Type<FBXImporter>();
 	}
 }

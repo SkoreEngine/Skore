@@ -32,7 +32,6 @@
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Allocator.hpp"
 #include "Skore/Core/Reflection.hpp"
-#include "Skore/Commands/SceneCommands.hpp"
 #include "Skore/Commands/UndoRedoSystem.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Scene/Component.hpp"
@@ -72,14 +71,14 @@ namespace Skore
 
 	void SceneEditor::DoUpdate() const
 	{
-		if (m_simulationScene)
-		{
-			m_simulationScene->Update(App::DeltaTime());
-		}
-		else if (m_scene)
-		{
-			m_scene->FlushQueues();
-		}
+		// if (m_simulationScene)
+		// {
+		// 	m_simulationScene->Update(App::DeltaTime());
+		// }
+		// else if (m_scene)
+		// {
+		// 	m_scene->FlushQueues();
+		// }
 	}
 
 
@@ -113,10 +112,10 @@ namespace Skore
 
 	Entity* SceneEditor::GetRoot() const
 	{
-		if (Scene* scene = GetCurrentScene())
-		{
-			return scene->GetRootEntity();
-		}
+		// if (Scene* scene = GetCurrentScene())
+		// {
+		// 	return scene->GetRootEntity();
+		// }
 		return nullptr;
 	}
 
@@ -147,9 +146,9 @@ namespace Skore
 			return;
 		}
 
-		Ref<Transaction> transaction = BeginSceneTransaction("Clear Selection");
-		transaction->AddCommand(Alloc<ClearSelectionCommand>(this));
-		UndoRedoSystem::EndTransaction(transaction);
+		// Ref<Transaction> transaction = BeginSceneTransaction("Clear Selection");
+		// transaction->AddCommand(Alloc<ClearSelectionCommand>(this));
+		// UndoRedoSystem::EndTransaction(transaction);
 	}
 
 	bool SceneEditor::IsParentOfSelected(Entity* entity) const
@@ -158,67 +157,67 @@ namespace Skore
 
 		for (const UUID& selectedUUID : m_selectedEntities)
 		{
-			Entity* selected = GetCurrentScene()->FindEntityByUUID(selectedUUID);
-			if (selected && selected->IsChildOf(entity))
-			{
-				return true;
-			}
+			// Entity* selected = GetCurrentScene()->FindEntityByUUID(selectedUUID);
+			// if (selected && selected->IsChildOf(entity))
+			// {
+			// 	return true;
+			// }
 		}
 		return false;
 	}
 
 	void SceneEditor::Create()
 	{
-		Scene* scene = GetCurrentScene();
-
-		if (!scene || !m_assetFile)
-		{
-			return;
-		}
-
-		Ref<Transaction> transaction = BeginSceneTransaction("Create Entity");
-		transaction->AddCommand(Alloc<ClearSelectionCommand>(this));
-
-		if (m_selectedEntities.Empty())
-		{
-			transaction->AddCommand(Alloc<CreateEntityCommand>(this, GetRoot(), "Entity"));
-		}
-		else
-		{
-			for (const auto& uuid : m_selectedEntities)
-			{
-				if (Entity* parentEntity = scene->FindEntityByUUID(uuid))
-				{
-					transaction->AddCommand(Alloc<CreateEntityCommand>(this, parentEntity, "Entity"));
-				}
-			}
-		}
-
-		UndoRedoSystem::EndTransaction(transaction);
+		// Scene* scene = GetCurrentScene();
+		//
+		// if (!scene || !m_assetFile)
+		// {
+		// 	return;
+		// }
+		//
+		// Ref<Transaction> transaction = BeginSceneTransaction("Create Entity");
+		// transaction->AddCommand(Alloc<ClearSelectionCommand>(this));
+		//
+		// if (m_selectedEntities.Empty())
+		// {
+		// 	transaction->AddCommand(Alloc<CreateEntityCommand>(this, GetRoot(), "Entity"));
+		// }
+		// else
+		// {
+		// 	for (const auto& uuid : m_selectedEntities)
+		// 	{
+		// 		if (Entity* parentEntity = scene->FindEntityByUUID(uuid))
+		// 		{
+		// 			transaction->AddCommand(Alloc<CreateEntityCommand>(this, parentEntity, "Entity"));
+		// 		}
+		// 	}
+		// }
+		//
+		// UndoRedoSystem::EndTransaction(transaction);
 	}
 
 	void SceneEditor::AddComponent(Entity* entity, TypeID componentTypeID)
 	{
-		if (!entity || !m_assetFile || IsLocked(entity) || componentTypeID == 0)
-		{
-			return;
-		}
-
-		Ref<Transaction> transaction = BeginSceneTransaction("Add Component");
-		transaction->AddCommand(Alloc<AddComponentCommand>(this, entity, componentTypeID));
-		UndoRedoSystem::EndTransaction(transaction);
+		// if (!entity || !m_assetFile || IsLocked(entity) || componentTypeID == 0)
+		// {
+		// 	return;
+		// }
+		//
+		// Ref<Transaction> transaction = BeginSceneTransaction("Add Component");
+		// transaction->AddCommand(Alloc<AddComponentCommand>(this, entity, componentTypeID));
+		// UndoRedoSystem::EndTransaction(transaction);
 	}
 
 	void SceneEditor::RemoveComponent(Entity* entity, Component* component)
 	{
-		if (!entity || !m_assetFile || IsLocked(entity) || component == nullptr)
-		{
-			return;
-		}
-
-		Ref<Transaction> transaction = BeginSceneTransaction("Remove Component");
-		transaction->AddCommand(Alloc<RemoveComponentCommand>(this, entity, component));
-		UndoRedoSystem::EndTransaction(transaction);
+		// if (!entity || !m_assetFile || IsLocked(entity) || component == nullptr)
+		// {
+		// 	return;
+		// }
+		//
+		// Ref<Transaction> transaction = BeginSceneTransaction("Remove Component");
+		// transaction->AddCommand(Alloc<RemoveComponentCommand>(this, entity, component));
+		// UndoRedoSystem::EndTransaction(transaction);
 	}
 
 	void SceneEditor::ResetComponent(Entity* entity, Component* component)
@@ -228,23 +227,23 @@ namespace Skore
 
 	void SceneEditor::DeleteSelected()
 	{
-		Scene* scene = GetCurrentScene();
-
-		if (m_selectedEntities.Empty() || !m_assetFile)
-		{
-			return;
-		}
-
-		Ref<Transaction> transaction = BeginSceneTransaction("Delete Entities");
-		for (const auto& uuid : m_selectedEntities)
-		{
-			Entity* entity = scene->FindEntityByUUID(uuid);
-			if (entity && !m_lockedEntities.Has(uuid))
-			{
-				transaction->AddCommand(Alloc<DestroyEntityCommand>(this, entity));
-			}
-		}
-		UndoRedoSystem::EndTransaction(transaction);
+		// Scene* scene = GetCurrentScene();
+		//
+		// if (m_selectedEntities.Empty() || !m_assetFile)
+		// {
+		// 	return;
+		// }
+		//
+		// Ref<Transaction> transaction = BeginSceneTransaction("Delete Entities");
+		// for (const auto& uuid : m_selectedEntities)
+		// {
+		// 	Entity* entity = scene->FindEntityByUUID(uuid);
+		// 	if (entity && !m_lockedEntities.Has(uuid))
+		// 	{
+		// 		transaction->AddCommand(Alloc<DestroyEntityCommand>(this, entity));
+		// 	}
+		// }
+		// UndoRedoSystem::EndTransaction(transaction);
 	}
 
 	void SceneEditor::DuplicateSelected()
@@ -387,16 +386,16 @@ namespace Skore
 
 	void SceneEditor::UpdateSelection(const HashSet<UUID>& oldSelection, const HashSet<UUID>& newSelection)
 	{
-		bool selectionChanged = (oldSelection != newSelection);
-		if (!selectionChanged)
-		{
-			return;
-		}
-
-		Ref<Transaction>  transaction = BeginSceneTransaction("Selection Change");
-		SelectionCommand* command = Alloc<SelectionCommand>(this, oldSelection, newSelection);
-		transaction->AddCommand(command);
-		UndoRedoSystem::EndTransaction(transaction);
+		// bool selectionChanged = (oldSelection != newSelection);
+		// if (!selectionChanged)
+		// {
+		// 	return;
+		// }
+		//
+		// Ref<Transaction>  transaction = BeginSceneTransaction("Selection Change");
+		// SelectionCommand* command = Alloc<SelectionCommand>(this, oldSelection, newSelection);
+		// transaction->AddCommand(command);
+		// UndoRedoSystem::EndTransaction(transaction);
 	}
 
 	void SceneEditor::InternalClearSelection()
@@ -433,48 +432,50 @@ namespace Skore
 
 	void SceneEditor::Rename(Entity* entity, StringView newName)
 	{
-		if (!entity || !m_assetFile || IsLocked(entity))
-		{
-			return;
-		}
-
-		Ref<Transaction> transaction = BeginSceneTransaction("Rename Entity");
-		RenameEntityCommand* command = Alloc<RenameEntityCommand>(this, entity, newName);
-		transaction->AddCommand(command);
-		UndoRedoSystem::EndTransaction(transaction);
+		// if (!entity || !m_assetFile || IsLocked(entity))
+		// {
+		// 	return;
+		// }
+		//
+		// Ref<Transaction> transaction = BeginSceneTransaction("Rename Entity");
+		// RenameEntityCommand* command = Alloc<RenameEntityCommand>(this, entity, newName);
+		// transaction->AddCommand(command);
+		// UndoRedoSystem::EndTransaction(transaction);
 	}
 
 	void SceneEditor::UpdateTransform(Entity* entity, const Transform& oldTransform, const Transform& newTransform)
 	{
-		Ref<Transaction> transaction = BeginSceneTransaction("Move Entity");
-		transaction->AddCommand(Alloc<EntityMoveCommand>(this, entity, oldTransform, newTransform));
-		UndoRedoSystem::EndTransaction(transaction);
+		// Ref<Transaction> transaction = BeginSceneTransaction("Move Entity");
+		// transaction->AddCommand(Alloc<EntityMoveCommand>(this, entity, oldTransform, newTransform));
+		// UndoRedoSystem::EndTransaction(transaction);
 	}
 
 	bool SceneEditor::IsLocked(Entity* entity)
 	{
-		if (!entity)
-		{
-			return false;
-		}
-		return m_lockedEntities.Has(entity->GetUUID());
+		// if (!entity)
+		// {
+		// 	return false;
+		// }
+		// return m_lockedEntities.Has(entity->GetUUID());
+
+		return false;
 	}
 
 	void SceneEditor::SetLocked(Entity* entity, bool locked)
 	{
-		if (!entity)
-		{
-			return;
-		}
-
-		if (locked)
-		{
-			m_lockedEntities.Insert(entity->GetUUID());
-		}
-		else
-		{
-			m_lockedEntities.Erase(entity->GetUUID());
-		}
+		// if (!entity)
+		// {
+		// 	return;
+		// }
+		//
+		// if (locked)
+		// {
+		// 	m_lockedEntities.Insert(entity->GetUUID());
+		// }
+		// else
+		// {
+		// 	m_lockedEntities.Erase(entity->GetUUID());
+		// }
 	}
 
 	void SceneEditor::SetActive(Entity* entity, bool active)

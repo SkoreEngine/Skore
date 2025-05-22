@@ -20,23 +20,28 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Component.hpp"
+#pragma once
+
+#include "Array.hpp"
+#include "Object.hpp"
+#include "Variant.hpp"
+
+
+// scoped changes snapshot of the object before updating it.
+//"set" update the object and variants.
+//"get" use variant to make Object, check for prefabs.
 
 
 namespace Skore
 {
-	Entity* Component::GetEntity() const
+	class SK_API ResourceObject : public Object
 	{
-		return m_entity;
-	}
+	public:
 
-	Scene* Component::GetScene() const
-	{
-		return nullptr;
-	}
 
-	void Component::RegisterType(NativeReflectType<Component>& type)
-	{
-		
-	}
+
+	private:
+		Object*        m_instance = nullptr;
+		Array<Variant> m_fields;
+	};
 }

@@ -25,8 +25,6 @@
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 #define VMA_IMPLEMENTATION
 
-#include <queue>
-
 #include "vk_mem_alloc.h"
 #include "VulkanUtils.hpp"
 #include "SDL3/SDL.h"

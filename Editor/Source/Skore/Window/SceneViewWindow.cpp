@@ -342,7 +342,7 @@ namespace Skore
 					{
 						if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
 						{
-							Entity::Instantiate(assetPayload->assetFile->GetUUID(), sceneEditor->GetRoot(), assetPayload->assetFile->GetFileName());
+							//Entity::Instantiate(assetPayload->assetFile->GetUUID(), sceneEditor->GetRoot(), assetPayload->assetFile->GetFileName());
 							sceneEditor->MarkDirty();
 						}
 						ImGui::EndDragDropTarget();

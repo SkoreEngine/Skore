@@ -310,7 +310,7 @@ namespace Skore
 		switch (m_type)
 		{
 			case Type::None:
-				return true;
+				return false;
 			case Type::Bool:
 				return m_data.boolValue == variant.m_data.boolValue;
 			case Type::UInt:
@@ -331,6 +331,8 @@ namespace Skore
 				return m_data.vec4Value == variant.m_data.vec4Value;
 			case Type::Quat:
 				return m_data.quatValue == variant.m_data.quatValue;
+			case Type::Color:
+				return m_data.colorValue == variant.m_data.colorValue;
 			case Type::Mat4:
 				return m_data.mat4Value == variant.m_data.mat4Value;
 			case Type::VariantArray:
@@ -374,7 +376,12 @@ namespace Skore
 				return HashValue(m_data.quatValue);
 			case Type::Mat4:
 				return HashValue(m_data.mat4Value);
-			default:
+			case Type::Color:
+				return HashValue(m_data.colorValue);
+				break;
+			case Type::VariantArray:
+				break;
+			case Type::Dictionary:
 				break;
 		}
 

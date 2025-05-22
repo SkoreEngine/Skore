@@ -20,23 +20,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Component.hpp"
-
+#include "SceneAsset.hpp"
 
 namespace Skore
 {
-	Entity* Component::GetEntity() const
-	{
-		return m_entity;
-	}
 
-	Scene* Component::GetScene() const
-	{
-		return nullptr;
-	}
-
-	void Component::RegisterType(NativeReflectType<Component>& type)
-	{
-		
-	}
 }

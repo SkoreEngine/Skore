@@ -31,7 +31,6 @@
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/SceneEditor.hpp"
-#include "Skore/Commands/SceneCommands.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Core/Allocator.hpp"
 #include "Skore/Core/Logger.hpp"
@@ -95,11 +94,11 @@ namespace Skore
 			ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 		}
 
-		if (entity->GetPrefab())
-		{
-			//ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(143, 131, 34, 255));
-			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
-		}
+		// if (entity->GetPrefab())
+		// {
+		// 	//ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(143, 131, 34, 255));
+		// 	ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
+		// }
 
 		ImVec2 cursorPos = ImGui::GetCursorPos();
 
@@ -146,10 +145,10 @@ namespace Skore
 			ImGuiTreeLeaf(entity, stringCache.CStr());
 		}
 
-		if (entity->GetPrefab())
-		{
-			ImGui::PopStyleColor();
-		}
+		// if (entity->GetPrefab())
+		// {
+		// 	ImGui::PopStyleColor();
+		// }
 
 		bool isHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
 		bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));

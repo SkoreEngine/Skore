@@ -30,7 +30,7 @@
 
 namespace Skore
 {
-	void EnvironmentComponent::Init()
+	void EnvironmentComponent::OnAttach()
 	{
 		m_renderStorage = GetScene()->GetRenderStorage();
 		m_renderStorage->RegisterEnvironmentProxy(this);

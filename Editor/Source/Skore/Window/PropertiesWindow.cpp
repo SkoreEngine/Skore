@@ -4,7 +4,6 @@
 #include "Skore/EditorWorkspace.hpp"
 #include "Skore/Asset/AssetEditor.hpp"
 #include "Skore/Asset/AssetFile.hpp"
-#include "Skore/Commands/SceneCommands.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/StringUtils.hpp"
@@ -321,10 +320,10 @@ namespace Skore
 		if (selectedEntity)
 		{
 			SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
-			if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selectedEntity))
-			{
-				DrawSceneEntity(id, sceneEditor, entity);
-			}
+			// if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selectedEntity))
+			// {
+			// 	DrawSceneEntity(id, sceneEditor, entity);
+			// }
 		}
 		else if (selectedAsset)
 		{

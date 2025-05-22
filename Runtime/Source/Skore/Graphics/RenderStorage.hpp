@@ -27,8 +27,10 @@
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/UnorderedDense.hpp"
 #include "Skore/Core/Color.hpp"
-#include "Skore/Scene/Components/LightComponent.hpp"
-#include "Skore/Scene/Components/MeshRenderComponent.hpp"
+
+#define SK_LIGHT_TYPE_DIRECTIONAL 0
+#define SK_LIGHT_TYPE_POINT 1
+#define SK_LIGHT_TYPE_SPOT 2
 
 namespace Skore
 {
@@ -51,24 +53,17 @@ namespace Skore
 		bool visible = true;
 	};
 
-	enum class LightTypeData
-	{
-		Directional,
-		Point,
-		Spot
-	};
-
 	struct LightRenderData
 	{
-		LightTypeData type = LightTypeData::Directional;
-		Mat4          transform;
-		Color         color = Color::WHITE;
-		f32           intensity = 1.0f;
-		f32           range = 10.0f;
-		f32           innerConeAngle = Math::Radians(25.0f);
-		f32           outerConeAngle = Math::Radians(30.0f);
-		bool          visible = true;
-		bool		  enableShadows = true;
+		u32   type = 0;
+		Mat4  transform;
+		Color color = Color::WHITE;
+		f32   intensity = 1.0f;
+		f32   range = 10.0f;
+		f32   innerConeAngle = Math::Radians(25.0f);
+		f32   outerConeAngle = Math::Radians(30.0f);
+		bool  visible = true;
+		bool  enableShadows = true;
 	};
 
 	class SK_API RenderStorage
@@ -83,7 +78,7 @@ namespace Skore
 		void SetMesh(VoidPtr ptr, MeshAsset* meshAsset);
 		void SetMeshVisible(VoidPtr ptr, bool visible);
 		void SetMeshMaterials(VoidPtr ptr, Span<MaterialAsset*> materials);
-		void SetMeshCastShadows(MeshRenderComponent* meshRenderComponent, bool castShadows);
+		void SetMeshCastShadows(VoidPtr ptr, bool castShadows);
 
 		void RegisterEnvironmentProxy(VoidPtr ptr);
 		void RemoveEnvironmentProxy(VoidPtr ptr);
@@ -93,7 +88,7 @@ namespace Skore
 		void RegisterLightProxy(VoidPtr ptr);
 		void RemoveLightProxy(VoidPtr ptr);
 		void SetLightTransform(VoidPtr ptr, const Mat4& worldTransform);
-		void SetLightType(VoidPtr ptr, LightComponent::LightType type);
+		void SetLightType(VoidPtr ptr, u32 type);
 		void SetLightColor(VoidPtr ptr, const Color& color);
 		void SetLightIntensity(VoidPtr ptr, f32 intensity);
 		void SetLightRange(VoidPtr ptr, f32 range);

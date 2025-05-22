@@ -23,54 +23,33 @@
 #pragma once
 
 #include "Skore/Common.hpp"
-#include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Object.hpp"
-#include "Skore/Core/UUID.hpp"
 
 namespace Skore
 {
-	struct SceneEventDesc;
-	class Scene;
 	class Entity;
+	class Scene;
+	struct SceneEventDesc;
 
 	class SK_API Component : public Object
 	{
 	public:
 		SK_CLASS(Component, Object);
-		SK_NO_COPY_CONSTRUCTOR(Component);
 
 		Component() = default;
+		SK_NO_COPY_CONSTRUCTOR(Component);
 
-		virtual void Init() {}
+
+		virtual void OnAttach() {}
 		virtual void Destroy() {}
-		virtual void Start() {}
-		virtual void Update(f64 deltaTime) {}
-
 		virtual void ProcessEvent(const SceneEventDesc& event) {}
 
-		void EnableUpdate(bool enable);
-		bool IsUpdateEnabled() const;
-
-		bool   CanUpdate() const;
-		Scene* GetScene() const;
-		UUID   GetUUID() const;
-		UUID   GetPrefab() const;
-		bool   IsPrefab() const;
-
 		Entity* GetEntity() const;
-
-		void Serialize(ArchiveWriter& archiveWriter) const override;
-		void Deserialize(ArchiveReader& archiveReader) override;
+		Scene*  GetScene() const;
 
 		static void RegisterType(NativeReflectType<Component>& type);
 
-		friend class Entity;
 	private:
-		UUID            m_uuid;
-		UUID            m_prefab;
-		bool            m_updateEnabled = false;
-		Scene*          m_scene = nullptr;
-		Entity*         m_entity = nullptr;
-		HashSet<String> m_overrides;
+		Entity* m_entity = nullptr;
 	};
 }

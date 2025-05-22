@@ -21,55 +21,22 @@
 // SOFTWARE.
 
 #pragma once
-#include "Entity.hpp"
-#include "Skore/Core/Queue.hpp"
-#include "Skore/Core/UnorderedDense.hpp"
-#include "Skore/IO/Assets.hpp"
+#include "Skore/Core/Object.hpp"
+#include "Skore/Core/UUID.hpp"
+#include "Skore/Graphics/RenderStorage.hpp"
 
 namespace Skore
 {
-	class RenderStorage;
+	class Entity;
 
-	class SK_API Scene final : public Asset
+	class SK_API Scene : public Object
 	{
 	public:
-		SK_CLASS(Scene, Asset);
-		SK_NO_COPY_CONSTRUCTOR(Scene);
-
-		Scene();
-		~Scene() override;
-
-		void FlushQueues();
-		void Update(f64 deltaTime);
-
-		void    SetRootEntity(Entity* rootEntity);
-		Entity* GetRootEntity() const;
-
-		void Serialize(ArchiveWriter& archiveWriter) const override;
-		void Deserialize(ArchiveReader& archiveReader) override;
-
-		Entity* FindEntityByUUID(UUID uuid);
-
 		RenderStorage* GetRenderStorage() const;
 
-		friend class Component;
-		friend class Entity;
 
-		static void RegisterType(NativeReflectType<Scene>& type);
-
+		Entity* FindEntityByUUID(const UUID& uuid) const;
 	private:
-		void RegisterComponentForUpdate(Component* component);
-		void UnregisterComponentForUpdate(Component* component);
-
-		Entity* m_rootEntity = nullptr;
-
-		ankerl::unordered_dense::set<Component*> m_updateComponents = {};
-		HashMap<UUID, Entity*>                   m_entities;
-
-		Queue<Entity*>    m_queueToStart;
-		Queue<Component*> m_componentsToStart;
-		Queue<Entity*>    m_queueToDestroy;
-
 		RenderStorage* m_renderStorage = nullptr;
 	};
 }

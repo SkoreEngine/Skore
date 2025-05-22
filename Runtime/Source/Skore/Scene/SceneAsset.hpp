@@ -20,32 +20,29 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "SceneTypes.hpp"
-
-#include "Scene.hpp"
-#include "Components/EnvironmentComponent.hpp"
-#include "Components/LightComponent.hpp"
-#include "Components/MeshRenderComponent.hpp"
-#include "Skore/Core/Reflection.hpp"
-
+#pragma once
+#include "Skore/IO/Assets.hpp"
 
 namespace Skore
 {
 
-	void RegisterSceneTypes()
+	// don't know yet.
+	// class SK_API EntityAsset : public Object
+	// {
+	// public:
+	//
+	//
+	//
+	//
+	//
+	// private:
+	// };
+
+
+
+	class SK_API SceneAsset : public Asset
 	{
-		Reflection::Type<Scene>();
-		Reflection::Type<Entity>();
-		Reflection::Type<Component>();
-
-		//components
-		Reflection::Type<MeshRenderComponent>();
-		Reflection::Type<LightComponent>();
-		Reflection::Type<EnvironmentComponent>();
-
-		auto lightType = Reflection::Type<LightComponent::LightType>();
-		lightType.Value<LightComponent::LightType::Directional>();
-		lightType.Value<LightComponent::LightType::Point>();
-		lightType.Value<LightComponent::LightType::Spot>();
-	}
+	public:
+	private:
+	};
 }

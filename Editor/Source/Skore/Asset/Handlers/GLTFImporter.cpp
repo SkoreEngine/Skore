@@ -37,6 +37,7 @@
 
 namespace Skore
 {
+#if 0
 	static Logger& logger = Logger::GetLogger("Skore::GLTFImporter");
 
 	template <typename T>
@@ -663,9 +664,10 @@ namespace Skore
 			return TypeInfo<Scene>::ID();
 		}
 	};
+#endif
 
 	void RegisterGLTFImporter()
 	{
-		Reflection::Type<GLTFImporter>();
+		//Reflection::Type<GLTFImporter>();
 	}
 }

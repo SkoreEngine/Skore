@@ -30,6 +30,7 @@
 #include "Skore/Asset/AssetEditor.hpp"
 #include "Skore/Asset/AssetFile.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
+#include "Skore/Scene/SceneAsset.hpp"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
 
 namespace Skore
@@ -55,19 +56,19 @@ namespace Skore
 
 		void NewInheritedScene(const MenuItemEventData& eventData)
 		{
-			ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-			if (projectBrowserWindow->GetOpenDirectory() != nullptr && projectBrowserWindow->GetLastSelectedItem() != nullptr)
-			{
-				if (AssetFile* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->GetOpenDirectory(), TypeInfo<Scene>::ID(), projectBrowserWindow->GetLastSelectedItem()->GetFileName()))
-				{
-					if (Scene* scene = newAsset->GetInstance()->SafeCast<Scene>())
-					{
-						Entity* entity = Entity::Instantiate(projectBrowserWindow->GetLastSelectedItem()->GetUUID(), nullptr);
-						scene->SetRootEntity(entity);
-						newAsset->MarkDirty();
-					}
-				}
-			}
+			// ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
+			// if (projectBrowserWindow->GetOpenDirectory() != nullptr && projectBrowserWindow->GetLastSelectedItem() != nullptr)
+			// {
+			// 	if (AssetFile* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->GetOpenDirectory(), TypeInfo<Scene>::ID(), projectBrowserWindow->GetLastSelectedItem()->GetFileName()))
+			// 	{
+			// 		if (Scene* scene = newAsset->GetInstance()->SafeCast<Scene>())
+			// 		{
+			// 			Entity* entity = Entity::Instantiate(projectBrowserWindow->GetLastSelectedItem()->GetUUID(), nullptr);
+			// 			scene->SetRootEntity(entity);
+			// 			newAsset->MarkDirty();
+			// 		}
+			// 	}
+			// }
 		}
 	}
 
@@ -77,7 +78,7 @@ namespace Skore
 
 		TypeID GetAssetTypeId() override
 		{
-			return TypeInfo<Scene>::ID();
+			return TypeInfo<SceneAsset>::ID();
 		}
 
 		void OpenAsset(AssetFile* assetFile) override

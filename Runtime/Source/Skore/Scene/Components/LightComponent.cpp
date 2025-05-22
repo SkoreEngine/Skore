@@ -30,12 +30,12 @@
 
 namespace Skore
 {
-	void LightComponent::Init()
+	void LightComponent::OnAttach()
 	{
 		m_renderStorage = GetScene()->GetRenderStorage();
 		m_renderStorage->RegisterLightProxy(this);
 		m_renderStorage->SetLightTransform(this, GetEntity()->GetWorldTransform());
-		m_renderStorage->SetLightType(this, m_lightType);
+		m_renderStorage->SetLightType(this, static_cast<u32>(m_lightType));
 		m_renderStorage->SetLightColor(this, m_color);
 		m_renderStorage->SetLightIntensity(this, m_intensity);
 		m_renderStorage->SetLightRange(this, m_range);
@@ -67,7 +67,7 @@ namespace Skore
 	void LightComponent::SetLightType(LightType type)
 	{
 		m_lightType = type;
-		m_renderStorage->SetLightType(this, m_lightType);
+		m_renderStorage->SetLightType(this, static_cast<u32>(m_lightType));
 	}
 
 	LightComponent::LightType LightComponent::GetLightType() const
