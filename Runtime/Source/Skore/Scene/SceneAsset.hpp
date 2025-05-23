@@ -25,24 +25,24 @@
 
 namespace Skore
 {
-
-	// don't know yet.
-	// class SK_API EntityAsset : public Object
-	// {
-	// public:
-	//
-	//
-	//
-	//
-	//
-	// private:
-	// };
-
-
+	class Entity;
+	class Scene;
 
 	class SK_API SceneAsset : public Asset
 	{
 	public:
+		SK_CLASS(SceneAsset, Asset);
+		SK_NO_COPY_CONSTRUCTOR(SceneAsset);
+
+		SceneAsset() = default;
+
+		Entity* Instantiate() const;
+
+
+		void Serialize(ArchiveWriter& archiveWriter) const override;
+		void Deserialize(ArchiveReader& archiveReader) override;
+
 	private:
+		Entity* m_rootEntity = nullptr;
 	};
 }

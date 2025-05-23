@@ -132,28 +132,28 @@ namespace Skore
 
 		this->currentEntity = entity;
 
-		for (ReflectField* field : entity->GetType()->GetFields())
-		{
-			this->currentField = field;
-			if (const Object* object = field->GetObject(entity))
-			{
-				if (ImGui::CollapsingHeader(FormatName(field->GetName()).CStr(), ImGuiTreeNodeFlags_DefaultOpen))
-				{
-					ImGui::BeginDisabled(readOnly);
-					ImGuiDrawObject(ImGuiDrawObjectInfo{
-						.object = const_cast<Object*>(object),
-						.userData = this,
-						.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
-						{
-							PropertiesWindow* window = static_cast<PropertiesWindow*>(context.userData);
-							window->currentField->Set(window->currentEntity, context.object, U32_MAX);
-							Editor::GetCurrentWorkspace().GetSceneEditor()->MarkDirty();
-						}
-					});
-					ImGui::EndDisabled();
-				}
-			}
-		}
+		// for (ReflectField* field : entity->GetType()->GetFields())
+		// {
+		// 	this->currentField = field;
+		// 	if (const Object* object = field->GetObject(entity))
+		// 	{
+		// 		if (ImGui::CollapsingHeader(FormatName(field->GetName()).CStr(), ImGuiTreeNodeFlags_DefaultOpen))
+		// 		{
+		// 			ImGui::BeginDisabled(readOnly);
+		// 			ImGuiDrawObject(ImGuiDrawObjectInfo{
+		// 				.object = const_cast<Object*>(object),
+		// 				.userData = this,
+		// 				.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
+		// 				{
+		// 					PropertiesWindow* window = static_cast<PropertiesWindow*>(context.userData);
+		// 					window->currentField->Set(window->currentEntity, context.object, U32_MAX);
+		// 					Editor::GetCurrentWorkspace().GetSceneEditor()->MarkDirty();
+		// 				}
+		// 			});
+		// 			ImGui::EndDisabled();
+		// 		}
+		// 	}
+		// }
 
 		for (Component* component : entity->GetAllComponents())
 		{
@@ -320,10 +320,10 @@ namespace Skore
 		if (selectedEntity)
 		{
 			SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
-			// if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selectedEntity))
-			// {
-			// 	DrawSceneEntity(id, sceneEditor, entity);
-			// }
+			if (Entity* entity = Entity::FindByUUID(selectedEntity))
+			{
+				DrawSceneEntity(id, sceneEditor, entity);
+			}
 		}
 		else if (selectedAsset)
 		{

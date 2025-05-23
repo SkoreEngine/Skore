@@ -22,7 +22,27 @@
 
 #include "SceneAsset.hpp"
 
+#include "Entity.hpp"
+#include "Skore/IO/Path.hpp"
+
 namespace Skore
 {
+	Entity* SceneAsset::Instantiate() const
+	{
+		Entity* root = Entity::Instantiate(GetUUID(), "Entity");
 
+
+
+		return root;
+	}
+
+	void SceneAsset::Serialize(ArchiveWriter& archiveWriter) const
+	{
+
+	}
+
+	void SceneAsset::Deserialize(ArchiveReader& archiveReader)
+	{
+
+	}
 }

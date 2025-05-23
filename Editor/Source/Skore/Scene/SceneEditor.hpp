@@ -30,6 +30,7 @@
 
 namespace Skore
 {
+	class SceneAsset;
 	class Component;
 }
 
@@ -57,7 +58,7 @@ namespace Skore
 		Scene* GetCurrentScene() const;
 
 		Entity* GetRoot() const;
-		void Create();
+		void    Create();
 
 		void AddComponent(Entity* entity, TypeID componentTypeID);
 		void RemoveComponent(Entity* entity, Component* component);
@@ -71,10 +72,9 @@ namespace Skore
 		void ChangeParent(Entity* newParent, const Array<Entity*>& objects);
 
 		//selection
-		bool IsSelected(UUID entity) const;
-		void SelectEntity(UUID entity, bool clearSelection = false);
-		void DeselectEntity(UUID entity);
-		void SetSelectedEntities(Span<UUID> entities);
+		bool IsSelected(UUID entityUUID) const;
+		void SelectEntity(UUID entityUUID, bool clearSelection = false);
+		void DeselectEntity(UUID entityUUID);
 		bool HasSelectedEntities() const;
 		void ClearSelection();
 		bool IsParentOfSelected(Entity* entity) const;
@@ -95,26 +95,19 @@ namespace Skore
 
 		void MarkDirty() const;
 
-		Ref<Transaction> BeginSceneTransaction(StringView name) const;
-
 		friend class SelectionCommand;
 		friend class ClearSelectionCommand;
 		friend class CreateEntityCommand;
 		friend class DestroyEntityCommand;
+
 	private:
 		EditorWorkspace& m_workspace;
 		AssetFile*       m_assetFile = nullptr;
+		SceneAsset*      m_sceneAsset = nullptr;
 		Scene*           m_scene = nullptr;
-		Scene*           m_simulationScene = nullptr;
 		HashSet<UUID>    m_selectedEntities;
 		HashSet<UUID>    m_lockedEntities;
 		bool             m_isSimulating = false;
-
-		void UpdateSelection(const HashSet<UUID>& oldSelection, const HashSet<UUID>& newSelection);
-
-		void InternalClearSelection();
-		void InternalDeselectEntity(UUID entityUUID);
-		void InternalSelectEntity(UUID entityUUID);
 
 		void DoUpdate() const;
 	};

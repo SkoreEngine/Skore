@@ -52,12 +52,19 @@ namespace Skore
 		void          AddChild(Entity* child);
 		Entity*       GetParent() const;
 		bool          HasChildren() const;
-		bool          IsChildOf(Entity* parent) const;
+		bool          IsChildOf(const Entity* parent) const;
 		Span<Entity*> Children() const;
 
 		//components
+		Component* AddComponent(TypeID typeId);
 		Span<Component*> GetAllComponents() const;
 
+
+		template <typename T = Component, typename = std::enable_if_t<std::is_base_of_v<Component, T>>>
+		T* AddComponent()
+		{
+			return static_cast<T*>(AddComponent(TypeInfo<T>::ID()));
+		}
 
 		//transform
 		SK_FINLINE const Mat4& GetWorldTransform() const
@@ -128,17 +135,25 @@ namespace Skore
 		}
 
 		//static
-		static Entity* New();
-
-		static void RegisterType(NativeReflectType<Entity>& type);
+		static Entity* Instantiate(UUID uuid, StringView name);
+		static Entity* Instantiate();
+		static Entity* FindByUUID(const UUID& uuid);
+		static void    RegisterType(NativeReflectType<Entity>& type);
 
 	private:
 		Entity() = default;
 
 		UUID      m_uuid;
 		String    m_name;
+		bool	  m_active = true;
 		Transform m_transform = {};
 		Mat4      m_worldTransform{1.0};
+
+		Entity*        m_parent = nullptr;
+		Array<Entity*> m_children;
+
+		//components
+		Array<Component*> m_components;
 
 		void UpdateTransform();
 	};

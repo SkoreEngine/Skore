@@ -20,9 +20,19 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "ResourceObject.hpp"
+#pragma once
+
+#include "Scene.hpp"
+#include "Skore/Common.hpp"
 
 namespace Skore
 {
+	struct SK_API SceneManager
+	{
+		static Scene* LoadScene(UUID uuid);
+		static Scene* LoadScene(StringView path);
 
+		static void   SetActiveScene(Scene* scene);
+		static Scene* GetActiveScene();
+	};
 }

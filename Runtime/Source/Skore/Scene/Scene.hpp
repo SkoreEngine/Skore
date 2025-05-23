@@ -34,9 +34,11 @@ namespace Skore
 	public:
 		RenderStorage* GetRenderStorage() const;
 
+		void		   SetRootEntity(Entity* entity);
+		Entity*        GetRootEntity() const;
 
-		Entity* FindEntityByUUID(const UUID& uuid) const;
 	private:
 		RenderStorage* m_renderStorage = nullptr;
+		Entity*        m_rootEntity = nullptr;
 	};
 }

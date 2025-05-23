@@ -177,7 +177,7 @@ namespace Skore
 				Array<Entity*> selectedCache;
 				for (const auto& selected : sceneEditor->GetSelectedEntities())
 				{
-					if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selected))
+					if (Entity* entity = Entity::FindByUUID(selected))
 					{
 						selectedCache.EmplaceBack(entity);
 					}
@@ -265,7 +265,7 @@ namespace Skore
 				Array<Entity*> selectedEntities;
 				for (const auto& selected : sceneEditor->GetSelectedEntities())
 				{
-					if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selected))
+					if (Entity* entity = Entity::FindByUUID(selected))
 					{
 						selectedEntities.EmplaceBack(entity);
 					}

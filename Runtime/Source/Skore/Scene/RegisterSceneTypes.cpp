@@ -20,10 +20,37 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "SceneAsset.hpp"
+#include "Skore/Core/Reflection.hpp"
+
+#include "Scene.hpp"
+#include "Entity.hpp"
+#include "Component.hpp"
+#include "Skore/Scene/Components/EnvironmentComponent.hpp"
+#include "Skore/Scene/Components/LightComponent.hpp"
+#include "Skore/Scene/Components/MeshRenderComponent.hpp"
+
 namespace Skore
 {
+	void RegisterSceneManagerEvents();
+
 	void RegisterSceneTypes()
 	{
-		//TODO
+		Reflection::Type<Scene>();
+		Reflection::Type<Entity>();
+		Reflection::Type<Component>();
+
+		Reflection::Type<EnvironmentComponent>();
+		Reflection::Type<LightComponent>();
+		Reflection::Type<MeshRenderComponent>();
+
+		Reflection::Type<SceneAsset>();
+
+		auto lightType = Reflection::Type<LightComponent::LightType>();
+		lightType.Value<LightComponent::LightType::Directional>();
+		lightType.Value<LightComponent::LightType::Point>();
+		lightType.Value<LightComponent::LightType::Spot>();
+
+		RegisterSceneManagerEvents();
 	}
 }

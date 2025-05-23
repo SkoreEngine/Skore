@@ -30,14 +30,9 @@ namespace
 {
 	TEST_CASE("Scene::Basics")
 	{
-		Entity* entity = Entity::New();
+		Entity* entity = Entity::Instantiate();
 
-		Entity* entityChild = Entity::New();
+		Entity* entityChild = Entity::Instantiate();
 		entity->AddChild(entityChild);
-
-
-
-
-
 	}
 }

@@ -20,28 +20,48 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
+#include "SceneManager.hpp"
 
-#include "Array.hpp"
-#include "Object.hpp"
-#include "Variant.hpp"
-
-
-// scoped changes snapshot of the object before updating it.
-//"set" update the object and variants.
-//"get" use variant to make Object, check for prefabs.
-
+#include "Skore/Events.hpp"
+#include "Skore/Core/Event.hpp"
 
 namespace Skore
 {
-	class SK_API ResourceObject : public Object
+	namespace
 	{
-	public:
+		Scene* activeScene = nullptr;
+	}
 
+	Scene* SceneManager::LoadScene(UUID uuid)
+	{
+		return nullptr;
+	}
 
+	Scene* SceneManager::LoadScene(StringView path)
+	{
+		return nullptr;
+	}
 
-	private:
-		Object*        m_instance = nullptr;
-		Array<Variant> m_fields;
-	};
+	void SceneManager::SetActiveScene(Scene* scene)
+	{
+		activeScene = scene;
+	}
+
+	Scene* SceneManager::GetActiveScene()
+	{
+		return activeScene;
+	}
+
+	void SceneUpdate()
+	{
+		if (activeScene)
+		{
+			//TODO
+		}
+	}
+
+	void RegisterSceneManagerEvents()
+	{
+		Event::Bind<OnUpdate, SceneUpdate>();
+	}
 }

@@ -46,8 +46,16 @@ namespace Skore
 
 		virtual void   Execute() = 0;
 		virtual void   Undo() = 0;
-		virtual String GetName() const = 0;
 	};
+
+
+	class DataChangeCommand : Command
+	{
+	public:
+		void   Execute() override;
+		void   Undo() override;
+	};
+
 
 	class Transaction
 	{

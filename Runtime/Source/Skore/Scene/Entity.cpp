@@ -22,11 +22,18 @@
 
 #include "Entity.hpp"
 
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Span.hpp"
+#include "Skore/Core/StringUtils.hpp"
+#include "Component.hpp"
 
 
 namespace Skore
 {
+	static HashMap<UUID, Entity*> entities;
+
+
+
 	UUID Entity::GetUUID() const
 	{
 		return m_uuid;
@@ -42,42 +49,66 @@ namespace Skore
 		m_name = name;
 	}
 
-	void Entity::SetActive(bool active) {}
+	void Entity::SetActive(bool active)
+	{
+		m_active = active;
+	}
 
 	bool Entity::IsActive() const
 	{
-		return false;
+		return m_active;
 	}
 
 	void Entity::AddChild(Entity* entity)
 	{
-		//TODO
+		entity->m_parent = this;
+		m_children.EmplaceBack(entity);
 	}
 
 	Entity* Entity::GetParent() const
 	{
-		//TODO
-		return nullptr;
+		return m_parent;
 	}
 
 	bool Entity::HasChildren() const
 	{
-		return false;
+		return !m_children.Empty();
 	}
 
-	bool Entity::IsChildOf(Entity* parent) const
+	bool Entity::IsChildOf(const Entity* parent) const
 	{
+		if (m_parent == nullptr || parent == nullptr) return false;
+
+		while (parent != nullptr)
+		{
+			if (m_parent == parent)
+			{
+				return true;
+			}
+			parent = m_parent->m_parent;
+		}
 		return false;
 	}
 
 	Span<Entity*> Entity::Children() const
 	{
-		return {};
+		return m_children;
+	}
+
+	Component* Entity::AddComponent(TypeID typeId)
+	{
+		if (ReflectType* type = Reflection::FindTypeById(typeId))
+		{
+			Component* newComponent = type->NewObject()->SafeCast<Component>();
+			m_components.EmplaceBack(newComponent);
+			return newComponent;
+		}
+		return nullptr;
 	}
 
 	Span<Component*> Entity::GetAllComponents() const
 	{
-		return {};
+		return m_components;
 	}
 
 	void Entity::UpdateTransform()
@@ -85,14 +116,32 @@ namespace Skore
 		//TODO
 	}
 
-	Entity* Entity::New()
+	Entity* Entity::Instantiate(UUID uuid, StringView name)
 	{
 		Entity* instance = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
 		new(instance) Entity();
 
-		instance->m_uuid = UUID::RandomUUID();
+		instance->m_uuid = uuid;
+		instance->m_name = name;
+
+		//TODO: mutex lock here?
+		entities.Insert(instance->m_uuid, instance);
 
 		return instance;
+	}
+
+	Entity* Entity::Instantiate()
+	{
+		return Instantiate(UUID::RandomUUID(), "");
+	}
+
+	Entity* Entity::FindByUUID(const UUID& uuid)
+	{
+		if (auto it = entities.Find(uuid))
+		{
+			return it->second;
+		}
+		return nullptr;
 	}
 
 	void Entity::RegisterType(NativeReflectType<Entity>& type) {}

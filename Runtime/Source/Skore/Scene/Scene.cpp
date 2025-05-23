@@ -32,8 +32,15 @@ namespace Skore
 		return m_renderStorage;
 	}
 
-	Entity* Scene::FindEntityByUUID(const UUID& uuid) const
+	void Scene::SetRootEntity(Entity* entity)
 	{
-		return nullptr;
+		m_rootEntity = entity;
+
+		//TODO: i think i need to do a few things here.
+	}
+
+	Entity* Scene::GetRootEntity() const
+	{
+		return m_rootEntity;
 	}
 }

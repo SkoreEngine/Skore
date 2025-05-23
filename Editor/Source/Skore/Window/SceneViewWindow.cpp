@@ -270,7 +270,7 @@ namespace Skore
 			{
 				for (UUID selectedEntity: sceneEditor->GetSelectedEntities())
 				{
-					Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selectedEntity);
+					Entity* entity = Entity::FindByUUID(selectedEntity);
 					if (!entity) continue;
 
 		            Mat4 worldMatrix = entity->GetWorldTransform();

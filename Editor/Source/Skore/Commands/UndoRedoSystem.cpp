@@ -27,6 +27,16 @@
 
 namespace Skore
 {
+	void DataChangeCommand::Execute()
+	{
+
+	}
+
+	void DataChangeCommand::Undo()
+	{
+
+	}
+
 	Transaction::Transaction(StringView name) : m_name(name) {}
 
 	Transaction::~Transaction()
