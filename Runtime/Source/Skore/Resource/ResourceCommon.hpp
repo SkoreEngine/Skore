@@ -142,7 +142,7 @@ namespace Skore
 	struct ResourceStorage;
 	struct UndoRedoScope;
 	typedef CharPtr ResourceInstance;
-	typedef void(*FnRIDCallback)(RID rid, VoidPtr userData);
+	typedef bool(*FnRIDCallback)(RID rid, VoidPtr userData);
 
 
 	struct ResourceStorage

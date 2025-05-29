@@ -25,7 +25,6 @@
 #include "Pair.hpp"
 #include "HashBase.hpp"
 #include "Array.hpp"
-#include "Hash.hpp"
 
 namespace Skore
 {

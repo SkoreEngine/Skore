@@ -176,31 +176,24 @@ namespace Skore
 	usize ResourceObject::GetRemoveFromPrototypeSubObjectSetCount(u32 index) const
 	{
 		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		//
-		// if (HasValue(index))
-		// {
-		// 	const SubObjectSet& subObjectSet = GetPtr<SubObjectSet>(index);
-		// 	return subObjectSet.prototypeRemoved.Size();
-		// }
-		// return 0;
+		if (const SubObjectSet* subObjectSet = GetPtr<SubObjectSet>(index))
+		{
+			return subObjectSet->prototypeRemoved.Size();
+		}
 		return 0;
 	}
 
 	void ResourceObject::GetRemoveFromPrototypeSubObjectSet(u32 index, Span<RID> remove) const
 	{
 		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-
-		// if (HasValue(index))
-		// {
-		// 	const SubObjectSet& subObjectSet = GetPtr<SubObjectSet>(index);
-		// 	usize         i = 0;
-		//
-		// 	for (RID rid : subObjectSet.prototypeRemoved)
-		// 	{
-		// 		remove[i] = rid;
-		// 		++i;
-		// 	}
-		// }
+		if (const SubObjectSet* subObjectSet = GetPtr<SubObjectSet>(index))
+		{
+			usize i = 0;
+			for (RID removed : subObjectSet->prototypeRemoved)
+			{
+				remove[i++] = removed;
+			}
+		}
 	}
 
 
@@ -398,28 +391,27 @@ namespace Skore
 
 	usize ResourceObject::GetSubObjectSetCount(u32 index) const
 	{
-		// if (HasValue(index))
-		// {
-		// 	const SubObjectSet& subObjectSet = GetPtr<SubObjectSet>(index);
-		// 	return subObjectSet.subObjects.Size();
-		// }
-		return 0;
+		usize count = 0;
+
+		IterateSubObjectSet(index, true, [&](RID rid)
+		{
+			count++;
+			return true;
+		});
+
+		return count;
 	}
 
 	void ResourceObject::GetSubObjectSet(u32 index, Span<RID> subObjects) const
 	{
 		usize i = 0;
 
-		// if (HasValue(index))
-		// {
-		// 	const SubObjectSet& subObjectSet = GetPtr<SubObjectSet>(index);
-		// 	usize         i = 0;
-		// 	for (RID rid : subObjectSet.subObjects)
-		// 	{
-		// 		subObjects[i] = rid;
-		// 		++i;
-		// 	}
-		// }
+		IterateSubObjectSet(index, true, [&](RID rid)
+		{
+			subObjects[i] = rid;
+			i++;
+			return true;
+		});
 	}
 
 	Array<RID> ResourceObject::GetSubObjectSetAsArray(u32 index) const
@@ -432,18 +424,23 @@ namespace Skore
 
 	bool ResourceObject::HasSubObjectSet(u32 index, RID rid) const
 	{
-		// if (HasValue(index))
-		// {
-		// 	const SubObjectSet& subObjectSet = GetPtr<SubObjectSet>(index);
-		// 	return subObjectSet.subObjects.Has(rid);
-		// }
-		return false;
+		bool found = false;
+		IterateSubObjectSet(index, true, [&](RID subobect)
+		{
+			if (rid == subobect)
+			{
+				found = true;
+				return false;
+			}
+			return true;
+		});
+
+		return found;
 	}
 
 	void ResourceObject::IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const
 	{
 		ResourceStorage* currentStorage = storage;
-		ResourceStorage* previousStorage = nullptr;
 		while (currentStorage != nullptr)
 		{
 			if (ResourceInstance currentInstance = currentStorage->instance.load())
@@ -451,22 +448,20 @@ namespace Skore
 				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
 				{
 					const SubObjectSet* subObjectSet = reinterpret_cast<SubObjectSet*>(&currentInstance[storage->resourceType->fields[index]->offset]);
-
-					//subObjectSet.prototypeRemoved
-
 					for (RID rid: subObjectSet->subObjects)
 					{
-						if (ValidSubObjectOnSet(previousStorage, index, rid))
+						if (ValidSubObjectOnSet(currentStorage, index, rid))
 						{
-							callback(rid, userData);
+							if (!callback(rid, userData))
+							{
+								return;
+							}
 						}
 					}
 				}
 			}
-			previousStorage = currentStorage;
-			currentStorage = currentStorage->prototype;
-
 			if (!prototypeIterate) break;
+			currentStorage = currentStorage->prototype;
 		}
 	}
 
@@ -541,28 +536,34 @@ namespace Skore
 		return nullptr;
 	}
 
-	bool ResourceObject::ValidSubObjectOnSet(ResourceStorage* removedPrototypesStorage, u32 index, RID rid) const
+	bool ResourceObject::ValidSubObjectOnSet(const ResourceStorage* readingStorage, u32 index, RID rid) const
 	{
-		if (removedPrototypesStorage == nullptr) return true;
+		if (readingStorage == storage) return true;
 
 
+		ResourceStorage* currentStorage = storage;
+		while (currentStorage != nullptr)
+		{
+			if (ResourceInstance currentInstance = currentStorage->instance.load())
+			{
+				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
+				{
+					const SubObjectSet* subObjectSet = reinterpret_cast<SubObjectSet*>(&currentInstance[storage->resourceType->fields[index]->offset]);
+					if (subObjectSet->prototypeRemoved.Has(rid))
+					{
+						return false;
+					}
+				}
+			}
 
+			currentStorage = currentStorage->prototype;
 
+			if (currentStorage == readingStorage)
+			{
+				break;
+			}
+		}
 
-		// while (currentStorage != nullptr)
-		// {
-		// 	if (ResourceInstance currentInstance = currentStorage->instance.load())
-		// 	{
-		// 		if (*reinterpret_cast<bool*>(&writeInstance[sizeof(ResourceInstanceInfo) + index]))
-		// 		{
-		// 			const SubObjectSet& subObjectSet = *reinterpret_cast<SubObjectSet*>(currentInstance[storage->resourceType->fields[index]->offset]);
-		//
-		// 			return subObjectSet.subObjects.Has(rid);
-		// 		}
-		// 	}
-		// 	currentStorage = currentStorage->prototype;
-		// }
-
-		return false;
+		return true;
 	}
 }

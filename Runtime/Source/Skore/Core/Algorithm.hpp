@@ -23,7 +23,6 @@
 #pragma once
 
 #include <cstring>
-
 #include "Skore/Common.hpp"
 #include "Traits.hpp"
 
@@ -32,6 +31,12 @@ namespace Skore
 
     template<typename Type>
     class BasicStringView;
+
+    template<typename Key>
+    class HashSet;
+
+    template<typename Key>
+    class Span;
 
     template<typename T, usize BufferSize>
     class BasicString;
@@ -337,6 +342,25 @@ namespace Skore
     inline usize AlignedSize(u64 value, u64 alignment)
     {
         return (value + alignment - 1) & ~(alignment - 1);
+    }
+
+
+
+    template<typename T>
+    HashSet<T> ToHashSet(T* begin, T* end)
+    {
+        HashSet<T> set;
+        for (T* it = begin; it != end; ++it)
+        {
+            set.Insert(*it);
+        }
+        return set;
+    }
+
+    template <typename T>
+    HashSet<T> ToHashSet(Span<T> span)
+    {
+        return ToHashSet(span.begin(), span.end());
     }
 }
 

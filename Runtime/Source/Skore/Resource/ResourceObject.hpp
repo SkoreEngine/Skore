@@ -101,12 +101,12 @@ namespace Skore
 		void Commit(UndoRedoScope* scope = nullptr);
 
 		template <typename T>
-		void IterateSubObjectSet(u32 index, bool prototypeIterate, T&& func)
+		void IterateSubObjectSet(u32 index, bool prototypeIterate, T&& func) const
 		{
 			IterateSubObjectSet(index, prototypeIterate, [](RID rid, VoidPtr userData)
 			{
 				auto& func = *static_cast<T*>(userData);
-				func(rid);
+				return func(rid);
 			}, &func);
 		}
 
@@ -121,7 +121,7 @@ namespace Skore
 		ConstPtr GetPtr(u32 index) const;
 		VoidPtr  GetMutPtr(u32 index) const;
 
-		bool	 ValidSubObjectOnSet(ResourceStorage* removedPrototypesStorage, u32 index, RID rid) const;
+		bool	 ValidSubObjectOnSet(const ResourceStorage* readingStorage, u32 index, RID rid) const;
 
 		template <typename T>
 		const T* GetPtr(u32 index) const

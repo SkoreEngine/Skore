@@ -228,7 +228,7 @@ namespace Skore
 					case ResourceFieldType::SubObjectSet:
 						object.IterateSubObjectSet(field->GetIndex(), false, [&](RID rid)
 						{
-							f(field->GetIndex(), rid);
+							return f(field->GetIndex(), rid);
 						});
 						break;
 					default:
@@ -490,11 +490,14 @@ namespace Skore
 							ArchiveWriter& writer = *static_cast<ArchiveWriter*>(userData);
 
 							ResourceObject set = Read(rid);
-							if (!set) return;
+							if (!set) return true;
 
 							writer.BeginMap();
 							Serialize(rid, writer);
 							writer.EndMap();
+
+							return true;
+
 						}, &writer);
 						writer.EndSeq();
 						break;
@@ -635,6 +638,8 @@ namespace Skore
 			ResourceStorage* subOjectStorage = GetStorage(subObject);
 			subOjectStorage->parent = storage;
 			subOjectStorage->parentFieldIndex = index;
+
+			return true;
 		});
 	}
 

@@ -129,10 +129,9 @@ namespace
 				// std::cout << str.CStr() << std::endl;
 
 				YamlArchiveReader reader(str.CStr());
-				RID newResource = Resources::Deserialize(reader);
+				RID               newResource = Resources::Deserialize(reader);
 
-			//	CHECK(newResource);
-
+				//	CHECK(newResource);
 			}
 		}
 		ResourceShutdown();
@@ -196,6 +195,59 @@ namespace
 			CHECK(anotherValue.strValue == value.strValue);
 			CHECK(anotherValue.composition.value == value.composition.value);
 			CHECK(anotherValue.composition.anotherValue == value.composition.anotherValue);
+		}
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("Resource::Prototypes")
+	{
+		ResourceInit();
+
+		{
+			Resources::Type<ResourceTest>()
+				.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
+				.Field<ResourceTest::StringValue>(ResourceFieldType::String)
+				.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
+				.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
+				.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
+				.Build();
+		}
+
+		RID prototype = Resources::Create<ResourceTest>();
+		RID subobject1 = Resources::Create<ResourceTest>();
+		RID subobject2 = Resources::Create<ResourceTest>();
+		RID subobject3 = Resources::Create<ResourceTest>();
+
+		{
+			ResourceObject write = Resources::Write(prototype);
+			write.SetInt(ResourceTest::IntValue, 10);
+			write.SetString(ResourceTest::StringValue, "blegh");
+			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject1);
+			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject2);
+			write.Commit();
+		}
+
+		RID item = Resources::CreateFromPrototype(prototype);
+
+		{
+			ResourceObject write = Resources::Write(item);
+			write.SetInt(ResourceTest::IntValue, 222);
+			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject3);
+			write.RemoveFromPrototypeSubObjectSet(ResourceTest::SubObjectSet, subobject2);
+			write.Commit();
+		}
+
+		{
+			ResourceObject read = Resources::Read(item);
+			CHECK(read.GetInt(ResourceTest::IntValue) == 222);
+			CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
+
+			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectSetAsArray(ResourceTest::SubObjectSet));
+			CHECK(subobjects.Size() == 2);
+			subobjects.Erase(subobject1);
+			subobjects.Erase(subobject3);
+			CHECK(subobjects.Size() == 0);
 		}
 
 		ResourceShutdown();
