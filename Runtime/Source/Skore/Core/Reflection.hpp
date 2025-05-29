@@ -29,6 +29,7 @@
 #include "HashMap.hpp"
 
 #include "Serialization.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
 {
@@ -140,9 +141,10 @@ namespace Skore
 
 		typedef const Object* (*FnGetObject)(const ReflectField* field, ConstPtr instance);
 
-		ReflectField(const FieldProps& props, StringView name) : m_name(name), m_props(props) {}
+		ReflectField(const FieldProps& props, StringView name, u32 index) : m_name(name), m_index(index), m_props(props) {}
 
 		StringView        GetName() const;
+		u32               GetIndex() const;
 		void              CopyFromType(ConstPtr src, VoidPtr dest) const;
 		void              Get(ConstPtr instance, VoidPtr dest, usize destSize) const;
 		const Object*     GetObject(ConstPtr instance) const;
@@ -150,6 +152,10 @@ namespace Skore
 		const FieldProps& GetProps() const;
 		void              Serialize(ArchiveWriter& writer, ConstPtr instance) const;
 		void              Deserialize(ArchiveReader& reader, VoidPtr instance) const;
+
+		ResourceFieldType GetResourceFieldType() const;
+		void              ToResource(ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope) const;
+		void              FromResource(const ResourceObject& resourceObject, u32 index, VoidPtr instance) const;
 
 		friend class ReflectFieldBuilder;
 
@@ -167,6 +173,7 @@ namespace Skore
 
 	private:
 		String        m_name;
+		u32           m_index = U32_MAX;
 		FnCopy        m_copy = nullptr;
 		FnGet         m_get = nullptr;
 		FnSet         m_set = nullptr;
@@ -216,7 +223,7 @@ namespace Skore
 
 		StringView       GetName() const;
 		StringView       GetSimpleName() const;
-		StringView		 GetScope() const;
+		StringView       GetScope() const;
 		u32              GetVersion() const;
 		const TypeProps& GetProps() const;
 		bool             IsDerivedOf(TypeID typeId) const;
@@ -273,7 +280,7 @@ namespace Skore
 		TypeProps     props;
 		String        simpleName;
 		u32           version = 0;
-		String 		  scope;
+		String        scope;
 		Array<TypeID> baseTypes;
 
 		Array<ReflectConstructor*>               constructors;

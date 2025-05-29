@@ -198,6 +198,26 @@ namespace Skore
 		return m_name;
 	}
 
+	u32 ReflectField::GetIndex() const
+	{
+		return m_index;
+	}
+
+	ResourceFieldType ReflectField::GetResourceFieldType() const
+	{
+		return ResourceFieldType::None;
+	}
+
+	void ReflectField::ToResource(ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope) const
+	{
+
+	}
+
+	void ReflectField::FromResource(const ResourceObject& resourceObject, u32 index, VoidPtr instance) const
+	{
+
+	}
+
 	void ReflectField::CopyFromType(ConstPtr src, VoidPtr dest) const
 	{
 		if (m_props.isPointer || m_props.isReference)
@@ -621,7 +641,7 @@ namespace Skore
 		SK_ASSERT(!name.Empty(), "name cannot be empty");
 		SK_ASSERT(type, "type cannot be null");
 
-		ReflectField* field = Alloc<ReflectField>(props, name);
+		ReflectField* field = Alloc<ReflectField>(props, name, type->fields.Size());
 		type->fields.EmplaceBack(field);
 		return field;
 	}

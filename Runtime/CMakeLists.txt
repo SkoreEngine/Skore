@@ -5,6 +5,8 @@ add_library(SkoreRuntime SHARED ${SKORE_RUNTIME_SOURCES})
 target_include_directories(SkoreRuntime PUBLIC Source)
 
 target_include_directories(SkoreRuntime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/rapidyaml)
+target_include_directories(SkoreRuntime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/concurrentqueue)
+
 target_link_libraries(SkoreRuntime PRIVATE
 				SDL3::SDL3-shared
 				SkoreContent::RS

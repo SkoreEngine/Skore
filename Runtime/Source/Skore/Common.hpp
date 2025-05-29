@@ -142,6 +142,7 @@ T& As() { return *reinterpret_cast<T*>(buffer); }				 \
 #define SK_COL32_A_SHIFT    24
 
 #define SK_FRAMES_IN_FLIGHT 2
+#define SK_PAGE_SIZE 4096
 
 inline void* operator new(Skore::usize, Skore::PlaceHolder, Skore::VoidPtr ptr)
 {
