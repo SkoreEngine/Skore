@@ -213,12 +213,12 @@ namespace Skore
 	}
 
 	template <typename F>
-	void IterateSubObjects(ResourceStorage* storage, ResourceInstance instance, F&& f)
+	void IterateSubObjects(ResourceStorage* storage,  F&& f)
 	{
-		ResourceObject object(storage, instance);
+		ResourceObject object(storage, nullptr);
 		for (ResourceField* field : storage->resourceType->GetFields())
 		{
-			if (object.HasValue(field->GetIndex()))
+			if (object.HasValueOnThisObject(field->GetIndex()))
 			{
 				switch (field->GetType())
 				{
@@ -226,7 +226,7 @@ namespace Skore
 						f(field->GetIndex(), object.GetSubObject(field->GetIndex()));
 						break;
 					case ResourceFieldType::SubObjectSet:
-						object.IterateSubObjectSet(field->GetIndex(), [&](RID rid)
+						object.IterateSubObjectSet(field->GetIndex(), false, [&](RID rid)
 						{
 							f(field->GetIndex(), rid);
 						});
@@ -485,7 +485,7 @@ namespace Skore
 						break;
 					case ResourceFieldType::SubObjectSet:
 						writer.BeginSeq(field->GetName());
-						set.IterateSubObjectSet(field->GetIndex(), [](RID rid, VoidPtr userData)
+						set.IterateSubObjectSet(field->GetIndex(), false, [](RID rid, VoidPtr userData)
 						{
 							ArchiveWriter& writer = *static_cast<ArchiveWriter*>(userData);
 
@@ -630,7 +630,7 @@ namespace Skore
 		// 	instance->owner->ExecuteListeners(ResourceObject(instance->dataOnWrite), ResourceObject(instance->owner->instance));
 		// }
 
-		IterateSubObjects(storage, instance, [&](u32 index, RID subObject)
+		IterateSubObjects(storage, [&](u32 index, RID subObject)
 		{
 			ResourceStorage* subOjectStorage = GetStorage(subObject);
 			subOjectStorage->parent = storage;

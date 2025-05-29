@@ -440,7 +440,7 @@ namespace Skore
 		return false;
 	}
 
-	void ResourceObject::IterateSubObjectSet(u32 index, FnRIDCallback callback, VoidPtr userData) const
+	void ResourceObject::IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const
 	{
 		ResourceStorage* currentStorage = storage;
 		ResourceStorage* previousStorage = nullptr;
@@ -450,11 +450,11 @@ namespace Skore
 			{
 				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
 				{
-					const SubObjectSet& subObjectSet = *reinterpret_cast<SubObjectSet*>(currentInstance[storage->resourceType->fields[index]->offset]);
+					const SubObjectSet* subObjectSet = reinterpret_cast<SubObjectSet*>(&currentInstance[storage->resourceType->fields[index]->offset]);
 
 					//subObjectSet.prototypeRemoved
 
-					for (RID rid: subObjectSet.subObjects)
+					for (RID rid: subObjectSet->subObjects)
 					{
 						if (ValidSubObjectOnSet(previousStorage, index, rid))
 						{
@@ -465,6 +465,8 @@ namespace Skore
 			}
 			previousStorage = currentStorage;
 			currentStorage = currentStorage->prototype;
+
+			if (!prototypeIterate) break;
 		}
 	}
 

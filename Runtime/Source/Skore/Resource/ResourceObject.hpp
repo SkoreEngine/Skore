@@ -92,7 +92,7 @@ namespace Skore
 		void       GetSubObjectSet(u32 index, Span<RID> subObjects) const;
 		Array<RID> GetSubObjectSetAsArray(u32 index) const;
 		bool       HasSubObjectSet(u32 index, RID rid) const;
-		void       IterateSubObjectSet(u32 index, FnRIDCallback callback, VoidPtr userData) const;
+		void       IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const;
 
 		RID           GetRID() const;
 		UUID          GetUUID() const;
@@ -101,9 +101,9 @@ namespace Skore
 		void Commit(UndoRedoScope* scope = nullptr);
 
 		template <typename T>
-		void IterateSubObjectSet(u32 index, T&& func)
+		void IterateSubObjectSet(u32 index, bool prototypeIterate, T&& func)
 		{
-			IterateSubObjectSet(index, [](RID rid, VoidPtr userData)
+			IterateSubObjectSet(index, prototypeIterate, [](RID rid, VoidPtr userData)
 			{
 				auto& func = *static_cast<T*>(userData);
 				func(rid);

@@ -205,17 +205,27 @@ namespace Skore
 
 	ResourceFieldType ReflectField::GetResourceFieldType() const
 	{
+		if (m_getResourceFieldType)
+		{
+			return m_getResourceFieldType(this);
+		}
 		return ResourceFieldType::None;
 	}
 
 	void ReflectField::ToResource(ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope) const
 	{
-
+		if (m_toResource)
+		{
+			m_toResource(this, resourceObject, index, instance, scope);
+		}
 	}
 
 	void ReflectField::FromResource(const ResourceObject& resourceObject, u32 index, VoidPtr instance) const
 	{
-
+		if (m_fromResource)
+		{
+			m_fromResource(this, resourceObject, index, instance);
+		}
 	}
 
 	void ReflectField::CopyFromType(ConstPtr src, VoidPtr dest) const
@@ -627,6 +637,21 @@ namespace Skore
 	void ReflectFieldBuilder::SetFnSet(ReflectField::FnSet set)
 	{
 		field->m_set = set;
+	}
+
+	void ReflectFieldBuilder::SetFnToResource(ReflectField::FnToResource fnToResource)
+	{
+		field->m_toResource = fnToResource;
+	}
+
+	void ReflectFieldBuilder::SetFnFromResource(ReflectField::FnFromResource fnGetFromResource)
+	{
+		field->m_fromResource = fnGetFromResource;
+	}
+
+	void ReflectFieldBuilder::SetFnGetResourceFieldType(ReflectField::FnGetResourceFieldType fnGetResourceField)
+	{
+		field->m_getResourceFieldType = fnGetResourceField;
 	}
 
 	ReflectAttributeBuilder ReflectFieldBuilder::AddAttribute(const TypeProps& props)
