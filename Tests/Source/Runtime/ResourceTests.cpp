@@ -108,6 +108,8 @@ namespace
 				write.Commit();
 			}
 
+
+
 			Resources::GarbageCollect();
 
 			{
@@ -133,6 +135,17 @@ namespace
 
 				//	CHECK(newResource);
 			}
+
+			RID clone = Resources::Clone(test);
+			{
+				CHECK(clone != test);
+				ResourceObject readClone = Resources::Read(clone);
+				CHECK(readClone.GetInt(ResourceTest::IntValue) == 10);
+				CHECK(readClone.GetString(ResourceTest::StringValue) == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+			}
+
+			Resources::Destroy(clone);
+
 		}
 		ResourceShutdown();
 	}
@@ -247,6 +260,71 @@ namespace
 			CHECK(subobjects.Size() == 2);
 			subobjects.Erase(subobject1);
 			subobjects.Erase(subobject3);
+			CHECK(subobjects.Size() == 0);
+		}
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("Resource::UndoRedo")
+	{
+		ResourceInit();
+
+		{
+			Resources::Type<ResourceTest>()
+				.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
+				.Field<ResourceTest::StringValue>(ResourceFieldType::String)
+				.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
+				.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
+				.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
+				.Build();
+		}
+
+		RID rid = Resources::Create<ResourceTest>();
+		RID subobject = Resources::Create<ResourceTest>();
+		RID subobject2 = Resources::Create<ResourceTest>();
+
+		{
+			ResourceObject write = Resources::Write(rid);
+			write.SetInt(ResourceTest::IntValue, 10);
+			write.SetString(ResourceTest::StringValue, "blegh");
+			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject);
+			write.Commit();
+		}
+
+		UndoRedoScope* scope = Resources::CreateScope("test scope");
+
+		{
+			ResourceObject write = Resources::Write(rid);
+			write.SetInt(ResourceTest::IntValue, 33);
+			write.SetString(ResourceTest::StringValue, "44");
+			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject2);
+			write.Commit(scope);
+		}
+
+		{
+			ResourceObject read = Resources::Read(rid);
+			CHECK(read.GetInt(ResourceTest::IntValue) == 33);
+			CHECK(read.GetString(ResourceTest::StringValue) == "44");
+
+			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectSetAsArray(ResourceTest::SubObjectSet));
+			CHECK(subobjects.Size() == 2);
+			subobjects.Erase(subobject);
+			subobjects.Erase(subobject2);
+			CHECK(subobjects.Size() == 0);
+
+		}
+
+		Resources::Undo(scope);
+
+		{
+			ResourceObject read = Resources::Read(rid);
+			CHECK(read.GetInt(ResourceTest::IntValue) == 10);
+			CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
+
+			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectSetAsArray(ResourceTest::SubObjectSet));
+			CHECK(subobjects.Size() == 1);
+			subobjects.Erase(subobject);
 			CHECK(subobjects.Size() == 0);
 		}
 

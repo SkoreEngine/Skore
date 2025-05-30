@@ -306,7 +306,7 @@ namespace Skore
 
 	RID Resources::Create(TypeID typeId, UUID uuid, UndoRedoScope* scope)
 	{
-		RID              rid = GetID(uuid);
+		RID rid = GetID(uuid);
 		ResourceStorage* storage = GetOrAllocate(rid, uuid);
 		storage->instance = nullptr;
 		storage->resourceType = FindTypeByID(typeId);
@@ -337,9 +337,19 @@ namespace Skore
 		return rid;
 	}
 
-	RID  Resources::Clone(RID rid, UUID uuid, UndoRedoScope* scope)
+	RID  Resources::Clone(RID origin, UUID uuid, UndoRedoScope* scope)
 	{
-		return {};
+		ResourceStorage* originStorage = GetStorage(origin);
+
+		RID rid = GetID(uuid);
+
+		ResourceStorage* storage = GetOrAllocate(rid, uuid);
+
+		storage->instance = CreateResourceInstanceCopy(originStorage->resourceType, originStorage->instance.load());
+		storage->resourceType = originStorage->resourceType;
+		storage->prototype = originStorage->prototype;
+
+		return rid;
 	}
 
 	void Resources::Reset(RID rid, UndoRedoScope* scope)
@@ -349,7 +359,13 @@ namespace Skore
 
 	void Resources::Destroy(RID rid, UndoRedoScope* scope)
 	{
-		//TODO
+		ResourceStorage* storage = GetStorage(rid);
+		if (scope)
+		{
+			scope->PushChange(storage, storage->instance.load(), nullptr);
+		}
+		DestroyResourceInstance(storage->resourceType, storage->instance.load());
+		storage->instance = nullptr;
 	}
 
 	u64 Resources::GetVersion(RID rid)
@@ -361,7 +377,17 @@ namespace Skore
 	{
 		ResourceStorage* storage = GetStorage(rid);
 		SK_ASSERT(storage->resourceType, "type cannot be null");
-		ResourceInstance instance = storage->resourceType->Allocate();
+
+		ResourceInstance instance = nullptr;
+
+		if (ResourceInstance current = storage->instance.load())
+		{
+			instance = CreateResourceInstanceCopy(storage->resourceType, current);
+		}
+		else
+		{
+			instance = storage->resourceType->Allocate();
+		}
 
 		ResourceInstanceInfo& info = *reinterpret_cast<ResourceInstanceInfo*>(instance);
 		info.readOnly = false;
