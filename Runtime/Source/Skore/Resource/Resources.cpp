@@ -24,6 +24,7 @@
 
 #include <mutex>
 #include <concurrentqueue.h>
+#include "Skore/Core/Queue.hpp"
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Serialization.hpp"
@@ -57,7 +58,7 @@ namespace Skore
 	{
 		struct DestroyResourcePayload
 		{
-			ResourceType* type;
+			ResourceType*    type;
 			ResourceInstance instance;
 		};
 
@@ -213,7 +214,7 @@ namespace Skore
 	}
 
 	template <typename F>
-	void IterateSubObjects(ResourceStorage* storage,  F&& f)
+	void IterateSubObjects(ResourceStorage* storage, F&& f)
 	{
 		ResourceObject object(storage, nullptr);
 		for (ResourceField* field : storage->resourceType->GetFields())
@@ -306,7 +307,7 @@ namespace Skore
 
 	RID Resources::Create(TypeID typeId, UUID uuid, UndoRedoScope* scope)
 	{
-		RID rid = GetID(uuid);
+		RID              rid = GetID(uuid);
 		ResourceStorage* storage = GetOrAllocate(rid, uuid);
 		storage->instance = nullptr;
 		storage->resourceType = FindTypeByID(typeId);
@@ -337,7 +338,7 @@ namespace Skore
 		return rid;
 	}
 
-	RID  Resources::Clone(RID origin, UUID uuid, UndoRedoScope* scope)
+	RID Resources::Clone(RID origin, UUID uuid, UndoRedoScope* scope)
 	{
 		ResourceStorage* originStorage = GetStorage(origin);
 
@@ -408,128 +409,144 @@ namespace Skore
 		return storage->uuid;
 	}
 
-	void Resources::Serialize(RID rid, ArchiveWriter& writer)
+	void Resources::Serialize(RID ridx, ArchiveWriter& writer)
 	{
-		ResourceObject set = Read(rid);
-		if (!set) return;
+		RID        current = ridx;
+		Queue<RID> pendingItems;
 
-		ResourceType* type = set.GetType();
+		writer.BeginSeq("objects");
 
-
-		if (UUID uuid = set.GetUUID())
+		while (current)
 		{
-			writer.WriteString("_uuid", set.GetUUID().ToString());
-		}
+			ResourceStorage* storage = GetStorage(current);
+			do {
+				if (!storage->uuid) break;
 
-		writer.WriteString("_type", type->GetName());
+				writer.BeginMap();
 
-		for (ResourceField* field : type->GetFields())
-		{
-			if (set.HasValue(field->GetIndex())) // cannot be prototyped
-			{
-				switch (field->GetType())
+				ResourceObject set = Read(current);
+				if (!set) return;
+
+				writer.WriteString("_uuid", storage->uuid.ToString());
+				ResourceType* type = set.GetType();
+
+				if (storage->parent && storage->parent->uuid && storage->parentFieldIndex != U32_MAX)
 				{
-					case ResourceFieldType::Bool:
-						writer.WriteBool(field->GetName(), set.GetBool(field->GetIndex()));
-						break;
-					case ResourceFieldType::Int:
-						writer.WriteInt(field->GetName(), set.GetInt(field->GetIndex()));
-						break;
-					case ResourceFieldType::UInt:
-						writer.WriteUInt(field->GetName(), set.GetUInt(field->GetIndex()));
-						break;
-					case ResourceFieldType::Float:
-						writer.WriteFloat(field->GetName(), set.GetFloat(field->GetIndex()));
-						break;
-					case ResourceFieldType::String:
-						writer.WriteString(field->GetName(), set.GetString(field->GetIndex()));
-						break;
-					case ResourceFieldType::Vec2:
-						writer.BeginMap(field->GetName());
-						writer.WriteFloat("x", set.GetVec2(field->GetIndex()).x);
-						writer.WriteFloat("y", set.GetVec2(field->GetIndex()).y);
-						writer.EndMap();
-						break;
-					case ResourceFieldType::Vec3:
-						writer.BeginMap(field->GetName());
-						writer.WriteFloat("x", set.GetVec3(field->GetIndex()).x);
-						writer.WriteFloat("y", set.GetVec3(field->GetIndex()).y);
-						writer.WriteFloat("z", set.GetVec3(field->GetIndex()).z);
-						writer.EndMap();
-						break;
-					case ResourceFieldType::Vec4:
-						writer.BeginMap(field->GetName());
-						writer.WriteFloat("x", set.GetVec4(field->GetIndex()).x);
-						writer.WriteFloat("y", set.GetVec4(field->GetIndex()).y);
-						writer.WriteFloat("z", set.GetVec4(field->GetIndex()).z);
-						writer.WriteFloat("w", set.GetVec4(field->GetIndex()).w);
-						writer.EndMap();
-						break;
-					case ResourceFieldType::Quat:
-						writer.BeginMap(field->GetName());
-						writer.WriteFloat("x", set.GetQuat(field->GetIndex()).x);
-						writer.WriteFloat("y", set.GetQuat(field->GetIndex()).y);
-						writer.WriteFloat("z", set.GetQuat(field->GetIndex()).z);
-						writer.WriteFloat("w", set.GetQuat(field->GetIndex()).w);
-						writer.EndMap();
-						break;
-					case ResourceFieldType::Color:
-						writer.BeginMap(field->GetName());
-						writer.WriteFloat("red", set.GetColor(field->GetIndex()).red);
-						writer.WriteFloat("green", set.GetColor(field->GetIndex()).green);
-						writer.WriteFloat("blue", set.GetColor(field->GetIndex()).blue);
-						writer.WriteFloat("alpha", set.GetColor(field->GetIndex()).alpha);
-						writer.EndMap();
-						break;
-					case ResourceFieldType::Enum:
-						writer.WriteInt(field->GetName(), set.GetInt(field->GetIndex()));
-						break;
-					case ResourceFieldType::Reference:
-						if (UUID uuid = GetUUID(set.GetReference(field->GetIndex())))
-						{
-							writer.WriteString(field->GetName(), uuid.ToString());
-						}
-						break;
-					case ResourceFieldType::ReferenceArray:
-						writer.BeginSeq(field->GetName());
-						for (const RID& reference : set.GetReferenceArray(field->GetIndex()))
-						{
-							if (UUID uuid = GetUUID(set.GetReference(field->GetIndex())))
-							{
-								writer.AddString(uuid.ToString());
-							}
-						}
-						writer.EndSeq();
-						break;
-					case ResourceFieldType::SubObject:
-						writer.BeginMap(field->GetName());
-						if (RID subobject = set.GetSubObject(field->GetIndex()))
-						{
-							Serialize(subobject, writer);
-						}
-						writer.EndMap();
-						break;
-					case ResourceFieldType::SubObjectSet:
-						writer.BeginSeq(field->GetName());
-						set.IterateSubObjectSet(field->GetIndex(), false, [](RID rid, VoidPtr userData)
-						{
-							ArchiveWriter& writer = *static_cast<ArchiveWriter*>(userData);
-
-							ResourceObject set = Read(rid);
-							if (!set) return true;
-
-							writer.BeginMap();
-							Serialize(rid, writer);
-							writer.EndMap();
-
-							return true;
-
-						}, &writer);
-						writer.EndSeq();
-						break;
+					writer.WriteString("_parent", storage->parent->uuid.ToString());
+					writer.WriteString("_parentField", storage->parent->resourceType->fields[storage->parentFieldIndex]->GetName());
 				}
+
+				if (storage->prototype && storage->prototype->uuid)
+				{
+					writer.WriteString("_prototype", storage->prototype->uuid.ToString());
+				}
+
+				writer.WriteString("_type", type->GetName());
+
+				for (ResourceField* field : type->GetFields())
+				{
+					if (set.HasValueOnThisObject(field->GetIndex()))
+					{
+						switch (field->GetType())
+						{
+							case ResourceFieldType::Bool:
+								writer.WriteBool(field->GetName(), set.GetBool(field->GetIndex()));
+								break;
+							case ResourceFieldType::Int:
+								writer.WriteInt(field->GetName(), set.GetInt(field->GetIndex()));
+								break;
+							case ResourceFieldType::UInt:
+								writer.WriteUInt(field->GetName(), set.GetUInt(field->GetIndex()));
+								break;
+							case ResourceFieldType::Float:
+								writer.WriteFloat(field->GetName(), set.GetFloat(field->GetIndex()));
+								break;
+							case ResourceFieldType::String:
+								writer.WriteString(field->GetName(), set.GetString(field->GetIndex()));
+								break;
+							case ResourceFieldType::Vec2:
+								writer.BeginMap(field->GetName());
+								writer.WriteFloat("x", set.GetVec2(field->GetIndex()).x);
+								writer.WriteFloat("y", set.GetVec2(field->GetIndex()).y);
+								writer.EndMap();
+								break;
+							case ResourceFieldType::Vec3:
+								writer.BeginMap(field->GetName());
+								writer.WriteFloat("x", set.GetVec3(field->GetIndex()).x);
+								writer.WriteFloat("y", set.GetVec3(field->GetIndex()).y);
+								writer.WriteFloat("z", set.GetVec3(field->GetIndex()).z);
+								writer.EndMap();
+								break;
+							case ResourceFieldType::Vec4:
+								writer.BeginMap(field->GetName());
+								writer.WriteFloat("x", set.GetVec4(field->GetIndex()).x);
+								writer.WriteFloat("y", set.GetVec4(field->GetIndex()).y);
+								writer.WriteFloat("z", set.GetVec4(field->GetIndex()).z);
+								writer.WriteFloat("w", set.GetVec4(field->GetIndex()).w);
+								writer.EndMap();
+								break;
+							case ResourceFieldType::Quat:
+								writer.BeginMap(field->GetName());
+								writer.WriteFloat("x", set.GetQuat(field->GetIndex()).x);
+								writer.WriteFloat("y", set.GetQuat(field->GetIndex()).y);
+								writer.WriteFloat("z", set.GetQuat(field->GetIndex()).z);
+								writer.WriteFloat("w", set.GetQuat(field->GetIndex()).w);
+								writer.EndMap();
+								break;
+							case ResourceFieldType::Color:
+								writer.BeginMap(field->GetName());
+								writer.WriteFloat("red", set.GetColor(field->GetIndex()).red);
+								writer.WriteFloat("green", set.GetColor(field->GetIndex()).green);
+								writer.WriteFloat("blue", set.GetColor(field->GetIndex()).blue);
+								writer.WriteFloat("alpha", set.GetColor(field->GetIndex()).alpha);
+								writer.EndMap();
+								break;
+							case ResourceFieldType::Enum:
+								writer.WriteInt(field->GetName(), set.GetInt(field->GetIndex()));
+								break;
+							case ResourceFieldType::Reference:
+								if (UUID uuid = GetUUID(set.GetReference(field->GetIndex())))
+								{
+									writer.WriteString(field->GetName(), uuid.ToString());
+								}
+								break;
+							case ResourceFieldType::ReferenceArray:
+								writer.BeginSeq(field->GetName());
+								for (const RID& reference : set.GetReferenceArray(field->GetIndex()))
+								{
+									if (UUID uuid = GetUUID(set.GetReference(field->GetIndex())))
+									{
+										writer.AddString(uuid.ToString());
+									}
+								}
+								writer.EndSeq();
+								break;
+							case ResourceFieldType::SubObject:
+								if (RID subobject = set.GetSubObject(field->GetIndex()))
+								{
+									pendingItems.Enqueue(subobject);
+								}
+								break;
+							case ResourceFieldType::SubObjectSet:
+								set.IterateSubObjectSet(field->GetIndex(), false, [&](RID subobject)
+								{
+									pendingItems.Enqueue(subobject);
+									return true;
+								});
+								break;
+						}
+					}
+				}
+				writer.EndMap();
+			} while (false);
+
+			current = {};
+			if (!pendingItems.IsEmpty())
+			{
+				current = pendingItems.Dequeue();
 			}
 		}
+		writer.EndSeq();
 	}
 
 	RID Resources::Deserialize(ArchiveReader& reader)
@@ -614,6 +631,17 @@ namespace Skore
 			DestroyAndFree(pages[i]);
 			pages[i] = nullptr;
 		}
+
+		for (const auto& it: typesById)
+		{
+			for (ResourceType* type : it.second)
+			{
+				DestroyAndFree(type);
+			}
+		}
+
+		typesById.Clear();
+		typesByName.Clear();
 
 		byUUID.Clear();
 		// byPath.Clear();

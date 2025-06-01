@@ -66,12 +66,12 @@ namespace
 			RID test = Resources::Create<ResourceTest>(UUID::RandomUUID());
 			CHECK(test.id == 1);
 
-			RID subobject = Resources::Create<ResourceTest>();
+			RID subobject = Resources::Create<ResourceTest>(UUID::RandomUUID());
 
 			Array<RID> subobjects;
 			for (int i = 0; i < 5; ++i)
 			{
-				subobjects.EmplaceBack(Resources::Create<ResourceTest>());
+				subobjects.EmplaceBack(Resources::Create<ResourceTest>(UUID::RandomUUID()));
 			}
 
 			{
@@ -121,19 +121,6 @@ namespace
 
 				CHECK(read.GetInt(ResourceTest::IntValue) == 10);
 				CHECK(read.GetString(ResourceTest::StringValue) == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-
-				YamlArchiveWriter writer;
-				Resources::Serialize(test, writer);
-				String str = writer.EmitAsString();
-
-				//TODO complete tests
-				CHECK(str.Size() > 0);
-				// std::cout << str.CStr() << std::endl;
-
-				YamlArchiveReader reader(str.CStr());
-				RID               newResource = Resources::Deserialize(reader);
-
-				//	CHECK(newResource);
 			}
 
 			RID clone = Resources::Clone(test);
@@ -329,5 +316,83 @@ namespace
 		}
 
 		ResourceShutdown();
+	}
+
+	TEST_CASE("Resource::Serialization")
+	{
+
+		UUID uuids[6] = {
+			UUID::RandomUUID(),
+			UUID::RandomUUID(),
+			UUID::RandomUUID(),
+			UUID::RandomUUID(),
+			UUID::RandomUUID(),
+			UUID::RandomUUID()
+		};
+
+		String yaml = "";
+		{
+			ResourceInit();
+
+			{
+				Resources::Type<ResourceTest>()
+					.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
+					.Field<ResourceTest::StringValue>(ResourceFieldType::String)
+					.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
+					.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
+					.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
+					.Build();
+			}
+
+			{
+
+				RID rid = Resources::Create<ResourceTest>(uuids[0]);
+
+				ResourceObject write = Resources::Write(rid);
+				write.SetInt(ResourceTest::IntValue, 33);
+				write.SetString(ResourceTest::StringValue, "44");
+
+
+				for (u32 i = 0; i < 5; ++i)
+				{
+					RID subobject = Resources::Create<ResourceTest>(uuids[i+1]);
+					ResourceObject subObjectWrite = Resources::Write(subobject);
+					subObjectWrite.SetInt(ResourceTest::IntValue, i);
+					subObjectWrite.Commit();
+
+					write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject);
+				}
+
+				write.Commit();
+
+				YamlArchiveWriter writer;
+				Resources::Serialize(rid, writer);
+				yaml = writer.EmitAsString();
+			}
+			ResourceShutdown();
+		}
+
+		//TODO complete tests
+		REQUIRE(yaml.Size() > 0);
+		std::cout << yaml.CStr() << std::endl;
+
+		{
+			ResourceInit();
+			{
+				Resources::Type<ResourceTest>()
+					.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
+					.Field<ResourceTest::StringValue>(ResourceFieldType::String)
+					.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
+					.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
+					.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
+					.Build();
+			}
+
+			YamlArchiveReader reader(yaml.CStr());
+			RID newResource = Resources::Deserialize(reader);
+			CHECK(newResource);
+
+			ResourceShutdown();
+		}
 	}
 }

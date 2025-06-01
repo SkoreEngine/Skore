@@ -94,9 +94,11 @@ namespace Skore
 		bool       HasSubObjectSet(u32 index, RID rid) const;
 		void       IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const;
 
-		RID           GetRID() const;
-		UUID          GetUUID() const;
-		ResourceType* GetType() const;
+		RID              GetRID() const;
+		RID              GetPrototype() const;
+		UUID             GetUUID() const;
+		ResourceType*    GetType() const;
+		ResourceStorage* GetStorage() const;
 
 		void Commit(UndoRedoScope* scope = nullptr);
 

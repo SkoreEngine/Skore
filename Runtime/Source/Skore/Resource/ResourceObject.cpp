@@ -470,6 +470,11 @@ namespace Skore
 		return storage->rid;
 	}
 
+	RID ResourceObject::GetPrototype() const
+	{
+		return storage->prototype ? storage->prototype->rid : RID();
+	}
+
 	UUID ResourceObject::GetUUID() const
 	{
 		return storage->uuid;
@@ -478,6 +483,11 @@ namespace Skore
 	ResourceType* ResourceObject::GetType() const
 	{
 		return storage->resourceType;
+	}
+
+	ResourceStorage* ResourceObject::GetStorage() const
+	{
+		return storage;
 	}
 
 	void ResourceObject::Commit(UndoRedoScope* scope)
