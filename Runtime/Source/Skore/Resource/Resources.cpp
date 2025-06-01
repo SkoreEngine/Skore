@@ -157,6 +157,55 @@ namespace Skore
 		}
 	}
 
+	//clone = recreate subobjects
+	ResourceInstance CreateResourceInstanceClone(ResourceType* type, ResourceInstance origin)
+	{
+		if (origin == nullptr || type == nullptr) return nullptr;
+
+		ResourceInstance instance = type->Allocate();
+		*reinterpret_cast<ResourceInstanceInfo*>(instance) = *reinterpret_cast<ResourceInstanceInfo*>(origin);
+		memcpy(instance + sizeof(ResourceInstanceInfo), origin + sizeof(ResourceInstanceInfo), type->GetFields().Size());
+
+		for (ResourceField* field : type->GetFields())
+		{
+			if (*reinterpret_cast<bool*>(&instance[sizeof(ResourceInstanceInfo) + field->GetIndex()]))
+			{
+				switch (field->GetType())
+				{
+					case ResourceFieldType::ReferenceArray:
+						new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
+						break;
+					case ResourceFieldType::SubObject:
+					{
+						RID clone = Resources::Clone(*reinterpret_cast<RID*>(&origin[field->GetOffset()]));
+						new(reinterpret_cast<RID*>(&instance[field->GetOffset()])) RID(clone);
+						break;
+					}
+					case ResourceFieldType::SubObjectSet:
+					{
+						const SubObjectSet& subObjectSet = *reinterpret_cast<SubObjectSet*>(&origin[field->GetOffset()]);
+
+						SubObjectSet copySuobjectSet;
+						copySuobjectSet.prototypeRemoved = subObjectSet.prototypeRemoved;
+						for (RID subobject : subObjectSet.subObjects)
+						{
+							copySuobjectSet.subObjects.Emplace(Resources::Clone(subobject));
+						}
+						new(reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])) SubObjectSet{copySuobjectSet};
+						break;
+					}
+					case ResourceFieldType::String:
+						new(reinterpret_cast<String*>(&instance[field->GetOffset()])) String(*reinterpret_cast<String*>(&origin[field->GetOffset()]));
+						break;
+					default:
+						memcpy(&instance[field->GetOffset()], &origin[field->GetOffset()], field->GetSize());
+						break;
+				}
+			}
+		}
+		return instance;
+	}
+
 	ResourceInstance CreateResourceInstanceCopy(ResourceType* type, ResourceInstance origin)
 	{
 		if (origin == nullptr || type == nullptr) return nullptr;
@@ -353,7 +402,7 @@ namespace Skore
 		if (storage->resourceType &&  storage->resourceType->defaultValue)
 		{
 			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
-			storage->instance = CreateResourceInstanceCopy(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
+			storage->instance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
 		}
 
 		return rid;
@@ -374,7 +423,7 @@ namespace Skore
 		if (storage->resourceType && storage->resourceType->defaultValue)
 		{
 			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
-			storage->instance = CreateResourceInstanceCopy(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
+			storage->instance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
 		}
 
 		return rid;
@@ -388,7 +437,7 @@ namespace Skore
 
 		ResourceStorage* storage = GetOrAllocate(rid, uuid);
 
-		storage->instance = CreateResourceInstanceCopy(originStorage->resourceType, originStorage->instance.load());
+		storage->instance = CreateResourceInstanceClone(originStorage->resourceType, originStorage->instance.load());
 		storage->resourceType = originStorage->resourceType;
 		storage->prototype = originStorage->prototype;
 

@@ -47,60 +47,38 @@ namespace
 			StringValue,
 			IntValue,
 			SubObject,
-			SubObjectSet
+			SubObjectSet,
+			RefArray
 		};
 	};
 
-	TEST_CASE("Resource::Clone")
+	void RegisterTestTypes()
 	{
-		ResourceInit();
-		{
-			Resources::Type<ResourceTest>()
-				.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
-				.Field<ResourceTest::StringValue>(ResourceFieldType::String)
-				.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
-				.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
-				.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
-				.Build();
-
-			RID rid = Resources::Create<ResourceTest>();
-			CHECK(rid.id == 1);
-
-			ResourceObject write = Resources::Write(rid);
-			write.SetInt(ResourceTest::IntValue, 10);
-			write.SetString(ResourceTest::StringValue, "blegh");
-			write.Commit();
-
-
-			RID clone = Resources::Clone(rid);
-			CHECK(clone != rid);
-
-			ResourceObject readClone = Resources::Read(clone);
-			CHECK(readClone.GetInt(ResourceTest::IntValue) == 10);
-			CHECK(readClone.GetString(ResourceTest::StringValue) == "blegh");
-		}
-		ResourceShutdown();
+		Resources::Type<ResourceTest>()
+			.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
+			.Field<ResourceTest::StringValue>(ResourceFieldType::String)
+			.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
+			.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
+			.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
+			.Field<ResourceTest::RefArray>(ResourceFieldType::ReferenceArray)
+			.Build();
 	}
+
 
 	TEST_CASE("Resource::DefaultValues")
 	{
 		ResourceInit();
 		{
-			ResourceType* resourceType = Resources::Type<ResourceTest>()
-							 .Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
-							 .Field<ResourceTest::StringValue>(ResourceFieldType::String)
-							 .Field<ResourceTest::IntValue>(ResourceFieldType::Int)
-							 .Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
-							 .Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
-							 .Build()
-							 .GetResourceType();
+			RegisterTestTypes();
 
-			RID defaultValue = Resources::Create<ResourceTest>();
+			RID            defaultValue = Resources::Create<ResourceTest>();
 			ResourceObject write = Resources::Write(defaultValue);
 			write.SetString(ResourceTest::StringValue, "strtest");
 			write.SetInt(ResourceTest::IntValue, 42);
 			write.SetBool(ResourceTest::BoolValue, true);
 			write.Commit();
+
+			ResourceType* resourceType = Resources::FindType<ResourceTest>();
 			resourceType->SetDefaultValue(defaultValue);
 		}
 
@@ -119,15 +97,7 @@ namespace
 	{
 		ResourceInit();
 		{
-			{
-				Resources::Type<ResourceTest>()
-					.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
-					.Field<ResourceTest::StringValue>(ResourceFieldType::String)
-					.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
-					.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
-					.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
-					.Build();
-			}
+			RegisterTestTypes();
 
 			RID test = Resources::Create<ResourceTest>(UUID::RandomUUID());
 			CHECK(test);
@@ -138,6 +108,11 @@ namespace
 			for (int i = 0; i < 5; ++i)
 			{
 				subobjects.EmplaceBack(Resources::Create<ResourceTest>(UUID::RandomUUID()));
+			}
+			Array<RID> refs;
+			for (int i = 0; i < 5; ++i)
+			{
+				refs.EmplaceBack(Resources::Create<ResourceTest>(UUID::RandomUUID()));
 			}
 
 			{
@@ -165,36 +140,88 @@ namespace
 				write.SetInt(ResourceTest::IntValue, 10);
 				write.SetString(ResourceTest::StringValue, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 				write.SetSubObject(ResourceTest::SubObject, subobject);
-
-				for (int i = 0; i < 5; ++i)
-				{
-					write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobjects[i]);
-				}
+				write.SetReferenceArray(ResourceTest::RefArray, refs);
+				write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobjects);
 
 				write.Commit();
 			}
 
-
 			Resources::GarbageCollect();
 
+			ResourceObject read = Resources::Read(test);
+			CHECK(!read.HasValue(ResourceTest::BoolValue));
+			CHECK(read.HasValue(ResourceTest::StringValue));
+			CHECK(read.HasValue(ResourceTest::IntValue));
+
+			CHECK(read.GetInt(ResourceTest::IntValue) == 10);
+			CHECK(read.GetString(ResourceTest::StringValue) == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+			CHECK(read.GetReferenceArray(ResourceTest::RefArray) == refs);
+			CHECK(read.GetSubObject(ResourceTest::SubObject) == subobject);
+		}
+		ResourceShutdown();
+	}
+
+	TEST_CASE("Resource::Clone")
+	{
+		ResourceInit();
+		{
+			RegisterTestTypes();
+
+			RID subobject = Resources::Create<ResourceTest>();
 			{
-				ResourceObject read = Resources::Read(test);
-
-				CHECK(!read.HasValue(ResourceTest::BoolValue));
-				CHECK(read.HasValue(ResourceTest::StringValue));
-				CHECK(read.HasValue(ResourceTest::IntValue));
-
-				CHECK(read.GetInt(ResourceTest::IntValue) == 10);
-				CHECK(read.GetString(ResourceTest::StringValue) == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+				ResourceObject write = Resources::Write(subobject);
+				write.SetString(ResourceTest::StringValue, "subobject");
+				write.Commit();
 			}
 
-			RID clone = Resources::Clone(test);
+			RID subobjectToSet = Resources::Create<ResourceTest>();
 			{
-				CHECK(clone != test);
-				ResourceObject readClone = Resources::Read(clone);
-				CHECK(readClone.GetInt(ResourceTest::IntValue) == 10);
-				CHECK(readClone.GetString(ResourceTest::StringValue) == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+				ResourceObject write = Resources::Write(subobjectToSet);
+				write.SetString(ResourceTest::StringValue, "subobjectToSet");
+				write.Commit();
 			}
+
+			RID rid = Resources::Create<ResourceTest>();
+			CHECK(rid.id);
+
+			ResourceObject write = Resources::Write(rid);
+			write.SetInt(ResourceTest::IntValue, 10);
+			write.SetString(ResourceTest::StringValue, "blegh");
+			write.SetSubObject(ResourceTest::SubObject, subobject);
+			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobjectToSet);
+			write.Commit();
+
+			RID clone = Resources::Clone(rid);
+			CHECK(clone != rid);
+
+			ResourceObject readClone = Resources::Read(clone);
+			CHECK(readClone.GetInt(ResourceTest::IntValue) == 10);
+			CHECK(readClone.GetString(ResourceTest::StringValue) == "blegh");
+
+			{
+				RID subobjectClone = readClone.GetSubObject(ResourceTest::SubObject);
+				CHECK(subobjectClone != subobject);
+
+				ResourceObject subobjectReadClone = Resources::Read(subobjectClone);
+				CHECK(subobjectReadClone.GetString(ResourceTest::StringValue) == "subobject");
+			}
+
+
+			HashSet<RID> arr = ToHashSet<RID>(readClone.GetSubObjectSetAsArray(ResourceTest::SubObjectSet));
+			CHECK(arr.Size() == 1);
+			arr.Erase(subobjectToSet);
+			CHECK(arr.Size() == 1);
+
+			auto it = arr.begin();
+
+			{
+				RID subobjectClone = *it;
+				CHECK(subobjectClone != subobjectToSet);
+
+				ResourceObject subobjectReadClone = Resources::Read(subobjectClone);
+				CHECK(subobjectReadClone.GetString(ResourceTest::StringValue) == "subobjectToSet");
+			}
+
 
 			Resources::Destroy(clone);
 		}
@@ -287,16 +314,8 @@ namespace
 	TEST_CASE("Resource::Prototypes")
 	{
 		ResourceInit();
+		RegisterTestTypes();
 
-		{
-			Resources::Type<ResourceTest>()
-				.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
-				.Field<ResourceTest::StringValue>(ResourceFieldType::String)
-				.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
-				.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
-				.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
-				.Build();
-		}
 
 		RID prototype = Resources::Create<ResourceTest>();
 		RID subobject1 = Resources::Create<ResourceTest>();
@@ -341,15 +360,7 @@ namespace
 	{
 		ResourceInit();
 
-		{
-			Resources::Type<ResourceTest>()
-				.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
-				.Field<ResourceTest::StringValue>(ResourceFieldType::String)
-				.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
-				.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
-				.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
-				.Build();
-		}
+		RegisterTestTypes();
 
 		RID rid = Resources::Create<ResourceTest>();
 		RID subobject = Resources::Create<ResourceTest>();
@@ -416,15 +427,7 @@ namespace
 		{
 			ResourceInit();
 
-			{
-				Resources::Type<ResourceTest>()
-					.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
-					.Field<ResourceTest::StringValue>(ResourceFieldType::String)
-					.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
-					.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
-					.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
-					.Build();
-			}
+			RegisterTestTypes();
 
 			{
 				RID rid = Resources::Create<ResourceTest>(uuids[0]);
@@ -458,15 +461,7 @@ namespace
 
 		{
 			ResourceInit();
-			{
-				Resources::Type<ResourceTest>()
-					.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
-					.Field<ResourceTest::StringValue>(ResourceFieldType::String)
-					.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
-					.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
-					.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
-					.Build();
-			}
+			RegisterTestTypes();
 
 			YamlArchiveReader reader(yaml.CStr());
 			RID               newResource = Resources::Deserialize(reader);

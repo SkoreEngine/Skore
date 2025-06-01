@@ -51,6 +51,12 @@ namespace Skore
 			return Type(TypeInfo<T>::ID(), TypeInfo<T>::Name());
 		}
 
+		template <typename T>
+		static ResourceType* FindType()
+		{
+			return FindTypeByID(TypeInfo<T>::ID());
+		}
+
 		//resource API
 		static RID            Create(TypeID typeId, UUID uuid = {}, UndoRedoScope* scope = nullptr);
 		static RID            CreateFromPrototype(RID rid, UUID uuid = {}, UndoRedoScope* scope = nullptr);
