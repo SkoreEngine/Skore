@@ -61,9 +61,11 @@ namespace Skore
 		static void           Destroy(RID rid, UndoRedoScope* scope = nullptr);
 		static u64            GetVersion(RID rid);
 		static UUID           GetUUID(RID rid);
+		static RID			  FindByUUID(const UUID& uuid);
+		static RID			  FindOrReserveByUUID(const UUID& uuid);
 
 		static void Serialize(RID rid, ArchiveWriter& writer);
-		static RID  Deserialize(ArchiveReader& reader);
+		static RID  Deserialize(ArchiveReader& reader, UndoRedoScope* scope = nullptr);
 
 		static bool ToResource(RID rid, ConstPtr instance, UndoRedoScope* scope = nullptr);
 		static bool FromResource(RID rid, VoidPtr instance);

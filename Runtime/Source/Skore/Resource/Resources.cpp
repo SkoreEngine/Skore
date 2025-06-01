@@ -152,7 +152,7 @@ namespace Skore
 			while (current != nullptr)
 			{
 				++current->version;
-				current = resourceStorage->parent;
+				current = current->parent;
 			}
 		}
 	}
@@ -307,7 +307,7 @@ namespace Skore
 
 	RID Resources::Create(TypeID typeId, UUID uuid, UndoRedoScope* scope)
 	{
-		RID              rid = GetID(uuid);
+		RID rid = GetID(uuid);
 		ResourceStorage* storage = GetOrAllocate(rid, uuid);
 		storage->instance = nullptr;
 		storage->resourceType = FindTypeByID(typeId);
@@ -409,6 +409,24 @@ namespace Skore
 		return storage->uuid;
 	}
 
+	RID Resources::FindByUUID(const UUID& uuid)
+	{
+		if (uuid)
+		{
+			std::unique_lock lock(byUUIDMutex);
+			if (auto it = byUUID.Find(uuid))
+			{
+				return it->second;
+			}
+		}
+		return {};
+	}
+
+	RID Resources::FindOrReserveByUUID(const UUID& uuid)
+	{
+		return GetID(uuid);
+	}
+
 	void Resources::Serialize(RID ridx, ArchiveWriter& writer)
 	{
 		RID        current = ridx;
@@ -428,7 +446,7 @@ namespace Skore
 				if (!set) return;
 
 				writer.WriteString("_uuid", storage->uuid.ToString());
-				ResourceType* type = set.GetType();
+				writer.WriteString("_type", storage->resourceType->GetName());
 
 				if (storage->parent && storage->parent->uuid && storage->parentFieldIndex != U32_MAX)
 				{
@@ -441,9 +459,7 @@ namespace Skore
 					writer.WriteString("_prototype", storage->prototype->uuid.ToString());
 				}
 
-				writer.WriteString("_type", type->GetName());
-
-				for (ResourceField* field : type->GetFields())
+				for (ResourceField* field : storage->resourceType->GetFields())
 				{
 					if (set.HasValueOnThisObject(field->GetIndex()))
 					{
@@ -495,10 +511,10 @@ namespace Skore
 								break;
 							case ResourceFieldType::Color:
 								writer.BeginMap(field->GetName());
-								writer.WriteFloat("red", set.GetColor(field->GetIndex()).red);
-								writer.WriteFloat("green", set.GetColor(field->GetIndex()).green);
-								writer.WriteFloat("blue", set.GetColor(field->GetIndex()).blue);
-								writer.WriteFloat("alpha", set.GetColor(field->GetIndex()).alpha);
+								writer.WriteUInt("red", set.GetColor(field->GetIndex()).red);
+								writer.WriteUInt("green", set.GetColor(field->GetIndex()).green);
+								writer.WriteUInt("blue", set.GetColor(field->GetIndex()).blue);
+								writer.WriteUInt("alpha", set.GetColor(field->GetIndex()).alpha);
 								writer.EndMap();
 								break;
 							case ResourceFieldType::Enum:
@@ -549,11 +565,161 @@ namespace Skore
 		writer.EndSeq();
 	}
 
-	RID Resources::Deserialize(ArchiveReader& reader)
+	RID Resources::Deserialize(ArchiveReader& reader, UndoRedoScope* scope)
 	{
-		StringView typeName = reader.ReadString("_type");
-		if (ResourceType* type = FindTypeByName(typeName)) {}
-		return RID{};
+		reader.BeginSeq("objects");
+
+		RID root = {};
+
+		while (reader.NextSeqEntry())
+		{
+			reader.BeginMap();
+
+			UUID uuid = UUID::FromString(reader.ReadString("_uuid"));
+
+			RID rid = GetID(uuid);
+			if (!root)
+			{
+				root = rid;
+			}
+
+			ResourceStorage* storage = GetOrAllocate(rid, uuid);
+			storage->instance = nullptr;
+			storage->resourceType = FindTypeByName(reader.ReadString("_type"));
+
+			if (RID prototype = FindByUUID(UUID::FromString(reader.ReadString("_prototype"))))
+			{
+				storage->prototype = GetStorage(prototype);
+			}
+
+			ResourceObject write = Write(rid);
+
+			while (reader.NextMapEntry())
+			{
+				StringView fieldName = reader.GetCurrentKey();
+				if (ResourceField* field = storage->resourceType->FindFieldByName(fieldName))
+				{
+					switch (field->GetType())
+					{
+						case ResourceFieldType::Bool:
+							write.SetBool(field->GetIndex(), reader.GetBool());
+							break;
+						case ResourceFieldType::Int:
+							write.SetInt(field->GetIndex(), reader.GetInt());
+							break;
+						case ResourceFieldType::UInt:
+							write.SetUInt(field->GetIndex(), reader.GetUInt());
+							break;
+						case ResourceFieldType::Float:
+							write.SetFloat(field->GetIndex(), reader.GetFloat());
+							break;
+						case ResourceFieldType::String:
+							write.SetString(field->GetIndex(), reader.GetString());
+							break;
+						case ResourceFieldType::Vec2:
+						{
+							reader.BeginMap();
+							Vec2 vec;
+							vec.x = static_cast<Float>(reader.ReadFloat("x"));
+							vec.y = static_cast<Float>(reader.ReadFloat("y"));
+							write.SetVec2(field->GetIndex(), vec);
+							reader.EndMap();
+							break;
+						}
+						case ResourceFieldType::Vec3:
+						{
+							reader.BeginMap();
+							Vec3 vec;
+							vec.x = static_cast<Float>(reader.ReadFloat("x"));
+							vec.y = static_cast<Float>(reader.ReadFloat("y"));
+							vec.z = static_cast<Float>(reader.ReadFloat("z"));
+							write.SetVec3(field->GetIndex(), vec);
+							reader.EndMap();
+							break;
+						}
+						case ResourceFieldType::Vec4:
+						{
+							reader.BeginMap();
+							Vec4 vec;
+							vec.x = static_cast<Float>(reader.ReadFloat("x"));
+							vec.y = static_cast<Float>(reader.ReadFloat("y"));
+							vec.z = static_cast<Float>(reader.ReadFloat("z"));
+							vec.w = static_cast<Float>(reader.ReadFloat("w"));
+							write.SetVec4(field->GetIndex(), vec);
+							reader.EndMap();
+							break;
+						}
+						case ResourceFieldType::Quat:
+						{
+							reader.BeginMap();
+							Quat quat;
+							quat.x = static_cast<Float>(reader.ReadFloat("x"));
+							quat.y = static_cast<Float>(reader.ReadFloat("y"));
+							quat.z = static_cast<Float>(reader.ReadFloat("z"));
+							quat.w = static_cast<Float>(reader.ReadFloat("w"));
+							write.SetQuat(field->GetIndex(), quat);
+							reader.EndMap();
+							break;
+						}
+						case ResourceFieldType::Color:
+						{
+							reader.BeginMap();
+							Color color;
+							color.red = reader.ReadUInt("red");
+							color.green = reader.ReadUInt("green");
+							color.blue = reader.ReadUInt("blue");
+							color.alpha = reader.ReadUInt("alpha");
+							write.SetColor(field->GetIndex(), color);
+							reader.EndMap();
+							break;
+						}
+						case ResourceFieldType::Enum:
+							write.SetInt(field->GetIndex(), reader.GetInt());
+							break;
+						case ResourceFieldType::Reference:
+							if (RID rid = FindByUUID(UUID::FromString(reader.GetString())))
+							{
+								write.SetReference(field->GetIndex(), rid);
+							}
+							break;
+						case ResourceFieldType::ReferenceArray:
+						{
+							reader.BeginSeq();
+							Array<RID> references;
+							while (reader.NextSeqEntry())
+							{
+								references.EmplaceBack(FindOrReserveByUUID(UUID::FromString(reader.GetString())));
+							}
+							write.SetReferenceArray(field->GetIndex(), references);
+							reader.EndSeq();
+							break;
+						}
+					}
+				}
+			}
+
+			write.Commit(scope);
+
+			if (RID parent = FindByUUID(UUID::FromString(reader.ReadString("_parent"))))
+			{
+				ResourceStorage* parentStorage = GetStorage(parent);
+				if (parentStorage->resourceType)
+				{
+					if (ResourceField* field = parentStorage->resourceType->FindFieldByName(reader.ReadString("_parentField")))
+					{
+						ResourceObject parentObject = Write(parent);
+						parentObject.AddToSubObjectSet(field->GetIndex(), rid);
+						parentObject.Commit(scope);
+					}
+				}
+			}
+
+			reader.EndMap();
+		}
+
+		reader.EndSeq();
+
+		return root;
 	}
 
 	bool Resources::ToResource(RID rid, ConstPtr instance, UndoRedoScope* scope)

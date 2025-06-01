@@ -54,6 +54,7 @@ namespace Skore
 		void SetColor(u32 index, Color value);
 		void SetEnum(u32 index, i64 enumValue);
 		void SetReference(u32 index, RID rid);
+		void SetReferenceArray(u32 index, Span<RID> refs);
 		void SetSubObject(u32 index, RID subObject);
 
 		//subobjects

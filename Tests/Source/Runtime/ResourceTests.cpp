@@ -372,9 +372,8 @@ namespace
 			ResourceShutdown();
 		}
 
-		//TODO complete tests
 		REQUIRE(yaml.Size() > 0);
-		std::cout << yaml.CStr() << std::endl;
+		//std::cout << yaml.CStr() << std::endl;
 
 		{
 			ResourceInit();
@@ -391,6 +390,21 @@ namespace
 			YamlArchiveReader reader(yaml.CStr());
 			RID newResource = Resources::Deserialize(reader);
 			CHECK(newResource);
+
+			ResourceObject read = Resources::Read(newResource);
+			CHECK(read.GetUUID() == uuids[0]);
+			CHECK(read.GetInt(ResourceTest::IntValue) == 33);
+			CHECK(read.GetString(ResourceTest::StringValue) == "44");
+
+			Array<RID> subobjects = read.GetSubObjectSetAsArray(ResourceTest::SubObjectSet);
+			CHECK(subobjects.Size() == 5);
+
+			for (u32 i = 0; i < subobjects.Size(); ++i)
+			{
+				ResourceObject subRead = Resources::Read(subobjects[i]);
+				CHECK(subRead.GetUUID() == uuids[i + 1]);
+				CHECK(subRead.GetInt(ResourceTest::IntValue) == i);
+			}
 
 			ResourceShutdown();
 		}

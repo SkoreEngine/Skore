@@ -72,6 +72,7 @@ namespace Skore
 		u32                  GetAllocSize() const;
 		ReflectType*         GetReflectType() const;
 		Span<ResourceField*> GetFields() const;
+		ResourceField*       FindFieldByName(StringView name) const;
 
 		friend class ResourceTypeBuilder;
 		friend class ResourceObject;

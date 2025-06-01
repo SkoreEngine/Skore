@@ -134,6 +134,18 @@ namespace Skore
 		return fields;
 	}
 
+	ResourceField* ResourceType::FindFieldByName(StringView name) const
+	{
+		for (ResourceField* field : fields)
+		{
+			if (field->name == name)
+			{
+				return field;
+			}
+		}
+		return nullptr;
+	}
+
 	ResourceTypeBuilder& ResourceTypeBuilder::Field(u32 index, StringView name, ResourceFieldType type)
 	{
 		Field(index, name, type, 0);
