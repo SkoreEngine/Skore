@@ -167,20 +167,23 @@ namespace Skore
 
 		for (ResourceField* field : type->GetFields())
 		{
-			switch (field->GetType())
+			if (*reinterpret_cast<bool*>(&instance[sizeof(ResourceInstanceInfo) + field->GetIndex()]))
 			{
-				case ResourceFieldType::ReferenceArray:
-					new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
-					break;
-				case ResourceFieldType::SubObjectSet:
-					new(reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])) SubObjectSet(*reinterpret_cast<SubObjectSet*>(&origin[field->GetOffset()]));
-					break;
-				case ResourceFieldType::String:
-					new(reinterpret_cast<String*>(&instance[field->GetOffset()])) String(*reinterpret_cast<String*>(&origin[field->GetOffset()]));
-					break;
-				default:
-					memcpy(&instance[field->GetOffset()], &origin[field->GetOffset()], field->GetSize());
-					break;
+				switch (field->GetType())
+				{
+					case ResourceFieldType::ReferenceArray:
+						new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
+						break;
+					case ResourceFieldType::SubObjectSet:
+						new(reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])) SubObjectSet(*reinterpret_cast<SubObjectSet*>(&origin[field->GetOffset()]));
+						break;
+					case ResourceFieldType::String:
+						new(reinterpret_cast<String*>(&instance[field->GetOffset()])) String(*reinterpret_cast<String*>(&origin[field->GetOffset()]));
+						break;
+					default:
+						memcpy(&instance[field->GetOffset()], &origin[field->GetOffset()], field->GetSize());
+						break;
+				}
 			}
 		}
 		return instance;
@@ -251,6 +254,33 @@ namespace Skore
 
 		ResourceType* type = builder.GetResourceType();
 		type->reflectType = reflectType;
+
+		//default value
+		if (ReflectConstructor* defaultConstructor = reflectType->GetDefaultConstructor())
+		{
+			RID rid = GetID({});
+			ResourceStorage* storage = GetOrAllocate(rid, {});
+			storage->resourceType = type;
+			storage->instance = nullptr;
+
+			char buffer[128];
+			VoidPtr ptr = &buffer;
+
+			if (reflectType->GetProps().size >= 128)
+			{
+				ptr = MemAlloc(reflectType->GetProps().size);
+			}
+
+			defaultConstructor->Construct(ptr, nullptr);
+			ToResource(rid, ptr, nullptr);
+			type->defaultValue = rid;
+
+			if (reflectType->GetProps().size >= 128)
+			{
+				DestroyAndFree(ptr);
+			}
+		}
+
 		return type;
 	}
 
@@ -320,6 +350,12 @@ namespace Skore
 			}
 		}
 
+		if (storage->resourceType &&  storage->resourceType->defaultValue)
+		{
+			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
+			storage->instance = CreateResourceInstanceCopy(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
+		}
+
 		return rid;
 	}
 
@@ -334,6 +370,12 @@ namespace Skore
 		storage->instance = nullptr;
 		storage->resourceType = prototype->resourceType;
 		storage->prototype = prototype;
+
+		if (storage->resourceType && storage->resourceType->defaultValue)
+		{
+			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
+			storage->instance = CreateResourceInstanceCopy(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
+		}
 
 		return rid;
 	}

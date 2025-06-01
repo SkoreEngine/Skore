@@ -73,6 +73,7 @@ namespace Skore
 		ReflectType*         GetReflectType() const;
 		Span<ResourceField*> GetFields() const;
 		ResourceField*       FindFieldByName(StringView name) const;
+		void				 SetDefaultValue(RID defaultValue);
 
 		friend class ResourceTypeBuilder;
 		friend class ResourceObject;
@@ -111,7 +112,7 @@ namespace Skore
 			return Field(static_cast<u32>(T), GetEnumValueName<T>(), type, subType);
 		}
 
-		void Build() const;
+		ResourceTypeBuilder& Build();
 
 		ResourceType* GetResourceType() const;
 

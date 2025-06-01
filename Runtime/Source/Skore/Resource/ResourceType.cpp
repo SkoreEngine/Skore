@@ -146,6 +146,11 @@ namespace Skore
 		return nullptr;
 	}
 
+	void ResourceType::SetDefaultValue(RID defaultValue)
+	{
+		this->defaultValue = defaultValue;
+	}
+
 	ResourceTypeBuilder& ResourceTypeBuilder::Field(u32 index, StringView name, ResourceFieldType type)
 	{
 		Field(index, name, type, 0);
@@ -170,7 +175,7 @@ namespace Skore
 		return *this;
 	}
 
-	void ResourceTypeBuilder::Build() const
+	ResourceTypeBuilder& ResourceTypeBuilder::Build()
 	{
 		//info
 		resourceType->allocSize = sizeof(ResourceInstanceInfo);
@@ -187,6 +192,8 @@ namespace Skore
 			field->offset = resourceType->allocSize;
 			resourceType->allocSize += Math::Max(props.size, props.align);
 		}
+
+		return *this;
 	}
 
 	ResourceType* ResourceTypeBuilder::GetResourceType() const

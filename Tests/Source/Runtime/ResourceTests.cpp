@@ -51,7 +51,7 @@ namespace
 		};
 	};
 
-	TEST_CASE("Resource::Basics")
+	TEST_CASE("Resource::Clone")
 	{
 		ResourceInit();
 		{
@@ -63,8 +63,74 @@ namespace
 				.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
 				.Build();
 
+			RID rid = Resources::Create<ResourceTest>();
+			CHECK(rid.id == 1);
+
+			ResourceObject write = Resources::Write(rid);
+			write.SetInt(ResourceTest::IntValue, 10);
+			write.SetString(ResourceTest::StringValue, "blegh");
+			write.Commit();
+
+
+			RID clone = Resources::Clone(rid);
+			CHECK(clone != rid);
+
+			ResourceObject readClone = Resources::Read(clone);
+			CHECK(readClone.GetInt(ResourceTest::IntValue) == 10);
+			CHECK(readClone.GetString(ResourceTest::StringValue) == "blegh");
+		}
+		ResourceShutdown();
+	}
+
+	TEST_CASE("Resource::DefaultValues")
+	{
+		ResourceInit();
+		{
+			ResourceType* resourceType = Resources::Type<ResourceTest>()
+							 .Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
+							 .Field<ResourceTest::StringValue>(ResourceFieldType::String)
+							 .Field<ResourceTest::IntValue>(ResourceFieldType::Int)
+							 .Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
+							 .Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
+							 .Build()
+							 .GetResourceType();
+
+			RID defaultValue = Resources::Create<ResourceTest>();
+			ResourceObject write = Resources::Write(defaultValue);
+			write.SetString(ResourceTest::StringValue, "strtest");
+			write.SetInt(ResourceTest::IntValue, 42);
+			write.SetBool(ResourceTest::BoolValue, true);
+			write.Commit();
+			resourceType->SetDefaultValue(defaultValue);
+		}
+
+		RID rid = Resources::Create<ResourceTest>();
+
+		ResourceObject read = Resources::Read(rid);
+		CHECK(read.GetInt(ResourceTest::IntValue) == 42);
+		CHECK(read.GetString(ResourceTest::StringValue) == "strtest");
+		CHECK(read.GetBool(ResourceTest::BoolValue) == true);
+
+		ResourceShutdown();
+	}
+
+
+	TEST_CASE("Resource::AllBasics")
+	{
+		ResourceInit();
+		{
+			{
+				Resources::Type<ResourceTest>()
+					.Field<ResourceTest::BoolValue>(ResourceFieldType::Bool)
+					.Field<ResourceTest::StringValue>(ResourceFieldType::String)
+					.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
+					.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
+					.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
+					.Build();
+			}
+
 			RID test = Resources::Create<ResourceTest>(UUID::RandomUUID());
-			CHECK(test.id == 1);
+			CHECK(test);
 
 			RID subobject = Resources::Create<ResourceTest>(UUID::RandomUUID());
 
@@ -109,7 +175,6 @@ namespace
 			}
 
 
-
 			Resources::GarbageCollect();
 
 			{
@@ -132,7 +197,6 @@ namespace
 			}
 
 			Resources::Destroy(clone);
-
 		}
 		ResourceShutdown();
 	}
@@ -151,8 +215,8 @@ namespace
 
 	struct StructToCast
 	{
-		i32               intValue = 1;
-		String            strValue = "";
+		i32               intValue = 42;
+		String            strValue = "default";
 		CompositionStruct composition;
 
 		static void RegisterType(NativeReflectType<StructToCast>& type)
@@ -170,6 +234,26 @@ namespace
 		{
 			Reflection::Type<StructToCast>();
 			Reflection::Type<CompositionStruct>();
+		}
+
+		{
+			RID rid = Resources::Create<StructToCast>();
+			CHECK(rid);
+
+			{
+				ResourceObject obj = Resources::Read(rid);
+				CHECK(obj.GetInt(0) == 42);
+				CHECK(obj.GetString(1) == "default");
+			}
+
+			StructToCast value = {};
+			StructToCast anotherValue = {};
+			Resources::FromResource(rid, &anotherValue);
+
+			CHECK(anotherValue.intValue == value.intValue);
+			CHECK(anotherValue.strValue == value.strValue);
+			CHECK(anotherValue.composition.value == value.composition.value);
+			CHECK(anotherValue.composition.anotherValue == value.composition.anotherValue);
 		}
 
 		{
@@ -299,7 +383,6 @@ namespace
 			subobjects.Erase(subobject);
 			subobjects.Erase(subobject2);
 			CHECK(subobjects.Size() == 0);
-
 		}
 
 		Resources::Undo(scope);
@@ -320,7 +403,6 @@ namespace
 
 	TEST_CASE("Resource::Serialization")
 	{
-
 		UUID uuids[6] = {
 			UUID::RandomUUID(),
 			UUID::RandomUUID(),
@@ -345,7 +427,6 @@ namespace
 			}
 
 			{
-
 				RID rid = Resources::Create<ResourceTest>(uuids[0]);
 
 				ResourceObject write = Resources::Write(rid);
@@ -355,7 +436,7 @@ namespace
 
 				for (u32 i = 0; i < 5; ++i)
 				{
-					RID subobject = Resources::Create<ResourceTest>(uuids[i+1]);
+					RID            subobject = Resources::Create<ResourceTest>(uuids[i + 1]);
 					ResourceObject subObjectWrite = Resources::Write(subobject);
 					subObjectWrite.SetInt(ResourceTest::IntValue, i);
 					subObjectWrite.Commit();
@@ -388,7 +469,7 @@ namespace
 			}
 
 			YamlArchiveReader reader(yaml.CStr());
-			RID newResource = Resources::Deserialize(reader);
+			RID               newResource = Resources::Deserialize(reader);
 			CHECK(newResource);
 
 			ResourceObject read = Resources::Read(newResource);

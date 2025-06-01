@@ -45,70 +45,82 @@ namespace Skore
 
 	void ResourceObject::SetBool(u32 index, bool value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Bool, "Invalid field type");
 		SetValue(index, &value, sizeof(bool));
 	}
 
 	void ResourceObject::SetInt(u32 index, i64 value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Int, "Invalid field type");
 		SetValue(index, &value, sizeof(i64));
 	}
 
 	void ResourceObject::SetUInt(u32 index, u64 value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::UInt, "Invalid field type");
 		SetValue(index, &value, sizeof(u64));
 	}
 
 	void ResourceObject::SetFloat(u32 index, f64 value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Float, "Invalid field type");
 		SetValue(index, &value, sizeof(f64));
 	}
 
 	void ResourceObject::SetString(u32 index, StringView value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::String, "Invalid field type");
 		if (String* str = GetMutPtr<String>(index))
 		{
 			*str = value;
 		}
-
 	}
 
 	void ResourceObject::SetVec2(u32 index, Vec2 value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Vec2, "Invalid field type");
 		SetValue(index, &value, sizeof(Vec2));
 	}
 
 	void ResourceObject::SetVec3(u32 index, Vec3 value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Vec3, "Invalid field type");
 		SetValue(index, &value, sizeof(Vec3));
 	}
 
 	void ResourceObject::SetVec4(u32 index, Vec4 value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Vec4, "Invalid field type");
 		SetValue(index, &value, sizeof(Vec4));
 	}
 
 	void ResourceObject::SetQuat(u32 index, Quat value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Quat, "Invalid field type");
 		SetValue(index, &value, sizeof(Quat));
 	}
 
 	void ResourceObject::SetColor(u32 index, Color value)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Color, "Invalid field type");
 		SetValue(index, &value, sizeof(Color));
 	}
 
 	void ResourceObject::SetEnum(u32 index, i64 enumValue)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Enum, "Invalid field type");
 		SetValue(index, &enumValue, sizeof(i64));
 	}
 
 	void ResourceObject::SetReference(u32 index, RID rid)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Reference, "Invalid field type");
 		SetValue(index, &rid, sizeof(RID));
 	}
 
 	void ResourceObject::SetReferenceArray(u32 index, Span<RID> refs)
 	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::ReferenceArray, "Invalid field type");
 		if (Array<RID>* arr = GetMutPtr<Array<RID>>(index))
 		{
 			*arr = refs;
