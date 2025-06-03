@@ -26,7 +26,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
-#include "Skore/Commands/UndoRedoSystem.hpp"
+// #include "Skore/Commands/UndoRedoSystem.hpp"
 
 namespace Skore
 {
@@ -38,77 +38,77 @@ namespace Skore
 			return;
 		}
 
-		const Array<Ref<Transaction>>& undoStack = UndoRedoSystem::GetUndoStack();
-		const Array<Ref<Transaction>>& redoStack = UndoRedoSystem::GetRedoStack();
-
-		if (ImGui::BeginChild("HistoryList", ImGui::GetContentRegionAvail(), ImGuiChildFlags_Border))
-		{
-			const ImVec4 undoColor = ImVec4(0.2f, 0.6f, 1.0f, 1.0f);   // Blue for undo stack
-			const ImVec4 redoColor = ImVec4(0.8f, 0.3f, 0.8f, 1.0f);   // Purple for redo stack
-			const ImVec4 activeColor = ImVec4(1.0f, 0.8f, 0.0f, 1.0f); // Yellow for active command
-
-			// If the history is empty, show a message
-			if (undoStack.Empty() && redoStack.Empty())
-			{
-				ImGuiCentralizedText("No command history");
-			}
-			else
-			{
-				if (!undoStack.Empty())
-				{
-					ImGui::TextDisabled("Undo Stack:");
-
-					for (i32 i = (i32)undoStack.Size() - 1; i >= 0; i--)
-					{
-						const Ref<Transaction>& transaction = undoStack[i];
-
-						bool isActive = (i == undoStack.Size() - 1);
-
-						// Choose color
-						ImGui::PushStyleColor(ImGuiCol_Text, isActive ? activeColor : undoColor);
-						ImGui::TextUnformatted(transaction->GetName().CStr());
-
-						ImGui::PopStyleColor();
-					}
-				}
-				else
-				{
-					ImGui::TextDisabled("Undo Stack: (Empty)");
-				}
-
-				ImGui::Separator();
-
-				if (!redoStack.Empty())
-				{
-					ImGui::TextDisabled("Redo Stack:");
-
-					for (i32 i = (i32)redoStack.Size() - 1; i >= 0; i--)
-					{
-						// Get the transaction
-						const Ref<Transaction>& transaction = redoStack[i];
-
-						// Highlight the current command
-						bool isActive = (i == redoStack.Size() - 1);
-
-						ImGui::PushStyleColor(ImGuiCol_Text, isActive ? activeColor : redoColor);
-						ImGui::TextUnformatted(transaction->GetName().CStr());
-						ImGui::PopStyleColor();
-					}
-				}
-				else
-				{
-					ImGui::TextDisabled("Redo Stack: (Empty)");
-				}
-			}
-
-			if (m_shouldAutoScroll)
-			{
-				ImGui::SetScrollHereY(1.0f);
-				m_shouldAutoScroll = false;
-			}
-
-			ImGui::EndChild();
-		}
+		// const Array<Ref<Transaction>>& undoStack = UndoRedoSystem::GetUndoStack();
+		// const Array<Ref<Transaction>>& redoStack = UndoRedoSystem::GetRedoStack();
+		//
+		// if (ImGui::BeginChild("HistoryList", ImGui::GetContentRegionAvail(), ImGuiChildFlags_Border))
+		// {
+		// 	const ImVec4 undoColor = ImVec4(0.2f, 0.6f, 1.0f, 1.0f);   // Blue for undo stack
+		// 	const ImVec4 redoColor = ImVec4(0.8f, 0.3f, 0.8f, 1.0f);   // Purple for redo stack
+		// 	const ImVec4 activeColor = ImVec4(1.0f, 0.8f, 0.0f, 1.0f); // Yellow for active command
+		//
+		// 	// If the history is empty, show a message
+		// 	if (undoStack.Empty() && redoStack.Empty())
+		// 	{
+		// 		ImGuiCentralizedText("No command history");
+		// 	}
+		// 	else
+		// 	{
+		// 		if (!undoStack.Empty())
+		// 		{
+		// 			ImGui::TextDisabled("Undo Stack:");
+		//
+		// 			for (i32 i = (i32)undoStack.Size() - 1; i >= 0; i--)
+		// 			{
+		// 				const Ref<Transaction>& transaction = undoStack[i];
+		//
+		// 				bool isActive = (i == undoStack.Size() - 1);
+		//
+		// 				// Choose color
+		// 				ImGui::PushStyleColor(ImGuiCol_Text, isActive ? activeColor : undoColor);
+		// 				ImGui::TextUnformatted(transaction->GetName().CStr());
+		//
+		// 				ImGui::PopStyleColor();
+		// 			}
+		// 		}
+		// 		else
+		// 		{
+		// 			ImGui::TextDisabled("Undo Stack: (Empty)");
+		// 		}
+		//
+		// 		ImGui::Separator();
+		//
+		// 		if (!redoStack.Empty())
+		// 		{
+		// 			ImGui::TextDisabled("Redo Stack:");
+		//
+		// 			for (i32 i = (i32)redoStack.Size() - 1; i >= 0; i--)
+		// 			{
+		// 				// Get the transaction
+		// 				const Ref<Transaction>& transaction = redoStack[i];
+		//
+		// 				// Highlight the current command
+		// 				bool isActive = (i == redoStack.Size() - 1);
+		//
+		// 				ImGui::PushStyleColor(ImGuiCol_Text, isActive ? activeColor : redoColor);
+		// 				ImGui::TextUnformatted(transaction->GetName().CStr());
+		// 				ImGui::PopStyleColor();
+		// 			}
+		// 		}
+		// 		else
+		// 		{
+		// 			ImGui::TextDisabled("Redo Stack: (Empty)");
+		// 		}
+		// 	}
+		//
+		// 	if (m_shouldAutoScroll)
+		// 	{
+		// 		ImGui::SetScrollHereY(1.0f);
+		// 		m_shouldAutoScroll = false;
+		// 	}
+		//
+		// 	ImGui::EndChild();
+		// }
 		
 		ImGui::End();
 	}

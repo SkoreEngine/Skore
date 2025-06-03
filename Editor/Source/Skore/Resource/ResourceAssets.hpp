@@ -21,37 +21,23 @@
 // SOFTWARE.
 
 #pragma once
-#include "Asset/AssetFile.hpp"
-#include "Scene/SceneEditor.hpp"
-#include "Skore/Core/String.hpp"
-#include "Skore/Core/StringView.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
-#include "World/WorldEditor.hpp"
 
+#include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
 {
-	class EditorWorkspace
+	struct SK_API ResourceAssets
 	{
-	public:
-		EditorWorkspace();
-		~EditorWorkspace();
-		StringView   GetName() const;
-		u32          GetId() const;
-		WorldEditor* GetWorldEditor();
-		void         OpenAsset(RID rid);
-		void         OpenAsset(AssetFile* assetFile);
-
-		SceneEditor* GetSceneEditor();
-
-		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
-
-	private:
-		u32         id;
-		String      name;
-		WorldEditor worldEditor{*this};
-		SceneEditor sceneEditor = {*this};
-
-		//static void SceneChanged(RID rid, ResourceObject oldValue, ResourceObject newValue, VoidPtr userData);
+		static void      SetProject(StringView name, StringView directory);
+		static void      AddPackage(StringView name, StringView directory);
+		static RID       GetProject();
+		static Span<RID> GetPackages();
+		static RID       CreateDirectory(RID parent);
+		static RID       FindOrCreateAsset(RID parent, TypeID typeId, StringView suggestedName);
+		static RID       CreateAsset(RID parent, TypeID typeId, StringView suggestedName = "", UUID uuid = {});
+		static String    CreateUniqueName(RID parent, StringView desiredName);
+		static void      GetUpdatedAssets(Array<RID>& updatedAssets);
+		static Span<RID> GetAssetsByType(TypeID typeId);
+		static RID       GetAssetByAbsolutePath(StringView path);
 	};
 }

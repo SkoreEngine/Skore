@@ -30,8 +30,6 @@
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/Scene/Entity.hpp"
-#include "Skore/Scene/SceneEditor.hpp"
-#include "Skore/Commands/SceneCommands.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Core/Allocator.hpp"
 #include "Skore/Core/Logger.hpp"

@@ -20,38 +20,34 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "Asset/AssetFile.hpp"
-#include "Scene/SceneEditor.hpp"
-#include "Skore/Core/String.hpp"
-#include "Skore/Core/StringView.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
-#include "World/WorldEditor.hpp"
+#include "EntityTreeWindow.hpp"
 
+#include "imgui.h"
+#include "Skore/Editor.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/ImGui/ImGui.hpp"
 
 namespace Skore
 {
-	class EditorWorkspace
+	void EntityTreeWindow::Draw(u32 id, bool& open)
 	{
-	public:
-		EditorWorkspace();
-		~EditorWorkspace();
-		StringView   GetName() const;
-		u32          GetId() const;
-		WorldEditor* GetWorldEditor();
-		void         OpenAsset(RID rid);
-		void         OpenAsset(AssetFile* assetFile);
+		ImGuiBegin(id, "Entity Tree", &open, ImGuiWindowFlags_NoScrollbar);
+		ImGui::Text("Entity Tree");
+		ImGui::End();
+	}
 
-		SceneEditor* GetSceneEditor();
+	void EntityTreeWindow::OpenEntityTree(const MenuItemEventData& eventData)
+	{
+		Editor::OpenWindow<EntityTreeWindow>();
+	}
 
-		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
+	void EntityTreeWindow::RegisterType(NativeReflectType<EntityTreeWindow>& type)
+	{
+		Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Entity Tree", .action = OpenEntityTree});
 
-	private:
-		u32         id;
-		String      name;
-		WorldEditor worldEditor{*this};
-		SceneEditor sceneEditor = {*this};
-
-		//static void SceneChanged(RID rid, ResourceObject oldValue, ResourceObject newValue, VoidPtr userData);
-	};
+		type.Attribute<EditorWindowProperties>(EditorWindowProperties{
+			.dockPosition = DockPosition::RightTop,
+			.createOnInit = true
+		});
+	}
 }

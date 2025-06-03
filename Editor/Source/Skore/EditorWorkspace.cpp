@@ -55,9 +55,14 @@ namespace Skore
         return id;
     }
 
-    SceneEditor* EditorWorkspace::GetSceneEditor()
+    WorldEditor* EditorWorkspace::GetWorldEditor()
     {
-        return &sceneEditor;
+        return &worldEditor;
+    }
+
+    void EditorWorkspace::OpenAsset(RID rid)
+    {
+        //onAssetSelectionHandler.Invoke(assetFile);
     }
 
     void EditorWorkspace::OpenAsset(AssetFile* assetFile)
@@ -65,6 +70,10 @@ namespace Skore
         onAssetSelectionHandler.Invoke(assetFile);
     }
 
+    SceneEditor* EditorWorkspace::GetSceneEditor()
+    {
+        return &sceneEditor;
+    }
 
     //    void EditorWorkspace::OpenScene(RID rid, TypeID sceneEditorType)
 //    {

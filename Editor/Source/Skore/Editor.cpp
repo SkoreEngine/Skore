@@ -26,15 +26,14 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
-#include "Asset/AssetEditor.hpp"
 #include "Skore/App.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Window/ProjectBrowserWindow.hpp"
 
 #include "EditorWorkspace.hpp"
-#include "Asset/AssetFile.hpp"
-#include "Commands/UndoRedoSystem.hpp"
+#include "Asset/AssetEditor.hpp"
+#include "Resource/ResourceAssets.hpp"
 #include "SDL3/SDL_process.h"
 #include "Skore/Events.hpp"
 #include "Skore/Core/Queue.hpp"
@@ -140,29 +139,26 @@ namespace Skore
 
 		void Undo(const MenuItemEventData& eventData)
 		{
-			UndoRedoSystem::Undo();
+
 		}
 
 		bool UndoEnabled(const MenuItemEventData& eventData)
 		{
-			return UndoRedoSystem::CanUndo();
+			return false;
 		}
 
 		void Redo(const MenuItemEventData& eventData)
 		{
-			UndoRedoSystem::Redo();
+
 		}
 
 		bool RedoEnabled(const MenuItemEventData& eventData)
 		{
-			return UndoRedoSystem::CanRedo();
+			return false;
 		}
 
 		bool CreateCMakeProjectEnabled(const MenuItemEventData& eventData)
 		{
-
-
-
 			// return AssetEditor::CanCreateCMakeProject();
 			return false;
 		}
@@ -271,7 +267,6 @@ namespace Skore
 
 			ShaderManagerShutdown();
 			AssetEditorShutdown();
-			UndoRedoSystem::Shutdown();
 		}
 
 		void DrawMenu()
@@ -623,7 +618,6 @@ namespace Skore
 
 		AssetEditorInit();
 		ShaderManagerInit();
-		UndoRedoSystem::Initialize();
 
 		workspace = std::make_unique<EditorWorkspace>();
 
@@ -656,6 +650,9 @@ namespace Skore
 
 		AssetEditor::AddPackage("Skore", FileSystem::AssetFolder());
 		AssetEditor::SetProject(Path::Name(projectPath), projectPath);
+
+		ResourceAssets::AddPackage("Skore", FileSystem::AssetFolder());
+		ResourceAssets::SetProject(Path::Name(projectPath), projectPath);
 	}
 
 	void EditorTypeRegister()

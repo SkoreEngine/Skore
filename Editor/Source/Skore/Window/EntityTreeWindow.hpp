@@ -21,37 +21,20 @@
 // SOFTWARE.
 
 #pragma once
-#include "Asset/AssetFile.hpp"
-#include "Scene/SceneEditor.hpp"
-#include "Skore/Core/String.hpp"
-#include "Skore/Core/StringView.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
-#include "World/WorldEditor.hpp"
-
+#include "Skore/EditorCommon.hpp"
+#include "Skore/MenuItem.hpp"
 
 namespace Skore
 {
-	class EditorWorkspace
+	class EntityTreeWindow : public EditorWindow
 	{
 	public:
-		EditorWorkspace();
-		~EditorWorkspace();
-		StringView   GetName() const;
-		u32          GetId() const;
-		WorldEditor* GetWorldEditor();
-		void         OpenAsset(RID rid);
-		void         OpenAsset(AssetFile* assetFile);
+		SK_CLASS(EntityTreeWindow, EditorWindow);
 
-		SceneEditor* GetSceneEditor();
 
-		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
+		void Draw(u32 id, bool& open) override;
 
-	private:
-		u32         id;
-		String      name;
-		WorldEditor worldEditor{*this};
-		SceneEditor sceneEditor = {*this};
-
-		//static void SceneChanged(RID rid, ResourceObject oldValue, ResourceObject newValue, VoidPtr userData);
+		static void OpenEntityTree(const MenuItemEventData& eventData);
+		static void RegisterType(NativeReflectType<EntityTreeWindow>& type);
 	};
 }

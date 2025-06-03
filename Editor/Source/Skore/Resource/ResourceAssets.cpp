@@ -20,38 +20,64 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "Asset/AssetFile.hpp"
-#include "Scene/SceneEditor.hpp"
-#include "Skore/Core/String.hpp"
-#include "Skore/Core/StringView.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
-#include "World/WorldEditor.hpp"
+#include "ResourceAssets.hpp"
 
+#include "Skore/Core/Span.hpp"
 
 namespace Skore
 {
-	class EditorWorkspace
+	void ResourceAssets::SetProject(StringView name, StringView directory)
 	{
-	public:
-		EditorWorkspace();
-		~EditorWorkspace();
-		StringView   GetName() const;
-		u32          GetId() const;
-		WorldEditor* GetWorldEditor();
-		void         OpenAsset(RID rid);
-		void         OpenAsset(AssetFile* assetFile);
 
-		SceneEditor* GetSceneEditor();
+	}
 
-		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
+	void ResourceAssets::AddPackage(StringView name, StringView directory)
+	{
 
-	private:
-		u32         id;
-		String      name;
-		WorldEditor worldEditor{*this};
-		SceneEditor sceneEditor = {*this};
+	}
 
-		//static void SceneChanged(RID rid, ResourceObject oldValue, ResourceObject newValue, VoidPtr userData);
-	};
+	RID ResourceAssets::GetProject()
+	{
+		return {};
+	}
+
+	Span<RID> ResourceAssets::GetPackages()
+	{
+		return {};
+	}
+
+	RID ResourceAssets::CreateDirectory(RID parent)
+	{
+		return {};
+	}
+
+	RID ResourceAssets::FindOrCreateAsset(RID parent, TypeID typeId, StringView suggestedName)
+	{
+		return {};
+	}
+
+	RID ResourceAssets::CreateAsset(RID parent, TypeID typeId, StringView suggestedName, UUID uuid)
+	{
+		return {};
+	}
+
+	String ResourceAssets::CreateUniqueName(RID parent, StringView desiredName)
+	{
+		return {};
+	}
+
+	void ResourceAssets::GetUpdatedAssets(Array<RID>& updatedAssets)
+	{
+		//TODO
+	}
+
+	Span<RID> ResourceAssets::GetAssetsByType(TypeID typeId)
+	{
+		return {};
+	}
+
+	RID ResourceAssets::GetAssetByAbsolutePath(StringView path)
+	{
+		return {};
+	}
 }

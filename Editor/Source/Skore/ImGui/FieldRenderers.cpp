@@ -22,8 +22,6 @@
 
 #include "IconsFontAwesome6.h"
 #include "ImGui.hpp"
-#include "Skore/Asset/AssetEditor.hpp"
-#include "Skore/Asset/AssetFile.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Color.hpp"
 #include "Skore/Core/Logger.hpp"
@@ -394,22 +392,22 @@ namespace Skore
 							}
 						}
 
-						for (AssetFile* assetFile : AssetEditor::GetAssetsByType(typeId))
-						{
-							ImGuiContentItemDesc contentItem{};
-							contentItem.id = PtrToInt(assetFile);
-							contentItem.label = assetFile->GetName();
-							contentItem.thumbnailScale = zoom;
-							//contentItem.texture = assetFile->GetThumbnail();
-
-							ImGuiContentItemState state = ImGuiContentItem(contentItem);
-
-							if (state.enter)
-							{
-								ImGui::CloseCurrentPopup();
-								func(assetFile->GetInstance());
-							}
-						}
+						// for (AssetFile* assetFile : AssetEditor::GetAssetsByType(typeId))
+						// {
+						// 	ImGuiContentItemDesc contentItem{};
+						// 	contentItem.id = PtrToInt(assetFile);
+						// 	contentItem.label = assetFile->GetName();
+						// 	contentItem.thumbnailScale = zoom;
+						// 	//contentItem.texture = assetFile->GetThumbnail();
+						//
+						// 	ImGuiContentItemState state = ImGuiContentItem(contentItem);
+						//
+						// 	if (state.enter)
+						// 	{
+						// 		ImGui::CloseCurrentPopup();
+						// 		func(assetFile->GetInstance());
+						// 	}
+						// }
 						ImGuiEndContentTable();
 					}
 					ImGui::EndChild();

@@ -26,9 +26,6 @@
 
 #include "Skore/App.hpp"
 #include "Skore/Editor.hpp"
-#include "Skore/Asset/AssetEditor.hpp"
-#include "Skore/Asset/AssetFile.hpp"
-#include "Skore/Asset/AssetTypes.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
@@ -37,6 +34,8 @@
 
 #include "SDL3/SDL.h"
 #include "Skore/Events.hpp"
+#include "Skore/Asset/AssetEditor.hpp"
+#include "Skore/Asset/AssetFile.hpp"
 #include "Skore/Graphics/GraphicsAssets.hpp"
 #include "Skore/IO/Path.hpp"
 

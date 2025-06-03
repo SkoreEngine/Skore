@@ -2,9 +2,9 @@
 
 #include "Skore/Editor.hpp"
 #include "Skore/EditorWorkspace.hpp"
-#include "Skore/Asset/AssetEditor.hpp"
-#include "Skore/Asset/AssetFile.hpp"
-#include "Skore/Commands/SceneCommands.hpp"
+// #include "Skore/Asset/AssetEditor.hpp"
+// #include "Skore/Asset/AssetFile.hpp"
+// #include "Skore/Commands/SceneCommands.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/StringUtils.hpp"
