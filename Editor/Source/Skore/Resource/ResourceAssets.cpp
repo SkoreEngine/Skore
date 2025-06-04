@@ -24,7 +24,7 @@
 
 #include <optional>
 
-#include "ResourceAssetCommon.hpp"
+#include "ResourceAssetTypes.hpp"
 #include "Skore/EditorCommon.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Queue.hpp"
@@ -48,9 +48,6 @@ namespace Skore
 	{
 		RID     projectRID;
 		Logger& logger = Logger::GetLogger("Skore::ResourceAssets", LogLevel::Debug);
-
-		FileSystem2* fileSystem;
-
 
 		RID ScanForAssets(RID parent, StringView name, StringView path)
 		{
@@ -92,48 +89,45 @@ namespace Skore
 					String fileName = item.parent ? Path::Name(item.absolutePath) : String(name);
 
 					RID asset = Resources::Create<ResourceAsset>();
-					if (!first)
-					{
-						first = asset;
-					}
 
 					ResourceObject assetObject = Resources::Write(asset);
 					assetObject.SetString(ResourceAsset::Name, fileName);
 					assetObject.SetString(ResourceAsset::Extension, extension);
 					assetObject.SetString(ResourceAsset::AbsolutePath, item.absolutePath);
-					//assetObject.SetString(ResourceAsset::RelativePath, item.absolutePath);
+					assetObject.SetReference(ResourceAsset::Parent, item.parent);
+					assetObject.SetBool(ResourceAsset::IsDirectory, status.isDirectory);
 
-					assetObject.Commit();
+					if (!first)
+					{
+						first = asset;
+					}
 
 					if (status.isDirectory)
 					{
-						RID directory = Resources::Create<ResourceDirectory>();
 
 						if (item.parent)
 						{
 							ResourceObject parentObject = Resources::Write(item.parent);
-							//parentObject.AddToReferenceArray(ResourceDirectory::Directories, directory);
+							parentObject.AddToReferenceArray(ResourceAsset::Children, asset);
 							parentObject.Commit();
 						}
-
-						ResourceObject dirObject = Resources::Write(directory);
-						dirObject.SetSubObject(ResourceDirectory::Asset, asset);
-						dirObject.Commit();
-
 						logger.Debug("directory {} registered successfully", fileName);
 
 						for (const String& entry : DirectoryEntries(item.absolutePath))
 						{
 							pendingItems.Enqueue(FilesToScan{
 								.absolutePath = entry,
-								.parent = directory
+								.parent = asset
 							});
 						}
 					}
-					else
+
+					if (!status.isDirectory)
 					{
-						//TODO
+
 					}
+
+					assetObject.Commit();
 
 
 					// AssetFile* assetFile = CreateAssetFile(item.parent, item.parent != nullptr ? Path::Name(item.absolutePath) : String(name), extension);
@@ -190,11 +184,14 @@ namespace Skore
 		projectRID = ScanForAssets({}, name, libAssets);
 	}
 
-	void ResourceAssets::AddPackage(StringView name, StringView directory) {}
+	void ResourceAssets::AddPackage(StringView name, StringView directory)
+	{
+
+	}
 
 	RID ResourceAssets::GetProject()
 	{
-		return {};
+		return projectRID;
 	}
 
 	Span<RID> ResourceAssets::GetPackages()
@@ -202,8 +199,9 @@ namespace Skore
 		return {};
 	}
 
-	RID ResourceAssets::CreateDirectory(RID parent)
+	RID ResourceAssets::CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope)
 	{
+		//String newName = CreateUniqueName(parent, desiredName, true);
 		return {};
 	}
 

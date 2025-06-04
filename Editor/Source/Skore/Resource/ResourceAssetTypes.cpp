@@ -20,11 +20,27 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "ResourceAssetCommon.hpp"
+#include "ResourceAssetTypes.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
+	bool ResourceAsset::IsChildOf(RID rid, RID maybeParent)
+	{
+		RID current = rid;
+		while (current)
+		{
+			ResourceObject obj = Resources::Read(current);
+			RID parent = obj.GetReference(Parent);
+			if (parent == maybeParent)
+			{
+				return true;
+			}
+			current = parent;
+		}
+		return false;
+	}
+
 	void RegisterResourceAssetTypes()
 	{
 		Resources::Type<ResourceAsset>()
@@ -32,16 +48,12 @@ namespace Skore
 			.Field<ResourceAsset::Extension>(ResourceFieldType::String)
 			.Field<ResourceAsset::Object>(ResourceFieldType::SubObject)
 			.Field<ResourceAsset::Parent>(ResourceFieldType::Reference)
+			.Field<ResourceAsset::IsDirectory>(ResourceFieldType::Bool)
 			.Field<ResourceAsset::AbsolutePath>(ResourceFieldType::String)
 			.Field<ResourceAsset::PersistedVersion>(ResourceFieldType::UInt)
 			.Field<ResourceAsset::TotalSizeInDisk>(ResourceFieldType::UInt)
 			.Field<ResourceAsset::LastModifiedTime>(ResourceFieldType::UInt)
-			.Build();
-
-		Resources::Type<ResourceDirectory>()
-			.Field<ResourceDirectory::Asset>(ResourceFieldType::SubObject)
-			.Field<ResourceDirectory::Assets>(ResourceFieldType::ReferenceArray)
-			.Field<ResourceDirectory::Directories>(ResourceFieldType::ReferenceArray)
+			.Field<ResourceAsset::Children>(ResourceFieldType::ReferenceArray)
 			.Build();
 	}
 }

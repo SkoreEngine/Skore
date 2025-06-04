@@ -32,7 +32,7 @@ namespace Skore
 		static void      AddPackage(StringView name, StringView directory);
 		static RID       GetProject();
 		static Span<RID> GetPackages();
-		static RID       CreateDirectory(RID parent);
+		static RID       CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
 		static RID       FindOrCreateAsset(RID parent, TypeID typeId, StringView suggestedName);
 		static RID       CreateAsset(RID parent, TypeID typeId, StringView suggestedName = "", UUID uuid = {});
 		static String    CreateUniqueName(RID parent, StringView desiredName);

@@ -136,6 +136,18 @@ namespace Skore
 		}
 	}
 
+	void ResourceObject::ClearReferenceArray(u32 index)
+	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::ReferenceArray, "Invalid field type");
+		if (HasValueOnThisObject(index))
+		{
+			if (Array<RID>* arr = GetMutPtr<Array<RID>>(index))
+			{
+				arr->Clear();
+			}
+		}
+	}
+
 	void ResourceObject::SetSubObject(u32 index, RID subObject)
 	{
 		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::SubObject, "Invalid field type");
@@ -418,6 +430,15 @@ namespace Skore
 		return {};
 	}
 
+	bool ResourceObject::HasOnReferenceArray(u32 index, RID rid) const
+	{
+		if (const Array<RID>* value = GetPtr<Array<RID>>(index))
+		{
+			return FindFirst(value->begin(), value->end(), rid) != nullptr;
+		}
+		return false;
+	}
+
 	usize ResourceObject::GetSubObjectSetCount(u32 index) const
 	{
 		usize count = 0;
@@ -568,6 +589,8 @@ namespace Skore
 
 	VoidPtr ResourceObject::GetMutPtr(u32 index) const
 	{
+		SK_ASSERT(writeInstance, "write instance is null");
+
 		if (writeInstance)
 		{
 			return &writeInstance[storage->resourceType->fields[index]->offset];

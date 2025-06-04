@@ -67,7 +67,7 @@ namespace Skore
 	{
 		u64 id{};
 
-		explicit operator bool() const noexcept
+		operator bool() const noexcept
 		{
 			return this->id > 0;
 		}

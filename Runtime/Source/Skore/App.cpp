@@ -47,6 +47,8 @@ namespace Skore
 	bool GraphicsInit(const AppConfig& appConfig);
 	void GraphicsShutdown();
 	bool GraphicsUpdate();
+	void ResourceInit();
+	void ResourceShutdown();
 	bool GraphicsHandleEvents(SDL_Event* event);
 	void InputHandlerEvents(SDL_Event* event);
 
@@ -198,6 +200,7 @@ namespace Skore
 		}
 
 		ReflectionSetReadOnly(true);
+		ResourceInit();
 
 		if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
 		{
@@ -242,6 +245,11 @@ namespace Skore
 		return result;
 	}
 
+	void App::TypeRegister()
+	{
+		TypeRegister(nullptr);
+	}
+
 	void App::TypeRegister(FnTypeRegisterCallback callback)
 	{
 		RegisterTypes();
@@ -265,6 +273,7 @@ namespace Skore
 
 		AssetsShutdown();
 		GraphicsShutdown();
+		ResourceShutdown();
 
 		SDL_Quit();
 		Event::Reset();

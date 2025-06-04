@@ -24,11 +24,10 @@
 #include "Skore/EditorCommon.hpp"
 #include "Skore/MenuItem.hpp"
 #include "Skore/Core/HashSet.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
 {
-	class AssetFileOld;
-
 	class ProjectBrowserWindow : public EditorWindow
 	{
 	public:
@@ -40,8 +39,16 @@ namespace Skore
 		void Init(u32 id, VoidPtr userData) override;
 		void Draw(u32 id, bool& open) override;
 
-		AssetFileOld* GetLastSelectedItem() const;
-		AssetFileOld* GetOpenDirectory() const;
+		RID  GetLastSelectedItem() const;
+		RID  GetOpenDirectory() const;
+		RID  GetRenamingItem() const;
+		bool IsRenamingItem() const;
+		bool IsSelected(RID rid) const;
+		void SetOpenDirectory(RID directory);
+
+		void SetRenameItem(RID rid, UndoRedoScope* scope) const;
+		void ClearSelection(UndoRedoScope* scope) const;
+		void SelectItem(RID asset, UndoRedoScope* scope) const;
 
 		static void OpenProjectBrowser(const MenuItemEventData& eventData);
 		static void AddMenuItem(const MenuItemCreation& menuItem);
@@ -50,20 +57,15 @@ namespace Skore
 	private:
 		static MenuItemContext menuItemContext;
 
-		String                searchString;
-		f32                   contentBrowserZoom = 1.0; //TODO - save in some local setting
-		AssetFileOld*            openDirectory = nullptr;
-		String                stringCache;
-		HashSet<AssetFileOld*>   selectedItems;
-		AssetFileOld*            lastSelectedItem = nullptr;
-		AssetFileOld*            renamingItem = nullptr;
-		HashMap<String, bool> openTreeFolders{};
-		bool                  newSelection = false;
-		HashSet<AssetFileOld*>   markedToDelete;
+		String             searchString;
+		f32                contentBrowserZoom = 1.0; //TODO - save in some local setting
+		String             stringCache;
+		HashMap<RID, bool> openTreeFolders{};
+		bool               newSelection = false;
+		RID                windowObjectRID;
 
 		void DrawPathItems();
-		void DrawTreeNode(AssetFileOld* assetFile);
-		void SetOpenDirectory(AssetFileOld* directory);
+		void DrawTreeNode(RID asset);
 		void OnDropFile(StringView filePath) const;
 
 		static bool CheckSelectedAsset(const MenuItemEventData& eventData);
@@ -79,6 +81,5 @@ namespace Skore
 		static void ReimportAsset(const MenuItemEventData& eventData);
 		static bool CanExtractAsset(const MenuItemEventData& eventData);
 		static void ExtractAsset(const MenuItemEventData& eventData);
-
 	};
 }

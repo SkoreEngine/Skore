@@ -33,21 +33,14 @@ namespace Skore
 			Extension,
 			Object,
 			Parent,
+			IsDirectory,
 			AbsolutePath,
 			PersistedVersion,
 			TotalSizeInDisk,
-			LastModifiedTime
+			LastModifiedTime,
+			Children,
 		};
-	};
 
-	struct ResourceDirectory
-	{
-		enum
-		{
-			Asset,
-			Directories,
-			Assets,
-		};
+		static bool IsChildOf(RID rid, RID maybeParent);
 	};
-
 }

@@ -56,6 +56,7 @@ namespace Skore
 		void SetReference(u32 index, RID rid);
 		void SetReferenceArray(u32 index, Span<RID> refs);
 		void AddToReferenceArray(u32 index, RID ref);
+		void ClearReferenceArray(u32 index);
 		void SetSubObject(u32 index, RID subObject);
 
 		//subobjects
@@ -90,6 +91,7 @@ namespace Skore
 		RID        GetSubObject(u32 index) const;
 		RID        GetReference(u32 index) const;
 		Span<RID>  GetReferenceArray(u32 index) const;
+		bool	   HasOnReferenceArray(u32 index, RID rid) const;
 		usize      GetSubObjectSetCount(u32 index) const;
 		void       GetSubObjectSet(u32 index, Span<RID> subObjects) const;
 		Array<RID> GetSubObjectSetAsArray(u32 index) const;

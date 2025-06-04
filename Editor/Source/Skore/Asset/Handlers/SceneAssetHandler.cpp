@@ -40,34 +40,34 @@ namespace Skore
 		bool IsSceneSelected(const MenuItemEventData& eventData)
 		{
 			ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-			return projectBrowserWindow->GetLastSelectedItem() && projectBrowserWindow->GetLastSelectedItem()->GetAssetTypeId() == TypeInfo<Scene>::ID();
+			//return projectBrowserWindow->GetLastSelectedItem() && projectBrowserWindow->GetLastSelectedItem()->GetAssetTypeId() == TypeInfo<Scene>::ID();
+			return false;
 		}
 
 		void OpenScene(const MenuItemEventData& eventData)
 		{
 			ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-			if (projectBrowserWindow->GetLastSelectedItem())
-			{
-				Editor::GetCurrentWorkspace().GetSceneEditor()->OpenScene(projectBrowserWindow->GetLastSelectedItem());
-			}
-
+			// if (projectBrowserWindow->GetLastSelectedItem())
+			// {
+			// 	Editor::GetCurrentWorkspace().GetSceneEditor()->OpenScene(projectBrowserWindow->GetLastSelectedItem());
+			// }
 		}
 
 		void NewInheritedScene(const MenuItemEventData& eventData)
 		{
 			ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-			if (projectBrowserWindow->GetOpenDirectory() != nullptr && projectBrowserWindow->GetLastSelectedItem() != nullptr)
-			{
-				if (AssetFileOld* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->GetOpenDirectory(), TypeInfo<Scene>::ID(), projectBrowserWindow->GetLastSelectedItem()->GetFileName()))
-				{
-					if (Scene* scene = newAsset->GetInstance()->SafeCast<Scene>())
-					{
-						Entity* entity = Entity::Instantiate(projectBrowserWindow->GetLastSelectedItem()->GetUUID(), nullptr);
-						scene->SetRootEntity(entity);
-						newAsset->MarkDirty();
-					}
-				}
-			}
+			// if (projectBrowserWindow->GetOpenDirectory() != nullptr && projectBrowserWindow->GetLastSelectedItem() != nullptr)
+			// {
+			// 	if (AssetFileOld* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->GetOpenDirectory(), TypeInfo<Scene>::ID(), projectBrowserWindow->GetLastSelectedItem()->GetFileName()))
+			// 	{
+			// 		if (Scene* scene = newAsset->GetInstance()->SafeCast<Scene>())
+			// 		{
+			// 			Entity* entity = Entity::Instantiate(projectBrowserWindow->GetLastSelectedItem()->GetUUID(), nullptr);
+			// 			scene->SetRootEntity(entity);
+			// 			newAsset->MarkDirty();
+			// 		}
+			// 	}
+			// }
 		}
 	}
 

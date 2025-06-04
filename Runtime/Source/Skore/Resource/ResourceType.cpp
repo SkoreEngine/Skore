@@ -164,7 +164,13 @@ namespace Skore
 		resourceField->name = name;
 		resourceField->type = type;
 		resourceField->subType = subType;
-		resourceType->fields.EmplaceBack(resourceField);
+
+		if (index >= resourceType->fields.Size())
+		{
+			resourceType->fields.Resize(index + 1);
+		}
+
+		resourceType->fields[index] = resourceField;
 
 		return *this;
 	}

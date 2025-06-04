@@ -82,13 +82,6 @@ namespace Skore
 			return Create(TypeInfo<T>::ID(), uuid, scope);
 		}
 
-		template <typename T>
-		static T WriteAs(RID rid)
-		{
-			return T{Write(rid)};
-		}
-
-
 		static UndoRedoScope* CreateScope(StringView name = "");
 		static void           DestroyScope(UndoRedoScope* scope);
 		static void           Undo(UndoRedoScope* scope);

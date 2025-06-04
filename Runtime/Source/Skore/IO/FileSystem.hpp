@@ -67,10 +67,4 @@ namespace Skore
 
 		static void Reset();
 	};
-
-
-	struct SK_API FileSystem2
-	{
-
-	};
 }

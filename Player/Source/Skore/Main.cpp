@@ -23,16 +23,17 @@
 #include "Skore/App.hpp"
 #include "Skore/Main.hpp"
 
-using namespace Skore;
-
 namespace Skore
 {
 	i32 Main(int argc, char** argv)
 	{
-		App::TypeRegister(nullptr);
+		App::TypeRegister();
 
 		AppConfig appConfig;
 		appConfig.fullscreen = false;
+		appConfig.width = 1920;
+		appConfig.height = 1080;
+		appConfig.title = "Skore Player";
 
 		if (App::Init(appConfig, argc, argv) != AppResult::Continue)
 		{

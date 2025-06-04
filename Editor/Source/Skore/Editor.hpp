@@ -22,26 +22,26 @@
 
 #pragma once
 
-#include "EditorCommon.hpp"
 #include "MenuItem.hpp"
 
 namespace Skore
 {
+	struct UndoRedoScope;
 	class EditorWorkspace;
-	typedef void(*FnConfirmCallback)(VoidPtr userdata);
+	typedef void (*FnConfirmCallback)(VoidPtr userdata);
 
-}
-
-namespace Skore::Editor
-{
-	void             AddMenuItem(const MenuItemCreation& menuItem);
-	void             OpenWindow(TypeID windowType, VoidPtr initUserData = nullptr);
-	void			 ShowConfirmDialog(StringView message, VoidPtr userData, FnConfirmCallback callback);
-	EditorWorkspace& GetCurrentWorkspace();
-
-	template <typename T>
-	void OpenWindow(VoidPtr initUserData = nullptr)
+	struct Editor
 	{
-		OpenWindow(TypeInfo<T>::ID(), initUserData);
-	}
+		static void             AddMenuItem(const MenuItemCreation& menuItem);
+		static void             OpenWindow(TypeID windowType, VoidPtr initUserData = nullptr);
+		static void             ShowConfirmDialog(StringView message, VoidPtr userData, FnConfirmCallback callback);
+		static EditorWorkspace& GetCurrentWorkspace();
+		static UndoRedoScope*   CreateUndoRedoScope(StringView name);
+
+		template <typename T>
+		static void OpenWindow(VoidPtr initUserData = nullptr)
+		{
+			OpenWindow(TypeInfo<T>::ID(), initUserData);
+		}
+	};
 }

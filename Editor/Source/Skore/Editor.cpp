@@ -79,6 +79,26 @@ namespace Skore
 			ReflectType*  reflectType{};
 		};
 
+		struct UndoRedoScopeStorage
+		{
+			UndoRedoScope* scope;
+			SK_NO_COPY_CONSTRUCTOR(UndoRedoScopeStorage);
+
+			UndoRedoScopeStorage(UndoRedoScope* scope) : scope(scope) {}
+
+			UndoRedoScopeStorage(UndoRedoScopeStorage& other) : scope(other.scope)
+			{
+				other.scope = nullptr;
+			}
+			~UndoRedoScopeStorage()
+			{
+				if (scope != nullptr)
+				{
+					Resources::DestroyScope(scope);
+				}
+			}
+		};
+
 		Array<EditorWindowStorage> editorWindowStorages;
 		Array<OpenWindowStorage>   openWindows;
 		Array<AssetFileOld*>          updatedItems{};
@@ -90,6 +110,9 @@ namespace Skore
 		bool shouldOpenPopup = false;
 
 		std::unique_ptr<EditorWorkspace> workspace;
+
+		Array<std::unique_ptr<UndoRedoScopeStorage>> undoActions{};
+		Array<std::unique_ptr<UndoRedoScopeStorage>> redoActions{};
 
 		MenuItemContext menuContext{};
 		bool            dockInitialized = false;
@@ -139,22 +162,28 @@ namespace Skore
 
 		void Undo(const MenuItemEventData& eventData)
 		{
-
+			std::unique_ptr<UndoRedoScopeStorage> action = Traits::Move(undoActions.Back());
+			Resources::Undo(action->scope);
+			redoActions.EmplaceBack(Traits::Move(action));
+			undoActions.PopBack();
 		}
 
 		bool UndoEnabled(const MenuItemEventData& eventData)
 		{
-			return false;
+			return !undoActions.Empty();
 		}
 
 		void Redo(const MenuItemEventData& eventData)
 		{
-
+			std::unique_ptr<UndoRedoScopeStorage> action = Traits::Move(redoActions.Back());
+			Resources::Redo(action->scope);
+			redoActions.PopBack();
+			undoActions.EmplaceBack(Traits::Move(action));
 		}
 
 		bool RedoEnabled(const MenuItemEventData& eventData)
 		{
-			return false;
+			return !redoActions.Empty();
 		}
 
 		bool CreateCMakeProjectEnabled(const MenuItemEventData& eventData)
@@ -262,8 +291,11 @@ namespace Skore
 			editorWindowStorages.ShrinkToFit();
 			idCounter = 100000;
 
+			undoActions.Clear();
+			undoActions.ShrinkToFit();
 
-			// projectFile.Clear();
+			redoActions.Clear();
+			redoActions.ShrinkToFit();
 
 			ShaderManagerShutdown();
 			AssetEditorShutdown();
@@ -594,6 +626,14 @@ namespace Skore
 	EditorWorkspace& Editor::GetCurrentWorkspace()
 	{
 		return *workspace;
+	}
+
+	UndoRedoScope* Editor::CreateUndoRedoScope(StringView name)
+	{
+		UndoRedoScope* scope = Resources::CreateScope(name);
+		redoActions.Clear();
+		undoActions.EmplaceBack(std::make_unique<UndoRedoScopeStorage>(scope));
+		return scope;
 	}
 
 	void RegisterAssetTypes();

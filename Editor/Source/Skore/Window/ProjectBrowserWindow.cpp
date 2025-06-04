@@ -34,13 +34,24 @@
 
 #include "SDL3/SDL.h"
 #include "Skore/Events.hpp"
-#include "Skore/Asset/AssetEditor.hpp"
-#include "Skore/Asset/AssetFileOld.hpp"
 #include "Skore/Graphics/GraphicsAssets.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Resource/ResourceAssetTypes.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore
 {
+	struct ProjectBrowserWindowData
+	{
+		enum
+		{
+			OpenDirectory,
+			RenamingItem,
+			SelectedItems,
+			LastSelectedItem
+		};
+	};
+
 	SDL_Window* GraphicsGetWindow();
 
 	MenuItemContext ProjectBrowserWindow::menuItemContext = {};
@@ -57,15 +68,19 @@ namespace Skore
 
 	void ProjectBrowserWindow::Init(u32 id, VoidPtr userData)
 	{
-		openDirectory = AssetEditor::GetProject();
+		windowObjectRID = Resources::Create<ProjectBrowserWindowData>();
+
+		ResourceObject obj = Resources::Write(windowObjectRID);
+		obj.SetReference(ProjectBrowserWindowData::OpenDirectory, ResourceAssets::GetProject());
+		obj.Commit();
 	}
 
 	void ProjectBrowserWindow::OnDropFile(StringView filePath) const
 	{
-		if (openDirectory != nullptr)
-		{
-			AssetEditor::ImportFile(openDirectory, filePath);
-		}
+		// if (openDirectory != nullptr)
+		// {
+		// 	AssetEditor::ImportFile(openDirectory, filePath);
+		// }
 	}
 
 	void ProjectBrowserWindow::DrawPathItems()
@@ -73,18 +88,23 @@ namespace Skore
 		//TODO
 	}
 
-	void ProjectBrowserWindow::DrawTreeNode(AssetFileOld* file)
+	void ProjectBrowserWindow::DrawTreeNode(RID asset)
 	{
-		if (!file || !file->IsDirectory()) return;
+		if (!asset) return;
+
+		ResourceObject assetObject = Resources::Read(asset);
+		if (!assetObject.GetBool(ResourceAsset::IsDirectory)) return;
+
+
+		RID openDirectory = GetOpenDirectory();
 
 		ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
 
-		bool openDir = openTreeFolders.Has(file->GetAbsolutePath());
+		bool openDir = openTreeFolders[asset];
 
-
-		if (!openDir && openDirectory != nullptr && openDirectory->IsChildOf(file))
+		if (!openDir && openDirectory && ResourceAsset::IsChildOf(openDirectory, asset))
 		{
-			openTreeFolders[file->GetAbsolutePath()] = true;
+			openTreeFolders[asset] = true;
 			openDir = true;
 		}
 
@@ -93,7 +113,7 @@ namespace Skore
 			ImGui::SetNextItemOpen(true);
 		}
 
-		if (openDirectory && openDirectory == file)
+		if (openDirectory == asset)
 		{
 			flags |= ImGuiTreeNodeFlags_Selected;
 		}
@@ -108,63 +128,66 @@ namespace Skore
 			stringCache = ICON_FA_FOLDER;
 		}
 
-		stringCache.Append(" ").Append(file->GetFileName());
-		bool isNodeOpen = ImGuiTreeNode(file, stringCache.CStr(), flags);
+		stringCache.Append(" ");
+		stringCache.Append(assetObject.GetString(ResourceAsset::Name));
+		stringCache.Append(assetObject.GetString(ResourceAsset::Extension));
+
+		bool isNodeOpen = ImGuiTreeNode(reinterpret_cast<void*>((usize)asset.id), stringCache.CStr(), flags);
 
 		if (ImGui::BeginDragDropTarget())
 		{
-			if (file->CanAcceptNewChild())
-			{
-				bool canAcceptDragDrop = false;
-
-				for (auto& it : selectedItems)
-				{
-					if (!file->IsChildOf(it))
-					{
-						canAcceptDragDrop = true;
-						break;
-					}
-				}
-
-				if (canAcceptDragDrop && ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
-				{
-					for (auto& it : selectedItems)
-					{
-						if (!file->IsChildOf(it))
-						{
-							it->MoveTo(file);
-						}
-					}
-				}
-			}
+			// if (file->CanAcceptNewChild())
+			// {
+			// 	bool canAcceptDragDrop = false;
+			//
+			// 	for (auto& it : selectedItems)
+			// 	{
+			// 		if (!file->IsChildOf(it))
+			// 		{
+			// 			canAcceptDragDrop = true;
+			// 			break;
+			// 		}
+			// 	}
+			//
+			// 	if (canAcceptDragDrop && ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+			// 	{
+			// 		for (auto& it : selectedItems)
+			// 		{
+			// 			if (!file->IsChildOf(it))
+			// 			{
+			// 				it->MoveTo(file);
+			// 			}
+			// 		}
+			// 	}
+			// }
 
 			ImGui::EndDragDropTarget();
 		}
 
-		if (file->GetParent() != nullptr && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover | ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
-		{
-			AssetPayload payload = {
-				.assetFile = file,
-				.assetType = file->GetHandler() != nullptr ? file->GetHandler()->GetAssetTypeId() : 0
-			};
-			ImGui::SetDragDropPayload(SK_ASSET_PAYLOAD, &payload, sizeof(AssetPayload));
-
-			ImGui::Text("%s", file->GetFileName().CStr());
-			ImGui::EndDragDropSource();
-		}
+		// if (file->GetParent() != nullptr && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover | ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
+		// {
+		// 	AssetPayload payload = {
+		// 		.assetFile = file,
+		// 		.assetType = file->GetHandler() != nullptr ? file->GetHandler()->GetAssetTypeId() : 0
+		// 	};
+		// 	ImGui::SetDragDropPayload(SK_ASSET_PAYLOAD, &payload, sizeof(AssetPayload));
+		//
+		// 	ImGui::Text("%s", file->GetFileName().CStr());
+		// 	ImGui::EndDragDropSource();
+		// }
 
 		if (openDir == isNodeOpen && ImGui::IsItemClicked(ImGuiMouseButton_Left))
 		{
-			SetOpenDirectory(file);
+			SetOpenDirectory(asset);
 		}
 
-		openTreeFolders[file->GetAbsolutePath()] = isNodeOpen;
+		openTreeFolders[asset] = isNodeOpen;
 
 		if (isNodeOpen)
 		{
-			for (AssetFileOld* childNode : file->Children())
+			for (RID child : assetObject.GetReferenceArray(ResourceAsset::Children))
 			{
-				DrawTreeNode(childNode);
+				DrawTreeNode(child);
 			}
 			ImGui::TreePop();
 		}
@@ -177,7 +200,9 @@ namespace Skore
 		ImGuiStyle& style = ImGui::GetStyle();
 		ImVec2      pad = style.WindowPadding;
 
-		bool readOnly = openDirectory == nullptr;
+		RID openDirectory = GetOpenDirectory();
+
+		bool readOnly = !GetOpenDirectory();
 
 		ScopedStyleVar windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 		ScopedStyleVar cellPadding(ImGuiStyleVar_CellPadding, ImVec2(0, 0));
@@ -199,11 +224,8 @@ namespace Skore
 			ImGui::BeginDisabled(readOnly);
 			if (ImGui::Button(ICON_FA_PLUS " Import"))
 			{
-				SDL_ShowOpenFileDialog([](void *userdata, const char * const *filelist, int filter)
-				{
-
-				},
-				nullptr, GraphicsGetWindow(), nullptr, 0, nullptr, true);
+				SDL_ShowOpenFileDialog([](void* userdata, const char* const * filelist, int filter) {},
+				                       nullptr, GraphicsGetWindow(), nullptr, 0, nullptr, true);
 
 				// Array<String>     paths{};
 				// Array<FileFilter> filters;
@@ -267,12 +289,12 @@ namespace Skore
 
 				ImGuiBeginTreeNodeStyle();
 
-				for (const auto& package : AssetEditor::GetPackages())
+				for (const auto& package : ResourceAssets::GetPackages())
 				{
 					DrawTreeNode(package);
 				}
 
-				DrawTreeNode(AssetEditor::GetProject());
+				DrawTreeNode(ResourceAssets::GetProject());
 
 				ImGuiEndTreeNodeStyle();
 				ImGui::EndChild();
@@ -296,183 +318,200 @@ namespace Skore
 
 				if (ImGuiBeginContentTable("ProjectBrowser", contentBrowserZoom))
 				{
-					AssetFileOld* newOpenDirectory = nullptr;
+					RID newOpenDirectory;
+					RID moveAssetsTo;
 
-					AssetFileOld* moveAssetsTo = nullptr;
-
-					if (openDirectory != nullptr)
+					if (ResourceObject openDirectoryObject = Resources::Read(openDirectory))
 					{
 						for (int i = 0; i < 2; ++i)
 						{
-							for (AssetFileOld* assetFile : openDirectory->Children())
+							for (RID rid : openDirectoryObject.GetReferenceArray(ResourceAsset::Children))
 							{
-								if (!assetFile->IsActive()) continue;
-
-								//workaround to show directories first.
-								if (i == 0 && !assetFile->IsDirectory()) continue;
-								if (i == 1 && assetFile->IsDirectory()) continue;
-
-
-								//TODO slow!!!! cache it on AssetEditor.
-								if (!searchString.Empty())
+								if (ResourceObject currentAssetObj = Resources::Read(rid))
 								{
-									if (!std::regex_search(assetFile->GetFileName().CStr(), rx))
+									//if (!assetFile->IsActive()) continue;
+
+									bool isDirectory = currentAssetObj.GetBool(ResourceAsset::IsDirectory);
+
+									//workaround to show directories first.
+									if (i == 0 && !isDirectory) continue;
+									if (i == 1 && isDirectory) continue;
+
+
+									//TODO slow!!!! cache it
+									// if (!searchString.Empty())
+									// {
+									// 	if (!std::regex_search(assetFile->GetFileName().CStr(), rx))
+									// 	{
+									// 		continue;
+									// 	}
+									// }
+
+									labelCache.Clear();
+
+									bool renaming = GetRenamingItem() == rid;
+
+									// if (!renaming && assetFile->IsDirty())
+									// {
+									// 	labelCache = "*";
+									// }
+
+									labelCache.Append(currentAssetObj.GetString(ResourceAsset::Name));
+
+									if (!renaming)
 									{
-										continue;
+										labelCache.Append(currentAssetObj.GetString(ResourceAsset::Extension));
 									}
-								}
 
-								labelCache.Clear();
+									ImGuiContentItemDesc desc;
+									desc.id = rid.id;
+									desc.label = labelCache.CStr();
+									//desc.texture = assetFile->GetThumbnail();
+									desc.renameItem = renaming;
+									desc.thumbnailScale = contentBrowserZoom;
+									desc.selected = IsSelected(rid);
+									//desc.showError = assetFile->GetStatus() != AssetStatus::None;
 
-								bool renaming = renamingItem == assetFile;
+									ImGuiContentItemState state = ImGuiContentItem(desc);
 
-								if (!renaming && assetFile->IsDirty())
-								{
-									labelCache = "*";
-								}
-
-								labelCache += assetFile->GetFileName();
-
-								if (!renaming)
-								{
-									labelCache += assetFile->GetExtension();
-								}
-
-								ImGuiContentItemDesc desc;
-								desc.id = reinterpret_cast<usize>(assetFile);
-								desc.label = labelCache.CStr();
-								desc.texture = assetFile->GetThumbnail();
-								desc.renameItem = renaming;
-								desc.thumbnailScale = contentBrowserZoom;
-								desc.selected = selectedItems.Has(assetFile);
-								desc.showError = assetFile->GetStatus() != AssetStatus::None;
-
-								ImGuiContentItemState state = ImGuiContentItem(desc);
-
-								if (state.clicked)
-								{
-									if (!(ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl))))
+									if (state.clicked)
 									{
-										selectedItems.Clear();
-										lastSelectedItem = nullptr;
-									}
-									selectedItems.Emplace(assetFile);
-									lastSelectedItem = assetFile;
-									newSelection = true;
-								}
+										UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Selection");
 
-								if (state.enter)
-								{
-									if (assetFile->IsDirectory())
-									{
-										newOpenDirectory = assetFile;
-										selectedItems.Clear();
-										lastSelectedItem = nullptr;
-									}
-									else if (assetFile->GetHandler())
-									{
-										assetFile->GetHandler()->OpenAsset(assetFile);
-									} else
-									{
-										SDL_OpenURL(assetFile->GetAbsolutePath().CStr());
-									}
-								}
-
-								if (state.renameFinish)
-								{
-									if (!state.newName.Empty())
-									{
-										assetFile->Rename(state.newName);
-									}
-									renamingItem = nullptr;
-								}
-
-								ImGui::SetCursorScreenPos(ImVec2(state.screenStartPos.x + 3 * style.ScaleFactor, state.screenStartPos.y + 3 * style.ScaleFactor));
-								ImGui::PushID(desc.id + 678);
-								ImGui::InvisibleButton("", ImVec2(state.size.x - 7 * style.ScaleFactor, state.size.y - 6 * style.ScaleFactor));
-
-								if (assetFile->IsDirectory() && ImGui::BeginDragDropTarget())
-								{
-									if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
-									{
-										moveAssetsTo = assetFile;
-									}
-									ImGui::EndDragDropTarget();
-								}
-
-								if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
-								{
-									AssetPayload payload = {
-										.assetFile = assetFile,
-										.assetType = assetFile->GetHandler() != nullptr ? assetFile->GetHandler()->GetAssetTypeId() : 0
-									};
-
-									ImGui::SetDragDropPayload(SK_ASSET_PAYLOAD, &payload, sizeof(AssetPayload));
-									ImGui::Text("%s", desc.label.CStr());
-									ImGui::EndDragDropSource();
-								}
-
-								if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) && ImGui::BeginTooltip())
-								{
-									if (assetFile->GetStatus() != AssetStatus::None)
-									{
-										ImGui::TextColored(ImVec4(202.f / 255.f, 98.f / 255.f, 87.f / 255.f, 1.0f), "WARNING! asset is in an invalid state. ");
-
-										for (const String& missingFile: assetFile->GetMissingFiles())
+										if (!(ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl))))
 										{
-											ImGui::TextColored(ImVec4(202.f / 255.f, 98.f / 255.f, 87.f / 255.f, 1.0f), "File %s not found. ", missingFile.CStr());
+											ClearSelection(scope);
+										}
+										SelectItem(rid, scope);
+										newSelection = true;
+									}
+
+									if (state.enter)
+									{
+										if (isDirectory)
+										{
+											newOpenDirectory = rid;
 										}
 
-										ImGui::Separator();
-										ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 16.f * style.ScaleFactor);
+
+										// if (assetFile->IsDirectory())
+										// {
+										// 	newOpenDirectory = assetFile;
+										// 	selectedItems.Clear();
+										// 	lastSelectedItem = nullptr;
+										// }
+										// else if (assetFile->GetHandler())
+										// {
+										// 	assetFile->GetHandler()->OpenAsset(assetFile);
+										// }
+										// else
+										// {
+										// 	SDL_OpenURL(assetFile->GetAbsolutePath().CStr());
+										// }
 									}
 
-									if (ImGui::BeginTable("table-asset-info", 2, ImGuiTableFlags_SizingFixedFit))
+									if (state.renameFinish)
 									{
-										if (assetFile->GetUUID())
+										UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Rename Finished");
+										if (!state.newName.Empty())
 										{
-											ImGui::TableNextRow();
-											ImGui::TableNextColumn();
-											ImGui::TextDisabled("UUID: ");
-											ImGui::TableNextColumn();
-											ImGui::Text("%s", assetFile->GetUUID().ToString().CStr());
+											ResourceObject write = Resources::Write(rid);
+											write.SetString(ResourceAsset::Name, state.newName);
+											write.Commit(scope);
 										}
 
-										ImGui::TableNextRow();
-										ImGui::TableNextColumn();
-										ImGui::TextDisabled("Asset Name: ");
-										ImGui::TableNextColumn();
-										ImGui::Text("%s", labelCache.CStr());
-
-										ImGui::TableNextRow();
-										ImGui::TableNextColumn();
-										ImGui::TextDisabled("Relative Path: ");
-										ImGui::TableNextColumn();
-										ImGui::Text("%s", assetFile->GetPath().CStr());
-
-										ImGui::TableNextRow();
-										ImGui::TableNextColumn();
-										ImGui::TextDisabled("Absolute Path: ");
-										ImGui::TableNextColumn();
-										ImGui::Text("%s", assetFile->GetAbsolutePath().CStr());
-
-										if (ReflectType* type = Reflection::FindTypeById(assetFile->GetAssetTypeId()))
-										{
-											ImGui::TableNextRow();
-											ImGui::TableNextColumn();
-											ImGui::TextDisabled("Type: ");
-											ImGui::TableNextColumn();
-											ImGui::Text("%s", type->GetSimpleName().CStr());
-										}
-
-										ImGui::EndTable();
+										ResourceObject objWrite = Resources::Write(windowObjectRID);
+										objWrite.SetReference(ProjectBrowserWindowData::RenamingItem, {});
+										objWrite.Commit(scope);
 									}
-									ImGui::EndTooltip();
+
+									ImGui::SetCursorScreenPos(ImVec2(state.screenStartPos.x + 3 * style.ScaleFactor, state.screenStartPos.y + 3 * style.ScaleFactor));
+									ImGui::PushID(desc.id + 678);
+									ImGui::InvisibleButton("", ImVec2(state.size.x - 7 * style.ScaleFactor, state.size.y - 6 * style.ScaleFactor));
+
+									// if (assetFile->IsDirectory() && ImGui::BeginDragDropTarget())
+									// {
+									// 	if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+									// 	{
+									// 		moveAssetsTo = assetFile;
+									// 	}
+									// 	ImGui::EndDragDropTarget();
+									// }
+									//
+									// if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
+									// {
+									// 	AssetPayload payload = {
+									// 		.assetFile = assetFile,
+									// 		.assetType = assetFile->GetHandler() != nullptr ? assetFile->GetHandler()->GetAssetTypeId() : 0
+									// 	};
+									//
+									// 	ImGui::SetDragDropPayload(SK_ASSET_PAYLOAD, &payload, sizeof(AssetPayload));
+									// 	ImGui::Text("%s", desc.label.CStr());
+									// 	ImGui::EndDragDropSource();
+									// }
+
+									// if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) && ImGui::BeginTooltip())
+									// {
+									// 	if (assetFile->GetStatus() != AssetStatus::None)
+									// 	{
+									// 		ImGui::TextColored(ImVec4(202.f / 255.f, 98.f / 255.f, 87.f / 255.f, 1.0f), "WARNING! asset is in an invalid state. ");
+									//
+									// 		for (const String& missingFile : assetFile->GetMissingFiles())
+									// 		{
+									// 			ImGui::TextColored(ImVec4(202.f / 255.f, 98.f / 255.f, 87.f / 255.f, 1.0f), "File %s not found. ", missingFile.CStr());
+									// 		}
+									//
+									// 		ImGui::Separator();
+									// 		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 16.f * style.ScaleFactor);
+									// 	}
+									//
+									// 	if (ImGui::BeginTable("table-asset-info", 2, ImGuiTableFlags_SizingFixedFit))
+									// 	{
+									// 		if (assetFile->GetUUID())
+									// 		{
+									// 			ImGui::TableNextRow();
+									// 			ImGui::TableNextColumn();
+									// 			ImGui::TextDisabled("UUID: ");
+									// 			ImGui::TableNextColumn();
+									// 			ImGui::Text("%s", assetFile->GetUUID().ToString().CStr());
+									// 		}
+									//
+									// 		ImGui::TableNextRow();
+									// 		ImGui::TableNextColumn();
+									// 		ImGui::TextDisabled("Asset Name: ");
+									// 		ImGui::TableNextColumn();
+									// 		ImGui::Text("%s", labelCache.CStr());
+									//
+									// 		ImGui::TableNextRow();
+									// 		ImGui::TableNextColumn();
+									// 		ImGui::TextDisabled("Path ID: ");
+									// 		ImGui::TableNextColumn();
+									// 		ImGui::Text("%s", assetFile->GetPath().CStr());
+									//
+									// 		ImGui::TableNextRow();
+									// 		ImGui::TableNextColumn();
+									// 		ImGui::TextDisabled("Absolute Path: ");
+									// 		ImGui::TableNextColumn();
+									// 		ImGui::Text("%s", assetFile->GetAbsolutePath().CStr());
+									//
+									// 		if (ReflectType* type = Reflection::FindTypeById(assetFile->GetAssetTypeId()))
+									// 		{
+									// 			ImGui::TableNextRow();
+									// 			ImGui::TableNextColumn();
+									// 			ImGui::TextDisabled("Type: ");
+									// 			ImGui::TableNextColumn();
+									// 			ImGui::Text("%s", type->GetSimpleName().CStr());
+									// 		}
+									//
+									// 		ImGui::EndTable();
+									// 	}
+									// 	ImGui::EndTooltip();
+									// }
+
+									ImGui::SetCursorScreenPos(state.screenStartPos);
+
+									ImGui::PopID();
 								}
-
-								ImGui::SetCursorScreenPos(state.screenStartPos);
-
-								ImGui::PopID();
 							}
 						}
 					}
@@ -486,12 +525,12 @@ namespace Skore
 
 					if (moveAssetsTo)
 					{
-						for (auto& it : selectedItems)
-						{
-							it->MoveTo(moveAssetsTo);
-						}
-						selectedItems.Clear();
-						lastSelectedItem = nullptr;
+						// for (auto& it : selectedItems)
+						// {
+						// 	it->MoveTo(moveAssetsTo);
+						// }
+						// selectedItems.Clear();
+						// lastSelectedItem = nullptr;
 					}
 				}
 
@@ -503,7 +542,7 @@ namespace Skore
 
 
 		bool closePopup = false;
-		if (!renamingItem && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
+		if (!IsRenamingItem() && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
 		{
 			if (menuItemContext.ExecuteHotKeys(this))
 			{
@@ -529,8 +568,8 @@ namespace Skore
 
 		if (!popupRes && !newSelection && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
 		{
-			selectedItems.Clear();
-			lastSelectedItem = nullptr;
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope("Clear Selection");
+			ClearSelection(scope);
 		}
 
 		newSelection = false;
@@ -538,40 +577,91 @@ namespace Skore
 		ImGui::End();
 	}
 
-	AssetFileOld* ProjectBrowserWindow::GetLastSelectedItem() const
+	RID ProjectBrowserWindow::GetLastSelectedItem() const
 	{
-		return lastSelectedItem;
-	}
-
-	AssetFileOld* ProjectBrowserWindow::GetOpenDirectory() const
-	{
-		return openDirectory;
-	}
-
-	void ProjectBrowserWindow::SetOpenDirectory(AssetFileOld* directory)
-	{
-		selectedItems.Clear();
-		selectedItems.Emplace(directory);
-		lastSelectedItem = directory;
-		newSelection = true;
-
-		openDirectory = directory;
-		if (directory && directory->GetParent())
+		if (ResourceObject obj = Resources::Read(windowObjectRID))
 		{
-			openTreeFolders[directory->GetParent()->GetAbsolutePath()] = true;
+			return obj.GetReference(ProjectBrowserWindowData::LastSelectedItem);
 		}
+		return {};
+	}
+
+	RID ProjectBrowserWindow::GetOpenDirectory() const
+	{
+		if (ResourceObject obj = Resources::Read(windowObjectRID))
+		{
+			return obj.GetReference(ProjectBrowserWindowData::OpenDirectory);
+		}
+		return {};
+	}
+
+	RID ProjectBrowserWindow::GetRenamingItem() const
+	{
+		if (ResourceObject obj = Resources::Read(windowObjectRID))
+		{
+			return obj.GetReference(ProjectBrowserWindowData::RenamingItem);
+		}
+		return {};
+	}
+
+	bool ProjectBrowserWindow::IsRenamingItem() const
+	{
+		return GetRenamingItem() != RID{};
+	}
+
+	bool ProjectBrowserWindow::IsSelected(RID rid) const
+	{
+		if (ResourceObject obj = Resources::Read(windowObjectRID))
+		{
+			return obj.HasOnReferenceArray(ProjectBrowserWindowData::SelectedItems, rid);
+		}
+		return false;
+	}
+
+	void ProjectBrowserWindow::SetOpenDirectory(RID directory)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Open Directory");
+
+		ResourceObject windowObject = Resources::Write(windowObjectRID);
+		windowObject.SetReference(ProjectBrowserWindowData::OpenDirectory, directory);
+		windowObject.ClearReferenceArray(ProjectBrowserWindowData::SelectedItems);
+		windowObject.Commit(scope);
+	}
+
+	void ProjectBrowserWindow::SetRenameItem(RID rid, UndoRedoScope* scope) const
+	{
+		ResourceObject windowObject = Resources::Write(windowObjectRID);
+		windowObject.SetReference(ProjectBrowserWindowData::RenamingItem, rid);
+		windowObject.Commit(scope);
+	}
+
+	void ProjectBrowserWindow::ClearSelection(UndoRedoScope* scope) const
+	{
+		ResourceObject windowObject = Resources::Write(windowObjectRID);
+		windowObject.ClearReferenceArray(ProjectBrowserWindowData::SelectedItems);
+		windowObject.SetReference(ProjectBrowserWindowData::LastSelectedItem, {});
+		windowObject.Commit(scope);
+	}
+
+	void ProjectBrowserWindow::SelectItem(RID asset, UndoRedoScope* scope) const
+	{
+		ResourceObject windowObject = Resources::Write(windowObjectRID);
+		windowObject.AddToReferenceArray(ProjectBrowserWindowData::SelectedItems, asset);
+		windowObject.SetReference(ProjectBrowserWindowData::LastSelectedItem, asset);
+		windowObject.Commit(scope);
 	}
 
 	bool ProjectBrowserWindow::CheckSelectedAsset(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		return projectBrowserWindow->lastSelectedItem != nullptr;
+		return projectBrowserWindow->GetLastSelectedItem();
 	}
 
 	void ProjectBrowserWindow::AssetRename(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		projectBrowserWindow->renamingItem = projectBrowserWindow->lastSelectedItem;
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Rename");
+		projectBrowserWindow->SetRenameItem(projectBrowserWindow->GetLastSelectedItem(), scope);
 	}
 
 	void ProjectBrowserWindow::Shutdown()
@@ -582,73 +672,74 @@ namespace Skore
 	void ProjectBrowserWindow::AssetNewFolder(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		AssetFileOld*            newDirectory = AssetEditor::CreateDirectory(projectBrowserWindow->openDirectory);
 
-		projectBrowserWindow->renamingItem = newDirectory;
-		projectBrowserWindow->selectedItems.Clear();
-		projectBrowserWindow->selectedItems.Insert(newDirectory);
-		projectBrowserWindow->lastSelectedItem = newDirectory;
+		// AssetFileOld*         newDirectory = AssetEditor::CreateDirectory(projectBrowserWindow->openDirectory);
+		// projectBrowserWindow->renamingItem = newDirectory;
+		// projectBrowserWindow->selectedItems.Clear();
+		// projectBrowserWindow->selectedItems.Insert(newDirectory);
+		// projectBrowserWindow->lastSelectedItem = newDirectory;
 	}
 
 	void ProjectBrowserWindow::AssetNew(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		if (AssetFileOld* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->openDirectory, eventData.userData))
-		{
-			projectBrowserWindow->renamingItem = newAsset;
-			projectBrowserWindow->selectedItems.Clear();
-			projectBrowserWindow->selectedItems.Insert(newAsset);
-			projectBrowserWindow->lastSelectedItem = newAsset;
-		}
+		// if (AssetFileOld* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->openDirectory, eventData.userData))
+		// {
+		// 	projectBrowserWindow->renamingItem = newAsset;
+		// 	projectBrowserWindow->selectedItems.Clear();
+		// 	projectBrowserWindow->selectedItems.Insert(newAsset);
+		// 	projectBrowserWindow->lastSelectedItem = newAsset;
+		// }
 	}
 
 	void ProjectBrowserWindow::AssetDelete(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		projectBrowserWindow->markedToDelete = projectBrowserWindow->selectedItems;
-
-		Editor::ShowConfirmDialog("Are you sure you want to delete the selected assets? ", eventData.drawData, [](VoidPtr userData)
-		{
-			ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(userData);
-
-			for (AssetFileOld* assetFile : projectBrowserWindow->markedToDelete)
-			{
-				assetFile->Delete();
-			}
-
-			projectBrowserWindow->markedToDelete.Clear();
-			projectBrowserWindow->selectedItems.Clear();
-			projectBrowserWindow->lastSelectedItem = nullptr;
-		});
+		// projectBrowserWindow->markedToDelete = projectBrowserWindow->selectedItems;
+		//
+		// Editor::ShowConfirmDialog("Are you sure you want to delete the selected assets? ", eventData.drawData, [](VoidPtr userData)
+		// {
+		// 	ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(userData);
+		//
+		// 	for (AssetFileOld* assetFile : projectBrowserWindow->markedToDelete)
+		// 	{
+		// 		assetFile->Delete();
+		// 	}
+		//
+		// 	projectBrowserWindow->markedToDelete.Clear();
+		// 	projectBrowserWindow->selectedItems.Clear();
+		// 	projectBrowserWindow->lastSelectedItem = nullptr;
+		// });
 	}
 
 	void ProjectBrowserWindow::AssetShowInExplorer(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		if (projectBrowserWindow->lastSelectedItem)
-		{
-			String parent = Path::Parent(projectBrowserWindow->lastSelectedItem->GetAbsolutePath());
-			SDL_OpenURL(parent.CStr());
-		}
-		else if (projectBrowserWindow->openDirectory)
-		{
-			SDL_OpenURL(projectBrowserWindow->openDirectory->GetAbsolutePath().CStr());
-		}
+		// if (projectBrowserWindow->lastSelectedItem)
+		// {
+		// 	String parent = Path::Parent(projectBrowserWindow->lastSelectedItem->GetAbsolutePath());
+		// 	SDL_OpenURL(parent.CStr());
+		// }
+		// else if (projectBrowserWindow->openDirectory)
+		// {
+		// 	SDL_OpenURL(projectBrowserWindow->openDirectory->GetAbsolutePath().CStr());
+		// }
 	}
 
 	void ProjectBrowserWindow::AssetCopyPathToClipboard(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		if (projectBrowserWindow->lastSelectedItem)
-		{
-			SDL_SetClipboardText(projectBrowserWindow->lastSelectedItem->GetPath().CStr());
-		}
+		// if (projectBrowserWindow->lastSelectedItem)
+		// {
+		// 	SDL_SetClipboardText(projectBrowserWindow->lastSelectedItem->GetPath().CStr());
+		// }
 	}
 
 	bool ProjectBrowserWindow::CanCreateAsset(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		return projectBrowserWindow->openDirectory != nullptr && projectBrowserWindow->openDirectory->CanAcceptNewChild();
+		//return projectBrowserWindow->openDirectory != nullptr && projectBrowserWindow->openDirectory->CanAcceptNewChild();
+		return true;
 	}
 
 	void ProjectBrowserWindow::OpenProjectBrowser(const MenuItemEventData& eventData)
@@ -664,20 +755,20 @@ namespace Skore
 	bool ProjectBrowserWindow::CanReimportAsset(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		if (projectBrowserWindow->lastSelectedItem)
-		{
-			return projectBrowserWindow->lastSelectedItem->GetAssetTypeFile() == AssetFileType::ImportedAsset;
-		}
+		// if (projectBrowserWindow->lastSelectedItem)
+		// {
+		// 	return projectBrowserWindow->lastSelectedItem->GetAssetTypeFile() == AssetFileType::ImportedAsset;
+		// }
 		return false;
 	}
 
 	void ProjectBrowserWindow::ReimportAsset(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		if (projectBrowserWindow->lastSelectedItem)
-		{
-			projectBrowserWindow->lastSelectedItem->Reimport();
-		}
+		// if (projectBrowserWindow->lastSelectedItem)
+		// {
+		// 	projectBrowserWindow->lastSelectedItem->Reimport();
+		// }
 	}
 
 	bool ProjectBrowserWindow::CanExtractAsset(const MenuItemEventData& eventData)
@@ -685,10 +776,7 @@ namespace Skore
 		return false;
 	}
 
-	void ProjectBrowserWindow::ExtractAsset(const MenuItemEventData& eventData)
-	{
-
-	}
+	void ProjectBrowserWindow::ExtractAsset(const MenuItemEventData& eventData) {}
 
 	void ProjectBrowserWindow::RegisterType(NativeReflectType<ProjectBrowserWindow>& type)
 	{
@@ -698,7 +786,9 @@ namespace Skore
 
 		AddMenuItem(MenuItemCreation{.itemName = "New Folder", .icon = ICON_FA_FOLDER, .priority = 1000, .action = AssetNewFolder, .enable = CanCreateAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "New Scene", .icon = ICON_FA_CLAPPERBOARD, .priority = 1010, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<Scene>::ID()});
-		AddMenuItem(MenuItemCreation{.itemName = "New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 1015, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<MaterialAsset>::ID()});
+		AddMenuItem(MenuItemCreation{
+			.itemName = "New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 1015, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<MaterialAsset>::ID()
+		});
 		AddMenuItem(MenuItemCreation{.itemName = "Delete", .icon = ICON_FA_TRASH, .priority = 1020, .itemShortcut{.presKey = Key::Delete}, .action = AssetDelete, .visible = CheckSelectedAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "Rename", .icon = ICON_FA_PEN_TO_SQUARE, .priority = 1030, .itemShortcut{.presKey = Key::F2}, .action = AssetRename, .visible = CheckSelectedAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "Show in Explorer", .icon = ICON_FA_FOLDER, .priority = 1040, .action = AssetShowInExplorer});
@@ -717,5 +807,12 @@ namespace Skore
 			.dockPosition = DockPosition::BottomLeft,
 			.createOnInit = true
 		});
+
+		Resources::Type<ProjectBrowserWindowData>()
+			.Field(ProjectBrowserWindowData::OpenDirectory, "openDirectory", ResourceFieldType::Reference)
+			.Field(ProjectBrowserWindowData::RenamingItem, "renamingItem", ResourceFieldType::Reference)
+			.Field(ProjectBrowserWindowData::SelectedItems, "selectedItems", ResourceFieldType::ReferenceArray)
+			.Field(ProjectBrowserWindowData::LastSelectedItem, "lastSelectedItem", ResourceFieldType::Reference)
+			.Build();
 	}
 }

@@ -51,6 +51,7 @@ namespace Skore
 	{
 		static AppResult Init(const AppConfig& appConfig, int argc, char** argv);
 		static AppResult Run();
+		static void      TypeRegister();
 		static void      TypeRegister(FnTypeRegisterCallback callback);
 
 		static void       RequestShutdown();

@@ -52,6 +52,16 @@ namespace
 		};
 	};
 
+	struct WrongIndex
+	{
+		enum
+		{
+			SubObject,
+			Value1,
+			Value2
+		};
+	};
+
 	void RegisterTestTypes()
 	{
 		Resources::Type<ResourceTest>()
@@ -254,26 +264,44 @@ namespace
 		}
 	};
 
-	TEST_CASE("Resource::ReferenceArray")
+	TEST_CASE("Resource::WrongIndex")
 	{
 		ResourceInit();
 		{
-			RegisterTestTypes();
+			Resources::Type<WrongIndex>()
+				.Field<WrongIndex::SubObject>(ResourceFieldType::SubObject)
+				.Field<WrongIndex::Value2>(ResourceFieldType::ReferenceArray)
+				.Field<WrongIndex::Value1>(ResourceFieldType::ReferenceArray)
+				.Build();
 
-			RID object = Resources::Create<ResourceTest>();
-			RID ref1 = Resources::Create<ResourceTest>();
-			RID ref2 = Resources::Create<ResourceTest>();
+			RID object = Resources::Create<WrongIndex>();
+			RID sub = Resources::Create<WrongIndex>();
+			RID ref1 = Resources::Create<WrongIndex>();
+			RID ref2 = Resources::Create<WrongIndex>();
 
-			ResourceObject obj = Resources::Write(object);
-			obj.AddToReferenceArray(ResourceTest::RefArray, ref1);
-			obj.Commit();
+			{
+				ResourceObject obj = Resources::Write(object);
+				obj.SetSubObject(WrongIndex::SubObject, sub);
+				obj.Commit();
+			}
 
-			ResourceObject obj2 = Resources::Write(object);
-			obj.AddToReferenceArray(ResourceTest::RefArray, ref2);
-			obj.Commit();
+			{
+				ResourceObject obj = Resources::Write(object);
+				obj.AddToReferenceArray(WrongIndex::Value1, ref1);
+				obj.Commit();
+			}
 
-			Span<RID> rids = obj.GetReferenceArray(ResourceTest::RefArray);
-			CHECK(rids.Size() == 2);
+			{
+				ResourceObject obj = Resources::Write(object);
+				obj.AddToReferenceArray(WrongIndex::Value1, ref2);
+				obj.Commit();
+			}
+
+			{
+				ResourceObject obj = Resources::Read(object);
+				Span<RID> rids = obj.GetReferenceArray(WrongIndex::Value1);
+				CHECK(rids.Size() == 2);
+			}
 		}
 		ResourceShutdown();
 	}
