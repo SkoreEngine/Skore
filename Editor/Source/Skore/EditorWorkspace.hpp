@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 #pragma once
-#include "Asset/AssetFile.hpp"
+#include "Asset/AssetFileOld.hpp"
 #include "Scene/SceneEditor.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/StringView.hpp"
@@ -40,7 +40,7 @@ namespace Skore
 		u32          GetId() const;
 		WorldEditor* GetWorldEditor();
 		void         OpenAsset(RID rid);
-		void         OpenAsset(AssetFile* assetFile);
+		void         OpenAsset(AssetFileOld* assetFile);
 
 		SceneEditor* GetSceneEditor();
 

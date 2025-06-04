@@ -24,7 +24,7 @@
 #include "Path.hpp"
 #include "Skore/Core/UUID.hpp"
 
-#if defined(SK_WIN) && !defined(SK_VIRTUAL_FILESYSTEM)
+#if defined(SK_WIN)
 
 #define WIN32_LEAN_AND_MEAN
 

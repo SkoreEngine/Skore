@@ -26,7 +26,7 @@
 
 namespace Skore
 {
-	class AssetFile;
+	class AssetFileOld;
 	class GPUTexture;
 
 	class AssetEditor
@@ -34,30 +34,30 @@ namespace Skore
 	public:
 		static void             SetProject(StringView name, StringView directory);
 		static void             AddPackage(StringView name, StringView directory);
-		static AssetFile*       GetProject();
-		static Span<AssetFile*> GetPackages();
-		static AssetFile*       CreateDirectory(AssetFile* parent);
-		static AssetFile*       FindOrCreateAsset(AssetFile* parent, TypeID typeId, StringView suggestedName);
-		static AssetFile*       CreateAsset(AssetFile* parent, TypeID typeId, StringView suggestedName = "", UUID uuid = {});
-		static String           CreateUniqueName(AssetFile* parent, StringView desiredName);
-		static void             GetUpdatedAssets(Array<AssetFile*>& updatedAssets);
-		static Span<AssetFile*> GetAssetsByType(TypeID typeId);
-		static void             ImportFile(AssetFile* parent, StringView path);
-		static AssetFile*       GetFileByAbsolutePath(StringView path);
+		static AssetFileOld*       GetProject();
+		static Span<AssetFileOld*> GetPackages();
+		static AssetFileOld*       CreateDirectory(AssetFileOld* parent);
+		static AssetFileOld*       FindOrCreateAsset(AssetFileOld* parent, TypeID typeId, StringView suggestedName);
+		static AssetFileOld*       CreateAsset(AssetFileOld* parent, TypeID typeId, StringView suggestedName = "", UUID uuid = {});
+		static String           CreateUniqueName(AssetFileOld* parent, StringView desiredName);
+		static void             GetUpdatedAssets(Array<AssetFileOld*>& updatedAssets);
+		static Span<AssetFileOld*> GetAssetsByType(TypeID typeId);
+		static void             ImportFile(AssetFileOld* parent, StringView path);
+		static AssetFileOld*       GetFileByAbsolutePath(StringView path);
 
 		static StringView GetLibFolder();
 
 		static GPUTexture* GetDirectoryThumbnail();
 		static GPUTexture* GetFileThumbnail();
 
-		friend class AssetFile;
+		friend class AssetFileOld;
 
 		static void AssetEditorOnUpdate();
 
 	private:
-		static AssetFile* ScanForAssets(AssetFile* parent, StringView name, StringView path);
-		static AssetFile* CreateAssetFile(AssetFile* parent, StringView name, StringView extension);
-		static void       AddAssetFile(AssetFile* assetFile);
-		static void       RemoveAssetFile(AssetFile* assetFile);
+		static AssetFileOld* ScanForAssets(AssetFileOld* parent, StringView name, StringView path);
+		static AssetFileOld* CreateAssetFile(AssetFileOld* parent, StringView name, StringView extension);
+		static void       AddAssetFile(AssetFileOld* assetFile);
+		static void       RemoveAssetFile(AssetFileOld* assetFile);
 	};
 }

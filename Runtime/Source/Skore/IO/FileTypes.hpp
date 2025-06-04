@@ -88,7 +88,6 @@ namespace Skore
 
     class SK_API DirectoryEntries
     {
-
     private:
         String m_directory{};
     public:

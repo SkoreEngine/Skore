@@ -20,30 +20,28 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-
-#include "FileTypes.hpp"
-#include "Skore/Core/String.hpp"
-#include "Skore/Core/StringView.hpp"
-#include "Skore/Core/Array.hpp"
-
-#ifdef SK_VIRTUAL_FILESYSTEM
+#include "ResourceAssetCommon.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	struct FileSystemVirtual
+	void RegisterResourceAssetTypes()
 	{
-		static void Initialize();
-		static void Shutdown();
+		Resources::Type<ResourceAsset>()
+			.Field<ResourceAsset::Name>(ResourceFieldType::String)
+			.Field<ResourceAsset::Extension>(ResourceFieldType::String)
+			.Field<ResourceAsset::Object>(ResourceFieldType::SubObject)
+			.Field<ResourceAsset::Parent>(ResourceFieldType::Reference)
+			.Field<ResourceAsset::AbsolutePath>(ResourceFieldType::String)
+			.Field<ResourceAsset::PersistedVersion>(ResourceFieldType::UInt)
+			.Field<ResourceAsset::TotalSizeInDisk>(ResourceFieldType::UInt)
+			.Field<ResourceAsset::LastModifiedTime>(ResourceFieldType::UInt)
+			.Build();
 
-		// Virtual file management functions
-		static bool AddVirtualFile(const StringView& path, const Array<u8>& data);
-		static bool AddVirtualFile(const StringView& path, const StringView& content);
-		static bool AddVirtualDirectory(const StringView& path);
-		static bool RemoveVirtualEntry(const StringView& path);
-		static bool VirtualEntryExists(const StringView& path);
-		static Array<String> ListVirtualEntries(const StringView& directory);
-	};
+		Resources::Type<ResourceDirectory>()
+			.Field<ResourceDirectory::Asset>(ResourceFieldType::SubObject)
+			.Field<ResourceDirectory::Assets>(ResourceFieldType::ReferenceArray)
+			.Field<ResourceDirectory::Directories>(ResourceFieldType::ReferenceArray)
+			.Build();
+	}
 }
-
-#endif

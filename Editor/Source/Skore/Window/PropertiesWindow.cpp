@@ -254,7 +254,7 @@ namespace Skore
 		ImGuiEndPopupMenu(popupOpenSettings);
 	}
 
-	void PropertiesWindow::DrawAsset(u32 id, AssetFile* assetFile)
+	void PropertiesWindow::DrawAsset(u32 id, AssetFileOld* assetFile)
 	{
 		ImGuiStyle& style = ImGui::GetStyle();
 
@@ -308,7 +308,7 @@ namespace Skore
 				.userData = assetFile,
 				.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
 				{
-					static_cast<AssetFile*>(context.userData)->MarkDirty();
+					static_cast<AssetFileOld*>(context.userData)->MarkDirty();
 				}
 			});
 			ImGui::Unindent();
@@ -371,7 +371,7 @@ namespace Skore
 		}
 	}
 
-	void PropertiesWindow::AssetSelection(AssetFile* assetFile)
+	void PropertiesWindow::AssetSelection(AssetFileOld* assetFile)
 	{
 		if (assetFile == nullptr && selectedAsset == nullptr) return;
 		ClearSelection();

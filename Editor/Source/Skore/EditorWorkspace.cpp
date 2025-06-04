@@ -65,7 +65,7 @@ namespace Skore
         //onAssetSelectionHandler.Invoke(assetFile);
     }
 
-    void EditorWorkspace::OpenAsset(AssetFile* assetFile)
+    void EditorWorkspace::OpenAsset(AssetFileOld* assetFile)
     {
         onAssetSelectionHandler.Invoke(assetFile);
     }

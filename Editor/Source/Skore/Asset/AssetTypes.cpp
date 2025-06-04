@@ -23,7 +23,7 @@
 
 #include "AssetTypes.hpp"
 
-#include "AssetFile.hpp"
+#include "AssetFileOld.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/IO/Assets.hpp"
 #include "Skore/IO/FileSystem.hpp"
@@ -60,7 +60,7 @@ namespace Skore
 		assetStatus.Value<AssetStatus::Warning>("Warning");
 	}
 
-	void AssetHandler::LoadInstance(AssetFile* assetFile, Asset* asset)
+	void AssetHandler::LoadInstance(AssetFileOld* assetFile, Asset* asset)
 	{
 		AssetFileType type = assetFile->GetAssetTypeFile();
 		if (type == AssetFileType::Asset)

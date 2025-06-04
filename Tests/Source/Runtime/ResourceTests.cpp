@@ -254,6 +254,30 @@ namespace
 		}
 	};
 
+	TEST_CASE("Resource::ReferenceArray")
+	{
+		ResourceInit();
+		{
+			RegisterTestTypes();
+
+			RID object = Resources::Create<ResourceTest>();
+			RID ref1 = Resources::Create<ResourceTest>();
+			RID ref2 = Resources::Create<ResourceTest>();
+
+			ResourceObject obj = Resources::Write(object);
+			obj.AddToReferenceArray(ResourceTest::RefArray, ref1);
+			obj.Commit();
+
+			ResourceObject obj2 = Resources::Write(object);
+			obj.AddToReferenceArray(ResourceTest::RefArray, ref2);
+			obj.Commit();
+
+			Span<RID> rids = obj.GetReferenceArray(ResourceTest::RefArray);
+			CHECK(rids.Size() == 2);
+		}
+		ResourceShutdown();
+	}
+
 	TEST_CASE("Resource::Casters")
 	{
 		ResourceInit();

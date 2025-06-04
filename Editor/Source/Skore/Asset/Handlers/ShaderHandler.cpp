@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Skore/Asset/AssetFile.hpp"
+#include "Skore/Asset/AssetFileOld.hpp"
 #include "Skore/Asset/AssetTypes.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/GraphicsAssets.hpp"
@@ -92,7 +92,7 @@ namespace Skore
 			return TypeInfo<ShaderAsset>::ID();
 		}
 
-		void LoadInstance(AssetFile* assetFile, Asset* asset) override
+		void LoadInstance(AssetFileOld* assetFile, Asset* asset) override
 		{
 			ShaderAsset* shaderAsset = asset->SafeCast<ShaderAsset>();
 
@@ -213,7 +213,7 @@ namespace Skore
                 	shaderCompileInfo.getShaderInclude = [](StringView include, void* userData, String& source) -> bool
                 	{
                 		//TODO - add shader dependencies for hot reloading
-                		AssetFile* assetFile = static_cast<AssetFile*>(userData);
+                		AssetFileOld* assetFile = static_cast<AssetFileOld*>(userData);
 						if (Contains(include, StringView(":/")))
 						{
 							if (AssetInterface* interface = Assets::GetInterfaceByPath(include))
@@ -276,7 +276,7 @@ namespace Skore
             }
 		}
 
-		void OpenAsset(AssetFile* assetFile) override
+		void OpenAsset(AssetFileOld* assetFile) override
 		{
 			SDL_OpenURL(assetFile->GetAbsolutePath().CStr());
 		}

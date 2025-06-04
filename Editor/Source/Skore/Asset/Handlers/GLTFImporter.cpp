@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Skore/Asset/AssetFile.hpp"
+#include "Skore/Asset/AssetFileOld.hpp"
 #include "Skore/Asset/AssetTypes.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Scene/Scene.hpp"
@@ -68,14 +68,14 @@ namespace Skore
 		return Vec4{vec[0], vec[1], vec[2], vec[3]};
 	}
 
-	TextureAsset* ProcessTexture(AssetFile* parentAsset, const cgltf_options* options, cgltf_image* image, StringView basePath)
+	TextureAsset* ProcessTexture(AssetFileOld* parentAsset, const cgltf_options* options, cgltf_image* image, StringView basePath)
 	{
 		if (bool embedded = (image->buffer_view && image->buffer_view->buffer && image->buffer_view->buffer->data) || (image->uri && strncmp(image->uri, "data:", 5) == 0))
 		{
 			bool imported = false;
 
 			String textureName = image->name ? image->name : (image->uri ? image->uri : "Texture");
-			AssetFile*    textureAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<TextureAsset>::ID(), textureName);
+			AssetFileOld*    textureAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<TextureAsset>::ID(), textureName);
 			TextureAsset* textureAsset = textureAssetFile->GetInstance()->SafeCast<TextureAsset>();
 
 			if (image->buffer_view && image->buffer_view->buffer && image->buffer_view->buffer->data)
@@ -109,7 +109,7 @@ namespace Skore
 		else if (image->uri)
 		{
 			String texturePath = Path::Join(basePath, image->uri);
-			AssetFile* textureFile = AssetEditor::GetFileByAbsolutePath(texturePath);
+			AssetFileOld* textureFile = AssetEditor::GetFileByAbsolutePath(texturePath);
 			if (textureFile == nullptr)
 			{
 				logger.Warn("texture file not found {} ", image->uri);
@@ -126,14 +126,14 @@ namespace Skore
 		return nullptr;
 	}
 
-	MaterialAsset* ProcessMaterial(AssetFile* parentAsset, cgltf_material* material, Array<TextureAsset*>& textures, cgltf_data* data)
+	MaterialAsset* ProcessMaterial(AssetFileOld* parentAsset, cgltf_material* material, Array<TextureAsset*>& textures, cgltf_data* data)
 	{
 		if (!material)
 		{
 			return nullptr;
 		}
 
-		AssetFile* materialAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<MaterialAsset>::ID(), material->name ? material->name : "Material");
+		AssetFileOld* materialAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<MaterialAsset>::ID(), material->name ? material->name : "Material");
 		if (!materialAssetFile)
 		{
 			return nullptr;
@@ -242,13 +242,13 @@ namespace Skore
 	}
 
 
-	MeshAsset* ProcessMesh(AssetFile* parentAsset, cgltf_mesh* mesh, Array<MaterialAsset*>& materials, cgltf_data* data)
+	MeshAsset* ProcessMesh(AssetFileOld* parentAsset, cgltf_mesh* mesh, Array<MaterialAsset*>& materials, cgltf_data* data)
 	{
 		if (!mesh)
 			return nullptr;
 
 		// Create a mesh asset as a child of the parent asset
-		AssetFile* meshAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<MeshAsset>::ID(), mesh->name ? mesh->name : "Mesh");
+		AssetFileOld* meshAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<MeshAsset>::ID(), mesh->name ? mesh->name : "Mesh");
 		if (!meshAssetFile)
 			return nullptr;
 
@@ -535,7 +535,7 @@ namespace Skore
 			return {".bin"};
 		}
 
-		bool ImportAsset(AssetFile* assetFile, StringView path) override
+		bool ImportAsset(AssetFileOld* assetFile, StringView path) override
 		{
 			cgltf_options options = {};
 			cgltf_data*   data = nullptr;

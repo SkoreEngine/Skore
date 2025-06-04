@@ -61,17 +61,17 @@ namespace Skore
 		ReflectField* currentField = {};
 		Entity*       currentEntity = {};
 
-		AssetFile* selectedAsset = {};
+		AssetFileOld* selectedAsset = {};
 
 		void ClearSelection();
 
 		static void OpenProperties(const MenuItemEventData& eventData);
 
 		void DrawSceneEntity(u32 id, SceneEditor* sceneEditor, Entity* entity);
-		void DrawAsset(u32 id, AssetFile* assetFile);
+		void DrawAsset(u32 id, AssetFileOld* assetFile);
 
 		void EntitySelection(u32 workspaceId, UUID entityId);
 		void EntityDeselection(u32 workspaceId, UUID entityId);
-		void AssetSelection(AssetFile* assetFile);
+		void AssetSelection(AssetFileOld* assetFile);
 	};
 }

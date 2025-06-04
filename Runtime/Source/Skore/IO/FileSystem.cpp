@@ -24,7 +24,6 @@
 
 #include "Skore/Core/Span.hpp"
 
-#ifndef SK_VIRTUAL_FILESYSTEM
 
 #include "Path.hpp"
 #include <filesystem>
@@ -191,5 +190,3 @@ namespace Skore
         tempFolder = String{};
     }
 }
-
-#endif // !SK_VIRTUAL_FILESYSTEM

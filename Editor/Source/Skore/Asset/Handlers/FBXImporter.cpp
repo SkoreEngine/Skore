@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Skore/Asset/AssetFile.hpp"
+#include "Skore/Asset/AssetFileOld.hpp"
 #include "Skore/Asset/AssetTypes.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Scene/Scene.hpp"
@@ -52,7 +52,7 @@ namespace Skore
 		return Vec4{vec.x, vec.y, vec.z, vec.w};
 	}
 
-	TextureAsset* ProcessTexture(AssetFile* parentAsset, ufbx_texture* texture, StringView basePath)
+	TextureAsset* ProcessTexture(AssetFileOld* parentAsset, ufbx_texture* texture, StringView basePath)
 	{
 		if (!texture || !texture->filename.data)
 		{
@@ -62,7 +62,7 @@ namespace Skore
 		String textureName = texture->name.data ? texture->name.data : "Texture";
 		String texturePath = Path::Join(basePath, texture->filename.data);
 
-		AssetFile* textureFile = AssetEditor::GetFileByAbsolutePath(texturePath);
+		AssetFileOld* textureFile = AssetEditor::GetFileByAbsolutePath(texturePath);
 		if (textureFile == nullptr)
 		{
 			if (texture->relative_filename.data)
@@ -88,14 +88,14 @@ namespace Skore
 		return nullptr;
 	}
 
-	MaterialAsset* ProcessMaterial(AssetFile* parentAsset, ufbx_material* material, Array<TextureAsset*>& textures, const ufbx_scene* scene)
+	MaterialAsset* ProcessMaterial(AssetFileOld* parentAsset, ufbx_material* material, Array<TextureAsset*>& textures, const ufbx_scene* scene)
 	{
 		if (!material)
 		{
 			return nullptr;
 		}
 
-		AssetFile* materialAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<MaterialAsset>::ID(), material->name.data ? material->name.data : "Material");
+		AssetFileOld* materialAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<MaterialAsset>::ID(), material->name.data ? material->name.data : "Material");
 		if (!materialAssetFile)
 		{
 			return nullptr;
@@ -365,13 +365,13 @@ namespace Skore
 		return materialAsset;
 	}
 
-	MeshAsset* ProcessMesh(AssetFile* parentAsset, ufbx_mesh* mesh, Array<MaterialAsset*>& materials, const ufbx_scene* scene)
+	MeshAsset* ProcessMesh(AssetFileOld* parentAsset, ufbx_mesh* mesh, Array<MaterialAsset*>& materials, const ufbx_scene* scene)
 	{
 		if (!mesh)
 			return nullptr;
 
 		// Create a mesh asset as a child of the parent asset
-		AssetFile* meshAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<MeshAsset>::ID(), mesh->name.data ? mesh->name.data : "Mesh");
+		AssetFileOld* meshAssetFile = AssetEditor::FindOrCreateAsset(parentAsset, TypeInfo<MeshAsset>::ID(), mesh->name.data ? mesh->name.data : "Mesh");
 		if (!meshAssetFile)
 			return nullptr;
 
@@ -643,7 +643,7 @@ namespace Skore
 			return {".fbx"};
 		}
 
-		bool ImportAsset(AssetFile* assetFile, StringView path) override
+		bool ImportAsset(AssetFileOld* assetFile, StringView path) override
 		{
 			// Setup ufbx load options
 			ufbx_load_opts opts = {};

@@ -25,7 +25,7 @@
 #include <iostream>
 #include <mutex>
 
-#include "AssetFile.hpp"
+#include "AssetFileOld.hpp"
 #include "AssetTypes.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Queue.hpp"
@@ -52,16 +52,16 @@ namespace Skore
 
 	namespace
 	{
-		Logger&           logger = Logger::GetLogger("Skore::AssetEditor", LogLevel::Debug);
-		AssetFile*        projectFile = nullptr;
+		Logger&           logger = Logger::GetLogger("Skore::AssetEditor", LogLevel::Off);
+		AssetFileOld*        projectFile = nullptr;
 		SDL_SharedObject* projectPlugin = nullptr;
-		Array<AssetFile*> packages;
+		Array<AssetFileOld*> packages;
 		String            libFolder = {};
 
-		HashMap<TypeID, Array<AssetFile*>> assetsByType;
+		HashMap<TypeID, Array<AssetFileOld*>> assetsByType;
 
 		std::mutex                  byPathMutex;
-		HashMap<String, AssetFile*> assetsByPath;
+		HashMap<String, AssetFileOld*> assetsByPath;
 
 		Array<Ref<AssetHandler>>            handlers;
 		HashMap<String, Ref<AssetHandler>>  handlersByExtension;
@@ -81,7 +81,7 @@ namespace Skore
 		assetsByPath.Erase(path);
 	}
 
-	void AddFileByAbsolutePath(StringView path, AssetFile* file)
+	void AddFileByAbsolutePath(StringView path, AssetFileOld* file)
 	{
 		std::lock_guard lock(byPathMutex);
 		assetsByPath.Insert(path, file);
@@ -124,15 +124,15 @@ namespace Skore
 	{
 		String     path;
 		String     absolutePath;
-		AssetFile* parent{};
+		AssetFileOld* parent{};
 	};
 
-	Span<AssetFile*> AssetEditor::GetPackages()
+	Span<AssetFileOld*> AssetEditor::GetPackages()
 	{
 		return packages;
 	}
 
-	AssetFile* AssetEditor::CreateDirectory(AssetFile* parent)
+	AssetFileOld* AssetEditor::CreateDirectory(AssetFileOld* parent)
 	{
 		SK_ASSERT(parent, "parent cannot be null");
 
@@ -141,7 +141,7 @@ namespace Skore
 			return nullptr;
 		}
 
-		AssetFile* newDirectory = MemoryGlobals::GetDefaultAllocator()->Alloc<AssetFile>();
+		AssetFileOld* newDirectory = MemoryGlobals::GetDefaultAllocator()->Alloc<AssetFileOld>();
 
 		newDirectory->m_fileName = CreateUniqueName(parent, "New Folder");
 		newDirectory->m_type = AssetFileType::Directory;
@@ -161,7 +161,7 @@ namespace Skore
 		return newDirectory;
 	}
 
-	AssetFile* AssetEditor::FindOrCreateAsset(AssetFile* parent, TypeID typeId, StringView suggestedName)
+	AssetFileOld* AssetEditor::FindOrCreateAsset(AssetFileOld* parent, TypeID typeId, StringView suggestedName)
 	{
 		SK_ASSERT(parent, "parent cannot be null");
 		if (!parent) return nullptr;
@@ -169,7 +169,7 @@ namespace Skore
 		if (auto it = handlersByTypeID.Find(typeId))
 		{
 			String assetName = suggestedName.Empty() ? String("New ").Append(it->second->Name()) : String(suggestedName);
-			for (AssetFile* child : parent->m_children)
+			for (AssetFileOld* child : parent->m_children)
 			{
 				if (child->m_fileName == assetName && child->GetAssetTypeId() == typeId)
 				{
@@ -180,7 +180,7 @@ namespace Skore
 		return CreateAsset(parent, typeId, suggestedName);
 	}
 
-	AssetFile* AssetEditor::CreateAsset(AssetFile* parent, TypeID typeId, StringView suggestedName, UUID uuid)
+	AssetFileOld* AssetEditor::CreateAsset(AssetFileOld* parent, TypeID typeId, StringView suggestedName, UUID uuid)
 	{
 		SK_ASSERT(parent, "parent cannot be null");
 		if (!parent) return nullptr;
@@ -190,7 +190,7 @@ namespace Skore
 			String assetName = suggestedName.Empty() ? String("New ").Append(it->second->Name()) : String(suggestedName);
 			assetName = CreateUniqueName(parent, assetName);
 
-			AssetFile* newAsset = CreateAssetFile(parent, assetName, it->second->Extension());
+			AssetFileOld* newAsset = CreateAssetFile(parent, assetName, it->second->Extension());
 			newAsset->m_type = parent->m_type == AssetFileType::Directory || parent->m_type == AssetFileType::Root ? AssetFileType::Asset : AssetFileType::Child;
 			newAsset->m_currentVersion = 1;
 			newAsset->m_persistedVersion = 0;
@@ -212,7 +212,7 @@ namespace Skore
 		return nullptr;
 	}
 
-	String AssetEditor::CreateUniqueName(AssetFile* parent, StringView desiredName)
+	String AssetEditor::CreateUniqueName(AssetFileOld* parent, StringView desiredName)
 	{
 		if (parent == nullptr) return {};
 
@@ -222,7 +222,7 @@ namespace Skore
 		do
 		{
 			nameFound = true;
-			for (AssetFile* child : parent->m_children)
+			for (AssetFileOld* child : parent->m_children)
 			{
 				if (finalName == child->m_fileName)
 				{
@@ -239,16 +239,16 @@ namespace Skore
 		return finalName;
 	}
 
-	void AssetEditor::GetUpdatedAssets(Array<AssetFile*>& updatedAssets)
+	void AssetEditor::GetUpdatedAssets(Array<AssetFileOld*>& updatedAssets)
 	{
-		Queue<AssetFile*> pendingDirectories;
-		AssetFile*        current = nullptr;
+		Queue<AssetFileOld*> pendingDirectories;
+		AssetFileOld*        current = nullptr;
 
 		current = projectFile;
 
 		while (current != nullptr)
 		{
-			for (AssetFile* child : current->m_children)
+			for (AssetFileOld* child : current->m_children)
 			{
 				if (child->IsDirectory())
 				{
@@ -269,7 +269,7 @@ namespace Skore
 		}
 	}
 
-	Span<AssetFile*> AssetEditor::GetAssetsByType(TypeID typeId)
+	Span<AssetFileOld*> AssetEditor::GetAssetsByType(TypeID typeId)
 	{
 		if (auto it = assetsByType.Find(typeId))
 		{
@@ -278,12 +278,12 @@ namespace Skore
 		return {};
 	}
 
-	void AssetEditor::ImportFile(AssetFile* parent, StringView path)
+	void AssetEditor::ImportFile(AssetFileOld* parent, StringView path)
 	{
 		FileSystem::CopyFile(path, parent->GetAbsolutePath());
 	}
 
-	AssetFile* AssetEditor::GetFileByAbsolutePath(StringView path)
+	AssetFileOld* AssetEditor::GetFileByAbsolutePath(StringView path)
 	{
 		std::lock_guard lock(byPathMutex);
 		if (auto it = assetsByPath.Find(path))
@@ -308,14 +308,14 @@ namespace Skore
 		return fileThumbnail;
 	}
 
-	AssetFile* AssetEditor::GetProject()
+	AssetFileOld* AssetEditor::GetProject()
 	{
 		return projectFile;
 	}
 
-	AssetFile* AssetEditor::CreateAssetFile(AssetFile* parent, StringView name, StringView extension)
+	AssetFileOld* AssetEditor::CreateAssetFile(AssetFileOld* parent, StringView name, StringView extension)
 	{
-		AssetFile* file = Alloc<AssetFile>();
+		AssetFileOld* file = Alloc<AssetFileOld>();
 
 		file->m_fileName = name;
 		file->m_extension = extension;
@@ -342,20 +342,20 @@ namespace Skore
 		return file;
 	}
 
-	void AssetEditor::AddAssetFile(AssetFile* assetFile)
+	void AssetEditor::AddAssetFile(AssetFileOld* assetFile)
 	{
 		if (assetFile->m_handler && assetFile->m_handler->GetAssetTypeId() != 0)
 		{
 			auto it = assetsByType.Find(assetFile->m_handler->GetAssetTypeId());
 			if (it == assetsByType.end())
 			{
-				it = assetsByType.Emplace(assetFile->m_handler->GetAssetTypeId(), Array<AssetFile*>{}).first;
+				it = assetsByType.Emplace(assetFile->m_handler->GetAssetTypeId(), Array<AssetFileOld*>{}).first;
 			}
 			it->second.EmplaceBack(assetFile);
 		}
 	}
 
-	void AssetEditor::RemoveAssetFile(AssetFile* assetFile)
+	void AssetEditor::RemoveAssetFile(AssetFileOld* assetFile)
 	{
 		if (assetFile->GetHandler() && assetFile->GetHandler()->GetAssetTypeId() != 0)
 		{
@@ -377,7 +377,7 @@ namespace Skore
 			switch (fileWatcherModified.event)
 			{
 				case FileNotifyEvent::Added:
-					ScanForAssets(static_cast<AssetFile*>(fileWatcherModified.userData), fileWatcherModified.name, fileWatcherModified.path);
+					ScanForAssets(static_cast<AssetFileOld*>(fileWatcherModified.userData), fileWatcherModified.name, fileWatcherModified.path);
 					break;
 				case FileNotifyEvent::Removed:
 					//static_cast<AssetFile*>(fileWatcherModified.userData)->Delete();
@@ -392,7 +392,7 @@ namespace Skore
 		});
 	}
 
-	AssetFile* AssetEditor::ScanForAssets(AssetFile* parent, StringView name, StringView path)
+	AssetFileOld* AssetEditor::ScanForAssets(AssetFileOld* parent, StringView name, StringView path)
 	{
 		Queue<AssetsToScan> pendingItems(100);
 
@@ -401,7 +401,7 @@ namespace Skore
 			.parent = parent
 		});
 
-		AssetFile* first = nullptr;
+		AssetFileOld* first = nullptr;
 
 		while (currentScanItem.has_value())
 		{
@@ -428,7 +428,7 @@ namespace Skore
 				}
 
 				FileStatus status = FileSystem::GetFileStatus(item.absolutePath);
-				AssetFile* assetFile = CreateAssetFile(item.parent, item.parent != nullptr ? Path::Name(item.absolutePath) : String(name), extension);
+				AssetFileOld* assetFile = CreateAssetFile(item.parent, item.parent != nullptr ? Path::Name(item.absolutePath) : String(name), extension);
 				if (first == nullptr)
 				{
 					first = assetFile;

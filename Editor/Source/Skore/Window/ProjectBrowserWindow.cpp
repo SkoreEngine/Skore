@@ -35,7 +35,7 @@
 #include "SDL3/SDL.h"
 #include "Skore/Events.hpp"
 #include "Skore/Asset/AssetEditor.hpp"
-#include "Skore/Asset/AssetFile.hpp"
+#include "Skore/Asset/AssetFileOld.hpp"
 #include "Skore/Graphics/GraphicsAssets.hpp"
 #include "Skore/IO/Path.hpp"
 
@@ -73,7 +73,7 @@ namespace Skore
 		//TODO
 	}
 
-	void ProjectBrowserWindow::DrawTreeNode(AssetFile* file)
+	void ProjectBrowserWindow::DrawTreeNode(AssetFileOld* file)
 	{
 		if (!file || !file->IsDirectory()) return;
 
@@ -162,7 +162,7 @@ namespace Skore
 
 		if (isNodeOpen)
 		{
-			for (AssetFile* childNode : file->Children())
+			for (AssetFileOld* childNode : file->Children())
 			{
 				DrawTreeNode(childNode);
 			}
@@ -296,15 +296,15 @@ namespace Skore
 
 				if (ImGuiBeginContentTable("ProjectBrowser", contentBrowserZoom))
 				{
-					AssetFile* newOpenDirectory = nullptr;
+					AssetFileOld* newOpenDirectory = nullptr;
 
-					AssetFile* moveAssetsTo = nullptr;
+					AssetFileOld* moveAssetsTo = nullptr;
 
 					if (openDirectory != nullptr)
 					{
 						for (int i = 0; i < 2; ++i)
 						{
-							for (AssetFile* assetFile : openDirectory->Children())
+							for (AssetFileOld* assetFile : openDirectory->Children())
 							{
 								if (!assetFile->IsActive()) continue;
 
@@ -538,17 +538,17 @@ namespace Skore
 		ImGui::End();
 	}
 
-	AssetFile* ProjectBrowserWindow::GetLastSelectedItem() const
+	AssetFileOld* ProjectBrowserWindow::GetLastSelectedItem() const
 	{
 		return lastSelectedItem;
 	}
 
-	AssetFile* ProjectBrowserWindow::GetOpenDirectory() const
+	AssetFileOld* ProjectBrowserWindow::GetOpenDirectory() const
 	{
 		return openDirectory;
 	}
 
-	void ProjectBrowserWindow::SetOpenDirectory(AssetFile* directory)
+	void ProjectBrowserWindow::SetOpenDirectory(AssetFileOld* directory)
 	{
 		selectedItems.Clear();
 		selectedItems.Emplace(directory);
@@ -582,7 +582,7 @@ namespace Skore
 	void ProjectBrowserWindow::AssetNewFolder(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		AssetFile*            newDirectory = AssetEditor::CreateDirectory(projectBrowserWindow->openDirectory);
+		AssetFileOld*            newDirectory = AssetEditor::CreateDirectory(projectBrowserWindow->openDirectory);
 
 		projectBrowserWindow->renamingItem = newDirectory;
 		projectBrowserWindow->selectedItems.Clear();
@@ -593,7 +593,7 @@ namespace Skore
 	void ProjectBrowserWindow::AssetNew(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		if (AssetFile* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->openDirectory, eventData.userData))
+		if (AssetFileOld* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->openDirectory, eventData.userData))
 		{
 			projectBrowserWindow->renamingItem = newAsset;
 			projectBrowserWindow->selectedItems.Clear();
@@ -611,7 +611,7 @@ namespace Skore
 		{
 			ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(userData);
 
-			for (AssetFile* assetFile : projectBrowserWindow->markedToDelete)
+			for (AssetFileOld* assetFile : projectBrowserWindow->markedToDelete)
 			{
 				assetFile->Delete();
 			}

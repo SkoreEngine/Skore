@@ -55,6 +55,7 @@ namespace Skore
 		void SetEnum(u32 index, i64 enumValue);
 		void SetReference(u32 index, RID rid);
 		void SetReferenceArray(u32 index, Span<RID> refs);
+		void AddToReferenceArray(u32 index, RID ref);
 		void SetSubObject(u32 index, RID subObject);
 
 		//subobjects

@@ -40,7 +40,7 @@ namespace Skore
 			return TypeInfo<MaterialAsset>::ID();
 		}
 
-		void OpenAsset(AssetFile* assetFile) override
+		void OpenAsset(AssetFileOld* assetFile) override
 		{
 			Editor::GetCurrentWorkspace().OpenAsset(assetFile);
 		}

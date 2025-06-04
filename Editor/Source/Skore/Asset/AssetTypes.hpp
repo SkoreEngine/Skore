@@ -35,7 +35,7 @@ namespace Skore
 
 namespace Skore
 {
-	class AssetFile;
+	class AssetFileOld;
 
 	enum class AssetStatus
 	{
@@ -56,7 +56,7 @@ namespace Skore
 			return {};
 		}
 
-		virtual bool   ImportAsset(AssetFile* assetFile, StringView path) = 0;
+		virtual bool   ImportAsset(AssetFileOld* assetFile, StringView path) = 0;
 		virtual TypeID GetAssetTypeId() = 0;
 	};
 
@@ -65,8 +65,8 @@ namespace Skore
 		SK_CLASS(AssetHandler, Object)
 
 		virtual TypeID GetAssetTypeId() = 0;
-		virtual void   OpenAsset(AssetFile* assetFile) {}
-		virtual void   LoadInstance(AssetFile* assetFile, Asset* asset);
+		virtual void   OpenAsset(AssetFileOld* assetFile) {}
+		virtual void   LoadInstance(AssetFileOld* assetFile, Asset* asset);
 
 		virtual Array<String> AssociatedExtensions()
 		{

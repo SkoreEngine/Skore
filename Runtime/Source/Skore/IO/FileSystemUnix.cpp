@@ -23,7 +23,7 @@
 
 #include "Skore/Common.hpp"
 
-#if defined(SK_UNIX) && !defined(SK_VIRTUAL_FILESYSTEM)
+#if defined(SK_UNIX)
 
 #include <dirent.h>
 #include <cstring>

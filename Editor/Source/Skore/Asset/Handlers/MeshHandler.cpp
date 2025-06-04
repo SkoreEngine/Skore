@@ -37,7 +37,7 @@ namespace Skore
 			return TypeInfo<MeshAsset>::ID();
 		}
 
-		void OpenAsset(AssetFile* assetFile) override
+		void OpenAsset(AssetFileOld* assetFile) override
 		{
 
 		}

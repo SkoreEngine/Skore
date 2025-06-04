@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "AssetFile.hpp"
+#include "AssetFileOld.hpp"
 
 #include "AssetEditor.hpp"
 #include "AssetTypes.hpp"
@@ -35,54 +35,54 @@ namespace Skore
 	static Logger& logger = Logger::GetLogger("Skore::AssetFile");
 
 	void RemoveFileByAbsolutePath(StringView path);
-	void AddFileByAbsolutePath(StringView path, AssetFile* file);
+	void AddFileByAbsolutePath(StringView path, AssetFileOld* file);
 
-	AssetFile::~AssetFile()
+	AssetFileOld::~AssetFileOld()
 	{
 		if (m_instance)
 		{
 			DestroyAndFree(m_instance);
 		}
 
-		for (AssetFile* child : m_children)
+		for (AssetFileOld* child : m_children)
 		{
 			DestroyAndFree(child);
 		}
 	}
 
-	AssetHandler* AssetFile::GetHandler() const
+	AssetHandler* AssetFileOld::GetHandler() const
 	{
 		return m_handler;
 	}
 
-	StringView AssetFile::GetExtension() const
+	StringView AssetFileOld::GetExtension() const
 	{
 		return m_extension;
 	}
 
-	StringView AssetFile::GetName() const
+	StringView AssetFileOld::GetName() const
 	{
 		static String cache;
 		cache = m_fileName + m_extension;
 		return cache;
 	}
 
-	StringView AssetFile::GetAbsolutePath() const
+	StringView AssetFileOld::GetAbsolutePath() const
 	{
 		return m_absolutePath;
 	}
 
-	StringView AssetFile::GetPath() const
+	StringView AssetFileOld::GetPath() const
 	{
 		return m_path;
 	}
 
-	UUID AssetFile::GetUUID() const
+	UUID AssetFileOld::GetUUID() const
 	{
 		return m_uuid;
 	}
 
-	Asset* AssetFile::GetInstance()
+	Asset* AssetFileOld::GetInstance()
 	{
 		if (m_instance == nullptr && m_handler)
 		{
@@ -96,23 +96,23 @@ namespace Skore
 		return m_instance;
 	}
 
-	void AssetFile::AddChild(AssetFile* child)
+	void AssetFileOld::AddChild(AssetFileOld* child)
 	{
 		m_children.EmplaceBack(child);
 		child->m_parent = this;
 	}
 
-	bool AssetFile::IsDirty() const
+	bool AssetFileOld::IsDirty() const
 	{
 		return m_currentVersion > m_persistedVersion;
 	}
 
-	bool AssetFile::IsDirectory() const
+	bool AssetFileOld::IsDirectory() const
 	{
 		return m_type == AssetFileType::Directory || m_type == AssetFileType::Root;
 	}
 
-	bool AssetFile::IsChildOf(AssetFile* item) const
+	bool AssetFileOld::IsChildOf(AssetFileOld* item) const
 	{
 		if (m_parent != nullptr)
 		{
@@ -129,32 +129,32 @@ namespace Skore
 		return false;
 	}
 
-	bool AssetFile::IsActive() const
+	bool AssetFileOld::IsActive() const
 	{
 		return true;
 	}
 
-	StringView AssetFile::GetFileName() const
+	StringView AssetFileOld::GetFileName() const
 	{
 		return m_fileName;
 	}
 
-	bool AssetFile::CanAcceptNewChild() const
+	bool AssetFileOld::CanAcceptNewChild() const
 	{
 		return true;
 	}
 
-	AssetFile* AssetFile::GetParent() const
+	AssetFileOld* AssetFileOld::GetParent() const
 	{
 		return m_parent;
 	}
 
-	Span<AssetFile*> AssetFile::Children() const
+	Span<AssetFileOld*> AssetFileOld::Children() const
 	{
 		return m_children;
 	}
 
-	void AssetFile::Rename(StringView newName)
+	void AssetFileOld::Rename(StringView newName)
 	{
 		if (m_fileName != newName)
 		{
@@ -163,7 +163,7 @@ namespace Skore
 		}
 	}
 
-	void AssetFile::MoveTo(AssetFile* newParent)
+	void AssetFileOld::MoveTo(AssetFileOld* newParent)
 	{
 		RemoveFromParent();
 
@@ -173,12 +173,12 @@ namespace Skore
 		FileSystemUpdated();
 	}
 
-	void AssetFile::Delete()
+	void AssetFileOld::Delete()
 	{
 		RemoveFromParent();
 		AssetEditor::RemoveAssetFile(this);
 
-		for (AssetFile* child : m_children)
+		for (AssetFileOld* child : m_children)
 		{
 			child->m_parent = nullptr;
 			child->Delete();
@@ -203,7 +203,7 @@ namespace Skore
 		DestroyAndFree(this);
 	}
 
-	void AssetFile::Reimport()
+	void AssetFileOld::Reimport()
 	{
 		m_status = AssetStatus::None;
 		m_missingFiles.Clear();
@@ -214,32 +214,32 @@ namespace Skore
 		}
 	}
 
-	void AssetFile::AddAssociatedFile(StringView path)
+	void AssetFileOld::AddAssociatedFile(StringView path)
 	{
 		//TODO: add associated file
 	}
 
-	void AssetFile::AddMissingFile(StringView path)
+	void AssetFileOld::AddMissingFile(StringView path)
 	{
 		m_missingFiles.EmplaceBack(path);
 	}
 
-	const Array<String>& AssetFile::GetMissingFiles() const
+	const Array<String>& AssetFileOld::GetMissingFiles() const
 	{
 		return m_missingFiles;
 	}
 
-	void AssetFile::SetStatus(AssetStatus assetStatus)
+	void AssetFileOld::SetStatus(AssetStatus assetStatus)
 	{
 		m_status = assetStatus;
 	}
 
-	AssetStatus AssetFile::GetStatus() const
+	AssetStatus AssetFileOld::GetStatus() const
 	{
 		return m_status;
 	}
 
-	TypeID AssetFile::GetAssetTypeId() const
+	TypeID AssetFileOld::GetAssetTypeId() const
 	{
 		if (m_instance)
 		{
@@ -258,31 +258,31 @@ namespace Skore
 		return 0;
 	}
 
-	AssetFileType AssetFile::GetAssetTypeFile() const
+	AssetFileType AssetFileOld::GetAssetTypeFile() const
 	{
 		return m_type;
 	}
 
-	u64 AssetFile::GetPersistedVersion() const
+	u64 AssetFileOld::GetPersistedVersion() const
 	{
 		return m_persistedVersion;
 	}
 
-	GPUTexture* AssetFile::GetThumbnail()
+	GPUTexture* AssetFileOld::GetThumbnail()
 	{
 		return IsDirectory() ? AssetEditor::GetDirectoryThumbnail() : AssetEditor::GetFileThumbnail();
 	}
 
-	void AssetFile::Iterator(const std::function<void(AssetFile*)>& function)
+	void AssetFileOld::Iterator(const std::function<void(AssetFileOld*)>& function)
 	{
-		Queue<AssetFile*> pending;
-		AssetFile*        current = this;
+		Queue<AssetFileOld*> pending;
+		AssetFileOld*        current = this;
 
 		while (current != nullptr)
 		{
 			function(current);
 
-			for (AssetFile* child : current->m_children)
+			for (AssetFileOld* child : current->m_children)
 			{
 				pending.Enqueue(child);
 			}
@@ -295,26 +295,26 @@ namespace Skore
 		}
 	}
 
-	void AssetFile::ChildrenIterator(const std::function<void(AssetFile*)>& function)
+	void AssetFileOld::ChildrenIterator(const std::function<void(AssetFileOld*)>& function)
 	{
 		if (!m_children.Empty())
 		{
-			Queue<AssetFile*> pending;
+			Queue<AssetFileOld*> pending;
 
 			{
-				for (AssetFile* child : m_children)
+				for (AssetFileOld* child : m_children)
 				{
 					pending.Enqueue(child);
 				}
 			}
 
-			AssetFile* current = pending.Dequeue();
+			AssetFileOld* current = pending.Dequeue();
 
 			while (current != nullptr)
 			{
 				function(current);
 
-				for (AssetFile* child : current->m_children)
+				for (AssetFileOld* child : current->m_children)
 				{
 					pending.Enqueue(child);
 				}
@@ -328,7 +328,7 @@ namespace Skore
 		}
 	}
 
-	void AssetFile::Save()
+	void AssetFileOld::Save()
 	{
 		static Array<u8> data;
 		data.Reserve(1000);
@@ -400,7 +400,7 @@ namespace Skore
 				//asset data
 				{
 					data.Clear();
-					Iterator([&](AssetFile* current)
+					Iterator([&](AssetFileOld* current)
 					{
 						BinaryArchiveWriter writer;
 						current->GetInstance()->Serialize(writer);
@@ -415,7 +415,7 @@ namespace Skore
 				{
 					BinaryArchiveWriter writer;
 					writer.BeginSeq("assets");
-					Iterator([&](const AssetFile* current)
+					Iterator([&](const AssetFileOld* current)
 					{
 						writer.BeginMap();
 
@@ -453,7 +453,7 @@ namespace Skore
 		UpdateAbsolutePath(newAbsolutePath);
 	}
 
-	void AssetFile::Register()
+	void AssetFileOld::Register()
 	{
 		if (m_type == AssetFileType::Asset)
 		{
@@ -515,7 +515,7 @@ namespace Skore
 					AssetInfo assetInfo;
 					assetInfo.Deserialize(reader);
 
-					AssetFile* file = nullptr;
+					AssetFileOld* file = nullptr;
 
 					if (assetInfo.uuid == m_uuid)
 					{
@@ -540,7 +540,7 @@ namespace Skore
 		Assets::Register(m_path, m_uuid, this);
 	}
 
-	void AssetFile::MarkDirty()
+	void AssetFileOld::MarkDirty()
 	{
 		if (m_instance)
 		{
@@ -549,7 +549,7 @@ namespace Skore
 		m_currentVersion++;
 	}
 
-	void AssetFile::FileSystemUpdated()
+	void AssetFileOld::FileSystemUpdated()
 	{
 		UpdatePath();
 		MarkDirty();
@@ -560,17 +560,17 @@ namespace Skore
 		}
 	}
 
-	void AssetFile::UpdatePath()
+	void AssetFileOld::UpdatePath()
 	{
 		m_path = m_parent->m_path + "/" + m_fileName + m_extension;
 
-		for (AssetFile* child : m_children)
+		for (AssetFileOld* child : m_children)
 		{
 			child->UpdatePath();
 		}
 	}
 
-	void AssetFile::RemoveFromParent()
+	void AssetFileOld::RemoveFromParent()
 	{
 		if (m_parent)
 		{
@@ -581,7 +581,7 @@ namespace Skore
 		}
 	}
 
-	void AssetFile::SerializeInfo(ArchiveWriter& archiveWriter) const
+	void AssetFileOld::SerializeInfo(ArchiveWriter& archiveWriter) const
 	{
 		AssetInternalInfo assetInternalInfo;
 		assetInternalInfo.uuid = GetUUID();
@@ -597,7 +597,7 @@ namespace Skore
 		assetInternalInfo.Serialize(archiveWriter);
 	}
 
-	void AssetFile::DeserializeInfo(ArchiveReader& archiveReader)
+	void AssetFileOld::DeserializeInfo(ArchiveReader& archiveReader)
 	{
 		AssetInternalInfo assetInternalInfo;
 		assetInternalInfo.Deserialize(archiveReader);
@@ -613,7 +613,7 @@ namespace Skore
 		m_missingFiles = assetInternalInfo.missingFiles;
 	}
 
-	String AssetFile::GetImportAssetFile() const
+	String AssetFileOld::GetImportAssetFile() const
 	{
 		if (m_type == AssetFileType::ImportedAsset)
 		{
@@ -630,17 +630,17 @@ namespace Skore
 		return "";
 	}
 
-	u64 AssetFile::GetImportedSize() const
+	u64 AssetFileOld::GetImportedSize() const
 	{
 		return m_importedSize;
 	}
 
-	u64 AssetFile::GetImportedOffset() const
+	u64 AssetFileOld::GetImportedOffset() const
 	{
 		return m_importedOffset;
 	}
 
-	void AssetFile::Serialize(ArchiveWriter& archiveWriter)
+	void AssetFileOld::Serialize(ArchiveWriter& archiveWriter)
 	{
 		if (Asset* instance = GetInstance())
 		{
@@ -648,7 +648,7 @@ namespace Skore
 		}
 	}
 
-	void AssetFile::UpdateAbsolutePath(StringView newPath)
+	void AssetFileOld::UpdateAbsolutePath(StringView newPath)
 	{
 		if (m_absolutePath != newPath)
 		{
@@ -661,7 +661,7 @@ namespace Skore
 		}
 	}
 
-	String AssetFile::GetInfoPathFile() const
+	String AssetFileOld::GetInfoPathFile() const
 	{
 		if (m_type == AssetFileType::Asset)
 		{

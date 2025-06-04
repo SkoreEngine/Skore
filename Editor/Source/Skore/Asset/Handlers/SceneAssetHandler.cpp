@@ -28,7 +28,7 @@
 #include "Skore/Editor.hpp"
 #include "Skore/EditorWorkspace.hpp"
 #include "Skore/Asset/AssetEditor.hpp"
-#include "Skore/Asset/AssetFile.hpp"
+#include "Skore/Asset/AssetFileOld.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
 
@@ -58,7 +58,7 @@ namespace Skore
 			ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
 			if (projectBrowserWindow->GetOpenDirectory() != nullptr && projectBrowserWindow->GetLastSelectedItem() != nullptr)
 			{
-				if (AssetFile* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->GetOpenDirectory(), TypeInfo<Scene>::ID(), projectBrowserWindow->GetLastSelectedItem()->GetFileName()))
+				if (AssetFileOld* newAsset = AssetEditor::CreateAsset(projectBrowserWindow->GetOpenDirectory(), TypeInfo<Scene>::ID(), projectBrowserWindow->GetLastSelectedItem()->GetFileName()))
 				{
 					if (Scene* scene = newAsset->GetInstance()->SafeCast<Scene>())
 					{
@@ -80,7 +80,7 @@ namespace Skore
 			return TypeInfo<Scene>::ID();
 		}
 
-		void OpenAsset(AssetFile* assetFile) override
+		void OpenAsset(AssetFileOld* assetFile) override
 		{
 			Editor::GetCurrentWorkspace().GetSceneEditor()->OpenScene(assetFile);
 		}

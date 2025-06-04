@@ -27,7 +27,7 @@
 
 namespace Skore
 {
-	class AssetFile;
+	class AssetFileOld;
 
 	class ProjectBrowserWindow : public EditorWindow
 	{
@@ -40,8 +40,8 @@ namespace Skore
 		void Init(u32 id, VoidPtr userData) override;
 		void Draw(u32 id, bool& open) override;
 
-		AssetFile* GetLastSelectedItem() const;
-		AssetFile* GetOpenDirectory() const;
+		AssetFileOld* GetLastSelectedItem() const;
+		AssetFileOld* GetOpenDirectory() const;
 
 		static void OpenProjectBrowser(const MenuItemEventData& eventData);
 		static void AddMenuItem(const MenuItemCreation& menuItem);
@@ -52,18 +52,18 @@ namespace Skore
 
 		String                searchString;
 		f32                   contentBrowserZoom = 1.0; //TODO - save in some local setting
-		AssetFile*            openDirectory = nullptr;
+		AssetFileOld*            openDirectory = nullptr;
 		String                stringCache;
-		HashSet<AssetFile*>   selectedItems;
-		AssetFile*            lastSelectedItem = nullptr;
-		AssetFile*            renamingItem = nullptr;
+		HashSet<AssetFileOld*>   selectedItems;
+		AssetFileOld*            lastSelectedItem = nullptr;
+		AssetFileOld*            renamingItem = nullptr;
 		HashMap<String, bool> openTreeFolders{};
 		bool                  newSelection = false;
-		HashSet<AssetFile*>   markedToDelete;
+		HashSet<AssetFileOld*>   markedToDelete;
 
 		void DrawPathItems();
-		void DrawTreeNode(AssetFile* assetFile);
-		void SetOpenDirectory(AssetFile* directory);
+		void DrawTreeNode(AssetFileOld* assetFile);
+		void SetOpenDirectory(AssetFileOld* directory);
 		void OnDropFile(StringView filePath) const;
 
 		static bool CheckSelectedAsset(const MenuItemEventData& eventData);

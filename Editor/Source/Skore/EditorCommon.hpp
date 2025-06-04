@@ -36,11 +36,11 @@
 
 namespace Skore
 {
-	class AssetFile;
+	class AssetFileOld;
 
 	using OnEntitySelection = EventType<"Skore::Editor::OnEntitySelection"_h, void(u32, UUID)>;
 	using OnEntityDeselection = EventType<"Skore::Editor::OnEntityDeselection"_h, void(u32, UUID)>;
-	using OnAssetSelection = EventType<"Skore::Editor::OnAssetSelection"_h, void(AssetFile*)>;
+	using OnAssetSelection = EventType<"Skore::Editor::OnAssetSelection"_h, void(AssetFileOld*)>;
 
 	enum class DockPosition
 	{
@@ -77,7 +77,7 @@ namespace Skore
 
 	struct AssetPayload
 	{
-		AssetFile* assetFile = nullptr;
+		AssetFileOld* assetFile = nullptr;
 		TypeID     assetType = 0;
 	};
 }

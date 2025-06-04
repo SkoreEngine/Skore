@@ -31,7 +31,7 @@ namespace Skore
 	class GPUTexture;
 	struct AssetHandler;
 	struct AssetImporter;
-	class AssetFile;
+	class AssetFileOld;
 
 	enum class AssetFileType : u8
 	{
@@ -45,19 +45,19 @@ namespace Skore
 		Other
 	};
 
-	class AssetFile : public AssetInterface
+	class AssetFileOld : public AssetInterface
 	{
 	public:
-		AssetFile() = default;
-		~AssetFile() override;
+		AssetFileOld() = default;
+		~AssetFileOld() override;
 
-		SK_NO_COPY_CONSTRUCTOR(AssetFile);
+		SK_NO_COPY_CONSTRUCTOR(AssetFileOld);
 
 		AssetHandler* GetHandler() const;
 
 		bool IsDirty() const;
 		bool IsDirectory() const;
-		bool IsChildOf(AssetFile* item) const;
+		bool IsChildOf(AssetFileOld* item) const;
 		bool IsActive() const;
 
 		StringView GetFileName() const;
@@ -68,13 +68,13 @@ namespace Skore
 		UUID       GetUUID() const override;
 		Asset*     GetInstance() override;
 
-		void             AddChild(AssetFile* child);
+		void             AddChild(AssetFileOld* child);
 		bool             CanAcceptNewChild() const;
-		AssetFile*       GetParent() const;
-		Span<AssetFile*> Children() const;
+		AssetFileOld*       GetParent() const;
+		Span<AssetFileOld*> Children() const;
 
 		void Rename(StringView newName);
-		void MoveTo(AssetFile* newParent);
+		void MoveTo(AssetFileOld* newParent);
 
 		void Save();
 		void Register();
@@ -100,8 +100,8 @@ namespace Skore
 
 		GPUTexture* GetThumbnail();
 
-		void Iterator(const std::function<void(AssetFile*)>& function);
-		void ChildrenIterator(const std::function<void(AssetFile*)>& function);
+		void Iterator(const std::function<void(AssetFileOld*)>& function);
+		void ChildrenIterator(const std::function<void(AssetFileOld*)>& function);
 
 		friend class AssetEditor;
 
@@ -127,8 +127,8 @@ namespace Skore
 
 		u64 m_listenerId = U64_MAX;
 
-		Array<AssetFile*> m_children;
-		AssetFile*        m_parent = nullptr;
+		Array<AssetFileOld*> m_children;
+		AssetFileOld*        m_parent = nullptr;
 
 		void FileSystemUpdated();
 		void UpdatePath();

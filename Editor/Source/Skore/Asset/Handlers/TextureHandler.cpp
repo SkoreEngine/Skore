@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Skore/Asset/AssetFile.hpp"
+#include "Skore/Asset/AssetFileOld.hpp"
 #include "Skore/Asset/AssetTypes.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/GraphicsAssets.hpp"
@@ -38,7 +38,7 @@ namespace Skore
 			return TypeInfo<TextureAsset>::ID();
 		}
 
-		void OpenAsset(AssetFile* assetFile) override
+		void OpenAsset(AssetFileOld* assetFile) override
 		{
 			if (TextureAsset* textureAsset = assetFile->GetInstance()->SafeCast<TextureAsset>())
 			{
@@ -70,7 +70,7 @@ namespace Skore
 			return {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr"};
 		}
 
-		bool ImportAsset(AssetFile* assetFile, StringView path) override
+		bool ImportAsset(AssetFileOld* assetFile, StringView path) override
 		{
 			if (TextureAsset* textureAsset = assetFile->GetInstance()->SafeCast<TextureAsset>())
 			{

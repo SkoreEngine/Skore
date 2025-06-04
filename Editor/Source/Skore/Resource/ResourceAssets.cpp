@@ -22,19 +22,175 @@
 
 #include "ResourceAssets.hpp"
 
+#include <optional>
+
+#include "ResourceAssetCommon.hpp"
+#include "Skore/EditorCommon.hpp"
+#include "Skore/Core/Logger.hpp"
+#include "Skore/Core/Queue.hpp"
 #include "Skore/Core/Span.hpp"
+#include "Skore/IO/FileSystem.hpp"
+#include "Skore/IO/Path.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
+	class Logger;
+
+	struct FilesToScan
+	{
+		String path;
+		String absolutePath;
+		RID    parent;
+	};
+
+	namespace
+	{
+		RID     projectRID;
+		Logger& logger = Logger::GetLogger("Skore::ResourceAssets", LogLevel::Debug);
+
+		FileSystem2* fileSystem;
+
+
+		RID ScanForAssets(RID parent, StringView name, StringView path)
+		{
+			Queue<FilesToScan> pendingItems(100);
+
+			std::optional<FilesToScan> currentScanItem = std::make_optional(FilesToScan{
+				.absolutePath = path,
+				.parent = parent
+			});
+
+			RID first = {};
+
+			while (currentScanItem.has_value())
+			{
+				const FilesToScan& item = currentScanItem.value();
+				StringView extension = Path::Extension(item.absolutePath);
+
+				do
+				{
+					if (extension == SK_IMPORT_EXTENSION ||
+						extension == SK_INFO_EXTENSION ||
+						extension == SK_PROJECT_EXTENSION)
+					{
+						break;
+					}
+
+					// if (ignoredExtensions.Has(extension))
+					// {
+					// 	break;
+					// }
+
+					// if (GetFileByAbsolutePath(item.absolutePath))
+					// {
+					// 	break;
+					// }
+
+					FileStatus status = FileSystem::GetFileStatus(item.absolutePath);
+
+					String fileName = item.parent ? Path::Name(item.absolutePath) : String(name);
+
+					RID asset = Resources::Create<ResourceAsset>();
+					if (!first)
+					{
+						first = asset;
+					}
+
+					ResourceObject assetObject = Resources::Write(asset);
+					assetObject.SetString(ResourceAsset::Name, fileName);
+					assetObject.SetString(ResourceAsset::Extension, extension);
+					assetObject.SetString(ResourceAsset::AbsolutePath, item.absolutePath);
+					//assetObject.SetString(ResourceAsset::RelativePath, item.absolutePath);
+
+					assetObject.Commit();
+
+					if (status.isDirectory)
+					{
+						RID directory = Resources::Create<ResourceDirectory>();
+
+						if (item.parent)
+						{
+							ResourceObject parentObject = Resources::Write(item.parent);
+							//parentObject.AddToReferenceArray(ResourceDirectory::Directories, directory);
+							parentObject.Commit();
+						}
+
+						ResourceObject dirObject = Resources::Write(directory);
+						dirObject.SetSubObject(ResourceDirectory::Asset, asset);
+						dirObject.Commit();
+
+						logger.Debug("directory {} registered successfully", fileName);
+
+						for (const String& entry : DirectoryEntries(item.absolutePath))
+						{
+							pendingItems.Enqueue(FilesToScan{
+								.absolutePath = entry,
+								.parent = directory
+							});
+						}
+					}
+					else
+					{
+						//TODO
+					}
+
+
+					// AssetFile* assetFile = CreateAssetFile(item.parent, item.parent != nullptr ? Path::Name(item.absolutePath) : String(name), extension);
+					// if (first == nullptr)
+					// {
+					// 	first = assetFile;
+					// }
+
+					//assetFile->UpdateAbsolutePath(item.absolutePath);
+					//fileWatcher.Watch(assetFile, item.absolutePath);
+
+					if (!status.isDirectory)
+					{
+						// if (const auto& it = handlersByExtension.Find(assetFile->m_extension))
+						// {
+						// 	assetFile->m_type = AssetFileType::Asset;
+						// 	assetFile->m_handler = it->second.Get();
+						// }
+						// else if (const auto& it = extensionImporters.Find(extension))
+						// {
+						// 	assetFile->m_type = AssetFileType::ImportedAsset;
+						// 	assetFile->m_importer = it->second.Get();
+						//
+						// 	if (const auto& itHandler = handlersByTypeID.Find(assetFile->m_importer->GetAssetTypeId()))
+						// 	{
+						// 		assetFile->m_handler = itHandler->second.Get();
+						// 	}
+						// }
+						// else
+						// {
+						// 	assetFile->m_type = AssetFileType::Other;
+						// }
+						//
+						// AddAssetFile(assetFile);
+						// assetFile->Register();
+					}
+				}
+				while (false);
+
+				currentScanItem.reset();
+				if (!pendingItems.IsEmpty())
+				{
+					currentScanItem = std::make_optional(pendingItems.Dequeue());
+				}
+			}
+			return first;
+		}
+	}
+
+
 	void ResourceAssets::SetProject(StringView name, StringView directory)
 	{
-
+		String libAssets = Path::Join(directory, "Assets");
+		projectRID = ScanForAssets({}, name, libAssets);
 	}
 
-	void ResourceAssets::AddPackage(StringView name, StringView directory)
-	{
-
-	}
+	void ResourceAssets::AddPackage(StringView name, StringView directory) {}
 
 	RID ResourceAssets::GetProject()
 	{

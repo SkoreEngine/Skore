@@ -25,17 +25,29 @@
 
 namespace Skore
 {
+	struct ResourceAsset
+	{
+		enum : u8
+		{
+			Name,
+			Extension,
+			Object,
+			Parent,
+			AbsolutePath,
+			PersistedVersion,
+			TotalSizeInDisk,
+			LastModifiedTime
+		};
+	};
 
-	struct AssetFile2
+	struct ResourceDirectory
 	{
 		enum
 		{
-			Name
+			Asset,
+			Directories,
+			Assets,
 		};
-
-		RID rid;
-
-		StringView GetName() const;
 	};
 
 }

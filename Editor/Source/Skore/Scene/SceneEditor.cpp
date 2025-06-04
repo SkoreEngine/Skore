@@ -26,7 +26,7 @@
 #include "Skore/EditorWorkspace.hpp"
 #include "Skore/Events.hpp"
 #include "Skore/Asset/AssetEditor.hpp"
-#include "Skore/Asset/AssetFile.hpp"
+#include "Skore/Asset/AssetFileOld.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Core/HashSet.hpp"
@@ -83,7 +83,7 @@ namespace Skore
 	}
 
 
-	void SceneEditor::OpenScene(AssetFile* assetFile)
+	void SceneEditor::OpenScene(AssetFileOld* assetFile)
 	{
 		//TODO:Reset undo redo
 		StopSimulation();

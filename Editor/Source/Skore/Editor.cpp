@@ -81,8 +81,8 @@ namespace Skore
 
 		Array<EditorWindowStorage> editorWindowStorages;
 		Array<OpenWindowStorage>   openWindows;
-		Array<AssetFile*>          updatedItems{};
-		HashSet<AssetFile*>        ignoreSave{};
+		Array<AssetFileOld*>          updatedItems{};
+		HashSet<AssetFileOld*>        ignoreSave{};
 		Queue<DialogModalData>     confirmDialogs;
 		ConsoleSink                consoleSink;
 
@@ -114,7 +114,7 @@ namespace Skore
 
 		void Save()
 		{
-			for (AssetFile* asset : updatedItems)
+			for (AssetFileOld* asset : updatedItems)
 			{
 				if (!ignoreSave.Has(asset))
 				{
@@ -387,7 +387,7 @@ namespace Skore
 
 								ImGui::TableHeadersRow();
 
-								for (AssetFile* asset : updatedItems)
+								for (AssetFileOld* asset : updatedItems)
 								{
 									ImGui::TableNextRow();
 
@@ -444,7 +444,7 @@ namespace Skore
 
 						if (ImGui::Button("Unselect All"))
 						{
-							for (AssetFile* assetFile : updatedItems)
+							for (AssetFileOld* assetFile : updatedItems)
 							{
 								ignoreSave.Insert(assetFile);
 							}
@@ -655,9 +655,14 @@ namespace Skore
 		ResourceAssets::SetProject(Path::Name(projectPath), projectPath);
 	}
 
+
+
+	void RegisterResourceAssetTypes();
+
 	void EditorTypeRegister()
 	{
 		RegisterAssetTypes();
+		RegisterResourceAssetTypes();
 
 		Reflection::Type<EditorWindow>();
 		Reflection::Type<EditorWindowProperties>();

@@ -36,7 +36,7 @@ namespace Skore
 namespace Skore
 {
 	class EditorWorkspace;
-	class AssetFile;
+	class AssetFileOld;
 	class Scene;
 	class Entity;
 }
@@ -51,7 +51,7 @@ namespace Skore
 
 		EditorWorkspace& GetWorkspace() const;
 
-		void   OpenScene(AssetFile* assetFile);
+		void   OpenScene(AssetFileOld* assetFile);
 		bool   IsLoaded() const;
 		bool   IsReadOnly() const;
 		Scene* GetCurrentScene() const;
@@ -103,7 +103,7 @@ namespace Skore
 		friend class DestroyEntityCommand;
 	private:
 		EditorWorkspace& m_workspace;
-		AssetFile*       m_assetFile = nullptr;
+		AssetFileOld*       m_assetFile = nullptr;
 		Scene*           m_scene = nullptr;
 		Scene*           m_simulationScene = nullptr;
 		HashSet<UUID>    m_selectedEntities;
