@@ -58,17 +58,20 @@ namespace Skore
 		}
 
 		//resource API
-		static RID            Create(TypeID typeId, UUID uuid = {}, UndoRedoScope* scope = nullptr);
-		static RID            CreateFromPrototype(RID rid, UUID uuid = {}, UndoRedoScope* scope = nullptr);
-		static ResourceObject Write(RID rid);
-		static ResourceObject Read(RID rid);
-		static RID            Clone(RID rid, UUID uuid = {}, UndoRedoScope* scope = nullptr);
-		static void           Reset(RID rid, UndoRedoScope* scope = nullptr);
-		static void           Destroy(RID rid, UndoRedoScope* scope = nullptr);
-		static u64            GetVersion(RID rid);
-		static UUID           GetUUID(RID rid);
-		static RID			  FindByUUID(const UUID& uuid);
-		static RID			  FindOrReserveByUUID(const UUID& uuid);
+		static RID              Create(TypeID typeId, UUID uuid = {}, UndoRedoScope* scope = nullptr);
+		static RID              CreateFromPrototype(RID rid, UUID uuid = {}, UndoRedoScope* scope = nullptr);
+		static ResourceStorage* GetStorage(RID rid);
+		static ResourceObject   Write(RID rid);
+		static ResourceObject   Read(RID rid);
+		static bool				HasValue(RID rid);
+		static RID				GetParent(RID rid);
+		static RID              Clone(RID rid, UUID uuid = {}, UndoRedoScope* scope = nullptr);
+		static void             Reset(RID rid, UndoRedoScope* scope = nullptr);
+		static void             Destroy(RID rid, UndoRedoScope* scope = nullptr);
+		static u64              GetVersion(RID rid);
+		static UUID             GetUUID(RID rid);
+		static RID              FindByUUID(const UUID& uuid);
+		static RID              FindOrReserveByUUID(const UUID& uuid);
 
 		static void Serialize(RID rid, ArchiveWriter& writer);
 		static RID  Deserialize(ArchiveReader& reader, UndoRedoScope* scope = nullptr);

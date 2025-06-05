@@ -540,6 +540,11 @@ namespace Skore
 		return storage;
 	}
 
+	u64 ResourceObject::GetVersion() const
+	{
+		return storage->version;
+	}
+
 	void ResourceObject::Commit(UndoRedoScope* scope)
 	{
 		ResourceCommit(storage, writeInstance, scope);

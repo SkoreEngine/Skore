@@ -106,6 +106,8 @@ namespace Skore
 		Queue<DialogModalData>     confirmDialogs;
 		ConsoleSink                consoleSink;
 
+		RID     projectRID;
+
 		bool forceClose = false;
 		bool shouldOpenPopup = false;
 
@@ -636,7 +638,18 @@ namespace Skore
 		return scope;
 	}
 
+	RID Editor::GetProject()
+	{
+		return projectRID;
+	}
+
+	Span<RID> Editor::GetPackages()
+	{
+		return {};
+	}
+
 	void RegisterAssetTypes();
+	void ProjectBrowserWindowInit();
 
 	void EditorInit(StringView projectFile)
 	{
@@ -658,6 +671,7 @@ namespace Skore
 
 		AssetEditorInit();
 		ShaderManagerInit();
+		ProjectBrowserWindowInit();
 
 		workspace = std::make_unique<EditorWorkspace>();
 
@@ -691,8 +705,10 @@ namespace Skore
 		AssetEditor::AddPackage("Skore", FileSystem::AssetFolder());
 		AssetEditor::SetProject(Path::Name(projectPath), projectPath);
 
-		ResourceAssets::AddPackage("Skore", FileSystem::AssetFolder());
-		ResourceAssets::SetProject(Path::Name(projectPath), projectPath);
+		projectRID = ResourceAssets::ScanAssetsFromDirectory(Path::Name(projectPath), Path::Join(projectPath, "Assets"));
+
+		// ResourceAssets::AddPackage("Skore", FileSystem::AssetFolder());
+		// ResourceAssets::SetProject(Path::Name(projectPath), projectPath);
 	}
 
 

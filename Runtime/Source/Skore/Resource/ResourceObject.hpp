@@ -103,6 +103,7 @@ namespace Skore
 		UUID             GetUUID() const;
 		ResourceType*    GetType() const;
 		ResourceStorage* GetStorage() const;
+		u64				 GetVersion() const;
 
 		void Commit(UndoRedoScope* scope = nullptr);
 
@@ -111,7 +112,7 @@ namespace Skore
 		{
 			IterateSubObjectSet(index, prototypeIterate, [](RID rid, VoidPtr userData)
 			{
-				auto& func = *static_cast<T*>(userData);
+				auto& func = *static_cast<Traits::RemoveAll<T>*>(userData);
 				return func(rid);
 			}, &func);
 		}

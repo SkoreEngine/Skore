@@ -23,215 +23,823 @@
 #include "ResourceAssets.hpp"
 
 #include <optional>
+#include <queue>
 
-#include "ResourceAssetTypes.hpp"
-#include "Skore/EditorCommon.hpp"
+#include "Skore/Editor.hpp"
+#include "Skore/Events.hpp"
+#include "Skore/Core/Event.hpp"
+#include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Logger.hpp"
-#include "Skore/Core/Queue.hpp"
-#include "Skore/Core/Span.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Core/StringUtils.hpp"
 #include "Skore/IO/FileSystem.hpp"
+#include "Skore/IO/FileTypes.hpp"
 #include "Skore/IO/Path.hpp"
 #include "Skore/Resource/Resources.hpp"
+#include "Skore/Resource/ResourceType.hpp"
 
 namespace Skore
 {
-	class Logger;
-
-	struct FilesToScan
-	{
-		String path;
-		String absolutePath;
-		RID    parent;
-	};
-
 	namespace
 	{
-		RID     projectRID;
+		Array<ResourceAssetHandler*>  handlers;
+		Array<ResourceAssetImporter*> importers;
+
+		HashMap<String, ResourceAssetHandler*> handlersByExtension;
+		HashMap<TypeID, ResourceAssetHandler*> handlersByTypeID;
+
+		HashMap<String, ResourceAssetImporter*> importersByExtension;
+
+
 		Logger& logger = Logger::GetLogger("Skore::ResourceAssets", LogLevel::Debug);
 
-		RID ScanForAssets(RID parent, StringView name, StringView path)
+		String GetNewAbsolutePath(RID asset)
 		{
-			Queue<FilesToScan> pendingItems(100);
-
-			std::optional<FilesToScan> currentScanItem = std::make_optional(FilesToScan{
-				.absolutePath = path,
-				.parent = parent
-			});
-
-			RID first = {};
-
-			while (currentScanItem.has_value())
+			String result = {};
+			RID    current = asset;
+			while (true)
 			{
-				const FilesToScan& item = currentScanItem.value();
-				StringView extension = Path::Extension(item.absolutePath);
+				ResourceObject assetObject = Resources::Read(current);
+				result = String("/").Append(assetObject.GetString(ResourceAsset::Name)).Append(assetObject.GetString(ResourceAsset::Extension)).Append(result);
 
-				do
+				ResourceStorage* storage = Resources::GetStorage(current);
+
+				if (storage->parentFieldIndex == ResourceAssetDirectory::DirectoryAsset)
 				{
-					if (extension == SK_IMPORT_EXTENSION ||
-						extension == SK_INFO_EXTENSION ||
-						extension == SK_PROJECT_EXTENSION)
-					{
-						break;
-					}
-
-					// if (ignoredExtensions.Has(extension))
-					// {
-					// 	break;
-					// }
-
-					// if (GetFileByAbsolutePath(item.absolutePath))
-					// {
-					// 	break;
-					// }
-
-					FileStatus status = FileSystem::GetFileStatus(item.absolutePath);
-
-					String fileName = item.parent ? Path::Name(item.absolutePath) : String(name);
-
-					RID asset = Resources::Create<ResourceAsset>();
-
-					ResourceObject assetObject = Resources::Write(asset);
-					assetObject.SetString(ResourceAsset::Name, fileName);
-					assetObject.SetString(ResourceAsset::Extension, extension);
-					assetObject.SetString(ResourceAsset::AbsolutePath, item.absolutePath);
-					assetObject.SetReference(ResourceAsset::Parent, item.parent);
-					assetObject.SetBool(ResourceAsset::IsDirectory, status.isDirectory);
-
-					if (!first)
-					{
-						first = asset;
-					}
-
-					if (status.isDirectory)
-					{
-
-						if (item.parent)
-						{
-							ResourceObject parentObject = Resources::Write(item.parent);
-							parentObject.AddToReferenceArray(ResourceAsset::Children, asset);
-							parentObject.Commit();
-						}
-						logger.Debug("directory {} registered successfully", fileName);
-
-						for (const String& entry : DirectoryEntries(item.absolutePath))
-						{
-							pendingItems.Enqueue(FilesToScan{
-								.absolutePath = entry,
-								.parent = asset
-							});
-						}
-					}
-
-					if (!status.isDirectory)
-					{
-
-					}
-
-					assetObject.Commit();
-
-
-					// AssetFile* assetFile = CreateAssetFile(item.parent, item.parent != nullptr ? Path::Name(item.absolutePath) : String(name), extension);
-					// if (first == nullptr)
-					// {
-					// 	first = assetFile;
-					// }
-
-					//assetFile->UpdateAbsolutePath(item.absolutePath);
-					//fileWatcher.Watch(assetFile, item.absolutePath);
-
-					if (!status.isDirectory)
-					{
-						// if (const auto& it = handlersByExtension.Find(assetFile->m_extension))
-						// {
-						// 	assetFile->m_type = AssetFileType::Asset;
-						// 	assetFile->m_handler = it->second.Get();
-						// }
-						// else if (const auto& it = extensionImporters.Find(extension))
-						// {
-						// 	assetFile->m_type = AssetFileType::ImportedAsset;
-						// 	assetFile->m_importer = it->second.Get();
-						//
-						// 	if (const auto& itHandler = handlersByTypeID.Find(assetFile->m_importer->GetAssetTypeId()))
-						// 	{
-						// 		assetFile->m_handler = itHandler->second.Get();
-						// 	}
-						// }
-						// else
-						// {
-						// 	assetFile->m_type = AssetFileType::Other;
-						// }
-						//
-						// AddAssetFile(assetFile);
-						// assetFile->Register();
-					}
+					current = storage->parent->rid;
 				}
-				while (false);
 
-				currentScanItem.reset();
-				if (!pendingItems.IsEmpty())
+				RID parent = Resources::GetParent(current);
+				if (Resources::GetStorage(Resources::GetParent(parent))->resourceType->GetID() == TypeInfo<ResourceAssetPackage>::ID())
 				{
-					currentScanItem = std::make_optional(pendingItems.Dequeue());
+					break;
+				}
+				current = ResourceAssets::GetAsset(parent);
+			}
+			return result;
+		}
+
+
+		struct DirectoryToScan
+		{
+			String path;
+			RID    directory;
+			String absolutePath;
+		};
+
+		void SerializeAsset(StringView absolutePath, RID object)
+		{
+			String newBufferFolder = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath), ".buffers");
+
+			// String str = Serialization::YamlSerialize(object);
+			// FileSystem::SaveFileAsString(absolutePath, str);
+
+			bool            bufferFoundCheck = false;
+			HashSet<String> buffersFound = {};
+
+			//copy buffer
+			ResourceObject obj = Resources::Read(object);
+			// obj.IterateBuffers([&](ResourceBuffer& buffer)
+			// {
+			// 	if (!bufferFoundCheck && !FileSystem::GetFileStatus(newBufferFolder).exists)
+			// 	{
+			// 		FileSystem::CreateDirectory(newBufferFolder);
+			// 	}
+			//
+			// 	bufferFoundCheck = true;
+			//
+			// 	String bufferId = buffer.GetIdAsString();
+			// 	buffer.SaveTo(Path::Join(newBufferFolder, bufferId));
+			// 	buffersFound.Insert(bufferId);
+			// });
+
+			for (const String& file : DirectoryEntries(newBufferFolder))
+			{
+				if (!buffersFound.Has(Path::Name(file)))
+				{
+					FileSystem::Remove(file);
 				}
 			}
-			return first;
 		}
 	}
 
-
-	void ResourceAssets::SetProject(StringView name, StringView directory)
+	RID ResourceAssets::ScanAssetsFromDirectory(StringView packageName, StringView packagePack)
 	{
-		String libAssets = Path::Join(directory, "Assets");
-		projectRID = ScanForAssets({}, name, libAssets);
+		std::optional<DirectoryToScan> currentScanItem;
+
+		RID            package = Resources::Create<ResourceAssetPackage>();
+		ResourceObject packageObject = Resources::Write(package);
+
+		std::queue<DirectoryToScan> pendingItems;
+
+		//package asset
+		{
+			String path = String(packageName).Append(":/");
+			logger.Debug("Scanning package directory path '{}' absolutePath '{}'", path, packagePack);
+
+			RID asset = Resources::Create<ResourceAsset>();
+			RID assetFile = Resources::Create<ResourceAssetFile>();
+
+			ResourceObject assetObject = Resources::Write(asset);
+			assetObject.SetString(ResourceAsset::Name, packageName);
+			assetObject.SetString(ResourceAsset::Path, path);
+			assetObject.SetString(ResourceAsset::Extension, "");
+			assetObject.SetBool(ResourceAsset::Directory, true);
+			assetObject.SetReference(ResourceAsset::AssetFile, assetFile);
+			assetObject.Commit();
+
+			RID            directory = Resources::Create<ResourceAssetDirectory>();
+			ResourceObject directoryObject = Resources::Write(directory);
+			directoryObject.SetSubObject(ResourceAssetDirectory::DirectoryAsset, asset);
+			directoryObject.Commit();
+
+
+			ResourceObject assetFileObject = Resources::Write(assetFile);
+			assetFileObject.SetReference(ResourceAssetFile::AssetRef, asset);
+			assetFileObject.SetString(ResourceAssetFile::AbsolutePath, packagePack);
+			assetFileObject.SetString(ResourceAssetFile::RelativePath, path);
+			assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, Resources::GetVersion(asset));
+			assetFileObject.Commit();
+
+			packageObject.AddToSubObjectSet(ResourceAssetPackage::Files, assetFile);
+			packageObject.SetSubObject(ResourceAssetPackage::Root, directory);
+
+			currentScanItem = std::make_optional(DirectoryToScan{
+				.path = path,
+				.directory = directory,
+				.absolutePath = packagePack
+			});
+		}
+
+		while (currentScanItem.has_value())
+		{
+			DirectoryToScan& scan = currentScanItem.value();
+
+			logger.Debug("Scanning directory {} ", scan.absolutePath);
+
+			ResourceObject currentDirectory = Resources::Write(scan.directory);
+
+			for (const String& entry : DirectoryEntries(scan.absolutePath))
+			{
+				String nameExtension = Path::ExtractName(scan.absolutePath, entry);
+				if (nameExtension.Empty())
+				{
+					continue;
+				}
+				if (nameExtension[0] == '.') continue;
+
+				String extension = Path::Extension(entry);
+				if (extension == ".buffers") continue;
+
+				ResourceAssetHandler*          handler = nullptr;
+				ResourceAssetCallbacks  callbacks;
+				ResourceAssetProperties properties;
+
+				if (auto itHandler = handlersByExtension.Find(extension))
+				{
+					handler = itHandler->second;
+					callbacks = handler->GetCallbacks();
+					properties = handler->GetProperties();
+				}
+
+				String fileName = Path::Name(entry);
+				String path = String().Append(scan.path).Append("/").Append(fileName).Append(extension);
+
+				FileStatus status = FileSystem::GetFileStatus(entry);
+
+				RID asset = Resources::Create<ResourceAsset>();
+				RID assetFile = Resources::Create<ResourceAssetFile>();
+
+				ResourceObject assetObject = Resources::Write(asset);
+				assetObject.SetString(ResourceAsset::Name, fileName);
+				assetObject.SetString(ResourceAsset::Extension, extension);
+				assetObject.SetString(ResourceAsset::Path, path);
+				assetObject.SetReference(ResourceAsset::Parent, scan.directory);
+				assetObject.SetBool(ResourceAsset::Directory, status.isDirectory);
+				assetObject.SetReference(ResourceAsset::AssetFile, assetFile);
+				if (handler)
+				{
+					assetObject.SetBool(ResourceAsset::Hidden, properties.hidden);
+				}
+
+				if (!status.isDirectory)
+				{
+					RID object;
+
+					if (handler && callbacks.loader)
+					{
+						object = callbacks.loader(entry);
+					}
+					else
+					{
+						//	Timer chronometer;
+						// object = Serialization::YamlDeserialize(FileSystem::ReadFileAsString(entry));
+						// logger.Debug("time to deserialize {} : {} ms", path, chronometer.Diff());
+					}
+
+					if (object)
+					{
+						// String buffersPath = Path::Join(Path::Parent(entry), fileName + ".buffers");
+						// if (FileSystem::GetFileStatus(buffersPath).exists)
+						// {
+						// //	Timer chronometer;
+						// 	Resources::Read(object).IterateBuffers([&](ResourceBuffer& buffer)
+						// 	{
+						// 		buffer.MapFile(Path::Join(buffersPath, buffer.GetIdAsString()));
+						// 	});
+						// //	logger.Debug("time to scan buffers for {} : {} ms", path, chronometer.Diff());
+						// }
+
+						assetObject.SetSubObject(ResourceAsset::Object, object);
+					}
+				}
+
+				assetObject.Commit();
+
+				ResourceObject assetFileObject = Resources::Write(assetFile);
+				assetFileObject.SetReference(ResourceAssetFile::AssetRef, asset);
+				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, entry);
+				assetFileObject.SetString(ResourceAssetFile::RelativePath, path);
+				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, Resources::GetVersion(asset));
+				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize); //TODO need to calc buffer size too?
+				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
+
+				assetFileObject.Commit();
+
+				packageObject.AddToSubObjectSet(ResourceAssetPackage::Files, assetFile);
+
+				if (status.isDirectory)
+				{
+					RID            directoryAsset = Resources::Create<ResourceAssetDirectory>();
+					ResourceObject directoryObject = Resources::Write(directoryAsset);
+					directoryObject.SetSubObject(ResourceAssetDirectory::DirectoryAsset, asset);
+					directoryObject.Commit();
+
+					currentDirectory.AddToSubObjectSet(ResourceAssetDirectory::Directories, directoryAsset);
+
+					pendingItems.emplace(DirectoryToScan{
+						.path = path,
+						.directory = directoryAsset,
+						.absolutePath = entry
+					});
+
+					logger.Debug("directory '{}' loaded", path);
+				}
+				else
+				{
+					currentDirectory.AddToSubObjectSet(ResourceAssetDirectory::Assets, asset);
+					logger.Debug("asset '{}' loaded", path);
+				}
+			}
+
+			currentDirectory.Commit();
+
+			currentScanItem.reset();
+			if (!pendingItems.empty())
+			{
+				currentScanItem = std::make_optional(pendingItems.front());
+				pendingItems.pop();
+			}
+		}
+
+		packageObject.Commit();
+
+		return package;
 	}
 
-	void ResourceAssets::AddPackage(StringView name, StringView directory)
+	void ResourceAssets::SaveAssetsToDirectory(StringView directory, RID package, Span<UpdatedAssetInfo> items)
 	{
+		ResourceObject packageObject = Resources::Write(package);
 
+		for (const UpdatedAssetInfo& assetToUpdate : items)
+		{
+			if (!assetToUpdate.shouldUpdate) continue;
+
+			ResourceStorage* storage = Resources::GetStorage(assetToUpdate.asset);
+
+			if (assetToUpdate.type == UpdatedAssetType::Updated)
+			{
+				String     absolutePath = Path::Join(directory, GetNewAbsolutePath(assetToUpdate.asset));
+				StringView oldAbsolutePath = Resources::Read(assetToUpdate.assetFile).GetString(ResourceAssetFile::AbsolutePath);
+				if (absolutePath != oldAbsolutePath)
+				{
+					FileSystem::Rename(Path::Join(Path::Parent(oldAbsolutePath), Path::Name(oldAbsolutePath), ".buffers"),
+					                   Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath), ".buffers"));
+
+					FileSystem::Rename(oldAbsolutePath, absolutePath);
+
+					logger.Debug("asset moved from {} to {} ", oldAbsolutePath, absolutePath);
+				}
+
+				ResourceObject assetObject = Resources::Read(assetToUpdate.asset);
+				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
+				{
+					SerializeAsset(absolutePath, object);
+				}
+
+				FileStatus status = FileSystem::GetFileStatus(absolutePath);
+
+				ResourceObject assetFileObject = Resources::Write(assetToUpdate.assetFile);
+				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, absolutePath);
+				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::Path));
+				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, storage->version);
+				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
+				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
+				assetFileObject.Commit();
+
+				logger.Debug("asset '{}' saved on '{}' ", assetObject.GetString(ResourceAsset::Path), absolutePath);
+			}
+
+			if (assetToUpdate.type == UpdatedAssetType::Created)
+			{
+				String absolutePath = Path::Join(directory, GetNewAbsolutePath(assetToUpdate.asset));
+				String parentPath = Path::Parent(absolutePath);
+
+				RID assetFile = Resources::Create<ResourceAssetFile>();
+
+				{
+					ResourceObject assetObject = Resources::Write(assetToUpdate.asset);
+					assetObject.SetReference(ResourceAsset::AssetFile, assetFile);
+					assetObject.Commit();
+				}
+
+				if (!FileSystem::GetFileStatus(parentPath).exists)
+				{
+					FileSystem::CreateDirectory(parentPath);
+					logger.Debug("directory created on {} ", parentPath);
+				}
+
+				if (storage->parentFieldIndex == ResourceAssetDirectory::DirectoryAsset)
+				{
+					if (!FileSystem::GetFileStatus(absolutePath).exists)
+					{
+						FileSystem::CreateDirectory(absolutePath);
+						logger.Debug("directory created on {} ", absolutePath);
+					}
+				}
+
+				ResourceObject assetObject = Resources::Read(assetToUpdate.asset);
+				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
+				{
+					SerializeAsset(absolutePath, object);
+				}
+
+				FileStatus status = FileSystem::GetFileStatus(absolutePath);
+
+				ResourceObject assetFileObject = Resources::Write(assetFile);
+				assetFileObject.SetReference(ResourceAssetFile::AssetRef, assetToUpdate.asset);
+				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, absolutePath);
+				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::Path));
+				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, storage->version);
+				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
+				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
+				assetFileObject.Commit();
+
+				packageObject.AddToSubObjectSet(ResourceAssetPackage::Files, assetFile);
+
+				logger.Debug("asset {} created on {} ", assetObject.GetString(ResourceAsset::Path), absolutePath);
+			}
+
+			if (assetToUpdate.type == UpdatedAssetType::Deleted)
+			{
+				ResourceObject assetFileObject = Resources::Read(assetToUpdate.assetFile);
+				StringView     absolutePath = assetFileObject.GetString(ResourceAssetFile::AbsolutePath);
+				FileSystem::Remove(absolutePath);
+				FileSystem::Remove(Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath), ".buffers"));
+				logger.Debug("asset file removed from {} ", absolutePath);
+
+				Resources::Destroy(assetToUpdate.assetFile);
+			}
+		}
+
+		packageObject.Commit();
 	}
 
-	RID ResourceAssets::GetProject()
+	void ResourceAssets::GetUpdatedAssets(RID directory, Array<UpdatedAssetInfo>& items)
 	{
-		return projectRID;
+		ResourceObject packageObject = Resources::Read(directory);
+		Array<RID>     files = packageObject.GetSubObjectSetAsArray(ResourceAssetPackage::Files);
+		for (RID assetFile : files)
+		{
+			ResourceObject assetFileObject = Resources::Read(assetFile);
+			StringView     absolutePath = assetFileObject.GetString(ResourceAssetFile::AbsolutePath);
+			RID            asset = assetFileObject.GetReference(ResourceAssetFile::AssetRef);
+			ResourceObject assetObject = Resources::Read(asset);
+
+			if (!assetObject)
+			{
+				items.EmplaceBack(UpdatedAssetInfo{
+					.type = UpdatedAssetType::Deleted,
+					.asset = asset,
+					.assetFile = assetFile,
+					.displayName = Path::Name(absolutePath) + Path::Extension(absolutePath),
+					.path = assetFileObject.GetString(ResourceAssetFile::RelativePath),
+					.shouldUpdate = true
+				});
+			}
+			else if (assetObject.GetStorage()->version != assetFileObject.GetUInt(ResourceAssetFile::PersistedVersion))
+			{
+				items.EmplaceBack(UpdatedAssetInfo{
+					.type = UpdatedAssetType::Updated,
+					.asset = asset,
+					.assetFile = assetFile,
+					.displayName = String(assetObject.GetString(ResourceAsset::Name)).Append(assetObject.GetString(ResourceAsset::Extension)),
+					.path = assetObject.GetString(ResourceAsset::Path),
+					.shouldUpdate = true
+				});
+			}
+		}
+		std::queue<RID> directoriesToScan;
+		directoriesToScan.emplace(packageObject.GetSubObject(ResourceAssetPackage::Root));
+
+		while (!directoriesToScan.empty())
+		{
+			RID rid = directoriesToScan.front();
+			directoriesToScan.pop();
+
+			ResourceObject directoryObject = Resources::Read(rid);
+
+			auto checkAssetFile = [&](RID asset)
+			{
+				ResourceObject assetObject = Resources::Read(asset);
+				if (!assetObject.HasValue(ResourceAsset::AssetFile) || !Resources::HasValue(assetObject.GetReference(ResourceAsset::AssetFile)))
+				{
+					items.EmplaceBack(UpdatedAssetInfo{
+						.type = UpdatedAssetType::Created,
+						.asset = asset,
+						.assetFile = {},
+						.displayName = String(assetObject.GetString(ResourceAsset::Name)).Append(assetObject.GetString(ResourceAsset::Extension)),
+						.path = assetObject.GetString(ResourceAsset::Path),
+						.shouldUpdate = true
+					});
+				}
+			};
+
+			// directoryObject.IterateSubObjectSet(ResourceAssetDirectory::Assets, false, [&](RID rid)
+			// {
+			// 	checkAssetFile(rid);
+			// });
+			//
+			// directoryObject.IterateSubObjectSet(ResourceAssetDirectory::Directories, false, [&](RID rid)
+			// {
+			// 	checkAssetFile(GetAsset(rid));
+			// 	directoriesToScan.emplace(rid);
+			// });
+		}
 	}
 
-	Span<RID> ResourceAssets::GetPackages()
+	void ResourceAssets::OpenAsset(RID rid)
 	{
+		ResourceObject object = Resources::Write(rid);
+		StringView     extension = object.GetString(ResourceAsset::Extension);
+
+		if (auto it = handlersByExtension.Find(extension))
+		{
+			it->second->OpenAsset(object.GetSubObject(ResourceAsset::Object));
+		}
+	}
+
+	void ResourceAssets::ImportAssets(RID parent, Span<String> paths)
+	{
+		UndoRedoScope* scope = nullptr;
+
+		for (const String& path : paths)
+		{
+			logger.Debug("importing {} to {} ", path, GetDirectoryPath(parent));
+			String extension = Path::Extension(path);
+
+			if (auto it = importersByExtension.Find(extension))
+			{
+				if (scope == nullptr)
+				{
+					scope = Editor::CreateUndoRedoScope("Import Assets");
+				}
+
+				it->second->ImportAsset(parent, nullptr, path, scope);
+			}
+		}
+	}
+
+	RID ResourceAssets::CreateAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope)
+	{
+		return CreateImportedAsset(parent, typeId, desiredName, scope, "");
+	}
+
+	RID ResourceAssets::CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath)
+	{
+		if (auto it = handlersByTypeID.Find(typeId))
+		{
+			ResourceAssetHandler* handler = it->second;
+
+			String newName = CreateUniqueAssetName(parent, desiredName.Empty() ? String("New ").Append(handler->GetDesc()) : String(desiredName), false);
+			String path = GetDirectoryPath(parent) + "/" + newName + handler->Extension();
+
+			RID            asset = Resources::Create(typeId, UUID::RandomUUID(), scope);
+			ResourceObject assetObject = Resources::Write(asset);
+			assetObject.Commit(scope);
+
+			RID rid = Resources::Create<ResourceAsset>(UUID::RandomUUID(), scope);
+
+			ResourceObject object = Resources::Write(rid);
+			object.SetString(ResourceAsset::Name, newName);
+			object.SetString(ResourceAsset::Extension, handler->Extension());
+			object.SetSubObject(ResourceAsset::Object, asset);
+			object.SetReference(ResourceAsset::Parent, parent);
+			object.SetString(ResourceAsset::Path, path);
+			object.SetBool(ResourceAsset::Directory, false);
+
+			if (!sourcePath.Empty())
+			{
+				object.SetString(ResourceAsset::SourcePath, sourcePath);
+			}
+
+			object.Commit(scope);
+
+			ResourceObject parentObject = Resources::Write(parent);
+			parentObject.AddToSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			parentObject.Commit(scope);
+
+			logger.Debug("asset from type {} created with uuid {} name {} ", handler->GetDesc(), Resources::GetUUID(asset).ToString(), newName);
+
+			return asset;
+		}
+
+		logger.Error("asset from type {} cannot be created, no handler found for it", typeId);
 		return {};
 	}
 
 	RID ResourceAssets::CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope)
 	{
-		//String newName = CreateUniqueName(parent, desiredName, true);
+		String newName = CreateUniqueAssetName(parent, desiredName, true);
+		String path = GetDirectoryPath(parent) + "/" + newName;
+
+		RID            asset = Resources::Create<ResourceAsset>();
+		ResourceObject object = Resources::Write(asset);
+		object.SetString(ResourceAsset::Name, newName);
+		object.SetString(ResourceAsset::Extension, "");
+		object.SetReference(ResourceAsset::Parent, parent);
+		object.SetString(ResourceAsset::Path, path);
+		object.SetBool(ResourceAsset::Directory, true);
+		object.Commit(scope);
+
+		RID            directory = Resources::Create<ResourceAssetDirectory>();
+		ResourceObject directoryObject = Resources::Write(directory);
+		directoryObject.SetSubObject(ResourceAssetDirectory::DirectoryAsset, asset);
+		directoryObject.Commit(scope);
+
+		ResourceObject parentObject = Resources::Write(parent);
+		parentObject.AddToSubObjectSet(ResourceAssetDirectory::Directories, directory);
+		parentObject.Commit(scope);
+
+		return asset;
+	}
+
+	String ResourceAssets::CreateUniqueAssetName(RID parent, StringView desiredName, bool directory)
+	{
+		if (!parent) return {};
+
+		ResourceObject parentObject = Resources::Read(parent);
+		Array<RID>     children = parentObject.GetSubObjectSetAsArray(directory ? ResourceAssetDirectory::Directories : ResourceAssetDirectory::Assets);
+
+		u32    count{};
+		String finalName = desiredName;
+		bool   nameFound;
+		do
+		{
+			nameFound = true;
+
+			for (RID rid : children)
+			{
+				if (directory)
+				{
+					ResourceObject directoryObject = Resources::Read(rid);
+					rid = directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
+				}
+
+				ResourceObject childObject = Resources::Read(rid);
+
+				if (childObject && finalName == childObject.GetString(ResourceAsset::Name))
+				{
+					finalName = desiredName;
+					finalName += " (";
+					finalName.Append(ToString(++count));
+					finalName += ")";
+					nameFound = false;
+					break;
+				}
+			}
+		}
+		while (!nameFound);
+		return finalName;
+	}
+
+	String ResourceAssets::GetDirectoryPath(RID directory)
+	{
+		ResourceObject directoryObject = Resources::Read(directory);
+		RID            directoryAsset = directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
+		ResourceObject assetObject = Resources::Read(directoryAsset);
+		return assetObject.GetString(ResourceAsset::Path);
+	}
+
+	StringView ResourceAssets::GetAbsolutePath(RID asset)
+	{
+		ResourceObject assetObject = Resources::Read(asset);
+		if (RID assetFile = assetObject.GetReference(ResourceAsset::AssetFile))
+		{
+			ResourceObject assetFileObject = Resources::Read(assetFile);
+			return assetFileObject.GetString(ResourceAssetFile::AbsolutePath);
+		}
+		return "";
+	}
+
+	RID ResourceAssets::GetAsset(RID rid)
+	{
+		if (Resources::GetStorage(rid)->resourceType->GetID() == TypeInfo<ResourceAssetDirectory>::ID())
+		{
+			ResourceObject directoryObject = Resources::Read(rid);
+			return directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
+		}
+		return rid;
+	}
+
+	RID ResourceAssets::GetParentAsset(RID rid)
+	{
+		ResourceObject directoryObject = Resources::Read(rid);
+		if (directoryObject.GetBool(ResourceAsset::Directory))
+		{
+			return Resources::GetParent(Resources::GetParent(rid));
+		}
+		return Resources::GetParent(rid);
+	}
+
+	bool ResourceAssets::IsChildOf(RID parent, RID child)
+	{
+		return Resources::Read(parent).HasSubObjectSet(ResourceAssetDirectory::Directories, child);
+	}
+
+	bool ResourceAssets::IsUpdated(RID rid)
+	{
+		ResourceObject assetObject = Resources::Read(rid);
+		if (!assetObject)
+		{
+			return true;
+		}
+
+		RID assetFile = assetObject.GetReference(ResourceAsset::AssetFile);
+		if (!assetFile)
+		{
+			return true;
+		}
+
+		ResourceObject assetFileObject = Resources::Read(assetFile);
+		if (!assetFileObject)
+		{
+			return true;
+		}
+		return assetFileObject.GetUInt(ResourceAssetFile::PersistedVersion) != assetObject.GetVersion();
+	}
+
+	ResourceAssetHandler* ResourceAssets::GetAssetHandler(RID rid)
+	{
+		ResourceType* resource = Resources::GetStorage(rid)->resourceType;
+		if (!resource) return nullptr;
+
+		TypeID typeId = resource->GetID();
+		if (typeId == TypeInfo<ResourceAsset>::ID())
+		{
+			if (ResourceObject assetObject = Resources::Read(rid))
+			{
+				if (String extension = assetObject.GetString(ResourceAsset::Extension); !extension.Empty())
+				{
+					if (auto it = handlersByExtension.Find(extension))
+					{
+						return it->second;
+					}
+				}
+			}
+		}
+
+		return GetAssetHandler(typeId);
+	}
+
+	ResourceAssetHandler* ResourceAssets::GetAssetHandler(TypeID typeId)
+	{
+		if (auto it = handlersByTypeID.Find(typeId))
+		{
+			return it->second;
+		}
+		return nullptr;
+	}
+
+	String ResourceAssets::GetAssetName(RID rid)
+	{
+		if (ResourceAssetHandler* assetHandler = GetAssetHandler(rid);
+			assetHandler != nullptr &&
+			assetHandler->GetCallbacks().getAssetName != nullptr)
+		{
+			String name;
+			assetHandler->GetCallbacks().getAssetName(rid, name);
+			return name;
+		}
+
+		if (RID parent = Resources::GetParent(rid);
+			Resources::GetStorage(parent)->resourceType != nullptr &&
+			Resources::GetStorage(parent)->resourceType->GetID() == TypeInfo<ResourceAsset>::ID() &&
+			Resources::HasValue(parent))
+		{
+			ResourceObject obj = Resources::Read(parent);
+
+			String name = obj.GetString(ResourceAsset::Name);
+			name += obj.GetString(ResourceAsset::Extension);
+			return name;
+		}
+
 		return {};
 	}
 
-	RID ResourceAssets::FindOrCreateAsset(RID parent, TypeID typeId, StringView suggestedName)
+	void ResourceAssetsShutdown()
 	{
-		return {};
+		for (ResourceAssetHandler* handler : handlers)
+		{
+			DestroyAndFree(handler);
+		}
+
+		for (ResourceAssetImporter* io : importers)
+		{
+			DestroyAndFree(io);
+		}
+
+		importersByExtension.Clear();
+		importers.Clear();
 	}
 
-	RID ResourceAssets::CreateAsset(RID parent, TypeID typeId, StringView suggestedName, UUID uuid)
+
+	void ResourceAssetsInit()
 	{
-		return {};
+		Event::Bind<OnShutdown, ResourceAssetsShutdown>();
+
+		// importers = Registry::InstantiateDerived<AssetImporter>();
+		// handlers = Registry::InstantiateDerived<AssetHandler>();
+
+		for (ResourceAssetHandler* handler : handlers)
+		{
+			logger.Debug("registered asset handler for extension {} ", handler->Extension());
+
+			if (StringView extension = handler->Extension(); !extension.Empty())
+			{
+				handlersByExtension.Insert(extension, handler);
+			}
+
+			if (TypeID typeId = handler->GetTypeId(); typeId != 0)
+			{
+				handlersByTypeID.Insert(typeId, handler);
+			}
+		}
+
+		for (ResourceAssetImporter* importer : importers)
+		{
+			for (const String& extension : importer->ImportedExtensions())
+			{
+				importersByExtension.Insert(extension, importer);
+			}
+		}
 	}
 
-	String ResourceAssets::CreateUniqueName(RID parent, StringView desiredName)
+	void RegisterResourceAssetTypes()
 	{
-		return {};
-	}
+		Resources::Type<ResourceAssetPackage>()
+			.Field<ResourceAssetPackage::Name>(ResourceFieldType::String)
+			.Field<ResourceAssetPackage::AbsolutePath>(ResourceFieldType::String)
+			.Field<ResourceAssetPackage::Files>(ResourceFieldType::SubObjectSet)
+			.Field<ResourceAssetPackage::Root>(ResourceFieldType::SubObject)
+			.Build();
 
-	void ResourceAssets::GetUpdatedAssets(Array<RID>& updatedAssets)
-	{
-		//TODO
-	}
+		Resources::Type<ResourceAssetFile>()
+			.Field<ResourceAssetFile::AssetRef>(ResourceFieldType::Reference)
+			.Field<ResourceAssetFile::AbsolutePath>(ResourceFieldType::String)
+			.Field<ResourceAssetFile::RelativePath>(ResourceFieldType::String)
+			.Field<ResourceAssetFile::PersistedVersion>(ResourceFieldType::UInt)
+			.Field<ResourceAssetFile::TotalSizeInDisk>(ResourceFieldType::UInt)
+			.Field<ResourceAssetFile::LastModifiedTime>(ResourceFieldType::UInt)
+			.Build();
 
-	Span<RID> ResourceAssets::GetAssetsByType(TypeID typeId)
-	{
-		return {};
-	}
+		Resources::Type<ResourceAssetDirectory>()
+			.Field<ResourceAssetDirectory::DirectoryAsset>(ResourceFieldType::SubObject)
+			.Field<ResourceAssetDirectory::Directories>(ResourceFieldType::SubObjectSet)
+			.Field<ResourceAssetDirectory::Assets>(ResourceFieldType::SubObjectSet)
+			.Build();
 
-	RID ResourceAssets::GetAssetByAbsolutePath(StringView path)
-	{
-		return {};
+		Resources::Type<ResourceAsset>()
+			.Field<ResourceAsset::Name>(ResourceFieldType::String)
+			.Field<ResourceAsset::Type>(ResourceFieldType::None)
+			.Field<ResourceAsset::Extension>(ResourceFieldType::String)
+			.Field<ResourceAsset::Object>(ResourceFieldType::SubObject)
+			.Field<ResourceAsset::Parent>(ResourceFieldType::Reference)
+			.Field<ResourceAsset::Path>(ResourceFieldType::String)
+			.Field<ResourceAsset::Directory>(ResourceFieldType::Bool)
+			.Field<ResourceAsset::AssetFile>(ResourceFieldType::Reference)
+			.Field<ResourceAsset::Hidden>(ResourceFieldType::Bool)
+			.Field<ResourceAsset::SourcePath>(ResourceFieldType::String)
+			.Build();
 	}
 }

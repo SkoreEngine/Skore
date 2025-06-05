@@ -23,6 +23,7 @@
 #pragma once
 
 #include "MenuItem.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
 {
@@ -37,6 +38,8 @@ namespace Skore
 		static void             ShowConfirmDialog(StringView message, VoidPtr userData, FnConfirmCallback callback);
 		static EditorWorkspace& GetCurrentWorkspace();
 		static UndoRedoScope*   CreateUndoRedoScope(StringView name);
+		static RID              GetProject();
+		static Span<RID>        GetPackages();
 
 		template <typename T>
 		static void OpenWindow(VoidPtr initUserData = nullptr)

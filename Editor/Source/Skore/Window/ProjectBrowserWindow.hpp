@@ -23,63 +23,56 @@
 #pragma once
 #include "Skore/EditorCommon.hpp"
 #include "Skore/MenuItem.hpp"
-#include "Skore/Core/HashSet.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
+
 
 namespace Skore
 {
-	class ProjectBrowserWindow : public EditorWindow
-	{
-	public:
-		SK_CLASS(ProjectBrowserWindow, EditorWindow);
+    class SK_API ProjectBrowserWindow : public EditorWindow
+    {
+    public:
+        SK_CLASS(ProjectBrowserWindow, EditorWindow);
 
-		ProjectBrowserWindow();
-		~ProjectBrowserWindow() override;
+        ~ProjectBrowserWindow() override;
 
-		void Init(u32 id, VoidPtr userData) override;
-		void Draw(u32 id, bool& open) override;
+        void Init(u32 id, VoidPtr userData) override;
+        void Draw(u32 id, bool& open) override;
 
-		RID  GetLastSelectedItem() const;
-		RID  GetOpenDirectory() const;
-		RID  GetRenamingItem() const;
-		bool IsRenamingItem() const;
-		bool IsSelected(RID rid) const;
-		void SetOpenDirectory(RID directory);
+        static void OpenProjectBrowser(const MenuItemEventData& eventData);
+        static void AddMenuItem(const MenuItemCreation& menuItem);
+        static void RegisterType(NativeReflectType<ProjectBrowserWindow>& type);
 
-		void SetRenameItem(RID rid, UndoRedoScope* scope) const;
-		void ClearSelection(UndoRedoScope* scope) const;
-		void SelectItem(RID asset, UndoRedoScope* scope) const;
+        void ClearSelection(UndoRedoScope* scope);
+        void SelectItem(RID rid, UndoRedoScope* scope);
 
-		static void OpenProjectBrowser(const MenuItemEventData& eventData);
-		static void AddMenuItem(const MenuItemCreation& menuItem);
-		static void RegisterType(NativeReflectType<ProjectBrowserWindow>& type);
+        void SetRenameItem(RID rid, UndoRedoScope* scope);
+        RID GetOpenDirectory() const;
+        RID GetLastSelectedItem() const;
 
-	private:
-		static MenuItemContext menuItemContext;
+    private:
+        static MenuItemContext menuItemContext;
 
-		String             searchString;
-		f32                contentBrowserZoom = 1.0; //TODO - save in some local setting
-		String             stringCache;
-		HashMap<RID, bool> openTreeFolders{};
-		bool               newSelection = false;
-		RID                windowObjectRID;
+        String             searchString;
+        f32                contentBrowserZoom = 1.0;
+        String             stringCache;
+        HashMap<RID, bool> openTreeFolders{};
+        RID                windowObjectRID;
+        bool               newSelection = false;
 
-		void DrawPathItems();
-		void DrawTreeNode(RID asset);
-		void OnDropFile(StringView filePath) const;
+        void DrawPathItems();
+        void DrawDirectoryTreeNode(RID asset);
+        void SetOpenDirectory(RID rid);
 
-		static bool CheckSelectedAsset(const MenuItemEventData& eventData);
-		static void AssetRename(const MenuItemEventData& eventData);
-		static void Shutdown();
-		static void AssetNewFolder(const MenuItemEventData& eventData);
-		static void AssetNew(const MenuItemEventData& eventData);
-		static void AssetDelete(const MenuItemEventData& eventData);
-		static void AssetShowInExplorer(const MenuItemEventData& eventData);
-		static void AssetCopyPathToClipboard(const MenuItemEventData& eventData);
-		static bool CanCreateAsset(const MenuItemEventData& eventData);
-		static bool CanReimportAsset(const MenuItemEventData& eventData);
-		static void ReimportAsset(const MenuItemEventData& eventData);
-		static bool CanExtractAsset(const MenuItemEventData& eventData);
-		static void ExtractAsset(const MenuItemEventData& eventData);
-	};
+        static bool CanCreateAsset(const MenuItemEventData& eventData);
+        static void AssetRename(const MenuItemEventData& eventData);
+        static void AssetDelete(const MenuItemEventData& eventData);
+        static bool CheckSelectedAsset(const MenuItemEventData& eventData);
+        static void AssetNewFolder(const MenuItemEventData& eventData);
+        static void AssetNew(const MenuItemEventData& eventData);
+        static void AssetShowInExplorer(const MenuItemEventData& eventData);
+        static bool CanReimportAsset(const MenuItemEventData& eventData);
+        static void ReimportAsset(const MenuItemEventData& eventData);
+        static bool CanExtractAsset(const MenuItemEventData& eventData);
+        static void ExtractAsset(const MenuItemEventData& eventData);
+    };
 }

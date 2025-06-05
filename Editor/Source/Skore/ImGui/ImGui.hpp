@@ -28,14 +28,6 @@
 #include "Skore/Core/String.hpp"
 #include "Skore/IO/InputTypes.hpp"
 
-namespace Skore {
-	class GPUTextureView;
-}
-
-namespace Skore {
-	class GPUTexture;
-}
-
 namespace Skore
 {
 	class Asset;
@@ -44,6 +36,8 @@ namespace Skore
 	struct ImGuiDrawFieldContext;
 	class ReflectType;
 	class ReflectField;
+	class GPUTexture;
+	class GPUTextureView;
 
 	struct ScopedStyleColor final
 	{

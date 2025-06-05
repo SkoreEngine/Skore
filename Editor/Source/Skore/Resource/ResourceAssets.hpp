@@ -22,22 +22,145 @@
 
 #pragma once
 
+
+#include <Skore/Common.hpp>
+#include "Skore/Core/StringView.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
 {
+	struct ResourceAssetPackage
+	{
+		enum :u8
+		{
+			Name,
+			AbsolutePath,
+			Files,
+			Root
+		};
+	};
+
+	struct ResourceAssetFile
+	{
+		enum :u8
+		{
+			AssetRef,
+			AbsolutePath,
+			RelativePath,
+			PersistedVersion,
+			TotalSizeInDisk,
+			LastModifiedTime
+		};
+	};
+
+	struct ResourceAsset
+	{
+		enum : u8
+		{
+			Name,
+			Extension,
+			Type,
+			Object,
+			Parent,
+			Path,
+			Directory,
+			AssetFile,
+			Hidden,
+			SourcePath
+		};
+	};
+
+	struct ResourceAssetDirectory
+	{
+		enum : u8
+		{
+			DirectoryAsset,
+			Directories,
+			Assets
+		};
+	};
+
+	enum class UpdatedAssetType
+	{
+		Created,
+		Updated,
+		Deleted
+	};
+
+	struct UpdatedAssetInfo
+	{
+		UpdatedAssetType type;
+		RID              asset;
+		RID              assetFile;
+		String           displayName;
+		String           path;
+		bool             shouldUpdate;
+	};
+
+	typedef RID (*FnResourceAssetLoader)(StringView path);
+	typedef void (*FnResourceExtractAssets)(RID parent, RID asset);
+	typedef void (*FnResourceGetAssetName)(RID rid, String& assetName);
+
+	struct ResourceAssetCallbacks
+	{
+		FnResourceAssetLoader   loader = nullptr;
+		FnResourceExtractAssets extract = nullptr;
+		FnResourceGetAssetName  getAssetName = nullptr;
+	};
+
+	struct ResourceAssetProperties
+	{
+		bool hidden = false;
+	};
+
+	struct SK_API ResourceAssetHandler
+	{
+		virtual               ~ResourceAssetHandler() = default;
+		virtual StringView    Extension() = 0;
+		virtual void          OpenAsset(RID rid) = 0;
+		virtual TypeID        GetTypeId() = 0;
+		virtual StringView    GetDesc() = 0;
+
+		virtual ResourceAssetProperties GetProperties()
+		{
+			return ResourceAssetProperties{
+				.hidden = false
+			};
+		}
+
+		virtual ResourceAssetCallbacks GetCallbacks()
+		{
+			return {};
+		}
+	};
+
+	struct SK_API ResourceAssetImporter
+	{
+		virtual ~ResourceAssetImporter() = default;
+
+		virtual Array<String> ImportedExtensions() = 0;
+		virtual bool          ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) = 0;
+	};
+
 	struct SK_API ResourceAssets
 	{
-		static void      SetProject(StringView name, StringView directory);
-		static void      AddPackage(StringView name, StringView directory);
-		static RID       GetProject();
-		static Span<RID> GetPackages();
-		static RID       CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
-		static RID       FindOrCreateAsset(RID parent, TypeID typeId, StringView suggestedName);
-		static RID       CreateAsset(RID parent, TypeID typeId, StringView suggestedName = "", UUID uuid = {});
-		static String    CreateUniqueName(RID parent, StringView desiredName);
-		static void      GetUpdatedAssets(Array<RID>& updatedAssets);
-		static Span<RID> GetAssetsByType(TypeID typeId);
-		static RID       GetAssetByAbsolutePath(StringView path);
+		static RID                   ScanAssetsFromDirectory(StringView packageName, StringView directory);
+		static void                  SaveAssetsToDirectory(StringView directory, RID package, Span<UpdatedAssetInfo> items);
+		static void                  GetUpdatedAssets(RID directory, Array<UpdatedAssetInfo>& items);
+		static void                  OpenAsset(RID rid);
+		static void                  ImportAssets(RID parent, Span<String> paths);
+		static RID                   CreateAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope);
+		static RID                   CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
+		static RID                   CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
+		static String                CreateUniqueAssetName(RID parent, StringView desiredName, bool directory);
+		static String                GetDirectoryPath(RID directory);
+		static StringView            GetAbsolutePath(RID asset);
+		static RID                   GetAsset(RID rid);
+		static RID                   GetParentAsset(RID rid);
+		static bool                  IsChildOf(RID parent, RID child);
+		static bool                  IsUpdated(RID rid);
+		static ResourceAssetHandler* GetAssetHandler(RID rid);
+		static ResourceAssetHandler* GetAssetHandler(TypeID typeId);
+		static String                GetAssetName(RID rid);
 	};
 }

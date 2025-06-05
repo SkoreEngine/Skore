@@ -95,7 +95,6 @@ namespace Skore
 			return &pages[SK_PAGE(rid.id)]->elements[SK_OFFSET(rid.id)];
 		}
 
-
 		RID GetID(UUID uuid)
 		{
 			if (uuid)
@@ -429,6 +428,11 @@ namespace Skore
 		return rid;
 	}
 
+	ResourceStorage* Resources::GetStorage(RID rid)
+	{
+		return Skore::GetStorage(rid);
+	}
+
 	RID Resources::Clone(RID origin, UUID uuid, UndoRedoScope* scope)
 	{
 		ResourceStorage* originStorage = GetStorage(origin);
@@ -492,6 +496,22 @@ namespace Skore
 	{
 		ResourceStorage* storage = GetStorage(rid);
 		return ResourceObject{storage, nullptr};
+	}
+
+	bool Resources::HasValue(RID rid)
+	{
+		ResourceStorage* storage = GetStorage(rid);
+		return storage->instance != nullptr;
+	}
+
+	RID Resources::GetParent(RID rid)
+	{
+		ResourceStorage* storage = GetStorage(rid);
+		if (storage->parent)
+		{
+			return storage->parent->rid;
+		}
+		return {};
 	}
 
 	UUID Resources::GetUUID(RID rid)
