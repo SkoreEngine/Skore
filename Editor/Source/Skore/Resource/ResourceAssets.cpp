@@ -92,11 +92,18 @@ namespace Skore
 			YamlArchiveWriter writer;
 			Resources::Serialize(object, writer);
 			FileSystem::SaveFileAsString(absolutePath, writer.EmitAsString());
+
+			if (Span<u8> blobs = writer.GetBlobs(); !blobs.Empty())
+			{
+				String bufferPath = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath).Append(".buffer"));
+				FileSystem::SaveFileAsByteArray(bufferPath, blobs);
+			}
 		}
 
 		RID DeserializeAsset(StringView absolutePath)
 		{
-			YamlArchiveReader reader(FileSystem::ReadFileAsString(absolutePath));
+			String bufferPath = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath).Append(".buffer"));
+			YamlArchiveReader reader(FileSystem::ReadFileAsString(absolutePath), FileSystem::ReadFileAsByteArray(bufferPath));
 			return Resources::Deserialize(reader);
 		}
 	}
@@ -167,6 +174,7 @@ namespace Skore
 				if (nameExtension[0] == '.') continue;
 
 				String extension = Path::Extension(entry);
+				if (extension == ".buffer") continue;
 
 				String fileName = Path::Name(entry);
 				String path = String().Append(scan.path).Append("/").Append(fileName).Append(extension);

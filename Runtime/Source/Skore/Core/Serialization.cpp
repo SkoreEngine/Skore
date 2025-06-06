@@ -114,7 +114,11 @@ namespace Skore
 
 	void YamlArchiveWriter::WriteBlob(StringView name, ConstPtr data, u64 size)
 	{
-		SK_ASSERT(false, "blob is not available for yaml serialization");
+		BeginMap(name);
+		WriteUInt("offset", m_blobs.Size());
+		WriteUInt("size", size);
+		EndMap();
+		m_blobs.Append(static_cast<const u8*>(data), size);
 	}
 
 	void YamlArchiveWriter::AddBool(bool value)
@@ -144,7 +148,12 @@ namespace Skore
 
 	void YamlArchiveWriter::AddBlob(ConstPtr data, u64 size)
 	{
-		SK_ASSERT(false, "blob is not available for yaml serialization");
+		BeginMap();
+		WriteUInt("offset", m_blobs.Size());
+		WriteUInt("size", size);
+		EndMap();
+
+		m_blobs.Append(reinterpret_cast<const u8*>(&size), size);
 	}
 
 	void YamlArchiveWriter::BeginSeq()
@@ -189,6 +198,11 @@ namespace Skore
 	{
 		std::string str_result = ryml::emitrs_yaml<std::string>(m_context->tree);
 		return {str_result.c_str(), str_result.size()};
+	}
+
+	Span<u8> YamlArchiveWriter::GetBlobs() const
+	{
+		return m_blobs;
 	}
 
 	struct ContextState
@@ -262,7 +276,7 @@ namespace Skore
 	};
 
 
-	YamlArchiveReader::YamlArchiveReader(StringView yaml)
+	YamlArchiveReader::YamlArchiveReader(StringView yaml, Span<u8> blobs) : m_blobs(blobs)
 	{
 		static_assert(sizeof(YamlContext) <= sizeof(m_contextData), "YamlContext is smaller than context buffer ");
 		m_context = reinterpret_cast<YamlContext*>(m_contextData);
@@ -402,8 +416,16 @@ namespace Skore
 
 	Span<u8> YamlArchiveReader::GetBlob()
 	{
-		SK_ASSERT(false, "blob is not available for yaml serialization");
-		return {};
+		BeginMap();
+		usize offset = ReadUInt("offset");
+		usize size = ReadUInt("size");
+		EndMap();
+
+		if (offset + size > m_blobs.Size())
+		{
+			return {};
+		}
+		return {m_blobs.begin() + offset, size};
 	}
 
 	void YamlArchiveReader::BeginSeq()

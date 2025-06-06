@@ -22,6 +22,7 @@
 
 #include "ResourceType.hpp"
 
+#include "Skore/Core/Color.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Span.hpp"
 
@@ -41,10 +42,10 @@ namespace Skore
 		{sizeof(f64), alignof(f64)},                   // ResourceFieldType::Float,
 		{sizeof(String), alignof(String)},             // ResourceFieldType::String,
 		{sizeof(Vec2), alignof(Vec2)},                 // ResourceFieldType::Vec2,
-		{sizeof(Vec2), alignof(Vec2)},                 // ResourceFieldType::Vec3,
-		{sizeof(Vec2), alignof(Vec2)},                 // ResourceFieldType::Vec4,
-		{sizeof(Vec2), alignof(Vec2)},                 // ResourceFieldType::Quat,
-		{sizeof(Vec2), alignof(Vec2)},                 // ResourceFieldType::Color,
+		{sizeof(Vec3), alignof(Vec3)},                 // ResourceFieldType::Vec3,
+		{sizeof(Vec4), alignof(Vec4)},                 // ResourceFieldType::Vec4,
+		{sizeof(Quat), alignof(Quat)},                 // ResourceFieldType::Quat,
+		{sizeof(Color), alignof(Color)},               // ResourceFieldType::Color,
 		{sizeof(i64), alignof(i64)},                   // ResourceFieldType::Enum,
 		{sizeof(Array<u8>), alignof(Array<u8>)},       // ResourceFieldType::Blob,
 		{sizeof(RID), alignof(RID)},                   // ResourceFieldType::Reference,

@@ -120,20 +120,22 @@ namespace Skore
 		void BeginMap(StringView name) override;
 		void EndMap() override;
 
-		String EmitAsString() const;
+		String   EmitAsString() const;
+		Span<u8> GetBlobs() const;
 
 		struct YamlContext;
 
 		YamlContext* m_context = nullptr;
 	private:
-		char         m_contextData[288]{};
+		char      m_contextData[288]{};
+		Array<u8> m_blobs;
 	};
 
 
 	class SK_API YamlArchiveReader : public ArchiveReader
 	{
 	public:
-		YamlArchiveReader(StringView yaml);
+		YamlArchiveReader(StringView yaml, Span<u8> blobs = {});
 
 		bool       ReadBool(StringView name) override;
 		i64        ReadInt(StringView name) override;
@@ -161,6 +163,7 @@ namespace Skore
 	private:
 		char         m_contextData[296]{};
 		YamlContext* m_context = nullptr;
+		Array<u8>    m_blobs;
 	};
 
 
