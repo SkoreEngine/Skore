@@ -20,43 +20,50 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
-
-#include "Core/Reflection.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/ImGui/IconsFontAwesome6.h"
+#include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Window/ProjectBrowserWindow.hpp"
+#include "Skore/World/WordCommon.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterWorldTypes();
-	void RegisterGraphicsTypes();
-
-	void RegisterTypes()
+	struct EntityHandler : ResourceAssetHandler
 	{
+		SK_CLASS(EntityHandler, ResourceAssetHandler);
+
+		StringView Extension() override
 		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
+			return ".entity";
 		}
 
+		void OpenAsset(RID rid) override
 		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
+
 		}
 
+		TypeID GetResourceTypeId() override
 		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
+			return TypeInfo<EntityResource>::ID();
 		}
 
+		StringView GetDesc() override
 		{
-			GroupScope scope("Scene");
-			RegisterSceneTypes();
+			return "Entity";
 		}
+	};
 
-		{
-			GroupScope scope("World");
-			RegisterWorldTypes();
-		}
+
+	void RegisterEntityHandler()
+	{
+		ProjectBrowserWindow::AddMenuItem(MenuItemCreation{
+			.itemName = "New Entity", .icon = ICON_FA_CUBE,
+			.priority = 10,
+			.action = ProjectBrowserWindow::AssetNew,
+			.enable = ProjectBrowserWindow::CanCreateAsset,
+			.userData = TypeInfo<EntityResource>::ID()
+		});
+
+		Reflection::Type<EntityHandler>();
 	}
 }

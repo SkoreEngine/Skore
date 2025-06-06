@@ -41,13 +41,15 @@ namespace Skore
         static void OpenProjectBrowser(const MenuItemEventData& eventData);
         static void AddMenuItem(const MenuItemCreation& menuItem);
         static void RegisterType(NativeReflectType<ProjectBrowserWindow>& type);
+        static bool CanCreateAsset(const MenuItemEventData& eventData);
+        static void AssetNew(const MenuItemEventData& eventData);
 
         void ClearSelection(UndoRedoScope* scope);
         void SelectItem(RID rid, UndoRedoScope* scope);
 
         void SetRenameItem(RID rid, UndoRedoScope* scope);
-        RID GetOpenDirectory() const;
-        RID GetLastSelectedItem() const;
+        RID  GetOpenDirectory() const;
+        RID  GetLastSelectedItem() const;
 
     private:
         static MenuItemContext menuItemContext;
@@ -63,12 +65,10 @@ namespace Skore
         void DrawDirectoryTreeNode(RID asset);
         void SetOpenDirectory(RID rid);
 
-        static bool CanCreateAsset(const MenuItemEventData& eventData);
         static void AssetRename(const MenuItemEventData& eventData);
         static void AssetDelete(const MenuItemEventData& eventData);
         static bool CheckSelectedAsset(const MenuItemEventData& eventData);
         static void AssetNewFolder(const MenuItemEventData& eventData);
-        static void AssetNew(const MenuItemEventData& eventData);
         static void AssetShowInExplorer(const MenuItemEventData& eventData);
         static bool CanReimportAsset(const MenuItemEventData& eventData);
         static void ReimportAsset(const MenuItemEventData& eventData);

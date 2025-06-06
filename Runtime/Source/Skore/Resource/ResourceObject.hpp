@@ -75,6 +75,10 @@ namespace Skore
 		void  CancelRemoveFromPrototypeSubObjectSet(u32 index, const Span<RID>& remove);
 		void  ClearRemoveFromPrototypeSubObjectSet(u32 index);
 
+		//if index = SubobjectSet, remove from set
+		//if index = subobject, compare the values, if equals, cleanup.
+		void RemoveSubObject(u32 index, RID rid);
+
 		bool       HasValue(u32 index) const;
 		bool       HasValueOnThisObject(u32 index) const;
 		bool       GetBool(u32 index) const;

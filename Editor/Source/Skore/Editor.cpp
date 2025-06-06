@@ -90,6 +90,7 @@ namespace Skore
 			{
 				other.scope = nullptr;
 			}
+
 			~UndoRedoScopeStorage()
 			{
 				if (scope != nullptr)
@@ -101,12 +102,13 @@ namespace Skore
 
 		Array<EditorWindowStorage> editorWindowStorages;
 		Array<OpenWindowStorage>   openWindows;
-		Array<AssetFileOld*>          updatedItems{};
-		HashSet<AssetFileOld*>        ignoreSave{};
 		Queue<DialogModalData>     confirmDialogs;
 		ConsoleSink                consoleSink;
 
-		RID     projectRID;
+		RID                     projectRID;
+		String                  projectPath;
+		String                  projectAssetPath;
+		Array<UpdatedAssetInfo> updatedItems;
 
 		bool forceClose = false;
 		bool shouldOpenPopup = false;
@@ -128,7 +130,6 @@ namespace Skore
 		u32             idCounter{100000};
 		bool            showImGuiDemo = false;
 
-		String projectPath;
 
 		Logger& logger = Logger::GetLogger("Skore::Editor");
 
@@ -137,23 +138,20 @@ namespace Skore
 			showImGuiDemo = true;
 		}
 
+		void GetUpdatedItems()
+		{
+			updatedItems.Clear();
+			ResourceAssets::GetUpdatedAssets(projectRID, updatedItems);
+		}
+
 		void Save()
 		{
-			for (AssetFileOld* asset : updatedItems)
-			{
-				if (!ignoreSave.Has(asset))
-				{
-					asset->Save();
-				}
-			}
-			updatedItems.Clear();
-			ignoreSave.Clear();
+			ResourceAssets::SaveAssetsToDirectory(projectAssetPath, projectRID, updatedItems);
 		}
 
 		void SaveAll(const MenuItemEventData& eventData)
 		{
-			ignoreSave.Clear();
-			AssetEditor::GetUpdatedAssets(updatedItems);
+			GetUpdatedItems();
 			Save();
 		}
 
@@ -421,46 +419,37 @@ namespace Skore
 
 								ImGui::TableHeadersRow();
 
-								for (AssetFileOld* asset : updatedItems)
+								for (UpdatedAssetInfo& info : updatedItems)
 								{
 									ImGui::TableNextRow();
 
 									ImGui::TableNextColumn();
 
-									ImGui::BeginHorizontal(asset);
+									ImGui::BeginHorizontal(info.asset.id);
 									ImGui::Spring(1.0);
 
-									bool shouldUpdate = !ignoreSave.Has(asset);
-
-									if (ImGui::Checkbox("###", &shouldUpdate))
-									{
-										if (!shouldUpdate)
-										{
-											ignoreSave.Insert(asset);
-										}
-										else
-										{
-											ignoreSave.Erase(asset);
-										}
-									}
+									ImGui::Checkbox("###", &info.shouldUpdate);
 
 									ImGui::Spring(1.0);
 									ImGui::EndHorizontal();
 
 									ImGui::TableNextColumn();
-									ImGui::Text("%s", asset->GetFileName().CStr());
+									ImGui::Text("%s", info.displayName.CStr());
 									ImGui::TableNextColumn();
-									ImGui::Text("%s", asset->GetPath().CStr());
+									ImGui::Text("%s", info.path.CStr());
 									ImGui::TableNextColumn();
 
-
-									if (asset->GetPersistedVersion() == 0)
+									switch (info.type)
 									{
-										ImGui::TextColored(ImVec4(0.1, 0.8, 0.1, 1), "Created");
-									}
-									else
-									{
-										ImGui::Text("Updated");
+										case UpdatedAssetType::Created:
+											ImGui::TextColored(ImVec4(0.1, 0.8, 0.1, 1), "Created");
+											break;
+										case UpdatedAssetType::Updated:
+											ImGui::Text("Updated");
+											break;
+										case UpdatedAssetType::Deleted:
+											ImGui::TextColored(ImVec4(0.8, 0.1, 0.1, 1), "Deleted");
+											break;
 									}
 								}
 								ImGui::EndTable();
@@ -473,14 +462,17 @@ namespace Skore
 
 						if (ImGui::Button("Select All"))
 						{
-							ignoreSave.Clear();
+							for (UpdatedAssetInfo& info : updatedItems)
+							{
+								info.shouldUpdate = true;
+							}
 						}
 
 						if (ImGui::Button("Unselect All"))
 						{
-							for (AssetFileOld* assetFile : updatedItems)
+							for (UpdatedAssetInfo& info : updatedItems)
 							{
-								ignoreSave.Insert(assetFile);
+								info.shouldUpdate = false;
 							}
 						}
 
@@ -535,7 +527,6 @@ namespace Skore
 						if (modal.callback)
 						{
 							modal.callback(modal.userData);
-
 						}
 						confirmDialogs.Dequeue();
 					}
@@ -582,8 +573,7 @@ namespace Skore
 			// 	return;
 			// }
 
-			updatedItems.Clear();
-			AssetEditor::GetUpdatedAssets(updatedItems);
+			GetUpdatedItems();
 
 			if (!updatedItems.Empty())
 			{
@@ -592,10 +582,7 @@ namespace Skore
 			}
 		}
 
-		void EditorBeginFrame()
-		{
-
-		}
+		void EditorBeginFrame() {}
 	}
 
 	ConsoleSink& GetConsoleSink()
@@ -650,6 +637,7 @@ namespace Skore
 
 	void RegisterAssetTypes();
 	void ProjectBrowserWindowInit();
+	void ResourceAssetsInit();
 
 	void EditorInit(StringView projectFile)
 	{
@@ -669,7 +657,9 @@ namespace Skore
 
 		CreateMenuItems();
 
+		ResourceAssetsInit();
 		AssetEditorInit();
+
 		ShaderManagerInit();
 		ProjectBrowserWindowInit();
 
@@ -703,14 +693,13 @@ namespace Skore
 		});
 
 		AssetEditor::AddPackage("Skore", FileSystem::AssetFolder());
-		AssetEditor::SetProject(Path::Name(projectPath), projectPath);
 
-		projectRID = ResourceAssets::ScanAssetsFromDirectory(Path::Name(projectPath), Path::Join(projectPath, "Assets"));
+		projectAssetPath = Path::Join(projectPath, "Assets");
+		projectRID = ResourceAssets::ScanAssetsFromDirectory(Path::Name(projectPath), projectAssetPath);
 
 		// ResourceAssets::AddPackage("Skore", FileSystem::AssetFolder());
 		// ResourceAssets::SetProject(Path::Name(projectPath), projectPath);
 	}
-
 
 
 	void RegisterResourceAssetTypes();

@@ -20,43 +20,30 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
+#include "TextureImporter.hpp"
 
-#include "Core/Reflection.hpp"
+#include "Skore/Core/Reflection.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterWorldTypes();
-	void RegisterGraphicsTypes();
-
-	void RegisterTypes()
+	struct TextureImporter : ResourceAssetImporter
 	{
+		SK_CLASS(TextureImporter, ResourceAssetImporter);
+
+		Array<String> ImportedExtensions() override
 		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
+			return {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr"};
 		}
 
+		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
 		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
+			return true;
 		}
 
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
+	};
 
-		{
-			GroupScope scope("Scene");
-			RegisterSceneTypes();
-		}
-
-		{
-			GroupScope scope("World");
-			RegisterWorldTypes();
-		}
+	void RegisterTextureImporter()
+	{
+		Reflection::Type<TextureImporter>();
 	}
 }

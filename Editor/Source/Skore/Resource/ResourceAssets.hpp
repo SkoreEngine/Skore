@@ -25,6 +25,7 @@
 
 #include <Skore/Common.hpp>
 #include "Skore/Core/StringView.hpp"
+#include "Skore/Core/Object.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
@@ -65,7 +66,6 @@ namespace Skore
 			Path,
 			Directory,
 			AssetFile,
-			Hidden,
 			SourcePath
 		};
 	};
@@ -97,46 +97,36 @@ namespace Skore
 		bool             shouldUpdate;
 	};
 
-	typedef RID (*FnResourceAssetLoader)(StringView path);
+	typedef RID (* FnResourceAssetLoader)(StringView path);
 	typedef void (*FnResourceExtractAssets)(RID parent, RID asset);
 	typedef void (*FnResourceGetAssetName)(RID rid, String& assetName);
 
-	struct ResourceAssetCallbacks
+	struct SK_API ResourceAssetHandler : Object
 	{
-		FnResourceAssetLoader   loader = nullptr;
-		FnResourceExtractAssets extract = nullptr;
-		FnResourceGetAssetName  getAssetName = nullptr;
-	};
+		SK_CLASS(ResourceAssetHandler, Object);
 
-	struct ResourceAssetProperties
-	{
-		bool hidden = false;
-	};
+		virtual StringView Extension() = 0;
+		virtual void       OpenAsset(RID rid) = 0;
+		virtual TypeID     GetResourceTypeId() = 0;
+		virtual StringView GetDesc() = 0;
 
-	struct SK_API ResourceAssetHandler
-	{
-		virtual               ~ResourceAssetHandler() = default;
-		virtual StringView    Extension() = 0;
-		virtual void          OpenAsset(RID rid) = 0;
-		virtual TypeID        GetTypeId() = 0;
-		virtual StringView    GetDesc() = 0;
-
-		virtual ResourceAssetProperties GetProperties()
+		virtual bool GetAssetName(RID rid, String& name)
 		{
-			return ResourceAssetProperties{
-				.hidden = false
-			};
+			return false;
 		}
 
-		virtual ResourceAssetCallbacks GetCallbacks()
+
+		virtual bool CanExtractAsset(RID rid)
 		{
-			return {};
+			return false;
 		}
+
+		virtual void ExtractAsset(RID directory, RID asset) {}
 	};
 
-	struct SK_API ResourceAssetImporter
+	struct SK_API ResourceAssetImporter : Object
 	{
-		virtual ~ResourceAssetImporter() = default;
+		SK_CLASS(ResourceAssetImporter, Object);
 
 		virtual Array<String> ImportedExtensions() = 0;
 		virtual bool          ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) = 0;

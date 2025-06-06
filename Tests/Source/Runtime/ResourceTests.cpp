@@ -464,6 +464,55 @@ namespace
 		ResourceShutdown();
 	}
 
+	TEST_CASE("Resource::Subobjects")
+	{
+		ResourceInit();
+		RegisterTestTypes();
+
+		{
+			auto populate = [](RID rid)
+			{
+				ResourceObject write = Resources::Write(rid);
+				write.SetString(ResourceTest::StringValue, "StrintString");
+				write.Commit();
+			};
+
+			RID object = Resources::Create<ResourceTest>();
+			RID subObject1 = Resources::Create<ResourceTest>();
+			RID subObject2 = Resources::Create<ResourceTest>();
+			RID subObject3 = Resources::Create<ResourceTest>();
+
+			populate(object);
+			populate(subObject1);
+			populate(subObject2);
+			populate(subObject3);
+
+			ResourceObject write = Resources::Write(object);
+			write.SetSubObject(ResourceTest::SubObject, subObject1);
+			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subObject2);
+			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subObject3);
+			write.Commit();
+
+			Resources::Destroy(subObject3);
+
+			ResourceObject read = Resources::Write(object);
+			CHECK(!read.HasSubObjectSet(ResourceTest::SubObjectSet, subObject3));
+
+			CHECK(Resources::HasValue(object));
+			CHECK(Resources::HasValue(subObject1));
+			CHECK(Resources::HasValue(subObject2));
+
+			Resources::Destroy(object);
+
+			CHECK(!Resources::HasValue(object));
+			CHECK(!Resources::HasValue(subObject1));
+			CHECK(!Resources::HasValue(subObject2));
+
+			Resources::GarbageCollect();
+		}
+		ResourceShutdown();
+	}
+
 	TEST_CASE("Resource::Serialization")
 	{
 		UUID uuids[6] = {

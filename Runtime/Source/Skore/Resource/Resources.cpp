@@ -154,6 +154,37 @@ namespace Skore
 				current = current->parent;
 			}
 		}
+
+		template<typename T>
+		void IterateObjectSubObjects(ResourceStorage* resourceStorage, ResourceInstance instance, T&& func)
+		{
+			for (ResourceField* field : resourceStorage->resourceType->GetFields())
+			{
+				if (*reinterpret_cast<bool*>(&instance[sizeof(ResourceInstanceInfo) + field->GetIndex()]))
+				{
+					switch (field->GetType())
+					{
+						case ResourceFieldType::SubObject:
+						{
+							if (RID rid = *reinterpret_cast<RID*>(&instance[field->GetOffset()]))
+							{
+								func(field->GetIndex(), rid);
+							}
+							break;
+						}
+						case ResourceFieldType::SubObjectSet:
+						{
+							const SubObjectSet& subObjectSet = *reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()]);
+							for (RID rid : subObjectSet.subObjects)
+							{
+								func(field->GetIndex(), rid);
+							}
+							break;
+						}
+					}
+				}
+			}
+		}
 	}
 
 	//clone = recreate subobjects
@@ -456,12 +487,30 @@ namespace Skore
 	void Resources::Destroy(RID rid, UndoRedoScope* scope)
 	{
 		ResourceStorage* storage = GetStorage(rid);
-		if (scope)
+
+		if (storage->parent && storage->parentFieldIndex != U32_MAX && storage->parent->instance)
 		{
-			scope->PushChange(storage, storage->instance.load(), nullptr);
+			ResourceObject parentObject = Write(storage->parent->rid);
+			parentObject.RemoveSubObject(storage->parentFieldIndex, rid);
+			parentObject.Commit(scope);
 		}
-		DestroyResourceInstance(storage->resourceType, storage->instance.load());
-		storage->instance = nullptr;
+
+		if (ResourceInstance instance = storage->instance.exchange(nullptr))
+		{
+			if (scope)
+			{
+				scope->PushChange(storage, instance, nullptr);
+			}
+
+			toCollectItems.enqueue(DestroyResourcePayload{
+				.instance = instance
+			});
+
+			IterateObjectSubObjects(storage, instance, [scope](u32 index, RID subobject)
+			{
+				Destroy(subobject, scope);
+			});
+		}
 	}
 
 	u64 Resources::GetVersion(RID rid)

@@ -61,9 +61,9 @@ namespace Skore
 	};
 
 
-	struct TextureImporter : AssetImporter
+	struct TextureImporter2 : AssetImporter
 	{
-		SK_CLASS(TextureImporter, AssetImporter);
+		SK_CLASS(TextureImporter2, AssetImporter);
 
 		Array<String> ImportExtensions() override
 		{
@@ -85,9 +85,9 @@ namespace Skore
 		}
 	};
 
-	void RegisterTextureImporter()
+	void RegisterTextureHandler2()
 	{
-		Reflection::Type<TextureImporter>();
+		Reflection::Type<TextureImporter2>();
 		Reflection::Type<TextureHandler>();
 	}
 }

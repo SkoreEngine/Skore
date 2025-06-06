@@ -32,7 +32,7 @@ namespace Skore
 {
 	void RegisterSceneAssetHandler();
 	void RegisterGLTFImporter();
-	void RegisterTextureImporter();
+	void RegisterTextureHandler2();
 	void RegisterMaterialAssetHandler();
 	void RegisterMeshAssetHandler();
 	void RegisterShaderHandler();
@@ -46,7 +46,7 @@ namespace Skore
 		Reflection::Type<AssetInternalInfo>();
 
 		RegisterSceneAssetHandler();
-		RegisterTextureImporter();
+		RegisterTextureHandler2();
 		RegisterGLTFImporter();
 		RegisterMaterialAssetHandler();
 		RegisterMeshAssetHandler();

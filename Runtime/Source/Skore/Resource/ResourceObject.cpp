@@ -287,7 +287,21 @@ namespace Skore
 		{
 			subObjectSet->prototypeRemoved.Clear();
 		}
+	}
 
+	void ResourceObject::RemoveSubObject(u32 index, RID rid)
+	{
+		if (storage->resourceType->fields[index]->type == ResourceFieldType::SubObject)
+		{
+			if (const RID* value = GetPtr<RID>(index); value != nullptr && *value == rid)
+			{
+				UpdateHasValue(index, false);
+			}
+		}
+		else if (storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet)
+		{
+			RemoveFromSubObjectSet(index, rid);
+		}
 	}
 
 	bool ResourceObject::HasValue(u32 index) const

@@ -89,37 +89,15 @@ namespace Skore
 
 		void SerializeAsset(StringView absolutePath, RID object)
 		{
-			String newBufferFolder = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath), ".buffers");
+			YamlArchiveWriter writer;
+			Resources::Serialize(object, writer);
+			FileSystem::SaveFileAsString(absolutePath, writer.EmitAsString());
+		}
 
-			// String str = Serialization::YamlSerialize(object);
-			// FileSystem::SaveFileAsString(absolutePath, str);
-
-			bool            bufferFoundCheck = false;
-			HashSet<String> buffersFound = {};
-
-			//copy buffer
-			ResourceObject obj = Resources::Read(object);
-			// obj.IterateBuffers([&](ResourceBuffer& buffer)
-			// {
-			// 	if (!bufferFoundCheck && !FileSystem::GetFileStatus(newBufferFolder).exists)
-			// 	{
-			// 		FileSystem::CreateDirectory(newBufferFolder);
-			// 	}
-			//
-			// 	bufferFoundCheck = true;
-			//
-			// 	String bufferId = buffer.GetIdAsString();
-			// 	buffer.SaveTo(Path::Join(newBufferFolder, bufferId));
-			// 	buffersFound.Insert(bufferId);
-			// });
-
-			for (const String& file : DirectoryEntries(newBufferFolder))
-			{
-				if (!buffersFound.Has(Path::Name(file)))
-				{
-					FileSystem::Remove(file);
-				}
-			}
+		RID DeserializeAsset(StringView absolutePath)
+		{
+			YamlArchiveReader reader(FileSystem::ReadFileAsString(absolutePath));
+			return Resources::Deserialize(reader);
 		}
 	}
 
@@ -189,18 +167,6 @@ namespace Skore
 				if (nameExtension[0] == '.') continue;
 
 				String extension = Path::Extension(entry);
-				if (extension == ".buffers") continue;
-
-				ResourceAssetHandler*          handler = nullptr;
-				ResourceAssetCallbacks  callbacks;
-				ResourceAssetProperties properties;
-
-				if (auto itHandler = handlersByExtension.Find(extension))
-				{
-					handler = itHandler->second;
-					callbacks = handler->GetCallbacks();
-					properties = handler->GetProperties();
-				}
 
 				String fileName = Path::Name(entry);
 				String path = String().Append(scan.path).Append("/").Append(fileName).Append(extension);
@@ -217,39 +183,11 @@ namespace Skore
 				assetObject.SetReference(ResourceAsset::Parent, scan.directory);
 				assetObject.SetBool(ResourceAsset::Directory, status.isDirectory);
 				assetObject.SetReference(ResourceAsset::AssetFile, assetFile);
-				if (handler)
-				{
-					assetObject.SetBool(ResourceAsset::Hidden, properties.hidden);
-				}
 
 				if (!status.isDirectory)
 				{
-					RID object;
-
-					if (handler && callbacks.loader)
+					if (RID object = DeserializeAsset(entry))
 					{
-						object = callbacks.loader(entry);
-					}
-					else
-					{
-						//	Timer chronometer;
-						// object = Serialization::YamlDeserialize(FileSystem::ReadFileAsString(entry));
-						// logger.Debug("time to deserialize {} : {} ms", path, chronometer.Diff());
-					}
-
-					if (object)
-					{
-						// String buffersPath = Path::Join(Path::Parent(entry), fileName + ".buffers");
-						// if (FileSystem::GetFileStatus(buffersPath).exists)
-						// {
-						// //	Timer chronometer;
-						// 	Resources::Read(object).IterateBuffers([&](ResourceBuffer& buffer)
-						// 	{
-						// 		buffer.MapFile(Path::Join(buffersPath, buffer.GetIdAsString()));
-						// 	});
-						// //	logger.Debug("time to scan buffers for {} : {} ms", path, chronometer.Diff());
-						// }
-
 						assetObject.SetSubObject(ResourceAsset::Object, object);
 					}
 				}
@@ -323,12 +261,16 @@ namespace Skore
 				StringView oldAbsolutePath = Resources::Read(assetToUpdate.assetFile).GetString(ResourceAssetFile::AbsolutePath);
 				if (absolutePath != oldAbsolutePath)
 				{
-					FileSystem::Rename(Path::Join(Path::Parent(oldAbsolutePath), Path::Name(oldAbsolutePath), ".buffers"),
-					                   Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath), ".buffers"));
+					// FileSystem::Rename(Path::Join(Path::Parent(oldAbsolutePath), Path::Name(oldAbsolutePath), ".buffers"),
+					// 				   Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath), ".buffers"));
 
-					FileSystem::Rename(oldAbsolutePath, absolutePath);
-
-					logger.Debug("asset moved from {} to {} ", oldAbsolutePath, absolutePath);
+					if (FileSystem::Rename(oldAbsolutePath, absolutePath))
+					{
+						logger.Debug("asset moved from {} to {} ", oldAbsolutePath, absolutePath);
+					} else
+					{
+						logger.Error("failed to move asset from {} to {} ", oldAbsolutePath, absolutePath);
+					}
 				}
 
 				ResourceObject assetObject = Resources::Read(assetToUpdate.asset);
@@ -459,7 +401,7 @@ namespace Skore
 
 			ResourceObject directoryObject = Resources::Read(rid);
 
-			auto checkAssetFile = [&](RID asset)
+			auto checkAssetFile = [&](RID asset) -> bool
 			{
 				ResourceObject assetObject = Resources::Read(asset);
 				if (!assetObject.HasValue(ResourceAsset::AssetFile) || !Resources::HasValue(assetObject.GetReference(ResourceAsset::AssetFile)))
@@ -473,18 +415,16 @@ namespace Skore
 						.shouldUpdate = true
 					});
 				}
+				return true;
 			};
 
-			// directoryObject.IterateSubObjectSet(ResourceAssetDirectory::Assets, false, [&](RID rid)
-			// {
-			// 	checkAssetFile(rid);
-			// });
-			//
-			// directoryObject.IterateSubObjectSet(ResourceAssetDirectory::Directories, false, [&](RID rid)
-			// {
-			// 	checkAssetFile(GetAsset(rid));
-			// 	directoriesToScan.emplace(rid);
-			// });
+			directoryObject.IterateSubObjectSet(ResourceAssetDirectory::Assets, false, checkAssetFile);
+			directoryObject.IterateSubObjectSet(ResourceAssetDirectory::Directories, false, [&](RID rid)
+			{
+				checkAssetFile(GetAsset(rid));
+				directoriesToScan.emplace(rid);
+				return true;
+			});
 		}
 	}
 
@@ -733,13 +673,13 @@ namespace Skore
 
 	String ResourceAssets::GetAssetName(RID rid)
 	{
-		if (ResourceAssetHandler* assetHandler = GetAssetHandler(rid);
-			assetHandler != nullptr &&
-			assetHandler->GetCallbacks().getAssetName != nullptr)
+		if (ResourceAssetHandler* assetHandler = GetAssetHandler(rid))
 		{
 			String name;
-			assetHandler->GetCallbacks().getAssetName(rid, name);
-			return name;
+			if (assetHandler->GetAssetName(rid, name))
+			{
+				return name;
+			}
 		}
 
 		if (RID parent = Resources::GetParent(rid);
@@ -764,9 +704,9 @@ namespace Skore
 			DestroyAndFree(handler);
 		}
 
-		for (ResourceAssetImporter* io : importers)
+		for (ResourceAssetImporter* importer : importers)
 		{
-			DestroyAndFree(io);
+			DestroyAndFree(importer);
 		}
 
 		importersByExtension.Clear();
@@ -778,32 +718,45 @@ namespace Skore
 	{
 		Event::Bind<OnShutdown, ResourceAssetsShutdown>();
 
-		// importers = Registry::InstantiateDerived<AssetImporter>();
-		// handlers = Registry::InstantiateDerived<AssetHandler>();
-
-		for (ResourceAssetHandler* handler : handlers)
+		for (TypeID derivedId : Reflection::GetDerivedTypes(TypeInfo<ResourceAssetHandler>::ID()))
 		{
-			logger.Debug("registered asset handler for extension {} ", handler->Extension());
-
-			if (StringView extension = handler->Extension(); !extension.Empty())
+			if (ReflectType* type = Reflection::FindTypeById(derivedId))
 			{
-				handlersByExtension.Insert(extension, handler);
-			}
+				if (ResourceAssetHandler* handler = type->NewObject()->SafeCast<ResourceAssetHandler>())
+				{
+					logger.Debug("Registered asset handler {} for extension {} ", type->GetName(), handler->Extension());
 
-			if (TypeID typeId = handler->GetTypeId(); typeId != 0)
-			{
-				handlersByTypeID.Insert(typeId, handler);
+					if (StringView extension = handler->Extension(); !extension.Empty())
+					{
+						handlersByExtension.Insert(extension, handler);
+					}
+
+					if (TypeID typeId = handler->GetResourceTypeId(); typeId != 0)
+					{
+						handlersByTypeID.Insert(typeId, handler);
+					}
+				}
 			}
 		}
 
-		for (ResourceAssetImporter* importer : importers)
+		for (TypeID derivedId : Reflection::GetDerivedTypes(TypeInfo<ResourceAssetImporter>::ID()))
 		{
-			for (const String& extension : importer->ImportedExtensions())
+			if (ReflectType* type = Reflection::FindTypeById(derivedId))
 			{
-				importersByExtension.Insert(extension, importer);
+				if (ResourceAssetImporter* importer = type->NewObject()->SafeCast<ResourceAssetImporter>())
+				{
+					for (const String& extension : importer->ImportedExtensions())
+					{
+						logger.Debug("Registered asset importer {} for extension {} ", type->GetName(), extension);
+						importersByExtension.Insert(extension, importer);
+					}
+				}
 			}
 		}
 	}
+
+	void RegisterEntityHandler();
+	void RegisterTextureImporter();
 
 	void RegisterResourceAssetTypes()
 	{
@@ -838,8 +791,10 @@ namespace Skore
 			.Field<ResourceAsset::Path>(ResourceFieldType::String)
 			.Field<ResourceAsset::Directory>(ResourceFieldType::Bool)
 			.Field<ResourceAsset::AssetFile>(ResourceFieldType::Reference)
-			.Field<ResourceAsset::Hidden>(ResourceFieldType::Bool)
 			.Field<ResourceAsset::SourcePath>(ResourceFieldType::String)
 			.Build();
+
+		RegisterEntityHandler();
+		RegisterTextureImporter();
 	}
 }

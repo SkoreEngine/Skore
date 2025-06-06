@@ -20,43 +20,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
-
-#include "Core/Reflection.hpp"
+#pragma once
+#include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterWorldTypes();
-	void RegisterGraphicsTypes();
-
-	void RegisterTypes()
-	{
-		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
-		}
-
-		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
-		}
-
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
-
-		{
-			GroupScope scope("Scene");
-			RegisterSceneTypes();
-		}
-
-		{
-			GroupScope scope("World");
-			RegisterWorldTypes();
-		}
-	}
+	//TODO
 }
