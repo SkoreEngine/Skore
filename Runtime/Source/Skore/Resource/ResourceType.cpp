@@ -46,6 +46,7 @@ namespace Skore
 		{sizeof(Vec2), alignof(Vec2)},                 // ResourceFieldType::Quat,
 		{sizeof(Vec2), alignof(Vec2)},                 // ResourceFieldType::Color,
 		{sizeof(i64), alignof(i64)},                   // ResourceFieldType::Enum,
+		{sizeof(Array<u8>), alignof(Array<u8>)},       // ResourceFieldType::Blob,
 		{sizeof(RID), alignof(RID)},                   // ResourceFieldType::Reference,
 		{sizeof(Array<RID>), alignof(Array<RID>)},     // ResourceFieldType::ReferenceArray,
 		{sizeof(RID), alignof(RID)},                   // ResourceFieldType::SubObject,

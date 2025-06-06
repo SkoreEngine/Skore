@@ -22,6 +22,7 @@
 
 
 #include "GraphicsAssets.hpp"
+#include "GraphicsResources.hpp"
 #include "Skore/Core/Reflection.hpp"
 
 namespace Skore
@@ -654,5 +655,11 @@ namespace Skore
 		textureChannel.Value<TextureChannel::Green>("Green");
 		textureChannel.Value<TextureChannel::Blue>("Blue");
 		textureChannel.Value<TextureChannel::Alpha>("Alpha");
+
+		Resources::Type<TextureResource>()
+			.Field<TextureResource::Name>(ResourceFieldType::String)
+			.Field<TextureResource::Extent>(ResourceFieldType::Vec3)
+			.Field<TextureResource::Pixels>(ResourceFieldType::Blob)
+			.Build();
 	}
 }

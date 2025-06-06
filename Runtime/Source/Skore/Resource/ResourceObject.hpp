@@ -53,6 +53,7 @@ namespace Skore
 		void SetQuat(u32 index, Quat value);
 		void SetColor(u32 index, Color value);
 		void SetEnum(u32 index, i64 enumValue);
+		void SetBlob(u32 index, Span<u8> bytes);
 		void SetReference(u32 index, RID rid);
 		void SetReferenceArray(u32 index, Span<RID> refs);
 		void AddToReferenceArray(u32 index, RID ref);
@@ -94,6 +95,7 @@ namespace Skore
 		i64        GetEnum(u32 index) const;
 		RID        GetSubObject(u32 index) const;
 		RID        GetReference(u32 index) const;
+		Span<u8>   GetBlob(u32 index) const;
 		Span<RID>  GetReferenceArray(u32 index) const;
 		bool	   HasOnReferenceArray(u32 index, RID rid) const;
 		usize      GetSubObjectSetCount(u32 index) const;

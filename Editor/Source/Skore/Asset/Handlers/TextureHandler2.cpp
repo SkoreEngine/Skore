@@ -29,9 +29,9 @@
 
 namespace Skore
 {
-	struct TextureHandler : AssetHandler
+	struct TextureHandler2 : AssetHandler
 	{
-		SK_CLASS(TextureHandler, AssetHandler);
+		SK_CLASS(TextureHandler2, AssetHandler);
 
 		TypeID GetAssetTypeId() override
 		{
@@ -88,6 +88,6 @@ namespace Skore
 	void RegisterTextureHandler2()
 	{
 		Reflection::Type<TextureImporter2>();
-		Reflection::Type<TextureHandler>();
+		Reflection::Type<TextureHandler2>();
 	}
 }

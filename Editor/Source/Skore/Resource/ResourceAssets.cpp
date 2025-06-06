@@ -756,6 +756,7 @@ namespace Skore
 	}
 
 	void RegisterEntityHandler();
+	void RegisterTextureHandler();
 	void RegisterTextureImporter();
 
 	void RegisterResourceAssetTypes()
@@ -795,6 +796,7 @@ namespace Skore
 			.Build();
 
 		RegisterEntityHandler();
+		RegisterTextureHandler();
 		RegisterTextureImporter();
 	}
 }

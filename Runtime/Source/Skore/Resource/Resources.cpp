@@ -202,6 +202,9 @@ namespace Skore
 			{
 				switch (field->GetType())
 				{
+					case ResourceFieldType::Blob:
+						new(reinterpret_cast<Array<u8>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<u8>*>(&origin[field->GetOffset()]));
+						break;
 					case ResourceFieldType::ReferenceArray:
 						new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
 						break;
@@ -250,6 +253,9 @@ namespace Skore
 			{
 				switch (field->GetType())
 				{
+					case ResourceFieldType::Blob:
+						new(reinterpret_cast<Array<u8>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<u8>*>(&origin[field->GetOffset()]));
+						break;
 					case ResourceFieldType::ReferenceArray:
 						new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
 						break;
@@ -278,6 +284,9 @@ namespace Skore
 			{
 				switch (field->GetType())
 				{
+					case ResourceFieldType::Blob:
+						reinterpret_cast<Array<u8>*>(&instance[field->GetOffset()])->~Array<u8>();
+						break;
 					case ResourceFieldType::ReferenceArray:
 						reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])->~Array<RID>();
 						break;
@@ -680,6 +689,12 @@ namespace Skore
 							case ResourceFieldType::Enum:
 								writer.WriteInt(field->GetName(), set.GetInt(field->GetIndex()));
 								break;
+							case ResourceFieldType::Blob:
+							{
+								Span<u8> blob = set.GetBlob(field->GetIndex());
+								writer.WriteBlob(field->GetName(), blob.Data(), blob.Size());
+								break;
+							}
 							case ResourceFieldType::Reference:
 								if (UUID uuid = GetUUID(set.GetReference(field->GetIndex())))
 								{
@@ -835,6 +850,9 @@ namespace Skore
 						}
 						case ResourceFieldType::Enum:
 							write.SetInt(field->GetIndex(), reader.GetInt());
+							break;
+						case ResourceFieldType::Blob:
+							write.SetBlob(field->GetIndex(), reader.GetBlob());
 							break;
 						case ResourceFieldType::Reference:
 							if (RID rid = FindByUUID(UUID::FromString(reader.GetString())))

@@ -9,6 +9,7 @@ target_link_libraries(Skore PUBLIC
 				ufbx
 				SPIRV-Reflect
 				base64
+				stb
 )
 
 add_binary_file(Skore ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/dxc dxcompiler)

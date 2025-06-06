@@ -20,51 +20,39 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "TextureImporter.hpp"
-
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
-#include "Skore/IO/Path.hpp"
-
-#include <stb_image.h>
+#include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore
 {
-	struct TextureImporter : ResourceAssetImporter
+	struct TextureHandler : ResourceAssetHandler
 	{
-		SK_CLASS(TextureImporter, ResourceAssetImporter);
+		SK_CLASS(TextureHandler, ResourceAssetHandler);
 
-		Array<String> ImportedExtensions() override
+		StringView Extension() override
 		{
-			return {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr"};
+			return ".texture";
 		}
 
-		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
+		void OpenAsset(RID rid) override
 		{
-			RID texture = ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), Path::Name(path), scope, path);
-
-			i32 width{};
-			i32 height{};
-			i32 channels{};
-			i32 desiredChannels = 4;
-
-			u8* bytes = stbi_load(path.CStr(), &width, &height, &channels, desiredChannels);
-
-			ResourceObject textureObject = Resources::Write(texture);
-			textureObject.SetString(TextureResource::Name, Path::Name(path));
-			textureObject.SetVec3(TextureResource::Extent, Vec3{static_cast<f32>(width), static_cast<f32>(height), 1});
-			textureObject.SetBlob(TextureResource::Pixels, Span{bytes, static_cast<usize>(width * height * desiredChannels)});
-			textureObject.Commit(scope);
-
-			stbi_image_free(bytes);
-
-			return true;
+			//TODO
 		}
 
+		TypeID GetResourceTypeId() override
+		{
+			return TypeInfo<TextureResource>::ID();
+		}
+
+		StringView GetDesc() override
+		{
+			return "Texture";
+		}
 	};
 
-	void RegisterTextureImporter()
+	void RegisterTextureHandler()
 	{
-		Reflection::Type<TextureImporter>();
+		Reflection::Type<TextureHandler>();
 	}
 }

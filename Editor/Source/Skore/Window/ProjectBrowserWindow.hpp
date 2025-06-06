@@ -65,6 +65,8 @@ namespace Skore
         void DrawDirectoryTreeNode(RID asset);
         void SetOpenDirectory(RID rid);
 
+        static void OnDropFile(StringView filePath);
+
         static void AssetRename(const MenuItemEventData& eventData);
         static void AssetDelete(const MenuItemEventData& eventData);
         static bool CheckSelectedAsset(const MenuItemEventData& eventData);

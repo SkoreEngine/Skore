@@ -112,6 +112,15 @@ namespace Skore
 		SetValue(index, &enumValue, sizeof(i64));
 	}
 
+	void ResourceObject::SetBlob(u32 index, Span<u8> bytes)
+	{
+		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Blob, "Invalid field type");
+		if (Array<u8>* arr = GetMutPtr<Array<u8>>(index))
+		{
+			*arr = bytes;
+		}
+	}
+
 	void ResourceObject::SetReference(u32 index, RID rid)
 	{
 		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Reference, "Invalid field type");
@@ -429,6 +438,15 @@ namespace Skore
 	RID ResourceObject::GetReference(u32 index) const
 	{
 		if (const RID* value = GetPtr<RID>(index))
+		{
+			return *value;
+		}
+		return {};
+	}
+
+	Span<u8> ResourceObject::GetBlob(u32 index) const
+	{
+		if (const Array<u8>* value = GetPtr<Array<u8>>(index))
 		{
 			return *value;
 		}

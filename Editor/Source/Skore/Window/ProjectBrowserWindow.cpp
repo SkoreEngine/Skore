@@ -22,6 +22,7 @@
 
 #include "ProjectBrowserWindow.hpp"
 
+#include "SDL3/SDL_dialog.h"
 #include "SDL3/SDL_misc.h"
 #include "Skore/Editor.hpp"
 #include "Skore/Events.hpp"
@@ -55,11 +56,21 @@ namespace Skore
 		ProjectBrowserWindow* lastOpenedWindow = nullptr;
 	}
 
+	SDL_Window* GraphicsGetWindow();
+
 
 	MenuItemContext ProjectBrowserWindow::menuItemContext = {};
 
 	GPUTexture* directoryTexture;
 	GPUTexture* assertTexture;
+
+	void ProjectBrowserWindow::OnDropFile(StringView filePath)
+	{
+		if (lastOpenedWindow)
+		{
+			ResourceAssets::ImportAssets(lastOpenedWindow->GetOpenDirectory(), {filePath});
+		}
+	}
 
 	void ProjectBrowserWindow::DrawPathItems()
 	{
@@ -248,6 +259,13 @@ namespace Skore
 			ImGui::BeginDisabled(readOnly);
 			if (ImGui::Button(ICON_FA_PLUS " Import"))
 			{
+				SDL_ShowOpenFileDialog([](void* userdata, const char* const * filelist, int filter)
+				{
+
+				},
+				nullptr,
+				GraphicsGetWindow(), nullptr, 0, nullptr, true);
+
 				// Array<String> paths{};
 				// Array<FileFilter> filters;
 				// //assetEditor.FilterExtensions(filters);
@@ -641,6 +659,8 @@ namespace Skore
 
 	void ProjectBrowserWindow::RegisterType(NativeReflectType<ProjectBrowserWindow>& type)
 	{
+		Event::Bind<OnDropFileCallback, &ProjectBrowserWindow::OnDropFile>();
+
 		Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Project Browser", .action = OpenProjectBrowser});
 
 		AddMenuItem(MenuItemCreation{.itemName = "New Folder", .icon = ICON_FA_FOLDER, .priority = 0, .action = AssetNewFolder, .enable = CanCreateAsset});
@@ -679,18 +699,9 @@ namespace Skore
 		assertTexture->Destroy();
 	}
 
-	// void ProjectBrowserWindow::DropFileCallback(Window window, const StringView& path)
-	// {
-	//     if (lastOpenedWindow)
-	//     {
-	//         ResourceAssets::ImportAssets(lastOpenedWindow->GetOpenDirectory(), {path});
-	//     }
-	// }
-
 	void ProjectBrowserWindowInit()
 	{
 		Event::Bind<OnShutdown, &ProjectBrowserWindowShutdown>();
-		//Event::Bind<OnDropFileCallback, &ProjectBrowserWindow::DropFileCallback>();
 
 		directoryTexture = StaticContent::GetTexture("Content/Images/FolderIcon.png");
 		assertTexture = StaticContent::GetTexture("Content/Images/FileIcon.png");

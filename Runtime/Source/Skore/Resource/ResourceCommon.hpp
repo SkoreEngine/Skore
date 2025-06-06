@@ -49,6 +49,7 @@ namespace Skore
 		Quat,
 		Color,
 		Enum,
+		Blob,
 		Reference,
 		ReferenceArray,
 		SubObject,
