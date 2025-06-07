@@ -163,7 +163,7 @@ namespace Skore
 	private:
 		char         m_contextData[296]{};
 		YamlContext* m_context = nullptr;
-		Array<u8>    m_blobs;
+		Span<u8>     m_blobs;
 	};
 
 

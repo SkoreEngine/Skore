@@ -128,16 +128,14 @@ namespace Skore
         return ret;
     }
 
-    Array<u8> FileSystem::ReadFileAsByteArray(const StringView& path)
+    void FileSystem::ReadFileAsByteArray(const StringView& path, Array<u8>& buffer)
     {
-        Array<u8> ret{};
         if (FileHandler fileHandler = OpenFile(path, AccessMode::ReadOnly))
         {
-            ret.Resize(GetFileSize(fileHandler));
-            ReadFile(fileHandler, ret.begin(), ret.Size());
+            buffer.Resize(GetFileSize(fileHandler));
+            ReadFile(fileHandler, buffer.begin(), buffer.Size());
             CloseFile(fileHandler);
         }
-        return ret;
     }
 
     void FileSystem::SaveFileAsByteArray(const StringView& path, Span<u8> bytes)

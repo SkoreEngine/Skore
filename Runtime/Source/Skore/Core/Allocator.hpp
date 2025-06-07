@@ -67,6 +67,7 @@ namespace Skore
     struct SK_API MemoryGlobals
     {
         static Allocator* GetDefaultAllocator();
+        static Allocator* GetHeapAllocator();
     };
 
     template <typename Type, typename... Args>

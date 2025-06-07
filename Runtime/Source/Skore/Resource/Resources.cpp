@@ -24,6 +24,8 @@
 
 #include <mutex>
 #include <concurrentqueue.h>
+
+#include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Queue.hpp"
 
 #include "Skore/Core/Reflection.hpp"
@@ -203,7 +205,7 @@ namespace Skore
 				switch (field->GetType())
 				{
 					case ResourceFieldType::Blob:
-						new(reinterpret_cast<Array<u8>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<u8>*>(&origin[field->GetOffset()]));
+						new(reinterpret_cast<ByteBuffer*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<ByteBuffer*>(&origin[field->GetOffset()]));
 						break;
 					case ResourceFieldType::ReferenceArray:
 						new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
@@ -254,7 +256,7 @@ namespace Skore
 				switch (field->GetType())
 				{
 					case ResourceFieldType::Blob:
-						new(reinterpret_cast<Array<u8>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<u8>*>(&origin[field->GetOffset()]));
+						new(reinterpret_cast<ByteBuffer*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<ByteBuffer*>(&origin[field->GetOffset()]));
 						break;
 					case ResourceFieldType::ReferenceArray:
 						new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
@@ -285,7 +287,7 @@ namespace Skore
 				switch (field->GetType())
 				{
 					case ResourceFieldType::Blob:
-						reinterpret_cast<Array<u8>*>(&instance[field->GetOffset()])->~Array<u8>();
+						reinterpret_cast<ByteBuffer*>(&instance[field->GetOffset()])->~ByteBuffer();
 						break;
 					case ResourceFieldType::ReferenceArray:
 						reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])->~Array<RID>();

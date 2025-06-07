@@ -34,6 +34,9 @@ namespace Skore
     class FixedArray;
 
     template<typename T>
+    class BasicByteBuffer;
+
+    template<typename T>
     class Span
     {
     public:
@@ -68,6 +71,10 @@ namespace Skore
         {}
 
         constexpr Span(std::initializer_list<T> initializerList) : m_first((T*) initializerList.begin()), m_last((T*) initializerList.end())
+        {
+        }
+
+        constexpr Span(const BasicByteBuffer<T>& buffer) : m_first((T*)buffer.begin()), m_last((T*)buffer.end())
         {
         }
 

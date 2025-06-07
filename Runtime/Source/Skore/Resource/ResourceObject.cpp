@@ -24,6 +24,7 @@
 
 #include "Resources.hpp"
 #include "ResourceType.hpp"
+#include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/HashSet.hpp"
 
 
@@ -115,7 +116,7 @@ namespace Skore
 	void ResourceObject::SetBlob(u32 index, Span<u8> bytes)
 	{
 		SK_ASSERT(storage->resourceType->fields[index]->type == ResourceFieldType::Blob, "Invalid field type");
-		if (Array<u8>* arr = GetMutPtr<Array<u8>>(index))
+		if (ByteBuffer* arr = GetMutPtr<ByteBuffer>(index))
 		{
 			*arr = bytes;
 		}
@@ -446,7 +447,7 @@ namespace Skore
 
 	Span<u8> ResourceObject::GetBlob(u32 index) const
 	{
-		if (const Array<u8>* value = GetPtr<Array<u8>>(index))
+		if (const ByteBuffer* value = GetPtr<ByteBuffer>(index))
 		{
 			return *value;
 		}

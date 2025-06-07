@@ -27,6 +27,7 @@
 
 #include "Skore/Editor.hpp"
 #include "Skore/Events.hpp"
+#include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Logger.hpp"
@@ -49,6 +50,8 @@ namespace Skore
 		HashMap<TypeID, ResourceAssetHandler*> handlersByTypeID;
 
 		HashMap<String, ResourceAssetImporter*> importersByExtension;
+
+		Allocator* alloc = MemoryGlobals::GetHeapAllocator();
 
 
 		Logger& logger = Logger::GetLogger("Skore::ResourceAssets", LogLevel::Debug);
@@ -103,7 +106,16 @@ namespace Skore
 		RID DeserializeAsset(StringView absolutePath)
 		{
 			String bufferPath = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath).Append(".buffer"));
-			YamlArchiveReader reader(FileSystem::ReadFileAsString(absolutePath), FileSystem::ReadFileAsByteArray(bufferPath));
+			ByteBuffer buffer;
+
+			if (FileHandler fileHandler = FileSystem::OpenFile(bufferPath, AccessMode::ReadOnly))
+			{
+				buffer.Resize(FileSystem::GetFileSize(fileHandler));
+				FileSystem::ReadFile(fileHandler, buffer.begin(), buffer.Size());
+				FileSystem::CloseFile(fileHandler);
+			}
+
+			YamlArchiveReader reader(FileSystem::ReadFileAsString(absolutePath), buffer);
 			return Resources::Deserialize(reader);
 		}
 	}
@@ -275,7 +287,8 @@ namespace Skore
 					if (FileSystem::Rename(oldAbsolutePath, absolutePath))
 					{
 						logger.Debug("asset moved from {} to {} ", oldAbsolutePath, absolutePath);
-					} else
+					}
+					else
 					{
 						logger.Error("failed to move asset from {} to {} ", oldAbsolutePath, absolutePath);
 					}

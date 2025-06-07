@@ -55,4 +55,9 @@ namespace Skore
 	{
 		return &defaultAllocator;
 	}
+
+	Allocator* MemoryGlobals::GetHeapAllocator()
+	{
+		return &defaultAllocator;
+	}
 }

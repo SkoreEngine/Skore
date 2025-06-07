@@ -504,7 +504,8 @@ namespace Skore
 			}
 			else if (m_uuid)
 			{
-				Array<u8> bytes = FileSystem::ReadFileAsByteArray(infoPathFile);
+				Array<u8> bytes;
+				FileSystem::ReadFileAsByteArray(infoPathFile, bytes);
 
 				BinaryArchiveReader reader(bytes);
 				reader.BeginSeq("assets");

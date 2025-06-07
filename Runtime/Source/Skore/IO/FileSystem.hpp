@@ -61,8 +61,8 @@ namespace Skore
 		static String    ReadFileAsString(const StringView& path);
 		static void      SaveFileAsString(const StringView& path, const StringView& string);
 
-		static Array<u8> ReadFileAsByteArray(const StringView& path);
-		static void      SaveFileAsByteArray(const StringView& path, Span<u8> bytes);
+		static void ReadFileAsByteArray(const StringView& path, Array<u8>& buffer);
+		static void SaveFileAsByteArray(const StringView& path, Span<u8> bytes);
 
 
 		static void Reset();

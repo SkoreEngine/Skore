@@ -22,6 +22,7 @@
 
 #include "ResourceType.hpp"
 
+#include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Color.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Span.hpp"
@@ -47,7 +48,7 @@ namespace Skore
 		{sizeof(Quat), alignof(Quat)},                 // ResourceFieldType::Quat,
 		{sizeof(Color), alignof(Color)},               // ResourceFieldType::Color,
 		{sizeof(i64), alignof(i64)},                   // ResourceFieldType::Enum,
-		{sizeof(Array<u8>), alignof(Array<u8>)},       // ResourceFieldType::Blob,
+		{sizeof(ByteBuffer), alignof(ByteBuffer)},     // ResourceFieldType::Blob,
 		{sizeof(RID), alignof(RID)},                   // ResourceFieldType::Reference,
 		{sizeof(Array<RID>), alignof(Array<RID>)},     // ResourceFieldType::ReferenceArray,
 		{sizeof(RID), alignof(RID)},                   // ResourceFieldType::SubObject,
