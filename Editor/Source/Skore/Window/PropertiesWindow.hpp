@@ -23,10 +23,10 @@
 #pragma once
 #include "Skore/EditorCommon.hpp"
 #include "Skore/Core/Object.hpp"
-#include "Skore/Core/UUID.hpp"
 
 namespace Skore
 {
+	class WorldEditor;
 	class ReflectField;
 	class Component2;
 	class SceneEditor;
@@ -49,29 +49,21 @@ namespace Skore
 		static void RegisterType(NativeReflectType<PropertiesWindow>& type);
 
 	private:
-		String        stringCache{};
-		UUID          selectedEntity{};
-		bool          renamingFocus{};
-		String        renamingCache{};
-		Entity*       renamingEntity{};
-		String        searchComponentString{};
-		Component2*    selectedComponent = {};
-
-		//refactor this.
-		ReflectField* currentField = {};
-		Entity*       currentEntity = {};
-
-		AssetFileOld* selectedAsset = {};
+		String stringCache{};
+		RID    selectedEntity{};
+		bool   renamingFocus{};
+		String renamingCache{};
+		RID    renamingEntity{};
+		String searchComponentString{};
+		RID    selectedComponent = {};
 
 		void ClearSelection();
 
 		static void OpenProperties(const MenuItemEventData& eventData);
 
-		void DrawSceneEntity(u32 id, SceneEditor* sceneEditor, Entity* entity);
-		void DrawAsset(u32 id, AssetFileOld* assetFile);
+		void DrawSceneEntity(u32 id, WorldEditor* worldEditor, RID entity);
 
-		void EntitySelection(u32 workspaceId, UUID entityId);
-		void EntityDeselection(u32 workspaceId, UUID entityId);
-		void AssetSelection(AssetFileOld* assetFile);
+		void EntityRIDSelection(u32 workspaceId, RID entityId);
+		void EntityRIDDeselection(u32 workspaceId, RID entityId);
 	};
 }

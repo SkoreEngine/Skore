@@ -406,6 +406,7 @@ namespace Skore
 		static ReflectType*  FindTypeByName(StringView name);
 		static ReflectType*  FindTypeById(TypeID typeId);
 		static Array<TypeID> GetDerivedTypes(TypeID typeId);
+		static Span<TypeID>  GetTypesAnnotatedWith(TypeID typeId);
 
 		static void PushGroup(StringView name);
 		static void PopGroup();

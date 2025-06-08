@@ -503,7 +503,25 @@ namespace Skore
 
 	void Resources::Reset(RID rid, UndoRedoScope* scope)
 	{
-		//TODO
+		ResourceStorage* storage = GetStorage(rid);
+
+		ResourceInstance newInstance = nullptr;
+
+		if (storage->resourceType && storage->resourceType->defaultValue)
+		{
+			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
+			newInstance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
+		}
+
+		ResourceInstance oldInstance = storage->instance.exchange(newInstance);
+
+		if (scope)
+		{
+			scope->PushChange(storage, oldInstance, newInstance);
+		}
+
+		ExecuteEvents(storage, ResourceObject(storage, oldInstance), ResourceObject(storage, newInstance));
+
 	}
 
 	void Resources::Destroy(RID rid, UndoRedoScope* scope)
@@ -591,6 +609,12 @@ namespace Skore
 	{
 		ResourceStorage* storage = GetStorage(rid);
 		return storage->uuid;
+	}
+
+	ResourceType* Resources::GetType(RID rid)
+	{
+		ResourceStorage* storage = GetStorage(rid);
+		return storage->resourceType;
 	}
 
 	RID Resources::FindByUUID(const UUID& uuid)
@@ -773,9 +797,19 @@ namespace Skore
 				root = rid;
 			}
 
+			StringView typeName = reader.ReadString("_type");
+
 			ResourceStorage* storage = GetOrAllocate(rid, uuid);
 			storage->instance = nullptr;
-			storage->resourceType = FindTypeByName(reader.ReadString("_type"));
+			storage->resourceType = FindTypeByName(typeName);
+
+			if (storage->resourceType == nullptr && !typeName.Empty())
+			{
+				if (ReflectType* reflectType = Reflection::FindTypeByName(typeName))
+				{
+					storage->resourceType = CreateFromReflectType(reflectType);
+				}
+			}
 
 			if (RID prototype = FindByUUID(UUID::FromString(reader.ReadString("_prototype"))))
 			{

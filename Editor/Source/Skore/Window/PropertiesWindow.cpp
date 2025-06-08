@@ -13,28 +13,32 @@
 #include "Skore/Scene/Component2.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Scene.hpp"
+#include "Skore/World/WordCommon.hpp"
 
 namespace Skore
 {
 	PropertiesWindow::PropertiesWindow()
 	{
-		Event::Bind<OnEntitySelection, &PropertiesWindow::EntitySelection>(this);
-		Event::Bind<OnEntityDeselection, &PropertiesWindow::EntityDeselection>(this);
-		Event::Bind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
+		Event::Bind<OnEntityRIDSelection, &PropertiesWindow::EntityRIDSelection>(this);
+		Event::Bind<OnEntityRIDDeselection, &PropertiesWindow::EntityRIDDeselection>(this);
 	}
 
 	PropertiesWindow::~PropertiesWindow()
 	{
-		Event::Unbind<OnEntitySelection, &PropertiesWindow::EntitySelection>(this);
-		Event::Unbind<OnEntityDeselection, &PropertiesWindow::EntityDeselection>(this);
-		Event::Unbind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
+		Event::Unbind<OnEntityRIDSelection, &PropertiesWindow::EntityRIDSelection>(this);
+		Event::Unbind<OnEntityRIDDeselection, &PropertiesWindow::EntityRIDDeselection>(this);
 	}
 
-	void PropertiesWindow::DrawSceneEntity(u32 id, SceneEditor* sceneEditor, Entity* entity)
+	void PropertiesWindow::DrawSceneEntity(u32 id, WorldEditor* worldEditor, RID entity)
 	{
 		ImGuiStyle& style = ImGui::GetStyle();
 
-		bool readOnly = sceneEditor->IsReadOnly();
+		if (!entity) return;
+
+		ResourceObject entityObject = Resources::Read(entity);
+
+
+		bool readOnly = worldEditor->IsReadOnly();
 
 		ImGuiInputTextFlags nameFlags = 0;
 		if (readOnly)
@@ -56,7 +60,7 @@ namespace Skore
 			ImGui::TableNextColumn();
 			ImGui::SetNextItemWidth(-1);
 
-			stringCache = entity->GetName();
+			stringCache = entityObject.GetString(EntityResource::Name);
 
 			u32 hash = HashValue(reinterpret_cast<usize>(&entity));
 
@@ -69,7 +73,7 @@ namespace Skore
 
 			if (!ImGui::IsItemActive() && renamingFocus)
 			{
-				sceneEditor->Rename(renamingEntity, renamingCache);
+				worldEditor->Rename(renamingEntity, renamingCache);
 				renamingEntity = {};
 				renamingFocus = false;
 				renamingCache.Clear();
@@ -81,8 +85,9 @@ namespace Skore
 			ImGui::TableNextColumn();
 			ImGui::SetNextItemWidth(-1);
 
-			String uuid = entity->GetUUID().ToString();
-			ImGuiInputText(hash + 10, uuid, ImGuiInputTextFlags_ReadOnly);
+			stringCache = entityObject.GetUUID().ToString();
+
+			ImGuiInputText(hash + 10, stringCache, ImGuiInputTextFlags_ReadOnly);
 			ImGui::EndDisabled();
 			ImGui::EndTable();
 		}
@@ -131,66 +136,55 @@ namespace Skore
 
 		bool openComponentSettings = false;
 
-		this->currentEntity = entity;
 
-		for (ReflectField* field : entity->GetType()->GetFields())
+		entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
 		{
-			this->currentField = field;
-			if (const Object* object = field->GetObject(entity))
+			bool propClicked = false;
+			if (ResourceType* componentType = Resources::GetType(component);
+				componentType != nullptr &&
+				componentType->GetReflectType() != nullptr)
 			{
-				if (ImGui::CollapsingHeader(FormatName(field->GetName()).CStr(), ImGuiTreeNodeFlags_DefaultOpen))
+				String formattedName = FormatName(componentType->GetReflectType()->GetSimpleName());
+				bool open = ImGuiCollapsingHeaderProps(HashValue(component.id), formattedName.CStr(), &propClicked);
+				if (propClicked)
+				{
+					openComponentSettings = true;
+					selectedComponent = component;
+				}
+
+				if (open)
 				{
 					ImGui::BeginDisabled(readOnly);
-					ImGuiDrawObject(ImGuiDrawObjectInfo{
-						.object = const_cast<Object*>(object),
-						.userData = this,
-						.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
-						{
-							PropertiesWindow* window = static_cast<PropertiesWindow*>(context.userData);
-							window->currentField->Set(window->currentEntity, context.object, U32_MAX);
-							Editor::GetCurrentWorkspace().GetSceneEditor()->MarkDirty();
-						}
-					});
+					ImGui::Indent();
+
+					// ImGuiDrawObject(ImGuiDrawObjectInfo{
+					// 	.object = component,
+					// 	.userData = this,
+					// 	.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
+					// 	{
+					// 		//context.reflectField
+					//
+					// 		Editor::GetCurrentWorkspace().GetSceneEditor()->MarkDirty();
+					// 		//
+					// 		// Ref<Transaction> transaction = UndoRedoSystem::BeginTransaction("ComponentUpdate");
+					// 		// UpdateComponentCommand* command = Alloc<UpdateComponentCommand>();
+					// 		// transaction->AddCommand(command);
+					// 		//
+					// 		// UndoRedoSystem::EndTransaction(transaction);
+					// 	}
+					// });
+					ImGui::Unindent();
 					ImGui::EndDisabled();
 				}
 			}
-		}
 
-		for (Component2* component : entity->GetAllComponents())
-		{
-			bool propClicked = false;
-			bool open = ImGuiCollapsingHeaderProps(HashValue(reinterpret_cast<usize>(component)), FormatName(component->GetType()->GetSimpleName()).CStr(), &propClicked);
-			if (propClicked)
-			{
-				openComponentSettings = true;
-				selectedComponent = component;
-			}
 
-			if (open)
-			{
-				ImGui::BeginDisabled(readOnly);
-				ImGui::Indent();
 
-				ImGuiDrawObject(ImGuiDrawObjectInfo{
-					.object = component,
-					.userData = this,
-					.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
-					{
-						//context.reflectField
 
-						Editor::GetCurrentWorkspace().GetSceneEditor()->MarkDirty();
-						//
-						// Ref<Transaction> transaction = UndoRedoSystem::BeginTransaction("ComponentUpdate");
-						// UpdateComponentCommand* command = Alloc<UpdateComponentCommand>();
-						// transaction->AddCommand(command);
-						//
-						// UndoRedoSystem::EndTransaction(transaction);
-					}
-				});
-				ImGui::Unindent();
-				ImGui::EndDisabled();
-			}
-		}
+
+
+			return true;
+		});
 
 		if (addComponent)
 		{
@@ -208,14 +202,14 @@ namespace Skore
 			ImGuiSearchInputText(id + 100, searchComponentString);
 			ImGui::Separator();
 
-			for (TypeID componentId : Reflection::GetDerivedTypes(TypeInfo<Component2>::ID()))
+			for (TypeID componentId : Reflection::GetTypesAnnotatedWith(TypeInfo<Component>::ID()))
 			{
 				if (ReflectType* refletionType = Reflection::FindTypeById(componentId))
 				{
 					String name = FormatName(refletionType->GetSimpleName());
 					if (ImGui::Selectable(name.CStr()))
 					{
-						sceneEditor->AddComponent(entity, componentId);
+						worldEditor->AddComponent(entity, componentId);
 					}
 				}
 			}
@@ -232,7 +226,7 @@ namespace Skore
 		{
 			if (ImGui::MenuItem("Reset"))
 			{
-				sceneEditor->ResetComponent(entity, selectedComponent);
+				worldEditor->ResetComponent(entity, selectedComponent);
 				ImGui::CloseCurrentPopup();
 			}
 
@@ -247,89 +241,86 @@ namespace Skore
 
 			if (ImGui::MenuItem("Remove"))
 			{
-				sceneEditor->RemoveComponent(entity, selectedComponent);
+				worldEditor->RemoveComponent(entity, selectedComponent);
 				ImGui::CloseCurrentPopup();
 			}
 		}
 		ImGuiEndPopupMenu(popupOpenSettings);
 	}
 
-	void PropertiesWindow::DrawAsset(u32 id, AssetFileOld* assetFile)
-	{
-		ImGuiStyle& style = ImGui::GetStyle();
-
-		if (ImGui::BeginTable("#entity-table", 2))
-		{
-			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
-			ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
-
-			ImGui::TableNextColumn();
-			ImGui::AlignTextToFramePadding();
-
-			ImGui::Text("Name");
-			ImGui::TableNextColumn();
-			ImGui::SetNextItemWidth(-1);
-
-			stringCache = assetFile->GetFileName();
-			u32 hash = HashValue(PtrToInt(assetFile));
-
-			if (ImGuiInputText(hash, stringCache))
-			{
-				renamingCache = stringCache;
-				renamingFocus = true;
-			}
-
-			if (!ImGui::IsItemActive() && renamingFocus)
-			{
-				assetFile->Rename(renamingCache);
-				renamingFocus = false;
-				renamingCache.Clear();
-			}
-
-			ImGui::TableNextColumn();
-			ImGui::AlignTextToFramePadding();
-			ImGui::Text("UUID");
-			ImGui::TableNextColumn();
-			ImGui::SetNextItemWidth(-1);
-
-			String uuid = assetFile->GetUUID().ToString();
-			ImGuiInputTextReadOnly(hash + 10, uuid);
-			ImGui::EndTable();
-		}
-		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5 * style.ScaleFactor);
-
-		ReflectType* reflectType = Reflection::FindTypeById(assetFile->GetAssetTypeId());
-
-		if (ImGui::CollapsingHeader(FormatName(reflectType->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
-		{
-			ImGui::Indent();
-			ImGuiDrawObject(ImGuiDrawObjectInfo{
-				.object = assetFile->GetInstance(),
-				.userData = assetFile,
-				.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
-				{
-					static_cast<AssetFileOld*>(context.userData)->MarkDirty();
-				}
-			});
-			ImGui::Unindent();
-		}
-	}
+	// void PropertiesWindow::DrawAsset(u32 id, AssetFileOld* assetFile)
+	// {
+	// 	ImGuiStyle& style = ImGui::GetStyle();
+	//
+	// 	if (ImGui::BeginTable("#entity-table", 2))
+	// 	{
+	// 		ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+	// 		ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+	//
+	// 		ImGui::TableNextColumn();
+	// 		ImGui::AlignTextToFramePadding();
+	//
+	// 		ImGui::Text("Name");
+	// 		ImGui::TableNextColumn();
+	// 		ImGui::SetNextItemWidth(-1);
+	//
+	// 		stringCache = assetFile->GetFileName();
+	// 		u32 hash = HashValue(PtrToInt(assetFile));
+	//
+	// 		if (ImGuiInputText(hash, stringCache))
+	// 		{
+	// 			renamingCache = stringCache;
+	// 			renamingFocus = true;
+	// 		}
+	//
+	// 		if (!ImGui::IsItemActive() && renamingFocus)
+	// 		{
+	// 			assetFile->Rename(renamingCache);
+	// 			renamingFocus = false;
+	// 			renamingCache.Clear();
+	// 		}
+	//
+	// 		ImGui::TableNextColumn();
+	// 		ImGui::AlignTextToFramePadding();
+	// 		ImGui::Text("UUID");
+	// 		ImGui::TableNextColumn();
+	// 		ImGui::SetNextItemWidth(-1);
+	//
+	// 		String uuid = assetFile->GetUUID().ToString();
+	// 		ImGuiInputTextReadOnly(hash + 10, uuid);
+	// 		ImGui::EndTable();
+	// 	}
+	// 	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5 * style.ScaleFactor);
+	//
+	// 	ReflectType* reflectType = Reflection::FindTypeById(assetFile->GetAssetTypeId());
+	//
+	// 	if (ImGui::CollapsingHeader(FormatName(reflectType->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
+	// 	{
+	// 		ImGui::Indent();
+	// 		ImGuiDrawObject(ImGuiDrawObjectInfo{
+	// 			.object = assetFile->GetInstance(),
+	// 			.userData = assetFile,
+	// 			.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
+	// 			{
+	// 				static_cast<AssetFileOld*>(context.userData)->MarkDirty();
+	// 			}
+	// 		});
+	// 		ImGui::Unindent();
+	// 	}
+	// }
 
 	void PropertiesWindow::Draw(u32 id, bool& open)
 	{
 		ImGuiBegin(id, ICON_FA_CIRCLE_INFO " Properties", &open, ImGuiWindowFlags_NoScrollbar);
 		if (selectedEntity)
 		{
-			SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
-			if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selectedEntity))
-			{
-				DrawSceneEntity(id, sceneEditor, entity);
-			}
+			WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
+			DrawSceneEntity(id, worldEditor, selectedEntity);
 		}
-		else if (selectedAsset)
-		{
-			DrawAsset(id, selectedAsset);
-		}
+		// else if (selectedAsset)
+		// {
+		// 	DrawAsset(id, selectedAsset);
+		// }
 		else
 		{
 			ImGuiCentralizedText("Select something...");
@@ -349,34 +340,34 @@ namespace Skore
 		Editor::OpenWindow<PropertiesWindow>();
 	}
 
-	void PropertiesWindow::EntitySelection(u32 workspaceId, UUID entityId)
+	void PropertiesWindow::EntityRIDSelection(u32 workspaceId, RID entity)
 	{
 		if (Editor::GetCurrentWorkspace().GetId() != workspaceId) return;
 
 
-		if (!entityId && !selectedEntity) return;
+		if (!entity && !selectedEntity) return;
 
 		ClearSelection();
-		selectedEntity = entityId;
+		selectedEntity = entity;
 	}
 
-	void PropertiesWindow::EntityDeselection(u32 workspaceId, UUID entityId)
+	void PropertiesWindow::EntityRIDDeselection(u32 workspaceId, RID entity)
 	{
 		if (Editor::GetCurrentWorkspace().GetId() != workspaceId) return;
 
-		if (!entityId && !selectedEntity) return;
-		if (selectedEntity == entityId)
+		if (!entity && !selectedEntity) return;
+		if (selectedEntity == entity)
 		{
 			ClearSelection();
 		}
 	}
 
-	void PropertiesWindow::AssetSelection(AssetFileOld* assetFile)
-	{
-		if (assetFile == nullptr && selectedAsset == nullptr) return;
-		ClearSelection();
-		selectedAsset = assetFile;
-	}
+	// void PropertiesWindow::AssetSelection(AssetFileOld* assetFile)
+	// {
+	// 	if (assetFile == nullptr && selectedAsset == nullptr) return;
+	// 	ClearSelection();
+	// 	selectedAsset = assetFile;
+	// }
 
 
 	void PropertiesWindow::RegisterType(NativeReflectType<PropertiesWindow>& type)

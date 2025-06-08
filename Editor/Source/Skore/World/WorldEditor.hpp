@@ -58,6 +58,11 @@ namespace Skore
 		void SetLocked(RID entity, bool locked);
 		void Rename(RID entity, StringView newName);
 
+		//components
+		void AddComponent(RID entity, TypeID componentId);
+		void ResetComponent(RID entity, RID component);
+		void RemoveComponent(RID entity, RID component);
+
 	private:
 		EditorWorkspace& m_workspace;
 		RID m_state = {};

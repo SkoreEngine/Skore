@@ -833,6 +833,15 @@ namespace Skore
 		return types;
 	}
 
+	Span<TypeID> Reflection::GetTypesAnnotatedWith(TypeID typeId)
+	{
+		if (auto it = typesByAttribute.Find(typeId))
+		{
+			return it->second;
+		}
+		return {};
+	}
+
 	void Reflection::PushGroup(StringView name)
 	{
 		groupStack.EmplaceBack(name);

@@ -218,6 +218,31 @@ namespace Skore
 		entityObject.Commit(scope);
 	}
 
+	void WorldEditor::AddComponent(RID entity, TypeID componentId)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Add Component");
+		RID component = Resources::Create(componentId, UUID::RandomUUID());
+		Resources::Write(component).Commit(scope);
+
+		ResourceObject entityObject = Resources::Write(entity);
+		entityObject.AddToSubObjectSet(EntityResource::Components, component);
+		entityObject.Commit(scope);
+	}
+
+	void WorldEditor::ResetComponent(RID entity, RID component)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Reset Component");
+		Resources::Reset(component, scope);
+	}
+
+	void WorldEditor::RemoveComponent(RID entity, RID component)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Remove Component");
+		ResourceObject entityObject = Resources::Write(entity);
+		entityObject.RemoveFromSubObjectSet(EntityResource::Components, component);
+		entityObject.Commit(scope);
+	}
+
 	void WorldEditor::OnSelectionChange(const ResourceObject& oldValue, const ResourceObject& newValue, VoidPtr userData)
 	{
 		WorldEditor* worldEditor = static_cast<WorldEditor*>(userData);
