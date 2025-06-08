@@ -58,9 +58,11 @@ namespace Skore
 		void SetLocked(RID entity, bool locked);
 		void Rename(RID entity, StringView newName);
 
-
 	private:
+		EditorWorkspace& m_workspace;
 		RID m_state = {};
 		RID m_selection = {};
+
+		static void OnSelectionChange(const ResourceObject& oldValue, const ResourceObject& newValue, VoidPtr userData);
 	};
 }

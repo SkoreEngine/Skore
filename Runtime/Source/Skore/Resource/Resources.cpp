@@ -187,6 +187,17 @@ namespace Skore
 				}
 			}
 		}
+
+		void ExecuteEvents(ResourceStorage* resourceStorage, const ResourceObject& oldValue, const ResourceObject& newValue)
+		{
+			if (resourceStorage->resourceType != nullptr)
+			{
+				for (const ResourceType::TypeEvent& eventType: resourceStorage->resourceType->GetEvents())
+				{
+					eventType.function(oldValue, newValue, eventType.userData);
+				}
+			}
+		}
 	}
 
 	//clone = recreate subobjects
@@ -512,6 +523,8 @@ namespace Skore
 			{
 				scope->PushChange(storage, instance, nullptr);
 			}
+
+			ExecuteEvents(storage, ResourceObject(storage, instance), ResourceObject(storage, nullptr));
 
 			toCollectItems.enqueue(DestroyResourcePayload{
 				.instance = instance
@@ -1028,10 +1041,7 @@ namespace Skore
 
 		UpdateVersion(storage);
 
-		// if (eventsEnabled)
-		// {
-		// 	instance->owner->ExecuteListeners(ResourceObject(instance->dataOnWrite), ResourceObject(instance->owner->instance));
-		// }
+		ExecuteEvents(storage, ResourceObject(storage, info.dataOnWrite), ResourceObject(storage, instance));
 
 		IterateSubObjects(storage, [&](u32 index, RID subObject)
 		{
@@ -1066,10 +1076,12 @@ namespace Skore
 		{
 			const auto& action = changes[i - 1];
 
-			ResourceInstance oldInstance = action->storage->instance.exchange(CreateResourceInstanceCopy(action->storage->resourceType, action->before));
+			ResourceInstance newInstance = CreateResourceInstanceCopy(action->storage->resourceType, action->before);
+			ResourceInstance oldInstance = action->storage->instance.exchange(newInstance);
+
 			UpdateVersion(action->storage);
 
-			// action.storage->ExecuteListeners(ResourceObject(instance), ResourceObject(action.storage->instance.load()));
+			ExecuteEvents(action->storage, ResourceObject(action->storage, oldInstance), ResourceObject(action->storage, newInstance));
 
 
 			toCollectItems.enqueue({
@@ -1083,10 +1095,12 @@ namespace Skore
 	{
 		for (const auto& action : changes)
 		{
-			ResourceInstance oldInstance = action->storage->instance.exchange(CreateResourceInstanceCopy(action->storage->resourceType, action->after));
+			ResourceInstance newInstance = CreateResourceInstanceCopy(action->storage->resourceType, action->after);
+			ResourceInstance oldInstance = action->storage->instance.exchange(newInstance);
+
 			UpdateVersion(action->storage);
 
-			//action.storage->ExecuteListeners(ResourceObject(instance), ResourceObject(action.storage->instance.load()));
+			ExecuteEvents(action->storage, ResourceObject(action->storage, oldInstance), ResourceObject(action->storage, newInstance));
 
 			toCollectItems.enqueue({
 				.type = action->storage->resourceType,

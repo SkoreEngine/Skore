@@ -126,8 +126,8 @@ namespace Skore
 		explicit operator bool() const;
 
 	private:
-		ResourceStorage* storage;
-		ResourceInstance writeInstance;
+		ResourceStorage* m_storage;
+		ResourceInstance m_currentInstance;
 
 		void     SetValue(u32 index, ConstPtr value, usize size) const;
 		void     UpdateHasValue(u32 index, bool hasValue) const;

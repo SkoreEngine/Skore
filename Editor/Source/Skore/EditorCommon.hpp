@@ -26,6 +26,7 @@
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Object.hpp"
 #include "Skore/Core/UUID.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
 
 #define SK_ASSET_PAYLOAD "sk-asset-payload"
 #define SK_ENTITY_PAYLOAD "sk-entity-payload"
@@ -40,6 +41,10 @@ namespace Skore
 
 	using OnEntitySelection = EventType<"Skore::Editor::OnEntitySelection"_h, void(u32, UUID)>;
 	using OnEntityDeselection = EventType<"Skore::Editor::OnEntityDeselection"_h, void(u32, UUID)>;
+
+	using OnEntityRIDSelection = EventType<"Skore::Editor::OnEntityRIDSelection"_h, void(u32, RID)>;
+	using OnEntityRIDDeselection = EventType<"Skore::Editor::OnEntityRIDDeselection"_h, void(u32, RID)>;
+
 	using OnAssetSelection = EventType<"Skore::Editor::OnAssetSelection"_h, void(AssetFileOld*)>;
 
 	enum class DockPosition

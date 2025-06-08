@@ -149,6 +149,25 @@ namespace Skore
 		return nullptr;
 	}
 
+	void ResourceType::RegisterEvent(FnObjectEvent event, VoidPtr userData)
+	{
+		events.EmplaceBack(event, userData);
+	}
+
+	void ResourceType::UnregisterEvent(FnObjectEvent event, VoidPtr userData)
+	{
+		TypeEvent typeEvent = {event, userData};
+		if (auto itAsset = FindFirst(events.begin(), events.end(), typeEvent))
+		{
+			events.Erase(itAsset);
+		}
+	}
+
+	Span<ResourceType::TypeEvent> ResourceType::GetEvents() const
+	{
+		return events;
+	}
+
 	void ResourceType::SetDefaultValue(RID defaultValue)
 	{
 		this->defaultValue = defaultValue;
@@ -175,12 +194,6 @@ namespace Skore
 
 		resourceType->fields[index] = resourceField;
 
-		return *this;
-	}
-
-	ResourceTypeBuilder& ResourceTypeBuilder::FieldEvent(u32 index, ResourceEventType type, FnObjectFieldEvent objectFieldEvent)
-	{
-		//TODO
 		return *this;
 	}
 

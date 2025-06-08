@@ -64,16 +64,35 @@ namespace Skore
 		~ResourceType();
 		SK_NO_COPY_CONSTRUCTOR(ResourceType);
 
+		struct TypeEvent
+		{
+			FnObjectEvent function;
+			VoidPtr       userData;
+
+			friend bool operator==(const TypeEvent& lhs, const TypeEvent& rhs)
+			{
+				return lhs.function == rhs.function && lhs.userData == rhs.userData;
+			}
+
+			friend bool operator!=(const TypeEvent& lhs, const TypeEvent& rhs)
+			{
+				return !(lhs == rhs);
+			}
+		};
+
 		ResourceInstance Allocate() const;
 
 		TypeID               GetID() const;
 		String               GetName() const;
 		RID                  GetDefaultValue() const;
+		void                 SetDefaultValue(RID defaultValue);
 		u32                  GetAllocSize() const;
 		ReflectType*         GetReflectType() const;
 		Span<ResourceField*> GetFields() const;
 		ResourceField*       FindFieldByName(StringView name) const;
-		void				 SetDefaultValue(RID defaultValue);
+		void                 RegisterEvent(FnObjectEvent event, VoidPtr userData);
+		void                 UnregisterEvent(FnObjectEvent event, VoidPtr userData);
+		Span<TypeEvent>      GetEvents() const;
 
 		friend class ResourceTypeBuilder;
 		friend class ResourceObject;
@@ -87,6 +106,7 @@ namespace Skore
 		ReflectType* reflectType = nullptr;
 
 		Array<ResourceField*> fields;
+		Array<TypeEvent>      events;
 	};
 
 	struct ResourceInstanceInfo
@@ -104,7 +124,6 @@ namespace Skore
 
 		ResourceTypeBuilder& Field(u32 index, StringView name, ResourceFieldType type);
 		ResourceTypeBuilder& Field(u32 index, StringView name, ResourceFieldType type, TypeID subType);
-		ResourceTypeBuilder& FieldEvent(u32 index, ResourceEventType type, FnObjectFieldEvent objectFieldEvent);
 
 		template <auto T>
 		ResourceTypeBuilder& Field(ResourceFieldType type, TypeID subType = 0)

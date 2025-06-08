@@ -23,11 +23,22 @@
 #include "WorldEditor.hpp"
 
 #include "Skore/Editor.hpp"
+#include "Skore/EditorCommon.hpp"
+#include "Skore/EditorWorkspace.hpp"
+#include "Skore/Core/Event.hpp"
+#include "Skore/Core/Logger.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/World/WordCommon.hpp"
 
 namespace Skore
 {
+
+	static Logger& logger = Logger::GetLogger("Skore::WorldEditor");
+
+	static EventHandler<OnEntityRIDSelection>   onEntitySelectionHandler{};
+	static EventHandler<OnEntityRIDDeselection> onEntityDeselectionHandler{};
+
+
 	struct WorldEditorSelection
 	{
 		enum
@@ -44,7 +55,7 @@ namespace Skore
 		};
 	};
 
-	WorldEditor::WorldEditor(EditorWorkspace& workspace)
+	WorldEditor::WorldEditor(EditorWorkspace& workspace) : m_workspace(workspace)
 	{
 
 		m_state = Resources::Create<WorldEditorState>();
@@ -53,11 +64,16 @@ namespace Skore
 
 		m_selection = Resources::Create<WorldEditorSelection>();
 		Resources::Write(m_selection).Commit();
+
+		Resources::FindType<WorldEditorSelection>()->RegisterEvent(OnSelectionChange, this);
 	}
 
 	WorldEditor::~WorldEditor()
 	{
 		Resources::Destroy(m_selection);
+		Resources::Destroy(m_state);
+
+		Resources::FindType<WorldEditorSelection>()->UnregisterEvent(OnSelectionChange, this);
 	}
 
 	void WorldEditor::OpenEntity(RID entity)
@@ -201,6 +217,29 @@ namespace Skore
 		entityObject.SetString(EntityResource::Name, newName);
 		entityObject.Commit(scope);
 	}
+
+	void WorldEditor::OnSelectionChange(const ResourceObject& oldValue, const ResourceObject& newValue, VoidPtr userData)
+	{
+		WorldEditor* worldEditor = static_cast<WorldEditor*>(userData);
+
+		if (oldValue && worldEditor->m_selection == oldValue.GetRID())
+		{
+			for (RID deselected : oldValue.GetReferenceArray(WorldEditorSelection::SelectedEntities))
+			{
+				onEntityDeselectionHandler.Invoke(worldEditor->m_workspace.GetId(), deselected);
+			}
+		}
+
+
+		if (newValue && worldEditor->m_selection == newValue.GetRID())
+		{
+			for (RID selected : newValue.GetReferenceArray(WorldEditorSelection::SelectedEntities))
+			{
+				onEntitySelectionHandler.Invoke(worldEditor->m_workspace.GetId(), selected);
+			}
+		}
+	}
+
 
 	void RegisterWorldEditorTypes()
 	{
