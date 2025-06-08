@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "Skore/Scene/Component.hpp"
+#include "Skore/Scene/Component2.hpp"
 
 
 namespace Skore
@@ -31,10 +31,10 @@ namespace Skore
 	class RenderStorage;
 	class MaterialAsset;
 
-	class SK_API EnvironmentComponent : public Component
+	class SK_API EnvironmentComponent : public Component2
 	{
 	public:
-		SK_CLASS(EnvironmentComponent, Component);
+		SK_CLASS(EnvironmentComponent, Component2);
 
 
 		void Init() override;

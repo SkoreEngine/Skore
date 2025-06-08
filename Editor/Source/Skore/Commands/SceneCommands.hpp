@@ -24,7 +24,7 @@
 #include "Skore/EditorCommon.hpp"
 #include "UndoRedoSystem.hpp"
 #include "Skore/Core/HashSet.hpp"
-#include "Skore/Scene/Component.hpp"
+#include "Skore/Scene/Component2.hpp"
 #include "Skore/Scene/SceneEditor.hpp"
 
 namespace Skore
@@ -129,7 +129,7 @@ namespace Skore
 	class RemoveComponentCommand : public Command
 	{
 	public:
-		RemoveComponentCommand(SceneEditor* sceneEditor, Entity* entity, Component* component);
+		RemoveComponentCommand(SceneEditor* sceneEditor, Entity* entity, Component2* component);
 
 		void   Execute() override;
 		void   Undo() override;
@@ -162,7 +162,7 @@ namespace Skore
 	class UpdateComponentCommand : public Command
 	{
 	public:
-		UpdateComponentCommand(SceneEditor* sceneEditor, Entity* entity, Component* oldValue, Component* newValue);
+		UpdateComponentCommand(SceneEditor* sceneEditor, Entity* entity, Component2* oldValue, Component2* newValue);
 	private:
 		SceneEditor* m_sceneEditor;
 		UUID         m_entityUUID;

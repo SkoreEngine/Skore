@@ -31,7 +31,7 @@ namespace Skore
 {
 	struct SceneEventDesc;
 	class Scene;
-	class Component;
+	class Component2;
 
 	class SK_API Entity : public Object
 	{
@@ -69,22 +69,22 @@ namespace Skore
 		bool HasOverrides() const;
 		void ClearOverrides();
 
-		Component* AddComponent(TypeID typeId);
-		Component* AddComponent(ReflectType* reflectType);
-		Component* AddComponent(ReflectType* reflectType, UUID uuid);
-		Component* FindComponentByUUID(UUID uuid);
-		Component* FindComponentByPrefab(UUID uuid);
+		Component2* AddComponent(TypeID typeId);
+		Component2* AddComponent(ReflectType* reflectType);
+		Component2* AddComponent(ReflectType* reflectType, UUID uuid);
+		Component2* FindComponentByUUID(UUID uuid);
+		Component2* FindComponentByPrefab(UUID uuid);
 
 
-		void RemoveComponent(Component* component);
+		void RemoveComponent(Component2* component);
 		void RemoveComponent(TypeID typeId);
 		void RemoveComponentAt(u32 index);
 
-		void MoveComponentTo(Component* component, u32 index);
+		void MoveComponentTo(Component2* component, u32 index);
 
-		u32               GetComponentIndex(Component* component);
-		Component*        GetComponent(TypeID typeId) const;
-		Array<Component*> GetComponents(TypeID typeId) const;
+		u32               GetComponentIndex(Component2* component);
+		Component2*        GetComponent(TypeID typeId) const;
+		Array<Component2*> GetComponents(TypeID typeId) const;
 
 		UUID GetPrefab() const;
 
@@ -100,7 +100,7 @@ namespace Skore
 			auto arr = GetComponents(TypeInfo<T>::ID());
 			ret.Reserve(arr.Size());
 
-			for (Component* comp : arr)
+			for (Component2* comp : arr)
 			{
 				ret.EmplaceBack(static_cast<T*>(comp));
 			}
@@ -113,12 +113,12 @@ namespace Skore
 			return static_cast<T*>(GetComponent(TypeInfo<T>::ID()));
 		}
 
-		Span<Component*> GetAllComponents() const;
+		Span<Component2*> GetAllComponents() const;
 
 		template <typename T>
 		void RemoveComponent(T* component)
 		{
-			RemoveComponent(static_cast<Component*>(component));
+			RemoveComponent(static_cast<Component2*>(component));
 		}
 
 		template <typename T>
@@ -204,7 +204,7 @@ namespace Skore
 		void DeserializeWithChildren(ArchiveReader& archiveReader);
 
 		friend class Scene;
-		friend class Component;
+		friend class Component2;
 
 		static void RegisterType(NativeReflectType<Entity>& type);
 
@@ -214,7 +214,7 @@ namespace Skore
 		bool              m_active = true;
 		bool              m_parentActivated = true;
 		Entity*           m_parent = nullptr;
-		Array<Component*> m_components;
+		Array<Component2*> m_components;
 		Scene*            m_scene = nullptr;
 		bool              m_started = false;
 		Array<Entity*>    m_children;
@@ -233,8 +233,8 @@ namespace Skore
 
 
 		//components
-		void       AddComponent(Component* component);
-		void       AddComponent(Component* component, UUID uuid);
+		void       AddComponent(Component2* component);
+		void       AddComponent(Component2* component, UUID uuid);
 
 
 		void DoStart();

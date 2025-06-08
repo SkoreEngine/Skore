@@ -10,7 +10,7 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
-#include "Skore/Scene/Component.hpp"
+#include "Skore/Scene/Component2.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Scene.hpp"
 
@@ -156,7 +156,7 @@ namespace Skore
 			}
 		}
 
-		for (Component* component : entity->GetAllComponents())
+		for (Component2* component : entity->GetAllComponents())
 		{
 			bool propClicked = false;
 			bool open = ImGuiCollapsingHeaderProps(HashValue(reinterpret_cast<usize>(component)), FormatName(component->GetType()->GetSimpleName()).CStr(), &propClicked);
@@ -208,7 +208,7 @@ namespace Skore
 			ImGuiSearchInputText(id + 100, searchComponentString);
 			ImGui::Separator();
 
-			for (TypeID componentId : Reflection::GetDerivedTypes(TypeInfo<Component>::ID()))
+			for (TypeID componentId : Reflection::GetDerivedTypes(TypeInfo<Component2>::ID()))
 			{
 				if (ReflectType* refletionType = Reflection::FindTypeById(componentId))
 				{

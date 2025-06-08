@@ -1,7 +1,7 @@
 #include <doctest.h>
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/Entity.hpp"
-#include "Skore/Scene/Component.hpp"
+#include "Skore/Scene/Component2.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Allocator.hpp"
 

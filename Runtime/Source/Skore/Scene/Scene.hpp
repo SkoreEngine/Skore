@@ -52,22 +52,22 @@ namespace Skore
 
 		RenderStorage* GetRenderStorage() const;
 
-		friend class Component;
+		friend class Component2;
 		friend class Entity;
 
 		static void RegisterType(NativeReflectType<Scene>& type);
 
 	private:
-		void RegisterComponentForUpdate(Component* component);
-		void UnregisterComponentForUpdate(Component* component);
+		void RegisterComponentForUpdate(Component2* component);
+		void UnregisterComponentForUpdate(Component2* component);
 
 		Entity* m_rootEntity = nullptr;
 
-		ankerl::unordered_dense::set<Component*> m_updateComponents = {};
+		ankerl::unordered_dense::set<Component2*> m_updateComponents = {};
 		HashMap<UUID, Entity*>                   m_entities;
 
 		Queue<Entity*>    m_queueToStart;
-		Queue<Component*> m_componentsToStart;
+		Queue<Component2*> m_componentsToStart;
 		Queue<Entity*>    m_queueToDestroy;
 
 		RenderStorage* m_renderStorage = nullptr;

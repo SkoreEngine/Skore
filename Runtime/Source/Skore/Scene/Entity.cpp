@@ -23,7 +23,7 @@
 #include "Entity.hpp"
 
 #include "Skore/Core/Span.hpp"
-#include "Component.hpp"
+#include "Component2.hpp"
 #include "Scene.hpp"
 #include "SceneTypes.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -229,11 +229,11 @@ namespace Skore
 	{
 		Entity* copy = Instantiate(newParent, GetName());
 
-		for (Component* component : m_components)
+		for (Component2* component : m_components)
 		{
 			if (ReflectType* type = component->GetType())
 			{
-				if (Component* newComponent = copy->AddComponent(type))
+				if (Component2* newComponent = copy->AddComponent(type))
 				{
 					type->DeepCopy(component, newComponent);
 				}
@@ -282,7 +282,7 @@ namespace Skore
 	}
 
 
-	void Entity::RemoveComponent(Component* component)
+	void Entity::RemoveComponent(Component2* component)
 	{
 		for (usize i = 0; i < m_components.Size(); ++i)
 		{
@@ -357,11 +357,11 @@ namespace Skore
 				instance->m_prefab = origin->GetScene()->GetUUID();
 				instance->m_origin = currentItem.origin->GetUUID();
 
-				for (Component* originComponent : currentItem.origin->m_components)
+				for (Component2* originComponent : currentItem.origin->m_components)
 				{
 					if (ReflectType* componentType = originComponent->GetType())
 					{
-						if (Component* newComponent = instance->AddComponent(componentType))
+						if (Component2* newComponent = instance->AddComponent(componentType))
 						{
 							componentType->DeepCopy(originComponent, newComponent);
 							newComponent->m_prefab = originComponent->m_uuid;
@@ -418,11 +418,11 @@ namespace Skore
 				}
 
 				//TODO : check component removed.
-				for (Component* originComponent : origin->m_components)
+				for (Component2* originComponent : origin->m_components)
 				{
 					if (ReflectType* componentType = originComponent->GetType())
 					{
-						Component* newComponent = FindComponentByPrefab(originComponent->GetUUID());
+						Component2* newComponent = FindComponentByPrefab(originComponent->GetUUID());
 						if (newComponent == nullptr)
 						{
 							newComponent = AddComponent(componentType);
@@ -455,7 +455,7 @@ namespace Skore
 		}
 	}
 
-	void Entity::MoveComponentTo(Component* component, u32 index)
+	void Entity::MoveComponentTo(Component2* component, u32 index)
 	{
 		u32 currentIndex = GetComponentIndex(component);
 		RemoveComponentAt(currentIndex, false);
@@ -467,7 +467,7 @@ namespace Skore
 		m_components.Insert(m_components.begin() + index, component);
 	}
 
-	u32 Entity::GetComponentIndex(Component* component)
+	u32 Entity::GetComponentIndex(Component2* component)
 	{
 		for (usize i = 0; i < m_components.Size(); ++i)
 		{
@@ -479,7 +479,7 @@ namespace Skore
 		return U32_MAX;
 	}
 
-	Component* Entity::GetComponent(TypeID typeId) const
+	Component2* Entity::GetComponent(TypeID typeId) const
 	{
 		for (usize i = 0; i < m_components.Size(); ++i)
 		{
@@ -491,9 +491,9 @@ namespace Skore
 		return nullptr;
 	}
 
-	Array<Component*> Entity::GetComponents(TypeID typeId) const
+	Array<Component2*> Entity::GetComponents(TypeID typeId) const
 	{
-		Array<Component*> ret;
+		Array<Component2*> ret;
 		for (usize i = 0; i < m_components.Size(); ++i)
 		{
 			if (typeId == m_components[i]->GetTypeId())
@@ -522,7 +522,7 @@ namespace Skore
 			m_worldTransform = parentTransform * GetLocalTransform();
 		}
 
-		for (Component* component : m_components)
+		for (Component2* component : m_components)
 		{
 			component->ProcessEvent(event);
 		}
@@ -536,7 +536,7 @@ namespace Skore
 		}
 	}
 
-	Span<Component*> Entity::GetAllComponents() const
+	Span<Component2*> Entity::GetAllComponents() const
 	{
 		return m_components;
 	}
@@ -636,7 +636,7 @@ namespace Skore
 		if (!m_components.Empty())
 		{
 			archiveWriter.BeginSeq("components");
-			for (Component* component : m_components)
+			for (Component2* component : m_components)
 			{
 				archiveWriter.BeginMap();
 				archiveWriter.WriteString("_type", component->GetType()->GetName());
@@ -706,7 +706,7 @@ namespace Skore
 					if (ReflectType* type = Reflection::FindTypeByName(archiveReader.ReadString("_type")))
 					{
 						UUID uuid = UUID::FromString(archiveReader.ReadString("_uuid"));
-						if (Component* component = AddComponent(type, uuid))
+						if (Component2* component = AddComponent(type, uuid))
 						{
 							component->m_prefab = UUID::FromString(archiveReader.ReadString("_prefab"));
 							component->Deserialize(archiveReader);
@@ -774,7 +774,7 @@ namespace Skore
 	{
 		m_started = true;
 
-		for (Component* component : m_components)
+		for (Component2* component : m_components)
 		{
 			component->Start();
 		}
@@ -817,7 +817,7 @@ namespace Skore
 
 		m_children.Clear();
 
-		for (Component* component : m_components)
+		for (Component2* component : m_components)
 		{
 			if (component->IsUpdateEnabled())
 			{
@@ -831,12 +831,12 @@ namespace Skore
 		DestroyAndFree(this);
 	}
 
-	void Entity::AddComponent(Component* component)
+	void Entity::AddComponent(Component2* component)
 	{
 		AddComponent(component, UUID::RandomUUID());
 	}
 
-	void Entity::AddComponent(Component* component, UUID uuid)
+	void Entity::AddComponent(Component2* component, UUID uuid)
 	{
 		component->m_entity = this;
 		component->m_scene = m_scene;
@@ -861,7 +861,7 @@ namespace Skore
 		}
 	}
 
-	Component* Entity::AddComponent(TypeID typeId)
+	Component2* Entity::AddComponent(TypeID typeId)
 	{
 		if (ReflectType* reflectType = Reflection::FindTypeById(typeId))
 		{
@@ -870,25 +870,25 @@ namespace Skore
 		return nullptr;
 	}
 
-	Component* Entity::AddComponent(ReflectType* reflectType)
+	Component2* Entity::AddComponent(ReflectType* reflectType)
 	{
 		return AddComponent(reflectType, {});
 	}
 
-	Component* Entity::AddComponent(ReflectType* reflectType, UUID uuid)
+	Component2* Entity::AddComponent(ReflectType* reflectType, UUID uuid)
 	{
 		if (reflectType)
 		{
-			Component* component = reflectType->NewObject()->SafeCast<Component>();
+			Component2* component = reflectType->NewObject()->SafeCast<Component2>();
 			AddComponent(component, uuid);
 			return component;
 		}
 		return nullptr;
 	}
 
-	Component* Entity::FindComponentByUUID(UUID uuid)
+	Component2* Entity::FindComponentByUUID(UUID uuid)
 	{
-		for (Component* component : m_components)
+		for (Component2* component : m_components)
 		{
 			if (component->GetUUID() == uuid)
 			{
@@ -898,9 +898,9 @@ namespace Skore
 		return nullptr;
 	}
 
-	Component* Entity::FindComponentByPrefab(UUID uuid)
+	Component2* Entity::FindComponentByPrefab(UUID uuid)
 	{
-		for (Component* component : m_components)
+		for (Component2* component : m_components)
 		{
 			if (component->GetPrefab() == uuid)
 			{
@@ -938,13 +938,13 @@ namespace Skore
 		type.Function<&Entity::SetParent>("SetParent", "parent");
 		type.Function<&Entity::GetScene>("GetScene");
 		type.Function<&Entity::Children>("Children");
-		type.Function<static_cast<void(Entity::*)(Component*)>(&Entity::AddComponent)>("AddComponent", "component");
-		type.Function<static_cast<Component* (Entity::*)(TypeID)>(&Entity::AddComponent)>("AddComponent", "typeId");
-		type.Function<static_cast<Component* (Entity::*)(ReflectType*)>(&Entity::AddComponent)>("AddComponent", "reflectType");
-		type.Function<static_cast<void (Entity::*)(Component*)>(&Entity::RemoveComponent)>("RemoveComponent", "component");
+		type.Function<static_cast<void(Entity::*)(Component2*)>(&Entity::AddComponent)>("AddComponent", "component");
+		type.Function<static_cast<Component2* (Entity::*)(TypeID)>(&Entity::AddComponent)>("AddComponent", "typeId");
+		type.Function<static_cast<Component2* (Entity::*)(ReflectType*)>(&Entity::AddComponent)>("AddComponent", "reflectType");
+		type.Function<static_cast<void (Entity::*)(Component2*)>(&Entity::RemoveComponent)>("RemoveComponent", "component");
 		type.Function<static_cast<void (Entity::*)(TypeID)>(&Entity::RemoveComponent)>("RemoveComponent", "typeId");
-		type.Function<static_cast<Component* (Entity::*)(TypeID) const>(&Entity::GetComponent)>("GetComponent", "typeId");
-		type.Function<static_cast<Array<Component*> (Entity::*)(TypeID) const>(&Entity::GetComponents)>("GetComponents", "typeId");
+		type.Function<static_cast<Component2* (Entity::*)(TypeID) const>(&Entity::GetComponent)>("GetComponent", "typeId");
+		type.Function<static_cast<Array<Component2*> (Entity::*)(TypeID) const>(&Entity::GetComponents)>("GetComponents", "typeId");
 		type.Function<&Entity::GetAllComponents>("GetAllComponents");
 	}
 }

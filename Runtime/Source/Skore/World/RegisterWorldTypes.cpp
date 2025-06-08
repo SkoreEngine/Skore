@@ -20,13 +20,26 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "Components.hpp"
 #include "WordCommon.hpp"
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
 	void RegisterWorldTypes()
 	{
+		Reflection::Type<Component>();
+
+
+		auto transformComponent = Reflection::Type<TransformComponent>();
+		transformComponent.Field<&TransformComponent::position>("position");
+		transformComponent.Field<&TransformComponent::rotation>("rotation");
+		transformComponent.Field<&TransformComponent::scale>("scale");
+		transformComponent.Attribute<Component>();
+
+
+
 		Resources::Type<EntityResource>()
 			.Field<EntityResource::Name>(ResourceFieldType::String)
 			.Field<EntityResource::Deactivated>(ResourceFieldType::Bool)

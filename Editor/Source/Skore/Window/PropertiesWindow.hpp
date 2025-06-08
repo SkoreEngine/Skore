@@ -28,7 +28,7 @@
 namespace Skore
 {
 	class ReflectField;
-	class Component;
+	class Component2;
 	class SceneEditor;
 }
 
@@ -55,7 +55,7 @@ namespace Skore
 		String        renamingCache{};
 		Entity*       renamingEntity{};
 		String        searchComponentString{};
-		Component*    selectedComponent = {};
+		Component2*    selectedComponent = {};
 
 		//refactor this.
 		ReflectField* currentField = {};

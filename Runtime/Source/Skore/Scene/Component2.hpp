@@ -33,13 +33,13 @@ namespace Skore
 	class Scene;
 	class Entity;
 
-	class SK_API Component : public Object
+	class SK_API Component2 : public Object
 	{
 	public:
-		SK_CLASS(Component, Object);
-		SK_NO_COPY_CONSTRUCTOR(Component);
+		SK_CLASS(Component2, Object);
+		SK_NO_COPY_CONSTRUCTOR(Component2);
 
-		Component() = default;
+		Component2() = default;
 
 		virtual void Init() {}
 		virtual void Destroy() {}
@@ -62,7 +62,7 @@ namespace Skore
 		void Serialize(ArchiveWriter& archiveWriter) const override;
 		void Deserialize(ArchiveReader& archiveReader) override;
 
-		static void RegisterType(NativeReflectType<Component>& type);
+		static void RegisterType(NativeReflectType<Component2>& type);
 
 		friend class Entity;
 	private:

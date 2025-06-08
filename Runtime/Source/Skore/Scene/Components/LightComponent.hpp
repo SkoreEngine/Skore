@@ -22,17 +22,17 @@
 
 #pragma once
 #include "Skore/Core/Color.hpp"
-#include "Skore/Scene/Component.hpp"
+#include "Skore/Scene/Component2.hpp"
 #include "Skore/Core/Math.hpp"
 
 namespace Skore
 {
 	class RenderStorage;
 
-	class SK_API LightComponent : public Component
+	class SK_API LightComponent : public Component2
 	{
 	public:
-		SK_CLASS(LightComponent, Component);
+		SK_CLASS(LightComponent, Component2);
 
 		enum class LightType
 		{

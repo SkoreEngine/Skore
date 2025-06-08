@@ -277,7 +277,7 @@ namespace Skore
 		return "Add Component";
 	}
 
-	RemoveComponentCommand::RemoveComponentCommand(SceneEditor* sceneEditor, Entity* entity, Component* component)
+	RemoveComponentCommand::RemoveComponentCommand(SceneEditor* sceneEditor, Entity* entity, Component2* component)
 		: m_sceneEditor(sceneEditor), m_entityUUID(entity->GetUUID()), m_typeId(component->GetTypeId()),
 		  m_componentIndex(entity->GetComponentIndex(component))
 	{
@@ -299,7 +299,7 @@ namespace Skore
 	{
 		if (Entity* entity = m_sceneEditor->GetCurrentScene()->FindEntityByUUID(m_entityUUID))
 		{
-			Component* component = entity->AddComponent(m_typeId);
+			Component2* component = entity->AddComponent(m_typeId);
 
 			BinaryArchiveReader reader(m_bytes);
 			component->Deserialize(reader);
@@ -347,7 +347,7 @@ namespace Skore
 	}
 
 
-	UpdateComponentCommand::UpdateComponentCommand(SceneEditor* sceneEditor, Entity* entity, Component* oldValue, Component* newValue)
+	UpdateComponentCommand::UpdateComponentCommand(SceneEditor* sceneEditor, Entity* entity, Component2* oldValue, Component2* newValue)
 	{
 
 	}

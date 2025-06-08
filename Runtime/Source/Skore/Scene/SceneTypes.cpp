@@ -36,7 +36,7 @@ namespace Skore
 	{
 		Reflection::Type<Scene>();
 		Reflection::Type<Entity>();
-		Reflection::Type<Component>();
+		Reflection::Type<Component2>();
 
 		//components
 		Reflection::Type<MeshRenderComponent>();

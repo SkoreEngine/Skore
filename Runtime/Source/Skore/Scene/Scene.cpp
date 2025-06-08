@@ -22,7 +22,7 @@
 
 #include "Scene.hpp"
 
-#include "Component.hpp"
+#include "Component2.hpp"
 #include "Entity.hpp"
 #include "Skore/Core/Allocator.hpp"
 #include "Skore/Graphics/BasicSceneRenderer.hpp"
@@ -62,7 +62,7 @@ namespace Skore
 
 		while (!m_componentsToStart.IsEmpty())
 		{
-			Component* component = m_componentsToStart.Dequeue();
+			Component2* component = m_componentsToStart.Dequeue();
 			component->Start();
 		}
 	}
@@ -71,7 +71,7 @@ namespace Skore
 	{
 		FlushQueues();
 
-		for (Component* component : m_updateComponents)
+		for (Component2* component : m_updateComponents)
 		{
 			if (component->CanUpdate())
 			{
@@ -183,12 +183,12 @@ namespace Skore
 		return m_renderStorage;
 	}
 
-	void Scene::RegisterComponentForUpdate(Component* component)
+	void Scene::RegisterComponentForUpdate(Component2* component)
 	{
 		m_updateComponents.emplace(component);
 	}
 
-	void Scene::UnregisterComponentForUpdate(Component* component)
+	void Scene::UnregisterComponentForUpdate(Component2* component)
 	{
 		m_updateComponents.erase(component);
 	}

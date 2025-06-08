@@ -25,6 +25,13 @@
 
 namespace Skore
 {
+
+	struct Component
+	{
+		//TODO
+	};
+
+
 	struct EntityResource
 	{
 		enum

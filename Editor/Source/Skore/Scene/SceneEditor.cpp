@@ -35,7 +35,7 @@
 #include "Skore/Commands/SceneCommands.hpp"
 #include "Skore/Commands/UndoRedoSystem.hpp"
 #include "Skore/Core/Logger.hpp"
-#include "Skore/Scene/Component.hpp"
+#include "Skore/Scene/Component2.hpp"
 
 namespace Skore
 {
@@ -209,7 +209,7 @@ namespace Skore
 		UndoRedoSystem::EndTransaction(transaction);
 	}
 
-	void SceneEditor::RemoveComponent(Entity* entity, Component* component)
+	void SceneEditor::RemoveComponent(Entity* entity, Component2* component)
 	{
 		if (!entity || !m_assetFile || IsLocked(entity) || component == nullptr)
 		{
@@ -221,7 +221,7 @@ namespace Skore
 		UndoRedoSystem::EndTransaction(transaction);
 	}
 
-	void SceneEditor::ResetComponent(Entity* entity, Component* component)
+	void SceneEditor::ResetComponent(Entity* entity, Component2* component)
 	{
 
 	}

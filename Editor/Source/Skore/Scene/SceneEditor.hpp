@@ -30,7 +30,7 @@
 
 namespace Skore
 {
-	class Component;
+	class Component2;
 }
 
 namespace Skore
@@ -60,8 +60,8 @@ namespace Skore
 		void Create();
 
 		void AddComponent(Entity* entity, TypeID componentTypeID);
-		void RemoveComponent(Entity* entity, Component* component);
-		void ResetComponent(Entity* entity, Component* component);
+		void RemoveComponent(Entity* entity, Component2* component);
+		void ResetComponent(Entity* entity, Component2* component);
 
 		void DeleteSelected();
 

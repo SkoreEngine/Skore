@@ -20,14 +20,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Component.hpp"
+#include "Component2.hpp"
 #include "Entity.hpp"
 #include "Scene.hpp"
 #include "Skore/Core/Reflection.hpp"
 
 namespace Skore
 {
-	void Component::EnableUpdate(bool enable)
+	void Component2::EnableUpdate(bool enable)
 	{
 		bool wasEnabled = m_updateEnabled;
 		m_updateEnabled = enable;
@@ -42,43 +42,43 @@ namespace Skore
 		}
 	}
 
-	bool Component::IsUpdateEnabled() const
+	bool Component2::IsUpdateEnabled() const
 	{
 		return m_updateEnabled;
 	}
 
 	//temporary
-	bool Component::CanUpdate() const
+	bool Component2::CanUpdate() const
 	{
 		return m_updateEnabled && m_entity->m_parentActivated && m_entity->m_active;
 	}
 
-	Scene* Component::GetScene() const
+	Scene* Component2::GetScene() const
 	{
 		return m_scene;
 	}
 
-	UUID Component::GetUUID() const
+	UUID Component2::GetUUID() const
 	{
 		return m_uuid;
 	}
 
-	UUID Component::GetPrefab() const
+	UUID Component2::GetPrefab() const
 	{
 		return m_prefab;
 	}
 
-	bool Component::IsPrefab() const
+	bool Component2::IsPrefab() const
 	{
 		return m_prefab != UUID{};
 	}
 
-	Entity* Component::GetEntity() const
+	Entity* Component2::GetEntity() const
 	{
 		return m_entity;
 	}
 
-	void Component::Serialize(ArchiveWriter& archiveWriter) const
+	void Component2::Serialize(ArchiveWriter& archiveWriter) const
 	{
 		ReflectType* reflectType = GetType();
 		for (ReflectField* field : reflectType->GetFields())
@@ -90,7 +90,7 @@ namespace Skore
 		}
 	}
 
-	void Component::Deserialize(ArchiveReader& archiveReader)
+	void Component2::Deserialize(ArchiveReader& archiveReader)
 	{
 		ReflectType* reflectType = GetType();
 		while (archiveReader.NextMapEntry())
@@ -106,11 +106,11 @@ namespace Skore
 		}
 	}
 
-	void Component::RegisterType(NativeReflectType<Component>& type)
+	void Component2::RegisterType(NativeReflectType<Component2>& type)
 	{
-		type.Function<&Component::EnableUpdate>("EnableUpdate", "enable");
-		type.Function<&Component::IsUpdateEnabled>("IsUpdateEnabled");
-		type.Function<&Component::Start>("Start");
-		type.Function<&Component::Update>("Update", "deltaTime");
+		type.Function<&Component2::EnableUpdate>("EnableUpdate", "enable");
+		type.Function<&Component2::IsUpdateEnabled>("IsUpdateEnabled");
+		type.Function<&Component2::Start>("Start");
+		type.Function<&Component2::Update>("Update", "deltaTime");
 	}
 }

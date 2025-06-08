@@ -21,37 +21,15 @@
 // SOFTWARE.
 
 #pragma once
-#include "Skore/Core/Array.hpp"
-#include "Skore/Scene/Component2.hpp"
+
+#include "Skore/Core/Math.hpp"
 
 namespace Skore
 {
-	class RenderStorage;
-	class MeshAsset;
-	class MaterialAsset;
-
-	class SK_API MeshRenderComponent : public Component2
+	struct TransformComponent
 	{
-	public:
-		SK_CLASS(MeshRenderComponent, Component2);
-
-		void Init() override;
-		void Destroy() override;
-		void ProcessEvent(const SceneEventDesc& event) override;
-
-		void                         SetMesh(MeshAsset* mesh);
-		MeshAsset*                   GetMesh() const;
-		const Array<MaterialAsset*>& GetMaterials() const;
-		void                         SetMaterials(const Array<MaterialAsset*>& materials);
-		void                         SetCastShadows(bool castShadows);
-		bool                         GetCastShadows() const;
-
-		static void RegisterType(NativeReflectType<MeshRenderComponent>& type);
-
-	private:
-		MeshAsset*            m_mesh = nullptr;
-		Array<MaterialAsset*> m_materials;
-		RenderStorage*        m_renderStorage = nullptr;
-		bool                  m_castShadows = true;
+		Vec3 position{0, 0, 0};
+		Quat rotation{0, 0, 0, 1};
+		Vec3 scale{1, 1, 1};
 	};
 }
