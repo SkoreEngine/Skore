@@ -29,6 +29,8 @@ namespace Skore
 	{
 		Resources::Type<EntityResource>()
 			.Field<EntityResource::Name>(ResourceFieldType::String)
+			.Field<EntityResource::Deactivated>(ResourceFieldType::Bool)
+			.Field<EntityResource::Locked>(ResourceFieldType::Bool)
 			.Field<EntityResource::Components>(ResourceFieldType::SubObjectSet)
 			.Field<EntityResource::Children>(ResourceFieldType::SubObjectSet)
 			.Build();

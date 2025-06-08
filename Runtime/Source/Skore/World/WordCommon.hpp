@@ -30,6 +30,8 @@ namespace Skore
 		enum
 		{
 			Name,
+			Deactivated,
+			Locked,
 			Components,
 			Children,
 		};

@@ -28,4 +28,68 @@ namespace Skore
 	{
 		//TODO
 	}
+
+	void WorldEditor::OpenEntity(RID entity)
+	{
+		m_root = entity;
+	}
+
+	RID WorldEditor::GetRootEntity() const
+	{
+		return m_root;
+	}
+
+	bool WorldEditor::IsReadOnly() const
+	{
+		return false;
+	}
+
+	void WorldEditor::Create()
+	{
+
+	}
+
+	void WorldEditor::DestroySelected()
+	{
+
+	}
+
+	void WorldEditor::DuplicateSelected()
+	{
+
+	}
+
+	void WorldEditor::ClearSelection()
+	{
+		//TODO
+	}
+
+	void WorldEditor::SelectEntity(RID entity, bool clearSelection)
+	{
+
+	}
+
+	bool WorldEditor::IsSelected(RID rid)
+	{
+		return false;
+	}
+
+	bool WorldEditor::IsParentOfSelected(RID rid)
+	{
+		return false;
+	}
+
+	bool WorldEditor::HasSelectedEntities() const
+	{
+		return false;
+	}
+
+	void WorldEditor::SetActivated(RID rid, bool activated) {}
+
+	void WorldEditor::SetLocked(RID rid, bool locked) {}
+
+	void WorldEditor::Rename(RID rid, StringView newName)
+	{
+		//TODO
+	}
 }

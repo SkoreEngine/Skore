@@ -41,6 +41,7 @@
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
 #include "Window/ConsoleWindow.hpp"
+#include "Window/EntityTreeWindow.hpp"
 #include "Window/HistoryWindow.hpp"
 #include "Window/PropertiesWindow.hpp"
 #include "Window/SceneTreeWindow.hpp"
@@ -712,8 +713,8 @@ namespace Skore
 		Reflection::Type<EditorWindow>();
 		Reflection::Type<EditorWindowProperties>();
 		Reflection::Type<ProjectBrowserWindow>();
-		Reflection::Type<SceneTreeWindow>();
-		Reflection::Type<SceneViewWindow>();
+		//Reflection::Type<SceneTreeWindow>();
+		Reflection::Type<EntityTreeWindow>();
 		Reflection::Type<TextureViewWindow>();
 		Reflection::Type<HistoryWindow>();
 		Reflection::Type<ConsoleWindow>();

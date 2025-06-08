@@ -23,6 +23,8 @@
 #pragma once
 #include "Skore/EditorCommon.hpp"
 #include "Skore/MenuItem.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/World/WorldEditor.hpp"
 
 namespace Skore
 {
@@ -32,9 +34,33 @@ namespace Skore
 		SK_CLASS(EntityTreeWindow, EditorWindow);
 
 
+		void Init(u32 id, VoidPtr userData) override;
 		void Draw(u32 id, bool& open) override;
+
+		static void AddMenuItem(const MenuItemCreation& menuItem);
+		static void AddSceneEntity(const MenuItemEventData& eventData);
+		static void AddSceneEntityFromAsset(const MenuItemEventData& eventData);
+		static void AddComponent(const MenuItemEventData& eventData);
+		static void RenameSceneEntity(const MenuItemEventData& eventData);
+		static void DuplicateSceneEntity(const MenuItemEventData& eventData);
+		static void DeleteSceneEntity(const MenuItemEventData& eventData);
+		static bool CheckSelectedEntity(const MenuItemEventData& eventData);
+		static bool CheckReadOnly(const MenuItemEventData& eventData);
 
 		static void OpenEntityTree(const MenuItemEventData& eventData);
 		static void RegisterType(NativeReflectType<EntityTreeWindow>& type);
+
+	private:
+		String searchEntity{};
+		String stringCache{};
+
+		bool   renamingFocus{};
+		bool   renamingSelected{};
+		String renamingStringCache{};
+		f32    iconSize = {};
+
+		static MenuItemContext menuItemContext;
+
+		void DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected);
 	};
 }

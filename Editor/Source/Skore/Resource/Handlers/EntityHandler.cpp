@@ -20,6 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "Skore/Editor.hpp"
+#include "Skore/EditorWorkspace.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/Resource/ResourceAssets.hpp"
@@ -39,7 +41,7 @@ namespace Skore
 
 		void OpenAsset(RID rid) override
 		{
-
+			Editor::GetCurrentWorkspace().GetWorldEditor()->OpenEntity(rid);
 		}
 
 		TypeID GetResourceTypeId() override

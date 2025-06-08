@@ -23,6 +23,7 @@
 #pragma once
 
 #include "Skore/Common.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
 {
@@ -32,5 +33,32 @@ namespace Skore
 	{
 	public:
 		WorldEditor(EditorWorkspace& workspace);
+
+		void OpenEntity(RID entity);
+
+		RID  GetRootEntity() const;
+		bool IsReadOnly() const;
+
+		//entity management
+		void Create();
+		void DestroySelected();
+		void DuplicateSelected();
+
+		//selection
+		void ClearSelection();
+		void SelectEntity(RID entity, bool clearSelection);
+		bool IsSelected(RID rid);
+		bool IsParentOfSelected(RID rid);
+		bool HasSelectedEntities() const;
+
+
+		//actions
+		void SetActivated(RID rid, bool activated);
+		void SetLocked(RID rid, bool locked);
+		void Rename(RID rid, StringView newName);
+
+
+	private:
+		RID m_root = {};
 	};
 }
