@@ -704,11 +704,13 @@ namespace Skore
 
 
 	void RegisterResourceAssetTypes();
+	void RegisterWorldEditorTypes();
 
 	void EditorTypeRegister()
 	{
 		RegisterAssetTypes();
 		RegisterResourceAssetTypes();
+		RegisterWorldEditorTypes();
 
 		Reflection::Type<EditorWindow>();
 		Reflection::Type<EditorWindowProperties>();

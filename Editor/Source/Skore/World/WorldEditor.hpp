@@ -33,6 +33,7 @@ namespace Skore
 	{
 	public:
 		WorldEditor(EditorWorkspace& workspace);
+		~WorldEditor();
 
 		void OpenEntity(RID entity);
 
@@ -47,18 +48,19 @@ namespace Skore
 		//selection
 		void ClearSelection();
 		void SelectEntity(RID entity, bool clearSelection);
-		bool IsSelected(RID rid);
-		bool IsParentOfSelected(RID rid);
+		bool IsSelected(RID entity);
+		bool IsParentOfSelected(RID entity);
 		bool HasSelectedEntities() const;
-
+		Span<RID> GetSelectedEntities() const;
 
 		//actions
-		void SetActivated(RID rid, bool activated);
-		void SetLocked(RID rid, bool locked);
-		void Rename(RID rid, StringView newName);
+		void SetActivated(RID entity, bool activated);
+		void SetLocked(RID entity, bool locked);
+		void Rename(RID entity, StringView newName);
 
 
 	private:
-		RID m_root = {};
+		RID m_state = {};
+		RID m_selection = {};
 	};
 }

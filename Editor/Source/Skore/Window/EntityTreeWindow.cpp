@@ -394,10 +394,10 @@ namespace Skore
 	{
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
 
-		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
-		if (!sceneEditor) return;
+		WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
+		if (!worldEditor) return;
 
-		if (!sceneEditor->HasSelectedEntities()) return;
+		if (!worldEditor->HasSelectedEntities()) return;
 
 		window->renamingSelected = true;
 		window->renamingFocus = false;

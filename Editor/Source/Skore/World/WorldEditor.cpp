@@ -22,74 +22,196 @@
 
 #include "WorldEditor.hpp"
 
+#include "Skore/Editor.hpp"
+#include "Skore/Resource/Resources.hpp"
+#include "Skore/World/WordCommon.hpp"
+
 namespace Skore
 {
+	struct WorldEditorSelection
+	{
+		enum
+		{
+			SelectedEntities
+		};
+	};
+
+	struct WorldEditorState
+	{
+		enum
+		{
+			OpenEntity
+		};
+	};
+
 	WorldEditor::WorldEditor(EditorWorkspace& workspace)
 	{
-		//TODO
+
+		m_state = Resources::Create<WorldEditorState>();
+		Resources::Write(m_state).Commit();
+
+
+		m_selection = Resources::Create<WorldEditorSelection>();
+		Resources::Write(m_selection).Commit();
+	}
+
+	WorldEditor::~WorldEditor()
+	{
+		Resources::Destroy(m_selection);
 	}
 
 	void WorldEditor::OpenEntity(RID entity)
 	{
-		m_root = entity;
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Open Entity On Editor");
+		ResourceObject stateObject = Resources::Write(m_state);
+		stateObject.SetReference(WorldEditorState::OpenEntity, entity);
+		stateObject.Commit(scope);
 	}
 
 	RID WorldEditor::GetRootEntity() const
 	{
-		return m_root;
+		ResourceObject stateObject = Resources::Read(m_state);
+		return stateObject.GetReference(WorldEditorState::OpenEntity);
 	}
 
 	bool WorldEditor::IsReadOnly() const
 	{
+		//TODO
 		return false;
 	}
 
 	void WorldEditor::Create()
 	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Entity");
+		Span<RID> selectedEntities = GetSelectedEntities();
 
+		ResourceObject selectionObject = Resources::Write(m_selection);
+		selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
+
+		auto createEntity = [&](RID parent)
+		{
+			RID newEntity = Resources::Create<EntityResource>(UUID::RandomUUID());
+			ResourceObject newEntityObject = Resources::Write(newEntity);
+			newEntityObject.SetString(EntityResource::Name, "New Entity");
+			newEntityObject.Commit(scope);
+
+
+			ResourceObject parentObject = Resources::Write(parent);
+			parentObject.AddToSubObjectSet(EntityResource::Children, newEntity);
+			parentObject.Commit(scope);
+
+			selectionObject.AddToReferenceArray(WorldEditorSelection::SelectedEntities, newEntity);
+		};
+
+		if (selectedEntities.Empty())
+		{
+			createEntity(GetRootEntity());
+		}
+		else
+		{
+			for (RID parent : selectedEntities)
+			{
+				createEntity(parent);
+			}
+		}
+		selectionObject.Commit(scope);
 	}
 
 	void WorldEditor::DestroySelected()
 	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Destroy Entity");
+		for (RID selected : GetSelectedEntities())
+		{
+			Resources::Destroy(selected, scope);
+		}
 
 	}
 
 	void WorldEditor::DuplicateSelected()
 	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Destroy Entity");
 
+		ResourceObject selectionObject = Resources::Write(m_selection);
+		selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
+
+		for (RID selected : GetSelectedEntities())
+		{
+			RID newEntity = Resources::Clone(selected, UUID::RandomUUID(), scope);
+
+			ResourceObject parentObject = Resources::Write(Resources::GetParent(selected));
+			parentObject.AddToSubObjectSet(EntityResource::Children, newEntity);
+			parentObject.Commit(scope);
+
+			selectionObject.AddToReferenceArray(WorldEditorSelection::SelectedEntities, newEntity);
+		}
+		selectionObject.Commit(scope);
 	}
 
 	void WorldEditor::ClearSelection()
 	{
-		//TODO
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Clear selection");
+		ResourceObject selectionObject = Resources::Write(m_selection);
+		selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
+		selectionObject.Commit(scope);
 	}
 
 	void WorldEditor::SelectEntity(RID entity, bool clearSelection)
 	{
-
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Select Entity");
+		ResourceObject selectionObject = Resources::Write(m_selection);
+		if (clearSelection)
+		{
+			selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
+		}
+		selectionObject.AddToReferenceArray(WorldEditorSelection::SelectedEntities, entity);
+		selectionObject.Commit(scope);
 	}
 
-	bool WorldEditor::IsSelected(RID rid)
+	bool WorldEditor::IsSelected(RID entity)
 	{
-		return false;
+		ResourceObject selectionObject = Resources::Read(m_selection);
+		return selectionObject.HasOnReferenceArray(WorldEditorSelection::SelectedEntities, entity);
 	}
 
-	bool WorldEditor::IsParentOfSelected(RID rid)
+	bool WorldEditor::IsParentOfSelected(RID entity)
 	{
 		return false;
 	}
 
 	bool WorldEditor::HasSelectedEntities() const
 	{
-		return false;
+		ResourceObject selectionObject = Resources::Read(m_selection);
+		return !selectionObject.GetReferenceArray(WorldEditorSelection::SelectedEntities).Empty();
 	}
 
-	void WorldEditor::SetActivated(RID rid, bool activated) {}
-
-	void WorldEditor::SetLocked(RID rid, bool locked) {}
-
-	void WorldEditor::Rename(RID rid, StringView newName)
+	Span<RID> WorldEditor::GetSelectedEntities() const
 	{
-		//TODO
+		ResourceObject selectionObject = Resources::Read(m_selection);
+		return selectionObject.GetReferenceArray(WorldEditorSelection::SelectedEntities);
+	}
+
+	void WorldEditor::SetActivated(RID entity, bool activated) {}
+
+	void WorldEditor::SetLocked(RID entity, bool locked) {}
+
+	void WorldEditor::Rename(RID entity, StringView newName)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Rename Entity");
+		ResourceObject entityObject = Resources::Write(entity);
+		entityObject.SetString(EntityResource::Name, newName);
+		entityObject.Commit(scope);
+	}
+
+	void RegisterWorldEditorTypes()
+	{
+		Resources::Type<WorldEditorSelection>()
+			.Field<WorldEditorSelection::SelectedEntities>(ResourceFieldType::ReferenceArray)
+			.Build();
+
+		Resources::Type<WorldEditorState>()
+			.Field<WorldEditorState::OpenEntity>(ResourceFieldType::Reference)
+			.Build();
+
+
 	}
 }
