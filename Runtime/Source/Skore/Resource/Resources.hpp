@@ -74,6 +74,11 @@ namespace Skore
 		static RID              FindByUUID(const UUID& uuid);
 		static RID              FindOrReserveByUUID(const UUID& uuid);
 
+		//path
+		static void             SetPath(RID rid, StringView path);
+		static StringView       GetPath(RID rid);
+		static RID              FindByPath(StringView path);
+
 		static void Serialize(RID rid, ArchiveWriter& writer);
 		static RID  Deserialize(ArchiveReader& reader, UndoRedoScope* scope = nullptr);
 

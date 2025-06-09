@@ -34,6 +34,7 @@
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/GraphicsAssets.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
 
 #include "vulkan/vk_enum_string_helper.h"
 
@@ -1918,9 +1919,15 @@ namespace Skore
 		SK_ASSERT(desc.renderPass, "render pass is required");
 		SK_ASSERT(desc.shader, "shader variant is required");
 
-		const PipelineDesc& pipelineDesc = desc.shaderVariant->pipelineDesc;
-		Span                stages = desc.shaderVariant->stages;
-		u32                 stride = desc.vertexInputStride != U32_MAX ? desc.vertexInputStride : desc.shaderVariant->pipelineDesc.stride;
+		RID variant = ShaderResource::GetVariant(desc.shader, desc.variant);
+		SK_ASSERT(variant, "variant not found");
+
+		ResourceObject variantObject = Resources::Read(variant);
+
+		PipelineDesc          pipelineDesc;
+		Span<ShaderStageInfo> stages;
+
+		u32 stride = desc.vertexInputStride != U32_MAX ? desc.vertexInputStride : pipelineDesc.stride;
 
 		VkPipelineLayout vkPipelineLayout;
 		VkPipeline       vkPipeline;
@@ -1935,7 +1942,7 @@ namespace Skore
 		Array<VkPipelineShaderStageCreateInfo> shaderStages{};
 		shaderStages.Resize(stages.Size());
 
-		Span bytes = desc.shaderVariant->spriv;
+		Span bytes = variantObject.GetBlob(ShaderVariantResource::Spriv);
 
 		for (u32 i = 0; i < stages.Size(); ++i)
 		{

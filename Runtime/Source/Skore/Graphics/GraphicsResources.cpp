@@ -20,51 +20,30 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "GraphicsResources.hpp"
+
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	struct ShaderVariantResource
+	RID ShaderResource::GetVariant(RID shader, StringView name)
 	{
-		enum
+		RID retVariant = {};
+		if (ResourceObject shaderObject = Resources::Read(shader))
 		{
-			Name,  //String
-			Spriv, //Blob
-		};
-	};
-
-
-	struct ShaderResource
-	{
-		enum
-		{
-			Name,		//String
-			Variants,	//SubobjectSet
-		};
-
-		static RID GetVariant(RID shader, StringView name);
-	};
-
-
-	struct TextureResource
-	{
-		enum
-		{
-			Name,   //String
-			Extent, //Vec3
-			Pixels  //Blob
-		};
-	};
-
-	struct MeshResource
-	{
-		enum
-		{
-			Name,       //String
-			Vertices,   //Blob
-			Indices,    //Blob
-			Primitives, //Blob
-		};
-	};
+			shaderObject.IterateSubObjectSet(Variants, true, [&](RID variant)
+			{
+				if (ResourceObject variantObject = Resources::Read(variant))
+				{
+					if (variantObject.GetString(ShaderVariantResource::Name) == name)
+					{
+						retVariant = variant;
+						return false;
+					}
+				}
+				return true;
+			});
+		}
+		return retVariant;
+	}
 }

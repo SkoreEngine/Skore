@@ -83,6 +83,9 @@ namespace Skore
 		std::mutex         byUUIDMutex{};
 		HashMap<UUID, RID> byUUID{};
 
+		std::mutex           byPathMutex{};
+		HashMap<String, RID> byPath{};
+
 		moodycamel::ConcurrentQueue<DestroyResourcePayload> toCollectItems = moodycamel::ConcurrentQueue<DestroyResourcePayload>(100);
 
 
@@ -634,6 +637,28 @@ namespace Skore
 	RID Resources::FindOrReserveByUUID(const UUID& uuid)
 	{
 		return GetID(uuid);
+	}
+
+	void Resources::SetPath(RID rid, StringView path)
+	{
+		std::unique_lock lock(byPathMutex);
+		GetStorage(rid)->path = path;
+		byPath.Insert(path, rid);
+	}
+
+	StringView Resources::GetPath(RID rid)
+	{
+		return GetStorage(rid)->path;
+	}
+
+	RID Resources::FindByPath(StringView path)
+	{
+		std::unique_lock lock(byPathMutex);
+		if (auto it = byPath.Find(path))
+		{
+			return it->second;
+		}
+		return {};
 	}
 
 	void Resources::Serialize(RID ridx, ArchiveWriter& writer)

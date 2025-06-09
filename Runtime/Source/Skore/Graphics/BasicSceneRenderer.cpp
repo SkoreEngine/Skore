@@ -175,7 +175,7 @@ namespace Skore
 			}
 
 			m_shadowMapPipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
-				.shaderVariant = Assets::GetByPath<ShaderAsset>("Skore://Shaders/ShadowMap.raster")->GetVariant("Default"),
+				.shader = Resources::FindByPath("Skore://Shaders/ShadowMap.raster"),
 				.rasterizerState =
 				{
 					.cullMode = CullMode::Front
@@ -238,7 +238,7 @@ namespace Skore
 			depthStencilState.depthCompareOp = CompareOp::Less;
 
 			opaqueMaterialPipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
-				.shaderVariant = Assets::GetByPath<ShaderAsset>("Skore://Shaders/MeshRender.raster")->GetVariant("Default"),
+				.shader = Resources::FindByPath("Skore://Shaders/MeshRender.raster"),
 				.rasterizerState =
 				{
 					.cullMode = CullMode::Back,
@@ -259,7 +259,7 @@ namespace Skore
 			depthStencilState.depthCompareOp = CompareOp::LessEqual;
 
 			skyboxMaterialPipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
-				.shaderVariant = Assets::GetByPath<ShaderAsset>("Skore://Shaders/SkyboxRender.raster")->GetVariant("Default"),
+				.shader = Resources::FindByPath("Skore://Shaders/SkyboxRender.raster"),
 				.rasterizerState = {
 					.cullMode = CullMode::Front
 				},
@@ -572,7 +572,7 @@ namespace Skore
 		if (!finalCompositePipeline)
 		{
 			finalCompositePipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
-				.shaderVariant = Assets::GetByPath<ShaderAsset>("Skore://Shaders/FinalComposite.raster")->GetVariant("Default"),
+				.shader = Resources::FindByPath("Skore://Shaders/FinalComposite.raster"),
 				.depthStencilState = {
 					.depthTestEnable = false
 				},

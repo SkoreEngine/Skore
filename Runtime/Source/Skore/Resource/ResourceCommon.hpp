@@ -118,6 +118,7 @@ namespace Skore
 	{
 		RID                           rid;
 		UUID                          uuid;
+		String						  path;
 		ResourceType*                 resourceType = nullptr;
 		std::atomic<ResourceInstance> instance = {};
 		std::atomic<u64>              version = 1;

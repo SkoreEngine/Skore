@@ -692,7 +692,6 @@ namespace Skore
 
 	struct GraphicsPipelineDesc
 	{
-		ShaderVariant*        shaderVariant{};
 		RID                   shader;
 		String                variant = "Default";
 		PrimitiveTopology     topology{PrimitiveTopology::TriangleList};

@@ -527,7 +527,8 @@ namespace Skore
 		renderPassDesc.Field<&RenderPassDesc::debugName>("debugName");
 
 		auto graphicsPipelineDesc = Reflection::Type<GraphicsPipelineDesc>();
-		graphicsPipelineDesc.Field<&GraphicsPipelineDesc::shaderVariant>("shaderVariant");
+		graphicsPipelineDesc.Field<&GraphicsPipelineDesc::shader>("shader");
+		graphicsPipelineDesc.Field<&GraphicsPipelineDesc::variant>("variant");
 		graphicsPipelineDesc.Field<&GraphicsPipelineDesc::topology>("topology");
 		graphicsPipelineDesc.Field<&GraphicsPipelineDesc::rasterizerState>("rasterizerState");
 		graphicsPipelineDesc.Field<&GraphicsPipelineDesc::depthStencilState>("depthStencilState");
