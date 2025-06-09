@@ -328,6 +328,24 @@ namespace Skore
 		return false;
 	}
 
+	bool ResourceObject::CopyValue(u32 index, VoidPtr buffer, usize size) const
+	{
+		usize fieldSize = m_storage->resourceType->GetFields()[index]->GetProps().size;
+		if (fieldSize > size)
+		{
+			return false;
+		}
+
+		if (ConstPtr value = GetPtr(index))
+		{
+			memcpy(buffer, value, fieldSize);
+			return true;
+		}
+
+		memset(buffer, 0, fieldSize);
+		return false;
+	}
+
 	bool ResourceObject::GetBool(u32 index) const
 	{
 		if (const bool* value = GetPtr<bool>(index))
@@ -585,6 +603,10 @@ namespace Skore
 
 	ResourceObject::operator bool() const
 	{
+		if (m_storage == nullptr)
+		{
+			return false;
+		}
 		return m_storage->instance.load() != nullptr || m_currentInstance != nullptr;
 	}
 

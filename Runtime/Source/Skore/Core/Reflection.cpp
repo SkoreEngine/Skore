@@ -203,13 +203,13 @@ namespace Skore
 		return m_index;
 	}
 
-	ResourceFieldType ReflectField::GetResourceFieldType() const
+	ResourceFieldInfo ReflectField::GetResourceFieldInfo() const
 	{
-		if (m_getResourceFieldType)
+		if (m_getResourceFieldInfo)
 		{
-			return m_getResourceFieldType(this);
+			return m_getResourceFieldInfo(this);
 		}
-		return ResourceFieldType::None;
+		return {ResourceFieldType::None};
 	}
 
 	void ReflectField::ToResource(ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope) const
@@ -649,9 +649,9 @@ namespace Skore
 		field->m_fromResource = fnGetFromResource;
 	}
 
-	void ReflectFieldBuilder::SetFnGetResourceFieldType(ReflectField::FnGetResourceFieldType fnGetResourceField)
+	void ReflectFieldBuilder::SetFnGetResourceFieldInfo(ReflectField::FnGetResourceFieldInfo fnGetResourceField)
 	{
-		field->m_getResourceFieldType = fnGetResourceField;
+		field->m_getResourceFieldInfo = fnGetResourceField;
 	}
 
 	ReflectAttributeBuilder ReflectFieldBuilder::AddAttribute(const TypeProps& props)

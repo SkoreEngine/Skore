@@ -348,7 +348,8 @@ namespace Skore
 		ResourceTypeBuilder builder = Type(reflectType->GetProps().typeId, reflectType->GetName());
 		for (ReflectField* field : reflectType->GetFields())
 		{
-			builder.Field(field->GetIndex(), field->GetName(), field->GetResourceFieldType(), field->GetProps().typeId);
+			ResourceFieldInfo info = field->GetResourceFieldInfo();
+			builder.Field(field->GetIndex(), field->GetName(), info.type, info.subType);
 		}
 
 		builder.Build();
@@ -904,7 +905,7 @@ namespace Skore
 							write.SetBlob(field->GetIndex(), reader.GetBlob());
 							break;
 						case ResourceFieldType::Reference:
-							if (RID rid = FindByUUID(UUID::FromString(reader.GetString())))
+							if (RID rid = FindOrReserveByUUID(UUID::FromString(reader.GetString())))
 							{
 								write.SetReference(field->GetIndex(), rid);
 							}

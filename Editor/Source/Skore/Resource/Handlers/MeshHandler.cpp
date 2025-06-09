@@ -20,24 +20,39 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-
-#include "Skore/Core/Math.hpp"
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore
 {
-	struct TransformComponent
+	struct MeshHandler : ResourceAssetHandler
 	{
-		Vec3 position{0, 0, 0};
-		Quat rotation{0, 0, 0, 1};
-		Vec3 scale{1, 1, 1};
+		SK_CLASS(MeshHandler, ResourceAssetHandler);
+
+		StringView Extension() override
+		{
+			return ".mesh";
+		}
+
+		void OpenAsset(RID rid) override
+		{
+			//TODO
+		}
+
+		TypeID GetResourceTypeId() override
+		{
+			return TypeInfo<MeshResource>::ID();
+		}
+
+		StringView GetDesc() override
+		{
+			return "Mesh";
+		}
 	};
 
-	struct RenderComponent
+	void RegisterMeshHandler()
 	{
-		TypedRID<MeshResource> mesh = {};
-		bool                   castShadows = true;
-	};
+		Reflection::Type<MeshHandler>();
+	}
 }

@@ -141,7 +141,7 @@ namespace Skore
 		typedef void (*FnDeserialize)(ArchiveReader& reader, const ReflectField* field, VoidPtr instance);
 		typedef void (*FnToResource)(const ReflectField* field, ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope);
 		typedef void (*FnFromResource)(const ReflectField* field, const ResourceObject& resourceObject, u32 index, VoidPtr instance);
-		typedef ResourceFieldType (*FnGetResourceFieldType)(const ReflectField* field);
+		typedef ResourceFieldInfo (*FnGetResourceFieldInfo)(const ReflectField* field);
 
 
 		typedef const Object* (*FnGetObject)(const ReflectField* field, ConstPtr instance);
@@ -158,7 +158,7 @@ namespace Skore
 		void              Serialize(ArchiveWriter& writer, ConstPtr instance) const;
 		void              Deserialize(ArchiveReader& reader, VoidPtr instance) const;
 
-		ResourceFieldType GetResourceFieldType() const;
+		ResourceFieldInfo GetResourceFieldInfo() const;
 		void              ToResource(ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope) const;
 		void              FromResource(const ResourceObject& resourceObject, u32 index, VoidPtr instance) const;
 
@@ -188,7 +188,7 @@ namespace Skore
 		FnDeserialize          m_deserialize = nullptr;
 		FnToResource           m_toResource = nullptr;
 		FnFromResource         m_fromResource = nullptr;
-		FnGetResourceFieldType m_getResourceFieldType = nullptr;
+		FnGetResourceFieldInfo m_getResourceFieldInfo = nullptr;
 	};
 
 	class SK_API ReflectFunction
@@ -367,7 +367,7 @@ namespace Skore
 		void SetFnSet(ReflectField::FnSet set);
 		void SetFnToResource(ReflectField::FnToResource fnToResource);
 		void SetFnFromResource(ReflectField::FnFromResource fnGetFromResource);
-		void SetFnGetResourceFieldType(ReflectField::FnGetResourceFieldType fnGetResourceField);
+		void SetFnGetResourceFieldInfo(ReflectField::FnGetResourceFieldInfo fnGetResourceField);
 
 		ReflectAttributeBuilder AddAttribute(const TypeProps& props);
 
@@ -640,7 +640,7 @@ namespace Skore
 			builder.SetDeserialize(FnDeserializeImpl);
 			builder.SetFnToResource(FnToResourceImpl);
 			builder.SetFnFromResource(FnFromResourceImpl);
-			builder.SetFnGetResourceFieldType(FnGetResourceFieldType);
+			builder.SetFnGetResourceFieldInfo(FnGetResourceFieldInfo);
 			builder.SetCopy(FnCopyImpl);
 			builder.SetGet(GetImpl);
 			builder.SetGetObject(FnGetObjectImpl);
@@ -689,13 +689,13 @@ namespace Skore
 			}
 		}
 
-		static ResourceFieldType FnGetResourceFieldType(const ReflectField* field)
+		static ResourceFieldInfo FnGetResourceFieldInfo(const ReflectField* field)
 		{
 			if constexpr (ResourceCast<FieldType>::hasSpecialization)
 			{
-				return ResourceCast<FieldType>::GetResourceFieldType();
+				return ResourceCast<FieldType>::GetResourceFieldInfo();
 			}
-			return ResourceFieldType::None;
+			return {ResourceFieldType::None};
 		}
 
 		static void FnCopyImpl(const ReflectField* field, ConstPtr src, VoidPtr dest)
@@ -746,7 +746,7 @@ namespace Skore
 			builder.SetDeserialize(FnDeserializeImpl);
 			builder.SetFnToResource(FnToResourceImpl);
 			builder.SetFnFromResource(FnFromResourceImpl);
-			builder.SetFnGetResourceFieldType(FnGetResourceFieldType);
+			builder.SetFnGetResourceFieldInfo(FnGetResourceFieldInfo);
 			builder.SetCopy(FnCopyImpl);
 			builder.SetGet(GetImpl);
 			builder.SetGetObject(FnGetObjectImpl);
@@ -791,13 +791,13 @@ namespace Skore
 			}
 		}
 
-		static ResourceFieldType FnGetResourceFieldType(const ReflectField* field)
+		static ResourceFieldInfo FnGetResourceFieldInfo(const ReflectField* field)
 		{
 			if constexpr (ResourceCast<FieldType>::hasSpecialization)
 			{
-				return ResourceCast<FieldType>::GetResourceFieldType();
+				return ResourceCast<FieldType>::GetResourceFieldInfo();
 			}
-			return ResourceFieldType::None;
+			return {ResourceFieldType::None};
 		}
 
 		static void FnCopyImpl(const ReflectField* field, ConstPtr src, VoidPtr dest)

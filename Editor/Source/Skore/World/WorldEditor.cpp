@@ -57,7 +57,6 @@ namespace Skore
 
 	WorldEditor::WorldEditor(EditorWorkspace& workspace) : m_workspace(workspace)
 	{
-
 		m_state = Resources::Create<WorldEditorState>();
 		Resources::Write(m_state).Commit();
 
@@ -140,7 +139,6 @@ namespace Skore
 		{
 			Resources::Destroy(selected, scope);
 		}
-
 	}
 
 	void WorldEditor::DuplicateSelected()
@@ -206,9 +204,21 @@ namespace Skore
 		return selectionObject.GetReferenceArray(WorldEditorSelection::SelectedEntities);
 	}
 
-	void WorldEditor::SetActivated(RID entity, bool activated) {}
+	void WorldEditor::SetActivated(RID entity, bool activated)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Activate Entity");
+		ResourceObject entityObject = Resources::Write(entity);
+		entityObject.SetBool(EntityResource::Deactivated, !activated);
+		entityObject.Commit(scope);
+	}
 
-	void WorldEditor::SetLocked(RID entity, bool locked) {}
+	void WorldEditor::SetLocked(RID entity, bool locked)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Lock Entity");
+		ResourceObject entityObject = Resources::Write(entity);
+		entityObject.SetBool(EntityResource::Locked, locked);
+		entityObject.Commit(scope);
+	}
 
 	void WorldEditor::Rename(RID entity, StringView newName)
 	{
@@ -255,7 +265,6 @@ namespace Skore
 			}
 		}
 
-
 		if (newValue && worldEditor->m_selection == newValue.GetRID())
 		{
 			for (RID selected : newValue.GetReferenceArray(WorldEditorSelection::SelectedEntities))
@@ -275,7 +284,5 @@ namespace Skore
 		Resources::Type<WorldEditorState>()
 			.Field<WorldEditorState::OpenEntity>(ResourceFieldType::Reference)
 			.Build();
-
-
 	}
 }

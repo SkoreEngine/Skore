@@ -27,6 +27,7 @@
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/IO/Assets.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore
 {
@@ -307,7 +308,7 @@ namespace Skore
 
 
 	template <typename T>
-	void DrawAsset(const Asset* asset, u64 id, TypeID typeId, T&& func)
+	void DrawResource(const RID rid, u64 id, TypeID typeId, T&& func)
 	{
 		auto& style = ImGui::GetStyle();
 		auto& io = ImGui::GetIO();
@@ -317,9 +318,11 @@ namespace Skore
 
 		bool openPopup = false;
 
+		String name = ResourceAssets::GetAssetName(rid);
+
 		ImGui::SetNextItemWidth(-22 * ImGui::GetStyle().ScaleFactor);
 		ImGui::PushID(pushStr);
-		ImGuiInputTextReadOnly(id, asset ? asset->GetName() : "");
+		ImGuiInputTextReadOnly(id, name);
 		ImGui::SameLine(0, 0);
 		auto size = ImGui::GetItemRectSize();
 
@@ -332,7 +335,7 @@ namespace Skore
 		bool visible = true;
 
 		char popupModalName[50] = {};
-		sprintf(popupModalName, "Asset Selection###window%llu", id);
+		sprintf(popupModalName, "Resource Selection###window%llu", id);
 
 		if (openPopup)
 		{
@@ -388,26 +391,27 @@ namespace Skore
 							if (state.enter)
 							{
 								ImGui::CloseCurrentPopup();
-								func(nullptr);
+								func(RID{});
 							}
 						}
 
-						// for (AssetFile* assetFile : AssetEditor::GetAssetsByType(typeId))
-						// {
-						// 	ImGuiContentItemDesc contentItem{};
-						// 	contentItem.id = PtrToInt(assetFile);
-						// 	contentItem.label = assetFile->GetName();
-						// 	contentItem.thumbnailScale = zoom;
-						// 	//contentItem.texture = assetFile->GetThumbnail();
-						//
-						// 	ImGuiContentItemState state = ImGuiContentItem(contentItem);
-						//
-						// 	if (state.enter)
-						// 	{
-						// 		ImGui::CloseCurrentPopup();
-						// 		func(assetFile->GetInstance());
-						// 	}
-						// }
+						for (RID resourceAsset : ResourceAssets::GetResourceAssetsByType(typeId))
+						{
+							ImGuiContentItemDesc contentItem{};
+							contentItem.id = resourceAsset.id;
+							contentItem.label = ResourceAssets::GetAssetName(resourceAsset); //cache?
+							contentItem.thumbnailScale = zoom;
+							//contentItem.texture = assetFile->GetThumbnail();
+
+							ImGuiContentItemState state = ImGuiContentItem(contentItem);
+
+							if (state.enter)
+							{
+								ImGui::CloseCurrentPopup();
+								func(resourceAsset);
+							}
+						}
+
 						ImGuiEndContentTable();
 					}
 					ImGui::EndChild();
@@ -424,19 +428,19 @@ namespace Skore
 		}
 	}
 
-	bool CanDrawAssetField(const ImGuiDrawFieldDrawCheck& check)
+	bool CanDrawResourceField(const ImGuiDrawFieldDrawCheck& check)
 	{
-		return check.reflectFieldType && check.reflectFieldType->IsDerivedOf(TypeInfo<Asset>::ID());
+		return check.resourceField != nullptr && check.resourceField->GetType() == ResourceFieldType::Reference;
 	}
 
-	void DrawAssetField(const ImGuiDrawFieldContext& context, ConstPtr value)
+	void DrawResourceField(const ImGuiDrawFieldContext& context, ConstPtr value)
 	{
-		SK_ASSERT(context.reflectFieldType, "reflectFieldType cannot be null");
+		SK_ASSERT(context.resourceField, "reflectFieldType cannot be null");
 
-		const Asset* asset = *static_cast<Asset*const*>(value);
-		DrawAsset(asset, context.id, context.reflectFieldType->GetProps().typeId, [&](Asset* asset)
+		RID rid = *static_cast<const RID*>(value);
+		DrawResource(rid, context.id, context.resourceField->GetSubType(), [&](RID rid)
 		{
-			ImGuiCommitFieldChanges(context, &asset, sizeof(ptrdiff_t));
+			ImGuiCommitFieldChanges(context, &rid, sizeof(RID));
 		});
 	}
 
@@ -580,7 +584,7 @@ namespace Skore
 		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawField<f32, f64>, .drawField = DrawFloatField});
 		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawField<bool>, .drawField = DrawBoolField});
 		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawEnumField, .drawField = DrawEnumField});
-		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawAssetField, .drawField = DrawAssetField});
+		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawResourceField, .drawField = DrawResourceField});
 
 		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{
 			.canDrawField = CanDrawArrayField,

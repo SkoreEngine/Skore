@@ -40,6 +40,7 @@ namespace Skore
 		u32               GetOffset() const;
 		ResourceFieldType GetType() const;
 		TypeID            GetSubType() const;
+		FieldProps		  GetProps() const;
 
 		friend class ResourceTypeBuilder;
 		friend class ResourceType;

@@ -29,33 +29,27 @@
 
 namespace Skore
 {
-	struct ResourceFieldProps
-	{
-		usize size;
-		usize align;
+	constexpr static TypeProps fieldProps[] = {
+		TypeInfo<void>::GetProps(),         // ResourceFieldType::None
+		TypeInfo<bool>::GetProps(),         // ResourceFieldType::Bool
+		TypeInfo<i64>::GetProps(),          // ResourceFieldType::Int,
+		TypeInfo<u64>::GetProps(),          // ResourceFieldType::UInt,
+		TypeInfo<f64>::GetProps(),          // ResourceFieldType::Float,
+		TypeInfo<String>::GetProps(),       // ResourceFieldType::String,
+		TypeInfo<Vec2>::GetProps(),         // ResourceFieldType::Vec2,
+		TypeInfo<Vec3>::GetProps(),         // ResourceFieldType::Vec3,
+		TypeInfo<Vec4>::GetProps(),         // ResourceFieldType::Vec4,
+		TypeInfo<Quat>::GetProps(),         // ResourceFieldType::Quat,
+		TypeInfo<Color>::GetProps(),        // ResourceFieldType::Color,
+		TypeInfo<i64>::GetProps(),          // ResourceFieldType::Enum,
+		TypeInfo<ByteBuffer>::GetProps(),   // ResourceFieldType::Blob,
+		TypeInfo<RID>::GetProps(),          // ResourceFieldType::Reference,
+		TypeInfo<Array<RID>>::GetProps(),   // ResourceFieldType::ReferenceArray,
+		TypeInfo<RID>::GetProps(),          // ResourceFieldType::SubObject,
+		TypeInfo<SubObjectSet>::GetProps(), // ResourceFieldType::SubObjectSet,
 	};
 
-	constexpr static ResourceFieldProps fieldProps[] = {
-		{0, 0},                                        // ResourceFieldType::None
-		{sizeof(bool), alignof(bool)},                 // ResourceFieldType::Bool
-		{sizeof(i64), alignof(i64)},                   // ResourceFieldType::Int,
-		{sizeof(u64), alignof(u64)},                   // ResourceFieldType::UInt,
-		{sizeof(f64), alignof(f64)},                   // ResourceFieldType::Float,
-		{sizeof(String), alignof(String)},             // ResourceFieldType::String,
-		{sizeof(Vec2), alignof(Vec2)},                 // ResourceFieldType::Vec2,
-		{sizeof(Vec3), alignof(Vec3)},                 // ResourceFieldType::Vec3,
-		{sizeof(Vec4), alignof(Vec4)},                 // ResourceFieldType::Vec4,
-		{sizeof(Quat), alignof(Quat)},                 // ResourceFieldType::Quat,
-		{sizeof(Color), alignof(Color)},               // ResourceFieldType::Color,
-		{sizeof(i64), alignof(i64)},                   // ResourceFieldType::Enum,
-		{sizeof(ByteBuffer), alignof(ByteBuffer)},     // ResourceFieldType::Blob,
-		{sizeof(RID), alignof(RID)},                   // ResourceFieldType::Reference,
-		{sizeof(Array<RID>), alignof(Array<RID>)},     // ResourceFieldType::ReferenceArray,
-		{sizeof(RID), alignof(RID)},                   // ResourceFieldType::SubObject,
-		{sizeof(SubObjectSet), alignof(SubObjectSet)}, // ResourceFieldType::SubObjectSet,
-	};
-
-	static_assert(sizeof(fieldProps) / sizeof(ResourceFieldProps) == static_cast<usize>(ResourceFieldType::MAX), "Invalid field size array");
+	static_assert(sizeof(fieldProps) / sizeof(TypeProps) == static_cast<usize>(ResourceFieldType::MAX), "Invalid field size array");
 
 
 	StringView ResourceField::GetName() const
@@ -86,6 +80,23 @@ namespace Skore
 	TypeID ResourceField::GetSubType() const
 	{
 		return subType;
+	}
+
+	FieldProps ResourceField::GetProps() const
+	{
+		TypeProps typeProps = fieldProps[static_cast<usize>(type)];
+
+		FieldProps props{};
+		props.typeId = typeProps.typeId;
+		props.typeApi = typeProps.typeApi;
+		props.name = typeProps.name;
+		props.getTypeApi = typeProps.getTypeApi;
+		props.size = typeProps.size;
+		props.alignment = typeProps.alignment;
+		props.isTriviallyCopyable = typeProps.isTriviallyCopyable;
+		props.isEnum = typeProps.isEnum;
+
+		return props;
 	}
 
 	ResourceType::ResourceType(TypeID type, StringView name) : type(type), name(name) {}
@@ -209,10 +220,10 @@ namespace Skore
 
 		for (ResourceField* field : resourceType->fields)
 		{
-			const ResourceFieldProps& props = fieldProps[static_cast<usize>(field->type)];
+			const TypeProps& props = fieldProps[static_cast<usize>(field->type)];
 			field->size = props.size;
 			field->offset = resourceType->allocSize;
-			resourceType->allocSize += Math::Max(props.size, props.align);
+			resourceType->allocSize += Math::Max(props.size, props.alignment);
 		}
 
 		return *this;

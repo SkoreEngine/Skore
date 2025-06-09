@@ -157,31 +157,15 @@ namespace Skore
 					ImGui::BeginDisabled(readOnly);
 					ImGui::Indent();
 
-					// ImGuiDrawObject(ImGuiDrawObjectInfo{
-					// 	.object = component,
-					// 	.userData = this,
-					// 	.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
-					// 	{
-					// 		//context.reflectField
-					//
-					// 		Editor::GetCurrentWorkspace().GetSceneEditor()->MarkDirty();
-					// 		//
-					// 		// Ref<Transaction> transaction = UndoRedoSystem::BeginTransaction("ComponentUpdate");
-					// 		// UpdateComponentCommand* command = Alloc<UpdateComponentCommand>();
-					// 		// transaction->AddCommand(command);
-					// 		//
-					// 		// UndoRedoSystem::EndTransaction(transaction);
-					// 	}
-					// });
+					ImGuiDrawResource(ImGuiDrawResourceInfo{
+						.rid = component,
+						.scopeName = "Component Update"
+					});
+
 					ImGui::Unindent();
 					ImGui::EndDisabled();
 				}
 			}
-
-
-
-
-
 
 			return true;
 		});

@@ -101,38 +101,6 @@ namespace Skore
 		constexpr static TypeID typeId = TypeInfo<T>::ID();
 	};
 
-	struct TypedRIDApi
-	{
-		TypeID (*GetTypeID)();
-		RID (*   GetRID)(ConstPtr instance);
-	};
-
-	template <typename Type>
-	struct TypeApi<TypedRID<Type>>
-	{
-		static TypeID GetTypedID()
-		{
-			return TypedRID<Type>::typeId;
-		}
-
-		static RID GetRID(ConstPtr instance)
-		{
-			return *static_cast<const TypedRID<Type>*>(instance);
-		}
-
-		static void ExtractApi(VoidPtr pointer)
-		{
-			TypedRIDApi* typedRidApi = static_cast<TypedRIDApi*>(pointer);
-			typedRidApi->GetTypeID = GetTypedID;
-			typedRidApi->GetRID = GetRID;
-		}
-
-		static constexpr TypeID GetApiId()
-		{
-			return TypeInfo<TypedRIDApi>::ID();
-		}
-	};
-
 	struct SubObjectSet
 	{
 		HashSet<RID> subObjects;

@@ -33,6 +33,7 @@
 #include "ImGuizmo.h"
 #include "imgui_impl_vulkan.h"
 #include "Skore/App.hpp"
+#include "Skore/Editor.hpp"
 #include "Skore/Events.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Object.hpp"
@@ -84,8 +85,21 @@ namespace Skore
 			Array<ObjectTypeFieldRenderer> fields;
 		};
 
+		struct ResourceFieldRenderer
+		{
+			u32                     index;
+			String                  label;
+			Array<DrawFieldContext> drawFn;
+		};
+
+		struct ResourceTypeRenderer
+		{
+			Array<ResourceFieldRenderer> fields;
+		};
+
 		HashMap<TypeID, ObjectTypeRenderer>     objectTypeRenderers;
-		HashMap<TypeID, FieldVisibilityControl> vibilityControl;
+		HashMap<TypeID, FieldVisibilityControl> visibilityControl;
+		HashMap<TypeID, ResourceTypeRenderer>   resourceTypeRenders;
 	}
 
 	SK_API SDL_Window*   GraphicsGetWindow();
@@ -1237,7 +1251,7 @@ namespace Skore
 
 	void ImGuiDrawObject(const ImGuiDrawObjectInfo& info)
 	{
-		char buffer[1024];
+		 char buffer[1024];
 
 		if (!info.object) return;
 		Object* object = info.object;
@@ -1245,7 +1259,7 @@ namespace Skore
 		auto it = objectTypeRenderers.Find(object->GetTypeId());
 		if (it == objectTypeRenderers.end())
 		{
-			auto itVisibilityControl = vibilityControl.Find(object->GetTypeId());
+			auto itVisibilityControl = visibilityControl.Find(object->GetTypeId());
 
 			ObjectTypeRenderer typeRenderer;
 			typeRenderer.reflectType = Reflection::FindTypeById(object->GetTypeId());
@@ -1259,7 +1273,7 @@ namespace Skore
 					.reflectField = field,
 				});
 
-				if (itVisibilityControl != vibilityControl.end())
+				if (itVisibilityControl != visibilityControl.end())
 				{
 					auto itVisibilityControlField = itVisibilityControl->second.fieldVisibilityControls.Find(field->GetName());
 					if (itVisibilityControlField != itVisibilityControl->second.fieldVisibilityControls.end())
@@ -1268,13 +1282,13 @@ namespace Skore
 					}
 				}
 
+				ImGuiDrawFieldDrawCheck check;
+				check.fieldProps = field->GetProps();
+				check.reflectField = field;
+				check.reflectFieldType = objectFieldRenderer.reflectType;
+
 				for (ImGuiFieldRenderer fieldRenderer : fieldRenderers)
 				{
-					ImGuiDrawFieldDrawCheck check;
-					check.fieldProps = field->GetProps();
-					check.reflectField = field;
-					check.reflectFieldType = objectFieldRenderer.reflectType;
-
 					if (fieldRenderer.canDrawField(check))
 					{
 						DrawFieldContext fieldContext = DrawFieldContext{
@@ -1295,7 +1309,7 @@ namespace Skore
 		ObjectTypeRenderer& typeRenderer = it->second;
 		if (!typeRenderer.fields.Empty())
 		{
-			if (ImGui::BeginTable("##resource-table", 2))
+			if (ImGui::BeginTable("##object-table", 2))
 			{
 				ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.6f);
 				ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
@@ -1357,10 +1371,10 @@ namespace Skore
 
 	void ImGuiRegisterFieldVisibilityControl(TypeID typeId, StringView fieldName, FnFieldVisibilityControl fieldVisibilityControl)
 	{
-		auto it = vibilityControl.Find(typeId);
-		if (it == vibilityControl.end())
+		auto it = visibilityControl.Find(typeId);
+		if (it == visibilityControl.end())
 		{
-			it = vibilityControl.Insert(typeId, FieldVisibilityControl{}).first;
+			it = visibilityControl.Insert(typeId, FieldVisibilityControl{}).first;
 		}
 		it->second.fieldVisibilityControls.Insert(String(fieldName), fieldVisibilityControl);
 	}
@@ -1373,9 +1387,151 @@ namespace Skore
 			context.reflectField->Set(context.object, pointer, size);
 		}
 
+		if (context.rid && context.resourceField)
+		{
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope(!context.scopeName.Empty() ? context.scopeName : "Update Field");
+			ResourceObject resourceObject = Resources::Write(context.rid);
+
+			switch (context.resourceField->GetType())
+			{
+				case ResourceFieldType::String:
+				case ResourceFieldType::Blob:
+				case ResourceFieldType::SubObject:
+				case ResourceFieldType::SubObjectSet:
+					//TODO: not handled yet
+					break;
+				default:
+					resourceObject.SetValue(context.resourceField->GetIndex(), pointer, size);
+					break;
+			}
+
+			resourceObject.Commit(scope);
+		}
+
 		if (context.callback)
 		{
 			context.callback(context, pointer, size);
+		}
+	}
+
+	void ImGuiDrawResource(const ImGuiDrawResourceInfo& drawResourceInfo)
+	{
+		char buffer[128];
+
+		ResourceObject object = Resources::Read(drawResourceInfo.rid);
+		if (!object) return;
+		ResourceType* resourceType = object.GetType();
+
+		auto it = resourceTypeRenders.Find(resourceType->GetID());
+		if (it == resourceTypeRenders.end())
+		{
+			ResourceTypeRenderer typeRenderer;
+
+			for (ResourceField* field: resourceType->GetFields())
+			{
+				ImGuiDrawFieldDrawCheck check;
+				check.fieldProps = field->GetProps();
+				check.resourceField = field;
+
+				Array<DrawFieldContext> drawFieldContexts;
+
+				for (ImGuiFieldRenderer fieldRenderer : fieldRenderers)
+				{
+					if (fieldRenderer.canDrawField(check))
+					{
+						DrawFieldContext fieldContext = DrawFieldContext{
+							.drawField = fieldRenderer.drawField
+						};
+
+						if (fieldRenderer.createCustomContext)
+						{
+							fieldContext.context = fieldRenderer.createCustomContext(check);
+						}
+
+						drawFieldContexts.EmplaceBack(fieldContext);
+					}
+				}
+
+				if (!drawFieldContexts.Empty())
+				{
+					typeRenderer.fields.EmplaceBack(ResourceFieldRenderer{
+						.index = field->GetIndex(),
+						.label = FormatName(field->GetName()),
+						.drawFn = drawFieldContexts
+					});
+				}
+			}
+			it = resourceTypeRenders.Insert(resourceType->GetID(), typeRenderer).first;
+		}
+
+		ResourceTypeRenderer& typeRenderer = it->second;
+		if (!typeRenderer.fields.Empty())
+		{
+			if (ImGui::BeginTable("##object-table", 2))
+			{
+				ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+				ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+				u64 c = 0;
+
+				for (ResourceFieldRenderer& field : typeRenderer.fields)
+				{
+					c++;
+					ResourceField* resourceField = resourceType->GetFields()[field.index];
+
+					// if (field.fieldVisibilityControl && !field.fieldVisibilityControl(object))
+					// {
+					// 	continue;
+					// }
+
+					ImGui::TableNextColumn();
+					ImGui::AlignTextToFramePadding();
+
+					u64 id = 0;
+					HashCombine(id, resourceType->GetID(), HashValue(c));
+
+					ImGui::BeginHorizontal(id, ImVec2(ImGui::GetColumnWidth(0), 0));
+					ImGui::Text("%s", field.label.CStr());
+
+					ImGui::Spring(1.0);
+
+					// if (ImGui::Button(ICON_FA_ARROWS_ROTATE))
+					// {
+					//
+					// }
+
+					ImGui::EndHorizontal();
+					ImGui::TableNextColumn();
+
+					ImGuiDrawFieldContext context;
+					context.id = id + 1;
+					context.rid = drawResourceInfo.rid;
+					context.userData = drawResourceInfo.userData;
+					context.callback = drawResourceInfo.callback;
+					context.resourceField = resourceField;
+					context.scopeName = drawResourceInfo.scopeName;
+
+					for (auto& drawField : field.drawFn)
+					{
+						context.customContext = drawField.context;
+
+						switch (resourceField->GetType())
+						{
+							case ResourceFieldType::String:
+							case ResourceFieldType::Blob:
+							case ResourceFieldType::SubObject:
+							case ResourceFieldType::SubObjectSet:
+								break;
+							default:
+								object.CopyValue(field.index, buffer, 1000);
+								drawField.drawField(context, buffer);
+								break;
+						}
+					}
+				}
+
+				ImGui::EndTable();
+			}
 		}
 	}
 }

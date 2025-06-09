@@ -152,5 +152,6 @@ namespace Skore
 		static ResourceAssetHandler* GetAssetHandler(RID rid);
 		static ResourceAssetHandler* GetAssetHandler(TypeID typeId);
 		static String                GetAssetName(RID rid);
+		static Span<RID>             GetResourceAssetsByType(TypeID typeId);
 	};
 }

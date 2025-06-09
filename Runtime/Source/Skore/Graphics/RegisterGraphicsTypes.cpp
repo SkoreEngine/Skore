@@ -661,5 +661,9 @@ namespace Skore
 			.Field<TextureResource::Extent>(ResourceFieldType::Vec3)
 			.Field<TextureResource::Pixels>(ResourceFieldType::Blob)
 			.Build();
+
+		Resources::Type<MeshResource>()
+			.Field<MeshResource::Name>(ResourceFieldType::String)
+			.Build();
 	}
 }

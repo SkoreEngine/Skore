@@ -42,6 +42,7 @@ namespace Skore
 		ResourceObject(ResourceStorage* storage, ResourceInstance writeInstance);
 		~ResourceObject();
 
+		void SetValue(u32 index, ConstPtr value, usize size) const;
 		void SetBool(u32 index, bool value);
 		void SetInt(u32 index, i64 value);
 		void SetUInt(u32 index, u64 value);
@@ -82,6 +83,7 @@ namespace Skore
 
 		bool       HasValue(u32 index) const;
 		bool       HasValueOnThisObject(u32 index) const;
+		bool       CopyValue(u32 index, VoidPtr buffer, usize size) const;
 		bool       GetBool(u32 index) const;
 		i64        GetInt(u32 index) const;
 		u64        GetUInt(u32 index) const;
@@ -97,7 +99,7 @@ namespace Skore
 		RID        GetReference(u32 index) const;
 		Span<u8>   GetBlob(u32 index) const;
 		Span<RID>  GetReferenceArray(u32 index) const;
-		bool	   HasOnReferenceArray(u32 index, RID rid) const;
+		bool       HasOnReferenceArray(u32 index, RID rid) const;
 		usize      GetSubObjectSetCount(u32 index) const;
 		void       GetSubObjectSet(u32 index, Span<RID> subObjects) const;
 		Array<RID> GetSubObjectSetAsArray(u32 index) const;
@@ -129,7 +131,6 @@ namespace Skore
 		ResourceStorage* m_storage;
 		ResourceInstance m_currentInstance;
 
-		void     SetValue(u32 index, ConstPtr value, usize size) const;
 		void     UpdateHasValue(u32 index, bool hasValue) const;
 		ConstPtr GetPtr(u32 index) const;
 		VoidPtr  GetMutPtr(u32 index) const;

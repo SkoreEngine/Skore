@@ -29,7 +29,6 @@
 #include "Skore/Events.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Event.hpp"
-#include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/StringUtils.hpp"
@@ -49,12 +48,28 @@ namespace Skore
 		HashMap<String, ResourceAssetHandler*> handlersByExtension;
 		HashMap<TypeID, ResourceAssetHandler*> handlersByTypeID;
 
+		HashMap<TypeID, Array<RID>> resourceAssetsByType;
+
 		HashMap<String, ResourceAssetImporter*> importersByExtension;
 
 		Allocator* alloc = MemoryGlobals::GetHeapAllocator();
 
 
 		Logger& logger = Logger::GetLogger("Skore::ResourceAssets", LogLevel::Debug);
+
+
+		void RegisterResourceByType(RID rid)
+		{
+			if (ResourceType* type = Resources::GetType(rid))
+			{
+				auto it = resourceAssetsByType.Find(type->GetID());
+				if (it == resourceAssetsByType.end())
+				{
+					it = resourceAssetsByType.Emplace(type->GetID(), Array<RID>{}).first;
+				}
+				it->second.EmplaceBack(rid);
+			}
+		}
 
 		String GetNewAbsolutePath(RID asset)
 		{
@@ -209,6 +224,7 @@ namespace Skore
 					if (RID object = DeserializeAsset(entry))
 					{
 						assetObject.SetSubObject(ResourceAsset::Object, object);
+						RegisterResourceByType(object);
 					}
 				}
 
@@ -219,7 +235,7 @@ namespace Skore
 				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, entry);
 				assetFileObject.SetString(ResourceAssetFile::RelativePath, path);
 				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, Resources::GetVersion(asset));
-				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize); //TODO need to calc buffer size too?
+				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
 				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
 
 				assetFileObject.Commit();
@@ -495,7 +511,8 @@ namespace Skore
 			String newName = CreateUniqueAssetName(parent, desiredName.Empty() ? String("New ").Append(handler->GetDesc()) : String(desiredName), false);
 			String path = GetDirectoryPath(parent) + "/" + newName + handler->Extension();
 
-			RID            asset = Resources::Create(typeId, UUID::RandomUUID(), scope);
+			RID asset = Resources::Create(typeId, UUID::RandomUUID(), scope);
+			RegisterResourceByType(asset);
 			ResourceObject assetObject = Resources::Write(asset);
 			assetObject.Commit(scope);
 
@@ -694,6 +711,8 @@ namespace Skore
 
 	String ResourceAssets::GetAssetName(RID rid)
 	{
+		if (!rid) return {};
+
 		if (ResourceAssetHandler* assetHandler = GetAssetHandler(rid))
 		{
 			String name;
@@ -715,6 +734,15 @@ namespace Skore
 			return name;
 		}
 
+		return {};
+	}
+
+	Span<RID> ResourceAssets::GetResourceAssetsByType(TypeID typeId)
+	{
+		if (auto it = resourceAssetsByType.Find(typeId))
+		{
+			return it->second;
+		}
 		return {};
 	}
 
@@ -778,6 +806,7 @@ namespace Skore
 
 	void RegisterEntityHandler();
 	void RegisterTextureHandler();
+	void RegisterMeshHandler();
 	void RegisterTextureImporter();
 
 	void RegisterResourceAssetTypes()
@@ -819,5 +848,6 @@ namespace Skore
 		RegisterEntityHandler();
 		RegisterTextureHandler();
 		RegisterTextureImporter();
+		RegisterMeshHandler();
 	}
 }

@@ -28,9 +28,9 @@
 
 namespace Skore
 {
-	struct MeshHandler : AssetHandler
+	struct MeshHandler2 : AssetHandler
 	{
-		SK_CLASS(MeshHandler, AssetHandler);
+		SK_CLASS(MeshHandler2, AssetHandler);
 
 		TypeID GetAssetTypeId() override
 		{
@@ -55,6 +55,6 @@ namespace Skore
 
 	void RegisterMeshAssetHandler()
 	{
-		Reflection::Type<MeshHandler>();
+		Reflection::Type<MeshHandler2>();
 	}
 }

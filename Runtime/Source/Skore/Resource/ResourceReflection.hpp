@@ -28,6 +28,13 @@
 
 namespace Skore
 {
+	struct ResourceFieldInfo
+	{
+		ResourceFieldType type;
+		TypeID            subType;
+	};
+
+
 	namespace ResourceReflection
 	{
 		// SK_API StringView GetEnumDesc(const ReflectType* reflectType, ConstPtr value);
@@ -38,7 +45,7 @@ namespace Skore
 		SK_API ReflectType* FindTypeToCast(TypeID typeId);
 	}
 
-	template<typename T>
+	template<typename T, typename = void>
 	struct ResourceCast
 	{
 		constexpr static bool hasSpecialization = true;
@@ -60,15 +67,19 @@ namespace Skore
 			}
 		}
 
-		static ResourceFieldType GetResourceFieldType()
+		static ResourceFieldInfo GetResourceFieldInfo()
 		{
 			if (ResourceReflection::FindTypeToCast(TypeInfo<T>::ID()) != nullptr)
 			{
-				return ResourceFieldType::SubObject;
+				return ResourceFieldInfo{
+					.type = ResourceFieldType::None,
+					.subType = TypeInfo<T>::ID()
+				};
 			}
-			return ResourceFieldType::None;
+			return ResourceFieldInfo{
+				.type = ResourceFieldType::None
+			};
 		}
-
 	};
 
 #define RESOURCE_CAST(TYPE, TYPE_NAME)   \
@@ -84,10 +95,13 @@ namespace Skore
 		{ \
 			value = object.Get##TYPE_NAME(index); \
 		}\
-	   static ResourceFieldType GetResourceFieldType()	\
-	   {											\
-		   return ResourceFieldType::##TYPE_NAME;	\
-	   }\
+		static ResourceFieldInfo GetResourceFieldInfo()	\
+		{												\
+			return ResourceFieldInfo{					\
+				.type = ResourceFieldType::##TYPE_NAME,	\
+				.subType = TypeInfo<TYPE>::ID()			\
+			};											\
+		}\
 	}
 
 	RESOURCE_CAST(u8, UInt);
@@ -108,6 +122,14 @@ namespace Skore
 	//bool
 	RESOURCE_CAST(bool, Bool);
 
+	//Math
+	RESOURCE_CAST(Vec2, Vec2);
+	RESOURCE_CAST(Vec3, Vec3);
+	RESOURCE_CAST(Vec4, Vec4);
+	RESOURCE_CAST(Quat, Quat);
+
+	//other
+	RESOURCE_CAST(Color, Color);
 
 	template<>
 	struct ResourceCast<String>
@@ -124,11 +146,62 @@ namespace Skore
 			value = object.GetString(index);
 		}
 
-		static ResourceFieldType GetResourceFieldType()
+		static ResourceFieldInfo GetResourceFieldInfo()
 		{
-			return ResourceFieldType::String;
+			return ResourceFieldInfo{
+				.type = ResourceFieldType::String,
+				.subType = TypeInfo<String>::ID()
+			};
 		}
 	};
 
+	template <typename T>
+	struct ResourceCast<T, Traits::EnableIf<Traits::IsEnum<T>>>
+	{
+		constexpr static bool hasSpecialization = true;
+
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const T& value)
+		{
+			object.SetEnum(index, static_cast<i64>(value));
+		}
+
+		static void FromResource(const ResourceObject& object, u32 index, T& value)
+		{
+			value = static_cast<T>(object.GetEnum(index));
+		}
+
+		static ResourceFieldInfo GetResourceFieldInfo()
+		{
+			return ResourceFieldInfo{
+				.type = ResourceFieldType::Enum,
+				.subType = TypeInfo<T>::ID()
+			};
+		}
+	};
+
+
+	template<typename T>
+	struct ResourceCast<TypedRID<T>>
+	{
+		constexpr static bool hasSpecialization = true;
+
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const TypedRID<T>& value)
+		{
+			object.SetReference(index, value);
+		}
+
+		static void FromResource(const ResourceObject& object, u32 index, TypedRID<T>& value)
+		{
+			value.id = object.GetReference(index).id;
+		}
+
+		static ResourceFieldInfo GetResourceFieldInfo()
+		{
+			return ResourceFieldInfo{
+				.type = ResourceFieldType::Reference,
+				.subType = TypeInfo<T>::ID()
+			};
+		}
+	};
 
 }

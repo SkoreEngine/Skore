@@ -28,9 +28,20 @@ namespace Skore
 	{
 		enum
 		{
-			Name,	//String
+			Name,   //String
 			Extent, //Vec3
 			Pixels  //Blob
+		};
+	};
+
+	struct MeshResource
+	{
+		enum
+		{
+			Name,       //String
+			Vertices,   //Blob
+			Indices,    //Blob
+			Primitives, //Blob
 		};
 	};
 }

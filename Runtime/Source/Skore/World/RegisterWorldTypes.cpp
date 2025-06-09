@@ -31,14 +31,16 @@ namespace Skore
 	{
 		Reflection::Type<Component>();
 
-
 		auto transformComponent = Reflection::Type<TransformComponent>();
 		transformComponent.Field<&TransformComponent::position>("position");
 		transformComponent.Field<&TransformComponent::rotation>("rotation");
 		transformComponent.Field<&TransformComponent::scale>("scale");
 		transformComponent.Attribute<Component>();
 
-
+		auto renderComponent = Reflection::Type<RenderComponent>();
+		renderComponent.Field<&RenderComponent::mesh>("mesh");
+		renderComponent.Field<&RenderComponent::castShadows>("castShadows");
+		renderComponent.Attribute<Component>();
 
 		Resources::Type<EntityResource>()
 			.Field<EntityResource::Name>(ResourceFieldType::String)
