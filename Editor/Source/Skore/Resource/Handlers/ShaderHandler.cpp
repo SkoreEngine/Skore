@@ -20,25 +20,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Skore/Asset/AssetFileOld.hpp"
-#include "Skore/Asset/AssetTypes.hpp"
-#include "Skore/Core/Reflection.hpp"
-#include "Skore/Graphics/GraphicsAssets.hpp"
-
-#include "SDL3/SDL.h"
+#include "SDL3/SDL_misc.h"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/Device.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Utils/ShaderManager.hpp"
 
 namespace Skore
 {
+
 	static Logger& logger = Logger::GetLogger("Skore::ShaderHandler");
 
-	enum class ShaderType
+	enum class ShaderAssetType
 	{
 		None,
-		Include,
 		Graphics,
 		Compute,
 		Raytrace
@@ -83,25 +82,23 @@ namespace Skore
 	};
 
 
-	struct ShaderHandler : AssetHandler
+	struct ShaderHandler : ResourceAssetHandler
 	{
-		SK_CLASS(ShaderHandler, AssetHandler);
+		SK_CLASS(ShaderHandler, ResourceAssetHandler);
 
-		TypeID GetAssetTypeId() override
+		void OpenAsset(RID asset) override
 		{
-			return TypeInfo<ShaderAsset>::ID();
+			SDL_OpenURL(ResourceAssets::GetAbsolutePath(asset).CStr());
 		}
 
-		void LoadInstance(AssetFileOld* assetFile, Asset* asset) override
+		RID Load(StringView absolutePath) override
 		{
-			ShaderAsset* shaderAsset = asset->SafeCast<ShaderAsset>();
-
 			GraphicsAPI graphicsApi = GraphicsAPI::Vulkan;
 
-			ShaderType shaderType = GetShaderType();
+			ShaderAssetType   shaderType = GetShaderAssetType();
 			ShaderConfig config;
 
-			String configPath = Path::Join(Path::Parent(assetFile->GetAbsolutePath()), Path::Name(assetFile->GetFileName()) + ".shader");
+			String configPath = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath) + ".shader");
 			if (FileSystem::GetFileStatus(configPath).exists)
 			{
 				String str = FileSystem::ReadFileAsString(configPath);
@@ -113,7 +110,7 @@ namespace Skore
 				}
 			}
 
-			String source = FileSystem::ReadFileAsString(assetFile->GetAbsolutePath());
+			String source = FileSystem::ReadFileAsString(absolutePath);
 
 			std::string_view str = {source.CStr(), source.Size()};
 			bool             hasDefaultGeometry = str.find("MainGS") != std::string_view::npos;
@@ -123,7 +120,7 @@ namespace Skore
 
 			if (config.variants.Empty())
 			{
-				if (shaderType == ShaderType::Graphics)
+				if (shaderType == ShaderAssetType::Graphics)
 				{
 					ShaderConfigVariant configVariant = ShaderConfigVariant{
 						.name = "Default",
@@ -149,7 +146,7 @@ namespace Skore
 
 					config.variants.EmplaceBack(configVariant);
 				}
-				else if (shaderType == ShaderType::Compute)
+				else if (shaderType == ShaderAssetType::Compute)
 				{
 					config.variants.EmplaceBack(ShaderConfigVariant{
 						.name = "Default",
@@ -161,7 +158,7 @@ namespace Skore
 						}
 					});
 				}
-				else if (shaderType == ShaderType::Raytrace)
+				else if (shaderType == ShaderAssetType::Raytrace)
 				{
 					ShaderConfigVariant shaderConfigVariant = ShaderConfigVariant{
 						.name = "Default"
@@ -195,25 +192,37 @@ namespace Skore
 				}
 			}
 
-            for (ShaderConfigVariant& shaderConfigVariant : config.variants)
-            {
-                Array<u8> bytes{};
-                Array<ShaderStageInfo> tempStages{};
+			for (ShaderConfigVariant& shaderConfigVariant : config.variants)
+			{
+				Array<u8>              bytes{};
+				Array<ShaderStageInfo> tempStages{};
 
-                u32 stageOffset = 0;
-                for (ShaderConfigStage& configStage : shaderConfigVariant.stages)
-                {
-                	ShaderCompileInfo shaderCompileInfo;
-                	shaderCompileInfo.entryPoint = configStage.entryPoint;
-                	shaderCompileInfo.source = source;
-                	shaderCompileInfo.shaderStage = configStage.stage;
-                	shaderCompileInfo.macros = configStage.macros;
-                	shaderCompileInfo.api = graphicsApi;
-                	shaderCompileInfo.userData = assetFile;
-                	shaderCompileInfo.getShaderInclude = [](StringView include, void* userData, String& source) -> bool
-                	{
-                		//TODO - add shader dependencies for hot reloading
-                		AssetFileOld* assetFile = static_cast<AssetFileOld*>(userData);
+				u32 stageOffset = 0;
+				for (ShaderConfigStage& configStage : shaderConfigVariant.stages)
+				{
+
+					struct ShaderIncludeUserData
+					{
+						StringView absolutePath;
+					};
+
+					ShaderIncludeUserData userData = {
+						.absolutePath = absolutePath
+
+					};
+
+					ShaderCompileInfo shaderCompileInfo;
+					shaderCompileInfo.entryPoint = configStage.entryPoint;
+					shaderCompileInfo.source = source;
+					shaderCompileInfo.shaderStage = configStage.stage;
+					shaderCompileInfo.macros = configStage.macros;
+					shaderCompileInfo.api = graphicsApi;
+					shaderCompileInfo.userData = &userData;
+					shaderCompileInfo.getShaderInclude = [](StringView include, void* userData, String& source) -> bool
+					{
+						const ShaderIncludeUserData& shaderIncludeUserData = *static_cast<ShaderIncludeUserData*>(userData);
+
+						//TODO - add shader dependencies for hot reloading
 						if (Contains(include, StringView(":/")))
 						{
 							if (AssetInterface* interface = Assets::GetInterfaceByPath(include))
@@ -223,89 +232,89 @@ namespace Skore
 							}
 						}
 
-                		if (FileSystem::GetFileStatus(Path::Join(Path::Parent(assetFile->GetAbsolutePath()), include)).exists)
-                		{
-                			source = FileSystem::ReadFileAsString(Path::Join(Path::Parent(assetFile->GetAbsolutePath()), include));
-                			return true;
-                		}
+						if (FileSystem::GetFileStatus(Path::Join(Path::Parent(shaderIncludeUserData.absolutePath), include)).exists)
+						{
+							source = FileSystem::ReadFileAsString(Path::Join(Path::Parent(shaderIncludeUserData.absolutePath), include));
+							return true;
+						}
 
-                		return false;
-                	};
+						return false;
+					};
 
-	                if (!CompileShader(shaderCompileInfo, bytes))
-	                {
-		                return;
-	                }
+					if (!CompileShader(shaderCompileInfo, bytes))
+					{
+						return {};
+					}
 
-                    u32 shaderSize =  static_cast<u32>(bytes.Size()) - stageOffset;
+					u32 shaderSize = static_cast<u32>(bytes.Size()) - stageOffset;
 
-                    tempStages.EmplaceBack(ShaderStageInfo{
-                        .stage = configStage.stage,
-                        .entryPoint = configStage.entryPoint,
-                        .offset = stageOffset,
-                        .size = shaderSize
-                    });
-                    stageOffset += shaderSize;
-                }
+					tempStages.EmplaceBack(ShaderStageInfo{
+						.stage = configStage.stage,
+						.entryPoint = configStage.entryPoint,
+						.offset = stageOffset,
+						.size = shaderSize
+					});
+					stageOffset += shaderSize;
+				}
 
-                ShaderVariant* variant = shaderAsset->FindOrCreateVariant(shaderConfigVariant.name);
-                variant->stages = Traits::Move(tempStages);
-                variant->spriv = Traits::Move(bytes);
-            	GetPipelineLayout(graphicsApi, variant->spriv, variant->stages, variant->pipelineDesc);
+				// ShaderVariant* variant = shaderAsset->FindOrCreateVariant(shaderConfigVariant.name);
+				// variant->stages = Traits::Move(tempStages);
+				// variant->spriv = Traits::Move(bytes);
+				// GetPipelineLayout(graphicsApi, variant->spriv, variant->stages, variant->pipelineDesc);
 
 
-            	//TODO - shader hot-reload
-            	/*
-                for (PipelineState pipelineState : variant->pipelineDependencies)
-                {
-                    Graphics::ReloadPipelineState(variant, pipelineState);
-                }
+				//TODO - shader hot-reload
+				/*
+			    for (PipelineState pipelineState : variant->pipelineDependencies)
+			    {
+			        Graphics::ReloadPipelineState(variant, pipelineState);
+			    }
 
-                for (const auto it : variant->shaderDependencies)
-                {
-                    Assets::Reload(it.first->GetUUID());
-                }
+			    for (const auto it : variant->shaderDependencies)
+			    {
+			        Assets::Reload(it.first->GetUUID());
+			    }
 
-                for (const auto it : variant->bindingSetDependencies)
-                {
-                    it.first->Reload();
-                }
-                */
+			    for (const auto it : variant->bindingSetDependencies)
+			    {
+			        it.first->Reload();
+			    }
+			    */
 
-                logger.Debug("shader {} variant {} created successfully", assetFile->GetPath(), variant->name);
-            }
+				logger.Debug("shader {} compiled? ", absolutePath);
+
+				//logger.Debug("shader {} variant {} created successfully", assetFile->GetPath(), variant->name);
+			}
+
+			return {};
 		}
 
-		void OpenAsset(AssetFileOld* assetFile) override
+		TypeID GetResourceTypeId() override
 		{
-			SDL_OpenURL(assetFile->GetAbsolutePath().CStr());
+			return TypeInfo<ShaderResource>::ID();
 		}
 
-		String Name() override
+		StringView GetDesc() override
 		{
 			return "Shader";
 		}
 
-		Array<String> AssociatedExtensions() override
-		{
-			return {".shader"};
-		}
-
-		virtual ShaderType GetShaderType() = 0;
+		virtual ShaderAssetType GetShaderAssetType() = 0;
 	};
+
 
 	struct RasterShaderHandler : ShaderHandler
 	{
 		SK_CLASS(RasterShaderHandler, ShaderHandler);
 
-		String Extension() override
+		StringView Extension() override
 		{
 			return ".raster";
 		}
 
-		ShaderType GetShaderType() override
+		ShaderAssetType GetShaderAssetType() override
 		{
-			return ShaderType::Graphics;
+			return ShaderAssetType::Graphics;
 		}
 	};
 
@@ -313,14 +322,14 @@ namespace Skore
 	{
 		SK_CLASS(ComputeShaderHandler, ShaderHandler);
 
-		String Extension() override
+		StringView Extension() override
 		{
 			return ".comp";
 		}
 
-		ShaderType GetShaderType() override
+		ShaderAssetType GetShaderAssetType() override
 		{
-			return ShaderType::Compute;
+			return ShaderAssetType::Compute;
 		}
 	};
 
@@ -328,10 +337,8 @@ namespace Skore
 	void RegisterShaderHandler()
 	{
 		Reflection::Type<ShaderHandler>();
-
 		Reflection::Type<RasterShaderHandler>();
 		Reflection::Type<ComputeShaderHandler>();
-
 		Reflection::Type<ShaderConfigStage>();
 		Reflection::Type<ShaderConfigVariant>();
 		Reflection::Type<ShaderConfig>();

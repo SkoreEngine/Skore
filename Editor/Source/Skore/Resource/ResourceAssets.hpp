@@ -106,9 +106,11 @@ namespace Skore
 		SK_CLASS(ResourceAssetHandler, Object);
 
 		virtual StringView Extension() = 0;
-		virtual void       OpenAsset(RID rid) = 0;
+		virtual void       OpenAsset(RID asset) = 0;
 		virtual TypeID     GetResourceTypeId() = 0;
 		virtual StringView GetDesc() = 0;
+
+		virtual RID Load(StringView absolutePath);
 
 		virtual bool GetAssetName(RID rid, String& name)
 		{

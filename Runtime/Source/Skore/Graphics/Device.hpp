@@ -27,15 +27,14 @@
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/Span.hpp"
 #include "Skore/Core/Math.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
 {
 	struct ShaderVariant;
 	class ShaderAsset;
-}
 
-namespace Skore
-{
+
 	class GPUTextureView;
 	class GPUAdapter;
 	class GPUDevice;
@@ -694,6 +693,8 @@ namespace Skore
 	struct GraphicsPipelineDesc
 	{
 		ShaderVariant*        shaderVariant{};
+		RID                   shader;
+		String                variant = "Default";
 		PrimitiveTopology     topology{PrimitiveTopology::TriangleList};
 		RasterizerStateDesc   rasterizerState;
 		DepthStencilStateDesc depthStencilState;

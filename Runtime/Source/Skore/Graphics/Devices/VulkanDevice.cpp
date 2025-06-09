@@ -1916,7 +1916,7 @@ namespace Skore
 	GPUPipeline* VulkanDevice::CreateGraphicsPipeline(const GraphicsPipelineDesc& desc)
 	{
 		SK_ASSERT(desc.renderPass, "render pass is required");
-		SK_ASSERT(desc.shaderVariant, "shader variant is required");
+		SK_ASSERT(desc.shader, "shader variant is required");
 
 		const PipelineDesc& pipelineDesc = desc.shaderVariant->pipelineDesc;
 		Span                stages = desc.shaderVariant->stages;

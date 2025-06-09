@@ -35,7 +35,7 @@ namespace Skore
 	void RegisterTextureHandler2();
 	void RegisterMaterialAssetHandler();
 	void RegisterMeshAssetHandler();
-	void RegisterShaderHandler();
+	void RegisterShaderHandler2();
 	void RegisterFBXImporter();
 
 	void RegisterAssetTypes()
@@ -50,7 +50,7 @@ namespace Skore
 		RegisterGLTFImporter();
 		RegisterMaterialAssetHandler();
 		RegisterMeshAssetHandler();
-		RegisterShaderHandler();
+		RegisterShaderHandler2();
 		RegisterFBXImporter();
 
 

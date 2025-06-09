@@ -24,6 +24,26 @@
 
 namespace Skore
 {
+	struct ShaderResourceVariant
+	{
+		enum
+		{
+			Name,  //String
+			Spriv, //Blob
+		};
+	};
+
+
+	struct ShaderResource
+	{
+		enum
+		{
+			Name,		//String
+			Variants,	//SubobjectSet
+		};
+	};
+
+
 	struct TextureResource
 	{
 		enum

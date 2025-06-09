@@ -39,9 +39,12 @@ namespace Skore
 			return ".entity";
 		}
 
-		void OpenAsset(RID rid) override
+		void OpenAsset(RID asset) override
 		{
-			Editor::GetCurrentWorkspace().GetWorldEditor()->OpenEntity(rid);
+			if (ResourceObject object = Resources::Read(asset))
+			{
+				Editor::GetCurrentWorkspace().GetWorldEditor()->OpenEntity(object.GetSubObject(ResourceAsset::Object));
+			}
 		}
 
 		TypeID GetResourceTypeId() override

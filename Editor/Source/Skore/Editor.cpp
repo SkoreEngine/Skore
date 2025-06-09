@@ -111,6 +111,9 @@ namespace Skore
 		String                  projectAssetPath;
 		Array<UpdatedAssetInfo> updatedItems;
 
+		Array<RID>    packages;
+		Array<String> packagePaths;
+
 		bool forceClose = false;
 		bool shouldOpenPopup = false;
 
@@ -633,7 +636,17 @@ namespace Skore
 
 	Span<RID> Editor::GetPackages()
 	{
-		return {};
+		return packages;
+	}
+
+	RID Editor::LoadPackage(StringView name, StringView directory)
+	{
+		RID rid = ResourceAssets::ScanAssetsFromDirectory(name, directory);
+
+		packages.EmplaceBack(rid);
+		packagePaths.EmplaceBack(directory);
+
+		return rid;
 	}
 
 	void RegisterAssetTypes();
@@ -695,11 +708,10 @@ namespace Skore
 
 		AssetEditor::AddPackage("Skore", FileSystem::AssetFolder());
 
+		Editor::LoadPackage("Skore", FileSystem::AssetFolder());
+
 		projectAssetPath = Path::Join(projectPath, "Assets");
 		projectRID = ResourceAssets::ScanAssetsFromDirectory(Path::Name(projectPath), projectAssetPath);
-
-		// ResourceAssets::AddPackage("Skore", FileSystem::AssetFolder());
-		// ResourceAssets::SetProject(Path::Name(projectPath), projectPath);
 	}
 
 

@@ -25,6 +25,7 @@
 #include <optional>
 #include <queue>
 
+#include "SDL3/SDL_misc.h"
 #include "Skore/Editor.hpp"
 #include "Skore/Events.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
@@ -117,22 +118,22 @@ namespace Skore
 				FileSystem::SaveFileAsByteArray(bufferPath, blobs);
 			}
 		}
+	}
 
-		RID DeserializeAsset(StringView absolutePath)
+	RID ResourceAssetHandler::Load(StringView path)
+	{
+		String bufferPath = Path::Join(Path::Parent(path), Path::Name(path).Append(".buffer"));
+		ByteBuffer buffer;
+
+		if (FileHandler fileHandler = FileSystem::OpenFile(bufferPath, AccessMode::ReadOnly))
 		{
-			String bufferPath = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath).Append(".buffer"));
-			ByteBuffer buffer;
-
-			if (FileHandler fileHandler = FileSystem::OpenFile(bufferPath, AccessMode::ReadOnly))
-			{
-				buffer.Resize(FileSystem::GetFileSize(fileHandler));
-				FileSystem::ReadFile(fileHandler, buffer.begin(), buffer.Size());
-				FileSystem::CloseFile(fileHandler);
-			}
-
-			YamlArchiveReader reader(FileSystem::ReadFileAsString(absolutePath), buffer);
-			return Resources::Deserialize(reader);
+			buffer.Resize(FileSystem::GetFileSize(fileHandler));
+			FileSystem::ReadFile(fileHandler, buffer.begin(), buffer.Size());
+			FileSystem::CloseFile(fileHandler);
 		}
+
+		YamlArchiveReader reader(FileSystem::ReadFileAsString(path), buffer);
+		return Resources::Deserialize(reader);
 	}
 
 	RID ResourceAssets::ScanAssetsFromDirectory(StringView packageName, StringView packagePack)
@@ -221,10 +222,13 @@ namespace Skore
 
 				if (!status.isDirectory)
 				{
-					if (RID object = DeserializeAsset(entry))
+					if (auto it = handlersByExtension.Find(extension))
 					{
-						assetObject.SetSubObject(ResourceAsset::Object, object);
-						RegisterResourceByType(object);
+						if (RID object = it->second->Load(entry))
+						{
+							assetObject.SetSubObject(ResourceAsset::Object, object);
+							RegisterResourceByType(object);
+						}
 					}
 				}
 
@@ -262,7 +266,7 @@ namespace Skore
 				else
 				{
 					currentDirectory.AddToSubObjectSet(ResourceAssetDirectory::Assets, asset);
-					logger.Debug("asset '{}' loaded", path);
+					logger.Debug("asset '{}' registered", path);
 				}
 			}
 
@@ -467,12 +471,15 @@ namespace Skore
 
 	void ResourceAssets::OpenAsset(RID rid)
 	{
-		ResourceObject object = Resources::Write(rid);
+		ResourceObject object = Resources::Read(rid);
 		StringView     extension = object.GetString(ResourceAsset::Extension);
 
 		if (auto it = handlersByExtension.Find(extension))
 		{
-			it->second->OpenAsset(object.GetSubObject(ResourceAsset::Object));
+			it->second->OpenAsset(rid);
+		} else
+		{
+			SDL_OpenURL(GetAbsolutePath(rid).CStr());
 		}
 	}
 
@@ -771,18 +778,21 @@ namespace Skore
 		{
 			if (ReflectType* type = Reflection::FindTypeById(derivedId))
 			{
-				if (ResourceAssetHandler* handler = type->NewObject()->SafeCast<ResourceAssetHandler>())
+				if (Object* newObject = type->NewObject())
 				{
-					logger.Debug("Registered asset handler {} for extension {} ", type->GetName(), handler->Extension());
-
-					if (StringView extension = handler->Extension(); !extension.Empty())
+					if (ResourceAssetHandler* handler = newObject->SafeCast<ResourceAssetHandler>())
 					{
-						handlersByExtension.Insert(extension, handler);
-					}
+						logger.Debug("Registered asset handler {} for extension {} ", type->GetName(), handler->Extension());
 
-					if (TypeID typeId = handler->GetResourceTypeId(); typeId != 0)
-					{
-						handlersByTypeID.Insert(typeId, handler);
+						if (StringView extension = handler->Extension(); !extension.Empty())
+						{
+							handlersByExtension.Insert(extension, handler);
+						}
+
+						if (TypeID typeId = handler->GetResourceTypeId(); typeId != 0)
+						{
+							handlersByTypeID.Insert(typeId, handler);
+						}
 					}
 				}
 			}
@@ -807,6 +817,7 @@ namespace Skore
 	void RegisterEntityHandler();
 	void RegisterTextureHandler();
 	void RegisterMeshHandler();
+	void RegisterShaderHandler();
 	void RegisterTextureImporter();
 
 	void RegisterResourceAssetTypes()
@@ -847,7 +858,8 @@ namespace Skore
 
 		RegisterEntityHandler();
 		RegisterTextureHandler();
-		RegisterTextureImporter();
 		RegisterMeshHandler();
+		RegisterShaderHandler();
+		RegisterTextureImporter();
 	}
 }

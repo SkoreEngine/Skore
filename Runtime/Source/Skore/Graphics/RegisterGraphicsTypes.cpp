@@ -656,6 +656,10 @@ namespace Skore
 		textureChannel.Value<TextureChannel::Blue>("Blue");
 		textureChannel.Value<TextureChannel::Alpha>("Alpha");
 
+		Resources::Type<ShaderResource>()
+			.Field<MeshResource::Name>(ResourceFieldType::String)
+			.Build();
+
 		Resources::Type<TextureResource>()
 			.Field<TextureResource::Name>(ResourceFieldType::String)
 			.Field<TextureResource::Extent>(ResourceFieldType::Vec3)

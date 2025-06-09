@@ -40,6 +40,7 @@ namespace Skore
 		static UndoRedoScope*   CreateUndoRedoScope(StringView name);
 		static RID              GetProject();
 		static Span<RID>        GetPackages();
+		static RID              LoadPackage(StringView name, StringView directory);
 
 		template <typename T>
 		static void OpenWindow(VoidPtr initUserData = nullptr)

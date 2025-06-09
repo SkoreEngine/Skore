@@ -329,13 +329,18 @@ namespace Skore
 
 				ImGuiBeginTreeNodeStyle();
 
+				auto drawPackage = [&](RID package)
+				{
+					ResourceObject packageProject = Resources::Read(package);
+					DrawDirectoryTreeNode(packageProject.GetSubObject(ResourceAssetPackage::Root));
+				};
+
 				for (const auto& package : Editor::GetPackages())
 				{
-					DrawDirectoryTreeNode(package);
+					drawPackage(package);
 				}
 
-				ResourceObject packageProject = Resources::Read(Editor::GetProject());
-				DrawDirectoryTreeNode(packageProject.GetSubObject(ResourceAssetPackage::Root));
+				drawPackage(Editor::GetProject());
 
 				ImGuiEndTreeNodeStyle();
 				ImGui::EndChild();
