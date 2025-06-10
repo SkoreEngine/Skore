@@ -27,14 +27,11 @@
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/UnorderedDense.hpp"
 #include "Skore/Core/Color.hpp"
-#include "Skore/Scene/Components/LightComponent.hpp"
-#include "Skore/Scene/Components/MeshRenderComponent.hpp"
 
 namespace Skore
 {
 	class MeshAsset;
 	class MaterialAsset;
-	class LightComponent;
 
 	struct MeshRenderData
 	{
@@ -42,16 +39,16 @@ namespace Skore
 		Mat4                  transform;
 		Array<MaterialAsset*> materials;
 		bool                  visible = true;
-		bool				  castShadows = false;
+		bool                  castShadows = false;
 	};
 
 	struct EnvironmentRenderData
 	{
 		MaterialAsset* skyboxMaterial;
-		bool visible = true;
+		bool           visible = true;
 	};
 
-	enum class LightTypeData
+	enum class RendererLightType
 	{
 		Directional,
 		Point,
@@ -60,15 +57,15 @@ namespace Skore
 
 	struct LightRenderData
 	{
-		LightTypeData type = LightTypeData::Directional;
-		Mat4          transform;
-		Color         color = Color::WHITE;
-		f32           intensity = 1.0f;
-		f32           range = 10.0f;
-		f32           innerConeAngle = Math::Radians(25.0f);
-		f32           outerConeAngle = Math::Radians(30.0f);
-		bool          visible = true;
-		bool		  enableShadows = true;
+		RendererLightType type = RendererLightType::Directional;
+		Mat4              transform;
+		Color             color = Color::WHITE;
+		f32               intensity = 1.0f;
+		f32               range = 10.0f;
+		f32               innerConeAngle = Math::Radians(25.0f);
+		f32               outerConeAngle = Math::Radians(30.0f);
+		bool              visible = true;
+		bool              enableShadows = true;
 	};
 
 	class SK_API RenderStorage
@@ -77,33 +74,33 @@ namespace Skore
 		virtual ~RenderStorage() = default;
 		RenderStorage() = default;
 
-		void RegisterMeshProxy(VoidPtr ptr);
-		void RemoveMeshProxy(VoidPtr ptr);
-		void SetMeshTransform(VoidPtr ptr, const Mat4& worldTransform);
-		void SetMesh(VoidPtr ptr, MeshAsset* meshAsset);
-		void SetMeshVisible(VoidPtr ptr, bool visible);
-		void SetMeshMaterials(VoidPtr ptr, Span<MaterialAsset*> materials);
-		void SetMeshCastShadows(MeshRenderComponent* meshRenderComponent, bool castShadows);
+		void RegisterMeshProxy(RID rid);
+		void RemoveMeshProxy(RID rid);
+		void SetMeshTransform(RID rid, const Mat4& worldTransform);
+		void SetMesh(RID rid, MeshAsset* meshAsset);
+		void SetMeshVisible(RID rid, bool visible);
+		void SetMeshMaterials(RID rid, Span<MaterialAsset*> materials);
+		void SetMeshCastShadows(RID rid, bool castShadows);
 
-		void RegisterEnvironmentProxy(VoidPtr ptr);
-		void RemoveEnvironmentProxy(VoidPtr ptr);
-		void SetEnvironmentSkyboxMaterial(VoidPtr ptr, MaterialAsset* material);
-		void SetEnvironmentVisible(VoidPtr ptr, bool visible);
+		void RegisterEnvironmentProxy(RID rid);
+		void RemoveEnvironmentProxy(RID rid);
+		void SetEnvironmentSkyboxMaterial(RID rid, MaterialAsset* material);
+		void SetEnvironmentVisible(RID rid, bool visible);
 
-		void RegisterLightProxy(VoidPtr ptr);
-		void RemoveLightProxy(VoidPtr ptr);
-		void SetLightTransform(VoidPtr ptr, const Mat4& worldTransform);
-		void SetLightType(VoidPtr ptr, LightComponent::LightType type);
-		void SetLightColor(VoidPtr ptr, const Color& color);
-		void SetLightIntensity(VoidPtr ptr, f32 intensity);
-		void SetLightRange(VoidPtr ptr, f32 range);
-		void SetLightInnerConeAngle(VoidPtr ptr, f32 angle);
-		void SetLightOuterConeAngle(VoidPtr ptr, f32 angle);
-		void SetLightVisible(VoidPtr ptr, bool visible);
-		void SetLightEnableShadows(LightComponent* lightComponent, bool enableShadows);
+		void RegisterLightProxy(RID rid);
+		void RemoveLightProxy(RID rid);
+		void SetLightTransform(RID rid, const Mat4& worldTransform);
+		void SetLightType(RID rid, RendererLightType type);
+		void SetLightColor(RID rid, const Color& color);
+		void SetLightIntensity(RID rid, f32 intensity);
+		void SetLightRange(RID rid, f32 range);
+		void SetLightInnerConeAngle(RID rid, f32 angle);
+		void SetLightOuterConeAngle(RID rid, f32 angle);
+		void SetLightVisible(RID rid, bool visible);
+		void SetLightEnableShadows(RID rid, bool enableShadows);
 
-		ankerl::unordered_dense::map<u64, MeshRenderData> meshes;
-		ankerl::unordered_dense::map<u64, EnvironmentRenderData> environments;
-		ankerl::unordered_dense::map<u64, LightRenderData> lights;
+		ankerl::unordered_dense::map<RID, MeshRenderData>        meshes;
+		ankerl::unordered_dense::map<RID, EnvironmentRenderData> environments;
+		ankerl::unordered_dense::map<RID, LightRenderData>       lights;
 	};
 }

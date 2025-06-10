@@ -21,13 +21,12 @@
 // SOFTWARE.
 
 #include "RenderStorage.hpp"
-#include "Skore/Scene/Components/LightComponent.hpp"
 
 namespace Skore
 {
-	void RenderStorage::RegisterMeshProxy(VoidPtr ptr)
+	void RenderStorage::RegisterMeshProxy(RID rid)
 	{
-		meshes.emplace(PtrToInt(ptr), MeshRenderData{
+		meshes.emplace(rid, MeshRenderData{
 			               .mesh = nullptr,
 			               .transform = {},
 			               .materials = {},
@@ -36,82 +35,82 @@ namespace Skore
 	}
 
 
-	void RenderStorage::RemoveMeshProxy(VoidPtr ptr)
+	void RenderStorage::RemoveMeshProxy(RID rid)
 	{
-		meshes.erase(PtrToInt(ptr));
+		meshes.erase(rid);
 	}
 
-	void RenderStorage::SetMeshTransform(VoidPtr ptr, const Mat4& worldTransform)
+	void RenderStorage::SetMeshTransform(RID rid, const Mat4& worldTransform)
 	{
-		if (const auto& it = meshes.find(PtrToInt(ptr)); it != meshes.end())
+		if (const auto& it = meshes.find(rid); it != meshes.end())
 		{
 			it->second.transform = worldTransform;
 		}
 	}
 
-	void RenderStorage::SetMesh(VoidPtr ptr, MeshAsset* meshAsset)
+	void RenderStorage::SetMesh(RID rid, MeshAsset* meshAsset)
 	{
-		if (const auto& it = meshes.find(PtrToInt(ptr)); it != meshes.end())
+		if (const auto& it = meshes.find(rid); it != meshes.end())
 		{
 			it->second.mesh = meshAsset;
 		}
 	}
 
-	void RenderStorage::SetMeshVisible(VoidPtr ptr, bool visible)
+	void RenderStorage::SetMeshVisible(RID rid, bool visible)
 	{
-		if (const auto& it = meshes.find(PtrToInt(ptr)); it != meshes.end())
+		if (const auto& it = meshes.find(rid); it != meshes.end())
 		{
 			it->second.visible = visible;
 		}
 	}
 
-	void RenderStorage::SetMeshMaterials(VoidPtr ptr, Span<MaterialAsset*> materials)
+	void RenderStorage::SetMeshMaterials(RID rid, Span<MaterialAsset*> materials)
 	{
-		if (const auto& it = meshes.find(PtrToInt(ptr)); it != meshes.end())
+		if (const auto& it = meshes.find(rid); it != meshes.end())
 		{
 			it->second.materials = materials;
 		}
 	}
 
-	void RenderStorage::SetMeshCastShadows(MeshRenderComponent* meshRenderComponent, bool castShadows)
+	void RenderStorage::SetMeshCastShadows(RID rid, bool castShadows)
 	{
-		if (const auto& it = meshes.find(PtrToInt(meshRenderComponent)); it != meshes.end())
+		if (const auto& it = meshes.find(rid); it != meshes.end())
 		{
 			it->second.castShadows = castShadows;
 		}
 	}
 
-	void RenderStorage::RegisterEnvironmentProxy(VoidPtr ptr)
+	void RenderStorage::RegisterEnvironmentProxy(RID rid)
 	{
-		environments.emplace(PtrToInt(ptr), EnvironmentRenderData{
+		environments.emplace(rid, EnvironmentRenderData{
 			                     .skyboxMaterial = nullptr
 		                     });
 	}
-	void RenderStorage::RemoveEnvironmentProxy(VoidPtr ptr)
+	void RenderStorage::RemoveEnvironmentProxy(RID rid)
 	{
-		environments.erase(PtrToInt(ptr));
+		environments.erase(rid);
 	}
 
-	void RenderStorage::SetEnvironmentSkyboxMaterial(VoidPtr ptr, MaterialAsset* material)
+	void RenderStorage::SetEnvironmentSkyboxMaterial(RID rid, MaterialAsset* material)
 	{
-		if (const auto& it = environments.find(PtrToInt(ptr)); it != environments.end())
+		if (const auto& it = environments.find(rid); it != environments.end())
 		{
 			it->second.skyboxMaterial = material;
 		}
 	}
 
-	void RenderStorage::SetEnvironmentVisible(VoidPtr ptr, bool visible)
+	void RenderStorage::SetEnvironmentVisible(RID rid, bool visible)
 	{
-		if (const auto& it = environments.find(PtrToInt(ptr)); it != environments.end())
+		if (const auto& it = environments.find(rid); it != environments.end())
 		{
 			it->second.visible = visible;
 		}
 	}
 
-	void RenderStorage::RegisterLightProxy(VoidPtr ptr)
+	void RenderStorage::RegisterLightProxy(RID rid)
 	{
-		lights.emplace(PtrToInt(ptr), LightRenderData{
-			               .type = LightTypeData::Directional,
+		lights.emplace(rid, LightRenderData{
+			               .type = RendererLightType::Directional,
 			               .transform = {},
 			               .color = Color::WHITE,
 			               .intensity = 1.0f,
@@ -122,89 +121,78 @@ namespace Skore
 		               });
 	}
 
-	void RenderStorage::RemoveLightProxy(VoidPtr ptr)
+	void RenderStorage::RemoveLightProxy(RID rid)
 	{
-		lights.erase(PtrToInt(ptr));
+		lights.erase(rid);
 	}
 
-	void RenderStorage::SetLightTransform(VoidPtr ptr, const Mat4& worldTransform)
+	void RenderStorage::SetLightTransform(RID rid, const Mat4& worldTransform)
 	{
-		if (const auto& it = lights.find(PtrToInt(ptr)); it != lights.end())
+		if (const auto& it = lights.find(rid); it != lights.end())
 		{
 			it->second.transform = worldTransform;
 		}
 	}
 
-	void RenderStorage::SetLightType(VoidPtr ptr, LightComponent::LightType type)
+	void RenderStorage::SetLightType(RID rid, RendererLightType type)
 	{
-		if (const auto& it = lights.find(PtrToInt(ptr)); it != lights.end())
+		if (const auto& it = lights.find(rid); it != lights.end())
 		{
-			switch (type)
-			{
-				case LightComponent::LightType::Directional:
-					it->second.type = LightTypeData::Directional;
-					break;
-				case LightComponent::LightType::Point:
-					it->second.type = LightTypeData::Point;
-					break;
-				case LightComponent::LightType::Spot:
-					it->second.type = LightTypeData::Spot;
-					break;
-			}
+			it->second.type = type;
 		}
 	}
 
-	void RenderStorage::SetLightColor(VoidPtr ptr, const Color& color)
+	void RenderStorage::SetLightColor(RID rid, const Color& color)
 	{
-		if (const auto& it = lights.find(PtrToInt(ptr)); it != lights.end())
+		if (const auto& it = lights.find(rid); it != lights.end())
 		{
 			it->second.color = color;
 		}
 	}
 
-	void RenderStorage::SetLightIntensity(VoidPtr ptr, f32 intensity)
+	void RenderStorage::SetLightIntensity(RID rid, f32 intensity)
 	{
-		if (const auto& it = lights.find(PtrToInt(ptr)); it != lights.end())
+		if (const auto& it = lights.find(rid); it != lights.end())
 		{
 			it->second.intensity = intensity;
 		}
 	}
 
-	void RenderStorage::SetLightRange(VoidPtr ptr, f32 range)
+	void RenderStorage::SetLightRange(RID rid, f32 range)
 	{
-		if (const auto& it = lights.find(PtrToInt(ptr)); it != lights.end())
+		if (const auto& it = lights.find(rid); it != lights.end())
 		{
 			it->second.range = range;
 		}
 	}
 
-	void RenderStorage::SetLightInnerConeAngle(VoidPtr ptr, f32 angle)
+	void RenderStorage::SetLightInnerConeAngle(RID rid, f32 angle)
 	{
-		if (const auto& it = lights.find(PtrToInt(ptr)); it != lights.end())
+		if (const auto& it = lights.find(rid); it != lights.end())
 		{
 			it->second.innerConeAngle = Math::Radians(-angle);
 		}
 	}
 
-	void RenderStorage::SetLightOuterConeAngle(VoidPtr ptr, f32 angle)
+	void RenderStorage::SetLightOuterConeAngle(RID rid, f32 angle)
 	{
-		if (const auto& it = lights.find(PtrToInt(ptr)); it != lights.end())
+		if (const auto& it = lights.find(rid); it != lights.end())
 		{
 			it->second.outerConeAngle = Math::Radians(-angle);
 		}
 	}
 
-	void RenderStorage::SetLightVisible(VoidPtr ptr, bool visible)
+	void RenderStorage::SetLightVisible(RID rid, bool visible)
 	{
-		if (const auto& it = lights.find(PtrToInt(ptr)); it != lights.end())
+		if (const auto& it = lights.find(rid); it != lights.end())
 		{
 			it->second.visible = visible;
 		}
 	}
 
-	void RenderStorage::SetLightEnableShadows(LightComponent* lightComponent, bool enableShadows)
+	void RenderStorage::SetLightEnableShadows(RID rid, bool enableShadows)
 	{
-		if (const auto& it = lights.find(PtrToInt(lightComponent)); it != lights.end())
+		if (const auto& it = lights.find(rid); it != lights.end())
 		{
 			it->second.enableShadows = enableShadows;
 		}

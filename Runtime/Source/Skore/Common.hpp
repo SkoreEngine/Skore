@@ -102,6 +102,26 @@ namespace Skore
 		return reinterpret_cast<VoidPtr>(static_cast<uptr>(ptr));
 	}
 
+	struct RID
+	{
+		u64 id{};
+
+		operator bool() const noexcept
+		{
+			return this->id > 0;
+		}
+
+		bool operator==(const RID& rid) const
+		{
+			return this->id == rid.id;
+		}
+
+		bool operator!=(const RID& rid) const
+		{
+			return !(*this == rid);
+		}
+	};
+
 #define SK_NO_COPY_CONSTRUCTOR(TypeName)                    \
         TypeName(TypeName&& other) = default;                   \
         TypeName(const TypeName& other) = delete;               \

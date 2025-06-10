@@ -2,17 +2,11 @@
 
 #include "Skore/Editor.hpp"
 #include "Skore/EditorWorkspace.hpp"
-// #include "Skore/Asset/AssetEditor.hpp"
-// #include "Skore/Asset/AssetFile.hpp"
-// #include "Skore/Commands/SceneCommands.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
-#include "Skore/Scene/Component2.hpp"
-#include "Skore/Scene/Entity.hpp"
-#include "Skore/Scene/Scene.hpp"
 #include "Skore/World/WorldCommon.hpp"
 
 namespace Skore

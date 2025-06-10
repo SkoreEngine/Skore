@@ -33,7 +33,6 @@
 #include "imgui_internal.h"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/Graphics.hpp"
-#include "Skore/Scene/Scene.hpp"
 #include "Skore/World/WorldCommon.hpp"
 
 namespace Skore

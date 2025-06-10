@@ -327,6 +327,17 @@ namespace Skore
 		}
 	};
 
+	template <>
+	struct Hash<RID>
+	{
+		constexpr static bool hasHash = true;
+
+		constexpr static usize Value(const RID& rid)
+		{
+			return Hash<u64>::Value(rid.id);
+		}
+	};
+
 	constexpr u32 HashInt32(u64 vl)
 	{
 		u32 x = static_cast<u32>(vl);
@@ -342,5 +353,13 @@ namespace Skore
 		seed ^= hash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 		(HashCombine(seed, rest), ...);
 	}
-
 }
+
+template <>
+struct std::hash<Skore::RID>
+{
+	std::size_t operator()(const Skore::RID& rid) const noexcept
+	{
+		return std::hash<Skore::u64>{}(rid.id);
+	}
+};
