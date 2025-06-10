@@ -42,7 +42,6 @@ namespace Skore
 
 	void InputInit();
 	Key  FromSDL(u32 key);
-	void AssetsShutdown();
 	void ReflectionSetReadOnly(bool readOnly);
 	bool GraphicsInit(const AppConfig& appConfig);
 	void GraphicsShutdown();
@@ -271,7 +270,6 @@ namespace Skore
 
 		onShutdownHandler.Invoke();
 
-		AssetsShutdown();
 		GraphicsShutdown();
 		ResourceShutdown();
 
@@ -295,7 +293,6 @@ namespace Skore
 	{
 		SK_ASSERT(!running, "reset cannot be executed on a running app");
 		ReflectionResetContext();
-		AssetsShutdown();
 		RegisterTypes();
 	}
 

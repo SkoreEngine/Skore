@@ -20,25 +20,17 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "Skore/Graphics/Device.hpp"
-#include "Skore/Graphics/GraphicsCommon.hpp"
+#include "GraphicsCommon.hpp"
+
+#include "Skore/Core/Reflection.hpp"
 
 namespace Skore
 {
-	typedef bool (*FnGetShaderInclude)(StringView include, void* userData, String& source);
-
-	struct ShaderCompileInfo
+	void ShaderStageInfo::RegisterType(NativeReflectType<ShaderStageInfo>& type)
 	{
-		StringView         source;
-		StringView         entryPoint;
-		ShaderStage        shaderStage;
-		GraphicsAPI        api;
-		Array<String>      macros;
-		void*              userData = nullptr;
-		FnGetShaderInclude getShaderInclude = nullptr;
-	};
-
-	bool CompileShader(const ShaderCompileInfo& shaderCompileInfo, Array<u8>& bytes);
-	bool GetPipelineLayout(GraphicsAPI api, Span<u8> bytes, Span<ShaderStageInfo> stages, PipelineDesc& pipelineDesc);
+		type.Field<&ShaderStageInfo::stage>("stage");
+		type.Field<&ShaderStageInfo::entryPoint>("entryPoint");
+		type.Field<&ShaderStageInfo::offset>("offset");
+		type.Field<&ShaderStageInfo::size>("size");
+	}
 }

@@ -26,7 +26,6 @@
 #include "Skore/Core/Color.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
-#include "Skore/IO/Assets.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore

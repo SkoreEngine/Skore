@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 
-#include "Assets.hpp"
 #include "FileTypes.hpp"
 #include "InputTypes.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -228,9 +227,6 @@ namespace Skore
 
 	void RegisterIOTypes()
 	{
-		// Register the Asset base class
-		Reflection::Type<Asset>();
-		
 		// Register enums
 		RegisterKeyEnum();
 		RegisterMouseButtonEnum();

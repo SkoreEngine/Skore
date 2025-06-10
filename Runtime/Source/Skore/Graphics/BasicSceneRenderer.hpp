@@ -53,7 +53,7 @@ namespace Skore
 
 		GPUTexture*       attachmentTexture = nullptr;
 		GPUTexture*       depthTexture = nullptr;
-		GPUTexture*		  colorOutputTexture = nullptr;
+		GPUTexture*       colorOutputTexture = nullptr;
 		GPURenderPass*    renderPass = nullptr;
 		GPUPipeline*      opaqueMaterialPipeline = nullptr;
 		GPUPipeline*      skyboxMaterialPipeline = nullptr;
@@ -87,7 +87,7 @@ namespace Skore
 		Mat4 m_cascadeViewProjMat[s_numCascades];
 
 		//sky and environment data
-		MaterialAsset* m_skyMaterial = nullptr;
+		//MaterialAsset* m_skyMaterial = nullptr;
 		GPUTexture*    m_diffuseIrradianceTexture = nullptr;
 		GPUTexture*    m_specularTexture = nullptr;
 		BRDFLUTTexture m_brdflutTexture;

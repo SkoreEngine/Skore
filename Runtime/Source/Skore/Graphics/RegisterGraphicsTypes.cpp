@@ -21,7 +21,8 @@
 // SOFTWARE.
 
 
-#include "GraphicsAssets.hpp"
+#include "Device.hpp"
+#include "GraphicsCommon.hpp"
 #include "GraphicsResources.hpp"
 #include "Skore/Core/Reflection.hpp"
 
@@ -538,7 +539,8 @@ namespace Skore
 		graphicsPipelineDesc.Field<&GraphicsPipelineDesc::previousState>("previousState");
 
 		auto computePipelineDesc = Reflection::Type<ComputePipelineDesc>();
-		computePipelineDesc.Field<&ComputePipelineDesc::shaderVariant>("shaderVariant");
+		computePipelineDesc.Field<&ComputePipelineDesc::shader>("shader");
+		computePipelineDesc.Field<&ComputePipelineDesc::variant>("variant");
 		computePipelineDesc.Field<&ComputePipelineDesc::debugName>("debugName");
 		computePipelineDesc.Field<&ComputePipelineDesc::previousState>("previousState");
 
@@ -614,7 +616,8 @@ namespace Skore
 		accelerationStructureBuildInfo.Field<&AccelerationStructureBuildInfo::scratchOffset>("scratchOffset");
 
 		auto rayTracingPipelineDesc = Reflection::Type<RayTracingPipelineDesc>();
-		rayTracingPipelineDesc.Field<&RayTracingPipelineDesc::shaderAsset>("shaderAsset");
+		rayTracingPipelineDesc.Field<&RayTracingPipelineDesc::shader>("shader");
+		rayTracingPipelineDesc.Field<&RayTracingPipelineDesc::variant>("variant");
 		rayTracingPipelineDesc.Field<&RayTracingPipelineDesc::maxRecursionDepth>("maxRecursionDepth");
 		rayTracingPipelineDesc.Field<&RayTracingPipelineDesc::debugName>("debugName");
 
@@ -628,34 +631,35 @@ namespace Skore
 	void RegisterGraphicsTypes()
 	{
 		RegisterDeviceTypes();
+		Reflection::Type<ShaderStageInfo>();
 
-		auto primitive = Reflection::Type<MeshAsset::Primitive>();
-		primitive.Field<&MeshAsset::Primitive::firstIndex>("firstIndex");
-		primitive.Field<&MeshAsset::Primitive::indexCount>("indexCount");
-		primitive.Field<&MeshAsset::Primitive::materialIndex>("materialIndex");
-
-		Reflection::Type<TextureAssetImage>();
-		Reflection::Type<TextureAsset>();
-		Reflection::Type<MeshAsset>();
-		Reflection::Type<MaterialAsset>();
-		Reflection::Type<ShaderAsset>();
-		Reflection::Type<ShaderVariant>();
-
-		auto materialType = Reflection::Type<MaterialAsset::MaterialType>();
-		materialType.Value<MaterialAsset::MaterialType::Opaque>("Opaque");
-		materialType.Value<MaterialAsset::MaterialType::SkyboxEquirectangular>("SkyboxEquirectangular");
-
-		auto alphaMode = Reflection::Type<MaterialAsset::AlphaMode>();
-		alphaMode.Value<MaterialAsset::AlphaMode::None>("None");
-		alphaMode.Value<MaterialAsset::AlphaMode::Opaque>("Opaque");
-		alphaMode.Value<MaterialAsset::AlphaMode::Mask>("Mask");
-		alphaMode.Value<MaterialAsset::AlphaMode::Blend>("Blend");
-
-		auto textureChannel = Reflection::Type<TextureChannel>();
-		textureChannel.Value<TextureChannel::Red>("Red");
-		textureChannel.Value<TextureChannel::Green>("Green");
-		textureChannel.Value<TextureChannel::Blue>("Blue");
-		textureChannel.Value<TextureChannel::Alpha>("Alpha");
+		// auto primitive = Reflection::Type<MeshAsset::Primitive>();
+		// primitive.Field<&MeshAsset::Primitive::firstIndex>("firstIndex");
+		// primitive.Field<&MeshAsset::Primitive::indexCount>("indexCount");
+		// primitive.Field<&MeshAsset::Primitive::materialIndex>("materialIndex");
+		//
+		// Reflection::Type<TextureAssetImage>();
+		// Reflection::Type<TextureAsset>();
+		// Reflection::Type<MeshAsset>();
+		// Reflection::Type<MaterialAsset>();
+		// Reflection::Type<ShaderAsset>();
+		// Reflection::Type<ShaderVariant>();
+		//
+		// auto materialType = Reflection::Type<MaterialAsset::MaterialType>();
+		// materialType.Value<MaterialAsset::MaterialType::Opaque>("Opaque");
+		// materialType.Value<MaterialAsset::MaterialType::SkyboxEquirectangular>("SkyboxEquirectangular");
+		//
+		// auto alphaMode = Reflection::Type<MaterialAsset::AlphaMode>();
+		// alphaMode.Value<MaterialAsset::AlphaMode::None>("None");
+		// alphaMode.Value<MaterialAsset::AlphaMode::Opaque>("Opaque");
+		// alphaMode.Value<MaterialAsset::AlphaMode::Mask>("Mask");
+		// alphaMode.Value<MaterialAsset::AlphaMode::Blend>("Blend");
+		//
+		// auto textureChannel = Reflection::Type<TextureChannel>();
+		// textureChannel.Value<TextureChannel::Red>("Red");
+		// textureChannel.Value<TextureChannel::Green>("Green");
+		// textureChannel.Value<TextureChannel::Blue>("Blue");
+		// textureChannel.Value<TextureChannel::Alpha>("Alpha");
 
 		Resources::Type<ShaderVariantResource>()
 			.Field<ShaderVariantResource::Name>(ResourceFieldType::String)

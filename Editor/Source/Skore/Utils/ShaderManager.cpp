@@ -53,6 +53,8 @@
 #include <iostream>
 
 #include "spirv_reflect.h"
+#include "Skore/Core/HashMap.hpp"
+#include "Skore/Graphics/GraphicsCommon.hpp"
 #include "Skore/IO/Path.hpp"
 
 

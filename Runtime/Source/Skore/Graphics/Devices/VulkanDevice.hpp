@@ -301,7 +301,7 @@ namespace Skore
 		GPUPipeline*            CreateComputePipeline(const ComputePipelineDesc& desc) override;
 		GPUPipeline*            CreateRayTracingPipeline(const RayTracingPipelineDesc& desc) override;
 		GPUDescriptorSet*       CreateDescriptorSet(const DescriptorSetDesc& desc) override;
-		GPUDescriptorSet*       CreateDescriptorSet(ShaderVariant* shaderVariant, u32 set) override;
+		GPUDescriptorSet*       CreateDescriptorSet(RID shader, StringView variant, u32 set) override;
 		GPUQueryPool*           CreateQueryPool(const QueryPoolDesc& desc) override;
 		GPUBottomLevelAS*       CreateBottomLevelAS(const BottomLevelASDesc& desc) override;
 		GPUTopLevelAS*          CreateTopLevelAS(const TopLevelASDesc& desc) override;

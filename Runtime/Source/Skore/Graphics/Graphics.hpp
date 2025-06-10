@@ -52,7 +52,7 @@ namespace Skore
 		static GPUPipeline*      CreateComputePipeline(const ComputePipelineDesc& desc);
 		static GPUPipeline*      CreateRayTracingPipeline(const RayTracingPipelineDesc& desc);
 		static GPUDescriptorSet* CreateDescriptorSet(const DescriptorSetDesc& desc);
-		static GPUDescriptorSet* CreateDescriptorSet(ShaderVariant* shaderVariant, u32 set);
+		static GPUDescriptorSet* CreateDescriptorSet(RID shader, StringView variant, u32 set);
 		static GPUQueryPool*     CreateQueryPool(const QueryPoolDesc& desc);
 		static GPUBottomLevelAS* CreateBottomLevelAS(const BottomLevelASDesc& desc);
 		static GPUTopLevelAS*    CreateTopLevelAS(const TopLevelASDesc& desc);
@@ -70,5 +70,3 @@ namespace Skore
 		static usize GetAccelerationStructureBuildScratchSize(const TopLevelASDesc& desc);
 	};
 }
-
-

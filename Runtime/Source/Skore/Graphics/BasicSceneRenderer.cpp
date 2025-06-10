@@ -22,8 +22,8 @@
 
 #include "BasicSceneRenderer.hpp"
 #include "Graphics.hpp"
-#include "GraphicsAssets.hpp"
 #include "Skore/Core/StringUtils.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
@@ -189,7 +189,7 @@ namespace Skore
 					BlendStateDesc{}
 				},
 				.renderPass = m_shadowMapRenderPass[0],
-				.vertexInputStride = sizeof(MeshAsset::Vertex)
+				//.vertexInputStride = sizeof(MeshAsset::Vertex)
 			});
 
 			m_shadowMapSampler = Graphics::CreateSampler(SamplerDesc{
@@ -422,10 +422,10 @@ namespace Skore
 		lightBufferData.shadowLightIndex = U32_MAX;
 		lightBufferData.lightFlags = LightFlags::None;
 
-		if (m_skyMaterial)
-		{
-			lightBufferData.lightFlags |= LightFlags::HasEnvironment;
-		}
+		// if (m_skyMaterial)
+		// {
+		// 	lightBufferData.lightFlags |= LightFlags::HasEnvironment;
+		// }
 
 		for (i32 i = 0; i < MAX_LIGHTS; i++)
 		{
@@ -507,59 +507,59 @@ namespace Skore
 
 					if (meshRenderData.mesh && meshRenderData.visible)
 					{
-						GPUBuffer* vertexBuffer = meshRenderData.mesh->GetVertexBuffer();
-						if (vertexBuffer == nullptr)
-						{
-							continue;
-						}
+						// GPUBuffer* vertexBuffer = meshRenderData.mesh->GetVertexBuffer();
+						// if (vertexBuffer == nullptr)
+						// {
+						// 	continue;
+						// }
+						//
+						// GPUBuffer* indexBuffer = meshRenderData.mesh->GetIndexBuffer();
+						// if (indexBuffer == nullptr)
+						// {
+						// 	continue;
+						// }
+						//
+						// cmd->BindVertexBuffer(0, {vertexBuffer}, {0});
+						// cmd->BindIndexBuffer(indexBuffer, 0, IndexType::Uint32);
+						// cmd->PushConstants(opaqueMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &meshRenderData.transform);
 
-						GPUBuffer* indexBuffer = meshRenderData.mesh->GetIndexBuffer();
-						if (indexBuffer == nullptr)
-						{
-							continue;
-						}
-
-						cmd->BindVertexBuffer(0, {vertexBuffer}, {0});
-						cmd->BindIndexBuffer(indexBuffer, 0, IndexType::Uint32);
-						cmd->PushConstants(opaqueMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &meshRenderData.transform);
-
-						for (MeshAsset::Primitive& primitive : meshRenderData.mesh->GetPrimitives())
-						{
-							MaterialAsset* materialAsset = nullptr;
-
-							if (meshRenderData.materials.Size() > primitive.materialIndex && meshRenderData.materials[primitive.materialIndex])
-							{
-								materialAsset = meshRenderData.materials[primitive.materialIndex];
-							}
-							else if (meshRenderData.mesh->GetMaterials().Size() > primitive.materialIndex && meshRenderData.mesh->GetMaterials()[primitive.materialIndex])
-							{
-								materialAsset = meshRenderData.mesh->GetMaterials()[primitive.materialIndex];
-							}
-
-							if (materialAsset)
-							{
-								GPUDescriptorSet* materialDs = materialAsset->GetDescriptorSet();
-								if (materialDs == nullptr)
-								{
-									continue;
-								}
-								cmd->BindDescriptorSet(opaqueMaterialPipeline, 1, materialDs, {});
-								cmd->DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
-							}
-						}
+						// for (MeshAsset::Primitive& primitive : meshRenderData.mesh->GetPrimitives())
+						// {
+						// 	MaterialAsset* materialAsset = nullptr;
+						//
+						// 	if (meshRenderData.materials.Size() > primitive.materialIndex && meshRenderData.materials[primitive.materialIndex])
+						// 	{
+						// 		materialAsset = meshRenderData.materials[primitive.materialIndex];
+						// 	}
+						// 	else if (meshRenderData.mesh->GetMaterials().Size() > primitive.materialIndex && meshRenderData.mesh->GetMaterials()[primitive.materialIndex])
+						// 	{
+						// 		materialAsset = meshRenderData.mesh->GetMaterials()[primitive.materialIndex];
+						// 	}
+						//
+						// 	if (materialAsset)
+						// 	{
+						// 		GPUDescriptorSet* materialDs = materialAsset->GetDescriptorSet();
+						// 		if (materialDs == nullptr)
+						// 		{
+						// 			continue;
+						// 		}
+						// 		cmd->BindDescriptorSet(opaqueMaterialPipeline, 1, materialDs, {});
+						// 		cmd->DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
+						// 	}
+						// }
 					}
 				}
 			}
 
-			if (m_skyMaterial)
-			{
-				cmd->BindPipeline(skyboxMaterialPipeline);
-				Mat4 viewProj = m_projection * Mat4(Mat34(m_view));
-
-				cmd->PushConstants(skyboxMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &viewProj);
-				cmd->BindDescriptorSet(skyboxMaterialPipeline, 0, m_skyMaterial->GetDescriptorSet(), {});
-				cmd->Draw(36, 1, 0, 0);
-			}
+			// if (m_skyMaterial)
+			// {
+			// 	cmd->BindPipeline(skyboxMaterialPipeline);
+			// 	Mat4 viewProj = m_projection * Mat4(Mat34(m_view));
+			//
+			// 	cmd->PushConstants(skyboxMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &viewProj);
+			// 	cmd->BindDescriptorSet(skyboxMaterialPipeline, 0, m_skyMaterial->GetDescriptorSet(), {});
+			// 	cmd->Draw(36, 1, 0, 0);
+			// }
 		}
 
 		cmd->EndRenderPass();
@@ -603,62 +603,62 @@ namespace Skore
 
 	void SceneRendererViewport::PrepareEnvironment(RenderStorage* storage, GPUCommandBuffer* cmd)
 	{
-		MaterialAsset* skyMaterial = nullptr;
-
-		if (!storage->environments.empty())
-		{
-			cmd->BindPipeline(skyboxMaterialPipeline);
-
-			for (auto& environmentIt : storage->environments)
-			{
-				EnvironmentRenderData& environmentRenderData = environmentIt.second;
-				if (environmentRenderData.skyboxMaterial && environmentRenderData.visible)
-				{
-					if (environmentRenderData.skyboxMaterial->type == MaterialAsset::MaterialType::SkyboxEquirectangular)
-					{
-						skyMaterial = environmentRenderData.skyboxMaterial;
-					}
-				}
-			}
-		}
-
-		if (skyMaterial != nullptr && m_skyMaterial != skyMaterial)
-		{
-			GPUTexture* cubeMapTexture  = Graphics::CreateTexture(TextureDesc{
-				.extent = {256, 256, 1},
-				.mipLevels = 1,
-				.arrayLayers = 6,
-				.format = TextureFormat::R16G16B16A16_FLOAT,
-				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
-				.cubemap = true,
-				.debugName = "SceneRendererViewport_CubemapTexture"
-			});
-
-			GPUCommandBuffer* resourceCmd = Graphics::CreateCommandBuffer();
-			resourceCmd->Begin();
-
-			EquirectangularToCubeMap equirectangularToCubemap;
-			equirectangularToCubemap.Init();
-			equirectangularToCubemap.Execute(resourceCmd, skyMaterial->sphericalTexture->GetTexture(), cubeMapTexture);
-
-
-			DiffuseIrradianceGenerator diffuseIrradianceGenerator;
-			diffuseIrradianceGenerator.Init();
-			diffuseIrradianceGenerator.Execute(resourceCmd, cubeMapTexture, m_diffuseIrradianceTexture);
-
-			resourceCmd->End();
-			resourceCmd->SubmitAndWait();
-			resourceCmd->Destroy();
-
-			equirectangularToCubemap.Destroy();
-			diffuseIrradianceGenerator.Destroy();
-			cubeMapTexture->Destroy();
-
-
-			//make prefiltered texture
-		}
-
-		m_skyMaterial = skyMaterial;
+		// MaterialAsset* skyMaterial = nullptr;
+		//
+		// if (!storage->environments.empty())
+		// {
+		// 	cmd->BindPipeline(skyboxMaterialPipeline);
+		//
+		// 	for (auto& environmentIt : storage->environments)
+		// 	{
+		// 		EnvironmentRenderData& environmentRenderData = environmentIt.second;
+		// 		if (environmentRenderData.skyboxMaterial && environmentRenderData.visible)
+		// 		{
+		// 			if (environmentRenderData.skyboxMaterial->type == MaterialAsset::MaterialType::SkyboxEquirectangular)
+		// 			{
+		// 				skyMaterial = environmentRenderData.skyboxMaterial;
+		// 			}
+		// 		}
+		// 	}
+		// }
+		//
+		// if (skyMaterial != nullptr && m_skyMaterial != skyMaterial)
+		// {
+		// 	GPUTexture* cubeMapTexture  = Graphics::CreateTexture(TextureDesc{
+		// 		.extent = {256, 256, 1},
+		// 		.mipLevels = 1,
+		// 		.arrayLayers = 6,
+		// 		.format = TextureFormat::R16G16B16A16_FLOAT,
+		// 		.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+		// 		.cubemap = true,
+		// 		.debugName = "SceneRendererViewport_CubemapTexture"
+		// 	});
+		//
+		// 	GPUCommandBuffer* resourceCmd = Graphics::CreateCommandBuffer();
+		// 	resourceCmd->Begin();
+		//
+		// 	EquirectangularToCubeMap equirectangularToCubemap;
+		// 	equirectangularToCubemap.Init();
+		// 	equirectangularToCubemap.Execute(resourceCmd, skyMaterial->sphericalTexture->GetTexture(), cubeMapTexture);
+		//
+		//
+		// 	DiffuseIrradianceGenerator diffuseIrradianceGenerator;
+		// 	diffuseIrradianceGenerator.Init();
+		// 	diffuseIrradianceGenerator.Execute(resourceCmd, cubeMapTexture, m_diffuseIrradianceTexture);
+		//
+		// 	resourceCmd->End();
+		// 	resourceCmd->SubmitAndWait();
+		// 	resourceCmd->Destroy();
+		//
+		// 	equirectangularToCubemap.Destroy();
+		// 	diffuseIrradianceGenerator.Destroy();
+		// 	cubeMapTexture->Destroy();
+		//
+		//
+		// 	//make prefiltered texture
+		// }
+		//
+		// m_skyMaterial = skyMaterial;
 	}
 
 	void SceneRendererViewport::RenderShadows(RenderStorage* storage, GPUCommandBuffer* cmd)
@@ -816,40 +816,40 @@ namespace Skore
 
 				if (meshRenderData.mesh && meshRenderData.visible && meshRenderData.castShadows)
 				{
-					GPUBuffer* vertexBuffer = meshRenderData.mesh->GetVertexBuffer();
-					if (vertexBuffer == nullptr)
-					{
-						continue;
-					}
+					// GPUBuffer* vertexBuffer = meshRenderData.mesh->GetVertexBuffer();
+					// if (vertexBuffer == nullptr)
+					// {
+					// 	continue;
+					// }
+					//
+					// GPUBuffer* indexBuffer = meshRenderData.mesh->GetIndexBuffer();
+					// if (indexBuffer == nullptr)
+					// {
+					// 	continue;
+					// }
+					//
+					// cmd->BindVertexBuffer(0, vertexBuffer, 0);
+					// cmd->BindIndexBuffer(indexBuffer, 0, IndexType::Uint32);
+					// cmd->PushConstants(m_shadowMapPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &meshRenderData.transform);
 
-					GPUBuffer* indexBuffer = meshRenderData.mesh->GetIndexBuffer();
-					if (indexBuffer == nullptr)
-					{
-						continue;
-					}
-
-					cmd->BindVertexBuffer(0, vertexBuffer, 0);
-					cmd->BindIndexBuffer(indexBuffer, 0, IndexType::Uint32);
-					cmd->PushConstants(m_shadowMapPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &meshRenderData.transform);
-
-					for (MeshAsset::Primitive& primitive : meshRenderData.mesh->GetPrimitives())
-					{
-						MaterialAsset* materialAsset = nullptr;
-
-						if (meshRenderData.materials.Size() > primitive.materialIndex && meshRenderData.materials[primitive.materialIndex])
-						{
-							materialAsset = meshRenderData.materials[primitive.materialIndex];
-						}
-						else if (meshRenderData.mesh->GetMaterials().Size() > primitive.materialIndex && meshRenderData.mesh->GetMaterials()[primitive.materialIndex])
-						{
-							materialAsset = meshRenderData.mesh->GetMaterials()[primitive.materialIndex];
-						}
-
-						if (materialAsset)
-						{
-							cmd->DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
-						}
-					}
+					// for (MeshAsset::Primitive& primitive : meshRenderData.mesh->GetPrimitives())
+					// {
+					// 	MaterialAsset* materialAsset = nullptr;
+					//
+					// 	if (meshRenderData.materials.Size() > primitive.materialIndex && meshRenderData.materials[primitive.materialIndex])
+					// 	{
+					// 		materialAsset = meshRenderData.materials[primitive.materialIndex];
+					// 	}
+					// 	else if (meshRenderData.mesh->GetMaterials().Size() > primitive.materialIndex && meshRenderData.mesh->GetMaterials()[primitive.materialIndex])
+					// 	{
+					// 		materialAsset = meshRenderData.mesh->GetMaterials()[primitive.materialIndex];
+					// 	}
+					//
+					// 	if (materialAsset)
+					// 	{
+					// 		cmd->DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
+					// 	}
+					// }
 				}
 			}
 

@@ -376,9 +376,9 @@ namespace Skore
 		return device->CreateDescriptorSet(desc);
 	}
 
-	GPUDescriptorSet* Graphics::CreateDescriptorSet(ShaderVariant* shaderVariant, u32 set)
+	GPUDescriptorSet* Graphics::CreateDescriptorSet(RID shader, StringView variant, u32 set)
 	{
-		return device->CreateDescriptorSet(shaderVariant, set);
+		return device->CreateDescriptorSet(shader, variant, set);
 	}
 
 	GPUQueryPool* Graphics::CreateQueryPool(const QueryPoolDesc& desc)

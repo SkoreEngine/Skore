@@ -22,7 +22,7 @@
 
 #pragma once
 #include "Device.hpp"
-#include "Skore/Core/Span.hpp"
+#include "GraphicsCommon.hpp"
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/UnorderedDense.hpp"
@@ -30,30 +30,21 @@
 
 namespace Skore
 {
-	class MeshAsset;
-	class MaterialAsset;
-
 	struct MeshRenderData
 	{
-		MeshAsset*            mesh;
-		Mat4                  transform;
-		Array<MaterialAsset*> materials;
-		bool                  visible = true;
-		bool                  castShadows = false;
+		RID        mesh;
+		Mat4       transform;
+		Array<RID> materials;
+		bool       visible = true;
+		bool       castShadows = false;
 	};
 
 	struct EnvironmentRenderData
 	{
-		MaterialAsset* skyboxMaterial;
-		bool           visible = true;
+		RID  skyboxMaterial;
+		bool visible = true;
 	};
 
-	enum class RendererLightType
-	{
-		Directional,
-		Point,
-		Spot
-	};
 
 	struct LightRenderData
 	{
@@ -77,14 +68,14 @@ namespace Skore
 		void RegisterMeshProxy(RID rid);
 		void RemoveMeshProxy(RID rid);
 		void SetMeshTransform(RID rid, const Mat4& worldTransform);
-		void SetMesh(RID rid, MeshAsset* meshAsset);
+		void SetMesh(RID rid, RID meshAsset);
 		void SetMeshVisible(RID rid, bool visible);
-		void SetMeshMaterials(RID rid, Span<MaterialAsset*> materials);
+		void SetMeshMaterials(RID rid, Span<RID> materials);
 		void SetMeshCastShadows(RID rid, bool castShadows);
 
 		void RegisterEnvironmentProxy(RID rid);
 		void RemoveEnvironmentProxy(RID rid);
-		void SetEnvironmentSkyboxMaterial(RID rid, MaterialAsset* material);
+		void SetEnvironmentSkyboxMaterial(RID rid, RID material);
 		void SetEnvironmentVisible(RID rid, bool visible);
 
 		void RegisterLightProxy(RID rid);

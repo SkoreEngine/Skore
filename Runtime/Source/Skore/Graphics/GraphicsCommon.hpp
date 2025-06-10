@@ -21,24 +21,26 @@
 // SOFTWARE.
 
 #pragma once
-#include "Skore/Graphics/Device.hpp"
-#include "Skore/Graphics/GraphicsCommon.hpp"
+#include "Device.hpp"
+
 
 namespace Skore
 {
-	typedef bool (*FnGetShaderInclude)(StringView include, void* userData, String& source);
-
-	struct ShaderCompileInfo
+	enum class RendererLightType
 	{
-		StringView         source;
-		StringView         entryPoint;
-		ShaderStage        shaderStage;
-		GraphicsAPI        api;
-		Array<String>      macros;
-		void*              userData = nullptr;
-		FnGetShaderInclude getShaderInclude = nullptr;
+		Directional,
+		Point,
+		Spot
 	};
 
-	bool CompileShader(const ShaderCompileInfo& shaderCompileInfo, Array<u8>& bytes);
-	bool GetPipelineLayout(GraphicsAPI api, Span<u8> bytes, Span<ShaderStageInfo> stages, PipelineDesc& pipelineDesc);
+
+	struct SK_API ShaderStageInfo
+	{
+		ShaderStage stage{};
+		String      entryPoint{};
+		u32         offset{};
+		u32         size{};
+
+		static void RegisterType(NativeReflectType<ShaderStageInfo>& type);
+	};
 }

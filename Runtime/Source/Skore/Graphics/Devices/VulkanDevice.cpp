@@ -33,8 +33,9 @@
 #include "SDL3/SDL_vulkan.h"
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Logger.hpp"
-#include "Skore/Graphics/GraphicsAssets.hpp"
+#include "Skore/Graphics/GraphicsCommon.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 #include "vulkan/vk_enum_string_helper.h"
 
@@ -1916,6 +1917,8 @@ namespace Skore
 
 	GPUPipeline* VulkanDevice::CreateGraphicsPipeline(const GraphicsPipelineDesc& desc)
 	{
+		SK_ASSERT(false, "not implemented");
+
 		SK_ASSERT(desc.renderPass, "render pass is required");
 		SK_ASSERT(desc.shader, "shader variant is required");
 
@@ -2149,10 +2152,18 @@ namespace Skore
 
 	GPUPipeline* VulkanDevice::CreateComputePipeline(const ComputePipelineDesc& desc)
 	{
-		SK_ASSERT(desc.shaderVariant, "shader variant is required");
+		SK_ASSERT(false, "not implemented");
 
-		const PipelineDesc& pipelineDesc = desc.shaderVariant->pipelineDesc;
-		Span                stages = desc.shaderVariant->stages;
+		SK_ASSERT(desc.shader, "shader variant is required");
+
+		RID variant = ShaderResource::GetVariant(desc.shader, desc.variant);
+		SK_ASSERT(variant, "variant not found");
+
+		ResourceObject variantObject = Resources::Read(variant);
+
+		PipelineDesc          pipelineDesc;
+		Span<ShaderStageInfo> stages;
+
 
 		VkPipelineLayout vkPipelineLayout;
 		VkPipeline       vkPipeline;
@@ -2184,7 +2195,7 @@ namespace Skore
 
 		// Create compute shader module
 		VkShaderModule computeShaderModule;
-		Span bytes = desc.shaderVariant->spriv;
+		Span bytes = variantObject.GetBlob(ShaderVariantResource::Spriv);
 		
 		Span<u8> shaderData = Span<u8>{
 			bytes.begin() + computeStageInfo.offset,
@@ -2462,11 +2473,20 @@ namespace Skore
 		return {vulkanDescriptorSet};
 	}
 
-	GPUDescriptorSet* VulkanDevice::CreateDescriptorSet(ShaderVariant* shaderVariant, u32 set)
+	GPUDescriptorSet* VulkanDevice::CreateDescriptorSet(RID shader, StringView variant, u32 set)
 	{
-		SK_ASSERT(shaderVariant, "shader variant is required");
+		SK_ASSERT(shader, "shader is required");
+		RID variantRID = ShaderResource::GetVariant(shader, variant);
+		SK_ASSERT(variantRID, "variant not found");
 
-		for (const auto& descriptor: shaderVariant->pipelineDesc.descriptors)
+		//ResourceObject variantObject = Resources::Read(variant);
+
+		PipelineDesc pipelineDesc;
+
+		SK_ASSERT(false, "not implemented");
+
+
+		for (const auto& descriptor: pipelineDesc.descriptors)
 		{
 			if (descriptor.set == set)
 			{

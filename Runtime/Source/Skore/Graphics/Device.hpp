@@ -31,10 +31,6 @@
 
 namespace Skore
 {
-	struct ShaderVariant;
-	class ShaderAsset;
-
-
 	class GPUTextureView;
 	class GPUAdapter;
 	class GPUDevice;
@@ -706,9 +702,10 @@ namespace Skore
 
 	struct ComputePipelineDesc
 	{
-		ShaderVariant* shaderVariant{};
-		String         debugName;
-		GPUPipeline*   previousState = nullptr;
+		RID          shader;
+		String       variant = "Default";
+		String       debugName;
+		GPUPipeline* previousState = nullptr;
 	};
 
 	struct QueryPoolDesc
@@ -808,9 +805,10 @@ namespace Skore
 
 	struct RayTracingPipelineDesc
 	{
-		ShaderAsset* shaderAsset;
-		u32          maxRecursionDepth{1};
-		String       debugName;
+		RID    shader;
+		String variant = "Default";
+		u32    maxRecursionDepth{1};
+		String debugName;
 	};
 
 	struct SwapchainDesc
@@ -853,7 +851,7 @@ namespace Skore
 		virtual GPUPipeline*            CreateComputePipeline(const ComputePipelineDesc& desc) = 0;
 		virtual GPUPipeline*            CreateRayTracingPipeline(const RayTracingPipelineDesc& desc) = 0;
 		virtual GPUDescriptorSet*       CreateDescriptorSet(const DescriptorSetDesc& desc) = 0;
-		virtual GPUDescriptorSet*       CreateDescriptorSet(ShaderVariant* shaderVariant, u32 set) = 0;
+		virtual GPUDescriptorSet*       CreateDescriptorSet(RID shader, StringView variant, u32 set) = 0;
 		virtual GPUQueryPool*           CreateQueryPool(const QueryPoolDesc& desc) = 0;
 		virtual GPUBottomLevelAS*       CreateBottomLevelAS(const BottomLevelASDesc& desc) = 0;
 		virtual GPUTopLevelAS*          CreateTopLevelAS(const TopLevelASDesc& desc) = 0;

@@ -27,7 +27,7 @@ namespace Skore
 	void RenderStorage::RegisterMeshProxy(RID rid)
 	{
 		meshes.emplace(rid, MeshRenderData{
-			               .mesh = nullptr,
+			               .mesh = {},
 			               .transform = {},
 			               .materials = {},
 			               .visible = true,
@@ -48,7 +48,7 @@ namespace Skore
 		}
 	}
 
-	void RenderStorage::SetMesh(RID rid, MeshAsset* meshAsset)
+	void RenderStorage::SetMesh(RID rid, RID meshAsset)
 	{
 		if (const auto& it = meshes.find(rid); it != meshes.end())
 		{
@@ -64,7 +64,7 @@ namespace Skore
 		}
 	}
 
-	void RenderStorage::SetMeshMaterials(RID rid, Span<MaterialAsset*> materials)
+	void RenderStorage::SetMeshMaterials(RID rid, Span<RID> materials)
 	{
 		if (const auto& it = meshes.find(rid); it != meshes.end())
 		{
@@ -83,7 +83,7 @@ namespace Skore
 	void RenderStorage::RegisterEnvironmentProxy(RID rid)
 	{
 		environments.emplace(rid, EnvironmentRenderData{
-			                     .skyboxMaterial = nullptr
+			                     .skyboxMaterial = {}
 		                     });
 	}
 	void RenderStorage::RemoveEnvironmentProxy(RID rid)
@@ -91,7 +91,7 @@ namespace Skore
 		environments.erase(rid);
 	}
 
-	void RenderStorage::SetEnvironmentSkyboxMaterial(RID rid, MaterialAsset* material)
+	void RenderStorage::SetEnvironmentSkyboxMaterial(RID rid, RID material)
 	{
 		if (const auto& it = environments.find(rid); it != environments.end())
 		{

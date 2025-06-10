@@ -23,16 +23,15 @@
 #include "RenderTools.hpp"
 
 #include "Graphics.hpp"
-#include "GraphicsAssets.hpp"
 #include "Skore/Core/StaticContent.hpp"
-#include "Skore/IO/Assets.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
 	void SinglePassDownsampler::Init()
 	{
 		ComputePipelineDesc desc;
-		desc.shaderVariant = Assets::GetByPath<ShaderAsset>("Skore://Shaders/SPD.comp")->GetVariant("Default");
+		desc.shader = Resources::FindByPath("Skore://Shaders/SPD.comp"),
 		desc.debugName = "SinglePassDownsampler";
 		m_pipeline = Graphics::CreateComputePipeline(desc);
 
@@ -103,11 +102,11 @@ namespace Skore
 
 
 		ComputePipelineDesc desc;
-		desc.shaderVariant = Assets::GetByPath<ShaderAsset>("Skore://Shaders/GenBRDFLUT.comp")->GetVariant("Default");
+		desc.shader = Resources::FindByPath("Skore://Shaders/GenBRDFLUT.comp"),
 		desc.debugName = "BRDFLUTGen";
 
 		GPUPipeline*      computePipeline = Graphics::CreateComputePipeline(desc);
-		GPUDescriptorSet* descriptorSet = Graphics::CreateDescriptorSet(desc.shaderVariant, 0);
+		GPUDescriptorSet* descriptorSet = Graphics::CreateDescriptorSet(desc.shader, desc.variant, 0);
 
 		descriptorSet->UpdateTexture(0, m_texture);
 
@@ -151,11 +150,11 @@ namespace Skore
 	void EquirectangularToCubeMap::Init()
 	{
 		ComputePipelineDesc desc;
-		desc.shaderVariant = Assets::GetByPath<ShaderAsset>("Skore://Shaders/EquirectangularToCubemap.comp")->GetVariant("Default");
+		desc.shader = Resources::FindByPath("Skore://Shaders/EquirectangularToCubemap.comp"),
 		desc.debugName = "EquirectangularToCubemap";
 
 		m_pipeline = Graphics::CreateComputePipeline(desc);
-		m_descriptorSet = Graphics::CreateDescriptorSet(desc.shaderVariant, 0);
+		m_descriptorSet = Graphics::CreateDescriptorSet(desc.shader, desc.variant, 0);
 	}
 
 	void EquirectangularToCubeMap::Execute(GPUCommandBuffer* cmd, GPUTexture* equirectangularTexture, GPUTexture* cubeMapTexture)
@@ -201,11 +200,11 @@ namespace Skore
 	void DiffuseIrradianceGenerator::Init()
 	{
 		ComputePipelineDesc desc;
-		desc.shaderVariant = Assets::GetByPath<ShaderAsset>("Skore://Shaders/DiffuseIrradianceGenerator.comp")->GetVariant("Default");
+		desc.shader = Resources::FindByPath("Skore://Shaders/DiffuseIrradianceGenerator.comp"),
 		desc.debugName = "DiffuseIrradianceGenerator";
 
 		m_pipeline = Graphics::CreateComputePipeline(desc);
-		m_descriptorSet = Graphics::CreateDescriptorSet(desc.shaderVariant, 0);
+		m_descriptorSet = Graphics::CreateDescriptorSet(desc.shader, desc.variant, 0);
 	}
 
 	void DiffuseIrradianceGenerator::Execute(GPUCommandBuffer* cmd, GPUTexture* cubemapTexture, GPUTexture* irradianceTexture)
