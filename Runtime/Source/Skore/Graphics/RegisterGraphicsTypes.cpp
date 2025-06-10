@@ -657,8 +657,16 @@ namespace Skore
 		textureChannel.Value<TextureChannel::Blue>("Blue");
 		textureChannel.Value<TextureChannel::Alpha>("Alpha");
 
+		Resources::Type<ShaderVariantResource>()
+			.Field<ShaderVariantResource::Name>(ResourceFieldType::String)
+			.Field<ShaderVariantResource::Spriv>(ResourceFieldType::Blob)
+			.Field<ShaderVariantResource::PipelineDesc>(ResourceFieldType::SubObject)
+			.Field<ShaderVariantResource::Stages>(ResourceFieldType::SubObjectSet)
+			.Build();
+
 		Resources::Type<ShaderResource>()
-			.Field<MeshResource::Name>(ResourceFieldType::String)
+			.Field<ShaderResource::Name>(ResourceFieldType::String)
+			.Field<ShaderResource::Variants>(ResourceFieldType::SubObjectSet)
 			.Build();
 
 		Resources::Type<TextureResource>()

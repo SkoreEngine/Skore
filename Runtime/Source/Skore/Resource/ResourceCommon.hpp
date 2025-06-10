@@ -111,7 +111,17 @@ namespace Skore
 	struct UndoRedoScope;
 	typedef CharPtr ResourceInstance;
 	typedef bool(*FnRIDCallback)(RID rid, VoidPtr userData);
-	typedef void (*FnObjectEvent)(const ResourceObject& oldValue, const ResourceObject& newValue, VoidPtr userData);
+	typedef void (*FnObjectEvent)(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
+
+	//used for unknown asset file types.
+	struct ResourceFile
+	{
+		enum
+		{
+			Name,
+			Content
+		};
+	};
 
 
 	struct ResourceStorage

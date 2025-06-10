@@ -86,6 +86,9 @@ namespace Skore
 		std::mutex           byPathMutex{};
 		HashMap<String, RID> byPath{};
 
+
+		HashMap<TypeID, Array<RID>> resourceByType;
+
 		moodycamel::ConcurrentQueue<DestroyResourcePayload> toCollectItems = moodycamel::ConcurrentQueue<DestroyResourcePayload>(100);
 
 
@@ -191,7 +194,7 @@ namespace Skore
 			}
 		}
 
-		void ExecuteEvents(ResourceStorage* resourceStorage, const ResourceObject& oldValue, const ResourceObject& newValue)
+		void ExecuteEvents(ResourceStorage* resourceStorage, ResourceObject&& oldValue, ResourceObject&& newValue)
 		{
 			if (resourceStorage->resourceType != nullptr)
 			{
@@ -461,6 +464,16 @@ namespace Skore
 			storage->instance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
 		}
 
+		if (storage->resourceType)
+		{
+			auto it = resourceByType.Find(storage->resourceType->GetID());
+			if (it == resourceByType.end())
+			{
+				it = resourceByType.Emplace(storage->resourceType->GetID(), Array<RID>{}).first;
+			}
+			it->second.EmplaceBack(rid);
+		}
+
 		return rid;
 	}
 
@@ -482,6 +495,16 @@ namespace Skore
 			storage->instance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
 		}
 
+		if (storage->resourceType)
+		{
+			auto it = resourceByType.Find(storage->resourceType->GetID());
+			if (it == resourceByType.end())
+			{
+				it = resourceByType.Emplace(storage->resourceType->GetID(), Array<RID>{}).first;
+			}
+			it->second.EmplaceBack(rid);
+		}
+
 		return rid;
 	}
 
@@ -501,6 +524,16 @@ namespace Skore
 		storage->instance = CreateResourceInstanceClone(originStorage->resourceType, originStorage->instance.load());
 		storage->resourceType = originStorage->resourceType;
 		storage->prototype = originStorage->prototype;
+
+		if (storage->resourceType)
+		{
+			auto it = resourceByType.Find(storage->resourceType->GetID());
+			if (it == resourceByType.end())
+			{
+				it = resourceByType.Emplace(storage->resourceType->GetID(), Array<RID>{}).first;
+			}
+			it->second.EmplaceBack(rid);
+		}
 
 		return rid;
 	}
@@ -661,6 +694,15 @@ namespace Skore
 		return {};
 	}
 
+	Span<RID> Resources::GetResourceByType(TypeID typeId)
+	{
+		if (auto it = resourceByType.Find(typeId))
+		{
+			return it->second;
+		}
+		return {};
+	}
+
 	void Resources::Serialize(RID ridx, ArchiveWriter& writer)
 	{
 		RID        current = ridx;
@@ -752,8 +794,16 @@ namespace Skore
 								writer.EndMap();
 								break;
 							case ResourceFieldType::Enum:
-								writer.WriteInt(field->GetName(), set.GetInt(field->GetIndex()));
+							{
+								if (ReflectType* enumType = Reflection::FindTypeById(field->GetSubType()))
+								{
+									if (ReflectValue* value = enumType->FindValueByCode(set.GetInt(field->GetIndex())))
+									{
+										writer.WriteString(field->GetName(), value->GetDesc());
+									}
+								}
 								break;
+							}
 							case ResourceFieldType::Blob:
 							{
 								Span<u8> blob = set.GetBlob(field->GetIndex());
@@ -924,8 +974,16 @@ namespace Skore
 							break;
 						}
 						case ResourceFieldType::Enum:
-							write.SetInt(field->GetIndex(), reader.GetInt());
+						{
+							if (ReflectType* enumType = Reflection::FindTypeById(field->GetSubType()))
+							{
+								if (ReflectValue* value = enumType->FindValueByName(reader.GetString()))
+								{
+									write.SetInt(field->GetIndex(), value->GetCode());
+								}
+							}
 							break;
+						}
 						case ResourceFieldType::Blob:
 							write.SetBlob(field->GetIndex(), reader.GetBlob());
 							break;

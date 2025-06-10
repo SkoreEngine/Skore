@@ -59,10 +59,6 @@ namespace Skore
 
 	void SceneViewWindow::Draw(u32 id, bool& open)
 	{
-		// ImGui::Begin("huh");
-		// ImGuiTextureItem(sceneRendererViewport.m_brdflutTexture.GetTexture(), ImGui::GetWindowSize());
-		// ImGui::End();
-
 		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
 
 		bool openSceneOptions = false;

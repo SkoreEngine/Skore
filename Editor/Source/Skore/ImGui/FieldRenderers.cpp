@@ -395,7 +395,7 @@ namespace Skore
 							}
 						}
 
-						for (RID resourceAsset : ResourceAssets::GetResourceAssetsByType(typeId))
+						for (RID resourceAsset : Resources::GetResourceByType(typeId))
 						{
 							ImGuiContentItemDesc contentItem{};
 							contentItem.id = resourceAsset.id;

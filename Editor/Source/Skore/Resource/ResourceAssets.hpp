@@ -63,7 +63,7 @@ namespace Skore
 			Type,
 			Object,
 			Parent,
-			Path,
+			PathId,
 			Directory,
 			AssetFile,
 			SourcePath
@@ -110,7 +110,7 @@ namespace Skore
 		virtual TypeID     GetResourceTypeId() = 0;
 		virtual StringView GetDesc() = 0;
 
-		virtual RID Load(StringView absolutePath);
+		virtual RID Load(RID asset, StringView absolutePath);
 
 		virtual bool GetAssetName(RID rid, String& name)
 		{
@@ -145,8 +145,9 @@ namespace Skore
 		static RID                   CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
 		static RID                   CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
 		static String                CreateUniqueAssetName(RID parent, StringView desiredName, bool directory);
-		static String                GetDirectoryPath(RID directory);
+		static String                GetDirectoryPathId(RID directory);
 		static StringView            GetAbsolutePath(RID asset);
+		static StringView            GetPathId(RID asset);
 		static RID                   GetAsset(RID rid);
 		static RID                   GetParentAsset(RID rid);
 		static bool                  IsChildOf(RID parent, RID child);
@@ -154,6 +155,5 @@ namespace Skore
 		static ResourceAssetHandler* GetAssetHandler(RID rid);
 		static ResourceAssetHandler* GetAssetHandler(TypeID typeId);
 		static String                GetAssetName(RID rid);
-		static Span<RID>             GetResourceAssetsByType(TypeID typeId);
 	};
 }

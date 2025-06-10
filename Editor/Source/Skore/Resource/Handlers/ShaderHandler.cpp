@@ -32,7 +32,6 @@
 
 namespace Skore
 {
-
 	static Logger& logger = Logger::GetLogger("Skore::ShaderHandler");
 
 	enum class ShaderAssetType
@@ -91,12 +90,16 @@ namespace Skore
 			SDL_OpenURL(ResourceAssets::GetAbsolutePath(asset).CStr());
 		}
 
-		RID Load(StringView absolutePath) override
+		RID Load(RID asset, StringView absolutePath) override
 		{
 			GraphicsAPI graphicsApi = GraphicsAPI::Vulkan;
 
-			ShaderAssetType   shaderType = GetShaderAssetType();
-			ShaderConfig config;
+			RID shaderResource = Resources::Create<ShaderResource>();
+
+			ResourceObject shaderResourceObject = Resources::Write(shaderResource);
+
+			ShaderAssetType shaderType = GetShaderAssetType();
+			ShaderConfig    config;
 
 			String configPath = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath) + ".shader");
 			if (FileSystem::GetFileStatus(configPath).exists)
@@ -194,13 +197,12 @@ namespace Skore
 
 			for (ShaderConfigVariant& shaderConfigVariant : config.variants)
 			{
-				Array<u8>              bytes{};
-				Array<ShaderStageInfo> tempStages{};
+				Array<u8> bytes{};
+				Array<ShaderStageInfo> stages{};
 
 				u32 stageOffset = 0;
 				for (ShaderConfigStage& configStage : shaderConfigVariant.stages)
 				{
-
 					struct ShaderIncludeUserData
 					{
 						StringView absolutePath;
@@ -225,9 +227,9 @@ namespace Skore
 						//TODO - add shader dependencies for hot reloading
 						if (Contains(include, StringView(":/")))
 						{
-							if (AssetInterface* interface = Assets::GetInterfaceByPath(include))
+							if (RID rid = Resources::FindByPath(include))
 							{
-								source = FileSystem::ReadFileAsString(Assets::GetInterfaceByPath(include)->GetAbsolutePath());
+								source = FileSystem::ReadFileAsString(ResourceAssets::GetAbsolutePath(rid));
 								return true;
 							}
 						}
@@ -248,7 +250,7 @@ namespace Skore
 
 					u32 shaderSize = static_cast<u32>(bytes.Size()) - stageOffset;
 
-					tempStages.EmplaceBack(ShaderStageInfo{
+					stages.EmplaceBack(ShaderStageInfo{
 						.stage = configStage.stage,
 						.entryPoint = configStage.entryPoint,
 						.offset = stageOffset,
@@ -257,36 +259,35 @@ namespace Skore
 					stageOffset += shaderSize;
 				}
 
-				// ShaderVariant* variant = shaderAsset->FindOrCreateVariant(shaderConfigVariant.name);
-				// variant->stages = Traits::Move(tempStages);
-				// variant->spriv = Traits::Move(bytes);
-				// GetPipelineLayout(graphicsApi, variant->spriv, variant->stages, variant->pipelineDesc);
+				PipelineDesc pipelineDesc;
+				GetPipelineLayout(graphicsApi, bytes, stages, pipelineDesc);
 
+				RID pipelineDescRID = Resources::Create<PipelineDesc>();
+				Resources::ToResource(pipelineDescRID, &pipelineDesc, nullptr);
 
-				//TODO - shader hot-reload
-				/*
-			    for (PipelineState pipelineState : variant->pipelineDependencies)
-			    {
-			        Graphics::ReloadPipelineState(variant, pipelineState);
-			    }
+				RID shaderVariant = Resources::Create<ShaderVariantResource>();
 
-			    for (const auto it : variant->shaderDependencies)
-			    {
-			        Assets::Reload(it.first->GetUUID());
-			    }
+				ResourceObject shaderVariantObject = Resources::Write(shaderVariant);
+				shaderVariantObject.SetString(ShaderVariantResource::Name, shaderConfigVariant.name);
+				shaderVariantObject.SetBlob(ShaderVariantResource::Spriv, bytes);
+				shaderVariantObject.SetSubObject(ShaderVariantResource::PipelineDesc, pipelineDescRID);
 
-			    for (const auto it : variant->bindingSetDependencies)
-			    {
-			        it.first->Reload();
-			    }
-			    */
+				for (const ShaderStageInfo& stage: stages)
+				{
+					RID stageRID = Resources::Create<ShaderStageInfo>();
+					Resources::ToResource(stageRID, &stage, nullptr);
+					shaderVariantObject.AddToSubObjectSet(ShaderVariantResource::Stages, stageRID);
+				}
 
-				logger.Debug("shader {} compiled? ", absolutePath);
+				shaderVariantObject.Commit();
+				shaderResourceObject.AddToSubObjectSet(ShaderResource::Variants, shaderVariant);
 
-				//logger.Debug("shader {} variant {} created successfully", assetFile->GetPath(), variant->name);
+				logger.Debug("shader {} variant {} created successfully", ResourceAssets::GetPathId(asset), shaderConfigVariant.name);
 			}
 
-			return {};
+			shaderResourceObject.Commit();
+
+			return shaderResource;
 		}
 
 		TypeID GetResourceTypeId() override

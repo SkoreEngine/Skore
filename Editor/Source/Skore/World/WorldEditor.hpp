@@ -68,6 +68,6 @@ namespace Skore
 		RID m_state = {};
 		RID m_selection = {};
 
-		static void OnSelectionChange(const ResourceObject& oldValue, const ResourceObject& newValue, VoidPtr userData);
+		static void OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 	};
 }

@@ -49,28 +49,12 @@ namespace Skore
 		HashMap<String, ResourceAssetHandler*> handlersByExtension;
 		HashMap<TypeID, ResourceAssetHandler*> handlersByTypeID;
 
-		HashMap<TypeID, Array<RID>> resourceAssetsByType;
-
 		HashMap<String, ResourceAssetImporter*> importersByExtension;
 
 		Allocator* alloc = MemoryGlobals::GetHeapAllocator();
 
 
 		Logger& logger = Logger::GetLogger("Skore::ResourceAssets", LogLevel::Debug);
-
-
-		void RegisterResourceByType(RID rid)
-		{
-			if (ResourceType* type = Resources::GetType(rid))
-			{
-				auto it = resourceAssetsByType.Find(type->GetID());
-				if (it == resourceAssetsByType.end())
-				{
-					it = resourceAssetsByType.Emplace(type->GetID(), Array<RID>{}).first;
-				}
-				it->second.EmplaceBack(rid);
-			}
-		}
 
 		String GetNewAbsolutePath(RID asset)
 		{
@@ -120,7 +104,7 @@ namespace Skore
 		}
 	}
 
-	RID ResourceAssetHandler::Load(StringView path)
+	RID ResourceAssetHandler::Load(RID asset, StringView path)
 	{
 		String bufferPath = Path::Join(Path::Parent(path), Path::Name(path).Append(".buffer"));
 		ByteBuffer buffer;
@@ -155,7 +139,7 @@ namespace Skore
 
 			ResourceObject assetObject = Resources::Write(asset);
 			assetObject.SetString(ResourceAsset::Name, packageName);
-			assetObject.SetString(ResourceAsset::Path, path);
+			assetObject.SetString(ResourceAsset::PathId, path);
 			assetObject.SetString(ResourceAsset::Extension, "");
 			assetObject.SetBool(ResourceAsset::Directory, true);
 			assetObject.SetReference(ResourceAsset::AssetFile, assetFile);
@@ -215,20 +199,30 @@ namespace Skore
 				ResourceObject assetObject = Resources::Write(asset);
 				assetObject.SetString(ResourceAsset::Name, fileName);
 				assetObject.SetString(ResourceAsset::Extension, extension);
-				assetObject.SetString(ResourceAsset::Path, path);
+				assetObject.SetString(ResourceAsset::PathId, path);
 				assetObject.SetReference(ResourceAsset::Parent, scan.directory);
 				assetObject.SetBool(ResourceAsset::Directory, status.isDirectory);
 				assetObject.SetReference(ResourceAsset::AssetFile, assetFile);
 
 				if (!status.isDirectory)
 				{
+					RID object;
 					if (auto it = handlersByExtension.Find(extension))
 					{
-						if (RID object = it->second->Load(entry))
-						{
-							assetObject.SetSubObject(ResourceAsset::Object, object);
-							RegisterResourceByType(object);
-						}
+						object = it->second->Load(asset, entry);
+					}
+					else
+					{
+						object = Resources::Create<ResourceFile>();
+						ResourceObject resourceFileObject = Resources::Write(object);
+						resourceFileObject.SetString(ResourceFile::Name, fileName);
+						resourceFileObject.Commit();
+					}
+
+					if (object)
+					{
+						assetObject.SetSubObject(ResourceAsset::Object, object);
+						Resources::SetPath(object, path);
 					}
 				}
 
@@ -324,13 +318,13 @@ namespace Skore
 
 				ResourceObject assetFileObject = Resources::Write(assetToUpdate.assetFile);
 				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, absolutePath);
-				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::Path));
+				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::PathId));
 				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, storage->version);
 				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
 				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
 				assetFileObject.Commit();
 
-				logger.Debug("asset '{}' saved on '{}' ", assetObject.GetString(ResourceAsset::Path), absolutePath);
+				logger.Debug("asset '{}' saved on '{}' ", assetObject.GetString(ResourceAsset::PathId), absolutePath);
 			}
 
 			if (assetToUpdate.type == UpdatedAssetType::Created)
@@ -372,7 +366,7 @@ namespace Skore
 				ResourceObject assetFileObject = Resources::Write(assetFile);
 				assetFileObject.SetReference(ResourceAssetFile::AssetRef, assetToUpdate.asset);
 				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, absolutePath);
-				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::Path));
+				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::PathId));
 				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, storage->version);
 				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
 				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
@@ -380,7 +374,7 @@ namespace Skore
 
 				packageObject.AddToSubObjectSet(ResourceAssetPackage::Files, assetFile);
 
-				logger.Debug("asset {} created on {} ", assetObject.GetString(ResourceAsset::Path), absolutePath);
+				logger.Debug("asset {} created on {} ", assetObject.GetString(ResourceAsset::PathId), absolutePath);
 			}
 
 			if (assetToUpdate.type == UpdatedAssetType::Deleted)
@@ -427,7 +421,7 @@ namespace Skore
 					.asset = asset,
 					.assetFile = assetFile,
 					.displayName = String(assetObject.GetString(ResourceAsset::Name)).Append(assetObject.GetString(ResourceAsset::Extension)),
-					.path = assetObject.GetString(ResourceAsset::Path),
+					.path = assetObject.GetString(ResourceAsset::PathId),
 					.shouldUpdate = true
 				});
 			}
@@ -452,7 +446,7 @@ namespace Skore
 						.asset = asset,
 						.assetFile = {},
 						.displayName = String(assetObject.GetString(ResourceAsset::Name)).Append(assetObject.GetString(ResourceAsset::Extension)),
-						.path = assetObject.GetString(ResourceAsset::Path),
+						.path = assetObject.GetString(ResourceAsset::PathId),
 						.shouldUpdate = true
 					});
 				}
@@ -477,7 +471,8 @@ namespace Skore
 		if (auto it = handlersByExtension.Find(extension))
 		{
 			it->second->OpenAsset(rid);
-		} else
+		}
+		else
 		{
 			SDL_OpenURL(GetAbsolutePath(rid).CStr());
 		}
@@ -489,7 +484,7 @@ namespace Skore
 
 		for (const String& path : paths)
 		{
-			logger.Debug("importing {} to {} ", path, GetDirectoryPath(parent));
+			logger.Debug("importing {} to {} ", path, GetDirectoryPathId(parent));
 			String extension = Path::Extension(path);
 
 			if (auto it = importersByExtension.Find(extension))
@@ -516,10 +511,9 @@ namespace Skore
 			ResourceAssetHandler* handler = it->second;
 
 			String newName = CreateUniqueAssetName(parent, desiredName.Empty() ? String("New ").Append(handler->GetDesc()) : String(desiredName), false);
-			String path = GetDirectoryPath(parent) + "/" + newName + handler->Extension();
+			String path = GetDirectoryPathId(parent) + "/" + newName + handler->Extension();
 
-			RID asset = Resources::Create(typeId, UUID::RandomUUID(), scope);
-			RegisterResourceByType(asset);
+			RID            asset = Resources::Create(typeId, UUID::RandomUUID(), scope);
 			ResourceObject assetObject = Resources::Write(asset);
 			assetObject.Commit(scope);
 
@@ -530,7 +524,7 @@ namespace Skore
 			object.SetString(ResourceAsset::Extension, handler->Extension());
 			object.SetSubObject(ResourceAsset::Object, asset);
 			object.SetReference(ResourceAsset::Parent, parent);
-			object.SetString(ResourceAsset::Path, path);
+			object.SetString(ResourceAsset::PathId, path);
 			object.SetBool(ResourceAsset::Directory, false);
 
 			if (!sourcePath.Empty())
@@ -556,14 +550,14 @@ namespace Skore
 	RID ResourceAssets::CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope)
 	{
 		String newName = CreateUniqueAssetName(parent, desiredName, true);
-		String path = GetDirectoryPath(parent) + "/" + newName;
+		String path = GetDirectoryPathId(parent) + "/" + newName;
 
 		RID            asset = Resources::Create<ResourceAsset>();
 		ResourceObject object = Resources::Write(asset);
 		object.SetString(ResourceAsset::Name, newName);
 		object.SetString(ResourceAsset::Extension, "");
 		object.SetReference(ResourceAsset::Parent, parent);
-		object.SetString(ResourceAsset::Path, path);
+		object.SetString(ResourceAsset::PathId, path);
 		object.SetBool(ResourceAsset::Directory, true);
 		object.Commit(scope);
 
@@ -618,23 +612,38 @@ namespace Skore
 		return finalName;
 	}
 
-	String ResourceAssets::GetDirectoryPath(RID directory)
+	String ResourceAssets::GetDirectoryPathId(RID directory)
 	{
 		ResourceObject directoryObject = Resources::Read(directory);
 		RID            directoryAsset = directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
 		ResourceObject assetObject = Resources::Read(directoryAsset);
-		return assetObject.GetString(ResourceAsset::Path);
+		return assetObject.GetString(ResourceAsset::PathId);
 	}
 
 	StringView ResourceAssets::GetAbsolutePath(RID asset)
 	{
-		ResourceObject assetObject = Resources::Read(asset);
+		RID resourceAsset = asset;
+		if (Resources::GetStorage(asset)->resourceType->GetID() != TypeInfo<ResourceAsset>::ID())
+		{
+			resourceAsset = Resources::GetParent(asset);
+		}
+
+		ResourceObject assetObject = Resources::Read(resourceAsset);
 		if (RID assetFile = assetObject.GetReference(ResourceAsset::AssetFile))
 		{
 			ResourceObject assetFileObject = Resources::Read(assetFile);
 			return assetFileObject.GetString(ResourceAssetFile::AbsolutePath);
 		}
 		return "";
+	}
+
+	StringView ResourceAssets::GetPathId(RID asset)
+	{
+		if (ResourceObject assetObject = Resources::Read(asset))
+		{
+			return assetObject.GetString(ResourceAsset::PathId);
+		}
+		return {};
 	}
 
 	RID ResourceAssets::GetAsset(RID rid)
@@ -744,15 +753,6 @@ namespace Skore
 		return {};
 	}
 
-	Span<RID> ResourceAssets::GetResourceAssetsByType(TypeID typeId)
-	{
-		if (auto it = resourceAssetsByType.Find(typeId))
-		{
-			return it->second;
-		}
-		return {};
-	}
-
 	void ResourceAssetsShutdown()
 	{
 		for (ResourceAssetHandler* handler : handlers)
@@ -814,6 +814,65 @@ namespace Skore
 		}
 	}
 
+	void OnUpdateAsset(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+	{
+		if (oldValue && newValue)
+		{
+			StringView oldName = oldValue.GetString(ResourceAsset::Name);
+			StringView newName = newValue.GetString(ResourceAsset::Name);
+
+			if (!oldName.Empty() && oldName != newName)
+			{
+				String parentPath = ResourceAssets::GetDirectoryPathId(newValue.GetReference(ResourceAsset::Parent));
+				newValue.SetString(ResourceAsset::PathId, parentPath + "/" + newName + newValue.GetString(ResourceAsset::Extension));
+			}
+
+
+			StringView oldPath = oldValue.GetString(ResourceAsset::PathId);
+			StringView newPath = newValue.GetString(ResourceAsset::PathId);
+
+			if (oldPath != newPath)
+			{
+				logger.Debug("asset path updated from {} to {} ", oldPath, newPath);
+
+				if (RID object = newValue.GetReference(ResourceAsset::Object))
+				{
+					Resources::SetPath(object, newPath);
+				}
+
+				// if (newValue.GetBool(ResourceAsset::Directory))
+				// {
+				// 	RID directoryRID = Resources::GetParent(newValue.GetRID());
+				// 	if (Resources::GetType(directoryRID)->GetID() == TypeInfo<ResourceAssetDirectory>::ID())
+				// 	{
+				// 		if (ResourceObject directoryObject = Resources::Read(directoryRID))
+				// 		{
+				// 			auto fnUpdate = [&](RID asset)
+				// 			{	// 				if (ResourceObject childObject = Resources::Write(asset))
+				// 				{
+				// 					childObject.SetString(ResourceAsset::PathId, String(newPath) + "/" + childObject.GetString(ResourceAsset::Name) + childObject.GetString(ResourceAsset::Extension));
+				// 					childObject.Commit();
+				// 				}
+				// 			};
+				//
+				// 			for (RID directory : directoryObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Directories))
+				// 			{
+				// 				ResourceObject directoryObject = Resources::Read(directory);
+				// 				RID asset = directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
+				// 				fnUpdate(asset);
+				// 			}
+				//
+				// 			for (RID asset : directoryObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Assets))
+				// 			{
+				// 				fnUpdate(asset);
+				// 			}
+				// 		}
+				// 	}
+				// }
+			}
+		}
+	}
+
 	void RegisterEntityHandler();
 	void RegisterTextureHandler();
 	void RegisterMeshHandler();
@@ -850,11 +909,13 @@ namespace Skore
 			.Field<ResourceAsset::Extension>(ResourceFieldType::String)
 			.Field<ResourceAsset::Object>(ResourceFieldType::SubObject)
 			.Field<ResourceAsset::Parent>(ResourceFieldType::Reference)
-			.Field<ResourceAsset::Path>(ResourceFieldType::String)
+			.Field<ResourceAsset::PathId>(ResourceFieldType::String)
 			.Field<ResourceAsset::Directory>(ResourceFieldType::Bool)
 			.Field<ResourceAsset::AssetFile>(ResourceFieldType::Reference)
 			.Field<ResourceAsset::SourcePath>(ResourceFieldType::String)
 			.Build();
+
+		Resources::FindType<ResourceAsset>()->RegisterEvent(OnUpdateAsset, nullptr);
 
 		RegisterEntityHandler();
 		RegisterTextureHandler();

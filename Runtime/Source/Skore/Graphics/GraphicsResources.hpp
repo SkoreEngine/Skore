@@ -29,8 +29,10 @@ namespace Skore
 	{
 		enum
 		{
-			Name,  //String
-			Spriv, //Blob
+			Name,         //String
+			Spriv,        //Blob
+			PipelineDesc, //Subobject
+			Stages,       //SubobjectSet
 		};
 	};
 
@@ -39,8 +41,8 @@ namespace Skore
 	{
 		enum
 		{
-			Name,		//String
-			Variants,	//SubobjectSet
+			Name,     //String
+			Variants, //SubobjectSet
 		};
 
 		static RID GetVariant(RID shader, StringView name);

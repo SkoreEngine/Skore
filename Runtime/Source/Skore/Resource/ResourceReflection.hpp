@@ -72,7 +72,7 @@ namespace Skore
 			if (ResourceReflection::FindTypeToCast(TypeInfo<T>::ID()) != nullptr)
 			{
 				return ResourceFieldInfo{
-					.type = ResourceFieldType::None,
+					.type = ResourceFieldType::SubObject,
 					.subType = TypeInfo<T>::ID()
 				};
 			}
@@ -200,6 +200,47 @@ namespace Skore
 			return ResourceFieldInfo{
 				.type = ResourceFieldType::Reference,
 				.subType = TypeInfo<T>::ID()
+			};
+		}
+	};
+
+	template<typename T>
+	struct ResourceCast<Array<T>>
+	{
+		constexpr static bool hasSpecialization = true;
+
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Array<T>& array)
+		{
+			for (const T& element : array)
+			{
+				RID subobject = Resources::Create<T>({}, scope);
+				Resources::ToResource(subobject, &element, scope);
+				object.AddToSubObjectSet(index, subobject);
+			}
+		}
+
+		static void FromResource(const ResourceObject& object, u32 index, Array<T>& array)
+		{
+			object.IterateSubObjectSet(index, true, [&](RID subobject)
+			{
+				T value;
+				Resources::FromResource(subobject, &value);
+				array.EmplaceBack(Traits::Move(value));
+				return true;
+			});
+		}
+
+		static ResourceFieldInfo GetResourceFieldInfo()
+		{
+			if (ResourceReflection::FindTypeToCast(TypeInfo<T>::ID()) != nullptr)
+			{
+				return ResourceFieldInfo{
+					.type = ResourceFieldType::SubObjectSet,
+					.subType = TypeInfo<T>::ID()
+				};
+			}
+			return ResourceFieldInfo{
+				.type = ResourceFieldType::None
 			};
 		}
 	};

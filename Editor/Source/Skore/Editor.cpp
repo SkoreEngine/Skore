@@ -44,7 +44,6 @@
 #include "Window/EntityTreeWindow.hpp"
 #include "Window/HistoryWindow.hpp"
 #include "Window/PropertiesWindow.hpp"
-#include "Window/SceneTreeWindow.hpp"
 #include "Window/SceneViewWindow.hpp"
 #include "Window/TextureViewWindow.hpp"
 
@@ -706,7 +705,7 @@ namespace Skore
 			return l.order < r.order;
 		});
 
-		AssetEditor::AddPackage("Skore", FileSystem::AssetFolder());
+		//AssetEditor::AddPackage("Skore", FileSystem::AssetFolder());
 
 		Editor::LoadPackage("Skore", FileSystem::AssetFolder());
 
@@ -727,7 +726,6 @@ namespace Skore
 		Reflection::Type<EditorWindow>();
 		Reflection::Type<EditorWindowProperties>();
 		Reflection::Type<ProjectBrowserWindow>();
-		//Reflection::Type<SceneTreeWindow>();
 		Reflection::Type<EntityTreeWindow>();
 		Reflection::Type<TextureViewWindow>();
 		Reflection::Type<HistoryWindow>();

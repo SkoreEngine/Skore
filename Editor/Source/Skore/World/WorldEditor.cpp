@@ -253,7 +253,7 @@ namespace Skore
 		entityObject.Commit(scope);
 	}
 
-	void WorldEditor::OnSelectionChange(const ResourceObject& oldValue, const ResourceObject& newValue, VoidPtr userData)
+	void WorldEditor::OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
 		WorldEditor* worldEditor = static_cast<WorldEditor*>(userData);
 

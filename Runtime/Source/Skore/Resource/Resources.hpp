@@ -79,6 +79,9 @@ namespace Skore
 		static StringView       GetPath(RID rid);
 		static RID              FindByPath(StringView path);
 
+
+		static Span<RID> GetResourceByType(TypeID typeId);
+
 		static void Serialize(RID rid, ArchiveWriter& writer);
 		static RID  Deserialize(ArchiveReader& reader, UndoRedoScope* scope = nullptr);
 
