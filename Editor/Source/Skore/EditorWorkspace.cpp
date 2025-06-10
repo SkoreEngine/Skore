@@ -33,7 +33,6 @@ namespace Skore
     {
         u32 workspaceCount = 0;
         Logger& logger = Logger::GetLogger("Skore::EditorWorkspace");
-        EventHandler<OnAssetSelection> onAssetSelectionHandler{};
     }
 
     EditorWorkspace::EditorWorkspace() : id(workspaceCount++), name(String("Workspace ").Append(ToString(id)))
@@ -63,16 +62,6 @@ namespace Skore
     void EditorWorkspace::OpenAsset(RID rid)
     {
         //onAssetSelectionHandler.Invoke(assetFile);
-    }
-
-    void EditorWorkspace::OpenAsset(AssetFileOld* assetFile)
-    {
-        onAssetSelectionHandler.Invoke(assetFile);
-    }
-
-    SceneEditor* EditorWorkspace::GetSceneEditor()
-    {
-        return &sceneEditor;
     }
 
     //    void EditorWorkspace::OpenScene(RID rid, TypeID sceneEditorType)

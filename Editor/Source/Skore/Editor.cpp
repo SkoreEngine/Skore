@@ -32,7 +32,6 @@
 #include "Window/ProjectBrowserWindow.hpp"
 
 #include "EditorWorkspace.hpp"
-#include "Asset/AssetEditor.hpp"
 #include "Resource/ResourceAssets.hpp"
 #include "SDL3/SDL_process.h"
 #include "Skore/Events.hpp"
@@ -49,9 +48,6 @@
 
 namespace Skore
 {
-	void AssetEditorInit();
-	void AssetEditorShutdown();
-
 	void ShaderManagerInit();
 	void ShaderManagerShutdown();
 
@@ -301,7 +297,6 @@ namespace Skore
 			redoActions.ShrinkToFit();
 
 			ShaderManagerShutdown();
-			AssetEditorShutdown();
 		}
 
 		void DrawMenu()
@@ -648,7 +643,23 @@ namespace Skore
 		return rid;
 	}
 
-	void RegisterAssetTypes();
+	void ImGuiDrawUndoRedoActions()
+	{
+		for (const auto& redo: redoActions)
+		{
+			StringView name = Resources::GetScopeName(redo->scope);
+			ImGui::Selectable(!name.Empty() ? name.CStr() : "Unnamed action", false, ImGuiSelectableFlags_Disabled);
+		}
+
+		bool first = true;
+		for (const auto& action: undoActions)
+		{
+			StringView name = Resources::GetScopeName(action->scope);
+			ImGui::Selectable(!name.Empty() ? name.CStr() : "Unnamed action", first, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_SpanAvailWidth);
+			first = false;
+		}
+	}
+
 	void ProjectBrowserWindowInit();
 	void ResourceAssetsInit();
 
@@ -669,9 +680,7 @@ namespace Skore
 		Event::Bind<OnShutdownRequest, &OnEditorShutdownRequest>();
 
 		CreateMenuItems();
-
 		ResourceAssetsInit();
-		AssetEditorInit();
 
 		ShaderManagerInit();
 		ProjectBrowserWindowInit();
@@ -719,7 +728,6 @@ namespace Skore
 
 	void EditorTypeRegister()
 	{
-		RegisterAssetTypes();
 		RegisterResourceAssetTypes();
 		RegisterWorldEditorTypes();
 

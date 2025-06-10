@@ -21,8 +21,7 @@
 // SOFTWARE.
 
 #pragma once
-#include "Asset/AssetFileOld.hpp"
-#include "Scene/SceneEditor.hpp"
+
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/StringView.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
@@ -40,9 +39,6 @@ namespace Skore
 		u32          GetId() const;
 		WorldEditor* GetWorldEditor();
 		void         OpenAsset(RID rid);
-		void         OpenAsset(AssetFileOld* assetFile);
-
-		SceneEditor* GetSceneEditor();
 
 		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
 
@@ -50,7 +46,6 @@ namespace Skore
 		u32         id;
 		String      name;
 		WorldEditor worldEditor{*this};
-		SceneEditor sceneEditor = {*this};
 
 		//static void SceneChanged(RID rid, ResourceObject oldValue, ResourceObject newValue, VoidPtr userData);
 	};
