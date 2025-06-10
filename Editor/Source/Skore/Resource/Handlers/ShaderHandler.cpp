@@ -227,11 +227,9 @@ namespace Skore
 						//TODO - add shader dependencies for hot reloading
 						if (Contains(include, StringView(":/")))
 						{
-							if (RID rid = Resources::FindByPath(include))
-							{
-								source = FileSystem::ReadFileAsString(ResourceAssets::GetAbsolutePath(rid));
-								return true;
-							}
+							String absolutePath = ResourceAssets::GetAbsolutePathFromPathId(include);
+							source = FileSystem::ReadFileAsString(absolutePath);
+							return true;
 						}
 
 						if (FileSystem::GetFileStatus(Path::Join(Path::Parent(shaderIncludeUserData.absolutePath), include)).exists)

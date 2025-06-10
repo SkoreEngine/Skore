@@ -149,6 +149,7 @@ namespace Skore
 		static StringView            GetAbsolutePath(RID asset);
 		static StringView            GetPathId(RID asset);
 		static RID                   GetAsset(RID rid);
+		static String				 GetAbsolutePathFromPathId(StringView pathId);
 		static RID                   GetParentAsset(RID rid);
 		static bool                  IsChildOf(RID parent, RID child);
 		static bool                  IsUpdated(RID rid);

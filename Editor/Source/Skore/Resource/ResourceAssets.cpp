@@ -45,6 +45,7 @@ namespace Skore
 	{
 		Array<ResourceAssetHandler*>  handlers;
 		Array<ResourceAssetImporter*> importers;
+		HashMap<String, String> loadedPackages;
 
 		HashMap<String, ResourceAssetHandler*> handlersByExtension;
 		HashMap<TypeID, ResourceAssetHandler*> handlersByTypeID;
@@ -160,6 +161,8 @@ namespace Skore
 
 			packageObject.AddToSubObjectSet(ResourceAssetPackage::Files, assetFile);
 			packageObject.SetSubObject(ResourceAssetPackage::Root, directory);
+
+			loadedPackages.Insert(packageName, packagePack);
 
 			currentScanItem = std::make_optional(DirectoryToScan{
 				.path = path,
@@ -654,6 +657,26 @@ namespace Skore
 			return directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
 		}
 		return rid;
+	}
+
+	String ResourceAssets::GetAbsolutePathFromPathId(StringView pathId)
+	{
+		if (pathId.Empty()) return {};
+
+		StringView paths[2];
+		u32 i = 0;
+		Split(pathId, StringView{":/"}, [&](StringView path)
+		{
+			if (i>2) return;
+			paths[i++] = path;
+		});
+
+		if (auto it = loadedPackages.Find(paths[0]))
+		{
+			return Path::Join(it->second, paths[1]);
+		}
+
+		return "";
 	}
 
 	RID ResourceAssets::GetParentAsset(RID rid)
