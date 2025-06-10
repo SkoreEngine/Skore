@@ -22,6 +22,7 @@
 
 
 #pragma once
+#include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
 {
@@ -43,4 +44,7 @@ namespace Skore
 			Children,
 		};
 	};
+
+
+	SK_API RID GetTransformComponent(RID entity);
 }

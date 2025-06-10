@@ -29,7 +29,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
-#include "Skore/World/WordCommon.hpp"
+#include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
 {

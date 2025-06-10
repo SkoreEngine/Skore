@@ -25,6 +25,7 @@
 #include "Skore/MenuItem.hpp"
 #include "Skore/Graphics/BasicSceneRenderer.hpp"
 #include "Skore/Utils/FreeViewCamera.hpp"
+#include "Skore/World/Components.hpp"
 
 
 namespace Skore
@@ -46,22 +47,22 @@ namespace Skore
 		static void AddMenuItem(const MenuItemCreation& menuItem);
 
 	private:
-		u32            guizmoOperation{1};
-		bool           windowStartedSimulation{};
-		bool           movingScene{};
-		FreeViewCamera freeViewCamera{};
-		bool           usingGuizmo{};
-		Transform      gizmoInitialTransform = {};
-		Mat4           view{};
-		Mat4           projection{};
+		u32                guizmoOperation{1};
+		bool               windowStartedSimulation{};
+		bool               movingScene{};
+		FreeViewCamera     freeViewCamera{};
+		bool               usingGuizmo{};
+		TransformComponent gizmoInitialTransform = {};
+		Mat4               view{};
+		Mat4               projection{};
 
-		Extent			sceneExtent;
-		GPUTexture*     sceneTexture = nullptr;
-		GPURenderPass*  sceneRenderPass = nullptr;
+		Extent         sceneExtent;
+		GPUTexture*    sceneTexture = nullptr;
+		GPURenderPass* sceneRenderPass = nullptr;
 
 		SceneRendererViewport sceneRendererViewport = {};
 
-		void                  RecordRenderCommands(GPUCommandBuffer* cmd);
+		void RecordRenderCommands(GPUCommandBuffer* cmd);
 
 		static void OpenSceneView(const MenuItemEventData& eventData);
 		static void DuplicateSceneEntity(const MenuItemEventData& eventData);

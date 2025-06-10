@@ -34,6 +34,7 @@
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Scene/Scene.hpp"
+#include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
 {
@@ -59,7 +60,7 @@ namespace Skore
 
 	void SceneViewWindow::Draw(u32 id, bool& open)
 	{
-		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+		WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
 
 		bool openSceneOptions = false;
 
@@ -128,7 +129,7 @@ namespace Skore
 
 				ImGui::Spring(1.f);
 
-				bool isSimulating = sceneEditor && sceneEditor->IsSimulating();
+				bool isSimulating = worldEditor && worldEditor->IsSimulationRunning();
 
 				if (!isSimulating)
 				{
@@ -142,9 +143,9 @@ namespace Skore
 
 				ImGui::BeginDisabled(isSimulating);
 
-				if (ImGui::Button(ICON_FA_PLAY, buttonSize) && sceneEditor)
+				if (ImGui::Button(ICON_FA_PLAY, buttonSize) && worldEditor)
 				{
-					sceneEditor->StartSimulation();
+					worldEditor->StartSimulation();
 					windowStartedSimulation = true;
 				}
 
@@ -155,16 +156,16 @@ namespace Skore
 					ImGui::PopStyleColor();
 				}
 
-				ImGui::BeginDisabled(sceneEditor && !sceneEditor->IsSimulating() || !windowStartedSimulation);
+				ImGui::BeginDisabled(worldEditor && !worldEditor->IsSimulationRunning()|| !windowStartedSimulation);
 
 				if (isSimulating)
 				{
 					ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(199, 84, 80, 255));
 				}
 
-				if (ImGui::Button(ICON_FA_STOP, buttonSize) && sceneEditor)
+				if (ImGui::Button(ICON_FA_STOP, buttonSize) && worldEditor)
 				{
-					sceneEditor->StopSimulation();
+					worldEditor->StopSimulation();
 					windowStartedSimulation = false;
 				}
 
@@ -260,53 +261,54 @@ namespace Skore
 			ImGuizmo::SetDrawlist();
 			ImGuizmo::SetRect(cursor.x, cursor.y, size.x, size.y);
 
-			if (sceneEditor && !sceneEditor->IsSimulating())
+			if (worldEditor && !worldEditor->IsSimulationRunning())
 			{
-				for (UUID selectedEntity: sceneEditor->GetSelectedEntities())
+				for (RID selectedEntity: worldEditor->GetSelectedEntities())
 				{
-					Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selectedEntity);
-					if (!entity) continue;
+					RID transform = GetTransformComponent(selectedEntity);
+					if (!transform) continue;
 
-		            Mat4 worldMatrix = entity->GetWorldTransform();
 
-		            static float snap[3] = {0.0f, 0.0f, 0.0f};
-
-		            ImGuizmo::Manipulate(&view[0][0],
-		                                 &projection[0][0],
-		                                 static_cast<ImGuizmo::OPERATION>(guizmoOperation),
-		                                 ImGuizmo::LOCAL,
-		                                 &worldMatrix[0][0],
-		                                 nullptr,
-		                                 snap);
-
-		            if (ImGuizmo::IsUsing())
-		            {
-		                if (!usingGuizmo)
-		                {
-		                    usingGuizmo = true;
-		                    gizmoInitialTransform = entity->GetTransform();
-
-		                    // if (entity->GetPrototype() != nullptr && !entity->IsComponentOverride(transformComponent))
-		                    // {
-		                    //     gizmoTransaction->CreateAction<OverridePrototypeComponentAction>(sceneEditor, entity, static_cast<Component*>(transformComponent))->Commit();
-		                    // }
-		                }
-
-		                if (Entity* parent =  entity->GetParent())
-		                {
-		                	worldMatrix = Math::Inverse(parent->GetWorldTransform()) * worldMatrix;
-		                }
-
-		                Vec3 position, rotation, scale;
-		                Math::Decompose(worldMatrix, position, rotation, scale);
-		                auto deltaRotation = rotation - Math::EulerAngles(entity->GetRotation());
-		            	entity->SetTransform(position, Math::EulerAngles(entity->GetRotation()) + deltaRotation, scale);
-		            }
-		            else if (usingGuizmo)
-		            {
-		                sceneEditor->UpdateTransform(entity, gizmoInitialTransform, entity->GetTransform());
-		                usingGuizmo = false;
-		            }
+		            // Mat4 worldMatrix = entity->GetWorldTransform();
+		            //
+		            // static float snap[3] = {0.0f, 0.0f, 0.0f};
+		            //
+		            // ImGuizmo::Manipulate(&view[0][0],
+		            //                      &projection[0][0],
+		            //                      static_cast<ImGuizmo::OPERATION>(guizmoOperation),
+		            //                      ImGuizmo::LOCAL,
+		            //                      &worldMatrix[0][0],
+		            //                      nullptr,
+		            //                      snap);
+		            //
+		            // if (ImGuizmo::IsUsing())
+		            // {
+		            //     if (!usingGuizmo)
+		            //     {
+		            //         usingGuizmo = true;
+		            //         gizmoInitialTransform = entity->GetTransform();
+		            //
+		            //         // if (entity->GetPrototype() != nullptr && !entity->IsComponentOverride(transformComponent))
+		            //         // {
+		            //         //     gizmoTransaction->CreateAction<OverridePrototypeComponentAction>(sceneEditor, entity, static_cast<Component*>(transformComponent))->Commit();
+		            //         // }
+		            //     }
+		            //
+		            //     if (Entity* parent =  entity->GetParent())
+		            //     {
+		            //     	worldMatrix = Math::Inverse(parent->GetWorldTransform()) * worldMatrix;
+		            //     }
+		            //
+		            //     Vec3 position, rotation, scale;
+		            //     Math::Decompose(worldMatrix, position, rotation, scale);
+		            //     auto deltaRotation = rotation - Math::EulerAngles(entity->GetRotation());
+		            // 	entity->SetTransform(position, Math::EulerAngles(entity->GetRotation()) + deltaRotation, scale);
+		            // }
+		            // else if (usingGuizmo)
+		            // {
+		            //     worldEditor->UpdateTransform(entity, gizmoInitialTransform, entity->GetTransform());
+		            //     usingGuizmo = false;
+		            // }
 				}
 			}
 
@@ -326,21 +328,21 @@ namespace Skore
 			// for (float y = fmodf(scrolling.y, GRID_STEP); y < canvas_sz.y; y += GRID_STEP)
 			// 	draw_list->AddLine(ImVec2(canvas_p0.x, canvas_p0.y + y), ImVec2(canvas_p1.x, canvas_p0.y + y), IM_COL32(200, 200, 200, 40));
 
-			if (sceneEditor)
+			if (worldEditor)
 			{
 				if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
 				{
-					AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data);
-					f32           pad = 4.0f;
-					if (assetPayload && assetPayload->assetType == TypeInfo<Scene>::ID() && ImGui::BeginDragDropTargetCustom(ImRect(bb.x + pad, bb.y + pad, bb.width - pad, bb.height - pad), id))
-					{
-						if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
-						{
-							Entity::Instantiate(assetPayload->assetFile->GetUUID(), sceneEditor->GetRoot(), assetPayload->assetFile->GetFileName());
-							sceneEditor->MarkDirty();
-						}
-						ImGui::EndDragDropTarget();
-					}
+					// AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data);
+					// f32           pad = 4.0f;
+					// if (assetPayload && assetPayload->assetType == TypeInfo<Scene>::ID() && ImGui::BeginDragDropTargetCustom(ImRect(bb.x + pad, bb.y + pad, bb.width - pad, bb.height - pad), id))
+					// {
+					// 	if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+					// 	{
+					// 		Entity::Instantiate(assetPayload->assetFile->GetUUID(), sceneEditor->GetRoot(), assetPayload->assetFile->GetFileName());
+					// 		sceneEditor->MarkDirty();
+					// 	}
+					// 	ImGui::EndDragDropTarget();
+					// }
 				}
 			}
 		}

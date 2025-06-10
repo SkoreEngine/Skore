@@ -26,7 +26,7 @@
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
-#include "Skore/World/WordCommon.hpp"
+#include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
 {

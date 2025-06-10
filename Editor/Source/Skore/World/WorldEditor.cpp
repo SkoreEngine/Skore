@@ -28,7 +28,7 @@
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Resource/Resources.hpp"
-#include "Skore/World/WordCommon.hpp"
+#include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
 {
@@ -252,6 +252,27 @@ namespace Skore
 		entityObject.RemoveFromSubObjectSet(EntityResource::Components, component);
 		entityObject.Commit(scope);
 	}
+
+	bool WorldEditor::IsSimulationRunning() const
+	{
+		return false;
+	}
+
+	void WorldEditor::StartSimulation()
+	{
+		//TODO
+	}
+
+	void WorldEditor::StopSimulation()
+	{
+		//TODO
+	}
+
+	void WorldEditor::PauseSimulation()
+	{
+		//TODO
+	}
+
 
 	void WorldEditor::OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{

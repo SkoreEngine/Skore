@@ -20,34 +20,30 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Components.hpp"
 #include "WorldCommon.hpp"
-#include "Skore/Core/Reflection.hpp"
+
+#include "Components.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	void RegisterWorldTypes()
+	RID GetTransformComponent(RID entity)
 	{
-		Reflection::Type<Component>();
+		if (ResourceObject entityResourceObject = Resources::Read(entity))
+		{
+			RID rid = {};
+			entityResourceObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
+			{
+				if (Resources::GetType(component)->GetID() == TypeInfo<TransformComponent>::ID())
+				{
+					rid = component;
+					return false;
+				}
+				return true;
+			});
+			return rid;
+		}
 
-		auto transformComponent = Reflection::Type<TransformComponent>();
-		transformComponent.Field<&TransformComponent::position>("position");
-		transformComponent.Field<&TransformComponent::rotation>("rotation");
-		transformComponent.Field<&TransformComponent::scale>("scale");
-		transformComponent.Attribute<Component>();
-
-		auto renderComponent = Reflection::Type<RenderComponent>();
-		renderComponent.Field<&RenderComponent::mesh>("mesh");
-		renderComponent.Field<&RenderComponent::castShadows>("castShadows");
-		renderComponent.Attribute<Component>();
-
-		Resources::Type<EntityResource>()
-			.Field<EntityResource::Name>(ResourceFieldType::String)
-			.Field<EntityResource::Deactivated>(ResourceFieldType::Bool)
-			.Field<EntityResource::Locked>(ResourceFieldType::Bool)
-			.Field<EntityResource::Components>(ResourceFieldType::SubObjectSet)
-			.Field<EntityResource::Children>(ResourceFieldType::SubObjectSet)
-			.Build();
+		return {};
 	}
 }

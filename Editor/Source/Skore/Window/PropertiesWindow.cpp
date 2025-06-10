@@ -13,7 +13,7 @@
 #include "Skore/Scene/Component2.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Scene.hpp"
-#include "Skore/World/WordCommon.hpp"
+#include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
 {

@@ -63,6 +63,12 @@ namespace Skore
 		void ResetComponent(RID entity, RID component);
 		void RemoveComponent(RID entity, RID component);
 
+		//simulation
+		bool IsSimulationRunning() const;
+		void StartSimulation();
+		void StopSimulation();
+		void PauseSimulation();
+
 	private:
 		EditorWorkspace& m_workspace;
 		RID m_state = {};
