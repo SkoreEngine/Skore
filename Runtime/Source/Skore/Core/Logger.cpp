@@ -27,7 +27,6 @@
 #include <algorithm>
 #include <chrono>
 
-#include "Ref.hpp"
 #include "StringUtils.hpp"
 
 namespace Skore
@@ -38,7 +37,7 @@ namespace Skore
 
 		struct LogContext
 		{
-			HashMap<String, Ref<Logger>> loggers{};
+			HashMap<String, std::shared_ptr<Logger>> loggers{};
 			Array<LogSink*>              sinks{};
 #ifdef SK_DEBUG
 			LogLevel defaultLevel = LogLevel::Debug;
@@ -159,13 +158,13 @@ namespace Skore
 	{
 		Allocator* allocator = MemoryGlobals::GetDefaultAllocator();
 
-		HashMap<String, Ref<Logger>>& loggers = GetContext().loggers;
+		HashMap<String, std::shared_ptr<Logger>>& loggers = GetContext().loggers;
 		auto                                it = loggers.Find(name);
 		if (it == loggers.end())
 		{
 			Logger* newLogger = static_cast<Logger*>(allocator->MemAlloc(allocator->allocator, sizeof(Logger)));
 			new(newLogger)Logger{name, logLevel};
-			it = loggers.Insert(MakePair(String{name}, Ref(newLogger))).first;
+			it = loggers.Insert(MakePair(String{name}, std::shared_ptr<Logger>(newLogger))).first;
 		}
 		return *it->second;
 	}

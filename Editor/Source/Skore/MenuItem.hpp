@@ -22,13 +22,14 @@
 
 #pragma once
 
+#include <memory>
+
 #include "Skore/Common.hpp"
 #include "Skore/Core/StringView.hpp"
 #include "Skore/IO/InputTypes.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/HashMap.hpp"
-#include "Skore/Core/Ref.hpp"
 
 namespace Skore
 {
@@ -62,16 +63,16 @@ namespace Skore
 		bool ExecuteHotKeys(VoidPtr userData = nullptr, bool executeOnFocus = false);
 
 	private:
-		String                                m_label{};
-		String                                m_itemName{};
-		i32                                   m_priority{};
-		Array<MenuItemContext*>               m_children{};
-		HashMap<String, Ref<MenuItemContext>> m_menuItemsMap{};
-		FnMenuItemAction                      m_action{};
-		FnMenuItemCheck                       m_enable{};
-		FnMenuItemCheck                       m_visible{};
-		Shortcut                              m_itemShortcut{};
-		u64                                   m_itemUserData{};
+		String                                            m_label{};
+		String                                            m_itemName{};
+		i32                                               m_priority{};
+		Array<MenuItemContext*>                           m_children{};
+		HashMap<String, std::shared_ptr<MenuItemContext>> m_menuItemsMap{};
+		FnMenuItemAction                                  m_action{};
+		FnMenuItemCheck                                   m_enable{};
+		FnMenuItemCheck                                   m_visible{};
+		Shortcut                                          m_itemShortcut{};
+		u64                                               m_itemUserData{};
 
 		static void DrawMenuItemChildren(MenuItemContext* context, VoidPtr userData);
 		static bool ExecuteHotKeys(MenuItemContext* context, VoidPtr userData, bool executeOnFocus);

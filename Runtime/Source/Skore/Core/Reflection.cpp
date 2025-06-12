@@ -24,18 +24,17 @@
 
 #include "HashSet.hpp"
 #include "Logger.hpp"
-#include "Ref.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "yyjson.h"
 
 namespace Skore
 {
-	bool                                            reflectionReadOnly = false;
-	static HashMap<String, Array<Ref<ReflectType>>> typesByName;
-	static HashMap<TypeID, Array<Ref<ReflectType>>> typesById;
-	static HashMap<TypeID, HashSet<TypeID>>         derivedTypes;
-	static HashMap<TypeID, Array<TypeID>>           typesByAttribute{};
-	static Logger&                                  logger = Logger::GetLogger("Skore::Reflection");
+	bool                                                        reflectionReadOnly = false;
+	static HashMap<String, Array<std::shared_ptr<ReflectType>>> typesByName;
+	static HashMap<TypeID, Array<std::shared_ptr<ReflectType>>> typesById;
+	static HashMap<TypeID, HashSet<TypeID>>                     derivedTypes;
+	static HashMap<TypeID, Array<TypeID>>                       typesByAttribute{};
+	static Logger&                                              logger = Logger::GetLogger("Skore::Reflection");
 
 	static Array<String> groupStack;
 
@@ -771,14 +770,14 @@ namespace Skore
 			return {nullptr};
 		}
 
-		Ref<ReflectType> reflectType = MakeRef<ReflectType>(name, props);
+		std::shared_ptr<ReflectType> reflectType = std::make_shared<ReflectType>(name, props);
 		reflectType->scope = GetCurrentScope();
 
 		{
 			auto it = typesByName.Find(name);
 			if (it == typesByName.end())
 			{
-				it = typesByName.Emplace(String(name), Array<Ref<ReflectType>>()).first;
+				it = typesByName.Emplace(String(name), Array<std::shared_ptr<ReflectType>>()).first;
 			}
 
 			it->second.EmplaceBack(reflectType);
@@ -789,21 +788,21 @@ namespace Skore
 			auto it = typesById.Find(props.typeId);
 			if (it == typesById.end())
 			{
-				it = typesById.Emplace(props.typeId, Array<Ref<ReflectType>>()).first;
+				it = typesById.Emplace(props.typeId, Array<std::shared_ptr<ReflectType>>()).first;
 			}
 			it->second.EmplaceBack(reflectType);
 		}
 
 		logger.Debug("Type {} Registered, version {} ", name, reflectType->version);
 
-		return {reflectType.Get()};
+		return {reflectType.get()};
 	}
 
 	ReflectType* Reflection::FindTypeByName(StringView name)
 	{
 		if (const auto it = typesByName.Find(name); it && !it->second.Empty())
 		{
-			return it->second.Back().Get();
+			return it->second.Back().get();
 		}
 		return nullptr;
 	}
@@ -812,7 +811,7 @@ namespace Skore
 	{
 		if (const auto it = typesById.Find(typeId); it && !it->second.Empty())
 		{
-			return it->second.Back().Get();
+			return it->second.Back().get();
 		}
 		return nullptr;
 	}
@@ -924,12 +923,12 @@ namespace Skore
 
 		yyjson_mut_val* arr = yyjson_mut_obj_add_arr(doc, root, "types");
 
-		for (auto itType: typesByName)
+		for (auto itType : typesByName)
 		{
 			if (!itType.second.Empty())
 			{
 				yyjson_mut_val* typeObject = yyjson_mut_arr_add_obj(doc, arr);
-				ReflectType* type = itType.second.Back().Get();
+				ReflectType*    type = itType.second.Back().get();
 				yyjson_mut_obj_add_str(doc, typeObject, "name", type->GetName().CStr());
 				yyjson_mut_obj_add_str(doc, typeObject, "scope", type->GetScope().CStr());
 				SerializeTypeProps(doc, yyjson_mut_obj_add_obj(doc, typeObject, "props"), type->GetProps());
@@ -947,7 +946,6 @@ namespace Skore
 						{
 							SerializeFieldProps(doc, fieldObj, fieldProps);
 						}
-
 					}
 				}
 
@@ -960,12 +958,12 @@ namespace Skore
 						yyjson_mut_obj_add_str(doc, funcObj, "name", function->GetName().CStr());
 
 						{
-							FieldProps returnProps = function->GetReturn();
+							FieldProps      returnProps = function->GetReturn();
 							yyjson_mut_val* returnObj = yyjson_mut_obj_add_obj(doc, funcObj, "return");
 							yyjson_mut_obj_add_strncpy(doc, returnObj, "type", returnProps.name.CStr(), returnProps.name.Size());
 							if (ValidProps(returnProps))
 							{
-								SerializeFieldProps(doc,  yyjson_mut_obj_add_obj(doc, returnObj, "props"), returnProps);
+								SerializeFieldProps(doc, yyjson_mut_obj_add_obj(doc, returnObj, "props"), returnProps);
 							}
 						}
 
@@ -980,7 +978,7 @@ namespace Skore
 								yyjson_mut_obj_add_strncpy(doc, paramObj, "type", param->GetProps().name.CStr(), param->GetProps().name.Size());
 								if (ValidProps(param->GetProps()))
 								{
-									SerializeFieldProps(doc,  yyjson_mut_obj_add_obj(doc, paramObj, "props"), param->GetProps());
+									SerializeFieldProps(doc, yyjson_mut_obj_add_obj(doc, paramObj, "props"), param->GetProps());
 								}
 							}
 						}
@@ -991,8 +989,8 @@ namespace Skore
 
 		yyjson_write_flag flg = YYJSON_WRITE_ESCAPE_UNICODE | YYJSON_WRITE_PRETTY;
 
-		usize                   len = 0;
-		yyjson_write_err        err;
+		usize            len = 0;
+		yyjson_write_err err;
 		if (char* json = yyjson_mut_val_write_opts(root, flg, &alloc, &len, &err))
 		{
 			FileSystem::SaveFileAsString(path, {json, len});

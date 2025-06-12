@@ -51,12 +51,12 @@ namespace Skore
             auto it = storage->m_menuItemsMap.Find(item);
             if (it == storage->m_menuItemsMap.end())
             {
-                it = storage->m_menuItemsMap.Insert(item, MakeRef<MenuItemContext>()).first;
+                it = storage->m_menuItemsMap.Insert(item, std::make_shared<MenuItemContext>()).first;
                 it->second->m_label = item;
-                storage->m_children.EmplaceBack(it->second.Get());
+                storage->m_children.EmplaceBack(it->second.get());
             }
             parent  = storage;
-            storage = it->second.Get();
+            storage = it->second.get();
         }
 
         if (storage && parent)
