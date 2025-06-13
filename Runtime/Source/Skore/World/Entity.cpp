@@ -20,24 +20,22 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-
-#include "Skore/Core/Math.hpp"
-#include "Skore/Graphics/GraphicsResources.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "Entity.hpp"
 
 namespace Skore
 {
-	struct TransformComponent
+	Entity::Entity(World* world) : m_world(world)
 	{
-		Vec3 position{0, 0, 0};
-		Quat rotation{0, 0, 0, 1};
-		Vec3 scale{1, 1, 1};
-	};
 
-	struct RenderComponent
+	}
+
+	Transform& Entity::GetTransform()
 	{
-		TypedRID<MeshResource> mesh = {};
-		bool                   castShadows = true;
-	};
+		return m_transform;
+	}
+
+	World* Entity::GetWorld() const
+	{
+		return m_world;
+	}
 }

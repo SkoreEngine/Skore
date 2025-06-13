@@ -20,62 +20,18 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "World.hpp"
+
 
 namespace Skore
 {
-	struct ShaderVariantResource
+	void World::LoadWorldFromAsset(RID rid)
 	{
-		enum
-		{
-			Name,         //String
-			Spriv,        //Blob
-			PipelineDesc, //Subobject
-			Stages,       //SubobjectSet
-		};
-	};
+		//TODO
+	}
 
-
-	struct ShaderResource
+	RenderStorage* World::GetRenderStorage()
 	{
-		enum
-		{
-			Name,     //String
-			Variants, //SubobjectSet
-		};
-
-		static RID GetVariant(RID shader, StringView name);
-	};
-
-
-	struct TextureResource
-	{
-		enum
-		{
-			Name,   //String
-			Extent, //Vec3
-			Pixels  //Blob
-		};
-	};
-
-	struct MeshResource
-	{
-		enum
-		{
-			Name,       //String
-			Vertices,   //Blob
-			Indices,    //Blob
-			Primitives, //Blob
-		};
-	};
-
-	struct MaterialResource
-	{
-		enum
-		{
-			Name,		//String
-			BaseTexture	//Reference
-		};
-	};
+		return &m_renderStorage;
+	}
 }

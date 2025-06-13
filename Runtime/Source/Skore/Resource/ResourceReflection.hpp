@@ -232,6 +232,14 @@ namespace Skore
 
 		static ResourceFieldInfo GetResourceFieldInfo()
 		{
+			if constexpr (TypedRIDInfo<T>::value)
+			{
+				return ResourceFieldInfo{
+					.type = ResourceFieldType::ReferenceArray,
+					.subType = TypedRIDInfo<T>::typeId
+				};
+			}
+
 			if (ResourceReflection::FindTypeToCast(TypeInfo<T>::ID()) != nullptr)
 			{
 				return ResourceFieldInfo{

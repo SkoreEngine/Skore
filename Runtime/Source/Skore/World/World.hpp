@@ -20,34 +20,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Components.hpp"
-#include "WorldCommon.hpp"
-#include "Skore/Core/Reflection.hpp"
-#include "Skore/Resource/Resources.hpp"
+#pragma once
+#include "Entity.hpp"
+#include "Skore/Core/Object.hpp"
+#include "Skore/Graphics/RenderStorage.hpp"
 
 namespace Skore
 {
-	void RegisterWorldTypes()
+	class World : public Object
 	{
-		Reflection::Type<Component>();
+	public:
+		SK_CLASS(World, Object);
+		SK_NO_COPY_CONSTRUCTOR(World);
 
-		auto transformComponent = Reflection::Type<TransformComponent>();
-		transformComponent.Field<&TransformComponent::position>("position");
-		transformComponent.Field<&TransformComponent::rotation>("rotation");
-		transformComponent.Field<&TransformComponent::scale>("scale");
-		transformComponent.Attribute<Component>();
+		void LoadWorldFromAsset(RID rid);
 
-		auto renderComponent = Reflection::Type<RenderComponent>();
-		renderComponent.Field<&RenderComponent::mesh>("mesh");
-		renderComponent.Field<&RenderComponent::castShadows>("castShadows");
-		renderComponent.Attribute<Component>();
+		RenderStorage* GetRenderStorage();
+	private:
+		Entity m_rootEntity{this};
 
-		Resources::Type<EntityResource>()
-			.Field<EntityResource::Name>(ResourceFieldType::String)
-			.Field<EntityResource::Deactivated>(ResourceFieldType::Bool)
-			.Field<EntityResource::Locked>(ResourceFieldType::Bool)
-			.Field<EntityResource::Components>(ResourceFieldType::SubObjectSet)
-			.Field<EntityResource::Children>(ResourceFieldType::SubObjectSet)
-			.Build();
-	}
+		RenderStorage m_renderStorage;
+	};
 }

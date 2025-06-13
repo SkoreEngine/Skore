@@ -21,61 +21,23 @@
 // SOFTWARE.
 
 #pragma once
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/Core/Math.hpp"
+#include "Skore/Core/Object.hpp"
 
 namespace Skore
 {
-	struct ShaderVariantResource
+	class World;
+
+	class Entity : public Object
 	{
-		enum
-		{
-			Name,         //String
-			Spriv,        //Blob
-			PipelineDesc, //Subobject
-			Stages,       //SubobjectSet
-		};
-	};
+	public:
+		SK_CLASS(Entity, Object);
+		Entity(World* world);
 
-
-	struct ShaderResource
-	{
-		enum
-		{
-			Name,     //String
-			Variants, //SubobjectSet
-		};
-
-		static RID GetVariant(RID shader, StringView name);
-	};
-
-
-	struct TextureResource
-	{
-		enum
-		{
-			Name,   //String
-			Extent, //Vec3
-			Pixels  //Blob
-		};
-	};
-
-	struct MeshResource
-	{
-		enum
-		{
-			Name,       //String
-			Vertices,   //Blob
-			Indices,    //Blob
-			Primitives, //Blob
-		};
-	};
-
-	struct MaterialResource
-	{
-		enum
-		{
-			Name,		//String
-			BaseTexture	//Reference
-		};
+		Transform& GetTransform();
+		World* GetWorld() const;
+	private:
+		World*    m_world;
+		Transform m_transform;
 	};
 }

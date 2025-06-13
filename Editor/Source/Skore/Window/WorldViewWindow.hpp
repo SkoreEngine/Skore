@@ -25,36 +25,35 @@
 #include "Skore/MenuItem.hpp"
 #include "Skore/Graphics/BasicSceneRenderer.hpp"
 #include "Skore/Utils/FreeViewCamera.hpp"
-#include "Skore/World/Components.hpp"
 
 
 namespace Skore
 {
-	class SceneViewWindow : public EditorWindow
+	class WorldViewWindow : public EditorWindow
 	{
 	public:
-		SK_CLASS(SceneViewWindow, EditorWindow);
+		SK_CLASS(WorldViewWindow, EditorWindow);
 
-		~SceneViewWindow() override;
+		~WorldViewWindow() override;
 
 		void Init(u32 id, VoidPtr userData) override;
 		void Draw(u32 id, bool& open) override;
 
 
-		static void RegisterType(NativeReflectType<SceneViewWindow>& type);
+		static void RegisterType(NativeReflectType<WorldViewWindow>& type);
 
-		//menu items only work with hotkeys on SceneView
+		//menu items only work with hotkeys on WorldView
 		static void AddMenuItem(const MenuItemCreation& menuItem);
 
 	private:
-		u32                guizmoOperation{1};
-		bool               windowStartedSimulation{};
-		bool               movingScene{};
-		FreeViewCamera     freeViewCamera{};
-		bool               usingGuizmo{};
-		TransformComponent gizmoInitialTransform = {};
-		Mat4               view{};
-		Mat4               projection{};
+		u32            guizmoOperation{1};
+		bool           windowStartedSimulation{};
+		bool           movingScene{};
+		FreeViewCamera freeViewCamera{};
+		bool           usingGuizmo{};
+		Transform      gizmoInitialTransform = {};
+		Mat4           view{};
+		Mat4           projection{};
 
 		Extent         sceneExtent;
 		GPUTexture*    sceneTexture = nullptr;

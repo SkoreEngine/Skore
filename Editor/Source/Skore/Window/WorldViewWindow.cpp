@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "SceneViewWindow.hpp"
+#include "WorldViewWindow.hpp"
 
 #include "Skore/App.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -37,27 +37,27 @@
 
 namespace Skore
 {
-	MenuItemContext SceneViewWindow::menuItemContext = {};
+	MenuItemContext WorldViewWindow::menuItemContext = {};
 
-	static Logger& logger = Logger::GetLogger("Skore::SceneViewWindow");
+	static Logger& logger = Logger::GetLogger("Skore::WorldViewWindow");
 
-	SceneViewWindow::~SceneViewWindow()
+	WorldViewWindow::~WorldViewWindow()
 	{
-		Event::Unbind<OnRecordRenderCommands, &SceneViewWindow::RecordRenderCommands>(this);
+		Event::Unbind<OnRecordRenderCommands, &WorldViewWindow::RecordRenderCommands>(this);
 
 		if (sceneTexture) sceneTexture->Destroy();
 		if (sceneRenderPass) sceneRenderPass->Destroy();
 	}
 
-	void SceneViewWindow::Init(u32 id, VoidPtr userData)
+	void WorldViewWindow::Init(u32 id, VoidPtr userData)
 	{
 		sceneRendererViewport.Init();
 
 		guizmoOperation = ImGuizmo::TRANSLATE;
-		Event::Bind<OnRecordRenderCommands, &SceneViewWindow::RecordRenderCommands>(this);
+		Event::Bind<OnRecordRenderCommands, &WorldViewWindow::RecordRenderCommands>(this);
 	}
 
-	void SceneViewWindow::Draw(u32 id, bool& open)
+	void WorldViewWindow::Draw(u32 id, bool& open)
 	{
 		WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
 
@@ -72,7 +72,7 @@ namespace Skore
 			flags |= ImGuiWindowFlags_NoMove;
 		}
 
-		ImGuiBegin(id, ICON_FA_BORDER_ALL " Scene Viewport", &open, flags);
+		ImGuiBegin(id, ICON_FA_BORDER_ALL " World Viewport", &open, flags);
 		{
 			bool   moving = ImGui::IsMouseDown(ImGuiMouseButton_Right);
 			bool   canChangeGuizmo = !moving && !ImGui::GetIO().WantCaptureKeyboard;
@@ -264,8 +264,8 @@ namespace Skore
 			{
 				for (RID selectedEntity: worldEditor->GetSelectedEntities())
 				{
-					RID transform = GetTransformComponent(selectedEntity);
-					if (!transform) continue;
+//					RID transform = GetTransformComponent(selectedEntity);
+					//if (!transform) continue;
 
 
 		            // Mat4 worldMatrix = entity->GetWorldTransform();
@@ -411,21 +411,21 @@ namespace Skore
 	}
 
 
-	void SceneViewWindow::OpenSceneView(const MenuItemEventData& eventData)
+	void WorldViewWindow::OpenSceneView(const MenuItemEventData& eventData)
 	{
-		Editor::OpenWindow<SceneViewWindow>();
+		Editor::OpenWindow<WorldViewWindow>();
 	}
 
-	void SceneViewWindow::DuplicateSceneEntity(const MenuItemEventData& eventData) {}
+	void WorldViewWindow::DuplicateSceneEntity(const MenuItemEventData& eventData) {}
 
-	void SceneViewWindow::DeleteSceneEntity(const MenuItemEventData& eventData) {}
+	void WorldViewWindow::DeleteSceneEntity(const MenuItemEventData& eventData) {}
 
-	bool SceneViewWindow::CheckSelectedEntity(const MenuItemEventData& eventData)
+	bool WorldViewWindow::CheckSelectedEntity(const MenuItemEventData& eventData)
 	{
 		return false;
 	}
 
-	void SceneViewWindow::RecordRenderCommands(GPUCommandBuffer* cmd)
+	void WorldViewWindow::RecordRenderCommands(GPUCommandBuffer* cmd)
 	{
 		//SceneEditor*   sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
 		//Scene*         scene = sceneEditor->GetCurrentScene();
@@ -457,12 +457,12 @@ namespace Skore
 		cmd->ResourceBarrier(sceneTexture, ResourceState::ColorAttachment, ResourceState::ShaderReadOnly, 0, 0);
 	}
 
-	void SceneViewWindow::AddMenuItem(const MenuItemCreation& menuItem)
+	void WorldViewWindow::AddMenuItem(const MenuItemCreation& menuItem)
 	{
 		menuItemContext.AddMenuItem(menuItem);
 	}
 
-	void SceneViewWindow::RegisterType(NativeReflectType<SceneViewWindow>& type)
+	void WorldViewWindow::RegisterType(NativeReflectType<WorldViewWindow>& type)
 	{
 		Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Scene Viewport", .action = OpenSceneView});
 

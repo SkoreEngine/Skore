@@ -7,6 +7,7 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
+#include "Skore/World/Component.hpp"
 #include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
@@ -180,7 +181,7 @@ namespace Skore
 			ImGuiSearchInputText(id + 100, searchComponentString);
 			ImGui::Separator();
 
-			for (TypeID componentId : Reflection::GetTypesAnnotatedWith(TypeInfo<Component>::ID()))
+			for (TypeID componentId : Reflection::GetDerivedTypes(TypeInfo<Component>::ID()))
 			{
 				if (ReflectType* refletionType = Reflection::FindTypeById(componentId))
 				{

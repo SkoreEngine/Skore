@@ -27,12 +27,6 @@
 namespace Skore
 {
 
-	struct Component
-	{
-		//TODO
-	};
-
-
 	struct EntityResource
 	{
 		enum
@@ -40,11 +34,11 @@ namespace Skore
 			Name,
 			Deactivated,
 			Locked,
+			Position,
+			Rotation,
+			Scale,
 			Components,
 			Children,
 		};
 	};
-
-
-	SK_API RID GetTransformComponent(RID entity);
 }

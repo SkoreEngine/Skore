@@ -65,33 +65,33 @@ namespace Skore
 		virtual ~RenderStorage() = default;
 		RenderStorage() = default;
 
-		void RegisterMeshProxy(RID rid);
-		void RemoveMeshProxy(RID rid);
-		void SetMeshTransform(RID rid, const Mat4& worldTransform);
-		void SetMesh(RID rid, RID meshAsset);
-		void SetMeshVisible(RID rid, bool visible);
-		void SetMeshMaterials(RID rid, Span<RID> materials);
-		void SetMeshCastShadows(RID rid, bool castShadows);
+		void RegisterMeshProxy(VoidPtr owner);
+		void RemoveMeshProxy(VoidPtr owner);
+		void SetMeshTransform(VoidPtr owner, const Mat4& worldTransform);
+		void SetMesh(VoidPtr owner, RID meshAsset);
+		void SetMeshVisible(VoidPtr owner, bool visible);
+		void SetMeshMaterials(VoidPtr owner, Span<RID> materials);
+		void SetMeshCastShadows(VoidPtr owner, bool castShadows);
 
-		void RegisterEnvironmentProxy(RID rid);
-		void RemoveEnvironmentProxy(RID rid);
-		void SetEnvironmentSkyboxMaterial(RID rid, RID material);
-		void SetEnvironmentVisible(RID rid, bool visible);
+		void RegisterEnvironmentProxy(VoidPtr owner);
+		void RemoveEnvironmentProxy(VoidPtr owner);
+		void SetEnvironmentSkyboxMaterial(VoidPtr owner, RID material);
+		void SetEnvironmentVisible(VoidPtr owner, bool visible);
 
-		void RegisterLightProxy(RID rid);
-		void RemoveLightProxy(RID rid);
-		void SetLightTransform(RID rid, const Mat4& worldTransform);
-		void SetLightType(RID rid, RendererLightType type);
-		void SetLightColor(RID rid, const Color& color);
-		void SetLightIntensity(RID rid, f32 intensity);
-		void SetLightRange(RID rid, f32 range);
-		void SetLightInnerConeAngle(RID rid, f32 angle);
-		void SetLightOuterConeAngle(RID rid, f32 angle);
-		void SetLightVisible(RID rid, bool visible);
-		void SetLightEnableShadows(RID rid, bool enableShadows);
+		void RegisterLightProxy(VoidPtr owner);
+		void RemoveLightProxy(VoidPtr owner);
+		void SetLightTransform(VoidPtr owner, const Mat4& worldTransform);
+		void SetLightType(VoidPtr owner, RendererLightType type);
+		void SetLightColor(VoidPtr owner, const Color& color);
+		void SetLightIntensity(VoidPtr owner, f32 intensity);
+		void SetLightRange(VoidPtr owner, f32 range);
+		void SetLightInnerConeAngle(VoidPtr owner, f32 angle);
+		void SetLightOuterConeAngle(VoidPtr owner, f32 angle);
+		void SetLightVisible(VoidPtr owner, bool visible);
+		void SetLightEnableShadows(VoidPtr owner, bool enableShadows);
 
-		ankerl::unordered_dense::map<RID, MeshRenderData>        meshes;
-		ankerl::unordered_dense::map<RID, EnvironmentRenderData> environments;
-		ankerl::unordered_dense::map<RID, LightRenderData>       lights;
+		ankerl::unordered_dense::map<VoidPtr, MeshRenderData>        meshes;
+		ankerl::unordered_dense::map<VoidPtr, EnvironmentRenderData> environments;
+		ankerl::unordered_dense::map<VoidPtr, LightRenderData>       lights;
 	};
 }

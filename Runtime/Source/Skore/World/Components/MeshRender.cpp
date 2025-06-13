@@ -20,62 +20,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "MeshRender.hpp"
+
+#include "Skore/Core/Reflection.hpp"
+
 
 namespace Skore
 {
-	struct ShaderVariantResource
+	void MeshRender::RegisterType(NativeReflectType<MeshRender>& type)
 	{
-		enum
-		{
-			Name,         //String
-			Spriv,        //Blob
-			PipelineDesc, //Subobject
-			Stages,       //SubobjectSet
-		};
-	};
-
-
-	struct ShaderResource
-	{
-		enum
-		{
-			Name,     //String
-			Variants, //SubobjectSet
-		};
-
-		static RID GetVariant(RID shader, StringView name);
-	};
-
-
-	struct TextureResource
-	{
-		enum
-		{
-			Name,   //String
-			Extent, //Vec3
-			Pixels  //Blob
-		};
-	};
-
-	struct MeshResource
-	{
-		enum
-		{
-			Name,       //String
-			Vertices,   //Blob
-			Indices,    //Blob
-			Primitives, //Blob
-		};
-	};
-
-	struct MaterialResource
-	{
-		enum
-		{
-			Name,		//String
-			BaseTexture	//Reference
-		};
-	};
+		type.Field<&MeshRender::m_mesh>("mesh");
+		type.Field<&MeshRender::m_materials>("materials");
+	}
 }

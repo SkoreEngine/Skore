@@ -24,9 +24,9 @@
 
 namespace Skore
 {
-	void RenderStorage::RegisterMeshProxy(RID rid)
+	void RenderStorage::RegisterMeshProxy(VoidPtr owner)
 	{
-		meshes.emplace(rid, MeshRenderData{
+		meshes.emplace(owner, MeshRenderData{
 			               .mesh = {},
 			               .transform = {},
 			               .materials = {},
@@ -35,81 +35,81 @@ namespace Skore
 	}
 
 
-	void RenderStorage::RemoveMeshProxy(RID rid)
+	void RenderStorage::RemoveMeshProxy(VoidPtr owner)
 	{
-		meshes.erase(rid);
+		meshes.erase(owner);
 	}
 
-	void RenderStorage::SetMeshTransform(RID rid, const Mat4& worldTransform)
+	void RenderStorage::SetMeshTransform(VoidPtr owner, const Mat4& worldTransform)
 	{
-		if (const auto& it = meshes.find(rid); it != meshes.end())
+		if (const auto& it = meshes.find(owner); it != meshes.end())
 		{
 			it->second.transform = worldTransform;
 		}
 	}
 
-	void RenderStorage::SetMesh(RID rid, RID meshAsset)
+	void RenderStorage::SetMesh(VoidPtr owner, RID meshAsset)
 	{
-		if (const auto& it = meshes.find(rid); it != meshes.end())
+		if (const auto& it = meshes.find(owner); it != meshes.end())
 		{
 			it->second.mesh = meshAsset;
 		}
 	}
 
-	void RenderStorage::SetMeshVisible(RID rid, bool visible)
+	void RenderStorage::SetMeshVisible(VoidPtr owner, bool visible)
 	{
-		if (const auto& it = meshes.find(rid); it != meshes.end())
+		if (const auto& it = meshes.find(owner); it != meshes.end())
 		{
 			it->second.visible = visible;
 		}
 	}
 
-	void RenderStorage::SetMeshMaterials(RID rid, Span<RID> materials)
+	void RenderStorage::SetMeshMaterials(VoidPtr owner, Span<RID> materials)
 	{
-		if (const auto& it = meshes.find(rid); it != meshes.end())
+		if (const auto& it = meshes.find(owner); it != meshes.end())
 		{
 			it->second.materials = materials;
 		}
 	}
 
-	void RenderStorage::SetMeshCastShadows(RID rid, bool castShadows)
+	void RenderStorage::SetMeshCastShadows(VoidPtr owner, bool castShadows)
 	{
-		if (const auto& it = meshes.find(rid); it != meshes.end())
+		if (const auto& it = meshes.find(owner); it != meshes.end())
 		{
 			it->second.castShadows = castShadows;
 		}
 	}
 
-	void RenderStorage::RegisterEnvironmentProxy(RID rid)
+	void RenderStorage::RegisterEnvironmentProxy(VoidPtr owner)
 	{
-		environments.emplace(rid, EnvironmentRenderData{
+		environments.emplace(owner, EnvironmentRenderData{
 			                     .skyboxMaterial = {}
 		                     });
 	}
-	void RenderStorage::RemoveEnvironmentProxy(RID rid)
+	void RenderStorage::RemoveEnvironmentProxy(VoidPtr owner)
 	{
-		environments.erase(rid);
+		environments.erase(owner);
 	}
 
-	void RenderStorage::SetEnvironmentSkyboxMaterial(RID rid, RID material)
+	void RenderStorage::SetEnvironmentSkyboxMaterial(VoidPtr owner, RID material)
 	{
-		if (const auto& it = environments.find(rid); it != environments.end())
+		if (const auto& it = environments.find(owner); it != environments.end())
 		{
 			it->second.skyboxMaterial = material;
 		}
 	}
 
-	void RenderStorage::SetEnvironmentVisible(RID rid, bool visible)
+	void RenderStorage::SetEnvironmentVisible(VoidPtr owner, bool visible)
 	{
-		if (const auto& it = environments.find(rid); it != environments.end())
+		if (const auto& it = environments.find(owner); it != environments.end())
 		{
 			it->second.visible = visible;
 		}
 	}
 
-	void RenderStorage::RegisterLightProxy(RID rid)
+	void RenderStorage::RegisterLightProxy(VoidPtr owner)
 	{
-		lights.emplace(rid, LightRenderData{
+		lights.emplace(owner, LightRenderData{
 			               .type = RendererLightType::Directional,
 			               .transform = {},
 			               .color = Color::WHITE,
@@ -121,78 +121,78 @@ namespace Skore
 		               });
 	}
 
-	void RenderStorage::RemoveLightProxy(RID rid)
+	void RenderStorage::RemoveLightProxy(VoidPtr owner)
 	{
-		lights.erase(rid);
+		lights.erase(owner);
 	}
 
-	void RenderStorage::SetLightTransform(RID rid, const Mat4& worldTransform)
+	void RenderStorage::SetLightTransform(VoidPtr owner, const Mat4& worldTransform)
 	{
-		if (const auto& it = lights.find(rid); it != lights.end())
+		if (const auto& it = lights.find(owner); it != lights.end())
 		{
 			it->second.transform = worldTransform;
 		}
 	}
 
-	void RenderStorage::SetLightType(RID rid, RendererLightType type)
+	void RenderStorage::SetLightType(VoidPtr owner, RendererLightType type)
 	{
-		if (const auto& it = lights.find(rid); it != lights.end())
+		if (const auto& it = lights.find(owner); it != lights.end())
 		{
 			it->second.type = type;
 		}
 	}
 
-	void RenderStorage::SetLightColor(RID rid, const Color& color)
+	void RenderStorage::SetLightColor(VoidPtr owner, const Color& color)
 	{
-		if (const auto& it = lights.find(rid); it != lights.end())
+		if (const auto& it = lights.find(owner); it != lights.end())
 		{
 			it->second.color = color;
 		}
 	}
 
-	void RenderStorage::SetLightIntensity(RID rid, f32 intensity)
+	void RenderStorage::SetLightIntensity(VoidPtr owner, f32 intensity)
 	{
-		if (const auto& it = lights.find(rid); it != lights.end())
+		if (const auto& it = lights.find(owner); it != lights.end())
 		{
 			it->second.intensity = intensity;
 		}
 	}
 
-	void RenderStorage::SetLightRange(RID rid, f32 range)
+	void RenderStorage::SetLightRange(VoidPtr owner, f32 range)
 	{
-		if (const auto& it = lights.find(rid); it != lights.end())
+		if (const auto& it = lights.find(owner); it != lights.end())
 		{
 			it->second.range = range;
 		}
 	}
 
-	void RenderStorage::SetLightInnerConeAngle(RID rid, f32 angle)
+	void RenderStorage::SetLightInnerConeAngle(VoidPtr owner, f32 angle)
 	{
-		if (const auto& it = lights.find(rid); it != lights.end())
+		if (const auto& it = lights.find(owner); it != lights.end())
 		{
 			it->second.innerConeAngle = Math::Radians(-angle);
 		}
 	}
 
-	void RenderStorage::SetLightOuterConeAngle(RID rid, f32 angle)
+	void RenderStorage::SetLightOuterConeAngle(VoidPtr owner, f32 angle)
 	{
-		if (const auto& it = lights.find(rid); it != lights.end())
+		if (const auto& it = lights.find(owner); it != lights.end())
 		{
 			it->second.outerConeAngle = Math::Radians(-angle);
 		}
 	}
 
-	void RenderStorage::SetLightVisible(RID rid, bool visible)
+	void RenderStorage::SetLightVisible(VoidPtr owner, bool visible)
 	{
-		if (const auto& it = lights.find(rid); it != lights.end())
+		if (const auto& it = lights.find(owner); it != lights.end())
 		{
 			it->second.visible = visible;
 		}
 	}
 
-	void RenderStorage::SetLightEnableShadows(RID rid, bool enableShadows)
+	void RenderStorage::SetLightEnableShadows(VoidPtr owner, bool enableShadows)
 	{
-		if (const auto& it = lights.find(rid); it != lights.end())
+		if (const auto& it = lights.find(owner); it != lights.end())
 		{
 			it->second.enableShadows = enableShadows;
 		}

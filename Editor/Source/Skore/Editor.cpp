@@ -43,7 +43,7 @@
 #include "Window/EntityTreeWindow.hpp"
 #include "Window/HistoryWindow.hpp"
 #include "Window/PropertiesWindow.hpp"
-#include "Window/SceneViewWindow.hpp"
+#include "Window/WorldViewWindow.hpp"
 #include "Window/TextureViewWindow.hpp"
 
 namespace Skore

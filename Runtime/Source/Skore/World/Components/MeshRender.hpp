@@ -21,61 +21,21 @@
 // SOFTWARE.
 
 #pragma once
+#include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/World/Component.hpp"
 
 namespace Skore
 {
-	struct ShaderVariantResource
+	class MeshRender : public Component
 	{
-		enum
-		{
-			Name,         //String
-			Spriv,        //Blob
-			PipelineDesc, //Subobject
-			Stages,       //SubobjectSet
-		};
-	};
+	public:
+		SK_CLASS(MeshRender, Component);
 
+		static void RegisterType(NativeReflectType<MeshRender>& type);
 
-	struct ShaderResource
-	{
-		enum
-		{
-			Name,     //String
-			Variants, //SubobjectSet
-		};
-
-		static RID GetVariant(RID shader, StringView name);
-	};
-
-
-	struct TextureResource
-	{
-		enum
-		{
-			Name,   //String
-			Extent, //Vec3
-			Pixels  //Blob
-		};
-	};
-
-	struct MeshResource
-	{
-		enum
-		{
-			Name,       //String
-			Vertices,   //Blob
-			Indices,    //Blob
-			Primitives, //Blob
-		};
-	};
-
-	struct MaterialResource
-	{
-		enum
-		{
-			Name,		//String
-			BaseTexture	//Reference
-		};
+	private:
+		TypedRID<MeshResource>            m_mesh = {};
+		Array<TypedRID<MaterialResource>> m_materials = {};
 	};
 }

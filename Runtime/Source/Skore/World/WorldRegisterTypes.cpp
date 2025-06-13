@@ -20,30 +20,40 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "Component.hpp"
+#include "World.hpp"
 #include "WorldCommon.hpp"
-
-#include "Components.hpp"
+#include "Components/MeshRender.hpp"
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	RID GetTransformComponent(RID entity)
+	void RegisterWorldTypes()
 	{
-		if (ResourceObject entityResourceObject = Resources::Read(entity))
-		{
-			RID rid = {};
-			entityResourceObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
-			{
-				if (Resources::GetType(component)->GetID() == TypeInfo<TransformComponent>::ID())
-				{
-					rid = component;
-					return false;
-				}
-				return true;
-			});
-			return rid;
-		}
+		Reflection::Type<Entity>();
+		Reflection::Type<World>();
 
-		return {};
+		Reflection::Type<Component>();
+		Reflection::Type<MeshRender>();
+
+		Resources::Type<EntityResource>()
+			.Field<EntityResource::Name>(ResourceFieldType::String)
+			.Field<EntityResource::Deactivated>(ResourceFieldType::Bool)
+			.Field<EntityResource::Locked>(ResourceFieldType::Bool)
+			.Field<EntityResource::Position>(ResourceFieldType::Vec3)
+			.Field<EntityResource::Rotation>(ResourceFieldType::Quat)
+			.Field<EntityResource::Scale>(ResourceFieldType::Vec3)
+			.Field<EntityResource::Components>(ResourceFieldType::SubObjectSet)
+			.Field<EntityResource::Children>(ResourceFieldType::SubObjectSet)
+			.Build();
+
+		{
+			// RID rid = Resources::Create<EntityResource>();
+			// ResourceObject entityResourceObject = Resources::Write(rid);
+			// entityResourceObject.SetString(EntityResource::Name, "Entity");
+			// entityResourceObject.Commit();
+			// Resources::FindType<EntityResource>()->SetDefaultValue(rid);
+		}
 	}
 }

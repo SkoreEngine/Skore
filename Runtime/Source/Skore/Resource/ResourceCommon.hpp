@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "ResourceCommon.hpp"
 #include "Skore/Common.hpp"
 #include "Skore/Core/Hash.hpp"
 #include "Skore/Core/HashSet.hpp"
@@ -67,6 +68,17 @@ namespace Skore
 	struct TypedRID : RID
 	{
 		constexpr static TypeID typeId = TypeInfo<T>::ID();
+	};
+
+	template <typename T>
+	struct TypedRIDInfo : Traits::FalseType
+	{
+	};
+
+	template <typename T>
+	struct TypedRIDInfo<TypedRID<T>> : Traits::TrueType
+	{
+		constexpr static TypeID typeId = TypedRID<T>::typeId;
 	};
 
 	struct SubObjectSet

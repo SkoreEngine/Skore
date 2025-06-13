@@ -1394,6 +1394,9 @@ namespace Skore
 
 			switch (context.resourceField->GetType())
 			{
+				case ResourceFieldType::ReferenceArray:
+					logger.Debug("huh");
+					break;
 				case ResourceFieldType::String:
 				case ResourceFieldType::Blob:
 				case ResourceFieldType::SubObject:

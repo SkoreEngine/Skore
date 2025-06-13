@@ -466,7 +466,7 @@ namespace Skore
 	VoidPtr ArrayCreateCustomContext(const ImGuiDrawFieldDrawCheck& drawCheck)
 	{
 		ArrayApi api;
-		drawCheck.reflectField->GetProps().getTypeApi(&api);
+		drawCheck.fieldProps.getTypeApi(&api);
 
 		Array<ImGuiFieldRenderer> draws;
 
@@ -474,6 +474,8 @@ namespace Skore
 		check.fieldProps = ToFieldProps(api.GetProps());
 		check.reflectField = nullptr;
 		check.reflectFieldType = Reflection::FindTypeById(check.fieldProps.typeId);
+
+		//check.resourceField = drawCheck.resourceField;
 
 		for (ImGuiFieldRenderer fieldRenderer : ImGuiGetFieldRenders())
 		{

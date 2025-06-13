@@ -24,6 +24,7 @@
 
 #include "Skore/Common.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/World/World.hpp"
 
 namespace Skore
 {
@@ -73,6 +74,9 @@ namespace Skore
 		EditorWorkspace& m_workspace;
 		RID m_state = {};
 		RID m_selection = {};
+
+		std::shared_ptr<World> m_editorWorld;
+		std::shared_ptr<World> m_simulationWorld;
 
 		static void OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 	};
