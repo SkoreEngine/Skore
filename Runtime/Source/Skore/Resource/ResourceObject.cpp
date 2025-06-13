@@ -631,9 +631,13 @@ namespace Skore
 	{
 		if (m_storage == nullptr) return nullptr;
 
-		if (m_currentInstance && *reinterpret_cast<bool*>(&m_currentInstance[sizeof(ResourceInstanceInfo) + index]))
+		if (m_currentInstance)
 		{
-			return &m_currentInstance[m_storage->resourceType->fields[index]->offset];
+			if (*reinterpret_cast<bool*>(&m_currentInstance[sizeof(ResourceInstanceInfo) + index]))
+			{
+				return &m_currentInstance[m_storage->resourceType->fields[index]->offset];
+			}
+			return nullptr;
 		}
 
 		ResourceStorage* currentStorage = m_storage;

@@ -27,18 +27,21 @@
 
 namespace Skore
 {
-	class World : public Object
+	class SK_API World : public Object
 	{
 	public:
 		SK_CLASS(World, Object);
 		SK_NO_COPY_CONSTRUCTOR(World);
 
-		void LoadWorldFromAsset(RID rid);
+		World() = default;
+		World(RID rid, bool enableResourceSync = false);
+
+		Entity* GetRootEntity() const;
+
 
 		RenderStorage* GetRenderStorage();
 	private:
-		Entity m_rootEntity{this};
-
+		Entity* m_rootEntity = nullptr;
 		RenderStorage m_renderStorage;
 	};
 }

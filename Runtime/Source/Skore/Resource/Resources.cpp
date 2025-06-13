@@ -196,9 +196,14 @@ namespace Skore
 
 		void ExecuteEvents(ResourceStorage* resourceStorage, ResourceObject&& oldValue, ResourceObject&& newValue)
 		{
+			for (const ResourceEvent& eventStorage : resourceStorage->events)
+			{
+				eventStorage.function(oldValue, newValue, eventStorage.userData);
+			}
+
 			if (resourceStorage->resourceType != nullptr)
 			{
-				for (const ResourceType::TypeEvent& eventType: resourceStorage->resourceType->GetEvents())
+				for (const ResourceEvent& eventType: resourceStorage->resourceType->GetEvents())
 				{
 					eventType.function(oldValue, newValue, eventType.userData);
 				}

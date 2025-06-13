@@ -25,9 +25,15 @@
 
 namespace Skore
 {
-	void World::LoadWorldFromAsset(RID rid)
+	World::World(RID rid, bool enableResourceSync)
 	{
-		//TODO
+		m_rootEntity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
+		new (m_rootEntity) Entity(this, rid, enableResourceSync);
+	}
+
+	Entity* World::GetRootEntity() const
+	{
+		return m_rootEntity;
 	}
 
 	RenderStorage* World::GetRenderStorage()

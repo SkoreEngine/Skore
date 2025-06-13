@@ -94,6 +94,23 @@ namespace Skore
 	typedef bool(*FnRIDCallback)(RID rid, VoidPtr userData);
 	typedef void (*FnObjectEvent)(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 
+
+	struct ResourceEvent
+	{
+		FnObjectEvent function;
+		VoidPtr       userData;
+
+		friend bool operator==(const ResourceEvent& lhs, const ResourceEvent& rhs)
+		{
+			return lhs.function == rhs.function && lhs.userData == rhs.userData;
+		}
+
+		friend bool operator!=(const ResourceEvent& lhs, const ResourceEvent& rhs)
+		{
+			return !(lhs == rhs);
+		}
+	};
+
 	//used for unknown asset file types.
 	struct ResourceFile
 	{
@@ -116,5 +133,21 @@ namespace Skore
 		ResourceStorage*              parent = nullptr;
 		u32                           parentFieldIndex = U32_MAX;
 		ResourceStorage*              prototype = nullptr;
+
+		Array<ResourceEvent>  events;
+
+		void RegisterEvent(FnObjectEvent event, VoidPtr userData)
+		{
+			events.EmplaceBack(event, userData);
+		}
+
+		void UnregisterEvent(FnObjectEvent event, VoidPtr userData)
+		{
+			ResourceEvent typeEvent = {event, userData};
+			if (auto itAsset = FindFirst(events.begin(), events.end(), typeEvent))
+			{
+				events.Erase(itAsset);
+			}
+		}
 	};
 }

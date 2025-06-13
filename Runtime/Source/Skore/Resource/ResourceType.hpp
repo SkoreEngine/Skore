@@ -40,7 +40,7 @@ namespace Skore
 		u32               GetOffset() const;
 		ResourceFieldType GetType() const;
 		TypeID            GetSubType() const;
-		FieldProps		  GetProps() const;
+		FieldProps        GetProps() const;
 
 		friend class ResourceTypeBuilder;
 		friend class ResourceType;
@@ -65,22 +65,6 @@ namespace Skore
 		~ResourceType();
 		SK_NO_COPY_CONSTRUCTOR(ResourceType);
 
-		struct TypeEvent
-		{
-			FnObjectEvent function;
-			VoidPtr       userData;
-
-			friend bool operator==(const TypeEvent& lhs, const TypeEvent& rhs)
-			{
-				return lhs.function == rhs.function && lhs.userData == rhs.userData;
-			}
-
-			friend bool operator!=(const TypeEvent& lhs, const TypeEvent& rhs)
-			{
-				return !(lhs == rhs);
-			}
-		};
-
 		ResourceInstance Allocate() const;
 
 		TypeID               GetID() const;
@@ -93,7 +77,7 @@ namespace Skore
 		ResourceField*       FindFieldByName(StringView name) const;
 		void                 RegisterEvent(FnObjectEvent event, VoidPtr userData);
 		void                 UnregisterEvent(FnObjectEvent event, VoidPtr userData);
-		Span<TypeEvent>      GetEvents() const;
+		Span<ResourceEvent>  GetEvents() const;
 
 		friend class ResourceTypeBuilder;
 		friend class ResourceObject;
@@ -107,7 +91,7 @@ namespace Skore
 		ReflectType* reflectType = nullptr;
 
 		Array<ResourceField*> fields;
-		Array<TypeEvent>      events;
+		Array<ResourceEvent>  events;
 	};
 
 	struct ResourceInstanceInfo

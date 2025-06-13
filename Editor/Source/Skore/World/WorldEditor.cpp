@@ -65,6 +65,7 @@ namespace Skore
 		Resources::Write(m_selection).Commit();
 
 		Resources::FindType<WorldEditorSelection>()->RegisterEvent(OnSelectionChange, this);
+		Resources::FindType<WorldEditorState>()->RegisterEvent(OnStateChange, this);
 	}
 
 	WorldEditor::~WorldEditor()
@@ -73,6 +74,7 @@ namespace Skore
 		Resources::Destroy(m_state);
 
 		Resources::FindType<WorldEditorSelection>()->UnregisterEvent(OnSelectionChange, this);
+		Resources::FindType<WorldEditorState>()->UnregisterEvent(OnStateChange, this);
 	}
 
 	void WorldEditor::OpenEntity(RID entity)
@@ -273,6 +275,34 @@ namespace Skore
 		//TODO
 	}
 
+
+	void WorldEditor::OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+	{
+		WorldEditor* worldEditor = static_cast<WorldEditor*>(userData);
+
+		RID oldEntity{};
+		RID newEntity{};
+
+		if (oldValue)
+		{
+			oldEntity = oldValue.GetReference(WorldEditorState::OpenEntity);
+		}
+
+		if (newValue)
+		{
+			newEntity = newValue.GetReference(WorldEditorState::OpenEntity);
+		}
+
+		if (oldEntity != newEntity)
+		{
+			worldEditor->m_editorWorld = {};
+
+			if (newEntity)
+			{
+				worldEditor->m_editorWorld = std::make_shared<World>(newEntity, true);
+			}
+		}
+	}
 
 	void WorldEditor::OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{

@@ -28,15 +28,20 @@ namespace Skore
 {
 	class World;
 
-	class Entity : public Object
+	class SK_API Entity : public Object
 	{
 	public:
 		SK_CLASS(Entity, Object);
-		Entity(World* world);
 
 		Transform& GetTransform();
 		World* GetWorld() const;
+
+		friend class World;
 	private:
+		Entity(World* world);
+		Entity(World* world, RID rid, bool enableResourceSync = false);
+
+
 		World*    m_world;
 		Transform m_transform;
 	};

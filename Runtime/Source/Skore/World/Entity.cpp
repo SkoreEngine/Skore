@@ -29,6 +29,11 @@ namespace Skore
 
 	}
 
+	Entity::Entity(World* world, RID rid, bool enableResourceSync)
+	{
+		int a = 0;
+	}
+
 	Transform& Entity::GetTransform()
 	{
 		return m_transform;

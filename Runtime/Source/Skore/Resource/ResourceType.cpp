@@ -167,14 +167,14 @@ namespace Skore
 
 	void ResourceType::UnregisterEvent(FnObjectEvent event, VoidPtr userData)
 	{
-		TypeEvent typeEvent = {event, userData};
+		ResourceEvent typeEvent = {event, userData};
 		if (auto itAsset = FindFirst(events.begin(), events.end(), typeEvent))
 		{
 			events.Erase(itAsset);
 		}
 	}
 
-	Span<ResourceType::TypeEvent> ResourceType::GetEvents() const
+	Span<ResourceEvent> ResourceType::GetEvents() const
 	{
 		return events;
 	}

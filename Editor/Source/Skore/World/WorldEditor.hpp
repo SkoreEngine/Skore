@@ -78,6 +78,7 @@ namespace Skore
 		std::shared_ptr<World> m_editorWorld;
 		std::shared_ptr<World> m_simulationWorld;
 
+		static void OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 	};
 }
