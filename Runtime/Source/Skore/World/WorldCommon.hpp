@@ -41,4 +41,24 @@ namespace Skore
 			Children,
 		};
 	};
+
+	struct EntityEventType
+	{
+		constexpr static i32 EntityActivated = 100;
+		constexpr static i32 EntityDeactivated = 101;
+
+		constexpr static i32 TransformUpdated = 1000;
+	};
+
+	struct ComponentDesc
+	{
+		bool          allowMultiple = true;
+		Array<TypeID> dependencies{};
+	};
+
+	struct EntityEventDesc
+	{
+		i64     type = 0;
+		VoidPtr eventData = nullptr;
+	};
 }

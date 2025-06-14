@@ -34,15 +34,107 @@ namespace Skore
 		SK_CLASS(Entity, Object);
 
 		Transform& GetTransform();
-		World* GetWorld() const;
+		World*     GetWorld() const;
 
-		friend class World;
+		Entity* CreateChild();
+		Entity* CreateChildFromAsset(RID rid);
+
+		void Destroy();
+
+
+		SK_FINLINE void SetPosition(const Vec3& position)
+		{
+			m_transform.position = position;
+			UpdateTransform();
+		}
+
+		SK_FINLINE void SetRotation(const Quat& rotation)
+		{
+			m_transform.rotation = rotation;
+			UpdateTransform();
+		}
+
+		SK_FINLINE void SetScale(const Vec3& scale)
+		{
+			m_transform.scale = scale;
+			UpdateTransform();
+		}
+
+		SK_FINLINE void SetTransform(const Vec3& position, const Quat& rotation, const Vec3& scale)
+		{
+			m_transform.position = position;
+			m_transform.rotation = rotation;
+			m_transform.scale = scale;
+			UpdateTransform();
+		}
+
+		SK_FINLINE void SetTransform(const Transform& transform)
+		{
+			m_transform = transform;
+			UpdateTransform();
+		}
+
+		SK_FINLINE const Transform& GetTransform() const
+		{
+			return m_transform;
+		}
+
+		SK_FINLINE const Vec3& GetPosition() const
+		{
+			return m_transform.position;
+		}
+
+		SK_FINLINE Vec3 GetWorldPosition() const
+		{
+			return Math::GetTranslation(m_worldTransform);
+		}
+
+		SK_FINLINE const Quat& GetRotation() const
+		{
+			return m_transform.rotation;
+		}
+
+		SK_FINLINE const Vec3& GetScale() const
+		{
+			return m_transform.scale;
+		}
+
+		SK_FINLINE const Mat4& GetWorldTransform() const
+		{
+			return m_worldTransform;
+		}
+
+		SK_FINLINE Mat4 GetLocalTransform() const
+		{
+			return Math::Translate(Mat4{1.0}, m_transform.position) * Math::ToMatrix4(m_transform.rotation) * Math::Scale(Mat4{1.0}, m_transform.scale);
+		}
+
+		template <typename... Args>
+		static Entity* Instantiate(Args&&... args)
+		{
+			Entity* entity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
+			new(PlaceHolder{}, entity) Entity(Traits::Forward<Args>(args)...);
+			return entity;
+		}
+
 	private:
 		Entity(World* world);
-		Entity(World* world, RID rid, bool enableResourceSync = false);
+		Entity(World* world, RID rid);
 
+		RID m_rid = {};
 
-		World*    m_world;
-		Transform m_transform;
+		World*         m_world;
+		Entity*        m_parent;
+		Array<Entity*> m_children;
+
+		Mat4 m_worldTransform{1.0};
+
+		union
+		{
+			Transform m_transform;
+		};
+
+		void DestroyInternal(bool removeFromParent = true);
+		void UpdateTransform();
 	};
 }

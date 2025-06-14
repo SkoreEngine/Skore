@@ -23,10 +23,13 @@
 #pragma once
 #include "Entity.hpp"
 #include "Skore/Core/Object.hpp"
+#include "Skore/Core/Queue.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
 
 namespace Skore
 {
+	class Component;
+
 	class SK_API World : public Object
 	{
 	public:
@@ -37,11 +40,19 @@ namespace Skore
 		World(RID rid, bool enableResourceSync = false);
 
 		Entity* GetRootEntity() const;
-
+		bool    IsResourceSyncEnabled() const;
 
 		RenderStorage* GetRenderStorage();
+
+		friend class Entity;
 	private:
 		Entity* m_rootEntity = nullptr;
+		bool m_enableResourceSync = false;
+
 		RenderStorage m_renderStorage;
+
+		Queue<Entity*>    m_queueToStart;
+		Queue<Component*> m_componentsToStart;
+		Queue<Entity*>    m_queueToDestroy;
 	};
 }

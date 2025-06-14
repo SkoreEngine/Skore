@@ -22,6 +22,10 @@
 
 #include "Entity.hpp"
 
+#include "World.hpp"
+#include "WorldCommon.hpp"
+#include "Skore/Resource/Resources.hpp"
+
 namespace Skore
 {
 	Entity::Entity(World* world) : m_world(world)
@@ -29,9 +33,17 @@ namespace Skore
 
 	}
 
-	Entity::Entity(World* world, RID rid, bool enableResourceSync)
+	Entity::Entity(World* world, RID rid) : m_rid(rid), m_world(world)
 	{
-		int a = 0;
+		if (ResourceObject entityObject = Resources::Read(rid))
+		{
+
+			entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
+			{
+				CreateChildFromAsset(child);
+				return true;
+			});
+		}
 	}
 
 	Transform& Entity::GetTransform()
@@ -42,5 +54,49 @@ namespace Skore
 	World* Entity::GetWorld() const
 	{
 		return m_world;
+	}
+
+	Entity* Entity::CreateChild()
+	{
+		return nullptr;
+	}
+
+	Entity* Entity::CreateChildFromAsset(RID rid)
+	{
+		Entity* child = Instantiate(m_world, rid);
+		m_children.EmplaceBack(child);
+		return child;
+	}
+
+	void Entity::Destroy()
+	{
+		m_world->m_queueToDestroy.Enqueue(this);
+	}
+
+	void Entity::DestroyInternal(bool removeFromParent)
+	{
+		if (m_parent && removeFromParent)
+		{
+			for (int i = 0; i < m_parent->m_children.Size(); ++i)
+			{
+				if (m_parent->m_children[i] == this)
+				{
+					m_parent->m_children.Remove(i);
+					break;
+				}
+			}
+		}
+
+		for (Entity* child : m_children)
+		{
+			child->DestroyInternal(false);
+		}
+
+		DestroyAndFree(this);
+	}
+
+	void Entity::UpdateTransform()
+	{
+
 	}
 }

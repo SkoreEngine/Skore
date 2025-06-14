@@ -25,15 +25,19 @@
 
 namespace Skore
 {
-	World::World(RID rid, bool enableResourceSync)
+	World::World(RID rid, bool enableResourceSync) : m_enableResourceSync(enableResourceSync)
 	{
-		m_rootEntity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
-		new (m_rootEntity) Entity(this, rid, enableResourceSync);
+		m_rootEntity = Entity::Instantiate(this, rid);
 	}
 
 	Entity* World::GetRootEntity() const
 	{
 		return m_rootEntity;
+	}
+
+	bool World::IsResourceSyncEnabled() const
+	{
+		return m_enableResourceSync;
 	}
 
 	RenderStorage* World::GetRenderStorage()
