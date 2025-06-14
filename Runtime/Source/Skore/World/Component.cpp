@@ -22,16 +22,18 @@
 
 #include "Component.hpp"
 
+#include "Entity.hpp"
+
 
 namespace Skore
 {
-	void Component::Create()
+	World* Component::GetWorld()
 	{
+		if (entity)
+		{
+			return entity->GetWorld();
+		}
 
-	}
-
-	void Component::Destroy()
-	{
-
+		return nullptr;
 	}
 }

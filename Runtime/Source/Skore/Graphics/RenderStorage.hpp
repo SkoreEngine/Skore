@@ -48,7 +48,7 @@ namespace Skore
 
 	struct LightRenderData
 	{
-		RendererLightType type = RendererLightType::Directional;
+		LightType type = LightType::Directional;
 		Mat4              transform;
 		Color             color = Color::WHITE;
 		f32               intensity = 1.0f;
@@ -81,7 +81,7 @@ namespace Skore
 		void RegisterLightProxy(VoidPtr owner);
 		void RemoveLightProxy(VoidPtr owner);
 		void SetLightTransform(VoidPtr owner, const Mat4& worldTransform);
-		void SetLightType(VoidPtr owner, RendererLightType type);
+		void SetLightType(VoidPtr owner, LightType type);
 		void SetLightColor(VoidPtr owner, const Color& color);
 		void SetLightIntensity(VoidPtr owner, f32 intensity);
 		void SetLightRange(VoidPtr owner, f32 range);

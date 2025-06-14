@@ -261,7 +261,19 @@ namespace Skore
 
 	void DrawFloatField(const ImGuiDrawFieldContext& context, ConstPtr value)
 	{
-		bool f64Value = context.reflectField->GetProps().typeId == TypeInfo<f64>::ID();
+		bool f64Value = false;
+
+		if (context.reflectField)
+		{
+			context.reflectField->GetProps().typeId == TypeInfo<f64>::ID();
+		}
+
+		if (context.resourceField)
+		{
+			// ResourceObject is always 64bits
+			f64Value = true;
+		}
+
 
 		char str[30];
 		sprintf(str, "###%llu", context.id);

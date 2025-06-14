@@ -21,25 +21,56 @@
 // SOFTWARE.
 
 #pragma once
-#include "Skore/Graphics/GraphicsResources.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/Core/Color.hpp"
+#include "Skore/Graphics/GraphicsCommon.hpp"
 #include "Skore/World/Component.hpp"
 
 namespace Skore
 {
-	class MeshRender : public Component
+	class RenderStorage;
+
+	class SK_API LightComponent : public Component
 	{
 	public:
-		SK_CLASS(MeshRender, Component);
+		SK_CLASS(LightComponent, Component);
 
 		void Create() override;
+		void Destroy() override;
+		void ProcessEvent(const EntityEventDesc& event) override;
 
-		static void RegisterType(NativeReflectType<MeshRender>& type);
+		void      SetLightType(LightType type);
+		LightType GetLightType() const;
+
+		void         SetColor(const Color& color);
+		const Color& GetColor() const;
+
+		void SetIntensity(f32 intensity);
+		f32  GetIntensity() const;
+
+		void SetRange(f32 range);
+		f32  GetRange() const;
+
+		// Spot light specific properties
+		void SetInnerConeAngle(f32 angle);
+		f32  GetInnerConeAngle() const;
+
+		void SetOuterConeAngle(f32 angle);
+		f32  GetOuterConeAngle() const;
+
+		void SetEnableShadows(bool enable);
+		bool GetEnableShadows() const;
+
+
+		static void RegisterType(NativeReflectType<LightComponent>& type);
 
 	private:
-		TypedRID<MeshResource>            m_mesh = {};
-		Array<TypedRID<MaterialResource>> m_materials = {};
-
-		bool m_castShadows = true;
+		RenderStorage* m_renderStorage = nullptr;
+		LightType      m_lightType = LightType::Directional;
+		Color          m_color = Color::WHITE;
+		f32            m_intensity = 1.0f;
+		f32            m_range = 10.0f;
+		f32            m_innerConeAngle = 25.0f;
+		f32            m_outerConeAngle = 30.0f;
+		bool           m_enableShadows = true;
 	};
 }

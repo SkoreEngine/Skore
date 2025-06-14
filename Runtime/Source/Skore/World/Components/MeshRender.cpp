@@ -27,9 +27,15 @@
 
 namespace Skore
 {
+	void MeshRender::Create()
+	{
+		int a = 0;
+	}
+
 	void MeshRender::RegisterType(NativeReflectType<MeshRender>& type)
 	{
 		type.Field<&MeshRender::m_mesh>("mesh");
 		type.Field<&MeshRender::m_materials>("materials");
+		type.Field<&MeshRender::m_castShadows>("castShadows");
 	}
 }

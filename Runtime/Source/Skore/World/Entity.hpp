@@ -21,14 +21,16 @@
 // SOFTWARE.
 
 #pragma once
+#include "WorldCommon.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Object.hpp"
 
 namespace Skore
 {
+	class Component;
 	class World;
 
-	class SK_API Entity : public Object
+	class SK_API Entity final : public Object
 	{
 	public:
 		SK_CLASS(Entity, Object);
@@ -39,8 +41,13 @@ namespace Skore
 		Entity* CreateChild();
 		Entity* CreateChildFromAsset(RID rid);
 
-		void Destroy();
+		Component* AddComponent(TypeID typeId);
+		Component* AddComponent(ReflectType* reflectType);
+		Component* AddComponent(ReflectType* reflectType, RID rid);
 
+		void NotifyEvent(const EntityEventDesc& event, bool notifyChildren = false);
+
+		void Destroy();
 
 		SK_FINLINE void SetPosition(const Vec3& position)
 		{
@@ -117,6 +124,8 @@ namespace Skore
 			return entity;
 		}
 
+
+		friend class World;
 	private:
 		Entity(World* world);
 		Entity(World* world, RID rid);
@@ -126,6 +135,8 @@ namespace Skore
 		World*         m_world;
 		Entity*        m_parent;
 		Array<Entity*> m_children;
+
+		Array<Component*> m_components;
 
 		Mat4 m_worldTransform{1.0};
 

@@ -30,6 +30,11 @@ namespace Skore
 		m_rootEntity = Entity::Instantiate(this, rid);
 	}
 
+	World::~World()
+	{
+		m_rootEntity->DestroyInternal(false);
+	}
+
 	Entity* World::GetRootEntity() const
 	{
 		return m_rootEntity;

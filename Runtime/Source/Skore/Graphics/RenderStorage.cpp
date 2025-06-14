@@ -110,7 +110,7 @@ namespace Skore
 	void RenderStorage::RegisterLightProxy(VoidPtr owner)
 	{
 		lights.emplace(owner, LightRenderData{
-			               .type = RendererLightType::Directional,
+			               .type = LightType::Directional,
 			               .transform = {},
 			               .color = Color::WHITE,
 			               .intensity = 1.0f,
@@ -134,7 +134,7 @@ namespace Skore
 		}
 	}
 
-	void RenderStorage::SetLightType(VoidPtr owner, RendererLightType type)
+	void RenderStorage::SetLightType(VoidPtr owner, LightType type)
 	{
 		if (const auto& it = lights.find(owner); it != lights.end())
 		{

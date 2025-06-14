@@ -449,7 +449,7 @@ namespace Skore
 				}
 
 
-				if (lightData.type == RendererLightType::Directional &&
+				if (lightData.type == LightType::Directional &&
 					lightData.enableShadows &&
 					lightBufferData.shadowLightIndex == U32_MAX)
 				{
@@ -683,7 +683,7 @@ namespace Skore
 				continue;
 			}
 
-			if (!lightData.enableShadows || lightData.type != RendererLightType::Directional)
+			if (!lightData.enableShadows || lightData.type != LightType::Directional)
 			{
 				continue;
 			}

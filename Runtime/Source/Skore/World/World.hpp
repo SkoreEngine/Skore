@@ -38,6 +38,7 @@ namespace Skore
 
 		World() = default;
 		World(RID rid, bool enableResourceSync = false);
+		~World() override;
 
 		Entity* GetRootEntity() const;
 		bool    IsResourceSyncEnabled() const;

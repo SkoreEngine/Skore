@@ -21,10 +21,12 @@
 // SOFTWARE.
 
 #pragma once
+#include "WorldCommon.hpp"
 #include "Skore/Core/Object.hpp"
 
 namespace Skore
 {
+	class World;
 	class Entity;
 
 	class SK_API Component : public Object
@@ -32,13 +34,17 @@ namespace Skore
 	public:
 		SK_CLASS(Component, Object);
 
-
 		Entity* entity;
 
-		//called after construction
-		virtual void Create();
+		//called after construction / deserialization
+		virtual void Create() {}
 
 		//called before destruction
-		virtual void Destroy();
+		virtual void Destroy() {}
+
+		virtual void ProcessEvent(const EntityEventDesc& event) {}
+
+
+		World* GetWorld();
 	};
 }

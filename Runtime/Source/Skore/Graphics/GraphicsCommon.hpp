@@ -26,7 +26,7 @@
 
 namespace Skore
 {
-	enum class RendererLightType
+	enum class LightType
 	{
 		Directional,
 		Point,

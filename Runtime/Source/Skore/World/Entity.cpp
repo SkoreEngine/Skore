@@ -22,21 +22,30 @@
 
 #include "Entity.hpp"
 
+#include "Component.hpp"
 #include "World.hpp"
 #include "WorldCommon.hpp"
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
 	Entity::Entity(World* world) : m_world(world)
 	{
-
 	}
 
 	Entity::Entity(World* world, RID rid) : m_rid(rid), m_world(world)
 	{
 		if (ResourceObject entityObject = Resources::Read(rid))
 		{
+			entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
+			{
+				if (ResourceType* type = Resources::GetType(component))
+				{
+					AddComponent(type->GetReflectType(), component);
+				}
+				return true;
+			});
 
 			entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
 			{
@@ -58,7 +67,9 @@ namespace Skore
 
 	Entity* Entity::CreateChild()
 	{
-		return nullptr;
+		Entity* child = Instantiate(m_world);
+		m_children.EmplaceBack(child);
+		return child;
 	}
 
 	Entity* Entity::CreateChildFromAsset(RID rid)
@@ -68,9 +79,61 @@ namespace Skore
 		return child;
 	}
 
+	Component* Entity::AddComponent(TypeID typeId)
+	{
+		return AddComponent(Reflection::FindTypeById(typeId));
+	}
+
+	Component* Entity::AddComponent(ReflectType* reflectType)
+	{
+		return AddComponent(reflectType, {});
+	}
+
+	Component* Entity::AddComponent(ReflectType* reflectType, RID rid)
+	{
+		if (!reflectType) return nullptr;
+
+		Component* component = reflectType->NewObject()->SafeCast<Component>();
+		component->entity = this;
+
+		if (rid)
+		{
+			Resources::FromResource(rid, component);
+		}
+
+		component->Create();
+
+		m_components.EmplaceBack(component);
+
+		return component;
+	}
+
+
 	void Entity::Destroy()
 	{
 		m_world->m_queueToDestroy.Enqueue(this);
+	}
+
+	void Entity::NotifyEvent(const EntityEventDesc& event, bool notifyChildren)
+	{
+		if (event.type == EntityEventType::TransformUpdated)
+		{
+			const Mat4& parentTransform = m_parent ? m_parent->GetWorldTransform() : Mat4(1.0);
+			m_worldTransform = parentTransform * GetLocalTransform();
+		}
+
+		for (Component* component : m_components)
+		{
+			component->ProcessEvent(event);
+		}
+
+		if (notifyChildren)
+		{
+			for (Entity* child : m_children)
+			{
+				child->NotifyEvent(event, true);
+			}
+		}
 	}
 
 	void Entity::DestroyInternal(bool removeFromParent)
@@ -90,6 +153,12 @@ namespace Skore
 		for (Entity* child : m_children)
 		{
 			child->DestroyInternal(false);
+		}
+
+		for (Component* component : m_components)
+		{
+			component->Destroy();
+			DestroyAndFree(component);
 		}
 
 		DestroyAndFree(this);
