@@ -44,9 +44,7 @@ namespace Skore
 			.Field<EntityResource::Name>(ResourceFieldType::String)
 			.Field<EntityResource::Deactivated>(ResourceFieldType::Bool)
 			.Field<EntityResource::Locked>(ResourceFieldType::Bool)
-			.Field<EntityResource::Position>(ResourceFieldType::Vec3)
-			.Field<EntityResource::Rotation>(ResourceFieldType::Quat)
-			.Field<EntityResource::Scale>(ResourceFieldType::Vec3)
+			.Field<EntityResource::Transform>(ResourceFieldType::SubObject)
 			.Field<EntityResource::Components>(ResourceFieldType::SubObjectSet)
 			.Field<EntityResource::Children>(ResourceFieldType::SubObjectSet)
 			.Build();

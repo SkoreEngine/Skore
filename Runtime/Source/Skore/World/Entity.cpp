@@ -44,6 +44,11 @@ namespace Skore
 			{
 				SetName(entityObject.GetString(EntityResource::Name));
 
+				if (RID transform = entityObject.GetReference(EntityResource::Transform))
+				{
+					Resources::FromResource(transform, &m_transform);
+				}
+
 				entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
 				{
 					if (ResourceType* type = Resources::GetType(component))

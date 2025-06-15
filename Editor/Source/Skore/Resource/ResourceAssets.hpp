@@ -111,12 +111,12 @@ namespace Skore
 		virtual StringView GetDesc() = 0;
 
 		virtual RID Load(RID asset, StringView absolutePath);
+		virtual RID Create(UUID uuid, UndoRedoScope* scope);
 
 		virtual bool GetAssetName(RID rid, String& name)
 		{
 			return false;
 		}
-
 
 		virtual bool CanExtractAsset(RID rid)
 		{

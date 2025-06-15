@@ -34,9 +34,7 @@ namespace Skore
 			Name,
 			Deactivated,
 			Locked,
-			Position,
-			Rotation,
-			Scale,
+			Transform,
 			Components,
 			Children,
 		};

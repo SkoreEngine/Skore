@@ -47,6 +47,19 @@ namespace Skore
 			}
 		}
 
+		RID Create(UUID uuid, UndoRedoScope* scope) override
+		{
+			RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
+
+			RID entity = Resources::Create(GetResourceTypeId(), UUID::RandomUUID(), scope);
+
+			ResourceObject assetObject = Resources::Write(entity);
+			assetObject.SetString(EntityResource::Name, "Entity");
+			assetObject.SetSubObject(EntityResource::Transform, transformRID);
+			assetObject.Commit(scope);
+			return entity;
+		}
+
 		TypeID GetResourceTypeId() override
 		{
 			return TypeInfo<EntityResource>::ID();

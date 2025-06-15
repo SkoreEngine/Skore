@@ -121,6 +121,14 @@ namespace Skore
 		return Resources::Deserialize(reader);
 	}
 
+	RID ResourceAssetHandler::Create(UUID uuid, UndoRedoScope* scope)
+	{
+		RID asset = Resources::Create(GetResourceTypeId(), UUID::RandomUUID(), scope);
+		ResourceObject assetObject = Resources::Write(asset);
+		assetObject.Commit(scope);
+		return asset;
+	}
+
 	RID ResourceAssets::ScanAssetsFromDirectory(StringView packageName, StringView packagePack)
 	{
 		std::optional<DirectoryToScan> currentScanItem;
@@ -516,9 +524,7 @@ namespace Skore
 			String newName = CreateUniqueAssetName(parent, desiredName.Empty() ? String("New ").Append(handler->GetDesc()) : String(desiredName), false);
 			String path = GetDirectoryPathId(parent) + "/" + newName + handler->Extension();
 
-			RID            asset = Resources::Create(typeId, UUID::RandomUUID(), scope);
-			ResourceObject assetObject = Resources::Write(asset);
-			assetObject.Commit(scope);
+			RID asset = it->second->Create(UUID::RandomUUID(), scope);
 
 			RID rid = Resources::Create<ResourceAsset>(UUID::RandomUUID(), scope);
 

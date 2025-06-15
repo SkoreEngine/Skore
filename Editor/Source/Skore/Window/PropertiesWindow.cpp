@@ -129,37 +129,49 @@ namespace Skore
 
 		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5 * style.ScaleFactor);
 
+
 		bool openComponentSettings = false;
 
+		auto drawCollapsingHeader = [&](RID rid, StringView formattedName, StringView scopeName)
+		{
+			bool propClicked = false;
+			bool open = ImGuiCollapsingHeaderProps(HashValue(rid.id), formattedName.CStr(), &propClicked);
+			if (propClicked)
+			{
+				openComponentSettings = true;
+				selectedComponent = rid;
+			}
+
+			if (open)
+			{
+				ImGui::BeginDisabled(readOnly);
+				ImGui::Indent();
+
+				ImGuiDrawResource(ImGuiDrawResourceInfo{
+					.rid = rid,
+					.scopeName = scopeName
+				});
+
+				ImGui::Unindent();
+				ImGui::EndDisabled();
+			}
+		};
+
+		RID transform = entityObject.GetSubObject(EntityResource::Transform);
+		if (transform)
+		{
+			drawCollapsingHeader(transform, "Transform", "Transform Update");
+		}
 
 		entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
 		{
-			bool propClicked = false;
 			if (ResourceType* componentType = Resources::GetType(component);
 				componentType != nullptr &&
 				componentType->GetReflectType() != nullptr)
 			{
 				String formattedName = FormatName(componentType->GetReflectType()->GetSimpleName());
-				bool open = ImGuiCollapsingHeaderProps(HashValue(component.id), formattedName.CStr(), &propClicked);
-				if (propClicked)
-				{
-					openComponentSettings = true;
-					selectedComponent = component;
-				}
-
-				if (open)
-				{
-					ImGui::BeginDisabled(readOnly);
-					ImGui::Indent();
-
-					ImGuiDrawResource(ImGuiDrawResourceInfo{
-						.rid = component,
-						.scopeName = "Component Update"
-					});
-
-					ImGui::Unindent();
-					ImGui::EndDisabled();
-				}
+				String scope =  formattedName.Append(" Update");
+				drawCollapsingHeader(component, formattedName, scope);
 			}
 
 			return true;
@@ -200,6 +212,8 @@ namespace Skore
 			ImGui::OpenPopup("open-component-settings");
 		}
 
+		bool canRemove = !readOnly && selectedComponent != transform;
+
 		bool popupOpenSettings = ImGuiBeginPopupMenu("open-component-settings", 0, false);
 		if (popupOpenSettings && selectedComponent)
 		{
@@ -218,7 +232,7 @@ namespace Skore
 			// 	}
 			// }
 
-			if (ImGui::MenuItem("Remove"))
+			if (canRemove && ImGui::MenuItem("Remove"))
 			{
 				worldEditor->RemoveComponent(entity, selectedComponent);
 				ImGui::CloseCurrentPopup();

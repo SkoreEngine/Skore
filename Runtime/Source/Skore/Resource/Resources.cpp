@@ -227,7 +227,7 @@ namespace Skore
 				switch (field->GetType())
 				{
 					case ResourceFieldType::Blob:
-						new(reinterpret_cast<ByteBuffer*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<ByteBuffer*>(&origin[field->GetOffset()]));
+						new(reinterpret_cast<ByteBuffer*>(&instance[field->GetOffset()])) ByteBuffer(*reinterpret_cast<ByteBuffer*>(&origin[field->GetOffset()]));
 						break;
 					case ResourceFieldType::ReferenceArray:
 						new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
@@ -1027,7 +1027,15 @@ namespace Skore
 						if (ResourceField* field = parentStorage->resourceType->FindFieldByName(reader.ReadString("_parentField")))
 						{
 							ResourceObject parentObject = Write(parent);
-							parentObject.AddToSubObjectSet(field->GetIndex(), rid);
+
+							if (field->GetType() == ResourceFieldType::SubObjectSet)
+							{
+								parentObject.AddToSubObjectSet(field->GetIndex(), rid);
+							}
+							else if (field->GetType() == ResourceFieldType::SubObject)
+							{
+								parentObject.SetSubObject(field->GetIndex(), rid);
+							}
 							parentObject.Commit(scope);
 						}
 					}

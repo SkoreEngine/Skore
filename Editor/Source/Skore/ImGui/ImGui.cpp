@@ -1235,9 +1235,12 @@ namespace Skore
 			{
 				ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
 			}
-			if (ImGui::Button(ICON_FA_ELLIPSIS_VERTICAL, ImVec2{size.y, size.y - 4 * style.ScaleFactor}) || rightClicked)
+			if (buttonClicked)
 			{
-				*buttonClicked = true;
+				if (ImGui::Button(ICON_FA_ELLIPSIS_VERTICAL, ImVec2{size.y, size.y - 4 * style.ScaleFactor}) || rightClicked)
+				{
+					*buttonClicked = true;
+				}
 			}
 			if (hovered)
 			{

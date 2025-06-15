@@ -107,9 +107,12 @@ namespace Skore
 
 		auto createEntity = [&](RID parent)
 		{
+			RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
+
 			RID newEntity = Resources::Create<EntityResource>(UUID::RandomUUID());
 			ResourceObject newEntityObject = Resources::Write(newEntity);
 			newEntityObject.SetString(EntityResource::Name, "New Entity");
+			newEntityObject.SetSubObject(EntityResource::Transform, transformRID);
 			newEntityObject.Commit(scope);
 
 
