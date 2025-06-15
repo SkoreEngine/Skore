@@ -44,7 +44,10 @@ namespace Skore
 
 		virtual void ProcessEvent(const EntityEventDesc& event) {}
 
+		World* GetWorld() const;
 
-		World* GetWorld();
+		friend class Entity;
+	private:
+		RID m_rid;
 	};
 }

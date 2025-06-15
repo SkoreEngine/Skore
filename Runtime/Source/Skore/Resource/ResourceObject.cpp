@@ -610,6 +610,23 @@ namespace Skore
 		return m_storage->instance.load() != nullptr || m_currentInstance != nullptr;
 	}
 
+	bool ResourceObject::Compare(const ResourceObject& left, const ResourceObject& right, u32 index)
+	{
+		if (!left || !right)
+		{
+			return false;
+		}
+
+		if (left.m_storage->resourceType != right.m_storage->resourceType)
+		{
+			return false;
+		}
+
+		SK_ASSERT(false, "Not implemented");
+
+		return false;
+	}
+
 	void ResourceObject::SetValue(u32 index, ConstPtr value, usize size) const
 	{
 		if (m_currentInstance)

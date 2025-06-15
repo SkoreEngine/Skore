@@ -27,7 +27,7 @@
 
 namespace Skore
 {
-	World* Component::GetWorld()
+	World* Component::GetWorld() const
 	{
 		if (entity)
 		{

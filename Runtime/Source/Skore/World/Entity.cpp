@@ -40,6 +40,11 @@ namespace Skore
 	{
 		if (rid)
 		{
+			if (world->IsResourceSyncEnabled())
+			{
+				Resources::GetStorage(rid)->RegisterEvent(OnEntityResourceChange, this);
+			}
+
 			if (ResourceObject entityObject = Resources::Read(rid))
 			{
 				SetName(entityObject.GetString(EntityResource::Name));
@@ -64,6 +69,14 @@ namespace Skore
 					return true;
 				});
 			}
+		}
+	}
+
+	Entity::~Entity()
+	{
+		if (m_world->IsResourceSyncEnabled() && m_rid)
+		{
+			Resources::GetStorage(m_rid)->UnregisterEvent(OnEntityResourceChange, this);
 		}
 	}
 
@@ -137,10 +150,16 @@ namespace Skore
 
 		Component* component = reflectType->NewObject()->SafeCast<Component>();
 		component->entity = this;
+		component->m_rid = rid;
 
 		if (rid)
 		{
 			Resources::FromResource(rid, component);
+
+			if (m_world->IsResourceSyncEnabled())
+			{
+				Resources::GetStorage(component->m_rid)->RegisterEvent(OnComponentResourceChange, component);
+			}
 		}
 
 		component->Create();
@@ -148,6 +167,19 @@ namespace Skore
 		m_components.EmplaceBack(component);
 
 		return component;
+	}
+
+	void Entity::RemoveComponent(Component* component)
+	{
+		for (int i = 0; i < m_components.Size(); ++i)
+		{
+			if (m_components[i] == component)
+			{
+				DestroyComponent(component);
+				m_components.Remove(i);
+				break;
+			}
+		}
 	}
 
 
@@ -199,12 +231,47 @@ namespace Skore
 
 		for (Component* component : m_components)
 		{
-			component->Destroy();
-			DestroyAndFree(component);
+			DestroyComponent(component);
 		}
 
 		DestroyAndFree(this);
 	}
 
-	void Entity::UpdateTransform() {}
+	void Entity::UpdateTransform()
+	{
+		EntityEventDesc desc{
+			.type = EntityEventType::TransformUpdated
+		};
+		NotifyEvent(desc, true);
+	}
+
+	void Entity::DestroyComponent(Component* component) const
+	{
+		component->Destroy();
+		if (m_world->IsResourceSyncEnabled())
+		{
+			Resources::GetStorage(component->m_rid)->UnregisterEvent(OnComponentResourceChange, component);
+		}
+		DestroyAndFree(component);
+	}
+
+	void Entity::OnEntityResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+	{
+		Entity* entity = static_cast<Entity*>(userData);
+
+		if (newValue)
+		{
+			entity->SetName(newValue.GetString(EntityResource::Name));
+		}
+
+		if (!newValue)
+		{
+			entity->DestroyInternal(true);
+		}
+	}
+
+	void Entity::OnComponentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+	{
+
+	}
 }

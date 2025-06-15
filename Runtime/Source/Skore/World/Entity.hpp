@@ -35,6 +35,8 @@ namespace Skore
 	public:
 		SK_CLASS(Entity, Object);
 
+		~Entity() override;
+
 		Transform&       GetTransform();
 		World*           GetWorld() const;
 		Entity*          GetParent() const;
@@ -51,6 +53,7 @@ namespace Skore
 		Component* AddComponent(TypeID typeId);
 		Component* AddComponent(ReflectType* reflectType);
 		Component* AddComponent(ReflectType* reflectType, RID rid);
+		void RemoveComponent(Component* component);
 
 		void NotifyEvent(const EntityEventDesc& event, bool notifyChildren = false);
 
@@ -157,5 +160,10 @@ namespace Skore
 
 		void DestroyInternal(bool removeFromParent = true);
 		void UpdateTransform();
+
+		void DestroyComponent(Component* component) const;
+
+		static void OnEntityResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
+		static void OnComponentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 	};
 }

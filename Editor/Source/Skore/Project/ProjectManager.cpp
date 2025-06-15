@@ -391,9 +391,8 @@ namespace Skore
 					}
 				}
 				ImGuiEndPopupMenu(popupRes);
-
-				ImGui::EndChild();
 			}
+			ImGui::EndChild();
 		}
 		else if (selectedWindow == NEW_PROJECTS)
 		{

@@ -127,6 +127,8 @@ namespace Skore
 
 		explicit operator bool() const;
 
+		static bool Compare(const ResourceObject& left, const ResourceObject& right, u32 index);
+
 	private:
 		ResourceStorage* m_storage;
 		ResourceInstance m_currentInstance;
