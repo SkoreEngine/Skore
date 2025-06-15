@@ -165,10 +165,7 @@ namespace Skore
 
 	void WorldEditor::ClearSelection()
 	{
-		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Clear selection");
-		ResourceObject selectionObject = Resources::Write(m_selection);
-		selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
-		selectionObject.Commit(scope);
+		ClearSelection(Editor::CreateUndoRedoScope("Clear selection"));
 	}
 
 	void WorldEditor::SelectEntity(RID entity, bool clearSelection)
@@ -275,6 +272,15 @@ namespace Skore
 		//TODO
 	}
 
+	World* WorldEditor::GetCurrentWorld() const
+	{
+		if (m_editorWorld)
+		{
+			return m_editorWorld.get();
+		}
+		return nullptr;
+	}
+
 
 	void WorldEditor::OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
@@ -295,6 +301,8 @@ namespace Skore
 
 		if (oldEntity != newEntity)
 		{
+			worldEditor->ClearSelection(nullptr);
+
 			worldEditor->m_editorWorld = {};
 
 			if (newEntity)
@@ -323,6 +331,13 @@ namespace Skore
 				onEntitySelectionHandler.Invoke(worldEditor->m_workspace.GetId(), selected);
 			}
 		}
+	}
+
+	void WorldEditor::ClearSelection(UndoRedoScope* scope)
+	{
+		ResourceObject selectionObject = Resources::Write(m_selection);
+		selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
+		selectionObject.Commit(scope);
 	}
 
 

@@ -70,6 +70,8 @@ namespace Skore
 		void StopSimulation();
 		void PauseSimulation();
 
+		World* GetCurrentWorld() const;
+
 	private:
 		EditorWorkspace& m_workspace;
 		RID m_state = {};
@@ -80,5 +82,7 @@ namespace Skore
 
 		static void OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
+
+		void ClearSelection(UndoRedoScope* scope);
 	};
 }

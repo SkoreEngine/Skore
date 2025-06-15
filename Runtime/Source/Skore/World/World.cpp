@@ -22,6 +22,8 @@
 
 #include "World.hpp"
 
+#include "Entity.hpp"
+
 
 namespace Skore
 {

@@ -29,6 +29,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
+#include "Skore/World/Entity.hpp"
 #include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
@@ -252,6 +253,51 @@ namespace Skore
 		}
 	}
 
+	void EntityTreeWindow::DrawEntity(WorldEditor* worldEditor, Entity* entity)
+	{
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn();
+
+		bool root = entity->GetParent() == nullptr;
+
+		stringCache.Clear();
+		stringCache += root ? ICON_FA_CUBES : ICON_FA_CUBE;
+		stringCache += " ";
+		stringCache += entity->GetName();
+		bool open = false;
+
+		if (root)
+		{
+			ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+		}
+
+		if (!entity->GetChildren().Empty())
+		{
+			open = ImGuiTreeNode(entity, stringCache.CStr());
+		}
+		else
+		{
+			ImGuiTreeLeaf(entity, stringCache.CStr());
+		}
+
+
+		ImGui::TableNextColumn();
+
+		ImGui::TableNextColumn();
+
+
+		if (open)
+		{
+			for (Entity* child : entity->GetChildren())
+			{
+				DrawEntity(worldEditor, child);
+			}
+			ImGui::TreePop();
+		}
+
+	}
+
 	void EntityTreeWindow::Draw(u32 id, bool& open)
 	{
 		WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
@@ -317,12 +363,19 @@ namespace Skore
 					ScopedStyleVar       spacing(ImGuiStyleVar_ItemSpacing, ImVec2{0.0f, 0.0f});
 					ImGuiInvisibleHeader invisibleHeader;
 
-					DrawRIDEntity(worldEditor, worldEditor->GetRootEntity(), entitySelected);
+					if (!showWorldEntity && !worldEditor->IsSimulationRunning())
+					{
+						DrawRIDEntity(worldEditor, worldEditor->GetRootEntity(), entitySelected);
+						//DrawMovePayload(HashInt32(reinterpret_cast<usize>(sceneEditor->GetRoot())), sceneEditor->GetRoot(), nullptr);
+					}
+					else if (worldEditor->GetCurrentWorld() != nullptr)
+					{
+						DrawEntity(worldEditor, worldEditor->GetCurrentWorld()->GetRootEntity());
+					}
 
 					ImGui::TableNextRow();
 					ImGui::TableNextColumn();
 
-					//DrawMovePayload(HashInt32(reinterpret_cast<usize>(sceneEditor->GetRoot())), sceneEditor->GetRoot(), nullptr);
 
 					ImGui::EndTable();
 				}
@@ -433,6 +486,18 @@ namespace Skore
 		return !worldEditor->IsReadOnly();
 	}
 
+	void EntityTreeWindow::ShowWorldEntity(const MenuItemEventData& eventData)
+	{
+		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		window->showWorldEntity = !window->showWorldEntity;
+	}
+
+	bool EntityTreeWindow::IsShowWorldEntitySelected(const MenuItemEventData& eventData)
+	{
+		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		return window->showWorldEntity;
+	}
+
 	void EntityTreeWindow::OpenEntityTree(const MenuItemEventData& eventData)
 	{
 		Editor::OpenWindow<EntityTreeWindow>();
@@ -448,6 +513,7 @@ namespace Skore
 		AddMenuItem(MenuItemCreation{.itemName = "Rename", .priority = 200, .itemShortcut = {.presKey = Key::F2}, .action = RenameSceneEntity, .enable = CheckSelectedEntity});
 		AddMenuItem(MenuItemCreation{.itemName = "Duplicate", .priority = 210, .itemShortcut = {.ctrl = true, .presKey = Key::D}, .action = DuplicateSceneEntity, .enable = CheckSelectedEntity});
 		AddMenuItem(MenuItemCreation{.itemName = "Delete", .priority = 220, .itemShortcut = {.presKey = Key::Delete}, .action = DeleteSceneEntity, .enable = CheckSelectedEntity});
+		AddMenuItem(MenuItemCreation{.itemName = "Show World Entity", .priority = 1000, .action = ShowWorldEntity, .selected = IsShowWorldEntitySelected});
 
 		type.Attribute<EditorWindowProperties>(EditorWindowProperties{
 			.dockPosition = DockPosition::RightTop,

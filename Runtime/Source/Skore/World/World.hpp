@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 #pragma once
-#include "Entity.hpp"
 #include "Skore/Core/Object.hpp"
 #include "Skore/Core/Queue.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
@@ -29,6 +28,7 @@
 namespace Skore
 {
 	class Component;
+	class Entity;
 
 	class SK_API World : public Object
 	{

@@ -46,6 +46,8 @@ namespace Skore
 		static void DeleteSceneEntity(const MenuItemEventData& eventData);
 		static bool CheckSelectedEntity(const MenuItemEventData& eventData);
 		static bool CheckReadOnly(const MenuItemEventData& eventData);
+		static void ShowWorldEntity(const MenuItemEventData& eventData);
+		static bool IsShowWorldEntitySelected(const MenuItemEventData& eventData);
 
 		static void OpenEntityTree(const MenuItemEventData& eventData);
 		static void RegisterType(NativeReflectType<EntityTreeWindow>& type);
@@ -59,8 +61,11 @@ namespace Skore
 		String renamingStringCache{};
 		f32    iconSize = {};
 
+		bool    showWorldEntity = false;
+
 		static MenuItemContext menuItemContext;
 
 		void DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected);
+		void DrawEntity(WorldEditor* worldEditor, Entity* entity);
 	};
 }

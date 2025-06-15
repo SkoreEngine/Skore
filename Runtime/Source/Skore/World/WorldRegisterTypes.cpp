@@ -23,6 +23,7 @@
 #include "Component.hpp"
 #include "World.hpp"
 #include "WorldCommon.hpp"
+#include "Entity.hpp"
 #include "Components/LightComponent.hpp"
 #include "Components/MeshRender.hpp"
 #include "Skore/Core/Reflection.hpp"

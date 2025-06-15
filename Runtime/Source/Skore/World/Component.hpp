@@ -34,7 +34,7 @@ namespace Skore
 	public:
 		SK_CLASS(Component, Object);
 
-		Entity* entity;
+		Entity* entity = nullptr;
 
 		//called after construction / deserialization
 		virtual void Create() {}

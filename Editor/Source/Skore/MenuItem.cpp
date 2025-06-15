@@ -64,6 +64,7 @@ namespace Skore
             storage->m_action = menuItem.action;
             storage->m_enable = menuItem.enable;
             storage->m_visible = menuItem.visible;
+            storage->m_selected = menuItem.selected;
             storage->m_itemShortcut = menuItem.itemShortcut;
             storage->m_itemUserData = menuItem.userData;
 
@@ -86,9 +87,19 @@ namespace Skore
     void MenuItemContext::DrawMenuItemChildren(MenuItemContext* context, VoidPtr userData)
     {
         bool enabled = true;
+        bool selected = false;
+
         if (context->m_enable)
         {
             enabled = context->m_enable(MenuItemEventData{
+                .drawData = userData,
+                .userData = context->m_itemUserData
+            });
+        }
+
+        if (context->m_selected)
+        {
+            selected = context->m_selected(MenuItemEventData{
                 .drawData = userData,
                 .userData = context->m_itemUserData
             });
@@ -119,7 +130,7 @@ namespace Skore
                 shortcut += ImGui::GetKeyName(AsImGuiKey(context->m_itemShortcut.presKey));
             }
 
-            if (ImGui::MenuItem(context->m_label.CStr(), shortcut.begin(), false, enabled))
+            if (ImGui::MenuItem(context->m_label.CStr(), shortcut.begin(), selected, enabled))
             {
                 if (context->m_action)
                 {

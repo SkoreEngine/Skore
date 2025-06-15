@@ -30,28 +30,35 @@
 
 namespace Skore
 {
-	Entity::Entity(World* world) : m_world(world)
-	{
-	}
+	Entity::Entity(World* world) : Entity(world, {}) {}
 
-	Entity::Entity(World* world, RID rid) : m_rid(rid), m_world(world)
+	Entity::Entity(World* world, RID rid) : Entity(world, nullptr, rid) {}
+
+	Entity::Entity(World* world, Entity* parent) : Entity(world, parent, {}) {}
+
+	Entity::Entity(World* world, Entity* parent, RID rid) : m_rid(rid), m_world(world), m_parent(parent)
 	{
-		if (ResourceObject entityObject = Resources::Read(rid))
+		if (rid)
 		{
-			entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
+			if (ResourceObject entityObject = Resources::Read(rid))
 			{
-				if (ResourceType* type = Resources::GetType(component))
-				{
-					AddComponent(type->GetReflectType(), component);
-				}
-				return true;
-			});
+				SetName(entityObject.GetString(EntityResource::Name));
 
-			entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
-			{
-				CreateChildFromAsset(child);
-				return true;
-			});
+				entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
+				{
+					if (ResourceType* type = Resources::GetType(component))
+					{
+						AddComponent(type->GetReflectType(), component);
+					}
+					return true;
+				});
+
+				entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
+				{
+					CreateChildFromAsset(child);
+					return true;
+				});
+			}
 		}
 	}
 
@@ -65,16 +72,46 @@ namespace Skore
 		return m_world;
 	}
 
+	Entity* Entity::GetParent() const
+	{
+		return m_parent;
+	}
+
+	Span<Entity*> Entity::GetChildren() const
+	{
+		return m_children;
+	}
+
+	Span<Component*> Entity::GetComponents() const
+	{
+		return m_components;
+	}
+
+	RID Entity::GetRID() const
+	{
+		return m_rid;
+	}
+
+	void Entity::SetName(StringView name)
+	{
+		m_name = name;
+	}
+
+	StringView Entity::GetName() const
+	{
+		return m_name;
+	}
+
 	Entity* Entity::CreateChild()
 	{
-		Entity* child = Instantiate(m_world);
+		Entity* child = Instantiate(m_world, this);
 		m_children.EmplaceBack(child);
 		return child;
 	}
 
 	Entity* Entity::CreateChildFromAsset(RID rid)
 	{
-		Entity* child = Instantiate(m_world, rid);
+		Entity* child = Instantiate(m_world, this, rid);
 		m_children.EmplaceBack(child);
 		return child;
 	}
@@ -164,8 +201,5 @@ namespace Skore
 		DestroyAndFree(this);
 	}
 
-	void Entity::UpdateTransform()
-	{
-
-	}
+	void Entity::UpdateTransform() {}
 }

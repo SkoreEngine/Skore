@@ -52,6 +52,7 @@ namespace Skore
 		FnMenuItemAction action{};
 		FnMenuItemCheck  enable{};
 		FnMenuItemCheck  visible{};
+		FnMenuItemCheck  selected{};
 		u64              userData{};
 	};
 
@@ -71,6 +72,7 @@ namespace Skore
 		FnMenuItemAction                                  m_action{};
 		FnMenuItemCheck                                   m_enable{};
 		FnMenuItemCheck                                   m_visible{};
+		FnMenuItemCheck                                   m_selected{};
 		Shortcut                                          m_itemShortcut{};
 		u64                                               m_itemUserData{};
 

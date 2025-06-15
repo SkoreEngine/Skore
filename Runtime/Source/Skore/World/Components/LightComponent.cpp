@@ -24,6 +24,7 @@
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
+#include "Skore/World/Entity.hpp"
 #include "Skore/World/World.hpp"
 #include "Skore/World/WorldCommon.hpp"
 
@@ -45,11 +46,15 @@ namespace Skore
 
 	void LightComponent::Destroy()
 	{
+		if (!m_renderStorage) return;
+
 		m_renderStorage->RemoveLightProxy(this);
 	}
 
 	void LightComponent::ProcessEvent(const EntityEventDesc& event)
 	{
+		if (!m_renderStorage) return;
+
 		switch (event.type)
 		{
 			case EntityEventType::EntityActivated:
@@ -67,7 +72,12 @@ namespace Skore
 	void LightComponent::SetLightType(LightType type)
 	{
 		m_lightType = type;
-		m_renderStorage->SetLightType(this, m_lightType);
+
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetLightType(this, m_lightType);
+		}
+
 	}
 
 	LightType LightComponent::GetLightType() const
@@ -78,7 +88,10 @@ namespace Skore
 	void LightComponent::SetColor(const Color& color)
 	{
 		m_color = color;
-		m_renderStorage->SetLightColor(this, m_color);
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetLightColor(this, m_color);
+		}
 	}
 
 	const Color& LightComponent::GetColor() const
@@ -89,7 +102,10 @@ namespace Skore
 	void LightComponent::SetIntensity(f32 intensity)
 	{
 		m_intensity = intensity;
-		m_renderStorage->SetLightIntensity(this, m_intensity);
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetLightIntensity(this, m_intensity);
+		}
 	}
 
 	f32 LightComponent::GetIntensity() const
@@ -100,7 +116,10 @@ namespace Skore
 	void LightComponent::SetRange(f32 range)
 	{
 		m_range = range;
-		m_renderStorage->SetLightRange(this, m_range);
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetLightRange(this, m_range);
+		}
 	}
 
 	f32 LightComponent::GetRange() const
@@ -111,7 +130,11 @@ namespace Skore
 	void LightComponent::SetInnerConeAngle(f32 angle)
 	{
 		m_innerConeAngle = angle;
-		m_renderStorage->SetLightInnerConeAngle(this, m_innerConeAngle);
+
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetLightInnerConeAngle(this, m_innerConeAngle);
+		}
 	}
 
 	f32 LightComponent::GetInnerConeAngle() const
@@ -122,7 +145,10 @@ namespace Skore
 	void LightComponent::SetOuterConeAngle(f32 angle)
 	{
 		m_outerConeAngle = angle;
-		m_renderStorage->SetLightOuterConeAngle(this, m_outerConeAngle);
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetLightOuterConeAngle(this, m_outerConeAngle);
+		}
 	}
 
 	f32 LightComponent::GetOuterConeAngle() const
@@ -133,7 +159,10 @@ namespace Skore
 	void LightComponent::SetEnableShadows(bool enable)
 	{
 		m_enableShadows = enable;
-		m_renderStorage->SetLightEnableShadows(this, m_enableShadows);
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetLightEnableShadows(this, m_enableShadows);
+		}
 	}
 
 	bool LightComponent::GetEnableShadows() const

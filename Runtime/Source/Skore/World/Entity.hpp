@@ -35,8 +35,15 @@ namespace Skore
 	public:
 		SK_CLASS(Entity, Object);
 
-		Transform& GetTransform();
-		World*     GetWorld() const;
+		Transform&       GetTransform();
+		World*           GetWorld() const;
+		Entity*          GetParent() const;
+		Span<Entity*>    GetChildren() const;
+		Span<Component*> GetComponents() const;
+		RID              GetRID() const;
+
+		void       SetName(StringView name);
+		StringView GetName() const;
 
 		Entity* CreateChild();
 		Entity* CreateChildFromAsset(RID rid);
@@ -129,11 +136,14 @@ namespace Skore
 	private:
 		Entity(World* world);
 		Entity(World* world, RID rid);
+		Entity(World* world, Entity* parent);
+		Entity(World* world, Entity* parent, RID rid);
 
+		String m_name = {};
 		RID m_rid = {};
 
-		World*         m_world;
-		Entity*        m_parent;
+		World*         m_world = nullptr;
+		Entity*        m_parent = nullptr;
 		Array<Entity*> m_children;
 
 		Array<Component*> m_components;
