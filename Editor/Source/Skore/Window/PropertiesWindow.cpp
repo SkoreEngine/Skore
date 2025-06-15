@@ -170,7 +170,7 @@ namespace Skore
 				componentType->GetReflectType() != nullptr)
 			{
 				String formattedName = FormatName(componentType->GetReflectType()->GetSimpleName());
-				String scope =  formattedName.Append(" Update");
+				String scope = String(formattedName).Append(" Update");
 				drawCollapsingHeader(component, formattedName, scope);
 			}
 
