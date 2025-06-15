@@ -209,6 +209,19 @@ namespace Skore
 				}
 			}
 		}
+
+		void FinishCreation(ResourceStorage* storage)
+		{
+			if (storage->resourceType)
+			{
+				auto it = resourceByType.Find(storage->resourceType->GetID());
+				if (it == resourceByType.end())
+				{
+					it = resourceByType.Emplace(storage->resourceType->GetID(), Array<RID>{}).first;
+				}
+				it->second.EmplaceBack(storage->rid);
+			}
+		}
 	}
 
 	//clone = recreate subobjects
@@ -469,15 +482,7 @@ namespace Skore
 			storage->instance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
 		}
 
-		if (storage->resourceType)
-		{
-			auto it = resourceByType.Find(storage->resourceType->GetID());
-			if (it == resourceByType.end())
-			{
-				it = resourceByType.Emplace(storage->resourceType->GetID(), Array<RID>{}).first;
-			}
-			it->second.EmplaceBack(rid);
-		}
+		FinishCreation(storage);
 
 		return rid;
 	}
@@ -500,15 +505,7 @@ namespace Skore
 			storage->instance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
 		}
 
-		if (storage->resourceType)
-		{
-			auto it = resourceByType.Find(storage->resourceType->GetID());
-			if (it == resourceByType.end())
-			{
-				it = resourceByType.Emplace(storage->resourceType->GetID(), Array<RID>{}).first;
-			}
-			it->second.EmplaceBack(rid);
-		}
+		FinishCreation(storage);
 
 		return rid;
 	}
@@ -530,15 +527,7 @@ namespace Skore
 		storage->resourceType = originStorage->resourceType;
 		storage->prototype = originStorage->prototype;
 
-		if (storage->resourceType)
-		{
-			auto it = resourceByType.Find(storage->resourceType->GetID());
-			if (it == resourceByType.end())
-			{
-				it = resourceByType.Emplace(storage->resourceType->GetID(), Array<RID>{}).first;
-			}
-			it->second.EmplaceBack(rid);
-		}
+		FinishCreation(storage);
 
 		return rid;
 	}
@@ -900,6 +889,8 @@ namespace Skore
 
 			if (storage->resourceType)
 			{
+				FinishCreation(storage);
+
 				ResourceObject write = Write(rid);
 
 				while (reader.NextMapEntry())

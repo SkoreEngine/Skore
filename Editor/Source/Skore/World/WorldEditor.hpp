@@ -72,10 +72,14 @@ namespace Skore
 
 		World* GetCurrentWorld() const;
 
+		void OnUpdateEvent();
+
 	private:
 		EditorWorkspace& m_workspace;
 		RID m_state = {};
 		RID m_selection = {};
+
+		u64 m_currentWorldVersion = 0;
 
 		std::shared_ptr<World> m_editorWorld;
 		std::shared_ptr<World> m_simulationWorld;

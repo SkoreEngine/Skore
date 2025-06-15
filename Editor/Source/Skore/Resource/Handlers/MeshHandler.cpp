@@ -45,6 +45,17 @@ namespace Skore
 			return TypeInfo<MeshResource>::ID();
 		}
 
+		RID Create(UUID uuid, UndoRedoScope* scope) override
+		{
+			RID mesh = Resources::Create(GetResourceTypeId(), UUID::RandomUUID(), scope);
+
+			ResourceObject meshObject = Resources::Write(mesh);
+			meshObject.SetString(MeshResource::Name, "Mesh");
+			meshObject.Commit(scope);
+
+			return mesh;
+		}
+
 		StringView GetDesc() override
 		{
 			return "Mesh";

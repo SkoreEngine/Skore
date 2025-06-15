@@ -29,6 +29,7 @@
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/World/WorldCommon.hpp"
+#include "Skore/Events.hpp"
 
 namespace Skore
 {
@@ -66,6 +67,8 @@ namespace Skore
 
 		Resources::FindType<WorldEditorSelection>()->RegisterEvent(OnSelectionChange, this);
 		Resources::FindType<WorldEditorState>()->RegisterEvent(OnStateChange, this);
+
+		Event::Bind<OnUpdate, &WorldEditor::OnUpdateEvent>(this);
 	}
 
 	WorldEditor::~WorldEditor()
@@ -75,6 +78,8 @@ namespace Skore
 
 		Resources::FindType<WorldEditorSelection>()->UnregisterEvent(OnSelectionChange, this);
 		Resources::FindType<WorldEditorState>()->UnregisterEvent(OnStateChange, this);
+
+		Event::Unbind<OnUpdate, &WorldEditor::OnUpdateEvent>(this);
 	}
 
 	void WorldEditor::OpenEntity(RID entity)
@@ -284,6 +289,18 @@ namespace Skore
 		return nullptr;
 	}
 
+	void WorldEditor::OnUpdateEvent()
+	{
+		if (GetRootEntity())
+		{
+			u64 version = Resources::GetVersion(GetRootEntity());
+			if (m_currentWorldVersion != version)
+			{
+				m_currentWorldVersion = version;
+			}
+		}
+	}
+
 
 	void WorldEditor::OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
@@ -311,6 +328,7 @@ namespace Skore
 			if (newEntity)
 			{
 				worldEditor->m_editorWorld = std::make_shared<World>(newEntity, true);
+				worldEditor->m_currentWorldVersion = Resources::GetVersion(newEntity);
 			}
 		}
 	}
