@@ -20,22 +20,42 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "MeshRender.hpp"
-
-#include "Skore/Core/Reflection.hpp"
-
+#pragma once
+#include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/World/Component.hpp"
 
 namespace Skore
 {
-	void MeshRender::Create()
-	{
-		int a = 0;
-	}
+	class RenderStorage;
+	using MaterialArray = Array<TypedRID<MaterialResource>>;
 
-	void MeshRender::RegisterType(NativeReflectType<MeshRender>& type)
+	class MeshRenderComponent : public Component
 	{
-		type.Field<&MeshRender::m_mesh>("mesh");
-		type.Field<&MeshRender::m_materials>("materials");
-		type.Field<&MeshRender::m_castShadows>("castShadows");
-	}
+	public:
+		SK_CLASS(MeshRenderComponent, Component);
+
+		void Create() override;
+		void Destroy() override;
+
+		void ProcessEvent(const EntityEventDesc& event) override;
+
+		void SetMesh(RID mesh);
+		RID  GetMesh() const;
+		void SetCastShadows(bool castShadows);
+		bool GetCastShadows() const;
+
+		const MaterialArray& GetMaterials() const;
+		void                 SetMaterials(const MaterialArray& materials);
+
+		static void RegisterType(NativeReflectType<MeshRenderComponent>& type);
+
+	private:
+		RenderStorage* m_renderStorage = nullptr;
+
+		TypedRID<MeshResource> m_mesh = {};
+		MaterialArray          m_materials = {};
+
+		bool m_castShadows = true;
+	};
 }

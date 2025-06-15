@@ -68,7 +68,24 @@ namespace Skore
 	struct TypedRID : RID
 	{
 		constexpr static TypeID typeId = TypeInfo<T>::ID();
+
+		TypedRID() = default;
+		TypedRID(RID rid) : RID(rid){}
+
 	};
+
+	template <typename T>
+	Array<RID> CastRIDArray(const Array<TypedRID<T>>& origin)
+	{
+		Array<RID> ret;
+		ret.Reserve(origin.Size());
+		for (TypedRID<T> rid : origin)
+		{
+			ret.EmplaceBack(rid);
+		}
+		return ret;
+	}
+
 
 	template <typename T>
 	struct TypedRIDInfo : Traits::FalseType

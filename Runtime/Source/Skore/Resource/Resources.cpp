@@ -163,7 +163,7 @@ namespace Skore
 			}
 		}
 
-		template<typename T>
+		template <typename T>
 		void IterateObjectSubObjects(ResourceStorage* resourceStorage, ResourceInstance instance, T&& func)
 		{
 			for (ResourceField* field : resourceStorage->resourceType->GetFields())
@@ -203,7 +203,7 @@ namespace Skore
 
 			if (resourceStorage->resourceType != nullptr)
 			{
-				for (const ResourceEvent& eventType: resourceStorage->resourceType->GetEvents())
+				for (const ResourceEvent& eventType : resourceStorage->resourceType->GetEvents())
 				{
 					eventType.function(oldValue, newValue, eventType.userData);
 				}
@@ -371,12 +371,12 @@ namespace Skore
 		//default value
 		if (ReflectConstructor* defaultConstructor = reflectType->GetDefaultConstructor())
 		{
-			RID rid = GetID({});
+			RID              rid = GetID({});
 			ResourceStorage* storage = GetOrAllocate(rid, {});
 			storage->resourceType = type;
 			storage->instance = nullptr;
 
-			char buffer[128];
+			char    buffer[128];
 			VoidPtr ptr = &buffer;
 
 			if (reflectType->GetProps().size >= 128)
@@ -450,7 +450,7 @@ namespace Skore
 
 	RID Resources::Create(TypeID typeId, UUID uuid, UndoRedoScope* scope)
 	{
-		RID rid = GetID(uuid);
+		RID              rid = GetID(uuid);
 		ResourceStorage* storage = GetOrAllocate(rid, uuid);
 		storage->instance = nullptr;
 		storage->resourceType = FindTypeByID(typeId);
@@ -463,7 +463,7 @@ namespace Skore
 			}
 		}
 
-		if (storage->resourceType &&  storage->resourceType->defaultValue)
+		if (storage->resourceType && storage->resourceType->defaultValue)
 		{
 			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
 			storage->instance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
@@ -563,7 +563,6 @@ namespace Skore
 		}
 
 		ExecuteEvents(storage, ResourceObject(storage, oldInstance), ResourceObject(storage, newInstance));
-
 	}
 
 	void Resources::Destroy(RID rid, UndoRedoScope* scope)
@@ -718,7 +717,8 @@ namespace Skore
 		while (current)
 		{
 			ResourceStorage* storage = GetStorage(current);
-			do {
+			do
+			{
 				if (!storage->uuid) break;
 
 				writer.BeginMap();
@@ -849,7 +849,8 @@ namespace Skore
 					}
 				}
 				writer.EndMap();
-			} while (false);
+			}
+			while (false);
 
 			current = {};
 			if (!pendingItems.IsEmpty())
@@ -897,135 +898,138 @@ namespace Skore
 				storage->prototype = GetStorage(prototype);
 			}
 
-			ResourceObject write = Write(rid);
-
-			while (reader.NextMapEntry())
+			if (storage->resourceType)
 			{
-				StringView fieldName = reader.GetCurrentKey();
-				if (ResourceField* field = storage->resourceType->FindFieldByName(fieldName))
+				ResourceObject write = Write(rid);
+
+				while (reader.NextMapEntry())
 				{
-					switch (field->GetType())
+					StringView fieldName = reader.GetCurrentKey();
+					if (ResourceField* field = storage->resourceType->FindFieldByName(fieldName))
 					{
-						case ResourceFieldType::Bool:
-							write.SetBool(field->GetIndex(), reader.GetBool());
-							break;
-						case ResourceFieldType::Int:
-							write.SetInt(field->GetIndex(), reader.GetInt());
-							break;
-						case ResourceFieldType::UInt:
-							write.SetUInt(field->GetIndex(), reader.GetUInt());
-							break;
-						case ResourceFieldType::Float:
-							write.SetFloat(field->GetIndex(), reader.GetFloat());
-							break;
-						case ResourceFieldType::String:
-							write.SetString(field->GetIndex(), reader.GetString());
-							break;
-						case ResourceFieldType::Vec2:
+						switch (field->GetType())
 						{
-							reader.BeginMap();
-							Vec2 vec;
-							vec.x = static_cast<Float>(reader.ReadFloat("x"));
-							vec.y = static_cast<Float>(reader.ReadFloat("y"));
-							write.SetVec2(field->GetIndex(), vec);
-							reader.EndMap();
-							break;
-						}
-						case ResourceFieldType::Vec3:
-						{
-							reader.BeginMap();
-							Vec3 vec;
-							vec.x = static_cast<Float>(reader.ReadFloat("x"));
-							vec.y = static_cast<Float>(reader.ReadFloat("y"));
-							vec.z = static_cast<Float>(reader.ReadFloat("z"));
-							write.SetVec3(field->GetIndex(), vec);
-							reader.EndMap();
-							break;
-						}
-						case ResourceFieldType::Vec4:
-						{
-							reader.BeginMap();
-							Vec4 vec;
-							vec.x = static_cast<Float>(reader.ReadFloat("x"));
-							vec.y = static_cast<Float>(reader.ReadFloat("y"));
-							vec.z = static_cast<Float>(reader.ReadFloat("z"));
-							vec.w = static_cast<Float>(reader.ReadFloat("w"));
-							write.SetVec4(field->GetIndex(), vec);
-							reader.EndMap();
-							break;
-						}
-						case ResourceFieldType::Quat:
-						{
-							reader.BeginMap();
-							Quat quat;
-							quat.x = static_cast<Float>(reader.ReadFloat("x"));
-							quat.y = static_cast<Float>(reader.ReadFloat("y"));
-							quat.z = static_cast<Float>(reader.ReadFloat("z"));
-							quat.w = static_cast<Float>(reader.ReadFloat("w"));
-							write.SetQuat(field->GetIndex(), quat);
-							reader.EndMap();
-							break;
-						}
-						case ResourceFieldType::Color:
-						{
-							reader.BeginMap();
-							Color color;
-							color.red = reader.ReadUInt("red");
-							color.green = reader.ReadUInt("green");
-							color.blue = reader.ReadUInt("blue");
-							color.alpha = reader.ReadUInt("alpha");
-							write.SetColor(field->GetIndex(), color);
-							reader.EndMap();
-							break;
-						}
-						case ResourceFieldType::Enum:
-						{
-							if (ReflectType* enumType = Reflection::FindTypeById(field->GetSubType()))
+							case ResourceFieldType::Bool:
+								write.SetBool(field->GetIndex(), reader.GetBool());
+								break;
+							case ResourceFieldType::Int:
+								write.SetInt(field->GetIndex(), reader.GetInt());
+								break;
+							case ResourceFieldType::UInt:
+								write.SetUInt(field->GetIndex(), reader.GetUInt());
+								break;
+							case ResourceFieldType::Float:
+								write.SetFloat(field->GetIndex(), reader.GetFloat());
+								break;
+							case ResourceFieldType::String:
+								write.SetString(field->GetIndex(), reader.GetString());
+								break;
+							case ResourceFieldType::Vec2:
 							{
-								if (ReflectValue* value = enumType->FindValueByName(reader.GetString()))
+								reader.BeginMap();
+								Vec2 vec;
+								vec.x = static_cast<Float>(reader.ReadFloat("x"));
+								vec.y = static_cast<Float>(reader.ReadFloat("y"));
+								write.SetVec2(field->GetIndex(), vec);
+								reader.EndMap();
+								break;
+							}
+							case ResourceFieldType::Vec3:
+							{
+								reader.BeginMap();
+								Vec3 vec;
+								vec.x = static_cast<Float>(reader.ReadFloat("x"));
+								vec.y = static_cast<Float>(reader.ReadFloat("y"));
+								vec.z = static_cast<Float>(reader.ReadFloat("z"));
+								write.SetVec3(field->GetIndex(), vec);
+								reader.EndMap();
+								break;
+							}
+							case ResourceFieldType::Vec4:
+							{
+								reader.BeginMap();
+								Vec4 vec;
+								vec.x = static_cast<Float>(reader.ReadFloat("x"));
+								vec.y = static_cast<Float>(reader.ReadFloat("y"));
+								vec.z = static_cast<Float>(reader.ReadFloat("z"));
+								vec.w = static_cast<Float>(reader.ReadFloat("w"));
+								write.SetVec4(field->GetIndex(), vec);
+								reader.EndMap();
+								break;
+							}
+							case ResourceFieldType::Quat:
+							{
+								reader.BeginMap();
+								Quat quat;
+								quat.x = static_cast<Float>(reader.ReadFloat("x"));
+								quat.y = static_cast<Float>(reader.ReadFloat("y"));
+								quat.z = static_cast<Float>(reader.ReadFloat("z"));
+								quat.w = static_cast<Float>(reader.ReadFloat("w"));
+								write.SetQuat(field->GetIndex(), quat);
+								reader.EndMap();
+								break;
+							}
+							case ResourceFieldType::Color:
+							{
+								reader.BeginMap();
+								Color color;
+								color.red = reader.ReadUInt("red");
+								color.green = reader.ReadUInt("green");
+								color.blue = reader.ReadUInt("blue");
+								color.alpha = reader.ReadUInt("alpha");
+								write.SetColor(field->GetIndex(), color);
+								reader.EndMap();
+								break;
+							}
+							case ResourceFieldType::Enum:
+							{
+								if (ReflectType* enumType = Reflection::FindTypeById(field->GetSubType()))
 								{
-									write.SetInt(field->GetIndex(), value->GetCode());
+									if (ReflectValue* value = enumType->FindValueByName(reader.GetString()))
+									{
+										write.SetInt(field->GetIndex(), value->GetCode());
+									}
 								}
+								break;
 							}
-							break;
-						}
-						case ResourceFieldType::Blob:
-							write.SetBlob(field->GetIndex(), reader.GetBlob());
-							break;
-						case ResourceFieldType::Reference:
-							if (RID rid = FindOrReserveByUUID(UUID::FromString(reader.GetString())))
+							case ResourceFieldType::Blob:
+								write.SetBlob(field->GetIndex(), reader.GetBlob());
+								break;
+							case ResourceFieldType::Reference:
+								if (RID rid = FindOrReserveByUUID(UUID::FromString(reader.GetString())))
+								{
+									write.SetReference(field->GetIndex(), rid);
+								}
+								break;
+							case ResourceFieldType::ReferenceArray:
 							{
-								write.SetReference(field->GetIndex(), rid);
+								reader.BeginSeq();
+								Array<RID> references;
+								while (reader.NextSeqEntry())
+								{
+									references.EmplaceBack(FindOrReserveByUUID(UUID::FromString(reader.GetString())));
+								}
+								write.SetReferenceArray(field->GetIndex(), references);
+								reader.EndSeq();
+								break;
 							}
-							break;
-						case ResourceFieldType::ReferenceArray:
-						{
-							reader.BeginSeq();
-							Array<RID> references;
-							while (reader.NextSeqEntry())
-							{
-								references.EmplaceBack(FindOrReserveByUUID(UUID::FromString(reader.GetString())));
-							}
-							write.SetReferenceArray(field->GetIndex(), references);
-							reader.EndSeq();
-							break;
 						}
 					}
 				}
-			}
 
-			write.Commit(scope);
+				write.Commit(scope);
 
-			if (RID parent = FindByUUID(UUID::FromString(reader.ReadString("_parent"))))
-			{
-				ResourceStorage* parentStorage = GetStorage(parent);
-				if (parentStorage->resourceType)
+				if (RID parent = FindByUUID(UUID::FromString(reader.ReadString("_parent"))))
 				{
-					if (ResourceField* field = parentStorage->resourceType->FindFieldByName(reader.ReadString("_parentField")))
+					ResourceStorage* parentStorage = GetStorage(parent);
+					if (parentStorage->resourceType)
 					{
-						ResourceObject parentObject = Write(parent);
-						parentObject.AddToSubObjectSet(field->GetIndex(), rid);
-						parentObject.Commit(scope);
+						if (ResourceField* field = parentStorage->resourceType->FindFieldByName(reader.ReadString("_parentField")))
+						{
+							ResourceObject parentObject = Write(parent);
+							parentObject.AddToSubObjectSet(field->GetIndex(), rid);
+							parentObject.Commit(scope);
+						}
 					}
 				}
 			}
@@ -1114,7 +1118,7 @@ namespace Skore
 			pages[i] = nullptr;
 		}
 
-		for (const auto& it: typesById)
+		for (const auto& it : typesById)
 		{
 			for (ResourceType* type : it.second)
 			{

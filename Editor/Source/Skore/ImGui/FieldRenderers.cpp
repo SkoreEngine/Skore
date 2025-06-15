@@ -265,7 +265,7 @@ namespace Skore
 
 		if (context.reflectField)
 		{
-			context.reflectField->GetProps().typeId == TypeInfo<f64>::ID();
+			f64Value = context.reflectField->GetProps().typeId == TypeInfo<f64>::ID();
 		}
 
 		if (context.resourceField)
