@@ -31,7 +31,7 @@ namespace Skore
 
 	struct FBXImportSettings
 	{
-		//TODO
+		bool recalculateTangents = true;
 	};
 
 	SK_API bool ImportFBX(RID directory, const FBXImportSettings& settings, StringView path, UndoRedoScope* scope);

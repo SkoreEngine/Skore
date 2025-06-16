@@ -30,10 +30,10 @@ namespace Skore
 	class RenderStorage;
 	using MaterialArray = Array<TypedRID<MaterialResource>>;
 
-	class MeshRenderComponent : public Component
+	class StaticMeshRender : public Component
 	{
 	public:
-		SK_CLASS(MeshRenderComponent, Component);
+		SK_CLASS(StaticMeshRender, Component);
 
 		void Create() override;
 		void Destroy() override;
@@ -48,12 +48,12 @@ namespace Skore
 		const MaterialArray& GetMaterials() const;
 		void                 SetMaterials(const MaterialArray& materials);
 
-		static void RegisterType(NativeReflectType<MeshRenderComponent>& type);
+		static void RegisterType(NativeReflectType<StaticMeshRender>& type);
 
 	private:
 		RenderStorage* m_renderStorage = nullptr;
 
-		TypedRID<MeshResource> m_mesh = {};
+		TypedRID<StaticMeshResource> m_mesh = {};
 		MaterialArray          m_materials = {};
 
 		bool m_castShadows = true;

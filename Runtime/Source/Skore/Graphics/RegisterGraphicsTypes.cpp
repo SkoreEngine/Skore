@@ -689,12 +689,19 @@ namespace Skore
 			.Field<TextureResource::Pixels>(ResourceFieldType::Blob)
 			.Build();
 
-		Resources::Type<MeshResource>()
-			.Field<MeshResource::Name>(ResourceFieldType::String)
+		Resources::Type<StaticMeshResource>()
+			.Field<StaticMeshResource::Name>(ResourceFieldType::String)
+			.Field<StaticMeshResource::Vertices>(ResourceFieldType::Blob)
+			.Field<StaticMeshResource::Primitives>(ResourceFieldType::Blob)
+			.Field<StaticMeshResource::Indices>(ResourceFieldType::Blob)
 			.Build();
 
 		Resources::Type<DCCAssetResource>()
-			.Field<MeshResource::Name>(ResourceFieldType::String)
+			.Field<DCCAssetResource::Name>(ResourceFieldType::String)
+			.Field<DCCAssetResource::Meshes>(ResourceFieldType::SubObjectSet)
+			.Field<DCCAssetResource::Materials>(ResourceFieldType::SubObjectSet)
+			.Field<DCCAssetResource::Textures>(ResourceFieldType::SubObjectSet)
+			.Field<DCCAssetResource::Entity>(ResourceFieldType::SubObject)
 			.Build();
 	}
 }

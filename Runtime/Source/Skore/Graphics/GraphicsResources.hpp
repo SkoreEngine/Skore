@@ -59,8 +59,24 @@ namespace Skore
 		};
 	};
 
-	struct MeshResource
+	struct StaticMeshResource
 	{
+		struct Vertex
+		{
+			Vec3 position;
+			Vec3 normal;
+			Vec2 texCoord;
+			Vec3 color;
+			Vec4 tangent;
+		};
+
+		struct Primitive
+		{
+			u32 firstIndex;
+			u32 indexCount;
+			u32 materialIndex;
+		};
+
 		enum
 		{
 			Name,       //String
@@ -83,7 +99,11 @@ namespace Skore
 	{
 		enum
 		{
-			Name,
+			Name,		//String
+			Meshes,		//SubobjectSet
+			Materials,	//SubObjectSet
+			Textures,	//SubObjectSet
+			Entity,		//SubObject
 		};
 	};
 }

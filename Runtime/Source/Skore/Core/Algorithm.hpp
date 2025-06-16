@@ -83,6 +83,7 @@ namespace Skore
         }
     }
 
+
     constexpr usize Strlen(const char* s)
     {
         for (usize len = 0;; ++len)
@@ -93,6 +94,21 @@ namespace Skore
             }
         }
         return 0;
+    }
+
+    constexpr bool IsStrNullOrEmpty(const char* str)
+    {
+        if (str == nullptr)
+        {
+            return true;
+        }
+
+        if (Strlen(str) == 0)
+        {
+            return true;
+        }
+
+        return false;
     }
 
     constexpr i32 StrCmp(const char* r, const char* l)

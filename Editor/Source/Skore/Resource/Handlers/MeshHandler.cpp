@@ -42,7 +42,7 @@ namespace Skore
 
 		TypeID GetResourceTypeId() override
 		{
-			return TypeInfo<MeshResource>::ID();
+			return TypeInfo<StaticMeshResource>::ID();
 		}
 
 		RID Create(UUID uuid, UndoRedoScope* scope) override
@@ -50,7 +50,7 @@ namespace Skore
 			RID mesh = Resources::Create(GetResourceTypeId(), UUID::RandomUUID(), scope);
 
 			ResourceObject meshObject = Resources::Write(mesh);
-			meshObject.SetString(MeshResource::Name, "Mesh");
+			meshObject.SetString(StaticMeshResource::Name, "Mesh");
 			meshObject.Commit(scope);
 
 			return mesh;

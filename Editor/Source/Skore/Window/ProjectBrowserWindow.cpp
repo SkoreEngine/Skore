@@ -752,7 +752,7 @@ namespace Skore
 
 		AddMenuItem(MenuItemCreation{.itemName = "New Folder", .icon = ICON_FA_FOLDER, .priority = 0, .action = AssetNewFolder, .enable = CanCreateAsset});
 		// AddMenuItem(MenuItemCreation{.itemName = "New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 15, .action = AssetNew, .enable = CanCreateAsset, .userData = GetTypeID<MaterialAsset>()});
-		AddMenuItem(MenuItemCreation{.itemName = "New Mesh", .icon = ICON_FA_PAINTBRUSH, .priority = 15, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<MeshResource>::ID()});
+		AddMenuItem(MenuItemCreation{.itemName = "New Mesh", .icon = ICON_FA_PAINTBRUSH, .priority = 15, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<StaticMeshResource>::ID()});
 		AddMenuItem(MenuItemCreation{.itemName = "Delete", .icon = ICON_FA_TRASH, .priority = 20, .itemShortcut{.presKey = Key::Delete}, .action = AssetDelete, .enable = CheckSelectedAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "Rename", .icon = ICON_FA_PEN_TO_SQUARE, .priority = 30, .itemShortcut{.presKey = Key::F2}, .action = AssetRename, .enable = CheckSelectedAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "Show in Explorer", .icon = ICON_FA_FOLDER, .priority = 40, .action = AssetShowInExplorer});

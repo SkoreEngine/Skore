@@ -779,6 +779,12 @@ namespace Skore
 			return name;
 		}
 
+		//not sure?
+		if (ResourceObject obj = Resources::Read(rid))
+		{
+			return obj.GetString(0);
+		}
+
 		return {};
 	}
 
