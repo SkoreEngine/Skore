@@ -26,6 +26,9 @@
 
 #include "VulkanDevice.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Resource/ResourceObject.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
@@ -1097,5 +1100,47 @@ namespace Skore
 				SK_ASSERT(false, "Unhandled resource state in GetPipelineStageFromResourceState");
 				return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		}
+	}
+
+	bool GetShaderInfoFromResource(RID rid, PipelineDesc* pipelineDesc, Array<ShaderStageInfo>* stages)
+	{
+		ResourceObject variantObject = Resources::Read(rid);
+		if (!variantObject)
+		{
+			SK_ASSERT(false, "shader variant instance not found");
+			return false;
+		}
+
+		if (pipelineDesc)
+		{
+			if (RID rid = variantObject.GetSubObject(ShaderVariantResource::PipelineDesc))
+			{
+				Resources::FromResource(rid, pipelineDesc);
+			}
+			else
+			{
+				SK_ASSERT(false, "pipeline desc not found");
+				return false;
+			}
+		}
+
+		if (stages)
+		{
+			variantObject.IterateSubObjectSet(ShaderVariantResource::Stages, true, [&](RID rid)
+			{
+				ShaderStageInfo stageInfo;
+				Resources::FromResource(rid, &stageInfo);
+				stages->EmplaceBack(stageInfo);
+
+				return true;
+			});
+
+			if (stages->Empty())
+			{
+				SK_ASSERT(false, "stages not found");
+				return false;
+			}
+		}
+		return true;
 	}
 }

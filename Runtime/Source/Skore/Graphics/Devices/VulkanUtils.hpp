@@ -26,6 +26,7 @@
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Graphics/Device.hpp"
+#include "Skore/Graphics/GraphicsCommon.hpp"
 
 namespace Skore
 {
@@ -85,4 +86,5 @@ namespace Skore
 	bool                          QueryInstanceExtensions(const Span<const char*>& requiredExtensions);
 	VkAccessFlags                 GetAccessFlagsFromResourceState(ResourceState state);
 	VkPipelineStageFlags          GetPipelineStageFromResourceState(ResourceState state);
+	bool                          GetShaderInfoFromResource(RID rid, PipelineDesc* pipelineDesc, Array<ShaderStageInfo>* stages);
 }

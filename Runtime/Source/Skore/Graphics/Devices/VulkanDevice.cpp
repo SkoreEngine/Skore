@@ -1917,8 +1917,6 @@ namespace Skore
 
 	GPUPipeline* VulkanDevice::CreateGraphicsPipeline(const GraphicsPipelineDesc& desc)
 	{
-		SK_ASSERT(false, "not implemented");
-
 		SK_ASSERT(desc.renderPass, "render pass is required");
 		SK_ASSERT(desc.shader, "shader variant is required");
 
@@ -1928,7 +1926,9 @@ namespace Skore
 		ResourceObject variantObject = Resources::Read(variant);
 
 		PipelineDesc          pipelineDesc;
-		Span<ShaderStageInfo> stages;
+		Array<ShaderStageInfo> stages;
+
+		GetShaderInfoFromResource(variant, &pipelineDesc, &stages);
 
 		u32 stride = desc.vertexInputStride != U32_MAX ? desc.vertexInputStride : pipelineDesc.stride;
 
@@ -2152,18 +2152,16 @@ namespace Skore
 
 	GPUPipeline* VulkanDevice::CreateComputePipeline(const ComputePipelineDesc& desc)
 	{
-		SK_ASSERT(false, "not implemented");
-
 		SK_ASSERT(desc.shader, "shader variant is required");
 
 		RID variant = ShaderResource::GetVariant(desc.shader, desc.variant);
 		SK_ASSERT(variant, "variant not found");
 
-		ResourceObject variantObject = Resources::Read(variant);
-
+		//TODO - need to get from variantObject
 		PipelineDesc          pipelineDesc;
-		Span<ShaderStageInfo> stages;
+		Array<ShaderStageInfo> stages;
 
+		GetShaderInfoFromResource(variant, &pipelineDesc, &stages);
 
 		VkPipelineLayout vkPipelineLayout;
 		VkPipeline       vkPipeline;
@@ -2195,6 +2193,8 @@ namespace Skore
 
 		// Create compute shader module
 		VkShaderModule computeShaderModule;
+
+		ResourceObject variantObject = Resources::Read(variant);
 		Span bytes = variantObject.GetBlob(ShaderVariantResource::Spriv);
 		
 		Span<u8> shaderData = Span<u8>{
@@ -2220,7 +2220,7 @@ namespace Skore
 		shaderStageInfo.module = computeShaderModule;
 		shaderStageInfo.pName = computeStageInfo.entryPoint.CStr();
 
-		// Create compute pipeline
+		// Create compute  pipeline
 		VkComputePipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
 		pipelineInfo.stage = shaderStageInfo;
 		pipelineInfo.layout = vkPipelineLayout;
@@ -2479,12 +2479,8 @@ namespace Skore
 		RID variantRID = ShaderResource::GetVariant(shader, variant);
 		SK_ASSERT(variantRID, "variant not found");
 
-		//ResourceObject variantObject = Resources::Read(variant);
-
 		PipelineDesc pipelineDesc;
-
-		SK_ASSERT(false, "not implemented");
-
+		GetShaderInfoFromResource(variantRID, &pipelineDesc, nullptr);
 
 		for (const auto& descriptor: pipelineDesc.descriptors)
 		{

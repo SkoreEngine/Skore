@@ -741,6 +741,7 @@ namespace Skore
 		Reflection::Type<EditorWindowProperties>();
 		Reflection::Type<ProjectBrowserWindow>();
 		Reflection::Type<EntityTreeWindow>();
+		Reflection::Type<WorldViewWindow>();
 		Reflection::Type<TextureViewWindow>();
 		Reflection::Type<HistoryWindow>();
 		Reflection::Type<ConsoleWindow>();
