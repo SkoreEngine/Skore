@@ -54,6 +54,10 @@ namespace Skore
 		bool HasSelectedEntities() const;
 		Span<RID> GetSelectedEntities() const;
 
+		//selection for World/Entity
+		void SelectEntity(Entity* entity, bool clearSelection);
+		bool IsSelected(Entity* entity) const;
+
 		//actions
 		void SetActivated(RID entity, bool activated);
 		void SetLocked(RID entity, bool locked);
@@ -82,9 +86,12 @@ namespace Skore
 		std::shared_ptr<World> m_editorWorld;
 		std::shared_ptr<World> m_simulationWorld;
 
+		HashSet<Entity*> m_selectedEntities{};
+
 		static void OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 
 		void ClearSelection(UndoRedoScope* scope);
+		void ClearDebugEntitySelection();
 	};
 }

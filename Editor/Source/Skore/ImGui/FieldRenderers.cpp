@@ -221,7 +221,7 @@ namespace Skore
 
 	bool CanDrawEnumField(const ImGuiDrawFieldDrawCheck& check)
 	{
-		return check.fieldProps.isEnum;
+		return check.fieldProps.isEnum && check.reflectFieldType != nullptr;
 	}
 
 	void DrawEnumField(const ImGuiDrawFieldContext& context, ConstPtr value)

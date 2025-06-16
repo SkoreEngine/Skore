@@ -8,23 +8,30 @@
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/World/Component.hpp"
+#include "Skore/World/Entity.hpp"
 #include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
 {
 	PropertiesWindow::PropertiesWindow()
 	{
-		Event::Bind<OnEntityRIDSelection, &PropertiesWindow::EntityRIDSelection>(this);
-		Event::Bind<OnEntityRIDDeselection, &PropertiesWindow::EntityRIDDeselection>(this);
+		Event::Bind<OnEntitySelection, &PropertiesWindow::EntitySelection>(this);
+		Event::Bind<OnEntityDeselection, &PropertiesWindow::EntityDeselection>(this);
+
+		Event::Bind<OnEntityDebugSelection, &PropertiesWindow::EntityDebugSelection>(this);
+		Event::Bind<OnEntityDebugDeselection, &PropertiesWindow::EntityDebugDeselection>(this);
 	}
 
 	PropertiesWindow::~PropertiesWindow()
 	{
-		Event::Unbind<OnEntityRIDSelection, &PropertiesWindow::EntityRIDSelection>(this);
-		Event::Unbind<OnEntityRIDDeselection, &PropertiesWindow::EntityRIDDeselection>(this);
+		Event::Unbind<OnEntitySelection, &PropertiesWindow::EntitySelection>(this);
+		Event::Unbind<OnEntityDeselection, &PropertiesWindow::EntityDeselection>(this);
+
+		Event::Unbind<OnEntityDebugSelection, &PropertiesWindow::EntityDebugSelection>(this);
+		Event::Unbind<OnEntityDebugDeselection, &PropertiesWindow::EntityDebugDeselection>(this);
 	}
 
-	void PropertiesWindow::DrawSceneEntity(u32 id, WorldEditor* worldEditor, RID entity)
+	void PropertiesWindow::DrawEntity(u32 id, WorldEditor* worldEditor, RID entity)
 	{
 		ImGuiStyle& style = ImGui::GetStyle();
 
@@ -241,11 +248,119 @@ namespace Skore
 		ImGuiEndPopupMenu(popupOpenSettings);
 	}
 
+	void PropertiesWindow::DrawDebugEntity(u32 id, WorldEditor* worldEditor, Entity* entity)
+	{
+		ImGuiStyle& style = ImGui::GetStyle();
+
+		if (ImGui::BeginTable("#entity-table", 2))
+		{
+			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+			ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+
+			ImGui::Text("Name");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+
+			stringCache = entity->GetName();
+			u32 hash = HashValue(PtrToInt(entity));
+
+			ImGuiInputTextReadOnly(hash, stringCache);
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::Text("UUID");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+
+			if (entity->GetRID())
+			{
+				static String uuid = Resources::GetUUID(entity->GetRID()).ToString();
+				ImGuiInputTextReadOnly(hash + 10, uuid);
+			}
+			else
+			{
+				static String uuid = UUID().ToString();
+				ImGuiInputTextReadOnly(hash + 10, uuid);
+			}
+
+			ImGui::EndTable();
+		}
+
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5 * style.ScaleFactor);
+
+		{
+			Transform* transform = &entity->GetTransform();
+
+			ImGui::PushID(transform);
+			ImGui::SetNextItemOpen(true, ImGuiCond_Appearing);
+			if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_AllowItemOverlap))
+			{
+				//ImGui::BeginDisabled(readOnly);
+				ImGui::Indent();
+
+				ImGuiDrawObject(ImGuiDrawObjectInfo{
+					.object = transform,
+					.userData = this,
+				});
+
+				ImGui::Unindent();
+				//ImGui::EndDisabled();
+			}
+			ImGui::PopID();
+		}
+
+		for (Component* component: entity->GetComponents())
+		{
+			ImGui::PushID(component);
+			ImGui::SetNextItemOpen(true, ImGuiCond_Appearing);
+			if (ImGui::CollapsingHeader(FormatName(component->GetType()->GetSimpleName()).CStr(), ImGuiTreeNodeFlags_AllowItemOverlap))
+			{
+				//ImGui::BeginDisabled(readOnly);
+				ImGui::Indent();
+
+				ImGuiDrawObject(ImGuiDrawObjectInfo{
+					.object = component,
+					.userData = this,
+				});
+
+				ImGui::Unindent();
+				//ImGui::EndDisabled();
+			}
+			ImGui::PopID();
+		}
+
+	}
+
+	void PropertiesWindow::EntityDebugSelection(u32 workspaceId, Entity* entity)
+	{
+		if (Editor::GetCurrentWorkspace().GetId() != workspaceId) return;
+
+		if (!entity && !selectedDebugEntity) return;
+
+		ClearSelection();
+
+		selectedDebugEntity = entity;
+	}
+
+	void PropertiesWindow::EntityDebugDeselection(u32 workspaceId, Entity* entity)
+	{
+		if (Editor::GetCurrentWorkspace().GetId() != workspaceId) return;
+
+		if (!entity && !selectedDebugEntity) return;
+		if (selectedDebugEntity == entity)
+		{
+			ClearSelection();
+		}
+	}
+
 	// void PropertiesWindow::DrawAsset(u32 id, AssetFileOld* assetFile)
 	// {
 	// 	ImGuiStyle& style = ImGui::GetStyle();
 	//
-	// 	if (ImGui::BeginTable("#entity-table", 2))
+	// 	if (ImGui::BeginTable("#asset-table", 2))
 	// 	{
 	// 		ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
 	// 		ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
@@ -308,7 +423,12 @@ namespace Skore
 		if (selectedEntity)
 		{
 			WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
-			DrawSceneEntity(id, worldEditor, selectedEntity);
+			DrawEntity(id, worldEditor, selectedEntity);
+		}
+		else if (selectedDebugEntity)
+		{
+			WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
+			DrawDebugEntity(id, worldEditor, selectedDebugEntity);
 		}
 		// else if (selectedAsset)
 		// {
@@ -326,6 +446,7 @@ namespace Skore
 	{
 		selectedEntity = {};
 		selectedComponent = {};
+		selectedDebugEntity = nullptr;
 	}
 
 	void PropertiesWindow::OpenProperties(const MenuItemEventData& eventData)
@@ -333,10 +454,9 @@ namespace Skore
 		Editor::OpenWindow<PropertiesWindow>();
 	}
 
-	void PropertiesWindow::EntityRIDSelection(u32 workspaceId, RID entity)
+	void PropertiesWindow::EntitySelection(u32 workspaceId, RID entity)
 	{
 		if (Editor::GetCurrentWorkspace().GetId() != workspaceId) return;
-
 
 		if (!entity && !selectedEntity) return;
 
@@ -344,7 +464,7 @@ namespace Skore
 		selectedEntity = entity;
 	}
 
-	void PropertiesWindow::EntityRIDDeselection(u32 workspaceId, RID entity)
+	void PropertiesWindow::EntityDeselection(u32 workspaceId, RID entity)
 	{
 		if (Editor::GetCurrentWorkspace().GetId() != workspaceId) return;
 

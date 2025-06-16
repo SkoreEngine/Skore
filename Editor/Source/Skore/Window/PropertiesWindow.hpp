@@ -23,6 +23,7 @@
 #pragma once
 #include "Skore/EditorCommon.hpp"
 #include "Skore/Core/Object.hpp"
+#include "Skore/Core/String.hpp"
 
 namespace Skore
 {
@@ -57,13 +58,19 @@ namespace Skore
 		String searchComponentString{};
 		RID    selectedComponent = {};
 
+		Entity* selectedDebugEntity = nullptr;
+
 		void ClearSelection();
 
 		static void OpenProperties(const MenuItemEventData& eventData);
 
-		void DrawSceneEntity(u32 id, WorldEditor* worldEditor, RID entity);
+		void DrawEntity(u32 id, WorldEditor* worldEditor, RID entity);
+		void DrawDebugEntity(u32 id, WorldEditor* worldEditor, Entity* entity);
 
-		void EntityRIDSelection(u32 workspaceId, RID entityId);
-		void EntityRIDDeselection(u32 workspaceId, RID entityId);
+		void EntityDebugSelection(u32 workspaceId, Entity* entity);
+		void EntityDebugDeselection(u32 workspaceId, Entity* entity);
+
+		void EntitySelection(u32 workspaceId, RID entityId);
+		void EntityDeselection(u32 workspaceId, RID entityId);
 	};
 }

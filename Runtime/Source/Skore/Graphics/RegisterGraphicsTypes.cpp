@@ -628,9 +628,19 @@ namespace Skore
 		swapchainDesc.Field<&SwapchainDesc::debugName>("debugName");
 	}
 
+	void RegisterGraphicsCommonTypes()
+	{
+		auto lightType = Reflection::Type<LightType>();
+		lightType.Value<LightType::Directional>();
+		lightType.Value<LightType::Point>();
+		lightType.Value<LightType::Spot>();
+	}
+
 	void RegisterGraphicsTypes()
 	{
 		RegisterDeviceTypes();
+		RegisterGraphicsCommonTypes();
+
 		Reflection::Type<ShaderStageInfo>();
 
 		// auto primitive = Reflection::Type<MeshAsset::Primitive>();

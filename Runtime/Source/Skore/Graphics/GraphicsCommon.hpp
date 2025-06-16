@@ -30,7 +30,8 @@ namespace Skore
 	{
 		Directional,
 		Point,
-		Spot
+		Spot,
+		//Area
 	};
 
 

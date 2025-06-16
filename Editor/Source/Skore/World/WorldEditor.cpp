@@ -31,13 +31,18 @@
 #include "Skore/World/WorldCommon.hpp"
 #include "Skore/Events.hpp"
 
+//TODO: selection between RID and Entity* need to be merged, maybe with UUID?
+
 namespace Skore
 {
 
 	static Logger& logger = Logger::GetLogger("Skore::WorldEditor");
 
-	static EventHandler<OnEntityRIDSelection>   onEntitySelectionHandler{};
-	static EventHandler<OnEntityRIDDeselection> onEntityDeselectionHandler{};
+	static EventHandler<OnEntitySelection>   onEntitySelectionHandler{};
+	static EventHandler<OnEntityDeselection> onEntityDeselectionHandler{};
+
+	static EventHandler<OnEntityDebugSelection>   onEntityDebugSelectionHandler{};
+	static EventHandler<OnEntityDebugDeselection> onEntityDebugDeselectionHandler{};
 
 
 	struct WorldEditorSelection
@@ -173,6 +178,7 @@ namespace Skore
 
 	void WorldEditor::ClearSelection()
 	{
+		ClearDebugEntitySelection();
 		ClearSelection(Editor::CreateUndoRedoScope("Clear selection"));
 	}
 
@@ -209,6 +215,22 @@ namespace Skore
 	{
 		ResourceObject selectionObject = Resources::Read(m_selection);
 		return selectionObject.GetReferenceArray(WorldEditorSelection::SelectedEntities);
+	}
+
+	void WorldEditor::SelectEntity(Entity* entity, bool clearSelection)
+	{
+		if (clearSelection)
+		{
+			ClearDebugEntitySelection();
+		}
+		m_selectedEntities.Emplace(entity);
+
+		onEntityDebugSelectionHandler.Invoke(m_workspace.GetId(), entity);
+	}
+
+	bool WorldEditor::IsSelected(Entity* entity) const
+	{
+		return m_selectedEntities.Has(entity);
 	}
 
 	void WorldEditor::SetActivated(RID entity, bool activated)
@@ -351,6 +373,15 @@ namespace Skore
 		ResourceObject selectionObject = Resources::Write(m_selection);
 		selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
 		selectionObject.Commit(scope);
+	}
+
+	void WorldEditor::ClearDebugEntitySelection()
+	{
+		for (Entity* entity: m_selectedEntities)
+		{
+			onEntityDebugDeselectionHandler.Invoke(m_workspace.GetId(), entity);
+		}
+		m_selectedEntities.Clear();
 	}
 
 

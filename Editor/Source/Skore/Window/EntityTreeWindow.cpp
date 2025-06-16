@@ -253,13 +253,14 @@ namespace Skore
 		}
 	}
 
-	void EntityTreeWindow::DrawEntity(WorldEditor* worldEditor, Entity* entity)
+	void EntityTreeWindow::DrawEntity(WorldEditor* worldEditor, Entity* entity, bool& entitySelected)
 	{
 
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn();
 
 		bool root = entity->GetParent() == nullptr;
+		bool isSelected = worldEditor->IsSelected(entity);
 
 		stringCache.Clear();
 		stringCache += root ? ICON_FA_CUBES : ICON_FA_CUBE;
@@ -281,17 +282,33 @@ namespace Skore
 			ImGuiTreeLeaf(entity, stringCache.CStr());
 		}
 
+		bool isHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+		bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
+
+		if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
+		{
+			worldEditor->SelectEntity(entity, !ctrlDown);
+		}
 
 		ImGui::TableNextColumn();
 
 		ImGui::TableNextColumn();
+
+		if (isSelected)
+		{
+			fillRowWithColour(ImVec4(0.26f, 0.59f, 0.98f, 0.67f));
+		}
+		else if (isHovered)
+		{
+			fillRowWithColour(ImVec4(0.26f, 0.59f, 0.98f, 0.67f));
+		}
 
 
 		if (open)
 		{
 			for (Entity* child : entity->GetChildren())
 			{
-				DrawEntity(worldEditor, child);
+				DrawEntity(worldEditor, child, entitySelected);
 			}
 			ImGui::TreePop();
 		}
@@ -370,7 +387,7 @@ namespace Skore
 					}
 					else if (worldEditor->GetCurrentWorld() != nullptr)
 					{
-						DrawEntity(worldEditor, worldEditor->GetCurrentWorld()->GetRootEntity());
+						DrawEntity(worldEditor, worldEditor->GetCurrentWorld()->GetRootEntity(), entitySelected);
 					}
 
 					ImGui::TableNextRow();
@@ -394,7 +411,7 @@ namespace Skore
 
 			if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))
 			{
-				if (!entitySelected && worldEditor)
+				if (!entitySelected)
 				{
 					worldEditor->ClearSelection();
 					renamingSelected = false;
@@ -513,7 +530,7 @@ namespace Skore
 		AddMenuItem(MenuItemCreation{.itemName = "Rename", .priority = 200, .itemShortcut = {.presKey = Key::F2}, .action = RenameSceneEntity, .enable = CheckSelectedEntity});
 		AddMenuItem(MenuItemCreation{.itemName = "Duplicate", .priority = 210, .itemShortcut = {.ctrl = true, .presKey = Key::D}, .action = DuplicateSceneEntity, .enable = CheckSelectedEntity});
 		AddMenuItem(MenuItemCreation{.itemName = "Delete", .priority = 220, .itemShortcut = {.presKey = Key::Delete}, .action = DeleteSceneEntity, .enable = CheckSelectedEntity});
-		AddMenuItem(MenuItemCreation{.itemName = "Show World Entity", .priority = 1000, .action = ShowWorldEntity, .selected = IsShowWorldEntitySelected});
+		AddMenuItem(MenuItemCreation{.itemName = "(Debug) Show World Entity", .priority = 1000, .action = ShowWorldEntity, .selected = IsShowWorldEntitySelected});
 
 		type.Attribute<EditorWindowProperties>(EditorWindowProperties{
 			.dockPosition = DockPosition::RightTop,

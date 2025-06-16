@@ -151,12 +151,8 @@ namespace Skore
 
 		Array<Component*> m_components;
 
-		Mat4 m_worldTransform{1.0};
-
-		union
-		{
-			Transform m_transform;
-		};
+		Mat4      m_worldTransform{1.0};
+		Transform m_transform;
 
 		void DestroyInternal(bool removeFromParent = true);
 		void UpdateTransform();

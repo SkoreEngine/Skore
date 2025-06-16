@@ -116,6 +116,7 @@ namespace Skore
 
 		Array<std::unique_ptr<UndoRedoScopeStorage>> undoActions{};
 		Array<std::unique_ptr<UndoRedoScopeStorage>> redoActions{};
+		bool undoRedoLocked = false;
 
 		MenuItemContext menuContext{};
 		bool            dockInitialized = false;
@@ -169,7 +170,7 @@ namespace Skore
 
 		bool UndoEnabled(const MenuItemEventData& eventData)
 		{
-			return !undoActions.Empty();
+			return !undoRedoLocked && !undoActions.Empty();
 		}
 
 		void Redo(const MenuItemEventData& eventData)
@@ -182,7 +183,7 @@ namespace Skore
 
 		bool RedoEnabled(const MenuItemEventData& eventData)
 		{
-			return !redoActions.Empty();
+			return !undoRedoLocked && !redoActions.Empty();
 		}
 
 		bool CreateCMakeProjectEnabled(const MenuItemEventData& eventData)
@@ -621,6 +622,11 @@ namespace Skore
 		redoActions.Clear();
 		undoActions.EmplaceBack(std::make_unique<UndoRedoScopeStorage>(scope));
 		return scope;
+	}
+
+	void Editor::LockUndoRedo(bool lock)
+	{
+		undoRedoLocked = lock;
 	}
 
 	RID Editor::GetProject()

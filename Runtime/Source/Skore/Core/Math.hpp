@@ -337,8 +337,10 @@ namespace Skore
 		}
 	};
 
-	struct Transform
+	struct Transform : Object
 	{
+		SK_CLASS(Transform, Object)
+
 		Vec3 position{0, 0, 0};
 		Quat rotation{0, 0, 0, 1};
 		Vec3 scale{1, 1, 1};

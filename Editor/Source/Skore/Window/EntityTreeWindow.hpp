@@ -61,11 +61,11 @@ namespace Skore
 		String renamingStringCache{};
 		f32    iconSize = {};
 
-		bool    showWorldEntity = false;
+		bool showWorldEntity = false;
 
 		static MenuItemContext menuItemContext;
 
 		void DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected);
-		void DrawEntity(WorldEditor* worldEditor, Entity* entity);
+		void DrawEntity(WorldEditor* worldEditor, Entity* entity, bool& entitySelected);
 	};
 }

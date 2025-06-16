@@ -38,6 +38,7 @@ namespace Skore
 		static void             ShowConfirmDialog(StringView message, VoidPtr userData, FnConfirmCallback callback);
 		static EditorWorkspace& GetCurrentWorkspace();
 		static UndoRedoScope*   CreateUndoRedoScope(StringView name);
+		static void             LockUndoRedo(bool lock);
 		static RID              GetProject();
 		static Span<RID>        GetPackages();
 		static RID              LoadPackage(StringView name, StringView directory);

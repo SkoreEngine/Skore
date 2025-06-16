@@ -25,8 +25,6 @@
 #include "Skore/Common.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Object.hpp"
-#include "Skore/Core/UUID.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
 
 #define SK_ASSET_PAYLOAD "sk-asset-payload"
 #define SK_ENTITY_PAYLOAD "sk-entity-payload"
@@ -37,15 +35,13 @@
 
 namespace Skore
 {
-	class AssetFileOld;
+	class Entity;
 
-	using OnEntitySelection = EventType<"Skore::Editor::OnEntitySelection"_h, void(u32, UUID)>;
-	using OnEntityDeselection = EventType<"Skore::Editor::OnEntityDeselection"_h, void(u32, UUID)>;
+	using OnEntityDebugSelection = EventType<"Skore::Editor::OnEntityDebugSelection"_h, void(u32, Entity*)>;
+	using OnEntityDebugDeselection = EventType<"Skore::Editor::OnEntityDebugDeselection"_h, void(u32, Entity*)>;
 
-	using OnEntityRIDSelection = EventType<"Skore::Editor::OnEntityRIDSelection"_h, void(u32, RID)>;
-	using OnEntityRIDDeselection = EventType<"Skore::Editor::OnEntityRIDDeselection"_h, void(u32, RID)>;
-
-	using OnAssetSelection = EventType<"Skore::Editor::OnAssetSelection"_h, void(AssetFileOld*)>;
+	using OnEntitySelection = EventType<"Skore::Editor::OnEntitySelection"_h, void(u32, RID)>;
+	using OnEntityDeselection = EventType<"Skore::Editor::OnEntityDeselection"_h, void(u32, RID)>;
 
 	enum class DockPosition
 	{
@@ -82,7 +78,6 @@ namespace Skore
 
 	struct AssetPayload
 	{
-		AssetFileOld* assetFile = nullptr;
-		TypeID     assetType = 0;
+		RID asset;
 	};
 }
