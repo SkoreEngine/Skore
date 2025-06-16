@@ -20,70 +20,48 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "FBXimporter.hpp"
+
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/IO/Path.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore
 {
-	struct ShaderVariantResource
+	struct FBXImporter : ResourceAssetImporter
 	{
-		enum
+		SK_CLASS(FBXImporter, ResourceAssetImporter);
+
+		Array<String> ImportedExtensions() override
 		{
-			Name,         //String
-			Spriv,        //Blob
-			PipelineDesc, //Subobject
-			Stages,       //SubobjectSet
-		};
+			return {".fbx"};
+		}
+
+		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
+		{
+			FBXImportSettings fbxImportSettings;
+			return ImportFBX(directory, fbxImportSettings, path, scope);
+		}
+
 	};
 
-
-	struct ShaderResource
+	bool ImportFBX(RID directory, const FBXImportSettings& settings, StringView path, UndoRedoScope* scope)
 	{
-		enum
-		{
-			Name,     //String
-			Variants, //SubobjectSet
-		};
+		RID dccAsset = ResourceAssets::CreateImportedAsset(directory, TypeInfo<DCCAssetResource>::ID(), Path::Name(path), scope, path);
 
-		static RID GetVariant(RID shader, StringView name);
-	};
+		ResourceObject dccAssetObject = Resources::Write(dccAsset);
+		dccAssetObject.SetString(TextureResource::Name, Path::Name(path));
+		dccAssetObject.Commit(scope);
 
+		return true;
+	}
 
-	struct TextureResource
+	void RegisterFBXImporter()
 	{
-		enum
-		{
-			Name,   //String
-			Extent, //Vec3
-			Pixels  //Blob
-		};
-	};
+		Reflection::Type<FBXImporter>();
+	}
 
-	struct MeshResource
-	{
-		enum
-		{
-			Name,       //String
-			Vertices,   //Blob
-			Indices,    //Blob
-			Primitives, //Blob
-		};
-	};
 
-	struct MaterialResource
-	{
-		enum
-		{
-			Name,		//String
-			BaseTexture	//Reference
-		};
-	};
 
-	struct DCCAssetResource
-	{
-		enum
-		{
-			Name,
-		};
-	};
 }

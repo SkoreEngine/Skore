@@ -20,70 +20,39 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore
 {
-	struct ShaderVariantResource
+	struct DCCAssetHandler : ResourceAssetHandler
 	{
-		enum
+		SK_CLASS(DCCAssetHandler, ResourceAssetHandler);
+
+		StringView Extension() override
 		{
-			Name,         //String
-			Spriv,        //Blob
-			PipelineDesc, //Subobject
-			Stages,       //SubobjectSet
-		};
+			return ".dcc_asset";
+		}
+
+		void OpenAsset(RID rid) override
+		{
+			//TODO
+		}
+
+		TypeID GetResourceTypeId() override
+		{
+			return TypeInfo<DCCAssetResource>::ID();
+		}
+
+		StringView GetDesc() override
+		{
+			return "DCC Asset";
+		}
 	};
 
-
-	struct ShaderResource
+	void RegisterDCCAssetHandler()
 	{
-		enum
-		{
-			Name,     //String
-			Variants, //SubobjectSet
-		};
-
-		static RID GetVariant(RID shader, StringView name);
-	};
-
-
-	struct TextureResource
-	{
-		enum
-		{
-			Name,   //String
-			Extent, //Vec3
-			Pixels  //Blob
-		};
-	};
-
-	struct MeshResource
-	{
-		enum
-		{
-			Name,       //String
-			Vertices,   //Blob
-			Indices,    //Blob
-			Primitives, //Blob
-		};
-	};
-
-	struct MaterialResource
-	{
-		enum
-		{
-			Name,		//String
-			BaseTexture	//Reference
-		};
-	};
-
-	struct DCCAssetResource
-	{
-		enum
-		{
-			Name,
-		};
-	};
+		Reflection::Type<DCCAssetHandler>();
+	}
 }

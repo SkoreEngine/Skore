@@ -21,69 +21,18 @@
 // SOFTWARE.
 
 #pragma once
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/Common.hpp"
+#include "Skore/Core/StringView.hpp"
+
 
 namespace Skore
 {
-	struct ShaderVariantResource
+	struct UndoRedoScope;
+
+	struct FBXImportSettings
 	{
-		enum
-		{
-			Name,         //String
-			Spriv,        //Blob
-			PipelineDesc, //Subobject
-			Stages,       //SubobjectSet
-		};
+		//TODO
 	};
 
-
-	struct ShaderResource
-	{
-		enum
-		{
-			Name,     //String
-			Variants, //SubobjectSet
-		};
-
-		static RID GetVariant(RID shader, StringView name);
-	};
-
-
-	struct TextureResource
-	{
-		enum
-		{
-			Name,   //String
-			Extent, //Vec3
-			Pixels  //Blob
-		};
-	};
-
-	struct MeshResource
-	{
-		enum
-		{
-			Name,       //String
-			Vertices,   //Blob
-			Indices,    //Blob
-			Primitives, //Blob
-		};
-	};
-
-	struct MaterialResource
-	{
-		enum
-		{
-			Name,		//String
-			BaseTexture	//Reference
-		};
-	};
-
-	struct DCCAssetResource
-	{
-		enum
-		{
-			Name,
-		};
-	};
+	SK_API bool ImportFBX(RID directory, const FBXImportSettings& settings, StringView path, UndoRedoScope* scope);
 }

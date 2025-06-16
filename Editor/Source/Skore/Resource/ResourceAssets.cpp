@@ -905,8 +905,10 @@ namespace Skore
 	void RegisterEntityHandler();
 	void RegisterTextureHandler();
 	void RegisterMeshHandler();
+	void RegisterDCCAssetHandler();
 	void RegisterShaderHandler();
 	void RegisterTextureImporter();
+	void RegisterFBXImporter();
 
 	void RegisterResourceAssetTypes()
 	{
@@ -949,7 +951,9 @@ namespace Skore
 		RegisterEntityHandler();
 		RegisterTextureHandler();
 		RegisterMeshHandler();
+		RegisterDCCAssetHandler();
 		RegisterShaderHandler();
 		RegisterTextureImporter();
+		RegisterFBXImporter();
 	}
 }

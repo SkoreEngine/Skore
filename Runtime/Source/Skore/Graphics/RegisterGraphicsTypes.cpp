@@ -692,5 +692,9 @@ namespace Skore
 		Resources::Type<MeshResource>()
 			.Field<MeshResource::Name>(ResourceFieldType::String)
 			.Build();
+
+		Resources::Type<DCCAssetResource>()
+			.Field<MeshResource::Name>(ResourceFieldType::String)
+			.Build();
 	}
 }
