@@ -31,9 +31,7 @@
 namespace Skore
 {
 	Entity::Entity(World* world) : Entity(world, {}) {}
-
 	Entity::Entity(World* world, RID rid) : Entity(world, nullptr, rid) {}
-
 	Entity::Entity(World* world, Entity* parent) : Entity(world, parent, {}) {}
 
 	Entity::Entity(World* world, Entity* parent, RID rid) : m_rid(rid), m_world(world), m_parent(parent)
@@ -52,6 +50,11 @@ namespace Skore
 				if (RID transform = entityObject.GetReference(EntityResource::Transform))
 				{
 					Resources::FromResource(transform, &m_transform);
+
+					if (m_world->IsResourceSyncEnabled())
+					{
+						Resources::GetStorage(transform)->RegisterEvent(ResourceEventType::VersionUpdated, OnComponentResourceChange, &m_transform);
+					}
 				}
 
 				entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
@@ -77,6 +80,14 @@ namespace Skore
 		if (m_world->IsResourceSyncEnabled() && m_rid)
 		{
 			Resources::GetStorage(m_rid)->UnregisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
+
+			if (ResourceObject entityObject = Resources::Read(m_rid))
+			{
+				if (RID transform = entityObject.GetReference(EntityResource::Transform))
+				{
+					Resources::GetStorage(transform)->RegisterEvent(ResourceEventType::VersionUpdated, OnComponentResourceChange, &m_transform);
+				}
+			}
 		}
 	}
 
@@ -259,6 +270,13 @@ namespace Skore
 	{
 		Entity* entity = static_cast<Entity*>(userData);
 
+		//destroyed
+		if (oldValue && !newValue)
+		{
+			entity->DestroyInternal(true);
+			return;
+		}
+
 		if (newValue)
 		{
 			entity->SetName(newValue.GetString(EntityResource::Name));
@@ -266,17 +284,33 @@ namespace Skore
 
 		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Children))
 		{
-			//TODO
+			if (res.type == CompareSubObjectSetType::Added)
+			{
+				entity->CreateChildFromAsset(res.rid);
+			}
 		}
 
 		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Components))
 		{
-			//TODO
-		}
+			if (res.type == CompareSubObjectSetType::Added)
+			{
+				if (ResourceType* type = Resources::GetType(res.rid))
+				{
+					entity->AddComponent(type->GetReflectType(), res.rid);
+				}
+			}
+			else if (res.type == CompareSubObjectSetType::Removed)
+			{
+				for (Component* component : entity->m_components)
+				{
+					if (component->m_rid == res.rid)
+					{
+						entity->RemoveComponent(component);
+						break;
+					}
+				}
+			}
 
-		if (!newValue)
-		{
-			entity->DestroyInternal(true);
 		}
 	}
 

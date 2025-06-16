@@ -298,7 +298,6 @@ namespace Skore
 			ImGui::SetNextItemOpen(true, ImGuiCond_Appearing);
 			if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_AllowItemOverlap))
 			{
-				//ImGui::BeginDisabled(readOnly);
 				ImGui::Indent();
 
 				ImGuiDrawObject(ImGuiDrawObjectInfo{
@@ -307,7 +306,6 @@ namespace Skore
 				});
 
 				ImGui::Unindent();
-				//ImGui::EndDisabled();
 			}
 			ImGui::PopID();
 		}
@@ -318,7 +316,6 @@ namespace Skore
 			ImGui::SetNextItemOpen(true, ImGuiCond_Appearing);
 			if (ImGui::CollapsingHeader(FormatName(component->GetType()->GetSimpleName()).CStr(), ImGuiTreeNodeFlags_AllowItemOverlap))
 			{
-				//ImGui::BeginDisabled(readOnly);
 				ImGui::Indent();
 
 				ImGuiDrawObject(ImGuiDrawObjectInfo{
@@ -327,7 +324,6 @@ namespace Skore
 				});
 
 				ImGui::Unindent();
-				//ImGui::EndDisabled();
 			}
 			ImGui::PopID();
 		}
