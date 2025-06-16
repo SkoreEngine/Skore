@@ -153,12 +153,39 @@ namespace Skore
 			return storage;
 		}
 
+		void ExecuteEvents(ResourceEventType type, ResourceStorage* resourceStorage, ResourceObject&& oldValue, ResourceObject&& newValue)
+		{
+			for (const ResourceEvent& eventStorage : resourceStorage->events[static_cast<u32>(type)])
+			{
+				eventStorage.function(oldValue, newValue, eventStorage.userData);
+			}
+
+			if (type != ResourceEventType::Changed)
+			{
+				return;
+			}
+
+			if (resourceStorage->resourceType != nullptr)
+			{
+				for (const ResourceEvent& eventType : resourceStorage->resourceType->GetEvents())
+				{
+					eventType.function(oldValue, newValue, eventType.userData);
+				}
+			}
+		}
+
 		void UpdateVersion(ResourceStorage* resourceStorage)
 		{
 			ResourceStorage* current = resourceStorage;
 			while (current != nullptr)
 			{
 				++current->version;
+
+				ExecuteEvents(ResourceEventType::VersionUpdated,
+				              current,
+				              ResourceObject(nullptr, nullptr),
+				              ResourceObject(current, current->instance.load()));
+
 				current = current->parent;
 			}
 		}
@@ -190,22 +217,6 @@ namespace Skore
 							break;
 						}
 					}
-				}
-			}
-		}
-
-		void ExecuteEvents(ResourceStorage* resourceStorage, ResourceObject&& oldValue, ResourceObject&& newValue)
-		{
-			for (const ResourceEvent& eventStorage : resourceStorage->events)
-			{
-				eventStorage.function(oldValue, newValue, eventStorage.userData);
-			}
-
-			if (resourceStorage->resourceType != nullptr)
-			{
-				for (const ResourceEvent& eventType : resourceStorage->resourceType->GetEvents())
-				{
-					eventType.function(oldValue, newValue, eventType.userData);
 				}
 			}
 		}
@@ -551,7 +562,7 @@ namespace Skore
 			scope->PushChange(storage, oldInstance, newInstance);
 		}
 
-		ExecuteEvents(storage, ResourceObject(storage, oldInstance), ResourceObject(storage, newInstance));
+		ExecuteEvents(ResourceEventType::Changed, storage, ResourceObject(storage, oldInstance), ResourceObject(storage, newInstance));
 	}
 
 	void Resources::Destroy(RID rid, UndoRedoScope* scope)
@@ -572,7 +583,7 @@ namespace Skore
 				scope->PushChange(storage, instance, nullptr);
 			}
 
-			ExecuteEvents(storage, ResourceObject(storage, instance), ResourceObject(storage, nullptr));
+			ExecuteEvents(ResourceEventType::Changed, storage, ResourceObject(storage, instance), ResourceObject(storage, nullptr));
 
 			toCollectItems.enqueue(DestroyResourcePayload{
 				.instance = instance
@@ -1065,12 +1076,19 @@ namespace Skore
 
 	bool Resources::FromResource(RID rid, VoidPtr instance)
 	{
-		ResourceStorage* storage = GetStorage(rid);
+		if (!rid) return false;
+		ResourceObject resourceObject = Read(rid);
+		return FromResource(resourceObject, instance);
+	}
+
+	bool Resources::FromResource(const ResourceObject& resourceObject, VoidPtr instance)
+	{
+		if (!resourceObject) return false;
+		ResourceStorage* storage = resourceObject.GetStorage();
 		if (!storage->resourceType) return false;
 		ReflectType* reflectType = storage->resourceType->GetReflectType();
-		if (!instance || !reflectType || !rid) return false;
+		if (!instance || !reflectType) return false;
 
-		ResourceObject resourceObject = Read(rid);
 		if (!resourceObject) return false;
 
 		for (ReflectField* field : reflectType->GetFields())
@@ -1079,6 +1097,33 @@ namespace Skore
 		}
 
 		return true;
+	}
+
+	Array<CompareSubObjectSetResult> Resources::CompareSubObjectSet(const ResourceObject& oldObject, const ResourceObject& newObject, u32 index)
+	{
+		Array<CompareSubObjectSetResult> results;
+
+		//check added
+		newObject.IterateSubObjectSet(index, true, [&](RID rid)
+		{
+			if (!oldObject.HasSubObjectSet(index, rid))
+			{
+				results.EmplaceBack(CompareSubObjectSetType::Added, rid);
+			}
+			return true;
+		});
+
+		//check removed
+		oldObject.IterateSubObjectSet(index, true, [&](RID rid)
+		{
+			if (!newObject.HasSubObjectSet(index, rid))
+			{
+				results.EmplaceBack(CompareSubObjectSetType::Removed, rid);
+			}
+			return true;
+		});
+
+		return results;
 	}
 
 
@@ -1167,7 +1212,7 @@ namespace Skore
 
 		UpdateVersion(storage);
 
-		ExecuteEvents(storage, ResourceObject(storage, info.dataOnWrite), ResourceObject(storage, instance));
+		ExecuteEvents(ResourceEventType::Changed, storage, ResourceObject(storage, info.dataOnWrite), ResourceObject(storage, instance));
 
 		IterateSubObjects(storage, [&](u32 index, RID subObject)
 		{
@@ -1207,7 +1252,7 @@ namespace Skore
 
 			UpdateVersion(action->storage);
 
-			ExecuteEvents(action->storage, ResourceObject(action->storage, oldInstance), ResourceObject(action->storage, newInstance));
+			ExecuteEvents(ResourceEventType::Changed, action->storage, ResourceObject(action->storage, oldInstance), ResourceObject(action->storage, newInstance));
 
 
 			toCollectItems.enqueue({
@@ -1226,7 +1271,7 @@ namespace Skore
 
 			UpdateVersion(action->storage);
 
-			ExecuteEvents(action->storage, ResourceObject(action->storage, oldInstance), ResourceObject(action->storage, newInstance));
+			ExecuteEvents(ResourceEventType::Changed, action->storage, ResourceObject(action->storage, oldInstance), ResourceObject(action->storage, newInstance));
 
 			toCollectItems.enqueue({
 				.type = action->storage->resourceType,

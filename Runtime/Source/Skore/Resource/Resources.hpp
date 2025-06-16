@@ -87,6 +87,9 @@ namespace Skore
 
 		static bool ToResource(RID rid, ConstPtr instance, UndoRedoScope* scope = nullptr);
 		static bool FromResource(RID rid, VoidPtr instance);
+		static bool FromResource(const ResourceObject& object, VoidPtr instance);
+
+		static Array<CompareSubObjectSetResult> CompareSubObjectSet(const ResourceObject& oldObject, const ResourceObject& newObject, u32 index);
 
 		template <typename T>
 		static RID Create(UUID uuid = {}, UndoRedoScope* scope = nullptr)

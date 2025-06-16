@@ -42,7 +42,7 @@ namespace Skore
 		{
 			if (world->IsResourceSyncEnabled())
 			{
-				Resources::GetStorage(rid)->RegisterEvent(OnEntityResourceChange, this);
+				Resources::GetStorage(rid)->RegisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
 			}
 
 			if (ResourceObject entityObject = Resources::Read(rid))
@@ -76,7 +76,7 @@ namespace Skore
 	{
 		if (m_world->IsResourceSyncEnabled() && m_rid)
 		{
-			Resources::GetStorage(m_rid)->UnregisterEvent(OnEntityResourceChange, this);
+			Resources::GetStorage(m_rid)->UnregisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
 		}
 	}
 
@@ -158,7 +158,7 @@ namespace Skore
 
 			if (m_world->IsResourceSyncEnabled())
 			{
-				Resources::GetStorage(component->m_rid)->RegisterEvent(OnComponentResourceChange, component);
+				Resources::GetStorage(component->m_rid)->RegisterEvent(ResourceEventType::VersionUpdated, OnComponentResourceChange, component);
 			}
 		}
 
@@ -250,7 +250,7 @@ namespace Skore
 		component->Destroy();
 		if (m_world->IsResourceSyncEnabled())
 		{
-			Resources::GetStorage(component->m_rid)->UnregisterEvent(OnComponentResourceChange, component);
+			Resources::GetStorage(component->m_rid)->UnregisterEvent(ResourceEventType::VersionUpdated, OnComponentResourceChange, component);
 		}
 		DestroyAndFree(component);
 	}
@@ -264,6 +264,16 @@ namespace Skore
 			entity->SetName(newValue.GetString(EntityResource::Name));
 		}
 
+		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Children))
+		{
+			//TODO
+		}
+
+		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Components))
+		{
+			//TODO
+		}
+
 		if (!newValue)
 		{
 			entity->DestroyInternal(true);
@@ -272,6 +282,6 @@ namespace Skore
 
 	void Entity::OnComponentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
-
+		Resources::FromResource(newValue, userData);
 	}
 }

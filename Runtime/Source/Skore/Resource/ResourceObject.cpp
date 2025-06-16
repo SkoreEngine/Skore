@@ -542,9 +542,11 @@ namespace Skore
 	void ResourceObject::IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const
 	{
 		ResourceStorage* currentStorage = m_storage;
+		ResourceInstance currentInstance = m_currentInstance ? m_currentInstance : m_storage->instance.load();
+
 		while (currentStorage != nullptr)
 		{
-			if (ResourceInstance currentInstance = currentStorage->instance.load())
+			if (currentInstance)
 			{
 				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
 				{
@@ -562,7 +564,13 @@ namespace Skore
 				}
 			}
 			if (!prototypeIterate) break;
+
 			currentStorage = currentStorage->prototype;
+
+			if (currentStorage)
+			{
+				currentInstance = currentStorage->instance.load();
+			}
 		}
 	}
 
@@ -690,9 +698,11 @@ namespace Skore
 
 
 		ResourceStorage* currentStorage = m_storage;
+		ResourceInstance currentInstance = m_currentInstance ? m_currentInstance : m_storage->instance.load();
+
 		while (currentStorage != nullptr)
 		{
-			if (ResourceInstance currentInstance = currentStorage->instance.load())
+			if (currentInstance)
 			{
 				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
 				{
@@ -705,6 +715,11 @@ namespace Skore
 			}
 
 			currentStorage = currentStorage->prototype;
+
+			if (currentStorage)
+			{
+				currentInstance = currentStorage->instance.load();
+			}
 
 			if (currentStorage == readingStorage)
 			{

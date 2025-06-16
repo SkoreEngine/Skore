@@ -57,11 +57,27 @@ namespace Skore
 		MAX
 	};
 
-	enum class ResourceEventType
+	enum class ResourceFieldEventType
 	{
 		OnSubObjectSetAdded,
 		OnSubObjectSetRemoved,
 		MAX
+	};
+
+	enum class ResourceEventType
+	{
+		//triggered with old and new resource objects, only on the changed object
+		Changed,
+
+		//triggered when the "version" is updated, (if a subobject is updated) only contains the current value
+		VersionUpdated,
+		MAX
+	};
+
+	enum class CompareSubObjectSetType
+	{
+		Added,
+		Removed,
 	};
 
 	template <typename T>
@@ -112,6 +128,13 @@ namespace Skore
 	typedef void (*FnObjectEvent)(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 
 
+	struct CompareSubObjectSetResult
+	{
+		CompareSubObjectSetType type;
+		RID rid;
+	};
+
+
 	struct ResourceEvent
 	{
 		FnObjectEvent function;
@@ -151,19 +174,19 @@ namespace Skore
 		u32                           parentFieldIndex = U32_MAX;
 		ResourceStorage*              prototype = nullptr;
 
-		Array<ResourceEvent>  events;
+		Array<ResourceEvent> events[static_cast<u32>(ResourceEventType::MAX)];
 
-		void RegisterEvent(FnObjectEvent event, VoidPtr userData)
+		void RegisterEvent(ResourceEventType type, FnObjectEvent event, VoidPtr userData)
 		{
-			events.EmplaceBack(event, userData);
+			events[static_cast<u32>(type)].EmplaceBack(event, userData);
 		}
 
-		void UnregisterEvent(FnObjectEvent event, VoidPtr userData)
+		void UnregisterEvent(ResourceEventType type, FnObjectEvent event, VoidPtr userData)
 		{
 			ResourceEvent typeEvent = {event, userData};
-			if (auto itAsset = FindFirst(events.begin(), events.end(), typeEvent))
+			if (auto itAsset = FindFirst(events[static_cast<u32>(type)].begin(), events[static_cast<u32>(type)].end(), typeEvent))
 			{
-				events.Erase(itAsset);
+				events[static_cast<u32>(type)].Erase(itAsset);
 			}
 		}
 	};

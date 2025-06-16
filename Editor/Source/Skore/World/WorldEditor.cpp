@@ -291,14 +291,7 @@ namespace Skore
 
 	void WorldEditor::OnUpdateEvent()
 	{
-		if (GetRootEntity())
-		{
-			u64 version = Resources::GetVersion(GetRootEntity());
-			if (m_currentWorldVersion != version)
-			{
-				m_currentWorldVersion = version;
-			}
-		}
+		//TODO
 	}
 
 
@@ -328,7 +321,6 @@ namespace Skore
 			if (newEntity)
 			{
 				worldEditor->m_editorWorld = std::make_shared<World>(newEntity, true);
-				worldEditor->m_currentWorldVersion = Resources::GetVersion(newEntity);
 			}
 		}
 	}

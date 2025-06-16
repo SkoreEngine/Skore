@@ -54,7 +54,7 @@ namespace Skore
 		ResourceFieldType         type = ResourceFieldType::None;
 		ReflectField*             reflectField = nullptr;
 		TypeID                    subType = 0;
-		Array<FnObjectFieldEvent> events[static_cast<u32>(ResourceEventType::MAX)];
+		Array<FnObjectFieldEvent> events[static_cast<u32>(ResourceFieldEventType::MAX)];
 	};
 
 
