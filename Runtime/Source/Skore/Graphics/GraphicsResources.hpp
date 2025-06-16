@@ -80,6 +80,7 @@ namespace Skore
 		enum
 		{
 			Name,       //String
+			Materials,  //ReferenceArray
 			Vertices,   //Blob
 			Indices,    //Blob
 			Primitives, //Blob

@@ -496,7 +496,9 @@ namespace Skore
 		for (const String& path : paths)
 		{
 			logger.Debug("importing {} to {} ", path, GetDirectoryPathId(parent));
+
 			String extension = Path::Extension(path);
+			extension = extension.ToLowerCase();
 
 			if (auto it = importersByExtension.Find(extension))
 			{

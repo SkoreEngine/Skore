@@ -691,6 +691,7 @@ namespace Skore
 
 		Resources::Type<StaticMeshResource>()
 			.Field<StaticMeshResource::Name>(ResourceFieldType::String)
+			.Field<StaticMeshResource::Materials>(ResourceFieldType::ReferenceArray)
 			.Field<StaticMeshResource::Vertices>(ResourceFieldType::Blob)
 			.Field<StaticMeshResource::Primitives>(ResourceFieldType::Blob)
 			.Field<StaticMeshResource::Indices>(ResourceFieldType::Blob)

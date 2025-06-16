@@ -103,6 +103,8 @@ namespace Skore
         void Erase(Iterator first, Iterator last);
         void Swap(BasicString& other);
 
+        BasicString ToLowerCase() const;
+
         usize Find(char s) const;
 
     private:
@@ -716,6 +718,18 @@ namespace Skore
                 *newit = *it;
             }
         }
+    }
+
+    template <typename T, usize BufferSize>
+    BasicString<T, BufferSize> BasicString<T, BufferSize>::ToLowerCase() const
+    {
+        BasicString ret;
+        ret.Reserve(Size());
+        for (const Type& ch : *this)
+        {
+            ret.Append(ch >= 'A' && ch <= 'Z' ? ch + ('a' - 'A') : ch);
+        }
+        return ret;
     }
 
     template<typename T, usize BufferSize>

@@ -67,9 +67,68 @@ namespace Skore
 		}
 	};
 
-
-	RID ProcessMesh(ufbx_mesh* mesh, ufbx_scene* scene, UndoRedoScope* scope)
+	RID ProcessTextures(StringView basePath, ufbx_texture* texture, ufbx_scene* scene, UndoRedoScope* scope)
 	{
+		if (!texture || !texture->filename.data)
+		{
+			return {};
+		}
+
+		String textureName = texture->name.data ? texture->name.data : "Texture";
+		String texturePath = Path::Join(basePath, texture->filename.data);
+
+
+		// if (textureFile == nullptr)
+		// {
+		// 	if (texture->relative_filename.data)
+		// 	{
+		// 		texturePath = Path::Join(basePath, texture->relative_filename.data);
+		// 		textureFile = AssetEditor::GetFileByAbsolutePath(texturePath);
+		// 	}
+		//
+		// 	if (textureFile == nullptr)
+		// 	{
+		// 		logger.Warn("texture file not found {} ", texture->filename.data);
+		// 		parentAsset->SetStatus(AssetStatus::Warning);
+		// 		parentAsset->AddMissingFile(texture->filename.data);
+		// 		return nullptr;
+		// 	}
+		// }
+
+		return {};
+	}
+
+
+	RID ProcessMaterials(Array<RID>& textures, ufbx_material* material, ufbx_scene* scene, UndoRedoScope* scope)
+	{
+		return {};
+	}
+
+
+	RID ProcessMesh(Array<RID>& materials, ufbx_mesh* mesh, ufbx_scene* scene, UndoRedoScope* scope)
+	{
+
+		// Get total vertex and index counts
+		size_t totalVertices = mesh->num_vertices;
+		size_t totalIndices = mesh->num_indices;
+
+		Array<StaticMeshResource::Vertex>    vertices;
+		Array<u32>                           indices;
+		Array<StaticMeshResource::Primitive> primitives;
+		Array<RID>                           materialAssets;
+
+		vertices.Reserve(totalVertices);
+		indices.Reserve(totalIndices);
+		primitives.Reserve(mesh->materials.count);
+
+		materialAssets.Reserve(mesh->materials.count);
+
+		// Check for available vertex attributes
+		bool hasNormals = mesh->vertex_normal.exists;
+		bool hasTangents = mesh->vertex_tangent.exists;
+		bool hasTexCoords = mesh->vertex_uv.exists;
+		bool hasColors = mesh->vertex_color.exists;
+
 		// Material mapping
 		for (u32 i = 0; i < mesh->materials.count; i++)
 		{
@@ -78,36 +137,14 @@ namespace Skore
 			{
 				for (u32 j = 0; j < scene->materials.count; j++)
 				{
-					// if (scene->materials.data[j] == material && j < materials.Size() && materials[j] != nullptr)
-					// {
-					// 	materialAssets.EmplaceBack(materials[j]);
-					// 	break;
-					// }
+					if (scene->materials.data[j] == material && j < materials.Size() && materials[j])
+					{
+						materialAssets.EmplaceBack(materials[j]);
+						break;
+					}
 				}
 			}
 		}
-
-		// Get total vertex and index counts
-		size_t totalVertices = mesh->num_vertices;
-		size_t totalIndices = mesh->num_indices;
-
-		Array<StaticMeshResource::Vertex>    vertices;
-		Array<u32>                     indices;
-		Array<StaticMeshResource::Primitive> primitives;
-
-		//Array<MaterialAsset*>       materialAssets;
-
-		vertices.Reserve(totalVertices);
-		indices.Reserve(totalIndices);
-		primitives.Reserve(mesh->materials.count);
-
-		//materialAssets.Reserve(mesh->materials.count);
-
-		// Check for available vertex attributes
-		bool hasNormals = mesh->vertex_normal.exists;
-		bool hasTangents = mesh->vertex_tangent.exists;
-		bool hasTexCoords = mesh->vertex_uv.exists;
-		bool hasColors = mesh->vertex_color.exists;
 
 		// Extract vertices
 		for (u32 i = 0; i < mesh->num_vertices; i++)
@@ -208,8 +245,7 @@ namespace Skore
 				StaticMeshResource::Primitive primitive;
 				primitive.firstIndex = firstIndex;
 				primitive.indexCount = (u32)(materialFaceCount * 3); // Triangulated faces
-				//primitive.materialIndex = materialIndex < materialAssets.Size() ? materialIndex : 0;
-				primitive.materialIndex = 0;
+				primitive.materialIndex = materialIndex < materialAssets.Size() ? materialIndex : 0;
 				primitives.EmplaceBack(primitive);
 
 				// Start a new primitive with this material
@@ -242,8 +278,8 @@ namespace Skore
 
 		ResourceObject meshObject = Resources::Write(meshResource);
 
-
 		meshObject.SetString(StaticMeshResource::Name, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : String("Mesh_").Append(ToString(mesh->element_id)));
+		meshObject.SetReferenceArray(StaticMeshResource::Materials, materialAssets);
 		meshObject.SetBlob(StaticMeshResource::Vertices, Span(reinterpret_cast<u8*>(vertices.Data()), vertices.Size() * sizeof(StaticMeshResource::Vertex)));
 		meshObject.SetBlob(StaticMeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(StaticMeshResource::Primitives)));
 		meshObject.SetBlob(StaticMeshResource::Indices, Span(reinterpret_cast<u8*>(indices.Data()), indices.Size() * sizeof(u32)));
@@ -259,6 +295,11 @@ namespace Skore
 		ResourceObject dccAssetObject = Resources::Write(dccAsset);
 		dccAssetObject.SetString(DCCAssetResource::Name, Path::Name(path));
 
+
+		Array<RID> textures;
+		Array<RID> materials;
+		Array<RID> meshes;
+
 		{
 			ufbx_load_opts opts = {};
 
@@ -272,9 +313,26 @@ namespace Skore
 				return false;
 			}
 
+			textures.Reserve(scene->textures.count);
+
+			String basePath = Path::Parent(path);
+			String name = Path::Name(path);
+
+			for (u32 i = 0; i < scene->textures.count; i++)
+			{
+				RID texture = ProcessTextures(basePath, scene->textures.data[i], scene, scope);
+				textures.EmplaceBack(texture);
+				if (texture)
+				{
+					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Textures, texture);
+				}
+			}
+
 			for (u32 i = 0; i < scene->meshes.count; i++)
 			{
-				if (RID mesh =  ProcessMesh(scene->meshes.data[i], scene, scope))
+				RID mesh = ProcessMesh(materials, scene->meshes.data[i], scene, scope);
+				meshes.EmplaceBack(mesh);
+				if (mesh)
 				{
 					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Meshes, mesh);
 				}
