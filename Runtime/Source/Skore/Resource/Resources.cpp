@@ -825,7 +825,7 @@ namespace Skore
 								writer.BeginSeq(field->GetName());
 								for (const RID& reference : set.GetReferenceArray(field->GetIndex()))
 								{
-									if (UUID uuid = GetUUID(set.GetReference(field->GetIndex())))
+									if (UUID uuid = GetUUID(reference))
 									{
 										writer.AddString(uuid.ToString());
 									}

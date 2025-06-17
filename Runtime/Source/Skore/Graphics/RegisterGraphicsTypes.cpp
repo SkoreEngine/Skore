@@ -689,6 +689,12 @@ namespace Skore
 			.Field<TextureResource::Pixels>(ResourceFieldType::Blob)
 			.Build();
 
+		Resources::Type<MaterialResource>()
+			.Field<MaterialResource::Name>(ResourceFieldType::String)
+			.Field<MaterialResource::BaseColor>(ResourceFieldType::Color)
+			.Field<MaterialResource::BaseColorTexture>(ResourceFieldType::Reference)
+			.Build();
+
 		Resources::Type<StaticMeshResource>()
 			.Field<StaticMeshResource::Name>(ResourceFieldType::String)
 			.Field<StaticMeshResource::Materials>(ResourceFieldType::ReferenceArray)
@@ -704,5 +710,7 @@ namespace Skore
 			.Field<DCCAssetResource::Textures>(ResourceFieldType::SubObjectSet)
 			.Field<DCCAssetResource::Entity>(ResourceFieldType::SubObject)
 			.Build();
+
+
 	}
 }

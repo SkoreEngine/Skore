@@ -41,7 +41,7 @@ namespace Skore
 	struct FBXImportCache
 	{
 		Array<RID> textures;
-		Array<RID> materials;
+		HashMap<ufbx_material*, RID> materials;
 		HashMap<ufbx_mesh*, RID> meshes;
 	};
 
@@ -117,7 +117,16 @@ namespace Skore
 
 	RID ProcessMaterials(const FBXImportSettings& settings, FBXImportCache& cache, ufbx_material* material, ufbx_scene* scene, UndoRedoScope* scope)
 	{
-		return {};
+		RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), scope);
+
+		Color baseColor = Color::FromVec3(ToVec3(material->pbr.base_color.value_vec3));
+
+		ResourceObject materialObject = Resources::Write(materialResource);
+		materialObject.SetString(MaterialResource::Name, !IsStrNullOrEmpty(material->name.data) ? material->name.data : "Material");
+		materialObject.SetColor(MaterialResource::BaseColor, baseColor);
+		materialObject.Commit(scope);
+
+		return materialResource;
 	}
 
 
@@ -130,13 +139,13 @@ namespace Skore
 		Array<StaticMeshResource::Vertex>    vertices;
 		Array<u32>                           indices;
 		Array<StaticMeshResource::Primitive> primitives;
-		Array<RID>                           materialAssets;
+		Array<RID>                           meshMaterials;
 
 		vertices.Reserve(totalVertices);
 		indices.Reserve(totalIndices);
 		primitives.Reserve(mesh->materials.count);
 
-		materialAssets.Reserve(mesh->materials.count);
+		meshMaterials.Reserve(mesh->materials.count);
 
 		// Check for available vertex attributes
 		bool hasNormals = mesh->vertex_normal.exists;
@@ -147,16 +156,11 @@ namespace Skore
 		// Material mapping
 		for (u32 i = 0; i < mesh->materials.count; i++)
 		{
-			const ufbx_material* material = mesh->materials.data[i];
-			if (material)
+			if (ufbx_material* material = mesh->materials.data[i])
 			{
-				for (u32 j = 0; j < scene->materials.count; j++)
+				if (auto it = cache.materials.Find(material))
 				{
-					if (scene->materials.data[j] == material && j < cache.materials.Size() && cache.materials[j])
-					{
-						materialAssets.EmplaceBack(cache.materials[j]);
-						break;
-					}
+					meshMaterials.EmplaceBack(it->second);
 				}
 			}
 		}
@@ -177,26 +181,22 @@ namespace Skore
 			vertex.position = ToVec3(mesh->vertex_position.values[i]);
 
 			// Normal
-			if (hasNormals)
+			if (hasNormals && mesh->vertex_normal.values.count > i)
 			{
-				vertex.normal.x = mesh->vertex_normal.values[i].x;
-				vertex.normal.y = mesh->vertex_normal.values[i].y;
-				vertex.normal.z = mesh->vertex_normal.values[i].z;
+				vertex.normal = ToVec3(mesh->vertex_normal.values[i]);
 			}
 
 			// UV coordinates
-			if (hasTexCoords)
+			if (hasTexCoords && mesh->vertex_uv.values.count > i)
 			{
 				vertex.texCoord.x = mesh->vertex_uv.values[i].x;
 				vertex.texCoord.y = 1.0f - mesh->vertex_uv.values[i].y; // Flip Y for UV
 			}
 
 			// Vertex colors
-			if (hasColors)
+			if (hasColors && mesh->vertex_color.values.count > i)
 			{
-				vertex.color.x = mesh->vertex_color.values[i].x;
-				vertex.color.y = mesh->vertex_color.values[i].y;
-				vertex.color.z = mesh->vertex_color.values[i].z;
+				vertex.color = ToVec4(mesh->vertex_color.values[i]);
 			}
 
 			// Tangents
@@ -260,7 +260,7 @@ namespace Skore
 				StaticMeshResource::Primitive primitive;
 				primitive.firstIndex = firstIndex;
 				primitive.indexCount = (u32)(materialFaceCount * 3); // Triangulated faces
-				primitive.materialIndex = materialIndex < materialAssets.Size() ? materialIndex : 0;
+				primitive.materialIndex = materialIndex < meshMaterials.Size() ? materialIndex : 0;
 				primitives.EmplaceBack(primitive);
 
 				// Start a new primitive with this material
@@ -304,7 +304,7 @@ namespace Skore
 
 		ResourceObject meshObject = Resources::Write(meshResource);
 		meshObject.SetString(StaticMeshResource::Name, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : name);
-		meshObject.SetReferenceArray(StaticMeshResource::Materials, materialAssets);
+		meshObject.SetReferenceArray(StaticMeshResource::Materials, meshMaterials);
 		meshObject.SetBlob(StaticMeshResource::Vertices, Span(reinterpret_cast<u8*>(vertices.Data()), vertices.Size() * sizeof(StaticMeshResource::Vertex)));
 		meshObject.SetBlob(StaticMeshResource::Indices, Span(reinterpret_cast<u8*>(indices.Data()), indices.Size() * sizeof(u32)));
 		meshObject.SetBlob(StaticMeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(StaticMeshResource::Primitive)));
@@ -391,7 +391,11 @@ namespace Skore
 		dccAssetObject.SetString(DCCAssetResource::Name, Path::Name(path));
 
 		{
-			ufbx_load_opts opts = {};
+			ufbx_load_opts opts = {
+				//.use_blender_pbr_material = true
+				.generate_missing_normals = true,
+				.obj_search_mtl_by_filename = true
+			};
 
 			// Load FBX file
 			ufbx_error error;
@@ -420,6 +424,16 @@ namespace Skore
 				}
 			}
 
+			// Process Materials
+			for (u32 i = 0; i < scene->materials.count; i++)
+			{
+				if (RID materialRID = ProcessMaterials(settings, cache, scene->materials.data[i], scene, scope))
+				{
+					cache.materials.Insert(scene->materials.data[i], materialRID);
+					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Materials, materialRID);
+				}
+			}
+
 			// Process nodes
 			for (u32 i = 0; i < scene->nodes.count; i++)
 			{
@@ -433,10 +447,25 @@ namespace Skore
 				}
 			}
 
+			//import missing meshes.
+			for (u32 i = 0; i < scene->meshes.count; i++)
+			{
+				ufbx_mesh* mesh = scene->meshes.data[i];
+				if (!cache.meshes.Has(mesh))
+				{
+					if (RID meshRID = ProcessMesh(settings, cache, String("Mesh").Append(i), mesh, scene, scope))
+					{
+						cache.meshes.Insert(mesh, meshRID);
+					}
+				}
+			}
+
 			for (const auto& it: cache.meshes)
 			{
 				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Meshes, it.second);
 			}
+
+			ufbx_free_scene(scene);
 		}
 
 		dccAssetObject.Commit(scope);

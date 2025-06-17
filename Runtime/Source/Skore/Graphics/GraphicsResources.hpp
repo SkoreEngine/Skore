@@ -91,8 +91,9 @@ namespace Skore
 	{
 		enum
 		{
-			Name,		//String
-			BaseTexture	//Reference
+			Name,            //String
+			BaseColor,       //Color
+			BaseColorTexture //Reference
 		};
 	};
 
@@ -100,11 +101,11 @@ namespace Skore
 	{
 		enum
 		{
-			Name,		//String
-			Meshes,		//SubobjectSet
-			Materials,	//SubObjectSet
-			Textures,	//SubObjectSet
-			Entity,		//SubObject
+			Name,      //String
+			Meshes,    //SubobjectSet
+			Materials, //SubObjectSet
+			Textures,  //SubObjectSet
+			Entity,    //SubObject
 		};
 	};
 }
