@@ -34,6 +34,7 @@ namespace Skore
 
 	struct MaterialStorageData
 	{
+		GPUBuffer* materialBuffer;
 		GPUDescriptorSet* descriptorSet;
 	};
 
@@ -43,7 +44,7 @@ namespace Skore
 		GPUBuffer* indexBuffer;
 
 		Array<StaticMeshResource::Primitive> primitives;
-		Array<MaterialStorageData> materials;
+		Array<GPUDescriptorSet*> materials;
 	};
 
 

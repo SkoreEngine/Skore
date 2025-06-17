@@ -427,11 +427,9 @@ namespace Skore
 
 	void WorldViewWindow::RecordRenderCommands(GPUCommandBuffer* cmd)
 	{
-		//SceneEditor*   sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
-		//Scene*         scene = sceneEditor->GetCurrentScene();
-		//RenderStorage* storage = scene ? scene->GetRenderStorage() : nullptr;
-
-		RenderStorage* storage = nullptr;
+		WorldEditor*   worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
+		World*         world = worldEditor->GetCurrentWorld();
+		RenderStorage* storage = world ? world->GetRenderStorage() : nullptr;
 
 		sceneRendererViewport.SetCamera(0.1f, 300.0f, view, projection, freeViewCamera.GetPosition());
 		sceneRendererViewport.Render(storage, cmd);

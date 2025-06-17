@@ -523,8 +523,7 @@ namespace Skore
 
 						for (StaticMeshResource::Primitive& primitive : meshRenderData.mesh->primitives)
 						{
-							GPUDescriptorSet* materialDs = meshRenderData.mesh->materials[primitive.materialIndex].descriptorSet;
-
+							GPUDescriptorSet* materialDs = meshRenderData.mesh->materials[primitive.materialIndex];
 							if (materialDs == nullptr)
 							{
 								continue;

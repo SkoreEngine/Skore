@@ -89,6 +89,18 @@ namespace Skore
 
 	struct MaterialResource
 	{
+		struct Buffer
+		{
+			Vec3 baseColor;
+			f32  alphaCutoff;
+
+			f32 metallic;
+			f32 roughness;
+
+			i32 textureFlags;
+			i32 textureProps;
+		};
+
 		enum
 		{
 			Name,            //String
