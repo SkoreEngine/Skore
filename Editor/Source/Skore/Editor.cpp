@@ -285,6 +285,8 @@ namespace Skore
 				}
 			}
 
+			workspace = {};
+
 			openWindows.Clear();
 			openWindows.ShrinkToFit();
 			editorWindowStorages.Clear();

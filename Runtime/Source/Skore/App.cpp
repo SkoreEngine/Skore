@@ -125,6 +125,24 @@ namespace Skore
 		return AppResult::Continue;
 	}
 
+	void AppDestroy()
+	{
+		if (!requireShutdown)
+		{
+			return;
+		}
+
+		Graphics::WaitIdle();
+
+		onShutdownHandler.Invoke();
+
+		GraphicsShutdown();
+		ResourceShutdown();
+
+		SDL_Quit();
+		Event::Reset();
+	}
+
 	AppResult AppIterate()
 	{
 		{
@@ -138,6 +156,7 @@ namespace Skore
 
 		if (!running)
 		{
+			AppDestroy();
 			return AppResult::Success;
 		}
 
@@ -257,24 +276,6 @@ namespace Skore
 			callback();
 		}
 		typesRegistered = true;
-	}
-
-	void AppDestroy()
-	{
-		if (!requireShutdown)
-		{
-			return;
-		}
-
-		Graphics::WaitIdle();
-
-		onShutdownHandler.Invoke();
-
-		GraphicsShutdown();
-		ResourceShutdown();
-
-		SDL_Quit();
-		Event::Reset();
 	}
 
 	void App::RequestShutdown()

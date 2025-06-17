@@ -1149,7 +1149,7 @@ namespace Skore
 		{
 			ResourceStorage& storage = pages[SK_PAGE(i)]->elements[SK_OFFSET(i)];
 			DestroyResourceInstance(storage.resourceType, storage.instance.load());
-			storage.~ResourceStorage();
+		//	storage.~ResourceStorage();
 		}
 
 		for (u64 i = 0; i < pageCount; ++i)

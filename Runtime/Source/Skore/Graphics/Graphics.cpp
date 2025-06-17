@@ -31,6 +31,8 @@
 
 namespace Skore
 {
+	void ResourceStorageShutdown();
+
 	namespace
 	{
 		GPUDevice*                                         device = nullptr;
@@ -261,6 +263,8 @@ namespace Skore
 
 	void GraphicsShutdown()
 	{
+		ResourceStorageShutdown();
+
 		linearSampler->Destroy();
 		resourceCommandBuffer->Destroy();
 		whiteTexture->Destroy();

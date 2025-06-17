@@ -22,14 +22,79 @@
 
 #include "RenderStorage.hpp"
 
+#include "Graphics.hpp"
+#include "Skore/Resource/Resources.hpp"
+
 namespace Skore
 {
+	namespace
+	{
+		HashMap<RID, std::shared_ptr<MeshStorageData>> meshCache;
+
+		MeshStorageData* GetOrLoadMesh(RID mesh)
+		{
+			auto it = meshCache.Find(mesh);
+			if (it == meshCache.end())
+			{
+				std::shared_ptr<MeshStorageData> meshData = std::make_shared<MeshStorageData>();
+
+				ResourceObject meshObject = Resources::Read(mesh);
+
+				StringView name = meshObject.GetString(StaticMeshResource::Name);
+				Span<u8> vertices = meshObject.GetBlob(StaticMeshResource::Vertices);
+				Span<u8> indices = meshObject.GetBlob(StaticMeshResource::Indices);
+
+
+				meshData->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
+					.size = vertices.Size(),
+					.usage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer,
+					.hostVisible = false,
+					.persistentMapped = false,
+					.debugName = String(name) + "_VertexBuffer"
+				});
+
+				Graphics::UploadBufferData(BufferUploadInfo{
+					.buffer = meshData->vertexBuffer,
+					.data = vertices.Data(),
+					.size = vertices.Size()
+				});
+
+				meshData->indexBuffer = Graphics::CreateBuffer(BufferDesc{
+					.size = indices.Size(),
+					.usage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer,
+					.hostVisible = false,
+					.persistentMapped = false,
+					.debugName = String(name) + "_IndexBuffer"
+				});
+
+				Graphics::UploadBufferData(BufferUploadInfo{
+					.buffer = meshData->indexBuffer,
+					.data = indices.Data(),
+					.size = indices.Size()
+				});
+
+				it = meshCache.Emplace(mesh, Traits::Move(meshData)).first;
+			}
+			return it->second.get();
+		}
+	}
+
+	void ResourceStorageShutdown()
+	{
+		for (auto& it : meshCache)
+		{
+			it.second->indexBuffer->Destroy();
+			it.second->vertexBuffer->Destroy();
+		}
+		meshCache.Clear();
+	}
+
+
 	void RenderStorage::RegisterMeshProxy(VoidPtr owner)
 	{
 		meshes.emplace(owner, MeshRenderData{
 			               .mesh = {},
 			               .transform = {},
-			               .materials = {},
 			               .visible = true,
 		               });
 	}
@@ -52,7 +117,7 @@ namespace Skore
 	{
 		if (const auto& it = meshes.find(owner); it != meshes.end())
 		{
-			it->second.mesh = meshAsset;
+			it->second.mesh = GetOrLoadMesh(meshAsset);
 		}
 	}
 
@@ -68,7 +133,9 @@ namespace Skore
 	{
 		if (const auto& it = meshes.find(owner); it != meshes.end())
 		{
-			it->second.materials = materials;
+			//TODO material overrides.
+
+			//it->second.materials = materials;
 		}
 	}
 

@@ -23,6 +23,7 @@
 #pragma once
 #include "Device.hpp"
 #include "GraphicsCommon.hpp"
+#include "GraphicsResources.hpp"
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/UnorderedDense.hpp"
@@ -30,11 +31,27 @@
 
 namespace Skore
 {
+
+	struct MaterialStorageData
+	{
+		GPUDescriptorSet* descriptorSet;
+	};
+
+	struct MeshStorageData
+	{
+		GPUBuffer* vertexBuffer;
+		GPUBuffer* indexBuffer;
+
+		Array<StaticMeshResource::Primitive> primitives;
+		Array<MaterialStorageData> materials;
+	};
+
+
 	struct MeshRenderData
 	{
-		RID        mesh;
+		MeshStorageData*           mesh;
+
 		Mat4       transform;
-		Array<RID> materials;
 		bool       visible = true;
 		bool       castShadows = false;
 	};
