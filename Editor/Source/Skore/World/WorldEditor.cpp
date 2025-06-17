@@ -78,11 +78,11 @@ namespace Skore
 
 	WorldEditor::~WorldEditor()
 	{
-		Resources::Destroy(m_selection);
-		Resources::Destroy(m_state);
-
 		Resources::FindType<WorldEditorSelection>()->UnregisterEvent(OnSelectionChange, this);
 		Resources::FindType<WorldEditorState>()->UnregisterEvent(OnStateChange, this);
+
+		Resources::Destroy(m_selection);
+		Resources::Destroy(m_state);
 
 		Event::Unbind<OnUpdate, &WorldEditor::OnUpdateEvent>(this);
 	}

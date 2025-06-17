@@ -43,6 +43,7 @@ namespace Skore
 				StringView name = meshObject.GetString(StaticMeshResource::Name);
 				Span<u8> vertices = meshObject.GetBlob(StaticMeshResource::Vertices);
 				Span<u8> indices = meshObject.GetBlob(StaticMeshResource::Indices);
+				Span<u8> primitives = meshObject.GetBlob(StaticMeshResource::Primitives);
 
 
 				meshData->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
@@ -72,6 +73,9 @@ namespace Skore
 					.data = indices.Data(),
 					.size = indices.Size()
 				});
+
+				meshData->primitives.Resize(primitives.Size() / sizeof(StaticMeshResource::Primitive));
+				memcpy(meshData->primitives.Data(), primitives.Data(), primitives.Size());
 
 				it = meshCache.Emplace(mesh, Traits::Move(meshData)).first;
 			}
