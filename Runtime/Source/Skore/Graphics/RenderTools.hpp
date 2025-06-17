@@ -25,10 +25,17 @@
 #include "Skore/Common.hpp"
 
 #include "Device.hpp"
+#include "GraphicsResources.hpp"
 #include "Skore/Core/Math.hpp"
 
 namespace Skore
 {
+	namespace MeshTools
+	{
+		SK_API void CalcNormals(Span<StaticMeshResource::Vertex> vertices, Span<u32> indices);
+		SK_API void CalcTangents(Span<StaticMeshResource::Vertex> vertices, Span<u32> indices, bool useMikktspace);
+	}
+
 	class SK_API SinglePassDownsampler
 	{
 	public:

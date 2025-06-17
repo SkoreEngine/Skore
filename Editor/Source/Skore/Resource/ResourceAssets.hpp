@@ -140,7 +140,7 @@ namespace Skore
 		static void                  SaveAssetsToDirectory(StringView directory, RID package, Span<UpdatedAssetInfo> items);
 		static void                  GetUpdatedAssets(RID directory, Array<UpdatedAssetInfo>& items);
 		static void                  OpenAsset(RID rid);
-		static void                  ImportAssets(RID parent, Span<String> paths);
+		static void                  ImportAsset(RID parent, StringView path);
 		static RID                   CreateAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope);
 		static RID                   CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
 		static RID                   CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);

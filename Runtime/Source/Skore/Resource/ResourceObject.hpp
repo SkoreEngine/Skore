@@ -106,6 +106,7 @@ namespace Skore
 		bool       HasSubObjectSet(u32 index, RID rid) const;
 		void       IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const;
 
+		u32				 GetIndex(StringView fieldName) const;
 		RID              GetRID() const;
 		RID              GetPrototype() const;
 		UUID             GetUUID() const;

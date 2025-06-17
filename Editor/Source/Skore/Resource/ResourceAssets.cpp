@@ -43,6 +43,13 @@ namespace Skore
 {
 	namespace
 	{
+		struct AssetsPendingImport
+		{
+			RID    parent;
+			String path;
+		};
+
+
 		Array<ResourceAssetHandler*>  handlers;
 		Array<ResourceAssetImporter*> importers;
 		HashMap<String, String> loadedPackages;
@@ -51,6 +58,8 @@ namespace Skore
 		HashMap<TypeID, ResourceAssetHandler*> handlersByTypeID;
 
 		HashMap<String, ResourceAssetImporter*> importersByExtension;
+
+		Array<AssetsPendingImport> pendingImports;
 
 		Allocator* alloc = MemoryGlobals::GetHeapAllocator();
 
@@ -393,7 +402,7 @@ namespace Skore
 				ResourceObject assetFileObject = Resources::Read(assetToUpdate.assetFile);
 				StringView     absolutePath = assetFileObject.GetString(ResourceAssetFile::AbsolutePath);
 				FileSystem::Remove(absolutePath);
-				FileSystem::Remove(Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath), ".buffers"));
+				FileSystem::Remove(Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath).Append(".buffer")));
 				logger.Debug("asset file removed from {} ", absolutePath);
 
 				Resources::Destroy(assetToUpdate.assetFile);
@@ -489,27 +498,9 @@ namespace Skore
 		}
 	}
 
-	void ResourceAssets::ImportAssets(RID parent, Span<String> paths)
+	void ResourceAssets::ImportAsset(RID parent, StringView path)
 	{
-		UndoRedoScope* scope = nullptr;
-
-		for (const String& path : paths)
-		{
-			logger.Debug("importing {} to {} ", path, GetDirectoryPathId(parent));
-
-			String extension = Path::Extension(path);
-			extension = extension.ToLowerCase();
-
-			if (auto it = importersByExtension.Find(extension))
-			{
-				if (scope == nullptr)
-				{
-					scope = Editor::CreateUndoRedoScope("Import Assets");
-				}
-
-				it->second->ImportAsset(parent, nullptr, path, scope);
-			}
-		}
+		pendingImports.EmplaceBack(parent, path);
 	}
 
 	RID ResourceAssets::CreateAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope)
@@ -790,6 +781,34 @@ namespace Skore
 		return {};
 	}
 
+	void ResourceAssetsUpdate()
+	{
+		//TODO : multithreading with task system :)
+		if (!pendingImports.Empty())
+		{
+			UndoRedoScope* scope = nullptr;
+
+			for (const AssetsPendingImport& toImport : pendingImports)
+			{
+				logger.Debug("importing {} to {} ", toImport.path, ResourceAssets::GetDirectoryPathId(toImport.parent));
+
+				String extension = Path::Extension(toImport.path);
+				extension = extension.ToLowerCase();
+
+				if (auto it = importersByExtension.Find(extension))
+				{
+					if (scope == nullptr)
+					{
+						scope = Editor::CreateUndoRedoScope("Import Assets");
+					}
+
+					it->second->ImportAsset(toImport.parent, nullptr, toImport.path, scope);
+				}
+			}
+			pendingImports.Clear();
+		}
+	}
+
 	void ResourceAssetsShutdown()
 	{
 		for (ResourceAssetHandler* handler : handlers)
@@ -810,6 +829,7 @@ namespace Skore
 	void ResourceAssetsInit()
 	{
 		Event::Bind<OnShutdown, ResourceAssetsShutdown>();
+		Event::Bind<OnUpdate, ResourceAssetsUpdate>();
 
 		for (TypeID derivedId : Reflection::GetDerivedTypes(TypeInfo<ResourceAssetHandler>::ID()))
 		{

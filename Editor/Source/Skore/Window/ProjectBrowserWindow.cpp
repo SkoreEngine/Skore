@@ -67,7 +67,7 @@ namespace Skore
 	{
 		if (lastOpenedWindow)
 		{
-			ResourceAssets::ImportAssets(lastOpenedWindow->GetOpenDirectory(), {filePath});
+			ResourceAssets::ImportAsset(lastOpenedWindow->GetOpenDirectory(), {filePath});
 		}
 	}
 

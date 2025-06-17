@@ -30,10 +30,22 @@
 #include <ufbx.h>
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/StringUtils.hpp"
+#include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/FileSystem.hpp"
+#include "Skore/World/WorldCommon.hpp"
+#include "Skore/World/Components/StaticMeshRender.hpp"
 
 namespace Skore
 {
+
+	struct FBXImportCache
+	{
+		Array<RID> textures;
+		Array<RID> materials;
+		HashMap<ufbx_mesh*, RID> meshes;
+	};
+
+
 	static Logger& logger = Logger::GetLogger("Skore::FBXImporter");
 
 	Vec2 ToVec2(const ufbx_vec2& vec)
@@ -67,7 +79,7 @@ namespace Skore
 		}
 	};
 
-	RID ProcessTextures(StringView basePath, ufbx_texture* texture, ufbx_scene* scene, UndoRedoScope* scope)
+	RID ProcessTextures(const FBXImportSettings& settings, StringView basePath, ufbx_texture* texture, ufbx_scene* scene, UndoRedoScope* scope)
 	{
 		if (!texture || !texture->filename.data)
 		{
@@ -77,6 +89,10 @@ namespace Skore
 		String textureName = texture->name.data ? texture->name.data : "Texture";
 		String texturePath = Path::Join(basePath, texture->filename.data);
 
+		if (texture->content.data != nullptr && texture->content.size > 0)
+		{
+			int a = 0;
+		}
 
 		// if (textureFile == nullptr)
 		// {
@@ -99,15 +115,14 @@ namespace Skore
 	}
 
 
-	RID ProcessMaterials(Array<RID>& textures, ufbx_material* material, ufbx_scene* scene, UndoRedoScope* scope)
+	RID ProcessMaterials(const FBXImportSettings& settings, FBXImportCache& cache, ufbx_material* material, ufbx_scene* scene, UndoRedoScope* scope)
 	{
 		return {};
 	}
 
 
-	RID ProcessMesh(Array<RID>& materials, ufbx_mesh* mesh, ufbx_scene* scene, UndoRedoScope* scope)
+	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_mesh* mesh, const ufbx_scene* scene, UndoRedoScope* scope)
 	{
-
 		// Get total vertex and index counts
 		size_t totalVertices = mesh->num_vertices;
 		size_t totalIndices = mesh->num_indices;
@@ -137,9 +152,9 @@ namespace Skore
 			{
 				for (u32 j = 0; j < scene->materials.count; j++)
 				{
-					if (scene->materials.data[j] == material && j < materials.Size() && materials[j])
+					if (scene->materials.data[j] == material && j < cache.materials.Size() && cache.materials[j])
 					{
-						materialAssets.EmplaceBack(materials[j]);
+						materialAssets.EmplaceBack(cache.materials[j]);
 						break;
 					}
 				}
@@ -274,11 +289,21 @@ namespace Skore
 			indices.EmplaceBack(mesh->vertex_indices[i]);
 		}
 
+		if (!hasNormals)
+		{
+			MeshTools::CalcNormals(vertices, indices);
+		}
+
+		if (settings.recalculateTangents || !hasTangents)
+		{
+			MeshTools::CalcTangents(vertices, indices, true);
+		}
+
+
 		RID meshResource = Resources::Create<StaticMeshResource>(UUID::RandomUUID(), scope);
 
 		ResourceObject meshObject = Resources::Write(meshResource);
-
-		meshObject.SetString(StaticMeshResource::Name, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : String("Mesh_").Append(ToString(mesh->element_id)));
+		meshObject.SetString(StaticMeshResource::Name, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : name);
 		meshObject.SetReferenceArray(StaticMeshResource::Materials, materialAssets);
 		meshObject.SetBlob(StaticMeshResource::Vertices, Span(reinterpret_cast<u8*>(vertices.Data()), vertices.Size() * sizeof(StaticMeshResource::Vertex)));
 		meshObject.SetBlob(StaticMeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(StaticMeshResource::Primitives)));
@@ -288,17 +313,82 @@ namespace Skore
 		return meshResource;
 	}
 
+	RID ProcessNode(const FBXImportSettings& settings, const ufbx_node* node, FBXImportCache& cache, const ufbx_scene* fbxScene, UndoRedoScope* scope)
+	{
+		if (!node)
+		{
+			return {};
+		}
+
+		//ignore camera and lights for now.
+		if (node->camera || node->light)
+		{
+			return {};
+		}
+
+		RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
+		ResourceObject entityObject = Resources::Write(entity);
+
+		StringView nodeName = !IsStrNullOrEmpty(node->name.data) ? node->name.data : "Node";
+		entityObject.SetString(EntityResource::Name, nodeName);
+
+
+		// Extract transform
+		Transform transform;
+		transform.position = ToVec3(node->local_transform.translation);
+		transform.rotation = Quat{node->local_transform.rotation.x, node->local_transform.rotation.y, node->local_transform.rotation.z, node->local_transform.rotation.w};
+		transform.scale = ToVec3(node->local_transform.scale);
+
+		RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
+		Resources::ToResource(transformRID, &transform, scope);
+		entityObject.SetSubObject(EntityResource::Transform, transformRID);
+
+		// Handle mesh
+		if (node->mesh)
+		{
+
+			auto meshIt = cache.meshes.Find(node->mesh);
+			if (meshIt == cache.meshes.end())
+			{
+				if (RID meshRID = ProcessMesh(settings, cache, nodeName, node->mesh, fbxScene, scope))
+				{
+					meshIt = cache.meshes.Insert(node->mesh, meshRID).first;
+				}
+			}
+
+			if (meshIt)
+			{
+				RID staticMeshRender = Resources::Create<StaticMeshRender>(UUID::RandomUUID());
+
+				ResourceObject staticMeshRenderObject = Resources::Write(staticMeshRender);
+				staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshIt->second);
+				staticMeshRenderObject.Commit(scope);
+
+				entityObject.AddToSubObjectSet(EntityResource::Components, staticMeshRender);
+			}
+
+		}
+
+		// Process children
+		for (u32 i = 0; i < node->children.count; i++)
+		{
+			if (RID child = ProcessNode(settings, node->children.data[i], cache, fbxScene, scope))
+			{
+				entityObject.AddToSubObjectSet(EntityResource::Children, child);
+			}
+		}
+
+		entityObject.Commit(scope);
+
+		return entity;
+	}
+
 	bool ImportFBX(RID directory, const FBXImportSettings& settings, StringView path, UndoRedoScope* scope)
 	{
 		RID dccAsset = ResourceAssets::CreateImportedAsset(directory, TypeInfo<DCCAssetResource>::ID(), Path::Name(path), scope, path);
 
 		ResourceObject dccAssetObject = Resources::Write(dccAsset);
 		dccAssetObject.SetString(DCCAssetResource::Name, Path::Name(path));
-
-
-		Array<RID> textures;
-		Array<RID> materials;
-		Array<RID> meshes;
 
 		{
 			ufbx_load_opts opts = {};
@@ -313,31 +403,40 @@ namespace Skore
 				return false;
 			}
 
-			textures.Reserve(scene->textures.count);
+			FBXImportCache cache;
+
+			cache.textures.Reserve(scene->textures.count);
 
 			String basePath = Path::Parent(path);
 			String name = Path::Name(path);
 
 			for (u32 i = 0; i < scene->textures.count; i++)
 			{
-				RID texture = ProcessTextures(basePath, scene->textures.data[i], scene, scope);
-				textures.EmplaceBack(texture);
+				RID texture = ProcessTextures(settings, basePath, scene->textures.data[i], scene, scope);
+				cache.textures.EmplaceBack(texture);
 				if (texture)
 				{
 					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Textures, texture);
 				}
 			}
 
-			for (u32 i = 0; i < scene->meshes.count; i++)
+			// Process nodes
+			for (u32 i = 0; i < scene->nodes.count; i++)
 			{
-				RID mesh = ProcessMesh(materials, scene->meshes.data[i], scene, scope);
-				meshes.EmplaceBack(mesh);
-				if (mesh)
+				const ufbx_node* node = scene->nodes.data[i];
+				if (node->parent == nullptr)
 				{
-					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Meshes, mesh);
+					if (RID root = ProcessNode(settings, node, cache, scene, scope))
+					{
+						dccAssetObject.SetSubObject(DCCAssetResource::Entity, root);
+					}
 				}
 			}
 
+			for (const auto& it: cache.meshes)
+			{
+				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Meshes, it.second);
+			}
 		}
 
 		dccAssetObject.Commit(scope);

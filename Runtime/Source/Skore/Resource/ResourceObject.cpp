@@ -574,6 +574,18 @@ namespace Skore
 		}
 	}
 
+	u32 ResourceObject::GetIndex(StringView fieldName) const
+	{
+		for (u32 i = 0; i < m_storage->resourceType->fields.Size(); i++)
+		{
+			if (m_storage->resourceType->fields[i]->name == fieldName)
+			{
+				return i;
+			}
+		}
+		return U32_MAX;
+	}
+
 	RID ResourceObject::GetRID() const
 	{
 		return m_storage->rid;

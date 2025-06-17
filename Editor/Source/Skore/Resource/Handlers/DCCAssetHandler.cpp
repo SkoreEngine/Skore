@@ -20,6 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "Skore/Editor.hpp"
+#include "Skore/EditorWorkspace.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
@@ -37,7 +39,16 @@ namespace Skore
 
 		void OpenAsset(RID rid) override
 		{
-			//TODO
+			if (ResourceObject object = Resources::Read(rid))
+			{
+				if (ResourceObject dccAsset = Resources::Read(object.GetSubObject(ResourceAsset::Object)))
+				{
+					if (RID entity = dccAsset.GetSubObject(DCCAssetResource::Entity))
+					{
+						Editor::GetCurrentWorkspace().GetWorldEditor()->OpenEntity(entity);
+					}
+				}
+			}
 		}
 
 		TypeID GetResourceTypeId() override
