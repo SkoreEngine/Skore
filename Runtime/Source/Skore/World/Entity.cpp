@@ -49,12 +49,13 @@ namespace Skore
 
 				if (RID transform = entityObject.GetReference(EntityResource::Transform))
 				{
+					m_transformRID = transform;
 					Resources::FromResource(transform, &m_transform);
 					UpdateTransform();
 
 					if (m_world->IsResourceSyncEnabled())
 					{
-						Resources::GetStorage(transform)->RegisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, this);
+						Resources::GetStorage(m_transformRID)->RegisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, this);
 					}
 				}
 
@@ -78,16 +79,16 @@ namespace Skore
 
 	Entity::~Entity()
 	{
-		if (m_world->IsResourceSyncEnabled() && m_rid)
+		if (m_world->IsResourceSyncEnabled())
 		{
-			Resources::GetStorage(m_rid)->UnregisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
-
-			if (ResourceObject entityObject = Resources::Read(m_rid))
+			if (m_rid)
 			{
-				if (RID transform = entityObject.GetReference(EntityResource::Transform))
-				{
-					Resources::GetStorage(transform)->RegisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, &m_transform);
-				}
+				Resources::GetStorage(m_rid)->UnregisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
+			}
+
+			if (m_transformRID)
+			{
+				Resources::GetStorage(m_transformRID)->UnregisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, this);
 			}
 		}
 	}

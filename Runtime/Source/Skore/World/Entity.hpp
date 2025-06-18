@@ -153,6 +153,7 @@ namespace Skore
 
 		Mat4      m_worldTransform{1.0};
 		Transform m_transform;
+		RID       m_transformRID;
 
 		void DestroyInternal(bool removeFromParent = true);
 		void UpdateTransform();

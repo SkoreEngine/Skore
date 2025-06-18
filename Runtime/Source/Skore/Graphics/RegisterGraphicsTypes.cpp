@@ -659,17 +659,17 @@ namespace Skore
 		// materialType.Value<MaterialAsset::MaterialType::Opaque>("Opaque");
 		// materialType.Value<MaterialAsset::MaterialType::SkyboxEquirectangular>("SkyboxEquirectangular");
 		//
-		// auto alphaMode = Reflection::Type<MaterialAsset::AlphaMode>();
-		// alphaMode.Value<MaterialAsset::AlphaMode::None>("None");
-		// alphaMode.Value<MaterialAsset::AlphaMode::Opaque>("Opaque");
-		// alphaMode.Value<MaterialAsset::AlphaMode::Mask>("Mask");
-		// alphaMode.Value<MaterialAsset::AlphaMode::Blend>("Blend");
+		auto alphaMode = Reflection::Type<MaterialResource::MaterialAlphaMode>();
+		alphaMode.Value<MaterialResource::MaterialAlphaMode::None>("None");
+		alphaMode.Value<MaterialResource::MaterialAlphaMode::Opaque>("Opaque");
+		alphaMode.Value<MaterialResource::MaterialAlphaMode::Mask>("Mask");
+		alphaMode.Value<MaterialResource::MaterialAlphaMode::Blend>("Blend");
 		//
-		// auto textureChannel = Reflection::Type<TextureChannel>();
-		// textureChannel.Value<TextureChannel::Red>("Red");
-		// textureChannel.Value<TextureChannel::Green>("Green");
-		// textureChannel.Value<TextureChannel::Blue>("Blue");
-		// textureChannel.Value<TextureChannel::Alpha>("Alpha");
+		auto textureChannel = Reflection::Type<TextureChannel>();
+		textureChannel.Value<TextureChannel::Red>("Red");
+		textureChannel.Value<TextureChannel::Green>("Green");
+		textureChannel.Value<TextureChannel::Blue>("Blue");
+		textureChannel.Value<TextureChannel::Alpha>("Alpha");
 
 		Resources::Type<ShaderVariantResource>()
 			.Field<ShaderVariantResource::Name>(ResourceFieldType::String)
@@ -696,6 +696,23 @@ namespace Skore
 			.Field<MaterialResource::Name>(ResourceFieldType::String)
 			.Field<MaterialResource::BaseColor>(ResourceFieldType::Color)
 			.Field<MaterialResource::BaseColorTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::NormalTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::NormalMultiplier>(ResourceFieldType::Float)
+			.Field<MaterialResource::Metallic>(ResourceFieldType::Float)
+			.Field<MaterialResource::MetallicTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::MetallicTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
+			.Field<MaterialResource::Roughness>(ResourceFieldType::Float)
+			.Field<MaterialResource::RoughnessTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::RoughnessTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
+			.Field<MaterialResource::EmissiveColor>(ResourceFieldType::Color)
+			.Field<MaterialResource::EmissiveFactor>(ResourceFieldType::Float)
+			.Field<MaterialResource::EmissiveTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::OcclusionTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::OcclusionStrength>(ResourceFieldType::Float)
+			.Field<MaterialResource::OcclusionTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
+			.Field<MaterialResource::AlphaCutoff>(ResourceFieldType::Float)
+			.Field<MaterialResource::AlphaMode>(ResourceFieldType::Enum, TypeInfo<MaterialResource::MaterialAlphaMode>::ID())
+			.Field<MaterialResource::UvScale>(ResourceFieldType::Vec2)
 			.Build();
 
 		Resources::Type<StaticMeshResource>()
@@ -713,7 +730,5 @@ namespace Skore
 			.Field<DCCAssetResource::Textures>(ResourceFieldType::SubObjectSet)
 			.Field<DCCAssetResource::Entity>(ResourceFieldType::SubObject)
 			.Build();
-
-
 	}
 }

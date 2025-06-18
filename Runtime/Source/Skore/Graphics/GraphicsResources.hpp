@@ -25,6 +25,14 @@
 
 namespace Skore
 {
+	enum class TextureChannel : u8
+	{
+		Red   = 0,
+		Green = 1,
+		Blue  = 2,
+		Alpha = 3
+	};
+
 	struct ShaderVariantResource
 	{
 		enum
@@ -53,12 +61,12 @@ namespace Skore
 	{
 		enum
 		{
-			Name,			//String
-			Extent,			//Vec3
-			Format,			//Enum
-			WrapMode,		//Enum
-			FilterMode,		//Enum
-			Pixels,			//Blob
+			Name,       //String
+			Extent,     //Vec3
+			Format,     //Enum
+			WrapMode,   //Enum
+			FilterMode, //Enum
+			Pixels,     //Blob
 		};
 	};
 
@@ -104,11 +112,37 @@ namespace Skore
 			i32 textureProps;
 		};
 
+		enum class MaterialAlphaMode
+		{
+			None        = 0,
+			Opaque      = 1,
+			Mask        = 2,
+			Blend       = 3
+		};
+
+
 		enum
 		{
-			Name,            //String
-			BaseColor,       //Color
-			BaseColorTexture //Reference
+			Name,                    //String
+			BaseColor,               //Color
+			BaseColorTexture,        //Reference
+			NormalTexture,           //Reference
+			NormalMultiplier,        //Float
+			Metallic,                //Float
+			MetallicTexture,         //Reference,
+			MetallicTextureChannel,  //Enum
+			Roughness,               //Float
+			RoughnessTexture,        //Reference,
+			RoughnessTextureChannel, //Enum
+			EmissiveColor,           //Color
+			EmissiveFactor,          //Float
+			EmissiveTexture,         //Reference
+			OcclusionTexture,        //Reference
+			OcclusionStrength,       //Float
+			OcclusionTextureChannel, //Enum
+			AlphaCutoff,             //Float
+			AlphaMode,               //Enum
+			UvScale,                 //Vec2
 		};
 	};
 

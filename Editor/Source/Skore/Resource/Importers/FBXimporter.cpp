@@ -39,12 +39,11 @@
 
 namespace Skore
 {
-
 	struct FBXImportCache
 	{
-		HashMap<ufbx_texture*, RID> textures;
+		HashMap<ufbx_texture*, RID>  textures;
 		HashMap<ufbx_material*, RID> materials;
-		HashMap<ufbx_mesh*, RID> meshes;
+		HashMap<ufbx_mesh*, RID>     meshes;
 	};
 
 
@@ -94,13 +93,14 @@ namespace Skore
 
 		if (texture->content.data != nullptr && texture->content.size > 0)
 		{
-			Span data = Span((u8*)texture->content.data, texture->content.size);
+			Span   data = Span((u8*)texture->content.data, texture->content.size);
 			String name = Path::Name(StringView{texture->relative_filename.data, texture->relative_filename.length});
+			textureImportSettings.createAssetFile = false;
 			if (RID textureRID = ImportTextureFromMemory(directory, textureImportSettings, name, data, scope))
 			{
 				return textureRID;
 			}
- 		}
+		}
 
 		String absolutePath;
 		if (texture->filename.length > 0)
@@ -139,6 +139,36 @@ namespace Skore
 			materialObject.SetReference(MaterialResource::BaseColorTexture, it->second);
 		}
 
+		if (auto it = cache.textures.Find(material->pbr.base_color.texture))
+		{
+			materialObject.SetReference(MaterialResource::BaseColorTexture, it->second);
+		}
+
+		if (auto it = cache.textures.Find(material->pbr.normal_map.texture))
+		{
+			materialObject.SetReference(MaterialResource::NormalTexture, it->second);
+		}
+
+		if (auto it = cache.textures.Find(material->pbr.metalness.texture))
+		{
+			materialObject.SetReference(MaterialResource::MetallicTexture, it->second);
+		}
+
+		if (auto it = cache.textures.Find(material->pbr.roughness.texture))
+		{
+			materialObject.SetReference(MaterialResource::RoughnessTexture, it->second);
+		}
+
+		if (auto it = cache.textures.Find(material->pbr.ambient_occlusion.texture))
+		{
+			materialObject.SetReference(MaterialResource::OcclusionTexture, it->second);
+		}
+
+		if (auto it = cache.textures.Find(material->pbr.emission_color.texture))
+		{
+			materialObject.SetReference(MaterialResource::EmissiveTexture, it->second);
+		}
+
 		materialObject.Commit(scope);
 
 		return materialResource;
@@ -147,185 +177,301 @@ namespace Skore
 
 	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_mesh* mesh, UndoRedoScope* scope)
 	{
-		// Get total vertex and index counts
-		size_t totalVertices = mesh->num_vertices;
-		size_t totalIndices = mesh->num_indices;
+		Allocator* alloc = MemoryGlobals::GetHeapAllocator();
 
-		Array<StaticMeshResource::Vertex>    vertices;
-		Array<u32>                           indices;
-		Array<StaticMeshResource::Primitive> primitives;
-		Array<RID>                           meshMaterials;
+		size_t max_parts = 0;
+		size_t max_triangles = 0;
 
-		vertices.Reserve(totalVertices);
-		indices.Reserve(totalIndices);
-		primitives.Reserve(mesh->materials.count);
-
-		meshMaterials.Reserve(mesh->materials.count);
-
-		// Check for available vertex attributes
-		bool hasNormals = mesh->vertex_normal.exists;
-		bool hasTangents = mesh->vertex_tangent.exists;
-		bool hasTexCoords = mesh->vertex_uv.exists;
-		bool hasColors = mesh->vertex_color.exists;
-
-		// Material mapping
-		for (u32 i = 0; i < mesh->materials.count; i++)
+		for (size_t pi = 0; pi < mesh->material_parts.count; pi++)
 		{
-			if (ufbx_material* material = mesh->materials.data[i])
-			{
-				if (auto it = cache.materials.Find(material))
-				{
-					meshMaterials.EmplaceBack(it->second);
-				}
-			}
+			ufbx_mesh_part* part = &mesh->material_parts.data[pi];
+			if (part->num_triangles == 0) continue;
+			max_parts += 1;
+			max_triangles = Math::Max(max_triangles, part->num_triangles);
 		}
 
-		// Extract vertices
-		for (u32 i = 0; i < mesh->num_vertices; i++)
+		// Temporary buffers
+		size_t num_tri_indices = mesh->max_face_triangles * 3;
+		u32* tri_indices = static_cast<u32*>(alloc->MemAlloc(alloc->allocator, sizeof(u32) * num_tri_indices));
+
+		StaticMeshResource::Vertex* vertices = nullptr;
+		StaticMeshResource::Primitive* primitives = nullptr;
+
+		size_t num_parts = 0;
+
+		//  mesh_vertex *vertices = alloc(mesh_vertex, max_triangles * 3);
+
+		// skin_vertex *skin_vertices = alloc(skin_vertex, max_triangles * 3);
+		// skin_vertex *mesh_skin_vertices = alloc(skin_vertex, mesh->num_vertices);
+		u32 *indices = static_cast<u32*>(alloc->MemAlloc(alloc->allocator, sizeof(u32) * max_triangles * 3));
+
+		if (mesh->skin_deformers.count > 0)
 		{
-			StaticMeshResource::Vertex vertex;
+			//TODO
+		}
 
-			// Default values
-			vertex.position = Vec3{0, 0, 0};
-			vertex.normal = Vec3{0, 1, 0};
-			vertex.texCoord = Vec2{0, 0};
-			vertex.color = Vec3{1, 1, 1};
-			vertex.tangent = Vec4{1, 0, 0, 1};
+		for (size_t pi = 0; pi < mesh->material_parts.count; pi++)
+		{
+			ufbx_mesh_part* mesh_part = &mesh->material_parts.data[pi];
+			if (mesh_part->num_triangles == 0) continue;
 
-			// Position
-			vertex.position = ToVec3(mesh->vertex_position.values[i]);
+			StaticMeshResource::Primitive* part = &primitives[num_parts++];
+			size_t            num_indices = 0;
 
-			// Normal
-			if (hasNormals && mesh->vertex_normal.values.count > i)
+			// First fetch all vertices into a flat non-indexed buffer, we also need to
+			// triangulate the faces
+			for (size_t fi = 0; fi < mesh_part->num_faces; fi++)
 			{
-				vertex.normal = ToVec3(mesh->vertex_normal.values[i]);
-			}
+				ufbx_face face = mesh->faces.data[mesh_part->face_indices.data[fi]];
+				size_t    num_tris = ufbx_triangulate_face(tri_indices, num_tri_indices, mesh, face);
 
-			// UV coordinates
-			if (hasTexCoords && mesh->vertex_uv.values.count > i)
-			{
-				vertex.texCoord.x = mesh->vertex_uv.values[i].x;
-				vertex.texCoord.y = 1.0f - mesh->vertex_uv.values[i].y; // Flip Y for UV
-			}
+				ufbx_vec2 default_uv = {0};
 
-			// Vertex colors
-			if (hasColors && mesh->vertex_color.values.count > i)
-			{
-				vertex.color = ToVec4(mesh->vertex_color.values[i]);
-			}
-
-			// Tangents
-			if (hasTangents)
-			{
-				vertex.tangent.x = mesh->vertex_tangent.values[i].x;
-				vertex.tangent.y = mesh->vertex_tangent.values[i].y;
-				vertex.tangent.z = mesh->vertex_tangent.values[i].z;
-
-				// Use bitangent to compute handedness (w component)
-				if (mesh->vertex_bitangent.exists)
+				// Iterate through every vertex of every triangle in the triangulated result
+				for (size_t vi = 0; vi < num_tris * 3; vi++)
 				{
-					ufbx_vec3 normal = mesh->vertex_normal.values[i];
-					ufbx_vec3 tangent = mesh->vertex_tangent.values[i];
-					ufbx_vec3 bitangent = mesh->vertex_bitangent.values[i];
+					uint32_t     ix = tri_indices[vi];
+					StaticMeshResource::Vertex* vert = &vertices[num_indices];
 
-					// Cross product to determine handedness
-					ufbx_vec3 crossProduct;
-					crossProduct.x = normal.y * tangent.z - normal.z * tangent.y;
-					crossProduct.y = normal.z * tangent.x - normal.x * tangent.z;
-					crossProduct.z = normal.x * tangent.y - normal.y * tangent.x;
+					ufbx_vec3 pos = ufbx_get_vertex_vec3(&mesh->vertex_position, ix);
+					ufbx_vec3 normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, ix);
+					ufbx_vec2 uv = mesh->vertex_uv.exists ? ufbx_get_vertex_vec2(&mesh->vertex_uv, ix) : default_uv;
 
-					// Dot product with bitangent
-					float dot = crossProduct.x * bitangent.x + crossProduct.y * bitangent.y + crossProduct.z * bitangent.z;
-					vertex.tangent.w = dot > 0.0f ? 1.0f : -1.0f;
-				}
-				else
-				{
-					vertex.tangent.w = 1.0f;
+					vert->position = ToVec3(pos);
+					vert->normal = Math::Normalize(ToVec3(normal));
+					vert->texCoord = ToVec2(uv);
+
+					//vert->f_vertex_index = (f32)mesh->vertex_indices.data[ix];
+
+					// The skinning vertex stream is pre-calculated above so we just need to
+					// copy the right one by the vertex index.
+					// if (skin)
+					// {
+					// 	skin_vertices[num_indices] = mesh_skin_vertices[mesh->vertex_indices.data[ix]];
+					// }
+
+					num_indices++;
 				}
 			}
 
-			vertices.EmplaceBack(vertex);
-		}
+			ufbx_vertex_stream streams[2];
+			size_t num_streams = 1;
 
-		// Extract triangles
-		u32 materialIndex = 0;
-		u32 firstIndex = 0;
-		size_t materialStartFace = 0;
-		size_t materialFaceCount = 0;
+			streams[0].data = vertices;
+			streams[0].vertex_count = num_indices;
+			streams[0].vertex_size = sizeof(StaticMeshResource::Vertex);
 
+			// if (skin) {
+			// 	streams[1].data = skin_vertices;
+			// 	streams[1].vertex_count = num_indices;
+			// 	streams[1].vertex_size = sizeof(skin_vertex);
+			// 	num_streams = 2;
+			// }
 
-		for (u32 i = 0; i < mesh->face_material.count; i++)
-		{
-			ufbx_face face = mesh->faces.data[i];
-			u32 currentMaterialIndex = mesh->face_material.data[i];
-
-			if (i == 0)
-			{
-				materialIndex = currentMaterialIndex;
-				materialStartFace = 0;
+			// Optimize the flat vertex buffer into an indexed one. `ufbx_generate_indices()`
+			// compacts the vertex buffer and returns the number of used vertices.
+			ufbx_error error;
+			size_t num_vertices = ufbx_generate_indices(streams, num_streams, indices, num_indices, NULL, &error);
+			if (error.type != UFBX_ERROR_NONE) {
+				logger.Error("Failed to generate index buffer");
+				return {};
 			}
 
-			if (currentMaterialIndex != materialIndex || i == mesh->face_material.count - 1)
+			part->firstIndex = 0;
+			part->indexCount = num_indices;
+			if (mesh_part->index < mesh->materials.count)
 			{
-				if (i == mesh->face_material.count - 1)
-				{
-					materialFaceCount++;
-				}
-
-				StaticMeshResource::Primitive primitive;
-				primitive.firstIndex = firstIndex;
-				primitive.indexCount = (u32)(materialFaceCount * 3); // Triangulated faces
-				primitive.materialIndex = materialIndex < meshMaterials.Size() ? materialIndex : 0;
-				primitives.EmplaceBack(primitive);
-
-				// Start a new primitive with this material
-				firstIndex += primitive.indexCount;
-				materialIndex = currentMaterialIndex;
-				materialStartFace = i;
-				materialFaceCount = 0;
+				ufbx_material* material = mesh->materials.data[mesh_part->index];
+				part->materialIndex = static_cast<int32_t>(material->typed_id);
 			}
-
-			materialFaceCount++;
-		}
-
-		// If no primitives were created, create a single one for all indices
-		if (primitives.Empty() && !vertices.Empty())
-		{
-			StaticMeshResource::Primitive primitive;
-			primitive.firstIndex = 0;
-			primitive.indexCount = (u32)indices.Size();
-			primitive.materialIndex = 0;
-			primitives.EmplaceBack(primitive);
-		}
-
-		// Now process and add the indices
-		for (u32 i = 0; i < mesh->num_indices; i++)
-		{
-			indices.EmplaceBack(mesh->vertex_indices[i]);
-		}
-
-		if (settings.generateNormals || !hasNormals)
-		{
-			MeshTools::CalcNormals(vertices, indices);
-		}
-
-		if (settings.recalculateTangents || !hasTangents)
-		{
-			MeshTools::CalcTangents(vertices, indices, true);
+			else
+			{
+				part->materialIndex = 0;
+			}
 		}
 
 
-		RID meshResource = Resources::Create<StaticMeshResource>(UUID::RandomUUID(), scope);
+		return {};
 
-		ResourceObject meshObject = Resources::Write(meshResource);
-		meshObject.SetString(StaticMeshResource::Name, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : name);
-		meshObject.SetReferenceArray(StaticMeshResource::Materials, meshMaterials);
-		meshObject.SetBlob(StaticMeshResource::Vertices, Span(reinterpret_cast<u8*>(vertices.Data()), vertices.Size() * sizeof(StaticMeshResource::Vertex)));
-		meshObject.SetBlob(StaticMeshResource::Indices, Span(reinterpret_cast<u8*>(indices.Data()), indices.Size() * sizeof(u32)));
-		meshObject.SetBlob(StaticMeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(StaticMeshResource::Primitive)));
-		meshObject.Commit(scope);
 
-		return meshResource;
+		// // Get total vertex and index counts
+		// size_t totalVertices = mesh->num_vertices;
+		// size_t totalIndices = mesh->num_indices;
+		//
+		// Array<StaticMeshResource::Vertex>    vertices;
+		// Array<u32>                           indices;
+		// Array<StaticMeshResource::Primitive> primitives;
+		// Array<RID>                           meshMaterials;
+		//
+		// vertices.Reserve(totalVertices);
+		// indices.Reserve(totalIndices);
+		// primitives.Reserve(mesh->materials.count);
+		// meshMaterials.Reserve(mesh->materials.count);
+		//
+		// // Check for available vertex attributes
+		// bool hasNormals = mesh->vertex_normal.exists;
+		// bool hasTangents = mesh->vertex_tangent.exists;
+		// bool hasTexCoords = mesh->vertex_uv.exists;
+		// bool hasColors = mesh->vertex_color.exists;
+		//
+		// // Material mapping
+		// for (u32 i = 0; i < mesh->materials.count; i++)
+		// {
+		// 	if (ufbx_material* material = mesh->materials.data[i])
+		// 	{
+		// 		if (auto it = cache.materials.Find(material))
+		// 		{
+		// 			meshMaterials.EmplaceBack(it->second);
+		// 		}
+		// 	}
+		// }
+		//
+		// // Extract vertices
+		// for (u32 i = 0; i < mesh->num_vertices; i++)
+		// {
+		// 	StaticMeshResource::Vertex vertex;
+		//
+		// 	// Default values
+		// 	vertex.position = Vec3{0, 0, 0};
+		// 	vertex.normal = Vec3{0, 1, 0};
+		// 	vertex.texCoord = Vec2{0, 0};
+		// 	vertex.color = Vec3{1, 1, 1};
+		// 	vertex.tangent = Vec4{1, 0, 0, 1};
+		//
+		// 	// Position
+		// 	vertex.position = ToVec3(mesh->vertex_position.values[i]);
+		//
+		// 	// Normal
+		// 	if (hasNormals && mesh->vertex_normal.values.count > i)
+		// 	{
+		// 		vertex.normal = ToVec3(mesh->vertex_normal.values[i]);
+		// 	}
+		//
+		// 	// UV coordinates
+		// 	if (hasTexCoords && mesh->vertex_uv.values.count > i)
+		// 	{
+		// 		vertex.texCoord.x = mesh->vertex_uv.values[i].x;
+		// 		vertex.texCoord.y = 1.0f - mesh->vertex_uv.values[i].y; // Flip Y for UV
+		// 	}
+		//
+		// 	// Vertex colors
+		// 	if (hasColors && mesh->vertex_color.values.count > i)
+		// 	{
+		// 		vertex.color = ToVec4(mesh->vertex_color.values[i]);
+		// 	}
+		//
+		// 	// Tangents
+		// 	if (hasTangents)
+		// 	{
+		// 		vertex.tangent.x = mesh->vertex_tangent.values[i].x;
+		// 		vertex.tangent.y = mesh->vertex_tangent.values[i].y;
+		// 		vertex.tangent.z = mesh->vertex_tangent.values[i].z;
+		//
+		// 		// Use bitangent to compute handedness (w component)
+		// 		if (mesh->vertex_bitangent.exists)
+		// 		{
+		// 			ufbx_vec3 normal = mesh->vertex_normal.values[i];
+		// 			ufbx_vec3 tangent = mesh->vertex_tangent.values[i];
+		// 			ufbx_vec3 bitangent = mesh->vertex_bitangent.values[i];
+		//
+		// 			// Cross product to determine handedness
+		// 			ufbx_vec3 crossProduct;
+		// 			crossProduct.x = normal.y * tangent.z - normal.z * tangent.y;
+		// 			crossProduct.y = normal.z * tangent.x - normal.x * tangent.z;
+		// 			crossProduct.z = normal.x * tangent.y - normal.y * tangent.x;
+		//
+		// 			// Dot product with bitangent
+		// 			float dot = crossProduct.x * bitangent.x + crossProduct.y * bitangent.y + crossProduct.z * bitangent.z;
+		// 			vertex.tangent.w = dot > 0.0f ? 1.0f : -1.0f;
+		// 		}
+		// 		else
+		// 		{
+		// 			vertex.tangent.w = 1.0f;
+		// 		}
+		// 	}
+		//
+		// 	vertices.EmplaceBack(vertex);
+		// }
+		//
+		// // Extract triangles
+		// u32 materialIndex = 0;
+		// u32 firstIndex = 0;
+		// size_t materialStartFace = 0;
+		// size_t materialFaceCount = 0;
+		//
+		//
+		// for (u32 i = 0; i < mesh->face_material.count; i++)
+		// {
+		// 	ufbx_face face = mesh->faces.data[i];
+		// 	u32 currentMaterialIndex = mesh->face_material.data[i];
+		//
+		// 	if (i == 0)
+		// 	{
+		// 		materialIndex = currentMaterialIndex;
+		// 		materialStartFace = 0;
+		// 	}
+		//
+		// 	if (currentMaterialIndex != materialIndex || i == mesh->face_material.count - 1)
+		// 	{
+		// 		if (i == mesh->face_material.count - 1)
+		// 		{
+		// 			materialFaceCount++;
+		// 		}
+		//
+		// 		StaticMeshResource::Primitive primitive;
+		// 		primitive.firstIndex = firstIndex;
+		// 		primitive.indexCount = (u32)(materialFaceCount * 3); // Triangulated faces
+		// 		primitive.materialIndex = materialIndex < meshMaterials.Size() ? materialIndex : 0;
+		// 		primitives.EmplaceBack(primitive);
+		//
+		// 		// Start a new primitive with this material
+		// 		firstIndex += primitive.indexCount;
+		// 		materialIndex = currentMaterialIndex;
+		// 		materialStartFace = i;
+		// 		materialFaceCount = 0;
+		// 	}
+		//
+		// 	materialFaceCount++;
+		// }
+		//
+		// // If no primitives were created, create a single one for all indices
+		// if (primitives.Empty() && !vertices.Empty())
+		// {
+		// 	StaticMeshResource::Primitive primitive;
+		// 	primitive.firstIndex = 0;
+		// 	primitive.indexCount = (u32)indices.Size();
+		// 	primitive.materialIndex = 0;
+		// 	primitives.EmplaceBack(primitive);
+		// }
+		//
+		// // Now process and add the indices
+		// for (u32 i = 0; i < mesh->num_indices; i++)
+		// {
+		// 	indices.EmplaceBack(mesh->vertex_indices[i]);
+		// }
+		//
+		// if (settings.generateNormals || !hasNormals)
+		// {
+		// 	MeshTools::CalcNormals(vertices, indices);
+		// }
+		//
+		// if (settings.recalculateTangents || !hasTangents)
+		// {
+		// 	MeshTools::CalcTangents(vertices, indices, true);
+		// }
+		//
+		//
+		// RID meshResource = Resources::Create<StaticMeshResource>(UUID::RandomUUID(), scope);
+		//
+		// ResourceObject meshObject = Resources::Write(meshResource);
+		// meshObject.SetString(StaticMeshResource::Name, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : name);
+		// meshObject.SetReferenceArray(StaticMeshResource::Materials, meshMaterials);
+		// meshObject.SetBlob(StaticMeshResource::Vertices, Span(reinterpret_cast<u8*>(vertices.Data()), vertices.Size() * sizeof(StaticMeshResource::Vertex)));
+		// meshObject.SetBlob(StaticMeshResource::Indices, Span(reinterpret_cast<u8*>(indices.Data()), indices.Size() * sizeof(u32)));
+		// meshObject.SetBlob(StaticMeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(StaticMeshResource::Primitive)));
+		// meshObject.Commit(scope);
+		//
+		// return meshResource;
 	}
 
 	RID ProcessNode(const FBXImportSettings& settings, const ufbx_node* node, FBXImportCache& cache, const ufbx_scene* fbxScene, UndoRedoScope* scope)
@@ -361,7 +507,6 @@ namespace Skore
 		// Handle mesh
 		if (node->mesh)
 		{
-
 			auto meshIt = cache.meshes.Find(node->mesh);
 			if (meshIt == cache.meshes.end())
 			{
@@ -405,10 +550,15 @@ namespace Skore
 		dccAssetObject.SetString(DCCAssetResource::Name, Path::Name(path));
 
 		{
-			ufbx_load_opts opts = {};
+			ufbx_load_opts opts;
+			opts.target_unit_meters = 1.0;
+			opts.ignore_missing_external_files = true;
+			opts.evaluate_skinning = true;
+			opts.normalize_tangents = true;
+			opts.connect_broken_elements = true;
 
 			// Load FBX file
-			ufbx_error error;
+			ufbx_error  error;
 			ufbx_scene* scene = ufbx_load_file(path.Data(), &opts, &error);
 
 			if (!scene)
@@ -467,7 +617,7 @@ namespace Skore
 				}
 			}
 
-			for (const auto& it: cache.meshes)
+			for (const auto& it : cache.meshes)
 			{
 				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Meshes, it.second);
 			}

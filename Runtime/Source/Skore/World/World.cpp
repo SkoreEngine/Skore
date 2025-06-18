@@ -34,7 +34,10 @@ namespace Skore
 
 	World::~World()
 	{
-		m_rootEntity->DestroyInternal(false);
+		if (m_rootEntity)
+		{
+			m_rootEntity->DestroyInternal(false);
+		}
 	}
 
 	Entity* World::GetRootEntity() const

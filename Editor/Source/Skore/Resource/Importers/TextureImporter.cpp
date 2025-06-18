@@ -78,7 +78,17 @@ namespace Skore
 
 	RID ImportTextureFromMemory(RID directory, const TextureImportSettings& settings, StringView name, Span<u8> data, UndoRedoScope* scope)
 	{
-		RID texture = ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), name, scope, "");
+		RID texture;
+
+		if (settings.createAssetFile)
+		{
+			texture = ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), name, scope, "");
+		}
+		else
+		{
+			texture = Resources::Create<TextureResource>(UUID::RandomUUID(), scope);
+		}
+
 
 		i32 width{};
 		i32 height{};
