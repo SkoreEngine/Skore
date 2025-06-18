@@ -28,6 +28,8 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 
 #include <ufbx.h>
+
+#include "TextureImporter.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
@@ -40,7 +42,7 @@ namespace Skore
 
 	struct FBXImportCache
 	{
-		Array<RID> textures;
+		HashMap<ufbx_texture*, RID> textures;
 		HashMap<ufbx_material*, RID> materials;
 		HashMap<ufbx_mesh*, RID> meshes;
 	};
@@ -79,58 +81,71 @@ namespace Skore
 		}
 	};
 
-	RID ProcessTextures(const FBXImportSettings& settings, StringView basePath, ufbx_texture* texture, ufbx_scene* scene, UndoRedoScope* scope)
+	RID ProcessTextures(RID directory, const FBXImportSettings& settings, StringView basePath, ufbx_texture* texture, ufbx_scene* scene, UndoRedoScope* scope)
 	{
-		if (!texture || !texture->filename.data)
+		if (!texture)
 		{
 			return {};
 		}
 
-		String textureName = texture->name.data ? texture->name.data : "Texture";
-		String texturePath = Path::Join(basePath, texture->filename.data);
+		TextureImportSettings textureImportSettings;
+		textureImportSettings.filterMode = FilterMode::Linear;
+		textureImportSettings.wrapMode = texture->wrap_u == UFBX_WRAP_CLAMP ? AddressMode::ClampToBorder : AddressMode::Repeat;
 
 		if (texture->content.data != nullptr && texture->content.size > 0)
 		{
-			int a = 0;
+			Span data = Span((u8*)texture->content.data, texture->content.size);
+			String name = Path::Name(StringView{texture->relative_filename.data, texture->relative_filename.length});
+			if (RID textureRID = ImportTextureFromMemory(directory, textureImportSettings, name, data, scope))
+			{
+				return textureRID;
+			}
+ 		}
+
+		String absolutePath;
+		if (texture->filename.length > 0)
+		{
+			//try by texture->filename
+			absolutePath = String{texture->filename.data, texture->filename.length};
 		}
 
-		// if (textureFile == nullptr)
-		// {
-		// 	if (texture->relative_filename.data)
-		// 	{
-		// 		texturePath = Path::Join(basePath, texture->relative_filename.data);
-		// 		textureFile = AssetEditor::GetFileByAbsolutePath(texturePath);
-		// 	}
-		//
-		// 	if (textureFile == nullptr)
-		// 	{
-		// 		logger.Warn("texture file not found {} ", texture->filename.data);
-		// 		parentAsset->SetStatus(AssetStatus::Warning);
-		// 		parentAsset->AddMissingFile(texture->filename.data);
-		// 		return nullptr;
-		// 	}
-		// }
+		if (!FileSystem::GetFileStatus(absolutePath).exists)
+		{
+			//it didn't work, try joining
+			absolutePath = Path::Join(basePath, StringView{texture->relative_filename.data, texture->relative_filename.length});
+		}
+
+		//if found, import the texture
+		//TODO: check if texture already exists in the path?
+		if (FileSystem::GetFileStatus(absolutePath).exists)
+		{
+			return ImportTexture(directory, textureImportSettings, absolutePath, scope);
+		}
 
 		return {};
 	}
 
 
-	RID ProcessMaterials(const FBXImportSettings& settings, FBXImportCache& cache, ufbx_material* material, ufbx_scene* scene, UndoRedoScope* scope)
+	RID ProcessMaterials(const FBXImportSettings& settings, FBXImportCache& cache, ufbx_material* material, UndoRedoScope* scope)
 	{
 		RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), scope);
 
-		Color baseColor = Color::FromVec3(ToVec3(material->pbr.base_color.value_vec3));
-
 		ResourceObject materialObject = Resources::Write(materialResource);
 		materialObject.SetString(MaterialResource::Name, !IsStrNullOrEmpty(material->name.data) ? material->name.data : "Material");
-		materialObject.SetColor(MaterialResource::BaseColor, baseColor);
+		materialObject.SetColor(MaterialResource::BaseColor, Color::FromVec3(ToVec3(material->pbr.base_color.value_vec3)));
+
+		if (auto it = cache.textures.Find(material->pbr.base_color.texture))
+		{
+			materialObject.SetReference(MaterialResource::BaseColorTexture, it->second);
+		}
+
 		materialObject.Commit(scope);
 
 		return materialResource;
 	}
 
 
-	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_mesh* mesh, const ufbx_scene* scene, UndoRedoScope* scope)
+	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_mesh* mesh, UndoRedoScope* scope)
 	{
 		// Get total vertex and index counts
 		size_t totalVertices = mesh->num_vertices;
@@ -350,7 +365,7 @@ namespace Skore
 			auto meshIt = cache.meshes.Find(node->mesh);
 			if (meshIt == cache.meshes.end())
 			{
-				if (RID meshRID = ProcessMesh(settings, cache, nodeName, node->mesh, fbxScene, scope))
+				if (RID meshRID = ProcessMesh(settings, cache, nodeName, node->mesh, scope))
 				{
 					meshIt = cache.meshes.Insert(node->mesh, meshRID).first;
 				}
@@ -366,7 +381,6 @@ namespace Skore
 
 				entityObject.AddToSubObjectSet(EntityResource::Components, staticMeshRender);
 			}
-
 		}
 
 		// Process children
@@ -405,17 +419,14 @@ namespace Skore
 
 			FBXImportCache cache;
 
-			cache.textures.Reserve(scene->textures.count);
-
 			String basePath = Path::Parent(path);
 			String name = Path::Name(path);
 
 			for (u32 i = 0; i < scene->textures.count; i++)
 			{
-				RID texture = ProcessTextures(settings, basePath, scene->textures.data[i], scene, scope);
-				cache.textures.EmplaceBack(texture);
-				if (texture)
+				if (RID texture = ProcessTextures(directory, settings, basePath, scene->textures.data[i], scene, scope))
 				{
+					cache.textures.Insert(scene->textures.data[i], texture);
 					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Textures, texture);
 				}
 			}
@@ -423,7 +434,7 @@ namespace Skore
 			// Process Materials
 			for (u32 i = 0; i < scene->materials.count; i++)
 			{
-				if (RID materialRID = ProcessMaterials(settings, cache, scene->materials.data[i], scene, scope))
+				if (RID materialRID = ProcessMaterials(settings, cache, scene->materials.data[i], scope))
 				{
 					cache.materials.Insert(scene->materials.data[i], materialRID);
 					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Materials, materialRID);
@@ -449,7 +460,7 @@ namespace Skore
 				ufbx_mesh* mesh = scene->meshes.data[i];
 				if (!cache.meshes.Has(mesh))
 				{
-					if (RID meshRID = ProcessMesh(settings, cache, String("Mesh").Append(i), mesh, scene, scope))
+					if (RID meshRID = ProcessMesh(settings, cache, String("Mesh").Append(ToString(i)), mesh, scope))
 					{
 						cache.meshes.Insert(mesh, meshRID);
 					}

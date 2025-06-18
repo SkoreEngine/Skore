@@ -218,9 +218,9 @@ namespace
 
 
 			HashSet<RID> arr = ToHashSet<RID>(readClone.GetSubObjectSetAsArray(ResourceTest::SubObjectSet));
-			CHECK(arr.Size() == 1);
+			REQUIRE(arr.Size() == 1);
 			arr.Erase(subobjectToSet);
-			CHECK(arr.Size() == 1);
+			REQUIRE(arr.Size() == 1);
 
 			auto it = arr.begin();
 

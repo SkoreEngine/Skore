@@ -117,6 +117,18 @@ namespace Skore
 		void Commit(UndoRedoScope* scope = nullptr);
 
 		template <typename T>
+		void SetEnum(u32 index, T enumValue)
+		{
+			SetEnum(index, static_cast<i64>(enumValue));
+		}
+
+		template <typename T>
+		T GetEnum(u32 index)
+		{
+			return static_cast<T>(GetEnum(index));
+		}
+
+		template <typename T>
 		void IterateSubObjectSet(u32 index, bool prototypeIterate, T&& func) const
 		{
 			IterateSubObjectSet(index, prototypeIterate, [](RID rid, VoidPtr userData)

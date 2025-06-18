@@ -105,6 +105,8 @@ namespace Skore
 	{
 		for (ResourceField* field : fields)
 		{
+			if (field == nullptr) continue;
+
 			DestroyAndFree(field);
 		}
 	}
@@ -220,6 +222,8 @@ namespace Skore
 
 		for (ResourceField* field : resourceType->fields)
 		{
+			if (field == nullptr) continue;
+
 			const TypeProps& props = fieldProps[static_cast<usize>(field->type)];
 			field->size = props.size;
 			field->offset = resourceType->allocSize;

@@ -31,6 +31,10 @@
 
 namespace Skore
 {
+	struct TextureStorageData
+	{
+		GPUTexture* texture;
+	};
 
 	struct MaterialStorageData
 	{

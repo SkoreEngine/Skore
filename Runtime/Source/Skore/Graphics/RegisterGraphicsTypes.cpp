@@ -686,6 +686,9 @@ namespace Skore
 		Resources::Type<TextureResource>()
 			.Field<TextureResource::Name>(ResourceFieldType::String)
 			.Field<TextureResource::Extent>(ResourceFieldType::Vec3)
+			.Field<TextureResource::Format>(ResourceFieldType::Enum, TypeInfo<TextureFormat>::ID())
+			.Field<TextureResource::WrapMode>(ResourceFieldType::Enum, TypeInfo<AddressMode>::ID())
+			.Field<TextureResource::FilterMode>(ResourceFieldType::Enum, TypeInfo<FilterMode>::ID())
 			.Field<TextureResource::Pixels>(ResourceFieldType::Blob)
 			.Build();
 

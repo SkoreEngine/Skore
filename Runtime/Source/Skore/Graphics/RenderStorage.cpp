@@ -45,16 +45,58 @@ namespace Skore
 	{
 		HashMap<RID, std::shared_ptr<MaterialStorageData>> materialCache;
 		HashMap<RID, std::shared_ptr<MeshStorageData>>     meshCache;
+		HashMap<RID, std::shared_ptr<TextureStorageData>>  textureCache;
+
+
+		TextureStorageData* GetOrLoadTexture(RID texture)
+		{
+			auto it = textureCache.Find(texture);
+			if (it == textureCache.end())
+			{
+				std::shared_ptr<TextureStorageData> textureStorage = std::make_shared<TextureStorageData>();
+
+				if (ResourceObject textureObject = Resources::Read(texture))
+				{
+					Span<u8> textureData = textureObject.GetBlob(TextureResource::Pixels);
+
+					if (!textureData.Empty())
+					{
+						StringView    name = textureObject.GetString(TextureResource::Name);
+						TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+						Vec3          extent = textureObject.GetVec3(TextureResource::Extent);
+
+						textureStorage->texture = Graphics::CreateTexture(TextureDesc{
+							.extent = {static_cast<u32>(extent.x), static_cast<u32>(extent.y), static_cast<u32>(extent.z)},
+							.format = format,
+							.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
+							.debugName = String(name) + "_Texture"
+						});
+
+						TextureDataInfo textureDataInfo{
+							.texture = textureStorage->texture,
+							.data = textureData.Data(),
+							.size = textureData.Size()
+						};
+
+						Graphics::UploadTextureData(textureDataInfo);
+					}
+				}
+				it = textureCache.Emplace(texture, Traits::Move(textureStorage)).first;
+			}
+			return it->second.get();
+		}
+
 
 		bool UpdateTexture(GPUDescriptorSet* descriptorSet, RID texture, u32 slot)
 		{
 			if (texture)
 			{
-				// if (GPUTexture* texture = textureAsset->GetTexture())
-				// {
-				// 	descriptorSet->UpdateTexture(slot, texture);
-				// 	return true;
-				// }
+				TextureStorageData* data = GetOrLoadTexture(texture);
+				if (data->texture)
+				{
+					descriptorSet->UpdateTexture(slot, data->texture);
+					return true;
+				}
 			}
 
 			descriptorSet->UpdateTexture(slot, Graphics::GetWhiteTexture());
@@ -69,10 +111,10 @@ namespace Skore
 			{
 				std::shared_ptr<MaterialStorageData> materialData = std::make_shared<MaterialStorageData>();
 
-
 				ResourceObject materialObject = Resources::Read(material);
-				StringView name = materialObject.GetString(MaterialResource::Name);
-				Color baseColor = materialObject.GetColor(MaterialResource::BaseColor);
+				StringView     name = materialObject.GetString(MaterialResource::Name);
+				Color          baseColor = materialObject.GetColor(MaterialResource::BaseColor);
+				RID            baseColorTexture = materialObject.GetReference(MaterialResource::BaseColorTexture);
 
 
 				if (materialData->materialBuffer == nullptr)
@@ -119,7 +161,6 @@ namespace Skore
 				materialData->descriptorSet->UpdateBuffer(0, materialData->materialBuffer, 0, 0);
 				materialData->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
 
-				RID baseColorTexture = {};
 				RID normalTexture = {};
 				RID roughnessTexture = {};
 				RID metallicTexture = {};
@@ -177,51 +218,52 @@ namespace Skore
 			{
 				std::shared_ptr<MeshStorageData> meshData = std::make_shared<MeshStorageData>();
 
-				ResourceObject meshObject = Resources::Read(mesh);
-
-				StringView name = meshObject.GetString(StaticMeshResource::Name);
-				Span<RID>  materials = meshObject.GetReferenceArray(StaticMeshResource::Materials);
-				Span<u8>   vertices = meshObject.GetBlob(StaticMeshResource::Vertices);
-				Span<u8>   indices = meshObject.GetBlob(StaticMeshResource::Indices);
-				Span<u8>   primitives = meshObject.GetBlob(StaticMeshResource::Primitives);
-
-
-				meshData->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
-					.size = vertices.Size(),
-					.usage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer,
-					.hostVisible = false,
-					.persistentMapped = false,
-					.debugName = String(name) + "_VertexBuffer"
-				});
-
-				Graphics::UploadBufferData(BufferUploadInfo{
-					.buffer = meshData->vertexBuffer,
-					.data = vertices.Data(),
-					.size = vertices.Size()
-				});
-
-				meshData->indexBuffer = Graphics::CreateBuffer(BufferDesc{
-					.size = indices.Size(),
-					.usage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer,
-					.hostVisible = false,
-					.persistentMapped = false,
-					.debugName = String(name) + "_IndexBuffer"
-				});
-
-				Graphics::UploadBufferData(BufferUploadInfo{
-					.buffer = meshData->indexBuffer,
-					.data = indices.Data(),
-					.size = indices.Size()
-				});
-
-				meshData->primitives.Resize(primitives.Size() / sizeof(StaticMeshResource::Primitive));
-				memcpy(meshData->primitives.Data(), primitives.Data(), primitives.Size());
-
-
-				meshData->materials.Reserve(materials.Size());
-				for (usize i = 0; i < materials.Size(); i++)
+				if (ResourceObject meshObject = Resources::Read(mesh))
 				{
-					meshData->materials.EmplaceBack(GetOrLoadMaterial(materials[i])->descriptorSet);
+					StringView name = meshObject.GetString(StaticMeshResource::Name);
+					Span<RID>  materials = meshObject.GetReferenceArray(StaticMeshResource::Materials);
+					Span<u8>   vertices = meshObject.GetBlob(StaticMeshResource::Vertices);
+					Span<u8>   indices = meshObject.GetBlob(StaticMeshResource::Indices);
+					Span<u8>   primitives = meshObject.GetBlob(StaticMeshResource::Primitives);
+
+
+					meshData->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
+						.size = vertices.Size(),
+						.usage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer,
+						.hostVisible = false,
+						.persistentMapped = false,
+						.debugName = String(name) + "_VertexBuffer"
+					});
+
+					Graphics::UploadBufferData(BufferUploadInfo{
+						.buffer = meshData->vertexBuffer,
+						.data = vertices.Data(),
+						.size = vertices.Size()
+					});
+
+					meshData->indexBuffer = Graphics::CreateBuffer(BufferDesc{
+						.size = indices.Size(),
+						.usage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer,
+						.hostVisible = false,
+						.persistentMapped = false,
+						.debugName = String(name) + "_IndexBuffer"
+					});
+
+					Graphics::UploadBufferData(BufferUploadInfo{
+						.buffer = meshData->indexBuffer,
+						.data = indices.Data(),
+						.size = indices.Size()
+					});
+
+					meshData->primitives.Resize(primitives.Size() / sizeof(StaticMeshResource::Primitive));
+					memcpy(meshData->primitives.Data(), primitives.Data(), primitives.Size());
+
+
+					meshData->materials.Reserve(materials.Size());
+					for (usize i = 0; i < materials.Size(); i++)
+					{
+						meshData->materials.EmplaceBack(GetOrLoadMaterial(materials[i])->descriptorSet);
+					}
 				}
 
 				it = meshCache.Emplace(mesh, Traits::Move(meshData)).first;
@@ -232,6 +274,11 @@ namespace Skore
 
 	void ResourceStorageShutdown()
 	{
+		for (auto& it : textureCache)
+		{
+			it.second->texture->Destroy();
+		}
+
 		for (auto& it : materialCache)
 		{
 			it.second->descriptorSet->Destroy();

@@ -53,9 +53,12 @@ namespace Skore
 	{
 		enum
 		{
-			Name,   //String
-			Extent, //Vec3
-			Pixels  //Blob
+			Name,			//String
+			Extent,			//Vec3
+			Format,			//Enum
+			WrapMode,		//Enum
+			FilterMode,		//Enum
+			Pixels,			//Blob
 		};
 	};
 

@@ -235,16 +235,26 @@ namespace Skore
 		}
 	}
 
-	//clone = recreate subobjects
-	ResourceInstance CreateResourceInstanceClone(ResourceType* type, ResourceInstance origin)
+	RID CloneSubObject(ResourceStorage* parentStorage, u32 fieldIndex, RID origin, UndoRedoScope* scope)
 	{
-		if (origin == nullptr || type == nullptr) return nullptr;
+		ResourceStorage* originStorage = GetStorage(origin);
+		RID clone = Resources::Clone(origin, originStorage->uuid ? UUID::RandomUUID() : UUID{}, scope);
+		ResourceStorage* subOjectStorage = GetStorage(clone);
+		subOjectStorage->parent = parentStorage;
+		subOjectStorage->parentFieldIndex = fieldIndex;
+		return clone;
+	}
 
-		ResourceInstance instance = type->Allocate();
+	//clone = recreate subobjects
+	ResourceInstance CreateResourceInstanceClone(ResourceStorage* storage, ResourceInstance origin, UndoRedoScope* scope)
+	{
+		if (origin == nullptr || storage == nullptr || storage->resourceType == nullptr) return nullptr;
+
+		ResourceInstance instance = storage->resourceType->Allocate();
 		*reinterpret_cast<ResourceInstanceInfo*>(instance) = *reinterpret_cast<ResourceInstanceInfo*>(origin);
-		memcpy(instance + sizeof(ResourceInstanceInfo), origin + sizeof(ResourceInstanceInfo), type->GetFields().Size());
+		memcpy(instance + sizeof(ResourceInstanceInfo), origin + sizeof(ResourceInstanceInfo), storage->resourceType->GetFields().Size());
 
-		for (ResourceField* field : type->GetFields())
+		for (ResourceField* field : storage->resourceType->GetFields())
 		{
 			if (*reinterpret_cast<bool*>(&instance[sizeof(ResourceInstanceInfo) + field->GetIndex()]))
 			{
@@ -258,7 +268,7 @@ namespace Skore
 						break;
 					case ResourceFieldType::SubObject:
 					{
-						RID clone = Resources::Clone(*reinterpret_cast<RID*>(&origin[field->GetOffset()]));
+						RID clone = CloneSubObject(storage, field->GetIndex(), *reinterpret_cast<RID*>(&origin[field->GetOffset()]), scope);
 						new(reinterpret_cast<RID*>(&instance[field->GetOffset()])) RID(clone);
 						break;
 					}
@@ -270,7 +280,7 @@ namespace Skore
 						copySuobjectSet.prototypeRemoved = subObjectSet.prototypeRemoved;
 						for (RID subobject : subObjectSet.subObjects)
 						{
-							copySuobjectSet.subObjects.Emplace(Resources::Clone(subobject));
+							copySuobjectSet.subObjects.Emplace(CloneSubObject(storage, field->GetIndex(), subobject, scope));
 						}
 						new(reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])) SubObjectSet{copySuobjectSet};
 						break;
@@ -490,7 +500,7 @@ namespace Skore
 		if (storage->resourceType && storage->resourceType->defaultValue)
 		{
 			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
-			storage->instance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
+			storage->instance = CreateResourceInstanceClone(storage, defaultValueStorage->instance.load(), scope);
 		}
 
 		FinishCreation(storage);
@@ -513,7 +523,7 @@ namespace Skore
 		if (storage->resourceType && storage->resourceType->defaultValue)
 		{
 			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
-			storage->instance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
+			storage->instance = CreateResourceInstanceClone(storage, defaultValueStorage->instance.load(), scope);
 		}
 
 		FinishCreation(storage);
@@ -533,10 +543,10 @@ namespace Skore
 		RID rid = GetID(uuid);
 
 		ResourceStorage* storage = GetOrAllocate(rid, uuid);
-
-		storage->instance = CreateResourceInstanceClone(originStorage->resourceType, originStorage->instance.load());
 		storage->resourceType = originStorage->resourceType;
 		storage->prototype = originStorage->prototype;
+
+		storage->instance = CreateResourceInstanceClone(storage, originStorage->instance.load(), scope);
 
 		FinishCreation(storage);
 
@@ -552,7 +562,7 @@ namespace Skore
 		if (storage->resourceType && storage->resourceType->defaultValue)
 		{
 			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
-			newInstance = CreateResourceInstanceClone(defaultValueStorage->resourceType, defaultValueStorage->instance.load());
+			newInstance = CreateResourceInstanceClone(storage, defaultValueStorage->instance.load(), scope);
 		}
 
 		ResourceInstance oldInstance = storage->instance.exchange(newInstance);

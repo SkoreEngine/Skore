@@ -321,6 +321,8 @@ namespace Skore
 	template <typename T>
 	void DrawResource(const RID rid, u64 id, TypeID typeId, T&& func)
 	{
+		static String stringCache = {};
+
 		auto& style = ImGui::GetStyle();
 		auto& io = ImGui::GetIO();
 
@@ -408,9 +410,11 @@ namespace Skore
 
 						for (RID resourceAsset : Resources::GetResourceByType(typeId))
 						{
+							stringCache = ResourceAssets::GetAssetName(resourceAsset);
+
 							ImGuiContentItemDesc contentItem{};
 							contentItem.id = resourceAsset.id;
-							contentItem.label = ResourceAssets::GetAssetName(resourceAsset); //cache?
+							contentItem.label =  stringCache.CStr();
 							contentItem.thumbnailScale = zoom;
 							//contentItem.texture = assetFile->GetThumbnail();
 

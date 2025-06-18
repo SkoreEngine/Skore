@@ -41,30 +41,63 @@ namespace Skore
 
 		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
 		{
-			RID texture = ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), Path::Name(path), scope, path);
-
-			i32 width{};
-			i32 height{};
-			i32 channels{};
-			i32 desiredChannels = 4;
-
-			u8* bytes = stbi_load(path.CStr(), &width, &height, &channels, desiredChannels);
-
-			ResourceObject textureObject = Resources::Write(texture);
-			textureObject.SetString(TextureResource::Name, Path::Name(path));
-			textureObject.SetVec3(TextureResource::Extent, Vec3{static_cast<f32>(width), static_cast<f32>(height), 1});
-			textureObject.SetBlob(TextureResource::Pixels, Span{bytes, static_cast<usize>(width * height * desiredChannels)});
-			textureObject.Commit(scope);
-
-			stbi_image_free(bytes);
-
+			ImportTexture(directory, *static_cast<const TextureImportSettings*>(settings), path, scope);
 			return true;
 		}
-
 	};
 
 	void RegisterTextureImporter()
 	{
 		Reflection::Type<TextureImporter>();
+	}
+
+	RID ImportTexture(RID directory, const TextureImportSettings& settings, const String& path, UndoRedoScope* scope)
+	{
+		RID texture = ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), Path::Name(path), scope, path);
+
+		i32 width{};
+		i32 height{};
+		i32 channels{};
+		i32 desiredChannels = 4;
+
+		u8* bytes = stbi_load(path.CStr(), &width, &height, &channels, desiredChannels);
+
+		ResourceObject textureObject = Resources::Write(texture);
+		textureObject.SetString(TextureResource::Name, Path::Name(path));
+		textureObject.SetVec3(TextureResource::Extent, Vec3{static_cast<f32>(width), static_cast<f32>(height), 1});
+		textureObject.SetEnum(TextureResource::Format, TextureFormat::R8G8B8A8_UNORM);
+		textureObject.SetEnum(TextureResource::WrapMode, settings.wrapMode);
+		textureObject.SetEnum(TextureResource::FilterMode, settings.filterMode);
+		textureObject.SetBlob(TextureResource::Pixels, Span{bytes, static_cast<usize>(width * height * desiredChannels)});
+		textureObject.Commit(scope);
+
+		stbi_image_free(bytes);
+
+		return texture;
+	}
+
+	RID ImportTextureFromMemory(RID directory, const TextureImportSettings& settings, StringView name, Span<u8> data, UndoRedoScope* scope)
+	{
+		RID texture = ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), name, scope, "");
+
+		i32 width{};
+		i32 height{};
+		i32 channels{};
+		i32 desiredChannels = 4;
+
+		u8* bytes = stbi_load_from_memory(data.Data(), data.Size(), &width, &height, &channels, desiredChannels);
+
+		ResourceObject textureObject = Resources::Write(texture);
+		textureObject.SetString(TextureResource::Name, name);
+		textureObject.SetVec3(TextureResource::Extent, Vec3{static_cast<f32>(width), static_cast<f32>(height), 1});
+		textureObject.SetEnum(TextureResource::Format, TextureFormat::R8G8B8A8_UNORM);
+		textureObject.SetEnum(TextureResource::WrapMode, settings.wrapMode);
+		textureObject.SetEnum(TextureResource::FilterMode, settings.filterMode);
+		textureObject.SetBlob(TextureResource::Pixels, Span{bytes, static_cast<usize>(width * height * desiredChannels)});
+		textureObject.Commit(scope);
+
+		stbi_image_free(bytes);
+
+		return texture;
 	}
 }
