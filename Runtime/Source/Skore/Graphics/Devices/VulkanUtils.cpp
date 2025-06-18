@@ -1102,6 +1102,14 @@ namespace Skore
 		}
 	}
 
+	void SortInterfaceVariable(Array<InterfaceVariable>& variables)
+	{
+		std::sort(variables.begin(), variables.end(), [](const InterfaceVariable& a, InterfaceVariable b)
+		{
+			return a.location < b.location;
+		});
+	}
+
 	bool GetShaderInfoFromResource(RID rid, PipelineDesc* pipelineDesc, Array<ShaderStageInfo>* stages)
 	{
 		ResourceObject variantObject = Resources::Read(rid);
@@ -1116,6 +1124,8 @@ namespace Skore
 			if (RID rid = variantObject.GetSubObject(ShaderVariantResource::PipelineDesc))
 			{
 				Resources::FromResource(rid, pipelineDesc);
+				SortInterfaceVariable(pipelineDesc->inputVariables);
+				SortInterfaceVariable(pipelineDesc->outputVariables);
 			}
 			else
 			{
