@@ -31,6 +31,7 @@ namespace Skore
 
 	struct FBXImportSettings
 	{
+		bool generateNormals     = true;
 		bool recalculateTangents = true;
 	};
 

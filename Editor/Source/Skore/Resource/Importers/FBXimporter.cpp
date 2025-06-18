@@ -289,7 +289,7 @@ namespace Skore
 			indices.EmplaceBack(mesh->vertex_indices[i]);
 		}
 
-		if (!hasNormals)
+		if (settings.generateNormals || !hasNormals)
 		{
 			MeshTools::CalcNormals(vertices, indices);
 		}
@@ -391,11 +391,7 @@ namespace Skore
 		dccAssetObject.SetString(DCCAssetResource::Name, Path::Name(path));
 
 		{
-			ufbx_load_opts opts = {
-				//.use_blender_pbr_material = true
-				.generate_missing_normals = true,
-				.obj_search_mtl_by_filename = true
-			};
+			ufbx_load_opts opts = {};
 
 			// Load FBX file
 			ufbx_error error;

@@ -989,7 +989,7 @@ namespace Skore
 								{
 									if (ReflectValue* value = enumType->FindValueByName(reader.GetString()))
 									{
-										write.SetInt(field->GetIndex(), value->GetCode());
+										write.SetEnum(field->GetIndex(), value->GetCode());
 									}
 								}
 								break;
