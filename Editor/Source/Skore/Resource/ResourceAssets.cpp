@@ -695,24 +695,41 @@ namespace Skore
 
 	bool ResourceAssets::IsUpdated(RID rid)
 	{
+		u64 currentVersion;
+		u64 persistedVersion;
+
+		if (GetAssetVersions(rid, currentVersion, persistedVersion))
+		{
+			return currentVersion != persistedVersion;
+		}
+
+		return true;
+	}
+
+	bool ResourceAssets::GetAssetVersions(RID rid, u64& currentVersion, u64& persistedVersion)
+	{
 		ResourceObject assetObject = Resources::Read(rid);
 		if (!assetObject)
 		{
-			return true;
+			return false;
 		}
 
 		RID assetFile = assetObject.GetReference(ResourceAsset::AssetFile);
 		if (!assetFile)
 		{
-			return true;
+			return false;
 		}
 
 		ResourceObject assetFileObject = Resources::Read(assetFile);
 		if (!assetFileObject)
 		{
-			return true;
+			return false;
 		}
-		return assetFileObject.GetUInt(ResourceAssetFile::PersistedVersion) != assetObject.GetVersion();
+
+		currentVersion = assetObject.GetVersion();
+		persistedVersion = assetFileObject.GetUInt(ResourceAssetFile::PersistedVersion);
+
+		return true;
 	}
 
 	ResourceAssetHandler* ResourceAssets::GetAssetHandler(RID rid)

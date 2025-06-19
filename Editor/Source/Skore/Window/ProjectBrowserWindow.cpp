@@ -460,15 +460,17 @@ namespace Skore
 								// 	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 16.f * style.ScaleFactor);
 								// }
 
+
 								if (ImGui::BeginTable("table-asset-info", 2, ImGuiTableFlags_SizingFixedFit))
 								{
-									if (assetObject.GetUUID())
+									RID object = assetObject.GetSubObject(ResourceAsset::Object);
+									if (UUID uuid = Resources::GetUUID(object))
 									{
 										ImGui::TableNextRow();
 										ImGui::TableNextColumn();
 										ImGui::TextDisabled("UUID: ");
 										ImGui::TableNextColumn();
-										ImGui::Text("%s", assetObject.GetUUID().ToString().CStr());
+										ImGui::Text("%s", uuid.ToString().CStr());
 									}
 
 									ImGui::TableNextRow();
@@ -491,7 +493,7 @@ namespace Skore
 
 
 									//TODO : get from the handler
-									if (ResourceType* type = Resources::GetType(assetObject.GetSubObject(ResourceAsset::Object)))
+									if (ResourceType* type = Resources::GetType(object))
 									{
 										ImGui::TableNextRow();
 										ImGui::TableNextColumn();
@@ -499,6 +501,26 @@ namespace Skore
 										ImGui::TableNextColumn();
 										ImGui::Text("%s", type->GetName().CStr());
 									}
+
+#if SK_DEBUG_OPTIONS
+
+									u64 currentVersion = 0;
+									u64 persistedVersion = 0;
+									if (ResourceAssets::GetAssetVersions(asset, currentVersion, persistedVersion))
+									{
+										ImGui::TableNextRow();
+										ImGui::TableNextColumn();
+										ImGui::TextDisabled("(Debug) Version: ");
+										ImGui::TableNextColumn();
+										ImGui::Text("%u", currentVersion);
+
+										ImGui::TableNextRow();
+										ImGui::TableNextColumn();
+										ImGui::TextDisabled("(Debug) Persisted Version: ");
+										ImGui::TableNextColumn();
+										ImGui::Text("%u", persistedVersion);
+									}
+#endif
 
 									ImGui::EndTable();
 								}

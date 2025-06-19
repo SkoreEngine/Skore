@@ -47,7 +47,7 @@ namespace Skore
 
 		typedef T value_type;
 
-		Array();
+		Array() = default;
 		Array(const Array& other);
 		Array(Array&& other) noexcept;
 		Array(usize size);
@@ -57,6 +57,9 @@ namespace Skore
 		Array(const Span<T>& span);
 		template <usize size>
 		Array(const FixedArray<T, size>& arr);
+		Array(Allocator* allocator);
+		Array(Allocator* allocator, usize size);
+
 
 		Iterator      begin();
 		Iterator      end();
@@ -107,9 +110,9 @@ namespace Skore
 		~Array();
 
 	private:
-		T* m_first{};
-		T* m_last{};
-		T* m_capacity{};
+		T* m_first = nullptr;
+		T* m_last = nullptr;
+		T* m_capacity = nullptr;
 
 		Allocator* m_allocator = MemoryGlobals::GetDefaultAllocator();
 	};
@@ -123,14 +126,22 @@ namespace Skore
 	}
 
 	template <typename T>
+	Array<T>::Array(Allocator* allocator) : m_allocator(allocator)
+	{
+	}
+
+	template <typename T>
+	Array<T>::Array(Allocator* allocator, usize size) : m_allocator(allocator)
+	{
+		Resize(size);
+	}
+
+	template <typename T>
 	Array<T>::Array(const Span<T>& span)
 	{
 		Reserve(span.Size());
 		Insert(begin(), span.begin(), span.end());
 	}
-
-	template <typename T>
-	SK_FINLINE Array<T>::Array() : m_first(0), m_last(0), m_capacity(0) {}
 
 	template <typename T>
 	SK_FINLINE Array<T>::Array(const Array& other) : m_first(0), m_last(0), m_capacity(0), m_allocator(other.m_allocator)
