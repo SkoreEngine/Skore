@@ -262,6 +262,8 @@ namespace Skore
 					ufbx_vec4 color =  mesh->vertex_color.exists ? ufbx_get_vertex_vec4(&mesh->vertex_color, ix) : defaultColor;
 					ufbx_vec2 uv = mesh->vertex_uv.exists ? ufbx_get_vertex_vec2(&mesh->vertex_uv, ix) : defaultUV;
 
+					uv.y = 1.0f - uv.y; //Flip Y for UV
+
 					vert->position = ToVec3(pos);
 					vert->normal = Math::Normalize(ToVec3(normal));
 					vert->texCoord = ToVec2(uv);
@@ -349,7 +351,7 @@ namespace Skore
 
 		if (settings.generateNormals)
 		{
-			MeshTools::CalcNormals(allVertices, allIndices);
+			//MeshTools::CalcNormals(allVertices, allIndices);
 		}
 
 		if (settings.recalculateTangents)
