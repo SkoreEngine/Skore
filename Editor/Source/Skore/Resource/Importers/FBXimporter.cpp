@@ -332,6 +332,11 @@ namespace Skore
 			primitive.indexCount = numIndices;
 			primitive.materialIndex = materialCheck();
 
+			for (usize i = 0; i < numIndices; i++)
+			{
+				tempIndices[i] += totalVerticesCount;
+			}
+
 			memcpy(reinterpret_cast<char*>(allVertices.begin()) + totalVerticesCount * sizeof(StaticMeshResource::Vertex), tempVertices.Data(), sizeof(StaticMeshResource::Vertex) * numVertices);
 			memcpy(reinterpret_cast<char*>(allIndices.begin()) + totalIndicesCount * sizeof(u32), tempIndices.Data(), sizeof(u32) * numIndices);
 
@@ -445,7 +450,6 @@ namespace Skore
 			opts.target_unit_meters = 1.0;
 			opts.ignore_missing_external_files = true;
 			opts.evaluate_skinning = true;
-			opts.normalize_tangents = true;
 			opts.connect_broken_elements = true;
 
 			// Load FBX file
@@ -463,13 +467,13 @@ namespace Skore
 			String basePath = Path::Parent(path);
 			String name = Path::Name(path);
 
-			// for (u32 i = 0; i < scene->textures.count; i++)
-			// {
-			// 	if (RID texture = ProcessTextures(directory, cache, settings, basePath, scene->textures.data[i], scene, scope))
-			// 	{
-			// 		dccAssetObject.AddToSubObjectSet(DCCAssetResource::Textures, texture);
-			// 	}
-			// }
+			for (u32 i = 0; i < scene->textures.count; i++)
+			{
+				if (RID texture = ProcessTextures(directory, cache, settings, basePath, scene->textures.data[i], scene, scope))
+				{
+					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Textures, texture);
+				}
+			}
 
 			// Process Materials
 			for (u32 i = 0; i < scene->materials.count; i++)
