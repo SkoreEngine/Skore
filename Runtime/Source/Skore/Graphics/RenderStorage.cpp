@@ -120,6 +120,14 @@ namespace Skore
 				{
 					Color baseColor = materialObject.GetColor(MaterialResource::BaseColor);
 					RID   baseColorTexture = materialObject.GetReference(MaterialResource::BaseColorTexture);
+					RID   normalTexture = materialObject.GetReference(MaterialResource::NormalTexture);
+					RID   roughnessTexture = materialObject.GetReference(MaterialResource::RoughnessTexture);
+					RID   metallicTexture = materialObject.GetReference(MaterialResource::MetallicTexture);
+
+					u8 roughnessTextureChannel = materialObject.GetUInt(MaterialResource::RoughnessTextureChannel);
+					u8 metallicTextureChannel = materialObject.GetUInt(MaterialResource::MetallicTextureChannel);
+					u8 occlusionTextureChannel = materialObject.GetUInt(MaterialResource::OcclusionTextureChannel);
+
 
 					if (materialData->materialBuffer == nullptr)
 					{
@@ -165,11 +173,6 @@ namespace Skore
 					materialData->descriptorSet->UpdateBuffer(0, materialData->materialBuffer, 0, 0);
 					materialData->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
 
-					RID normalTexture = {};
-					RID roughnessTexture = {};
-					RID metallicTexture = {};
-
-
 					MaterialResource::Buffer materialBuffer;
 					materialBuffer.baseColor = baseColor.ToVec3();
 					materialBuffer.alphaCutoff = 0.5;
@@ -178,9 +181,9 @@ namespace Skore
 					materialBuffer.textureFlags = TextureAssetFlags::None;
 
 					materialBuffer.textureProps = 0;
-					// materialBuffer.textureProps |= static_cast<u8>(roughnessTextureChannel) << 0;
-					// materialBuffer.textureProps |= static_cast<u8>(metallicTextureChannel) << 8;
-					// materialBuffer.textureProps |= static_cast<u8>(occlusionTextureChannel) << 16;
+					materialBuffer.textureProps |= roughnessTextureChannel << 0;
+					materialBuffer.textureProps |= metallicTextureChannel << 8;
+					materialBuffer.textureProps |= occlusionTextureChannel << 16;
 
 					if (UpdateTexture(materialData->descriptorSet, baseColorTexture, 2))
 					{
