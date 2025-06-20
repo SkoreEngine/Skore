@@ -87,7 +87,7 @@ namespace Skore
 		Mat4 m_cascadeViewProjMat[s_numCascades];
 
 		//sky and environment data
-		//MaterialAsset* m_skyMaterial = nullptr;
+		MaterialStorageData* m_skyMaterial = nullptr;
 		GPUTexture*    m_diffuseIrradianceTexture = nullptr;
 		GPUTexture*    m_specularTexture = nullptr;
 		BRDFLUTTexture m_brdflutTexture;

@@ -1110,6 +1110,24 @@ namespace Skore
 		});
 	}
 
+	void SortDescriptorSetLayout(Array<DescriptorSetLayout>& layouts)
+	{
+		for (DescriptorSetLayout& layout : layouts)
+		{
+			std::sort(layout.bindings.begin(), layout.bindings.end(), [](const DescriptorSetLayoutBinding& a, DescriptorSetLayoutBinding b)
+			{
+				return a.binding < b.binding;
+			});
+		}
+
+
+		std::sort(layouts.begin(), layouts.end(), [](const DescriptorSetLayout& a, DescriptorSetLayout b)
+		{
+			return a.set < b.set;
+		});
+	}
+
+
 	bool GetShaderInfoFromResource(RID rid, PipelineDesc* pipelineDesc, Array<ShaderStageInfo>* stages)
 	{
 		ResourceObject variantObject = Resources::Read(rid);
@@ -1126,6 +1144,7 @@ namespace Skore
 				Resources::FromResource(rid, pipelineDesc);
 				SortInterfaceVariable(pipelineDesc->inputVariables);
 				SortInterfaceVariable(pipelineDesc->outputVariables);
+				SortDescriptorSetLayout(pipelineDesc->descriptors);
 			}
 			else
 			{

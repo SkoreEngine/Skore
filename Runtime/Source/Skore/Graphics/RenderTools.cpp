@@ -345,8 +345,8 @@ namespace Skore
 	void EquirectangularToCubeMap::Init()
 	{
 		ComputePipelineDesc desc;
-		desc.shader = Resources::FindByPath("Skore://Shaders/EquirectangularToCubemap.comp"),
-			desc.debugName = "EquirectangularToCubemap";
+		desc.shader = Resources::FindByPath("Skore://Shaders/EquirectangularToCubemap.comp");
+		desc.debugName = "EquirectangularToCubemap";
 
 		m_pipeline = Graphics::CreateComputePipeline(desc);
 		m_descriptorSet = Graphics::CreateDescriptorSet(desc.shader, desc.variant, 0);

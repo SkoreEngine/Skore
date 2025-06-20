@@ -66,8 +66,25 @@ namespace Skore
 		i32 height{};
 		i32 channels{};
 		i32 desiredChannels = 4;
+		u32 pixelSize;
+		TextureFormat format;
 
-		u8* bytes = stbi_load(path.CStr(), &width, &height, &channels, desiredChannels);
+		bool hdr = Path::Extension(path) == ".hdr";
+
+		VoidPtr bytes = nullptr;
+
+		if (!hdr)
+		{
+			bytes = stbi_load(path.CStr(), &width, &height, &channels, desiredChannels);
+			pixelSize = 1;
+			format = TextureFormat::R8G8B8A8_UNORM;
+		} else
+		{
+			bytes = stbi_loadf(path.CStr(), &width, &height, &channels, desiredChannels);
+			pixelSize = 4;
+			format = TextureFormat::R32G32B32A32_FLOAT;
+		}
+
 		if (bytes == nullptr)
 		{
 			logger.Error("Failed to load texture: {}", path);
@@ -79,10 +96,10 @@ namespace Skore
 		ResourceObject textureObject = Resources::Write(texture);
 		textureObject.SetString(TextureResource::Name, Path::Name(path));
 		textureObject.SetVec3(TextureResource::Extent, Vec3{static_cast<f32>(width), static_cast<f32>(height), 1});
-		textureObject.SetEnum(TextureResource::Format, TextureFormat::R8G8B8A8_UNORM);
+		textureObject.SetEnum(TextureResource::Format, format);
 		textureObject.SetEnum(TextureResource::WrapMode, settings.wrapMode);
 		textureObject.SetEnum(TextureResource::FilterMode, settings.filterMode);
-		textureObject.SetBlob(TextureResource::Pixels, Span{bytes, static_cast<usize>(width * height * desiredChannels)});
+		textureObject.SetBlob(TextureResource::Pixels, Span{static_cast<u8*>(bytes), static_cast<usize>(width * height * desiredChannels * pixelSize)});
 		textureObject.Commit(scope);
 
 		stbi_image_free(bytes);

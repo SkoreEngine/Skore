@@ -38,8 +38,10 @@ namespace Skore
 
 	struct MaterialStorageData
 	{
+		MaterialResource::MaterialType type;
 		GPUBuffer* materialBuffer;
 		GPUDescriptorSet* descriptorSet;
+		TextureStorageData* skyMaterialTexture;
 	};
 
 	struct MeshStorageData
@@ -54,7 +56,7 @@ namespace Skore
 
 	struct MeshRenderData
 	{
-		MeshStorageData*           mesh;
+		MeshStorageData* mesh;
 
 		Mat4       transform;
 		bool       visible = true;
@@ -63,7 +65,7 @@ namespace Skore
 
 	struct EnvironmentRenderData
 	{
-		RID  skyboxMaterial;
+		MaterialStorageData*  skyboxMaterial;
 		bool visible = true;
 	};
 

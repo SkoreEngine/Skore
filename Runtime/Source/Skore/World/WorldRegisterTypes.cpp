@@ -24,6 +24,7 @@
 #include "World.hpp"
 #include "WorldCommon.hpp"
 #include "Entity.hpp"
+#include "Components/EnvironmentComponent.hpp"
 #include "Components/LightComponent.hpp"
 #include "Components/StaticMeshRender.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -39,6 +40,7 @@ namespace Skore
 		Reflection::Type<Component>();
 		Reflection::Type<StaticMeshRender>();
 		Reflection::Type<LightComponent>();
+		Reflection::Type<EnvironmentComponent>();
 
 		Resources::Type<EntityResource>()
 			.Field<EntityResource::Name>(ResourceFieldType::String)

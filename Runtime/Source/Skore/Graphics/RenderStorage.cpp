@@ -113,97 +113,122 @@ namespace Skore
 
 				ResourceObject materialObject = Resources::Read(material);
 				StringView     name = materialObject.GetString(MaterialResource::Name);
-				Color          baseColor = materialObject.GetColor(MaterialResource::BaseColor);
-				RID            baseColorTexture = materialObject.GetReference(MaterialResource::BaseColorTexture);
 
+				materialData->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
 
-				if (materialData->materialBuffer == nullptr)
+				if (materialData->type == MaterialResource::MaterialType::Opaque)
 				{
-					materialData->materialBuffer = Graphics::CreateBuffer(BufferDesc{
-						.size = sizeof(MaterialResource::Buffer),
-						.usage = ResourceUsage::CopyDest | ResourceUsage::ConstantBuffer,
-						.hostVisible = false,
-						.persistentMapped = false,
-						.debugName = String(name) + "_MaterialBuffer"
+					Color baseColor = materialObject.GetColor(MaterialResource::BaseColor);
+					RID   baseColorTexture = materialObject.GetReference(MaterialResource::BaseColorTexture);
+
+					if (materialData->materialBuffer == nullptr)
+					{
+						materialData->materialBuffer = Graphics::CreateBuffer(BufferDesc{
+							.size = sizeof(MaterialResource::Buffer),
+							.usage = ResourceUsage::CopyDest | ResourceUsage::ConstantBuffer,
+							.hostVisible = false,
+							.persistentMapped = false,
+							.debugName = String(name) + "_MaterialBuffer"
+						});
+					}
+
+					materialData->descriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+						.bindings = {
+							DescriptorSetLayoutBinding{
+								.binding = 0,
+								.descriptorType = DescriptorType::UniformBuffer
+							},
+							DescriptorSetLayoutBinding{
+								.binding = 1,
+								.descriptorType = DescriptorType::Sampler
+							},
+							DescriptorSetLayoutBinding{
+								.binding = 2,
+								.descriptorType = DescriptorType::SampledImage
+							},
+							DescriptorSetLayoutBinding{
+								.binding = 3,
+								.descriptorType = DescriptorType::SampledImage
+							},
+							DescriptorSetLayoutBinding{
+								.binding = 4,
+								.descriptorType = DescriptorType::SampledImage
+							},
+							DescriptorSetLayoutBinding{
+								.binding = 5,
+								.descriptorType = DescriptorType::SampledImage
+							}
+						},
+						.debugName = String(name) + "_DescriptorSet"
+					});
+
+					materialData->descriptorSet->UpdateBuffer(0, materialData->materialBuffer, 0, 0);
+					materialData->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
+
+					RID normalTexture = {};
+					RID roughnessTexture = {};
+					RID metallicTexture = {};
+
+
+					MaterialResource::Buffer materialBuffer;
+					materialBuffer.baseColor = baseColor.ToVec3();
+					materialBuffer.alphaCutoff = 0.5;
+					materialBuffer.metallic = 0.0;
+					materialBuffer.roughness = 1.0;
+					materialBuffer.textureFlags = TextureAssetFlags::None;
+
+					materialBuffer.textureProps = 0;
+					// materialBuffer.textureProps |= static_cast<u8>(roughnessTextureChannel) << 0;
+					// materialBuffer.textureProps |= static_cast<u8>(metallicTextureChannel) << 8;
+					// materialBuffer.textureProps |= static_cast<u8>(occlusionTextureChannel) << 16;
+
+					if (UpdateTexture(materialData->descriptorSet, baseColorTexture, 2))
+					{
+						materialBuffer.textureFlags |= TextureAssetFlags::HasBaseColorTexture;
+					}
+
+					if (UpdateTexture(materialData->descriptorSet, normalTexture, 3))
+					{
+						materialBuffer.textureFlags |= TextureAssetFlags::HasNormalTexture;
+					}
+
+					if (UpdateTexture(materialData->descriptorSet, roughnessTexture, 4))
+					{
+						materialBuffer.textureFlags |= TextureAssetFlags::HasRoughnessTexture;
+					}
+
+					if (UpdateTexture(materialData->descriptorSet, metallicTexture, 5))
+					{
+						materialBuffer.textureFlags |= TextureAssetFlags::HasMetallicTexture;
+					}
+
+					Graphics::UploadBufferData(BufferUploadInfo{
+						.buffer = materialData->materialBuffer,
+						.data = &materialBuffer,
+						.size = sizeof(MaterialResource::Buffer)
 					});
 				}
+				else if (materialData->type == MaterialResource::MaterialType::SkyboxEquirectangular)
+				{
+					RID sphericalTexture = materialObject.GetReference(MaterialResource::SphericalTexture);
 
-				materialData->descriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
-					.bindings = {
-						DescriptorSetLayoutBinding{
-							.binding = 0,
-							.descriptorType = DescriptorType::UniformBuffer
-						},
-						DescriptorSetLayoutBinding{
-							.binding = 1,
-							.descriptorType = DescriptorType::Sampler
-						},
-						DescriptorSetLayoutBinding{
-							.binding = 2,
-							.descriptorType = DescriptorType::SampledImage
-						},
-						DescriptorSetLayoutBinding{
-							.binding = 3,
-							.descriptorType = DescriptorType::SampledImage
-						},
-						DescriptorSetLayoutBinding{
-							.binding = 4,
-							.descriptorType = DescriptorType::SampledImage
-						},
-						DescriptorSetLayoutBinding{
-							.binding = 5,
-							.descriptorType = DescriptorType::SampledImage
+					materialData->descriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+						.bindings = {
+							DescriptorSetLayoutBinding{
+								.binding = 0,
+								.descriptorType = DescriptorType::SampledImage
+							},
+							DescriptorSetLayoutBinding{
+								.binding = 1,
+								.descriptorType = DescriptorType::Sampler
+							}
 						}
-					},
-					.debugName = String(name) + "_DescriptorSet"
-				});
+					});
+					materialData->skyMaterialTexture = GetOrLoadTexture(sphericalTexture);
 
-				materialData->descriptorSet->UpdateBuffer(0, materialData->materialBuffer, 0, 0);
-				materialData->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
-
-				RID normalTexture = {};
-				RID roughnessTexture = {};
-				RID metallicTexture = {};
-
-
-				MaterialResource::Buffer materialBuffer;
-				materialBuffer.baseColor = baseColor.ToVec3();
-				materialBuffer.alphaCutoff = 0.5;
-				materialBuffer.metallic = 0.0;
-				materialBuffer.roughness = 1.0;
-				materialBuffer.textureFlags = TextureAssetFlags::None;
-
-				materialBuffer.textureProps = 0;
-				// materialBuffer.textureProps |= static_cast<u8>(roughnessTextureChannel) << 0;
-				// materialBuffer.textureProps |= static_cast<u8>(metallicTextureChannel) << 8;
-				// materialBuffer.textureProps |= static_cast<u8>(occlusionTextureChannel) << 16;
-
-				if (UpdateTexture(materialData->descriptorSet, baseColorTexture, 2))
-				{
-					materialBuffer.textureFlags |= TextureAssetFlags::HasBaseColorTexture;
+					UpdateTexture(materialData->descriptorSet, sphericalTexture, 0);
+					materialData->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
 				}
-
-				if (UpdateTexture(materialData->descriptorSet, normalTexture, 3))
-				{
-					materialBuffer.textureFlags |= TextureAssetFlags::HasNormalTexture;
-				}
-
-				if (UpdateTexture(materialData->descriptorSet, roughnessTexture, 4))
-				{
-					materialBuffer.textureFlags |= TextureAssetFlags::HasRoughnessTexture;
-				}
-
-				if (UpdateTexture(materialData->descriptorSet, metallicTexture, 5))
-				{
-					materialBuffer.textureFlags |= TextureAssetFlags::HasMetallicTexture;
-				}
-
-				Graphics::UploadBufferData(BufferUploadInfo{
-					.buffer = materialData->materialBuffer,
-					.data = &materialBuffer,
-					.size = sizeof(MaterialResource::Buffer)
-				});
-
 
 				it = materialCache.Emplace(material, Traits::Move(materialData)).first;
 			}
@@ -282,7 +307,10 @@ namespace Skore
 		for (auto& it : materialCache)
 		{
 			it.second->descriptorSet->Destroy();
-			it.second->materialBuffer->Destroy();
+			if (it.second->materialBuffer)
+			{
+				it.second->materialBuffer->Destroy();
+			}
 		}
 
 		for (auto& it : meshCache)
@@ -367,7 +395,7 @@ namespace Skore
 	{
 		if (const auto& it = environments.find(owner); it != environments.end())
 		{
-			it->second.skyboxMaterial = material;
+			it->second.skyboxMaterial = GetOrLoadMaterial(material);
 		}
 	}
 
