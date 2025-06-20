@@ -94,12 +94,15 @@ namespace Skore
 		props.size = typeProps.size;
 		props.alignment = typeProps.alignment;
 		props.isTriviallyCopyable = typeProps.isTriviallyCopyable;
-		props.isEnum = typeProps.isEnum;
+		props.isEnum = type == ResourceFieldType::Enum;
 
 		return props;
 	}
 
-	ResourceType::ResourceType(TypeID type, StringView name) : type(type), name(name) {}
+	ResourceType::ResourceType(TypeID type, StringView name) : type(type), name(name)
+	{
+		simpleName = MakeSimpleName(name);
+	}
 
 	ResourceType::~ResourceType()
 	{
@@ -128,6 +131,11 @@ namespace Skore
 	String ResourceType::GetName() const
 	{
 		return name;
+	}
+
+	String ResourceType::GetSimpleName() const
+	{
+		return simpleName;
 	}
 
 	RID ResourceType::GetDefaultValue() const

@@ -7,6 +7,7 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/World/Component.hpp"
 #include "Skore/World/Entity.hpp"
 #include "Skore/World/WorldCommon.hpp"
@@ -20,6 +21,8 @@ namespace Skore
 
 		Event::Bind<OnEntityDebugSelection, &PropertiesWindow::EntityDebugSelection>(this);
 		Event::Bind<OnEntityDebugDeselection, &PropertiesWindow::EntityDebugDeselection>(this);
+
+		Event::Bind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
 	}
 
 	PropertiesWindow::~PropertiesWindow()
@@ -29,6 +32,8 @@ namespace Skore
 
 		Event::Unbind<OnEntityDebugSelection, &PropertiesWindow::EntityDebugSelection>(this);
 		Event::Unbind<OnEntityDebugDeselection, &PropertiesWindow::EntityDebugDeselection>(this);
+
+		Event::Unbind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
 	}
 
 	void PropertiesWindow::DrawEntity(u32 id, WorldEditor* worldEditor, RID entity)
@@ -352,66 +357,70 @@ namespace Skore
 		}
 	}
 
-	// void PropertiesWindow::DrawAsset(u32 id, AssetFileOld* assetFile)
-	// {
-	// 	ImGuiStyle& style = ImGui::GetStyle();
-	//
-	// 	if (ImGui::BeginTable("#asset-table", 2))
-	// 	{
-	// 		ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
-	// 		ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
-	//
-	// 		ImGui::TableNextColumn();
-	// 		ImGui::AlignTextToFramePadding();
-	//
-	// 		ImGui::Text("Name");
-	// 		ImGui::TableNextColumn();
-	// 		ImGui::SetNextItemWidth(-1);
-	//
-	// 		stringCache = assetFile->GetFileName();
-	// 		u32 hash = HashValue(PtrToInt(assetFile));
-	//
-	// 		if (ImGuiInputText(hash, stringCache))
-	// 		{
-	// 			renamingCache = stringCache;
-	// 			renamingFocus = true;
-	// 		}
-	//
-	// 		if (!ImGui::IsItemActive() && renamingFocus)
-	// 		{
-	// 			assetFile->Rename(renamingCache);
-	// 			renamingFocus = false;
-	// 			renamingCache.Clear();
-	// 		}
-	//
-	// 		ImGui::TableNextColumn();
-	// 		ImGui::AlignTextToFramePadding();
-	// 		ImGui::Text("UUID");
-	// 		ImGui::TableNextColumn();
-	// 		ImGui::SetNextItemWidth(-1);
-	//
-	// 		String uuid = assetFile->GetUUID().ToString();
-	// 		ImGuiInputTextReadOnly(hash + 10, uuid);
-	// 		ImGui::EndTable();
-	// 	}
-	// 	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5 * style.ScaleFactor);
-	//
-	// 	ReflectType* reflectType = Reflection::FindTypeById(assetFile->GetAssetTypeId());
-	//
-	// 	if (ImGui::CollapsingHeader(FormatName(reflectType->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
-	// 	{
-	// 		ImGui::Indent();
-	// 		ImGuiDrawObject(ImGuiDrawObjectInfo{
-	// 			.object = assetFile->GetInstance(),
-	// 			.userData = assetFile,
-	// 			.callback = [](const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
-	// 			{
-	// 				static_cast<AssetFileOld*>(context.userData)->MarkDirty();
-	// 			}
-	// 		});
-	// 		ImGui::Unindent();
-	// 	}
-	// }
+	void PropertiesWindow::DrawAsset(u32 id, RID asset)
+	{
+		ImGuiStyle& style = ImGui::GetStyle();
+
+		if (ImGui::BeginTable("#asset-table", 2))
+		{
+			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+			ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+
+			ImGui::Text("Name");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+
+			stringCache = ResourceAssets::GetAssetName(asset);
+			u32 hash = HashValue(asset);
+
+			if (ImGuiInputText(hash, stringCache))
+			{
+				renamingCache = stringCache;
+				renamingFocus = true;
+			}
+
+			if (!ImGui::IsItemActive() && renamingFocus)
+			{
+				if (!renamingCache.Empty())
+				{
+					UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Rename Finished");
+					ResourceObject write = Resources::Write(asset);
+					write.SetString(ResourceAsset::Name, renamingCache);
+					write.Commit(scope);
+				}
+
+				renamingFocus = false;
+				renamingCache.Clear();
+			}
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::Text("UUID");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+
+			stringCache = ResourceAssets::GetAssetUUID(asset).ToString();
+			ImGuiInputTextReadOnly(hash + 10, stringCache);
+			ImGui::EndTable();
+		}
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5 * style.ScaleFactor);
+
+
+		ResourceType* type = Resources::GetType(asset);
+
+		if (ImGui::CollapsingHeader(FormatName(type->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
+		{
+			ImGui::Indent();
+			ImGuiDrawResource(ImGuiDrawResourceInfo{
+				.rid = asset,
+				.scopeName = "Asset Edit"
+			});
+			ImGui::Unindent();
+		}
+	}
 
 	void PropertiesWindow::Draw(u32 id, bool& open)
 	{
@@ -426,10 +435,10 @@ namespace Skore
 			WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
 			DrawDebugEntity(id, worldEditor, selectedDebugEntity);
 		}
-		// else if (selectedAsset)
-		// {
-		// 	DrawAsset(id, selectedAsset);
-		// }
+		else if (selectedAsset)
+		{
+			DrawAsset(id, selectedAsset);
+		}
 		else
 		{
 			ImGuiCentralizedText("Select something...");
@@ -443,6 +452,7 @@ namespace Skore
 		selectedEntity = {};
 		selectedComponent = {};
 		selectedDebugEntity = nullptr;
+		selectedAsset = {};
 	}
 
 	void PropertiesWindow::OpenProperties(const MenuItemEventData& eventData)
@@ -471,13 +481,13 @@ namespace Skore
 		}
 	}
 
-	// void PropertiesWindow::AssetSelection(AssetFileOld* assetFile)
-	// {
-	// 	if (assetFile == nullptr && selectedAsset == nullptr) return;
-	// 	ClearSelection();
-	// 	selectedAsset = assetFile;
-	// }
+	void PropertiesWindow::AssetSelection(u32 workspaceId, RID assetId)
+	{
+		if (Editor::GetCurrentWorkspace().GetId() != workspaceId) return;
 
+		ClearSelection();
+		selectedAsset = assetId;
+	}
 
 	void PropertiesWindow::RegisterType(NativeReflectType<PropertiesWindow>& type)
 	{

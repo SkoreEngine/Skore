@@ -25,73 +25,76 @@
 #include "Editor.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/StringUtils.hpp"
+#include "Skore/Resource/Resources.hpp"
+#include "Window/PropertiesWindow.hpp"
 
 
 namespace Skore
 {
-    namespace
-    {
-        u32 workspaceCount = 0;
-        Logger& logger = Logger::GetLogger("Skore::EditorWorkspace");
-    }
+	struct WorkspaceResourceState
+	{
+		enum
+		{
+			SelectedAsset
+		};
+	};
 
-    EditorWorkspace::EditorWorkspace() : id(workspaceCount++), name(String("Workspace ").Append(ToString(id)))
-    {
-    }
+	namespace
+	{
+		u32     workspaceCount = 0;
+		Logger& logger = Logger::GetLogger("Skore::EditorWorkspace");
 
-    EditorWorkspace::~EditorWorkspace()
-    {
-        //ResourceTypes::RemoveListener(GetTypeID<SceneEditorData>(), SceneChanged, this);
-    }
+		EventHandler<OnAssetSelection>   onAssetSelectionHandler{};
+	}
 
-    StringView EditorWorkspace::GetName() const
-    {
-        return name;
-    }
+	EditorWorkspace::EditorWorkspace() : id(workspaceCount++), name(String("Workspace ").Append(ToString(id)))
+	{
+		Resources::FindType<WorkspaceResourceState>()->RegisterEvent(WorkspaceStateChanged, this);
 
-    u32 EditorWorkspace::GetId() const
-    {
-        return id;
-    }
+		state = Resources::Create<WorkspaceResourceState>();
+	}
 
-    WorldEditor* EditorWorkspace::GetWorldEditor()
-    {
-        return &worldEditor;
-    }
+	EditorWorkspace::~EditorWorkspace()
+	{
+		Resources::FindType<WorkspaceResourceState>()->UnregisterEvent(WorkspaceStateChanged, this);
+	}
 
-    void EditorWorkspace::OpenAsset(RID rid)
-    {
-        //onAssetSelectionHandler.Invoke(assetFile);
-    }
+	StringView EditorWorkspace::GetName() const
+	{
+		return name;
+	}
 
-    //    void EditorWorkspace::OpenScene(RID rid, TypeID sceneEditorType)
-//    {
-//        ScopedTimer scopedTimer(logger, "scene change took: ");
-//
-//        TypeHandler* handler = Registry::FindTypeById(sceneEditorType);
-//        SK_ASSERT(handler, "type not found");
-//
-//        UndoRedoScope* scope = Editor::CreateUndoRedoScope("Scene Selection");
-//        ResourceObject obj = Resources::Write(sceneEditorData);
-//        obj.SetUInt(SceneEditorData::SceneEditor, reinterpret_cast<usize>(handler->NewObject(rid)));    //not sure about it
-//        obj.Commit(scope);
-//    }
+	u32 EditorWorkspace::GetId() const
+	{
+		return id;
+	}
 
-//    void EditorWorkspace::SceneChanged(RID rid, ResourceObject oldValue, ResourceObject newValue, VoidPtr userData)
-//    {
-//        if (newValue)
-//        {
-//            EditorWorkspace& editorWorkspace = *static_cast<EditorWorkspace*>(userData);
-//            editorWorkspace.sceneEditor = static_cast<SceneEditor*>(reinterpret_cast<Object*>(newValue.GetUInt(SceneEditorData::SceneEditor)));
-//        }
-//    }
+	WorldEditor* EditorWorkspace::GetWorldEditor()
+	{
+		return &worldEditor;
+	}
 
-    void EditorWorkspace::RegisterType(NativeReflectType<EditorWorkspace>& type)
-    {
-//        ResourceTypeBuilder::Create<SceneEditorData>()
-//            .Field<SceneEditorData::SceneEditor>(ResourceFieldType::UInt)
-//            .Build();
-    }
+	void EditorWorkspace::OpenAsset(RID rid)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Open Asset");
+		ResourceObject stateObject = Resources::Write(state);
+		stateObject.SetReference(WorkspaceResourceState::SelectedAsset, rid);
+		stateObject.Commit(scope);
+	}
 
+	void EditorWorkspace::RegisterType(NativeReflectType<EditorWorkspace>& type)
+	{
+		Resources::Type<WorkspaceResourceState>()
+			.Field<WorkspaceResourceState::SelectedAsset>(ResourceFieldType::Reference)
+			.Build();
+	}
 
+	void EditorWorkspace::WorkspaceStateChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+	{
+		EditorWorkspace* workspace = static_cast<EditorWorkspace*>(userData);
+		if (newValue)
+		{
+			onAssetSelectionHandler.Invoke(workspace->id, newValue.GetReference(WorkspaceResourceState::SelectedAsset));
+		}
+	}
 }

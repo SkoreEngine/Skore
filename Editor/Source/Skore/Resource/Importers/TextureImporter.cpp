@@ -28,8 +28,12 @@
 
 #include <stb_image.h>
 
+#include "Skore/Core/Logger.hpp"
+
 namespace Skore
 {
+	static Logger& logger = Logger::GetLogger("Skore::TextureImporter");
+
 	struct TextureImporter : ResourceAssetImporter
 	{
 		SK_CLASS(TextureImporter, ResourceAssetImporter);
@@ -41,7 +45,12 @@ namespace Skore
 
 		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
 		{
-			ImportTexture(directory, *static_cast<const TextureImportSettings*>(settings), path, scope);
+			TextureImportSettings importSettings = settings
+				                                       ? *static_cast<const TextureImportSettings*>(settings)
+				                                       : TextureImportSettings{
+				                                       };
+
+			ImportTexture(directory, importSettings, path, scope);
 			return true;
 		}
 	};
@@ -53,14 +62,19 @@ namespace Skore
 
 	RID ImportTexture(RID directory, const TextureImportSettings& settings, const String& path, UndoRedoScope* scope)
 	{
-		RID texture = ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), Path::Name(path), scope, path);
-
 		i32 width{};
 		i32 height{};
 		i32 channels{};
 		i32 desiredChannels = 4;
 
 		u8* bytes = stbi_load(path.CStr(), &width, &height, &channels, desiredChannels);
+		if (bytes == nullptr)
+		{
+			logger.Error("Failed to load texture: {}", path);
+			return {};
+		}
+
+		RID texture = ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), Path::Name(path), scope, path);
 
 		ResourceObject textureObject = Resources::Write(texture);
 		textureObject.SetString(TextureResource::Name, Path::Name(path));
@@ -80,6 +94,19 @@ namespace Skore
 	{
 		RID texture;
 
+		i32 width{};
+		i32 height{};
+		i32 channels{};
+		i32 desiredChannels = 4;
+		u8* bytes = stbi_load_from_memory(data.Data(), data.Size(), &width, &height, &channels, desiredChannels);
+
+		if (bytes == nullptr)
+		{
+			logger.Error("Failed to load texture from memory: {}", name);
+			return {};
+		}
+
+
 		if (settings.createAssetFile)
 		{
 			texture = ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), name, scope, "");
@@ -88,14 +115,6 @@ namespace Skore
 		{
 			texture = Resources::Create<TextureResource>(UUID::RandomUUID(), scope);
 		}
-
-
-		i32 width{};
-		i32 height{};
-		i32 channels{};
-		i32 desiredChannels = 4;
-
-		u8* bytes = stbi_load_from_memory(data.Data(), data.Size(), &width, &height, &channels, desiredChannels);
 
 		ResourceObject textureObject = Resources::Write(texture);
 		textureObject.SetString(TextureResource::Name, name);

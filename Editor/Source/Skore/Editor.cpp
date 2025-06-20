@@ -722,8 +722,6 @@ namespace Skore
 			return l.order < r.order;
 		});
 
-		//AssetEditor::AddPackage("Skore", FileSystem::AssetFolder());
-
 		Editor::LoadPackage("Skore", FileSystem::AssetFolder());
 
 		projectAssetPath = Path::Join(projectPath, "Assets");
@@ -739,6 +737,7 @@ namespace Skore
 		RegisterResourceAssetTypes();
 		RegisterWorldEditorTypes();
 
+		Reflection::Type<EditorWorkspace>();
 		Reflection::Type<EditorWindow>();
 		Reflection::Type<EditorWindowProperties>();
 		Reflection::Type<ProjectBrowserWindow>();

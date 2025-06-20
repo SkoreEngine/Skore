@@ -23,6 +23,7 @@
 #pragma once
 #include "Skore/Core/Object.hpp"
 #include "Skore/Core/Queue.hpp"
+#include "Skore/Core/HashMap.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
 
 namespace Skore
@@ -44,6 +45,7 @@ namespace Skore
 		bool    IsResourceSyncEnabled() const;
 
 		RenderStorage* GetRenderStorage();
+		Entity* FindEntityByRID(RID rid) const;
 
 		friend class Entity;
 	private:
@@ -55,5 +57,7 @@ namespace Skore
 		Queue<Entity*>    m_queueToStart;
 		Queue<Component*> m_componentsToStart;
 		Queue<Entity*>    m_queueToDestroy;
+
+		HashMap<RID, Entity*> m_entities;
 	};
 }

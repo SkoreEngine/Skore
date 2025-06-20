@@ -20,35 +20,44 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-
-#include "Skore/Core/String.hpp"
-#include "Skore/Core/StringView.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
-#include "World/WorldEditor.hpp"
-
+#include "Skore/Editor.hpp"
+#include "Skore/EditorWorkspace.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore
 {
-	class EditorWorkspace
+	struct MaterialHandler : ResourceAssetHandler
 	{
-	public:
-		EditorWorkspace();
-		~EditorWorkspace();
-		StringView   GetName() const;
-		u32          GetId() const;
-		WorldEditor* GetWorldEditor();
-		void         OpenAsset(RID rid);
+		SK_CLASS(MaterialHandler, ResourceAssetHandler);
 
-		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
+		StringView Extension() override
+		{
+			return ".material";
+		}
 
-	private:
-		u32         id;
-		String      name;
-		WorldEditor worldEditor{*this};
+		void OpenAsset(RID asset) override
+		{
+			if (ResourceObject object = Resources::Read(asset))
+			{
+				Editor::GetCurrentWorkspace().OpenAsset(object.GetSubObject(ResourceAsset::Object));
+			}
+		}
 
-		RID state = {};
-
-		static void WorkspaceStateChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
+		TypeID GetResourceTypeId() override
+		{
+			return TypeInfo<MaterialResource>::ID();
+		}
+		StringView GetDesc() override
+		{
+			return "Material";
+		}
 	};
+
+
+	void RegisterMaterialHandler()
+	{
+		Reflection::Type<MaterialHandler>();
+	}
 }

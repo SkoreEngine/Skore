@@ -47,6 +47,9 @@ namespace Skore
 		void       SetName(StringView name);
 		StringView GetName() const;
 
+		bool IsActive() const;
+		void SetActive(bool active);
+
 		Entity* CreateChild();
 		Entity* CreateChildFromAsset(RID rid);
 
@@ -144,6 +147,9 @@ namespace Skore
 
 		String m_name = {};
 		RID m_rid = {};
+
+		bool m_active = true;
+		bool m_parentActive = false;
 
 		World*         m_world = nullptr;
 		Entity*        m_parent = nullptr;

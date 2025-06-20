@@ -116,7 +116,7 @@ namespace Skore
 			if (!FileSystem::GetFileStatus(absolutePath).exists)
 			{
 				//it didn't work, try joining
-				absolutePath = Path::Join(basePath, StringView{texture->relative_filename.data, texture->relative_filename.length});
+				absolutePath = Path::Join(basePath, StringView{texture->element.name.data, texture->element.name.length});
 			}
 
 			//if found, import the texture
@@ -379,8 +379,8 @@ namespace Skore
 			return {};
 		}
 
-		//ignore camera and lights for now.
-		if (node->camera || node->light)
+		//ignore non-mesh nodes.
+		if (!node->mesh && node->children.count == 0)
 		{
 			return {};
 		}
@@ -447,12 +447,38 @@ namespace Skore
 		ResourceObject dccAssetObject = Resources::Write(dccAsset);
 		dccAssetObject.SetString(DCCAssetResource::Name, Path::Name(path));
 
+
+		bool allowGeometryHelperNodes = false;
+
 		{
 			ufbx_load_opts opts = {};
+			opts.target_axes = ufbx_axes_right_handed_y_up;
+			opts.space_conversion = UFBX_SPACE_CONVERSION_MODIFY_GEOMETRY;
+			if (!allowGeometryHelperNodes)
+			{
+				opts.geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY_NO_FALLBACK;
+				opts.inherit_mode_handling = UFBX_INHERIT_MODE_HANDLING_COMPENSATE_NO_FALLBACK;
+			}
+			else
+			{
+				opts.geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_HELPER_NODES;
+				opts.inherit_mode_handling = UFBX_INHERIT_MODE_HANDLING_COMPENSATE;
+			}
+
 			opts.target_unit_meters = 1.0;
 			opts.ignore_missing_external_files = true;
 			opts.evaluate_skinning = true;
 			opts.connect_broken_elements = true;
+			opts.pivot_handling = UFBX_PIVOT_HANDLING_ADJUST_TO_PIVOT;
+			opts.geometry_transform_helper_name.data = "GeometryTransformHelper";
+			opts.geometry_transform_helper_name.length = SIZE_MAX;
+			opts.scale_helper_name.data = "ScaleHelper";
+			opts.scale_helper_name.length = SIZE_MAX;
+			opts.node_depth_limit = 512;
+			opts.target_camera_axes = ufbx_axes_right_handed_y_up;
+			opts.target_light_axes = ufbx_axes_right_handed_y_up;
+			//opts.clean_skin_weights = true;
+			opts.generate_missing_normals = true;
 
 			// Load FBX file
 			ufbx_error  error;

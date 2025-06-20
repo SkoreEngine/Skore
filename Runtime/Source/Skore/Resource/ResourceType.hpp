@@ -69,6 +69,7 @@ namespace Skore
 
 		TypeID               GetID() const;
 		String               GetName() const;
+		String               GetSimpleName() const;
 		RID                  GetDefaultValue() const;
 		void                 SetDefaultValue(RID defaultValue);
 		u32                  GetAllocSize() const;
@@ -86,6 +87,7 @@ namespace Skore
 	private:
 		TypeID       type = 0;
 		String       name;
+		String       simpleName;
 		RID          defaultValue;
 		u32          allocSize = 0;
 		ReflectType* reflectType = nullptr;

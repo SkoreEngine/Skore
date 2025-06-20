@@ -20,35 +20,26 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
 
-#include "Skore/Core/String.hpp"
-#include "Skore/Core/StringView.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
-#include "World/WorldEditor.hpp"
-
+#include "ImGui.hpp"
+#include "Skore/Resource/ResourceObject.hpp"
+#include "Skore/World/Components/LightComponent.hpp"
 
 namespace Skore
 {
-	class EditorWorkspace
+
+	template<auto ...LightTypes>
+	bool ResourceLightTypeCheck(const ResourceObject& resourceObject)
 	{
-	public:
-		EditorWorkspace();
-		~EditorWorkspace();
-		StringView   GetName() const;
-		u32          GetId() const;
-		WorldEditor* GetWorldEditor();
-		void         OpenAsset(RID rid);
+		LightType type = resourceObject.GetEnum<LightType>(resourceObject.GetIndex("lightType"));
+		auto res = ((type == LightTypes) || ...);
+		return res;
+	}
 
-		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
-
-	private:
-		u32         id;
-		String      name;
-		WorldEditor worldEditor{*this};
-
-		RID state = {};
-
-		static void WorkspaceStateChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
-	};
+	void RegisterFieldVisibilityControls()
+	{
+		ImGuiRegisterResourceFieldVisibilityControl(TypeInfo<LightComponent>::ID(), "range", ResourceLightTypeCheck<LightType::Point, LightType::Spot>);
+		ImGuiRegisterResourceFieldVisibilityControl(TypeInfo<LightComponent>::ID(), "innerConeAngle", ResourceLightTypeCheck<LightType::Spot>);
+		ImGuiRegisterResourceFieldVisibilityControl(TypeInfo<LightComponent>::ID(), "outerConeAngle", ResourceLightTypeCheck<LightType::Spot>);
+	}
 }

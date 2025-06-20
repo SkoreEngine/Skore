@@ -33,6 +33,7 @@
 #include "imgui_internal.h"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/World/Entity.hpp"
 #include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
@@ -262,52 +263,61 @@ namespace Skore
 
 			if (worldEditor && !worldEditor->IsSimulationRunning())
 			{
+				auto guizmoMove = [&](Entity* entity) -> bool
+				{
+					Mat4 worldMatrix = entity->GetWorldTransform();
+
+					static float snap[3] = {0.0f, 0.0f, 0.0f};
+
+					ImGuizmo::Manipulate(&view[0][0],
+					                     &projection[0][0],
+					                     static_cast<ImGuizmo::OPERATION>(guizmoOperation),
+					                     ImGuizmo::LOCAL,
+					                     &worldMatrix[0][0],
+					                     nullptr,
+					                     snap);
+
+					if (ImGuizmo::IsUsing())
+					{
+						if (!usingGuizmo)
+						{
+							usingGuizmo = true;
+							gizmoInitialTransform = entity->GetTransform();
+
+							// if (entity->GetPrototype() != nullptr && !entity->IsComponentOverride(transformComponent))
+							// {
+							//     gizmoTransaction->CreateAction<OverridePrototypeComponentAction>(sceneEditor, entity, static_cast<Component*>(transformComponent))->Commit();
+							// }
+						}
+
+						if (Entity* parent = entity->GetParent())
+						{
+							worldMatrix = Math::Inverse(parent->GetWorldTransform()) * worldMatrix;
+						}
+
+						Vec3 position, rotation, scale;
+						Math::Decompose(worldMatrix, position, rotation, scale);
+						auto deltaRotation = rotation - Math::EulerAngles(entity->GetRotation());
+						entity->SetTransform(position, Math::EulerAngles(entity->GetRotation()) + deltaRotation, scale);
+
+						return true;
+					}
+					return false;
+				};
+
 				for (RID selectedEntity: worldEditor->GetSelectedEntities())
 				{
-//					RID transform = GetTransformComponent(selectedEntity);
-					//if (!transform) continue;
+					if (Entity* entity = worldEditor->GetCurrentWorld()->FindEntityByRID(selectedEntity))
+					{
+						guizmoMove(entity);
+					}
 
 
-		            // Mat4 worldMatrix = entity->GetWorldTransform();
-		            //
-		            // static float snap[3] = {0.0f, 0.0f, 0.0f};
-		            //
-		            // ImGuizmo::Manipulate(&view[0][0],
-		            //                      &projection[0][0],
-		            //                      static_cast<ImGuizmo::OPERATION>(guizmoOperation),
-		            //                      ImGuizmo::LOCAL,
-		            //                      &worldMatrix[0][0],
-		            //                      nullptr,
-		            //                      snap);
-		            //
-		            // if (ImGuizmo::IsUsing())
-		            // {
-		            //     if (!usingGuizmo)
-		            //     {
-		            //         usingGuizmo = true;
-		            //         gizmoInitialTransform = entity->GetTransform();
-		            //
-		            //         // if (entity->GetPrototype() != nullptr && !entity->IsComponentOverride(transformComponent))
-		            //         // {
-		            //         //     gizmoTransaction->CreateAction<OverridePrototypeComponentAction>(sceneEditor, entity, static_cast<Component*>(transformComponent))->Commit();
-		            //         // }
-		            //     }
-		            //
-		            //     if (Entity* parent =  entity->GetParent())
-		            //     {
-		            //     	worldMatrix = Math::Inverse(parent->GetWorldTransform()) * worldMatrix;
-		            //     }
-		            //
-		            //     Vec3 position, rotation, scale;
-		            //     Math::Decompose(worldMatrix, position, rotation, scale);
-		            //     auto deltaRotation = rotation - Math::EulerAngles(entity->GetRotation());
-		            // 	entity->SetTransform(position, Math::EulerAngles(entity->GetRotation()) + deltaRotation, scale);
-		            // }
-		            // else if (usingGuizmo)
-		            // {
-		            //     worldEditor->UpdateTransform(entity, gizmoInitialTransform, entity->GetTransform());
-		            //     usingGuizmo = false;
-		            // }
+					// else if (usingGuizmo)
+					// {
+					// 	worldEditor->UpdateTransform(entity, gizmoInitialTransform, entity->GetTransform());
+					// 	usingGuizmo = false;
+					// }
 				}
 			}
 

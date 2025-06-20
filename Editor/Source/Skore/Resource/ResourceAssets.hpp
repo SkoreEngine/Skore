@@ -149,13 +149,14 @@ namespace Skore
 		static StringView            GetAbsolutePath(RID asset);
 		static StringView            GetPathId(RID asset);
 		static RID                   GetAsset(RID rid);
-		static String				 GetAbsolutePathFromPathId(StringView pathId);
+		static String                GetAbsolutePathFromPathId(StringView pathId);
 		static RID                   GetParentAsset(RID rid);
 		static bool                  IsChildOf(RID parent, RID child);
 		static bool                  IsUpdated(RID rid);
-		static bool					 GetAssetVersions(RID rid, u64& currentVersion, u64& persistedVersion);
+		static bool                  GetAssetVersions(RID rid, u64& currentVersion, u64& persistedVersion);
 		static ResourceAssetHandler* GetAssetHandler(RID rid);
 		static ResourceAssetHandler* GetAssetHandler(TypeID typeId);
 		static String                GetAssetName(RID rid);
+		static UUID                  GetAssetUUID(RID rid);
 	};
 }

@@ -57,6 +57,7 @@ namespace Skore
 		RID    renamingEntity{};
 		String searchComponentString{};
 		RID    selectedComponent = {};
+		RID    selectedAsset = {};
 
 		Entity* selectedDebugEntity = nullptr;
 
@@ -66,11 +67,14 @@ namespace Skore
 
 		void DrawEntity(u32 id, WorldEditor* worldEditor, RID entity);
 		void DrawDebugEntity(u32 id, WorldEditor* worldEditor, Entity* entity);
+		void DrawAsset(u32 id, RID asset);
 
 		void EntityDebugSelection(u32 workspaceId, Entity* entity);
 		void EntityDebugDeselection(u32 workspaceId, Entity* entity);
 
 		void EntitySelection(u32 workspaceId, RID entityId);
 		void EntityDeselection(u32 workspaceId, RID entityId);
+
+		void AssetSelection(u32 workspaceId, RID assetId);
 	};
 }

@@ -798,6 +798,18 @@ namespace Skore
 		return {};
 	}
 
+	UUID ResourceAssets::GetAssetUUID(RID rid)
+	{
+		if (Resources::GetStorage(rid)->resourceType->GetID() == TypeInfo<ResourceAsset>::ID())
+		{
+			if (ResourceObject obj = Resources::Read(rid))
+			{
+				return Resources::GetUUID(obj.GetSubObject(ResourceAsset::Object));
+			}
+		}
+		return Resources::GetUUID(rid);
+	}
+
 	void ResourceAssetsUpdate()
 	{
 		//TODO : multithreading with task system :)
@@ -948,6 +960,7 @@ namespace Skore
 	}
 
 	void RegisterEntityHandler();
+	void RegisterMaterialHandler();
 	void RegisterTextureHandler();
 	void RegisterMeshHandler();
 	void RegisterDCCAssetHandler();
@@ -995,6 +1008,7 @@ namespace Skore
 
 		RegisterEntityHandler();
 		RegisterTextureHandler();
+		RegisterMaterialHandler();
 		RegisterMeshHandler();
 		RegisterDCCAssetHandler();
 		RegisterShaderHandler();

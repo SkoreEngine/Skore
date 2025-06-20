@@ -41,6 +41,7 @@ namespace Skore
 			if (world->IsResourceSyncEnabled())
 			{
 				Resources::GetStorage(rid)->RegisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
+				world->m_entities.Insert(rid, this);
 			}
 
 			if (ResourceObject entityObject = Resources::Read(rid))
@@ -83,6 +84,7 @@ namespace Skore
 		{
 			if (m_rid)
 			{
+				m_world->m_entities.Erase(m_rid);
 				Resources::GetStorage(m_rid)->UnregisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
 			}
 
@@ -131,6 +133,23 @@ namespace Skore
 	StringView Entity::GetName() const
 	{
 		return m_name;
+	}
+
+	void Entity::SetActive(bool active)
+	{
+		if (active == m_active) return;
+
+		m_active = active;
+
+		EntityEventDesc desc{
+			.type = m_active ? EntityEventType::EntityActivated : EntityEventType::EntityDeactivated
+		};
+		NotifyEvent(desc, true);
+	}
+
+	bool Entity::IsActive() const
+	{
+		return m_active && m_parentActive;
 	}
 
 	Entity* Entity::CreateChild()
@@ -209,6 +228,15 @@ namespace Skore
 			m_worldTransform = parentTransform * GetLocalTransform();
 		}
 
+		if (event.type == EntityEventType::EntityActivated)
+		{
+			m_parentActive = true;
+		}
+		else if (event.type == EntityEventType::EntityDeactivated)
+		{
+			m_parentActive = false;
+		}
+
 		for (Component* component : m_components)
 		{
 			component->ProcessEvent(event);
@@ -282,6 +310,7 @@ namespace Skore
 		if (newValue)
 		{
 			entity->SetName(newValue.GetString(EntityResource::Name));
+			entity->SetActive(!newValue.GetBool(EntityResource::Deactivated));
 		}
 
 		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Children))

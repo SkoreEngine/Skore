@@ -123,7 +123,7 @@ namespace Skore
 		}
 
 		template <typename T>
-		T GetEnum(u32 index)
+		T GetEnum(u32 index) const
 		{
 			return static_cast<T>(GetEnum(index));
 		}

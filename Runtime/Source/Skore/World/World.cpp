@@ -54,4 +54,13 @@ namespace Skore
 	{
 		return &m_renderStorage;
 	}
+
+	Entity* World::FindEntityByRID(RID rid) const
+	{
+		if (auto it = m_entities.Find(rid))
+		{
+			return it->second;
+		}
+		return nullptr;
+	}
 }

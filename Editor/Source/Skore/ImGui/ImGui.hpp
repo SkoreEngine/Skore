@@ -165,7 +165,9 @@ namespace Skore
 	typedef void (*FnDrawField)(const ImGuiDrawFieldContext& context, ConstPtr value);
 	typedef VoidPtr (*FnCreateCustomContext)(const ImGuiDrawFieldDrawCheck& check);
 	typedef void (*FnDestroyCustomContext)(VoidPtr context);
-	typedef bool (*FnFieldVisibilityControl)(Object* object);
+	typedef bool (*FnObjectFieldVisibilityControl)(Object* object);
+	typedef bool (*FnResourceFieldVisibilityControl)(const ResourceObject& object);
+
 
 	struct ImGuiFieldRenderer
 	{
@@ -211,7 +213,7 @@ namespace Skore
 	SK_API bool ImGuiCollapsingHeaderProps(i32 id, const char* label, bool* buttonClicked);
 	SK_API void ImGuiDrawObject(const ImGuiDrawObjectInfo& info);
 	SK_API void ImGuiRegisterFieldRenderer(ImGuiFieldRenderer fieldRenderer);
-	SK_API void ImGuiRegisterFieldVisibilityControl(TypeID typeId, StringView fieldName, FnFieldVisibilityControl fieldVisibilityControl);
+	SK_API void ImGuiRegisterFieldVisibilityControl(TypeID typeId, StringView fieldName, FnObjectFieldVisibilityControl fieldVisibilityControl);
 	SK_API void ImGuiCommitFieldChanges(const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size);
 	SK_API bool ImGuiCurrentTableHovered();
 	SK_API void ImGuiCentralizedText(const char* text);
@@ -226,5 +228,6 @@ namespace Skore
 	SK_API ImGuiContentItemState ImGuiContentItem(const ImGuiContentItemDesc& contentItemDesc);
 	SK_API void                  ImGuiEndContentTable();
 
+	SK_API void ImGuiRegisterResourceFieldVisibilityControl(TypeID typeId, StringView fieldName, FnResourceFieldVisibilityControl visibilityControl);
 	SK_API void ImGuiDrawResource(const ImGuiDrawResourceInfo& drawResourceInfo);
 }

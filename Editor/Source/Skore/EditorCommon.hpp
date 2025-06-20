@@ -43,6 +43,8 @@ namespace Skore
 	using OnEntitySelection = EventType<"Skore::Editor::OnEntitySelection"_h, void(u32, RID)>;
 	using OnEntityDeselection = EventType<"Skore::Editor::OnEntityDeselection"_h, void(u32, RID)>;
 
+	using OnAssetSelection = EventType<"Skore::Editor::OnAssetSelection"_h, void(u32, RID)>;
+
 	enum class DockPosition
 	{
 		None        = 0,

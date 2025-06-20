@@ -189,7 +189,7 @@ namespace Skore
 					BlendStateDesc{}
 				},
 				.renderPass = m_shadowMapRenderPass[0],
-				//.vertexInputStride = sizeof(MeshAsset::Vertex)
+				.vertexInputStride = sizeof(StaticMeshResource::Vertex)
 			});
 
 			m_shadowMapSampler = Graphics::CreateSampler(SamplerDesc{
@@ -418,7 +418,7 @@ namespace Skore
 		lightBufferData.cascadeSplits = {m_cascadeSplits[0], m_cascadeSplits[1], m_cascadeSplits[2], m_cascadeSplits[3]};
 		memcpy(lightBufferData.cascadeViewProjMat, m_cascadeViewProjMat, sizeof(Mat4) * s_numCascades);
 
-		lightBufferData.ambientLight = Vec3(0.2);
+		lightBufferData.ambientLight = Vec3(0.4);
 		lightBufferData.shadowLightIndex = U32_MAX;
 		lightBufferData.lightFlags = LightFlags::None;
 
@@ -835,6 +835,31 @@ namespace Skore
 					// 		cmd->DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
 					// 	}
 					// }
+
+					if (!meshRenderData.mesh->vertexBuffer)
+					{
+						continue;
+					}
+
+					if (!meshRenderData.mesh->indexBuffer)
+					{
+						continue;
+					}
+
+					cmd->BindVertexBuffer(0, {meshRenderData.mesh->vertexBuffer}, {0});
+					cmd->BindIndexBuffer(meshRenderData.mesh->indexBuffer, 0, IndexType::Uint32);
+					cmd->PushConstants(opaqueMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &meshRenderData.transform);
+
+					for (StaticMeshResource::Primitive& primitive : meshRenderData.mesh->primitives)
+					{
+						GPUDescriptorSet* materialDs = meshRenderData.mesh->materials[primitive.materialIndex];
+						if (materialDs == nullptr)
+						{
+							continue;
+						}
+
+						cmd->DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
+					}
 				}
 			}
 

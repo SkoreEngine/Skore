@@ -70,13 +70,18 @@ namespace Skore
 			String                   label;
 			ReflectType*             reflectType;
 			ReflectField*            reflectField;
-			FnFieldVisibilityControl fieldVisibilityControl;
+			FnObjectFieldVisibilityControl fieldVisibilityControl;
 			Array<DrawFieldContext>  drawFn;
 		};
 
 		struct FieldVisibilityControl
 		{
-			HashMap<String, FnFieldVisibilityControl> fieldVisibilityControls;
+			HashMap<String, FnObjectFieldVisibilityControl> fieldVisibilityControls;
+		};
+
+		struct ResourceFieldVisibilityControl
+		{
+			HashMap<String, FnResourceFieldVisibilityControl> resourceFieldVisibilityControls;
 		};
 
 		struct ObjectTypeRenderer
@@ -87,9 +92,11 @@ namespace Skore
 
 		struct ResourceFieldRenderer
 		{
-			u32                     index;
-			String                  label;
-			Array<DrawFieldContext> drawFn;
+			u32                              index;
+			String                           label;
+			ReflectType*                     reflectFieldType;
+			FnResourceFieldVisibilityControl visibilityControl;
+			Array<DrawFieldContext>          drawFn;
 		};
 
 		struct ResourceTypeRenderer
@@ -97,9 +104,10 @@ namespace Skore
 			Array<ResourceFieldRenderer> fields;
 		};
 
-		HashMap<TypeID, ObjectTypeRenderer>     objectTypeRenderers;
-		HashMap<TypeID, FieldVisibilityControl> visibilityControl;
-		HashMap<TypeID, ResourceTypeRenderer>   resourceTypeRenders;
+		HashMap<TypeID, ObjectTypeRenderer>             objectTypeRenderers;
+		HashMap<TypeID, FieldVisibilityControl>         objectVisibilityControl;
+		HashMap<TypeID, ResourceFieldVisibilityControl> resourceVisibilityControl;
+		HashMap<TypeID, ResourceTypeRenderer>           resourceTypeRenders;
 	}
 
 	SK_API SDL_Window*   GraphicsGetWindow();
@@ -388,6 +396,7 @@ namespace Skore
 	}
 
 	void RegisterFieldRenderers();
+	void RegisterFieldVisibilityControls();
 	void ImGuiNewFrame();
 	void ImGuiEndFrame();
 	void ImGuiRender();
@@ -466,6 +475,7 @@ namespace Skore
 
 		RegisterKeys();
 		RegisterFieldRenderers();
+		RegisterFieldVisibilityControls();
 
 		Event::Bind<OnUIRender, ImGuiRender>();
 		Event::Bind<OnBeginFrame, &ImGuiNewFrame>();
@@ -1023,6 +1033,16 @@ namespace Skore
 		ImGui::EndTable();
 	}
 
+	void ImGuiRegisterResourceFieldVisibilityControl(TypeID typeId, StringView fieldName, FnResourceFieldVisibilityControl visibilityControl)
+	{
+		auto it = resourceVisibilityControl.Find(typeId);
+		if (it == resourceVisibilityControl.end())
+		{
+			it = resourceVisibilityControl.Insert(typeId, ResourceFieldVisibilityControl{}).first;
+		}
+		it->second.resourceFieldVisibilityControls.Insert(fieldName, visibilityControl);
+	}
+
 	// Custom Basic Slider with flags
 	bool ImGuiBasicSlider(const char* label, float* value, float min, float max, ImGuiBasicSliderFlags flags, const char* format)
 	{
@@ -1262,7 +1282,7 @@ namespace Skore
 		auto it = objectTypeRenderers.Find(object->GetTypeId());
 		if (it == objectTypeRenderers.end())
 		{
-			auto itVisibilityControl = visibilityControl.Find(object->GetTypeId());
+			auto itVisibilityControl = objectVisibilityControl.Find(object->GetTypeId());
 
 			ObjectTypeRenderer typeRenderer;
 			typeRenderer.reflectType = Reflection::FindTypeById(object->GetTypeId());
@@ -1276,7 +1296,7 @@ namespace Skore
 					.reflectField = field,
 				});
 
-				if (itVisibilityControl != visibilityControl.end())
+				if (itVisibilityControl != objectVisibilityControl.end())
 				{
 					auto itVisibilityControlField = itVisibilityControl->second.fieldVisibilityControls.Find(field->GetName());
 					if (itVisibilityControlField != itVisibilityControl->second.fieldVisibilityControls.end())
@@ -1372,12 +1392,12 @@ namespace Skore
 		fieldRenderers.EmplaceBack(fieldRenderer);
 	}
 
-	void ImGuiRegisterFieldVisibilityControl(TypeID typeId, StringView fieldName, FnFieldVisibilityControl fieldVisibilityControl)
+	void ImGuiRegisterFieldVisibilityControl(TypeID typeId, StringView fieldName, FnObjectFieldVisibilityControl fieldVisibilityControl)
 	{
-		auto it = visibilityControl.Find(typeId);
-		if (it == visibilityControl.end())
+		auto it = objectVisibilityControl.Find(typeId);
+		if (it == objectVisibilityControl.end())
 		{
-			it = visibilityControl.Insert(typeId, FieldVisibilityControl{}).first;
+			it = objectVisibilityControl.Insert(typeId, FieldVisibilityControl{}).first;
 		}
 		it->second.fieldVisibilityControls.Insert(String(fieldName), fieldVisibilityControl);
 	}
@@ -1431,13 +1451,23 @@ namespace Skore
 		auto it = resourceTypeRenders.Find(resourceType->GetID());
 		if (it == resourceTypeRenders.end())
 		{
+
+			auto itVisibilityControl = resourceVisibilityControl.Find(resourceType->GetID());
+
 			ResourceTypeRenderer typeRenderer;
 
 			for (ResourceField* field: resourceType->GetFields())
 			{
+				ReflectType* reflectFieldType = nullptr;
+				if (field->GetSubType() != 0)
+				{
+					reflectFieldType = Reflection::FindTypeById(field->GetSubType());
+				}
+
 				ImGuiDrawFieldDrawCheck check;
 				check.fieldProps = field->GetProps();
 				check.resourceField = field;
+				check.reflectFieldType = reflectFieldType;
 
 				Array<DrawFieldContext> drawFieldContexts;
 
@@ -1460,11 +1490,24 @@ namespace Skore
 
 				if (!drawFieldContexts.Empty())
 				{
-					typeRenderer.fields.EmplaceBack(ResourceFieldRenderer{
+
+					ResourceFieldRenderer resourceFieldRenderer = {
 						.index = field->GetIndex(),
 						.label = FormatName(field->GetName()),
+						.reflectFieldType = reflectFieldType,
 						.drawFn = drawFieldContexts
-					});
+					};
+
+					if (itVisibilityControl != resourceVisibilityControl.end())
+					{
+						auto itVisibilityControlField = itVisibilityControl->second.resourceFieldVisibilityControls.Find(field->GetName());
+						if (itVisibilityControlField != itVisibilityControl->second.resourceFieldVisibilityControls.end())
+						{
+							resourceFieldRenderer.visibilityControl = itVisibilityControlField->second;
+						}
+					}
+
+					typeRenderer.fields.EmplaceBack(Traits::Move(resourceFieldRenderer));
 				}
 			}
 			it = resourceTypeRenders.Insert(resourceType->GetID(), typeRenderer).first;
@@ -1485,10 +1528,10 @@ namespace Skore
 					c++;
 					ResourceField* resourceField = resourceType->GetFields()[field.index];
 
-					// if (field.fieldVisibilityControl && !field.fieldVisibilityControl(object))
-					// {
-					// 	continue;
-					// }
+					if (field.visibilityControl && !field.visibilityControl(object))
+					{
+						continue;
+					}
 
 					ImGui::TableNextColumn();
 					ImGui::AlignTextToFramePadding();
@@ -1514,6 +1557,7 @@ namespace Skore
 					context.rid = drawResourceInfo.rid;
 					context.userData = drawResourceInfo.userData;
 					context.callback = drawResourceInfo.callback;
+					context.reflectFieldType = field.reflectFieldType;
 					context.resourceField = resourceField;
 					context.scopeName = drawResourceInfo.scopeName;
 
