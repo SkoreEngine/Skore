@@ -46,4 +46,13 @@ namespace Skore
 		}
 		return retVariant;
 	}
+
+	void CreateGraphicsDefaultValues()
+	{
+		//RID defaultMaterial = Resources::Create<TextureResource>();
+		// ResourceObject defaultMaterialObject = Resources::Write(defaultMaterial);
+		// defaultMaterialObject.SetColor(MaterialResource::BaseColor, Color::WHITE);
+		// defaultMaterialObject.Commit();
+		// Resources::FindType<MaterialResource>()->SetDefaultValue(defaultMaterial);
+	}
 }

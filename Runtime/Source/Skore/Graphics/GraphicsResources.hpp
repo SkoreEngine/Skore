@@ -100,6 +100,12 @@ namespace Skore
 
 	struct MaterialResource
 	{
+		enum class MaterialType
+		{
+			Opaque,
+			SkyboxEquirectangular,
+		};
+
 		struct Buffer
 		{
 			Vec3 baseColor;
@@ -124,6 +130,7 @@ namespace Skore
 		enum
 		{
 			Name,                    //String
+			Type,                    //Enum
 			BaseColor,               //Color
 			BaseColorTexture,        //Reference
 			NormalTexture,           //Reference
@@ -143,6 +150,9 @@ namespace Skore
 			AlphaCutoff,             //Float
 			AlphaMode,               //Enum
 			UvScale,                 //Vec2
+			SphericalTexture,		 //Reference
+			Exposure,			     //Float
+			BackgroundColor,		 //Color
 		};
 	};
 

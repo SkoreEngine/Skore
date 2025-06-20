@@ -643,21 +643,14 @@ namespace Skore
 
 		Reflection::Type<ShaderStageInfo>();
 
-		// auto primitive = Reflection::Type<MeshAsset::Primitive>();
-		// primitive.Field<&MeshAsset::Primitive::firstIndex>("firstIndex");
-		// primitive.Field<&MeshAsset::Primitive::indexCount>("indexCount");
-		// primitive.Field<&MeshAsset::Primitive::materialIndex>("materialIndex");
+		auto primitive = Reflection::Type<StaticMeshResource::Primitive>();
+		primitive.Field<&StaticMeshResource::Primitive::firstIndex>("firstIndex");
+		primitive.Field<&StaticMeshResource::Primitive::indexCount>("indexCount");
+		primitive.Field<&StaticMeshResource::Primitive::materialIndex>("materialIndex");
 		//
-		// Reflection::Type<TextureAssetImage>();
-		// Reflection::Type<TextureAsset>();
-		// Reflection::Type<MeshAsset>();
-		// Reflection::Type<MaterialAsset>();
-		// Reflection::Type<ShaderAsset>();
-		// Reflection::Type<ShaderVariant>();
-		//
-		// auto materialType = Reflection::Type<MaterialAsset::MaterialType>();
-		// materialType.Value<MaterialAsset::MaterialType::Opaque>("Opaque");
-		// materialType.Value<MaterialAsset::MaterialType::SkyboxEquirectangular>("SkyboxEquirectangular");
+		auto materialType = Reflection::Type<MaterialResource::MaterialType>();
+		materialType.Value<MaterialResource::MaterialType::Opaque>("Opaque");
+		materialType.Value<MaterialResource::MaterialType::SkyboxEquirectangular>("SkyboxEquirectangular");
 		//
 		auto alphaMode = Reflection::Type<MaterialResource::MaterialAlphaMode>();
 		alphaMode.Value<MaterialResource::MaterialAlphaMode::None>("None");
@@ -694,25 +687,29 @@ namespace Skore
 
 		Resources::Type<MaterialResource>()
 			.Field<MaterialResource::Name>(ResourceFieldType::String)
+			.Field<MaterialResource::Type>(ResourceFieldType::Enum, TypeInfo<MaterialResource::MaterialType>::ID())
 			.Field<MaterialResource::BaseColor>(ResourceFieldType::Color)
-			.Field<MaterialResource::BaseColorTexture>(ResourceFieldType::Reference)
-			.Field<MaterialResource::NormalTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::BaseColorTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
+			.Field<MaterialResource::NormalTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
 			.Field<MaterialResource::NormalMultiplier>(ResourceFieldType::Float)
 			.Field<MaterialResource::Metallic>(ResourceFieldType::Float)
-			.Field<MaterialResource::MetallicTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::MetallicTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
 			.Field<MaterialResource::MetallicTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
 			.Field<MaterialResource::Roughness>(ResourceFieldType::Float)
-			.Field<MaterialResource::RoughnessTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::RoughnessTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
 			.Field<MaterialResource::RoughnessTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
 			.Field<MaterialResource::EmissiveColor>(ResourceFieldType::Color)
 			.Field<MaterialResource::EmissiveFactor>(ResourceFieldType::Float)
-			.Field<MaterialResource::EmissiveTexture>(ResourceFieldType::Reference)
-			.Field<MaterialResource::OcclusionTexture>(ResourceFieldType::Reference)
+			.Field<MaterialResource::EmissiveTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
+			.Field<MaterialResource::OcclusionTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
 			.Field<MaterialResource::OcclusionStrength>(ResourceFieldType::Float)
 			.Field<MaterialResource::OcclusionTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
 			.Field<MaterialResource::AlphaCutoff>(ResourceFieldType::Float)
 			.Field<MaterialResource::AlphaMode>(ResourceFieldType::Enum, TypeInfo<MaterialResource::MaterialAlphaMode>::ID())
 			.Field<MaterialResource::UvScale>(ResourceFieldType::Vec2)
+			.Field<MaterialResource::SphericalTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
+			.Field<MaterialResource::Exposure>(ResourceFieldType::Float)
+			.Field<MaterialResource::BackgroundColor>(ResourceFieldType::Color)
 			.Build();
 
 		Resources::Type<StaticMeshResource>()

@@ -189,13 +189,16 @@ namespace Skore
 		char str[40];
 		sprintf(str, "###colorid%llu", context.id);
 
+		char picker[40];
+		sprintf(picker, "###picker_id%llu", context.id);
+
 		ImGui::SetNextItemWidth(-1);
 		if (ImGui::ColorButton(str, colV4, 0, ImVec2(ImGui::CalcItemWidth(), 0)))
 		{
-			ImGui::OpenPopup("color-picker");
+			ImGui::OpenPopup(picker);
 		}
 
-		if (ImGui::BeginPopup("color-picker"))
+		if (ImGui::BeginPopup(picker))
 		{
 			ImGuiColorEditFlags flags = ImGuiColorEditFlags_DisplayMask_ | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_AlphaPreviewHalf |
 				ImGuiColorEditFlags_AlphaBar;

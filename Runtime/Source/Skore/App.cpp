@@ -51,7 +51,7 @@ namespace Skore
 	bool GraphicsHandleEvents(SDL_Event* event);
 	void InputHandlerEvents(SDL_Event* event);
 
-
+	void CreateGraphicsDefaultValues();
 
 	namespace
 	{
@@ -237,6 +237,8 @@ namespace Skore
 
 		running = true;
 		requireShutdown = true;
+
+		CreateGraphicsDefaultValues();
 
 		return AppResult::Continue;
 	}
