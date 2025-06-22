@@ -4,73 +4,34 @@
 [![Language](https://img.shields.io/badge/language-C++-blue.svg)](https://isocpp.org/)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-brightgreen.svg)](https://en.cppreference.com/w/cpp/20)
 
-## Overview
-
-Skore is an open-source, multi-platform 2D and 3D game engine designed with simplicity and performance in mind. Built with modern C++20, it aims to provide game developers with a powerful yet easy-to-use toolkit for creating games across multiple platforms.
-
 [license-image]: https://img.shields.io/badge/License-MIT-yellow.svg
 [license-url]: https://opensource.org/licenses/MIT
 
 ![Scene](Content/Images/Sponza.png)
 
-## Important Note
+Skore is an open-source, cross-platform game engine for 2D and 3D game development. Built with modern C++20, it provides developers with a clean, extensible foundation for creating games across multiple platforms.
 
-> ⚠️ Skore is currently under active development and should be considered alpha software. The API may change significantly between versions, and some planned features are not yet implemented. Not recommended for production use at this time.
+**🎮 Complete 2D and 3D game development** - unified interface for all your game creation needs  
+**⚡ Performance-focused** - lightweight architecture with efficient rendering pipeline  
+**🔧 Extensible by design** - modular system allowing easy customization and plugin development  
+**🌐 Cross-platform** - deploy to Windows, Linux, macOS and more platforms  
+**🛠️ Integrated tooling** - comprehensive editor and development environment  
 
-## Core Principles
+> ⚠️ **Development Status**: Skore is currently in active development and should be considered alpha software. The API may change between versions. Not recommended for production use at this time.
 
-The development of Skore is guided by the following principles:
+---
 
-- **Simplicity First**: Easy to use, straightforward API with no hidden complexities or tedious configuration steps
-- **Lightweight Design**: Carefully selected dependencies with minimal footprint to keep the engine lean and efficient
-- **Hassle-Free Building**: Simple build process with no extra steps - just clone and build
-- **Extensibility**: Features can be replaced or extended without modifying engine source code
-- **Clean API Design**: Minimal external dependencies in public headers, providing full control over the API surface
+## Design Philosophy
 
-## Current Features
+Skore is built around core principles that prioritize developer experience:
 
-### Core Systems
-- 📦 Robust Entity System
-- 🧩 Comprehensive Asset Management
-- 🔄 Runtime Reflection System
-- 📚 Custom STL-compatible Container Types
-- ↩️ Complete Undo/Redo System for Assets and Entities
+**Simplicity First** - Clean, intuitive APIs without unnecessary complexity or tedious configuration  
+**Lightweight & Fast** - Minimal dependencies and efficient architecture  
+**Easy to Build** - Simple build process with no extra steps required  
+**Highly Extensible** - Modular design allowing features to be replaced or extended  
+**Developer Friendly** - Comprehensive tooling and integrated development environment  
 
-### Graphics & Rendering
-- 🎮 Advanced 3D Renderer with PBR Materials
-- 🌓 Cascade Shadow Mapping
-- 🌌 HDR Sky Rendering
-- ⚡ Vulkan Rendering Hardware Interface
-- 🖍️ HLSL Shader Support
-
-### Physics & Gameplay
-- 🔌 C++ Plugin-based Scripting (no engine recompilation needed)
-
-### Tools & Platform Support
-- 🔧 Integrated Editor Environment with Full Undo/Redo History
-- 💻 Cross-platform Support (Windows, Linux, macOS)
-
-## Roadmap
-
-The following features are planned for future releases:
-
-### Coming Soon
-- 🔋 3D Physics powered by Jolt Physics
-- 📊 Fully Customizable Render Graph
-- 🎭 Animation System
-- 🎵 Audio Engine
-- 🎮 Game UI Framework
-- 📱 Mobile Device Support (Android, iOS)
-
-### On the Horizon
-- 🖼️ Dedicated 2D Renderer
-- 🧲 2D Physics System
-- 🌐 Networking Layer
-- 🧠 AI Tools & Systems
-
-We welcome community input on prioritizing these features! Feel free to open an issue to discuss.
-
-## Building from Source
+## Getting Started
 
 ### Prerequisites
 
@@ -82,51 +43,50 @@ We welcome community input on prioritizing these features! Feel free to open an 
 
 ### Platform-Specific Dependencies
 
-- **Linux**: Install the following packages:
+- **Linux**: Install development packages:
   ```bash
   sudo apt install xorg-dev libglu1-mesa-dev libgtk-3-dev
   ```
 - **Windows/macOS**: No additional dependencies required
 
-### Build Steps
+### Building
 
 ```bash
 # Clone the repository
 git clone https://github.com/SkoreEngine/Skore.git
 cd Skore
 
-# Create and navigate to build directory
-mkdir Build && cd Build
-
-# Configure CMake
-cmake ..
-
 # Build the engine
+mkdir Build && cd Build
+cmake ..
 cmake --build . --config Release
 ```
 
-## Getting Started
-
-After building, you can start using Skore Engine in your projects:
+### Your First Project
 
 1. Launch the Skore Editor from the build directory
-2. Create a new project or open an example project
-3. Check out the `Tests` directory for code examples
+2. Create a new project or explore the example projects
+3. Check out the `Tests` directory for code samples and usage patterns
 
 ## Documentation
 
-Comprehensive documentation is in development. In the meantime, code examples in the `Tests` directory provide valuable insights into engine usage.
+Comprehensive documentation is in development. Code examples in the `Tests` directory demonstrate key engine concepts and usage patterns.
 
 ## Contributing
 
-Contributions are welcome! Whether you're fixing bugs, improving documentation, or proposing new features, please feel free to submit a pull request.
+We welcome contributions of all kinds! Whether you're fixing bugs, improving documentation, adding features, or helping with testing, your help is appreciated.
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
+2. Create your feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes (`git commit -m 'Add your feature'`)
+4. Push to the branch (`git push origin feature/your-feature`)
 5. Open a Pull Request
+
+## Community & Support
+
+- **Issues**: Report bugs and request features on [GitHub Issues](https://github.com/SkoreEngine/Skore/issues)
+- **Discussions**: Join conversations about development and usage
 
 ## License
 
-Skore Engine is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+Skore Engine is licensed under the MIT License. See the [LICENSE](LICENSE) file for complete details.
