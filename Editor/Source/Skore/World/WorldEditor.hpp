@@ -43,7 +43,7 @@ namespace Skore
 
 		//entity management
 		void Create();
-		void CreateFromAsset(RID entityAsset, bool select = true);
+		void CreateFromAsset(RID entityAsset, bool addOnSelected = true);
 		void DestroySelected();
 		void DuplicateSelected();
 

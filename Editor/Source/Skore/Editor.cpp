@@ -118,6 +118,9 @@ namespace Skore
 		Array<std::unique_ptr<UndoRedoScopeStorage>> redoActions{};
 		bool undoRedoLocked = false;
 
+		std::mutex funcsMutex;
+		Queue<std::function<void()>> funcs;
+
 		MenuItemContext menuContext{};
 		bool            dockInitialized = false;
 		u32             dockSpaceId{10000};
@@ -547,6 +550,15 @@ namespace Skore
 
 		void EditorUpdate()
 		{
+
+			{
+				std::scoped_lock lock(funcsMutex);
+				while (!funcs.IsEmpty())
+				{
+					funcs.Dequeue()();
+				}
+			}
+
 			ImGuiStyle& style = ImGui::GetStyle();
 			ImGuiCreateDockSpace(dockSpaceId);
 			ProjectUpdate();
@@ -649,6 +661,12 @@ namespace Skore
 		packagePaths.EmplaceBack(directory);
 
 		return rid;
+	}
+
+	void Editor::ExecuteOnMainThread(std::function<void()> func)
+	{
+		std::scoped_lock lock(funcsMutex);
+		funcs.Enqueue(func);
 	}
 
 	void ImGuiDrawUndoRedoActions()

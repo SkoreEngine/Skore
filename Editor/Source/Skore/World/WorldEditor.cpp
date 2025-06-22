@@ -112,26 +112,22 @@ namespace Skore
 		CreateFromAsset(RID {});
 	}
 
-	void WorldEditor::CreateFromAsset(RID entityAsset, bool select)
+	void WorldEditor::CreateFromAsset(RID entityAsset, bool addOnSelected)
 	{
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Entity");
 		Span<RID> selectedEntities = GetSelectedEntities();
 
-		ResourceObject selectionObject = select ? Resources::Write(m_selection) : ResourceObject(nullptr, nullptr);
-
-		if (selectionObject)
-		{
-			selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
-		}
+		ResourceObject selectionObject = Resources::Write(m_selection);
+		selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
 
 		auto createEntity = [&](RID parent)
 		{
 			RID newEntity;
 
+			RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
+
 			if (!entityAsset)
 			{
-				RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
-
 				newEntity = Resources::Create<EntityResource>(UUID::RandomUUID());
 				ResourceObject newEntityObject = Resources::Write(newEntity);
 				newEntityObject.SetString(EntityResource::Name, "New Entity");
@@ -141,20 +137,18 @@ namespace Skore
 			else
 			{
 				newEntity = Resources::CreateFromPrototype(entityAsset, UUID::RandomUUID());
+				ResourceObject newEntityObject = Resources::Write(newEntity);
+				newEntityObject.SetSubObject(EntityResource::Transform, transformRID);
+				newEntityObject.Commit(scope);
 			}
 
 			ResourceObject parentObject = Resources::Write(parent);
 			parentObject.AddToSubObjectSet(EntityResource::Children, newEntity);
 			parentObject.Commit(scope);
 
+			selectionObject.AddToReferenceArray(WorldEditorSelection::SelectedEntities, newEntity);};
 
-			if (selectionObject)
-			{
-				selectionObject.AddToReferenceArray(WorldEditorSelection::SelectedEntities, newEntity);
-			}
-		};
-
-		if (selectedEntities.Empty())
+		if (!addOnSelected || selectedEntities.Empty())
 		{
 			createEntity(GetRootEntity());
 		}
@@ -166,10 +160,7 @@ namespace Skore
 			}
 		}
 
-		if (selectionObject)
-		{
-			selectionObject.Commit(scope);
-		}
+		selectionObject.Commit(scope);
 	}
 
 	void WorldEditor::DestroySelected()

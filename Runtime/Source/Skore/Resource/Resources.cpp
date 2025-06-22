@@ -340,22 +340,25 @@ namespace Skore
 		{
 			for (ResourceField* field : type->GetFields())
 			{
-				switch (field->GetType())
+				if (*reinterpret_cast<bool*>(&instance[sizeof(ResourceInstanceInfo) + field->GetIndex()]))
 				{
-					case ResourceFieldType::Blob:
-						reinterpret_cast<ByteBuffer*>(&instance[field->GetOffset()])->~ByteBuffer();
-						break;
-					case ResourceFieldType::ReferenceArray:
-						reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])->~Array<RID>();
-						break;
-					case ResourceFieldType::SubObjectSet:
-						reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])->~SubObjectSet();
-						break;
-					case ResourceFieldType::String:
-						reinterpret_cast<String*>(&instance[field->GetOffset()])->~String();
-						break;
-					default:
-						break;
+					switch (field->GetType())
+					{
+						case ResourceFieldType::Blob:
+							reinterpret_cast<ByteBuffer*>(&instance[field->GetOffset()])->~ByteBuffer();
+							break;
+						case ResourceFieldType::ReferenceArray:
+							reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])->~Array<RID>();
+							break;
+						case ResourceFieldType::SubObjectSet:
+							reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])->~SubObjectSet();
+							break;
+						case ResourceFieldType::String:
+							reinterpret_cast<String*>(&instance[field->GetOffset()])->~String();
+							break;
+						default:
+							break;
+					}
 				}
 			}
 		}
@@ -906,7 +909,7 @@ namespace Skore
 				}
 			}
 
-			if (RID prototype = FindByUUID(UUID::FromString(reader.ReadString("_prototype"))))
+			if (RID prototype = FindOrReserveByUUID(UUID::FromString(reader.ReadString("_prototype"))))
 			{
 				storage->prototype = GetStorage(prototype);
 			}

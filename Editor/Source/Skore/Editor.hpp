@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include "MenuItem.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
 
@@ -42,6 +44,7 @@ namespace Skore
 		static RID              GetProject();
 		static Span<RID>        GetPackages();
 		static RID              LoadPackage(StringView name, StringView directory);
+		static void				ExecuteOnMainThread(std::function<void()> func);
 
 		template <typename T>
 		static void OpenWindow(VoidPtr initUserData = nullptr)

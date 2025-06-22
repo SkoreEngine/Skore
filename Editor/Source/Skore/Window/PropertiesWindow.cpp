@@ -125,27 +125,32 @@ namespace Skore
 
 		ImGui::EndHorizontal();
 
-		// if (entity->GetPrefab() != nullptr)
-		// {
-		// 	ImGui::BeginHorizontal(9999, ImVec2(width, size));
-		// 	ImGui::Spring(1.f);
-		//
-		// 	if (ImGui::BorderedButton("Open Prefab", ImVec2((width * 2) / 3, size)))
-		// 	{
-		// 		//TODO defer open scene.
-		// 	}
-		//
-		// 	ImGui::Spring(1.f);
-		// 	ImGui::EndHorizontal();
-		// }
+		if (entityObject.GetPrototype())
+		{
+			ImGui::BeginHorizontal(9999, ImVec2(width, size));
+			ImGui::Spring(1.f);
+
+			if (ImGuiBorderedButton("Open Prefab", ImVec2((width * 2) / 3, size)))
+			{
+				RID prototype = entityObject.GetPrototype();
+				Editor::ExecuteOnMainThread([prototype]()
+				{
+					Editor::GetCurrentWorkspace().GetWorldEditor()->OpenEntity(prototype);
+				});
+			}
+
+			ImGui::Spring(1.f);
+			ImGui::EndHorizontal();
+		}
 
 		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5 * style.ScaleFactor);
-
 
 		bool openComponentSettings = false;
 
 		auto drawCollapsingHeader = [&](RID rid, StringView formattedName, StringView scopeName)
 		{
+			bool fromPrototype = Resources::GetParent(rid) != entity;
+
 			bool propClicked = false;
 			bool open = ImGuiCollapsingHeaderProps(HashValue(rid.id), formattedName.CStr(), &propClicked);
 			if (propClicked)
@@ -156,7 +161,7 @@ namespace Skore
 
 			if (open)
 			{
-				ImGui::BeginDisabled(readOnly);
+				ImGui::BeginDisabled(readOnly || fromPrototype);
 				ImGui::Indent();
 
 				ImGuiDrawResource(ImGuiDrawResourceInfo{
