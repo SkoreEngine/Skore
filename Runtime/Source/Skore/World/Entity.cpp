@@ -36,6 +36,11 @@ namespace Skore
 
 	Entity::Entity(World* world, Entity* parent, RID rid) : m_rid(rid), m_world(world), m_parent(parent)
 	{
+		if (m_parent)
+		{
+			m_parentActive = m_parent->IsActive();
+		}
+
 		if (rid)
 		{
 			if (world->IsResourceSyncEnabled())
@@ -74,7 +79,10 @@ namespace Skore
 					CreateChildFromAsset(child);
 					return true;
 				});
+
+				SetActive(!entityObject.GetBool(EntityResource::Deactivated));
 			}
+
 		}
 	}
 
