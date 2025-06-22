@@ -341,6 +341,14 @@ namespace Skore
 	{
 		SK_CLASS(Transform, Object)
 
+		enum
+		{
+			Position,
+			Rotation,
+			Scale
+		};
+
+
 		Vec3 position{0, 0, 0};
 		Quat rotation{0, 0, 0, 1};
 		Vec3 scale{1, 1, 1};

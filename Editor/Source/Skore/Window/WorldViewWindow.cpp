@@ -309,15 +309,24 @@ namespace Skore
 				{
 					if (Entity* entity = worldEditor->GetCurrentWorld()->FindEntityByRID(selectedEntity))
 					{
-						guizmoMove(entity);
+						if (!guizmoMove(entity) && usingGuizmo)
+						{
+							if (RID rid = entity->GetTransformRID())
+							{
+								Transform& transform = entity->GetTransform();
+
+								UndoRedoScope* scope = Editor::CreateUndoRedoScope("Entity Transform Update");
+
+								ResourceObject transformObject = Resources::Write(rid);
+								transformObject.SetVec3(Transform::Position, transform.position);
+								transformObject.SetQuat(Transform::Rotation, transform.rotation);
+								transformObject.SetVec3(Transform::Scale, transform.scale);
+								transformObject.Commit(scope);
+
+								usingGuizmo = false;
+							}
+						}
 					}
-
-
-					// else if (usingGuizmo)
-					// {
-					// 	worldEditor->UpdateTransform(entity, gizmoInitialTransform, entity->GetTransform());
-					// 	usingGuizmo = false;
-					// }
 				}
 			}
 

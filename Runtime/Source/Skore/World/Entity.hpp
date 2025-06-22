@@ -43,6 +43,7 @@ namespace Skore
 		Span<Entity*>    GetChildren() const;
 		Span<Component*> GetComponents() const;
 		RID              GetRID() const;
+		RID				 GetTransformRID() const;
 
 		void       SetName(StringView name);
 		StringView GetName() const;

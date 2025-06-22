@@ -125,6 +125,11 @@ namespace Skore
 		return m_rid;
 	}
 
+	RID Entity::GetTransformRID() const
+	{
+		return m_transformRID;
+	}
+
 	void Entity::SetName(StringView name)
 	{
 		m_name = name;
