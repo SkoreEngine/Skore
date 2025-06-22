@@ -109,28 +109,49 @@ namespace Skore
 
 	void WorldEditor::Create()
 	{
+		CreateFromAsset(RID {});
+	}
+
+	void WorldEditor::CreateFromAsset(RID entityAsset, bool select)
+	{
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Entity");
 		Span<RID> selectedEntities = GetSelectedEntities();
 
-		ResourceObject selectionObject = Resources::Write(m_selection);
-		selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
+		ResourceObject selectionObject = select ? Resources::Write(m_selection) : ResourceObject(nullptr, nullptr);
+
+		if (selectionObject)
+		{
+			selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
+		}
 
 		auto createEntity = [&](RID parent)
 		{
-			RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
+			RID newEntity;
 
-			RID newEntity = Resources::Create<EntityResource>(UUID::RandomUUID());
-			ResourceObject newEntityObject = Resources::Write(newEntity);
-			newEntityObject.SetString(EntityResource::Name, "New Entity");
-			newEntityObject.SetSubObject(EntityResource::Transform, transformRID);
-			newEntityObject.Commit(scope);
+			if (!entityAsset)
+			{
+				RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
 
+				newEntity = Resources::Create<EntityResource>(UUID::RandomUUID());
+				ResourceObject newEntityObject = Resources::Write(newEntity);
+				newEntityObject.SetString(EntityResource::Name, "New Entity");
+				newEntityObject.SetSubObject(EntityResource::Transform, transformRID);
+				newEntityObject.Commit(scope);
+			}
+			else
+			{
+				newEntity = Resources::CreateFromPrototype(entityAsset, UUID::RandomUUID());
+			}
 
 			ResourceObject parentObject = Resources::Write(parent);
 			parentObject.AddToSubObjectSet(EntityResource::Children, newEntity);
 			parentObject.Commit(scope);
 
-			selectionObject.AddToReferenceArray(WorldEditorSelection::SelectedEntities, newEntity);
+
+			if (selectionObject)
+			{
+				selectionObject.AddToReferenceArray(WorldEditorSelection::SelectedEntities, newEntity);
+			}
 		};
 
 		if (selectedEntities.Empty())
@@ -144,7 +165,11 @@ namespace Skore
 				createEntity(parent);
 			}
 		}
-		selectionObject.Commit(scope);
+
+		if (selectionObject)
+		{
+			selectionObject.Commit(scope);
+		}
 	}
 
 	void WorldEditor::DestroySelected()

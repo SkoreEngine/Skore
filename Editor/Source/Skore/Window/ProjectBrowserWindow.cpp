@@ -434,9 +434,9 @@ namespace Skore
 
 							if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
 							{
+
 								AssetPayload payload = {
-									// .assetFile = assetFile,
-									// .assetType = assetFile->GetHandler() != nullptr ? assetFile->GetHandler()->GetAssetTypeId() : 0
+									.asset = assetObject.GetSubObject(ResourceAsset::Object)
 								};
 
 								ImGui::SetDragDropPayload(SK_ASSET_PAYLOAD, &payload, sizeof(AssetPayload));

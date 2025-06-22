@@ -36,9 +36,17 @@ namespace Skore
 
 	ResourceObject::ResourceObject(ResourceStorage* storage, ResourceInstance writeInstance) : m_storage(storage), m_currentInstance(writeInstance) {}
 
+	ResourceObject::ResourceObject(ResourceObject&& resourceObject) noexcept
+	{
+		m_storage = resourceObject.m_storage;
+		m_currentInstance = resourceObject.m_currentInstance;
+		resourceObject.m_storage = nullptr;
+		resourceObject.m_currentInstance = nullptr;
+	}
+
 	ResourceObject::~ResourceObject()
 	{
-		if (m_currentInstance && !reinterpret_cast<ResourceInstanceInfo*>(m_currentInstance)->readOnly)
+		if (m_storage && m_currentInstance && !reinterpret_cast<ResourceInstanceInfo*>(m_currentInstance)->readOnly)
 		{
 			DestroyResourceInstance(m_storage->resourceType, m_currentInstance);
 		}

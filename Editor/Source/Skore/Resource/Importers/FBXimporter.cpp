@@ -516,12 +516,20 @@ namespace Skore
 			// Process nodes
 			for (u32 i = 0; i < scene->nodes.count; i++)
 			{
-				const ufbx_node* node = scene->nodes.data[i];
-				if (node->parent == nullptr)
+				const ufbx_node* current = scene->nodes.data[i];
+				if (current->parent == nullptr)
 				{
-					if (RID root = ProcessNode(settings, node, cache, scene, scope))
+					while (current != nullptr && !current->mesh && current->children.count == 1)
 					{
-						dccAssetObject.SetSubObject(DCCAssetResource::Entity, root);
+						current = current->children.data[0];
+					}
+
+					if (current)
+					{
+						if (RID root = ProcessNode(settings, current, cache, scene, scope))
+						{
+							dccAssetObject.SetSubObject(DCCAssetResource::Entity, root);
+						}
 					}
 				}
 			}

@@ -37,9 +37,11 @@ namespace Skore
 	class SK_API ResourceObject
 	{
 	public:
-		SK_NO_COPY_CONSTRUCTOR(ResourceObject);
+		ResourceObject(const ResourceObject& other) = delete;
+		ResourceObject& operator=(const ResourceObject& other) = delete;
 
 		ResourceObject(ResourceStorage* storage, ResourceInstance writeInstance);
+		ResourceObject(ResourceObject&& resourceObject) noexcept;
 		~ResourceObject();
 
 		void SetValue(u32 index, ConstPtr value, usize size) const;

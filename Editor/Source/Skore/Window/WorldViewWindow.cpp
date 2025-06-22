@@ -350,17 +350,35 @@ namespace Skore
 			{
 				if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
 				{
-					// AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data);
-					// f32           pad = 4.0f;
-					// if (assetPayload && assetPayload->assetType == TypeInfo<Scene>::ID() && ImGui::BeginDragDropTargetCustom(ImRect(bb.x + pad, bb.y + pad, bb.width - pad, bb.height - pad), id))
-					// {
-					// 	if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
-					// 	{
-					// 		Entity::Instantiate(assetPayload->assetFile->GetUUID(), sceneEditor->GetRoot(), assetPayload->assetFile->GetFileName());
-					// 		sceneEditor->MarkDirty();
-					// 	}
-					// 	ImGui::EndDragDropTarget();
-					// }
+					AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data);
+					if (assetPayload)
+					{
+						f32 pad = 4.0f;
+
+						RID assetType = {};
+
+						if (Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<EntityResource>::ID())
+						{
+							assetType = assetPayload->asset;
+						}
+						else if (Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<DCCAssetResource>::ID())
+						{
+							if (ResourceObject dccAssetObject = Resources::Read(assetPayload->asset))
+							{
+								assetType = dccAssetObject.GetSubObject(DCCAssetResource::Entity);
+							}
+						}
+
+						if (assetType && ImGui::BeginDragDropTargetCustom(ImRect(bb.x + pad, bb.y + pad, bb.width - pad, bb.height - pad), id))
+						{
+							if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+							{
+								worldEditor->CreateFromAsset(assetType, false);
+							}
+							ImGui::EndDragDropTarget();
+						}
+					}
+
 				}
 			}
 		}

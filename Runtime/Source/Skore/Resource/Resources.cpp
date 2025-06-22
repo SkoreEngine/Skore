@@ -516,7 +516,6 @@ namespace Skore
 		RID rid = GetID(uuid);
 
 		ResourceStorage* storage = GetOrAllocate(rid, uuid);
-		storage->instance = nullptr;
 		storage->resourceType = prototype->resourceType;
 		storage->prototype = prototype;
 
@@ -524,6 +523,10 @@ namespace Skore
 		{
 			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
 			storage->instance = CreateResourceInstanceClone(storage, defaultValueStorage->instance.load(), scope);
+		}
+		else
+		{
+			storage->instance = storage->resourceType->Allocate();
 		}
 
 		FinishCreation(storage);
