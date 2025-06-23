@@ -189,6 +189,21 @@ namespace Skore
 			return !undoRedoLocked && !redoActions.Empty();
 		}
 
+		bool HasEntitySelection(const MenuItemEventData& eventData)
+		{
+			return Editor::GetCurrentWorkspace().GetWorldEditor()->HasSelectedEntities();
+		}
+
+		void Duplicate(const MenuItemEventData& eventData)
+		{
+			Editor::GetCurrentWorkspace().GetWorldEditor()->DuplicateSelected();
+		}
+
+		void Delete(const MenuItemEventData& eventData)
+		{
+			Editor::GetCurrentWorkspace().GetWorldEditor()->DestroySelected();
+		}
+
 		bool CreateCMakeProjectEnabled(const MenuItemEventData& eventData)
 		{
 			// return AssetEditor::CanCreateCMakeProject();
@@ -251,6 +266,10 @@ namespace Skore
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit", .priority = 30});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Undo", .priority = 10, .itemShortcut{.ctrl = true, .presKey = Key::Z}, .action = Undo, .enable = UndoEnabled});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Redo", .priority = 20, .itemShortcut{.ctrl = true, .shift = true, .presKey = Key::Z}, .action = Redo, .enable = RedoEnabled});
+
+			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Duplicate", .priority = 500, .itemShortcut{.ctrl = true, .presKey = Key::D}, .action = Duplicate, .enable = HasEntitySelection});
+			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Delete", .priority = 500, .itemShortcut{.presKey = Key::Delete}, .action = Delete, .enable = HasEntitySelection});
+
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Editor Preferences...", .priority = 1000, .action = SettingsWindow::Open, .userData = GetTypeID<EditorPreferences>()});
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Project Settings...", .priority = 1010, .action = SettingsWindow::Open, .userData = GetTypeID<ProjectSettings>()});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});

@@ -312,7 +312,7 @@ namespace Skore
 				switch (field->GetType())
 				{
 					case ResourceFieldType::Blob:
-						new(reinterpret_cast<ByteBuffer*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<ByteBuffer*>(&origin[field->GetOffset()]));
+						new(reinterpret_cast<ByteBuffer*>(&instance[field->GetOffset()])) ByteBuffer(*reinterpret_cast<ByteBuffer*>(&origin[field->GetOffset()]));
 						break;
 					case ResourceFieldType::ReferenceArray:
 						new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
@@ -526,10 +526,6 @@ namespace Skore
 		{
 			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
 			storage->instance = CreateResourceInstanceClone(storage, defaultValueStorage->instance.load(), scope);
-		}
-		else
-		{
-			storage->instance = storage->resourceType->Allocate();
 		}
 
 		FinishCreation(storage);
@@ -1253,6 +1249,11 @@ namespace Skore
 
 		change->before = CreateResourceInstanceCopy(storage->resourceType, before);
 		change->after = CreateResourceInstanceCopy(storage->resourceType, after);
+
+		if (change->before && change->before[0] == 0)
+		{
+			int a = 0;
+		}
 
 		changes.EmplaceBack(Traits::Move(change));
 	}

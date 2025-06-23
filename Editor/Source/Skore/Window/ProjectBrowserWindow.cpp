@@ -25,6 +25,7 @@
 #include "SDL3/SDL_dialog.h"
 #include "SDL3/SDL_misc.h"
 #include "Skore/Editor.hpp"
+#include "Skore/EditorWorkspace.hpp"
 #include "Skore/Events.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
@@ -35,6 +36,7 @@
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/ResourceType.hpp"
+#include "Skore/World/WorldCommon.hpp"
 
 
 namespace Skore
@@ -153,6 +155,11 @@ namespace Skore
 			//         }
 			//     }
 			// }
+
+			if (ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
+			{
+				int a = 0;
+			}
 
 			if (const ImGuiPayload* externalPayload = ImGui::AcceptDragDropPayload("EXTERNAL_ASSET", ImGuiDragDropFlags_SourceExtern))
 			{
@@ -565,6 +572,22 @@ namespace Skore
 
 				ImGui::SetWindowFontScale(1.0);
 				ImGui::EndChild();
+
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
+					{
+						UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Entity Assat");
+						Span<RID> selected = Editor::GetCurrentWorkspace().GetWorldEditor()->GetSelectedEntities();
+						for (RID entity : selected)
+						{
+							if (ResourceObject entityObject = Resources::Read(entity))
+							{
+								ResourceAssets::DuplicateAsset(openDirectory, entity, entityObject.GetString(EntityResource::Name), scope);
+							}
+						}
+					}
+				}
 			}
 			ImGui::EndTable();
 		}
@@ -766,13 +789,48 @@ namespace Skore
 		}
 	}
 
+	bool ProjectBrowserWindow::CanCreateInherited(const MenuItemEventData& eventData)
+	{
+		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
+		if (RID lastSelected = projectBrowserWindow->GetLastSelectedItem())
+		{
+			if (ResourceAssetHandler* handler = ResourceAssets::GetAssetHandler(lastSelected))
+			{
+				RID asset = ResourceAssets::GetAsset(lastSelected);
+				return handler->CanInherit(asset);
+			}
+		}
+		return false;
+	}
+
+	void ProjectBrowserWindow::CreateInherited(const MenuItemEventData& eventData)
+	{
+		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
+		UndoRedoScope*        scope = Editor::CreateUndoRedoScope("Asset Creation");
+
+		if (RID lastSelected = projectBrowserWindow->GetLastSelectedItem())
+		{
+			if (ResourceAssetHandler* handler = ResourceAssets::GetAssetHandler(lastSelected))
+			{
+				RID asset = ResourceAssets::GetAsset(lastSelected);
+				RID newAsset = ResourceAssets::CreateInheritedAsset(projectBrowserWindow->GetOpenDirectory(), asset, "", scope);
+				projectBrowserWindow->ClearSelection(scope);
+				projectBrowserWindow->SetRenameItem(Resources::GetParent(newAsset), scope);
+			}
+		}
+	}
+
 	void ProjectBrowserWindow::RegisterType(NativeReflectType<ProjectBrowserWindow>& type)
 	{
 		Event::Bind<OnDropFileCallback, &ProjectBrowserWindow::OnDropFile>();
 
 		Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Project Browser", .action = OpenProjectBrowser});
 
-		AddMenuItem(MenuItemCreation{.itemName = "New Folder", .icon = ICON_FA_FOLDER, .priority = 0, .action = AssetNewFolder, .enable = CanCreateAsset});
+
+		//TODO: find a better icon
+		AddMenuItem(MenuItemCreation{.itemName = "Create Inherited Asset", .icon = ICON_FA_ENVELOPE, .priority = -100, .action = CreateInherited, .visible = CanCreateInherited});
+
+		AddMenuItem(MenuItemCreation{.itemName = "New Folder", .icon = ICON_FA_FOLDER, .priority = 5, .action = AssetNewFolder, .enable = CanCreateAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 15, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<MaterialResource>::ID()});
 		AddMenuItem(MenuItemCreation{.itemName = "Delete", .icon = ICON_FA_TRASH, .priority = 20, .itemShortcut{.presKey = Key::Delete}, .action = AssetDelete, .enable = CheckSelectedAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "Rename", .icon = ICON_FA_PEN_TO_SQUARE, .priority = 30, .itemShortcut{.presKey = Key::F2}, .action = AssetRename, .enable = CheckSelectedAsset});

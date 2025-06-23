@@ -195,7 +195,11 @@ namespace Skore
 	void WorldEditor::ClearSelection()
 	{
 		ClearDebugEntitySelection();
-		ClearSelection(Editor::CreateUndoRedoScope("Clear selection"));
+		if (HasSelectedEntities())
+		{
+			ClearSelection(Editor::CreateUndoRedoScope("Clear selection"));
+		}
+
 	}
 
 	void WorldEditor::SelectEntity(RID entity, bool clearSelection)

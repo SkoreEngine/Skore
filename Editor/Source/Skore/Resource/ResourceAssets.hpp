@@ -123,6 +123,11 @@ namespace Skore
 			return false;
 		}
 
+		virtual bool CanInherit(RID rid)
+		{
+			return false;
+		}
+
 		virtual void ExtractAsset(RID directory, RID asset) {}
 	};
 
@@ -142,6 +147,8 @@ namespace Skore
 		static void                  OpenAsset(RID rid);
 		static void                  ImportAsset(RID parent, StringView path);
 		static RID                   CreateAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope);
+		static RID                   DuplicateAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
+		static RID					 CreateInheritedAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
 		static RID                   CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
 		static RID                   CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
 		static String                CreateUniqueAssetName(RID parent, StringView desiredName, bool directory);

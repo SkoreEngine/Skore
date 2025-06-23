@@ -44,10 +44,15 @@ namespace Skore
 		static void RenameSceneEntity(const MenuItemEventData& eventData);
 		static void DuplicateSceneEntity(const MenuItemEventData& eventData);
 		static void DeleteSceneEntity(const MenuItemEventData& eventData);
+		static bool CheckEntityActions(const MenuItemEventData& eventData);
 		static bool CheckSelectedEntity(const MenuItemEventData& eventData);
+		static bool CheckSelectedPrototypeEntity(const MenuItemEventData& eventData);
 		static bool CheckReadOnly(const MenuItemEventData& eventData);
 		static void ShowWorldEntity(const MenuItemEventData& eventData);
 		static bool IsShowWorldEntitySelected(const MenuItemEventData& eventData);
+
+		static void OverridePrototype(const MenuItemEventData& eventData);
+		static void RemoveFromThisInstance(const MenuItemEventData& eventData);
 
 		static void OpenEntityTree(const MenuItemEventData& eventData);
 		static void RegisterType(NativeReflectType<EntityTreeWindow>& type);
@@ -55,6 +60,8 @@ namespace Skore
 	private:
 		String searchEntity{};
 		String stringCache{};
+
+		RID entityOnPopupSelection = {};
 
 		bool   renamingFocus{};
 		bool   renamingSelected{};
@@ -65,7 +72,7 @@ namespace Skore
 
 		static MenuItemContext menuItemContext;
 
-		void DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected);
+		void DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected, RID parent, bool disabled);
 		void DrawEntity(WorldEditor* worldEditor, Entity* entity, bool& entitySelected);
 	};
 }

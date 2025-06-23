@@ -64,11 +64,18 @@ namespace Skore
 		iconSize = ImGui::CalcTextSize(ICON_FA_EYE).x;
 	}
 
-	void EntityTreeWindow::DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected)
+	void EntityTreeWindow::DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected, RID parent, bool disabled)
 	{
+		auto& style = ImGui::GetStyle();
+
 		if (!entity) return;
 		ResourceObject entityObject = Resources::Read(entity);
 		if (!entityObject) return;
+
+		if (!disabled && parent)
+		{
+			disabled = Resources::GetParent(entity) != parent;
+		}
 
 		bool       root = worldEditor->GetRootEntity() == entity;
 		usize      childrenCount = entityObject.GetSubObjectSetCount(EntityResource::Children);
@@ -97,9 +104,13 @@ namespace Skore
 			ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 		}
 
-		if (entityObject.GetPrototype())
+		if (disabled)
 		{
-			//ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(143, 131, 34, 255));
+			ImVec4 color = style.Colors[ImGuiCol_Text];
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(color.x, color.y, color.z, style.Alpha * style.DisabledAlpha));
+		}
+		else if (entityObject.GetPrototype())
+		{
 			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
 		}
 
@@ -148,7 +159,7 @@ namespace Skore
 			ImGuiTreeLeaf(IntToPtr(entity.id), stringCache.CStr());
 		}
 
-		if (entityObject.GetPrototype())
+		if (disabled || entityObject.GetPrototype())
 		{
 			ImGui::PopStyleColor();
 		}
@@ -158,7 +169,15 @@ namespace Skore
 
 		if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
 		{
-			worldEditor->SelectEntity(entity, !ctrlDown);
+			if (!disabled)
+			{
+				worldEditor->SelectEntity(entity, !ctrlDown);
+			}
+			else
+			{
+				worldEditor->ClearSelection();
+				entityOnPopupSelection = entity;
+			}
 		}
 
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
@@ -171,6 +190,7 @@ namespace Skore
 		if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) && isHovered)
 		{
 			entitySelected = true;
+			entityOnPopupSelection = entity;
 		}
 
 		if (ImGui::BeginDragDropTarget())
@@ -239,14 +259,14 @@ namespace Skore
 		}
 		else if (isHovered)
 		{
-			fillRowWithColour(ImVec4(0.26f, 0.59f, 0.98f, 0.67f));
+			fillRowWithColour(ImVec4(1.0f, 1.0f, 1.0f, 0.2f));
 		}
 
 		if (open)
 		{
 			entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
 			{
-				DrawRIDEntity(worldEditor, child, entitySelected);
+				DrawRIDEntity(worldEditor, child, entitySelected, entity, disabled);
 				return true;
 			});
 			ImGui::TreePop();
@@ -382,7 +402,7 @@ namespace Skore
 
 					if (!showWorldEntity && !worldEditor->IsSimulationRunning())
 					{
-						DrawRIDEntity(worldEditor, worldEditor->GetRootEntity(), entitySelected);
+						DrawRIDEntity(worldEditor, worldEditor->GetRootEntity(), entitySelected, RID{}, worldEditor->IsReadOnly());
 						//DrawMovePayload(HashInt32(reinterpret_cast<usize>(sceneEditor->GetRoot())), sceneEditor->GetRoot(), nullptr);
 					}
 					else if (worldEditor->GetCurrentWorld() != nullptr)
@@ -433,6 +453,10 @@ namespace Skore
 			{
 				ImGui::CloseCurrentPopup();
 			}
+		}
+		else
+		{
+			entityOnPopupSelection = {};
 		}
 		ImGuiEndPopupMenu(popupRes);
 		ImGui::End();
@@ -488,12 +512,33 @@ namespace Skore
 		}
 	}
 
+	bool EntityTreeWindow::CheckEntityActions(const MenuItemEventData& eventData)
+	{
+		return !CheckSelectedPrototypeEntity(eventData);
+	}
+
 	bool EntityTreeWindow::CheckSelectedEntity(const MenuItemEventData& eventData)
 	{
 		WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
 		if (!worldEditor) return false;
 
 		return !worldEditor->IsReadOnly() && worldEditor->HasSelectedEntities();
+	}
+
+	bool EntityTreeWindow::CheckSelectedPrototypeEntity(const MenuItemEventData& eventData)
+	{
+		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		RID root = Editor::GetCurrentWorkspace().GetWorldEditor()->GetRootEntity();
+		RID current = window->entityOnPopupSelection;
+		while (current != root)
+		{
+			current = Resources::GetParent(current);
+			if (!current)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	bool EntityTreeWindow::CheckReadOnly(const MenuItemEventData& eventData)
@@ -515,6 +560,18 @@ namespace Skore
 		return window->showWorldEntity;
 	}
 
+	void EntityTreeWindow::OverridePrototype(const MenuItemEventData& eventData)
+	{
+		logger.Error("Override entity not implemented yet");
+	}
+
+	void EntityTreeWindow::RemoveFromThisInstance(const MenuItemEventData& eventData)
+	{
+		// EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		// window->entityOnPopupSelection;
+		logger.Error("not implemented yet");
+	}
+
 	void EntityTreeWindow::OpenEntityTree(const MenuItemEventData& eventData)
 	{
 		Editor::OpenWindow<EntityTreeWindow>();
@@ -524,12 +581,17 @@ namespace Skore
 	{
 		Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Entity Tree", .action = OpenEntityTree});
 
-		AddMenuItem(MenuItemCreation{.itemName = "Create Entity", .priority = 0, .action = AddSceneEntity, .enable = CheckReadOnly});
-		AddMenuItem(MenuItemCreation{.itemName = "Create Entity From Asset", .priority = 15, .action = AddSceneEntityFromAsset, .enable = CheckReadOnly,});
-		AddMenuItem(MenuItemCreation{.itemName = "Add Component", .priority = 20, .action = AddComponent, .enable = CheckReadOnly,});
-		AddMenuItem(MenuItemCreation{.itemName = "Rename", .priority = 200, .itemShortcut = {.presKey = Key::F2}, .action = RenameSceneEntity, .enable = CheckSelectedEntity});
-		AddMenuItem(MenuItemCreation{.itemName = "Duplicate", .priority = 210, .itemShortcut = {.ctrl = true, .presKey = Key::D}, .action = DuplicateSceneEntity, .enable = CheckSelectedEntity});
-		AddMenuItem(MenuItemCreation{.itemName = "Delete", .priority = 220, .itemShortcut = {.presKey = Key::Delete}, .action = DeleteSceneEntity, .enable = CheckSelectedEntity});
+		AddMenuItem(MenuItemCreation{.itemName = "Create Entity", .priority = 0, .action = AddSceneEntity, .enable = CheckReadOnly, .visible = CheckEntityActions});
+		AddMenuItem(MenuItemCreation{.itemName = "Create Entity From Asset", .priority = 15, .action = AddSceneEntityFromAsset, .enable = CheckReadOnly, .visible = CheckEntityActions});
+		AddMenuItem(MenuItemCreation{.itemName = "Add Component", .priority = 20, .action = AddComponent, .enable = CheckReadOnly, .visible = CheckEntityActions});
+
+		AddMenuItem(MenuItemCreation{.itemName = "Rename", .priority = 200, .itemShortcut = {.presKey = Key::F2}, .action = RenameSceneEntity, .enable = CheckSelectedEntity, .visible = CheckEntityActions});
+		AddMenuItem(MenuItemCreation{.itemName = "Duplicate", .priority = 210, .itemShortcut = {.ctrl = true, .presKey = Key::D}, .action = DuplicateSceneEntity, .enable = CheckSelectedEntity, .visible = CheckEntityActions});
+		AddMenuItem(MenuItemCreation{.itemName = "Delete", .priority = 220, .itemShortcut = {.presKey = Key::Delete}, .action = DeleteSceneEntity, .enable = CheckSelectedEntity, .visible = CheckEntityActions});
+
+		AddMenuItem(MenuItemCreation{.itemName = "Override", .priority = 400, .action = OverridePrototype, .visible = CheckSelectedPrototypeEntity});
+		AddMenuItem(MenuItemCreation{.itemName = "Remove From This Instance", .priority = 405, .action = RemoveFromThisInstance, .visible = CheckSelectedPrototypeEntity});
+
 		AddMenuItem(MenuItemCreation{.itemName = "(Debug) Show World Entity", .priority = 1000, .action = ShowWorldEntity, .selected = IsShowWorldEntitySelected});
 
 		type.Attribute<EditorWindowProperties>(EditorWindowProperties{

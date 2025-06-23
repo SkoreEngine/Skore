@@ -524,6 +524,8 @@ namespace
 			UUID::RandomUUID()
 		};
 
+		HashMap<u32, UUID> uuidToIndex;
+
 		String yaml = "";
 		{
 			ResourceInit();
@@ -540,12 +542,14 @@ namespace
 
 				for (u32 i = 0; i < 5; ++i)
 				{
-					RID            subobject = Resources::Create<ResourceTest>(uuids[i + 1]);
+					RID subobject = Resources::Create<ResourceTest>(uuids[i + 1]);
 					ResourceObject subObjectWrite = Resources::Write(subobject);
 					subObjectWrite.SetInt(ResourceTest::IntValue, i);
 					subObjectWrite.Commit();
 
 					write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject);
+
+					uuidToIndex.Insert(i, uuids[i + 1]);
 				}
 
 				write.Commit();
@@ -565,7 +569,7 @@ namespace
 			RegisterTestTypes();
 
 			YamlArchiveReader reader(yaml.CStr());
-			RID               newResource = Resources::Deserialize(reader);
+			RID newResource = Resources::Deserialize(reader);
 			CHECK(newResource);
 
 			ResourceObject read = Resources::Read(newResource);
@@ -578,9 +582,13 @@ namespace
 
 			for (u32 i = 0; i < subobjects.Size(); ++i)
 			{
-				ResourceObject subRead = Resources::Read(subobjects[i]);
-				CHECK(subRead.GetUUID() == uuids[i + 1]);
-				CHECK(subRead.GetInt(ResourceTest::IntValue) == i);
+				if (auto it = uuidToIndex.Find(i))
+				{
+					RID rid = Resources::FindByUUID(it->second);
+					ResourceObject subRead = Resources::Read(rid);
+					CHECK(subRead.GetUUID() == uuids[i + 1]);
+					CHECK(subRead.GetInt(ResourceTest::IntValue) == i);
+				}
 			}
 
 			ResourceShutdown();

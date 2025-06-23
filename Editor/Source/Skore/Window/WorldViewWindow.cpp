@@ -350,35 +350,36 @@ namespace Skore
 			{
 				if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
 				{
-					AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data);
-					if (assetPayload)
+					if (payload->IsDataType(SK_ASSET_PAYLOAD))
 					{
-						f32 pad = 4.0f;
-
-						RID assetType = {};
-
-						if (Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<EntityResource>::ID())
+						if (AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data))
 						{
-							assetType = assetPayload->asset;
-						}
-						else if (Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<DCCAssetResource>::ID())
-						{
-							if (ResourceObject dccAssetObject = Resources::Read(assetPayload->asset))
+							f32 pad = 4.0f;
+
+							RID assetType = {};
+
+							if (Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<EntityResource>::ID())
 							{
-								assetType = dccAssetObject.GetSubObject(DCCAssetResource::Entity);
+								assetType = assetPayload->asset;
 							}
-						}
-
-						if (assetType && ImGui::BeginDragDropTargetCustom(ImRect(bb.x + pad, bb.y + pad, bb.width - pad, bb.height - pad), id))
-						{
-							if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+							else if (Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<DCCAssetResource>::ID())
 							{
-								worldEditor->CreateFromAsset(assetType, false);
+								if (ResourceObject dccAssetObject = Resources::Read(assetPayload->asset))
+								{
+									assetType = dccAssetObject.GetSubObject(DCCAssetResource::Entity);
+								}
 							}
-							ImGui::EndDragDropTarget();
+
+							if (assetType && ImGui::BeginDragDropTargetCustom(ImRect(bb.x + pad, bb.y + pad, bb.width - pad, bb.height - pad), id))
+							{
+								if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+								{
+									worldEditor->CreateFromAsset(assetType, false);
+								}
+								ImGui::EndDragDropTarget();
+							}
 						}
 					}
-
 				}
 			}
 		}
@@ -453,13 +454,19 @@ namespace Skore
 		Editor::OpenWindow<WorldViewWindow>();
 	}
 
-	void WorldViewWindow::DuplicateSceneEntity(const MenuItemEventData& eventData) {}
+	void WorldViewWindow::DuplicateSceneEntity(const MenuItemEventData& eventData)
+	{
+		Editor::GetCurrentWorkspace().GetWorldEditor()->DuplicateSelected();
+	}
 
-	void WorldViewWindow::DeleteSceneEntity(const MenuItemEventData& eventData) {}
+	void WorldViewWindow::DeleteSceneEntity(const MenuItemEventData& eventData)
+	{
+		Editor::GetCurrentWorkspace().GetWorldEditor()->DestroySelected();
+	}
 
 	bool WorldViewWindow::CheckSelectedEntity(const MenuItemEventData& eventData)
 	{
-		return false;
+		return Editor::GetCurrentWorkspace().GetWorldEditor()->HasSelectedEntities();
 	}
 
 	void WorldViewWindow::RecordRenderCommands(GPUCommandBuffer* cmd)

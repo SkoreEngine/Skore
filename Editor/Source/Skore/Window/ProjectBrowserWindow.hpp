@@ -76,5 +76,9 @@ namespace Skore
         static void ReimportAsset(const MenuItemEventData& eventData);
         static bool CanExtractAsset(const MenuItemEventData& eventData);
         static void ExtractAsset(const MenuItemEventData& eventData);
+
+        static bool CanCreateInherited(const MenuItemEventData& eventData);
+        static void CreateInherited(const MenuItemEventData& eventData);
+
     };
 }

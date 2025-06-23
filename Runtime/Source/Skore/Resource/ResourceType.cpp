@@ -120,6 +120,10 @@ namespace Skore
 
 		ResourceInstance instance = static_cast<ResourceInstance>(MemAlloc(allocSize));
 		memset(instance, 0, allocSize);
+
+		ResourceInstanceInfo& info = *reinterpret_cast<ResourceInstanceInfo*>(instance);
+		info.readOnly = true;
+
 		return instance;
 	}
 

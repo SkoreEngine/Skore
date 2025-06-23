@@ -49,9 +49,15 @@ namespace Skore
 		{
 			return TypeInfo<MaterialResource>::ID();
 		}
+
 		StringView GetDesc() override
 		{
 			return "Material";
+		}
+
+		bool CanInherit(RID rid) override
+		{
+			return true;
 		}
 	};
 

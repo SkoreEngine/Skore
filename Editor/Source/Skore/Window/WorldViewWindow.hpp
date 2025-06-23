@@ -55,6 +55,8 @@ namespace Skore
 		Mat4           view{};
 		Mat4           projection{};
 
+
+
 		Extent         sceneExtent;
 		GPUTexture*    sceneTexture = nullptr;
 		GPURenderPass* sceneRenderPass = nullptr;

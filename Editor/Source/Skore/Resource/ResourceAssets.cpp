@@ -38,6 +38,7 @@
 #include "Skore/IO/Path.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Resource/ResourceType.hpp"
+#include "Skore/World/WorldCommon.hpp"
 
 namespace Skore
 {
@@ -508,6 +509,70 @@ namespace Skore
 		return CreateImportedAsset(parent, typeId, desiredName, scope, "");
 	}
 
+	RID ResourceAssets::DuplicateAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope)
+	{
+		if (ResourceAssetHandler* handler = GetAssetHandler(sourceAsset))
+		{
+			String newName = CreateUniqueAssetName(parent, desiredName.Empty() ? GetAssetName(sourceAsset) : String(desiredName), false);
+			String path = GetDirectoryPathId(parent) + "/" + newName + handler->Extension();
+
+			RID asset = Resources::Clone(sourceAsset, UUID::RandomUUID(), scope);
+
+			RID rid = Resources::Create<ResourceAsset>(UUID::RandomUUID(), scope);
+
+			ResourceObject object = Resources::Write(rid);
+			object.SetString(ResourceAsset::Name, newName);
+			object.SetString(ResourceAsset::Extension, handler->Extension());
+			object.SetSubObject(ResourceAsset::Object, asset);
+			object.SetReference(ResourceAsset::Parent, parent);
+			object.SetString(ResourceAsset::PathId, path);
+			object.SetBool(ResourceAsset::Directory, false);
+
+			object.Commit(scope);
+
+			ResourceObject parentObject = Resources::Write(parent);
+			parentObject.AddToSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			parentObject.Commit(scope);
+
+			logger.Debug("asset from type {} created with uuid {} name {} ", handler->GetDesc(), Resources::GetUUID(asset).ToString(), newName);
+
+			return asset;
+		}
+	}
+
+	RID ResourceAssets::CreateInheritedAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope)
+	{
+		if (ResourceAssetHandler* handler = GetAssetHandler(sourceAsset))
+		{
+			String newName = CreateUniqueAssetName(parent, desiredName.Empty() ? GetAssetName(sourceAsset).Append(" (Inherited)") : String(desiredName), false);
+			String path = GetDirectoryPathId(parent) + "/" + newName + handler->Extension();
+
+			RID asset = Resources::CreateFromPrototype(sourceAsset, UUID::RandomUUID(), scope);
+
+			RID rid = Resources::Create<ResourceAsset>(UUID::RandomUUID(), scope);
+
+			ResourceObject object = Resources::Write(rid);
+			object.SetString(ResourceAsset::Name, newName);
+			object.SetString(ResourceAsset::Extension, handler->Extension());
+			object.SetSubObject(ResourceAsset::Object, asset);
+			object.SetReference(ResourceAsset::Parent, parent);
+			object.SetString(ResourceAsset::PathId, path);
+			object.SetBool(ResourceAsset::Directory, false);
+
+			object.Commit(scope);
+
+			ResourceObject parentObject = Resources::Write(parent);
+			parentObject.AddToSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			parentObject.Commit(scope);
+
+			logger.Debug("asset from type {} created with uuid {} name {} ", handler->GetDesc(), Resources::GetUUID(asset).ToString(), newName);
+
+			return asset;
+		}
+
+		return {};
+	}
+
 	RID ResourceAssets::CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath)
 	{
 		if (auto it = handlersByTypeID.Find(typeId))
@@ -655,6 +720,13 @@ namespace Skore
 			ResourceObject directoryObject = Resources::Read(rid);
 			return directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
 		}
+
+		if (Resources::GetStorage(rid)->resourceType->GetID() == TypeInfo<ResourceAsset>::ID())
+		{
+			ResourceObject assetObject = Resources::Read(rid);
+			return assetObject.GetSubObject(ResourceAsset::Object);
+		}
+
 		return rid;
 	}
 
