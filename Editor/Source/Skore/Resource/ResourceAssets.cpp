@@ -538,6 +538,8 @@ namespace Skore
 
 			return asset;
 		}
+
+		return {};
 	}
 
 	RID ResourceAssets::CreateInheritedAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope)
@@ -839,6 +841,15 @@ namespace Skore
 	String ResourceAssets::GetAssetName(RID rid)
 	{
 		if (!rid) return {};
+
+		ResourceType* type = Resources::GetType(rid);
+		if (type && type->GetID() == TypeInfo<ResourceAssetDirectory>::ID())
+		{
+			if (ResourceObject obj = Resources::Read(rid))
+			{
+				rid = obj.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
+			}
+		}
 
 		if (ResourceAssetHandler* assetHandler = GetAssetHandler(rid))
 		{

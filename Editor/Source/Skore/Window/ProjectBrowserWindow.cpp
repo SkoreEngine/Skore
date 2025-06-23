@@ -73,7 +73,82 @@ namespace Skore
 		}
 	}
 
-	void ProjectBrowserWindow::DrawPathItems() {}
+	void ProjectBrowserWindow::DrawPathItems()
+	{
+		RID openDirectory = GetOpenDirectory();
+
+		if (!openDirectory) return;
+
+		directoryCache.Clear();
+		{
+			RID item = openDirectory;
+			while (item)
+			{
+				directoryCache.EmplaceBack(item);
+				if (RID parent = ResourceAssets::GetParentAsset(item))
+				{
+					if (Resources::GetStorage(parent)->resourceType->GetID() == TypeInfo<ResourceAssetDirectory>::ID())
+					{
+						item = parent;
+						continue;
+					}
+				}
+				item = {};
+			}
+
+			RID nextDirectory{};
+
+			for (usize i = directoryCache.Size(); i > 0; --i)
+			{
+				RID drawItem = directoryCache[i - 1];
+
+				String assetName = ResourceAssets::GetAssetName(drawItem);
+
+				if (ImGui::Button(assetName.CStr()))
+				{
+					nextDirectory = drawItem;
+				}
+				if (i > 1)
+				{
+					bool openPopup = false;
+					ImGui::PushID(IntToPtr(drawItem.id));
+					if (ImGui::Button(ICON_FA_ARROW_RIGHT))
+					{
+						openPopup = true;
+					}
+					ImGui::PopID();
+
+					if (openPopup)
+					{
+						popupFolder = drawItem;
+						ImGui::OpenPopup("select-folder-browser-popup");
+					}
+				}
+			}
+
+			if (nextDirectory)
+			{
+				SetOpenDirectory(nextDirectory);
+			}
+
+			auto popupRes = ImGuiBeginPopupMenu("select-folder-browser-popup");
+			if (popupRes && popupFolder)
+			{
+				if (ResourceObject openDirectoryObject = Resources::Read(popupFolder))
+				{
+					for (RID directory : openDirectoryObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Directories))
+					{
+						String assetName = ResourceAssets::GetAssetName(directory);
+						if (ImGui::MenuItem(assetName.CStr()))
+						{
+							SetOpenDirectory(directory);
+						}
+					}
+				}
+			}
+			ImGuiEndPopupMenu(popupRes);
+		}
+	}
 
 	void ProjectBrowserWindow::DrawDirectoryTreeNode(RID rid)
 	{
@@ -441,7 +516,6 @@ namespace Skore
 
 							if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
 							{
-
 								AssetPayload payload = {
 									.asset = assetObject.GetSubObject(ResourceAsset::Object)
 								};
@@ -578,7 +652,7 @@ namespace Skore
 					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
 					{
 						UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Entity Assat");
-						Span<RID> selected = Editor::GetCurrentWorkspace().GetWorldEditor()->GetSelectedEntities();
+						Span<RID>      selected = Editor::GetCurrentWorkspace().GetWorldEditor()->GetSelectedEntities();
 						for (RID entity : selected)
 						{
 							if (ResourceObject entityObject = Resources::Read(entity))
