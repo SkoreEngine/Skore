@@ -36,7 +36,7 @@
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/World/WorldCommon.hpp"
-#include "Skore/World/Components/StaticMeshRender.hpp"
+#include "Skore/World/Components/MeshRenderer.hpp"
 
 namespace Skore
 {
@@ -219,13 +219,13 @@ namespace Skore
 		size_t     numTriIndices = mesh->max_face_triangles * 3;
 		Array<u32> triIndices = {heapAllocator, numTriIndices};
 
-		Array<StaticMeshResource::Vertex> tempVertices = {heapAllocator, maxTriangles * 3};
+		Array<MeshResource::Vertex> tempVertices = {heapAllocator, maxTriangles * 3};
 		Array<u32> tempIndices = {heapAllocator, maxTriangles * 3};
 
-		Array<StaticMeshResource::Vertex> allVertices = {heapAllocator, totalTriangles * 3};
+		Array<MeshResource::Vertex> allVertices = {heapAllocator, totalTriangles * 3};
 		Array<u32> allIndices = {heapAllocator, totalTriangles * 3};
 
-		Array<StaticMeshResource::Primitive> primitives = {heapAllocator, partCount};
+		Array<MeshResource::Primitive> primitives = {heapAllocator, partCount};
 
 		u64 totalIndicesCount = 0;
 		u64 totalVerticesCount = 0;
@@ -255,7 +255,7 @@ namespace Skore
 				{
 					u32 ix = triIndices[vi];
 
-					StaticMeshResource::Vertex *vert = &tempVertices[numIndices];
+					MeshResource::Vertex *vert = &tempVertices[numIndices];
 
 					ufbx_vec3 pos = ufbx_get_vertex_vec3(&mesh->vertex_position, ix);
 					ufbx_vec3 normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, ix);
@@ -286,7 +286,7 @@ namespace Skore
 
 			streams[0].data = tempVertices.Data();
 			streams[0].vertex_count = numIndices;
-			streams[0].vertex_size = sizeof(StaticMeshResource::Vertex);
+			streams[0].vertex_size = sizeof(MeshResource::Vertex);
 
 			// if (skin) {
 			// 	streams[1].data = skin_vertices;
@@ -339,7 +339,7 @@ namespace Skore
 				tempIndices[i] += totalVerticesCount;
 			}
 
-			memcpy(reinterpret_cast<char*>(allVertices.begin()) + totalVerticesCount * sizeof(StaticMeshResource::Vertex), tempVertices.Data(), sizeof(StaticMeshResource::Vertex) * numVertices);
+			memcpy(reinterpret_cast<char*>(allVertices.begin()) + totalVerticesCount * sizeof(MeshResource::Vertex), tempVertices.Data(), sizeof(MeshResource::Vertex) * numVertices);
 			memcpy(reinterpret_cast<char*>(allIndices.begin()) + totalIndicesCount * sizeof(u32), tempIndices.Data(), sizeof(u32) * numIndices);
 
 			totalVerticesCount += numVertices;
@@ -359,20 +359,20 @@ namespace Skore
 			MeshTools::CalcTangents(allVertices, allIndices, true);
 		}
 
-		RID meshResource = Resources::Create<StaticMeshResource>(UUID::RandomUUID(), scope);
+		RID meshResource = Resources::Create<MeshResource>(UUID::RandomUUID(), scope);
 
 		ResourceObject meshObject = Resources::Write(meshResource);
-		meshObject.SetString(StaticMeshResource::Name, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : name);
-		meshObject.SetReferenceArray(StaticMeshResource::Materials, meshMaterials);
-		meshObject.SetBlob(StaticMeshResource::Vertices, Span(reinterpret_cast<u8*>(allVertices.Data()), allVertices.Size() * sizeof(StaticMeshResource::Vertex)));
-		meshObject.SetBlob(StaticMeshResource::Indices, Span(reinterpret_cast<u8*>(allIndices.Data()), allIndices.Size() * sizeof(u32)));
-		meshObject.SetBlob(StaticMeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(StaticMeshResource::Primitive)));
+		meshObject.SetString(MeshResource::Name, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : name);
+		meshObject.SetReferenceArray(MeshResource::Materials, meshMaterials);
+		meshObject.SetBlob(MeshResource::Vertices, Span(reinterpret_cast<u8*>(allVertices.Data()), allVertices.Size() * sizeof(MeshResource::Vertex)));
+		meshObject.SetBlob(MeshResource::Indices, Span(reinterpret_cast<u8*>(allIndices.Data()), allIndices.Size() * sizeof(u32)));
+		meshObject.SetBlob(MeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(MeshResource::Primitive)));
 		meshObject.Commit(scope);
 
 		return meshResource;
 	}
 
-	RID ProcessNode(const FBXImportSettings& settings, const ufbx_node* node, FBXImportCache& cache, const ufbx_scene* fbxScene, UndoRedoScope* scope)
+	RID ProcessNode(const FBXImportSettings& settings, const ufbx_node* node, FBXImportCache& cache, const ufbx_scene* fbxScene, UndoRedoScope* scope, StringView name = {})
 	{
 		if (!node)
 		{
@@ -388,7 +388,13 @@ namespace Skore
 		RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
 		ResourceObject entityObject = Resources::Write(entity);
 
-		StringView nodeName = !IsStrNullOrEmpty(node->name.data) ? node->name.data : "Node";
+		StringView nodeName = name.Empty() ? "Node" : name;
+
+		if (!IsStrNullOrEmpty(node->name.data))
+		{
+			nodeName = node->name.data;
+		}
+
 		entityObject.SetString(EntityResource::Name, nodeName);
 
 
@@ -416,13 +422,13 @@ namespace Skore
 
 			if (meshIt)
 			{
-				RID staticMeshRender = Resources::Create<StaticMeshRender>(UUID::RandomUUID());
+				RID meshRenderer = Resources::Create<MeshRenderer>(UUID::RandomUUID());
 
-				ResourceObject staticMeshRenderObject = Resources::Write(staticMeshRender);
+				ResourceObject staticMeshRenderObject = Resources::Write(meshRenderer);
 				staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshIt->second);
 				staticMeshRenderObject.Commit(scope);
 
-				entityObject.AddToSubObjectSet(EntityResource::Components, staticMeshRender);
+				entityObject.AddToSubObjectSet(EntityResource::Components, meshRenderer);
 			}
 		}
 
@@ -442,7 +448,8 @@ namespace Skore
 
 	bool ImportFBX(RID directory, const FBXImportSettings& settings, StringView path, UndoRedoScope* scope)
 	{
-		RID dccAsset = ResourceAssets::CreateImportedAsset(directory, TypeInfo<DCCAssetResource>::ID(), Path::Name(path), scope, path);
+		String fileName = Path::Name(path);
+		RID    dccAsset = ResourceAssets::CreateImportedAsset(directory, TypeInfo<DCCAssetResource>::ID(), fileName, scope, path);
 
 		ResourceObject dccAssetObject = Resources::Write(dccAsset);
 		dccAssetObject.SetString(DCCAssetResource::Name, Path::Name(path));
@@ -526,7 +533,7 @@ namespace Skore
 
 					if (current)
 					{
-						if (RID root = ProcessNode(settings, current, cache, scene, scope))
+						if (RID root = ProcessNode(settings, current, cache, scene, scope, fileName))
 						{
 							dccAssetObject.SetSubObject(DCCAssetResource::Entity, root);
 						}

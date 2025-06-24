@@ -248,11 +248,11 @@ namespace Skore
 
 				if (ResourceObject meshObject = Resources::Read(mesh))
 				{
-					StringView name = meshObject.GetString(StaticMeshResource::Name);
-					Span<RID>  materials = meshObject.GetReferenceArray(StaticMeshResource::Materials);
-					Span<u8>   vertices = meshObject.GetBlob(StaticMeshResource::Vertices);
-					Span<u8>   indices = meshObject.GetBlob(StaticMeshResource::Indices);
-					Span<u8>   primitives = meshObject.GetBlob(StaticMeshResource::Primitives);
+					StringView name = meshObject.GetString(MeshResource::Name);
+					Span<RID>  materials = meshObject.GetReferenceArray(MeshResource::Materials);
+					Span<u8>   vertices = meshObject.GetBlob(MeshResource::Vertices);
+					Span<u8>   indices = meshObject.GetBlob(MeshResource::Indices);
+					Span<u8>   primitives = meshObject.GetBlob(MeshResource::Primitives);
 
 
 					meshData->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
@@ -283,7 +283,7 @@ namespace Skore
 						.size = indices.Size()
 					});
 
-					meshData->primitives.Resize(primitives.Size() / sizeof(StaticMeshResource::Primitive));
+					meshData->primitives.Resize(primitives.Size() / sizeof(MeshResource::Primitive));
 					memcpy(meshData->primitives.Data(), primitives.Data(), primitives.Size());
 
 

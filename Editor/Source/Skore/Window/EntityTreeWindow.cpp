@@ -528,6 +528,8 @@ namespace Skore
 	bool EntityTreeWindow::CheckSelectedPrototypeEntity(const MenuItemEventData& eventData)
 	{
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		if (!window->entityOnPopupSelection) return false;
+
 		RID root = Editor::GetCurrentWorkspace().GetWorldEditor()->GetRootEntity();
 		RID current = window->entityOnPopupSelection;
 		while (current != root)

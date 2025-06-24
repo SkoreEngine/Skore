@@ -75,13 +75,13 @@ namespace Skore
 
 	struct ImGuiContentItemDesc
 	{
-		usize       id;
+		u64         id;
 		StringView  label;
 		GPUTexture* texture = nullptr;
 		bool        selected;
 		f32         thumbnailScale;
 		bool        renameItem = false;
-		bool	    showError = false;
+		bool        showError = false;
 	};
 
 	struct ImGuiContentItemState
@@ -90,6 +90,7 @@ namespace Skore
 		String newName;
 		bool   hovered;
 		bool   clicked;
+		bool   released;
 		bool   enter;
 		ImVec2 screenStartPos;
 		ImVec2 size;

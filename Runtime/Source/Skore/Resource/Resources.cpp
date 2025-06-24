@@ -340,7 +340,7 @@ namespace Skore
 		{
 			for (ResourceField* field : type->GetFields())
 			{
-				if (*reinterpret_cast<bool*>(&instance[sizeof(ResourceInstanceInfo) + field->GetIndex()]))
+				if (field && *reinterpret_cast<bool*>(&instance[sizeof(ResourceInstanceInfo) + field->GetIndex()]))
 				{
 					switch (field->GetType())
 					{
@@ -371,7 +371,7 @@ namespace Skore
 		ResourceObject object(storage, nullptr);
 		for (ResourceField* field : storage->resourceType->GetFields())
 		{
-			if (object.HasValueOnThisObject(field->GetIndex()))
+			if (field && object.HasValueOnThisObject(field->GetIndex()))
 			{
 				switch (field->GetType())
 				{
@@ -1192,6 +1192,13 @@ namespace Skore
 		pageCount = 0;
 	}
 
+	void ResourceRemoveParent(RID rid)
+	{
+		ResourceStorage* storage = GetStorage(rid);
+		storage->parent = {};
+		storage->parentFieldIndex = U32_MAX;
+		UpdateVersion(storage);
+	}
 
 	void ResourceCommit(ResourceStorage* storage, ResourceInstance instance, UndoRedoScope* scope)
 	{
@@ -1249,11 +1256,6 @@ namespace Skore
 
 		change->before = CreateResourceInstanceCopy(storage->resourceType, before);
 		change->after = CreateResourceInstanceCopy(storage->resourceType, after);
-
-		if (change->before && change->before[0] == 0)
-		{
-			int a = 0;
-		}
 
 		changes.EmplaceBack(Traits::Move(change));
 	}

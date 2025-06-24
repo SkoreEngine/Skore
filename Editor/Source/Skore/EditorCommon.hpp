@@ -23,6 +23,7 @@
 #pragma once
 
 #include "Skore/Common.hpp"
+#include "Skore/Core/Array.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Object.hpp"
 
@@ -81,5 +82,6 @@ namespace Skore
 	struct AssetPayload
 	{
 		RID asset;
+		RID windowObjectRID;
 	};
 }

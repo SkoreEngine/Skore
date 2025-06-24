@@ -214,6 +214,12 @@ namespace Skore
 		i32 height;
 		SDL_GetWindowSize(static_cast<SDL_Window*>(desc.windowHandle), &width, &height);
 
+		if (width == 0 || height == 0)
+		{
+			SK_ASSERT(false, "swapchain cannot be created with 0 width or height");
+			return false;
+		}
+
 		VulkanSwapChainSupportDetails details = QuerySwapChainSupport(vulkanDevice->selectedAdapter->device, surfaceKHR);
 		VkSurfaceFormatKHR            surfaceFormat = ChooseSwapSurfaceFormat(details, {ToVkFormat(desc.format), VK_COLOR_SPACE_SRGB_NONLINEAR_KHR});
 		VkPresentModeKHR              presentMode = ChooseSwapPresentMode(details, desc.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_MAILBOX_KHR);

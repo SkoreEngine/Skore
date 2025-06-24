@@ -32,8 +32,8 @@ namespace Skore
 {
 	namespace MeshTools
 	{
-		SK_API void CalcNormals(Span<StaticMeshResource::Vertex> vertices, Span<u32> indices);
-		SK_API void CalcTangents(Span<StaticMeshResource::Vertex> vertices, Span<u32> indices, bool useMikktspace);
+		SK_API void CalcNormals(Span<MeshResource::Vertex> vertices, Span<u32> indices);
+		SK_API void CalcTangents(Span<MeshResource::Vertex> vertices, Span<u32> indices, bool useMikktspace);
 	}
 
 	class SK_API SinglePassDownsampler

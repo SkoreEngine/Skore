@@ -914,12 +914,33 @@ namespace Skore
 
 		f32 imagePadding = thumbnailSize * 0.08f;
 
+
+		ImGuiContext* context = ImGui::GetCurrentContext();
+		bool windowHovered = context->HoveredWindow == context->CurrentWindow;
+
 		auto posEnd = ImVec2(screenCursorPos.x + thumbnailSize, screenCursorPos.y + thumbnailSize);
-		bool hovered = ImGui::IsMouseHoveringRect(screenCursorPos, posEnd, true) && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+		bool hovered = ImGui::IsMouseHoveringRect(screenCursorPos, posEnd, true) &&  windowHovered;
 
 		i32  mouseCount = ImGui::GetMouseClickedCount(ImGuiMouseButton_Left);
-		bool isDoubleClicked = mouseCount >= 2 && (mouseCount % 2) == 0 && hovered && !contentItemDesc.renameItem;
-		bool isClicked = (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && hovered && !contentItemDesc.renameItem;
+		bool isDoubleClicked = mouseCount >= 2 && (mouseCount % 2) == 0;
+		bool isDoubleClickedAction = isDoubleClicked && hovered && !contentItemDesc.renameItem;
+
+		static u64 idPressed = U64_MAX;
+
+		if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && hovered)
+		{
+			idPressed = contentItemDesc.id;
+		}
+
+		bool released = false;
+
+		if ((ImGui::IsMouseReleased(ImGuiMouseButton_Left) || ImGui::IsMouseReleased(ImGuiMouseButton_Right)) && hovered)
+		{
+			released = idPressed == contentItemDesc.id;
+			idPressed = U64_MAX;
+		}
+
+		bool clicked = (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right));
 		bool isEnter = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter)) && contentItemDesc.selected && !contentItemDesc.renameItem;
 
 		if (hovered)
@@ -932,8 +953,9 @@ namespace Skore
 
 		ImGuiContentItemState state = ImGuiContentItemState{
 			.hovered = hovered,
-			.clicked = isClicked,
-			.enter = isDoubleClicked || isEnter,
+			.clicked = clicked && hovered && !contentItemDesc.renameItem,
+			.released = released,
+			.enter = isDoubleClickedAction || isEnter,
 			.screenStartPos = screenCursorPos,
 			.size = ImVec2(thumbnailSize, thumbnailSize)
 		};

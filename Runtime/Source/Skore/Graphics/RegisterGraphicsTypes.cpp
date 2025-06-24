@@ -643,10 +643,10 @@ namespace Skore
 
 		Reflection::Type<ShaderStageInfo>();
 
-		auto primitive = Reflection::Type<StaticMeshResource::Primitive>();
-		primitive.Field<&StaticMeshResource::Primitive::firstIndex>("firstIndex");
-		primitive.Field<&StaticMeshResource::Primitive::indexCount>("indexCount");
-		primitive.Field<&StaticMeshResource::Primitive::materialIndex>("materialIndex");
+		auto primitive = Reflection::Type<MeshResource::Primitive>();
+		primitive.Field<&MeshResource::Primitive::firstIndex>("firstIndex");
+		primitive.Field<&MeshResource::Primitive::indexCount>("indexCount");
+		primitive.Field<&MeshResource::Primitive::materialIndex>("materialIndex");
 		//
 		auto materialType = Reflection::Type<MaterialResource::MaterialType>();
 		materialType.Value<MaterialResource::MaterialType::Opaque>("Opaque");
@@ -712,12 +712,13 @@ namespace Skore
 			.Field<MaterialResource::BackgroundColor>(ResourceFieldType::Color)
 			.Build();
 
-		Resources::Type<StaticMeshResource>()
-			.Field<StaticMeshResource::Name>(ResourceFieldType::String)
-			.Field<StaticMeshResource::Materials>(ResourceFieldType::ReferenceArray)
-			.Field<StaticMeshResource::Vertices>(ResourceFieldType::Blob)
-			.Field<StaticMeshResource::Primitives>(ResourceFieldType::Blob)
-			.Field<StaticMeshResource::Indices>(ResourceFieldType::Blob)
+		Resources::Type<MeshResource>()
+			.Field<MeshResource::Name>(ResourceFieldType::String)
+			.Field<MeshResource::Materials>(ResourceFieldType::ReferenceArray)
+			.Field<MeshResource::AABB>(ResourceFieldType::SubObject)
+			.Field<MeshResource::Vertices>(ResourceFieldType::Blob)
+			.Field<MeshResource::Primitives>(ResourceFieldType::Blob)
+			.Field<MeshResource::Indices>(ResourceFieldType::Blob)
 			.Build();
 
 		Resources::Type<DCCAssetResource>()

@@ -681,6 +681,41 @@ namespace Skore
 		return finalName;
 	}
 
+	void ResourceAssets::MoveAsset(RID newParent, RID rid, UndoRedoScope* scope)
+	{
+		//get directory asset instead of asset
+		newParent = Resources::GetParent(newParent);
+		if (!newParent) return;
+
+		RID oldParent = Resources::GetParent(rid);
+		if (oldParent == newParent) return;
+
+		ResourceStorage* storage = Resources::GetStorage(rid);
+
+		if (storage->resourceType->GetID() != TypeInfo<ResourceAsset>::ID())
+		{
+			ResourceObject oldParentObject = Resources::Write(oldParent);
+			oldParentObject.RemoveFromSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			oldParentObject.Commit(scope);
+
+			ResourceObject newParentObject = Resources::Write(newParent);
+			newParentObject.AddToSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			newParentObject.Commit(scope);
+		}
+		else if (storage->resourceType->GetID() != TypeInfo<ResourceAssetDirectory>::ID())
+		{
+			ResourceObject oldParentObject = Resources::Write(oldParent);
+			oldParentObject.RemoveFromSubObjectSet(ResourceAssetDirectory::Directories, rid);
+			oldParentObject.Commit(scope);
+
+			ResourceObject newParentObject = Resources::Write(newParent);
+			newParentObject.AddToSubObjectSet(ResourceAssetDirectory::Directories, rid);
+			newParentObject.Commit(scope);
+		}
+
+		//TODO PathID?
+	}
+
 	String ResourceAssets::GetDirectoryPathId(RID directory)
 	{
 		ResourceObject directoryObject = Resources::Read(directory);

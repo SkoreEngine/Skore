@@ -33,7 +33,7 @@ namespace Skore
 	{
 		struct MikkTSpaceUserData
 		{
-			Span<StaticMeshResource::Vertex> vertices;
+			Span<MeshResource::Vertex> vertices;
 			Span<u32>                        indices;
 		};
 
@@ -60,7 +60,7 @@ namespace Skore
 		{
 			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
 
-			StaticMeshResource::Vertex& v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
+			MeshResource::Vertex& v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
 			fvPosOut[0] = v.position.x;
 			fvPosOut[1] = v.position.y;
 			fvPosOut[2] = v.position.z;
@@ -69,7 +69,7 @@ namespace Skore
 		void GetNormal(const SMikkTSpaceContext* pContext, float fvNormOut[], const int iFace, const int iVert)
 		{
 			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
-			StaticMeshResource::Vertex&  v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
+			MeshResource::Vertex&  v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
 			fvNormOut[0] = v.normal.x;
 			fvNormOut[1] = v.normal.y;
 			fvNormOut[2] = v.normal.z;
@@ -78,7 +78,7 @@ namespace Skore
 		void GetTexCoord(const SMikkTSpaceContext* pContext, float fvTexcOut[], const int iFace, const int iVert)
 		{
 			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
-			StaticMeshResource::Vertex&  v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
+			MeshResource::Vertex&  v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
 			fvTexcOut[0] = v.texCoord.x;
 			fvTexcOut[1] = v.texCoord.y;
 		}
@@ -86,14 +86,14 @@ namespace Skore
 		void SetTangentSpaceBasic(const SMikkTSpaceContext* pContext, const float fvTangent[], const float fSign, const int iFace, const int iVert)
 		{
 			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
-			StaticMeshResource::Vertex&  v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
+			MeshResource::Vertex&  v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
 			v.tangent.x = fvTangent[0];
 			v.tangent.y = fvTangent[1];
 			v.tangent.z = fvTangent[2];
 			v.tangent.w = -fSign;
 		}
 
-		Vec3 CalculateTangent(const StaticMeshResource::Vertex& v1, const StaticMeshResource::Vertex& v2, const StaticMeshResource::Vertex& v3)
+		Vec3 CalculateTangent(const MeshResource::Vertex& v1, const MeshResource::Vertex& v2, const MeshResource::Vertex& v3)
 		{
 			Vec3 edge1 = v2.position - v1.position;
 			Vec3 edge2 = v3.position - v1.position;
@@ -110,7 +110,7 @@ namespace Skore
 			return tangent;
 		}
 
-		void CalculateTangents(Span<StaticMeshResource::Vertex> vertices, Span<u32> indices)
+		void CalculateTangents(Span<MeshResource::Vertex> vertices, Span<u32> indices)
 		{
 			//Calculate tangents
 			for (usize i = 0; i < indices.Size(); i += 3)
@@ -126,7 +126,7 @@ namespace Skore
 		}
 
 
-		void CalculateTangents(Span<StaticMeshResource::Vertex> vertices)
+		void CalculateTangents(Span<MeshResource::Vertex> vertices)
 		{
 			//Calculate tangents
 			for (usize i = 0; i < vertices.Size(); i += 3)
@@ -142,7 +142,7 @@ namespace Skore
 	}
 
 
-	void MeshTools::CalcNormals(Span<StaticMeshResource::Vertex> vertices, Span<u32> indices)
+	void MeshTools::CalcNormals(Span<MeshResource::Vertex> vertices, Span<u32> indices)
 	{
 		for (auto& vertex : vertices)
 		{
@@ -192,7 +192,7 @@ namespace Skore
 		}
 	}
 
-	void MeshTools::CalcTangents(Span<StaticMeshResource::Vertex> vertices, Span<u32> indices, bool useMikktspace)
+	void MeshTools::CalcTangents(Span<MeshResource::Vertex> vertices, Span<u32> indices, bool useMikktspace)
 	{
 		if (useMikktspace)
 		{

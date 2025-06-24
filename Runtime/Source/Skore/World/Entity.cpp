@@ -88,17 +88,25 @@ namespace Skore
 
 	Entity::~Entity()
 	{
-		if (m_world->IsResourceSyncEnabled())
+		if (m_world)
 		{
-			if (m_rid)
+			if (m_world->IsResourceSyncEnabled())
 			{
-				m_world->m_entities.Erase(m_rid);
-				Resources::GetStorage(m_rid)->UnregisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
+				if (m_rid)
+				{
+					m_world->m_entities.Erase(m_rid);
+					Resources::GetStorage(m_rid)->UnregisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
+				}
+
+				if (m_transformRID)
+				{
+					Resources::GetStorage(m_transformRID)->UnregisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, this);
+				}
 			}
 
-			if (m_transformRID)
+			if (m_world->m_rootEntity == this)
 			{
-				Resources::GetStorage(m_transformRID)->UnregisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, this);
+				m_world->m_rootEntity = nullptr;
 			}
 		}
 	}

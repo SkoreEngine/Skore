@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "StaticMeshRender.hpp"
+#include "MeshRenderer.hpp"
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
@@ -30,7 +30,7 @@
 
 namespace Skore
 {
-	void StaticMeshRender::Create()
+	void MeshRenderer::Create()
 	{
 		m_renderStorage = GetWorld()->GetRenderStorage();
 
@@ -41,13 +41,13 @@ namespace Skore
 		m_renderStorage->SetMeshCastShadows(this, m_castShadows);
 	}
 
-	void StaticMeshRender::Destroy()
+	void MeshRenderer::Destroy()
 	{
 		if (!m_renderStorage) return;
 		m_renderStorage->RemoveMeshProxy(this);
 	}
 
-	void StaticMeshRender::ProcessEvent(const EntityEventDesc& event)
+	void MeshRenderer::ProcessEvent(const EntityEventDesc& event)
 	{
 		if (!m_renderStorage) return;
 
@@ -65,7 +65,7 @@ namespace Skore
 		}
 	}
 
-	void StaticMeshRender::SetMesh(RID mesh)
+	void MeshRenderer::SetMesh(RID mesh)
 	{
 		m_mesh = mesh;
 		if (m_renderStorage)
@@ -74,12 +74,12 @@ namespace Skore
 		}
 	}
 
-	RID StaticMeshRender::GetMesh() const
+	RID MeshRenderer::GetMesh() const
 	{
 		return m_mesh;
 	}
 
-	void StaticMeshRender::SetCastShadows(bool castShadows)
+	void MeshRenderer::SetCastShadows(bool castShadows)
 	{
 		m_castShadows = castShadows;
 		if (m_renderStorage)
@@ -88,17 +88,17 @@ namespace Skore
 		}
 	}
 
-	bool StaticMeshRender::GetCastShadows() const
+	bool MeshRenderer::GetCastShadows() const
 	{
 		return m_castShadows;
 	}
 
-	const MaterialArray& StaticMeshRender::GetMaterials() const
+	const MaterialArray& MeshRenderer::GetMaterials() const
 	{
 		return m_materials;
 	}
 
-	void StaticMeshRender::SetMaterials(const MaterialArray& materials)
+	void MeshRenderer::SetMaterials(const MaterialArray& materials)
 	{
 		m_materials = materials;
 		if (m_renderStorage)
@@ -107,11 +107,11 @@ namespace Skore
 		}
 	}
 
-	void StaticMeshRender::RegisterType(NativeReflectType<StaticMeshRender>& type)
+	void MeshRenderer::RegisterType(NativeReflectType<MeshRenderer>& type)
 	{
-		type.Field<&StaticMeshRender::m_mesh, &StaticMeshRender::GetMesh, &StaticMeshRender::SetMesh>("mesh");
-		type.Field<&StaticMeshRender::m_materials, &StaticMeshRender::GetMaterials, &StaticMeshRender::SetMaterials>("materials");
-		type.Field<&StaticMeshRender::m_castShadows, &StaticMeshRender::GetCastShadows, &StaticMeshRender::SetCastShadows>("castShadows");
+		type.Field<&MeshRenderer::m_mesh, &MeshRenderer::GetMesh, &MeshRenderer::SetMesh>("mesh");
+		type.Field<&MeshRenderer::m_materials, &MeshRenderer::GetMaterials, &MeshRenderer::SetMaterials>("materials");
+		type.Field<&MeshRenderer::m_castShadows, &MeshRenderer::GetCastShadows, &MeshRenderer::SetCastShadows>("castShadows");
 		type.Attribute<ComponentDesc>(ComponentDesc{.allowMultiple = true});
 	}
 }

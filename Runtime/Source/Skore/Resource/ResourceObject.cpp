@@ -31,6 +31,7 @@
 namespace Skore
 {
 	void ResourceCommit(ResourceStorage* storage, ResourceInstance instance, UndoRedoScope* scope);
+	void ResourceRemoveParent(RID rid);
 	void DestroyResourceInstance(ResourceType* resourceType, ResourceInstance instance);
 
 
@@ -200,7 +201,11 @@ namespace Skore
 		{
 			if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
 			{
-				subObjectSet->subObjects.Erase(subObject);
+				if (auto it = subObjectSet->subObjects.Find(subObject))
+				{
+					subObjectSet->subObjects.Erase(it);
+					ResourceRemoveParent(subObject);
+				}
 			}
 		}
 	}

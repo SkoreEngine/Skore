@@ -70,7 +70,7 @@ namespace Skore
 		};
 	};
 
-	struct StaticMeshResource
+	struct MeshResource
 	{
 		struct Vertex
 		{
@@ -92,6 +92,7 @@ namespace Skore
 		{
 			Name,       //String
 			Materials,  //ReferenceArray
+			AABB,       //Subobject
 			Vertices,   //Blob
 			Indices,    //Blob
 			Primitives, //Blob

@@ -166,7 +166,7 @@ namespace Skore
 	{
 		for (ResourceField* field : fields)
 		{
-			if (field->name == name)
+			if (field && field->name == name)
 			{
 				return field;
 			}

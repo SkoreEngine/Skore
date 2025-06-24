@@ -358,11 +358,11 @@ namespace Skore
 
 							RID assetType = {};
 
-							if (Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<EntityResource>::ID())
+							if (assetPayload->asset && Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<EntityResource>::ID())
 							{
 								assetType = assetPayload->asset;
 							}
-							else if (Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<DCCAssetResource>::ID())
+							else if (assetPayload->asset && Resources::GetType(assetPayload->asset)->GetID() == TypeInfo<DCCAssetResource>::ID())
 							{
 								if (ResourceObject dccAssetObject = Resources::Read(assetPayload->asset))
 								{

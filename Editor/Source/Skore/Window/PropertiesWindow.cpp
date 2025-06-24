@@ -130,7 +130,7 @@ namespace Skore
 			ImGui::BeginHorizontal(9999, ImVec2(width, size));
 			ImGui::Spring(1.f);
 
-			if (ImGuiBorderedButton("Open Prefab", ImVec2((width * 2) / 3, size)))
+			if (ImGuiBorderedButton("Open Prototype", ImVec2((width * 2) / 3, size)))
 			{
 				RID prototype = entityObject.GetPrototype();
 				Editor::ExecuteOnMainThread([prototype]()

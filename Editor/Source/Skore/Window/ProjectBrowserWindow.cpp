@@ -314,6 +314,9 @@ namespace Skore
 	{
 		lastOpenedWindow = this;
 
+		RID moveAssetsTo = {};
+		RID moveOrigin = {};
+
 		ResourceObject windowObject = Resources::Read(windowObjectRID);
 		RID            openDirectory = windowObject.GetReference(ProjectBrowserWindowData::OpenDirectory);
 
@@ -481,6 +484,7 @@ namespace Skore
 								{
 									ClearSelection(scope);
 								}
+
 								SelectItem(asset, scope);
 
 								newSelection = true;
@@ -509,7 +513,14 @@ namespace Skore
 							{
 								if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
 								{
-									//moveAssetsTo = assetFile;
+									if (payload->IsDataType(SK_ASSET_PAYLOAD))
+									{
+										if (AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data))
+										{
+											moveAssetsTo = asset;
+											moveOrigin = assetPayload->windowObjectRID;
+										}
+									}
 								}
 								ImGui::EndDragDropTarget();
 							}
@@ -517,7 +528,8 @@ namespace Skore
 							if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
 							{
 								AssetPayload payload = {
-									.asset = assetObject.GetSubObject(ResourceAsset::Object)
+									.asset = assetObject.GetSubObject(ResourceAsset::Object),
+									.windowObjectRID = windowObjectRID
 								};
 
 								ImGui::SetDragDropPayload(SK_ASSET_PAYLOAD, &payload, sizeof(AssetPayload));
@@ -691,12 +703,34 @@ namespace Skore
 		}
 		ImGuiEndPopupMenu(popupRes);
 
+		if (moveAssetsTo && moveOrigin)
+		{
+			if (ResourceObject originWindowObject = Resources::Read(moveOrigin))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Move Assets");
+
+				for (RID rid : originWindowObject.GetReferenceArray(ProjectBrowserWindowData::SelectedItems))
+				{
+					ResourceAssets::MoveAsset(moveAssetsTo, rid, scope);
+				}
+			}
+		}
+
 		if (!popupRes && !newSelection && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
 		{
 			ClearSelection(nullptr);
 		}
 
 		newSelection = false;
+
+		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Backspace)))
+		{
+			RID parent = Resources::GetParent(GetOpenDirectory());
+			if (parent && Resources::GetType(parent)->GetID() == TypeInfo<ResourceAssetDirectory>::ID())
+			{
+				SetOpenDirectory(parent);
+			}
+		}
 
 		ImGui::End();
 	}
@@ -719,9 +753,13 @@ namespace Skore
 
 	void ProjectBrowserWindow::SetRenameItem(RID rid, UndoRedoScope* scope)
 	{
+		ClearSelection(scope);
+
 		ResourceObject windowObject = Resources::Write(windowObjectRID);
 		windowObject.SetReference(ProjectBrowserWindowData::RenamingItem, rid);
 		windowObject.Commit(scope);
+
+		SelectItem(rid, scope);
 	}
 
 	RID ProjectBrowserWindow::GetLastSelectedItem() const
@@ -777,7 +815,9 @@ namespace Skore
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
 		UndoRedoScope*        scope = Editor::CreateUndoRedoScope("Asset Creation");
 		RID                   newAsset = ResourceAssets::CreateAsset(projectBrowserWindow->GetOpenDirectory(), eventData.userData, "", scope);
-		projectBrowserWindow->SetRenameItem(Resources::GetParent(newAsset), scope);
+
+		RID newAssetParent = Resources::GetParent(newAsset);
+		projectBrowserWindow->SetRenameItem(newAssetParent, scope);
 	}
 
 	void ProjectBrowserWindow::AssetDelete(const MenuItemEventData& eventData)

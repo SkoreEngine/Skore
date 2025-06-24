@@ -189,7 +189,7 @@ namespace Skore
 					BlendStateDesc{}
 				},
 				.renderPass = m_shadowMapRenderPass[0],
-				.vertexInputStride = sizeof(StaticMeshResource::Vertex)
+				.vertexInputStride = sizeof(MeshResource::Vertex)
 			});
 
 			m_shadowMapSampler = Graphics::CreateSampler(SamplerDesc{
@@ -521,7 +521,7 @@ namespace Skore
 						cmd->BindIndexBuffer(meshRenderData.mesh->indexBuffer, 0, IndexType::Uint32);
 						cmd->PushConstants(opaqueMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &meshRenderData.transform);
 
-						for (StaticMeshResource::Primitive& primitive : meshRenderData.mesh->primitives)
+						for (MeshResource::Primitive& primitive : meshRenderData.mesh->primitives)
 						{
 							GPUDescriptorSet* materialDs = meshRenderData.mesh->materials[primitive.materialIndex];
 							if (materialDs == nullptr)
@@ -849,7 +849,7 @@ namespace Skore
 					cmd->BindIndexBuffer(meshRenderData.mesh->indexBuffer, 0, IndexType::Uint32);
 					cmd->PushConstants(opaqueMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &meshRenderData.transform);
 
-					for (StaticMeshResource::Primitive& primitive : meshRenderData.mesh->primitives)
+					for (MeshResource::Primitive& primitive : meshRenderData.mesh->primitives)
 					{
 						GPUDescriptorSet* materialDs = meshRenderData.mesh->materials[primitive.materialIndex];
 						if (materialDs == nullptr)
