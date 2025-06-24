@@ -690,10 +690,9 @@ namespace Skore
 		RID oldParent = Resources::GetParent(rid);
 		if (oldParent == newParent) return;
 
-		ResourceObject oldParentObject = Resources::Read(rid);
-		bool isDirectory = oldParentObject.GetBool(ResourceAsset::Directory);
-
-		//TODO check name.
+		ResourceObject assetObject = Resources::Read(rid);
+		bool isDirectory = assetObject.GetBool(ResourceAsset::Directory);
+		String newName = CreateUniqueAssetName(newParent, assetObject.GetString(ResourceAsset::Name), isDirectory);
 
 		if (!isDirectory)
 		{
@@ -717,9 +716,11 @@ namespace Skore
 			ResourceObject newParentObject = Resources::Write(newParent);
 			newParentObject.AddToSubObjectSet(ResourceAssetDirectory::Directories, dirAsset);
 			newParentObject.Commit(scope);
-
-			Resources::Write(rid).Commit(scope);
 		}
+
+		ResourceObject write = Resources::Write(rid);
+		write.SetString(ResourceAsset::Name, newName);
+		write.Commit(scope);
 
 		//TODO PathID?
 	}
