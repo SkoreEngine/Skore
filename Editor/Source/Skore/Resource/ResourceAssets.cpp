@@ -690,9 +690,12 @@ namespace Skore
 		RID oldParent = Resources::GetParent(rid);
 		if (oldParent == newParent) return;
 
-		ResourceStorage* storage = Resources::GetStorage(rid);
+		ResourceObject oldParentObject = Resources::Read(rid);
+		bool isDirectory = oldParentObject.GetBool(ResourceAsset::Directory);
 
-		if (storage->resourceType->GetID() != TypeInfo<ResourceAsset>::ID())
+		//TODO check name.
+
+		if (!isDirectory)
 		{
 			ResourceObject oldParentObject = Resources::Write(oldParent);
 			oldParentObject.RemoveFromSubObjectSet(ResourceAssetDirectory::Assets, rid);
@@ -702,15 +705,20 @@ namespace Skore
 			newParentObject.AddToSubObjectSet(ResourceAssetDirectory::Assets, rid);
 			newParentObject.Commit(scope);
 		}
-		else if (storage->resourceType->GetID() != TypeInfo<ResourceAssetDirectory>::ID())
+		else
 		{
+			RID dirAsset = Resources::GetParent(rid);
+			oldParent = Resources::GetParent(oldParent);
+
 			ResourceObject oldParentObject = Resources::Write(oldParent);
-			oldParentObject.RemoveFromSubObjectSet(ResourceAssetDirectory::Directories, rid);
+			oldParentObject.RemoveFromSubObjectSet(ResourceAssetDirectory::Directories, dirAsset);
 			oldParentObject.Commit(scope);
 
 			ResourceObject newParentObject = Resources::Write(newParent);
-			newParentObject.AddToSubObjectSet(ResourceAssetDirectory::Directories, rid);
+			newParentObject.AddToSubObjectSet(ResourceAssetDirectory::Directories, dirAsset);
 			newParentObject.Commit(scope);
+
+			Resources::Write(rid).Commit(scope);
 		}
 
 		//TODO PathID?

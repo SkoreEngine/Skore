@@ -206,52 +206,27 @@ namespace Skore
 
 		if (ImGui::BeginDragDropTarget())
 		{
-			// if (file->canAcceptNewAssets)
-			// {
-			//     bool canAcceptDragDrop = false;
-			//
-			//     for(auto& it: selectedItems)
-			//     {
-			//         if (!file->IsChildOf(it.first))
-			//         {
-			//             canAcceptDragDrop = true;
-			//             break;
-			//         }
-			//     }
-			//
-			//     if (canAcceptDragDrop && ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
-			//     {
-			//         for (auto& it : selectedItems)
-			//         {
-			//             if (!file->IsChildOf(it.first))
-			//             {
-			//                 it.first->MoveTo(file);
-			//             }
-			//         }
-			//     }
-			// }
-
-			if (ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
 			{
-				int a = 0;
-			}
+				if (payload->IsDataType(SK_ASSET_PAYLOAD))
+				{
+					if (AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data))
+					{
+						if (ResourceObject originWindowObject = Resources::Read(assetPayload->windowObjectRID))
+						{
+							UndoRedoScope* scope = Editor::CreateUndoRedoScope("Move Assets");
 
-			if (const ImGuiPayload* externalPayload = ImGui::AcceptDragDropPayload("EXTERNAL_ASSET", ImGuiDragDropFlags_SourceExtern))
-			{
-				int a = 0;
+							for (RID selected : originWindowObject.GetReferenceArray(ProjectBrowserWindowData::SelectedItems))
+							{
+								ResourceAssets::MoveAsset(asset, selected, scope);
+							}
+						}
+					}
+				}
 			}
 
 			ImGui::EndDragDropTarget();
 		}
-
-
-		// if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceExtern))
-		// {
-		//
-
-		//
-		//     ImGui::EndDragDropSource();
-		// }
 
 
 		// if (file->parent != nullptr && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover | ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
@@ -478,15 +453,17 @@ namespace Skore
 
 							if (state.clicked)
 							{
-								UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Selection");
-
-								if (!(ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl))))
+								if (!desc.selected)
 								{
-									ClearSelection(scope);
+									UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Selection");
+
+									if (!(ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl))))
+									{
+										ClearSelection(scope);
+									}
+
+									SelectItem(asset, scope);
 								}
-
-								SelectItem(asset, scope);
-
 								newSelection = true;
 							}
 
@@ -664,7 +641,7 @@ namespace Skore
 					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
 					{
 						UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Entity Assat");
-						Span<RID>      selected = Editor::GetCurrentWorkspace().GetWorldEditor()->GetSelectedEntities();
+						Span<RID> selected = Editor::GetCurrentWorkspace().GetWorldEditor()->GetSelectedEntities();
 						for (RID entity : selected)
 						{
 							if (ResourceObject entityObject = Resources::Read(entity))
