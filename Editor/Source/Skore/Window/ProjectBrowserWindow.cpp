@@ -700,7 +700,7 @@ namespace Skore
 
 		newSelection = false;
 
-		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Backspace)))
+		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Backspace)))
 		{
 			RID parent = Resources::GetParent(GetOpenDirectory());
 			if (parent && Resources::GetType(parent)->GetID() == TypeInfo<ResourceAssetDirectory>::ID())
