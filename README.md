@@ -1,37 +1,42 @@
-# Skore Engine
+# Skore Engine [PRE-ALPHA]
 
 [![The MIT License][license-image]][license-url]
 [![Language](https://img.shields.io/badge/language-C++-blue.svg)](https://isocpp.org/)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-brightgreen.svg)](https://en.cppreference.com/w/cpp/20)
+[![Status](https://img.shields.io/badge/status-pre--alpha-red.svg)]()
 
 [license-image]: https://img.shields.io/badge/License-MIT-yellow.svg
 [license-url]: https://opensource.org/licenses/MIT
 
 ![Scene](Content/Images/Sponza.png)
 
-Skore is an open-source, cross-platform game engine for 2D and 3D game development. Built with modern C++20, it provides developers with a clean, extensible foundation for creating games across multiple platforms.
+> **⚠️ IMPORTANT: This is a work-in-progress project. The engine is not ready for production use.**
 
-**🎮 Complete 2D and 3D game development** - unified interface for all your game creation needs  
-**⚡ Performance-focused** - lightweight architecture with efficient rendering pipeline  
-**🔧 Extensible by design** - modular system allowing easy customization and plugin development  
-**🌐 Cross-platform** - deploy to Windows, Linux, macOS and more platforms  
-**🛠️ Integrated tooling** - comprehensive editor and development environment  
+Skore is an open-source, cross-platform game engine for 2D and 3D game development currently in early development stages. Built with modern C++20, we aim to provide developers with a clean, extensible foundation for creating games across multiple platforms.
 
-> ⚠️ **Development Status**: Skore is currently in active development and should be considered alpha software. The API may change between versions. Not recommended for production use at this time.
+**🚧 Current Development Focus:**
+**🎮 Modern rendering foundation** - building a robust graphics API abstraction layer  
+**⚡ Performance architecture** - designing core systems with efficiency in mind  
+**🔧 Engine fundamentals** - implementing essential subsystems and infrastructure  
+**🌐 Cross-platform groundwork** - laying the foundation for multi-platform support  
+
+> 🔍 **Development Status**: Skore is in pre-alpha development. Many features are incomplete or missing, the API is unstable and will change frequently. Not suitable for game development yet.
 
 ---
 
-## Design Philosophy
+## Design Goals
 
-Skore is built around core principles that prioritize developer experience:
+Skore is being built around these core principles:
 
-**Simplicity First** - Clean, intuitive APIs without unnecessary complexity or tedious configuration  
+**Simplicity First** - Clean, intuitive APIs without unnecessary complexity  
 **Lightweight & Fast** - Minimal dependencies and efficient architecture  
-**Easy to Build** - Simple build process with no extra steps required  
+**Easy to Build** - Simple build process with clear dependencies  
 **Highly Extensible** - Modular design allowing features to be replaced or extended  
-**Developer Friendly** - Comprehensive tooling and integrated development environment  
+**Developer Friendly** - Aiming for streamlined workflows and tools
 
-## Getting Started
+These principles guide our development decisions as we build out the engine's core functionality.
+
+## Development Setup
 
 ### Prerequisites
 
@@ -49,7 +54,7 @@ Skore is built around core principles that prioritize developer experience:
   ```
 - **Windows/macOS**: No additional dependencies required
 
-### Building
+### Building the Development Version
 
 ```bash
 # Clone the repository
@@ -59,33 +64,46 @@ cd Skore
 # Build the engine
 mkdir Build && cd Build
 cmake ..
-cmake --build . --config Release
+cmake --build . --config Debug
 ```
 
-### Your First Project
+### Exploring the Code
 
-1. Launch the Skore Editor from the build directory
-2. Create a new project or explore the example projects
-3. Check out the `Tests` directory for code samples and usage patterns
+- Core rendering functionality is located in `Runtime/Source/Skore/Graphics/`
+- Check out the `Tests` directory for examples of implemented features
+- The project uses a modular architecture with clear separation of concerns
 
 ## Documentation
 
-Comprehensive documentation is in development. Code examples in the `Tests` directory demonstrate key engine concepts and usage patterns.
+Documentation is planned but not yet available as the API is still evolving. The best way to understand the current architecture is to review the source code and the examples in the `Tests` directory. We'll begin formal documentation once the core APIs stabilize.
 
 ## Contributing
 
-We welcome contributions of all kinds! Whether you're fixing bugs, improving documentation, adding features, or helping with testing, your help is appreciated.
+Skore is in early development and we welcome contributions! The engine is taking shape and there are many areas where help is needed:
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/your-feature`)
-3. Commit your changes (`git commit -m 'Add your feature'`)
-4. Push to the branch (`git push origin feature/your-feature`)
-5. Open a Pull Request
+- **Core Systems Development**: Help implement fundamental engine systems
+- **Graphics Programming**: Contribute to the rendering pipeline and graphics abstractions
+- **Build System**: Improvements to CMake configuration and cross-platform support
+- **Testing**: Help identify and fix bugs in the existing codebase
 
-## Community & Support
+If you're interested in contributing:
 
-- **Issues**: Report bugs and request features on [GitHub Issues](https://github.com/SkoreEngine/Skore/issues)
-- **Discussions**: Join conversations about development and usage
+1. Check the issues page for tasks labeled "good first issue"
+2. Fork the repository
+3. Create your feature branch (`git checkout -b feature/your-feature`)
+4. Commit your changes (`git commit -m 'Add your feature'`)
+5. Push to the branch (`git push origin feature/your-feature`)
+6. Open a Pull Request
+
+Please note that the codebase is evolving rapidly, so coordinate with us before tackling major features.
+
+## Development Roadmap & Communication
+
+- **Issues**: Report bugs and suggest features on [GitHub Issues](https://github.com/SkoreEngine/Skore/issues)
+- **Discussions**: Discuss architecture and implementation details on GitHub Discussions
+- **Roadmap**: Check the project board for upcoming features and current development focus
+
+We're building this engine in the open and value feedback from developers interested in the project's direction.
 
 ## License
 
