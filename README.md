@@ -15,9 +15,9 @@
 Skore is an open-source, cross-platform game engine for 2D and 3D game development currently in early development stages. Built with modern C++20, we aim to provide developers with a clean, extensible foundation for creating games across multiple platforms.
 
 **🚧 Current Development Focus:**
-**🎮 Modern rendering foundation** - building a robust graphics API abstraction layer  
-**⚡ Performance architecture** - designing core systems with efficiency in mind  
-**🔧 Engine fundamentals** - implementing essential subsystems and infrastructure  
+**🏗️ Engine foundations** - building core systems and infrastructure  
+**⚡ Performance architecture** - designing systems with efficiency in mind  
+**✨ Basic features** - implementing essential subsystems and gameplay components  
 **🌐 Cross-platform groundwork** - laying the foundation for multi-platform support  
 
 > 🔍 **Development Status**: Skore is in pre-alpha development. Many features are incomplete or missing, the API is unstable and will change frequently. Not suitable for game development yet.
@@ -69,7 +69,8 @@ cmake --build . --config Debug
 
 ### Exploring the Code
 
-- Core rendering functionality is located in `Runtime/Source/Skore/Graphics/`
+- A robust graphics API abstraction layer is implemented in `Runtime/Source/Skore/Graphics/`
+- Core engine systems are being developed in the `Runtime/Source/Skore/` directory
 - Check out the `Tests` directory for examples of implemented features
 - The project uses a modular architecture with clear separation of concerns
 
@@ -81,8 +82,8 @@ Documentation is planned but not yet available as the API is still evolving. The
 
 Skore is in early development and we welcome contributions! The engine is taking shape and there are many areas where help is needed:
 
-- **Core Systems Development**: Help implement fundamental engine systems
-- **Graphics Programming**: Contribute to the rendering pipeline and graphics abstractions
+- **Core Systems Development**: Help implement fundamental engine systems and basic features
+- **Engine Architecture**: Contribute to the design and implementation of core components
 - **Build System**: Improvements to CMake configuration and cross-platform support
 - **Testing**: Help identify and fix bugs in the existing codebase
 
