@@ -28,6 +28,7 @@
 #include "Skore/App.hpp"
 #include "Skore/Events.hpp"
 #include "Skore/Core/Event.hpp"
+#include "Skore/Core/Logger.hpp"
 
 namespace Skore
 {
@@ -44,6 +45,7 @@ namespace Skore
 		FixedArray<GPUCommandBuffer*, SK_FRAMES_IN_FLIGHT> commandBuffers;
 		bool                                               windowMinimized = false;
 		GPUCommandBuffer*                                  resourceCommandBuffer = nullptr;
+		Logger&                                            logger = Logger::GetLogger("Skore::Graphics");
 
 		GPUSampler* linearSampler = nullptr;
 		GPUTexture* whiteTexture = nullptr;

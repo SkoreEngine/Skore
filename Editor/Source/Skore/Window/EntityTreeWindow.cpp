@@ -23,6 +23,7 @@
 #include "EntityTreeWindow.hpp"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "Skore/Editor.hpp"
 #include "Skore/EditorWorkspace.hpp"
 #include "Skore/Core/Logger.hpp"
@@ -74,7 +75,7 @@ namespace Skore
 
 		if (!disabled && parent)
 		{
-			disabled = Resources::GetParent(entity) != parent;
+			disabled =  Resources::GetParent(entity) != parent;
 		}
 
 		bool       root = worldEditor->GetRootEntity() == entity;
@@ -88,7 +89,7 @@ namespace Skore
 
 		if (!root)
 		{
-			//DrawMovePayload(HashInt32(reinterpret_cast<usize>(entity)), entity->GetParent(), entity);
+			DrawMovePayload(entity.id, entity);
 		}
 
 		stringCache.Clear();
@@ -180,6 +181,17 @@ namespace Skore
 			}
 		}
 
+		if ((ImGui::IsMouseReleased(ImGuiMouseButton_Left) || ImGui::IsMouseReleased(ImGuiMouseButton_Right)) && isHovered)
+		{
+			if (!disabled && worldEditor->IsSelected(entity))
+			{
+				if (!ctrlDown)
+				{
+					worldEditor->SelectEntity(entity, true);
+				}
+			}
+		}
+
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
 		{
 			ImGui::SetDragDropPayload(SK_ENTITY_PAYLOAD, nullptr, 0);
@@ -196,15 +208,8 @@ namespace Skore
 		if (ImGui::BeginDragDropTarget())
 		{
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
-			{	// Array<Entity*> selectedCache;
-				// for (const auto& selected : worldEditor->GetSelectedEntities())
-				// {
-				// 	if (Entity* entity = worldEditor->GetCurrentScene()->FindEntityByUUID(selected))
-				// 	{
-				// 		selectedCache.EmplaceBack(entity);
-				// 	}
-				// }
-				// worldEditor->ChangeParent(entity, selectedCache);
+			{
+				worldEditor->ChangeParentOfSelected(entity);
 			}
 			ImGui::EndDragDropTarget();
 		}
@@ -307,7 +312,7 @@ namespace Skore
 
 		if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
 		{
-			worldEditor->SelectEntity(entity, !ctrlDown);
+			worldEditor->SelectEntity(entity, !ctrlDown && !worldEditor->IsSelected(entity));
 		}
 
 		ImGui::TableNextColumn();
@@ -333,6 +338,50 @@ namespace Skore
 			ImGui::TreePop();
 		}
 
+	}
+
+	void EntityTreeWindow::DrawMovePayload(u64 id, RID moveTo) const
+	{
+		ImVec2 screenPos = ImVec2(ImGui::GetWindowPos().x, ImGui::GetCursorScreenPos().y);
+		ImVec2 screenPos2 = screenPos + ImVec2(ImGui::GetContentRegionMax().x, std::ceil(1 * ImGui::GetStyle().ScaleFactor));
+
+		if (ImGui::BeginDragDropTargetCustom(ImRect(screenPos, screenPos2), HashInt32(id)))
+		{
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
+			{
+				// SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+				//
+				// Array<Entity*> selectedEntities;
+				// for (const auto& selected : sceneEditor->GetSelectedEntities())
+				// {
+				// 	if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selected))
+				// 	{
+				// 		selectedEntities.EmplaceBack(entity);
+				// 	}
+				// }
+				//
+				// if (!selectedEntities.Empty())
+				// {
+				// 	//TODO - transactions
+				//
+				// 	// Ref<Transaction> transaction = UndoRedoSystem::BeginTransaction("Move Entity");
+				// 	//
+				// 	// for (Entity* entity : selectedEntities)
+				// 	// {
+				// 	// 	if (moveTo && moveTo->IsChildOf(entity))
+				// 	// 		continue;
+				// 	//
+				// 	// 	if (entity == moveTo)
+				// 	// 		continue;
+				// 	//
+				// 	// 	transaction->AddCommand(Alloc<MoveEntityCommand>(sceneEditor, entity, parent, moveTo));
+				// 	// }
+				// 	//
+				// 	// UndoRedoSystem::EndTransaction(transaction);
+				// }
+			}
+			ImGui::EndDragDropTarget();
+		}
 	}
 
 	void EntityTreeWindow::Draw(u32 id, bool& open)
@@ -400,10 +449,10 @@ namespace Skore
 					ScopedStyleVar       spacing(ImGuiStyleVar_ItemSpacing, ImVec2{0.0f, 0.0f});
 					ImGuiInvisibleHeader invisibleHeader;
 
-					if (!showWorldEntity && !worldEditor->IsSimulationRunning())
+					bool drawRID = !showWorldEntity && !worldEditor->IsSimulationRunning();
+					if (drawRID)
 					{
 						DrawRIDEntity(worldEditor, worldEditor->GetRootEntity(), entitySelected, RID{}, worldEditor->IsReadOnly());
-						//DrawMovePayload(HashInt32(reinterpret_cast<usize>(sceneEditor->GetRoot())), sceneEditor->GetRoot(), nullptr);
 					}
 					else if (worldEditor->GetCurrentWorld() != nullptr)
 					{
@@ -413,6 +462,10 @@ namespace Skore
 					ImGui::TableNextRow();
 					ImGui::TableNextColumn();
 
+					if (drawRID)
+					{
+						DrawMovePayload(PtrToInt(worldEditor), RID{});
+					}
 
 					ImGui::EndTable();
 				}

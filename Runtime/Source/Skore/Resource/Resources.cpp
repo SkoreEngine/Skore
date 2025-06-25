@@ -153,6 +153,32 @@ namespace Skore
 			return storage;
 		}
 
+		template <typename F>
+		void IterateSubObjects(ResourceStorage* storage, F&& f)
+		{
+			ResourceObject object(storage, nullptr);
+			for (ResourceField* field : storage->resourceType->GetFields())
+			{
+				if (field && object.HasValueOnThisObject(field->GetIndex()))
+				{
+					switch (field->GetType())
+					{
+						case ResourceFieldType::SubObject:
+							f(field->GetIndex(), object.GetSubObject(field->GetIndex()));
+							break;
+						case ResourceFieldType::SubObjectSet:
+							object.IterateSubObjectSet(field->GetIndex(), false, [&](RID rid)
+							{
+								return f(field->GetIndex(), rid);
+							});
+							break;
+						default:
+							break;
+					}
+				}
+			}
+		}
+
 		void ExecuteEvents(ResourceEventType type, ResourceStorage* resourceStorage, ResourceObject&& oldValue, ResourceObject&& newValue)
 		{
 			for (const ResourceEvent& eventStorage : resourceStorage->events[static_cast<u32>(type)])
@@ -172,6 +198,15 @@ namespace Skore
 					eventType.function(oldValue, newValue, eventType.userData);
 				}
 			}
+
+			IterateSubObjects(resourceStorage, [&](u32 index, RID subObject)
+			{
+				ResourceStorage* subOjectStorage = GetStorage(subObject);
+				subOjectStorage->parent = resourceStorage;
+				subOjectStorage->parentFieldIndex = index;
+
+				return true;
+			});
 		}
 
 		void UpdateVersion(ResourceStorage* resourceStorage)
@@ -238,7 +273,7 @@ namespace Skore
 	RID CloneSubObject(ResourceStorage* parentStorage, u32 fieldIndex, RID origin, UndoRedoScope* scope)
 	{
 		ResourceStorage* originStorage = GetStorage(origin);
-		RID clone = Resources::Clone(origin, originStorage->uuid ? UUID::RandomUUID() : UUID{}, scope);
+		RID              clone = Resources::Clone(origin, originStorage->uuid ? UUID::RandomUUID() : UUID{}, scope);
 		ResourceStorage* subOjectStorage = GetStorage(clone);
 		subOjectStorage->parent = parentStorage;
 		subOjectStorage->parentFieldIndex = fieldIndex;
@@ -363,32 +398,6 @@ namespace Skore
 			}
 		}
 		DestroyAndFree(instance);
-	}
-
-	template <typename F>
-	void IterateSubObjects(ResourceStorage* storage, F&& f)
-	{
-		ResourceObject object(storage, nullptr);
-		for (ResourceField* field : storage->resourceType->GetFields())
-		{
-			if (field && object.HasValueOnThisObject(field->GetIndex()))
-			{
-				switch (field->GetType())
-				{
-					case ResourceFieldType::SubObject:
-						f(field->GetIndex(), object.GetSubObject(field->GetIndex()));
-						break;
-					case ResourceFieldType::SubObjectSet:
-						object.IterateSubObjectSet(field->GetIndex(), false, [&](RID rid)
-						{
-							return f(field->GetIndex(), rid);
-						});
-						break;
-					default:
-						break;
-				}
-			}
-		}
 	}
 
 	ResourceType* Resources::CreateFromReflectType(ReflectType* reflectType)
@@ -527,6 +536,9 @@ namespace Skore
 			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
 			storage->instance = CreateResourceInstanceClone(storage, defaultValueStorage->instance.load(), scope);
 		}
+
+		//create an empty object
+		Write(rid).Commit(scope);
 
 		FinishCreation(storage);
 
@@ -1161,7 +1173,7 @@ namespace Skore
 		{
 			ResourceStorage& storage = pages[SK_PAGE(i)]->elements[SK_OFFSET(i)];
 			DestroyResourceInstance(storage.resourceType, storage.instance.load());
-		//	storage.~ResourceStorage();
+			//	storage.~ResourceStorage();
 		}
 
 		for (u64 i = 0; i < pageCount; ++i)
@@ -1230,17 +1242,7 @@ namespace Skore
 		}
 
 		UpdateVersion(storage);
-
 		ExecuteEvents(ResourceEventType::Changed, storage, ResourceObject(storage, info.dataOnWrite), ResourceObject(storage, instance));
-
-		IterateSubObjects(storage, [&](u32 index, RID subObject)
-		{
-			ResourceStorage* subOjectStorage = GetStorage(subObject);
-			subOjectStorage->parent = storage;
-			subOjectStorage->parentFieldIndex = index;
-
-			return true;
-		});
 	}
 
 	UndoRedoChange::~UndoRedoChange()
@@ -1272,7 +1274,6 @@ namespace Skore
 			UpdateVersion(action->storage);
 
 			ExecuteEvents(ResourceEventType::Changed, action->storage, ResourceObject(action->storage, oldInstance), ResourceObject(action->storage, newInstance));
-
 
 			toCollectItems.enqueue({
 				.type = action->storage->resourceType,

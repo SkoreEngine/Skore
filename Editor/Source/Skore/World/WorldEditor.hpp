@@ -46,10 +46,12 @@ namespace Skore
 		void CreateFromAsset(RID entityAsset, bool addOnSelected = true);
 		void DestroySelected();
 		void DuplicateSelected();
+		void ChangeParentOfSelected(RID newParent);
 
 		//selection
 		void ClearSelection();
 		void SelectEntity(RID entity, bool clearSelection);
+		void DeselectEntity(RID entity);
 		bool IsSelected(RID entity);
 		bool IsParentOfSelected(RID entity);
 		bool HasSelectedEntities() const;

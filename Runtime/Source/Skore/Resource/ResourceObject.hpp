@@ -61,6 +61,7 @@ namespace Skore
 		void SetReferenceArray(u32 index, Span<RID> refs);
 		void AddToReferenceArray(u32 index, RID ref);
 		void ClearReferenceArray(u32 index);
+		void RemoveFromReferenceArray(u32 index, RID ref);
 		void SetSubObject(u32 index, RID subObject);
 
 		//subobjects

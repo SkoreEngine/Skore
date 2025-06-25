@@ -192,6 +192,23 @@ namespace Skore
 		selectionObject.Commit(scope);
 	}
 
+	void WorldEditor::ChangeParentOfSelected(RID newParent)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Change Parent Entity");
+		for (RID selected : GetSelectedEntities())
+		{
+			ResourceObject oldParent = Resources::Write(Resources::GetParent(selected));
+			oldParent.RemoveFromSubObjectSet(EntityResource::Children, selected);
+			oldParent.Commit(scope);
+
+
+			ResourceObject newParentObject = Resources::Write(newParent);
+			newParentObject.AddToSubObjectSet(EntityResource::Children, selected);
+			newParentObject.Commit(scope);
+		}
+
+	}
+
 	void WorldEditor::ClearSelection()
 	{
 		ClearDebugEntitySelection();
@@ -204,6 +221,9 @@ namespace Skore
 
 	void WorldEditor::SelectEntity(RID entity, bool clearSelection)
 	{
+		if (IsSelected(entity)) return;
+
+
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Select Entity");
 		ResourceObject selectionObject = Resources::Write(m_selection);
 		if (clearSelection)
@@ -211,6 +231,14 @@ namespace Skore
 			selectionObject.ClearReferenceArray(WorldEditorSelection::SelectedEntities);
 		}
 		selectionObject.AddToReferenceArray(WorldEditorSelection::SelectedEntities, entity);
+		selectionObject.Commit(scope);
+	}
+
+	void WorldEditor::DeselectEntity(RID entity)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Deselect Entity");
+		ResourceObject selectionObject = Resources::Write(m_selection);
+		selectionObject.RemoveFromReferenceArray(WorldEditorSelection::SelectedEntities, entity);
 		selectionObject.Commit(scope);
 	}
 
@@ -222,6 +250,19 @@ namespace Skore
 
 	bool WorldEditor::IsParentOfSelected(RID entity)
 	{
+		ResourceObject selectionObject = Resources::Read(m_selection);
+		for (RID selected: selectionObject.GetReferenceArray(WorldEditorSelection::SelectedEntities))
+		{
+			RID parent = Resources::GetParent(selected);
+			while (parent)
+			{
+				if (parent == entity)
+				{
+					return true;
+				}
+				parent = Resources::GetParent(parent);
+			}
+		}
 		return false;
 	}
 

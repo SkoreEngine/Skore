@@ -214,16 +214,18 @@ namespace Skore
 		i32 height;
 		SDL_GetWindowSize(static_cast<SDL_Window*>(desc.windowHandle), &width, &height);
 
-		if (width == 0 || height == 0)
-		{
-			SK_ASSERT(false, "swapchain cannot be created with 0 width or height");
-			return false;
-		}
 
 		VulkanSwapChainSupportDetails details = QuerySwapChainSupport(vulkanDevice->selectedAdapter->device, surfaceKHR);
 		VkSurfaceFormatKHR            surfaceFormat = ChooseSwapSurfaceFormat(details, {ToVkFormat(desc.format), VK_COLOR_SPACE_SRGB_NONLINEAR_KHR});
 		VkPresentModeKHR              presentMode = ChooseSwapPresentMode(details, desc.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_MAILBOX_KHR);
 		extent = ChooseSwapExtent(details, {static_cast<u32>(width), static_cast<u32>(height)});
+
+
+		if (extent.width == 0 || extent.height == 0)
+		{
+			SK_ASSERT(false, "swapchain cannot be created with 0 width or height");
+			return false;
+		}
 
 		u32 imageCount = details.capabilities.minImageCount + 1;
 		if (details.capabilities.maxImageCount > 0 && imageCount > details.capabilities.maxImageCount)
@@ -565,6 +567,11 @@ namespace Skore
 				clearValue.color.float32[2] = clearColor.z;
 				clearValue.color.float32[3] = clearColor.w;
 			}
+		}
+
+		if (vulkanRenderPass->extent.width == 0 || vulkanRenderPass->extent.height == 0)
+		{
+			SK_ASSERT(false, "Invalid render pass extent");
 		}
 
 		VkRenderPassBeginInfo renderPassBeginInfo{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};

@@ -39,6 +39,7 @@ namespace Skore
 
 		Transform&       GetTransform();
 		World*           GetWorld() const;
+		void			 SetParent(Entity* newParent);
 		Entity*          GetParent() const;
 		Span<Entity*>    GetChildren() const;
 		Span<Component*> GetComponents() const;

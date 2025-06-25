@@ -167,6 +167,21 @@ namespace Skore
 		}
 	}
 
+	void ResourceObject::RemoveFromReferenceArray(u32 index, RID ref)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::ReferenceArray, "Invalid field type");
+		if (HasValueOnThisObject(index))
+		{
+			if (Array<RID>* arr = GetMutPtr<Array<RID>>(index))
+			{
+				 if (auto it = FindFirst(arr->begin(), arr->end(), ref))
+				 {
+				 	arr->Erase(it);
+				 }
+			}
+		}
+	}
+
 	void ResourceObject::SetSubObject(u32 index, RID subObject)
 	{
 		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObject, "Invalid field type");

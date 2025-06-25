@@ -74,5 +74,6 @@ namespace Skore
 
 		void DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected, RID parent, bool disabled);
 		void DrawEntity(WorldEditor* worldEditor, Entity* entity, bool& entitySelected);
+		void DrawMovePayload(u64 id, RID moveTo) const;
 	};
 }

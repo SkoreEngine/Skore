@@ -121,6 +121,39 @@ namespace Skore
 		return m_world;
 	}
 
+	void Entity::SetParent(Entity* newParent)
+	{
+		if (m_parent == newParent) return;
+
+		if (m_parent)
+		{
+			for (int i = 0; i < m_parent->m_children.Size(); ++i)
+			{
+				if (m_parent->m_children[i] == this)
+				{
+					m_parent->m_children.Remove(i);
+					break;
+				}
+			}
+		}
+
+		m_parent = newParent;
+		m_parent->m_children.EmplaceBack(this);
+
+		if (m_parent)
+		{
+			m_parentActive = m_parent->IsActive();
+		}
+		else
+		{
+			m_parentActive = true;
+		}
+
+		UpdateTransform();
+
+
+	}
+
 	Entity* Entity::GetParent() const
 	{
 		return m_parent;
@@ -338,7 +371,14 @@ namespace Skore
 		{
 			if (res.type == CompareSubObjectSetType::Added)
 			{
-				entity->CreateChildFromAsset(res.rid);
+				if (Entity* child = entity->GetWorld()->FindEntityByRID(res.rid))
+				{
+					child->SetParent(entity);
+				}
+				else
+				{
+					entity->CreateChildFromAsset(res.rid);
+				}
 			}
 		}
 
