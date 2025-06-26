@@ -24,17 +24,17 @@
 
 #include "Skore/Common.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
-#include "Skore/World/World.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
 	class EditorWorkspace;
 
-	class SK_API WorldEditor
+	class SK_API SceneEditor
 	{
 	public:
-		WorldEditor(EditorWorkspace& workspace);
-		~WorldEditor();
+		SceneEditor(EditorWorkspace& workspace);
+		~SceneEditor();
 
 		void OpenEntity(RID entity);
 
@@ -57,7 +57,7 @@ namespace Skore
 		bool HasSelectedEntities() const;
 		Span<RID> GetSelectedEntities() const;
 
-		//selection for World/Entity
+		//selection for Scene/Entity
 		void SelectEntity(Entity* entity, bool clearSelection);
 		bool IsSelected(Entity* entity) const;
 
@@ -77,7 +77,7 @@ namespace Skore
 		void StopSimulation();
 		void PauseSimulation();
 
-		World* GetCurrentWorld() const;
+		Scene* GetCurrentScene() const;
 
 		void OnUpdateEvent();
 
@@ -86,8 +86,11 @@ namespace Skore
 		RID m_state = {};
 		RID m_selection = {};
 
-		std::shared_ptr<World> m_editorWorld;
-		std::shared_ptr<World> m_simulationWorld;
+		std::shared_ptr<Scene> m_editorScene;
+		std::shared_ptr<Scene> m_simulationScene;
+
+		bool m_shouldStartSimulation = false;
+		bool m_shouldStopSimulation = false;
 
 		HashSet<Entity*> m_selectedEntities{};
 

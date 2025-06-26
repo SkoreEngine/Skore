@@ -24,18 +24,18 @@
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
-#include "Skore/World/Entity.hpp"
-#include "Skore/World/World.hpp"
+#include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 
 namespace Skore
 {
-	void MeshRenderer::Create()
+	void MeshRenderer::Create(ComponentSettings& settings)
 	{
-		m_renderStorage = GetWorld()->GetRenderStorage();
+		m_renderStorage = GetScene()->GetRenderStorage();
 
 		m_renderStorage->RegisterMeshProxy(this);
-		m_renderStorage->SetMeshTransform(this, entity->GetWorldTransform());
+		m_renderStorage->SetMeshTransform(this, entity->GetGlobalTransform());
 		m_renderStorage->SetMesh(this, m_mesh);
 		m_renderStorage->SetMeshMaterials(this, CastRIDArray(m_materials));
 		m_renderStorage->SetMeshCastShadows(this, m_castShadows);
@@ -60,7 +60,7 @@ namespace Skore
 				m_renderStorage->SetMeshVisible(this, false);
 				break;
 			case EntityEventType::TransformUpdated:
-				m_renderStorage->SetMeshTransform(this, entity->GetWorldTransform());
+				m_renderStorage->SetMeshTransform(this, entity->GetGlobalTransform());
 				break;
 		}
 	}

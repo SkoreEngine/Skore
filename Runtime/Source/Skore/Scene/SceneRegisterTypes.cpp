@@ -21,8 +21,9 @@
 // SOFTWARE.
 
 #include "Component.hpp"
-#include "World.hpp"
-#include "WorldCommon.hpp"
+#include "Scene.hpp"
+#include "SceneManager.hpp"
+#include "SceneCommon.hpp"
 #include "Entity.hpp"
 #include "Components/EnvironmentComponent.hpp"
 #include "Components/LightComponent.hpp"
@@ -32,10 +33,11 @@
 
 namespace Skore
 {
-	void RegisterWorldTypes()
+	void RegisterSceneTypes()
 	{
 		Reflection::Type<Entity>();
-		Reflection::Type<World>();
+		Reflection::Type<Scene>();
+		Reflection::Type<SceneManager>();
 
 		Reflection::Type<Component>();
 		Reflection::Type<MeshRenderer>();

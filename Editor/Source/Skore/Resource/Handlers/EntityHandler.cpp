@@ -26,7 +26,7 @@
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
-#include "Skore/World/WorldCommon.hpp"
+#include "Skore/Scene/SceneCommon.hpp"
 
 namespace Skore
 {
@@ -43,7 +43,7 @@ namespace Skore
 		{
 			if (ResourceObject object = Resources::Read(asset))
 			{
-				Editor::GetCurrentWorkspace().GetWorldEditor()->OpenEntity(object.GetSubObject(ResourceAsset::Object));
+				Editor::GetCurrentWorkspace().GetSceneEditor()->OpenEntity(object.GetSubObject(ResourceAsset::Object));
 			}
 		}
 

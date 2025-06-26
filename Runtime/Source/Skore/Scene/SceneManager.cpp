@@ -20,34 +20,38 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "WorldCommon.hpp"
-#include "Skore/Core/Object.hpp"
+#include "SceneManager.hpp"
+
+#include "Scene.hpp"
+#include "Skore/Events.hpp"
+#include "Skore/Core/Event.hpp"
+
 
 namespace Skore
 {
-	class World;
-	class Entity;
+	static Scene* activeScene = nullptr;
 
-	class SK_API Component : public Object
+
+	void SceneManager::SetActiveScene(Scene* scene)
 	{
-	public:
-		SK_CLASS(Component, Object);
+		activeScene = scene;
+	}
 
-		Entity* entity = nullptr;
+	Scene* SceneManager::GetActiveScene()
+	{
+		return activeScene;
+	}
 
-		//called after construction / deserialization
-		virtual void Create() {}
+	void SceneManager::RegisterType(NativeReflectType<SceneManager>& type)
+	{
+		Event::Bind<OnUpdate, Update>();
+	}
 
-		//called before destruction
-		virtual void Destroy() {}
-
-		virtual void ProcessEvent(const EntityEventDesc& event) {}
-
-		World* GetWorld() const;
-
-		friend class Entity;
-	private:
-		RID m_rid;
-	};
+	void SceneManager::Update()
+	{
+		if (activeScene)
+		{
+			activeScene->Update();
+		}
+	}
 }

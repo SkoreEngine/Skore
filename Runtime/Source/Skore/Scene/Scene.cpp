@@ -20,35 +20,74 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
+#include "Scene.hpp"
 
-#include "Skore/Core/String.hpp"
-#include "Skore/Core/StringView.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
-#include "Scene/SceneEditor.hpp"
+#include "Component.hpp"
+#include "Entity.hpp"
 
 
 namespace Skore
 {
-	class EditorWorkspace
+	Scene::Scene(RID rid, bool enableResourceSync) : m_enableResourceSync(enableResourceSync)
 	{
-	public:
-		EditorWorkspace();
-		~EditorWorkspace();
-		StringView   GetName() const;
-		u32          GetId() const;
-		SceneEditor* GetSceneEditor();
-		void         OpenAsset(RID rid);
+		m_rootEntity = Entity::Instantiate(this, rid);
+	}
 
-		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
+	Scene::~Scene()
+	{
+		if (m_rootEntity)
+		{
+			m_rootEntity->DestroyInternal(false);
+		}
+	}
 
-	private:
-		u32         id;
-		String      name;
-		SceneEditor sceneEditor{*this};
+	Entity* Scene::GetRootEntity() const
+	{
+		return m_rootEntity;
+	}
 
-		RID state = {};
+	bool Scene::IsResourceSyncEnabled() const
+	{
+		return m_enableResourceSync;
+	}
 
-		static void WorkspaceStateChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
-	};
+	RenderStorage* Scene::GetRenderStorage()
+	{
+		return &m_renderStorage;
+	}
+
+	Entity* Scene::FindEntityByRID(RID rid) const
+	{
+		if (auto it = m_entities.Find(rid))
+		{
+			return it->second;
+		}
+		return nullptr;
+	}
+
+	void Scene::Update()
+	{
+		while (!m_queueToStart.IsEmpty())
+		{
+			Entity* entity = m_queueToStart.Dequeue();
+			entity->DoStart();
+		}
+
+		while (!m_componentsToStart.IsEmpty())
+		{
+			Component* component = m_componentsToStart.Dequeue();
+			component->OnStart();
+		}
+
+		while (!m_queueToDestroy.IsEmpty())
+		{
+			Entity* entity = m_queueToDestroy.Dequeue();
+			entity->DestroyInternal(true);
+		}
+
+		for (Component* component : m_updateComponents)
+		{
+			component->OnUpdate();
+		}
+	}
 }

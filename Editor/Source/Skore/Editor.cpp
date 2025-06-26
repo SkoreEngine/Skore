@@ -43,7 +43,7 @@
 #include "Window/EntityTreeWindow.hpp"
 #include "Window/HistoryWindow.hpp"
 #include "Window/PropertiesWindow.hpp"
-#include "Window/WorldViewWindow.hpp"
+#include "Window/SceneViewWindow.hpp"
 #include "Window/TextureViewWindow.hpp"
 
 namespace Skore
@@ -191,17 +191,17 @@ namespace Skore
 
 		bool HasEntitySelection(const MenuItemEventData& eventData)
 		{
-			return Editor::GetCurrentWorkspace().GetWorldEditor()->HasSelectedEntities();
+			return Editor::GetCurrentWorkspace().GetSceneEditor()->HasSelectedEntities();
 		}
 
 		void Duplicate(const MenuItemEventData& eventData)
 		{
-			Editor::GetCurrentWorkspace().GetWorldEditor()->DuplicateSelected();
+			Editor::GetCurrentWorkspace().GetSceneEditor()->DuplicateSelected();
 		}
 
 		void Delete(const MenuItemEventData& eventData)
 		{
-			Editor::GetCurrentWorkspace().GetWorldEditor()->DestroySelected();
+			Editor::GetCurrentWorkspace().GetSceneEditor()->DestroySelected();
 		}
 
 		bool CreateCMakeProjectEnabled(const MenuItemEventData& eventData)
@@ -767,19 +767,19 @@ namespace Skore
 
 
 	void RegisterResourceAssetTypes();
-	void RegisterWorldEditorTypes();
+	void RegisterSceneEditorTypes();
 
 	void EditorTypeRegister()
 	{
 		RegisterResourceAssetTypes();
-		RegisterWorldEditorTypes();
+		RegisterSceneEditorTypes();
 
 		Reflection::Type<EditorWorkspace>();
 		Reflection::Type<EditorWindow>();
 		Reflection::Type<EditorWindowProperties>();
 		Reflection::Type<ProjectBrowserWindow>();
 		Reflection::Type<EntityTreeWindow>();
-		Reflection::Type<WorldViewWindow>();
+		Reflection::Type<SceneViewWindow>();
 		Reflection::Type<TextureViewWindow>();
 		Reflection::Type<HistoryWindow>();
 		Reflection::Type<ConsoleWindow>();

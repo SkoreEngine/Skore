@@ -8,9 +8,9 @@
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
-#include "Skore/World/Component.hpp"
-#include "Skore/World/Entity.hpp"
-#include "Skore/World/WorldCommon.hpp"
+#include "Skore/Scene/Component.hpp"
+#include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/SceneCommon.hpp"
 
 namespace Skore
 {
@@ -36,7 +36,7 @@ namespace Skore
 		Event::Unbind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
 	}
 
-	void PropertiesWindow::DrawEntity(u32 id, WorldEditor* worldEditor, RID entity)
+	void PropertiesWindow::DrawEntity(u32 id, SceneEditor* sceneEditor, RID entity)
 	{
 		ImGuiStyle& style = ImGui::GetStyle();
 
@@ -45,7 +45,7 @@ namespace Skore
 		ResourceObject entityObject = Resources::Read(entity);
 
 
-		bool readOnly = worldEditor->IsReadOnly();
+		bool readOnly = sceneEditor->IsReadOnly();
 
 		ImGuiInputTextFlags nameFlags = 0;
 		if (readOnly)
@@ -80,7 +80,7 @@ namespace Skore
 
 			if (!ImGui::IsItemActive() && renamingFocus)
 			{
-				worldEditor->Rename(renamingEntity, renamingCache);
+				sceneEditor->Rename(renamingEntity, renamingCache);
 				renamingEntity = {};
 				renamingFocus = false;
 				renamingCache.Clear();
@@ -135,7 +135,7 @@ namespace Skore
 				RID prototype = entityObject.GetPrototype();
 				Editor::ExecuteOnMainThread([prototype]()
 				{
-					Editor::GetCurrentWorkspace().GetWorldEditor()->OpenEntity(prototype);
+					Editor::GetCurrentWorkspace().GetSceneEditor()->OpenEntity(prototype);
 				});
 			}
 
@@ -217,7 +217,7 @@ namespace Skore
 					String name = FormatName(refletionType->GetSimpleName());
 					if (ImGui::Selectable(name.CStr()))
 					{
-						worldEditor->AddComponent(entity, componentId);
+						sceneEditor->AddComponent(entity, componentId);
 					}
 				}
 			}
@@ -236,7 +236,7 @@ namespace Skore
 		{
 			if (ImGui::MenuItem("Reset"))
 			{
-				worldEditor->ResetComponent(entity, selectedComponent);
+				sceneEditor->ResetComponent(entity, selectedComponent);
 				ImGui::CloseCurrentPopup();
 			}
 
@@ -251,14 +251,14 @@ namespace Skore
 
 			if (canRemove && ImGui::MenuItem("Remove"))
 			{
-				worldEditor->RemoveComponent(entity, selectedComponent);
+				sceneEditor->RemoveComponent(entity, selectedComponent);
 				ImGui::CloseCurrentPopup();
 			}
 		}
 		ImGuiEndPopupMenu(popupOpenSettings);
 	}
 
-	void PropertiesWindow::DrawDebugEntity(u32 id, WorldEditor* worldEditor, Entity* entity)
+	void PropertiesWindow::DrawDebugEntity(u32 id, SceneEditor* sceneEditor, Entity* entity)
 	{
 		ImGuiStyle& style = ImGui::GetStyle();
 
@@ -432,13 +432,13 @@ namespace Skore
 		ImGuiBegin(id, ICON_FA_CIRCLE_INFO " Properties", &open, ImGuiWindowFlags_NoScrollbar);
 		if (selectedEntity)
 		{
-			WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
-			DrawEntity(id, worldEditor, selectedEntity);
+			SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+			DrawEntity(id, sceneEditor, selectedEntity);
 		}
 		else if (selectedDebugEntity)
 		{
-			WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
-			DrawDebugEntity(id, worldEditor, selectedDebugEntity);
+			SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+			DrawDebugEntity(id, sceneEditor, selectedDebugEntity);
 		}
 		else if (selectedAsset)
 		{

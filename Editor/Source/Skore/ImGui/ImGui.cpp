@@ -322,8 +322,8 @@ namespace Skore
 		keys[static_cast<u32>(Key::Backslash)] = ImGuiKey_Backslash;
 		keys[static_cast<u32>(Key::RightBracket)] = ImGuiKey_RightBracket;
 		keys[static_cast<u32>(Key::GraveAccent)] = ImGuiKey_GraveAccent;
-		//		keys[static_cast<u32>(Key::World1)] = ImGuiKey_World1;
-		//		keys[static_cast<u32>(Key::World2)] = ImGuiKey_World2;
+		//		keys[static_cast<u32>(Key::Scene1)] = ImGuiKey_Scene1;
+		//		keys[static_cast<u32>(Key::Scene2)] = ImGuiKey_Scene2;
 		keys[static_cast<u32>(Key::Escape)] = ImGuiKey_Escape;
 		keys[static_cast<u32>(Key::Enter)] = ImGuiKey_Enter;
 		keys[static_cast<u32>(Key::Tab)] = ImGuiKey_Tab;

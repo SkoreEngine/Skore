@@ -24,18 +24,18 @@
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
-#include "Skore/World/Entity.hpp"
-#include "Skore/World/World.hpp"
-#include "Skore/World/WorldCommon.hpp"
+#include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/Scene.hpp"
+#include "Skore/Scene/SceneCommon.hpp"
 
 namespace Skore
 {
 
-	void LightComponent::Create()
+	void LightComponent::Create(ComponentSettings& settings)
 	{
-		m_renderStorage = GetWorld()->GetRenderStorage();
+		m_renderStorage = GetScene()->GetRenderStorage();
 		m_renderStorage->RegisterLightProxy(this);
-		m_renderStorage->SetLightTransform(this, entity->GetWorldTransform());
+		m_renderStorage->SetLightTransform(this, entity->GetGlobalTransform());
 		m_renderStorage->SetLightType(this, m_lightType);
 		m_renderStorage->SetLightColor(this, m_color);
 		m_renderStorage->SetLightIntensity(this, m_intensity);
@@ -64,7 +64,7 @@ namespace Skore
 				m_renderStorage->SetLightVisible(this, false);
 				break;
 			case EntityEventType::TransformUpdated:
-				m_renderStorage->SetLightTransform(this, entity->GetWorldTransform());
+				m_renderStorage->SetLightTransform(this, entity->GetGlobalTransform());
 				break;
 		}
 	}

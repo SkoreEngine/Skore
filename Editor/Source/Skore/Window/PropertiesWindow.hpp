@@ -27,14 +27,8 @@
 
 namespace Skore
 {
-	class WorldEditor;
-	class ReflectField;
-	class Component2;
 	class SceneEditor;
-}
-
-namespace Skore
-{
+	class ReflectField;
 	struct MenuItemEventData;
 	class Entity;
 
@@ -65,8 +59,8 @@ namespace Skore
 
 		static void OpenProperties(const MenuItemEventData& eventData);
 
-		void DrawEntity(u32 id, WorldEditor* worldEditor, RID entity);
-		void DrawDebugEntity(u32 id, WorldEditor* worldEditor, Entity* entity);
+		void DrawEntity(u32 id, SceneEditor* sceneEditor, RID entity);
+		void DrawDebugEntity(u32 id, SceneEditor* sceneEditor, Entity* entity);
 		void DrawAsset(u32 id, RID asset);
 
 		void EntityDebugSelection(u32 workspaceId, Entity* entity);

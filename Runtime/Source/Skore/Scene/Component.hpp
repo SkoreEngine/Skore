@@ -21,31 +21,49 @@
 // SOFTWARE.
 
 #pragma once
-#include "Skore/Graphics/GraphicsResources.hpp"
-#include "Skore/World/Component.hpp"
+#include "SceneCommon.hpp"
+#include "Skore/Core/Object.hpp"
 
 namespace Skore
 {
-	class RenderStorage;
+	class Scene;
+	class Entity;
 
-	class SK_API EnvironmentComponent : public Component
+	struct ComponentSettings
+	{
+		bool enableUpdate = false;
+		bool enableFixedUpdate = false;
+	};
+
+	class SK_API Component : public Object
 	{
 	public:
-		SK_CLASS(EnvironmentComponent, Component);
+		SK_CLASS(Component, Object);
 
-		void Create() override;
-		void Destroy() override;
-		void ProcessEvent(const EntityEventDesc& event) override;
+		Entity* entity = nullptr;
 
+		//called after construction / deserialization
+		virtual void Create(ComponentSettings& settings) {}
 
-		TypedRID<MaterialResource> GetSkyboxMaterial() const;
-		void SetSkyboxMaterial(TypedRID<MaterialResource> skyboxMaterial);
+		//called before destruction
+		virtual void Destroy() {}
 
+		virtual void OnStart() {}
 
-		static void RegisterType(NativeReflectType<EnvironmentComponent>& type);
+		virtual void OnUpdate() {}
 
+		virtual void OnFixedUpdate() {}
+
+		virtual void ProcessEvent(const EntityEventDesc& event) {}
+
+		Scene* GetScene() const;
+
+		friend class Entity;
 	private:
-		TypedRID<MaterialResource> m_skyboxMaterial = {};
-		RenderStorage*             m_renderStorage = nullptr;
+		RID m_rid;
+		ComponentSettings m_settings = {};
+
+		void RegisterEvents();
+		void RemoveEvents();
 	};
 }

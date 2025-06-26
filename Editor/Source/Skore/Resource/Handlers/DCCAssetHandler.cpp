@@ -46,7 +46,7 @@ namespace Skore
 					if (RID entity = dccAsset.GetSubObject(DCCAssetResource::Entity))
 					{
 						//TODO - readonly?
-						Editor::GetCurrentWorkspace().GetWorldEditor()->OpenEntity(entity);
+						Editor::GetCurrentWorkspace().GetSceneEditor()->OpenEntity(entity);
 					}
 				}
 			}

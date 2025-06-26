@@ -24,7 +24,7 @@
 #include "Skore/EditorCommon.hpp"
 #include "Skore/MenuItem.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
-#include "Skore/World/WorldEditor.hpp"
+#include "Skore/Scene/SceneEditor.hpp"
 
 namespace Skore
 {
@@ -48,8 +48,8 @@ namespace Skore
 		static bool CheckSelectedEntity(const MenuItemEventData& eventData);
 		static bool CheckSelectedPrototypeEntity(const MenuItemEventData& eventData);
 		static bool CheckReadOnly(const MenuItemEventData& eventData);
-		static void ShowWorldEntity(const MenuItemEventData& eventData);
-		static bool IsShowWorldEntitySelected(const MenuItemEventData& eventData);
+		static void ShowSceneEntity(const MenuItemEventData& eventData);
+		static bool IsShowSceneEntitySelected(const MenuItemEventData& eventData);
 
 		static void OverridePrototype(const MenuItemEventData& eventData);
 		static void RemoveFromThisInstance(const MenuItemEventData& eventData);
@@ -68,12 +68,12 @@ namespace Skore
 		String renamingStringCache{};
 		f32    iconSize = {};
 
-		bool showWorldEntity = false;
+		bool showSceneEntity = false;
 
 		static MenuItemContext menuItemContext;
 
-		void DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected, RID parent, bool disabled);
-		void DrawEntity(WorldEditor* worldEditor, Entity* entity, bool& entitySelected);
+		void DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool disabled);
+		void DrawEntity(SceneEditor* sceneEditor, Entity* entity, bool& entitySelected);
 		void DrawMovePayload(u64 id, RID moveTo) const;
 	};
 }

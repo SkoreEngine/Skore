@@ -20,47 +20,22 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "World.hpp"
+#pragma once
 
-#include "Entity.hpp"
-
+#include "Skore/Common.hpp"
 
 namespace Skore
 {
-	World::World(RID rid, bool enableResourceSync) : m_enableResourceSync(enableResourceSync)
-	{
-		m_rootEntity = Entity::Instantiate(this, rid);
-	}
+	class Scene;
 
-	World::~World()
+	class SK_API SceneManager
 	{
-		if (m_rootEntity)
-		{
-			m_rootEntity->DestroyInternal(false);
-		}
-	}
+	public:
+		static void   SetActiveScene(Scene* scene);
+		static Scene* GetActiveScene();
 
-	Entity* World::GetRootEntity() const
-	{
-		return m_rootEntity;
-	}
-
-	bool World::IsResourceSyncEnabled() const
-	{
-		return m_enableResourceSync;
-	}
-
-	RenderStorage* World::GetRenderStorage()
-	{
-		return &m_renderStorage;
-	}
-
-	Entity* World::FindEntityByRID(RID rid) const
-	{
-		if (auto it = m_entities.Find(rid))
-		{
-			return it->second;
-		}
-		return nullptr;
-	}
+		static void RegisterType(NativeReflectType<SceneManager>& type);
+	private:
+		static void Update();
+	};
 }

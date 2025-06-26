@@ -69,9 +69,9 @@ namespace Skore
 		return id;
 	}
 
-	WorldEditor* EditorWorkspace::GetWorldEditor()
+	SceneEditor* EditorWorkspace::GetSceneEditor()
 	{
-		return &worldEditor;
+		return &sceneEditor;
 	}
 
 	void EditorWorkspace::OpenAsset(RID rid)

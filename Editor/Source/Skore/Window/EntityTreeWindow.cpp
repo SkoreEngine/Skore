@@ -30,8 +30,8 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
-#include "Skore/World/Entity.hpp"
-#include "Skore/World/WorldCommon.hpp"
+#include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/SceneCommon.hpp"
 
 namespace Skore
 {
@@ -65,7 +65,7 @@ namespace Skore
 		iconSize = ImGui::CalcTextSize(ICON_FA_EYE).x;
 	}
 
-	void EntityTreeWindow::DrawRIDEntity(WorldEditor* worldEditor, RID entity, bool& entitySelected, RID parent, bool disabled)
+	void EntityTreeWindow::DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool disabled)
 	{
 		auto& style = ImGui::GetStyle();
 
@@ -78,7 +78,7 @@ namespace Skore
 			disabled =  Resources::GetParent(entity) != parent;
 		}
 
-		bool       root = worldEditor->GetRootEntity() == entity;
+		bool       root = sceneEditor->GetRootEntity() == entity;
 		usize      childrenCount = entityObject.GetSubObjectSetCount(EntityResource::Children);
 		StringView name = entityObject.GetString(EntityResource::Name);
 		bool       active = !entityObject.GetBool(EntityResource::Deactivated);
@@ -97,10 +97,10 @@ namespace Skore
 		stringCache += " ";
 		stringCache += name;
 
-		bool isSelected = worldEditor->IsSelected(entity);
+		bool isSelected = sceneEditor->IsSelected(entity);
 		bool open = false;
 
-		if (root || worldEditor->IsParentOfSelected(entity))
+		if (root || sceneEditor->IsParentOfSelected(entity))
 		{
 			ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 		}
@@ -141,7 +141,7 @@ namespace Skore
 			{
 				renamingSelected = false;
 				renamingFocus = false;
-				worldEditor->Rename(entity, renamingStringCache);
+				sceneEditor->Rename(entity, renamingStringCache);
 			}
 
 			if (!renamingFocus)
@@ -172,22 +172,22 @@ namespace Skore
 		{
 			if (!disabled)
 			{
-				worldEditor->SelectEntity(entity, !ctrlDown);
+				sceneEditor->SelectEntity(entity, !ctrlDown);
 			}
 			else
 			{
-				worldEditor->ClearSelection();
+				sceneEditor->ClearSelection();
 				entityOnPopupSelection = entity;
 			}
 		}
 
 		if ((ImGui::IsMouseReleased(ImGuiMouseButton_Left) || ImGui::IsMouseReleased(ImGuiMouseButton_Right)) && isHovered)
 		{
-			if (!disabled && worldEditor->IsSelected(entity))
+			if (!disabled && sceneEditor->IsSelected(entity))
 			{
 				if (!ctrlDown)
 				{
-					worldEditor->SelectEntity(entity, true);
+					sceneEditor->SelectEntity(entity, true);
 				}
 			}
 		}
@@ -209,14 +209,14 @@ namespace Skore
 		{
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
 			{
-				worldEditor->ChangeParentOfSelected(entity);
+				sceneEditor->ChangeParentOfSelected(entity);
 			}
 			ImGui::EndDragDropTarget();
 		}
 
 		ImGui::TableNextColumn();
 		{
-			ImGui::BeginDisabled(worldEditor->IsReadOnly());
+			ImGui::BeginDisabled(sceneEditor->IsReadOnly());
 
 			char buffer[35]{};
 			sprintf(buffer, "activated-button%llu", entity.id);
@@ -228,7 +228,7 @@ namespace Skore
 
 			if (ImGui::Button(active ? ICON_FA_EYE : ICON_FA_EYE_SLASH, ImVec2(ImGui::GetColumnWidth(), 0)))
 			{
-				worldEditor->SetActivated(entity, !active);
+				sceneEditor->SetActivated(entity, !active);
 			}
 
 			ImGui::PopID();
@@ -238,7 +238,7 @@ namespace Skore
 
 		ImGui::TableNextColumn();
 		{
-			ImGui::BeginDisabled(worldEditor->IsReadOnly());
+			ImGui::BeginDisabled(sceneEditor->IsReadOnly());
 
 			char buffer[35]{};
 			sprintf(buffer, "lock-button%llu", entity.id);
@@ -250,7 +250,7 @@ namespace Skore
 
 			if (ImGui::Button(locked ? ICON_FA_LOCK : ICON_FA_LOCK_OPEN, ImVec2(ImGui::GetColumnWidth(), 0)))
 			{
-				worldEditor->SetLocked(entity, !locked);
+				sceneEditor->SetLocked(entity, !locked);
 			}
 
 			ImGui::PopID();
@@ -271,21 +271,21 @@ namespace Skore
 		{
 			entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
 			{
-				DrawRIDEntity(worldEditor, child, entitySelected, entity, disabled);
+				DrawRIDEntity(sceneEditor, child, entitySelected, entity, disabled);
 				return true;
 			});
 			ImGui::TreePop();
 		}
 	}
 
-	void EntityTreeWindow::DrawEntity(WorldEditor* worldEditor, Entity* entity, bool& entitySelected)
+	void EntityTreeWindow::DrawEntity(SceneEditor* sceneEditor, Entity* entity, bool& entitySelected)
 	{
 
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn();
 
 		bool root = entity->GetParent() == nullptr;
-		bool isSelected = worldEditor->IsSelected(entity);
+		bool isSelected = sceneEditor->IsSelected(entity);
 
 		stringCache.Clear();
 		stringCache += root ? ICON_FA_CUBES : ICON_FA_CUBE;
@@ -312,7 +312,7 @@ namespace Skore
 
 		if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
 		{
-			worldEditor->SelectEntity(entity, !ctrlDown && !worldEditor->IsSelected(entity));
+			sceneEditor->SelectEntity(entity, !ctrlDown && !sceneEditor->IsSelected(entity));
 		}
 
 		ImGui::TableNextColumn();
@@ -333,7 +333,7 @@ namespace Skore
 		{
 			for (Entity* child : entity->GetChildren())
 			{
-				DrawEntity(worldEditor, child, entitySelected);
+				DrawEntity(sceneEditor, child, entitySelected);
 			}
 			ImGui::TreePop();
 		}
@@ -386,7 +386,7 @@ namespace Skore
 
 	void EntityTreeWindow::Draw(u32 id, bool& open)
 	{
-		WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
+		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
 
 		bool  entitySelected = false;
 		auto& style = ImGui::GetStyle();
@@ -399,7 +399,7 @@ namespace Skore
 			return;
 		}
 
-		if (!worldEditor->GetRootEntity())
+		if (!sceneEditor->GetRootEntity())
 		{
 			ImGuiCentralizedText("Open a scene in the Project Browser");
 			ImGui::End();
@@ -449,14 +449,14 @@ namespace Skore
 					ScopedStyleVar       spacing(ImGuiStyleVar_ItemSpacing, ImVec2{0.0f, 0.0f});
 					ImGuiInvisibleHeader invisibleHeader;
 
-					bool drawRID = !showWorldEntity && !worldEditor->IsSimulationRunning();
+					bool drawRID = !showSceneEntity && !sceneEditor->IsSimulationRunning();
 					if (drawRID)
 					{
-						DrawRIDEntity(worldEditor, worldEditor->GetRootEntity(), entitySelected, RID{}, worldEditor->IsReadOnly());
+						DrawRIDEntity(sceneEditor, sceneEditor->GetRootEntity(), entitySelected, RID{}, sceneEditor->IsReadOnly());
 					}
-					else if (worldEditor->GetCurrentWorld() != nullptr)
+					else if (sceneEditor->GetCurrentScene() != nullptr)
 					{
-						DrawEntity(worldEditor, worldEditor->GetCurrentWorld()->GetRootEntity(), entitySelected);
+						DrawEntity(sceneEditor, sceneEditor->GetCurrentScene()->GetRootEntity(), entitySelected);
 					}
 
 					ImGui::TableNextRow();
@@ -464,7 +464,7 @@ namespace Skore
 
 					if (drawRID)
 					{
-						DrawMovePayload(PtrToInt(worldEditor), RID{});
+						DrawMovePayload(PtrToInt(sceneEditor), RID{});
 					}
 
 					ImGui::EndTable();
@@ -486,7 +486,7 @@ namespace Skore
 			{
 				if (!entitySelected)
 				{
-					worldEditor->ClearSelection();
+					sceneEditor->ClearSelection();
 					renamingSelected = false;
 				}
 				openPopup = true;
@@ -522,9 +522,9 @@ namespace Skore
 
 	void EntityTreeWindow::AddSceneEntity(const MenuItemEventData& eventData)
 	{
-		if (WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor())
+		if (SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor())
 		{
-			worldEditor->Create();
+			sceneEditor->Create();
 		}
 	}
 	void EntityTreeWindow::AddSceneEntityFromAsset(const MenuItemEventData& eventData)
@@ -541,10 +541,10 @@ namespace Skore
 	{
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
 
-		WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
-		if (!worldEditor) return;
+		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+		if (!sceneEditor) return;
 
-		if (!worldEditor->HasSelectedEntities()) return;
+		if (!sceneEditor->HasSelectedEntities()) return;
 
 		window->renamingSelected = true;
 		window->renamingFocus = false;
@@ -552,16 +552,16 @@ namespace Skore
 
 	void EntityTreeWindow::DuplicateSceneEntity(const MenuItemEventData& eventData)
 	{
-		if (WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor())
+		if (SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor())
 		{
-			worldEditor->DuplicateSelected();
+			sceneEditor->DuplicateSelected();
 		}
 	}
 	void EntityTreeWindow::DeleteSceneEntity(const MenuItemEventData& eventData)
 	{
-		if (WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor())
+		if (SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor())
 		{
-			worldEditor->DestroySelected();
+			sceneEditor->DestroySelected();
 		}
 	}
 
@@ -572,10 +572,10 @@ namespace Skore
 
 	bool EntityTreeWindow::CheckSelectedEntity(const MenuItemEventData& eventData)
 	{
-		WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
-		if (!worldEditor) return false;
+		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+		if (!sceneEditor) return false;
 
-		return !worldEditor->IsReadOnly() && worldEditor->HasSelectedEntities();
+		return !sceneEditor->IsReadOnly() && sceneEditor->HasSelectedEntities();
 	}
 
 	bool EntityTreeWindow::CheckSelectedPrototypeEntity(const MenuItemEventData& eventData)
@@ -583,7 +583,7 @@ namespace Skore
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
 		if (!window->entityOnPopupSelection) return false;
 
-		RID root = Editor::GetCurrentWorkspace().GetWorldEditor()->GetRootEntity();
+		RID root = Editor::GetCurrentWorkspace().GetSceneEditor()->GetRootEntity();
 		RID current = window->entityOnPopupSelection;
 		while (current != root)
 		{
@@ -598,21 +598,21 @@ namespace Skore
 
 	bool EntityTreeWindow::CheckReadOnly(const MenuItemEventData& eventData)
 	{
-		WorldEditor* worldEditor = Editor::GetCurrentWorkspace().GetWorldEditor();
-		if (!worldEditor) return false;
-		return !worldEditor->IsReadOnly();
+		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+		if (!sceneEditor) return false;
+		return !sceneEditor->IsReadOnly();
 	}
 
-	void EntityTreeWindow::ShowWorldEntity(const MenuItemEventData& eventData)
+	void EntityTreeWindow::ShowSceneEntity(const MenuItemEventData& eventData)
 	{
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		window->showWorldEntity = !window->showWorldEntity;
+		window->showSceneEntity = !window->showSceneEntity;
 	}
 
-	bool EntityTreeWindow::IsShowWorldEntitySelected(const MenuItemEventData& eventData)
+	bool EntityTreeWindow::IsShowSceneEntitySelected(const MenuItemEventData& eventData)
 	{
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		return window->showWorldEntity;
+		return window->showSceneEntity;
 	}
 
 	void EntityTreeWindow::OverridePrototype(const MenuItemEventData& eventData)
@@ -647,7 +647,7 @@ namespace Skore
 		AddMenuItem(MenuItemCreation{.itemName = "Override", .priority = 400, .action = OverridePrototype, .visible = CheckSelectedPrototypeEntity});
 		AddMenuItem(MenuItemCreation{.itemName = "Remove From This Instance", .priority = 405, .action = RemoveFromThisInstance, .visible = CheckSelectedPrototypeEntity});
 
-		AddMenuItem(MenuItemCreation{.itemName = "(Debug) Show World Entity", .priority = 1000, .action = ShowWorldEntity, .selected = IsShowWorldEntitySelected});
+		AddMenuItem(MenuItemCreation{.itemName = "(Debug) Show Scene Entity", .priority = 1000, .action = ShowSceneEntity, .selected = IsShowSceneEntitySelected});
 
 		type.Attribute<EditorWindowProperties>(EditorWindowProperties{
 			.dockPosition = DockPosition::RightTop,

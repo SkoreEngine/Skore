@@ -35,8 +35,8 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/FileSystem.hpp"
-#include "Skore/World/WorldCommon.hpp"
-#include "Skore/World/Components/MeshRenderer.hpp"
+#include "Skore/Scene/SceneCommon.hpp"
+#include "Skore/Scene/Components/MeshRenderer.hpp"
 
 namespace Skore
 {

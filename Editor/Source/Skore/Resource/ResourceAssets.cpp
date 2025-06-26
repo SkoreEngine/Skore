@@ -38,7 +38,7 @@
 #include "Skore/IO/Path.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Resource/ResourceType.hpp"
-#include "Skore/World/WorldCommon.hpp"
+#include "Skore/Scene/SceneCommon.hpp"
 
 namespace Skore
 {

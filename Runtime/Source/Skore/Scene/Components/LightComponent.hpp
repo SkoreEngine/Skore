@@ -21,41 +21,56 @@
 // SOFTWARE.
 
 #pragma once
-#include "Skore/Graphics/GraphicsResources.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
-#include "Skore/World/Component.hpp"
+#include "Skore/Core/Color.hpp"
+#include "Skore/Graphics/GraphicsCommon.hpp"
+#include "Skore/Scene/Component.hpp"
 
 namespace Skore
 {
 	class RenderStorage;
-	using MaterialArray = Array<TypedRID<MaterialResource>>;
 
-	class MeshRenderer : public Component
+	class SK_API LightComponent : public Component
 	{
 	public:
-		SK_CLASS(MeshRenderer, Component);
+		SK_CLASS(LightComponent, Component);
 
-		void Create() override;
+		void Create(ComponentSettings& settings) override;
 		void Destroy() override;
-
 		void ProcessEvent(const EntityEventDesc& event) override;
 
-		void SetMesh(RID mesh);
-		RID  GetMesh() const;
-		void SetCastShadows(bool castShadows);
-		bool GetCastShadows() const;
+		void      SetLightType(LightType type);
+		LightType GetLightType() const;
 
-		const MaterialArray& GetMaterials() const;
-		void                 SetMaterials(const MaterialArray& materials);
+		void         SetColor(const Color& color);
+		const Color& GetColor() const;
 
-		static void RegisterType(NativeReflectType<MeshRenderer>& type);
+		void SetIntensity(f32 intensity);
+		f32  GetIntensity() const;
+
+		void SetRange(f32 range);
+		f32  GetRange() const;
+
+		// Spot light specific properties
+		void SetInnerConeAngle(f32 angle);
+		f32  GetInnerConeAngle() const;
+
+		void SetOuterConeAngle(f32 angle);
+		f32  GetOuterConeAngle() const;
+
+		void SetEnableShadows(bool enable);
+		bool GetEnableShadows() const;
+
+
+		static void RegisterType(NativeReflectType<LightComponent>& type);
 
 	private:
 		RenderStorage* m_renderStorage = nullptr;
-
-		TypedRID<MeshResource> m_mesh = {};
-		MaterialArray          m_materials = {};
-
-		bool m_castShadows = true;
+		LightType      m_lightType = LightType::Directional;
+		Color          m_color = Color::WHITE;
+		f32            m_intensity = 1.0f;
+		f32            m_range = 10.0f;
+		f32            m_innerConeAngle = 25.0f;
+		f32            m_outerConeAngle = 30.0f;
+		bool           m_enableShadows = true;
 	};
 }

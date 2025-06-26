@@ -23,18 +23,22 @@
 #include "Entity.hpp"
 
 #include "Component.hpp"
-#include "World.hpp"
-#include "WorldCommon.hpp"
+#include "Scene.hpp"
+#include "SceneCommon.hpp"
+#include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	Entity::Entity(World* world) : Entity(world, {}) {}
-	Entity::Entity(World* world, RID rid) : Entity(world, nullptr, rid) {}
-	Entity::Entity(World* world, Entity* parent) : Entity(world, parent, {}) {}
 
-	Entity::Entity(World* world, Entity* parent, RID rid) : m_rid(rid), m_world(world), m_parent(parent)
+	static Logger& logger = Logger::GetLogger("Skore::Entity");
+
+	Entity::Entity(Scene* scene) : Entity(scene, {}) {}
+	Entity::Entity(Scene* scene, RID rid) : Entity(scene, nullptr, rid) {}
+	Entity::Entity(Scene* scene, Entity* parent) : Entity(scene, parent, {}) {}
+
+	Entity::Entity(Scene* scene, Entity* parent, RID rid) : m_rid(rid), m_scene(scene), m_parent(parent)
 	{
 		if (m_parent)
 		{
@@ -43,10 +47,10 @@ namespace Skore
 
 		if (rid)
 		{
-			if (world->IsResourceSyncEnabled())
+			if (scene->IsResourceSyncEnabled())
 			{
 				Resources::GetStorage(rid)->RegisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
-				world->m_entities.Insert(rid, this);
+				scene->m_entities.Insert(rid, this);
 			}
 
 			if (ResourceObject entityObject = Resources::Read(rid))
@@ -59,7 +63,7 @@ namespace Skore
 					Resources::FromResource(transform, &m_transform);
 					UpdateTransform();
 
-					if (m_world->IsResourceSyncEnabled())
+					if (m_scene->IsResourceSyncEnabled())
 					{
 						Resources::GetStorage(m_transformRID)->RegisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, this);
 					}
@@ -82,19 +86,20 @@ namespace Skore
 
 				SetActive(!entityObject.GetBool(EntityResource::Deactivated));
 			}
-
 		}
+
+		m_scene->m_queueToStart.Enqueue(this);
 	}
 
 	Entity::~Entity()
 	{
-		if (m_world)
+		if (m_scene)
 		{
-			if (m_world->IsResourceSyncEnabled())
+			if (m_scene->IsResourceSyncEnabled())
 			{
 				if (m_rid)
 				{
-					m_world->m_entities.Erase(m_rid);
+					m_scene->m_entities.Erase(m_rid);
 					Resources::GetStorage(m_rid)->UnregisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
 				}
 
@@ -104,9 +109,9 @@ namespace Skore
 				}
 			}
 
-			if (m_world->m_rootEntity == this)
+			if (m_scene->m_rootEntity == this)
 			{
-				m_world->m_rootEntity = nullptr;
+				m_scene->m_rootEntity = nullptr;
 			}
 		}
 	}
@@ -116,9 +121,9 @@ namespace Skore
 		return m_transform;
 	}
 
-	World* Entity::GetWorld() const
+	Scene* Entity::GetScene() const
 	{
-		return m_world;
+		return m_scene;
 	}
 
 	void Entity::SetParent(Entity* newParent)
@@ -208,14 +213,14 @@ namespace Skore
 
 	Entity* Entity::CreateChild()
 	{
-		Entity* child = Instantiate(m_world, this);
+		Entity* child = Instantiate(m_scene, this);
 		m_children.EmplaceBack(child);
 		return child;
 	}
 
 	Entity* Entity::CreateChildFromAsset(RID rid)
 	{
-		Entity* child = Instantiate(m_world, this, rid);
+		Entity* child = Instantiate(m_scene, this, rid);
 		m_children.EmplaceBack(child);
 		return child;
 	}
@@ -242,15 +247,21 @@ namespace Skore
 		{
 			Resources::FromResource(rid, component);
 
-			if (m_world->IsResourceSyncEnabled())
+			if (m_scene->IsResourceSyncEnabled())
 			{
 				Resources::GetStorage(component->m_rid)->RegisterEvent(ResourceEventType::VersionUpdated, OnComponentResourceChange, component);
 			}
 		}
 
-		component->Create();
+		component->Create(component->m_settings);
+		component->RegisterEvents();
 
 		m_components.EmplaceBack(component);
+
+		if (m_started)
+		{
+			m_scene->m_componentsToStart.Enqueue(component);
+		}
 
 		return component;
 	}
@@ -271,24 +282,34 @@ namespace Skore
 
 	void Entity::Destroy()
 	{
-		m_world->m_queueToDestroy.Enqueue(this);
+		m_scene->m_queueToDestroy.Enqueue(this);
 	}
 
 	void Entity::NotifyEvent(const EntityEventDesc& event, bool notifyChildren)
 	{
 		if (event.type == EntityEventType::TransformUpdated)
 		{
-			const Mat4& parentTransform = m_parent ? m_parent->GetWorldTransform() : Mat4(1.0);
-			m_worldTransform = parentTransform * GetLocalTransform();
+			const Mat4& parentTransform = m_parent ? m_parent->GetGlobalTransform() : Mat4(1.0);
+			m_globalTransform = parentTransform * GetLocalTransform();
 		}
 
 		if (event.type == EntityEventType::EntityActivated)
 		{
 			m_parentActive = true;
+
+			for (Component* component : m_components)
+			{
+				component->RegisterEvents();
+			}
 		}
 		else if (event.type == EntityEventType::EntityDeactivated)
 		{
 			m_parentActive = false;
+
+			for (Component* component : m_components)
+			{
+				component->RemoveEvents();
+			}
 		}
 
 		for (Component* component : m_components)
@@ -340,10 +361,28 @@ namespace Skore
 		NotifyEvent(desc, true);
 	}
 
+	void Entity::DoStart()
+	{
+		if (m_started)
+		{
+			logger.Warn("DoStart called on entity that is already started!");
+			return;
+		}
+
+		m_started = true;
+
+		for (Component* component : m_components)
+		{
+			component->OnStart();
+		}
+	}
+
 	void Entity::DestroyComponent(Component* component) const
 	{
+		component->RemoveEvents();
+
 		component->Destroy();
-		if (m_world->IsResourceSyncEnabled())
+		if (m_scene->IsResourceSyncEnabled())
 		{
 			Resources::GetStorage(component->m_rid)->UnregisterEvent(ResourceEventType::VersionUpdated, OnComponentResourceChange, component);
 		}
@@ -371,7 +410,7 @@ namespace Skore
 		{
 			if (res.type == CompareSubObjectSetType::Added)
 			{
-				if (Entity* child = entity->GetWorld()->FindEntityByRID(res.rid))
+				if (Entity* child = entity->GetScene()->FindEntityByRID(res.rid))
 				{
 					child->SetParent(entity);
 				}

@@ -21,14 +21,14 @@
 // SOFTWARE.
 
 #pragma once
-#include "WorldCommon.hpp"
+#include "SceneCommon.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Object.hpp"
 
 namespace Skore
 {
 	class Component;
-	class World;
+	class Scene;
 
 	class SK_API Entity final : public Object
 	{
@@ -38,7 +38,7 @@ namespace Skore
 		~Entity() override;
 
 		Transform&       GetTransform();
-		World*           GetWorld() const;
+		Scene*           GetScene() const;
 		void			 SetParent(Entity* newParent);
 		Entity*          GetParent() const;
 		Span<Entity*>    GetChildren() const;
@@ -106,9 +106,9 @@ namespace Skore
 			return m_transform.position;
 		}
 
-		SK_FINLINE Vec3 GetWorldPosition() const
+		SK_FINLINE Vec3 GetScenePosition() const
 		{
-			return Math::GetTranslation(m_worldTransform);
+			return Math::GetTranslation(m_globalTransform);
 		}
 
 		SK_FINLINE const Quat& GetRotation() const
@@ -121,9 +121,9 @@ namespace Skore
 			return m_transform.scale;
 		}
 
-		SK_FINLINE const Mat4& GetWorldTransform() const
+		SK_FINLINE const Mat4& GetGlobalTransform() const
 		{
-			return m_worldTransform;
+			return m_globalTransform;
 		}
 
 		SK_FINLINE Mat4 GetLocalTransform() const
@@ -140,12 +140,13 @@ namespace Skore
 		}
 
 
-		friend class World;
+		friend class Scene;
+		friend class Component;
 	private:
-		Entity(World* world);
-		Entity(World* world, RID rid);
-		Entity(World* world, Entity* parent);
-		Entity(World* world, Entity* parent, RID rid);
+		Entity(Scene* scene);
+		Entity(Scene* scene, RID rid);
+		Entity(Scene* scene, Entity* parent);
+		Entity(Scene* scene, Entity* parent, RID rid);
 
 		String m_name = {};
 		RID m_rid = {};
@@ -153,23 +154,29 @@ namespace Skore
 		bool m_active = true;
 		bool m_parentActive = false;
 
-		World*         m_world = nullptr;
+		bool m_started = false;
+
+		Scene*         m_scene = nullptr;
 		Entity*        m_parent = nullptr;
 		Array<Entity*> m_children;
 
 		Array<Component*> m_components;
 
-		Mat4      m_worldTransform{1.0};
+		Mat4      m_globalTransform{1.0};
 		Transform m_transform;
 		RID       m_transformRID;
 
 		void DestroyInternal(bool removeFromParent = true);
 		void UpdateTransform();
 
+		void DoStart();
+
 		void DestroyComponent(Component* component) const;
 
 		static void OnEntityResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnComponentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnTransformResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
+
+
 	};
 }

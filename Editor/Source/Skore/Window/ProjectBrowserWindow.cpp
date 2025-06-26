@@ -36,7 +36,7 @@
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/ResourceType.hpp"
-#include "Skore/World/WorldCommon.hpp"
+#include "Skore/Scene/SceneCommon.hpp"
 
 
 namespace Skore
@@ -641,7 +641,7 @@ namespace Skore
 					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
 					{
 						UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Entity Assat");
-						Span<RID> selected = Editor::GetCurrentWorkspace().GetWorldEditor()->GetSelectedEntities();
+						Span<RID> selected = Editor::GetCurrentWorkspace().GetSceneEditor()->GetSelectedEntities();
 						for (RID entity : selected)
 						{
 							if (ResourceObject entityObject = Resources::Read(entity))

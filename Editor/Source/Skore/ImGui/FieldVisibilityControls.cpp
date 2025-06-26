@@ -24,7 +24,7 @@
 #include "ImGui.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
-#include "Skore/World/Components/LightComponent.hpp"
+#include "Skore/Scene/Components/LightComponent.hpp"
 
 namespace Skore
 {

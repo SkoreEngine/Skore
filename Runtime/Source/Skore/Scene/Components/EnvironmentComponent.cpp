@@ -23,13 +23,13 @@
 #include "EnvironmentComponent.hpp"
 
 #include "Skore/Core/Reflection.hpp"
-#include "Skore/World/World.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
-	void EnvironmentComponent::Create()
+	void EnvironmentComponent::Create(ComponentSettings& settings)
 	{
-		m_renderStorage = GetWorld()->GetRenderStorage();
+		m_renderStorage = GetScene()->GetRenderStorage();
 		m_renderStorage->RegisterEnvironmentProxy(this);
 		m_renderStorage->SetEnvironmentSkyboxMaterial(this, m_skyboxMaterial);
 	}

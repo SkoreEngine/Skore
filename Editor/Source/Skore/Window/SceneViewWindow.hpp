@@ -29,20 +29,20 @@
 
 namespace Skore
 {
-	class WorldViewWindow : public EditorWindow
+	class SceneViewWindow : public EditorWindow
 	{
 	public:
-		SK_CLASS(WorldViewWindow, EditorWindow);
+		SK_CLASS(SceneViewWindow, EditorWindow);
 
-		~WorldViewWindow() override;
+		~SceneViewWindow() override;
 
 		void Init(u32 id, VoidPtr userData) override;
 		void Draw(u32 id, bool& open) override;
 
 
-		static void RegisterType(NativeReflectType<WorldViewWindow>& type);
+		static void RegisterType(NativeReflectType<SceneViewWindow>& type);
 
-		//menu items only work with hotkeys on WorldView
+		//menu items only work with hotkeys on SceneView
 		static void AddMenuItem(const MenuItemCreation& menuItem);
 
 	private:

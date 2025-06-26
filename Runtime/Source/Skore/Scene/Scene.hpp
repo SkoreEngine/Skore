@@ -31,15 +31,15 @@ namespace Skore
 	class Component;
 	class Entity;
 
-	class SK_API World : public Object
+	class SK_API Scene : public Object
 	{
 	public:
-		SK_CLASS(World, Object);
-		SK_NO_COPY_CONSTRUCTOR(World);
+		SK_CLASS(Scene, Object);
+		SK_NO_COPY_CONSTRUCTOR(Scene);
 
-		World() = default;
-		World(RID rid, bool enableResourceSync = false);
-		~World() override;
+		Scene() = default;
+		Scene(RID rid, bool enableResourceSync = false);
+		~Scene() override;
 
 		Entity* GetRootEntity() const;
 		bool    IsResourceSyncEnabled() const;
@@ -48,6 +48,8 @@ namespace Skore
 		Entity* FindEntityByRID(RID rid) const;
 
 		friend class Entity;
+		friend class SceneManager;
+		friend class Component;
 	private:
 		Entity* m_rootEntity = nullptr;
 		bool m_enableResourceSync = false;
@@ -58,6 +60,11 @@ namespace Skore
 		Queue<Component*> m_componentsToStart;
 		Queue<Entity*>    m_queueToDestroy;
 
+		ankerl::unordered_dense::set<Component*> m_updateComponents = {};
+		ankerl::unordered_dense::set<Component*> m_fixedUpdateComponents = {};
+
 		HashMap<RID, Entity*> m_entities;
+
+		void Update();
 	};
 }

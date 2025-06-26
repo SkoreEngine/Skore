@@ -21,56 +21,41 @@
 // SOFTWARE.
 
 #pragma once
-#include "Skore/Core/Color.hpp"
-#include "Skore/Graphics/GraphicsCommon.hpp"
-#include "Skore/World/Component.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/Scene/Component.hpp"
 
 namespace Skore
 {
 	class RenderStorage;
+	using MaterialArray = Array<TypedRID<MaterialResource>>;
 
-	class SK_API LightComponent : public Component
+	class MeshRenderer : public Component
 	{
 	public:
-		SK_CLASS(LightComponent, Component);
+		SK_CLASS(MeshRenderer, Component);
 
-		void Create() override;
+		void Create(ComponentSettings& settings) override;
 		void Destroy() override;
+
 		void ProcessEvent(const EntityEventDesc& event) override;
 
-		void      SetLightType(LightType type);
-		LightType GetLightType() const;
+		void SetMesh(RID mesh);
+		RID  GetMesh() const;
+		void SetCastShadows(bool castShadows);
+		bool GetCastShadows() const;
 
-		void         SetColor(const Color& color);
-		const Color& GetColor() const;
+		const MaterialArray& GetMaterials() const;
+		void                 SetMaterials(const MaterialArray& materials);
 
-		void SetIntensity(f32 intensity);
-		f32  GetIntensity() const;
-
-		void SetRange(f32 range);
-		f32  GetRange() const;
-
-		// Spot light specific properties
-		void SetInnerConeAngle(f32 angle);
-		f32  GetInnerConeAngle() const;
-
-		void SetOuterConeAngle(f32 angle);
-		f32  GetOuterConeAngle() const;
-
-		void SetEnableShadows(bool enable);
-		bool GetEnableShadows() const;
-
-
-		static void RegisterType(NativeReflectType<LightComponent>& type);
+		static void RegisterType(NativeReflectType<MeshRenderer>& type);
 
 	private:
 		RenderStorage* m_renderStorage = nullptr;
-		LightType      m_lightType = LightType::Directional;
-		Color          m_color = Color::WHITE;
-		f32            m_intensity = 1.0f;
-		f32            m_range = 10.0f;
-		f32            m_innerConeAngle = 25.0f;
-		f32            m_outerConeAngle = 30.0f;
-		bool           m_enableShadows = true;
+
+		TypedRID<MeshResource> m_mesh = {};
+		MaterialArray          m_materials = {};
+
+		bool m_castShadows = true;
 	};
 }

@@ -20,20 +20,32 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Component.hpp"
-
-#include "Entity.hpp"
-
+#pragma once
+#include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Scene/Component.hpp"
 
 namespace Skore
 {
-	World* Component::GetWorld() const
-	{
-		if (entity)
-		{
-			return entity->GetWorld();
-		}
+	class RenderStorage;
 
-		return nullptr;
-	}
+	class SK_API EnvironmentComponent : public Component
+	{
+	public:
+		SK_CLASS(EnvironmentComponent, Component);
+
+		void Create(ComponentSettings& settings) override;
+		void Destroy() override;
+		void ProcessEvent(const EntityEventDesc& event) override;
+
+
+		TypedRID<MaterialResource> GetSkyboxMaterial() const;
+		void SetSkyboxMaterial(TypedRID<MaterialResource> skyboxMaterial);
+
+
+		static void RegisterType(NativeReflectType<EnvironmentComponent>& type);
+
+	private:
+		TypedRID<MaterialResource> m_skyboxMaterial = {};
+		RenderStorage*             m_renderStorage = nullptr;
+	};
 }

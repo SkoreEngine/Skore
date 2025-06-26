@@ -20,35 +20,47 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
+#include "Component.hpp"
 
-#include "Skore/Core/String.hpp"
-#include "Skore/Core/StringView.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
-#include "Scene/SceneEditor.hpp"
+#include "Entity.hpp"
+#include "Scene.hpp"
 
 
 namespace Skore
 {
-	class EditorWorkspace
+	Scene* Component::GetScene() const
 	{
-	public:
-		EditorWorkspace();
-		~EditorWorkspace();
-		StringView   GetName() const;
-		u32          GetId() const;
-		SceneEditor* GetSceneEditor();
-		void         OpenAsset(RID rid);
+		if (entity)
+		{
+			return entity->GetScene();
+		}
 
-		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
+		return nullptr;
+	}
 
-	private:
-		u32         id;
-		String      name;
-		SceneEditor sceneEditor{*this};
+	void Component::RegisterEvents()
+	{
+		if (m_settings.enableUpdate)
+		{
+			entity->m_scene->m_updateComponents.emplace(this);
+		}
 
-		RID state = {};
+		if (m_settings.enableFixedUpdate)
+		{
+			entity->m_scene->m_fixedUpdateComponents.emplace(this);
+		}
+	}
 
-		static void WorkspaceStateChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
-	};
+	void Component::RemoveEvents()
+	{
+		if (m_settings.enableUpdate)
+		{
+			entity->m_scene->m_updateComponents.erase(this);
+		}
+
+		if (m_settings.enableFixedUpdate)
+		{
+			entity->m_scene->m_fixedUpdateComponents.erase(this);
+		}
+	}
 }

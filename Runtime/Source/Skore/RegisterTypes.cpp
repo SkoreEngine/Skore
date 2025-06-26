@@ -29,7 +29,7 @@ namespace Skore
 	void RegisterCoreTypes();
 	void RegisterResourceTypes();
 	void RegisterIOTypes();
-	void RegisterWorldTypes();
+	void RegisterSceneTypes();
 	void RegisterGraphicsTypes();
 
 	void RegisterTypes()
@@ -56,7 +56,7 @@ namespace Skore
 
 		{
 			GroupScope scope("World");
-			RegisterWorldTypes();
+			RegisterSceneTypes();
 		}
 	}
 }
