@@ -22,7 +22,6 @@
 
 #include "StaticContent.hpp"
 
-#include "Span.hpp"
 #include "stb_image.h"
 #include "cmrc/cmrc.hpp"
 #include "Skore/Graphics/Graphics.hpp"

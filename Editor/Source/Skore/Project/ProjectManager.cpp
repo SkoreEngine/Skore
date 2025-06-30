@@ -34,7 +34,7 @@
 #include "Skore/Events.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Reflection.hpp"
-#include "Skore/Core/StaticContent.hpp"
+#include "../Utils/StaticContent.hpp"
 #include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/ImGui/IconsFontAwesome6.h"

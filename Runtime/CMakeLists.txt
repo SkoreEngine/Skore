@@ -9,7 +9,6 @@ target_include_directories(SkoreRuntime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../T
 
 target_link_libraries(SkoreRuntime PRIVATE
 				SDL3::SDL3-shared
-				SkoreContent::RS
 				yyjson
 				stb
 				mikktspace

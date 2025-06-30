@@ -53,6 +53,8 @@ enable_testing()
 include(CMake/CMakeRC.cmake)
 include(CMake/CMakeFunctions.cmake)
 
+file(GLOB_RECURSE SK_ALL_ASSETS Assets/*)
+
 cmrc_add_resource_library(
 				SkoreContent
 				ALIAS SkoreContent::RS
@@ -66,6 +68,8 @@ cmrc_add_resource_library(
 				Content/Images/Logo.jpeg
 				Content/Images/LogoSmall.jpeg
 				Content/Images/minimalist-logo.png
+
+				${SK_ALL_ASSETS}
 )
 
 

@@ -22,8 +22,9 @@
 
 #pragma once
 
-#include "StringView.hpp"
-#include "String.hpp"
+#include "Skore/Core/Array.hpp"
+#include "Skore/Core/StringView.hpp"
+#include "Skore/Core/String.hpp"
 
 namespace Skore
 {

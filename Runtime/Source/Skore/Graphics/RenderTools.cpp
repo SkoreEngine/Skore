@@ -24,7 +24,7 @@
 
 #include "Graphics.hpp"
 #include "mikktspace.h"
-#include "Skore/Core/StaticContent.hpp"
+#include "../../../../Editor/Source/Skore/Utils/StaticContent.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore

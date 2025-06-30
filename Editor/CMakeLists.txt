@@ -3,6 +3,7 @@ sk_add_executable(Skore Source/Skore/Main.cpp)
 
 target_link_libraries(Skore PUBLIC
 				SDL3::SDL3-shared
+				SkoreContent::RS
 				imgui
 				dxc
 				cgltf
