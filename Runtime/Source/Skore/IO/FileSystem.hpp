@@ -37,7 +37,6 @@ namespace Skore
 		static String CurrentDir();
 		static String DocumentsDir();
 		static String AppFolder();
-		static String AssetFolder();
 		static String TempFolder();
 
 		static FileStatus GetFileStatus(const StringView& path);

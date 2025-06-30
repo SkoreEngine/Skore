@@ -22,15 +22,23 @@
 
 #include "StaticContent.hpp"
 
+#include <optional>
+
 #include "stb_image.h"
 #include "cmrc/cmrc.hpp"
+#include "Skore/Core/Logger.hpp"
+#include "Skore/Core/Queue.hpp"
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/IO/FileSystem.hpp"
+#include "Skore/IO/Path.hpp"
 
 CMRC_DECLARE(StaticContent);
 
 
 namespace Skore::StaticContent
 {
+	static Logger& logger = Logger::GetLogger("Skore::StaticContent");
+
 	Array<u8> GetBinaryFile(StringView path)
 	{
 		auto fs = cmrc::StaticContent::get_filesystem();
@@ -74,5 +82,63 @@ namespace Skore::StaticContent
 		stbi_image_free(bytes);
 
 		return texture;
+	}
+
+	void SaveFilesToDirectory(StringView path, StringView directory)
+	{
+		auto fs = cmrc::StaticContent::get_filesystem();
+
+		if (!fs.is_directory(path.CStr()))
+		{
+			logger.Error("{} is not a directory", path);
+			return;
+		}
+
+		FileSystem::Remove(directory);
+		FileSystem::CreateDirectory(directory);
+
+		struct CurrentFile
+		{
+			std::string name;
+			std::string path;
+		};
+
+		Queue<CurrentFile> pending;
+
+		std::string current = path.CStr();
+		String currentAbsPath = "";
+
+		while (!current.empty())
+		{
+			for (cmrc::directory_entry dir: fs.iterate_directory(current))
+			{
+				std::string filePath = current + "/" + dir.filename();
+
+				String absolutePath = Path::Join(directory, currentAbsPath, StringView(dir.filename().c_str()));
+
+				if (dir.is_file())
+				{
+					auto file = fs.open(filePath);
+					FileSystem::SaveFileAsByteArray(absolutePath, Span(const_cast<u8*>(file.begin()), const_cast<u8*>(file.end())));
+				}
+
+				if (dir.is_directory())
+				{
+					FileSystem::CreateDirectory(absolutePath);
+					pending.Enqueue(CurrentFile{dir.filename(), filePath});
+				}
+
+				logger.Debug("found {}, should save on {} ", filePath, absolutePath);
+			}
+
+			current = {};
+
+			if (!pending.IsEmpty())
+			{
+				CurrentFile currentFile = pending.Dequeue();
+				current = currentFile.path;
+				currentAbsPath = Path::Join(currentAbsPath, StringView(currentFile.name.c_str()));
+			}
+		}
 	}
 }

@@ -148,12 +148,14 @@ namespace Skore
 	{
 		String projectPath = Path::Join(location, projectName);
 		String projectFile = Path::Join(projectPath, String(projectName) + SK_PROJECT_EXTENSION);
-		String libraryPath = Path::Join(projectPath, "Library");
 		String assetsPath = Path::Join(projectPath, "Assets");
+		String packagesPath = Path::Join(projectPath, "Packages");
 
 		FileSystem::CreateDirectory(projectPath);
-		FileSystem::CreateDirectory(libraryPath);
 		FileSystem::CreateDirectory(assetsPath);
+		FileSystem::CreateDirectory(packagesPath);
+
+		StaticContent::SaveFilesToDirectory("Assets", Path::Join(packagesPath, "Skore"));
 
 		if (templateId == 2)
 		{	}
@@ -162,6 +164,7 @@ namespace Skore
 
 		projectManagerUserData.recentProjects.EmplaceBack(projectFile);
 		projectManagerUserData.recentProjectDirectory = location;
+
 		SaveDataFile();
 		RequestShutdown();
 

@@ -41,27 +41,6 @@ namespace Skore
         Logger& logger = Logger::GetLogger("Skore::FileSystem");
     }
 
-    String FileSystem::AssetFolder()
-    {
-#ifdef SK_DEV_ASSETS_PATH
-        return SK_DEV_ASSETS_PATH;
-#endif
-
-        String currentDir = CurrentDir();
-        String assetDir = Path::Join(currentDir, "Assets");
-        while (!GetFileStatus(assetDir).exists)
-        {
-            currentDir = Path::Parent(currentDir);
-            if (!GetFileStatus(currentDir).exists)
-            {
-                return CurrentDir();
-            }
-            assetDir = Path::Join(currentDir, "Assets");
-        }
-        return assetDir;
-    }
-
-
     void FileSystem::SetupTempFolder(StringView tempFolder_)
     {
         tempFolder = tempFolder_;

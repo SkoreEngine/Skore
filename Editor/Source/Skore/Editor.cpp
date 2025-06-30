@@ -104,6 +104,7 @@ namespace Skore
 		RID                     projectRID;
 		String                  projectPath;
 		String                  projectAssetPath;
+		String                  projectPackagePath;
 		Array<UpdatedAssetInfo> updatedItems;
 
 		Array<RID>    packages;
@@ -759,9 +760,14 @@ namespace Skore
 			return l.order < r.order;
 		});
 
-		Editor::LoadPackage("Skore", FileSystem::AssetFolder());
-
 		projectAssetPath = Path::Join(projectPath, "Assets");
+		projectPackagePath = Path::Join(projectPath, "Packages");
+
+		for (auto& package: DirectoryEntries{projectPackagePath})
+		{
+			Editor::LoadPackage(Path::Name(package), package);
+		}
+
 		projectRID = ResourceAssets::ScanAssetsFromDirectory(Path::Name(projectPath), projectAssetPath);
 	}
 
