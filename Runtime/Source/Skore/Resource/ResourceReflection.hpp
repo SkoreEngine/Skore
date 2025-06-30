@@ -205,6 +205,35 @@ namespace Skore
 	};
 
 	template<typename T>
+	struct ResourceCast<Array<TypedRID<T>>>
+	{
+		constexpr static bool hasSpecialization = true;
+
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Array<TypedRID<T>>& value)
+		{
+			object.SetReferenceArray(index, CastRIDArray(value));
+		}
+
+		static void FromResource(const ResourceObject& object, u32 index, Array<TypedRID<T>>& value)
+		{
+			Span<RID> elements = object.GetReferenceArray(index);
+			value.Reserve(elements.Size());
+			for (RID rid: elements)
+			{
+				value.EmplaceBack(rid);
+			}
+		}
+
+		static ResourceFieldInfo GetResourceFieldInfo()
+		{
+			return ResourceFieldInfo{
+				.type = ResourceFieldType::ReferenceArray,
+				.subType = TypeInfo<T>::ID()
+			};
+		}
+	};
+
+	template<typename T>
 	struct ResourceCast<Array<T>>
 	{
 		constexpr static bool hasSpecialization = true;

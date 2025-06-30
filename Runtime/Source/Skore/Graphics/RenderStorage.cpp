@@ -318,12 +318,36 @@ namespace Skore
 
 		for (auto& it : meshCache)
 		{
-			it.second->indexBuffer->Destroy();
-			it.second->vertexBuffer->Destroy();
+			if (it.second->indexBuffer)
+			{
+				it.second->indexBuffer->Destroy();
+			}
+
+			if (it.second->vertexBuffer)
+			{
+				it.second->vertexBuffer->Destroy();
+			}
 		}
 		meshCache.Clear();
 	}
 
+
+	GPUDescriptorSet* MeshRenderData::GetMaterial(u32 index) const
+	{
+		if (!mesh) return nullptr;
+
+		if (overrideMaterials.Size() > index)
+		{
+			return overrideMaterials[index];
+		}
+
+		if (mesh->materials.Size() > index)
+		{
+			return mesh->materials[index];
+		}
+
+		return nullptr;
+	}
 
 	void RenderStorage::RegisterMeshProxy(VoidPtr owner)
 	{
@@ -368,9 +392,15 @@ namespace Skore
 	{
 		if (const auto& it = meshes.find(owner); it != meshes.end())
 		{
-			//TODO material overrides.
-
-			//it->second.materials = materials;
+			it->second.overrideMaterials.Clear();
+			it->second.overrideMaterials.Resize(materials.Size());
+			for (usize i = 0; i < materials.Size(); i++)
+			{
+				if (materials[i])
+				{
+					it->second.overrideMaterials[i] = GetOrLoadMaterial(materials[i])->descriptorSet;
+				}
+			}
 		}
 	}
 

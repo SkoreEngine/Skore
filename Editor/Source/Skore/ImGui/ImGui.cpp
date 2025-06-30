@@ -94,6 +94,7 @@ namespace Skore
 		{
 			u32                              index;
 			String                           label;
+			FieldProps                       fieldProps = {};
 			ReflectType*                     reflectFieldType;
 			FnResourceFieldVisibilityControl visibilityControl;
 			Array<DrawFieldContext>          drawFn;
@@ -1391,6 +1392,7 @@ namespace Skore
 
 					ImGuiDrawFieldContext context;
 					context.id = id + 1;
+					context.fieldProps = field.reflectField->GetProps();
 					context.reflectField = field.reflectField;
 					context.reflectFieldType = field.reflectType;
 					context.object = object;
@@ -1439,9 +1441,6 @@ namespace Skore
 
 			switch (context.resourceField->GetType())
 			{
-				case ResourceFieldType::ReferenceArray:
-					logger.Debug("huh");
-					break;
 				case ResourceFieldType::String:
 				case ResourceFieldType::Blob:
 				case ResourceFieldType::SubObject:
@@ -1488,7 +1487,7 @@ namespace Skore
 
 				ImGuiDrawFieldDrawCheck check;
 				check.fieldProps = field->GetProps();
-				check.resourceField = field;
+				check.resourceFieldType = field->GetType();
 				check.reflectFieldType = reflectFieldType;
 
 				Array<DrawFieldContext> drawFieldContexts;
@@ -1516,6 +1515,7 @@ namespace Skore
 					ResourceFieldRenderer resourceFieldRenderer = {
 						.index = field->GetIndex(),
 						.label = FormatName(field->GetName()),
+						.fieldProps = field->GetProps(),
 						.reflectFieldType = reflectFieldType,
 						.drawFn = drawFieldContexts
 					};
@@ -1577,6 +1577,7 @@ namespace Skore
 					ImGuiDrawFieldContext context;
 					context.id = id + 1;
 					context.rid = drawResourceInfo.rid;
+					context.fieldProps = field.fieldProps;
 					context.userData = drawResourceInfo.userData;
 					context.callback = drawResourceInfo.callback;
 					context.reflectFieldType = field.reflectFieldType;
@@ -1594,6 +1595,11 @@ namespace Skore
 							case ResourceFieldType::SubObject:
 							case ResourceFieldType::SubObjectSet:
 								break;
+							case ResourceFieldType::ReferenceArray:
+							{
+								drawField.drawField(context, nullptr);
+								break;
+							}
 							default:
 								object.CopyValue(field.index, buffer, 1000);
 								drawField.drawField(context, buffer);

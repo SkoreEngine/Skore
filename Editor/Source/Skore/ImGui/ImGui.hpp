@@ -142,24 +142,25 @@ namespace Skore
 
 	struct ImGuiDrawFieldDrawCheck
 	{
-		FieldProps     fieldProps = {};
-		ReflectField*  reflectField = nullptr;
-		ReflectType*   reflectFieldType = nullptr;
-		ResourceField* resourceField = nullptr;
+		FieldProps        fieldProps = {};
+		ReflectField*     reflectField = nullptr;
+		ReflectType*      reflectFieldType = nullptr;
+		ResourceFieldType resourceFieldType = ResourceFieldType::None;
 	};
 
 	struct ImGuiDrawFieldContext
 	{
 		u64                      id = 0;
 		Object*                  object = nullptr;
-		RID						 rid = {};
+		RID                      rid = {};
+		FieldProps               fieldProps = {};
 		ReflectField*            reflectField = nullptr;
 		ReflectType*             reflectFieldType = nullptr;
 		ResourceField*           resourceField = nullptr;
 		VoidPtr                  userData = nullptr;
 		FnImGuiDrawFieldCallback callback = nullptr;
 		VoidPtr                  customContext = nullptr;
-		String					 scopeName = "";
+		String                   scopeName = "";
 	};
 
 	typedef bool (*FnCanDrawField)(const ImGuiDrawFieldDrawCheck& check);

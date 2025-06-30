@@ -57,10 +57,15 @@ namespace Skore
 	struct MeshRenderData
 	{
 		MeshStorageData* mesh;
+		Array<GPUDescriptorSet*> overrideMaterials;
 
 		Mat4       transform;
 		bool       visible = true;
 		bool       castShadows = false;
+
+
+		GPUDescriptorSet* GetMaterial(u32 index) const;
+
 	};
 
 	struct EnvironmentRenderData

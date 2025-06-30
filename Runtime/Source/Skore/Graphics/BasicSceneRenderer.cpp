@@ -523,7 +523,7 @@ namespace Skore
 
 						for (MeshResource::Primitive& primitive : meshRenderData.mesh->primitives)
 						{
-							GPUDescriptorSet* materialDs = meshRenderData.mesh->materials[primitive.materialIndex];
+							GPUDescriptorSet* materialDs = meshRenderData.GetMaterial(primitive.materialIndex);
 							if (materialDs == nullptr)
 							{
 								continue;
@@ -800,41 +800,6 @@ namespace Skore
 
 				if (meshRenderData.mesh && meshRenderData.visible && meshRenderData.castShadows)
 				{
-					// GPUBuffer* vertexBuffer = meshRenderData.mesh->GetVertexBuffer();
-					// if (vertexBuffer == nullptr)
-					// {
-					// 	continue;
-					// }
-					//
-					// GPUBuffer* indexBuffer = meshRenderData.mesh->GetIndexBuffer();
-					// if (indexBuffer == nullptr)
-					// {
-					// 	continue;
-					// }
-					//
-					// cmd->BindVertexBuffer(0, vertexBuffer, 0);
-					// cmd->BindIndexBuffer(indexBuffer, 0, IndexType::Uint32);
-					// cmd->PushConstants(m_shadowMapPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &meshRenderData.transform);
-
-					// for (MeshAsset::Primitive& primitive : meshRenderData.mesh->GetPrimitives())
-					// {
-					// 	MaterialAsset* materialAsset = nullptr;
-					//
-					// 	if (meshRenderData.materials.Size() > primitive.materialIndex && meshRenderData.materials[primitive.materialIndex])
-					// 	{
-					// 		materialAsset = meshRenderData.materials[primitive.materialIndex];
-					// 	}
-					// 	else if (meshRenderData.mesh->GetMaterials().Size() > primitive.materialIndex && meshRenderData.mesh->GetMaterials()[primitive.materialIndex])
-					// 	{
-					// 		materialAsset = meshRenderData.mesh->GetMaterials()[primitive.materialIndex];
-					// 	}
-					//
-					// 	if (materialAsset)
-					// 	{
-					// 		cmd->DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
-					// 	}
-					// }
-
 					if (!meshRenderData.mesh->vertexBuffer)
 					{
 						continue;
@@ -851,7 +816,7 @@ namespace Skore
 
 					for (MeshResource::Primitive& primitive : meshRenderData.mesh->primitives)
 					{
-						GPUDescriptorSet* materialDs = meshRenderData.mesh->materials[primitive.materialIndex];
+						GPUDescriptorSet* materialDs = meshRenderData.GetMaterial(primitive.materialIndex);
 						if (materialDs == nullptr)
 						{
 							continue;

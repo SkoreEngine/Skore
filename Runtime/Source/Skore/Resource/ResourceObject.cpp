@@ -146,6 +146,19 @@ namespace Skore
 		}
 	}
 
+	void ResourceObject::SetReferenceArray(u32 index, usize arrIndex, RID ref)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::ReferenceArray, "Invalid field type");
+		if (Array<RID>* arr = GetMutPtr<Array<RID>>(index))
+		{
+			if (arr->Size() <  arrIndex)
+			{
+				arr->Resize(arrIndex + 1);
+			}
+			(*arr)[arrIndex] = ref;
+		}
+	}
+
 	void ResourceObject::AddToReferenceArray(u32 index, RID ref)
 	{
 		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::ReferenceArray, "Invalid field type");
@@ -178,6 +191,21 @@ namespace Skore
 				 {
 				 	arr->Erase(it);
 				 }
+			}
+		}
+	}
+
+	void ResourceObject::RemoveFromReferenceArray(u32 index, usize arrIndex)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::ReferenceArray, "Invalid field type");
+		if (HasValueOnThisObject(index))
+		{
+			if (Array<RID>* arr = GetMutPtr<Array<RID>>(index))
+			{
+				if (arr->Size() > arrIndex)
+				{
+					arr->Erase(arr->begin() + arrIndex);
+				}
 			}
 		}
 	}

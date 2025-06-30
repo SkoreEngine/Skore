@@ -22,6 +22,7 @@
 
 #include "IconsFontAwesome6.h"
 #include "ImGui.hpp"
+#include "Skore/Editor.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Color.hpp"
 #include "Skore/Core/Logger.hpp"
@@ -448,7 +449,7 @@ namespace Skore
 
 	bool CanDrawResourceField(const ImGuiDrawFieldDrawCheck& check)
 	{
-		return check.resourceField != nullptr && check.resourceField->GetType() == ResourceFieldType::Reference;
+		return check.resourceFieldType == ResourceFieldType::Reference;
 	}
 
 	void DrawResourceField(const ImGuiDrawFieldContext& context, ConstPtr value)
@@ -464,7 +465,7 @@ namespace Skore
 
 	bool CanDrawArrayField(const ImGuiDrawFieldDrawCheck& check)
 	{
-		return check.fieldProps.typeApi == TypeInfo<ArrayApi>::ID();
+		return check.fieldProps.typeApi == TypeInfo<ArrayApi>::ID() && check.resourceFieldType != ResourceFieldType::ReferenceArray;
 	}
 
 	namespace
@@ -484,7 +485,7 @@ namespace Skore
 
 	VoidPtr ArrayCreateCustomContext(const ImGuiDrawFieldDrawCheck& drawCheck)
 	{
-		ArrayApi api;
+		ArrayApi api = {};
 		drawCheck.fieldProps.getTypeApi(&api);
 
 		Array<ImGuiFieldRenderer> draws;
@@ -494,7 +495,10 @@ namespace Skore
 		check.reflectField = nullptr;
 		check.reflectFieldType = Reflection::FindTypeById(check.fieldProps.typeId);
 
-		//check.resourceField = drawCheck.resourceField;
+		if (drawCheck.resourceFieldType == ResourceFieldType::ReferenceArray)
+		{
+			check.resourceFieldType = ResourceFieldType::Reference;
+		}
 
 		for (ImGuiFieldRenderer fieldRenderer : ImGuiGetFieldRenders())
 		{
@@ -522,7 +526,7 @@ namespace Skore
 		bool canRemove = true;
 
 		ArrayApi api;
-		context.reflectField->GetProps().getTypeApi(&api);
+		context.fieldProps.getTypeApi(&api);
 		api.Copy(customContext.instance,  value);
 		usize size = api.Size(customContext.instance);
 
@@ -595,6 +599,67 @@ namespace Skore
 		}
 	}
 
+	bool CanDrawReferenceArray(const ImGuiDrawFieldDrawCheck& check)
+	{
+		return check.resourceFieldType == ResourceFieldType::ReferenceArray;
+	}
+
+	void DrawReferenceArray(const ImGuiDrawFieldContext& context, ConstPtr value)
+	{
+		ResourceObject object = Resources::Read(context.rid);
+		Span<RID> elements = object.GetReferenceArray(context.resourceField->GetIndex());
+
+		bool canAdd = true;
+		bool canRemove = true;
+
+		// if (context.reflectField != nullptr)
+		// {
+		// 	if (const UIArrayProperty* property = context.reflectField->GetAttribute<UIArrayProperty>())
+		// 	{
+		// 		canAdd = property->canAdd;
+		// 		canRemove = property->canRemove;
+		// 	}
+		// }
+
+		ImGui::BeginDisabled(!canAdd);
+
+		if (ImGui::Button(ICON_FA_PLUS))
+		{
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope(!context.scopeName.Empty() ? context.scopeName : "Update Field");
+			ResourceObject resourceObject = Resources::Write(context.rid);
+			resourceObject.AddToReferenceArray(context.resourceField->GetIndex(), {});
+			resourceObject.Commit(scope);
+		}
+
+		ImGui::EndDisabled();
+
+		ImGui::SameLine();
+
+		ImGui::BeginDisabled(!canRemove || elements.Size() == 0);
+
+		if (ImGui::Button(ICON_FA_MINUS))
+		{
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope(!context.scopeName.Empty() ? context.scopeName : "Update Field");
+			ResourceObject resourceObject = Resources::Write(context.rid);
+			resourceObject.RemoveFromReferenceArray(context.resourceField->GetIndex(), elements.Size() - 1);
+			resourceObject.Commit(scope);
+		}
+
+		ImGui::EndDisabled();
+
+		for (int i = 0; i < elements.Size(); ++i)
+		{
+			RID rid = elements[i];
+			DrawResource(rid, context.id + i, context.resourceField->GetSubType(), [&](RID updated)
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope(!context.scopeName.Empty() ? context.scopeName : "Update Field");
+				ResourceObject resourceObject = Resources::Write(context.rid);
+				resourceObject.SetReferenceArray(context.resourceField->GetIndex(), i, updated);
+				resourceObject.Commit(scope);
+			});
+		}
+	}
+
 	void RegisterFieldRenderers()
 	{
 		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawField<Vec2>, .drawField = DrawVec2Field});
@@ -605,6 +670,7 @@ namespace Skore
 		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawField<bool>, .drawField = DrawBoolField});
 		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawEnumField, .drawField = DrawEnumField});
 		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawResourceField, .drawField = DrawResourceField});
+		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{.canDrawField = CanDrawReferenceArray, .drawField = DrawReferenceArray});
 
 		ImGuiRegisterFieldRenderer(ImGuiFieldRenderer{
 			.canDrawField = CanDrawArrayField,

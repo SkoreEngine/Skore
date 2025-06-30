@@ -59,9 +59,11 @@ namespace Skore
 		void SetBlob(u32 index, Span<u8> bytes);
 		void SetReference(u32 index, RID rid);
 		void SetReferenceArray(u32 index, Span<RID> refs);
+		void SetReferenceArray(u32 index, usize arrIndex, RID ref);
 		void AddToReferenceArray(u32 index, RID ref);
 		void ClearReferenceArray(u32 index);
 		void RemoveFromReferenceArray(u32 index, RID ref);
+		void RemoveFromReferenceArray(u32 index, usize arrIndex);
 		void SetSubObject(u32 index, RID subObject);
 
 		//subobjects
