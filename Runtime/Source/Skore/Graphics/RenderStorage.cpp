@@ -47,6 +47,8 @@ namespace Skore
 		HashMap<RID, std::shared_ptr<MeshStorageData>>     meshCache;
 		HashMap<RID, std::shared_ptr<TextureStorageData>>  textureCache;
 
+		RID defaultMaterial;
+
 
 		TextureStorageData* GetOrLoadTexture(RID texture)
 		{
@@ -287,10 +289,21 @@ namespace Skore
 					memcpy(meshData->primitives.Data(), primitives.Data(), primitives.Size());
 
 
-					meshData->materials.Reserve(materials.Size());
-					for (usize i = 0; i < materials.Size(); i++)
+					if (!materials.Empty())
 					{
-						meshData->materials.EmplaceBack(GetOrLoadMaterial(materials[i])->descriptorSet);
+						meshData->materials.Reserve(materials.Size());
+						for (usize i = 0; i < materials.Size(); i++)
+						{
+							meshData->materials.EmplaceBack(GetOrLoadMaterial(materials[i])->descriptorSet);
+						}
+					}
+					else
+					{
+						if (!defaultMaterial)
+						{
+							defaultMaterial = Resources::FindByPath("Skore://Materials/DefaultMaterial.material");
+						}
+						meshData->materials.EmplaceBack(GetOrLoadMaterial(defaultMaterial)->descriptorSet);
 					}
 				}
 

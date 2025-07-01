@@ -22,8 +22,7 @@
 
 #include "ProjectBrowserWindow.hpp"
 
-#include "SDL3/SDL_dialog.h"
-#include "SDL3/SDL_misc.h"
+#include "SDL3/SDL.h"
 #include "Skore/Editor.hpp"
 #include "Skore/EditorWorkspace.hpp"
 #include "Skore/Events.hpp"
@@ -31,7 +30,7 @@
 #include "Skore/ImGui/IconsFontAwesome6.h"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/Resource/Resources.hpp"
-#include "../Utils/StaticContent.hpp"
+#include "Skore/Utils/StaticContent.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
@@ -844,6 +843,15 @@ namespace Skore
 		}
 	}
 
+	void ProjectBrowserWindow::AssetCopyPathIdToClipboard(const MenuItemEventData& eventData)
+	{
+		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
+		if (RID lastSelected = projectBrowserWindow->GetLastSelectedItem())
+		{
+			SDL_SetClipboardText(ResourceAssets::GetPathId(lastSelected).CStr());
+		}
+	}
+
 	bool ProjectBrowserWindow::CanReimportAsset(const MenuItemEventData& eventData)
 	{
 		return false;
@@ -925,16 +933,21 @@ namespace Skore
 		AddMenuItem(MenuItemCreation{.itemName = "New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 15, .action = AssetNew, .enable = CanCreateAsset, .userData = TypeInfo<MaterialResource>::ID()});
 		AddMenuItem(MenuItemCreation{.itemName = "Delete", .icon = ICON_FA_TRASH, .priority = 20, .itemShortcut{.presKey = Key::Delete}, .action = AssetDelete, .enable = CheckSelectedAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "Rename", .icon = ICON_FA_PEN_TO_SQUARE, .priority = 30, .itemShortcut{.presKey = Key::F2}, .action = AssetRename, .enable = CheckSelectedAsset});
-		AddMenuItem(MenuItemCreation{.itemName = "Show in Explorer", .icon = ICON_FA_FOLDER, .priority = 40, .action = AssetShowInExplorer});
-		// AddMenuItem(MenuItemCreation{.itemName = "Copy Path", .priority = 1000, .action = AssetCopyPathToClipboard});
+
+		AddMenuItem(MenuItemCreation{.itemName = "Show in Explorer", .icon = ICON_FA_FOLDER, .priority = 240, .action = AssetShowInExplorer});
+		AddMenuItem(MenuItemCreation{.itemName = "Copy Path Id", .icon = ICON_FA_COPY, .priority = 250, .action = AssetCopyPathIdToClipboard});
+
+
 		//AddMenuItem(MenuItemCreation{.itemName = "Create New Asset", .icon = ICON_FA_PLUS, .priority = 150});
 		// AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Shader", .icon = ICON_FA_BRUSH, .priority = 10, .action = AssetNew, .menuData = (VoidPtr)GetTypeID<ShaderAsset>()});
 		// AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Resource Graph", .icon = ICON_FA_DIAGRAM_PROJECT, .priority = 10, .action = AssetNewResourceGraph});
 		// AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Behavior Graph", .icon = ICON_FA_DIAGRAM_PROJECT, .priority = 20});
 		// AddMenuItem(MenuItemCreation{.itemName = "Create New Asset/Environment", .icon = ICON_FA_GLOBE, .priority = 10, .action = AssetNew, .userData = 0});
 
-		AddMenuItem(MenuItemCreation{.itemName = "Reimport Asset", .icon = ICON_FA_UPLOAD, .priority = 300, .action = ReimportAsset, .enable = CanReimportAsset});
-		AddMenuItem(MenuItemCreation{.itemName = "Extract Assets", .icon = ICON_FA_EXPAND, .priority = 310, .action = ExtractAsset, .enable = CanExtractAsset});
+
+
+		AddMenuItem(MenuItemCreation{.itemName = "Reimport Asset", .icon = ICON_FA_UPLOAD, .priority = 1000, .action = ReimportAsset, .enable = CanReimportAsset});
+		AddMenuItem(MenuItemCreation{.itemName = "Extract Assets", .icon = ICON_FA_EXPAND, .priority = 1010, .action = ExtractAsset, .enable = CanExtractAsset});
 
 
 		type.Attribute<EditorWindowProperties>(EditorWindowProperties{

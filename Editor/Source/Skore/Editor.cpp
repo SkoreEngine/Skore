@@ -146,6 +146,11 @@ namespace Skore
 		{
 			updatedItems.Clear();
 			ResourceAssets::GetUpdatedAssets(projectRID, updatedItems);
+
+			for (RID package: packages)
+			{
+				ResourceAssets::GetUpdatedAssets(package, updatedItems);
+			}
 		}
 
 		void Save()

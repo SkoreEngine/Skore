@@ -7,11 +7,11 @@ target_link_libraries(Skore PUBLIC
 				imgui
 				dxc
 				cgltf
-				fast_obj
 				ufbx
 				SPIRV-Reflect
 				base64
 				stb
+				tinyobjloader
 )
 
 add_binary_file(Skore ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/dxc dxcompiler)

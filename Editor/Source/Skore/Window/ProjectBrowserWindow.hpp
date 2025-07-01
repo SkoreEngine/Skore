@@ -74,6 +74,7 @@ namespace Skore
 		static bool CheckSelectedAsset(const MenuItemEventData& eventData);
 		static void AssetNewFolder(const MenuItemEventData& eventData);
 		static void AssetShowInExplorer(const MenuItemEventData& eventData);
+		static void AssetCopyPathIdToClipboard(const MenuItemEventData& eventData);
 		static bool CanReimportAsset(const MenuItemEventData& eventData);
 		static void ReimportAsset(const MenuItemEventData& eventData);
 		static bool CanExtractAsset(const MenuItemEventData& eventData);

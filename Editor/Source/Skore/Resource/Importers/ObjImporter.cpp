@@ -24,8 +24,8 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 
-#include "fast_obj.h"
 #include "TextureImporter.hpp"
+#include "tiny_obj_loader.h"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
@@ -50,7 +50,24 @@ namespace Skore
 
 		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
 		{
-			fastObjMesh* mesh = fast_obj_read(path.CStr());
+			tinyobj::ObjReaderConfig readerConfig{};
+			String parent = Path::Parent(path);
+			readerConfig.mtl_search_path = parent.CStr();
+
+			tinyobj::ObjReader reader{};
+			if (!reader.ParseFromFile(std::string{path.CStr(), path.Size()}, readerConfig))
+			{
+				if (!reader.Error().empty())
+				{
+					logger.Error("tinyobj {}", reader.Error().c_str());
+				}
+				return false;
+			}
+
+			if (!reader.Warning().empty())
+			{
+				logger.Warn("tinyobj {}", reader.Warning().c_str());
+			}
 
 			String fileName = Path::Name(path);
 
@@ -64,106 +81,133 @@ namespace Skore
 			Array<u32> tempIndices{heapAllocator};
 			Array<MeshResource::Vertex> tempVertices{heapAllocator};
 
-			Array<RID> materials;
-			materials.Resize(mesh->material_count);
+
+			auto &attrib = reader.GetAttrib();
+			auto &shapes = reader.GetShapes();
+			auto &materials = reader.GetMaterials();
+
+
+			Array<RID> ridMaterials;
+			ridMaterials.Resize(materials.size());
 
 			Array<RID> textures;
-			textures.Resize(mesh->texture_count);
 
-			auto processTexture = [&](u32 index) -> RID
+			HashMap<String, RID> textureCache;
+
+			auto processTexture = [&](const std::string& diffuseTexName) -> RID
 			{
-				if (index == 0)
+				if (diffuseTexName.empty())
 				{
 					return {};
 				}
 
-				if (index >= mesh->texture_count)
+				String texName = diffuseTexName.c_str();
+
+				auto it = textureCache.Find(texName);
+				if (it != textureCache.end())
 				{
-					return {};
+					return it->second;
 				}
 
-				if (!textures[index])
-				{
-					TextureImportSettings settings = {};
-					textures[index] = ImportTexture(directory, settings, StringView{mesh->textures[index].path}, scope);
-				}
+				String textureAbsolutePath = Path::Join(parent, diffuseTexName.c_str());
 
-				return textures[index];
+				TextureImportSettings settings = {};
+				if (RID texture = ImportTexture(directory, settings, textureAbsolutePath, scope))
+				{
+					textureCache.Insert(texName, texture);
+					return texture;
+				}
+				return {};
 			};
 
-
-			for (u32 m = 0; m < mesh->material_count; m++)
+			for (int m = 0; m < materials.size(); ++m)
 			{
-				const fastObjMaterial& mat = mesh->materials[m];
+				const tinyobj::material_t& material = materials[m];
+				String materialName = !material.name.empty() ? material.name.c_str() : String{"Material_"}.Append(m);
 
 				RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), scope);
 
 				ResourceObject materialObject = Resources::Write(materialResource);
-				materialObject.SetString(MaterialResource::Name, mat.name);
+				materialObject.SetString(MaterialResource::Name, materialName);
 
-				materialObject.SetColor(MaterialResource::BaseColor, Color::FromVec3(Vec3(mat.Kd[0], mat.Kd[1], mat.Kd[2])));
-				materialObject.SetColor(MaterialResource::EmissiveColor, Color::FromVec3(Vec3(mat.Ke[0], mat.Ke[1], mat.Ke[2])));
+				materialObject.SetColor(MaterialResource::BaseColor, Color::FromVec3(material.diffuse));
+				materialObject.SetColor(MaterialResource::EmissiveColor, Color::FromVec3(material.emission));
 
-				if (mat.map_Kd)
-				{
-					if (RID texture = processTexture(mat.map_Kd))
-					{
-						materialObject.SetReference(MaterialResource::BaseColorTexture, texture);
-					}
-				}
+				materialObject.SetReference(MaterialResource::EmissiveTexture, processTexture(material.emissive_texname));
+				materialObject.SetReference(MaterialResource::NormalTexture, processTexture(material.normal_texname));
+				materialObject.SetReference(MaterialResource::BaseColorTexture, processTexture(material.diffuse_texname));
 
-				if (mat.map_Ke)
-				{
-					if (RID texture = processTexture(mat.map_Ke))
-					{
-						materialObject.SetReference(MaterialResource::EmissiveTexture, texture);
-					}
-				}
 
 				materialObject.Commit(scope);
 
-				materials[m] = materialResource;
+				ridMaterials[m] = materialResource;
 			}
+
+
+			// for (u32 m = 0; m < mesh->material_count; m++)
+			// {
+			// 	const fastObjMaterial& mat = mesh->materials[m];
+			//
+			// 	RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), scope);
+			//
+			// 	ResourceObject materialObject = Resources::Write(materialResource);
+			// 	materialObject.SetString(MaterialResource::Name, mat.name);
+			//
+			// 	materialObject.SetColor(MaterialResource::BaseColor, Color::FromVec3(Vec3(mat.Kd[0], mat.Kd[1], mat.Kd[2])));
+			// 	materialObject.SetColor(MaterialResource::EmissiveColor, Color::FromVec3(Vec3(mat.Ke[0], mat.Ke[1], mat.Ke[2])));
+			//
+			// 	if (mat.map_Kd)
+			// 	{
+			// 		if (RID texture = processTexture(mat.map_Kd))
+			// 		{
+			// 			materialObject.SetReference(MaterialResource::BaseColorTexture, texture);
+			// 		}
+			// 	}
+			//
+			// 	if (mat.map_Ke)
+			// 	{
+			// 		if (RID texture = processTexture(mat.map_Ke))
+			// 		{
+			// 			materialObject.SetReference(MaterialResource::EmissiveTexture, texture);
+			// 		}
+			// 	}
+			//
+			// 	materialObject.Commit(scope);
+			//
+			// 	ridMaterials[m] = materialResource;
+			// }
 
 
 			Array<RID> entities;
 
-			for (u32 ii = 0; ii < mesh->group_count; ii++)
+			for (auto i = 0; i < shapes.size(); ++i)
 			{
 				bool missingNormals = false;
-
-				const fastObjGroup& grp = mesh->groups[ii];
-
+				auto& shape = shapes[i];
 
 				String name = "";
 
-				if (mesh->group_count > 1 && grp.name)
+				if (shapes.size() > 1 && !shape.name.empty())
 				{
-					name = String(grp.name);
+					name = String(shape.name.c_str());
 				}
-				else if (mesh->group_count == 1)
+				else if (shapes.size() == 1)
 				{
 					name = fileName;
 				}
 
 				if (name.Empty())
 				{
-					name = fileName + "_" + ToString(ii);
-				}
-
-				if (name != "Stone_Button")
-				{
-					continue;
+					name = fileName + "_" + ToString(i);
 				}
 
 				HashMap<u32, Array<MeshResource::Vertex>>  verticesByMaterial;
-				int idx = 0;
 
-				for (u32 jj = 0; jj < grp.face_count; jj++)
+				size_t indexOffset = 0;
+
+				for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++)
 				{
-					u32 fv = mesh->face_vertices[grp.face_offset + jj];
-					u32 mat = mesh->face_materials[grp.face_offset + jj];
-
+					u32 mat = shape.mesh.material_ids[f];
 					auto it = verticesByMaterial.Find(mat);
 					if (it == verticesByMaterial.end())
 					{
@@ -172,42 +216,42 @@ namespace Skore
 
 					Array<MeshResource::Vertex>& vertices = it->second;
 
-					for (u32 kk = 0; kk < fv; kk++)
+					size_t fv = size_t(shape.mesh.num_face_vertices[f]);
+
+					for (size_t v = 0; v < fv; v++)
 					{
-						fastObjIndex mi = mesh->indices[grp.index_offset + idx];
-
+						// access to vertex
+						tinyobj::index_t idx = shape.mesh.indices[indexOffset + v];
 						MeshResource::Vertex& vertex = vertices.EmplaceBack();
-						vertex.color = Vec3(1, 1, 1);
 
-						if (mi.p)
-						{
-							vertex.position.x = mesh->positions[3 * mi.p + 0];
-							vertex.position.y = mesh->positions[3 * mi.p + 1];
-							vertex.position.z = mesh->positions[3 * mi.p + 2];
-						}
+						vertex.position.x = attrib.vertices[3 * std::size_t(idx.vertex_index) + 0];
+						vertex.position.y = attrib.vertices[3 * std::size_t(idx.vertex_index) + 1];
+						vertex.position.z = attrib.vertices[3 * std::size_t(idx.vertex_index) + 2];
 
-						if (mi.t)
-						{
-							vertex.texCoord.x = mesh->texcoords[2 * mi.t + 0];
-							vertex.texCoord.y = mesh->texcoords[2 * mi.t + 1];
-						}
+						vertex.color.x = attrib.colors[3 * size_t(idx.vertex_index) + 0];
+						vertex.color.y = attrib.colors[3 * size_t(idx.vertex_index) + 1];
+						vertex.color.z = attrib.colors[3 * size_t(idx.vertex_index) + 2];
 
-						if (mi.n)
+						if (idx.normal_index >= 0)
 						{
-							vertex.normal.x = mesh->normals[3 * mi.n + 0];
-							vertex.normal.y = mesh->normals[3 * mi.n + 1];
-							vertex.normal.z = mesh->normals[3 * mi.n + 2];
+							vertex.normal.x = attrib.normals[3 * std::size_t(idx.normal_index) + 0];
+							vertex.normal.y = attrib.normals[3 * std::size_t(idx.normal_index) + 1];
+							vertex.normal.z = attrib.normals[3 * std::size_t(idx.normal_index) + 2];
 						}
 						else
 						{
 							missingNormals = true;
+							vertex.normal = Vec3(0.0f, 0.0f, 1.0f);
 						}
-						idx++;
 
-						logger.Debug("vertex {}:  {}, {}, {} ", vertices.Size(), vertex.position.x, vertex.position.y, vertex.position.z);
+						if (idx.texcoord_index >= 0)
+						{
+							vertex.texCoord.x = attrib.texcoords[2 * std::size_t(idx.texcoord_index) + 0];
+							vertex.texCoord.y = 1.0f - attrib.texcoords[2 * std::size_t(idx.texcoord_index) + 1];
+						}
 					}
+					indexOffset += fv;
 				}
-
 
 				logger.Debug("processing mesh {} ", name);
 
@@ -227,14 +271,10 @@ namespace Skore
 
 					u32 materialIndex = 0;
 
-					if (it.first < materials.Size())
+					if (it.first < ridMaterials.Size())
 					{
 						materialIndex = meshMaterials.Size();
-						meshMaterials.EmplaceBack(materials[it.first]);
-					}
-					else
-					{
-						materialIndex = 0;
+						meshMaterials.EmplaceBack(ridMaterials[it.first]);
 					}
 
 					primitives.EmplaceBack(MeshResource::Primitive{
@@ -286,10 +326,7 @@ namespace Skore
 				entityObject.Commit(scope);
 
 				entities.EmplaceBack(entity);
-
 			}
-
-			fast_obj_destroy(mesh);
 
 			if (entities.Size() == 1)
 			{
@@ -312,9 +349,9 @@ namespace Skore
 				dccAssetObject.SetSubObject(DCCAssetResource::Entity, entity);
 			}
 
-			if (!materials.Empty())
+			if (!ridMaterials.Empty())
 			{
-				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Materials, materials);
+				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Materials, ridMaterials);
 			}
 
 			dccAssetObject.Commit(scope);
