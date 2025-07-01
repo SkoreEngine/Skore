@@ -13,6 +13,7 @@ set(SPIRV_CROSS_ENABLE_TESTS OFF)
 add_subdirectory(base64)
 add_subdirectory(cgltf)
 add_subdirectory(dxc)
+add_subdirectory(fast_obj)
 add_subdirectory(stb)
 add_subdirectory(SDL3)
 #add_subdirectory(SPIRV-Cross) -- not used

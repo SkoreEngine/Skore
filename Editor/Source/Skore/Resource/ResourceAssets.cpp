@@ -1094,6 +1094,7 @@ namespace Skore
 	void RegisterShaderHandler();
 	void RegisterTextureImporter();
 	void RegisterFBXImporter();
+	void RegisterObjImporter();
 
 	void RegisterResourceAssetTypes()
 	{
@@ -1141,5 +1142,6 @@ namespace Skore
 		RegisterShaderHandler();
 		RegisterTextureImporter();
 		RegisterFBXImporter();
+		RegisterObjImporter();
 	}
 }

@@ -79,6 +79,19 @@ namespace Skore
 			Vec2 texCoord;
 			Vec3 color;
 			Vec4 tangent;
+
+			friend bool operator==(const Vertex& lhs, const Vertex& rhs)
+			{
+				return lhs.position == rhs.position
+					&& lhs.normal == rhs.normal
+					&& lhs.texCoord == rhs.texCoord
+					&& lhs.color == rhs.color;
+			}
+
+			friend bool operator!=(const Vertex& lhs, const Vertex& rhs)
+			{
+				return !(lhs == rhs);
+			}
 		};
 
 		struct Primitive
@@ -167,5 +180,15 @@ namespace Skore
 			Textures,  //SubObjectSet
 			Entity,    //SubObject
 		};
+	};
+
+	template<>
+	struct Hash<MeshResource::Vertex>
+	{
+		constexpr static bool hasHash = true;
+		constexpr static usize Value(const MeshResource::Vertex& value)
+		{
+			return (Hash<Vec3>::Value(value.position) ^ Hash<Vec3>::Value(value.normal) << 1) >> 1 ^ Hash<Vec2>::Value(value.texCoord) << 1;
+		}
 	};
 }

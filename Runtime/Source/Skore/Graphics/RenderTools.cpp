@@ -24,7 +24,6 @@
 
 #include "Graphics.hpp"
 #include "mikktspace.h"
-#include "../../../../Editor/Source/Skore/Utils/StaticContent.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
@@ -221,6 +220,43 @@ namespace Skore
 		{
 			CalculateTangents(vertices, indices);
 		}
+	}
+
+	u64 MeshTools::GenerateIndices(const Array<MeshResource::Vertex>& allVertices, Array<u32>& newIndices, Array<MeshResource::Vertex>& newVertices, bool checkForDuplicates)
+	{
+		newIndices.Reserve(allVertices.Size());
+		newVertices.Reserve(allVertices.Size());
+
+		u64 reduced = 0;
+
+		if (checkForDuplicates)
+		{
+			HashMap<MeshResource::Vertex, u32> uniqueVertices{};
+			for (const MeshResource::Vertex& vertexData : allVertices)
+			{
+				auto it = uniqueVertices.Find(vertexData);
+				if (it == uniqueVertices.end())
+				{
+					it = uniqueVertices.Insert({vertexData, static_cast<u32>(newVertices.Size())}).first;
+					newVertices.EmplaceBack(vertexData);
+				}
+				newIndices.EmplaceBack(it->second);
+			}
+
+			reduced = allVertices.Size() -  newVertices.Size();
+		}
+		else
+		{
+			for (const MeshResource::Vertex& vertexData : allVertices)
+			{
+				newIndices.EmplaceBack(static_cast<u32>(newVertices.Size()));
+				newVertices.EmplaceBack(vertexData);
+			}
+		}
+
+		newVertices.ShrinkToFit();
+
+		return reduced;
 	}
 
 	void SinglePassDownsampler::Init()

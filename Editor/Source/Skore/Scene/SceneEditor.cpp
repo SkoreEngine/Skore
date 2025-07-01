@@ -366,10 +366,17 @@ namespace Skore
 
 	Scene* SceneEditor::GetCurrentScene() const
 	{
+
+		if (Scene* activeScene = SceneManager::GetActiveScene())
+		{
+			return activeScene;
+		}
+
 		if (m_editorScene)
 		{
 			return m_editorScene.get();
 		}
+
 		return nullptr;
 	}
 

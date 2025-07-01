@@ -108,7 +108,7 @@ namespace Skore
 			}
 			case CursorLockMode::Locked:
 			{
-				SDL_GetMouseState(&mousePosBeforeHideCursor.x, &mousePosBeforeHideCursor.y);
+				SDL_GetGlobalMouseState(&mousePosBeforeHideCursor.x, &mousePosBeforeHideCursor.y);
 				SDL_SetWindowRelativeMouseMode(window, true);
 				break;
 			}
@@ -143,6 +143,7 @@ namespace Skore
 	void InputOnEndFrame()
 	{
 		mouseRelativePosition = {};
+		mousePosition = {};
 		mouseMoved = false;
 
 		for (int i = 0; i < static_cast<u64>(Key::MAX); ++i)

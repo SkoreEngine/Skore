@@ -414,20 +414,23 @@ namespace Skore
 
 						for (RID resourceAsset : Resources::GetResourceByType(typeId))
 						{
-							stringCache = ResourceAssets::GetAssetName(resourceAsset);
-
-							ImGuiContentItemDesc contentItem{};
-							contentItem.id = resourceAsset.id;
-							contentItem.label =  stringCache.CStr();
-							contentItem.thumbnailScale = zoom;
-							//contentItem.texture = assetFile->GetThumbnail();
-
-							ImGuiContentItemState state = ImGuiContentItem(contentItem);
-
-							if (state.enter)
+							if (Resources::HasValue(resourceAsset))
 							{
-								ImGui::CloseCurrentPopup();
-								func(resourceAsset);
+								stringCache = ResourceAssets::GetAssetName(resourceAsset);
+
+								ImGuiContentItemDesc contentItem{};
+								contentItem.id = resourceAsset.id;
+								contentItem.label =  stringCache.CStr();
+								contentItem.thumbnailScale = zoom;
+								//contentItem.texture = assetFile->GetThumbnail();
+
+								ImGuiContentItemState state = ImGuiContentItem(contentItem);
+
+								if (state.enter)
+								{
+									ImGui::CloseCurrentPopup();
+									func(resourceAsset);
+								}
 							}
 						}
 

@@ -38,7 +38,7 @@
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Object.hpp"
 #include "Skore/Core/Reflection.hpp"
-#include "../Utils/StaticContent.hpp"
+#include "Skore/Utils/StaticContent.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/Devices/VulkanDevice.hpp"

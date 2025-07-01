@@ -7,6 +7,7 @@ target_link_libraries(Skore PUBLIC
 				imgui
 				dxc
 				cgltf
+				fast_obj
 				ufbx
 				SPIRV-Reflect
 				base64

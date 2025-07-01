@@ -42,6 +42,7 @@ namespace Skore
 		typedef HashIterator<const Node> ConstIterator;
 
 		HashMap();
+		HashMap(Allocator* allocator);
 		HashMap(const HashMap& other);
 		HashMap(HashMap&& other) noexcept;
 		HashMap& operator=(const HashMap& other);
@@ -91,6 +92,11 @@ namespace Skore
 
 	template <typename Key, typename Value>
 	SK_FINLINE HashMap<Key, Value>::HashMap() {}
+
+	template <typename Key, typename Value>
+	HashMap<Key, Value>::HashMap(Allocator* allocator) : m_buckets(allocator), m_allocator(allocator)
+	{
+	}
 
 	template <typename Key, typename Value>
 	SK_FINLINE HashMap<Key, Value>::HashMap(const HashMap& other) : m_size(other.m_size)
