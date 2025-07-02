@@ -1,0 +1,13 @@
+objects:
+  - _uuid: c74afded-555f-b6a4-b6b3-8d4e0ae50f01
+    _type: 'Skore::MaterialResource'
+    _parent: 1d5f2e91-0d8d-6b69-662c-2b39e910697a
+    _parentField: Object
+    Type: SkyboxEquirectangular
+    SphericalTexture: bd67a3b3-4894-a991-6ee1-49ad793da499
+    Exposure: 1
+    BackgroundColor:
+      red: 255
+      green: 255
+      blue: 255
+      alpha: 0

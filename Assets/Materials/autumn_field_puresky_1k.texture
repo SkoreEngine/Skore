@@ -1,0 +1,16 @@
+objects:
+  - _uuid: bd67a3b3-4894-a991-6ee1-49ad793da499
+    _type: 'Skore::TextureResource'
+    _parent: 4393a1d7-2edd-f1c5-3c7b-d93339bc65a2
+    _parentField: Object
+    Name: autumn_field_puresky_1k
+    Extent:
+      x: 1024
+      y: 512
+      z: 1
+    Format: R32G32B32A32_FLOAT
+    WrapMode: Repeat
+    FilterMode: Linear
+    Pixels:
+      offset: 0
+      size: 8388608
