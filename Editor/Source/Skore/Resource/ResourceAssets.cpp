@@ -501,7 +501,16 @@ namespace Skore
 
 	void ResourceAssets::ImportAsset(RID parent, StringView path)
 	{
-		pendingImports.EmplaceBack(parent, path);
+		if (!FileSystem::GetFileStatus(path).isDirectory)
+		{
+			pendingImports.EmplaceBack(parent, path);
+			return;
+		}
+
+		for (const String& file: DirectoryEntries(path))
+		{
+			pendingImports.EmplaceBack(parent, file);
+		}
 	}
 
 	RID ResourceAssets::CreateAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope)
@@ -613,6 +622,31 @@ namespace Skore
 		}
 
 		logger.Error("asset from type {} cannot be created, no handler found for it", typeId);
+		return {};
+	}
+
+	RID ResourceAssets::FindAssetOnDirectory(RID directory, TypeID typeId, StringView name)
+	{
+		if (!directory) return {};
+
+		String fullName = name;
+
+		if (ResourceAssetHandler* handler = GetAssetHandler(typeId))
+		{
+			fullName += handler->Extension();
+		}
+
+		ResourceObject parentObject = Resources::Read(directory);
+
+		for (RID child :  parentObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Assets))
+		{
+			if (fullName == GetAssetFullName(child))
+			{
+				ResourceObject resourceObject = Resources::Read(child);
+				return resourceObject.GetSubObject(ResourceAsset::Object);
+			}
+		}
+
 		return {};
 	}
 
@@ -925,6 +959,19 @@ namespace Skore
 		return {};
 	}
 
+	String ResourceAssets::GetAssetFullName(RID rid)
+	{
+		if (!rid) return {};
+
+		String name = GetAssetName(rid);
+
+		if (ResourceAssetHandler* handler = GetAssetHandler(rid))
+		{
+			name += handler->Extension();
+		}
+		return name;
+	}
+
 	UUID ResourceAssets::GetAssetUUID(RID rid)
 	{
 		if (Resources::GetStorage(rid)->resourceType->GetID() == TypeInfo<ResourceAsset>::ID())
@@ -947,7 +994,6 @@ namespace Skore
 			for (const AssetsPendingImport& toImport : pendingImports)
 			{
 				logger.Debug("importing {} to {} ", toImport.path, ResourceAssets::GetDirectoryPathId(toImport.parent));
-
 				String extension = Path::Extension(toImport.path);
 				extension = extension.ToLowerCase();
 

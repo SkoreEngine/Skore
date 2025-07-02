@@ -62,6 +62,16 @@ namespace Skore
 
 	RID ImportTexture(RID directory, const TextureImportSettings& settings, const String& path, UndoRedoScope* scope)
 	{
+		if (!settings.overrideIfExists)
+		{
+			if (RID texture = ResourceAssets::FindAssetOnDirectory(directory, TypeInfo<TextureResource>::ID(), Path::Name(path)))
+			{
+				logger.Debug("Texture {} already exists", Path::Name(path));
+				return texture;
+			}
+		}
+
+
 		i32 width{};
 		i32 height{};
 		i32 channels{};

@@ -26,13 +26,12 @@
 
 namespace Skore
 {
-	//TODO
-
 	struct TextureImportSettings
 	{
 		AddressMode wrapMode = AddressMode::Repeat;
 		FilterMode  filterMode = FilterMode::Linear;
 		bool        createAssetFile = true;
+		bool		overrideIfExists = false;
 	};
 
 	SK_API RID ImportTexture(RID directory, const TextureImportSettings& settings, const String& path, UndoRedoScope* scope);

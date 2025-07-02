@@ -150,6 +150,16 @@ namespace Skore
 		static RID                   DuplicateAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
 		static RID					 CreateInheritedAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
 		static RID                   CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
+		static RID					 FindAssetOnDirectory(RID directory, TypeID typeId, StringView name);
+		static void                  DeleteAsset(RID rid, UndoRedoScope* scope);
+		static void                  DeleteDirectory(RID rid, UndoRedoScope* scope);
+		static void                  RenameAsset(RID rid, StringView desiredName, UndoRedoScope* scope);
+		static void                  RenameDirectory(RID rid, StringView desiredName, UndoRedoScope* scope);
+		static void                  ExtractAsset(RID parent, RID asset);
+		static void                  ExtractDirectory(RID parent, RID directory);
+		static void                  ExtractAssets(RID parent, RID directory);
+		static void                  ExtractAssets(RID parent, RID directory, FnResourceExtractAssets extractAssets);
+		static void                  ExtractAssets(RID parent, RID directory, FnResourceExtractAssets extractAssets, FnResourceGetAssetName getAssetName);
 		static RID                   CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
 		static String                CreateUniqueAssetName(RID parent, StringView desiredName, bool directory);
 		static void                  MoveAsset(RID newParent, RID rid, UndoRedoScope* scope);
@@ -165,6 +175,7 @@ namespace Skore
 		static ResourceAssetHandler* GetAssetHandler(RID rid);
 		static ResourceAssetHandler* GetAssetHandler(TypeID typeId);
 		static String                GetAssetName(RID rid);
+		static String                GetAssetFullName(RID rid);
 		static UUID                  GetAssetUUID(RID rid);
 	};
 }
