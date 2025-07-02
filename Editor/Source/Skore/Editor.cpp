@@ -770,7 +770,7 @@ namespace Skore
 
 		for (auto& package: DirectoryEntries{projectPackagePath})
 		{
-			Editor::LoadPackage(Path::Name(package), package);
+			Editor::LoadPackage(Path::Name(package), Path::Join(package, "Assets"));
 		}
 
 		projectRID = ResourceAssets::ScanAssetsFromDirectory(Path::Name(projectPath), projectAssetPath);

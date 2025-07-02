@@ -97,47 +97,37 @@ namespace Skore::StaticContent
 		FileSystem::Remove(directory);
 		FileSystem::CreateDirectory(directory);
 
-		struct CurrentFile
-		{
-			std::string name;
-			std::string path;
-		};
-
-		Queue<CurrentFile> pending;
-
+		Queue<std::string> pending;
 		std::string current = path.CStr();
-		String currentAbsPath = "";
 
 		while (!current.empty())
 		{
+			FileSystem::CreateDirectory(Path::Join(directory, current.c_str()));
+
 			for (cmrc::directory_entry dir: fs.iterate_directory(current))
 			{
 				std::string filePath = current + "/" + dir.filename();
 
-				String absolutePath = Path::Join(directory, currentAbsPath, StringView(dir.filename().c_str()));
-
 				if (dir.is_file())
 				{
+					String pathSavedTo = Path::Join(directory, filePath.c_str());
+					logger.Debug("found file {}, saving on {} ", filePath, pathSavedTo);
+
 					auto file = fs.open(filePath);
-					FileSystem::SaveFileAsByteArray(absolutePath, Span(const_cast<u8*>(file.begin()), const_cast<u8*>(file.end())));
+					FileSystem::SaveFileAsByteArray(pathSavedTo, Span(const_cast<u8*>(file.begin()), const_cast<u8*>(file.end())));
 				}
 
 				if (dir.is_directory())
 				{
-					FileSystem::CreateDirectory(absolutePath);
-					pending.Enqueue(CurrentFile{dir.filename(), filePath});
+					pending.Enqueue(filePath);
 				}
-
-				logger.Debug("found {}, should save on {} ", filePath, absolutePath);
 			}
 
 			current = {};
 
 			if (!pending.IsEmpty())
 			{
-				CurrentFile currentFile = pending.Dequeue();
-				current = currentFile.path;
-				currentAbsPath = Path::Join(currentAbsPath, StringView(currentFile.name.c_str()));
+				current = pending.Dequeue();
 			}
 		}
 	}
