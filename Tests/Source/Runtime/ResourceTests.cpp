@@ -513,6 +513,93 @@ namespace
 		ResourceShutdown();
 	}
 
+	TEST_CASE("Resource::TestInstances")
+	{
+		ResourceInit();
+		RegisterTestTypes();
+		{
+			RID object = Resources::Create<ResourceTest>();
+			RID subobject1 = Resources::Create<ResourceTest>();
+			RID subobject2 = Resources::Create<ResourceTest>();
+
+			{
+				ResourceObject write = Resources::Write(subobject1);
+				write.SetInt(ResourceTest::IntValue, 10);
+				write.Commit();
+			}
+
+			{
+				ResourceObject write = Resources::Write(subobject1);
+				write.SetInt(ResourceTest::IntValue, 20);
+				write.Commit();
+			}
+
+			{
+				ResourceObject write = Resources::Write(object);
+				write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject1);
+				write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject2);
+				write.Commit();
+			}
+
+			RID prototype = Resources::CreateFromPrototype(object);
+			RID instance1;
+
+			{
+				ResourceObject write = Resources::Write(prototype);
+				instance1 = write.InstantiateFromSubObjectSet(ResourceTest::SubObjectSet, subobject1);
+				write.Commit();
+			}
+
+			CHECK(instance1);
+
+			{
+				ResourceObject readPrototype = Resources::Read(prototype);
+				REQUIRE(readPrototype);
+
+				HashSet<RID> set = readPrototype.GetSubObjectSetAsHashSet(ResourceTest::SubObjectSet);
+				CHECK(set.Has(instance1));
+				CHECK(!set.Has(subobject1));
+				CHECK(set.Has(subobject2));
+			}
+
+			//test clone.
+			{
+				RID prototypeClone = Resources::Clone(prototype);
+				ResourceObject readPrototype = Resources::Read(prototypeClone);
+				REQUIRE(readPrototype);
+
+				HashSet<RID> set = readPrototype.GetSubObjectSetAsHashSet(ResourceTest::SubObjectSet);
+
+				CHECK(!set.Has(instance1));
+				CHECK(!set.Has(subobject1));
+				CHECK(set.Has(subobject2));
+
+				set.Erase(subobject2);
+
+				for (RID rid : set)
+				{
+					//instance1 needs to be cloned from the same prototype.
+					CHECK(Resources::GetStorage(rid)->prototype == Resources::GetStorage(instance1)->prototype);
+				}
+			}
+
+			{
+				ResourceObject write = Resources::Write(prototype);
+				write.RemoveInstanceFromSubObjectSet(ResourceTest::SubObjectSet, instance1);
+				write.Commit();
+			}
+
+			{
+				ResourceObject readPrototype = Resources::Read(prototype);
+				HashSet<RID> set = readPrototype.GetSubObjectSetAsHashSet(ResourceTest::SubObjectSet);
+				CHECK(!set.Has(instance1));
+				CHECK(set.Has(subobject1));
+				CHECK(set.Has(subobject2));
+			}
+		}
+		ResourceShutdown();
+	}
+
 	TEST_CASE("Resource::Serialization")
 	{
 		UUID uuids[6] = {

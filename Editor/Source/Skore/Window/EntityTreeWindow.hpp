@@ -53,6 +53,8 @@ namespace Skore
 
 		static void OverridePrototype(const MenuItemEventData& eventData);
 		static void RemoveFromThisInstance(const MenuItemEventData& eventData);
+		static bool CheckIsOverride(const MenuItemEventData& eventData);
+		static void RemoveOverride(const MenuItemEventData& eventData);
 
 		static void OpenEntityTree(const MenuItemEventData& eventData);
 		static void RegisterType(NativeReflectType<EntityTreeWindow>& type);
@@ -61,6 +63,9 @@ namespace Skore
 		String searchEntity{};
 		String stringCache{};
 
+		RID lastParentNotPrototype = {};
+
+		RID parentOnPopupSelection = {};
 		RID entityOnPopupSelection = {};
 
 		bool   renamingFocus{};
@@ -72,7 +77,7 @@ namespace Skore
 
 		static MenuItemContext menuItemContext;
 
-		void DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool disabled);
+		void DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool disabled, bool removed);
 		void DrawEntity(SceneEditor* sceneEditor, Entity* entity, bool& entitySelected);
 		void DrawMovePayload(u64 id, RID moveTo) const;
 	};

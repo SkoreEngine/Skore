@@ -118,12 +118,15 @@ namespace Skore
 	{
 		HashSet<RID> subObjects;
 		HashSet<RID> prototypeRemoved;
+
+		HashSet<RID> instantiated;
+		HashSet<RID> removedByInstances;
 	};
 
 	class ResourceObject;
 	struct ResourceStorage;
 	struct UndoRedoScope;
-	typedef CharPtr ResourceInstance;
+	typedef CharPtr ResourceInstance; //TODO : rename to ResourceValue
 	typedef bool(*FnRIDCallback)(RID rid, VoidPtr userData);
 	typedef void (*FnObjectEvent)(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 
@@ -168,11 +171,12 @@ namespace Skore
 		UUID                          uuid;
 		String						  path;
 		ResourceType*                 resourceType = nullptr;
-		std::atomic<ResourceInstance> instance = {};
+		std::atomic<ResourceInstance> instance = {};	//TODO: rename to value
 		std::atomic<u64>              version = 1;
 		ResourceStorage*              parent = nullptr;
 		u32                           parentFieldIndex = U32_MAX;
 		ResourceStorage*              prototype = nullptr;
+		ResourceStorage*              instantiated = nullptr;
 
 		Array<ResourceEvent> events[static_cast<u32>(ResourceEventType::MAX)];
 

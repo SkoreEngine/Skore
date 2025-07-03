@@ -82,42 +82,50 @@ namespace Skore
 		void  CancelRemoveFromPrototypeSubObjectSet(u32 index, const Span<RID>& remove);
 		void  ClearRemoveFromPrototypeSubObjectSet(u32 index);
 
+		//instances
+		RID  InstantiateFromSubObjectSet(u32 index, RID subobject, UndoRedoScope* scope = nullptr);
+		void AddInstanceToSubObjectSet(u32 index, RID subobject, RID instance);
+		void RemoveInstanceFromSubObjectSet(u32 index, RID instance, UndoRedoScope* scope = nullptr);
+
 		//if index = SubobjectSet, remove from set
 		//if index = subobject, compare the values, if equals, cleanup.
 		void RemoveSubObject(u32 index, RID rid);
 
-		bool       HasValue(u32 index) const;
-		bool       HasValueOnThisObject(u32 index) const;
-		bool       CopyValue(u32 index, VoidPtr buffer, usize size) const;
-		bool       GetBool(u32 index) const;
-		i64        GetInt(u32 index) const;
-		u64        GetUInt(u32 index) const;
-		f64        GetFloat(u32 index) const;
-		StringView GetString(u32 index) const;
-		Vec2       GetVec2(u32 index) const;
-		Vec3       GetVec3(u32 index) const;
-		Vec4       GetVec4(u32 index) const;
-		Quat       GetQuat(u32 index) const;
-		Color      GetColor(u32 index) const;
-		i64        GetEnum(u32 index) const;
-		RID        GetSubObject(u32 index) const;
-		RID        GetReference(u32 index) const;
-		Span<u8>   GetBlob(u32 index) const;
-		Span<RID>  GetReferenceArray(u32 index) const;
-		bool       HasOnReferenceArray(u32 index, RID rid) const;
-		usize      GetSubObjectSetCount(u32 index) const;
-		void       GetSubObjectSet(u32 index, Span<RID> subObjects) const;
-		Array<RID> GetSubObjectSetAsArray(u32 index) const;
-		bool       HasSubObjectSet(u32 index, RID rid) const;
-		void       IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const;
+		bool         HasValue(u32 index) const;
+		bool         HasValueOnThisObject(u32 index) const;
+		bool         CopyValue(u32 index, VoidPtr buffer, usize size) const;
+		bool         GetBool(u32 index) const;
+		i64          GetInt(u32 index) const;
+		u64          GetUInt(u32 index) const;
+		f64          GetFloat(u32 index) const;
+		StringView   GetString(u32 index) const;
+		Vec2         GetVec2(u32 index) const;
+		Vec3         GetVec3(u32 index) const;
+		Vec4         GetVec4(u32 index) const;
+		Quat         GetQuat(u32 index) const;
+		Color        GetColor(u32 index) const;
+		i64          GetEnum(u32 index) const;
+		RID          GetSubObject(u32 index) const;
+		RID          GetReference(u32 index) const;
+		Span<u8>     GetBlob(u32 index) const;
+		Span<RID>    GetReferenceArray(u32 index) const;
+		bool         HasOnReferenceArray(u32 index, RID rid) const;
+		usize        GetSubObjectSetCount(u32 index) const;
+		void         GetSubObjectSet(u32 index, Span<RID> subObjects) const;
+		Array<RID>   GetSubObjectSetAsArray(u32 index) const;
+		HashSet<RID> GetSubObjectSetAsHashSet(u32 index) const;
+		bool         HasSubObjectSet(u32 index, RID rid) const;
+		void         IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const;
+		usize        GetPrototypeRemovedCount(u32 index) const;
+		void         IteratePrototypeRemoved(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const;
 
-		u32				 GetIndex(StringView fieldName) const;
+		u32              GetIndex(StringView fieldName) const;
 		RID              GetRID() const;
 		RID              GetPrototype() const;
 		UUID             GetUUID() const;
 		ResourceType*    GetType() const;
 		ResourceStorage* GetStorage() const;
-		u64				 GetVersion() const;
+		u64              GetVersion() const;
 
 		void Commit(UndoRedoScope* scope = nullptr);
 
@@ -143,6 +151,16 @@ namespace Skore
 			}, &func);
 		}
 
+		template <typename T>
+		void IteratePrototypeRemoved(u32 index, bool prototypeIterate, T&& func) const
+		{
+			IteratePrototypeRemoved(index, prototypeIterate, [](RID rid, VoidPtr userData)
+			{
+				auto& func = *static_cast<Traits::RemoveAll<T>*>(userData);
+				return func(rid);
+			}, &func);
+		}
+
 		explicit operator bool() const;
 
 		static bool Compare(const ResourceObject& left, const ResourceObject& right, u32 index);
@@ -155,7 +173,7 @@ namespace Skore
 		ConstPtr GetPtr(u32 index) const;
 		VoidPtr  GetMutPtr(u32 index) const;
 
-		bool	 ValidSubObjectOnSet(const ResourceStorage* readingStorage, u32 index, RID rid) const;
+		bool ValidSubObjectOnSet(const ResourceStorage* readingStorage, u32 index, RID rid) const;
 
 		template <typename T>
 		const T* GetPtr(u32 index) const

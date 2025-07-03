@@ -273,7 +273,9 @@ namespace Skore
 	RID CloneSubObject(ResourceStorage* parentStorage, u32 fieldIndex, RID origin, UndoRedoScope* scope)
 	{
 		ResourceStorage* originStorage = GetStorage(origin);
-		RID              clone = Resources::Clone(origin, originStorage->uuid ? UUID::RandomUUID() : UUID{}, scope);
+
+		RID clone = Resources::Clone(origin, originStorage->uuid ? UUID::RandomUUID() : UUID{}, scope);
+
 		ResourceStorage* subOjectStorage = GetStorage(clone);
 		subOjectStorage->parent = parentStorage;
 		subOjectStorage->parentFieldIndex = fieldIndex;
@@ -313,10 +315,18 @@ namespace Skore
 
 						SubObjectSet copySuobjectSet;
 						copySuobjectSet.prototypeRemoved = subObjectSet.prototypeRemoved;
+						copySuobjectSet.removedByInstances = subObjectSet.removedByInstances;
+
 						for (RID subobject : subObjectSet.subObjects)
 						{
 							copySuobjectSet.subObjects.Emplace(CloneSubObject(storage, field->GetIndex(), subobject, scope));
 						}
+
+						for (RID subobject : subObjectSet.instantiated)
+						{
+							copySuobjectSet.instantiated.Emplace(CloneSubObject(storage, field->GetIndex(), subobject, scope));
+						}
+
 						new(reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])) SubObjectSet{copySuobjectSet};
 						break;
 					}
@@ -517,6 +527,11 @@ namespace Skore
 
 		FinishCreation(storage);
 
+		if (scope && storage->instance)
+		{
+			scope->PushChange(storage, nullptr, storage->instance.load());
+		}
+
 		return rid;
 	}
 
@@ -537,10 +552,18 @@ namespace Skore
 			storage->instance = CreateResourceInstanceClone(storage, defaultValueStorage->instance.load(), scope);
 		}
 
-		//create an empty object
-		Write(rid).Commit(scope);
+		if (!storage->instance)
+		{
+			//create an empty object, not sure about it yet.
+			Write(rid).Commit(scope);
+		}
 
 		FinishCreation(storage);
+
+		if (scope)
+		{
+			scope->PushChange(storage, nullptr, storage->instance.load());
+		}
 
 		return rid;
 	}
@@ -563,6 +586,11 @@ namespace Skore
 		storage->instance = CreateResourceInstanceClone(storage, originStorage->instance.load(), scope);
 
 		FinishCreation(storage);
+
+		if (scope)
+		{
+			scope->PushChange(storage, nullptr, storage->instance.load());
+		}
 
 		return rid;
 	}
@@ -697,6 +725,8 @@ namespace Skore
 
 	RID Resources::FindOrReserveByUUID(const UUID& uuid)
 	{
+		if (!uuid) return {};
+
 		return GetID(uuid);
 	}
 
@@ -762,6 +792,11 @@ namespace Skore
 				if (storage->prototype && storage->prototype->uuid)
 				{
 					writer.WriteString("_prototype", storage->prototype->uuid.ToString());
+				}
+
+				if (storage->instantiated && storage->instantiated->uuid)
+				{
+					writer.WriteString("_instance", storage->instantiated->uuid.ToString());
 				}
 
 				for (ResourceField* field : storage->resourceType->GetFields())
@@ -1054,9 +1089,18 @@ namespace Skore
 						{
 							ResourceObject parentObject = Write(parent);
 
+							RID instanceFrom = FindOrReserveByUUID(UUID::FromString(reader.ReadString("_instance")));
+
 							if (field->GetType() == ResourceFieldType::SubObjectSet)
 							{
-								parentObject.AddToSubObjectSet(field->GetIndex(), rid);
+								if (instanceFrom)
+								{
+									parentObject.AddInstanceToSubObjectSet(field->GetIndex(), instanceFrom, rid);
+								}
+								else
+								{
+									parentObject.AddToSubObjectSet(field->GetIndex(), rid);
+								}
 							}
 							else if (field->GetType() == ResourceFieldType::SubObject)
 							{

@@ -355,6 +355,56 @@ namespace Skore
 		}
 	}
 
+	RID ResourceObject::InstantiateFromSubObjectSet(u32 index, RID subobject, UndoRedoScope* scope)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
+
+		UUID uuid = Resources::GetUUID(subobject) ? UUID::RandomUUID() : UUID{};
+		RID instance = Resources::CreateFromPrototype(subobject, uuid, scope);
+		AddInstanceToSubObjectSet(index, subobject, instance);
+		return instance;
+	}
+
+	void ResourceObject::AddInstanceToSubObjectSet(u32 index, RID subobject, RID instance)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
+		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
+		{
+			subObjectSet->removedByInstances.Insert(subobject);
+			subObjectSet->instantiated.Insert(instance);
+			Resources::GetStorage(instance)->instantiated = Resources::GetStorage(subobject);
+		}
+	}
+
+	void ResourceObject::RemoveInstanceFromSubObjectSet(u32 index, RID instance, UndoRedoScope* scope)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
+		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
+		{
+
+			auto it = subObjectSet->instantiated.Find(instance);
+			if (it == subObjectSet->instantiated.end())
+			{
+				SK_ASSERT(false, "instance not found on object");
+				return;
+			}
+
+			ResourceStorage* storage = Resources::GetStorage(instance);
+			SK_ASSERT(storage->prototype, "instance is not created from prototype");
+
+			//clean up parent data, so it won't try to remove on Resources::Destroy
+			storage->parent = nullptr;
+			storage->parentFieldIndex = U32_MAX;
+
+			subObjectSet->removedByInstances.Erase(storage->prototype->rid);
+
+			subObjectSet->instantiated.Erase(it);
+
+			Resources::Destroy(instance, scope);
+		}
+	}
+
+
 	void ResourceObject::RemoveSubObject(u32 index, RID rid)
 	{
 		if (m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObject)
@@ -579,6 +629,17 @@ namespace Skore
 		return subobjects;
 	}
 
+	HashSet<RID> ResourceObject::GetSubObjectSetAsHashSet(u32 index) const
+	{
+		HashSet<RID> subobjects;
+		IterateSubObjectSet(index, true, [&](RID rid)
+		{
+			subobjects.Insert(rid);
+			return true;
+		});
+		return subobjects;
+	}
+
 	bool ResourceObject::HasSubObjectSet(u32 index, RID rid) const
 	{
 		bool found = false;
@@ -607,16 +668,32 @@ namespace Skore
 				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
 				{
 					const SubObjectSet* subObjectSet = reinterpret_cast<SubObjectSet*>(&currentInstance[m_storage->resourceType->fields[index]->offset]);
-					for (RID rid: subObjectSet->subObjects)
+
+					auto iterate = [&](const HashSet<RID>& set) -> bool
 					{
-						if (ValidSubObjectOnSet(currentStorage, index, rid))
+						for (RID rid: set)
 						{
-							if (!callback(rid, userData))
+							if (ValidSubObjectOnSet(currentStorage, index, rid))
 							{
-								return;
+								if (!callback(rid, userData))
+								{
+									return false;
+								}
 							}
 						}
+						return true;
+					};
+
+					if (!iterate(subObjectSet->subObjects))
+					{
+						return;
 					}
+
+					if (!iterate(subObjectSet->instantiated))
+					{
+						return;
+					}
+
 				}
 			}
 			if (!prototypeIterate) break;
@@ -626,6 +703,32 @@ namespace Skore
 			if (currentStorage)
 			{
 				currentInstance = currentStorage->instance.load();
+			}
+		}
+	}
+
+	usize ResourceObject::GetPrototypeRemovedCount(u32 index) const
+	{
+		usize count = 0;
+
+		IteratePrototypeRemoved(index, true, [&](RID rid)
+		{
+			count++;
+			return true;
+		});
+		return count;
+	}
+
+	void ResourceObject::IteratePrototypeRemoved(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const
+	{
+		if (const SubObjectSet* subObjectSet = GetPtr<SubObjectSet>(index))
+		{
+			for (RID rid : subObjectSet->prototypeRemoved)
+			{
+				if (!callback(rid, userData))
+				{
+					return;
+				}
 			}
 		}
 	}
@@ -775,7 +878,7 @@ namespace Skore
 				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
 				{
 					const SubObjectSet* subObjectSet = reinterpret_cast<SubObjectSet*>(&currentInstance[m_storage->resourceType->fields[index]->offset]);
-					if (subObjectSet->prototypeRemoved.Has(rid))
+					if (subObjectSet->prototypeRemoved.Has(rid) || subObjectSet->removedByInstances.Has(rid))
 					{
 						return false;
 					}

@@ -226,7 +226,7 @@ namespace Skore
 			return false;
 		}
 
-		logger.Info("Swapchain created with extent {}, {} ", extent.width, extent.height);
+		logger.Debug("Swapchain created with extent {}, {} ", extent.width, extent.height);
 
 		u32 imageCount = details.capabilities.minImageCount + 1;
 		if (details.capabilities.maxImageCount > 0 && imageCount > details.capabilities.maxImageCount)
