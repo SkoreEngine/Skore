@@ -303,6 +303,15 @@ namespace Skore
 		}
 	}
 
+	bool ResourceObject::IsRemoveFromPrototypeSubObjectSet(u32 index, RID remove) const
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
+		if (const SubObjectSet* subObjectSet = GetPtr<SubObjectSet>(index))
+		{
+			return subObjectSet->prototypeRemoved.Has(remove);
+		}
+		return false;
+	}
 
 	void ResourceObject::RemoveFromPrototypeSubObjectSet(u32 index, RID remove)
 	{
@@ -710,8 +719,7 @@ namespace Skore
 	usize ResourceObject::GetPrototypeRemovedCount(u32 index) const
 	{
 		usize count = 0;
-
-		IteratePrototypeRemoved(index, true, [&](RID rid)
+		IteratePrototypeRemoved(index, [&](RID rid)
 		{
 			count++;
 			return true;
@@ -719,16 +727,13 @@ namespace Skore
 		return count;
 	}
 
-	void ResourceObject::IteratePrototypeRemoved(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const
+	void ResourceObject::IteratePrototypeRemoved(u32 index, FnRIDCallbackNoRet callback, VoidPtr userData) const
 	{
 		if (const SubObjectSet* subObjectSet = GetPtr<SubObjectSet>(index))
 		{
 			for (RID rid : subObjectSet->prototypeRemoved)
 			{
-				if (!callback(rid, userData))
-				{
-					return;
-				}
+				callback(rid, userData);
 			}
 		}
 	}

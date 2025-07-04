@@ -176,7 +176,5 @@ namespace Skore
 		static void OnEntityResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnComponentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnTransformResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
-
-
 	};
 }

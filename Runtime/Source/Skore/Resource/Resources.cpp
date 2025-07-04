@@ -898,12 +898,38 @@ namespace Skore
 								}
 								break;
 							case ResourceFieldType::SubObjectSet:
+							{
 								set.IterateSubObjectSet(field->GetIndex(), false, [&](RID subobject)
 								{
 									pendingItems.Enqueue(subobject);
 									return true;
 								});
+
+								bool started = false;
+
+								set.IteratePrototypeRemoved(field->GetIndex(), [&](RID removed)
+								{
+									if (UUID uuid = GetUUID(removed))
+									{
+										if (!started)
+										{
+											writer.BeginMap(field->GetName());
+											writer.BeginSeq("_removed");
+											started = true;
+										}
+
+										writer.AddString(uuid.ToString());
+									}
+								});
+
+								if (started)
+								{
+									writer.EndSeq();
+									writer.EndMap();
+								}
+
 								break;
+							}
 						}
 					}
 				}
@@ -1073,6 +1099,27 @@ namespace Skore
 								write.SetReferenceArray(field->GetIndex(), references);
 								reader.EndSeq();
 								break;
+							}
+							case ResourceFieldType::SubObjectSet:
+							{
+								reader.BeginMap();
+								while (reader.NextMapEntry())
+								{
+									StringView fieldName = reader.GetCurrentKey();
+									if (fieldName == "_removed")
+									{
+										reader.BeginSeq();
+										while (reader.NextSeqEntry())
+										{
+											if (UUID uuid = UUID::FromString(reader.GetString()))
+											{
+												write.RemoveFromPrototypeSubObjectSet(field->GetIndex(), FindOrReserveByUUID(uuid));
+											}
+										}
+										reader.EndSeq();
+									}
+								}
+								reader.EndMap();
 							}
 						}
 					}

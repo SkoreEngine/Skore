@@ -419,6 +419,20 @@ namespace Skore
 					entity->CreateChildFromAsset(res.rid);
 				}
 			}
+
+			else if (res.type == CompareSubObjectSetType::Removed)
+			{
+				for (Entity* child : entity->m_children)
+				{
+					if (child->m_rid == res.rid)
+					{
+						if (newValue.IsRemoveFromPrototypeSubObjectSet(EntityResource::Children, res.rid))
+						{
+							child->DestroyInternal(true);
+						}
+					}
+				}
+			}
 		}
 
 		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Components))

@@ -286,10 +286,9 @@ namespace Skore
 				return true;
 			});
 
-			entityObject.IteratePrototypeRemoved(EntityResource::Children, true, [&](RID child)
+			entityObject.IteratePrototypeRemoved(EntityResource::Children, [&](RID child)
 			{
 				DrawRIDEntity(sceneEditor, child, entitySelected, entity, disabled, true);
-				return true;
 			});
 
 			ImGui::TreePop();
@@ -586,6 +585,11 @@ namespace Skore
 
 	bool EntityTreeWindow::CheckEntityActions(const MenuItemEventData& eventData)
 	{
+		if (IsRemovedFromThisInstance(eventData))
+		{
+			return false;
+		}
+
 		return !CheckSelectedPrototypeEntity(eventData);
 	}
 
@@ -599,6 +603,11 @@ namespace Skore
 
 	bool EntityTreeWindow::CheckSelectedPrototypeEntity(const MenuItemEventData& eventData)
 	{
+		if (IsRemovedFromThisInstance(eventData))
+		{
+			return false;
+		}
+
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
 		if (!window->entityOnPopupSelection) return false;
 
@@ -654,6 +663,25 @@ namespace Skore
 		}
 	}
 
+	bool EntityTreeWindow::IsRemovedFromThisInstance(const MenuItemEventData& eventData)
+	{
+		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		if (!window-> parentOnPopupSelection || !window->entityOnPopupSelection) return false;
+
+		ResourceObject read = Resources::Read(window-> parentOnPopupSelection);
+		return read.IsRemoveFromPrototypeSubObjectSet(EntityResource::Children, window->entityOnPopupSelection);
+	}
+
+	void EntityTreeWindow::AddBackToThisInstance(const MenuItemEventData& eventData)
+	{
+		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		if (!window-> parentOnPopupSelection || !window->entityOnPopupSelection) return;
+		if (SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor())
+		{
+			sceneEditor->AddBackToThisInstance(window->parentOnPopupSelection, window->entityOnPopupSelection);
+		}
+	}
+
 	void EntityTreeWindow::RemoveOverride(const MenuItemEventData& eventData)
 	{
 		if (SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor())
@@ -682,7 +710,7 @@ namespace Skore
 		AddMenuItem(MenuItemCreation{.itemName = "Remove Override", .priority = -100, .action = RemoveOverride, .enable = CheckReadOnly, .visible = CheckIsOverride});
 		AddMenuItem(MenuItemCreation{.itemName = "Override", .priority = -100, .action = OverridePrototype, .visible = CheckSelectedPrototypeEntity});
 		AddMenuItem(MenuItemCreation{.itemName = "Remove From This Instance", .priority = -95, .action = RemoveFromThisInstance, .visible = CheckSelectedPrototypeEntity});
-		AddMenuItem(MenuItemCreation{.itemName = "Add Back This Instance", .priority = -95, .action = RemoveFromThisInstance, .visible = CheckSelectedPrototypeEntity});
+		AddMenuItem(MenuItemCreation{.itemName = "Add Back This Instance", .priority = -95, .action = AddBackToThisInstance, .visible = IsRemovedFromThisInstance});
 
 		AddMenuItem(MenuItemCreation{.itemName = "Create Entity", .priority = 0, .action = AddSceneEntity, .enable = CheckReadOnly, .visible = CheckEntityActions});
 		AddMenuItem(MenuItemCreation{.itemName = "Create Entity From Asset", .priority = 15, .action = AddSceneEntityFromAsset, .enable = CheckReadOnly, .visible = CheckEntityActions});

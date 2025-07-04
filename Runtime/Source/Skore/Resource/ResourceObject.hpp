@@ -76,6 +76,7 @@ namespace Skore
 		//subobject prototypes.
 		usize GetRemoveFromPrototypeSubObjectSetCount(u32 index) const;
 		void  GetRemoveFromPrototypeSubObjectSet(u32 index, Span<RID> remove) const;
+		bool  IsRemoveFromPrototypeSubObjectSet(u32 index, RID remove) const;
 		void  RemoveFromPrototypeSubObjectSet(u32 index, RID remove);
 		void  RemoveFromPrototypeSubObjectSet(u32 index, const Span<RID>& remove);
 		void  CancelRemoveFromPrototypeSubObjectSet(u32 index, RID remove);
@@ -117,7 +118,7 @@ namespace Skore
 		bool         HasSubObjectSet(u32 index, RID rid) const;
 		void         IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const;
 		usize        GetPrototypeRemovedCount(u32 index) const;
-		void         IteratePrototypeRemoved(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const;
+		void         IteratePrototypeRemoved(u32 index, FnRIDCallbackNoRet callback, VoidPtr userData) const;
 
 		u32              GetIndex(StringView fieldName) const;
 		RID              GetRID() const;
@@ -152,13 +153,13 @@ namespace Skore
 		}
 
 		template <typename T>
-		void IteratePrototypeRemoved(u32 index, bool prototypeIterate, T&& func) const
+		void IteratePrototypeRemoved(u32 index, T&& func) const
 		{
-			IteratePrototypeRemoved(index, prototypeIterate, [](RID rid, VoidPtr userData)
+			auto fp = [](RID rid, VoidPtr userData)
 			{
-				auto& func = *static_cast<Traits::RemoveAll<T>*>(userData);
-				return func(rid);
-			}, &func);
+				(*static_cast<Traits::RemoveAll<T>*>(userData))(rid);
+			};
+			IteratePrototypeRemoved(index, fp, &func);
 		}
 
 		explicit operator bool() const;

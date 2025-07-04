@@ -53,11 +53,19 @@ namespace Skore
 
 	namespace
 	{
+
+		enum class DialogModalType
+		{
+			Confirmation,
+			Error
+		};
+
 		struct DialogModalData
 		{
 			String            message;
 			VoidPtr           userData;
 			FnConfirmCallback callback;
+			DialogModalType   type;
 		};
 
 		struct EditorWindowStorage
@@ -98,7 +106,7 @@ namespace Skore
 
 		Array<EditorWindowStorage> editorWindowStorages;
 		Array<OpenWindowStorage>   openWindows;
-		Queue<DialogModalData>     confirmDialogs;
+		Queue<DialogModalData>     dialogModals;
 		ConsoleSink                consoleSink;
 
 		RID                     projectRID;
@@ -538,35 +546,50 @@ namespace Skore
 
 		void DrawConfirmDialogs()
 		{
-			if (!confirmDialogs.IsEmpty())
+			if (!dialogModals.IsEmpty())
 			{
-				const DialogModalData& modal = confirmDialogs.Peek();
-				ImGui::OpenPopup("Confirmation");
+				const DialogModalData& modal = dialogModals.Peek();
+
+				const char* title = "";
+				switch (modal.type)
+				{
+					case DialogModalType::Confirmation: title = "Confirmation"; break;
+					case DialogModalType::Error: title = "Error"; break;
+					// case DialogModalType::Warning: title = "Warning"; break;
+					// case DialogModalType::Info: title = "Info"; break;
+					// case DialogModalType::Question: title = "Question"; break;
+				}
+
+
+				ImGui::OpenPopup(title);
 
 				ImVec2 center = ImGui::GetMainViewport()->GetCenter();
 				ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-				if (ImGui::BeginPopupModal("Confirmation", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+				if (ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 				{
 					ImGui::Text(modal.message.CStr());
 					ImGui::Separator();
 
-					if (ImGui::Button("OK", ImVec2(120, 0)))
+					if (modal.callback)
 					{
-						ImGui::CloseCurrentPopup();
-						if (modal.callback)
+						if (ImGui::Button("OK", ImVec2(120, 0)))
 						{
-							modal.callback(modal.userData);
+							ImGui::CloseCurrentPopup();
+							if (modal.callback)
+							{
+								modal.callback(modal.userData);
+							}
+							dialogModals.Dequeue();
 						}
-						confirmDialogs.Dequeue();
 					}
 
 					ImGui::SetItemDefaultFocus();
 
 					ImGui::SameLine();
-					if (ImGui::Button("Cancel", ImVec2(120, 0)))
+					if (ImGui::Button("Close", ImVec2(120, 0)))
 					{
 						ImGui::CloseCurrentPopup();
-						confirmDialogs.Dequeue();
+						dialogModals.Dequeue();
 					}
 					ImGui::EndPopup();
 				}
@@ -647,7 +670,12 @@ namespace Skore
 
 	void Editor::ShowConfirmDialog(StringView message, VoidPtr userData, FnConfirmCallback callback)
 	{
-		confirmDialogs.Enqueue(DialogModalData{message, userData, callback});
+		dialogModals.Enqueue(DialogModalData{message, userData, callback, DialogModalType::Confirmation});
+	}
+
+	void Editor::ShowErrorDialog(StringView message)
+	{
+		dialogModals.Enqueue(DialogModalData{message, nullptr, nullptr, DialogModalType::Error});
 	}
 
 	EditorWorkspace& Editor::GetCurrentWorkspace()

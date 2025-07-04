@@ -38,6 +38,7 @@ namespace Skore
 		static void             AddMenuItem(const MenuItemCreation& menuItem);
 		static void             OpenWindow(TypeID windowType, VoidPtr initUserData = nullptr);
 		static void             ShowConfirmDialog(StringView message, VoidPtr userData, FnConfirmCallback callback);
+		static void             ShowErrorDialog(StringView message);
 		static EditorWorkspace& GetCurrentWorkspace();
 		static UndoRedoScope*   CreateUndoRedoScope(StringView name);
 		static void             LockUndoRedo(bool lock);

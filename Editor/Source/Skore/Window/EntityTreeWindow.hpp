@@ -52,9 +52,12 @@ namespace Skore
 		static bool IsShowSceneEntitySelected(const MenuItemEventData& eventData);
 
 		static void OverridePrototype(const MenuItemEventData& eventData);
-		static void RemoveFromThisInstance(const MenuItemEventData& eventData);
 		static bool CheckIsOverride(const MenuItemEventData& eventData);
 		static void RemoveOverride(const MenuItemEventData& eventData);
+
+		static void RemoveFromThisInstance(const MenuItemEventData& eventData);
+		static bool IsRemovedFromThisInstance(const MenuItemEventData& eventData);
+		static void AddBackToThisInstance(const MenuItemEventData& eventData);
 
 		static void OpenEntityTree(const MenuItemEventData& eventData);
 		static void RegisterType(NativeReflectType<EntityTreeWindow>& type);

@@ -128,6 +128,7 @@ namespace Skore
 	struct UndoRedoScope;
 	typedef CharPtr ResourceInstance; //TODO : rename to ResourceValue
 	typedef bool(*FnRIDCallback)(RID rid, VoidPtr userData);
+	typedef void(*FnRIDCallbackNoRet)(RID rid, VoidPtr userData);
 	typedef void (*FnObjectEvent)(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 
 

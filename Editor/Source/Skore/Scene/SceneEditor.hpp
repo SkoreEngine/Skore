@@ -75,6 +75,7 @@ namespace Skore
 		void OverrideEntity(RID parent, RID entity);
 		void RemoveOverrideFromSelected();
 		void RemoveFromThisInstance(RID parent, RID entity);
+		void AddBackToThisInstance(RID parent, RID entity);
 
 		//simulation
 		bool IsSimulationRunning() const;

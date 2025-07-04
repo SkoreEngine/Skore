@@ -351,7 +351,9 @@ namespace Skore
 		if (Resources::GetStorage(parent)->prototype->rid != Resources::GetParent(entity))
 		{
 			//TODO create all instances.
-			logger.Error("Cannot override entity with a non-prototype parent");
+			logger.Error("Cannot override entity with a non-prototype parent, please override the parent entity first");
+			Editor::ShowErrorDialog("Cannot override entity with a non-prototype parent.\n Please override the parent entity first");
+
 			return;
 		}
 
@@ -385,7 +387,7 @@ namespace Skore
 		if (Resources::GetStorage(parent)->prototype->rid != Resources::GetParent(entity))
 		{
 			//TODO create all instances.
-			logger.Error("Cannot override entity with a non-prototype parent");
+			logger.Error("Cannot override entity with a non-prototype parent, please override the parent entity first");
 		}
 
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Remove From This Instance");
@@ -394,6 +396,15 @@ namespace Skore
 		parentObject.RemoveFromPrototypeSubObjectSet(EntityResource::Children, entity);
 		parentObject.Commit(scope);
 
+	}
+
+	void SceneEditor::AddBackToThisInstance(RID parent, RID entity)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Add Back This Instance");
+
+		ResourceObject parentObject = Resources::Write(parent);
+		parentObject.CancelRemoveFromPrototypeSubObjectSet(EntityResource::Children, entity);
+		parentObject.Commit(scope);
 	}
 
 	bool SceneEditor::IsSimulationRunning() const
