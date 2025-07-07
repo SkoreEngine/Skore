@@ -30,118 +30,79 @@ namespace Skore
 {
 	namespace
 	{
-		struct MikkTSpaceUserData
+		template <typename T>
+		struct MikkTSpaceGenerator
 		{
-			Span<MeshResource::Vertex> vertices;
-			Span<u32>                        indices;
+			struct MikkTSpaceUserData
+			{
+				Span<T>   vertices;
+				Span<u32> indices;
+			};
+
+			static i32 GetNumFaces(const SMikkTSpaceContext* pContext)
+			{
+				MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
+				return (i32)mesh.indices.Size() / 3;
+			}
+
+			static i32 GetNumVerticesOfFace(const SMikkTSpaceContext* pContext, const int iFace)
+			{
+				return 3;
+			}
+
+			static u32 GetVertexIndex(const SMikkTSpaceContext* context, i32 iFace, i32 iVert)
+			{
+				MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(context->m_pUserData);
+
+				auto faceSize = GetNumVerticesOfFace(context, iFace);
+				auto indicesIndex = (iFace * faceSize) + iVert;
+				return mesh.indices[indicesIndex];
+			}
+
+			static void GetPosition(const SMikkTSpaceContext* pContext, float fvPosOut[], const int iFace, const int iVert)
+			{
+				MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
+
+				T& v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
+				fvPosOut[0] = v.position.x;
+				fvPosOut[1] = v.position.y;
+				fvPosOut[2] = v.position.z;
+			}
+
+			static void GetNormal(const SMikkTSpaceContext* pContext, float fvNormOut[], const int iFace, const int iVert)
+			{
+				MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
+
+				T& v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
+				fvNormOut[0] = v.normal.x;
+				fvNormOut[1] = v.normal.y;
+				fvNormOut[2] = v.normal.z;
+			}
+
+			static void GetTexCoord(const SMikkTSpaceContext* pContext, float fvTexcOut[], const int iFace, const int iVert)
+			{
+				MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
+
+				T& v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
+				fvTexcOut[0] = v.texCoord.x;
+				fvTexcOut[1] = v.texCoord.y;
+			}
+
+			static void SetTangentSpaceBasic(const SMikkTSpaceContext* pContext, const float fvTangent[], const float fSign, const int iFace, const int iVert)
+			{
+				MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
+
+				T& v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
+				v.tangent.x = fvTangent[0];
+				v.tangent.y = fvTangent[1];
+				v.tangent.z = fvTangent[2];
+				v.tangent.w = -fSign;
+			}
 		};
-
-		i32 GetNumFaces(const SMikkTSpaceContext* pContext)
-		{
-			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
-			return (i32)mesh.indices.Size() / 3;
-		}
-
-		i32 GetNumVerticesOfFace(const SMikkTSpaceContext* pContext, const int iFace)
-		{
-			return 3;
-		}
-
-		u32 GetVertexIndex(const SMikkTSpaceContext* context, i32 iFace, i32 iVert)
-		{
-			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(context->m_pUserData);
-			auto                faceSize = GetNumVerticesOfFace(context, iFace);
-			auto                indicesIndex = (iFace * faceSize) + iVert;
-			return mesh.indices[indicesIndex];
-		}
-
-		void GetPosition(const SMikkTSpaceContext* pContext, float fvPosOut[], const int iFace, const int iVert)
-		{
-			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
-
-			MeshResource::Vertex& v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
-			fvPosOut[0] = v.position.x;
-			fvPosOut[1] = v.position.y;
-			fvPosOut[2] = v.position.z;
-		}
-
-		void GetNormal(const SMikkTSpaceContext* pContext, float fvNormOut[], const int iFace, const int iVert)
-		{
-			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
-			MeshResource::Vertex&  v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
-			fvNormOut[0] = v.normal.x;
-			fvNormOut[1] = v.normal.y;
-			fvNormOut[2] = v.normal.z;
-		}
-
-		void GetTexCoord(const SMikkTSpaceContext* pContext, float fvTexcOut[], const int iFace, const int iVert)
-		{
-			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
-			MeshResource::Vertex&  v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
-			fvTexcOut[0] = v.texCoord.x;
-			fvTexcOut[1] = v.texCoord.y;
-		}
-
-		void SetTangentSpaceBasic(const SMikkTSpaceContext* pContext, const float fvTangent[], const float fSign, const int iFace, const int iVert)
-		{
-			MikkTSpaceUserData& mesh = *static_cast<MikkTSpaceUserData*>(pContext->m_pUserData);
-			MeshResource::Vertex&  v = mesh.vertices[GetVertexIndex(pContext, iFace, iVert)];
-			v.tangent.x = fvTangent[0];
-			v.tangent.y = fvTangent[1];
-			v.tangent.z = fvTangent[2];
-			v.tangent.w = -fSign;
-		}
-
-		Vec3 CalculateTangent(const MeshResource::Vertex& v1, const MeshResource::Vertex& v2, const MeshResource::Vertex& v3)
-		{
-			Vec3 edge1 = v2.position - v1.position;
-			Vec3 edge2 = v3.position - v1.position;
-			Vec2 deltaUV1 = v2.texCoord - v1.texCoord;
-			Vec2 deltaUV2 = v3.texCoord - v1.texCoord;
-
-			Vec3 tangent{};
-
-			float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
-			tangent.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
-			tangent.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
-			tangent.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
-
-			return tangent;
-		}
-
-		void CalculateTangents(Span<MeshResource::Vertex> vertices, Span<u32> indices)
-		{
-			//Calculate tangents
-			for (usize i = 0; i < indices.Size(); i += 3)
-			{
-				u32 idx0 = indices[i + 0];
-				u32 idx1 = indices[i + 1];
-				u32 idx2 = indices[i + 2];
-
-				vertices[idx0].tangent = Vec4{CalculateTangent(vertices[idx0], vertices[idx1], vertices[idx2]), 1.0};
-				vertices[idx1].tangent = Vec4{CalculateTangent(vertices[idx1], vertices[idx2], vertices[idx0]), 1.0};
-				vertices[idx2].tangent = Vec4{CalculateTangent(vertices[idx2], vertices[idx0], vertices[idx1]), 1.0};
-			}
-		}
-
-
-		void CalculateTangents(Span<MeshResource::Vertex> vertices)
-		{
-			//Calculate tangents
-			for (usize i = 0; i < vertices.Size(); i += 3)
-			{
-				u32 idx0 = i + 0;
-				u32 idx1 = i + 1;
-				u32 idx2 = i + 2;
-				vertices[idx0].tangent = Vec4{CalculateTangent(vertices[idx0], vertices[idx1], vertices[idx2]), 1.0};
-				vertices[idx1].tangent = Vec4{CalculateTangent(vertices[idx1], vertices[idx2], vertices[idx0]), 1.0};
-				vertices[idx2].tangent = Vec4{CalculateTangent(vertices[idx2], vertices[idx0], vertices[idx1]), 1.0};
-			}
-		}
 	}
 
 
-	void MeshTools::CalcNormals(Span<MeshResource::Vertex> vertices, Span<u32> indices)
+	void MeshTools::CalcNormals(Span<MeshStaticVertex> vertices, Span<u32> indices)
 	{
 		for (auto& vertex : vertices)
 		{
@@ -191,38 +152,59 @@ namespace Skore
 		}
 	}
 
-	void MeshTools::CalcTangents(Span<MeshResource::Vertex> vertices, Span<u32> indices, bool useMikktspace)
+	void MeshTools::CalcTangents(Span<MeshStaticVertex> vertices, Span<u32> indices)
 	{
-		if (useMikktspace)
-		{
-			MikkTSpaceUserData userData{
-				.vertices = vertices,
-				.indices = indices
-			};
+		using MikkTSpaceGen = MikkTSpaceGenerator<MeshStaticVertex>;
 
-			SMikkTSpaceInterface anInterface{
-				.m_getNumFaces = GetNumFaces,
-				.m_getNumVerticesOfFace = GetNumVerticesOfFace,
-				.m_getPosition = GetPosition,
-				.m_getNormal = GetNormal,
-				.m_getTexCoord = GetTexCoord,
-				.m_setTSpaceBasic = SetTangentSpaceBasic
-			};
+		MikkTSpaceGen::MikkTSpaceUserData userData{
+			.vertices = vertices,
+			.indices = indices
+		};
 
-			SMikkTSpaceContext mikkTSpaceContext{
-				.m_pInterface = &anInterface,
-				.m_pUserData = &userData
-			};
+		SMikkTSpaceInterface anInterface{
+			.m_getNumFaces = MikkTSpaceGen::GetNumFaces,
+			.m_getNumVerticesOfFace = MikkTSpaceGen::GetNumVerticesOfFace,
+			.m_getPosition = MikkTSpaceGen::GetPosition,
+			.m_getNormal = MikkTSpaceGen::GetNormal,
+			.m_getTexCoord = MikkTSpaceGen::GetTexCoord,
+			.m_setTSpaceBasic = MikkTSpaceGen::SetTangentSpaceBasic
+		};
 
-			genTangSpaceDefault(&mikkTSpaceContext);
-		}
-		else
-		{
-			CalculateTangents(vertices, indices);
-		}
+		SMikkTSpaceContext mikkTSpaceContext{
+			.m_pInterface = &anInterface,
+			.m_pUserData = &userData
+		};
+
+		genTangSpaceDefault(&mikkTSpaceContext);
 	}
 
-	u64 MeshTools::GenerateIndices(const Array<MeshResource::Vertex>& allVertices, Array<u32>& newIndices, Array<MeshResource::Vertex>& newVertices, bool checkForDuplicates)
+	void MeshTools::CalcTangents(Span<MeshSkeletalVertex> vertices, Span<u32> indices)
+	{
+		using MikkTSpaceGen = MikkTSpaceGenerator<MeshSkeletalVertex>;
+
+		MikkTSpaceGen::MikkTSpaceUserData userData{
+			.vertices = vertices,
+			.indices = indices
+		};
+
+		SMikkTSpaceInterface anInterface{
+			.m_getNumFaces = MikkTSpaceGen::GetNumFaces,
+			.m_getNumVerticesOfFace = MikkTSpaceGen::GetNumVerticesOfFace,
+			.m_getPosition = MikkTSpaceGen::GetPosition,
+			.m_getNormal = MikkTSpaceGen::GetNormal,
+			.m_getTexCoord = MikkTSpaceGen::GetTexCoord,
+			.m_setTSpaceBasic = MikkTSpaceGen::SetTangentSpaceBasic
+		};
+
+		SMikkTSpaceContext mikkTSpaceContext{
+			.m_pInterface = &anInterface,
+			.m_pUserData = &userData
+		};
+
+		genTangSpaceDefault(&mikkTSpaceContext);
+	}
+
+	u64 MeshTools::GenerateIndices(const Array<MeshStaticVertex>& allVertices, Array<u32>& newIndices, Array<MeshStaticVertex>& newVertices, bool checkForDuplicates)
 	{
 		newIndices.Reserve(allVertices.Size());
 		newVertices.Reserve(allVertices.Size());
@@ -231,8 +213,8 @@ namespace Skore
 
 		if (checkForDuplicates)
 		{
-			HashMap<MeshResource::Vertex, u32> uniqueVertices{};
-			for (const MeshResource::Vertex& vertexData : allVertices)
+			HashMap<MeshStaticVertex, u32> uniqueVertices{};
+			for (const MeshStaticVertex& vertexData : allVertices)
 			{
 				auto it = uniqueVertices.Find(vertexData);
 				if (it == uniqueVertices.end())
@@ -243,11 +225,11 @@ namespace Skore
 				newIndices.EmplaceBack(it->second);
 			}
 
-			reduced = allVertices.Size() -  newVertices.Size();
+			reduced = allVertices.Size() - newVertices.Size();
 		}
 		else
 		{
-			for (const MeshResource::Vertex& vertexData : allVertices)
+			for (const MeshStaticVertex& vertexData : allVertices)
 			{
 				newIndices.EmplaceBack(static_cast<u32>(newVertices.Size()));
 				newVertices.EmplaceBack(vertexData);

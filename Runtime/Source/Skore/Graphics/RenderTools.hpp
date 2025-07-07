@@ -32,9 +32,10 @@ namespace Skore
 {
 	namespace MeshTools
 	{
-		SK_API void CalcNormals(Span<MeshResource::Vertex> vertices, Span<u32> indices);
-		SK_API void CalcTangents(Span<MeshResource::Vertex> vertices, Span<u32> indices, bool useMikktspace);
-		SK_API u64 GenerateIndices(const Array<MeshResource::Vertex>& allVertices, Array<u32>& newIndices, Array<MeshResource::Vertex>& newVertices, bool checkForDuplicates = true);
+		SK_API void CalcNormals(Span<MeshStaticVertex> vertices, Span<u32> indices);
+		SK_API void CalcTangents(Span<MeshStaticVertex> vertices, Span<u32> indices);
+		SK_API void CalcTangents(Span<MeshSkeletalVertex> vertices, Span<u32> indices);
+		SK_API u64 GenerateIndices(const Array<MeshStaticVertex>& allVertices, Array<u32>& newIndices, Array<MeshStaticVertex>& newVertices, bool checkForDuplicates = true);
 	}
 
 	class SK_API SinglePassDownsampler

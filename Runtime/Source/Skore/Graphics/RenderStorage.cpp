@@ -285,7 +285,7 @@ namespace Skore
 						.size = indices.Size()
 					});
 
-					meshData->primitives.Resize(primitives.Size() / sizeof(MeshResource::Primitive));
+					meshData->primitives.Resize(primitives.Size() / sizeof(MeshPrimitive));
 					memcpy(meshData->primitives.Data(), primitives.Data(), primitives.Size());
 
 

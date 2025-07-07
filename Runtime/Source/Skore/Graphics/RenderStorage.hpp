@@ -49,7 +49,7 @@ namespace Skore
 		GPUBuffer* vertexBuffer;
 		GPUBuffer* indexBuffer;
 
-		Array<MeshResource::Primitive> primitives;
+		Array<MeshPrimitive> primitives;
 		Array<GPUDescriptorSet*> materials;
 	};
 

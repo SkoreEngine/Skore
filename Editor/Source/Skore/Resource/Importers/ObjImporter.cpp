@@ -79,7 +79,7 @@ namespace Skore
 			Allocator* heapAllocator = MemoryGlobals::GetHeapAllocator();
 
 			Array<u32> tempIndices{heapAllocator};
-			Array<MeshResource::Vertex> tempVertices{heapAllocator};
+			Array<MeshStaticVertex> tempVertices{heapAllocator};
 
 
 			auto &attrib = reader.GetAttrib();
@@ -201,7 +201,7 @@ namespace Skore
 					name = fileName + "_" + ToString(i);
 				}
 
-				HashMap<u32, Array<MeshResource::Vertex>>  verticesByMaterial;
+				HashMap<u32, Array<MeshStaticVertex>>  verticesByMaterial;
 
 				size_t indexOffset = 0;
 
@@ -211,10 +211,10 @@ namespace Skore
 					auto it = verticesByMaterial.Find(mat);
 					if (it == verticesByMaterial.end())
 					{
-						it = verticesByMaterial.Insert(mat, Array<MeshResource::Vertex>{heapAllocator}).first;
+						it = verticesByMaterial.Insert(mat, Array<MeshStaticVertex>{heapAllocator}).first;
 					}
 
-					Array<MeshResource::Vertex>& vertices = it->second;
+					Array<MeshStaticVertex>& vertices = it->second;
 
 					size_t fv = size_t(shape.mesh.num_face_vertices[f]);
 
@@ -222,7 +222,7 @@ namespace Skore
 					{
 						// access to vertex
 						tinyobj::index_t idx = shape.mesh.indices[indexOffset + v];
-						MeshResource::Vertex& vertex = vertices.EmplaceBack();
+						MeshStaticVertex& vertex = vertices.EmplaceBack();
 
 						vertex.position.x = attrib.vertices[3 * std::size_t(idx.vertex_index) + 0];
 						vertex.position.y = attrib.vertices[3 * std::size_t(idx.vertex_index) + 1];
@@ -256,10 +256,10 @@ namespace Skore
 				logger.Debug("processing mesh {} ", name);
 
 				Array<RID> meshMaterials;
-				Array<MeshResource::Vertex> allVertices = {heapAllocator};
+				Array<MeshStaticVertex> allVertices = {heapAllocator};
 				Array<u32> allIndices = {heapAllocator};
 
-				Array<MeshResource::Primitive> primitives = {heapAllocator};
+				Array<MeshPrimitive> primitives = {heapAllocator};
 
 				for (auto& it : verticesByMaterial)
 				{
@@ -277,7 +277,7 @@ namespace Skore
 						meshMaterials.EmplaceBack(ridMaterials[it.first]);
 					}
 
-					primitives.EmplaceBack(MeshResource::Primitive{
+					primitives.EmplaceBack(MeshPrimitive{
 						.firstIndex = 0,
 						.indexCount = static_cast<u32>(tempIndices.Size()),
 						.materialIndex = materialIndex
@@ -292,16 +292,16 @@ namespace Skore
 					MeshTools::CalcNormals(allVertices, allIndices);
 				}
 
-				MeshTools::CalcTangents(allVertices, allIndices, true);
+				MeshTools::CalcTangents(allVertices, allIndices);
 
 				RID meshResource = Resources::Create<MeshResource>(UUID::RandomUUID(), scope);
 
 				ResourceObject meshObject = Resources::Write(meshResource);
 				meshObject.SetString(MeshResource::Name, name);
 				meshObject.SetReferenceArray(MeshResource::Materials, meshMaterials);
-				meshObject.SetBlob(MeshResource::Vertices, Span(reinterpret_cast<u8*>(allVertices.Data()), allVertices.Size() * sizeof(MeshResource::Vertex)));
+				meshObject.SetBlob(MeshResource::Vertices, Span(reinterpret_cast<u8*>(allVertices.Data()), allVertices.Size() * sizeof(MeshStaticVertex)));
 				meshObject.SetBlob(MeshResource::Indices, Span(reinterpret_cast<u8*>(allIndices.Data()), allIndices.Size() * sizeof(u32)));
-				meshObject.SetBlob(MeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(MeshResource::Primitive)));
+				meshObject.SetBlob(MeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(MeshPrimitive)));
 				meshObject.Commit(scope);
 
 				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Meshes, meshResource);

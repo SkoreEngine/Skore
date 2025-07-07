@@ -643,10 +643,10 @@ namespace Skore
 
 		Reflection::Type<ShaderStageInfo>();
 
-		auto primitive = Reflection::Type<MeshResource::Primitive>();
-		primitive.Field<&MeshResource::Primitive::firstIndex>("firstIndex");
-		primitive.Field<&MeshResource::Primitive::indexCount>("indexCount");
-		primitive.Field<&MeshResource::Primitive::materialIndex>("materialIndex");
+		auto primitive = Reflection::Type<MeshPrimitive>();
+		primitive.Field<&MeshPrimitive::firstIndex>("firstIndex");
+		primitive.Field<&MeshPrimitive::indexCount>("indexCount");
+		primitive.Field<&MeshPrimitive::materialIndex>("materialIndex");
 		//
 		auto materialType = Reflection::Type<MaterialResource::MaterialType>();
 		materialType.Value<MaterialResource::MaterialType::Opaque>("Opaque");
@@ -716,6 +716,7 @@ namespace Skore
 			.Field<MeshResource::Name>(ResourceFieldType::String)
 			.Field<MeshResource::Materials>(ResourceFieldType::ReferenceArray)
 			.Field<MeshResource::AABB>(ResourceFieldType::SubObject)
+			.Field<MeshResource::Skinned>(ResourceFieldType::Bool)
 			.Field<MeshResource::Vertices>(ResourceFieldType::Blob)
 			.Field<MeshResource::Primitives>(ResourceFieldType::Blob)
 			.Field<MeshResource::Indices>(ResourceFieldType::Blob)

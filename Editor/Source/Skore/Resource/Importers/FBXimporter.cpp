@@ -29,6 +29,7 @@
 
 #include <ufbx.h>
 
+#include "MeshImporter.hpp"
 #include "TextureImporter.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Logger.hpp"
@@ -120,10 +121,9 @@ namespace Skore
 			}
 
 			//if found, import the texture
-			//TODO: check if texture already exists in the path?
 			if (FileSystem::GetFileStatus(absolutePath).exists)
 			{
-				textureRID =  ImportTexture(directory, textureImportSettings, absolutePath, scope);
+				textureRID = ImportTexture(directory, textureImportSettings, absolutePath, scope);
 			}
 		}
 
@@ -189,7 +189,7 @@ namespace Skore
 		return materialResource;
 	}
 
-
+	template<typename T>
 	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_mesh* mesh, UndoRedoScope* scope)
 	{
 
@@ -219,13 +219,13 @@ namespace Skore
 		size_t     numTriIndices = mesh->max_face_triangles * 3;
 		Array<u32> triIndices = {heapAllocator, numTriIndices};
 
-		Array<MeshResource::Vertex> tempVertices = {heapAllocator, maxTriangles * 3};
+		Array<T> tempVertices = {heapAllocator, maxTriangles * 3};
 		Array<u32> tempIndices = {heapAllocator, maxTriangles * 3};
 
-		Array<MeshResource::Vertex> allVertices = {heapAllocator, totalTriangles * 3};
+		Array<T> allVertices = {heapAllocator, totalTriangles * 3};
 		Array<u32> allIndices = {heapAllocator, totalTriangles * 3};
 
-		Array<MeshResource::Primitive> primitives = {heapAllocator, partCount};
+		Array<MeshPrimitive> primitives = {heapAllocator, partCount};
 
 		u64 totalIndicesCount = 0;
 		u64 totalVerticesCount = 0;
@@ -255,7 +255,7 @@ namespace Skore
 				{
 					u32 ix = triIndices[vi];
 
-					MeshResource::Vertex *vert = &tempVertices[numIndices];
+					T *vert = &tempVertices[numIndices];
 
 					ufbx_vec3 pos = ufbx_get_vertex_vec3(&mesh->vertex_position, ix);
 					ufbx_vec3 normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, ix);
@@ -269,13 +269,25 @@ namespace Skore
 					vert->texCoord = ToVec2(uv);
 					vert->color = Vec3(ToVec4(color));
 
-					//vert->f_vertex_index = (float)mesh->vertex_indices.data[ix];
+					if (mesh->skin_deformers.count > 0)
+					{
+						auto skin = mesh->skin_deformers[0];
+						ufbx_skin_vertex vertex_weights = skin->vertices.data[mesh->vertex_indices.data[ix]];
 
-					// The skinning vertex stream is pre-calculated above so we just need to
-					// copy the right one by the vertex index.
-					// if (skin) {
-					// 	skin_vertices[num_indices] = mesh_skin_vertices[mesh->vertex_indices.data[ix]];
-					// }
+						size_t num_weights = 0;
+						for (size_t wi = 0; wi < vertex_weights.num_weights; wi++)
+						{
+							if (num_weights >= 4) break;
+							ufbx_skin_weight weight = skin->weights.data[vertex_weights.weight_begin + wi];
+
+							auto a = weight.cluster_index; // bone index?
+							auto b = weight.weight;
+
+							num_weights++;
+
+							int zz = 0;
+						}
+					}
 
 					numIndices++;
 				}
@@ -286,14 +298,7 @@ namespace Skore
 
 			streams[0].data = tempVertices.Data();
 			streams[0].vertex_count = numIndices;
-			streams[0].vertex_size = sizeof(MeshResource::Vertex);
-
-			// if (skin) {
-			// 	streams[1].data = skin_vertices;
-			// 	streams[1].vertex_count = num_indices;
-			// 	streams[1].vertex_size = sizeof(skin_vertex);
-			// 	num_streams = 2;
-			// }
+			streams[0].vertex_size = sizeof(T);
 
 			// Optimize the flat vertex buffer into an indexed one. `ufbx_generate_indices()`
 			// compacts the vertex buffer and returns the number of used vertices.
@@ -305,8 +310,6 @@ namespace Skore
 				logger.Error("Failed to generate index buffer");
 				return {};
 			}
-
-
 			auto materialCheck = [&]() -> u32
 			{
 				if (mesh_part->index < mesh->materials.count)
@@ -339,7 +342,7 @@ namespace Skore
 				tempIndices[i] += totalVerticesCount;
 			}
 
-			memcpy(reinterpret_cast<char*>(allVertices.begin()) + totalVerticesCount * sizeof(MeshResource::Vertex), tempVertices.Data(), sizeof(MeshResource::Vertex) * numVertices);
+			memcpy(reinterpret_cast<char*>(allVertices.begin()) + totalVerticesCount * sizeof(T), tempVertices.Data(), sizeof(T) * numVertices);
 			memcpy(reinterpret_cast<char*>(allIndices.begin()) + totalIndicesCount * sizeof(u32), tempIndices.Data(), sizeof(u32) * numIndices);
 
 			totalVerticesCount += numVertices;
@@ -349,27 +352,19 @@ namespace Skore
 		allVertices.Resize(totalVerticesCount);
 		allIndices.Resize(totalIndicesCount);
 
-		if (settings.generateNormals)
+		MeshImportSettings meshImportSettings = {};
+
+		return ImportMesh(RID{}, meshImportSettings, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : name, meshMaterials, primitives, allVertices, allIndices, scope);
+	}
+
+
+	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_mesh* mesh, UndoRedoScope* scope)
+	{
+		if (mesh->skin_deformers.count > 0)
 		{
-			//MeshTools::CalcNormals(allVertices, allIndices);
+			return ProcessMesh<MeshSkeletalVertex>(settings, cache, name, mesh, scope);
 		}
-
-		if (settings.recalculateTangents)
-		{
-			MeshTools::CalcTangents(allVertices, allIndices, true);
-		}
-
-		RID meshResource = Resources::Create<MeshResource>(UUID::RandomUUID(), scope);
-
-		ResourceObject meshObject = Resources::Write(meshResource);
-		meshObject.SetString(MeshResource::Name, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : name);
-		meshObject.SetReferenceArray(MeshResource::Materials, meshMaterials);
-		meshObject.SetBlob(MeshResource::Vertices, Span(reinterpret_cast<u8*>(allVertices.Data()), allVertices.Size() * sizeof(MeshResource::Vertex)));
-		meshObject.SetBlob(MeshResource::Indices, Span(reinterpret_cast<u8*>(allIndices.Data()), allIndices.Size() * sizeof(u32)));
-		meshObject.SetBlob(MeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(MeshResource::Primitive)));
-		meshObject.Commit(scope);
-
-		return meshResource;
+		return ProcessMesh<MeshStaticVertex>(settings, cache, name, mesh, scope);
 	}
 
 	RID ProcessNode(const FBXImportSettings& settings, const ufbx_node* node, FBXImportCache& cache, const ufbx_scene* fbxScene, UndoRedoScope* scope, StringView name = {})

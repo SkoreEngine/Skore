@@ -70,42 +70,41 @@ namespace Skore
 		};
 	};
 
+	struct MeshPrimitive
+	{
+		u32 firstIndex;
+		u32 indexCount;
+		u32 materialIndex;
+	};
+
+	struct MeshStaticVertex
+	{
+		Vec3 position;
+		Vec3 normal;
+		Vec2 texCoord;
+		Vec3 color;
+		Vec4 tangent;
+	};
+
+	struct MeshSkeletalVertex
+	{
+		Vec3 position;
+		Vec3 normal;
+		Vec2 texCoord;
+		Vec3 color;
+		Vec4 tangent;
+		Vec4 boneIndices;
+		Vec4 boneWeights;
+	};
+
 	struct MeshResource
 	{
-		struct Vertex
-		{
-			Vec3 position;
-			Vec3 normal;
-			Vec2 texCoord;
-			Vec3 color;
-			Vec4 tangent;
-
-			friend bool operator==(const Vertex& lhs, const Vertex& rhs)
-			{
-				return lhs.position == rhs.position
-					&& lhs.normal == rhs.normal
-					&& lhs.texCoord == rhs.texCoord
-					&& lhs.color == rhs.color;
-			}
-
-			friend bool operator!=(const Vertex& lhs, const Vertex& rhs)
-			{
-				return !(lhs == rhs);
-			}
-		};
-
-		struct Primitive
-		{
-			u32 firstIndex;
-			u32 indexCount;
-			u32 materialIndex;
-		};
-
 		enum
 		{
 			Name,       //String
 			Materials,  //ReferenceArray
 			AABB,       //Subobject
+			Skinned,	//Bool
 			Vertices,   //Blob
 			Indices,    //Blob
 			Primitives, //Blob
@@ -183,12 +182,25 @@ namespace Skore
 	};
 
 	template<>
-	struct Hash<MeshResource::Vertex>
+	struct Hash<MeshStaticVertex>
 	{
 		constexpr static bool hasHash = true;
-		constexpr static usize Value(const MeshResource::Vertex& value)
+		constexpr static usize Value(const MeshStaticVertex& value)
 		{
 			return (Hash<Vec3>::Value(value.position) ^ Hash<Vec3>::Value(value.normal) << 1) >> 1 ^ Hash<Vec2>::Value(value.texCoord) << 1;
 		}
 	};
+
+	inline bool operator==(const MeshStaticVertex& lhs, const MeshStaticVertex& rhs)
+	{
+		return lhs.position == rhs.position
+			&& lhs.normal == rhs.normal
+			&& lhs.texCoord == rhs.texCoord
+			&& lhs.color == rhs.color;
+	}
+
+	inline bool operator!=(const MeshStaticVertex& lhs, const MeshStaticVertex& rhs)
+	{
+		return !(lhs == rhs);
+	}
 }
