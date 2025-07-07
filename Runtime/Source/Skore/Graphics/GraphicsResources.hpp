@@ -169,6 +169,8 @@ namespace Skore
 		};
 	};
 
+	using MaterialArray = Array<TypedRID<MaterialResource>>;
+
 	struct DCCAssetResource
 	{
 		enum

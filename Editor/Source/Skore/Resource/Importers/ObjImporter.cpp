@@ -32,7 +32,7 @@
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/Path.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
-#include "Skore/Scene/Components/MeshRenderer.hpp"
+#include "Skore/Scene/Components/StaticMeshRenderer.hpp"
 
 namespace Skore
 {
@@ -316,7 +316,7 @@ namespace Skore
 				Resources::ToResource(transformRID, &transform, scope);
 				entityObject.SetSubObject(EntityResource::Transform, transformRID);
 
-				RID meshRenderer = Resources::Create<MeshRenderer>(UUID::RandomUUID());
+				RID meshRenderer = Resources::Create<StaticMeshRenderer>(UUID::RandomUUID());
 
 				ResourceObject staticMeshRenderObject = Resources::Write(meshRenderer);
 				staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshResource);

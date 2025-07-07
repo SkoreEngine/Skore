@@ -47,6 +47,8 @@ namespace Skore
 				MeshTools::CalcTangents(vertices, indices);
 			}
 
+			//TODO - AABB, Center
+
 			RID meshResource = Resources::Create<MeshResource>(UUID::RandomUUID(), scope);
 
 			ResourceObject meshObject = Resources::Write(meshResource);

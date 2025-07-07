@@ -27,7 +27,8 @@
 #include "Entity.hpp"
 #include "Components/EnvironmentComponent.hpp"
 #include "Components/LightComponent.hpp"
-#include "Components/MeshRenderer.hpp"
+#include "Components/SkinnedMeshRenderer.hpp"
+#include "Components/StaticMeshRenderer.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/Resources.hpp"
 
@@ -40,7 +41,8 @@ namespace Skore
 		Reflection::Type<SceneManager>();
 
 		Reflection::Type<Component>();
-		Reflection::Type<MeshRenderer>();
+		Reflection::Type<StaticMeshRenderer>();
+		Reflection::Type<SkinnedMeshRenderer>();
 		Reflection::Type<LightComponent>();
 		Reflection::Type<EnvironmentComponent>();
 
