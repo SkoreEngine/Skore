@@ -23,11 +23,13 @@
 #include "IconsFontAwesome6.h"
 #include "ImGui.hpp"
 #include "Skore/Editor.hpp"
+#include "Skore/EditorWorkspace.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Color.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Scene/Entity.hpp"
 
 namespace Skore
 {
@@ -330,6 +332,8 @@ namespace Skore
 		auto& style = ImGui::GetStyle();
 		auto& io = ImGui::GetIO();
 
+		bool isEntityDraw = typeId == TypeInfo<Entity>::ID();
+
 		char pushStr[30];
 		sprintf(pushStr, "###push%llu", id);
 
@@ -395,46 +399,102 @@ namespace Skore
 
 				if (ImGui::BeginChild(10000, ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysUseWindowPadding))
 				{
-					if (ImGuiBeginContentTable("asset-selection", zoom))
+					if (!isEntityDraw)
 					{
+						if (ImGuiBeginContentTable("asset-selection", zoom))
 						{
-							ImGuiContentItemDesc contentItem{};
-							contentItem.id = HashValue("None-Id");
-							contentItem.label = "None";
-							contentItem.thumbnailScale = zoom;
-
-							ImGuiContentItemState state = ImGuiContentItem(contentItem);
-
-							if (state.enter)
 							{
-								ImGui::CloseCurrentPopup();
-								func(RID{});
-							}
-						}
-
-						for (RID resourceAsset : Resources::GetResourceByType(typeId))
-						{
-							if (Resources::HasValue(resourceAsset))
-							{
-								stringCache = ResourceAssets::GetAssetName(resourceAsset);
-
 								ImGuiContentItemDesc contentItem{};
-								contentItem.id = resourceAsset.id;
-								contentItem.label =  stringCache.CStr();
+								contentItem.id = HashValue("None-Id");
+								contentItem.label = "None";
 								contentItem.thumbnailScale = zoom;
-								//contentItem.texture = assetFile->GetThumbnail();
 
 								ImGuiContentItemState state = ImGuiContentItem(contentItem);
 
 								if (state.enter)
 								{
 									ImGui::CloseCurrentPopup();
-									func(resourceAsset);
+									func(RID{});
 								}
 							}
-						}
 
-						ImGuiEndContentTable();
+							for (RID resourceAsset : Resources::GetResourceByType(typeId))
+							{
+								if (Resources::HasValue(resourceAsset))
+								{
+									stringCache = ResourceAssets::GetAssetName(resourceAsset);
+
+									ImGuiContentItemDesc contentItem{};
+									contentItem.id = resourceAsset.id;
+									contentItem.label =  stringCache.CStr();
+									contentItem.thumbnailScale = zoom;
+									//contentItem.texture = assetFile->GetThumbnail();
+
+									ImGuiContentItemState state = ImGuiContentItem(contentItem);
+
+									if (state.enter)
+									{
+										ImGui::CloseCurrentPopup();
+										func(resourceAsset);
+									}
+								}
+							}
+
+							ImGuiEndContentTable();
+						}
+					}
+					else
+					{
+						ScopedStyleColor childBg(ImGuiCol_FrameBg, IM_COL32(27, 28, 30, 255));
+						if (ImGui::BeginListBox("Entities", ImVec2(-FLT_MIN, -FLT_MIN)))
+						{
+							SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+
+							if (ImGui::Selectable(ICON_FA_CUBE " None", false, ImGuiSelectableFlags_AllowDoubleClick))
+							{
+								if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+								{
+									ImGui::CloseCurrentPopup();
+									func(RID{});
+								}
+							}
+
+							std::function<void(RID entity)> drawEntity;
+							drawEntity = [&](RID entity)
+							{
+								ResourceObject entityObject = Resources::Read(entity);
+
+								stringCache.Clear();
+								stringCache += ICON_FA_CUBE;
+								stringCache += " ";
+								stringCache += entityObject.GetString(EntityResource::Name);
+
+								ImGui::PushID(IntToPtr(entity.id));
+
+								if (ImGui::Selectable(stringCache.CStr(), false, ImGuiSelectableFlags_AllowDoubleClick))
+								{
+									if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+									{
+										ImGui::CloseCurrentPopup();
+										func(entity);
+									}
+								}
+
+								ImGui::PopID();
+
+								entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
+								{
+									drawEntity(child);
+									return true;
+								});
+
+							};
+
+							drawEntity(sceneEditor->GetRootEntity());
+
+							ImGui::EndListBox();
+
+						}
 					}
 					ImGui::EndChild();
 					ImGui::SetWindowFontScale(1);

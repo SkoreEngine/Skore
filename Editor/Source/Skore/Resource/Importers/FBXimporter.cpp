@@ -37,6 +37,7 @@
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
+#include "Skore/Scene/Components/SkinnedMeshRenderer.hpp"
 #include "Skore/Scene/Components/StaticMeshRenderer.hpp"
 
 namespace Skore
@@ -190,9 +191,8 @@ namespace Skore
 	}
 
 	template<typename T>
-	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_mesh* mesh, UndoRedoScope* scope)
+	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_scene* scene, ufbx_mesh* mesh, UndoRedoScope* scope)
 	{
-
 		if (!mesh) return {};
 
 		Allocator* heapAllocator = MemoryGlobals::GetHeapAllocator();
@@ -272,6 +272,7 @@ namespace Skore
 					if (mesh->skin_deformers.count > 0)
 					{
 						auto skin = mesh->skin_deformers[0];
+
 						ufbx_skin_vertex vertex_weights = skin->vertices.data[mesh->vertex_indices.data[ix]];
 
 						size_t num_weights = 0;
@@ -279,6 +280,11 @@ namespace Skore
 						{
 							if (num_weights >= 4) break;
 							ufbx_skin_weight weight = skin->weights.data[vertex_weights.weight_begin + wi];
+
+
+							ufbx_skin_cluster* cluster = skin->clusters[weight.cluster_index];
+
+							//cluster->
 
 							auto a = weight.cluster_index; // bone index?
 							auto b = weight.weight;
@@ -354,31 +360,48 @@ namespace Skore
 
 		MeshImportSettings meshImportSettings = {};
 
-		return ImportMesh(RID{}, meshImportSettings, !IsStrNullOrEmpty(mesh->name.data) ? mesh->name.data : name, meshMaterials, primitives, allVertices, allIndices, scope);
+
+		String meshName;
+
+		if (!name.Empty())
+		{
+			meshName = name;
+		}
+		else if (!IsStrNullOrEmpty(mesh->name.data))
+		{
+			meshName = mesh->name.data;
+		}
+		else
+		{
+			u32 index = mesh - scene->meshes.data[0];
+			meshName = String("Mesh").Append(ToString(index));
+		}
+
+		return ImportMesh(RID{}, meshImportSettings, meshName , meshMaterials, primitives, allVertices, allIndices, scope);
 	}
 
 
-	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_mesh* mesh, UndoRedoScope* scope)
+	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_scene* scene, ufbx_mesh* mesh, UndoRedoScope* scope)
 	{
 		if (mesh->skin_deformers.count > 0)
 		{
-			return ProcessMesh<MeshSkeletalVertex>(settings, cache, name, mesh, scope);
+			return ProcessMesh<MeshSkeletalVertex>(settings, cache, name, scene, mesh, scope);
 		}
-		return ProcessMesh<MeshStaticVertex>(settings, cache, name, mesh, scope);
+		return ProcessMesh<MeshStaticVertex>(settings, cache, name, scene, mesh, scope);
 	}
 
-	RID ProcessNode(const FBXImportSettings& settings, const ufbx_node* node, FBXImportCache& cache, const ufbx_scene* fbxScene, UndoRedoScope* scope, StringView name = {})
+	RID ProcessNode(const FBXImportSettings& settings, ufbx_scene* scene, const ufbx_node* node, FBXImportCache& cache, const ufbx_scene* fbxScene, UndoRedoScope* scope, StringView name = {})
 	{
 		if (!node)
 		{
 			return {};
 		}
 
-		//ignore non-mesh nodes.
-		if (!node->mesh && node->children.count == 0)
-		{
-			return {};
-		}
+		// //ignore camera or lights
+		// if (node->camera || node->light)
+		// {
+		// 	return {};
+		// }
 
 		RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
 		ResourceObject entityObject = Resources::Write(entity);
@@ -390,8 +413,9 @@ namespace Skore
 			nodeName = node->name.data;
 		}
 
-		entityObject.SetString(EntityResource::Name, nodeName);
+		logger.Debug("processing node {} ", nodeName);
 
+		entityObject.SetString(EntityResource::Name, nodeName);
 
 		// Extract transform
 		Transform transform;
@@ -409,7 +433,7 @@ namespace Skore
 			auto meshIt = cache.meshes.Find(node->mesh);
 			if (meshIt == cache.meshes.end())
 			{
-				if (RID meshRID = ProcessMesh(settings, cache, nodeName, node->mesh, scope))
+				if (RID meshRID = ProcessMesh(settings, cache, nodeName, scene, node->mesh, scope))
 				{
 					meshIt = cache.meshes.Insert(node->mesh, meshRID).first;
 				}
@@ -417,20 +441,36 @@ namespace Skore
 
 			if (meshIt)
 			{
-				RID meshRenderer = Resources::Create<StaticMeshRenderer>(UUID::RandomUUID());
 
-				ResourceObject staticMeshRenderObject = Resources::Write(meshRenderer);
-				staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshIt->second);
-				staticMeshRenderObject.Commit(scope);
+				ResourceObject meshObject = Resources::Write(meshIt->second);
+				if (meshObject.GetBool(MeshResource::Skinned))
+				{
+					RID meshRenderer = Resources::Create<SkinnedMeshRenderer>(UUID::RandomUUID());
 
-				entityObject.AddToSubObjectSet(EntityResource::Components, meshRenderer);
+					ResourceObject skinnedMeshRenderObject = Resources::Write(meshRenderer);
+					skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("rootBone"), entity); // not right.
+					skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("mesh"), meshIt->second);
+					skinnedMeshRenderObject.Commit(scope);
+
+					entityObject.AddToSubObjectSet(EntityResource::Components, meshRenderer);
+				}
+				else
+				{
+					RID meshRenderer = Resources::Create<StaticMeshRenderer>(UUID::RandomUUID());
+
+					ResourceObject staticMeshRenderObject = Resources::Write(meshRenderer);
+					staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshIt->second);
+					staticMeshRenderObject.Commit(scope);
+
+					entityObject.AddToSubObjectSet(EntityResource::Components, meshRenderer);
+				}
 			}
 		}
 
 		// Process children
 		for (u32 i = 0; i < node->children.count; i++)
 		{
-			if (RID child = ProcessNode(settings, node->children.data[i], cache, fbxScene, scope))
+			if (RID child = ProcessNode(settings, scene, node->children.data[i], cache, fbxScene, scope))
 			{
 				entityObject.AddToSubObjectSet(EntityResource::Children, child);
 			}
@@ -528,7 +568,7 @@ namespace Skore
 
 					if (current)
 					{
-						if (RID root = ProcessNode(settings, current, cache, scene, scope, fileName))
+						if (RID root = ProcessNode(settings, scene, current, cache, scene, scope, fileName))
 						{
 							dccAssetObject.SetSubObject(DCCAssetResource::Entity, root);
 						}
@@ -542,7 +582,7 @@ namespace Skore
 				ufbx_mesh* mesh = scene->meshes.data[i];
 				if (!cache.meshes.Has(mesh))
 				{
-					if (RID meshRID = ProcessMesh(settings, cache, String("Mesh").Append(ToString(i)), mesh, scope))
+					if (RID meshRID = ProcessMesh(settings, cache, "", scene, mesh, scope))
 					{
 						cache.meshes.Insert(mesh, meshRID);
 					}

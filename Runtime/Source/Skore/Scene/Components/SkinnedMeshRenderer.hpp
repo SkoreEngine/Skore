@@ -23,6 +23,8 @@
 #pragma once
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Scene/Component.hpp"
+#include "Skore/Scene/Entity.hpp"
+
 
 namespace Skore
 {
@@ -31,9 +33,14 @@ namespace Skore
 	public:
 		SK_CLASS(SkinnedMeshRenderer, Component);
 
-	private:
 
+		static void RegisterType(NativeReflectType<SkinnedMeshRenderer>& type);
+
+	private:
 		TypedRID<MeshResource> m_mesh = {};
+		Entity*                m_rootBone = {};
 		MaterialArray          m_materials = {};
+
+		bool m_castShadows = true;
 	};
 }

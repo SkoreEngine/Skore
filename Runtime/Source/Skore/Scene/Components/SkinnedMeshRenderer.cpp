@@ -21,3 +21,16 @@
 // SOFTWARE.
 
 #include "SkinnedMeshRenderer.hpp"
+
+#include "Skore/Core/Reflection.hpp"
+
+namespace Skore
+{
+	void SkinnedMeshRenderer::RegisterType(NativeReflectType<SkinnedMeshRenderer>& type)
+	{
+		type.Field<&SkinnedMeshRenderer::m_mesh>("mesh");
+		type.Field<&SkinnedMeshRenderer::m_rootBone>("rootBone");
+		type.Field<&SkinnedMeshRenderer::m_materials>("materials");
+		type.Field<&SkinnedMeshRenderer::m_castShadows>("castShadows");
+	}
+}

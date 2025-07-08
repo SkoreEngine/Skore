@@ -24,6 +24,7 @@
 #include "SceneCommon.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Object.hpp"
+#include "Skore/Resource/ResourceReflection.hpp"
 
 namespace Skore
 {
@@ -176,5 +177,30 @@ namespace Skore
 		static void OnEntityResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnComponentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnTransformResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
+	};
+
+
+	template<>
+	struct ResourceCast<Entity*>
+	{
+		constexpr static bool hasSpecialization = true;
+
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Entity* value)
+		{
+			//TODO
+		}
+
+		static void FromResource(const ResourceObject& object, u32 index, Entity* value)
+		{
+			//TODO
+		}
+
+		static ResourceFieldInfo GetResourceFieldInfo()
+		{
+			return ResourceFieldInfo{
+				.type = ResourceFieldType::Reference,
+				.subType = TypeInfo<Entity>::ID()
+			};
+		}
 	};
 }
