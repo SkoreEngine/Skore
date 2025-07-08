@@ -2762,11 +2762,6 @@ namespace Skore
 			vulkanDevice->adapters[i] = vulkanAdapter;
 		}
 
-		Sort(vulkanDevice->adapters.begin(), vulkanDevice->adapters.end(), [](GPUAdapter* left, GPUAdapter* right)
-		{
-			return static_cast<VulkanAdapter*>(left)->score > static_cast<VulkanAdapter*>(right)->score;
-		});
-
 		return vulkanDevice;
 	}
 }
