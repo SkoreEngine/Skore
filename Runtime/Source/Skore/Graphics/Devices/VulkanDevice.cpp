@@ -25,6 +25,7 @@
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 #define VMA_IMPLEMENTATION
 
+#include <iostream>
 #include <queue>
 
 #include "vk_mem_alloc.h"
@@ -59,7 +60,7 @@ namespace Skore
 		}
 		else if (deviceProperties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
 		{
-			score *= 500;
+			score += 500;
 		}
 
 		u32 queueFamilyCount = 0;
@@ -2754,6 +2755,7 @@ namespace Skore
 
 			vkGetPhysicalDeviceProperties2(vulkanAdapter->device, &vulkanAdapter->deviceProperties);
 			vkGetPhysicalDeviceFeatures2(vulkanAdapter->device, &vulkanAdapter->deviceFeatures);
+
 
 			vulkanAdapter->RatePhysicalDevice(vulkanDevice);
 
