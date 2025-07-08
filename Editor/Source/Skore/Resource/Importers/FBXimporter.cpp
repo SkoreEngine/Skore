@@ -42,12 +42,19 @@
 
 namespace Skore
 {
-	struct FBXImportCache
+	struct FBXImportData
 	{
+		ufbx_scene*                  scene = nullptr;
+		UndoRedoScope*               scope = nullptr;
+		FBXImportSettings            settings;
 		HashMap<ufbx_texture*, RID>  textures;
 		HashMap<ufbx_material*, RID> materials;
 		HashMap<ufbx_mesh*, RID>     meshes;
+		HashMap<RID, RID>            meshRootBone;
+		HashMap<ufbx_node*, RID>     entities;
 	};
+
+	RID ProcessNode(FBXImportData& fbxData, ufbx_node* node, StringView name);
 
 
 	static Logger& logger = Logger::GetLogger("Skore::FBXImporter");
@@ -83,9 +90,8 @@ namespace Skore
 		}
 	};
 
-	RID ProcessTextures(RID directory, FBXImportCache& cache, const FBXImportSettings& settings, StringView basePath, ufbx_texture* texture, ufbx_scene* scene, UndoRedoScope* scope)
+	RID ProcessTextures(RID directory, FBXImportData& fbxData, StringView basePath, ufbx_texture* texture)
 	{
-
 		RID textureRID = {};
 
 		if (!texture)
@@ -104,7 +110,7 @@ namespace Skore
 
 			Span   data = Span((u8*)texture->content.data, texture->content.size);
 			String name = Path::Name(StringView{texture->relative_filename.data, texture->relative_filename.length});
-			textureRID = ImportTextureFromMemory(directory, textureImportSettings, name, data, scope);
+			textureRID = ImportTextureFromMemory(directory, textureImportSettings, name, data, fbxData.scope);
 		}
 		else
 		{
@@ -124,13 +130,13 @@ namespace Skore
 			//if found, import the texture
 			if (FileSystem::GetFileStatus(absolutePath).exists)
 			{
-				textureRID = ImportTexture(directory, textureImportSettings, absolutePath, scope);
+				textureRID = ImportTexture(directory, textureImportSettings, absolutePath, fbxData.scope);
 			}
 		}
 
 		if (textureRID)
 		{
-			cache.textures.Insert(texture, textureRID);
+			fbxData.textures.Insert(texture, textureRID);
 
 			if (!textureImportSettings.createAssetFile)
 			{
@@ -142,56 +148,56 @@ namespace Skore
 	}
 
 
-	RID ProcessMaterials(const FBXImportSettings& settings, FBXImportCache& cache, ufbx_material* material, UndoRedoScope* scope)
+	RID ProcessMaterials(FBXImportData& fbxData, ufbx_material* material)
 	{
-		RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), scope);
+		RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), fbxData.scope);
 
 		ResourceObject materialObject = Resources::Write(materialResource);
 		materialObject.SetString(MaterialResource::Name, !IsStrNullOrEmpty(material->name.data) ? material->name.data : "Material");
 		materialObject.SetColor(MaterialResource::BaseColor, Color::FromVec3(ToVec3(material->pbr.base_color.value_vec3)));
 
-		if (auto it = cache.textures.Find(material->pbr.base_color.texture))
+		if (auto it = fbxData.textures.Find(material->pbr.base_color.texture))
 		{
 			materialObject.SetReference(MaterialResource::BaseColorTexture, it->second);
 		}
 
-		if (auto it = cache.textures.Find(material->pbr.base_color.texture))
+		if (auto it = fbxData.textures.Find(material->pbr.base_color.texture))
 		{
 			materialObject.SetReference(MaterialResource::BaseColorTexture, it->second);
 		}
 
-		if (auto it = cache.textures.Find(material->pbr.normal_map.texture))
+		if (auto it = fbxData.textures.Find(material->pbr.normal_map.texture))
 		{
 			materialObject.SetReference(MaterialResource::NormalTexture, it->second);
 		}
 
-		if (auto it = cache.textures.Find(material->pbr.metalness.texture))
+		if (auto it = fbxData.textures.Find(material->pbr.metalness.texture))
 		{
 			materialObject.SetReference(MaterialResource::MetallicTexture, it->second);
 		}
 
-		if (auto it = cache.textures.Find(material->pbr.roughness.texture))
+		if (auto it = fbxData.textures.Find(material->pbr.roughness.texture))
 		{
 			materialObject.SetReference(MaterialResource::RoughnessTexture, it->second);
 		}
 
-		if (auto it = cache.textures.Find(material->pbr.ambient_occlusion.texture))
+		if (auto it = fbxData.textures.Find(material->pbr.ambient_occlusion.texture))
 		{
 			materialObject.SetReference(MaterialResource::OcclusionTexture, it->second);
 		}
 
-		if (auto it = cache.textures.Find(material->pbr.emission_color.texture))
+		if (auto it = fbxData.textures.Find(material->pbr.emission_color.texture))
 		{
 			materialObject.SetReference(MaterialResource::EmissiveTexture, it->second);
 		}
 
-		materialObject.Commit(scope);
+		materialObject.Commit(fbxData.scope);
 
 		return materialResource;
 	}
 
-	template<typename T>
-	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_scene* scene, ufbx_mesh* mesh, UndoRedoScope* scope)
+	template <typename T>
+	RID ProcessMesh(FBXImportData& fbxData, ufbx_mesh* mesh, StringView name)
 	{
 		if (!mesh) return {};
 
@@ -213,16 +219,26 @@ namespace Skore
 			totalTriangles += part->num_triangles;
 		}
 
+		RID rootBone = {};
+
+		if (mesh->skin_deformers.count > 0)
+		{
+			ufbx_skin_deformer* skin = mesh->skin_deformers[0];
+			ufbx_skin_cluster* cluster = skin->clusters[0];
+
+			rootBone = ProcessNode(fbxData, cluster->bone_node, "");
+		}
+
 		Array<RID> meshMaterials;
 
 		//temp buffers
 		size_t     numTriIndices = mesh->max_face_triangles * 3;
 		Array<u32> triIndices = {heapAllocator, numTriIndices};
 
-		Array<T> tempVertices = {heapAllocator, maxTriangles * 3};
+		Array<T>   tempVertices = {heapAllocator, maxTriangles * 3};
 		Array<u32> tempIndices = {heapAllocator, maxTriangles * 3};
 
-		Array<T> allVertices = {heapAllocator, totalTriangles * 3};
+		Array<T>   allVertices = {heapAllocator, totalTriangles * 3};
 		Array<u32> allIndices = {heapAllocator, totalTriangles * 3};
 
 		Array<MeshPrimitive> primitives = {heapAllocator, partCount};
@@ -234,7 +250,7 @@ namespace Skore
 
 		for (usize pi = 0; pi < mesh->material_parts.count; pi++)
 		{
-			ufbx_mesh_part *mesh_part = &mesh->material_parts.data[pi];
+			ufbx_mesh_part* mesh_part = &mesh->material_parts.data[pi];
 			if (mesh_part->num_triangles == 0)
 			{
 				continue;
@@ -245,7 +261,7 @@ namespace Skore
 			for (usize fi = 0; fi < mesh_part->num_faces; fi++)
 			{
 				ufbx_face face = mesh->faces.data[mesh_part->face_indices.data[fi]];
-				usize numTris = ufbx_triangulate_face(triIndices.Data(), numTriIndices, mesh, face);
+				usize     numTris = ufbx_triangulate_face(triIndices.Data(), numTriIndices, mesh, face);
 
 				ufbx_vec2 defaultUV = {0, 0};
 				ufbx_vec4 defaultColor = {1, 1, 1, 1};
@@ -255,11 +271,11 @@ namespace Skore
 				{
 					u32 ix = triIndices[vi];
 
-					T *vert = &tempVertices[numIndices];
+					T* vert = &tempVertices[numIndices];
 
 					ufbx_vec3 pos = ufbx_get_vertex_vec3(&mesh->vertex_position, ix);
 					ufbx_vec3 normal = ufbx_get_vertex_vec3(&mesh->vertex_normal, ix);
-					ufbx_vec4 color =  mesh->vertex_color.exists ? ufbx_get_vertex_vec4(&mesh->vertex_color, ix) : defaultColor;
+					ufbx_vec4 color = mesh->vertex_color.exists ? ufbx_get_vertex_vec4(&mesh->vertex_color, ix) : defaultColor;
 					ufbx_vec2 uv = mesh->vertex_uv.exists ? ufbx_get_vertex_vec2(&mesh->vertex_uv, ix) : defaultUV;
 
 					uv.y = 1.0f - uv.y; //Flip Y for UV
@@ -300,7 +316,7 @@ namespace Skore
 			}
 
 			ufbx_vertex_stream streams[2];
-			size_t numStreams = 1;
+			size_t             numStreams = 1;
 
 			streams[0].data = tempVertices.Data();
 			streams[0].vertex_count = numIndices;
@@ -320,8 +336,8 @@ namespace Skore
 			{
 				if (mesh_part->index < mesh->materials.count)
 				{
-					ufbx_material *material =  mesh->materials.data[mesh_part->index];
-					if (auto it = cache.materials.Find(material))
+					ufbx_material* material = mesh->materials.data[mesh_part->index];
+					if (auto it = fbxData.materials.Find(material))
 					{
 						RID materialRID = it->second;
 
@@ -373,28 +389,40 @@ namespace Skore
 		}
 		else
 		{
-			u32 index = mesh - scene->meshes.data[0];
+			u32 index = mesh - fbxData.scene->meshes.data[0];
 			meshName = String("Mesh").Append(ToString(index));
 		}
 
-		return ImportMesh(RID{}, meshImportSettings, meshName , meshMaterials, primitives, allVertices, allIndices, scope);
+		RID meshRID = ImportMesh(RID{}, meshImportSettings, meshName, meshMaterials, primitives, allVertices, allIndices, fbxData.scope);
+
+		if (rootBone)
+		{
+			fbxData.meshRootBone.Insert(meshRID, rootBone);
+		}
+
+		return meshRID;
 	}
 
 
-	RID ProcessMesh(const FBXImportSettings& settings, FBXImportCache& cache, StringView name, ufbx_scene* scene, ufbx_mesh* mesh, UndoRedoScope* scope)
+	RID ProcessMesh(FBXImportData& fbxData, ufbx_mesh* mesh, StringView name)
 	{
 		if (mesh->skin_deformers.count > 0)
 		{
-			return ProcessMesh<MeshSkeletalVertex>(settings, cache, name, scene, mesh, scope);
+			return ProcessMesh<MeshSkeletalVertex>(fbxData, mesh, name);
 		}
-		return ProcessMesh<MeshStaticVertex>(settings, cache, name, scene, mesh, scope);
+		return ProcessMesh<MeshStaticVertex>(fbxData, mesh, name);
 	}
 
-	RID ProcessNode(const FBXImportSettings& settings, ufbx_scene* scene, const ufbx_node* node, FBXImportCache& cache, const ufbx_scene* fbxScene, UndoRedoScope* scope, StringView name = {})
+	RID ProcessNode(FBXImportData& fbxData, ufbx_node* node, StringView name)
 	{
 		if (!node)
 		{
 			return {};
+		}
+
+		if (auto it = fbxData.entities.Find(node))
+		{
+			return it->second;
 		}
 
 		// //ignore camera or lights
@@ -424,33 +452,36 @@ namespace Skore
 		transform.scale = ToVec3(node->local_transform.scale);
 
 		RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
-		Resources::ToResource(transformRID, &transform, scope);
+		Resources::ToResource(transformRID, &transform, fbxData.scope);
 		entityObject.SetSubObject(EntityResource::Transform, transformRID);
 
 		// Handle mesh
 		if (node->mesh)
 		{
-			auto meshIt = cache.meshes.Find(node->mesh);
-			if (meshIt == cache.meshes.end())
+			auto meshIt = fbxData.meshes.Find(node->mesh);
+			if (meshIt == fbxData.meshes.end())
 			{
-				if (RID meshRID = ProcessMesh(settings, cache, nodeName, scene, node->mesh, scope))
+				if (RID meshRID = ProcessMesh(fbxData, node->mesh, nodeName))
 				{
-					meshIt = cache.meshes.Insert(node->mesh, meshRID).first;
+					meshIt = fbxData.meshes.Insert(node->mesh, meshRID).first;
 				}
 			}
 
 			if (meshIt)
 			{
-
 				ResourceObject meshObject = Resources::Write(meshIt->second);
 				if (meshObject.GetBool(MeshResource::Skinned))
 				{
 					RID meshRenderer = Resources::Create<SkinnedMeshRenderer>(UUID::RandomUUID());
-
 					ResourceObject skinnedMeshRenderObject = Resources::Write(meshRenderer);
-					skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("rootBone"), entity); // not right.
+
+					if (auto rootIt = fbxData.meshRootBone.Find(meshIt->second))
+					{
+						skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("rootBone"), rootIt->second); // not right.
+					}
+
 					skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("mesh"), meshIt->second);
-					skinnedMeshRenderObject.Commit(scope);
+					skinnedMeshRenderObject.Commit(fbxData.scope);
 
 					entityObject.AddToSubObjectSet(EntityResource::Components, meshRenderer);
 				}
@@ -460,7 +491,7 @@ namespace Skore
 
 					ResourceObject staticMeshRenderObject = Resources::Write(meshRenderer);
 					staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshIt->second);
-					staticMeshRenderObject.Commit(scope);
+					staticMeshRenderObject.Commit(fbxData.scope);
 
 					entityObject.AddToSubObjectSet(EntityResource::Components, meshRenderer);
 				}
@@ -470,13 +501,13 @@ namespace Skore
 		// Process children
 		for (u32 i = 0; i < node->children.count; i++)
 		{
-			if (RID child = ProcessNode(settings, scene, node->children.data[i], cache, fbxScene, scope))
+			if (RID child = ProcessNode(fbxData, node->children.data[i], ""))
 			{
 				entityObject.AddToSubObjectSet(EntityResource::Children, child);
 			}
 		}
 
-		entityObject.Commit(scope);
+		entityObject.Commit(fbxData.scope);
 
 		return entity;
 	}
@@ -532,14 +563,16 @@ namespace Skore
 				return false;
 			}
 
-			FBXImportCache cache;
+			FBXImportData fbxData;
+			fbxData.scene = scene;
+			fbxData.scope = scope;
 
 			String basePath = Path::Parent(path);
 			String name = Path::Name(path);
 
 			for (u32 i = 0; i < scene->textures.count; i++)
 			{
-				if (RID texture = ProcessTextures(directory, cache, settings, basePath, scene->textures.data[i], scene, scope))
+				if (RID texture = ProcessTextures(directory, fbxData, basePath, scene->textures.data[i]))
 				{
 					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Textures, texture);
 				}
@@ -548,9 +581,9 @@ namespace Skore
 			// Process Materials
 			for (u32 i = 0; i < scene->materials.count; i++)
 			{
-				if (RID materialRID = ProcessMaterials(settings, cache, scene->materials.data[i], scope))
+				if (RID materialRID = ProcessMaterials(fbxData, scene->materials.data[i]))
 				{
-					cache.materials.Insert(scene->materials.data[i], materialRID);
+					fbxData.materials.Insert(scene->materials.data[i], materialRID);
 					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Materials, materialRID);
 				}
 			}
@@ -558,7 +591,7 @@ namespace Skore
 			// Process nodes
 			for (u32 i = 0; i < scene->nodes.count; i++)
 			{
-				const ufbx_node* current = scene->nodes.data[i];
+				ufbx_node* current = scene->nodes.data[i];
 				if (current->parent == nullptr)
 				{
 					while (current != nullptr && !current->mesh && current->children.count == 1)
@@ -568,7 +601,7 @@ namespace Skore
 
 					if (current)
 					{
-						if (RID root = ProcessNode(settings, scene, current, cache, scene, scope, fileName))
+						if (RID root = ProcessNode(fbxData, current, fileName))
 						{
 							dccAssetObject.SetSubObject(DCCAssetResource::Entity, root);
 						}
@@ -580,16 +613,16 @@ namespace Skore
 			for (u32 i = 0; i < scene->meshes.count; i++)
 			{
 				ufbx_mesh* mesh = scene->meshes.data[i];
-				if (!cache.meshes.Has(mesh))
+				if (!fbxData.meshes.Has(mesh))
 				{
-					if (RID meshRID = ProcessMesh(settings, cache, "", scene, mesh, scope))
+					if (RID meshRID = ProcessMesh(fbxData, mesh, ""))
 					{
-						cache.meshes.Insert(mesh, meshRID);
+						fbxData.meshes.Insert(mesh, meshRID);
 					}
 				}
 			}
 
-			for (const auto& it : cache.meshes)
+			for (const auto& it : fbxData.meshes)
 			{
 				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Meshes, it.second);
 			}
