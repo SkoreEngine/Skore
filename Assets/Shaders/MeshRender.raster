@@ -47,6 +47,10 @@ struct VertexInput
 	float2 texCoord : TEXCOORD0;
 	float3 color 	: COLOR;
 	float4 tangent 	: TANGENT;
+#ifdef SK_SKINNED_MESH
+    uint4 boneIndices : BONEINDICES;
+	float4 boneWeights : BONEWEIGHTS;
+#endif
 };
 
 struct PixelInput

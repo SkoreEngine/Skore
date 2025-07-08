@@ -33,6 +33,19 @@ namespace Skore
 	public:
 		SK_CLASS(SkinnedMeshRenderer, Component);
 
+		void Create(ComponentSettings& settings) override;
+		void Destroy() override;
+
+		void ProcessEvent(const EntityEventDesc& event) override;
+
+		void SetMesh(RID mesh);
+		RID  GetMesh() const;
+		void SetCastShadows(bool castShadows);
+		bool GetCastShadows() const;
+
+		const MaterialArray& GetMaterials() const;
+		void                 SetMaterials(const MaterialArray& materials);
+
 
 		static void RegisterType(NativeReflectType<SkinnedMeshRenderer>& type);
 

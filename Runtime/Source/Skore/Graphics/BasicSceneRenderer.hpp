@@ -56,6 +56,7 @@ namespace Skore
 		GPUTexture*       colorOutputTexture = nullptr;
 		GPURenderPass*    renderPass = nullptr;
 		GPUPipeline*      opaqueMaterialPipeline = nullptr;
+		GPUPipeline*      skinnedMaterialPipeline = nullptr;
 		GPUPipeline*      skyboxMaterialPipeline = nullptr;
 		GPUPipeline*      finalCompositePipeline = nullptr;
 		GPUDescriptorSet* descriptorSet = nullptr;

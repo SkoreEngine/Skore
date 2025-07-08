@@ -93,7 +93,7 @@ namespace Skore
 		Vec2 texCoord;
 		Vec3 color;
 		Vec4 tangent;
-		Vec4 boneIndices;
+		u32  boneIndices[4];
 		Vec4 boneWeights;
 	};
 

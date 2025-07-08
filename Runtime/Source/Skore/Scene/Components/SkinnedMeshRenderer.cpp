@@ -26,6 +26,33 @@
 
 namespace Skore
 {
+	void SkinnedMeshRenderer::Create(ComponentSettings& settings) {}
+
+	void SkinnedMeshRenderer::Destroy() {}
+
+	void SkinnedMeshRenderer::ProcessEvent(const EntityEventDesc& event) {}
+
+	void SkinnedMeshRenderer::SetMesh(RID mesh) {}
+
+	RID SkinnedMeshRenderer::GetMesh() const
+	{
+		return m_mesh;
+	}
+
+	void SkinnedMeshRenderer::SetCastShadows(bool castShadows) {}
+
+	bool SkinnedMeshRenderer::GetCastShadows() const
+	{
+		return m_castShadows;
+	}
+
+	const MaterialArray& SkinnedMeshRenderer::GetMaterials() const
+	{
+		return m_materials;
+	}
+
+	void SkinnedMeshRenderer::SetMaterials(const MaterialArray& materials) {}
+
 	void SkinnedMeshRenderer::RegisterType(NativeReflectType<SkinnedMeshRenderer>& type)
 	{
 		type.Field<&SkinnedMeshRenderer::m_mesh>("mesh");

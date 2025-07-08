@@ -418,7 +418,7 @@ namespace Skore
 
 		if (!sceneEditor->GetRootEntity())
 		{
-			ImGuiCentralizedText("Open a scene in the Project Browser");
+			ImGuiCentralizedText("Open a entity in the Project Browser");
 			ImGui::End();
 			return;
 		}

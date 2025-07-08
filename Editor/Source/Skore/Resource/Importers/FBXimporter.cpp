@@ -287,28 +287,28 @@ namespace Skore
 
 					if (mesh->skin_deformers.count > 0)
 					{
-						auto skin = mesh->skin_deformers[0];
-
-						ufbx_skin_vertex vertex_weights = skin->vertices.data[mesh->vertex_indices.data[ix]];
-
-						size_t num_weights = 0;
-						for (size_t wi = 0; wi < vertex_weights.num_weights; wi++)
-						{
-							if (num_weights >= 4) break;
-							ufbx_skin_weight weight = skin->weights.data[vertex_weights.weight_begin + wi];
-
-
-							ufbx_skin_cluster* cluster = skin->clusters[weight.cluster_index];
-
-							//cluster->
-
-							auto a = weight.cluster_index; // bone index?
-							auto b = weight.weight;
-
-							num_weights++;
-
-							int zz = 0;
-						}
+						// auto skin = mesh->skin_deformers[0];
+						//
+						// ufbx_skin_vertex vertex_weights = skin->vertices.data[mesh->vertex_indices.data[ix]];
+						//
+						// size_t num_weights = 0;
+						// for (size_t wi = 0; wi < vertex_weights.num_weights; wi++)
+						// {
+						// 	if (num_weights >= 4) break;
+						// 	ufbx_skin_weight weight = skin->weights.data[vertex_weights.weight_begin + wi];
+						//
+						//
+						// 	ufbx_skin_cluster* cluster = skin->clusters[weight.cluster_index];
+						//
+						// 	//cluster->
+						//
+						// 	auto a = weight.cluster_index; // bone index?
+						// 	auto b = weight.weight;
+						//
+						// 	num_weights++;
+						//
+						// 	int zz = 0;
+						// }
 					}
 
 					numIndices++;
@@ -425,11 +425,11 @@ namespace Skore
 			return it->second;
 		}
 
-		// //ignore camera or lights
-		// if (node->camera || node->light)
-		// {
-		// 	return {};
-		// }
+		//ignore camera or lights
+		if ((node->camera || node->light) && node->children.count == 0)
+		{
+			return {};
+		}
 
 		RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
 		ResourceObject entityObject = Resources::Write(entity);

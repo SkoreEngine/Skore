@@ -405,7 +405,7 @@ namespace Skore
 				rightBottomDockId = ImGui::DockBuilderSplitNode(rightTopDockId, ImGuiDir_Down, 0.50f, nullptr, &rightTopDockId);
 
 				bottomLeftDockId = ImGui::DockBuilderSplitNode(centerSpaceId, ImGuiDir_Down, 0.20f, nullptr, &centerSpaceId);
-				bottomRightDockId = ImGui::DockBuilderSplitNode(bottomLeftDockId, ImGuiDir_Right, 0.30f, nullptr, &bottomLeftDockId);
+				bottomRightDockId = ImGui::DockBuilderSplitNode(bottomLeftDockId, ImGuiDir_Right, 0.33f, nullptr, &bottomLeftDockId);
 
 				leftDockId = ImGui::DockBuilderSplitNode(centerSpaceId, ImGuiDir_Left, 0.12f, nullptr, &centerSpaceId);
 

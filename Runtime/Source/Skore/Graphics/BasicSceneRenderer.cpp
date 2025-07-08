@@ -75,6 +75,7 @@ namespace Skore
 	{
 		Destroy();
 		if (opaqueMaterialPipeline) opaqueMaterialPipeline->Destroy();
+		if (skinnedMaterialPipeline) skinnedMaterialPipeline->Destroy();
 		if (skyboxMaterialPipeline) skyboxMaterialPipeline->Destroy();
 		if (descriptorSet) descriptorSet->Destroy();
 		if (uniformBuffer) uniformBuffer->Destroy();
@@ -230,14 +231,14 @@ namespace Skore
 
 		renderPass = Graphics::CreateRenderPass(renderPassDesc);
 
-		if (!opaqueMaterialPipeline)
+		//main passes
 		{
 			DepthStencilStateDesc depthStencilState;
 			depthStencilState.depthTestEnable = true;
 			depthStencilState.depthWriteEnable = true;
 			depthStencilState.depthCompareOp = CompareOp::Less;
 
-			opaqueMaterialPipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
+			GraphicsPipelineDesc desc = GraphicsPipelineDesc{
 				.shader = Resources::FindByPath("Skore://Shaders/MeshRender.raster"),
 				.rasterizerState =
 				{
@@ -249,8 +250,23 @@ namespace Skore
 					BlendStateDesc{}
 				},
 				.renderPass = renderPass,
-			});
+			};
+
+
+			if (!opaqueMaterialPipeline)
+			{
+				desc.variant = "StaticMesh",
+				opaqueMaterialPipeline = Graphics::CreateGraphicsPipeline(desc);
+			}
+
+			if (!skinnedMaterialPipeline)
+			{
+				desc.variant = "SkinnedMesh",
+				skinnedMaterialPipeline = Graphics::CreateGraphicsPipeline(desc);
+			}
 		}
+
+
 
 		if (!skyboxMaterialPipeline)
 		{
