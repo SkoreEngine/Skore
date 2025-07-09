@@ -9,7 +9,7 @@ add_compile_definitions(SK_ENGINE_VERSION="${SK_ENGINE_VERSION}")
 string(TIMESTAMP TODAY "%Y%m%d")
 add_compile_definitions(SK_VERSION="${SK_ENGINE_VERSION}-${TODAY}")
 
-#add_compile_definitions(SK_DEV_ASSETS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/Assets")
+add_compile_definitions(SK_ROOT_SOURCE_PATH="${CMAKE_CURRENT_SOURCE_DIR}")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

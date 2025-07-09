@@ -23,41 +23,17 @@
 #pragma once
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Scene/Component.hpp"
-#include "Skore/Scene/Entity.hpp"
-
 
 namespace Skore
 {
-	class RenderStorage;
-
-	class SkinnedMeshRenderer : public Component
+	class SK_API AnimationPlayer : public Component
 	{
 	public:
-		SK_CLASS(SkinnedMeshRenderer, Component);
+		SK_CLASS(AnimationPlayer, Component);
 
-		void Create(ComponentSettings& settings) override;
-		void Destroy() override;
-
-		void ProcessEvent(const EntityEventDesc& event) override;
-
-		void SetMesh(RID mesh);
-		RID  GetMesh() const;
-		void SetCastShadows(bool castShadows);
-		bool GetCastShadows() const;
-
-		const MaterialArray& GetMaterials() const;
-		void                 SetMaterials(const MaterialArray& materials);
-
-
-		static void RegisterType(NativeReflectType<SkinnedMeshRenderer>& type);
+		static void RegisterType(NativeReflectType<AnimationPlayer>& type);
 
 	private:
-		RenderStorage* m_renderStorage = nullptr;
-
-		TypedRID<MeshResource> m_mesh = {};
-		Entity*                m_rootBone = {};
-		MaterialArray          m_materials = {};
-
-		bool m_castShadows = true;
+		TypedRID<AnimationClipResource> m_currentAnimation = {};
 	};
 }

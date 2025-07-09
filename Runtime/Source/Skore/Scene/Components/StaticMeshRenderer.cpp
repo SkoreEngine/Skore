@@ -34,17 +34,17 @@ namespace Skore
 	{
 		m_renderStorage = GetScene()->GetRenderStorage();
 
-		m_renderStorage->RegisterMeshProxy(this);
-		m_renderStorage->SetMeshTransform(this, entity->GetGlobalTransform());
-		m_renderStorage->SetMesh(this, m_mesh);
-		m_renderStorage->SetMeshMaterials(this, CastRIDArray(m_materials));
-		m_renderStorage->SetMeshCastShadows(this, m_castShadows);
+		m_renderStorage->RegisterStaticMeshProxy(this);
+		m_renderStorage->SetStaticMeshTransform(this, entity->GetGlobalTransform());
+		m_renderStorage->SetStaticMesh(this, m_mesh);
+		m_renderStorage->SetStaticMeshMaterials(this, CastRIDArray(m_materials));
+		m_renderStorage->SetStaticMeshCastShadows(this, m_castShadows);
 	}
 
 	void StaticMeshRenderer::Destroy()
 	{
 		if (!m_renderStorage) return;
-		m_renderStorage->RemoveMeshProxy(this);
+		m_renderStorage->RemoveStaticMeshProxy(this);
 	}
 
 	void StaticMeshRenderer::ProcessEvent(const EntityEventDesc& event)
@@ -54,13 +54,13 @@ namespace Skore
 		switch (event.type)
 		{
 			case EntityEventType::EntityActivated:
-				m_renderStorage->SetMeshVisible(this, true);
+				m_renderStorage->SetStaticMeshVisible(this, true);
 				break;
 			case EntityEventType::EntityDeactivated:
-				m_renderStorage->SetMeshVisible(this, false);
+				m_renderStorage->SetStaticMeshVisible(this, false);
 				break;
 			case EntityEventType::TransformUpdated:
-				m_renderStorage->SetMeshTransform(this, entity->GetGlobalTransform());
+				m_renderStorage->SetStaticMeshTransform(this, entity->GetGlobalTransform());
 				break;
 		}
 	}
@@ -70,7 +70,7 @@ namespace Skore
 		m_mesh = mesh;
 		if (m_renderStorage)
 		{
-			m_renderStorage->SetMesh(this, m_mesh);
+			m_renderStorage->SetStaticMesh(this, m_mesh);
 		}
 	}
 
@@ -84,7 +84,7 @@ namespace Skore
 		m_castShadows = castShadows;
 		if (m_renderStorage)
 		{
-			m_renderStorage->SetMeshCastShadows(this, castShadows);
+			m_renderStorage->SetStaticMeshCastShadows(this, castShadows);
 		}
 	}
 
@@ -103,7 +103,7 @@ namespace Skore
 		m_materials = materials;
 		if (m_renderStorage)
 		{
-			m_renderStorage->SetMeshMaterials(this, CastRIDArray(materials));
+			m_renderStorage->SetStaticMeshMaterials(this, CastRIDArray(materials));
 		}
 	}
 

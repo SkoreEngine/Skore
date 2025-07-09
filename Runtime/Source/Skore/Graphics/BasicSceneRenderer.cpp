@@ -239,7 +239,6 @@ namespace Skore
 			depthStencilState.depthCompareOp = CompareOp::Less;
 
 			GraphicsPipelineDesc desc = GraphicsPipelineDesc{
-				.shader = Resources::FindByPath("Skore://Shaders/MeshRender.raster"),
 				.rasterizerState =
 				{
 					.cullMode = CullMode::Back,
@@ -252,21 +251,18 @@ namespace Skore
 				.renderPass = renderPass,
 			};
 
-
 			if (!opaqueMaterialPipeline)
 			{
-				desc.variant = "StaticMesh",
+				desc.shader = Resources::FindByPath("Skore://Shaders/StaticMeshRender.raster"),
 				opaqueMaterialPipeline = Graphics::CreateGraphicsPipeline(desc);
 			}
 
 			if (!skinnedMaterialPipeline)
 			{
-				desc.variant = "SkinnedMesh",
+				desc.shader = Resources::FindByPath("Skore://Shaders/SkinnedMeshRender.raster"),
 				skinnedMaterialPipeline = Graphics::CreateGraphicsPipeline(desc);
 			}
 		}
-
-
 
 		if (!skyboxMaterialPipeline)
 		{
@@ -511,13 +507,13 @@ namespace Skore
 		if (storage)
 		{
 			//opaque render
-			if (!storage->meshes.empty())
+			if (!storage->staticMeshes.empty())
 			{
 				cmd->BindPipeline(opaqueMaterialPipeline);
 				cmd->BindDescriptorSet(opaqueMaterialPipeline, 0, descriptorSet, {});
 				cmd->BindDescriptorSet(opaqueMaterialPipeline, 2, lightDescriptorSet, {});
 
-				for (auto& meshIt : storage->meshes)
+				for (auto& meshIt : storage->staticMeshes)
 				{
 					MeshRenderData& meshRenderData = meshIt.second;
 
@@ -546,6 +542,50 @@ namespace Skore
 							}
 
 							cmd->BindDescriptorSet(opaqueMaterialPipeline, 1, materialDs, {});
+							cmd->DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
+						}
+					}
+				}
+			}
+
+			//skinned render
+			if (!storage->skinnedMeshes.empty())
+			{
+				cmd->BindPipeline(skinnedMaterialPipeline);
+				cmd->BindDescriptorSet(skinnedMaterialPipeline, 0, descriptorSet, {});
+				cmd->BindDescriptorSet(skinnedMaterialPipeline, 2, lightDescriptorSet, {});
+
+				for (auto& meshIt : storage->skinnedMeshes)
+				{
+					MeshRenderData& meshRenderData = meshIt.second;
+
+					if (meshRenderData.mesh && meshRenderData.visible)
+					{
+						if (!meshRenderData.mesh->vertexBuffer)
+						{
+							continue;
+						}
+
+						if (!meshRenderData.mesh->indexBuffer)
+						{
+							continue;
+						}
+
+						cmd->BindVertexBuffer(0, {meshRenderData.mesh->vertexBuffer}, {0});
+						cmd->BindIndexBuffer(meshRenderData.mesh->indexBuffer, 0, IndexType::Uint32);
+						cmd->PushConstants(skinnedMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &meshRenderData.transform);
+
+						cmd->BindDescriptorSet(skinnedMaterialPipeline, 3, meshRenderData.bonesDescriptorSet, {});
+
+						for (MeshPrimitive& primitive : meshRenderData.mesh->primitives)
+						{
+							GPUDescriptorSet* materialDs = meshRenderData.GetMaterial(primitive.materialIndex);
+							if (materialDs == nullptr)
+							{
+								continue;
+							}
+
+							cmd->BindDescriptorSet(skinnedMaterialPipeline, 1, materialDs, {});
 							cmd->DrawIndexed(primitive.indexCount, 1, primitive.firstIndex, 0, 0);
 						}
 					}
@@ -810,7 +850,7 @@ namespace Skore
 			cmd->BindPipeline(m_shadowMapPipeline);
 			cmd->BindDescriptorSet(m_shadowMapPipeline, 0, m_shadowMapDescriptorSets[i], {});
 
-			for (auto& meshIt : storage->meshes)
+			for (auto& meshIt : storage->staticMeshes)
 			{
 				MeshRenderData& meshRenderData = meshIt.second;
 

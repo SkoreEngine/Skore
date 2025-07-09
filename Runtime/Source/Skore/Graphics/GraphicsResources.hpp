@@ -171,6 +171,17 @@ namespace Skore
 
 	using MaterialArray = Array<TypedRID<MaterialResource>>;
 
+
+	struct AnimationClipResource
+	{
+		enum
+		{
+			Name,       //String
+		};
+	};
+
+
+
 	struct DCCAssetResource
 	{
 		enum
@@ -179,6 +190,7 @@ namespace Skore
 			Meshes,    //SubobjectSet
 			Materials, //SubObjectSet
 			Textures,  //SubObjectSet
+			Animations,//SubObjectSet
 			Entity,    //SubObject
 		};
 	};

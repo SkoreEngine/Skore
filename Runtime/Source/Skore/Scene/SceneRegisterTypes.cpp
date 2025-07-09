@@ -25,6 +25,7 @@
 #include "SceneManager.hpp"
 #include "SceneCommon.hpp"
 #include "Entity.hpp"
+#include "Components/AnimationPlayer.hpp"
 #include "Components/EnvironmentComponent.hpp"
 #include "Components/LightComponent.hpp"
 #include "Components/SkinnedMeshRenderer.hpp"
@@ -45,6 +46,7 @@ namespace Skore
 		Reflection::Type<SkinnedMeshRenderer>();
 		Reflection::Type<LightComponent>();
 		Reflection::Type<EnvironmentComponent>();
+		Reflection::Type<AnimationPlayer>();
 
 		Resources::Type<EntityResource>()
 			.Field<EntityResource::Name>(ResourceFieldType::String)

@@ -23,23 +23,67 @@
 #include "SkinnedMeshRenderer.hpp"
 
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/RenderStorage.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
-	void SkinnedMeshRenderer::Create(ComponentSettings& settings) {}
+	void SkinnedMeshRenderer::Create(ComponentSettings& settings)
+	{
+		m_renderStorage = GetScene()->GetRenderStorage();
 
-	void SkinnedMeshRenderer::Destroy() {}
+		m_renderStorage->RegisterSkinnedMeshProxy(this);
+		m_renderStorage->SetSkinnedMeshTransform(this, entity->GetGlobalTransform());
+		m_renderStorage->SetSkinnedMesh(this, m_mesh);
+		m_renderStorage->SetSkinnedMeshMaterials(this, CastRIDArray(m_materials));
+		m_renderStorage->SetSkinnedMeshCastShadows(this, m_castShadows);
+	}
 
-	void SkinnedMeshRenderer::ProcessEvent(const EntityEventDesc& event) {}
+	void SkinnedMeshRenderer::Destroy()
+	{
+		m_renderStorage->RemoveSkinnedMeshProxy(this);
+	}
 
-	void SkinnedMeshRenderer::SetMesh(RID mesh) {}
+	void SkinnedMeshRenderer::ProcessEvent(const EntityEventDesc& event)
+	{
+		if (!m_renderStorage) return;
+
+		switch (event.type)
+		{
+			case EntityEventType::EntityActivated:
+				m_renderStorage->SetSkinnedMeshVisible(this, true);
+				break;
+			case EntityEventType::EntityDeactivated:
+				m_renderStorage->SetSkinnedMeshVisible(this, false);
+				break;
+			case EntityEventType::TransformUpdated:
+				m_renderStorage->SetSkinnedMeshTransform(this, entity->GetGlobalTransform());
+				break;
+		}
+	}
+
+	void SkinnedMeshRenderer::SetMesh(RID mesh)
+	{
+		m_mesh = mesh;
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetSkinnedMesh(this, m_mesh);
+		}
+	}
 
 	RID SkinnedMeshRenderer::GetMesh() const
 	{
 		return m_mesh;
 	}
 
-	void SkinnedMeshRenderer::SetCastShadows(bool castShadows) {}
+	void SkinnedMeshRenderer::SetCastShadows(bool castShadows)
+	{
+		m_castShadows = castShadows;
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetSkinnedMeshCastShadows(this, castShadows);
+		}
+	}
 
 	bool SkinnedMeshRenderer::GetCastShadows() const
 	{
@@ -51,13 +95,20 @@ namespace Skore
 		return m_materials;
 	}
 
-	void SkinnedMeshRenderer::SetMaterials(const MaterialArray& materials) {}
+	void SkinnedMeshRenderer::SetMaterials(const MaterialArray& materials)
+	{
+		m_materials = materials;
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetSkinnedMeshMaterials(this, CastRIDArray(materials));
+		}
+	}
 
 	void SkinnedMeshRenderer::RegisterType(NativeReflectType<SkinnedMeshRenderer>& type)
 	{
-		type.Field<&SkinnedMeshRenderer::m_mesh>("mesh");
+		type.Field<&SkinnedMeshRenderer::m_mesh, &SkinnedMeshRenderer::GetMesh, &SkinnedMeshRenderer::SetMesh>("mesh");
 		type.Field<&SkinnedMeshRenderer::m_rootBone>("rootBone");
-		type.Field<&SkinnedMeshRenderer::m_materials>("materials");
-		type.Field<&SkinnedMeshRenderer::m_castShadows>("castShadows");
+		type.Field<&SkinnedMeshRenderer::m_materials, &SkinnedMeshRenderer::GetMaterials, &SkinnedMeshRenderer::SetMaterials>("materials");
+		type.Field<&SkinnedMeshRenderer::m_castShadows, &SkinnedMeshRenderer::GetCastShadows, &SkinnedMeshRenderer::SetCastShadows>("castShadows");
 	}
 }

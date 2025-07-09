@@ -362,9 +362,9 @@ namespace Skore
 		return nullptr;
 	}
 
-	void RenderStorage::RegisterMeshProxy(VoidPtr owner)
+	void RenderStorage::RegisterStaticMeshProxy(VoidPtr owner)
 	{
-		meshes.emplace(owner, MeshRenderData{
+		staticMeshes.emplace(owner, MeshRenderData{
 			               .mesh = {},
 			               .transform = {},
 			               .visible = true,
@@ -372,38 +372,38 @@ namespace Skore
 	}
 
 
-	void RenderStorage::RemoveMeshProxy(VoidPtr owner)
+	void RenderStorage::RemoveStaticMeshProxy(VoidPtr owner)
 	{
-		meshes.erase(owner);
+		staticMeshes.erase(owner);
 	}
 
-	void RenderStorage::SetMeshTransform(VoidPtr owner, const Mat4& worldTransform)
+	void RenderStorage::SetStaticMeshTransform(VoidPtr owner, const Mat4& worldTransform)
 	{
-		if (const auto& it = meshes.find(owner); it != meshes.end())
+		if (const auto& it = staticMeshes.find(owner); it != staticMeshes.end())
 		{
 			it->second.transform = worldTransform;
 		}
 	}
 
-	void RenderStorage::SetMesh(VoidPtr owner, RID meshAsset)
+	void RenderStorage::SetStaticMesh(VoidPtr owner, RID meshAsset)
 	{
-		if (const auto& it = meshes.find(owner); it != meshes.end())
+		if (const auto& it = staticMeshes.find(owner); it != staticMeshes.end())
 		{
 			it->second.mesh = GetOrLoadMesh(meshAsset);
 		}
 	}
 
-	void RenderStorage::SetMeshVisible(VoidPtr owner, bool visible)
+	void RenderStorage::SetStaticMeshVisible(VoidPtr owner, bool visible)
 	{
-		if (const auto& it = meshes.find(owner); it != meshes.end())
+		if (const auto& it = staticMeshes.find(owner); it != staticMeshes.end())
 		{
 			it->second.visible = visible;
 		}
 	}
 
-	void RenderStorage::SetMeshMaterials(VoidPtr owner, Span<RID> materials)
+	void RenderStorage::SetStaticMeshMaterials(VoidPtr owner, Span<RID> materials)
 	{
-		if (const auto& it = meshes.find(owner); it != meshes.end())
+		if (const auto& it = staticMeshes.find(owner); it != staticMeshes.end())
 		{
 			it->second.overrideMaterials.Clear();
 			it->second.overrideMaterials.Resize(materials.Size());
@@ -417,9 +417,105 @@ namespace Skore
 		}
 	}
 
-	void RenderStorage::SetMeshCastShadows(VoidPtr owner, bool castShadows)
+	void RenderStorage::SetStaticMeshCastShadows(VoidPtr owner, bool castShadows)
 	{
-		if (const auto& it = meshes.find(owner); it != meshes.end())
+		if (const auto& it = staticMeshes.find(owner); it != staticMeshes.end())
+		{
+			it->second.castShadows = castShadows;
+		}
+	}
+
+	void RenderStorage::RegisterSkinnedMeshProxy(VoidPtr owner)
+	{
+		GPUBuffer* buffer = Graphics::CreateBuffer(BufferDesc{
+			.size = sizeof(BonesRenderData),
+			.usage = ResourceUsage::CopyDest | ResourceUsage::ConstantBuffer,
+			.hostVisible = true,
+			.persistentMapped = true,
+		});
+
+		BonesRenderData& data = *static_cast<BonesRenderData*>(buffer->GetMappedData());
+
+		for (int i = 0; i < 128; ++i)
+		{
+			data.boneMatrices[i].Identity();
+		}
+
+		GPUDescriptorSet* descriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+			.bindings = {
+				DescriptorSetLayoutBinding{
+					.binding = 0,
+					.descriptorType = DescriptorType::UniformBuffer
+				}
+			}
+		});
+
+		descriptorSet->UpdateBuffer(0, buffer, 0, sizeof(BonesRenderData));
+
+		skinnedMeshes.emplace(owner, MeshRenderData{
+			                      .mesh = {},
+			                      .transform = {},
+			                      .visible = true,
+			                      .bonesBuffer = buffer,
+			                      .bonesDescriptorSet = descriptorSet
+		                      });
+	}
+
+	void RenderStorage::RemoveSkinnedMeshProxy(VoidPtr owner)
+	{
+		if (const auto& it = skinnedMeshes.find(owner); it != skinnedMeshes.end())
+		{
+			it->second.bonesDescriptorSet->Destroy();
+			it->second.bonesBuffer->Destroy();
+
+			skinnedMeshes.erase(it);
+		}
+
+	}
+
+	void RenderStorage::SetSkinnedMeshTransform(VoidPtr owner, const Mat4& worldTransform)
+	{
+		if (const auto& it = skinnedMeshes.find(owner); it != skinnedMeshes.end())
+		{
+			it->second.transform = worldTransform;
+		}
+	}
+
+	void RenderStorage::SetSkinnedMesh(VoidPtr owner, RID meshAsset)
+	{
+		if (const auto& it = skinnedMeshes.find(owner); it != skinnedMeshes.end())
+		{
+			it->second.mesh = GetOrLoadMesh(meshAsset);
+		}
+	}
+
+	void RenderStorage::SetSkinnedMeshVisible(VoidPtr owner, bool visible)
+	{
+		if (const auto& it = skinnedMeshes.find(owner); it != skinnedMeshes.end())
+		{
+			it->second.visible = visible;
+		}
+	}
+
+	void RenderStorage::SetSkinnedMeshMaterials(VoidPtr owner, Span<RID> materials)
+	{
+		if (const auto& it = skinnedMeshes.find(owner); it != skinnedMeshes.end())
+		{
+			it->second.overrideMaterials.Clear();
+			it->second.overrideMaterials.Resize(materials.Size());
+			for (usize i = 0; i < materials.Size(); i++)
+			{
+				if (materials[i])
+				{
+					it->second.overrideMaterials[i] = GetOrLoadMaterial(materials[i])->descriptorSet;
+				}
+			}
+		}
+	}
+
+	void RenderStorage::SetSkinnedMeshCastShadows(VoidPtr owner, bool castShadows)
+	{
+		if (const auto& it = skinnedMeshes.find(owner); it != skinnedMeshes.end())
 		{
 			it->second.castShadows = castShadows;
 		}

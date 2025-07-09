@@ -20,44 +20,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-#include "Skore/Graphics/GraphicsResources.hpp"
-#include "Skore/Scene/Component.hpp"
-#include "Skore/Scene/Entity.hpp"
+#include "AnimationPlayer.hpp"
 
+#include "Skore/Core/Reflection.hpp"
 
 namespace Skore
 {
-	class RenderStorage;
-
-	class SkinnedMeshRenderer : public Component
+	void AnimationPlayer::RegisterType(NativeReflectType<AnimationPlayer>& type)
 	{
-	public:
-		SK_CLASS(SkinnedMeshRenderer, Component);
-
-		void Create(ComponentSettings& settings) override;
-		void Destroy() override;
-
-		void ProcessEvent(const EntityEventDesc& event) override;
-
-		void SetMesh(RID mesh);
-		RID  GetMesh() const;
-		void SetCastShadows(bool castShadows);
-		bool GetCastShadows() const;
-
-		const MaterialArray& GetMaterials() const;
-		void                 SetMaterials(const MaterialArray& materials);
-
-
-		static void RegisterType(NativeReflectType<SkinnedMeshRenderer>& type);
-
-	private:
-		RenderStorage* m_renderStorage = nullptr;
-
-		TypedRID<MeshResource> m_mesh = {};
-		Entity*                m_rootBone = {};
-		MaterialArray          m_materials = {};
-
-		bool m_castShadows = true;
-	};
+		type.Field<&AnimationPlayer::m_currentAnimation>("currentAnimation");
+	}
 }

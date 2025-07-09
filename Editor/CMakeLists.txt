@@ -14,5 +14,11 @@ target_link_libraries(Skore PUBLIC
 				tinyobjloader
 )
 
+
+if (SK_DEV_ASSETS)
+	target_compile_definitions(Skore PRIVATE SK_DEV_ASSETS=true)
+endif ()
+
+
 add_binary_file(Skore ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/dxc dxcompiler)
 

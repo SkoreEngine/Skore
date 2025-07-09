@@ -285,32 +285,28 @@ namespace Skore
 					vert->texCoord = ToVec2(uv);
 					vert->color = Vec3(ToVec4(color));
 
-					if (mesh->skin_deformers.count > 0)
+					if constexpr (std::is_same_v<T, MeshSkeletalVertex>)
 					{
-						// auto skin = mesh->skin_deformers[0];
-						//
-						// ufbx_skin_vertex vertex_weights = skin->vertices.data[mesh->vertex_indices.data[ix]];
-						//
-						// size_t num_weights = 0;
-						// for (size_t wi = 0; wi < vertex_weights.num_weights; wi++)
-						// {
-						// 	if (num_weights >= 4) break;
-						// 	ufbx_skin_weight weight = skin->weights.data[vertex_weights.weight_begin + wi];
-						//
-						//
-						// 	ufbx_skin_cluster* cluster = skin->clusters[weight.cluster_index];
-						//
-						// 	//cluster->
-						//
-						// 	auto a = weight.cluster_index; // bone index?
-						// 	auto b = weight.weight;
-						//
-						// 	num_weights++;
-						//
-						// 	int zz = 0;
-						// }
-					}
+						if (mesh->skin_deformers.count > 0)
+						{
+							ufbx_skin_deformer* skin = mesh->skin_deformers[0];
+							ufbx_skin_vertex vertex_weights = skin->vertices.data[mesh->vertex_indices.data[ix]];
 
+							size_t numWeights = 0;
+
+							for (size_t wi = 0; wi < vertex_weights.num_weights; wi++)
+							{
+								if (numWeights >= 4) break;
+
+								ufbx_skin_weight weight = skin->weights.data[vertex_weights.weight_begin + wi];
+
+								vert->boneIndices[wi] = weight.cluster_index;
+								vert->boneWeights[wi] = weight.weight;
+
+								numWeights++;
+							}
+						}
+					}
 					numIndices++;
 				}
 			}
@@ -411,6 +407,17 @@ namespace Skore
 			return ProcessMesh<MeshSkeletalVertex>(fbxData, mesh, name);
 		}
 		return ProcessMesh<MeshStaticVertex>(fbxData, mesh, name);
+	}
+
+	RID ProcessAnimation(FBXImportData& fbxData, ufbx_anim_stack* animStack)
+	{
+		RID animation = Resources::Create<AnimationClipResource>(UUID::RandomUUID());
+
+		ResourceObject animationObject = Resources::Write(animation);
+		animationObject.SetString(AnimationClipResource::Name, !IsStrNullOrEmpty(animStack->name.data) ? animStack->name.data : "Animation");
+		animationObject.Commit(fbxData.scope);
+
+		return animation;
 	}
 
 	RID ProcessNode(FBXImportData& fbxData, ufbx_node* node, StringView name)
@@ -585,6 +592,14 @@ namespace Skore
 				{
 					fbxData.materials.Insert(scene->materials.data[i], materialRID);
 					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Materials, materialRID);
+				}
+			}
+
+			for (u32 i = 0; i < scene->anim_stacks.count; i++)
+			{
+				if (RID animation = ProcessAnimation(fbxData, scene->anim_stacks.data[i]))
+				{
+					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Animations, animation);
 				}
 			}
 

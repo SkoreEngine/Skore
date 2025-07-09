@@ -40,6 +40,11 @@ struct PushConstants
 
 [[vk::push_constant]] PushConstants pushConstants;
 
+cbuffer SkinnedBuffer : register(b0, space3)
+{
+    matrix boneMatrices[128];
+};
+
 struct VertexInput
 {
 	float3 position : POSITION;
@@ -47,10 +52,8 @@ struct VertexInput
 	float2 texCoord : TEXCOORD0;
 	float3 color 	: COLOR;
 	float4 tangent 	: TANGENT;
-#ifdef SK_SKINNED_MESH
-    uint4 boneIndices : BONEINDICES;
+    uint4  boneIndices : BONEINDICES;
 	float4 boneWeights : BONEWEIGHTS;
-#endif
 };
 
 struct PixelInput
@@ -69,9 +72,21 @@ struct PixelInput
 PixelInput MainVS(VertexInput input)
 {
 	PixelInput output;
+    float3 position = 0.0;
+
+    [unroll]
+    for (int i = 0; i < 4; i++)
+    {
+        float weight = input.boneWeights[i];
+        matrix boneTransform = boneMatrices[input.boneIndices[i]];
+        float4 localPosition = mul(float4(input.position, 1.0f), boneTransform);
+        position += localPosition.xyz * weight;
+
+        //TODO : normals, tangents
+    }
 
 	// Transform the position from object space to clip space
-	float4 worldPosition = mul(pushConstants.world, float4(input.position, 1.0f));
+	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0f));
 	output.position 	 = mul(viewProjection, worldPosition);
 	output.worldPos 	 = worldPosition.xyz;
 

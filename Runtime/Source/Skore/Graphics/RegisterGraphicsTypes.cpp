@@ -722,11 +722,16 @@ namespace Skore
 			.Field<MeshResource::Indices>(ResourceFieldType::Blob)
 			.Build();
 
+		Resources::Type<AnimationClipResource>()
+			.Field<AnimationClipResource::Name>(ResourceFieldType::String)
+			.Build();
+
 		Resources::Type<DCCAssetResource>()
 			.Field<DCCAssetResource::Name>(ResourceFieldType::String)
 			.Field<DCCAssetResource::Meshes>(ResourceFieldType::SubObjectSet)
 			.Field<DCCAssetResource::Materials>(ResourceFieldType::SubObjectSet)
 			.Field<DCCAssetResource::Textures>(ResourceFieldType::SubObjectSet)
+			.Field<DCCAssetResource::Animations>(ResourceFieldType::SubObjectSet)
 			.Field<DCCAssetResource::Entity>(ResourceFieldType::SubObject)
 			.Build();
 	}

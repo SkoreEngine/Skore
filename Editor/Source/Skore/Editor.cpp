@@ -793,11 +793,21 @@ namespace Skore
 			return l.order < r.order;
 		});
 
+#ifdef SK_DEV_ASSETS
+		Editor::LoadPackage("Skore", Path::Join(SK_ROOT_SOURCE_PATH, "Assets"));
+#endif
+
 		projectAssetPath = Path::Join(projectPath, "Assets");
 		projectPackagePath = Path::Join(projectPath, "Packages");
 
 		for (auto& package: DirectoryEntries{projectPackagePath})
 		{
+#ifdef SK_DEV_ASSETS
+			if (Path::Name(package) == "Skore")
+			{
+				continue;
+			}
+#endif
 			Editor::LoadPackage(Path::Name(package), Path::Join(package, "Assets"));
 		}
 

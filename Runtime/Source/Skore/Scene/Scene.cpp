@@ -24,6 +24,7 @@
 
 #include "Component.hpp"
 #include "Entity.hpp"
+#include "Skore/Graphics/Graphics.hpp"
 
 
 namespace Skore
@@ -35,6 +36,8 @@ namespace Skore
 
 	Scene::~Scene()
 	{
+		Graphics::WaitIdle();
+
 		if (m_rootEntity)
 		{
 			m_rootEntity->DestroyInternal(false);

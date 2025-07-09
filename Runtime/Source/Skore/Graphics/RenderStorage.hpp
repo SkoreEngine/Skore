@@ -63,6 +63,8 @@ namespace Skore
 		bool       visible = true;
 		bool       castShadows = false;
 
+		GPUBuffer* bonesBuffer = nullptr;
+		GPUDescriptorSet* bonesDescriptorSet = nullptr;
 
 		GPUDescriptorSet* GetMaterial(u32 index) const;
 
@@ -88,19 +90,32 @@ namespace Skore
 		bool              enableShadows = true;
 	};
 
+	struct BonesRenderData
+	{
+		Mat4 boneMatrices[128];
+	};
+
 	class SK_API RenderStorage
 	{
 	public:
 		virtual ~RenderStorage() = default;
 		RenderStorage() = default;
 
-		void RegisterMeshProxy(VoidPtr owner);
-		void RemoveMeshProxy(VoidPtr owner);
-		void SetMeshTransform(VoidPtr owner, const Mat4& worldTransform);
-		void SetMesh(VoidPtr owner, RID meshAsset);
-		void SetMeshVisible(VoidPtr owner, bool visible);
-		void SetMeshMaterials(VoidPtr owner, Span<RID> materials);
-		void SetMeshCastShadows(VoidPtr owner, bool castShadows);
+		void RegisterStaticMeshProxy(VoidPtr owner);
+		void RemoveStaticMeshProxy(VoidPtr owner);
+		void SetStaticMeshTransform(VoidPtr owner, const Mat4& worldTransform);
+		void SetStaticMesh(VoidPtr owner, RID meshAsset);
+		void SetStaticMeshVisible(VoidPtr owner, bool visible);
+		void SetStaticMeshMaterials(VoidPtr owner, Span<RID> materials);
+		void SetStaticMeshCastShadows(VoidPtr owner, bool castShadows);
+
+		void RegisterSkinnedMeshProxy(VoidPtr owner);
+		void RemoveSkinnedMeshProxy(VoidPtr owner);
+		void SetSkinnedMeshTransform(VoidPtr owner, const Mat4& worldTransform);
+		void SetSkinnedMesh(VoidPtr owner, RID meshAsset);
+		void SetSkinnedMeshVisible(VoidPtr owner, bool visible);
+		void SetSkinnedMeshMaterials(VoidPtr owner, Span<RID> materials);
+		void SetSkinnedMeshCastShadows(VoidPtr owner, bool castShadows);
 
 		void RegisterEnvironmentProxy(VoidPtr owner);
 		void RemoveEnvironmentProxy(VoidPtr owner);
@@ -119,7 +134,8 @@ namespace Skore
 		void SetLightVisible(VoidPtr owner, bool visible);
 		void SetLightEnableShadows(VoidPtr owner, bool enableShadows);
 
-		ankerl::unordered_dense::map<VoidPtr, MeshRenderData>        meshes;
+		ankerl::unordered_dense::map<VoidPtr, MeshRenderData>        staticMeshes;
+		ankerl::unordered_dense::map<VoidPtr, MeshRenderData>        skinnedMeshes;
 		ankerl::unordered_dense::map<VoidPtr, EnvironmentRenderData> environments;
 		ankerl::unordered_dense::map<VoidPtr, LightRenderData>       lights;
 	};
