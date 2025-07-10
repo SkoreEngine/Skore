@@ -54,6 +54,7 @@ namespace Skore
 		ReferenceArray,
 		SubObject,
 		SubObjectSet,
+		SubObjectList,
 		MAX
 	};
 
@@ -121,6 +122,12 @@ namespace Skore
 
 		HashSet<RID> instantiated;
 		HashSet<RID> removedByInstances;
+	};
+
+	struct SubObjectList
+	{
+		Array<RID> subObjects;
+		HashSet<RID> prototypeRemoved;
 	};
 
 	class ResourceObject;

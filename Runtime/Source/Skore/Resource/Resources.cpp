@@ -172,6 +172,12 @@ namespace Skore
 								return f(field->GetIndex(), rid);
 							});
 							break;
+						case ResourceFieldType::SubObjectList:
+							object.IterateSubObjectList(field->GetIndex(), [&](RID rid)
+							{
+								f(field->GetIndex(), rid);
+							});
+							break;
 						default:
 							break;
 					}
@@ -246,6 +252,15 @@ namespace Skore
 						{
 							const SubObjectSet& subObjectSet = *reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()]);
 							for (RID rid : subObjectSet.subObjects)
+							{
+								func(field->GetIndex(), rid);
+							}
+							break;
+						}
+						case ResourceFieldType::SubObjectList:
+						{
+							const SubObjectList& subObjectList = *reinterpret_cast<SubObjectList*>(&instance[field->GetOffset()]);
+							for (RID rid : subObjectList.subObjects)
 							{
 								func(field->GetIndex(), rid);
 							}
@@ -930,6 +945,38 @@ namespace Skore
 
 								break;
 							}
+							case ResourceFieldType::SubObjectList:
+							{
+								set.IterateSubObjectList(field->GetIndex(), [&](RID subobject)
+								{
+									pendingItems.Enqueue(subobject);
+								});
+
+								// bool started = false;
+								//
+								// set.IteratePrototypeRemoved(field->GetIndex(), [&](RID removed)
+								// {
+								// 	if (UUID uuid = GetUUID(removed))
+								// 	{
+								// 		if (!started)
+								// 		{
+								// 			writer.BeginMap(field->GetName());
+								// 			writer.BeginSeq("_removed");
+								// 			started = true;
+								// 		}
+								//
+								// 		writer.AddString(uuid.ToString());
+								// 	}
+								// });
+								//
+								// if (started)
+								// {
+								// 	writer.EndSeq();
+								// 	writer.EndMap();
+								// }
+
+								break;
+							}
 						}
 					}
 				}
@@ -1148,6 +1195,10 @@ namespace Skore
 								{
 									parentObject.AddToSubObjectSet(field->GetIndex(), rid);
 								}
+							}
+							if (field->GetType() == ResourceFieldType::SubObjectList)
+							{
+								parentObject.AddToSubObjectList(field->GetIndex(), rid);
 							}
 							else if (field->GetType() == ResourceFieldType::SubObject)
 							{

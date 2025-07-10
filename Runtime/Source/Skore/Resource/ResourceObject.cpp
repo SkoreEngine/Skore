@@ -216,6 +216,33 @@ namespace Skore
 		SetValue(index, &subObject, sizeof(RID));
 	}
 
+	RID ResourceObject::AddToSubObjectList(u32 index, RID subObject)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList, "Invalid field type");
+		if (SubObjectList* subObjectList = GetMutPtr<SubObjectList>(index))
+		{
+			subObjectList->subObjects.EmplaceBack(subObject);
+			return subObject;
+		}
+		return {};
+	}
+
+	void ResourceObject::RemoveFromSubObjectList(u32 index, RID subObject)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList, "Invalid field type");
+		if (HasValueOnThisObject(index))
+		{
+			if (SubObjectList* subObjectList = GetMutPtr<SubObjectList>(index))
+			{
+				if (auto it = FindFirst(subObjectList->subObjects.begin(), subObjectList->subObjects.end(), subObject))
+				{
+					subObjectList->subObjects.Erase(it);
+					ResourceRemoveParent(subObject);
+				}
+			}
+		}
+	}
+
 	void ResourceObject::AddToSubObjectSet(u32 index, RID subObject)
 	{
 		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
@@ -427,6 +454,10 @@ namespace Skore
 		{
 			RemoveFromSubObjectSet(index, rid);
 		}
+		else if (m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList)
+		{
+			RemoveFromSubObjectList(index, rid);
+		}
 	}
 
 	bool ResourceObject::HasValue(u32 index) const
@@ -603,6 +634,42 @@ namespace Skore
 			return FindFirst(value->begin(), value->end(), rid) != nullptr;
 		}
 		return false;
+	}
+
+	void ResourceObject::IterateSubObjectList(u32 index, FnRIDCallbackNoRet callback, VoidPtr userData) const
+	{
+		if (const SubObjectList* value = GetPtr<SubObjectList>(index))
+		{
+			for (RID subobject : value->subObjects)
+			{
+				if (!value->prototypeRemoved.Has(subobject))
+				{
+					callback(subobject, userData);
+				}
+			}
+		}
+	}
+
+	u64 ResourceObject::GetSubObjectListCount(u32 index) const
+	{
+		u64 count = 0;
+		IterateSubObjectList(index, [&](RID rid)
+		{
+			count++;
+			return true;
+		});
+		return count;
+	}
+
+	Array<RID> ResourceObject::GetSubObjectListAsArray(u32 index) const
+	{
+		Array<RID> subobjects;
+		subobjects.Reserve(GetSubObjectListCount(index));
+		IterateSubObjectList(index, [&](RID rid)
+		{
+			subobjects.EmplaceBack(rid);
+		});
+		return subobjects;
 	}
 
 	usize ResourceObject::GetSubObjectSetCount(u32 index) const

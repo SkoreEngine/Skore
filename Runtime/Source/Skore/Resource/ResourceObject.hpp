@@ -66,6 +66,10 @@ namespace Skore
 		void RemoveFromReferenceArray(u32 index, usize arrIndex);
 		void SetSubObject(u32 index, RID subObject);
 
+		//subobject list
+		RID  AddToSubObjectList(u32 index, RID subObject);
+		void RemoveFromSubObjectList(u32 index, RID subObject);
+
 		//subobjects
 		void AddToSubObjectSet(u32 index, RID subObject);
 		void AddToSubObjectSet(u32 index, Span<RID> subObjects);
@@ -111,6 +115,13 @@ namespace Skore
 		Span<u8>     GetBlob(u32 index) const;
 		Span<RID>    GetReferenceArray(u32 index) const;
 		bool         HasOnReferenceArray(u32 index, RID rid) const;
+
+		void       IterateSubObjectList(u32 index, FnRIDCallbackNoRet callback, VoidPtr userData) const;
+		u64        GetSubObjectListCount(u32 index) const;
+		Array<RID> GetSubObjectListAsArray(u32 index) const;
+
+
+		//subobjectset
 		usize        GetSubObjectSetCount(u32 index) const;
 		void         GetSubObjectSet(u32 index, Span<RID> subObjects) const;
 		Array<RID>   GetSubObjectSetAsArray(u32 index) const;
@@ -140,6 +151,15 @@ namespace Skore
 		T GetEnum(u32 index) const
 		{
 			return static_cast<T>(GetEnum(index));
+		}
+
+		template <typename T>
+		void IterateSubObjectList(u32 index, T&& func) const
+		{
+			IterateSubObjectList(index, [](RID rid, VoidPtr userData)
+			{
+				(*static_cast<Traits::RemoveAll<T>*>(userData))(rid);
+			}, &func);
 		}
 
 		template <typename T>

@@ -48,7 +48,8 @@ namespace
 			IntValue,
 			SubObject,
 			SubObjectSet,
-			RefArray
+			RefArray,
+			SubObjectList
 		};
 	};
 
@@ -71,6 +72,7 @@ namespace
 			.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
 			.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
 			.Field<ResourceTest::RefArray>(ResourceFieldType::ReferenceArray)
+			.Field<ResourceTest::SubObjectList>(ResourceFieldType::SubObjectList)
 			.Build();
 	}
 
@@ -600,6 +602,84 @@ namespace
 		ResourceShutdown();
 	}
 
+	TEST_CASE("Resource::SubObjectListBasic")
+	{
+		ResourceInit();
+		{
+			RegisterTestTypes();
+
+			RID object = Resources::Create<ResourceTest>();
+
+			RID subObject = Resources::Create<ResourceTest>();
+			RID subObject2 = Resources::Create<ResourceTest>();
+			RID subObject3 = Resources::Create<ResourceTest>();
+
+			{
+				ResourceObject write = Resources::Write(object);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subObject);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subObject2);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subObject3);
+				write.Commit();
+			}
+
+			{
+				ResourceObject read = Resources::Read(object);
+				Array<RID>     list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				REQUIRE(list.Size() == 3);
+				CHECK(list[0] == subObject);
+				CHECK(list[1] == subObject2);
+				CHECK(list[2] == subObject3);
+
+				auto checkParent = [&](RID rid) -> bool
+				{
+					if (ResourceStorage* parent = Resources::GetStorage(rid)->parent)
+					{
+						return parent->rid == object;
+					}
+					return false;
+				};
+
+				CHECK(checkParent(subObject));
+				CHECK(checkParent(subObject2));
+				CHECK(checkParent(subObject3));
+			}
+
+			{
+				ResourceObject  write = Resources::Write(object);
+				write.RemoveFromSubObjectList(ResourceTest::SubObjectList, subObject2);
+				write.Commit();
+			}
+
+			{
+				ResourceObject read = Resources::Read(object);
+				Array<RID> list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				CHECK(list.Size() == 2);
+				CHECK(list[0] == subObject);
+				CHECK(list[1] == subObject3);
+			}
+
+			{
+				Resources::Destroy(subObject);
+			}
+
+			{
+				ResourceObject read = Resources::Read(object);
+				Array<RID> list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				CHECK(list.Size() == 1);
+				CHECK(list[0] == subObject3);
+			}
+
+			Resources::Destroy(object);
+
+			{
+				CHECK(!Resources::HasValue(object));
+				CHECK(!Resources::HasValue(subObject3));
+			}
+		}
+
+		ResourceShutdown();
+	}
+
 	TEST_CASE("Resource::Serialization")
 	{
 		UUID uuids[6] = {
@@ -634,7 +714,7 @@ namespace
 					subObjectWrite.SetInt(ResourceTest::IntValue, i);
 					subObjectWrite.Commit();
 
-					write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject);
+					write.AddToSubObjectList(ResourceTest::SubObjectList, subobject);
 
 					uuidToIndex.Insert(i, uuids[i + 1]);
 				}
@@ -664,7 +744,7 @@ namespace
 			CHECK(read.GetInt(ResourceTest::IntValue) == 33);
 			CHECK(read.GetString(ResourceTest::StringValue) == "44");
 
-			Array<RID> subobjects = read.GetSubObjectSetAsArray(ResourceTest::SubObjectSet);
+			Array<RID> subobjects = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
 			CHECK(subobjects.Size() == 5);
 
 			for (u32 i = 0; i < subobjects.Size(); ++i)
@@ -681,4 +761,6 @@ namespace
 			ResourceShutdown();
 		}
 	}
+
+
 }

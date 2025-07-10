@@ -30,23 +30,24 @@
 namespace Skore
 {
 	constexpr static TypeProps fieldProps[] = {
-		TypeInfo<void>::GetProps(),         // ResourceFieldType::None
-		TypeInfo<bool>::GetProps(),         // ResourceFieldType::Bool
-		TypeInfo<i64>::GetProps(),          // ResourceFieldType::Int,
-		TypeInfo<u64>::GetProps(),          // ResourceFieldType::UInt,
-		TypeInfo<f64>::GetProps(),          // ResourceFieldType::Float,
-		TypeInfo<String>::GetProps(),       // ResourceFieldType::String,
-		TypeInfo<Vec2>::GetProps(),         // ResourceFieldType::Vec2,
-		TypeInfo<Vec3>::GetProps(),         // ResourceFieldType::Vec3,
-		TypeInfo<Vec4>::GetProps(),         // ResourceFieldType::Vec4,
-		TypeInfo<Quat>::GetProps(),         // ResourceFieldType::Quat,
-		TypeInfo<Color>::GetProps(),        // ResourceFieldType::Color,
-		TypeInfo<i64>::GetProps(),          // ResourceFieldType::Enum,
-		TypeInfo<ByteBuffer>::GetProps(),   // ResourceFieldType::Blob,
-		TypeInfo<RID>::GetProps(),          // ResourceFieldType::Reference,
-		TypeInfo<Array<RID>>::GetProps(),   // ResourceFieldType::ReferenceArray,
-		TypeInfo<RID>::GetProps(),          // ResourceFieldType::SubObject,
-		TypeInfo<SubObjectSet>::GetProps(), // ResourceFieldType::SubObjectSet,
+		TypeInfo<void>::GetProps(),          // ResourceFieldType::None
+		TypeInfo<bool>::GetProps(),          // ResourceFieldType::Bool
+		TypeInfo<i64>::GetProps(),           // ResourceFieldType::Int,
+		TypeInfo<u64>::GetProps(),           // ResourceFieldType::UInt,
+		TypeInfo<f64>::GetProps(),           // ResourceFieldType::Float,
+		TypeInfo<String>::GetProps(),        // ResourceFieldType::String,
+		TypeInfo<Vec2>::GetProps(),          // ResourceFieldType::Vec2,
+		TypeInfo<Vec3>::GetProps(),          // ResourceFieldType::Vec3,
+		TypeInfo<Vec4>::GetProps(),          // ResourceFieldType::Vec4,
+		TypeInfo<Quat>::GetProps(),          // ResourceFieldType::Quat,
+		TypeInfo<Color>::GetProps(),         // ResourceFieldType::Color,
+		TypeInfo<i64>::GetProps(),           // ResourceFieldType::Enum,
+		TypeInfo<ByteBuffer>::GetProps(),    // ResourceFieldType::Blob,
+		TypeInfo<RID>::GetProps(),           // ResourceFieldType::Reference,
+		TypeInfo<Array<RID>>::GetProps(),    // ResourceFieldType::ReferenceArray,
+		TypeInfo<RID>::GetProps(),           // ResourceFieldType::SubObject,
+		TypeInfo<SubObjectSet>::GetProps(),  // ResourceFieldType::SubObjectSet,
+		TypeInfo<SubObjectList>::GetProps(), // ResourceFieldType::SubObjectList,
 	};
 
 	static_assert(sizeof(fieldProps) / sizeof(TypeProps) == static_cast<usize>(ResourceFieldType::MAX), "Invalid field size array");
