@@ -46,7 +46,6 @@ namespace Skore
 		TypeInfo<RID>::GetProps(),           // ResourceFieldType::Reference,
 		TypeInfo<Array<RID>>::GetProps(),    // ResourceFieldType::ReferenceArray,
 		TypeInfo<RID>::GetProps(),           // ResourceFieldType::SubObject,
-		TypeInfo<SubObjectSet>::GetProps(),  // ResourceFieldType::SubObjectSet,
 		TypeInfo<SubObjectList>::GetProps(), // ResourceFieldType::SubObjectList,
 	};
 

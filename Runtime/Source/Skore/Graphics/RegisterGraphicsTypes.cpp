@@ -668,12 +668,12 @@ namespace Skore
 			.Field<ShaderVariantResource::Name>(ResourceFieldType::String)
 			.Field<ShaderVariantResource::Spriv>(ResourceFieldType::Blob)
 			.Field<ShaderVariantResource::PipelineDesc>(ResourceFieldType::SubObject)
-			.Field<ShaderVariantResource::Stages>(ResourceFieldType::SubObjectSet)
+			.Field<ShaderVariantResource::Stages>(ResourceFieldType::SubObjectList)
 			.Build();
 
 		Resources::Type<ShaderResource>()
 			.Field<ShaderResource::Name>(ResourceFieldType::String)
-			.Field<ShaderResource::Variants>(ResourceFieldType::SubObjectSet)
+			.Field<ShaderResource::Variants>(ResourceFieldType::SubObjectList)
 			.Build();
 
 		Resources::Type<TextureResource>()
@@ -728,10 +728,10 @@ namespace Skore
 
 		Resources::Type<DCCAssetResource>()
 			.Field<DCCAssetResource::Name>(ResourceFieldType::String)
-			.Field<DCCAssetResource::Meshes>(ResourceFieldType::SubObjectSet)
-			.Field<DCCAssetResource::Materials>(ResourceFieldType::SubObjectSet)
-			.Field<DCCAssetResource::Textures>(ResourceFieldType::SubObjectSet)
-			.Field<DCCAssetResource::Animations>(ResourceFieldType::SubObjectSet)
+			.Field<DCCAssetResource::Meshes>(ResourceFieldType::SubObjectList)
+			.Field<DCCAssetResource::Materials>(ResourceFieldType::SubObjectList)
+			.Field<DCCAssetResource::Textures>(ResourceFieldType::SubObjectList)
+			.Field<DCCAssetResource::Animations>(ResourceFieldType::SubObjectList)
 			.Field<DCCAssetResource::Entity>(ResourceFieldType::SubObject)
 			.Build();
 	}

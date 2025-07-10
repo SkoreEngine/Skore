@@ -67,32 +67,11 @@ namespace Skore
 		void SetSubObject(u32 index, RID subObject);
 
 		//subobject list
-		RID  AddToSubObjectList(u32 index, RID subObject);
+		void AddToSubObjectList(u32 index, RID subObject);
+		void AddToSubObjectList(u32 index, Span<RID> subObject);
 		void RemoveFromSubObjectList(u32 index, RID subObject);
 
-		//subobjects
-		void AddToSubObjectSet(u32 index, RID subObject);
-		void AddToSubObjectSet(u32 index, Span<RID> subObjects);
-		void RemoveFromSubObjectSet(u32 index, RID subObject);
-		void RemoveFromSubObjectSet(u32 index, const Span<RID>& subObjects);
-		void ClearSubObjectSet(u32 index);
-
-		//subobject prototypes.
-		usize GetRemoveFromPrototypeSubObjectSetCount(u32 index) const;
-		void  GetRemoveFromPrototypeSubObjectSet(u32 index, Span<RID> remove) const;
-		bool  IsRemoveFromPrototypeSubObjectSet(u32 index, RID remove) const;
-		void  RemoveFromPrototypeSubObjectSet(u32 index, RID remove);
-		void  RemoveFromPrototypeSubObjectSet(u32 index, const Span<RID>& remove);
-		void  CancelRemoveFromPrototypeSubObjectSet(u32 index, RID remove);
-		void  CancelRemoveFromPrototypeSubObjectSet(u32 index, const Span<RID>& remove);
-		void  ClearRemoveFromPrototypeSubObjectSet(u32 index);
-
-		//instances
-		RID  InstantiateFromSubObjectSet(u32 index, RID subobject, UndoRedoScope* scope = nullptr);
-		void AddInstanceToSubObjectSet(u32 index, RID subobject, RID instance);
-		void RemoveInstanceFromSubObjectSet(u32 index, RID instance, UndoRedoScope* scope = nullptr);
-
-		//if index = SubobjectSet, remove from set
+		//if index = SubobjectList, remove from the list
 		//if index = subobject, compare the values, if equals, cleanup.
 		void RemoveSubObject(u32 index, RID rid);
 
@@ -116,20 +95,15 @@ namespace Skore
 		Span<RID>    GetReferenceArray(u32 index) const;
 		bool         HasOnReferenceArray(u32 index, RID rid) const;
 
-		void       IterateSubObjectList(u32 index, FnRIDCallbackNoRet callback, VoidPtr userData) const;
+		//subobject list
+		void       IterateSubObjectList(u32 index, FnRIDCallback callback, VoidPtr userData) const;
 		u64        GetSubObjectListCount(u32 index) const;
 		Array<RID> GetSubObjectListAsArray(u32 index) const;
+		bool       HasOnSubObjectList(u32 index, RID rid) const;
 
-
-		//subobjectset
-		usize        GetSubObjectSetCount(u32 index) const;
-		void         GetSubObjectSet(u32 index, Span<RID> subObjects) const;
-		Array<RID>   GetSubObjectSetAsArray(u32 index) const;
-		HashSet<RID> GetSubObjectSetAsHashSet(u32 index) const;
-		bool         HasSubObjectSet(u32 index, RID rid) const;
-		void         IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const;
-		usize        GetPrototypeRemovedCount(u32 index) const;
-		void         IteratePrototypeRemoved(u32 index, FnRIDCallbackNoRet callback, VoidPtr userData) const;
+		u64        GetPrototypeRemovedCount(u32 index) const;
+		bool       IsRemoveFromPrototypeSubObjectList(u32 index, RID rid) const;
+		void       IteratePrototypeRemoved(u32 index, FnRIDCallback callback, VoidPtr userData) const;
 
 		u32              GetIndex(StringView fieldName) const;
 		RID              GetRID() const;
@@ -163,23 +137,12 @@ namespace Skore
 		}
 
 		template <typename T>
-		void IterateSubObjectSet(u32 index, bool prototypeIterate, T&& func) const
-		{
-			IterateSubObjectSet(index, prototypeIterate, [](RID rid, VoidPtr userData)
-			{
-				auto& func = *static_cast<Traits::RemoveAll<T>*>(userData);
-				return func(rid);
-			}, &func);
-		}
-
-		template <typename T>
 		void IteratePrototypeRemoved(u32 index, T&& func) const
 		{
-			auto fp = [](RID rid, VoidPtr userData)
+			IteratePrototypeRemoved(index, [](RID rid, VoidPtr userData)
 			{
 				(*static_cast<Traits::RemoveAll<T>*>(userData))(rid);
-			};
-			IteratePrototypeRemoved(index, fp, &func);
+			}, &func);
 		}
 
 		explicit operator bool() const;
@@ -193,8 +156,6 @@ namespace Skore
 		void     UpdateHasValue(u32 index, bool hasValue) const;
 		ConstPtr GetPtr(u32 index) const;
 		VoidPtr  GetMutPtr(u32 index) const;
-
-		bool ValidSubObjectOnSet(const ResourceStorage* readingStorage, u32 index, RID rid) const;
 
 		template <typename T>
 		const T* GetPtr(u32 index) const

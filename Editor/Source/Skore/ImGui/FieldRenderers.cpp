@@ -482,10 +482,9 @@ namespace Skore
 
 								ImGui::PopID();
 
-								entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
+								entityObject.IterateSubObjectList(EntityResource::Children, [&](RID child)
 								{
 									drawEntity(child);
-									return true;
 								});
 
 							};

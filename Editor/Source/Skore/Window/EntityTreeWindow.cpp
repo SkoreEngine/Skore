@@ -84,7 +84,7 @@ namespace Skore
 		}
 
 		bool       root = sceneEditor->GetRootEntity() == entity;
-		bool       drawNode = entityObject.GetSubObjectSetCount(EntityResource::Children) > 0 || entityObject.GetPrototypeRemovedCount(EntityResource::Children);
+		bool       drawNode = entityObject.GetSubObjectListCount(EntityResource::Children) > 0 || entityObject.GetPrototypeRemovedCount(EntityResource::Children);
 		StringView name = entityObject.GetString(EntityResource::Name);
 		bool       active = !entityObject.GetBool(EntityResource::Deactivated);
 		bool       locked = entityObject.GetBool(EntityResource::Locked);
@@ -280,7 +280,7 @@ namespace Skore
 
 		if (open)
 		{
-			entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
+			entityObject.IterateSubObjectList(EntityResource::Children, [&](RID child)
 			{
 				DrawRIDEntity(sceneEditor, child, entitySelected, entity, disabled, removed);
 				return true;
@@ -665,11 +665,13 @@ namespace Skore
 
 	bool EntityTreeWindow::IsRemovedFromThisInstance(const MenuItemEventData& eventData)
 	{
-		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		if (!window-> parentOnPopupSelection || !window->entityOnPopupSelection) return false;
+		// EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		// if (!window-> parentOnPopupSelection || !window->entityOnPopupSelection) return false;
+		//
+		// ResourceObject read = Resources::Read(window-> parentOnPopupSelection);
+		// return read.IsRemoveFromPrototypeSubObjectSet(EntityResource::Children, window->entityOnPopupSelection);
 
-		ResourceObject read = Resources::Read(window-> parentOnPopupSelection);
-		return read.IsRemoveFromPrototypeSubObjectSet(EntityResource::Children, window->entityOnPopupSelection);
+		return false;
 	}
 
 	void EntityTreeWindow::AddBackToThisInstance(const MenuItemEventData& eventData)

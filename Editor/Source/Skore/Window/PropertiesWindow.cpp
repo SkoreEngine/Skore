@@ -180,7 +180,7 @@ namespace Skore
 			drawCollapsingHeader(transform, "Transform", "Transform Update");
 		}
 
-		entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
+		entityObject.IterateSubObjectList(EntityResource::Components, [&](RID component)
 		{
 			if (ResourceType* componentType = Resources::GetType(component);
 				componentType != nullptr &&
@@ -190,8 +190,6 @@ namespace Skore
 				String scope = String(formattedName).Append(" Update");
 				drawCollapsingHeader(component, formattedName, scope);
 			}
-
-			return true;
 		});
 
 		if (addComponent)

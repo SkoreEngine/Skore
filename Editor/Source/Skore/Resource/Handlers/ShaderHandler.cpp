@@ -274,11 +274,11 @@ namespace Skore
 				{
 					RID stageRID = Resources::Create<ShaderStageInfo>();
 					Resources::ToResource(stageRID, &stage, nullptr);
-					shaderVariantObject.AddToSubObjectSet(ShaderVariantResource::Stages, stageRID);
+					shaderVariantObject.AddToSubObjectList(ShaderVariantResource::Stages, stageRID);
 				}
 
 				shaderVariantObject.Commit();
-				shaderResourceObject.AddToSubObjectSet(ShaderResource::Variants, shaderVariant);
+				shaderResourceObject.AddToSubObjectList(ShaderResource::Variants, shaderVariant);
 
 				logger.Debug("shader {} variant {} created successfully", ResourceAssets::GetPathId(asset), shaderConfigVariant.name);
 			}

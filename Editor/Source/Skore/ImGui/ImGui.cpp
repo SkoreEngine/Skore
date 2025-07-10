@@ -1444,7 +1444,7 @@ namespace Skore
 				case ResourceFieldType::String:
 				case ResourceFieldType::Blob:
 				case ResourceFieldType::SubObject:
-				case ResourceFieldType::SubObjectSet:
+				case ResourceFieldType::SubObjectList:
 					//TODO: not handled yet
 					break;
 				default:
@@ -1593,7 +1593,7 @@ namespace Skore
 							case ResourceFieldType::String:
 							case ResourceFieldType::Blob:
 							case ResourceFieldType::SubObject:
-							case ResourceFieldType::SubObjectSet:
+							case ResourceFieldType::SubObjectList:
 								break;
 							case ResourceFieldType::ReferenceArray:
 							{

@@ -135,7 +135,7 @@ namespace Skore
 			{
 				if (ResourceObject openDirectoryObject = Resources::Read(popupFolder))
 				{
-					for (RID directory : openDirectoryObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Directories))
+					for (RID directory : openDirectoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Directories))
 					{
 						String assetName = ResourceAssets::GetAssetName(directory);
 						if (ImGui::MenuItem(assetName.CStr()))
@@ -249,7 +249,7 @@ namespace Skore
 
 		if (isNodeOpen)
 		{
-			Array<RID> children = directoryObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Directories);
+			Array<RID> children = directoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Directories);
 			for (RID child : children)
 			{
 				DrawDirectoryTreeNode(child);
@@ -603,7 +603,7 @@ namespace Skore
 						};
 						ResourceObject openDirectoryObject = Resources::Read(openDirectory);
 
-						for (RID directory : openDirectoryObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Directories))
+						for (RID directory : openDirectoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Directories))
 						{
 							ResourceObject        directoryObject = Resources::Read(directory);
 							RID                   asset = directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
@@ -615,7 +615,7 @@ namespace Skore
 							}
 						}
 
-						for (RID asset : openDirectoryObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Assets))
+						for (RID asset : openDirectoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Assets))
 						{
 							ImGuiContentItemState state = drawContentItem(asset, false);
 							if (state.enter)
@@ -823,15 +823,14 @@ namespace Skore
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
 		ResourceObject        windowObject = Resources::Read(projectBrowserWindow->windowObjectRID);
 
-		if (windowObject.GetSubObjectSetCount(ProjectBrowserWindowData::SelectedItems) > 0)
+		if (windowObject.GetSubObjectListCount(ProjectBrowserWindowData::SelectedItems) > 0)
 		{
-			windowObject.IterateSubObjectSet(ProjectBrowserWindowData::SelectedItems, false, [](RID selected)
+			windowObject.IterateSubObjectList(ProjectBrowserWindowData::SelectedItems, [](RID selected)
 			{
 				if (StringView absolutePath = ResourceAssets::GetAbsolutePath(selected); !absolutePath.Empty())
 				{
 					SDL_OpenURL(absolutePath.CStr());
 				}
-				return true;
 			});
 		}
 		else if (RID openDirectory = windowObject.GetReference(ProjectBrowserWindowData::OpenDirectory))

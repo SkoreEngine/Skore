@@ -166,15 +166,12 @@ namespace Skore
 						case ResourceFieldType::SubObject:
 							f(field->GetIndex(), object.GetSubObject(field->GetIndex()));
 							break;
-						case ResourceFieldType::SubObjectSet:
-							object.IterateSubObjectSet(field->GetIndex(), false, [&](RID rid)
-							{
-								return f(field->GetIndex(), rid);
-							});
-							break;
 						case ResourceFieldType::SubObjectList:
 							object.IterateSubObjectList(field->GetIndex(), [&](RID rid)
 							{
+								//TODO : no prototypes here
+								SK_ASSERT(GetStorage(rid)->prototype == nullptr, "prototype should not iterate here. check");
+
 								f(field->GetIndex(), rid);
 							});
 							break;
@@ -248,20 +245,14 @@ namespace Skore
 							}
 							break;
 						}
-						case ResourceFieldType::SubObjectSet:
-						{
-							const SubObjectSet& subObjectSet = *reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()]);
-							for (RID rid : subObjectSet.subObjects)
-							{
-								func(field->GetIndex(), rid);
-							}
-							break;
-						}
 						case ResourceFieldType::SubObjectList:
 						{
 							const SubObjectList& subObjectList = *reinterpret_cast<SubObjectList*>(&instance[field->GetOffset()]);
 							for (RID rid : subObjectList.subObjects)
 							{
+								//TODO : no prototypes here
+								SK_ASSERT(GetStorage(rid)->prototype == nullptr, "prototype should not iterate here. check");
+
 								func(field->GetIndex(), rid);
 							}
 							break;
@@ -324,27 +315,31 @@ namespace Skore
 						new(reinterpret_cast<RID*>(&instance[field->GetOffset()])) RID(clone);
 						break;
 					}
-					case ResourceFieldType::SubObjectSet:
-					{
-						const SubObjectSet& subObjectSet = *reinterpret_cast<SubObjectSet*>(&origin[field->GetOffset()]);
-
-						SubObjectSet copySuobjectSet;
-						copySuobjectSet.prototypeRemoved = subObjectSet.prototypeRemoved;
-						copySuobjectSet.removedByInstances = subObjectSet.removedByInstances;
-
-						for (RID subobject : subObjectSet.subObjects)
-						{
-							copySuobjectSet.subObjects.Emplace(CloneSubObject(storage, field->GetIndex(), subobject, scope));
-						}
-
-						for (RID subobject : subObjectSet.instantiated)
-						{
-							copySuobjectSet.instantiated.Emplace(CloneSubObject(storage, field->GetIndex(), subobject, scope));
-						}
-
-						new(reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])) SubObjectSet{copySuobjectSet};
+					case ResourceFieldType::SubObjectList:
+						SK_ASSERT(false, "not implemented");
 						break;
-					}
+
+					// case ResourceFieldType::SubObjectList:
+					// {
+					// 	const SubObjectSet& subObjectSet = *reinterpret_cast<SubObjectSet*>(&origin[field->GetOffset()]);
+					//
+					// 	SubObjectSet copySuobjectSet;
+					// 	copySuobjectSet.prototypeRemoved = subObjectSet.prototypeRemoved;
+					// 	copySuobjectSet.removedByInstances = subObjectSet.removedByInstances;
+					//
+					// 	for (RID subobject : subObjectSet.subObjects)
+					// 	{
+					// 		copySuobjectSet.subObjects.Emplace(CloneSubObject(storage, field->GetIndex(), subobject, scope));
+					// 	}
+					//
+					// 	for (RID subobject : subObjectSet.instantiated)
+					// 	{
+					// 		copySuobjectSet.instantiated.Emplace(CloneSubObject(storage, field->GetIndex(), subobject, scope));
+					// 	}
+					//
+					// 	new(reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])) SubObjectSet{copySuobjectSet};
+					// 	break;
+					// }
 					case ResourceFieldType::String:
 						new(reinterpret_cast<String*>(&instance[field->GetOffset()])) String(*reinterpret_cast<String*>(&origin[field->GetOffset()]));
 						break;
@@ -377,8 +372,8 @@ namespace Skore
 					case ResourceFieldType::ReferenceArray:
 						new(reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])) Array(*reinterpret_cast<Array<RID>*>(&origin[field->GetOffset()]));
 						break;
-					case ResourceFieldType::SubObjectSet:
-						new(reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])) SubObjectSet(*reinterpret_cast<SubObjectSet*>(&origin[field->GetOffset()]));
+					case ResourceFieldType::SubObjectList:
+						new(reinterpret_cast<SubObjectList*>(&instance[field->GetOffset()])) SubObjectList(*reinterpret_cast<SubObjectList*>(&origin[field->GetOffset()]));
 						break;
 					case ResourceFieldType::String:
 						new(reinterpret_cast<String*>(&instance[field->GetOffset()])) String(*reinterpret_cast<String*>(&origin[field->GetOffset()]));
@@ -410,8 +405,8 @@ namespace Skore
 						case ResourceFieldType::ReferenceArray:
 							reinterpret_cast<Array<RID>*>(&instance[field->GetOffset()])->~Array<RID>();
 							break;
-						case ResourceFieldType::SubObjectSet:
-							reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])->~SubObjectSet();
+						case ResourceFieldType::SubObjectList:
+							reinterpret_cast<SubObjectList*>(&instance[field->GetOffset()])->~SubObjectList();
 							break;
 						case ResourceFieldType::String:
 							reinterpret_cast<String*>(&instance[field->GetOffset()])->~String();
@@ -912,39 +907,6 @@ namespace Skore
 									pendingItems.Enqueue(subobject);
 								}
 								break;
-							case ResourceFieldType::SubObjectSet:
-							{
-								set.IterateSubObjectSet(field->GetIndex(), false, [&](RID subobject)
-								{
-									pendingItems.Enqueue(subobject);
-									return true;
-								});
-
-								bool started = false;
-
-								set.IteratePrototypeRemoved(field->GetIndex(), [&](RID removed)
-								{
-									if (UUID uuid = GetUUID(removed))
-									{
-										if (!started)
-										{
-											writer.BeginMap(field->GetName());
-											writer.BeginSeq("_removed");
-											started = true;
-										}
-
-										writer.AddString(uuid.ToString());
-									}
-								});
-
-								if (started)
-								{
-									writer.EndSeq();
-									writer.EndMap();
-								}
-
-								break;
-							}
 							case ResourceFieldType::SubObjectList:
 							{
 								set.IterateSubObjectList(field->GetIndex(), [&](RID subobject)
@@ -1147,27 +1109,27 @@ namespace Skore
 								reader.EndSeq();
 								break;
 							}
-							case ResourceFieldType::SubObjectSet:
-							{
-								reader.BeginMap();
-								while (reader.NextMapEntry())
-								{
-									StringView fieldName = reader.GetCurrentKey();
-									if (fieldName == "_removed")
-									{
-										reader.BeginSeq();
-										while (reader.NextSeqEntry())
-										{
-											if (UUID uuid = UUID::FromString(reader.GetString()))
-											{
-												write.RemoveFromPrototypeSubObjectSet(field->GetIndex(), FindOrReserveByUUID(uuid));
-											}
-										}
-										reader.EndSeq();
-									}
-								}
-								reader.EndMap();
-							}
+							// case ResourceFieldType::SubObjectList:
+							// {
+							// 	reader.BeginMap();
+							// 	while (reader.NextMapEntry())
+							// 	{
+							// 		StringView fieldName = reader.GetCurrentKey();
+							// 		if (fieldName == "_removed")
+							// 		{
+							// 			reader.BeginSeq();
+							// 			while (reader.NextSeqEntry())
+							// 			{
+							// 				if (UUID uuid = UUID::FromString(reader.GetString()))
+							// 				{
+							// 					write.RemoveFromPrototypeSubObjectSet(field->GetIndex(), FindOrReserveByUUID(uuid));
+							// 				}
+							// 			}
+							// 			reader.EndSeq();
+							// 		}
+							// 	}
+							// 	reader.EndMap();
+							// }
 						}
 					}
 				}
@@ -1182,20 +1144,6 @@ namespace Skore
 						if (ResourceField* field = parentStorage->resourceType->FindFieldByName(reader.ReadString("_parentField")))
 						{
 							ResourceObject parentObject = Write(parent);
-
-							RID instanceFrom = FindOrReserveByUUID(UUID::FromString(reader.ReadString("_instance")));
-
-							if (field->GetType() == ResourceFieldType::SubObjectSet)
-							{
-								if (instanceFrom)
-								{
-									parentObject.AddInstanceToSubObjectSet(field->GetIndex(), instanceFrom, rid);
-								}
-								else
-								{
-									parentObject.AddToSubObjectSet(field->GetIndex(), rid);
-								}
-							}
 							if (field->GetType() == ResourceFieldType::SubObjectList)
 							{
 								parentObject.AddToSubObjectList(field->GetIndex(), rid);
@@ -1270,9 +1218,9 @@ namespace Skore
 		Array<CompareSubObjectSetResult> results;
 
 		//check added
-		newObject.IterateSubObjectSet(index, true, [&](RID rid)
+		newObject.IterateSubObjectList(index, [&](RID rid)
 		{
-			if (!oldObject.HasSubObjectSet(index, rid))
+			if (!oldObject.HasOnSubObjectList(index, rid))
 			{
 				results.EmplaceBack(CompareSubObjectSetType::Added, rid);
 			}
@@ -1280,9 +1228,9 @@ namespace Skore
 		});
 
 		//check removed
-		oldObject.IterateSubObjectSet(index, true, [&](RID rid)
+		oldObject.IterateSubObjectList(index, [&](RID rid)
 		{
-			if (!newObject.HasSubObjectSet(index, rid))
+			if (!newObject.HasOnSubObjectList(index, rid))
 			{
 				results.EmplaceBack(CompareSubObjectSetType::Removed, rid);
 			}

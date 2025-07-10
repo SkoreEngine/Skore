@@ -216,15 +216,22 @@ namespace Skore
 		SetValue(index, &subObject, sizeof(RID));
 	}
 
-	RID ResourceObject::AddToSubObjectList(u32 index, RID subObject)
+	void ResourceObject::AddToSubObjectList(u32 index, RID subObject)
 	{
 		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList, "Invalid field type");
 		if (SubObjectList* subObjectList = GetMutPtr<SubObjectList>(index))
 		{
 			subObjectList->subObjects.EmplaceBack(subObject);
-			return subObject;
 		}
-		return {};
+	}
+
+	void ResourceObject::AddToSubObjectList(u32 index, Span<RID> subObject)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList, "Invalid field type");
+		if (SubObjectList* subObjectList = GetMutPtr<SubObjectList>(index))
+		{
+			subObjectList->subObjects.Insert(subObjectList->subObjects.end(), subObject.begin(), subObject.end());
+		}
 	}
 
 	void ResourceObject::RemoveFromSubObjectList(u32 index, RID subObject)
@@ -243,204 +250,6 @@ namespace Skore
 		}
 	}
 
-	void ResourceObject::AddToSubObjectSet(u32 index, RID subObject)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-		{
-			subObjectSet->subObjects.Emplace(subObject);
-		}
-	}
-
-	void ResourceObject::AddToSubObjectSet(u32 index, Span<RID> subObjects)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-		{
-			for (RID subObject : subObjects)
-			{
-				subObjectSet->subObjects.Emplace(subObject);
-			}
-		}
-	}
-
-	void ResourceObject::RemoveFromSubObjectSet(u32 index, RID subObject)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (HasValueOnThisObject(index))
-		{
-			if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-			{
-				if (auto it = subObjectSet->subObjects.Find(subObject))
-				{
-					subObjectSet->subObjects.Erase(it);
-					ResourceRemoveParent(subObject);
-				}
-			}
-		}
-	}
-
-	void ResourceObject::RemoveFromSubObjectSet(u32 index, const Span<RID>& subObjects)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (HasValueOnThisObject(index))
-		{
-			if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-			{
-				for (RID subObject : subObjects)
-				{
-					subObjectSet->subObjects.Erase(subObject);
-				}
-			}
-		}
-	}
-
-	void ResourceObject::ClearSubObjectSet(u32 index)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (HasValueOnThisObject(index))
-		{
-			if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-			{
-				subObjectSet->subObjects.Clear();
-			}
-		}
-	}
-
-	usize ResourceObject::GetRemoveFromPrototypeSubObjectSetCount(u32 index) const
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (const SubObjectSet* subObjectSet = GetPtr<SubObjectSet>(index))
-		{
-			return subObjectSet->prototypeRemoved.Size();
-		}
-		return 0;
-	}
-
-	void ResourceObject::GetRemoveFromPrototypeSubObjectSet(u32 index, Span<RID> remove) const
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (const SubObjectSet* subObjectSet = GetPtr<SubObjectSet>(index))
-		{
-			usize i = 0;
-			for (RID removed : subObjectSet->prototypeRemoved)
-			{
-				remove[i++] = removed;
-			}
-		}
-	}
-
-	bool ResourceObject::IsRemoveFromPrototypeSubObjectSet(u32 index, RID remove) const
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (const SubObjectSet* subObjectSet = GetPtr<SubObjectSet>(index))
-		{
-			return subObjectSet->prototypeRemoved.Has(remove);
-		}
-		return false;
-	}
-
-	void ResourceObject::RemoveFromPrototypeSubObjectSet(u32 index, RID remove)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-		{
-			subObjectSet->prototypeRemoved.Emplace(remove);
-		}
-	}
-
-	void ResourceObject::RemoveFromPrototypeSubObjectSet(u32 index, const Span<RID>& remove)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-		{
-			for (RID subObject : remove)
-			{
-				subObjectSet->prototypeRemoved.Emplace(subObject);
-			}
-		}
-	}
-
-	void ResourceObject::CancelRemoveFromPrototypeSubObjectSet(u32 index, RID remove)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-		{
-			subObjectSet->prototypeRemoved.Erase(remove);
-		}
-	}
-
-	void ResourceObject::CancelRemoveFromPrototypeSubObjectSet(u32 index, const Span<RID>& remove)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-		{
-			for (RID subObject : remove)
-			{
-				subObjectSet->prototypeRemoved.Erase(subObject);
-			}
-		}
-	}
-
-	void ResourceObject::ClearRemoveFromPrototypeSubObjectSet(u32 index)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-		{
-			subObjectSet->prototypeRemoved.Clear();
-		}
-	}
-
-	RID ResourceObject::InstantiateFromSubObjectSet(u32 index, RID subobject, UndoRedoScope* scope)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-
-		UUID uuid = Resources::GetUUID(subobject) ? UUID::RandomUUID() : UUID{};
-		RID instance = Resources::CreateFromPrototype(subobject, uuid, scope);
-		AddInstanceToSubObjectSet(index, subobject, instance);
-		return instance;
-	}
-
-	void ResourceObject::AddInstanceToSubObjectSet(u32 index, RID subobject, RID instance)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-		{
-			subObjectSet->removedByInstances.Insert(subobject);
-			subObjectSet->instantiated.Insert(instance);
-			Resources::GetStorage(instance)->instantiated = Resources::GetStorage(subobject);
-		}
-	}
-
-	void ResourceObject::RemoveInstanceFromSubObjectSet(u32 index, RID instance, UndoRedoScope* scope)
-	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet, "Invalid field type");
-		if (SubObjectSet* subObjectSet = GetMutPtr<SubObjectSet>(index))
-		{
-
-			auto it = subObjectSet->instantiated.Find(instance);
-			if (it == subObjectSet->instantiated.end())
-			{
-				SK_ASSERT(false, "instance not found on object");
-				return;
-			}
-
-			ResourceStorage* storage = Resources::GetStorage(instance);
-			SK_ASSERT(storage->prototype, "instance is not created from prototype");
-
-			//clean up parent data, so it won't try to remove on Resources::Destroy
-			storage->parent = nullptr;
-			storage->parentFieldIndex = U32_MAX;
-
-			subObjectSet->removedByInstances.Erase(storage->prototype->rid);
-
-			subObjectSet->instantiated.Erase(it);
-
-			Resources::Destroy(instance, scope);
-		}
-	}
-
-
 	void ResourceObject::RemoveSubObject(u32 index, RID rid)
 	{
 		if (m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObject)
@@ -449,10 +258,6 @@ namespace Skore
 			{
 				UpdateHasValue(index, false);
 			}
-		}
-		else if (m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectSet)
-		{
-			RemoveFromSubObjectSet(index, rid);
 		}
 		else if (m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList)
 		{
@@ -636,7 +441,7 @@ namespace Skore
 		return false;
 	}
 
-	void ResourceObject::IterateSubObjectList(u32 index, FnRIDCallbackNoRet callback, VoidPtr userData) const
+	void ResourceObject::IterateSubObjectList(u32 index, FnRIDCallback callback, VoidPtr userData) const
 	{
 		if (const SubObjectList* value = GetPtr<SubObjectList>(index))
 		{
@@ -672,133 +477,38 @@ namespace Skore
 		return subobjects;
 	}
 
-	usize ResourceObject::GetSubObjectSetCount(u32 index) const
+	bool ResourceObject::HasOnSubObjectList(u32 index, RID rid) const
 	{
-		usize count = 0;
-
-		IterateSubObjectSet(index, true, [&](RID rid)
+		if (const SubObjectList* value = GetPtr<SubObjectList>(index))
 		{
-			count++;
-			return true;
-		});
-
-		return count;
-	}
-
-	void ResourceObject::GetSubObjectSet(u32 index, Span<RID> subObjects) const
-	{
-		usize i = 0;
-
-		IterateSubObjectSet(index, true, [&](RID rid)
-		{
-			subObjects[i] = rid;
-			i++;
-			return true;
-		});
-	}
-
-	Array<RID> ResourceObject::GetSubObjectSetAsArray(u32 index) const
-	{
-		Array<RID> subobjects;
-		subobjects.Resize(GetSubObjectSetCount(index));
-		GetSubObjectSet(index, subobjects);
-		return subobjects;
-	}
-
-	HashSet<RID> ResourceObject::GetSubObjectSetAsHashSet(u32 index) const
-	{
-		HashSet<RID> subobjects;
-		IterateSubObjectSet(index, true, [&](RID rid)
-		{
-			subobjects.Insert(rid);
-			return true;
-		});
-		return subobjects;
-	}
-
-	bool ResourceObject::HasSubObjectSet(u32 index, RID rid) const
-	{
-		bool found = false;
-		IterateSubObjectSet(index, true, [&](RID subobect)
-		{
-			if (rid == subobect)
-			{
-				found = true;
-				return false;
-			}
-			return true;
-		});
-
-		return found;
-	}
-
-	void ResourceObject::IterateSubObjectSet(u32 index, bool prototypeIterate, FnRIDCallback callback, VoidPtr userData) const
-	{
-		ResourceStorage* currentStorage = m_storage;
-		ResourceInstance currentInstance = m_currentInstance ? m_currentInstance : m_storage->instance.load();
-
-		while (currentStorage != nullptr)
-		{
-			if (currentInstance)
-			{
-				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
-				{
-					const SubObjectSet* subObjectSet = reinterpret_cast<SubObjectSet*>(&currentInstance[m_storage->resourceType->fields[index]->offset]);
-
-					auto iterate = [&](const HashSet<RID>& set) -> bool
-					{
-						for (RID rid: set)
-						{
-							if (ValidSubObjectOnSet(currentStorage, index, rid))
-							{
-								if (!callback(rid, userData))
-								{
-									return false;
-								}
-							}
-						}
-						return true;
-					};
-
-					if (!iterate(subObjectSet->subObjects))
-					{
-						return;
-					}
-
-					if (!iterate(subObjectSet->instantiated))
-					{
-						return;
-					}
-
-				}
-			}
-			if (!prototypeIterate) break;
-
-			currentStorage = currentStorage->prototype;
-
-			if (currentStorage)
-			{
-				currentInstance = currentStorage->instance.load();
-			}
+			return FindFirst(value->subObjects.begin(), value->subObjects.end(), rid) != nullptr;
 		}
+		return false;
 	}
 
-	usize ResourceObject::GetPrototypeRemovedCount(u32 index) const
+	u64 ResourceObject::GetPrototypeRemovedCount(u32 index) const
 	{
-		usize count = 0;
-		IteratePrototypeRemoved(index, [&](RID rid)
+		if (const SubObjectList* value = GetPtr<SubObjectList>(index))
 		{
-			count++;
-			return true;
-		});
-		return count;
+			return value->prototypeRemoved.Size();
+		}
+		return 0;
 	}
 
-	void ResourceObject::IteratePrototypeRemoved(u32 index, FnRIDCallbackNoRet callback, VoidPtr userData) const
+	bool ResourceObject::IsRemoveFromPrototypeSubObjectList(u32 index, RID rid) const
 	{
-		if (const SubObjectSet* subObjectSet = GetPtr<SubObjectSet>(index))
+		if (const SubObjectList* value = GetPtr<SubObjectList>(index))
 		{
-			for (RID rid : subObjectSet->prototypeRemoved)
+			return value->prototypeRemoved.Has(rid);
+		}
+		return false;
+	}
+
+	void ResourceObject::IteratePrototypeRemoved(u32 index, FnRIDCallback callback, VoidPtr userData) const
+	{
+		if (const SubObjectList* value = GetPtr<SubObjectList>(index))
+		{
+			for (RID rid : value->prototypeRemoved)
 			{
 				callback(rid, userData);
 			}
@@ -933,43 +643,5 @@ namespace Skore
 			return &m_currentInstance[m_storage->resourceType->fields[index]->offset];
 		}
 		return nullptr;
-	}
-
-	bool ResourceObject::ValidSubObjectOnSet(const ResourceStorage* readingStorage, u32 index, RID rid) const
-	{
-		if (readingStorage == m_storage) return true;
-
-
-		ResourceStorage* currentStorage = m_storage;
-		ResourceInstance currentInstance = m_currentInstance ? m_currentInstance : m_storage->instance.load();
-
-		while (currentStorage != nullptr)
-		{
-			if (currentInstance)
-			{
-				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
-				{
-					const SubObjectSet* subObjectSet = reinterpret_cast<SubObjectSet*>(&currentInstance[m_storage->resourceType->fields[index]->offset]);
-					if (subObjectSet->prototypeRemoved.Has(rid) || subObjectSet->removedByInstances.Has(rid))
-					{
-						return false;
-					}
-				}
-			}
-
-			currentStorage = currentStorage->prototype;
-
-			if (currentStorage)
-			{
-				currentInstance = currentStorage->instance.load();
-			}
-
-			if (currentStorage == readingStorage)
-			{
-				break;
-			}
-		}
-
-		return true;
 	}
 }

@@ -53,7 +53,6 @@ namespace Skore
 		Reference,
 		ReferenceArray,
 		SubObject,
-		SubObjectSet,
 		SubObjectList,
 		MAX
 	};
@@ -115,15 +114,6 @@ namespace Skore
 		constexpr static TypeID typeId = TypedRID<T>::typeId;
 	};
 
-	struct SubObjectSet
-	{
-		HashSet<RID> subObjects;
-		HashSet<RID> prototypeRemoved;
-
-		HashSet<RID> instantiated;
-		HashSet<RID> removedByInstances;
-	};
-
 	struct SubObjectList
 	{
 		Array<RID> subObjects;
@@ -134,8 +124,7 @@ namespace Skore
 	struct ResourceStorage;
 	struct UndoRedoScope;
 	typedef CharPtr ResourceInstance; //TODO : rename to ResourceValue
-	typedef bool(*FnRIDCallback)(RID rid, VoidPtr userData);
-	typedef void(*FnRIDCallbackNoRet)(RID rid, VoidPtr userData);
+	typedef void(*FnRIDCallback)(RID rid, VoidPtr userData);
 	typedef void (*FnObjectEvent)(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 
 
