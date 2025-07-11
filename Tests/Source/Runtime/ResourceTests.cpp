@@ -299,7 +299,7 @@ namespace
 
 			{
 				ResourceObject obj = Resources::Read(object);
-				Span<RID> rids = obj.GetReferenceArray(WrongIndex::Value1);
+				Span<RID>      rids = obj.GetReferenceArray(WrongIndex::Value1);
 				CHECK(rids.Size() == 2);
 			}
 		}
@@ -556,14 +556,14 @@ namespace
 			}
 
 			{
-				ResourceObject  write = Resources::Write(object);
+				ResourceObject write = Resources::Write(object);
 				write.RemoveFromSubObjectList(ResourceTest::SubObjectList, subObject2);
 				write.Commit();
 			}
 
 			{
 				ResourceObject read = Resources::Read(object);
-				Array<RID> list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID>     list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
 				CHECK(list.Size() == 2);
 				CHECK(list[0] == subObject);
 				CHECK(list[1] == subObject3);
@@ -575,7 +575,7 @@ namespace
 
 			{
 				ResourceObject read = Resources::Read(object);
-				Array<RID> list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID>     list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
 				CHECK(list.Size() == 1);
 				CHECK(list[0] == subObject3);
 			}
@@ -585,6 +585,67 @@ namespace
 			{
 				CHECK(!Resources::HasValue(object));
 				CHECK(!Resources::HasValue(subObject3));
+			}
+		}
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("Resource::SubObjectListPrototypes")
+	{
+		ResourceInit();
+		RegisterTestTypes();
+
+		{
+			RID prototype = Resources::Create<ResourceTest>();
+
+			RID subobject1 = Resources::Create<ResourceTest>();
+			RID subobject2 = Resources::Create<ResourceTest>();
+			RID subobject3 = Resources::Create<ResourceTest>();
+
+
+			{
+				ResourceObject write = Resources::Write(prototype);
+				write.SetInt(ResourceTest::IntValue, 10);
+				write.SetString(ResourceTest::StringValue, "blegh");
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subobject1);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subobject2);
+				write.Commit();
+			}
+
+			RID item = Resources::CreateFromPrototype(prototype);
+
+			{
+				ResourceObject read = Resources::Read(item);
+				Array<RID> arr = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				REQUIRE(arr.Size() == 2);
+				CHECK(arr[0] != subobject1);
+				CHECK(arr[1] != subobject2);
+
+				CHECK(Resources::GetStorage(arr[0])->prototype == Resources::GetStorage(subobject1));
+				CHECK(Resources::GetStorage(arr[1])->prototype == Resources::GetStorage(subobject2));
+
+			}
+
+			{
+				ResourceObject write = Resources::Write(item);
+				write.SetInt(ResourceTest::IntValue, 222);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subobject3);
+				//write.RemoveFromSubObjectList(ResourceTest::SubObjectList, subobject2);
+				write.Commit();
+			}
+
+			{
+				ResourceObject read = Resources::Read(item);
+				CHECK(read.GetInt(ResourceTest::IntValue) == 222);
+				CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
+
+				Array<RID> items = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				CHECK(items.Size() == 2);
+
+				// subobjects.Erase(subobject1);
+				// subobjects.Erase(subobject3);
+				// CHECK(subobjects.Size() == 0);
 			}
 		}
 
@@ -620,7 +681,7 @@ namespace
 
 				for (u32 i = 0; i < 5; ++i)
 				{
-					RID subobject = Resources::Create<ResourceTest>(uuids[i + 1]);
+					RID            subobject = Resources::Create<ResourceTest>(uuids[i + 1]);
 					ResourceObject subObjectWrite = Resources::Write(subobject);
 					subObjectWrite.SetInt(ResourceTest::IntValue, i);
 					subObjectWrite.Commit();
@@ -647,7 +708,7 @@ namespace
 			RegisterTestTypes();
 
 			YamlArchiveReader reader(yaml.CStr());
-			RID newResource = Resources::Deserialize(reader);
+			RID               newResource = Resources::Deserialize(reader);
 			CHECK(newResource);
 
 			ResourceObject read = Resources::Read(newResource);
@@ -662,7 +723,7 @@ namespace
 			{
 				if (auto it = uuidToIndex.Find(i))
 				{
-					RID rid = Resources::FindByUUID(it->second);
+					RID            rid = Resources::FindByUUID(it->second);
 					ResourceObject subRead = Resources::Read(rid);
 					CHECK(subRead.GetUUID() == uuids[i + 1]);
 					CHECK(subRead.GetInt(ResourceTest::IntValue) == i);
@@ -672,6 +733,4 @@ namespace
 			ResourceShutdown();
 		}
 	}
-
-
 }

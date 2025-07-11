@@ -169,9 +169,6 @@ namespace Skore
 						case ResourceFieldType::SubObjectList:
 							object.IterateSubObjectList(field->GetIndex(), [&](RID rid)
 							{
-								//TODO : no prototypes here
-								SK_ASSERT(GetStorage(rid)->prototype == nullptr, "prototype should not iterate here. check");
-
 								f(field->GetIndex(), rid);
 							});
 							break;
@@ -316,30 +313,19 @@ namespace Skore
 						break;
 					}
 					case ResourceFieldType::SubObjectList:
-						SK_ASSERT(false, "not implemented");
-						break;
+					{
+						const SubObjectList& subObjectList = *reinterpret_cast<SubObjectList*>(&origin[field->GetOffset()]);
 
-					// case ResourceFieldType::SubObjectList:
-					// {
-					// 	const SubObjectSet& subObjectSet = *reinterpret_cast<SubObjectSet*>(&origin[field->GetOffset()]);
-					//
-					// 	SubObjectSet copySuobjectSet;
-					// 	copySuobjectSet.prototypeRemoved = subObjectSet.prototypeRemoved;
-					// 	copySuobjectSet.removedByInstances = subObjectSet.removedByInstances;
-					//
-					// 	for (RID subobject : subObjectSet.subObjects)
-					// 	{
-					// 		copySuobjectSet.subObjects.Emplace(CloneSubObject(storage, field->GetIndex(), subobject, scope));
-					// 	}
-					//
-					// 	for (RID subobject : subObjectSet.instantiated)
-					// 	{
-					// 		copySuobjectSet.instantiated.Emplace(CloneSubObject(storage, field->GetIndex(), subobject, scope));
-					// 	}
-					//
-					// 	new(reinterpret_cast<SubObjectSet*>(&instance[field->GetOffset()])) SubObjectSet{copySuobjectSet};
-					// 	break;
-					// }
+						SubObjectList copySubObjectList = {};
+						copySubObjectList.prototypeRemoved = subObjectList.prototypeRemoved;
+
+						for (RID subobject : subObjectList.subObjects)
+						{
+							copySubObjectList.subObjects.EmplaceBack(CloneSubObject(storage, field->GetIndex(), subobject, scope));
+						}
+						new(reinterpret_cast<SubObjectList*>(&instance[field->GetOffset()])) SubObjectList{copySubObjectList};
+						break;
+					}
 					case ResourceFieldType::String:
 						new(reinterpret_cast<String*>(&instance[field->GetOffset()])) String(*reinterpret_cast<String*>(&origin[field->GetOffset()]));
 						break;
@@ -562,11 +548,26 @@ namespace Skore
 			storage->instance = CreateResourceInstanceClone(storage, defaultValueStorage->instance.load(), scope);
 		}
 
-		if (!storage->instance)
+		ResourceObject object = Write(rid);
+
+		IterateSubObjects(prototype, [&](u32 index, RID subobject)
 		{
-			//create an empty object, not sure about it yet.
-			Write(rid).Commit(scope);
-		}
+			RID subObjectPrototype = CreateFromPrototype(subobject, GetUUID(subobject) ? UUID::RandomUUID() : UUID{}, scope);
+
+			if (ResourceField* field = storage->resourceType->GetFields()[index])
+			{
+				if (field->GetType() == ResourceFieldType::SubObjectList)
+				{
+					object.AddToSubObjectList(field->GetIndex(), subObjectPrototype);
+				}
+				else if (field->GetType() == ResourceFieldType::SubObject)
+				{
+					object.SetSubObject(field->GetIndex(), subObjectPrototype);
+				}
+			}
+		});
+
+		object.Commit(scope);
 
 		FinishCreation(storage);
 
