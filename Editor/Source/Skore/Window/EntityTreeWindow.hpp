@@ -51,6 +51,7 @@ namespace Skore
 		static bool IsShowSceneEntitySelected(const MenuItemEventData& eventData);
 
 		static bool CheckIsOverride(const MenuItemEventData& eventData);
+		static void RemoveOverride(const MenuItemEventData& eventData);
 		static bool CheckIsRemoved(const MenuItemEventData& eventData);
 		static void AddBackToThisInstance(const MenuItemEventData& eventData);
 
@@ -63,6 +64,10 @@ namespace Skore
 
 		RID parentSelection = {};
 		RID entitySelection = {};
+
+		RID lastParentSelection = {};
+		RID lastEntitySelection = {};
+		bool lastSelectionRemoved = false;
 
 		bool   renamingFocus{};
 		bool   renamingSelected{};

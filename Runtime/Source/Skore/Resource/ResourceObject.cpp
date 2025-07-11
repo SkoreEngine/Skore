@@ -218,19 +218,27 @@ namespace Skore
 
 	void ResourceObject::AddToSubObjectList(u32 index, RID subObject)
 	{
-		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList, "Invalid field type");
-		if (SubObjectList* subObjectList = GetMutPtr<SubObjectList>(index))
-		{
-			subObjectList->subObjects.EmplaceBack(subObject);
-		}
+		AddToSubObjectList(index, Span(&subObject, 1));
 	}
 
-	void ResourceObject::AddToSubObjectList(u32 index, Span<RID> subObject)
+	void ResourceObject::AddToSubObjectList(u32 index, Span<RID> subObjects)
 	{
 		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList, "Invalid field type");
 		if (SubObjectList* subObjectList = GetMutPtr<SubObjectList>(index))
 		{
-			subObjectList->subObjects.Insert(subObjectList->subObjects.end(), subObject.begin(), subObject.end());
+			subObjectList->subObjects.Insert(subObjectList->subObjects.end(), subObjects.begin(), subObjects.end());
+
+			for (RID subObject : subObjects)
+			{
+				if (ResourceStorage* prototypeSubObject = Resources::GetStorage(subObject)->prototype)
+				{
+					if (auto it = subObjectList->prototypeRemoved.Find(prototypeSubObject->rid))
+					{
+						subObjectList->prototypeRemoved.Erase(it);
+					}
+				}
+			}
+
 		}
 	}
 

@@ -69,8 +69,9 @@ namespace Skore
 
 		//subobject list
 		void AddToSubObjectList(u32 index, RID subObject);
-		void AddToSubObjectList(u32 index, Span<RID> subObject);
+		void AddToSubObjectList(u32 index, Span<RID> subObjects);
 		void RemoveFromSubObjectList(u32 index, RID subObject);
+
 		Array<RID> RemoveFromSubObjectListByPrototype(u32 index, RID prototype);
 
 		//if index = SubobjectList, remove from the list

@@ -147,7 +147,8 @@ namespace Skore
 			parentObject.AddToSubObjectList(EntityResource::Children, newEntity);
 			parentObject.Commit(scope);
 
-			selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, newEntity);};
+			selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, newEntity);
+		};
 
 		if (!addOnSelected || selectedEntities.Empty())
 		{
@@ -202,11 +203,27 @@ namespace Skore
 			oldParent.RemoveFromSubObjectList(EntityResource::Children, selected);
 			oldParent.Commit(scope);
 
-
 			ResourceObject newParentObject = Resources::Write(newParent);
 			newParentObject.AddToSubObjectList(EntityResource::Children, selected);
 			newParentObject.Commit(scope);
 		}
+
+	}
+
+	void SceneEditor::AddBackToThisInstance(RID entity, RID prototype)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Add Back To This Instance");
+
+		RID newInstance = Resources::CreateFromPrototype(prototype, UUID::RandomUUID(), scope);
+
+		ResourceObject entityObject = Resources::Write(entity);
+		entityObject.AddToSubObjectList(EntityResource::Children, newInstance);
+		entityObject.Commit(scope);
+
+		ResourceObject selectionObject = Resources::Write(m_selection);
+		selectionObject.ClearReferenceArray(SceneEditorSelection::SelectedEntities);
+		selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, newInstance);
+		selectionObject.Commit(scope);
 
 	}
 
