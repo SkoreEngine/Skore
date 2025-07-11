@@ -69,19 +69,17 @@ namespace Skore
 					}
 				}
 
-				entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
+				entityObject.IterateSubObjectList(EntityResource::Components, [&](RID component)
 				{
 					if (ResourceType* type = Resources::GetType(component))
 					{
 						AddComponent(type->GetReflectType(), component);
 					}
-					return true;
 				});
 
-				entityObject.IterateSubObjectSet(EntityResource::Children, true, [&](RID child)
+				entityObject.IterateSubObjectList(EntityResource::Children, [&](RID child)
 				{
 					CreateChildFromAsset(child);
-					return true;
 				});
 
 				SetActive(!entityObject.GetBool(EntityResource::Deactivated));
@@ -406,7 +404,7 @@ namespace Skore
 			entity->SetActive(!newValue.GetBool(EntityResource::Deactivated));
 		}
 
-		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Children))
+		for (CompareSubObjectListResult res : Resources::CompareSubObjectList(oldValue, newValue, EntityResource::Children))
 		{
 			if (res.type == CompareSubObjectSetType::Added)
 			{
@@ -426,7 +424,7 @@ namespace Skore
 				{
 					if (child->m_rid == res.rid)
 					{
-						if (newValue.IsRemoveFromPrototypeSubObjectSet(EntityResource::Children, res.rid))
+						if (newValue.IsRemoveFromPrototypeSubObjectList(EntityResource::Children, res.rid))
 						{
 							child->DestroyInternal(true);
 						}
@@ -435,7 +433,7 @@ namespace Skore
 			}
 		}
 
-		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Components))
+		for (CompareSubObjectListResult res : Resources::CompareSubObjectList(oldValue, newValue, EntityResource::Components))
 		{
 			if (res.type == CompareSubObjectSetType::Added)
 			{

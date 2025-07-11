@@ -244,18 +244,17 @@ namespace Skore
 			{
 				RID subobject = Resources::Create<T>({}, scope);
 				Resources::ToResource(subobject, &element, scope);
-				object.AddToSubObjectSet(index, subobject);
+				object.AddToSubObjectList(index, subobject);
 			}
 		}
 
 		static void FromResource(const ResourceObject& object, u32 index, Array<T>& array)
 		{
-			object.IterateSubObjectSet(index, true, [&](RID subobject)
+			object.IterateSubObjectList(index, [&](RID subobject)
 			{
 				T value;
 				Resources::FromResource(subobject, &value);
 				array.EmplaceBack(Traits::Move(value));
-				return true;
 			});
 		}
 
@@ -272,7 +271,7 @@ namespace Skore
 			if (ResourceReflection::FindTypeToCast(TypeInfo<T>::ID()) != nullptr)
 			{
 				return ResourceFieldInfo{
-					.type = ResourceFieldType::SubObjectSet,
+					.type = ResourceFieldType::SubObjectList,
 					.subType = TypeInfo<T>::ID()
 				};
 			}

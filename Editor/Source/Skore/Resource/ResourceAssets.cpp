@@ -177,7 +177,7 @@ namespace Skore
 			assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, Resources::GetVersion(asset));
 			assetFileObject.Commit();
 
-			packageObject.AddToSubObjectSet(ResourceAssetPackage::Files, assetFile);
+			packageObject.AddToSubObjectList(ResourceAssetPackage::Files, assetFile);
 			packageObject.SetSubObject(ResourceAssetPackage::Root, directory);
 
 			loadedPackages.Insert(packageName, packagePack);
@@ -259,7 +259,7 @@ namespace Skore
 
 				assetFileObject.Commit();
 
-				packageObject.AddToSubObjectSet(ResourceAssetPackage::Files, assetFile);
+				packageObject.AddToSubObjectList(ResourceAssetPackage::Files, assetFile);
 
 				if (status.isDirectory)
 				{
@@ -268,7 +268,7 @@ namespace Skore
 					directoryObject.SetSubObject(ResourceAssetDirectory::DirectoryAsset, asset);
 					directoryObject.Commit();
 
-					currentDirectory.AddToSubObjectSet(ResourceAssetDirectory::Directories, directoryAsset);
+					currentDirectory.AddToSubObjectList(ResourceAssetDirectory::Directories, directoryAsset);
 
 					pendingItems.emplace(DirectoryToScan{
 						.path = path,
@@ -280,7 +280,7 @@ namespace Skore
 				}
 				else
 				{
-					currentDirectory.AddToSubObjectSet(ResourceAssetDirectory::Assets, asset);
+					currentDirectory.AddToSubObjectList(ResourceAssetDirectory::Assets, asset);
 					logger.Debug("asset '{}' registered", path);
 				}
 			}
@@ -393,7 +393,7 @@ namespace Skore
 				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
 				assetFileObject.Commit();
 
-				packageObject.AddToSubObjectSet(ResourceAssetPackage::Files, assetFile);
+				packageObject.AddToSubObjectList(ResourceAssetPackage::Files, assetFile);
 
 				logger.Debug("asset {} created on {} ", assetObject.GetString(ResourceAsset::PathId), absolutePath);
 			}
@@ -416,7 +416,7 @@ namespace Skore
 	void ResourceAssets::GetUpdatedAssets(RID directory, Array<UpdatedAssetInfo>& items)
 	{
 		ResourceObject packageObject = Resources::Read(directory);
-		Array<RID>     files = packageObject.GetSubObjectSetAsArray(ResourceAssetPackage::Files);
+		Array<RID>     files = packageObject.GetSubObjectListAsArray(ResourceAssetPackage::Files);
 		for (RID assetFile : files)
 		{
 			ResourceObject assetFileObject = Resources::Read(assetFile);
@@ -457,7 +457,7 @@ namespace Skore
 
 			ResourceObject directoryObject = Resources::Read(rid);
 
-			auto checkAssetFile = [&](RID asset) -> bool
+			auto checkAssetFile = [&](RID asset)
 			{
 				ResourceObject assetObject = Resources::Read(asset);
 				if (!assetObject.HasValue(ResourceAsset::AssetFile) || !Resources::HasValue(assetObject.GetReference(ResourceAsset::AssetFile)))
@@ -471,15 +471,13 @@ namespace Skore
 						.shouldUpdate = true
 					});
 				}
-				return true;
 			};
 
-			directoryObject.IterateSubObjectSet(ResourceAssetDirectory::Assets, false, checkAssetFile);
-			directoryObject.IterateSubObjectSet(ResourceAssetDirectory::Directories, false, [&](RID rid)
+			directoryObject.IterateSubObjectList(ResourceAssetDirectory::Assets, checkAssetFile);
+			directoryObject.IterateSubObjectList(ResourceAssetDirectory::Directories, [&](RID rid)
 			{
 				checkAssetFile(GetAsset(rid));
 				directoriesToScan.emplace(rid);
-				return true;
 			});
 		}
 	}
@@ -540,7 +538,7 @@ namespace Skore
 			object.Commit(scope);
 
 			ResourceObject parentObject = Resources::Write(parent);
-			parentObject.AddToSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			parentObject.AddToSubObjectList(ResourceAssetDirectory::Assets, rid);
 			parentObject.Commit(scope);
 
 			logger.Debug("asset from type {} created with uuid {} name {} ", handler->GetDesc(), Resources::GetUUID(asset).ToString(), newName);
@@ -573,7 +571,7 @@ namespace Skore
 			object.Commit(scope);
 
 			ResourceObject parentObject = Resources::Write(parent);
-			parentObject.AddToSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			parentObject.AddToSubObjectList(ResourceAssetDirectory::Assets, rid);
 			parentObject.Commit(scope);
 
 			logger.Debug("asset from type {} created with uuid {} name {} ", handler->GetDesc(), Resources::GetUUID(asset).ToString(), newName);
@@ -613,7 +611,7 @@ namespace Skore
 			object.Commit(scope);
 
 			ResourceObject parentObject = Resources::Write(parent);
-			parentObject.AddToSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			parentObject.AddToSubObjectList(ResourceAssetDirectory::Assets, rid);
 			parentObject.Commit(scope);
 
 			logger.Debug("asset from type {} created with uuid {} name {} ", handler->GetDesc(), Resources::GetUUID(asset).ToString(), newName);
@@ -638,7 +636,7 @@ namespace Skore
 
 		ResourceObject parentObject = Resources::Read(directory);
 
-		for (RID child :  parentObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Assets))
+		for (RID child :  parentObject.GetSubObjectListAsArray(ResourceAssetDirectory::Assets))
 		{
 			if (fullName == GetAssetFullName(child))
 			{
@@ -670,7 +668,7 @@ namespace Skore
 		directoryObject.Commit(scope);
 
 		ResourceObject parentObject = Resources::Write(parent);
-		parentObject.AddToSubObjectSet(ResourceAssetDirectory::Directories, directory);
+		parentObject.AddToSubObjectList(ResourceAssetDirectory::Directories, directory);
 		parentObject.Commit(scope);
 
 		return asset;
@@ -681,7 +679,7 @@ namespace Skore
 		if (!parent) return {};
 
 		ResourceObject parentObject = Resources::Read(parent);
-		Array<RID>     children = parentObject.GetSubObjectSetAsArray(directory ? ResourceAssetDirectory::Directories : ResourceAssetDirectory::Assets);
+		Array<RID>     children = parentObject.GetSubObjectListAsArray(directory ? ResourceAssetDirectory::Directories : ResourceAssetDirectory::Assets);
 
 		u32    count{};
 		String finalName = desiredName;
@@ -731,11 +729,11 @@ namespace Skore
 		if (!isDirectory)
 		{
 			ResourceObject oldParentObject = Resources::Write(oldParent);
-			oldParentObject.RemoveFromSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			oldParentObject.RemoveFromSubObjectList(ResourceAssetDirectory::Assets, rid);
 			oldParentObject.Commit(scope);
 
 			ResourceObject newParentObject = Resources::Write(newParent);
-			newParentObject.AddToSubObjectSet(ResourceAssetDirectory::Assets, rid);
+			newParentObject.AddToSubObjectList(ResourceAssetDirectory::Assets, rid);
 			newParentObject.Commit(scope);
 		}
 		else
@@ -744,11 +742,11 @@ namespace Skore
 			oldParent = Resources::GetParent(oldParent);
 
 			ResourceObject oldParentObject = Resources::Write(oldParent);
-			oldParentObject.RemoveFromSubObjectSet(ResourceAssetDirectory::Directories, dirAsset);
+			oldParentObject.RemoveFromSubObjectList(ResourceAssetDirectory::Directories, dirAsset);
 			oldParentObject.Commit(scope);
 
 			ResourceObject newParentObject = Resources::Write(newParent);
-			newParentObject.AddToSubObjectSet(ResourceAssetDirectory::Directories, dirAsset);
+			newParentObject.AddToSubObjectList(ResourceAssetDirectory::Directories, dirAsset);
 			newParentObject.Commit(scope);
 		}
 
@@ -842,7 +840,7 @@ namespace Skore
 
 	bool ResourceAssets::IsChildOf(RID parent, RID child)
 	{
-		return Resources::Read(parent).HasSubObjectSet(ResourceAssetDirectory::Directories, child);
+		return Resources::Read(parent).HasOnSubObjectList(ResourceAssetDirectory::Directories, child);
 	}
 
 	bool ResourceAssets::IsUpdated(RID rid)
@@ -1114,14 +1112,14 @@ namespace Skore
 				// 				}
 				// 			};
 				//
-				// 			for (RID directory : directoryObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Directories))
+				// 			for (RID directory : directoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Directories))
 				// 			{
 				// 				ResourceObject directoryObject = Resources::Read(directory);
 				// 				RID asset = directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
 				// 				fnUpdate(asset);
 				// 			}
 				//
-				// 			for (RID asset : directoryObject.GetSubObjectSetAsArray(ResourceAssetDirectory::Assets))
+				// 			for (RID asset : directoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Assets))
 				// 			{
 				// 				fnUpdate(asset);
 				// 			}
@@ -1147,7 +1145,7 @@ namespace Skore
 		Resources::Type<ResourceAssetPackage>()
 			.Field<ResourceAssetPackage::Name>(ResourceFieldType::String)
 			.Field<ResourceAssetPackage::AbsolutePath>(ResourceFieldType::String)
-			.Field<ResourceAssetPackage::Files>(ResourceFieldType::SubObjectSet)
+			.Field<ResourceAssetPackage::Files>(ResourceFieldType::SubObjectList)
 			.Field<ResourceAssetPackage::Root>(ResourceFieldType::SubObject)
 			.Build();
 
@@ -1162,8 +1160,8 @@ namespace Skore
 
 		Resources::Type<ResourceAssetDirectory>()
 			.Field<ResourceAssetDirectory::DirectoryAsset>(ResourceFieldType::SubObject)
-			.Field<ResourceAssetDirectory::Directories>(ResourceFieldType::SubObjectSet)
-			.Field<ResourceAssetDirectory::Assets>(ResourceFieldType::SubObjectSet)
+			.Field<ResourceAssetDirectory::Directories>(ResourceFieldType::SubObjectList)
+			.Field<ResourceAssetDirectory::Assets>(ResourceFieldType::SubObjectList)
 			.Build();
 
 		Resources::Type<ResourceAsset>()

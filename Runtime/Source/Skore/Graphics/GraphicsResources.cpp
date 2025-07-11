@@ -31,17 +31,16 @@ namespace Skore
 		RID retVariant = {};
 		if (ResourceObject shaderObject = Resources::Read(shader))
 		{
-			shaderObject.IterateSubObjectSet(Variants, true, [&](RID variant)
+			shaderObject.IterateSubObjectList(Variants, [&](RID variant)
 			{
 				if (ResourceObject variantObject = Resources::Read(variant))
 				{
+					//TODO : break iteration here.
 					if (variantObject.GetString(ShaderVariantResource::Name) == name)
 					{
 						retVariant = variant;
-						return false;
 					}
 				}
-				return true;
 			});
 		}
 		return retVariant;

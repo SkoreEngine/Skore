@@ -304,7 +304,7 @@ namespace Skore
 				meshObject.SetBlob(MeshResource::Primitives, Span(reinterpret_cast<u8*>(primitives.Data()), primitives.Size() * sizeof(MeshPrimitive)));
 				meshObject.Commit(scope);
 
-				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Meshes, meshResource);
+				dccAssetObject.AddToSubObjectList(DCCAssetResource::Meshes, meshResource);
 
 				RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
 
@@ -322,7 +322,7 @@ namespace Skore
 				staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshResource);
 				staticMeshRenderObject.Commit(scope);
 
-				entityObject.AddToSubObjectSet(EntityResource::Components, meshRenderer);
+				entityObject.AddToSubObjectList(EntityResource::Components, meshRenderer);
 				entityObject.Commit(scope);
 
 				entities.EmplaceBack(entity);
@@ -343,7 +343,7 @@ namespace Skore
 				RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
 				Resources::ToResource(transformRID, &transform, scope);
 				entityObject.SetSubObject(EntityResource::Transform, transformRID);
-				entityObject.AddToSubObjectSet(EntityResource::Children, entities);
+				entityObject.AddToSubObjectList(EntityResource::Children, entities);
 				entityObject.Commit(scope);
 
 				dccAssetObject.SetSubObject(DCCAssetResource::Entity, entity);
@@ -351,7 +351,7 @@ namespace Skore
 
 			if (!ridMaterials.Empty())
 			{
-				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Materials, ridMaterials);
+				dccAssetObject.AddToSubObjectList(DCCAssetResource::Materials, ridMaterials);
 			}
 
 			dccAssetObject.Commit(scope);

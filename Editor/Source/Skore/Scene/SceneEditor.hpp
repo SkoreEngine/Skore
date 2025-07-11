@@ -47,6 +47,7 @@ namespace Skore
 		void DestroySelected();
 		void DuplicateSelected();
 		void ChangeParentOfSelected(RID newParent);
+		void AddBackToThisInstance(RID entity, RID prototype);
 
 		//selection
 		void ClearSelection();
@@ -70,12 +71,6 @@ namespace Skore
 		void AddComponent(RID entity, TypeID componentId);
 		void ResetComponent(RID entity, RID component);
 		void RemoveComponent(RID entity, RID component);
-
-		//overrides
-		void OverrideEntity(RID parent, RID entity);
-		void RemoveOverrideFromSelected();
-		void RemoveFromThisInstance(RID parent, RID entity);
-		void AddBackToThisInstance(RID parent, RID entity);
 
 		//simulation
 		bool IsSimulationRunning() const;

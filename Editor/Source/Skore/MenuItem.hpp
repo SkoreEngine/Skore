@@ -54,6 +54,7 @@ namespace Skore
 		FnMenuItemCheck  visible{};
 		FnMenuItemCheck  selected{};
 		u64              userData{};
+		bool             debugOption = false;
 	};
 
 	class MenuItemContext
@@ -75,6 +76,7 @@ namespace Skore
 		FnMenuItemCheck                                   m_selected{};
 		Shortcut                                          m_itemShortcut{};
 		u64                                               m_itemUserData{};
+		bool                                              m_debugOption = false;
 
 		static void DrawMenuItemChildren(MenuItemContext* context, VoidPtr userData);
 		static bool ExecuteHotKeys(MenuItemContext* context, VoidPtr userData, bool executeOnFocus);

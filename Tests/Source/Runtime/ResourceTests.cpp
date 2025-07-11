@@ -47,8 +47,8 @@ namespace
 			StringValue,
 			IntValue,
 			SubObject,
-			SubObjectSet,
 			RefArray,
+			Reference,
 			SubObjectList
 		};
 	};
@@ -70,8 +70,8 @@ namespace
 			.Field<ResourceTest::StringValue>(ResourceFieldType::String)
 			.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
 			.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
-			.Field<ResourceTest::SubObjectSet>(ResourceFieldType::SubObjectSet)
 			.Field<ResourceTest::RefArray>(ResourceFieldType::ReferenceArray)
+			.Field<ResourceTest::Reference>(ResourceFieldType::Reference)
 			.Field<ResourceTest::SubObjectList>(ResourceFieldType::SubObjectList)
 			.Build();
 	}
@@ -153,7 +153,7 @@ namespace
 				write.SetString(ResourceTest::StringValue, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 				write.SetSubObject(ResourceTest::SubObject, subobject);
 				write.SetReferenceArray(ResourceTest::RefArray, refs);
-				write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobjects);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subobjects);
 
 				write.Commit();
 			}
@@ -186,9 +186,9 @@ namespace
 				write.Commit();
 			}
 
-			RID subobjectToSet = Resources::Create<ResourceTest>();
+			RID subobjectToList = Resources::Create<ResourceTest>();
 			{
-				ResourceObject write = Resources::Write(subobjectToSet);
+				ResourceObject write = Resources::Write(subobjectToList);
 				write.SetString(ResourceTest::StringValue, "subobjectToSet");
 				write.Commit();
 			}
@@ -200,7 +200,7 @@ namespace
 			write.SetInt(ResourceTest::IntValue, 10);
 			write.SetString(ResourceTest::StringValue, "blegh");
 			write.SetSubObject(ResourceTest::SubObject, subobject);
-			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobjectToSet);
+			write.AddToSubObjectList(ResourceTest::SubObjectList, subobjectToList);
 			write.Commit();
 
 			RID clone = Resources::Clone(rid);
@@ -219,16 +219,16 @@ namespace
 			}
 
 
-			HashSet<RID> arr = ToHashSet<RID>(readClone.GetSubObjectSetAsArray(ResourceTest::SubObjectSet));
+			HashSet<RID> arr = ToHashSet<RID>(readClone.GetSubObjectListAsArray(ResourceTest::SubObjectList));
 			REQUIRE(arr.Size() == 1);
-			arr.Erase(subobjectToSet);
+			arr.Erase(subobjectToList);
 			REQUIRE(arr.Size() == 1);
 
 			auto it = arr.begin();
 
 			{
 				RID subobjectClone = *it;
-				CHECK(subobjectClone != subobjectToSet);
+				CHECK(subobjectClone != subobjectToList);
 
 				ResourceObject subobjectReadClone = Resources::Read(subobjectClone);
 				CHECK(subobjectReadClone.GetString(ResourceTest::StringValue) == "subobjectToSet");
@@ -301,7 +301,7 @@ namespace
 
 			{
 				ResourceObject obj = Resources::Read(object);
-				Span<RID> rids = obj.GetReferenceArray(WrongIndex::Value1);
+				Span<RID>      rids = obj.GetReferenceArray(WrongIndex::Value1);
 				CHECK(rids.Size() == 2);
 			}
 		}
@@ -365,50 +365,50 @@ namespace
 		ResourceShutdown();
 	}
 
-	TEST_CASE("Resource::Prototypes")
-	{
-		ResourceInit();
-		RegisterTestTypes();
-
-
-		RID prototype = Resources::Create<ResourceTest>();
-		RID subobject1 = Resources::Create<ResourceTest>();
-		RID subobject2 = Resources::Create<ResourceTest>();
-		RID subobject3 = Resources::Create<ResourceTest>();
-
-		{
-			ResourceObject write = Resources::Write(prototype);
-			write.SetInt(ResourceTest::IntValue, 10);
-			write.SetString(ResourceTest::StringValue, "blegh");
-			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject1);
-			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject2);
-			write.Commit();
-		}
-
-		RID item = Resources::CreateFromPrototype(prototype);
-
-		{
-			ResourceObject write = Resources::Write(item);
-			write.SetInt(ResourceTest::IntValue, 222);
-			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject3);
-			write.RemoveFromPrototypeSubObjectSet(ResourceTest::SubObjectSet, subobject2);
-			write.Commit();
-		}
-
-		{
-			ResourceObject read = Resources::Read(item);
-			CHECK(read.GetInt(ResourceTest::IntValue) == 222);
-			CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
-
-			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectSetAsArray(ResourceTest::SubObjectSet));
-			CHECK(subobjects.Size() == 2);
-			subobjects.Erase(subobject1);
-			subobjects.Erase(subobject3);
-			CHECK(subobjects.Size() == 0);
-		}
-
-		ResourceShutdown();
-	}
+	// TEST_CASE("Resource::Prototypes")
+	// {
+	// 	ResourceInit();
+	// 	RegisterTestTypes();
+	//
+	//
+	// 	RID prototype = Resources::Create<ResourceTest>();
+	// 	RID subobject1 = Resources::Create<ResourceTest>();
+	// 	RID subobject2 = Resources::Create<ResourceTest>();
+	// 	RID subobject3 = Resources::Create<ResourceTest>();
+	//
+	// 	{
+	// 		ResourceObject write = Resources::Write(prototype);
+	// 		write.SetInt(ResourceTest::IntValue, 10);
+	// 		write.SetString(ResourceTest::StringValue, "blegh");
+	// 		write.AddToSubObjectList(ResourceTest::SubObjectList, subobject1);
+	// 		write.AddToSubObjectList(ResourceTest::SubObjectList, subobject2);
+	// 		write.Commit();
+	// 	}
+	//
+	// 	RID item = Resources::CreateFromPrototype(prototype);
+	//
+	// 	{
+	// 		ResourceObject write = Resources::Write(item);
+	// 		write.SetInt(ResourceTest::IntValue, 222);
+	// 		write.AddToSubObjectList(ResourceTest::SubObjectList, subobject3);
+	// 		write.RemoveFromPrototypeSubObjectSet(ResourceTest::SubObjectList, subobject2);
+	// 		write.Commit();
+	// 	}
+	//
+	// 	{
+	// 		ResourceObject read = Resources::Read(item);
+	// 		CHECK(read.GetInt(ResourceTest::IntValue) == 222);
+	// 		CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
+	//
+	// 		HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectListAsArray(ResourceTest::SubObjectList));
+	// 		CHECK(subobjects.Size() == 2);
+	// 		subobjects.Erase(subobject1);
+	// 		subobjects.Erase(subobject3);
+	// 		CHECK(subobjects.Size() == 0);
+	// 	}
+	//
+	// 	ResourceShutdown();
+	// }
 
 	TEST_CASE("Resource::UndoRedo")
 	{
@@ -424,7 +424,7 @@ namespace
 			ResourceObject write = Resources::Write(rid);
 			write.SetInt(ResourceTest::IntValue, 10);
 			write.SetString(ResourceTest::StringValue, "blegh");
-			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject);
+			write.AddToSubObjectList(ResourceTest::SubObjectList, subobject);
 			write.Commit();
 		}
 
@@ -434,7 +434,7 @@ namespace
 			ResourceObject write = Resources::Write(rid);
 			write.SetInt(ResourceTest::IntValue, 33);
 			write.SetString(ResourceTest::StringValue, "44");
-			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject2);
+			write.AddToSubObjectList(ResourceTest::SubObjectList, subobject2);
 			write.Commit(scope);
 		}
 
@@ -443,7 +443,7 @@ namespace
 			CHECK(read.GetInt(ResourceTest::IntValue) == 33);
 			CHECK(read.GetString(ResourceTest::StringValue) == "44");
 
-			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectSetAsArray(ResourceTest::SubObjectSet));
+			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectListAsArray(ResourceTest::SubObjectList));
 			CHECK(subobjects.Size() == 2);
 			subobjects.Erase(subobject);
 			subobjects.Erase(subobject2);
@@ -457,7 +457,7 @@ namespace
 			CHECK(read.GetInt(ResourceTest::IntValue) == 10);
 			CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
 
-			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectSetAsArray(ResourceTest::SubObjectSet));
+			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectListAsArray(ResourceTest::SubObjectList));
 			CHECK(subobjects.Size() == 1);
 			subobjects.Erase(subobject);
 			CHECK(subobjects.Size() == 0);
@@ -491,14 +491,14 @@ namespace
 
 			ResourceObject write = Resources::Write(object);
 			write.SetSubObject(ResourceTest::SubObject, subObject1);
-			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subObject2);
-			write.AddToSubObjectSet(ResourceTest::SubObjectSet, subObject3);
+			write.AddToSubObjectList(ResourceTest::SubObjectList, subObject2);
+			write.AddToSubObjectList(ResourceTest::SubObjectList, subObject3);
 			write.Commit();
 
 			Resources::Destroy(subObject3);
 
 			ResourceObject read = Resources::Write(object);
-			CHECK(!read.HasSubObjectSet(ResourceTest::SubObjectSet, subObject3));
+			CHECK(!read.HasOnSubObjectList(ResourceTest::SubObjectList, subObject3));
 
 			CHECK(Resources::HasValue(object));
 			CHECK(Resources::HasValue(subObject1));
@@ -511,93 +511,6 @@ namespace
 			CHECK(!Resources::HasValue(subObject2));
 
 			Resources::GarbageCollect();
-		}
-		ResourceShutdown();
-	}
-
-	TEST_CASE("Resource::TestInstances")
-	{
-		ResourceInit();
-		RegisterTestTypes();
-		{
-			RID object = Resources::Create<ResourceTest>();
-			RID subobject1 = Resources::Create<ResourceTest>();
-			RID subobject2 = Resources::Create<ResourceTest>();
-
-			{
-				ResourceObject write = Resources::Write(subobject1);
-				write.SetInt(ResourceTest::IntValue, 10);
-				write.Commit();
-			}
-
-			{
-				ResourceObject write = Resources::Write(subobject1);
-				write.SetInt(ResourceTest::IntValue, 20);
-				write.Commit();
-			}
-
-			{
-				ResourceObject write = Resources::Write(object);
-				write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject1);
-				write.AddToSubObjectSet(ResourceTest::SubObjectSet, subobject2);
-				write.Commit();
-			}
-
-			RID prototype = Resources::CreateFromPrototype(object);
-			RID instance1;
-
-			{
-				ResourceObject write = Resources::Write(prototype);
-				instance1 = write.InstantiateFromSubObjectSet(ResourceTest::SubObjectSet, subobject1);
-				write.Commit();
-			}
-
-			CHECK(instance1);
-
-			{
-				ResourceObject readPrototype = Resources::Read(prototype);
-				REQUIRE(readPrototype);
-
-				HashSet<RID> set = readPrototype.GetSubObjectSetAsHashSet(ResourceTest::SubObjectSet);
-				CHECK(set.Has(instance1));
-				CHECK(!set.Has(subobject1));
-				CHECK(set.Has(subobject2));
-			}
-
-			//test clone.
-			{
-				RID prototypeClone = Resources::Clone(prototype);
-				ResourceObject readPrototype = Resources::Read(prototypeClone);
-				REQUIRE(readPrototype);
-
-				HashSet<RID> set = readPrototype.GetSubObjectSetAsHashSet(ResourceTest::SubObjectSet);
-
-				CHECK(!set.Has(instance1));
-				CHECK(!set.Has(subobject1));
-				CHECK(set.Has(subobject2));
-
-				set.Erase(subobject2);
-
-				for (RID rid : set)
-				{
-					//instance1 needs to be cloned from the same prototype.
-					CHECK(Resources::GetStorage(rid)->prototype == Resources::GetStorage(instance1)->prototype);
-				}
-			}
-
-			{
-				ResourceObject write = Resources::Write(prototype);
-				write.RemoveInstanceFromSubObjectSet(ResourceTest::SubObjectSet, instance1);
-				write.Commit();
-			}
-
-			{
-				ResourceObject readPrototype = Resources::Read(prototype);
-				HashSet<RID> set = readPrototype.GetSubObjectSetAsHashSet(ResourceTest::SubObjectSet);
-				CHECK(!set.Has(instance1));
-				CHECK(set.Has(subobject1));
-				CHECK(set.Has(subobject2));
-			}
 		}
 		ResourceShutdown();
 	}
@@ -645,14 +558,14 @@ namespace
 			}
 
 			{
-				ResourceObject  write = Resources::Write(object);
+				ResourceObject write = Resources::Write(object);
 				write.RemoveFromSubObjectList(ResourceTest::SubObjectList, subObject2);
 				write.Commit();
 			}
 
 			{
 				ResourceObject read = Resources::Read(object);
-				Array<RID> list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID>     list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
 				CHECK(list.Size() == 2);
 				CHECK(list[0] == subObject);
 				CHECK(list[1] == subObject3);
@@ -664,7 +577,7 @@ namespace
 
 			{
 				ResourceObject read = Resources::Read(object);
-				Array<RID> list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID>     list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
 				CHECK(list.Size() == 1);
 				CHECK(list[0] == subObject3);
 			}
@@ -674,6 +587,85 @@ namespace
 			{
 				CHECK(!Resources::HasValue(object));
 				CHECK(!Resources::HasValue(subObject3));
+			}
+		}
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("Resource::SubObjectListPrototypes")
+	{
+		ResourceInit();
+		RegisterTestTypes();
+
+		{
+			RID prototype = Resources::Create<ResourceTest>();
+
+			RID subobject1 = Resources::Create<ResourceTest>();
+			RID subobject2 = Resources::Create<ResourceTest>();
+			RID subobject3 = Resources::Create<ResourceTest>();
+
+
+			{
+				ResourceObject write = Resources::Write(subobject1);
+				write.SetReference(ResourceTest::Reference, prototype);
+				write.Commit();
+			}
+
+
+			{
+				ResourceObject write = Resources::Write(prototype);
+				write.SetInt(ResourceTest::IntValue, 10);
+				write.SetString(ResourceTest::StringValue, "blegh");
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subobject1);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subobject2);
+				write.Commit();
+			}
+
+			RID item = Resources::CreateFromPrototype(prototype);
+
+			{
+				ResourceObject read = Resources::Read(item);
+				Array<RID> arr = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				REQUIRE(arr.Size() == 2);
+				CHECK(arr[0] != subobject1);
+				CHECK(arr[1] != subobject2);
+
+				CHECK(Resources::GetStorage(arr[0])->prototype == Resources::GetStorage(subobject1));
+				CHECK(Resources::GetStorage(arr[1])->prototype == Resources::GetStorage(subobject2));
+
+
+				{
+					ResourceObject subobjectWrite = Resources::Write(arr[0]);
+					subobjectWrite.SetString(ResourceTest::StringValue, "str");
+					subobjectWrite.Commit();
+				}
+
+				ResourceObject subobjectRead = Resources::Read(arr[0]);
+				CHECK(subobjectRead.GetReference(ResourceTest::Reference) == prototype);
+			}
+
+			{
+				ResourceObject write = Resources::Write(item);
+
+				Array<RID> arr = write.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+
+				write.SetInt(ResourceTest::IntValue, 222);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, subobject3);
+				write.RemoveFromSubObjectList(ResourceTest::SubObjectList, arr[1]);
+				write.Commit();
+			}
+
+			{
+				ResourceObject read = Resources::Read(item);
+				CHECK(read.GetInt(ResourceTest::IntValue) == 222);
+				CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
+
+				Array<RID> items = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				CHECK(items.Size() == 2);
+
+				CHECK(Resources::GetStorage(items[0])->prototype == Resources::GetStorage(subobject1));
+				CHECK(items[1] == subobject3);
 			}
 		}
 
@@ -709,7 +701,7 @@ namespace
 
 				for (u32 i = 0; i < 5; ++i)
 				{
-					RID subobject = Resources::Create<ResourceTest>(uuids[i + 1]);
+					RID            subobject = Resources::Create<ResourceTest>(uuids[i + 1]);
 					ResourceObject subObjectWrite = Resources::Write(subobject);
 					subObjectWrite.SetInt(ResourceTest::IntValue, i);
 					subObjectWrite.Commit();
@@ -736,7 +728,7 @@ namespace
 			RegisterTestTypes();
 
 			YamlArchiveReader reader(yaml.CStr());
-			RID newResource = Resources::Deserialize(reader);
+			RID               newResource = Resources::Deserialize(reader);
 			CHECK(newResource);
 
 			ResourceObject read = Resources::Read(newResource);
@@ -751,7 +743,7 @@ namespace
 			{
 				if (auto it = uuidToIndex.Find(i))
 				{
-					RID rid = Resources::FindByUUID(it->second);
+					RID            rid = Resources::FindByUUID(it->second);
 					ResourceObject subRead = Resources::Read(rid);
 					CHECK(subRead.GetUUID() == uuids[i + 1]);
 					CHECK(subRead.GetInt(ResourceTest::IntValue) == i);
@@ -761,6 +753,4 @@ namespace
 			ResourceShutdown();
 		}
 	}
-
-
 }

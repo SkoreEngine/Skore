@@ -1155,13 +1155,11 @@ namespace Skore
 
 		if (stages)
 		{
-			variantObject.IterateSubObjectSet(ShaderVariantResource::Stages, true, [&](RID rid)
+			variantObject.IterateSubObjectList(ShaderVariantResource::Stages, [&](RID rid)
 			{
 				ShaderStageInfo stageInfo;
 				Resources::FromResource(rid, &stageInfo);
 				stages->EmplaceBack(stageInfo);
-
-				return true;
 			});
 
 			if (stages->Empty())

@@ -65,6 +65,7 @@ namespace Skore
 		static ResourceObject   Read(RID rid);
 		static bool				HasValue(RID rid);
 		static RID				GetParent(RID rid);
+		static RID				GetPrototype(RID rid);
 		static RID              Clone(RID rid, UUID uuid = {}, UndoRedoScope* scope = nullptr);
 		static void             Reset(RID rid, UndoRedoScope* scope = nullptr);
 		static void             Destroy(RID rid, UndoRedoScope* scope = nullptr);
@@ -89,7 +90,8 @@ namespace Skore
 		static bool FromResource(RID rid, VoidPtr instance);
 		static bool FromResource(const ResourceObject& object, VoidPtr instance);
 
-		static Array<CompareSubObjectSetResult> CompareSubObjectSet(const ResourceObject& oldObject, const ResourceObject& newObject, u32 index);
+		static Array<CompareSubObjectListResult> CompareSubObjectList(const ResourceObject& oldObject, const ResourceObject& newObject, u32 index);
+		static void CompareSubObjectList(const ResourceObject& oldObject, const ResourceObject& newObject, u32 index, VoidPtr userData, FnCompareSubObjectListCallback callback);
 
 		template <typename T>
 		static RID Create(UUID uuid = {}, UndoRedoScope* scope = nullptr)

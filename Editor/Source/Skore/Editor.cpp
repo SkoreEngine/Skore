@@ -127,6 +127,8 @@ namespace Skore
 		Array<std::unique_ptr<UndoRedoScopeStorage>> redoActions{};
 		bool undoRedoLocked = false;
 
+		bool debugOptionsEnabled = false;
+
 		std::mutex funcsMutex;
 		Queue<std::function<void()>> funcs;
 
@@ -267,6 +269,16 @@ namespace Skore
 			// }
 		}
 
+		void ShowDebugOptions(const MenuItemEventData& eventData)
+		{
+			debugOptionsEnabled = !debugOptionsEnabled;
+		}
+
+		bool IsDebugOptionsEnabled(const MenuItemEventData& eventData)
+		{
+			return debugOptionsEnabled;
+		}
+
 		void CreateMenuItems()
 		{
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "File", .priority = 0});
@@ -289,6 +301,7 @@ namespace Skore
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .enable = CreateCMakeProjectEnabled});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Reload Shaders", .priority = 100, .itemShortcut = {.presKey = Key::F5}, .action = ReloadShaders});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Show Debug Options", .priority = 105, .action = ShowDebugOptions, .selected = IsDebugOptionsEnabled});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window", .priority = 60});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Help", .priority = 70});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Dear ImGui Demo", .priority = I32_MAX, .action = ShowImGuiDemo});
@@ -720,6 +733,11 @@ namespace Skore
 	{
 		std::scoped_lock lock(funcsMutex);
 		funcs.Enqueue(func);
+	}
+
+	bool Editor::DebugOptionsEnabled()
+	{
+		return debugOptionsEnabled;
 	}
 
 	void ImGuiDrawUndoRedoActions()

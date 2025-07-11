@@ -490,7 +490,7 @@ namespace Skore
 					skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("mesh"), meshIt->second);
 					skinnedMeshRenderObject.Commit(fbxData.scope);
 
-					entityObject.AddToSubObjectSet(EntityResource::Components, meshRenderer);
+					entityObject.AddToSubObjectList(EntityResource::Components, meshRenderer);
 				}
 				else
 				{
@@ -500,7 +500,7 @@ namespace Skore
 					staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshIt->second);
 					staticMeshRenderObject.Commit(fbxData.scope);
 
-					entityObject.AddToSubObjectSet(EntityResource::Components, meshRenderer);
+					entityObject.AddToSubObjectList(EntityResource::Components, meshRenderer);
 				}
 			}
 		}
@@ -510,7 +510,7 @@ namespace Skore
 		{
 			if (RID child = ProcessNode(fbxData, node->children.data[i], ""))
 			{
-				entityObject.AddToSubObjectSet(EntityResource::Children, child);
+				entityObject.AddToSubObjectList(EntityResource::Children, child);
 			}
 		}
 
@@ -581,7 +581,7 @@ namespace Skore
 			{
 				if (RID texture = ProcessTextures(directory, fbxData, basePath, scene->textures.data[i]))
 				{
-					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Textures, texture);
+					dccAssetObject.AddToSubObjectList(DCCAssetResource::Textures, texture);
 				}
 			}
 
@@ -591,7 +591,7 @@ namespace Skore
 				if (RID materialRID = ProcessMaterials(fbxData, scene->materials.data[i]))
 				{
 					fbxData.materials.Insert(scene->materials.data[i], materialRID);
-					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Materials, materialRID);
+					dccAssetObject.AddToSubObjectList(DCCAssetResource::Materials, materialRID);
 				}
 			}
 
@@ -599,7 +599,7 @@ namespace Skore
 			{
 				if (RID animation = ProcessAnimation(fbxData, scene->anim_stacks.data[i]))
 				{
-					dccAssetObject.AddToSubObjectSet(DCCAssetResource::Animations, animation);
+					dccAssetObject.AddToSubObjectList(DCCAssetResource::Animations, animation);
 				}
 			}
 
@@ -639,7 +639,7 @@ namespace Skore
 
 			for (const auto& it : fbxData.meshes)
 			{
-				dccAssetObject.AddToSubObjectSet(DCCAssetResource::Meshes, it.second);
+				dccAssetObject.AddToSubObjectList(DCCAssetResource::Meshes, it.second);
 			}
 
 			ufbx_free_scene(scene);

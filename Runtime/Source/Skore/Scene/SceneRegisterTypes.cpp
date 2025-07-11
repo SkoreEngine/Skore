@@ -53,8 +53,8 @@ namespace Skore
 			.Field<EntityResource::Deactivated>(ResourceFieldType::Bool)
 			.Field<EntityResource::Locked>(ResourceFieldType::Bool)
 			.Field<EntityResource::Transform>(ResourceFieldType::SubObject)
-			.Field<EntityResource::Components>(ResourceFieldType::SubObjectSet)
-			.Field<EntityResource::Children>(ResourceFieldType::SubObjectSet)
+			.Field<EntityResource::Components>(ResourceFieldType::SubObjectList)
+			.Field<EntityResource::Children>(ResourceFieldType::SubObjectList)
 			.Build();
 
 		{

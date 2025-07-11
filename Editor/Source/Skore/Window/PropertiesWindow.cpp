@@ -60,6 +60,20 @@ namespace Skore
 			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
 			ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
 
+
+			if (Editor::DebugOptionsEnabled())
+			{
+				ImGui::TableNextColumn();
+				ImGui::AlignTextToFramePadding();
+
+				ImGui::Text("%s", "RID");
+				ImGui::TableNextColumn();
+
+				ImGui::SetNextItemWidth(-1);
+				ImGuiInputTextReadOnly(id + 5, ToString(entity.id));
+			}
+
+
 			ImGui::TableNextColumn();
 			ImGui::AlignTextToFramePadding();
 
@@ -166,7 +180,7 @@ namespace Skore
 
 				ImGuiDrawResource(ImGuiDrawResourceInfo{
 					.rid = rid,
-					.scopeName = scopeName
+					.scopeName = scopeName,
 				});
 
 				ImGui::Unindent();
@@ -180,7 +194,7 @@ namespace Skore
 			drawCollapsingHeader(transform, "Transform", "Transform Update");
 		}
 
-		entityObject.IterateSubObjectSet(EntityResource::Components, true, [&](RID component)
+		entityObject.IterateSubObjectList(EntityResource::Components, [&](RID component)
 		{
 			if (ResourceType* componentType = Resources::GetType(component);
 				componentType != nullptr &&
@@ -190,8 +204,6 @@ namespace Skore
 				String scope = String(formattedName).Append(" Update");
 				drawCollapsingHeader(component, formattedName, scope);
 			}
-
-			return true;
 		});
 
 		if (addComponent)
