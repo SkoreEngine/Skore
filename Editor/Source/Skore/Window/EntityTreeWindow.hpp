@@ -64,6 +64,10 @@ namespace Skore
 		RID parentSelection = {};
 		RID entitySelection = {};
 
+		RID lastParentSelection = {};
+		RID lastEntitySelection = {};
+		bool lastSelectionRemoved = false;
+
 		bool   renamingFocus{};
 		bool   renamingSelected{};
 		String renamingStringCache{};

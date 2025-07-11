@@ -47,6 +47,7 @@ namespace Skore
 		void DestroySelected();
 		void DuplicateSelected();
 		void ChangeParentOfSelected(RID newParent);
+		void AddBackToThisInstance(RID entity, RID prototype);
 
 		//selection
 		void ClearSelection();

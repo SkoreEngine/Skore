@@ -166,6 +166,11 @@ namespace Skore
 			parentSelection = parent;
 			entitySelection = entity;
 
+			lastParentSelection = parentSelection;
+			lastEntitySelection = entitySelection;
+
+			lastSelectionRemoved = removed;
+
 			logger.Debug("local selection : {}", entitySelection.id);
 		}
 
@@ -469,21 +474,22 @@ namespace Skore
 
 		bool closePopup = false;
 
-
-		if (shouldClear && !entitySelection)
+		if (shouldClear && (!entitySelection || lastSelectionRemoved))
 		{
 			sceneEditor->ClearSelection();
 		}
 
+		bool shouldClearInternal = false;
+
 		bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_NoPopupHierarchy);
 		bool released = ImGui::IsMouseReleased(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Left);
-		if (entitySelection && released)
+
+		if (!lastSelectionRemoved && entitySelection && released)
 		{
 			logger.Debug("selecting {}, ctrlDown {} ", entitySelection.id, ctrlDown);
 			sceneEditor->SelectEntity(entitySelection, !ctrlDown);
 
-			entitySelection = {};
-			parentSelection = {};
+			shouldClearInternal = true;
 		}
 
 		if (hovered)
@@ -516,6 +522,12 @@ namespace Skore
 		}
 		ImGuiEndPopupMenu(popupRes);
 		ImGui::End();
+
+		if (shouldClearInternal)
+		{
+			entitySelection = {};
+			parentSelection = {};
+		}
 	}
 
 	void EntityTreeWindow::AddMenuItem(const MenuItemCreation& menuItem)
@@ -571,7 +583,6 @@ namespace Skore
 	bool EntityTreeWindow::CheckEntityActions(const MenuItemEventData& eventData)
 	{
 		if (CheckIsRemoved(eventData)) return false;
-
 		return true;
 	}
 
@@ -614,17 +625,23 @@ namespace Skore
 	bool EntityTreeWindow::CheckIsRemoved(const MenuItemEventData& eventData)
 	{
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		if (!window->entitySelection || !window->parentSelection) return false;
+		if (!window->lastEntitySelection || !window->lastParentSelection) return false;
 
-
-
+		if (ResourceObject parentObject = Resources::Read(window->lastParentSelection))
+		{
+			return parentObject.IsRemoveFromPrototypeSubObjectList(EntityResource::Children,  window->lastEntitySelection);
+		}
 
 		return false;
 	}
 
 	void EntityTreeWindow::AddBackToThisInstance(const MenuItemEventData& eventData)
 	{
+		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		if (!window->lastEntitySelection || !window->lastParentSelection) return;
 
+		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+		sceneEditor->AddBackToThisInstance(window->lastParentSelection, window->lastEntitySelection);
 	}
 
 	void EntityTreeWindow::OpenEntityTree(const MenuItemEventData& eventData)
