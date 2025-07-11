@@ -571,25 +571,25 @@ namespace Skore
 										ImGui::Text("%s", type->GetName().CStr());
 									}
 
-#if SK_DEBUG_OPTIONS
-
-									u64 currentVersion = 0;
-									u64 persistedVersion = 0;
-									if (ResourceAssets::GetAssetVersions(asset, currentVersion, persistedVersion))
+									if (Editor::DebugOptionsEnabled())
 									{
-										ImGui::TableNextRow();
-										ImGui::TableNextColumn();
-										ImGui::TextDisabled("(Debug) Version: ");
-										ImGui::TableNextColumn();
-										ImGui::Text("%u", currentVersion);
+										u64 currentVersion = 0;
+										u64 persistedVersion = 0;
+										if (ResourceAssets::GetAssetVersions(asset, currentVersion, persistedVersion))
+										{
+											ImGui::TableNextRow();
+											ImGui::TableNextColumn();
+											ImGui::TextDisabled("(Debug) Version: ");
+											ImGui::TableNextColumn();
+											ImGui::Text("%u", currentVersion);
 
-										ImGui::TableNextRow();
-										ImGui::TableNextColumn();
-										ImGui::TextDisabled("(Debug) Persisted Version: ");
-										ImGui::TableNextColumn();
-										ImGui::Text("%u", persistedVersion);
+											ImGui::TableNextRow();
+											ImGui::TableNextColumn();
+											ImGui::TextDisabled("(Debug) Persisted Version: ");
+											ImGui::TableNextColumn();
+											ImGui::Text("%u", persistedVersion);
+										}
 									}
-#endif
 
 									ImGui::EndTable();
 								}

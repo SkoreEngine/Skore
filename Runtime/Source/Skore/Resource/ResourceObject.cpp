@@ -245,9 +245,48 @@ namespace Skore
 				{
 					subObjectList->subObjects.Erase(it);
 					ResourceRemoveParent(subObject);
+
+					ResourceStorage* prototypeInstance = GetStorage()->prototype;
+					ResourceStorage* prototypeSubObject = Resources::GetStorage(subObject)->prototype;
+
+					if (prototypeInstance && prototypeSubObject && prototypeSubObject->parent == prototypeInstance)
+					{
+						subObjectList->prototypeRemoved.Emplace(prototypeSubObject->rid);
+					}
 				}
 			}
 		}
+	}
+
+	Array<RID> ResourceObject::RemoveFromSubObjectListByPrototype(u32 index, RID prototype)
+	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList, "Invalid field type");
+		if (HasValueOnThisObject(index))
+		{
+			if (SubObjectList* subObjectList = GetMutPtr<SubObjectList>(index))
+			{
+				Array<RID> removedArr;
+				for (RID subObject : subObjectList->subObjects)
+				{
+					if (Resources::GetPrototype(subObject) == prototype)
+					{
+						removedArr.EmplaceBack(subObject);
+					}
+				}
+
+				for (RID removed : removedArr)
+				{
+					if (auto it = FindFirst(subObjectList->subObjects.begin(), subObjectList->subObjects.end(), removed))
+					{
+						subObjectList->subObjects.Erase(it);
+						ResourceRemoveParent(removed);
+					}
+				}
+
+				return removedArr;
+			}
+		}
+		return {};
 	}
 
 	void ResourceObject::RemoveSubObject(u32 index, RID rid)
@@ -277,6 +316,11 @@ namespace Skore
 			return *reinterpret_cast<bool*>(&instance[sizeof(ResourceInstanceInfo) + index]);
 		}
 		return false;
+	}
+
+	bool ResourceObject::IsValueOverridden(u32 index) const
+	{
+		return GetStorage()->prototype && HasValueOnThisObject(index);
 	}
 
 	bool ResourceObject::CopyValue(u32 index, VoidPtr buffer, usize size) const
@@ -597,6 +641,14 @@ namespace Skore
 		}
 	}
 
+	void ResourceObject::ResetValue(u32 index)
+	{
+		if (m_currentInstance)
+		{
+			UpdateHasValue(index, false);
+		}
+	}
+
 	void ResourceObject::UpdateHasValue(u32 index, bool hasValue) const
 	{
 		if (m_currentInstance)
@@ -609,29 +661,33 @@ namespace Skore
 	{
 		if (m_storage == nullptr) return nullptr;
 
+		auto getPtrFromStorage = [&](const ResourceStorage* storage) -> ConstPtr
+		{
+			while (storage != nullptr)
+			{
+				if (ResourceInstance instance = storage->instance.load())
+				{
+					if (*reinterpret_cast<bool*>(&instance[sizeof(ResourceInstanceInfo) + index]))
+					{
+						return &instance[m_storage->resourceType->fields[index]->offset];
+					}
+				}
+				storage = storage->prototype;
+			}
+			return nullptr;
+		};
+
 		if (m_currentInstance)
 		{
 			if (*reinterpret_cast<bool*>(&m_currentInstance[sizeof(ResourceInstanceInfo) + index]))
 			{
 				return &m_currentInstance[m_storage->resourceType->fields[index]->offset];
 			}
-			return nullptr;
+
+			return getPtrFromStorage(m_storage->prototype);
 		}
 
-		ResourceStorage* currentStorage = m_storage;
-
-		while (currentStorage != nullptr)
-		{
-			if (ResourceInstance currentInstance = currentStorage->instance.load())
-			{
-				if (*reinterpret_cast<bool*>(&currentInstance[sizeof(ResourceInstanceInfo) + index]))
-				{
-					return &currentInstance[m_storage->resourceType->fields[index]->offset];
-				}
-			}
-			currentStorage = currentStorage->prototype;
-		}
-		return nullptr;
+		return getPtrFromStorage(m_storage);
 	}
 
 	VoidPtr ResourceObject::GetMutPtr(u32 index) const

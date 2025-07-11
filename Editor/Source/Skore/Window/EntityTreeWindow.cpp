@@ -65,7 +65,7 @@ namespace Skore
 		iconSize = ImGui::CalcTextSize(ICON_FA_EYE).x;
 	}
 
-	void EntityTreeWindow::DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool disabled, bool removed)
+	void EntityTreeWindow::DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool removed)
 	{
 		auto& style = ImGui::GetStyle();
 
@@ -73,18 +73,8 @@ namespace Skore
 		ResourceObject entityObject = Resources::Read(entity);
 		if (!entityObject) return;
 
-		if (!disabled && parent)
-		{
-			disabled = Resources::GetParent(entity) != parent;
-
-			if (!disabled)
-			{
-				lastParentNotPrototype = entity;
-			}
-		}
-
 		bool       root = sceneEditor->GetRootEntity() == entity;
-		bool       drawNode = entityObject.GetSubObjectListCount(EntityResource::Children) > 0 || entityObject.GetPrototypeRemovedCount(EntityResource::Children);
+		bool       drawNode = (entityObject.GetSubObjectListCount(EntityResource::Children) > 0 || entityObject.GetPrototypeRemovedCount(EntityResource::Children)) && !removed;
 		StringView name = entityObject.GetString(EntityResource::Name);
 		bool       active = !entityObject.GetBool(EntityResource::Deactivated);
 		bool       locked = entityObject.GetBool(EntityResource::Locked);
@@ -102,7 +92,7 @@ namespace Skore
 		stringCache += " ";
 		stringCache += name;
 
-		bool isSelected = sceneEditor->IsSelected(entity);
+		bool isSelected = sceneEditor->IsSelected(entity) || entity == entityOnPopupSelection;
 		bool open = false;
 
 		if (root || sceneEditor->IsParentOfSelected(entity))
@@ -113,11 +103,6 @@ namespace Skore
 		if (removed)
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.4f, 0.4f, 1.0f));
-		}
-		else if (disabled)
-		{
-			ImVec4 color = style.Colors[ImGuiCol_Text];
-			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(color.x, color.y, color.z, style.Alpha * style.DisabledAlpha));
 		}
 		else if (entityObject.GetPrototype())
 		{
@@ -169,37 +154,24 @@ namespace Skore
 			ImGuiTreeLeaf(IntToPtr(entity.id), stringCache.CStr());
 		}
 
-		if (removed || disabled || entityObject.GetPrototype())
+		if (removed || entityObject.GetPrototype())
 		{
 			ImGui::PopStyleColor();
 		}
 
 		bool isHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
-		bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
 
 		if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
 		{
-			if (!disabled)
-			{
-				sceneEditor->SelectEntity(entity, !ctrlDown);
-			}
-			else
-			{
-				sceneEditor->ClearSelection();
-				parentOnPopupSelection = lastParentNotPrototype;
-				entityOnPopupSelection = entity;
-			}
-		}
+			// if (!removed)
+			// {
+			// 	sceneEditor->SelectEntity(entity, !ctrlDown);
+			// }
+			parentOnPopupSelection = parent;
+			entityOnPopupSelection = entity;
 
-		if ((ImGui::IsMouseReleased(ImGuiMouseButton_Left) || ImGui::IsMouseReleased(ImGuiMouseButton_Right)) && isHovered)
-		{
-			if (!disabled && sceneEditor->IsSelected(entity))
-			{
-				if (!ctrlDown)
-				{
-					sceneEditor->SelectEntity(entity, true);
-				}
-			}
+
+			entitySelected = true;
 		}
 
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
@@ -207,13 +179,6 @@ namespace Skore
 			ImGui::SetDragDropPayload(SK_ENTITY_PAYLOAD, nullptr, 0);
 			ImGui::Text("%s", name.CStr());
 			ImGui::EndDragDropSource();
-		}
-
-		if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) && isHovered)
-		{
-			entitySelected = true;
-			parentOnPopupSelection = lastParentNotPrototype;
-			entityOnPopupSelection = entity;
 		}
 
 		if (ImGui::BeginDragDropTarget())
@@ -227,7 +192,7 @@ namespace Skore
 
 		ImGui::TableNextColumn();
 		{
-			ImGui::BeginDisabled(sceneEditor->IsReadOnly());
+			ImGui::BeginDisabled(sceneEditor->IsReadOnly() || removed);
 
 			char buffer[35]{};
 			sprintf(buffer, "activated-button%llu", entity.id);
@@ -249,7 +214,7 @@ namespace Skore
 
 		ImGui::TableNextColumn();
 		{
-			ImGui::BeginDisabled(sceneEditor->IsReadOnly());
+			ImGui::BeginDisabled(sceneEditor->IsReadOnly() || removed);
 
 			char buffer[35]{};
 			sprintf(buffer, "lock-button%llu", entity.id);
@@ -282,13 +247,13 @@ namespace Skore
 		{
 			entityObject.IterateSubObjectList(EntityResource::Children, [&](RID child)
 			{
-				DrawRIDEntity(sceneEditor, child, entitySelected, entity, disabled, removed);
+				DrawRIDEntity(sceneEditor, child, entitySelected, entity, removed);
 				return true;
 			});
 
 			entityObject.IteratePrototypeRemoved(EntityResource::Children, [&](RID child)
 			{
-				DrawRIDEntity(sceneEditor, child, entitySelected, entity, disabled, true);
+				DrawRIDEntity(sceneEditor, child, entitySelected, entity, true);
 			});
 
 			ImGui::TreePop();
@@ -423,6 +388,12 @@ namespace Skore
 			return;
 		}
 
+		// if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+		// {
+		// 	parentOnPopupSelection = {};
+		// 	entityOnPopupSelection = {};
+		// }
+
 		bool openPopup = false;
 
 		{
@@ -469,7 +440,7 @@ namespace Skore
 					bool drawRID = !showSceneEntity && !sceneEditor->IsSimulationRunning();
 					if (drawRID)
 					{
-						DrawRIDEntity(sceneEditor, sceneEditor->GetRootEntity(), entitySelected, RID{}, sceneEditor->IsReadOnly(), false);
+						DrawRIDEntity(sceneEditor, sceneEditor->GetRootEntity(), entitySelected, RID{}, false);
 					}
 					else if (sceneEditor->GetCurrentScene() != nullptr)
 					{
@@ -499,13 +470,23 @@ namespace Skore
 				closePopup = true;
 			}
 
-			if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+
+			if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 			{
-				if (!entitySelected)
+				if (entityOnPopupSelection)
+				{
+					bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
+					sceneEditor->SelectEntity(entityOnPopupSelection, !ctrlDown);
+					entityOnPopupSelection = {};
+				}
+				else
 				{
 					sceneEditor->ClearSelection();
-					renamingSelected = false;
 				}
+			}
+
+			if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+			{
 				openPopup = true;
 			}
 		}
@@ -523,11 +504,6 @@ namespace Skore
 			{
 				ImGui::CloseCurrentPopup();
 			}
-		}
-		else
-		{
-			parentOnPopupSelection = {};
-			entityOnPopupSelection = {};
 		}
 		ImGuiEndPopupMenu(popupRes);
 		ImGui::End();
@@ -585,12 +561,9 @@ namespace Skore
 
 	bool EntityTreeWindow::CheckEntityActions(const MenuItemEventData& eventData)
 	{
-		if (IsRemovedFromThisInstance(eventData))
-		{
-			return false;
-		}
+		if (CheckIsRemoved(eventData)) return false;
 
-		return !CheckSelectedPrototypeEntity(eventData);
+		return true;
 	}
 
 	bool EntityTreeWindow::CheckSelectedEntity(const MenuItemEventData& eventData)
@@ -599,29 +572,6 @@ namespace Skore
 		if (!sceneEditor) return false;
 
 		return !sceneEditor->IsReadOnly() && sceneEditor->HasSelectedEntities();
-	}
-
-	bool EntityTreeWindow::CheckSelectedPrototypeEntity(const MenuItemEventData& eventData)
-	{
-		if (IsRemovedFromThisInstance(eventData))
-		{
-			return false;
-		}
-
-		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		if (!window->entityOnPopupSelection) return false;
-
-		RID root = Editor::GetCurrentWorkspace().GetSceneEditor()->GetRootEntity();
-		RID current = window->entityOnPopupSelection;
-		while (current != root)
-		{
-			current = Resources::GetParent(current);
-			if (!current)
-			{
-				return true;
-			}
-		}
-		return false;
 	}
 
 	bool EntityTreeWindow::CheckReadOnly(const MenuItemEventData& eventData)
@@ -643,61 +593,29 @@ namespace Skore
 		return window->showSceneEntity;
 	}
 
-	void EntityTreeWindow::OverridePrototype(const MenuItemEventData& eventData)
-	{
-		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		if (!window-> parentOnPopupSelection || !window->entityOnPopupSelection) return;
-		if (SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor())
-		{
-			sceneEditor->OverrideEntity(window->parentOnPopupSelection, window->entityOnPopupSelection);
-		}
-	}
-
-	void EntityTreeWindow::RemoveFromThisInstance(const MenuItemEventData& eventData)
-	{
-		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		if (!window-> parentOnPopupSelection || !window->entityOnPopupSelection) return;
-		if (SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor())
-		{
-			sceneEditor->RemoveFromThisInstance(window->parentOnPopupSelection, window->entityOnPopupSelection);
-		}
-	}
-
-	bool EntityTreeWindow::IsRemovedFromThisInstance(const MenuItemEventData& eventData)
-	{
-		// EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		// if (!window-> parentOnPopupSelection || !window->entityOnPopupSelection) return false;
-		//
-		// ResourceObject read = Resources::Read(window-> parentOnPopupSelection);
-		// return read.IsRemoveFromPrototypeSubObjectSet(EntityResource::Children, window->entityOnPopupSelection);
-
-		return false;
-	}
-
-	void EntityTreeWindow::AddBackToThisInstance(const MenuItemEventData& eventData)
-	{
-		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		if (!window-> parentOnPopupSelection || !window->entityOnPopupSelection) return;
-		if (SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor())
-		{
-			sceneEditor->AddBackToThisInstance(window->parentOnPopupSelection, window->entityOnPopupSelection);
-		}
-	}
-
-	void EntityTreeWindow::RemoveOverride(const MenuItemEventData& eventData)
-	{
-		if (SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor())
-		{
-			sceneEditor->RemoveOverrideFromSelected();
-		}
-	}
 
 	bool EntityTreeWindow::CheckIsOverride(const MenuItemEventData& eventData)
 	{
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
 		if (!window->entityOnPopupSelection) return false;
 
-		return Resources::GetStorage(window->entityOnPopupSelection)->instantiated != nullptr;
+		return false;
+	}
+
+	bool EntityTreeWindow::CheckIsRemoved(const MenuItemEventData& eventData)
+	{
+		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
+		if (!window->entityOnPopupSelection || !window->parentOnPopupSelection) return false;
+
+
+
+
+		return false;
+	}
+
+	void EntityTreeWindow::AddBackToThisInstance(const MenuItemEventData& eventData)
+	{
+
 	}
 
 	void EntityTreeWindow::OpenEntityTree(const MenuItemEventData& eventData)
@@ -709,10 +627,8 @@ namespace Skore
 	{
 		Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Entity Tree", .action = OpenEntityTree});
 
-		AddMenuItem(MenuItemCreation{.itemName = "Remove Override", .priority = -100, .action = RemoveOverride, .enable = CheckReadOnly, .visible = CheckIsOverride});
-		AddMenuItem(MenuItemCreation{.itemName = "Override", .priority = -100, .action = OverridePrototype, .visible = CheckSelectedPrototypeEntity});
-		AddMenuItem(MenuItemCreation{.itemName = "Remove From This Instance", .priority = -95, .action = RemoveFromThisInstance, .visible = CheckSelectedPrototypeEntity});
-		AddMenuItem(MenuItemCreation{.itemName = "Add Back This Instance", .priority = -95, .action = AddBackToThisInstance, .visible = IsRemovedFromThisInstance});
+		//AddMenuItem(MenuItemCreation{.itemName = "Revert Overrides", .priority = -100, .action = RemoveOverride, .enable = CheckReadOnly, .visible = CheckIsOverride});
+		AddMenuItem(MenuItemCreation{.itemName = "Add Back This Instance", .priority = -95, .action = AddBackToThisInstance, .visible = CheckIsRemoved});
 
 		AddMenuItem(MenuItemCreation{.itemName = "Create Entity", .priority = 0, .action = AddSceneEntity, .enable = CheckReadOnly, .visible = CheckEntityActions});
 		AddMenuItem(MenuItemCreation{.itemName = "Create Entity From Asset", .priority = 15, .action = AddSceneEntityFromAsset, .enable = CheckReadOnly, .visible = CheckEntityActions});
@@ -722,7 +638,7 @@ namespace Skore
 		AddMenuItem(MenuItemCreation{.itemName = "Duplicate", .priority = 210, .itemShortcut = {.ctrl = true, .presKey = Key::D}, .action = DuplicateSceneEntity, .enable = CheckSelectedEntity, .visible = CheckEntityActions});
 		AddMenuItem(MenuItemCreation{.itemName = "Delete", .priority = 220, .itemShortcut = {.presKey = Key::Delete}, .action = DeleteSceneEntity, .enable = CheckSelectedEntity, .visible = CheckEntityActions});
 
-		AddMenuItem(MenuItemCreation{.itemName = "(Debug) Show Scene Entity", .priority = 1000, .action = ShowSceneEntity, .selected = IsShowSceneEntitySelected});
+		AddMenuItem(MenuItemCreation{.itemName = "Show Scene Entity", .priority = 1000, .action = ShowSceneEntity, .selected = IsShowSceneEntitySelected, .debugOption = true});
 
 		type.Attribute<EditorWindowProperties>(EditorWindowProperties{
 			.dockPosition = DockPosition::RightTop,

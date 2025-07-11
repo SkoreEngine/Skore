@@ -44,7 +44,7 @@ namespace Skore
 		return ((check.fieldProps.typeId == TypeInfo<T>::ID()) || ...);
 	}
 
-	void DrawVecField(const char* fieldName, float& value, bool* hasChanged, u32 color = 0, f32 speed = 0.005f)
+	void DrawVecField(const ImGuiDrawFieldContext& context, const char* fieldName, float& value, bool* hasChanged, u32 color = 0, f32 speed = 0.005f)
 	{
 		ImGui::TableNextColumn();
 
@@ -60,11 +60,21 @@ namespace Skore
 			ImGui::PushStyleColor(ImGuiCol_Border, color);
 		}
 
+		if (context.overriden)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
+		}
+
 		ImGui::InputFloat(buffer, &value);
 
 		if (ImGui::IsItemDeactivatedAfterEdit())
 		{
 			*hasChanged = true;
+		}
+
+		if (context.overriden)
+		{
+			ImGui::PopStyleColor();
 		}
 
 		if (color != 0)
@@ -83,8 +93,8 @@ namespace Skore
 		Vec2 vec3 = *static_cast<const Vec2*>(value);
 		if (ImGui::BeginTable("##vec3-table", 2))
 		{
-			DrawVecField("X", vec3.x, &hasChanged, IM_COL32(138, 46, 61, 255), speed);
-			DrawVecField("Y", vec3.y, &hasChanged, IM_COL32(87, 121, 26, 255), speed);
+			DrawVecField(context, "X", vec3.x, &hasChanged, IM_COL32(138, 46, 61, 255), speed);
+			DrawVecField(context, "Y", vec3.y, &hasChanged, IM_COL32(87, 121, 26, 255), speed);
 			ImGui::EndTable();
 		}
 
@@ -102,9 +112,9 @@ namespace Skore
 		Vec3 vec3 = *static_cast<const Vec3*>(value);
 		if (ImGui::BeginTable("##vec3-table", 3))
 		{
-			DrawVecField("X", vec3.x, &hasChanged, IM_COL32(138, 46, 61, 255), speed);
-			DrawVecField("Y", vec3.y, &hasChanged, IM_COL32(87, 121, 26, 255), speed);
-			DrawVecField("Z", vec3.z, &hasChanged, IM_COL32(43, 86, 138, 255), speed);
+			DrawVecField(context, "X", vec3.x, &hasChanged, IM_COL32(138, 46, 61, 255), speed);
+			DrawVecField(context, "Y", vec3.y, &hasChanged, IM_COL32(87, 121, 26, 255), speed);
+			DrawVecField(context, "Z", vec3.z, &hasChanged, IM_COL32(43, 86, 138, 255), speed);
 			ImGui::EndTable();
 		}
 
@@ -128,9 +138,9 @@ namespace Skore
 
 			if (ImGui::BeginTable("##vec3-table", 3))
 			{
-				DrawVecField("X", euler.x, &vecHasChanged, IM_COL32(138, 46, 61, 255), speed);
-				DrawVecField("Y", euler.y, &vecHasChanged, IM_COL32(87, 121, 26, 255), speed);
-				DrawVecField("Z", euler.z, &vecHasChanged, IM_COL32(43, 86, 138, 255), speed);
+				DrawVecField(context, "X", euler.x, &vecHasChanged, IM_COL32(138, 46, 61, 255), speed);
+				DrawVecField(context, "Y", euler.y, &vecHasChanged, IM_COL32(87, 121, 26, 255), speed);
+				DrawVecField(context, "Z", euler.z, &vecHasChanged, IM_COL32(43, 86, 138, 255), speed);
 				ImGui::EndTable();
 			}
 
@@ -145,10 +155,10 @@ namespace Skore
 			bool hasChanged = false;
 			if (ImGui::BeginTable("##quat-table", 4))
 			{
-				DrawVecField("X", quat.x, &hasChanged, IM_COL32(138, 46, 61, 255), speed);
-				DrawVecField("Y", quat.y, &hasChanged, IM_COL32(87, 121, 26, 255), speed);
-				DrawVecField("Z", quat.z, &hasChanged, IM_COL32(43, 86, 138, 255), speed);
-				DrawVecField("W", quat.w, &hasChanged, IM_COL32(84, 74, 119, 255), speed);
+				DrawVecField(context, "X", quat.x, &hasChanged, IM_COL32(138, 46, 61, 255), speed);
+				DrawVecField(context, "Y", quat.y, &hasChanged, IM_COL32(87, 121, 26, 255), speed);
+				DrawVecField(context, "Z", quat.z, &hasChanged, IM_COL32(43, 86, 138, 255), speed);
+				DrawVecField(context, "W", quat.w, &hasChanged, IM_COL32(84, 74, 119, 255), speed);
 				ImGui::EndTable();
 			}
 
@@ -238,6 +248,11 @@ namespace Skore
 		ImGui::SetNextItemWidth(-1);
 		ReflectValue* reflectValue = context.reflectFieldType->FindValue(value);
 
+		if (context.overriden)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
+		}
+
 		if (ImGui::BeginCombo(str, reflectValue != nullptr ? reflectValue->GetDesc().CStr() : ""))
 		{
 			for (const auto& valueHandler : context.reflectFieldType->GetValues())
@@ -250,6 +265,11 @@ namespace Skore
 			}
 			ImGui::EndCombo();
 		}
+
+		if (context.overriden)
+		{
+			ImGui::PopStyleColor();
+		}
 	}
 
 	void DrawBoolField(const ImGuiDrawFieldContext& context, ConstPtr value)
@@ -259,9 +279,19 @@ namespace Skore
 
 		bool boolValue = *static_cast<const bool*>(value);
 
+		if (context.overriden)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
+		}
+
 		if (ImGui::Checkbox(str, &boolValue))
 		{
 			ImGuiCommitFieldChanges(context, &boolValue, sizeof(bool));
+		}
+
+		if (context.overriden)
+		{
+			ImGui::PopStyleColor();
 		}
 	}
 
@@ -296,6 +326,11 @@ namespace Skore
 
 		ImGui::SetNextItemWidth(-1);
 
+		if (context.overriden)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
+		}
+
 		//		if (const UIFloatProperty* property = context.info.fieldHandler ? context.info.fieldHandler->GetAttribute<UIFloatProperty>() : nullptr)
 		//		{
 		//			SK_ASSERT(false, "not implemented yet");
@@ -321,11 +356,16 @@ namespace Skore
 		{
 			ImGuiCommitFieldChanges(context, buffer, size);
 		}
+
+		if (context.overriden)
+		{
+			ImGui::PopStyleColor();
+		}
 	}
 
 
 	template <typename T>
-	void DrawResource(const RID rid, u64 id, TypeID typeId, T&& func)
+	void DrawResource(const ImGuiDrawFieldContext& context, const RID rid, u64 id, TypeID typeId, T&& func)
 	{
 		static String stringCache = {};
 
@@ -343,7 +383,21 @@ namespace Skore
 
 		ImGui::SetNextItemWidth(-22 * ImGui::GetStyle().ScaleFactor);
 		ImGui::PushID(pushStr);
-		ImGuiInputTextReadOnly(id, name);
+
+		{
+			if (context.overriden)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
+			}
+
+			ImGuiInputTextReadOnly(id, name);
+
+			if (context.overriden)
+			{
+				ImGui::PopStyleColor();
+			}
+		}
+
 		ImGui::SameLine(0, 0);
 		auto size = ImGui::GetItemRectSize();
 
@@ -519,7 +573,7 @@ namespace Skore
 		SK_ASSERT(context.resourceField, "reflectFieldType cannot be null");
 
 		RID rid = *static_cast<const RID*>(value);
-		DrawResource(rid, context.id, context.resourceField->GetSubType(), [&](RID rid)
+		DrawResource(context, rid, context.id, context.resourceField->GetSubType(), [&](RID rid)
 		{
 			ImGuiCommitFieldChanges(context, &rid, sizeof(RID));
 		});
@@ -712,7 +766,7 @@ namespace Skore
 		for (int i = 0; i < elements.Size(); ++i)
 		{
 			RID rid = elements[i];
-			DrawResource(rid, context.id + i, context.resourceField->GetSubType(), [&](RID updated)
+			DrawResource(context, rid, context.id + i, context.resourceField->GetSubType(), [&](RID updated)
 			{
 				UndoRedoScope* scope = Editor::CreateUndoRedoScope(!context.scopeName.Empty() ? context.scopeName : "Update Field");
 				ResourceObject resourceObject = Resources::Write(context.rid);

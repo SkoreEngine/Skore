@@ -125,22 +125,22 @@ namespace Skore
 		{
 			RID newEntity;
 
-			RID transformRID = Resources::Create<Transform>(UUID::RandomUUID(), scope);
-
 			if (!entityAsset)
 			{
+				RID transform = Resources::Create<Transform>(UUID::RandomUUID(), scope);
+
 				newEntity = Resources::Create<EntityResource>(UUID::RandomUUID(), scope);
 				ResourceObject newEntityObject = Resources::Write(newEntity);
 				newEntityObject.SetString(EntityResource::Name, "New Entity");
-				newEntityObject.SetSubObject(EntityResource::Transform, transformRID);
+				newEntityObject.SetSubObject(EntityResource::Transform, transform);
 				newEntityObject.Commit(scope);
 			}
 			else
 			{
 				newEntity = Resources::CreateFromPrototype(entityAsset, UUID::RandomUUID(), scope);
-				ResourceObject newEntityObject = Resources::Write(newEntity);
-				newEntityObject.SetSubObject(EntityResource::Transform, transformRID);
-				newEntityObject.Commit(scope);
+				//ResourceObject newEntityObject = Resources::Write(newEntity);
+				//newEntityObject.SetSubObject(EntityResource::Transform, transformRID);
+				//newEntityObject.Commit(scope);
 			}
 
 			ResourceObject parentObject = Resources::Write(parent);
@@ -342,69 +342,6 @@ namespace Skore
 		ResourceObject entityObject = Resources::Write(entity);
 		entityObject.RemoveFromSubObjectList(EntityResource::Components, component);
 		entityObject.Commit(scope);
-	}
-
-	void SceneEditor::OverrideEntity(RID parent, RID entity)
-	{
-		// if (!entity) return;
-		//
-		// if (Resources::GetStorage(parent)->prototype->rid != Resources::GetParent(entity))
-		// {
-		// 	//TODO create all instances.
-		// 	logger.Error("Cannot override entity with a non-prototype parent, please override the parent entity first");
-		// 	Editor::ShowErrorDialog("Cannot override entity with a non-prototype parent.\n Please override the parent entity first");
-		//
-		// 	return;
-		// }
-		//
-		// UndoRedoScope* scope = Editor::CreateUndoRedoScope("Override Entity");
-		//
-		// ResourceObject selectionObject = Resources::Write(m_selection);
-		// selectionObject.ClearReferenceArray(SceneEditorSelection::SelectedEntities);
-		//
-		// ResourceObject parentObject = Resources::Write(parent);
-		// RID newInstance = parentObject.InstantiateFromSubObjectSet(EntityResource::Children, entity);
-		// parentObject.Commit(scope);
-		//
-		// selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, newInstance);
-		//
-		// selectionObject.Commit(scope);
-	}
-
-	void SceneEditor::RemoveOverrideFromSelected()
-	{
-		// UndoRedoScope* scope = Editor::CreateUndoRedoScope("Remove Override From Selected");
-		// for (RID selected : GetSelectedEntities())
-		// {
-		// 	ResourceObject parentObject = Resources::Write(Resources::GetParent(selected));
-		// 	parentObject.RemoveInstanceFromSubObjectSet(EntityResource::Children, selected);
-		// 	parentObject.Commit(scope);
-		// }
-	}
-
-	void SceneEditor::RemoveFromThisInstance(RID parent, RID entity)
-	{
-		// if (Resources::GetStorage(parent)->prototype->rid != Resources::GetParent(entity))
-		// {
-		// 	//TODO create all instances.
-		// 	logger.Error("Cannot override entity with a non-prototype parent, please override the parent entity first");
-		// }
-		//
-		// UndoRedoScope* scope = Editor::CreateUndoRedoScope("Remove From This Instance");
-		//
-		// ResourceObject parentObject = Resources::Write(parent);
-		// parentObject.RemoveFromPrototypeSubObjectSet(EntityResource::Children, entity);
-		// parentObject.Commit(scope);
-
-	}
-
-	void SceneEditor::AddBackToThisInstance(RID parent, RID entity)
-	{
-		// UndoRedoScope* scope = Editor::CreateUndoRedoScope("Add Back This Instance");
-		//
-		// ResourceObject parentObject = Resources::Write(parent);
-		// parentObject.CancelRemoveFromPrototypeSubObjectSet(EntityResource::Children, entity);
-		// parentObject.Commit(scope);
 	}
 
 	bool SceneEditor::IsSimulationRunning() const

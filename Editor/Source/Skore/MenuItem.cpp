@@ -25,6 +25,7 @@
 
 #include <imgui.h>
 
+#include "Editor.hpp"
 #include "Skore/ImGui/ImGui.hpp"
 
 namespace Skore
@@ -67,6 +68,12 @@ namespace Skore
             storage->m_selected = menuItem.selected;
             storage->m_itemShortcut = menuItem.itemShortcut;
             storage->m_itemUserData = menuItem.userData;
+            storage->m_debugOption = menuItem.debugOption;
+
+            if (storage->m_debugOption)
+            {
+                storage->m_label = String("(Debug) ").Append(storage->m_label);
+            }
 
             if (!menuItem.icon.Empty())
             {
@@ -174,6 +181,11 @@ namespace Skore
                 {
                     continue;
                 }
+            }
+
+            if (menuItemStorage->m_debugOption && !Editor::DebugOptionsEnabled())
+            {
+                continue;
             }
 
             if (lastPriority != U32_MAX && lastPriority + 50 < menuItemStorage->m_priority)

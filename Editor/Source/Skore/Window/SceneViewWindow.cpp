@@ -318,9 +318,22 @@ namespace Skore
 								UndoRedoScope* scope = Editor::CreateUndoRedoScope("Entity Transform Update");
 
 								ResourceObject transformObject = Resources::Write(rid);
-								transformObject.SetVec3(Transform::Position, transform.position);
-								transformObject.SetQuat(Transform::Rotation, transform.rotation);
-								transformObject.SetVec3(Transform::Scale, transform.scale);
+
+								if (transform.position != transformObject.GetVec3(Transform::Position))
+								{
+									transformObject.SetVec3(Transform::Position, transform.position);
+								}
+
+								if (transform.rotation != transformObject.GetQuat(Transform::Rotation))
+								{
+									transformObject.SetQuat(Transform::Rotation, transform.rotation);
+								}
+
+								if (transform.scale != transformObject.GetVec3(Transform::Scale))
+								{
+									transformObject.SetVec3(Transform::Scale, transform.scale);
+								}
+
 								transformObject.Commit(scope);
 
 								usingGuizmo = false;

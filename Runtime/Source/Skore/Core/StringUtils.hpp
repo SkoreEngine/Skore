@@ -132,7 +132,7 @@ namespace Skore
         return name;
     }
 
-    inline String ToString(i64 value)
+    inline String ToString(u64 value)
     {
         char buffer[20]{};
         i32 size = sprintf(buffer,"%llu", value);

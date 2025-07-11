@@ -33,7 +33,7 @@ namespace Skore
 	class EditorWorkspace;
 	typedef void (*FnConfirmCallback)(VoidPtr userdata);
 
-	struct Editor
+	struct SK_API Editor
 	{
 		static void             AddMenuItem(const MenuItemCreation& menuItem);
 		static void             OpenWindow(TypeID windowType, VoidPtr initUserData = nullptr);
@@ -46,6 +46,8 @@ namespace Skore
 		static Span<RID>        GetPackages();
 		static RID              LoadPackage(StringView name, StringView directory);
 		static void				ExecuteOnMainThread(std::function<void()> func);
+
+		static bool				DebugOptionsEnabled();
 
 		template <typename T>
 		static void OpenWindow(VoidPtr initUserData = nullptr)

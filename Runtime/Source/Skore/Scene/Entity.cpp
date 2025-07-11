@@ -404,7 +404,7 @@ namespace Skore
 			entity->SetActive(!newValue.GetBool(EntityResource::Deactivated));
 		}
 
-		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Children))
+		for (CompareSubObjectListResult res : Resources::CompareSubObjectList(oldValue, newValue, EntityResource::Children))
 		{
 			if (res.type == CompareSubObjectSetType::Added)
 			{
@@ -433,7 +433,7 @@ namespace Skore
 			}
 		}
 
-		for (CompareSubObjectSetResult res : Resources::CompareSubObjectSet(oldValue, newValue, EntityResource::Components))
+		for (CompareSubObjectListResult res : Resources::CompareSubObjectList(oldValue, newValue, EntityResource::Components))
 		{
 			if (res.type == CompareSubObjectSetType::Added)
 			{

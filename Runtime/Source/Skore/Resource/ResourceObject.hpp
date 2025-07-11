@@ -45,6 +45,7 @@ namespace Skore
 		~ResourceObject();
 
 		void SetValue(u32 index, ConstPtr value, usize size) const;
+		void ResetValue(u32 index);
 		void SetBool(u32 index, bool value);
 		void SetInt(u32 index, i64 value);
 		void SetUInt(u32 index, u64 value);
@@ -70,6 +71,7 @@ namespace Skore
 		void AddToSubObjectList(u32 index, RID subObject);
 		void AddToSubObjectList(u32 index, Span<RID> subObject);
 		void RemoveFromSubObjectList(u32 index, RID subObject);
+		Array<RID> RemoveFromSubObjectListByPrototype(u32 index, RID prototype);
 
 		//if index = SubobjectList, remove from the list
 		//if index = subobject, compare the values, if equals, cleanup.
@@ -77,6 +79,7 @@ namespace Skore
 
 		bool         HasValue(u32 index) const;
 		bool         HasValueOnThisObject(u32 index) const;
+		bool		 IsValueOverridden(u32 index) const;
 		bool         CopyValue(u32 index, VoidPtr buffer, usize size) const;
 		bool         GetBool(u32 index) const;
 		i64          GetInt(u32 index) const;

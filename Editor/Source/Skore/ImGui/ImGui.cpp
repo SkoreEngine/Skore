@@ -1545,6 +1545,54 @@ namespace Skore
 
 				u64 c = 0;
 
+				if (Editor::DebugOptionsEnabled())
+				{
+					ResourceStorage* storage = Resources::GetStorage(drawResourceInfo.rid);
+
+					ImGui::TableNextColumn();
+					ImGui::AlignTextToFramePadding();
+
+
+					ImGui::Text("%s", "RID");
+					ImGui::TableNextColumn();
+
+					u64 id = 0;
+					HashCombine(id, drawResourceInfo.rid.id, 5ull);
+
+					ImGui::SetNextItemWidth(-1);
+					ImGuiInputTextReadOnly(id, ToString(drawResourceInfo.rid.id));
+
+
+					ImGui::TableNextColumn();
+					ImGui::AlignTextToFramePadding();
+
+
+					ImGui::Text("%s", "UUID");
+					ImGui::TableNextColumn();
+
+					id = 0;
+					HashCombine(id, drawResourceInfo.rid.id, 10ull);
+
+					ImGui::SetNextItemWidth(-1);
+					ImGuiInputTextReadOnly(id, storage->uuid.ToString());
+
+					if (storage->prototype)
+					{
+
+						ImGui::TableNextColumn();
+						ImGui::AlignTextToFramePadding();
+
+						ImGui::Text("%s", "Prototype");
+
+						ImGui::TableNextColumn();
+						ImGui::SetNextItemWidth(-1);
+						ImGuiInputTextReadOnly(id + 1, storage->prototype->uuid.ToString());
+					}
+
+					ImGui::Separator();
+
+				}
+
 				for (ResourceFieldRenderer& field : typeRenderer.fields)
 				{
 					c++;
@@ -1554,6 +1602,8 @@ namespace Skore
 					{
 						continue;
 					}
+
+					bool overriden = object.IsValueOverridden(field.index);
 
 					ImGui::TableNextColumn();
 					ImGui::AlignTextToFramePadding();
@@ -1566,10 +1616,13 @@ namespace Skore
 
 					ImGui::Spring(1.0);
 
-					// if (ImGui::Button(ICON_FA_ARROWS_ROTATE))
-					// {
-					//
-					// }
+					if (overriden && ImGui::Button(ICON_FA_ARROWS_ROTATE))
+					{
+						UndoRedoScope* scope = Editor::CreateUndoRedoScope("Reset Value");
+						ResourceObject writeObject = Resources::Write(drawResourceInfo.rid);
+						writeObject.ResetValue(field.index);
+						writeObject.Commit(scope);
+					}
 
 					ImGui::EndHorizontal();
 					ImGui::TableNextColumn();
@@ -1583,6 +1636,7 @@ namespace Skore
 					context.reflectFieldType = field.reflectFieldType;
 					context.resourceField = resourceField;
 					context.scopeName = drawResourceInfo.scopeName;
+					context.overriden = overriden;
 
 					for (auto& drawField : field.drawFn)
 					{

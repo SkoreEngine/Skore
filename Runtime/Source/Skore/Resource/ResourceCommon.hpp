@@ -128,12 +128,13 @@ namespace Skore
 	typedef void (*FnObjectEvent)(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 
 
-	struct CompareSubObjectSetResult
+	struct CompareSubObjectListResult
 	{
 		CompareSubObjectSetType type;
 		RID rid;
 	};
 
+	typedef void (*FnCompareSubObjectListCallback)(const CompareSubObjectListResult& result, VoidPtr userData);
 
 	struct ResourceEvent
 	{
@@ -166,14 +167,14 @@ namespace Skore
 	{
 		RID                           rid;
 		UUID                          uuid;
-		String						  path;
+		String                        path;
 		ResourceType*                 resourceType = nullptr;
 		std::atomic<ResourceInstance> instance = {};	//TODO: rename to value
 		std::atomic<u64>              version = 1;
 		ResourceStorage*              parent = nullptr;
 		u32                           parentFieldIndex = U32_MAX;
 		ResourceStorage*              prototype = nullptr;
-		ResourceStorage*              instantiated = nullptr;
+		HashSet<RID>                  prototypeInstances;
 
 		Array<ResourceEvent> events[static_cast<u32>(ResourceEventType::MAX)];
 

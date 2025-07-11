@@ -48,6 +48,7 @@ namespace
 			IntValue,
 			SubObject,
 			RefArray,
+			Reference,
 			SubObjectList
 		};
 	};
@@ -70,6 +71,7 @@ namespace
 			.Field<ResourceTest::IntValue>(ResourceFieldType::Int)
 			.Field<ResourceTest::SubObject>(ResourceFieldType::SubObject)
 			.Field<ResourceTest::RefArray>(ResourceFieldType::ReferenceArray)
+			.Field<ResourceTest::Reference>(ResourceFieldType::Reference)
 			.Field<ResourceTest::SubObjectList>(ResourceFieldType::SubObjectList)
 			.Build();
 	}
@@ -605,6 +607,13 @@ namespace
 
 
 			{
+				ResourceObject write = Resources::Write(subobject1);
+				write.SetReference(ResourceTest::Reference, prototype);
+				write.Commit();
+			}
+
+
+			{
 				ResourceObject write = Resources::Write(prototype);
 				write.SetInt(ResourceTest::IntValue, 10);
 				write.SetString(ResourceTest::StringValue, "blegh");
@@ -625,13 +634,25 @@ namespace
 				CHECK(Resources::GetStorage(arr[0])->prototype == Resources::GetStorage(subobject1));
 				CHECK(Resources::GetStorage(arr[1])->prototype == Resources::GetStorage(subobject2));
 
+
+				{
+					ResourceObject subobjectWrite = Resources::Write(arr[0]);
+					subobjectWrite.SetString(ResourceTest::StringValue, "str");
+					subobjectWrite.Commit();
+				}
+
+				ResourceObject subobjectRead = Resources::Read(arr[0]);
+				CHECK(subobjectRead.GetReference(ResourceTest::Reference) == prototype);
 			}
 
 			{
 				ResourceObject write = Resources::Write(item);
+
+				Array<RID> arr = write.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+
 				write.SetInt(ResourceTest::IntValue, 222);
 				write.AddToSubObjectList(ResourceTest::SubObjectList, subobject3);
-				//write.RemoveFromSubObjectList(ResourceTest::SubObjectList, subobject2);
+				write.RemoveFromSubObjectList(ResourceTest::SubObjectList, arr[1]);
 				write.Commit();
 			}
 
@@ -643,9 +664,8 @@ namespace
 				Array<RID> items = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
 				CHECK(items.Size() == 2);
 
-				// subobjects.Erase(subobject1);
-				// subobjects.Erase(subobject3);
-				// CHECK(subobjects.Size() == 0);
+				CHECK(Resources::GetStorage(items[0])->prototype == Resources::GetStorage(subobject1));
+				CHECK(items[1] == subobject3);
 			}
 		}
 

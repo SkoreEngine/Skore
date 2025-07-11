@@ -160,6 +160,7 @@ namespace Skore
 		VoidPtr                  userData = nullptr;
 		FnImGuiDrawFieldCallback callback = nullptr;
 		VoidPtr                  customContext = nullptr;
+		bool					 overriden = false;
 		String                   scopeName = "";
 	};
 

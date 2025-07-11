@@ -46,17 +46,12 @@ namespace Skore
 		static void DeleteSceneEntity(const MenuItemEventData& eventData);
 		static bool CheckEntityActions(const MenuItemEventData& eventData);
 		static bool CheckSelectedEntity(const MenuItemEventData& eventData);
-		static bool CheckSelectedPrototypeEntity(const MenuItemEventData& eventData);
 		static bool CheckReadOnly(const MenuItemEventData& eventData);
 		static void ShowSceneEntity(const MenuItemEventData& eventData);
 		static bool IsShowSceneEntitySelected(const MenuItemEventData& eventData);
 
-		static void OverridePrototype(const MenuItemEventData& eventData);
 		static bool CheckIsOverride(const MenuItemEventData& eventData);
-		static void RemoveOverride(const MenuItemEventData& eventData);
-
-		static void RemoveFromThisInstance(const MenuItemEventData& eventData);
-		static bool IsRemovedFromThisInstance(const MenuItemEventData& eventData);
+		static bool CheckIsRemoved(const MenuItemEventData& eventData);
 		static void AddBackToThisInstance(const MenuItemEventData& eventData);
 
 		static void OpenEntityTree(const MenuItemEventData& eventData);
@@ -65,8 +60,6 @@ namespace Skore
 	private:
 		String searchEntity{};
 		String stringCache{};
-
-		RID lastParentNotPrototype = {};
 
 		RID parentOnPopupSelection = {};
 		RID entityOnPopupSelection = {};
@@ -80,7 +73,7 @@ namespace Skore
 
 		static MenuItemContext menuItemContext;
 
-		void DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool disabled, bool removed);
+		void DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool removed);
 		void DrawEntity(SceneEditor* sceneEditor, Entity* entity, bool& entitySelected);
 		void DrawMovePayload(u64 id, RID moveTo) const;
 	};
