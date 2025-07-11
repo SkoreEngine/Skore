@@ -261,7 +261,7 @@ namespace Skore
 			ImGuizmo::SetDrawlist();
 			ImGuizmo::SetRect(cursor.x, cursor.y, size.x, size.y);
 
-			if (sceneEditor && !sceneEditor->IsSimulationRunning())
+			if (sceneEditor && sceneEditor->GetCurrentScene() && !sceneEditor->IsSimulationRunning())
 			{
 				auto guizmoMove = [&](Entity* entity) -> bool
 				{

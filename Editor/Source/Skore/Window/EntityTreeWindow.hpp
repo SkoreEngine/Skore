@@ -61,8 +61,8 @@ namespace Skore
 		String searchEntity{};
 		String stringCache{};
 
-		RID parentOnPopupSelection = {};
-		RID entityOnPopupSelection = {};
+		RID parentSelection = {};
+		RID entitySelection = {};
 
 		bool   renamingFocus{};
 		bool   renamingSelected{};
@@ -73,7 +73,7 @@ namespace Skore
 
 		static MenuItemContext menuItemContext;
 
-		void DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool removed);
+		void DrawEntity(SceneEditor* sceneEditor, RID entity, RID parent, bool removed);
 		void DrawEntity(SceneEditor* sceneEditor, Entity* entity, bool& entitySelected);
 		void DrawMovePayload(u64 id, RID moveTo) const;
 	};

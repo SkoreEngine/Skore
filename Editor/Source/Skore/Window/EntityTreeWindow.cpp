@@ -65,7 +65,7 @@ namespace Skore
 		iconSize = ImGui::CalcTextSize(ICON_FA_EYE).x;
 	}
 
-	void EntityTreeWindow::DrawRIDEntity(SceneEditor* sceneEditor, RID entity, bool& entitySelected, RID parent, bool removed)
+	void EntityTreeWindow::DrawEntity(SceneEditor* sceneEditor, RID entity, RID parent, bool removed)
 	{
 		auto& style = ImGui::GetStyle();
 
@@ -92,7 +92,7 @@ namespace Skore
 		stringCache += " ";
 		stringCache += name;
 
-		bool isSelected = sceneEditor->IsSelected(entity) || entity == entityOnPopupSelection;
+		bool isSelected = sceneEditor->IsSelected(entity) || entity == entitySelection;
 		bool open = false;
 
 		if (root || sceneEditor->IsParentOfSelected(entity))
@@ -163,15 +163,10 @@ namespace Skore
 
 		if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
 		{
-			// if (!removed)
-			// {
-			// 	sceneEditor->SelectEntity(entity, !ctrlDown);
-			// }
-			parentOnPopupSelection = parent;
-			entityOnPopupSelection = entity;
+			parentSelection = parent;
+			entitySelection = entity;
 
-
-			entitySelected = true;
+			logger.Debug("local selection : {}", entitySelection.id);
 		}
 
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
@@ -247,13 +242,13 @@ namespace Skore
 		{
 			entityObject.IterateSubObjectList(EntityResource::Children, [&](RID child)
 			{
-				DrawRIDEntity(sceneEditor, child, entitySelected, entity, removed);
+				DrawEntity(sceneEditor, child, entity, removed);
 				return true;
 			});
 
 			entityObject.IteratePrototypeRemoved(EntityResource::Children, [&](RID child)
 			{
-				DrawRIDEntity(sceneEditor, child, entitySelected, entity, true);
+				DrawEntity(sceneEditor, child,  entity, true);
 			});
 
 			ImGui::TreePop();
@@ -381,18 +376,29 @@ namespace Skore
 			return;
 		}
 
+		bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
+
+		//defer clear to avoid flickering
+		bool shouldClear = false;
+
+		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_NoPopupHierarchy) && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
+		{
+			logger.Debug("cleaning local selection : {}", entitySelection.id);
+
+			if (!ctrlDown)
+			{
+				shouldClear = true;
+			}
+			entitySelection = {};
+			parentSelection = {};
+		}
+
 		if (!sceneEditor->GetRootEntity())
 		{
 			ImGuiCentralizedText("Open a entity in the Project Browser");
 			ImGui::End();
 			return;
 		}
-
-		// if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-		// {
-		// 	parentOnPopupSelection = {};
-		// 	entityOnPopupSelection = {};
-		// }
 
 		bool openPopup = false;
 
@@ -440,7 +446,7 @@ namespace Skore
 					bool drawRID = !showSceneEntity && !sceneEditor->IsSimulationRunning();
 					if (drawRID)
 					{
-						DrawRIDEntity(sceneEditor, sceneEditor->GetRootEntity(), entitySelected, RID{}, false);
+						DrawEntity(sceneEditor, sceneEditor->GetRootEntity(), RID{}, false);
 					}
 					else if (sceneEditor->GetCurrentScene() != nullptr)
 					{
@@ -463,32 +469,35 @@ namespace Skore
 
 		bool closePopup = false;
 
-		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
+
+		if (shouldClear && !entitySelection)
+		{
+			sceneEditor->ClearSelection();
+		}
+
+		bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_NoPopupHierarchy);
+		bool released = ImGui::IsMouseReleased(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+		if (entitySelection && released)
+		{
+			logger.Debug("selecting {}, ctrlDown {} ", entitySelection.id, ctrlDown);
+			sceneEditor->SelectEntity(entitySelection, !ctrlDown);
+
+			entitySelection = {};
+			parentSelection = {};
+		}
+
+		if (hovered)
 		{
 			if (menuItemContext.ExecuteHotKeys(this))
 			{
 				closePopup = true;
 			}
 
-
-			if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Left))
-			{
-				if (entityOnPopupSelection)
-				{
-					bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
-					sceneEditor->SelectEntity(entityOnPopupSelection, !ctrlDown);
-					entityOnPopupSelection = {};
-				}
-				else
-				{
-					sceneEditor->ClearSelection();
-				}
-			}
-
 			if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))
 			{
 				openPopup = true;
 			}
+
 		}
 
 		if (openPopup)
@@ -597,7 +606,7 @@ namespace Skore
 	bool EntityTreeWindow::CheckIsOverride(const MenuItemEventData& eventData)
 	{
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		if (!window->entityOnPopupSelection) return false;
+		if (!window->entitySelection) return false;
 
 		return false;
 	}
@@ -605,7 +614,7 @@ namespace Skore
 	bool EntityTreeWindow::CheckIsRemoved(const MenuItemEventData& eventData)
 	{
 		EntityTreeWindow* window = static_cast<EntityTreeWindow*>(eventData.drawData);
-		if (!window->entityOnPopupSelection || !window->parentOnPopupSelection) return false;
+		if (!window->entitySelection || !window->parentSelection) return false;
 
 
 
