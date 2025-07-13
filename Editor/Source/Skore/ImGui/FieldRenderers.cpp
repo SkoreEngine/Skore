@@ -392,6 +392,28 @@ namespace Skore
 
 			ImGuiInputTextReadOnly(id, name);
 
+			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ImGui::IsItemHovered())
+			{
+				RID assetToSelect = {};
+				if (isEntityDraw)
+				{
+					SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+					if (Resources::IsParentOf(sceneEditor->GetRootEntity(), rid))
+					{
+						sceneEditor->SelectEntity(rid, true);
+					}
+					else
+					{
+						assetToSelect = rid;
+					}
+				}
+
+				if (assetToSelect)
+				{
+					//TODO
+				}
+			}
+
 			if (context.overriden)
 			{
 				ImGui::PopStyleColor();

@@ -63,22 +63,23 @@ namespace Skore
 		static ResourceStorage* GetStorage(RID rid);
 		static ResourceObject   Write(RID rid);
 		static ResourceObject   Read(RID rid);
-		static bool				HasValue(RID rid);
-		static RID				GetParent(RID rid);
-		static RID				GetPrototype(RID rid);
+		static bool             HasValue(RID rid);
+		static RID              GetParent(RID rid);
+		static RID              GetPrototype(RID rid);
 		static RID              Clone(RID rid, UUID uuid = {}, UndoRedoScope* scope = nullptr);
 		static void             Reset(RID rid, UndoRedoScope* scope = nullptr);
 		static void             Destroy(RID rid, UndoRedoScope* scope = nullptr);
 		static u64              GetVersion(RID rid);
 		static UUID             GetUUID(RID rid);
-		static ResourceType*	GetType(RID rid);
+		static ResourceType*    GetType(RID rid);
 		static RID              FindByUUID(const UUID& uuid);
 		static RID              FindOrReserveByUUID(const UUID& uuid);
+		static bool             IsParentOf(RID parent, RID child);
 
 		//path
-		static void             SetPath(RID rid, StringView path);
-		static StringView       GetPath(RID rid);
-		static RID              FindByPath(StringView path);
+		static void       SetPath(RID rid, StringView path);
+		static StringView GetPath(RID rid);
+		static RID        FindByPath(StringView path);
 
 
 		static Span<RID> GetResourceByType(TypeID typeId);

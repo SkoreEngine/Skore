@@ -214,23 +214,6 @@ namespace Skore
 			}
 		}
 
-		bool IsParentOf(RID parent, RID child)
-		{
-			ResourceStorage* parentStorage = GetStorage(parent);
-			ResourceStorage* childStorage = GetStorage(child);
-
-			while (childStorage != nullptr)
-			{
-				if (childStorage == parentStorage)
-				{
-					return true;
-				}
-				childStorage = childStorage->parent;
-			}
-
-			return false;
-		}
-
 		template <typename F>
 		void IterateSubObjects(ResourceStorage* storage, F&& f)
 		{
@@ -714,7 +697,7 @@ namespace Skore
 
 		IterateReferences(prototype, [&](u32 index, ResourceFieldType type, RID reference)
 		{
-			if (IsParentOf(rootPrototype, reference))
+			if (Resources::IsParentOf(rootPrototype, reference))
 			{
 				ResourceStorage* refStorage = GetStorage(reference);
 
@@ -923,6 +906,23 @@ namespace Skore
 		if (!uuid) return {};
 
 		return GetID(uuid);
+	}
+
+	bool Resources::IsParentOf(RID parent, RID child)
+	{
+		ResourceStorage* parentStorage = GetStorage(parent);
+		ResourceStorage* childStorage = GetStorage(child);
+
+		while (childStorage != nullptr)
+		{
+			if (childStorage == parentStorage)
+			{
+				return true;
+			}
+			childStorage = childStorage->parent;
+		}
+
+		return false;
 	}
 
 	void Resources::SetPath(RID rid, StringView path)
