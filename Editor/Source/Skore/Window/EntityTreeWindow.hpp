@@ -62,6 +62,10 @@ namespace Skore
 		String searchEntity{};
 		String stringCache{};
 
+
+		bool ctrlDown = false;
+		bool shiftDown = false;
+
 		RID parentSelection = {};
 		RID entitySelection = {};
 

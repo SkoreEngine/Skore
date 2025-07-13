@@ -484,7 +484,7 @@ namespace Skore
 
 					if (auto rootIt = fbxData.meshRootBone.Find(meshIt->second))
 					{
-						skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("rootBone"), rootIt->second); // not right.
+						skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("rootBone"), rootIt->second);
 					}
 
 					skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("mesh"), meshIt->second);
@@ -513,6 +513,8 @@ namespace Skore
 				entityObject.AddToSubObjectList(EntityResource::Children, child);
 			}
 		}
+
+		fbxData.entities.Insert(node, entity);
 
 		entityObject.Commit(fbxData.scope);
 

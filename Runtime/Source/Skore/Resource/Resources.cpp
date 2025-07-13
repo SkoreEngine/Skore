@@ -57,6 +57,38 @@ namespace Skore
 		void Redo();
 	};
 
+	struct NewItemsLookup
+	{
+		RID parent;
+		u32 index;
+
+		friend bool operator==(const NewItemsLookup& lhs, const NewItemsLookup& rhs)
+		{
+			return lhs.parent == rhs.parent
+				&& lhs.index == rhs.index;
+		}
+
+		friend bool operator!=(const NewItemsLookup& lhs, const NewItemsLookup& rhs)
+		{
+			return !(lhs == rhs);
+		}
+	};
+
+	template <>
+	struct Hash<NewItemsLookup>
+	{
+		constexpr static bool hasHash = true;
+
+		constexpr static usize Value(const NewItemsLookup& value)
+		{
+			usize seed{};
+			HashCombine(seed, HashValue(value.parent), HashValue(value.index));
+			return seed;
+		}
+	};
+
+
+
 	namespace
 	{
 		struct DestroyResourcePayload
@@ -154,6 +186,49 @@ namespace Skore
 				};
 			}
 			return storage;
+		}
+
+		template <typename F>
+		void IterateReferences(ResourceStorage* storage, F&& f)
+		{
+			ResourceObject object(storage, nullptr);
+			for (ResourceField* field : storage->resourceType->GetFields())
+			{
+				if (field && object.HasValueOnThisObject(field->GetIndex()))
+				{
+					switch (field->GetType())
+					{
+						case ResourceFieldType::Reference:
+							f(field->GetIndex(), field->GetType(), object.GetReference(field->GetIndex()));
+							break;
+						case ResourceFieldType::ReferenceArray:
+							for (RID rid: object.GetReferenceArray(field->GetIndex()))
+							{
+								f(field->GetIndex(), field->GetType(), rid);
+							}
+							break;
+						default:
+							break;
+					}
+				}
+			}
+		}
+
+		bool IsParentOf(RID parent, RID child)
+		{
+			ResourceStorage* parentStorage = GetStorage(parent);
+			ResourceStorage* childStorage = GetStorage(child);
+
+			while (childStorage != nullptr)
+			{
+				if (childStorage == parentStorage)
+				{
+					return true;
+				}
+				childStorage = childStorage->parent;
+			}
+
+			return false;
 		}
 
 		template <typename F>
@@ -584,7 +659,7 @@ namespace Skore
 		return rid;
 	}
 
-	RID Resources::CreateFromPrototype(RID prototypeRid, UUID uuid, UndoRedoScope* scope)
+	RID ResourcesCreateFromPrototype(HashMap<NewItemsLookup, UUID>& newItems,  RID rootPrototype, RID prototypeRid, UUID uuid, UndoRedoScope* scope)
 	{
 		ResourceStorage* prototype = GetStorage(prototypeRid);
 		SK_ASSERT(prototype->resourceType, "prototype type cannot be null");
@@ -594,7 +669,6 @@ namespace Skore
 			uuid = UUID::RandomUUID();
 		}
 
-
 		RID rid = GetID(uuid);
 
 		ResourceStorage* storage = GetOrAllocate(rid, uuid);
@@ -602,11 +676,28 @@ namespace Skore
 		storage->prototype = prototype;
 		prototype->prototypeInstances.Insert(rid);
 
-		ResourceObject object = Write(rid);
+		ResourceObject object = Resources::Write(rid);
 
 		IterateSubObjects(prototype, [&](u32 index, RID subobject)
 		{
-			RID subObjectPrototype = CreateFromPrototype(subobject, UUID{}, scope);
+			ResourceStorage* subobjectStorage = GetStorage(subobject);
+
+			NewItemsLookup item = {
+				.parent = subobjectStorage->parent->rid,
+				.index = subobjectStorage->parentFieldIndex
+			};
+
+			UUID subobjectUUID = {};
+			if (auto it = newItems.Find(item))
+			{
+				uuid = it->second;
+			}
+
+			RID subObjectPrototype = ResourcesCreateFromPrototype(newItems, rootPrototype, subobject, subobjectUUID, scope);
+			if (!subobjectUUID)
+			{
+				newItems.Insert(item, Resources::GetUUID(subObjectPrototype));
+			}
 
 			if (ResourceField* field = storage->resourceType->GetFields()[index])
 			{
@@ -621,6 +712,32 @@ namespace Skore
 			}
 		});
 
+		IterateReferences(prototype, [&](u32 index, ResourceFieldType type, RID reference)
+		{
+			if (IsParentOf(rootPrototype, reference))
+			{
+				ResourceStorage* refStorage = GetStorage(reference);
+
+				NewItemsLookup item = {
+					.parent = refStorage->parent->rid,
+					.index = refStorage->parentFieldIndex
+				};
+
+				auto it = newItems.Find(item);
+				if (it == newItems.end())
+				{
+					UUID newUUID = UUID::RandomUUID();
+					it = newItems.Insert(item, newUUID).first;
+				}
+
+				if (type == ResourceFieldType::Reference)
+				{
+					object.SetReference(index, Resources::FindOrReserveByUUID(it->second));
+				}
+			}
+		}
+		);
+
 		object.Commit(scope);
 
 		FinishCreation(storage);
@@ -631,6 +748,12 @@ namespace Skore
 		}
 
 		return rid;
+	}
+
+	RID Resources::CreateFromPrototype(RID prototypeRid, UUID uuid, UndoRedoScope* scope)
+	{
+		HashMap<NewItemsLookup, UUID> newItems;
+		return ResourcesCreateFromPrototype(newItems, prototypeRid, prototypeRid, uuid, scope);
 	}
 
 	ResourceStorage* Resources::GetStorage(RID rid)

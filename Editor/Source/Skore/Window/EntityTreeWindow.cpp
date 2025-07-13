@@ -39,8 +39,6 @@ namespace Skore
 
 	namespace
 	{
-		static Logger logger = Logger::GetLogger("Skore::EntityTreeWindow");
-
 		struct TableButtonStyle
 		{
 			ScopedStyleVar   padding{ImGuiStyleVar_FramePadding, ImVec2(0, 0)};
@@ -170,8 +168,6 @@ namespace Skore
 			lastEntitySelection = entitySelection;
 
 			lastSelectionRemoved = removed;
-
-			logger.Debug("local selection : {}", entitySelection.id);
 		}
 
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
@@ -381,15 +377,14 @@ namespace Skore
 			return;
 		}
 
-		bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
+		ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
+		shiftDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftShift)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightShift));
 
 		//defer clear to avoid flickering
 		bool shouldClear = false;
 
 		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_NoPopupHierarchy) && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
 		{
-			logger.Debug("cleaning local selection : {}", entitySelection.id);
-
 			if (!ctrlDown)
 			{
 				shouldClear = true;
@@ -486,9 +481,7 @@ namespace Skore
 
 		if (!lastSelectionRemoved && entitySelection && released)
 		{
-			logger.Debug("selecting {}, ctrlDown {} ", entitySelection.id, ctrlDown);
 			sceneEditor->SelectEntity(entitySelection, !ctrlDown);
-
 			shouldClearInternal = true;
 		}
 
@@ -503,7 +496,6 @@ namespace Skore
 			{
 				openPopup = true;
 			}
-
 		}
 
 		if (openPopup)

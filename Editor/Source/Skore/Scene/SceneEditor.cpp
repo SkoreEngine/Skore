@@ -252,6 +252,22 @@ namespace Skore
 		selectionObject.Commit(scope);
 	}
 
+	void SceneEditor::SelectEntities(Span<RID> entities, bool clearSelection)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Select Entities");
+		ResourceObject selectionObject = Resources::Write(m_selection);
+		if (clearSelection)
+		{
+			selectionObject.ClearReferenceArray(SceneEditorSelection::SelectedEntities);
+		}
+		//performnace: add in one command.
+		for (RID entity : entities)
+		{
+			selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, entity);
+		}
+		selectionObject.Commit(scope);
+	}
+
 	void SceneEditor::DeselectEntity(RID entity)
 	{
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Deselect Entity");

@@ -52,6 +52,7 @@ namespace Skore
 		//selection
 		void ClearSelection();
 		void SelectEntity(RID entity, bool clearSelection);
+		void SelectEntities(Span<RID> entities, bool clearSelection);
 		void DeselectEntity(RID entity);
 		bool IsSelected(RID entity);
 		bool IsParentOfSelected(RID entity);
