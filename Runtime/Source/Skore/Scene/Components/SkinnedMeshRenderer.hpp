@@ -45,6 +45,9 @@ namespace Skore
 		void SetCastShadows(bool castShadows);
 		bool GetCastShadows() const;
 
+		void SetRootBone(Entity* rootBone);
+		Entity* GetRootBone() const;
+
 		const MaterialArray& GetMaterials() const;
 		void                 SetMaterials(const MaterialArray& materials);
 

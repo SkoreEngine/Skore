@@ -90,6 +90,20 @@ namespace Skore
 		return m_castShadows;
 	}
 
+	void SkinnedMeshRenderer::SetRootBone(Entity* rootBone)
+	{
+		m_rootBone = rootBone;
+		// if (m_renderStorage)
+		// {
+		// 	m_renderStorage->SetSkinnedMeshRootBone(this, rootBone);
+		// }
+	}
+
+	Entity* SkinnedMeshRenderer::GetRootBone() const
+	{
+		return m_rootBone;
+	}
+
 	const MaterialArray& SkinnedMeshRenderer::GetMaterials() const
 	{
 		return m_materials;
@@ -107,7 +121,7 @@ namespace Skore
 	void SkinnedMeshRenderer::RegisterType(NativeReflectType<SkinnedMeshRenderer>& type)
 	{
 		type.Field<&SkinnedMeshRenderer::m_mesh, &SkinnedMeshRenderer::GetMesh, &SkinnedMeshRenderer::SetMesh>("mesh");
-		type.Field<&SkinnedMeshRenderer::m_rootBone>("rootBone");
+		type.Field<&SkinnedMeshRenderer::m_rootBone, &SkinnedMeshRenderer::GetRootBone, &SkinnedMeshRenderer::SetRootBone>("rootBone");
 		type.Field<&SkinnedMeshRenderer::m_materials, &SkinnedMeshRenderer::GetMaterials, &SkinnedMeshRenderer::SetMaterials>("materials");
 		type.Field<&SkinnedMeshRenderer::m_castShadows, &SkinnedMeshRenderer::GetCastShadows, &SkinnedMeshRenderer::SetCastShadows>("castShadows");
 	}

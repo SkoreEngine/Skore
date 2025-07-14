@@ -219,7 +219,7 @@ namespace
 			}
 
 
-			HashSet<RID> arr = ToHashSet<RID>(readClone.GetSubObjectListAsArray(ResourceTest::SubObjectList));
+			HashSet<RID> arr = ToHashSet<RID>(readClone.GetSubObjectList(ResourceTest::SubObjectList));
 			REQUIRE(arr.Size() == 1);
 			arr.Erase(subobjectToList);
 			REQUIRE(arr.Size() == 1);
@@ -400,7 +400,7 @@ namespace
 	// 		CHECK(read.GetInt(ResourceTest::IntValue) == 222);
 	// 		CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
 	//
-	// 		HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectListAsArray(ResourceTest::SubObjectList));
+	// 		HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectList(ResourceTest::SubObjectList));
 	// 		CHECK(subobjects.Size() == 2);
 	// 		subobjects.Erase(subobject1);
 	// 		subobjects.Erase(subobject3);
@@ -443,7 +443,7 @@ namespace
 			CHECK(read.GetInt(ResourceTest::IntValue) == 33);
 			CHECK(read.GetString(ResourceTest::StringValue) == "44");
 
-			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectListAsArray(ResourceTest::SubObjectList));
+			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectList(ResourceTest::SubObjectList));
 			CHECK(subobjects.Size() == 2);
 			subobjects.Erase(subobject);
 			subobjects.Erase(subobject2);
@@ -457,7 +457,7 @@ namespace
 			CHECK(read.GetInt(ResourceTest::IntValue) == 10);
 			CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
 
-			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectListAsArray(ResourceTest::SubObjectList));
+			HashSet<RID> subobjects = ToHashSet<RID>(read.GetSubObjectList(ResourceTest::SubObjectList));
 			CHECK(subobjects.Size() == 1);
 			subobjects.Erase(subobject);
 			CHECK(subobjects.Size() == 0);
@@ -537,7 +537,7 @@ namespace
 
 			{
 				ResourceObject read = Resources::Read(object);
-				Array<RID>     list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID>     list = read.GetSubObjectList(ResourceTest::SubObjectList);
 				REQUIRE(list.Size() == 3);
 				CHECK(list[0] == subObject);
 				CHECK(list[1] == subObject2);
@@ -565,7 +565,7 @@ namespace
 
 			{
 				ResourceObject read = Resources::Read(object);
-				Array<RID>     list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID>     list = read.GetSubObjectList(ResourceTest::SubObjectList);
 				CHECK(list.Size() == 2);
 				CHECK(list[0] == subObject);
 				CHECK(list[1] == subObject3);
@@ -577,7 +577,7 @@ namespace
 
 			{
 				ResourceObject read = Resources::Read(object);
-				Array<RID>     list = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID>     list = read.GetSubObjectList(ResourceTest::SubObjectList);
 				CHECK(list.Size() == 1);
 				CHECK(list[0] == subObject3);
 			}
@@ -626,7 +626,7 @@ namespace
 
 			{
 				ResourceObject read = Resources::Read(item);
-				Array<RID> arr = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID> arr = read.GetSubObjectList(ResourceTest::SubObjectList);
 				REQUIRE(arr.Size() == 2);
 				CHECK(arr[0] != subobject1);
 				CHECK(arr[1] != subobject2);
@@ -648,7 +648,7 @@ namespace
 			{
 				ResourceObject write = Resources::Write(item);
 
-				Array<RID> arr = write.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID> arr = write.GetSubObjectList(ResourceTest::SubObjectList);
 
 				write.SetInt(ResourceTest::IntValue, 222);
 				write.AddToSubObjectList(ResourceTest::SubObjectList, subobject3);
@@ -661,7 +661,7 @@ namespace
 				CHECK(read.GetInt(ResourceTest::IntValue) == 222);
 				CHECK(read.GetString(ResourceTest::StringValue) == "blegh");
 
-				Array<RID> items = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+				Array<RID> items = read.GetSubObjectList(ResourceTest::SubObjectList);
 				CHECK(items.Size() == 2);
 
 				CHECK(Resources::GetStorage(items[0])->prototype == Resources::GetStorage(subobject1));
@@ -736,7 +736,7 @@ namespace
 			CHECK(read.GetInt(ResourceTest::IntValue) == 33);
 			CHECK(read.GetString(ResourceTest::StringValue) == "44");
 
-			Array<RID> subobjects = read.GetSubObjectListAsArray(ResourceTest::SubObjectList);
+			Array<RID> subobjects = read.GetSubObjectList(ResourceTest::SubObjectList);
 			CHECK(subobjects.Size() == 5);
 
 			for (u32 i = 0; i < subobjects.Size(); ++i)

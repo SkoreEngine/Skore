@@ -135,7 +135,7 @@ namespace Skore
 			{
 				if (ResourceObject openDirectoryObject = Resources::Read(popupFolder))
 				{
-					for (RID directory : openDirectoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Directories))
+					for (RID directory : openDirectoryObject.GetSubObjectList(ResourceAssetDirectory::Directories))
 					{
 						String assetName = ResourceAssets::GetAssetName(directory);
 						if (ImGui::MenuItem(assetName.CStr()))
@@ -249,7 +249,7 @@ namespace Skore
 
 		if (isNodeOpen)
 		{
-			Array<RID> children = directoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Directories);
+			Array<RID> children = directoryObject.GetSubObjectList(ResourceAssetDirectory::Directories);
 			for (RID child : children)
 			{
 				DrawDirectoryTreeNode(child);
@@ -603,7 +603,7 @@ namespace Skore
 						};
 						ResourceObject openDirectoryObject = Resources::Read(openDirectory);
 
-						for (RID directory : openDirectoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Directories))
+						for (RID directory : openDirectoryObject.GetSubObjectList(ResourceAssetDirectory::Directories))
 						{
 							ResourceObject        directoryObject = Resources::Read(directory);
 							RID                   asset = directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
@@ -615,7 +615,7 @@ namespace Skore
 							}
 						}
 
-						for (RID asset : openDirectoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Assets))
+						for (RID asset : openDirectoryObject.GetSubObjectList(ResourceAssetDirectory::Assets))
 						{
 							ImGuiContentItemState state = drawContentItem(asset, false);
 							if (state.enter)

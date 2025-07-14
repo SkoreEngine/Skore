@@ -47,6 +47,7 @@ namespace Skore
 		void DestroySelected();
 		void DuplicateSelected();
 		void ChangeParentOfSelected(RID newParent);
+		void MoveSelectedBefore(RID moveTo);
 		void AddBackToThisInstance(RID entity, RID prototype);
 
 		//selection
@@ -72,6 +73,7 @@ namespace Skore
 		void AddComponent(RID entity, TypeID componentId);
 		void ResetComponent(RID entity, RID component);
 		void RemoveComponent(RID entity, RID component);
+		void MoveComponentTo(RID component, u32 newIndex);
 
 		//simulation
 		bool IsSimulationRunning() const;
@@ -101,5 +103,7 @@ namespace Skore
 
 		void ClearSelection(UndoRedoScope* scope);
 		void ClearDebugEntitySelection();
+
+		void ChangeParentOfSelected(RID newParent, UndoRedoScope* scope);
 	};
 }

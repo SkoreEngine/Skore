@@ -70,6 +70,7 @@ namespace Skore
 		//subobject list
 		void AddToSubObjectList(u32 index, RID subObject);
 		void AddToSubObjectList(u32 index, Span<RID> subObjects);
+		void AddToSubObjectListAt(u32 index, Span<RID> subObjects, usize arrIndex);
 		void RemoveFromSubObjectList(u32 index, RID subObject);
 
 		Array<RID> RemoveFromSubObjectListByPrototype(u32 index, RID prototype);
@@ -100,10 +101,10 @@ namespace Skore
 		bool         HasOnReferenceArray(u32 index, RID rid) const;
 
 		//subobject list
-		void       IterateSubObjectList(u32 index, FnRIDCallback callback, VoidPtr userData) const;
-		u64        GetSubObjectListCount(u32 index) const;
-		Array<RID> GetSubObjectListAsArray(u32 index) const;
-		bool       HasOnSubObjectList(u32 index, RID rid) const;
+		void      IterateSubObjectList(u32 index, FnRIDCallback callback, VoidPtr userData) const;
+		u64       GetSubObjectListCount(u32 index) const;
+		Span<RID> GetSubObjectList(u32 index) const;
+		bool      HasOnSubObjectList(u32 index, RID rid) const;
 
 		u64        GetPrototypeRemovedCount(u32 index) const;
 		bool       IsRemoveFromPrototypeSubObjectList(u32 index, RID rid) const;

@@ -416,7 +416,7 @@ namespace Skore
 	void ResourceAssets::GetUpdatedAssets(RID directory, Array<UpdatedAssetInfo>& items)
 	{
 		ResourceObject packageObject = Resources::Read(directory);
-		Array<RID>     files = packageObject.GetSubObjectListAsArray(ResourceAssetPackage::Files);
+		Span<RID> files = packageObject.GetSubObjectList(ResourceAssetPackage::Files);
 		for (RID assetFile : files)
 		{
 			ResourceObject assetFileObject = Resources::Read(assetFile);
@@ -636,7 +636,7 @@ namespace Skore
 
 		ResourceObject parentObject = Resources::Read(directory);
 
-		for (RID child :  parentObject.GetSubObjectListAsArray(ResourceAssetDirectory::Assets))
+		for (RID child :  parentObject.GetSubObjectList(ResourceAssetDirectory::Assets))
 		{
 			if (fullName == GetAssetFullName(child))
 			{
@@ -679,7 +679,7 @@ namespace Skore
 		if (!parent) return {};
 
 		ResourceObject parentObject = Resources::Read(parent);
-		Array<RID>     children = parentObject.GetSubObjectListAsArray(directory ? ResourceAssetDirectory::Directories : ResourceAssetDirectory::Assets);
+		Array<RID>     children = parentObject.GetSubObjectList(directory ? ResourceAssetDirectory::Directories : ResourceAssetDirectory::Assets);
 
 		u32    count{};
 		String finalName = desiredName;
@@ -1112,14 +1112,14 @@ namespace Skore
 				// 				}
 				// 			};
 				//
-				// 			for (RID directory : directoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Directories))
+				// 			for (RID directory : directoryObject.GetSubObjectList(ResourceAssetDirectory::Directories))
 				// 			{
 				// 				ResourceObject directoryObject = Resources::Read(directory);
 				// 				RID asset = directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
 				// 				fnUpdate(asset);
 				// 			}
 				//
-				// 			for (RID asset : directoryObject.GetSubObjectListAsArray(ResourceAssetDirectory::Assets))
+				// 			for (RID asset : directoryObject.GetSubObjectList(ResourceAssetDirectory::Assets))
 				// 			{
 				// 				fnUpdate(asset);
 				// 			}

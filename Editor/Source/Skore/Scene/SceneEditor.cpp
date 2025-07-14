@@ -196,7 +196,11 @@ namespace Skore
 
 	void SceneEditor::ChangeParentOfSelected(RID newParent)
 	{
-		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Change Parent Entity");
+		ChangeParentOfSelected(newParent, Editor::CreateUndoRedoScope("Change Parent Entity"));
+	}
+
+	void SceneEditor::ChangeParentOfSelected(RID newParent, UndoRedoScope* scope)
+	{
 		for (RID selected : GetSelectedEntities())
 		{
 			ResourceObject oldParent = Resources::Write(Resources::GetParent(selected));
@@ -207,7 +211,80 @@ namespace Skore
 			newParentObject.AddToSubObjectList(EntityResource::Children, selected);
 			newParentObject.Commit(scope);
 		}
+	}
 
+	void SceneEditor::MoveSelectedBefore(RID moveTo)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Move Entity");
+
+		if (!moveTo)
+		{
+			ChangeParentOfSelected(GetRootEntity(), scope);
+			return;
+		}
+
+		RID parent = Resources::GetParent(moveTo);
+
+		Array<RID> entitiesToMove;
+		bool moveToIsSelected = false;
+
+		//1 - sort by order in hierarchy, not by order of selection
+		{
+			HashSet<RID> parents;
+			HashSet<RID> selectedEntities = ToHashSet(GetSelectedEntities());
+			moveToIsSelected = selectedEntities.Has(moveTo);
+
+			entitiesToMove.Reserve(selectedEntities.Size());
+
+			for (RID selected : GetSelectedEntities())
+			{
+				parents.Insert(Resources::GetParent(selected));
+			}
+
+			for (RID parentOfSelected : parents)
+			{
+				ResourceObject parentObject = Resources::Write(parentOfSelected);
+				parentObject.IterateSubObjectList(EntityResource::Children, [&](RID child)
+				{
+					if (selectedEntities.Has(child))
+					{
+						entitiesToMove.EmplaceBack(child);
+					}
+				});
+			}
+		}
+		usize index = SIZE_MAX;
+
+		if (moveToIsSelected)
+		{
+			ResourceObject parentObject = Resources::Read(parent);
+			Span<RID> children = parentObject.GetSubObjectList(EntityResource::Children);
+			index = FindFirstIndex(children.begin(), children.end(), moveTo);
+		}
+
+		for (RID selected : entitiesToMove)
+		{
+			ResourceObject oldParent = Resources::Write(Resources::GetParent(selected));
+			oldParent.RemoveFromSubObjectList(EntityResource::Children, selected);
+			oldParent.Commit(scope);
+		}
+
+		//get index
+		if (!moveToIsSelected)
+		{
+			ResourceObject parentObject = Resources::Read(parent);
+			Span<RID> children = parentObject.GetSubObjectList(EntityResource::Children);
+			index = FindFirstIndex(children.begin(), children.end(), moveTo);
+		}
+
+		if (index == SIZE_MAX)
+		{
+			logger.Error("something went wrong, index not found");
+		}
+
+		ResourceObject newParentObject = Resources::Write(parent);
+		newParentObject.AddToSubObjectListAt(EntityResource::Children, entitiesToMove, index);
+		newParentObject.Commit(scope);
 	}
 
 	void SceneEditor::AddBackToThisInstance(RID entity, RID prototype)
@@ -374,6 +451,24 @@ namespace Skore
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Remove Component");
 		ResourceObject entityObject = Resources::Write(entity);
 		entityObject.RemoveFromSubObjectList(EntityResource::Components, component);
+		entityObject.Commit(scope);
+	}
+
+	void SceneEditor::MoveComponentTo(RID component, u32 newIndex)
+	{
+		RID entity = Resources::GetParent(component);
+		{
+			ResourceObject entityObject = Resources::Read(entity);
+			Span<RID> components = entityObject.GetSubObjectList(EntityResource::Components);
+			u32 currentIndex = FindFirstIndex(components.begin(), components.end(), component);
+			if (currentIndex == newIndex) return;
+		}
+
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Move Component");
+
+		ResourceObject entityObject = Resources::Write(entity);
+		entityObject.RemoveFromSubObjectList(EntityResource::Components, component);
+		entityObject.AddToSubObjectListAt(EntityResource::Components, {&component, 1}, newIndex);
 		entityObject.Commit(scope);
 	}
 

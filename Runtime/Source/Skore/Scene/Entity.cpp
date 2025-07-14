@@ -31,41 +31,82 @@
 
 namespace Skore
 {
+	static Logger&               logger = Logger::GetLogger("Skore::Entity");
+	static HashMap<RID, Entity*> cacheByRID;
 
-	static Logger& logger = Logger::GetLogger("Skore::Entity");
-
-	Entity::Entity(Scene* scene) : Entity(scene, {}) {}
-	Entity::Entity(Scene* scene, RID rid) : Entity(scene, nullptr, rid) {}
-	Entity::Entity(Scene* scene, Entity* parent) : Entity(scene, parent, {}) {}
-
-	Entity::Entity(Scene* scene, Entity* parent, RID rid) : m_rid(rid), m_scene(scene), m_parent(parent)
+	Entity* Entity::Instantiate(Scene* scene)
 	{
-		if (m_parent)
+		return Instantiate(scene, nullptr, {});
+	}
+
+	Entity* Entity::Instantiate(Scene* scene, RID rid)
+	{
+		return Instantiate(scene, nullptr, rid);
+	}
+
+	Entity* Entity::Instantiate(Scene* scene, Entity* parent)
+	{
+		return Instantiate(scene, parent, {});
+	}
+
+	Entity* Entity::Instantiate(Scene* scene, Entity* parent, RID rid)
+	{
+		Entity* entity = nullptr;
+
+		if (rid)
 		{
-			m_parentActive = m_parent->IsActive();
+			if (const auto& it = cacheByRID.Find(rid))
+			{
+				entity = it->second;
+			}
+		}
+
+		if (entity == nullptr)
+		{
+			entity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
+			new(PlaceHolder{}, entity) Entity();
+		}
+
+		Instantiate(entity, scene, parent, rid);
+		return entity;
+	}
+
+	void Entity::Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid)
+	{
+		entity->m_rid = rid;
+		entity->m_scene = scene;
+		entity->m_parent = parent;
+
+
+		if (entity->m_parent)
+		{
+			entity->m_parentActive = entity->m_parent->IsActive();
 		}
 
 		if (rid)
 		{
+			cacheByRID.Insert(rid, entity);
+
 			if (scene->IsResourceSyncEnabled())
 			{
-				Resources::GetStorage(rid)->RegisterEvent(ResourceEventType::Changed, OnEntityResourceChange, this);
-				scene->m_entities.Insert(rid, this);
+				Resources::GetStorage(rid)->RegisterEvent(ResourceEventType::Changed, OnEntityResourceChange, entity);
+				scene->m_entities.Insert(rid, entity);
 			}
 
 			if (ResourceObject entityObject = Resources::Read(rid))
 			{
-				SetName(entityObject.GetString(EntityResource::Name));
+				entity->SetName(entityObject.GetString(EntityResource::Name));
+				entity->m_boneIndex = entityObject.GetUInt(EntityResource::BoneIndex);
 
 				if (RID transform = entityObject.GetReference(EntityResource::Transform))
 				{
-					m_transformRID = transform;
-					Resources::FromResource(transform, &m_transform);
-					UpdateTransform();
+					entity->m_transformRID = transform;
+					Resources::FromResource(transform, &entity->m_transform);
+					entity->UpdateTransform();
 
-					if (m_scene->IsResourceSyncEnabled())
+					if (entity->m_scene->IsResourceSyncEnabled())
 					{
-						Resources::GetStorage(m_transformRID)->RegisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, this);
+						Resources::GetStorage(entity->m_transformRID)->RegisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, entity);
 					}
 				}
 
@@ -73,24 +114,44 @@ namespace Skore
 				{
 					if (ResourceType* type = Resources::GetType(component))
 					{
-						AddComponent(type->GetReflectType(), component);
+						entity->AddComponent(type->GetReflectType(), component);
 					}
 				});
 
 				entityObject.IterateSubObjectList(EntityResource::Children, [&](RID child)
 				{
-					CreateChildFromAsset(child);
+					entity->CreateChildFromAsset(child);
 				});
 
-				SetActive(!entityObject.GetBool(EntityResource::Deactivated));
+				entity->SetActive(!entityObject.GetBool(EntityResource::Deactivated));
 			}
 		}
 
-		m_scene->m_queueToStart.Enqueue(this);
+		entity->m_scene->m_queueToStart.Enqueue(entity);
+	}
+
+	Entity* Entity::FindOrCreateInstance(RID rid)
+	{
+		if (!rid) return {};
+
+		auto it = cacheByRID.Find(rid);
+		if (it == cacheByRID.end())
+		{
+			Entity* entity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
+			new(PlaceHolder{}, entity) Entity();
+			it = cacheByRID.Insert(rid, entity).first;
+		}
+
+		return it->second;
 	}
 
 	Entity::~Entity()
 	{
+		if (m_rid)
+		{
+			cacheByRID.Erase(m_rid);
+		}
+
 		if (m_scene)
 		{
 			if (m_scene->IsResourceSyncEnabled())
@@ -153,8 +214,6 @@ namespace Skore
 		}
 
 		UpdateTransform();
-
-
 	}
 
 	Entity* Entity::GetParent() const
@@ -402,6 +461,7 @@ namespace Skore
 		{
 			entity->SetName(newValue.GetString(EntityResource::Name));
 			entity->SetActive(!newValue.GetBool(EntityResource::Deactivated));
+			entity->m_boneIndex = newValue.GetUInt(EntityResource::BoneIndex);
 		}
 
 		for (CompareSubObjectListResult res : Resources::CompareSubObjectList(oldValue, newValue, EntityResource::Children))
@@ -453,7 +513,6 @@ namespace Skore
 					}
 				}
 			}
-
 		}
 	}
 

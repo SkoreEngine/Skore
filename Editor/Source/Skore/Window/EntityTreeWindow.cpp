@@ -92,6 +92,7 @@ namespace Skore
 
 		bool isSelected = sceneEditor->IsSelected(entity) || entity == entitySelection;
 		bool open = false;
+		bool hasOpen = false;
 
 		if (root || sceneEditor->IsParentOfSelected(entity))
 		{
@@ -145,11 +146,28 @@ namespace Skore
 		}
 		else if (drawNode)
 		{
-			open = ImGuiTreeNode(IntToPtr(entity.id), stringCache.CStr());
+
+			VoidPtr ptrId = IntToPtr(entity.id);
+			ImGuiID id = ImGui::GetCurrentWindow()->GetID(ptrId);
+
+			auto flags = ImGuiTreeNodeFlags_OpenOnArrow |
+				ImGuiTreeNodeFlags_OpenOnDoubleClick |
+				ImGuiTreeNodeFlags_SpanAvailWidth |
+				ImGuiTreeNodeFlags_SpanFullWidth |
+				ImGuiTreeNodeFlags_FramePadding;
+
+			hasOpen = ImGui::TreeNodeUpdateNextOpen(id,  flags);
+			open = ImGuiTreeNode(ptrId, stringCache.CStr());
 		}
 		else
 		{
 			ImGuiTreeLeaf(IntToPtr(entity.id), stringCache.CStr());
+		}
+
+		bool nodeChanged = (!hasOpen && open) || (hasOpen && !open);
+		if (nodeChanged)
+		{
+			cancelSelection = true;
 		}
 
 		if (removed || entityObject.GetPrototype())
@@ -159,7 +177,7 @@ namespace Skore
 
 		bool isHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
 
-		if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
+		if (!nodeChanged && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
 		{
 			parentSelection = parent;
 			entitySelection = entity;
@@ -175,6 +193,7 @@ namespace Skore
 			ImGui::SetDragDropPayload(SK_ENTITY_PAYLOAD, nullptr, 0);
 			ImGui::Text("%s", name.CStr());
 			ImGui::EndDragDropSource();
+			pushSelection = true;
 		}
 
 		if (ImGui::BeginDragDropTarget())
@@ -318,45 +337,17 @@ namespace Skore
 
 	}
 
-	void EntityTreeWindow::DrawMovePayload(u64 id, RID moveTo) const
+	void EntityTreeWindow::DrawMovePayload(u64 id, RID moveBefore) const
 	{
 		ImVec2 screenPos = ImVec2(ImGui::GetWindowPos().x, ImGui::GetCursorScreenPos().y);
-		ImVec2 screenPos2 = screenPos + ImVec2(ImGui::GetContentRegionMax().x, std::ceil(1 * ImGui::GetStyle().ScaleFactor));
+		ImVec2 screenPos2 = screenPos + ImVec2(ImGui::GetContentRegionMax().x, std::ceil(1.5 * ImGui::GetStyle().ScaleFactor));
 
 		if (ImGui::BeginDragDropTargetCustom(ImRect(screenPos, screenPos2), HashInt32(id)))
 		{
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(SK_ENTITY_PAYLOAD))
 			{
-				// SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
-				//
-				// Array<Entity*> selectedEntities;
-				// for (const auto& selected : sceneEditor->GetSelectedEntities())
-				// {
-				// 	if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByUUID(selected))
-				// 	{
-				// 		selectedEntities.EmplaceBack(entity);
-				// 	}
-				// }
-				//
-				// if (!selectedEntities.Empty())
-				// {
-				// 	//TODO - transactions
-				//
-				// 	// Ref<Transaction> transaction = UndoRedoSystem::BeginTransaction("Move Entity");
-				// 	//
-				// 	// for (Entity* entity : selectedEntities)
-				// 	// {
-				// 	// 	if (moveTo && moveTo->IsChildOf(entity))
-				// 	// 		continue;
-				// 	//
-				// 	// 	if (entity == moveTo)
-				// 	// 		continue;
-				// 	//
-				// 	// 	transaction->AddCommand(Alloc<MoveEntityCommand>(sceneEditor, entity, parent, moveTo));
-				// 	// }
-				// 	//
-				// 	// UndoRedoSystem::EndTransaction(transaction);
-				// }
+				SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+				sceneEditor->MoveSelectedBefore(moveBefore);
 			}
 			ImGui::EndDragDropTarget();
 		}
@@ -377,6 +368,8 @@ namespace Skore
 			return;
 		}
 
+		pushSelection = false;
+		cancelSelection = false;
 		ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
 		shiftDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftShift)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightShift));
 
@@ -469,7 +462,7 @@ namespace Skore
 
 		bool closePopup = false;
 
-		if (shouldClear && (!entitySelection || lastSelectionRemoved))
+		if (!cancelSelection && shouldClear && (!entitySelection || lastSelectionRemoved))
 		{
 			sceneEditor->ClearSelection();
 		}
@@ -479,7 +472,7 @@ namespace Skore
 		bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_NoPopupHierarchy);
 		bool released = ImGui::IsMouseReleased(ImGuiMouseButton_Right) || ImGui::IsMouseReleased(ImGuiMouseButton_Left);
 
-		if (!lastSelectionRemoved && entitySelection && released)
+		if (!cancelSelection && !lastSelectionRemoved && entitySelection && (released || pushSelection))
 		{
 			sceneEditor->SelectEntity(entitySelection, !ctrlDown);
 			shouldClearInternal = true;

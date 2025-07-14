@@ -22,7 +22,6 @@
 
 
 #pragma once
-#include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
 {
@@ -35,6 +34,7 @@ namespace Skore
 			Deactivated,
 			Locked,
 			Transform,
+			BoneIndex,
 			Components,
 			Children,
 		};

@@ -132,22 +132,29 @@ namespace Skore
 			return Math::Translate(Mat4{1.0}, m_transform.position) * Math::ToMatrix4(m_transform.rotation) * Math::Scale(Mat4{1.0}, m_transform.scale);
 		}
 
-		template <typename... Args>
-		static Entity* Instantiate(Args&&... args)
-		{
-			Entity* entity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
-			new(PlaceHolder{}, entity) Entity(Traits::Forward<Args>(args)...);
-			return entity;
-		}
+		// template <typename... Args>
+		// static Entity* Instantiate(Args&&... args)
+		// {
+		// 	Entity* entity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
+		// 	new(PlaceHolder{}, entity) Entity(Traits::Forward<Args>(args)...);
+		// 	return entity;
+		// }
 
+		static Entity* Instantiate(Scene* scene);
+		static Entity* Instantiate(Scene* scene, RID rid);
+		static Entity* Instantiate(Scene* scene, Entity* parent);
+		static Entity* Instantiate(Scene* scene, Entity* parent, RID rid);
 
 		friend class Scene;
 		friend class Component;
+		friend class ResourceCast<Entity*>;
+
 	private:
-		Entity(Scene* scene);
-		Entity(Scene* scene, RID rid);
-		Entity(Scene* scene, Entity* parent);
-		Entity(Scene* scene, Entity* parent, RID rid);
+		Entity() = default;
+
+		static void Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid);
+		static Entity* FindOrCreateInstance(RID rid);
+
 
 		String m_name = {};
 		RID m_rid = {};
@@ -166,6 +173,7 @@ namespace Skore
 		Mat4      m_globalTransform{1.0};
 		Transform m_transform;
 		RID       m_transformRID;
+		u64       m_boneIndex = U64_MAX;
 
 		void DestroyInternal(bool removeFromParent = true);
 		void UpdateTransform();
@@ -187,12 +195,18 @@ namespace Skore
 
 		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Entity* value)
 		{
-			//TODO
+			if (value && value->GetRID())
+			{
+				object.SetReference(index, value->GetRID());
+			}
 		}
 
-		static void FromResource(const ResourceObject& object, u32 index, Entity* value)
+		static void FromResource(const ResourceObject& object, u32 index, Entity*& value)
 		{
-			//TODO
+			if (Entity* entity = Entity::FindOrCreateInstance(object.GetReference(index)))
+			{
+				value = entity;
+			}
 		}
 
 		static ResourceFieldInfo GetResourceFieldInfo()

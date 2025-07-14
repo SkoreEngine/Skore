@@ -223,10 +223,17 @@ namespace Skore
 
 	void ResourceObject::AddToSubObjectList(u32 index, Span<RID> subObjects)
 	{
+		AddToSubObjectListAt(index, subObjects, SIZE_MAX);
+	}
+
+	void ResourceObject::AddToSubObjectListAt(u32 index, Span<RID> subObjects, usize arrIndex)
+	{
 		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList, "Invalid field type");
 		if (SubObjectList* subObjectList = GetMutPtr<SubObjectList>(index))
 		{
-			subObjectList->subObjects.Insert(subObjectList->subObjects.end(), subObjects.begin(), subObjects.end());
+			bool atEnd = arrIndex == SIZE_MAX || arrIndex >= subObjectList->subObjects.Size();
+			auto where = atEnd ? subObjectList->subObjects.end() : subObjectList->subObjects.begin() + arrIndex;
+			subObjectList->subObjects.Insert(where, subObjects.begin(), subObjects.end());
 
 			for (RID subObject : subObjects)
 			{
@@ -518,15 +525,13 @@ namespace Skore
 		return count;
 	}
 
-	Array<RID> ResourceObject::GetSubObjectListAsArray(u32 index) const
+	Span<RID> ResourceObject::GetSubObjectList(u32 index) const
 	{
-		Array<RID> subobjects;
-		subobjects.Reserve(GetSubObjectListCount(index));
-		IterateSubObjectList(index, [&](RID rid)
+		if (const SubObjectList* value = GetPtr<SubObjectList>(index))
 		{
-			subobjects.EmplaceBack(rid);
-		});
-		return subobjects;
+			return value->subObjects;
+		}
+		return {};
 	}
 
 	bool ResourceObject::HasOnSubObjectList(u32 index, RID rid) const

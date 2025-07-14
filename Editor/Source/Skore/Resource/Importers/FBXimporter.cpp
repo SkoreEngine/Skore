@@ -42,16 +42,22 @@
 
 namespace Skore
 {
+
+	struct BoneData
+	{
+		u64 index;
+	};
+
 	struct FBXImportData
 	{
-		ufbx_scene*                  scene = nullptr;
-		UndoRedoScope*               scope = nullptr;
-		FBXImportSettings            settings;
-		HashMap<ufbx_texture*, RID>  textures;
-		HashMap<ufbx_material*, RID> materials;
-		HashMap<ufbx_mesh*, RID>     meshes;
-		HashMap<RID, RID>            meshRootBone;
-		HashMap<ufbx_node*, RID>     entities;
+		ufbx_scene*                   scene = nullptr;
+		UndoRedoScope*                scope = nullptr;
+		FBXImportSettings             settings;
+		HashMap<ufbx_texture*, RID>   textures;
+		HashMap<ufbx_material*, RID>  materials;
+		HashMap<ufbx_mesh*, RID>      meshes;
+		HashMap<RID, RID>             meshRootBone;
+		HashMap<ufbx_node*, RID>      entities;
 	};
 
 	RID ProcessNode(FBXImportData& fbxData, ufbx_node* node, StringView name);
@@ -224,9 +230,23 @@ namespace Skore
 		if (mesh->skin_deformers.count > 0)
 		{
 			ufbx_skin_deformer* skin = mesh->skin_deformers[0];
-			ufbx_skin_cluster* cluster = skin->clusters[0];
 
-			rootBone = ProcessNode(fbxData, cluster->bone_node, "");
+
+			//process root cluster
+			rootBone = ProcessNode(fbxData, skin->clusters[0]->bone_node, "");
+
+
+			for (u64 i = 0; i < skin->clusters.count; ++i)
+			{
+				ufbx_skin_cluster* cluster = skin->clusters[i];
+				if (auto itBone = fbxData.entities.Find(cluster->bone_node))
+				{
+					ResourceObject entityObject = Resources::Write(itBone->second);
+					entityObject.SetUInt(EntityResource::BoneIndex, i);
+					entityObject.Commit(fbxData.scope);
+				}
+			}
+
 		}
 
 		Array<RID> meshMaterials;
@@ -625,6 +645,8 @@ namespace Skore
 					}
 				}
 			}
+
+
 
 			//import missing meshes.
 			for (u32 i = 0; i < scene->meshes.count; i++)

@@ -161,7 +161,7 @@ namespace Skore
 
 		bool openComponentSettings = false;
 
-		auto drawCollapsingHeader = [&](RID rid, StringView formattedName, StringView scopeName)
+		auto drawCollapsingHeader = [&](RID rid, StringView formattedName, StringView scopeName, u32 index)
 		{
 			bool fromPrototype = Resources::GetParent(rid) != entity;
 
@@ -171,6 +171,7 @@ namespace Skore
 			{
 				openComponentSettings = true;
 				selectedComponent = rid;
+				selectedComponentIndex = index;
 			}
 
 			if (open)
@@ -191,9 +192,10 @@ namespace Skore
 		RID transform = entityObject.GetSubObject(EntityResource::Transform);
 		if (transform)
 		{
-			drawCollapsingHeader(transform, "Transform", "Transform Update");
+			drawCollapsingHeader(transform, "Transform", "Transform Update", U32_MAX);
 		}
 
+		u32 componentCount = 0;
 		entityObject.IterateSubObjectList(EntityResource::Components, [&](RID component)
 		{
 			if (ResourceType* componentType = Resources::GetType(component);
@@ -202,8 +204,9 @@ namespace Skore
 			{
 				String formattedName = FormatName(componentType->GetReflectType()->GetSimpleName());
 				String scope = String(formattedName).Append(" Update");
-				drawCollapsingHeader(component, formattedName, scope);
+				drawCollapsingHeader(component, formattedName, scope, componentCount);
 			}
+			componentCount++;
 		});
 
 		if (addComponent)
@@ -242,6 +245,7 @@ namespace Skore
 		}
 
 		bool canRemove = !readOnly && selectedComponent != transform;
+		bool canMove = !readOnly && selectedComponentIndex < U32_MAX;
 
 		bool popupOpenSettings = ImGuiBeginPopupMenu("open-component-settings", 0, false);
 		if (popupOpenSettings && selectedComponent)
@@ -252,18 +256,21 @@ namespace Skore
 				ImGui::CloseCurrentPopup();
 			}
 
-
-			// if (entity->GetPrefab() != nullptr && entity->IsComponentOverride(entity->FindComponentByUUID(selectedComponent)))
-			// {
-			// 	if (ImGui::MenuItem("Remove prefab override"))
-			// 	{
-			// 		sceneEditor.RemoveComponentOverride(entity, entity->FindComponentByUUID(selectedComponent));
-			// 	}
-			// }
-
 			if (canRemove && ImGui::MenuItem("Remove"))
 			{
 				sceneEditor->RemoveComponent(entity, selectedComponent);
+				ImGui::CloseCurrentPopup();
+			}
+
+			if (canMove && selectedComponentIndex > 0 && ImGui::MenuItem("Move Up"))
+			{
+				sceneEditor->MoveComponentTo(selectedComponent, selectedComponentIndex - 1);
+				ImGui::CloseCurrentPopup();
+			}
+
+			if (canMove && selectedComponentIndex < (componentCount -1) && ImGui::MenuItem("Move Down"))
+			{
+				sceneEditor->MoveComponentTo(selectedComponent, selectedComponentIndex + 1);
 				ImGui::CloseCurrentPopup();
 			}
 		}

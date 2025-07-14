@@ -66,6 +66,8 @@ namespace Skore
 		bool ctrlDown = false;
 		bool shiftDown = false;
 
+		bool cancelSelection = false;
+		bool pushSelection = false;
 		RID parentSelection = {};
 		RID entitySelection = {};
 
@@ -84,6 +86,6 @@ namespace Skore
 
 		void DrawEntity(SceneEditor* sceneEditor, RID entity, RID parent, bool removed);
 		void DrawEntity(SceneEditor* sceneEditor, Entity* entity, bool& entitySelected);
-		void DrawMovePayload(u64 id, RID moveTo) const;
+		void DrawMovePayload(u64 id, RID moveBefore) const;
 	};
 }

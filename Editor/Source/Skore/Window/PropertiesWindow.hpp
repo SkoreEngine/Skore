@@ -51,6 +51,7 @@ namespace Skore
 		RID    renamingEntity{};
 		String searchComponentString{};
 		RID    selectedComponent = {};
+		u32    selectedComponentIndex = U32_MAX;
 		RID    selectedAsset = {};
 
 		Entity* selectedDebugEntity = nullptr;
