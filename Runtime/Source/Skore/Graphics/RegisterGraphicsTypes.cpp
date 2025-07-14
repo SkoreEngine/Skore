@@ -724,6 +724,9 @@ namespace Skore
 
 		Resources::Type<AnimationClipResource>()
 			.Field<AnimationClipResource::Name>(ResourceFieldType::String)
+			.Field<AnimationClipResource::Duration>(ResourceFieldType::Float)
+			.Field<AnimationClipResource::NumFrames>(ResourceFieldType::UInt)
+			.Field<AnimationClipResource::FrameRate>(ResourceFieldType::Float)
 			.Build();
 
 		Resources::Type<DCCAssetResource>()

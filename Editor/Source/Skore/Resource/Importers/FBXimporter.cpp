@@ -43,10 +43,10 @@
 namespace Skore
 {
 
-	struct BoneData
-	{
-		u64 index;
-	};
+	// struct FBXBoneData
+	// {
+	// 	RID boneEntity;
+	// };
 
 	struct FBXImportData
 	{
@@ -231,10 +231,8 @@ namespace Skore
 		{
 			ufbx_skin_deformer* skin = mesh->skin_deformers[0];
 
-
 			//process root cluster
 			rootBone = ProcessNode(fbxData, skin->clusters[0]->bone_node, "");
-
 
 			for (u64 i = 0; i < skin->clusters.count; ++i)
 			{
@@ -246,7 +244,6 @@ namespace Skore
 					entityObject.Commit(fbxData.scope);
 				}
 			}
-
 		}
 
 		Array<RID> meshMaterials;
@@ -429,12 +426,55 @@ namespace Skore
 		return ProcessMesh<MeshStaticVertex>(fbxData, mesh, name);
 	}
 
-	RID ProcessAnimation(FBXImportData& fbxData, ufbx_anim_stack* animStack)
+	void ReadAnimationNode(FBXImportData& fbxData, u32 numFrames, f32 framerate, ufbx_anim_stack* stack, ufbx_node* node)
+	{
+		for (size_t i = 0; i < numFrames; ++i)
+		{
+			f64 time = stack->time_begin + static_cast<f64>(i) / framerate;
+
+			ufbx_transform transform = ufbx_evaluate_transform(stack->anim, node, time);
+
+			// vna->rot[i] = ufbx_to_um_quat(transform.rotation);
+			// vna->pos[i] = ufbx_to_um_vec3(transform.translation);
+			// vna->scale[i] = ufbx_to_um_vec3(transform.scale);
+			//
+			// if (i > 0) {
+			// 	// Negated quaternions are equivalent, but interpolating between ones of different
+			// 	// polarity takes a the longer path, so flip the quaternion if necessary.
+			// 	if (um_quat_dot(vna->rot[i], vna->rot[i - 1]) < 0.0f) {
+			// 		vna->rot[i] = um_quat_neg(vna->rot[i]);
+			// 	}
+		}
+	}
+
+	RID ProcessAnimation(FBXImportData& fbxData, ufbx_anim_stack* stack)
 	{
 		RID animation = Resources::Create<AnimationClipResource>(UUID::RandomUUID());
 
 		ResourceObject animationObject = Resources::Write(animation);
-		animationObject.SetString(AnimationClipResource::Name, !IsStrNullOrEmpty(animStack->name.data) ? animStack->name.data : "Animation");
+		animationObject.SetString(AnimationClipResource::Name, !IsStrNullOrEmpty(stack->name.data) ? stack->name.data : "Animation");
+
+		//fbxData.scene->settings.frames_per_second ?
+
+		const f32 targetFramerate = 30.0f;
+		const u32 maxFrames = 4096;
+
+		// Sample the animation evenly at `target_framerate` if possible while limiting the maximum
+		// number of frames to `max_frames` by potentially dropping FPS.
+		f32 duration = static_cast<f32>(stack->time_end) - static_cast<f32>(stack->time_begin);
+		u32 numFrames = Math::Clamp(static_cast<u32>(duration * targetFramerate), 2u, maxFrames);
+		f32 framerate = static_cast<f32>(numFrames - 1) / duration;
+
+		animationObject.SetUInt(AnimationClipResource::NumFrames, numFrames);
+		animationObject.SetFloat(AnimationClipResource::Duration, duration);
+		animationObject.SetFloat(AnimationClipResource::FrameRate, framerate);
+
+		for (size_t i = 0; i < fbxData.scene->nodes.count; i++)
+		{
+			ufbx_node* node = fbxData.scene->nodes.data[i];
+			ReadAnimationNode(fbxData, numFrames, framerate, stack, node);
+		}
+
 		animationObject.Commit(fbxData.scope);
 
 		return animation;
@@ -481,6 +521,8 @@ namespace Skore
 		RID transformRID = Resources::Create<Transform>(UUID::RandomUUID());
 		Resources::ToResource(transformRID, &transform, fbxData.scope);
 		entityObject.SetSubObject(EntityResource::Transform, transformRID);
+
+		//typed_id
 
 		// Handle mesh
 		if (node->mesh)
@@ -617,14 +659,6 @@ namespace Skore
 				}
 			}
 
-			for (u32 i = 0; i < scene->anim_stacks.count; i++)
-			{
-				if (RID animation = ProcessAnimation(fbxData, scene->anim_stacks.data[i]))
-				{
-					dccAssetObject.AddToSubObjectList(DCCAssetResource::Animations, animation);
-				}
-			}
-
 			// Process nodes
 			for (u32 i = 0; i < scene->nodes.count; i++)
 			{
@@ -646,8 +680,6 @@ namespace Skore
 				}
 			}
 
-
-
 			//import missing meshes.
 			for (u32 i = 0; i < scene->meshes.count; i++)
 			{
@@ -664,6 +696,15 @@ namespace Skore
 			for (const auto& it : fbxData.meshes)
 			{
 				dccAssetObject.AddToSubObjectList(DCCAssetResource::Meshes, it.second);
+			}
+
+			//animations
+			for (u32 i = 0; i < scene->anim_stacks.count; i++)
+			{
+				if (RID animation = ProcessAnimation(fbxData, scene->anim_stacks.data[i]))
+				{
+					dccAssetObject.AddToSubObjectList(DCCAssetResource::Animations, animation);
+				}
 			}
 
 			ufbx_free_scene(scene);

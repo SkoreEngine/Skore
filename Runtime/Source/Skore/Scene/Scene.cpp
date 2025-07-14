@@ -42,6 +42,16 @@ namespace Skore
 		{
 			m_rootEntity->DestroyInternal(false);
 		}
+
+		for (auto& it : m_entities)
+		{
+			//entity was never added to a parent/scene
+			if (it.second->m_scene == nullptr)
+			{
+				it.second->DestroyInternal(false);
+			}
+		}
+		m_entities.Clear();
 	}
 
 	Entity* Scene::GetRootEntity() const

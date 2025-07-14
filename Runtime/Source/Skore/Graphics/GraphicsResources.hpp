@@ -40,7 +40,7 @@ namespace Skore
 			Name,         //String
 			Spriv,        //Blob
 			PipelineDesc, //Subobject
-			Stages,       //SubobjectSet
+			Stages,       //SubobjectList
 		};
 	};
 
@@ -50,7 +50,7 @@ namespace Skore
 		enum
 		{
 			Name,     //String
-			Variants, //SubobjectSet
+			Variants, //SubobjectList
 		};
 
 		static RID GetVariant(RID shader, StringView name);
@@ -172,25 +172,36 @@ namespace Skore
 	using MaterialArray = Array<TypedRID<MaterialResource>>;
 
 
+	struct AnimationChannelResource
+	{
+		enum
+		{
+			Name,       //String
+			Index,		//Uint
+		};
+	};
+
 	struct AnimationClipResource
 	{
 		enum
 		{
 			Name,       //String
+			Duration,   //Float
+			NumFrames,  //UInt
+			FrameRate,  //Float
+			Channels,   //SubobjectList
 		};
 	};
-
-
 
 	struct DCCAssetResource
 	{
 		enum
 		{
 			Name,      //String
-			Meshes,    //SubobjectSet
-			Materials, //SubObjectSet
-			Textures,  //SubObjectSet
-			Animations,//SubObjectSet
+			Meshes,    //SubobjectList
+			Materials, //SubobjectList
+			Textures,  //SubobjectList
+			Animations,//SubobjectList
 			Entity,    //SubObject
 		};
 	};
