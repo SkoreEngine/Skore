@@ -68,6 +68,21 @@ namespace Skore
 		return nullptr;
 	}
 
+	Entity* Scene::FindOrCreateInstance(RID rid)
+	{
+		if (!rid) return {};
+
+		auto it = m_entities.Find(rid);
+		if (it == m_entities.end())
+		{
+			Entity* entity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
+			new(PlaceHolder{}, entity) Entity();
+			it = m_entities.Insert(rid, entity).first;
+		}
+
+		return it->second;
+	}
+
 	void Scene::Update()
 	{
 		while (!m_queueToStart.IsEmpty())

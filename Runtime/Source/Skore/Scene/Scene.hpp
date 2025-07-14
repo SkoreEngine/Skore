@@ -25,6 +25,7 @@
 #include "Skore/Core/Queue.hpp"
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
+#include "Skore/Resource/ResourceReflection.hpp"
 
 namespace Skore
 {
@@ -50,6 +51,8 @@ namespace Skore
 		friend class Entity;
 		friend class SceneManager;
 		friend class Component;
+
+		friend class ResourceCast<Entity*>;
 	private:
 		Entity* m_rootEntity = nullptr;
 		bool m_enableResourceSync = false;
@@ -64,6 +67,8 @@ namespace Skore
 		ankerl::unordered_dense::set<Component*> m_fixedUpdateComponents = {};
 
 		HashMap<RID, Entity*> m_entities;
+
+		Entity* FindOrCreateInstance(RID rid);
 
 		void Update();
 	};

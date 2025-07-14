@@ -87,9 +87,9 @@ namespace Skore
 		static void Serialize(RID rid, ArchiveWriter& writer);
 		static RID  Deserialize(ArchiveReader& reader, UndoRedoScope* scope = nullptr);
 
-		static bool ToResource(RID rid, ConstPtr instance, UndoRedoScope* scope = nullptr);
-		static bool FromResource(RID rid, VoidPtr instance);
-		static bool FromResource(const ResourceObject& object, VoidPtr instance);
+		static bool ToResource(RID rid, ConstPtr instance, UndoRedoScope* scope = nullptr, VoidPtr userData = nullptr);
+		static bool FromResource(RID rid, VoidPtr instance, VoidPtr userData = nullptr);
+		static bool FromResource(const ResourceObject& object, VoidPtr instance, VoidPtr userData = nullptr);
 
 		static Array<CompareSubObjectListResult> CompareSubObjectList(const ResourceObject& oldObject, const ResourceObject& newObject, u32 index);
 		static void CompareSubObjectList(const ResourceObject& oldObject, const ResourceObject& newObject, u32 index, VoidPtr userData, FnCompareSubObjectListCallback callback);

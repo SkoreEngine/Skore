@@ -31,8 +31,7 @@
 
 namespace Skore
 {
-	static Logger&               logger = Logger::GetLogger("Skore::Entity");
-	static HashMap<RID, Entity*> cacheByRID;
+	static Logger& logger = Logger::GetLogger("Skore::Entity");
 
 	Entity* Entity::Instantiate(Scene* scene)
 	{
@@ -55,7 +54,7 @@ namespace Skore
 
 		if (rid)
 		{
-			if (const auto& it = cacheByRID.Find(rid))
+			if (const auto& it = scene->m_entities.Find(rid))
 			{
 				entity = it->second;
 			}
@@ -85,8 +84,6 @@ namespace Skore
 
 		if (rid)
 		{
-			cacheByRID.Insert(rid, entity);
-
 			if (scene->IsResourceSyncEnabled())
 			{
 				Resources::GetStorage(rid)->RegisterEvent(ResourceEventType::Changed, OnEntityResourceChange, entity);
@@ -101,7 +98,7 @@ namespace Skore
 				if (RID transform = entityObject.GetReference(EntityResource::Transform))
 				{
 					entity->m_transformRID = transform;
-					Resources::FromResource(transform, &entity->m_transform);
+					Resources::FromResource(transform, &entity->m_transform, entity);
 					entity->UpdateTransform();
 
 					if (entity->m_scene->IsResourceSyncEnabled())
@@ -130,28 +127,8 @@ namespace Skore
 		entity->m_scene->m_queueToStart.Enqueue(entity);
 	}
 
-	Entity* Entity::FindOrCreateInstance(RID rid)
-	{
-		if (!rid) return {};
-
-		auto it = cacheByRID.Find(rid);
-		if (it == cacheByRID.end())
-		{
-			Entity* entity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
-			new(PlaceHolder{}, entity) Entity();
-			it = cacheByRID.Insert(rid, entity).first;
-		}
-
-		return it->second;
-	}
-
 	Entity::~Entity()
 	{
-		if (m_rid)
-		{
-			cacheByRID.Erase(m_rid);
-		}
-
 		if (m_scene)
 		{
 			if (m_scene->IsResourceSyncEnabled())
@@ -302,7 +279,7 @@ namespace Skore
 
 		if (rid)
 		{
-			Resources::FromResource(rid, component);
+			Resources::FromResource(rid, component, this);
 
 			if (m_scene->IsResourceSyncEnabled())
 			{
@@ -518,13 +495,22 @@ namespace Skore
 
 	void Entity::OnComponentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
-		Resources::FromResource(newValue, userData);
+		Resources::FromResource(newValue, userData, static_cast<Component*>(userData)->entity);
 	}
 
 	void Entity::OnTransformResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
 		Entity* entity = static_cast<Entity*>(userData);
-		Resources::FromResource(newValue, &entity->m_transform);
+		Resources::FromResource(newValue, &entity->m_transform, entity);
 		entity->UpdateTransform();
+	}
+
+	void ResourceCast<Entity*, void>::FromResource(const ResourceObject& object, u32 index, Entity*& value, VoidPtr userData)
+	{
+		Entity* owner = static_cast<Entity*>(userData);
+		if (Entity* entity = owner->GetScene()->FindOrCreateInstance(object.GetReference(index)))
+		{
+			value = entity;
+		}
 	}
 }

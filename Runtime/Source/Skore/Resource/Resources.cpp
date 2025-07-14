@@ -1347,7 +1347,7 @@ namespace Skore
 		return root;
 	}
 
-	bool Resources::ToResource(RID rid, ConstPtr instance, UndoRedoScope* scope)
+	bool Resources::ToResource(RID rid, ConstPtr instance, UndoRedoScope* scope, VoidPtr userData)
 	{
 		ResourceStorage* storage = GetStorage(rid);
 		if (!storage->resourceType) return false;
@@ -1361,7 +1361,7 @@ namespace Skore
 		{
 			for (ReflectField* field : reflectType->GetFields())
 			{
-				field->ToResource(resourceObject, field->GetIndex(), instance, scope);
+				field->ToResource(resourceObject, field->GetIndex(), instance, scope, userData);
 			}
 			resourceObject.Commit(scope);
 		}
@@ -1369,14 +1369,14 @@ namespace Skore
 		return true;
 	}
 
-	bool Resources::FromResource(RID rid, VoidPtr instance)
+	bool Resources::FromResource(RID rid, VoidPtr instance, VoidPtr userData)
 	{
 		if (!rid) return false;
 		ResourceObject resourceObject = Read(rid);
-		return FromResource(resourceObject, instance);
+		return FromResource(resourceObject, instance, userData);
 	}
 
-	bool Resources::FromResource(const ResourceObject& resourceObject, VoidPtr instance)
+	bool Resources::FromResource(const ResourceObject& resourceObject, VoidPtr instance, VoidPtr userData)
 	{
 		if (!resourceObject) return false;
 		ResourceStorage* storage = resourceObject.GetStorage();
@@ -1388,7 +1388,7 @@ namespace Skore
 
 		for (ReflectField* field : reflectType->GetFields())
 		{
-			field->FromResource(resourceObject, field->GetIndex(), instance);
+			field->FromResource(resourceObject, field->GetIndex(), instance, userData);
 		}
 
 		return true;

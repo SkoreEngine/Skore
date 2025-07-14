@@ -50,7 +50,7 @@ namespace Skore
 	{
 		constexpr static bool hasSpecialization = true;
 
-		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const T& value)
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const T& value, VoidPtr userData)
 		{
 			RID subobject = Resources::Create<T>({}, scope);
 			if (Resources::ToResource(subobject, &value, scope))
@@ -59,7 +59,7 @@ namespace Skore
 			}
 		}
 
-		static void FromResource(const ResourceObject& object, u32 index, T& value)
+		static void FromResource(const ResourceObject& object, u32 index, T& value, VoidPtr userData)
 		{
 			if (RID rid = object.GetSubObject(index))
 			{
@@ -87,11 +87,11 @@ namespace Skore
 	struct ResourceCast<TYPE>			 \
 	{	\
 		constexpr static bool hasSpecialization = true; \
-		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const TYPE& value) \
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const TYPE& value, VoidPtr userData) \
 		{ \
 			object.Set##TYPE_NAME(index, value); \
 		} \
-		static void FromResource(const ResourceObject& object, u32 index, TYPE& value) \
+		static void FromResource(const ResourceObject& object, u32 index, TYPE& value, VoidPtr userData) \
 		{ \
 			value = object.Get##TYPE_NAME(index); \
 		}\
@@ -136,12 +136,12 @@ namespace Skore
 	{
 		constexpr static bool hasSpecialization = true;
 
-		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const String& value)
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const String& value, VoidPtr userData)
 		{
 			object.SetString(index, value);
 		}
 
-		static void FromResource(const ResourceObject& object, u32 index, String& value)
+		static void FromResource(const ResourceObject& object, u32 index, String& value, VoidPtr userData)
 		{
 			value = object.GetString(index);
 		}
@@ -160,12 +160,12 @@ namespace Skore
 	{
 		constexpr static bool hasSpecialization = true;
 
-		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const T& value)
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const T& value, VoidPtr userData)
 		{
 			object.SetEnum(index, static_cast<i64>(value));
 		}
 
-		static void FromResource(const ResourceObject& object, u32 index, T& value)
+		static void FromResource(const ResourceObject& object, u32 index, T& value, VoidPtr userData)
 		{
 			value = static_cast<T>(object.GetEnum(index));
 		}
@@ -185,12 +185,12 @@ namespace Skore
 	{
 		constexpr static bool hasSpecialization = true;
 
-		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const TypedRID<T>& value)
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const TypedRID<T>& value, VoidPtr userData)
 		{
 			object.SetReference(index, value);
 		}
 
-		static void FromResource(const ResourceObject& object, u32 index, TypedRID<T>& value)
+		static void FromResource(const ResourceObject& object, u32 index, TypedRID<T>& value, VoidPtr userData)
 		{
 			value.id = object.GetReference(index).id;
 		}
@@ -209,12 +209,12 @@ namespace Skore
 	{
 		constexpr static bool hasSpecialization = true;
 
-		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Array<TypedRID<T>>& value)
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Array<TypedRID<T>>& value, VoidPtr userData)
 		{
 			object.SetReferenceArray(index, CastRIDArray(value));
 		}
 
-		static void FromResource(const ResourceObject& object, u32 index, Array<TypedRID<T>>& value)
+		static void FromResource(const ResourceObject& object, u32 index, Array<TypedRID<T>>& value, VoidPtr userData)
 		{
 			Span<RID> elements = object.GetReferenceArray(index);
 			value.Reserve(elements.Size());
@@ -238,7 +238,7 @@ namespace Skore
 	{
 		constexpr static bool hasSpecialization = true;
 
-		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Array<T>& array)
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Array<T>& array, VoidPtr userData)
 		{
 			for (const T& element : array)
 			{
@@ -248,7 +248,7 @@ namespace Skore
 			}
 		}
 
-		static void FromResource(const ResourceObject& object, u32 index, Array<T>& array)
+		static void FromResource(const ResourceObject& object, u32 index, Array<T>& array, VoidPtr userData)
 		{
 			object.IterateSubObjectList(index, [&](RID subobject)
 			{

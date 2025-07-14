@@ -211,19 +211,19 @@ namespace Skore
 		return {ResourceFieldType::None};
 	}
 
-	void ReflectField::ToResource(ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope) const
+	void ReflectField::ToResource(ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope, VoidPtr userData) const
 	{
 		if (m_toResource)
 		{
-			m_toResource(this, resourceObject, index, instance, scope);
+			m_toResource(this, resourceObject, index, instance, scope, userData);
 		}
 	}
 
-	void ReflectField::FromResource(const ResourceObject& resourceObject, u32 index, VoidPtr instance) const
+	void ReflectField::FromResource(const ResourceObject& resourceObject, u32 index, VoidPtr instance, VoidPtr userData) const
 	{
 		if (m_fromResource)
 		{
-			m_fromResource(this, resourceObject, index, instance);
+			m_fromResource(this, resourceObject, index, instance, userData);
 		}
 	}
 

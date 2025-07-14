@@ -139,8 +139,8 @@ namespace Skore
 		typedef void (*FnSet)(const ReflectField* field, VoidPtr instance, ConstPtr src, usize srcSize);
 		typedef void (*FnSerialize)(ArchiveWriter& writer, const ReflectField* field, ConstPtr src);
 		typedef void (*FnDeserialize)(ArchiveReader& reader, const ReflectField* field, VoidPtr instance);
-		typedef void (*FnToResource)(const ReflectField* field, ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope);
-		typedef void (*FnFromResource)(const ReflectField* field, const ResourceObject& resourceObject, u32 index, VoidPtr instance);
+		typedef void (*FnToResource)(const ReflectField* field, ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope, VoidPtr userData);
+		typedef void (*FnFromResource)(const ReflectField* field, const ResourceObject& resourceObject, u32 index, VoidPtr instance, VoidPtr userData);
 		typedef ResourceFieldInfo (*FnGetResourceFieldInfo)(const ReflectField* field);
 
 
@@ -159,8 +159,8 @@ namespace Skore
 		void              Deserialize(ArchiveReader& reader, VoidPtr instance) const;
 
 		ResourceFieldInfo GetResourceFieldInfo() const;
-		void              ToResource(ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope) const;
-		void              FromResource(const ResourceObject& resourceObject, u32 index, VoidPtr instance) const;
+		void              ToResource(ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope, VoidPtr userData) const;
+		void              FromResource(const ResourceObject& resourceObject, u32 index, VoidPtr instance, VoidPtr userData) const;
 
 		friend class ReflectFieldBuilder;
 
@@ -671,20 +671,20 @@ namespace Skore
 			(*static_cast<Owner*>(instance).*setFp)(Traits::Forward<FieldType>(value));
 		}
 
-		static void FnToResourceImpl(const ReflectField* field, ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope)
+		static void FnToResourceImpl(const ReflectField* field, ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope, VoidPtr userData)
 		{
 			if constexpr (ResourceCast<FieldType>::hasSpecialization)
 			{
-				ResourceCast<FieldType>::ToResource(resourceObject, index, scope, static_cast<const Owner*>(instance)->*mfp);
+				ResourceCast<FieldType>::ToResource(resourceObject, index, scope, static_cast<const Owner*>(instance)->*mfp, userData);
 			}
 		}
 
-		static void FnFromResourceImpl(const ReflectField* field, const ResourceObject& resourceObject, u32 index, VoidPtr instance)
+		static void FnFromResourceImpl(const ReflectField* field, const ResourceObject& resourceObject, u32 index, VoidPtr instance, VoidPtr userData)
 		{
 			if constexpr (ResourceCast<FieldType>::hasSpecialization)
 			{
 				FieldType value = {};
-				ResourceCast<FieldType>::FromResource(resourceObject, index, value);
+				ResourceCast<FieldType>::FromResource(resourceObject, index, value, userData);
 				(*static_cast<Owner*>(instance).*setFp)(Traits::Forward<FieldType>(value));
 			}
 		}
@@ -775,19 +775,19 @@ namespace Skore
 			SerializeField<FieldType>::Get(reader, &(static_cast<Owner*>(instance)->*mfp));
 		}
 
-		static void FnToResourceImpl(const ReflectField* field, ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope)
+		static void FnToResourceImpl(const ReflectField* field, ResourceObject& resourceObject, u32 index, ConstPtr instance, UndoRedoScope* scope, VoidPtr userData)
 		{
 			if constexpr (ResourceCast<FieldType>::hasSpecialization)
 			{
-				ResourceCast<FieldType>::ToResource(resourceObject, index, scope, static_cast<const Owner*>(instance)->*mfp);
+				ResourceCast<FieldType>::ToResource(resourceObject, index, scope, static_cast<const Owner*>(instance)->*mfp, userData);
 			}
 		}
 
-		static void FnFromResourceImpl(const ReflectField* field, const ResourceObject& resourceObject, u32 index, VoidPtr instance)
+		static void FnFromResourceImpl(const ReflectField* field, const ResourceObject& resourceObject, u32 index, VoidPtr instance, VoidPtr userData)
 		{
 			if constexpr (ResourceCast<FieldType>::hasSpecialization)
 			{
-				ResourceCast<FieldType>::FromResource(resourceObject, index, static_cast<Owner*>(instance)->*mfp);
+				ResourceCast<FieldType>::FromResource(resourceObject, index, static_cast<Owner*>(instance)->*mfp, userData);
 			}
 		}
 

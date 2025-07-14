@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #pragma once
+#include "Component.hpp"
 #include "SceneCommon.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Object.hpp"
@@ -147,14 +148,10 @@ namespace Skore
 
 		friend class Scene;
 		friend class Component;
-		friend class ResourceCast<Entity*>;
-
 	private:
 		Entity() = default;
 
 		static void Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid);
-		static Entity* FindOrCreateInstance(RID rid);
-
 
 		String m_name = {};
 		RID m_rid = {};
@@ -193,7 +190,7 @@ namespace Skore
 	{
 		constexpr static bool hasSpecialization = true;
 
-		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Entity* value)
+		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const Entity* value, VoidPtr userData)
 		{
 			if (value && value->GetRID())
 			{
@@ -201,13 +198,7 @@ namespace Skore
 			}
 		}
 
-		static void FromResource(const ResourceObject& object, u32 index, Entity*& value)
-		{
-			if (Entity* entity = Entity::FindOrCreateInstance(object.GetReference(index)))
-			{
-				value = entity;
-			}
-		}
+		static void FromResource(const ResourceObject& object, u32 index, Entity*& value, VoidPtr userData);
 
 		static ResourceFieldInfo GetResourceFieldInfo()
 		{
