@@ -484,6 +484,7 @@ namespace Skore
 
 	Span<RID> ResourceObject::GetReferenceArray(u32 index) const
 	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::ReferenceArray, "Invalid field type");
 		if (const Array<RID>* value = GetPtr<Array<RID>>(index))
 		{
 			return *value;
@@ -493,6 +494,7 @@ namespace Skore
 
 	bool ResourceObject::HasOnReferenceArray(u32 index, RID rid) const
 	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::ReferenceArray, "Invalid field type");
 		if (const Array<RID>* value = GetPtr<Array<RID>>(index))
 		{
 			return FindFirst(value->begin(), value->end(), rid) != nullptr;
@@ -502,6 +504,8 @@ namespace Skore
 
 	void ResourceObject::IterateSubObjectList(u32 index, FnRIDCallback callback, VoidPtr userData) const
 	{
+		SK_ASSERT(m_storage->resourceType->fields[index]->type == ResourceFieldType::SubObjectList, "Invalid field type");
+
 		if (const SubObjectList* value = GetPtr<SubObjectList>(index))
 		{
 			for (RID subobject : value->subObjects)

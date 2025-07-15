@@ -47,6 +47,9 @@ namespace Skore
 
 	private:
 		u32            guizmoOperation{1};
+		u8             guizmoMode{0};
+		bool           guizmoSnapEnabled = false;
+		Vec3           guizmoSnap{1.0f, 1.0f, 1.0f};
 		bool           windowStartedSimulation{};
 		bool           movingScene{};
 		FreeViewCamera freeViewCamera{};
@@ -54,7 +57,8 @@ namespace Skore
 		Transform      gizmoInitialTransform = {};
 		Mat4           view{};
 		Mat4           projection{};
-
+		f32            cameraFov = 60.f;
+		f32			   aspectRatio = 1.f;
 
 
 		Extent         sceneExtent;

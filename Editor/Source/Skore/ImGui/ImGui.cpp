@@ -797,8 +797,21 @@ namespace Skore
 
 	bool ImGuiSelectionButton(const char* label, bool selected, const ImVec2& sizeArg)
 	{
-		//TODO make select
-		return ImGui::Button(label, sizeArg);
+		if (selected)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.59f, 0.98f, 0.67f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.26f, 0.59f, 0.98f, 0.67f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.26f, 0.59f, 0.98f, 0.67f));
+		}
+
+		bool res = ImGui::Button(label, sizeArg);
+
+		if (selected)
+		{
+			ImGui::PopStyleColor(3);
+		}
+
+		return res;
 	}
 
 	bool ImGuiBorderedButton(const char* label, const ImVec2& size)
@@ -1085,7 +1098,7 @@ namespace Skore
 		// Calculate the positions for the entire widget
 		const float labelWidth = show_label ? ImGui::CalcTextSize(label).x : 0.0f;
 		const float sliderWidth = 200.0f;
-		const float valueWidth = 40.0f;
+		const float valueWidth = 60.0f;
 		const float spacing = 10.0f;
 		const float height = 6.0f; // Thin slider track
 

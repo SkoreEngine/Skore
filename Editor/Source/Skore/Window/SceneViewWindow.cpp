@@ -63,6 +63,7 @@ namespace Skore
 		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
 
 		bool openSceneOptions = false;
+		bool openCameraOptions = false;
 
 		ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar;
 		auto&            style = ImGui::GetStyle();
@@ -76,7 +77,7 @@ namespace Skore
 		ImGuiBegin(id, ICON_FA_BORDER_ALL " Scene Viewport", &open, flags);
 		{
 			bool   moving = ImGui::IsMouseDown(ImGuiMouseButton_Right);
-			bool   canChangeGuizmo = !moving && !ImGui::GetIO().WantCaptureKeyboard;
+			bool   canChangeOptions = !moving && !ImGui::GetIO().WantCaptureKeyboard;
 			bool   hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
 			ImVec2 size = ImGui::GetWindowSize();
 			ImVec2 initCursor = ImGui::GetCursorScreenPos();
@@ -91,27 +92,49 @@ namespace Skore
 				//ScopedStyleVar itemSpacing(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 				ImGui::BeginHorizontal("horizontal-sceneview-top", ImVec2(ImGui::GetContentRegionAvail().x, buttonSize.y));
 
-				if (ImGuiSelectionButton(ICON_FA_ARROW_POINTER, guizmoOperation == 0, buttonSize) || (canChangeGuizmo && ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_Q))))
+				if (ImGuiSelectionButton(ICON_FA_ARROW_POINTER, guizmoOperation == 0, buttonSize) || (canChangeOptions && ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_Q))))
 				{
 					guizmoOperation = 0;
 				}
 
 				if (ImGuiSelectionButton(ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, guizmoOperation == ImGuizmo::TRANSLATE, buttonSize)
-					|| (canChangeGuizmo && ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_W))))
+					|| (canChangeOptions && ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_W))))
 				{
 					guizmoOperation = ImGuizmo::TRANSLATE;
 				}
 
 				if (ImGuiSelectionButton(ICON_FA_ROTATE, guizmoOperation == ImGuizmo::ROTATE, buttonSize)
-					|| (canChangeGuizmo && ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_E))))
+					|| (canChangeOptions && ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_E))))
 				{
 					guizmoOperation = ImGuizmo::ROTATE;
 				}
 				if (ImGuiSelectionButton(ICON_FA_EXPAND, guizmoOperation == ImGuizmo::SCALE, buttonSize)
-					|| (canChangeGuizmo && ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_R))))
+					|| (canChangeOptions && ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_R))))
 				{
 					guizmoOperation = ImGuizmo::SCALE;
 				}
+
+
+				if (guizmoMode == 0)
+				{
+					if (ImGui::Button(ICON_FA_CUBE "###local", buttonSize) || (canChangeOptions && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_T))))
+					{
+						guizmoMode = 1;
+					}
+				}
+				else if (guizmoMode == 1)
+				{
+					if (ImGui::Button(ICON_FA_GLOBE "###global", buttonSize) || (canChangeOptions && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_T))))
+					{
+						guizmoMode = 0;
+					}
+				}
+
+				if (ImGuiSelectionButton(ICON_FA_MAGNET, guizmoSnapEnabled, buttonSize) || (canChangeOptions && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Y))))
+				{
+					guizmoSnapEnabled = !guizmoSnapEnabled;
+				}
+
 
 				if (ImGui::Button(ICON_FA_ELLIPSIS, buttonSize))
 				{
@@ -178,6 +201,11 @@ namespace Skore
 
 				ImGui::Spring(1.f);
 
+				if (ImGui::Button(ICON_FA_CAMERA, buttonSize))
+				{
+					openCameraOptions = true;
+				}
+
 				ImGui::EndHorizontal();
 
 				ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2);
@@ -222,8 +250,8 @@ namespace Skore
 
 			if (extent != sceneRendererViewport.GetExtent())
 			{
-				f32 aspect = static_cast<f32>(extent.width) / static_cast<f32>(extent.height);
-				projection = Math::Perspective(Math::Radians(60.0f), aspect, 0.1f, 300.0f);
+				aspectRatio = static_cast<f32>(extent.width) / static_cast<f32>(extent.height);
+				projection = Math::Perspective(Math::Radians(cameraFov), aspectRatio, 0.1f, 300.0f);
 
 				sceneRendererViewport.Resize(extent);
 
@@ -269,10 +297,17 @@ namespace Skore
 
 					static float snap[3] = {0.0f, 0.0f, 0.0f};
 
+					if (guizmoSnapEnabled)
+					{
+						snap[0] = guizmoSnap.x;
+						snap[1] = guizmoSnap.y;
+						snap[2] = guizmoSnap.z;
+					}
+
 					ImGuizmo::Manipulate(&view[0][0],
 					                     &projection[0][0],
 					                     static_cast<ImGuizmo::OPERATION>(guizmoOperation),
-					                     ImGuizmo::LOCAL,
+					                     static_cast<ImGuizmo::MODE>(guizmoMode),
 					                     &globalMatrix[0][0],
 					                     nullptr,
 					                     snap);
@@ -454,6 +489,57 @@ namespace Skore
 			//         }
 			//     }
 			// }
+		}
+		ImGuiEndPopupMenu(popupRes);
+
+
+		if (openCameraOptions)
+		{
+			ImGui::OpenPopup("camera-options-modal");
+		}
+
+		popupRes = ImGuiBeginPopupMenu("camera-options-modal", 0, false);
+		if (popupRes)
+		{
+			if (ImGui::BeginTable("table-camera-options-modal", 2, flags))
+			{
+				ImGui::TableSetupColumn("one", ImGuiTableColumnFlags_WidthFixed, 150 * style.ScaleFactor);
+				ImGui::TableSetupColumn("two", ImGuiTableColumnFlags_WidthFixed, 180 * style.ScaleFactor);
+
+				//field of view
+				ImGui::TableNextColumn();
+				ImGui::Text("Field of View");
+				ImGui::TableNextColumn();
+				ImGui::SetNextItemWidth(-1);
+				if (ImGui::SliderFloat("##fov", &cameraFov, 4.0f, 120.0f, "%.0f"))
+				{
+					projection = Math::Perspective(Math::Radians(cameraFov), aspectRatio, 0.1f, 300.0f);
+				}
+
+				//speed
+				ImGui::TableNextColumn();
+				ImGui::Text("Speed");
+				ImGui::TableNextColumn();
+				ImGui::SetNextItemWidth(-1);
+				ImGui::SliderFloat("##speed", &freeViewCamera.cameraSpeed,  1.f, 100.0f, "%.0f");
+
+
+				//enable smooth
+				ImGui::TableNextColumn();
+				ImGui::Text("Smooth Camera");
+				ImGui::TableNextColumn();
+				ImGui::SetNextItemWidth(-1);
+
+				bool checked = freeViewCamera.smoothingFactor > 0.0f;
+				if (ImGui::Checkbox("##smooth", &checked))
+				{
+					freeViewCamera.smoothingFactor = checked ? 0.7f : 0.0f;
+					freeViewCamera.movementSmoothingFactor = checked ? 0.85f : 0.0f;
+				}
+
+
+				ImGui::EndTable();
+			}
 		}
 		ImGuiEndPopupMenu(popupRes);
 

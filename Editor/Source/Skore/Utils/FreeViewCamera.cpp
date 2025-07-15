@@ -132,14 +132,4 @@ namespace Skore
 		up = {view[0][1], view[1][1], view[2][1]};
 		direction = {view[0][2], view[1][2], view[2][2]};
 	}
-	
-	void FreeViewCamera::SetSmoothingFactor(float factor)
-	{
-		smoothingFactor = Math::Clamp(factor, 0.0f, 0.95f);
-	}
-	
-	void FreeViewCamera::SetMovementSmoothingFactor(float factor)
-	{
-		movementSmoothingFactor = Math::Clamp(factor, 0.0f, 0.95f);
-	}
 }

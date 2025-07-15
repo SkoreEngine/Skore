@@ -64,16 +64,18 @@ namespace Skore
 		{
 			sensibility = p_sensibility;
 		}
-		
-		void SetSmoothingFactor(float factor);
-		void SetMovementSmoothingFactor(float factor);
+
+		// Mouse smoothing parameters
+		f32 smoothingFactor = 0.7f; // Higher value = more smoothing (0.0-0.95)
+		f32 movementSmoothingFactor = 0.85f;
+		f32 cameraSpeed = 10.0f;
 
 	private:
 		Vec3 position{0, 0, 0};
 		Quat rotation{0, 0, 0, 1};
 		Vec3 scale{1, 1, 1};
 
-		f32  cameraSpeed = 10.0f;
+
 		f32  yaw{};
 		f32  pitch{};
 		bool firstMouse = true;
@@ -84,13 +86,8 @@ namespace Skore
 		Mat4 view = Mat4(1.0);
 		float sensibility = 1.0f;
 		
-		// Mouse smoothing parameters
 		Vec2 previousMouseOffset{};
-		float smoothingFactor = 0.7f; // Higher value = more smoothing (0.0-0.95)
-		
-		// Movement smoothing parameters
 		Vec3 previousMovement{};
-		float movementSmoothingFactor = 0.85f;
 
 		void UpdateViewMatrix();
 	};

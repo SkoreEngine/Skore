@@ -823,17 +823,7 @@ namespace Skore
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
 		ResourceObject        windowObject = Resources::Read(projectBrowserWindow->windowObjectRID);
 
-		if (windowObject.GetSubObjectListCount(ProjectBrowserWindowData::SelectedItems) > 0)
-		{
-			windowObject.IterateSubObjectList(ProjectBrowserWindowData::SelectedItems, [](RID selected)
-			{
-				if (StringView absolutePath = ResourceAssets::GetAbsolutePath(selected); !absolutePath.Empty())
-				{
-					SDL_OpenURL(absolutePath.CStr());
-				}
-			});
-		}
-		else if (RID openDirectory = windowObject.GetReference(ProjectBrowserWindowData::OpenDirectory))
+		if (RID openDirectory = windowObject.GetReference(ProjectBrowserWindowData::OpenDirectory))
 		{
 			if (StringView absolutePath = ResourceAssets::GetAbsolutePath(ResourceAssets::GetAsset(openDirectory)); !absolutePath.Empty())
 			{
