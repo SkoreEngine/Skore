@@ -39,6 +39,7 @@
 #include "Skore/Core/Sinks.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Utils/ProjectUtils.hpp"
 #include "Window/ConsoleWindow.hpp"
 #include "Window/EntityTreeWindow.hpp"
 #include "Window/HistoryWindow.hpp"
@@ -279,6 +280,11 @@ namespace Skore
 			return debugOptionsEnabled;
 		}
 
+		void OpenProjectInEditorAction(const MenuItemEventData& eventData)
+		{
+			OpenProjectInEditor(projectPath);
+		}
+
 		void CreateMenuItems()
 		{
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "File", .priority = 0});
@@ -299,6 +305,7 @@ namespace Skore
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Editor Preferences...", .priority = 1000, .action = SettingsWindow::Open, .userData = GetTypeID<EditorPreferences>()});
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Project Settings...", .priority = 1010, .action = SettingsWindow::Open, .userData = GetTypeID<ProjectSettings>()});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Open Editor", .priority = 5, .action = OpenProjectInEditorAction});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .enable = CreateCMakeProjectEnabled});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Reload Shaders", .priority = 100, .itemShortcut = {.presKey = Key::F5}, .action = ReloadShaders});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Show Debug Options", .priority = 105, .action = ShowDebugOptions, .selected = IsDebugOptionsEnabled});

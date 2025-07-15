@@ -41,6 +41,7 @@
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Utils/ProjectUtils.hpp"
 
 namespace Skore
 {
@@ -158,7 +159,9 @@ namespace Skore
 		StaticContent::SaveFilesToDirectory("Assets", Path::Join(packagesPath, "Skore"));
 
 		if (templateId == 2)
-		{	}
+		{
+			CreateCMakeProject(projectPath);
+		}
 
 		FileSystem::SaveFileAsString(projectFile, "//TODO: Create project file");
 
