@@ -408,7 +408,21 @@ namespace Skore
 
 				if (RID selectedEntity = entityPicker.PickEntity(projection * view, sceneEditor, mousePos))
 				{
-					sceneEditor->SelectEntity(selectedEntity, !ctrlDown);
+					RID parentNoPrototype = Resources::GetParent(selectedEntity);
+
+					while (Resources::GetPrototype(Resources::GetParent(parentNoPrototype)))
+					{
+						parentNoPrototype = Resources::GetParent(parentNoPrototype);
+					}
+
+					if (sceneEditor->IsSelected(parentNoPrototype) || sceneEditor->IsSelected(selectedEntity))
+					{
+						sceneEditor->SelectEntity(selectedEntity, !ctrlDown);
+					}
+					else
+					{
+						sceneEditor->SelectEntity(parentNoPrototype, !ctrlDown);
+					}
 				}
 				else
 				{
