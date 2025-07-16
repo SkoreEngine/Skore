@@ -24,6 +24,7 @@
 #include "Skore/EditorCommon.hpp"
 #include "Skore/MenuItem.hpp"
 #include "Skore/Graphics/BasicSceneRenderer.hpp"
+#include "Skore/Utils/EntityPicker.hpp"
 #include "Skore/Utils/FreeViewCamera.hpp"
 
 
@@ -57,6 +58,7 @@ namespace Skore
 		Transform      gizmoInitialTransform = {};
 		Mat4           view{};
 		Mat4           projection{};
+		bool		   view2d = false;
 		f32            cameraFov = 60.f;
 		f32			   aspectRatio = 1.f;
 
@@ -66,6 +68,7 @@ namespace Skore
 		GPURenderPass* sceneRenderPass = nullptr;
 
 		SceneRendererViewport sceneRendererViewport = {};
+		EntityPicker entityPicker = {};
 
 		void RecordRenderCommands(GPUCommandBuffer* cmd);
 

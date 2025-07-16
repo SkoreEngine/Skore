@@ -87,6 +87,10 @@ namespace Skore
 		u32 height{};
 		u32 depth{};
 
+		constexpr Extent3D() = default;
+		constexpr Extent3D(u32 width, u32 height, u32 depth) : width(width), height(height), depth(depth) {}
+		constexpr Extent3D(const Extent& extent) : width(extent.width), height(extent.height), depth(1) {}
+
 		constexpr bool     operator<(const u32& b) const;
 		constexpr bool     operator>(const u32& b) const;
 		constexpr Extent3D operator*(const Extent3D& b) const;
@@ -1265,7 +1269,7 @@ namespace Skore
 
 	constexpr Extent3D Extent3D::operator*(const Extent3D& b) const
 	{
-		return {this->width * b.width, this->height * b.height, this->depth * b.depth};
+		return Extent3D{this->width * b.width, this->height * b.height, this->depth * b.depth};
 	}
 
 	constexpr Extent3D Extent3D::operator*(const u32& b) const

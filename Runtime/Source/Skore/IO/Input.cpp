@@ -143,7 +143,6 @@ namespace Skore
 	void InputOnEndFrame()
 	{
 		mouseRelativePosition = {};
-		mousePosition = {};
 		mouseMoved = false;
 
 		for (int i = 0; i < static_cast<u64>(Key::MAX); ++i)
@@ -310,7 +309,6 @@ namespace Skore
 		keyState = {};
 		prevKeyState = {};
 		prevMouseButtonState = {};
-		mousePosition = {};
 
 		MapKeys();
 

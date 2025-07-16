@@ -201,6 +201,21 @@ namespace Skore
 
 				ImGui::Spring(1.f);
 
+				// if (!view2d)
+				// {
+				// 	if (ImGui::Button("3D##3d-view", buttonSize))
+				// 	{
+				// 		view2d = true;
+				// 	}
+				// }
+				// else
+				// {
+				// 	if (ImGui::Button("2D##2d-view", buttonSize))
+				// 	{
+				// 		view2d = false;
+				// 	}
+				// }
+
 				if (ImGui::Button(ICON_FA_CAMERA, buttonSize))
 				{
 					openCameraOptions = true;
@@ -254,6 +269,7 @@ namespace Skore
 				projection = Math::Perspective(Math::Radians(cameraFov), aspectRatio, 0.1f, 300.0f);
 
 				sceneRendererViewport.Resize(extent);
+				entityPicker.Resize(extent);
 
 				if (sceneTexture)
 				{
@@ -295,7 +311,7 @@ namespace Skore
 				{
 					Mat4 globalMatrix = entity->GetGlobalTransform();
 
-					static float snap[3] = {0.0f, 0.0f, 0.0f};
+					float snap[3] = {0.0f, 0.0f, 0.0f};
 
 					if (guizmoSnapEnabled)
 					{
@@ -375,6 +391,28 @@ namespace Skore
 							}
 						}
 					}
+				}
+			}
+
+			Vec2 mousePos = Input::GetMousePosition() - Vec2{(f32)bb.x, (f32)bb.y};
+
+			bool isImgHovered = ImGui::IsMouseHoveringRect(ImVec2(bb.x, bb.y), ImVec2(bb.width, bb.height), false);
+
+			if (!windowStartedSimulation &&
+				!ImGuizmo::IsUsing() &&
+				isImgHovered &&
+				ImGui::IsWindowHovered() &&
+				ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			{
+				bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
+
+				if (RID selectedEntity = entityPicker.PickEntity(projection * view, sceneEditor, mousePos))
+				{
+					sceneEditor->SelectEntity(selectedEntity, !ctrlDown);
+				}
+				else
+				{
+					sceneEditor->ClearSelection();
 				}
 			}
 

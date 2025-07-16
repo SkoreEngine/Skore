@@ -629,6 +629,8 @@ namespace Skore
 
 			ImGuiStyle& style = ImGui::GetStyle();
 			ImGuiCreateDockSpace(dockSpaceId);
+			DrawMenu();
+
 			ProjectUpdate();
 			DrawConfirmDialogs();
 			InitDockSpace();
@@ -639,7 +641,6 @@ namespace Skore
 				ImGui::ShowDemoWindow(&showImGuiDemo);
 			}
 
-			DrawMenu();
 			ImGui::End();
 		}
 

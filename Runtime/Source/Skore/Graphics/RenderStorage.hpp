@@ -54,8 +54,9 @@ namespace Skore
 	};
 
 
-	struct MeshRenderData
+	struct SK_API MeshRenderData
 	{
+		u64 id;
 		MeshStorageData* mesh;
 		Array<GPUDescriptorSet*> overrideMaterials;
 
@@ -101,7 +102,7 @@ namespace Skore
 		virtual ~RenderStorage() = default;
 		RenderStorage() = default;
 
-		void RegisterStaticMeshProxy(VoidPtr owner);
+		void RegisterStaticMeshProxy(VoidPtr owner, u64 id);
 		void RemoveStaticMeshProxy(VoidPtr owner);
 		void SetStaticMeshTransform(VoidPtr owner, const Mat4& worldTransform);
 		void SetStaticMesh(VoidPtr owner, RID meshAsset);

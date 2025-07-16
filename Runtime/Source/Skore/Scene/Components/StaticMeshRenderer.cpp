@@ -34,7 +34,7 @@ namespace Skore
 	{
 		m_renderStorage = GetScene()->GetRenderStorage();
 
-		m_renderStorage->RegisterStaticMeshProxy(this);
+		m_renderStorage->RegisterStaticMeshProxy(this, entity->GetRID().id); //TODO -> change to another thing.
 		m_renderStorage->SetStaticMeshTransform(this, entity->GetGlobalTransform());
 		m_renderStorage->SetStaticMesh(this, m_mesh);
 		m_renderStorage->SetStaticMeshMaterials(this, CastRIDArray(m_materials));

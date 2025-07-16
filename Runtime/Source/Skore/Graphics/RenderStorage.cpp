@@ -362,13 +362,14 @@ namespace Skore
 		return nullptr;
 	}
 
-	void RenderStorage::RegisterStaticMeshProxy(VoidPtr owner)
+	void RenderStorage::RegisterStaticMeshProxy(VoidPtr owner, u64 id)
 	{
 		staticMeshes.emplace(owner, MeshRenderData{
-			               .mesh = {},
-			               .transform = {},
-			               .visible = true,
-		               });
+			                     .id = id,
+			                     .mesh = {},
+			                     .transform = {},
+			                     .visible = true,
+		                     });
 	}
 
 
