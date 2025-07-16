@@ -113,7 +113,7 @@ namespace Skore
 		CreateFromAsset(RID {});
 	}
 
-	void SceneEditor::CreateFromAsset(RID entityAsset, bool addOnSelected)
+	void SceneEditor::CreateFromAsset(RID entityAsset, bool addOnSelected, Vec3 position)
 	{
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Entity");
 		Span<RID> selectedEntities = GetSelectedEntities();
@@ -128,6 +128,9 @@ namespace Skore
 			if (!entityAsset)
 			{
 				RID transform = Resources::Create<Transform>(UUID::RandomUUID(), scope);
+				ResourceObject transformObject = Resources::Write(transform);
+				transformObject.SetVec3(Transform::Position, position);
+				transformObject.Commit(scope);
 
 				newEntity = Resources::Create<EntityResource>(UUID::RandomUUID(), scope);
 				ResourceObject newEntityObject = Resources::Write(newEntity);
@@ -138,9 +141,18 @@ namespace Skore
 			else
 			{
 				newEntity = Resources::CreateFromPrototype(entityAsset, UUID::RandomUUID(), scope);
-				//ResourceObject newEntityObject = Resources::Write(newEntity);
-				//newEntityObject.SetSubObject(EntityResource::Transform, transformRID);
-				//newEntityObject.Commit(scope);
+
+				if (position.x != 0.0f || position.y != 0.0f || position.z != 0.0f)
+				{
+					RID transform = Resources::Create<Transform>(UUID::RandomUUID(), scope);
+					ResourceObject transformObject = Resources::Write(transform);
+					transformObject.SetVec3(Transform::Position, position);
+					transformObject.Commit(scope);
+
+					ResourceObject newEntityObject = Resources::Write(newEntity);
+					newEntityObject.SetSubObject(EntityResource::Transform, transform);
+					newEntityObject.Commit(scope);
+				}
 			}
 
 			ResourceObject parentObject = Resources::Write(parent);

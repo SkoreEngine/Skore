@@ -22,38 +22,43 @@
 
 #pragma once
 
-#include <functional>
-
-#include "MenuItem.hpp"
-#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/Common.hpp"
+#include "Skore/Core/Math.hpp"
+#include "Skore/Graphics/Device.hpp"
 
 namespace Skore
 {
-	struct UndoRedoScope;
-	class EditorWorkspace;
-	typedef void (*FnConfirmCallback)(VoidPtr userdata);
+	class SceneEditor;
 
-	struct SK_API Editor
+	class SK_API SceneViewRenderer
 	{
-		static void             AddMenuItem(const MenuItemCreation& menuItem);
-		static void             OpenWindow(TypeID windowType, VoidPtr initUserData = nullptr);
-		static void             ShowConfirmDialog(StringView message, VoidPtr userData, FnConfirmCallback callback);
-		static void             ShowErrorDialog(StringView message);
-		static EditorWorkspace& GetCurrentWorkspace();
-		static UndoRedoScope*   CreateUndoRedoScope(StringView name);
-		static void             LockUndoRedo(bool lock);
-		static RID              GetProject();
-		static Span<RID>        GetPackages();
-		static RID              LoadPackage(StringView name, StringView directory);
-		static void				ExecuteOnMainThread(std::function<void()> func);
-		static bool				AnyWindowOfTypeHovered(TypeID windowType);
+	public:
 
-		static bool				DebugOptionsEnabled();
+		SceneViewRenderer() = default;
+		~SceneViewRenderer();
 
-		template <typename T>
-		static void OpenWindow(VoidPtr initUserData = nullptr)
-		{
-			OpenWindow(TypeInfo<T>::ID(), initUserData);
-		}
+		void Resize(Extent extent);
+		void Render(SceneEditor* sceneEditor, GPURenderPass* renderPass, GPUDescriptorSet* sceneDescriptorSet, GPUCommandBuffer* commads);
+		void Blit(SceneEditor* sceneEditor, GPURenderPass* renderPass, GPUDescriptorSet* sceneDescriptorSet, GPUCommandBuffer* commads);
+
+		bool drawGrid = true;
+		bool drawSelectionOutline = true;
+	private:
+		Extent currentExtent;
+
+		//selection outline
+		GPUTexture* maskTexture = nullptr;
+		GPURenderPass* maskRenderPass = nullptr;
+		GPUTexture* compositeMaskTexture = nullptr;
+		GPURenderPass* compositeMaskRenderPass = nullptr;
+		GPUPipeline* maskPipeline = nullptr;
+		GPUPipeline* compositeMaskPipeline = nullptr;
+		GPUDescriptorSet* maskDescriptorSet = nullptr;
+		GPUDescriptorSet* compositeMaskDescriptorSet = nullptr;
+
+		GPUPipeline* unlitPipeline = nullptr;
+
+		//infinite grid.
+		GPUPipeline* gridPipeline = nullptr;
 	};
 }

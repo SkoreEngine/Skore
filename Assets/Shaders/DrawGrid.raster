@@ -1,0 +1,131 @@
+// MIT License
+//
+// Copyright (c) 2025 Paulo Marangoni (Daethalus)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+//based on https://asliceofrendering.com/scene%20helper/2020/01/05/InfiniteGrid/
+
+cbuffer CameraBuffer
+{
+	matrix viewProjection;
+    matrix view;
+    matrix projection;
+    matrix viewInv;
+    matrix projectionInv;
+	float3 cameraPosition;
+	float  pad;
+};
+
+static const float3 gridPlane[6] = {
+    float3(1, 1, 0),
+    float3(-1, -1, 0),
+    float3(-1, 1, 0),
+    float3(-1, -1, 0),
+    float3(1, 1, 0),
+    float3(1, -1, 0)
+};
+
+struct VSOutput
+{
+    float4 position : SV_POSITION;
+    float3 nearPoint: TEXCOORD0;
+    float3 farPoint: TEXCOORD1;
+};
+
+float3 UnprojectPoint(float x, float y, float z)
+{
+    float4 unprojectedPoint = mul(viewInv, mul(projectionInv, float4(x, -y, z, 1.0)));
+    float3 result = unprojectedPoint.xyz / unprojectedPoint.w;
+    return result;
+}
+
+VSOutput MainVS(uint vertexId : SV_VertexID)
+{
+    float3 position = gridPlane[vertexId].xyz;
+
+    VSOutput output;
+    output.position = float4(position, 1.0);
+    output.nearPoint = UnprojectPoint(position.x, position.y, 0.0);
+    output.farPoint = UnprojectPoint(position.x, position.y, 1.0);
+    return output;
+}
+
+float4 Grid(float3 fragPos3D, float scale)
+{
+    float2 coord = fragPos3D.xz * scale; // use the scale variable to set the distance between the lines
+    float2 derivative = fwidth(coord);
+    float2 grid = abs(frac(coord - 0.5) - 0.5) / derivative;
+    float lineValue = min(grid.x, grid.y);
+    float minimumz = min(derivative.y, 1);
+    float minimumx = min(derivative.x, 1);
+    float4 color = float4(0.2, 0.2, 0.2, 1.0 - min(lineValue, 1.0));
+    // z axis
+    if(fragPos3D.x > -0.1 * minimumx && fragPos3D.x < 0.1 * minimumx)
+    {
+        color.z = 1.0;
+    }
+    if(fragPos3D.z > -0.1 * minimumz && fragPos3D.z < 0.1 * minimumz)
+    {
+        color.x = 1.0;
+    }
+    return color;
+}
+
+float ComputeDepth(float3 pos)
+{
+    float4 clip_space_pos = mul(projection, mul(view, float4(pos.xyz, 1.0)));
+    return (clip_space_pos.z / clip_space_pos.w);
+}
+
+float ComputeLinearDepth(float3 pos)
+{
+    //TODO - get from camera buffer
+    float near = 0.1;
+    float far = 300;
+
+    float4 clip_space_pos = mul(projection, mul(view, float4(pos.xyz, 1.0)));
+    float clip_space_depth = (clip_space_pos.z / clip_space_pos.w) * 2.0 - 1.0; // put back between -1 and 1
+    float linearDepth = (2.0 * near * far) / (far + near - clip_space_depth * (far - near)); // get linear value between 0.01 and 100
+    return linearDepth / far; // normalize
+}
+
+
+struct PSOutput
+{
+    float4 color : SV_Target0;
+    float depth  : SV_Depth;
+};
+
+PSOutput MainPS(VSOutput input)
+{
+    float t = -input.nearPoint.y / (input.farPoint.y - input.nearPoint.y);
+    float3 fragPos3D = input.nearPoint + t * (input.farPoint - input.nearPoint);
+    float4 color = Grid(fragPos3D, 2);
+
+    float linearDepth = ComputeLinearDepth(fragPos3D);
+    float fading = max(0, (0.4 - linearDepth));
+
+    PSOutput output;
+    output.color = color * float(t > 0) * fading;
+    output.depth = ComputeDepth(fragPos3D);
+
+    return output;
+}

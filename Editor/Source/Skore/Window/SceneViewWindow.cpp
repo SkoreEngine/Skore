@@ -31,6 +31,7 @@
 #include "Skore/IO/Input.hpp"
 #include "ImGuizmo.h"
 #include "imgui_internal.h"
+#include "Skore/Events.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Scene/Entity.hpp"
@@ -76,9 +77,9 @@ namespace Skore
 
 		ImGuiBegin(id, ICON_FA_BORDER_ALL " Scene Viewport", &open, flags);
 		{
-			bool   moving = ImGui::IsMouseDown(ImGuiMouseButton_Right);
-			bool   canChangeOptions = !moving && !ImGui::GetIO().WantCaptureKeyboard;
-			bool   hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+			const bool moving = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+			const bool canChangeOptions = !moving && !ImGui::GetIO().WantCaptureKeyboard;
+
 			ImVec2 size = ImGui::GetWindowSize();
 			ImVec2 initCursor = ImGui::GetCursorScreenPos();
 			ImVec2 buttonSize = ImVec2(25 * style.ScaleFactor, 22 * style.ScaleFactor);
@@ -135,6 +136,11 @@ namespace Skore
 					guizmoSnapEnabled = !guizmoSnapEnabled;
 				}
 
+				if (ImGuiSelectionButton(ICON_FA_TABLE_CELLS, sceneViewRenderer.drawGrid, buttonSize) || (canChangeOptions && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_G))))
+				{
+					sceneViewRenderer.drawGrid = !sceneViewRenderer.drawGrid;
+				}
+
 
 				if (ImGui::Button(ICON_FA_ELLIPSIS, buttonSize))
 				{
@@ -179,7 +185,7 @@ namespace Skore
 					ImGui::PopStyleColor();
 				}
 
-				ImGui::BeginDisabled(sceneEditor && !sceneEditor->IsSimulationRunning()|| !windowStartedSimulation);
+				ImGui::BeginDisabled(sceneEditor && !sceneEditor->IsSimulationRunning() || !windowStartedSimulation);
 
 				if (isSimulating)
 				{
@@ -270,6 +276,7 @@ namespace Skore
 
 				sceneRendererViewport.Resize(extent);
 				entityPicker.Resize(extent);
+				sceneViewRenderer.Resize(extent);
 
 				if (sceneTexture)
 				{
@@ -293,6 +300,13 @@ namespace Skore
 						AttachmentDesc{
 							.texture = sceneTexture,
 							.finalState = ResourceState::ColorAttachment,
+						},
+						AttachmentDesc{
+							.texture = sceneRendererViewport.GetDepthTexture(),
+							.initialState = ResourceState::DepthStencilReadOnly,
+							.finalState = ResourceState::DepthStencilAttachment,
+							.loadOp = AttachmentLoadOp::Load,
+							.storeOp = AttachmentStoreOp::Store,
 						}
 					}
 				});
@@ -356,7 +370,7 @@ namespace Skore
 					return false;
 				};
 
-				for (RID selectedEntity: sceneEditor->GetSelectedEntities())
+				for (RID selectedEntity : sceneEditor->GetSelectedEntities())
 				{
 					if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByRID(selectedEntity))
 					{
@@ -446,7 +460,9 @@ namespace Skore
 			// for (float y = fmodf(scrolling.y, GRID_STEP); y < canvas_sz.y; y += GRID_STEP)
 			// 	draw_list->AddLine(ImVec2(canvas_p0.x, canvas_p0.y + y), ImVec2(canvas_p1.x, canvas_p0.y + y), IM_COL32(200, 200, 200, 40));
 
-			if (sceneEditor)
+			bool previewRendered = false;
+
+			if (sceneEditor && !windowStartedSimulation)
 			{
 				if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
 				{
@@ -472,15 +488,46 @@ namespace Skore
 
 							if (assetType && ImGui::BeginDragDropTargetCustom(ImRect(bb.x + pad, bb.y + pad, bb.width - pad, bb.height - pad), id))
 							{
-								if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+								previewRendered = true;
+								if (previewEntity == nullptr)
 								{
-									sceneEditor->CreateFromAsset(assetType, false);
+									previewEntity = sceneEditor->GetCurrentScene()->GetRootEntity()->CreateChildFromAsset(assetType);
+								}
+
+								f32 x = (2.0f * mousePos.x) / extent.width - 1.0f;
+								f32 y = 1.0f - (2.0f * mousePos.y) / extent.height;
+								Vec4 rayNDC = Vec4(x, y, -1.0f, 1.0f);
+
+								Mat4 inverseVP = Math::Inverse(projection * view);
+								Vec4 rayWorld = inverseVP * rayNDC;
+								rayWorld /= rayWorld.w;
+
+								Vec3 cameraPos = freeViewCamera.GetPosition();
+								Vec3 rayDirection = Math::Normalize(Vec3(rayWorld) - cameraPos);
+								float t = -cameraPos.y / rayDirection.y;
+
+								Vec3 entityPos = Vec3(cameraPos.x + t * rayDirection.x, 0, cameraPos.z + t * rayDirection.z);
+
+								if (previewEntity)
+								{
+									previewEntity->SetPosition(entityPos);
+								}
+
+								if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD, ImGuiDragDropFlags_AcceptNoDrawDefaultRect | ImGuiDragDropFlags_AcceptNoPreviewTooltip))
+								{
+									sceneEditor->CreateFromAsset(assetType, false, entityPos);
 								}
 								ImGui::EndDragDropTarget();
 							}
 						}
 					}
 				}
+			}
+
+			if (!previewRendered && previewEntity)
+			{
+				previewEntity->DestroyImmediate();
+				previewEntity = nullptr;
 			}
 		}
 
@@ -573,7 +620,7 @@ namespace Skore
 				ImGui::Text("Speed");
 				ImGui::TableNextColumn();
 				ImGui::SetNextItemWidth(-1);
-				ImGui::SliderFloat("##speed", &freeViewCamera.cameraSpeed,  1.f, 100.0f, "%.0f");
+				ImGui::SliderFloat("##speed", &freeViewCamera.cameraSpeed, 1.f, 100.0f, "%.0f");
 
 
 				//enable smooth
@@ -628,6 +675,7 @@ namespace Skore
 
 		sceneRendererViewport.SetCamera(0.1f, 300.0f, view, projection, freeViewCamera.GetPosition());
 		sceneRendererViewport.Render(storage, cmd);
+		sceneViewRenderer.Render(sceneEditor, sceneRenderPass, sceneRendererViewport.GetSceneDescriptorSet(), cmd);
 
 		cmd->BeginRenderPass(sceneRenderPass, Vec4(0.27f, 0.27f, 0.27f, 1.0f), 1, 0);
 
@@ -644,6 +692,7 @@ namespace Skore
 		cmd->SetScissor({0, 0}, sceneExtent);
 
 		sceneRendererViewport.Blit(sceneRenderPass, cmd);
+		sceneViewRenderer.Blit(sceneEditor, sceneRenderPass, sceneRendererViewport.GetSceneDescriptorSet(), cmd);
 
 		cmd->EndRenderPass();
 

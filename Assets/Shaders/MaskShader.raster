@@ -1,0 +1,117 @@
+// MIT License
+//
+// Copyright (c) 2025 Paulo Marangoni (Daethalus)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+
+struct TextureInfo {
+    float4 textureSize;
+};
+
+[[vk::push_constant]] TextureInfo textureInfo;
+
+struct VertexOutput {
+    float4 position : SV_Position;
+    float2 uv : TEXCOORD0;
+    float2 textureSize : TEXCOORD1;
+    float2 uv0 : TEXCOORD2;
+    float2 uv1 : TEXCOORD3;
+    float2 uv2 : TEXCOORD4;
+    float2 uv3 : TEXCOORD5;
+    float2 uv4 : TEXCOORD6;
+    float2 uv5 : TEXCOORD7;
+    float2 uv6 : TEXCOORD8;
+    float2 uv7 : TEXCOORD9;
+    float2 uv8 : TEXCOORD10;
+};
+
+VertexOutput MainVS(uint vertexIndex : SV_VertexID)
+{
+    VertexOutput output;
+    output.uv = float2((vertexIndex << 1) & 2, vertexIndex & 2);
+    output.textureSize = float2(textureInfo.textureSize.x, textureInfo.textureSize.y);
+
+    float2 dx = float2(textureInfo.textureSize.x, 0.0f);
+    float2 dy = float2(0.0f, textureInfo.textureSize.y);
+
+    output.uv0 = output.uv;
+    output.uv1 = output.uv + dx;
+    output.uv2 = output.uv - dx;
+    output.uv3 = output.uv + dy;
+    output.uv4 = output.uv - dy;
+    output.uv5 = output.uv + dx + dy;
+    output.uv6 = output.uv + dx - dy;
+    output.uv7 = output.uv - dx + dy;
+    output.uv8 = output.uv - dx - dy;
+
+    output.position = float4(output.uv * 2.0f - 1.0f, 0.0f, 1.0f);
+
+    return output;
+}
+
+SamplerState samplerState : register(s0);
+Texture2D maskTexture     : register(t1);
+
+float ScreenDistance(float2 v, float2 textureSize)
+{
+    float ratio = textureSize.x / textureSize.y;
+    v.x /= ratio;
+    return dot(v, v);
+}
+
+void BoundsCheck(inout float2 xy, float2 uv)
+{
+    if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f)
+    {
+        xy = float2(1000.0f, 1000.0f);
+    }
+}
+
+float4 MainPS(VertexOutput input) : SV_TARGET
+{
+    float2 uvArray[9] = {
+        input.uv0, input.uv1, input.uv2, input.uv3, input.uv4,
+        input.uv5, input.uv6, input.uv7, input.uv8
+    };
+
+    float4 pixel = maskTexture.Sample(samplerState, uvArray[0]);
+
+    for (int j = 1; j <= 8; j++)
+    {
+        // Sample neighbouring pixel and make sure it's
+        // on the same side as us
+        float4 n = maskTexture.Sample(samplerState, uvArray[j]);
+        if (n.w != pixel.w)
+        {
+            n.xyz = float3(0.0f, 0.0f, 0.0f);
+        }
+        n.xy += uvArray[j] - uvArray[0];
+        // Invalidate out of bounds neighbours
+        BoundsCheck(n.xy, uvArray[j]);
+        float dist = ScreenDistance(n.xy, input.textureSize);
+        if (dist < pixel.z)
+        {
+            pixel.xyz = float3(n.xy, dist);
+        }
+    }
+
+    return pixel;
+}

@@ -70,9 +70,13 @@ namespace Skore
 		return entity;
 	}
 
-	void Entity::Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid)
+	void Entity::Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid, bool instanceOfAsset)
 	{
-		entity->m_rid = rid;
+		if (instanceOfAsset)
+		{
+			entity->m_rid = rid;
+		}
+
 		entity->m_scene = scene;
 		entity->m_parent = parent;
 
@@ -84,7 +88,7 @@ namespace Skore
 
 		if (rid)
 		{
-			if (scene->IsResourceSyncEnabled())
+			if (instanceOfAsset && scene->IsResourceSyncEnabled())
 			{
 				Resources::GetStorage(rid)->RegisterEvent(ResourceEventType::Changed, OnEntityResourceChange, entity);
 				scene->m_entities.Insert(rid, entity);
@@ -101,7 +105,7 @@ namespace Skore
 					Resources::FromResource(transform, &entity->m_transform, entity);
 					entity->UpdateTransform();
 
-					if (entity->m_scene->IsResourceSyncEnabled())
+					if (instanceOfAsset && entity->m_scene->IsResourceSyncEnabled())
 					{
 						Resources::GetStorage(entity->m_transformRID)->RegisterEvent(ResourceEventType::VersionUpdated, OnTransformResourceChange, entity);
 					}
@@ -254,6 +258,8 @@ namespace Skore
 
 	Entity* Entity::CreateChildFromAsset(RID rid)
 	{
+		//TODO: this should create a "clone"from rid, not an instance of it.
+
 		Entity* child = Instantiate(m_scene, this, rid);
 		m_children.EmplaceBack(child);
 		return child;
@@ -275,13 +281,17 @@ namespace Skore
 
 		Component* component = reflectType->NewObject()->SafeCast<Component>();
 		component->entity = this;
-		component->m_rid = rid;
+
+		if (m_rid)
+		{
+			component->m_rid = rid;
+		}
 
 		if (rid)
 		{
 			Resources::FromResource(rid, component, this);
 
-			if (m_scene->IsResourceSyncEnabled())
+			if (component->m_rid && m_scene->IsResourceSyncEnabled())
 			{
 				Resources::GetStorage(component->m_rid)->RegisterEvent(ResourceEventType::VersionUpdated, OnComponentResourceChange, component);
 			}
@@ -300,6 +310,18 @@ namespace Skore
 		return component;
 	}
 
+	Component* Entity::GetComponent(TypeID typeId) const
+	{
+		for (int i = 0; i < m_components.Size(); ++i)
+		{
+			if (m_components[i]->GetTypeId() == typeId)
+			{
+				return m_components[i];
+			}
+		}
+		return nullptr;
+	}
+
 	void Entity::RemoveComponent(Component* component)
 	{
 		for (int i = 0; i < m_components.Size(); ++i)
@@ -313,10 +335,14 @@ namespace Skore
 		}
 	}
 
-
 	void Entity::Destroy()
 	{
 		m_scene->m_queueToDestroy.Enqueue(this);
+	}
+
+	void Entity::DestroyImmediate()
+	{
+		DestroyInternal(true);
 	}
 
 	void Entity::NotifyEvent(const EntityEventDesc& event, bool notifyChildren)

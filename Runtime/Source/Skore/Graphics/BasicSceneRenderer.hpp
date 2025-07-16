@@ -41,8 +41,10 @@ namespace Skore
 		void Init();
 
 		void Resize(Extent extent);
-
 		Extent GetExtent() const;
+
+		GPUTexture*       GetDepthTexture() const;
+		GPUDescriptorSet* GetSceneDescriptorSet() const;
 
 		void SetCamera(f32 nearClip, f32 farClip, const Mat4& view, const Mat4& projection, Vec3 cameraPosition);
 		void Render(RenderStorage* storage, GPUCommandBuffer* commandBuffer);

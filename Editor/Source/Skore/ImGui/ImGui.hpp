@@ -197,6 +197,7 @@ namespace Skore
 	SK_API void ImGuiCreateDockSpace(ImGuiID dockSpaceId);
 	SK_API bool ImGuiBegin(u32 id, const char* name, bool* pOpen, ImGuiWindowFlags flags = 0);
 	SK_API bool ImGuiBeginFullscreen(uint32_t id, bool* pOpen = nullptr, ImGuiWindowFlags flags = 0);
+	SK_API u32  ImGuiHoveredWindowId();
 	SK_API void ImGuiDockBuilderReset(ImGuiID dockSpaceId);
 	SK_API void ImGuiDockBuilderDockWindow(ImGuiID windowId, ImGuiID nodeId);
 	SK_API bool ImGuiInputText(u32 idx, String& string, ImGuiInputTextFlags flags = 0, ImGuiInputTextExtraFlags extraFlags = ImGuiInputTextExtraFlags_None);

@@ -20,9 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "Materials.hlsli"
-#include "Lights.hlsli"
-
 
 cbuffer CameraBuffer
 {
@@ -53,58 +50,27 @@ struct VertexInput
 
 struct PixelInput
 {
-	float4 position 	: SV_POSITION;	
-	float3 normal 		: NORMAL;
+	float4 position 	: SV_POSITION;
 	float2 texCoord 	: TEXCOORD0;
 	float3 color 		: COLOR;
-	float3x3 TBN    	: TBN1;
-	float3 worldPos 	: POSITION1;
-	float3 viewPos		: POSITION2;
-    float3 fragViewPos 	: POSITION3;
 };
 
 // Vertex Shader
 PixelInput MainVS(VertexInput input)
 {
-	PixelInput output;
-
-	// Transform the position from object space to clip space
+    PixelInput output;
+    // Transform the position from object space to clip space
 	float4 worldPosition = mul(pushConstants.world, float4(input.position, 1.0f));
 	output.position 	 = mul(viewProjection, worldPosition);
-	output.worldPos 	 = worldPosition.xyz;
+	output.texCoord      = input.texCoord;
+    output.color         = input.color;
 
-	// Pass texture coordinates through
-	output.texCoord = input.texCoord;
-
-	// Transform normal to world space
-	float3x3 normalMat 	= (float3x3)pushConstants.world;
-	output.normal 		= normalize(mul(normalMat, input.normal.xyz));
-	
-	float4 tangent  = float4(normalize(mul(normalMat, input.tangent.xyz)), input.tangent.w);
-	float3 binormal = tangent.w * cross(output.normal, tangent.xyz);
-	output.TBN 		= transpose(float3x3(tangent.xyz, binormal, output.normal));
-
-	output.color = input.color;	
-	output.viewPos = cameraPosition;
-    output.fragViewPos  = mul(view, worldPosition).xyz;
-
-	return output;
+    return output;
 }
 
 // Pixel Shader
 float4 MainPS(PixelInput input) : SV_TARGET
 {
-	MaterialSample material = SampleMaterial(input.texCoord, input.normal, input.TBN);
-
-	LightPixelData lightData;	
-	lightData.baseColor 	= material.baseColor * input.color;
-	lightData.normal 		= material.normal;
-	lightData.roughness 	= material.roughness;
-	lightData.metallic 		= material.metallic;
-	lightData.viewPos 		= input.viewPos;
-	lightData.fragViewPos 	= input.fragViewPos;
-	lightData.worldPos 		= input.worldPos;
-
-	float3 color = SampleLights(lightData);
-	return float4(color, material.alpha);
+    //TODO - get baseColor texture
+    return float(1.0);
 }

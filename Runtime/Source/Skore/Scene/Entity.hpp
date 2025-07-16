@@ -60,11 +60,13 @@ namespace Skore
 		Component* AddComponent(TypeID typeId);
 		Component* AddComponent(ReflectType* reflectType);
 		Component* AddComponent(ReflectType* reflectType, RID rid);
+		Component* GetComponent(TypeID typeId) const;
 		void RemoveComponent(Component* component);
 
 		void NotifyEvent(const EntityEventDesc& event, bool notifyChildren = false);
 
 		void Destroy();
+		void DestroyImmediate();
 
 		SK_FINLINE void SetPosition(const Vec3& position)
 		{
@@ -133,13 +135,12 @@ namespace Skore
 			return Math::Translate(Mat4{1.0}, m_transform.position) * Math::ToMatrix4(m_transform.rotation) * Math::Scale(Mat4{1.0}, m_transform.scale);
 		}
 
-		// template <typename... Args>
-		// static Entity* Instantiate(Args&&... args)
-		// {
-		// 	Entity* entity = static_cast<Entity*>(MemAlloc(sizeof(Entity)));
-		// 	new(PlaceHolder{}, entity) Entity(Traits::Forward<Args>(args)...);
-		// 	return entity;
-		// }
+
+		template<typename T>
+		T* GetComponent() const
+		{
+			return static_cast<T*>(GetComponent(TypeInfo<T>::ID()));
+		}
 
 		static Entity* Instantiate(Scene* scene);
 		static Entity* Instantiate(Scene* scene, RID rid);
@@ -151,7 +152,9 @@ namespace Skore
 	private:
 		Entity() = default;
 
-		static void Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid);
+		//bool instanceOfAsset = true means it's a instance of RID
+		//bool instanceOfAsset = false means it's just a new entity, cloning the RID. (but no reference with the original)
+		static void Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid, bool instanceOfAsset = true);
 
 		String m_name = {};
 		RID m_rid = {};

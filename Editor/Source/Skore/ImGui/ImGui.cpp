@@ -53,6 +53,8 @@ namespace Skore
 		usize                     renamingItem = 0;
 		Array<ImGuiFieldRenderer> fieldRenderers;
 		Logger&                   logger = Logger::GetLogger("Skore::ImGui");
+		u32                       hoveredWindowId = 0;
+		u32						  nextHoveredWindowId = 0;
 
 		struct InputTextCallback_UserData
 		{
@@ -486,6 +488,9 @@ namespace Skore
 
 	void ImGuiNewFrame()
 	{
+		hoveredWindowId = nextHoveredWindowId;
+		nextHoveredWindowId = 0;
+
 		switch (Graphics::GetAPI())
 		{
 			case GraphicsAPI::Vulkan:
@@ -598,9 +603,9 @@ namespace Skore
 		char str[100];
 		sprintf(str, "%s###%d", name, id);
 		bool open = ImGui::Begin(str, pOpen, flags);
-		if (open && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
+		if (open && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByPopup | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
 		{
-			//hoveredWindowId = id;
+			nextHoveredWindowId = id;
 		}
 		return open;
 	}
@@ -625,6 +630,11 @@ namespace Skore
 		ImGui::PopStyleVar(); //ImGuiStyleVar_WindowBorderSize
 
 		return open;
+	}
+
+	u32 ImGuiHoveredWindowId()
+	{
+		return hoveredWindowId;
 	}
 
 	void ImGuiDockBuilderReset(ImGuiID dockSpaceId)

@@ -576,15 +576,17 @@ namespace Skore
 		u32           size{};
 	};
 
+
+
 	struct BlendStateDesc
 	{
 		bool        blendEnable{false};
-		BlendFactor srcColorBlendFactor{BlendFactor::One};
-		BlendFactor dstColorBlendFactor{BlendFactor::Zero};
+		BlendFactor srcColorBlendFactor{BlendFactor::SrcAlpha};
+		BlendFactor dstColorBlendFactor{BlendFactor::OneMinusSrcAlpha};
 		BlendOp     colorBlendOp{BlendOp::Add};
 		BlendFactor srcAlphaBlendFactor{BlendFactor::One};
 		BlendFactor dstAlphaBlendFactor{BlendFactor::Zero};
-		BlendOp     alphaBlendOp{BlendOp::Add};
+		BlendOp     alphaBlendOp{BlendOp::Max};
 		ColorMask   colorWriteMask{ColorMask::All};
 	};
 

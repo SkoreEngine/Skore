@@ -32,6 +32,8 @@ namespace Skore
 		Mat4 viewProjection;
 		Mat4 view;
 		Mat4 projection;
+		Mat4 viewInv;
+		Mat4 projectionInv;
 		Vec3 cameraPosition;
 		f32 _pad;
 	};
@@ -323,6 +325,16 @@ namespace Skore
 		return m_extent;
 	}
 
+	GPUTexture* SceneRendererViewport::GetDepthTexture() const
+	{
+		return depthTexture;
+	}
+
+	GPUDescriptorSet* SceneRendererViewport::GetSceneDescriptorSet() const
+	{
+		return descriptorSet;
+	}
+
 	void SceneRendererViewport::SetCamera(f32 nearClip, f32 farClip, const Mat4& view, const Mat4& projection, Vec3 cameraPosition)
 	{
 		m_view = view;
@@ -416,6 +428,8 @@ namespace Skore
 			.viewProjection = viewProjection,
 			.view = m_view,
 			.projection = m_projection,
+			.viewInv = Math::Inverse(m_view),
+			.projectionInv = Math::Inverse(m_projection),
 			.cameraPosition = m_cameraPosition
 		};
 
@@ -606,6 +620,7 @@ namespace Skore
 		cmd->EndRenderPass();
 		cmd->EndDebugMarker();
 		cmd->ResourceBarrier(attachmentTexture, ResourceState::ColorAttachment, ResourceState::ShaderReadOnly, 0, 0);
+		cmd->ResourceBarrier(depthTexture, ResourceState::DepthStencilAttachment, ResourceState::DepthStencilReadOnly, 0, 0);
 	}
 
 	void SceneRendererViewport::Blit(GPURenderPass* renderPass, GPUCommandBuffer* cmd)

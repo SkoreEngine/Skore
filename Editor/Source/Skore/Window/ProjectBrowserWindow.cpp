@@ -22,6 +22,7 @@
 
 #include "ProjectBrowserWindow.hpp"
 
+#include "SceneViewWindow.hpp"
 #include "SDL3/SDL.h"
 #include "Skore/Editor.hpp"
 #include "Skore/EditorWorkspace.hpp"
@@ -528,7 +529,6 @@ namespace Skore
 								// 	ImGui::Separator();
 								// 	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 16.f * style.ScaleFactor);
 								// }
-
 
 								if (ImGui::BeginTable("table-asset-info", 2, ImGuiTableFlags_SizingFixedFit))
 								{

@@ -743,6 +743,23 @@ namespace Skore
 		funcs.Enqueue(func);
 	}
 
+	bool Editor::AnyWindowOfTypeHovered(TypeID windowType)
+	{
+		logger.Info("Hovered window on AnyWindowOfTypeHovered {}", ImGuiHoveredWindowId());
+
+		for (const OpenWindowStorage& openWindow : openWindows)
+		{
+			if (openWindow.reflectType->GetProps().typeId == windowType)
+			{
+				if (openWindow.id == ImGuiHoveredWindowId())
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	bool Editor::DebugOptionsEnabled()
 	{
 		return debugOptionsEnabled;

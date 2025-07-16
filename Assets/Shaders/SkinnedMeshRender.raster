@@ -29,6 +29,8 @@ cbuffer CameraBuffer
 	matrix viewProjection;
     matrix view;
     matrix projection;
+    matrix viewInv;
+    matrix projectionInv;
 	float3 cameraPosition;
 	float  pad;
 };
