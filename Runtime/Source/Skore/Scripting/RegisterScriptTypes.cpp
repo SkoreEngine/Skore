@@ -20,49 +20,17 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
 
-#include "Core/Reflection.hpp"
+#include "PkPyScriptingEngine.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterResourceTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterGraphicsTypes();
-	void RegisterScriptTypes();
-
-	void RegisterTypes()
+	void RegisterScriptTypes()
 	{
-		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
-		}
-
-		{
-			GroupScope scope("Resources");
-			RegisterResourceTypes();
-		}
-
-		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
-		}
-
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
-
-		{
-			GroupScope scope("World");
-			RegisterSceneTypes();
-		}
-
-		{
-			GroupScope scope("Script");
-			RegisterScriptTypes();
-		}
+		Resources::Type<PkPyScriptResource>()
+			.Field<PkPyScriptResource::Name>(ResourceFieldType::String)
+			.Field<PkPyScriptResource::Source>(ResourceFieldType::String)
+			.Build();
 	}
 }

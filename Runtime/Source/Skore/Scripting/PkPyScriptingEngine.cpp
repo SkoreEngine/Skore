@@ -20,49 +20,48 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
+#include "pocketpy.h"
+#include "PkPyScriptingEngine.hpp"
 
-#include "Core/Reflection.hpp"
+#include "Skore/Core/Logger.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterResourceTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterGraphicsTypes();
-	void RegisterScriptTypes();
 
-	void RegisterTypes()
+	static Logger& logger = Logger::GetLogger("Skore: PkPyScriptingEngine");
+
+
+	void PkPyScriptResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
-		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
-		}
+		PkPyScriptingEngine::Execute(newValue.GetString(PkPyScriptResource::Source), newValue.GetString(PkPyScriptResource::Name));
+	}
 
-		{
-			GroupScope scope("Resources");
-			RegisterResourceTypes();
-		}
 
+	void PkPyScriptingEngine::Execute(StringView file, StringView name)
+	{
+		bool ok = py_exec(file.CStr(), name.CStr(), EXEC_MODE, NULL);
+		if (!ok)
 		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
-		}
-
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
-
-		{
-			GroupScope scope("World");
-			RegisterSceneTypes();
-		}
-
-		{
-			GroupScope scope("Script");
-			RegisterScriptTypes();
+			char* msg = py_formatexc();
+			logger.Error("Error executing script: {}", msg);
 		}
 	}
+
+
+	void PkPyScriptingEngineInit()
+	{
+		py_initialize();
+		//py_exec("print('Hello world!')", "<string>", EXEC_MODE, NULL);
+		Resources::FindType<PkPyScriptResource>()->RegisterEvent(PkPyScriptResourceChange, nullptr);
+
+	}
+
+	void PkPyScriptingEngineShutdown()
+	{
+		Resources::FindType<PkPyScriptResource>()->UnregisterEvent(PkPyScriptResourceChange, nullptr);
+		py_finalize();
+	}
+
+
 }

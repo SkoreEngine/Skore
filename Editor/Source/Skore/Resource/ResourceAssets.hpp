@@ -110,8 +110,10 @@ namespace Skore
 		virtual TypeID     GetResourceTypeId() = 0;
 		virtual StringView GetDesc() = 0;
 
-		virtual RID Load(RID asset, StringView absolutePath);
-		virtual RID Create(UUID uuid, UndoRedoScope* scope);
+		virtual RID  Load(RID asset, StringView absolutePath);
+		virtual void Save(RID object, StringView absolutePath);
+		virtual RID  Create(UUID uuid, UndoRedoScope* scope);
+		virtual void Reloaded(RID asset, StringView absolutePath);
 
 		virtual bool GetAssetName(RID rid, String& name)
 		{
@@ -177,5 +179,6 @@ namespace Skore
 		static String                GetAssetName(RID rid);
 		static String                GetAssetFullName(RID rid);
 		static UUID                  GetAssetUUID(RID rid);
+		static void					 WatchAsset(RID asset, StringView absolutePath);
 	};
 }

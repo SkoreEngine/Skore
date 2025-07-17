@@ -170,20 +170,20 @@ namespace Skore
     };
 
 
-    void FileWatcher::Watch(VoidPtr userData, const StringView& fileDir)
+    void FileWatcher::Watch(VoidPtr userData, const StringView& path)
     {
         if (internal)
         {
-            if (FileStatus fileStatus = FileSystem::GetFileStatus(fileDir); fileStatus.exists)
+            if (FileStatus fileStatus = FileSystem::GetFileStatus(path); fileStatus.exists)
             {
                 internal->newFiles.emplace(FileWatcherData{
-                    .path = fileDir,
+                    .path = path,
                     .userData = userData,
                     .isDirectory = fileStatus.isDirectory,
                     .lastModifiedTime = fileStatus.lastModifiedTime,
                     .fileId = fileStatus.fileId
                 });
-                logger.Debug("file {} added to watcher ", fileDir);
+                logger.Debug("file {} added to watcher ", path);
             }
         }
     }

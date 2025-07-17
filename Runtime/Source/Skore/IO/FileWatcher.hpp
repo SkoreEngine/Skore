@@ -38,7 +38,7 @@ namespace Skore
         void Stop();
         void Check();
 
-        void Watch(VoidPtr userData, const StringView& fileDir);
+        void Watch(VoidPtr userData, const StringView& path);
         void CheckForUpdates(FileWatcherCallbackFn watcherCallbackFn) const;
 
     private:

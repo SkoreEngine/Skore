@@ -45,6 +45,8 @@ namespace Skore
 	void ReflectionSetReadOnly(bool readOnly);
 	bool GraphicsInit(const AppConfig& appConfig);
 	void PhysicsInit();
+	void PkPyScriptingEngineInit();
+	void PkPyScriptingEngineShutdown();
 	void GraphicsShutdown();
 	bool GraphicsUpdate();
 	void ResourceInit();
@@ -138,6 +140,9 @@ namespace Skore
 		onShutdownHandler.Invoke();
 
 		GraphicsShutdown();
+
+		PkPyScriptingEngineShutdown();
+
 		ResourceShutdown();
 
 		SDL_Quit();
@@ -218,6 +223,7 @@ namespace Skore
 			return AppResult::Success;
 		}
 
+		PkPyScriptingEngineInit();
 		ReflectionSetReadOnly(true);
 		ResourceInit();
 

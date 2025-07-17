@@ -35,6 +35,7 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/FileTypes.hpp"
+#include "Skore/IO/FileWatcher.hpp"
 #include "Skore/IO/Path.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Resource/ResourceType.hpp"
@@ -61,6 +62,8 @@ namespace Skore
 		HashMap<String, ResourceAssetImporter*> importersByExtension;
 
 		Array<AssetsPendingImport> pendingImports;
+
+		FileWatcher fileWatcher;
 
 		Allocator* alloc = MemoryGlobals::GetHeapAllocator();
 
@@ -100,19 +103,6 @@ namespace Skore
 			RID    directory;
 			String absolutePath;
 		};
-
-		void SerializeAsset(StringView absolutePath, RID object)
-		{
-			YamlArchiveWriter writer;
-			Resources::Serialize(object, writer);
-			FileSystem::SaveFileAsString(absolutePath, writer.EmitAsString());
-
-			if (Span<u8> blobs = writer.GetBlobs(); !blobs.Empty())
-			{
-				String bufferPath = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath).Append(".buffer"));
-				FileSystem::SaveFileAsByteArray(bufferPath, blobs);
-			}
-		}
 	}
 
 	RID ResourceAssetHandler::Load(RID asset, StringView path)
@@ -131,12 +121,30 @@ namespace Skore
 		return Resources::Deserialize(reader);
 	}
 
+	void ResourceAssetHandler::Save(RID asset, StringView absolutePath)
+	{
+		YamlArchiveWriter writer;
+		Resources::Serialize(asset, writer);
+		FileSystem::SaveFileAsString(absolutePath, writer.EmitAsString());
+
+		if (Span<u8> blobs = writer.GetBlobs(); !blobs.Empty())
+		{
+			String bufferPath = Path::Join(Path::Parent(absolutePath), Path::Name(absolutePath).Append(".buffer"));
+			FileSystem::SaveFileAsByteArray(bufferPath, blobs);
+		}
+	}
+
 	RID ResourceAssetHandler::Create(UUID uuid, UndoRedoScope* scope)
 	{
 		RID asset = Resources::Create(GetResourceTypeId(), UUID::RandomUUID(), scope);
 		ResourceObject assetObject = Resources::Write(asset);
 		assetObject.Commit(scope);
 		return asset;
+	}
+
+	void ResourceAssetHandler::Reloaded(RID asset, StringView absolutePath)
+	{
+		//do nothing
 	}
 
 	RID ResourceAssets::ScanAssetsFromDirectory(StringView packageName, StringView packagePack)
@@ -332,7 +340,10 @@ namespace Skore
 				ResourceObject assetObject = Resources::Read(assetToUpdate.asset);
 				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
 				{
-					SerializeAsset(absolutePath, object);
+					if (auto it = handlersByTypeID.Find(Resources::GetType(object)->GetID()))
+					{
+						it->second->Save(object, absolutePath);
+					}
 				}
 
 				FileStatus status = FileSystem::GetFileStatus(absolutePath);
@@ -379,7 +390,10 @@ namespace Skore
 				ResourceObject assetObject = Resources::Read(assetToUpdate.asset);
 				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
 				{
-					SerializeAsset(absolutePath, object);
+					if (auto it = handlersByTypeID.Find(Resources::GetType(object)->GetID()))
+					{
+						it->second->Save(object, absolutePath);
+					}
 				}
 
 				FileStatus status = FileSystem::GetFileStatus(absolutePath);
@@ -982,6 +996,11 @@ namespace Skore
 		return Resources::GetUUID(rid);
 	}
 
+	void ResourceAssets::WatchAsset(RID asset, StringView absolutePath)
+	{
+		fileWatcher.Watch(IntToPtr(asset.id), absolutePath);
+	}
+
 	void ResourceAssetsUpdate()
 	{
 		//TODO : multithreading with task system :)
@@ -1007,6 +1026,19 @@ namespace Skore
 			}
 			pendingImports.Clear();
 		}
+
+
+		fileWatcher.CheckForUpdates([](const FileWatcherModified& modified)
+		{
+			RID asset = RID(PtrToInt(modified.userData));
+			if (ResourceAssetHandler* handler = ResourceAssets::GetAssetHandler(asset))
+			{
+				if (modified.event == FileNotifyEvent::Modified)
+				{
+					handler->Reloaded(asset, modified.path);
+				}
+			}
+		});
 	}
 
 	void ResourceAssetsShutdown()
@@ -1023,6 +1055,8 @@ namespace Skore
 
 		importersByExtension.Clear();
 		importers.Clear();
+
+		fileWatcher.Stop();
 	}
 
 
@@ -1069,6 +1103,8 @@ namespace Skore
 				}
 			}
 		}
+
+		fileWatcher.Start();
 	}
 
 	void OnUpdateAsset(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
@@ -1136,6 +1172,8 @@ namespace Skore
 	void RegisterMeshHandler();
 	void RegisterDCCAssetHandler();
 	void RegisterShaderHandler();
+	void RegisterPkPyHandler();
+
 	void RegisterTextureImporter();
 	void RegisterFBXImporter();
 	void RegisterObjImporter();
@@ -1184,6 +1222,8 @@ namespace Skore
 		RegisterMeshHandler();
 		RegisterDCCAssetHandler();
 		RegisterShaderHandler();
+		RegisterPkPyHandler();
+
 		RegisterTextureImporter();
 		RegisterFBXImporter();
 		RegisterObjImporter();

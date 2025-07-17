@@ -20,49 +20,22 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
+#pragma once
 
-#include "Core/Reflection.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterResourceTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterGraphicsTypes();
-	void RegisterScriptTypes();
-
-	void RegisterTypes()
+	struct PkPyScriptResource
 	{
+		enum
 		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
-		}
+			Name,		//String
+			Source,		//String
+		};
+	};
 
-		{
-			GroupScope scope("Resources");
-			RegisterResourceTypes();
-		}
-
-		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
-		}
-
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
-
-		{
-			GroupScope scope("World");
-			RegisterSceneTypes();
-		}
-
-		{
-			GroupScope scope("Script");
-			RegisterScriptTypes();
-		}
-	}
+	struct SK_API PkPyScriptingEngine
+	{
+		static void Execute(StringView file, StringView name);
+	};
 }
