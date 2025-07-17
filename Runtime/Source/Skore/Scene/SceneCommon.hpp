@@ -46,6 +46,15 @@ namespace Skore
 		constexpr static i32 EntityDeactivated = 101;
 
 		constexpr static i32 TransformUpdated = 1000;
+		constexpr static i32 CollectPhysicsShapes = 1100;
+
+	};
+
+	enum class EntityFlags : u64
+	{
+		None        = 0,
+		HasPhysics  = 1 << 0,
+		HasGraphics = 1 << 1
 	};
 
 	struct ComponentDesc

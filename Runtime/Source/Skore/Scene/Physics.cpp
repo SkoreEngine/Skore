@@ -39,6 +39,8 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
+#include "Components/RigidBody.hpp"
+#include "Jolt/Physics/Collision/Shape/StaticCompoundShape.h"
 #include "Skore/App.hpp"
 #include "Skore/Core/Math.hpp"
 
@@ -218,6 +220,95 @@ namespace Skore
 		DestroyAndFree(context);
 	}
 
+	void PhysicsScene::RegisterPhysicsEntity(Entity* entity)
+	{
+		static ShapeCollector collector;
+		collector.shapes.Clear();
+
+		EntityEventDesc eventDesc = {};
+		eventDesc.type = EntityEventType::CollectPhysicsShapes;
+		eventDesc.eventData = &collector;
+		entity->NotifyEvent(eventDesc, false);
+
+
+		if (!collector.shapes.Empty())
+        {
+            Array<JPH::RefConst<JPH::Shape>> arrShapes{};
+            bool                             isSensor = false;
+
+            for (BodyShapeBuilder& shape : collector.shapes)
+            {
+                SK_ASSERT(shape.bodyShape != BodyShapeType::None, "shape needs a body shape type");
+                switch (shape.bodyShape)
+                {
+                    case BodyShapeType::Box:
+                    {
+                        JPH::BoxShapeSettings boxShapeSettings(Cast(shape.size));
+                        boxShapeSettings.mDensity = shape.density;
+                        arrShapes.EmplaceBack(boxShapeSettings.Create().Get());
+                    }
+                    break;
+                }
+
+                if (shape.sensor)
+                {
+                    isSensor = true;
+                }
+            }
+
+            JPH::RefConst<JPH::Shape> finalShape;
+            if (arrShapes.Size() > 1)
+            {
+	            JPH::Ref compound = new JPH::StaticCompoundShapeSettings{};
+	            for (auto& shape : arrShapes)
+	            {
+		            compound->AddShape(JPH::Vec3Arg::sZero(), JPH::QuatArg::sIdentity(), shape);
+	            }
+                finalShape = compound->Create().Get();
+            }
+            else
+            {
+                finalShape = arrShapes[0];
+            }
+
+            JPH::ScaledShapeSettings scaledShapeSettings(finalShape, Cast(Math::GetScale(entity->GetGlobalTransform())));
+
+            JPH::BodyCreationSettings bodyCreationSettings{};
+            bodyCreationSettings.SetShape(scaledShapeSettings.Create().Get());
+            bodyCreationSettings.mPosition = Cast(Math::GetTranslation(entity->GetGlobalTransform()));
+            bodyCreationSettings.mRotation = Cast(Math::GetQuaternion(entity->GetGlobalTransform()));
+            bodyCreationSettings.mUserData = PtrToInt(entity);
+            bodyCreationSettings.mIsSensor = isSensor;
+
+            if (RigidBody* rigidBodyComponent = entity->GetComponent<RigidBody>())
+            {
+                bodyCreationSettings.mAllowDynamicOrKinematic = false;
+                bodyCreationSettings.mMotionType = !rigidBodyComponent->IsKinematic() ? JPH::EMotionType::Dynamic : JPH::EMotionType::Kinematic;
+                bodyCreationSettings.mObjectLayer = PhysicsLayers::MOVING;
+                bodyCreationSettings.mAllowedDOFs = JPH::EAllowedDOFs::All;
+                bodyCreationSettings.mUseManifoldReduction = true;
+                bodyCreationSettings.mMotionQuality = CastQuality(rigidBodyComponent->GetCollisionDetectionType());
+                bodyCreationSettings.mAllowSleeping = true;
+                bodyCreationSettings.mFriction = rigidBodyComponent->GetFriction();
+                bodyCreationSettings.mRestitution = rigidBodyComponent->GetRestitution();
+                bodyCreationSettings.mGravityFactor = rigidBodyComponent->GetGravityFactor();
+                bodyCreationSettings.mMassPropertiesOverride.mMass = rigidBodyComponent->GetMass();
+                bodyCreationSettings.mLinearVelocity = Cast(rigidBodyComponent->GetLinearVelocity());
+                bodyCreationSettings.mAngularVelocity = Cast(rigidBodyComponent->GetAngularVelocity());
+            }
+            else
+            {
+                bodyCreationSettings.mMotionType = JPH::EMotionType::Static;
+                bodyCreationSettings.mObjectLayer = PhysicsLayers::NON_MOVING;
+            }
+
+            JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+            JPH::BodyID id = bodyInterface.CreateAndAddBody(bodyCreationSettings, JPH::EActivation::Activate);
+
+            entity->m_physicsId = id.GetIndexAndSequenceNumber();
+        }
+	}
+
 	void PhysicsScene::OnUpdate()
 	{
 		const int collisionSteps = 1;
@@ -232,9 +323,36 @@ namespace Skore
 				&context->jobSystem);
 			context->accumulator -= context->stepSize;
 		}
+
+		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+		JPH::BodyIDVector outBodyIDs{};
+		context->physicsSystem.GetActiveBodies(JPH::EBodyType::RigidBody, outBodyIDs);
+
+		for (const JPH::BodyID bodyId : outBodyIDs)
+		{
+			JPH::Vec3 position{};
+			JPH::Quat rotation{};
+			bodyInterface.GetPositionAndRotation(bodyId, position, rotation);
+
+			Entity* entity = reinterpret_cast<Entity*>(bodyInterface.GetUserData(bodyId));
+			entity->SetTransform(Cast(position), Cast(rotation), entity->GetScale());
+
+			if (RigidBody* rigidBodyComponent = entity->GetComponent<RigidBody>())
+			{
+				rigidBodyComponent->m_linearVelocity = Cast(bodyInterface.GetLinearVelocity(bodyId));
+				rigidBodyComponent->m_angularVelocity = Cast(bodyInterface.GetAngularVelocity(bodyId));
+			}
+		}
+
 	}
 
-	void PhysicsScene::OnSceneActivated() {}
+	void PhysicsScene::OnSceneActivated()
+	{
 
-	void PhysicsScene::OnSceneDeactivated() {}
+	}
+
+	void PhysicsScene::OnSceneDeactivated()
+	{
+
+	}
 }

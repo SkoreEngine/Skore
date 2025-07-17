@@ -32,6 +32,8 @@ namespace Skore
 	public:
 		SK_CLASS(BoxCollider, Component);
 
+		void Create(ComponentSettings& settings) override;
+
 		const Vec3& GetHalfSize() const;
 		void        SetHalfSize(const Vec3& halfSize);
 		f32         GetDensity() const;
@@ -39,9 +41,10 @@ namespace Skore
 		bool        IsIsSensor() const;
 		void        SetIsSensor(bool isSensor);
 
-		//void CollectShapes(Array<BodyShapeBuilder>& shapes) override;
+		void ProcessEvent(const EntityEventDesc& event) override;
 
 		static void RegisterType(NativeReflectType<BoxCollider>& type);
+
 	private:
 		Vec3 m_halfSize = {1.0, 1.0, 1.0};
 		f32  m_density = 1000.0f;

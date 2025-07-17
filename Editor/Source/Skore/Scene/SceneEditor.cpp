@@ -535,6 +535,11 @@ namespace Skore
 			SceneManager::SetActiveScene(nullptr);
 			m_shouldStopSimulation = false;
 		}
+
+		if (SceneManager::GetActiveScene() == nullptr && m_editorScene)
+		{
+		//	m_editorScene->ExecuteEvents();
+		}
 	}
 
 

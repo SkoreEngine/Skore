@@ -50,6 +50,11 @@ namespace Skore
 
 	Entity* Entity::Instantiate(Scene* scene, Entity* parent, RID rid)
 	{
+		return Instantiate(scene, parent, rid, true);
+	}
+
+	Entity* Entity::Instantiate(Scene* scene, Entity* parent, RID rid, bool instanceOfAsset)
+	{
 		Entity* entity = nullptr;
 
 		if (rid)
@@ -66,7 +71,8 @@ namespace Skore
 			new(PlaceHolder{}, entity) Entity();
 		}
 
-		Instantiate(entity, scene, parent, rid);
+		Instantiate(entity, scene, parent, rid, instanceOfAsset);
+
 		return entity;
 	}
 
@@ -121,11 +127,16 @@ namespace Skore
 
 				entityObject.IterateSubObjectList(EntityResource::Children, [&](RID child)
 				{
-					entity->CreateChildFromAsset(child);
+					Instantiate(entity->m_scene, entity, child, true);
 				});
 
 				entity->SetActive(!entityObject.GetBool(EntityResource::Deactivated));
 			}
+		}
+
+		if (entity->m_parent)
+		{
+			entity->m_parent->m_children.EmplaceBack(entity);
 		}
 
 		entity->m_scene->m_queueToStart.Enqueue(entity);
@@ -222,6 +233,25 @@ namespace Skore
 		return m_transformRID;
 	}
 
+	void Entity::AddFlag(EntityFlags flag)
+	{
+		m_flags |= static_cast<u64>(flag);
+	}
+
+	void Entity::RemoveFlag(EntityFlags flag)
+	{
+		if (HasFlag(flag))
+		{
+			m_flags &= ~static_cast<u64>(flag);
+		}
+	}
+
+	bool Entity::HasFlag(EntityFlags flag) const
+	{
+		return (m_flags & static_cast<u64>(flag)) != 0;
+	}
+
+
 	void Entity::SetName(StringView name)
 	{
 		m_name = name;
@@ -258,11 +288,7 @@ namespace Skore
 
 	Entity* Entity::CreateChildFromAsset(RID rid)
 	{
-		//TODO: this should create a "clone"from rid, not an instance of it.
-
-		Entity* child = Instantiate(m_scene, this, rid);
-		m_children.EmplaceBack(child);
-		return child;
+		return Instantiate(m_scene, this, rid, false);
 	}
 
 	Component* Entity::AddComponent(TypeID typeId)
@@ -435,6 +461,11 @@ namespace Skore
 		{
 			component->OnStart();
 		}
+
+		if (HasFlag(EntityFlags::HasPhysics))
+		{
+			m_scene->m_physicsScene.RegisterPhysicsEntity(this);
+		}
 	}
 
 	void Entity::DestroyComponent(Component* component) const
@@ -477,7 +508,7 @@ namespace Skore
 				}
 				else
 				{
-					entity->CreateChildFromAsset(res.rid);
+					Instantiate(entity->m_scene, entity, res.rid, true);
 				}
 			}
 

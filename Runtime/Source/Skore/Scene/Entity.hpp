@@ -48,6 +48,10 @@ namespace Skore
 		RID              GetRID() const;
 		RID				 GetTransformRID() const;
 
+		void AddFlag(EntityFlags flag);
+		void RemoveFlag(EntityFlags flag);
+		bool HasFlag(EntityFlags flag) const;
+
 		void       SetName(StringView name);
 		StringView GetName() const;
 
@@ -149,15 +153,20 @@ namespace Skore
 
 		friend class Scene;
 		friend class Component;
+		friend class PhysicsScene;
 	private:
 		Entity() = default;
 
 		//bool instanceOfAsset = true means it's a instance of RID
 		//bool instanceOfAsset = false means it's just a new entity, cloning the RID. (but no reference with the original)
-		static void Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid, bool instanceOfAsset = true);
+		static Entity* Instantiate(Scene* scene, Entity* parent, RID rid, bool instanceOfAsset);
+		static void    Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid, bool instanceOfAsset = true);
 
 		String m_name = {};
 		RID m_rid = {};
+		u64 m_flags = 0;
+
+		u64 m_physicsId = U64_MAX;
 
 		bool m_active = true;
 		bool m_parentActive = false;

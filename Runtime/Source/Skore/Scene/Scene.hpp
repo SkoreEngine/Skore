@@ -54,6 +54,7 @@ namespace Skore
 		friend class Entity;
 		friend class SceneManager;
 		friend class Component;
+		friend class SceneEditor;
 
 		friend class ResourceCast<Entity*>;
 	private:
@@ -76,6 +77,7 @@ namespace Skore
 
 		void OnSceneDeactivated();
 		void OnSceneActivated();
+		void ExecuteEvents();
 		void Update();
 	};
 }

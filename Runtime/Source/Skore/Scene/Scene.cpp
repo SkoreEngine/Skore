@@ -108,7 +108,7 @@ namespace Skore
 		//TODO
 	}
 
-	void Scene::Update()
+	void Scene::ExecuteEvents()
 	{
 		while (!m_queueToStart.IsEmpty())
 		{
@@ -127,6 +127,11 @@ namespace Skore
 			Entity* entity = m_queueToDestroy.Dequeue();
 			entity->DestroyInternal(true);
 		}
+	}
+
+	void Scene::Update()
+	{
+		ExecuteEvents();
 
 		m_physicsScene.OnUpdate();
 

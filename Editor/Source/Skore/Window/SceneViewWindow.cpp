@@ -429,7 +429,7 @@ namespace Skore
 						parentNoPrototype = Resources::GetParent(parentNoPrototype);
 					}
 
-					if (sceneEditor->IsSelected(parentNoPrototype) || sceneEditor->IsSelected(selectedEntity))
+					if (sceneEditor->IsSelected(parentNoPrototype) || sceneEditor->IsSelected(selectedEntity) || parentNoPrototype == sceneEditor->GetRootEntity())
 					{
 						sceneEditor->SelectEntity(selectedEntity, !ctrlDown);
 					}
@@ -675,7 +675,11 @@ namespace Skore
 
 		sceneRendererViewport.SetCamera(0.1f, 300.0f, view, projection, freeViewCamera.GetPosition());
 		sceneRendererViewport.Render(storage, cmd);
-		sceneViewRenderer.Render(sceneEditor, sceneRenderPass, sceneRendererViewport.GetSceneDescriptorSet(), cmd);
+
+		if (!windowStartedSimulation)
+		{
+			sceneViewRenderer.Render(sceneEditor, sceneRenderPass, sceneRendererViewport.GetSceneDescriptorSet(), cmd);
+		}
 
 		cmd->BeginRenderPass(sceneRenderPass, Vec4(0.27f, 0.27f, 0.27f, 1.0f), 1, 0);
 
@@ -692,10 +696,13 @@ namespace Skore
 		cmd->SetScissor({0, 0}, sceneExtent);
 
 		sceneRendererViewport.Blit(sceneRenderPass, cmd);
-		sceneViewRenderer.Blit(sceneEditor, sceneRenderPass, sceneRendererViewport.GetSceneDescriptorSet(), cmd);
+
+		if (!windowStartedSimulation)
+		{
+			sceneViewRenderer.Blit(sceneEditor, sceneRenderPass, sceneRendererViewport.GetSceneDescriptorSet(), cmd);
+		}
 
 		cmd->EndRenderPass();
-
 		cmd->ResourceBarrier(sceneTexture, ResourceState::ColorAttachment, ResourceState::ShaderReadOnly, 0, 0);
 	}
 

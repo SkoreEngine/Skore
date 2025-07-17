@@ -23,9 +23,16 @@
 #include "PhysicShapes.hpp"
 
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/Physics.hpp"
 
 namespace Skore
 {
+	void BoxCollider::Create(ComponentSettings& settings)
+	{
+		entity->AddFlag(EntityFlags::HasPhysics);
+	}
+
 	const Vec3& BoxCollider::GetHalfSize() const
 	{
 		return m_halfSize;
@@ -56,15 +63,20 @@ namespace Skore
 		this->m_isSensor = isSensor;
 	}
 
-	// void BoxColliderComponent::CollectShapes(Array<BodyShapeBuilder>& shapes)
-	// {
-	// 	shapes.EmplaceBack(BodyShapeBuilder{
-	// 		.bodyShape = BodyShapeType::Box,
-	// 		.size = halfSize,
-	// 		.density = density,
-	// 		.sensor = isSensor
-	// 	});
-	// }
+	void BoxCollider::ProcessEvent(const EntityEventDesc& event)
+	{
+		if (event.type == EntityEventType::CollectPhysicsShapes)
+		{
+			ShapeCollector* collector = static_cast<ShapeCollector*>(event.eventData);
+
+			collector->shapes.EmplaceBack(BodyShapeBuilder{
+				.bodyShape = BodyShapeType::Box,
+				.size = m_halfSize,
+				.density = m_density,
+				.sensor = m_isSensor
+			});
+		}
+	}
 
 	void BoxCollider::RegisterType(NativeReflectType<BoxCollider>& type)
 	{

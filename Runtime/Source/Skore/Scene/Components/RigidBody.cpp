@@ -23,10 +23,15 @@
 #include "RigidBody.hpp"
 
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Scene/Entity.hpp"
 
 
 namespace Skore
 {
+    void RigidBody::Create(ComponentSettings& settings)
+    {
+        entity->AddFlag(EntityFlags::HasPhysics);
+    }
 
     f32 RigidBody::GetMass() const
     {

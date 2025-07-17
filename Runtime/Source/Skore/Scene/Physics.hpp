@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "Entity.hpp"
 #include "Skore/Common.hpp"
 #include "Skore/Core/Math.hpp"
 
@@ -67,15 +68,21 @@ namespace Skore
 		bool          sensor = false;
 	};
 
+	struct ShapeCollector
+	{
+		Array<BodyShapeBuilder> shapes;
+	};
 
 	class SK_API PhysicsScene
 	{
 	public:
 		struct Context;
 		SK_NO_COPY_CONSTRUCTOR(PhysicsScene);
+
 		PhysicsScene();
 		~PhysicsScene();
 
+		void RegisterPhysicsEntity(Entity* entity);
 
 		friend class Scene;
 	private:

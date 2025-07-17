@@ -32,6 +32,8 @@ namespace Skore
 	public:
 		SK_CLASS(RigidBody, Component);
 
+		void Create(ComponentSettings& settings) override;
+
 		f32                    GetMass() const;
 		void                   SetMass(f32 mass);
 		f32                    GetFriction() const;
@@ -49,8 +51,10 @@ namespace Skore
 		Vec3                   GetAngularVelocity() const;
 		void                   SetAngularVelocity(const Vec3& angularVelocity);
 
+
 		static void RegisterType(NativeReflectType<RigidBody>& type);
 
+		friend class PhysicsScene;
 	private:
 		f32  m_mass = 1.0f;
 		f32  m_friction = 0.6f;
