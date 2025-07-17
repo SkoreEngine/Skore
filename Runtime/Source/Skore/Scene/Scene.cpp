@@ -69,6 +69,11 @@ namespace Skore
 		return &m_renderStorage;
 	}
 
+	PhysicsScene* Scene::GetPhysicsScene()
+	{
+		return &m_physicsScene;
+	}
+
 	Entity* Scene::FindEntityByRID(RID rid) const
 	{
 		if (auto it = m_entities.Find(rid))
@@ -93,6 +98,16 @@ namespace Skore
 		return it->second;
 	}
 
+	void Scene::OnSceneDeactivated()
+	{
+		//TODO
+	}
+
+	void Scene::OnSceneActivated()
+	{
+		//TODO
+	}
+
 	void Scene::Update()
 	{
 		while (!m_queueToStart.IsEmpty())
@@ -112,6 +127,8 @@ namespace Skore
 			Entity* entity = m_queueToDestroy.Dequeue();
 			entity->DestroyInternal(true);
 		}
+
+		m_physicsScene.OnUpdate();
 
 		for (Component* component : m_updateComponents)
 		{

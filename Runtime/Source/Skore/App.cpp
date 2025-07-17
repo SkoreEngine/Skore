@@ -44,6 +44,7 @@ namespace Skore
 	Key  FromSDL(u32 key);
 	void ReflectionSetReadOnly(bool readOnly);
 	bool GraphicsInit(const AppConfig& appConfig);
+	void PhysicsInit();
 	void GraphicsShutdown();
 	bool GraphicsUpdate();
 	void ResourceInit();
@@ -239,6 +240,7 @@ namespace Skore
 		requireShutdown = true;
 
 		CreateGraphicsDefaultValues();
+		PhysicsInit();
 
 		return AppResult::Continue;
 	}

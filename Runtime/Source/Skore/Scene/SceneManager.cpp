@@ -34,7 +34,19 @@ namespace Skore
 
 	void SceneManager::SetActiveScene(Scene* scene)
 	{
-		activeScene = scene;
+		if (activeScene != scene)
+		{
+			if (activeScene)
+			{
+				activeScene->OnSceneDeactivated();
+			}
+
+			if (scene)
+			{
+				scene->OnSceneActivated();
+			}
+			activeScene = scene;
+		}
 	}
 
 	Scene* SceneManager::GetActiveScene()

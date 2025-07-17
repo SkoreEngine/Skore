@@ -12,6 +12,7 @@ target_link_libraries(SkoreRuntime PRIVATE
 				yyjson
 				stb
 				mikktspace
+				Jolt
 )
 
 target_link_libraries(SkoreRuntime PUBLIC

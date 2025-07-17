@@ -19,6 +19,7 @@ add_subdirectory(SDL3)
 #add_subdirectory(SPIRV-Cross) -- not used
 add_subdirectory(SPIRV-Reflect)
 add_subdirectory(imgui)
+add_subdirectory(JoltPhysics)
 add_subdirectory(mikktspace)
 add_subdirectory(freetype)
 add_subdirectory(ufbx)

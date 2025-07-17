@@ -52,6 +52,7 @@ namespace Skore
 	{
 		bool          allowMultiple = true;
 		Array<TypeID> dependencies{};
+		String		  category = "";
 	};
 
 	struct EntityEventDesc

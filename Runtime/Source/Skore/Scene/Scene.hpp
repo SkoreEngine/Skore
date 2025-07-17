@@ -25,6 +25,7 @@
 #include "Skore/Core/Queue.hpp"
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Graphics/RenderStorage.hpp"
+#include "Physics.hpp"
 #include "Skore/Resource/ResourceReflection.hpp"
 
 namespace Skore
@@ -46,6 +47,8 @@ namespace Skore
 		bool    IsResourceSyncEnabled() const;
 
 		RenderStorage* GetRenderStorage();
+		PhysicsScene*  GetPhysicsScene();
+
 		Entity* FindEntityByRID(RID rid) const;
 
 		friend class Entity;
@@ -58,6 +61,7 @@ namespace Skore
 		bool m_enableResourceSync = false;
 
 		RenderStorage m_renderStorage;
+		PhysicsScene m_physicsScene;
 
 		Queue<Entity*>    m_queueToStart;
 		Queue<Component*> m_componentsToStart;
@@ -70,6 +74,8 @@ namespace Skore
 
 		Entity* FindOrCreateInstance(RID rid);
 
+		void OnSceneDeactivated();
+		void OnSceneActivated();
 		void Update();
 	};
 }

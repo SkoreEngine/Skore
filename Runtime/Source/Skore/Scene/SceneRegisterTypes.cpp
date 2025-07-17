@@ -28,6 +28,8 @@
 #include "Components/AnimationPlayer.hpp"
 #include "Components/EnvironmentComponent.hpp"
 #include "Components/LightComponent.hpp"
+#include "Components/PhysicShapes.hpp"
+#include "Components/RigidBody.hpp"
 #include "Components/SkinnedMeshRenderer.hpp"
 #include "Components/StaticMeshRenderer.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -47,6 +49,10 @@ namespace Skore
 		Reflection::Type<LightComponent>();
 		Reflection::Type<EnvironmentComponent>();
 		Reflection::Type<AnimationPlayer>();
+		Reflection::Type<RigidBody>();
+		Reflection::Type<BoxCollider>();
+
+
 
 		Resources::Type<EntityResource>()
 			.Field<EntityResource::Name>(ResourceFieldType::String)

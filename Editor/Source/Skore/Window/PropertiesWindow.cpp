@@ -225,16 +225,56 @@ namespace Skore
 			ImGuiSearchInputText(id + 100, searchComponentString);
 			ImGui::Separator();
 
+			//TODO - cache it
+			HashMap<String, Array<ReflectType*>> categories;
+			Array<ReflectType*> components;
+
 			for (TypeID componentId : Reflection::GetDerivedTypes(TypeInfo<Component>::ID()))
 			{
 				if (ReflectType* refletionType = Reflection::FindTypeById(componentId))
 				{
-					String name = FormatName(refletionType->GetSimpleName());
-					if (ImGui::Selectable(name.CStr()))
+					if (const ComponentDesc* componentDesc = refletionType->GetAttribute<ComponentDesc>())
 					{
-						sceneEditor->AddComponent(entity, componentId);
+						if (!componentDesc->category.Empty())
+						{
+							auto it = categories.Find(componentDesc->category);
+							if (it == categories.end())
+							{
+								it = categories.Insert(componentDesc->category, Array<ReflectType*>()).first;
+							}
+							it->second.EmplaceBack(refletionType);
+							continue;
+						}
 					}
+					components.EmplaceBack(refletionType);
 				}
+			}
+
+			auto drawComponent = [&](ReflectType* refletionType)
+			{
+				String name = FormatName(refletionType->GetSimpleName());
+				if (ImGui::Selectable(name.CStr()))
+				{
+					sceneEditor->AddComponent(entity, refletionType->GetProps().typeId);
+				}
+			};
+
+			for (auto it : categories)
+			{
+				if (ImGui::BeginMenu(it.first.CStr()))
+				{
+					for (ReflectType* compType : it.second)
+					{
+						drawComponent(compType);
+					}
+					ImGui::EndMenu();
+				}
+			}
+
+
+			for (ReflectType* compType : components)
+			{
+				drawComponent(compType);
 			}
 		}
 		ImGuiEndPopupMenu(popupRes);
