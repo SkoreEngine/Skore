@@ -39,13 +39,19 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
+#include "Components/CharacterController.hpp"
 #include "Components/RigidBody.hpp"
+#include "Jolt/Physics/Character/CharacterVirtual.h"
+#include "Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h"
 #include "Jolt/Physics/Collision/Shape/StaticCompoundShape.h"
 #include "Skore/App.hpp"
+#include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Math.hpp"
 
 namespace Skore
 {
+	static Logger& logger = Logger::GetLogger("Skore::Physics");
+
 	namespace PhysicsLayers
 	{
 		static constexpr JPH::ObjectLayer NON_MOVING = 0;
@@ -183,7 +189,7 @@ namespace Skore
 		ObjectVsBroadPhaseLayerFilterImpl objectVsBroadPhaseLayerFilterImpl = {};
 		ObjectLayerPairFilterImpl         objectLayerPairFilterImpl = {};
 		JPH::JobSystemThreadPool          jobSystem = JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
-		//			ankerl::unordered_dense::set<JPH::CharacterVirtual*> virtualCharacters;
+		HashSet<JPH::CharacterVirtual*>   virtualCharacters;
 	};
 
 	void PhysicsInit()
@@ -230,88 +236,154 @@ namespace Skore
 		eventDesc.eventData = &collector;
 		entity->NotifyEvent(eventDesc, false);
 
+		bool                      hasSensor = false;
+		JPH::RefConst<JPH::Shape> scaledShape = {};
 
 		if (!collector.shapes.Empty())
-        {
-            Array<JPH::RefConst<JPH::Shape>> arrShapes{};
-            bool                             isSensor = false;
+		{
+			Array<JPH::RefConst<JPH::Shape>> arrShapes{};
 
-            for (BodyShapeBuilder& shape : collector.shapes)
-            {
-                SK_ASSERT(shape.bodyShape != BodyShapeType::None, "shape needs a body shape type");
-                switch (shape.bodyShape)
-                {
-                    case BodyShapeType::Box:
-                    {
-                        JPH::BoxShapeSettings boxShapeSettings(Cast(shape.size));
-                        boxShapeSettings.mDensity = shape.density;
-                        arrShapes.EmplaceBack(boxShapeSettings.Create().Get());
-                    }
-                    break;
-                }
+			for (BodyShapeBuilder& shape : collector.shapes)
+			{
+				SK_ASSERT(shape.bodyShape != BodyShapeType::None, "shape needs a body shape type");
+				switch (shape.bodyShape)
+				{
+					case BodyShapeType::Box:
+					{
+						JPH::BoxShapeSettings boxShapeSettings(Cast(shape.size));
+						boxShapeSettings.mDensity = shape.density;
+						arrShapes.EmplaceBack(boxShapeSettings.Create().Get());
+					}
+					break;
+				}
 
-                if (shape.sensor)
-                {
-                    isSensor = true;
-                }
-            }
+				if (shape.sensor)
+				{
+					hasSensor = true;
+				}
+			}
 
-            JPH::RefConst<JPH::Shape> finalShape;
-            if (arrShapes.Size() > 1)
-            {
-	            JPH::Ref compound = new JPH::StaticCompoundShapeSettings{};
-	            for (auto& shape : arrShapes)
-	            {
-		            compound->AddShape(JPH::Vec3Arg::sZero(), JPH::QuatArg::sIdentity(), shape);
-	            }
-                finalShape = compound->Create().Get();
-            }
-            else
-            {
-                finalShape = arrShapes[0];
-            }
+			JPH::RefConst<JPH::Shape> finalShape;
+			if (arrShapes.Size() > 1)
+			{
+				JPH::Ref compound = new JPH::StaticCompoundShapeSettings{};
+				for (auto& shape : arrShapes)
+				{
+					compound->AddShape(JPH::Vec3Arg::sZero(), JPH::QuatArg::sIdentity(), shape);
+				}
+				finalShape = compound->Create().Get();
+			}
+			else
+			{
+				finalShape = arrShapes[0];
+			}
 
-            JPH::ScaledShapeSettings scaledShapeSettings(finalShape, Cast(Math::GetScale(entity->GetGlobalTransform())));
+			JPH::ScaledShapeSettings scaledShapeSettings(finalShape, Cast(Math::GetScale(entity->GetGlobalTransform())));
+			scaledShape = scaledShapeSettings.Create().Get();
+		}
 
-            JPH::BodyCreationSettings bodyCreationSettings{};
-            bodyCreationSettings.SetShape(scaledShapeSettings.Create().Get());
-            bodyCreationSettings.mPosition = Cast(Math::GetTranslation(entity->GetGlobalTransform()));
-            bodyCreationSettings.mRotation = Cast(Math::GetQuaternion(entity->GetGlobalTransform()));
-            bodyCreationSettings.mUserData = PtrToInt(entity);
-            bodyCreationSettings.mIsSensor = isSensor;
+		if (entity->HasFlag(EntityFlags::HasCharacterController))
+		{
+			CharacterController* characterController = entity->GetComponent<CharacterController>();
+			if (!characterController)
+			{
+				logger.Error("Entity has a CharacterController flag but no CharacterController component");
+				return;
+			}
 
-            if (RigidBody* rigidBodyComponent = entity->GetComponent<RigidBody>())
-            {
-                bodyCreationSettings.mAllowDynamicOrKinematic = false;
-                bodyCreationSettings.mMotionType = !rigidBodyComponent->IsKinematic() ? JPH::EMotionType::Dynamic : JPH::EMotionType::Kinematic;
-                bodyCreationSettings.mObjectLayer = PhysicsLayers::MOVING;
-                bodyCreationSettings.mAllowedDOFs = JPH::EAllowedDOFs::All;
-                bodyCreationSettings.mUseManifoldReduction = true;
-                bodyCreationSettings.mMotionQuality = CastQuality(rigidBodyComponent->GetCollisionDetectionType());
-                bodyCreationSettings.mAllowSleeping = true;
-                bodyCreationSettings.mFriction = rigidBodyComponent->GetFriction();
-                bodyCreationSettings.mRestitution = rigidBodyComponent->GetRestitution();
-                bodyCreationSettings.mGravityFactor = rigidBodyComponent->GetGravityFactor();
-                bodyCreationSettings.mMassPropertiesOverride.mMass = rigidBodyComponent->GetMass();
-                bodyCreationSettings.mLinearVelocity = Cast(rigidBodyComponent->GetLinearVelocity());
-                bodyCreationSettings.mAngularVelocity = Cast(rigidBodyComponent->GetAngularVelocity());
-            }
-            else
-            {
-                bodyCreationSettings.mMotionType = JPH::EMotionType::Static;
-                bodyCreationSettings.mObjectLayer = PhysicsLayers::NON_MOVING;
-            }
+			if (!scaledShape)
+			{
+				scaledShape = JPH::RotatedTranslatedShapeSettings(
+					JPH::Vec3(0, 0.5f * characterController->GetHeight() + characterController->GetRadius(), 0),
+					JPH::Quat::sIdentity(),
+					new JPH::CapsuleShape(0.5f * characterController->GetHeight(), characterController->GetRadius())).Create().Get();
+			}
 
-            JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
-            JPH::BodyID id = bodyInterface.CreateAndAddBody(bodyCreationSettings, JPH::EActivation::Activate);
+			JPH::CharacterVirtualSettings settings{};
+			settings.mShape = scaledShape;
+			settings.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -characterController->GetRadius());
 
-            entity->m_physicsId = id.GetIndexAndSequenceNumber();
-        }
+			JPH::CharacterVirtual* characterVirtual = new JPH::CharacterVirtual(&settings,
+			                                                                    Cast(Math::GetTranslation(entity->GetGlobalTransform())),
+			                                                                    Cast(Math::GetQuaternion(entity->GetGlobalTransform())),
+			                                                                    PtrToInt(characterController),
+			                                                                    &context->physicsSystem);
+			context->virtualCharacters.Insert(characterVirtual);
+			entity->m_physicsId = PtrToInt(characterVirtual);
+		}
+		else
+		{
+			JPH::BodyCreationSettings bodyCreationSettings{};
+			bodyCreationSettings.SetShape(scaledShape);
+			bodyCreationSettings.mPosition = Cast(Math::GetTranslation(entity->GetGlobalTransform()));
+			bodyCreationSettings.mRotation = Cast(Math::GetQuaternion(entity->GetGlobalTransform()));
+			bodyCreationSettings.mUserData = PtrToInt(entity);
+			bodyCreationSettings.mIsSensor = hasSensor;
+
+			if (RigidBody* rigidBodyComponent = entity->GetComponent<RigidBody>())
+			{
+				bodyCreationSettings.mAllowDynamicOrKinematic = false;
+				bodyCreationSettings.mMotionType = !rigidBodyComponent->IsKinematic() ? JPH::EMotionType::Dynamic : JPH::EMotionType::Kinematic;
+				bodyCreationSettings.mObjectLayer = PhysicsLayers::MOVING;
+				bodyCreationSettings.mAllowedDOFs = JPH::EAllowedDOFs::All;
+				bodyCreationSettings.mUseManifoldReduction = true;
+				bodyCreationSettings.mMotionQuality = CastQuality(rigidBodyComponent->GetCollisionDetectionType());
+				bodyCreationSettings.mAllowSleeping = true;
+				bodyCreationSettings.mFriction = rigidBodyComponent->GetFriction();
+				bodyCreationSettings.mRestitution = rigidBodyComponent->GetRestitution();
+				bodyCreationSettings.mGravityFactor = rigidBodyComponent->GetGravityFactor();
+				bodyCreationSettings.mMassPropertiesOverride.mMass = rigidBodyComponent->GetMass();
+				bodyCreationSettings.mLinearVelocity = Cast(rigidBodyComponent->GetLinearVelocity());
+				bodyCreationSettings.mAngularVelocity = Cast(rigidBodyComponent->GetAngularVelocity());
+			}
+			else
+			{
+				bodyCreationSettings.mMotionType = JPH::EMotionType::Static;
+				bodyCreationSettings.mObjectLayer = PhysicsLayers::NON_MOVING;
+			}
+
+			JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+			JPH::BodyID         id = bodyInterface.CreateAndAddBody(bodyCreationSettings, JPH::EActivation::Activate);
+
+			entity->m_physicsId = id.GetIndexAndSequenceNumber();
+		}
 	}
 
 	void PhysicsScene::OnUpdate()
 	{
 		const int collisionSteps = 1;
+
+		for(JPH::CharacterVirtual* characterVirtual: context->virtualCharacters)
+		{
+			CharacterController* characterController = static_cast<CharacterController*>(IntToPtr(characterVirtual->GetUserData()));
+
+			characterVirtual->SetUp(Cast(characterController->GetUp()));
+			characterVirtual->SetLinearVelocity(Cast(characterController->GetLinearVelocity()));
+
+			characterVirtual->UpdateGroundVelocity();
+
+			JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings{};
+			updateSettings.mWalkStairsMinStepForward *= 4.0f;
+
+			characterVirtual->ExtendedUpdate(
+				context->stepSize,
+				-characterVirtual->GetUp() * context->physicsSystem.GetGravity().Length(),
+				updateSettings,
+				context->physicsSystem.GetDefaultBroadPhaseLayerFilter(PhysicsLayers::MOVING),
+				context->physicsSystem.GetDefaultLayerFilter(PhysicsLayers::MOVING),
+				{},
+				{},
+				context->tempAllocator);
+
+			//Mat4 math = Math::Inverse(parentTransform.value) * Math::Translate(Mat4{1.0}, Cast(position)) * Math::ToMatrix4(Cast(rotation)) * Math::Scale(Mat4{1.0}, localTransform.scale);
+			//TODO parent transform
+
+			characterController->entity->SetTransform(Cast(characterVirtual->GetPosition()),
+			                                          Cast(characterVirtual->GetRotation()),
+			                                          characterController->entity->GetScale());
+
+			characterController->SetOnGround(characterVirtual->IsSupported());
+		}
 
 		context->accumulator += App::DeltaTime();
 		while (context->accumulator >= context->stepSize)
@@ -325,7 +397,7 @@ namespace Skore
 		}
 
 		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
-		JPH::BodyIDVector outBodyIDs{};
+		JPH::BodyIDVector   outBodyIDs{};
 		context->physicsSystem.GetActiveBodies(JPH::EBodyType::RigidBody, outBodyIDs);
 
 		for (const JPH::BodyID bodyId : outBodyIDs)
@@ -343,16 +415,9 @@ namespace Skore
 				rigidBodyComponent->m_angularVelocity = Cast(bodyInterface.GetAngularVelocity(bodyId));
 			}
 		}
-
 	}
 
-	void PhysicsScene::OnSceneActivated()
-	{
+	void PhysicsScene::OnSceneActivated() {}
 
-	}
-
-	void PhysicsScene::OnSceneDeactivated()
-	{
-
-	}
+	void PhysicsScene::OnSceneDeactivated() {}
 }

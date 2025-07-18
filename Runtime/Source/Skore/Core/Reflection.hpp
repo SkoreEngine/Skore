@@ -694,7 +694,7 @@ namespace Skore
 			std::tuple<Args...> params = std::make_tuple(Args{}...);
 			EvalCallback(params, Traits::MakeIntegerSequence<usize, size>{}, callback, userData);
 
-			auto fp = [instance](Args... args)
+			auto fp = [instance](Args... args) -> Return
 			{
 				return (static_cast<Owner*>(instance)->*mfp)(args...);
 			};

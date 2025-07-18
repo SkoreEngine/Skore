@@ -26,6 +26,7 @@
 #include "SceneCommon.hpp"
 #include "Entity.hpp"
 #include "Components/AnimationPlayer.hpp"
+#include "Components/CharacterController.hpp"
 #include "Components/EnvironmentComponent.hpp"
 #include "Components/LightComponent.hpp"
 #include "Components/PhysicShapes.hpp"
@@ -51,7 +52,7 @@ namespace Skore
 		Reflection::Type<AnimationPlayer>();
 		Reflection::Type<RigidBody>();
 		Reflection::Type<BoxCollider>();
-
+		Reflection::Type<CharacterController>();
 
 
 		Resources::Type<EntityResource>()
