@@ -70,11 +70,24 @@ namespace Skore
 		return params;
 	}
 
+	bool ReflectFunction::IsStatic() const
+	{
+		return isStatic;
+	}
+
 	void ReflectFunction::Invoke(VoidPtr instance, VoidPtr ret, VoidPtr* params) const
 	{
 		if (invoke)
 		{
 			invoke(this, instance, ret, params);
+		}
+	}
+
+	void ReflectFunction::InvokeCallback(VoidPtr instance, VoidPtr ret, FnParamCallback callback, VoidPtr userData) const
+	{
+		if (invokeCallback)
+		{
+			invokeCallback(this, instance, ret, callback, userData);
 		}
 	}
 
@@ -598,6 +611,11 @@ namespace Skore
 		function->invoke = fnInvoke;
 	}
 
+	void ReflectFunctionBuilder::SetFnInvokeCallback(ReflectFunction::FnInvokeCallback fnInvokeCallback)
+	{
+		function->invokeCallback = fnInvokeCallback;
+	}
+
 	void ReflectFunctionBuilder::SetFunctionPointer(VoidPtr functionPointer)
 	{
 		function->functionPointer = functionPointer;
@@ -606,6 +624,11 @@ namespace Skore
 	void ReflectFunctionBuilder::SetReturnProps(FieldProps returnProps)
 	{
 		function->returnProps = returnProps;
+	}
+
+	void ReflectFunctionBuilder::SetIsStatic(bool isStatic)
+	{
+		function->isStatic = isStatic;
 	}
 
 	void ReflectFieldBuilder::SetSerializer(ReflectField::FnSerialize serialize)
@@ -839,6 +862,22 @@ namespace Skore
 			return it->second;
 		}
 		return {};
+	}
+
+	Array<ReflectType*> Reflection::GetAllTypes()
+	{
+		Array<ReflectType*> types;
+		types.Reserve(typesByName.Size());
+
+		for (auto it : typesByName)
+		{
+			for (auto type : it.second)
+			{
+				types.EmplaceBack(type.get());
+			}
+		}
+
+		return types;
 	}
 
 	void Reflection::PushGroup(StringView name)

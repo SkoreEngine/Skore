@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <chrono>
 
+#include "Reflection.hpp"
 #include "StringUtils.hpp"
 
 namespace Skore
@@ -149,7 +150,7 @@ namespace Skore
 		m_logSinks.EmplaceBack(&logSink);
 	}
 
-	Logger& Logger::GetLogger(const StringView& name)
+	Logger& Logger::GetLogger(StringView name)
 	{
 		return GetLogger(name, GetContext().defaultLevel);
 	}
@@ -191,5 +192,11 @@ namespace Skore
 		logContext.sinks.Clear();
 		logContext.sinks.ShrinkToFit();
 		logContext.loggers.Clear();
+	}
+
+	void Logger::RegisterType(NativeReflectType<Logger>& type)
+	{
+		type.Function<static_cast<Logger&(*)(StringView)>(&Logger::GetLogger)>("GetLogger", "name");
+		type.Function<&Logger::PrintLog>("PrintLog", "level", "message");
 	}
 }

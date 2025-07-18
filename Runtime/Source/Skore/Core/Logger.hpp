@@ -117,12 +117,15 @@ namespace Skore
 			SK_ASSERT(false, "error");
 		}
 
-		static Logger&  GetLogger(const StringView& name);
+		static Logger&  GetLogger(StringView name);
 		static Logger&  GetLogger(const StringView& name, LogLevel logLevel);
 		static void     RegisterSink(LogSink& logSink);
 		static void     UnregisterSink(LogSink& logSink);
 		static void     SetDefaultLevel(LogLevel logLevel);
 		static void     Reset();
+
+
+		static void RegisterType(NativeReflectType<Logger>& type);
 
 	private:
 		String           m_name{};

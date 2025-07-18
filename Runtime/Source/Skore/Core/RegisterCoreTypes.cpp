@@ -22,6 +22,7 @@
 
 
 #include "Color.hpp"
+#include "Logger.hpp"
 #include "Object.hpp"
 #include "Reflection.hpp"
 
@@ -88,6 +89,8 @@ namespace Skore
 		Reflection::Type<StringView>("Skore::StringView");
 
 		Reflection::Type<Object>();
+		Reflection::Type<Logger>();
+
 
 		RegisterMathTypes();
 

@@ -196,22 +196,29 @@ namespace Skore
 	public:
 		~ReflectFunction();
 		typedef void (*FnInvoke)(const ReflectFunction* function, VoidPtr instance, VoidPtr ret, VoidPtr* params);
+		typedef void (*FnParamCallback)(VoidPtr param, usize index, const FieldProps& props, VoidPtr userData);
+		typedef void (*FnInvokeCallback)(const ReflectFunction* function, VoidPtr instance, VoidPtr ret, FnParamCallback callback, VoidPtr userData);
+
 
 		ReflectFunction(StringView name) : name(name) {}
 		StringView          GetName() const;
 		FieldProps          GetReturn() const;
 		Span<ReflectParam*> GetParams() const;
+		bool                IsStatic() const;
 
 		void Invoke(VoidPtr instance, VoidPtr ret, VoidPtr* params) const;
+		void InvokeCallback(VoidPtr instance, VoidPtr ret, FnParamCallback callback, VoidPtr userData) const;
 
 		friend class ReflectFunctionBuilder;
 
 	private:
-		String     name;
-		String     simpleName{};
-		FnInvoke   invoke = nullptr;
-		FieldProps returnProps = {};
-		VoidPtr    functionPointer = nullptr;
+		String           name;
+		String           simpleName{};
+		FnInvoke         invoke = nullptr;
+		FnInvokeCallback invokeCallback = nullptr;
+		FieldProps       returnProps = {};
+		VoidPtr          functionPointer = nullptr;
+		bool             isStatic = false;
 
 		Array<ReflectParam*> params;
 	};
@@ -347,8 +354,10 @@ namespace Skore
 		friend class ReflectTypeBuilder;
 
 		void SetFnInvoke(ReflectFunction::FnInvoke fnInvoke);
+		void SetFnInvokeCallback(ReflectFunction::FnInvokeCallback fnInvokeCallback);
 		void SetFunctionPointer(VoidPtr functionPointer);
 		void SetReturnProps(FieldProps returnProps);
+		void SetIsStatic(bool isStatic);
 
 	private:
 		ReflectFunctionBuilder(ReflectFunction* function) : function(function) {}
@@ -403,10 +412,11 @@ namespace Skore
 	public:
 		static ReflectTypeBuilder RegisterType(StringView name, TypeProps props);
 
-		static ReflectType*  FindTypeByName(StringView name);
-		static ReflectType*  FindTypeById(TypeID typeId);
-		static Array<TypeID> GetDerivedTypes(TypeID typeId);
-		static Span<TypeID>  GetTypesAnnotatedWith(TypeID typeId);
+		static ReflectType*        FindTypeByName(StringView name);
+		static ReflectType*        FindTypeById(TypeID typeId);
+		static Array<TypeID>       GetDerivedTypes(TypeID typeId);
+		static Span<TypeID>        GetTypesAnnotatedWith(TypeID typeId);
+		static Array<ReflectType*> GetAllTypes();
 
 		static void PushGroup(StringView name);
 		static void PopGroup();
@@ -570,9 +580,11 @@ namespace Skore
 	class NativeReflectFunction : public NativeReflectFunctionBase<Return, Args...>
 	{
 	public:
-		NativeReflectFunction(const ReflectFunctionBuilder& builder) : NativeReflectFunctionBase<Return, Args...>(builder)
+		NativeReflectFunction(ReflectFunctionBuilder& builder) : NativeReflectFunctionBase<Return, Args...>(builder)
 		{
+			builder.SetIsStatic(true);
 			builder.SetFnInvoke(InvokeImpl);
+			builder.SetFnInvokeCallback(StackCallback);
 			builder.SetFunctionPointer(reinterpret_cast<VoidPtr>(&FunctionImpl));
 		}
 
@@ -594,6 +606,39 @@ namespace Skore
 		{
 			return fp(args...);
 		}
+
+		static void EvalCallback(std::tuple<Args...>&, Traits::IndexSequence<>, ReflectFunction::FnParamCallback, VoidPtr) {}
+
+		template<usize I, usize... Is>
+		static void EvalCallback(std::tuple<Args...>& tuple, Traits::IndexSequence<I, Is...> seq, ReflectFunction::FnParamCallback callback, VoidPtr userData)
+		{
+			using T = std::tuple_element_t<I, std::tuple<Args...>>;
+			using Tp = std::remove_reference_t<T>;
+			Tp* value = &std::get<I>(tuple);
+			callback(const_cast<std::remove_const_t<Tp>*>(value), I, GetFieldProps<void, T>(), userData);
+			EvalCallback(tuple, Traits::IndexSequence<Is...>(), callback, userData);
+		}
+
+		static void StackCallback(const ReflectFunction* function, VoidPtr instance, VoidPtr ret, ReflectFunction::FnParamCallback callback, VoidPtr userData)
+		{
+			constexpr auto size = sizeof...(Args);
+			std::tuple<Args...> params = std::make_tuple(Args{}...);
+			EvalCallback(params, Traits::MakeIntegerSequence<usize, size>{}, callback, userData);
+
+			if constexpr (Traits::IsSame<Return, void>)
+			{
+				std::apply(fp, params);
+			}
+			else if constexpr (!std::is_reference_v<Return>)
+			{
+				*static_cast<Return*>(ret) = std::apply(fp, params);
+			}
+			else if constexpr (std::is_reference_v<Return>)
+			{
+				auto addr = std::addressof(std::apply(fp, params));
+				memcpy(ret, &addr, sizeof(VoidPtr));
+			}
+		}
 	};
 
 	template <auto mfp, typename Return, typename Owner, typename... Args>
@@ -602,7 +647,9 @@ namespace Skore
 	public:
 		NativeReflectMemberFunction(ReflectFunctionBuilder builder) : NativeReflectFunctionBase<Return, Args...>(builder)
 		{
+			builder.SetIsStatic(false);
 			builder.SetFnInvoke(InvokeImpl);
+			builder.SetFnInvokeCallback(StackCallback);
 			builder.SetFunctionPointer(reinterpret_cast<VoidPtr>(&FunctionImpl));
 		}
 
@@ -627,6 +674,44 @@ namespace Skore
 		static Return FunctionImpl(const ReflectFunction* func, VoidPtr instance, Args... args)
 		{
 			return (static_cast<Owner*>(instance)->*mfp)(args...);
+		}
+
+		static void EvalCallback(std::tuple<Args...>&, Traits::IndexSequence<>, ReflectFunction::FnParamCallback, VoidPtr) {}
+
+		template<usize I, usize... Is>
+		static void EvalCallback(std::tuple<Args...>& tuple, Traits::IndexSequence<I, Is...> seq, ReflectFunction::FnParamCallback callback, VoidPtr userData)
+		{
+			using T = std::tuple_element_t<I, std::tuple<Args...>>;
+			using Tp = std::remove_reference_t<T>;
+			Tp* value = &std::get<I>(tuple);
+			callback(const_cast<std::remove_const_t<Tp>*>(value), I, GetFieldProps<void, T>(), userData);
+			EvalCallback(tuple, Traits::IndexSequence<Is...>(), callback, userData);
+		}
+
+		static void StackCallback(const ReflectFunction* function, VoidPtr instance, VoidPtr ret, ReflectFunction::FnParamCallback callback, VoidPtr userData)
+		{
+			constexpr auto size = sizeof...(Args);
+			std::tuple<Args...> params = std::make_tuple(Args{}...);
+			EvalCallback(params, Traits::MakeIntegerSequence<usize, size>{}, callback, userData);
+
+			auto fp = [instance](Args... args)
+			{
+				return (static_cast<Owner*>(instance)->*mfp)(args...);
+			};
+
+			if constexpr (Traits::IsSame<Return, void>)
+			{
+				std::apply(fp, params);
+			}
+			else if constexpr (!std::is_reference_v<Return>)
+			{
+				*static_cast<Return*>(ret) = std::apply(fp, params);
+			}
+			else if constexpr (std::is_reference_v<Return>)
+			{
+				auto addr = std::addressof(std::apply(fp, params));
+				memcpy(ret, &addr, sizeof(VoidPtr));
+			}
 		}
 	};
 
