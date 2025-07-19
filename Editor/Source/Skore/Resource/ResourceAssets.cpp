@@ -1172,7 +1172,6 @@ namespace Skore
 	void RegisterMeshHandler();
 	void RegisterDCCAssetHandler();
 	void RegisterShaderHandler();
-	void RegisterPkPyHandler();
 
 	void RegisterTextureImporter();
 	void RegisterFBXImporter();
@@ -1222,7 +1221,6 @@ namespace Skore
 		RegisterMeshHandler();
 		RegisterDCCAssetHandler();
 		RegisterShaderHandler();
-		RegisterPkPyHandler();
 
 		RegisterTextureImporter();
 		RegisterFBXImporter();

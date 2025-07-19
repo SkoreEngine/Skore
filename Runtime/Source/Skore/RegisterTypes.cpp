@@ -31,7 +31,6 @@ namespace Skore
 	void RegisterIOTypes();
 	void RegisterSceneTypes();
 	void RegisterGraphicsTypes();
-	void RegisterScriptTypes();
 
 	void RegisterTypes()
 	{
@@ -58,11 +57,6 @@ namespace Skore
 		{
 			GroupScope scope("World");
 			RegisterSceneTypes();
-		}
-
-		{
-			GroupScope scope("Script");
-			RegisterScriptTypes();
 		}
 	}
 }

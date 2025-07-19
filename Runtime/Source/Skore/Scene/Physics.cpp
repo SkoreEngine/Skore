@@ -30,14 +30,11 @@
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
-#include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
-#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
-#include <Jolt/Physics/Body/BodyActivationListener.h>
 
 #include "Components/CharacterController.hpp"
 #include "Components/RigidBody.hpp"
@@ -236,7 +233,7 @@ namespace Skore
 		eventDesc.eventData = &collector;
 		entity->NotifyEvent(eventDesc, false);
 
-		bool                      hasSensor = false;
+		bool hasSensor = false;
 		JPH::RefConst<JPH::Shape> scaledShape = {};
 
 		if (!collector.shapes.Empty())
