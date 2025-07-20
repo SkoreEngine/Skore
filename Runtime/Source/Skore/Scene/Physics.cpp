@@ -45,6 +45,8 @@
 #include "Skore/App.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Math.hpp"
+#include "Skore/Graphics/Device.hpp"
+#include "Skore/Graphics/Graphics.hpp"
 
 namespace Skore
 {
@@ -179,6 +181,32 @@ namespace Skore
 	class JoltDebugRenderer : public JPH::DebugRenderer
 	{
 	public:
+		struct GeometryBatch : JPH::RefTargetVirtual
+		{
+			GPUBuffer* vertexBuffer = nullptr;
+			GPUBuffer* indexBuffer = nullptr;
+
+			int m_refCount = 0;
+
+			void AddRef() override
+			{
+				++m_refCount;
+			}
+
+			void Release() override
+			{
+				--m_refCount;
+
+				if (m_refCount == 0)
+				{
+					vertexBuffer->Destroy();
+					indexBuffer->Destroy();
+
+					auto* pThis = this;
+					DestroyAndFree(pThis);
+				}
+			}
+		};
 
 		JoltDebugRenderer()
 		{
@@ -187,12 +215,12 @@ namespace Skore
 
 		void DrawLine(JPH::RVec3Arg inFrom, JPH::RVec3Arg inTo, JPH::ColorArg inColor) override
 		{
-			//TODO
+			SK_ASSERT(false, "TODO");
 		}
 
 		void DrawTriangle(JPH::RVec3Arg inV1, JPH::RVec3Arg inV2, JPH::RVec3Arg inV3, JPH::ColorArg inColor, ECastShadow inCastShadow) override
 		{
-			//TODO
+			SK_ASSERT(false, "TODO");
 		}
 
 		Batch CreateTriangleBatch(const Triangle* inTriangles, int inTriangleCount) override
@@ -202,18 +230,45 @@ namespace Skore
 
 		Batch CreateTriangleBatch(const Vertex* inVertices, int inVertexCount, const JPH::uint32* inIndices, int inIndexCount) override
 		{
-			return JPH::DebugRenderer::Batch();
+			GeometryBatch* geometryBatch = Alloc<GeometryBatch>();
+
+			geometryBatch->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = sizeof(Vertex) * inVertexCount,
+				.usage = ResourceUsage::VertexBuffer | ResourceUsage::CopyDest,
+			});
+
+			Graphics::UploadBufferData(BufferUploadInfo{
+				.buffer = geometryBatch->vertexBuffer,
+				.data = inVertices,
+				.size = sizeof(Vertex) * inVertexCount,
+			});
+
+
+			geometryBatch->indexBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = sizeof(JPH::uint32) * inIndexCount,
+				.usage = ResourceUsage::IndexBuffer | ResourceUsage::CopyDest,
+			});
+
+			Graphics::UploadBufferData(BufferUploadInfo{
+				.buffer = geometryBatch->indexBuffer,
+				.data = inIndices,
+				.size = sizeof(JPH::uint32) * inIndexCount
+			});
+
+
+			return geometryBatch;
 		}
 
 		void DrawGeometry(JPH::RMat44Arg inModelMatrix, const JPH::AABox& inWorldSpaceBounds, float inLODScaleSq, JPH::ColorArg inModelColor, const GeometryRef& inGeometry, ECullMode inCullMode,
 		                  ECastShadow inCastShadow, EDrawMode inDrawMode) override
 		{
 			//TODO
+			int a = 0;
 		}
 
 		void DrawText3D(JPH::RVec3Arg inPosition, const std::string_view& inString, JPH::ColorArg inColor, float inHeight) override
 		{
-			//TODO
+			SK_ASSERT(false, "TODO");
 		}
 	};
 
@@ -230,8 +285,10 @@ namespace Skore
 		ObjectVsBroadPhaseLayerFilterImpl objectVsBroadPhaseLayerFilterImpl = {};
 		ObjectLayerPairFilterImpl         objectLayerPairFilterImpl = {};
 
-		JPH::JobSystemThreadPool          jobSystem = JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
-		HashSet<JPH::CharacterVirtual*>   virtualCharacters;
+		JPH::JobSystemThreadPool        jobSystem = JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
+		HashSet<JPH::CharacterVirtual*> virtualCharacters;
+
+		HashSet<Entity*> entitiesToDraw;
 	};
 
 	void PhysicsInit()
@@ -401,9 +458,43 @@ namespace Skore
 		}
 	}
 
+	void PhysicsScene::DrawDebugEntities(GPUCommandBuffer* cmd)
+	{
+		if (!context) return;
+
+		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+
+		for (Entity* entity : context->entitiesToDraw)
+		{
+			if (entity->m_physicsId != U64_MAX)
+			{
+				if (JPH::RefConst<JPH::Shape> shape = bodyInterface.GetShape(JPH::BodyID(entity->m_physicsId)))
+				{
+					const Mat4& worldTransform =  entity->GetGlobalTransform();
+					JPH::RMat44Arg inCenterOfMassTransform = JPH::RMat44::sRotationTranslation(Cast(Math::GetQuaternion(worldTransform)), Cast(Math::GetTranslation(worldTransform)));
+					shape->Draw(debugRenderer.get(), inCenterOfMassTransform, Cast(Math::GetScale(worldTransform)), {}, false, true);
+				}
+			}
+		}
+	}
+
+	void PhysicsScene::AddEntityToDraw(Entity* entity)
+	{
+		if (entity->HasFlag(EntityFlags::HasPhysics))
+		{
+			context->entitiesToDraw.Insert(entity);
+		}
+	}
+
+	void PhysicsScene::RemoveEntityFromDraw(Entity* entity)
+	{
+		context->entitiesToDraw.Erase(entity);
+	}
+
 	void PhysicsScene::OnUpdate()
 	{
 		const int collisionSteps = 1;
+		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
 
 		for (JPH::CharacterVirtual* characterVirtual : context->virtualCharacters)
 		{
@@ -448,7 +539,6 @@ namespace Skore
 			context->accumulator -= context->stepSize;
 		}
 
-		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
 		JPH::BodyIDVector   outBodyIDs{};
 		context->physicsSystem.GetActiveBodies(JPH::EBodyType::RigidBody, outBodyIDs);
 

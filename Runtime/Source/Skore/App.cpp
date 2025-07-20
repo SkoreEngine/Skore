@@ -45,6 +45,7 @@ namespace Skore
 	void ReflectionSetReadOnly(bool readOnly);
 	bool GraphicsInit(const AppConfig& appConfig);
 	void PhysicsInit();
+	void PhysicsShutdown();
 	void GraphicsShutdown();
 	bool GraphicsUpdate();
 	void ResourceInit();
@@ -137,6 +138,7 @@ namespace Skore
 
 		onShutdownHandler.Invoke();
 
+		PhysicsShutdown();
 		GraphicsShutdown();
 		ResourceShutdown();
 

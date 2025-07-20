@@ -26,6 +26,10 @@
 #include "Skore/Common.hpp"
 #include "Skore/Core/Math.hpp"
 
+namespace Skore {
+	class GPUCommandBuffer;
+}
+
 namespace Skore
 {
 	enum class CollisionDetectionType
@@ -84,6 +88,10 @@ namespace Skore
 
 		void RegisterPhysicsEntity(Entity* entity);
 
+		void DrawDebugEntities(GPUCommandBuffer* cmd);
+		void AddEntityToDraw(Entity* entity);
+		void RemoveEntityFromDraw(Entity* entity);
+
 		friend class Scene;
 	private:
 		Context* context = nullptr;
@@ -96,5 +104,6 @@ namespace Skore
 	class SK_API Physics
 	{
 	public:
+
 	};
 }

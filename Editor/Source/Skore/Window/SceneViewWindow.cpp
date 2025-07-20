@@ -43,9 +43,18 @@ namespace Skore
 
 	static Logger& logger = Logger::GetLogger("Skore::SceneViewWindow");
 
+	SceneViewWindow::SceneViewWindow()
+	{
+		Event::Bind<OnEntitySelection, &SceneViewWindow::EntitySelection>(this);
+		Event::Bind<OnEntityDeselection, &SceneViewWindow::EntityDeselection>(this);
+	}
+
 	SceneViewWindow::~SceneViewWindow()
 	{
 		Event::Unbind<OnRecordRenderCommands, &SceneViewWindow::RecordRenderCommands>(this);
+
+		Event::Unbind<OnEntitySelection, &SceneViewWindow::EntitySelection>(this);
+		Event::Unbind<OnEntityDeselection, &SceneViewWindow::EntityDeselection>(this);
 
 		if (sceneTexture) sceneTexture->Destroy();
 		if (sceneRenderPass) sceneRenderPass->Destroy();
@@ -767,6 +776,32 @@ namespace Skore
 		return Editor::GetCurrentWorkspace().GetSceneEditor()->HasSelectedEntities();
 	}
 
+	void SceneViewWindow::EntitySelection(u32 workspaceId, RID entityId)
+	{
+		if (Editor::GetCurrentWorkspace().GetId() == workspaceId)
+		{
+			Scene* currentScene = Editor::GetCurrentWorkspace().GetSceneEditor()->GetCurrentScene();
+			PhysicsScene* physicsScene = currentScene->GetPhysicsScene();
+			if (Entity* entity = currentScene->FindEntityByRID(entityId))
+			{
+				physicsScene->AddEntityToDraw(entity);
+			}
+		}
+	}
+
+	void SceneViewWindow::EntityDeselection(u32 workspaceId, RID entityId)
+	{
+		if (Editor::GetCurrentWorkspace().GetId() == workspaceId)
+		{
+			Scene* currentScene = Editor::GetCurrentWorkspace().GetSceneEditor()->GetCurrentScene();
+			PhysicsScene* physicsScene = currentScene->GetPhysicsScene();
+			if (Entity* entity = currentScene->FindEntityByRID(entityId))
+			{
+				physicsScene->RemoveEntityFromDraw(entity);
+			}
+		}
+	}
+
 	void SceneViewWindow::RecordRenderCommands(GPUCommandBuffer* cmd)
 	{
 		SceneEditor*   sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
@@ -800,6 +835,11 @@ namespace Skore
 		if (!windowStartedSimulation)
 		{
 			sceneViewRenderer.Blit(sceneEditor, sceneRenderPass, sceneRendererViewport.GetSceneDescriptorSet(), cmd);
+			if (scene)
+			{
+				scene->GetPhysicsScene()->DrawDebugEntities(cmd);
+			}
+
 		}
 
 		cmd->EndRenderPass();

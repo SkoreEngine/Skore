@@ -538,7 +538,7 @@ namespace Skore
 
 		if (SceneManager::GetActiveScene() == nullptr && m_editorScene)
 		{
-		//	m_editorScene->ExecuteEvents();
+			m_editorScene->ExecuteEvents();
 		}
 	}
 
