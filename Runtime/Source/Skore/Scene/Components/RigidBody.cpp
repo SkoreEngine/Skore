@@ -24,6 +24,7 @@
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 
 namespace Skore
@@ -41,6 +42,7 @@ namespace Skore
     void RigidBody::SetMass(f32 mass)
     {
         m_mass = mass;
+        GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
     }
 
     f32 RigidBody::GetFriction() const
@@ -51,6 +53,7 @@ namespace Skore
     void RigidBody::SetFriction(f32 friction)
     {
         m_friction = friction;
+        GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
     }
 
     f32 RigidBody::GetRestitution() const
@@ -61,6 +64,7 @@ namespace Skore
     void RigidBody::SetRestitution(f32 restitution)
     {
         m_restitution = restitution;
+        GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
     }
 
     f32 RigidBody::GetGravityFactor() const
@@ -71,6 +75,7 @@ namespace Skore
     void RigidBody::SetGravityFactor(f32 gravityFactor)
     {
         m_gravityFactor = gravityFactor;
+        GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
     }
 
     bool RigidBody::IsKinematic() const
@@ -81,6 +86,7 @@ namespace Skore
     void RigidBody::SetIsKinematic(bool isKinematic)
     {
         m_isKinematic = isKinematic;
+        GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
     }
 
     CollisionDetectionType RigidBody::GetCollisionDetectionType() const
@@ -91,6 +97,7 @@ namespace Skore
     void RigidBody::SetCollisionDetectionType(CollisionDetectionType collisionDetectionType)
     {
         m_collisionDetectionType = collisionDetectionType;
+        GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
     }
 
     Vec3 RigidBody::GetLinearVelocity() const

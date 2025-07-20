@@ -118,7 +118,7 @@ PSOutput MainPS(VSOutput input)
 {
     float t = -input.nearPoint.y / (input.farPoint.y - input.nearPoint.y);
     float3 fragPos3D = input.nearPoint + t * (input.farPoint - input.nearPoint);
-    float4 color = Grid(fragPos3D, 2);
+    float4 color = Grid(fragPos3D, 1);
 
     float linearDepth = ComputeLinearDepth(fragPos3D);
     float fading = max(0, (0.4 - linearDepth));

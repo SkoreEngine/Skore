@@ -45,6 +45,7 @@
 #include "Skore/App.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Math.hpp"
+#include "Skore/Core/Queue.hpp"
 #include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 
@@ -320,6 +321,7 @@ namespace Skore
 		HashSet<JPH::CharacterVirtual*> virtualCharacters;
 
 		HashSet<Entity*> entitiesToDraw;
+		Queue<Entity*> requireUpdate;
 	};
 
 	void PhysicsInit()
@@ -489,6 +491,53 @@ namespace Skore
 		}
 	}
 
+	void PhysicsScene::UnregisterPhysicsEntity(Entity* entity)
+	{
+		if (entity->HasFlag(EntityFlags::HasCharacterController))
+		{
+			JPH::CharacterVirtual* characterVirtual = static_cast<JPH::CharacterVirtual*>(IntToPtr(entity->m_physicsId));
+			context->virtualCharacters.Erase(characterVirtual);
+			delete characterVirtual;
+			entity->m_physicsId = U64_MAX;
+		}
+		else
+		{
+			JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+			JPH::BodyID         id = JPH::BodyID(entity->m_physicsId);
+			bodyInterface.RemoveBody(id);
+			entity->m_physicsId = U64_MAX;
+		}
+
+		if (!context->entitiesToDraw.Empty())
+		{
+			context->entitiesToDraw.Erase(entity);
+		}
+	}
+
+	void PhysicsScene::PhysicsEntityRequireUpdate(Entity* entity)
+	{
+		if (entity->HasFlag(EntityFlags::HasPhysics))
+		{
+			context->requireUpdate.Enqueue(entity);
+		}
+	}
+
+	void PhysicsScene::UpdateTransform(Entity* entity)
+	{
+		if (entity->HasFlag(EntityFlags::HasCharacterController))
+		{
+			JPH::CharacterVirtual* characterVirtual = static_cast<JPH::CharacterVirtual*>(IntToPtr(entity->m_physicsId));
+			characterVirtual->SetPosition(Cast(Math::GetTranslation(entity->GetGlobalTransform())));
+			characterVirtual->SetRotation(Cast(Math::GetQuaternion(entity->GetGlobalTransform())));
+		}
+		else
+		{
+			JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+			JPH::BodyID         id = JPH::BodyID(entity->m_physicsId);
+			bodyInterface.SetPositionAndRotation(id, Cast(Math::GetTranslation(entity->GetGlobalTransform())), Cast(Math::GetQuaternion(entity->GetGlobalTransform())), JPH::EActivation::DontActivate);
+		}
+	}
+
 	void PhysicsScene::DrawDebugEntities(GPUCommandBuffer* cmd, GPUPipeline* pipeline)
 	{
 		if (!context) return;
@@ -530,6 +579,26 @@ namespace Skore
 	void PhysicsScene::RemoveEntityFromDraw(Entity* entity)
 	{
 		context->entitiesToDraw.Erase(entity);
+	}
+
+	void PhysicsScene::ExecuteEvents()
+	{
+		while (!context->requireUpdate.IsEmpty())
+		{
+			bool addToDebug = false;
+			Entity* entity = context->requireUpdate.Dequeue();
+			if (!context->entitiesToDraw.Empty())
+			{
+				addToDebug = context->entitiesToDraw.Has(entity);
+			}
+			UnregisterPhysicsEntity(entity);
+			RegisterPhysicsEntity(entity);
+
+			if (addToDebug)
+			{
+				context->entitiesToDraw.Insert(entity);
+			}
+		}
 	}
 
 	void PhysicsScene::OnUpdate()

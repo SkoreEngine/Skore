@@ -144,6 +144,11 @@ namespace Skore
 
 	Entity::~Entity()
 	{
+		if (m_physicsId != U64_MAX)
+		{
+			m_scene->m_physicsScene.UnregisterPhysicsEntity(this);
+		}
+
 		if (m_scene)
 		{
 			if (m_scene->IsResourceSyncEnabled())
@@ -377,6 +382,7 @@ namespace Skore
 		{
 			const Mat4& parentTransform = m_parent ? m_parent->GetGlobalTransform() : Mat4(1.0);
 			m_globalTransform = parentTransform * GetLocalTransform();
+			m_scene->m_physicsScene.UpdateTransform(this);
 		}
 
 		if (event.type == EntityEventType::EntityActivated)

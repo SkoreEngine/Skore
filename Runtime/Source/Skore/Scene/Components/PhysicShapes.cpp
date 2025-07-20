@@ -25,6 +25,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Physics.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
@@ -41,6 +42,7 @@ namespace Skore
 	void BoxCollider::SetHalfSize(const Vec3& halfSize)
 	{
 		this->m_halfSize = halfSize;
+		GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
 	}
 
 	f32 BoxCollider::GetDensity() const
@@ -51,6 +53,7 @@ namespace Skore
 	void BoxCollider::SetDensity(f32 density)
 	{
 		this->m_density = density;
+		GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
 	}
 
 	bool BoxCollider::IsIsSensor() const
@@ -61,6 +64,7 @@ namespace Skore
 	void BoxCollider::SetIsSensor(bool isSensor)
 	{
 		this->m_isSensor = isSensor;
+		GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
 	}
 
 	void BoxCollider::ProcessEvent(const EntityEventDesc& event)
@@ -80,7 +84,7 @@ namespace Skore
 
 	void BoxCollider::RegisterType(NativeReflectType<BoxCollider>& type)
 	{
-		type.Field<&BoxCollider::m_halfSize>("halfSize");
+		type.Field<&BoxCollider::m_halfSize, &GetHalfSize, &SetHalfSize>("halfSize");
 		type.Field<&BoxCollider::m_density>("density");
 		type.Field<&BoxCollider::m_isSensor>("isSensor");
 

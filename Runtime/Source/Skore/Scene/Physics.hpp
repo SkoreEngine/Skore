@@ -31,7 +31,7 @@ namespace Skore
 	class GPUCommandBuffer;
 	class GPUPipeline;
 
-	const u32 DebugPhysicsVertexSize = 36;
+	constexpr u32 DebugPhysicsVertexSize = 36;
 
 	enum class CollisionDetectionType
 	{
@@ -88,6 +88,9 @@ namespace Skore
 		~PhysicsScene();
 
 		void RegisterPhysicsEntity(Entity* entity);
+		void UnregisterPhysicsEntity(Entity* entity);
+		void PhysicsEntityRequireUpdate(Entity* entity);
+		void UpdateTransform(Entity* entity);
 
 		void DrawDebugEntities(GPUCommandBuffer* cmd, GPUPipeline* pipeline);
 		void AddEntityToDraw(Entity* entity);
@@ -97,6 +100,7 @@ namespace Skore
 	private:
 		Context* context = nullptr;
 
+		void ExecuteEvents();
 		void OnUpdate();
 		void OnSceneActivated();
 		void OnSceneDeactivated();
