@@ -437,14 +437,15 @@ namespace Skore
 				{
 					RenderStorage* storage = scene->GetRenderStorage();
 
+					const f32 iconScale = 2.0;
+
 					auto DrawIcon = [&](Vec3 position, const char* icon, Color color, RID rid)
 					{
 						Vec2 screenPos = {};
 						if (Math::ScreenToWorld(position, Extent{(u32)size.x, (u32)size.y}, projection * view, screenPos))
 						{
-							const f32 scale = 2.0;
-							f32 iconSizeRect = iconSize * scale;
-							ImVec2 rectMin = ImVec2(cursor.x + screenPos.x - iconSize / 2.0f, cursor.y + screenPos.y - iconSize / 2.0f);
+							f32 iconSizeRect = iconSize * iconScale;
+							ImVec2 rectMin = ImVec2(cursor.x + screenPos.x - iconSizeRect / 2.0f, cursor.y + screenPos.y - iconSizeRect / 2.0f);
 							ImVec2 rectMax = ImVec2(cursor.x + screenPos.x + iconSizeRect / 2.0f, cursor.y + screenPos.y + iconSizeRect / 2.0f);
 
 							drawList->AddText(rectMin, IM_COL32(color.red,
@@ -460,11 +461,11 @@ namespace Skore
 						}
 					};
 
-					ImGui::SetWindowFontScale(1.5);
+					ImGui::SetWindowFontScale(iconScale);
 
 					for (const auto& itCamera: storage->cameras)
 					{
-						DrawIcon(Math::GetTranslation(itCamera.second.viewMatrix), ICON_FA_CAMERA, Color::WHITE, RID(itCamera.second.id));
+						DrawIcon(itCamera.second.position, ICON_FA_CAMERA, Color::WHITE, RID(itCamera.second.id));
 					}
 
 					for (const auto& itLight: storage->lights)
@@ -817,7 +818,28 @@ namespace Skore
 		Scene*         scene = sceneEditor->GetCurrentScene();
 		RenderStorage* storage = scene ? scene->GetRenderStorage() : nullptr;
 
-		sceneRendererViewport.SetCamera(0.1f, 300.0f, view, projection, freeViewCamera.GetPosition());
+		if (!windowStartedSimulation || storage == nullptr || storage->cameras.empty())
+		{
+			sceneRendererViewport.SetCamera(0.1f, 300.0f, view, projection, freeViewCamera.GetPosition());
+		}
+		else if (storage != nullptr)
+		{
+			if (std::optional<CameraRenderData> camera = storage->GetCurrentCamera())
+			{
+				Mat4 currentProjection = {};
+				if (camera->projection == Camera::Projection::Perspective)
+				{
+					currentProjection = Math::Perspective(Math::Radians(cameraFov), aspectRatio, camera->near, camera->far);
+				}
+				else
+				{
+					//get current values here?
+					currentProjection = Math::Ortho(0, 0, 10, 10, camera->near, camera->far);
+				}
+				sceneRendererViewport.SetCamera(camera->near, camera->far, camera->viewMatrix, currentProjection, camera->position);
+			}
+		}
+
 		sceneRendererViewport.Render(storage, cmd);
 
 		if (!windowStartedSimulation)

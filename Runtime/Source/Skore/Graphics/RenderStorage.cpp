@@ -657,6 +657,44 @@ namespace Skore
 		}
 	}
 
+	void RenderStorage::SetCameraPosition(VoidPtr owner, const Vec3& position)
+	{
+		if (const auto& it = cameras.find(owner); it != cameras.end())
+		{
+			it->second.position = position;
+		}
+	}
+
+	void RenderStorage::SetCameraProjection(VoidPtr owner, Camera::Projection projection)
+	{
+		if (const auto& it = cameras.find(owner); it != cameras.end())
+		{
+			it->second.projection = projection;
+		}
+	}
+
+	void RenderStorage::SetCameraFov(VoidPtr owner, f32 fov)
+	{
+		if (const auto& it = cameras.find(owner); it != cameras.end())
+		{
+			it->second.fov = fov;
+		}
+	}
+	void RenderStorage::SetCameraNear(VoidPtr owner, f32 near)
+	{
+		if (const auto& it = cameras.find(owner); it != cameras.end())
+		{
+			it->second.near = near;
+		}
+	}
+	void RenderStorage::SetCameraFar(VoidPtr owner, f32 far)
+	{
+		if (const auto& it = cameras.find(owner); it != cameras.end())
+		{
+			it->second.far = far;
+		}
+	}
+
 	void RenderStorage::SetCameraVisible(VoidPtr owner, bool visible)
 	{
 		if (const auto& it = cameras.find(owner); it != cameras.end())
@@ -668,5 +706,17 @@ namespace Skore
 	void RenderStorage::RemoveCamera(VoidPtr owner)
 	{
 		cameras.erase(owner);
+	}
+
+	std::optional<CameraRenderData> RenderStorage::GetCurrentCamera()
+	{
+		for (auto& it : cameras)
+		{
+			if (it.second.visible)
+			{
+				return std::make_optional(it.second);
+			}
+		}
+		return std::nullopt;
 	}
 }

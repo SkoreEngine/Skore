@@ -32,12 +32,74 @@ namespace Skore
 	{
 		m_renderStorage = GetScene()->GetRenderStorage();
 		m_renderStorage->RegisterCamera(this, entity->GetRID().id);
-		m_renderStorage->SetCameraViewMatrix(this, entity->GetGlobalTransform());
+		m_renderStorage->SetCameraViewMatrix(this, Math::Inverse(entity->GetGlobalTransform()));
+		m_renderStorage->SetCameraPosition(this, entity->GetWorldPosition());
+		m_renderStorage->SetCameraProjection(this, m_projection);
+		m_renderStorage->SetCameraFov(this, m_fov);
+		m_renderStorage->SetCameraNear(this, m_near);
+		m_renderStorage->SetCameraFar(this, m_far);
 	}
 
 	void Camera::Destroy()
 	{
 		m_renderStorage->RemoveCamera(this);
+	}
+
+	Camera::Projection Camera::GetProjection() const
+	{
+		return m_projection;
+	}
+
+	void Camera::SetProjection(Projection projection)
+	{
+		m_projection = projection;
+
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetCameraProjection(this, m_projection);
+		}
+	}
+
+	f32 Camera::GetFov() const
+	{
+		return m_fov;
+	}
+
+	void Camera::SetFov(f32 fov)
+	{
+		m_fov = fov;
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetCameraFov(this, m_fov);
+		}
+	}
+
+	f32 Camera::GetNear() const
+	{
+		return m_near;
+	}
+
+	void Camera::SetNear(f32 near)
+	{
+		m_near = near;
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetCameraNear(this, m_near);
+		}
+	}
+
+	f32 Camera::GetFar() const
+	{
+		return m_far;
+	}
+
+	void Camera::SetFar(f32 far)
+	{
+		m_far = far;
+		if (m_renderStorage)
+		{
+			m_renderStorage->SetCameraFar(this, m_far);
+		}
 	}
 
 	void Camera::ProcessEvent(const EntityEventDesc& event)
@@ -53,7 +115,8 @@ namespace Skore
 				m_renderStorage->SetCameraVisible(this, false);
 				break;
 			case EntityEventType::TransformUpdated:
-				m_renderStorage->SetCameraViewMatrix(this, entity->GetGlobalTransform());
+				m_renderStorage->SetCameraViewMatrix(this, Math::Inverse(entity->GetGlobalTransform()));
+				m_renderStorage->SetCameraPosition(this, entity->GetWorldPosition());
 				break;
 		}
 	}
@@ -64,6 +127,6 @@ namespace Skore
 		type.Field<&Camera::m_fov>("fov");
 		type.Field<&Camera::m_near>("near");
 		type.Field<&Camera::m_far>("far");
-		type.Field<&Camera::m_current>("current");
 	}
+
 }

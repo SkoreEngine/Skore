@@ -142,6 +142,11 @@ namespace Skore
 			return m_globalTransform;
 		}
 
+		SK_FINLINE Vec3 GetWorldPosition()
+		{
+			return Math::GetTranslation(m_globalTransform);
+		}
+
 		SK_FINLINE Mat4 GetLocalTransform() const
 		{
 			return Math::Translate(Mat4{1.0}, m_transform.position) * Math::ToMatrix4(m_transform.rotation) * Math::Scale(Mat4{1.0}, m_transform.scale);

@@ -28,6 +28,7 @@
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/UnorderedDense.hpp"
 #include "Skore/Core/Color.hpp"
+#include "Skore/Scene/Components/Camera.hpp"
 
 namespace Skore
 {
@@ -101,6 +102,13 @@ namespace Skore
 	{
 		u64  id;
 		Mat4 viewMatrix;
+		Vec3 position;
+		f32  fov;
+		f32  near;
+		f32  far;
+
+		Camera::Projection projection;
+
 		bool visible = true;
 	};
 
@@ -145,13 +153,22 @@ namespace Skore
 
 		void RegisterCamera(VoidPtr owner, u64 id);
 		void SetCameraViewMatrix(VoidPtr owner, const Mat4& viewMatrix);
+		void SetCameraPosition(VoidPtr owner, const Vec3& position);
+		void SetCameraProjection(VoidPtr owner, Camera::Projection projection);
+		void SetCameraFov(VoidPtr owner, f32 fov);
+		void SetCameraNear(VoidPtr owner, f32 near);
+		void SetCameraFar(VoidPtr owner, f32 far);
 		void SetCameraVisible(VoidPtr owner, bool visible);
 		void RemoveCamera(VoidPtr owner);
+
+		std::optional<CameraRenderData> GetCurrentCamera();
 
 		ankerl::unordered_dense::map<VoidPtr, MeshRenderData>        staticMeshes;
 		ankerl::unordered_dense::map<VoidPtr, MeshRenderData>        skinnedMeshes;
 		ankerl::unordered_dense::map<VoidPtr, EnvironmentRenderData> environments;
 		ankerl::unordered_dense::map<VoidPtr, LightRenderData>       lights;
 		ankerl::unordered_dense::map<VoidPtr, CameraRenderData>      cameras;
+
+
 	};
 }
