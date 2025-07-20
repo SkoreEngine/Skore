@@ -156,8 +156,6 @@ namespace Skore
 		FileSystem::CreateDirectory(assetsPath);
 		FileSystem::CreateDirectory(packagesPath);
 
-		StaticContent::SaveFilesToDirectory("Assets", Path::Join(packagesPath, "Skore"));
-
 		if (templateId == 2)
 		{
 			CreateCMakeProject(projectPath);

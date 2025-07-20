@@ -52,6 +52,8 @@
 #include <thread>
 #include <chrono>
 
+#include "Utils/StaticContent.hpp"
+
 namespace Skore
 {
 	void ShaderManagerInit();
@@ -657,28 +659,19 @@ namespace Skore
 						FileSystem::CreateDirectory(tempBinPath);
 					}
 
-					String newSharedLibFile = Path::Join(tempBinPath, Path::Name(pluginProjectPath) + strModified + SK_SHARED_EXT);
+					String tempBinPathTime = Path::Join(tempBinPath, strModified);
+					if (!FileSystem::GetFileStatus(tempBinPathTime).exists)
+					{
+						FileSystem::CreateDirectory(tempBinPathTime);
+					}
+
+					String newSharedLibFile = Path::Join(tempBinPathTime, Path::Name(pluginProjectPath) + SK_SHARED_EXT);
 					FileSystem::CopyFile(pluginProjectPath, newSharedLibFile);
 
 #ifdef SK_WIN
 					String pdbFile = Path::Join(Path::Parent(pluginProjectPath), Path::Name(pluginProjectPath) + ".pdb");
-					String newPdbFile = Path::Join(tempBinPath, Path::Name(pluginProjectPath) + strModified + ".pdb");
+					String newPdbFile = Path::Join(tempBinPathTime, Path::Name(pluginProjectPath) + ".pdb");
 					FileSystem::CopyFile(pdbFile, newPdbFile);
-					bool removed = FileSystem::Remove(pdbFile, false);
-					if (!removed)
-					{
-						u32 count = 0;
-						while (!removed)
-						{
-							removed = FileSystem::Remove(pdbFile, false);
-							std::this_thread::sleep_for(std::chrono::milliseconds(1));
-							count++;
-							if (count > 10)
-							{
-								break;
-							}
-						}
-					}
 #endif
 
 					SDL_SharedObject* library = SDL_LoadObject(newSharedLibFile.CStr());
@@ -934,6 +927,14 @@ namespace Skore
 
 #ifdef SK_DEV_ASSETS
 		Editor::LoadPackage("Skore", Path::Join(SK_ROOT_SOURCE_PATH, "Assets"));
+#else
+		//TODO - need to find a way to reload skore package only when it's updated.
+		String skorePackagePath = Path::Join(projectPackagePath, "Skore");
+		if (FileSystem::GetFileStatus(skorePackagePath).exists)
+		{
+			FileSystem::Remove(skorePackagePath);
+		}
+		StaticContent::SaveFilesToDirectory("Assets", skorePackagePath);
 #endif
 
 		for (auto& package: DirectoryEntries{projectPackagePath})
