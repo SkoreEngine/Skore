@@ -22,6 +22,7 @@
 
 #include "SceneViewRenderer.hpp"
 
+#include "imgui.h"
 #include "SceneEditor.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -43,6 +44,7 @@ namespace Skore
 		if (compositeMaskRenderPass) compositeMaskRenderPass->Destroy();
 		if (maskDescriptorSet) maskDescriptorSet->Destroy();
 		if (compositeMaskDescriptorSet) compositeMaskDescriptorSet->Destroy();
+		if (debugPhysicsPipeline) debugPhysicsPipeline->Destroy();
 	}
 
 	void SceneViewRenderer::Resize(Extent extent)
@@ -350,6 +352,37 @@ namespace Skore
 			cmd->BindPipeline(gridPipeline);
 			cmd->BindDescriptorSet(gridPipeline, 0, sceneDescriptorSet, {});
 			cmd->Draw(6, 1, 0, 0);
+		}
+
+		if (drawDebugPhysics)
+		{
+			if (!debugPhysicsPipeline)
+			{
+				debugPhysicsPipeline = Graphics::CreateGraphicsPipeline({
+					.shader = Resources::FindByPath("Skore://Shaders/DebugPhysics.raster"),
+					.rasterizerState = {
+						.polygonMode = PolygonMode::Line,
+						.lineWidth = 2.0f * ImGui::GetStyle().ScaleFactor,
+					},
+					.depthStencilState = {
+						.depthTestEnable = true,
+						.depthWriteEnable = true,
+						.depthCompareOp = CompareOp::Less
+					},
+					.blendStates = {
+						BlendStateDesc{}
+					},
+					.renderPass = renderPass,
+					.vertexInputStride = DebugPhysicsVertexSize
+				});
+			}
+
+			if (Scene* scene = sceneEditor->GetCurrentScene())
+			{
+				cmd->BindPipeline(debugPhysicsPipeline);
+				cmd->BindDescriptorSet(debugPhysicsPipeline, 0, sceneDescriptorSet, {});
+				scene->GetPhysicsScene()->DrawDebugEntities(cmd, debugPhysicsPipeline);
+			}
 		}
 	}
 }

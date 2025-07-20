@@ -826,7 +826,6 @@ namespace Skore
 		viewportInfo.height = (f32)sceneExtent.height;
 		viewportInfo.minDepth = 0.;
 		viewportInfo.maxDepth = 1.;
-
 		cmd->SetViewport(viewportInfo);
 		cmd->SetScissor({0, 0}, sceneExtent);
 
@@ -835,11 +834,6 @@ namespace Skore
 		if (!windowStartedSimulation)
 		{
 			sceneViewRenderer.Blit(sceneEditor, sceneRenderPass, sceneRendererViewport.GetSceneDescriptorSet(), cmd);
-			if (scene)
-			{
-				scene->GetPhysicsScene()->DrawDebugEntities(cmd);
-			}
-
 		}
 
 		cmd->EndRenderPass();

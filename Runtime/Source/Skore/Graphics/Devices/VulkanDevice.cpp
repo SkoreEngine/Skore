@@ -1355,6 +1355,16 @@ namespace Skore
 			queueCreateInfos[0].pQueuePriorities = &queuePriority;
 		}
 
+		if (vulkanAdapter->deviceFeatures.features.fillModeNonSolid)
+		{
+			deviceFeatures2.features.fillModeNonSolid = VK_TRUE;
+		}
+
+		if (vulkanAdapter->deviceFeatures.features.wideLines)
+		{
+			deviceFeatures2.features.wideLines = VK_TRUE;
+		}
+
 		VkDeviceCreateInfo createInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 		createInfo.pNext = &deviceFeatures2;
 		createInfo.pQueueCreateInfos = queueCreateInfos.Data();

@@ -181,10 +181,16 @@ namespace Skore
 	class JoltDebugRenderer : public JPH::DebugRenderer
 	{
 	public:
+		static_assert(DebugPhysicsVertexSize == sizeof(Vertex), "DebugPhysicsVertexSize must match Vertex size");
+
+		GPUCommandBuffer* cmd = nullptr;
+		GPUPipeline*      pipeline = nullptr;
+
 		struct GeometryBatch : JPH::RefTargetVirtual
 		{
 			GPUBuffer* vertexBuffer = nullptr;
 			GPUBuffer* indexBuffer = nullptr;
+			u32 indexCount = 0;
 
 			int m_refCount = 0;
 
@@ -199,8 +205,17 @@ namespace Skore
 
 				if (m_refCount == 0)
 				{
-					vertexBuffer->Destroy();
-					indexBuffer->Destroy();
+					if (vertexBuffer)
+					{
+						vertexBuffer->Destroy();
+						vertexBuffer = nullptr;
+					}
+
+					if (indexBuffer)
+					{
+						indexBuffer->Destroy();
+						indexBuffer = nullptr;
+					}
 
 					auto* pThis = this;
 					DestroyAndFree(pThis);
@@ -225,12 +240,14 @@ namespace Skore
 
 		Batch CreateTriangleBatch(const Triangle* inTriangles, int inTriangleCount) override
 		{
+			SK_ASSERT(false, "TODO");
 			return JPH::DebugRenderer::Batch();
 		}
 
 		Batch CreateTriangleBatch(const Vertex* inVertices, int inVertexCount, const JPH::uint32* inIndices, int inIndexCount) override
 		{
 			GeometryBatch* geometryBatch = Alloc<GeometryBatch>();
+			geometryBatch->indexCount = inIndexCount;
 
 			geometryBatch->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
 				.size = sizeof(Vertex) * inVertexCount,
@@ -243,7 +260,6 @@ namespace Skore
 				.size = sizeof(Vertex) * inVertexCount,
 			});
 
-
 			geometryBatch->indexBuffer = Graphics::CreateBuffer(BufferDesc{
 				.size = sizeof(JPH::uint32) * inIndexCount,
 				.usage = ResourceUsage::IndexBuffer | ResourceUsage::CopyDest,
@@ -255,15 +271,30 @@ namespace Skore
 				.size = sizeof(JPH::uint32) * inIndexCount
 			});
 
-
 			return geometryBatch;
 		}
 
 		void DrawGeometry(JPH::RMat44Arg inModelMatrix, const JPH::AABox& inWorldSpaceBounds, float inLODScaleSq, JPH::ColorArg inModelColor, const GeometryRef& inGeometry, ECullMode inCullMode,
 		                  ECastShadow inCastShadow, EDrawMode inDrawMode) override
 		{
-			//TODO
-			int a = 0;
+
+			u32 uiLod = 0;
+			if (inGeometry->mLODs.size() > 1)
+			{
+				uiLod = 1;
+			}
+
+			if (inGeometry->mLODs.size() > 2)
+			{
+				uiLod = 2;
+			}
+
+			const GeometryBatch* pBatch = static_cast<const GeometryBatch*>(inGeometry->mLODs[uiLod].mTriangleBatch.GetPtr());
+
+			cmd->BindVertexBuffer(0, pBatch->vertexBuffer, 0);
+			cmd->BindIndexBuffer(pBatch->indexBuffer, 0, IndexType::Uint32);
+			cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(JPH::RMat44Arg), &inModelMatrix);
+			cmd->DrawIndexed(pBatch->indexCount, 1, 0, 0, 0);
 		}
 
 		void DrawText3D(JPH::RVec3Arg inPosition, const std::string_view& inString, JPH::ColorArg inColor, float inHeight) override
@@ -272,7 +303,7 @@ namespace Skore
 		}
 	};
 
-	static std::shared_ptr<JoltDebugRenderer> debugRenderer;
+	static JoltDebugRenderer* debugRenderer = nullptr;
 
 	struct PhysicsScene::Context
 	{
@@ -297,14 +328,14 @@ namespace Skore
 		JPH::Factory::sInstance = new JPH::Factory();
 		JPH::RegisterTypes();
 
-		debugRenderer = std::make_shared<JoltDebugRenderer>();
+		debugRenderer = new JoltDebugRenderer();
 	}
 
 	void PhysicsShutdown()
 	{
+		delete debugRenderer;
 		JPH::UnregisterTypes();
 		delete JPH::Factory::sInstance;
-		debugRenderer = {};
 		JPH::Factory::sInstance = nullptr;
 	}
 
@@ -458,21 +489,31 @@ namespace Skore
 		}
 	}
 
-	void PhysicsScene::DrawDebugEntities(GPUCommandBuffer* cmd)
+	void PhysicsScene::DrawDebugEntities(GPUCommandBuffer* cmd, GPUPipeline* pipeline)
 	{
 		if (!context) return;
 
 		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
 
+		debugRenderer->cmd = cmd;
+		debugRenderer->pipeline = pipeline;
+
 		for (Entity* entity : context->entitiesToDraw)
 		{
 			if (entity->m_physicsId != U64_MAX)
 			{
-				if (JPH::RefConst<JPH::Shape> shape = bodyInterface.GetShape(JPH::BodyID(entity->m_physicsId)))
+				if (entity->HasFlag(EntityFlags::HasCharacterController))
 				{
-					const Mat4& worldTransform =  entity->GetGlobalTransform();
-					JPH::RMat44Arg inCenterOfMassTransform = JPH::RMat44::sRotationTranslation(Cast(Math::GetQuaternion(worldTransform)), Cast(Math::GetTranslation(worldTransform)));
-					shape->Draw(debugRenderer.get(), inCenterOfMassTransform, Cast(Math::GetScale(worldTransform)), {}, false, true);
+					JPH::CharacterVirtual* characterVirtual = static_cast<JPH::CharacterVirtual*>(IntToPtr(entity->m_physicsId));
+					characterVirtual->GetShape()->Draw(debugRenderer, characterVirtual->GetCenterOfMassTransform(), JPH::Vec3Arg(1.0, 1.0, 1.0), {}, false, true);
+				}
+				else
+				{
+					auto id = JPH::BodyID(entity->m_physicsId);
+					if (JPH::RefConst<JPH::Shape> shape = bodyInterface.GetShape(id))
+					{
+						shape->Draw(debugRenderer, bodyInterface.GetCenterOfMassTransform(id), JPH::Vec3Arg(1.0, 1.0, 1.0), {}, false, true);
+					}
 				}
 			}
 		}

@@ -54,6 +54,7 @@ namespace Skore
 		GPURenderPass* compositeMaskRenderPass = nullptr;
 		GPUPipeline* maskPipeline = nullptr;
 		GPUPipeline* compositeMaskPipeline = nullptr;
+		GPUPipeline* debugPhysicsPipeline = nullptr;
 		GPUDescriptorSet* maskDescriptorSet = nullptr;
 		GPUDescriptorSet* compositeMaskDescriptorSet = nullptr;
 

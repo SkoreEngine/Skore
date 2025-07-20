@@ -26,12 +26,13 @@
 #include "Skore/Common.hpp"
 #include "Skore/Core/Math.hpp"
 
-namespace Skore {
-	class GPUCommandBuffer;
-}
-
 namespace Skore
 {
+	class GPUCommandBuffer;
+	class GPUPipeline;
+
+	const u32 DebugPhysicsVertexSize = 36;
+
 	enum class CollisionDetectionType
 	{
 		Discrete,
@@ -88,7 +89,7 @@ namespace Skore
 
 		void RegisterPhysicsEntity(Entity* entity);
 
-		void DrawDebugEntities(GPUCommandBuffer* cmd);
+		void DrawDebugEntities(GPUCommandBuffer* cmd, GPUPipeline* pipeline);
 		void AddEntityToDraw(Entity* entity);
 		void RemoveEntityFromDraw(Entity* entity);
 
