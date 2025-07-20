@@ -222,7 +222,6 @@ namespace Skore
 		fileStatusType.Field<&FileStatus::isDirectory>("isDirectory");
 		fileStatusType.Field<&FileStatus::lastModifiedTime>("lastModifiedTime");
 		fileStatusType.Field<&FileStatus::fileSize>("fileSize");
-		fileStatusType.Field<&FileStatus::fileId>("fileId");
 	}
 
 	void RegisterIOTypes()

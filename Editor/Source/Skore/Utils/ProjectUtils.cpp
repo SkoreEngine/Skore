@@ -35,6 +35,12 @@ namespace Skore
 
 	static Logger& logger = Logger::GetLogger("Skore::ProjectUtils");
 
+	bool HasCMakeProject(StringView directory)
+	{
+		bool exists = FileSystem::GetFileStatus(Path::Join(directory, "CMakeLists.txt")).exists;
+		return exists;
+	}
+
 	void CreateCMakeProject(StringView directory)
 	{
 		String engineSourcePath;

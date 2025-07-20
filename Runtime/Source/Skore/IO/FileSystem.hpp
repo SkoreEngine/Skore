@@ -41,8 +41,9 @@ namespace Skore
 
 		static FileStatus GetFileStatus(const StringView& path);
 		static u64        GetFileSize(const StringView& path);
+		static u64        GetFileId(const StringView& path);
 		static bool       CreateDirectory(const StringView& path);
-		static bool       Remove(const StringView& path);
+		static bool       Remove(const StringView& path, bool printException = true);
 		static bool       Rename(const StringView& oldName, const StringView& newName);
 		static bool       CopyFile(const StringView& from, const StringView& to);
 

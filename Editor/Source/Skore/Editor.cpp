@@ -33,10 +33,12 @@
 
 #include "EditorWorkspace.hpp"
 #include "Resource/ResourceAssets.hpp"
+#include "SDL3/SDL_loadso.h"
 #include "SDL3/SDL_process.h"
 #include "Skore/Events.hpp"
 #include "Skore/Core/Queue.hpp"
 #include "Skore/Core/Sinks.hpp"
+#include "Skore/Core/StringUtils.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
 #include "Utils/ProjectUtils.hpp"
@@ -46,6 +48,9 @@
 #include "Window/PropertiesWindow.hpp"
 #include "Window/SceneViewWindow.hpp"
 #include "Window/TextureViewWindow.hpp"
+
+#include <thread>
+#include <chrono>
 
 namespace Skore
 {
@@ -113,8 +118,14 @@ namespace Skore
 		RID                     projectRID;
 		String                  projectPath;
 		String                  projectAssetPath;
+		String                  projectTempPath;
 		String                  projectPackagePath;
 		Array<UpdatedAssetInfo> updatedItems;
+
+		//c++ dev plugin
+		Array<SDL_SharedObject*> plugLibraries;
+		String                   pluginProjectPath;
+		u64                      pluginLastModifiedTime = 0;
 
 		Array<RID>    packages;
 		Array<String> packagePaths;
@@ -221,25 +232,19 @@ namespace Skore
 			Editor::GetCurrentWorkspace().GetSceneEditor()->DestroySelected();
 		}
 
-		bool CreateCMakeProjectEnabled(const MenuItemEventData& eventData)
+		bool CanOpenEditor(const MenuItemEventData& eventData)
 		{
-			// return AssetEditor::CanCreateCMakeProject();
-			return false;
+			return HasCMakeProject(projectPath);
+		}
+
+		bool CreateCMakeProjectVisible(const MenuItemEventData& eventData)
+		{
+			return !HasCMakeProject(projectPath);
 		}
 
 		void CreateCMakeProject(const MenuItemEventData& eventData)
 		{
-			//system("clion C:\\dev\\SkoreEngine\\Projects\\TestCpp");
-			// const char *args[] = { "clion.exe", "", NULL };
-			// SDL_Process* process = SDL_CreateProcess(args, false);
-			// if (!process)
-			// {
-			// 	logger.Error("Failed to create process: {}", SDL_GetError());
-			// }
-			//
-			// int a = 0;
-
-			//AssetEditor::CreateCMakeProject();
+			CreateCMakeProject(projectPath);
 		}
 
 		void Build(const MenuItemEventData& eventData)
@@ -305,8 +310,8 @@ namespace Skore
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Editor Preferences...", .priority = 1000, .action = SettingsWindow::Open, .userData = GetTypeID<EditorPreferences>()});
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Project Settings...", .priority = 1010, .action = SettingsWindow::Open, .userData = GetTypeID<ProjectSettings>()});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
-			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Open Editor", .priority = 5, .action = OpenProjectInEditorAction});
-			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .enable = CreateCMakeProjectEnabled});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Open Editor", .priority = 5, .action = OpenProjectInEditorAction, .visible = CanOpenEditor});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .visible = CreateCMakeProjectVisible});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Reload Shaders", .priority = 100, .itemShortcut = {.presKey = Key::F5}, .action = ReloadShaders});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Show Debug Options", .priority = 105, .action = ShowDebugOptions, .selected = IsDebugOptionsEnabled});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window", .priority = 60});
@@ -354,6 +359,13 @@ namespace Skore
 
 			redoActions.Clear();
 			redoActions.ShrinkToFit();
+
+			for (auto lib : plugLibraries)
+			{
+				SDL_UnloadObject(lib);
+			}
+
+			plugLibraries = {};
 
 			ShaderManagerShutdown();
 		}
@@ -616,8 +628,75 @@ namespace Skore
 			}
 		}
 
+		std::chrono::time_point lastExecution = std::chrono::steady_clock::now();
+
+		void LoadProjectPlugin()
+		{
+			constexpr auto interval = std::chrono::milliseconds(500);
+			const auto now = std::chrono::steady_clock::now();
+			if (now - lastExecution < interval) {
+				return;
+			}
+			lastExecution = now;
+
+			FileStatus fileStatus =FileSystem::GetFileStatus(pluginProjectPath);
+			if (fileStatus.exists)
+			{
+				if (fileStatus.lastModifiedTime != pluginLastModifiedTime)
+				{
+					logger.Debug("Loading project plugin: {}", pluginProjectPath);
+
+					pluginLastModifiedTime = fileStatus.lastModifiedTime;
+
+					String strModified = ToString(fileStatus.lastModifiedTime);
+
+					String tempBinPath = Path::Join(projectTempPath, "Binaries");
+
+					if (!FileSystem::GetFileStatus(tempBinPath).exists)
+					{
+						FileSystem::CreateDirectory(tempBinPath);
+					}
+
+					String newSharedLibFile = Path::Join(tempBinPath, Path::Name(pluginProjectPath) + strModified + SK_SHARED_EXT);
+					FileSystem::CopyFile(pluginProjectPath, newSharedLibFile);
+
+#ifdef SK_WIN
+					String pdbFile = Path::Join(Path::Parent(pluginProjectPath), Path::Name(pluginProjectPath) + ".pdb");
+					String newPdbFile = Path::Join(tempBinPath, Path::Name(pluginProjectPath) + strModified + ".pdb");
+					FileSystem::CopyFile(pdbFile, newPdbFile);
+					bool removed = FileSystem::Remove(pdbFile, false);
+					if (!removed)
+					{
+						u32 count = 0;
+						while (!removed)
+						{
+							removed = FileSystem::Remove(pdbFile, false);
+							std::this_thread::sleep_for(std::chrono::milliseconds(1));
+							count++;
+							if (count > 10)
+							{
+								break;
+							}
+						}
+					}
+#endif
+
+					SDL_SharedObject* library = SDL_LoadObject(newSharedLibFile.CStr());
+					if (library)
+					{
+						if (auto func = SDL_LoadFunction(library, "SkoreLoadPlugin"))
+						{
+							func();
+						}
+					}
+					plugLibraries.EmplaceBack(library);
+				}
+			}
+		}
+
 		void EditorUpdate()
 		{
+			LoadProjectPlugin();
 
 			{
 				std::scoped_lock lock(funcsMutex);
@@ -836,12 +915,26 @@ namespace Skore
 			return l.order < r.order;
 		});
 
+		projectAssetPath = Path::Join(projectPath, "Assets");
+		projectPackagePath = Path::Join(projectPath, "Packages");
+		projectTempPath = Path::Join(projectPath, "Temp");
+		pluginProjectPath = Path::Join(Path::Join(projectPath, "Binaries"), Path::Name(projectFile) + SK_SHARED_EXT);
+
+		if (FileSystem::GetFileStatus(projectTempPath).exists)
+		{
+			FileSystem::Remove(projectTempPath);
+		}
+
+		FileSystem::CreateDirectory(projectTempPath);
+
+		if (FileSystem::GetFileStatus(pluginProjectPath).exists)
+		{
+			LoadProjectPlugin();
+		}
+
 #ifdef SK_DEV_ASSETS
 		Editor::LoadPackage("Skore", Path::Join(SK_ROOT_SOURCE_PATH, "Assets"));
 #endif
-
-		projectAssetPath = Path::Join(projectPath, "Assets");
-		projectPackagePath = Path::Join(projectPath, "Packages");
 
 		for (auto& package: DirectoryEntries{projectPackagePath})
 		{
@@ -854,7 +947,7 @@ namespace Skore
 			Editor::LoadPackage(Path::Name(package), Path::Join(package, "Assets"));
 		}
 
-		projectRID = ResourceAssets::ScanAssetsFromDirectory(Path::Name(projectPath), projectAssetPath);
+		projectRID = ResourceAssets::ScanAssetsFromDirectory(Path::Name(projectFile), projectAssetPath);
 	}
 
 

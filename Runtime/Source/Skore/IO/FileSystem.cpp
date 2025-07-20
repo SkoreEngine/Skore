@@ -61,7 +61,7 @@ namespace Skore
         return fs::create_directories(fs::path(path.begin(), path.end()));
     }
 
-    bool FileSystem::Remove(const StringView& path)
+    bool FileSystem::Remove(const StringView& path, bool printException)
     {
         try
         {
@@ -69,7 +69,10 @@ namespace Skore
         }
         catch (std::exception& ex)
         {
-            logger.Error("error on remove {} error: {} ", path, ex.what());
+            if (printException)
+            {
+                logger.Error("error on remove {} error: {} ", path, ex.what());
+            }
         }
         return false;
     }

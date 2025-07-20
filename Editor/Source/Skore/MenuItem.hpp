@@ -64,6 +64,8 @@ namespace Skore
 		void Draw(VoidPtr userData = nullptr);
 		bool ExecuteHotKeys(VoidPtr userData = nullptr, bool executeOnFocus = false);
 
+		bool CanShow(VoidPtr userData) const;
+
 	private:
 		String                                            m_label{};
 		String                                            m_itemName{};

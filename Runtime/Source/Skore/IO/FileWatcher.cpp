@@ -55,7 +55,7 @@ namespace Skore
                         {
                             for (const String& file : DirectoryEntries{data.path})
                             {
-                                data.children.Emplace(FileSystem::GetFileStatus(file).fileId);
+                                data.children.Emplace(FileSystem::GetFileId(file));
                             }
                         }
                         watchedFiles.EmplaceBack(Traits::Move(data));
@@ -75,7 +75,7 @@ namespace Skore
                         bool renamed = false;
                         for (const String& file : DirectoryEntries{Path::Parent(data.path)})
                         {
-                            if (FileSystem::GetFileStatus(file).fileId == data.fileId)
+                            if (FileSystem::GetFileId(file) == data.fileId)
                             {
                                 std::unique_lock lockQueue(modifiedMutex);
                                 modified.emplace(FileWatcherModified{
@@ -114,7 +114,7 @@ namespace Skore
                         HashSet<u64> actualIds{};
                         for (const String& file : DirectoryEntries{data.path})
                         {
-                            u64 fileId = FileSystem::GetFileStatus(file).fileId;
+                            u64 fileId = FileSystem::GetFileId(file);
                             if (fileId == 0) continue;
 
                             actualIds.Insert(fileId);
@@ -181,7 +181,7 @@ namespace Skore
                     .userData = userData,
                     .isDirectory = fileStatus.isDirectory,
                     .lastModifiedTime = fileStatus.lastModifiedTime,
-                    .fileId = fileStatus.fileId
+                    .fileId = FileSystem::GetFileId(path)
                 });
                 logger.Debug("file {} added to watcher ", path);
             }

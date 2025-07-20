@@ -132,18 +132,6 @@ namespace Skore
             .fileSize = (u64) size.QuadPart,
         };
 
-    	if (exists)
-    	{
-    		HANDLE file = CreateFile(path.CStr(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, !fileStatus.isDirectory ? FILE_ATTRIBUTE_NORMAL : FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    		if (file != INVALID_HANDLE_VALUE)
-    		{
-    			FILE_ID_INFO fileIdInfo;
-    			GetFileInformationByHandleEx(file, FileIdInfo, &fileIdInfo, sizeof(FILE_ID_INFO));
-    			fileStatus.fileId = HashValue(fileIdInfo.FileId.Identifier);
-    			CloseHandle(file);
-    		}
-    	}
-
     	return fileStatus;
 	}
 
@@ -158,6 +146,24 @@ namespace Skore
 
     	return static_cast<u64>(size.QuadPart);
     }
+
+	u64 FileSystem::GetFileId(const StringView& path)
+	{
+		FileStatus status = GetFileStatus(path);
+		if (status.exists)
+		{
+			HANDLE file = CreateFile(path.CStr(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, !status.isDirectory ? FILE_ATTRIBUTE_NORMAL : FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+			if (file != INVALID_HANDLE_VALUE)
+			{
+				FILE_ID_INFO fileIdInfo;
+				GetFileInformationByHandleEx(file, FileIdInfo, &fileIdInfo, sizeof(FILE_ID_INFO));
+				u64 fileId = HashValue(fileIdInfo.FileId.Identifier);
+				CloseHandle(file);
+				return fileId;
+			}
+		}
+		return 0;
+	}
 
 	String FileSystem::AppFolder()
     {

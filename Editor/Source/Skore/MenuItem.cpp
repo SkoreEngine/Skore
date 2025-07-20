@@ -96,6 +96,11 @@ namespace Skore
         bool enabled = true;
         bool selected = false;
 
+        if (!context->CanShow(userData))
+        {
+            return;
+        }
+
         if (context->m_enable)
         {
             enabled = context->m_enable(MenuItemEventData{
@@ -170,20 +175,9 @@ namespace Skore
     void MenuItemContext::Draw(VoidPtr userData)
     {
         i32 lastPriority = U32_MAX;
-        for (MenuItemContext* menuItemStorage: this->m_children)
-       {
-            if (menuItemStorage->m_visible)
-            {
-                if (!menuItemStorage->m_visible(MenuItemEventData{
-                    .drawData = userData,
-                    .userData = menuItemStorage->m_itemUserData
-                }))
-                {
-                    continue;
-                }
-            }
-
-            if (menuItemStorage->m_debugOption && !Editor::DebugOptionsEnabled())
+        for (MenuItemContext* menuItemStorage : this->m_children)
+        {
+            if (!menuItemStorage->CanShow(userData))
             {
                 continue;
             }
@@ -266,4 +260,25 @@ namespace Skore
     {
         return ExecuteHotKeys(this, userData, executeOnFocus);
     }
+
+    bool MenuItemContext::CanShow(VoidPtr userData) const
+    {
+        if (m_visible)
+        {
+            if (!m_visible(MenuItemEventData{
+                .drawData = userData,
+                .userData = m_itemUserData
+            }))
+            {
+                return false;
+            }
+        }
+
+        if (m_debugOption && !Editor::DebugOptionsEnabled())
+        {
+            return false;
+        }
+        return true;
+    }
+
 }

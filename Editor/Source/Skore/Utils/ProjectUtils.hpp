@@ -27,6 +27,7 @@
 
 namespace Skore
 {
+	SK_API bool HasCMakeProject(StringView directory);
 	SK_API void CreateCMakeProject(StringView directory);
 	SK_API void OpenProjectInEditor(StringView projectPath);
 }

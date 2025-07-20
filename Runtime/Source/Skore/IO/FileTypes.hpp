@@ -47,7 +47,6 @@ namespace Skore
         bool    isDirectory{};
         u64     lastModifiedTime{};
         u64     fileSize{};
-        u64     fileId{};
     };
 
     class SK_API DirIterator
