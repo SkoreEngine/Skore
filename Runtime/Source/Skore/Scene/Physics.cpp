@@ -35,6 +35,7 @@
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include "Jolt/Renderer/DebugRenderer.h"
 
 #include "Components/CharacterController.hpp"
 #include "Components/RigidBody.hpp"
@@ -175,6 +176,49 @@ namespace Skore
 		return JPH::EMotionQuality::Discrete;
 	}
 
+	class JoltDebugRenderer : public JPH::DebugRenderer
+	{
+	public:
+
+		JoltDebugRenderer()
+		{
+			Initialize();
+		}
+
+		void DrawLine(JPH::RVec3Arg inFrom, JPH::RVec3Arg inTo, JPH::ColorArg inColor) override
+		{
+			//TODO
+		}
+
+		void DrawTriangle(JPH::RVec3Arg inV1, JPH::RVec3Arg inV2, JPH::RVec3Arg inV3, JPH::ColorArg inColor, ECastShadow inCastShadow) override
+		{
+			//TODO
+		}
+
+		Batch CreateTriangleBatch(const Triangle* inTriangles, int inTriangleCount) override
+		{
+			return JPH::DebugRenderer::Batch();
+		}
+
+		Batch CreateTriangleBatch(const Vertex* inVertices, int inVertexCount, const JPH::uint32* inIndices, int inIndexCount) override
+		{
+			return JPH::DebugRenderer::Batch();
+		}
+
+		void DrawGeometry(JPH::RMat44Arg inModelMatrix, const JPH::AABox& inWorldSpaceBounds, float inLODScaleSq, JPH::ColorArg inModelColor, const GeometryRef& inGeometry, ECullMode inCullMode,
+		                  ECastShadow inCastShadow, EDrawMode inDrawMode) override
+		{
+			//TODO
+		}
+
+		void DrawText3D(JPH::RVec3Arg inPosition, const std::string_view& inString, JPH::ColorArg inColor, float inHeight) override
+		{
+			//TODO
+		}
+	};
+
+	static std::shared_ptr<JoltDebugRenderer> debugRenderer;
+
 	struct PhysicsScene::Context
 	{
 		JPH::TempAllocatorImpl tempAllocator = JPH::TempAllocatorImpl(10 * 1024 * 1024);
@@ -185,6 +229,7 @@ namespace Skore
 		BroadPhaseLayerInterfaceImpl      broadPhaseLayerInterfaceImpl = {};
 		ObjectVsBroadPhaseLayerFilterImpl objectVsBroadPhaseLayerFilterImpl = {};
 		ObjectLayerPairFilterImpl         objectLayerPairFilterImpl = {};
+
 		JPH::JobSystemThreadPool          jobSystem = JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
 		HashSet<JPH::CharacterVirtual*>   virtualCharacters;
 	};
@@ -194,6 +239,16 @@ namespace Skore
 		JPH::RegisterDefaultAllocator();
 		JPH::Factory::sInstance = new JPH::Factory();
 		JPH::RegisterTypes();
+
+		debugRenderer = std::make_shared<JoltDebugRenderer>();
+	}
+
+	void PhysicsShutdown()
+	{
+		JPH::UnregisterTypes();
+		delete JPH::Factory::sInstance;
+		debugRenderer = {};
+		JPH::Factory::sInstance = nullptr;
 	}
 
 	PhysicsScene::PhysicsScene()
@@ -233,7 +288,7 @@ namespace Skore
 		eventDesc.eventData = &collector;
 		entity->NotifyEvent(eventDesc, false);
 
-		bool hasSensor = false;
+		bool                      hasSensor = false;
 		JPH::RefConst<JPH::Shape> scaledShape = {};
 
 		if (!collector.shapes.Empty())
@@ -350,7 +405,7 @@ namespace Skore
 	{
 		const int collisionSteps = 1;
 
-		for(JPH::CharacterVirtual* characterVirtual: context->virtualCharacters)
+		for (JPH::CharacterVirtual* characterVirtual : context->virtualCharacters)
 		{
 			CharacterController* characterController = static_cast<CharacterController*>(IntToPtr(characterVirtual->GetUserData()));
 

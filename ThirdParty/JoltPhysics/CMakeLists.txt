@@ -34,3 +34,6 @@ elseif ("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux" OR "${CMAKE_SYSTEM_NAME}" STREQU
 endif()
 
 include(Jolt/Jolt.cmake)
+
+
+target_compile_definitions(Jolt PUBLIC JPH_DEBUG_RENDERER=1)

@@ -61,10 +61,14 @@ namespace Skore
 
 	void SceneViewWindow::Draw(u32 id, bool& open)
 	{
+		const float iconSize = ImGui::CalcTextSize(ICON_FA_SUN).x;
+
 		SceneEditor* sceneEditor = Editor::GetCurrentWorkspace().GetSceneEditor();
+		bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
 
 		bool openSceneOptions = false;
 		bool openCameraOptions = false;
+		bool openViewportSettings = false;
 
 		ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar;
 		auto&            style = ImGui::GetStyle();
@@ -227,6 +231,11 @@ namespace Skore
 					openCameraOptions = true;
 				}
 
+				if (ImGui::Button(ICON_FA_SLIDERS, buttonSize))
+				{
+					openViewportSettings = true;
+				}
+
 				ImGui::EndHorizontal();
 
 				ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2);
@@ -265,6 +274,7 @@ namespace Skore
 			auto diffCursor = cursor - initCursor;
 			size -= diffCursor;
 			Rect bb{(i32)cursor.x, (i32)cursor.y, u32(cursor.x + size.x), u32(cursor.y + size.y)};
+			Vec2 mousePos = Input::GetMousePosition() - Vec2{(f32)bb.x, (f32)bb.y};
 
 			f32    screenScale = 1;
 			Extent extent = {static_cast<u32>(size.x * screenScale), static_cast<u32>(size.y * screenScale)};
@@ -408,17 +418,67 @@ namespace Skore
 				}
 			}
 
-			Vec2 mousePos = Input::GetMousePosition() - Vec2{(f32)bb.x, (f32)bb.y};
+			bool selectedLight = false;
+
+			ImDrawList* drawList = ImGui::GetCurrentWindow()->DrawList;
+
+			if (!windowStartedSimulation && drawIcons)
+			{
+				if (Scene* scene = sceneEditor->GetCurrentScene())
+				{
+					RenderStorage* storage = scene->GetRenderStorage();
+
+					for (const auto& itLight: storage->lights)
+					{
+						Vec2 pos = {};
+						if (Math::ScreenToWorld(Math::GetTranslation(itLight.second.transform), Extent{(u32)size.x, (u32)size.y}, projection * view, pos))
+						{
+							const f32 scale = 2.0;
+							f32 iconSizeRect = iconSize * scale;
+							ImGui::SetWindowFontScale(1.5);
+							ImVec2 rectMin = ImVec2(cursor.x + pos.x - iconSize / 2.0f, cursor.y + pos.y - iconSize / 2.0f);
+							ImVec2 rectMax = ImVec2(cursor.x + pos.x + iconSizeRect / 2.0f, cursor.y + pos.y + iconSizeRect / 2.0f);
+
+							const char* icon = "";
+							switch (itLight.second.type)
+							{
+								case LightType::Point:
+									icon = ICON_FA_LIGHTBULB;
+									break;
+								case LightType::Spot:
+									icon = ICON_FA_LIGHTBULB;
+									break;
+								case LightType::Directional:
+									icon = ICON_FA_SUN;
+									break;
+							}
+
+							drawList->AddText(rectMin, IM_COL32(itLight.second.color.red,
+							                                                               itLight.second.color.green,
+							                                                               itLight.second.color.blue,
+							                                                               255), icon);
+
+							if (ImGui::IsMouseHoveringRect(rectMin, rectMax) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+							{
+								sceneEditor->SelectEntity(RID(itLight.second.id), !ctrlDown);
+								selectedLight = true;
+							}
+
+							ImGui::SetWindowFontScale(1.0);
+						}
+					}
+				}
+			}
 
 			bool isImgHovered = ImGui::IsMouseHoveringRect(ImVec2(bb.x, bb.y), ImVec2(bb.width, bb.height), false);
 
 			if (!windowStartedSimulation &&
 				!ImGuizmo::IsUsing() &&
 				isImgHovered &&
+				!selectedLight &&
 				ImGui::IsWindowHovered() &&
 				ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 			{
-				bool ctrlDown = ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown(ImGui::GetKeyIndex(ImGuiKey_RightCtrl));
 
 				if (RID selectedEntity = entityPicker.PickEntity(projection * view, sceneEditor, mousePos))
 				{
@@ -636,6 +696,46 @@ namespace Skore
 					freeViewCamera.movementSmoothingFactor = checked ? 0.85f : 0.0f;
 				}
 
+
+				ImGui::EndTable();
+			}
+		}
+		ImGuiEndPopupMenu(popupRes);
+
+
+		if (openViewportSettings)
+		{
+			ImGui::OpenPopup("viewport-options-modal");
+		}
+
+		auto addTableBoolOption = [&](const char* label, bool* value) -> bool
+		{
+			ImGui::TableNextColumn();
+			ImGui::Text(label);
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+
+			static char buffer[50];
+			sprintf(buffer, "###%s", label);
+
+			if (ImGui::Checkbox(buffer, value))
+			{
+				return true;
+			}
+			return false;
+		};
+
+		popupRes = ImGuiBeginPopupMenu("viewport-options-modal", 0, false);
+		if (popupRes)
+		{
+			if (ImGui::BeginTable("table-viewport-options-modal", 2, flags))
+			{
+				ImGui::TableSetupColumn("one", ImGuiTableColumnFlags_WidthFixed, 150 * style.ScaleFactor);
+				ImGui::TableSetupColumn("two", ImGuiTableColumnFlags_WidthFixed, 180 * style.ScaleFactor);
+
+				addTableBoolOption("Selection Outline", &sceneViewRenderer.drawSelectionOutline);
+				addTableBoolOption("Draw Icons", &drawIcons);
+				addTableBoolOption("Draw Debug Physics", &sceneViewRenderer.drawDebugPhysics);
 
 				ImGui::EndTable();
 			}

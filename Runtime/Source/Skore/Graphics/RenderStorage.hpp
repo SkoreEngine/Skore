@@ -80,6 +80,7 @@ namespace Skore
 
 	struct LightRenderData
 	{
+		u64 id;
 		LightType type = LightType::Directional;
 		Mat4              transform;
 		Color             color = Color::WHITE;
@@ -123,7 +124,7 @@ namespace Skore
 		void SetEnvironmentSkyboxMaterial(VoidPtr owner, RID material);
 		void SetEnvironmentVisible(VoidPtr owner, bool visible);
 
-		void RegisterLightProxy(VoidPtr owner);
+		void RegisterLightProxy(VoidPtr owner, u64 id);
 		void RemoveLightProxy(VoidPtr owner);
 		void SetLightTransform(VoidPtr owner, const Mat4& worldTransform);
 		void SetLightType(VoidPtr owner, LightType type);

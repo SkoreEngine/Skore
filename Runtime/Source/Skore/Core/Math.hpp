@@ -53,6 +53,8 @@ namespace Skore
 
 	struct Mat4;
 
+	constexpr Vec4 operator*(const Mat4& m, const Vec4& v);
+
 	struct Extent
 	{
 		u32 width{};
@@ -1227,6 +1229,42 @@ namespace Skore
 			translation[0] = mathNorm.v.position.x;
 			translation[1] = mathNorm.v.position.y;
 			translation[2] = mathNorm.v.position.z;
+		}
+
+		inline bool ScreenToWorld(const Vec3& position, const Extent extent, const Mat4& projView, Vec2& out)
+		{
+			// 2. Apply MVP transformation
+			Vec4 clipPos = projView * Vec4(position, 1.0f);
+			if (clipPos.w > 0.0f)
+			{
+				// 3. Perspective divide (convert to NDC)
+				if (clipPos.w != 0.0f) {
+					clipPos.x /= clipPos.w;
+					clipPos.y /= clipPos.w;
+					clipPos.z /= clipPos.w;
+				}
+
+				// 4. Convert NDC to screen coordinates
+				f32 screenX = (clipPos.x + 1.0f) * extent.width * 0.5f;
+				f32 screenY = (1.0f - clipPos.y) * extent.height * 0.5f; // Flip Y back
+
+				if(screenX < 0 || screenX > extent.width)
+				{
+					return false;
+				}
+
+				if(screenY < 0 || screenY > extent.height)
+				{
+					return false;
+				}
+
+				out.x = screenX;
+				out.y = screenY;
+
+				return true;
+			}
+
+			return false;
 		}
 	}
 

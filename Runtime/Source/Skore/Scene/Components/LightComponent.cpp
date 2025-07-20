@@ -34,7 +34,7 @@ namespace Skore
 	void LightComponent::Create(ComponentSettings& settings)
 	{
 		m_renderStorage = GetScene()->GetRenderStorage();
-		m_renderStorage->RegisterLightProxy(this);
+		m_renderStorage->RegisterLightProxy(this, entity->GetRID().id);
 		m_renderStorage->SetLightTransform(this, entity->GetGlobalTransform());
 		m_renderStorage->SetLightType(this, m_lightType);
 		m_renderStorage->SetLightColor(this, m_color);

@@ -60,6 +60,7 @@ namespace Skore
 		Mat4           view{};
 		Mat4           projection{};
 		bool           view2d = false;
+		bool		   drawIcons = true;
 		f32            cameraFov = 60.f;
 		f32            aspectRatio = 1.f;
 

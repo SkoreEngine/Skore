@@ -20,46 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
-
-#include "Skore/Common.hpp"
-#include "Skore/Core/Math.hpp"
-#include "Skore/Graphics/Device.hpp"
+#include "PrimitiveDraw.hpp"
 
 namespace Skore
 {
-	class SceneEditor;
-
-	class SK_API SceneViewRenderer
+	void PrimitiveDraw::DrawLine()
 	{
-	public:
 
-		SceneViewRenderer() = default;
-		~SceneViewRenderer();
-
-		void Resize(Extent extent);
-		void Render(SceneEditor* sceneEditor, GPURenderPass* renderPass, GPUDescriptorSet* sceneDescriptorSet, GPUCommandBuffer* commads);
-		void Blit(SceneEditor* sceneEditor, GPURenderPass* renderPass, GPUDescriptorSet* sceneDescriptorSet, GPUCommandBuffer* commads);
-
-		bool drawGrid = true;
-		bool drawSelectionOutline = true;
-		bool drawDebugPhysics = true;
-	private:
-		Extent currentExtent;
-
-		//selection outline
-		GPUTexture* maskTexture = nullptr;
-		GPURenderPass* maskRenderPass = nullptr;
-		GPUTexture* compositeMaskTexture = nullptr;
-		GPURenderPass* compositeMaskRenderPass = nullptr;
-		GPUPipeline* maskPipeline = nullptr;
-		GPUPipeline* compositeMaskPipeline = nullptr;
-		GPUDescriptorSet* maskDescriptorSet = nullptr;
-		GPUDescriptorSet* compositeMaskDescriptorSet = nullptr;
-
-		GPUPipeline* unlitPipeline = nullptr;
-
-		//infinite grid.
-		GPUPipeline* gridPipeline = nullptr;
-	};
+	}
 }

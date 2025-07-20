@@ -550,9 +550,10 @@ namespace Skore
 		}
 	}
 
-	void RenderStorage::RegisterLightProxy(VoidPtr owner)
+	void RenderStorage::RegisterLightProxy(VoidPtr owner, u64 id)
 	{
 		lights.emplace(owner, LightRenderData{
+			               .id = id,
 			               .type = LightType::Directional,
 			               .transform = {},
 			               .color = Color::WHITE,
