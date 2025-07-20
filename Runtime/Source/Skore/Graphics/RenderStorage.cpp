@@ -641,4 +641,32 @@ namespace Skore
 			it->second.enableShadows = enableShadows;
 		}
 	}
+
+	void RenderStorage::RegisterCamera(VoidPtr owner, u64 id)
+	{
+		cameras.emplace(owner, CameraRenderData{
+			                .id = id,
+		                });
+	}
+
+	void RenderStorage::SetCameraViewMatrix(VoidPtr owner, const Mat4& viewMatrix)
+	{
+		if (const auto& it = cameras.find(owner); it != cameras.end())
+		{
+			it->second.viewMatrix = viewMatrix;
+		}
+	}
+
+	void RenderStorage::SetCameraVisible(VoidPtr owner, bool visible)
+	{
+		if (const auto& it = cameras.find(owner); it != cameras.end())
+		{
+			it->second.visible = visible;
+		}
+	}
+
+	void RenderStorage::RemoveCamera(VoidPtr owner)
+	{
+		cameras.erase(owner);
+	}
 }

@@ -308,6 +308,11 @@ namespace Skore
 		return deltaTime;
 	}
 
+	u64 App::Frame()
+	{
+		return frame;
+	}
+
 	ArgParser& App::GetArgs()
 	{
 		return argParser;

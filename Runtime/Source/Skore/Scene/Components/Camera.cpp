@@ -20,45 +20,50 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
+#include "Camera.hpp"
 
-#include <functional>
-#include "Skore/Core/String.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Scene/Scene.hpp"
+
 
 namespace Skore
 {
-	class ArgParser;
-
-	enum class AppResult
+	void Camera::Create(ComponentSettings& settings)
 	{
-		Continue,
-		Success,
-		Failure,
-	};
+		m_renderStorage = GetScene()->GetRenderStorage();
+		m_renderStorage->RegisterCamera(this, entity->GetRID().id);
+		m_renderStorage->SetCameraViewMatrix(this, entity->GetGlobalTransform());
+	}
 
-	struct AppConfig
+	void Camera::Destroy()
 	{
-		String title;
-		u32    width;
-		u32    height;
-		bool   maximized;
-		bool   fullscreen;
-	};
+		m_renderStorage->RemoveCamera(this);
+	}
 
-	typedef void (*FnTypeRegisterCallback)();
-
-	struct SK_API App
+	void Camera::ProcessEvent(const EntityEventDesc& event)
 	{
-		static AppResult Init(const AppConfig& appConfig, int argc, char** argv);
-		static AppResult Run();
-		static void      TypeRegister();
-		static void      TypeRegister(FnTypeRegisterCallback callback);
+		if (!m_renderStorage) return;
 
-		static void       RequestShutdown();
-		static void       ResetContext();
-		static f64        DeltaTime();
-		static u64        Frame();
-		static ArgParser& GetArgs();
-		static void       RunOnMainThread(const std::function<void()>& callback);
-	};
+		switch (event.type)
+		{
+			case EntityEventType::EntityActivated:
+				m_renderStorage->SetCameraVisible(this, true);
+				break;
+			case EntityEventType::EntityDeactivated:
+				m_renderStorage->SetCameraVisible(this, false);
+				break;
+			case EntityEventType::TransformUpdated:
+				m_renderStorage->SetCameraViewMatrix(this, entity->GetGlobalTransform());
+				break;
+		}
+	}
+
+	void Camera::RegisterType(NativeReflectType<Camera>& type)
+	{
+		type.Field<&Camera::m_projection>("projection");
+		type.Field<&Camera::m_fov>("fov");
+		type.Field<&Camera::m_near>("near");
+		type.Field<&Camera::m_far>("far");
+		type.Field<&Camera::m_current>("current");
+	}
 }

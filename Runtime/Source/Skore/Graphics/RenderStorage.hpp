@@ -39,9 +39,9 @@ namespace Skore
 	struct MaterialStorageData
 	{
 		MaterialResource::MaterialType type;
-		GPUBuffer* materialBuffer;
-		GPUDescriptorSet* descriptorSet;
-		TextureStorageData* skyMaterialTexture;
+		GPUBuffer*                     materialBuffer;
+		GPUDescriptorSet*              descriptorSet;
+		TextureStorageData*            skyMaterialTexture;
 	};
 
 	struct MeshStorageData
@@ -49,52 +49,59 @@ namespace Skore
 		GPUBuffer* vertexBuffer;
 		GPUBuffer* indexBuffer;
 
-		Array<MeshPrimitive> primitives;
+		Array<MeshPrimitive>     primitives;
 		Array<GPUDescriptorSet*> materials;
 	};
 
 
 	struct SK_API MeshRenderData
 	{
-		u64 id;
-		MeshStorageData* mesh;
+		u64                      id;
+		MeshStorageData*         mesh;
 		Array<GPUDescriptorSet*> overrideMaterials;
 
-		Mat4       transform;
-		bool       visible = true;
-		bool       castShadows = false;
+		Mat4 transform;
+		bool visible = true;
+		bool castShadows = false;
 
-		GPUBuffer* bonesBuffer = nullptr;
+		GPUBuffer*        bonesBuffer = nullptr;
 		GPUDescriptorSet* bonesDescriptorSet = nullptr;
 
 		GPUDescriptorSet* GetMaterial(u32 index) const;
-
 	};
 
 	struct EnvironmentRenderData
 	{
-		MaterialStorageData*  skyboxMaterial;
-		bool visible = true;
+		MaterialStorageData* skyboxMaterial;
+		bool                 visible = true;
 	};
 
 
 	struct LightRenderData
 	{
-		u64 id;
+		u64       id;
 		LightType type = LightType::Directional;
-		Mat4              transform;
-		Color             color = Color::WHITE;
-		f32               intensity = 1.0f;
-		f32               range = 10.0f;
-		f32               innerConeAngle = Math::Radians(25.0f);
-		f32               outerConeAngle = Math::Radians(30.0f);
-		bool              visible = true;
-		bool              enableShadows = true;
+		Mat4      transform;
+		Color     color = Color::WHITE;
+		f32       intensity = 1.0f;
+		f32       range = 10.0f;
+		f32       innerConeAngle = Math::Radians(25.0f);
+		f32       outerConeAngle = Math::Radians(30.0f);
+		bool      visible = true;
+		bool      enableShadows = true;
 	};
 
 	struct BonesRenderData
 	{
 		Mat4 boneMatrices[128];
+	};
+
+
+	struct CameraRenderData
+	{
+		u64  id;
+		Mat4 viewMatrix;
+		bool visible = true;
 	};
 
 	class SK_API RenderStorage
@@ -136,9 +143,15 @@ namespace Skore
 		void SetLightVisible(VoidPtr owner, bool visible);
 		void SetLightEnableShadows(VoidPtr owner, bool enableShadows);
 
+		void RegisterCamera(VoidPtr owner, u64 id);
+		void SetCameraViewMatrix(VoidPtr owner, const Mat4& viewMatrix);
+		void SetCameraVisible(VoidPtr owner, bool visible);
+		void RemoveCamera(VoidPtr owner);
+
 		ankerl::unordered_dense::map<VoidPtr, MeshRenderData>        staticMeshes;
 		ankerl::unordered_dense::map<VoidPtr, MeshRenderData>        skinnedMeshes;
 		ankerl::unordered_dense::map<VoidPtr, EnvironmentRenderData> environments;
 		ankerl::unordered_dense::map<VoidPtr, LightRenderData>       lights;
+		ankerl::unordered_dense::map<VoidPtr, CameraRenderData>      cameras;
 	};
 }

@@ -175,6 +175,7 @@ namespace Skore
 		u64 m_flags = 0;
 
 		u64 m_physicsId = U64_MAX;
+		u64 m_physicsUpdatedFrame = 0;
 
 		bool m_active = true;
 		bool m_parentActive = false;

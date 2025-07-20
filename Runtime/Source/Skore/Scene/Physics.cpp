@@ -370,6 +370,8 @@ namespace Skore
 
 	void PhysicsScene::RegisterPhysicsEntity(Entity* entity)
 	{
+		entity->m_physicsUpdatedFrame = App::Frame();
+
 		static ShapeCollector collector;
 		collector.shapes.Clear();
 
@@ -452,6 +454,12 @@ namespace Skore
 		}
 		else
 		{
+			if (!scaledShape)
+			{
+				entity->m_physicsId = U64_MAX;
+				return;
+			}
+
 			JPH::BodyCreationSettings bodyCreationSettings{};
 			bodyCreationSettings.SetShape(scaledShape);
 			bodyCreationSettings.mPosition = Cast(Math::GetTranslation(entity->GetGlobalTransform()));
@@ -513,8 +521,9 @@ namespace Skore
 
 	void PhysicsScene::PhysicsEntityRequireUpdate(Entity* entity)
 	{
-		if (entity->HasFlag(EntityFlags::HasPhysics))
+		if (entity->HasFlag(EntityFlags::HasPhysics) && entity->m_physicsId != U64_MAX && entity->m_physicsUpdatedFrame < App::Frame())
 		{
+			entity->m_physicsUpdatedFrame = App::Frame();
 			context->requireUpdate.Enqueue(entity);
 		}
 	}

@@ -437,45 +437,54 @@ namespace Skore
 				{
 					RenderStorage* storage = scene->GetRenderStorage();
 
-					for (const auto& itLight: storage->lights)
+					auto DrawIcon = [&](Vec3 position, const char* icon, Color color, RID rid)
 					{
-						Vec2 pos = {};
-						if (Math::ScreenToWorld(Math::GetTranslation(itLight.second.transform), Extent{(u32)size.x, (u32)size.y}, projection * view, pos))
+						Vec2 screenPos = {};
+						if (Math::ScreenToWorld(position, Extent{(u32)size.x, (u32)size.y}, projection * view, screenPos))
 						{
 							const f32 scale = 2.0;
 							f32 iconSizeRect = iconSize * scale;
-							ImGui::SetWindowFontScale(1.5);
-							ImVec2 rectMin = ImVec2(cursor.x + pos.x - iconSize / 2.0f, cursor.y + pos.y - iconSize / 2.0f);
-							ImVec2 rectMax = ImVec2(cursor.x + pos.x + iconSizeRect / 2.0f, cursor.y + pos.y + iconSizeRect / 2.0f);
+							ImVec2 rectMin = ImVec2(cursor.x + screenPos.x - iconSize / 2.0f, cursor.y + screenPos.y - iconSize / 2.0f);
+							ImVec2 rectMax = ImVec2(cursor.x + screenPos.x + iconSizeRect / 2.0f, cursor.y + screenPos.y + iconSizeRect / 2.0f);
 
-							const char* icon = "";
-							switch (itLight.second.type)
-							{
-								case LightType::Point:
-									icon = ICON_FA_LIGHTBULB;
-									break;
-								case LightType::Spot:
-									icon = ICON_FA_LIGHTBULB;
-									break;
-								case LightType::Directional:
-									icon = ICON_FA_SUN;
-									break;
-							}
-
-							drawList->AddText(rectMin, IM_COL32(itLight.second.color.red,
-							                                                               itLight.second.color.green,
-							                                                               itLight.second.color.blue,
-							                                                               255), icon);
+							drawList->AddText(rectMin, IM_COL32(color.red,
+							                                    color.green,
+							                                    color.blue,
+							                                    255), icon);
 
 							if (ImGui::IsMouseHoveringRect(rectMin, rectMax) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 							{
-								sceneEditor->SelectEntity(RID(itLight.second.id), !ctrlDown);
+								sceneEditor->SelectEntity(rid, !ctrlDown);
 								selectedLight = true;
 							}
-
-							ImGui::SetWindowFontScale(1.0);
 						}
+					};
+
+					ImGui::SetWindowFontScale(1.5);
+
+					for (const auto& itCamera: storage->cameras)
+					{
+						DrawIcon(Math::GetTranslation(itCamera.second.viewMatrix), ICON_FA_CAMERA, Color::WHITE, RID(itCamera.second.id));
 					}
+
+					for (const auto& itLight: storage->lights)
+					{
+						const char* icon = "";
+						switch (itLight.second.type)
+						{
+							case LightType::Point:
+								icon = ICON_FA_LIGHTBULB;
+								break;
+							case LightType::Spot:
+								icon = ICON_FA_LIGHTBULB;
+								break;
+							case LightType::Directional:
+								icon = ICON_FA_SUN;
+								break;
+						}
+						DrawIcon(Math::GetTranslation(itLight.second.transform), icon, itLight.second.color, RID(itLight.second.id));
+					}
+					ImGui::SetWindowFontScale(1.0);
 				}
 			}
 

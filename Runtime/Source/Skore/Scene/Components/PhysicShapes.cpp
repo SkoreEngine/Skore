@@ -32,6 +32,7 @@ namespace Skore
 	void BoxCollider::Create(ComponentSettings& settings)
 	{
 		entity->AddFlag(EntityFlags::HasPhysics);
+		GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
 	}
 
 	const Vec3& BoxCollider::GetSize() const

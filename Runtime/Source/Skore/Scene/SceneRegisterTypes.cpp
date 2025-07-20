@@ -26,6 +26,7 @@
 #include "SceneCommon.hpp"
 #include "Entity.hpp"
 #include "Components/AnimationPlayer.hpp"
+#include "Components/Camera.hpp"
 #include "Components/CharacterController.hpp"
 #include "Components/EnvironmentComponent.hpp"
 #include "Components/LightComponent.hpp"
@@ -40,11 +41,16 @@ namespace Skore
 {
 	void RegisterSceneTypes()
 	{
+		auto projection = Reflection::Type<Camera::Projection>();
+		projection.Value<Camera::Projection::Perspective>();
+		projection.Value<Camera::Projection::Orthogonal>();
+
 		Reflection::Type<Entity>();
 		Reflection::Type<Scene>();
 		Reflection::Type<SceneManager>();
 
 		Reflection::Type<Component>();
+		Reflection::Type<Camera>();
 		Reflection::Type<StaticMeshRenderer>();
 		Reflection::Type<SkinnedMeshRenderer>();
 		Reflection::Type<LightComponent>();

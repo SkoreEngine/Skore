@@ -21,44 +21,38 @@
 // SOFTWARE.
 
 #pragma once
+#include "Skore/Graphics/RenderStorage.hpp"
+#include "Skore/Scene/Component.hpp"
 
-#include <functional>
-#include "Skore/Core/String.hpp"
 
 namespace Skore
 {
-	class ArgParser;
-
-	enum class AppResult
+	class SK_API Camera : public Component
 	{
-		Continue,
-		Success,
-		Failure,
-	};
+	public:
+		SK_CLASS(Camera, Component);
 
-	struct AppConfig
-	{
-		String title;
-		u32    width;
-		u32    height;
-		bool   maximized;
-		bool   fullscreen;
-	};
+		void Create(ComponentSettings& settings) override;
+		void Destroy() override;
 
-	typedef void (*FnTypeRegisterCallback)();
+		void ProcessEvent(const EntityEventDesc& event) override;
 
-	struct SK_API App
-	{
-		static AppResult Init(const AppConfig& appConfig, int argc, char** argv);
-		static AppResult Run();
-		static void      TypeRegister();
-		static void      TypeRegister(FnTypeRegisterCallback callback);
+		enum class Projection : i32
+		{
+			Perspective = 1,
+			Orthogonal  = 2
+		};
 
-		static void       RequestShutdown();
-		static void       ResetContext();
-		static f64        DeltaTime();
-		static u64        Frame();
-		static ArgParser& GetArgs();
-		static void       RunOnMainThread(const std::function<void()>& callback);
+		static void RegisterType(NativeReflectType<Camera>& type);
+
+	private:
+		RenderStorage* m_renderStorage = nullptr;
+
+
+		Projection m_projection = Projection::Perspective;
+		f32        m_fov = 60;
+		f32        m_near = 0.1;
+		f32        m_far = 1000.f;
+		bool       m_current = false;
 	};
 }
