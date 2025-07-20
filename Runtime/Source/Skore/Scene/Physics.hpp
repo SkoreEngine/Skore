@@ -67,6 +67,7 @@ namespace Skore
 	{
 		BodyShapeType bodyShape = BodyShapeType::None;
 		Vec3          size{1.0f, 1.0f, 1.0f};
+		Vec3          center{0.0f, 0.0f, 0.0f};
 		f32           height{1.0};
 		f32           radius{0.5};
 		f32           density = 1000;

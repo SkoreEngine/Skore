@@ -383,7 +383,13 @@ namespace Skore
 
 		if (!collector.shapes.Empty())
 		{
-			Array<JPH::RefConst<JPH::Shape>> arrShapes{};
+			struct ShapeData
+			{
+				JPH::RefConst<JPH::Shape> shape;
+				JPH::Vec3Arg center;
+			};
+
+			Array<ShapeData> arrShapes{};
 
 			for (BodyShapeBuilder& shape : collector.shapes)
 			{
@@ -394,7 +400,7 @@ namespace Skore
 					{
 						JPH::BoxShapeSettings boxShapeSettings(Cast(shape.size));
 						boxShapeSettings.mDensity = shape.density;
-						arrShapes.EmplaceBack(boxShapeSettings.Create().Get());
+						arrShapes.EmplaceBack(boxShapeSettings.Create().Get(), Cast(shape.center));
 					}
 					break;
 				}
@@ -405,22 +411,13 @@ namespace Skore
 				}
 			}
 
-			JPH::RefConst<JPH::Shape> finalShape;
-			if (arrShapes.Size() > 1)
+			JPH::Ref compound = new JPH::StaticCompoundShapeSettings{};
+			for (auto& shapeData : arrShapes)
 			{
-				JPH::Ref compound = new JPH::StaticCompoundShapeSettings{};
-				for (auto& shape : arrShapes)
-				{
-					compound->AddShape(JPH::Vec3Arg::sZero(), JPH::QuatArg::sIdentity(), shape);
-				}
-				finalShape = compound->Create().Get();
+				compound->AddShape(shapeData.center, JPH::QuatArg::sIdentity(), shapeData.shape);
 			}
-			else
-			{
-				finalShape = arrShapes[0];
-			}
-
-			JPH::ScaledShapeSettings scaledShapeSettings(finalShape, Cast(Math::GetScale(entity->GetGlobalTransform())));
+			JPH::RefConst compoundShape = compound->Create().Get();
+			JPH::ScaledShapeSettings scaledShapeSettings(compoundShape, Cast(Math::GetScale(entity->GetGlobalTransform())));
 			scaledShape = scaledShapeSettings.Create().Get();
 		}
 

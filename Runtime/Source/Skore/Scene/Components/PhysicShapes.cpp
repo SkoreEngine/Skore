@@ -34,16 +34,28 @@ namespace Skore
 		entity->AddFlag(EntityFlags::HasPhysics);
 	}
 
-	const Vec3& BoxCollider::GetHalfSize() const
+	const Vec3& BoxCollider::GetSize() const
 	{
-		return m_halfSize;
+		return m_size;
 	}
 
-	void BoxCollider::SetHalfSize(const Vec3& halfSize)
+	void BoxCollider::SetSize(const Vec3& halfSize)
 	{
-		this->m_halfSize = halfSize;
+		this->m_size = halfSize;
 		GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
 	}
+
+	const Vec3& BoxCollider::GetCenter() const
+	{
+		return m_center;
+	}
+
+	void BoxCollider::SetCenter(const Vec3& center)
+	{
+		this->m_center = center;
+		GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
+	}
+
 
 	f32 BoxCollider::GetDensity() const
 	{
@@ -56,7 +68,7 @@ namespace Skore
 		GetScene()->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
 	}
 
-	bool BoxCollider::IsIsSensor() const
+	bool BoxCollider::IsSensor() const
 	{
 		return m_isSensor;
 	}
@@ -75,7 +87,8 @@ namespace Skore
 
 			collector->shapes.EmplaceBack(BodyShapeBuilder{
 				.bodyShape = BodyShapeType::Box,
-				.size = m_halfSize,
+				.size = m_size,
+				.center = m_center,
 				.density = m_density,
 				.sensor = m_isSensor
 			});
@@ -84,9 +97,10 @@ namespace Skore
 
 	void BoxCollider::RegisterType(NativeReflectType<BoxCollider>& type)
 	{
-		type.Field<&BoxCollider::m_halfSize, &GetHalfSize, &SetHalfSize>("halfSize");
-		type.Field<&BoxCollider::m_density>("density");
-		type.Field<&BoxCollider::m_isSensor>("isSensor");
+		type.Field<&BoxCollider::m_isSensor, &IsSensor, &SetIsSensor>("isSensor");
+		type.Field<&BoxCollider::m_density, &GetDensity, &SetDensity>("density");
+		type.Field<&BoxCollider::m_center, &GetCenter, &SetCenter>("center");
+		type.Field<&BoxCollider::m_size, &GetSize, &SetSize>("halfSize");
 
 		type.Attribute<ComponentDesc>(ComponentDesc{.category = "Physics"});
 	}

@@ -109,7 +109,7 @@ namespace Skore
 				{
 					entity->m_transformRID = transform;
 					Resources::FromResource(transform, &entity->m_transform, entity);
-					entity->UpdateTransform();
+					entity->UpdateTransform(UpdateTransform_All);
 
 					if (instanceOfAsset && entity->m_scene->IsResourceSyncEnabled())
 					{
@@ -210,7 +210,7 @@ namespace Skore
 			m_parentActive = true;
 		}
 
-		UpdateTransform();
+		UpdateTransform(UpdateTransform_All);
 	}
 
 	Entity* Entity::GetParent() const
@@ -382,7 +382,18 @@ namespace Skore
 		{
 			const Mat4& parentTransform = m_parent ? m_parent->GetGlobalTransform() : Mat4(1.0);
 			m_globalTransform = parentTransform * GetLocalTransform();
-			m_scene->m_physicsScene.UpdateTransform(this);
+
+			if (HasFlag(EntityFlags::HasPhysics))
+			{
+				if (UpdateTransform_Scale & event.flags)
+				{
+					m_scene->m_physicsScene.PhysicsEntityRequireUpdate(this);
+				}
+				else
+				{
+					m_scene->m_physicsScene.UpdateTransform(this);
+				}
+			}
 		}
 
 		if (event.type == EntityEventType::EntityActivated)
@@ -445,10 +456,11 @@ namespace Skore
 		DestroyAndFree(this);
 	}
 
-	void Entity::UpdateTransform()
+	void Entity::UpdateTransform(u32 flags)
 	{
 		EntityEventDesc desc{
-			.type = EntityEventType::TransformUpdated
+			.type = EntityEventType::TransformUpdated,
+			.flags = flags
 		};
 		NotifyEvent(desc, true);
 	}
@@ -565,7 +577,7 @@ namespace Skore
 	{
 		Entity* entity = static_cast<Entity*>(userData);
 		Resources::FromResource(newValue, &entity->m_transform, entity);
-		entity->UpdateTransform();
+		entity->UpdateTransform(UpdateTransform_All);
 	}
 
 	void ResourceCast<Entity*, void>::FromResource(const ResourceObject& object, u32 index, Entity*& value, VoidPtr userData)

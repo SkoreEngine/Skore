@@ -68,6 +68,7 @@ namespace Skore
 	struct EntityEventDesc
 	{
 		i64     type = 0;
+		u64     flags = 0;
 		VoidPtr eventData = nullptr;
 	};
 }

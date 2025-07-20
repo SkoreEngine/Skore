@@ -37,6 +37,14 @@ namespace Skore
 	public:
 		SK_CLASS(Entity, Object);
 
+		enum
+		{
+			UpdateTransform_Position = 1 << 0,
+			UpdateTransform_Rotation = 1 << 1,
+			UpdateTransform_Scale    = 1 << 2,
+			UpdateTransform_All      = UpdateTransform_Position | UpdateTransform_Rotation | UpdateTransform_Scale,
+		};
+
 		~Entity() override;
 
 		Transform&       GetTransform();
@@ -75,19 +83,19 @@ namespace Skore
 		SK_FINLINE void SetPosition(const Vec3& position)
 		{
 			m_transform.position = position;
-			UpdateTransform();
+			UpdateTransform(UpdateTransform_Position);
 		}
 
 		SK_FINLINE void SetRotation(const Quat& rotation)
 		{
 			m_transform.rotation = rotation;
-			UpdateTransform();
+			UpdateTransform(UpdateTransform_Rotation );
 		}
 
 		SK_FINLINE void SetScale(const Vec3& scale)
 		{
 			m_transform.scale = scale;
-			UpdateTransform();
+			UpdateTransform(UpdateTransform_Scale);
 		}
 
 		SK_FINLINE void SetTransform(const Vec3& position, const Quat& rotation, const Vec3& scale)
@@ -95,13 +103,13 @@ namespace Skore
 			m_transform.position = position;
 			m_transform.rotation = rotation;
 			m_transform.scale = scale;
-			UpdateTransform();
+			UpdateTransform(UpdateTransform_All);
 		}
 
 		SK_FINLINE void SetTransform(const Transform& transform)
 		{
 			m_transform = transform;
-			UpdateTransform();
+			UpdateTransform(UpdateTransform_All);
 		}
 
 		SK_FINLINE const Transform& GetTransform() const
@@ -185,7 +193,7 @@ namespace Skore
 		u64       m_boneIndex = U64_MAX;
 
 		void DestroyInternal(bool removeFromParent = true);
-		void UpdateTransform();
+		void UpdateTransform(u32 flags);
 
 		void DoStart();
 
