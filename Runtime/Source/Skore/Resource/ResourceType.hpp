@@ -73,6 +73,7 @@ namespace Skore
 		RID                  GetDefaultValue() const;
 		void                 SetDefaultValue(RID defaultValue);
 		u32                  GetAllocSize() const;
+		u32                  GetVersion() const;
 		ReflectType*         GetReflectType() const;
 		Span<ResourceField*> GetFields() const;
 		ResourceField*       FindFieldByName(StringView name) const;
@@ -86,6 +87,7 @@ namespace Skore
 
 	private:
 		TypeID       type = 0;
+		u32          version = 0;
 		String       name;
 		String       simpleName;
 		RID          defaultValue;

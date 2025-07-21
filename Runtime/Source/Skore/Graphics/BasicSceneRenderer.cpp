@@ -639,6 +639,19 @@ namespace Skore
 			});
 		}
 
+		Extent extent = renderPass->GetExtent();
+
+		ViewportInfo viewportInfo{};
+		viewportInfo.x = 0.;
+		viewportInfo.y = 0.;
+		viewportInfo.y = 0.;
+		viewportInfo.width = (f32)extent.width;
+		viewportInfo.height = (f32)extent.height;
+		viewportInfo.minDepth = 0.;
+		viewportInfo.maxDepth = 1.;
+		cmd->SetViewport(viewportInfo);
+		cmd->SetScissor({0, 0}, extent);
+
 		cmd->BindPipeline(finalCompositePipeline);
 		cmd->BindDescriptorSet(finalCompositePipeline, 0, finalCompositeDescriptorSet, {});
 		cmd->Draw(3, 1, 0, 0);

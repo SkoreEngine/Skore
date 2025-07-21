@@ -21,6 +21,8 @@
 // SOFTWARE.
 
 #pragma once
+
+#include "Skore/Common.hpp"
 #include "Device.hpp"
 #include "GraphicsCommon.hpp"
 #include "GraphicsResources.hpp"
@@ -104,8 +106,8 @@ namespace Skore
 		Mat4 viewMatrix;
 		Vec3 position;
 		f32  fov;
-		f32  near;
-		f32  far;
+		f32  nearPlane;
+		f32  farPlane;
 
 		Camera::Projection projection;
 

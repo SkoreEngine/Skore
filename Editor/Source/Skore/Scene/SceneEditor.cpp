@@ -30,6 +30,7 @@
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Events.hpp"
+#include "Skore/IO/Input.hpp"
 #include "Skore/Scene/SceneManager.hpp"
 
 //TODO: selection between RID and Entity* need to be merged, maybe with UUID?
@@ -522,14 +523,14 @@ namespace Skore
 
 	void SceneEditor::OnUpdateEvent()
 	{
-		if (m_shouldStartSimulation)
+		if (!m_simulationScene && m_shouldStartSimulation)
 		{
 			m_simulationScene = std::make_shared<Scene>(GetRootEntity(), true);
 			SceneManager::SetActiveScene(m_simulationScene.get());
 			m_shouldStartSimulation = false;
 		}
 
-		if (m_shouldStopSimulation)
+		if (m_simulationScene && m_shouldStopSimulation)
 		{
 			m_simulationScene = {};
 			SceneManager::SetActiveScene(nullptr);

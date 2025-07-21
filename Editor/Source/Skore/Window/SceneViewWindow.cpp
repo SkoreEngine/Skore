@@ -246,16 +246,6 @@ namespace Skore
 				cursor.x = ImGui::GetCursorScreenPos().x;
 			}
 
-			if (movingScene)
-			{
-				ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouse;
-				ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoKeyboard;
-			}
-			else
-			{
-				ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
-				ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoKeyboard;
-			}
 
 			if (!movingScene)
 			{
@@ -482,6 +472,7 @@ namespace Skore
 			}
 
 			bool isImgHovered = ImGui::IsMouseHoveringRect(ImVec2(bb.x, bb.y), ImVec2(bb.width, bb.height), false);
+			Input::DisableInputs(!isImgHovered);
 
 			if (!windowStartedSimulation &&
 				!ImGuizmo::IsUsing() &&
@@ -788,21 +779,21 @@ namespace Skore
 		{
 			sceneRendererViewport.SetCamera(0.1f, 300.0f, view, projection, freeViewCamera.GetPosition());
 		}
-		else if (storage != nullptr)
+		else
 		{
 			if (std::optional<CameraRenderData> camera = storage->GetCurrentCamera())
 			{
 				Mat4 currentProjection = {};
 				if (camera->projection == Camera::Projection::Perspective)
 				{
-					currentProjection = Math::Perspective(Math::Radians(cameraFov), aspectRatio, camera->near, camera->far);
+					currentProjection = Math::Perspective(Math::Radians(camera->fov), aspectRatio, camera->nearPlane, camera->farPlane);
 				}
 				else
 				{
 					//get current values here?
-					currentProjection = Math::Ortho(0, 0, 10, 10, camera->near, camera->far);
+					currentProjection = Math::Ortho(0, 0, 10, 10, camera->nearPlane, camera->farPlane);
 				}
-				sceneRendererViewport.SetCamera(camera->near, camera->far, camera->viewMatrix, currentProjection, camera->position);
+				sceneRendererViewport.SetCamera(camera->nearPlane, camera->farPlane, camera->viewMatrix, currentProjection, camera->position);
 			}
 		}
 
@@ -814,17 +805,6 @@ namespace Skore
 		}
 
 		cmd->BeginRenderPass(sceneRenderPass, Vec4(0.27f, 0.27f, 0.27f, 1.0f), 1, 0);
-
-		ViewportInfo viewportInfo{};
-		viewportInfo.x = 0.;
-		viewportInfo.y = 0.;
-		viewportInfo.y = 0.;
-		viewportInfo.width = (f32)sceneExtent.width;
-		viewportInfo.height = (f32)sceneExtent.height;
-		viewportInfo.minDepth = 0.;
-		viewportInfo.maxDepth = 1.;
-		cmd->SetViewport(viewportInfo);
-		cmd->SetScissor({0, 0}, sceneExtent);
 
 		sceneRendererViewport.Blit(sceneRenderPass, cmd);
 

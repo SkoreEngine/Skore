@@ -21,25 +21,21 @@
 // SOFTWARE.
 
 #pragma once
+
 #include "TypeInfo.hpp"
 
-namespace Skore {
-	struct ArchiveReader;
-}
-
-namespace Skore {
-	struct ArchiveWriter;
-}
 
 namespace Skore
 {
 	class ReflectType;
+	struct ArchiveReader;
+	struct ArchiveWriter;
 
 
 #define SK_CLASS(Type, BaseType)												\
 	using Base = BaseType;														\
-	virtual TypeID GetTypeId() const override {return TypeInfo<Type>::ID();}	\
-	virtual bool IsBaseOf(TypeID typeId) override {if (BaseType::IsBaseOf(typeId)) return true; return typeId == TypeInfo<Type>::ID(); }
+	virtual Skore::TypeID GetTypeId() const override {return Skore::TypeInfo<Type>::ID();}	\
+	virtual bool IsBaseOf(Skore::TypeID typeId) override {if (BaseType::IsBaseOf(typeId)) return true; return typeId == Skore::TypeInfo<Type>::ID(); }
 
 
 	class SK_API Object

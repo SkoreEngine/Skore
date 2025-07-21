@@ -52,6 +52,7 @@
 #include <thread>
 #include <chrono>
 
+#include "Skore/IO/Input.hpp"
 #include "Utils/StaticContent.hpp"
 
 namespace Skore
@@ -125,7 +126,6 @@ namespace Skore
 		Array<UpdatedAssetInfo> updatedItems;
 
 		//c++ dev plugin
-		Array<SDL_SharedObject*> plugLibraries;
 		String                   pluginProjectPath;
 		u64                      pluginLastModifiedTime = 0;
 
@@ -249,18 +249,86 @@ namespace Skore
 			CreateCMakeProject(projectPath);
 		}
 
-		void Build(const MenuItemEventData& eventData)
+
+		void ExportProject(bool run)
 		{
-			// String path;
-			// if (Platform::PickFolder(path, {}) == DialogResult::OK)
-			// {
-			//     auto stat = FileSystem::GetFileStatus(path);
-			//     if (!stat.exists)
-			//     {
-			//         FileSystem::CreateDirectory(path);
-			//     }
-			//     AssetEditor::Export(path);
-			// }
+			String exportPath = Path::Join(projectPath, "Export");
+			if (FileSystem::GetFileStatus(exportPath).exists)
+			{
+				if (!FileSystem::Remove(exportPath))
+				{
+					return;
+				}
+			}
+			FileSystem::CreateDirectory(exportPath);
+
+			//TODO - manage by installations.
+			String cur = FileSystem::CurrentDir();
+			for (const String& file: DirectoryEntries{cur})
+			{
+				String extention = Path::Extension(file);
+				if (extention != SK_EXEC_EXT && extention != SK_SHARED_EXT)
+				{
+					continue;
+				}
+				String name = Path::Name(file);
+				if (name == "SkoreTests")
+				{
+					continue;
+				}
+
+				if (name == "SkoreRuntime" || name == "SDL3")
+				{
+					FileSystem::CopyFile(file, Path::Join(exportPath, Path::Name(file) + SK_SHARED_EXT));
+				}
+
+				if (Path::Name(file) == "SkorePlayer")
+				{
+					FileSystem::CopyFile(file, Path::Join(exportPath, Path::Name(projectPath) + Path::Extension(file)));
+				}
+			}
+
+			//TODO copy plugins
+
+			if (FileSystem::GetFileStatus(pluginProjectPath).exists)
+			{
+				String pluginsPath = Path::Join(exportPath, "Plugins");
+				FileSystem::CreateDirectory(pluginsPath);
+				FileSystem::CopyFile(pluginProjectPath, Path::Join(pluginsPath, Path::Name(pluginProjectPath) + SK_SHARED_EXT));
+			}
+
+			Array<RID> packagesToExport;
+			packagesToExport.Reserve(packages.Size() + 1);
+			for (RID package : packages)
+			{
+				packagesToExport.EmplaceBack(package);
+			}
+			packagesToExport.EmplaceBack(projectRID);
+			ResourceAssets::ExportPackages(packagesToExport, Path::Join(projectPath, "Export"), Path::Name(projectPath));
+
+			logger.Info("Project exported to {}", Path::Join(projectPath, "Export"));
+
+			if (run)
+			{
+				String command = Path::Join(exportPath, Path::Name(projectPath) + SK_EXEC_EXT);
+
+				const char *args[] = { command.CStr(), "--current-path", exportPath.CStr(), NULL };
+
+				if (SDL_Process* process = SDL_CreateProcess(args, true))
+				{
+					SDL_DestroyProcess(process);
+				}
+			}
+		}
+
+		void Export(const MenuItemEventData& eventData)
+		{
+			ExportProject(false);
+		}
+
+		void ExportAndRun(const MenuItemEventData& eventData)
+		{
+			ExportProject(true);
 		}
 
 		void ReloadShaders(const MenuItemEventData& eventData)
@@ -300,7 +368,8 @@ namespace Skore
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Recent Scenes", .priority = 10, .action = OpenScene});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Save All", .priority = 1000, .itemShortcut{.ctrl = true, .presKey = Key::S}, .action = SaveAll});
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Build Settings...", .priority = 2000, .action = Build});
-			Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Build", .priority = 2000, .action = Build});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Export", .priority = 2000, .action = Export});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Export And Run", .priority = 2005, .action = ExportAndRun});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Exit", .priority = I32_MAX, .itemShortcut{.ctrl = true, .presKey = Key::Q}, .action = CloseEngine});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit", .priority = 30});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Undo", .priority = 10, .itemShortcut{.ctrl = true, .presKey = Key::Z}, .action = Undo, .enable = UndoEnabled});
@@ -361,13 +430,6 @@ namespace Skore
 
 			redoActions.Clear();
 			redoActions.ShrinkToFit();
-
-			for (auto lib : plugLibraries)
-			{
-				SDL_UnloadObject(lib);
-			}
-
-			plugLibraries = {};
 
 			ShaderManagerShutdown();
 		}
@@ -673,22 +735,24 @@ namespace Skore
 					String newPdbFile = Path::Join(tempBinPathTime, Path::Name(pluginProjectPath) + ".pdb");
 					FileSystem::CopyFile(pdbFile, newPdbFile);
 #endif
-
-					SDL_SharedObject* library = SDL_LoadObject(newSharedLibFile.CStr());
-					if (library)
-					{
-						if (auto func = SDL_LoadFunction(library, "SkoreLoadPlugin"))
-						{
-							func();
-						}
-					}
-					plugLibraries.EmplaceBack(library);
+					App::LoadPlugin(newSharedLibFile);
 				}
 			}
 		}
 
 		void EditorUpdate()
 		{
+			if (Input::GetCursorLockMode() == CursorLockMode::Locked)
+			{
+				ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouse;
+				ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoKeyboard;
+			}
+			else
+			{
+				ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+				ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoKeyboard;
+			}
+
 			LoadProjectPlugin();
 
 			{

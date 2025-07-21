@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #pragma once
+
 #include "SceneCommon.hpp"
 #include "Skore/Core/Object.hpp"
 
@@ -64,6 +65,7 @@ namespace Skore
 	private:
 		RID m_rid;
 		ComponentSettings m_settings = {};
+		u32 m_version = 0;
 
 		void RegisterEvents();
 		void RemoveEvents();

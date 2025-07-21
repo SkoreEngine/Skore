@@ -94,7 +94,7 @@ namespace Skore
 		{
 			GraphicsAPI graphicsApi = GraphicsAPI::Vulkan;
 
-			RID shaderResource = Resources::Create<ShaderResource>();
+			RID shaderResource = Resources::Create<ShaderResource>(UUID::RandomUUID());
 
 			ResourceObject shaderResourceObject = Resources::Write(shaderResource);
 
@@ -260,10 +260,10 @@ namespace Skore
 				PipelineDesc pipelineDesc;
 				GetPipelineLayout(graphicsApi, bytes, stages, pipelineDesc);
 
-				RID pipelineDescRID = Resources::Create<PipelineDesc>();
+				RID pipelineDescRID = Resources::Create<PipelineDesc>(UUID::RandomUUID());
 				Resources::ToResource(pipelineDescRID, &pipelineDesc, nullptr);
 
-				RID shaderVariant = Resources::Create<ShaderVariantResource>();
+				RID shaderVariant = Resources::Create<ShaderVariantResource>(UUID::RandomUUID());
 
 				ResourceObject shaderVariantObject = Resources::Write(shaderVariant);
 				shaderVariantObject.SetString(ShaderVariantResource::Name, shaderConfigVariant.name);
@@ -272,7 +272,7 @@ namespace Skore
 
 				for (const ShaderStageInfo& stage: stages)
 				{
-					RID stageRID = Resources::Create<ShaderStageInfo>();
+					RID stageRID = Resources::Create<ShaderStageInfo>(UUID::RandomUUID());
 					Resources::ToResource(stageRID, &stage, nullptr);
 					shaderVariantObject.AddToSubObjectList(ShaderVariantResource::Stages, stageRID);
 				}

@@ -55,6 +55,7 @@ namespace Skore
 		appConfig.maximized = false;
 		appConfig.width = 1280;
 		appConfig.height = 720;
+		appConfig.enableReload = true;
 
 		ArgParser argParser;
 		argParser.Parse(argc, argv);

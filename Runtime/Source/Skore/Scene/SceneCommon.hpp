@@ -23,6 +23,10 @@
 
 #pragma once
 
+#include "Skore/Common.hpp"
+#include "Skore/Core/Array.hpp"
+#include "Skore/Core/String.hpp"
+
 namespace Skore
 {
 

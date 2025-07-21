@@ -41,6 +41,7 @@ namespace Skore
 		GPUSwapchain*                                      swapchain;
 		EventHandler<OnUIRender>                           onUIRender{};
 		EventHandler<OnRecordRenderCommands>               onRecordRenderCommands{};
+		EventHandler<OnSwapchainBlit>					   onSwapchainBlit{};
 		u32                                                currentFrame = 0;
 		FixedArray<GPUCommandBuffer*, SK_FRAMES_IN_FLIGHT> commandBuffers;
 		bool                                               windowMinimized = false;
@@ -215,7 +216,7 @@ namespace Skore
 
 		cmd->BeginRenderPass(swapchain->GetCurrentRenderPass(), {0, 0, 0, 1}, 1, 0);
 
-		//render here.
+		onSwapchainBlit.Invoke(cmd, swapchain->GetCurrentRenderPass());
 
 		onUIRender.Invoke();
 		cmd->EndRenderPass();
@@ -307,6 +308,11 @@ namespace Skore
 	GraphicsAPI Graphics::GetAPI()
 	{
 		return device->GetAPI();
+	}
+
+	Extent Graphics::GetSwapchainExtent()
+	{
+		return swapchain->GetExtent();
 	}
 
 	void Graphics::WaitIdle()

@@ -315,8 +315,8 @@ namespace Skore
 
 
 		ComputePipelineDesc desc;
-		desc.shader = Resources::FindByPath("Skore://Shaders/GenBRDFLUT.comp"),
-			desc.debugName = "BRDFLUTGen";
+		desc.shader = Resources::FindByPath("Skore://Shaders/GenBRDFLUT.comp");
+		desc.debugName = "BRDFLUTGen";
 
 		GPUPipeline*      computePipeline = Graphics::CreateComputePipeline(desc);
 		GPUDescriptorSet* descriptorSet = Graphics::CreateDescriptorSet(desc.shader, desc.variant, 0);

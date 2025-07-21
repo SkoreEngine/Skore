@@ -202,6 +202,7 @@ static_assert(false, "Compiler not supported");
 	#define SK_WIN 1
 	#define SK_API __declspec(dllexport)
 	#define SK_SHARED_EXT ".dll"
+	#define SK_EXEC_EXT ".exe"
 #elif __linux__
 	#define SK_LINUX 1
 	#define SK_SHARED_EXT ".so"

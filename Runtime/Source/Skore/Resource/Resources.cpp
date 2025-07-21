@@ -25,12 +25,15 @@
 #include <mutex>
 #include <concurrentqueue.h>
 
+#include "Skore/Events.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
+#include "Skore/Core/Event.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Queue.hpp"
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Serialization.hpp"
+#include "Skore/IO/FileSystem.hpp"
 
 #define SK_PAGE(value)    u32((value)/SK_PAGE_SIZE)
 #define SK_OFFSET(value)  (u32)((value) & (SK_PAGE_SIZE - 1))
@@ -578,6 +581,8 @@ namespace Skore
 
 		it->second.EmplaceBack(resourceType);
 		it2->second.EmplaceBack(resourceType);
+
+		resourceType->version = it2->second.Size();
 
 		return {resourceType};
 	}
@@ -1146,7 +1151,6 @@ namespace Skore
 			reader.BeginMap();
 
 			UUID uuid = UUID::FromString(reader.ReadString("_uuid"));
-
 			RID rid = GetID(uuid);
 			if (!root)
 			{
@@ -1443,8 +1447,17 @@ namespace Skore
 		}
 	}
 
+	void DoReflectionUpdated()
+	{
+		// for (auto it: typesById)
+		// {
+		// 	it.second
+		// }
+	}
+
 	void SK_API ResourceInit()
 	{
+		Event::Bind<OnReflectionUpdated, DoReflectionUpdated>();
 		Resources::Create(0);
 	}
 
@@ -1456,7 +1469,6 @@ namespace Skore
 		{
 			ResourceStorage& storage = pages[SK_PAGE(i)]->elements[SK_OFFSET(i)];
 			DestroyResourceInstance(storage.resourceType, storage.instance.load());
-			//	storage.~ResourceStorage();
 		}
 
 		for (u64 i = 0; i < pageCount; ++i)
@@ -1485,6 +1497,8 @@ namespace Skore
 		// resourceByType.Clear();
 		counter = 0;
 		pageCount = 0;
+
+		Event::Unbind<OnReflectionUpdated, DoReflectionUpdated>();
 	}
 
 	void ResourceRemoveParent(RID rid)
@@ -1607,5 +1621,28 @@ namespace Skore
 	StringView Resources::GetScopeName(UndoRedoScope* scope)
 	{
 		return scope->name;
+	}
+
+	void Resources::LoadPackage(StringView packageFile)
+	{
+		Array<u8> buffer;
+		FileSystem::ReadFileAsByteArray(packageFile, buffer);
+		BinaryArchiveReader reader{buffer};
+		reader.BeginSeq("assets");
+		{
+			while (reader.NextSeqEntry())
+			{
+				reader.BeginMap();
+				String pathId = reader.ReadString("pathId");
+				RID rid = Deserialize(reader);
+				logger.Debug("asset {} loaded with rid {} ", pathId, rid.id);
+				if (rid)
+				{
+					SetPath(rid, pathId);
+				}
+				reader.EndMap();
+			}
+		}
+		reader.EndSeq();
 	}
 }

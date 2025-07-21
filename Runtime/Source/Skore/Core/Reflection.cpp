@@ -22,10 +22,12 @@
 
 #include "Reflection.hpp"
 
+#include "Event.hpp"
 #include "HashSet.hpp"
 #include "Logger.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "yyjson.h"
+#include "Skore/Events.hpp"
 
 namespace Skore
 {
@@ -35,6 +37,7 @@ namespace Skore
 	static HashMap<TypeID, HashSet<TypeID>>                     derivedTypes;
 	static HashMap<TypeID, Array<TypeID>>                       typesByAttribute{};
 	static Logger&                                              logger = Logger::GetLogger("Skore::Reflection");
+	static EventHandler<OnReflectionUpdated>                    onReflectionUpdated;
 
 	static Array<String> groupStack;
 
@@ -1038,9 +1041,15 @@ namespace Skore
 		yyjson_mut_doc_free(doc);
 	}
 
-	SK_API void ReflectionSetReadOnly(bool readOnly)
+	void ReflectionSetReadOnly(bool readOnly, bool enableReload)
 	{
 		reflectionReadOnly = readOnly;
+		if (readOnly && enableReload)
+		{
+			logger.Debug("reloading reflection");
+			onReflectionUpdated.Invoke();
+			logger.Debug("refinished reloading reflection");
+		}
 	}
 
 	void ReflectionResetContext()

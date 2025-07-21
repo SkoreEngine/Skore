@@ -684,14 +684,14 @@ namespace Skore
 	{
 		if (const auto& it = cameras.find(owner); it != cameras.end())
 		{
-			it->second.near = near;
+			it->second.nearPlane = near;
 		}
 	}
 	void RenderStorage::SetCameraFar(VoidPtr owner, f32 far)
 	{
 		if (const auto& it = cameras.find(owner); it != cameras.end())
 		{
-			it->second.far = far;
+			it->second.farPlane = far;
 		}
 	}
 

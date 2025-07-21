@@ -152,6 +152,11 @@ namespace Skore
 		return allocSize;
 	}
 
+	u32 ResourceType::GetVersion() const
+	{
+		return version;
+	}
+
 	ReflectType* ResourceType::GetReflectType() const
 	{
 		return reflectType;

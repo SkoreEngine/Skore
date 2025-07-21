@@ -139,6 +139,11 @@ namespace Skore
 		DestroyAndFree(this);
 	}
 
+	Extent VulkanRenderPass::GetExtent() const
+	{
+		return {extent.width, extent.height};
+	}
+
 	const SwapchainDesc& VulkanSwapchain::GetDesc() const
 	{
 		return desc;
@@ -186,6 +191,11 @@ namespace Skore
 		vkDeviceWaitIdle(vulkanDevice->device);
 		DestroyInternal();
 		return CreateInternal();
+	}
+
+	Extent VulkanSwapchain::GetExtent()
+	{
+		return {extent.width, extent.height};
 	}
 
 	void VulkanSwapchain::Destroy()

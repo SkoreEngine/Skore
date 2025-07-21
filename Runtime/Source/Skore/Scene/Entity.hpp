@@ -202,8 +202,8 @@ namespace Skore
 		void UpdateTransform(u32 flags);
 
 		void DoStart();
-
 		void DestroyComponent(Component* component) const;
+		void ReflectionReload();
 
 		static void OnEntityResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnComponentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
@@ -212,7 +212,7 @@ namespace Skore
 
 
 	template<>
-	struct ResourceCast<Entity*>
+	struct SK_API ResourceCast<Entity*>
 	{
 		constexpr static bool hasSpecialization = true;
 

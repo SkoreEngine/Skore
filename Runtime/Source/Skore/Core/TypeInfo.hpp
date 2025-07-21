@@ -100,7 +100,7 @@ namespace Skore
 	};
 
 	template <typename Type>
-	struct TypeInfo
+	struct SK_API TypeInfo
 	{
 		constexpr static TypeID ID()
 		{

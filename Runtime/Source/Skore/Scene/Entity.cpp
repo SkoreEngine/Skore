@@ -121,7 +121,8 @@ namespace Skore
 				{
 					if (ResourceType* type = Resources::GetType(component))
 					{
-						entity->AddComponent(type->GetReflectType(), component);
+						//TODO need to get from Resources::GetType
+						entity->AddComponent(Reflection::FindTypeById(type->GetReflectType()->GetProps().typeId), component);
 					}
 				});
 
@@ -312,6 +313,7 @@ namespace Skore
 
 		Component* component = reflectType->NewObject()->SafeCast<Component>();
 		component->entity = this;
+		component->m_version = reflectType->GetVersion();
 
 		if (m_rid)
 		{
@@ -586,6 +588,39 @@ namespace Skore
 		if (Entity* entity = owner->GetScene()->FindOrCreateInstance(object.GetReference(index)))
 		{
 			value = entity;
+		}
+	}
+
+	void Entity::ReflectionReload()
+	{
+		for (int i = 0; i < m_components.Size(); ++i)
+		{
+			Component* component = m_components[i];
+
+			ReflectType* reflectType = component->GetType();
+			if (component->m_version < reflectType->GetVersion())
+			{
+				component->RemoveEvents();
+
+				Component* newComponent = reflectType->NewObject()->SafeCast<Component>();
+				newComponent->entity = this;
+				newComponent->m_settings = component->m_settings;
+				newComponent->m_version = reflectType->GetVersion();
+				newComponent->m_rid = component->m_rid;
+
+				reflectType->DeepCopy(component, newComponent);
+
+				m_components[i] = newComponent;
+
+				DestroyAndFree(component);
+
+				newComponent->RegisterEvents();
+			}
+		}
+
+		for (Entity* child : m_children)
+		{
+			child->ReflectionReload();
 		}
 	}
 }

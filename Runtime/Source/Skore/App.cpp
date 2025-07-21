@@ -42,7 +42,7 @@ namespace Skore
 
 	void InputInit();
 	Key  FromSDL(u32 key);
-	void ReflectionSetReadOnly(bool readOnly);
+	void ReflectionSetReadOnly(bool readOnly, bool enableReload);
 	bool GraphicsInit(const AppConfig& appConfig);
 	void PhysicsInit();
 	void PhysicsShutdown();
@@ -71,16 +71,19 @@ namespace Skore
 		bool running = false;
 		bool typesRegistered = false;
 		bool requireShutdown = false;
+		bool enableReload = false;
 
 		ArgParser argParser;
 
-		EventHandler<OnInit>            onInitHandler{};
-		EventHandler<OnUpdate>          onUpdateHandler{};
-		EventHandler<OnBeginFrame>      onBeginFrameHandler{};
-		EventHandler<OnEndFrame>        onEndFrameHandler{};
-		EventHandler<OnShutdown>        onShutdownHandler{};
-		EventHandler<OnShutdownRequest> onShutdownRequest{};
+		EventHandler<OnInit>             onInitHandler{};
+		EventHandler<OnUpdate>           onUpdateHandler{};
+		EventHandler<OnBeginFrame>       onBeginFrameHandler{};
+		EventHandler<OnEndFrame>         onEndFrameHandler{};
+		EventHandler<OnShutdown>         onShutdownHandler{};
+		EventHandler<OnShutdownRequest>  onShutdownRequest{};
 		EventHandler<OnDropFileCallback> onDropFileCallback{};
+
+		Array<SDL_SharedObject*> plugLibraries;
 
 		std::mutex mutex;
 		Array<std::function<void()>> funcs;
@@ -142,6 +145,12 @@ namespace Skore
 		GraphicsShutdown();
 		ResourceShutdown();
 
+		for (auto lib : plugLibraries)
+		{
+			SDL_UnloadObject(lib);
+		}
+		plugLibraries.Clear();
+
 		SDL_Quit();
 		Event::Reset();
 	}
@@ -202,6 +211,7 @@ namespace Skore
 
 	AppResult App::Init(const AppConfig& appConfig, int argc, char** argv)
 	{
+
 		SK_ASSERT(!running, "App cannot be initialized twice");
 
 		if (!typesRegistered)
@@ -210,6 +220,8 @@ namespace Skore
 			SK_ASSERT(false, "Types are not registered, please call AppTypeRegister before calling AppInit");
 			return AppResult::Failure;
 		}
+
+		enableReload = appConfig.enableReload;
 
 		argParser.Parse(argc, argv);
 
@@ -220,7 +232,7 @@ namespace Skore
 			return AppResult::Success;
 		}
 
-		ReflectionSetReadOnly(true);
+		ReflectionSetReadOnly(true, appConfig.enableReload);
 		ResourceInit();
 
 		if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
@@ -322,5 +334,20 @@ namespace Skore
 	{
 		std::lock_guard lock(mutex);
 		funcs.EmplaceBack(callback);
+	}
+
+	void App::LoadPlugin(StringView path)
+	{
+		if (SDL_SharedObject* library = SDL_LoadObject(path.CStr()))
+		{
+
+			if (auto func = SDL_LoadFunction(library, "SkoreLoadPlugin"))
+			{
+				ReflectionSetReadOnly(false, false);
+				func();
+				ReflectionSetReadOnly(true, enableReload);
+			}
+			plugLibraries.EmplaceBack(library);
+		}
 	}
 }

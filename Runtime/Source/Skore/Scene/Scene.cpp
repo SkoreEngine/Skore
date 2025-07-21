@@ -24,6 +24,7 @@
 
 #include "Component.hpp"
 #include "Entity.hpp"
+#include "Skore/Events.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 
 
@@ -32,10 +33,13 @@ namespace Skore
 	Scene::Scene(RID rid, bool enableResourceSync) : m_enableResourceSync(enableResourceSync)
 	{
 		m_rootEntity = Entity::Instantiate(this, rid);
+		Event::Bind<OnReflectionUpdated, &Scene::DoReflectionUpdated>(this);
 	}
 
 	Scene::~Scene()
 	{
+		Event::Unbind<OnReflectionUpdated, &Scene::DoReflectionUpdated>(this);
+
 		Graphics::WaitIdle();
 
 		if (m_rootEntity)
@@ -140,6 +144,14 @@ namespace Skore
 		for (Component* component : m_updateComponents)
 		{
 			component->OnUpdate();
+		}
+	}
+
+	void Scene::DoReflectionUpdated()
+	{
+		if (m_rootEntity)
+		{
+			m_rootEntity->ReflectionReload();
 		}
 	}
 }

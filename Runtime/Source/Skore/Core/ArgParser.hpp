@@ -54,7 +54,6 @@ namespace Skore
 				m_args.EmplaceBack(argv[i]);
 			}
 
-
 			usize i = 0;
 			while (i < m_args.Size())
 			{

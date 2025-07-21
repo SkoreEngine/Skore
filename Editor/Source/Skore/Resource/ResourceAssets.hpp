@@ -150,9 +150,9 @@ namespace Skore
 		static void                  ImportAsset(RID parent, StringView path);
 		static RID                   CreateAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope);
 		static RID                   DuplicateAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
-		static RID					 CreateInheritedAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
+		static RID                   CreateInheritedAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
 		static RID                   CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
-		static RID					 FindAssetOnDirectory(RID directory, TypeID typeId, StringView name);
+		static RID                   FindAssetOnDirectory(RID directory, TypeID typeId, StringView name);
 		static void                  DeleteAsset(RID rid, UndoRedoScope* scope);
 		static void                  DeleteDirectory(RID rid, UndoRedoScope* scope);
 		static void                  RenameAsset(RID rid, StringView desiredName, UndoRedoScope* scope);
@@ -179,6 +179,7 @@ namespace Skore
 		static String                GetAssetName(RID rid);
 		static String                GetAssetFullName(RID rid);
 		static UUID                  GetAssetUUID(RID rid);
-		static void					 WatchAsset(RID asset, StringView absolutePath);
+		static void                  WatchAsset(RID asset, StringView absolutePath);
+		static void                  ExportPackages(Span<RID> packages, StringView directoryToExport, StringView fileName);
 	};
 }

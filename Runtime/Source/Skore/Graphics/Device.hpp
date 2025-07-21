@@ -875,6 +875,7 @@ namespace Skore
 		virtual bool           AcquireNextImage(u32 currentFrame) = 0;
 		virtual GPURenderPass* GetCurrentRenderPass() = 0;
 		virtual bool           Resize() = 0;
+		virtual Extent		   GetExtent() = 0;
 		virtual void           Destroy() = 0;
 		virtual u32            GetImageCount() const = 0;
 	};
@@ -1029,6 +1030,7 @@ namespace Skore
 
 		virtual const RenderPassDesc& GetDesc() const = 0;
 		virtual void                  Destroy() = 0;
+		virtual Extent                GetExtent() const = 0;
 	};
 
 	class SK_API GPUQueryPool

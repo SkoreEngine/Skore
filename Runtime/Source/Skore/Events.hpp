@@ -31,7 +31,7 @@ namespace Skore
 	using OnUpdate = EventType<"Skore::OnUpdate"_h, void()>;
 	using OnEndFrame = EventType<"Skore::OnEndFrame"_h, void()>;
 	using OnShutdown = EventType<"Skore::OnShutdown"_h, void()>;
-	using OnUIRender = EventType<"Skore::OnUIRender"_h, void()>;
+	using OnReflectionUpdated = EventType<"Skore::OnReflectionUpdated"_h, void()>;
 	using OnShutdownRequest = EventType<"Skore::OnShutdownRequest"_h, void(bool* canClose)>;
 	using OnDropFileCallback = EventType<"Skore::OnDropFileCallback"_h, void(StringView path)>;
 }

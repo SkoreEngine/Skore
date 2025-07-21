@@ -146,6 +146,7 @@ namespace Skore
 	public:
 		const RenderPassDesc& GetDesc() const override;
 		void                  Destroy() override;
+		Extent                GetExtent() const override;
 
 		VulkanDevice*       vulkanDevice;
 		RenderPassDesc      desc;
@@ -166,6 +167,7 @@ namespace Skore
 		bool                 AcquireNextImage(u32 currentFrame) override;
 		GPURenderPass*       GetCurrentRenderPass() override;
 		bool                 Resize() override;
+		Extent               GetExtent() override;
 		void                 Destroy() override;
 		u32                  GetImageCount() const override;
 

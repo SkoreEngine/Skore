@@ -24,6 +24,7 @@
 
 #include <functional>
 #include "Skore/Core/String.hpp"
+#include "Skore/Core/StringView.hpp"
 
 namespace Skore
 {
@@ -43,6 +44,7 @@ namespace Skore
 		u32    height;
 		bool   maximized;
 		bool   fullscreen;
+		bool   enableReload = false;
 	};
 
 	typedef void (*FnTypeRegisterCallback)();
@@ -60,5 +62,6 @@ namespace Skore
 		static u64        Frame();
 		static ArgParser& GetArgs();
 		static void       RunOnMainThread(const std::function<void()>& callback);
+		static void		  LoadPlugin(StringView path);
 	};
 }

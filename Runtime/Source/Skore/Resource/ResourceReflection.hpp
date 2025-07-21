@@ -52,7 +52,7 @@ namespace Skore
 
 		static void ToResource(ResourceObject& object, u32 index, UndoRedoScope* scope, const T& value, VoidPtr userData)
 		{
-			RID subobject = Resources::Create<T>({}, scope);
+			RID subobject = Resources::Create<T>(object.GetUUID() ? UUID::RandomUUID() : UUID{}, scope);
 			if (Resources::ToResource(subobject, &value, scope))
 			{
 				object.SetSubObject(index, subobject);
@@ -242,7 +242,7 @@ namespace Skore
 		{
 			for (const T& element : array)
 			{
-				RID subobject = Resources::Create<T>({}, scope);
+				RID subobject = Resources::Create<T>(object.GetUUID() ? UUID::RandomUUID() : UUID{}, scope);
 				Resources::ToResource(subobject, &element, scope);
 				object.AddToSubObjectList(index, subobject);
 			}

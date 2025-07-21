@@ -38,6 +38,7 @@ namespace Skore
 
 	namespace
 	{
+		bool                                                 inputDisabled = false;
 		FixedArray<bool, static_cast<u64>(Key::MAX)>         keyState;
 		FixedArray<bool, static_cast<u64>(Key::MAX)>         prevKeyState;
 		FixedArray<bool, static_cast<u64>(MouseButton::MAX)> mouseButtonState;
@@ -115,13 +116,25 @@ namespace Skore
 		}
 	}
 
+	CursorLockMode Input::GetCursorLockMode()
+	{
+		return currentCursorLockMode;
+	}
+
 	Vec2 Input::GetMouseAxis()
 	{
 		return mouseRelativePosition;
 	}
 
+	void Input::DisableInputs(bool disable)
+	{
+		inputDisabled = disable;
+	}
+
 	void InputHandlerEvents(SDL_Event* event)
 	{
+		if (inputDisabled) return;
+
 		switch (event->type)
 		{
 			case SDL_EVENT_KEY_UP:

@@ -31,6 +31,7 @@
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Core/Queue.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/IO/FileSystem.hpp"
@@ -999,6 +1000,51 @@ namespace Skore
 	void ResourceAssets::WatchAsset(RID asset, StringView absolutePath)
 	{
 		fileWatcher.Watch(IntToPtr(asset.id), absolutePath);
+	}
+
+	void ResourceAssets::ExportPackages(Span<RID> packages, StringView directoryToExport, StringView fileName)
+	{
+		BinaryArchiveWriter writer;
+		writer.BeginSeq("assets");
+
+		for (RID package: packages)
+		{
+			ResourceObject packageObject = Resources::Read(package);
+
+			std::queue<RID> directoriesToScan;
+			directoriesToScan.emplace(packageObject.GetSubObject(ResourceAssetPackage::Root));
+
+			while (!directoriesToScan.empty())
+			{
+				RID rid = directoriesToScan.front();
+				directoriesToScan.pop();
+				ResourceObject directoryObject = Resources::Read(rid);
+
+				auto checkAssetFile = [&](RID asset)
+				{
+					ResourceObject assetObject = Resources::Read(asset);
+					if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
+					{
+						writer.BeginMap();
+						{
+							writer.WriteString("pathId", GetPathId(asset));
+							Resources::Serialize(object, writer);
+						}
+						writer.EndMap();
+					}
+				};
+
+				directoryObject.IterateSubObjectList(ResourceAssetDirectory::Assets, checkAssetFile);
+				directoryObject.IterateSubObjectList(ResourceAssetDirectory::Directories, [&](RID rid)
+				{
+					directoriesToScan.emplace(rid);
+				});
+			}
+		}
+
+		writer.EndSeq();
+
+		FileSystem::SaveFileAsByteArray(Path::Join(directoryToExport, String(fileName) + ".pak"), writer.GetData());
 	}
 
 	void ResourceAssetsUpdate()

@@ -28,6 +28,8 @@
 
 namespace Skore
 {
+	using OnUIRender = EventType<"Skore::OnUIRender"_h, void()>;
+	using OnSwapchainBlit = EventType<"Skore::OnSwapchainDraw"_h, void(GPUCommandBuffer* cmd, GPURenderPass* swapchainRenderPass)>;
 	using OnRecordRenderCommands = EventType<"Skore::OnRecordRenderCommands"_h, void(GPUCommandBuffer* commandBuffer)>;
 
 	struct SK_API Graphics
@@ -36,6 +38,7 @@ namespace Skore
 		static GPUDevice*        GetDevice();
 		static DeviceProperties  GetProperties();
 		static GraphicsAPI       GetAPI();
+		static Extent			 GetSwapchainExtent();
 		static void              WaitIdle();
 
 		static GPUCommandBuffer* GetCurrentCommandBuffer();

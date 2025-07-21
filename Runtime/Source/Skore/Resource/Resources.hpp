@@ -106,6 +106,8 @@ namespace Skore
 		static void           Redo(UndoRedoScope* scope);
 		static StringView     GetScopeName(UndoRedoScope* scope);
 
+
+		static void LoadPackage(StringView packageFile);
 		static void GarbageCollect();
 
 	private:

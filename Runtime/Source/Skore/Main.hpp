@@ -49,7 +49,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		WideCharToMultiByte(CP_ACP, 0, argvW[i], -1, argv[i], size, NULL, NULL);
 	}
 
-	i32 res = Main(argc, &lpCmdLine);
+	i32 res = Main(argc, argv);
 
 	for (int i = 0; i < argc; i++) {
 		delete[] argv[i];
