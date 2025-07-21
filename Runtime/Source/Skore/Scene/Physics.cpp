@@ -319,8 +319,6 @@ namespace Skore
 
 		JPH::JobSystemThreadPool        jobSystem = JPH::JobSystemThreadPool(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
 		HashSet<JPH::CharacterVirtual*> virtualCharacters;
-
-		HashSet<Entity*> entitiesToDraw;
 		Queue<Entity*> requireUpdate;
 	};
 
@@ -425,103 +423,100 @@ namespace Skore
 
 		if (entity->HasFlag(EntityFlags::HasCharacterController))
 		{
-			CharacterController* characterController = entity->GetComponent<CharacterController>();
-			if (!characterController)
+			if (CharacterController* characterController = entity->GetComponent<CharacterController>())
 			{
-				logger.Error("Entity has a CharacterController flag but no CharacterController component");
+				if (!scaledShape)
+				{
+					scaledShape = JPH::RotatedTranslatedShapeSettings(
+						JPH::Vec3(0, 0.5f * characterController->GetHeight() + characterController->GetRadius(), 0),
+						JPH::Quat::sIdentity(),
+						new JPH::CapsuleShape(0.5f * characterController->GetHeight(), characterController->GetRadius())).Create().Get();
+				}
+
+				JPH::CharacterVirtualSettings settings{};
+				settings.mShape = scaledShape;
+				settings.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -characterController->GetRadius());
+
+				JPH::CharacterVirtual* characterVirtual = new JPH::CharacterVirtual(&settings,
+				                                                                    Cast(Math::GetTranslation(entity->GetGlobalTransform())),
+				                                                                    Cast(Math::GetQuaternion(entity->GetGlobalTransform())),
+				                                                                    PtrToInt(characterController),
+				                                                                    &context->physicsSystem);
+				context->virtualCharacters.Insert(characterVirtual);
+				entity->m_physicsId = PtrToInt(characterVirtual);
 				return;
 			}
 
-			if (!scaledShape)
-			{
-				scaledShape = JPH::RotatedTranslatedShapeSettings(
-					JPH::Vec3(0, 0.5f * characterController->GetHeight() + characterController->GetRadius(), 0),
-					JPH::Quat::sIdentity(),
-					new JPH::CapsuleShape(0.5f * characterController->GetHeight(), characterController->GetRadius())).Create().Get();
-			}
+			//no character controller found. make it a rigid body
+			entity->RemoveFlag(EntityFlags::HasCharacterController);
+		}
 
-			JPH::CharacterVirtualSettings settings{};
-			settings.mShape = scaledShape;
-			settings.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -characterController->GetRadius());
+		if (!scaledShape)
+		{
+			//TODO remove physics flag?
+			entity->m_physicsId = U64_MAX;
+			return;
+		}
 
-			JPH::CharacterVirtual* characterVirtual = new JPH::CharacterVirtual(&settings,
-			                                                                    Cast(Math::GetTranslation(entity->GetGlobalTransform())),
-			                                                                    Cast(Math::GetQuaternion(entity->GetGlobalTransform())),
-			                                                                    PtrToInt(characterController),
-			                                                                    &context->physicsSystem);
-			context->virtualCharacters.Insert(characterVirtual);
-			entity->m_physicsId = PtrToInt(characterVirtual);
+		JPH::BodyCreationSettings bodyCreationSettings{};
+		bodyCreationSettings.SetShape(scaledShape);
+		bodyCreationSettings.mPosition = Cast(Math::GetTranslation(entity->GetGlobalTransform()));
+		bodyCreationSettings.mRotation = Cast(Math::GetQuaternion(entity->GetGlobalTransform()));
+		bodyCreationSettings.mUserData = PtrToInt(entity);
+		bodyCreationSettings.mIsSensor = hasSensor;
+
+		if (RigidBody* rigidBodyComponent = entity->GetComponent<RigidBody>())
+		{
+			bodyCreationSettings.mAllowDynamicOrKinematic = false;
+			bodyCreationSettings.mMotionType = !rigidBodyComponent->IsKinematic() ? JPH::EMotionType::Dynamic : JPH::EMotionType::Kinematic;
+			bodyCreationSettings.mObjectLayer = PhysicsLayers::MOVING;
+			bodyCreationSettings.mAllowedDOFs = JPH::EAllowedDOFs::All;
+			bodyCreationSettings.mUseManifoldReduction = true;
+			bodyCreationSettings.mMotionQuality = CastQuality(rigidBodyComponent->GetCollisionDetectionType());
+			bodyCreationSettings.mAllowSleeping = true;
+			bodyCreationSettings.mFriction = rigidBodyComponent->GetFriction();
+			bodyCreationSettings.mRestitution = rigidBodyComponent->GetRestitution();
+			bodyCreationSettings.mGravityFactor = rigidBodyComponent->GetGravityFactor();
+			bodyCreationSettings.mMassPropertiesOverride.mMass = rigidBodyComponent->GetMass();
+			bodyCreationSettings.mLinearVelocity = Cast(rigidBodyComponent->GetLinearVelocity());
+			bodyCreationSettings.mAngularVelocity = Cast(rigidBodyComponent->GetAngularVelocity());
 		}
 		else
 		{
-			if (!scaledShape)
-			{
-				entity->m_physicsId = U64_MAX;
-				return;
-			}
-
-			JPH::BodyCreationSettings bodyCreationSettings{};
-			bodyCreationSettings.SetShape(scaledShape);
-			bodyCreationSettings.mPosition = Cast(Math::GetTranslation(entity->GetGlobalTransform()));
-			bodyCreationSettings.mRotation = Cast(Math::GetQuaternion(entity->GetGlobalTransform()));
-			bodyCreationSettings.mUserData = PtrToInt(entity);
-			bodyCreationSettings.mIsSensor = hasSensor;
-
-			if (RigidBody* rigidBodyComponent = entity->GetComponent<RigidBody>())
-			{
-				bodyCreationSettings.mAllowDynamicOrKinematic = false;
-				bodyCreationSettings.mMotionType = !rigidBodyComponent->IsKinematic() ? JPH::EMotionType::Dynamic : JPH::EMotionType::Kinematic;
-				bodyCreationSettings.mObjectLayer = PhysicsLayers::MOVING;
-				bodyCreationSettings.mAllowedDOFs = JPH::EAllowedDOFs::All;
-				bodyCreationSettings.mUseManifoldReduction = true;
-				bodyCreationSettings.mMotionQuality = CastQuality(rigidBodyComponent->GetCollisionDetectionType());
-				bodyCreationSettings.mAllowSleeping = true;
-				bodyCreationSettings.mFriction = rigidBodyComponent->GetFriction();
-				bodyCreationSettings.mRestitution = rigidBodyComponent->GetRestitution();
-				bodyCreationSettings.mGravityFactor = rigidBodyComponent->GetGravityFactor();
-				bodyCreationSettings.mMassPropertiesOverride.mMass = rigidBodyComponent->GetMass();
-				bodyCreationSettings.mLinearVelocity = Cast(rigidBodyComponent->GetLinearVelocity());
-				bodyCreationSettings.mAngularVelocity = Cast(rigidBodyComponent->GetAngularVelocity());
-			}
-			else
-			{
-				bodyCreationSettings.mMotionType = JPH::EMotionType::Static;
-				bodyCreationSettings.mObjectLayer = PhysicsLayers::NON_MOVING;
-			}
-
-			JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
-			JPH::BodyID         id = bodyInterface.CreateAndAddBody(bodyCreationSettings, JPH::EActivation::Activate);
-
-			entity->m_physicsId = id.GetIndexAndSequenceNumber();
+			bodyCreationSettings.mMotionType = JPH::EMotionType::Static;
+			bodyCreationSettings.mObjectLayer = PhysicsLayers::NON_MOVING;
 		}
+
+		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+		JPH::BodyID         id = bodyInterface.CreateAndAddBody(bodyCreationSettings, JPH::EActivation::Activate);
+
+		entity->m_physicsId = id.GetIndexAndSequenceNumber();
 	}
 
 	void PhysicsScene::UnregisterPhysicsEntity(Entity* entity)
 	{
-		if (entity->HasFlag(EntityFlags::HasCharacterController))
+		if (entity->m_physicsId != U64_MAX)
 		{
-			JPH::CharacterVirtual* characterVirtual = static_cast<JPH::CharacterVirtual*>(IntToPtr(entity->m_physicsId));
-			context->virtualCharacters.Erase(characterVirtual);
-			delete characterVirtual;
-			entity->m_physicsId = U64_MAX;
-		}
-		else
-		{
-			JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
-			JPH::BodyID         id = JPH::BodyID(entity->m_physicsId);
-			bodyInterface.RemoveBody(id);
-			entity->m_physicsId = U64_MAX;
-		}
-
-		if (!context->entitiesToDraw.Empty())
-		{
-			context->entitiesToDraw.Erase(entity);
+			if (entity->HasFlag(EntityFlags::HasCharacterController))
+			{
+				JPH::CharacterVirtual* characterVirtual = static_cast<JPH::CharacterVirtual*>(IntToPtr(entity->m_physicsId));
+				context->virtualCharacters.Erase(characterVirtual);
+				delete characterVirtual;
+				entity->m_physicsId = U64_MAX;
+			}
+			else
+			{
+				JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+				JPH::BodyID         id = JPH::BodyID(entity->m_physicsId);
+				bodyInterface.RemoveBody(id);
+				entity->m_physicsId = U64_MAX;
+			}
 		}
 	}
 
 	void PhysicsScene::PhysicsEntityRequireUpdate(Entity* entity)
 	{
-		if (entity->HasFlag(EntityFlags::HasPhysics) && entity->m_physicsId != U64_MAX && entity->m_physicsUpdatedFrame < App::Frame())
+		if (entity->HasFlag(EntityFlags::HasPhysics) && (entity->m_physicsId != U64_MAX || entity->m_started) && entity->m_physicsUpdatedFrame < App::Frame())
 		{
 			entity->m_physicsUpdatedFrame = App::Frame();
 			context->requireUpdate.Enqueue(entity);
@@ -544,7 +539,7 @@ namespace Skore
 		}
 	}
 
-	void PhysicsScene::DrawDebugEntities(GPUCommandBuffer* cmd, GPUPipeline* pipeline)
+	void PhysicsScene::DrawEntities(GPUCommandBuffer* cmd, GPUPipeline* pipeline, const HashSet<Entity*>& entities)
 	{
 		if (!context) return;
 
@@ -553,7 +548,7 @@ namespace Skore
 		debugRenderer->cmd = cmd;
 		debugRenderer->pipeline = pipeline;
 
-		for (Entity* entity : context->entitiesToDraw)
+		for (Entity* entity : entities)
 		{
 			if (entity->m_physicsId != U64_MAX)
 			{
@@ -574,36 +569,13 @@ namespace Skore
 		}
 	}
 
-	void PhysicsScene::AddEntityToDraw(Entity* entity)
-	{
-		if (entity->HasFlag(EntityFlags::HasPhysics))
-		{
-			context->entitiesToDraw.Insert(entity);
-		}
-	}
-
-	void PhysicsScene::RemoveEntityFromDraw(Entity* entity)
-	{
-		context->entitiesToDraw.Erase(entity);
-	}
-
 	void PhysicsScene::ExecuteEvents()
 	{
 		while (!context->requireUpdate.IsEmpty())
 		{
-			bool addToDebug = false;
 			Entity* entity = context->requireUpdate.Dequeue();
-			if (!context->entitiesToDraw.Empty())
-			{
-				addToDebug = context->entitiesToDraw.Has(entity);
-			}
 			UnregisterPhysicsEntity(entity);
 			RegisterPhysicsEntity(entity);
-
-			if (addToDebug)
-			{
-				context->entitiesToDraw.Insert(entity);
-			}
 		}
 	}
 

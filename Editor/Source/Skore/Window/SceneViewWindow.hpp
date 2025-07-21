@@ -36,7 +36,7 @@ namespace Skore
 	public:
 		SK_CLASS(SceneViewWindow, EditorWindow);
 
-		SceneViewWindow();
+		SceneViewWindow() = default;
 		~SceneViewWindow() override;
 
 		void Init(u32 id, VoidPtr userData) override;
@@ -81,10 +81,6 @@ namespace Skore
 		static void DuplicateSceneEntity(const MenuItemEventData& eventData);
 		static void DeleteSceneEntity(const MenuItemEventData& eventData);
 		static bool CheckSelectedEntity(const MenuItemEventData& eventData);
-
-		void EntitySelection(u32 workspaceId, RID entityId);
-		void EntityDeselection(u32 workspaceId, RID entityId);
-
 
 		static MenuItemContext menuItemContext;
 	};

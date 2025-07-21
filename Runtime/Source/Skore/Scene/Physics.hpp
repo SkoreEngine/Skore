@@ -93,9 +93,7 @@ namespace Skore
 		void PhysicsEntityRequireUpdate(Entity* entity);
 		void UpdateTransform(Entity* entity);
 
-		void DrawDebugEntities(GPUCommandBuffer* cmd, GPUPipeline* pipeline);
-		void AddEntityToDraw(Entity* entity);
-		void RemoveEntityFromDraw(Entity* entity);
+		void DrawEntities(GPUCommandBuffer* cmd, GPUPipeline* pipeline, const HashSet<Entity*>& entities);
 
 		friend class Scene;
 	private:

@@ -85,6 +85,8 @@ namespace Skore
 
 		void OnUpdateEvent();
 
+		const HashSet<Entity*>& GetSelectionCache() const;
+
 	private:
 		EditorWorkspace& m_workspace;
 		RID m_state = {};
@@ -97,6 +99,9 @@ namespace Skore
 		bool m_shouldStopSimulation = false;
 
 		HashSet<Entity*> m_selectedEntities{};
+
+		//TODO - check if it's possible to merge with m_selectedEntities
+		HashSet<Entity*> m_selectionCache{};
 
 		static void OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);

@@ -34,6 +34,7 @@ namespace Skore
 		SK_CLASS(CharacterController, Component);
 
 		void Create(ComponentSettings& settings) override;
+		void Destroy() override;
 
 		f32  GetHeight() const;
 		void SetHeight(f32 height);

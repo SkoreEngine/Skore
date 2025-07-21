@@ -381,7 +381,7 @@ namespace Skore
 			{
 				cmd->BindPipeline(debugPhysicsPipeline);
 				cmd->BindDescriptorSet(debugPhysicsPipeline, 0, sceneDescriptorSet, {});
-				scene->GetPhysicsScene()->DrawDebugEntities(cmd, debugPhysicsPipeline);
+				scene->GetPhysicsScene()->DrawEntities(cmd, debugPhysicsPipeline, sceneEditor->GetSelectionCache());
 			}
 		}
 	}

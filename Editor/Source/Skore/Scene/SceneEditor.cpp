@@ -542,6 +542,11 @@ namespace Skore
 		}
 	}
 
+	const HashSet<Entity*>& SceneEditor::GetSelectionCache() const
+	{
+		return m_selectionCache;
+	}
+
 
 	void SceneEditor::OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
@@ -582,6 +587,11 @@ namespace Skore
 			for (RID deselected : oldValue.GetReferenceArray(SceneEditorSelection::SelectedEntities))
 			{
 				onEntityDeselectionHandler.Invoke(sceneEditor->m_workspace.GetId(), deselected);
+
+				if (Entity* entity = sceneEditor->m_editorScene->FindEntityByRID(deselected))
+				{
+					sceneEditor->m_selectionCache.Erase(entity);
+				}
 			}
 		}
 
@@ -589,6 +599,10 @@ namespace Skore
 		{
 			for (RID selected : newValue.GetReferenceArray(SceneEditorSelection::SelectedEntities))
 			{
+				if (Entity* entity = sceneEditor->m_editorScene->FindEntityByRID(selected))
+				{
+					sceneEditor->m_selectionCache.Insert(entity);
+				}
 				onEntitySelectionHandler.Invoke(sceneEditor->m_workspace.GetId(), selected);
 			}
 		}

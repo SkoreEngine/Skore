@@ -58,6 +58,8 @@ namespace Skore
 
 		Scene* GetScene() const;
 
+		void PhysicsRequireUpdate() const;
+
 		friend class Entity;
 	private:
 		RID m_rid;

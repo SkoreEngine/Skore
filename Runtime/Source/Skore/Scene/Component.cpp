@@ -38,6 +38,14 @@ namespace Skore
 		return nullptr;
 	}
 
+	void Component::PhysicsRequireUpdate() const
+	{
+		if (Scene* scene = GetScene())
+		{
+			scene->GetPhysicsScene()->PhysicsEntityRequireUpdate(entity);
+		}
+	}
+
 	void Component::RegisterEvents()
 	{
 		if (m_settings.enableUpdate)

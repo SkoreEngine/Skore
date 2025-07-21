@@ -31,6 +31,12 @@ namespace Skore
 	{
 		entity->AddFlag(EntityFlags::HasPhysics);
 		entity->AddFlag(EntityFlags::HasCharacterController);
+		PhysicsRequireUpdate();
+	}
+
+	void CharacterController::Destroy()
+	{
+		PhysicsRequireUpdate();
 	}
 
 	f32 CharacterController::GetHeight() const
