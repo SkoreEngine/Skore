@@ -62,6 +62,7 @@ namespace Skore
 	typedef f32 Float;
 
 	struct PlaceHolder {};
+	struct ProjectSettings{};
 
 	static constexpr usize nPos = -1;
 	constexpr u64          Prime = 1099511628211ULL;

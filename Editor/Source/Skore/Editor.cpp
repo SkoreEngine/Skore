@@ -54,6 +54,7 @@
 
 #include "Skore/IO/Input.hpp"
 #include "Utils/StaticContent.hpp"
+#include "Window/SettingsWindow.hpp"
 
 namespace Skore
 {
@@ -379,7 +380,6 @@ namespace Skore
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Delete", .priority = 500, .itemShortcut{.presKey = Key::Delete}, .action = Delete, .enable = HasEntitySelection});
 
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Editor Preferences...", .priority = 1000, .action = SettingsWindow::Open, .userData = GetTypeID<EditorPreferences>()});
-			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Project Settings...", .priority = 1010, .action = SettingsWindow::Open, .userData = GetTypeID<ProjectSettings>()});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Open Editor", .priority = 5, .action = OpenProjectInEditorAction, .visible = CanOpenEditor});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .visible = CreateCMakeProjectVisible});
@@ -1034,5 +1034,6 @@ namespace Skore
 		Reflection::Type<HistoryWindow>();
 		Reflection::Type<ConsoleWindow>();
 		Reflection::Type<PropertiesWindow>();
+		Reflection::Type<SettingsWindow>();
 	}
 }

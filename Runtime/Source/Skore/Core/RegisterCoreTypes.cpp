@@ -87,6 +87,7 @@ namespace Skore
 		Reflection::Type<Array<u8>>("Skore::ByteArray");
 		Reflection::Type<String>("Skore::String");
 		Reflection::Type<StringView>("Skore::StringView");
+		Reflection::Type<ProjectSettings>();
 
 		Reflection::Type<Object>();
 		Reflection::Type<Logger>();

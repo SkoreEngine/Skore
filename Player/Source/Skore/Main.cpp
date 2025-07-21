@@ -23,8 +23,6 @@
 #include "Skore/App.hpp"
 #include "Skore/Main.hpp"
 
-#include <iostream>
-
 #include "Skore/Events.hpp"
 #include "Skore/Core/ArgParser.hpp"
 #include "Skore/Core/Event.hpp"
