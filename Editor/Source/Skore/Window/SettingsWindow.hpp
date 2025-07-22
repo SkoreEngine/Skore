@@ -49,7 +49,7 @@ namespace Skore
 
 		void DrawTree();
 		void DrawSelected();
-		void DrawItem(SettingsItem* settingsItem);
+		void DrawItem(SettingsItem* settingsItem, u32 level);
 
 		static void OpenAction(const MenuItemEventData& eventData);
 	};

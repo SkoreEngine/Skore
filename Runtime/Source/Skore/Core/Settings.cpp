@@ -24,6 +24,7 @@
 
 #include <mutex>
 
+#include "Reflection.hpp"
 #include "Span.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -101,65 +102,61 @@ namespace Skore
 		}
 	}
 
-	void Settings::Register(TypeID settingType, StringView label, TypeID group)
-	{
-
-	}
-
 	void Settings::Init(TypeID settingsId)
 	{
 		Array<SettingsItem*>& itemsArr = items.Emplace(settingsId, Array<SettingsItem*>()).first->second;
 
-		// for (ResourceType* type : ResourceTypes::FindByAttribute<EditableSettings>())
-		// {
-		// 	if (const EditableSettings* editableSettings = type->GetAttribute<EditableSettings>())
-		// 	{
-		// 		if (editableSettings->type == settingsId)
-		// 		{
-		// 			Array<String> items = {};
-		// 			Split(StringView{editableSettings->path}, StringView{"/"}, [&](const StringView& item)
-		// 			{
-		// 				items.EmplaceBack(item);
-		// 			});
-		//
-		// 			if (items.Empty())
-		// 			{
-		// 				items.EmplaceBack(editableSettings->path);
-		// 			}
-		//
-		// 			String        path = "";
-		// 			SettingsItem* lastItem = nullptr;
-		// 			for (int i = 0; i < items.Size(); ++i)
-		// 			{
-		// 				const String& itemLabel = items[i];
-		// 				path += "/" + itemLabel;
-		// 				auto itByPath = itemsByPath.Find(path);
-		// 				if (itByPath == itemsByPath.end())
-		// 				{
-		// 					SettingsItem* newItem = Alloc<SettingsItem>(settingsId);
-		// 					newItem->SetLabel(itemLabel);
-		// 					itByPath = itemsByPath.Insert(path, newItem).first;
-		//
-		// 					if (lastItem != nullptr)
-		// 					{
-		// 						lastItem->AddChild(newItem);
-		// 					}
-		// 					else
-		// 					{
-		// 						itemsArr.EmplaceBack(newItem);
-		// 					}
-		// 				}
-		// 				lastItem = itByPath->second;
-		// 			}
-		//
-		// 			if (lastItem != nullptr)
-		// 			{
-		// 				lastItem->SetType(type);
-		// 				lastItem->Instantiate();
-		// 			}
-		// 		}
-		// 	}
-		// }
+		for (TypeID typeId : Resources::FindTypesByAttribute<EditableSettings>())
+		{
+			ResourceType* type = Resources::FindTypeByID(typeId);
+			if (const EditableSettings* editableSettings = type->GetAttribute<EditableSettings>())
+			{
+				if (editableSettings->type == settingsId)
+				{
+					Array<String> items = {};
+					Split(StringView{editableSettings->path}, StringView{"/"}, [&](const StringView& item)
+					{
+						items.EmplaceBack(item);
+					});
+
+					if (items.Empty())
+					{
+						items.EmplaceBack(editableSettings->path);
+					}
+
+					String        path = "";
+					SettingsItem* lastItem = nullptr;
+					for (int i = 0; i < items.Size(); ++i)
+					{
+						const String& itemLabel = items[i];
+						path += "/" + itemLabel;
+						auto itByPath = itemsByPath.Find(path);
+						if (itByPath == itemsByPath.end())
+						{
+							SettingsItem* newItem = Alloc<SettingsItem>(settingsId);
+							newItem->SetLabel(itemLabel);
+							itByPath = itemsByPath.Insert(path, newItem).first;
+
+							if (lastItem != nullptr)
+							{
+								lastItem->AddChild(newItem);
+							}
+							else
+							{
+								itemsArr.EmplaceBack(newItem);
+							}
+						}
+						lastItem = itByPath->second;
+					}
+
+					if (lastItem != nullptr)
+					{
+						lastItem->SetType(type);
+						lastItem->Instantiate();
+					}
+				}
+			}
+		}
 	}
 
 	Span<SettingsItem*> Settings::GetItems(TypeID typeId)
@@ -199,48 +196,45 @@ namespace Skore
 		return it->second;
 	}
 
-	RID Settings::Load(StringView settingsFile, TypeID settingType)
+	RID Settings::Load(ArchiveReader& reader, TypeID settingType)
 	{
 		auto itInstances = settingTypes.Find(settingType);
 		if (itInstances == settingTypes.end())
 		{
 			SettingTypeStorage storage;
-
-			if (String file = FileSystem::ReadFileAsString(settingsFile); !file.Empty())
+			storage.rid = Resources::Deserialize(reader);
+			if (storage.rid)
 			{
-			//	storage.rid = Serialization::YamlDeserialize(file);
-			}
-			else
-			{
-				storage.rid = Resources::Create<SettingTypeResource>(UUID::RandomUUID());
-			}
-
-			if (ResourceObject settingResources = Resources::Read(storage.rid))
-			{
-				settingResources.IterateSubObjectList(SettingTypeResource::Settings, [&](RID rid)
+				if (ResourceObject settingResources = Resources::Read(storage.rid))
 				{
-					//storage.instances.Insert(Resources::GetResourceType(rid)->type, rid);
-				});
+					settingResources.IterateSubObjectList(SettingTypeResource::Settings, [&](RID rid)
+					{
+						storage.instances.Insert(Resources::GetType(rid)->GetID(), rid);
+					});
+				}
 
 				settingTypes.Emplace(settingType, Traits::Move(storage));
 			}
-			return storage.rid;
 		}
 		SK_ASSERT(false, "settings already loaded");
 		return {};
 	}
 
-	void Settings::Save(StringView settingsFile, TypeID settingType)
+
+	void Settings::Save(ArchiveWriter& writer, TypeID settingType)
 	{
 		std::unique_lock lock(settingTypesMutex);
 		if (auto it = settingTypes.Find(settingType))
 		{
-			//FileSystem::SaveFileAsString(settingsFile, Serialization::YamlSerialize(it->second.rid));
+			Resources::Serialize(it->second.rid, writer);
 		}
 	}
 
 	void RegisterSettingsType()
 	{
+		Reflection::Type<EditableSettings>();
+		Reflection::Type<ProjectSettings>();
+
 		Resources::Type<SettingTypeResource>()
 			.Field<SettingTypeResource::Settings>(ResourceFieldType::SubObjectList)
 			.Build();

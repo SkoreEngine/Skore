@@ -91,7 +91,6 @@ namespace Skore
 	};
 
 
-
 	namespace
 	{
 		struct DestroyResourcePayload
@@ -103,6 +102,7 @@ namespace Skore
 		std::mutex                            resourceTypeMutex{};
 		HashMap<TypeID, Array<ResourceType*>> typesById;
 		HashMap<String, Array<ResourceType*>> typesByName;
+		HashMap<TypeID, HashSet<TypeID>>      typesByAttribute;
 
 		Logger& logger = Logger::GetLogger("Skore::Resources");
 
@@ -205,7 +205,7 @@ namespace Skore
 							f(field->GetIndex(), field->GetType(), object.GetReference(field->GetIndex()));
 							break;
 						case ResourceFieldType::ReferenceArray:
-							for (RID rid: object.GetReferenceArray(field->GetIndex()))
+							for (RID rid : object.GetReferenceArray(field->GetIndex()))
 							{
 								f(field->GetIndex(), field->GetType(), rid);
 							}
@@ -264,8 +264,8 @@ namespace Skore
 						struct CompareSubObjectListUserData
 						{
 							ResourceStorage* storage;
-							ResourceField* field;
-							UndoRedoScope* scope;
+							ResourceField*   field;
+							UndoRedoScope*   scope;
 						};
 
 						CompareSubObjectListUserData userData = {};
@@ -279,10 +279,10 @@ namespace Skore
 
 							if (result.type == CompareSubObjectSetType::Removed)
 							{
-								for (RID instance: userData.storage->prototypeInstances)
+								for (RID instance : userData.storage->prototypeInstances)
 								{
 									ResourceObject write = Resources::Write(instance);
-									Array<RID> removed = write.RemoveFromSubObjectListByPrototype(userData.field->GetIndex(), result.rid);
+									Array<RID>     removed = write.RemoveFromSubObjectListByPrototype(userData.field->GetIndex(), result.rid);
 									write.Commit(userData.scope);
 
 									for (RID removedInstance : removed)
@@ -293,7 +293,7 @@ namespace Skore
 							}
 							else if (result.type == CompareSubObjectSetType::Added)
 							{
-								for (RID instance: userData.storage->prototypeInstances)
+								for (RID instance : userData.storage->prototypeInstances)
 								{
 									RID newSubObject = Resources::CreateFromPrototype(result.rid, UUID{}, userData.scope);
 
@@ -616,6 +616,33 @@ namespace Skore
 		return nullptr;
 	}
 
+	void ResourceAddTypeByAttribute(TypeID attributeId, TypeID resourceId)
+	{
+		std::unique_lock lock(resourceTypeMutex);
+		auto             it = typesByAttribute.Find(attributeId);
+		if (it == typesByAttribute.end())
+		{
+			it = typesByAttribute.Insert(attributeId, HashSet<TypeID>{}).first;
+		}
+		it->second.Insert(resourceId);
+	}
+
+	Array<TypeID> Resources::FindTypesByAttribute(TypeID attributeId)
+	{
+		std::unique_lock lock(resourceTypeMutex);
+		Array<TypeID> ret;
+		if (auto it = typesByAttribute.Find(attributeId))
+		{
+			ret.Reserve(it->second.Size());
+
+			for (TypeID typeId : it->second)
+			{
+				ret.EmplaceBack(typeId);
+			}
+		}
+		return ret;
+	}
+
 	RID Resources::Create(TypeID typeId, UUID uuid, UndoRedoScope* scope)
 	{
 		RID              rid = GetID(uuid);
@@ -647,7 +674,7 @@ namespace Skore
 		return rid;
 	}
 
-	RID ResourcesCreateFromPrototype(HashMap<NewItemsLookup, UUID>& newItems,  RID rootPrototype, RID prototypeRid, UUID uuid, UndoRedoScope* scope)
+	RID ResourcesCreateFromPrototype(HashMap<NewItemsLookup, UUID>& newItems, RID rootPrototype, RID prototypeRid, UUID uuid, UndoRedoScope* scope)
 	{
 		ResourceStorage* prototype = GetStorage(prototypeRid);
 		SK_ASSERT(prototype->resourceType, "prototype type cannot be null");
@@ -701,29 +728,29 @@ namespace Skore
 		});
 
 		IterateReferences(prototype, [&](u32 index, ResourceFieldType type, RID reference)
-		{
-			if (Resources::IsParentOf(rootPrototype, reference))
-			{
-				ResourceStorage* refStorage = GetStorage(reference);
+		                  {
+			                  if (Resources::IsParentOf(rootPrototype, reference))
+			                  {
+				                  ResourceStorage* refStorage = GetStorage(reference);
 
-				NewItemsLookup item = {
-					.parent = refStorage->parent->rid,
-					.index = refStorage->parentFieldIndex
-				};
+				                  NewItemsLookup item = {
+					                  .parent = refStorage->parent->rid,
+					                  .index = refStorage->parentFieldIndex
+				                  };
 
-				auto it = newItems.Find(item);
-				if (it == newItems.end())
-				{
-					UUID newUUID = UUID::RandomUUID();
-					it = newItems.Insert(item, newUUID).first;
-				}
+				                  auto it = newItems.Find(item);
+				                  if (it == newItems.end())
+				                  {
+					                  UUID newUUID = UUID::RandomUUID();
+					                  it = newItems.Insert(item, newUUID).first;
+				                  }
 
-				if (type == ResourceFieldType::Reference)
-				{
-					object.SetReference(index, Resources::FindOrReserveByUUID(it->second));
-				}
-			}
-		}
+				                  if (type == ResourceFieldType::Reference)
+				                  {
+					                  object.SetReference(index, Resources::FindOrReserveByUUID(it->second));
+				                  }
+			                  }
+		                  }
 		);
 
 		object.Commit(scope);
@@ -1151,7 +1178,7 @@ namespace Skore
 			reader.BeginMap();
 
 			UUID uuid = UUID::FromString(reader.ReadString("_uuid"));
-			RID rid = GetID(uuid);
+			RID  rid = GetID(uuid);
 			if (!root)
 			{
 				root = rid;
@@ -1294,27 +1321,27 @@ namespace Skore
 								reader.EndSeq();
 								break;
 							}
-							// case ResourceFieldType::SubObjectList:
-							// {
-							// 	reader.BeginMap();
-							// 	while (reader.NextMapEntry())
-							// 	{
-							// 		StringView fieldName = reader.GetCurrentKey();
-							// 		if (fieldName == "_removed")
-							// 		{
-							// 			reader.BeginSeq();
-							// 			while (reader.NextSeqEntry())
-							// 			{
-							// 				if (UUID uuid = UUID::FromString(reader.GetString()))
-							// 				{
-							// 					write.RemoveFromPrototypeSubObjectSet(field->GetIndex(), FindOrReserveByUUID(uuid));
-							// 				}
-							// 			}
-							// 			reader.EndSeq();
-							// 		}
-							// 	}
-							// 	reader.EndMap();
-							// }
+								// case ResourceFieldType::SubObjectList:
+								// {
+								// 	reader.BeginMap();
+								// 	while (reader.NextMapEntry())
+								// 	{
+								// 		StringView fieldName = reader.GetCurrentKey();
+								// 		if (fieldName == "_removed")
+								// 		{
+								// 			reader.BeginSeq();
+								// 			while (reader.NextSeqEntry())
+								// 			{
+								// 				if (UUID uuid = UUID::FromString(reader.GetString()))
+								// 				{
+								// 					write.RemoveFromPrototypeSubObjectSet(field->GetIndex(), FindOrReserveByUUID(uuid));
+								// 				}
+								// 			}
+								// 			reader.EndSeq();
+								// 		}
+								// 	}
+								// 	reader.EndMap();
+								// }
 						}
 					}
 				}
@@ -1634,7 +1661,7 @@ namespace Skore
 			{
 				reader.BeginMap();
 				String pathId = reader.ReadString("pathId");
-				RID rid = Deserialize(reader);
+				RID    rid = Deserialize(reader);
 				logger.Debug("asset {} loaded with rid {} ", pathId, rid.id);
 				if (rid)
 				{

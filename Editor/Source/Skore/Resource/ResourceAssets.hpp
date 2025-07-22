@@ -180,6 +180,6 @@ namespace Skore
 		static String                GetAssetFullName(RID rid);
 		static UUID                  GetAssetUUID(RID rid);
 		static void                  WatchAsset(RID asset, StringView absolutePath);
-		static void                  ExportPackages(Span<RID> packages, StringView directoryToExport, StringView fileName);
+		static void                  ExportPackages(Span<RID> packages, ArchiveWriter& writer);
 	};
 }

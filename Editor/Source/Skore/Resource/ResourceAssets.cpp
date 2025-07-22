@@ -1002,11 +1002,8 @@ namespace Skore
 		fileWatcher.Watch(IntToPtr(asset.id), absolutePath);
 	}
 
-	void ResourceAssets::ExportPackages(Span<RID> packages, StringView directoryToExport, StringView fileName)
+	void ResourceAssets::ExportPackages(Span<RID> packages, ArchiveWriter& writer)
 	{
-		BinaryArchiveWriter writer;
-		writer.BeginSeq("assets");
-
 		for (RID package: packages)
 		{
 			ResourceObject packageObject = Resources::Read(package);
@@ -1041,10 +1038,6 @@ namespace Skore
 				});
 			}
 		}
-
-		writer.EndSeq();
-
-		FileSystem::SaveFileAsByteArray(Path::Join(directoryToExport, String(fileName) + ".pak"), writer.GetData());
 	}
 
 	void ResourceAssetsUpdate()

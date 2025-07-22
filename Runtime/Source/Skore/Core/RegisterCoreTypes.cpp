@@ -25,6 +25,7 @@
 #include "Logger.hpp"
 #include "Object.hpp"
 #include "Reflection.hpp"
+#include "Settings.hpp"
 
 namespace Skore
 {
@@ -70,6 +71,8 @@ namespace Skore
 		Reflection::Type<Transform>();
 	}
 
+	void RegisterSettingsType();
+
 	void RegisterCoreTypes()
 	{
 		Reflection::Type<bool>("bool");
@@ -94,6 +97,7 @@ namespace Skore
 
 
 		RegisterMathTypes();
+		RegisterSettingsType();
 
 	}
 }

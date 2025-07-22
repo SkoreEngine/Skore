@@ -25,6 +25,12 @@
 
 namespace Skore
 {
+	struct EditableSettings
+	{
+		String path;
+		TypeID type;
+	};
+
 	class SK_API SettingsItem
 	{
 	public:
@@ -52,13 +58,11 @@ namespace Skore
 	class SK_API Settings
 	{
 	public:
-		static void Register(TypeID settingType, StringView label, TypeID group);
-
 		static void                Init(TypeID settingType);
 		static Span<SettingsItem*> GetItems(TypeID settingType);
 
 		static RID  GetSetting(TypeID settingType, TypeID typeId);
-		static RID  Load(StringView settingsFile, TypeID settingType);
-		static void Save(StringView settingsFile, TypeID settingType);
+		static RID  Load(ArchiveReader&reader, TypeID settingType);
+		static void Save(ArchiveWriter& writer, TypeID settingType);
 	};
 }

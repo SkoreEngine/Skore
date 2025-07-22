@@ -44,6 +44,15 @@ namespace Skore
 		};
 	};
 
+	struct SceneSettings
+	{
+		enum
+		{
+			DefaultScene,
+			DefaultEditorScene
+		};
+	};
+
 	struct EntityEventType
 	{
 		constexpr static i32 EntityActivated = 100;

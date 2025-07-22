@@ -25,6 +25,7 @@
 #include "ResourceCommon.hpp"
 #include "Skore/Common.hpp"
 #include "Skore/Core/StringView.hpp"
+#include "Skore/Core/HashMap.hpp"
 
 namespace Skore
 {
@@ -80,6 +81,14 @@ namespace Skore
 		void                 RegisterEvent(FnObjectEvent event, VoidPtr userData);
 		void                 UnregisterEvent(FnObjectEvent event, VoidPtr userData);
 		Span<ResourceEvent>  GetEvents() const;
+		ConstPtr             GetAttribute(TypeID attributeId) const;
+
+
+		template<typename AttType>
+		const AttType* GetAttribute() const
+		{
+			return static_cast<const AttType*>(GetAttribute(TypeInfo<AttType>::ID()));
+		}
 
 		friend class ResourceTypeBuilder;
 		friend class ResourceObject;
@@ -94,8 +103,9 @@ namespace Skore
 		u32          allocSize = 0;
 		ReflectType* reflectType = nullptr;
 
-		Array<ResourceField*> fields;
-		Array<ResourceEvent>  events;
+		Array<ResourceField*>    fields;
+		Array<ResourceEvent>     events;
+		HashMap<TypeID, VoidPtr> attributes;
 	};
 
 	struct ResourceInstanceInfo
@@ -113,6 +123,14 @@ namespace Skore
 
 		ResourceTypeBuilder& Field(u32 index, StringView name, ResourceFieldType type);
 		ResourceTypeBuilder& Field(u32 index, StringView name, ResourceFieldType type, TypeID subType);
+		ResourceTypeBuilder& Attribute(TypeID type, ConstPtr value);
+
+		template <typename Type, typename... Args>
+		ResourceTypeBuilder& Attribute(Args&&... args)
+		{
+			Type value = Type{Traits::Forward<Args>(args)...};
+			return Attribute(TypeInfo<Type>::ID(), &value);
+		}
 
 		template <auto T>
 		ResourceTypeBuilder& Field(ResourceFieldType type, TypeID subType = 0)

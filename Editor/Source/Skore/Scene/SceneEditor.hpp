@@ -102,9 +102,11 @@ namespace Skore
 
 		//TODO - check if it's possible to merge with m_selectedEntities
 		HashSet<Entity*> m_selectionCache{};
+		HashMap<RID, Entity*> m_selectionCacheByRID{};
 
 		static void OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 		static void OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
+		static void OnEntityChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 
 		void ClearSelection(UndoRedoScope* scope);
 		void ClearDebugEntitySelection();

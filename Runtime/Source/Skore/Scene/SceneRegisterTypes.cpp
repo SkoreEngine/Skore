@@ -35,6 +35,7 @@
 #include "Components/SkinnedMeshRenderer.hpp"
 #include "Components/StaticMeshRenderer.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Core/Settings.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
@@ -78,5 +79,14 @@ namespace Skore
 			// entityResourceObject.Commit();
 			// Resources::FindType<EntityResource>()->SetDefaultValue(rid);
 		}
+
+		Resources::Type<SceneSettings>()
+			.Field<SceneSettings::DefaultScene>(ResourceFieldType::Reference, TypeInfo<EntityResource>::ID())
+			.Field<SceneSettings::DefaultEditorScene>(ResourceFieldType::Reference, TypeInfo<EntityResource>::ID())
+			.Attribute<EditableSettings>(EditableSettings{
+				.path = "Application/Scene Settings",
+				.type = TypeInfo<ProjectSettings>::ID()
+			})
+			.Build();
 	}
 }

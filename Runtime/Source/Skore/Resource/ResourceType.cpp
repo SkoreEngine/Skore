@@ -25,6 +25,7 @@
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Color.hpp"
 #include "Skore/Core/Math.hpp"
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Span.hpp"
 
 namespace Skore
@@ -51,6 +52,7 @@ namespace Skore
 
 	static_assert(sizeof(fieldProps) / sizeof(TypeProps) == static_cast<usize>(ResourceFieldType::MAX), "Invalid field size array");
 
+	void ResourceAddTypeByAttribute(TypeID attributeId, TypeID resourceId);
 
 	StringView ResourceField::GetName() const
 	{
@@ -198,6 +200,15 @@ namespace Skore
 		return events;
 	}
 
+	ConstPtr ResourceType::GetAttribute(TypeID attributeId) const
+	{
+		if (auto it = attributes.Find(attributeId))
+		{
+			return it->second;
+		}
+		return nullptr;
+	}
+
 	void ResourceType::SetDefaultValue(RID defaultValue)
 	{
 		this->defaultValue = defaultValue;
@@ -224,6 +235,21 @@ namespace Skore
 
 		resourceType->fields[index] = resourceField;
 
+		return *this;
+	}
+
+	ResourceTypeBuilder& ResourceTypeBuilder::Attribute(TypeID attributeType, ConstPtr value)
+	{
+		if (ReflectType* reflectType = Reflection::FindTypeById(attributeType))
+		{
+			if (resourceType->attributes.Find(attributeType) == resourceType->attributes.end())
+			{
+				VoidPtr ptr = MemAlloc(reflectType->GetProps().size);
+				reflectType->Copy(value, ptr);
+				ResourceAddTypeByAttribute(attributeType, resourceType->type);
+				resourceType->attributes.Insert(attributeType, ptr);
+			}
+		}
 		return *this;
 	}
 

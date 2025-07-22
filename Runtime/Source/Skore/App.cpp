@@ -30,6 +30,7 @@
 #include "Core/ArgParser.hpp"
 #include "Core/Logger.hpp"
 #include "Core/Reflection.hpp"
+#include "Core/Settings.hpp"
 #include "Graphics/Graphics.hpp"
 #include "IO/FileSystem.hpp"
 #include "IO/InputTypes.hpp"
@@ -234,6 +235,8 @@ namespace Skore
 
 		ReflectionSetReadOnly(true, appConfig.enableReload);
 		ResourceInit();
+
+		Settings::Init(TypeInfo<ProjectSettings>::ID());
 
 		if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
 		{

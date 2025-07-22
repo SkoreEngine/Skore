@@ -632,6 +632,12 @@ namespace Skore
 		return open;
 	}
 
+	void ImGuiCenterWindow(ImGuiCond cond)
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), cond, ImVec2(0.5f, 0.5f));
+	}
+
 	u32 ImGuiHoveredWindowId()
 	{
 		return hoveredWindowId;

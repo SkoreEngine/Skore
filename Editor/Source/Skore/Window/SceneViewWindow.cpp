@@ -81,6 +81,8 @@ namespace Skore
 		}
 
 		ImGuiBegin(id, ICON_FA_BORDER_ALL " Scene Viewport", &open, flags);
+		const bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+
 		{
 			const bool moving = ImGui::IsMouseDown(ImGuiMouseButton_Right);
 			const bool canChangeOptions = !moving && !ImGui::GetIO().WantCaptureKeyboard;
@@ -249,7 +251,7 @@ namespace Skore
 
 			if (!movingScene)
 			{
-				movingScene = !windowStartedSimulation && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && Input::IsMouseDown(MouseButton::Right);
+				movingScene = !windowStartedSimulation && hovered && Input::IsMouseDown(MouseButton::Right);
 			}
 
 			if (movingScene)
@@ -593,7 +595,7 @@ namespace Skore
 			}
 		}
 
-		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
+		if (hovered)
 		{
 			menuItemContext.ExecuteHotKeys(this);
 		}

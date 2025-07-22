@@ -38,6 +38,7 @@ namespace Skore
 		static ResourceTypeBuilder Type(TypeID typeId, StringView name);
 		static ResourceType*       FindTypeByID(TypeID typeId);
 		static ResourceType*       FindTypeByName(StringView name);
+		static Array<TypeID>       FindTypesByAttribute(TypeID attributeId);
 
 		template <typename T>
 		static ResourceTypeBuilder Type(StringView name)
@@ -55,6 +56,12 @@ namespace Skore
 		static ResourceType* FindType()
 		{
 			return FindTypeByID(TypeInfo<T>::ID());
+		}
+
+		template <typename T>
+		static Array<TypeID> FindTypesByAttribute()
+		{
+			return FindTypesByAttribute(TypeInfo<T>::ID());
 		}
 
 		//resource API

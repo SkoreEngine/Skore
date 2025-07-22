@@ -52,6 +52,7 @@
 #include <thread>
 #include <chrono>
 
+#include "Skore/Core/Settings.hpp"
 #include "Skore/IO/Input.hpp"
 #include "Utils/StaticContent.hpp"
 #include "Window/SettingsWindow.hpp"
@@ -305,16 +306,25 @@ namespace Skore
 				packagesToExport.EmplaceBack(package);
 			}
 			packagesToExport.EmplaceBack(projectRID);
-			ResourceAssets::ExportPackages(packagesToExport, Path::Join(projectPath, "Export"), Path::Name(projectPath));
 
-			logger.Info("Project exported to {}", Path::Join(projectPath, "Export"));
+			BinaryArchiveWriter writer;
+
+			writer.BeginMap("projectSettings");
+			Settings::Save(writer, TypeInfo<ProjectSettings>::ID());
+			writer.EndMap();
+
+			writer.BeginSeq("assets");
+			ResourceAssets::ExportPackages(packagesToExport, writer);
+			writer.EndSeq();
+
+			FileSystem::SaveFileAsByteArray(Path::Join(Path::Join(projectPath, "Export"), Path::Name(projectPath) + ".pak"), writer.GetData());
+
+			logger.Debug("Project exported to {}", Path::Join(projectPath, "Export"));
 
 			if (run)
 			{
 				String command = Path::Join(exportPath, Path::Name(projectPath) + SK_EXEC_EXT);
-
 				const char *args[] = { command.CStr(), "--current-path", exportPath.CStr(), NULL };
-
 				if (SDL_Process* process = SDL_CreateProcess(args, true))
 				{
 					SDL_DestroyProcess(process);
@@ -784,12 +794,10 @@ namespace Skore
 		{
 			if (forceClose) return;
 
-			// if (sceneEditor->IsSimulating())
-			// {
-			// 	sceneEditor->StopSimulation();
-			// 	*canClose = false;
-			// 	return;
-			// }
+			if (workspace->GetSceneEditor()->IsSimulationRunning())
+			{
+				workspace->GetSceneEditor()->StopSimulation();
+			}
 
 			GetUpdatedItems();
 
@@ -971,6 +979,16 @@ namespace Skore
 		{
 			return l.order < r.order;
 		});
+
+		if (String projectContent = FileSystem::ReadFileAsString(projectFile); !projectContent.Empty())
+		{
+			YamlArchiveReader reader(projectContent);
+			reader.BeginMap("projectSettings");
+			{
+				Settings::Load(reader, TypeInfo<ProjectSettings>::ID());
+			}
+			reader.EndMap();
+		}
 
 		projectAssetPath = Path::Join(projectPath, "Assets");
 		projectPackagePath = Path::Join(projectPath, "Packages");

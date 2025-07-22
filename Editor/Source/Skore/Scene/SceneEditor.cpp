@@ -74,6 +74,8 @@ namespace Skore
 
 		Resources::FindType<SceneEditorSelection>()->RegisterEvent(OnSelectionChange, this);
 		Resources::FindType<SceneEditorState>()->RegisterEvent(OnStateChange, this);
+		Resources::FindType<EntityResource>()->RegisterEvent(OnEntityChange, this);
+
 
 		Event::Bind<OnUpdate, &SceneEditor::OnUpdateEvent>(this);
 	}
@@ -82,6 +84,7 @@ namespace Skore
 	{
 		Resources::FindType<SceneEditorSelection>()->UnregisterEvent(OnSelectionChange, this);
 		Resources::FindType<SceneEditorState>()->UnregisterEvent(OnStateChange, this);
+		Resources::FindType<EntityResource>()->UnregisterEvent(OnEntityChange, this);
 
 		Resources::Destroy(m_selection);
 		Resources::Destroy(m_state);
@@ -527,20 +530,22 @@ namespace Skore
 		{
 			m_simulationScene = std::make_shared<Scene>(GetRootEntity(), true);
 			SceneManager::SetActiveScene(m_simulationScene.get());
-			m_shouldStartSimulation = false;
 		}
 
 		if (m_simulationScene && m_shouldStopSimulation)
 		{
 			m_simulationScene = {};
 			SceneManager::SetActiveScene(nullptr);
-			m_shouldStopSimulation = false;
+			Input::DisableInputs(false);
 		}
 
 		if (SceneManager::GetActiveScene() == nullptr && m_editorScene)
 		{
 			m_editorScene->ExecuteEvents();
 		}
+
+		m_shouldStartSimulation = false;
+		m_shouldStopSimulation = false;
 	}
 
 	const HashSet<Entity*>& SceneEditor::GetSelectionCache() const
@@ -592,6 +597,7 @@ namespace Skore
 				if (Entity* entity = sceneEditor->m_editorScene->FindEntityByRID(deselected))
 				{
 					sceneEditor->m_selectionCache.Erase(entity);
+					sceneEditor->m_selectionCacheByRID.Erase(deselected);
 				}
 			}
 		}
@@ -603,8 +609,22 @@ namespace Skore
 				if (Entity* entity = sceneEditor->m_editorScene->FindEntityByRID(selected))
 				{
 					sceneEditor->m_selectionCache.Insert(entity);
+					sceneEditor->m_selectionCacheByRID.Insert(selected, entity);
 				}
 				onEntitySelectionHandler.Invoke(sceneEditor->m_workspace.GetId(), selected);
+			}
+		}
+	}
+
+	void SceneEditor::OnEntityChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+	{
+		SceneEditor* sceneEditor = static_cast<SceneEditor*>(userData);
+		if (oldValue && !newValue)
+		{
+			if (auto it = sceneEditor->m_selectionCacheByRID.Find(oldValue.GetRID()))
+			{
+				sceneEditor->m_selectionCache.Erase(it->second);
+				sceneEditor->m_selectionCacheByRID.Erase(it);
 			}
 		}
 	}

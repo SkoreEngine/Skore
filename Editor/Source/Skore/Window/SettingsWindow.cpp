@@ -49,7 +49,7 @@ namespace Skore
 		ScopedStyleVar   windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 		ScopedStyleColor tableBorderStyleColor(ImGuiCol_TableBorderLight, IM_COL32(0, 0, 0, 0));
 
-		//ImGui::CenterWindow(ImGuiCond_Appearing);
+		ImGuiCenterWindow(ImGuiCond_Appearing);
 
 		ImGuiBegin(id, title.CStr(), &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDocking);
 
@@ -88,7 +88,7 @@ namespace Skore
 
 		for (SettingsItem* item : Settings::GetItems(type))
 		{
-			DrawItem(item);
+			DrawItem(item, 0);
 		}
 
 		ImGuiEndTreeNodeStyle();
@@ -102,14 +102,15 @@ namespace Skore
 
 		if (selectedItem != nullptr && selectedItem->GetRID())
 		{
-			// DrawResource(ImGui::DrawResourceInfo{
-			// 	.rid = selectedItem->GetRID()
-			// });
+			ImGuiDrawResource(ImGuiDrawResourceInfo{
+				.rid = selectedItem->GetRID(),
+				.scopeName = "Settings Edit",
+			});
 		}
 		ImGui::EndChild();
 	}
 
-	void SettingsWindow::DrawItem(SettingsItem* settingsItem)
+	void SettingsWindow::DrawItem(SettingsItem* settingsItem, u32 level)
 	{
 		Span<SettingsItem*> children = settingsItem->GetChildren();
 
@@ -123,7 +124,8 @@ namespace Skore
 
 		if (!children.Empty())
 		{
-			open = ImGui::TreeNode(settingsItem, settingsItem->GetLabel().CStr(), flags);
+			ImGui::SetNextItemOpen(level == 0, ImGuiCond_Once);
+			open = ImGuiTreeNode(settingsItem, settingsItem->GetLabel().CStr(), flags);
 		}
 		else
 		{
@@ -139,7 +141,7 @@ namespace Skore
 		{
 			for (SettingsItem* item : children)
 			{
-				DrawItem(item);
+				DrawItem(item, level + 1);
 			}
 
 			ImGui::TreePop();
