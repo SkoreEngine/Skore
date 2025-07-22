@@ -133,7 +133,7 @@ namespace Skore
 
 	void InputHandlerEvents(SDL_Event* event)
 	{
-		if (inputDisabled) return;
+		if (inputDisabled && (event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_MOUSE_BUTTON_DOWN)) return;
 
 		switch (event->type)
 		{

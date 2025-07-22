@@ -33,11 +33,67 @@ namespace Skore
 {
 	void SettingsWindow::Init(u32 id, VoidPtr userData)
 	{
-		type = PtrToInt(userData);
+		settingsType = PtrToInt(userData);
 
-		if (ReflectType* typeHandler = Reflection::FindTypeById(type))
+		if (ReflectType* typeHandler = Reflection::FindTypeById(settingsType))
 		{
 			title = FormatName(typeHandler->GetSimpleName());
+		}
+
+		HashMap<String, std::shared_ptr<SettingsItem>> itemsByPath;
+
+		for (TypeID typeId : Resources::FindTypesByAttribute<EditableSettings>())
+		{
+			ResourceType* resourceType = Resources::FindTypeByID(typeId);
+			if (const EditableSettings* editableSettings = resourceType->GetAttribute<EditableSettings>())
+			{
+				if (editableSettings->type == settingsType)
+				{
+					Array<String> items = {};
+					Split(StringView{editableSettings->path}, StringView{"/"}, [&](const StringView& item)
+					{
+						items.EmplaceBack(item);
+					});
+
+					if (items.Empty())
+					{
+						items.EmplaceBack(editableSettings->path);
+					}
+
+					String path = "";
+					std::shared_ptr<SettingsItem> lastItem = nullptr;
+
+					for (int i = 0; i < items.Size(); ++i)
+					{
+						const String& itemLabel = items[i];
+						path += "/" + itemLabel;
+
+						auto itByPath = itemsByPath.Find(path);
+						if (itByPath == itemsByPath.end())
+						{
+							std::shared_ptr<SettingsItem> newItem = std::make_shared<SettingsItem>();
+							newItem->label = itemLabel;
+							itByPath = itemsByPath.Insert(path, newItem).first;
+
+							if (lastItem != nullptr)
+							{
+								lastItem->children.EmplaceBack(newItem);
+							}
+							else
+							{
+								rootItems.EmplaceBack(newItem);
+							}
+						}
+						lastItem = itByPath->second;
+					}
+
+					if (lastItem != nullptr)
+					{
+						lastItem->type = resourceType;
+						lastItem->rid = Settings::Get(settingsType, typeId);
+					}
+				}
+			}
 		}
 	}
 
@@ -86,9 +142,9 @@ namespace Skore
 
 		ImGuiBeginTreeNodeStyle();
 
-		for (SettingsItem* item : Settings::GetItems(type))
+		for (auto& item : rootItems)
 		{
-			DrawItem(item, 0);
+			DrawItem(*item, 0);
 		}
 
 		ImGuiEndTreeNodeStyle();
@@ -96,57 +152,57 @@ namespace Skore
 		ImGui::EndChild();
 	}
 
-	void SettingsWindow::DrawSelected()
+	void SettingsWindow::DrawItem(const SettingsItem& settingsItem, u32 level)
 	{
-		ImGui::BeginChild(5000, ImVec2(0, 0), 0, ImGuiWindowFlags_AlwaysUseWindowPadding);
-
-		if (selectedItem != nullptr && selectedItem->GetRID())
-		{
-			ImGuiDrawResource(ImGuiDrawResourceInfo{
-				.rid = selectedItem->GetRID(),
-				.scopeName = "Settings Edit",
-			});
-		}
-		ImGui::EndChild();
-	}
-
-	void SettingsWindow::DrawItem(SettingsItem* settingsItem, u32 level)
-	{
-		Span<SettingsItem*> children = settingsItem->GetChildren();
-
 		ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
-		if (selectedItem == settingsItem)
+
+		if (selectedItem && selectedItem == settingsItem.rid)
 		{
 			flags |= ImGuiTreeNodeFlags_Selected;
 		}
 
 		bool open = false;
 
-		if (!children.Empty())
+		if (!settingsItem.children.Empty())
 		{
 			ImGui::SetNextItemOpen(level == 0, ImGuiCond_Once);
-			open = ImGuiTreeNode(settingsItem, settingsItem->GetLabel().CStr(), flags);
+			open = ImGuiTreeNode(IntToPtr(settingsItem.rid.id), settingsItem.label.CStr(), flags);
 		}
 		else
 		{
-			ImGuiTreeLeaf(settingsItem, settingsItem->GetLabel().CStr(), flags);
+			ImGuiTreeLeaf(IntToPtr(settingsItem.rid.id), settingsItem.label.CStr(), flags);
 		}
 
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 		{
-			selectedItem = settingsItem;
+			selectedItem = settingsItem.rid;
 		}
 
 		if (open)
 		{
-			for (SettingsItem* item : children)
+			for (auto& item : settingsItem.children)
 			{
-				DrawItem(item, level + 1);
+				DrawItem(*item, level + 1);
 			}
 
 			ImGui::TreePop();
 		}
 	}
+
+	void SettingsWindow::DrawSelected() const
+	{
+		ImGui::BeginChild(5000, ImVec2(0, 0), 0, ImGuiWindowFlags_AlwaysUseWindowPadding);
+
+		if (selectedItem)
+		{
+			ImGuiDrawResource(ImGuiDrawResourceInfo{
+				.rid = selectedItem,
+				.scopeName = "Settings Edit",
+			});
+		}
+		ImGui::EndChild();
+	}
+
 
 	void SettingsWindow::OpenAction(const MenuItemEventData& eventData)
 	{

@@ -26,6 +26,7 @@
 #include "Skore/Events.hpp"
 #include "Skore/Core/ArgParser.hpp"
 #include "Skore/Core/Event.hpp"
+#include "Skore/Core/Settings.hpp"
 #include "Skore/Core/Sinks.hpp"
 #include "Skore/Graphics/BasicSceneRenderer.hpp"
 #include "Skore/Graphics/Graphics.hpp"
@@ -114,6 +115,17 @@ namespace Skore
 			App::LoadPlugin(file);
 		}
 
+		const String configFile = Path::Join(currentDir, "Engine.bcfg");
+		{
+			Array<u8> buffer;
+			FileSystem::ReadFileAsByteArray(configFile, buffer);
+			BinaryArchiveReader reader{buffer};
+
+			reader.BeginMap("projectSettings");
+			Settings::Load(reader, TypeInfo<ProjectSettings>::ID());
+			reader.EndMap();
+		}
+
 		bool resourceLoaded = false;
 
 		//------------------- step 2 -- Resource Loading
@@ -137,9 +149,17 @@ namespace Skore
 			Event::Bind<OnShutdown, AppShutdown>();
 
 			//------------step3 - Main scene load------------
-			//TODO: need to get from settings.
-			Scene* scene = Alloc<Scene>(Resources::FindByPath("PhysicsTest://Main.entity"));
-			SceneManager::SetActiveScene(scene);
+
+			RID sceneSettings = Settings::Get<ProjectSettings, SceneSettings>();
+			if (ResourceObject sceneSettingsObject = Resources::Read(sceneSettings))
+			{
+				if (RID defaultScene = sceneSettingsObject.GetReference(SceneSettings::DefaultScene))
+				{
+					Scene* scene = Alloc<Scene>(defaultScene);
+					SceneManager::SetActiveScene(scene);
+				}
+			}
+
 		}
 
 		App::Run();

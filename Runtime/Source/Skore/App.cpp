@@ -236,8 +236,6 @@ namespace Skore
 		ReflectionSetReadOnly(true, appConfig.enableReload);
 		ResourceInit();
 
-		Settings::Init(TypeInfo<ProjectSettings>::ID());
-
 		if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
 		{
 			logger.Error("error or SDL_Init {} ", SDL_GetError());

@@ -127,6 +127,10 @@ namespace Skore
 		String                  projectPackagePath;
 		Array<UpdatedAssetInfo> updatedItems;
 
+		String                  projectSettingsPath;
+		RID						projectSettingsRID;
+		u64						projectSettingsLastPersistedVersion = 0;
+
 		//c++ dev plugin
 		String                   pluginProjectPath;
 		u64                      pluginLastModifiedTime = 0;
@@ -299,25 +303,31 @@ namespace Skore
 				FileSystem::CopyFile(pluginProjectPath, Path::Join(pluginsPath, Path::Name(pluginProjectPath) + SK_SHARED_EXT));
 			}
 
-			Array<RID> packagesToExport;
-			packagesToExport.Reserve(packages.Size() + 1);
-			for (RID package : packages)
+			//export packages
 			{
-				packagesToExport.EmplaceBack(package);
+				Array<RID> packagesToExport;
+				packagesToExport.Reserve(packages.Size() + 1);
+				for (RID package : packages)
+				{
+					packagesToExport.EmplaceBack(package);
+				}
+				packagesToExport.EmplaceBack(projectRID);
+
+				BinaryArchiveWriter writer;
+				writer.BeginSeq("assets");
+				ResourceAssets::ExportPackages(packagesToExport, writer);
+				writer.EndSeq();
+
+				FileSystem::SaveFileAsByteArray(Path::Join(Path::Join(projectPath, "Export"), Path::Name(projectPath) + ".pak"), writer.GetData());
 			}
-			packagesToExport.EmplaceBack(projectRID);
-
-			BinaryArchiveWriter writer;
-
-			writer.BeginMap("projectSettings");
-			Settings::Save(writer, TypeInfo<ProjectSettings>::ID());
-			writer.EndMap();
-
-			writer.BeginSeq("assets");
-			ResourceAssets::ExportPackages(packagesToExport, writer);
-			writer.EndSeq();
-
-			FileSystem::SaveFileAsByteArray(Path::Join(Path::Join(projectPath, "Export"), Path::Name(projectPath) + ".pak"), writer.GetData());
+			//export settings
+			{
+				BinaryArchiveWriter writer;
+				writer.BeginMap("projectSettings");
+				Settings::Save(writer, TypeInfo<ProjectSettings>::ID());
+				writer.EndMap();
+				FileSystem::SaveFileAsByteArray(Path::Join(Path::Join(projectPath, "Export"), "Engine.bcfg"), writer.GetData());
+			}
 
 			logger.Debug("Project exported to {}", Path::Join(projectPath, "Export"));
 
@@ -527,6 +537,18 @@ namespace Skore
 
 		void ProjectUpdate()
 		{
+			if (projectSettingsLastPersistedVersion != Resources::GetVersion(projectSettingsRID))
+			{
+				YamlArchiveWriter writer;
+				Settings::Save(writer, TypeInfo<ProjectSettings>::ID());
+				FileSystem::SaveFileAsString(projectSettingsPath, writer.EmitAsString());
+
+				projectSettingsLastPersistedVersion = Resources::GetVersion(projectSettingsRID);
+
+				logger.Debug("Project settings saved at {}", projectSettingsPath);
+			}
+
+
 			if (!updatedItems.Empty())
 			{
 				if (shouldOpenPopup)
@@ -951,8 +973,6 @@ namespace Skore
 		ShaderManagerInit();
 		ProjectBrowserWindowInit();
 
-		workspace = std::make_unique<EditorWorkspace>();
-
 		for (TypeID typeId : Reflection::GetDerivedTypes(TypeInfo<EditorWindow>::ID()))
 		{
 			if (ReflectType* reflectType = Reflection::FindTypeById(typeId))
@@ -980,20 +1000,24 @@ namespace Skore
 			return l.order < r.order;
 		});
 
-		if (String projectContent = FileSystem::ReadFileAsString(projectFile); !projectContent.Empty())
-		{
-			YamlArchiveReader reader(projectContent);
-			reader.BeginMap("projectSettings");
-			{
-				Settings::Load(reader, TypeInfo<ProjectSettings>::ID());
-			}
-			reader.EndMap();
-		}
-
 		projectAssetPath = Path::Join(projectPath, "Assets");
 		projectPackagePath = Path::Join(projectPath, "Packages");
 		projectTempPath = Path::Join(projectPath, "Temp");
+		projectSettingsPath =  Path::Join(projectPath, "ProjectSettings.cfg");
 		pluginProjectPath = Path::Join(Path::Join(projectPath, "Binaries"), Path::Name(projectFile) + SK_SHARED_EXT);
+
+		if (!FileSystem::GetFileStatus(projectSettingsPath).exists)
+		{
+			YamlArchiveWriter writer;
+			Settings::CreateDefault(writer, TypeInfo<ProjectSettings>::ID());
+			FileSystem::SaveFileAsString(projectSettingsPath, writer.EmitAsString());
+		}
+
+		{
+			YamlArchiveReader reader(FileSystem::ReadFileAsString(projectSettingsPath));
+			projectSettingsRID = Settings::Load(reader, TypeInfo<ProjectSettings>::ID());
+			projectSettingsLastPersistedVersion = Resources::GetVersion(projectSettingsRID);
+		}
 
 		if (FileSystem::GetFileStatus(projectTempPath).exists)
 		{
@@ -1031,6 +1055,20 @@ namespace Skore
 		}
 
 		projectRID = ResourceAssets::ScanAssetsFromDirectory(Path::Name(projectFile), projectAssetPath);
+
+		workspace = std::make_unique<EditorWorkspace>();
+
+		{
+			RID sceneSettings = Settings::Get<ProjectSettings, SceneSettings>();
+			if (ResourceObject sceneSettingsObject = Resources::Read(sceneSettings))
+			{
+				if (RID defaultEditorScene = sceneSettingsObject.GetReference(SceneSettings::DefaultEditorScene))
+				{
+					workspace->GetSceneEditor()->OpenEntity(defaultEditorScene);
+				}
+			}
+		}
+
 	}
 
 

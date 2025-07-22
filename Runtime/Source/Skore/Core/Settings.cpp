@@ -25,21 +25,10 @@
 #include <mutex>
 
 #include "Reflection.hpp"
-#include "Span.hpp"
-#include "Skore/IO/FileSystem.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	struct SettingTypeResource
-	{
-		enum
-		{
-			Settings
-		};
-	};
-
-
 	namespace
 	{
 		struct SettingTypeStorage
@@ -48,157 +37,61 @@ namespace Skore
 			HashMap<TypeID, RID> instances;
 		};
 
-		HashMap<TypeID, Array<SettingsItem*>> items;
-		HashMap<String, SettingsItem*>        itemsByPath;
 
-		std::mutex                          settingTypesMutex;
+		std::mutex settingTypesMutex;
+
 		HashMap<TypeID, SettingTypeStorage> settingTypes;
 	}
 
-	SettingsItem::SettingsItem(TypeID settingType) : settingType(settingType) {}
-
-	SettingsItem::~SettingsItem() {}
-
-	void SettingsItem::SetLabel(StringView label)
+	void Settings::CreateDefault(ArchiveWriter& writer, TypeID settingsType)
 	{
-		this->label = label;
-	}
-
-	StringView SettingsItem::GetLabel() const
-	{
-		return this->label;
-	}
-
-	void SettingsItem::AddChild(SettingsItem* child)
-	{
-		children.EmplaceBack(child);
-	}
-
-	void SettingsItem::SetType(ResourceType* type)
-	{
-		this->type = type;
-	}
-
-	RID SettingsItem::GetRID() const
-	{
-		return rid;
-	}
-
-	ResourceType* SettingsItem::GetType() const
-	{
-		return type;
-	}
-
-	Span<SettingsItem*> SettingsItem::GetChildren() const
-	{
-		return children;
-	}
-
-	void SettingsItem::Instantiate()
-	{
-		if (type)
-		{
-			rid = Settings::GetSetting(settingType, type->GetID());
-		}
-	}
-
-	void Settings::Init(TypeID settingsId)
-	{
-		Array<SettingsItem*>& itemsArr = items.Emplace(settingsId, Array<SettingsItem*>()).first->second;
+		RID settings = Resources::Create<SettingTypeResource>(UUID::RandomUUID());
+		ResourceObject settingsObject = Resources::Write(settings);
 
 		for (TypeID typeId : Resources::FindTypesByAttribute<EditableSettings>())
 		{
-			ResourceType* type = Resources::FindTypeByID(typeId);
-			if (const EditableSettings* editableSettings = type->GetAttribute<EditableSettings>())
+			ResourceType* resourceType = Resources::FindTypeByID(typeId);
+			if (const EditableSettings* editableSettings = resourceType->GetAttribute<EditableSettings>())
 			{
-				if (editableSettings->type == settingsId)
+				if (editableSettings->type == settingsType)
 				{
-					Array<String> items = {};
-					Split(StringView{editableSettings->path}, StringView{"/"}, [&](const StringView& item)
-					{
-						items.EmplaceBack(item);
-					});
-
-					if (items.Empty())
-					{
-						items.EmplaceBack(editableSettings->path);
-					}
-
-					String        path = "";
-					SettingsItem* lastItem = nullptr;
-					for (int i = 0; i < items.Size(); ++i)
-					{
-						const String& itemLabel = items[i];
-						path += "/" + itemLabel;
-						auto itByPath = itemsByPath.Find(path);
-						if (itByPath == itemsByPath.end())
-						{
-							SettingsItem* newItem = Alloc<SettingsItem>(settingsId);
-							newItem->SetLabel(itemLabel);
-							itByPath = itemsByPath.Insert(path, newItem).first;
-
-							if (lastItem != nullptr)
-							{
-								lastItem->AddChild(newItem);
-							}
-							else
-							{
-								itemsArr.EmplaceBack(newItem);
-							}
-						}
-						lastItem = itByPath->second;
-					}
-
-					if (lastItem != nullptr)
-					{
-						lastItem->SetType(type);
-						lastItem->Instantiate();
-					}
+					RID settingItem = Resources::Create(resourceType->GetID(), UUID::RandomUUID());
+					//create default empty object
+					Resources::Write(settingItem).Commit();
+					settingsObject.AddToSubObjectList(SettingTypeResource::Settings, settingItem);
 				}
 			}
 		}
+
+		settingsObject.Commit();
+		Resources::Serialize(settings, writer);
+		Resources::Destroy(settings);
 	}
 
-	Span<SettingsItem*> Settings::GetItems(TypeID typeId)
+	RID Settings::Get(TypeID settingsType, TypeID typeId)
 	{
-		if (auto it = items.Find(typeId))
+		std::unique_lock lock(settingTypesMutex);
+		if (auto itTypes = settingTypes.Find(settingsType))
 		{
-			return it->second;
+			SettingTypeStorage& settingTypeStorage = itTypes->second;
+			auto itInstances = settingTypeStorage.instances.Find(typeId);
+			if (itInstances == settingTypeStorage.instances.end())
+			{
+				RID newItem = Resources::Create(typeId, UUID::RandomUUID());
+				//create default empty object
+				Resources::Write(newItem).Commit();
+				itInstances = settingTypeStorage.instances.Insert(typeId, newItem).first;
+			}
+			return itInstances->second;
 		}
 		return {};
 	}
 
-	RID Settings::GetSetting(TypeID settingType, TypeID typeId)
+	RID Settings::Load(ArchiveReader& reader, TypeID settingsType)
 	{
 		std::unique_lock lock(settingTypesMutex);
 
-		auto itInstances = settingTypes.Find(settingType);
-		if (itInstances == settingTypes.end())
-		{
-			RID rid = Resources::Create<SettingTypeResource>(UUID::RandomUUID());
-			itInstances = settingTypes.Emplace(settingType, SettingTypeStorage{rid}).first;
-		}
-		SettingTypeStorage& settingTypeStorage = itInstances->second;
-
-		auto it = settingTypeStorage.instances.Find(typeId);
-		if (it == settingTypeStorage.instances.end())
-		{
-			RID rid = Resources::Create(typeId, UUID::RandomUUID());
-			Resources::Write(rid).Commit();
-
-			ResourceObject settingResources = Resources::Write(settingTypeStorage.rid);
-			settingResources.AddToSubObjectList(SettingTypeResource::Settings, rid);
-			settingResources.Commit();
-
-			it = settingTypeStorage.instances.Insert(typeId, rid).first;
-		}
-
-		return it->second;
-	}
-
-	RID Settings::Load(ArchiveReader& reader, TypeID settingType)
-	{
-		auto itInstances = settingTypes.Find(settingType);
+		auto itInstances = settingTypes.Find(settingsType);
 		if (itInstances == settingTypes.end())
 		{
 			SettingTypeStorage storage;
@@ -213,18 +106,18 @@ namespace Skore
 					});
 				}
 
-				settingTypes.Emplace(settingType, Traits::Move(storage));
+				settingTypes.Emplace(settingsType, Traits::Move(storage));
+				return storage.rid;
 			}
 		}
-		SK_ASSERT(false, "settings already loaded");
 		return {};
 	}
 
 
-	void Settings::Save(ArchiveWriter& writer, TypeID settingType)
+	void Settings::Save(ArchiveWriter& writer, TypeID settingsType)
 	{
 		std::unique_lock lock(settingTypesMutex);
-		if (auto it = settingTypes.Find(settingType))
+		if (auto it = settingTypes.Find(settingsType))
 		{
 			Resources::Serialize(it->second.rid, writer);
 		}
@@ -242,9 +135,6 @@ namespace Skore
 
 	void SettingsShutdown()
 	{
-		items.Clear();
-		itemsByPath.Clear();
-
 		settingTypes.Clear();
 	}
 }

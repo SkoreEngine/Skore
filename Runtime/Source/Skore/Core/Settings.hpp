@@ -30,39 +30,26 @@ namespace Skore
 		String path;
 		TypeID type;
 	};
-
-	class SK_API SettingsItem
+	struct SettingTypeResource
 	{
-	public:
-		SettingsItem(TypeID settingType);
-		~SettingsItem();
-
-		void                SetLabel(StringView label);
-		StringView          GetLabel() const;
-		void                AddChild(SettingsItem* child);
-		ResourceType*       GetType() const;
-		void                SetType(ResourceType* type);
-		RID                 GetRID() const;
-		Span<SettingsItem*> GetChildren() const;
-
-		void Instantiate();
-
-	private:
-		TypeID               settingType;
-		String               label;
-		RID                  rid{};
-		ResourceType*        type{};
-		Array<SettingsItem*> children;
+		enum
+		{
+			Settings		//SubobjectList
+		};
 	};
 
 	class SK_API Settings
 	{
 	public:
-		static void                Init(TypeID settingType);
-		static Span<SettingsItem*> GetItems(TypeID settingType);
+		static void CreateDefault(ArchiveWriter& writer, TypeID settingsType);
+		static RID  Get(TypeID settingsType, TypeID typeId);
+		static RID  Load(ArchiveReader&reader, TypeID settingsType);
+		static void Save(ArchiveWriter& writer, TypeID settingsType);
 
-		static RID  GetSetting(TypeID settingType, TypeID typeId);
-		static RID  Load(ArchiveReader&reader, TypeID settingType);
-		static void Save(ArchiveWriter& writer, TypeID settingType);
+		template <typename T1, typename T2>
+		static RID Get()
+		{
+			return Get(TypeInfo<T1>::ID(), TypeInfo<T2>::ID());
+		}
 	};
 }

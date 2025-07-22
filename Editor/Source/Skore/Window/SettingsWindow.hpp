@@ -24,10 +24,18 @@
 #include "Skore/EditorCommon.hpp"
 #include "Skore/MenuItem.hpp"
 #include "Skore/Core/String.hpp"
+#include "Skore/Resource/ResourceType.hpp"
 
 namespace Skore
 {
-	class SettingsItem;
+	struct SettingsItem
+	{
+		String        label;
+		RID           rid;
+		ResourceType* type;
+
+		Array<std::shared_ptr<SettingsItem>> children;
+	};
 
 	class SettingsWindow : public EditorWindow
 	{
@@ -42,14 +50,16 @@ namespace Skore
 		static void RegisterType(NativeReflectType<SettingsWindow>& type);
 
 	private:
-		String        title;
-		TypeID        type = 0;
-		String        searchText;
-		SettingsItem* selectedItem = nullptr;
+		String title;
+		TypeID settingsType = 0;
+		String searchText;
+		RID    selectedItem = {};
+
+		Array<std::shared_ptr<SettingsItem>> rootItems;
 
 		void DrawTree();
-		void DrawSelected();
-		void DrawItem(SettingsItem* settingsItem, u32 level);
+		void DrawItem(const SettingsItem& settingsItem, u32 level);
+		void DrawSelected() const;
 
 		static void OpenAction(const MenuItemEventData& eventData);
 	};

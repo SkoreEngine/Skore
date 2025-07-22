@@ -68,7 +68,6 @@ namespace Skore
 		m_state = Resources::Create<SceneEditorState>();
 		Resources::Write(m_state).Commit();
 
-
 		m_selection = Resources::Create<SceneEditorSelection>();
 		Resources::Write(m_selection).Commit();
 
