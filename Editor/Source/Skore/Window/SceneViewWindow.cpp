@@ -71,6 +71,7 @@ namespace Skore
 		bool openSceneOptions = false;
 		bool openCameraOptions = false;
 		bool openViewportSettings = false;
+		bool openGridSnapSettings = false;
 
 		ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar;
 		auto&            style = ImGui::GetStyle();
@@ -142,6 +143,11 @@ namespace Skore
 				if (ImGuiSelectionButton(ICON_FA_MAGNET, guizmoSnapEnabled, buttonSize) || (canChangeOptions && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Y))))
 				{
 					guizmoSnapEnabled = !guizmoSnapEnabled;
+				}
+
+				if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+				{
+					openGridSnapSettings = true;
 				}
 
 				if (ImGuiSelectionButton(ICON_FA_TABLE_CELLS, sceneViewRenderer.drawGrid, buttonSize) || (canChangeOptions && ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_G))))
@@ -346,7 +352,7 @@ namespace Skore
 
 					float snap[3] = {0.0f, 0.0f, 0.0f};
 
-					if (guizmoSnapEnabled)
+					if (guizmoSnapEnabled || ctrlDown)
 					{
 						snap[0] = guizmoSnap.x;
 						snap[1] = guizmoSnap.y;
@@ -761,6 +767,37 @@ namespace Skore
 			}
 		}
 		ImGuiEndPopupMenu(popupRes);
+
+
+		if (openGridSnapSettings)
+		{
+			ImGui::OpenPopup("grid-snap-options-modal");
+		}
+
+		popupRes = ImGuiBeginPopupMenu("grid-snap-options-modal", 0, false);
+		if (popupRes)
+		{
+			if (ImGui::BeginTable("grids-nap-options-modal-table", 2, flags))
+			{
+				ImGui::TableSetupColumn("one", ImGuiTableColumnFlags_WidthFixed, 150 * style.ScaleFactor);
+				ImGui::TableSetupColumn("two", ImGuiTableColumnFlags_WidthFixed, 180 * style.ScaleFactor);
+
+				//speed
+				ImGui::TableNextColumn();
+				ImGui::Text("Size");
+				ImGui::TableNextColumn();
+				ImGui::SetNextItemWidth(-1);
+
+				ImGui::InputFloat3("###settings-grid", &guizmoSnap.x);
+
+				//ImGui::InputFloat3("##speed", &freeViewCamera.cameraSpeed, 1.f, 100.0f, "%.0f");
+
+
+				ImGui::EndTable();
+			}
+		}
+		ImGuiEndPopupMenu(popupRes);
+
 
 
 		ImGui::End();
