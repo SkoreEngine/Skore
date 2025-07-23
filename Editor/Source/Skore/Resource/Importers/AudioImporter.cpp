@@ -20,48 +20,44 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
-
-#include "Core/Reflection.hpp"
+#include "Skore/Audio/AudioCommon.hpp"
+#include "Skore/Core/Array.hpp"
+#include "Skore/Core/Object.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/IO/FileSystem.hpp"
+#include "Skore/IO/Path.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterResourceTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterGraphicsTypes();
-	void RegisterAudioTypes();
-
-	void RegisterTypes()
+	struct AudioImporter : ResourceAssetImporter
 	{
+		SK_CLASS(AudioImporter, ResourceAssetImporter);
+
+		Array<String> ImportedExtensions() override
 		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
+			return {".wav", ".mp3", ".ogg", ".flac"};
 		}
 
+		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
 		{
-			GroupScope scope("Resources");
-			RegisterResourceTypes();
-		}
+			RID audio = ResourceAssets::CreateImportedAsset(directory, TypeInfo<AudioResource>::ID(), Path::Name(path), scope, path);
 
-		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
-		}
+			Array<u8> data;
+			FileSystem::ReadFileAsByteArray(path, data);
 
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
-		{
-			GroupScope scope("Audio");
-			RegisterAudioTypes();
-		}
+			ResourceObject audioObject = Resources::Write(audio);
+			audioObject.SetString(AudioResource::Name, Path::Name(path));
+			audioObject.SetBlob(AudioResource::Bytes, data);
+			audioObject.Commit(scope);
 
-		{
-			GroupScope scope("World");
-			RegisterSceneTypes();
+			return true;
 		}
+	};
+
+	void RegisterAudioImporter()
+	{
+		Reflection::Type<AudioImporter>();
 	}
 }

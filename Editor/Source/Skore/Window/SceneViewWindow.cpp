@@ -32,6 +32,7 @@
 #include "ImGuizmo.h"
 #include "imgui_internal.h"
 #include "Skore/Events.hpp"
+#include "Skore/Audio/AudioEngine.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Scene/Entity.hpp"
@@ -228,6 +229,21 @@ namespace Skore
 				// 		view2d = false;
 				// 	}
 				// }
+
+				if (AudioEngine::IsSoundEnabled())
+				{
+					if (ImGui::Button(ICON_FA_VOLUME_HIGH, buttonSize))
+					{
+						AudioEngine::SetSoundEnabled(false);
+					}
+				}
+				else
+				{
+					if (ImGui::Button(ICON_FA_VOLUME_XMARK, buttonSize))
+					{
+						AudioEngine::SetSoundEnabled(true);
+					}
+				}
 
 				if (ImGui::Button(ICON_FA_CAMERA, buttonSize))
 				{

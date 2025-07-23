@@ -20,48 +20,40 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
 
-#include "Core/Reflection.hpp"
+#include "Skore/Audio/AudioCommon.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterResourceTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterGraphicsTypes();
-	void RegisterAudioTypes();
-
-	void RegisterTypes()
+	struct AudioHandler : ResourceAssetHandler
 	{
+		SK_CLASS(AudioHandler, ResourceAssetHandler);
+
+		StringView Extension() override
 		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
+			return ".audio";
 		}
 
+		void OpenAsset(RID asset) override
 		{
-			GroupScope scope("Resources");
-			RegisterResourceTypes();
+			//TODO
 		}
 
+		TypeID GetResourceTypeId() override
 		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
+			return TypeInfo<AudioResource>::ID();
 		}
 
+		StringView GetDesc() override
 		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
+			return "Audio Clip";
 		}
-		{
-			GroupScope scope("Audio");
-			RegisterAudioTypes();
-		}
+	};
 
-		{
-			GroupScope scope("World");
-			RegisterSceneTypes();
-		}
+	void RegisterAudioHandler()
+	{
+		Reflection::Type<AudioHandler>();
 	}
 }

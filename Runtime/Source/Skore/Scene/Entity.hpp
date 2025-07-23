@@ -142,7 +142,7 @@ namespace Skore
 			return m_globalTransform;
 		}
 
-		SK_FINLINE Vec3 GetWorldPosition()
+		SK_FINLINE Vec3 GetWorldPosition() const
 		{
 			return Math::GetTranslation(m_globalTransform);
 		}
@@ -201,7 +201,7 @@ namespace Skore
 		void DestroyInternal(bool removeFromParent = true);
 		void UpdateTransform(u32 flags);
 
-		void DoStart();
+		void DoStart(bool executeComponentUpdates);
 		void DestroyComponent(Component* component) const;
 		void ReflectionReload();
 

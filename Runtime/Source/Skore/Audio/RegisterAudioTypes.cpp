@@ -1,5 +1,3 @@
-// MIT License
-//
 // Copyright (c) 2025 Paulo Marangoni (Daethalus)
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,48 +18,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
 
-#include "Core/Reflection.hpp"
+#include "AudioCommon.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterResourceTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterGraphicsTypes();
-	void RegisterAudioTypes();
-
-	void RegisterTypes()
+	void RegisterAudioTypes()
 	{
-		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
-		}
+		auto attenuationModel = Reflection::Type<AttenuationModel>();
+		attenuationModel.Value<AttenuationModel::Inverse>();
+		attenuationModel.Value<AttenuationModel::Linear>();
+		attenuationModel.Value<AttenuationModel::Exponential>();
 
-		{
-			GroupScope scope("Resources");
-			RegisterResourceTypes();
-		}
 
-		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
-		}
-
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
-		{
-			GroupScope scope("Audio");
-			RegisterAudioTypes();
-		}
-
-		{
-			GroupScope scope("World");
-			RegisterSceneTypes();
-		}
+		Resources::Type<AudioResource>()
+			.Field(AudioResource::Name, "name", ResourceFieldType::String)
+			.Field(AudioResource::Bytes, "bytes", ResourceFieldType::Blob)
+			.Build();
 	}
 }

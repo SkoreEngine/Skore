@@ -1266,6 +1266,16 @@ namespace Skore
 
 			return false;
 		}
+
+		constexpr Vec3 GetUpVector(const Mat4& matrix)
+		{
+			return {matrix[1][0], matrix[1][1], matrix[1][2]};
+		}
+
+		constexpr Vec3 GetForwardVector(const Mat4& matrix)
+		{
+			return {-matrix[2][0], -matrix[2][1], -matrix[2][2]};
+		}
 	}
 
 	//impl

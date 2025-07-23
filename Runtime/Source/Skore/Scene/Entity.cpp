@@ -467,7 +467,7 @@ namespace Skore
 		NotifyEvent(desc, true);
 	}
 
-	void Entity::DoStart()
+	void Entity::DoStart(bool executeComponentUpdates)
 	{
 		if (m_started)
 		{
@@ -477,9 +477,12 @@ namespace Skore
 
 		m_started = true;
 
-		for (Component* component : m_components)
+		if (executeComponentUpdates)
 		{
-			component->OnStart();
+			for (Component* component : m_components)
+			{
+				component->OnStart();
+			}
 		}
 
 		if (HasFlag(EntityFlags::HasPhysics))

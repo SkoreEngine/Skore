@@ -26,6 +26,8 @@
 #include "SceneCommon.hpp"
 #include "Entity.hpp"
 #include "Components/AnimationPlayer.hpp"
+#include "Components/AudioListener.hpp"
+#include "Components/AudioSource.hpp"
 #include "Components/Camera.hpp"
 #include "Components/CharacterController.hpp"
 #include "Components/EnvironmentComponent.hpp"
@@ -60,6 +62,8 @@ namespace Skore
 		Reflection::Type<RigidBody>();
 		Reflection::Type<BoxCollider>();
 		Reflection::Type<CharacterController>();
+		Reflection::Type<AudioSource>();
+		Reflection::Type<AudioListener>();
 
 
 		Resources::Type<EntityResource>()

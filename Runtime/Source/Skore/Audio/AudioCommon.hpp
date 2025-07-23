@@ -1,5 +1,3 @@
-// MIT License
-//
 // Copyright (c) 2025 Paulo Marangoni (Daethalus)
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,48 +18,23 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
-
-#include "Core/Reflection.hpp"
+#pragma once
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterResourceTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterGraphicsTypes();
-	void RegisterAudioTypes();
-
-	void RegisterTypes()
+	struct AudioResource
 	{
+		enum
 		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
-		}
+			Name,
+			Bytes
+		};
+	};
 
-		{
-			GroupScope scope("Resources");
-			RegisterResourceTypes();
-		}
-
-		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
-		}
-
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
-		{
-			GroupScope scope("Audio");
-			RegisterAudioTypes();
-		}
-
-		{
-			GroupScope scope("World");
-			RegisterSceneTypes();
-		}
-	}
+	enum class AttenuationModel
+	{
+		Inverse,
+		Linear,
+		Exponential
+	};
 }

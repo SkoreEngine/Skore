@@ -1205,6 +1205,7 @@ namespace Skore
 		}
 	}
 
+	void RegisterAudioHandler();
 	void RegisterEntityHandler();
 	void RegisterMaterialHandler();
 	void RegisterTextureHandler();
@@ -1212,6 +1213,7 @@ namespace Skore
 	void RegisterDCCAssetHandler();
 	void RegisterShaderHandler();
 
+	void RegisterAudioImporter();
 	void RegisterTextureImporter();
 	void RegisterFBXImporter();
 	void RegisterObjImporter();
@@ -1254,6 +1256,7 @@ namespace Skore
 
 		Resources::FindType<ResourceAsset>()->RegisterEvent(OnUpdateAsset, nullptr);
 
+		RegisterAudioHandler();
 		RegisterEntityHandler();
 		RegisterTextureHandler();
 		RegisterMaterialHandler();
@@ -1261,6 +1264,7 @@ namespace Skore
 		RegisterDCCAssetHandler();
 		RegisterShaderHandler();
 
+		RegisterAudioImporter();
 		RegisterTextureImporter();
 		RegisterFBXImporter();
 		RegisterObjImporter();

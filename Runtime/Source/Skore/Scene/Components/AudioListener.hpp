@@ -20,48 +20,22 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
-
-#include "Core/Reflection.hpp"
+#pragma once
+#include "Skore/Scene/Component.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterResourceTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterGraphicsTypes();
-	void RegisterAudioTypes();
-
-	void RegisterTypes()
+	class SK_API AudioListener : public Component
 	{
-		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
-		}
+	public:
+		SK_CLASS(AudioListener, Component);
 
-		{
-			GroupScope scope("Resources");
-			RegisterResourceTypes();
-		}
+		void OnStart() override;
+		void Destroy() override;
 
-		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
-		}
+		void ProcessEvent(const EntityEventDesc& event) override;
 
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
-		{
-			GroupScope scope("Audio");
-			RegisterAudioTypes();
-		}
+	private:
 
-		{
-			GroupScope scope("World");
-			RegisterSceneTypes();
-		}
-	}
+	};
 }

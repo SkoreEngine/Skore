@@ -77,7 +77,7 @@ namespace Skore
 
 		void OnSceneDeactivated();
 		void OnSceneActivated();
-		void ExecuteEvents();
+		void ExecuteEvents(bool executeComponentUpdates = true);
 		void Update();
 		void DoReflectionUpdated();
 	};

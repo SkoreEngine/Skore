@@ -112,18 +112,21 @@ namespace Skore
 		//TODO
 	}
 
-	void Scene::ExecuteEvents()
+	void Scene::ExecuteEvents(bool executeComponentUpdates)
 	{
 		while (!m_queueToStart.IsEmpty())
 		{
 			Entity* entity = m_queueToStart.Dequeue();
-			entity->DoStart();
+			entity->DoStart(executeComponentUpdates);
 		}
 
-		while (!m_componentsToStart.IsEmpty())
+		if (executeComponentUpdates)
 		{
-			Component* component = m_componentsToStart.Dequeue();
-			component->OnStart();
+			while (!m_componentsToStart.IsEmpty())
+			{
+				Component* component = m_componentsToStart.Dequeue();
+				component->OnStart();
+			}
 		}
 
 		while (!m_queueToDestroy.IsEmpty())

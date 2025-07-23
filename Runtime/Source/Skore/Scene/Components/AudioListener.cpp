@@ -20,48 +20,37 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "RegisterTypes.hpp"
+#include "AudioListener.hpp"
 
-#include "Core/Reflection.hpp"
+#include "Skore/Audio/AudioEngine.hpp"
+#include "Skore/Scene/Entity.hpp"
 
 namespace Skore
 {
-	void RegisterCoreTypes();
-	void RegisterResourceTypes();
-	void RegisterIOTypes();
-	void RegisterSceneTypes();
-	void RegisterGraphicsTypes();
-	void RegisterAudioTypes();
-
-	void RegisterTypes()
+	void AudioListener::OnStart()
 	{
-		{
-			GroupScope scope("Core");
-			RegisterCoreTypes();
-		}
+		AudioEngine::SetListenerActive(true);
+	}
 
-		{
-			GroupScope scope("Resources");
-			RegisterResourceTypes();
-		}
+	void AudioListener::Destroy()
+	{
+		AudioEngine::SetListenerActive(false);
+	}
 
+	void AudioListener::ProcessEvent(const EntityEventDesc& event)
+	{
+		switch (event.type)
 		{
-			GroupScope scope("IO");
-			RegisterIOTypes();
-		}
+			case EntityEventType::EntityActivated:
+				break;
+			case EntityEventType::EntityDeactivated:
+				break;
+			case EntityEventType::TransformUpdated:
+				AudioEngine::SetListenerPosition(entity->GetWorldPosition());
+				AudioEngine::SetListenerDirection(Math::GetForwardVector(entity->GetGlobalTransform()));
+				AudioEngine::SetListenerUp(Math::GetUpVector(entity->GetGlobalTransform()));
 
-		{
-			GroupScope scope("Graphics");
-			RegisterGraphicsTypes();
-		}
-		{
-			GroupScope scope("Audio");
-			RegisterAudioTypes();
-		}
-
-		{
-			GroupScope scope("World");
-			RegisterSceneTypes();
+				break;
 		}
 	}
 }

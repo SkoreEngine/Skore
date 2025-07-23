@@ -51,6 +51,8 @@ namespace Skore
 	bool GraphicsUpdate();
 	void ResourceInit();
 	void ResourceShutdown();
+	void AudioEngineInit();
+	void AudioEngineShutdown();
 	bool GraphicsHandleEvents(SDL_Event* event);
 	void InputHandlerEvents(SDL_Event* event);
 
@@ -142,6 +144,7 @@ namespace Skore
 
 		onShutdownHandler.Invoke();
 
+		AudioEngineShutdown();
 		PhysicsShutdown();
 		GraphicsShutdown();
 		ResourceShutdown();
@@ -256,6 +259,7 @@ namespace Skore
 
 		CreateGraphicsDefaultValues();
 		PhysicsInit();
+		AudioEngineInit();
 
 		return AppResult::Continue;
 	}

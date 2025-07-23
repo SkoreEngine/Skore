@@ -1,4 +1,5 @@
 set(SDL_STATIC OFF)
+set(SDL_AUDIO_DISABLED ON)
 set(SDL_SHARED ON)
 set(SDL_RENDER_GPU OFF)
 
@@ -9,6 +10,9 @@ set(FT_DISABLE_HARFBUZZ ON)
 set(FT_DISABLE_BROTLI ON)
 
 set(SPIRV_CROSS_ENABLE_TESTS OFF)
+
+set(MINIAUDIO_NO_LIBVORBIS ON)
+set(MINIAUDIO_NO_LIBOPUS ON)
 
 add_subdirectory(base64)
 add_subdirectory(cgltf)
@@ -21,6 +25,7 @@ add_subdirectory(SPIRV-Reflect)
 add_subdirectory(imgui)
 add_subdirectory(JoltPhysics)
 add_subdirectory(mikktspace)
+add_subdirectory(miniaudio)
 add_subdirectory(freetype)
 add_subdirectory(ufbx)
 add_subdirectory(vma)

@@ -13,6 +13,7 @@ target_link_libraries(SkoreRuntime PRIVATE
 				stb
 				mikktspace
 				Jolt
+				miniaudio
 )
 
 target_link_libraries(SkoreRuntime PUBLIC
