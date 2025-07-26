@@ -186,6 +186,7 @@ namespace Skore
 		u32                      imageIndex;
 
 		FixedArray<VkSemaphore, SK_FRAMES_IN_FLIGHT> imageAvailableSemaphores{};
+		Array<VkSemaphore> renderFinishedSemaphores{};
 	};
 
 	class VulkanPipeline final : public GPUPipeline
@@ -329,6 +330,5 @@ namespace Skore
 		VkQueue presentQueue;
 
 		FixedArray<VkFence, SK_FRAMES_IN_FLIGHT>     inFlightFences{};
-		FixedArray<VkSemaphore, SK_FRAMES_IN_FLIGHT> renderFinishedSemaphores{};
 	};
 }

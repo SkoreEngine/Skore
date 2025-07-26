@@ -1,7 +1,10 @@
 #include "Common.hlsli"
 
 Texture2D                       inputTexture    :   register(t0);
+
+[[vk::image_format("rgba16f")]]
 RWTexture2DArray<float4>        outputTexture   :   register(u1);
+
 SamplerState                    defaultSampler  :   register(s2);
 
 [numthreads(32, 32, 1)]

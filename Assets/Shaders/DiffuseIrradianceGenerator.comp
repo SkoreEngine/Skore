@@ -11,7 +11,10 @@ static const uint   NumSamples      = 64 * 1024;
 static const float  InvNumSamples   = 1.0 / float(NumSamples);
 
 TextureCube                 inputTexture;
+
+[[vk::image_format("rgba16f")]]
 RWTexture2DArray<float4>    outputTexture;
+
 SamplerState                linearSampler;
 
 float2 SampleHammersley(uint i)

@@ -87,7 +87,8 @@ namespace Skore
 			}
 
 			//if the device has a dedicated family for present, use it.
-			if (hasPresentFamily && (presentFamily == U32_MAX || !hasGraphicsFamily))
+			//if (hasPresentFamily && (presentFamily == U32_MAX || !hasGraphicsFamily))
+			if (hasPresentFamily && presentFamily == U32_MAX)
 			{
 				presentFamily = i;
 			}
@@ -374,6 +375,13 @@ namespace Skore
 			vkCreateSemaphore(vulkanDevice->device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]);
 		}
 
+		renderFinishedSemaphores.Resize(imageCount);
+
+		for (int i = 0; i < imageCount; ++i)
+		{
+			vkCreateSemaphore(vulkanDevice->device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]);
+		}
+
 		return true;
 	}
 
@@ -382,6 +390,11 @@ namespace Skore
 		for (int i = 0; i < SK_FRAMES_IN_FLIGHT; ++i)
 		{
 			vkDestroySemaphore(vulkanDevice->device, imageAvailableSemaphores[i], nullptr);
+		}
+
+		for (int i = 0; i < renderFinishedSemaphores.Size(); ++i)
+		{
+			vkDestroySemaphore(vulkanDevice->device, renderFinishedSemaphores[i], nullptr);
 		}
 
 		for (VkImageView imageView : imageViews)
@@ -1208,7 +1221,6 @@ namespace Skore
 		for (int i = 0; i < SK_FRAMES_IN_FLIGHT; ++i)
 		{
 			vkDestroyFence(device, inFlightFences[i], nullptr);
-			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
 		}
 
 		if (validationLayersEnabled)
@@ -1411,17 +1423,18 @@ namespace Skore
 		allocatorInfo.pVulkanFunctions = &vmaVulkanFunctions;
 		vmaCreateAllocator(&allocatorInfo, &vmaAllocator);
 
-		VkDescriptorPoolSize sizes[5] = {
+		VkDescriptorPoolSize sizes[] = {
 			{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 500},
 			{VK_DESCRIPTOR_TYPE_SAMPLER, 500},
 			{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 500},
+			{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 500},
 			{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 500},
 			{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 500}
 		};
 
 		VkDescriptorPoolCreateInfo poolInfo{};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		poolInfo.poolSizeCount = 5;
+		poolInfo.poolSizeCount = 6;
 		poolInfo.pPoolSizes = sizes;
 		poolInfo.maxSets = 500;
 		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -1436,8 +1449,7 @@ namespace Skore
 
 		for (int i = 0; i < SK_FRAMES_IN_FLIGHT; ++i)
 		{
-			if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
-				vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS)
+			if (vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS)
 			{
 				logger.Error("Failed to create frame objects");
 				return false;
@@ -2630,7 +2642,7 @@ namespace Skore
 		submitInfo.waitSemaphoreCount = 1;
 		submitInfo.pWaitSemaphores = &vulkanSwapchain->imageAvailableSemaphores[currentFrame];
 		submitInfo.signalSemaphoreCount = 1;
-		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentFrame];
+		submitInfo.pSignalSemaphores = &vulkanSwapchain->renderFinishedSemaphores[vulkanSwapchain->imageIndex];
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &vulkanCommandBuffer->commandBuffer;
 		submitInfo.pWaitDstStageMask = waitStages;
@@ -2644,7 +2656,7 @@ namespace Skore
 
 		VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 		presentInfo.waitSemaphoreCount = 1;
-		presentInfo.pWaitSemaphores = &renderFinishedSemaphores[currentFrame];
+		presentInfo.pWaitSemaphores = &vulkanSwapchain->renderFinishedSemaphores[vulkanSwapchain->imageIndex];
 
 		presentInfo.swapchainCount = 1;
 		presentInfo.pSwapchains = &vulkanSwapchain->swapchainKHR;
