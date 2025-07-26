@@ -20,12 +20,49 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "PrimitiveDraw.hpp"
+#pragma once
+
+#include "Skore/Common.hpp"
+#include "Skore/Core/Color.hpp"
+#include "Skore/Core/Math.hpp"
+
+namespace Skore {
+	class GPUBuffer;
+}
+
+namespace Skore {
+	class GPUPipeline;
+}
 
 namespace Skore
 {
-	void PrimitiveDraw::DrawLine()
-	{
+	class GPURenderPass;
+	class GPUCommandBuffer;
 
-	}
+	class SK_API DrawList2D
+	{
+	public:
+		DrawList2D();
+		~DrawList2D();
+
+		struct Vertex
+		{
+			Vec2 position;
+			Vec2 uv;
+			u32  color;
+		};
+
+		void AddRectFilled(const Vec2& min, const Vec2& max, const Color& color);
+
+		void DrawItems(GPURenderPass* renderPass, GPUCommandBuffer* cmd);
+
+	private:
+		Array<Vertex> vertices;
+		Array<u32>    indices;
+
+		GPUBuffer* vertexBuffer = nullptr;
+		GPUBuffer* indexBuffer  = nullptr;
+
+		GPUPipeline*  drawListPipeline = nullptr;
+	};
 }

@@ -24,9 +24,11 @@
 
 #include <SDL3/SDL.h>
 
+#include "DrawList.hpp"
 #include "Devices/VulkanDevice.hpp"
 #include "Skore/App.hpp"
 #include "Skore/Events.hpp"
+#include "Skore/Core/Color.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Logger.hpp"
 

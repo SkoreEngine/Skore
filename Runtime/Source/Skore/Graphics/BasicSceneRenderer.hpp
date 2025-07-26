@@ -22,6 +22,7 @@
 
 #pragma once
 #include "Device.hpp"
+#include "DrawList.hpp"
 #include "RenderStorage.hpp"
 #include "RenderTools.hpp"
 #include "Skore/Core/Math.hpp"
@@ -49,6 +50,7 @@ namespace Skore
 		void SetCamera(f32 nearClip, f32 farClip, const Mat4& view, const Mat4& projection, Vec3 cameraPosition);
 		void Render(RenderStorage* storage, GPUCommandBuffer* commandBuffer);
 		void Blit(GPURenderPass* renderPass, GPUCommandBuffer* cmd);
+		void DrawUI(GPURenderPass* renderPass, GPUCommandBuffer* cmd);
 
 	private:
 		Extent m_extent{};
@@ -94,6 +96,10 @@ namespace Skore
 		GPUTexture*    m_diffuseIrradianceTexture = nullptr;
 		GPUTexture*    m_specularTexture = nullptr;
 		BRDFLUTTexture m_brdflutTexture;
+
+
+		//UI
+		DrawList2D drawList;
 
 		void PrepareEnvironment(RenderStorage* storage, GPUCommandBuffer* cmd);
 		void RenderShadows(RenderStorage* storage, GPUCommandBuffer* cmd);

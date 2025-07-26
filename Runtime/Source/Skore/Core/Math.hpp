@@ -136,6 +136,11 @@ namespace Skore
 			Float c[2] = {};
 		};
 
+		constexpr              Vec2();
+		constexpr              Vec2(Float value);
+		constexpr              Vec2(Float _x, Float _y);
+		constexpr              Vec2(const Vec3& v);
+
 		constexpr Vec2         operator/(const Vec2& b) const;
 		constexpr Vec2         operator/(const Float& b) const;
 		constexpr Vec2         operator*(const Float& b) const;
@@ -1330,10 +1335,14 @@ namespace Skore
 		return {u32((f32)this->width * b.x), u32((f32)this->height * b.y), u32((f32)this->depth * b.z)};
 	}
 
+	constexpr Vec2::Vec2() : x(0), y(0) {}
+	constexpr Vec2::Vec2(Float value) : x(value), y(value) {}
+	constexpr Vec2::Vec2(Float _x, Float _y) : x(_x), y(_y) {}
+	constexpr Vec2::Vec2(const Vec3& v) : x(v.x), y(v.y) {}
 
 	constexpr Vec2 Vec2::operator/(const Vec2& b) const
 	{
-		return {this->x / b.x, this->y / b.y};
+		return Vec2{this->x / b.x, this->y / b.y};
 	}
 
 	constexpr Vec2 Vec2::operator/(const Float& b) const

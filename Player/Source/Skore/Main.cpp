@@ -81,6 +81,7 @@ namespace Skore
 	void SwapchainBlit(GPUCommandBuffer* cmd, GPURenderPass* swapchainRenderPass)
 	{
 		sceneRendererViewport->Blit(swapchainRenderPass, cmd);
+		sceneRendererViewport->DrawUI(swapchainRenderPass, cmd);
 	}
 
 	void AppShutdown()

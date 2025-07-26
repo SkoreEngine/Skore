@@ -29,6 +29,21 @@ static const float TwoPI = 2 * PI;
 static const float Epsilon = 0.0001f;
 static const float minGGXAlpha = 0.0064f;
 
+#define SK_COL32_R_SHIFT    0
+#define SK_COL32_G_SHIFT    8
+#define SK_COL32_B_SHIFT    16
+#define SK_COL32_A_SHIFT    24
+
+float4 ColorFromU32(uint value)
+{
+	return float4(
+			((value >> SK_COL32_R_SHIFT) & 0xFF) / 255.0,
+			((value >> SK_COL32_G_SHIFT) & 0xFF) / 255.0,
+			((value >> SK_COL32_B_SHIFT) & 0xFF) / 255.0,
+			((value >> SK_COL32_A_SHIFT) & 0xFF) / 255.0
+	);
+}
+
 
 float3 GetSamplingVector(float outputWidth, float outputHeight, float outputDepth, uint3 threadID)
 {

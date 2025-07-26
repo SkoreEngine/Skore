@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include "BasicSceneRenderer.hpp"
+
 #include "Graphics.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -655,6 +656,13 @@ namespace Skore
 		cmd->BindPipeline(finalCompositePipeline);
 		cmd->BindDescriptorSet(finalCompositePipeline, 0, finalCompositeDescriptorSet, {});
 		cmd->Draw(3, 1, 0, 0);
+	}
+
+	void SceneRendererViewport::DrawUI(GPURenderPass* renderPass, GPUCommandBuffer* cmd)
+	{
+		//UI renderer
+		// drawList.AddRectFilled(Vec2(10, 10), Vec2(300, 300), Color::GREEN);
+		// drawList.DrawItems(renderPass, cmd);
 	}
 
 	void SceneRendererViewport::Destroy()

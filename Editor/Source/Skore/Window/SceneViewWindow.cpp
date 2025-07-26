@@ -868,6 +868,8 @@ namespace Skore
 			sceneViewRenderer.Blit(sceneEditor, sceneRenderPass, sceneRendererViewport.GetSceneDescriptorSet(), cmd);
 		}
 
+		sceneRendererViewport.DrawUI(sceneRenderPass, cmd);
+
 		cmd->EndRenderPass();
 		cmd->ResourceBarrier(sceneTexture, ResourceState::ColorAttachment, ResourceState::ShaderReadOnly, 0, 0);
 	}

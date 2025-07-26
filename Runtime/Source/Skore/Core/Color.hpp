@@ -120,6 +120,11 @@ namespace Skore
 			};
 		}
 
+		static u32 ToU32(const TColor& color)
+		{
+			return (color.red << SK_COL32_R_SHIFT) | (color.green << SK_COL32_G_SHIFT) | (color.blue << SK_COL32_B_SHIFT) | (color.alpha << SK_COL32_A_SHIFT);
+		}
+
 		static Vec4 FromRGBA(u8 r, u8 g, u8 b, u8 a)
 		{
 			return {
