@@ -69,7 +69,6 @@ namespace Skore
 
 		Reflection::Type<Color>();
 		Reflection::Type<Transform>();
-		Reflection::Type<UITransform>();
 	}
 
 	void RegisterSettingsType();

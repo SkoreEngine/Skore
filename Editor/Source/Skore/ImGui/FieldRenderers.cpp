@@ -66,11 +66,13 @@ namespace Skore
 		}
 
 		static f32 changedValue = 0.0;
+		bool needCache = false;
 
 		if (context.reflectField != nullptr && context.reflectField->GetAttribute<UISliderProperty>())
 		{
 			if (const UISliderProperty* prop = context.reflectField->GetAttribute<UISliderProperty>())
 			{
+			 needCache = true;
 				if (ImGui::SliderFloat(buffer, &value, prop->minValue, prop->maxValue, prop->format ? prop->format : "%.2f", ImGuiSliderFlags_AlwaysClamp))
 				{
 					changedValue = value;
@@ -85,7 +87,10 @@ namespace Skore
 		if (ImGui::IsItemDeactivatedAfterEdit())
 		{
 			*hasChanged = true;
-			value = changedValue;
+			if (needCache)
+			{
+				value = changedValue;
+			}
 			changedValue = 0.0;
 		}
 
@@ -315,6 +320,7 @@ namespace Skore
 	void DrawFloatField(const ImGuiDrawFieldContext& context, ConstPtr value)
 	{
 		bool f64Value = false;
+		ImGuiDataType dataType = f64Value ? ImGuiDataType_Double : ImGuiDataType_Float;
 
 		if (context.reflectField)
 		{
@@ -333,8 +339,10 @@ namespace Skore
 
 		usize size = f64Value ? sizeof(f64) : sizeof(f32);
 
-		char buffer[sizeof(f64)];
-		memcpy(buffer, value, size);
+		f64 bufferValue;
+		memcpy(&bufferValue, value, size);
+		static f64 changedValue = 0.0;
+		bool needCache = false;
 
 		float               step = 0.0f;
 		float               stepFast = 0.0f;
@@ -348,30 +356,30 @@ namespace Skore
 			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
 		}
 
-		//		if (const UIFloatProperty* property = context.info.fieldHandler ? context.info.fieldHandler->GetAttribute<UIFloatProperty>() : nullptr)
-		//		{
-		//			SK_ASSERT(false, "not implemented yet");
-		//
-		//			// if (ImGui::SliderFloat(str, &floatValue, property->minValue, property->maxValue))
-		//			// {
-		//			//     //context->editingId = id;
-		//			// }
-		//
-		//			// else if (context->editingId == id && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
-		//			// {
-		//			//     // context->editingId = U32_MAX;
-		//			//     // if (hasChanged)
-		//			//     // {
-		//			//     //     *hasChanged = true;
-		//			//     // }
-		//			// }
-		//		}
-
-		ImGui::InputScalar(str, f64Value ? ImGuiDataType_Double : ImGuiDataType_Float, buffer, step > 0.0f ? &step : nullptr, stepFast > 0.0f ? &stepFast : nullptr, format, flags);
+		if (context.reflectField != nullptr && context.reflectField->GetAttribute<UISliderProperty>())
+		{
+			if (const UISliderProperty* prop = context.reflectField->GetAttribute<UISliderProperty>())
+			{
+				needCache = true;
+				if (ImGui::SliderScalar(str, dataType, &bufferValue, &prop->minValue, &prop->maxValue, prop->format ? prop->format : "%.2f", ImGuiSliderFlags_AlwaysClamp))
+				{
+					changedValue = bufferValue;
+				}
+			}
+		}
+		else
+		{
+			ImGui::InputScalar(str, dataType, &bufferValue, step > 0.0f ? &step : nullptr, stepFast > 0.0f ? &stepFast : nullptr, format, flags);
+		}
 
 		if (ImGui::IsItemDeactivatedAfterEdit())
 		{
-			ImGuiCommitFieldChanges(context, buffer, size);
+			if (needCache)
+			{
+				bufferValue = changedValue;
+				changedValue = 0.0;
+			}
+			ImGuiCommitFieldChanges(context, &bufferValue, size);
 		}
 
 		if (context.overriden)

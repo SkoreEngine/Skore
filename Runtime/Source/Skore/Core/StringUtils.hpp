@@ -109,7 +109,8 @@ namespace Skore
                 if (*p == *" ")
                 {
                     *p = toupper(*p);
-                } else if (isupper(*p))
+                }
+                else if (isupper(*p) || isdigit(*p))
                 {
                     bool insertSpace = true;
                     if (i<name.Size()-1)

@@ -110,30 +110,30 @@ namespace Skore
 
 			ImGuiInputText(hash + 10, stringCache, ImGuiInputTextFlags_ReadOnly);
 
-			if (ReflectType* reflectEntityType = Reflection::FindType<EntityType>())
-			{
-				EntityType entityType = entityObject.GetEnum<EntityType>(EntityResource::Type);
-
-				ImGui::TableNextColumn();
-				ImGui::AlignTextToFramePadding();
-				ImGui::Text("Type");
-				ImGui::TableNextColumn();
-				ImGui::SetNextItemWidth(-1);
-
-				ReflectValue* selectedValue = reflectEntityType->FindValueByCode(static_cast<i64>(entityType));
-
-				if (ImGui::BeginCombo("###", selectedValue ? selectedValue->GetDesc().CStr() : ""))
-				{
-					for (ReflectValue* value : reflectEntityType->GetValues())
-					{
-						if (ImGui::Selectable(value->GetDesc().CStr()))
-						{
-							sceneEditor->ChangeEntityType(entity, static_cast<EntityType>(value->GetCode()));
-						}
-					}
-					ImGui::EndCombo();
-				}
-			}
+			// if (ReflectType* reflectEntityType = Reflection::FindType<TransformType>())
+			// {
+			// 	TransformType entityType = entityObject.GetEnum<TransformType>(EntityResource::Type);
+			//
+			// 	ImGui::TableNextColumn();
+			// 	ImGui::AlignTextToFramePadding();
+			// 	ImGui::Text("Type");
+			// 	ImGui::TableNextColumn();
+			// 	ImGui::SetNextItemWidth(-1);
+			//
+			// 	ReflectValue* selectedValue = reflectEntityType->FindValueByCode(static_cast<i64>(entityType));
+			//
+			// 	if (ImGui::BeginCombo("###", selectedValue ? selectedValue->GetDesc().CStr() : ""))
+			// 	{
+			// 		for (ReflectValue* value : reflectEntityType->GetValues())
+			// 		{
+			// 			if (ImGui::Selectable(value->GetDesc().CStr()))
+			// 			{
+			// 				sceneEditor->ChangeTransformType(entity, static_cast<TransformType>(value->GetCode()));
+			// 			}
+			// 		}
+			// 		ImGui::EndCombo();
+			// 	}
+			// }
 
 			ImGui::EndDisabled();
 			ImGui::EndTable();
@@ -322,6 +322,25 @@ namespace Skore
 				sceneEditor->ResetComponent(entity, selectedComponent);
 				ImGui::CloseCurrentPopup();
 			}
+
+			// if (selectedComponent == transform)
+			// {
+			// 	TypeID transformTypeID = Resources::GetType(transform)->GetID();
+			// 	if (TypeInfo<Transform3D>::ID() != transformTypeID && ImGui::MenuItem("Change to Transform 3D"))
+			// 	{
+			// 		sceneEditor->ChangeTransformType(entity, TransformType::Transform3D);
+			// 	}
+			//
+			// 	if (TypeInfo<Transform2D>::ID() != transformTypeID && ImGui::MenuItem("Change to Transform 2D"))
+			// 	{
+			// 		sceneEditor->ChangeTransformType(entity, TransformType::Transform2D);
+			// 	}
+			//
+			// 	if (TypeInfo<TransformRect>::ID() != transformTypeID && ImGui::MenuItem("Change to Transform Rect"))
+			// 	{
+			// 		sceneEditor->ChangeTransformType(entity, TransformType::TransformRect);
+			// 	}
+			// }
 
 			if (canRemove && ImGui::MenuItem("Remove"))
 			{

@@ -25,6 +25,7 @@
 
 #include "Skore/Common.hpp"
 #include "Skore/Core/Array.hpp"
+#include "Skore/Core/Math.hpp"
 #include "Skore/Core/String.hpp"
 
 namespace Skore
@@ -37,7 +38,6 @@ namespace Skore
 			Name,
 			Deactivated,
 			Locked,
-			Type,
 			Transform,
 			BoneIndex,
 			Components,

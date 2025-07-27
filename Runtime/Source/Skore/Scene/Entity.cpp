@@ -103,7 +103,6 @@ namespace Skore
 			if (ResourceObject entityObject = Resources::Read(rid))
 			{
 				entity->SetName(entityObject.GetString(EntityResource::Name));
-				entity->m_type = entityObject.GetEnum<EntityType>(EntityResource::Type);
 				entity->m_boneIndex = entityObject.GetUInt(EntityResource::BoneIndex);
 
 				if (RID transform = entityObject.GetReference(EntityResource::Transform))

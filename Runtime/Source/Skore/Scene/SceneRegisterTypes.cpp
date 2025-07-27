@@ -48,11 +48,6 @@ namespace Skore
 		projection.Value<Camera::Projection::Perspective>();
 		projection.Value<Camera::Projection::Orthogonal>();
 
-		auto entityType = Reflection::Type<EntityType>();
-		entityType.Value<EntityType::Entity3D>();
-		entityType.Value<EntityType::Entity2D>();
-		entityType.Value<EntityType::EntityUI>();
-
 		Reflection::Type<Entity>();
 		Reflection::Type<Scene>();
 		Reflection::Type<SceneManager>();
@@ -75,7 +70,6 @@ namespace Skore
 			.Field<EntityResource::Name>(ResourceFieldType::String)
 			.Field<EntityResource::Deactivated>(ResourceFieldType::Bool)
 			.Field<EntityResource::Locked>(ResourceFieldType::Bool)
-			.Field<EntityResource::Type>(ResourceFieldType::Enum, TypeInfo<EntityType>::ID())
 			.Field<EntityResource::Transform>(ResourceFieldType::SubObject)
 			.Field<EntityResource::BoneIndex>(ResourceFieldType::UInt)
 			.Field<EntityResource::Components>(ResourceFieldType::SubObjectList)

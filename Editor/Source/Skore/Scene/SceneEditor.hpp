@@ -49,7 +49,7 @@ namespace Skore
 		void ChangeParentOfSelected(RID newParent);
 		void MoveSelectedBefore(RID moveTo);
 		void AddBackToThisInstance(RID entity, RID prototype);
-		void ChangeEntityType(RID entity, EntityType entityType);
+		//void ChangeTransformType(RID entity, TransformType transformType);
 
 		//selection
 		void ClearSelection();

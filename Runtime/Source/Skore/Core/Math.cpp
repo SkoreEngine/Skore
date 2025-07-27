@@ -80,10 +80,4 @@ namespace Skore
 		type.Field<&Transform::rotation>("rotation");
 		type.Field<&Transform::scale>("scale");
 	}
-
-	void UITransform::RegisterType(NativeReflectType<UITransform>& type)
-	{
-		type.Field<&UITransform::position>("position").Attribute<UISliderProperty>(UISliderProperty{.minValue = 0.0, .maxValue = 100.f, .format = "%.2f%%"});
-		type.Field<&UITransform::scale>("scale").Attribute<UISliderProperty>(UISliderProperty{.minValue = 0.0, .maxValue = 100.f, .format = "%.2f%%"});
-	}
 }

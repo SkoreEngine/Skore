@@ -319,47 +319,32 @@ namespace Skore
 
 	}
 
-	void SceneEditor::ChangeEntityType(RID entity, EntityType entityType)
-	{
-		{
-			ResourceObject entityObject = Resources::Read(entity);
-			if (entityObject.GetEnum<EntityType>(EntityResource::Type) == entityType)
-			{
-				return;
-			}
-
-			if (RID transform = entityObject.GetSubObject(EntityResource::Transform))
-			{
-				Resources::Destroy(transform);
-			}
-		}
-
-		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Change Entity Type");
-		ResourceObject entityObject = Resources::Write(entity);
-		entityObject.SetEnum(EntityResource::Type, entityType);
-
-		switch (entityType)
-		{
-			case EntityType::Entity3D:
-			{
-				RID transform = Resources::Create<Transform>(UUID::RandomUUID(), scope);
-				Resources::Write(transform).Commit(scope);
-				entityObject.SetSubObject(EntityResource::Transform, transform);
-				break;
-			}
-			case EntityType::Entity2D:
-				break;
-			case EntityType::EntityUI:
-			{
-				RID transform = Resources::Create<UITransform>(UUID::RandomUUID(), scope);
-				Resources::Write(transform).Commit(scope);
-				entityObject.SetSubObject(EntityResource::Transform, transform);
-				break;
-			}
-		}
-
-		entityObject.Commit(scope);
-	}
+	// void SceneEditor::ChangeTransformType(RID entity, TransformType transformType)
+	// {
+	// 	TypeID newTransformType = GetTransformTypeID(transformType);
+	//
+	// 	{
+	// 		ResourceObject entityObject = Resources::Read(entity);
+	// 		if (RID transform = entityObject.GetSubObject(EntityResource::Transform))
+	// 		{
+	// 			if (Resources::GetType(transform)->GetID() == newTransformType)
+	// 			{
+	// 				//same type, do nothing.
+	// 				return;
+	// 			}
+	// 			Resources::Destroy(transform);
+	// 		}
+	// 	}
+	//
+	// 	UndoRedoScope* scope = Editor::CreateUndoRedoScope("Change Entity Transform Type");
+	// 	ResourceObject entityObject = Resources::Write(entity);
+	//
+	// 	RID transform = Resources::Create(newTransformType, UUID::RandomUUID(), scope);
+	// 	Resources::Write(transform).Commit(scope);
+	// 	entityObject.SetSubObject(EntityResource::Transform, transform);
+	//
+	// 	entityObject.Commit(scope);
+	// }
 
 	void SceneEditor::ClearSelection()
 	{
@@ -368,7 +353,6 @@ namespace Skore
 		{
 			ClearSelection(Editor::CreateUndoRedoScope("Clear selection"));
 		}
-
 	}
 
 	void SceneEditor::SelectEntity(RID entity, bool clearSelection)
