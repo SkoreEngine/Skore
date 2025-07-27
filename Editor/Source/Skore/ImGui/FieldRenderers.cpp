@@ -65,11 +65,28 @@ namespace Skore
 			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(138, 178, 242, 255));
 		}
 
-		ImGui::InputFloat(buffer, &value);
+		static f32 changedValue = 0.0;
+
+		if (context.reflectField != nullptr && context.reflectField->GetAttribute<UISliderProperty>())
+		{
+			if (const UISliderProperty* prop = context.reflectField->GetAttribute<UISliderProperty>())
+			{
+				if (ImGui::SliderFloat(buffer, &value, prop->minValue, prop->maxValue, prop->format ? prop->format : "%.2f", ImGuiSliderFlags_AlwaysClamp))
+				{
+					changedValue = value;
+				}
+			}
+		}
+		else
+		{
+			ImGui::InputFloat(buffer, &value);
+		}
 
 		if (ImGui::IsItemDeactivatedAfterEdit())
 		{
 			*hasChanged = true;
+			value = changedValue;
+			changedValue = 0.0;
 		}
 
 		if (context.overriden)
@@ -90,17 +107,17 @@ namespace Skore
 		bool hasChanged = false;
 
 		f32  speed = 0.005f;
-		Vec2 vec3 = *static_cast<const Vec2*>(value);
-		if (ImGui::BeginTable("##vec3-table", 2))
+		Vec2 vec2 = *static_cast<const Vec2*>(value);
+		if (ImGui::BeginTable("##vec2-table", 2))
 		{
-			DrawVecField(context, "X", vec3.x, &hasChanged, IM_COL32(138, 46, 61, 255), speed);
-			DrawVecField(context, "Y", vec3.y, &hasChanged, IM_COL32(87, 121, 26, 255), speed);
+			DrawVecField(context, "X", vec2.x, &hasChanged, IM_COL32(138, 46, 61, 255), speed);
+			DrawVecField(context, "Y", vec2.y, &hasChanged, IM_COL32(87, 121, 26, 255), speed);
 			ImGui::EndTable();
 		}
 
 		if (hasChanged)
 		{
-			ImGuiCommitFieldChanges(context, &vec3, sizeof(Vec3));
+			ImGuiCommitFieldChanges(context, &vec2, sizeof(Vec2));
 		}
 	}
 

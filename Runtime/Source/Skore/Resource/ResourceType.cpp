@@ -101,6 +101,11 @@ namespace Skore
 		return props;
 	}
 
+	ReflectField* ResourceField::GetReflectField() const
+	{
+		return reflectField;
+	}
+
 	ResourceType::ResourceType(TypeID type, StringView name) : type(type), name(name)
 	{
 		simpleName = MakeSimpleName(name);
@@ -234,6 +239,27 @@ namespace Skore
 		}
 
 		resourceType->fields[index] = resourceField;
+
+		return *this;
+	}
+
+	ResourceTypeBuilder& ResourceTypeBuilder::Field(ReflectField* field)
+	{
+		ResourceFieldInfo info = field->GetResourceFieldInfo();
+
+		ResourceField* resourceField = Alloc<ResourceField>();
+		resourceField->index = field->GetIndex();
+		resourceField->name = field->GetName();
+		resourceField->type = info.type;
+		resourceField->subType = info.subType;
+		resourceField->reflectField = field;
+
+		if (resourceField->index >= resourceType->fields.Size())
+		{
+			resourceType->fields.Resize(resourceField->index + 1);
+		}
+
+		resourceType->fields[resourceField->index] = resourceField;
 
 		return *this;
 	}

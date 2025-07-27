@@ -359,12 +359,27 @@ namespace Skore
 			Scale
 		};
 
-
 		Vec3 position{0, 0, 0};
 		Quat rotation{0, 0, 0, 1};
 		Vec3 scale{1, 1, 1};
 
 		static void RegisterType(NativeReflectType<Transform>& type);
+	};
+
+	struct UITransform  : Object
+	{
+		SK_CLASS(UITransform, Object)
+
+		enum
+		{
+			Position,
+			Scale
+		};
+
+		Vec2 position{0, 0};
+		Vec2 scale{50, 50};
+
+		static void RegisterType(NativeReflectType<UITransform>& type);
 	};
 
 	struct AABB

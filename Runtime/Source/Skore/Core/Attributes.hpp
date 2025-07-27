@@ -25,11 +25,11 @@
 
 namespace Skore
 {
-
 	struct UISliderProperty
 	{
-		f32 minValue{};
-		f32 maxValue{};
+		f32      minValue{};
+		f32      maxValue{};
+		ConstChr format = nullptr;
 	};
 
 	struct UIArrayProperty

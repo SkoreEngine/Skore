@@ -42,6 +42,7 @@ namespace Skore
 		ResourceFieldType GetType() const;
 		TypeID            GetSubType() const;
 		FieldProps        GetProps() const;
+		ReflectField*     GetReflectField() const;
 
 		friend class ResourceTypeBuilder;
 		friend class ResourceType;
@@ -123,6 +124,7 @@ namespace Skore
 
 		ResourceTypeBuilder& Field(u32 index, StringView name, ResourceFieldType type);
 		ResourceTypeBuilder& Field(u32 index, StringView name, ResourceFieldType type, TypeID subType);
+		ResourceTypeBuilder& Field(ReflectField* field);
 		ResourceTypeBuilder& Attribute(TypeID type, ConstPtr value);
 
 		template <typename Type, typename... Args>

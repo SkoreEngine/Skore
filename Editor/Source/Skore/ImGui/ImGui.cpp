@@ -1458,7 +1458,7 @@ namespace Skore
 
 	void ImGuiCommitFieldChanges(const ImGuiDrawFieldContext& context, VoidPtr pointer, usize size)
 	{
-		if (context.reflectField)
+		if (context.object && context.reflectField)
 		{
 			context.reflectField->Set(context.object, pointer, size);
 		}
@@ -1664,6 +1664,7 @@ namespace Skore
 					context.callback = drawResourceInfo.callback;
 					context.reflectFieldType = field.reflectFieldType;
 					context.resourceField = resourceField;
+					context.reflectField = resourceField->GetReflectField();
 					context.scopeName = drawResourceInfo.scopeName;
 					context.overriden = overriden;
 

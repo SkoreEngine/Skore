@@ -56,6 +56,7 @@ namespace Skore
 	typedef void*               VoidPtr;
 	typedef const void*         ConstPtr;
 	typedef char*               CharPtr;
+	typedef const char*         ConstChr;
 	typedef u64                 TypeID;
 	typedef decltype(sizeof(0)) usize;
 

@@ -32,6 +32,13 @@ namespace Skore
 	class Component;
 	class Scene;
 
+	enum class EntityType
+	{
+		Entity3D,
+		Entity2D,
+		EntityUI,
+	};
+
 	class SK_API Entity final : public Object
 	{
 	public:
@@ -176,6 +183,7 @@ namespace Skore
 		static void    Instantiate(Entity* entity, Scene* scene, Entity* parent, RID rid, bool instanceOfAsset = true);
 
 		String m_name = {};
+		EntityType m_type = EntityType::Entity3D;
 		RID m_rid = {};
 		u64 m_flags = 0;
 
@@ -193,8 +201,10 @@ namespace Skore
 
 		Array<Component*> m_components;
 
-		Mat4      m_globalTransform{1.0};
-		Transform m_transform;
+		Mat4        m_globalTransform;
+		Transform   m_transform;
+		UITransform m_uiTransform;
+
 		RID       m_transformRID;
 		u64       m_boneIndex = U64_MAX;
 

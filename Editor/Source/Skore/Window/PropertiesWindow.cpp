@@ -109,6 +109,32 @@ namespace Skore
 			stringCache = entityObject.GetUUID().ToString();
 
 			ImGuiInputText(hash + 10, stringCache, ImGuiInputTextFlags_ReadOnly);
+
+			if (ReflectType* reflectEntityType = Reflection::FindType<EntityType>())
+			{
+				EntityType entityType = entityObject.GetEnum<EntityType>(EntityResource::Type);
+
+				ImGui::TableNextColumn();
+				ImGui::AlignTextToFramePadding();
+				ImGui::Text("Type");
+				ImGui::TableNextColumn();
+				ImGui::SetNextItemWidth(-1);
+
+				ReflectValue* selectedValue = reflectEntityType->FindValueByCode(static_cast<i64>(entityType));
+
+				if (ImGui::BeginCombo("###", selectedValue ? selectedValue->GetDesc().CStr() : ""))
+				{
+					for (ReflectValue* value : reflectEntityType->GetValues())
+					{
+						if (ImGui::Selectable(value->GetDesc().CStr()))
+						{
+							sceneEditor->ChangeEntityType(entity, static_cast<EntityType>(value->GetCode()));
+						}
+					}
+					ImGui::EndCombo();
+				}
+			}
+
 			ImGui::EndDisabled();
 			ImGui::EndTable();
 		}
@@ -192,7 +218,8 @@ namespace Skore
 		RID transform = entityObject.GetSubObject(EntityResource::Transform);
 		if (transform)
 		{
-			drawCollapsingHeader(transform, "Transform", "Transform Update", U32_MAX);
+			String formattedName = FormatName(Resources::GetType(transform)->GetReflectType()->GetSimpleName());
+			drawCollapsingHeader(transform, formattedName, "Transform Update", U32_MAX);
 		}
 
 		u32 componentCount = 0;

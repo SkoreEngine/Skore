@@ -525,8 +525,7 @@ namespace Skore
 		ResourceTypeBuilder builder = Type(reflectType->GetProps().typeId, reflectType->GetName());
 		for (ReflectField* field : reflectType->GetFields())
 		{
-			ResourceFieldInfo info = field->GetResourceFieldInfo();
-			builder.Field(field->GetIndex(), field->GetName(), info.type, info.subType);
+			builder.Field(field);
 		}
 
 		builder.Build();

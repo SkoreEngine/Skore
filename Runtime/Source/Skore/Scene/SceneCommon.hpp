@@ -37,6 +37,7 @@ namespace Skore
 			Name,
 			Deactivated,
 			Locked,
+			Type,
 			Transform,
 			BoneIndex,
 			Components,
