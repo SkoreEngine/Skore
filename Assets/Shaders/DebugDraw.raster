@@ -1,0 +1,35 @@
+#include "Common.hlsli"
+
+struct VertexInput
+{
+    float3 pos : POSITION;
+    uint   color : COLOR;
+};
+
+struct PushConstants
+{
+    float4x4 viewProjection;
+};
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+struct VertexToPixel
+{
+    float4 position : SV_POSITION;
+    uint   color : COLOR0;
+};
+
+
+VertexToPixel MainVS(VertexInput input)
+{
+    VertexToPixel output;
+    output.position = mul(pushConstants.viewProjection, float4(input.pos.xyz, 1.0));
+    output.position.y = -output.position.y;
+    output.color = input.color;
+    return output;
+}
+
+float4 MainPS(VertexToPixel input) : SV_Target0
+{
+    return ColorFromU32(input.color);
+}

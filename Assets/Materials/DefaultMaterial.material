@@ -1,0 +1,20 @@
+objects:
+  - _uuid: 97347bf1-d078-e4ae-34a3-bf8149a07a81
+    _type: 'Skore::MaterialResource'
+    BaseColor:
+      red: 255
+      green: 255
+      blue: 255
+      alpha: 255
+    NormalMultiplier: 1
+    Roughness: 1
+    EmissiveColor:
+      red: 255
+      green: 255
+      blue: 255
+      alpha: 255
+    AlphaCutoff: 0.5
+    AlphaMode: Opaque
+    UvScale:
+      x: 1
+      y: 1

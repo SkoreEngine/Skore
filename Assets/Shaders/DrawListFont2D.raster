@@ -1,0 +1,73 @@
+#include "Common.hlsli"
+
+
+struct VertexInput
+{
+    float2 pos : POSITION;
+    float2 uv : TEXCOORD0;
+    uint   color : COLOR;
+};
+
+struct PushConstants
+{
+    float4x4 projection;
+    float2 fontAtlasSize;
+    float2 pad;
+};
+
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+
+struct VertexToPixel
+{
+    float4 position : SV_POSITION;
+    float2 uv : TEXCOORD0;
+    uint   color : COLOR0;
+    float2 fontAtlasSize : TXTSIZE0;
+};
+
+
+VertexToPixel MainVS(VertexInput input)
+{
+    VertexToPixel output;
+    output.position = mul(pushConstants.projection, float4(input.pos.xy, 0.0, 1.0));
+    output.uv = input.uv;
+    output.color = input.color;
+    output.fontAtlasSize = pushConstants.fontAtlasSize;
+    return output;
+}
+
+Texture2D fontTexture;
+SamplerState fontSampler;
+
+struct PSOutput
+{
+    float4 color : SV_Target0;
+};
+
+float Median(float r, float g, float b, float a)
+{
+	return min(max(min(r, g), min(max(r, g), b)), a);
+}
+
+
+PSOutput MainPS(VertexToPixel input)
+{
+	float4 msdfSample = fontTexture.Sample(fontSampler, float2(input.uv.x, input.uv.y));
+	float2 destSize = 1.0 / fwidth(input.uv);
+	float pxSize = max(0.5 * dot((1.0 / input.fontAtlasSize), destSize), 1.0);
+	float d = Median(msdfSample.r, msdfSample.g, msdfSample.b, msdfSample.a) - 0.5;
+	float a = clamp(d * pxSize + 0.5, 0.0, 1.0);
+
+    PSOutput output;
+    output.color = ColorFromU32(input.color);
+    output.color.a = a * output.color.a;
+
+    if(output.color.a == 0.0)
+    {
+       discard;
+    }
+
+    return output;
+}

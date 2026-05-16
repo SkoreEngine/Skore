@@ -1,0 +1,74 @@
+struct Particle
+{
+	float3 position;
+	float  age;
+	float3 velocity;
+	float  lifetime;
+	float4 color;
+	float  size;
+	float  alive;
+	float2 _pad;
+};
+
+RWStructuredBuffer<Particle> particles : register(u0);
+RWStructuredBuffer<uint>     deadList  : register(u1);
+RWStructuredBuffer<uint>     counters  : register(u2);
+
+struct UpdateParams
+{
+	float deltaTime;
+	float gravity;
+	float startSize;
+	float endSize;
+	uint  maxParticles;
+	float3 pad;
+};
+
+[[vk::push_constant]] UpdateParams params;
+
+[numthreads(256, 1, 1)]
+void MainCS(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
+	uint index = dispatchThreadID.x;
+	if (index >= params.maxParticles)
+		return;
+
+	Particle p = particles[index];
+
+	if (p.alive < 0.5)
+		return;
+
+	// Age the particle
+	p.age += params.deltaTime;
+
+	// Kill expired particles
+	if (p.age >= p.lifetime)
+	{
+		p.alive = 0.0;
+		p.size  = 0.0;
+		particles[index] = p;
+
+		// Push back to dead list
+		uint oldDeadCount;
+		InterlockedAdd(counters[1], 1, oldDeadCount);
+		deadList[oldDeadCount] = index;
+		return;
+	}
+
+	// Normalized lifetime [0, 1]
+	float t = p.age / p.lifetime;
+
+	// Apply gravity (downward acceleration)
+	p.velocity.y -= params.gravity * params.deltaTime;
+
+	// Integrate position
+	p.position += p.velocity * params.deltaTime;
+
+	// Interpolate size
+	p.size = lerp(params.startSize, params.endSize, t);
+
+	// Fade alpha over lifetime
+	p.color.a = 1.0 - t;
+
+	particles[index] = p;
+}

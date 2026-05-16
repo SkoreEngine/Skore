@@ -1,0 +1,41 @@
+
+cbuffer CameraBuffer
+{
+	matrix viewProjection;
+    matrix view;
+    matrix projection;
+    matrix viewInv;
+    matrix projectionInv;
+	float3 cameraPosition;
+	float  pad;
+};
+
+struct PushConstants
+{
+	matrix world;
+};
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+struct VertexInput
+{
+	float3 position : POSITION;
+	float3 normal 	: NORMAL;
+	float2 texCoord : TEXCOORD0;
+    uint   color    : COLOR;
+};
+
+// Vertex Shader
+float4 MainVS(VertexInput input) : SV_POSITION
+{
+    float4 pos = mul(viewProjection, mul(pushConstants.world, float4(input.position, 1.0f)));
+    //check if it's vk
+    pos.y = -pos.y;
+	return pos;
+}
+
+// Pixel Shader
+float4 MainPS() : SV_TARGET
+{
+    return float4(0.0, 1.0, 0.0, 1.0);
+}

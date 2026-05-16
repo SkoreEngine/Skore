@@ -1,0 +1,51 @@
+#include "Common.hlsli"
+
+
+struct VertexInput
+{
+    float2 pos : POSITION;
+    float2 uv : TEXCOORD0;
+    uint   color : COLOR;
+};
+
+struct PushConstants
+{
+    float4x4 projection;
+};
+
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+
+struct VertexToPixel
+{
+    float4 position : SV_POSITION;
+    float2 uv : TEXCOORD0;
+    uint   color : COLOR0;
+};
+
+
+VertexToPixel MainVS(VertexInput input)
+{
+    VertexToPixel output;
+    output.position = mul(pushConstants.projection, float4(input.pos.xy, 0.0, 1.0));
+    output.uv = input.uv;
+    output.color = input.color;
+    return output;
+}
+
+Texture2D texture;
+SamplerState samplerState;
+
+struct PSOutput
+{
+    float4 color : SV_Target0;
+};
+
+PSOutput MainPS(VertexToPixel input)
+{
+    PSOutput output;
+    float4 color = texture.Sample(samplerState, input.uv);
+    output.color = color * ColorFromU32(input.color);
+    return output;
+}

@@ -1,0 +1,43 @@
+#include "Tonemapping.hlsli"
+#include "Common.hlsli"
+
+
+[[vk::image_format("rgba")]] RWTexture2D<float4> outputTexture     : register(u0);
+                             Texture2D           lightingTexture   : register(t1);
+                             SamplerState        nearestSampler    : register(s2);
+                             Texture2D           bloomTexture      : register(t3);
+                             SamplerState        linearSampler     : register(s4);
+
+struct PostProcessPushConstants
+{
+    float bloomIntensity;
+};
+
+[[vk::push_constant]]
+ConstantBuffer<PostProcessPushConstants> pc;
+
+[numthreads(8, 8, 1)]
+void MainCS(uint2 px : SV_DispatchThreadID)
+{
+    int2 bufferDimensions;
+    outputTexture.GetDimensions(bufferDimensions.x, bufferDimensions.y);
+    float2 texelSize = 1.0f / bufferDimensions;
+    float2 uv        = (px + 0.5f) * texelSize;
+
+    float3 color = lightingTexture.SampleLevel(nearestSampler, uv, 0.0f).xyz;
+
+    float3 top        = lightingTexture.SampleLevel(nearestSampler, uv + float2( 0.0f,          texelSize.y), 0.0f).xyz;
+    float3 left       = lightingTexture.SampleLevel(nearestSampler, uv + float2(-texelSize.x,  0.0f        ), 0.0f).xyz;
+    float3 right      = lightingTexture.SampleLevel(nearestSampler, uv + float2( texelSize.x,  0.0f        ), 0.0f).xyz;
+    float3 bottom     = lightingTexture.SampleLevel(nearestSampler, uv + float2( 0.0f,         -texelSize.y), 0.0f).xyz;
+
+    color = ApplySharpening(color, top, left, right, bottom);
+
+    // Add bloom before tonemapping
+    float3 bloom = bloomTexture.SampleLevel(linearSampler, uv, 0.0f).rgb;
+    color += bloom * pc.bloomIntensity;
+
+    color = ApplyTonemapping(color, 1.4);
+
+    outputTexture[px] = float4(color, 1.0);
+}

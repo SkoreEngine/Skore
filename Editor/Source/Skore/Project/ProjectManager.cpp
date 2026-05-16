@@ -1,0 +1,522 @@
+#include "Skore/Project/ProjectManager.hpp"
+
+#include <mutex>
+
+#include "imgui.h"
+#include "Skore/App.hpp"
+#include "Skore/EditorCommon.hpp"
+#include "Skore/Events.hpp"
+#include "Skore/Core/Event.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Utils/StaticContent.hpp"
+#include "Skore/Graphics/Device.hpp"
+#include "Skore/Graphics/Graphics.hpp"
+#include "Skore/ImGui/Icons.h"
+#include "Skore/ImGui/ImGui.hpp"
+#include "Skore/IO/FileSystem.hpp"
+#include "Skore/IO/Path.hpp"
+#include "Skore/Script/LuaScriptEngine.hpp"
+#include "Skore/Utils/ProjectUtils.hpp"
+
+namespace Skore
+{
+#define RECENT_PROJECTS 10
+#define NEW_PROJECTS 11
+
+	class ProjectManagerUserData : public Object
+	{
+	public:
+		SK_CLASS(ProjectManagerUserData, Object)
+
+		Array<String> recentProjects;
+		String        recentProjectDirectory;
+	};
+
+	namespace
+	{
+		GPUTexture* logoTexture;
+		GPUTexture* emptyProject;
+		String      projectSearch;
+		String      newProjectName;
+		String      newProjectPath;
+		String      settingsFilePath;
+		String      selectedProject;
+		String      projectToOpen;
+
+		u32  selectedWindow = RECENT_PROJECTS;
+		u32  templateSelected = 1;
+		bool createProject = false;
+
+		bool focus = false;
+
+		ProjectManagerUserData projectManagerUserData;
+	}
+
+	void EditorInit(StringView project);
+
+	SK_API void RegisterProjectManagerTypes()
+	{
+		auto projectManagerUserData = Reflection::Type<ProjectManagerUserData>();
+		projectManagerUserData.Field<&ProjectManagerUserData::recentProjects>("recentProjects");
+		projectManagerUserData.Field<&ProjectManagerUserData::recentProjectDirectory>("recentProjectDirectory");
+	}
+
+	void ProjectManager::Init()
+	{
+		Event::Bind<OnUpdate, &ProjectManager::Update>();
+		Event::Bind<OnShutdown, &ProjectManager::Shutdown>();
+
+		logoTexture = StaticContent::GetTexture("Content/Images/LogoSmall.jpeg");
+		emptyProject = StaticContent::GetTexture("Content/Images/minimalist-logo.png");
+		settingsFilePath = Path::Join(FileSystem::AppFolder(), "Skore", "ProjectManager.cfg");
+
+		LoadDataFile();
+
+		if (projectManagerUserData.recentProjectDirectory.Empty())
+		{
+			newProjectPath = Path::Join(FileSystem::DocumentsDir(), "Skore Projects");
+		}
+		else
+		{
+			newProjectPath = projectManagerUserData.recentProjectDirectory;
+		}
+	}
+
+	void ProjectManager::RequestShutdown()
+	{
+		Event::Unbind<OnShutdown, &ProjectManager::Shutdown>();
+		Shutdown();
+	}
+
+	void ProjectManager::Shutdown()
+	{
+		Graphics::WaitIdle();
+		logoTexture->Destroy();
+		emptyProject->Destroy();
+		Event::Unbind<OnUpdate, &ProjectManager::Update>();
+	}
+
+	void ProjectManager::CreateProject(StringView location, StringView projectName, u32 templateId)
+	{
+		String projectPath = Path::Join(location, projectName);
+		String projectFile = Path::Join(projectPath, String(projectName) + SK_PROJECT_EXTENSION);
+
+		FileSystem::CreateDirectory(projectPath);
+
+		if (templateId == 2)
+		{
+			CreateCMakeProject(projectPath);
+		}
+
+		// Generate Lua annotations for IDE support
+		String annotationsPath = Path::Join(projectPath, "annotations");
+		GenerateLuaAnnotations(annotationsPath);
+
+		FileSystem::SaveFileAsString(projectFile, "//TODO: Create project file");
+
+		projectManagerUserData.recentProjects.EmplaceBack(projectFile);
+		projectManagerUserData.recentProjectDirectory = location;
+
+		SaveDataFile();
+		RequestShutdown();
+
+		Platform::MaximizeWindow(Graphics::GetWindow());
+
+		App::RunOnMainThread([projectFile]
+		{
+			EditorInit(projectFile);
+		});
+	}
+
+	void ProjectManager::OpenProject(StringView projectFile)
+	{
+		if (projectFile.Empty()) return;
+
+		bool projectFound = false;
+		for (StringView str : projectManagerUserData.recentProjects)
+		{
+			if (str == projectFile)
+			{
+				projectFound = true;
+				break;
+			}
+		}
+
+		if (!projectFound)
+		{
+			projectManagerUserData.recentProjects.EmplaceBack(projectFile);
+			SaveDataFile();
+		}
+
+		RequestShutdown();
+
+		Platform::MaximizeWindow(Graphics::GetWindow());
+
+		App::RunOnMainThread([projectFile]
+		{
+			EditorInit(projectFile);
+		});
+	}
+
+	void ProjectManager::LoadDataFile()
+	{
+		YamlArchiveReader reader(FileSystem::ReadFileAsString(settingsFilePath));
+		projectManagerUserData.Deserialize(reader);
+
+		HashSet<String> projectHash;
+
+		bool hasErased = false;
+		auto it = projectManagerUserData.recentProjects.begin();
+		while (it != projectManagerUserData.recentProjects.end())
+		{
+			if (!FileSystem::GetFileStatus(*it).exists || projectHash.Has(*it))
+			{
+				it = projectManagerUserData.recentProjects.Erase(it);
+				hasErased = true;
+			}
+			else
+			{
+				projectHash.Insert(*it);
+				++it;
+			}
+		}
+		if (hasErased)
+		{
+			SaveDataFile();
+		}
+	}
+
+	void ProjectManager::SaveDataFile()
+	{
+		YamlArchiveWriter writer;
+		projectManagerUserData.Serialize(writer);
+		FileSystem::SaveFileAsString(settingsFilePath, writer.EmitAsString());
+	}
+
+	void ProjectManager::Update()
+	{
+
+		if (!projectToOpen.Empty())
+		{
+			OpenProject(projectToOpen);
+			return;
+		}
+
+		if (createProject)
+		{
+			CreateProject(newProjectPath, newProjectName, templateSelected);
+			return;
+		}
+
+
+		auto& style = ImGui::GetStyle();
+		auto  padding = style.WindowPadding;
+
+		ScopedStyleVar itemSpacing(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+		ScopedStyleVar windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+
+		ImGuiBeginFullscreen(5000);
+
+		auto listOptionsPanelSize = ImGui::GetContentRegionAvail().x * 0.2f;
+		auto availableSpace = ImGui::GetContentRegionAvail().x - listOptionsPanelSize;
+
+		ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.1f, 0.5f));
+		if (ImGui::BeginChild(52010, ImVec2(listOptionsPanelSize, 0)))
+		{
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + padding.y);
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padding.y);
+
+			ImGuiTextureItem(logoTexture, ImVec2(48 * ImGui::GetStyle().ScaleFactor, 48 * ImGui::GetStyle().ScaleFactor));
+
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + padding.y);
+
+			ImGui::Separator();
+
+			auto buttonSize = ImVec2(listOptionsPanelSize, 35 * style.ScaleFactor);
+
+			if (ImGui::Selectable(ICON_FA_DIAGRAM_PROJECT " Recent Projects", selectedWindow == RECENT_PROJECTS, ImGuiSelectableFlags_SpanAllColumns, buttonSize))
+			{
+				selectedWindow = RECENT_PROJECTS;
+			}
+
+			if (ImGui::Selectable(ICON_FA_PLUS " New Project", selectedWindow == NEW_PROJECTS, ImGuiSelectableFlags_SpanAllColumns, buttonSize))
+			{
+				selectedWindow = NEW_PROJECTS;
+				focus = false;
+			}
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleVar(); //ImGuiStyleVar_SelectableTextAlign
+
+		ImGui::SameLine();
+
+		if (selectedWindow == RECENT_PROJECTS)
+		{
+			ScopedStyleColor childBg(ImGuiCol_ChildBg, IM_COL32(22, 23, 25, 255));
+			ScopedStyleColor frameBg(ImGuiCol_FrameBg, IM_COL32(22, 23, 25, 255));
+			ScopedStyleVar   frameBorderSize(ImGuiStyleVar_FrameBorderSize, 0.f);
+
+			if (ImGui::BeginChild(52020, ImVec2(0, 0)))
+			{
+				auto buttonSize = ImVec2(100 * ImGui::GetStyle().ScaleFactor, 25 * ImGui::GetStyle().ScaleFactor);
+				auto width = ImGui::GetContentRegionAvail().x - buttonSize.x - (25 * ImGui::GetStyle().ScaleFactor);
+
+				ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x + padding.x, ImGui::GetCursorPos().y + padding.y));
+
+				ImGui::SetNextItemWidth(width);
+
+				if (ImGuiSearchInputText(80005, projectSearch))
+				{
+					//searchText = ToUpper(projectSearch);
+				}
+
+				ImGui::SameLine();
+
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padding.x);
+				if (ImGui::Button("Open", buttonSize))
+				{
+					auto func = [&](StringView path)
+					{
+						projectToOpen = path;
+					};
+
+					FileFilter filter;
+					filter.name = "Skore Project";
+					filter.spec = "skore";
+
+					Platform::OpenDialog(func, {&filter, 1}, newProjectPath, Graphics::GetWindow());
+				}
+
+
+				ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x + padding.x, ImGui::GetCursorPos().y + padding.y));
+				ImGui::Separator();
+				ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x + padding.x * 1.5f, ImGui::GetCursorPos().y + padding.y * 1.5f));
+				bool openPopup = false;
+				{
+					ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.01f, 0.5f));
+
+					if (ImGuiBeginContentTable("asset-selection", 1.0))
+					{
+						for (String& recentProject : projectManagerUserData.recentProjects)
+						{
+							String projectName = Path::Name(recentProject);
+
+							ImGuiContentItemDesc contentItem{};
+							contentItem.id = HashValue(projectName);
+							contentItem.label = projectName;
+							contentItem.thumbnailScale = 1.0;
+							contentItem.texture = logoTexture;
+
+							ImGuiContentItemState state = ImGuiContentItem(contentItem);
+
+							if (state.enter)
+							{
+								projectToOpen = recentProject;
+							}
+
+							if (state.clicked)
+							{
+								selectedProject = recentProject;
+							}
+
+							if (state.hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+							{
+								openPopup = true;
+
+							}
+						}
+						ImGuiEndContentTable();
+					}
+					ImGui::PopStyleVar(); //ImGuiStyleVar_SelectableTextAlign
+				}
+
+				if (openPopup)
+				{
+					ImGui::OpenPopup("project-browser-popup");
+				}
+
+				auto popupRes = ImGuiBeginPopupMenu("project-browser-popup");
+				if (popupRes)
+				{
+					if (ImGui::MenuItem(ICON_FA_FOLDER " Show in Explorer"))
+					{
+						Platform::OpenURL(Path::Parent(selectedProject));
+					}
+
+					if (ImGui::MenuItem(ICON_FA_TRASH " Remove"))
+					{
+						if (auto it = FindFirst(projectManagerUserData.recentProjects.begin(), projectManagerUserData.recentProjects.end(), selectedProject))
+						{
+							projectManagerUserData.recentProjects.Erase(it);
+							SaveDataFile();
+						}
+					}
+				}
+				ImGuiEndPopupMenu(popupRes);
+			}
+			ImGui::EndChild();
+		}
+		else if (selectedWindow == NEW_PROJECTS)
+		{
+			if (ImGui::BeginChild(52150, ImVec2(0, 0)))
+			{
+				{
+					ScopedStyleColor childBg(ImGuiCol_ChildBg, IM_COL32(22, 23, 25, 255));
+					ScopedStyleColor frameBg(ImGuiCol_FrameBg, IM_COL32(22, 23, 25, 255));
+					ScopedStyleVar   frameBorderSize(ImGuiStyleVar_FrameBorderSize, 0.f);
+
+					if (ImGui::BeginChild(52030, ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y - 50 * ImGui::GetStyle().ScaleFactor)))
+					{
+						ImGui::Separator();
+
+						ImGui::SetCursorPosY(ImGui::GetCursorPosY() + padding.y * 2);
+						ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padding.x * 2);
+
+						ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.01f, 0.5f));
+
+						if (ImGuiBeginContentTable("templates", 1.0))
+						{
+							{
+								ImGuiContentItemDesc contentItem{};
+								contentItem.id = 879457894;
+								contentItem.label = "Default Project";
+								contentItem.thumbnailScale = 1.0;
+								contentItem.texture = emptyProject;
+								contentItem.selected = templateSelected == 1;
+
+								ImGuiContentItemState state = ImGuiContentItem(contentItem);
+
+								if (state.clicked)
+								{
+									templateSelected = 1;
+								}
+							}
+
+							{
+								ImGuiContentItemDesc contentItem{};
+								contentItem.id = 879457895;
+								contentItem.label = "C++ Project";
+								contentItem.thumbnailScale = 1.0;
+								contentItem.texture = emptyProject;
+								contentItem.selected = templateSelected == 2;
+
+								ImGuiContentItemState state = ImGuiContentItem(contentItem);
+
+								if (state.clicked)
+								{
+									templateSelected = 2;
+								}
+							}
+
+							ImGuiEndContentTable();
+						}
+						ImGui::PopStyleVar(); //ImGuiStyleVar_SelectableTextAlign
+					}
+					ImGui::EndChild();
+				}
+
+				{
+					ScopedStyleVar childPadding(ImGuiStyleVar_WindowPadding, padding);
+
+					ImGui::Separator();
+
+					if (ImGui::BeginChild(52040, ImVec2(0.0, 0.0), false, ImGuiWindowFlags_AlwaysUseWindowPadding))
+					{
+						static bool validation = false;
+
+						ImGui::SetCursorPosY(ImGui::GetCursorPosY() + padding.y);
+
+						ImGui::AlignTextToFramePadding();
+						ImGui::TextUnformatted("Project Name: ");
+						ImGui::SameLine();
+						ImGui::SetNextItemWidth(150 * ImGui::GetStyle().ScaleFactor);
+						if (!focus)
+						{
+							ImGui::SetKeyboardFocusHere();
+							focus = true;
+						}
+
+						if (ImGuiInputText(678347, newProjectName, 0, validation ? ImGuiInputTextExtraFlags_ShowError : 0))
+						{
+							validation = false;
+						}
+
+						ImGui::SameLine();
+						ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padding.x);
+						ImGui::TextUnformatted("Location: ");
+						ImGui::SameLine();
+
+						String currentPath = Path::Join(newProjectPath, newProjectName);
+
+						ImGui::SetNextItemWidth(Math::Max(ImGui::GetContentRegionAvail().x - 250, 200 * ImGui::GetStyle().ScaleFactor));
+						ImGui::BeginDisabled(true);
+						ImGuiInputTextReadOnly(678348, currentPath);
+						ImGui::EndDisabled();
+						ImGui::SameLine();
+						if (ImGui::Button("..."))
+						{
+							auto func = [&](StringView path)
+							{
+								newProjectPath = path;
+							};
+							Platform::OpenDialog(func, {}, newProjectPath.CStr(), Graphics::GetWindow());
+						}
+						ImGui::SameLine();
+						ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padding.x);
+
+
+						if (ImGui::Button("Create Project", ImVec2(130 * ImGui::GetStyle().ScaleFactor, 25 * ImGui::GetStyle().ScaleFactor)))
+						{
+							if (newProjectName.Empty())
+							{
+								ImGui::OpenPopup("Please provide a project name");
+								validation = true;
+							}
+							else if (FileSystem::GetFileStatus(currentPath).exists)
+							{
+								validation = true;
+								ImGui::OpenPopup("Project already exists");
+							}
+
+							if (!validation)
+							{
+								createProject = true;
+							}
+						}
+
+						if (ImGui::BeginPopupModal("Please provide a project name"))
+						{
+							ImGui::Text("Please enter a project name. This field is required to create the project.");
+
+							ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 50 * ImGui::GetStyle().ScaleFactor);
+
+							if (ImGui::Button("Close"))
+							{
+								ImGui::CloseCurrentPopup();
+							}
+							ImGui::EndPopup();
+						}
+
+						if (ImGui::BeginPopupModal("Project already exists"))
+						{
+							ImGui::Text("A project with this name already exists. Please choose a different name for your project.");
+
+							ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 50 * ImGui::GetStyle().ScaleFactor);
+
+							if (ImGui::Button("Close"))
+							{
+								ImGui::CloseCurrentPopup();
+							}
+							ImGui::EndPopup();
+						}
+
+						//ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Project name cannot be empty");
+					}
+					ImGui::EndChild();
+				}
+			}
+			ImGui::EndChild();
+		}
+		ImGui::End();
+	}
+}

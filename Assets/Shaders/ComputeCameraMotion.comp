@@ -1,0 +1,36 @@
+#include "Common.hlsli"
+
+[[vk::image_format("rg16f")]] RWTexture2D<float2> motionVectors : register(u0);
+Texture2D<float> linearDepthTexture : register(t1);
+
+
+struct PushConstants
+{
+    float4x4 projectionNoJitter;
+    float4x4 viewInverse;
+    float4x4 previousViewProjectionNoJitter;
+    int2 resolution;
+    float2 pad;
+};
+
+[[vk::push_constant]]
+PushConstants pc;
+
+
+[numthreads(8, 8, 1)]
+void MainCS(in uint3 pos : SV_DispatchThreadID)
+{
+    const float linearDepth = linearDepthTexture.Load(int3(pos.xy, 0)).r;
+    const float2 screenUv = UVNearest(pos.xy, pc.resolution);
+
+    float3 viewPos = GetViewPositionFromLinearDepth(screenUv, linearDepth, pc.projectionNoJitter);
+    float3 worldPos = mul(pc.viewInverse, float4(viewPos, 1.0)).xyz;
+
+    float2 currentNdc = float2(screenUv.x * 2.0 - 1.0, (1.0 - screenUv.y) * 2.0 - 1.0);
+    float4 previousPositionNdc = mul(pc.previousViewProjectionNoJitter, float4(worldPos, 1.0f));
+    previousPositionNdc.xyz /= previousPositionNdc.w;
+
+    float2 velocity = (currentNdc - previousPositionNdc.xy) * float2(0.5f, -0.5f);
+
+    motionVectors[pos.xy] = velocity;
+}

@@ -1,0 +1,67 @@
+objects:
+  - _uuid: d19642ad-8697-a510-a276-e3faa5e4077a
+    _type: 'Skore::MeshResource'
+    _parent: d0edcbba-8f27-b895-d32b-9cce5ac91ab9
+    _parentField: Object
+    Name: Sphere
+    Materials: []
+    AABBMin:
+      x: -0.009999996982514858
+      y: -0.009999996982514858
+      z: -0.009999999776482582
+    AABBMax:
+      x: 0.009999998845160007
+      y: 0.009999999776482582
+      z: 0.009999999776482582
+    MeshData: c5620893d551f53e
+  - _uuid: 601981cb-e0f9-cc05-6381-a9ce4821d8d4
+    _type: 'Skore::VertexLayoutResource'
+    _parent: d19642ad-8697-a510-a276-e3faa5e4077a
+    _parentField: VertexLayout
+    Stride: 60
+  - _uuid: f8cd2138-074f-c325-bcfc-191bebb7f562
+    _type: 'Skore::MeshLodResource'
+    _parent: d19642ad-8697-a510-a276-e3faa5e4077a
+    _parentField: MeshLODs
+    LodNumber: 0
+    VerticesOffset: 0
+    VerticesCount: 2143
+    IndicesOffset: 128580
+    IndicesCount: 11904
+    PrimitiveCount: 1
+    PrimitiveOffset: 176196
+  - _uuid: e522f666-5981-587f-fe1f-8e60eca646f9
+    _type: 'Skore::VertexAttributeResource'
+    _parent: 601981cb-e0f9-cc05-6381-a9ce4821d8d4
+    _parentField: Attributes
+    Name: position
+    Offset: 0
+    Size: 12
+  - _uuid: 86625969-f23a-2dd9-19e5-7122f55c7926
+    _type: 'Skore::VertexAttributeResource'
+    _parent: 601981cb-e0f9-cc05-6381-a9ce4821d8d4
+    _parentField: Attributes
+    Name: normal
+    Offset: 12
+    Size: 12
+  - _uuid: 9d4b3c21-19b6-f3c8-43a6-ffa45dfb28cf
+    _type: 'Skore::VertexAttributeResource'
+    _parent: 601981cb-e0f9-cc05-6381-a9ce4821d8d4
+    _parentField: Attributes
+    Name: uv0
+    Offset: 24
+    Size: 8
+  - _uuid: b14d9298-a4df-c876-bd1a-ab8a3366c0c1
+    _type: 'Skore::VertexAttributeResource'
+    _parent: 601981cb-e0f9-cc05-6381-a9ce4821d8d4
+    _parentField: Attributes
+    Name: color
+    Offset: 32
+    Size: 12
+  - _uuid: 2ff4b7d1-691e-eafe-d03e-59fb03c2d814
+    _type: 'Skore::VertexAttributeResource'
+    _parent: 601981cb-e0f9-cc05-6381-a9ce4821d8d4
+    _parentField: Attributes
+    Name: tangent
+    Offset: 44
+    Size: 16

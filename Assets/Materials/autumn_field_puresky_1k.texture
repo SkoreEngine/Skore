@@ -1,0 +1,25 @@
+objects:
+  - _uuid: ce8b5121-04e3-c1b8-afe5-dfb6ccea133e
+    _type: 'Skore::TextureResource'
+    _parent: e167be1c-ddc8-e2ff-6e6e-8379a87eb04d
+    _parentField: Object
+    Name: autumn_field_puresky_1k
+    Format: R32G32B32A32_FLOAT
+    MipLevels: 1
+    WrapMode: Repeat
+    FilterMode: Linear
+    CompressionMode: ZSTD
+    TotalUncompressedSize: 8388608
+    PixelData: 5a8e74d62049b73a
+  - _uuid: 48aa281b-405a-738a-fd33-56621dd58b38
+    _type: 'Skore::TextureImageResource'
+    _parent: ce8b5121-04e3-c1b8-afe5-dfb6ccea133e
+    _parentField: Images
+    Extent:
+      x: 1024
+      y: 512
+    Mip: 0
+    ArrayLayer: 0
+    DataOffset: 0
+    DataSize: 910303
+    UncompressedSize: 8388608

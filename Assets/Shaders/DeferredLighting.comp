@@ -1,0 +1,50 @@
+
+#include "Common.hlsli"
+#include "Bindings.hlsli"
+
+[[vk::image_format("rgba16f")]]
+RWTexture2D<float4> outputTexture           : register(u1);
+
+Texture2D           albedoMetallicTexture   : register(t2);
+Texture2D<float2>   roughnessAoTexture      : register(t3);
+Texture2D<float2>   normalTexture           : register(t4);
+Texture2D<float3>   emissiveTexture         : register(t5);
+Texture2D<float>    linearDepthTexture      : register(t6);
+
+#include "Lights.hlsli"
+
+
+[numthreads(8, 8, 1)]
+void MainCS(uint2 px : SV_DispatchThreadID)
+{
+    float linearDepth = linearDepthTexture[px].r;
+    if (linearDepth >= farClip)
+    {
+        outputTexture[px] = float4(0.2, 0.2, 0.2, 1.0);
+        return;
+    }
+
+    float2 uv = (float2(px) + 0.5) / outputSize;
+
+    float4 albedoMetallic = albedoMetallicTexture[px].rgba;
+    float2 roughnessAo = roughnessAoTexture[px].rg;
+    float2 normal = normalTexture[px].rg;
+    float3 emissive = emissiveTexture[px].rgb;
+
+    float3 viewPosition = GetViewPositionFromLinearDepth(uv, linearDepth, projection);
+    float3 worldPosition = mul(viewInv, float4(viewPosition, 1.0)).xyz;
+
+	LightPixelData lightData;
+	lightData.baseColor   = albedoMetallic.rgb;
+	lightData.normal      = OctohedralDecode(normal);
+	lightData.roughness   = roughnessAo.x;
+	lightData.metallic    = albedoMetallic.a;
+
+	lightData.viewPos     = cameraPosition;
+	lightData.fragViewPos = viewPosition;
+	lightData.worldPos    = worldPosition;
+
+    float3 color = SampleLights(lightData) + emissive;
+
+    outputTexture[px] = float4(color, 1.0);
+}

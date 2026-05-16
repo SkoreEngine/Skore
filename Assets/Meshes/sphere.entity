@@ -1,0 +1,31 @@
+objects:
+  - _uuid: ef76a07e-7446-58d0-e443-4de7ad7a5936
+    _type: 'Skore::EntityResource'
+    _parent: 3d479127-08d3-23d1-6bf7-24ba5c2cc6aa
+    _parentField: Object
+    Name: sphere
+  - _uuid: e26ce706-31cc-61ac-dfe1-f1696ade521c
+    _type: 'Skore::Transform'
+    _parent: ef76a07e-7446-58d0-e443-4de7ad7a5936
+    _parentField: Components
+    position:
+      x: 0
+      y: 0
+      z: 0
+    rotation:
+      x: -0.7071068286895752
+      y: 0
+      z: 0
+      w: 0.7071067094802856
+    scale:
+      x: 100
+      y: 100
+      z: 100
+  - _uuid: 07491e79-2aa7-b9ae-824f-145986879c57
+    _type: 'Skore::StaticMeshRenderer'
+    _parent: ef76a07e-7446-58d0-e443-4de7ad7a5936
+    _parentField: Components
+    mesh: d19642ad-8697-a510-a276-e3faa5e4077a
+    renderMode: Static
+    materials: []
+    castShadows: true
