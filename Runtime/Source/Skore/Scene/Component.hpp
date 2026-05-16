@@ -10,13 +10,6 @@ namespace Skore
 	class Entity;
 	class PhysicsScene;
 
-	struct ComponentSettings
-	{
-		bool enableUpdate = false;
-		bool enableFixedUpdate = false;
-		bool enableCollisionCallbacks = false;
-	};
-
 	struct Collision
 	{
 		Entity* entity = nullptr;        // The other entity involved in the collision
@@ -39,19 +32,11 @@ namespace Skore
 		Scene* GetScene() const { return scene; }
 
 		//called after construction / deserialization
-		virtual void Create(ComponentSettings& settings) {}
+		virtual void Create() {}
 
 		//called before destruction
 		virtual void Destroy() {}
 		virtual void OnStart() {}
-		virtual void OnUpdate(f64 deltaTime) {}
-		virtual void OnFixedUpdate() {}
-
-		virtual void OnCollisionEnter(const Collision& collision) {}
-		virtual void OnCollisionStay(const Collision& collision) {}
-		virtual void OnCollisionExit(const Collision& collision) {}
-		virtual void OnTriggerEnter(const Collision& collision) {}
-		virtual void OnTriggerExit(const Collision& collision) {}
 
 		virtual void ProcessEvent(const EntityEventDesc& event) {}
 
@@ -63,10 +48,35 @@ namespace Skore
 		friend class PhysicsScene;
 	private:
 		RID m_rid;
-		ComponentSettings m_settings = {};
 		u32 m_version = 0;
 
 		void RegisterEvents();
 		void RemoveEvents();
 	};
+
+	class SK_API Tickable
+	{
+	public:
+		virtual ~Tickable() = default;
+		virtual void OnUpdate(f64 deltaTime) = 0;
+	};
+
+	class SK_API FixedTickable
+	{
+	public:
+		virtual ~FixedTickable() = default;
+		virtual void OnFixedUpdate(f64 fixedDeltaTime) = 0;
+	};
+
+	class SK_API CollisionListener
+	{
+	public:
+		virtual ~CollisionListener() = default;
+		virtual void OnCollisionEnter(const Collision& collision) {}
+		virtual void OnCollisionStay(const Collision& collision) {}
+		virtual void OnCollisionExit(const Collision& collision) {}
+		virtual void OnTriggerEnter(const Collision& collision) {}
+		virtual void OnTriggerExit(const Collision& collision) {}
+	};
+
 }

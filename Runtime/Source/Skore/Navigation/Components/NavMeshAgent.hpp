@@ -7,12 +7,12 @@ namespace Skore
 {
 	class Transform;
 
-	class SK_API NavMeshAgent : public Component
+	class SK_API NavMeshAgent : public Component, public Tickable
 	{
 	public:
 		SK_CLASS(NavMeshAgent, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 		void OnStart() override;
 		void OnUpdate(f64 deltaTime) override;
 		void Destroy() override;

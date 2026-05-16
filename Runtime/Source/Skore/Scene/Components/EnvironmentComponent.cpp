@@ -5,7 +5,7 @@
 
 namespace Skore
 {
-	void EnvironmentComponent::Create(ComponentSettings& settings)
+	void EnvironmentComponent::Create()
 	{
 		environmentObject = scene->renderObjects.CreateEnvironmentObject();
 		environmentObject->SetMaterial(m_skyboxMaterial);

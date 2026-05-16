@@ -14,7 +14,7 @@ namespace Skore
 	public:
 		SK_CLASS(Camera, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 		void Destroy() override;
 
 

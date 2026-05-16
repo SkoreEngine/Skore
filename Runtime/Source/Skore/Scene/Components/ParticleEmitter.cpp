@@ -9,10 +9,8 @@
 
 namespace Skore
 {
-	void ParticleEmitter::Create(ComponentSettings& settings)
+	void ParticleEmitter::Create()
 	{
-		settings.enableUpdate = true;
-
 		m_particleObject = scene->renderObjects.CreateParticleObject();
 		m_particleObject->SetMaxParticles(m_maxParticles);
 		m_particleObject->SetVisible(true);

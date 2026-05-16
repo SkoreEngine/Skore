@@ -19,12 +19,12 @@ namespace Skore
 		f32  pad[2];
 	};
 
-	class SK_API ParticleEmitter : public Component
+	class SK_API ParticleEmitter : public Component, public Tickable
 	{
 	public:
 		SK_CLASS(ParticleEmitter, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 		void Destroy() override;
 		void ProcessEvent(const EntityEventDesc& event) override;
 

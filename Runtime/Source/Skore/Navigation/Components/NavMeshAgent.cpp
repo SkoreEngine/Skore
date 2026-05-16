@@ -11,9 +11,8 @@ namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("Skore::NavMeshAgent");
 
-	void NavMeshAgent::Create(ComponentSettings& settings)
+	void NavMeshAgent::Create()
 	{
-		settings.enableUpdate = true;
 	}
 
 	void NavMeshAgent::OnStart()

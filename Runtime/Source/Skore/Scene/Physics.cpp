@@ -475,7 +475,6 @@ namespace Skore
 		JPH::TempAllocatorImpl tempAllocator = JPH::TempAllocatorImpl(10 * 1024 * 1024);
 		JPH::PhysicsSystem     physicsSystem{};
 		f32                    stepSize{};
-		f64                    accumulator = 0.0;
 
 		BroadPhaseLayerInterfaceImpl      broadPhaseLayerInterfaceImpl = {};
 		ObjectVsBroadPhaseLayerFilterImpl objectVsBroadPhaseLayerFilterImpl = {};
@@ -958,11 +957,15 @@ namespace Skore
 		}
 	}
 
-	void PhysicsScene::DoUpdate()
+	f32 PhysicsScene::GetFixedTimeStep() const
 	{
-		SK_SCOPED_CPU_ZONE("Physics - Update");
+		return context ? context->stepSize : 0.0f;
+	}
 
-		const int collisionSteps = 1;
+	void PhysicsScene::UpdateCharacterControllers()
+	{
+		SK_SCOPED_CPU_ZONE("Physics - UpdateCharacterControllers");
+
 		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
 
 		for (JPH::CharacterVirtual* characterVirtual : context->virtualCharacters)
@@ -1106,17 +1109,25 @@ namespace Skore
 
 			characterController->SetOnGround(characterVirtual->IsSupported());
 		}
+	}
 
-		context->accumulator += App::DeltaTime();
-		while (context->accumulator >= context->stepSize)
-		{
-			context->physicsSystem.Update(
-				context->stepSize,
-				collisionSteps,
-				&context->tempAllocator,
-				&context->jobSystem);
-			context->accumulator -= context->stepSize;
-		}
+	void PhysicsScene::DoFixedUpdate(f32 stepSize)
+	{
+		SK_SCOPED_CPU_ZONE("Physics - DoFixedUpdate");
+
+		const int collisionSteps = 1;
+		context->physicsSystem.Update(
+			stepSize,
+			collisionSteps,
+			&context->tempAllocator,
+			&context->jobSystem);
+	}
+
+	void PhysicsScene::WriteBackTransforms()
+	{
+		SK_SCOPED_CPU_ZONE("Physics - WriteBackTransforms");
+
+		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
 
 		JPH::BodyIDVector   outBodyIDs{};
 		context->physicsSystem.GetActiveBodies(JPH::EBodyType::RigidBody, outBodyIDs);
@@ -1274,24 +1285,25 @@ namespace Skore
 
 				for (Component* component : selfEntity->GetComponents())
 				{
-					if (!component->m_settings.enableCollisionCallbacks) continue;
+					CollisionListener* listener = dynamic_cast<CollisionListener*>(component);
+					if (!listener) continue;
 
 					switch (event.type)
 					{
 						case CollisionEventType::Enter:
-							component->OnCollisionEnter(collision);
+							listener->OnCollisionEnter(collision);
 							break;
 						case CollisionEventType::Stay:
-							component->OnCollisionStay(collision);
+							listener->OnCollisionStay(collision);
 							break;
 						case CollisionEventType::Exit:
-							component->OnCollisionExit(collision);
+							listener->OnCollisionExit(collision);
 							break;
 						case CollisionEventType::TriggerEnter:
-							component->OnTriggerEnter(collision);
+							listener->OnTriggerEnter(collision);
 							break;
 						case CollisionEventType::TriggerExit:
-							component->OnTriggerExit(collision);
+							listener->OnTriggerExit(collision);
 							break;
 					}
 				}

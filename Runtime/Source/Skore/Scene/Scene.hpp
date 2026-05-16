@@ -61,14 +61,18 @@ namespace Skore
 		bool m_enableResourceSync = false;
 		RID  m_sceneRID = {};
 
-		Queue<Entity*>    m_queueToStart;
-		Queue<Component*> m_componentsToStart;
-		Queue<Component*> m_updateToAdd;
-		Queue<Component*> m_updateToRemove;
-		Queue<Entity*>    m_queueToDestroy;
+		Queue<Entity*>        m_queueToStart;
+		Queue<Component*>     m_componentsToStart;
+		Queue<Tickable*>      m_updateToAdd;
+		Queue<Tickable*>      m_updateToRemove;
+		Queue<FixedTickable*> m_fixedUpdateToAdd;
+		Queue<FixedTickable*> m_fixedUpdateToRemove;
+		Queue<Entity*>        m_queueToDestroy;
 
-		DenseSet<Component*> m_updateComponents = {};
-		DenseSet<Component*> m_fixedUpdateComponents = {};
+		DenseSet<Tickable*>      m_updateComponents = {};
+		DenseSet<FixedTickable*> m_fixedUpdateComponents = {};
+
+		f64 m_physicsAccumulator = 0.0;
 
 
 		Entity* FindOrCreateInstance(RID rid);

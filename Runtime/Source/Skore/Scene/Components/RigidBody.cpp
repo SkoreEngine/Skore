@@ -7,7 +7,7 @@
 
 namespace Skore
 {
-    void RigidBody::Create(ComponentSettings& settings)
+    void RigidBody::Create()
     {
         entity->AddFlag(EntityFlags::HasPhysics);
     }

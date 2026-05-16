@@ -144,7 +144,7 @@ namespace Skore
 	}
 
 	//------------------------------ UICanvas ----------------------------------
-	void UICanvas::Create(ComponentSettings& settings)
+	void UICanvas::Create()
 	{
 		RenderSceneObjects* objects = &scene->renderObjects;
 		objects->canvasList.EmplaceBack(this);

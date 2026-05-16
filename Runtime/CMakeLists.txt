@@ -28,7 +28,6 @@ target_link_libraries(SkoreRuntime PRIVATE
 				zstd-skore
 				mimalloc
 				OpenXR
-				lua
 				xatlas
 )
 

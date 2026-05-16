@@ -56,7 +56,7 @@ namespace Skore
 		return drawableObject;
 	}
 
-	void StaticMeshRenderer::Create(ComponentSettings& settings)
+	void StaticMeshRenderer::Create()
 	{
 		drawableObject = scene->renderObjects.CreateDrawable();
 
@@ -142,7 +142,7 @@ namespace Skore
 		type.Attribute<ComponentDesc>(ComponentDesc{.allowMultiple = true});
 	}
 
-	void SkinnedMeshRenderer::Create(ComponentSettings& settings)
+	void SkinnedMeshRenderer::Create()
 	{
 		drawableObject = scene->renderObjects.CreateDrawable();
 		drawableObject->SetMesh(m_mesh);
@@ -238,9 +238,8 @@ namespace Skore
 		type.Field<&SkinnedMeshRenderer::m_castShadows, &SkinnedMeshRenderer::GetCastShadows, &SkinnedMeshRenderer::SetCastShadows>("castShadows");
 	}
 
-	void AnimationPlayer::Create(ComponentSettings& settings)
+	void AnimationPlayer::Create()
 	{
-		settings.enableUpdate = true;
 	}
 
 	void AnimationPlayer::OnStart()
@@ -1123,7 +1122,7 @@ namespace Skore
 		type.Field<&BoneNode::scale>("scale");
 	}
 
-	void Skeleton::Create(ComponentSettings& settings)
+	void Skeleton::Create()
 	{
 		entity->AddFlag(EntityFlags::HasSkeleton);
 	}

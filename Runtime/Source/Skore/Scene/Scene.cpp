@@ -194,14 +194,22 @@ namespace Skore
 
 		while (!m_updateToAdd.IsEmpty())
 		{
-			Component* component = m_updateToAdd.Dequeue();
-			m_updateComponents.emplace(component);
+			m_updateComponents.emplace(m_updateToAdd.Dequeue());
 		}
 
 		while (!m_updateToRemove.IsEmpty())
 		{
-			Component* component = m_updateToRemove.Dequeue();
-			m_updateComponents.erase(component);
+			m_updateComponents.erase(m_updateToRemove.Dequeue());
+		}
+
+		while (!m_fixedUpdateToAdd.IsEmpty())
+		{
+			m_fixedUpdateComponents.emplace(m_fixedUpdateToAdd.Dequeue());
+		}
+
+		while (!m_fixedUpdateToRemove.IsEmpty())
+		{
+			m_fixedUpdateComponents.erase(m_fixedUpdateToRemove.Dequeue());
 		}
 
 		physicsScene.ExecuteEvents();
@@ -215,7 +223,26 @@ namespace Skore
 		Navigation::SetCurrentScene(&navigationScene);
 
 		ExecuteEvents();
-		physicsScene.DoUpdate();
+
+		physicsScene.UpdateCharacterControllers();
+
+		f32 stepSize = physicsScene.GetFixedTimeStep();
+		if (stepSize > 0.0f)
+		{
+			m_physicsAccumulator += App::DeltaTime();
+			while (m_physicsAccumulator >= stepSize)
+			{
+				SK_SCOPED_CPU_ZONE("Scene - OnFixedUpdate");
+				for (FixedTickable* fixedTickable : m_fixedUpdateComponents)
+				{
+					fixedTickable->OnFixedUpdate(stepSize);
+				}
+				physicsScene.DoFixedUpdate(stepSize);
+				m_physicsAccumulator -= stepSize;
+			}
+		}
+
+		physicsScene.WriteBackTransforms();
 		physicsScene.ProcessCollisionEvents();
 		physicsScene.ProcessPendingBodiesToAdd();
 
@@ -225,9 +252,9 @@ namespace Skore
 			SK_SCOPED_CPU_ZONE("Scene - OnUpdate");
 
 			f64 deltaTime = App::DeltaTime();
-			for (Component* component : m_updateComponents)
+			for (Tickable* tickable : m_updateComponents)
 			{
-				component->OnUpdate(deltaTime);
+				tickable->OnUpdate(deltaTime);
 			}
 		}
 	}

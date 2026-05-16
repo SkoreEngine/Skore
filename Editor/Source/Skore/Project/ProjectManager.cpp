@@ -15,7 +15,6 @@
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
-#include "Skore/Script/LuaScriptEngine.hpp"
 #include "Skore/Utils/ProjectUtils.hpp"
 
 namespace Skore
@@ -107,10 +106,6 @@ namespace Skore
 		{
 			CreateCMakeProject(projectPath);
 		}
-
-		// Generate Lua annotations for IDE support
-		String annotationsPath = Path::Join(projectPath, "annotations");
-		GenerateLuaAnnotations(annotationsPath);
 
 		FileSystem::SaveFileAsString(projectFile, "//TODO: Create project file");
 

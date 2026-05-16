@@ -34,7 +34,7 @@ namespace Skore
 	public:
 		SK_CLASS(StaticMeshRenderer, DrawableComponent);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 
 		void SetMesh(RID mesh);
 		RID  GetMesh() const;
@@ -58,7 +58,7 @@ namespace Skore
 	public:
 		SK_CLASS(SkinnedMeshRenderer, DrawableComponent);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 		void Destroy() override;
 
 		void SetMesh(RID mesh);
@@ -169,12 +169,12 @@ namespace Skore
 		bool transitioning = false;
 	};
 
-	class SK_API AnimationPlayer : public Component
+	class SK_API AnimationPlayer : public Component, public Tickable
 	{
 	public:
 		SK_CLASS(AnimationPlayer, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 		void OnStart() override;
 		void OnUpdate(f64 deltaTime) override;
 
@@ -234,7 +234,7 @@ namespace Skore
 	{
 	public:
 		SK_CLASS(Skeleton, Component);
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 
 		void SetBones(const Array<BoneNode>& bones);
 		const Array<BoneNode>& GetBones() const;

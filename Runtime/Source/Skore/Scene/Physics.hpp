@@ -83,6 +83,8 @@ namespace Skore
 		PhysicsScene();
 		~PhysicsScene();
 
+		f32 GetFixedTimeStep() const;
+
 		void RegisterPhysicsEntity(Entity* entity);
 		void UnregisterPhysicsEntity(Entity* entity);
 		void PhysicsEntityRequireUpdate(Entity* entity);
@@ -113,7 +115,9 @@ namespace Skore
 		Context* context = nullptr;
 
 		void ExecuteEvents();
-		void DoUpdate();
+		void UpdateCharacterControllers();
+		void DoFixedUpdate(f32 stepSize);
+		void WriteBackTransforms();
 		void OnSceneActivated();
 		void OnSceneDeactivated();
 	};

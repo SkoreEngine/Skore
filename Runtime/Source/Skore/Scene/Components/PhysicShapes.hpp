@@ -10,7 +10,7 @@ namespace Skore
 	public:
 		SK_CLASS(BoxCollider, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 
 		const Vec3& GetSize() const;
 		void        SetSize(const Vec3& halfSize);
@@ -37,7 +37,7 @@ namespace Skore
 	public:
 		SK_CLASS(SphereCollider, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 
 		f32         GetRadius() const;
 		void        SetRadius(f32 radius);
@@ -64,7 +64,7 @@ namespace Skore
 	public:
 		SK_CLASS(CapsuleCollider, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 
 		f32         GetRadius() const;
 		void        SetRadius(f32 radius);
@@ -94,7 +94,7 @@ namespace Skore
 	public:
 		SK_CLASS(CylinderCollider, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 
 		f32         GetRadius() const;
 		void        SetRadius(f32 radius);
