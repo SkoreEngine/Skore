@@ -1,0 +1,12 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Logo background - subtle circle -->
+  <circle cx="100" cy="100" r="80" fill="#f8f8f8" />
+  
+  <!-- Abstract geometric shapes representing a blank project -->
+  <rect x="60" y="70" width="80" height="10" rx="2" fill="#333333" />
+  <rect x="60" y="95" width="40" height="10" rx="2" fill="#555555" />
+  <rect x="60" y="120" width="60" height="10" rx="2" fill="#777777" />
+  
+  <!-- Empty square - representing empty project/blank canvas -->
+  <rect x="125" y="95" width="35" height="35" rx="4" fill="none" stroke="#333333" stroke-width="2" />
+</svg>

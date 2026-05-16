@@ -1,0 +1,130 @@
+#include "Bindings.hlsli"
+
+struct GridPushConstants
+{
+    float cellSize;
+    float gridExtent;
+    float2 pad;
+    float4 thinLinesColor;
+    float4 thickLinesColor;
+    float4 originAxisXColor;
+    float4 originAxisZColor;
+};
+
+[[vk::push_constant]] GridPushConstants gridParams;
+
+static const float3 gridPlane[6] = {
+    float3(1, 1, 0),
+    float3(-1, -1, 0),
+    float3(-1, 1, 0),
+    float3(-1, -1, 0),
+    float3(1, 1, 0),
+    float3(1, -1, 0)
+};
+
+struct VSOutput
+{
+    float4 position : SV_POSITION;
+    float3 nearPoint: TEXCOORD0;
+    float3 farPoint: TEXCOORD1;
+};
+
+float3 UnprojectPoint(float x, float y, float z)
+{
+    float4 unprojectedPoint = mul(viewInv, mul(projectionInv, float4(x, -y, z, 1.0)));
+    return unprojectedPoint.xyz / unprojectedPoint.w;
+}
+
+VSOutput MainVS(uint vertexId : SV_VertexID)
+{
+    float3 position = gridPlane[vertexId].xyz;
+
+    VSOutput output;
+    output.position = float4(position, 1.0);
+    output.nearPoint = UnprojectPoint(position.x, position.y, 0.0);
+    output.farPoint = UnprojectPoint(position.x, position.y, 1.0);
+    return output;
+}
+
+float ComputeDepth(float3 pos)
+{
+    float4 clipSpacePos = mul(projection, mul(view, float4(pos, 1.0)));
+    return clipSpacePos.z / clipSpacePos.w;
+}
+
+struct PSOutput
+{
+    float4 color : SV_Target0;
+    float depth  : SV_Depth;
+};
+
+PSOutput MainPS(VSOutput input)
+{
+    // Ray-plane intersection on Y=0
+    float t = -input.nearPoint.y / (input.farPoint.y - input.nearPoint.y);
+    float3 fragPos3D = input.nearPoint + t * (input.farPoint - input.nearPoint);
+
+    // UV is grid-space coordinate of pixel (on the XZ plane)
+    float2 uv = fragPos3D.xz;
+
+    // Screen-space derivatives in grid space
+    float2 dudv = float2(
+        length(float2(ddx(uv.x), ddy(uv.x))),
+        length(float2(ddx(uv.y), ddy(uv.y)))
+    );
+
+    // Minimum number of pixels between cell lines before LOD switch
+    float minPixelsBetweenCells = 2.0;
+    float cs = gridParams.cellSize;
+
+    // Compute LOD level (logarithmic, base-10 scale steps)
+    float lodLevel = max(0, log10((length(dudv) * minPixelsBetweenCells) / cs) + 1);
+    float lodFade = frac(lodLevel);
+
+    // Cell sizes for three LOD levels
+    float lod0_cs = cs * pow(10, floor(lodLevel));
+    float lod1_cs = lod0_cs * 10.0;
+    float lod2_cs = lod1_cs * 10.0;
+
+    // Allow each anti-aliased line to cover up to 2 pixels
+    dudv *= 2;
+    // Offset to pixel center
+    float2 uvAbs = abs(uv) + dudv / 2;
+
+    // Coverage alpha for each LOD level
+    float2 lod0_cross_a = 1.0 - abs(saturate(fmod(uvAbs, lod0_cs) / dudv) * 2 - 1.0);
+    float lod0_a = max(lod0_cross_a.x, lod0_cross_a.y);
+    float2 lod1_cross_a = 1.0 - abs(saturate(fmod(uvAbs, lod1_cs) / dudv) * 2 - 1.0);
+    float lod1_a = max(lod1_cross_a.x, lod1_cross_a.y);
+    float2 lod2_cross_a = 1.0 - abs(saturate(fmod(uvAbs, lod2_cs) / dudv) * 2 - 1.0);
+    float lod2_a = max(lod2_cross_a.x, lod2_cross_a.y);
+
+    float4 thinColor = gridParams.thinLinesColor;
+    float4 thickColor = gridParams.thickLinesColor;
+
+    // Axis coloring: color thick lines that cross the origin
+    bool isAxisZ = lod2_cross_a.x > 0 && (-lod1_cs < uv.x && uv.x < lod1_cs);
+    bool isAxisX = lod2_cross_a.y > 0 && (-lod1_cs < uv.y && uv.y < lod1_cs);
+    thickColor = isAxisX ? gridParams.originAxisXColor : thickColor;
+    thickColor = isAxisZ ? gridParams.originAxisZColor : thickColor;
+
+    // Blend between thin/thick colors based on LOD
+    float4 c = lod2_a > 0 ? thickColor : lod1_a > 0 ? lerp(thickColor, thinColor, lodFade) : thinColor;
+
+    // Opacity falloff: grazing angle
+    float3 viewDir = normalize(cameraPosition - fragPos3D);
+    float opGrazing = 1.0 - pow(1.0 - abs(viewDir.y), 16);
+
+    // Opacity falloff: distance to grid extent
+    float opDistance = 1.0 - saturate(length(uv) / gridParams.gridExtent);
+
+    float op = opGrazing * opDistance;
+
+    // Blend LOD alphas and apply opacity
+    c.a *= (lod2_a > 0 ? lod2_a : lod1_a > 0 ? lod1_a : (lod0_a * (1 - lodFade))) * op;
+
+    PSOutput output;
+    output.color = c * float(t > 0);
+    output.depth = ComputeDepth(fragPos3D);
+    return output;
+}

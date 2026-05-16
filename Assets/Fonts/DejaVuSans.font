@@ -1,0 +1,10 @@
+objects:
+  - _uuid: 43f0889e-f089-0592-3223-27ab6fac4ff9
+    _type: 'Skore::FontResource'
+    _parent: 396a26bf-ea4b-feaa-f2a7-239aa1612f17
+    _parentField: Object
+    Name: DejaVuSans
+    FontData:
+      offset: 0
+      size: 975522
+    FontDataUncompressedSize: 4344957

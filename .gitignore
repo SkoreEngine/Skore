@@ -1,0 +1,40 @@
+# CMake
+
+.idea*/
+cmake-build-*/
+.vs
+.venv
+out
+build
+.claude/
+
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+#skore
+*.pak
+
+#android
+# Gradle files
+.gradle/
+build/
+libVkLayer_khronos_validation.so
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# External native build folder generated in Android Studio 2.2 and later
+externalNativeBuild/
+.cxx/
+
+# NDK
+obj/

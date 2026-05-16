@@ -1,0 +1,100 @@
+struct Particle
+{
+	float3 position;
+	float  age;
+	float3 velocity;
+	float  lifetime;
+	float4 color;
+	float  size;
+	float  alive;
+	float2 _pad;
+};
+
+RWStructuredBuffer<Particle> particles : register(u0);
+RWStructuredBuffer<uint>     deadList  : register(u1);
+RWStructuredBuffer<uint>     counters  : register(u2);
+
+struct EmitParams
+{
+	float3 emitterPosition;
+	float  emitRadius;
+	float3 velocityMin;
+	float  particleLifetime;
+	float3 velocityMax;
+	float  startSize;
+	float4 startColor;
+	uint   emitCount;
+	uint   seed;
+	float  endSize;
+	float  pad;
+};
+
+[[vk::push_constant]] EmitParams params;
+
+uint WangHash(uint seed)
+{
+	seed = (seed ^ 61u) ^ (seed >> 16u);
+	seed *= 9u;
+	seed = seed ^ (seed >> 4u);
+	seed *= 0x27d4eb2du;
+	seed = seed ^ (seed >> 15u);
+	return seed;
+}
+
+float RandFloat(inout uint seed)
+{
+	seed = WangHash(seed);
+	return float(seed) / 4294967295.0;
+}
+
+float3 RandInSphere(inout uint seed)
+{
+	float z = RandFloat(seed) * 2.0 - 1.0;
+	float t = RandFloat(seed) * 6.28318530718;
+	float r = sqrt(max(0.0, 1.0 - z * z));
+	float d = pow(RandFloat(seed), 1.0 / 3.0);
+	return float3(r * cos(t), r * sin(t), z) * d;
+}
+
+[numthreads(64, 1, 1)]
+void MainCS(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
+	uint threadIndex = dispatchThreadID.x;
+	if (threadIndex >= params.emitCount)
+		return;
+
+	// Atomically pop from dead list
+	uint oldDeadCount;
+	InterlockedAdd(counters[1], 0xFFFFFFFF, oldDeadCount);
+	if (oldDeadCount == 0)
+	{
+		InterlockedAdd(counters[1], 1);
+		return;
+	}
+
+	uint slotIndex = deadList[oldDeadCount - 1];
+
+	// Initialize RNG
+	uint rngSeed = params.seed + threadIndex * 1973u + slotIndex * 6271u;
+
+	// Random position within emit sphere
+	float3 offset = RandInSphere(rngSeed) * params.emitRadius;
+
+	// Random velocity in range
+	float3 vel;
+	vel.x = lerp(params.velocityMin.x, params.velocityMax.x, RandFloat(rngSeed));
+	vel.y = lerp(params.velocityMin.y, params.velocityMax.y, RandFloat(rngSeed));
+	vel.z = lerp(params.velocityMin.z, params.velocityMax.z, RandFloat(rngSeed));
+
+	Particle p;
+	p.position = params.emitterPosition + offset;
+	p.age      = 0.0;
+	p.velocity = vel;
+	p.lifetime = params.particleLifetime;
+	p.color    = params.startColor;
+	p.size     = params.startSize;
+	p.alive    = 1.0;
+	p._pad     = float2(0, 0);
+
+	particles[slotIndex] = p;
+}

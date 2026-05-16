@@ -1,0 +1,197 @@
+
+#include "LightCommon.hlsli"
+#include "PBR.hlsli"
+
+[[vk::image_format("rgba16f")]]
+RWTexture2D<float4> outputTexture           : register(u0);
+Texture2D           colorTexture            : register(t1);
+Texture2D           albedoMetallicTexture   : register(t2);
+Texture2D<float2>   roughnessAoTexture      : register(t3);
+Texture2D<float2>   normalTexture           : register(t4);
+Texture2D<float>    linearDepthTexture      : register(t5);
+TextureCube         specularMap             : register(t6);
+Texture2D           brdfLUT                 : register(t7);
+SamplerState        brdfLUTSampler          : register(s8);
+SamplerState        linearSampler           : register(s9);
+SamplerState        nearestSampler          : register(s10);
+
+struct ReflectionPushConstants
+{
+    float3   cameraPosition;
+    float    reflectionMultiplier;
+
+    float2   outputSize;
+    float    farClip;
+    uint     flags;
+
+    float4x4 proj;
+    float4x4 view;
+    float4x4 invView;
+
+    int   maxIterations; // e.g. 64  — max total cells crossed
+    int   maxMipLevel;   // e.g. 6   — highest (coarsest) mip to use
+    float thickness;     // e.g. 0.1 — depth tolerance for a hit
+    float rayBias;       // e.g. 0.001
+};
+
+[[vk::push_constant]] ReflectionPushConstants pc;
+
+uint QuerySpecularTextureLevels()
+{
+    uint width, height, levels;
+    specularMap.GetDimensions(0, width, height, levels);
+    return levels;
+}
+
+uint2 QueryLinearDepthSize()
+{
+    uint width, height, levels;
+    linearDepthTexture.GetDimensions(0, width, height, levels);
+    return uint2(width, height);
+}
+
+float SampleHiZ(float2 uv, int mip)
+{
+    return linearDepthTexture.SampleLevel(nearestSampler, uv, mip).r;
+}
+
+// Get the cell size in UV space for a given mip level
+float2 CellSize(uint2 size, int mip)
+{
+    return 1.0 / floor(size / pow(2.0, mip));
+}
+
+// Snap a UV to the nearest cell boundary at a given mip level
+// Used to find how far the ray can travel before crossing a cell edge
+float2 SnapToCell(uint2 size, float2 uv, int mip)
+{
+    float2 cell = CellSize(size, mip);
+    return ceil(uv / cell) * cell;
+}
+
+
+float4 TraceReflection(float3 rayOrigin, float3 rayDir)
+{
+    uint2 linearDepthSize = QueryLinearDepthSize();
+
+    int mip = pc.maxMipLevel;
+    float3 rayPos = rayOrigin + rayDir * pc.rayBias;
+    float2 rayDirUV  = normalize(ViewToScreenUV(pc.proj, rayOrigin + rayDir) - ViewToScreenUV(pc.proj, rayOrigin));
+
+    float2 currentUV = ViewToScreenUV(pc.proj, rayPos);
+
+    for (int i = 0; i < pc.maxIterations; i++)
+    {
+        // --- Out of screen bounds → miss ---
+        if (currentUV.x < 0.0 || currentUV.x > 1.0 || currentUV.y < 0.0 || currentUV.y > 1.0)
+        {
+            break;
+        }
+
+        float cellMinDepth = SampleHiZ(currentUV, mip);
+
+        //printf("pos: %f, minDepth %f ", rayPos.z, cellMinDepth);
+
+        // --- Check if ray is behind the cell ---
+        if (-rayPos.z > cellMinDepth + pc.thickness)
+        {
+            // Overshot — this mip was too coarse, go finer
+            if (mip == 0)
+            {
+                // At finest level → confirmed hit
+                float2 hitUV     = currentUV;
+                float2 edgeFade  = smoothstep(0.0, 0.1, hitUV)
+                                 * smoothstep(1.0, 0.9, hitUV);
+                float  fade      = edgeFade.x * edgeFade.y;
+
+                float4 reflColor = colorTexture.SampleLevel(linearSampler, hitUV, 0);
+                return float4(reflColor.rgb, fade);
+            }
+
+            // Step back and refine at a finer mip
+            mip = max(0, mip - 1);
+            continue;
+        }
+
+        // --- Ray is in front of the cell — safe to advance ---
+        // Find the UV distance to the next cell boundary
+        float2 cellBoundary = SnapToCell(linearDepthSize, currentUV, mip);
+
+        // How many UV units until we hit each axis boundary
+        float2 tToEdge = abs((cellBoundary - currentUV) / rayDirUV);
+
+        // Take the smaller one — whichever axis boundary we hit first
+        float  tStep   = min(tToEdge.x, tToEdge.y) + 0.0001;
+
+        // Advance the ray
+        rayPos += rayDir * tStep;
+        currentUV = ViewToScreenUV(pc.proj, rayPos);
+
+        // After a successful crossing, try stepping up to a coarser mip
+        // (if the area ahead is empty, we can skip more cells faster)
+        mip = min(mip + 1, pc.maxMipLevel);
+    }
+
+    return float4(0, 0, 0, 0);
+}
+
+
+[numthreads(8, 8, 1)]
+void MainCS(uint2 px : SV_DispatchThreadID)
+{
+    if (any(int2(px) >= pc.outputSize))
+        return;
+
+    float linearDepth = linearDepthTexture[px].r;
+    if (linearDepth >= pc.farClip - 0.1) //need to improve precision.
+    {
+        outputTexture[px] = float4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
+
+    float2 uv = (float2(px) + 0.5) / pc.outputSize;
+
+    float3 baseColor = albedoMetallicTexture[px].rgb;
+    float  metallic  = albedoMetallicTexture[px].a;
+    float  roughness = roughnessAoTexture[px].r;
+    float  ao        = roughnessAoTexture[px].g;
+    float3 normal    = OctohedralDecode(normalTexture[px].rg);
+
+    float3 viewPosition = GetViewPositionFromLinearDepth(uv, linearDepth, pc.proj);
+    float3 worldPosition = mul(pc.invView, float4(viewPosition, 1.0)).xyz;
+
+    float3 V        = normalize(pc.cameraPosition - worldPosition);
+    float3 N        = normalize(normal);
+    float  cosLo    = max(dot(N, V), 0.0);
+    float3 Lr       = 2.0 * cosLo * N - V;
+
+    float3 F0 = lerp(0.04, baseColor, metallic);
+    float3 F = FresnelSchlickRoughness(cosLo, F0, roughness);
+
+    float3 specularColor = 0.0;
+
+    [branch]
+    if (pc.flags & SK_LIGHT_FLAGS_HAS_REFLECTION_TEXTURE)
+    {
+        uint   specularTextureLevels = QuerySpecularTextureLevels();
+        float3 specularIrradiance = specularMap.SampleLevel(linearSampler, Lr, roughness * specularTextureLevels).rgb;
+        float2 specularBRDF = brdfLUT.SampleLevel(brdfLUTSampler, float2(cosLo, roughness), 0).rg;
+        specularColor = (specularIrradiance * (F * specularBRDF.x + specularBRDF.y)) * pc.reflectionMultiplier;
+    }
+
+    [branch]
+    if (pc.flags & SK_LIGHT_FLAGS_SSR_ENABLED)
+    {
+        float3 normalViewSpace = normalize(
+            mul( (float3x3) pc.view, normal)
+        );
+
+        float3 viewDir  = normalize(viewPosition);
+        float3 reflDir  = reflect(viewDir, normalViewSpace);
+
+        float4 reflectColor = TraceReflection(viewPosition, reflDir);
+        specularColor = lerp(specularColor, reflectColor.rgb, reflectColor.a);
+    }
+
+    outputTexture[px] = float4(specularColor * ao, 1.0);
+}

@@ -1,0 +1,33 @@
+
+#include "Bindings.hlsli"
+
+struct PushConstants
+{
+	matrix world;
+};
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+struct VertexInput
+{
+	float3 position : POSITION;
+};
+
+struct PixelInput
+{
+	float4 position : SV_POSITION;
+};
+
+PixelInput MainVS(VertexInput input)
+{
+	PixelInput output;
+	float4 worldPosition = mul(pushConstants.world, float4(input.position, 1.0f));
+	output.position      = mul(viewProjection, worldPosition);
+	return output;
+}
+
+// Pixel Shader
+float4 MainPS(PixelInput input) : SV_TARGET
+{
+    return 1.0;
+}

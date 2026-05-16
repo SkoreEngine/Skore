@@ -1,0 +1,314 @@
+#include "Skore/Resource/ResourceType.hpp"
+
+#include "Skore/Core/ByteBuffer.hpp"
+#include "Skore/Core/Color.hpp"
+#include "Skore/Core/Math.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Core/Span.hpp"
+
+namespace Skore
+{
+	constexpr static TypeProps fieldProps[] = {
+		TypeInfo<void>::GetProps(),           // ResourceFieldType::None
+		TypeInfo<bool>::GetProps(),           // ResourceFieldType::Bool
+		TypeInfo<i64>::GetProps(),            // ResourceFieldType::Int,
+		TypeInfo<u64>::GetProps(),            // ResourceFieldType::UInt,
+		TypeInfo<f64>::GetProps(),            // ResourceFieldType::Float,
+		TypeInfo<String>::GetProps(),         // ResourceFieldType::String,
+		TypeInfo<Vec2>::GetProps(),           // ResourceFieldType::Vec2,
+		TypeInfo<Vec3>::GetProps(),           // ResourceFieldType::Vec3,
+		TypeInfo<Vec4>::GetProps(),           // ResourceFieldType::Vec4,
+		TypeInfo<Quat>::GetProps(),           // ResourceFieldType::Quat,
+		TypeInfo<Mat4>::GetProps(),           // ResourceFieldType::Quat,
+		TypeInfo<Color>::GetProps(),          // ResourceFieldType::Color,
+		TypeInfo<i64>::GetProps(),            // ResourceFieldType::Enum,
+		TypeInfo<ByteBuffer>::GetProps(),     // ResourceFieldType::Blob,
+		TypeInfo<RID>::GetProps(),            // ResourceFieldType::Reference,
+		TypeInfo<Array<RID>>::GetProps(),     // ResourceFieldType::ReferenceArray,
+		TypeInfo<RID>::GetProps(),            // ResourceFieldType::SubObject,
+		TypeInfo<SubObjectList>::GetProps(),  // ResourceFieldType::SubObjectList,
+		TypeInfo<ResourceBuffer>::GetProps(), // ResourceFieldType::Buffer,
+		TypeInfo<TypeID>::GetProps(),         // ResourceFieldType::TypeID,
+	};
+
+	static_assert(sizeof(fieldProps) / sizeof(TypeProps) == static_cast<usize>(ResourceFieldType::MAX), "Invalid field size array");
+
+	void ResourceAddTypeByAttribute(TypeID attributeId, TypeID resourceId);
+
+	StringView ResourceField::GetName() const
+	{
+		return name;
+	}
+
+	u32 ResourceField::GetIndex() const
+	{
+		return index;
+	}
+
+	u32 ResourceField::GetSize() const
+	{
+		return size;
+	}
+
+	u32 ResourceField::GetOffset() const
+	{
+		return offset;
+	}
+
+	ResourceFieldType ResourceField::GetType() const
+	{
+		return type;
+	}
+
+	TypeID ResourceField::GetSubType() const
+	{
+		return subType;
+	}
+
+	FieldProps ResourceField::GetTypeStaticProps() const
+	{
+		TypeProps typeProps = fieldProps[static_cast<usize>(type)];
+
+		FieldProps props{};
+		props.typeId = typeProps.typeId;
+		props.typeApi = typeProps.typeApi;
+		props.name = typeProps.name;
+		props.getTypeApi = typeProps.getTypeApi;
+		props.size = typeProps.size;
+		props.alignment = typeProps.alignment;
+		props.isTriviallyCopyable = typeProps.isTriviallyCopyable;
+		props.isEnum = type == ResourceFieldType::Enum;
+		props.fnCopy = typeProps.fnCopy;
+		props.fnDestroy = typeProps.fnDestroy;
+
+		return props;
+	}
+
+	ReflectField* ResourceField::GetReflectField() const
+	{
+		return reflectField;
+	}
+
+	ResourceFieldProperties ResourceField::GetProps() const
+	{
+		return props;
+	}
+
+	ResourceType::ResourceType(TypeID type, StringView name) : type(type), name(name)
+	{
+		simpleName = MakeSimpleName(name);
+	}
+
+	ResourceType::~ResourceType()
+	{
+		for (ResourceField* field : fields)
+		{
+			if (field == nullptr) continue;
+
+			DestroyAndFree(field);
+		}
+	}
+
+	ResourceInstance ResourceType::Allocate() const
+	{
+		SK_ASSERT(allocSize > 0, "Invalid resource type alloc size, did you call Build()?");
+
+		ResourceInstance instance = static_cast<ResourceInstance>(MemAlloc(allocSize));
+		memset(instance, 0, allocSize);
+
+		ResourceInstanceInfo& info = *reinterpret_cast<ResourceInstanceInfo*>(instance);
+		info.readOnly = true;
+
+		return instance;
+	}
+
+	TypeID ResourceType::GetID() const
+	{
+		return type;
+	}
+
+	StringView ResourceType::GetName() const
+	{
+		return name;
+	}
+
+	StringView ResourceType::GetSimpleName() const
+	{
+		return simpleName;
+	}
+
+	RID ResourceType::GetDefaultValue() const
+	{
+		return defaultValue;
+	}
+
+	u32 ResourceType::GetAllocSize() const
+	{
+		return allocSize;
+	}
+
+	u32 ResourceType::GetVersion() const
+	{
+		return version;
+	}
+
+	ReflectType* ResourceType::GetReflectType() const
+	{
+		return reflectType;
+	}
+
+	Span<ResourceField*> ResourceType::GetFields() const
+	{
+		return fields;
+	}
+
+	bool ResourceType::HasFieldWithType(ResourceFieldType fieldType)
+	{
+		for (ResourceField* field : fields)
+		{
+			if (field && field->type == fieldType)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	ResourceField* ResourceType::FindFieldByName(StringView name) const
+	{
+		for (ResourceField* field : fields)
+		{
+			if (field && field->name == name)
+			{
+				return field;
+			}
+		}
+		return nullptr;
+	}
+
+	void ResourceType::RegisterEvent(ResourceEventType eventType, FnObjectEvent event, VoidPtr userData)
+	{
+		events[static_cast<u32>(eventType)].EmplaceBack(event, userData);
+	}
+
+	void ResourceType::UnregisterEvent(ResourceEventType eventType, FnObjectEvent event, VoidPtr userData)
+	{
+		ResourceEvent typeEvent = {event, userData};
+		if (auto itAsset = FindFirst(events[static_cast<u32>(eventType)].begin(), events[static_cast<u32>(eventType)].end(), typeEvent))
+		{
+			events[static_cast<u32>(eventType)].Erase(itAsset);
+		}
+	}
+
+	Span<ResourceEvent> ResourceType::GetEvents(ResourceEventType eventType) const
+	{
+		return events[static_cast<u32>(eventType)];
+	}
+
+	ConstPtr ResourceType::GetAttribute(TypeID attributeId) const
+	{
+		if (auto it = attributes.Find(attributeId))
+		{
+			return it->second;
+		}
+		return nullptr;
+	}
+
+	void ResourceType::SetDefaultValue(RID defaultValue)
+	{
+		this->defaultValue = defaultValue;
+	}
+
+	ResourceTypeBuilder& ResourceTypeBuilder::Field(u32 index, StringView name, ResourceFieldType type)
+	{
+		return Field(index, name, type, {});
+	}
+
+	ResourceTypeBuilder& ResourceTypeBuilder::Field(u32 index, StringView name, ResourceFieldType type, TypeID subType)
+	{
+		return Field(index, name, type, subType, ResourceFieldProperties::None);
+	}
+
+	ResourceTypeBuilder& ResourceTypeBuilder::Field(u32 index, StringView name, ResourceFieldType type, TypeID subType, ResourceFieldProperties props)
+	{
+		ResourceField* resourceField = Alloc<ResourceField>();
+		resourceField->index = index;
+		resourceField->name = name;
+		resourceField->type = type;
+		resourceField->subType = subType;
+		resourceField->props = props;
+
+		if (index >= resourceType->fields.Size())
+		{
+			resourceType->fields.Resize(index + 1);
+		}
+
+		resourceType->fields[index] = resourceField;
+
+		return *this;
+	}
+
+	ResourceTypeBuilder& ResourceTypeBuilder::Field(ReflectField* field)
+	{
+		ResourceFieldInfo info = field->GetResourceFieldInfo();
+
+		ResourceField* resourceField = Alloc<ResourceField>();
+		resourceField->index = field->GetIndex();
+		resourceField->name = field->GetName();
+		resourceField->type = info.type;
+		resourceField->subType = info.subType;
+		resourceField->reflectField = field;
+
+		if (resourceField->index >= resourceType->fields.Size())
+		{
+			resourceType->fields.Resize(resourceField->index + 1);
+		}
+
+		resourceType->fields[resourceField->index] = resourceField;
+
+		return *this;
+	}
+
+	ResourceTypeBuilder& ResourceTypeBuilder::Attribute(TypeID attributeType, ConstPtr value)
+	{
+		if (ReflectType* reflectType = Reflection::FindTypeById(attributeType))
+		{
+			if (resourceType->attributes.Find(attributeType) == resourceType->attributes.end())
+			{
+				VoidPtr ptr = MemAlloc(reflectType->GetProps().size);
+				reflectType->Copy(value, ptr);
+				ResourceAddTypeByAttribute(attributeType, resourceType->type);
+				resourceType->attributes.Insert(attributeType, ptr);
+			}
+		}
+		return *this;
+	}
+
+	ResourceTypeBuilder& ResourceTypeBuilder::Build()
+	{
+		//info
+		resourceType->allocSize = sizeof(ResourceInstanceInfo);
+
+		//null check
+		//keep align to 4 bytes
+		usize checkSize = resourceType->fields.Size() + 3 & ~3;
+		resourceType->allocSize += checkSize;
+
+		for (ResourceField* field : resourceType->fields)
+		{
+			if (field == nullptr) continue;
+
+			const TypeProps& props = fieldProps[static_cast<usize>(field->type)];
+			field->size = props.size;
+			field->offset = resourceType->allocSize;
+			resourceType->allocSize += Math::Max(props.size, props.alignment);
+		}
+
+		return *this;
+	}
+
+	ResourceType* ResourceTypeBuilder::GetResourceType() const
+	{
+		return resourceType;
+	}
+}

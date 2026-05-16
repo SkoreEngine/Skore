@@ -1,0 +1,25 @@
+Texture2D<float4>   inputTexture;
+[[vk::image_format("rgba8u")]]  RWTexture2D<float4> outputTexture;
+SamplerState        linearSampler;
+
+struct PushConstants
+{
+    uint2 outputSize;
+    uint2 pad0;
+};
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= pushConstants.outputSize.x || id.y >= pushConstants.outputSize.y)
+    {
+       return;
+    }
+
+    float2 uv = (float2(id.xy) + 0.5) / float2(pushConstants.outputSize);
+
+    float4 color = inputTexture.SampleLevel(linearSampler, uv, 0);
+    outputTexture[id.xy] = color;
+}
