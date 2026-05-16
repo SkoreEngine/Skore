@@ -12,7 +12,7 @@ namespace Skore
 	public:
 		SK_CLASS(EnvironmentComponent, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 		void Destroy() override;
 		void ProcessEvent(const EntityEventDesc& event) override;
 

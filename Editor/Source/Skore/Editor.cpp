@@ -37,7 +37,6 @@
 #include "Skore/Core/ThreadPool.hpp"
 #include "Skore/IO/Compression.hpp"
 #include "Skore/IO/Input.hpp"
-#include "Skore/Script/LuaScriptEngine.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 #include "Skore/Window/SettingsWindow.hpp"
 #include "Skore/Scene/Entity.hpp"
@@ -297,11 +296,6 @@ namespace Skore
 			CreateCMakeProject(projectPath);
 		}
 
-		void GenerateLuaAnnotationsAction(const MenuItemEventData& eventData)
-		{
-			String annotationsPath = Path::Join(projectPath, "annotations");
-			GenerateLuaAnnotations(annotationsPath);
-		}
 
 		void ExportProject(bool run)
 		{
@@ -444,7 +438,6 @@ namespace Skore
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Open Editor", .priority = 5, .action = OpenProjectInEditorAction, .visible = CanOpenEditor});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .visible = CreateCMakeProjectVisible});
-			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Generate Lua Annotations", .priority = 15, .action = GenerateLuaAnnotationsAction});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Reload Shaders", .priority = 100, .itemShortcut = {.presKey = Key::F5}, .action = ReloadShaders});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Show Debug Options", .priority = 105, .action = ShowDebugOptions, .selected = IsDebugOptionsEnabled});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window", .priority = 60});

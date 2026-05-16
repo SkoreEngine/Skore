@@ -9,7 +9,7 @@
 
 namespace Skore
 {
-	void LightComponent::Create(ComponentSettings& settings)
+	void LightComponent::Create()
 	{
 		lightObject = scene->renderObjects.CreateLightObject();
 		lightObject->SetType(m_lightType);

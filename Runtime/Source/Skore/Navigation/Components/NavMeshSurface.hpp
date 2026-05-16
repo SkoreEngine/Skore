@@ -15,7 +15,7 @@ namespace Skore
 		void SetNavMeshData(SubObjectRID<NavMeshResource> navMeshData);
 		SubObjectRID<NavMeshResource> GetNavMeshData() const;
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 		void Build();
 
 		static void RegisterType(NativeReflectType<NavMeshSurface>& type);

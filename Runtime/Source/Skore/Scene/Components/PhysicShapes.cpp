@@ -7,7 +7,7 @@
 
 namespace Skore
 {
-	void BoxCollider::Create(ComponentSettings& settings)
+	void BoxCollider::Create()
 	{
 		entity->AddFlag(EntityFlags::HasPhysics);
 		scene->physicsScene.PhysicsEntityRequireUpdate(entity);
@@ -90,7 +90,7 @@ namespace Skore
 	}
 
 	// SphereCollider implementation
-	void SphereCollider::Create(ComponentSettings& settings)
+	void SphereCollider::Create()
 	{
 		entity->AddFlag(EntityFlags::HasPhysics);
 		scene->physicsScene.PhysicsEntityRequireUpdate(entity);
@@ -172,7 +172,7 @@ namespace Skore
 	}
 
 	// CapsuleCollider implementation
-	void CapsuleCollider::Create(ComponentSettings& settings)
+	void CapsuleCollider::Create()
 	{
 		entity->AddFlag(EntityFlags::HasPhysics);
 		scene->physicsScene.PhysicsEntityRequireUpdate(entity);
@@ -267,7 +267,7 @@ namespace Skore
 	}
 
 	// CylinderCollider implementation
-	void CylinderCollider::Create(ComponentSettings& settings)
+	void CylinderCollider::Create()
 	{
 		entity->AddFlag(EntityFlags::HasPhysics);
 		scene->physicsScene.PhysicsEntityRequireUpdate(entity);

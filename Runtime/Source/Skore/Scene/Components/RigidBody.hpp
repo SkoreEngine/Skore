@@ -10,7 +10,7 @@ namespace Skore
 	public:
 		SK_CLASS(RigidBody, Component);
 
-		void Create(ComponentSettings& settings) override;
+		void Create() override;
 
 		f32                    GetMass() const;
 		void                   SetMass(f32 mass);

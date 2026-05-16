@@ -1912,7 +1912,6 @@ namespace Skore
 	void RegisterFontHandler();
 	void RegisterAnimationHandler();
 	void RegisterAnimationControllerHandler();
-	void RegisterLuaScriptHandler();
 	void RegisterDCCAssetHandler();
 
 	void RegisterAudioImporter();
@@ -1971,7 +1970,6 @@ namespace Skore
 		RegisterFontHandler();
 		RegisterAnimationHandler();
 		RegisterAnimationControllerHandler();
-		RegisterLuaScriptHandler();
 		RegisterDCCAssetHandler();
 
 		RegisterAudioImporter();

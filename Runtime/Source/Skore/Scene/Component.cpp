@@ -14,16 +14,9 @@ namespace Skore
 		type.Function<&Component::GetScene>("GetScene");
 		type.Function<&Component::GetRID>("GetRID");
 
-		type.Function<&Component::Create>("Create", "settings").Attribute<VirtualMethod>();
+		type.Function<&Component::Create>("Create").Attribute<VirtualMethod>();
 		type.Function<&Component::Destroy>("Destroy").Attribute<VirtualMethod>();
 		type.Function<&Component::OnStart>("OnStart").Attribute<VirtualMethod>();
-		type.Function<&Component::OnUpdate>("OnUpdate", "deltaTime").Attribute<VirtualMethod>();
-		type.Function<&Component::OnFixedUpdate>("OnFixedUpdate").Attribute<VirtualMethod>();
-		type.Function<&Component::OnCollisionEnter>("OnCollisionEnter", "collision").Attribute<VirtualMethod>();
-		type.Function<&Component::OnCollisionStay>("OnCollisionStay", "collision").Attribute<VirtualMethod>();
-		type.Function<&Component::OnCollisionExit>("OnCollisionExit", "collision").Attribute<VirtualMethod>();
-		type.Function<&Component::OnTriggerEnter>("OnTriggerEnter", "collision").Attribute<VirtualMethod>();
-		type.Function<&Component::OnTriggerExit>("OnTriggerExit", "collision").Attribute<VirtualMethod>();
 		type.Function<&Component::ProcessEvent>("ProcessEvent", "event").Attribute<VirtualMethod>();
 	}
 
@@ -39,17 +32,17 @@ namespace Skore
 
 	void Component::RegisterEvents()
 	{
-		if (m_settings.enableUpdate)
+		if (Tickable* tickable = dynamic_cast<Tickable*>(this))
 		{
-			entity->m_scene->m_updateToAdd.Enqueue(this);
+			entity->m_scene->m_updateToAdd.Enqueue(tickable);
 		}
 
-		if (m_settings.enableFixedUpdate)
+		if (FixedTickable* fixedTickable = dynamic_cast<FixedTickable*>(this))
 		{
-			entity->m_scene->m_fixedUpdateComponents.emplace(this);
+			entity->m_scene->m_fixedUpdateToAdd.Enqueue(fixedTickable);
 		}
 
-		if (m_settings.enableCollisionCallbacks)
+		if (dynamic_cast<CollisionListener*>(this))
 		{
 			entity->m_scene->physicsScene.RegisterCollisionCallbacks(entity);
 		}
@@ -57,23 +50,23 @@ namespace Skore
 
 	void Component::RemoveEvents()
 	{
-		if (m_settings.enableUpdate)
+		if (Tickable* tickable = dynamic_cast<Tickable*>(this))
 		{
-			entity->m_scene->m_updateToRemove.Enqueue(this);
+			entity->m_scene->m_updateToRemove.Enqueue(tickable);
 		}
 
-		if (m_settings.enableFixedUpdate)
+		if (FixedTickable* fixedTickable = dynamic_cast<FixedTickable*>(this))
 		{
-			entity->m_scene->m_fixedUpdateComponents.erase(this);
+			entity->m_scene->m_fixedUpdateToRemove.Enqueue(fixedTickable);
 		}
 
-		if (m_settings.enableCollisionCallbacks)
+		if (dynamic_cast<CollisionListener*>(this))
 		{
 			// Only unregister if no other component on this entity needs collision callbacks
 			bool hasOtherCollisionCallbacks = false;
 			for (Component* other : entity->GetComponents())
 			{
-				if (other != this && other->m_settings.enableCollisionCallbacks)
+				if (other != this && dynamic_cast<CollisionListener*>(other))
 				{
 					hasOtherCollisionCallbacks = true;
 					break;

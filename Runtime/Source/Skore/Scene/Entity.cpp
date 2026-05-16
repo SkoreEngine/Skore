@@ -326,7 +326,7 @@ namespace Skore
 			}
 		}
 
-		component->Create(component->m_settings);
+		component->Create();
 		component->RegisterEvents();
 
 		m_components.EmplaceBack(component);
@@ -669,7 +669,6 @@ namespace Skore
 				Component* newComponent = reflectType->NewObject()->SafeCast<Component>();
 				newComponent->entity = this;
 				newComponent->scene = m_scene;
-				newComponent->m_settings = component->m_settings;
 				newComponent->m_version = reflectType->GetVersion();
 				newComponent->m_rid = component->m_rid;
 

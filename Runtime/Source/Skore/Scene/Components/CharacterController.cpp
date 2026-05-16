@@ -8,7 +8,7 @@
 
 namespace Skore
 {
-	void CharacterController::Create(ComponentSettings& settings)
+	void CharacterController::Create()
 	{
 		entity->AddFlag(EntityFlags::HasPhysics);
 		entity->AddFlag(EntityFlags::HasCharacterController);

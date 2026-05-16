@@ -9,7 +9,7 @@
 
 namespace Skore
 {
-	void Camera::Create(ComponentSettings& settings)
+	void Camera::Create()
 	{
 		cameraObject = scene->renderObjects.CreateCameraObject();
 		cameraObject->SetTransform(entity->GetWorldTransform());

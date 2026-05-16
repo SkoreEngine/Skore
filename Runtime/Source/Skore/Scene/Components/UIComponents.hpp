@@ -56,7 +56,7 @@ namespace Skore
 		void SetRenderIndex(i32 renderIndex);
 		i32  GetRenderIndex() const;
 
-		void        Create(ComponentSettings& settings) override;
+		void        Create() override;
 		void        Destroy() override;
 		static void RegisterType(NativeReflectType<UICanvas>& type);
 
