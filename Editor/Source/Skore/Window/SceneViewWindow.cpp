@@ -23,7 +23,6 @@
 #include "Skore/Scene/Components/LightComponent.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
-#include "Skore/Scene/Components/UIComponents.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 
@@ -888,17 +887,9 @@ namespace Skore
 				addTableBoolOption("Draw Icons", &drawIcons);
 				addTableBoolOption("Draw Debug Physics", &drawDebugPhysics);
 				addTableBoolOption("Show All Physics Shapes", &showAllPhysicsShapes);
-				addTableBoolOption("Always Draw UI", &alwaysDrawUI);
 				addTableBoolOption("Draw Mesh AABB", &drawMeshAABB);
 				addTableBoolOption("Draw NavMesh", &drawNavMesh);
 				addTableBoolOption("Lock Camera Frustum", &lockCameraFrustum);
-
-
-				bool debugUIEnabled = uiRenderer.IsDebugModeEnabled();
-				if (addTableBoolOption("Draw Debug UI", &debugUIEnabled))
-				{
-					uiRenderer.SetDebugModeEnabled(debugUIEnabled);
-				}
 
 				ImGui::EndTable();
 			}

@@ -69,9 +69,6 @@ namespace Skore
 		constexpr static i32 ParentTransformUpdated = 1010;
 
 		constexpr static i32 CollectPhysicsShapes = 1100;
-		constexpr static i32 ProcessUILayout = 1110;
-		constexpr static i32 ProcessUIWidget = 1120;
-		constexpr static i32 ProcessUICreation = 1130;
 		constexpr static i32 CalculateEntityAABB = 1140;
 		constexpr static i32 SkeletonUpdated = 1150;
 		constexpr static i32 EntityLayerChanged = 1160;

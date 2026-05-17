@@ -32,15 +32,6 @@ namespace Skore
 		Disabled
 	};
 
-	struct UISettings
-	{
-		enum
-		{
-			GlobalScale,
-			DPIScaling,
-		};
-	};
-
 	enum class Projection : i32
 	{
 		Perspective = 1,

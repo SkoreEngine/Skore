@@ -24,7 +24,6 @@ target_link_libraries(SkoreRuntime PRIVATE
 				Jolt
 				RecastNavigation
 				miniaudio
-				clay
 				zstd-skore
 				mimalloc
 				OpenXR

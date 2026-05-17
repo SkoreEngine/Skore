@@ -18,8 +18,6 @@ namespace Skore
 		Capsule,
 		Plane,
 		Sprite2D,
-		UIImage,
-		UIText
 	};
 
 
@@ -59,7 +57,6 @@ namespace Skore
 		bool      IsParentOfSelected(RID entity);
 		bool      HasSelectedEntities() const;
 		Span<RID> GetSelectedEntities() const;
-		bool      HasUIComponentSelected() const;
 
 		//selection for Scene/Entity
 		void SelectEntity(Entity* entity, bool clearSelection);
@@ -98,8 +95,6 @@ namespace Skore
 
 		bool m_shouldStartSimulation = false;
 		bool m_shouldStopSimulation = false;
-
-		bool m_uiComponentSelected = false;
 
 		HashSet<Entity*> m_selectedEntities{};
 

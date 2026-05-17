@@ -11,7 +11,6 @@
 #include "Skore/IO/Input.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Scene/SceneManager.hpp"
-#include "Skore/Scene/Components/UIComponents.hpp"
 
 //TODO: selection between RID and Entity* need to be merged, maybe with UUID?
 
@@ -162,13 +161,6 @@ namespace Skore
 						newEntityObject.SetString(EntityResource::Name, "Plane");
 						break;
 					case EntityCreationType::Sprite2D:
-						break;
-					case EntityCreationType::UIImage:
-					{
-						newEntityObject.SetString(EntityResource::Name, "Image");
-						break;
-					}
-					case EntityCreationType::UIText:
 						break;
 				}
 				newEntityObject.Commit(scope);
@@ -452,11 +444,6 @@ namespace Skore
 		return selectionObject.GetReferenceArray(SceneEditorSelection::SelectedEntities);
 	}
 
-	bool SceneEditor::HasUIComponentSelected() const
-	{
-		return m_uiComponentSelected;
-	}
-
 	void SceneEditor::SelectEntity(Entity* entity, bool clearSelection)
 	{
 		if (clearSelection)
@@ -692,8 +679,6 @@ namespace Skore
 			return;
 		}
 
-		sceneEditor->m_uiComponentSelected = false;
-
 		if (oldValue && sceneEditor->m_selection == oldValue.GetRID())
 		{
 			for (RID deselected : oldValue.GetReferenceArray(SceneEditorSelection::SelectedEntities))
@@ -718,17 +703,6 @@ namespace Skore
 					sceneEditor->m_selectionCacheByRID.Insert(selected, entity);
 				}
 				onEntitySelectionHandler.Invoke(sceneEditor->m_workspace.GetId(), selected);
-
-				if (ResourceObject entityObject = Resources::Read(selected))
-				{
-					for (RID component : entityObject.GetSubObjectList(EntityResource::Components))
-					{
-						if (Resources::GetType(component)->GetID() == TypeInfo<UIElement>::ID())
-						{
-							sceneEditor->m_uiComponentSelected = true;
-						}
-					}
-				}
 			}
 		}
 	}

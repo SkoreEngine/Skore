@@ -1216,16 +1216,6 @@ namespace Skore
 			.Field<FontResource::FontDataUncompressedSize>(ResourceFieldType::UInt)
 			.Build();
 
-		Resources::Type<UISettings>()
-			.Field<UISettings::GlobalScale>(ResourceFieldType::Float)
-			.Field<UISettings::DPIScaling>(ResourceFieldType::Bool)
-			.Attribute<EditableSettings>(EditableSettings{
-				.path = "Engine/UI",
-				.type = TypeInfo<ProjectSettings>::ID(),
-				.order = 30
-			})
-			.Build();
-
 		Resources::Type<GraphicsSettings>()
 			.Field<GraphicsSettings::EnableValidationLayers>(ResourceFieldType::Bool)
 			.Attribute<EditableSettings>(EditableSettings{
@@ -1277,17 +1267,6 @@ namespace Skore
 			object.Commit();
 			Resources::FindType<MaterialResource>()->SetDefaultValue(rid);
 		}
-
-		{
-			RID            rid = Resources::Create<UISettings>();
-			ResourceObject object = Resources::Write(rid);
-			object.SetFloat(UISettings::GlobalScale, 1.0f);
-			object.SetBool(UISettings::DPIScaling, true);
-			object.Commit();
-
-			Resources::FindType<UISettings>()->SetDefaultValue(rid);
-		}
-
 
 		RegisterRenderPipelineBaseTypes();
 		RegisterPipelineTypes();

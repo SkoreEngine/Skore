@@ -16,7 +16,6 @@
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/RigidBody.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
-#include "Skore/Scene/Components/UIComponents.hpp"
 #include "Skore/Scene/Components/XRComponents.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Settings.hpp"
@@ -62,9 +61,6 @@ namespace Skore
 			entityEventType.Value<EntityEventType::TransformUpdated>("TransformUpdated");
 			entityEventType.Value<EntityEventType::ParentTransformUpdated>("ParentTransformUpdated");
 			entityEventType.Value<EntityEventType::CollectPhysicsShapes>("CollectPhysicsShapes");
-			entityEventType.Value<EntityEventType::ProcessUILayout>("ProcessUILayout");
-			entityEventType.Value<EntityEventType::ProcessUIWidget>("ProcessUIWidget");
-			entityEventType.Value<EntityEventType::ProcessUICreation>("ProcessUICreation");
 			entityEventType.Value<EntityEventType::CalculateEntityAABB>("CalculateEntityAABB");
 			entityEventType.Value<EntityEventType::SkeletonUpdated>("SkeletonUpdated");
 			entityEventType.Value<EntityEventType::EntityLayerChanged>("EntityLayerChanged");
@@ -108,36 +104,6 @@ namespace Skore
 		collisionEventType.Value<CollisionEventType::TriggerEnter>();
 		collisionEventType.Value<CollisionEventType::TriggerExit>();
 
-		auto layoutDirection = Reflection::Type<LayoutDirection>();
-		layoutDirection.Value<LayoutDirection::LeftToRight>();
-		layoutDirection.Value<LayoutDirection::TopToButton>();
-
-		auto layoutAlignmentX = Reflection::Type<LayoutAlignmentX>();
-		layoutAlignmentX.Value<LayoutAlignmentX::Left>();
-		layoutAlignmentX.Value<LayoutAlignmentX::Right>();
-		layoutAlignmentX.Value<LayoutAlignmentX::Center>();
-
-		auto layoutAlignmentY = Reflection::Type<LayoutAlignmentY>();
-		layoutAlignmentY.Value<LayoutAlignmentY::Top>();
-		layoutAlignmentY.Value<LayoutAlignmentY::Bottom>();
-		layoutAlignmentY.Value<LayoutAlignmentY::Center>();
-
-		auto sizingType = Reflection::Type<SizingType>();
-		sizingType.Value<SizingType::Fit>();
-		sizingType.Value<SizingType::Grow>();
-		sizingType.Value<SizingType::Percent>();
-		sizingType.Value<SizingType::Fixed>();
-
-		auto textWrapMode = Reflection::Type<TextWrapMode>();
-		textWrapMode.Value<TextWrapMode::Words>();
-		textWrapMode.Value<TextWrapMode::Newlines>();
-		textWrapMode.Value<TextWrapMode::None>();
-
-		auto textAlignment = Reflection::Type<TextAlignment>();
-		textAlignment.Value<TextAlignment::Left>();
-		textAlignment.Value<TextAlignment::Center>();
-		textAlignment.Value<TextAlignment::Right>();
-
 		Reflection::Type<Entity>();
 		Reflection::Type<Scene>();
 		Reflection::Type<SceneManager>();
@@ -170,13 +136,6 @@ namespace Skore
 		Reflection::Type<XROrigin>();
 		Reflection::Type<XRNode>();
 #endif
-
-		//UI
-		Reflection::Type<UICanvas>();
-		Reflection::Type<UIElement>();
-		Reflection::Type<UIImage>();
-		Reflection::Type<UIButton>();
-		Reflection::Type<UIText>();
 
 		Resources::Type<EntityResource>()
 			.Field<EntityResource::Name>(ResourceFieldType::String)
