@@ -5,9 +5,11 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/IO/Input.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/UIComponents.hpp"
+#include "Skore/Scene/Scene.hpp"
 #include "Skore/Navigation/Navigation.hpp"
 #include "Skore/Navigation/NavigationCommon.hpp"
 #include "Skore/Window/SceneViewWindow.hpp"
@@ -28,7 +30,7 @@ namespace Skore
 		GPUTexture*     compositeMaskTexture = nullptr;
 
 		Array<GPUPipeline*> unlitPipelines;
-		RenderSceneObjects* cachedPipelineOwner = nullptr;
+		Scene*              cachedPipelineOwner = nullptr;
 		GPUPipeline*      maskPipeline = nullptr;
 		GPUDescriptorSet* maskDescriptorSet = nullptr;
 		GPUPipeline*      compositeMaskPipeline = nullptr;
@@ -200,13 +202,16 @@ namespace Skore
 			unlitPipelines.Clear();
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
-			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != objects)
+			if (!scene) return;
+			RenderSceneObjects* objects = &scene->renderObjects;
+
+			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
 			{
 				CleanupPipelines();
 			}
-			cachedPipelineOwner = objects;
+			cachedPipelineOwner = scene;
 
 			Span<RID> selectedEntities = sceneViewWindow->GetSceneEditor()->GetSelectedEntities();
 			if (!selectedEntities.Empty())
@@ -538,8 +543,10 @@ namespace Skore
 			}
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
+			RenderSceneObjects* objects = scene ? &scene->renderObjects : nullptr;
+
 			cmd->BeginDebugMarker("SceneViewDrawPass", Vec4{0, 0, 0, 1});
 
 			ClearValues clearValue;
@@ -670,7 +677,7 @@ namespace Skore
 					}
 				}
 
-				if (sceneViewWindow->drawMeshAABB)
+				if (sceneViewWindow->drawMeshAABB && objects)
 				{
 					objects->ForEachVisiblePipeline([&](u32, const DrawPipeline& drawPipeline)
 					{
@@ -695,7 +702,7 @@ namespace Skore
 				cursorState.position = sceneViewWindow->mousePosRelativeToWindow;
 				cursorState.cursorDown = Input::IsAnyMouseDown();
 
-				uiRenderer.DrawUI(objects, cursorState, sceneViewRenderPass, context->GetOutputSize(), cmd);
+				uiRenderer.DrawUI(scene, cursorState, sceneViewRenderPass, context->GetOutputSize(), cmd);
 			}
 
 			cmd->EndRenderPass();

@@ -34,6 +34,18 @@ namespace Skore
 
 		Span<Entity*> GetEntities() const;
 
+		template <typename T, typename Fn>
+		void Iterate(Fn&& fn) const
+		{
+			if (auto it = m_iterableComponents.Find(TypeInfo<T>::ID()))
+			{
+				for (Component* component : it->second)
+				{
+					fn(static_cast<T*>(component));
+				}
+			}
+		}
+
 		AABB GetBounds() const;
 
 		friend class Entity;
@@ -43,7 +55,7 @@ namespace Skore
 
 		friend class ResourceCast<Entity*>;
 
-		RenderSceneObjects renderObjects{this};
+		RenderSceneObjects renderObjects;
 		PhysicsScene       physicsScene;
 		NavigationScene    navigationScene;
 
@@ -71,6 +83,8 @@ namespace Skore
 
 		DenseSet<Tickable*>      m_updateComponents = {};
 		DenseSet<FixedTickable*> m_fixedUpdateComponents = {};
+
+		HashMap<TypeID, DenseSet<Component*>> m_iterableComponents = {};
 
 		f64 m_physicsAccumulator = 0.0;
 

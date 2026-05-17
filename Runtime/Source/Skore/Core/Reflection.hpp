@@ -45,6 +45,12 @@ namespace Skore
 			return static_cast<const AttType*>(GetAttribute(TypeInfo<AttType>::ID()));
 		}
 
+		template <typename AttType>
+		bool HasAttribute() const
+		{
+			return GetAttribute(TypeInfo<AttType>::ID()) != nullptr;
+		}
+
 	protected:
 		Array<ReflectAttribute*> attributeArray{};
 	};

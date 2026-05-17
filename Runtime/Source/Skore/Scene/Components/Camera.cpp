@@ -1,34 +1,19 @@
 #include "Skore/Scene/Components/Camera.hpp"
 
-#include "Skore/Scene/Components/Transform.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Scene/Scene.hpp"
+#include "Skore/Scene/Entity.hpp"
 
 
 namespace Skore
 {
 	void Camera::Create()
 	{
-		cameraObject = scene->renderObjects.CreateCameraObject();
-		cameraObject->SetTransform(entity->GetWorldTransform());
-		cameraObject->SetVisible(entity->IsActive());
-		cameraObject->SetUserData(PtrToInt(entity));
-		cameraObject->SetCullingMask(m_cullingMask);
-
 		if (RenderPipelineContext* context = RenderPipeline::GetMainContext())
 		{
 			context->UpdateCamera(m_near, m_far, m_fov, m_projection, {Mat4::Inverse(entity->GetWorldTransform())}, entity->GetWorldPosition());
 			context->camera.cullingMask = m_cullingMask;
-		}
-	}
-
-	void Camera::Destroy()
-	{
-		if (cameraObject)
-		{
-			cameraObject->Destroy();
 		}
 	}
 
@@ -80,29 +65,17 @@ namespace Skore
 	void Camera::SetCullingMask(u64 cullingMask)
 	{
 		m_cullingMask = cullingMask;
-		if (cameraObject) cameraObject->SetCullingMask(cullingMask);
 	}
 
 	void Camera::ProcessEvent(const EntityEventDesc& event)
 	{
-		if (!cameraObject) return;
-
-		switch (event.type)
+		if (event.type == EntityEventType::TransformUpdated)
 		{
-			case EntityEventType::EntityActivated:
-				cameraObject->SetVisible(true);
-				break;
-			case EntityEventType::EntityDeactivated:
-				cameraObject->SetVisible(false);
-			case EntityEventType::TransformUpdated:
-				cameraObject->SetTransform(entity->GetWorldTransform());
-
-				if (RenderPipelineContext* context = RenderPipeline::GetMainContext())
-				{
-					context->UpdateCamera(m_near, m_far, m_fov, m_projection, {Mat4::Inverse(entity->GetWorldTransform())}, entity->GetWorldPosition());
-					context->camera.cullingMask = m_cullingMask;
-				}
-				break;
+			if (RenderPipelineContext* context = RenderPipeline::GetMainContext())
+			{
+				context->UpdateCamera(m_near, m_far, m_fov, m_projection, {Mat4::Inverse(entity->GetWorldTransform())}, entity->GetWorldPosition());
+				context->camera.cullingMask = m_cullingMask;
+			}
 		}
 	}
 
@@ -125,6 +98,8 @@ namespace Skore
 		type.Function<&Camera::SetFar>("SetFar", "far");
 		type.Function<&Camera::GetCullingMask>("GetCullingMask");
 		type.Function<&Camera::SetCullingMask>("SetCullingMask", "cullingMask");
+
+		type.Attribute<Iterable>();
 	}
 
 }

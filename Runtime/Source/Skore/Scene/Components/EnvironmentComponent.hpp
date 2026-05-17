@@ -5,16 +5,12 @@
 
 namespace Skore
 {
-	class EnvironmentObject;
+	struct MaterialResourceCache;
 
 	class SK_API EnvironmentComponent : public Component
 	{
 	public:
 		SK_CLASS(EnvironmentComponent, Component);
-
-		void Create() override;
-		void Destroy() override;
-		void ProcessEvent(const EntityEventDesc& event) override;
 
 		// Skybox getters/setters
 		TypedRID<MaterialResource> GetSkyboxMaterial() const;
@@ -30,11 +26,13 @@ namespace Skore
 		f32                GetAmbientLightIntensity() const;
 		void               SetAmbientLightIntensity(f32 intensity);
 
-		// Reflected light getters/setters 
+		// Reflected light getters/setters
 		ReflectedLightSource GetReflectedLightSource() const;
 		void                 SetReflectedLightSource(ReflectedLightSource source);
 		f32                  GetReflectedLightIntensity() const;
 		void                 SetReflectedLightIntensity(f32 intensity);
+
+		MaterialResourceCache* GetMaterialCache() const;
 
 		static void RegisterType(NativeReflectType<EnvironmentComponent>& type);
 
@@ -49,6 +47,6 @@ namespace Skore
 		ReflectedLightSource m_reflectedLightSource = ReflectedLightSource::Skybox;
 		f32                  m_reflectedLightIntensity = 1.0f;
 
-		EnvironmentObject* environmentObject = nullptr;
+		MaterialResourceCache* m_materialCache = nullptr;
 	};
 }

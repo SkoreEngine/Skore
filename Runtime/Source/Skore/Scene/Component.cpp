@@ -46,6 +46,11 @@ namespace Skore
 		{
 			entity->m_scene->physicsScene.RegisterCollisionCallbacks(entity);
 		}
+
+		if (ReflectType* type = GetType(); type && type->HasAttribute<Iterable>())
+		{
+			entity->m_scene->m_iterableComponents[type->GetProps().typeId].emplace(this);
+		}
 	}
 
 	void Component::RemoveEvents()
@@ -75,6 +80,14 @@ namespace Skore
 			if (!hasOtherCollisionCallbacks)
 			{
 				entity->m_scene->physicsScene.UnregisterCollisionCallbacks(entity);
+			}
+		}
+
+		if (ReflectType* type = GetType(); type && type->HasAttribute<Iterable>())
+		{
+			if (auto it = entity->m_scene->m_iterableComponents.Find(type->GetProps().typeId))
+			{
+				it->second.erase(this);
 			}
 		}
 	}

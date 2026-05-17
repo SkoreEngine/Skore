@@ -23,14 +23,14 @@ namespace Skore
 			return setup;
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			DrawUICursorState cursorState;
 			cursorState.position = Input::GetMousePosition();
 			cursorState.cursorDown = Input::IsAnyMouseDown();
 			cursorState.mouseWheel = Input::GetMouseWheel();
 
-			uiRenderer.DrawUI(objects, cursorState, renderPass, context->GetOutputSize(), cmd);
+			uiRenderer.DrawUI(scene, cursorState, renderPass, context->GetOutputSize(), cmd);
 		}
 	};
 

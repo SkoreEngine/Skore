@@ -9,6 +9,11 @@
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
+#include "Skore/Scene/Components/Camera.hpp"
+#include "Skore/Scene/Components/EnvironmentComponent.hpp"
+#include "Skore/Scene/Components/LightComponent.hpp"
+#include "Skore/Scene/Components/ParticleEmitter.hpp"
+#include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Scene.hpp"
 
 #define A_CPU
@@ -83,8 +88,9 @@ namespace Skore
 	{
 		SK_CLASS(DefaultCascadeShadowPass, CascadeShadowPassBase);
 
-		void RenderCascade(RenderSceneObjects* objects, GPUCommandBuffer* cmd, const Mat4& viewProj, u32 cascadeIndex) override
+		void RenderCascade(Scene* scene, GPUCommandBuffer* cmd, const Mat4& viewProj, u32 cascadeIndex) override
 		{
+			RenderSceneObjects* objects = &scene->renderObjects;
 			while (shadowMapPipelines.Size() < objects->shadowPipelines.Size())
 			{
 				const DrawPipelineDesc& desc = objects->shadowPipelines[shadowMapPipelines.Size()].desc;
@@ -210,7 +216,7 @@ namespace Skore
 			}
 		}
 
-		virtual void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd)
+		virtual void Render(Scene* scene, GPUCommandBuffer* cmd)
 		{
 			LightBuffer lightBufferData;
 			lightBufferData.lightCount = 0;
@@ -225,13 +231,8 @@ namespace Skore
 			lightInstanceData->diffuseIrradianceTexture = Graphics::GetWhiteCubemapTexture();
 			lightInstanceData->specularMapTexture = Graphics::GetWhiteCubemapTexture();
 
-			for (EnvironmentObject* env : objects->environmentObjects)
+			scene->Iterate<EnvironmentComponent>([&](EnvironmentComponent* env)
 			{
-				if (!env->GetVisible())
-				{
-					continue;
-				}
-
 				MaterialResourceCache* materialCache = env->GetMaterialCache();
 
 				switch (env->GetAmbientLightSource())
@@ -272,53 +273,45 @@ namespace Skore
 					case ReflectedLightSource::Disabled:
 						break;
 				}
-			}
+			});
 
 			for (i32 i = 0; i < MAX_LIGHTS; i++)
 			{
 				lightBufferData.lights[i] = LightData{};
 			}
 
-			if (objects && !objects->lights.Empty())
+			u32 lightIndex = 0;
+			scene->Iterate<LightComponent>([&](LightComponent* light)
 			{
-				u32 lightIndex = 0;
-				for (LightObject* light : objects->lights)
+				if (lightIndex >= MAX_LIGHTS)
 				{
-					if (lightIndex >= MAX_LIGHTS)
-					{
-						break;
-					}
-
-					if (!light->GetVisible())
-					{
-						continue;
-					}
-
-					if (light->GetType() == LightType::Directional && light->GetEnableShadows() && lightBufferData.shadowLightIndex == U32_MAX)
-					{
-						lightBufferData.shadowLightIndex = lightIndex;
-					}
-
-					Mat4 transform = light->GetTransform();
-
-					LightData& shaderLight = lightBufferData.lights[lightIndex];
-					shaderLight.type = static_cast<u32>(light->GetType());
-					shaderLight.position = Mat4::GetTranslation(transform);
-
-					Vec3 forward = Vec3(-transform[2][0], -transform[2][1], -transform[2][2]);
-					shaderLight.direction = Vec4(Vec3::Normalize(forward), 0.0f);
-
-					shaderLight.color = Vec4(light->GetColor().ToVec3(), 0.0f);
-					shaderLight.intensity = light->GetIntensity();
-					shaderLight.range = light->GetRange();
-					shaderLight.innerConeAngle = light->GetInnerConeAngle();
-					shaderLight.outerConeAngle = light->GetOuterConeAngle();
-
-					lightIndex++;
+					return;
 				}
 
-				lightBufferData.lightCount = lightIndex;
-			}
+				if (light->GetLightType() == LightType::Directional && light->GetEnableShadows() && lightBufferData.shadowLightIndex == U32_MAX)
+				{
+					lightBufferData.shadowLightIndex = lightIndex;
+				}
+
+				Mat4 transform = light->GetEntity()->GetWorldTransform();
+
+				LightData& shaderLight = lightBufferData.lights[lightIndex];
+				shaderLight.type = static_cast<u32>(light->GetLightType());
+				shaderLight.position = Mat4::GetTranslation(transform);
+
+				Vec3 forward = Vec3(-transform[2][0], -transform[2][1], -transform[2][2]);
+				shaderLight.direction = Vec4(Vec3::Normalize(forward), 0.0f);
+
+				shaderLight.color = Vec4(light->GetColor().ToVec3(), 0.0f);
+				shaderLight.intensity = light->GetIntensity();
+				shaderLight.range = light->GetRange();
+				shaderLight.innerConeAngle = light->GetInnerConeAngleRadians();
+				shaderLight.outerConeAngle = light->GetOuterConeAngleRadians();
+
+				lightIndex++;
+			});
+
+			lightBufferData.lightCount = lightIndex;
 
 			u32 frame = context->GetCurrentFrame();
 			char* lightMem = static_cast<char*>(lightInstanceData->lightBuffer->GetMappedData()) + lightInstanceData->lightBufferAlignedSize * frame;
@@ -340,7 +333,7 @@ namespace Skore
 		SK_CLASS(DefaultDeferredGBufferPass, RenderPipelinePass);
 
 		Array<GPUPipeline*> opaquePipelines = {};
-		RenderSceneObjects* cachedPipelineOwner = nullptr;
+		Scene*              cachedPipelineOwner = nullptr;
 
 		struct MeshPushConstants
 		{
@@ -379,9 +372,12 @@ namespace Skore
 			//TODO
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
-			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != objects)
+			if (!scene) return;
+			RenderSceneObjects* objects = &scene->renderObjects;
+
+			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
 			{
 				CleanupPipelines();
 			}
@@ -427,7 +423,7 @@ namespace Skore
 				opaquePipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
 			}
 
-			cachedPipelineOwner = objects;
+			cachedPipelineOwner = scene;
 
 			for (u32 i = 0; i < objects->opaquePipelines.Size(); i++)
 			{
@@ -543,7 +539,7 @@ namespace Skore
 			UpdateState();
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			lightInstanceData = context->GetInstanceData<LightPassInstanceData>("LightInstanceData");
 
@@ -576,7 +572,7 @@ namespace Skore
 		GPUPipeline* skyboxMaterialPipeline = nullptr;
 		GPUPipeline* particlePipeline = nullptr;
 		Array<GPUPipeline*> transparencyPipelines;
-		RenderSceneObjects* cachedPipelineOwner = nullptr;
+		Scene*              cachedPipelineOwner = nullptr;
 		LightPassInstanceData* lightInstanceData = nullptr;
 
 		struct MeshPushConstants
@@ -653,15 +649,18 @@ namespace Skore
 			transparencyPipelines.Clear();
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
+			if (!scene) return;
+			RenderSceneObjects* objects = &scene->renderObjects;
+
 			u32 frame = context->GetCurrentFrame();
 
-			if (cachedPipelineOwner != objects)
+			if (cachedPipelineOwner != scene)
 			{
 				CleanupPipelines();
 			}
-			cachedPipelineOwner = objects;
+			cachedPipelineOwner = scene;
 
 			while (transparencyPipelines.Size() < objects->transparentPipelines.Size())
 			{
@@ -745,33 +744,39 @@ namespace Skore
 				}
 			}
 
-			for (ParticleObject* p : objects->particleEmitters)
+			scene->Iterate<ParticleEmitter>([&](ParticleEmitter* p)
 			{
-				if (!p->GetVisible() || !p->particleBuffer || !p->particleDescriptorSet) continue;
+				GPUBuffer*        particleBuffer = p->GetParticleBuffer();
+				GPUDescriptorSet* particleDescriptorSet = p->GetParticleDescriptorSet();
+				if (!particleBuffer || !particleDescriptorSet) return;
 
 				u32 maxParticles = p->GetMaxParticles();
 
 				cmd->BindPipeline(particlePipeline);
 				cmd->BindDescriptorSet(particlePipeline, 0, context->GetSceneDescriptorSet());
-				cmd->BindDescriptorSet(particlePipeline, 1, p->particleDescriptorSet);
+				cmd->BindDescriptorSet(particlePipeline, 1, particleDescriptorSet);
 				cmd->Draw(maxParticles * 6, 1, 0, 0);
-			}
+			});
 
-			for (EnvironmentObject* environmentObject : objects->environmentObjects)
+			EnvironmentComponent* skyboxEnv = nullptr;
+			scene->Iterate<EnvironmentComponent>([&](EnvironmentComponent* env)
 			{
-				if (environmentObject->GetVisible() && environmentObject->GetMaterialCache() != nullptr && environmentObject->GetUseAsSkybox())
+				if (skyboxEnv == nullptr && env->GetMaterialCache() != nullptr && env->GetUseSkyboxAsBackground())
 				{
-					MaterialResourceCache* skyMaterial = environmentObject->GetMaterialCache();
-
-					cmd->BindPipeline(skyboxMaterialPipeline);
-					Mat4 viewProj = context->camera.projection * Mat4(Mat34(context->camera.view));
-
-					cmd->PushConstants(skyboxMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &viewProj);
-					cmd->BindDescriptorSet(skyboxMaterialPipeline, 0, skyMaterial->descriptorSet, {});
-					cmd->Draw(36, 1, 0, 0);
-
-					break;
+					skyboxEnv = env;
 				}
+			});
+
+			if (skyboxEnv)
+			{
+				MaterialResourceCache* skyMaterial = skyboxEnv->GetMaterialCache();
+
+				cmd->BindPipeline(skyboxMaterialPipeline);
+				Mat4 viewProj = context->camera.projection * Mat4(Mat34(context->camera.view));
+
+				cmd->PushConstants(skyboxMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &viewProj);
+				cmd->BindDescriptorSet(skyboxMaterialPipeline, 0, skyMaterial->descriptorSet, {});
+				cmd->Draw(36, 1, 0, 0);
 			}
 		}
 
@@ -903,7 +908,7 @@ namespace Skore
 			CreateMipResources();
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			if (mipCount < 2 || !linearDepthTexture) return;
 
@@ -991,7 +996,7 @@ namespace Skore
 			});
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			struct ReflectionPushConstants
 			{
@@ -1089,7 +1094,7 @@ namespace Skore
 			});
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			struct DefaultCompositePushConstants
 			{
@@ -1176,7 +1181,7 @@ namespace Skore
 			});
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			struct PushConstants
 			{
@@ -1240,7 +1245,7 @@ namespace Skore
 			});
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			PostProcessPushConstants pc;
 			pc.bloomIntensity = 0.04f;

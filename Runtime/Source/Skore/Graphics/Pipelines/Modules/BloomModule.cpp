@@ -140,7 +140,7 @@ namespace Skore
 			CreateMipChain();
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			if (mipCount < 2) return;
 

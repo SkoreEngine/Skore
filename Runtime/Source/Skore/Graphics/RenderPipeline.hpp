@@ -9,7 +9,7 @@
 
 namespace Skore
 {
-	class RenderSceneObjects;
+	class Scene;
 	class RenderPipelineContext;
 	struct RenderPipeline;
 	class GPUCommandBuffer;
@@ -114,7 +114,7 @@ namespace Skore
 		virtual void Init() {}
 
 		virtual void Update() {}
-		virtual void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) {}
+		virtual void Render(Scene* scene, GPUCommandBuffer* cmd) {}
 		virtual void Destroy() {}
 		virtual void OnResize(Extent size) {}
 	};
@@ -140,7 +140,7 @@ namespace Skore
 
 		virtual void Init() {}
 		virtual void Destroy() {}
-		virtual void Update(RenderSceneObjects* objects) {}
+		virtual void Update(Scene* scene) {}
 	};
 
 	struct RenderPipelineSetup
@@ -201,7 +201,7 @@ namespace Skore
 
 		TypeID GetPipelineTypeId() const;
 
-		void Execute(GPUCommandBuffer* cmd, RenderSceneObjects* objects);
+		void Execute(GPUCommandBuffer* cmd, Scene* scene);
 		void Destroy();
 
 		struct

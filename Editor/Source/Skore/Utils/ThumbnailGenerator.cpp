@@ -31,7 +31,7 @@ namespace Skore
 			return setup;
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			GPUTexture* outputTexture = context->GetTexture(OutputColorName);
 			GPUBuffer* outputBuffer = context->GetBuffer("OutputBuffer");
@@ -150,7 +150,7 @@ namespace Skore
 
 		GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
 		cmd->Begin();
-		renderPipelineContext->Execute(cmd, &scene->renderObjects);
+		renderPipelineContext->Execute(cmd, scene);
 		cmd->End();
 		Graphics::SubmitGPUWork(cmd, true);
 		Graphics::AddFreeCommandBuffer(cmd);

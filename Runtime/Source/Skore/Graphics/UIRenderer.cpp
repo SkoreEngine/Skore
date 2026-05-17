@@ -12,6 +12,7 @@
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Settings.hpp"
 #include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/Components/UIComponents.hpp"
 
 namespace Skore
@@ -122,7 +123,7 @@ namespace Skore
 	}
 
 
-	void UIRenderer::DrawUI(RenderSceneObjects* objects, DrawUICursorState cursorState, GPURenderPass* renderPass, Extent extent, GPUCommandBuffer* cmd)
+	void UIRenderer::DrawUI(Scene* scene, DrawUICursorState cursorState, GPURenderPass* renderPass, Extent extent, GPUCommandBuffer* cmd)
 	{
 		UIRendererInternal* internal = reinterpret_cast<UIRendererInternal*>(m_context);
 		f32    scale = 1.0f / GetUIScale();
@@ -131,9 +132,9 @@ namespace Skore
 		Clay_SetPointerState({cursorState.position.x * scale, cursorState.position.y * scale}, cursorState.cursorDown);
 		Clay_UpdateScrollContainers(true, {cursorState.mouseWheel.x, cursorState.mouseWheel.y}, App::DeltaTime());
 
-		if (objects)
+		if (scene)
 		{
-			for (auto it : objects->canvasList)
+			for (auto it : scene->renderObjects.canvasList)
 			{
 				if (!it->entity->IsActive())
 				{

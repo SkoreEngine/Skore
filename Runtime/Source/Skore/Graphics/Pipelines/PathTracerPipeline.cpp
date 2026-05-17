@@ -6,6 +6,10 @@
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Resource/Resources.hpp"
+#include "Skore/Scene/Components/EnvironmentComponent.hpp"
+#include "Skore/Scene/Components/LightComponent.hpp"
+#include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
@@ -111,10 +115,12 @@ namespace Skore
 			rtDescriptorSet->Update(lightBufUpdate);
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			if (!rtPipeline || !rtDescriptorSet) return;
-			if (!objects || !objects->tlas) return;
+			if (!scene) return;
+			RenderSceneObjects* objects = &scene->renderObjects;
+			if (!objects->tlas) return;
 
 			GPUDescriptorSet* geometrySet = RenderResourceCache::GetGlobalDescriptorSet();
 			if (!geometrySet || objects->instanceDataCount == 0) return;
@@ -166,44 +172,37 @@ namespace Skore
 				lightBufferData.ambientLight = Vec3(0.03f);
 				lightBufferData.skyTextureIndex = -1;
 
-				for (EnvironmentObject* env : objects->environmentObjects)
+				scene->Iterate<EnvironmentComponent>([&](EnvironmentComponent* env)
 				{
 					if (env->GetAmbientLightSource() == AmbientLightSource::Color)
 					{
 						lightBufferData.ambientLight = env->GetAmbientLightColor().ToVec3() * env->GetAmbientLightIntensity();
 					}
 
-					if (env->GetVisible() && env->GetUseAsSkybox() && env->GetMaterialCache() && env->GetMaterialCache()->skyMaterialTexture)
+					if (env->GetUseSkyboxAsBackground() && env->GetMaterialCache() && env->GetMaterialCache()->skyMaterialTexture)
 					{
 						lightBufferData.skyTextureIndex = static_cast<i32>(env->GetMaterialCache()->skyMaterialTexture->textureIndex);
 					}
-				}
+				});
 
 				u32 lightIndex = 0;
-
-				auto addLights = [&](const Array<LightObject*>& lights)
+				scene->Iterate<LightComponent>([&](LightComponent* light)
 				{
-					for (LightObject* light : lights)
-					{
-						if (lightIndex >= MAX_LIGHTS) break;
-						if (!light->GetVisible()) continue;
+					if (lightIndex >= MAX_LIGHTS) return;
 
-						Mat4 transform = light->GetTransform();
-						RTLightData& shaderLight = lightBufferData.lights[lightIndex];
-						shaderLight.type = static_cast<u32>(light->GetType());
-						shaderLight.position = Mat4::GetTranslation(transform);
-						Vec3 forward = Vec3(-transform[2][0], -transform[2][1], -transform[2][2]);
-						shaderLight.direction = Vec4(Vec3::Normalize(forward), light->GetSourceRadius());
-						shaderLight.color = Vec4(light->GetColor().ToVec3(), 0.0f);
-						shaderLight.intensity = light->GetIntensity();
-						shaderLight.range = light->GetRange();
-						shaderLight.innerConeAngle = light->GetInnerConeAngle();
-						shaderLight.outerConeAngle = light->GetOuterConeAngle();
-						lightIndex++;
-					}
-				};
-
-				addLights(objects->lights);
+					Mat4 transform = light->GetEntity()->GetWorldTransform();
+					RTLightData& shaderLight = lightBufferData.lights[lightIndex];
+					shaderLight.type = static_cast<u32>(light->GetLightType());
+					shaderLight.position = Mat4::GetTranslation(transform);
+					Vec3 forward = Vec3(-transform[2][0], -transform[2][1], -transform[2][2]);
+					shaderLight.direction = Vec4(Vec3::Normalize(forward), light->GetSourceRadius());
+					shaderLight.color = Vec4(light->GetColor().ToVec3(), 0.0f);
+					shaderLight.intensity = light->GetIntensity();
+					shaderLight.range = light->GetRange();
+					shaderLight.innerConeAngle = light->GetInnerConeAngleRadians();
+					shaderLight.outerConeAngle = light->GetOuterConeAngleRadians();
+					lightIndex++;
+				});
 
 				lightBufferData.lightCount = lightIndex;
 

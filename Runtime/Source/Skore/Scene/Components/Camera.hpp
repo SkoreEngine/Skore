@@ -3,10 +3,6 @@
 #include "Skore/Graphics/GraphicsCommon.hpp"
 #include "Skore/Scene/Component.hpp"
 
-namespace Skore {
-	class CameraObject;
-}
-
 namespace Skore
 {
 	class SK_API Camera : public Component
@@ -15,8 +11,6 @@ namespace Skore
 		SK_CLASS(Camera, Component);
 
 		void Create() override;
-		void Destroy() override;
-
 
 		Projection GetProjection() const;
 		void       SetProjection(Projection projection);
@@ -39,7 +33,5 @@ namespace Skore
 		f32        m_near = 0.1;
 		f32        m_far = 1000.f;
 		u64        m_cullingMask = ~0ULL;
-
-		CameraObject* cameraObject = nullptr;
 	};
 }

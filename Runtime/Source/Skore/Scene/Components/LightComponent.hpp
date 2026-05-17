@@ -1,7 +1,6 @@
 #pragma once
 #include "Skore/Core/Color.hpp"
 #include "Skore/Graphics/GraphicsCommon.hpp"
-#include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Scene/Component.hpp"
 
 namespace Skore
@@ -10,10 +9,6 @@ namespace Skore
 	{
 	public:
 		SK_CLASS(LightComponent, Component);
-
-		void Create() override;
-		void Destroy() override;
-		void ProcessEvent(const EntityEventDesc& event) override;
 
 		void      SetLightType(LightType type);
 		LightType GetLightType() const;
@@ -27,7 +22,7 @@ namespace Skore
 		void SetRange(f32 range);
 		f32  GetRange() const;
 
-		// Spot light specific properties
+		// Spot light specific properties (degrees)
 		void SetInnerConeAngle(f32 angle);
 		f32  GetInnerConeAngle() const;
 
@@ -43,11 +38,13 @@ namespace Skore
 		void SetSourceRadius(f32 radius);
 		f32  GetSourceRadius() const;
 
+		// radians as expected by the render pipelines (sign-flipped to preserve original behavior)
+		f32 GetInnerConeAngleRadians() const;
+		f32 GetOuterConeAngleRadians() const;
+
 		static void RegisterType(NativeReflectType<LightComponent>& type);
 
 	private:
-		LightObject*   lightObject = nullptr;
-
 		LightType m_lightType = LightType::Directional;
 		Color     m_color = Color::WHITE;
 		f32       m_intensity = 1.0f;

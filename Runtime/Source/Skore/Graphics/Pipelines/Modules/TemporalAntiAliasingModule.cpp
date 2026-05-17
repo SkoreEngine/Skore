@@ -70,7 +70,7 @@ namespace Skore
 			});
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			GPUTexture* texture = context->GetTexture("ColorAttachment");
 
