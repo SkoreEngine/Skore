@@ -129,7 +129,7 @@ namespace Skore
 			return setup;
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			GPUTexture* linearDepth = context->GetTexture(LinearDepthMipChainName);
 			i32 depthMipLevels = linearDepth ? static_cast<i32>(linearDepth->GetDesc().mipLevels) : 5;
@@ -214,7 +214,7 @@ namespace Skore
 			UpdateDescriptorSet();
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			cmd->BindPipeline(pipeline);
 			cmd->BindDescriptorSet(pipeline, 0, descriptorSet, {});

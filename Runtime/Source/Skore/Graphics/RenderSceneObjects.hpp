@@ -165,174 +165,6 @@ namespace Skore
 		MaterialResourceCache* GetMaterial(u32 materialIndex) const;
 	};
 
-	class SK_API LightObject
-	{
-	public:
-		SK_NO_COPY_CONSTRUCTOR(LightObject);
-
-		LightObject(RenderSceneObjects* objects);
-
-		void SetTransform(const Mat4& transform);
-		Mat4 GetTransform() const;
-
-		void SetUserData(u64 userData);
-		u64  GetUserData() const;
-
-		void SetCullingMask(u64 cullingMask);
-		u64  GetCullingMask() const;
-
-		void      SetType(LightType type);
-		LightType GetType() const;
-
-		void         SetColor(const Color& color);
-		const Color& GetColor() const;
-
-		void SetIntensity(f32 intensity);
-		f32  GetIntensity() const;
-
-		void SetRange(f32 range);
-		f32  GetRange() const;
-
-		void SetInnerConeAngle(f32 angle);
-		f32  GetInnerConeAngle() const;
-
-		void SetOuterConeAngle(f32 angle);
-		f32  GetOuterConeAngle() const;
-
-		void SetVisible(bool visible);
-		bool GetVisible() const;
-
-		void SetEnableShadows(bool enableShadows);
-		bool GetEnableShadows() const;
-
-		void SetSourceRadius(f32 sourceRadius);
-		f32  GetSourceRadius() const;
-
-		void Destroy();
-
-		friend class RenderSceneObjects;
-
-	private:
-		RenderSceneObjects* objects;
-		LightType type = LightType::Directional;
-		Mat4      transform = Mat4(1.0);
-		Color     color = Color::WHITE;
-		f32       intensity = 1.0f;
-		f32       range = 10.0f;
-		f32       innerConeAngle = Math::Radians(25.0f);
-		f32       outerConeAngle = Math::Radians(30.0f);
-		bool      visible = true;
-		bool      enableShadows = true;
-		u64       userData = 0;
-		u64       cullingMask = ~0ULL;
-		f32       sourceRadius = 0.0f;
-	};
-
-	class SK_API EnvironmentObject
-	{
-	public:
-		EnvironmentObject(RenderSceneObjects* objects);
-
-		void SetMaterial(RID material);
-		RID  GetMaterial() const;
-
-		void SetVisible(bool visible);
-		bool GetVisible() const;
-
-		void SetUseAsSkybox(bool useAsSkybox);
-		bool GetUseAsSkybox() const;
-
-		void               SetAmbientLightSource(AmbientLightSource source);
-		AmbientLightSource GetAmbientLightSource() const;
-
-		void         SetAmbientLightColor(const Color& color);
-		const Color& GetAmbientLightColor() const;
-
-		void SetAmbientLightIntensity(f32 intensity);
-		f32  GetAmbientLightIntensity() const;
-
-		void                 SetReflectedLightSource(ReflectedLightSource source);
-		ReflectedLightSource GetReflectedLightSource() const;
-
-		void SetReflectedLightIntensity(f32 intensity);
-		f32  GetReflectedLightIntensity() const;
-
-		MaterialResourceCache* GetMaterialCache() const;
-
-		void Destroy();
-
-	private:
-		RenderSceneObjects* objects;
-		RID material;
-		bool visible = true;
-		bool useAsSkybox = true;
-
-		AmbientLightSource ambientLightSource = AmbientLightSource::Skybox;
-		Color ambientLightColor = Color::WHITE;
-		f32 ambientLightIntensity = 1.0f;
-
-		ReflectedLightSource reflectedLightSource = ReflectedLightSource::Skybox;
-		f32 reflectedLightIntensity = 1.0f;
-
-		MaterialResourceCache*  materialCache = nullptr;
-	};
-
-	class SK_API ParticleObject
-	{
-	public:
-		SK_NO_COPY_CONSTRUCTOR(ParticleObject);
-
-		ParticleObject(RenderSceneObjects* objects);
-
-		void SetVisible(bool visible);
-		bool GetVisible() const;
-
-		void SetMaxParticles(u32 maxParticles);
-		u32  GetMaxParticles() const;
-
-		void UploadData(const void* data, u32 sizeBytes);
-
-		void Destroy();
-
-		friend class RenderSceneObjects;
-
-		GPUBuffer*        particleBuffer = nullptr;
-		GPUDescriptorSet* particleDescriptorSet = nullptr;
-
-	private:
-		RenderSceneObjects* objects;
-		bool visible = true;
-		u32  maxParticles = 10000;
-	};
-
-	class SK_API CameraObject
-	{
-	public:
-		CameraObject(RenderSceneObjects* objects);
-
-		const Mat4& GetTransform() const;
-		void        SetTransform(const Mat4& transform);
-
-		void SetVisible(bool visible);
-		bool GetVisible() const;
-
-		void SetUserData(u64 userData);
-		u64  GetUserData() const;
-
-		void SetCullingMask(u64 cullingMask);
-		u64  GetCullingMask() const;
-
-		void Destroy();
-
-	private:
-		RenderSceneObjects* objects;
-		Mat4                transform = Mat4(1.0);
-		u64                 userData = 0;
-		bool                visible = true;
-		u64                 cullingMask = ~0ULL;
-	};
-
-
 	struct InstanceData
 	{
 		u32 meshIndex;
@@ -344,17 +176,11 @@ namespace Skore
 	class SK_API RenderSceneObjects
 	{
 	public:
-		Scene* scene;
-
 		SK_NO_COPY_CONSTRUCTOR(RenderSceneObjects);
-		RenderSceneObjects(Scene* scene);
+		RenderSceneObjects();
 		~RenderSceneObjects();
 
 		DrawableObject* CreateDrawable();
-		LightObject* CreateLightObject();
-		EnvironmentObject* CreateEnvironmentObject();
-		CameraObject* CreateCameraObject();
-		ParticleObject* CreateParticleObject();
 
 		void DoUpdate(GPUCommandBuffer* cmd);
 
@@ -364,12 +190,6 @@ namespace Skore
 		Array<DrawPipeline> transparentPipelines;
 		Array<DrawPipeline> shadowPipelines;
 
-		Array<LightObject*> lights;
-
-		Array<EnvironmentObject*> environmentObjects;
-		Array<CameraObject*> cameraObjects;
-
-		Array<ParticleObject*> particleEmitters;
 		Array<UICanvas*> canvasList;
 
 		GPUTopLevelAS* tlas = nullptr;
@@ -402,7 +222,6 @@ namespace Skore
 				fn(index++, transparentPipelines[i]);
 		}
 
-		bool GetDirectionalLightShadowData(u32& lightIndex, Vec3& direction) const;
 		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
 
 	private:

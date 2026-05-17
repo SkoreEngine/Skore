@@ -11,12 +11,12 @@ namespace Skore
 		RenderPipelinePassSetup GetPassSetup() override;
 
 		void Init() override;
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override;
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override;
 		void Destroy() override;
 
 	private:
 		Array<GPUPipeline*>  depthPipelines;
-		RenderSceneObjects*  cachedPipelineOwner = nullptr;
+		Scene*               cachedPipelineOwner = nullptr;
 
 		void CleanupPipelines();
 	};

@@ -25,10 +25,10 @@ namespace Skore
 		RenderPipelinePassSetup GetPassSetup() override;
 
 		void Init() override;
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override;
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override;
 		void Destroy() override;
 
-		virtual void RenderCascade(RenderSceneObjects* objects, GPUCommandBuffer* cmd, const Mat4& viewProj, u32 cascadeIndex) = 0;
+		virtual void RenderCascade(Scene* scene, GPUCommandBuffer* cmd, const Mat4& viewProj, u32 cascadeIndex) = 0;
 
 	protected:
 		ShadowMapInstanceData* shadowMapData = nullptr;
@@ -38,7 +38,7 @@ namespace Skore
 		Array<Vec4> m_cascadeOffsets;
 		Array<Vec4> m_cascadeScales;
 
-		RenderSceneObjects* cachedPipelineObjects = nullptr;
+		Scene* cachedPipelineObjects = nullptr;
 		Array<GPUPipeline*> shadowMapPipelines;
 		GPUBuffer*          shadowMapUniformBuffer = nullptr;
 		u64                 m_uniformBufferAlignedSize = 0;

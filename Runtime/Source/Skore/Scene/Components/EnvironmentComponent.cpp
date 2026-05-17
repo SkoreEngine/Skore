@@ -1,46 +1,11 @@
 #include "Skore/Scene/Components/EnvironmentComponent.hpp"
 
+#include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
-#include "Skore/Scene/Scene.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 
 namespace Skore
 {
-	void EnvironmentComponent::Create()
-	{
-		environmentObject = scene->renderObjects.CreateEnvironmentObject();
-		environmentObject->SetMaterial(m_skyboxMaterial);
-		environmentObject->SetUseAsSkybox(true);
-		environmentObject->SetAmbientLightSource(m_ambientLightSource);
-		environmentObject->SetAmbientLightColor(m_ambientLightColor);
-		environmentObject->SetAmbientLightIntensity(m_ambientLightIntensity);
-		environmentObject->SetReflectedLightSource(m_reflectedLightSource);
-		environmentObject->SetReflectedLightIntensity(m_reflectedLightIntensity);
-		
-	}
-
-	void EnvironmentComponent::Destroy()
-	{
-		if (environmentObject)
-		{
-			environmentObject->Destroy();
-		}
-	}
-
-	void EnvironmentComponent::ProcessEvent(const EntityEventDesc& event)
-	{
-		if (!environmentObject) return;
-
-		switch (event.type)
-		{
-			case EntityEventType::EntityActivated:
-				environmentObject->SetVisible(true);
-				break;
-			case EntityEventType::EntityDeactivated:
-				environmentObject->SetVisible(false);
-				break;
-		}
-	}
-
 	TypedRID<MaterialResource> EnvironmentComponent::GetSkyboxMaterial() const
 	{
 		return m_skyboxMaterial;
@@ -48,8 +13,11 @@ namespace Skore
 
 	void EnvironmentComponent::SetSkyboxMaterial(TypedRID<MaterialResource> skyboxMaterial)
 	{
+		if (m_materialCache == nullptr && m_skyboxMaterial != skyboxMaterial)
+		{
+			m_materialCache = RenderResourceCache::GetMaterialCache(skyboxMaterial);
+		}
 		m_skyboxMaterial = skyboxMaterial;
-		if (environmentObject) environmentObject->SetMaterial(m_skyboxMaterial);
 	}
 
 	bool EnvironmentComponent::GetUseSkyboxAsBackground() const
@@ -60,9 +28,7 @@ namespace Skore
 	void EnvironmentComponent::SetUseSkyboxAsBackground(bool useSkyboxAsBackground)
 	{
 		m_useSkyboxAsBackground = useSkyboxAsBackground;
-		if (environmentObject) environmentObject->SetUseAsSkybox(useSkyboxAsBackground);
 	}
-
 
 	AmbientLightSource EnvironmentComponent::GetAmbientLightSource() const
 	{
@@ -72,7 +38,6 @@ namespace Skore
 	void EnvironmentComponent::SetAmbientLightSource(AmbientLightSource source)
 	{
 		m_ambientLightSource = source;
-		if (environmentObject) environmentObject->SetAmbientLightSource(source);
 	}
 
 	Color EnvironmentComponent::GetAmbientLightColor() const
@@ -83,7 +48,6 @@ namespace Skore
 	void EnvironmentComponent::SetAmbientLightColor(const Color& color)
 	{
 		m_ambientLightColor = color;
-		if (environmentObject) environmentObject->SetAmbientLightColor(color);
 	}
 
 	f32 EnvironmentComponent::GetAmbientLightIntensity() const
@@ -94,7 +58,6 @@ namespace Skore
 	void EnvironmentComponent::SetAmbientLightIntensity(f32 intensity)
 	{
 		m_ambientLightIntensity = intensity;
-		if (environmentObject) environmentObject->SetAmbientLightIntensity(intensity);
 	}
 
 	ReflectedLightSource EnvironmentComponent::GetReflectedLightSource() const
@@ -105,7 +68,6 @@ namespace Skore
 	void EnvironmentComponent::SetReflectedLightSource(ReflectedLightSource source)
 	{
 		m_reflectedLightSource = source;
-		if (environmentObject) environmentObject->SetReflectedLightSource(source);
 	}
 
 	f32 EnvironmentComponent::GetReflectedLightIntensity() const
@@ -116,7 +78,11 @@ namespace Skore
 	void EnvironmentComponent::SetReflectedLightIntensity(f32 intensity)
 	{
 		m_reflectedLightIntensity = intensity;
-		if (environmentObject) environmentObject->SetReflectedLightIntensity(intensity);
+	}
+
+	MaterialResourceCache* EnvironmentComponent::GetMaterialCache() const
+	{
+		return m_materialCache;
 	}
 
 	void EnvironmentComponent::RegisterType(NativeReflectType<EnvironmentComponent>& type)
@@ -128,5 +94,6 @@ namespace Skore
 		type.Field<&EnvironmentComponent::m_ambientLightIntensity, &EnvironmentComponent::GetAmbientLightIntensity, &EnvironmentComponent::SetAmbientLightIntensity>("ambientLightIntensity");
 		type.Field<&EnvironmentComponent::m_reflectedLightSource, &EnvironmentComponent::GetReflectedLightSource, &EnvironmentComponent::SetReflectedLightSource>("reflectedLightSource");
 		type.Field<&EnvironmentComponent::m_reflectedLightIntensity, &EnvironmentComponent::GetReflectedLightIntensity, &EnvironmentComponent::SetReflectedLightIntensity>("reflectedLightIntensity");
+		type.Attribute<Iterable>();
 	}
 }

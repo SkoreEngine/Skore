@@ -97,11 +97,11 @@ namespace Skore
 				return {};
 			}
 
-			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != objects)
+			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
 			{
 				CleanupPipelines();
 			}
-			cachedPipelineOwner = objects;
+			cachedPipelineOwner = scene;
 
 			// Grow picker pipelines to match scene pipeline count
 			objects->ForEachVisiblePipeline([&](u32 index, const DrawPipeline& pipeline)

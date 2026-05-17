@@ -2,6 +2,7 @@
 
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
+#include "Skore/Scene/Scene.hpp"
 #include "Skore/App.hpp"
 #include "Skore/Profiler.hpp"
 #include "Skore/Core/Graph.hpp"
@@ -517,15 +518,15 @@ namespace Skore
 		return renderPipeline->GetTypeId();
 	}
 
-	void RenderPipelineContext::Execute(GPUCommandBuffer* cmd, RenderSceneObjects* objects)
+	void RenderPipelineContext::Execute(GPUCommandBuffer* cmd, Scene* scene)
 	{
 		logger.Debug("------------  Frame {} ---------------", App::Frame());
 
 		GraphicsAPI api = Graphics::GetDevice()->GetAPI();
 
-		if (objects)
+		if (scene)
 		{
-			objects->DoUpdate(cmd);
+			scene->renderObjects.DoUpdate(cmd);
 		}
 
 		if (!contextDisabled)
@@ -579,7 +580,7 @@ namespace Skore
 
 			for (auto& module : modules)
 			{
-				module->Update(objects);
+				module->Update(scene);
 			}
 
 			for (auto& storage : passes)
@@ -640,7 +641,7 @@ namespace Skore
 					cmd->SetScissor({0, 0}, extent);
 				}
 
-				storage.pass->Render(objects, cmd);
+				storage.pass->Render(scene, cmd);
 
 				if (storage.pass->renderPass)
 				{

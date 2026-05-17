@@ -5,6 +5,7 @@
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
@@ -31,15 +32,16 @@ namespace Skore
 		depthPipelines.Clear();
 	}
 
-	void DepthPrePassPass::Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd)
+	void DepthPrePassPass::Render(Scene* scene, GPUCommandBuffer* cmd)
 	{
-		if (!objects) return;
+		if (!scene) return;
+		RenderSceneObjects* objects = &scene->renderObjects;
 
-		if (cachedPipelineOwner != nullptr && cachedPipelineOwner != objects)
+		if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
 		{
 			CleanupPipelines();
 		}
-		cachedPipelineOwner = objects;
+		cachedPipelineOwner = scene;
 
 		while (depthPipelines.Size() < objects->opaquePipelines.Size())
 		{

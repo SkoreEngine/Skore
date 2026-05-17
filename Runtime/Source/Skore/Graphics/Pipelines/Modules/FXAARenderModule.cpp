@@ -37,7 +37,7 @@ namespace Skore
 			});
 		}
 
-		void Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd) override
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			cmd->BindPipeline(pipeline);
 			cmd->SetTexture(pipeline, 0, 0, context->GetTexture(FXAAOutputName), 0);

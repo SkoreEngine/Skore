@@ -1,20 +1,62 @@
-﻿#include "Skore/Scene/Components/ParticleEmitter.hpp"
+#include "Skore/Scene/Components/ParticleEmitter.hpp"
 
 #include "Skore/App.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Scene/Entity.hpp"
-#include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 
 namespace Skore
 {
+	void ParticleEmitter::EnsureGPUResources()
+	{
+		if (m_particleBuffer) return;
+
+		m_particleBuffer = Graphics::CreateBuffer(BufferDesc{
+			.size = m_maxParticles * sizeof(GPUParticle),
+			.usage = ResourceUsage::ShaderResource,
+			.hostVisible = true,
+			.persistentMapped = true,
+			.debugName = "ParticleBuffer"
+		});
+
+		m_particleDescriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+			.bindings = {
+				DescriptorSetLayoutBinding{
+					.binding = 0,
+					.descriptorType = DescriptorType::StorageBuffer
+				}
+			}
+		});
+		m_particleDescriptorSet->UpdateBuffer(0, m_particleBuffer, 0, m_maxParticles * sizeof(GPUParticle));
+	}
+
+	void ParticleEmitter::DestroyGPUResources()
+	{
+		if (m_particleDescriptorSet)
+		{
+			m_particleDescriptorSet->Destroy();
+			m_particleDescriptorSet = nullptr;
+		}
+		if (m_particleBuffer)
+		{
+			m_particleBuffer->Destroy();
+			m_particleBuffer = nullptr;
+		}
+	}
+
+	void ParticleEmitter::UploadParticles()
+	{
+		EnsureGPUResources();
+		if (m_particleBuffer && m_particleBuffer->GetMappedData())
+		{
+			memcpy(m_particleBuffer->GetMappedData(), m_particles.Data(), m_maxParticles * sizeof(GPUParticle));
+		}
+	}
+
 	void ParticleEmitter::Create()
 	{
-		m_particleObject = scene->renderObjects.CreateParticleObject();
-		m_particleObject->SetMaxParticles(m_maxParticles);
-		m_particleObject->SetVisible(true);
-
 		m_particles.Resize(m_maxParticles);
 		for (u32 i = 0; i < m_maxParticles; i++)
 		{
@@ -22,23 +64,17 @@ namespace Skore
 			m_particles[i].alive = 0.0f;
 		}
 
-		m_particleObject->UploadData(m_particles.Data(), m_maxParticles * sizeof(GPUParticle));
+		UploadParticles();
 	}
 
 	void ParticleEmitter::Destroy()
 	{
-		if (m_particleObject)
-		{
-			m_particleObject->Destroy();
-			m_particleObject = nullptr;
-		}
+		DestroyGPUResources();
 		m_particles.Clear();
 	}
 
 	void ParticleEmitter::Tick()
 	{
-		if (!m_particleObject || !m_particleObject->GetVisible()) return;
-
 		f32 dt = static_cast<f32>(App::DeltaTime());
 
 		// --- Emit ---
@@ -117,24 +153,14 @@ namespace Skore
 		}
 
 		// --- Upload to GPU ---
-		m_particleObject->UploadData(m_particles.Data(), m_maxParticles * sizeof(GPUParticle));
+		UploadParticles();
 	}
 
 	void ParticleEmitter::ProcessEvent(const EntityEventDesc& event)
 	{
-		if (!m_particleObject) return;
-
-		switch (event.type)
+		if (event.type == EntityEventType::EntityIsSelectedOnEditor)
 		{
-			case EntityEventType::EntityActivated:
-				m_particleObject->SetVisible(true);
-				break;
-			case EntityEventType::EntityDeactivated:
-				m_particleObject->SetVisible(false);
-				break;
-			case EntityEventType::EntityIsSelectedOnEditor:
-				Tick();
-				break;
+			Tick();
 		}
 	}
 
@@ -157,11 +183,8 @@ namespace Skore
 		m_searchIndex = 0;
 		m_emitAccumulator = 0.0f;
 
-		if (m_particleObject)
-		{
-			m_particleObject->SetMaxParticles(maxParticles);
-			m_particleObject->UploadData(m_particles.Data(), m_maxParticles * sizeof(GPUParticle));
-		}
+		DestroyGPUResources();
+		UploadParticles();
 	}
 
 	u32 ParticleEmitter::GetMaxParticles() const { return m_maxParticles; }
@@ -257,5 +280,6 @@ namespace Skore
 		type.Field<&ParticleEmitter::m_duration, &ParticleEmitter::GetDuration, &ParticleEmitter::SetDuration>("duration");
 		type.Function<&ParticleEmitter::IsFinished>("IsFinished");
 		type.Attribute<ComponentDesc>(ComponentDesc{.category = "Effects"});
+		type.Attribute<Iterable>();
 	}
 }

@@ -19,9 +19,12 @@
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Scene/SceneManager.hpp"
+#include "Skore/Scene/Components/Camera.hpp"
+#include "Skore/Scene/Components/LightComponent.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
 #include "Skore/Scene/Components/UIComponents.hpp"
+#include "Skore/Scene/Scene.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 
 namespace Skore
@@ -253,8 +256,6 @@ namespace Skore
 		{
 			if (Scene* scene = sceneEditor->GetCurrentScene())
 			{
-				RenderSceneObjects* objects = &scene->renderObjects;
-
 				const f32 iconScale = 2.0;
 
 				auto DrawIcon = [&](Vec3 position, const char* icon, Color color, RID rid)
@@ -281,17 +282,16 @@ namespace Skore
 
 				ImGui::SetWindowFontScale(iconScale);
 
-				for (CameraObject* camera : objects->cameraObjects)
+				scene->Iterate<Camera>([&](Camera* camera)
 				{
-					Vec3    position = Mat4::GetTranslation(camera->GetTransform());
-					Entity* entity = static_cast<Entity*>(IntToPtr(camera->GetUserData()));
-					DrawIcon(position, ICON_FA_CAMERA, Color::WHITE, entity->GetRID());
-				}
+					Entity* entity = camera->GetEntity();
+					DrawIcon(entity->GetWorldPosition(), ICON_FA_CAMERA, Color::WHITE, entity->GetRID());
+				});
 
-				auto DrawLight = [&](LightObject* lightObject)
+				scene->Iterate<LightComponent>([&](LightComponent* light)
 				{
 					const char* icon = "";
-					switch (lightObject->GetType())
+					switch (light->GetLightType())
 					{
 						case LightType::Point:
 							icon = ICON_FA_LIGHTBULB;
@@ -303,14 +303,9 @@ namespace Skore
 							icon = ICON_FA_SUN;
 							break;
 					}
-					Entity* entity = static_cast<Entity*>(IntToPtr(lightObject->GetUserData()));
-					DrawIcon(Mat4::GetTranslation(lightObject->GetTransform()), icon, lightObject->GetColor(), entity->GetRID());
-				};
-
-				for (LightObject* lightObject : objects->lights)
-				{
-					DrawLight(lightObject);
-				}
+					Entity* entity = light->GetEntity();
+					DrawIcon(entity->GetWorldPosition(), icon, light->GetColor(), entity->GetRID());
+				});
 
 				ImGui::SetWindowFontScale(1.0);
 			}
@@ -944,13 +939,10 @@ namespace Skore
 
 	void SceneViewWindow::Render(GPUCommandBuffer* cmd)
 	{
-		static RenderSceneObjects emptyObjects = {
-			nullptr
-		};
+		static Scene emptyScene;
 
 		Scene* scene = sceneEditor->GetCurrentScene();
-
-		RenderSceneObjects* objects = scene ? &scene->renderObjects : &emptyObjects;
+		if (!scene) scene = &emptyScene;
 
 		if (renderPipelineContext)
 		{
@@ -958,7 +950,7 @@ namespace Skore
 			{
 				renderPipelineContext->UpdateCamera(0.1f, 300.0f, cameraFov, Projection::Perspective, {freeViewCamera.GetView()}, freeViewCamera.GetPosition(), !lockCameraFrustum);
 			}
-			renderPipelineContext->Execute(cmd, objects);
+			renderPipelineContext->Execute(cmd, scene);
 		}
 	}
 

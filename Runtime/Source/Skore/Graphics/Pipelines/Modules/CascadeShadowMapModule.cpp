@@ -7,6 +7,9 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Scene/Components/LightComponent.hpp"
+#include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
@@ -99,12 +102,12 @@ namespace Skore
 
 	}
 
-	void CascadeShadowPassBase::Render(RenderSceneObjects* objects, GPUCommandBuffer* cmd)
+	void CascadeShadowPassBase::Render(Scene* scene, GPUCommandBuffer* cmd)
 	{
-		if (!objects) return;
+		if (!scene) return;
 
 		//reset pipelines in case the scene change and the pipeline order is different.
-		if (cachedPipelineObjects != nullptr && cachedPipelineObjects != objects)
+		if (cachedPipelineObjects != nullptr && cachedPipelineObjects != scene)
 		{
 			for (GPUPipeline* p : shadowMapPipelines)
 			{
@@ -113,10 +116,20 @@ namespace Skore
 			shadowMapPipelines.Clear();
 		}
 
-		Vec3 lightDir = {};
-		u32  lightIndex = {};
+		Vec3 lightDir = Vec3(-1.0f, -1.0f, -1.0f);
+		bool foundDirectionalShadow = false;
 
-		if (!objects->GetDirectionalLightShadowData(lightIndex, lightDir))
+		scene->Iterate<LightComponent>([&](LightComponent* light)
+		{
+			if (foundDirectionalShadow) return;
+			if (!light->GetEnableShadows() || light->GetLightType() != LightType::Directional) return;
+
+			const Mat4& transform = light->GetEntity()->GetWorldTransform();
+			lightDir = Vec3::Normalize(-Vec3(transform[2]));
+			foundDirectionalShadow = true;
+		});
+
+		if (!foundDirectionalShadow)
 		{
 			return;
 		}
@@ -250,7 +263,7 @@ namespace Skore
 
 			cmd->SetScissor({0, 0}, {shadowMapData->shadowMapSize, shadowMapData->shadowMapSize});
 
-			RenderCascade(objects, cmd, shadowMapData->cascadeViewProjMat[i], i);
+			RenderCascade(scene, cmd, shadowMapData->cascadeViewProjMat[i], i);
 
 			cmd->EndRenderPass();
 
@@ -259,7 +272,7 @@ namespace Skore
 		}
 		cmd->EndDebugMarker();
 
-		cachedPipelineObjects = objects;
+		cachedPipelineObjects = scene;
 	}
 
 	void CascadeShadowPassBase::Destroy()

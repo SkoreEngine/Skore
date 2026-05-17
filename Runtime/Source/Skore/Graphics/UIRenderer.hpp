@@ -7,7 +7,7 @@ namespace Skore
 	class GPUFramebuffer;
 	class GPUCommandBuffer;
 	class GPURenderPass;
-  class RenderSceneObjects;
+	class Scene;
 	struct UIRendererContext;
 
 	struct DrawUICursorState
@@ -28,7 +28,7 @@ namespace Skore
 		void SetDebugModeEnabled(bool enabled);
 		bool IsDebugModeEnabled() const;
 
-		void DrawUI(RenderSceneObjects* objects, DrawUICursorState cursorState, GPURenderPass* renderPass, Extent extent, GPUCommandBuffer* cmd);
+		void DrawUI(Scene* scene, DrawUICursorState cursorState, GPURenderPass* renderPass, Extent extent, GPUCommandBuffer* cmd);
 	private:
 		char m_context[64] = {};
 	};

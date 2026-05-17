@@ -2,7 +2,7 @@
 
 #include "Skore/Core/Color.hpp"
 #include "Skore/Core/Math.hpp"
-#include "Skore/Graphics/RenderSceneObjects.hpp"
+#include "Skore/Graphics/Device.hpp"
 #include "Skore/Scene/Component.hpp"
 
 namespace Skore
@@ -69,14 +69,18 @@ namespace Skore
 		void Tick();
 		bool IsFinished() const;
 
+		GPUBuffer*        GetParticleBuffer() const { return m_particleBuffer; }
+		GPUDescriptorSet* GetParticleDescriptorSet() const { return m_particleDescriptorSet; }
+
 		static void RegisterType(NativeReflectType<ParticleEmitter>& type);
 
 	private:
+		GPUBuffer*        m_particleBuffer = nullptr;
+		GPUDescriptorSet* m_particleDescriptorSet = nullptr;
 
-		ParticleObject* m_particleObject = nullptr;
-		f32             m_emitAccumulator = 0.0f;
-		u32             m_searchIndex = 0;
-		f32             m_elapsedTime = 0.0f;
+		f32 m_emitAccumulator = 0.0f;
+		u32 m_searchIndex = 0;
+		f32 m_elapsedTime = 0.0f;
 
 		Array<GPUParticle> m_particles;
 
@@ -92,5 +96,9 @@ namespace Skore
 		Vec3  m_initialVelocityMin = Vec3(-0.5f, 1.0f, -0.5f);
 		Vec3  m_initialVelocityMax = Vec3(0.5f, 3.0f, 0.5f);
 		f32   m_gravity = 9.81f;
+
+		void EnsureGPUResources();
+		void DestroyGPUResources();
+		void UploadParticles();
 	};
 }

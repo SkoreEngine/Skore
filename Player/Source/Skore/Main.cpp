@@ -31,7 +31,7 @@ namespace Skore
 	{
 		if (Scene* scene = SceneManager::GetActiveScene())
 		{
-			pipelineContext->Execute(cmd, &scene->renderObjects);
+			pipelineContext->Execute(cmd, scene);
 		}
 	}
 

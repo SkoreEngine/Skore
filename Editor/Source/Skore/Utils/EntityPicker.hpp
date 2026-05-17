@@ -4,7 +4,7 @@
 
 namespace Skore {
 	class SceneEditor;
-	class RenderSceneObjects;
+	class Scene;
 }
 
 namespace Skore
@@ -26,7 +26,7 @@ namespace Skore
 		GPURenderPass*  renderPass = nullptr;
 		GPUFramebuffer* framebuffer = nullptr;
 		Array<GPUPipeline*> pickerPipelines;
-		RenderSceneObjects* cachedPipelineOwner = nullptr;
+		Scene*              cachedPipelineOwner = nullptr;
 
 		void CleanupPipelines();
 		void DestroyObjects();

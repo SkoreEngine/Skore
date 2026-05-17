@@ -38,4 +38,6 @@ namespace Skore
 	struct UILayerMaskProperty {};
 
 	struct VirtualMethod{};
+
+	struct Iterable{};
 }
