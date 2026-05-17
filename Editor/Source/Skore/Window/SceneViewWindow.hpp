@@ -2,8 +2,6 @@
 #include "Skore/EditorCommon.hpp"
 #include "Skore/MenuItem.hpp"
 
-//#include "Skore/Graphics/UIRenderer.hpp"
-#include "Skore/Graphics/UIRenderer.hpp"
 #include "Skore/Utils/EntityPicker.hpp"
 #include "Skore/Utils/FreeViewCamera.hpp"
 
@@ -72,7 +70,6 @@ namespace Skore
 		bool drawSelectionOutline = true;
 		bool drawDebugPhysics = true;
 		bool showAllPhysicsShapes = false;
-		bool alwaysDrawUI = false;
 		bool lockCameraFrustum = false;
 		bool drawMeshAABB = false;
 		bool drawNavMesh = false;
@@ -87,7 +84,6 @@ namespace Skore
 		Entity* previewEntity = nullptr;
 		RID     previewEntityRID = {};
 
-		UIRenderer   uiRenderer;
 		EntityPicker entityPicker = {};
 
 		RenderPipelineContext* renderPipelineContext = nullptr;

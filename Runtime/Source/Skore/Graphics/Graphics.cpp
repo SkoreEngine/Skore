@@ -21,8 +21,6 @@ namespace Skore
 	void RenderResourceCacheShutdown();
 	void RenderSceneObjectsInit();
 	void RenderSceneObjectsShutdown();
-	void UIRenderInit();
-	void UIRenderShutdown();
 
 	GPUSwapchain* OpenXRManagerCreateSwapchain();
 
@@ -178,7 +176,6 @@ namespace Skore
 		RenderResourceCacheInit();
 		RenderSceneObjectsInit();
 		RenderToolsInit();
-		UIRenderInit();
 
 		return true;
 	}
@@ -189,7 +186,6 @@ namespace Skore
 		RenderToolsShutdown();
 		RenderResourceCacheShutdown();
 		RenderSceneObjectsShutdown();
-		UIRenderShutdown();
 
 		linearSampler->Destroy();
 		linearClampToEdgeSampler->Destroy();

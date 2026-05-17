@@ -8,7 +8,6 @@
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/IO/Input.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
-#include "Skore/Scene/Components/UIComponents.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Navigation/Navigation.hpp"
 #include "Skore/Navigation/NavigationCommon.hpp"
@@ -408,7 +407,6 @@ namespace Skore
 		u32        navMeshVertexCount = 0;
 		u32        navMeshVersion = 0;
 
-		UIRenderer uiRenderer;
 		DebugDraw debugDraw;
 
 		RenderPipelinePassSetup GetPassSetup() override
@@ -695,15 +693,6 @@ namespace Skore
 				}
 			}
 
-
-			if (sceneViewWindow->alwaysDrawUI || sceneViewWindow->windowStartedSimulation || uiRenderer.IsDebugModeEnabled() || sceneViewWindow->GetSceneEditor()->HasUIComponentSelected())
-			{
-				DrawUICursorState cursorState;
-				cursorState.position = sceneViewWindow->mousePosRelativeToWindow;
-				cursorState.cursorDown = Input::IsAnyMouseDown();
-
-				uiRenderer.DrawUI(scene, cursorState, sceneViewRenderPass, context->GetOutputSize(), cmd);
-			}
 
 			cmd->EndRenderPass();
 			cmd->EndDebugMarker();

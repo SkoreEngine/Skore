@@ -12,8 +12,6 @@
 
 namespace Skore
 {
-	class UICanvas;
-
 	struct DrawPipelineDesc
 	{
 		CullMode cullMode = CullMode::Back;
@@ -189,8 +187,6 @@ namespace Skore
 		Array<DrawPipeline> opaquePipelines;
 		Array<DrawPipeline> transparentPipelines;
 		Array<DrawPipeline> shadowPipelines;
-
-		Array<UICanvas*> canvasList;
 
 		GPUTopLevelAS* tlas = nullptr;
 		GPUBuffer*     instanceDataBuffer = nullptr;

@@ -2,39 +2,11 @@
 #include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Graphics/UIRenderer.hpp"
 #include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
 #include "Skore/IO/Input.hpp"
 
 namespace Skore
 {
-	struct SwapchainUIRenderPipelinePass : RenderPipelinePass
-	{
-		SK_CLASS(SwapchainUIRenderPipelinePass, RenderPipelinePass);
-
-		UIRenderer uiRenderer;
-
-		RenderPipelinePassSetup GetPassSetup() override
-		{
-			RenderPipelinePassSetup setup;
-			setup.type = RenderPipelinePassType::Graphics;
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Read});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Write});
-			return setup;
-		}
-
-		void Render(Scene* scene, GPUCommandBuffer* cmd) override
-		{
-			DrawUICursorState cursorState;
-			cursorState.position = Input::GetMousePosition();
-			cursorState.cursorDown = Input::IsAnyMouseDown();
-			cursorState.mouseWheel = Input::GetMouseWheel();
-
-			uiRenderer.DrawUI(scene, cursorState, renderPass, context->GetOutputSize(), cmd);
-		}
-	};
-
-
 	struct SwapchainRenderPipelinePass : RenderPipelinePass
 	{
 		SK_CLASS(SwapchainRenderPipelinePass, RenderPipelinePass);
@@ -146,7 +118,6 @@ namespace Skore
 		{
 			RenderPipelineModuleSetup setup;
 			setup.passes.EmplaceBack(sktypeid(SwapchainRenderPipelinePass));
-			setup.passes.EmplaceBack(sktypeid(SwapchainUIRenderPipelinePass));
 			return setup;
 		}
 	};
@@ -154,7 +125,6 @@ namespace Skore
 	void RegisterSwapchainRenderModule()
 	{
 		Reflection::Type<SwapchainRenderPipelineModule>();
-		Reflection::Type<SwapchainUIRenderPipelinePass>();
 		Reflection::Type<SwapchainRenderPipelinePass>();
 	}
 }
