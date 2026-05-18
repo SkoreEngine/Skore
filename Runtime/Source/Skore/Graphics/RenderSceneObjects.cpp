@@ -170,6 +170,7 @@ namespace Skore
 		dc.material = desc.material;
 		dc.userData = desc.userData;
 		dc.meshIndex = desc.meshIndex;
+		dc.vertexLayoutIndex = desc.vertexLayoutIndex;
 		dc.bones = desc.bones;
 		dc.localAabb = desc.aabb;
 		dc.aabb = Math::TransformAABB(desc.aabb, desc.transform);
@@ -196,6 +197,7 @@ namespace Skore
 			sdc.material = desc.material;
 			sdc.userData = desc.userData;
 			sdc.meshIndex = desc.meshIndex;
+			sdc.vertexLayoutIndex = desc.vertexLayoutIndex;
 			sdc.bones = desc.bones;
 			sdc.localAabb = desc.aabb;
 			sdc.aabb = dc.aabb;
@@ -214,9 +216,9 @@ namespace Skore
 
 			InstanceData data{
 				.meshIndex = desc.meshIndex,
+				.vertexLayoutIndex = desc.vertexLayoutIndex,
 				.materialIndex = desc.material->materialIndex,
-				.firstIndex = desc.firstIndex,
-				.pad = 0
+				.firstIndex = desc.firstIndex
 			};
 
 			AddInstance(owner, primitiveIndex, instDesc, data, ref);

@@ -6,7 +6,8 @@ struct PushConstants
 	matrix world;
 	uint   materialIndex;
 	uint   meshIndex;
-	uint2  pad;
+	uint   vertexLayoutIndex;
+	uint   pad;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
@@ -35,16 +36,17 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 	PixelInput output;
 
 	uint meshIdx = pushConstants.meshIndex;
-	float3 inputPosition = GetVertexPosition(meshIdx, vertexId);
-	float3 inputNormal = GetVertexNormal(meshIdx, vertexId);
-	float4 inputTangent = GetVertexTangent(meshIdx, vertexId);
+	uint layoutIdx = pushConstants.vertexLayoutIndex;
+	float3 inputPosition = GetVertexPosition(meshIdx, layoutIdx, vertexId);
+	float3 inputNormal = GetVertexNormal(meshIdx, layoutIdx, vertexId);
+	float4 inputTangent = GetVertexTangent(meshIdx, layoutIdx, vertexId);
 
 #ifdef HAS_BONES
 	float3 position = 0.0;
 	float3 normal = 0.0;
 	float3 tangent = 0.0;
-	uint4 boneIndices = GetVertexBoneIndices(meshIdx, vertexId);
-	float4 boneWeights = GetVertexBoneWeights(meshIdx, vertexId);
+	uint4 boneIndices = GetVertexBoneIndices(meshIdx, layoutIdx, vertexId);
+	float4 boneWeights = GetVertexBoneWeights(meshIdx, layoutIdx, vertexId);
 
 	[unroll]
 	for (int i = 0; i < 4; i++)
@@ -74,7 +76,7 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 	output.position      = mul(viewProjection, worldPosition);
 	output.worldPos      = worldPosition.xyz;
 
-	output.texCoord = GetVertexUV(meshIdx, vertexId);
+	output.texCoord = GetVertexUV(meshIdx, layoutIdx, vertexId);
 
 	float3x3 normalMat = (float3x3)pushConstants.world;
 	output.normal       = normalize(mul(normalMat, normal));
@@ -83,7 +85,7 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 	float3 B = T.w * cross(output.normal, T.xyz);
 	output.TBN = transpose(float3x3(T.xyz, B, output.normal));
 
-	output.color = GetVertexColor(meshIdx, vertexId);
+	output.color = GetVertexColor(meshIdx, layoutIdx, vertexId);
 
 	output.viewPos     = cameraPosition;
 	output.fragViewPos = mul(view, worldPosition).xyz;

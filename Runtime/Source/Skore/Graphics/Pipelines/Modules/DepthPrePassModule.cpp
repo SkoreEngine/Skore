@@ -40,7 +40,8 @@ namespace Skore
 		{
 			Mat4 world;
 			u32  meshIndex;
-			u32  pad[3];
+			u32  vertexLayoutIndex;
+			u32  pad[2];
 		};
 
 		if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
@@ -112,6 +113,7 @@ namespace Skore
 				DepthPushConstants pc{};
 				pc.world = drawcall.transform;
 				pc.meshIndex = drawcall.meshIndex;
+				pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 				cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(DepthPushConstants), &pc);
 				cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
 			}

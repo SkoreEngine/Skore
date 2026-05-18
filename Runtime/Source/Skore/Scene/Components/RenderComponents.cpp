@@ -177,9 +177,10 @@ namespace Skore
 			desc.layerMask    = layerMask;
 			desc.material     = material;
 			desc.bones        = GetBonesDescriptor();
-			desc.blas         = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
-			desc.meshIndex    = meshCache->geometryIndex;
-			desc.visibility   = visibility;
+			desc.blas              = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
+			desc.meshIndex         = meshCache->geometryIndex;
+			desc.vertexLayoutIndex = meshCache->vertexLayoutId;
+			desc.visibility        = visibility;
 
 			references[p] = scene->renderObjects.CreateDrawcall(desc, this, p);
 		}

@@ -17,7 +17,7 @@ namespace Skore
 		Mat4 world;
 		u64  entityID;
 		u32  meshIndex;
-		u32  padding;
+		u32  vertexLayoutIndex;
 	};
 
 	EntityPicker::~EntityPicker()
@@ -173,6 +173,7 @@ namespace Skore
 					pushConstants.world = drawcall.transform;
 					pushConstants.entityID = drawcall.userData;
 					pushConstants.meshIndex = drawcall.meshIndex;
+					pushConstants.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 					cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(PickerPushConstants), &pushConstants);
 
 					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
