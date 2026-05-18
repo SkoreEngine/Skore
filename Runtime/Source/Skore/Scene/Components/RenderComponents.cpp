@@ -20,21 +20,12 @@ namespace Skore
 
 	void RendererComponent::Create()
 	{
-		cachedTransform = entity->GetWorldTransform();
-		cachedVisible = entity->IsActive();
-		cachedLayerMask = LayerToMask(entity->GetLayer());
-
-		meshDirty = true;
-		materialsDirty = true;
 		ComponentRequireUpdate();
 	}
 
 	void RendererComponent::Destroy()
 	{
 		ClearDrawcalls();
-		ClearInstances();
-		ReleaseMeshCache();
-		ReleaseMaterialCaches();
 
 		if (bonesDescriptor) bonesDescriptor->Destroy();
 		if (bonesBuffer) bonesBuffer->Destroy();
@@ -50,31 +41,28 @@ namespace Skore
 				Rebuild();
 				break;
 			case EntityEventType::EntityActivated:
-				cachedVisible = true;
-				ComponentRequireUpdate();
-				break;
 			case EntityEventType::EntityDeactivated:
-				cachedVisible = false;
 				ComponentRequireUpdate();
 				break;
 			case EntityEventType::TransformUpdated:
 			{
-				cachedTransform = entity->GetWorldTransform();
+				const Mat4 worldTransform = entity->GetWorldTransform();
 				UpdateAABB();
-				PatchDrawcallTransforms();
-				for (const InstanceSlot& slot : instanceSlots)
+				for (const DrawcallRef& ref : references)
 				{
-					if (slot.descIndex != U32_MAX)
-					{
-						scene->renderObjects.UpdateInstanceTransform(slot.descIndex, cachedTransform);
-					}
+					scene->renderObjects.UpdateTransform(ref, worldTransform);
 				}
 				break;
 			}
 			case EntityEventType::EntityLayerChanged:
-				cachedLayerMask = LayerToMask(entity->GetLayer());
-				PatchDrawcallLayerMasks();
+			{
+				const u64 layerMask = LayerToMask(entity->GetLayer());
+				for (const DrawcallRef& ref : references)
+				{
+					scene->renderObjects.UpdateLayerMask(ref, layerMask);
+				}
 				break;
+			}
 			case EntityEventType::CalculateEntityAABB:
 			{
 				AABB& outAabb = *static_cast<AABB*>(event.eventData);
@@ -89,7 +77,6 @@ namespace Skore
 	{
 		if (m_mesh == mesh) return;
 		m_mesh = mesh;
-		meshDirty = true;
 		ComponentRequireUpdate();
 	}
 
@@ -118,7 +105,6 @@ namespace Skore
 	void RendererComponent::SetMaterials(const MaterialArray& materials)
 	{
 		m_materials = materials;
-		materialsDirty = true;
 		ComponentRequireUpdate();
 	}
 
@@ -130,25 +116,7 @@ namespace Skore
 		}
 
 		m_materials[index] = material;
-		materialsDirty = true;
 		ComponentRequireUpdate();
-	}
-
-	MaterialResourceCache* RendererComponent::GetMaterial(u32 materialIndex) const
-	{
-		if (!meshCache) return nullptr;
-
-		if (overrideMaterialsCache.Size() > materialIndex)
-		{
-			return overrideMaterialsCache[materialIndex];
-		}
-
-		if (meshCache->materials.Size() > materialIndex)
-		{
-			return meshCache->materials[materialIndex];
-		}
-
-		return nullptr;
 	}
 
 	void RendererComponent::UpdateSkinData()
@@ -183,276 +151,82 @@ namespace Skore
 		}
 	}
 
-	void RendererComponent::UpdateBones(Span<Mat4> bones) const
-	{
-		if (bonesBuffer && meshCache && meshCache->skin)
-		{
-			Mat4* data = static_cast<Mat4*>(bonesBuffer->GetMappedData());
-			for (i32 i = 0; i < bones.Size(); ++i)
-			{
-				data[i] = bones[i] * meshCache->skin->poses[i];
-			}
-		}
-	}
-
 	void RendererComponent::UpdateAABB()
 	{
 		aabb = AABB();
-		if (meshCache)
+		if (!m_mesh) return;
+		if (MeshResourceCache* mc = RenderResourceCache::GetMeshCache(m_mesh))
 		{
-			aabb = Math::TransformAABB(meshCache->aabb, cachedTransform);
-
-			if (opaqueDrawcallRefs.Size() == meshCache->primitives.Size())
-			{
-				for (int i = 0; i < meshCache->primitives.Size(); ++i)
-				{
-					const auto& ref = opaqueDrawcallRefs[i];
-					scene->renderObjects.opaquePipelines[ref.pipelineIndex].drawcalls[ref.handle].aabb =
-						Math::TransformAABB(meshCache->primitives[i].aabb, cachedTransform);
-				}
-			}
-
-			if (transparentDrawcallRefs.Size() == meshCache->primitives.Size())
-			{
-				for (int i = 0; i < meshCache->primitives.Size(); ++i)
-				{
-					const auto& ref = transparentDrawcallRefs[i];
-					scene->renderObjects.transparentPipelines[ref.pipelineIndex].drawcalls[ref.handle].aabb =
-						Math::TransformAABB(meshCache->primitives[i].aabb, cachedTransform);
-				}
-			}
-		}
-	}
-
-	void RendererComponent::PatchDrawcallTransforms()
-	{
-		for (const auto& ref : opaqueDrawcallRefs)
-		{
-			scene->renderObjects.opaquePipelines[ref.pipelineIndex].drawcalls[ref.handle].transform = cachedTransform;
-		}
-		for (const auto& ref : transparentDrawcallRefs)
-		{
-			scene->renderObjects.transparentPipelines[ref.pipelineIndex].drawcalls[ref.handle].transform = cachedTransform;
-		}
-		for (const auto& ref : shadowDrawcallRefs)
-		{
-			scene->renderObjects.shadowPipelines[ref.pipelineIndex].drawcalls[ref.handle].transform = cachedTransform;
-		}
-	}
-
-	void RendererComponent::PatchDrawcallLayerMasks()
-	{
-		for (const auto& ref : opaqueDrawcallRefs)
-		{
-			scene->renderObjects.opaquePipelines[ref.pipelineIndex].drawcalls[ref.handle].layerMask = cachedLayerMask;
-		}
-		for (const auto& ref : transparentDrawcallRefs)
-		{
-			scene->renderObjects.transparentPipelines[ref.pipelineIndex].drawcalls[ref.handle].layerMask = cachedLayerMask;
-		}
-		for (const auto& ref : shadowDrawcallRefs)
-		{
-			scene->renderObjects.shadowPipelines[ref.pipelineIndex].drawcalls[ref.handle].layerMask = cachedLayerMask;
+			aabb = Math::TransformAABB(mc->aabb, entity->GetWorldTransform());
 		}
 	}
 
 	void RendererComponent::ClearDrawcalls()
 	{
-		for (const auto& ref : opaqueDrawcallRefs)
+		for (const DrawcallRef& ref : references)
 		{
-			scene->renderObjects.opaquePipelines[ref.pipelineIndex].drawcalls.Remove(ref.handle);
+			scene->renderObjects.RemoveDrawcall(ref);
 		}
-		for (const auto& ref : transparentDrawcallRefs)
-		{
-			scene->renderObjects.transparentPipelines[ref.pipelineIndex].drawcalls.Remove(ref.handle);
-		}
-		for (const auto& ref : shadowDrawcallRefs)
-		{
-			scene->renderObjects.shadowPipelines[ref.pipelineIndex].drawcalls.Remove(ref.handle);
-		}
-		opaqueDrawcallRefs.Clear();
-		transparentDrawcallRefs.Clear();
-		shadowDrawcallRefs.Clear();
-	}
-
-	void RendererComponent::ClearInstances()
-	{
-		for (u32 p = 0; p < instanceSlots.Size(); ++p)
-		{
-			scene->renderObjects.RemoveInstance(this, p);
-		}
-		instanceSlots.Clear();
-	}
-
-	void RendererComponent::ReleaseMeshCache()
-	{
-		if (meshCache)
-		{
-			meshCache->DecreaseUsage();
-			meshCache = nullptr;
-		}
-	}
-
-	void RendererComponent::ReleaseMaterialCaches()
-	{
-		for (MaterialResourceCache* material : overrideMaterialsCache)
-		{
-			if (material)
-			{
-				material->DecreaseUsage();
-			}
-		}
-		overrideMaterialsCache.Clear();
+		references.Clear();
 	}
 
 	void RendererComponent::Rebuild()
 	{
-		bool rtEnabled = Graphics::GetDevice()->GetFeatures().rayTracing;
-		RenderSceneObjects& sceneObjects = scene->renderObjects;
-
-		if (meshDirty)
-		{
-			meshDirty = false;
-			ReleaseMeshCache();
-			meshCache = RenderResourceCache::GetMeshCache(m_mesh);
-			if (meshCache)
-			{
-				meshCache->IncreaseUsage();
-
-				if (meshCache->skin)
-				{
-					UpdateSkinData();
-				}
-			}
-			UpdateAABB();
-		}
-
-		if (materialsDirty)
-		{
-			materialsDirty = false;
-			ReleaseMaterialCaches();
-			overrideMaterialsCache.Resize(m_materials.Size());
-
-			for (usize i = 0; i < m_materials.Size(); i++)
-			{
-				if (m_materials[i])
-				{
-					overrideMaterialsCache[i] = RenderResourceCache::GetMaterialCache(m_materials[i]);
-					overrideMaterialsCache[i]->IncreaseUsage();
-				}
-			}
-		}
-
 		ClearDrawcalls();
-		ClearInstances();
 
-		if (!cachedVisible || !meshCache) return;
+		MeshResourceCache* meshCache = m_mesh ? RenderResourceCache::GetMeshCache(m_mesh) : nullptr;
+		OnMeshResolved(meshCache);
 
-		bool frontFace = Determinant(Mat34(cachedTransform)) < 0.0f;
-		CullMode cullMode = !frontFace ? CullMode::Back : CullMode::Front;
-		bool hasBones = bonesDescriptor != nullptr;
+		if (!entity->IsActive() || !meshCache) return;
 
-		const u64 userData = PtrToInt(entity);
+		if (meshCache->skin)
+		{
+			UpdateSkinData();
+		}
+
+		UpdateAABB();
+
+		const Mat4 worldTransform = entity->GetWorldTransform();
+		const u64  layerMask      = LayerToMask(entity->GetLayer());
+		const u64  userData       = PtrToInt(entity);
+		const u8   visibility     = (m_castShadows ? DrawcallVisibility::CastShadow : 0) | DrawcallVisibility::RayTraced;
+
+		references.Resize(meshCache->primitives.Size());
 
 		for (u32 p = 0; p < meshCache->primitives.Size(); ++p)
 		{
 			MeshPrimitive& primitive = meshCache->primitives[p];
-			MaterialResourceCache* material = GetMaterial(primitive.materialIndex);
-			if (material == nullptr || material->materialIndex == U32_MAX)
+
+			// Resolve material inline: prefer override, fall back to mesh default.
+			MaterialResourceCache* material = nullptr;
+			if (primitive.materialIndex < m_materials.Size() && m_materials[primitive.materialIndex])
 			{
-				continue;
+				material = RenderResourceCache::GetMaterialCache(m_materials[primitive.materialIndex]);
 			}
-
-			bool castShadow = m_castShadows && !material->transparent;
-
-			Array<DrawPipeline>& pipelineStorage = !material->transparent ? sceneObjects.opaquePipelines : sceneObjects.transparentPipelines;
-
-			DrawPipelineDesc opaqueDesc;
-			opaqueDesc.cullMode = cullMode;
-			opaqueDesc.vertexStride = meshCache->stride;
-			opaqueDesc.hasBones = hasBones;
-			opaqueDesc.hasUV1 = meshCache->hasUV1;
-			opaqueDesc.hasColor = meshCache->hasColor;
-
-			u32 pipelineId = RenderSceneObjects::GetOrCreatePipeline(pipelineStorage, opaqueDesc);
-
-			DrawPipelineDesc shadowDesc;
-			shadowDesc.cullMode = CullMode::Front;
-			shadowDesc.vertexStride = meshCache->stride;
-			shadowDesc.hasBones = hasBones;
-
-			auto handle = pipelineStorage[pipelineId].drawcalls.Insert();
-			Drawcall& dc = pipelineStorage[pipelineId].drawcalls[handle];
-			dc.vertexBuffer = meshCache->vertexBuffer;
-			dc.indexBuffer = meshCache->indexBuffer;
-			dc.firstIndex = primitive.firstIndex;
-			dc.indexCount = primitive.indexCount;
-			dc.material = material;
-			dc.transform = cachedTransform;
-			dc.bones = bonesDescriptor;
-			dc.aabb = Math::TransformAABB(primitive.aabb, cachedTransform);
-			dc.userData = userData;
-			dc.layerMask = cachedLayerMask;
-
-			if (!material->transparent)
+			if (!material && primitive.materialIndex < meshCache->materials.Size())
 			{
-				opaqueDrawcallRefs.EmplaceBack(DrawcallRef{pipelineId, handle});
+				material = meshCache->materials[primitive.materialIndex];
 			}
-			else
-			{
-				transparentDrawcallRefs.EmplaceBack(DrawcallRef{pipelineId, handle});
-			}
+			if (material == nullptr || material->materialIndex == U32_MAX) continue;
 
-			if (castShadow)
-			{
-				u32 shadowPipelineIdx = RenderSceneObjects::GetOrCreatePipeline(sceneObjects.shadowPipelines, shadowDesc);
+			DrawcallDesc desc{};
+			desc.mesh         = meshCache;
+			desc.firstIndex   = primitive.firstIndex;
+			desc.indexCount   = primitive.indexCount;
+			desc.vertexStride = meshCache->stride;
+			desc.hasUV1       = meshCache->hasUV1;
+			desc.hasColor     = meshCache->hasColor;
+			desc.transform    = worldTransform;
+			desc.aabb         = primitive.aabb;
+			desc.userData     = userData;
+			desc.layerMask    = layerMask;
+			desc.material     = material;
+			desc.bones        = bonesDescriptor;
+			desc.blas         = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
+			desc.meshIndex    = meshCache->geometryIndex;
+			desc.visibility   = visibility;
 
-				auto shadowHandle = sceneObjects.shadowPipelines[shadowPipelineIdx].drawcalls.Insert();
-				Drawcall& sdc = sceneObjects.shadowPipelines[shadowPipelineIdx].drawcalls[shadowHandle];
-				sdc.vertexBuffer = meshCache->vertexBuffer;
-				sdc.indexBuffer = meshCache->indexBuffer;
-				sdc.firstIndex = primitive.firstIndex;
-				sdc.indexCount = primitive.indexCount;
-				sdc.material = material;
-				sdc.transform = cachedTransform;
-				sdc.bones = bonesDescriptor;
-				sdc.aabb = Math::TransformAABB(primitive.aabb, cachedTransform);
-				sdc.userData = userData;
-				sdc.layerMask = cachedLayerMask;
-
-				shadowDrawcallRefs.EmplaceBack(DrawcallRef{shadowPipelineIdx, shadowHandle});
-			}
-		}
-
-		if (rtEnabled && !meshCache->blasArray.Empty() && meshCache->geometryIndex != U32_MAX)
-		{
-			instanceSlots.Resize(meshCache->primitives.Size());
-
-			for (u32 p = 0; p < meshCache->primitives.Size(); ++p)
-			{
-				if (!meshCache->blasArray[p]) continue;
-
-				u32 matIdx = 0;
-				MaterialResourceCache* mat = GetMaterial(p);
-				if (mat && mat->materialIndex != U32_MAX)
-				{
-					matIdx = mat->materialIndex;
-				}
-
-				InstanceDesc desc{};
-				desc.bottomLevelAS = meshCache->blasArray[p];
-				desc.transform = cachedTransform;
-				desc.forceOpaque = true;
-
-				InstanceData data{
-					.meshIndex = meshCache->geometryIndex,
-					.materialIndex = matIdx,
-					.firstIndex = meshCache->primitives[p].firstIndex,
-					.pad = 0
-				};
-
-				sceneObjects.AddInstance(this, p, desc, data);
-			}
+			references[p] = scene->renderObjects.CreateDrawcall(desc, this, p);
 		}
 	}
 
@@ -493,6 +267,37 @@ namespace Skore
 		else
 		{
 			RendererComponent::ProcessEvent(event);
+		}
+	}
+
+	void SkinnedMeshRenderer::Destroy()
+	{
+		if (m_skinCache)
+		{
+			m_skinCache->DecreaseUsage();
+			m_skinCache = nullptr;
+		}
+		RendererComponent::Destroy();
+	}
+
+	void SkinnedMeshRenderer::OnMeshResolved(MeshResourceCache* meshCache)
+	{
+		SkinResourceCache* newSkin = (meshCache && meshCache->skin) ? meshCache->skin : nullptr;
+		if (newSkin == m_skinCache) return;
+
+		if (m_skinCache) m_skinCache->DecreaseUsage();
+		m_skinCache = newSkin;
+		if (m_skinCache) m_skinCache->IncreaseUsage();
+	}
+
+	void SkinnedMeshRenderer::UpdateBones(Span<Mat4> bones) const
+	{
+		if (!bonesBuffer || !m_skinCache) return;
+
+		Mat4* data = static_cast<Mat4*>(bonesBuffer->GetMappedData());
+		for (i32 i = 0; i < bones.Size(); ++i)
+		{
+			data[i] = bones[i] * m_skinCache->poses[i];
 		}
 	}
 

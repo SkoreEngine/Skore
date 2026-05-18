@@ -40,8 +40,6 @@ namespace Skore
 		template<typename Fn>
 		SK_FINLINE void ForEachVisibleDrawcallRef(Fn&& fn) const;
 
-		void UpdateBones(Span<Mat4> bones) const;
-
 		virtual bool IsStatic() const = 0;
 
 		static void RegisterType(NativeReflectType<RendererComponent>& type);
@@ -53,22 +51,9 @@ namespace Skore
 		MaterialArray          m_materials = {};
 		bool                   m_castShadows = true;
 
-		MeshResourceCache*            meshCache = nullptr;
-		Array<MaterialResourceCache*> overrideMaterialsCache;
+		Array<DrawcallRef> references;
 
-		Array<DrawcallRef> opaqueDrawcallRefs;
-		Array<DrawcallRef> transparentDrawcallRefs;
-		Array<DrawcallRef> shadowDrawcallRefs;
-
-		Array<InstanceSlot> instanceSlots;
-
-		Mat4 cachedTransform = Mat4(1.0);
-		bool cachedVisible = true;
-		u64  cachedLayerMask = 1ULL;
 		AABB aabb = {};
-
-		bool materialsDirty = false;
-		bool meshDirty = false;
 
 		GPUDescriptorSet* bonesDescriptor = nullptr;
 		GPUBuffer*        bonesBuffer = nullptr;
@@ -76,13 +61,10 @@ namespace Skore
 		void Rebuild();
 		void UpdateAABB();
 		void UpdateSkinData();
-		MaterialResourceCache* GetMaterial(u32 materialIndex) const;
-		void PatchDrawcallTransforms();
-		void PatchDrawcallLayerMasks();
 		void ClearDrawcalls();
-		void ClearInstances();
-		void ReleaseMeshCache();
-		void ReleaseMaterialCaches();
+
+		// Called from Rebuild once the mesh cache is resolved (may be null).
+		virtual void OnMeshResolved(MeshResourceCache* meshCache) {}
 	};
 
 
@@ -104,10 +86,14 @@ namespace Skore
 	public:
 		SK_CLASS(SkinnedMeshRenderer, RendererComponent);
 
+		void Destroy() override;
+
 		void SetSkeleton(Entity* skeleton);
 		Entity* GetSkeleton() const;
 
 		void ProcessEvent(const EntityEventDesc& event) override;
+
+		void UpdateBones(Span<Mat4> bones) const;
 
 		bool IsStatic() const override
 		{
@@ -116,22 +102,29 @@ namespace Skore
 
 		static void RegisterType(NativeReflectType<SkinnedMeshRenderer>& type);
 
+	protected:
+		void OnMeshResolved(MeshResourceCache* meshCache) override;
+
 	private:
-		Entity* m_skeleton = nullptr;
+		Entity*            m_skeleton = nullptr;
+		SkinResourceCache* m_skinCache = nullptr;
 	};
 
 	template<typename Fn>
 	SK_FINLINE void RendererComponent::ForEachVisibleDrawcallRef(Fn&& fn) const
 	{
-		// Resolved at call site where Scene is complete.
-		for (const auto& ref : opaqueDrawcallRefs)
+		const u32 transparentOffset = static_cast<u32>(scene->renderObjects.opaquePipelines.Size());
+		for (const DrawcallRef& ref : references)
 		{
-			fn(ref.pipelineIndex, scene->renderObjects.opaquePipelines[ref.pipelineIndex].drawcalls[ref.handle]);
-		}
-		u32 offset = static_cast<u32>(scene->renderObjects.opaquePipelines.Size());
-		for (const auto& ref : transparentDrawcallRefs)
-		{
-			fn(offset + ref.pipelineIndex, scene->renderObjects.transparentPipelines[ref.pipelineIndex].drawcalls[ref.handle]);
+			if (ref.pipelineIndex == U32_MAX) continue;
+			if (!ref.transparent)
+			{
+				fn(ref.pipelineIndex, scene->renderObjects.opaquePipelines[ref.pipelineIndex].drawcalls[ref.handle]);
+			}
+			else
+			{
+				fn(transparentOffset + ref.pipelineIndex, scene->renderObjects.transparentPipelines[ref.pipelineIndex].drawcalls[ref.handle]);
+			}
 		}
 	}
 

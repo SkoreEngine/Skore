@@ -13,6 +13,13 @@ namespace Skore
 {
 	class RendererComponent;
 
+	struct DrawcallVisibility
+	{
+		constexpr static u8 None       = 0;
+		constexpr static u8 CastShadow = 1 << 0;
+		constexpr static u8 RayTraced  = 1 << 1;
+	};
+
 	struct DrawPipelineDesc
 	{
 		CullMode cullMode = CullMode::Back;
@@ -34,13 +41,15 @@ namespace Skore
 		u32 firstIndex = 0;
 		u32 indexCount = 0;
 
-		GPUBuffer* vertexBuffer = nullptr;
-		GPUBuffer* indexBuffer = nullptr;
+		GPUBuffer*             vertexBuffer = nullptr;
+		GPUBuffer*             indexBuffer = nullptr;
+		MeshResourceCache*     mesh = nullptr;
 		MaterialResourceCache* material = nullptr;
-		u64 userData = 0;
+		u64                    userData = 0;
 
 		GPUDescriptorSet* bones = nullptr;
 
+		AABB localAabb = {};
 		AABB aabb = {};
 		Mat4 transform = Mat4(1.0);
 
@@ -55,14 +64,43 @@ namespace Skore
 
 	struct DrawcallRef
 	{
-		u32 pipelineIndex = 0;
-		u64 handle = 0;
+		u32  pipelineIndex       = U32_MAX;
+		u64  handle              = U64_MAX;
+		u32  shadowPipelineIndex = U32_MAX;
+		u64  shadowHandle        = U64_MAX;
+		u32  instanceDataId      = U32_MAX;
+		u32  instanceDescIndex   = U32_MAX;
+		bool transparent         = false;
 	};
 
-	struct InstanceSlot
+	struct DrawcallDesc
 	{
-		u32 dataId = U32_MAX;
-		u32 descIndex = U32_MAX;
+		// Geometry — pass `mesh` to let the renderer refcount and source buffers from it.
+		// If `mesh` is null, the renderer uses the explicit vertexBuffer/indexBuffer instead.
+		MeshResourceCache* mesh = nullptr;
+		GPUBuffer*         vertexBuffer = nullptr;
+		GPUBuffer*         indexBuffer = nullptr;
+		u32                firstIndex = 0;
+		u32                indexCount = 0;
+		u32                vertexStride = 0;
+		bool               hasUV1 = false;
+		bool               hasColor = false;
+
+		// Per-instance
+		Mat4 transform = Mat4(1.0);
+		AABB aabb      = {};
+		u64  userData  = 0;
+		u64  layerMask = 1ULL;
+
+		// Material / skinning
+		MaterialResourceCache* material = nullptr;
+		GPUDescriptorSet*      bones    = nullptr;
+
+		// Ray tracing
+		GPUBottomLevelAS* blas      = nullptr;
+		u32               meshIndex = U32_MAX;
+
+		u8 visibility = DrawcallVisibility::CastShadow | DrawcallVisibility::RayTraced;
 	};
 
 	struct InstanceData
@@ -115,12 +153,10 @@ namespace Skore
 				fn(index++, transparentPipelines[i]);
 		}
 
-		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
-
-		void AddInstance(RendererComponent* component, u32 primitiveIndex, const InstanceDesc& desc, const InstanceData& data);
-		void RemoveInstance(RendererComponent* component, u32 primitiveIndex);
-		void UpdateInstanceTransform(u32 descIndex, const Mat4& transform);
-		void MarkTlasDirty() { tlasDirty = true; }
+		DrawcallRef CreateDrawcall(const DrawcallDesc& desc, RendererComponent* owner, u32 primitiveIndex);
+		void        UpdateTransform(const DrawcallRef& ref, const Mat4& transform);
+		void        UpdateLayerMask(const DrawcallRef& ref, u64 layerMask);
+		void        RemoveDrawcall(const DrawcallRef& ref);
 
 		friend class RendererComponent;
 
@@ -130,7 +166,7 @@ namespace Skore
 		struct InstanceEntry
 		{
 			RendererComponent* component = nullptr;
-			u32 primitiveIndex = 0;
+			u32                primitiveIndex = 0;
 		};
 		Array<InstanceEntry> instanceEntries;
 		bool tlasDirty = false;
@@ -142,8 +178,11 @@ namespace Skore
 		u32        nextInstanceId = 0;
 		Array<u32> freeInstanceIds;
 
+		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
 		u32  AllocateInstanceId();
 		void FreeInstanceId(u32 id);
 		void EnsureInstanceDataCapacity(u32 requiredCount);
+		void AddInstance(RendererComponent* component, u32 primitiveIndex, const InstanceDesc& desc, const InstanceData& data, DrawcallRef& outRef);
+		void RemoveInstance(const DrawcallRef& ref);
 	};
 }
