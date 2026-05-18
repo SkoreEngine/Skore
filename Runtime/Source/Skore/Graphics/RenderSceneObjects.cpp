@@ -69,7 +69,21 @@ namespace Skore
 		}
 	}
 
-	void RenderSceneObjects::AddInstance(RendererComponent* component, u32 primitiveIndex, const InstanceDesc& desc, const InstanceData& data)
+	u32 RenderSceneObjects::GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc)
+	{
+		for (u32 i = 0; i < pipelines.Size(); ++i)
+		{
+			if (pipelines[i].desc == desc)
+			{
+				return i;
+			}
+		}
+		u32 index = static_cast<u32>(pipelines.Size());
+		pipelines.EmplaceBack(DrawPipeline{.desc = desc});
+		return index;
+	}
+
+	void RenderSceneObjects::AddInstance(RendererComponent* component, u32 primitiveIndex, const InstanceDesc& desc, const InstanceData& data, DrawcallRef& outRef)
 	{
 		u32 dataId = AllocateInstanceId();
 		u32 descIndex = static_cast<u32>(instances.Size());
@@ -89,20 +103,18 @@ namespace Skore
 			instanceDataCount = dataId + 1;
 		}
 
-		component->instanceSlots[primitiveIndex] = {dataId, descIndex};
+		outRef.instanceDataId = dataId;
+		outRef.instanceDescIndex = descIndex;
 		tlasDirty = true;
 	}
 
-	void RenderSceneObjects::RemoveInstance(RendererComponent* component, u32 primitiveIndex)
+	void RenderSceneObjects::RemoveInstance(const DrawcallRef& ref)
 	{
-		if (primitiveIndex >= component->instanceSlots.Size()) return;
+		if (ref.instanceDescIndex == U32_MAX) return;
 
-		InstanceSlot& slot = component->instanceSlots[primitiveIndex];
-		if (slot.dataId == U32_MAX) return;
+		FreeInstanceId(ref.instanceDataId);
 
-		FreeInstanceId(slot.dataId);
-
-		u32 removeIdx = slot.descIndex;
+		u32 removeIdx = ref.instanceDescIndex;
 		u32 lastIdx = static_cast<u32>(instances.Size()) - 1;
 
 		if (removeIdx != lastIdx)
@@ -110,35 +122,164 @@ namespace Skore
 			instances[removeIdx] = instances[lastIdx];
 			instanceEntries[removeIdx] = instanceEntries[lastIdx];
 
-			instanceEntries[removeIdx].component->instanceSlots[instanceEntries[removeIdx].primitiveIndex].descIndex = removeIdx;
+			InstanceEntry& moved = instanceEntries[removeIdx];
+			moved.component->references[moved.primitiveIndex].instanceDescIndex = removeIdx;
 		}
 
 		instances.PopBack();
 		instanceEntries.PopBack();
-
-		slot = {U32_MAX, U32_MAX};
 		tlasDirty = true;
 	}
 
-	void RenderSceneObjects::UpdateInstanceTransform(u32 descIndex, const Mat4& transform)
+	DrawcallRef RenderSceneObjects::CreateDrawcall(const DrawcallDesc& desc, RendererComponent* owner, u32 primitiveIndex)
 	{
-		if (descIndex >= instances.Size()) return;
-		instances[descIndex].transform = transform;
-		tlasDirty = true;
-	}
-
-	u32 RenderSceneObjects::GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc)
-	{
-		for (u32 i = 0; i < pipelines.Size(); ++i)
+		DrawcallRef ref;
+		if (desc.material == nullptr)
 		{
-			if (pipelines[i].desc == desc)
-			{
-				return i;
-			}
+			return ref;
 		}
-		u32 index = static_cast<u32>(pipelines.Size());
-		pipelines.EmplaceBack(DrawPipeline{.desc = desc});
-		return index;
+
+		GPUBuffer* vertexBuffer = desc.mesh ? desc.mesh->vertexBuffer : desc.vertexBuffer;
+		GPUBuffer* indexBuffer  = desc.mesh ? desc.mesh->indexBuffer  : desc.indexBuffer;
+
+		ref.transparent = desc.material->transparent;
+
+		bool frontFace = Determinant(Mat34(desc.transform)) < 0.0f;
+		CullMode cullMode = !frontFace ? CullMode::Back : CullMode::Front;
+		bool hasBones = desc.bones != nullptr;
+
+		DrawPipelineDesc pipelineDesc;
+		pipelineDesc.cullMode = cullMode;
+		pipelineDesc.vertexStride = desc.vertexStride;
+		pipelineDesc.hasBones = hasBones;
+		pipelineDesc.hasUV1 = desc.hasUV1;
+		pipelineDesc.hasColor = desc.hasColor;
+
+		Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
+		ref.pipelineIndex = GetOrCreatePipeline(pipelineStorage, pipelineDesc);
+		ref.handle = pipelineStorage[ref.pipelineIndex].drawcalls.Insert();
+
+		// Refcount geometry + material; balanced in RemoveDrawcall.
+		desc.material->IncreaseUsage();
+		if (desc.mesh) desc.mesh->IncreaseUsage();
+
+		Drawcall& dc = pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle];
+		dc.firstIndex = desc.firstIndex;
+		dc.indexCount = desc.indexCount;
+		dc.vertexBuffer = vertexBuffer;
+		dc.indexBuffer = indexBuffer;
+		dc.mesh = desc.mesh;
+		dc.material = desc.material;
+		dc.userData = desc.userData;
+		dc.bones = desc.bones;
+		dc.localAabb = desc.aabb;
+		dc.aabb = Math::TransformAABB(desc.aabb, desc.transform);
+		dc.transform = desc.transform;
+		dc.layerMask = desc.layerMask;
+
+		const bool castShadow = (desc.visibility & DrawcallVisibility::CastShadow) != 0 && !ref.transparent;
+		if (castShadow)
+		{
+			DrawPipelineDesc shadowDesc;
+			shadowDesc.cullMode = CullMode::Front;
+			shadowDesc.vertexStride = desc.vertexStride;
+			shadowDesc.hasBones = hasBones;
+
+			ref.shadowPipelineIndex = GetOrCreatePipeline(shadowPipelines, shadowDesc);
+			ref.shadowHandle = shadowPipelines[ref.shadowPipelineIndex].drawcalls.Insert();
+
+			// Shadow drawcall shares the same mesh/material refs that the primary already accounted for.
+			Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
+			sdc.firstIndex = desc.firstIndex;
+			sdc.indexCount = desc.indexCount;
+			sdc.vertexBuffer = vertexBuffer;
+			sdc.indexBuffer = indexBuffer;
+			sdc.mesh = nullptr;  // primary holds the ref
+			sdc.material = desc.material;
+			sdc.userData = desc.userData;
+			sdc.bones = desc.bones;
+			sdc.localAabb = desc.aabb;
+			sdc.aabb = dc.aabb;
+			sdc.transform = desc.transform;
+			sdc.layerMask = desc.layerMask;
+		}
+
+		const bool rayTraced = (desc.visibility & DrawcallVisibility::RayTraced) != 0;
+		const bool rtEnabled = Graphics::GetDevice()->GetFeatures().rayTracing;
+		if (rtEnabled && rayTraced && desc.blas != nullptr && desc.meshIndex != U32_MAX && desc.material->materialIndex != U32_MAX)
+		{
+			InstanceDesc instDesc{};
+			instDesc.bottomLevelAS = desc.blas;
+			instDesc.transform = desc.transform;
+			instDesc.forceOpaque = true;
+
+			InstanceData data{
+				.meshIndex = desc.meshIndex,
+				.materialIndex = desc.material->materialIndex,
+				.firstIndex = desc.firstIndex,
+				.pad = 0
+			};
+
+			AddInstance(owner, primitiveIndex, instDesc, data, ref);
+		}
+
+		return ref;
+	}
+
+	void RenderSceneObjects::UpdateTransform(const DrawcallRef& ref, const Mat4& transform)
+	{
+		if (ref.pipelineIndex != U32_MAX)
+		{
+			Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
+			Drawcall& dc = pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle];
+			dc.transform = transform;
+			dc.aabb = Math::TransformAABB(dc.localAabb, transform);
+		}
+		if (ref.shadowPipelineIndex != U32_MAX)
+		{
+			Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
+			sdc.transform = transform;
+			sdc.aabb = Math::TransformAABB(sdc.localAabb, transform);
+		}
+		if (ref.instanceDescIndex != U32_MAX)
+		{
+			instances[ref.instanceDescIndex].transform = transform;
+			tlasDirty = true;
+		}
+	}
+
+	void RenderSceneObjects::UpdateLayerMask(const DrawcallRef& ref, u64 layerMask)
+	{
+		if (ref.pipelineIndex != U32_MAX)
+		{
+			Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
+			pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle].layerMask = layerMask;
+		}
+		if (ref.shadowPipelineIndex != U32_MAX)
+		{
+			shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle].layerMask = layerMask;
+		}
+	}
+
+	void RenderSceneObjects::RemoveDrawcall(const DrawcallRef& ref)
+	{
+		if (ref.pipelineIndex != U32_MAX)
+		{
+			Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
+			Drawcall& dc = pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle];
+			if (dc.material) dc.material->DecreaseUsage();
+			if (dc.mesh) dc.mesh->DecreaseUsage();
+			pipelineStorage[ref.pipelineIndex].drawcalls.Remove(ref.handle);
+		}
+		if (ref.shadowPipelineIndex != U32_MAX)
+		{
+			// Shadow drawcall doesn't own its own mesh/material refs (primary holds them).
+			shadowPipelines[ref.shadowPipelineIndex].drawcalls.Remove(ref.shadowHandle);
+		}
+		if (ref.instanceDescIndex != U32_MAX)
+		{
+			RemoveInstance(ref);
+		}
 	}
 
 	void RenderSceneObjects::DoUpdate(GPUCommandBuffer* cmd)
