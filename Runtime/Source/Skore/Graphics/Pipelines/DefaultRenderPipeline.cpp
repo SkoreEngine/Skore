@@ -95,7 +95,8 @@ namespace Skore
 			{
 				Mat4 world;
 				u32  meshIndex;
-				u32  pad[3];
+				u32  vertexLayoutIndex;
+				u32  pad[2];
 			};
 
 			while (shadowMapPipelines.Size() < objects->shadowPipelines.Size())
@@ -151,6 +152,7 @@ namespace Skore
 					ShadowPushConstants pc{};
 					pc.world = drawcall.transform;
 					pc.meshIndex = drawcall.meshIndex;
+					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 					cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(ShadowPushConstants), &pc);
 					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
 				}
@@ -354,7 +356,8 @@ namespace Skore
 			Mat4 world;
 			u32  materialIndex;
 			u32  meshIndex;
-			u32  pad[2];
+			u32  vertexLayoutIndex;
+			u32  pad;
 		};
 
 		RenderPipelinePassSetup GetPassSetup() override
@@ -468,8 +471,8 @@ namespace Skore
 					pc.world = drawcall.transform;
 					pc.materialIndex = drawcall.material ? drawcall.material->materialIndex : 0;
 					pc.meshIndex = drawcall.meshIndex;
-					pc.pad[0] = 0;
-					pc.pad[1] = 0;
+					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
+					pc.pad = 0;
 
 					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
 					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
@@ -594,7 +597,8 @@ namespace Skore
 			Mat4 world;
 			u32  materialIndex;
 			u32  meshIndex;
-			u32  pad[2];
+			u32  vertexLayoutIndex;
+			u32  pad;
 		};
 
 		RenderPipelinePassSetup GetPassSetup() override
@@ -753,8 +757,8 @@ namespace Skore
 					pc.world = drawcall.transform;
 					pc.materialIndex = drawcall.material ? drawcall.material->materialIndex : 0;
 					pc.meshIndex = drawcall.meshIndex;
-					pc.pad[0] = 0;
-					pc.pad[1] = 0;
+					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
+					pc.pad = 0;
 					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
 					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
 				}

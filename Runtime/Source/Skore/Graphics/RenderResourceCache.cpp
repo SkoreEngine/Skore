@@ -35,6 +35,58 @@ namespace Skore
 
 		RID defaultMaterial;
 
+		struct VertexLayoutOffsetData
+		{
+			u32 stride;
+			u32 posOff;
+			u32 normalOff;
+			u32 uvOff;
+			u32 uv1Off;
+			u32 colorOff;
+			u32 tangentOff;
+			u32 boneIndicesOff;
+			u32 boneWeightsOff;
+			u32 pad0;
+			u32 pad1;
+			u32 pad2;
+		};
+
+		Array<VertexLayoutOffsetData> vertexLayoutDescs;
+		Array<GPUBuffer*>             vertexLayoutBuffers;
+
+		u32 FindOrCreateVertexLayout(const VertexLayoutOffsetData& layoutData)
+		{
+			for (u32 i = 0; i < vertexLayoutDescs.Size(); ++i)
+			{
+				if (memcmp(&vertexLayoutDescs[i], &layoutData, sizeof(VertexLayoutOffsetData)) == 0)
+				{
+					return i;
+				}
+			}
+
+			u32 idx = static_cast<u32>(vertexLayoutDescs.Size());
+			vertexLayoutDescs.EmplaceBack(layoutData);
+
+			GPUBuffer* buffer = Graphics::CreateBuffer(BufferDesc{
+				.size = sizeof(VertexLayoutOffsetData),
+				.usage = ResourceUsage::ConstantBuffer,
+				.hostVisible = true,
+				.persistentMapped = true,
+				.debugName = "VertexLayout_" + ToString(idx)
+			});
+			memcpy(buffer->GetMappedData(), &layoutData, sizeof(VertexLayoutOffsetData));
+			vertexLayoutBuffers.EmplaceBack(buffer);
+
+			DescriptorUpdate layoutUpdate;
+			layoutUpdate.type = DescriptorType::UniformBuffer;
+			layoutUpdate.binding = 5;
+			layoutUpdate.arrayElement = idx;
+			layoutUpdate.buffer = buffer;
+			globalDescriptorSet->Update(layoutUpdate);
+
+			return idx;
+		}
+
 		struct MaterialData
 		{
 			Vec3 baseColor;
@@ -585,22 +637,6 @@ namespace Skore
 
 				meshData->geometryIndex = nextGeometryIndex++;
 
-				struct VertexLayoutOffsetData
-				{
-					u32 stride;
-					u32 posOff;
-					u32 normalOff;
-					u32 uvOff;
-					u32 uv1Off;
-					u32 colorOff;
-					u32 tangentOff;
-					u32 boneIndicesOff;
-					u32 boneWeightsOff;
-					u32 pad0;
-					u32 pad1;
-					u32 pad2;
-				};
-
 				VertexLayoutOffsetData layoutData{};
 				layoutData.stride         = meshData->stride;
 				layoutData.posOff         = positionOffset;
@@ -612,14 +648,7 @@ namespace Skore
 				layoutData.boneIndicesOff = boneIndicesOffset;
 				layoutData.boneWeightsOff = boneWeightsOffset;
 
-				meshData->vertexLayoutBuffer = Graphics::CreateBuffer(BufferDesc{
-					.size = sizeof(VertexLayoutOffsetData),
-					.usage = ResourceUsage::ConstantBuffer,
-					.hostVisible = true,
-					.persistentMapped = true,
-					.debugName = String(name) + "_VertexLayout"
-				});
-				memcpy(meshData->vertexLayoutBuffer->GetMappedData(), &layoutData, sizeof(layoutData));
+				meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
 
 				DescriptorUpdate vtxUpdate;
 				vtxUpdate.type = DescriptorType::StorageBuffer;
@@ -634,13 +663,6 @@ namespace Skore
 				idxUpdate.arrayElement = meshData->geometryIndex;
 				idxUpdate.buffer = meshData->indexBuffer;
 				globalDescriptorSet->Update(idxUpdate);
-
-				DescriptorUpdate layoutUpdate;
-				layoutUpdate.type = DescriptorType::UniformBuffer;
-				layoutUpdate.binding = 5;
-				layoutUpdate.arrayElement = meshData->geometryIndex;
-				layoutUpdate.buffer = meshData->vertexLayoutBuffer;
-				globalDescriptorSet->Update(layoutUpdate);
 
 				if (rtSupported && !meshData->skin)
 				{
@@ -861,12 +883,14 @@ namespace Skore
 			{
 				it.second->vertexBuffer->Destroy();
 			}
-
-			if (it.second->vertexLayoutBuffer)
-			{
-				it.second->vertexLayoutBuffer->Destroy();
-			}
 		}
 		meshCache.Clear();
+
+		for (GPUBuffer* buffer : vertexLayoutBuffers)
+		{
+			buffer->Destroy();
+		}
+		vertexLayoutBuffers.Clear();
+		vertexLayoutDescs.Clear();
 	}
 }

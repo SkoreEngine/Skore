@@ -91,9 +91,9 @@ namespace Skore
 
 		GPUBuffer* vertexBuffer = nullptr;
 		GPUBuffer* indexBuffer = nullptr;
-		GPUBuffer* vertexLayoutBuffer = nullptr;
 		Array<GPUBottomLevelAS*> blasArray;
 		u32 geometryIndex = U32_MAX;
+		u32 vertexLayoutId = U32_MAX;
 		u32 stride = 0;
 		bool hasUV1 = false;
 		bool hasColor = false;

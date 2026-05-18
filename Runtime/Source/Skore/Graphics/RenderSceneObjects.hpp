@@ -45,6 +45,7 @@ namespace Skore
 		MaterialResourceCache* material = nullptr;
 		u64                    userData = 0;
 		u32                    meshIndex = U32_MAX;
+		u32                    vertexLayoutIndex = U32_MAX;
 
 		GPUDescriptorSet* bones = nullptr;
 
@@ -93,8 +94,9 @@ namespace Skore
 		GPUDescriptorSet*      bones    = nullptr;
 
 		// Ray tracing
-		GPUBottomLevelAS* blas      = nullptr;
-		u32               meshIndex = U32_MAX;
+		GPUBottomLevelAS* blas              = nullptr;
+		u32               meshIndex         = U32_MAX;
+		u32               vertexLayoutIndex = U32_MAX;
 
 		u8 visibility = DrawcallVisibility::CastShadow | DrawcallVisibility::RayTraced;
 	};
@@ -102,9 +104,9 @@ namespace Skore
 	struct InstanceData
 	{
 		u32 meshIndex;
+		u32 vertexLayoutIndex;
 		u32 materialIndex;
 		u32 firstIndex;
-		u32 pad;
 	};
 
 	class SK_API RenderSceneObjects

@@ -8,9 +8,9 @@ RWTexture2D<float4> OutputImage : register(u1, space1);
 struct InstanceData
 {
 	uint meshIndex;
+	uint vertexLayoutIndex;
 	uint materialIndex;
 	uint firstIndex;
-	uint pad;
 };
 
 StructuredBuffer<InstanceData> InstanceDataBuffer : register(t2, space1);
@@ -336,6 +336,7 @@ void Main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes att
 
 	InstanceData instData = InstanceDataBuffer[instanceIdx];
 	uint meshIdx = instData.meshIndex;
+	uint layoutIdx = instData.vertexLayoutIndex;
 
 	// Load triangle indices from the index buffer (3 x uint32, 12 bytes per triangle)
 	// firstIndex offsets into the shared index buffer for this submesh
@@ -346,13 +347,13 @@ void Main(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes att
 	uint i2 = IndexBuffers[NonUniformResourceIndex(meshIdx)].Load(byteOffset + 8);
 
 	// Read vertex attributes
-	float3 n0 = GetVertexNormal(meshIdx, i0);
-	float3 n1 = GetVertexNormal(meshIdx, i1);
-	float3 n2 = GetVertexNormal(meshIdx, i2);
+	float3 n0 = GetVertexNormal(meshIdx, layoutIdx, i0);
+	float3 n1 = GetVertexNormal(meshIdx, layoutIdx, i1);
+	float3 n2 = GetVertexNormal(meshIdx, layoutIdx, i2);
 
-	float2 uv0 = GetVertexUV(meshIdx, i0);
-	float2 uv1 = GetVertexUV(meshIdx, i1);
-	float2 uv2 = GetVertexUV(meshIdx, i2);
+	float2 uv0 = GetVertexUV(meshIdx, layoutIdx, i0);
+	float2 uv1 = GetVertexUV(meshIdx, layoutIdx, i1);
+	float2 uv2 = GetVertexUV(meshIdx, layoutIdx, i2);
 
 	// Interpolate using barycentrics
 	float3 barycentrics = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);

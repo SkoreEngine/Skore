@@ -5,7 +5,8 @@ struct PushConstants
 {
 	matrix world;
 	uint   meshIndex;
-	uint3  pad;
+	uint   vertexLayoutIndex;
+	uint2  pad;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
@@ -18,7 +19,7 @@ struct PixelInput
 PixelInput MainVS(uint vertexId : SV_VertexID)
 {
 	PixelInput output;
-	float3 position = GetVertexPosition(pushConstants.meshIndex, vertexId);
+	float3 position = GetVertexPosition(pushConstants.meshIndex, pushConstants.vertexLayoutIndex, vertexId);
 	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0f));
 	output.position      = mul(viewProjection, worldPosition);
 	return output;

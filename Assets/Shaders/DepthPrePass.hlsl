@@ -21,7 +21,8 @@ struct PushConstants
 {
 	matrix world;
 	uint   meshIndex;
-	uint3  pad;
+	uint   vertexLayoutIndex;
+	uint2  pad;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
@@ -43,12 +44,13 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 	PixelInput output;
 
 	uint meshIdx = pushConstants.meshIndex;
-	float3 inputPosition = GetVertexPosition(meshIdx, vertexId);
+	uint layoutIdx = pushConstants.vertexLayoutIndex;
+	float3 inputPosition = GetVertexPosition(meshIdx, layoutIdx, vertexId);
 
 #ifdef HAS_BONES
 	float3 position = 0.0;
-	uint4 boneIndices = GetVertexBoneIndices(meshIdx, vertexId);
-	float4 boneWeights = GetVertexBoneWeights(meshIdx, vertexId);
+	uint4 boneIndices = GetVertexBoneIndices(meshIdx, layoutIdx, vertexId);
+	float4 boneWeights = GetVertexBoneWeights(meshIdx, layoutIdx, vertexId);
 
 	[unroll]
 	for (int i = 0; i < 4; i++)
