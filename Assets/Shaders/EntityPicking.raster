@@ -1,4 +1,6 @@
 
+#include "VertexPulling.hlsli"
+
 // Vertex output / Pixel input structure
 struct VertexOutput
 {
@@ -11,17 +13,18 @@ struct PushConstants
     matrix   viewProjection;
     matrix   world;
     uint2    entityIDPacked;
-    uint     padding[2]; // Align to 16 bytes
+    uint     meshIndex;
+    uint     padding;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
 
 
-// Vertex Shader
-VertexOutput MainVS(float3 position : POSITION)
+VertexOutput MainVS(uint vertexId : SV_VertexID)
 {
     VertexOutput output;
 
+	float3 position = GetVertexPosition(pushConstants.meshIndex, vertexId);
 	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0f));
     output.position = mul(pushConstants.viewProjection, worldPosition);
     output.entityIDPacked = pushConstants.entityIDPacked;

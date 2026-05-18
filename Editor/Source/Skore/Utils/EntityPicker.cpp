@@ -3,6 +3,7 @@
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/SceneEditor.hpp"
 
@@ -15,7 +16,8 @@ namespace Skore
 		Mat4 viewProjection;
 		Mat4 world;
 		u64  entityID;
-		u32  padding[2];
+		u32  meshIndex;
+		u32  padding;
 	};
 
 	EntityPicker::~EntityPicker()
@@ -119,7 +121,12 @@ namespace Skore
 							BlendStateDesc{}
 						},
 						.renderPass = renderPass,
-						.vertexInputStride = pipeline.desc.vertexStride
+						.descriptorSetsOverride = {
+							DescriptorSetOverride{
+								.set = 2,
+								.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+							}
+						}
 					});
 					pickerPipelines.EmplaceBack(p);
 				}
@@ -157,14 +164,15 @@ namespace Skore
 			{
 				GPUPipeline* pipeline = pickerPipelines[index];
 				cmd->BindPipeline(pipeline);
+				cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet());
 
 				for (const Drawcall& drawcall : drawPipeline.drawcalls)
 				{
-					cmd->BindVertexBuffer(0, drawcall.vertexBuffer, 0);
 					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
 
 					pushConstants.world = drawcall.transform;
 					pushConstants.entityID = drawcall.userData;
+					pushConstants.meshIndex = drawcall.meshIndex;
 					cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(PickerPushConstants), &pushConstants);
 
 					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);

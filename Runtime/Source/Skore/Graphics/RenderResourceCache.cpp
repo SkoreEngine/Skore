@@ -484,6 +484,8 @@ namespace Skore
 				u32 uv1Offset      = U32_MAX;
 				u32 colorOffset    = U32_MAX;
 				u32 tangentOffset  = U32_MAX;
+				u32 boneIndicesOffset = U32_MAX;
+				u32 boneWeightsOffset = U32_MAX;
 
 				RID vertexLayoutRID = meshObject.GetSubObject(MeshResource::VertexLayout);
 				if (vertexLayoutRID)
@@ -508,6 +510,8 @@ namespace Skore
 								else if (attrName == "uv1")    { uv1Offset = attrOffset; meshData->hasUV1 = true; }
 								else if (attrName == "color")  { colorOffset = attrOffset; meshData->hasColor = true; }
 								else if (attrName == "tangent")  tangentOffset = attrOffset;
+								else if (attrName == "boneIndices") boneIndicesOffset = attrOffset;
+								else if (attrName == "boneWeights") boneWeightsOffset = attrOffset;
 							}
 						}
 					}
@@ -529,10 +533,12 @@ namespace Skore
 
 				bool          rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
 				ResourceUsage rtUsage = rtSupported ? ResourceUsage::AccelerationStructure | ResourceUsage::ShaderResource : ResourceUsage::None;
+				ResourceUsage vertexBufferUsage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | ResourceUsage::ShaderResource | rtUsage;
+				ResourceUsage indexBufferUsage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer | ResourceUsage::ShaderResource | rtUsage;
 
 				meshData->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
 					.size = vertexBufferSize,
-					.usage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | rtUsage,
+					.usage = vertexBufferUsage,
 					.hostVisible = false,
 					.persistentMapped = false,
 					.debugName = String(name) + "_VertexBuffer"
@@ -540,7 +546,7 @@ namespace Skore
 
 				meshData->indexBuffer = Graphics::CreateBuffer(BufferDesc{
 					.size = indexBufferSize,
-					.usage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer | rtUsage,
+					.usage = indexBufferUsage,
 					.hostVisible = false,
 					.persistentMapped = false,
 					.debugName = String(name) + "_IndexBuffer"
@@ -577,64 +583,68 @@ namespace Skore
 				meshData->primitives.Resize(primitiveCount);
 				buffer.CopyData(meshData->primitives.Data(), primitiveSize, primitiveOffset);
 
+				meshData->geometryIndex = nextGeometryIndex++;
+
+				struct VertexLayoutOffsetData
+				{
+					u32 stride;
+					u32 posOff;
+					u32 normalOff;
+					u32 uvOff;
+					u32 uv1Off;
+					u32 colorOff;
+					u32 tangentOff;
+					u32 boneIndicesOff;
+					u32 boneWeightsOff;
+					u32 pad0;
+					u32 pad1;
+					u32 pad2;
+				};
+
+				VertexLayoutOffsetData layoutData{};
+				layoutData.stride         = meshData->stride;
+				layoutData.posOff         = positionOffset;
+				layoutData.normalOff      = normalOffset;
+				layoutData.uvOff          = uvOffset;
+				layoutData.uv1Off         = uv1Offset;
+				layoutData.colorOff       = colorOffset;
+				layoutData.tangentOff     = tangentOffset;
+				layoutData.boneIndicesOff = boneIndicesOffset;
+				layoutData.boneWeightsOff = boneWeightsOffset;
+
+				meshData->vertexLayoutBuffer = Graphics::CreateBuffer(BufferDesc{
+					.size = sizeof(VertexLayoutOffsetData),
+					.usage = ResourceUsage::ConstantBuffer,
+					.hostVisible = true,
+					.persistentMapped = true,
+					.debugName = String(name) + "_VertexLayout"
+				});
+				memcpy(meshData->vertexLayoutBuffer->GetMappedData(), &layoutData, sizeof(layoutData));
+
+				DescriptorUpdate vtxUpdate;
+				vtxUpdate.type = DescriptorType::StorageBuffer;
+				vtxUpdate.binding = 3;
+				vtxUpdate.arrayElement = meshData->geometryIndex;
+				vtxUpdate.buffer = meshData->vertexBuffer;
+				globalDescriptorSet->Update(vtxUpdate);
+
+				DescriptorUpdate idxUpdate;
+				idxUpdate.type = DescriptorType::StorageBuffer;
+				idxUpdate.binding = 4;
+				idxUpdate.arrayElement = meshData->geometryIndex;
+				idxUpdate.buffer = meshData->indexBuffer;
+				globalDescriptorSet->Update(idxUpdate);
+
+				DescriptorUpdate layoutUpdate;
+				layoutUpdate.type = DescriptorType::UniformBuffer;
+				layoutUpdate.binding = 5;
+				layoutUpdate.arrayElement = meshData->geometryIndex;
+				layoutUpdate.buffer = meshData->vertexLayoutBuffer;
+				globalDescriptorSet->Update(layoutUpdate);
+
 				if (rtSupported && !meshData->skin)
 				{
 					u32 vertexCount = static_cast<u32>(meshLodObject.GetUInt(MeshLodResource::VerticesCount));
-
-					meshData->geometryIndex = nextGeometryIndex++;
-
-					// Create vertex layout offset buffer
-					struct VertexLayoutOffsetData
-					{
-						u32 stride;
-						u32 posOff;
-						u32 normalOff;
-						u32 uvOff;
-						u32 uv1Off;
-						u32 colorOff;
-						u32 tangentOff;
-						u32 pad;
-					};
-
-					VertexLayoutOffsetData layoutData{};
-					layoutData.stride    = meshData->stride;
-					layoutData.posOff    = positionOffset;
-					layoutData.normalOff = normalOffset;
-					layoutData.uvOff     = uvOffset;
-					layoutData.uv1Off    = uv1Offset;
-					layoutData.colorOff  = colorOffset;
-					layoutData.tangentOff = tangentOffset;
-					layoutData.pad       = 0;
-
-					meshData->vertexLayoutBuffer = Graphics::CreateBuffer(BufferDesc{
-						.size = sizeof(VertexLayoutOffsetData),
-						.usage = ResourceUsage::ConstantBuffer,
-						.hostVisible = true,
-						.persistentMapped = true,
-						.debugName = String(name) + "_VertexLayout"
-					});
-					memcpy(meshData->vertexLayoutBuffer->GetMappedData(), &layoutData, sizeof(layoutData));
-
-					DescriptorUpdate vtxUpdate;
-					vtxUpdate.type = DescriptorType::StorageBuffer;
-					vtxUpdate.binding = 3;
-					vtxUpdate.arrayElement = meshData->geometryIndex;
-					vtxUpdate.buffer = meshData->vertexBuffer;
-					globalDescriptorSet->Update(vtxUpdate);
-
-					DescriptorUpdate idxUpdate;
-					idxUpdate.type = DescriptorType::StorageBuffer;
-					idxUpdate.binding = 4;
-					idxUpdate.arrayElement = meshData->geometryIndex;
-					idxUpdate.buffer = meshData->indexBuffer;
-					globalDescriptorSet->Update(idxUpdate);
-
-					DescriptorUpdate layoutUpdate;
-					layoutUpdate.type = DescriptorType::UniformBuffer;
-					layoutUpdate.binding = 5;
-					layoutUpdate.arrayElement = meshData->geometryIndex;
-					layoutUpdate.buffer = meshData->vertexLayoutBuffer;
-					globalDescriptorSet->Update(layoutUpdate);
 
 					meshData->blasArray.Resize(primitiveCount, nullptr);
 

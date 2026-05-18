@@ -226,7 +226,12 @@ namespace Skore
 								BlendStateDesc{}
 							},
 							.renderPass = maskRenderPass,
-							.vertexInputStride = pipeline.desc.vertexStride
+							.descriptorSetsOverride = {
+								DescriptorSetOverride{
+									.set = 2,
+									.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+								}
+							}
 						});
 						unlitPipelines.EmplaceBack(p);
 					}
@@ -242,6 +247,13 @@ namespace Skore
 
 
 				std::function<void(Entity* entity)> drawEntity;
+				struct UnlitPushConstants
+				{
+					Mat4 world;
+					u32  meshIndex;
+					u32  pad[3];
+				};
+
 				drawEntity = [&](Entity* entity)
 				{
 					for (Component* component : entity->GetComponents())
@@ -253,9 +265,13 @@ namespace Skore
 								GPUPipeline* pipeline = unlitPipelines[pipelineIndex];
 								cmd->BindPipeline(pipeline);
 								cmd->BindDescriptorSet(pipeline, 0, context->GetSceneDescriptorSet(), {});
-								cmd->BindVertexBuffer(0, drawcall.vertexBuffer, 0);
+								cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet(), {});
 								cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
-								cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &drawcall.transform);
+
+								UnlitPushConstants pc{};
+								pc.world = drawcall.transform;
+								pc.meshIndex = drawcall.meshIndex;
+								cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(UnlitPushConstants), &pc);
 								cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
 							});
 						}
