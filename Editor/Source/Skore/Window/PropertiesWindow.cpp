@@ -303,6 +303,8 @@ namespace Skore
 			{
 				if (ReflectType* refletionType = Reflection::FindTypeById(componentId))
 				{
+					if (refletionType->GetDefaultConstructor() == nullptr) continue;
+
 					if (const ComponentDesc* componentDesc = refletionType->GetAttribute<ComponentDesc>())
 					{
 						if (!componentDesc->category.Empty())

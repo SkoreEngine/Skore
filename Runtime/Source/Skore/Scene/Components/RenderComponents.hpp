@@ -14,30 +14,20 @@ namespace Skore
 	class DrawableObject;
 
 
-	class SK_API DrawableComponent : public Component
+	class SK_API RendererComponent : public Component
 	{
 	public:
-		SK_CLASS(DrawableComponent, Component);
+		SK_CLASS(RendererComponent, Component);
 
-		void ProcessEvent(const EntityEventDesc& event) override;
+		void Create() override;
 		void Destroy() override;
+		void ProcessEvent(const EntityEventDesc& event) override;
 
 		DrawableObject* GetDrawableObject() const;
 
-	protected:
-		DrawableObject* drawableObject = nullptr;
-	};
-
-
-	class SK_API StaticMeshRenderer : public DrawableComponent
-	{
-	public:
-		SK_CLASS(StaticMeshRenderer, DrawableComponent);
-
-		void Create() override;
-
 		void SetMesh(RID mesh);
 		RID  GetMesh() const;
+
 		void SetCastShadows(bool castShadows);
 		bool GetCastShadows() const;
 
@@ -45,44 +35,50 @@ namespace Skore
 		void SetMaterials(const MaterialArray& materials);
 		void SetMaterial(u32 index, RID material);
 
-		static void RegisterType(NativeReflectType<StaticMeshRenderer>& type);
+		virtual bool IsStatic() const = 0;
 
-	private:
+		static void RegisterType(NativeReflectType<RendererComponent>& type);
+
+	protected:
+		DrawableObject*        drawableObject = nullptr;
 		TypedRID<MeshResource> m_mesh = {};
-		MaterialArray m_materials = {};
-		bool m_castShadows = true;
+		MaterialArray          m_materials = {};
+		bool                   m_castShadows = true;
 	};
 
-	class SK_API SkinnedMeshRenderer : public DrawableComponent
+
+	class SK_API StaticMeshRenderer : public RendererComponent
 	{
 	public:
-		SK_CLASS(SkinnedMeshRenderer, DrawableComponent);
+		SK_CLASS(StaticMeshRenderer, RendererComponent);
 
-		void Create() override;
-		void Destroy() override;
+		bool IsStatic() const override
+		{
+			return true;
+		}
 
-		void SetMesh(RID mesh);
-		RID  GetMesh() const;
+		static void RegisterType(NativeReflectType<StaticMeshRenderer>& type);
+	};
 
-		void SetCastShadows(bool castShadows);
-		bool GetCastShadows() const;
+	class SK_API SkinnedMeshRenderer : public RendererComponent
+	{
+	public:
+		SK_CLASS(SkinnedMeshRenderer, RendererComponent);
 
 		void SetSkeleton(Entity* skeleton);
 		Entity* GetSkeleton() const;
 
-		const MaterialArray& GetMaterials() const;
-		void SetMaterials(const MaterialArray& materials);
-
 		void ProcessEvent(const EntityEventDesc& event) override;
+
+		bool IsStatic() const override
+		{
+			return false;
+		}
 
 		static void RegisterType(NativeReflectType<SkinnedMeshRenderer>& type);
 
 	private:
-		TypedRID<MeshResource> m_mesh = {};
-		Entity*                m_skeleton = nullptr;
-		MaterialArray          m_materials = {};
-
-		bool m_castShadows = true;
+		Entity* m_skeleton = nullptr;
 	};
 
 	struct AnimChannel

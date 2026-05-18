@@ -305,8 +305,11 @@ namespace Skore
 	Component* Entity::AddComponent(ReflectType* reflectType, RID rid)
 	{
 		if (!reflectType) return nullptr;
+		ReflectConstructor* constructor = reflectType->GetDefaultConstructor();
+		if (constructor == nullptr) return nullptr;
 
-		Component* component = reflectType->NewObject()->SafeCast<Component>();
+		Component* component = constructor->NewObject(MemoryGlobals::GetDefaultAllocator(), nullptr)->SafeCast<Component>();
+
 		component->entity = this;
 		component->scene = m_scene;
 		component->m_version = reflectType->GetVersion();

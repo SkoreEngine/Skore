@@ -182,6 +182,7 @@ namespace Skore
 	void DrawableObject::Destroy()
 	{
 		renderSceneObjects->objects.Erase(this);
+		renderSceneObjects->pendingUpdate.erase(this);
 
 		if (meshCache)
 		{

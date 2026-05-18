@@ -16,7 +16,33 @@ namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("RenderComponents");
 
-	void DrawableComponent::ProcessEvent(const EntityEventDesc& event)
+	void RendererComponent::Create()
+	{
+		drawableObject = scene->renderObjects.CreateDrawable();
+
+		drawableObject->SetMesh(m_mesh);
+		drawableObject->SetMaterials(CastRIDArray(m_materials));
+		drawableObject->SetCastShadows(m_castShadows);
+		drawableObject->SetTransform(entity->GetWorldTransform());
+		drawableObject->SetVisible(entity->IsActive());
+		drawableObject->SetUserData(PtrToInt(entity));
+		drawableObject->SetLayerMask(LayerToMask(entity->GetLayer()));
+
+		if (RID rid = GetRID())
+		{
+			drawableObject->SetUUID(Resources::GetUUID(rid));
+		}
+	}
+
+	void RendererComponent::Destroy()
+	{
+		if (drawableObject)
+		{
+			drawableObject->Destroy();
+		}
+	}
+
+	void RendererComponent::ProcessEvent(const EntityEventDesc& event)
 	{
 		if (!drawableObject) return;
 
@@ -43,38 +69,12 @@ namespace Skore
 		}
 	}
 
-	void DrawableComponent::Destroy()
-	{
-		if (drawableObject)
-		{
-			drawableObject->Destroy();
-		}
-	}
-
-	DrawableObject* DrawableComponent::GetDrawableObject() const
+	DrawableObject* RendererComponent::GetDrawableObject() const
 	{
 		return drawableObject;
 	}
 
-	void StaticMeshRenderer::Create()
-	{
-		drawableObject = scene->renderObjects.CreateDrawable();
-
-		drawableObject->SetMesh(m_mesh);
-		drawableObject->SetMaterials(CastRIDArray(m_materials));
-		drawableObject->SetCastShadows(m_castShadows);
-		drawableObject->SetTransform(entity->GetWorldTransform());
-		drawableObject->SetVisible(entity->IsActive());
-		drawableObject->SetUserData(PtrToInt(entity));
-		drawableObject->SetLayerMask(LayerToMask(entity->GetLayer()));
-
-		if (RID rid = GetRID())
-		{
-			drawableObject->SetUUID(Resources::GetUUID(rid));
-		}
-	}
-
-	void StaticMeshRenderer::SetMesh(RID mesh)
+	void RendererComponent::SetMesh(RID mesh)
 	{
 		m_mesh = mesh;
 		if (drawableObject)
@@ -83,12 +83,12 @@ namespace Skore
 		}
 	}
 
-	RID StaticMeshRenderer::GetMesh() const
+	RID RendererComponent::GetMesh() const
 	{
 		return m_mesh;
 	}
 
-	void StaticMeshRenderer::SetCastShadows(bool castShadows)
+	void RendererComponent::SetCastShadows(bool castShadows)
 	{
 		m_castShadows = castShadows;
 		if (drawableObject)
@@ -97,17 +97,17 @@ namespace Skore
 		}
 	}
 
-	bool StaticMeshRenderer::GetCastShadows() const
+	bool RendererComponent::GetCastShadows() const
 	{
 		return m_castShadows;
 	}
 
-	const MaterialArray& StaticMeshRenderer::GetMaterials() const
+	const MaterialArray& RendererComponent::GetMaterials() const
 	{
 		return m_materials;
 	}
 
-	void StaticMeshRenderer::SetMaterials(const MaterialArray& materials)
+	void RendererComponent::SetMaterials(const MaterialArray& materials)
 	{
 		m_materials = materials;
 		if (drawableObject)
@@ -116,7 +116,7 @@ namespace Skore
 		}
 	}
 
-	void StaticMeshRenderer::SetMaterial(u32 index, RID material)
+	void RendererComponent::SetMaterial(u32 index, RID material)
 	{
 		if (m_materials.Size() <= index)
 		{
@@ -131,63 +131,18 @@ namespace Skore
 		}
 	}
 
+	void RendererComponent::RegisterType(NativeReflectType<RendererComponent>& type)
+	{
+		type.Field<&RendererComponent::m_mesh, &RendererComponent::GetMesh, &RendererComponent::SetMesh>("mesh");
+		type.Field<&RendererComponent::m_materials, &RendererComponent::GetMaterials, &RendererComponent::SetMaterials>("materials");
+		type.Field<&RendererComponent::m_castShadows, &RendererComponent::GetCastShadows, &RendererComponent::SetCastShadows>("castShadows");
+
+		type.Function<&RendererComponent::SetMaterial>("SetMaterial", "index", "material");
+	}
+
 	void StaticMeshRenderer::RegisterType(NativeReflectType<StaticMeshRenderer>& type)
 	{
-		type.Field<&StaticMeshRenderer::m_mesh, &StaticMeshRenderer::GetMesh, &StaticMeshRenderer::SetMesh>("mesh");
-		type.Field<&StaticMeshRenderer::m_materials, &StaticMeshRenderer::GetMaterials, &StaticMeshRenderer::SetMaterials>("materials");
-		type.Field<&StaticMeshRenderer::m_castShadows, &StaticMeshRenderer::GetCastShadows, &StaticMeshRenderer::SetCastShadows>("castShadows");
-
-		type.Function<&StaticMeshRenderer::SetMaterial>("SetMaterial", "index", "material");
-
 		type.Attribute<ComponentDesc>(ComponentDesc{.allowMultiple = true});
-	}
-
-	void SkinnedMeshRenderer::Create()
-	{
-		drawableObject = scene->renderObjects.CreateDrawable();
-		drawableObject->SetMesh(m_mesh);
-		drawableObject->SetMaterials(CastRIDArray(m_materials));
-		drawableObject->SetCastShadows(m_castShadows);
-		drawableObject->SetTransform(entity->GetWorldTransform());
-		drawableObject->SetVisible(entity->IsActive());
-		drawableObject->SetUserData(PtrToInt(entity));
-		drawableObject->SetLayerMask(LayerToMask(entity->GetLayer()));
-	}
-
-	void SkinnedMeshRenderer::Destroy()
-	{
-		if (drawableObject)
-		{
-			drawableObject->Destroy();
-		}
-	}
-
-	void SkinnedMeshRenderer::SetMesh(RID mesh)
-	{
-		m_mesh = mesh;
-		if (drawableObject)
-		{
-			drawableObject->SetMesh(mesh);
-		}
-	}
-
-	RID SkinnedMeshRenderer::GetMesh() const
-	{
-		return m_mesh;
-	}
-
-	void SkinnedMeshRenderer::SetCastShadows(bool castShadows)
-	{
-		m_castShadows = castShadows;
-		if (drawableObject)
-		{
-			drawableObject->SetCastShadows(castShadows);
-		}
-	}
-
-	bool SkinnedMeshRenderer::GetCastShadows() const
-	{
-		return m_castShadows;
 	}
 
 	void SkinnedMeshRenderer::SetSkeleton(Entity* skeleton)
@@ -198,20 +153,6 @@ namespace Skore
 	Entity* SkinnedMeshRenderer::GetSkeleton() const
 	{
 		return m_skeleton;
-	}
-
-	const MaterialArray& SkinnedMeshRenderer::GetMaterials() const
-	{
-		return m_materials;
-	}
-
-	void SkinnedMeshRenderer::SetMaterials(const MaterialArray& materials)
-	{
-		m_materials = materials;
-		if (drawableObject)
-		{
-			drawableObject->SetMaterials(CastRIDArray(materials));
-		}
 	}
 
 	void SkinnedMeshRenderer::ProcessEvent(const EntityEventDesc& event)
@@ -226,16 +167,13 @@ namespace Skore
 		}
 		else
 		{
-			DrawableComponent::ProcessEvent(event);
+			RendererComponent::ProcessEvent(event);
 		}
 	}
 
 	void SkinnedMeshRenderer::RegisterType(NativeReflectType<SkinnedMeshRenderer>& type)
 	{
-		type.Field<&SkinnedMeshRenderer::m_mesh, &SkinnedMeshRenderer::GetMesh, &SkinnedMeshRenderer::SetMesh>("mesh");
 		type.Field<&SkinnedMeshRenderer::m_skeleton, &SkinnedMeshRenderer::GetSkeleton, &SkinnedMeshRenderer::SetSkeleton>("skeleton");
-		type.Field<&SkinnedMeshRenderer::m_materials, &SkinnedMeshRenderer::GetMaterials, &SkinnedMeshRenderer::SetMaterials>("materials");
-		type.Field<&SkinnedMeshRenderer::m_castShadows, &SkinnedMeshRenderer::GetCastShadows, &SkinnedMeshRenderer::SetCastShadows>("castShadows");
 	}
 
 	void AnimationPlayer::Create()
