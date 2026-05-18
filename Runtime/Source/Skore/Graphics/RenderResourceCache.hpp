@@ -62,6 +62,9 @@ namespace Skore
 		GPUBuffer*                     materialBuffer = nullptr;
 		GPUDescriptorSet*              descriptorSet = nullptr;
 
+		// Optional custom shader for the opaque GBuffer/depth pass. Null = use engine default.
+		RID shader = {};
+
 		//material data.
 		TextureResourceCache* skyMaterialTexture = nullptr;
 		GPUTexture*           diffuseIrradianceTexture = nullptr;

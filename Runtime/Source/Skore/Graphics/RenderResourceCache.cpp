@@ -79,6 +79,7 @@ namespace Skore
 			StringView name = materialObject.GetString(MaterialResource::Name);
 
 			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
+			materialCache->shader = materialObject.GetReference(MaterialResource::Shader);
 
 			if (materialCache->type == MaterialResource::MaterialType::Opaque)
 			{

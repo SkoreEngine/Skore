@@ -386,7 +386,7 @@ namespace Skore
 			{
 				const DrawPipelineDesc& desc = objects->opaquePipelines[opaquePipelines.Size()].desc;
 
-				RID deferredGBuffer = Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
+				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
 
 				Array<String> macros;
 				if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");

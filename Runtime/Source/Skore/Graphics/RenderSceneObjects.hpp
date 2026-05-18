@@ -27,12 +27,14 @@ namespace Skore
 		bool     hasBones = false;
 		bool     hasUV1 = false;
 		bool     hasColor = false;
+		RID      shader = {};
 
 		bool operator==(const DrawPipelineDesc& other) const
 		{
 			return cullMode == other.cullMode
 				&& vertexStride == other.vertexStride && hasBones == other.hasBones
-				&& hasUV1 == other.hasUV1 && hasColor == other.hasColor;
+				&& hasUV1 == other.hasUV1 && hasColor == other.hasColor
+				&& shader == other.shader;
 		}
 	};
 
