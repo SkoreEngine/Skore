@@ -504,9 +504,11 @@ namespace Skore
 	void SceneEditor::RemoveComponent(RID entity, RID component)
 	{
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Remove Component");
-		ResourceObject entityObject = Resources::Write(entity);
-		entityObject.RemoveFromSubObjectList(EntityResource::Components, component);
-		entityObject.Commit(scope);
+		Resources::Destroy(component, scope);
+
+		// ResourceObject entityObject = Resources::Write(entity);
+		// entityObject.RemoveFromSubObjectList(EntityResource::Components, component);
+		// entityObject.Commit(scope);
 	}
 
 	void SceneEditor::MoveComponentTo(RID component, u32 newIndex)

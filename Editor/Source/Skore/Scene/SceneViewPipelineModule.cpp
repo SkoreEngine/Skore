@@ -246,7 +246,7 @@ namespace Skore
 				{
 					for (Component* component : entity->GetComponents())
 					{
-						if (DrawableComponent* drawableComponent = component->SafeCast<DrawableComponent>())
+						if (RendererComponent* drawableComponent = component->SafeCast<RendererComponent>())
 						{
 							if (DrawableObject* drawableObject = drawableComponent->GetDrawableObject())
 							{

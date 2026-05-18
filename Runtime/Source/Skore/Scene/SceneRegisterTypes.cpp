@@ -113,7 +113,7 @@ namespace Skore
 		Reflection::Type<Transform>();
 		Reflection::Type<Transform2D>();
 		Reflection::Type<Camera>();
-		Reflection::Type<DrawableComponent>();
+		Reflection::Type<RendererComponent>();
 		Reflection::Type<StaticMeshRenderer>();
 		Reflection::Type<SkinnedMeshRenderer>();
 		Reflection::Type<BoneNode>();
