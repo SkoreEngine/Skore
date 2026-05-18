@@ -1127,6 +1127,7 @@ namespace Skore
 		Resources::Type<MaterialResource>()
 			.Field<MaterialResource::Name>(ResourceFieldType::String)
 			.Field<MaterialResource::Type>(ResourceFieldType::Enum, TypeInfo<MaterialResource::MaterialType>::ID())
+			.Field<MaterialResource::Shader>(ResourceFieldType::Reference, TypeInfo<ShaderResource>::ID())
 			.Field<MaterialResource::BaseColor>(ResourceFieldType::Color)
 			.Field<MaterialResource::BaseColorTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
 			.Field<MaterialResource::NormalTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
