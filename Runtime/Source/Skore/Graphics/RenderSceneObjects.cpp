@@ -150,10 +150,7 @@ namespace Skore
 
 		DrawPipelineDesc pipelineDesc;
 		pipelineDesc.cullMode = cullMode;
-		pipelineDesc.vertexStride = desc.vertexStride;
 		pipelineDesc.hasBones = hasBones;
-		pipelineDesc.hasUV1 = desc.hasUV1;
-		pipelineDesc.hasColor = desc.hasColor;
 		pipelineDesc.shader = desc.material->shader;
 
 		Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
@@ -172,6 +169,7 @@ namespace Skore
 		dc.mesh = desc.mesh;
 		dc.material = desc.material;
 		dc.userData = desc.userData;
+		dc.meshIndex = desc.meshIndex;
 		dc.bones = desc.bones;
 		dc.localAabb = desc.aabb;
 		dc.aabb = Math::TransformAABB(desc.aabb, desc.transform);
@@ -183,7 +181,6 @@ namespace Skore
 		{
 			DrawPipelineDesc shadowDesc;
 			shadowDesc.cullMode = CullMode::Front;
-			shadowDesc.vertexStride = desc.vertexStride;
 			shadowDesc.hasBones = hasBones;
 
 			ref.shadowPipelineIndex = GetOrCreatePipeline(shadowPipelines, shadowDesc);
@@ -198,6 +195,7 @@ namespace Skore
 			sdc.mesh = nullptr;  // primary holds the ref
 			sdc.material = desc.material;
 			sdc.userData = desc.userData;
+			sdc.meshIndex = desc.meshIndex;
 			sdc.bones = desc.bones;
 			sdc.localAabb = desc.aabb;
 			sdc.aabb = dc.aabb;

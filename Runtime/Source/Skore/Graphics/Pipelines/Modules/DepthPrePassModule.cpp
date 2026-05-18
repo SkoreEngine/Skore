@@ -36,6 +36,12 @@ namespace Skore
 	{
 		if (!scene) return;
 		RenderSceneObjects* objects = &scene->renderObjects;
+		struct DepthPushConstants
+		{
+			Mat4 world;
+			u32  meshIndex;
+			u32  pad[3];
+		};
 
 		if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
 		{
@@ -51,8 +57,6 @@ namespace Skore
 
 			Array<String> macros;
 			if (desc.hasBones) macros.EmplaceBack("HAS_BONES");
-			if (desc.hasUV1)   macros.EmplaceBack("HAS_UV1");
-			if (desc.hasColor) macros.EmplaceBack("HAS_COLOR");
 
 			GPUPipeline* p = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
 				.shader = depthShader,
@@ -67,7 +71,12 @@ namespace Skore
 				},
 				.blendStates = {},
 				.renderPass = renderPass,
-				.vertexInputStride = desc.vertexStride
+				.descriptorSetsOverride = {
+					DescriptorSetOverride{
+						.set = 2,
+						.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+					}
+				}
 			});
 
 			depthPipelines.EmplaceBack(p);
@@ -79,6 +88,7 @@ namespace Skore
 
 			cmd->BindPipeline(pipeline);
 			cmd->BindDescriptorSet(pipeline, 0, context->GetSceneDescriptorSet());
+			cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet());
 
 			for (const Drawcall& drawcall : objects->opaquePipelines[i].drawcalls)
 			{
@@ -97,9 +107,12 @@ namespace Skore
 					cmd->BindDescriptorSet(pipeline, 1, drawcall.bones);
 				}
 
-				cmd->BindVertexBuffer(0, drawcall.vertexBuffer, 0);
 				cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
-				cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &drawcall.transform);
+
+				DepthPushConstants pc{};
+				pc.world = drawcall.transform;
+				pc.meshIndex = drawcall.meshIndex;
+				cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(DepthPushConstants), &pc);
 				cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
 			}
 		}

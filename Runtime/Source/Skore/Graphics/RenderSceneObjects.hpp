@@ -23,17 +23,13 @@ namespace Skore
 	struct DrawPipelineDesc
 	{
 		CullMode cullMode = CullMode::Back;
-		u32      vertexStride = 0;
 		bool     hasBones = false;
-		bool     hasUV1 = false;
-		bool     hasColor = false;
 		RID      shader = {};
 
 		bool operator==(const DrawPipelineDesc& other) const
 		{
 			return cullMode == other.cullMode
-				&& vertexStride == other.vertexStride && hasBones == other.hasBones
-				&& hasUV1 == other.hasUV1 && hasColor == other.hasColor
+				&& hasBones == other.hasBones
 				&& shader == other.shader;
 		}
 	};
@@ -48,6 +44,7 @@ namespace Skore
 		MeshResourceCache*     mesh = nullptr;
 		MaterialResourceCache* material = nullptr;
 		u64                    userData = 0;
+		u32                    meshIndex = U32_MAX;
 
 		GPUDescriptorSet* bones = nullptr;
 
@@ -84,9 +81,6 @@ namespace Skore
 		GPUBuffer*         indexBuffer = nullptr;
 		u32                firstIndex = 0;
 		u32                indexCount = 0;
-		u32                vertexStride = 0;
-		bool               hasUV1 = false;
-		bool               hasColor = false;
 
 		// Per-instance
 		Mat4 transform = Mat4(1.0);

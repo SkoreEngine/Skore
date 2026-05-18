@@ -171,9 +171,6 @@ namespace Skore
 			desc.mesh         = meshCache;
 			desc.firstIndex   = primitive.firstIndex;
 			desc.indexCount   = primitive.indexCount;
-			desc.vertexStride = meshCache->stride;
-			desc.hasUV1       = meshCache->hasUV1;
-			desc.hasColor     = meshCache->hasColor;
 			desc.transform    = worldTransform;
 			desc.aabb         = primitive.aabb;
 			desc.userData     = userData;

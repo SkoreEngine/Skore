@@ -5,11 +5,8 @@ struct PushConstants
 {
 	matrix world;
 	uint   materialIndex;
-	uint   lightmapTextureIndex;
-	float2 lightmapScale;
-	float2 lightmapOffset;
-	uint   lightmapMode; // 0 = Indirect, 1 = Subtractive, 2 = Shadowmask
-	uint   pad;
+	uint   meshIndex;
+	uint2  pad;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
@@ -21,34 +18,12 @@ cbuffer SkinnedBuffer : register(b0, space1)
 };
 #endif
 
-// Vertex layout matches MeshImporter order:
-// position(Vec3), normal(Vec3), uv0(Vec2), [uv1(Vec2)], [color(Vec3)], tangent(Vec4), [boneIndices(u32x4), boneWeights(Vec4)]
-struct VertexInput
-{
-	float3 position : POSITION;
-	float3 normal   : NORMAL;
-	float2 texCoord : TEXCOORD0;
-#ifdef HAS_UV1
-	float2 uv1      : TEXCOORD1;
-#endif
-#ifdef HAS_COLOR
-	float3 color    : COLOR;
-#endif
-	float4 tangent  : TANGENT;
-#ifdef HAS_BONES
-	uint4  boneIndices  : BONEINDICES;
-	float4 boneWeights  : BONEWEIGHTS;
-#endif
-};
-
 struct PixelInput
 {
 	float4   position    : SV_POSITION;
 	float3   normal      : NORMAL;
 	float2   texCoord    : TEXCOORD0;
-#ifdef HAS_UV1
 	float2   uv1         : TEXCOORD1;
-#endif
 	float3   color       : COLOR;
 	float3x3 TBN         : TBN1;
 	float3   worldPos    : POSITION1;
@@ -56,60 +31,61 @@ struct PixelInput
 	float3   fragViewPos : POSITION3;
 };
 
-PixelInput MainVS(VertexInput input)
+PixelInput MainVS(uint vertexId : SV_VertexID)
 {
 	PixelInput output;
+
+	uint meshIdx = pushConstants.meshIndex;
+	float3 inputPosition = GetVertexPosition(meshIdx, vertexId);
+	float3 inputNormal = GetVertexNormal(meshIdx, vertexId);
+	float4 inputTangent = GetVertexTangent(meshIdx, vertexId);
 
 #ifdef HAS_BONES
 	float3 position = 0.0;
 	float3 normal = 0.0;
 	float3 tangent = 0.0;
+	uint4 boneIndices = GetVertexBoneIndices(meshIdx, vertexId);
+	float4 boneWeights = GetVertexBoneWeights(meshIdx, vertexId);
 
 	[unroll]
 	for (int i = 0; i < 4; i++)
 	{
-		float weight = input.boneWeights[i];
-		matrix boneTransform = boneMatrices[input.boneIndices[i]];
+		float weight = boneWeights[i];
+		matrix boneTransform = boneMatrices[boneIndices[i]];
 
-		float4 localPosition = mul(boneTransform, float4(input.position, 1.0f));
+		float4 localPosition = mul(boneTransform, float4(inputPosition, 1.0f));
 		position += localPosition.xyz * weight;
 
-		float3 localNormal = mul((float3x3)boneTransform, input.normal);
+		float3 localNormal = mul((float3x3)boneTransform, inputNormal);
 		normal += localNormal * weight;
 
-		float3 localTangent = mul((float3x3)boneTransform, input.tangent.xyz);
+		float3 localTangent = mul((float3x3)boneTransform, inputTangent.xyz);
 		tangent += localTangent * weight;
 	}
 
 	normal = normalize(normal);
 	tangent = normalize(tangent);
 #else
-	float3 position = input.position;
-	float3 normal = input.normal;
-	float3 tangent = input.tangent.xyz;
+	float3 position = inputPosition;
+	float3 normal = inputNormal;
+	float3 tangent = inputTangent.xyz;
 #endif
 
 	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0f));
 	output.position      = mul(viewProjection, worldPosition);
 	output.worldPos      = worldPosition.xyz;
 
-	output.texCoord = input.texCoord;
-#ifdef HAS_UV1
-	output.uv1 = input.uv1;
-#endif
+	output.texCoord = GetVertexUV(meshIdx, vertexId);
+	output.uv1 = GetVertexUV1(meshIdx, vertexId);
 
 	float3x3 normalMat = (float3x3)pushConstants.world;
 	output.normal       = normalize(mul(normalMat, normal));
 
-	float4 T = float4(normalize(mul(normalMat, tangent)), input.tangent.w);
+	float4 T = float4(normalize(mul(normalMat, tangent)), inputTangent.w);
 	float3 B = T.w * cross(output.normal, T.xyz);
 	output.TBN = transpose(float3x3(T.xyz, B, output.normal));
 
-#ifdef HAS_COLOR
-	output.color = input.color;
-#else
-	output.color = float3(1.0, 1.0, 1.0);
-#endif
+	output.color = GetVertexColor(meshIdx, vertexId);
 
 	output.viewPos     = cameraPosition;
 	output.fragViewPos = mul(view, worldPosition).xyz;

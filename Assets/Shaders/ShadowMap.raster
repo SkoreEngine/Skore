@@ -1,11 +1,8 @@
+#include "VertexPulling.hlsli"
+
 cbuffer CameraBuffer
 {
 	matrix viewProjection;
-};
-
-struct VertexInput
-{
-	float3 position : POSITION;
 };
 
 
@@ -17,15 +14,18 @@ struct PixelInput
 struct PushConstants
 {
 	matrix world;
+	uint   meshIndex;
+	uint3  pad;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
 
 
-PixelInput MainVS(VertexInput input)
+PixelInput MainVS(uint vertexId : SV_VertexID)
 {
 	PixelInput output;
-	float4 worldPosition = mul(pushConstants.world, float4(input.position, 1.0f));
+	float3 position = GetVertexPosition(pushConstants.meshIndex, vertexId);
+	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0f));
 	output.position = mul(viewProjection, worldPosition);
 
     return output;

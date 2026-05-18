@@ -91,6 +91,13 @@ namespace Skore
 		void RenderCascade(Scene* scene, GPUCommandBuffer* cmd, const Mat4& viewProj, u32 cascadeIndex) override
 		{
 			RenderSceneObjects* objects = &scene->renderObjects;
+			struct ShadowPushConstants
+			{
+				Mat4 world;
+				u32  meshIndex;
+				u32  pad[3];
+			};
+
 			while (shadowMapPipelines.Size() < objects->shadowPipelines.Size())
 			{
 				const DrawPipelineDesc& desc = objects->shadowPipelines[shadowMapPipelines.Size()].desc;
@@ -98,8 +105,6 @@ namespace Skore
 
 				Array<String> macros;
 				if (desc.hasBones) macros.EmplaceBack("HAS_BONES");
-				if (desc.hasUV1)   macros.EmplaceBack("HAS_UV1");
-				if (desc.hasColor) macros.EmplaceBack("HAS_COLOR");
 
 				GPUPipeline* p = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
 					.shader = shadowShader,
@@ -117,7 +122,12 @@ namespace Skore
 						BlendStateDesc{}
 					},
 					.renderPass = m_shadowMapRenderPass[0],
-					.vertexInputStride = desc.vertexStride
+					.descriptorSetsOverride = {
+						DescriptorSetOverride{
+							.set = 2,
+							.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+						}
+					}
 				});
 				shadowMapPipelines.EmplaceBack(p);
 			}
@@ -127,6 +137,7 @@ namespace Skore
 				GPUPipeline* pipeline = shadowMapPipelines[i];
 				cmd->BindPipeline(pipeline);
 				cmd->BindDescriptorSet(pipeline, 0, m_shadowMapDescriptorSets[context->GetCurrentFrame()][cascadeIndex], {});
+				cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet());
 
 				for (const Drawcall& drawcall : objects->shadowPipelines[i].drawcalls)
 				{
@@ -135,9 +146,12 @@ namespace Skore
 						cmd->BindDescriptorSet(pipeline, 1, drawcall.bones);
 					}
 
-					cmd->BindVertexBuffer(0, drawcall.vertexBuffer, 0);
 					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
-					cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &drawcall.transform);
+
+					ShadowPushConstants pc{};
+					pc.world = drawcall.transform;
+					pc.meshIndex = drawcall.meshIndex;
+					cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(ShadowPushConstants), &pc);
 					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
 				}
 			}
@@ -339,7 +353,8 @@ namespace Skore
 		{
 			Mat4 world;
 			u32  materialIndex;
-			u32  pad;
+			u32  meshIndex;
+			u32  pad[2];
 		};
 
 		RenderPipelinePassSetup GetPassSetup() override
@@ -390,8 +405,6 @@ namespace Skore
 
 				Array<String> macros;
 				if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");
-				if (desc.hasUV1)    macros.EmplaceBack("HAS_UV1");
-				if (desc.hasColor)  macros.EmplaceBack("HAS_COLOR");
 
 				DepthStencilStateDesc depthStencilState;
 				depthStencilState.depthTestEnable = true;
@@ -412,7 +425,6 @@ namespace Skore
 						BlendStateDesc{}
 					},
 					.renderPass = renderPass,
-					.vertexInputStride = desc.vertexStride
 				};
 
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
@@ -450,12 +462,14 @@ namespace Skore
 						cmd->BindDescriptorSet(pipeline, 1, drawcall.bones);
 					}
 
-					cmd->BindVertexBuffer(0, drawcall.vertexBuffer, 0);
 					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
 
 					MeshPushConstants pc;
 					pc.world = drawcall.transform;
 					pc.materialIndex = drawcall.material ? drawcall.material->materialIndex : 0;
+					pc.meshIndex = drawcall.meshIndex;
+					pc.pad[0] = 0;
+					pc.pad[1] = 0;
 
 					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
 					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
@@ -579,6 +593,8 @@ namespace Skore
 		{
 			Mat4 world;
 			u32  materialIndex;
+			u32  meshIndex;
+			u32  pad[2];
 		};
 
 		RenderPipelinePassSetup GetPassSetup() override
@@ -670,7 +686,6 @@ namespace Skore
 
 				Array<String> macros;
 				if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");
-				if (desc.hasColor)  macros.EmplaceBack("HAS_COLOR");
 
 				DepthStencilStateDesc depthStencilState;
 				depthStencilState.depthTestEnable = true;
@@ -696,7 +711,6 @@ namespace Skore
 						},
 					},
 					.renderPass = renderPass,
-					.vertexInputStride = desc.vertexStride
 				};
 
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
@@ -733,12 +747,14 @@ namespace Skore
 						cmd->BindDescriptorSet(pipeline, 3, drawcall.bones);
 					}
 
-					cmd->BindVertexBuffer(0, drawcall.vertexBuffer, 0);
 					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
 
 					MeshPushConstants pc;
 					pc.world = drawcall.transform;
 					pc.materialIndex = drawcall.material ? drawcall.material->materialIndex : 0;
+					pc.meshIndex = drawcall.meshIndex;
+					pc.pad[0] = 0;
+					pc.pad[1] = 0;
 					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
 					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
 				}
