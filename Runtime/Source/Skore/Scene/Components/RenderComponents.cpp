@@ -26,11 +26,6 @@ namespace Skore
 	void RendererComponent::Destroy()
 	{
 		ClearDrawcalls();
-
-		if (bonesDescriptor) bonesDescriptor->Destroy();
-		if (bonesBuffer) bonesBuffer->Destroy();
-		bonesDescriptor = nullptr;
-		bonesBuffer = nullptr;
 	}
 
 	void RendererComponent::ProcessEvent(const EntityEventDesc& event)
@@ -119,38 +114,6 @@ namespace Skore
 		ComponentRequireUpdate();
 	}
 
-	void RendererComponent::UpdateSkinData()
-	{
-		if (bonesBuffer == nullptr)
-		{
-			bonesBuffer = Graphics::CreateBuffer(BufferDesc{
-				.size = sizeof(Mat4) * MaxBones,
-				.usage = ResourceUsage::ConstantBuffer,
-				.hostVisible = true,
-				.persistentMapped = true
-			});
-
-			Mat4* bones = static_cast<Mat4*>(bonesBuffer->GetMappedData());
-			for (int i = 0; i < MaxBones; ++i)
-			{
-				new(bones + i) Mat4{Mat4(1.0)};
-			}
-		}
-
-		if (bonesDescriptor == nullptr)
-		{
-			bonesDescriptor = Graphics::CreateDescriptorSet(DescriptorSetDesc{
-				.bindings{
-					DescriptorSetLayoutBinding{
-						.binding = 0,
-						.descriptorType = DescriptorType::UniformBuffer,
-					}
-				}
-			});
-			bonesDescriptor->UpdateBuffer(0, bonesBuffer, 0, sizeof(Mat4) * MaxBones);
-		}
-	}
-
 	void RendererComponent::UpdateAABB()
 	{
 		aabb = AABB();
@@ -178,11 +141,6 @@ namespace Skore
 		OnMeshResolved(meshCache);
 
 		if (!entity->IsActive() || !meshCache) return;
-
-		if (meshCache->skin)
-		{
-			UpdateSkinData();
-		}
 
 		UpdateAABB();
 
@@ -221,7 +179,7 @@ namespace Skore
 			desc.userData     = userData;
 			desc.layerMask    = layerMask;
 			desc.material     = material;
-			desc.bones        = bonesDescriptor;
+			desc.bones        = GetBonesDescriptor();
 			desc.blas         = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
 			desc.meshIndex    = meshCache->geometryIndex;
 			desc.visibility   = visibility;
@@ -277,24 +235,68 @@ namespace Skore
 			m_skinCache->DecreaseUsage();
 			m_skinCache = nullptr;
 		}
+		if (m_bonesDescriptor) m_bonesDescriptor->Destroy();
+		if (m_bonesBuffer) m_bonesBuffer->Destroy();
+		m_bonesDescriptor = nullptr;
+		m_bonesBuffer = nullptr;
+
 		RendererComponent::Destroy();
 	}
 
 	void SkinnedMeshRenderer::OnMeshResolved(MeshResourceCache* meshCache)
 	{
 		SkinResourceCache* newSkin = (meshCache && meshCache->skin) ? meshCache->skin : nullptr;
-		if (newSkin == m_skinCache) return;
 
-		if (m_skinCache) m_skinCache->DecreaseUsage();
-		m_skinCache = newSkin;
-		if (m_skinCache) m_skinCache->IncreaseUsage();
+		if (newSkin != m_skinCache)
+		{
+			if (m_skinCache) m_skinCache->DecreaseUsage();
+			m_skinCache = newSkin;
+			if (m_skinCache) m_skinCache->IncreaseUsage();
+		}
+
+		if (m_skinCache)
+		{
+			EnsureBonesData();
+		}
+	}
+
+	void SkinnedMeshRenderer::EnsureBonesData()
+	{
+		if (m_bonesBuffer == nullptr)
+		{
+			m_bonesBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = sizeof(Mat4) * MaxBones,
+				.usage = ResourceUsage::ConstantBuffer,
+				.hostVisible = true,
+				.persistentMapped = true
+			});
+
+			Mat4* bones = static_cast<Mat4*>(m_bonesBuffer->GetMappedData());
+			for (int i = 0; i < MaxBones; ++i)
+			{
+				new(bones + i) Mat4{Mat4(1.0)};
+			}
+		}
+
+		if (m_bonesDescriptor == nullptr)
+		{
+			m_bonesDescriptor = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+				.bindings{
+					DescriptorSetLayoutBinding{
+						.binding = 0,
+						.descriptorType = DescriptorType::UniformBuffer,
+					}
+				}
+			});
+			m_bonesDescriptor->UpdateBuffer(0, m_bonesBuffer, 0, sizeof(Mat4) * MaxBones);
+		}
 	}
 
 	void SkinnedMeshRenderer::UpdateBones(Span<Mat4> bones) const
 	{
-		if (!bonesBuffer || !m_skinCache) return;
+		if (!m_bonesBuffer || !m_skinCache) return;
 
-		Mat4* data = static_cast<Mat4*>(bonesBuffer->GetMappedData());
+		Mat4* data = static_cast<Mat4*>(m_bonesBuffer->GetMappedData());
 		for (i32 i = 0; i < bones.Size(); ++i)
 		{
 			data[i] = bones[i] * m_skinCache->poses[i];

@@ -55,16 +55,15 @@ namespace Skore
 
 		AABB aabb = {};
 
-		GPUDescriptorSet* bonesDescriptor = nullptr;
-		GPUBuffer*        bonesBuffer = nullptr;
-
 		void Rebuild();
 		void UpdateAABB();
-		void UpdateSkinData();
 		void ClearDrawcalls();
 
 		// Called from Rebuild once the mesh cache is resolved (may be null).
 		virtual void OnMeshResolved(MeshResourceCache* meshCache) {}
+
+		// Bones descriptor for skinned drawcalls; nullptr for non-skinned renderers.
+		virtual GPUDescriptorSet* GetBonesDescriptor() const { return nullptr; }
 	};
 
 
@@ -103,11 +102,16 @@ namespace Skore
 		static void RegisterType(NativeReflectType<SkinnedMeshRenderer>& type);
 
 	protected:
-		void OnMeshResolved(MeshResourceCache* meshCache) override;
+		void              OnMeshResolved(MeshResourceCache* meshCache) override;
+		GPUDescriptorSet* GetBonesDescriptor() const override { return m_bonesDescriptor; }
 
 	private:
 		Entity*            m_skeleton = nullptr;
 		SkinResourceCache* m_skinCache = nullptr;
+		GPUBuffer*         m_bonesBuffer = nullptr;
+		GPUDescriptorSet*  m_bonesDescriptor = nullptr;
+
+		void EnsureBonesData();
 	};
 
 	template<typename Fn>
