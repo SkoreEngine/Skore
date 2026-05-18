@@ -67,6 +67,7 @@ namespace Skore
 
 		constexpr static i32 TransformUpdated = 1000;
 		constexpr static i32 ParentTransformUpdated = 1010;
+		constexpr static i32 ComponentUpdated = 1020;
 
 		constexpr static i32 CollectPhysicsShapes = 1100;
 		constexpr static i32 CalculateEntityAABB = 1140;

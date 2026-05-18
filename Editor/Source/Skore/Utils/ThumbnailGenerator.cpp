@@ -90,6 +90,7 @@ namespace Skore
 		}
 
 		{
+			scene->ExecuteEvents(false);
 			GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
 			cmd->Begin();
 			scene->renderObjects.DoUpdate(cmd);

@@ -2,16 +2,18 @@
 
 #include "Transform.hpp"
 #include "Skore/Core/HashMap.hpp"
+#include "Skore/Core/UUID.hpp"
 #include "Skore/Graphics/GraphicsCommon.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
 #include "Skore/Scene/Component.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
 	struct BoneNode;
 	class Skeleton;
-	class DrawableObject;
 
 
 	class SK_API RendererComponent : public Component
@@ -23,8 +25,6 @@ namespace Skore
 		void Destroy() override;
 		void ProcessEvent(const EntityEventDesc& event) override;
 
-		DrawableObject* GetDrawableObject() const;
-
 		void SetMesh(RID mesh);
 		RID  GetMesh() const;
 
@@ -35,15 +35,54 @@ namespace Skore
 		void SetMaterials(const MaterialArray& materials);
 		void SetMaterial(u32 index, RID material);
 
+		AABB GetAABB() const { return aabb; }
+
+		template<typename Fn>
+		SK_FINLINE void ForEachVisibleDrawcallRef(Fn&& fn) const;
+
+		void UpdateBones(Span<Mat4> bones) const;
+
 		virtual bool IsStatic() const = 0;
 
 		static void RegisterType(NativeReflectType<RendererComponent>& type);
 
+		friend class RenderSceneObjects;
+
 	protected:
-		DrawableObject*        drawableObject = nullptr;
 		TypedRID<MeshResource> m_mesh = {};
 		MaterialArray          m_materials = {};
 		bool                   m_castShadows = true;
+
+		MeshResourceCache*            meshCache = nullptr;
+		Array<MaterialResourceCache*> overrideMaterialsCache;
+
+		Array<DrawcallRef> opaqueDrawcallRefs;
+		Array<DrawcallRef> transparentDrawcallRefs;
+		Array<DrawcallRef> shadowDrawcallRefs;
+
+		Array<InstanceSlot> instanceSlots;
+
+		Mat4 cachedTransform = Mat4(1.0);
+		bool cachedVisible = true;
+		u64  cachedLayerMask = 1ULL;
+		AABB aabb = {};
+
+		bool materialsDirty = false;
+		bool meshDirty = false;
+
+		GPUDescriptorSet* bonesDescriptor = nullptr;
+		GPUBuffer*        bonesBuffer = nullptr;
+
+		void Rebuild();
+		void UpdateAABB();
+		void UpdateSkinData();
+		MaterialResourceCache* GetMaterial(u32 materialIndex) const;
+		void PatchDrawcallTransforms();
+		void PatchDrawcallLayerMasks();
+		void ClearDrawcalls();
+		void ClearInstances();
+		void ReleaseMeshCache();
+		void ReleaseMaterialCaches();
 	};
 
 
@@ -80,6 +119,21 @@ namespace Skore
 	private:
 		Entity* m_skeleton = nullptr;
 	};
+
+	template<typename Fn>
+	SK_FINLINE void RendererComponent::ForEachVisibleDrawcallRef(Fn&& fn) const
+	{
+		// Resolved at call site where Scene is complete.
+		for (const auto& ref : opaqueDrawcallRefs)
+		{
+			fn(ref.pipelineIndex, scene->renderObjects.opaquePipelines[ref.pipelineIndex].drawcalls[ref.handle]);
+		}
+		u32 offset = static_cast<u32>(scene->renderObjects.opaquePipelines.Size());
+		for (const auto& ref : transparentDrawcallRefs)
+		{
+			fn(offset + ref.pipelineIndex, scene->renderObjects.transparentPipelines[ref.pipelineIndex].drawcalls[ref.handle]);
+		}
+	}
 
 	struct AnimChannel
 	{

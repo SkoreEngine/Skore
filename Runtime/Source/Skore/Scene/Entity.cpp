@@ -312,7 +312,7 @@ namespace Skore
 
 		component->entity = this;
 		component->scene = m_scene;
-		component->m_version = reflectType->GetVersion();
+		component->m_typeVersion = reflectType->GetVersion();
 
 		if (m_rid)
 		{
@@ -665,14 +665,14 @@ namespace Skore
 			Component* component = m_components[i];
 
 			ReflectType* reflectType = component->GetType();
-			if (component->m_version < reflectType->GetVersion())
+			if (component->m_typeVersion < reflectType->GetVersion())
 			{
 				component->RemoveEvents();
 
 				Component* newComponent = reflectType->NewObject()->SafeCast<Component>();
 				newComponent->entity = this;
 				newComponent->scene = m_scene;
-				newComponent->m_version = reflectType->GetVersion();
+				newComponent->m_typeVersion = reflectType->GetVersion();
 				newComponent->m_rid = component->m_rid;
 
 				reflectType->DeepCopy(component, newComponent);

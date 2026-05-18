@@ -65,6 +65,7 @@ namespace Skore
 
 		static Scene* CreateFromEntity(RID rid, bool enableResourceSync = false);
 
+		void ExecuteEvents(bool executeComponentUpdates = true);
 	private:
 		Array<Entity*>                  entities;
 		HashMap<RID, Entity*>           entitiesByRID;
@@ -84,6 +85,8 @@ namespace Skore
 		DenseSet<Tickable*>      m_updateComponents = {};
 		DenseSet<FixedTickable*> m_fixedUpdateComponents = {};
 
+		DenseSet<Component*> m_pendingUpdate = {};
+
 		HashMap<TypeID, DenseSet<Component*>> m_iterableComponents = {};
 
 		f64 m_physicsAccumulator = 0.0;
@@ -93,7 +96,6 @@ namespace Skore
 
 		void OnSceneDeactivated();
 		void OnSceneActivated();
-		void ExecuteEvents(bool executeComponentUpdates = true);
 		void Update();
 		void DoReflectionUpdated();
 
