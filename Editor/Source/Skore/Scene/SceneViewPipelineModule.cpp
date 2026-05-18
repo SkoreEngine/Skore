@@ -248,19 +248,16 @@ namespace Skore
 					{
 						if (RendererComponent* drawableComponent = component->SafeCast<RendererComponent>())
 						{
-							if (DrawableObject* drawableObject = drawableComponent->GetDrawableObject())
+							drawableComponent->ForEachVisibleDrawcallRef([&](u32 pipelineIndex, const Drawcall& drawcall)
 							{
-								drawableObject->ForEachVisibleDrawcallRef([&](u32 pipelineIndex, const Drawcall& drawcall)
-								{
-									GPUPipeline* pipeline = unlitPipelines[pipelineIndex];
-									cmd->BindPipeline(pipeline);
-									cmd->BindDescriptorSet(pipeline, 0, context->GetSceneDescriptorSet(), {});
-									cmd->BindVertexBuffer(0, drawcall.vertexBuffer, 0);
-									cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
-									cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &drawcall.transform);
-									cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
-								});
-							}
+								GPUPipeline* pipeline = unlitPipelines[pipelineIndex];
+								cmd->BindPipeline(pipeline);
+								cmd->BindDescriptorSet(pipeline, 0, context->GetSceneDescriptorSet(), {});
+								cmd->BindVertexBuffer(0, drawcall.vertexBuffer, 0);
+								cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
+								cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &drawcall.transform);
+								cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
+							});
 						}
 					}
 

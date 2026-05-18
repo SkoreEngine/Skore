@@ -170,6 +170,16 @@ namespace Skore
 
 	void Scene::ExecuteEvents(bool executeComponentUpdates)
 	{
+		for (Component* component : m_pendingUpdate)
+		{
+			EntityEventDesc event = {};
+			event.type = EntityEventType::ComponentUpdated;
+			component->ProcessEvent(event);
+			component->m_currentVersion++;
+		}
+		m_pendingUpdate.clear();
+
+
 		SK_SCOPED_CPU_ZONE("Scene - ExecuteEvents");
 		while (!m_queueToStart.IsEmpty())
 		{

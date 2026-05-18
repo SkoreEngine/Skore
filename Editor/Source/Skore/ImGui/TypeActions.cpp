@@ -12,6 +12,7 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Scene/SceneEditor.hpp"
+#include "Skore/Scene/Components/RenderComponents.hpp"
 
 namespace Skore
 {
