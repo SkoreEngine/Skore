@@ -25,26 +25,33 @@ namespace Skore
 		};
 	};
 
+	struct ResourceCache;
 	struct FontResourceCache;
 	struct TextureResourceCache;
 	struct MaterialResourceCache;
 	struct SkinResourceCache;
 	struct MeshResourceCache;
 
+	using ResourceCachePtr     = std::shared_ptr<ResourceCache>;
 	using FontResourceCachePtr     = std::shared_ptr<FontResourceCache>;
 	using TextureResourceCachePtr  = std::shared_ptr<TextureResourceCache>;
 	using MaterialResourceCachePtr = std::shared_ptr<MaterialResourceCache>;
 	using SkinResourceCachePtr     = std::shared_ptr<SkinResourceCache>;
 	using MeshResourceCachePtr     = std::shared_ptr<MeshResourceCache>;
 
-	struct SK_API TextureResourceCache
+	struct SK_API ResourceCache
+	{
+		virtual ~ResourceCache() = default;
+	};
+
+	struct SK_API TextureResourceCache : ResourceCache
 	{
 		RID         rid = {};
 		GPUTexture* texture = nullptr;
 		u32         textureIndex = U32_MAX;
 
 		TextureResourceCache(RID rid) : rid(rid) {}
-		~TextureResourceCache();
+		~TextureResourceCache() override;
 	};
 
 	struct SK_API FontResourceCache
@@ -63,12 +70,12 @@ namespace Skore
 		bool GetAdvance(f64& advance, u32 codepoint1, u32 codepoint2);
 	};
 
-	struct SK_API MaterialResourceCache
+	struct SK_API MaterialResourceCache : ResourceCache
 	{
 		RID rid;
 
 		MaterialResourceCache(RID rid) : rid(rid) {}
-		~MaterialResourceCache();
+		~MaterialResourceCache() override;
 
 		MaterialResource::MaterialType type = MaterialResource::MaterialType::Opaque;
 		u32                            materialIndex = U32_MAX;
@@ -96,19 +103,20 @@ namespace Skore
 	struct SK_API SkinResourceCache
 	{
 		RID rid;
+		RID mesh;
 
-		SkinResourceCache(RID rid) : rid(rid) {}
+		SkinResourceCache(RID rid, RID mesh) : rid(rid), mesh(mesh) {}
 		~SkinResourceCache() = default;
 
 		Array<Mat4> poses;
 	};
 
-	struct SK_API MeshResourceCache
+	struct SK_API MeshResourceCache : ResourceCache
 	{
 		RID rid;
 
 		MeshResourceCache(RID rid) : rid(rid) {}
-		~MeshResourceCache();
+		~MeshResourceCache() override;
 
 		GPUBuffer*               vertexBuffer = nullptr;
 		GPUBuffer*               indexBuffer = nullptr;
@@ -123,8 +131,7 @@ namespace Skore
 		Array<MeshPrimitive>             primitives;
 		Array<MaterialResourceCachePtr>  materials;
 
-		SkinResourceCachePtr skin;
-		AABB                 aabb;
+		AABB aabb;
 	};
 
 	struct SK_API RenderResourceCache
@@ -133,7 +140,7 @@ namespace Skore
 		static TextureResourceCachePtr  GetTextureCache(RID texture);
 		static MaterialResourceCachePtr GetMaterialCache(RID material);
 		static MeshResourceCachePtr     GetMeshCache(RID mesh);
-		static SkinResourceCachePtr     GetSkinCache(RID cache);
+		static SkinResourceCachePtr     GetSkinCache(RID mesh);
 		static GPUDescriptorSet*        GetGlobalDescriptorSet();
 		static GPUBuffer*               GetMaterialDataBuffer();
 		static u32                      GetMaterialDataCount();

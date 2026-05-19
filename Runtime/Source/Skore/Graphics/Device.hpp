@@ -25,6 +25,7 @@ namespace Skore
 	class GPUBottomLevelAS;
 	class GPUTopLevelAS;
 	class GPUFramebuffer;
+	class GPUQueue;
 
 	enum class GraphicsAPI
 	{
@@ -467,6 +468,17 @@ namespace Skore
 
 	ENUM_FLAGS(PipelineStatisticFlag, u32);
 
+	enum class QueueType : u32
+	{
+		None,
+		Graphics = 1 << 0,
+		Compute  = 1 << 1,
+		Transfer = 1 << 2,
+		All = Graphics | Compute | Transfer
+	};
+
+	ENUM_FLAGS(QueueType, u32);
+
 
 	struct DeviceInitDesc
 	{
@@ -837,6 +849,11 @@ namespace Skore
 		String                          debugName;
 	};
 
+	struct QueueDesc
+	{
+		QueueType type = QueueType::None;
+	};
+
 	struct AccelerationStructureBuildInfo
 	{
 		bool       update{false};
@@ -898,6 +915,7 @@ namespace Skore
 		virtual GPUQueryPool*           CreateQueryPool(const QueryPoolDesc& desc) = 0;
 		virtual GPUBottomLevelAS*       CreateBottomLevelAS(const BottomLevelASDesc& desc) = 0;
 		virtual GPUTopLevelAS*          CreateTopLevelAS(const TopLevelASDesc& desc) = 0;
+		virtual GPUQueue*               CreateQueue(const QueueDesc& desc) = 0;
 
 		virtual usize GetBottomLevelASSize(const BottomLevelASDesc& desc) = 0;
 		virtual usize GetTopLevelASSize(const TopLevelASDesc& desc) = 0;
@@ -1127,6 +1145,15 @@ namespace Skore
 		virtual void Destroy() = 0;
 	};
 
+	class SK_API GPUQueue
+	{
+	public:
+		virtual ~GPUQueue() = default;
+		virtual void Destroy() = 0;
+
+		virtual void Submit(GPUCommandBuffer* cmd) = 0;
+		virtual void SubmitAndWait(GPUCommandBuffer* cmd) = 0;
+	};
 
 	struct BufferUploadInfo
 	{

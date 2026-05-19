@@ -59,9 +59,6 @@ namespace Skore
 		void UpdateAABB();
 		void ClearDrawcalls();
 
-		// Called from Rebuild once the mesh cache is resolved (may be null).
-		virtual void OnMeshResolved(const MeshResourceCachePtr& meshCache) {}
-
 		// Bones descriptor for skinned drawcalls; nullptr for non-skinned renderers.
 		virtual GPUDescriptorSet* GetBonesDescriptor() const { return nullptr; }
 	};
@@ -92,7 +89,7 @@ namespace Skore
 
 		void ProcessEvent(const EntityEventDesc& event) override;
 
-		void UpdateBones(Span<Mat4> bones) const;
+		void UpdateBones(Span<Mat4> bones);
 
 		bool IsStatic() const override
 		{
@@ -102,7 +99,6 @@ namespace Skore
 		static void RegisterType(NativeReflectType<SkinnedMeshRenderer>& type);
 
 	protected:
-		void              OnMeshResolved(const MeshResourceCachePtr& meshCache) override;
 		GPUDescriptorSet* GetBonesDescriptor() const override { return m_bonesDescriptor; }
 
 	private:

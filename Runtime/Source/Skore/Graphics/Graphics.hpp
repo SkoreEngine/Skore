@@ -47,6 +47,8 @@ namespace Skore
 		static GPUQueryPool*     CreateQueryPool(const QueryPoolDesc& desc);
 		static GPUBottomLevelAS* CreateBottomLevelAS(const BottomLevelASDesc& desc);
 		static GPUTopLevelAS*    CreateTopLevelAS(const TopLevelASDesc& desc);
+		static GPUQueue*         CreateQueue(const QueueDesc& desc);
+
 
 		static void UploadBufferData(const BufferUploadInfo& bufferUploadInfo);
 		static void UploadTextureData(const TextureDataInfo& textureDataInfo);

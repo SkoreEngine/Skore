@@ -134,7 +134,9 @@ namespace Skore
 	DrawcallRef RenderSceneObjects::CreateDrawcall(const DrawcallDesc& desc, RendererComponent* owner, u32 primitiveIndex)
 	{
 		DrawcallRef ref;
-		if (desc.material == nullptr)
+
+		MaterialResourceCachePtr material = desc.material ? RenderResourceCache::GetMaterialCache(desc.material) : nullptr;
+		if (material == nullptr || material->materialIndex == U32_MAX)
 		{
 			return ref;
 		}
@@ -142,7 +144,7 @@ namespace Skore
 		GPUBuffer* vertexBuffer = desc.mesh ? desc.mesh->vertexBuffer : desc.vertexBuffer;
 		GPUBuffer* indexBuffer  = desc.mesh ? desc.mesh->indexBuffer  : desc.indexBuffer;
 
-		ref.transparent = desc.material->transparent;
+		ref.transparent = material->transparent;
 
 		bool frontFace = Determinant(Mat34(desc.transform)) < 0.0f;
 		CullMode cullMode = !frontFace ? CullMode::Back : CullMode::Front;
@@ -151,7 +153,7 @@ namespace Skore
 		DrawPipelineDesc pipelineDesc;
 		pipelineDesc.cullMode = cullMode;
 		pipelineDesc.hasBones = hasBones;
-		pipelineDesc.shader = desc.material->shader;
+		pipelineDesc.shader = material->shader;
 
 		Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
 		ref.pipelineIndex = GetOrCreatePipeline(pipelineStorage, pipelineDesc);
@@ -163,7 +165,7 @@ namespace Skore
 		dc.vertexBuffer = vertexBuffer;
 		dc.indexBuffer = indexBuffer;
 		dc.mesh = desc.mesh;
-		dc.material = desc.material;
+		dc.material = material;
 		dc.userData = desc.userData;
 		dc.meshIndex = desc.meshIndex;
 		dc.vertexLayoutIndex = desc.vertexLayoutIndex;
@@ -189,7 +191,7 @@ namespace Skore
 			sdc.indexCount = desc.indexCount;
 			sdc.vertexBuffer = vertexBuffer;
 			sdc.indexBuffer = indexBuffer;
-			sdc.material = desc.material;
+			sdc.material = material;
 			sdc.userData = desc.userData;
 			sdc.meshIndex = desc.meshIndex;
 			sdc.vertexLayoutIndex = desc.vertexLayoutIndex;
@@ -202,7 +204,7 @@ namespace Skore
 
 		const bool rayTraced = (desc.visibility & DrawcallVisibility::RayTraced) != 0;
 		const bool rtEnabled = Graphics::GetDevice()->GetFeatures().rayTracing;
-		if (rtEnabled && rayTraced && desc.blas != nullptr && desc.meshIndex != U32_MAX && desc.material->materialIndex != U32_MAX)
+		if (rtEnabled && rayTraced && desc.blas != nullptr && desc.meshIndex != U32_MAX && material->materialIndex != U32_MAX)
 		{
 			InstanceDesc instDesc{};
 			instDesc.bottomLevelAS = desc.blas;
@@ -212,7 +214,7 @@ namespace Skore
 			InstanceData data{
 				.meshIndex = desc.meshIndex,
 				.vertexLayoutIndex = desc.vertexLayoutIndex,
-				.materialIndex = desc.material->materialIndex,
+				.materialIndex = material->materialIndex,
 				.firstIndex = desc.firstIndex
 			};
 

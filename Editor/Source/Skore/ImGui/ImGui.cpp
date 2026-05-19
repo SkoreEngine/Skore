@@ -584,7 +584,7 @@ namespace Skore
 				info.PhysicalDevice = device->selectedAdapter->device;
 				info.Device = device->device;
 				info.QueueFamily = device->selectedAdapter->graphicsFamily;
-				info.Queue = device->graphicsQueue;
+				info.Queue = device->graphicsQueue.context->vkQueue;
 				info.DescriptorPool = device->descriptorPool;
 				info.DescriptorPoolSize = 0;
 				info.MinImageCount = 2;

@@ -76,6 +76,8 @@ namespace Skore
 	struct DrawcallDesc
 	{
 		MeshResourceCachePtr mesh;
+		RID                  material;
+
 		GPUBuffer*           vertexBuffer = nullptr;
 		GPUBuffer*           indexBuffer = nullptr;
 		u32                  firstIndex = 0;
@@ -86,7 +88,6 @@ namespace Skore
 		u64  userData  = 0;
 		u64  layerMask = 1ULL;
 
-		MaterialResourceCachePtr material;
 		GPUDescriptorSet*        bones = nullptr;
 
 		GPUBottomLevelAS* blas              = nullptr;

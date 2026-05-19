@@ -69,7 +69,7 @@ namespace Skore
 		thisId = std::this_thread::get_id();
 
 		DeviceInitDesc desc;
-//		desc.enableDebugLayers = true;
+		desc.enableDebugLayers = true;
 
 		RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(GraphicsSettings));
 		if (ResourceObject settingsObject = Resources::Read(settings))
@@ -334,6 +334,11 @@ namespace Skore
 	GPUTopLevelAS* Graphics::CreateTopLevelAS(const TopLevelASDesc& desc)
 	{
 		return device->CreateTopLevelAS(desc);
+	}
+
+	GPUQueue* Graphics::CreateQueue(const QueueDesc& desc)
+	{
+		return device->CreateQueue(desc);
 	}
 
 	void Graphics::UploadBufferData(const BufferUploadInfo& bufferUploadInfo)

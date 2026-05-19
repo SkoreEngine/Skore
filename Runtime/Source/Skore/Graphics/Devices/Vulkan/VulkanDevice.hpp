@@ -92,6 +92,25 @@ namespace Skore
 		void Destroy() override;
 	};
 
+	struct VulkanQueueContext
+	{
+		VkQueue vkQueue;
+		std::mutex mutex;
+	};
+
+	struct VulkanQueue : GPUQueue
+	{
+		VulkanDevice* vulkanDevice;
+		VkFence fence;
+		std::shared_ptr<VulkanQueueContext> context;
+
+		void Destroy() override;
+		void Submit(GPUCommandBuffer* cmd) override;
+		void SubmitAndWait(GPUCommandBuffer* cmd) override;
+
+		VkResult Submit(VkSubmitInfo* submitInfo, VkFence fence) const;
+	};
+
 	struct VulkanAdapter final : GPUAdapter
 	{
 		u32              score;
@@ -368,6 +387,7 @@ namespace Skore
 		GPUQueryPool*           CreateQueryPool(const QueryPoolDesc& desc) override;
 		GPUBottomLevelAS*       CreateBottomLevelAS(const BottomLevelASDesc& desc) override;
 		GPUTopLevelAS*          CreateTopLevelAS(const TopLevelASDesc& desc) override;
+		GPUQueue*               CreateQueue(const QueueDesc& desc) override;
 		usize                   GetBottomLevelASSize(const BottomLevelASDesc& desc) override;
 		usize                   GetTopLevelASSize(const TopLevelASDesc& desc) override;
 		usize                   GetAccelerationStructureBuildScratchSize(const BottomLevelASDesc& desc) override;
@@ -386,8 +406,8 @@ namespace Skore
 		std::mutex       descriptorPoolMutex;
 		VkDescriptorPool descriptorPool;
 
-		VkQueue graphicsQueue;
-		VkQueue presentQueue;
+		VulkanQueue graphicsQueue;
+		VulkanQueue presentQueue;
 
 		u32 currentFrame = 0;
 
