@@ -345,7 +345,7 @@ namespace Skore
 		const float kerning = 0.0f;
 
 
-		if (FontResourceCache* fontCache = RenderResourceCache::GetFontCache(font))
+		if (FontResourceCachePtr fontCache = RenderResourceCache::GetFontCache(font))
 		{
 			const TextureDesc& desc = fontCache->texture->GetDesc();
 
@@ -524,7 +524,7 @@ namespace Skore
 		const float kerning = 0.0f;
 		Vec2 dimensions(0.0f, 0.0f);
 
-		if (FontResourceCache* fontCache = RenderResourceCache::GetFontCache(font))
+		if (FontResourceCachePtr fontCache = RenderResourceCache::GetFontCache(font))
 		{
 			f32 currentLineWidth = 0;
 			f32 maxWidth = 0;

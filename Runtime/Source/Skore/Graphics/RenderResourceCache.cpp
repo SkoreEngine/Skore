@@ -1,4 +1,4 @@
-﻿#include "Skore/Graphics/RenderResourceCache.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 
 #include <mutex>
 
@@ -13,11 +13,12 @@ namespace Skore
 {
 	namespace
 	{
-		HashMap<RID, std::shared_ptr<FontResourceCache>>     fontCache;
-		HashMap<RID, std::shared_ptr<TextureResourceCache>>  textureCache;
-		HashMap<RID, std::shared_ptr<MaterialResourceCache>> materialCache;
-		HashMap<RID, std::shared_ptr<MeshResourceCache>>     meshCache;
-		HashMap<RID, std::shared_ptr<SkinResourceCache>>     skinCache;
+		// Fonts are kept strongly so per-frame DrawList lookups don't churn.
+		HashMap<RID, FontResourceCachePtr>                 fontCache;
+		HashMap<RID, std::weak_ptr<TextureResourceCache>>  textureCache;
+		HashMap<RID, std::weak_ptr<MaterialResourceCache>> materialCache;
+		HashMap<RID, std::weak_ptr<MeshResourceCache>>     meshCache;
+		HashMap<RID, std::weak_ptr<SkinResourceCache>>     skinCache;
 
 		std::mutex fontCacheMutex{};
 		std::mutex materialCacheMutex{};
@@ -28,12 +29,49 @@ namespace Skore
 		u32               nextGeometryIndex = 0;
 		u32               nextMaterialIndex = 0;
 		u32               nextTextureIndex = 0;
+		Array<u32>        freeGeometryIndices;
+		Array<u32>        freeMaterialIndices;
+		Array<u32>        freeTextureIndices;
 		GPUDescriptorSet* globalDescriptorSet = nullptr;
 		GPUBuffer*        materialDataBuffer = nullptr;
 		u32               materialDataBufferCapacity = 0;
 		u32               materialDataCount = 0;
+		bool              globalDescriptorSetAlive = false;
 
 		RID defaultMaterial;
+
+		u32 AllocateGeometryIndex()
+		{
+			if (!freeGeometryIndices.Empty())
+			{
+				u32 idx = freeGeometryIndices.Back();
+				freeGeometryIndices.PopBack();
+				return idx;
+			}
+			return nextGeometryIndex++;
+		}
+
+		u32 AllocateMaterialIndex()
+		{
+			if (!freeMaterialIndices.Empty())
+			{
+				u32 idx = freeMaterialIndices.Back();
+				freeMaterialIndices.PopBack();
+				return idx;
+			}
+			return nextMaterialIndex++;
+		}
+
+		u32 AllocateTextureIndex()
+		{
+			if (!freeTextureIndices.Empty())
+			{
+				u32 idx = freeTextureIndices.Back();
+				freeTextureIndices.PopBack();
+				return idx;
+			}
+			return nextTextureIndex++;
+		}
 
 		struct VertexLayoutOffsetData
 		{
@@ -110,18 +148,13 @@ namespace Skore
 			f32 pad1;
 		};
 
-		bool UpdateTexture(GPUDescriptorSet* descriptorSet, RID texture, u32 slot)
+		bool UpdateTexture(GPUDescriptorSet* descriptorSet, const TextureResourceCachePtr& cache, u32 slot)
 		{
-			if (texture)
+			if (cache && cache->texture)
 			{
-				TextureResourceCache* data = RenderResourceCache::GetTextureCache(texture);
-				if (data->texture)
-				{
-					descriptorSet->UpdateTexture(slot, data->texture);
-					return true;
-				}
+				descriptorSet->UpdateTexture(slot, cache->texture);
+				return true;
 			}
-
 			descriptorSet->UpdateTexture(slot, Graphics::GetWhiteTexture());
 			return false;
 		}
@@ -132,6 +165,9 @@ namespace Skore
 
 			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
 			materialCache->shader = materialObject.GetReference(MaterialResource::Shader);
+
+			// Drop previous texture references; rebuild based on the new material data.
+			materialCache->textures.Clear();
 
 			if (materialCache->type == MaterialResource::MaterialType::Opaque)
 			{
@@ -147,7 +183,7 @@ namespace Skore
 				// Populate global MaterialData buffer for bindless rendering
 				if (materialCache->materialIndex == U32_MAX)
 				{
-					materialCache->materialIndex = nextMaterialIndex++;
+					materialCache->materialIndex = AllocateMaterialIndex();
 				}
 
 				u32 requiredCapacity = materialCache->materialIndex + 1;
@@ -174,12 +210,16 @@ namespace Skore
 					materialDataBufferCapacity = newCapacity;
 				}
 
-				auto resolveTextureIndex = [](RID textureRID) -> i32
+				auto resolveTextureIndex = [&materialCache](RID textureRID) -> i32
 				{
 					if (!textureRID) return -1;
-					TextureResourceCache* tc = RenderResourceCache::GetTextureCache(textureRID);
+					TextureResourceCachePtr tc = RenderResourceCache::GetTextureCache(textureRID);
 					if (tc && tc->textureIndex != U32_MAX)
-						return static_cast<i32>(tc->textureIndex);
+					{
+						i32 idx = static_cast<i32>(tc->textureIndex);
+						materialCache->textures.EmplaceBack(Traits::Move(tc));
+						return idx;
+					}
 					return -1;
 				};
 
@@ -224,9 +264,9 @@ namespace Skore
 					}
 				});
 
-				materialCache->skyMaterialTexture = RenderResourceCache::GetTextureCache(sphericalTexture);
+				materialCache->skyMaterialTexture = sphericalTexture ? RenderResourceCache::GetTextureCache(sphericalTexture) : nullptr;
 
-				UpdateTexture(materialCache->descriptorSet, sphericalTexture, 0);
+				UpdateTexture(materialCache->descriptorSet, materialCache->skyMaterialTexture, 0);
 				materialCache->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
 
 				if (materialCache->skyMaterialTexture && materialCache->skyMaterialTexture->texture)
@@ -301,16 +341,24 @@ namespace Skore
 			MaterialResourceCache* materialCache = static_cast<MaterialResourceCache*>(userData);
 			UpdateMaterialStorageData(newValue, materialCache);
 		}
-	}
 
-	void ResourceCacheBase::DecreaseUsage()
-	{
-		if (usage > 0) usage--;
-	}
-
-	void ResourceCacheBase::IncreaseUsage()
-	{
-		usage++;
+		template<typename V, typename Map, typename Mutex>
+		auto MakeCacheDeleter(Map& map, Mutex& mutex, RID key)
+		{
+			return [&map, &mutex, key](V* obj)
+			{
+				std::unique_lock lock(mutex);
+				auto it = map.Find(key);
+				// Only erase if the map entry still refers to this just-destroyed object.
+				// A racing GetXxxCache may have already replaced the entry with a fresh shared_ptr.
+				if (it != map.end() && it->second.expired())
+				{
+					map.Erase(it);
+				}
+				// Dtor runs under the cache mutex so it can safely touch the shared free-list.
+				delete obj;
+			};
+		}
 	}
 
 	bool FontResourceCache::GetAdvance(f64& advance, u32 codepoint1, u32 codepoint2)
@@ -331,408 +379,496 @@ namespace Skore
 		return true;
 	}
 
-	FontResourceCache* RenderResourceCache::GetFontCache(RID font)
+	FontResourceCache::~FontResourceCache()
+	{
+		if (texture) texture->Destroy();
+	}
+
+	TextureResourceCache::~TextureResourceCache()
+	{
+		if (textureIndex != U32_MAX)
+		{
+			if (globalDescriptorSetAlive && globalDescriptorSet)
+			{
+				DescriptorUpdate texUpdate;
+				texUpdate.type = DescriptorType::SampledImage;
+				texUpdate.binding = 2;
+				texUpdate.arrayElement = textureIndex;
+				texUpdate.texture = Graphics::GetWhiteTexture();
+				globalDescriptorSet->Update(texUpdate);
+			}
+			freeTextureIndices.EmplaceBack(textureIndex);
+			textureIndex = U32_MAX;
+		}
+		if (texture) texture->Destroy();
+	}
+
+	MaterialResourceCache::~MaterialResourceCache()
+	{
+		if (eventRegistered)
+		{
+			if (ResourceStorage* storage = Resources::GetStorage(rid))
+			{
+				storage->UnregisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, this);
+			}
+			eventRegistered = false;
+		}
+
+		if (materialIndex != U32_MAX)
+		{
+			freeMaterialIndices.EmplaceBack(materialIndex);
+			materialIndex = U32_MAX;
+		}
+
+		if (descriptorSet) descriptorSet->Destroy();
+		if (materialBuffer) materialBuffer->Destroy();
+		if (diffuseIrradianceTexture) diffuseIrradianceTexture->Destroy();
+		if (specularMapTexture) specularMapTexture->Destroy();
+	}
+
+	MeshResourceCache::~MeshResourceCache()
+	{
+		if (geometryIndex != U32_MAX)
+		{
+			freeGeometryIndices.EmplaceBack(geometryIndex);
+			geometryIndex = U32_MAX;
+		}
+
+		for (GPUBottomLevelAS* blas : blasArray)
+		{
+			if (blas) blas->Destroy();
+		}
+		blasArray.Clear();
+
+		if (vertexBuffer) vertexBuffer->Destroy();
+		if (indexBuffer) indexBuffer->Destroy();
+	}
+
+	FontResourceCachePtr RenderResourceCache::GetFontCache(RID font)
 	{
 		if (!font) return nullptr;
 
 		std::unique_lock lock(fontCacheMutex);
 		auto             it = fontCache.Find(font);
-		if (it == fontCache.end())
+		if (it != fontCache.end())
 		{
-			std::shared_ptr<FontResourceCache> fontData = std::make_shared<FontResourceCache>(font);
-			fontData->fontId = fontCache.Size() + 1;
-
-			FontResourceData data;
-			String           name;
-			{
-				ResourceObject fontObject = Resources::Read(font);
-				if (!fontObject) return nullptr;
-
-				name = fontObject.GetString(FontResource::Name);
-
-				Span<u8>  compressedData = fontObject.GetBlob(FontResource::FontData);
-				usize     size = fontObject.GetUInt(FontResource::FontDataUncompressedSize);
-				Array<u8> uncompressedData(size);
-				size = Compression::Decompress(uncompressedData.Data(), uncompressedData.Size(), compressedData.Data(), compressedData.Size(), CompressionMode::ZSTD);
-				uncompressedData.Resize(size);
-
-				BinaryArchiveReader reader(uncompressedData);
-				reader.BeginMap("data");
-				data.Deserialize(reader);
-				reader.EndMap();
-			}
-
-			fontData->maxHeightGlyph = data.maxHeightGlyph;
-			fontData->metrics = data.metrics;
-
-			for (const FontGlyph& glyph : data.glyphs)
-			{
-				fontData->glyphs.Insert(glyph.codepoint, glyph);
-			}
-
-			for (const FontKerning& kerning : data.kernings)
-			{
-				fontData->kerning.Insert(Pair(kerning.first, kerning.second), kerning.offset);
-			}
-
-			fontData->texture = Graphics::CreateTexture(TextureDesc{
-				.extent = Extent3D(data.atlas.extent.width, data.atlas.extent.height, 1),
-				.format = TextureFormat::R32G32B32A32_FLOAT,
-				.debugName = "FontAtlas_" + name
-			});
-
-			TextureDataInfo textureDataInfo{
-				.texture = fontData->texture,
-				.data = data.atlas.pixels.Data(),
-				.size = data.atlas.pixels.Size()
-			};
-
-			Graphics::UploadTextureData(textureDataInfo);
-
-			it = fontCache.Insert(font, fontData).first;
+			return it->second;
 		}
-		return it->second.get();
+
+		FontResourceCachePtr fontData = std::make_shared<FontResourceCache>(font);
+		fontData->fontId = static_cast<u16>(fontCache.Size() + 1);
+
+		FontResourceData data;
+		String           name;
+		{
+			ResourceObject fontObject = Resources::Read(font);
+			if (!fontObject) return nullptr;
+
+			name = fontObject.GetString(FontResource::Name);
+
+			Span<u8>  compressedData = fontObject.GetBlob(FontResource::FontData);
+			usize     size = fontObject.GetUInt(FontResource::FontDataUncompressedSize);
+			Array<u8> uncompressedData(size);
+			size = Compression::Decompress(uncompressedData.Data(), uncompressedData.Size(), compressedData.Data(), compressedData.Size(), CompressionMode::ZSTD);
+			uncompressedData.Resize(size);
+
+			BinaryArchiveReader reader(uncompressedData);
+			reader.BeginMap("data");
+			data.Deserialize(reader);
+			reader.EndMap();
+		}
+
+		fontData->maxHeightGlyph = data.maxHeightGlyph;
+		fontData->metrics = data.metrics;
+
+		for (const FontGlyph& glyph : data.glyphs)
+		{
+			fontData->glyphs.Insert(glyph.codepoint, glyph);
+		}
+
+		for (const FontKerning& kerning : data.kernings)
+		{
+			fontData->kerning.Insert(Pair(kerning.first, kerning.second), kerning.offset);
+		}
+
+		fontData->texture = Graphics::CreateTexture(TextureDesc{
+			.extent = Extent3D(data.atlas.extent.width, data.atlas.extent.height, 1),
+			.format = TextureFormat::R32G32B32A32_FLOAT,
+			.debugName = "FontAtlas_" + name
+		});
+
+		TextureDataInfo textureDataInfo{
+			.texture = fontData->texture,
+			.data = data.atlas.pixels.Data(),
+			.size = data.atlas.pixels.Size()
+		};
+
+		Graphics::UploadTextureData(textureDataInfo);
+
+		fontCache.Insert(font, fontData);
+		return fontData;
 	}
 
-	TextureResourceCache* RenderResourceCache::GetTextureCache(RID texture)
+	TextureResourceCachePtr RenderResourceCache::GetTextureCache(RID texture)
 	{
+		if (!texture) return nullptr;
+
 		std::unique_lock lock(textureCacheMutex);
 		auto             it = textureCache.Find(texture);
-		if (it == textureCache.end())
+		if (it != textureCache.end())
 		{
-			std::shared_ptr<TextureResourceCache> textureStorage = std::make_shared<TextureResourceCache>(texture);
+			if (auto sp = it->second.lock()) return sp;
+			textureCache.Erase(it);
+		}
 
-			if (ResourceObject textureObject = Resources::Read(texture))
+		TextureResourceCachePtr textureStorage(new TextureResourceCache(texture), MakeCacheDeleter<TextureResourceCache>(textureCache, textureCacheMutex, texture));
+
+		if (ResourceObject textureObject = Resources::Read(texture))
+		{
+			StringView    name = textureObject.GetString(TextureResource::Name);
+			u32           totalUncompressedSize = textureObject.GetUInt(TextureResource::TotalUncompressedSize);
+			u32           mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
+			TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+
+			Span<RID> images = textureObject.GetSubObjectList(TextureResource::Images);
+
+			ResourceObject firstImageObject = Resources::Read(images[0]);
+			Vec2           extent = firstImageObject.GetVec2(TextureImageResource::Extent);
+			u32            firstMipCompressedSize = firstImageObject.GetUInt(TextureImageResource::DataSize);
+
+			CompressionMode compressionMode = textureObject.GetEnum<CompressionMode>(TextureResource::CompressionMode);
+			ResourceBuffer  buffer = textureObject.GetBuffer(TextureResource::PixelData);
+
+			textureStorage->texture = Graphics::CreateTexture(TextureDesc{
+				.extent = {static_cast<u32>(extent.x), static_cast<u32>(extent.y), 1},
+				.mipLevels = std::max(mipLevels, 1u),
+				.format = format,
+				.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
+				.debugName = String(name) + "_Texture"
+			});
+
+			GPUBuffer* gpuBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = totalUncompressedSize,
+				.usage = ResourceUsage::CopySource,
+				.hostVisible = true,
+				.persistentMapped = true
+			});
+
+			VoidPtr mem = gpuBuffer->GetMappedData();
+			if (compressionMode == CompressionMode::None)
 			{
-				StringView    name = textureObject.GetString(TextureResource::Name);
-				u32           totalUncompressedSize = textureObject.GetUInt(TextureResource::TotalUncompressedSize);
-				u32           mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
-				TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
-
-				Span<RID> images = textureObject.GetSubObjectList(TextureResource::Images);
-
-				ResourceObject firstImageObject = Resources::Read(images[0]);
-				Vec2           extent = firstImageObject.GetVec2(TextureImageResource::Extent);
-				u32            firstMipCompressedSize = firstImageObject.GetUInt(TextureImageResource::DataSize);
-
-				CompressionMode compressionMode = textureObject.GetEnum<CompressionMode>(TextureResource::CompressionMode);
-				ResourceBuffer  buffer = textureObject.GetBuffer(TextureResource::PixelData);
-
-				textureStorage->texture = Graphics::CreateTexture(TextureDesc{
-					.extent = {static_cast<u32>(extent.x), static_cast<u32>(extent.y), 1},
-					.mipLevels = std::max(mipLevels, 1u),
-					.format = format,
-					.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
-					.debugName = String(name) + "_Texture"
-				});
-
-				GPUBuffer* gpuBuffer = Graphics::CreateBuffer(BufferDesc{
-					.size = totalUncompressedSize,
-					.usage = ResourceUsage::CopySource,
-					.hostVisible = true,
-					.persistentMapped = true
-				});
-
-				VoidPtr mem = gpuBuffer->GetMappedData();
-				if (compressionMode == CompressionMode::None)
-				{
-					buffer.CopyData(mem, totalUncompressedSize);
-				}
-				else
-				{
-					ByteBuffer byteBuffer = {};
-					byteBuffer.Resize(firstMipCompressedSize);
-					u32 offset = 0;
-
-					for (RID imageRID : images)
-					{
-						ResourceObject imageObject = Resources::Read(imageRID);
-						u32            compressedSize = imageObject.GetUInt(TextureImageResource::DataSize);
-						u32            uncompressedSize = imageObject.GetUInt(TextureImageResource::UncompressedSize);
-						SK_ASSERT(offset + uncompressedSize <= totalUncompressedSize, "something went wrong");
-
-						buffer.CopyData(byteBuffer.begin(), compressedSize);
-
-						Compression::Decompress(static_cast<u8*>(mem) + offset, uncompressedSize, byteBuffer.begin(), compressedSize, compressionMode);
-						offset += uncompressedSize;
-					}
-				}
-
-				GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-				cmd->Begin();
-				cmd->ResourceBarrier(textureStorage->texture, ResourceState::Undefined, ResourceState::CopyDest, 0, mipLevels, 0, 1);
-
+				buffer.CopyData(mem, totalUncompressedSize);
+			}
+			else
+			{
+				ByteBuffer byteBuffer = {};
+				byteBuffer.Resize(firstMipCompressedSize);
 				u32 offset = 0;
+
 				for (RID imageRID : images)
 				{
 					ResourceObject imageObject = Resources::Read(imageRID);
+					u32            compressedSize = imageObject.GetUInt(TextureImageResource::DataSize);
+					u32            uncompressedSize = imageObject.GetUInt(TextureImageResource::UncompressedSize);
+					SK_ASSERT(offset + uncompressedSize <= totalUncompressedSize, "something went wrong");
 
-					Vec2 extent = imageObject.GetVec2(TextureImageResource::Extent);
-					u32  mip = imageObject.GetUInt(TextureImageResource::Mip);
-					cmd->CopyBufferToTexture(gpuBuffer, textureStorage->texture, Extent3D{static_cast<u32>(extent.width), static_cast<u32>(extent.height), 1}, mip, 0, offset);
-					offset += imageObject.GetUInt(TextureImageResource::UncompressedSize);
+					buffer.CopyData(byteBuffer.begin(), compressedSize);
+
+					Compression::Decompress(static_cast<u8*>(mem) + offset, uncompressedSize, byteBuffer.begin(), compressedSize, compressionMode);
+					offset += uncompressedSize;
 				}
-
-				cmd->ResourceBarrier(textureStorage->texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, mipLevels, 0, 1);
-
-				cmd->End();
-				Graphics::SubmitGPUWork(cmd, true);
-				Graphics::AddFreeCommandBuffer(cmd);
-
-				gpuBuffer->Destroy();
-
-				textureStorage->textureIndex = nextTextureIndex++;
-
-				DescriptorUpdate texUpdate;
-				texUpdate.type = DescriptorType::SampledImage;
-				texUpdate.binding = 2;
-				texUpdate.arrayElement = textureStorage->textureIndex;
-				texUpdate.texture = textureStorage->texture;
-				globalDescriptorSet->Update(texUpdate);
 			}
-			it = textureCache.Emplace(texture, Traits::Move(textureStorage)).first;
+
+			GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
+			cmd->Begin();
+			cmd->ResourceBarrier(textureStorage->texture, ResourceState::Undefined, ResourceState::CopyDest, 0, mipLevels, 0, 1);
+
+			u32 offset = 0;
+			for (RID imageRID : images)
+			{
+				ResourceObject imageObject = Resources::Read(imageRID);
+
+				Vec2 extent = imageObject.GetVec2(TextureImageResource::Extent);
+				u32  mip = imageObject.GetUInt(TextureImageResource::Mip);
+				cmd->CopyBufferToTexture(gpuBuffer, textureStorage->texture, Extent3D{static_cast<u32>(extent.width), static_cast<u32>(extent.height), 1}, mip, 0, offset);
+				offset += imageObject.GetUInt(TextureImageResource::UncompressedSize);
+			}
+
+			cmd->ResourceBarrier(textureStorage->texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, mipLevels, 0, 1);
+
+			cmd->End();
+			Graphics::SubmitGPUWork(cmd, true);
+			Graphics::AddFreeCommandBuffer(cmd);
+
+			gpuBuffer->Destroy();
+
+			textureStorage->textureIndex = AllocateTextureIndex();
+
+			DescriptorUpdate texUpdate;
+			texUpdate.type = DescriptorType::SampledImage;
+			texUpdate.binding = 2;
+			texUpdate.arrayElement = textureStorage->textureIndex;
+			texUpdate.texture = textureStorage->texture;
+			globalDescriptorSet->Update(texUpdate);
 		}
-		return it->second.get();
+
+		textureCache.Insert(texture, std::weak_ptr<TextureResourceCache>(textureStorage));
+		return textureStorage;
 	}
 
-	MaterialResourceCache* RenderResourceCache::GetMaterialCache(RID material)
+	MaterialResourceCachePtr RenderResourceCache::GetMaterialCache(RID material)
 	{
+		if (!material) return nullptr;
+
 		std::unique_lock lock(materialCacheMutex);
 
 		auto it = materialCache.Find(material);
-		if (it == materialCache.end())
+		if (it != materialCache.end())
 		{
-			std::shared_ptr<MaterialResourceCache> materialData = std::make_shared<MaterialResourceCache>(material);
-			Resources::GetStorage(material)->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, materialData.get());
-
-			ResourceObject materialObject = Resources::Read(material);
-			UpdateMaterialStorageData(materialObject, materialData.get());
-			it = materialCache.Emplace(material, Traits::Move(materialData)).first;
+			if (auto sp = it->second.lock()) return sp;
+			materialCache.Erase(it);
 		}
 
-		return it->second.get();
+		MaterialResourceCachePtr materialData(new MaterialResourceCache(material), MakeCacheDeleter<MaterialResourceCache>(materialCache, materialCacheMutex, material));
+
+		if (ResourceStorage* storage = Resources::GetStorage(material))
+		{
+			storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, materialData.get());
+			materialData->eventRegistered = true;
+		}
+
+		ResourceObject materialObject = Resources::Read(material);
+		UpdateMaterialStorageData(materialObject, materialData.get());
+
+		materialCache.Insert(material, std::weak_ptr<MaterialResourceCache>(materialData));
+		return materialData;
 	}
 
-	MeshResourceCache* RenderResourceCache::GetMeshCache(RID mesh)
+	MeshResourceCachePtr RenderResourceCache::GetMeshCache(RID mesh)
 	{
+		if (!mesh) return nullptr;
+
 		std::unique_lock lock(meshCacheMutex);
 
 		auto it = meshCache.Find(mesh);
-		if (it == meshCache.end())
+		if (it != meshCache.end())
 		{
-			std::shared_ptr<MeshResourceCache> meshData = std::make_shared<MeshResourceCache>(mesh);
+			if (auto sp = it->second.lock()) return sp;
+			meshCache.Erase(it);
+		}
 
-			if (ResourceObject meshObject = Resources::Read(mesh))
+		MeshResourceCachePtr meshData(new MeshResourceCache(mesh), MakeCacheDeleter<MeshResourceCache>(meshCache, meshCacheMutex, mesh));
+
+		if (ResourceObject meshObject = Resources::Read(mesh))
+		{
+			StringView name = meshObject.GetString(MeshResource::Name);
+			meshData->aabb = AABB{meshObject.GetVec3(MeshResource::AABBMin), meshObject.GetVec3(MeshResource::AABBMax)};
+			meshData->skin = GetSkinCache(meshObject.GetSubObject(MeshResource::Skin));
+			meshData->lightmapSizeHint = meshObject.GetVec2(MeshResource::LightmapSizeHint);
+
+			// Vertex layout attribute offsets (U32_MAX = not present)
+			u32 positionOffset = U32_MAX;
+			u32 normalOffset   = U32_MAX;
+			u32 uvOffset       = U32_MAX;
+			u32 uv1Offset      = U32_MAX;
+			u32 colorOffset    = U32_MAX;
+			u32 tangentOffset  = U32_MAX;
+			u32 boneIndicesOffset = U32_MAX;
+			u32 boneWeightsOffset = U32_MAX;
+
+			RID vertexLayoutRID = meshObject.GetSubObject(MeshResource::VertexLayout);
+			if (vertexLayoutRID)
 			{
-				StringView name = meshObject.GetString(MeshResource::Name);
-				meshData->aabb = AABB{meshObject.GetVec3(MeshResource::AABBMin), meshObject.GetVec3(MeshResource::AABBMax)};
-				meshData->skin = GetSkinCache(meshObject.GetSubObject(MeshResource::Skin));
-				meshData->lightmapSizeHint = meshObject.GetVec2(MeshResource::LightmapSizeHint);
-
-				// Vertex layout attribute offsets (U32_MAX = not present)
-				u32 positionOffset = U32_MAX;
-				u32 normalOffset   = U32_MAX;
-				u32 uvOffset       = U32_MAX;
-				u32 uv1Offset      = U32_MAX;
-				u32 colorOffset    = U32_MAX;
-				u32 tangentOffset  = U32_MAX;
-				u32 boneIndicesOffset = U32_MAX;
-				u32 boneWeightsOffset = U32_MAX;
-
-				RID vertexLayoutRID = meshObject.GetSubObject(MeshResource::VertexLayout);
-				if (vertexLayoutRID)
+				ResourceObject layoutObject = Resources::Read(vertexLayoutRID);
+				if (layoutObject)
 				{
-					ResourceObject layoutObject = Resources::Read(vertexLayoutRID);
-					if (layoutObject)
+					meshData->stride = layoutObject.GetUInt(VertexLayoutResource::Stride);
+
+					Span<RID> attrs = layoutObject.GetSubObjectList(VertexLayoutResource::Attributes);
+					for (RID attrRID : attrs)
 					{
-						meshData->stride = layoutObject.GetUInt(VertexLayoutResource::Stride);
-
-						Span<RID> attrs = layoutObject.GetSubObjectList(VertexLayoutResource::Attributes);
-						for (RID attrRID : attrs)
+						ResourceObject attrObj = Resources::Read(attrRID);
+						if (attrObj)
 						{
-							ResourceObject attrObj = Resources::Read(attrRID);
-							if (attrObj)
-							{
-								StringView attrName = attrObj.GetString(VertexAttributeResource::Name);
-								u32 attrOffset = attrObj.GetUInt(VertexAttributeResource::Offset);
+							StringView attrName = attrObj.GetString(VertexAttributeResource::Name);
+							u32 attrOffset = attrObj.GetUInt(VertexAttributeResource::Offset);
 
-								if (attrName == "position") positionOffset = attrOffset;
-								else if (attrName == "normal")   normalOffset = attrOffset;
-								else if (attrName == "uv0")      uvOffset = attrOffset;
-								else if (attrName == "uv1")    { uv1Offset = attrOffset; meshData->hasUV1 = true; }
-								else if (attrName == "color")  { colorOffset = attrOffset; meshData->hasColor = true; }
-								else if (attrName == "tangent")  tangentOffset = attrOffset;
-								else if (attrName == "boneIndices") boneIndicesOffset = attrOffset;
-								else if (attrName == "boneWeights") boneWeightsOffset = attrOffset;
-							}
+							if (attrName == "position") positionOffset = attrOffset;
+							else if (attrName == "normal")   normalOffset = attrOffset;
+							else if (attrName == "uv0")      uvOffset = attrOffset;
+							else if (attrName == "uv1")    { uv1Offset = attrOffset; meshData->hasUV1 = true; }
+							else if (attrName == "color")  { colorOffset = attrOffset; meshData->hasColor = true; }
+							else if (attrName == "tangent")  tangentOffset = attrOffset;
+							else if (attrName == "boneIndices") boneIndicesOffset = attrOffset;
+							else if (attrName == "boneWeights") boneWeightsOffset = attrOffset;
 						}
 					}
 				}
-				Span<RID> materials = meshObject.GetReferenceArray(MeshResource::Materials);
+			}
+			Span<RID> materials = meshObject.GetReferenceArray(MeshResource::Materials);
 
-				ResourceBuffer buffer = meshObject.GetBuffer(MeshResource::MeshData);
-				Span<RID>      lods = meshObject.GetSubObjectList(MeshResource::MeshLODs);
+			ResourceBuffer buffer = meshObject.GetBuffer(MeshResource::MeshData);
+			Span<RID>      lods = meshObject.GetSubObjectList(MeshResource::MeshLODs);
 
-				ResourceObject meshLodObject = Resources::Read(lods[0]);
+			ResourceObject meshLodObject = Resources::Read(lods[0]);
 
-				u64 vertexBufferOffset = meshLodObject.GetUInt(MeshLodResource::VerticesOffset);
-				u64 vertexBufferSize = meshLodObject.GetUInt(MeshLodResource::VerticesCount) * static_cast<u64>(meshData->stride);
-				u32 indexBufferOffset = meshLodObject.GetUInt(MeshLodResource::IndicesOffset);
-				u32 indexBufferSize = meshLodObject.GetUInt(MeshLodResource::IndicesCount) * sizeof(u32);
-				u64 primitiveOffset = meshLodObject.GetUInt(MeshLodResource::PrimitiveOffset);
-				u64 primitiveCount = meshLodObject.GetUInt(MeshLodResource::PrimitiveCount);
-				u64 primitiveSize = primitiveCount * sizeof(MeshPrimitive);
+			u64 vertexBufferOffset = meshLodObject.GetUInt(MeshLodResource::VerticesOffset);
+			u64 vertexBufferSize = meshLodObject.GetUInt(MeshLodResource::VerticesCount) * static_cast<u64>(meshData->stride);
+			u32 indexBufferOffset = meshLodObject.GetUInt(MeshLodResource::IndicesOffset);
+			u32 indexBufferSize = meshLodObject.GetUInt(MeshLodResource::IndicesCount) * sizeof(u32);
+			u64 primitiveOffset = meshLodObject.GetUInt(MeshLodResource::PrimitiveOffset);
+			u64 primitiveCount = meshLodObject.GetUInt(MeshLodResource::PrimitiveCount);
+			u64 primitiveSize = primitiveCount * sizeof(MeshPrimitive);
 
-				bool          rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
-				ResourceUsage rtUsage = rtSupported ? ResourceUsage::AccelerationStructure | ResourceUsage::ShaderResource : ResourceUsage::None;
-				ResourceUsage vertexBufferUsage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | ResourceUsage::ShaderResource | rtUsage;
-				ResourceUsage indexBufferUsage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer | ResourceUsage::ShaderResource | rtUsage;
+			bool          rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
+			ResourceUsage rtUsage = rtSupported ? ResourceUsage::AccelerationStructure | ResourceUsage::ShaderResource : ResourceUsage::None;
+			ResourceUsage vertexBufferUsage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | ResourceUsage::ShaderResource | rtUsage;
+			ResourceUsage indexBufferUsage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer | ResourceUsage::ShaderResource | rtUsage;
 
-				meshData->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
-					.size = vertexBufferSize,
-					.usage = vertexBufferUsage,
-					.hostVisible = false,
-					.persistentMapped = false,
-					.debugName = String(name) + "_VertexBuffer"
-				});
+			meshData->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = vertexBufferSize,
+				.usage = vertexBufferUsage,
+				.hostVisible = false,
+				.persistentMapped = false,
+				.debugName = String(name) + "_VertexBuffer"
+			});
 
-				meshData->indexBuffer = Graphics::CreateBuffer(BufferDesc{
-					.size = indexBufferSize,
-					.usage = indexBufferUsage,
-					.hostVisible = false,
-					.persistentMapped = false,
-					.debugName = String(name) + "_IndexBuffer"
-				});
+			meshData->indexBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = indexBufferSize,
+				.usage = indexBufferUsage,
+				.hostVisible = false,
+				.persistentMapped = false,
+				.debugName = String(name) + "_IndexBuffer"
+			});
 
-				GPUBuffer* stagingVertexBuffer = Graphics::CreateBuffer(BufferDesc{
-					.size = vertexBufferSize,
-					.usage = ResourceUsage::CopySource,
-					.hostVisible = true,
-					.persistentMapped = true,
-				});
+			GPUBuffer* stagingVertexBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = vertexBufferSize,
+				.usage = ResourceUsage::CopySource,
+				.hostVisible = true,
+				.persistentMapped = true,
+			});
 
-				GPUBuffer* stagingIndexBuffer = Graphics::CreateBuffer(BufferDesc{
-					.size = indexBufferSize,
-					.usage = ResourceUsage::CopySource,
-					.hostVisible = true,
-					.persistentMapped = true,
-				});
+			GPUBuffer* stagingIndexBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = indexBufferSize,
+				.usage = ResourceUsage::CopySource,
+				.hostVisible = true,
+				.persistentMapped = true,
+			});
 
-				buffer.CopyData(stagingVertexBuffer->GetMappedData(), vertexBufferSize, vertexBufferOffset);
-				buffer.CopyData(stagingIndexBuffer->GetMappedData(), indexBufferSize, indexBufferOffset);
+			buffer.CopyData(stagingVertexBuffer->GetMappedData(), vertexBufferSize, vertexBufferOffset);
+			buffer.CopyData(stagingIndexBuffer->GetMappedData(), indexBufferSize, indexBufferOffset);
 
-				GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-				cmd->Begin();
-				cmd->CopyBuffer(stagingVertexBuffer, meshData->vertexBuffer, vertexBufferSize, 0, 0);
-				cmd->CopyBuffer(stagingIndexBuffer, meshData->indexBuffer, indexBufferSize, 0, 0);
-				cmd->End();
-				Graphics::SubmitGPUWork(cmd, true);
-				Graphics::AddFreeCommandBuffer(cmd);
+			GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
+			cmd->Begin();
+			cmd->CopyBuffer(stagingVertexBuffer, meshData->vertexBuffer, vertexBufferSize, 0, 0);
+			cmd->CopyBuffer(stagingIndexBuffer, meshData->indexBuffer, indexBufferSize, 0, 0);
+			cmd->End();
+			Graphics::SubmitGPUWork(cmd, true);
+			Graphics::AddFreeCommandBuffer(cmd);
 
-				stagingVertexBuffer->Destroy();
-				stagingIndexBuffer->Destroy();
+			stagingVertexBuffer->Destroy();
+			stagingIndexBuffer->Destroy();
 
-				meshData->primitives.Resize(primitiveCount);
-				buffer.CopyData(meshData->primitives.Data(), primitiveSize, primitiveOffset);
+			meshData->primitives.Resize(primitiveCount);
+			buffer.CopyData(meshData->primitives.Data(), primitiveSize, primitiveOffset);
 
-				meshData->geometryIndex = nextGeometryIndex++;
+			meshData->geometryIndex = AllocateGeometryIndex();
 
-				VertexLayoutOffsetData layoutData{};
-				layoutData.stride         = meshData->stride;
-				layoutData.posOff         = positionOffset;
-				layoutData.normalOff      = normalOffset;
-				layoutData.uvOff          = uvOffset;
-				layoutData.uv1Off         = uv1Offset;
-				layoutData.colorOff       = colorOffset;
-				layoutData.tangentOff     = tangentOffset;
-				layoutData.boneIndicesOff = boneIndicesOffset;
-				layoutData.boneWeightsOff = boneWeightsOffset;
+			VertexLayoutOffsetData layoutData{};
+			layoutData.stride         = meshData->stride;
+			layoutData.posOff         = positionOffset;
+			layoutData.normalOff      = normalOffset;
+			layoutData.uvOff          = uvOffset;
+			layoutData.uv1Off         = uv1Offset;
+			layoutData.colorOff       = colorOffset;
+			layoutData.tangentOff     = tangentOffset;
+			layoutData.boneIndicesOff = boneIndicesOffset;
+			layoutData.boneWeightsOff = boneWeightsOffset;
 
-				meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
+			meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
 
-				DescriptorUpdate vtxUpdate;
-				vtxUpdate.type = DescriptorType::StorageBuffer;
-				vtxUpdate.binding = 3;
-				vtxUpdate.arrayElement = meshData->geometryIndex;
-				vtxUpdate.buffer = meshData->vertexBuffer;
-				globalDescriptorSet->Update(vtxUpdate);
+			DescriptorUpdate vtxUpdate;
+			vtxUpdate.type = DescriptorType::StorageBuffer;
+			vtxUpdate.binding = 3;
+			vtxUpdate.arrayElement = meshData->geometryIndex;
+			vtxUpdate.buffer = meshData->vertexBuffer;
+			globalDescriptorSet->Update(vtxUpdate);
 
-				DescriptorUpdate idxUpdate;
-				idxUpdate.type = DescriptorType::StorageBuffer;
-				idxUpdate.binding = 4;
-				idxUpdate.arrayElement = meshData->geometryIndex;
-				idxUpdate.buffer = meshData->indexBuffer;
-				globalDescriptorSet->Update(idxUpdate);
+			DescriptorUpdate idxUpdate;
+			idxUpdate.type = DescriptorType::StorageBuffer;
+			idxUpdate.binding = 4;
+			idxUpdate.arrayElement = meshData->geometryIndex;
+			idxUpdate.buffer = meshData->indexBuffer;
+			globalDescriptorSet->Update(idxUpdate);
 
-				if (rtSupported && !meshData->skin)
+			if (rtSupported && !meshData->skin)
+			{
+				u32 vertexCount = static_cast<u32>(meshLodObject.GetUInt(MeshLodResource::VerticesCount));
+
+				meshData->blasArray.Resize(primitiveCount, nullptr);
+
+				for (u32 p = 0; p < primitiveCount; ++p)
 				{
-					u32 vertexCount = static_cast<u32>(meshLodObject.GetUInt(MeshLodResource::VerticesCount));
+					const MeshPrimitive& prim = meshData->primitives[p];
 
-					meshData->blasArray.Resize(primitiveCount, nullptr);
+					GeometryDesc geometry{};
+					geometry.type = GeometryType::Triangles;
+					geometry.triangles.vertexBuffer = meshData->vertexBuffer;
+					geometry.triangles.vertexCount = vertexCount;
+					geometry.triangles.vertexStride = meshData->stride;
+					geometry.triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
+					geometry.triangles.indexBuffer = meshData->indexBuffer;
+					geometry.triangles.indexOffset = prim.firstIndex * sizeof(u32);
+					geometry.triangles.indexCount = prim.indexCount;
+					geometry.triangles.indexType = IndexType::Uint32;
+					geometry.triangles.opaque = true;
 
-					for (u32 p = 0; p < primitiveCount; ++p)
-					{
-						const MeshPrimitive& prim = meshData->primitives[p];
+					BottomLevelASDesc blasDesc{};
+					blasDesc.geometries = Span<GeometryDesc>(&geometry, 1);
+					blasDesc.flags = BuildAccelerationStructureFlags::PreferFastTrace;
+					blasDesc.debugName = String(name) + "_BLAS_" + ToString(p);
 
-						GeometryDesc geometry{};
-						geometry.type = GeometryType::Triangles;
-						geometry.triangles.vertexBuffer = meshData->vertexBuffer;
-						geometry.triangles.vertexCount = vertexCount;
-						geometry.triangles.vertexStride = meshData->stride;
-						geometry.triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
-						geometry.triangles.indexBuffer = meshData->indexBuffer;
-						geometry.triangles.indexOffset = prim.firstIndex * sizeof(u32);
-						geometry.triangles.indexCount = prim.indexCount;
-						geometry.triangles.indexType = IndexType::Uint32;
-						geometry.triangles.opaque = true;
+					meshData->blasArray[p] = Graphics::CreateBottomLevelAS(blasDesc);
 
-						BottomLevelASDesc blasDesc{};
-						blasDesc.geometries = Span<GeometryDesc>(&geometry, 1);
-						blasDesc.flags = BuildAccelerationStructureFlags::PreferFastTrace;
-						blasDesc.debugName = String(name) + "_BLAS_" + ToString(p);
+					GPUBuffer* scratchBuffer = Graphics::CreateBuffer(BufferDesc{
+						.size = Graphics::GetAccelerationStructureBuildScratchSize(blasDesc),
+						.usage = ResourceUsage::ShaderResource,
+						.hostVisible = false,
+						.persistentMapped = false,
+						.debugName = String(name) + "_BLASScratch_" + ToString(p)
+					});
 
-						meshData->blasArray[p] = Graphics::CreateBottomLevelAS(blasDesc);
+					GPUCommandBuffer* blasCmd = Graphics::GetFreeCommandBuffer();
+					blasCmd->Begin();
+					blasCmd->BuildBottomLevelAS(meshData->blasArray[p], AccelerationStructureBuildInfo{.scratchBuffer = scratchBuffer});
+					blasCmd->End();
+					Graphics::SubmitGPUWork(blasCmd, true);
+					Graphics::AddFreeCommandBuffer(blasCmd);
 
-						GPUBuffer* scratchBuffer = Graphics::CreateBuffer(BufferDesc{
-							.size = Graphics::GetAccelerationStructureBuildScratchSize(blasDesc),
-							.usage = ResourceUsage::ShaderResource,
-							.hostVisible = false,
-							.persistentMapped = false,
-							.debugName = String(name) + "_BLASScratch_" + ToString(p)
-						});
-
-						GPUCommandBuffer* blasCmd = Graphics::GetFreeCommandBuffer();
-						blasCmd->Begin();
-						blasCmd->BuildBottomLevelAS(meshData->blasArray[p], AccelerationStructureBuildInfo{.scratchBuffer = scratchBuffer});
-						blasCmd->End();
-						Graphics::SubmitGPUWork(blasCmd, true);
-						Graphics::AddFreeCommandBuffer(blasCmd);
-
-						scratchBuffer->Destroy();
-					}
-				}
-
-				if (!materials.Empty())
-				{
-					meshData->materials.Reserve(materials.Size());
-					for (usize i = 0; i < materials.Size(); i++)
-					{
-						meshData->materials.EmplaceBack(GetMaterialCache(materials[i]));
-					}
-				}
-				else
-				{
-					if (!defaultMaterial)
-					{
-						defaultMaterial = Resources::FindByPath("Skore://Materials/DefaultMaterial.material");
-					}
-					meshData->materials.EmplaceBack(GetMaterialCache(defaultMaterial));
+					scratchBuffer->Destroy();
 				}
 			}
 
-			it = meshCache.Emplace(mesh, Traits::Move(meshData)).first;
+			if (!materials.Empty())
+			{
+				meshData->materials.Reserve(materials.Size());
+				for (usize i = 0; i < materials.Size(); i++)
+				{
+					meshData->materials.EmplaceBack(GetMaterialCache(materials[i]));
+				}
+			}
+			else
+			{
+				if (!defaultMaterial)
+				{
+					defaultMaterial = Resources::FindByPath("Skore://Materials/DefaultMaterial.material");
+				}
+				meshData->materials.EmplaceBack(GetMaterialCache(defaultMaterial));
+			}
 		}
-		return it->second.get();
+
+		meshCache.Insert(mesh, std::weak_ptr<MeshResourceCache>(meshData));
+		return meshData;
 	}
 
 	GPUDescriptorSet* RenderResourceCache::GetGlobalDescriptorSet()
@@ -750,28 +886,32 @@ namespace Skore
 		return materialDataCount;
 	}
 
-	SkinResourceCache* RenderResourceCache::GetSkinCache(RID cache)
+	SkinResourceCachePtr RenderResourceCache::GetSkinCache(RID cache)
 	{
 		if (!cache) return nullptr;
 		std::unique_lock lock(skinCacheMutex);
 		auto             it = skinCache.Find(cache);
-		if (it == skinCache.end())
+		if (it != skinCache.end())
 		{
-			std::shared_ptr<SkinResourceCache> skinCacheData = std::make_shared<SkinResourceCache>(cache);
-
-			if (ResourceObject skinObject = Resources::Read(cache))
-			{
-				skinCacheData->poses.Reserve(skinObject.GetSubObjectListCount(SkinResource::Binds));
-
-				for (RID bind : skinObject.GetSubObjectList(SkinResource::Binds))
-				{
-					ResourceObject bindObject = Resources::Read(bind);
-					skinCacheData->poses.EmplaceBack(bindObject.GetMat4(SkinBindResource::Pose));
-				}
-			}
-			it = skinCache.Insert(cache, Traits::Move(skinCacheData)).first;
+			if (auto sp = it->second.lock()) return sp;
+			skinCache.Erase(it);
 		}
-		return it->second.get();
+
+		SkinResourceCachePtr skinCacheData(new SkinResourceCache(cache), MakeCacheDeleter<SkinResourceCache>(skinCache, skinCacheMutex, cache));
+
+		if (ResourceObject skinObject = Resources::Read(cache))
+		{
+			skinCacheData->poses.Reserve(skinObject.GetSubObjectListCount(SkinResource::Binds));
+
+			for (RID bind : skinObject.GetSubObjectList(SkinResource::Binds))
+			{
+				ResourceObject bindObject = Resources::Read(bind);
+				skinCacheData->poses.EmplaceBack(bindObject.GetMat4(SkinBindResource::Pose));
+			}
+		}
+
+		skinCache.Insert(cache, std::weak_ptr<SkinResourceCache>(skinCacheData));
+		return skinCacheData;
 	}
 
 	void RenderResourceCacheInit()
@@ -811,10 +951,22 @@ namespace Skore
 		});
 
 		globalDescriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
+		globalDescriptorSetAlive = true;
 	}
 
 	void RenderResourceCacheShutdown()
 	{
+		// Drop map entries. With weak_ptr storage this only frees the weak slot;
+		// any cache that still has outstanding shared_ptrs will outlive shutdown
+		// and its dtor will skip global-descriptor cleanup once the flag flips.
+		fontCache.Clear();
+		textureCache.Clear();
+		materialCache.Clear();
+		meshCache.Clear();
+		skinCache.Clear();
+
+		globalDescriptorSetAlive = false;
+
 		if (globalDescriptorSet)
 		{
 			globalDescriptorSet->Destroy();
@@ -825,66 +977,6 @@ namespace Skore
 			materialDataBuffer->Destroy();
 			materialDataBuffer = nullptr;
 		}
-		nextGeometryIndex = 0;
-		nextMaterialIndex = 0;
-		nextTextureIndex = 0;
-		materialDataBufferCapacity = 0;
-		materialDataCount = 0;
-
-		for (auto& it : textureCache)
-		{
-			it.second->texture->Destroy();
-		}
-
-		for (auto& it : fontCache)
-		{
-			it.second->texture->Destroy();
-		}
-		fontCache.Clear();
-
-		for (auto& it : materialCache)
-		{
-			if (it.second->descriptorSet)
-			{
-				it.second->descriptorSet->Destroy();
-			}
-			if (it.second->materialBuffer)
-			{
-				it.second->materialBuffer->Destroy();
-			}
-
-			if (it.second->diffuseIrradianceTexture)
-			{
-				it.second->diffuseIrradianceTexture->Destroy();
-			}
-
-			if (it.second->specularMapTexture)
-			{
-				it.second->specularMapTexture->Destroy();
-			}
-		}
-
-		for (auto& it : meshCache)
-		{
-			for (GPUBottomLevelAS* blas : it.second->blasArray)
-			{
-				if (blas)
-				{
-					blas->Destroy();
-				}
-			}
-
-			if (it.second->indexBuffer)
-			{
-				it.second->indexBuffer->Destroy();
-			}
-
-			if (it.second->vertexBuffer)
-			{
-				it.second->vertexBuffer->Destroy();
-			}
-		}
-		meshCache.Clear();
 
 		for (GPUBuffer* buffer : vertexLayoutBuffers)
 		{
@@ -892,5 +984,15 @@ namespace Skore
 		}
 		vertexLayoutBuffers.Clear();
 		vertexLayoutDescs.Clear();
+
+		nextGeometryIndex = 0;
+		nextMaterialIndex = 0;
+		nextTextureIndex = 0;
+		freeGeometryIndices.Clear();
+		freeMaterialIndices.Clear();
+		freeTextureIndices.Clear();
+		materialDataBufferCapacity = 0;
+		materialDataCount = 0;
+		defaultMaterial = {};
 	}
 }

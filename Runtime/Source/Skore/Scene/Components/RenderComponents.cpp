@@ -118,7 +118,7 @@ namespace Skore
 	{
 		aabb = AABB();
 		if (!m_mesh) return;
-		if (MeshResourceCache* mc = RenderResourceCache::GetMeshCache(m_mesh))
+		if (MeshResourceCachePtr mc = RenderResourceCache::GetMeshCache(m_mesh))
 		{
 			aabb = Math::TransformAABB(mc->aabb, entity->GetWorldTransform());
 		}
@@ -137,7 +137,7 @@ namespace Skore
 	{
 		ClearDrawcalls();
 
-		MeshResourceCache* meshCache = m_mesh ? RenderResourceCache::GetMeshCache(m_mesh) : nullptr;
+		MeshResourceCachePtr meshCache = m_mesh ? RenderResourceCache::GetMeshCache(m_mesh) : nullptr;
 		OnMeshResolved(meshCache);
 
 		if (!entity->IsActive() || !meshCache) return;
@@ -156,7 +156,7 @@ namespace Skore
 			MeshPrimitive& primitive = meshCache->primitives[p];
 
 			// Resolve material inline: prefer override, fall back to mesh default.
-			MaterialResourceCache* material = nullptr;
+			MaterialResourceCachePtr material;
 			if (primitive.materialIndex < m_materials.Size() && m_materials[primitive.materialIndex])
 			{
 				material = RenderResourceCache::GetMaterialCache(m_materials[primitive.materialIndex]);
@@ -165,7 +165,7 @@ namespace Skore
 			{
 				material = meshCache->materials[primitive.materialIndex];
 			}
-			if (material == nullptr || material->materialIndex == U32_MAX) continue;
+			if (!material || material->materialIndex == U32_MAX) continue;
 
 			DrawcallDesc desc{};
 			desc.mesh         = meshCache;
@@ -175,7 +175,7 @@ namespace Skore
 			desc.aabb         = primitive.aabb;
 			desc.userData     = userData;
 			desc.layerMask    = layerMask;
-			desc.material     = material;
+			desc.material     = Traits::Move(material);
 			desc.bones        = GetBonesDescriptor();
 			desc.blas              = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
 			desc.meshIndex         = meshCache->geometryIndex;
@@ -228,11 +228,7 @@ namespace Skore
 
 	void SkinnedMeshRenderer::Destroy()
 	{
-		if (m_skinCache)
-		{
-			m_skinCache->DecreaseUsage();
-			m_skinCache = nullptr;
-		}
+		m_skinCache.reset();
 		if (m_bonesDescriptor) m_bonesDescriptor->Destroy();
 		if (m_bonesBuffer) m_bonesBuffer->Destroy();
 		m_bonesDescriptor = nullptr;
@@ -241,16 +237,9 @@ namespace Skore
 		RendererComponent::Destroy();
 	}
 
-	void SkinnedMeshRenderer::OnMeshResolved(MeshResourceCache* meshCache)
+	void SkinnedMeshRenderer::OnMeshResolved(const MeshResourceCachePtr& meshCache)
 	{
-		SkinResourceCache* newSkin = (meshCache && meshCache->skin) ? meshCache->skin : nullptr;
-
-		if (newSkin != m_skinCache)
-		{
-			if (m_skinCache) m_skinCache->DecreaseUsage();
-			m_skinCache = newSkin;
-			if (m_skinCache) m_skinCache->IncreaseUsage();
-		}
+		m_skinCache = (meshCache && meshCache->skin) ? meshCache->skin : nullptr;
 
 		if (m_skinCache)
 		{

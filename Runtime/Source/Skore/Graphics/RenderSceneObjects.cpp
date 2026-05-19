@@ -157,10 +157,6 @@ namespace Skore
 		ref.pipelineIndex = GetOrCreatePipeline(pipelineStorage, pipelineDesc);
 		ref.handle = pipelineStorage[ref.pipelineIndex].drawcalls.Insert();
 
-		// Refcount geometry + material; balanced in RemoveDrawcall.
-		desc.material->IncreaseUsage();
-		if (desc.mesh) desc.mesh->IncreaseUsage();
-
 		Drawcall& dc = pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle];
 		dc.firstIndex = desc.firstIndex;
 		dc.indexCount = desc.indexCount;
@@ -193,7 +189,6 @@ namespace Skore
 			sdc.indexCount = desc.indexCount;
 			sdc.vertexBuffer = vertexBuffer;
 			sdc.indexBuffer = indexBuffer;
-			sdc.mesh = nullptr;  // primary holds the ref
 			sdc.material = desc.material;
 			sdc.userData = desc.userData;
 			sdc.meshIndex = desc.meshIndex;
@@ -267,14 +262,10 @@ namespace Skore
 		if (ref.pipelineIndex != U32_MAX)
 		{
 			Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
-			Drawcall& dc = pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle];
-			if (dc.material) dc.material->DecreaseUsage();
-			if (dc.mesh) dc.mesh->DecreaseUsage();
 			pipelineStorage[ref.pipelineIndex].drawcalls.Remove(ref.handle);
 		}
 		if (ref.shadowPipelineIndex != U32_MAX)
 		{
-			// Shadow drawcall doesn't own its own mesh/material refs (primary holds them).
 			shadowPipelines[ref.shadowPipelineIndex].drawcalls.Remove(ref.shadowHandle);
 		}
 		if (ref.instanceDescIndex != U32_MAX)
