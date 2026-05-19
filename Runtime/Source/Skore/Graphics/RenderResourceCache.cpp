@@ -890,7 +890,7 @@ namespace Skore
 				.debugName = String(name) + "_IndexBuffer"
 			});
 
-			/*
+
 			GPUBuffer* stagingVertexBuffer = Graphics::CreateBuffer(BufferDesc{
 				.size = vertexBufferSize,
 				.usage = ResourceUsage::CopySource,
@@ -918,7 +918,6 @@ namespace Skore
 
 			stagingVertexBuffer->Destroy();
 			stagingIndexBuffer->Destroy();
-			*/
 
 			meshData->primitives.Resize(primitiveCount);
 			buffer.CopyData(meshData->primitives.Data(), primitiveSize, primitiveOffset);
