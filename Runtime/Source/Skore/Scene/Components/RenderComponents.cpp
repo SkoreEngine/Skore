@@ -138,7 +138,6 @@ namespace Skore
 		ClearDrawcalls();
 
 		MeshResourceCachePtr meshCache = m_mesh ? RenderResourceCache::GetMeshCache(m_mesh) : nullptr;
-		OnMeshResolved(meshCache);
 
 		if (!entity->IsActive() || !meshCache) return;
 
@@ -156,16 +155,16 @@ namespace Skore
 			MeshPrimitive& primitive = meshCache->primitives[p];
 
 			// Resolve material inline: prefer override, fall back to mesh default.
-			MaterialResourceCachePtr material;
+			RID material;
 			if (primitive.materialIndex < m_materials.Size() && m_materials[primitive.materialIndex])
 			{
-				material = RenderResourceCache::GetMaterialCache(m_materials[primitive.materialIndex]);
+				material = m_materials[primitive.materialIndex];
 			}
-			if (!material && primitive.materialIndex < meshCache->materials.Size())
+			if (!material && primitive.materialIndex < meshCache->materials.Size() && meshCache->materials[primitive.materialIndex])
 			{
-				material = meshCache->materials[primitive.materialIndex];
+				material = meshCache->materials[primitive.materialIndex]->rid;
 			}
-			if (!material || material->materialIndex == U32_MAX) continue;
+			if (!material) continue;
 
 			DrawcallDesc desc{};
 			desc.mesh         = meshCache;
@@ -175,7 +174,7 @@ namespace Skore
 			desc.aabb         = primitive.aabb;
 			desc.userData     = userData;
 			desc.layerMask    = layerMask;
-			desc.material     = Traits::Move(material);
+			desc.material     = material;
 			desc.bones        = GetBonesDescriptor();
 			desc.blas              = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
 			desc.meshIndex         = meshCache->geometryIndex;
@@ -237,16 +236,6 @@ namespace Skore
 		RendererComponent::Destroy();
 	}
 
-	void SkinnedMeshRenderer::OnMeshResolved(const MeshResourceCachePtr& meshCache)
-	{
-		m_skinCache = (meshCache && meshCache->skin) ? meshCache->skin : nullptr;
-
-		if (m_skinCache)
-		{
-			EnsureBonesData();
-		}
-	}
-
 	void SkinnedMeshRenderer::EnsureBonesData()
 	{
 		if (m_bonesBuffer == nullptr)
@@ -279,8 +268,14 @@ namespace Skore
 		}
 	}
 
-	void SkinnedMeshRenderer::UpdateBones(Span<Mat4> bones) const
+	void SkinnedMeshRenderer::UpdateBones(Span<Mat4> bones)
 	{
+		if (!m_skinCache || m_skinCache->mesh != m_mesh)
+		{
+			m_skinCache = RenderResourceCache::GetSkinCache(m_mesh);
+			if (m_skinCache) EnsureBonesData();
+		}
+
 		if (!m_bonesBuffer || !m_skinCache) return;
 
 		Mat4* data = static_cast<Mat4*>(m_bonesBuffer->GetMappedData());

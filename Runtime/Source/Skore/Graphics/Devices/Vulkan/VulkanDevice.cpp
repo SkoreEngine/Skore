@@ -1440,6 +1440,53 @@ namespace Skore
 		DestroyAndFree(this);
 	}
 
+	void VulkanQueue::Destroy()
+	{
+		vkDestroyFence(vulkanDevice->device, fence, nullptr);
+		DestroyAndFree(this);
+	}
+
+	void VulkanQueue::Submit(GPUCommandBuffer* cmd)
+	{
+		VulkanCommandBuffer* vulkanCommandBuffer = static_cast<VulkanCommandBuffer*>(cmd);
+
+		VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &vulkanCommandBuffer->commandBuffer;
+		Submit(&submitInfo, VK_NULL_HANDLE);
+	}
+
+	void VulkanQueue::SubmitAndWait(GPUCommandBuffer* cmd)
+	{
+		VulkanCommandBuffer* vulkanCommandBuffer = static_cast<VulkanCommandBuffer*>(cmd);
+
+		VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &vulkanCommandBuffer->commandBuffer;
+		Submit(&submitInfo, fence);
+
+		vkWaitForFences(vulkanDevice->device, 1, &fence, VK_TRUE, UINT64_MAX);
+		vkResetFences(vulkanDevice->device, 1, &fence);
+	}
+
+	VkResult VulkanQueue::Submit(VkSubmitInfo* submitInfo, VkFence vkFence) const
+	{
+		VkResult res;
+		{
+			std::unique_lock lock(context->mutex);
+			res = vkQueueSubmit(context->vkQueue, 1, submitInfo, vkFence);
+		}
+
+		if (res != VK_SUCCESS)
+		{
+			logger.Error("failed to submit command buffer to queue, error {} ", string_VkResult(res));
+			Graphics::ShowSubmitError();
+			std::terminate();
+		}
+
+		return res;
+	}
+
 
 	void VulkanCommandBuffer::InternalSetTexture(GPUPipeline* pipeline, u32 set, u32 binding, GPUTexture* texture, GPUTextureView* textureView, u32 arrayElement)
 	{
@@ -1741,8 +1788,23 @@ namespace Skore
 
 		selectedAdapter = vulkanAdapter;
 
-		vkGetDeviceQueue(device, vulkanAdapter->graphicsFamily, 0, &graphicsQueue);
-		vkGetDeviceQueue(device, vulkanAdapter->presentFamily, 0, &presentQueue);
+		{
+			VkQueue queue;
+			vkGetDeviceQueue(device, vulkanAdapter->graphicsFamily, 0, &queue);
+			graphicsQueue.context = std::make_shared<VulkanQueueContext>(queue);
+		}
+
+		//shared queue
+		if (vulkanAdapter->graphicsFamily != vulkanAdapter->presentFamily)
+		{
+			VkQueue queue;
+			vkGetDeviceQueue(device, vulkanAdapter->presentFamily, 0, &queue);
+			presentQueue.context = std::make_shared<VulkanQueueContext>(queue);
+		}
+		else
+		{
+			presentQueue.context = graphicsQueue.context;
+		}
 
 		VmaVulkanFunctions vmaVulkanFunctions{};
 		vmaVulkanFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
@@ -3742,6 +3804,19 @@ namespace Skore
 		return tlas;
 	}
 
+	GPUQueue* VulkanDevice::CreateQueue(const QueueDesc& desc)
+	{
+
+		VulkanQueue* vulkanQueue = Alloc<VulkanQueue>();
+		vulkanQueue->vulkanDevice = this;
+		vulkanQueue->context = graphicsQueue.context;
+
+		VkFenceCreateInfo fenceCreateInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+		vkCreateFence(device, &fenceCreateInfo, nullptr, &vulkanQueue->fence);
+
+		return vulkanQueue;
+	}
+
 	usize VulkanDevice::GetBottomLevelASSize(const BottomLevelASDesc& desc)
 	{
 		Array<VkAccelerationStructureGeometryKHR>      vkGeometries;
@@ -3871,13 +3946,7 @@ namespace Skore
 		submitInfo.pCommandBuffers = &commandBuffers[currentFrame]->commandBuffer;
 		submitInfo.pWaitDstStageMask = waitStages;
 
-		VkResult res = vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]);
-		if (res != VK_SUCCESS)
-		{
-			logger.Error("failed to submit command buffer to queue, error {} ", string_VkResult(res));
-			Graphics::ShowSubmitError();
-			std::terminate();
-		}
+		graphicsQueue.Submit(&submitInfo, inFlightFences[currentFrame]);
 
 		for (VulkanSwapchain* swapchain : swapchains)
 		{
@@ -3890,7 +3959,11 @@ namespace Skore
 			presentInfo.pSwapchains = &swapchain->swapchainKHR;
 			presentInfo.pImageIndices = &swapchain->imageIndex;
 
-			res = vkQueuePresentKHR(presentQueue, &presentInfo);
+			VkResult res;
+			{
+				std::unique_lock lock(presentQueue.context->mutex);
+				res = vkQueuePresentKHR(presentQueue.context->vkQueue, &presentInfo);
+			}
 
 			if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
 			{
@@ -4011,10 +4084,8 @@ namespace Skore
 				vkCreateFence(device, &fenceCreateInfo, nullptr, &fence);
 			}
 
-			VkResult res = vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
-			if (res != VK_SUCCESS)
+			if (graphicsQueue.Submit(&submitInfo, fence) != VK_SUCCESS)
 			{
-				logger.Error("failed to execute vkQueueSubmit, error {} ", string_VkResult(res));
 				continue;
 			}
 
@@ -4044,18 +4115,13 @@ namespace Skore
 			VkFenceCreateInfo fenceCreateInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 			vkCreateFence(device, &fenceCreateInfo, nullptr, &fence);
 
-			VkResult res = vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
-			if (res != VK_SUCCESS)
-			{
-				logger.Error("failed to execute vkQueueSubmit, error {} ", string_VkResult(res));
-			}
+			graphicsQueue.Submit(&submitInfo, fence);
 
 			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 			vkDestroyFence(device, fence, nullptr);
 
 			return;
 		}
-
 
 		gpuWorkQueue.enqueue(VulkanGPUWork{
 			.cmd = vulkanCommandBuffer->commandBuffer,
