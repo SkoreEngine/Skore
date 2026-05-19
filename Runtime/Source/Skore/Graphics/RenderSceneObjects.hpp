@@ -39,13 +39,13 @@ namespace Skore
 		u32 firstIndex = 0;
 		u32 indexCount = 0;
 
-		GPUBuffer*             vertexBuffer = nullptr;
-		GPUBuffer*             indexBuffer = nullptr;
-		MeshResourceCache*     mesh = nullptr;
-		MaterialResourceCache* material = nullptr;
-		u64                    userData = 0;
-		u32                    meshIndex = U32_MAX;
-		u32                    vertexLayoutIndex = U32_MAX;
+		GPUBuffer*               vertexBuffer = nullptr;
+		GPUBuffer*               indexBuffer = nullptr;
+		MeshResourceCachePtr     mesh;
+		MaterialResourceCachePtr material;
+		u64                      userData = 0;
+		u32                      meshIndex = U32_MAX;
+		u32                      vertexLayoutIndex = U32_MAX;
 
 		GPUDescriptorSet* bones = nullptr;
 
@@ -75,25 +75,20 @@ namespace Skore
 
 	struct DrawcallDesc
 	{
-		// Geometry — pass `mesh` to let the renderer refcount and source buffers from it.
-		// If `mesh` is null, the renderer uses the explicit vertexBuffer/indexBuffer instead.
-		MeshResourceCache* mesh = nullptr;
-		GPUBuffer*         vertexBuffer = nullptr;
-		GPUBuffer*         indexBuffer = nullptr;
-		u32                firstIndex = 0;
-		u32                indexCount = 0;
+		MeshResourceCachePtr mesh;
+		GPUBuffer*           vertexBuffer = nullptr;
+		GPUBuffer*           indexBuffer = nullptr;
+		u32                  firstIndex = 0;
+		u32                  indexCount = 0;
 
-		// Per-instance
 		Mat4 transform = Mat4(1.0);
 		AABB aabb      = {};
 		u64  userData  = 0;
 		u64  layerMask = 1ULL;
 
-		// Material / skinning
-		MaterialResourceCache* material = nullptr;
-		GPUDescriptorSet*      bones    = nullptr;
+		MaterialResourceCachePtr material;
+		GPUDescriptorSet*        bones = nullptr;
 
-		// Ray tracing
 		GPUBottomLevelAS* blas              = nullptr;
 		u32               meshIndex         = U32_MAX;
 		u32               vertexLayoutIndex = U32_MAX;

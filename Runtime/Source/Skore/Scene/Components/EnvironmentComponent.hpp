@@ -1,12 +1,11 @@
 #pragma once
 #include "Skore/Graphics/GraphicsCommon.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Scene/Component.hpp"
 
 namespace Skore
 {
-	struct MaterialResourceCache;
-
 	class SK_API EnvironmentComponent : public Component
 	{
 	public:
@@ -47,6 +46,6 @@ namespace Skore
 		ReflectedLightSource m_reflectedLightSource = ReflectedLightSource::Skybox;
 		f32                  m_reflectedLightIntensity = 1.0f;
 
-		MaterialResourceCache* m_materialCache = nullptr;
+		MaterialResourceCachePtr m_materialCache;
 	};
 }

@@ -13,7 +13,7 @@ namespace Skore
 
 	void EnvironmentComponent::SetSkyboxMaterial(TypedRID<MaterialResource> skyboxMaterial)
 	{
-		if (m_materialCache == nullptr && m_skyboxMaterial != skyboxMaterial)
+		if (!m_materialCache && m_skyboxMaterial != skyboxMaterial)
 		{
 			m_materialCache = RenderResourceCache::GetMaterialCache(skyboxMaterial);
 		}
@@ -82,7 +82,7 @@ namespace Skore
 
 	MaterialResourceCache* EnvironmentComponent::GetMaterialCache() const
 	{
-		return m_materialCache;
+		return m_materialCache.get();
 	}
 
 	void EnvironmentComponent::RegisterType(NativeReflectType<EnvironmentComponent>& type)
