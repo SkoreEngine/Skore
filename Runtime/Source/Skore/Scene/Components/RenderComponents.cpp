@@ -118,7 +118,7 @@ namespace Skore
 	{
 		aabb = AABB();
 		if (!m_mesh) return;
-		if (MeshResourceCachePtr mc = RenderResourceCache::GetMeshCache(m_mesh))
+		if (MeshResourceCachePtr mc = RenderResourceCache::GetMeshCache(m_mesh, scene->renderObjects.asyncLoad))
 		{
 			aabb = Math::TransformAABB(mc->aabb, entity->GetWorldTransform());
 		}
@@ -137,7 +137,7 @@ namespace Skore
 	{
 		ClearDrawcalls();
 
-		MeshResourceCachePtr meshCache = m_mesh ? RenderResourceCache::GetMeshCache(m_mesh) : nullptr;
+		MeshResourceCachePtr meshCache = m_mesh ? RenderResourceCache::GetMeshCache(m_mesh, scene->renderObjects.asyncLoad) : nullptr;
 
 		if (!entity->IsActive() || !meshCache) return;
 

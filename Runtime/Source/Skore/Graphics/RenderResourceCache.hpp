@@ -1,6 +1,7 @@
 #pragma once
 
 
+#include <future>
 #include <memory>
 
 #include "Device.hpp"
@@ -50,6 +51,10 @@ namespace Skore
 		GPUTexture* texture = nullptr;
 		u32         textureIndex = U32_MAX;
 
+		// Valid while a pixel-data upload is pending on the worker; wait on it to ensure the texture
+		// contents are populated before sampling.
+		std::shared_future<void> uploadComplete;
+
 		TextureResourceCache(RID rid) : rid(rid) {}
 		~TextureResourceCache() override;
 	};
@@ -92,6 +97,9 @@ namespace Skore
 		TextureResourceCachePtr skyMaterialTexture;
 		GPUTexture*             diffuseIrradianceTexture = nullptr;
 		GPUTexture*             specularMapTexture = nullptr;
+
+		// Valid while the IBL pre-bake (irradiance + specular) is pending on the worker.
+		std::shared_future<void> iblComplete;
 
 		// MaterialResource::MaterialType needs to be transparent?
 		bool transparent = false;
@@ -136,10 +144,11 @@ namespace Skore
 
 	struct SK_API RenderResourceCache
 	{
+		static bool                     WorkerIdle();
 		static FontResourceCachePtr     GetFontCache(RID font);
-		static TextureResourceCachePtr  GetTextureCache(RID texture);
-		static MaterialResourceCachePtr GetMaterialCache(RID material);
-		static MeshResourceCachePtr     GetMeshCache(RID mesh);
+		static TextureResourceCachePtr  GetTextureCache(RID texture, bool async);
+		static MaterialResourceCachePtr GetMaterialCache(RID material, bool async);
+		static MeshResourceCachePtr     GetMeshCache(RID mesh, bool async);
 		static SkinResourceCachePtr     GetSkinCache(RID mesh);
 		static GPUDescriptorSet*        GetGlobalDescriptorSet();
 		static GPUBuffer*               GetMaterialDataBuffer();

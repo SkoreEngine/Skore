@@ -135,7 +135,7 @@ namespace Skore
 	{
 		DrawcallRef ref;
 
-		MaterialResourceCachePtr material = desc.material ? RenderResourceCache::GetMaterialCache(desc.material) : nullptr;
+		MaterialResourceCachePtr material = desc.material ? RenderResourceCache::GetMaterialCache(desc.material, asyncLoad) : nullptr;
 		if (material == nullptr || material->materialIndex == U32_MAX)
 		{
 			return ref;
