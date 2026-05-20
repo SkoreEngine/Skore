@@ -154,6 +154,7 @@ namespace Skore
 
 		friend class RendererComponent;
 
+		bool asyncLoad = true;
 	private:
 		Array<InstanceDesc> instances;
 

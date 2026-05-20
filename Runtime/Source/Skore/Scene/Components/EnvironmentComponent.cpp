@@ -3,6 +3,7 @@
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
@@ -15,7 +16,7 @@ namespace Skore
 	{
 		if (!m_materialCache && m_skyboxMaterial != skyboxMaterial)
 		{
-			m_materialCache = RenderResourceCache::GetMaterialCache(skyboxMaterial);
+			m_materialCache = RenderResourceCache::GetMaterialCache(skyboxMaterial, scene->renderObjects.asyncLoad);
 		}
 		m_skyboxMaterial = skyboxMaterial;
 	}

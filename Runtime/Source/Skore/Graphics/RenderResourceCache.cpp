@@ -1,6 +1,9 @@
 #include "Skore/Graphics/RenderResourceCache.hpp"
 
+#include <atomic>
+#include <future>
 #include <mutex>
+#include <semaphore>
 #include <utility>
 
 #include "concurrentqueue.h"
@@ -33,14 +36,15 @@ namespace Skore
 		{
 			struct WorkerData
 			{
-				WorkerType type = WorkerType::None;
-				ResourceCachePtr resourceCache = {};
+				WorkerType                          type = WorkerType::None;
+				ResourceCachePtr                    resourceCache = {};
+				std::shared_ptr<std::promise<void>> promise = nullptr;
 			};
 
 		public:
 			void Init(u32 numWorkerThreads)
 			{
-				running = true;
+				running.store(true, std::memory_order_release);
 				for (u32 i = 0; i < numWorkerThreads; i++)
 				{
 					workerThreads.EmplaceBack(std::thread(&ResourceWorker::WorkerLoop, this));
@@ -49,8 +53,11 @@ namespace Skore
 
 			void Shutdown()
 			{
-				running = false;
-				cv.notify_all();
+				running.store(false, std::memory_order_release);
+				for (usize i = 0; i < workerThreads.Size(); i++)
+				{
+					workSem.release();
+				}
 
 				for (auto& workerThread : workerThreads)
 				{
@@ -62,11 +69,21 @@ namespace Skore
 
 			}
 
-			void AddTask(WorkerType type, ResourceCachePtr resourceCache)
+			std::future<void> AddTask(WorkerType type, ResourceCachePtr resourceCache)
 			{
-				std::unique_lock lock(mutex);
-				load.emplace(WorkerData{type, std::move(resourceCache)});
-				cv.notify_one();
+				auto promise = std::make_shared<std::promise<void>>();
+				std::future<void> future = promise->get_future();
+
+				pendingCount.fetch_add(1, std::memory_order_release);
+				load.enqueue(WorkerData{type, std::move(resourceCache), std::move(promise)});
+				workSem.release();
+
+				return future;
+			}
+
+			bool Idle()
+			{
+				return pendingCount.load(std::memory_order_acquire) == 0;
 			}
 
 		private:
@@ -86,24 +103,22 @@ namespace Skore
 
 				GPUCommandBuffer* transferCmd = Graphics::CreateCommandBuffer();
 
-				while (running)
+				while (running.load(std::memory_order_acquire))
 				{
-					WorkerData data;
+					workSem.acquire();
+
+					if (!running.load(std::memory_order_acquire))
 					{
-						std::unique_lock lock(mutex);
-						cv.wait(lock, [this]
-						{
-							return !load.empty() || !running;
-						});
-
-						if (!running)
-						{
-							return;
-						}
-
-						data = load.front();
-						load.pop();
+						return;
 					}
+
+					WorkerData data;
+					if (!load.try_dequeue(data))
+					{
+						// Spurious wake (e.g. shutdown release for an already-drained queue).
+						continue;
+					}
+					pendingCount.fetch_sub(1, std::memory_order_release);
 
 					switch (data.type)
 					{
@@ -338,6 +353,11 @@ namespace Skore
 						default:
 							break;
 					}
+
+					if (data.promise)
+					{
+						data.promise->set_value();
+					}
 				}
 
 				stagingBuffer->Destroy();
@@ -345,12 +365,12 @@ namespace Skore
 				transferCmd->Destroy();
 			}
 
-			bool running = false;
+			std::atomic<bool>  running{false};
 			Array<std::thread> workerThreads;
 
-			std::mutex mutex;
-			std::condition_variable cv;
-			std::queue<WorkerData> load;
+			moodycamel::ConcurrentQueue<WorkerData> load;
+			std::atomic<i32>                        pendingCount{0};
+			std::counting_semaphore<>               workSem{0};
 		};
 
 
@@ -504,11 +524,9 @@ namespace Skore
 			return false;
 		}
 
-		void UpdateMaterialStorageData(const ResourceObject& materialObject, MaterialResourceCachePtr materialCache)
+		void UpdateMaterialStorageData(const ResourceObject& materialObject, MaterialResourceCachePtr materialCache, bool async)
 		{
 			StringView name = materialObject.GetString(MaterialResource::Name);
-
-
 
 			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
 			materialCache->shader = materialObject.GetReference(MaterialResource::Shader);
@@ -557,10 +575,10 @@ namespace Skore
 					materialDataBufferCapacity = newCapacity;
 				}
 
-				auto resolveTextureIndex = [&materialCache](RID textureRID) -> i32
+				auto resolveTextureIndex = [&materialCache, async](RID textureRID) -> i32
 				{
 					if (!textureRID) return -1;
-					TextureResourceCachePtr tc = RenderResourceCache::GetTextureCache(textureRID);
+					TextureResourceCachePtr tc = RenderResourceCache::GetTextureCache(textureRID, async);
 					if (tc && tc->textureIndex != U32_MAX)
 					{
 						i32 idx = static_cast<i32>(tc->textureIndex);
@@ -611,7 +629,7 @@ namespace Skore
 					}
 				});
 
-				materialCache->skyMaterialTexture = sphericalTexture ? RenderResourceCache::GetTextureCache(sphericalTexture) : nullptr;
+				materialCache->skyMaterialTexture = sphericalTexture ? RenderResourceCache::GetTextureCache(sphericalTexture, async) : nullptr;
 
 				UpdateTexture(materialCache->descriptorSet, materialCache->skyMaterialTexture, 0);
 				materialCache->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
@@ -643,7 +661,7 @@ namespace Skore
 						});
 					}
 
-					worker.AddTask(WorkerType::GenerateIBL, materialCache);
+					materialCache->iblComplete = worker.AddTask(WorkerType::GenerateIBL, materialCache).share();
 				}
 			}
 		}
@@ -657,7 +675,7 @@ namespace Skore
 			{
 				if (auto sp = it->second.lock())
 				{
-					UpdateMaterialStorageData(newValue, sp);
+					UpdateMaterialStorageData(newValue, sp, true);
 				}
 			}
 		}
@@ -675,6 +693,40 @@ namespace Skore
 				}
 				DestroyAndFree(obj);
 			};
+		}
+
+		// Block until any worker task tied to the given cache (and its dependents)
+		// has signalled completion. Cheap no-op when the future is already ready
+		// or was never populated.
+		void WaitForTexture(const TextureResourceCachePtr& tex)
+		{
+			if (tex && tex->uploadComplete.valid())
+			{
+				tex->uploadComplete.wait();
+			}
+		}
+
+		void WaitForMaterial(const MaterialResourceCachePtr& mat)
+		{
+			if (!mat) return;
+			if (mat->iblComplete.valid())
+			{
+				mat->iblComplete.wait();
+			}
+			for (const auto& tex : mat->textures)
+			{
+				WaitForTexture(tex);
+			}
+			WaitForTexture(mat->skyMaterialTexture);
+		}
+
+		void WaitForMesh(const MeshResourceCachePtr& mesh)
+		{
+			if (!mesh) return;
+			for (const auto& mat : mesh->materials)
+			{
+				WaitForMaterial(mat);
+			}
 		}
 	}
 
@@ -761,6 +813,11 @@ namespace Skore
 		if (indexBuffer) indexBuffer->Destroy();
 	}
 
+	bool RenderResourceCache::WorkerIdle()
+	{
+		return worker.Idle();
+	}
+
 	FontResourceCachePtr RenderResourceCache::GetFontCache(RID font)
 	{
 		if (!font) return nullptr;
@@ -826,88 +883,124 @@ namespace Skore
 		return fontData;
 	}
 
-	TextureResourceCachePtr RenderResourceCache::GetTextureCache(RID texture)
+	TextureResourceCachePtr RenderResourceCache::GetTextureCache(RID texture, bool async)
 	{
 		if (!texture) return nullptr;
 
-		std::unique_lock lock(textureCacheMutex);
-		auto             it = textureCache.Find(texture);
-		if (it != textureCache.end())
+		TextureResourceCachePtr result;
 		{
-			if (auto sp = it->second.lock()) return sp;
-			textureCache.Erase(it);
+			std::unique_lock lock(textureCacheMutex);
+			auto             it = textureCache.Find(texture);
+			if (it != textureCache.end())
+			{
+				if (auto sp = it->second.lock())
+				{
+					result = sp;
+				}
+				else
+				{
+					textureCache.Erase(it);
+				}
+			}
+
+			if (!result)
+			{
+				TextureResourceCachePtr textureStorage(Alloc<TextureResourceCache>(texture), MakeCacheDeleter<TextureResourceCache>(textureCache, textureCacheMutex, texture));
+
+				if (ResourceObject textureObject = Resources::Read(texture))
+				{
+					StringView name = textureObject.GetString(TextureResource::Name);
+					TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+					Span<RID> images = textureObject.GetSubObjectList(TextureResource::Images);
+
+					ResourceObject firstImageObject = Resources::Read(images[0]);
+					Vec2 extent = firstImageObject.GetVec2(TextureImageResource::Extent);
+					u32 mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
+
+
+					//create texture
+					textureStorage->texture = Graphics::CreateTexture(TextureDesc{
+						.extent = {static_cast<u32>(extent.x), static_cast<u32>(extent.y), 1},
+						.mipLevels = std::max(mipLevels, 1u),
+						.format = format,
+						.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
+						.debugName = String(name) + "_Texture"
+					});
+
+					Graphics::SetTextureState(textureStorage->texture, ResourceState::Undefined, ResourceState::ShaderReadOnly);
+
+					textureStorage->uploadComplete = worker.AddTask(WorkerType::Texture, textureStorage).share();
+
+					//update index.
+					textureStorage->textureIndex = AllocateTextureIndex();
+
+					DescriptorUpdate texUpdate;
+					texUpdate.type = DescriptorType::SampledImage;
+					texUpdate.binding = 2;
+					texUpdate.arrayElement = textureStorage->textureIndex;
+					texUpdate.texture = textureStorage->texture;
+					globalDescriptorSet->Update(texUpdate);
+				}
+
+				textureCache.Insert(texture, std::weak_ptr(textureStorage));
+				result = textureStorage;
+			}
 		}
 
-		TextureResourceCachePtr textureStorage(Alloc<TextureResourceCache>(texture), MakeCacheDeleter<TextureResourceCache>(textureCache, textureCacheMutex, texture));
-
-		if (ResourceObject textureObject = Resources::Read(texture))
+		if (!async && result && result->uploadComplete.valid())
 		{
-			StringView name = textureObject.GetString(TextureResource::Name);
-			TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
-			Span<RID> images = textureObject.GetSubObjectList(TextureResource::Images);
-
-			ResourceObject firstImageObject = Resources::Read(images[0]);
-			Vec2 extent = firstImageObject.GetVec2(TextureImageResource::Extent);
-			u32 mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
-
-
-			//create texture
-			textureStorage->texture = Graphics::CreateTexture(TextureDesc{
-				.extent = {static_cast<u32>(extent.x), static_cast<u32>(extent.y), 1},
-				.mipLevels = std::max(mipLevels, 1u),
-				.format = format,
-				.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
-				.debugName = String(name) + "_Texture"
-			});
-
-			Graphics::SetTextureState(textureStorage->texture, ResourceState::Undefined, ResourceState::ShaderReadOnly);
-
-			worker.AddTask(WorkerType::Texture, textureStorage);
-
-			//update index.
-			textureStorage->textureIndex = AllocateTextureIndex();
-
-			DescriptorUpdate texUpdate;
-			texUpdate.type = DescriptorType::SampledImage;
-			texUpdate.binding = 2;
-			texUpdate.arrayElement = textureStorage->textureIndex;
-			texUpdate.texture = textureStorage->texture;
-			globalDescriptorSet->Update(texUpdate);
+			result->uploadComplete.wait();
 		}
-
-		textureCache.Insert(texture, std::weak_ptr(textureStorage));
-		return textureStorage;
+		return result;
 	}
 
-	MaterialResourceCachePtr RenderResourceCache::GetMaterialCache(RID material)
+	MaterialResourceCachePtr RenderResourceCache::GetMaterialCache(RID material, bool async)
 	{
 		if (!material) return nullptr;
 
-		std::unique_lock lock(materialCacheMutex);
-
-		auto it = materialCache.Find(material);
-		if (it != materialCache.end())
+		MaterialResourceCachePtr result;
 		{
-			if (auto sp = it->second.lock()) return sp;
-			materialCache.Erase(it);
+			std::unique_lock lock(materialCacheMutex);
+
+			auto it = materialCache.Find(material);
+			if (it != materialCache.end())
+			{
+				if (auto sp = it->second.lock())
+				{
+					result = sp;
+				}
+				else
+				{
+					materialCache.Erase(it);
+				}
+			}
+
+			if (!result)
+			{
+				MaterialResourceCachePtr materialData(Alloc<MaterialResourceCache>(material), MakeCacheDeleter<MaterialResourceCache>(materialCache, materialCacheMutex, material));
+
+				if (ResourceStorage* storage = Resources::GetStorage(material))
+				{
+					storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
+					materialData->eventRegistered = true;
+				}
+
+				ResourceObject materialObject = Resources::Read(material);
+				UpdateMaterialStorageData(materialObject, materialData, async);
+
+				materialCache.Insert(material, std::weak_ptr(materialData));
+				result = materialData;
+			}
 		}
 
-		MaterialResourceCachePtr materialData(Alloc<MaterialResourceCache>(material), MakeCacheDeleter<MaterialResourceCache>(materialCache, materialCacheMutex, material));
-
-		if (ResourceStorage* storage = Resources::GetStorage(material))
+		if (!async)
 		{
-			storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
-			materialData->eventRegistered = true;
+			WaitForMaterial(result);
 		}
-
-		ResourceObject materialObject = Resources::Read(material);
-		UpdateMaterialStorageData(materialObject, materialData);
-
-		materialCache.Insert(material, std::weak_ptr(materialData));
-		return materialData;
+		return result;
 	}
 
-	MeshResourceCachePtr RenderResourceCache::GetMeshCache(RID mesh)
+	MeshResourceCachePtr RenderResourceCache::GetMeshCache(RID mesh, bool async)
 	{
 		if (!mesh) return nullptr;
 
@@ -916,7 +1009,12 @@ namespace Skore
 		auto it = meshCache.Find(mesh);
 		if (it != meshCache.end())
 		{
-			if (auto sp = it->second.lock()) return sp;
+			if (auto sp = it->second.lock())
+			{
+				lock.unlock();
+				if (!async) WaitForMesh(sp);
+				return sp;
+			}
 			meshCache.Erase(it);
 		}
 
@@ -1119,7 +1217,7 @@ namespace Skore
 				meshData->materials.Reserve(materials.Size());
 				for (usize i = 0; i < materials.Size(); i++)
 				{
-					meshData->materials.EmplaceBack(GetMaterialCache(materials[i]));
+					meshData->materials.EmplaceBack(GetMaterialCache(materials[i], async));
 				}
 			}
 			else
@@ -1128,11 +1226,13 @@ namespace Skore
 				{
 					defaultMaterial = Resources::FindByPath("Skore://Materials/DefaultMaterial.material");
 				}
-				meshData->materials.EmplaceBack(GetMaterialCache(defaultMaterial));
+				meshData->materials.EmplaceBack(GetMaterialCache(defaultMaterial, async));
 			}
 		}
 
 		meshCache.Insert(mesh, std::weak_ptr<MeshResourceCache>(meshData));
+		lock.unlock();
+		if (!async) WaitForMesh(meshData);
 		return meshData;
 	}
 
@@ -1225,7 +1325,7 @@ namespace Skore
 		globalDescriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
 		globalDescriptorSetAlive = true;
 
-		worker.Init(1);
+		worker.Init(4);
 	}
 
 	void RenderResourceCacheShutdown()

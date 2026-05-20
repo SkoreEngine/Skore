@@ -74,6 +74,8 @@ namespace Skore
 	{
 		Scene* scene = Alloc<Scene>();
 
+		scene->renderObjects.asyncLoad = false;
+
 		SetupScene(scene);
 
 		if (scene->FindFirstComponent(sktypeid(LightComponent)) == nullptr)
@@ -157,6 +159,7 @@ namespace Skore
 		cmd->Begin();
 		renderPipelineContext->Execute(cmd, scene);
 		cmd->End();
+
 		Graphics::SubmitGPUWork(cmd, true);
 		Graphics::AddFreeCommandBuffer(cmd);
 
