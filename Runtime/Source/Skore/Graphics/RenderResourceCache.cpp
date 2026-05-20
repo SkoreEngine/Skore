@@ -21,8 +21,6 @@
 
 namespace Skore
 {
-
-
 	const u32 StagingBufferSize = 1024 * 1024 * 35;
 
 	namespace
@@ -760,6 +758,71 @@ namespace Skore
 			f32 pad1;
 		};
 
+		// Materials whose first-time index allocation is deferred until every referenced
+		// texture has finished uploading — keeps materialIndex at U32_MAX so render passes
+		// skip the drawcall and avoid sampling not-yet-uploaded textures.
+		struct PendingMaterial
+		{
+			MaterialResourceCachePtr cache;
+			MaterialData             data;
+		};
+
+		std::mutex           pendingMaterialsMutex;
+		Array<PendingMaterial> pendingMaterials;
+
+		void WriteMaterialDataToBuffer(const MaterialResourceCachePtr& materialCache, const MaterialData& matData)
+		{
+			if (materialCache->materialIndex == U32_MAX)
+			{
+				materialCache->materialIndex = AllocateMaterialIndex();
+			}
+
+			u32 requiredCapacity = materialCache->materialIndex + 1;
+			if (requiredCapacity > materialDataBufferCapacity)
+			{
+				u32 newCapacity = requiredCapacity * 2;
+				if (newCapacity < 64) newCapacity = 64;
+
+				GPUBuffer* newBuffer = Graphics::CreateBuffer(BufferDesc{
+					.size = newCapacity * sizeof(MaterialData),
+					.usage = ResourceUsage::ShaderResource,
+					.hostVisible = true,
+					.persistentMapped = true,
+					.debugName = "MaterialDataBuffer"
+				});
+
+				if (materialDataBuffer)
+				{
+					memcpy(newBuffer->GetMappedData(), materialDataBuffer->GetMappedData(), materialDataBufferCapacity * sizeof(MaterialData));
+					materialDataBuffer->Destroy();
+				}
+
+				materialDataBuffer = newBuffer;
+				materialDataBufferCapacity = newCapacity;
+			}
+
+			MaterialData* mapped = static_cast<MaterialData*>(materialDataBuffer->GetMappedData());
+			mapped[materialCache->materialIndex] = matData;
+
+			materialDataCount = std::max(materialDataCount, materialCache->materialIndex + 1);
+
+			globalDescriptorSet->UpdateBuffer(0, materialDataBuffer, 0, materialDataCount * sizeof(MaterialData));
+		}
+
+		void AddPendingMaterial(MaterialResourceCachePtr cache, const MaterialData& data)
+		{
+			std::scoped_lock lock(pendingMaterialsMutex);
+			for (PendingMaterial& p : pendingMaterials)
+			{
+				if (p.cache == cache)
+				{
+					p.data = data;
+					return;
+				}
+			}
+			pendingMaterials.EmplaceBack(PendingMaterial{std::move(cache), data});
+		}
+
 		bool UpdateTexture(GPUDescriptorSet* descriptorSet, const TextureResourceCachePtr& cache, u32 slot)
 		{
 			if (cache && cache->texture)
@@ -792,36 +855,6 @@ namespace Skore
 				f32   emissiveFactor = materialObject.GetFloat(MaterialResource::EmissiveFactor);
 				RID   emissiveTexture = materialObject.GetReference(MaterialResource::EmissiveTexture);
 
-				// Populate global MaterialData buffer for bindless rendering
-				if (materialCache->materialIndex == U32_MAX)
-				{
-					materialCache->materialIndex = AllocateMaterialIndex();
-				}
-
-				u32 requiredCapacity = materialCache->materialIndex + 1;
-				if (requiredCapacity > materialDataBufferCapacity)
-				{
-					u32 newCapacity = requiredCapacity * 2;
-					if (newCapacity < 64) newCapacity = 64;
-
-					GPUBuffer* newBuffer = Graphics::CreateBuffer(BufferDesc{
-						.size = newCapacity * sizeof(MaterialData),
-						.usage = ResourceUsage::ShaderResource,
-						.hostVisible = true,
-						.persistentMapped = true,
-						.debugName = "MaterialDataBuffer"
-					});
-
-					if (materialDataBuffer)
-					{
-						memcpy(newBuffer->GetMappedData(), materialDataBuffer->GetMappedData(), materialDataBufferCapacity * sizeof(MaterialData));
-						materialDataBuffer->Destroy();
-					}
-
-					materialDataBuffer = newBuffer;
-					materialDataBufferCapacity = newCapacity;
-				}
-
 				auto resolveTextureIndex = [&materialCache, async](RID textureRID) -> i32
 				{
 					if (!textureRID) return -1;
@@ -852,12 +885,19 @@ namespace Skore
 
 				materialCache->transparent = materialObject.GetEnum<MaterialResource::MaterialAlphaMode>(MaterialResource::AlphaMode) == MaterialResource::MaterialAlphaMode::Blend;
 
-				MaterialData* mapped = static_cast<MaterialData*>(materialDataBuffer->GetMappedData());
-				mapped[materialCache->materialIndex] = matData;
-
-				materialDataCount = std::max(materialDataCount, materialCache->materialIndex + 1);
-
-				globalDescriptorSet->UpdateBuffer(0, materialDataBuffer, 0, materialDataCount * sizeof(MaterialData));
+				// First-time creation: defer index allocation + GPU write until every texture has
+				// finished uploading. Flush() promotes pending entries once they're ready, so render
+				// passes (which skip drawcalls whose materialIndex is U32_MAX) avoid sampling
+				// partially-uploaded textures and flashing garbage.
+				// Reload of an already-published material rewrites in-place so we don't drop the slot.
+				if (materialCache->materialIndex == U32_MAX)
+				{
+					AddPendingMaterial(materialCache, matData);
+				}
+				else
+				{
+					WriteMaterialDataToBuffer(materialCache, matData);
+				}
 			}
 			else if (materialCache->type == MaterialResource::MaterialType::SkyboxEquirectangular)
 			{
@@ -932,17 +972,12 @@ namespace Skore
 		{
 			return [&map, &mutex, key](V* obj)
 			{
-			//	logger.Debug("trying to destroy resource {}", Resources::GetType(key)->GetName());
-
 				std::unique_lock lock(mutex);
 				auto it = map.Find(key);
 				if (it != map.end() && it->second.expired())
 				{
 					map.Erase(it);
 				}
-
-				logger.Debug("resource {} destroyed", Resources::GetType(key)->GetName());
-
 				DestroyAndFree(obj);
 			};
 		}
@@ -977,7 +1012,7 @@ namespace Skore
 			if (!mesh) return;
 			while (mesh->uploadComplete.valid() && mesh->uploadComplete.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
 			{
-				RenderResourceCache::FlushMainThreadTasks();
+				RenderResourceCache::Flush();
 				std::this_thread::yield();
 			}
 			for (const auto& mat : mesh->materials)
@@ -1075,7 +1110,7 @@ namespace Skore
 		return worker.Idle();
 	}
 
-	void RenderResourceCache::FlushMainThreadTasks()
+	void RenderResourceCache::Flush()
 	{
 		std::queue<std::function<void()>> drained;
 		{
@@ -1087,6 +1122,40 @@ namespace Skore
 			auto& f = drained.front();
 			f();
 			drained.pop();
+		}
+
+		// Promote deferred materials whose textures finished uploading this frame.
+		// Non-blocking — entries that aren't ready stay in the pending list.
+		{
+			std::scoped_lock lock(pendingMaterialsMutex);
+			for (usize i = 0; i < pendingMaterials.Size(); )
+			{
+				PendingMaterial& pending = pendingMaterials[i];
+
+				bool allLoaded = true;
+				for (const TextureResourceCachePtr& tex : pending.cache->textures)
+				{
+					if (tex && !tex->IsLoaded())
+					{
+						allLoaded = false;
+						break;
+					}
+				}
+
+				if (allLoaded)
+				{
+					WriteMaterialDataToBuffer(pending.cache, pending.data);
+					if (i + 1 < pendingMaterials.Size())
+					{
+						pendingMaterials[i] = std::move(pendingMaterials.Back());
+					}
+					pendingMaterials.PopBack();
+				}
+				else
+				{
+					++i;
+				}
+			}
 		}
 	}
 
@@ -1503,6 +1572,11 @@ namespace Skore
 		materialCache.Clear();
 		meshCache.Clear();
 		skinCache.Clear();
+
+		{
+			std::scoped_lock lock(pendingMaterialsMutex);
+			pendingMaterials.Clear();
+		}
 
 		globalDescriptorSetAlive = false;
 

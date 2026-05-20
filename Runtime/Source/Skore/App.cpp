@@ -216,7 +216,7 @@ namespace Skore
 
 		Profiler::BeginFrame();
 		onBeginFrameHandler.Invoke();
-		RenderResourceCache::FlushMainThreadTasks();
+		RenderResourceCache::Flush();
 		onUpdateHandler.Invoke();
 		onEndFrameHandler.Invoke();
 		Profiler::EndFrame();

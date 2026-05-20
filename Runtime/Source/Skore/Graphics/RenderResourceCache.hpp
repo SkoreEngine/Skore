@@ -113,6 +113,11 @@ namespace Skore
 
 		// Set true once the resource-change event has been registered, so the dtor can unregister it.
 		bool eventRegistered = false;
+
+		bool IsLoaded() const
+		{
+			return materialIndex != U32_MAX;
+		}
 	};
 
 	struct SK_API SkinResourceCache
@@ -172,9 +177,6 @@ namespace Skore
 		static GPUBuffer*               GetMaterialDataBuffer();
 		static u32                      GetMaterialDataCount();
 
-		// Drains the internal queue of worker-posted main-thread callbacks (e.g. BLAS publish
-		// from the mesh worker). Call once per frame on the main thread, before reading
-		// any cache field a worker may publish to.
-		static void FlushMainThreadTasks();
+		static void Flush();
 	};
 }
