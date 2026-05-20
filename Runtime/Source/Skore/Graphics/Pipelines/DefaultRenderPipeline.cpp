@@ -142,6 +142,11 @@ namespace Skore
 
 				for (const Drawcall& drawcall : objects->shadowPipelines[i].drawcalls)
 				{
+					if (!drawcall.material || drawcall.material->materialIndex == U32_MAX)
+					{
+						continue;
+					}
+
 					if (drawcall.bones)
 					{
 						cmd->BindDescriptorSet(pipeline, 1, drawcall.bones);
@@ -455,6 +460,11 @@ namespace Skore
 						continue;
 					}
 
+					if (!drawcall.material || drawcall.material->materialIndex == U32_MAX)
+					{
+						continue;
+					}
+
 					if ((drawcall.layerMask & context->camera.cullingMask) == 0)
 					{
 						continue;
@@ -469,7 +479,7 @@ namespace Skore
 
 					MeshPushConstants pc;
 					pc.world = drawcall.transform;
-					pc.materialIndex = drawcall.material ? drawcall.material->materialIndex : 0;
+					pc.materialIndex = drawcall.material->materialIndex;
 					pc.meshIndex = drawcall.meshIndex;
 					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 					pc.pad = 0;
@@ -741,6 +751,11 @@ namespace Skore
 						continue;
 					}
 
+					if (!drawcall.material || drawcall.material->materialIndex == U32_MAX)
+					{
+						continue;
+					}
+
 					if ((drawcall.layerMask & context->camera.cullingMask) == 0)
 					{
 						continue;
@@ -755,7 +770,7 @@ namespace Skore
 
 					MeshPushConstants pc;
 					pc.world = drawcall.transform;
-					pc.materialIndex = drawcall.material ? drawcall.material->materialIndex : 0;
+					pc.materialIndex = drawcall.material->materialIndex;
 					pc.meshIndex = drawcall.meshIndex;
 					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 					pc.pad = 0;

@@ -136,10 +136,13 @@ namespace Skore
 		DrawcallRef ref;
 
 		MaterialResourceCachePtr material = desc.material ? RenderResourceCache::GetMaterialCache(desc.material, asyncLoad) : nullptr;
-		if (material == nullptr || material->materialIndex == U32_MAX)
+		if (material == nullptr)
 		{
 			return ref;
 		}
+
+		// materialIndex may still be U32_MAX while textures stream in — the drawcall is registered
+		// anyway and render passes skip it per-frame until Flush() promotes the material.
 
 		ref.transparent = material->transparent;
 
@@ -337,7 +340,7 @@ namespace Skore
 	{
 		// Run any worker-posted callbacks before reading mesh state — this is where the mesh
 		// worker publishes vertex/index buffers, blasArray, and the bindless descriptor slots.
-		RenderResourceCache::FlushMainThreadTasks();
+		RenderResourceCache::Flush();
 
 		// Promote parked drawcalls whose meshes finished loading this frame.
 		for (u32 i = 0; i < pendingDrawcalls.Size(); )

@@ -98,6 +98,11 @@ namespace Skore
 					continue;
 				}
 
+				if (!drawcall.material || drawcall.material->materialIndex == U32_MAX)
+				{
+					continue;
+				}
+
 				if ((drawcall.layerMask & context->camera.cullingMask) == 0)
 				{
 					continue;
