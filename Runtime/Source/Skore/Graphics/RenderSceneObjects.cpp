@@ -141,6 +141,23 @@ namespace Skore
 			return ref;
 		}
 
+		ref.transparent = material->transparent;
+
+		// Mesh data (vertex/index buffers + BLAS) is created on the worker. If it's not yet
+		// published, park the registration — DoUpdate promotes once IsLoaded() goes true.
+		if (desc.mesh && !desc.mesh->IsLoaded())
+		{
+			AddPendingDrawcall(owner, primitiveIndex, desc.mesh, material, desc, ref);
+			return ref;
+		}
+
+		DoCreateDrawcall(desc, material, owner, primitiveIndex, ref);
+		return ref;
+	}
+
+	void RenderSceneObjects::DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material,
+		RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref)
+	{
 		GPUBuffer* vertexBuffer = desc.mesh ? desc.mesh->vertexBuffer : desc.vertexBuffer;
 		GPUBuffer* indexBuffer  = desc.mesh ? desc.mesh->indexBuffer  : desc.indexBuffer;
 
@@ -204,24 +221,31 @@ namespace Skore
 
 		const bool rayTraced = (desc.visibility & DrawcallVisibility::RayTraced) != 0;
 		const bool rtEnabled = Graphics::GetDevice()->GetFeatures().rayTracing;
-		if (rtEnabled && rayTraced && desc.blas != nullptr && desc.meshIndex != U32_MAX && material->materialIndex != U32_MAX)
+		if (rtEnabled && rayTraced && desc.meshIndex != U32_MAX && material->materialIndex != U32_MAX)
 		{
-			InstanceDesc instDesc{};
-			instDesc.bottomLevelAS = desc.blas;
-			instDesc.transform = desc.transform;
-			instDesc.forceOpaque = true;
+			// At this point the mesh is loaded — pick the BLAS slot directly (nullptr means
+			// no BLAS was produced, e.g. skinned mesh; just skip enrolment).
+			GPUBottomLevelAS* blas = nullptr;
+			if (desc.blas) blas = desc.blas;
+			else if (desc.mesh && primitiveIndex < desc.mesh->blasArray.Size()) blas = desc.mesh->blasArray[primitiveIndex];
 
-			InstanceData data{
-				.meshIndex = desc.meshIndex,
-				.vertexLayoutIndex = desc.vertexLayoutIndex,
-				.materialIndex = material->materialIndex,
-				.firstIndex = desc.firstIndex
-			};
+			if (blas)
+			{
+				InstanceDesc instDesc{};
+				instDesc.bottomLevelAS = blas;
+				instDesc.transform = desc.transform;
+				instDesc.forceOpaque = true;
 
-			AddInstance(owner, primitiveIndex, instDesc, data, ref);
+				InstanceData data{
+					.meshIndex = desc.meshIndex,
+					.vertexLayoutIndex = desc.vertexLayoutIndex,
+					.materialIndex = material->materialIndex,
+					.firstIndex = desc.firstIndex
+				};
+
+				AddInstance(owner, primitiveIndex, instDesc, data, ref);
+			}
 		}
-
-		return ref;
 	}
 
 	void RenderSceneObjects::UpdateTransform(const DrawcallRef& ref, const Mat4& transform)
@@ -244,6 +268,10 @@ namespace Skore
 			instances[ref.instanceDescIndex].transform = transform;
 			tlasDirty = true;
 		}
+		if (ref.pendingDrawcallIndex != U32_MAX)
+		{
+			pendingDrawcalls[ref.pendingDrawcallIndex].desc.transform = transform;
+		}
 	}
 
 	void RenderSceneObjects::UpdateLayerMask(const DrawcallRef& ref, u64 layerMask)
@@ -256,6 +284,10 @@ namespace Skore
 		if (ref.shadowPipelineIndex != U32_MAX)
 		{
 			shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle].layerMask = layerMask;
+		}
+		if (ref.pendingDrawcallIndex != U32_MAX)
+		{
+			pendingDrawcalls[ref.pendingDrawcallIndex].desc.layerMask = layerMask;
 		}
 	}
 
@@ -274,10 +306,64 @@ namespace Skore
 		{
 			RemoveInstance(ref);
 		}
+		if (ref.pendingDrawcallIndex != U32_MAX)
+		{
+			RemovePendingDrawcall(ref.pendingDrawcallIndex);
+		}
+	}
+
+	void RenderSceneObjects::AddPendingDrawcall(RendererComponent* component, u32 primitiveIndex,
+		const MeshResourceCachePtr& mesh, const MaterialResourceCachePtr& material,
+		const DrawcallDesc& desc, DrawcallRef& outRef)
+	{
+		u32 idx = static_cast<u32>(pendingDrawcalls.Size());
+		pendingDrawcalls.EmplaceBack(PendingDrawcallEntry{mesh, material, component, primitiveIndex, desc});
+		outRef.pendingDrawcallIndex = idx;
+	}
+
+	void RenderSceneObjects::RemovePendingDrawcall(u32 idx)
+	{
+		u32 lastIdx = static_cast<u32>(pendingDrawcalls.Size()) - 1;
+		if (idx != lastIdx)
+		{
+			pendingDrawcalls[idx] = std::move(pendingDrawcalls[lastIdx]);
+			PendingDrawcallEntry& moved = pendingDrawcalls[idx];
+			moved.component->references[moved.primitiveIndex].pendingDrawcallIndex = idx;
+		}
+		pendingDrawcalls.PopBack();
 	}
 
 	void RenderSceneObjects::DoUpdate(GPUCommandBuffer* cmd)
 	{
+		// Run any worker-posted callbacks before reading mesh state — this is where the mesh
+		// worker publishes vertex/index buffers, blasArray, and the bindless descriptor slots.
+		RenderResourceCache::FlushMainThreadTasks();
+
+		// Promote parked drawcalls whose meshes finished loading this frame.
+		for (u32 i = 0; i < pendingDrawcalls.Size(); )
+		{
+			PendingDrawcallEntry& pending = pendingDrawcalls[i];
+			if (!pending.mesh || !pending.mesh->IsLoaded())
+			{
+				++i;
+				continue;
+			}
+
+			RendererComponent*       component = pending.component;
+			u32                      primitiveIndex = pending.primitiveIndex;
+			DrawcallDesc             desc = pending.desc;
+			MaterialResourceCachePtr material = pending.material;
+
+			// Clear pending slot before re-registering so the new ref doesn't carry the stale
+			// parked index. RemovePendingDrawcall fixes up the swapped-in entry's owner.
+			component->references[primitiveIndex].pendingDrawcallIndex = U32_MAX;
+			RemovePendingDrawcall(i);
+			// Don't increment i: swap-and-pop placed a new entry at this index.
+
+			DrawcallRef& ref = component->references[primitiveIndex];
+			DoCreateDrawcall(desc, material, component, primitiveIndex, ref);
+		}
+
 		bool rtEnabled = Graphics::GetDevice()->GetFeatures().rayTracing;
 
 		if (rtEnabled && tlasDirty)

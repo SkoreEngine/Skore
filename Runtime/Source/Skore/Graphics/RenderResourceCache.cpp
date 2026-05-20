@@ -1,6 +1,7 @@
 #include "Skore/Graphics/RenderResourceCache.hpp"
 
 #include <atomic>
+#include <functional>
 #include <future>
 #include <mutex>
 #include <semaphore>
@@ -13,6 +14,7 @@
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/DebugUtils.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Core/Queue.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/IO/Compression.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -20,11 +22,14 @@
 namespace Skore
 {
 
+
 	const u32 StagingBufferSize = 1024 * 1024 * 35;
 
 	namespace
 	{
+		void ExecuteOnMainThread(std::function<void()> func);
 		void WaitForTexture(const TextureResourceCachePtr& tex);
+		void RegisterMeshBuffers(u32 geometryIndex, GPUBuffer* vertexBuffer, GPUBuffer* indexBuffer);
 
 		enum class WorkerType : u32
 		{
@@ -110,6 +115,21 @@ namespace Skore
 
 				GPUCommandBuffer* transferCmd = Graphics::CreateCommandBuffer();
 
+				// Compute queue is used for acceleration-structure builds (mesh BLAS) on the worker thread.
+				// AS-build requires VK_QUEUE_COMPUTE_BIT in Vulkan; keep it separate from the transfer
+				// queue so the intent is explicit even though the current CreateQueue impl aliases all
+				// queue types to the graphics context.
+				GPUQueue* computeQueue = Graphics::CreateQueue(QueueDesc{
+					.type = QueueType::Compute,
+				});
+
+				GPUCommandBuffer* computeCmd = Graphics::CreateCommandBuffer();
+
+				// Persistent BLAS scratch buffer; grows on demand to fit the largest primitive scratch
+				// size encountered. Reused across mesh tasks on this worker thread.
+				GPUBuffer* blasScratchBuffer = nullptr;
+				u64        blasScratchSize = 0;
+
 				while (running.load(std::memory_order_acquire))
 				{
 					workSem.acquire();
@@ -126,6 +146,8 @@ namespace Skore
 						continue;
 					}
 					pendingCount.fetch_sub(1, std::memory_order_release);
+
+					//std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
 					switch (data.type)
 					{
@@ -313,6 +335,191 @@ namespace Skore
 						}
 						case WorkerType::Mesh:
 						{
+							MeshResourceCachePtr meshCache = std::dynamic_pointer_cast<MeshResourceCache>(data.resourceCache);
+
+							ResourceObject meshObject = Resources::Read(meshCache->rid);
+							if (!meshObject) break;
+
+							// Calling thread pre-sized blasArray to signal RT intent. The worker
+							// allocates the vertex/index buffers and (optionally) builds BLAS, then
+							// publishes everything via the main-thread callback queue so readers
+							// never observe a partially-constructed mesh cache.
+							u32                      primitiveCount = static_cast<u32>(meshCache->blasArray.Size());
+							bool                     wantsBlas = primitiveCount > 0;
+							Array<GPUBottomLevelAS*> builtBlas;
+
+							StringView     name = meshObject.GetString(MeshResource::Name);
+							ResourceBuffer buffer = meshObject.GetBuffer(MeshResource::MeshData);
+							Span<RID>      lods = meshObject.GetSubObjectList(MeshResource::MeshLODs);
+
+							ResourceObject meshLodObject = Resources::Read(lods[0]);
+
+							u64 vertexBufferOffset = meshLodObject.GetUInt(MeshLodResource::VerticesOffset);
+							u32 vertexCount = static_cast<u32>(meshLodObject.GetUInt(MeshLodResource::VerticesCount));
+							u64 vertexBufferSize = static_cast<u64>(vertexCount) * static_cast<u64>(meshCache->stride);
+							u64 indexBufferOffset = meshLodObject.GetUInt(MeshLodResource::IndicesOffset);
+							u64 indexBufferSize = meshLodObject.GetUInt(MeshLodResource::IndicesCount) * sizeof(u32);
+
+							ResourceUsage rtUsage = wantsBlas ? ResourceUsage::AccelerationStructure | ResourceUsage::ShaderResource : ResourceUsage::None;
+							GPUBuffer*    vertexBuffer = Graphics::CreateBuffer(BufferDesc{
+								   .size = vertexBufferSize,
+								   .usage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | ResourceUsage::ShaderResource | rtUsage,
+								   .hostVisible = false,
+								   .persistentMapped = false,
+								   .debugName = String(name) + "_VertexBuffer"
+							});
+							GPUBuffer* indexBuffer = Graphics::CreateBuffer(BufferDesc{
+								.size = indexBufferSize,
+								.usage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer | ResourceUsage::ShaderResource | rtUsage,
+								.hostVisible = false,
+								.persistentMapped = false,
+								.debugName = String(name) + "_IndexBuffer"
+							});
+
+							// Upload one destination buffer (vertex or index). Chunks the copy through
+							// the shared staging buffer when the source exceeds StagingBufferSize:
+							// first chunk transitions Undefined→CopyDest, last chunk transitions
+							// CopyDest→ShaderReadOnly, intermediate chunks only copy.
+							auto uploadOne = [&](GPUBuffer* dst, u64 size, u64 srcOffset)
+							{
+								u64  done = 0;
+								bool firstChunk = true;
+								while (done < size)
+								{
+									u64 chunk = std::min<u64>(StagingBufferSize, size - done);
+									buffer.CopyData(stagingBuffer->GetMappedData(), chunk, srcOffset + done);
+
+									transferCmd->Begin();
+									if (firstChunk)
+									{
+										transferCmd->ResourceBarrier(dst, ResourceState::Undefined, ResourceState::CopyDest);
+										firstChunk = false;
+									}
+									transferCmd->CopyBuffer(stagingBuffer, dst, chunk, 0, done);
+									if (done + chunk == size)
+									{
+										transferCmd->ResourceBarrier(dst, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+									}
+									transferCmd->End();
+									transferQueue->SubmitAndWait(transferCmd);
+									transferCmd->Reset();
+
+									done += chunk;
+								}
+							};
+
+							if (vertexBufferSize + indexBufferSize <= StagingBufferSize)
+							{
+								// Pack vertex + index into staging and upload in a single submission.
+								u8* mapped = static_cast<u8*>(stagingBuffer->GetMappedData());
+								buffer.CopyData(mapped, vertexBufferSize, vertexBufferOffset);
+								buffer.CopyData(mapped + vertexBufferSize, indexBufferSize, indexBufferOffset);
+
+								transferCmd->Begin();
+								transferCmd->ResourceBarrier(vertexBuffer, ResourceState::Undefined, ResourceState::CopyDest);
+								transferCmd->ResourceBarrier(indexBuffer, ResourceState::Undefined, ResourceState::CopyDest);
+								transferCmd->CopyBuffer(stagingBuffer, vertexBuffer, vertexBufferSize, 0, 0);
+								transferCmd->CopyBuffer(stagingBuffer, indexBuffer, indexBufferSize, vertexBufferSize, 0);
+								transferCmd->ResourceBarrier(vertexBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+								transferCmd->ResourceBarrier(indexBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+								transferCmd->End();
+								transferQueue->SubmitAndWait(transferCmd);
+								transferCmd->Reset();
+							}
+							else
+							{
+								// Combined size doesn't fit — submit vertex and index separately,
+								// reusing the staging buffer between submissions.
+								uploadOne(vertexBuffer, vertexBufferSize, vertexBufferOffset);
+								uploadOne(indexBuffer, indexBufferSize, indexBufferOffset);
+							}
+
+							// BLAS create + build, only when the calling thread pre-sized blasArray
+							// (which it skips for skinned meshes or when ray tracing is disabled).
+							// Worker builds into builtBlas locally; the main-thread publish callback
+							// below moves it into meshCache->blasArray so readers never see partial state.
+							if (wantsBlas)
+							{
+								builtBlas.Resize(primitiveCount, nullptr);
+
+								Array<BottomLevelASDesc> blasDescs(primitiveCount);
+								Array<GeometryDesc>      geometries(primitiveCount);
+								u64                      maxScratch = 0;
+
+								for (u32 p = 0; p < primitiveCount; ++p)
+								{
+									const MeshPrimitive& prim = meshCache->primitives[p];
+
+									geometries[p] = GeometryDesc{};
+									geometries[p].type = GeometryType::Triangles;
+									geometries[p].triangles.vertexBuffer = vertexBuffer;
+									geometries[p].triangles.vertexCount = vertexCount;
+									geometries[p].triangles.vertexStride = meshCache->stride;
+									geometries[p].triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
+									geometries[p].triangles.indexBuffer = indexBuffer;
+									geometries[p].triangles.indexOffset = prim.firstIndex * sizeof(u32);
+									geometries[p].triangles.indexCount = prim.indexCount;
+									geometries[p].triangles.indexType = IndexType::Uint32;
+									geometries[p].triangles.opaque = true;
+
+									blasDescs[p] = BottomLevelASDesc{};
+									blasDescs[p].geometries = Span<GeometryDesc>(&geometries[p], 1);
+									blasDescs[p].flags = BuildAccelerationStructureFlags::PreferFastTrace;
+									blasDescs[p].debugName = String(name) + "_BLAS_" + ToString(p);
+
+									builtBlas[p] = Graphics::CreateBottomLevelAS(blasDescs[p]);
+									maxScratch = std::max(maxScratch, static_cast<u64>(Graphics::GetAccelerationStructureBuildScratchSize(blasDescs[p])));
+								}
+
+								if (maxScratch > blasScratchSize)
+								{
+									if (blasScratchBuffer) blasScratchBuffer->Destroy();
+									blasScratchBuffer = Graphics::CreateBuffer(BufferDesc{
+										.size = maxScratch,
+										.usage = ResourceUsage::ShaderResource,
+										.hostVisible = false,
+										.persistentMapped = false,
+										.debugName = "MeshWorker_BLASScratch"
+									});
+									blasScratchSize = maxScratch;
+								}
+
+								computeCmd->Begin();
+								for (u32 p = 0; p < primitiveCount; ++p)
+								{
+									computeCmd->BuildBottomLevelAS(builtBlas[p], AccelerationStructureBuildInfo{.scratchBuffer = blasScratchBuffer});
+									// Scratch is reused across primitives — serialize builds so each
+									// finishes reading scratch before the next overwrites it.
+									if (p + 1 < primitiveCount)
+									{
+										computeCmd->MemoryBarrier();
+									}
+								}
+								computeCmd->End();
+								computeQueue->SubmitAndWait(computeCmd);
+								computeCmd->Reset();
+							}
+
+							// Hand the promise off to the publish callback so the future only resolves
+							// after the buffers + descriptor slots + BLAS are visible on the main thread.
+							// The catch-all promise-set at the bottom sees a moved-from (null) promise.
+							auto pendingPromise = std::move(data.promise);
+							ExecuteOnMainThread(
+								[meshCache, vertexBuffer, indexBuffer, builtBlas = std::move(builtBlas), pendingPromise = std::move(pendingPromise)]() mutable
+								{
+									meshCache->vertexBuffer = vertexBuffer;
+									meshCache->indexBuffer = indexBuffer;
+									if (!builtBlas.Empty())
+									{
+										meshCache->blasArray = std::move(builtBlas);
+									}
+									// Register the buffers in the bindless storage slots (bindings 3/4)
+									// at geometryIndex, so the descriptor never points at an
+									// uninitialised buffer between cache creation and upload completion.
+									RegisterMeshBuffers(meshCache->geometryIndex, vertexBuffer, indexBuffer);
+
+									if (pendingPromise) pendingPromise->set_value();
+								});
 							break;
 						}
 						case WorkerType::GenerateIBL:
@@ -376,6 +583,9 @@ namespace Skore
 				stagingBuffer->Destroy();
 				transferQueue->Destroy();
 				transferCmd->Destroy();
+				computeQueue->Destroy();
+				computeCmd->Destroy();
+				if (blasScratchBuffer) blasScratchBuffer->Destroy();
 			}
 
 			std::atomic<bool>  running{false};
@@ -415,6 +625,32 @@ namespace Skore
 		bool              globalDescriptorSetAlive = false;
 
 		ResourceWorker worker;
+
+		std::mutex                        mainThreadTasksMutex;
+		std::queue<std::function<void()>> mainThreadTasks;
+
+		void ExecuteOnMainThread(std::function<void()> func)
+		{
+			std::scoped_lock lock(mainThreadTasksMutex);
+			mainThreadTasks.emplace(std::move(func));
+		}
+
+		void RegisterMeshBuffers(u32 geometryIndex, GPUBuffer* vertexBuffer, GPUBuffer* indexBuffer)
+		{
+			DescriptorUpdate vtxUpdate;
+			vtxUpdate.type = DescriptorType::StorageBuffer;
+			vtxUpdate.binding = 3;
+			vtxUpdate.arrayElement = geometryIndex;
+			vtxUpdate.buffer = vertexBuffer;
+			globalDescriptorSet->Update(vtxUpdate);
+
+			DescriptorUpdate idxUpdate;
+			idxUpdate.type = DescriptorType::StorageBuffer;
+			idxUpdate.binding = 4;
+			idxUpdate.arrayElement = geometryIndex;
+			idxUpdate.buffer = indexBuffer;
+			globalDescriptorSet->Update(idxUpdate);
+		}
 
 		u32 AllocateGeometryIndex()
 		{
@@ -696,12 +932,17 @@ namespace Skore
 		{
 			return [&map, &mutex, key](V* obj)
 			{
+			//	logger.Debug("trying to destroy resource {}", Resources::GetType(key)->GetName());
+
 				std::unique_lock lock(mutex);
 				auto it = map.Find(key);
 				if (it != map.end() && it->second.expired())
 				{
 					map.Erase(it);
 				}
+
+				logger.Debug("resource {} destroyed", Resources::GetType(key)->GetName());
+
 				DestroyAndFree(obj);
 			};
 		}
@@ -734,6 +975,11 @@ namespace Skore
 		void WaitForMesh(const MeshResourceCachePtr& mesh)
 		{
 			if (!mesh) return;
+			while (mesh->uploadComplete.valid() && mesh->uploadComplete.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+			{
+				RenderResourceCache::FlushMainThreadTasks();
+				std::this_thread::yield();
+			}
 			for (const auto& mat : mesh->materials)
 			{
 				WaitForMaterial(mat);
@@ -827,6 +1073,21 @@ namespace Skore
 	bool RenderResourceCache::WorkerIdle()
 	{
 		return worker.Idle();
+	}
+
+	void RenderResourceCache::FlushMainThreadTasks()
+	{
+		std::queue<std::function<void()>> drained;
+		{
+			std::scoped_lock lock(mainThreadTasksMutex);
+			drained = std::move(mainThreadTasks);
+		}
+		while (!drained.empty())
+		{
+			auto& f = drained.front();
+			f();
+			drained.pop();
+		}
 	}
 
 	FontResourceCachePtr RenderResourceCache::GetFontCache(RID font)
@@ -1085,63 +1346,11 @@ namespace Skore
 
 			ResourceObject meshLodObject = Resources::Read(lods[0]);
 
-			u64 vertexBufferOffset = meshLodObject.GetUInt(MeshLodResource::VerticesOffset);
-			u64 vertexBufferSize = meshLodObject.GetUInt(MeshLodResource::VerticesCount) * static_cast<u64>(meshData->stride);
-			u32 indexBufferOffset = meshLodObject.GetUInt(MeshLodResource::IndicesOffset);
-			u32 indexBufferSize = meshLodObject.GetUInt(MeshLodResource::IndicesCount) * sizeof(u32);
 			u64 primitiveOffset = meshLodObject.GetUInt(MeshLodResource::PrimitiveOffset);
 			u64 primitiveCount = meshLodObject.GetUInt(MeshLodResource::PrimitiveCount);
 			u64 primitiveSize = primitiveCount * sizeof(MeshPrimitive);
 
-			bool          rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
-			ResourceUsage rtUsage = rtSupported ? ResourceUsage::AccelerationStructure | ResourceUsage::ShaderResource : ResourceUsage::None;
-			ResourceUsage vertexBufferUsage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | ResourceUsage::ShaderResource | rtUsage;
-			ResourceUsage indexBufferUsage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer | ResourceUsage::ShaderResource | rtUsage;
-
-			meshData->vertexBuffer = Graphics::CreateBuffer(BufferDesc{
-				.size = vertexBufferSize,
-				.usage = vertexBufferUsage,
-				.hostVisible = false,
-				.persistentMapped = false,
-				.debugName = String(name) + "_VertexBuffer"
-			});
-
-			meshData->indexBuffer = Graphics::CreateBuffer(BufferDesc{
-				.size = indexBufferSize,
-				.usage = indexBufferUsage,
-				.hostVisible = false,
-				.persistentMapped = false,
-				.debugName = String(name) + "_IndexBuffer"
-			});
-
-
-			GPUBuffer* stagingVertexBuffer = Graphics::CreateBuffer(BufferDesc{
-				.size = vertexBufferSize,
-				.usage = ResourceUsage::CopySource,
-				.hostVisible = true,
-				.persistentMapped = true,
-			});
-
-			GPUBuffer* stagingIndexBuffer = Graphics::CreateBuffer(BufferDesc{
-				.size = indexBufferSize,
-				.usage = ResourceUsage::CopySource,
-				.hostVisible = true,
-				.persistentMapped = true,
-			});
-
-			buffer.CopyData(stagingVertexBuffer->GetMappedData(), vertexBufferSize, vertexBufferOffset);
-			buffer.CopyData(stagingIndexBuffer->GetMappedData(), indexBufferSize, indexBufferOffset);
-
-			GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-			cmd->Begin();
-			cmd->CopyBuffer(stagingVertexBuffer, meshData->vertexBuffer, vertexBufferSize, 0, 0);
-			cmd->CopyBuffer(stagingIndexBuffer, meshData->indexBuffer, indexBufferSize, 0, 0);
-			cmd->End();
-			Graphics::SubmitGPUWork(cmd, true);
-			Graphics::AddFreeCommandBuffer(cmd);
-
-			stagingVertexBuffer->Destroy();
-			stagingIndexBuffer->Destroy();
+			bool rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
 
 			meshData->primitives.Resize(primitiveCount);
 			buffer.CopyData(meshData->primitives.Data(), primitiveSize, primitiveOffset);
@@ -1161,67 +1370,16 @@ namespace Skore
 
 			meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
 
-			DescriptorUpdate vtxUpdate;
-			vtxUpdate.type = DescriptorType::StorageBuffer;
-			vtxUpdate.binding = 3;
-			vtxUpdate.arrayElement = meshData->geometryIndex;
-			vtxUpdate.buffer = meshData->vertexBuffer;
-			globalDescriptorSet->Update(vtxUpdate);
-
-			DescriptorUpdate idxUpdate;
-			idxUpdate.type = DescriptorType::StorageBuffer;
-			idxUpdate.binding = 4;
-			idxUpdate.arrayElement = meshData->geometryIndex;
-			idxUpdate.buffer = meshData->indexBuffer;
-			globalDescriptorSet->Update(idxUpdate);
-
+			// Pre-size the BLAS slot array on the calling thread as the worker's RT intent
+			// signal (skipped for skinned meshes). The worker creates vertex/index buffers
+			// and BLAS handles, then publishes them — along with the bindless descriptor
+			// updates for slots 3/4 at geometryIndex — via the main-thread callback queue.
 			if (rtSupported && !meshObject.GetSubObject(MeshResource::Skin))
 			{
-				u32 vertexCount = static_cast<u32>(meshLodObject.GetUInt(MeshLodResource::VerticesCount));
-
 				meshData->blasArray.Resize(primitiveCount, nullptr);
-
-				for (u32 p = 0; p < primitiveCount; ++p)
-				{
-					const MeshPrimitive& prim = meshData->primitives[p];
-
-					GeometryDesc geometry{};
-					geometry.type = GeometryType::Triangles;
-					geometry.triangles.vertexBuffer = meshData->vertexBuffer;
-					geometry.triangles.vertexCount = vertexCount;
-					geometry.triangles.vertexStride = meshData->stride;
-					geometry.triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
-					geometry.triangles.indexBuffer = meshData->indexBuffer;
-					geometry.triangles.indexOffset = prim.firstIndex * sizeof(u32);
-					geometry.triangles.indexCount = prim.indexCount;
-					geometry.triangles.indexType = IndexType::Uint32;
-					geometry.triangles.opaque = true;
-
-					BottomLevelASDesc blasDesc{};
-					blasDesc.geometries = Span<GeometryDesc>(&geometry, 1);
-					blasDesc.flags = BuildAccelerationStructureFlags::PreferFastTrace;
-					blasDesc.debugName = String(name) + "_BLAS_" + ToString(p);
-
-					meshData->blasArray[p] = Graphics::CreateBottomLevelAS(blasDesc);
-
-					GPUBuffer* scratchBuffer = Graphics::CreateBuffer(BufferDesc{
-						.size = Graphics::GetAccelerationStructureBuildScratchSize(blasDesc),
-						.usage = ResourceUsage::ShaderResource,
-						.hostVisible = false,
-						.persistentMapped = false,
-						.debugName = String(name) + "_BLASScratch_" + ToString(p)
-					});
-
-					GPUCommandBuffer* blasCmd = Graphics::GetFreeCommandBuffer();
-					blasCmd->Begin();
-					blasCmd->BuildBottomLevelAS(meshData->blasArray[p], AccelerationStructureBuildInfo{.scratchBuffer = scratchBuffer});
-					blasCmd->End();
-					Graphics::SubmitGPUWork(blasCmd, true);
-					Graphics::AddFreeCommandBuffer(blasCmd);
-
-					scratchBuffer->Destroy();
-				}
 			}
+
+			meshData->uploadComplete = worker.AddTask(WorkerType::Mesh, meshData).share();
 
 			if (!materials.Empty())
 			{
