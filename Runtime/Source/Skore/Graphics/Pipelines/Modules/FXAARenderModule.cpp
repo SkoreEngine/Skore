@@ -55,7 +55,11 @@ namespace Skore
 
 			cmd->ResourceBarrier(fxaaOutput, ResourceState::General, ResourceState::CopySource, 0, 0);
 			cmd->ResourceBarrier(colorOutput, ResourceState::ShaderReadOnly, ResourceState::CopyDest, 0, 0);
-			cmd->CopyTexture(fxaaOutput, colorOutput, Extent3D{context->GetOutputSize().width, context->GetOutputSize().height, 1}, 0, 0, 0, 0);
+			cmd->CopyTexture({
+				.srcTexture = fxaaOutput,
+				.dstTexture = colorOutput,
+				.extent = Extent3D{context->GetOutputSize().width, context->GetOutputSize().height, 1},
+			});
 			cmd->ResourceBarrier(colorOutput, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
 			cmd->ResourceBarrier(fxaaOutput, ResourceState::CopySource, ResourceState::General, 0, 0);
 		}

@@ -108,7 +108,11 @@ namespace Skore
 			cmd->ResourceBarrier(historyTextures[currentHistoryTextureIndex], ResourceState::General, ResourceState::CopySource, 0, 0);
 
 			cmd->ResourceBarrier(texture, ResourceState::ShaderReadOnly, ResourceState::CopyDest, 0, 0);
-			cmd->CopyTexture(historyTextures[currentHistoryTextureIndex], texture, Extent3D{context->GetOutputSize().width, context->GetOutputSize().height, 1}, 0, 0, 0, 0);
+			cmd->CopyTexture({
+				.srcTexture = historyTextures[currentHistoryTextureIndex],
+				.dstTexture = texture,
+				.extent = Extent3D{context->GetOutputSize().width, context->GetOutputSize().height, 1},
+			});
 			cmd->ResourceBarrier(texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
 			cmd->ResourceBarrier(historyTextures[currentHistoryTextureIndex], ResourceState::CopySource, ResourceState::ShaderReadOnly, 0, 0);
 		}

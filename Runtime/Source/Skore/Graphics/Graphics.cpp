@@ -69,7 +69,7 @@ namespace Skore
 		thisId = std::this_thread::get_id();
 
 		DeviceInitDesc desc;
-		desc.enableDebugLayers = true;
+		desc.enableDebugLayers = false;
 
 		RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(GraphicsSettings));
 		if (ResourceObject settingsObject = Resources::Read(settings))
@@ -386,7 +386,11 @@ namespace Skore
 		if (textureDataInfo.regions.Empty())
 		{
 			cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
-			cmd->CopyBufferToTexture(tempBuffer, textureDataInfo.texture, textureDataInfo.texture->GetDesc().extent, 0, 0, 0);
+			cmd->CopyBufferToTexture({
+				.buffer = tempBuffer,
+				.texture = textureDataInfo.texture,
+				.extent = textureDataInfo.texture->GetDesc().extent,
+			});
 			cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
 		}
 		else
@@ -399,14 +403,14 @@ namespace Skore
 					for (u32 level = 0; level < region.levelCount; ++level)
 					{
 						cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::Undefined, ResourceState::CopyDest, region.mipLevel, region.arrayLayer);
-						cmd->CopyBufferToTexture(
-							tempBuffer,
-							textureDataInfo.texture,
-							region.extent,
-							region.mipLevel + level,
-							region.arrayLayer + layer,
-							region.dataOffset
-						);
+						cmd->CopyBufferToTexture({
+							.buffer = tempBuffer,
+							.texture = textureDataInfo.texture,
+							.extent = region.extent,
+							.mipLevel = region.mipLevel + level,
+							.arrayLayer = region.arrayLayer + layer,
+							.bufferOffset = region.dataOffset,
+						});
 						cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, region.mipLevel, region.arrayLayer);
 					}
 				}

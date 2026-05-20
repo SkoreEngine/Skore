@@ -329,10 +329,10 @@ namespace Skore
 		void BeginRenderPass(const BeginRenderPassInfo& info) override;
 		void EndRenderPass() override;
 		void CopyBuffer(GPUBuffer* srcBuffer, GPUBuffer* dstBuffer, usize size, usize srcOffset, usize dstOffset) override;
-		void CopyBufferToTexture(GPUBuffer* srcBuffer, GPUTexture* dstTexture, Extent3D extent, u32 mipLevel, u32 arrayLayer, u64 bufferOffset) override;
-		void CopyTextureToBuffer(GPUTexture* srcTexture, GPUBuffer* dstBuffer, usize bufferOffset, Extent3D extent, u32 mipLevel, u32 arrayLayer) override;
-		void CopyTexture(GPUTexture* srcTexture, GPUTexture* dstTexture, Extent3D extent, u32 srcMipLevel, u32 srcArrayLayer, u32 dstMipLevel, u32 dstArrayLayer) override;
-		void BlitTexture(GPUTexture* srcTexture, GPUTexture* dstTexture, Extent3D srcExtent, Extent3D dstExtent, u32 srcMipLevel, u32 srcArrayLayer, u32 dstMipLevel, u32 dstArrayLayer) override;
+		void CopyBufferToTexture(const BufferTextureCopy& copy) override;
+		void CopyTextureToBuffer(const BufferTextureCopy& copy) override;
+		void CopyTexture(const TextureCopy& copy) override;
+		void BlitTexture(const TextureBlit& blit) override;
 		void FillBuffer(GPUBuffer* buffer, usize offset, usize size, u32 data) override;
 		void UpdateBuffer(GPUBuffer* buffer, usize offset, usize size, const void* data) override;
 		void ClearColorTexture(GPUTexture* texture, Vec4 clearValue, u32 mipLevel, u32 arrayLayer) override;

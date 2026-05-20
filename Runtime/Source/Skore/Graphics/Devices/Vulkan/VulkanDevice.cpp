@@ -795,128 +795,118 @@ namespace Skore
 		);
 	}
 
-	void VulkanCommandBuffer::CopyBufferToTexture(GPUBuffer* srcBuffer, GPUTexture* dstTexture, Extent3D extent, u32 mipLevel, u32 arrayLayer, u64 bufferOffset)
+	void VulkanCommandBuffer::CopyBufferToTexture(const BufferTextureCopy& copy)
 	{
 		VkBufferImageCopy copyRegion{};
-		copyRegion.bufferOffset = bufferOffset;
+		copyRegion.bufferOffset = copy.bufferOffset;
 		copyRegion.bufferRowLength = 0;   // Tightly packed
 		copyRegion.bufferImageHeight = 0; // Tightly packed
 
 		copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		copyRegion.imageSubresource.mipLevel = mipLevel;
-		copyRegion.imageSubresource.baseArrayLayer = arrayLayer;
+		copyRegion.imageSubresource.mipLevel = copy.mipLevel;
+		copyRegion.imageSubresource.baseArrayLayer = copy.arrayLayer;
 		copyRegion.imageSubresource.layerCount = 1;
 
-		copyRegion.imageOffset = {0, 0, 0};
-		copyRegion.imageExtent = {extent.width, extent.height, extent.depth};
+		copyRegion.imageOffset = {copy.textureOffset.x, copy.textureOffset.y, copy.textureOffset.z};
+		copyRegion.imageExtent = {copy.extent.width, copy.extent.height, copy.extent.depth};
 
 		vkCmdCopyBufferToImage(
 			commandBuffer,
-			static_cast<VulkanBuffer*>(srcBuffer)->buffer,
-			static_cast<VulkanTexture*>(dstTexture)->image,
+			static_cast<VulkanBuffer*>(copy.buffer)->buffer,
+			static_cast<VulkanTexture*>(copy.texture)->image,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1,
 			&copyRegion
 		);
 	}
 
-	void VulkanCommandBuffer::CopyTextureToBuffer(GPUTexture* srcTexture, GPUBuffer* dstBuffer, usize bufferOffset, Extent3D extent, u32 mipLevel, u32 arrayLayer)
+	void VulkanCommandBuffer::CopyTextureToBuffer(const BufferTextureCopy& copy)
 	{
 		VkBufferImageCopy copyRegion{};
-		copyRegion.bufferOffset = bufferOffset;
+		copyRegion.bufferOffset = copy.bufferOffset;
 		copyRegion.bufferRowLength = 0;   // Tightly packed
 		copyRegion.bufferImageHeight = 0; // Tightly packed
 
 		copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		copyRegion.imageSubresource.mipLevel = mipLevel;
-		copyRegion.imageSubresource.baseArrayLayer = arrayLayer;
+		copyRegion.imageSubresource.mipLevel = copy.mipLevel;
+		copyRegion.imageSubresource.baseArrayLayer = copy.arrayLayer;
 		copyRegion.imageSubresource.layerCount = 1;
 
-		copyRegion.imageOffset = {0, 0, 0};
-		copyRegion.imageExtent = {extent.width, extent.height, extent.depth};
+		copyRegion.imageOffset = {copy.textureOffset.x, copy.textureOffset.y, copy.textureOffset.z};
+		copyRegion.imageExtent = {copy.extent.width, copy.extent.height, copy.extent.depth};
 
 		vkCmdCopyImageToBuffer(
 			commandBuffer,
-			static_cast<VulkanTexture*>(srcTexture)->image,
+			static_cast<VulkanTexture*>(copy.texture)->image,
 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			static_cast<VulkanBuffer*>(dstBuffer)->buffer,
+			static_cast<VulkanBuffer*>(copy.buffer)->buffer,
 			1,
 			&copyRegion
 		);
 	}
 
-	void VulkanCommandBuffer::CopyTexture(GPUTexture* srcTexture, GPUTexture* dstTexture, Extent3D extent, u32 srcMipLevel, u32 srcArrayLayer, u32 dstMipLevel, u32 dstArrayLayer)
+	void VulkanCommandBuffer::CopyTexture(const TextureCopy& copy)
 	{
 		VkImageCopy copyRegion{};
 
-		// Set up source subresource
-		copyRegion.srcSubresource.aspectMask = GetImageAspectFlags(ToVkFormat(static_cast<VulkanTexture*>(srcTexture)->desc.format));
-		copyRegion.srcSubresource.mipLevel = srcMipLevel;
-		copyRegion.srcSubresource.baseArrayLayer = srcArrayLayer;
+		copyRegion.srcSubresource.aspectMask = GetImageAspectFlags(ToVkFormat(static_cast<VulkanTexture*>(copy.srcTexture)->desc.format));
+		copyRegion.srcSubresource.mipLevel = copy.srcMipLevel;
+		copyRegion.srcSubresource.baseArrayLayer = copy.srcArrayLayer;
 		copyRegion.srcSubresource.layerCount = 1;
 		copyRegion.srcOffset = {0, 0, 0};
 
-		// Set up destination subresource
-		copyRegion.dstSubresource.aspectMask = GetImageAspectFlags(ToVkFormat(static_cast<VulkanTexture*>(dstTexture)->desc.format));
-		copyRegion.dstSubresource.mipLevel = dstMipLevel;
-		copyRegion.dstSubresource.baseArrayLayer = dstArrayLayer;
+		copyRegion.dstSubresource.aspectMask = GetImageAspectFlags(ToVkFormat(static_cast<VulkanTexture*>(copy.dstTexture)->desc.format));
+		copyRegion.dstSubresource.mipLevel = copy.dstMipLevel;
+		copyRegion.dstSubresource.baseArrayLayer = copy.dstArrayLayer;
 		copyRegion.dstSubresource.layerCount = 1;
 		copyRegion.dstOffset = {0, 0, 0};
 
-		// Set up the extent
-		copyRegion.extent = {extent.width, extent.height, extent.depth};
+		copyRegion.extent = {copy.extent.width, copy.extent.height, copy.extent.depth};
 
-		// Execute the copy command
 		vkCmdCopyImage(
 			commandBuffer,
-			static_cast<VulkanTexture*>(srcTexture)->image,
+			static_cast<VulkanTexture*>(copy.srcTexture)->image,
 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			static_cast<VulkanTexture*>(dstTexture)->image,
+			static_cast<VulkanTexture*>(copy.dstTexture)->image,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1,
 			&copyRegion
 		);
 	}
 
-	void VulkanCommandBuffer::BlitTexture(GPUTexture* srcTexture, GPUTexture* dstTexture, Extent3D srcExtent, Extent3D dstExtent, u32 srcMipLevel, u32 srcArrayLayer, u32 dstMipLevel,
-	                                      u32         dstArrayLayer)
+	void VulkanCommandBuffer::BlitTexture(const TextureBlit& blit)
 	{
 		VkImageBlit blitRegion{};
 
-		// Set up source subresource
-		blitRegion.srcSubresource.aspectMask = GetImageAspectFlags(ToVkFormat(static_cast<VulkanTexture*>(srcTexture)->desc.format));
-		blitRegion.srcSubresource.mipLevel = srcMipLevel;
-		blitRegion.srcSubresource.baseArrayLayer = srcArrayLayer;
+		blitRegion.srcSubresource.aspectMask = GetImageAspectFlags(ToVkFormat(static_cast<VulkanTexture*>(blit.srcTexture)->desc.format));
+		blitRegion.srcSubresource.mipLevel = blit.srcMipLevel;
+		blitRegion.srcSubresource.baseArrayLayer = blit.srcArrayLayer;
 		blitRegion.srcSubresource.layerCount = 1;
 
-		// Source offsets define the region to blit from
 		blitRegion.srcOffsets[0] = {0, 0, 0};
 		blitRegion.srcOffsets[1] = {
-			static_cast<int32_t>(srcExtent.width),
-			static_cast<int32_t>(srcExtent.height),
-			static_cast<int32_t>(srcExtent.depth)
+			static_cast<int32_t>(blit.srcExtent.width),
+			static_cast<int32_t>(blit.srcExtent.height),
+			static_cast<int32_t>(blit.srcExtent.depth)
 		};
 
-		// Set up destination subresource
-		blitRegion.dstSubresource.aspectMask = GetImageAspectFlags(ToVkFormat(static_cast<VulkanTexture*>(dstTexture)->desc.format));
-		blitRegion.dstSubresource.mipLevel = dstMipLevel;
-		blitRegion.dstSubresource.baseArrayLayer = dstArrayLayer;
+		blitRegion.dstSubresource.aspectMask = GetImageAspectFlags(ToVkFormat(static_cast<VulkanTexture*>(blit.dstTexture)->desc.format));
+		blitRegion.dstSubresource.mipLevel = blit.dstMipLevel;
+		blitRegion.dstSubresource.baseArrayLayer = blit.dstArrayLayer;
 		blitRegion.dstSubresource.layerCount = 1;
 
-		// Destination offsets define the region to blit to
 		blitRegion.dstOffsets[0] = {0, 0, 0};
 		blitRegion.dstOffsets[1] = {
-			static_cast<int32_t>(dstExtent.width),
-			static_cast<int32_t>(dstExtent.height),
-			static_cast<int32_t>(dstExtent.depth)
+			static_cast<int32_t>(blit.dstExtent.width),
+			static_cast<int32_t>(blit.dstExtent.height),
+			static_cast<int32_t>(blit.dstExtent.depth)
 		};
 
-		// Execute the blit command with linear filtering for smooth scaling
 		vkCmdBlitImage(
 			commandBuffer,
-			static_cast<VulkanTexture*>(srcTexture)->image,
+			static_cast<VulkanTexture*>(blit.srcTexture)->image,
 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			static_cast<VulkanTexture*>(dstTexture)->image,
+			static_cast<VulkanTexture*>(blit.dstTexture)->image,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1,
 			&blitRegion,
