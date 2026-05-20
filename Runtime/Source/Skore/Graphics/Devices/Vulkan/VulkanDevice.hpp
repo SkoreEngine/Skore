@@ -117,6 +117,8 @@ namespace Skore
 		VkPhysicalDevice device;
 
 		u32 graphicsFamily = U32_MAX;
+		u32 computeFamily = U32_MAX;
+		u32 transferFamily = U32_MAX;
 		u32 presentFamily = U32_MAX;
 
 		VkPhysicalDeviceAccelerationStructurePropertiesKHR			accelerationStructureProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
@@ -374,7 +376,7 @@ namespace Skore
 		GPUSwapchain*           CreateSwapchain(const SwapchainDesc& desc) override;
 		GPURenderPass*          CreateRenderPass(const RenderPassDesc& desc) override;
 		GPUFramebuffer*         CreateFramebuffer(const FramebufferDesc& desc) override;
-		GPUCommandBuffer*       CreateCommandBuffer() override;
+		GPUCommandBuffer*       CreateCommandBuffer(const QueueType& queueType) override;
 		GPUBuffer*              CreateBuffer(const BufferDesc& desc) override;
 		GPUTexture*             CreateTexture(const TextureDesc& desc) override;
 		GPUTextureView*         CreateTextureView(const TextureViewDesc& desc) override;
@@ -408,6 +410,8 @@ namespace Skore
 
 		VulkanQueue graphicsQueue;
 		VulkanQueue presentQueue;
+		VulkanQueue computeQueue;
+		VulkanQueue transferQueue;
 
 		u32 currentFrame = 0;
 

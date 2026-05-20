@@ -936,7 +936,7 @@ namespace Skore
 		virtual GPUSwapchain*           CreateSwapchain(const SwapchainDesc& desc) = 0;
 		virtual GPURenderPass*          CreateRenderPass(const RenderPassDesc& desc) = 0;
 		virtual GPUFramebuffer*         CreateFramebuffer(const FramebufferDesc& desc) = 0;
-		virtual GPUCommandBuffer*       CreateCommandBuffer() = 0;
+		virtual GPUCommandBuffer*       CreateCommandBuffer(const QueueType& queueType) = 0;
 		virtual GPUBuffer*              CreateBuffer(const BufferDesc& desc) = 0;
 		virtual GPUTexture*             CreateTexture(const TextureDesc& desc) = 0;
 		virtual GPUTextureView*         CreateTextureView(const TextureViewDesc& desc) = 0;

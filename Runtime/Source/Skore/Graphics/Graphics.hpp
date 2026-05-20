@@ -34,7 +34,7 @@ namespace Skore
 		static GPUSwapchain*     CreateSwapchain(const SwapchainDesc& desc);
 		static GPURenderPass*    CreateRenderPass(const RenderPassDesc& desc);
 		static GPUFramebuffer*   CreateFramebuffer(const FramebufferDesc& desc);
-		static GPUCommandBuffer* CreateCommandBuffer();
+		static GPUCommandBuffer* CreateCommandBuffer(const QueueType& queueType);
 		static GPUBuffer*        CreateBuffer(const BufferDesc& desc);
 		static GPUTexture*       CreateTexture(const TextureDesc& desc);
 		static GPUTextureView*   CreateTextureView(const TextureViewDesc& desc);
