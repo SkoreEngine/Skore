@@ -652,10 +652,9 @@ namespace Skore
 		{
 			sceneEditor->ClearSelection(nullptr);
 
-			//defer scene destruction after new scene is created,
+			//defer scene destruction to after new scene is created,
 			//so shared resources won't be released.
-			//auto oldScene = std::move(sceneEditor->m_editorScene);
-			sceneEditor->m_editorScene = {};
+			std::shared_ptr<Scene> oldScene = std::move(sceneEditor->m_editorScene);
 
 			if (newOpened)
 			{

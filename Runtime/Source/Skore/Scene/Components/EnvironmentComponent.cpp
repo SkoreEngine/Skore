@@ -16,7 +16,7 @@ namespace Skore
 	{
 		if (!m_materialCache && m_skyboxMaterial != skyboxMaterial)
 		{
-			m_materialCache = RenderResourceCache::GetMaterialCache(skyboxMaterial, scene->renderObjects.asyncLoad);
+			m_materialCache = RenderResourceCache::GetMaterialCache(skyboxMaterial, false);
 		}
 		m_skyboxMaterial = skyboxMaterial;
 	}

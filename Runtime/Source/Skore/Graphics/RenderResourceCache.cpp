@@ -540,28 +540,28 @@ namespace Skore
 								.debugName = "SceneRendererViewport_CubemapTexture"
 							});
 
-							GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-							cmd->Begin();
+
+							computeCmd->Begin();
 
 							EquirectangularToCubeMap equirectangularToCubemap;
 							equirectangularToCubemap.Init();
-							equirectangularToCubemap.Execute(cmd, materialCache->skyMaterialTexture->texture, cubeMapTexture);
+							equirectangularToCubemap.Execute(computeCmd, materialCache->skyMaterialTexture->texture, cubeMapTexture);
 
 							SinglePassDownsampler downsampler;
 							downsampler.Init(cubeMapTexture);
-							downsampler.Execute(cmd);
+							downsampler.Execute(computeCmd);
 
 							DiffuseIrradianceGenerator diffuseIrradianceGenerator;
 							diffuseIrradianceGenerator.Init();
-							diffuseIrradianceGenerator.Execute(cmd, cubeMapTexture, materialCache->diffuseIrradianceTexture);
+							diffuseIrradianceGenerator.Execute(computeCmd, cubeMapTexture, materialCache->diffuseIrradianceTexture);
 
 							SpecularMapGenerator specularMapGenerator;
 							specularMapGenerator.Init(cubeMapTexture, materialCache->specularMapTexture);
-							specularMapGenerator.Execute(cmd);
+							specularMapGenerator.Execute(computeCmd);
 
-							cmd->End();
-							Graphics::SubmitGPUWork(cmd, true);
-							Graphics::AddFreeCommandBuffer(cmd);
+							computeCmd->End();
+							computeQueue->SubmitAndWait(computeCmd);
+							computeCmd->Reset();
 
 							equirectangularToCubemap.Destroy();
 							diffuseIrradianceGenerator.Destroy();
