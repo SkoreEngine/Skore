@@ -70,6 +70,7 @@ namespace Skore
 		u64  shadowHandle        = U64_MAX;
 		u32  instanceDataId      = U32_MAX;
 		u32  instanceDescIndex   = U32_MAX;
+		u32  pendingDrawcallIndex = U32_MAX;
 		bool transparent         = false;
 	};
 
@@ -166,6 +167,19 @@ namespace Skore
 		Array<InstanceEntry> instanceEntries;
 		bool tlasDirty = false;
 
+		// Drawcalls whose mesh is still streaming park here — the worker creates vertex/index
+		// buffers and BLAS off the main thread, so any registration before IsLoaded() goes true
+		// would see null buffers. DoUpdate promotes (raster + shadow + TLAS) once loaded.
+		struct PendingDrawcallEntry
+		{
+			MeshResourceCachePtr     mesh;
+			MaterialResourceCachePtr material;
+			RendererComponent*       component = nullptr;
+			u32                      primitiveIndex = 0;
+			DrawcallDesc             desc;
+		};
+		Array<PendingDrawcallEntry> pendingDrawcalls;
+
 		GPUBuffer* tlasScratchBuffer = nullptr;
 		u32        tlasMaxInstances = 0;
 		u32        instanceDataBufferCapacity = 0;
@@ -179,5 +193,13 @@ namespace Skore
 		void EnsureInstanceDataCapacity(u32 requiredCount);
 		void AddInstance(RendererComponent* component, u32 primitiveIndex, const InstanceDesc& desc, const InstanceData& data, DrawcallRef& outRef);
 		void RemoveInstance(const DrawcallRef& ref);
+
+		// Performs the actual drawcall registration (raster + shadow + RT). Split out so both
+		// CreateDrawcall (sync path) and DoUpdate (deferred promotion) can drive it.
+		void DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material,
+			RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref);
+		void AddPendingDrawcall(RendererComponent* component, u32 primitiveIndex, const MeshResourceCachePtr& mesh,
+			const MaterialResourceCachePtr& material, const DrawcallDesc& desc, DrawcallRef& outRef);
+		void RemovePendingDrawcall(u32 idx);
 	};
 }

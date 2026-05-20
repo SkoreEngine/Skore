@@ -12,6 +12,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Settings.hpp"
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/InputTypes.hpp"
 #include "Skore/IO/Path.hpp"
@@ -215,6 +216,7 @@ namespace Skore
 
 		Profiler::BeginFrame();
 		onBeginFrameHandler.Invoke();
+		RenderResourceCache::FlushMainThreadTasks();
 		onUpdateHandler.Invoke();
 		onEndFrameHandler.Invoke();
 		Profiler::EndFrame();

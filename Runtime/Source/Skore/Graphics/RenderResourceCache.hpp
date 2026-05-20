@@ -147,6 +147,17 @@ namespace Skore
 		Array<MaterialResourceCachePtr>  materials;
 
 		AABB aabb;
+
+		// Valid while a vertex/index/BLAS upload is pending on the worker; wait on it to ensure
+		// the buffers are populated (and BLAS, if any, is built) before sampling/ray-tracing.
+		std::shared_future<void> uploadComplete;
+
+		bool IsLoaded() const
+		{
+			if (!vertexBuffer || !indexBuffer) return false;
+			if (!uploadComplete.valid()) return true;
+			return uploadComplete.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+		}
 	};
 
 	struct SK_API RenderResourceCache
@@ -160,5 +171,10 @@ namespace Skore
 		static GPUDescriptorSet*        GetGlobalDescriptorSet();
 		static GPUBuffer*               GetMaterialDataBuffer();
 		static u32                      GetMaterialDataCount();
+
+		// Drains the internal queue of worker-posted main-thread callbacks (e.g. BLAS publish
+		// from the mesh worker). Call once per frame on the main thread, before reading
+		// any cache field a worker may publish to.
+		static void FlushMainThreadTasks();
 	};
 }
