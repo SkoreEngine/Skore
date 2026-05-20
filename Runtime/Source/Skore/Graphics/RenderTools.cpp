@@ -777,7 +777,13 @@ namespace Skore
 				GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
 				cmd->Begin();
 				cmd->ResourceBarrier(texture, currentState, ResourceState::CopySource, mip, layer);
-				cmd->CopyTextureToBuffer(texture, stagingBuffer, 0, Extent3D(mipWidth, mipHeight, 1), mip, layer);
+				cmd->CopyTextureToBuffer({
+					.buffer = stagingBuffer,
+					.texture = texture,
+					.extent = Extent3D(mipWidth, mipHeight, 1),
+					.mipLevel = mip,
+					.arrayLayer = layer,
+				});
 				cmd->ResourceBarrier(texture, ResourceState::CopySource, currentState, mip, layer);
 				cmd->End();
 				Graphics::SubmitGPUWork(cmd, true);

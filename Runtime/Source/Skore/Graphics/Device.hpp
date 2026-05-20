@@ -888,6 +888,40 @@ namespace Skore
 		f32 maxDepth{1.0};
 	};
 
+	struct BufferTextureCopy
+	{
+		GPUBuffer*  buffer{nullptr};
+		GPUTexture* texture{nullptr};
+		Extent3D    extent{};
+		u32         mipLevel{0};
+		u32         arrayLayer{0};
+		u64         bufferOffset{0};
+		Offset3D    textureOffset{};
+	};
+
+	struct TextureCopy
+	{
+		GPUTexture* srcTexture{nullptr};
+		GPUTexture* dstTexture{nullptr};
+		Extent3D    extent{};
+		u32         srcMipLevel{0};
+		u32         srcArrayLayer{0};
+		u32         dstMipLevel{0};
+		u32         dstArrayLayer{0};
+	};
+
+	struct TextureBlit
+	{
+		GPUTexture* srcTexture{nullptr};
+		GPUTexture* dstTexture{nullptr};
+		Extent3D    srcExtent{};
+		Extent3D    dstExtent{};
+		u32         srcMipLevel{0};
+		u32         srcArrayLayer{0};
+		u32         dstMipLevel{0};
+		u32         dstArrayLayer{0};
+	};
+
 	class SK_API GPUDevice
 	{
 	public:
@@ -989,10 +1023,10 @@ namespace Skore
 		virtual void EndRenderPass() = 0;
 
 		virtual void CopyBuffer(GPUBuffer* srcBuffer, GPUBuffer* dstBuffer, usize size, usize srcOffset, usize dstOffset) = 0;
-		virtual void CopyBufferToTexture(GPUBuffer* srcBuffer, GPUTexture* dstTexture, Extent3D extent, u32 mipLevel, u32 arrayLayer, u64 bufferOffset) = 0;
-		virtual void CopyTextureToBuffer(GPUTexture* srcTexture, GPUBuffer* dstBuffer, usize bufferOffset, Extent3D extent, u32 mipLevel, u32 arrayLayer) = 0;
-		virtual void CopyTexture(GPUTexture* srcTexture, GPUTexture* dstTexture, Extent3D extent, u32 srcMipLevel, u32 srcArrayLayer, u32 dstMipLevel, u32 dstArrayLayer) = 0;
-		virtual void BlitTexture(GPUTexture* srcTexture, GPUTexture* dstTexture, Extent3D srcExtent, Extent3D dstExtent, u32 srcMipLevel, u32 srcArrayLayer, u32 dstMipLevel, u32 dstArrayLayer) = 0;
+		virtual void CopyBufferToTexture(const BufferTextureCopy& copy) = 0;
+		virtual void CopyTextureToBuffer(const BufferTextureCopy& copy) = 0;
+		virtual void CopyTexture(const TextureCopy& copy) = 0;
+		virtual void BlitTexture(const TextureBlit& blit) = 0;
 		virtual void FillBuffer(GPUBuffer* buffer, usize offset, usize size, u32 data) = 0;
 		virtual void UpdateBuffer(GPUBuffer* buffer, usize offset, usize size, const void* data) = 0;
 		virtual void ClearColorTexture(GPUTexture* texture, Vec4 clearValue, u32 mipLevel, u32 arrayLayer) = 0;

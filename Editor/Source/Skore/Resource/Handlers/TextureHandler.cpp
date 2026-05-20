@@ -101,13 +101,21 @@ namespace Skore
 						cmd->ResourceBarrier(dst, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
 
 						cmd->ResourceBarrier(src, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
-						cmd->CopyBufferToTexture(tempSrcBuffer, src, src->GetDesc().extent, 0, 0, 0);
+						cmd->CopyBufferToTexture({
+							.buffer = tempSrcBuffer,
+							.texture = src,
+							.extent = src->GetDesc().extent,
+						});
 						cmd->ResourceBarrier(src, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
 
 						RenderTools::TextureResize(cmd, src, dst);
 
 						cmd->ResourceBarrier(dst, ResourceState::ShaderReadOnly, ResourceState::CopySource, 0, 0);
-						cmd->CopyTextureToBuffer(dst, tempDstBuffer, 0, dst->GetDesc().extent, 0, 0);
+						cmd->CopyTextureToBuffer({
+							.buffer = tempDstBuffer,
+							.texture = dst,
+							.extent = dst->GetDesc().extent,
+						});
 						cmd->ResourceBarrier(dst, ResourceState::CopySource, ResourceState::ShaderReadOnly, 0, 0);
 
 						cmd->End();

@@ -111,7 +111,11 @@ namespace Skore
 			cmd->ResourceBarrier(gpuTexture, ResourceState::Undefined, ResourceState::ShaderReadOnly, 1, mipLevels - 1, 0, 1);
 
 			cmd->ResourceBarrier(gpuTexture, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
-			cmd->CopyBufferToTexture(srcBuffer, gpuTexture, {width, height, 1}, 0, 0, 0);
+			cmd->CopyBufferToTexture({
+				.buffer = srcBuffer,
+				.texture = gpuTexture,
+				.extent = {width, height, 1},
+			});
 			cmd->ResourceBarrier(gpuTexture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
 
 			singlePassDownsampler.Execute(cmd);
@@ -124,7 +128,13 @@ namespace Skore
 				u32 mipHeight = height;
 				for (u32 m = 0; m < mipLevels; m++)
 				{
-					cmd->CopyTextureToBuffer(gpuTexture, dstBuffer, offset, {mipWidth, mipHeight, 1}, m, 0);
+					cmd->CopyTextureToBuffer({
+						.buffer = dstBuffer,
+						.texture = gpuTexture,
+						.extent = {mipWidth, mipHeight, 1},
+						.mipLevel = m,
+						.bufferOffset = offset,
+					});
 					offset += mipWidth * mipHeight * formatSize;
 
 					if (mipWidth > 1) mipWidth /= 2;

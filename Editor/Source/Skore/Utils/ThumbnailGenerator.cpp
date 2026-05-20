@@ -37,7 +37,11 @@ namespace Skore
 			GPUBuffer* outputBuffer = context->GetBuffer("OutputBuffer");
 
 			cmd->ResourceBarrier(outputTexture, ResourceState::ShaderReadOnly, ResourceState::CopySource, 0, 0);
-			cmd->CopyTextureToBuffer(outputTexture, outputBuffer, 0, outputTexture->GetDesc().extent, 0, 0);
+			cmd->CopyTextureToBuffer({
+				.buffer = outputBuffer,
+				.texture = outputTexture,
+				.extent = outputTexture->GetDesc().extent,
+			});
 			cmd->ResourceBarrier(outputTexture, ResourceState::CopySource, ResourceState::ColorAttachment, 0, 0);
 		}
 	};

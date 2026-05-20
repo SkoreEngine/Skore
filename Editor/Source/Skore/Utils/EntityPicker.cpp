@@ -183,7 +183,11 @@ namespace Skore
 			cmd->EndRenderPass();
 
 			cmd->ResourceBarrier(texture, ResourceState::ColorAttachment, ResourceState::CopySource, 0, 0);
-			cmd->CopyTextureToBuffer(texture, imageBuffer, 0, Extent3D(currentExtent.width, currentExtent.height, 1), 0, 0);
+			cmd->CopyTextureToBuffer({
+				.buffer = imageBuffer,
+				.texture = texture,
+				.extent = Extent3D(currentExtent.width, currentExtent.height, 1),
+			});
 			cmd->ResourceBarrier(imageBuffer, ResourceState::Undefined, ResourceState::CopyDest);
 			cmd->EndDebugMarker();
 			cmd->End();

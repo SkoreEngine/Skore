@@ -761,6 +761,34 @@ namespace Skore
 		viewportInfo.Field<&ViewportInfo::minDepth>("minDepth");
 		viewportInfo.Field<&ViewportInfo::maxDepth>("maxDepth");
 
+		auto bufferTextureCopy = Reflection::Type<BufferTextureCopy>();
+		bufferTextureCopy.Field<&BufferTextureCopy::buffer>("buffer");
+		bufferTextureCopy.Field<&BufferTextureCopy::texture>("texture");
+		bufferTextureCopy.Field<&BufferTextureCopy::extent>("extent");
+		bufferTextureCopy.Field<&BufferTextureCopy::mipLevel>("mipLevel");
+		bufferTextureCopy.Field<&BufferTextureCopy::arrayLayer>("arrayLayer");
+		bufferTextureCopy.Field<&BufferTextureCopy::bufferOffset>("bufferOffset");
+		bufferTextureCopy.Field<&BufferTextureCopy::textureOffset>("textureOffset");
+
+		auto textureCopy = Reflection::Type<TextureCopy>();
+		textureCopy.Field<&TextureCopy::srcTexture>("srcTexture");
+		textureCopy.Field<&TextureCopy::dstTexture>("dstTexture");
+		textureCopy.Field<&TextureCopy::extent>("extent");
+		textureCopy.Field<&TextureCopy::srcMipLevel>("srcMipLevel");
+		textureCopy.Field<&TextureCopy::srcArrayLayer>("srcArrayLayer");
+		textureCopy.Field<&TextureCopy::dstMipLevel>("dstMipLevel");
+		textureCopy.Field<&TextureCopy::dstArrayLayer>("dstArrayLayer");
+
+		auto textureBlit = Reflection::Type<TextureBlit>();
+		textureBlit.Field<&TextureBlit::srcTexture>("srcTexture");
+		textureBlit.Field<&TextureBlit::dstTexture>("dstTexture");
+		textureBlit.Field<&TextureBlit::srcExtent>("srcExtent");
+		textureBlit.Field<&TextureBlit::dstExtent>("dstExtent");
+		textureBlit.Field<&TextureBlit::srcMipLevel>("srcMipLevel");
+		textureBlit.Field<&TextureBlit::srcArrayLayer>("srcArrayLayer");
+		textureBlit.Field<&TextureBlit::dstMipLevel>("dstMipLevel");
+		textureBlit.Field<&TextureBlit::dstArrayLayer>("dstArrayLayer");
+
 		auto bufferUploadInfo = Reflection::Type<BufferUploadInfo>();
 		bufferUploadInfo.Field<&BufferUploadInfo::buffer>("buffer");
 		bufferUploadInfo.Field<&BufferUploadInfo::size>("size");
@@ -912,10 +940,10 @@ namespace Skore
 		gpuCommandBuffer.Function<&GPUCommandBuffer::BeginRenderPass>("BeginRenderPass", "info");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::EndRenderPass>("EndRenderPass");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::CopyBuffer>("CopyBuffer", "srcBuffer", "dstBuffer", "size", "srcOffset", "dstOffset");
-		gpuCommandBuffer.Function<&GPUCommandBuffer::CopyBufferToTexture>("CopyBufferToTexture", "srcBuffer", "dstTexture", "extent", "mipLevel", "arrayLayer", "bufferOffset");
-		gpuCommandBuffer.Function<&GPUCommandBuffer::CopyTextureToBuffer>("CopyTextureToBuffer", "srcTexture", "dstBuffer", "bufferOffset", "extent", "mipLevel", "arrayLayer");
-		gpuCommandBuffer.Function<&GPUCommandBuffer::CopyTexture>("CopyTexture", "srcTexture", "dstTexture", "extent", "srcMipLevel", "srcArrayLayer", "dstMipLevel", "dstArrayLayer");
-		gpuCommandBuffer.Function<&GPUCommandBuffer::BlitTexture>("BlitTexture", "srcTexture", "dstTexture", "srcExtent", "dstExtent", "srcMipLevel", "srcArrayLayer", "dstMipLevel", "dstArrayLayer");
+		gpuCommandBuffer.Function<&GPUCommandBuffer::CopyBufferToTexture>("CopyBufferToTexture", "copy");
+		gpuCommandBuffer.Function<&GPUCommandBuffer::CopyTextureToBuffer>("CopyTextureToBuffer", "copy");
+		gpuCommandBuffer.Function<&GPUCommandBuffer::CopyTexture>("CopyTexture", "copy");
+		gpuCommandBuffer.Function<&GPUCommandBuffer::BlitTexture>("BlitTexture", "blit");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::FillBuffer>("FillBuffer", "buffer", "offset", "size", "data");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::ClearColorTexture>("ClearColorTexture", "texture", "clearValue", "mipLevel", "arrayLayer");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::ClearDepthStencilTexture>("ClearDepthStencilTexture", "texture", "depth", "stencil", "mipLevel", "arrayLayer");
