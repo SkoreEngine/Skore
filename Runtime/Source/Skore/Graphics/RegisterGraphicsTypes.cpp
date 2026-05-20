@@ -893,7 +893,7 @@ namespace Skore
 		gpuDevice.Function<&GPUDevice::CreateSwapchain>("CreateSwapchain", "desc");
 		gpuDevice.Function<&GPUDevice::CreateRenderPass>("CreateRenderPass", "desc");
 		gpuDevice.Function<&GPUDevice::CreateFramebuffer>("CreateFramebuffer", "desc");
-		gpuDevice.Function<&GPUDevice::CreateCommandBuffer>("CreateCommandBuffer");
+		gpuDevice.Function<&GPUDevice::CreateCommandBuffer>("CreateCommandBuffer", "queueType");
 		gpuDevice.Function<&GPUDevice::CreateBuffer>("CreateBuffer", "desc");
 		gpuDevice.Function<&GPUDevice::CreateTexture>("CreateTexture", "desc");
 		gpuDevice.Function<&GPUDevice::CreateTextureView>("CreateTextureView", "desc");

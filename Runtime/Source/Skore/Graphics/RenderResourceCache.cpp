@@ -107,24 +107,12 @@ namespace Skore
 					.persistentMapped = true
 				});
 
-				GPUQueue* transferQueue = Graphics::CreateQueue(QueueDesc{
-					.type = QueueType::Transfer,
-				});
+				GPUQueue* transferQueue = Graphics::CreateQueue(QueueDesc{.type = QueueType::Transfer});
+				GPUCommandBuffer* transferCmd = Graphics::CreateCommandBuffer(QueueType::Transfer);
 
-				GPUCommandBuffer* transferCmd = Graphics::CreateCommandBuffer();
+				GPUQueue* computeQueue = Graphics::CreateQueue(QueueDesc{.type = QueueType::Compute});
+				GPUCommandBuffer* computeCmd = Graphics::CreateCommandBuffer(QueueType::Compute);
 
-				// Compute queue is used for acceleration-structure builds (mesh BLAS) on the worker thread.
-				// AS-build requires VK_QUEUE_COMPUTE_BIT in Vulkan; keep it separate from the transfer
-				// queue so the intent is explicit even though the current CreateQueue impl aliases all
-				// queue types to the graphics context.
-				GPUQueue* computeQueue = Graphics::CreateQueue(QueueDesc{
-					.type = QueueType::Compute,
-				});
-
-				GPUCommandBuffer* computeCmd = Graphics::CreateCommandBuffer();
-
-				// Persistent BLAS scratch buffer; grows on demand to fit the largest primitive scratch
-				// size encountered. Reused across mesh tasks on this worker thread.
 				GPUBuffer* blasScratchBuffer = nullptr;
 				u64        blasScratchSize = 0;
 

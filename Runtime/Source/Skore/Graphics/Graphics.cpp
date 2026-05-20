@@ -134,7 +134,7 @@ namespace Skore
 
 		for (u32 i = 0; i < 3; ++i)
 		{
-			freeCommandBuffers.EmplaceBack(device->CreateCommandBuffer());
+			freeCommandBuffers.EmplaceBack(device->CreateCommandBuffer(QueueType::Graphics));
 		}
 
 		whiteTexture = device->CreateTexture(TextureDesc{
@@ -247,7 +247,7 @@ namespace Skore
 			return cmd;
 		}
 
-		return device->CreateCommandBuffer();
+		return device->CreateCommandBuffer(QueueType::Graphics);
 	}
 
 	void Graphics::AddFreeCommandBuffer(GPUCommandBuffer* cmd)
@@ -271,9 +271,9 @@ namespace Skore
 		return device->CreateFramebuffer(desc);
 	}
 
-	GPUCommandBuffer* Graphics::CreateCommandBuffer()
+	GPUCommandBuffer* Graphics::CreateCommandBuffer(const QueueType& queueType)
 	{
-		return device->CreateCommandBuffer();
+		return device->CreateCommandBuffer(queueType);
 	}
 
 	GPUBuffer* Graphics::CreateBuffer(const BufferDesc& desc)
@@ -535,7 +535,7 @@ namespace Skore
 		type.Function<&Graphics::CreateSwapchain>("CreateSwapchain", "desc");
 		type.Function<&Graphics::CreateRenderPass>("CreateRenderPass", "desc");
 		type.Function<&Graphics::CreateFramebuffer>("CreateFramebuffer", "desc");
-		type.Function<&Graphics::CreateCommandBuffer>("CreateCommandBuffer");
+		type.Function<&Graphics::CreateCommandBuffer>("CreateCommandBuffer", "queueType");
 		type.Function<&Graphics::CreateBuffer>("CreateBuffer", "desc");
 		type.Function<&Graphics::CreateTexture>("CreateTexture", "desc");
 		type.Function<&Graphics::CreateTextureView>("CreateTextureView", "desc");

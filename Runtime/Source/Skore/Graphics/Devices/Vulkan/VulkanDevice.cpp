@@ -151,6 +151,38 @@ namespace Skore
 			}
 		}
 
+		//dedicated async compute: has compute but no graphics
+		for (u32 i = 0; i < queueFamilyCount; ++i)
+		{
+			const auto& queueFamily = queueFamilies[i];
+			if ((queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) && !(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT))
+			{
+				computeFamily = i;
+				break;
+			}
+		}
+		if (computeFamily == U32_MAX)
+		{
+			computeFamily = graphicsFamily;
+		}
+
+		//dedicated transfer: has transfer but no graphics and no compute
+		for (u32 i = 0; i < queueFamilyCount; ++i)
+		{
+			const auto& queueFamily = queueFamilies[i];
+			if ((queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT)
+				&& !(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+				&& !(queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT))
+			{
+				transferFamily = i;
+				break;
+			}
+		}
+		if (transferFamily == U32_MAX)
+		{
+			transferFamily = graphicsFamily;
+		}
+
 		if (hasComputeQueue)
 		{
 			score += 100;
@@ -1717,28 +1749,21 @@ namespace Skore
 
 		float queuePriority = 1.0f;
 
+		HashSet<u32> uniqueQueueFamilies;
+		uniqueQueueFamilies.Emplace(vulkanAdapter->graphicsFamily);
+		uniqueQueueFamilies.Emplace(vulkanAdapter->presentFamily);
+		uniqueQueueFamilies.Emplace(vulkanAdapter->computeFamily);
+		uniqueQueueFamilies.Emplace(vulkanAdapter->transferFamily);
+
 		Array<VkDeviceQueueCreateInfo> queueCreateInfos{};
-		if (vulkanAdapter->graphicsFamily != vulkanAdapter->presentFamily)
+		queueCreateInfos.Reserve(uniqueQueueFamilies.Size());
+		for (u32 family : uniqueQueueFamilies)
 		{
-			queueCreateInfos.Resize(2);
-
-			queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-			queueCreateInfos[0].queueFamilyIndex = vulkanAdapter->graphicsFamily;
-			queueCreateInfos[0].queueCount = 1;
-			queueCreateInfos[0].pQueuePriorities = &queuePriority;
-
-			queueCreateInfos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-			queueCreateInfos[1].queueFamilyIndex = vulkanAdapter->presentFamily;
-			queueCreateInfos[1].queueCount = 1;
-			queueCreateInfos[1].pQueuePriorities = &queuePriority;
-		}
-		else
-		{
-			queueCreateInfos.Resize(1);
-			queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-			queueCreateInfos[0].queueFamilyIndex = vulkanAdapter->graphicsFamily;
-			queueCreateInfos[0].queueCount = 1;
-			queueCreateInfos[0].pQueuePriorities = &queuePriority;
+			VkDeviceQueueCreateInfo& info = queueCreateInfos.EmplaceBack();
+			info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+			info.queueFamilyIndex = family;
+			info.queueCount = 1;
+			info.pQueuePriorities = &queuePriority;
 		}
 
 		if (vulkanAdapter->deviceFeatures.features.fillModeNonSolid)
@@ -1784,16 +1809,49 @@ namespace Skore
 			graphicsQueue.context = std::make_shared<VulkanQueueContext>(queue);
 		}
 
-		//shared queue
-		if (vulkanAdapter->graphicsFamily != vulkanAdapter->presentFamily)
+		if (vulkanAdapter->presentFamily == vulkanAdapter->graphicsFamily)
+		{
+			presentQueue.context = graphicsQueue.context;
+		}
+		else
 		{
 			VkQueue queue;
 			vkGetDeviceQueue(device, vulkanAdapter->presentFamily, 0, &queue);
 			presentQueue.context = std::make_shared<VulkanQueueContext>(queue);
 		}
+
+		if (vulkanAdapter->computeFamily == vulkanAdapter->graphicsFamily)
+		{
+			computeQueue.context = graphicsQueue.context;
+		}
+		else if (vulkanAdapter->computeFamily == vulkanAdapter->presentFamily)
+		{
+			computeQueue.context = presentQueue.context;
+		}
 		else
 		{
-			presentQueue.context = graphicsQueue.context;
+			VkQueue queue;
+			vkGetDeviceQueue(device, vulkanAdapter->computeFamily, 0, &queue);
+			computeQueue.context = std::make_shared<VulkanQueueContext>(queue);
+		}
+
+		if (vulkanAdapter->transferFamily == vulkanAdapter->graphicsFamily)
+		{
+			transferQueue.context = graphicsQueue.context;
+		}
+		else if (vulkanAdapter->transferFamily == vulkanAdapter->presentFamily)
+		{
+			transferQueue.context = presentQueue.context;
+		}
+		else if (vulkanAdapter->transferFamily == vulkanAdapter->computeFamily)
+		{
+			transferQueue.context = computeQueue.context;
+		}
+		else
+		{
+			VkQueue queue;
+			vkGetDeviceQueue(device, vulkanAdapter->transferFamily, 0, &queue);
+			transferQueue.context = std::make_shared<VulkanQueueContext>(queue);
 		}
 
 		VmaVulkanFunctions vmaVulkanFunctions{};
@@ -2109,14 +2167,27 @@ namespace Skore
 		return vulkanFramebuffer;
 	}
 
-	GPUCommandBuffer* VulkanDevice::CreateCommandBuffer()
+	GPUCommandBuffer* VulkanDevice::CreateCommandBuffer(const QueueType& queueType)
 	{
 		VulkanCommandBuffer* vulkanCommandBuffer = Alloc<VulkanCommandBuffer>();
 		vulkanCommandBuffer->vulkanDevice = this;
 
 		VkCommandPoolCreateInfo commandPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 		commandPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-		commandPoolInfo.queueFamilyIndex = selectedAdapter->graphicsFamily;
+
+		if (queueType == QueueType::Compute)
+		{
+			commandPoolInfo.queueFamilyIndex = selectedAdapter->computeFamily;
+		}
+		else if (queueType == QueueType::Transfer)
+		{
+			commandPoolInfo.queueFamilyIndex = selectedAdapter->transferFamily;
+		}
+		else
+		{
+			commandPoolInfo.queueFamilyIndex = selectedAdapter->graphicsFamily;
+		}
+
 		vkCreateCommandPool(device, &commandPoolInfo, nullptr, &vulkanCommandBuffer->commandPool);
 
 		VkCommandBufferAllocateInfo allocInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -3796,10 +3867,21 @@ namespace Skore
 
 	GPUQueue* VulkanDevice::CreateQueue(const QueueDesc& desc)
 	{
-
 		VulkanQueue* vulkanQueue = Alloc<VulkanQueue>();
 		vulkanQueue->vulkanDevice = this;
-		vulkanQueue->context = graphicsQueue.context;
+
+		switch (desc.type)
+		{
+			case QueueType::Compute:
+				vulkanQueue->context = computeQueue.context;
+				break;
+			case QueueType::Transfer:
+				vulkanQueue->context = transferQueue.context;
+				break;
+			default:
+				vulkanQueue->context = graphicsQueue.context;
+				break;
+		}
 
 		VkFenceCreateInfo fenceCreateInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 		vkCreateFence(device, &fenceCreateInfo, nullptr, &vulkanQueue->fence);
