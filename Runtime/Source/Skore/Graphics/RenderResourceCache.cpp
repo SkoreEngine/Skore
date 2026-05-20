@@ -24,6 +24,8 @@ namespace Skore
 
 	namespace
 	{
+		void WaitForTexture(const TextureResourceCachePtr& tex);
+
 		enum class WorkerType : u32
 		{
 			None,
@@ -74,9 +76,7 @@ namespace Skore
 				auto promise = std::make_shared<std::promise<void>>();
 				std::future<void> future = promise->get_future();
 
-				pendingCount.fetch_add(1, std::memory_order_release);
-				load.enqueue(WorkerData{type, std::move(resourceCache), std::move(promise)});
-				workSem.release();
+				AddTask(WorkerData{type, std::move(resourceCache), std::move(promise)});
 
 				return future;
 			}
@@ -87,6 +87,13 @@ namespace Skore
 			}
 
 		private:
+
+			void AddTask(WorkerData&& data)
+			{
+				pendingCount.fetch_add(1, std::memory_order_release);
+				load.enqueue(std::move(data));
+				workSem.release();
+			}
 
 			void WorkerLoop()
 			{
@@ -312,6 +319,12 @@ namespace Skore
 						{
 							MaterialResourceCachePtr materialCache = std::dynamic_pointer_cast<MaterialResourceCache>(data.resourceCache);
 
+							if (!materialCache->skyMaterialTexture->IsLoaded())
+							{
+								AddTask(std::move(data));
+								continue;
+							}
+
 							GPUTexture* cubeMapTexture = Graphics::CreateTexture(TextureDesc{
 								.extent = {256, 256, 1},
 								.mipLevels = 8,
@@ -400,8 +413,6 @@ namespace Skore
 		u32               materialDataBufferCapacity = 0;
 		u32               materialDataCount = 0;
 		bool              globalDescriptorSetAlive = false;
-
-		RID defaultMaterial;
 
 		ResourceWorker worker;
 
@@ -1222,11 +1233,7 @@ namespace Skore
 			}
 			else
 			{
-				if (!defaultMaterial)
-				{
-					defaultMaterial = Resources::FindByPath("Skore://Materials/DefaultMaterial.material");
-				}
-				meshData->materials.EmplaceBack(GetMaterialCache(defaultMaterial, async));
+				meshData->materials.EmplaceBack(GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), async));
 			}
 		}
 
@@ -1367,7 +1374,6 @@ namespace Skore
 		freeTextureIndices.Clear();
 		materialDataBufferCapacity = 0;
 		materialDataCount = 0;
-		defaultMaterial = {};
 
 		worker.Shutdown();
 	}

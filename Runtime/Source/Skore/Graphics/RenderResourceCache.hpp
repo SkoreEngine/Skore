@@ -57,6 +57,13 @@ namespace Skore
 
 		TextureResourceCache(RID rid) : rid(rid) {}
 		~TextureResourceCache() override;
+
+		bool IsLoaded() const
+		{
+			if (!texture) return false;
+			if (!uploadComplete.valid()) return true;
+			return uploadComplete.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+		}
 	};
 
 	struct SK_API FontResourceCache
