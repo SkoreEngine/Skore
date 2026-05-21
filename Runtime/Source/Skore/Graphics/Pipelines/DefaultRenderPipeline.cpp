@@ -474,7 +474,6 @@ namespace Skore
 
 		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
-			/*
 			if (scene->renderObjects.opaquePipelines.Size() > 0)
 			{
 				SceneCullingData* data = context->GetInstanceData<SceneCullingData>("SceneCullingData");
@@ -500,7 +499,6 @@ namespace Skore
 
 				cmd->Dispatch((scene->renderObjects.instanceDataSize + 255) / 256, 1, 1);
 			}
-			*/
 		}
 	};
 
@@ -567,8 +565,8 @@ namespace Skore
 			{
 				const DrawPipelineDesc& desc = objects->opaquePipelines[opaquePipelines.Size()].desc;
 
-				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
-				//RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferNew.raster");
+				//RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
+				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferNew.raster");
 
 				Array<String> macros;
 				if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");
@@ -608,7 +606,7 @@ namespace Skore
 
 			cachedPipelineOwner = scene;
 
-			//SceneCullingData* cullingData = context->GetInstanceData<SceneCullingData>("SceneCullingData");
+			SceneCullingData* cullingData = context->GetInstanceData<SceneCullingData>("SceneCullingData");
 
 			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
 
@@ -620,15 +618,17 @@ namespace Skore
 				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
 				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 
-				// ScenePipelineCullingData& cullingPipelineData = cullingData->pipelines[i];
-				// cmd->DrawIndexedIndirectCount(cullingPipelineData.indirectDrawBuffer[frame],
-				//                               0,
-				//                               cullingData->countBuffer[frame],
-				//                               cullingPipelineData.countBufferOffset,
-				//                               objects->instanceDataSize,
-				//                               sizeof(DrawIndexedIndirectArguments));
+				ScenePipelineCullingData& cullingPipelineData = cullingData->pipelines[i];
+				cmd->DrawIndexedIndirectCount(cullingPipelineData.indirectDrawBuffer[frame],
+				                              0,
+				                              cullingData->countBuffer[frame],
+				                              cullingPipelineData.countBufferOffset,
+				                              objects->opaquePipelines[i].drawcalls.Size(),
+				                              sizeof(DrawIndexedIndirectArguments));
 
 
+
+				/*
 
 				for (const Drawcall& drawcall : objects->opaquePipelines[i].drawcalls)
 				{
@@ -662,6 +662,7 @@ namespace Skore
 					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
 					cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
 				}
+				*/
 			}
 		}
 

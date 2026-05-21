@@ -82,6 +82,9 @@ namespace Skore
 
 		Vec3 aabbMax;
 		u32  pipelineIndex;
+
+		u32	 drawcallIndex;
+		Vec3 pad;
 	};
 
 	struct DrawcallDesc

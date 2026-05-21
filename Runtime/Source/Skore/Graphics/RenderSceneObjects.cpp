@@ -167,9 +167,10 @@ namespace Skore
 			.vertexLayoutIndex = desc.vertexLayoutIndex,
 			.indexCount = desc.indexCount,
 			.aabbMin = dc.aabb.min,
-			.firstIndex = desc.firstIndex,
+			.firstIndex = indexByteOffset / static_cast<u32>(sizeof(u32)) + desc.firstIndex,
 			.aabbMax = dc.aabb.max,
-			.pipelineIndex = ref.pipelineIndex
+			.pipelineIndex = ref.pipelineIndex,
+			.drawcallIndex = static_cast<u32>(ref.handle),
 		};
 	}
 

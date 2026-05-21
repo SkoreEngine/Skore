@@ -25,11 +25,11 @@ void MainCS(uint idx : SV_DispatchThreadID)
     uint temp;
     InstanceData data = instances[NonUniformResourceIndex(idx)];
 
-    indirectDraws[data.pipelineIndex][idx].indexCount = data.indexCount;
-    indirectDraws[data.pipelineIndex][idx].instanceCount = 1;
-    indirectDraws[data.pipelineIndex][idx].firstIndex = data.firstIndex;
-    indirectDraws[data.pipelineIndex][idx].vertexOffset = 0;
-    indirectDraws[data.pipelineIndex][idx].startInstanceLocation = idx;
+    indirectDraws[data.pipelineIndex][data.drawcallIndex].indexCount = data.indexCount;
+    indirectDraws[data.pipelineIndex][data.drawcallIndex].instanceCount = 1;
+    indirectDraws[data.pipelineIndex][data.drawcallIndex].firstIndex = data.firstIndex;
+    indirectDraws[data.pipelineIndex][data.drawcallIndex].vertexOffset = 0;
+    indirectDraws[data.pipelineIndex][data.drawcallIndex].startInstanceLocation = idx;
 
     InterlockedAdd(indirectCount[data.pipelineIndex], 1, temp);
 }
