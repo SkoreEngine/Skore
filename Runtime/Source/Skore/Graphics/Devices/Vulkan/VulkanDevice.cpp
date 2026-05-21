@@ -641,6 +641,13 @@ namespace Skore
 		vkCmdDispatchIndirect(commandBuffer, static_cast<VulkanBuffer*>(buffer)->buffer, offset);
 	}
 
+	void VulkanCommandBuffer::DrawIndexedIndirectCount(GPUBuffer* buffer, u64 offset, GPUBuffer* countBuffer, u64 countBufferOffset, u32 maxDrawCount, u32 stride)
+	{
+		const VulkanBuffer& vulkanBuffer = *static_cast<const VulkanBuffer*>(buffer);
+		const VulkanBuffer& vulkanCountBuffer = *static_cast<const VulkanBuffer*>(countBuffer);
+		vkCmdDrawIndexedIndirectCountKHR(commandBuffer, vulkanBuffer.buffer, offset, vulkanCountBuffer.buffer, countBufferOffset, maxDrawCount, stride);
+	}
+
 	void VulkanCommandBuffer::Dispatch(u32 groupCountX, u32 groupCountY, u32 groupCountZ)
 	{
 		vkCmdDispatch(commandBuffer, groupCountX, groupCountY, groupCountZ);
@@ -1014,6 +1021,76 @@ namespace Skore
 		);
 	}
 
+	namespace
+	{
+		// The transfer queue family only exposes TOP_OF_PIPE/BOTTOM_OF_PIPE/TRANSFER/HOST stages
+		// and TRANSFER_*/HOST_*/MEMORY_* access. The compute queue additionally exposes COMPUTE_SHADER
+		// and DRAW_INDIRECT. Asking for shader stages or SHADER_READ on these queues is a validation
+		// error. We clamp here so callers can transition resources to ShaderReadOnly on a transfer/
+		// compute queue without crafting queue-specific barriers — the access is dropped to 0, so
+		// the actual visibility for shaders must be re-established by a barrier on the consuming
+		// (graphics) queue before first use.
+		VkPipelineStageFlags ClampStageForQueue(VkPipelineStageFlags stage, QueueType queue)
+		{
+			if (queue == QueueType::Transfer)
+			{
+				const VkPipelineStageFlags allowed =
+					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT |
+					VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT |
+					VK_PIPELINE_STAGE_TRANSFER_BIT |
+					VK_PIPELINE_STAGE_HOST_BIT |
+					VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+				VkPipelineStageFlags clamped = stage & allowed;
+				return clamped ? clamped : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			}
+			if (queue == QueueType::Compute)
+			{
+				const VkPipelineStageFlags allowed =
+					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT |
+					VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT |
+					VK_PIPELINE_STAGE_TRANSFER_BIT |
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+					VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
+					VK_PIPELINE_STAGE_HOST_BIT |
+					VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+				VkPipelineStageFlags clamped = stage & allowed;
+				return clamped ? clamped : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			}
+			return stage;
+		}
+
+		VkAccessFlags ClampAccessForQueue(VkAccessFlags access, QueueType queue)
+		{
+			if (queue == QueueType::Transfer)
+			{
+				const VkAccessFlags allowed =
+					VK_ACCESS_TRANSFER_READ_BIT |
+					VK_ACCESS_TRANSFER_WRITE_BIT |
+					VK_ACCESS_HOST_READ_BIT |
+					VK_ACCESS_HOST_WRITE_BIT |
+					VK_ACCESS_MEMORY_READ_BIT |
+					VK_ACCESS_MEMORY_WRITE_BIT;
+				return access & allowed;
+			}
+			if (queue == QueueType::Compute)
+			{
+				const VkAccessFlags allowed =
+					VK_ACCESS_TRANSFER_READ_BIT |
+					VK_ACCESS_TRANSFER_WRITE_BIT |
+					VK_ACCESS_SHADER_READ_BIT |
+					VK_ACCESS_SHADER_WRITE_BIT |
+					VK_ACCESS_UNIFORM_READ_BIT |
+					VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+					VK_ACCESS_HOST_READ_BIT |
+					VK_ACCESS_HOST_WRITE_BIT |
+					VK_ACCESS_MEMORY_READ_BIT |
+					VK_ACCESS_MEMORY_WRITE_BIT;
+				return access & allowed;
+			}
+			return access;
+		}
+	}
+
 	void VulkanCommandBuffer::ResourceBarrier(GPUBuffer* buffer, ResourceState oldState, ResourceState newState)
 	{
 		if (oldState == newState)
@@ -1024,16 +1101,16 @@ namespace Skore
 		VulkanBuffer* vulkanBuffer = static_cast<VulkanBuffer*>(buffer);
 
 		VkBufferMemoryBarrier bufferBarrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-		bufferBarrier.srcAccessMask = GetAccessFlagsFromResourceState(oldState);
-		bufferBarrier.dstAccessMask = GetAccessFlagsFromResourceState(newState);
+		bufferBarrier.srcAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(oldState), queueType);
+		bufferBarrier.dstAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(newState), queueType);
 		bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		bufferBarrier.buffer = vulkanBuffer->buffer;
 		bufferBarrier.offset = 0;
 		bufferBarrier.size = vulkanBuffer->desc.size;
 
-		VkPipelineStageFlags srcStageMask = GetPipelineStageFromResourceState(oldState);
-		VkPipelineStageFlags dstStageMask = GetPipelineStageFromResourceState(newState);
+		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(oldState), queueType);
+		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(newState), queueType);
 
 		vkCmdPipelineBarrier(
 			commandBuffer,
@@ -1139,9 +1216,12 @@ namespace Skore
 				break;
 		}
 
+		imageBarrier.srcAccessMask = ClampAccessForQueue(imageBarrier.srcAccessMask, queueType);
+		imageBarrier.dstAccessMask = ClampAccessForQueue(imageBarrier.dstAccessMask, queueType);
+
 		//TODO remove VK_PIPELINE_STAGE_ALL_COMMANDS_BIT and use correct VkPipelineStageFlags
-		VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-		VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		VkPipelineStageFlags srcStageMask = ClampStageForQueue(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queueType);
+		VkPipelineStageFlags dstStageMask = ClampStageForQueue(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queueType);
 
 		vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
 	}
@@ -2171,6 +2251,7 @@ namespace Skore
 	{
 		VulkanCommandBuffer* vulkanCommandBuffer = Alloc<VulkanCommandBuffer>();
 		vulkanCommandBuffer->vulkanDevice = this;
+		vulkanCommandBuffer->queueType = queueType;
 
 		VkCommandPoolCreateInfo commandPoolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 		commandPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;

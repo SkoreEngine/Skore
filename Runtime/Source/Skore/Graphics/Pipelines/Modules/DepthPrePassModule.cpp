@@ -74,8 +74,12 @@ namespace Skore
 				.renderPass = renderPass,
 				.descriptorSetsOverride = {
 					DescriptorSetOverride{
-						.set = 2,
+						.set = 0,
 						.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+					},
+					DescriptorSetOverride{
+						.set = 1,
+						.descriptorSet = context->GetSceneDescriptorSet(0)
 					}
 				}
 			});
@@ -88,8 +92,8 @@ namespace Skore
 			GPUPipeline* pipeline = depthPipelines[i];
 
 			cmd->BindPipeline(pipeline);
-			cmd->BindDescriptorSet(pipeline, 0, context->GetSceneDescriptorSet());
-			cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet());
+			cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+			cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 
 			for (const Drawcall& drawcall : objects->opaquePipelines[i].drawcalls)
 			{
@@ -110,7 +114,7 @@ namespace Skore
 
 				if (drawcall.bones)
 				{
-					cmd->BindDescriptorSet(pipeline, 1, drawcall.bones);
+					cmd->BindDescriptorSet(pipeline, 3, drawcall.bones);
 				}
 
 				cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);

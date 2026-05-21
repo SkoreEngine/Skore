@@ -288,11 +288,28 @@ namespace Skore
 		bufferDesc.persistentMapped = true;
 		sceneBuffer = Graphics::CreateBuffer(bufferDesc);
 
+		// Scene set (space1) — single descriptor set shared by all raster/RT pipelines:
+		//   binding 0: GlobalSceneBuffer (camera matrices)
+		//   binding 1: LightBuffer (populated by DefaultLightSetupPass)
+		//   binding 2: shadowMapTexture (populated by DefaultLightSetupPass)
+		//   binding 3: shadowMapSampler (populated by DefaultLightSetupPass)
 		DescriptorSetDesc desc;
 		desc.bindings = {
 			DescriptorSetLayoutBinding{
 				.binding = 0,
 				.descriptorType = DescriptorType::UniformBuffer
+			},
+			DescriptorSetLayoutBinding{
+				.binding = 1,
+				.descriptorType = DescriptorType::UniformBuffer
+			},
+			DescriptorSetLayoutBinding{
+				.binding = 2,
+				.descriptorType = DescriptorType::SampledImage
+			},
+			DescriptorSetLayoutBinding{
+				.binding = 3,
+				.descriptorType = DescriptorType::Sampler
 			}
 		};
 		desc.debugName = "SceneRendererViewport_descriptorSet";
@@ -708,6 +725,11 @@ namespace Skore
 	GPUDescriptorSet* RenderPipelineContext::GetSceneDescriptorSet() const
 	{
 		return sceneDescriptorSets[currentFrame];
+	}
+
+	GPUDescriptorSet* RenderPipelineContext::GetSceneDescriptorSet(u32 frame) const
+	{
+		return sceneDescriptorSets[frame];
 	}
 
 	GPUFramebuffer* RenderPipelineContext::PassStorage::GetCurrentFramebuffer(u32 index) const

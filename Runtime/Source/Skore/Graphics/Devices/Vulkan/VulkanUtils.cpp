@@ -29,6 +29,9 @@ namespace Skore
 		if ((static_cast<u32>(usage) & static_cast<u32>(ResourceUsage::ConstantBuffer)) != 0)
 			usageFlags |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 
+		if ((static_cast<u32>(usage) & static_cast<u32>(ResourceUsage::IndirectBuffer)) != 0)
+			usageFlags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+
 		if ((static_cast<u32>(usage) & static_cast<u32>(ResourceUsage::ShaderResource)) != 0)
 			usageFlags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
@@ -383,8 +386,12 @@ namespace Skore
 
 	void CreateDescriptorSetLayout(VkDevice vkDevice, Span<DescriptorSetLayoutBinding> bindings, VkDescriptorSetLayout* descriptorSetLayout, bool* hasRuntimeArrays, bool pushDescriptor)
 	{
+		// Build vkBindings and bindlessFlags in lockstep — reflected layouts may be sparse
+		// (DescriptorType::None for unused slots), and the two arrays must agree on count.
 		Array<VkDescriptorSetLayoutBinding> vkBindings{};
+		Array<VkDescriptorBindingFlags>     bindlessFlags{};
 		vkBindings.Reserve(bindings.Size());
+		bindlessFlags.Reserve(bindings.Size());
 
 		bool hasRuntimeArrayValue{};
 
@@ -399,23 +406,32 @@ namespace Skore
 				.stageFlags = ConvertShaderStageFlags(binding.shaderStage)
 			});
 
-				if (binding.renderType == RenderType::RuntimeArray)
-				{
-					hasRuntimeArrayValue = true;
-				}
-		}
+			bindlessFlags.EmplaceBack(0);
 
-		Array<VkDescriptorBindingFlags> bindlessFlags{};
+			if (binding.renderType == RenderType::RuntimeArray)
+			{
+				hasRuntimeArrayValue = true;
+			}
+		}
 
 		if (hasRuntimeArrayValue)
 		{
-			bindlessFlags.Resize(bindings.Size());
-			for (int i = 0; i < bindings.Size(); ++i)
+			// Apply UPDATE_AFTER_BIND to every binding in the set, not just runtime arrays.
+			// Bindless-style sets often need to update fixed bindings too (e.g. resizing the
+			// material storage buffer at binding 0) while frames are in flight.
+			for (usize i = 0, fi = 0; i < bindings.Size(); ++i)
 			{
+				if (bindings[i].descriptorType == DescriptorType::None) continue;
+
 				if (bindings[i].renderType == RenderType::RuntimeArray)
 				{
-					bindlessFlags[i] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
+					bindlessFlags[fi] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
 				}
+				else
+				{
+					bindlessFlags[fi] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
+				}
+				++fi;
 			}
 		}
 
@@ -452,7 +468,6 @@ namespace Skore
 	                              Array<VkDescriptorSetLayout>& descriptorSetLayouts, bool pushDescriptor, Span<DescriptorSetOverride> overrides)
 	{
 		descriptorSetLayouts.Clear();
-		descriptorSetLayouts.Resize(descriptors.Size());
 
 		Array<VkPushConstantRange> pushConstantRanges{};
 
@@ -465,17 +480,12 @@ namespace Skore
 			});
 		}
 
-		for (int i = 0; i < descriptors.Size(); ++i)
+		// Shaders may declare a non-dense set of descriptor-set indices (e.g. sets 0, 1, 3 — no 2).
+		// Vulkan pipeline layouts are positional, so we index by the reflected `set` field and pad
+		// gaps with empty layouts.
+		auto growToSet = [&](u32 setIndex)
 		{
-			CreateDescriptorSetLayout(vkDevice, descriptors[i].bindings, &descriptorSetLayouts[i], nullptr, pushDescriptor);
-		}
-
-		for (const DescriptorSetOverride& dsOverride : overrides)
-		{
-			VulkanDescriptorSet* vulkanDs = static_cast<VulkanDescriptorSet*>(dsOverride.descriptorSet);
-
-			// Extend with empty layouts if override set is beyond reflected sets
-			while (descriptorSetLayouts.Size() <= dsOverride.set)
+			while (descriptorSetLayouts.Size() <= setIndex)
 			{
 				VkDescriptorSetLayout emptyLayout;
 				VkDescriptorSetLayoutCreateInfo emptyInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -484,8 +494,23 @@ namespace Skore
 				vkCreateDescriptorSetLayout(vkDevice, &emptyInfo, nullptr, &emptyLayout);
 				descriptorSetLayouts.EmplaceBack(emptyLayout);
 			}
+		};
 
-			// Destroy the reflected layout at this set index and replace with override
+		for (int i = 0; i < descriptors.Size(); ++i)
+		{
+			u32 setIndex = descriptors[i].set;
+			growToSet(setIndex);
+			vkDestroyDescriptorSetLayout(vkDevice, descriptorSetLayouts[setIndex], nullptr);
+			CreateDescriptorSetLayout(vkDevice, descriptors[i].bindings, &descriptorSetLayouts[setIndex], nullptr, pushDescriptor);
+		}
+
+		for (const DescriptorSetOverride& dsOverride : overrides)
+		{
+			VulkanDescriptorSet* vulkanDs = static_cast<VulkanDescriptorSet*>(dsOverride.descriptorSet);
+
+			growToSet(dsOverride.set);
+
+			// Destroy the reflected (or placeholder) layout at this set index and replace with override
 			vkDestroyDescriptorSetLayout(vkDevice, descriptorSetLayouts[dsOverride.set], nullptr);
 			CreateDescriptorSetLayout(vkDevice, vulkanDs->desc.bindings, &descriptorSetLayouts[dsOverride.set], nullptr, false);
 		}

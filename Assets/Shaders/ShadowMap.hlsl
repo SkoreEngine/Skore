@@ -1,7 +1,8 @@
 #include "Common.hlsli"
 #include "VertexPulling.hlsli"
 
-cbuffer CameraBuffer
+// Per-pipeline (per-cascade) camera buffer.
+cbuffer CameraBuffer : register(b0, space2)
 {
 	matrix viewProjection;
 };
@@ -17,7 +18,7 @@ struct PushConstants
 [[vk::push_constant]] PushConstants pushConstants;
 
 #ifdef HAS_BONES
-cbuffer SkinnedBuffer : register(b0, space1)
+cbuffer SkinnedBuffer : register(b0, space3)
 {
     matrix boneMatrices[SK_MAX_BONES];
 };

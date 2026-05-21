@@ -246,6 +246,7 @@ namespace Skore
 		}
 
 		GPUDescriptorSet* GetSceneDescriptorSet() const;
+		GPUDescriptorSet* GetSceneDescriptorSet(u32 frame) const;
 
 		u32 GetCurrentFrame() const
 		{

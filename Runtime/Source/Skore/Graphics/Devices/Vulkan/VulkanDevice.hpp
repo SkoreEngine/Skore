@@ -321,6 +321,7 @@ namespace Skore
 		void DrawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, i32 vertexOffset, u32 firstInstance) override;
 		void DrawIndirect(GPUBuffer* buffer, usize offset, u32 drawCount, u32 stride) override;
 		void DrawIndexedIndirect(GPUBuffer* buffer, usize offset, u32 drawCount, u32 stride) override;
+		void DrawIndexedIndirectCount(GPUBuffer* buffer, u64 offset, GPUBuffer* countBuffer, u64 countBufferOffset, u32 maxDrawCount, u32 stride) override;
 		void Dispatch(u32 groupCountX, u32 groupCountY, u32 groupCountZ) override;
 		void DispatchIndirect(GPUBuffer* buffer, usize offset) override;
 		void TraceRays(GPUPipeline* pipeline, u32 width, u32 height, u32 depth) override;
@@ -358,6 +359,7 @@ namespace Skore
 		VulkanDevice*   vulkanDevice;
 		VkCommandBuffer commandBuffer;
 		VkCommandPool   commandPool;
+		QueueType       queueType = QueueType::Graphics;
 
 		void InternalSetTexture(GPUPipeline* pipeline, u32 set, u32 binding, GPUTexture* texture, GPUTextureView* textureView, u32 arrayElement);
 	};

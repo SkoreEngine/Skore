@@ -228,8 +228,12 @@ namespace Skore
 							.renderPass = maskRenderPass,
 							.descriptorSetsOverride = {
 								DescriptorSetOverride{
-									.set = 2,
+									.set = 0,
 									.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+								},
+								DescriptorSetOverride{
+									.set = 1,
+									.descriptorSet = context->GetSceneDescriptorSet(0)
 								}
 							}
 						});
@@ -265,8 +269,8 @@ namespace Skore
 							{
 								GPUPipeline* pipeline = unlitPipelines[pipelineIndex];
 								cmd->BindPipeline(pipeline);
-								cmd->BindDescriptorSet(pipeline, 0, context->GetSceneDescriptorSet(), {});
-								cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet(), {});
+								cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet(), {});
+								cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet(), {});
 								cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
 
 								UnlitPushConstants pc{};
@@ -494,6 +498,9 @@ namespace Skore
 						}
 					},
 					.renderPass = sceneViewRenderPass,
+					.descriptorSetsOverride = {
+						DescriptorSetOverride{.set = 1, .descriptorSet = context->GetSceneDescriptorSet(0)}
+					}
 				};
 				gridPipeline = Graphics::CreateGraphicsPipeline(pipelineDesc);
 			}
@@ -509,7 +516,10 @@ namespace Skore
 						BlendStateDesc{}
 					},
 					.renderPass = sceneViewRenderPass,
-					.vertexInputStride = DebugPhysicsVertexSize
+					.vertexInputStride = DebugPhysicsVertexSize,
+					.descriptorSetsOverride = {
+						DescriptorSetOverride{.set = 1, .descriptorSet = context->GetSceneDescriptorSet(0)}
+					}
 				});
 			}
 
@@ -537,7 +547,10 @@ namespace Skore
 						}
 					},
 					.renderPass = sceneViewRenderPass,
-					.vertexInputStride = sizeof(NavMeshDebugVertex)
+					.vertexInputStride = sizeof(NavMeshDebugVertex),
+					.descriptorSetsOverride = {
+						DescriptorSetOverride{.set = 1, .descriptorSet = context->GetSceneDescriptorSet(0)}
+					}
 				});
 			}
 
@@ -611,7 +624,7 @@ namespace Skore
 					gridParams.originAxisZColor = Vec4(0.2f, 0.2f, 0.8f, 1.0f);
 
 					cmd->BindPipeline(gridPipeline);
-					cmd->BindDescriptorSet(gridPipeline, 0, context->GetSceneDescriptorSet(), {});
+					cmd->BindDescriptorSet(gridPipeline, 1, context->GetSceneDescriptorSet(), {});
 					cmd->PushConstants(gridPipeline, ShaderStage::Pixel, 0, sizeof(GridPushConstants), &gridParams);
 					cmd->Draw(6, 1, 0, 0);
 				}
@@ -621,7 +634,7 @@ namespace Skore
 					if (Scene* scene = sceneViewWindow->sceneEditor->GetCurrentScene())
 					{
 						cmd->BindPipeline(debugPhysicsPipeline);
-						cmd->BindDescriptorSet(debugPhysicsPipeline, 0, context->GetSceneDescriptorSet(), {});
+						cmd->BindDescriptorSet(debugPhysicsPipeline, 1, context->GetSceneDescriptorSet(), {});
 
 						DrawPhysicsShapeEvent drawData{cmd, debugPhysicsPipeline};
 						EntityEventDesc eventDesc{.type = EntityEventType::DrawPhysicsShape, .eventData = &drawData};
@@ -683,7 +696,7 @@ namespace Skore
 						if (navMeshVertexBuffer && navMeshVertexCount > 0)
 						{
 							cmd->BindPipeline(drawNavMeshPipeline);
-							cmd->BindDescriptorSet(drawNavMeshPipeline, 0, context->GetSceneDescriptorSet(), {});
+							cmd->BindDescriptorSet(drawNavMeshPipeline, 1, context->GetSceneDescriptorSet(), {});
 							cmd->BindVertexBuffer(0, navMeshVertexBuffer, 0);
 							cmd->Draw(navMeshVertexCount, 1, 0, 0);
 						}

@@ -1,21 +1,6 @@
 #include "Common.hlsli"
-#include "VertexPulling.hlsli"
-
-cbuffer SceneBuffer : register(b0, space0)
-{
-	matrix viewProjection;
-	matrix view;
-	matrix projection;
-	matrix viewInv;
-	matrix projectionInv;
-	matrix viewProjInv;
-	float3 cameraPosition;
-	float  pad0;
-	int2   outputSize;
-	float2 pad1;
-	float2 jitter;
-	float2 prevJitter;
-};
+#include "GlobalBindings.hlsli"
+#include "SceneBindings.hlsli"
 
 struct PushConstants
 {
@@ -28,7 +13,7 @@ struct PushConstants
 [[vk::push_constant]] PushConstants pushConstants;
 
 #ifdef HAS_BONES
-cbuffer SkinnedBuffer : register(b0, space1)
+cbuffer SkinnedBuffer : register(b0, space3)
 {
     matrix boneMatrices[SK_MAX_BONES];
 };

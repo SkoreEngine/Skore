@@ -37,6 +37,9 @@ namespace Skore
 			GenerateIBL
 		};
 
+		//TODO:   - CONCURRENT sharing on resources that cross queues
+		//				- Add a VkSemaphore to the worker's transfer submit, and have the next graphics submit wait on it
+		//				 (timeline semaphore is cleanest — one semaphore, monotonically increasing values, no per-frame pool).
 		class ResourceWorker
 		{
 			struct WorkerData

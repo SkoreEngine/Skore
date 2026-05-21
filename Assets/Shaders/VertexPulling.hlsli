@@ -17,9 +17,9 @@ struct VertexLayoutOffset
 	uint pad2;
 };
 
-ByteAddressBuffer VertexBuffers[] : register(t3, space2);
-ByteAddressBuffer IndexBuffers[] : register(t4, space2);
-ConstantBuffer<VertexLayoutOffset> VertexLayouts[] : register(b5, space2);
+ByteAddressBuffer VertexBuffers[] : register(t3, space0);
+ByteAddressBuffer IndexBuffers[] : register(t4, space0);
+ConstantBuffer<VertexLayoutOffset> VertexLayouts[] : register(b5, space0);
 
 float3 GetVertexPosition(uint meshIdx, uint layoutIdx, uint vertexId)
 {

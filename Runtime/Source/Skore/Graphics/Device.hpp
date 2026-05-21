@@ -96,10 +96,11 @@ namespace Skore
 		VertexBuffer          = 1 << 4,
 		IndexBuffer           = 1 << 5,
 		ConstantBuffer        = 1 << 6,
-		CopyDest              = 1 << 7,
-		CopySource            = 1 << 8,
-		AccelerationStructure = 1 << 9,
-		RayTracing            = 1 << 10
+		IndirectBuffer        = 1 << 7,
+		CopyDest              = 1 << 8,
+		CopySource            = 1 << 9,
+		AccelerationStructure = 1 << 10,
+		RayTracing            = 1 << 11
 	};
 
 	ENUM_FLAGS(ResourceUsage, u32);
@@ -1009,6 +1010,7 @@ namespace Skore
 		virtual void DrawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, i32 vertexOffset, u32 firstInstance) = 0;
 		virtual void DrawIndirect(GPUBuffer* buffer, usize offset, u32 drawCount, u32 stride) = 0;
 		virtual void DrawIndexedIndirect(GPUBuffer* buffer, usize offset, u32 drawCount, u32 stride) = 0;
+		virtual void DrawIndexedIndirectCount(GPUBuffer* buffer, u64 offset, GPUBuffer* countBuffer, u64 countBufferOffset, u32 maxDrawCount, u32 stride) = 0;
 		virtual void Dispatch(u32 groupCountX, u32 groupCountY, u32 groupCountZ) = 0;
 		virtual void DispatchIndirect(GPUBuffer* buffer, usize offset) = 0;
 
@@ -1214,6 +1216,15 @@ namespace Skore
 		const u8*               data{nullptr};
 		usize                   size{};
 		Span<TextureDataRegion> regions{};
+	};
+
+	struct DrawIndexedIndirectArguments
+	{
+		u32 indexCountPerInstance;
+		u32 instanceCount;
+		u32 startIndexLocation;
+		i32 baseVertexLocation;
+		u32 startInstanceLocation;
 	};
 
 	inline u32 GetTextureFormatSize(TextureFormat format)

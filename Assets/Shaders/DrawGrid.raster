@@ -1,4 +1,4 @@
-#include "Bindings.hlsli"
+#include "SceneBindings.hlsli"
 
 struct GridPushConstants
 {
