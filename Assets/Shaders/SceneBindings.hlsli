@@ -39,6 +39,9 @@ struct InstanceData
 
     float3  aabbMax;
     uint    pipelineIndex;
+
+    uint    drawcallIndex;
+    float3  pad;
 };
 
 StructuredBuffer<InstanceData> instances : register(t1, space1);
