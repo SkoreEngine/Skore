@@ -1,11 +1,8 @@
 #ifndef SK_LIGHTS_HLSLI
 #define SK_LIGHTS_HLSLI
 
+#include "SceneBindings.hlsli"
 #include "LightCommon.hlsli"
-
-#define SHADOW_MAP_CASCADE_COUNT 4
-#define SK_USE_COMPARISON_STATE 1
-#define SK_PCF_RANGE 1
 
 //#define CASCADE_DEBUG
 
@@ -15,24 +12,6 @@ static const float4x4 biasMat = float4x4(
 	0.0, 0.0, 1.0, 0.0,
 	0.0, 0.0, 0.0, 1.0
 );
-
-// Scene set (space1) bindings — coexist with GlobalSceneBuffer at binding 0.
-cbuffer LightBuffer : register(b1, space1)
-{
-	uint     lightCount;
-	uint	 shadowLightIndex;
-    float2   pad0;
-	float4   cascadeSplits;
-	float4x4 cascadeViewProjMat[SHADOW_MAP_CASCADE_COUNT];
-	Light    lights[MAX_LIGHTS];
-};
-
-Texture2DArray         shadowMapTexture     : register(t2, space1);
-#if SK_USE_COMPARISON_STATE
-SamplerComparisonState shadowMapSampler     : register(s3, space1);
-#else
-SamplerState   		   shadowMapSampler     : register(s3, space1);
-#endif
 
 float TextureProj(float4 shadowCoord, float2 offset, uint cascadeIndex)
 {

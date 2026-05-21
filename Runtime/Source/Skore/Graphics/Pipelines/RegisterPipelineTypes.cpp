@@ -4,7 +4,6 @@ namespace Skore
 	void RegisterSwapchainRenderModule();
 	void RegisterCascadeShadowMapModule();
 	void RegisterDepthPrePassModule();
-	void RegisterPathTracerPipeline();
 	void RegisterXeGTAORenderModule();
 	void RegisterTAARenderModule();
 	void RegisterFXAARenderModule();
@@ -16,7 +15,6 @@ namespace Skore
 		RegisterDepthPrePassModule();
 		RegisterDefaultRenderPipeline();
 		RegisterSwapchainRenderModule();
-		RegisterPathTracerPipeline();
 		RegisterXeGTAORenderModule();
 		RegisterTAARenderModule();
 		RegisterFXAARenderModule();

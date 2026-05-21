@@ -29,7 +29,6 @@
 namespace Skore
 {
 	struct DefaultRenderPipeline;
-	struct PathTracerPipeline;
 
 	MenuItemContext SceneViewWindow::menuItemContext = {};
 
@@ -113,12 +112,6 @@ namespace Skore
 
 		bool   sizeUpdated = renderPipelineContext == nullptr || renderPipelineContext->GetOutputSize() != extent;
 
-		TypeID pipelineType = pathTracerEnabled ? sktypeid(PathTracerPipeline) : sktypeid(DefaultRenderPipeline);
-		if (renderPipelineContext != nullptr && renderPipelineContext->GetPipelineTypeId() != pipelineType)
-		{
-			renderPipelineContext->Destroy();
-			renderPipelineContext = nullptr;
-		}
 
 		if (renderPipelineContext == nullptr)
 		{
@@ -129,7 +122,7 @@ namespace Skore
 			Array<TypeID> extraModules = {};
 			extraModules.EmplaceBack(sktypeid(SceneViewPipelineModule));
 
-			renderPipelineContext = RenderPipeline::CreateContext(pipelineType, extraModules, settings);
+			renderPipelineContext = RenderPipeline::CreateContext(sktypeid(DefaultRenderPipeline), extraModules, settings);
 		}
 
 		if (sizeUpdated)
@@ -752,9 +745,9 @@ namespace Skore
 		{
 			if (Graphics::GetDevice()->GetFeatures().rayTracing)
 			{
-				if (ImGui::Checkbox("PathTracer Enabled", &pathTracerEnabled))
-				{
-				}
+				// if (ImGui::Checkbox("PathTracer Enabled", &pathTracerEnabled))
+				// {
+				// }
 			}
 
 			if (ImGui::BeginMenu("Debug Options"))
@@ -930,8 +923,6 @@ namespace Skore
 
 	void SceneViewWindow::Render(GPUCommandBuffer* cmd)
 	{
-		static Scene emptyScene;
-
 		Scene* scene = sceneEditor->GetCurrentScene();
 		if (!scene) scene = &emptyScene;
 

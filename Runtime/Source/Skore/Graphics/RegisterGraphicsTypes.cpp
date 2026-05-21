@@ -923,7 +923,7 @@ namespace Skore
 		gpuCommandBuffer.Function<&GPUCommandBuffer::BindVertexBuffer>("BindVertexBuffer", "firstBinding", "buffers", "offset");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::BindIndexBuffer>("BindIndexBuffer", "buffer", "offset", "indexType");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::SetTexture>("SetTexture", "pipeline", "set", "binding", "texture", "arrayElement");
-		gpuCommandBuffer.Function<&GPUCommandBuffer::SetBuffer>("SetBuffer", "pipeline", "set", "binding", "buffer", "offset", "range");
+		//gpuCommandBuffer.Function<&GPUCommandBuffer::SetBuffer>("SetBuffer", "pipeline", "set", "binding", "buffer", "offset", "range");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::SetSampler>("SetSampler", "pipeline", "set", "binding", "sampler");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::SetTextureView>("SetTextureView", "pipeline", "set", "binding", "textureView", "arrayElement");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::Draw>("Draw", "vertexCount", "instanceCount", "firstVertex", "firstInstance");

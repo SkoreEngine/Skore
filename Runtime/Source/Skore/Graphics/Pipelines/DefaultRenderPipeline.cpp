@@ -84,14 +84,14 @@ namespace Skore
 
 	struct ScenePipelineCullingData
 	{
-		GPUBuffer* indirectDrawBuffer = nullptr;
+		GPUBuffer* indirectDrawBuffer[SK_FRAMES_IN_FLIGHT];
 		u32 countBufferOffset = 0;
 	};
 
 	struct SceneCullingData
 	{
 		Array<ScenePipelineCullingData> pipelines;
-		GPUBuffer* countBuffer = nullptr;
+		GPUBuffer* countBuffer[SK_FRAMES_IN_FLIGHT];
 	};
 
 	struct DefaultCascadeShadowPass : CascadeShadowPassBase
@@ -230,14 +230,14 @@ namespace Skore
 
 				DescriptorUpdate lightUpdate;
 				lightUpdate.type = DescriptorType::UniformBuffer;
-				lightUpdate.binding = 1;
+				lightUpdate.binding = 2;
 				lightUpdate.buffer = lightInstanceData->lightBuffer;
 				lightUpdate.bufferOffset = lightInstanceData->lightBufferAlignedSize * f;
 				lightUpdate.bufferRange = sizeof(LightBuffer);
 				sceneSet->Update(lightUpdate);
 
-				sceneSet->UpdateTexture(2, shadowMapData->shadowTexture);
-				sceneSet->UpdateSampler(3, shadowMapData->shadowSampler);
+				sceneSet->UpdateTexture(3, shadowMapData->shadowTexture);
+				sceneSet->UpdateSampler(4, shadowMapData->shadowSampler);
 			}
 		}
 
@@ -354,27 +354,74 @@ namespace Skore
 		SK_CLASS(DefaultCullingPass, RenderPipelinePass);
 		Scene* cachedPipelineOwner = nullptr;
 
+		GPUPipeline* pipeline;
+		GPUDescriptorSet* descriptorSet[SK_FRAMES_IN_FLIGHT];
 
 		RenderPipelinePassSetup GetPassSetup() override
 		{
 			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Compute;
 			setup.stage = DefaultPipelineRenderStage::Culling;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "SceneCullingData", .access = RenderPipelineTextureAccess::Write});
 			return setup;
+		}
+
+		void CreateDescriptorSet()
+		{
+			for (u32 i = 0; i < SK_FRAMES_IN_FLIGHT; i++)
+			{
+				descriptorSet[i] = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+					.bindings = {
+						DescriptorSetLayoutBinding{
+							.binding = 0,
+							.count = 256,
+							.descriptorType = DescriptorType::StorageBuffer,
+							.renderType = RenderType::Array
+						},
+						DescriptorSetLayoutBinding{
+							.binding = 1,
+							.descriptorType = DescriptorType::StorageBuffer,
+						},
+					}
+				});
+			}
+
+		}
+
+		void Init() override
+		{
+			CreateDescriptorSet();
+
+			pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
+				.shader = Resources::FindByPath("Skore://Shaders/CullingPass.comp"),
+				.descriptorSetsOverride = {
+					DescriptorSetOverride{
+						.set = 0,
+						.descriptorSet = descriptorSet[0]
+					},
+					DescriptorSetOverride{
+						.set = 1,
+						.descriptorSet = context->GetSceneDescriptorSet(0)
+					}
+				}
+			});
 		}
 
 		void PrepareBuffers(Scene* scene, SceneCullingData* data)
 		{
 			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
 			{
-				for (auto& pipelineData : data->pipelines)
+				for (u32 i = 0; i < SK_FRAMES_IN_FLIGHT; i++)
 				{
-					if (pipelineData.indirectDrawBuffer)
+					for (auto& pipelineData : data->pipelines)
 					{
-						pipelineData.indirectDrawBuffer->Destroy();
+						if (pipelineData.indirectDrawBuffer)
+						{
+							//		pipelineData.indirectDrawBuffer->Destroy();
+						}
 					}
+					//	data->countBuffer->Destroy();
 				}
-				data->countBuffer->Destroy();
 				data->pipelines.Clear();
 			}
 
@@ -383,43 +430,77 @@ namespace Skore
 				data->pipelines.Resize(scene->renderObjects.opaquePipelines.Size());
 			}
 
-			for (int i = 0; i < scene->renderObjects.opaquePipelines.Size(); ++i)
+			for (int pipelineIndex = 0; pipelineIndex < scene->renderObjects.opaquePipelines.Size(); ++pipelineIndex)
 			{
-				if (data->pipelines[i].indirectDrawBuffer == nullptr || data->pipelines[i].indirectDrawBuffer->GetDesc().size < scene->renderObjects.opaquePipelines.Size() * sizeof(u32))
+
+				usize requiredSize = scene->renderObjects.opaquePipelines[pipelineIndex].drawcalls.Size() * sizeof(DrawIndexedIndirectArguments);
+				usize currentSize = data->pipelines[pipelineIndex].indirectDrawBuffer[0] ? data->pipelines[pipelineIndex].indirectDrawBuffer[0]->GetDesc().size : 0;
+
+				if (requiredSize >= currentSize)
 				{
-					data->pipelines[i].indirectDrawBuffer = Graphics::CreateBuffer(BufferDesc{
-						.size = sizeof(DrawIndexedIndirectArguments) * scene->renderObjects.opaquePipelines.Size() * 2,
-						.usage = ResourceUsage::IndirectBuffer,
-						.hostVisible = false,
-						.persistentMapped = false,
-						.debugName = "IndirectDrawBuffer"
-					});
+					for (u32 frame = 0; frame < SK_FRAMES_IN_FLIGHT; frame++)
+					{
+						data->pipelines[pipelineIndex].indirectDrawBuffer[frame] = Graphics::CreateBuffer(BufferDesc{
+							.size = sizeof(DrawIndexedIndirectArguments) * scene->renderObjects.opaquePipelines[pipelineIndex].drawcalls.Size() * 2,
+							.usage = ResourceUsage::IndirectBuffer | ResourceUsage::UnorderedAccess,
+							.hostVisible = false,
+							.persistentMapped = false,
+							.debugName = "IndirectDrawBuffer"
+						});
+					}
 				}
-				data->pipelines[i].countBufferOffset = sizeof(u32) * i;
+				data->pipelines[pipelineIndex].countBufferOffset = sizeof(u32) * pipelineIndex;
 			}
 
-			if (scene->renderObjects.opaquePipelines.Size() > 0 && (data->countBuffer == nullptr || data->countBuffer->GetDesc().size < scene->renderObjects.opaquePipelines.Size() * sizeof(u32)))
+			if (scene->renderObjects.opaquePipelines.Size() > 0 && (data->countBuffer[0] == nullptr || data->countBuffer[0]->GetDesc().size < scene->renderObjects.opaquePipelines.Size() * sizeof(u32)))
 			{
-				if (data->countBuffer)
+				for (u32 frame = 0; frame < SK_FRAMES_IN_FLIGHT; frame++)
 				{
-					data->countBuffer->Destroy();
-				}
+					if (data->countBuffer[frame])
+					{
+						data->countBuffer[frame]->Destroy();
+					}
 
-				data->countBuffer = Graphics::CreateBuffer(BufferDesc{
-					.size = sizeof(u32) * scene->renderObjects.opaquePipelines.Size() * 2,
-					.usage = ResourceUsage::IndirectBuffer,
-					.hostVisible = false,
-					.persistentMapped = false,
-					.debugName = "IndirectDrawBufferCount"
-				});
+					data->countBuffer[frame] = Graphics::CreateBuffer(BufferDesc{
+						.size = sizeof(u32) * scene->renderObjects.opaquePipelines.Size(),
+						.usage = ResourceUsage::IndirectBuffer | ResourceUsage::UnorderedAccess,
+						.hostVisible = false,
+						.persistentMapped = false,
+						.debugName = "IndirectDrawBufferCount"
+					});
+				}
 			}
 		}
 
 		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
-			SceneCullingData* data = context->GetInstanceData<SceneCullingData>("SceneCullingData");
-			PrepareBuffers(scene, data);
+			/*
+			if (scene->renderObjects.opaquePipelines.Size() > 0)
+			{
+				SceneCullingData* data = context->GetInstanceData<SceneCullingData>("SceneCullingData");
+				PrepareBuffers(scene, data);
 
+				u32 frame = context->GetCurrentFrame();
+
+				for (int i = 0; i < scene->renderObjects.opaquePipelines.Size(); ++i)
+				{
+					DescriptorUpdate update = {};
+					update.type = DescriptorType::StorageBuffer;
+					update.binding = 0;
+					update.arrayElement = i;
+					update.buffer = data->pipelines[i].indirectDrawBuffer[frame];
+					descriptorSet[frame]->Update(update);
+				}
+				descriptorSet[frame]->UpdateBuffer(1, data->countBuffer[frame], 0, 0);
+
+				cmd->BindPipeline(pipeline);
+
+				cmd->BindDescriptorSet(pipeline, 0,  descriptorSet[context->GetCurrentFrame()]);
+				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+
+				cmd->Dispatch((scene->renderObjects.instanceDataSize + 255) / 256, 1, 1);
+			}
+			*/
 		}
 	};
 
@@ -475,6 +556,8 @@ namespace Skore
 			if (!scene) return;
 			RenderSceneObjects* objects = &scene->renderObjects;
 
+			u32 frame = context->GetCurrentFrame();
+
 			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
 			{
 				CleanupPipelines();
@@ -525,7 +608,7 @@ namespace Skore
 
 			cachedPipelineOwner = scene;
 
-			SceneCullingData* cullingData = context->GetInstanceData<SceneCullingData>("SceneCullingData");
+			//SceneCullingData* cullingData = context->GetInstanceData<SceneCullingData>("SceneCullingData");
 
 			for (u32 i = 0; i < objects->opaquePipelines.Size(); i++)
 			{
@@ -536,16 +619,13 @@ namespace Skore
 				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 
 				// ScenePipelineCullingData& cullingPipelineData = cullingData->pipelines[i];
-				//
-				// MeshPushConstants pc = {};
-				// cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
-				//
-				// cmd->DrawIndexedIndirectCount(cullingPipelineData.indirectDrawBuffer,
+				// cmd->DrawIndexedIndirectCount(cullingPipelineData.indirectDrawBuffer[frame],
 				//                               0,
-				//                               cullingData->countBuffer,
+				//                               cullingData->countBuffer[frame],
 				//                               cullingPipelineData.countBufferOffset,
-				//                               objects->opaquePipelines[i].drawcalls.Size(),
+				//                               objects->instanceDataSize,
 				//                               sizeof(DrawIndexedIndirectArguments));
+
 
 
 				for (const Drawcall& drawcall : objects->opaquePipelines[i].drawcalls)
@@ -637,7 +717,13 @@ namespace Skore
 		void Init() override
 		{
 			pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
-				.shader = Resources::FindByPath("Skore://Shaders/DeferredLighting.comp")
+				.shader = Resources::FindByPath("Skore://Shaders/DeferredLighting.comp"),
+				.descriptorSetsOverride = {
+					DescriptorSetOverride{
+						.set = 1,
+						.descriptorSet = context->GetSceneDescriptorSet(0)
+					}
+				}
 			});
 
 			// Per-pipeline (space2): only the GBuffer textures + output. Scene UBO and lights

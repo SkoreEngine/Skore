@@ -18,54 +18,20 @@ namespace Skore
 
 	RenderSceneObjects::RenderSceneObjects()
 	{
+		instanceDataBuffer = Graphics::CreateBuffer(BufferDesc{
+			.size = sizeof(InstanceData) * InitialInstanceNumber,
+			.usage = ResourceUsage::UnorderedAccess,
+			.hostVisible = true,
+			.persistentMapped = true,
+			.debugName = "InstanceBuffer"
+		});
 	}
 
 	RenderSceneObjects::~RenderSceneObjects()
 	{
-		if (instanceDataBuffer) instanceDataBuffer->Destroy();
-		if (tlasScratchBuffer) tlasScratchBuffer->Destroy();
-		if (tlas) tlas->Destroy();
-	}
-
-	u32 RenderSceneObjects::AllocateInstanceId()
-	{
-		if (!freeInstanceIds.Empty())
+		if (instanceDataBuffer)
 		{
-			u32 id = freeInstanceIds.Back();
-			freeInstanceIds.PopBack();
-			return id;
-		}
-		return nextInstanceId++;
-	}
-
-	void RenderSceneObjects::FreeInstanceId(u32 id)
-	{
-		freeInstanceIds.EmplaceBack(id);
-	}
-
-	void RenderSceneObjects::EnsureInstanceDataCapacity(u32 requiredCount)
-	{
-		if (requiredCount > instanceDataBufferCapacity)
-		{
-			u32 newCapacity = requiredCount * 2;
-			if (newCapacity < 256) newCapacity = 256;
-
-			GPUBuffer* newBuffer = Graphics::CreateBuffer(BufferDesc{
-				.size = newCapacity * sizeof(InstanceData),
-				.usage = ResourceUsage::ShaderResource,
-				.hostVisible = true,
-				.persistentMapped = true,
-				.debugName = "InstanceDataBuffer"
-			});
-
-			if (instanceDataBuffer)
-			{
-				memcpy(newBuffer->GetMappedData(), instanceDataBuffer->GetMappedData(), instanceDataBufferCapacity * sizeof(InstanceData));
-				instanceDataBuffer->Destroy();
-			}
-
-			instanceDataBuffer = newBuffer;
-			instanceDataBufferCapacity = newCapacity;
+			instanceDataBuffer->Destroy();
 		}
 	}
 
@@ -83,54 +49,6 @@ namespace Skore
 		return index;
 	}
 
-	void RenderSceneObjects::AddInstance(RendererComponent* component, u32 primitiveIndex, const InstanceDesc& desc, const InstanceData& data, DrawcallRef& outRef)
-	{
-		u32 dataId = AllocateInstanceId();
-		u32 descIndex = static_cast<u32>(instances.Size());
-
-		InstanceDesc instDesc = desc;
-		instDesc.instanceID = dataId;
-
-		instances.EmplaceBack(instDesc);
-		instanceEntries.EmplaceBack(InstanceEntry{component, primitiveIndex});
-
-		EnsureInstanceDataCapacity(dataId + 1);
-		InstanceData* mapped = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
-		mapped[dataId] = data;
-
-		if (dataId >= instanceDataCount)
-		{
-			instanceDataCount = dataId + 1;
-		}
-
-		outRef.instanceDataId = dataId;
-		outRef.instanceDescIndex = descIndex;
-		tlasDirty = true;
-	}
-
-	void RenderSceneObjects::RemoveInstance(const DrawcallRef& ref)
-	{
-		if (ref.instanceDescIndex == U32_MAX) return;
-
-		FreeInstanceId(ref.instanceDataId);
-
-		u32 removeIdx = ref.instanceDescIndex;
-		u32 lastIdx = static_cast<u32>(instances.Size()) - 1;
-
-		if (removeIdx != lastIdx)
-		{
-			instances[removeIdx] = instances[lastIdx];
-			instanceEntries[removeIdx] = instanceEntries[lastIdx];
-
-			InstanceEntry& moved = instanceEntries[removeIdx];
-			moved.component->references[moved.primitiveIndex].instanceDescIndex = removeIdx;
-		}
-
-		instances.PopBack();
-		instanceEntries.PopBack();
-		tlasDirty = true;
-	}
-
 	DrawcallRef RenderSceneObjects::CreateDrawcall(const DrawcallDesc& desc, RendererComponent* owner, u32 primitiveIndex)
 	{
 		DrawcallRef ref;
@@ -141,14 +59,9 @@ namespace Skore
 			return ref;
 		}
 
-		// materialIndex may still be U32_MAX while textures stream in — the drawcall is registered
-		// anyway and render passes skip it per-frame until Flush() promotes the material.
-
 		ref.transparent = material->transparent;
 
-		// Mesh data (vertex/index buffers + BLAS) is created on the worker. If it's not yet
-		// published, park the registration — DoUpdate promotes once IsLoaded() goes true.
-		if (desc.mesh && !desc.mesh->IsLoaded())
+		if ((desc.mesh && !desc.mesh->IsLoaded()) || !material->IsLoaded())
 		{
 			AddPendingDrawcall(owner, primitiveIndex, desc.mesh, material, desc, ref);
 			return ref;
@@ -158,8 +71,7 @@ namespace Skore
 		return ref;
 	}
 
-	void RenderSceneObjects::DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material,
-		RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref)
+	void RenderSceneObjects::DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material, RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref)
 	{
 		GPUBuffer* vertexBuffer = desc.mesh ? desc.mesh->vertexBuffer : desc.vertexBuffer;
 		GPUBuffer* indexBuffer  = desc.mesh ? desc.mesh->indexBuffer  : desc.indexBuffer;
@@ -222,33 +134,45 @@ namespace Skore
 			sdc.layerMask = desc.layerMask;
 		}
 
-		const bool rayTraced = (desc.visibility & DrawcallVisibility::RayTraced) != 0;
-		const bool rtEnabled = Graphics::GetDevice()->GetFeatures().rayTracing;
-		if (rtEnabled && rayTraced && desc.meshIndex != U32_MAX && material->materialIndex != U32_MAX)
+		if (!instanceFreeIndices.Empty())
 		{
-			// At this point the mesh is loaded — pick the BLAS slot directly (nullptr means
-			// no BLAS was produced, e.g. skinned mesh; just skip enrolment).
-			GPUBottomLevelAS* blas = nullptr;
-			if (desc.blas) blas = desc.blas;
-			else if (desc.mesh && primitiveIndex < desc.mesh->blasArray.Size()) blas = desc.mesh->blasArray[primitiveIndex];
-
-			if (blas)
-			{
-				InstanceDesc instDesc{};
-				instDesc.bottomLevelAS = blas;
-				instDesc.transform = desc.transform;
-				instDesc.forceOpaque = true;
-
-				InstanceData data{
-					.meshIndex = desc.meshIndex,
-					.vertexLayoutIndex = desc.vertexLayoutIndex,
-					.materialIndex = material->materialIndex,
-					.firstIndex = desc.firstIndex
-				};
-
-				AddInstance(owner, primitiveIndex, instDesc, data, ref);
-			}
+			ref.instanceIndex = instanceFreeIndices.Back();
+			instanceFreeIndices.PopBack();
 		}
+		else
+		{
+			ref.instanceIndex = instanceDataSize++;
+		}
+
+		instanceDataCount++;
+
+		if (instanceDataBuffer->GetDesc().size < sizeof(instanceFreeIndices) * instanceDataSize)
+		{
+			GPUBuffer* newBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = instanceDataSize * sizeof(InstanceData) * 2,
+				.usage = ResourceUsage::UnorderedAccess,
+				.hostVisible = true,
+				.persistentMapped = true,
+				.debugName = "InstanceBuffer"
+			});
+
+			memcpy(newBuffer->GetMappedData(), instanceDataBuffer->GetMappedData(), instanceDataSize * sizeof(InstanceData));
+			instanceDataBuffer->Destroy();
+			instanceDataBuffer = newBuffer;
+		}
+
+		InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
+		new(data + ref.instanceIndex) InstanceData{
+			.transform = desc.transform,
+			.materialIndex = material->materialIndex,
+			.meshIndex = desc.meshIndex,
+			.vertexLayoutIndex = desc.vertexLayoutIndex,
+			.indexCount = desc.indexCount,
+			.aabbMin = dc.aabb.min,
+			.firstIndex = desc.firstIndex,
+			.aabbMax = dc.aabb.max,
+			.pipelineIndex = ref.pipelineIndex
+		};
 	}
 
 	void RenderSceneObjects::UpdateTransform(const DrawcallRef& ref, const Mat4& transform)
@@ -265,11 +189,6 @@ namespace Skore
 			Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
 			sdc.transform = transform;
 			sdc.aabb = Math::TransformAABB(sdc.localAabb, transform);
-		}
-		if (ref.instanceDescIndex != U32_MAX)
-		{
-			instances[ref.instanceDescIndex].transform = transform;
-			tlasDirty = true;
 		}
 		if (ref.pendingDrawcallIndex != U32_MAX)
 		{
@@ -305,13 +224,14 @@ namespace Skore
 		{
 			shadowPipelines[ref.shadowPipelineIndex].drawcalls.Remove(ref.shadowHandle);
 		}
-		if (ref.instanceDescIndex != U32_MAX)
-		{
-			RemoveInstance(ref);
-		}
 		if (ref.pendingDrawcallIndex != U32_MAX)
 		{
 			RemovePendingDrawcall(ref.pendingDrawcallIndex);
+		}
+		if (ref.instanceIndex != U32_MAX)
+		{
+			instanceDataCount--;
+			instanceFreeIndices.EmplaceBack(ref.instanceIndex);
 		}
 	}
 
@@ -338,15 +258,12 @@ namespace Skore
 
 	void RenderSceneObjects::DoUpdate(GPUCommandBuffer* cmd)
 	{
-		// Run any worker-posted callbacks before reading mesh state — this is where the mesh
-		// worker publishes vertex/index buffers, blasArray, and the bindless descriptor slots.
 		RenderResourceCache::Flush();
 
-		// Promote parked drawcalls whose meshes finished loading this frame.
 		for (u32 i = 0; i < pendingDrawcalls.Size(); )
 		{
 			PendingDrawcallEntry& pending = pendingDrawcalls[i];
-			if (!pending.mesh || !pending.mesh->IsLoaded())
+			if (!pending.mesh || !pending.mesh->IsLoaded() || !pending.material || !pending.material->IsLoaded())
 			{
 				++i;
 				continue;
@@ -357,66 +274,11 @@ namespace Skore
 			DrawcallDesc             desc = pending.desc;
 			MaterialResourceCachePtr material = pending.material;
 
-			// Clear pending slot before re-registering so the new ref doesn't carry the stale
-			// parked index. RemovePendingDrawcall fixes up the swapped-in entry's owner.
 			component->references[primitiveIndex].pendingDrawcallIndex = U32_MAX;
 			RemovePendingDrawcall(i);
-			// Don't increment i: swap-and-pop placed a new entry at this index.
 
 			DrawcallRef& ref = component->references[primitiveIndex];
 			DoCreateDrawcall(desc, material, component, primitiveIndex, ref);
-		}
-
-		bool rtEnabled = Graphics::GetDevice()->GetFeatures().rayTracing;
-
-		if (rtEnabled && tlasDirty)
-		{
-			tlasDirty = false;
-
-			if (!instances.Empty())
-			{
-				SK_SCOPED_ZONE("RenderObjects - TLAS Update", cmd);
-
-				if (tlas == nullptr || instances.Size() > tlasMaxInstances)
-				{
-					if (tlas) tlas->Destroy();
-					if (tlasScratchBuffer) tlasScratchBuffer->Destroy();
-
-					u32 newCapacity = static_cast<u32>(instances.Size()) * 2;
-					if (newCapacity < 256) newCapacity = 256;
-
-					Array<InstanceDesc> capacityInstances(newCapacity);
-					for (u32 i = 0; i < instances.Size(); ++i)
-					{
-						capacityInstances[i] = instances[i];
-					}
-
-					TopLevelASDesc tlasDesc{};
-					tlasDesc.instances = capacityInstances;
-					tlasDesc.flags = BuildAccelerationStructureFlags::PreferFastTrace;
-					tlasDesc.debugName = "SceneTLAS";
-
-					tlas = Graphics::CreateTopLevelAS(tlasDesc);
-					tlas->UpdateInstances(instances);
-
-					usize scratchSize = Graphics::GetAccelerationStructureBuildScratchSize(tlasDesc);
-					tlasScratchBuffer = Graphics::CreateBuffer(BufferDesc{
-						.size = scratchSize,
-						.usage = ResourceUsage::ShaderResource,
-						.hostVisible = false,
-						.persistentMapped = false,
-						.debugName = "SceneTLAS_Scratch"
-					});
-
-					tlasMaxInstances = newCapacity;
-				}
-				else
-				{
-					tlas->UpdateInstances(instances);
-				}
-
-				cmd->BuildTopLevelAS(tlas, AccelerationStructureBuildInfo{.scratchBuffer = tlasScratchBuffer});
-			}
 		}
 	}
 

@@ -591,6 +591,31 @@ namespace Skore
 		vkCmdPushDescriptorSetKHR(commandBuffer, vulkanPipeline->bindPoint, vulkanPipeline->pipelineLayout, set, 1, &write);
 	}
 
+	void VulkanCommandBuffer::SetBuffer(GPUPipeline* pipeline, u32 set, u32 binding, GPUBuffer* buffer, u64 offset, u64 range, u32 arrayIndex)
+	{
+		VulkanPipeline*             vulkanPipeline = static_cast<VulkanPipeline*>(pipeline);
+		DescriptorSetLayoutBinding& layout = vulkanPipeline->pipelineDesc.descriptors[set].bindings[binding];
+		if (layout.descriptorType == DescriptorType::None) return;
+
+		VkDescriptorBufferInfo      bufferInfo;
+		bufferInfo.buffer = static_cast<VulkanBuffer*>(buffer)->buffer;
+		bufferInfo.offset = offset;
+		bufferInfo.range = range == 0 ? VK_WHOLE_SIZE : range;
+
+		VkWriteDescriptorSet write = {};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = nullptr;
+		write.dstBinding = binding;
+		write.descriptorType = ConvertDescriptorType(layout.descriptorType);
+		write.dstArrayElement = arrayIndex;
+		write.descriptorCount = 1;
+
+		write.pImageInfo = nullptr;
+		write.pBufferInfo = &bufferInfo;
+
+		vkCmdPushDescriptorSetKHR(commandBuffer, vulkanPipeline->bindPoint, vulkanPipeline->pipelineLayout, set, 1, &write);
+	}
+
 	void VulkanCommandBuffer::SetSampler(GPUPipeline* pipeline, u32 set, u32 binding, GPUSampler* sampler)
 	{
 		VulkanPipeline*             vulkanPipeline = static_cast<VulkanPipeline*>(pipeline);
@@ -624,6 +649,13 @@ namespace Skore
 	void VulkanCommandBuffer::Draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance)
 	{
 		vkCmdDraw(commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+	}
+
+	void VulkanCommandBuffer::DrawIndirectCount(GPUBuffer* buffer, u64 offset, GPUBuffer* countBuffer, u64 countBufferOffset, u32 maxDrawCount, u32 stride)
+	{
+		const VulkanBuffer& vulkanBuffer = *static_cast<const VulkanBuffer*>(buffer);
+		const VulkanBuffer& vulkanCountBuffer = *static_cast<const VulkanBuffer*>(countBuffer);
+		vkCmdDrawIndirectCountKHR(commandBuffer, vulkanBuffer.buffer, offset, vulkanCountBuffer.buffer, countBufferOffset, maxDrawCount, stride);
 	}
 
 	void VulkanCommandBuffer::DrawIndexed(u32 indexCount, u32 instanceCount, u32 firstIndex, i32 vertexOffset, u32 firstInstance)

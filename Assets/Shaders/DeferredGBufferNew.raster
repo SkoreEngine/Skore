@@ -2,17 +2,6 @@
 #include "Materials.hlsli"
 #include "SceneBindings.hlsli"
 
-struct PushConstants
-{
-	matrix world;
-	uint   materialIndex;
-	uint   meshIndex;
-	uint   vertexLayoutIndex;
-	uint   pad;
-};
-
-[[vk::push_constant]] PushConstants pushConstants;
-
 #ifdef HAS_BONES
 cbuffer SkinnedBuffer : register(b0, space3)
 {
@@ -31,14 +20,18 @@ struct PixelInput
 	float3   worldPos    : POSITION1;
 	float3   viewPos     : POSITION2;
 	float3   fragViewPos : POSITION3;
+	uint     matIndex    : MATERIAL1;
 };
 
-PixelInput MainVS(uint vertexId : SV_VertexID)
+PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] uint idx : SV_StartInstanceLocation)
 {
 	PixelInput output;
 
-	uint meshIdx = pushConstants.meshIndex;
-	uint layoutIdx = pushConstants.vertexLayoutIndex;
+    InstanceData instance = instances[NonUniformResourceIndex(idx)];
+
+	uint meshIdx = instance.meshIndex;
+	uint layoutIdx = instance.vertexLayoutIndex;
+
 	float3 inputPosition = GetVertexPosition(meshIdx, layoutIdx, vertexId);
 	float3 inputNormal = GetVertexNormal(meshIdx, layoutIdx, vertexId);
 	float4 inputTangent = GetVertexTangent(meshIdx, layoutIdx, vertexId);
@@ -74,14 +67,14 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 	float3 tangent = inputTangent.xyz;
 #endif
 
-	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0f));
+	float4 worldPosition = mul(instance.transform, float4(position, 1.0f));
 	output.position      = mul(viewProjection, worldPosition);
 	output.worldPos      = worldPosition.xyz;
 
 	output.texCoord = GetVertexUV(meshIdx, layoutIdx, vertexId);
 	output.uv1 = GetVertexUV1(meshIdx, layoutIdx, vertexId);
 
-	float3x3 normalMat = (float3x3)pushConstants.world;
+	float3x3 normalMat = (float3x3)instance.transform;
 	output.normal       = normalize(mul(normalMat, normal));
 
 	float4 T = float4(normalize(mul(normalMat, tangent)), inputTangent.w);
@@ -92,6 +85,7 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 
 	output.viewPos     = cameraPosition;
 	output.fragViewPos = mul(view, worldPosition).xyz;
+	output.matIndex = instance.materialIndex;
 
 	return output;
 }
@@ -107,7 +101,7 @@ struct PSOutput
 [earlydepthstencil]
 PSOutput MainPS(PixelInput input)
 {
-	MaterialSample material = SampleMaterial(pushConstants.materialIndex, input.texCoord, input.normal, input.TBN);
+	MaterialSample material = SampleMaterial(input.matIndex, input.texCoord, input.normal, input.TBN);
 
 	PSOutput output = (PSOutput)0;
 	output.outAlbedoMetallic    = float4(material.baseColor.rgb, material.metallic);

@@ -1,0 +1,35 @@
+
+#include "SceneBindings.hlsli"
+
+
+struct IndexedIndirectCommand
+{
+	uint indexCount;
+	uint instanceCount;
+	uint firstIndex;
+	int vertexOffset;
+	uint startInstanceLocation;
+};
+
+RWStructuredBuffer<IndexedIndirectCommand> indirectDraws[] : register(u0);
+RWStructuredBuffer<uint> indirectCount : register(u1);
+
+
+[numthreads(256, 1, 1)]
+void MainCS(uint idx : SV_DispatchThreadID)
+{
+    if (idx >= instanceCount) return;
+
+//    printf("%u", idx);
+
+    uint temp;
+    InstanceData data = instances[NonUniformResourceIndex(idx)];
+
+    indirectDraws[data.pipelineIndex][idx].indexCount = data.indexCount;
+    indirectDraws[data.pipelineIndex][idx].instanceCount = 1;
+    indirectDraws[data.pipelineIndex][idx].firstIndex = data.firstIndex;
+    indirectDraws[data.pipelineIndex][idx].vertexOffset = 0;
+    indirectDraws[data.pipelineIndex][idx].startInstanceLocation = idx;
+
+    InterlockedAdd(indirectCount[data.pipelineIndex], 1, temp);
+}

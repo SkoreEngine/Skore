@@ -1,6 +1,7 @@
 #pragma once
 #include "Skore/EditorCommon.hpp"
 #include "Skore/MenuItem.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 #include "Skore/Utils/EntityPicker.hpp"
 #include "Skore/Utils/FreeViewCamera.hpp"
@@ -73,7 +74,6 @@ namespace Skore
 		bool lockCameraFrustum = false;
 		bool drawMeshAABB = false;
 		bool drawNavMesh = false;
-		bool pathTracerEnabled = false;
 		String selectedTextureToShow = "";
 
 		Vec2 textPos = {100, 100};
@@ -96,6 +96,7 @@ namespace Skore
 
 
 		static MenuItemContext menuItemContext;
+		Scene emptyScene;
 
 		void Draw3DViewport(u32 id);
 		void Draw2DViewport(u32 id);

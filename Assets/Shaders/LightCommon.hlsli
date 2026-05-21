@@ -1,9 +1,8 @@
 #ifndef SK_LIGHT_COMMON_HLSLI
 #define SK_LIGHT_COMMON_HLSLI
 
+#include "SceneBindings.hlsli"
 #include "PBR.hlsli"
-
-#define MAX_LIGHTS 64
 
 //flags
 #define SK_LIGHT_FLAGS_HAS_AMBIENT_TEXTURE 	    1 << 1
@@ -11,18 +10,6 @@
 #define SK_LIGHT_FLAGS_HAS_REFLECTION_TEXTURE 	1 << 3
 #define SK_LIGHT_FLAGS_HAS_SSAO_TEXTURE 	    1 << 4
 #define SK_LIGHT_FLAGS_SSR_ENABLED 	            1 << 5
-
-struct Light
-{
-	uint   type;
-	float3 position;
-	float4 direction;
-	float4 color;
-	float  intensity;
-	float  range;
-	float  innerConeAngle;
-	float  outerConeAngle;
-};
 
 // Extracts light direction and max shadow-ray distance for a given light and world position.
 void GetLightDirectionAndDistance(Light light, float3 worldPos, out float3 lightDir, out float maxDist)

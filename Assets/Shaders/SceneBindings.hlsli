@@ -1,8 +1,7 @@
 #ifndef SK_SCENE_BINDINGS_HLSLI
 #define SK_SCENE_BINDINGS_HLSLI
 
-// space1 — scene data: camera UBO, lights, shadow tex/sampler.
-// LightBuffer + shadow bindings live in Lights.hlsli (also at space1).
+#include "Common.hlsli"
 
 cbuffer GlobalSceneBuffer : register(b0, space1)
 {
@@ -12,12 +11,66 @@ cbuffer GlobalSceneBuffer : register(b0, space1)
 	matrix viewInv;
 	matrix projectionInv;
 	matrix viewProjInv;
+
 	float3 cameraPosition;
 	float  farClip;
+
 	int2   outputSize;
 	float2 pad1;
+
 	float2 jitter;
 	float2 prevJitter;
+
+	uint   instanceCount;
+	float3 pad2;
+
 };
+
+struct InstanceData
+{
+    matrix  transform;
+    uint    materialIndex;
+    uint    meshIndex;
+    uint    vertexLayoutIndex;
+    uint    indexCount;
+
+    float3  aabbMin;
+    uint    firstIndex;
+
+    float3  aabbMax;
+    uint    pipelineIndex;
+};
+
+StructuredBuffer<InstanceData> instances : register(t1, space1);
+
+struct Light
+{
+	uint   type;
+	float3 position;
+	float4 direction;
+	float4 color;
+	float  intensity;
+	float  range;
+	float  innerConeAngle;
+	float  outerConeAngle;
+};
+
+cbuffer LightBuffer : register(b2, space1)
+{
+	uint     lightCount;
+	uint	 shadowLightIndex;
+    float2   pad0;
+	float4   cascadeSplits;
+	float4x4 cascadeViewProjMat[SHADOW_MAP_CASCADE_COUNT];
+	Light    lights[MAX_LIGHTS];
+};
+
+Texture2DArray         shadowMapTexture     : register(t3, space1);
+#if SK_USE_COMPARISON_STATE
+SamplerComparisonState shadowMapSampler     : register(s4, space1);
+#else
+SamplerState   		   shadowMapSampler     : register(s5, space1);
+#endif
+
 
 #endif
