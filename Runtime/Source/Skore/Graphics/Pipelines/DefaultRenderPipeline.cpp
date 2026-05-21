@@ -66,8 +66,6 @@ namespace Skore
 		GPUBuffer*        lightBuffer = nullptr;
 		u64               lightBufferAlignedSize = 0;
 
-		GPUDescriptorSet* directLightingDescriptorSet[SK_FRAMES_IN_FLIGHT] = {};
-
 		Vec3  ambientLight;
 		float ambientMultiplier;
 		float reflectionMultiplier;
@@ -82,6 +80,18 @@ namespace Skore
 		{
 			type.Field<&LightPassInstanceData::lightBuffer>("lightBuffer");
 		}
+	};
+
+	struct ScenePipelineCullingData
+	{
+		GPUBuffer* indirectDrawBuffer = nullptr;
+		u32 countBufferOffset = 0;
+	};
+
+	struct SceneCullingData
+	{
+		Array<ScenePipelineCullingData> pipelines;
+		GPUBuffer* countBuffer = nullptr;
 	};
 
 	struct DefaultCascadeShadowPass : CascadeShadowPassBase
@@ -125,7 +135,7 @@ namespace Skore
 					.renderPass = m_shadowMapRenderPass[0],
 					.descriptorSetsOverride = {
 						DescriptorSetOverride{
-							.set = 2,
+							.set = 0,
 							.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
 						}
 					}
@@ -137,8 +147,8 @@ namespace Skore
 			{
 				GPUPipeline* pipeline = shadowMapPipelines[i];
 				cmd->BindPipeline(pipeline);
-				cmd->BindDescriptorSet(pipeline, 0, m_shadowMapDescriptorSets[context->GetCurrentFrame()][cascadeIndex], {});
-				cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 2, m_shadowMapDescriptorSets[context->GetCurrentFrame()][cascadeIndex], {});
 
 				for (const Drawcall& drawcall : objects->shadowPipelines[i].drawcalls)
 				{
@@ -149,7 +159,7 @@ namespace Skore
 
 					if (drawcall.bones)
 					{
-						cmd->BindDescriptorSet(pipeline, 1, drawcall.bones);
+						cmd->BindDescriptorSet(pipeline, 3, drawcall.bones);
 					}
 
 					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
@@ -212,28 +222,22 @@ namespace Skore
 				.debugName = "LightBuffer"
 			});
 
-			DescriptorSetDesc directLightDesc = {
-				.bindings = {
-					DescriptorSetLayoutBinding{.binding = 0, .descriptorType = DescriptorType::UniformBuffer},
-					DescriptorSetLayoutBinding{.binding = 1, .descriptorType = DescriptorType::SampledImage},
-					DescriptorSetLayoutBinding{.binding = 2, .descriptorType = DescriptorType::Sampler}
-				},
-				.debugName = "DirectLightDescriptorSet",
-			};
-
+			// Light/shadow bindings live in the merged scene descriptor set (space1, bindings 1/2/3).
+			// Per-frame in flight scene sets get distinct light-buffer offsets to avoid hazards.
 			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
 			{
-				lightInstanceData->directLightingDescriptorSet[f] = Graphics::CreateDescriptorSet(directLightDesc);
+				GPUDescriptorSet* sceneSet = context->GetSceneDescriptorSet(f);
 
-				DescriptorUpdate descriptorUpdate;
-				descriptorUpdate.type = DescriptorType::UniformBuffer;
-				descriptorUpdate.binding = 0;
-				descriptorUpdate.buffer = lightInstanceData->lightBuffer;
-				descriptorUpdate.bufferOffset = lightInstanceData->lightBufferAlignedSize * f;
-				descriptorUpdate.bufferRange = sizeof(LightBuffer);
-				lightInstanceData->directLightingDescriptorSet[f]->Update(descriptorUpdate);
-				lightInstanceData->directLightingDescriptorSet[f]->UpdateTexture(1, shadowMapData->shadowTexture);
-				lightInstanceData->directLightingDescriptorSet[f]->UpdateSampler(2, shadowMapData->shadowSampler);
+				DescriptorUpdate lightUpdate;
+				lightUpdate.type = DescriptorType::UniformBuffer;
+				lightUpdate.binding = 1;
+				lightUpdate.buffer = lightInstanceData->lightBuffer;
+				lightUpdate.bufferOffset = lightInstanceData->lightBufferAlignedSize * f;
+				lightUpdate.bufferRange = sizeof(LightBuffer);
+				sceneSet->Update(lightUpdate);
+
+				sceneSet->UpdateTexture(2, shadowMapData->shadowTexture);
+				sceneSet->UpdateSampler(3, shadowMapData->shadowSampler);
 			}
 		}
 
@@ -342,10 +346,80 @@ namespace Skore
 		void Destroy() override
 		{
 			lightInstanceData->lightBuffer->Destroy();
-			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+		}
+	};
+
+	struct DefaultCullingPass : RenderPipelinePass
+	{
+		SK_CLASS(DefaultCullingPass, RenderPipelinePass);
+		Scene* cachedPipelineOwner = nullptr;
+
+
+		RenderPipelinePassSetup GetPassSetup() override
+		{
+			RenderPipelinePassSetup setup;
+			setup.stage = DefaultPipelineRenderStage::Culling;
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "SceneCullingData", .access = RenderPipelineTextureAccess::Write});
+			return setup;
+		}
+
+		void PrepareBuffers(Scene* scene, SceneCullingData* data)
+		{
+			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
 			{
-				lightInstanceData->directLightingDescriptorSet[f]->Destroy();
+				for (auto& pipelineData : data->pipelines)
+				{
+					if (pipelineData.indirectDrawBuffer)
+					{
+						pipelineData.indirectDrawBuffer->Destroy();
+					}
+				}
+				data->countBuffer->Destroy();
+				data->pipelines.Clear();
 			}
+
+			if (data->pipelines.Size() < scene->renderObjects.opaquePipelines.Size())
+			{
+				data->pipelines.Resize(scene->renderObjects.opaquePipelines.Size());
+			}
+
+			for (int i = 0; i < scene->renderObjects.opaquePipelines.Size(); ++i)
+			{
+				if (data->pipelines[i].indirectDrawBuffer == nullptr || data->pipelines[i].indirectDrawBuffer->GetDesc().size < scene->renderObjects.opaquePipelines.Size() * sizeof(u32))
+				{
+					data->pipelines[i].indirectDrawBuffer = Graphics::CreateBuffer(BufferDesc{
+						.size = sizeof(DrawIndexedIndirectArguments) * scene->renderObjects.opaquePipelines.Size() * 2,
+						.usage = ResourceUsage::IndirectBuffer,
+						.hostVisible = false,
+						.persistentMapped = false,
+						.debugName = "IndirectDrawBuffer"
+					});
+				}
+				data->pipelines[i].countBufferOffset = sizeof(u32) * i;
+			}
+
+			if (scene->renderObjects.opaquePipelines.Size() > 0 && (data->countBuffer == nullptr || data->countBuffer->GetDesc().size < scene->renderObjects.opaquePipelines.Size() * sizeof(u32)))
+			{
+				if (data->countBuffer)
+				{
+					data->countBuffer->Destroy();
+				}
+
+				data->countBuffer = Graphics::CreateBuffer(BufferDesc{
+					.size = sizeof(u32) * scene->renderObjects.opaquePipelines.Size() * 2,
+					.usage = ResourceUsage::IndirectBuffer,
+					.hostVisible = false,
+					.persistentMapped = false,
+					.debugName = "IndirectDrawBufferCount"
+				});
+			}
+		}
+
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			SceneCullingData* data = context->GetInstanceData<SceneCullingData>("SceneCullingData");
+			PrepareBuffers(scene, data);
+
 		}
 	};
 
@@ -371,6 +445,7 @@ namespace Skore
 			setup.type = RenderPipelinePassType::Graphics;
 			setup.stage = DefaultPipelineRenderStage::GBuffer;
 			setup.invertViewport = true;
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "SceneCullingData", .access = RenderPipelineTextureAccess::Read});
 
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferAlbedoMetallic", .access = RenderPipelineTextureAccess::Write});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferRoughnessAO", .access = RenderPipelineTextureAccess::Write});
@@ -410,6 +485,7 @@ namespace Skore
 				const DrawPipelineDesc& desc = objects->opaquePipelines[opaquePipelines.Size()].desc;
 
 				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
+				//RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferNew.raster");
 
 				Array<String> macros;
 				if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");
@@ -436,8 +512,12 @@ namespace Skore
 				};
 
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
-					.set = 2,
+					.set = 0,
 					.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+				});
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 1,
+					.descriptorSet = context->GetSceneDescriptorSet(0)
 				});
 
 				opaquePipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
@@ -445,13 +525,28 @@ namespace Skore
 
 			cachedPipelineOwner = scene;
 
+			SceneCullingData* cullingData = context->GetInstanceData<SceneCullingData>("SceneCullingData");
+
 			for (u32 i = 0; i < objects->opaquePipelines.Size(); i++)
 			{
 				GPUPipeline* pipeline = opaquePipelines[i];
 
 				cmd->BindPipeline(pipeline);
-				cmd->BindDescriptorSet(pipeline, 0, context->GetSceneDescriptorSet());
-				cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+
+				// ScenePipelineCullingData& cullingPipelineData = cullingData->pipelines[i];
+				//
+				// MeshPushConstants pc = {};
+				// cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
+				//
+				// cmd->DrawIndexedIndirectCount(cullingPipelineData.indirectDrawBuffer,
+				//                               0,
+				//                               cullingData->countBuffer,
+				//                               cullingPipelineData.countBufferOffset,
+				//                               objects->opaquePipelines[i].drawcalls.Size(),
+				//                               sizeof(DrawIndexedIndirectArguments));
+
 
 				for (const Drawcall& drawcall : objects->opaquePipelines[i].drawcalls)
 				{
@@ -472,7 +567,7 @@ namespace Skore
 
 					if (drawcall.bones)
 					{
-						cmd->BindDescriptorSet(pipeline, 1, drawcall.bones);
+						cmd->BindDescriptorSet(pipeline, 3, drawcall.bones);
 					}
 
 					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
@@ -530,13 +625,12 @@ namespace Skore
 
 			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
 			{
-				gBufferDescriptorSets[f]->UpdateBuffer( 0, context->sceneBuffer, context->GetSceneBufferSize() * f, context->GetSceneBufferSize());
-				gBufferDescriptorSets[f]->UpdateTexture(1, lightAttachment);
-				gBufferDescriptorSets[f]->UpdateTexture(2, context->GetTexture("GBufferAlbedoMetallic"));
-				gBufferDescriptorSets[f]->UpdateTexture(3, context->GetTexture("GBufferRoughnessAO"));
-				gBufferDescriptorSets[f]->UpdateTexture(4, context->GetTexture("GBufferNormals"));
-				gBufferDescriptorSets[f]->UpdateTexture(5, context->GetTexture("GBufferEmissive"));
-				gBufferDescriptorSets[f]->UpdateTexture(6, context->GetTexture(LinearDepthMipChainName));
+				gBufferDescriptorSets[f]->UpdateTexture(0, lightAttachment);
+				gBufferDescriptorSets[f]->UpdateTexture(1, context->GetTexture("GBufferAlbedoMetallic"));
+				gBufferDescriptorSets[f]->UpdateTexture(2, context->GetTexture("GBufferRoughnessAO"));
+				gBufferDescriptorSets[f]->UpdateTexture(3, context->GetTexture("GBufferNormals"));
+				gBufferDescriptorSets[f]->UpdateTexture(4, context->GetTexture("GBufferEmissive"));
+				gBufferDescriptorSets[f]->UpdateTexture(5, context->GetTexture(LinearDepthMipChainName));
 			}
 		}
 
@@ -546,15 +640,16 @@ namespace Skore
 				.shader = Resources::FindByPath("Skore://Shaders/DeferredLighting.comp")
 			});
 
+			// Per-pipeline (space2): only the GBuffer textures + output. Scene UBO and lights
+			// come from the shared scene set (space1).
 			DescriptorSetDesc gBufferDescSetDesc{
 				.bindings = {
-					DescriptorSetLayoutBinding{.binding = 0, .descriptorType = DescriptorType::UniformBuffer},
-					DescriptorSetLayoutBinding{.binding = 1, .descriptorType = DescriptorType::StorageImage},
+					DescriptorSetLayoutBinding{.binding = 0, .descriptorType = DescriptorType::StorageImage},
+					DescriptorSetLayoutBinding{.binding = 1, .descriptorType = DescriptorType::SampledImage},
 					DescriptorSetLayoutBinding{.binding = 2, .descriptorType = DescriptorType::SampledImage},
 					DescriptorSetLayoutBinding{.binding = 3, .descriptorType = DescriptorType::SampledImage},
 					DescriptorSetLayoutBinding{.binding = 4, .descriptorType = DescriptorType::SampledImage},
-					DescriptorSetLayoutBinding{.binding = 5, .descriptorType = DescriptorType::SampledImage},
-					DescriptorSetLayoutBinding{.binding = 6, .descriptorType = DescriptorType::SampledImage}
+					DescriptorSetLayoutBinding{.binding = 5, .descriptorType = DescriptorType::SampledImage}
 				}
 			};
 
@@ -573,7 +668,7 @@ namespace Skore
 			u32 frame = context->GetCurrentFrame();
 			cmd->BindPipeline(pipeline);
 			cmd->BindDescriptorSet(pipeline, 0, gBufferDescriptorSets[frame]);
-			cmd->BindDescriptorSet(pipeline, 1, lightInstanceData->directLightingDescriptorSet[frame]);
+			cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
 		}
 
@@ -665,7 +760,13 @@ namespace Skore
 							.alphaBlendOp = BlendOp::Add
 						},
 					},
-					.renderPass = renderPass
+					.renderPass = renderPass,
+					.descriptorSetsOverride = {
+						DescriptorSetOverride{
+							.set = 1,
+							.descriptorSet = context->GetSceneDescriptorSet(0)
+						}
+					}
 				});
 			}
 		}
@@ -728,8 +829,12 @@ namespace Skore
 				};
 
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
-					.set = 2,
+					.set = 0,
 					.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+				});
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 1,
+					.descriptorSet = context->GetSceneDescriptorSet(0)
 				});
 
 				transparencyPipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
@@ -740,9 +845,8 @@ namespace Skore
 				GPUPipeline* pipeline = transparencyPipelines[i];
 
 				cmd->BindPipeline(pipeline);
-				cmd->BindDescriptorSet(pipeline, 0, context->GetSceneDescriptorSet());
-				cmd->BindDescriptorSet(pipeline, 1, lightInstanceData->directLightingDescriptorSet[frame]);
-				cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 
 				for (const Drawcall& drawcall : objects->transparentPipelines[i].drawcalls)
 				{
@@ -788,8 +892,8 @@ namespace Skore
 				u32 maxParticles = p->GetMaxParticles();
 
 				cmd->BindPipeline(particlePipeline);
-				cmd->BindDescriptorSet(particlePipeline, 0, context->GetSceneDescriptorSet());
-				cmd->BindDescriptorSet(particlePipeline, 1, particleDescriptorSet);
+				cmd->BindDescriptorSet(particlePipeline, 1, context->GetSceneDescriptorSet());
+				cmd->BindDescriptorSet(particlePipeline, 3, particleDescriptorSet);
 				cmd->Draw(maxParticles * 6, 1, 0, 0);
 			});
 
@@ -810,7 +914,7 @@ namespace Skore
 				Mat4 viewProj = context->camera.projection * Mat4(Mat34(context->camera.view));
 
 				cmd->PushConstants(skyboxMaterialPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &viewProj);
-				cmd->BindDescriptorSet(skyboxMaterialPipeline, 0, skyMaterial->descriptorSet, {});
+				cmd->BindDescriptorSet(skyboxMaterialPipeline, 3, skyMaterial->descriptorSet, {});
 				cmd->Draw(36, 1, 0, 0);
 			}
 		}
@@ -1315,6 +1419,7 @@ namespace Skore
 		{
 			RenderPipelineModuleSetup setup;
 			setup.passes.EmplaceBack(sktypeid(DefaultLightSetupPass));
+			setup.passes.EmplaceBack(sktypeid(DefaultCullingPass));
 			setup.passes.EmplaceBack(sktypeid(DefaultDeferredGBufferPass));
 			setup.passes.EmplaceBack(sktypeid(DefaultDeferredLightingPass));
 			setup.passes.EmplaceBack(sktypeid(DefaultForwardPass));
@@ -1334,6 +1439,7 @@ namespace Skore
 
 			//resources
 			resources.EmplaceBack(RenderPipelineResource{.name = "LightInstanceData", .type = RenderPipelineResourceType::Instance, .instanceTypeId = sktypeid(LightPassInstanceData)});
+			resources.EmplaceBack(RenderPipelineResource{.name = "SceneCullingData", .type = RenderPipelineResourceType::Instance, .instanceTypeId = sktypeid(SceneCullingData)});
 
 			//GBuffer attachments
 			resources.EmplaceBack(RenderPipelineResource{.name = "GBufferAlbedoMetallic", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM});
@@ -1365,7 +1471,7 @@ namespace Skore
 		{
 			RenderPipelineSetup setup;
 			setup.modules.EmplaceBack(sktypeid(DefaultCascadeShadowMapModule));
-			setup.modules.EmplaceBack(sktypeid(DepthPrePassModule));
+			//setup.modules.EmplaceBack(sktypeid(DepthPrePassModule));
 			setup.modules.EmplaceBack(sktypeid(DefaultDeferredRenderModule));
 
 			//TODO - check if TAA is enabled.
@@ -1383,7 +1489,9 @@ namespace Skore
 	void RegisterDefaultRenderPipeline()
 	{
 		Reflection::Type<LightPassInstanceData>();
+		Reflection::Type<SceneCullingData>();
 
+		Reflection::Type<DefaultCullingPass>();
 		Reflection::Type<DefaultCascadeShadowPass>();
 		Reflection::Type<DefaultLightSetupPass>();
 		Reflection::Type<DefaultDeferredGBufferPass>();

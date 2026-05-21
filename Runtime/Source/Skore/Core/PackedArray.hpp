@@ -83,6 +83,11 @@ namespace Skore
 			return index < m_slots.Size() && m_slots[index] < m_payload.Size();
 		}
 
+		usize Size() const
+		{
+			return m_payload.Size();
+		}
+
 	private:
 		Array<T>      m_payload{};
 		Array<Handle> m_handlers{};

@@ -1,7 +1,7 @@
 #ifndef SK_MATERIALS_HLSLI
 #define SK_MATERIALS_HLSLI
 
-#include "Bindings.hlsli"
+#include "GlobalBindings.hlsli"
 
 struct MaterialSample
 {

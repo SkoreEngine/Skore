@@ -71,7 +71,17 @@ namespace Skore
 				.shader = shaderRID,
 				.variant = "Default",
 				.maxRecursionDepth = 1,
-				.debugName = "PathTracerPipeline"
+				.debugName = "PathTracerPipeline",
+				.descriptorSetsOverride = {
+					DescriptorSetOverride{
+						.set = 0,
+						.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+					},
+					DescriptorSetOverride{
+						.set = 1,
+						.descriptorSet = context->GetSceneDescriptorSet(0)
+					}
+				}
 			});
 
 			rtDescriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
@@ -210,9 +220,9 @@ namespace Skore
 			}
 
 			cmd->BindPipeline(rtPipeline);
-			cmd->BindDescriptorSet(rtPipeline, 0, context->GetSceneDescriptorSet(), {});
-			cmd->BindDescriptorSet(rtPipeline, 1, rtDescriptorSet, {});
-			cmd->BindDescriptorSet(rtPipeline, 2, geometrySet, {});
+			cmd->BindDescriptorSet(rtPipeline, 0, geometrySet, {});
+			cmd->BindDescriptorSet(rtPipeline, 1, context->GetSceneDescriptorSet(), {});
+			cmd->BindDescriptorSet(rtPipeline, 2, rtDescriptorSet, {});
 
 			PathTracerPushConstants pc;
 			pc.sampleIndex = sampleCount;

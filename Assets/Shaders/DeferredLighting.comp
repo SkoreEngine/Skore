@@ -1,15 +1,15 @@
 
 #include "Common.hlsli"
-#include "Bindings.hlsli"
+#include "SceneBindings.hlsli"
 
 [[vk::image_format("rgba16f")]]
-RWTexture2D<float4> outputTexture           : register(u1);
+RWTexture2D<float4> outputTexture           : register(u0, space0);
 
-Texture2D           albedoMetallicTexture   : register(t2);
-Texture2D<float2>   roughnessAoTexture      : register(t3);
-Texture2D<float2>   normalTexture           : register(t4);
-Texture2D<float3>   emissiveTexture         : register(t5);
-Texture2D<float>    linearDepthTexture      : register(t6);
+Texture2D           albedoMetallicTexture   : register(t1, space0);
+Texture2D<float2>   roughnessAoTexture      : register(t2, space0);
+Texture2D<float2>   normalTexture           : register(t3, space0);
+Texture2D<float3>   emissiveTexture         : register(t4, space0);
+Texture2D<float>    linearDepthTexture      : register(t5, space0);
 
 #include "Lights.hlsli"
 

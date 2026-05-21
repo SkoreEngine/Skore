@@ -196,10 +196,8 @@ namespace Skore
 
 		// Performs the actual drawcall registration (raster + shadow + RT). Split out so both
 		// CreateDrawcall (sync path) and DoUpdate (deferred promotion) can drive it.
-		void DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material,
-			RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref);
-		void AddPendingDrawcall(RendererComponent* component, u32 primitiveIndex, const MeshResourceCachePtr& mesh,
-			const MaterialResourceCachePtr& material, const DrawcallDesc& desc, DrawcallRef& outRef);
+		void DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material, RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref);
+		void AddPendingDrawcall(RendererComponent* component, u32 primitiveIndex, const MeshResourceCachePtr& mesh, const MaterialResourceCachePtr& material, const DrawcallDesc& desc, DrawcallRef& outRef);
 		void RemovePendingDrawcall(u32 idx);
 	};
 }

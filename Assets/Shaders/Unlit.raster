@@ -1,5 +1,6 @@
 
-#include "Bindings.hlsli"
+#include "GlobalBindings.hlsli"
+#include "SceneBindings.hlsli"
 
 struct PushConstants
 {

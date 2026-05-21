@@ -1,13 +1,4 @@
-cbuffer CameraBuffer
-{
-	matrix viewProjection;
-	matrix view;
-	matrix projection;
-	matrix viewInv;
-	matrix projectionInv;
-	float3 cameraPosition;
-	float  pad;
-};
+#include "SceneBindings.hlsli"
 
 struct Particle
 {
@@ -21,7 +12,7 @@ struct Particle
 	float2 _pad;
 };
 
-StructuredBuffer<Particle> particles : register(t0, space1);
+StructuredBuffer<Particle> particles : register(t0, space3);
 
 struct VSOutput
 {

@@ -16,7 +16,8 @@ static const float4x4 biasMat = float4x4(
 	0.0, 0.0, 0.0, 1.0
 );
 
-cbuffer LightBuffer : register(b0, space1)
+// Scene set (space1) bindings — coexist with GlobalSceneBuffer at binding 0.
+cbuffer LightBuffer : register(b1, space1)
 {
 	uint     lightCount;
 	uint	 shadowLightIndex;
@@ -26,11 +27,11 @@ cbuffer LightBuffer : register(b0, space1)
 	Light    lights[MAX_LIGHTS];
 };
 
-Texture2DArray         shadowMapTexture     : register(t1, space1);
+Texture2DArray         shadowMapTexture     : register(t2, space1);
 #if SK_USE_COMPARISON_STATE
-SamplerComparisonState shadowMapSampler     : register(s2, space1);
+SamplerComparisonState shadowMapSampler     : register(s3, space1);
 #else
-SamplerState   		   shadowMapSampler     : register(s2, space1);
+SamplerState   		   shadowMapSampler     : register(s3, space1);
 #endif
 
 float TextureProj(float4 shadowCoord, float2 offset, uint cascadeIndex)

@@ -123,7 +123,7 @@ namespace Skore
 						.renderPass = renderPass,
 						.descriptorSetsOverride = {
 							DescriptorSetOverride{
-								.set = 2,
+								.set = 0,
 								.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
 							}
 						}
@@ -164,7 +164,7 @@ namespace Skore
 			{
 				GPUPipeline* pipeline = pickerPipelines[index];
 				cmd->BindPipeline(pipeline);
-				cmd->BindDescriptorSet(pipeline, 2, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
 
 				for (const Drawcall& drawcall : drawPipeline.drawcalls)
 				{

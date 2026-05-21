@@ -7,8 +7,9 @@ struct SkyboxConstants
 
 [[vk::push_constant]] SkyboxConstants skyboxConstants;
 
-Texture2D     panoramicTexture : register(t0);
-SamplerState  samplerState  : register(s1);
+// Per-material data (skybox is bound at space3).
+Texture2D     panoramicTexture : register(t0, space3);
+SamplerState  samplerState  : register(s1, space3);
 
 struct PSInput
 {

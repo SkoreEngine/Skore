@@ -1,4 +1,5 @@
 #include "Materials.hlsli"
+#include "SceneBindings.hlsli"
 #include "Lights.hlsli"
 
 struct PushConstants

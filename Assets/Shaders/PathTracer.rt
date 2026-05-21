@@ -1,9 +1,11 @@
 #include "Materials.hlsli"
+#include "SceneBindings.hlsli"
 #include "LightCommon.hlsli"
 #include "Tonemapping.hlsli"
 
-RaytracingAccelerationStructure SceneTLAS : register(t0, space1);
-RWTexture2D<float4> OutputImage : register(u1, space1);
+// Per-pipeline data (path tracer's own descriptor set is space2).
+RaytracingAccelerationStructure SceneTLAS : register(t0, space2);
+RWTexture2D<float4> OutputImage : register(u1, space2);
 
 struct InstanceData
 {
@@ -13,9 +15,9 @@ struct InstanceData
 	uint firstIndex;
 };
 
-StructuredBuffer<InstanceData> InstanceDataBuffer : register(t2, space1);
+StructuredBuffer<InstanceData> InstanceDataBuffer : register(t2, space2);
 
-cbuffer RTLightBuffer : register(b3, space1)
+cbuffer RTLightBuffer : register(b3, space2)
 {
 	uint   rtLightCount;
 	float3 rtAmbientLight;
@@ -24,7 +26,7 @@ cbuffer RTLightBuffer : register(b3, space1)
 	Light  rtLights[MAX_LIGHTS];
 };
 
-RWTexture2D<float4> AccumulationImage : register(u4, space1);
+RWTexture2D<float4> AccumulationImage : register(u4, space2);
 
 [[vk::push_constant]]
 struct PathTracerPushConstants
