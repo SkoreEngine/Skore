@@ -5,7 +5,7 @@
 struct PushConstants
 {
 	matrix world;
-	uint   meshIndex;
+	uint   vertexByteOffset;
 	uint   vertexLayoutIndex;
 	uint2  pad;
 };
@@ -20,7 +20,7 @@ struct PixelInput
 PixelInput MainVS(uint vertexId : SV_VertexID)
 {
 	PixelInput output;
-	float3 position = GetVertexPosition(pushConstants.meshIndex, pushConstants.vertexLayoutIndex, vertexId);
+	float3 position = GetVertexPosition(pushConstants.vertexByteOffset, pushConstants.vertexLayoutIndex, vertexId);
 	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0f));
 	output.position      = mul(viewProjection, worldPosition);
 	return output;

@@ -104,7 +104,7 @@ namespace Skore
 			struct ShadowPushConstants
 			{
 				Mat4 world;
-				u32  meshIndex;
+				u32  vertexByteOffset;
 				u32  vertexLayoutIndex;
 				u32  pad[2];
 			};
@@ -143,6 +143,8 @@ namespace Skore
 				shadowMapPipelines.EmplaceBack(p);
 			}
 
+			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
 			for (u32 i = 0; i < objects->shadowPipelines.Size(); i++)
 			{
 				GPUPipeline* pipeline = shadowMapPipelines[i];
@@ -162,14 +164,12 @@ namespace Skore
 						cmd->BindDescriptorSet(pipeline, 3, drawcall.bones);
 					}
 
-					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
-
 					ShadowPushConstants pc{};
 					pc.world = drawcall.transform;
-					pc.meshIndex = drawcall.meshIndex;
+					pc.vertexByteOffset = drawcall.vertexByteOffset;
 					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 					cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(ShadowPushConstants), &pc);
-					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
+					cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
 				}
 			}
 		}
@@ -515,7 +515,7 @@ namespace Skore
 		{
 			Mat4 world;
 			u32  materialIndex;
-			u32  meshIndex;
+			u32  vertexByteOffset;
 			u32  vertexLayoutIndex;
 			u32  pad;
 		};
@@ -610,6 +610,8 @@ namespace Skore
 
 			//SceneCullingData* cullingData = context->GetInstanceData<SceneCullingData>("SceneCullingData");
 
+			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
 			for (u32 i = 0; i < objects->opaquePipelines.Size(); i++)
 			{
 				GPUPipeline* pipeline = opaquePipelines[i];
@@ -650,17 +652,15 @@ namespace Skore
 						cmd->BindDescriptorSet(pipeline, 3, drawcall.bones);
 					}
 
-					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
-
 					MeshPushConstants pc;
 					pc.world = drawcall.transform;
 					pc.materialIndex = drawcall.material->materialIndex;
-					pc.meshIndex = drawcall.meshIndex;
+					pc.vertexByteOffset = drawcall.vertexByteOffset;
 					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 					pc.pad = 0;
 
 					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
-					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
+					cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
 				}
 			}
 		}
@@ -787,7 +787,7 @@ namespace Skore
 		{
 			Mat4 world;
 			u32  materialIndex;
-			u32  meshIndex;
+			u32  vertexByteOffset;
 			u32  vertexLayoutIndex;
 			u32  pad;
 		};
@@ -926,6 +926,8 @@ namespace Skore
 				transparencyPipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
 			}
 
+			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
 			for (u32 i = 0; i < objects->transparentPipelines.Size(); i++)
 			{
 				GPUPipeline* pipeline = transparencyPipelines[i];
@@ -956,16 +958,14 @@ namespace Skore
 						cmd->BindDescriptorSet(pipeline, 3, drawcall.bones);
 					}
 
-					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
-
 					MeshPushConstants pc;
 					pc.world = drawcall.transform;
 					pc.materialIndex = drawcall.material->materialIndex;
-					pc.meshIndex = drawcall.meshIndex;
+					pc.vertexByteOffset = drawcall.vertexByteOffset;
 					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 					pc.pad = 0;
 					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
-					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
+					cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
 				}
 			}
 

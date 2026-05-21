@@ -254,10 +254,12 @@ namespace Skore
 				struct UnlitPushConstants
 				{
 					Mat4 world;
-					u32  meshIndex;
+					u32  vertexByteOffset;
 					u32  vertexLayoutIndex;
 					u32  pad[2];
 				};
+
+				cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
 
 				drawEntity = [&](Entity* entity)
 				{
@@ -271,14 +273,13 @@ namespace Skore
 								cmd->BindPipeline(pipeline);
 								cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet(), {});
 								cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet(), {});
-								cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
 
 								UnlitPushConstants pc{};
 								pc.world = drawcall.transform;
-								pc.meshIndex = drawcall.meshIndex;
+								pc.vertexByteOffset = drawcall.vertexByteOffset;
 								pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 								cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(UnlitPushConstants), &pc);
-								cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
+								cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
 							});
 						}
 					}

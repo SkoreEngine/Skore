@@ -177,7 +177,8 @@ namespace Skore
 			desc.material     = material;
 			desc.bones        = GetBonesDescriptor();
 //			desc.blas              = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
-			desc.meshIndex         = meshCache->geometryIndex;
+			desc.vertexByteOffset  = meshCache->vertexByteOffset;
+			desc.indexByteOffset   = meshCache->indexByteOffset;
 			desc.vertexLayoutIndex = meshCache->vertexLayoutId;
 			desc.visibility        = visibility;
 

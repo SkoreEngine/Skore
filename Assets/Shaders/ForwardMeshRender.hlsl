@@ -6,7 +6,7 @@ struct PushConstants
 {
 	matrix world;
 	uint   materialIndex;
-	uint   meshIndex;
+	uint   vertexByteOffset;
 	uint   vertexLayoutIndex;
 	uint   pad;
 };
@@ -36,18 +36,18 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 {
 	PixelInput output;
 
-	uint meshIdx = pushConstants.meshIndex;
+	uint vboff = pushConstants.vertexByteOffset;
 	uint layoutIdx = pushConstants.vertexLayoutIndex;
-	float3 inputPosition = GetVertexPosition(meshIdx, layoutIdx, vertexId);
-	float3 inputNormal = GetVertexNormal(meshIdx, layoutIdx, vertexId);
-	float4 inputTangent = GetVertexTangent(meshIdx, layoutIdx, vertexId);
+	float3 inputPosition = GetVertexPosition(vboff, layoutIdx, vertexId);
+	float3 inputNormal = GetVertexNormal(vboff, layoutIdx, vertexId);
+	float4 inputTangent = GetVertexTangent(vboff, layoutIdx, vertexId);
 
 #ifdef HAS_BONES
 	float3 position = 0.0;
 	float3 normal = 0.0;
 	float3 tangent = 0.0;
-	uint4 boneIndices = GetVertexBoneIndices(meshIdx, layoutIdx, vertexId);
-	float4 boneWeights = GetVertexBoneWeights(meshIdx, layoutIdx, vertexId);
+	uint4 boneIndices = GetVertexBoneIndices(vboff, layoutIdx, vertexId);
+	float4 boneWeights = GetVertexBoneWeights(vboff, layoutIdx, vertexId);
 
 	[unroll]
 	for (int i = 0; i < 4; i++)
@@ -77,7 +77,7 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 	output.position      = mul(viewProjection, worldPosition);
 	output.worldPos      = worldPosition.xyz;
 
-	output.texCoord = GetVertexUV(meshIdx, layoutIdx, vertexId);
+	output.texCoord = GetVertexUV(vboff, layoutIdx, vertexId);
 
 	float3x3 normalMat = (float3x3)pushConstants.world;
 	output.normal       = normalize(mul(normalMat, normal));
@@ -86,7 +86,7 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 	float3 B = T.w * cross(output.normal, T.xyz);
 	output.TBN = transpose(float3x3(T.xyz, B, output.normal));
 
-	output.color = GetVertexColor(meshIdx, layoutIdx, vertexId);
+	output.color = GetVertexColor(vboff, layoutIdx, vertexId);
 
 	output.viewPos     = cameraPosition;
 	output.fragViewPos = mul(view, worldPosition).xyz;

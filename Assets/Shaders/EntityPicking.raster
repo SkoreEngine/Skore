@@ -13,7 +13,7 @@ struct PushConstants
     matrix   viewProjection;
     matrix   world;
     uint2    entityIDPacked;
-    uint     meshIndex;
+    uint     vertexByteOffset;
     uint     vertexLayoutIndex;
 };
 
@@ -24,7 +24,7 @@ VertexOutput MainVS(uint vertexId : SV_VertexID)
 {
     VertexOutput output;
 
-	float3 position = GetVertexPosition(pushConstants.meshIndex, pushConstants.vertexLayoutIndex, vertexId);
+	float3 position = GetVertexPosition(pushConstants.vertexByteOffset, pushConstants.vertexLayoutIndex, vertexId);
 	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0f));
     output.position = mul(pushConstants.viewProjection, worldPosition);
     output.entityIDPacked = pushConstants.entityIDPacked;
