@@ -16,7 +16,7 @@ namespace Skore
 		Mat4 viewProjection;
 		Mat4 world;
 		u64  entityID;
-		u32  meshIndex;
+		u32  vertexByteOffset;
 		u32  vertexLayoutIndex;
 	};
 
@@ -160,6 +160,8 @@ namespace Skore
 			cmd->SetViewport(viewportInfo);
 			cmd->SetScissor({0, 0}, currentExtent);
 
+			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
 			objects->ForEachVisiblePipeline([&](u32 index, const DrawPipeline& drawPipeline)
 			{
 				GPUPipeline* pipeline = pickerPipelines[index];
@@ -168,15 +170,13 @@ namespace Skore
 
 				for (const Drawcall& drawcall : drawPipeline.drawcalls)
 				{
-					cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
-
 					pushConstants.world = drawcall.transform;
 					pushConstants.entityID = drawcall.userData;
-					pushConstants.meshIndex = drawcall.meshIndex;
+					pushConstants.vertexByteOffset = drawcall.vertexByteOffset;
 					pushConstants.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 					cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(PickerPushConstants), &pushConstants);
 
-					cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
+					cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
 				}
 			});
 

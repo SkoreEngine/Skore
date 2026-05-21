@@ -3,6 +3,7 @@
 #include <atomic>
 #include <functional>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <semaphore>
 #include <utility>
@@ -12,9 +13,7 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
-#include "Skore/Core/DebugUtils.hpp"
 #include "Skore/Core/Logger.hpp"
-#include "Skore/Core/Queue.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/IO/Compression.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -23,11 +22,20 @@ namespace Skore
 {
 	const u32 StagingBufferSize = 1024 * 1024 * 35;
 
+	const u32 MeshDataBufferSize       = 500u * 1024u * 1024u;
+	const u32 MeshDataMaxAllocations   = 32u * 1024u;
+	const u32 MeshDataAllocationAlign  = 16u;
+
 	namespace
 	{
 		void ExecuteOnMainThread(std::function<void()> func);
 		void WaitForTexture(const TextureResourceCachePtr& tex);
-		void RegisterMeshBuffers(u32 geometryIndex, GPUBuffer* vertexBuffer, GPUBuffer* indexBuffer);
+
+		Logger& logger = Logger::GetLogger("Skore.RenderResourceCache");
+
+		GPUBuffer*                                  meshDataBuffer = nullptr;
+		std::unique_ptr<OffsetAllocator::Allocator> meshDataAllocator;
+		std::mutex                                  meshDataAllocatorMutex;
 
 		enum class WorkerType : u32
 		{
@@ -334,48 +342,35 @@ namespace Skore
 
 							ResourceObject meshLodObject = Resources::Read(lods[0]);
 
-							u64 vertexBufferOffset = meshLodObject.GetUInt(MeshLodResource::VerticesOffset);
+							u64 vertexSrcOffset = meshLodObject.GetUInt(MeshLodResource::VerticesOffset);
 							u32 vertexCount = static_cast<u32>(meshLodObject.GetUInt(MeshLodResource::VerticesCount));
 							u64 vertexBufferSize = static_cast<u64>(vertexCount) * static_cast<u64>(meshCache->stride);
-							u64 indexBufferOffset = meshLodObject.GetUInt(MeshLodResource::IndicesOffset);
+							u64 indexSrcOffset = meshLodObject.GetUInt(MeshLodResource::IndicesOffset);
 							u64 indexBufferSize = meshLodObject.GetUInt(MeshLodResource::IndicesCount) * sizeof(u32);
 
-							ResourceUsage rtUsage = wantsBlas ? ResourceUsage::AccelerationStructure | ResourceUsage::ShaderResource : ResourceUsage::None;
-							GPUBuffer*    vertexBuffer = Graphics::CreateBuffer(BufferDesc{
-								   .size = vertexBufferSize,
-								   .usage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | ResourceUsage::ShaderResource | rtUsage,
-								   .hostVisible = false,
-								   .persistentMapped = false,
-								   .debugName = String(name) + "_VertexBuffer"
-							});
-							GPUBuffer* indexBuffer = Graphics::CreateBuffer(BufferDesc{
-								.size = indexBufferSize,
-								.usage = ResourceUsage::CopyDest | ResourceUsage::IndexBuffer | ResourceUsage::ShaderResource | rtUsage,
-								.hostVisible = false,
-								.persistentMapped = false,
-								.debugName = String(name) + "_IndexBuffer"
-							});
-
-							auto uploadOne = [&](GPUBuffer* dst, u64 size, u64 srcOffset)
+							// Mesh data sub-allocations live in the shared meshDataBuffer; offsets are
+							// in bytes. We only need the offsets here — the buffer is created once at
+							// init time.
+							u32 vertexDstOffset = meshCache->vertexByteOffset;
+							u32 indexDstOffset  = meshCache->indexByteOffset;
+							if (vertexDstOffset == U32_MAX || indexDstOffset == U32_MAX)
 							{
-								u64  done = 0;
-								bool firstChunk = true;
+								logger.Error("Mesh '{}' has no mesh-data allocation; skipping upload.", name);
+								break;
+							}
+
+							auto uploadRange = [&](u64 size, u64 srcOffset, u32 dstOffsetBytes)
+							{
+								u64 done = 0;
 								while (done < size)
 								{
 									u64 chunk = std::min<u64>(StagingBufferSize, size - done);
 									buffer.CopyData(stagingBuffer->GetMappedData(), chunk, srcOffset + done);
 
 									transferCmd->Begin();
-									if (firstChunk)
-									{
-										transferCmd->ResourceBarrier(dst, ResourceState::Undefined, ResourceState::CopyDest);
-										firstChunk = false;
-									}
-									transferCmd->CopyBuffer(stagingBuffer, dst, chunk, 0, done);
-									if (done + chunk == size)
-									{
-										transferCmd->ResourceBarrier(dst, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
-									}
+									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::ShaderReadOnly, ResourceState::CopyDest);
+									transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, chunk, 0, dstOffsetBytes + done);
+									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
 									transferCmd->End();
 									transferQueue->SubmitAndWait(transferCmd);
 									transferCmd->Reset();
@@ -387,24 +382,22 @@ namespace Skore
 							if (vertexBufferSize + indexBufferSize <= StagingBufferSize)
 							{
 								u8* mapped = static_cast<u8*>(stagingBuffer->GetMappedData());
-								buffer.CopyData(mapped, vertexBufferSize, vertexBufferOffset);
-								buffer.CopyData(mapped + vertexBufferSize, indexBufferSize, indexBufferOffset);
+								buffer.CopyData(mapped, vertexBufferSize, vertexSrcOffset);
+								buffer.CopyData(mapped + vertexBufferSize, indexBufferSize, indexSrcOffset);
 
 								transferCmd->Begin();
-								transferCmd->ResourceBarrier(vertexBuffer, ResourceState::Undefined, ResourceState::CopyDest);
-								transferCmd->ResourceBarrier(indexBuffer, ResourceState::Undefined, ResourceState::CopyDest);
-								transferCmd->CopyBuffer(stagingBuffer, vertexBuffer, vertexBufferSize, 0, 0);
-								transferCmd->CopyBuffer(stagingBuffer, indexBuffer, indexBufferSize, vertexBufferSize, 0);
-								transferCmd->ResourceBarrier(vertexBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
-								transferCmd->ResourceBarrier(indexBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+								transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::ShaderReadOnly, ResourceState::CopyDest);
+								transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, vertexBufferSize, 0, vertexDstOffset);
+								transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, indexBufferSize, vertexBufferSize, indexDstOffset);
+								transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
 								transferCmd->End();
 								transferQueue->SubmitAndWait(transferCmd);
 								transferCmd->Reset();
 							}
 							else
 							{
-								uploadOne(vertexBuffer, vertexBufferSize, vertexBufferOffset);
-								uploadOne(indexBuffer, indexBufferSize, indexBufferOffset);
+								uploadRange(vertexBufferSize, vertexSrcOffset, vertexDstOffset);
+								uploadRange(indexBufferSize, indexSrcOffset, indexDstOffset);
 							}
 
 							if (wantsBlas)
@@ -422,12 +415,13 @@ namespace Skore
 
 									geometries[p] = GeometryDesc{};
 									geometries[p].type = GeometryType::Triangles;
-									geometries[p].triangles.vertexBuffer = vertexBuffer;
+									geometries[p].triangles.vertexBuffer = meshDataBuffer;
+									geometries[p].triangles.vertexOffset = vertexDstOffset;
 									geometries[p].triangles.vertexCount = vertexCount;
 									geometries[p].triangles.vertexStride = meshCache->stride;
 									geometries[p].triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
-									geometries[p].triangles.indexBuffer = indexBuffer;
-									geometries[p].triangles.indexOffset = prim.firstIndex * sizeof(u32);
+									geometries[p].triangles.indexBuffer = meshDataBuffer;
+									geometries[p].triangles.indexOffset = indexDstOffset + prim.firstIndex * sizeof(u32);
 									geometries[p].triangles.indexCount = prim.indexCount;
 									geometries[p].triangles.indexType = IndexType::Uint32;
 									geometries[p].triangles.opaque = true;
@@ -470,16 +464,12 @@ namespace Skore
 
 							auto pendingPromise = std::move(data.promise);
 							ExecuteOnMainThread(
-								[meshCache, vertexBuffer, indexBuffer, builtBlas = std::move(builtBlas), pendingPromise = std::move(pendingPromise)]() mutable
+								[meshCache, builtBlas = std::move(builtBlas), pendingPromise = std::move(pendingPromise)]() mutable
 								{
-									meshCache->vertexBuffer = vertexBuffer;
-									meshCache->indexBuffer = indexBuffer;
 									if (!builtBlas.Empty())
 									{
 										meshCache->blasArray = std::move(builtBlas);
 									}
-
-									RegisterMeshBuffers(meshCache->geometryIndex, vertexBuffer, indexBuffer);
 
 									if (pendingPromise) pendingPromise->set_value();
 								});
@@ -559,9 +549,6 @@ namespace Skore
 			std::counting_semaphore<>               workSem{0};
 		};
 
-
-		Logger& logger = Logger::GetLogger("Skore.RenderResourceCache");
-
 		// Fonts are kept strongly so per-frame DrawList lookups don't churn.
 		HashMap<RID, FontResourceCachePtr>                 fontCache;
 		HashMap<RID, std::weak_ptr<TextureResourceCache>>  textureCache;
@@ -575,10 +562,8 @@ namespace Skore
 		std::mutex meshCacheMutex{};
 		std::mutex skinCacheMutex{};
 
-		u32               nextGeometryIndex = 0;
 		u32               nextMaterialIndex = 0;
 		u32               nextTextureIndex = 0;
-		Array<u32>        freeGeometryIndices;
 		Array<u32>        freeMaterialIndices;
 		Array<u32>        freeTextureIndices;
 		GPUDescriptorSet* globalDescriptorSet = nullptr;
@@ -598,32 +583,23 @@ namespace Skore
 			mainThreadTasks.emplace(std::move(func));
 		}
 
-		void RegisterMeshBuffers(u32 geometryIndex, GPUBuffer* vertexBuffer, GPUBuffer* indexBuffer)
+		// Round size up so all OffsetAllocator returned offsets stay 16-byte aligned —
+		// safe for any vertex attribute (float4 tangent, etc.) and for u32 indices.
+		u32 AlignMeshAllocSize(u64 size)
 		{
-			DescriptorUpdate vtxUpdate;
-			vtxUpdate.type = DescriptorType::StorageBuffer;
-			vtxUpdate.binding = 3;
-			vtxUpdate.arrayElement = geometryIndex;
-			vtxUpdate.buffer = vertexBuffer;
-			globalDescriptorSet->Update(vtxUpdate);
-
-			DescriptorUpdate idxUpdate;
-			idxUpdate.type = DescriptorType::StorageBuffer;
-			idxUpdate.binding = 4;
-			idxUpdate.arrayElement = geometryIndex;
-			idxUpdate.buffer = indexBuffer;
-			globalDescriptorSet->Update(idxUpdate);
+			return static_cast<u32>((size + MeshDataAllocationAlign - 1) & ~static_cast<u64>(MeshDataAllocationAlign - 1));
 		}
 
-		u32 AllocateGeometryIndex()
+		OffsetAllocator::Allocation AllocateMeshData(u32 alignedSize)
 		{
-			if (!freeGeometryIndices.Empty())
-			{
-				u32 idx = freeGeometryIndices.Back();
-				freeGeometryIndices.PopBack();
-				return idx;
-			}
-			return nextGeometryIndex++;
+			std::scoped_lock lock(meshDataAllocatorMutex);
+			return meshDataAllocator->allocate(alignedSize);
+		}
+
+		void FreeMeshData(OffsetAllocator::Allocation alloc)
+		{
+			std::scoped_lock lock(meshDataAllocatorMutex);
+			meshDataAllocator->free(alloc);
 		}
 
 		u32 AllocateMaterialIndex()
@@ -1054,20 +1030,27 @@ namespace Skore
 
 	MeshResourceCache::~MeshResourceCache()
 	{
-		if (geometryIndex != U32_MAX)
-		{
-			freeGeometryIndices.EmplaceBack(geometryIndex);
-			geometryIndex = U32_MAX;
-		}
-
 		for (GPUBottomLevelAS* blas : blasArray)
 		{
 			if (blas) blas->Destroy();
 		}
 		blasArray.Clear();
 
-		if (vertexBuffer) vertexBuffer->Destroy();
-		if (indexBuffer) indexBuffer->Destroy();
+		if (meshDataAllocator)
+		{
+			if (vertexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+			{
+				FreeMeshData(vertexAlloc);
+			}
+			if (indexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+			{
+				FreeMeshData(indexAlloc);
+			}
+		}
+		vertexAlloc = OffsetAllocator::Allocation{};
+		indexAlloc = OffsetAllocator::Allocation{};
+		vertexByteOffset = U32_MAX;
+		indexByteOffset = U32_MAX;
 	}
 
 	bool RenderResourceCache::WorkerIdle()
@@ -1389,7 +1372,35 @@ namespace Skore
 			meshData->primitives.Resize(primitiveCount);
 			buffer.CopyData(meshData->primitives.Data(), primitiveSize, primitiveOffset);
 
-			meshData->geometryIndex = AllocateGeometryIndex();
+			// Allocate vertex and index slabs within the shared mesh data buffer. Sizes are
+			// padded so the returned byte offsets stay 16-byte aligned.
+			u64 vertexCountTotal = meshLodObject.GetUInt(MeshLodResource::VerticesCount);
+			u64 indexCountTotal  = meshLodObject.GetUInt(MeshLodResource::IndicesCount);
+			u32 alignedVertSize  = AlignMeshAllocSize(vertexCountTotal * meshData->stride);
+			u32 alignedIdxSize   = AlignMeshAllocSize(indexCountTotal  * sizeof(u32));
+
+			meshData->vertexAlloc = AllocateMeshData(alignedVertSize);
+			meshData->indexAlloc  = AllocateMeshData(alignedIdxSize);
+
+			if (meshData->vertexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE ||
+				meshData->indexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE)
+			{
+				logger.Error("Mesh '{}' could not fit into shared mesh data buffer ({} MB used).", name, MeshDataBufferSize / (1024 * 1024));
+				if (meshData->vertexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+				{
+					FreeMeshData(meshData->vertexAlloc);
+					meshData->vertexAlloc = OffsetAllocator::Allocation{};
+				}
+				if (meshData->indexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+				{
+					FreeMeshData(meshData->indexAlloc);
+					meshData->indexAlloc = OffsetAllocator::Allocation{};
+				}
+				return nullptr;
+			}
+
+			meshData->vertexByteOffset = meshData->vertexAlloc.offset;
+			meshData->indexByteOffset  = meshData->indexAlloc.offset;
 
 			VertexLayoutOffsetData layoutData{};
 			layoutData.stride         = meshData->stride;
@@ -1446,6 +1457,11 @@ namespace Skore
 		return materialDataCount;
 	}
 
+	GPUBuffer* RenderResourceCache::GetMeshDataBuffer()
+	{
+		return meshDataBuffer;
+	}
+
 	SkinResourceCachePtr RenderResourceCache::GetSkinCache(RID mesh)
 	{
 		if (!mesh) return nullptr;
@@ -1500,13 +1516,7 @@ namespace Skore
 				},
 				DescriptorSetLayoutBinding{
 					.binding = 3,
-					.descriptorType = DescriptorType::StorageBuffer,
-					.renderType = RenderType::RuntimeArray
-				},
-				DescriptorSetLayoutBinding{
-					.binding = 4,
-					.descriptorType = DescriptorType::StorageBuffer,
-					.renderType = RenderType::RuntimeArray
+					.descriptorType = DescriptorType::StorageBuffer
 				},
 				DescriptorSetLayoutBinding{
 					.binding = 5,
@@ -1519,6 +1529,20 @@ namespace Skore
 
 		globalDescriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
 		globalDescriptorSetAlive = true;
+
+		meshDataBuffer = Graphics::CreateBuffer(BufferDesc{
+			.size = MeshDataBufferSize,
+			.usage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer | ResourceUsage::ShaderResource,
+			.hostVisible = false,
+			.persistentMapped = false,
+			.debugName = "MeshDataBuffer"
+		});
+
+		meshDataAllocator = std::make_unique<OffsetAllocator::Allocator>(MeshDataBufferSize, MeshDataMaxAllocations);
+
+		// Wire the single mesh data buffer into the global descriptor set at binding 3.
+		// Per-mesh sub-ranges are indexed in-shader via byte offsets passed in push constants.
+		globalDescriptorSet->UpdateBuffer(3, meshDataBuffer, 0, MeshDataBufferSize);
 
 		worker.Init(4);
 	}
@@ -1559,10 +1583,15 @@ namespace Skore
 		vertexLayoutBuffers.Clear();
 		vertexLayoutDescs.Clear();
 
-		nextGeometryIndex = 0;
+		if (meshDataBuffer)
+		{
+			meshDataBuffer->Destroy();
+			meshDataBuffer = nullptr;
+		}
+		meshDataAllocator.reset();
+
 		nextMaterialIndex = 0;
 		nextTextureIndex = 0;
-		freeGeometryIndices.Clear();
 		freeMaterialIndices.Clear();
 		freeTextureIndices.Clear();
 		materialDataBufferCapacity = 0;

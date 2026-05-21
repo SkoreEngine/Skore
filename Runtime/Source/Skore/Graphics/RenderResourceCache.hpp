@@ -9,6 +9,7 @@
 #include "Skore/Common.hpp"
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/HashMap.hpp"
+#include "Skore/Core/OffsetAllocator.hpp"
 
 namespace Skore
 {
@@ -138,10 +139,13 @@ namespace Skore
 		MeshResourceCache(RID rid) : rid(rid) {}
 		~MeshResourceCache() override;
 
-		GPUBuffer*               vertexBuffer = nullptr;
-		GPUBuffer*               indexBuffer = nullptr;
+		// Sub-ranges within the shared mesh data buffer. Offsets are in bytes.
+		OffsetAllocator::Allocation vertexAlloc{};
+		OffsetAllocator::Allocation indexAlloc{};
+		u32                      vertexByteOffset = U32_MAX;
+		u32                      indexByteOffset = U32_MAX;
+
 		Array<GPUBottomLevelAS*> blasArray;
-		u32                      geometryIndex = U32_MAX;
 		u32                      vertexLayoutId = U32_MAX;
 		u32                      stride = 0;
 		bool                     hasUV1 = false;
@@ -159,7 +163,7 @@ namespace Skore
 
 		bool IsLoaded() const
 		{
-			if (!vertexBuffer || !indexBuffer) return false;
+			if (vertexByteOffset == U32_MAX || indexByteOffset == U32_MAX) return false;
 			if (!uploadComplete.valid()) return true;
 			return uploadComplete.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 		}
@@ -176,6 +180,7 @@ namespace Skore
 		static GPUDescriptorSet*        GetGlobalDescriptorSet();
 		static GPUBuffer*               GetMaterialDataBuffer();
 		static u32                      GetMaterialDataCount();
+		static GPUBuffer*               GetMeshDataBuffer();
 
 		static void Flush();
 	};

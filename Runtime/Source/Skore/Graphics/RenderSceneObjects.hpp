@@ -31,15 +31,14 @@ namespace Skore
 
 	struct Drawcall
 	{
-		u32 firstIndex = 0;
+		u32 firstIndex = 0; // mesh-local index of the primitive's first triangle vertex
 		u32 indexCount = 0;
 
-		GPUBuffer*               vertexBuffer = nullptr;
-		GPUBuffer*               indexBuffer = nullptr;
 		MeshResourceCachePtr     mesh;
 		MaterialResourceCachePtr material;
 		u64                      userData = 0;
-		u32                      meshIndex = U32_MAX;
+		u32                      vertexByteOffset = U32_MAX; // mesh's vertex slab offset in MeshDataBuffer
+		u32                      indexByteOffset = U32_MAX;  // mesh's index slab offset in MeshDataBuffer
 		u32                      vertexLayoutIndex = U32_MAX;
 
 		GPUDescriptorSet* bones = nullptr;
@@ -74,7 +73,7 @@ namespace Skore
 	{
 		Mat4 transform;
 		u32  materialIndex;
-		u32  meshIndex;
+		u32  vertexByteOffset;
 		u32  vertexLayoutIndex;
 		u32  indexCount;
 
@@ -90,8 +89,6 @@ namespace Skore
 		MeshResourceCachePtr mesh;
 		RID                  material;
 
-		GPUBuffer*           vertexBuffer = nullptr;
-		GPUBuffer*           indexBuffer = nullptr;
 		u32                  firstIndex = 0;
 		u32                  indexCount = 0;
 
@@ -102,7 +99,8 @@ namespace Skore
 
 		GPUDescriptorSet*        bones = nullptr;
 
-		u32               meshIndex         = U32_MAX;
+		u32               vertexByteOffset  = U32_MAX;
+		u32               indexByteOffset   = U32_MAX;
 		u32               vertexLayoutIndex = U32_MAX;
 
 		u8 visibility = DrawcallVisibility::CastShadow;

@@ -73,8 +73,8 @@ namespace Skore
 
 	void RenderSceneObjects::DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material, RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref)
 	{
-		GPUBuffer* vertexBuffer = desc.mesh ? desc.mesh->vertexBuffer : desc.vertexBuffer;
-		GPUBuffer* indexBuffer  = desc.mesh ? desc.mesh->indexBuffer  : desc.indexBuffer;
+		u32 vertexByteOffset = desc.mesh ? desc.mesh->vertexByteOffset : desc.vertexByteOffset;
+		u32 indexByteOffset  = desc.mesh ? desc.mesh->indexByteOffset  : desc.indexByteOffset;
 
 		ref.transparent = material->transparent;
 
@@ -94,12 +94,11 @@ namespace Skore
 		Drawcall& dc = pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle];
 		dc.firstIndex = desc.firstIndex;
 		dc.indexCount = desc.indexCount;
-		dc.vertexBuffer = vertexBuffer;
-		dc.indexBuffer = indexBuffer;
+		dc.vertexByteOffset = vertexByteOffset;
+		dc.indexByteOffset = indexByteOffset;
 		dc.mesh = desc.mesh;
 		dc.material = material;
 		dc.userData = desc.userData;
-		dc.meshIndex = desc.meshIndex;
 		dc.vertexLayoutIndex = desc.vertexLayoutIndex;
 		dc.bones = desc.bones;
 		dc.localAabb = desc.aabb;
@@ -121,11 +120,10 @@ namespace Skore
 			Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
 			sdc.firstIndex = desc.firstIndex;
 			sdc.indexCount = desc.indexCount;
-			sdc.vertexBuffer = vertexBuffer;
-			sdc.indexBuffer = indexBuffer;
+			sdc.vertexByteOffset = vertexByteOffset;
+			sdc.indexByteOffset = indexByteOffset;
 			sdc.material = material;
 			sdc.userData = desc.userData;
-			sdc.meshIndex = desc.meshIndex;
 			sdc.vertexLayoutIndex = desc.vertexLayoutIndex;
 			sdc.bones = desc.bones;
 			sdc.localAabb = desc.aabb;
@@ -165,7 +163,7 @@ namespace Skore
 		new(data + ref.instanceIndex) InstanceData{
 			.transform = desc.transform,
 			.materialIndex = material->materialIndex,
-			.meshIndex = desc.meshIndex,
+			.vertexByteOffset = vertexByteOffset,
 			.vertexLayoutIndex = desc.vertexLayoutIndex,
 			.indexCount = desc.indexCount,
 			.aabbMin = dc.aabb.min,

@@ -30,7 +30,7 @@ struct InstanceData
 {
     matrix  transform;
     uint    materialIndex;
-    uint    meshIndex;
+    uint    vertexByteOffset;
     uint    vertexLayoutIndex;
     uint    indexCount;
 

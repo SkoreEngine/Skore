@@ -39,7 +39,7 @@ namespace Skore
 		struct DepthPushConstants
 		{
 			Mat4 world;
-			u32  meshIndex;
+			u32  vertexByteOffset;
 			u32  vertexLayoutIndex;
 			u32  pad[2];
 		};
@@ -87,6 +87,10 @@ namespace Skore
 			depthPipelines.EmplaceBack(p);
 		}
 
+		// Bind the shared mesh data buffer once for the whole pass — every drawcall's index
+		// data lives at its mesh-specific byte offset within this buffer.
+		cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
 		for (u32 i = 0; i < objects->opaquePipelines.Size(); i++)
 		{
 			GPUPipeline* pipeline = depthPipelines[i];
@@ -117,14 +121,12 @@ namespace Skore
 					cmd->BindDescriptorSet(pipeline, 3, drawcall.bones);
 				}
 
-				cmd->BindIndexBuffer(drawcall.indexBuffer, 0, IndexType::Uint32);
-
 				DepthPushConstants pc{};
 				pc.world = drawcall.transform;
-				pc.meshIndex = drawcall.meshIndex;
+				pc.vertexByteOffset = drawcall.vertexByteOffset;
 				pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 				cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(DepthPushConstants), &pc);
-				cmd->DrawIndexed(drawcall.indexCount, 1, drawcall.firstIndex, 0, 0);
+				cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
 			}
 		}
 	}
