@@ -1,13 +1,9 @@
 #pragma once
 
 #include "Device.hpp"
-#include "GraphicsCommon.hpp"
 #include "RenderResourceCache.hpp"
 #include "Skore/Common.hpp"
-#include "Skore/Core/Color.hpp"
 #include "Skore/Core/PackedArray.hpp"
-#include "Skore/Core/UUID.hpp"
-#include "Skore/Core/UnorderedDense.hpp"
 
 namespace Skore
 {
@@ -17,7 +13,6 @@ namespace Skore
 	{
 		constexpr static u8 None       = 0;
 		constexpr static u8 CastShadow = 1 << 0;
-		constexpr static u8 RayTraced  = 1 << 1;
 	};
 
 	struct DrawPipelineDesc
@@ -64,14 +59,30 @@ namespace Skore
 
 	struct DrawcallRef
 	{
-		u32  pipelineIndex       = U32_MAX;
-		u64  handle              = U64_MAX;
+		u32  pipelineIndex = U32_MAX;
+		u64  handle = U64_MAX;
 		u32  shadowPipelineIndex = U32_MAX;
-		u64  shadowHandle        = U64_MAX;
-		u32  instanceDataId      = U32_MAX;
-		u32  instanceDescIndex   = U32_MAX;
+		u64  shadowHandle = U64_MAX;
+		u32  instanceIndex = U32_MAX;
 		u32  pendingDrawcallIndex = U32_MAX;
-		bool transparent         = false;
+		bool transparent = false;
+	};
+
+	constexpr static u32 InitialInstanceNumber = 1000;
+
+	struct InstanceData
+	{
+		Mat4 transform;
+		u32  materialIndex;
+		u32  meshIndex;
+		u32  vertexLayoutIndex;
+		u32  indexCount;
+
+		Vec3 aabbMin;
+		u32  firstIndex;
+
+		Vec3 aabbMax;
+		u32  pipelineIndex;
 	};
 
 	struct DrawcallDesc
@@ -91,19 +102,10 @@ namespace Skore
 
 		GPUDescriptorSet*        bones = nullptr;
 
-		GPUBottomLevelAS* blas              = nullptr;
 		u32               meshIndex         = U32_MAX;
 		u32               vertexLayoutIndex = U32_MAX;
 
-		u8 visibility = DrawcallVisibility::CastShadow | DrawcallVisibility::RayTraced;
-	};
-
-	struct InstanceData
-	{
-		u32 meshIndex;
-		u32 vertexLayoutIndex;
-		u32 materialIndex;
-		u32 firstIndex;
+		u8 visibility = DrawcallVisibility::CastShadow;
 	};
 
 	class SK_API RenderSceneObjects
@@ -119,9 +121,10 @@ namespace Skore
 		Array<DrawPipeline> transparentPipelines;
 		Array<DrawPipeline> shadowPipelines;
 
-		GPUTopLevelAS* tlas = nullptr;
-		GPUBuffer*     instanceDataBuffer = nullptr;
-		u32            instanceDataCount = 0;
+		GPUBuffer* instanceDataBuffer = nullptr;
+		u32        instanceDataSize = 0;
+		u32        instanceDataCount = 0;
+		Array<u32> instanceFreeIndices;
 
 		u32 GetVisiblePipelineCount() const
 		{
@@ -157,19 +160,7 @@ namespace Skore
 
 		bool asyncLoad = true;
 	private:
-		Array<InstanceDesc> instances;
 
-		struct InstanceEntry
-		{
-			RendererComponent* component = nullptr;
-			u32                primitiveIndex = 0;
-		};
-		Array<InstanceEntry> instanceEntries;
-		bool tlasDirty = false;
-
-		// Drawcalls whose mesh is still streaming park here — the worker creates vertex/index
-		// buffers and BLAS off the main thread, so any registration before IsLoaded() goes true
-		// would see null buffers. DoUpdate promotes (raster + shadow + TLAS) once loaded.
 		struct PendingDrawcallEntry
 		{
 			MeshResourceCachePtr     mesh;
@@ -180,22 +171,8 @@ namespace Skore
 		};
 		Array<PendingDrawcallEntry> pendingDrawcalls;
 
-		GPUBuffer* tlasScratchBuffer = nullptr;
-		u32        tlasMaxInstances = 0;
-		u32        instanceDataBufferCapacity = 0;
-
-		u32        nextInstanceId = 0;
-		Array<u32> freeInstanceIds;
-
 		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
-		u32  AllocateInstanceId();
-		void FreeInstanceId(u32 id);
-		void EnsureInstanceDataCapacity(u32 requiredCount);
-		void AddInstance(RendererComponent* component, u32 primitiveIndex, const InstanceDesc& desc, const InstanceData& data, DrawcallRef& outRef);
-		void RemoveInstance(const DrawcallRef& ref);
 
-		// Performs the actual drawcall registration (raster + shadow + RT). Split out so both
-		// CreateDrawcall (sync path) and DoUpdate (deferred promotion) can drive it.
 		void DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material, RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref);
 		void AddPendingDrawcall(RendererComponent* component, u32 primitiveIndex, const MeshResourceCachePtr& mesh, const MaterialResourceCachePtr& material, const DrawcallDesc& desc, DrawcallRef& outRef);
 		void RemovePendingDrawcall(u32 idx);

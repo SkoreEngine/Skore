@@ -453,7 +453,7 @@ namespace Skore
 
 		if (pushDescriptor)
 		{
-			setLayoutCreateInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+			setLayoutCreateInfo.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
 		}
 
 		vkCreateDescriptorSetLayout(vkDevice, &setLayoutCreateInfo, nullptr, descriptorSetLayout);
@@ -480,9 +480,6 @@ namespace Skore
 			});
 		}
 
-		// Shaders may declare a non-dense set of descriptor-set indices (e.g. sets 0, 1, 3 — no 2).
-		// Vulkan pipeline layouts are positional, so we index by the reflected `set` field and pad
-		// gaps with empty layouts.
 		auto growToSet = [&](u32 setIndex)
 		{
 			while (descriptorSetLayouts.Size() <= setIndex)
@@ -499,6 +496,19 @@ namespace Skore
 		for (int i = 0; i < descriptors.Size(); ++i)
 		{
 			u32 setIndex = descriptors[i].set;
+
+			bool skip = false;
+			for (const DescriptorSetOverride& dsOverride : overrides)
+			{
+				if (dsOverride.set == setIndex)
+				{
+					skip = true;
+					break;
+				}
+			}
+
+			if (skip) continue;
+
 			growToSet(setIndex);
 			vkDestroyDescriptorSetLayout(vkDevice, descriptorSetLayouts[setIndex], nullptr);
 			CreateDescriptorSetLayout(vkDevice, descriptors[i].bindings, &descriptorSetLayouts[setIndex], nullptr, pushDescriptor);

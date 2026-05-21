@@ -20,12 +20,18 @@ namespace Skore
 		Mat4  viewInv;
 		Mat4  projectionInv;
 		Mat4  viewProjInv;
+
 		Vec3  cameraPosition;
 		f32   farClip;
+
 		IVec2 outputSize;
 		Vec2  pad1;
+
 		Vec2  jitter;
 		Vec2  prevJitter;
+
+		u32   instanceCount;
+		Vec3  pad0;
 	};
 
 	static Logger& logger = Logger::GetLogger("Skore::RenderPipeline", LogLevel::Off);
@@ -290,9 +296,10 @@ namespace Skore
 
 		// Scene set (space1) — single descriptor set shared by all raster/RT pipelines:
 		//   binding 0: GlobalSceneBuffer (camera matrices)
-		//   binding 1: LightBuffer (populated by DefaultLightSetupPass)
-		//   binding 2: shadowMapTexture (populated by DefaultLightSetupPass)
-		//   binding 3: shadowMapSampler (populated by DefaultLightSetupPass)
+		//   binding 1: Instances (populated by DefaultLightSetupPass)
+		//   binding 2: LightBuffer (populated by DefaultLightSetupPass)
+		//   binding 3: shadowMapTexture (populated by DefaultLightSetupPass)
+		//   binding 4: shadowMapSampler (populated by DefaultLightSetupPass)
 		DescriptorSetDesc desc;
 		desc.bindings = {
 			DescriptorSetLayoutBinding{
@@ -301,19 +308,22 @@ namespace Skore
 			},
 			DescriptorSetLayoutBinding{
 				.binding = 1,
-				.descriptorType = DescriptorType::UniformBuffer
+				.descriptorType = DescriptorType::StorageBuffer
 			},
 			DescriptorSetLayoutBinding{
 				.binding = 2,
-				.descriptorType = DescriptorType::SampledImage
+				.descriptorType = DescriptorType::UniformBuffer
 			},
 			DescriptorSetLayoutBinding{
 				.binding = 3,
+				.descriptorType = DescriptorType::SampledImage
+			},
+			DescriptorSetLayoutBinding{
+				.binding = 4,
 				.descriptorType = DescriptorType::Sampler
 			}
 		};
 		desc.debugName = "SceneRendererViewport_descriptorSet";
-
 
 		for (int i = 0; i < SK_FRAMES_IN_FLIGHT; ++i)
 		{
@@ -593,7 +603,10 @@ namespace Skore
 				.outputSize = IVec2{static_cast<i32>(GetOutputSize().width), static_cast<i32>(GetOutputSize().height)},
 				.jitter = camera.jitter,
 				.prevJitter = camera.previousJitter,
+				.instanceCount = scene->renderObjects.instanceDataCount,
 			};
+
+			sceneDescriptorSets[currentFrame]->UpdateBuffer(1, scene->renderObjects.instanceDataBuffer, 0, 0);
 
 			for (auto& module : modules)
 			{

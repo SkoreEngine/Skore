@@ -17,6 +17,11 @@ static const float minGGXAlpha = 0.0064f;
 #define SK_COL32_A_SHIFT    24
 #define SK_MAX_BONES        200
 
+#define SHADOW_MAP_CASCADE_COUNT 4
+#define SK_USE_COMPARISON_STATE 1
+#define SK_PCF_RANGE 1
+#define MAX_LIGHTS 64
+
 float4 ColorFromU32(uint value)
 {
 	return float4(

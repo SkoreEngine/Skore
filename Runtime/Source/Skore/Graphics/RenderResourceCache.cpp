@@ -136,8 +136,6 @@ namespace Skore
 					}
 					pendingCount.fetch_sub(1, std::memory_order_release);
 
-					//std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
 					switch (data.type)
 					{
 						case WorkerType::Texture:
@@ -198,9 +196,6 @@ namespace Skore
 									stagingFill = 0;
 								};
 
-								// Uploads one mip whose uncompressed size exceeds StagingBufferSize
-								// by splitting it into row chunks. `srcReader` fills the staging buffer
-								// with `byteCount` bytes starting at `srcByteOffset` within the mip.
 								auto uploadOversizedMip = [&](u32 width, u32 height, u32 mip, auto&& srcReader)
 								{
 									u32 bytesPerRow = width * texelSize;
@@ -329,12 +324,8 @@ namespace Skore
 							ResourceObject meshObject = Resources::Read(meshCache->rid);
 							if (!meshObject) break;
 
-							// Calling thread pre-sized blasArray to signal RT intent. The worker
-							// allocates the vertex/index buffers and (optionally) builds BLAS, then
-							// publishes everything via the main-thread callback queue so readers
-							// never observe a partially-constructed mesh cache.
-							u32                      primitiveCount = static_cast<u32>(meshCache->blasArray.Size());
-							bool                     wantsBlas = primitiveCount > 0;
+							bool wantsBlas = false;
+
 							Array<GPUBottomLevelAS*> builtBlas;
 
 							StringView     name = meshObject.GetString(MeshResource::Name);
@@ -365,10 +356,6 @@ namespace Skore
 								.debugName = String(name) + "_IndexBuffer"
 							});
 
-							// Upload one destination buffer (vertex or index). Chunks the copy through
-							// the shared staging buffer when the source exceeds StagingBufferSize:
-							// first chunk transitions Undefined→CopyDest, last chunk transitions
-							// CopyDest→ShaderReadOnly, intermediate chunks only copy.
 							auto uploadOne = [&](GPUBuffer* dst, u64 size, u64 srcOffset)
 							{
 								u64  done = 0;
@@ -399,7 +386,6 @@ namespace Skore
 
 							if (vertexBufferSize + indexBufferSize <= StagingBufferSize)
 							{
-								// Pack vertex + index into staging and upload in a single submission.
 								u8* mapped = static_cast<u8*>(stagingBuffer->GetMappedData());
 								buffer.CopyData(mapped, vertexBufferSize, vertexBufferOffset);
 								buffer.CopyData(mapped + vertexBufferSize, indexBufferSize, indexBufferOffset);
@@ -417,18 +403,13 @@ namespace Skore
 							}
 							else
 							{
-								// Combined size doesn't fit — submit vertex and index separately,
-								// reusing the staging buffer between submissions.
 								uploadOne(vertexBuffer, vertexBufferSize, vertexBufferOffset);
 								uploadOne(indexBuffer, indexBufferSize, indexBufferOffset);
 							}
 
-							// BLAS create + build, only when the calling thread pre-sized blasArray
-							// (which it skips for skinned meshes or when ray tracing is disabled).
-							// Worker builds into builtBlas locally; the main-thread publish callback
-							// below moves it into meshCache->blasArray so readers never see partial state.
 							if (wantsBlas)
 							{
+								u32 primitiveCount = static_cast<u32>(meshCache->primitives.Size());
 								builtBlas.Resize(primitiveCount, nullptr);
 
 								Array<BottomLevelASDesc> blasDescs(primitiveCount);
@@ -477,8 +458,6 @@ namespace Skore
 								for (u32 p = 0; p < primitiveCount; ++p)
 								{
 									computeCmd->BuildBottomLevelAS(builtBlas[p], AccelerationStructureBuildInfo{.scratchBuffer = blasScratchBuffer});
-									// Scratch is reused across primitives — serialize builds so each
-									// finishes reading scratch before the next overwrites it.
 									if (p + 1 < primitiveCount)
 									{
 										computeCmd->MemoryBarrier();
@@ -489,9 +468,6 @@ namespace Skore
 								computeCmd->Reset();
 							}
 
-							// Hand the promise off to the publish callback so the future only resolves
-							// after the buffers + descriptor slots + BLAS are visible on the main thread.
-							// The catch-all promise-set at the bottom sees a moved-from (null) promise.
 							auto pendingPromise = std::move(data.promise);
 							ExecuteOnMainThread(
 								[meshCache, vertexBuffer, indexBuffer, builtBlas = std::move(builtBlas), pendingPromise = std::move(pendingPromise)]() mutable
@@ -502,9 +478,7 @@ namespace Skore
 									{
 										meshCache->blasArray = std::move(builtBlas);
 									}
-									// Register the buffers in the bindless storage slots (bindings 3/4)
-									// at geometryIndex, so the descriptor never points at an
-									// uninitialised buffer between cache creation and upload completion.
+
 									RegisterMeshBuffers(meshCache->geometryIndex, vertexBuffer, indexBuffer);
 
 									if (pendingPromise) pendingPromise->set_value();
@@ -1430,14 +1404,10 @@ namespace Skore
 
 			meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
 
-			// Pre-size the BLAS slot array on the calling thread as the worker's RT intent
-			// signal (skipped for skinned meshes). The worker creates vertex/index buffers
-			// and BLAS handles, then publishes them — along with the bindless descriptor
-			// updates for slots 3/4 at geometryIndex — via the main-thread callback queue.
-			if (rtSupported && !meshObject.GetSubObject(MeshResource::Skin))
-			{
-				meshData->blasArray.Resize(primitiveCount, nullptr);
-			}
+			// if (rtSupported && !meshObject.GetSubObject(MeshResource::Skin))
+			// {
+			// 	meshData->blasArray.Resize(primitiveCount, nullptr);
+			// }
 
 			meshData->uploadComplete = worker.AddTask(WorkerType::Mesh, meshData).share();
 

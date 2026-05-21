@@ -146,7 +146,7 @@ namespace Skore
 		const Mat4 worldTransform = entity->GetWorldTransform();
 		const u64  layerMask      = LayerToMask(entity->GetLayer());
 		const u64  userData       = PtrToInt(entity);
-		const u8   visibility     = (m_castShadows ? DrawcallVisibility::CastShadow : 0) | DrawcallVisibility::RayTraced;
+		const u8   visibility     = m_castShadows ? DrawcallVisibility::CastShadow : 0;
 
 		references.Resize(meshCache->primitives.Size());
 
@@ -176,7 +176,7 @@ namespace Skore
 			desc.layerMask    = layerMask;
 			desc.material     = material;
 			desc.bones        = GetBonesDescriptor();
-			desc.blas              = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
+//			desc.blas              = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
 			desc.meshIndex         = meshCache->geometryIndex;
 			desc.vertexLayoutIndex = meshCache->vertexLayoutId;
 			desc.visibility        = visibility;
