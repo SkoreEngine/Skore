@@ -161,29 +161,31 @@ namespace Skore
 
 	FileHandler FileSystem::OpenFile(const StringView& path, AccessMode accessMode)
 	{
-		DWORD dwShareMode = 0;
 		DWORD dwDesiredAccess = 0;
-		DWORD flags = 0;
+		DWORD dwShareMode = 0;
+		DWORD dwCreationDisposition = 0;
+
 		if (accessMode == AccessMode::ReadOnly)
 		{
-			dwDesiredAccess = GENERIC_READ;
-			dwShareMode = OPEN_EXISTING;
-			flags = FILE_FLAG_OVERLAPPED;
+			dwDesiredAccess       = GENERIC_READ;
+			dwShareMode           = FILE_SHARE_READ;
+			dwCreationDisposition = OPEN_EXISTING;
 		}
-
-		if (accessMode == AccessMode::WriteOnly)
+		else if (accessMode == AccessMode::WriteOnly)
 		{
-			dwDesiredAccess = GENERIC_WRITE;
-			dwShareMode = CREATE_ALWAYS;
+			dwDesiredAccess       = GENERIC_WRITE;
+			dwShareMode           = FILE_SHARE_READ;
+			dwCreationDisposition = CREATE_ALWAYS;
 		}
-
-		if (accessMode == AccessMode::ReadAndWrite)
+		else if (accessMode == AccessMode::ReadAndWrite)
 		{
-			dwDesiredAccess = GENERIC_READ | GENERIC_WRITE;
-			dwShareMode = CREATE_NEW;
+			dwDesiredAccess       = GENERIC_READ | GENERIC_WRITE;
+			dwShareMode           = FILE_SHARE_READ;
+			dwCreationDisposition = OPEN_ALWAYS;
 		}
 
-		HANDLE hout = CreateFile(path.CStr(), dwDesiredAccess, 0, nullptr, dwShareMode, FILE_ATTRIBUTE_NORMAL, &flags);
+		HANDLE hout = CreateFile(path.CStr(), dwDesiredAccess, dwShareMode, nullptr,
+		                         dwCreationDisposition, FILE_ATTRIBUTE_NORMAL, nullptr);
 		if (hout == INVALID_HANDLE_VALUE)
 		{
 			return FileHandler{};
@@ -236,8 +238,11 @@ namespace Skore
 		overlapped.Offset = low;
 		overlapped.OffsetHigh = hi;
 
-		DWORD nRead;
-		::ReadFile(fileHandler.ToPtr(), data, size, &nRead, &overlapped);
+		DWORD nRead = 0;
+		if (!::ReadFile(fileHandler.ToPtr(), data, size, &nRead, &overlapped))
+		{
+			return 0;
+		}
 		return nRead;
 	}
 

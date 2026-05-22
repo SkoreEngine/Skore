@@ -348,9 +348,6 @@ namespace Skore
 							u64 indexSrcOffset = meshLodObject.GetUInt(MeshLodResource::IndicesOffset);
 							u64 indexBufferSize = meshLodObject.GetUInt(MeshLodResource::IndicesCount) * sizeof(u32);
 
-							// Mesh data sub-allocations live in the shared meshDataBuffer; offsets are
-							// in bytes. We only need the offsets here — the buffer is created once at
-							// init time.
 							u32 vertexDstOffset = meshCache->vertexByteOffset;
 							u32 indexDstOffset  = meshCache->indexByteOffset;
 							if (vertexDstOffset == U32_MAX || indexDstOffset == U32_MAX)
@@ -460,19 +457,20 @@ namespace Skore
 								computeCmd->End();
 								computeQueue->SubmitAndWait(computeCmd);
 								computeCmd->Reset();
+
+								auto pendingPromise = std::move(data.promise);
+								ExecuteOnMainThread(
+									[meshCache, builtBlas = std::move(builtBlas), pendingPromise = std::move(pendingPromise)]() mutable
+									{
+										if (!builtBlas.Empty())
+										{
+											meshCache->blasArray = std::move(builtBlas);
+										}
+
+										if (pendingPromise) pendingPromise->set_value();
+									});
 							}
 
-							auto pendingPromise = std::move(data.promise);
-							ExecuteOnMainThread(
-								[meshCache, builtBlas = std::move(builtBlas), pendingPromise = std::move(pendingPromise)]() mutable
-								{
-									if (!builtBlas.Empty())
-									{
-										meshCache->blasArray = std::move(builtBlas);
-									}
-
-									if (pendingPromise) pendingPromise->set_value();
-								});
 							break;
 						}
 						case WorkerType::GenerateIBL:
@@ -699,9 +697,6 @@ namespace Skore
 			f32 pad1;
 		};
 
-		// Materials whose first-time index allocation is deferred until every referenced
-		// texture has finished uploading — keeps materialIndex at U32_MAX so render passes
-		// skip the drawcall and avoid sampling not-yet-uploaded textures.
 		struct PendingMaterial
 		{
 			MaterialResourceCachePtr cache;
@@ -826,11 +821,6 @@ namespace Skore
 
 				materialCache->transparent = materialObject.GetEnum<MaterialResource::MaterialAlphaMode>(MaterialResource::AlphaMode) == MaterialResource::MaterialAlphaMode::Blend;
 
-				// First-time creation: defer index allocation + GPU write until every texture has
-				// finished uploading. Flush() promotes pending entries once they're ready, so render
-				// passes (which skip drawcalls whose materialIndex is U32_MAX) avoid sampling
-				// partially-uploaded textures and flashing garbage.
-				// Reload of an already-published material rewrites in-place so we don't drop the slot.
 				if (materialCache->materialIndex == U32_MAX)
 				{
 					AddPendingMaterial(materialCache, matData);
@@ -1372,8 +1362,6 @@ namespace Skore
 			meshData->primitives.Resize(primitiveCount);
 			buffer.CopyData(meshData->primitives.Data(), primitiveSize, primitiveOffset);
 
-			// Allocate vertex and index slabs within the shared mesh data buffer. Sizes are
-			// padded so the returned byte offsets stay 16-byte aligned.
 			u64 vertexCountTotal = meshLodObject.GetUInt(MeshLodResource::VerticesCount);
 			u64 indexCountTotal  = meshLodObject.GetUInt(MeshLodResource::IndicesCount);
 			u32 alignedVertSize  = AlignMeshAllocSize(vertexCountTotal * meshData->stride);
@@ -1540,8 +1528,6 @@ namespace Skore
 
 		meshDataAllocator = std::make_unique<OffsetAllocator::Allocator>(MeshDataBufferSize, MeshDataMaxAllocations);
 
-		// Wire the single mesh data buffer into the global descriptor set at binding 3.
-		// Per-mesh sub-ranges are indexed in-shader via byte offsets passed in push constants.
 		globalDescriptorSet->UpdateBuffer(3, meshDataBuffer, 0, MeshDataBufferSize);
 
 		worker.Init(4);
@@ -1549,9 +1535,6 @@ namespace Skore
 
 	void RenderResourceCacheShutdown()
 	{
-		// Drop map entries. With weak_ptr storage this only frees the weak slot;
-		// any cache that still has outstanding shared_ptrs will outlive shutdown
-		// and its dtor will skip global-descriptor cleanup once the flag flips.
 		fontCache.Clear();
 		textureCache.Clear();
 		materialCache.Clear();

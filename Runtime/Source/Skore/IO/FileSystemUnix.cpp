@@ -131,7 +131,7 @@ namespace Skore
             }
             case AccessMode::ReadAndWrite:
             {
-                flags = O_RDWR | O_CREAT | O_TRUNC;
+                flags = O_RDWR | O_CREAT;
                 permission = S_IWRITE | S_IREAD;
                 break;
             }
@@ -176,7 +176,8 @@ namespace Skore
     {
         //https://stackoverflow.com/questions/19780919/read-write-from-file-descriptor-at-offset
         LinuxFileHandler* linuxFileHandler = static_cast<LinuxFileHandler*>(fileHandler.ToPtr());
-        return pread(linuxFileHandler->handler, data, size, offset);
+        ssize_t nRead = pread(linuxFileHandler->handler, data, size, offset);
+        return nRead < 0 ? 0 : static_cast<u64>(nRead);
     }
 
     FileHandler FileSystem::CreateFileMapping(FileHandler fileHandler, AccessMode accessMode, usize size)

@@ -267,6 +267,7 @@ namespace Skore
 		struct PipelineResourceStorage
 		{
 			RenderPipelineResource desc;
+			RenderPipelineContext* context;
 
 			GPUTexture*     textures[2] = {nullptr, nullptr};
 			GPUTextureView* textureView = nullptr;
@@ -314,7 +315,7 @@ namespace Skore
 				}
 				if (!outputAttachments.Empty())
 				{
-					return outputAttachments[0];
+					return outputAttachments[context->currentOutputIndex];
 				}
 
 				return nullptr;

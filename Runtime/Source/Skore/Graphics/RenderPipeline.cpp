@@ -177,7 +177,8 @@ namespace Skore
 				if (resources.Find(resource.name) == resources.end())
 				{
 					resources.Insert(resource.name, PipelineResourceStorage{
-						                 .desc = resource
+						                 .desc = resource,
+						                 .context = this,
 					                 });
 				}
 			}
@@ -413,7 +414,11 @@ namespace Skore
 		auto it = resources.Find(textureName);
 		if (it == resources.end())
 		{
-			it = resources.Insert(textureName, PipelineResourceStorage{.desc = {.name = textureName}}).first;
+			it = resources.Insert(textureName, PipelineResourceStorage{
+				                      .desc = {.name = textureName},
+				                      .context = this
+			                      }
+			).first;
 		}
 		it->second.textures[0] = texture;
 		it->second.ownsResource = false;
@@ -464,7 +469,7 @@ namespace Skore
 		auto it = resources.Find(name);
 		if (it == resources.end())
 		{
-			it = resources.Emplace(name, PipelineResourceStorage{}).first;
+			it = resources.Emplace(name, PipelineResourceStorage{.context = this}).first;
 		}
 
 		it->second.desc.name = name;
