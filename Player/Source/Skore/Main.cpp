@@ -76,7 +76,9 @@ namespace Skore
 			}
 		}
 
+#ifdef SK_ENABLE_ALPHA_FEATURES
 		OpenXRManager::Init();
+#endif
 
 		AppConfig appConfig;
 		appConfig.fullscreen = false;

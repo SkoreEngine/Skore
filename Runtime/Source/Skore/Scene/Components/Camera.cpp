@@ -67,15 +67,12 @@ namespace Skore
 		m_cullingMask = cullingMask;
 	}
 
-	void Camera::ProcessEvent(const EntityEventDesc& event)
+	void Camera::OnUpdate(f64 deltaTime)
 	{
-		if (event.type == EntityEventType::TransformUpdated)
+		if (RenderPipelineContext* context = RenderPipeline::GetMainContext())
 		{
-			if (RenderPipelineContext* context = RenderPipeline::GetMainContext())
-			{
-				context->UpdateCamera(m_near, m_far, m_fov, m_projection, {Mat4::Inverse(entity->GetWorldTransform())}, entity->GetWorldPosition());
-				context->camera.cullingMask = m_cullingMask;
-			}
+			context->UpdateCamera(m_near, m_far, m_fov, m_projection, {Mat4::Inverse(entity->GetWorldTransform())}, entity->GetWorldPosition());
+			context->camera.cullingMask = m_cullingMask;
 		}
 	}
 
