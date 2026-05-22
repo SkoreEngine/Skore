@@ -41,7 +41,8 @@ struct InstanceData
     uint    pipelineIndex;
 
     uint    drawcallIndex;
-    float3  pad;
+    uint    transparent;
+    float2  pad;
 };
 
 StructuredBuffer<InstanceData> instances : register(t1, space1);

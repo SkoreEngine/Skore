@@ -132,29 +132,20 @@ namespace Skore
 			sdc.layerMask = desc.layerMask;
 		}
 
-		if (!instanceFreeIndices.Empty())
-		{
-			ref.instanceIndex = instanceFreeIndices.Back();
-			instanceFreeIndices.PopBack();
-		}
-		else
-		{
-			ref.instanceIndex = instanceDataSize++;
-		}
+		ref.instanceIndex = instanceDataCount++;
+		instanceOwners.EmplaceBack(InstanceOwner{owner, primitiveIndex});
 
-		instanceDataCount++;
-
-		if (instanceDataBuffer->GetDesc().size < sizeof(instanceFreeIndices) * instanceDataSize)
+		if (instanceDataBuffer->GetDesc().size < sizeof(InstanceData) * instanceDataCount)
 		{
 			GPUBuffer* newBuffer = Graphics::CreateBuffer(BufferDesc{
-				.size = instanceDataSize * sizeof(InstanceData) * 2,
+				.size = instanceDataCount * sizeof(InstanceData) * 2,
 				.usage = ResourceUsage::UnorderedAccess,
 				.hostVisible = true,
 				.persistentMapped = true,
 				.debugName = "InstanceBuffer"
 			});
 
-			memcpy(newBuffer->GetMappedData(), instanceDataBuffer->GetMappedData(), instanceDataSize * sizeof(InstanceData));
+			memcpy(newBuffer->GetMappedData(), instanceDataBuffer->GetMappedData(), instanceDataCount * sizeof(InstanceData));
 			instanceDataBuffer->Destroy();
 			instanceDataBuffer = newBuffer;
 		}
@@ -171,23 +162,42 @@ namespace Skore
 			.aabbMax = dc.aabb.max,
 			.pipelineIndex = ref.pipelineIndex,
 			.drawcallIndex = static_cast<u32>(ref.handle),
+			.transparent = ref.transparent,
 		};
 	}
 
 	void RenderSceneObjects::UpdateTransform(const DrawcallRef& ref, const Mat4& transform)
 	{
+		AABB worldAabb = {};
+		bool hasWorldAabb = false;
+
 		if (ref.pipelineIndex != U32_MAX)
 		{
 			Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
 			Drawcall& dc = pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle];
 			dc.transform = transform;
 			dc.aabb = Math::TransformAABB(dc.localAabb, transform);
+			worldAabb = dc.aabb;
+			hasWorldAabb = true;
 		}
 		if (ref.shadowPipelineIndex != U32_MAX)
 		{
 			Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
 			sdc.transform = transform;
 			sdc.aabb = Math::TransformAABB(sdc.localAabb, transform);
+			if (!hasWorldAabb)
+			{
+				worldAabb = sdc.aabb;
+				hasWorldAabb = true;
+			}
+		}
+		if (ref.instanceIndex != U32_MAX && hasWorldAabb)
+		{
+			InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
+			InstanceData& inst = data[ref.instanceIndex];
+			inst.transform = transform;
+			inst.aabbMin = worldAabb.min;
+			inst.aabbMax = worldAabb.max;
 		}
 		if (ref.pendingDrawcallIndex != U32_MAX)
 		{
@@ -229,8 +239,18 @@ namespace Skore
 		}
 		if (ref.instanceIndex != U32_MAX)
 		{
+			u32 last = instanceDataCount - 1;
+			if (ref.instanceIndex != last)
+			{
+				InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
+				data[ref.instanceIndex] = data[last];
+
+				instanceOwners[ref.instanceIndex] = instanceOwners[last];
+				InstanceOwner& moved = instanceOwners[ref.instanceIndex];
+				moved.component->references[moved.primitiveIndex].instanceIndex = ref.instanceIndex;
+			}
+			instanceOwners.PopBack();
 			instanceDataCount--;
-			instanceFreeIndices.EmplaceBack(ref.instanceIndex);
 		}
 	}
 

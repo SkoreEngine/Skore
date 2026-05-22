@@ -497,7 +497,7 @@ namespace Skore
 				cmd->BindDescriptorSet(pipeline, 0,  descriptorSet[context->GetCurrentFrame()]);
 				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 
-				cmd->Dispatch((scene->renderObjects.instanceDataSize + 255) / 256, 1, 1);
+				cmd->Dispatch((scene->renderObjects.instanceDataCount + 15) / 16, 1, 1);
 			}
 		}
 	};
@@ -612,6 +612,7 @@ namespace Skore
 
 			for (u32 i = 0; i < objects->opaquePipelines.Size(); i++)
 			{
+
 				GPUPipeline* pipeline = opaquePipelines[i];
 
 				cmd->BindPipeline(pipeline);

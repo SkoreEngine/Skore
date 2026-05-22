@@ -84,7 +84,8 @@ namespace Skore
 		u32  pipelineIndex;
 
 		u32	 drawcallIndex;
-		Vec3 pad;
+		u32	 transparent;
+		Vec2 pad;
 	};
 
 	struct DrawcallDesc
@@ -123,9 +124,14 @@ namespace Skore
 		Array<DrawPipeline> shadowPipelines;
 
 		GPUBuffer* instanceDataBuffer = nullptr;
-		u32        instanceDataSize = 0;
 		u32        instanceDataCount = 0;
-		Array<u32> instanceFreeIndices;
+
+		struct InstanceOwner
+		{
+			RendererComponent* component = nullptr;
+			u32                primitiveIndex = 0;
+		};
+		Array<InstanceOwner> instanceOwners;
 
 		u32 GetVisiblePipelineCount() const
 		{
@@ -170,6 +176,7 @@ namespace Skore
 			u32                      primitiveIndex = 0;
 			DrawcallDesc             desc;
 		};
+
 		Array<PendingDrawcallEntry> pendingDrawcalls;
 
 		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
