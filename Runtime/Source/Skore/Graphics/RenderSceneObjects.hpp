@@ -85,7 +85,7 @@ namespace Skore
 
 		u32	 drawcallIndex;
 		u32	 transparent;
-		Vec2 pad;
+		u64  layerMask;
 	};
 
 	struct DrawcallDesc

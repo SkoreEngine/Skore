@@ -163,6 +163,7 @@ namespace Skore
 			.pipelineIndex = ref.pipelineIndex,
 			.drawcallIndex = static_cast<u32>(ref.handle),
 			.transparent = ref.transparent,
+			.layerMask = desc.layerMask,
 		};
 	}
 
@@ -215,6 +216,11 @@ namespace Skore
 		if (ref.shadowPipelineIndex != U32_MAX)
 		{
 			shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle].layerMask = layerMask;
+		}
+		if (ref.instanceIndex != U32_MAX)
+		{
+			InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
+			data[ref.instanceIndex].layerMask = layerMask;
 		}
 		if (ref.pendingDrawcallIndex != U32_MAX)
 		{

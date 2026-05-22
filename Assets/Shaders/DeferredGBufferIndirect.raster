@@ -98,7 +98,6 @@ struct PSOutput
 	float3 outEmissive            :  SV_TARGET3;
 };
 
-[earlydepthstencil]
 PSOutput MainPS(PixelInput input)
 {
 	MaterialSample material = SampleMaterial(input.matIndex, input.texCoord, input.normal, input.TBN);
