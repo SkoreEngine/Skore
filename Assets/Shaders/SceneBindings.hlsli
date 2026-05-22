@@ -22,8 +22,12 @@ cbuffer GlobalSceneBuffer : register(b0, space1)
 	float2 prevJitter;
 
 	uint   instanceCount;
-	float3 pad2;
+	uint   pad2;
+	uint2  cullingMask;
 
+	// Plane stored as (a, b, c, d); a point p is inside when dot(plane.xyz, p) + plane.w >= 0.
+	// Order: Left, Right, Bottom, Top, Near, Far. Derived from viewProjection on the CPU.
+	float4 frustumPlanes[6];
 };
 
 struct InstanceData
@@ -42,7 +46,7 @@ struct InstanceData
 
     uint    drawcallIndex;
     uint    transparent;
-    float2  pad;
+    uint2   layerMask;
 };
 
 StructuredBuffer<InstanceData> instances : register(t1, space1);

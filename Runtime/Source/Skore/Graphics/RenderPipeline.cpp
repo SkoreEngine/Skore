@@ -31,7 +31,10 @@ namespace Skore
 		Vec2  prevJitter;
 
 		u32   instanceCount;
-		Vec3  pad0;
+		u32   pad0;
+		u64   cullingMask;
+
+		Vec4  frustumPlanes[6];
 	};
 
 	static Logger& logger = Logger::GetLogger("Skore::RenderPipeline", LogLevel::Off);
@@ -591,7 +594,7 @@ namespace Skore
 			}
 
 			u8* data = static_cast<u8*>(sceneBuffer->GetMappedData());
-			new(data + currentFrame * sceneBufferFrameSize) GlobalSceneBuffer{
+			GlobalSceneBuffer* sceneBufferData = new(data + currentFrame * sceneBufferFrameSize) GlobalSceneBuffer{
 				.viewProjection = camera.viewProjection,
 				.view = camera.view,
 				.projection = camera.projection,
@@ -604,7 +607,14 @@ namespace Skore
 				.jitter = camera.jitter,
 				.prevJitter = camera.previousJitter,
 				.instanceCount = scene->renderObjects.instanceDataCount,
+				.cullingMask = camera.cullingMask,
 			};
+
+			for (u32 i = 0; i < 6; ++i)
+			{
+				const Plane& plane = camera.frustum.planes[i];
+				sceneBufferData->frustumPlanes[i] = Vec4{plane.normal.x, plane.normal.y, plane.normal.z, plane.distance};
+			}
 
 			sceneDescriptorSets[currentFrame]->UpdateBuffer(1, scene->renderObjects.instanceDataBuffer, 0, 0);
 

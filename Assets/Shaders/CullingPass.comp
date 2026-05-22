@@ -15,22 +15,45 @@ RWStructuredBuffer<IndexedIndirectCommand> indirectDraws[] : register(u0);
 RWStructuredBuffer<uint> indirectCount : register(u1);
 
 
+bool AABBOnFrustum(float3 aabbMin, float3 aabbMax)
+{
+    [unroll]
+    for (uint i = 0; i < 6; ++i)
+    {
+        float4 plane = frustumPlanes[i];
+        // Positive vertex: the AABB corner farthest along the plane normal.
+        float3 positiveVertex;
+        positiveVertex.x = plane.x >= 0 ? aabbMax.x : aabbMin.x;
+        positiveVertex.y = plane.y >= 0 ? aabbMax.y : aabbMin.y;
+        positiveVertex.z = plane.z >= 0 ? aabbMax.z : aabbMin.z;
+
+        if (dot(plane.xyz, positiveVertex) + plane.w < 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+
 [numthreads(16, 1, 1)]
 void MainCS(uint idx : SV_DispatchThreadID)
 {
     if (idx >= instanceCount) return;
 
-//    printf("%u", idx);
-
     InstanceData data = instances[NonUniformResourceIndex(idx)];
-    if(data.transparent == 1) return;
+    if (data.transparent == 1) return;
+    if (!any(data.layerMask & cullingMask)) return;
 
-    indirectDraws[data.pipelineIndex][data.drawcallIndex].indexCount = data.indexCount;
-    indirectDraws[data.pipelineIndex][data.drawcallIndex].instanceCount = 1;
-    indirectDraws[data.pipelineIndex][data.drawcallIndex].firstIndex = data.firstIndex;
-    indirectDraws[data.pipelineIndex][data.drawcallIndex].vertexOffset = 0;
-    indirectDraws[data.pipelineIndex][data.drawcallIndex].startInstanceLocation = idx;
+    if (AABBOnFrustum(data.aabbMin, data.aabbMax))
+    {
+        uint index;
+        InterlockedAdd(indirectCount[data.pipelineIndex], 1, index);
 
-    uint temp;
-    InterlockedAdd(indirectCount[data.pipelineIndex], 1, temp);
+        indirectDraws[data.pipelineIndex][index].indexCount = data.indexCount;
+        indirectDraws[data.pipelineIndex][index].instanceCount = 1;
+        indirectDraws[data.pipelineIndex][index].firstIndex = data.firstIndex;
+        indirectDraws[data.pipelineIndex][index].vertexOffset = 0;
+        indirectDraws[data.pipelineIndex][index].startInstanceLocation = idx;
+    }
 }

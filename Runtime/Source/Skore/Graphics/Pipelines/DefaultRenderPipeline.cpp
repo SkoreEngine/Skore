@@ -354,8 +354,8 @@ namespace Skore
 		SK_CLASS(DefaultCullingPass, RenderPipelinePass);
 		Scene* cachedPipelineOwner = nullptr;
 
-		GPUPipeline* pipeline;
-		GPUDescriptorSet* descriptorSet[SK_FRAMES_IN_FLIGHT];
+		GPUPipeline* pipeline{};
+		GPUDescriptorSet* descriptorSet[SK_FRAMES_IN_FLIGHT]{};
 
 		RenderPipelinePassSetup GetPassSetup() override
 		{
@@ -415,15 +415,19 @@ namespace Skore
 				{
 					for (auto& pipelineData : data->pipelines)
 					{
-						if (pipelineData.indirectDrawBuffer)
+						if (pipelineData.indirectDrawBuffer[i])
 						{
-							//		pipelineData.indirectDrawBuffer->Destroy();
+							pipelineData.indirectDrawBuffer[i]->Destroy();
+							pipelineData.indirectDrawBuffer[i] = nullptr;
 						}
 					}
-					//	data->countBuffer->Destroy();
+					data->countBuffer[i]->Destroy();
+					data->countBuffer[i] = nullptr;
 				}
 				data->pipelines.Clear();
 			}
+
+			cachedPipelineOwner = scene;
 
 			if (data->pipelines.Size() < scene->renderObjects.opaquePipelines.Size())
 			{
@@ -481,6 +485,9 @@ namespace Skore
 
 				u32 frame = context->GetCurrentFrame();
 
+				cmd->FillBuffer(data->countBuffer[frame], 0, sizeof(u32) * scene->renderObjects.opaquePipelines.Size(), 0);
+				cmd->MemoryBarrier();
+
 				for (int i = 0; i < scene->renderObjects.opaquePipelines.Size(); ++i)
 				{
 					DescriptorUpdate update = {};
@@ -498,6 +505,10 @@ namespace Skore
 				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 
 				cmd->Dispatch((scene->renderObjects.instanceDataCount + 15) / 16, 1, 1);
+
+				//cmd->ResourceBarrier()
+
+				cmd->MemoryBarrier();
 			}
 		}
 	};
@@ -566,7 +577,7 @@ namespace Skore
 				const DrawPipelineDesc& desc = objects->opaquePipelines[opaquePipelines.Size()].desc;
 
 				//RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
-				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferNew.raster");
+				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferIndirect.raster");
 
 				Array<String> macros;
 				if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");
