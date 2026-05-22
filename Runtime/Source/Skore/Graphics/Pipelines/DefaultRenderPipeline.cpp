@@ -467,7 +467,7 @@ namespace Skore
 
 					data->countBuffer[frame] = Graphics::CreateBuffer(BufferDesc{
 						.size = sizeof(u32) * scene->renderObjects.opaquePipelines.Size(),
-						.usage = ResourceUsage::IndirectBuffer | ResourceUsage::UnorderedAccess,
+						.usage = ResourceUsage::IndirectBuffer | ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest,
 						.hostVisible = false,
 						.persistentMapped = false,
 						.debugName = "IndirectDrawBufferCount"
@@ -486,6 +486,7 @@ namespace Skore
 				u32 frame = context->GetCurrentFrame();
 
 				cmd->FillBuffer(data->countBuffer[frame], 0, sizeof(u32) * scene->renderObjects.opaquePipelines.Size(), 0);
+				//TODO: replace by a proper barrier
 				cmd->MemoryBarrier();
 
 				for (int i = 0; i < scene->renderObjects.opaquePipelines.Size(); ++i)
@@ -508,6 +509,7 @@ namespace Skore
 
 				//cmd->ResourceBarrier()
 
+				//TODO: replace by a proper barrier
 				cmd->MemoryBarrier();
 			}
 		}
@@ -576,8 +578,8 @@ namespace Skore
 			{
 				const DrawPipelineDesc& desc = objects->opaquePipelines[opaquePipelines.Size()].desc;
 
-				//RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
-				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferIndirect.raster");
+				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
+				//RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferIndirect.raster");
 
 				Array<String> macros;
 				if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");
@@ -630,6 +632,7 @@ namespace Skore
 				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
 				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 
+				/*
 				ScenePipelineCullingData& cullingPipelineData = cullingData->pipelines[i];
 				cmd->DrawIndexedIndirectCount(cullingPipelineData.indirectDrawBuffer[frame],
 				                              0,
@@ -638,9 +641,9 @@ namespace Skore
 				                              objects->opaquePipelines[i].drawcalls.Size(),
 				                              sizeof(DrawIndexedIndirectArguments));
 
+*/
 
 
-				/*
 
 				for (const Drawcall& drawcall : objects->opaquePipelines[i].drawcalls)
 				{
@@ -674,7 +677,7 @@ namespace Skore
 					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
 					cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
 				}
-				*/
+
 			}
 		}
 
@@ -1177,7 +1180,7 @@ namespace Skore
 			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(SpdConstants), &pc);
 			cmd->BindDescriptorSet(pipeline, 0, descriptorSet, {});
 
-			cmd->ResourceBarrier(linearDepthTexture, ResourceState::ShaderReadOnly, ResourceState::General, 0, mipCount, 0, 1);
+			cmd->ResourceBarrier(linearDepthTexture, ResourceState::Undefined, ResourceState::General, 0, mipCount, 0, 1);
 			cmd->Dispatch(dispatchThreadGroupCountXY[0], dispatchThreadGroupCountXY[1], 1);
 			cmd->ResourceBarrier(linearDepthTexture, ResourceState::General, ResourceState::ShaderReadOnly, 0, mipCount, 0, 1);
 		}

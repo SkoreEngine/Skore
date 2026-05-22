@@ -423,7 +423,7 @@ namespace Skore
 	{
 		if (auto it = resources.Find(textureName))
 		{
-			return it->second.GetTexture(currentFrame);
+			return it->second.GetResourceTexture(currentFrame);
 		}
 		return nullptr;
 	}
@@ -1077,7 +1077,17 @@ namespace Skore
 					//if it never used make readonly
 					if (nextUsage.passIndex == U32_MAX || nextUsage.access == RenderPipelineTextureAccess::Read)
 					{
-						barrier.dstState = isDepth ? ResourceState::DepthStencilReadOnly : ResourceState::ShaderReadOnly;
+						auto resIt = resources.Find(dependency.name);
+						if (resIt != resources.end()
+							&& resIt->second.requiredState != ResourceState::Undefined
+							&& i == resIt->second.lastWrite)
+						{
+							barrier.dstState = resIt->second.requiredState;
+						}
+						else
+						{
+							barrier.dstState = isDepth ? ResourceState::DepthStencilReadOnly : ResourceState::ShaderReadOnly;
+						}
 					}
 					else if (nextUsage.access == RenderPipelineTextureAccess::ReadWrite || nextUsage.access == RenderPipelineTextureAccess::Write)
 					{
@@ -1124,7 +1134,14 @@ namespace Skore
 						PassBarrier barrier;
 						barrier.resource = dependency.name;
 
-						if ((lastUsage.access == RenderPipelineTextureAccess::Write || lastUsage.access == RenderPipelineTextureAccess::ReadWrite) && passes[lastUsage.passIndex].setup.type != RenderPipelinePassType::Graphics)
+						auto resIt = resources.Find(dependency.name);
+						bool isExternal = resIt != resources.end() && !resIt->second.outputAttachments.Empty();
+
+						if (isExternal && dependency.access == RenderPipelineTextureAccess::Write)
+						{
+							barrier.srcState = ResourceState::Undefined;
+						}
+						else if ((lastUsage.access == RenderPipelineTextureAccess::Write || lastUsage.access == RenderPipelineTextureAccess::ReadWrite) && passes[lastUsage.passIndex].setup.type != RenderPipelinePassType::Graphics)
 						{
 							barrier.srcState = ResourceState::General;
 						}
@@ -1144,6 +1161,8 @@ namespace Skore
 		{
 			if (resIt.second.desc.type == RenderPipelineResourceType::Attachment || resIt.second.desc.type == RenderPipelineResourceType::Texture)
 			{
+				if (!resIt.second.outputAttachments.Empty()) continue;
+
 				auto firstUsage = GetFirstUsageInfo(resIt.second.desc.name);
 
 				if (firstUsage.passIndex != U32_MAX && passes[firstUsage.passIndex].setup.type != RenderPipelinePassType::Graphics)

@@ -5,7 +5,7 @@
 
 namespace Skore
 {
-	class SK_API Camera : public Component
+	class SK_API Camera : public Component, public Tickable
 	{
 	public:
 		SK_CLASS(Camera, Component);
@@ -23,7 +23,7 @@ namespace Skore
 		u64        GetCullingMask() const;
 		void       SetCullingMask(u64 cullingMask);
 
-		void ProcessEvent(const EntityEventDesc& event) override;
+		void OnUpdate(f64 deltaTime) override;
 
 		static void RegisterType(NativeReflectType<Camera>& type);
 
