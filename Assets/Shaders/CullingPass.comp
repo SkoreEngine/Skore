@@ -15,15 +15,15 @@ RWStructuredBuffer<IndexedIndirectCommand> indirectDraws[] : register(u0);
 RWStructuredBuffer<uint> indirectCount : register(u1);
 
 
-[numthreads(256, 1, 1)]
+[numthreads(16, 1, 1)]
 void MainCS(uint idx : SV_DispatchThreadID)
 {
     if (idx >= instanceCount) return;
 
 //    printf("%u", idx);
 
-    uint temp;
     InstanceData data = instances[NonUniformResourceIndex(idx)];
+    if(data.transparent == 1) return;
 
     indirectDraws[data.pipelineIndex][data.drawcallIndex].indexCount = data.indexCount;
     indirectDraws[data.pipelineIndex][data.drawcallIndex].instanceCount = 1;
@@ -31,5 +31,6 @@ void MainCS(uint idx : SV_DispatchThreadID)
     indirectDraws[data.pipelineIndex][data.drawcallIndex].vertexOffset = 0;
     indirectDraws[data.pipelineIndex][data.drawcallIndex].startInstanceLocation = idx;
 
+    uint temp;
     InterlockedAdd(indirectCount[data.pipelineIndex], 1, temp);
 }
