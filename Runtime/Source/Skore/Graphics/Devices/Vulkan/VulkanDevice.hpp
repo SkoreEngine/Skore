@@ -430,6 +430,8 @@ namespace Skore
 		void FlushGPUWork();
 		void SubmitGPUWork(GPUCommandBuffer* cmd, std::function<void(bool)> callback, bool submitImmediately) override;
 
+		void GetMemoryBudgets(Array<MemoryHeapBudget>& outBudgets) override;
+
 		EventHandler<OnRecordRenderCommands> onRecordRenderCommands{};
 
 		void ExecuteFrame();

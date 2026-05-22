@@ -231,6 +231,18 @@ namespace Skore
 		}
 	}
 
+	void Graphics::GetMemoryBudgets(Array<MemoryHeapBudget>& outBudgets)
+	{
+		if (device)
+		{
+			device->GetMemoryBudgets(outBudgets);
+		}
+		else
+		{
+			outBudgets.Clear();
+		}
+	}
+
 	Window Graphics::GetWindow()
 	{
 		return window;

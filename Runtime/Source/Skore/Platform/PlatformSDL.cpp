@@ -276,6 +276,31 @@ namespace Skore
 		return time;
 	}
 
+#if !defined(SK_WIN)
+	ProcessMemoryInfo Platform::GetProcessMemoryInfo()
+	{
+		return {};
+	}
+
+	SystemMemoryInfo Platform::GetSystemMemoryInfo()
+	{
+		SystemMemoryInfo info{};
+		info.totalBytes = static_cast<u64>(SDL_GetSystemRAM()) * 1024ull * 1024ull;
+		return info;
+	}
+
+	f32 Platform::GetProcessCPUUsage()
+	{
+		return 0.0f;
+	}
+#endif
+
+	u32 Platform::GetLogicalCoreCount()
+	{
+		int n = SDL_GetNumLogicalCPUCores();
+		return n > 0 ? static_cast<u32>(n) : 1u;
+	}
+
 	void Platform::SaveDialog(std::function<void(StringView path)>&& func, Span<FileFilter> filters, StringView defaultPath, StringView fileName, Window window) {}
 
 

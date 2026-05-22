@@ -1818,6 +1818,7 @@ namespace Skore
 
 		features.bufferDeviceAddress = AddIfPresent(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, &bufferDeviceAddressFeatures);
 		features.drawIndirectCount = AddIfPresent(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
+		features.memoryBudget = AddIfPresent(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 
 		features.rayTracing = AddIfPresent(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) && AddIfPresent(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
 
@@ -1978,6 +1979,11 @@ namespace Skore
 		if (features.bufferDeviceAddress)
 		{
 			allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+		}
+
+		if (features.memoryBudget)
+		{
+			allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
 		}
 
 		allocatorInfo.pVulkanFunctions = &vmaVulkanFunctions;
@@ -4312,6 +4318,28 @@ namespace Skore
 			.cmd = vulkanCommandBuffer->commandBuffer,
 			.callback = callback,
 		});
+	}
+
+	void VulkanDevice::GetMemoryBudgets(Array<MemoryHeapBudget>& outBudgets)
+	{
+		outBudgets.Clear();
+		if (!vmaAllocator || !selectedAdapter) return;
+
+		VkPhysicalDeviceMemoryProperties memProps{};
+		vkGetPhysicalDeviceMemoryProperties(selectedAdapter->device, &memProps);
+
+		VmaBudget budgets[VK_MAX_MEMORY_HEAPS]{};
+		vmaGetHeapBudgets(vmaAllocator, budgets);
+
+		outBudgets.Reserve(memProps.memoryHeapCount);
+		for (u32 i = 0; i < memProps.memoryHeapCount; ++i)
+		{
+			MemoryHeapBudget b;
+			b.usage       = static_cast<u64>(budgets[i].usage);
+			b.budget      = static_cast<u64>(budgets[i].budget);
+			b.deviceLocal = (memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0;
+			outBudgets.EmplaceBack(b);
+		}
 	}
 
 

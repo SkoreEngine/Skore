@@ -1,12 +1,20 @@
 #include "Skore/Window/DebuggerWindow.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
+#include "Skore/App.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/EditorWorkspace.hpp"
+#include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/ImGui/Icons.h"
 #include "Skore/ImGui/ImGui.hpp"
+#include "Skore/Platform/Platform.hpp"
 #include "Skore/Profiler.hpp"
+#include "Skore/Scene/Scene.hpp"
+#include "Skore/Scene/SceneEditor.hpp"
 
 namespace Skore
 {
@@ -83,8 +91,173 @@ namespace Skore
 		});
 	}
 
+	namespace
+	{
+		void FormatBytes(char* out, usize outSize, u64 bytes)
+		{
+			constexpr double KB = 1024.0;
+			constexpr double MB = KB * 1024.0;
+			constexpr double GB = MB * 1024.0;
+			double b = static_cast<double>(bytes);
+			if (b >= GB)      std::snprintf(out, outSize, "%.2f GB", b / GB);
+			else if (b >= MB) std::snprintf(out, outSize, "%.2f MB", b / MB);
+			else if (b >= KB) std::snprintf(out, outSize, "%.2f KB", b / KB);
+			else              std::snprintf(out, outSize, "%llu B", static_cast<unsigned long long>(bytes));
+		}
+
+		u32 CountDrawcalls(const Array<DrawPipeline>& pipelines)
+		{
+			u32 total = 0;
+			for (u32 i = 0; i < pipelines.Size(); ++i)
+				total += static_cast<u32>(pipelines[i].drawcalls.Size());
+			return total;
+		}
+
+		void StatsRow(const char* label, const char* value)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::TextUnformatted(label);
+			ImGui::TableSetColumnIndex(1);
+			ImGui::TextUnformatted(value);
+		}
+
+		void StatsSectionHeader(const char* label)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(200, 200, 220, 255));
+			ImGui::TextUnformatted(label);
+			ImGui::PopStyleColor();
+			ImGui::TableSetColumnIndex(1);
+		}
+	}
+
 	void DebuggerWindow::DrawStats()
 	{
+		ScopedStyleVar statsItemSpacing(ImGuiStyleVar_ItemSpacing, ImVec2(4, 4));
+		ScopedStyleVar statsCellPadding(ImGuiStyleVar_CellPadding, ImVec2(6, 4));
+
+		ImGuiTableFlags tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp;
+		if (!ImGui::BeginTable("##stats_table", 2, tableFlags))
+			return;
+
+		ImGui::TableSetupColumn("Stat", ImGuiTableColumnFlags_WidthFixed, 220.0f * (ImGui::GetFontSize() / 13.0f));
+		ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+
+		char buf[64];
+		char buf2[64];
+
+		// --- Frame timing ---
+		StatsSectionHeader("Frame");
+		std::snprintf(buf, sizeof(buf), "%.1f", App::GetFPS());
+		StatsRow("FPS", buf);
+		std::snprintf(buf, sizeof(buf), "%.2f ms", App::DeltaTime() * 1000.0);
+		StatsRow("Frame time", buf);
+
+		// --- CPU / Memory ---
+		StatsSectionHeader("Process");
+
+		f32 cpu = Platform::GetProcessCPUUsage();
+		u32 cores = Platform::GetLogicalCoreCount();
+		f32 cpuTotal = cores > 0 ? (cpu / static_cast<f32>(cores)) * 100.0f : 0.0f;
+		std::snprintf(buf, sizeof(buf), "%.1f%%  (%.1f/core, %u cores)", cpuTotal, cpu * 100.0f, cores);
+		StatsRow("CPU", buf);
+
+		ProcessMemoryInfo procMem = Platform::GetProcessMemoryInfo();
+		FormatBytes(buf, sizeof(buf), procMem.workingSetBytes);
+		FormatBytes(buf2, sizeof(buf2), procMem.peakWorkingSetBytes);
+		char memLine[160];
+		std::snprintf(memLine, sizeof(memLine), "%s  (peak %s)", buf, buf2);
+		StatsRow("Working set", memLine);
+
+		SystemMemoryInfo sysMem = Platform::GetSystemMemoryInfo();
+		u64 usedSys = (sysMem.totalBytes >= sysMem.availableBytes) ? (sysMem.totalBytes - sysMem.availableBytes) : 0;
+		FormatBytes(buf, sizeof(buf), usedSys);
+		FormatBytes(buf2, sizeof(buf2), sysMem.totalBytes);
+		std::snprintf(memLine, sizeof(memLine), "%s / %s", buf, buf2);
+		StatsRow("System memory", memLine);
+
+		// --- GPU memory (VMA) ---
+		StatsSectionHeader("GPU memory");
+
+		Array<MemoryHeapBudget> budgets;
+		Graphics::GetMemoryBudgets(budgets);
+
+		u64 devUsage = 0, devBudget = 0;
+		u64 hostUsage = 0, hostBudget = 0;
+		for (u32 i = 0; i < budgets.Size(); ++i)
+		{
+			if (budgets[i].deviceLocal)
+			{
+				devUsage  += budgets[i].usage;
+				devBudget += budgets[i].budget;
+			}
+			else
+			{
+				hostUsage  += budgets[i].usage;
+				hostBudget += budgets[i].budget;
+			}
+		}
+
+		FormatBytes(buf, sizeof(buf), devUsage);
+		FormatBytes(buf2, sizeof(buf2), devBudget);
+		std::snprintf(memLine, sizeof(memLine), "%s / %s", buf, buf2);
+		StatsRow("Dedicated (VRAM)", memLine);
+
+		FormatBytes(buf, sizeof(buf), hostUsage);
+		FormatBytes(buf2, sizeof(buf2), hostBudget);
+		std::snprintf(memLine, sizeof(memLine), "%s / %s", buf, buf2);
+		StatsRow("Shared (host)", memLine);
+
+		// --- Rendering ---
+		StatsSectionHeader("Rendering");
+
+		Scene* scene = nullptr;
+		if (workspace)
+		{
+			if (SceneEditor* sceneEditor = workspace->GetSceneEditor())
+			{
+				scene = sceneEditor->GetCurrentScene();
+			}
+		}
+
+		if (scene)
+		{
+			const RenderSceneObjects& objects = scene->renderObjects;
+
+			u32 opaque      = CountDrawcalls(objects.opaquePipelines);
+			u32 transparent = CountDrawcalls(objects.transparentPipelines);
+			u32 shadow      = CountDrawcalls(objects.shadowPipelines);
+
+			std::snprintf(buf, sizeof(buf), "%u", opaque);
+			StatsRow("Opaque drawcalls", buf);
+
+			std::snprintf(buf, sizeof(buf), "%u", transparent);
+			StatsRow("Transparent drawcalls", buf);
+
+			std::snprintf(buf, sizeof(buf), "%u (per cascade)", shadow);
+			StatsRow("Shadow drawcalls", buf);
+
+			std::snprintf(buf, sizeof(buf), "%u", opaque + transparent + shadow);
+			StatsRow("Total drawcalls", buf);
+
+			std::snprintf(buf, sizeof(buf), "%u", objects.instanceDataCount);
+			StatsRow("Instances", buf);
+
+			u32 pipelineCount = static_cast<u32>(
+				objects.opaquePipelines.Size() +
+				objects.transparentPipelines.Size() +
+				objects.shadowPipelines.Size());
+			std::snprintf(buf, sizeof(buf), "%u", pipelineCount);
+			StatsRow("Render pipelines", buf);
+		}
+		else
+		{
+			StatsRow("Scene", "<none>");
+		}
+
+		ImGui::EndTable();
 	}
 
 	void DebuggerWindow::DrawProfiler()
