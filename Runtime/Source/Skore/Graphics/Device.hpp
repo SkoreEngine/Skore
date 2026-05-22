@@ -504,6 +504,7 @@ namespace Skore
 		bool drawIndirectCount;
 		bool rayTracing;
 		bool resolveDepth;
+		bool memoryBudget;
 	};
 
 	struct DeviceLimits
@@ -923,6 +924,13 @@ namespace Skore
 		u32         dstArrayLayer{0};
 	};
 
+	struct MemoryHeapBudget
+	{
+		u64  usage = 0;           // estimated bytes currently used by the program in this heap
+		u64  budget = 0;          // estimated bytes available to the program in this heap
+		bool deviceLocal = false; // true for dedicated VRAM heaps, false for host/shared heaps
+	};
+
 	class SK_API GPUDevice
 	{
 	public:
@@ -958,6 +966,8 @@ namespace Skore
 		virtual usize GetAccelerationStructureBuildScratchSize(const TopLevelASDesc& desc) = 0;
 
 		virtual void SubmitGPUWork(GPUCommandBuffer* cmd, std::function<void(bool)> callback, bool submitImmediately) = 0;
+
+		virtual void GetMemoryBudgets(Array<MemoryHeapBudget>& outBudgets) = 0;
 	};
 
 	class SK_API GPUSwapchain

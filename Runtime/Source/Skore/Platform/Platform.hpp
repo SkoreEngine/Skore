@@ -38,6 +38,18 @@ namespace Skore
 
 	SK_HANDLER(Window);
 
+	struct ProcessMemoryInfo
+	{
+		u64 workingSetBytes = 0;     // physical memory currently used by this process
+		u64 peakWorkingSetBytes = 0; // peak physical memory used since process start
+	};
+
+	struct SystemMemoryInfo
+	{
+		u64 totalBytes = 0;     // total physical memory installed
+		u64 availableBytes = 0; // physical memory still available to the OS
+	};
+
 	namespace Platform
 	{
 		//window
@@ -71,5 +83,12 @@ namespace Skore
 		SK_API void DestroyProcess(VoidPtr process);
 
 		SK_API u64 GetTime();
+
+		SK_API ProcessMemoryInfo GetProcessMemoryInfo();
+		SK_API SystemMemoryInfo  GetSystemMemoryInfo();
+		// CPU usage of the current process, normalized so 1.0 == one fully utilized logical core.
+		// Sampled over the time elapsed since the previous call.
+		SK_API f32 GetProcessCPUUsage();
+		SK_API u32 GetLogicalCoreCount();
 	}
 }

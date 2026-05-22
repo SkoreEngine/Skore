@@ -69,6 +69,8 @@ namespace Skore
 
 		static bool SubmitGPUWork(GPUCommandBuffer* cmd, bool blocking);
 
+		static void GetMemoryBudgets(Array<MemoryHeapBudget>& outBudgets);
+
 		static void RegisterType(NativeReflectType<Graphics>& type);
 	};
 }
