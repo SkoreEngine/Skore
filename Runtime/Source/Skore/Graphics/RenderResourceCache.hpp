@@ -1,6 +1,7 @@
 #pragma once
 
 
+#include <atomic>
 #include <future>
 #include <memory>
 
@@ -53,6 +54,23 @@ namespace Skore
 		u32         textureIndex = U32_MAX;
 		u32         skippedMips = 0;
 
+		// Full-resolution metadata of the underlying texture resource. Used by the streaming path
+		// to decide what `skippedMips` value to target for stream-in requests.
+		u32 fullExtentWidth  = 0;
+		u32 fullExtentHeight = 0;
+		u32 fullMipCount     = 0;
+
+		// True while a stream-in/out upload is in flight; gated so we don't queue duplicate tasks.
+		std::atomic<bool> streamingPending{false};
+
+		// Aggregated per-frame request across all materials referencing this texture
+		// (rebuilt by RenderResourceCache::Flush each frame).
+		u32 lastRequestedResolution = 0;
+
+		// Consecutive frames the texture has been over-detailed relative to the request.
+		// Eviction triggers once this exceeds the unload-delay threshold.
+		u32 streamingDecayFrames = 0;
+
 		// Valid while a pixel-data upload is pending on the worker; wait on it to ensure the texture
 		// contents are populated before sampling.
 		std::shared_future<void> uploadComplete;
@@ -93,7 +111,6 @@ namespace Skore
 
 		MaterialResource::MaterialType type = MaterialResource::MaterialType::Opaque;
 		u32                            materialIndex = U32_MAX;
-		GPUBuffer*                     materialBuffer = nullptr;
 		GPUDescriptorSet*              descriptorSet = nullptr;
 
 		// Optional custom shader for the opaque GBuffer/depth pass. Null = use engine default.
@@ -115,6 +132,9 @@ namespace Skore
 
 		// Set true once the resource-change event has been registered, so the dtor can unregister it.
 		bool eventRegistered = false;
+
+		// texture streaming
+		u32 reqTextureResolution = 0;
 
 		bool IsLoaded() const
 		{
@@ -184,5 +204,6 @@ namespace Skore
 		static GPUBuffer*               GetMeshDataBuffer();
 
 		static void Flush();
+		static void Flush(GPUCommandBuffer* cmd);
 	};
 }

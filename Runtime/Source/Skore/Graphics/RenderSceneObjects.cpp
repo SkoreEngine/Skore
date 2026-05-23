@@ -535,7 +535,7 @@ namespace Skore
 
 	void RenderSceneObjects::DoUpdate(GPUCommandBuffer* cmd)
 	{
-		RenderResourceCache::Flush();
+		//RenderResourceCache::Flush();
 
 		if (pendingUpdate.empty()) return;
 

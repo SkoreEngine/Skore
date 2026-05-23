@@ -14,6 +14,26 @@ struct MaterialSample
 	float      occlusion;
 };
 
+inline float GetLod(in uint2 dim, in float2 uv_dx, in float2 uv_dy)
+{
+	return log2(max(length(uv_dx * dim), length(uv_dy * dim)));
+}
+
+//credits https://wickedengine.net/2024/06/texture-streaming/
+inline void WriteMipmapFeedback(uint materialIndex, float4 uvsets_dx, float4 uvsets_dy)
+{
+	const float lod_uvset0 = GetLod(65536u, uvsets_dx.xy, uvsets_dy.xy);
+	const float lod_uvset1 = GetLod(65536u, uvsets_dx.zw, uvsets_dy.zw);
+	const uint resolution0 = 65536u >> uint(max(0, lod_uvset0));
+	const uint resolution1 = 65536u >> uint(max(0, lod_uvset1));
+	const uint mask = resolution0 | (resolution1 << 16u);
+	const uint waveMask = WaveActiveBitOr(mask);
+	if(WaveIsFirstLane())
+	{
+		InterlockedOr(MaterialMaskBuffer[materialIndex], waveMask);
+	}
+}
+
 MaterialSample SampleMaterial(uint materialIndex, float2 texCoord, float3 worldNormal)
 {
 	MaterialSample material;
@@ -35,6 +55,8 @@ MaterialSample SampleMaterial(uint materialIndex, float2 texCoord, float3 worldN
 	{
 		discard;
 	}
+
+    WriteMipmapFeedback(materialIndex, ddx_coarse(float4(texCoord, 0, 0)), ddy_coarse(float4(texCoord, 0, 0)));
 
 	material.normal = worldNormal;
 

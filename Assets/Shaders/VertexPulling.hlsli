@@ -17,10 +17,7 @@ struct VertexLayoutOffset
 	uint pad2;
 };
 
-// Single shared mesh data buffer. Per-mesh vertex slabs live at byte offsets
-// allocated by OffsetAllocator on the C++ side; the offset is passed in via
-// push constants or instance data as 'vertexByteOffset'.
-ByteAddressBuffer MeshDataBuffer : register(t3, space0);
+ByteAddressBuffer MeshDataBuffer : register(t4, space0);
 ConstantBuffer<VertexLayoutOffset> VertexLayouts[] : register(b5, space0);
 
 float3 GetVertexPosition(uint vertexByteOffset, uint layoutIdx, uint vertexId)
