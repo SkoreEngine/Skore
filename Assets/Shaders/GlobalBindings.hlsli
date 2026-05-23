@@ -27,7 +27,8 @@ struct MaterialData
 };
 
 StructuredBuffer<MaterialData> MaterialDataBuffer : register(t0, space0);
-SamplerState LinearSampler : register(s1, space0);
-Texture2D BindlessTextures[] : register(t2, space0);
+RWStructuredBuffer<uint> MaterialMaskBuffer       : register(u1, space0);
+SamplerState LinearSampler                        : register(s2, space0);
+Texture2D BindlessTextures[]                      : register(t3, space0);
 
 #endif

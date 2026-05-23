@@ -15,8 +15,33 @@
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/StringUtils.hpp"
+#include "Skore/Core/UnorderedDense.hpp"
 #include "Skore/IO/Compression.hpp"
 #include "Skore/Resource/Resources.hpp"
+
+#ifdef _WIN32
+		// Windows:
+#include <intrin.h>
+		inline unsigned long firstbithigh(unsigned long value)
+		{
+			unsigned long bit_index;
+			if (_BitScanReverse(&bit_index, value))
+			{
+				return 31ul - bit_index;
+			}
+			return 0;
+		}
+#else
+// Linux:
+inline unsigned long firstbithigh(unsigned int value)
+		{
+			if (value == 0)
+			{
+				return 0;
+			}
+			return __builtin_clz(value);
+		}
+#endif // _WIN32
 
 namespace Skore
 {
@@ -26,12 +51,19 @@ namespace Skore
 	const u32 MeshDataMaxAllocations   = 32u * 1024u;
 	const u32 MeshDataAllocationAlign  = 16u;
 
-	const u32 MaxTextureMipsToLoad = 0;
+	const u32 MaxTextureMipsToLoad = 6;
+
+	// Number of frames a texture must remain over-detailed (current top mip > requested) before
+	// it gets streamed out. Prevents thrashing when the request bounces frame-to-frame.
+	const u32 StreamingUnloadDelayFrames = 120;
 
 	namespace
 	{
 		void ExecuteOnMainThread(std::function<void()> func);
 		void WaitForTexture(const TextureResourceCachePtr& tex);
+		// Forward-declared so the worker can call it from an inline lambda. Defined after the
+		// globals it touches (globalDescriptorSet / globalDescriptorSetAlive).
+		void ApplyTextureStreamingSwap(TextureResourceCachePtr textureCache, GPUTexture* newTexture, u32 newSkippedMips);
 
 		Logger& logger = Logger::GetLogger("Skore.RenderResourceCache");
 
@@ -43,6 +75,7 @@ namespace Skore
 		{
 			None,
 			Texture,
+			StreamTexture,
 			Mesh,
 			GenerateIBL
 		};
@@ -57,6 +90,14 @@ namespace Skore
 				WorkerType                          type = WorkerType::None;
 				ResourceCachePtr                    resourceCache = {};
 				std::shared_ptr<std::promise<void>> promise = nullptr;
+
+				GPUBuffer* srcBuffer = nullptr;
+				GPUBuffer* destBuffer = nullptr;
+
+				// Used by WorkerType::StreamTexture: the pre-created higher-resolution texture
+				// the worker should upload pixels into, and the corresponding skippedMips count.
+				GPUTexture* streamTargetTexture = nullptr;
+				u32         streamTargetSkippedMips = 0;
 			};
 
 		public:
@@ -97,6 +138,16 @@ namespace Skore
 				return future;
 			}
 
+			void AddStreamTextureTask(ResourceCachePtr resourceCache, GPUTexture* targetTexture, u32 targetSkippedMips)
+			{
+				WorkerData data;
+				data.type = WorkerType::StreamTexture;
+				data.resourceCache = std::move(resourceCache);
+				data.streamTargetTexture = targetTexture;
+				data.streamTargetSkippedMips = targetSkippedMips;
+				AddTask(std::move(data));
+			}
+
 			bool Idle()
 			{
 				return pendingCount.load(std::memory_order_acquire) == 0;
@@ -129,6 +180,195 @@ namespace Skore
 				GPUBuffer* blasScratchBuffer = nullptr;
 				u64        blasScratchSize = 0;
 
+				// Uploads pixel data from `textureObject` into `targetTexture`, skipping the
+				// `skippedMips` most-detailed mips. Used by both the initial texture upload
+				// and the streaming stream-in path.
+				auto uploadTexturePixels = [&](GPUTexture* targetTexture, u32 skippedMips, ResourceObject& textureObject)
+				{
+					u32             srcMipLevels = textureObject.GetUInt(TextureResource::MipLevels);
+					TextureFormat   format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+					CompressionMode compressionMode = textureObject.GetEnum<CompressionMode>(TextureResource::CompressionMode);
+					Span<RID>       images = textureObject.GetSubObjectList(TextureResource::Images);
+					ResourceBuffer  buffer = textureObject.GetBuffer(TextureResource::PixelData);
+					u32             texelSize = GetTextureFormatSize(format);
+
+					u32 mipLevels = std::max(srcMipLevels, 1u) - skippedMips;
+
+					struct PendingCopy
+					{
+						u32 stagingOffset;
+						u32 mip;
+						u32 width;
+						u32 height;
+					};
+					Array<PendingCopy> pendingCopies;
+					ByteBuffer         scratch;
+
+					u32  stagingFill = 0;
+					u32  srcUncompressedOffset = 0;
+					u32  srcCompressedOffset = 0;
+					bool firstBatch = true;
+
+					auto barrierToCopyDestIfNeeded = [&]()
+					{
+						if (firstBatch)
+						{
+							transferCmd->ResourceBarrier(targetTexture, ResourceState::Undefined, ResourceState::CopyDest, 0, mipLevels, 0, 1);
+							firstBatch = false;
+						}
+					};
+
+					auto flushBatch = [&]()
+					{
+						transferCmd->Begin();
+						barrierToCopyDestIfNeeded();
+						for (const PendingCopy& pc : pendingCopies)
+						{
+							transferCmd->CopyBufferToTexture({
+								.buffer = stagingBuffer,
+								.texture = targetTexture,
+								.extent = Extent3D{pc.width, pc.height, 1},
+								.mipLevel = pc.mip,
+								.bufferOffset = pc.stagingOffset,
+							});
+						}
+						transferCmd->End();
+						transferQueue->SubmitAndWait(transferCmd);
+						transferCmd->Reset();
+						pendingCopies.Clear();
+						stagingFill = 0;
+					};
+
+					auto uploadOversizedMip = [&](u32 width, u32 height, u32 mip, auto&& srcReader)
+					{
+						u32 bytesPerRow = width * texelSize;
+						SK_ASSERT(bytesPerRow > 0 && bytesPerRow <= StagingBufferSize, "single row exceeds staging buffer");
+
+						u32 rowsPerBatch = StagingBufferSize / bytesPerRow;
+						u32 yOffset = 0;
+						while (yOffset < height)
+						{
+							u32 rowsThisBatch = std::min(rowsPerBatch, height - yOffset);
+							u32 bytesThisBatch = rowsThisBatch * bytesPerRow;
+
+							srcReader(stagingBuffer->GetMappedData(), bytesThisBatch, static_cast<u64>(yOffset) * bytesPerRow);
+
+							transferCmd->Begin();
+							barrierToCopyDestIfNeeded();
+							transferCmd->CopyBufferToTexture({
+								.buffer = stagingBuffer,
+								.texture = targetTexture,
+								.extent = Extent3D{width, rowsThisBatch, 1},
+								.mipLevel = mip,
+								.textureOffset = Offset3D{0, static_cast<i32>(yOffset), 0},
+							});
+							transferCmd->End();
+							transferQueue->SubmitAndWait(transferCmd);
+							transferCmd->Reset();
+
+							yOffset += rowsThisBatch;
+						}
+					};
+
+					for (RID imageRID : images)
+					{
+						ResourceObject imageObject = Resources::Read(imageRID);
+						Vec2 extent = imageObject.GetVec2(TextureImageResource::Extent);
+						u32  srcMip = imageObject.GetUInt(TextureImageResource::Mip);
+						u32  width = static_cast<u32>(extent.width);
+						u32  height = static_cast<u32>(extent.height);
+						u32  compressedSize = imageObject.GetUInt(TextureImageResource::DataSize);
+						u32  uncompressedSize = imageObject.GetUInt(TextureImageResource::UncompressedSize);
+
+						if (srcMip < skippedMips)
+						{
+							// Dropped mip — still owns its slice of the source buffer, so advance offsets.
+							srcUncompressedOffset += uncompressedSize;
+							srcCompressedOffset += compressedSize;
+							continue;
+						}
+
+						u32 mip = srcMip - skippedMips;
+
+						if (uncompressedSize > StagingBufferSize)
+						{
+							// Mip is bigger than the staging buffer — flush anything pending,
+							// then upload this mip in row-chunked submissions.
+							if (!pendingCopies.Empty())
+							{
+								flushBatch();
+							}
+
+							if (compressionMode == CompressionMode::None)
+							{
+								uploadOversizedMip(width, height, mip,
+									[&](VoidPtr dst, u32 size, u64 rowByteOffset)
+									{
+										buffer.CopyData(dst, size, srcUncompressedOffset + rowByteOffset);
+									});
+							}
+							else
+							{
+								// Whole-mip decompression to a scratch buffer; then upload from there.
+								scratch.Resize(uncompressedSize);
+								ByteBuffer compressedBytes;
+								compressedBytes.Resize(compressedSize);
+								buffer.CopyData(compressedBytes.begin(), compressedSize, srcCompressedOffset);
+								Compression::Decompress(scratch.begin(), uncompressedSize, compressedBytes.begin(), compressedSize, compressionMode);
+
+								uploadOversizedMip(width, height, mip,
+									[&](VoidPtr dst, u32 size, u64 rowByteOffset)
+									{
+										memcpy(dst, scratch.begin() + rowByteOffset, size);
+									});
+							}
+						}
+						else
+						{
+							if (stagingFill + uncompressedSize > StagingBufferSize)
+							{
+								flushBatch();
+							}
+
+							u8* dst = static_cast<u8*>(stagingBuffer->GetMappedData()) + stagingFill;
+
+							if (compressionMode == CompressionMode::None)
+							{
+								buffer.CopyData(dst, uncompressedSize, srcUncompressedOffset);
+							}
+							else
+							{
+								scratch.Resize(compressedSize);
+								buffer.CopyData(scratch.begin(), compressedSize, srcCompressedOffset);
+								Compression::Decompress(dst, uncompressedSize, scratch.begin(), compressedSize, compressionMode);
+							}
+
+							pendingCopies.EmplaceBack(PendingCopy{
+								stagingFill,
+								mip,
+								width,
+								height
+							});
+
+							stagingFill += uncompressedSize;
+						}
+
+						srcUncompressedOffset += uncompressedSize;
+						srcCompressedOffset += compressedSize;
+					}
+
+					if (!pendingCopies.Empty())
+					{
+						flushBatch();
+					}
+
+					transferCmd->Begin();
+					transferCmd->ResourceBarrier(targetTexture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, mipLevels, 0, 1);
+					transferCmd->End();
+					transferQueue->SubmitAndWait(transferCmd);
+					transferCmd->Reset();
+				};
+
 				while (running.load(std::memory_order_acquire))
 				{
 					workSem.acquire();
@@ -154,189 +394,41 @@ namespace Skore
 
 							if (ResourceObject textureObject = Resources::Read(textureCache->rid))
 							{
-								u32             srcMipLevels = textureObject.GetUInt(TextureResource::MipLevels);
-								TextureFormat   format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
-								CompressionMode compressionMode = textureObject.GetEnum<CompressionMode>(TextureResource::CompressionMode);
-								Span<RID>       images = textureObject.GetSubObjectList(TextureResource::Images);
-								ResourceBuffer  buffer = textureObject.GetBuffer(TextureResource::PixelData);
-								u32             texelSize = GetTextureFormatSize(format);
+								uploadTexturePixels(textureCache->texture, textureCache->skippedMips, textureObject);
+							}
+							break;
+						}
+						case WorkerType::StreamTexture:
+						{
+							TextureResourceCachePtr textureCache = std::dynamic_pointer_cast<TextureResourceCache>(data.resourceCache);
+							GPUTexture* newTexture     = data.streamTargetTexture;
+							u32         newSkippedMips = data.streamTargetSkippedMips;
 
-								u32 skippedMips = textureCache->skippedMips;
-								u32 mipLevels   = std::max(srcMipLevels, 1u) - skippedMips;
-
-								struct PendingCopy
+							bool uploaded = false;
+							if (textureCache && newTexture)
+							{
+								if (ResourceObject textureObject = Resources::Read(textureCache->rid))
 								{
-									u32 stagingOffset;
-									u32 mip;
-									u32 width;
-									u32 height;
-								};
-								Array<PendingCopy> pendingCopies;
-								ByteBuffer         scratch;
-
-								u32  stagingFill = 0;
-								u32  srcUncompressedOffset = 0;
-								u32  srcCompressedOffset = 0;
-								bool firstBatch = true;
-
-								auto barrierToCopyDestIfNeeded = [&]()
-								{
-									if (firstBatch)
-									{
-										transferCmd->ResourceBarrier(textureCache->texture, ResourceState::Undefined, ResourceState::CopyDest, 0, mipLevels, 0, 1);
-										firstBatch = false;
-									}
-								};
-
-								auto flushBatch = [&]()
-								{
-									transferCmd->Begin();
-									barrierToCopyDestIfNeeded();
-									for (const PendingCopy& pc : pendingCopies)
-									{
-										transferCmd->CopyBufferToTexture({
-											.buffer = stagingBuffer,
-											.texture = textureCache->texture,
-											.extent = Extent3D{pc.width, pc.height, 1},
-											.mipLevel = pc.mip,
-											.bufferOffset = pc.stagingOffset,
-										});
-									}
-									transferCmd->End();
-									transferQueue->SubmitAndWait(transferCmd);
-									transferCmd->Reset();
-									pendingCopies.Clear();
-									stagingFill = 0;
-								};
-
-								auto uploadOversizedMip = [&](u32 width, u32 height, u32 mip, auto&& srcReader)
-								{
-									u32 bytesPerRow = width * texelSize;
-									SK_ASSERT(bytesPerRow > 0 && bytesPerRow <= StagingBufferSize, "single row exceeds staging buffer");
-
-									u32 rowsPerBatch = StagingBufferSize / bytesPerRow;
-									u32 yOffset = 0;
-									while (yOffset < height)
-									{
-										u32 rowsThisBatch = std::min(rowsPerBatch, height - yOffset);
-										u32 bytesThisBatch = rowsThisBatch * bytesPerRow;
-
-										srcReader(stagingBuffer->GetMappedData(), bytesThisBatch, static_cast<u64>(yOffset) * bytesPerRow);
-
-										transferCmd->Begin();
-										barrierToCopyDestIfNeeded();
-										transferCmd->CopyBufferToTexture({
-											.buffer = stagingBuffer,
-											.texture = textureCache->texture,
-											.extent = Extent3D{width, rowsThisBatch, 1},
-											.mipLevel = mip,
-											.textureOffset = Offset3D{0, static_cast<i32>(yOffset), 0},
-										});
-										transferCmd->End();
-										transferQueue->SubmitAndWait(transferCmd);
-										transferCmd->Reset();
-
-										yOffset += rowsThisBatch;
-									}
-								};
-
-								for (RID imageRID : images)
-								{
-									ResourceObject imageObject = Resources::Read(imageRID);
-									Vec2 extent = imageObject.GetVec2(TextureImageResource::Extent);
-									u32  srcMip = imageObject.GetUInt(TextureImageResource::Mip);
-									u32  width = static_cast<u32>(extent.width);
-									u32  height = static_cast<u32>(extent.height);
-									u32  compressedSize = imageObject.GetUInt(TextureImageResource::DataSize);
-									u32  uncompressedSize = imageObject.GetUInt(TextureImageResource::UncompressedSize);
-
-									if (srcMip < skippedMips)
-									{
-										// Dropped mip — still owns its slice of the source buffer, so advance offsets.
-										srcUncompressedOffset += uncompressedSize;
-										srcCompressedOffset += compressedSize;
-										continue;
-									}
-
-									u32 mip = srcMip - skippedMips;
-
-									if (uncompressedSize > StagingBufferSize)
-									{
-										// Mip is bigger than the staging buffer — flush anything pending,
-										// then upload this mip in row-chunked submissions.
-										if (!pendingCopies.Empty())
-										{
-											flushBatch();
-										}
-
-										if (compressionMode == CompressionMode::None)
-										{
-											uploadOversizedMip(width, height, mip,
-												[&](VoidPtr dst, u32 size, u64 rowByteOffset)
-												{
-													buffer.CopyData(dst, size, srcUncompressedOffset + rowByteOffset);
-												});
-										}
-										else
-										{
-											// Whole-mip decompression to a scratch buffer; then upload from there.
-											scratch.Resize(uncompressedSize);
-											ByteBuffer compressedBytes;
-											compressedBytes.Resize(compressedSize);
-											buffer.CopyData(compressedBytes.begin(), compressedSize, srcCompressedOffset);
-											Compression::Decompress(scratch.begin(), uncompressedSize, compressedBytes.begin(), compressedSize, compressionMode);
-
-											uploadOversizedMip(width, height, mip,
-												[&](VoidPtr dst, u32 size, u64 rowByteOffset)
-												{
-													memcpy(dst, scratch.begin() + rowByteOffset, size);
-												});
-										}
-									}
-									else
-									{
-										if (stagingFill + uncompressedSize > StagingBufferSize)
-										{
-											flushBatch();
-										}
-
-										u8* dst = static_cast<u8*>(stagingBuffer->GetMappedData()) + stagingFill;
-
-										if (compressionMode == CompressionMode::None)
-										{
-											buffer.CopyData(dst, uncompressedSize, srcUncompressedOffset);
-										}
-										else
-										{
-											scratch.Resize(compressedSize);
-											buffer.CopyData(scratch.begin(), compressedSize, srcCompressedOffset);
-											Compression::Decompress(dst, uncompressedSize, scratch.begin(), compressedSize, compressionMode);
-										}
-
-										pendingCopies.EmplaceBack(PendingCopy{
-											stagingFill,
-											mip,
-											width,
-											height
-										});
-
-										stagingFill += uncompressedSize;
-									}
-
-									srcUncompressedOffset += uncompressedSize;
-									srcCompressedOffset += compressedSize;
+									uploadTexturePixels(newTexture, newSkippedMips, textureObject);
+									uploaded = true;
 								}
+							}
 
-								if (!pendingCopies.Empty())
-								{
-									flushBatch();
-								}
-
-								transferCmd->Begin();
-								transferCmd->ResourceBarrier(textureCache->texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, mipLevels, 0, 1);
-								transferCmd->End();
-								transferQueue->SubmitAndWait(transferCmd);
-								transferCmd->Reset();
+							if (uploaded)
+							{
+								ExecuteOnMainThread(
+									[textureCache, newTexture, newSkippedMips]()
+									{
+										ApplyTextureStreamingSwap(textureCache, newTexture, newSkippedMips);
+									});
+							}
+							else
+							{
+								// Upload couldn't run (resource read failed or cache/target gone) —
+								// discard the orphan texture and clear the pending flag so a future
+								// frame can retry.
+								if (newTexture) newTexture->Destroy();
+								if (textureCache) textureCache->streamingPending.store(false, std::memory_order_release);
 							}
 							break;
 						}
@@ -562,12 +654,12 @@ namespace Skore
 			std::counting_semaphore<>               workSem{0};
 		};
 
-		// Fonts are kept strongly so per-frame DrawList lookups don't churn.
 		HashMap<RID, FontResourceCachePtr>                 fontCache;
 		HashMap<RID, std::weak_ptr<TextureResourceCache>>  textureCache;
 		HashMap<RID, std::weak_ptr<MaterialResourceCache>> materialCache;
 		HashMap<RID, std::weak_ptr<MeshResourceCache>>     meshCache;
 		HashMap<RID, std::weak_ptr<SkinResourceCache>>     skinCache;
+
 
 		std::mutex fontCacheMutex{};
 		std::mutex materialCacheMutex{};
@@ -581,6 +673,8 @@ namespace Skore
 		Array<u32>        freeTextureIndices;
 		GPUDescriptorSet* globalDescriptorSet = nullptr;
 		GPUBuffer*        materialDataBuffer = nullptr;
+		GPUBuffer*        materialMaskBuffer = nullptr;
+		GPUBuffer*        materialMaskReadbackBuffers[SK_FRAMES_IN_FLIGHT] = {};
 		u32               materialDataBufferCapacity = 0;
 		u32               materialDataCount = 0;
 		bool              globalDescriptorSetAlive = false;
@@ -594,6 +688,26 @@ namespace Skore
 		{
 			std::scoped_lock lock(mainThreadTasksMutex);
 			mainThreadTasks.emplace(std::move(func));
+		}
+
+		void ApplyTextureStreamingSwap(TextureResourceCachePtr textureCache, GPUTexture* newTexture, u32 newSkippedMips)
+		{
+			GPUTexture* oldTexture = textureCache->texture;
+			textureCache->texture = newTexture;
+			textureCache->skippedMips = newSkippedMips;
+
+			if (globalDescriptorSetAlive && globalDescriptorSet && textureCache->textureIndex != U32_MAX)
+			{
+				DescriptorUpdate texUpdate;
+				texUpdate.type = DescriptorType::SampledImage;
+				texUpdate.binding = 3;
+				texUpdate.arrayElement = textureCache->textureIndex;
+				texUpdate.texture = newTexture;
+				globalDescriptorSet->Update(texUpdate);
+			}
+
+			if (oldTexture) oldTexture->Destroy();
+			textureCache->streamingPending.store(false, std::memory_order_release);
 		}
 
 		// Round size up so all OffsetAllocator returned offsets stay 16-byte aligned —
@@ -748,6 +862,36 @@ namespace Skore
 					materialDataBuffer->Destroy();
 				}
 
+				GPUBuffer* newMaskBuffer = Graphics::CreateBuffer(BufferDesc{
+					.size = newCapacity * sizeof(u32),
+					.usage = ResourceUsage::UnorderedAccess | ResourceUsage::CopySource | ResourceUsage::CopyDest,
+					.hostVisible = false,
+					.persistentMapped = false,
+					.debugName = "MaterialMaskBuffer"
+				});
+
+				for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+				{
+					if (materialMaskReadbackBuffers[f])
+					{
+						materialMaskReadbackBuffers[f]->Destroy();
+					}
+					materialMaskReadbackBuffers[f] = Graphics::CreateBuffer(BufferDesc{
+						.size = newCapacity * sizeof(u32),
+						.usage = ResourceUsage::CopyDest,
+						.hostVisible = true,
+						.persistentMapped = true,
+						.debugName = "MaterialMaskBufferReadback"
+					});
+					memset(materialMaskReadbackBuffers[f]->GetMappedData(), 0, newCapacity * sizeof(u32));
+				}
+
+				if (materialMaskBuffer)
+				{
+					materialMaskBuffer->Destroy();
+				}
+
+				materialMaskBuffer = newMaskBuffer;
 				materialDataBuffer = newBuffer;
 				materialDataBufferCapacity = newCapacity;
 			}
@@ -758,6 +902,7 @@ namespace Skore
 			materialDataCount = std::max(materialDataCount, materialCache->materialIndex + 1);
 
 			globalDescriptorSet->UpdateBuffer(0, materialDataBuffer, 0, materialDataCount * sizeof(MaterialData));
+			globalDescriptorSet->UpdateBuffer(1, materialMaskBuffer, 0, materialDataCount * sizeof(u32));
 		}
 
 		void AddPendingMaterial(MaterialResourceCachePtr cache, const MaterialData& data)
@@ -928,14 +1073,102 @@ namespace Skore
 			};
 		}
 
-		// Block until any worker task tied to the given cache (and its dependents)
-		// has signalled completion. Cheap no-op when the future is already ready
-		// or was never populated.
 		void WaitForTexture(const TextureResourceCachePtr& tex)
 		{
 			if (tex && tex->uploadComplete.valid())
 			{
 				tex->uploadComplete.wait();
+			}
+		}
+
+		// Creates a higher- or lower-resolution texture at `targetSkippedMips` and queues a
+		// worker upload + main-thread swap. Caller must have set `streamingPending = true`
+		// before calling so duplicate tasks are gated; the flag is cleared either here on
+		// early-out, or by the worker's main-thread swap when the upload completes.
+		void StartTextureStream(const TextureResourceCachePtr& texCache, u32 targetSkippedMips)
+		{
+			ResourceObject textureObject = Resources::Read(texCache->rid);
+			if (!textureObject)
+			{
+				texCache->streamingPending.store(false, std::memory_order_release);
+				return;
+			}
+
+			StringView    name   = textureObject.GetString(TextureResource::Name);
+			TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+
+			u32 mipsToLoad = texCache->fullMipCount - targetSkippedMips;
+			u32 newWidth   = std::max(texCache->fullExtentWidth  >> targetSkippedMips, 1u);
+			u32 newHeight  = std::max(texCache->fullExtentHeight >> targetSkippedMips, 1u);
+
+			GPUTexture* newTexture = Graphics::CreateTexture(TextureDesc{
+				.extent    = {newWidth, newHeight, 1},
+				.mipLevels = mipsToLoad,
+				.format    = format,
+				.usage     = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
+				.debugName = String(name) + "_Texture_Streaming"
+			});
+
+			Graphics::SetTextureState(newTexture, ResourceState::Undefined, ResourceState::ShaderReadOnly);
+
+			worker.AddStreamTextureTask(texCache, newTexture, targetSkippedMips);
+		}
+
+
+		void EvaluateTextureStreaming(const TextureResourceCachePtr& texCache)
+		{
+			if (!texCache || !texCache->texture) return;
+			if (texCache->fullMipCount == 0) return;
+			if (texCache->streamingPending.load(std::memory_order_acquire)) return;
+
+			if (texCache->uploadComplete.valid() && texCache->uploadComplete.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+			{
+				return;
+			}
+
+			u32 minDim = std::min(texCache->fullExtentWidth, texCache->fullExtentHeight);
+			if (minDim == 0) return;
+
+			u32 req = (texCache->lastRequestedResolution > 0) ? texCache->lastRequestedResolution : 1u;
+
+			u32 desiredSkippedMips = 0;
+			while ((minDim >> (desiredSkippedMips + 1)) >= req
+				&& desiredSkippedMips + 1 < texCache->fullMipCount)
+			{
+				desiredSkippedMips++;
+			}
+
+			u32 maxSkipped = (texCache->fullMipCount > MaxTextureMipsToLoad) ? (texCache->fullMipCount - MaxTextureMipsToLoad) : 0u;
+			desiredSkippedMips = std::min(desiredSkippedMips, maxSkipped);
+
+			if (desiredSkippedMips < texCache->skippedMips)
+			{
+				texCache->streamingDecayFrames = 0;
+
+				bool expected = false;
+				if (!texCache->streamingPending.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire))
+				{
+					return;
+				}
+				StartTextureStream(texCache, desiredSkippedMips);
+			}
+			else if (desiredSkippedMips > texCache->skippedMips)
+			{
+				texCache->streamingDecayFrames++;
+				if (texCache->streamingDecayFrames < StreamingUnloadDelayFrames) return;
+
+				bool expected = false;
+				if (!texCache->streamingPending.compare_exchange_strong(expected, true,
+				                                                        std::memory_order_acq_rel, std::memory_order_acquire))
+				{
+					return;
+				}
+				texCache->streamingDecayFrames = 0;
+				StartTextureStream(texCache, desiredSkippedMips);
+			}
+			else
+			{
+				texCache->streamingDecayFrames = 0;
 			}
 		}
 
@@ -999,7 +1232,7 @@ namespace Skore
 			{
 				DescriptorUpdate texUpdate;
 				texUpdate.type = DescriptorType::SampledImage;
-				texUpdate.binding = 2;
+				texUpdate.binding = 3;
 				texUpdate.arrayElement = textureIndex;
 				texUpdate.texture = Graphics::GetWhiteTexture();
 				globalDescriptorSet->Update(texUpdate);
@@ -1028,7 +1261,6 @@ namespace Skore
 		}
 
 		if (descriptorSet) descriptorSet->Destroy();
-		if (materialBuffer) materialBuffer->Destroy();
 		if (diffuseIrradianceTexture) diffuseIrradianceTexture->Destroy();
 		if (specularMapTexture) specularMapTexture->Destroy();
 	}
@@ -1077,8 +1309,6 @@ namespace Skore
 			drained.pop();
 		}
 
-		// Promote deferred materials whose textures finished uploading this frame.
-		// Non-blocking — entries that aren't ready stay in the pending list.
 		{
 			std::scoped_lock lock(pendingMaterialsMutex);
 			for (usize i = 0; i < pendingMaterials.Size(); )
@@ -1110,6 +1340,86 @@ namespace Skore
 				}
 			}
 		}
+
+		if (materialMaskBuffer && materialDataCount > 0)
+		{
+			u32 slot = static_cast<u32>(App::Frame() % SK_FRAMES_IN_FLIGHT);
+			if (materialMaskReadbackBuffers[slot])
+			{
+				u32* mapped = static_cast<u32*>(materialMaskReadbackBuffers[slot]->GetMappedData());
+
+				//not happy with the material lock here, but it should be ok for now
+				std::unique_lock matLock(materialCacheMutex);
+				std::unique_lock texLock(textureCacheMutex);
+
+				// Pass 1: reset per-texture aggregated request. We rebuild it from scratch each
+				// frame so eviction reacts when materials stop sampling a texture entirely.
+				for (auto& it : textureCache)
+				{
+					if (auto t = it.second.lock())
+					{
+						t->lastRequestedResolution = 0;
+					}
+				}
+
+				// Pass 2: read each material's GPU feedback mask, update its request, and fold
+				// it into every texture it references (max across all referencing materials).
+				for (auto& it : materialCache)
+				{
+					if (auto m = it.second.lock())
+					{
+						if (m->materialIndex != U32_MAX && m->materialIndex < materialDataCount)
+						{
+							u32 mask = mapped[m->materialIndex];
+							u32 requestUVset0 = mask & 0xFFFF;
+							if (requestUVset0 != 0)
+							{
+								m->reqTextureResolution = 1ul << (31ul - firstbithigh(requestUVset0));
+							}
+							else
+							{
+								// Material wasn't sampled this frame — let its textures decay.
+								m->reqTextureResolution = 0;
+							}
+						}
+
+						for (const TextureResourceCachePtr& tex : m->textures)
+						{
+							if (tex)
+							{
+								tex->lastRequestedResolution = std::max(tex->lastRequestedResolution, m->reqTextureResolution);
+							}
+						}
+					}
+				}
+
+				// Pass 3: stream-in (immediate) / stream-out (delayed) per texture.
+				for (auto& it : textureCache)
+				{
+					if (auto t = it.second.lock())
+					{
+						EvaluateTextureStreaming(t);
+					}
+				}
+			}
+		}
+	}
+
+	void RenderResourceCache::Flush(GPUCommandBuffer* cmd)
+	{
+		if (!materialMaskBuffer || materialDataCount == 0) return;
+
+		u32 slot = static_cast<u32>(App::Frame() % SK_FRAMES_IN_FLIGHT);
+		GPUBuffer* readback = materialMaskReadbackBuffers[slot];
+		if (!readback) return;
+
+		u32 sizeBytes = materialDataCount * sizeof(u32);
+
+		cmd->ResourceBarrier(materialMaskBuffer, ResourceState::ShaderReadOnly, ResourceState::CopySource);
+		cmd->CopyBuffer(materialMaskBuffer, readback, sizeBytes, 0, 0);
+		cmd->ResourceBarrier(materialMaskBuffer, ResourceState::CopySource, ResourceState::CopyDest);
+		cmd->FillBuffer(materialMaskBuffer, 0, sizeBytes, 0);
+		cmd->ResourceBarrier(materialMaskBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
 	}
 
 	FontResourceCachePtr RenderResourceCache::GetFontCache(RID font)
@@ -1216,6 +1526,9 @@ namespace Skore
 						? totalMips
 						: MaxTextureMipsToLoad;
 					textureStorage->skippedMips = totalMips - mipsToLoad;
+					textureStorage->fullExtentWidth  = static_cast<u32>(extent.x);
+					textureStorage->fullExtentHeight = static_cast<u32>(extent.y);
+					textureStorage->fullMipCount     = totalMips;
 
 					u32 baseWidth  = std::max(static_cast<u32>(extent.x) >> textureStorage->skippedMips, 1u);
 					u32 baseHeight = std::max(static_cast<u32>(extent.y) >> textureStorage->skippedMips, 1u);
@@ -1238,7 +1551,7 @@ namespace Skore
 
 					DescriptorUpdate texUpdate;
 					texUpdate.type = DescriptorType::SampledImage;
-					texUpdate.binding = 2;
+					texUpdate.binding = 3;
 					texUpdate.arrayElement = textureStorage->textureIndex;
 					texUpdate.texture = textureStorage->texture;
 					globalDescriptorSet->Update(texUpdate);
@@ -1518,15 +1831,19 @@ namespace Skore
 				},
 				DescriptorSetLayoutBinding{
 					.binding = 1,
-					.descriptorType = DescriptorType::Sampler
+					.descriptorType = DescriptorType::StorageBuffer
 				},
 				DescriptorSetLayoutBinding{
 					.binding = 2,
+					.descriptorType = DescriptorType::Sampler
+				},
+				DescriptorSetLayoutBinding{
+					.binding = 3,
 					.descriptorType = DescriptorType::SampledImage,
 					.renderType = RenderType::RuntimeArray
 				},
 				DescriptorSetLayoutBinding{
-					.binding = 3,
+					.binding = 4,
 					.descriptorType = DescriptorType::StorageBuffer
 				},
 				DescriptorSetLayoutBinding{
@@ -1538,7 +1855,7 @@ namespace Skore
 			.debugName = "GlobalDescriptorSet"
 		});
 
-		globalDescriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
+		globalDescriptorSet->UpdateSampler(2, Graphics::GetLinearSampler());
 		globalDescriptorSetAlive = true;
 
 		meshDataBuffer = Graphics::CreateBuffer(BufferDesc{
@@ -1551,7 +1868,7 @@ namespace Skore
 
 		meshDataAllocator = std::make_unique<OffsetAllocator::Allocator>(MeshDataBufferSize, MeshDataMaxAllocations);
 
-		globalDescriptorSet->UpdateBuffer(3, meshDataBuffer, 0, MeshDataBufferSize);
+		globalDescriptorSet->UpdateBuffer(4, meshDataBuffer, 0, MeshDataBufferSize);
 
 		worker.Init(4);
 	}
@@ -1580,6 +1897,21 @@ namespace Skore
 		{
 			materialDataBuffer->Destroy();
 			materialDataBuffer = nullptr;
+		}
+
+		if (materialMaskBuffer)
+		{
+			materialMaskBuffer->Destroy();
+			materialMaskBuffer = nullptr;
+		}
+
+		for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+		{
+			if (materialMaskReadbackBuffers[f])
+			{
+				materialMaskReadbackBuffers[f]->Destroy();
+				materialMaskReadbackBuffers[f] = nullptr;
+			}
 		}
 
 		for (GPUBuffer* buffer : vertexLayoutBuffers)

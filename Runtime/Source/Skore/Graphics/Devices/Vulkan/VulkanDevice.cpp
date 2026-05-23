@@ -25,6 +25,7 @@
 #include "Skore/App.hpp"
 #include "Skore/Events.hpp"
 #include "Skore/OpenXRManager.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 
 #include "Skore/Graphics/Devices/Vulkan/VulkanPlatform.hpp"
 
@@ -1887,6 +1888,11 @@ namespace Skore
 		if (vulkanAdapter->deviceFeatures.features.wideLines)
 		{
 			deviceFeatures2.features.wideLines = VK_TRUE;
+		}
+
+		if (vulkanAdapter->deviceFeatures.features.fragmentStoresAndAtomics)
+		{
+			deviceFeatures2.features.fragmentStoresAndAtomics = VK_TRUE;
 		}
 
 		Array<String> xrExtensions = OpenXRManagerGetDeviceExtensions();
@@ -4100,6 +4106,7 @@ namespace Skore
 		VulkanCommandBuffer* cmd = commandBuffers[currentFrame];
 		cmd->Begin();
 		onRecordRenderCommands.Invoke(cmd);
+		RenderResourceCache::Flush(cmd);
 		cmd->End();
 
 		FlushGPUWork();
