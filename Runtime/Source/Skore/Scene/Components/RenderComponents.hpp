@@ -35,32 +35,28 @@ namespace Skore
 		void SetMaterials(const MaterialArray& materials);
 		void SetMaterial(u32 index, RID material);
 
-		AABB GetAABB() const { return aabb; }
+		AABB GetAABB() const;
+
+		RenderableObject GetRenderableObject() const { return renderable; }
 
 		template<typename Fn>
-		SK_FINLINE void ForEachVisibleDrawcallRef(Fn&& fn) const;
+		SK_FINLINE void ForEachVisibleDrawcallRef(Fn&& fn) const
+		{
+			if (renderable) scene->renderObjects.ForEachVisibleDrawcallRef(renderable, static_cast<Fn&&>(fn));
+		}
 
 		virtual bool IsStatic() const = 0;
 
 		static void RegisterType(NativeReflectType<RendererComponent>& type);
-
-		friend class RenderSceneObjects;
 
 	protected:
 		TypedRID<MeshResource> m_mesh = {};
 		MaterialArray          m_materials = {};
 		bool                   m_castShadows = true;
 
-		Array<DrawcallRef> references;
+		RenderableObject renderable = {};
 
-		AABB aabb = {};
-
-		void Rebuild();
-		void UpdateAABB();
-		void ClearDrawcalls();
-
-		// Bones descriptor for skinned drawcalls; nullptr for non-skinned renderers.
-		virtual GPUDescriptorSet* GetBonesDescriptor() const { return nullptr; }
+		void PushStateToRenderable();
 	};
 
 
@@ -98,9 +94,6 @@ namespace Skore
 
 		static void RegisterType(NativeReflectType<SkinnedMeshRenderer>& type);
 
-	protected:
-		GPUDescriptorSet* GetBonesDescriptor() const override { return m_bonesDescriptor; }
-
 	private:
 		Entity*              m_skeleton = nullptr;
 		SkinResourceCachePtr m_skinCache;
@@ -109,24 +102,6 @@ namespace Skore
 
 		void EnsureBonesData();
 	};
-
-	template<typename Fn>
-	SK_FINLINE void RendererComponent::ForEachVisibleDrawcallRef(Fn&& fn) const
-	{
-		const u32 transparentOffset = static_cast<u32>(scene->renderObjects.opaquePipelines.Size());
-		for (const DrawcallRef& ref : references)
-		{
-			if (ref.pipelineIndex == U32_MAX) continue;
-			if (!ref.transparent)
-			{
-				fn(ref.pipelineIndex, scene->renderObjects.opaquePipelines[ref.pipelineIndex].drawcalls[ref.handle]);
-			}
-			else
-			{
-				fn(transparentOffset + ref.pipelineIndex, scene->renderObjects.transparentPipelines[ref.pipelineIndex].drawcalls[ref.handle]);
-			}
-		}
-	}
 
 	struct AnimChannel
 	{
