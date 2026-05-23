@@ -58,6 +58,11 @@ namespace Skore
 			return m_payload[m_slots[index]];
 		}
 
+		const T& operator[](Handle index) const
+		{
+			return m_payload[m_slots[index]];
+		}
+
 		auto begin()
 		{
 			return m_payload.begin();

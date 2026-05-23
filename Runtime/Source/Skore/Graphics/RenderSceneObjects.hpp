@@ -3,17 +3,17 @@
 #include "Device.hpp"
 #include "RenderResourceCache.hpp"
 #include "Skore/Common.hpp"
+#include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/PackedArray.hpp"
+#include "Skore/Core/Traits.hpp"
+#include "Skore/Core/UnorderedDense.hpp"
 
 namespace Skore
 {
-	class RendererComponent;
+	SK_HANDLER(RenderableObject);
 
-	struct DrawcallVisibility
-	{
-		constexpr static u8 None       = 0;
-		constexpr static u8 CastShadow = 1 << 0;
-	};
+	class RenderSceneObjects;
+	struct RenderableObjectStorage;
 
 	struct DrawPipelineDesc
 	{
@@ -63,7 +63,6 @@ namespace Skore
 		u32  shadowPipelineIndex = U32_MAX;
 		u64  shadowHandle = U64_MAX;
 		u32  instanceIndex = U32_MAX;
-		u32  pendingDrawcallIndex = U32_MAX;
 		bool transparent = false;
 	};
 
@@ -88,34 +87,57 @@ namespace Skore
 		u64  layerMask;
 	};
 
-	struct DrawcallDesc
-	{
-		MeshResourceCachePtr mesh;
-		RID                  material;
-
-		u32                  firstIndex = 0;
-		u32                  indexCount = 0;
-
-		Mat4 transform = Mat4(1.0);
-		AABB aabb      = {};
-		u64  userData  = 0;
-		u64  layerMask = 1ULL;
-
-		GPUDescriptorSet*        bones = nullptr;
-
-		u32               vertexByteOffset  = U32_MAX;
-		u32               indexByteOffset   = U32_MAX;
-		u32               vertexLayoutIndex = U32_MAX;
-
-		u8 visibility = DrawcallVisibility::CastShadow;
-	};
-
 	class SK_API RenderSceneObjects
 	{
 	public:
 		SK_NO_COPY_CONSTRUCTOR(RenderSceneObjects);
 		RenderSceneObjects();
 		~RenderSceneObjects();
+
+		RenderableObject CreateRenderable();
+		void             DestroyRenderable(RenderableObject obj);
+
+		void SetTransform(RenderableObject obj, const Mat4& transform);
+		Mat4 GetTransform(RenderableObject obj) const;
+
+		void SetMesh(RenderableObject obj, RID mesh);
+		RID  GetMesh(RenderableObject obj) const;
+
+		void      SetMaterials(RenderableObject obj, Span<RID> materials);
+		Span<RID> GetMaterials(RenderableObject obj) const;
+
+		void SetCastShadows(RenderableObject obj, bool castShadows);
+		bool GetCastShadows(RenderableObject obj) const;
+
+		void SetUserData(RenderableObject obj, u64 userData);
+		u64  GetUserData(RenderableObject obj) const;
+
+		void SetVisible(RenderableObject obj, bool visible);
+		bool GetVisible(RenderableObject obj) const;
+
+		void SetLayerMask(RenderableObject obj, u64 layerMask);
+		u64  GetLayerMask(RenderableObject obj) const;
+
+		void              SetBonesDescriptor(RenderableObject obj, GPUDescriptorSet* bones);
+		GPUDescriptorSet* GetBonesDescriptor(RenderableObject obj) const;
+
+		AABB GetAABB(RenderableObject obj) const;
+
+		using ForEachDrawcallFn = void(*)(u32 pipelineIndex, const Drawcall& drawcall, void* userData);
+
+		void ForEachVisibleDrawcallRef(RenderableObject obj, ForEachDrawcallFn fn, void* userData) const;
+
+		template<typename Fn>
+		SK_FINLINE void ForEachVisibleDrawcallRef(RenderableObject obj, Fn&& fn) const
+		{
+			using FnType = Traits::RemoveReference<Fn>;
+			ForEachVisibleDrawcallRef(obj,
+				[](u32 pipelineIndex, const Drawcall& drawcall, void* userData)
+				{
+					(*static_cast<FnType*>(userData))(pipelineIndex, drawcall);
+				},
+				static_cast<void*>(&fn));
+		}
 
 		void DoUpdate(GPUCommandBuffer* cmd);
 
@@ -128,8 +150,8 @@ namespace Skore
 
 		struct InstanceOwner
 		{
-			RendererComponent* component = nullptr;
-			u32                primitiveIndex = 0;
+			RenderableObjectStorage* renderable = nullptr;
+			u32                      primitiveIndex = 0;
 		};
 		Array<InstanceOwner> instanceOwners;
 
@@ -158,31 +180,23 @@ namespace Skore
 				fn(index++, transparentPipelines[i]);
 		}
 
-		DrawcallRef CreateDrawcall(const DrawcallDesc& desc, RendererComponent* owner, u32 primitiveIndex);
-		void        UpdateTransform(const DrawcallRef& ref, const Mat4& transform);
-		void        UpdateLayerMask(const DrawcallRef& ref, u64 layerMask);
-		void        RemoveDrawcall(const DrawcallRef& ref);
-
-		friend class RendererComponent;
-
 		bool asyncLoad = true;
+
 	private:
-
-		struct PendingDrawcallEntry
-		{
-			MeshResourceCachePtr     mesh;
-			MaterialResourceCachePtr material;
-			RendererComponent*       component = nullptr;
-			u32                      primitiveIndex = 0;
-			DrawcallDesc             desc;
-		};
-
-		Array<PendingDrawcallEntry> pendingDrawcalls;
+		HashSet<RenderableObjectStorage*>  renderables;
+		DenseSet<RenderableObjectStorage*> pendingUpdate;
 
 		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
 
-		void DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material, RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref);
-		void AddPendingDrawcall(RendererComponent* component, u32 primitiveIndex, const MeshResourceCachePtr& mesh, const MaterialResourceCachePtr& material, const DrawcallDesc& desc, DrawcallRef& outRef);
-		void RemovePendingDrawcall(u32 idx);
+		void MarkDirty(RenderableObjectStorage* obj);
+		bool TryRebuild(RenderableObjectStorage* obj);
+		void ClearDrawcalls(RenderableObjectStorage* obj);
+		void UpdateAABB(RenderableObjectStorage* obj);
+		void RefreshMeshCache(RenderableObjectStorage* obj);
+		void RefreshMaterialsCache(RenderableObjectStorage* obj);
+		MaterialResourceCachePtr GetMaterialCache(RenderableObjectStorage* obj, u32 materialIndex) const;
+		void CreatePrimitiveDrawcall(RenderableObjectStorage* obj, u32 primitiveIndex, const MaterialResourceCachePtr& material);
+		void RemoveDrawcall(const DrawcallRef& ref);
 	};
+
 }

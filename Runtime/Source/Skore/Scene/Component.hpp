@@ -40,7 +40,6 @@ namespace Skore
 
 		virtual void ProcessEvent(const EntityEventDesc& event) {}
 
-		void ComponentRequireUpdate();
 		void PhysicsRequireUpdate() const;
 
 		static void RegisterType(NativeReflectType<Component>& type);
@@ -51,8 +50,6 @@ namespace Skore
 	private:
 		RID m_rid;
 		u32 m_typeVersion = 0;
-		u32 m_lastUpdatedVersion = 0;
-		u32 m_currentVersion = 1;
 
 		void RegisterEvents();
 		void RemoveEvents();

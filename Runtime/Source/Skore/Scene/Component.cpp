@@ -25,15 +25,6 @@ namespace Skore
 		return m_rid;
 	}
 
-	void Component::ComponentRequireUpdate()
-	{
-		if (m_currentVersion != m_lastUpdatedVersion)
-		{
-			scene->m_pendingUpdate.emplace(this);
-			m_lastUpdatedVersion = m_currentVersion;
-		}
-	}
-
 	void Component::PhysicsRequireUpdate() const
 	{
 		scene->physicsScene.PhysicsEntityRequireUpdate(entity);
@@ -64,8 +55,6 @@ namespace Skore
 
 	void Component::RemoveEvents()
 	{
-		entity->m_scene->m_pendingUpdate.erase(this);
-
 		if (Tickable* tickable = dynamic_cast<Tickable*>(this))
 		{
 			entity->m_scene->m_updateToRemove.Enqueue(tickable);

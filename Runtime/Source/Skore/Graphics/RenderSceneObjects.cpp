@@ -3,10 +3,35 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Profiler.hpp"
-#include "Skore/Scene/Components/RenderComponents.hpp"
 
 namespace Skore
 {
+
+	struct RenderableObjectStorage
+	{
+		SK_NO_COPY_CONSTRUCTOR(RenderableObjectStorage);
+		RenderableObjectStorage(RenderSceneObjects* objects) : renderSceneObjects(objects) {}
+
+		RenderSceneObjects* renderSceneObjects;
+
+		RID                  mesh;
+		Array<RID>           materials;
+		bool                 castShadows = true;
+		Mat4                 transform = Mat4(1.0);
+		u64                  userData = 0;
+		bool                 visible = true;
+		u64                  layerMask = 1ULL;
+		GPUDescriptorSet*    bonesDescriptor = nullptr;
+
+		MeshResourceCachePtr            meshCache;
+		Array<MaterialResourceCachePtr> overrideMaterialsCache;
+
+		Array<DrawcallRef> references;
+		AABB               aabb = {};
+
+		bool meshDirty = false;
+		bool materialsDirty = false;
+	};
 
 	void RenderSceneObjectsInit()
 	{
@@ -29,10 +54,341 @@ namespace Skore
 
 	RenderSceneObjects::~RenderSceneObjects()
 	{
+		for (RenderableObjectStorage* obj : renderables)
+		{
+			DestroyAndFree(obj);
+		}
+		renderables.Clear();
+		pendingUpdate.clear();
+
 		if (instanceDataBuffer)
 		{
 			instanceDataBuffer->Destroy();
 		}
+	}
+
+	RenderableObject RenderSceneObjects::CreateRenderable()
+	{
+		RenderableObjectStorage* obj = Alloc<RenderableObjectStorage>(this);
+		renderables.Insert(obj);
+		return RenderableObject{obj};
+	}
+
+	void RenderSceneObjects::DestroyRenderable(RenderableObject obj)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		ClearDrawcalls(o);
+		pendingUpdate.erase(o);
+		renderables.Erase(o);
+		DestroyAndFree(o);
+	}
+
+	void RenderSceneObjects::SetTransform(RenderableObject obj, const Mat4& transform)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+
+		o->transform = transform;
+		UpdateAABB(o);
+
+		for (DrawcallRef& ref : o->references)
+		{
+			if (ref.pipelineIndex == U32_MAX) continue;
+
+			Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
+			Drawcall& dc = storage[ref.pipelineIndex].drawcalls[ref.handle];
+			dc.transform = transform;
+			dc.aabb = Math::TransformAABB(dc.localAabb, transform);
+
+			if (ref.shadowPipelineIndex != U32_MAX)
+			{
+				Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
+				sdc.transform = transform;
+				sdc.aabb = dc.aabb;
+			}
+
+			if (ref.instanceIndex != U32_MAX)
+			{
+				InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
+				InstanceData& inst = data[ref.instanceIndex];
+				inst.transform = transform;
+				inst.aabbMin = dc.aabb.min;
+				inst.aabbMax = dc.aabb.max;
+			}
+		}
+	}
+
+	Mat4 RenderSceneObjects::GetTransform(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->transform : Mat4(1.0);
+	}
+
+	void RenderSceneObjects::SetMesh(RenderableObject obj, RID mesh)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		if (o->mesh == mesh) return;
+		o->mesh = mesh;
+		o->meshDirty = true;
+		MarkDirty(o);
+	}
+
+	RID RenderSceneObjects::GetMesh(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->mesh : RID{};
+	}
+
+	void RenderSceneObjects::SetMaterials(RenderableObject obj, Span<RID> materials)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+
+		if (o->materials.Size() == materials.Size())
+		{
+			bool same = true;
+			for (usize i = 0; i < o->materials.Size(); ++i)
+			{
+				if (o->materials[i] != materials[i]) { same = false; break; }
+			}
+			if (same) return;
+		}
+		o->materials.Clear();
+		o->materials.Reserve(materials.Size());
+		for (RID rid : materials) o->materials.EmplaceBack(rid);
+		o->materialsDirty = true;
+		MarkDirty(o);
+	}
+
+	Span<RID> RenderSceneObjects::GetMaterials(RenderableObject obj) const
+	{
+		return obj ? Span<RID>{obj.ToPtr<RenderableObjectStorage>()->materials} : Span<RID>{};
+	}
+
+	void RenderSceneObjects::SetCastShadows(RenderableObject obj, bool castShadows)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		if (o->castShadows == castShadows) return;
+		o->castShadows = castShadows;
+		MarkDirty(o);
+	}
+
+	bool RenderSceneObjects::GetCastShadows(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->castShadows : false;
+	}
+
+	void RenderSceneObjects::SetUserData(RenderableObject obj, u64 userData)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		o->userData = userData;
+		for (const DrawcallRef& ref : o->references)
+		{
+			if (ref.pipelineIndex != U32_MAX)
+			{
+				Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
+				storage[ref.pipelineIndex].drawcalls[ref.handle].userData = userData;
+			}
+			if (ref.shadowPipelineIndex != U32_MAX)
+			{
+				shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle].userData = userData;
+			}
+		}
+	}
+
+	u64 RenderSceneObjects::GetUserData(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->userData : 0;
+	}
+
+	void RenderSceneObjects::SetVisible(RenderableObject obj, bool visible)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		if (o->visible == visible) return;
+		o->visible = visible;
+		MarkDirty(o);
+	}
+
+	bool RenderSceneObjects::GetVisible(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->visible : false;
+	}
+
+	void RenderSceneObjects::SetLayerMask(RenderableObject obj, u64 layerMask)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		if (o->layerMask == layerMask) return;
+		o->layerMask = layerMask;
+		for (const DrawcallRef& ref : o->references)
+		{
+			if (ref.pipelineIndex != U32_MAX)
+			{
+				Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
+				storage[ref.pipelineIndex].drawcalls[ref.handle].layerMask = layerMask;
+			}
+			if (ref.shadowPipelineIndex != U32_MAX)
+			{
+				shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle].layerMask = layerMask;
+			}
+			if (ref.instanceIndex != U32_MAX)
+			{
+				InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
+				data[ref.instanceIndex].layerMask = layerMask;
+			}
+		}
+	}
+
+	u64 RenderSceneObjects::GetLayerMask(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->layerMask : 0;
+	}
+
+	void RenderSceneObjects::SetBonesDescriptor(RenderableObject obj, GPUDescriptorSet* bones)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		if (o->bonesDescriptor == bones) return;
+		o->bonesDescriptor = bones;
+		MarkDirty(o);
+	}
+
+	GPUDescriptorSet* RenderSceneObjects::GetBonesDescriptor(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->bonesDescriptor : nullptr;
+	}
+
+	AABB RenderSceneObjects::GetAABB(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->aabb : AABB();
+	}
+
+	void RenderSceneObjects::ForEachVisibleDrawcallRef(RenderableObject obj, ForEachDrawcallFn fn, void* userData) const
+	{
+		if (!obj) return;
+		const RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		const u32 transparentOffset = static_cast<u32>(opaquePipelines.Size());
+		for (const DrawcallRef& ref : o->references)
+		{
+			if (ref.pipelineIndex == U32_MAX) continue;
+			if (!ref.transparent)
+			{
+				fn(ref.pipelineIndex, opaquePipelines[ref.pipelineIndex].drawcalls[ref.handle], userData);
+			}
+			else
+			{
+				fn(transparentOffset + ref.pipelineIndex, transparentPipelines[ref.pipelineIndex].drawcalls[ref.handle], userData);
+			}
+		}
+	}
+
+	void RenderSceneObjects::MarkDirty(RenderableObjectStorage* obj)
+	{
+		pendingUpdate.insert(obj);
+	}
+
+	void RenderSceneObjects::ClearDrawcalls(RenderableObjectStorage* obj)
+	{
+		for (const DrawcallRef& ref : obj->references)
+		{
+			RemoveDrawcall(ref);
+		}
+		obj->references.Clear();
+	}
+
+	void RenderSceneObjects::UpdateAABB(RenderableObjectStorage* obj)
+	{
+		obj->aabb = AABB();
+		if (obj->meshCache)
+		{
+			obj->aabb = Math::TransformAABB(obj->meshCache->aabb, obj->transform);
+		}
+	}
+
+	void RenderSceneObjects::RefreshMeshCache(RenderableObjectStorage* obj)
+	{
+		if (!obj->meshDirty) return;
+		obj->meshDirty = false;
+		obj->meshCache = obj->mesh ? RenderResourceCache::GetMeshCache(obj->mesh, asyncLoad) : nullptr;
+	}
+
+	void RenderSceneObjects::RefreshMaterialsCache(RenderableObjectStorage* obj)
+	{
+		if (!obj->materialsDirty) return;
+		obj->materialsDirty = false;
+		obj->overrideMaterialsCache.Clear();
+		obj->overrideMaterialsCache.Resize(obj->materials.Size());
+		for (usize i = 0; i < obj->materials.Size(); ++i)
+		{
+			if (obj->materials[i])
+			{
+				obj->overrideMaterialsCache[i] = RenderResourceCache::GetMaterialCache(obj->materials[i], asyncLoad);
+			}
+		}
+	}
+
+	MaterialResourceCachePtr RenderSceneObjects::GetMaterialCache(RenderableObjectStorage* obj, u32 materialIndex) const
+	{
+		if (materialIndex < obj->overrideMaterialsCache.Size() && obj->overrideMaterialsCache[materialIndex])
+		{
+			return obj->overrideMaterialsCache[materialIndex];
+		}
+		if (obj->meshCache && materialIndex < obj->meshCache->materials.Size())
+		{
+			return obj->meshCache->materials[materialIndex];
+		}
+		return nullptr;
+	}
+
+	bool RenderSceneObjects::TryRebuild(RenderableObjectStorage* obj)
+	{
+		RefreshMeshCache(obj);
+		RefreshMaterialsCache(obj);
+
+		ClearDrawcalls(obj);
+
+		if (!obj->visible || !obj->meshCache)
+		{
+			UpdateAABB(obj);
+			return true;
+		}
+
+		// Wait for the mesh to finish uploading before we can stream drawcalls.
+		if (!obj->meshCache->IsLoaded()) return false;
+
+		// Wait for any override material that is still loading.
+		for (const MaterialResourceCachePtr& mat : obj->overrideMaterialsCache)
+		{
+			if (mat && !mat->IsLoaded()) return false;
+		}
+
+		// Wait for mesh-default materials referenced by primitives that have no override.
+		for (u32 p = 0; p < obj->meshCache->primitives.Size(); ++p)
+		{
+			const MeshPrimitive& primitive = obj->meshCache->primitives[p];
+			MaterialResourceCachePtr mat = GetMaterialCache(obj, primitive.materialIndex);
+			if (mat && !mat->IsLoaded()) return false;
+		}
+
+		UpdateAABB(obj);
+
+		obj->references.Resize(obj->meshCache->primitives.Size());
+
+		for (u32 p = 0; p < obj->meshCache->primitives.Size(); ++p)
+		{
+			const MeshPrimitive& primitive = obj->meshCache->primitives[p];
+			MaterialResourceCachePtr material = GetMaterialCache(obj, primitive.materialIndex);
+			if (!material || material->materialIndex == U32_MAX)
+			{
+				continue;
+			}
+			CreatePrimitiveDrawcall(obj, p, material);
+		}
+
+		return true;
 	}
 
 	u32 RenderSceneObjects::GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc)
@@ -49,38 +405,21 @@ namespace Skore
 		return index;
 	}
 
-	DrawcallRef RenderSceneObjects::CreateDrawcall(const DrawcallDesc& desc, RendererComponent* owner, u32 primitiveIndex)
+	void RenderSceneObjects::CreatePrimitiveDrawcall(RenderableObjectStorage* obj, u32 primitiveIndex, const MaterialResourceCachePtr& material)
 	{
-		DrawcallRef ref;
+		const MeshPrimitive& primitive = obj->meshCache->primitives[primitiveIndex];
 
-		MaterialResourceCachePtr material = desc.material ? RenderResourceCache::GetMaterialCache(desc.material, asyncLoad) : nullptr;
-		if (material == nullptr)
-		{
-			return ref;
-		}
-
+		DrawcallRef& ref = obj->references[primitiveIndex];
+		ref = DrawcallRef{};
 		ref.transparent = material->transparent;
 
-		if ((desc.mesh && !desc.mesh->IsLoaded()) || !material->IsLoaded())
-		{
-			AddPendingDrawcall(owner, primitiveIndex, desc.mesh, material, desc, ref);
-			return ref;
-		}
+		const u32 vertexByteOffset = obj->meshCache->vertexByteOffset;
+		const u32 indexByteOffset  = obj->meshCache->indexByteOffset;
+		const u32 vertexLayoutIndex = obj->meshCache->vertexLayoutId;
 
-		DoCreateDrawcall(desc, material, owner, primitiveIndex, ref);
-		return ref;
-	}
-
-	void RenderSceneObjects::DoCreateDrawcall(const DrawcallDesc& desc, const MaterialResourceCachePtr& material, RendererComponent* owner, u32 primitiveIndex, DrawcallRef& ref)
-	{
-		u32 vertexByteOffset = desc.mesh ? desc.mesh->vertexByteOffset : desc.vertexByteOffset;
-		u32 indexByteOffset  = desc.mesh ? desc.mesh->indexByteOffset  : desc.indexByteOffset;
-
-		ref.transparent = material->transparent;
-
-		bool frontFace = Determinant(Mat34(desc.transform)) < 0.0f;
+		bool frontFace = Determinant(Mat34(obj->transform)) < 0.0f;
 		CullMode cullMode = !frontFace ? CullMode::Back : CullMode::Front;
-		bool hasBones = desc.bones != nullptr;
+		bool hasBones = obj->bonesDescriptor != nullptr;
 
 		DrawPipelineDesc pipelineDesc;
 		pipelineDesc.cullMode = cullMode;
@@ -92,21 +431,21 @@ namespace Skore
 		ref.handle = pipelineStorage[ref.pipelineIndex].drawcalls.Insert();
 
 		Drawcall& dc = pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle];
-		dc.firstIndex = desc.firstIndex;
-		dc.indexCount = desc.indexCount;
+		dc.firstIndex = primitive.firstIndex;
+		dc.indexCount = primitive.indexCount;
 		dc.vertexByteOffset = vertexByteOffset;
 		dc.indexByteOffset = indexByteOffset;
-		dc.mesh = desc.mesh;
+		dc.mesh = obj->meshCache;
 		dc.material = material;
-		dc.userData = desc.userData;
-		dc.vertexLayoutIndex = desc.vertexLayoutIndex;
-		dc.bones = desc.bones;
-		dc.localAabb = desc.aabb;
-		dc.aabb = Math::TransformAABB(desc.aabb, desc.transform);
-		dc.transform = desc.transform;
-		dc.layerMask = desc.layerMask;
+		dc.userData = obj->userData;
+		dc.vertexLayoutIndex = vertexLayoutIndex;
+		dc.bones = obj->bonesDescriptor;
+		dc.localAabb = primitive.aabb;
+		dc.aabb = Math::TransformAABB(primitive.aabb, obj->transform);
+		dc.transform = obj->transform;
+		dc.layerMask = obj->layerMask;
 
-		const bool castShadow = (desc.visibility & DrawcallVisibility::CastShadow) != 0 && !ref.transparent;
+		const bool castShadow = obj->castShadows && !ref.transparent;
 		if (castShadow)
 		{
 			DrawPipelineDesc shadowDesc;
@@ -116,24 +455,23 @@ namespace Skore
 			ref.shadowPipelineIndex = GetOrCreatePipeline(shadowPipelines, shadowDesc);
 			ref.shadowHandle = shadowPipelines[ref.shadowPipelineIndex].drawcalls.Insert();
 
-			// Shadow drawcall shares the same mesh/material refs that the primary already accounted for.
 			Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
-			sdc.firstIndex = desc.firstIndex;
-			sdc.indexCount = desc.indexCount;
+			sdc.firstIndex = primitive.firstIndex;
+			sdc.indexCount = primitive.indexCount;
 			sdc.vertexByteOffset = vertexByteOffset;
 			sdc.indexByteOffset = indexByteOffset;
 			sdc.material = material;
-			sdc.userData = desc.userData;
-			sdc.vertexLayoutIndex = desc.vertexLayoutIndex;
-			sdc.bones = desc.bones;
-			sdc.localAabb = desc.aabb;
+			sdc.userData = obj->userData;
+			sdc.vertexLayoutIndex = vertexLayoutIndex;
+			sdc.bones = obj->bonesDescriptor;
+			sdc.localAabb = primitive.aabb;
 			sdc.aabb = dc.aabb;
-			sdc.transform = desc.transform;
-			sdc.layerMask = desc.layerMask;
+			sdc.transform = obj->transform;
+			sdc.layerMask = obj->layerMask;
 		}
 
 		ref.instanceIndex = instanceDataCount++;
-		instanceOwners.EmplaceBack(InstanceOwner{owner, primitiveIndex});
+		instanceOwners.EmplaceBack(InstanceOwner{obj, primitiveIndex});
 
 		if (instanceDataBuffer->GetDesc().size < sizeof(InstanceData) * instanceDataCount)
 		{
@@ -152,96 +490,31 @@ namespace Skore
 
 		InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
 		new(data + ref.instanceIndex) InstanceData{
-			.transform = desc.transform,
+			.transform = obj->transform,
 			.materialIndex = material->materialIndex,
 			.vertexByteOffset = vertexByteOffset,
-			.vertexLayoutIndex = desc.vertexLayoutIndex,
-			.indexCount = desc.indexCount,
+			.vertexLayoutIndex = vertexLayoutIndex,
+			.indexCount = primitive.indexCount,
 			.aabbMin = dc.aabb.min,
-			.firstIndex = indexByteOffset / static_cast<u32>(sizeof(u32)) + desc.firstIndex,
+			.firstIndex = indexByteOffset / static_cast<u32>(sizeof(u32)) + primitive.firstIndex,
 			.aabbMax = dc.aabb.max,
 			.pipelineIndex = ref.pipelineIndex,
 			.drawcallIndex = static_cast<u32>(ref.handle),
 			.transparent = ref.transparent,
-			.layerMask = desc.layerMask,
+			.layerMask = obj->layerMask,
 		};
-	}
-
-	void RenderSceneObjects::UpdateTransform(const DrawcallRef& ref, const Mat4& transform)
-	{
-		AABB worldAabb = {};
-		bool hasWorldAabb = false;
-
-		if (ref.pipelineIndex != U32_MAX)
-		{
-			Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
-			Drawcall& dc = pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle];
-			dc.transform = transform;
-			dc.aabb = Math::TransformAABB(dc.localAabb, transform);
-			worldAabb = dc.aabb;
-			hasWorldAabb = true;
-		}
-		if (ref.shadowPipelineIndex != U32_MAX)
-		{
-			Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
-			sdc.transform = transform;
-			sdc.aabb = Math::TransformAABB(sdc.localAabb, transform);
-			if (!hasWorldAabb)
-			{
-				worldAabb = sdc.aabb;
-				hasWorldAabb = true;
-			}
-		}
-		if (ref.instanceIndex != U32_MAX && hasWorldAabb)
-		{
-			InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
-			InstanceData& inst = data[ref.instanceIndex];
-			inst.transform = transform;
-			inst.aabbMin = worldAabb.min;
-			inst.aabbMax = worldAabb.max;
-		}
-		if (ref.pendingDrawcallIndex != U32_MAX)
-		{
-			pendingDrawcalls[ref.pendingDrawcallIndex].desc.transform = transform;
-		}
-	}
-
-	void RenderSceneObjects::UpdateLayerMask(const DrawcallRef& ref, u64 layerMask)
-	{
-		if (ref.pipelineIndex != U32_MAX)
-		{
-			Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
-			pipelineStorage[ref.pipelineIndex].drawcalls[ref.handle].layerMask = layerMask;
-		}
-		if (ref.shadowPipelineIndex != U32_MAX)
-		{
-			shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle].layerMask = layerMask;
-		}
-		if (ref.instanceIndex != U32_MAX)
-		{
-			InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
-			data[ref.instanceIndex].layerMask = layerMask;
-		}
-		if (ref.pendingDrawcallIndex != U32_MAX)
-		{
-			pendingDrawcalls[ref.pendingDrawcallIndex].desc.layerMask = layerMask;
-		}
 	}
 
 	void RenderSceneObjects::RemoveDrawcall(const DrawcallRef& ref)
 	{
 		if (ref.pipelineIndex != U32_MAX)
 		{
-			Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
-			pipelineStorage[ref.pipelineIndex].drawcalls.Remove(ref.handle);
+			Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
+			storage[ref.pipelineIndex].drawcalls.Remove(ref.handle);
 		}
 		if (ref.shadowPipelineIndex != U32_MAX)
 		{
 			shadowPipelines[ref.shadowPipelineIndex].drawcalls.Remove(ref.shadowHandle);
-		}
-		if (ref.pendingDrawcallIndex != U32_MAX)
-		{
-			RemovePendingDrawcall(ref.pendingDrawcallIndex);
 		}
 		if (ref.instanceIndex != U32_MAX)
 		{
@@ -253,58 +526,32 @@ namespace Skore
 
 				instanceOwners[ref.instanceIndex] = instanceOwners[last];
 				InstanceOwner& moved = instanceOwners[ref.instanceIndex];
-				moved.component->references[moved.primitiveIndex].instanceIndex = ref.instanceIndex;
+				moved.renderable->references[moved.primitiveIndex].instanceIndex = ref.instanceIndex;
 			}
 			instanceOwners.PopBack();
 			instanceDataCount--;
 		}
 	}
 
-	void RenderSceneObjects::AddPendingDrawcall(RendererComponent* component, u32 primitiveIndex,
-		const MeshResourceCachePtr& mesh, const MaterialResourceCachePtr& material,
-		const DrawcallDesc& desc, DrawcallRef& outRef)
-	{
-		u32 idx = static_cast<u32>(pendingDrawcalls.Size());
-		pendingDrawcalls.EmplaceBack(PendingDrawcallEntry{mesh, material, component, primitiveIndex, desc});
-		outRef.pendingDrawcallIndex = idx;
-	}
-
-	void RenderSceneObjects::RemovePendingDrawcall(u32 idx)
-	{
-		u32 lastIdx = static_cast<u32>(pendingDrawcalls.Size()) - 1;
-		if (idx != lastIdx)
-		{
-			pendingDrawcalls[idx] = std::move(pendingDrawcalls[lastIdx]);
-			PendingDrawcallEntry& moved = pendingDrawcalls[idx];
-			moved.component->references[moved.primitiveIndex].pendingDrawcallIndex = idx;
-		}
-		pendingDrawcalls.PopBack();
-	}
-
 	void RenderSceneObjects::DoUpdate(GPUCommandBuffer* cmd)
 	{
 		RenderResourceCache::Flush();
 
-		for (u32 i = 0; i < pendingDrawcalls.Size(); )
+		if (pendingUpdate.empty()) return;
+
+		Array<RenderableObjectStorage*> done;
+		done.Reserve(pendingUpdate.size());
+
+		for (RenderableObjectStorage* obj : pendingUpdate)
 		{
-			PendingDrawcallEntry& pending = pendingDrawcalls[i];
-			if (!pending.mesh || !pending.mesh->IsLoaded() || !pending.material || !pending.material->IsLoaded())
+			if (TryRebuild(obj))
 			{
-				++i;
-				continue;
+				done.EmplaceBack(obj);
 			}
-
-			RendererComponent*       component = pending.component;
-			u32                      primitiveIndex = pending.primitiveIndex;
-			DrawcallDesc             desc = pending.desc;
-			MaterialResourceCachePtr material = pending.material;
-
-			component->references[primitiveIndex].pendingDrawcallIndex = U32_MAX;
-			RemovePendingDrawcall(i);
-
-			DrawcallRef& ref = component->references[primitiveIndex];
-			DoCreateDrawcall(desc, material, component, primitiveIndex, ref);
+		}
+		for (RenderableObjectStorage* obj : done)
+		{
+			pendingUpdate.erase(obj);
 		}
 	}
-
 }

@@ -85,8 +85,6 @@ namespace Skore
 		DenseSet<Tickable*>      m_updateComponents = {};
 		DenseSet<FixedTickable*> m_fixedUpdateComponents = {};
 
-		DenseSet<Component*> m_pendingUpdate = {};
-
 		HashMap<TypeID, DenseSet<Component*>> m_iterableComponents = {};
 
 		f64 m_physicsAccumulator = 0.0;

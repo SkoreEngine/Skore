@@ -20,59 +20,65 @@ namespace Skore
 
 	void RendererComponent::Create()
 	{
-		ComponentRequireUpdate();
+		renderable = scene->renderObjects.CreateRenderable();
+		PushStateToRenderable();
 	}
 
 	void RendererComponent::Destroy()
 	{
-		ClearDrawcalls();
+		if (renderable)
+		{
+			scene->renderObjects.DestroyRenderable(renderable);
+			renderable = {};
+		}
 	}
 
 	void RendererComponent::ProcessEvent(const EntityEventDesc& event)
 	{
+		if (!renderable) return;
+
 		switch (event.type)
 		{
-			case EntityEventType::ComponentUpdated:
-				Rebuild();
-				break;
 			case EntityEventType::EntityActivated:
+				scene->renderObjects.SetVisible(renderable, true);
+				break;
 			case EntityEventType::EntityDeactivated:
-				ComponentRequireUpdate();
+				scene->renderObjects.SetVisible(renderable, false);
 				break;
 			case EntityEventType::TransformUpdated:
-			{
-				const Mat4 worldTransform = entity->GetWorldTransform();
-				UpdateAABB();
-				for (const DrawcallRef& ref : references)
-				{
-					scene->renderObjects.UpdateTransform(ref, worldTransform);
-				}
+				scene->renderObjects.SetTransform(renderable, entity->GetWorldTransform());
 				break;
-			}
 			case EntityEventType::EntityLayerChanged:
-			{
-				const u64 layerMask = LayerToMask(entity->GetLayer());
-				for (const DrawcallRef& ref : references)
-				{
-					scene->renderObjects.UpdateLayerMask(ref, layerMask);
-				}
+				scene->renderObjects.SetLayerMask(renderable, LayerToMask(entity->GetLayer()));
 				break;
-			}
 			case EntityEventType::CalculateEntityAABB:
 			{
 				AABB& outAabb = *static_cast<AABB*>(event.eventData);
-				outAabb.Expand(aabb);
+				outAabb.Expand(scene->renderObjects.GetAABB(renderable));
 				break;
 			}
 			default: break;
 		}
 	}
 
+	void RendererComponent::PushStateToRenderable()
+	{
+		if (!renderable) return;
+		RenderSceneObjects& ro = scene->renderObjects;
+		ro.SetMesh(renderable, m_mesh);
+		ro.SetMaterials(renderable, CastRIDArray(m_materials));
+		ro.SetCastShadows(renderable, m_castShadows);
+		ro.SetTransform(renderable, entity->GetWorldTransform());
+		ro.SetUserData(renderable, PtrToInt(entity));
+		ro.SetLayerMask(renderable, LayerToMask(entity->GetLayer()));
+		ro.SetVisible(renderable, entity->IsActive());
+	}
+
 	void RendererComponent::SetMesh(RID mesh)
 	{
 		if (m_mesh == mesh) return;
 		m_mesh = mesh;
-		ComponentRequireUpdate();
+		if (renderable) scene->renderObjects.SetMesh(renderable, mesh);
 	}
 
 	RID RendererComponent::GetMesh() const
@@ -84,7 +90,7 @@ namespace Skore
 	{
 		if (m_castShadows == castShadows) return;
 		m_castShadows = castShadows;
-		ComponentRequireUpdate();
+		if (renderable) scene->renderObjects.SetCastShadows(renderable, castShadows);
 	}
 
 	bool RendererComponent::GetCastShadows() const
@@ -100,7 +106,7 @@ namespace Skore
 	void RendererComponent::SetMaterials(const MaterialArray& materials)
 	{
 		m_materials = materials;
-		ComponentRequireUpdate();
+		if (renderable) scene->renderObjects.SetMaterials(renderable, CastRIDArray(m_materials));
 	}
 
 	void RendererComponent::SetMaterial(u32 index, RID material)
@@ -111,79 +117,12 @@ namespace Skore
 		}
 
 		m_materials[index] = material;
-		ComponentRequireUpdate();
+		if (renderable) scene->renderObjects.SetMaterials(renderable, CastRIDArray(m_materials));
 	}
 
-	void RendererComponent::UpdateAABB()
+	AABB RendererComponent::GetAABB() const
 	{
-		aabb = AABB();
-		if (!m_mesh) return;
-		if (MeshResourceCachePtr mc = RenderResourceCache::GetMeshCache(m_mesh, scene->renderObjects.asyncLoad))
-		{
-			aabb = Math::TransformAABB(mc->aabb, entity->GetWorldTransform());
-		}
-	}
-
-	void RendererComponent::ClearDrawcalls()
-	{
-		for (const DrawcallRef& ref : references)
-		{
-			scene->renderObjects.RemoveDrawcall(ref);
-		}
-		references.Clear();
-	}
-
-	void RendererComponent::Rebuild()
-	{
-		ClearDrawcalls();
-
-		MeshResourceCachePtr meshCache = m_mesh ? RenderResourceCache::GetMeshCache(m_mesh, scene->renderObjects.asyncLoad) : nullptr;
-
-		if (!entity->IsActive() || !meshCache) return;
-
-		UpdateAABB();
-
-		const Mat4 worldTransform = entity->GetWorldTransform();
-		const u64  layerMask      = LayerToMask(entity->GetLayer());
-		const u64  userData       = PtrToInt(entity);
-		const u8   visibility     = m_castShadows ? DrawcallVisibility::CastShadow : 0;
-
-		references.Resize(meshCache->primitives.Size());
-
-		for (u32 p = 0; p < meshCache->primitives.Size(); ++p)
-		{
-			MeshPrimitive& primitive = meshCache->primitives[p];
-
-			// Resolve material inline: prefer override, fall back to mesh default.
-			RID material;
-			if (primitive.materialIndex < m_materials.Size() && m_materials[primitive.materialIndex])
-			{
-				material = m_materials[primitive.materialIndex];
-			}
-			if (!material && primitive.materialIndex < meshCache->materials.Size() && meshCache->materials[primitive.materialIndex])
-			{
-				material = meshCache->materials[primitive.materialIndex]->rid;
-			}
-			if (!material) continue;
-
-			DrawcallDesc desc{};
-			desc.mesh         = meshCache;
-			desc.firstIndex   = primitive.firstIndex;
-			desc.indexCount   = primitive.indexCount;
-			desc.transform    = worldTransform;
-			desc.aabb         = primitive.aabb;
-			desc.userData     = userData;
-			desc.layerMask    = layerMask;
-			desc.material     = material;
-			desc.bones        = GetBonesDescriptor();
-//			desc.blas              = (p < meshCache->blasArray.Size()) ? meshCache->blasArray[p] : nullptr;
-			desc.vertexByteOffset  = meshCache->vertexByteOffset;
-			desc.indexByteOffset   = meshCache->indexByteOffset;
-			desc.vertexLayoutIndex = meshCache->vertexLayoutId;
-			desc.visibility        = visibility;
-
-			references[p] = scene->renderObjects.CreateDrawcall(desc, this, p);
-		}
+		return renderable ? scene->renderObjects.GetAABB(renderable) : AABB();
 	}
 
 	void RendererComponent::RegisterType(NativeReflectType<RendererComponent>& type)
@@ -274,7 +213,11 @@ namespace Skore
 		if (!m_skinCache || m_skinCache->mesh != m_mesh)
 		{
 			m_skinCache = RenderResourceCache::GetSkinCache(m_mesh);
-			if (m_skinCache) EnsureBonesData();
+			if (m_skinCache)
+			{
+				EnsureBonesData();
+				if (renderable) scene->renderObjects.SetBonesDescriptor(renderable, m_bonesDescriptor);
+			}
 		}
 
 		if (!m_bonesBuffer || !m_skinCache) return;
