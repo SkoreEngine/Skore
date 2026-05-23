@@ -26,6 +26,8 @@ namespace Skore
 	const u32 MeshDataMaxAllocations   = 32u * 1024u;
 	const u32 MeshDataAllocationAlign  = 16u;
 
+	const u32 MaxTextureMipsToLoad = 0;
+
 	namespace
 	{
 		void ExecuteOnMainThread(std::function<void()> func);
@@ -152,12 +154,15 @@ namespace Skore
 
 							if (ResourceObject textureObject = Resources::Read(textureCache->rid))
 							{
-								u32             mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
+								u32             srcMipLevels = textureObject.GetUInt(TextureResource::MipLevels);
 								TextureFormat   format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
 								CompressionMode compressionMode = textureObject.GetEnum<CompressionMode>(TextureResource::CompressionMode);
 								Span<RID>       images = textureObject.GetSubObjectList(TextureResource::Images);
 								ResourceBuffer  buffer = textureObject.GetBuffer(TextureResource::PixelData);
 								u32             texelSize = GetTextureFormatSize(format);
+
+								u32 skippedMips = textureCache->skippedMips;
+								u32 mipLevels   = std::max(srcMipLevels, 1u) - skippedMips;
 
 								struct PendingCopy
 								{
@@ -239,11 +244,21 @@ namespace Skore
 								{
 									ResourceObject imageObject = Resources::Read(imageRID);
 									Vec2 extent = imageObject.GetVec2(TextureImageResource::Extent);
-									u32  mip = imageObject.GetUInt(TextureImageResource::Mip);
+									u32  srcMip = imageObject.GetUInt(TextureImageResource::Mip);
 									u32  width = static_cast<u32>(extent.width);
 									u32  height = static_cast<u32>(extent.height);
 									u32  compressedSize = imageObject.GetUInt(TextureImageResource::DataSize);
 									u32  uncompressedSize = imageObject.GetUInt(TextureImageResource::UncompressedSize);
+
+									if (srcMip < skippedMips)
+									{
+										// Dropped mip — still owns its slice of the source buffer, so advance offsets.
+										srcUncompressedOffset += uncompressedSize;
+										srcCompressedOffset += compressedSize;
+										continue;
+									}
+
+									u32 mip = srcMip - skippedMips;
 
 									if (uncompressedSize > StagingBufferSize)
 									{
@@ -1196,11 +1211,19 @@ namespace Skore
 					Vec2 extent = firstImageObject.GetVec2(TextureImageResource::Extent);
 					u32 mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
 
+					u32 totalMips = std::max(mipLevels, 1u);
+					u32 mipsToLoad = (MaxTextureMipsToLoad == 0 || MaxTextureMipsToLoad >= totalMips)
+						? totalMips
+						: MaxTextureMipsToLoad;
+					textureStorage->skippedMips = totalMips - mipsToLoad;
+
+					u32 baseWidth  = std::max(static_cast<u32>(extent.x) >> textureStorage->skippedMips, 1u);
+					u32 baseHeight = std::max(static_cast<u32>(extent.y) >> textureStorage->skippedMips, 1u);
 
 					//create texture
 					textureStorage->texture = Graphics::CreateTexture(TextureDesc{
-						.extent = {static_cast<u32>(extent.x), static_cast<u32>(extent.y), 1},
-						.mipLevels = std::max(mipLevels, 1u),
+						.extent = {baseWidth, baseHeight, 1},
+						.mipLevels = mipsToLoad,
 						.format = format,
 						.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
 						.debugName = String(name) + "_Texture"
