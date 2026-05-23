@@ -51,6 +51,7 @@ namespace Skore
 		RID         rid = {};
 		GPUTexture* texture = nullptr;
 		u32         textureIndex = U32_MAX;
+		u32         skippedMips = 0;
 
 		// Valid while a pixel-data upload is pending on the worker; wait on it to ensure the texture
 		// contents are populated before sampling.
