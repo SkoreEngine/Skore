@@ -13,6 +13,7 @@ namespace Skore
 		u64 id = 0;
 		bool readOnly = true;
 		String filePath;
+		FileHandler handler;
 		u64 size = 0;
 		u64 offset = 0;
 	};
@@ -26,6 +27,7 @@ namespace Skore
 		ResourceBuffer(StringView idString);
 
 		void MapFile(StringView path, bool readOnly, u64 offset, u64 size) const;
+		void MapFile(FileHandler handler, bool readOnly, u64 offset, u64 size) const;
 		u64  GetSize() const;
 		u64  CopyData(VoidPtr data, u64 size, u64 offset = 0) const;
 

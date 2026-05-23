@@ -20,6 +20,14 @@ namespace Skore
 		m_instance->offset = offset;
 	}
 
+	void ResourceBuffer::MapFile(FileHandler handler, bool readOnly, u64 offset, u64 size) const
+	{
+		m_instance->handler = handler;
+		m_instance->readOnly = readOnly;
+		m_instance->size = size;
+		m_instance->offset = offset;
+	}
+
 	u64 ResourceBuffer::GetSize() const
 	{
 		SK_ASSERT(m_instance, "Invalid buffer");
@@ -28,6 +36,11 @@ namespace Skore
 			if (m_instance->size > 0)
 			{
 				return m_instance->size;
+			}
+
+			if (m_instance->handler)
+			{
+				return FileSystem::GetFileSize(m_instance->handler);
 			}
 
 			if (!m_instance->filePath.Empty())
@@ -43,7 +56,11 @@ namespace Skore
 		SK_ASSERT(m_instance, "Invalid buffer");
 		if (m_instance)
 		{
-			if (!m_instance->filePath.Empty())
+			if (m_instance->handler)
+			{
+				FileSystem::ReadFileAt(m_instance->handler, data, size, m_instance->offset + offset);
+			}
+			else if (!m_instance->filePath.Empty())
 			{
 				FileHandler fileHandler = FileSystem::OpenFile(m_instance->filePath, AccessMode::ReadOnly);
 				FileSystem::ReadFileAt(fileHandler, data, size, m_instance->offset + offset);
