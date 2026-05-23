@@ -67,6 +67,8 @@ namespace Skore
 		HashMap<TypeID, HashSet<TypeID>>       typesByAttribute;
 		HashMap<TypeID, ResourceLoaderContext> resourceLoaders;
 
+		Array<FileHandler> fileHandlers;
+
 		Logger& logger = Logger::GetLogger("Skore::Resources", LogLevel::Debug);
 
 		struct ImportedResourceField
@@ -2044,6 +2046,11 @@ namespace Skore
 			DestroyAndFree(it.second.instance);
 		}
 
+		for (const auto & handler : fileHandlers)
+		{
+			FileSystem::CloseFile(handler);
+		}
+
 		typesById.Clear();
 		typesByName.Clear();
 
@@ -2206,6 +2213,8 @@ namespace Skore
 		reader.EndMap();
 
 		String bufferFile = Path::Join(Path::Parent(filePath), Path::Name(filePath) + SK_BUFFER_EXT);
+		FileHandler bufferHandler = FileSystem::OpenFile(bufferFile, AccessMode::ReadOnly);
+		fileHandlers.EmplaceBack(bufferHandler);
 
 		reader.BeginSeq("assets");
 		{
@@ -2251,7 +2260,7 @@ namespace Skore
 					{
 						if (auto it = buffers.Find(buffer.GetIdAsString()))
 						{
-							buffer.MapFile(bufferFile, true, it->second.offset, it->second.size);
+							buffer.MapFile(bufferHandler, true, it->second.offset, it->second.size);
 							logger.Debug("buffer {} loaded with offset {}, size {}  ", it->first, it->second.offset, it->second.size);
 						}
 					});
