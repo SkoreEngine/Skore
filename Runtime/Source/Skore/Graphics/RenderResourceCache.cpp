@@ -1459,10 +1459,65 @@ namespace Skore
 	{
 		if (!texture) return nullptr;
 
+		// Phase 1: brief lock — return existing cache if any.
+		{
+			std::unique_lock lock(textureCacheMutex);
+			auto it = textureCache.Find(texture);
+			if (it != textureCache.end())
+			{
+				if (auto sp = it->second.lock())
+				{
+					lock.unlock();
+					if (!async && sp->uploadComplete.valid()) sp->uploadComplete.wait();
+					return sp;
+				}
+				textureCache.Erase(it);
+			}
+		}
+
+		TextureResourceCachePtr textureStorage(Alloc<TextureResourceCache>(texture), MakeCacheDeleter<TextureResourceCache>(textureCache, textureCacheMutex, texture));
+
+		if (ResourceObject textureObject = Resources::Read(texture))
+		{
+			StringView name = textureObject.GetString(TextureResource::Name);
+			TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+			Span<RID> images = textureObject.GetSubObjectList(TextureResource::Images);
+
+			ResourceObject firstImageObject = Resources::Read(images[0]);
+			Vec2 extent = firstImageObject.GetVec2(TextureImageResource::Extent);
+			u32 mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
+
+			u32 totalMips = std::max(mipLevels, 1u);
+			u32 mipsToLoad = (MaxTextureMipsToLoad == 0 || MaxTextureMipsToLoad >= totalMips)
+				? totalMips
+				: MaxTextureMipsToLoad;
+			textureStorage->skippedMips = totalMips - mipsToLoad;
+			textureStorage->fullExtentWidth  = static_cast<u32>(extent.x);
+			textureStorage->fullExtentHeight = static_cast<u32>(extent.y);
+			textureStorage->fullMipCount     = totalMips;
+
+			u32 baseWidth  = std::max(static_cast<u32>(extent.x) >> textureStorage->skippedMips, 1u);
+			u32 baseHeight = std::max(static_cast<u32>(extent.y) >> textureStorage->skippedMips, 1u);
+
+			textureStorage->texture = Graphics::CreateTexture(TextureDesc{
+				.extent = {baseWidth, baseHeight, 1},
+				.mipLevels = mipsToLoad,
+				.format = format,
+				.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
+				.debugName = String(name) + "_Texture"
+			});
+
+			Graphics::SetTextureState(textureStorage->texture, ResourceState::Undefined, ResourceState::ShaderReadOnly);
+
+			textureStorage->uploadComplete = worker.AddTask(WorkerType::Texture, textureStorage).share();
+		}
+
+		// Phase 3: brief lock — race re-check, then insert + bindless descriptor update.
 		TextureResourceCachePtr result;
 		{
 			std::unique_lock lock(textureCacheMutex);
-			auto             it = textureCache.Find(texture);
+
+			auto it = textureCache.Find(texture);
 			if (it != textureCache.end())
 			{
 				if (auto sp = it->second.lock())
@@ -1477,44 +1532,8 @@ namespace Skore
 
 			if (!result)
 			{
-				TextureResourceCachePtr textureStorage(Alloc<TextureResourceCache>(texture), MakeCacheDeleter<TextureResourceCache>(textureCache, textureCacheMutex, texture));
-
-				if (ResourceObject textureObject = Resources::Read(texture))
+				if (textureStorage->texture)
 				{
-					StringView name = textureObject.GetString(TextureResource::Name);
-					TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
-					Span<RID> images = textureObject.GetSubObjectList(TextureResource::Images);
-
-					ResourceObject firstImageObject = Resources::Read(images[0]);
-					Vec2 extent = firstImageObject.GetVec2(TextureImageResource::Extent);
-					u32 mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
-
-					u32 totalMips = std::max(mipLevels, 1u);
-					u32 mipsToLoad = (MaxTextureMipsToLoad == 0 || MaxTextureMipsToLoad >= totalMips)
-						? totalMips
-						: MaxTextureMipsToLoad;
-					textureStorage->skippedMips = totalMips - mipsToLoad;
-					textureStorage->fullExtentWidth  = static_cast<u32>(extent.x);
-					textureStorage->fullExtentHeight = static_cast<u32>(extent.y);
-					textureStorage->fullMipCount     = totalMips;
-
-					u32 baseWidth  = std::max(static_cast<u32>(extent.x) >> textureStorage->skippedMips, 1u);
-					u32 baseHeight = std::max(static_cast<u32>(extent.y) >> textureStorage->skippedMips, 1u);
-
-					//create texture
-					textureStorage->texture = Graphics::CreateTexture(TextureDesc{
-						.extent = {baseWidth, baseHeight, 1},
-						.mipLevels = mipsToLoad,
-						.format = format,
-						.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
-						.debugName = String(name) + "_Texture"
-					});
-
-					Graphics::SetTextureState(textureStorage->texture, ResourceState::Undefined, ResourceState::ShaderReadOnly);
-
-					textureStorage->uploadComplete = worker.AddTask(WorkerType::Texture, textureStorage).share();
-
-					//update index.
 					textureStorage->textureIndex = AllocateTextureIndex();
 
 					DescriptorUpdate texUpdate;
@@ -1541,10 +1560,39 @@ namespace Skore
 	{
 		if (!material) return nullptr;
 
+		// Phase 1: brief lock — return existing cache if any.
+		{
+			std::unique_lock lock(materialCacheMutex);
+			auto it = materialCache.Find(material);
+			if (it != materialCache.end())
+			{
+				if (auto sp = it->second.lock())
+				{
+					lock.unlock();
+					if (!async) WaitForMaterial(sp);
+					return sp;
+				}
+				materialCache.Erase(it);
+			}
+		}
+
+		// Phase 2: heavy work without the lock — includes recursive GetTextureCache calls
+		// inside UpdateMaterialStorageData and (for skybox) descriptor-set + IBL setup.
+		MaterialResourceCachePtr materialData(Alloc<MaterialResourceCache>(material), MakeCacheDeleter<MaterialResourceCache>(materialCache, materialCacheMutex, material));
+
+		if (ResourceStorage* storage = Resources::GetStorage(material))
+		{
+			storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
+			materialData->eventRegistered = true;
+		}
+
+		ResourceObject materialObject = Resources::Read(material);
+		UpdateMaterialStorageData(materialObject, materialData, async);
+
+		// Phase 3: brief lock — race re-check, then insert.
 		MaterialResourceCachePtr result;
 		{
 			std::unique_lock lock(materialCacheMutex);
-
 			auto it = materialCache.Find(material);
 			if (it != materialCache.end())
 			{
@@ -1560,17 +1608,6 @@ namespace Skore
 
 			if (!result)
 			{
-				MaterialResourceCachePtr materialData(Alloc<MaterialResourceCache>(material), MakeCacheDeleter<MaterialResourceCache>(materialCache, materialCacheMutex, material));
-
-				if (ResourceStorage* storage = Resources::GetStorage(material))
-				{
-					storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
-					materialData->eventRegistered = true;
-				}
-
-				ResourceObject materialObject = Resources::Read(material);
-				UpdateMaterialStorageData(materialObject, materialData, async);
-
 				materialCache.Insert(material, std::weak_ptr(materialData));
 				result = materialData;
 			}
@@ -1587,26 +1624,32 @@ namespace Skore
 	{
 		if (!mesh) return nullptr;
 
-		std::unique_lock lock(meshCacheMutex);
-
-		auto it = meshCache.Find(mesh);
-		if (it != meshCache.end())
+		// Phase 1: brief lock — return existing cache if any.
 		{
-			if (auto sp = it->second.lock())
+			std::unique_lock lock(meshCacheMutex);
+			auto it = meshCache.Find(mesh);
+			if (it != meshCache.end())
 			{
-				lock.unlock();
-				if (!async) WaitForMesh(sp);
-				return sp;
+				if (auto sp = it->second.lock())
+				{
+					lock.unlock();
+					if (!async) WaitForMesh(sp);
+					return sp;
+				}
+				meshCache.Erase(it);
 			}
-			meshCache.Erase(it);
 		}
 
+		// Phase 2: heavy work without the lock — Resources::Read, mesh-data buffer alloc,
+		// worker enqueue, recursive GetMaterialCache calls. Vertex-layout registration is
+		// deferred to Phase 3 because it mutates global vertexLayoutDescs.
 		MeshResourceCachePtr meshData(Alloc<MeshResourceCache>(mesh), MakeCacheDeleter<MeshResourceCache>(meshCache, meshCacheMutex, mesh));
+
+		VertexLayoutOffsetData layoutData{};
+		bool                   layoutValid = false;
 
 		if (ResourceObject meshObject = Resources::Read(mesh))
 		{
-			//ScopedTimer timer(logger, " time to load mesh ");
-
 			StringView name = meshObject.GetString(MeshResource::Name);
 			meshData->aabb = AABB{meshObject.GetVec3(MeshResource::AABBMin), meshObject.GetVec3(MeshResource::AABBMax)};
 			meshData->lightmapSizeHint = meshObject.GetVec2(MeshResource::LightmapSizeHint);
@@ -1694,7 +1737,6 @@ namespace Skore
 			meshData->vertexByteOffset = meshData->vertexAlloc.offset;
 			meshData->indexByteOffset  = meshData->indexAlloc.offset;
 
-			VertexLayoutOffsetData layoutData{};
 			layoutData.stride         = meshData->stride;
 			layoutData.posOff         = positionOffset;
 			layoutData.normalOff      = normalOffset;
@@ -1704,8 +1746,7 @@ namespace Skore
 			layoutData.tangentOff     = tangentOffset;
 			layoutData.boneIndicesOff = boneIndicesOffset;
 			layoutData.boneWeightsOff = boneWeightsOffset;
-
-			meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
+			layoutValid = true;
 
 			// if (rtSupported && !meshObject.GetSubObject(MeshResource::Skin))
 			// {
@@ -1728,10 +1769,36 @@ namespace Skore
 			}
 		}
 
-		meshCache.Insert(mesh, std::weak_ptr<MeshResourceCache>(meshData));
-		lock.unlock();
-		if (!async) WaitForMesh(meshData);
-		return meshData;
+		// Phase 3: brief lock — race re-check, register vertex layout, insert.
+		MeshResourceCachePtr result;
+		{
+			std::unique_lock lock(meshCacheMutex);
+			auto it = meshCache.Find(mesh);
+			if (it != meshCache.end())
+			{
+				if (auto sp = it->second.lock())
+				{
+					result = sp;
+				}
+				else
+				{
+					meshCache.Erase(it);
+				}
+			}
+
+			if (!result)
+			{
+				if (layoutValid)
+				{
+					meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
+				}
+				meshCache.Insert(mesh, std::weak_ptr<MeshResourceCache>(meshData));
+				result = meshData;
+			}
+		}
+
+		if (!async) WaitForMesh(result);
+		return result;
 	}
 
 	GPUDescriptorSet* RenderResourceCache::GetGlobalDescriptorSet()
