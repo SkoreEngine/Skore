@@ -535,6 +535,8 @@ namespace Skore
 
 	void RenderSceneObjects::DoUpdate(GPUCommandBuffer* cmd)
 	{
+		SK_SCOPED_CPU_ZONE("RenderSceneObjects::DoUpdate");
+
 		//RenderResourceCache::Flush();
 
 		if (pendingUpdate.empty()) return;

@@ -14,6 +14,7 @@
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Profiler.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Core/UnorderedDense.hpp"
 #include "Skore/IO/Compression.hpp"
@@ -91,13 +92,7 @@ namespace Skore
 				ResourceCachePtr                    resourceCache = {};
 				std::shared_ptr<std::promise<void>> promise = nullptr;
 
-				GPUBuffer* srcBuffer = nullptr;
-				GPUBuffer* destBuffer = nullptr;
-
-				// Used by WorkerType::StreamTexture: the pre-created higher-resolution texture
-				// the worker should upload pixels into, and the corresponding skippedMips count.
-				GPUTexture* streamTargetTexture = nullptr;
-				u32         streamTargetSkippedMips = 0;
+				u32 streamTargetSkippedMips = 0;
 			};
 
 		public:
@@ -106,7 +101,9 @@ namespace Skore
 				running.store(true, std::memory_order_release);
 				for (u32 i = 0; i < numWorkerThreads; i++)
 				{
-					workerThreads.EmplaceBack(std::thread(&ResourceWorker::WorkerLoop, this));
+					auto t = std::thread(&ResourceWorker::WorkerLoop, this);
+					Platform::SetThreadName(t, String("ResourceWorker ").Append(ToString(i)));
+					workerThreads.EmplaceBack(std::move(t));
 				}
 			}
 
@@ -138,12 +135,11 @@ namespace Skore
 				return future;
 			}
 
-			void AddStreamTextureTask(ResourceCachePtr resourceCache, GPUTexture* targetTexture, u32 targetSkippedMips)
+			void AddStreamTextureTask(ResourceCachePtr resourceCache, u32 targetSkippedMips)
 			{
 				WorkerData data;
 				data.type = WorkerType::StreamTexture;
 				data.resourceCache = std::move(resourceCache);
-				data.streamTargetTexture = targetTexture;
 				data.streamTargetSkippedMips = targetSkippedMips;
 				AddTask(std::move(data));
 			}
@@ -180,9 +176,6 @@ namespace Skore
 				GPUBuffer* blasScratchBuffer = nullptr;
 				u64        blasScratchSize = 0;
 
-				// Uploads pixel data from `textureObject` into `targetTexture`, skipping the
-				// `skippedMips` most-detailed mips. Used by both the initial texture upload
-				// and the streaming stream-in path.
 				auto uploadTexturePixels = [&](GPUTexture* targetTexture, u32 skippedMips, ResourceObject& textureObject)
 				{
 					u32             srcMipLevels = textureObject.GetUInt(TextureResource::MipLevels);
@@ -282,7 +275,6 @@ namespace Skore
 
 						if (srcMip < skippedMips)
 						{
-							// Dropped mip — still owns its slice of the source buffer, so advance offsets.
 							srcUncompressedOffset += uncompressedSize;
 							srcCompressedOffset += compressedSize;
 							continue;
@@ -292,8 +284,6 @@ namespace Skore
 
 						if (uncompressedSize > StagingBufferSize)
 						{
-							// Mip is bigger than the staging buffer — flush anything pending,
-							// then upload this mip in row-chunked submissions.
 							if (!pendingCopies.Empty())
 							{
 								flushBatch();
@@ -381,7 +371,6 @@ namespace Skore
 					WorkerData data;
 					if (!load.try_dequeue(data))
 					{
-						// Spurious wake (e.g. shutdown release for an already-drained queue).
 						continue;
 					}
 					pendingCount.fetch_sub(1, std::memory_order_release);
@@ -401,14 +390,30 @@ namespace Skore
 						case WorkerType::StreamTexture:
 						{
 							TextureResourceCachePtr textureCache = std::dynamic_pointer_cast<TextureResourceCache>(data.resourceCache);
-							GPUTexture* newTexture     = data.streamTargetTexture;
-							u32         newSkippedMips = data.streamTargetSkippedMips;
+							u32 newSkippedMips = data.streamTargetSkippedMips;
 
-							bool uploaded = false;
-							if (textureCache && newTexture)
+							GPUTexture* newTexture = nullptr;
+							bool        uploaded   = false;
+
+							if (textureCache)
 							{
 								if (ResourceObject textureObject = Resources::Read(textureCache->rid))
 								{
+									StringView    name   = textureObject.GetString(TextureResource::Name);
+									TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+
+									u32 mipsToLoad = textureCache->fullMipCount - newSkippedMips;
+									u32 newWidth   = std::max(textureCache->fullExtentWidth  >> newSkippedMips, 1u);
+									u32 newHeight  = std::max(textureCache->fullExtentHeight >> newSkippedMips, 1u);
+
+									newTexture = Graphics::CreateTexture(TextureDesc{
+										.extent    = {newWidth, newHeight, 1},
+										.mipLevels = mipsToLoad,
+										.format    = format,
+										.usage     = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
+										.debugName = String(name) + "_Texture_Streaming"
+									});
+
 									uploadTexturePixels(newTexture, newSkippedMips, textureObject);
 									uploaded = true;
 								}
@@ -424,9 +429,6 @@ namespace Skore
 							}
 							else
 							{
-								// Upload couldn't run (resource read failed or cache/target gone) —
-								// discard the orphan texture and clear the pending flag so a future
-								// frame can retry.
 								if (newTexture) newTexture->Destroy();
 								if (textureCache) textureCache->streamingPending.store(false, std::memory_order_release);
 							}
@@ -1081,40 +1083,6 @@ namespace Skore
 			}
 		}
 
-		// Creates a higher- or lower-resolution texture at `targetSkippedMips` and queues a
-		// worker upload + main-thread swap. Caller must have set `streamingPending = true`
-		// before calling so duplicate tasks are gated; the flag is cleared either here on
-		// early-out, or by the worker's main-thread swap when the upload completes.
-		void StartTextureStream(const TextureResourceCachePtr& texCache, u32 targetSkippedMips)
-		{
-			ResourceObject textureObject = Resources::Read(texCache->rid);
-			if (!textureObject)
-			{
-				texCache->streamingPending.store(false, std::memory_order_release);
-				return;
-			}
-
-			StringView    name   = textureObject.GetString(TextureResource::Name);
-			TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
-
-			u32 mipsToLoad = texCache->fullMipCount - targetSkippedMips;
-			u32 newWidth   = std::max(texCache->fullExtentWidth  >> targetSkippedMips, 1u);
-			u32 newHeight  = std::max(texCache->fullExtentHeight >> targetSkippedMips, 1u);
-
-			GPUTexture* newTexture = Graphics::CreateTexture(TextureDesc{
-				.extent    = {newWidth, newHeight, 1},
-				.mipLevels = mipsToLoad,
-				.format    = format,
-				.usage     = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
-				.debugName = String(name) + "_Texture_Streaming"
-			});
-
-			Graphics::SetTextureState(newTexture, ResourceState::Undefined, ResourceState::ShaderReadOnly);
-
-			worker.AddStreamTextureTask(texCache, newTexture, targetSkippedMips);
-		}
-
-
 		void EvaluateTextureStreaming(const TextureResourceCachePtr& texCache)
 		{
 			if (!texCache || !texCache->texture) return;
@@ -1150,7 +1118,7 @@ namespace Skore
 				{
 					return;
 				}
-				StartTextureStream(texCache, desiredSkippedMips);
+				worker.AddStreamTextureTask(texCache, desiredSkippedMips);
 			}
 			else if (desiredSkippedMips > texCache->skippedMips)
 			{
@@ -1158,13 +1126,12 @@ namespace Skore
 				if (texCache->streamingDecayFrames < StreamingUnloadDelayFrames) return;
 
 				bool expected = false;
-				if (!texCache->streamingPending.compare_exchange_strong(expected, true,
-				                                                        std::memory_order_acq_rel, std::memory_order_acquire))
+				if (!texCache->streamingPending.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire))
 				{
 					return;
 				}
 				texCache->streamingDecayFrames = 0;
-				StartTextureStream(texCache, desiredSkippedMips);
+				worker.AddStreamTextureTask(texCache, desiredSkippedMips);
 			}
 			else
 			{
@@ -1297,6 +1264,7 @@ namespace Skore
 
 	void RenderResourceCache::Flush()
 	{
+		SK_SCOPED_CPU_ZONE("RenderResourceCache::Flush");
 		std::queue<std::function<void()>> drained;
 		{
 			std::scoped_lock lock(mainThreadTasksMutex);
@@ -1348,58 +1316,58 @@ namespace Skore
 			{
 				u32* mapped = static_cast<u32*>(materialMaskReadbackBuffers[slot]->GetMappedData());
 
-				//not happy with the material lock here, but it should be ok for now
-				std::unique_lock matLock(materialCacheMutex);
-				std::unique_lock texLock(textureCacheMutex);
-
-				// Pass 1: reset per-texture aggregated request. We rebuild it from scratch each
-				// frame so eviction reacts when materials stop sampling a texture entirely.
-				for (auto& it : textureCache)
+				Array<TextureResourceCachePtr>  texSnap;
+				Array<MaterialResourceCachePtr> matSnap;
 				{
-					if (auto t = it.second.lock())
+					std::scoped_lock lock(textureCacheMutex);
+					texSnap.Reserve(textureCache.Size());
+					for (auto& it : textureCache)
 					{
-						t->lastRequestedResolution = 0;
+						if (auto sp = it.second.lock()) texSnap.EmplaceBack(std::move(sp));
+					}
+				}
+				{
+					std::scoped_lock lock(materialCacheMutex);
+					matSnap.Reserve(materialCache.Size());
+					for (auto& it : materialCache)
+					{
+						if (auto sp = it.second.lock()) matSnap.EmplaceBack(std::move(sp));
 					}
 				}
 
-				// Pass 2: read each material's GPU feedback mask, update its request, and fold
-				// it into every texture it references (max across all referencing materials).
-				for (auto& it : materialCache)
+				for (const TextureResourceCachePtr& t : texSnap)
 				{
-					if (auto m = it.second.lock())
-					{
-						if (m->materialIndex != U32_MAX && m->materialIndex < materialDataCount)
-						{
-							u32 mask = mapped[m->materialIndex];
-							u32 requestUVset0 = mask & 0xFFFF;
-							if (requestUVset0 != 0)
-							{
-								m->reqTextureResolution = 1ul << (31ul - firstbithigh(requestUVset0));
-							}
-							else
-							{
-								// Material wasn't sampled this frame — let its textures decay.
-								m->reqTextureResolution = 0;
-							}
-						}
+					t->lastRequestedResolution = 0;
+				}
 
-						for (const TextureResourceCachePtr& tex : m->textures)
+				for (const MaterialResourceCachePtr& m : matSnap)
+				{
+					if (m->materialIndex != U32_MAX && m->materialIndex < materialDataCount)
+					{
+						u32 mask = mapped[m->materialIndex];
+						u32 requestUVset0 = mask & 0xFFFF;
+						if (requestUVset0 != 0)
 						{
-							if (tex)
-							{
-								tex->lastRequestedResolution = std::max(tex->lastRequestedResolution, m->reqTextureResolution);
-							}
+							m->reqTextureResolution = 1ul << (31ul - firstbithigh(requestUVset0));
+						}
+						else
+						{
+							m->reqTextureResolution = 0;
+						}
+					}
+
+					for (const TextureResourceCachePtr& tex : m->textures)
+					{
+						if (tex)
+						{
+							tex->lastRequestedResolution = std::max(tex->lastRequestedResolution, m->reqTextureResolution);
 						}
 					}
 				}
 
-				// Pass 3: stream-in (immediate) / stream-out (delayed) per texture.
-				for (auto& it : textureCache)
+				for (const TextureResourceCachePtr& t : texSnap)
 				{
-					if (auto t = it.second.lock())
-					{
-						EvaluateTextureStreaming(t);
-					}
+					EvaluateTextureStreaming(t);
 				}
 			}
 		}

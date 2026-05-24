@@ -6,6 +6,8 @@
 #include "Skore/Core/String.hpp"
 #include "Skore/IO/InputTypes.hpp"
 
+#include <thread>
+
 #ifdef CreateWindow
 #undef CreateWindow
 #endif
@@ -86,9 +88,9 @@ namespace Skore
 
 		SK_API ProcessMemoryInfo GetProcessMemoryInfo();
 		SK_API SystemMemoryInfo  GetSystemMemoryInfo();
-		// CPU usage of the current process, normalized so 1.0 == one fully utilized logical core.
-		// Sampled over the time elapsed since the previous call.
 		SK_API f32 GetProcessCPUUsage();
 		SK_API u32 GetLogicalCoreCount();
+
+		SK_API void SetThreadName(std::thread& thread, StringView name);
 	}
 }

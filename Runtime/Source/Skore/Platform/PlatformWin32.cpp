@@ -1,6 +1,9 @@
 #include "Skore/Platform/Platform.hpp"
 
+
 #if defined(SK_WIN)
+
+#include <thread>
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -67,6 +70,12 @@ namespace Skore
 		lastProcessTime = processTime;
 		lastWallTime    = wallTime;
 		return usage;
+	}
+
+	void Platform::SetThreadName(std::thread& thread, StringView name)
+	{
+		std::wstring wname = std::wstring(name.begin(), name.end());
+		SetThreadDescription(thread.native_handle(), wname.c_str());
 	}
 }
 
