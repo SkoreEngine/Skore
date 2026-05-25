@@ -65,6 +65,8 @@ namespace Skore
 		{
 			instanceDataBuffer->Destroy();
 		}
+		if (tlas) tlas->Destroy();
+		if (tlasScratchBuffer) tlasScratchBuffer->Destroy();
 	}
 
 	RenderableObject RenderSceneObjects::CreateRenderable()
@@ -115,6 +117,12 @@ namespace Skore
 				inst.transform = transform;
 				inst.aabbMin = dc.aabb.min;
 				inst.aabbMax = dc.aabb.max;
+			}
+
+			if (ref.instanceDescIndex != U32_MAX)
+			{
+				instances[ref.instanceDescIndex].transform = transform;
+				tlasTransformsDirty = true;
 			}
 		}
 	}
@@ -514,6 +522,22 @@ namespace Skore
 			.layerMask = obj->layerMask,
 			.shadowPipelineIndex = castShadow ? ref.shadowPipelineIndex : U32_MAX,
 		};
+
+		// TLAS instance — skinned/transparent meshes don't produce a BLAS, so blasArray is empty
+		// there and nothing is enrolled.
+		GPUBottomLevelAS* blas = (primitiveIndex < obj->meshCache->blasArray.Size()) ? obj->meshCache->blasArray[primitiveIndex] : nullptr;
+		if (blas && !ref.transparent && !hasBones)
+		{
+			ref.instanceDescIndex = static_cast<u32>(instances.Size());
+			instances.EmplaceBack(InstanceDesc{
+				.bottomLevelAS = blas,
+				.transform = obj->transform,
+				.instanceID = ref.instanceIndex,
+				.forceOpaque = true,
+			});
+			instanceDescOwners.EmplaceBack(InstanceOwner{obj, primitiveIndex});
+			tlasTopologyDirty = true;
+		}
 	}
 
 	void RenderSceneObjects::RemoveDrawcall(const DrawcallRef& ref)
@@ -537,10 +561,32 @@ namespace Skore
 
 				instanceOwners[ref.instanceIndex] = instanceOwners[last];
 				InstanceOwner& moved = instanceOwners[ref.instanceIndex];
-				moved.renderable->references[moved.primitiveIndex].instanceIndex = ref.instanceIndex;
+				DrawcallRef& movedRef = moved.renderable->references[moved.primitiveIndex];
+				movedRef.instanceIndex = ref.instanceIndex;
+				// InstanceDesc::instanceID is the bindless lookup the RT shader uses to index
+				// InstanceData — keep them in sync after the swap.
+				if (movedRef.instanceDescIndex != U32_MAX)
+				{
+					instances[movedRef.instanceDescIndex].instanceID = ref.instanceIndex;
+					tlasTopologyDirty = true;
+				}
 			}
 			instanceOwners.PopBack();
 			instanceDataCount--;
+		}
+		if (ref.instanceDescIndex != U32_MAX)
+		{
+			u32 last = static_cast<u32>(instances.Size()) - 1;
+			if (ref.instanceDescIndex != last)
+			{
+				instances[ref.instanceDescIndex] = instances[last];
+				instanceDescOwners[ref.instanceDescIndex] = instanceDescOwners[last];
+				InstanceOwner& moved = instanceDescOwners[ref.instanceDescIndex];
+				moved.renderable->references[moved.primitiveIndex].instanceDescIndex = ref.instanceDescIndex;
+			}
+			instances.PopBack();
+			instanceDescOwners.PopBack();
+			tlasTopologyDirty = true;
 		}
 	}
 
@@ -548,23 +594,75 @@ namespace Skore
 	{
 		SK_SCOPED_CPU_ZONE("RenderSceneObjects::DoUpdate");
 
-		//RenderResourceCache::Flush();
-
-		if (pendingUpdate.empty()) return;
-
-		Array<RenderableObjectStorage*> done;
-		done.Reserve(pendingUpdate.size());
-
-		for (RenderableObjectStorage* obj : pendingUpdate)
+		if (!pendingUpdate.empty())
 		{
-			if (TryRebuild(obj))
+			Array<RenderableObjectStorage*> done;
+			done.Reserve(pendingUpdate.size());
+
+			for (RenderableObjectStorage* obj : pendingUpdate)
 			{
-				done.EmplaceBack(obj);
+				if (TryRebuild(obj))
+				{
+					done.EmplaceBack(obj);
+				}
+			}
+			for (RenderableObjectStorage* obj : done)
+			{
+				pendingUpdate.erase(obj);
 			}
 		}
-		for (RenderableObjectStorage* obj : done)
+
+		const bool tlasDirty = tlasTopologyDirty || tlasTransformsDirty;
+		if (tlasDirty && Graphics::GetDevice()->GetFeatures().rayTracing)
 		{
-			pendingUpdate.erase(obj);
+			if (!instances.Empty())
+			{
+				SK_SCOPED_ZONE("RenderSceneObjects - TLAS Update", cmd);
+
+				const bool needsRebuild = tlasTopologyDirty || tlas == nullptr || instances.Size() > tlasMaxInstances;
+
+				if (needsRebuild && (tlas == nullptr || instances.Size() > tlasMaxInstances))
+				{
+					if (tlas) tlas->Destroy();
+					if (tlasScratchBuffer) tlasScratchBuffer->Destroy();
+
+					u32 newCapacity = static_cast<u32>(instances.Size()) * 2;
+					if (newCapacity < 256) newCapacity = 256;
+
+					Array<InstanceDesc> capacityInstances(newCapacity);
+					for (u32 i = 0; i < instances.Size(); ++i)
+					{
+						capacityInstances[i] = instances[i];
+					}
+
+					TopLevelASDesc tlasDesc{};
+					tlasDesc.instances = capacityInstances;
+					tlasDesc.flags = BuildAccelerationStructureFlags::PreferFastTrace | BuildAccelerationStructureFlags::AllowUpdate;
+					tlasDesc.debugName = "SceneTLAS";
+
+					tlas = Graphics::CreateTopLevelAS(tlasDesc);
+
+					usize scratchSize = Graphics::GetAccelerationStructureBuildScratchSize(tlasDesc);
+					tlasScratchBuffer = Graphics::CreateBuffer(BufferDesc{
+						.size = scratchSize,
+						.usage = ResourceUsage::ShaderResource,
+						.hostVisible = false,
+						.persistentMapped = false,
+						.debugName = "SceneTLAS_Scratch"
+					});
+
+					tlasMaxInstances = newCapacity;
+				}
+
+				tlas->UpdateInstances(instances);
+
+				// Refit only when topology is unchanged and we already have a valid TLAS to update.
+				const bool update = !needsRebuild;
+				cmd->BuildTopLevelAS(tlas, AccelerationStructureBuildInfo{.update = update, .scratchBuffer = tlasScratchBuffer});
+			}
+
+			tlasTopologyDirty = false;
+			tlasTransformsDirty = false;
 		}
 	}
 }

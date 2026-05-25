@@ -1581,12 +1581,20 @@ namespace Skore
 
 			if (node->light)
 			{
+				// glTF KHR_lights_punctual: range == 0 (or omitted) means infinite range.
+				// The engine's attenuation is `1 - saturate(d/range)`, so 0 would kill the light — remap to a large value.
+				f32 range = node->light->range > 0.0f ? node->light->range : 1000.0f;
+
+				// glTF intensity is candela for point/spot and lux for directional. Convert via luminous efficacy
+				// (683 lm/W) to a watts-like scalar so the engine's unitless multiplier sits in a sensible range.
+				f32 intensity = node->light->intensity / 683.0f;
+
 				RID lightRID = Resources::Create<LightComponent>(UUID::RandomUUID());
 				ResourceObject lightObject = Resources::Write(lightRID);
 				lightObject.SetEnum(lightObject.GetIndex("lightType"), ToLightType(node->light->type));
 				lightObject.SetColor(lightObject.GetIndex("color"), Color::FromVec3(ToVec3(node->light->color)));
-				lightObject.SetFloat(lightObject.GetIndex("intensity"), node->light->intensity);
-				lightObject.SetFloat(lightObject.GetIndex("range"), node->light->range);
+				lightObject.SetFloat(lightObject.GetIndex("intensity"), intensity);
+				lightObject.SetFloat(lightObject.GetIndex("range"), range);
 				lightObject.SetFloat(lightObject.GetIndex("innerConeAngle"),	Math::Degrees(node->light->spot_inner_cone_angle));
 				lightObject.SetFloat(lightObject.GetIndex("outerConeAngle"), Math::Degrees(node->light->spot_outer_cone_angle));
 				lightObject.SetBool(lightObject.GetIndex("enableShadows"), true);
