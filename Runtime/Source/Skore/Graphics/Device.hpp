@@ -423,6 +423,8 @@ namespace Skore
 		PerformUpdate   = 1 << 5
 	};
 
+	ENUM_FLAGS(BuildAccelerationStructureFlags, u32);
+
 	enum class RenderType
 	{
 		None,

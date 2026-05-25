@@ -441,7 +441,7 @@ namespace Skore
 							ResourceObject meshObject = Resources::Read(meshCache->rid);
 							if (!meshObject) break;
 
-							bool wantsBlas = false;
+							bool wantsBlas = meshCache->wantsBlas;
 
 							Array<GPUBottomLevelAS*> builtBlas;
 
@@ -1706,6 +1706,9 @@ namespace Skore
 
 			bool rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
 
+			meshData->hasSkin = static_cast<bool>(meshObject.GetSubObject(MeshResource::Skin));
+			meshData->wantsBlas = rtSupported && !meshData->hasSkin;
+
 			meshData->primitives.Resize(primitiveCount);
 			buffer.CopyData(meshData->primitives.Data(), primitiveSize, primitiveOffset);
 
@@ -1747,11 +1750,6 @@ namespace Skore
 			layoutData.boneIndicesOff = boneIndicesOffset;
 			layoutData.boneWeightsOff = boneWeightsOffset;
 			layoutValid = true;
-
-			// if (rtSupported && !meshObject.GetSubObject(MeshResource::Skin))
-			// {
-			// 	meshData->blasArray.Resize(primitiveCount, nullptr);
-			// }
 
 			meshData->uploadComplete = worker.AddTask(WorkerType::Mesh, meshData).share();
 

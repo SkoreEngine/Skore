@@ -63,6 +63,7 @@ namespace Skore
 		u32  shadowPipelineIndex = U32_MAX;
 		u64  shadowHandle = U64_MAX;
 		u32  instanceIndex = U32_MAX;
+		u32  instanceDescIndex = U32_MAX;
 		bool transparent = false;
 	};
 
@@ -159,6 +160,11 @@ namespace Skore
 		};
 		Array<InstanceOwner> instanceOwners;
 
+		GPUTopLevelAS*       tlas = nullptr;
+		GPUTopLevelAS*       GetTLAS() const { return tlas; }
+		Array<InstanceDesc>  instances;
+		Array<InstanceOwner> instanceDescOwners;
+
 		u32 GetVisiblePipelineCount() const
 		{
 			return static_cast<u32>(opaquePipelines.Size() + transparentPipelines.Size());
@@ -189,6 +195,13 @@ namespace Skore
 	private:
 		HashSet<RenderableObjectStorage*>  renderables;
 		DenseSet<RenderableObjectStorage*> pendingUpdate;
+
+		GPUBuffer* tlasScratchBuffer = nullptr;
+		u32        tlasMaxInstances = 0;
+		// Topology dirty: instance added/removed/reordered, or BLAS pointer changed — requires
+		// a full rebuild. Transforms dirty: only matrices changed — refit (UPDATE) is enough.
+		bool       tlasTopologyDirty = false;
+		bool       tlasTransformsDirty = false;
 
 		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
 

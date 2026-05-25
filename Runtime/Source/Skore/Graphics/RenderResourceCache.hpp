@@ -171,6 +171,8 @@ namespace Skore
 		u32                      stride = 0;
 		bool                     hasUV1 = false;
 		bool                     hasColor = false;
+		bool                     hasSkin = false;
+		bool                     wantsBlas = false;
 		Vec2                     lightmapSizeHint = Vec2(0.0f, 0.0f);
 
 		Array<MeshPrimitive>             primitives;
