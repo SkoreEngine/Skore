@@ -47,6 +47,10 @@ struct InstanceData
     uint    drawcallIndex;
     uint    transparent;
     uint2   layerMask;
+
+    // 0xFFFFFFFF when this instance does not cast a shadow.
+    uint    shadowPipelineIndex;
+    uint3   pad3;
 };
 
 StructuredBuffer<InstanceData> instances : register(t1, space1);

@@ -94,11 +94,19 @@ namespace Skore
 		GPUBuffer* countBuffer[SK_FRAMES_IN_FLIGHT];
 	};
 
+	// Concrete cascade-shadow pass instance. All rendering logic now lives in
+	// CascadeShadowPassBase, which builds shadow pipelines, dispatches the GPU
+	// culling compute shader, and issues indirect draws per cascade.
 	struct DefaultCascadeShadowPass : CascadeShadowPassBase
 	{
 		SK_CLASS(DefaultCascadeShadowPass, CascadeShadowPassBase);
 
-		void RenderCascade(Scene* scene, GPUCommandBuffer* cmd, const Mat4& viewProj, u32 cascadeIndex) override
+		// Legacy CPU-side per-drawcall shadow rendering. Kept for reference
+		// while the new GPU-driven indirect path bakes in; superseded by
+		// CascadeShadowPassBase::Render which builds pipelines + dispatches
+		// the CullingShadowPass compute shader + issues DrawIndexedIndirectCount.
+		/*
+		void RenderCascade(Scene* scene, GPUCommandBuffer* cmd, const Mat4& viewProj, u32 cascadeIndex)
 		{
 			RenderSceneObjects* objects = &scene->renderObjects;
 			struct ShadowPushConstants
@@ -145,6 +153,8 @@ namespace Skore
 
 			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
 
+			const Frustum& cullFrustum = m_cascadeCullingFrustums[cascadeIndex];
+
 			for (u32 i = 0; i < objects->shadowPipelines.Size(); i++)
 			{
 				GPUPipeline* pipeline = shadowMapPipelines[i];
@@ -155,6 +165,11 @@ namespace Skore
 				for (const Drawcall& drawcall : objects->shadowPipelines[i].drawcalls)
 				{
 					if (!drawcall.material || drawcall.material->materialIndex == U32_MAX)
+					{
+						continue;
+					}
+
+					if (!IsAABBVisibleInCascade(cullFrustum, drawcall.aabb))
 					{
 						continue;
 					}
@@ -173,6 +188,7 @@ namespace Skore
 				}
 			}
 		}
+		*/
 	};
 
 	struct DefaultCascadeShadowMapModule : CascadeShadowMapModuleBase

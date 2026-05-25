@@ -85,6 +85,10 @@ namespace Skore
 		u32	 drawcallIndex;
 		u32	 transparent;
 		u64  layerMask;
+
+		// U32_MAX when this instance does not cast a shadow.
+		u32  shadowPipelineIndex;
+		u32  pad3[3];
 	};
 
 	class SK_API RenderSceneObjects
