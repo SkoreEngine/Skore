@@ -5,6 +5,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
 #include "Skore/Scene/Components/LightComponent.hpp"
@@ -13,6 +14,28 @@
 
 namespace Skore
 {
+	namespace
+	{
+		constexpr u32 kCascadeCullPlaneCount = 5;
+		constexpr u32 kMaxShadowPipelines = 256;
+
+		struct ShadowCullDataCB
+		{
+			Vec4 cascadeFrustumPlanes[MaxNumCascades * kCascadeCullPlaneCount];
+			u32  shadowPipelineCount;
+			u32  pad0[3];
+		};
+
+		struct IndexedIndirectCommand
+		{
+			u32 indexCount;
+			u32 instanceCount;
+			u32 firstIndex;
+			i32 vertexOffset;
+			u32 startInstanceLocation;
+		};
+	}
+
 	RenderPipelinePassSetup CascadeShadowPassBase::GetPassSetup()
 	{
 		RenderPipelinePassSetup setup;
@@ -30,6 +53,10 @@ namespace Skore
 		shadowMapData->cascadeViewProjMat.Resize(shadowMapData->numCascades);
 		m_cascadeOffsets.Resize(shadowMapData->numCascades);
 		m_cascadeScales.Resize(shadowMapData->numCascades);
+		m_cascadeCullingFrustums.Resize(shadowMapData->numCascades);
+		m_cascadeCullingPlanes.Resize(shadowMapData->numCascades);
+		m_lastFrustumCenter.Resize(shadowMapData->numCascades);
+		m_lastLightDir.Resize(shadowMapData->numCascades);
 
 		m_shadowMapTextureViews.Resize(shadowMapData->numCascades);
 		m_shadowMapRenderPass.Resize(shadowMapData->numCascades);
@@ -100,13 +127,64 @@ namespace Skore
 			}
 		}
 
+		m_shadowCullDataAlignedSize = AlignedSize(static_cast<u64>(sizeof(ShadowCullDataCB)), uboAlignment);
+		m_shadowCullDataBuffer = Graphics::CreateBuffer(BufferDesc{
+			.size = m_shadowCullDataAlignedSize * SK_FRAMES_IN_FLIGHT,
+			.usage = ResourceUsage::ConstantBuffer,
+			.hostVisible = true,
+			.persistentMapped = true,
+			.debugName = "ShadowCullDataBuffer"
+		});
+
+		for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+		{
+			m_shadowCullDescriptorSet[f] = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+				.bindings = {
+					DescriptorSetLayoutBinding{
+						.binding = 0,
+						.count = kMaxShadowPipelines,
+						.descriptorType = DescriptorType::StorageBuffer,
+						.renderType = RenderType::Array
+					},
+					DescriptorSetLayoutBinding{
+						.binding = 1,
+						.descriptorType = DescriptorType::StorageBuffer,
+					},
+					DescriptorSetLayoutBinding{
+						.binding = 2,
+						.descriptorType = DescriptorType::UniformBuffer,
+					},
+				}
+			});
+
+			DescriptorUpdate cullDataUpdate;
+			cullDataUpdate.type = DescriptorType::UniformBuffer;
+			cullDataUpdate.binding = 2;
+			cullDataUpdate.buffer = m_shadowCullDataBuffer;
+			cullDataUpdate.bufferOffset = m_shadowCullDataAlignedSize * f;
+			cullDataUpdate.bufferRange = sizeof(ShadowCullDataCB);
+			m_shadowCullDescriptorSet[f]->Update(cullDataUpdate);
+		}
+
+		m_shadowCullPipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
+			.shader = Resources::FindByPath("Skore://Shaders/CullingShadowPass.comp"),
+			.descriptorSetsOverride = {
+				DescriptorSetOverride{
+					.set = 0,
+					.descriptorSet = m_shadowCullDescriptorSet[0]
+				},
+				DescriptorSetOverride{
+					.set = 1,
+					.descriptorSet = context->GetSceneDescriptorSet(0)
+				}
+			}
+		});
 	}
 
 	void CascadeShadowPassBase::Render(Scene* scene, GPUCommandBuffer* cmd)
 	{
 		if (!scene) return;
 
-		//reset pipelines in case the scene change and the pipeline order is different.
 		if (cachedPipelineObjects != nullptr && cachedPipelineObjects != scene)
 		{
 			for (GPUPipeline* p : shadowMapPipelines)
@@ -161,12 +239,12 @@ namespace Skore
 
 		cmd->BeginDebugMarker("Cascade shadow maps", Vec4{0, 0, 0, 1});
 
-		// Calculate orthographic projection matrix for each cascade
-		float lastSplitDist = 0.0;
+		bool  cascadeUpdated[MaxNumCascades] = {};
+		u32   updatedCount   = 0;
+		float lastSplitDist  = 0.0f;
+
 		for (uint32_t i = 0; i < shadowMapData->numCascades; i++)
 		{
-			cmd->BeginDebugMarker("Cascade: " + ToString(i), Vec4{0, 0, 0, 1});
-
 			float splitDist = cascadeSplits[i];
 
 			Vec3 frustumCorners[8] = {
@@ -180,7 +258,6 @@ namespace Skore
 				Vec3{-1.0f, -1.0f, 1.0f},
 			};
 
-			// Project frustum corners into world space
 			for (uint32_t j = 0; j < 8; j++)
 			{
 				Vec4 invCorner = invCam * Vec4(frustumCorners[j], 1.0f);
@@ -194,7 +271,6 @@ namespace Skore
 				frustumCorners[j] = frustumCorners[j] + (dist * lastSplitDist);
 			}
 
-			// Get frustum center
 			Vec3 frustumCenter = Vec3();
 			for (uint32_t j = 0; j < 8; j++)
 			{
@@ -210,41 +286,163 @@ namespace Skore
 			}
 			radius = std::ceil(radius * 16.0f) / 16.0f;
 
+			lastSplitDist = cascadeSplits[i];
+
+			u32  period       = Math::Min(1u << i, m_maxUpdatePeriod);
+			bool periodReady  = (m_frameCounter % period) == 0;
+			bool largeMove    = Vec3::Length(frustumCenter - m_lastFrustumCenter[i]) > radius * m_centerMoveThreshold;
+			bool lightRotated = Vec3::Dot(lightDir, m_lastLightDir[i]) < m_lightRotationDotThreshold;
+
+			if (!(periodReady || largeMove || lightRotated))
+			{
+				continue;
+			}
+
 			Vec3 maxExtents = Vec3{radius, radius, radius};
 			Vec3 minExtents = -maxExtents;
 
 			Mat4 lightViewMatrix = Mat4::LookAt(frustumCenter - lightDir * -minExtents.z, frustumCenter, Vec3{0.0f, 1.0f, 0.0f});
 			Mat4 lightOrthoMatrix = Mat4::Ortho(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, 0.0f, maxExtents.z - minExtents.z);
 
-			f32 sMapSize = static_cast<f32>(shadowMapData->shadowMapSize);
+			f32 sMapSize  = static_cast<f32>(shadowMapData->shadowMapSize);
 			f32 texelSize = 2.0f / sMapSize;
 
-			// Get the translation component of the shadow matrix
 			Mat4 shadowMatrix = lightOrthoMatrix * lightViewMatrix;
 			Vec3 shadowOrigin = Vec3(shadowMatrix[3].x, shadowMatrix[3].y, shadowMatrix[3].z);
-
-			// Convert to texel space, round, then convert back
 			Vec3 roundedOrigin = Vec3(
 				std::round(shadowOrigin.x / texelSize) * texelSize,
 				std::round(shadowOrigin.y / texelSize) * texelSize,
-				shadowOrigin.z // Don't round Z
+				shadowOrigin.z
 			);
-
-			// Apply the correction to the orthographic matrix
 			Vec3 offset = roundedOrigin - shadowOrigin;
 			lightOrthoMatrix[3].x += offset.x;
 			lightOrthoMatrix[3].y += offset.y;
 
-			// Store split distance and matrix in cascade
-			shadowMapData->cascadeSplits[i] = (nearClip + splitDist * clipRange) * -1.0f;
+			shadowMapData->cascadeSplits[i]      = (nearClip + splitDist * clipRange) * -1.0f;
 			shadowMapData->cascadeViewProjMat[i] = lightOrthoMatrix * lightViewMatrix;
 
-			lastSplitDist = cascadeSplits[i];
+			m_cascadeCullingFrustums[i] = Math::CreateFrustumFromCamera(shadowMapData->cascadeViewProjMat[i]);
+
+			auto packPlane = [](const Plane& pl) {
+				return Vec4{pl.normal.x, pl.normal.y, pl.normal.z, pl.distance};
+			};
+			m_cascadeCullingPlanes[i][0] = packPlane(m_cascadeCullingFrustums[i].planes[FRUSTUM_SIDE_LEFT]);
+			m_cascadeCullingPlanes[i][1] = packPlane(m_cascadeCullingFrustums[i].planes[FRUSTUM_SIDE_RIGHT]);
+			m_cascadeCullingPlanes[i][2] = packPlane(m_cascadeCullingFrustums[i].planes[FRUSTUM_SIDE_BOTTOM]);
+			m_cascadeCullingPlanes[i][3] = packPlane(m_cascadeCullingFrustums[i].planes[FRUSTUM_SIDE_TOP]);
+			m_cascadeCullingPlanes[i][4] = packPlane(m_cascadeCullingFrustums[i].planes[FRUSTUM_SIDE_FAR]);
+
+			m_lastFrustumCenter[i] = frustumCenter;
+			m_lastLightDir[i]      = lightDir;
+
+			char* memory = static_cast<char*>(shadowMapUniformBuffer->GetMappedData()) + m_uniformBufferAlignedSize * (frame * shadowMapData->numCascades + i);
+			new(memory) Mat4{shadowMapData->cascadeViewProjMat[i]};
+
+			cascadeUpdated[i] = true;
+			++updatedCount;
+		}
+
+		if (updatedCount == 0)
+		{
+			cmd->EndDebugMarker();
+			++m_frameCounter;
+			cachedPipelineObjects = scene;
+			return;
+		}
+
+		RenderSceneObjects* objects = &scene->renderObjects;
+		while (shadowMapPipelines.Size() < objects->shadowPipelines.Size())
+		{
+			const DrawPipelineDesc& desc = objects->shadowPipelines[shadowMapPipelines.Size()].desc;
+			RID shadowShader = Resources::FindByPath("Skore://Shaders/ShadowMapIndirect.shader");
+
+			Array<String> macros;
+			if (desc.hasBones) macros.EmplaceBack("HAS_BONES");
+
+			GPUPipeline* p = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
+				.shader = shadowShader,
+				.variant = ShaderResource::GetVariantName(macros),
+				.rasterizerState = {
+					.cullMode = desc.cullMode,
+					.depthClampEnable = true,
+				},
+				.depthStencilState = {
+					.depthTestEnable = true,
+					.depthWriteEnable = true,
+					.depthCompareOp = CompareOp::LessEqual
+				},
+				.blendStates = {
+					BlendStateDesc{}
+				},
+				.renderPass = m_shadowMapRenderPass[0],
+				.descriptorSetsOverride = {
+					DescriptorSetOverride{
+						.set = 0,
+						.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+					},
+					DescriptorSetOverride{
+						.set = 1,
+						.descriptorSet = context->GetSceneDescriptorSet(0)
+					}
+				}
+			});
+			shadowMapPipelines.EmplaceBack(p);
+		}
+
+		const u32 numShadowPipes = static_cast<u32>(objects->shadowPipelines.Size());
+		const u32 totalSlots     = numShadowPipes * shadowMapData->numCascades;
+
+		PrepareShadowCullBuffers(objects, frame, numShadowPipes, totalSlots);
+
+		if (totalSlots > 0 && objects->instanceDataCount > 0)
+		{
+			for (u32 slot = 0; slot < totalSlots; ++slot)
+			{
+				DescriptorUpdate update = {};
+				update.type         = DescriptorType::StorageBuffer;
+				update.binding      = 0;
+				update.arrayElement = slot;
+				update.buffer       = m_shadowIndirectDrawBuffers[frame][slot];
+				m_shadowCullDescriptorSet[frame]->Update(update);
+			}
+			m_shadowCullDescriptorSet[frame]->UpdateBuffer(1, m_shadowIndirectCountBuffer[frame], 0, 0);
+
+			ShadowCullDataCB cb = {};
+			cb.shadowPipelineCount = numShadowPipes;
+			for (u32 c = 0; c < shadowMapData->numCascades; ++c)
+			{
+				for (u32 p = 0; p < kCascadeCullPlaneCount; ++p)
+				{
+					cb.cascadeFrustumPlanes[c * kCascadeCullPlaneCount + p] = m_cascadeCullingPlanes[c][p];
+				}
+			}
+			char* cullMem = static_cast<char*>(m_shadowCullDataBuffer->GetMappedData()) + m_shadowCullDataAlignedSize * frame;
+			memcpy(cullMem, &cb, sizeof(ShadowCullDataCB));
+
+			cmd->FillBuffer(m_shadowIndirectCountBuffer[frame], 0, sizeof(u32) * totalSlots, 0);
+			cmd->MemoryBarrier();
+
+			cmd->BeginDebugMarker("Shadow cull dispatch", Vec4{0.2f, 0.5f, 0.8f, 1});
+			cmd->BindPipeline(m_shadowCullPipeline);
+			cmd->BindDescriptorSet(m_shadowCullPipeline, 0, m_shadowCullDescriptorSet[frame]);
+			cmd->BindDescriptorSet(m_shadowCullPipeline, 1, context->GetSceneDescriptorSet());
+			cmd->Dispatch((objects->instanceDataCount + 15) / 16, 1, 1);
+			cmd->MemoryBarrier();
+			cmd->EndDebugMarker();
+		}
+
+		cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
+		for (u32 i = 0; i < shadowMapData->numCascades; ++i)
+		{
+			if (!cascadeUpdated[i]) continue;
+
+			cmd->BeginDebugMarker("Cascade: " + ToString(i), Vec4{0, 0, 0, 1});
 
 			ClearValues clearValues = {};
 
 			BeginRenderPassInfo beginInfo;
-			beginInfo.renderPass = m_shadowMapRenderPass[i];
+			beginInfo.renderPass  = m_shadowMapRenderPass[i];
 			beginInfo.framebuffer = m_shadowMapFramebuffers[i];
 			beginInfo.clearValues = &clearValues;
 
@@ -257,22 +455,98 @@ namespace Skore
 				.minDepth = 0.0f,
 				.maxDepth = 1.0f,
 			});
-
-			char* memory = static_cast<char*>(shadowMapUniformBuffer->GetMappedData()) + m_uniformBufferAlignedSize * (frame * shadowMapData->numCascades + i);
-			new(memory) Mat4{shadowMapData->cascadeViewProjMat[i]};
-
 			cmd->SetScissor({0, 0}, {shadowMapData->shadowMapSize, shadowMapData->shadowMapSize});
 
-			RenderCascade(scene, cmd, shadowMapData->cascadeViewProjMat[i], i);
+			for (u32 sp = 0; sp < numShadowPipes; ++sp)
+			{
+				GPUPipeline* pipeline = shadowMapPipelines[sp];
+				cmd->BindPipeline(pipeline);
+				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 2, m_shadowMapDescriptorSets[frame][i], {});
+
+				u32 slot = i * numShadowPipes + sp;
+				cmd->DrawIndexedIndirectCount(
+					m_shadowIndirectDrawBuffers[frame][slot],
+					0,
+					m_shadowIndirectCountBuffer[frame],
+					slot * sizeof(u32),
+					objects->instanceDataCount,
+					sizeof(IndexedIndirectCommand)
+				);
+			}
 
 			cmd->EndRenderPass();
-
 			cmd->ResourceBarrier(shadowMapData->shadowTexture, ResourceState::DepthStencilAttachment, ResourceState::DepthStencilReadOnly, 0, i);
 			cmd->EndDebugMarker();
 		}
+
 		cmd->EndDebugMarker();
 
+		++m_frameCounter;
 		cachedPipelineObjects = scene;
+	}
+
+	void CascadeShadowPassBase::PrepareShadowCullBuffers(RenderSceneObjects* objects, u32 frame, u32 numShadowPipes, u32 totalSlots)
+	{
+		const u64 perSlotInstances = Math::Max(static_cast<u32>(InitialInstanceNumber), objects->instanceDataCount);
+		const u64 indirectSize     = perSlotInstances * sizeof(IndexedIndirectCommand) * 2;
+
+		if (m_shadowIndirectDrawBuffers[frame].Size() < totalSlots)
+		{
+			m_shadowIndirectDrawBuffers[frame].Resize(totalSlots);
+		}
+
+		for (u32 slot = 0; slot < totalSlots; ++slot)
+		{
+			GPUBuffer*& buf = m_shadowIndirectDrawBuffers[frame][slot];
+			if (buf == nullptr || buf->GetDesc().size < perSlotInstances * sizeof(IndexedIndirectCommand))
+			{
+				if (buf) buf->Destroy();
+				buf = Graphics::CreateBuffer(BufferDesc{
+					.size = indirectSize,
+					.usage = ResourceUsage::IndirectBuffer | ResourceUsage::UnorderedAccess,
+					.hostVisible = false,
+					.persistentMapped = false,
+					.debugName = "ShadowIndirectDrawBuffer"
+				});
+			}
+		}
+
+		const u64 countSize = sizeof(u32) * Math::Max(totalSlots, 1u);
+		if (m_shadowIndirectCountBuffer[frame] == nullptr || m_shadowIndirectCountBuffer[frame]->GetDesc().size < countSize)
+		{
+			if (m_shadowIndirectCountBuffer[frame]) m_shadowIndirectCountBuffer[frame]->Destroy();
+			m_shadowIndirectCountBuffer[frame] = Graphics::CreateBuffer(BufferDesc{
+				.size = countSize,
+				.usage = ResourceUsage::IndirectBuffer | ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest,
+				.hostVisible = false,
+				.persistentMapped = false,
+				.debugName = "ShadowIndirectCountBuffer"
+			});
+		}
+
+		m_shadowIndirectPipelineCount = numShadowPipes;
+	}
+
+	bool CascadeShadowPassBase::IsAABBVisibleInCascade(const Frustum& cascadeFrustum, const AABB& aabb)
+	{
+		for (u32 i = 0; i < 6; ++i)
+		{
+			if (i == FRUSTUM_SIDE_NEAR) continue;
+
+			const Plane& plane = cascadeFrustum.planes[i];
+			Vec3 positiveVertex = aabb.min;
+			if (plane.normal.x >= 0) positiveVertex.x = aabb.max.x;
+			if (plane.normal.y >= 0) positiveVertex.y = aabb.max.y;
+			if (plane.normal.z >= 0) positiveVertex.z = aabb.max.z;
+
+			if (plane.GetDistanceToPoint(positiveVertex) < 0)
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	void CascadeShadowPassBase::Destroy()
@@ -292,6 +566,19 @@ namespace Skore
 			{
 				if (m_shadowMapDescriptorSets[f][i]) m_shadowMapDescriptorSets[f][i]->Destroy();
 			}
+		}
+
+		if (m_shadowCullPipeline) m_shadowCullPipeline->Destroy();
+		if (m_shadowCullDataBuffer) m_shadowCullDataBuffer->Destroy();
+		for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+		{
+			if (m_shadowCullDescriptorSet[f]) m_shadowCullDescriptorSet[f]->Destroy();
+			if (m_shadowIndirectCountBuffer[f]) m_shadowIndirectCountBuffer[f]->Destroy();
+			for (GPUBuffer* buf : m_shadowIndirectDrawBuffers[f])
+			{
+				if (buf) buf->Destroy();
+			}
+			m_shadowIndirectDrawBuffers[f].Clear();
 		}
 	}
 

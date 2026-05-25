@@ -1,0 +1,74 @@
+#include "SceneBindings.hlsli"
+
+#define CASCADE_PLANE_COUNT 5
+
+struct IndexedIndirectCommand
+{
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int  vertexOffset;
+    uint startInstanceLocation;
+};
+
+// One indirect-draw buffer per (cascade, shadowPipeline) bucket.
+// Index: cascadeIndex * shadowPipelineCount + shadowPipelineIndex.
+RWStructuredBuffer<IndexedIndirectCommand> shadowIndirectDraws[] : register(u0);
+RWStructuredBuffer<uint>                   shadowIndirectCount   : register(u1);
+
+cbuffer ShadowCullData : register(b2)
+{
+    // Per-cascade frustum planes. Five planes per cascade in this order:
+    // Left, Right, Bottom, Top, Far. The near plane is intentionally omitted —
+    // casters between the light and the cascade slice are outside it but still
+    // cast shadows into the cascade footprint.
+    float4 cascadeFrustumPlanes[SHADOW_MAP_CASCADE_COUNT * CASCADE_PLANE_COUNT];
+    uint   shadowPipelineCount;
+    uint3  cullPad0;
+};
+
+bool AABBOnCascade(uint cascadeIndex, float3 aabbMin, float3 aabbMax)
+{
+    [unroll]
+    for (uint i = 0; i < CASCADE_PLANE_COUNT; ++i)
+    {
+        float4 plane = cascadeFrustumPlanes[cascadeIndex * CASCADE_PLANE_COUNT + i];
+
+        float3 positiveVertex;
+        positiveVertex.x = plane.x >= 0 ? aabbMax.x : aabbMin.x;
+        positiveVertex.y = plane.y >= 0 ? aabbMax.y : aabbMin.y;
+        positiveVertex.z = plane.z >= 0 ? aabbMax.z : aabbMin.z;
+
+        if (dot(plane.xyz, positiveVertex) + plane.w < 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[numthreads(16, 1, 1)]
+void MainCS(uint idx : SV_DispatchThreadID)
+{
+    if (idx >= instanceCount) return;
+
+    InstanceData data = instances[NonUniformResourceIndex(idx)];
+    if (data.shadowPipelineIndex == 0xFFFFFFFF) return;
+    if (data.transparent == 1) return;
+    if (!any(data.layerMask & cullingMask)) return;
+
+    for (uint c = 0; c < SHADOW_MAP_CASCADE_COUNT; ++c)
+    {
+        if (!AABBOnCascade(c, data.aabbMin, data.aabbMax)) continue;
+
+        uint slot = c * shadowPipelineCount + data.shadowPipelineIndex;
+        uint index;
+        InterlockedAdd(shadowIndirectCount[slot], 1, index);
+
+        shadowIndirectDraws[slot][index].indexCount            = data.indexCount;
+        shadowIndirectDraws[slot][index].instanceCount         = 1;
+        shadowIndirectDraws[slot][index].firstIndex            = data.firstIndex;
+        shadowIndirectDraws[slot][index].vertexOffset          = 0;
+        shadowIndirectDraws[slot][index].startInstanceLocation = idx;
+    }
+}

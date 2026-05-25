@@ -101,7 +101,7 @@ namespace Skore
 			dc.transform = transform;
 			dc.aabb = Math::TransformAABB(dc.localAabb, transform);
 
-			if (ref.shadowPipelineIndex != U32_MAX)
+			if (ref.shadowPipelineIndex != U32_MAX && ref.shadowHandle != U64_MAX)
 			{
 				Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
 				sdc.transform = transform;
@@ -191,7 +191,7 @@ namespace Skore
 				Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
 				storage[ref.pipelineIndex].drawcalls[ref.handle].userData = userData;
 			}
-			if (ref.shadowPipelineIndex != U32_MAX)
+			if (ref.shadowPipelineIndex != U32_MAX && ref.shadowHandle != U64_MAX)
 			{
 				shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle].userData = userData;
 			}
@@ -230,7 +230,7 @@ namespace Skore
 				Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
 				storage[ref.pipelineIndex].drawcalls[ref.handle].layerMask = layerMask;
 			}
-			if (ref.shadowPipelineIndex != U32_MAX)
+			if (ref.shadowPipelineIndex != U32_MAX && ref.shadowHandle != U64_MAX)
 			{
 				shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle].layerMask = layerMask;
 			}
@@ -445,6 +445,12 @@ namespace Skore
 		dc.transform = obj->transform;
 		dc.layerMask = obj->layerMask;
 
+		// Shadow rendering is being moved to GPU-driven indirect draws (compute-cull + indirect).
+		// The shadow pipeline list still needs to be populated so the shadow-cull pass and the
+		// shadow draw pass can build pipelines per (cullMode, hasBones) bucket, but the per-primitive
+		// shadow Drawcalls are no longer needed on the CPU. Flip the flag to bring the old path back.
+		constexpr bool kInsertShadowDrawcalls = false;
+
 		const bool castShadow = obj->castShadows && !ref.transparent;
 		if (castShadow)
 		{
@@ -453,21 +459,25 @@ namespace Skore
 			shadowDesc.hasBones = hasBones;
 
 			ref.shadowPipelineIndex = GetOrCreatePipeline(shadowPipelines, shadowDesc);
-			ref.shadowHandle = shadowPipelines[ref.shadowPipelineIndex].drawcalls.Insert();
 
-			Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
-			sdc.firstIndex = primitive.firstIndex;
-			sdc.indexCount = primitive.indexCount;
-			sdc.vertexByteOffset = vertexByteOffset;
-			sdc.indexByteOffset = indexByteOffset;
-			sdc.material = material;
-			sdc.userData = obj->userData;
-			sdc.vertexLayoutIndex = vertexLayoutIndex;
-			sdc.bones = obj->bonesDescriptor;
-			sdc.localAabb = primitive.aabb;
-			sdc.aabb = dc.aabb;
-			sdc.transform = obj->transform;
-			sdc.layerMask = obj->layerMask;
+			if (kInsertShadowDrawcalls)
+			{
+				ref.shadowHandle = shadowPipelines[ref.shadowPipelineIndex].drawcalls.Insert();
+
+				Drawcall& sdc = shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle];
+				sdc.firstIndex = primitive.firstIndex;
+				sdc.indexCount = primitive.indexCount;
+				sdc.vertexByteOffset = vertexByteOffset;
+				sdc.indexByteOffset = indexByteOffset;
+				sdc.material = material;
+				sdc.userData = obj->userData;
+				sdc.vertexLayoutIndex = vertexLayoutIndex;
+				sdc.bones = obj->bonesDescriptor;
+				sdc.localAabb = primitive.aabb;
+				sdc.aabb = dc.aabb;
+				sdc.transform = obj->transform;
+				sdc.layerMask = obj->layerMask;
+			}
 		}
 
 		ref.instanceIndex = instanceDataCount++;
@@ -502,6 +512,7 @@ namespace Skore
 			.drawcallIndex = static_cast<u32>(ref.handle),
 			.transparent = ref.transparent,
 			.layerMask = obj->layerMask,
+			.shadowPipelineIndex = castShadow ? ref.shadowPipelineIndex : U32_MAX,
 		};
 	}
 
@@ -512,7 +523,7 @@ namespace Skore
 			Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
 			storage[ref.pipelineIndex].drawcalls.Remove(ref.handle);
 		}
-		if (ref.shadowPipelineIndex != U32_MAX)
+		if (ref.shadowPipelineIndex != U32_MAX && ref.shadowHandle != U64_MAX)
 		{
 			shadowPipelines[ref.shadowPipelineIndex].drawcalls.Remove(ref.shadowHandle);
 		}
