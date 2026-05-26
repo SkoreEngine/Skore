@@ -171,11 +171,15 @@ namespace Skore
 			.descriptorSetsOverride = {
 				DescriptorSetOverride{
 					.set = 0,
-					.descriptorSet = m_shadowCullDescriptorSet[0]
+					.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
 				},
 				DescriptorSetOverride{
 					.set = 1,
 					.descriptorSet = context->GetSceneDescriptorSet(0)
+				},
+				DescriptorSetOverride{
+					.set = 2,
+					.descriptorSet = m_shadowCullDescriptorSet[0]
 				}
 			}
 		});
@@ -424,8 +428,13 @@ namespace Skore
 
 			cmd->BeginDebugMarker("Shadow cull dispatch", Vec4{0.2f, 0.5f, 0.8f, 1});
 			cmd->BindPipeline(m_shadowCullPipeline);
-			cmd->BindDescriptorSet(m_shadowCullPipeline, 0, m_shadowCullDescriptorSet[frame]);
+			cmd->BindDescriptorSet(m_shadowCullPipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
 			cmd->BindDescriptorSet(m_shadowCullPipeline, 1, context->GetSceneDescriptorSet());
+			cmd->BindDescriptorSet(m_shadowCullPipeline, 2, m_shadowCullDescriptorSet[frame]);
+
+			i32 forcedLod = RenderDebug::ForcedLod();
+			cmd->PushConstants(m_shadowCullPipeline, ShaderStage::Compute, 0, sizeof(i32), &forcedLod);
+
 			cmd->Dispatch((objects->instanceDataCount + 15) / 16, 1, 1);
 			cmd->MemoryBarrier();
 			cmd->EndDebugMarker();

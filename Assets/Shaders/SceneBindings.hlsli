@@ -36,10 +36,10 @@ struct InstanceData
     uint    materialIndex;
     uint    vertexByteOffset;
     uint    vertexLayoutIndex;
-    uint    indexCount;
+    uint    primitiveInfoIndex; // index into MeshLODBuffer (one entry per primitive, holds all LODs)
 
     float3  aabbMin;
-    uint    firstIndex;
+    uint    pad0;
 
     float3  aabbMax;
     uint    pipelineIndex;

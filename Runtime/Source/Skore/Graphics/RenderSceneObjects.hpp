@@ -75,10 +75,10 @@ namespace Skore
 		u32  materialIndex;
 		u32  vertexByteOffset;
 		u32  vertexLayoutIndex;
-		u32  indexCount;
+		u32  primitiveInfoIndex; // slot in MeshLODBuffer (one MeshPrimitiveInfo per primitive)
 
 		Vec3 aabbMin;
-		u32  firstIndex;
+		u32  pad0;
 
 		Vec3 aabbMax;
 		u32  pipelineIndex;
@@ -195,11 +195,11 @@ namespace Skore
 	private:
 		HashSet<RenderableObjectStorage*>  renderables;
 		DenseSet<RenderableObjectStorage*> pendingUpdate;
+		DenseSet<RenderableObjectStorage*> pendingBlas;
 
 		GPUBuffer* tlasScratchBuffer = nullptr;
 		u32        tlasMaxInstances = 0;
-		// Topology dirty: instance added/removed/reordered, or BLAS pointer changed — requires
-		// a full rebuild. Transforms dirty: only matrices changed — refit (UPDATE) is enough.
+
 		bool       tlasTopologyDirty = false;
 		bool       tlasTransformsDirty = false;
 
@@ -213,6 +213,7 @@ namespace Skore
 		void RefreshMaterialsCache(RenderableObjectStorage* obj);
 		MaterialResourceCachePtr GetMaterialCache(RenderableObjectStorage* obj, u32 materialIndex) const;
 		void CreatePrimitiveDrawcall(RenderableObjectStorage* obj, u32 primitiveIndex, const MaterialResourceCachePtr& material);
+		void EnrollBlasInstance(RenderableObjectStorage* obj, u32 primitiveIndex);
 		void RemoveDrawcall(const DrawcallRef& ref);
 	};
 

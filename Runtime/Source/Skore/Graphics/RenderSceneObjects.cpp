@@ -60,6 +60,7 @@ namespace Skore
 		}
 		renderables.Clear();
 		pendingUpdate.clear();
+		pendingBlas.clear();
 
 		if (instanceDataBuffer)
 		{
@@ -82,6 +83,7 @@ namespace Skore
 		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
 		ClearDrawcalls(o);
 		pendingUpdate.erase(o);
+		pendingBlas.erase(o);
 		renderables.Erase(o);
 		DestroyAndFree(o);
 	}
@@ -357,6 +359,9 @@ namespace Skore
 		RefreshMaterialsCache(obj);
 
 		ClearDrawcalls(obj);
+		// Reset BLAS-pickup tracking; the rebuild below decides whether this renderable still
+		// needs to be polled for a BLAS that hasn't landed yet.
+		pendingBlas.erase(obj);
 
 		if (!obj->visible || !obj->meshCache)
 		{
@@ -394,6 +399,12 @@ namespace Skore
 				continue;
 			}
 			CreatePrimitiveDrawcall(obj, p, material);
+		}
+
+		// Mesh is rendered but BLAS isn't ready yet — queue for deferred TLAS enrollment.
+		if (obj->meshCache->wantsBlas && !obj->meshCache->IsBlasReady())
+		{
+			pendingBlas.insert(obj);
 		}
 
 		return true;
@@ -506,15 +517,21 @@ namespace Skore
 			instanceDataBuffer = newBuffer;
 		}
 
+		// Slot in the global MeshLODBuffer for this primitive. The culling compute pass picks
+		// a LOD and writes firstIndex/indexCount into the indirect draw command from there.
+		u32 primitiveInfoIndex = primitiveIndex < obj->meshCache->primitiveInfoSlots.Size()
+			? obj->meshCache->primitiveInfoSlots[primitiveIndex]
+			: U32_MAX;
+
 		InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
 		new(data + ref.instanceIndex) InstanceData{
 			.transform = obj->transform,
 			.materialIndex = material->materialIndex,
 			.vertexByteOffset = vertexByteOffset,
 			.vertexLayoutIndex = vertexLayoutIndex,
-			.indexCount = primitive.indexCount,
+			.primitiveInfoIndex = primitiveInfoIndex,
 			.aabbMin = dc.aabb.min,
-			.firstIndex = indexByteOffset / static_cast<u32>(sizeof(u32)) + primitive.firstIndex,
+			.pad0 = 0,
 			.aabbMax = dc.aabb.max,
 			.pipelineIndex = ref.pipelineIndex,
 			.drawcallIndex = static_cast<u32>(ref.handle),
@@ -523,21 +540,33 @@ namespace Skore
 			.shadowPipelineIndex = castShadow ? ref.shadowPipelineIndex : U32_MAX,
 		};
 
-		// TLAS instance — skinned/transparent meshes don't produce a BLAS, so blasArray is empty
-		// there and nothing is enrolled.
-		GPUBottomLevelAS* blas = (primitiveIndex < obj->meshCache->blasArray.Size()) ? obj->meshCache->blasArray[primitiveIndex] : nullptr;
-		if (blas && !ref.transparent && !hasBones)
-		{
-			ref.instanceDescIndex = static_cast<u32>(instances.Size());
-			instances.EmplaceBack(InstanceDesc{
-				.bottomLevelAS = blas,
-				.transform = obj->transform,
-				.instanceID = ref.instanceIndex,
-				.forceOpaque = true,
-			});
-			instanceDescOwners.EmplaceBack(InstanceOwner{obj, primitiveIndex});
-			tlasTopologyDirty = true;
-		}
+		EnrollBlasInstance(obj, primitiveIndex);
+	}
+
+	void RenderSceneObjects::EnrollBlasInstance(RenderableObjectStorage* obj, u32 primitiveIndex)
+	{
+		if (primitiveIndex >= obj->references.Size()) return;
+		DrawcallRef& ref = obj->references[primitiveIndex];
+
+		// Already enrolled, or there's no drawcall (e.g., missing material) — nothing to do.
+		if (ref.instanceDescIndex != U32_MAX) return;
+		if (ref.pipelineIndex == U32_MAX) return;
+		if (ref.transparent) return;
+		if (obj->bonesDescriptor != nullptr) return;
+
+		if (!obj->meshCache || primitiveIndex >= obj->meshCache->blasArray.Size()) return;
+		GPUBottomLevelAS* blas = obj->meshCache->blasArray[primitiveIndex];
+		if (!blas) return;
+
+		ref.instanceDescIndex = static_cast<u32>(instances.Size());
+		instances.EmplaceBack(InstanceDesc{
+			.bottomLevelAS = blas,
+			.transform = obj->transform,
+			.instanceID = ref.instanceIndex,
+			.forceOpaque = true,
+		});
+		instanceDescOwners.EmplaceBack(InstanceOwner{obj, primitiveIndex});
+		tlasTopologyDirty = true;
 	}
 
 	void RenderSceneObjects::RemoveDrawcall(const DrawcallRef& ref)
@@ -563,8 +592,6 @@ namespace Skore
 				InstanceOwner& moved = instanceOwners[ref.instanceIndex];
 				DrawcallRef& movedRef = moved.renderable->references[moved.primitiveIndex];
 				movedRef.instanceIndex = ref.instanceIndex;
-				// InstanceDesc::instanceID is the bindless lookup the RT shader uses to index
-				// InstanceData — keep them in sync after the swap.
 				if (movedRef.instanceDescIndex != U32_MAX)
 				{
 					instances[movedRef.instanceDescIndex].instanceID = ref.instanceIndex;
@@ -609,6 +636,29 @@ namespace Skore
 			for (RenderableObjectStorage* obj : done)
 			{
 				pendingUpdate.erase(obj);
+			}
+		}
+
+		// Pick up any meshes whose BLAS finished building since we last looked. The drawcalls
+		// already exist — we just enroll the TLAS instance for each primitive that has a BLAS.
+		if (!pendingBlas.empty())
+		{
+			Array<RenderableObjectStorage*> blasDone;
+			blasDone.Reserve(pendingBlas.size());
+
+			for (RenderableObjectStorage* obj : pendingBlas)
+			{
+				if (!obj->meshCache || !obj->meshCache->IsBlasReady()) continue;
+
+				for (u32 p = 0; p < obj->references.Size(); ++p)
+				{
+					EnrollBlasInstance(obj, p);
+				}
+				blasDone.EmplaceBack(obj);
+			}
+			for (RenderableObjectStorage* obj : blasDone)
+			{
+				pendingBlas.erase(obj);
 			}
 		}
 

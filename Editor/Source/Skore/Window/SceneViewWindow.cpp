@@ -15,6 +15,7 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
@@ -883,6 +884,18 @@ namespace Skore
 				addTableBoolOption("Draw Mesh AABB", &drawMeshAABB);
 				addTableBoolOption("Draw NavMesh", &drawNavMesh);
 				addTableBoolOption("Lock Camera Frustum", &lockCameraFrustum);
+
+				// Force every mesh draw to a specific LOD index. -1 = auto (use cull's
+				// screen-size selection). Per-cull-shader override; takes effect immediately.
+				ImGui::TableNextColumn();
+				ImGui::Text("Forced LOD");
+				ImGui::TableNextColumn();
+				ImGui::SetNextItemWidth(-1);
+				int forcedLod = static_cast<int>(RenderDebug::ForcedLod());
+				if (ImGui::SliderInt("##forced-lod", &forcedLod, -1, static_cast<int>(MaxLods) - 1, forcedLod < 0 ? "auto" : "LOD %d"))
+				{
+					RenderDebug::ForcedLod() = forcedLod;
+				}
 
 				ImGui::EndTable();
 			}

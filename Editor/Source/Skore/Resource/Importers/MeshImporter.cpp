@@ -7,6 +7,8 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/Resources.hpp"
 
+#include "meshoptimizer.h"
+
 namespace Skore
 {
 	namespace
@@ -30,7 +32,7 @@ namespace Skore
 			Vec3           aabbMax;
 			Vec2					 lightmapSizeHint;
 			RID            vertexLayout;
-			RID            meshLOD;
+			Array<RID>     meshLODs;
 			ResourceBuffer buffer;
 		};
 
@@ -73,21 +75,7 @@ namespace Skore
 				MeshTools::CalcTangents(positions, normals, uvs, tangents, indices);
 			}
 
-			// Compute primitive AABBs
-			for (MeshPrimitive& primitive : primitives)
-			{
-				Vec3 minBounds = positions[indices[primitive.firstIndex]];
-				Vec3 maxBounds = positions[indices[primitive.firstIndex]];
-
-				for (usize i = primitive.firstIndex; i < primitive.firstIndex + primitive.indexCount; i++)
-				{
-					minBounds = Vec3::Min(minBounds, positions[indices[i]]);
-					maxBounds = Vec3::Max(maxBounds, positions[indices[i]]);
-				}
-				primitive.aabb = AABB(minBounds, maxBounds);
-			}
-
-			// Compute mesh AABB
+			// Compute mesh AABB (positions are still untouched here)
 			Vec3 minBounds = positions[0];
 			Vec3 maxBounds = positions[0];
 
@@ -174,39 +162,243 @@ namespace Skore
 				}
 			}
 
+			// === meshoptimizer: cache + overdraw + vertex fetch on LOD 0 ===
+			// Position lives at offset 0 in every layout, so we can read it back from the
+			// interleaved buffer as `(const float*)vertexBuffer.Data()` with `stride`.
+			if (settings.optimizeMesh)
+			{
+				for (const MeshPrimitive& p : primitives)
+				{
+					u32* idx = indices.Data() + p.firstIndex;
+					meshopt_optimizeVertexCache(idx, idx, p.indexCount, vertexCount);
+					meshopt_optimizeOverdraw(idx, idx, p.indexCount,
+					                         reinterpret_cast<const float*>(vertexBuffer.Data()),
+					                         vertexCount, stride, settings.overdrawThreshold);
+				}
+
+				ByteBuffer reordered;
+				reordered.Resize(vertexBuffer.Size());
+				size_t newVertexCount = meshopt_optimizeVertexFetch(
+					reordered.Data(),
+					indices.Data(), indices.Size(),
+					vertexBuffer.Data(), vertexCount, stride);
+
+				vertexBuffer = std::move(reordered);
+				vertexCount = newVertexCount;
+				vertexBuffer.Resize(vertexCount * stride);
+			}
+
+			// Helper to read a vertex position straight out of the interleaved buffer.
+			auto readPos = [&](u32 vIdx) -> Vec3
+			{
+				Vec3 p;
+				memcpy(&p, vertexBuffer.Data() + static_cast<u64>(vIdx) * stride, sizeof(Vec3));
+				return p;
+			};
+
+			auto computePrimAABBs = [&](Array<u32>& idx, Array<MeshPrimitive>& prims)
+			{
+				for (MeshPrimitive& p : prims)
+				{
+					if (p.indexCount == 0)
+					{
+						// Leave a valid (degenerate) AABB so culling doesn't reject the instance
+						// due to default {F32_MAX, F32_LOW} bounds.
+						p.aabb = AABB(Vec3(0, 0, 0), Vec3(0, 0, 0));
+						continue;
+					}
+					Vec3 mn = readPos(idx[p.firstIndex]);
+					Vec3 mx = mn;
+					for (u32 i = p.firstIndex + 1; i < p.firstIndex + p.indexCount; i++)
+					{
+						Vec3 v = readPos(idx[i]);
+						mn = Vec3::Min(mn, v);
+						mx = Vec3::Max(mx, v);
+					}
+					p.aabb = AABB(mn, mx);
+				}
+			};
+
+			computePrimAABBs(indices, primitives);
+
+			// === Build LODs ===
+			// Reserve up front so subsequent EmplaceBacks don't reallocate the outer
+			// storage and invalidate references into lodIndices[0] / lodPrims[0].
+			u32 maxLods = (settings.generateLODs && !hasBones) ? Math::Max(settings.lodCount, 1u) : 1u;
+
+			Array<Array<u32>>           lodIndices;
+			Array<Array<MeshPrimitive>> lodPrims;
+			lodIndices.Reserve(maxLods);
+			lodPrims.Reserve(maxLods);
+			lodIndices.EmplaceBack(std::move(indices));
+			lodPrims.EmplaceBack(std::move(primitives));
+
+			if (settings.generateLODs && !hasBones && settings.lodCount > 1)
+			{
+				for (u32 lod = 1; lod < settings.lodCount; lod++)
+				{
+					const Array<u32>&           srcIdx   = lodIndices[0];
+					const Array<MeshPrimitive>& srcPrims = lodPrims[0];
+
+					float reduction = std::pow(settings.lodReduction, static_cast<float>(lod));
+
+					Array<u32>           newIdx;
+					Array<MeshPrimitive> newPrims;
+					newIdx.Reserve(static_cast<u64>(srcIdx.Size() * reduction) + srcPrims.Size() * 3);
+
+					for (const MeshPrimitive& p : srcPrims)
+					{
+						if (p.indexCount < 6)
+						{
+							// too small to simplify — carry the primitive as-is
+							MeshPrimitive np = p;
+							np.firstIndex = newIdx.Size();
+							for (u32 i = 0; i < p.indexCount; i++) newIdx.EmplaceBack(srcIdx[p.firstIndex + i]);
+							newPrims.EmplaceBack(np);
+							continue;
+						}
+
+						size_t target = static_cast<size_t>(p.indexCount * reduction);
+						target -= target % 3;
+						// Allow simplification down to a single triangle so the most
+						// aggressive LODs (e.g. lod 7 at 0.5^7 ≈ 0.78%) can actually shrink
+						// small primitives. The got<3 fallback below guarantees at least
+						// one triangle is emitted.
+						if (target < 3) target = 3;
+
+						Array<u32> tmp;
+						tmp.Resize(p.indexCount);
+
+						// Pass normal (3 floats) + uv0 (2 floats) as attribute metric so the
+						// simplifier penalises collapses across UV seams and hard normal edges.
+						// These attributes are stored contiguously in the interleaved buffer
+						// starting at offset sizeof(Vec3) (position is always first).
+						const float attribWeights[5] = {0.5f, 0.5f, 0.5f, 1.0f, 1.0f};
+
+						// meshopt_SimplifyLockBorder: never move topological-border vertices.
+						// Essential for scenes like Sponza where one primitive contains many
+						// disconnected components — without this, edge vertices of each piece
+						// collapse inward and the mesh tears apart. Godot uses the same flag.
+						const unsigned int simplifyOptions = meshopt_SimplifyLockBorder;
+
+						// Scale error budget per LOD (Godot-style). LOD 1 uses half the
+						// configured base error; each subsequent LOD doubles. This lets later
+						// LODs actually reach their reduction targets — a fixed budget makes
+						// the simplifier give up early on aggressive LODs.
+						float effectiveError = settings.lodTargetError * std::pow(2.0f, static_cast<float>(lod) - 1.0f);
+
+						float  resultError = 0.0f;
+						size_t got = meshopt_simplifyWithAttributes(
+							tmp.Data(),
+							srcIdx.Data() + p.firstIndex, p.indexCount,
+							reinterpret_cast<const float*>(vertexBuffer.Data()),
+							vertexCount, stride,
+							reinterpret_cast<const float*>(vertexBuffer.Data() + sizeof(Vec3)),
+							stride,
+							attribWeights, 5,
+							nullptr,
+							target, effectiveError, simplifyOptions, &resultError);
+
+						// Intentionally no meshopt_simplifySloppy fallback: it doesn't respect
+						// attributes or borders and will mangle disconnected geometry. If the
+						// quality simplifier can't reach the target index count, we just keep
+						// fewer simplifications — correctness over reduction ratio.
+
+						// Always emit a primitive per LOD so runtime can index by primitive.
+						// Fall back to the first triangle from the source if simplification collapsed.
+						if (got < 3)
+						{
+							got = 3;
+							tmp[0] = srcIdx[p.firstIndex + 0];
+							tmp[1] = srcIdx[p.firstIndex + 1];
+							tmp[2] = srcIdx[p.firstIndex + 2];
+						}
+
+						MeshPrimitive np = p;
+						np.firstIndex = newIdx.Size();
+						np.indexCount = static_cast<u32>(got);
+
+						for (size_t i = 0; i < got; i++) newIdx.EmplaceBack(tmp[i]);
+
+						meshopt_optimizeVertexCache(
+							newIdx.Data() + np.firstIndex,
+							newIdx.Data() + np.firstIndex,
+							got, vertexCount);
+
+						newPrims.EmplaceBack(np);
+					}
+
+					if (newPrims.Empty()) break;
+
+					computePrimAABBs(newIdx, newPrims);
+
+					// Stop once a level barely shrinks the previous one.
+					u64 prevTotal = 0;
+					for (const auto& p : lodPrims.Back()) prevTotal += p.indexCount;
+					if (newIdx.Size() >= prevTotal * 95 / 100) break;
+
+					lodIndices.EmplaceBack(std::move(newIdx));
+					lodPrims.EmplaceBack(std::move(newPrims));
+				}
+			}
+
+			// === Write buffer: [vertices][lod0 idx][lod0 prims][lod1 idx][lod1 prims]... ===
+			u64 vertexBufferSize = static_cast<u64>(vertexCount) * stride;
+
+			Array<u64> idxOffsets;
+			Array<u64> primOffsets;
+			idxOffsets.Reserve(lodIndices.Size());
+			primOffsets.Reserve(lodIndices.Size());
+
+			u64 cursor = vertexBufferSize;
+			for (u64 i = 0; i < lodIndices.Size(); i++)
+			{
+				idxOffsets.EmplaceBack(cursor);
+				cursor += lodIndices[i].Size() * sizeof(u32);
+				primOffsets.EmplaceBack(cursor);
+				cursor += lodPrims[i].Size() * sizeof(MeshPrimitive);
+			}
+
 			ResourceBuffer resourceBuffer = ResourceAssets::CreateTempBuffer();
-			FileHandler bufferFile = resourceBuffer.OpenFile(AccessMode::WriteOnly);
-
-			u64 vertexBufferSize = vertexCount * stride;
-			u64 indexBufferSize = indices.Size() * sizeof(u32);
-			u64 primitiveBufferSize = primitives.Size() * sizeof(MeshPrimitive);
-
-			u64 verticeOffset = 0;
-			u64 indicesOffset = vertexBufferSize;
-			u64 primitiveOffset = vertexBufferSize + indexBufferSize;
+			FileHandler    bufferFile = resourceBuffer.OpenFile(AccessMode::WriteOnly);
 
 			FileSystem::WriteFile(bufferFile, vertexBuffer.Data(), vertexBufferSize);
-			FileSystem::WriteFile(bufferFile, indices.Data(), indexBufferSize);
-			FileSystem::WriteFile(bufferFile, primitives.Data(), primitiveBufferSize);
+			for (u64 i = 0; i < lodIndices.Size(); i++)
+			{
+				FileSystem::WriteFile(bufferFile, lodIndices[i].Data(), lodIndices[i].Size() * sizeof(u32));
+				FileSystem::WriteFile(bufferFile, lodPrims[i].Data(), lodPrims[i].Size() * sizeof(MeshPrimitive));
+			}
 			FileSystem::CloseFile(bufferFile);
 
-			RID meshLOD = Resources::Create<MeshLodResource>(UUID::RandomUUID(), scope);
-			ResourceObject meshLodObject = Resources::Write(meshLOD);
-			meshLodObject.SetUInt(MeshLodResource::LodNumber, 0);
-			meshLodObject.SetUInt(MeshLodResource::VerticesOffset, verticeOffset);
-			meshLodObject.SetUInt(MeshLodResource::VerticesCount, vertexCount);
-			meshLodObject.SetUInt(MeshLodResource::IndicesOffset, indicesOffset);
-			meshLodObject.SetUInt(MeshLodResource::IndicesCount, indices.Size());
-			meshLodObject.SetUInt(MeshLodResource::PrimitiveCount, primitives.Size());
-			meshLodObject.SetUInt(MeshLodResource::PrimitiveOffset, primitiveOffset);
-			meshLodObject.Commit(scope);
+			Array<RID> meshLODs;
+			meshLODs.Reserve(lodIndices.Size());
+			for (u64 i = 0; i < lodIndices.Size(); i++)
+			{
+				RID            lodRID = Resources::Create<MeshLodResource>(UUID::RandomUUID(), scope);
+				ResourceObject lodObj = Resources::Write(lodRID);
+				lodObj.SetUInt(MeshLodResource::LodNumber, static_cast<u32>(i));
+				lodObj.SetUInt(MeshLodResource::VerticesOffset, 0);
+				lodObj.SetUInt(MeshLodResource::VerticesCount, vertexCount);
+				lodObj.SetUInt(MeshLodResource::IndicesOffset, idxOffsets[i]);
+				lodObj.SetUInt(MeshLodResource::IndicesCount, lodIndices[i].Size());
+				lodObj.SetUInt(MeshLodResource::PrimitiveOffset, primOffsets[i]);
+				lodObj.SetUInt(MeshLodResource::PrimitiveCount, lodPrims[i].Size());
+				// Distance-factor threshold: switch to LOD k when (camera-distance /
+				// instance-radius) >= 2^k. Doubling each step gives a conservative
+				// schedule — LOD 1 at 2×radius, LOD 7 at 128×radius. The field is
+				// still called "ScreenSize" in the resource for compatibility, but the
+				// cull shader now interprets it as a distance/radius ratio.
+				lodObj.SetFloat(MeshLodResource::ScreenSize, std::pow(2.0f, static_cast<float>(i)));
+				lodObj.Commit(scope);
+				meshLODs.EmplaceBack(lodRID);
+			}
 
 			return MeshGeometryResult{
 				.aabbMin = minBounds,
 				.aabbMax = maxBounds,
 				.lightmapSizeHint = lightmapSizeHint,
 				.vertexLayout = vertexLayoutRID,
-				.meshLOD = meshLOD,
+				.meshLODs = std::move(meshLODs),
 				.buffer = resourceBuffer,
 			};
 		}
@@ -218,13 +410,12 @@ namespace Skore
 			meshObject.SetVec2(MeshResource::LightmapSizeHint, result.lightmapSizeHint);
 			meshObject.SetSubObject(MeshResource::VertexLayout, result.vertexLayout);
 
-			// Remove old LODs if any, then add the new one
 			Array<RID> oldLods(meshObject.GetSubObjectList(MeshResource::MeshLODs));
 			for (RID oldLod : oldLods)
 			{
 				meshObject.RemoveFromSubObjectList(MeshResource::MeshLODs, oldLod);
 			}
-			meshObject.AddToSubObjectList(MeshResource::MeshLODs, result.meshLOD);
+			meshObject.AddToSubObjectList(MeshResource::MeshLODs, result.meshLODs);
 
 			meshObject.SetBuffer(MeshResource::MeshData, result.buffer);
 		}

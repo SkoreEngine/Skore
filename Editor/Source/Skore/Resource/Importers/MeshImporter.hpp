@@ -11,10 +11,18 @@ namespace Skore
 
 	struct MeshImportSettings
 	{
-		bool regenerateNormals = false;
-		bool recalculateTangents = true;
-		bool generateUV1s = false;
+		bool  regenerateNormals = false;
+		bool  recalculateTangents = true;
+		bool  generateUV1s = false;
 		float lightMapTexelSize = 1.0f;
+
+		// meshoptimizer
+		bool  optimizeMesh = true;       // vertex cache / overdraw / fetch
+		bool  generateLODs = true;       // produce additional simplified LODs (skipped for skinned meshes)
+		u32   lodCount = 8;              // total LOD count including LOD 0
+		float lodReduction = 0.5f;       // each LOD targets prev * lodReduction triangles
+		float lodTargetError = 0.08f;    // meshopt_simplify error threshold (relative)
+		float overdrawThreshold = 1.05f; // overdraw vs vertex-cache trade-off
 	};
 
 	struct BoneInfluence

@@ -16,6 +16,7 @@ static const float minGGXAlpha = 0.0064f;
 #define SK_COL32_B_SHIFT    16
 #define SK_COL32_A_SHIFT    24
 #define SK_MAX_BONES        200
+#define SK_MAX_LODS         10
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SK_USE_COMPARISON_STATE 1

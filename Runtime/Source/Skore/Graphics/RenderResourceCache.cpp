@@ -91,8 +91,18 @@ namespace Skore
 				WorkerType                          type = WorkerType::None;
 				ResourceCachePtr                    resourceCache = {};
 				std::shared_ptr<std::promise<void>> promise = nullptr;
+				// Mesh-only: resolved separately from `promise` once BLAS is installed, so the
+				// scene can pick the mesh up as soon as geometry is uploaded without waiting
+				// for ray-tracing acceleration structures.
+				std::shared_ptr<std::promise<void>> blasPromise = nullptr;
 
 				u32 streamTargetSkippedMips = 0;
+			};
+
+			struct MeshTaskFutures
+			{
+				std::shared_future<void> uploadComplete;
+				std::shared_future<void> blasComplete;
 			};
 
 		public:
@@ -133,6 +143,25 @@ namespace Skore
 				AddTask(WorkerData{type, std::move(resourceCache), std::move(promise)});
 
 				return future;
+			}
+
+			MeshTaskFutures AddMeshTask(ResourceCachePtr resourceCache)
+			{
+				auto uploadPromise = std::make_shared<std::promise<void>>();
+				auto blasPromise = std::make_shared<std::promise<void>>();
+
+				MeshTaskFutures futures;
+				futures.uploadComplete = uploadPromise->get_future().share();
+				futures.blasComplete = blasPromise->get_future().share();
+
+				WorkerData data;
+				data.type = WorkerType::Mesh;
+				data.resourceCache = std::move(resourceCache);
+				data.promise = std::move(uploadPromise);
+				data.blasPromise = std::move(blasPromise);
+				AddTask(std::move(data));
+
+				return futures;
 			}
 
 			void AddStreamTextureTask(ResourceCachePtr resourceCache, u32 targetSkippedMips)
@@ -449,13 +478,32 @@ namespace Skore
 							ResourceBuffer buffer = meshObject.GetBuffer(MeshResource::MeshData);
 							Span<RID>      lods = meshObject.GetSubObjectList(MeshResource::MeshLODs);
 
-							ResourceObject meshLodObject = Resources::Read(lods[0]);
+							if (lods.Empty())
+							{
+								logger.Error("Mesh '{}' has no LODs at upload time.", name);
+								break;
+							}
 
-							u64 vertexSrcOffset = meshLodObject.GetUInt(MeshLodResource::VerticesOffset);
-							u32 vertexCount = static_cast<u32>(meshLodObject.GetUInt(MeshLodResource::VerticesCount));
+							u32 lodCount = static_cast<u32>(lods.Size());
+							if (lodCount > MaxLods) lodCount = MaxLods;
+
+							// LOD 0 owns the (shared) vertex range.
+							ResourceObject lod0 = Resources::Read(lods[0]);
+							u64 vertexSrcOffset  = lod0.GetUInt(MeshLodResource::VerticesOffset);
+							u32 vertexCount      = static_cast<u32>(lod0.GetUInt(MeshLodResource::VerticesCount));
 							u64 vertexBufferSize = static_cast<u64>(vertexCount) * static_cast<u64>(meshCache->stride);
-							u64 indexSrcOffset = meshLodObject.GetUInt(MeshLodResource::IndicesOffset);
-							u64 indexBufferSize = meshLodObject.GetUInt(MeshLodResource::IndicesCount) * sizeof(u32);
+
+							// Collect per-LOD index ranges.
+							struct LodIndexRange { u64 srcOffset; u64 sizeBytes; };
+							Array<LodIndexRange> idxRanges(lodCount);
+							u64 totalIndexBytes = 0;
+							for (u32 i = 0; i < lodCount; i++)
+							{
+								ResourceObject lodObj = Resources::Read(lods[i]);
+								idxRanges[i].srcOffset = lodObj.GetUInt(MeshLodResource::IndicesOffset);
+								idxRanges[i].sizeBytes = lodObj.GetUInt(MeshLodResource::IndicesCount) * sizeof(u32);
+								totalIndexBytes += idxRanges[i].sizeBytes;
+							}
 
 							u32 vertexDstOffset = meshCache->vertexByteOffset;
 							u32 indexDstOffset  = meshCache->indexByteOffset;
@@ -485,16 +533,31 @@ namespace Skore
 								}
 							};
 
-							if (vertexBufferSize + indexBufferSize <= StagingBufferSize)
+							if (vertexBufferSize + totalIndexBytes <= StagingBufferSize)
 							{
+								// Fast path: pack vertices + all LOD index ranges into staging once.
 								u8* mapped = static_cast<u8*>(stagingBuffer->GetMappedData());
 								buffer.CopyData(mapped, vertexBufferSize, vertexSrcOffset);
-								buffer.CopyData(mapped + vertexBufferSize, indexBufferSize, indexSrcOffset);
+
+								u64 stagingCursor = vertexBufferSize;
+								u32 lodDstCursor  = indexDstOffset;
+								for (u32 i = 0; i < lodCount; i++)
+								{
+									buffer.CopyData(mapped + stagingCursor, idxRanges[i].sizeBytes, idxRanges[i].srcOffset);
+									stagingCursor += idxRanges[i].sizeBytes;
+								}
 
 								transferCmd->Begin();
 								transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::ShaderReadOnly, ResourceState::CopyDest);
 								transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, vertexBufferSize, 0, vertexDstOffset);
-								transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, indexBufferSize, vertexBufferSize, indexDstOffset);
+
+								u64 stagingOffset = vertexBufferSize;
+								for (u32 i = 0; i < lodCount; i++)
+								{
+									transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, idxRanges[i].sizeBytes, stagingOffset, lodDstCursor);
+									stagingOffset += idxRanges[i].sizeBytes;
+									lodDstCursor  += static_cast<u32>(idxRanges[i].sizeBytes);
+								}
 								transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
 								transferCmd->End();
 								transferQueue->SubmitAndWait(transferCmd);
@@ -502,8 +565,24 @@ namespace Skore
 							}
 							else
 							{
+								// Slow path: upload each range independently.
 								uploadRange(vertexBufferSize, vertexSrcOffset, vertexDstOffset);
-								uploadRange(indexBufferSize, indexSrcOffset, indexDstOffset);
+
+								u32 lodDstCursor = indexDstOffset;
+								for (u32 i = 0; i < lodCount; i++)
+								{
+									uploadRange(idxRanges[i].sizeBytes, idxRanges[i].srcOffset, lodDstCursor);
+									lodDstCursor += static_cast<u32>(idxRanges[i].sizeBytes);
+								}
+							}
+
+							// Resolve the upload future as soon as the geometry is on the GPU. The scene
+							// can render the mesh now; BLAS install is decoupled below and signalled via
+							// blasPromise once the structures are visible from the main thread.
+							if (data.promise)
+							{
+								data.promise->set_value();
+								data.promise = nullptr;
 							}
 
 							if (wantsBlas)
@@ -567,17 +646,24 @@ namespace Skore
 								computeQueue->SubmitAndWait(computeCmd);
 								computeCmd->Reset();
 
-								auto pendingPromise = std::move(data.promise);
+								auto pendingBlasPromise = std::move(data.blasPromise);
 								ExecuteOnMainThread(
-									[meshCache, builtBlas = std::move(builtBlas), pendingPromise = std::move(pendingPromise)]() mutable
+									[meshCache, builtBlas = std::move(builtBlas), pendingBlasPromise = std::move(pendingBlasPromise)]() mutable
 									{
 										if (!builtBlas.Empty())
 										{
 											meshCache->blasArray = std::move(builtBlas);
 										}
 
-										if (pendingPromise) pendingPromise->set_value();
+										if (pendingBlasPromise) pendingBlasPromise->set_value();
 									});
+							}
+							else if (data.blasPromise)
+							{
+								// No BLAS to build for this mesh — release the future so anything
+								// waiting on it (or the IsBlasReady check) doesn't stall.
+								data.blasPromise->set_value();
+								data.blasPromise = nullptr;
 							}
 
 							break;
@@ -638,6 +724,10 @@ namespace Skore
 					{
 						data.promise->set_value();
 					}
+					if (data.blasPromise)
+					{
+						data.blasPromise->set_value();
+					}
 				}
 
 				stagingBuffer->Destroy();
@@ -680,6 +770,77 @@ namespace Skore
 		u32               materialDataBufferCapacity = 0;
 		u32               materialDataCount = 0;
 		bool              globalDescriptorSetAlive = false;
+
+		// Global per-primitive LOD info buffer (HLSL: MeshLODBuffer at t6, space0).
+		// One slot per primitive; each slot holds GpuMeshPrimitiveInfo (lodCount + 10 LODs).
+		u32        nextPrimitiveInfoSlot = 0;
+		Array<u32> freePrimitiveInfoSlots;
+		GPUBuffer* meshPrimitiveInfoBuffer = nullptr;
+		u32        meshPrimitiveInfoBufferCapacity = 0;
+		u32        meshPrimitiveInfoCount = 0;
+
+		u32 AllocatePrimitiveInfoSlot()
+		{
+			if (!freePrimitiveInfoSlots.Empty())
+			{
+				u32 idx = freePrimitiveInfoSlots.Back();
+				freePrimitiveInfoSlots.PopBack();
+				return idx;
+			}
+			return nextPrimitiveInfoSlot++;
+		}
+
+		void EnsurePrimitiveInfoCapacity(u32 requiredCapacity)
+		{
+			if (requiredCapacity <= meshPrimitiveInfoBufferCapacity) return;
+
+			u32 newCapacity = requiredCapacity * 2;
+			if (newCapacity < 1024) newCapacity = 1024;
+
+			GPUBuffer* newBuffer = Graphics::CreateBuffer(BufferDesc{
+				.size = newCapacity * sizeof(GpuMeshPrimitiveInfo),
+				.usage = ResourceUsage::ShaderResource,
+				.hostVisible = true,
+				.persistentMapped = true,
+				.debugName = "MeshPrimitiveInfoBuffer"
+			});
+
+			if (meshPrimitiveInfoBuffer)
+			{
+				memcpy(newBuffer->GetMappedData(),
+				       meshPrimitiveInfoBuffer->GetMappedData(),
+				       meshPrimitiveInfoBufferCapacity * sizeof(GpuMeshPrimitiveInfo));
+				meshPrimitiveInfoBuffer->Destroy();
+			}
+
+			meshPrimitiveInfoBuffer = newBuffer;
+			meshPrimitiveInfoBufferCapacity = newCapacity;
+
+			if (globalDescriptorSetAlive && globalDescriptorSet)
+			{
+				globalDescriptorSet->UpdateBuffer(6, meshPrimitiveInfoBuffer, 0,
+				                                  meshPrimitiveInfoBufferCapacity * sizeof(GpuMeshPrimitiveInfo));
+			}
+		}
+
+		void WriteMeshPrimitiveInfo(u32 slot, const GpuMeshPrimitiveInfo& info)
+		{
+			EnsurePrimitiveInfoCapacity(slot + 1);
+
+			GpuMeshPrimitiveInfo* mapped = static_cast<GpuMeshPrimitiveInfo*>(meshPrimitiveInfoBuffer->GetMappedData());
+			mapped[slot] = info;
+
+			if (slot + 1 > meshPrimitiveInfoCount)
+			{
+				meshPrimitiveInfoCount = slot + 1;
+			}
+		}
+
+		void FreePrimitiveInfoSlot(u32 slot)
+		{
+			if (slot == U32_MAX) return;
+			freePrimitiveInfoSlots.EmplaceBack(slot);
+		}
 
 		ResourceWorker worker;
 
@@ -1255,6 +1416,12 @@ namespace Skore
 		indexAlloc = OffsetAllocator::Allocation{};
 		vertexByteOffset = U32_MAX;
 		indexByteOffset = U32_MAX;
+
+		for (u32 slot : primitiveInfoSlots)
+		{
+			FreePrimitiveInfoSlot(slot);
+		}
+		primitiveInfoSlots.Clear();
 	}
 
 	bool RenderResourceCache::WorkerIdle()
@@ -1698,24 +1865,59 @@ namespace Skore
 			ResourceBuffer buffer = meshObject.GetBuffer(MeshResource::MeshData);
 			Span<RID>      lods = meshObject.GetSubObjectList(MeshResource::MeshLODs);
 
-			ResourceObject meshLodObject = Resources::Read(lods[0]);
+			if (lods.Empty())
+			{
+				logger.Error("Mesh '{}' has no LODs.", name);
+				return nullptr;
+			}
 
-			u64 primitiveOffset = meshLodObject.GetUInt(MeshLodResource::PrimitiveOffset);
-			u64 primitiveCount = meshLodObject.GetUInt(MeshLodResource::PrimitiveCount);
-			u64 primitiveSize = primitiveCount * sizeof(MeshPrimitive);
+			// Cap LOD count at MaxLods (GPU layout has a fixed-size LOD array per primitive).
+			u32 lodCount = static_cast<u32>(lods.Size());
+			if (lodCount > MaxLods) lodCount = MaxLods;
+
+			// Read all LOD metadata up front so we can size allocations and populate the GPU
+			// MeshPrimitiveInfo buffer in one pass.
+			struct LodMeta
+			{
+				u64 indexSrcOffset;
+				u64 indexCount;
+				u64 primSrcOffset;
+				u64 primCount;
+				f32 screenSize;
+			};
+			Array<LodMeta> lodMeta(lodCount);
+
+			u64 totalIndexBytes = 0;
+			for (u32 i = 0; i < lodCount; i++)
+			{
+				ResourceObject lodObj = Resources::Read(lods[i]);
+				lodMeta[i].indexSrcOffset = lodObj.GetUInt(MeshLodResource::IndicesOffset);
+				lodMeta[i].indexCount     = lodObj.GetUInt(MeshLodResource::IndicesCount);
+				lodMeta[i].primSrcOffset  = lodObj.GetUInt(MeshLodResource::PrimitiveOffset);
+				lodMeta[i].primCount      = lodObj.GetUInt(MeshLodResource::PrimitiveCount);
+				lodMeta[i].screenSize     = static_cast<f32>(lodObj.GetFloat(MeshLodResource::ScreenSize));
+				totalIndexBytes += lodMeta[i].indexCount * sizeof(u32);
+			}
+
+			// LOD 0 drives vertex slab sizing and CPU-side primitive list. Vertices are shared
+			// across all LODs, so we only upload LOD 0's vertex range.
+			ResourceObject lod0 = Resources::Read(lods[0]);
+			u64 vertexCountTotal = lod0.GetUInt(MeshLodResource::VerticesCount);
+			u64 vertexSrcOffset  = lod0.GetUInt(MeshLodResource::VerticesOffset);
+			u64 vertexBytes      = vertexCountTotal * meshData->stride;
+
+			u64 primCountLod0 = lodMeta[0].primCount;
 
 			bool rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
 
 			meshData->hasSkin = static_cast<bool>(meshObject.GetSubObject(MeshResource::Skin));
 			meshData->wantsBlas = rtSupported && !meshData->hasSkin;
 
-			meshData->primitives.Resize(primitiveCount);
-			buffer.CopyData(meshData->primitives.Data(), primitiveSize, primitiveOffset);
+			meshData->primitives.Resize(primCountLod0);
+			buffer.CopyData(meshData->primitives.Data(), primCountLod0 * sizeof(MeshPrimitive), lodMeta[0].primSrcOffset);
 
-			u64 vertexCountTotal = meshLodObject.GetUInt(MeshLodResource::VerticesCount);
-			u64 indexCountTotal  = meshLodObject.GetUInt(MeshLodResource::IndicesCount);
-			u32 alignedVertSize  = AlignMeshAllocSize(vertexCountTotal * meshData->stride);
-			u32 alignedIdxSize   = AlignMeshAllocSize(indexCountTotal  * sizeof(u32));
+			u32 alignedVertSize  = AlignMeshAllocSize(vertexBytes);
+			u32 alignedIdxSize   = AlignMeshAllocSize(totalIndexBytes);
 
 			meshData->vertexAlloc = AllocateMeshData(alignedVertSize);
 			meshData->indexAlloc  = AllocateMeshData(alignedIdxSize);
@@ -1740,6 +1942,53 @@ namespace Skore
 			meshData->vertexByteOffset = meshData->vertexAlloc.offset;
 			meshData->indexByteOffset  = meshData->indexAlloc.offset;
 
+			// Populate per-primitive MeshPrimitiveInfo entries in the global GPU buffer.
+			// firstIndex = absolute index in MeshDataBuffer = indexByteOffset/4 + lodOffsetIndices + primitive.firstIndex
+			meshData->primitiveInfoSlots.Resize(primCountLod0);
+
+			// Read each LOD's primitives once into a local array.
+			Array<Array<MeshPrimitive>> lodPrims(lodCount);
+			for (u32 i = 0; i < lodCount; i++)
+			{
+				lodPrims[i].Resize(lodMeta[i].primCount);
+				buffer.CopyData(lodPrims[i].Data(), lodMeta[i].primCount * sizeof(MeshPrimitive), lodMeta[i].primSrcOffset);
+			}
+
+			// Cumulative per-LOD index offset (in 32-bit index units) relative to indexByteOffset.
+			Array<u32> lodIndexUnitOffset(lodCount);
+			{
+				u64 cumulativeBytes = 0;
+				const u32 indexBaseUnits = meshData->indexByteOffset / static_cast<u32>(sizeof(u32));
+				for (u32 i = 0; i < lodCount; i++)
+				{
+					lodIndexUnitOffset[i] = indexBaseUnits + static_cast<u32>(cumulativeBytes / sizeof(u32));
+					cumulativeBytes += lodMeta[i].indexCount * sizeof(u32);
+				}
+			}
+
+			for (u32 p = 0; p < primCountLod0; p++)
+			{
+				u32 slot = AllocatePrimitiveInfoSlot();
+				meshData->primitiveInfoSlots[p] = slot;
+
+				GpuMeshPrimitiveInfo info{};
+				info.lodCount = lodCount;
+				for (u32 i = 0; i < lodCount; i++)
+				{
+					// If a higher LOD has fewer primitives than LOD 0, reuse LOD 0's entry for the
+					// missing slots — keeps draw calls valid even with degenerate fallback.
+					const MeshPrimitive& srcPrim = (p < lodPrims[i].Size())
+						? lodPrims[i][p]
+						: lodPrims[0][p];
+
+					info.lods[i].firstIndex = lodIndexUnitOffset[i] + srcPrim.firstIndex;
+					info.lods[i].indexCount = srcPrim.indexCount;
+					info.lods[i].screenSize = lodMeta[i].screenSize;
+				}
+
+				WriteMeshPrimitiveInfo(slot, info);
+			}
+
 			layoutData.stride         = meshData->stride;
 			layoutData.posOff         = positionOffset;
 			layoutData.normalOff      = normalOffset;
@@ -1751,7 +2000,9 @@ namespace Skore
 			layoutData.boneWeightsOff = boneWeightsOffset;
 			layoutValid = true;
 
-			meshData->uploadComplete = worker.AddTask(WorkerType::Mesh, meshData).share();
+			auto meshFutures = worker.AddMeshTask(meshData);
+			meshData->uploadComplete = std::move(meshFutures.uploadComplete);
+			meshData->blasComplete = std::move(meshFutures.blasComplete);
 
 			if (!materials.Empty())
 			{
@@ -1797,6 +2048,12 @@ namespace Skore
 
 		if (!async) WaitForMesh(result);
 		return result;
+	}
+
+	i32& RenderDebug::ForcedLod()
+	{
+		static i32 value = -1;
+		return value;
 	}
 
 	GPUDescriptorSet* RenderResourceCache::GetGlobalDescriptorSet()
@@ -1884,6 +2141,10 @@ namespace Skore
 					.descriptorType = DescriptorType::UniformBuffer,
 					.renderType = RenderType::RuntimeArray
 				},
+				DescriptorSetLayoutBinding{
+					.binding = 6,
+					.descriptorType = DescriptorType::StorageBuffer
+				},
 			},
 			.debugName = "GlobalDescriptorSet"
 		});
@@ -1902,6 +2163,10 @@ namespace Skore
 		meshDataAllocator = std::make_unique<OffsetAllocator::Allocator>(MeshDataBufferSize, MeshDataMaxAllocations);
 
 		globalDescriptorSet->UpdateBuffer(4, meshDataBuffer, 0, MeshDataBufferSize);
+
+		// Allocate an initial MeshPrimitiveInfoBuffer and bind it. WriteMeshPrimitiveInfo grows
+		// it on demand; the descriptor binding is refreshed there too.
+		EnsurePrimitiveInfoCapacity(1024);
 
 		worker.Init(4);
 	}
@@ -1960,6 +2225,16 @@ namespace Skore
 			meshDataBuffer = nullptr;
 		}
 		meshDataAllocator.reset();
+
+		if (meshPrimitiveInfoBuffer)
+		{
+			meshPrimitiveInfoBuffer->Destroy();
+			meshPrimitiveInfoBuffer = nullptr;
+		}
+		meshPrimitiveInfoBufferCapacity = 0;
+		meshPrimitiveInfoCount = 0;
+		nextPrimitiveInfoSlot = 0;
+		freePrimitiveInfoSlots.Clear();
 
 		nextMaterialIndex = 0;
 		nextTextureIndex = 0;
