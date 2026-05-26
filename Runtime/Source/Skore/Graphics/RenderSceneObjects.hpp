@@ -75,7 +75,7 @@ namespace Skore
 		u32  materialIndex;
 		u32  vertexByteOffset;
 		u32  vertexLayoutIndex;
-		u32  primitiveInfoIndex; // slot in MeshLODBuffer (one MeshPrimitiveInfo per primitive)
+		u32  primitiveInfoIndex;
 
 		Vec3 aabbMin;
 		u32  pad0;

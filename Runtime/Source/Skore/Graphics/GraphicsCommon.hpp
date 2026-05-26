@@ -8,6 +8,7 @@ namespace Skore
 	constexpr static i8  MaxNumCascades = 4;
 	constexpr static u32  MaxBones = 200;
 	constexpr static u32 MaxLods = 10;
+	constexpr static u32 BlasLod = 1;
 
 	//temp
 	constexpr i32 MAX_LIGHTS = 64;

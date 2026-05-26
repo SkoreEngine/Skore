@@ -517,8 +517,6 @@ namespace Skore
 			instanceDataBuffer = newBuffer;
 		}
 
-		// Slot in the global MeshLODBuffer for this primitive. The culling compute pass picks
-		// a LOD and writes firstIndex/indexCount into the indirect draw command from there.
 		u32 primitiveInfoIndex = primitiveIndex < obj->meshCache->primitiveInfoSlots.Size()
 			? obj->meshCache->primitiveInfoSlots[primitiveIndex]
 			: U32_MAX;

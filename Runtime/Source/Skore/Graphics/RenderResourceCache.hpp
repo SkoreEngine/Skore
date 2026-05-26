@@ -154,10 +154,9 @@ namespace Skore
 		Array<Mat4> poses;
 	};
 
-	// GPU layout — must match HLSL MeshLODInfo / MeshPrimitiveInfo in VertexPulling.hlsli.
 	struct GpuMeshLODInfo
 	{
-		u32 firstIndex; // absolute index in MeshDataBuffer
+		u32 firstIndex;
 		u32 indexCount;
 		f32 screenSize;
 		f32 pad;
@@ -170,8 +169,8 @@ namespace Skore
 		GpuMeshLODInfo lods[MaxLods];
 	};
 
-	static_assert(sizeof(GpuMeshLODInfo) == 16, "GpuMeshLODInfo must match HLSL MeshLODInfo (16 bytes)");
-	static_assert(sizeof(GpuMeshPrimitiveInfo) == 16 + MaxLods * 16, "GpuMeshPrimitiveInfo must match HLSL MeshPrimitiveInfo");
+	static_assert(sizeof(GpuMeshLODInfo) == 16);
+	static_assert(sizeof(GpuMeshPrimitiveInfo) == 16 + MaxLods * 16);
 
 	struct SK_API MeshResourceCache : ResourceCache
 	{
@@ -195,14 +194,8 @@ namespace Skore
 		bool                     wantsBlas = false;
 		Vec2                     lightmapSizeHint = Vec2(0.0f, 0.0f);
 
-		// LOD 0 primitives — used by CPU paths (immediate draws, BLAS, AABB queries).
-		// All LOD index data lives in the shared mesh data buffer; per-LOD per-primitive
-		// (firstIndex, indexCount) is uploaded to the global MeshLODBuffer instead.
 		Array<MeshPrimitive>             primitives;
-
-		// Per-primitive slot into the global MeshLODBuffer. Size = primitives.Size().
 		Array<u32>                       primitiveInfoSlots;
-
 		Array<MaterialResourceCachePtr>  materials;
 
 		AABB aabb;
@@ -228,14 +221,8 @@ namespace Skore
 		}
 	};
 
-	// Editor/debug overrides consumed by the GPU culling passes. Live in Runtime so
-	// runtime code can read them, but only mutated by the editor (e.g. a SliderInt
-	// in the viewport-options popup). Exposed as a function returning a reference
-	// because MSVC doesn't reliably link static data members across DLLs without
-	// dllimport (the codebase always uses dllexport).
 	struct SK_API RenderDebug
 	{
-		// -1 = use computed LOD; 0..MaxLods-1 = force this LOD index across all instances.
 		static i32& ForcedLod();
 	};
 

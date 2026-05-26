@@ -21,9 +21,9 @@ struct VertexLayoutOffset
 
 struct MeshLODInfo
 {
-	uint  firstIndex;   // absolute index in MeshDataBuffer (mesh base + lod offset + primitive offset)
+	uint  firstIndex;
 	uint  indexCount;
-	float screenSize;   // switch threshold — switch to this LOD when projected size <= screenSize
+	float screenSize;
 	float pad;
 };
 

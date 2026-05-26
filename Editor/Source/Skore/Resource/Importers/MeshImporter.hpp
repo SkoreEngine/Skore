@@ -16,14 +16,13 @@ namespace Skore
 		bool  generateUV1s = false;
 		float lightMapTexelSize = 1.0f;
 
-		// meshoptimizer
-		bool  optimizeMesh = true;          // vertex cache / overdraw / fetch
-		bool  generateLODs = true;          // produce additional simplified LODs (skipped for skinned meshes)
-		u32   lodCount = 5;                 // total LOD count including LOD 0
-		float lodReduction = 0.5f;          // each LOD targets prev * lodReduction triangles
-		float lodTargetError = 0.08f;       // meshopt_simplify error threshold (relative)
-		float lodSwitchDistance = 8.0f;     // dist/radius factor at which LOD 1 activates; doubles per LOD step
-		float overdrawThreshold = 1.05f;    // overdraw vs vertex-cache trade-off
+		bool  optimizeMesh = true;
+		bool  generateLODs = true;
+		u32   lodCount = 5;
+		float lodReduction = 0.5f;
+		float lodTargetError = 0.08f;
+		float lodSwitchDistance = 8.0f;
+		float overdrawThreshold = 1.05f;
 	};
 
 	struct BoneInfluence
