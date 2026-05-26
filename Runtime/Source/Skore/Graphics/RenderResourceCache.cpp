@@ -72,6 +72,12 @@ namespace Skore
 		std::unique_ptr<OffsetAllocator::Allocator> meshDataAllocator;
 		std::mutex                                  meshDataAllocatorMutex;
 
+		u32        nextPrimitiveInfoSlot = 0;
+		Array<u32> freePrimitiveInfoSlots;
+		GPUBuffer* meshPrimitiveInfoBuffer = nullptr;
+		u32        meshPrimitiveInfoBufferCapacity = 0;
+		u32        meshPrimitiveInfoCount = 0;
+
 		enum class WorkerType : u32
 		{
 			None,
@@ -487,13 +493,11 @@ namespace Skore
 							u32 lodCount = static_cast<u32>(lods.Size());
 							if (lodCount > MaxLods) lodCount = MaxLods;
 
-							// LOD 0 owns the (shared) vertex range.
 							ResourceObject lod0 = Resources::Read(lods[0]);
 							u64 vertexSrcOffset  = lod0.GetUInt(MeshLodResource::VerticesOffset);
 							u32 vertexCount      = static_cast<u32>(lod0.GetUInt(MeshLodResource::VerticesCount));
 							u64 vertexBufferSize = static_cast<u64>(vertexCount) * static_cast<u64>(meshCache->stride);
 
-							// Collect per-LOD index ranges.
 							struct LodIndexRange { u64 srcOffset; u64 sizeBytes; };
 							Array<LodIndexRange> idxRanges(lodCount);
 							u64 totalIndexBytes = 0;
@@ -535,7 +539,6 @@ namespace Skore
 
 							if (vertexBufferSize + totalIndexBytes <= StagingBufferSize)
 							{
-								// Fast path: pack vertices + all LOD index ranges into staging once.
 								u8* mapped = static_cast<u8*>(stagingBuffer->GetMappedData());
 								buffer.CopyData(mapped, vertexBufferSize, vertexSrcOffset);
 
@@ -565,7 +568,6 @@ namespace Skore
 							}
 							else
 							{
-								// Slow path: upload each range independently.
 								uploadRange(vertexBufferSize, vertexSrcOffset, vertexDstOffset);
 
 								u32 lodDstCursor = indexDstOffset;
@@ -594,9 +596,32 @@ namespace Skore
 								Array<GeometryDesc>      geometries(primitiveCount);
 								u64                      maxScratch = 0;
 
+								const GpuMeshPrimitiveInfo* lodInfoBuffer =
+									meshPrimitiveInfoBuffer
+										? static_cast<const GpuMeshPrimitiveInfo*>(meshPrimitiveInfoBuffer->GetMappedData())
+										: nullptr;
+
 								for (u32 p = 0; p < primitiveCount; ++p)
 								{
 									const MeshPrimitive& prim = meshCache->primitives[p];
+
+									u32 firstIndexUnits = prim.firstIndex + static_cast<u32>(indexDstOffset / sizeof(u32));
+									u32 indexCountForBlas = prim.indexCount;
+
+									if (lodInfoBuffer && p < meshCache->primitiveInfoSlots.Size())
+									{
+										u32 slot = meshCache->primitiveInfoSlots[p];
+										if (slot != U32_MAX)
+										{
+											const GpuMeshPrimitiveInfo& info = lodInfoBuffer[slot];
+											if (info.lodCount > 0)
+											{
+												u32 lodIdx = std::min(BlasLod, info.lodCount - 1);
+												firstIndexUnits   = info.lods[lodIdx].firstIndex;
+												indexCountForBlas = info.lods[lodIdx].indexCount;
+											}
+										}
+									}
 
 									geometries[p] = GeometryDesc{};
 									geometries[p].type = GeometryType::Triangles;
@@ -606,8 +631,8 @@ namespace Skore
 									geometries[p].triangles.vertexStride = meshCache->stride;
 									geometries[p].triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
 									geometries[p].triangles.indexBuffer = meshDataBuffer;
-									geometries[p].triangles.indexOffset = indexDstOffset + prim.firstIndex * sizeof(u32);
-									geometries[p].triangles.indexCount = prim.indexCount;
+									geometries[p].triangles.indexOffset = static_cast<u64>(firstIndexUnits) * sizeof(u32);
+									geometries[p].triangles.indexCount = indexCountForBlas;
 									geometries[p].triangles.indexType = IndexType::Uint32;
 									geometries[p].triangles.opaque = true;
 
@@ -770,14 +795,6 @@ namespace Skore
 		u32               materialDataBufferCapacity = 0;
 		u32               materialDataCount = 0;
 		bool              globalDescriptorSetAlive = false;
-
-		// Global per-primitive LOD info buffer (HLSL: MeshLODBuffer at t6, space0).
-		// One slot per primitive; each slot holds GpuMeshPrimitiveInfo (lodCount + 10 LODs).
-		u32        nextPrimitiveInfoSlot = 0;
-		Array<u32> freePrimitiveInfoSlots;
-		GPUBuffer* meshPrimitiveInfoBuffer = nullptr;
-		u32        meshPrimitiveInfoBufferCapacity = 0;
-		u32        meshPrimitiveInfoCount = 0;
 
 		u32 AllocatePrimitiveInfoSlot()
 		{
@@ -1871,12 +1888,9 @@ namespace Skore
 				return nullptr;
 			}
 
-			// Cap LOD count at MaxLods (GPU layout has a fixed-size LOD array per primitive).
 			u32 lodCount = static_cast<u32>(lods.Size());
 			if (lodCount > MaxLods) lodCount = MaxLods;
 
-			// Read all LOD metadata up front so we can size allocations and populate the GPU
-			// MeshPrimitiveInfo buffer in one pass.
 			struct LodMeta
 			{
 				u64 indexSrcOffset;
@@ -1899,8 +1913,6 @@ namespace Skore
 				totalIndexBytes += lodMeta[i].indexCount * sizeof(u32);
 			}
 
-			// LOD 0 drives vertex slab sizing and CPU-side primitive list. Vertices are shared
-			// across all LODs, so we only upload LOD 0's vertex range.
 			ResourceObject lod0 = Resources::Read(lods[0]);
 			u64 vertexCountTotal = lod0.GetUInt(MeshLodResource::VerticesCount);
 			u64 vertexSrcOffset  = lod0.GetUInt(MeshLodResource::VerticesOffset);
@@ -1942,11 +1954,8 @@ namespace Skore
 			meshData->vertexByteOffset = meshData->vertexAlloc.offset;
 			meshData->indexByteOffset  = meshData->indexAlloc.offset;
 
-			// Populate per-primitive MeshPrimitiveInfo entries in the global GPU buffer.
-			// firstIndex = absolute index in MeshDataBuffer = indexByteOffset/4 + lodOffsetIndices + primitive.firstIndex
 			meshData->primitiveInfoSlots.Resize(primCountLod0);
 
-			// Read each LOD's primitives once into a local array.
 			Array<Array<MeshPrimitive>> lodPrims(lodCount);
 			for (u32 i = 0; i < lodCount; i++)
 			{
@@ -1954,7 +1963,6 @@ namespace Skore
 				buffer.CopyData(lodPrims[i].Data(), lodMeta[i].primCount * sizeof(MeshPrimitive), lodMeta[i].primSrcOffset);
 			}
 
-			// Cumulative per-LOD index offset (in 32-bit index units) relative to indexByteOffset.
 			Array<u32> lodIndexUnitOffset(lodCount);
 			{
 				u64 cumulativeBytes = 0;
@@ -1975,8 +1983,6 @@ namespace Skore
 				info.lodCount = lodCount;
 				for (u32 i = 0; i < lodCount; i++)
 				{
-					// If a higher LOD has fewer primitives than LOD 0, reuse LOD 0's entry for the
-					// missing slots — keeps draw calls valid even with degenerate fallback.
 					const MeshPrimitive& srcPrim = (p < lodPrims[i].Size())
 						? lodPrims[i][p]
 						: lodPrims[0][p];
@@ -2164,8 +2170,6 @@ namespace Skore
 
 		globalDescriptorSet->UpdateBuffer(4, meshDataBuffer, 0, MeshDataBufferSize);
 
-		// Allocate an initial MeshPrimitiveInfoBuffer and bind it. WriteMeshPrimitiveInfo grows
-		// it on demand; the descriptor binding is refreshed there too.
 		EnsurePrimitiveInfoCapacity(1024);
 
 		worker.Init(4);

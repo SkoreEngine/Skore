@@ -885,8 +885,6 @@ namespace Skore
 				addTableBoolOption("Draw NavMesh", &drawNavMesh);
 				addTableBoolOption("Lock Camera Frustum", &lockCameraFrustum);
 
-				// Force every mesh draw to a specific LOD index. -1 = auto (use cull's
-				// screen-size selection). Per-cull-shader override; takes effect immediately.
 				ImGui::TableNextColumn();
 				ImGui::Text("Forced LOD");
 				ImGui::TableNextColumn();

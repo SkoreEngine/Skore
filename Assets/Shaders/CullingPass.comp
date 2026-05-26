@@ -12,15 +12,12 @@ struct IndexedIndirectCommand
 	uint startInstanceLocation;
 };
 
-// Pass-specific buffers live in space2 — space0 is the global bindless set
-// (MaterialDataBuffer, MeshDataBuffer, MeshLODBuffer, etc.) and space1 is scene
-// data (InstanceData, GlobalSceneBuffer).
 RWStructuredBuffer<IndexedIndirectCommand> indirectDraws[] : register(u0, space2);
 RWStructuredBuffer<uint> indirectCount : register(u1, space2);
 
 struct CullDebugPushConstants
 {
-    int forcedLod; // -1 = auto; >= 0 = force this LOD index across all instances
+    int forcedLod;
 };
 [[vk::push_constant]] CullDebugPushConstants cullDebug;
 
@@ -45,10 +42,6 @@ bool AABBOnFrustum(float3 aabbMin, float3 aabbMax)
     return true;
 }
 
-// Distance-to-radius ratio for the instance bounding sphere. The cull picks
-// the highest LOD whose stored threshold (2^lod) is <= this ratio. Camera-
-// agnostic and cheaper than a projected-size calculation: a 2-m-radius object
-// at 16 m gives factor 8.0, which selects LOD 3 with the default schedule.
 float ComputeDistanceFactor(float3 aabbMin, float3 aabbMax)
 {
     float3 center = (aabbMin + aabbMax) * 0.5;
@@ -75,22 +68,17 @@ void MainCS(uint idx : SV_DispatchThreadID)
 
     float distFactor = ComputeDistanceFactor(data.aabbMin, data.aabbMax);
 
-    // Walk from the most simplified LOD down to LOD 0; pick the highest LOD whose
-    // distance/radius threshold is met. screenSize here holds 2^lod (importer-written).
     uint lod = info.lodCount - 1;
     while (lod > 0 && distFactor < info.lods[lod].screenSize)
     {
         lod--;
     }
 
-    // Editor debug override.
     if (cullDebug.forcedLod >= 0)
     {
         lod = min((uint)cullDebug.forcedLod, info.lodCount - 1);
     }
 
-    // Defensive: if the chosen LOD has no indices (degenerate / older importer output),
-    // walk down to a LOD that does. LOD 0 is guaranteed to have geometry.
     MeshLODInfo lodInfo = info.lods[lod];
     while (lodInfo.indexCount == 0 && lod > 0)
     {

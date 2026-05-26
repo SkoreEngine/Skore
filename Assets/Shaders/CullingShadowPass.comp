@@ -3,9 +3,6 @@
 
 #define CASCADE_PLANE_COUNT 5
 
-// Shadow draws can tolerate more aggressive simplification than the main view, so we
-// bias the selected LOD up by one. Cascades farther from the camera could go further
-// but a flat +1 covers the common case without per-cascade bookkeeping.
 #define SHADOW_LOD_BIAS 1
 
 struct IndexedIndirectCommand
@@ -19,13 +16,12 @@ struct IndexedIndirectCommand
 
 // One indirect-draw buffer per (cascade, shadowPipeline) bucket.
 // Index: cascadeIndex * shadowPipelineCount + shadowPipelineIndex.
-// Pass-specific buffers in space2 — space0/space1 are reserved for global / scene sets.
 RWStructuredBuffer<IndexedIndirectCommand> shadowIndirectDraws[] : register(u0, space2);
 RWStructuredBuffer<uint>                   shadowIndirectCount   : register(u1, space2);
 
 struct CullDebugPushConstants
 {
-    int forcedLod; // -1 = auto; >= 0 = force this LOD index across all instances
+    int forcedLod;
 };
 [[vk::push_constant]] CullDebugPushConstants cullDebug;
 
@@ -84,22 +80,18 @@ void MainCS(uint idx : SV_DispatchThreadID)
 
     float distFactor = ComputeDistanceFactor(data.aabbMin, data.aabbMax);
 
-    // screenSize field holds 2^lod (distance/radius threshold from importer).
     uint lod = info.lodCount - 1;
     while (lod > 0 && distFactor < info.lods[lod].screenSize)
     {
         lod--;
     }
-    // Bias toward simpler geometry for shadow draws.
     lod = min(lod + SHADOW_LOD_BIAS, info.lodCount - 1);
 
-    // Editor debug override (takes precedence over auto + bias).
     if (cullDebug.forcedLod >= 0)
     {
         lod = min((uint)cullDebug.forcedLod, info.lodCount - 1);
     }
 
-    // Defensive: walk down to a LOD that actually has geometry.
     MeshLODInfo lodInfo = info.lods[lod];
     while (lodInfo.indexCount == 0 && lod > 0)
     {

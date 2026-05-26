@@ -36,7 +36,7 @@ struct InstanceData
     uint    materialIndex;
     uint    vertexByteOffset;
     uint    vertexLayoutIndex;
-    uint    primitiveInfoIndex; // index into MeshLODBuffer (one entry per primitive, holds all LODs)
+    uint    primitiveInfoIndex;
 
     float3  aabbMin;
     uint    pad0;
@@ -84,5 +84,6 @@ SamplerComparisonState shadowMapSampler     : register(s4, space1);
 SamplerState   		   shadowMapSampler     : register(s5, space1);
 #endif
 
+RaytracingAccelerationStructure sceneTLAS   : register(t6, space1);
 
 #endif

@@ -75,7 +75,7 @@ namespace Skore
 				MeshTools::CalcTangents(positions, normals, uvs, tangents, indices);
 			}
 
-			// Compute mesh AABB (positions are still untouched here)
+			// Compute mesh AABB
 			Vec3 minBounds = positions[0];
 			Vec3 maxBounds = positions[0];
 
@@ -162,9 +162,6 @@ namespace Skore
 				}
 			}
 
-			// === meshoptimizer: cache + overdraw + vertex fetch on LOD 0 ===
-			// Position lives at offset 0 in every layout, so we can read it back from the
-			// interleaved buffer as `(const float*)vertexBuffer.Data()` with `stride`.
 			if (settings.optimizeMesh)
 			{
 				for (const MeshPrimitive& p : primitives)
@@ -188,7 +185,6 @@ namespace Skore
 				vertexBuffer.Resize(vertexCount * stride);
 			}
 
-			// Helper to read a vertex position straight out of the interleaved buffer.
 			auto readPos = [&](u32 vIdx) -> Vec3
 			{
 				Vec3 p;
@@ -202,8 +198,6 @@ namespace Skore
 				{
 					if (p.indexCount == 0)
 					{
-						// Leave a valid (degenerate) AABB so culling doesn't reject the instance
-						// due to default {F32_MAX, F32_LOW} bounds.
 						p.aabb = AABB(Vec3(0, 0, 0), Vec3(0, 0, 0));
 						continue;
 					}
@@ -221,9 +215,6 @@ namespace Skore
 
 			computePrimAABBs(indices, primitives);
 
-			// === Build LODs ===
-			// Reserve up front so subsequent EmplaceBacks don't reallocate the outer
-			// storage and invalidate references into lodIndices[0] / lodPrims[0].
 			u32 maxLods = (settings.generateLODs && !hasBones) ? Math::Max(settings.lodCount, 1u) : 1u;
 
 			Array<Array<u32>>           lodIndices;
@@ -250,7 +241,6 @@ namespace Skore
 					{
 						if (p.indexCount < 6)
 						{
-							// too small to simplify — carry the primitive as-is
 							MeshPrimitive np = p;
 							np.firstIndex = newIdx.Size();
 							for (u32 i = 0; i < p.indexCount; i++) newIdx.EmplaceBack(srcIdx[p.firstIndex + i]);
@@ -260,31 +250,13 @@ namespace Skore
 
 						size_t target = static_cast<size_t>(p.indexCount * reduction);
 						target -= target % 3;
-						// Allow simplification down to a single triangle so the most
-						// aggressive LODs (e.g. lod 7 at 0.5^7 ≈ 0.78%) can actually shrink
-						// small primitives. The got<3 fallback below guarantees at least
-						// one triangle is emitted.
 						if (target < 3) target = 3;
 
 						Array<u32> tmp;
 						tmp.Resize(p.indexCount);
 
-						// Pass normal (3 floats) + uv0 (2 floats) as attribute metric so the
-						// simplifier penalises collapses across UV seams and hard normal edges.
-						// These attributes are stored contiguously in the interleaved buffer
-						// starting at offset sizeof(Vec3) (position is always first).
 						const float attribWeights[5] = {0.5f, 0.5f, 0.5f, 1.0f, 1.0f};
-
-						// meshopt_SimplifyLockBorder: never move topological-border vertices.
-						// Essential for scenes like Sponza where one primitive contains many
-						// disconnected components — without this, edge vertices of each piece
-						// collapse inward and the mesh tears apart. Godot uses the same flag.
 						const unsigned int simplifyOptions = meshopt_SimplifyLockBorder;
-
-						// Scale error budget per LOD (Godot-style). LOD 1 uses half the
-						// configured base error; each subsequent LOD doubles. This lets later
-						// LODs actually reach their reduction targets — a fixed budget makes
-						// the simplifier give up early on aggressive LODs.
 						float effectiveError = settings.lodTargetError * std::pow(2.0f, static_cast<float>(lod) - 1.0f);
 
 						float  resultError = 0.0f;
@@ -299,13 +271,6 @@ namespace Skore
 							nullptr,
 							target, effectiveError, simplifyOptions, &resultError);
 
-						// Intentionally no meshopt_simplifySloppy fallback: it doesn't respect
-						// attributes or borders and will mangle disconnected geometry. If the
-						// quality simplifier can't reach the target index count, we just keep
-						// fewer simplifications — correctness over reduction ratio.
-
-						// Always emit a primitive per LOD so runtime can index by primitive.
-						// Fall back to the first triangle from the source if simplification collapsed.
 						if (got < 3)
 						{
 							got = 3;
@@ -332,7 +297,6 @@ namespace Skore
 
 					computePrimAABBs(newIdx, newPrims);
 
-					// Stop once a level barely shrinks the previous one.
 					u64 prevTotal = 0;
 					for (const auto& p : lodPrims.Back()) prevTotal += p.indexCount;
 					if (newIdx.Size() >= prevTotal * 95 / 100) break;
@@ -342,7 +306,6 @@ namespace Skore
 				}
 			}
 
-			// === Write buffer: [vertices][lod0 idx][lod0 prims][lod1 idx][lod1 prims]... ===
 			u64 vertexBufferSize = static_cast<u64>(vertexCount) * stride;
 
 			Array<u64> idxOffsets;
@@ -383,13 +346,6 @@ namespace Skore
 				lodObj.SetUInt(MeshLodResource::IndicesCount, lodIndices[i].Size());
 				lodObj.SetUInt(MeshLodResource::PrimitiveOffset, primOffsets[i]);
 				lodObj.SetUInt(MeshLodResource::PrimitiveCount, lodPrims[i].Size());
-				// Distance-factor threshold: switch to LOD k when (camera-distance /
-				// instance-radius) >= lodSwitchDistance * 2^(k-1). With the default
-				// lodSwitchDistance=8, LOD 1 activates at 8×radius and each subsequent
-				// LOD doubles (16, 32, 64, …). LOD 0 is the fallback — its stored
-				// value is irrelevant since the cull never compares against it. The
-				// field is still called "ScreenSize" in the resource for compatibility,
-				// but the cull shader treats it as a distance/radius ratio.
 				float threshold = settings.lodSwitchDistance * std::pow(2.0f, static_cast<float>(i) - 1.0f);
 				lodObj.SetFloat(MeshLodResource::ScreenSize, threshold);
 				lodObj.Commit(scope);

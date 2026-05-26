@@ -304,6 +304,7 @@ namespace Skore
 		//   binding 2: LightBuffer (populated by DefaultLightSetupPass)
 		//   binding 3: shadowMapTexture (populated by DefaultLightSetupPass)
 		//   binding 4: shadowMapSampler (populated by DefaultLightSetupPass)
+		//   binding 6: sceneTLAS (populated each frame from RenderSceneObjects, only when RT is supported)
 		DescriptorSetDesc desc;
 		desc.bindings = {
 			DescriptorSetLayoutBinding{
@@ -327,6 +328,13 @@ namespace Skore
 				.descriptorType = DescriptorType::Sampler
 			}
 		};
+		if (Graphics::GetDevice()->GetFeatures().rayTracing)
+		{
+			desc.bindings.EmplaceBack(DescriptorSetLayoutBinding{
+				.binding = 6,
+				.descriptorType = DescriptorType::AccelerationStructure
+			});
+		}
 		desc.debugName = "SceneRendererViewport_descriptorSet";
 
 		for (int i = 0; i < SK_FRAMES_IN_FLIGHT; ++i)
@@ -622,6 +630,15 @@ namespace Skore
 			}
 
 			sceneDescriptorSets[currentFrame]->UpdateBuffer(1, scene->renderObjects.instanceDataBuffer, 0, 0);
+
+			if (Graphics::GetDevice()->GetFeatures().rayTracing && scene->renderObjects.tlas)
+			{
+				DescriptorUpdate tlasUpdate;
+				tlasUpdate.type = DescriptorType::AccelerationStructure;
+				tlasUpdate.binding = 6;
+				tlasUpdate.topLevelAS = scene->renderObjects.tlas;
+				sceneDescriptorSets[currentFrame]->Update(tlasUpdate);
+			}
 
 			for (auto& module : modules)
 			{
