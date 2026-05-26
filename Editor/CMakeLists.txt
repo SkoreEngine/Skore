@@ -16,6 +16,7 @@ target_link_libraries(SkoreEditor PUBLIC
 				dxc
 				cgltf
 				ufbx
+				meshoptimizer
 				SPIRV-Reflect
 				base64
 				stb

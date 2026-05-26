@@ -1,6 +1,8 @@
 #ifndef SK_VERTEX_PULLING_HLSLI
 #define SK_VERTEX_PULLING_HLSLI
 
+#include "Common.hlsli"
+
 struct VertexLayoutOffset
 {
 	uint stride;
@@ -17,8 +19,26 @@ struct VertexLayoutOffset
 	uint pad2;
 };
 
-ByteAddressBuffer MeshDataBuffer : register(t4, space0);
-ConstantBuffer<VertexLayoutOffset> VertexLayouts[] : register(b5, space0);
+struct MeshLODInfo
+{
+	uint  firstIndex;   // absolute index in MeshDataBuffer (mesh base + lod offset + primitive offset)
+	uint  indexCount;
+	float screenSize;   // switch threshold — switch to this LOD when projected size <= screenSize
+	float pad;
+};
+
+struct MeshPrimitiveInfo
+{
+	uint        lodCount;
+	uint        pad0;
+	uint        pad1;
+	uint        pad2;
+	MeshLODInfo lods[SK_MAX_LODS];
+};
+
+ByteAddressBuffer                       MeshDataBuffer       : register(t4, space0);
+ConstantBuffer<VertexLayoutOffset>      VertexLayouts[]      : register(b5, space0);
+StructuredBuffer<MeshPrimitiveInfo>     MeshLODBuffer        : register(t6, space0);
 
 float3 GetVertexPosition(uint vertexByteOffset, uint layoutIdx, uint vertexId)
 {

@@ -1,6 +1,12 @@
 #include "SceneBindings.hlsli"
+#include "VertexPulling.hlsli"
 
 #define CASCADE_PLANE_COUNT 5
+
+// Shadow draws can tolerate more aggressive simplification than the main view, so we
+// bias the selected LOD up by one. Cascades farther from the camera could go further
+// but a flat +1 covers the common case without per-cascade bookkeeping.
+#define SHADOW_LOD_BIAS 1
 
 struct IndexedIndirectCommand
 {
@@ -13,10 +19,17 @@ struct IndexedIndirectCommand
 
 // One indirect-draw buffer per (cascade, shadowPipeline) bucket.
 // Index: cascadeIndex * shadowPipelineCount + shadowPipelineIndex.
-RWStructuredBuffer<IndexedIndirectCommand> shadowIndirectDraws[] : register(u0);
-RWStructuredBuffer<uint>                   shadowIndirectCount   : register(u1);
+// Pass-specific buffers in space2 — space0/space1 are reserved for global / scene sets.
+RWStructuredBuffer<IndexedIndirectCommand> shadowIndirectDraws[] : register(u0, space2);
+RWStructuredBuffer<uint>                   shadowIndirectCount   : register(u1, space2);
 
-cbuffer ShadowCullData : register(b2)
+struct CullDebugPushConstants
+{
+    int forcedLod; // -1 = auto; >= 0 = force this LOD index across all instances
+};
+[[vk::push_constant]] CullDebugPushConstants cullDebug;
+
+cbuffer ShadowCullData : register(b2, space2)
 {
     // Per-cascade frustum planes. Five planes per cascade in this order:
     // Left, Right, Bottom, Top, Far. The near plane is intentionally omitted —
@@ -47,6 +60,14 @@ bool AABBOnCascade(uint cascadeIndex, float3 aabbMin, float3 aabbMax)
     return true;
 }
 
+float ComputeDistanceFactor(float3 aabbMin, float3 aabbMax)
+{
+    float3 center = (aabbMin + aabbMax) * 0.5;
+    float  radius = max(length((aabbMax - aabbMin) * 0.5), 0.001);
+    float  dist   = length(cameraPosition - center);
+    return dist / radius;
+}
+
 [numthreads(16, 1, 1)]
 void MainCS(uint idx : SV_DispatchThreadID)
 {
@@ -56,6 +77,36 @@ void MainCS(uint idx : SV_DispatchThreadID)
     if (data.shadowPipelineIndex == 0xFFFFFFFF) return;
     if (data.transparent == 1) return;
     if (!any(data.layerMask & cullingMask)) return;
+    if (data.primitiveInfoIndex == 0xFFFFFFFF) return;
+
+    MeshPrimitiveInfo info = MeshLODBuffer[NonUniformResourceIndex(data.primitiveInfoIndex)];
+    if (info.lodCount == 0) return;
+
+    float distFactor = ComputeDistanceFactor(data.aabbMin, data.aabbMax);
+
+    // screenSize field holds 2^lod (distance/radius threshold from importer).
+    uint lod = info.lodCount - 1;
+    while (lod > 0 && distFactor < info.lods[lod].screenSize)
+    {
+        lod--;
+    }
+    // Bias toward simpler geometry for shadow draws.
+    lod = min(lod + SHADOW_LOD_BIAS, info.lodCount - 1);
+
+    // Editor debug override (takes precedence over auto + bias).
+    if (cullDebug.forcedLod >= 0)
+    {
+        lod = min((uint)cullDebug.forcedLod, info.lodCount - 1);
+    }
+
+    // Defensive: walk down to a LOD that actually has geometry.
+    MeshLODInfo lodInfo = info.lods[lod];
+    while (lodInfo.indexCount == 0 && lod > 0)
+    {
+        lod--;
+        lodInfo = info.lods[lod];
+    }
+    if (lodInfo.indexCount == 0) return;
 
     for (uint c = 0; c < SHADOW_MAP_CASCADE_COUNT; ++c)
     {
@@ -65,9 +116,9 @@ void MainCS(uint idx : SV_DispatchThreadID)
         uint index;
         InterlockedAdd(shadowIndirectCount[slot], 1, index);
 
-        shadowIndirectDraws[slot][index].indexCount            = data.indexCount;
+        shadowIndirectDraws[slot][index].indexCount            = lodInfo.indexCount;
         shadowIndirectDraws[slot][index].instanceCount         = 1;
-        shadowIndirectDraws[slot][index].firstIndex            = data.firstIndex;
+        shadowIndirectDraws[slot][index].firstIndex            = lodInfo.firstIndex;
         shadowIndirectDraws[slot][index].vertexOffset          = 0;
         shadowIndirectDraws[slot][index].startInstanceLocation = idx;
     }

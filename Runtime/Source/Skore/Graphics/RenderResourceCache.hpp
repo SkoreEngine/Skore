@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "Device.hpp"
+#include "GraphicsCommon.hpp"
 #include "GraphicsResources.hpp"
 #include "Skore/Common.hpp"
 #include "Skore/Core/Array.hpp"
@@ -153,6 +154,25 @@ namespace Skore
 		Array<Mat4> poses;
 	};
 
+	// GPU layout — must match HLSL MeshLODInfo / MeshPrimitiveInfo in VertexPulling.hlsli.
+	struct GpuMeshLODInfo
+	{
+		u32 firstIndex; // absolute index in MeshDataBuffer
+		u32 indexCount;
+		f32 screenSize;
+		f32 pad;
+	};
+
+	struct GpuMeshPrimitiveInfo
+	{
+		u32            lodCount;
+		u32            pad[3];
+		GpuMeshLODInfo lods[MaxLods];
+	};
+
+	static_assert(sizeof(GpuMeshLODInfo) == 16, "GpuMeshLODInfo must match HLSL MeshLODInfo (16 bytes)");
+	static_assert(sizeof(GpuMeshPrimitiveInfo) == 16 + MaxLods * 16, "GpuMeshPrimitiveInfo must match HLSL MeshPrimitiveInfo");
+
 	struct SK_API MeshResourceCache : ResourceCache
 	{
 		RID rid;
@@ -175,14 +195,23 @@ namespace Skore
 		bool                     wantsBlas = false;
 		Vec2                     lightmapSizeHint = Vec2(0.0f, 0.0f);
 
+		// LOD 0 primitives — used by CPU paths (immediate draws, BLAS, AABB queries).
+		// All LOD index data lives in the shared mesh data buffer; per-LOD per-primitive
+		// (firstIndex, indexCount) is uploaded to the global MeshLODBuffer instead.
 		Array<MeshPrimitive>             primitives;
+
+		// Per-primitive slot into the global MeshLODBuffer. Size = primitives.Size().
+		Array<u32>                       primitiveInfoSlots;
+
 		Array<MaterialResourceCachePtr>  materials;
 
 		AABB aabb;
 
-		// Valid while a vertex/index/BLAS upload is pending on the worker; wait on it to ensure
-		// the buffers are populated (and BLAS, if any, is built) before sampling/ray-tracing.
+		// Resolved once the vertex/index data is uploaded. The mesh can be rendered as soon as
+		// this is ready — BLAS construction (if any) runs in parallel and reports via
+		// blasComplete so ray-tracing pickup can be deferred without holding up scene loading.
 		std::shared_future<void> uploadComplete;
+		std::shared_future<void> blasComplete;
 
 		bool IsLoaded() const
 		{
@@ -190,6 +219,24 @@ namespace Skore
 			if (!uploadComplete.valid()) return true;
 			return uploadComplete.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 		}
+
+		bool IsBlasReady() const
+		{
+			if (!wantsBlas) return true;
+			if (!blasComplete.valid()) return false;
+			return blasComplete.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+		}
+	};
+
+	// Editor/debug overrides consumed by the GPU culling passes. Live in Runtime so
+	// runtime code can read them, but only mutated by the editor (e.g. a SliderInt
+	// in the viewport-options popup). Exposed as a function returning a reference
+	// because MSVC doesn't reliably link static data members across DLLs without
+	// dllimport (the codebase always uses dllexport).
+	struct SK_API RenderDebug
+	{
+		// -1 = use computed LOD; 0..MaxLods-1 = force this LOD index across all instances.
+		static i32& ForcedLod();
 	};
 
 	struct SK_API RenderResourceCache

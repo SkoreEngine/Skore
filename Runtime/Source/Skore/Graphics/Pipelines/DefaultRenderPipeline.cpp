@@ -413,11 +413,15 @@ namespace Skore
 				.descriptorSetsOverride = {
 					DescriptorSetOverride{
 						.set = 0,
-						.descriptorSet = descriptorSet[0]
+						.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
 					},
 					DescriptorSetOverride{
 						.set = 1,
 						.descriptorSet = context->GetSceneDescriptorSet(0)
+					},
+					DescriptorSetOverride{
+						.set = 2,
+						.descriptorSet = descriptorSet[0]
 					}
 				}
 			});
@@ -518,8 +522,12 @@ namespace Skore
 
 				cmd->BindPipeline(pipeline);
 
-				cmd->BindDescriptorSet(pipeline, 0,  descriptorSet[context->GetCurrentFrame()]);
+				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
 				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 2, descriptorSet[context->GetCurrentFrame()]);
+
+				i32 forcedLod = RenderDebug::ForcedLod();
+				cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(i32), &forcedLod);
 
 				cmd->Dispatch((scene->renderObjects.instanceDataCount + 15) / 16, 1, 1);
 
