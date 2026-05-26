@@ -384,11 +384,14 @@ namespace Skore
 				lodObj.SetUInt(MeshLodResource::PrimitiveOffset, primOffsets[i]);
 				lodObj.SetUInt(MeshLodResource::PrimitiveCount, lodPrims[i].Size());
 				// Distance-factor threshold: switch to LOD k when (camera-distance /
-				// instance-radius) >= 2^k. Doubling each step gives a conservative
-				// schedule — LOD 1 at 2×radius, LOD 7 at 128×radius. The field is
-				// still called "ScreenSize" in the resource for compatibility, but the
-				// cull shader now interprets it as a distance/radius ratio.
-				lodObj.SetFloat(MeshLodResource::ScreenSize, std::pow(2.0f, static_cast<float>(i)));
+				// instance-radius) >= lodSwitchDistance * 2^(k-1). With the default
+				// lodSwitchDistance=8, LOD 1 activates at 8×radius and each subsequent
+				// LOD doubles (16, 32, 64, …). LOD 0 is the fallback — its stored
+				// value is irrelevant since the cull never compares against it. The
+				// field is still called "ScreenSize" in the resource for compatibility,
+				// but the cull shader treats it as a distance/radius ratio.
+				float threshold = settings.lodSwitchDistance * std::pow(2.0f, static_cast<float>(i) - 1.0f);
+				lodObj.SetFloat(MeshLodResource::ScreenSize, threshold);
 				lodObj.Commit(scope);
 				meshLODs.EmplaceBack(lodRID);
 			}
