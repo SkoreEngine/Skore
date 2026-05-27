@@ -11,10 +11,15 @@ namespace Skore
 {
 	ConsoleSink& GetConsoleSink();
 
-	void ConsoleWindow::Draw(u32 id, bool& open)
+	const char* ConsoleWindow::GetTitle() const
+	{
+		return ICON_FA_TERMINAL " Console";
+	}
+
+	void ConsoleWindow::Draw(bool& open)
 	{
 		ImGui::SetNextWindowSize(ImVec2(520, 600), ImGuiCond_FirstUseEver);
-		if(!ImGuiBegin(id, ICON_FA_TERMINAL " Console", &open))
+		if(!ImGuiBegin(this, &open))
 		{
 			ImGui::End();
 			return;

@@ -31,11 +31,16 @@ namespace Skore
 		}
 	}
 
-	void DebuggerWindow::Init(u32 id, VoidPtr userData)
+	const char* DebuggerWindow::GetTitle() const
+	{
+		return ICON_FA_BUG " Debugger";
+	}
+
+	void DebuggerWindow::Init(VoidPtr userData)
 	{
 	}
 
-	void DebuggerWindow::Draw(u32 id, bool& open)
+	void DebuggerWindow::Draw(bool& open)
 	{
 		ImGuiStyle&    style = ImGui::GetStyle();
 		ImVec2         pad = style.WindowPadding;
@@ -45,7 +50,7 @@ namespace Skore
 		ScopedStyleColor windowBg(ImGuiCol_WindowBg, IM_COL32(2, 3, 5, 255));
 		ScopedStyleVar itemSpace(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 
-		if(!ImGuiBegin(id, ICON_FA_BUG " Debugger", &open))
+		if(!ImGuiBegin(this, &open))
 		{
 			ImGui::End();
 			return;

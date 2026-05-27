@@ -23,7 +23,12 @@ namespace Skore
 		};
 	};
 
-	void AnimatorTreeViewWindow::Init(u32 id, VoidPtr userData)
+	const char* AnimatorTreeViewWindow::GetTitle() const
+	{
+		return ICON_FA_LIST " Animator Tree";
+	}
+
+	void AnimatorTreeViewWindow::Init(VoidPtr userData)
 	{
 		m_windowState = Resources::Create<AnimatorTreeWindowState>();
 		Resources::FindType<AnimatorTreeWindowState>()->RegisterEvent(ResourceEventType::Changed, OnTreeSelectionChange, this);
@@ -127,9 +132,9 @@ namespace Skore
 		EventHandler<OnResourceSelection>{}.Invoke(window->workspace->GetId(), resourceForProperties);
 	}
 
-	void AnimatorTreeViewWindow::Draw(u32 id, bool& open)
+	void AnimatorTreeViewWindow::Draw(bool& open)
 	{
-		if (!ImGuiBegin(id, ICON_FA_LIST " Animator Tree", &open, ImGuiWindowFlags_NoScrollbar))
+		if (!ImGuiBegin(this, &open, ImGuiWindowFlags_NoScrollbar))
 		{
 			ImGui::End();
 			return;

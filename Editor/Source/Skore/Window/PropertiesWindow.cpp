@@ -540,9 +540,14 @@ namespace Skore
 		}
 	}
 
-	void PropertiesWindow::Draw(u32 id, bool& open)
+	const char* PropertiesWindow::GetTitle() const
 	{
-		ImGuiBegin(id, ICON_FA_CIRCLE_INFO " Properties", &open, ImGuiWindowFlags_NoScrollbar);
+		return ICON_FA_CIRCLE_INFO " Properties";
+	}
+
+	void PropertiesWindow::Draw(bool& open)
+	{
+		ImGuiBegin(this, &open, ImGuiWindowFlags_NoScrollbar);
 		if (selectedEntity)
 		{
 			SceneEditor* sceneEditor = workspace->GetSceneEditor();

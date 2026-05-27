@@ -17,7 +17,8 @@ namespace Skore
 
 		PropertiesWindow();
 		~PropertiesWindow() override;
-		void Draw(u32 id, bool& open) override;
+		const char* GetTitle() const override;
+		void        Draw(bool& open) override;
 
 		static void RegisterType(NativeReflectType<PropertiesWindow>& type);
 

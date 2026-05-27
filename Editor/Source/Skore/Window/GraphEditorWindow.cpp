@@ -8,7 +8,12 @@
 
 namespace Skore
 {
-	void GraphEditorWindow::Init(u32 id, VoidPtr userData)
+	const char* GraphEditorWindow::GetTitle() const
+	{
+		return ICON_FA_DIAGRAM_PROJECT " Graph Editor";
+	}
+
+	void GraphEditorWindow::Init(VoidPtr userData)
 	{
 		// Add some test nodes
 		{
@@ -161,11 +166,11 @@ namespace Skore
 		addSmLink(runId, deathId);
 	}
 
-	void GraphEditorWindow::Draw(u32 id, bool& open)
+	void GraphEditorWindow::Draw(bool& open)
 	{
 		ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
 		ScopedStyleVar windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-		if (!ImGuiBegin(id, ICON_FA_DIAGRAM_PROJECT " Graph Editor", &open))
+		if (!ImGuiBegin(this, &open))
 		{
 			ImGui::End();
 			return;

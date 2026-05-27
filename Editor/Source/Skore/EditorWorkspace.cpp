@@ -107,7 +107,8 @@ namespace Skore
 				};
 
 				openWindowStorage.instance->workspace = this;
-				openWindowStorage.instance->Init(openWindowStorage.id, userData);
+				openWindowStorage.instance->id = openWindowStorage.id;
+				openWindowStorage.instance->Init(userData);
 
 				m_openWindows.EmplaceBack(openWindowStorage);
 
@@ -160,7 +161,7 @@ namespace Skore
 
 			bool open = true;
 
-			openWindowStorage.instance->Draw(openWindowStorage.id, open);
+			openWindowStorage.instance->Draw(open);
 			if (!open)
 			{
 				openWindowStorage.reflectType->Destroy(openWindowStorage.instance);

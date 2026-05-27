@@ -14,10 +14,15 @@ namespace Skore
 {
 	MenuItemContext AnimatorGraphWindow::menuItemContext;
 
-	void AnimatorGraphWindow::Draw(u32 id, bool& open)
+	const char* AnimatorGraphWindow::GetTitle() const
+	{
+		return ICON_FA_DIAGRAM_PROJECT " Animator Graph";
+	}
+
+	void AnimatorGraphWindow::Draw(bool& open)
 	{
 		ScopedStyleVar windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-		if (!ImGuiBegin(id, ICON_FA_DIAGRAM_PROJECT " Animator Graph", &open))
+		if (!ImGuiBegin(this, &open))
 		{
 			ImGui::End();
 			return;

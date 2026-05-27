@@ -813,18 +813,18 @@ namespace Skore
 		                  1.f * style.ScaleFactor);
 	}
 
-	bool ImGuiBegin(u32 id, const char* name, bool* pOpen, ImGuiWindowFlags flags)
+	bool ImGuiBegin(EditorWindow* window, bool* pOpen, ImGuiWindowFlags flags)
 	{
 		ImGuiStyle& style = ImGui::GetStyle();
 
 		ImGui::SetNextWindowSize(ImVec2(1024, 576) * scaleFactor, ImGuiCond_Once);
 
 		char str[100];
-		sprintf(str, "%s###%d", name, id);
+		sprintf(str, "%s###%u", window->GetTitle(), window->id);
 		bool open = ImGui::Begin(str, pOpen, flags);
 		if (open && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByPopup | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
 		{
-			nextHoveredWindowId = id;
+			nextHoveredWindowId = window->id;
 		}
 		return open;
 	}

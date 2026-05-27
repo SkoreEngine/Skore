@@ -16,7 +16,12 @@
 
 namespace Skore
 {
-	void SettingsWindow::Init(u32 id, VoidPtr userData)
+	const char* SettingsWindow::GetTitle() const
+	{
+		return title.CStr();
+	}
+
+	void SettingsWindow::Init(VoidPtr userData)
 	{
 		settingsType = TypeID{PtrToInt(userData)};
 
@@ -111,7 +116,7 @@ namespace Skore
 		}
 	}
 
-	void SettingsWindow::Draw(u32 id, bool& open)
+	void SettingsWindow::Draw(bool& open)
 	{
 		auto&  style = ImGui::GetStyle();
 		ImVec2 padding = style.WindowPadding;
@@ -121,7 +126,7 @@ namespace Skore
 
 		ImGuiCenterWindow(ImGuiCond_Appearing);
 
-		ImGuiBegin(id, title.CStr(), &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDocking);
+		ImGuiBegin(this, &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDocking);
 
 		if (ImGui::BeginTable("settings-windows-table", 2, ImGuiTableFlags_Resizable))
 		{

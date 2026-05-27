@@ -12,7 +12,8 @@ namespace Skore
 	public:
 		SK_CLASS(ConsoleWindow, EditorWindow);
 
-		void Draw(u32 id, bool& open) override;
+		const char* GetTitle() const override;
+		void        Draw(bool& open) override;
 
 		static void RegisterType(NativeReflectType<ConsoleWindow>& type);
 		static void OpenHistoryWindow(const MenuItemEventData& eventData);

@@ -13,8 +13,9 @@ namespace Skore
 		SK_CLASS(EntityTreeWindow, EditorWindow);
 
 
-		void Init(u32 id, VoidPtr userData) override;
-		void Draw(u32 id, bool& open) override;
+		const char* GetTitle() const override;
+		void        Init(VoidPtr userData) override;
+		void        Draw(bool& open) override;
 
 		static void AddMenuItem(const MenuItemCreation& menuItem);
 		static void AddSceneEntity(const MenuItemEventData& eventData);

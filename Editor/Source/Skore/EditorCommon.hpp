@@ -87,10 +87,12 @@ namespace Skore
 		SK_CLASS(EditorWindow, Object);
 
 		EditorWorkspace* workspace = nullptr;
+		u32              id = 0;
 
-		virtual void Init(u32 id, VoidPtr userData) {}
-		virtual void Draw(u32 id, bool& open) = 0;
-		virtual void Render(GPUCommandBuffer* cmd) {}
+		virtual void        Init(VoidPtr userData) {}
+		virtual const char* GetTitle() const = 0;
+		virtual void        Draw(bool& open) = 0;
+		virtual void        Render(GPUCommandBuffer* cmd) {}
 	};
 
 	typedef void (*FnWindowIterationCallback)(EditorWindow* window, VoidPtr userdata);

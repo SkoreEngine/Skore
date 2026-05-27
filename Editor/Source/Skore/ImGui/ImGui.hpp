@@ -14,6 +14,7 @@ namespace Skore
 	class Asset;
 
 	class Object;
+	struct EditorWindow;
 	struct ImGuiDrawFieldContext;
 	class ReflectType;
 	class ReflectField;
@@ -201,7 +202,7 @@ namespace Skore
 	SK_API ImTextureID GetImGuiTextureId(GPUTextureView* textureView, GPUSampler* sampler = nullptr);
 
 	SK_API void ImGuiCreateDockSpace(ImGuiID dockSpaceId);
-	SK_API bool ImGuiBegin(u32 id, const char* name, bool* pOpen, ImGuiWindowFlags flags = 0);
+	SK_API bool ImGuiBegin(EditorWindow* window, bool* pOpen, ImGuiWindowFlags flags = 0);
 	SK_API bool ImGuiBeginFullscreen(uint32_t id, bool* pOpen = nullptr, ImGuiWindowFlags flags = 0);
 	SK_API void ImGuiCenterWindow(ImGuiCond cond);
 	SK_API u32  ImGuiHoveredWindowId();

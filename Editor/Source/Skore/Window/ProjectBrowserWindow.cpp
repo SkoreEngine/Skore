@@ -405,7 +405,12 @@ namespace Skore
 		}
 	}
 
-	void ProjectBrowserWindow::Init(u32 id, VoidPtr userData)
+	const char* ProjectBrowserWindow::GetTitle() const
+	{
+		return ICON_FA_FOLDER " Project Browser";
+	}
+
+	void ProjectBrowserWindow::Init(VoidPtr userData)
 	{
 		ResourceObject packageProject = Resources::Read(Editor::GetProject());
 		windowObjectRID = Resources::Create<ProjectBrowserWindowData>();
@@ -414,7 +419,7 @@ namespace Skore
 		obj.Commit();
 	}
 
-	void ProjectBrowserWindow::Draw(u32 id, bool& open)
+	void ProjectBrowserWindow::Draw(bool& open)
 	{
 		lastOpenedWindow = this;
 
@@ -433,7 +438,7 @@ namespace Skore
 		ScopedStyleVar cellPadding(ImGuiStyleVar_CellPadding, ImVec2(0, 0));
 
 		ScopedStyleColor tableBorderStyleColor(ImGuiCol_TableBorderLight, IM_COL32(0, 0, 0, 0));
-		ImGuiBegin(id, ICON_FA_FOLDER " Project Browser", &open, ImGuiWindowFlags_NoScrollbar);
+		ImGuiBegin(this, &open, ImGuiWindowFlags_NoScrollbar);
 
 		//top child
 		{
