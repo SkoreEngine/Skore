@@ -77,6 +77,7 @@ namespace Skore
 		GPUBuffer* meshPrimitiveInfoBuffer = nullptr;
 		u32        meshPrimitiveInfoBufferCapacity = 0;
 		u32        meshPrimitiveInfoCount = 0;
+		std::mutex primitiveInfoMutex;
 
 		enum class WorkerType : u32
 		{
@@ -630,32 +631,42 @@ namespace Skore
 								Array<GeometryDesc>      geometries(primitiveCount);
 								u64                      maxScratch = 0;
 
-								const GpuMeshPrimitiveInfo* lodInfoBuffer =
-									meshPrimitiveInfoBuffer
-										? static_cast<const GpuMeshPrimitiveInfo*>(meshPrimitiveInfoBuffer->GetMappedData())
-										: nullptr;
-
-								for (u32 p = 0; p < primitiveCount; ++p)
+								struct PrimLodSnapshot { u32 firstIndex; u32 indexCount; };
+								Array<PrimLodSnapshot> primLod(primitiveCount);
 								{
-									const MeshPrimitive& prim = meshCache->primitives[p];
+									std::scoped_lock lock(primitiveInfoMutex);
+									const GpuMeshPrimitiveInfo* lodInfoBuffer =
+										meshPrimitiveInfoBuffer
+											? static_cast<const GpuMeshPrimitiveInfo*>(meshPrimitiveInfoBuffer->GetMappedData())
+											: nullptr;
 
-									u32 firstIndexUnits = prim.firstIndex + static_cast<u32>(indexDstOffset / sizeof(u32));
-									u32 indexCountForBlas = prim.indexCount;
-
-									if (lodInfoBuffer && p < meshCache->primitiveInfoSlots.Size())
+									for (u32 p = 0; p < primitiveCount; ++p)
 									{
-										u32 slot = meshCache->primitiveInfoSlots[p];
-										if (slot != U32_MAX)
+										const MeshPrimitive& prim = meshCache->primitives[p];
+										primLod[p].firstIndex = prim.firstIndex + static_cast<u32>(indexDstOffset / sizeof(u32));
+										primLod[p].indexCount = prim.indexCount;
+
+										if (lodInfoBuffer && p < meshCache->primitiveInfoSlots.Size())
 										{
-											const GpuMeshPrimitiveInfo& info = lodInfoBuffer[slot];
-											if (info.lodCount > 0)
+											u32 slot = meshCache->primitiveInfoSlots[p];
+											if (slot != U32_MAX)
 											{
-												u32 lodIdx = std::min(BlasLod, info.lodCount - 1);
-												firstIndexUnits   = info.lods[lodIdx].firstIndex;
-												indexCountForBlas = info.lods[lodIdx].indexCount;
+												const GpuMeshPrimitiveInfo& info = lodInfoBuffer[slot];
+												if (info.lodCount > 0)
+												{
+													u32 lodIdx = std::min(BlasLod, info.lodCount - 1);
+													primLod[p].firstIndex = info.lods[lodIdx].firstIndex;
+													primLod[p].indexCount = info.lods[lodIdx].indexCount;
+												}
 											}
 										}
 									}
+								}
+
+								for (u32 p = 0; p < primitiveCount; ++p)
+								{
+									u32 firstIndexUnits   = primLod[p].firstIndex;
+									u32 indexCountForBlas = primLod[p].indexCount;
 
 									geometries[p] = GeometryDesc{};
 									geometries[p].type = GeometryType::Triangles;
@@ -989,6 +1000,7 @@ namespace Skore
 
 		u32 AllocatePrimitiveInfoSlot()
 		{
+			std::scoped_lock lock(primitiveInfoMutex);
 			if (!freePrimitiveInfoSlots.Empty())
 			{
 				u32 idx = freePrimitiveInfoSlots.Back();
@@ -998,6 +1010,7 @@ namespace Skore
 			return nextPrimitiveInfoSlot++;
 		}
 
+		// Caller must hold primitiveInfoMutex.
 		void EnsurePrimitiveInfoCapacity(u32 requiredCapacity)
 		{
 			if (requiredCapacity <= meshPrimitiveInfoBufferCapacity) return;
@@ -1033,6 +1046,7 @@ namespace Skore
 
 		void WriteMeshPrimitiveInfo(u32 slot, const GpuMeshPrimitiveInfo& info)
 		{
+			std::scoped_lock lock(primitiveInfoMutex);
 			EnsurePrimitiveInfoCapacity(slot + 1);
 
 			GpuMeshPrimitiveInfo* mapped = static_cast<GpuMeshPrimitiveInfo*>(meshPrimitiveInfoBuffer->GetMappedData());
@@ -1047,6 +1061,7 @@ namespace Skore
 		void FreePrimitiveInfoSlot(u32 slot)
 		{
 			if (slot == U32_MAX) return;
+			std::scoped_lock lock(primitiveInfoMutex);
 			freePrimitiveInfoSlots.EmplaceBack(slot);
 		}
 

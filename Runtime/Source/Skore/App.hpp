@@ -7,6 +7,7 @@
 namespace Skore
 {
 	class ArgParser;
+	class ThreadPool;
 
 	enum class AppResult
 	{
@@ -57,6 +58,7 @@ namespace Skore
 		static void       SetTargetFPS(u32 fps); // 0 = unlimited
 		static u32        GetTargetFPS();
 		static void       RunOnMainThread(const std::function<void()>& callback);
+		static ThreadPool& GetThreadPool();
 		static void       LoadPlugin(StringView path);
 		static bool       ReloadedEnabled();
 		static void       SetReloadEnabled(bool enabled);

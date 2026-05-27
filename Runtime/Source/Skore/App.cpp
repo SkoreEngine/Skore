@@ -11,6 +11,7 @@
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Settings.hpp"
+#include "Skore/Core/ThreadPool.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/IO/FileSystem.hpp"
@@ -82,6 +83,8 @@ namespace Skore
 
 		std::mutex                   mutex;
 		Array<std::function<void()>> funcs;
+
+		std::unique_ptr<ThreadPool> threadPool;
 
 		Logger& logger = Logger::GetLogger("Skore::App");
 
@@ -155,6 +158,8 @@ namespace Skore
 
 		Profiler::Shutdown();
 		onShutdownHandler.Invoke();
+
+		threadPool.reset();
 
 		AudioEngineShutdown();
 		PhysicsShutdown();
@@ -356,6 +361,15 @@ namespace Skore
 	{
 		std::lock_guard lock(mutex);
 		funcs.EmplaceBack(callback);
+	}
+
+	ThreadPool& App::GetThreadPool()
+	{
+		if (!threadPool)
+		{
+			threadPool = std::make_unique<ThreadPool>();
+		}
+		return *threadPool;
 	}
 
 	void App::LoadPlugin(StringView path)

@@ -1284,7 +1284,7 @@ namespace Skore
 			{
 				if (RID defaultEditorScene = sceneSettingsObject.GetReference(SceneSettings::DefaultEditorScene))
 				{
-					workspaces[0]->GetSceneEditor()->OpenEntity(defaultEditorScene);
+					workspaces[0]->GetSceneEditor()->OpenScene(defaultEditorScene);
 				}
 			}
 		}
