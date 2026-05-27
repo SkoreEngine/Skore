@@ -24,6 +24,7 @@ namespace Skore
 
 		// Window management
 		void OpenWindow(TypeID windowType, VoidPtr userData = nullptr);
+		void OpenWindowWithId(TypeID windowType, u32 windowId, VoidPtr userData = nullptr);
 
 		template <typename T>
 		void OpenWindow(VoidPtr userData = nullptr)
@@ -31,10 +32,12 @@ namespace Skore
 			OpenWindow(TypeInfo<T>::ID(), userData);
 		}
 		void InitDockSpace();
+		void ResetLayout();
 		void DrawWindows();
 		void IterateWindows(FnWindowIterationCallback callback, VoidPtr userData = nullptr);
 		void DestroyAllWindows();
 		bool AnyWindowOfTypeHovered(TypeID windowType) const;
+		bool IsWindowIdInUse(u32 windowId) const;
 		u32  GetDockSpaceId() const;
 		void DoUpdate();
 
@@ -61,6 +64,7 @@ namespace Skore
 		u32  m_leftDockId{};
 
 		u32 GetDockId(DockPosition dockPosition) const;
+		void OpenWindowInternal(TypeID windowType, u32 windowId, VoidPtr userData, bool dockToDefault, bool autoFocus);
 
 		static void WorkspaceStateChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 	};

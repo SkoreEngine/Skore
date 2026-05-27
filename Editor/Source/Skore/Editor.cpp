@@ -9,6 +9,7 @@
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
 
+#include "Skore/EditorLayout.hpp"
 #include "Skore/EditorWorkspace.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -168,7 +169,6 @@ namespace Skore
 		std::unique_ptr<ThreadPool> threadPool;
 
 		MenuItemContext menuContext{};
-		u32             idCounter{100000};
 		bool            showImGuiDemo = false;
 
 		Logger& logger = Logger::GetLogger("Skore::Editor");
@@ -176,6 +176,15 @@ namespace Skore
 		void ShowImGuiDemo(const MenuItemEventData& eventData)
 		{
 			showImGuiDemo = true;
+		}
+
+		void ResetLayoutAction(const MenuItemEventData& eventData)
+		{
+			EditorLayout::ResetAll();
+			for (auto& ws : workspaces)
+			{
+				ws->ResetLayout();
+			}
 		}
 
 		void GetUpdatedItems()
@@ -442,11 +451,14 @@ namespace Skore
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Show Debug Options", .priority = 105, .action = ShowDebugOptions, .selected = IsDebugOptionsEnabled});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window", .priority = 60});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Help", .priority = 70});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Reset Layout", .priority = I32_MAX - 1, .action = ResetLayoutAction});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Dear ImGui Demo", .priority = I32_MAX, .action = ShowImGuiDemo});
 		}
 
 		void Shutdown()
 		{
+			EditorLayout::Shutdown();
+
 			threadPool = {};
 			menuContext = {};
 
@@ -466,8 +478,6 @@ namespace Skore
 
 			editorWorkspaceTypeDescs.Clear();
 			editorWorkspaceTypeDescs.ShrinkToFit();
-
-			idCounter = 100000;
 
 			undoActions.Clear();
 			undoActions.ShrinkToFit();
@@ -827,6 +837,8 @@ namespace Skore
 			active.InitDockSpace();
 			active.DrawWindows();
 
+			EditorLayout::Flush();
+
 			if (showImGuiDemo)
 			{
 				ImGui::ShowDemoWindow(&showImGuiDemo);
@@ -1055,9 +1067,20 @@ namespace Skore
 
 	u32 AllocateWindowId()
 	{
-		u32 id = idCounter;
-		idCounter += 1000;
-		return id;
+		for (u32 candidate = 1; candidate != 0; ++candidate)
+		{
+			bool inUse = false;
+			for (const auto& ws : workspaces)
+			{
+				if (ws->IsWindowIdInUse(candidate))
+				{
+					inUse = true;
+					break;
+				}
+			}
+			if (!inUse) return candidate;
+		}
+		return 0;
 	}
 
 	void ImGuiDrawUndoRedoActions()
@@ -1154,6 +1177,7 @@ namespace Skore
 
 		ShaderManagerInit();
 		ProjectBrowserWindowInit();
+		EditorLayout::Init();
 
 		for (TypeID typeId : Reflection::GetDerivedTypes(TypeInfo<EditorWindow>::ID()))
 		{

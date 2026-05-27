@@ -819,6 +819,12 @@ namespace Skore
 
 		ImGui::SetNextWindowSize(ImVec2(1024, 576) * scaleFactor, ImGuiCond_Once);
 
+		if (window->skipFocusOnFirstAppearance)
+		{
+			flags |= ImGuiWindowFlags_NoFocusOnAppearing;
+			window->skipFocusOnFirstAppearance = false;
+		}
+
 		char str[100];
 		sprintf(str, "%s###%u", window->GetTitle(), window->id);
 		bool open = ImGui::Begin(str, pOpen, flags);
