@@ -65,7 +65,14 @@ namespace Skore
 	{
 		if (!renderable) return;
 		RenderSceneObjects& ro = scene->renderObjects;
-		ro.SetMesh(renderable, m_mesh);
+		if (m_proceduralMesh)
+		{
+			ro.SetMeshCache(renderable, m_proceduralMesh);
+		}
+		else
+		{
+			ro.SetMesh(renderable, m_mesh);
+		}
 		ro.SetMaterials(renderable, CastRIDArray(m_materials));
 		ro.SetCastShadows(renderable, m_castShadows);
 		ro.SetTransform(renderable, entity->GetWorldTransform());
@@ -76,14 +83,27 @@ namespace Skore
 
 	void RendererComponent::SetMesh(RID mesh)
 	{
-		if (m_mesh == mesh) return;
+		if (!m_proceduralMesh && m_mesh == mesh) return;
 		m_mesh = mesh;
+		m_proceduralMesh.reset();
 		if (renderable) scene->renderObjects.SetMesh(renderable, mesh);
 	}
 
 	RID RendererComponent::GetMesh() const
 	{
 		return m_mesh;
+	}
+
+	void RendererComponent::SetMeshCache(MeshResourceCachePtr meshCache)
+	{
+		m_proceduralMesh = std::move(meshCache);
+		m_mesh = {};
+		if (renderable) scene->renderObjects.SetMeshCache(renderable, m_proceduralMesh);
+	}
+
+	MeshResourceCachePtr RendererComponent::GetMeshCache() const
+	{
+		return m_proceduralMesh;
 	}
 
 	void RendererComponent::SetCastShadows(bool castShadows)

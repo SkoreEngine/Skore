@@ -1,8 +1,11 @@
 #include "Skore/Main.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Platform/Platform.hpp"
 #include "Skore/Project/ProjectManager.hpp"
 #include "Skore/Core/ArgParser.hpp"
 #include "Skore/Core/Sinks.hpp"
+#include "Skore/Utils/StaticContent.hpp"
 
 namespace Skore
 {
@@ -48,6 +51,11 @@ namespace Skore
 		if (App::CreateContext(appConfig) != AppResult::Continue)
 		{
 			return 1;
+		}
+
+		{
+			StaticContent::Image icon = StaticContent::GetImage("Content/Images/LogoSmall.jpeg");
+			Platform::SetWindowIcon(Graphics::GetWindow(), icon.pixels.Data(), icon.width, icon.height);
 		}
 
 		ImGuiInit();

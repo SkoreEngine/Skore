@@ -108,6 +108,9 @@ namespace Skore
 		void SetMesh(RenderableObject obj, RID mesh);
 		RID  GetMesh(RenderableObject obj) const;
 
+		void                 SetMeshCache(RenderableObject obj, MeshResourceCachePtr meshCache);
+		MeshResourceCachePtr GetMeshCache(RenderableObject obj) const;
+
 		void      SetMaterials(RenderableObject obj, Span<RID> materials);
 		Span<RID> GetMaterials(RenderableObject obj) const;
 

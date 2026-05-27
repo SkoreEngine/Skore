@@ -1082,16 +1082,25 @@ namespace Skore
 
 	SK_API void EditorInit(StringView projectFile)
 	{
-		threadPool = std::make_unique<ThreadPool>();
 
 		if (projectFile.Empty())
 		{
-			logger.Error("Project path is empty");
+			logger.Error("Project file is empty");
 			App::RequestShutdown();
 			return;
 		}
 
+		if (Path::Extension(projectFile) != ".skore")
+		{
+			auto error = fmt::format("Project file \"{}\" is not a skore project, \nEngine will close", projectFile);
+			Platform::ShowSimpleMessageBox(MessageBoxType::Error, "Initialization Error", error.c_str(), {});
+			App::RequestShutdown();
+			return;
+		}
+
+		threadPool = std::make_unique<ThreadPool>();
 		projectPath = Path::Parent(projectFile);
+
 		projectAssetPath = Path::Join(projectPath, "Assets");
 		projectPackagePath = Path::Join(projectPath, "Packages");
 		projectLocalPath = Path::Join(projectPath, "Local");
@@ -1173,6 +1182,7 @@ namespace Skore
 			return l.order < r.order;
 		});
 
+		logger.Debug("projectSettingsPath {}", projectSettingsPath);
 		if (!FileSystem::GetFileStatus(projectSettingsPath).exists)
 		{
 			YamlArchiveWriter writer;

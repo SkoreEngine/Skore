@@ -28,6 +28,9 @@ namespace Skore
 		void SetMesh(RID mesh);
 		RID  GetMesh() const;
 
+		void                 SetMeshCache(MeshResourceCachePtr meshCache);
+		MeshResourceCachePtr GetMeshCache() const;
+
 		void SetCastShadows(bool castShadows);
 		bool GetCastShadows() const;
 
@@ -53,6 +56,7 @@ namespace Skore
 		TypedRID<MeshResource> m_mesh = {};
 		MaterialArray          m_materials = {};
 		bool                   m_castShadows = true;
+		MeshResourceCachePtr   m_proceduralMesh;
 
 		RenderableObject renderable = {};
 

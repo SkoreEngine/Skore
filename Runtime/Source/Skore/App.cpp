@@ -117,7 +117,7 @@ namespace Skore
 		eventCallbacks.EmplaceBack(callback, userData);
 	}
 
-	AppResult AppEvents()
+	void PoolEvents()
 	{
 		SDL_Event event;
 		while (SDL_PollEvent(&event))
@@ -138,10 +138,10 @@ namespace Skore
 				case SDL_EVENT_DROP_FILE:
 					onDropFileCallback.Invoke(event.drop.data);
 					break;
+				default:
+					break;
 			}
 		}
-
-		return AppResult::Continue;
 	}
 
 	void AppDestroy()
@@ -172,7 +172,7 @@ namespace Skore
 		Event::Reset();
 	}
 
-	AppResult AppIterate()
+	void ExecuteUpdate()
 	{
 		{
 			std::lock_guard lock(mutex);
@@ -183,11 +183,6 @@ namespace Skore
 			funcs.Clear();
 		}
 
-		if (!running)
-		{
-			AppDestroy();
-			return AppResult::Success;
-		}
 
 		if (!initialized)
 		{
@@ -234,7 +229,6 @@ namespace Skore
 				SDL_Delay(static_cast<u32>(remaining * 1000.0));
 			}
 		}
-		return AppResult::Continue;
 	}
 
 	AppResult App::CreateContext(const AppConfig& appConfig)
@@ -285,29 +279,23 @@ namespace Skore
 
 	AppResult App::Run()
 	{
-		AppResult result = AppResult::Success;
 		while (running)
 		{
-			result = AppEvents();
-			if (result != AppResult::Continue)
+			PoolEvents();
+
+			if (OpenXrManagerIterate() != AppResult::Continue)
 			{
 				break;
 			}
 
-			result = OpenXrManagerIterate();
-			if (result != AppResult::Continue)
-			{
-				AppDestroy();
-				break;
-			}
-
-			result = AppIterate();
-			if (result != AppResult::Continue)
-			{
-				break;
-			}
+			ExecuteUpdate();
 		}
-		return result;
+
+		if (initialized && !running)
+		{
+			AppDestroy();
+		}
+		return AppResult::Success;
 	}
 
 	void App::RequestShutdown()
