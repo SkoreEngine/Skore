@@ -4,6 +4,7 @@
 #include <imgui_internal.h>
 
 #include "Skore/Editor.hpp"
+#include "Skore/EditorLayout.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/StringUtils.hpp"
@@ -93,12 +94,21 @@ namespace Skore
 
 	void EditorWorkspace::OpenWindow(TypeID windowType, VoidPtr userData)
 	{
+		OpenWindowInternal(windowType, AllocateWindowId(), userData, true, true);
+	}
+
+	void EditorWorkspace::OpenWindowWithId(TypeID windowType, u32 windowId, VoidPtr userData)
+	{
+		OpenWindowInternal(windowType, windowId, userData, false, false);
+	}
+
+	void EditorWorkspace::OpenWindowInternal(TypeID windowType, u32 windowId, VoidPtr userData, bool dockToDefault, bool autoFocus)
+	{
 		for (const EditorWindowStorage& window : GetEditorWindowStorages())
 		{
 			if (window.typeId == windowType)
 			{
 				ReflectType* reflectType = Reflection::FindTypeById(window.typeId);
-				u32          windowId = AllocateWindowId();
 
 				OpenWindowStorage openWindowStorage = OpenWindowStorage{
 					.id = windowId,
@@ -108,49 +118,77 @@ namespace Skore
 
 				openWindowStorage.instance->workspace = this;
 				openWindowStorage.instance->id = openWindowStorage.id;
+				openWindowStorage.instance->skipFocusOnFirstAppearance = !autoFocus;
 				openWindowStorage.instance->Init(userData);
 
 				m_openWindows.EmplaceBack(openWindowStorage);
 
-				u32 p = GetDockId(window.dockPosition);
-				if (p != U32_MAX)
+				if (dockToDefault)
 				{
-					ImGuiDockBuilderDockWindow(windowId, p);
+					u32 p = GetDockId(window.dockPosition);
+					if (p != U32_MAX)
+					{
+						ImGuiDockBuilderDockWindow(windowId, p);
+					}
 				}
 
+				EditorLayout::OnWindowOpened(m_workspaceTypeId, windowType, windowId);
 				break;
 			}
 		}
 	}
 
+	bool EditorWorkspace::IsWindowIdInUse(u32 windowId) const
+	{
+		for (const OpenWindowStorage& w : m_openWindows)
+		{
+			if (w.id == windowId) return true;
+		}
+		return false;
+	}
+
 	void EditorWorkspace::InitDockSpace()
 	{
-		if (!m_dockInitialized)
+		if (m_dockInitialized) return;
+		m_dockInitialized = true;
+
+		if (EditorLayout::HasSavedWorkspace(m_workspaceTypeId))
 		{
-			m_dockInitialized = true;
-			ImGuiDockBuilderReset(m_dockSpaceId);
-
-			m_centerSpaceId = m_dockSpaceId;
-			m_rightTopDockId = ImGui::DockBuilderSplitNode(m_centerSpaceId, ImGuiDir_Right, 0.15f, nullptr, &m_centerSpaceId);
-			m_rightBottomDockId = ImGui::DockBuilderSplitNode(m_rightTopDockId, ImGuiDir_Down, 0.50f, nullptr, &m_rightTopDockId);
-
-			m_bottomLeftDockId = ImGui::DockBuilderSplitNode(m_centerSpaceId, ImGuiDir_Down, 0.20f, nullptr, &m_centerSpaceId);
-			m_bottomRightDockId = ImGui::DockBuilderSplitNode(m_bottomLeftDockId, ImGuiDir_Right, 0.33f, nullptr, &m_bottomLeftDockId);
-
-			m_leftDockId = ImGui::DockBuilderSplitNode(m_centerSpaceId, ImGuiDir_Left, 0.12f, nullptr, &m_centerSpaceId);
-
-			for (const EditorWindowStorage& windowType : GetEditorWindowStorages())
+			for (const SavedEditorWindow& saved : EditorLayout::GetSavedWindows(m_workspaceTypeId))
 			{
-				for (u8 wsType : windowType.workspaceTypes)
+				OpenWindowWithId(saved.typeId, saved.id, nullptr);
+			}
+			return;
+		}
+
+		ImGuiDockBuilderReset(m_dockSpaceId);
+
+		m_centerSpaceId = m_dockSpaceId;
+		m_rightTopDockId = ImGui::DockBuilderSplitNode(m_centerSpaceId, ImGuiDir_Right, 0.15f, nullptr, &m_centerSpaceId);
+		m_rightBottomDockId = ImGui::DockBuilderSplitNode(m_rightTopDockId, ImGuiDir_Down, 0.50f, nullptr, &m_rightTopDockId);
+
+		m_bottomLeftDockId = ImGui::DockBuilderSplitNode(m_centerSpaceId, ImGuiDir_Down, 0.20f, nullptr, &m_centerSpaceId);
+		m_bottomRightDockId = ImGui::DockBuilderSplitNode(m_bottomLeftDockId, ImGuiDir_Right, 0.33f, nullptr, &m_bottomLeftDockId);
+
+		m_leftDockId = ImGui::DockBuilderSplitNode(m_centerSpaceId, ImGuiDir_Left, 0.12f, nullptr, &m_centerSpaceId);
+
+		for (const EditorWindowStorage& windowType : GetEditorWindowStorages())
+		{
+			for (u8 wsType : windowType.workspaceTypes)
+			{
+				if (wsType == WorkspaceTypes::All || wsType == m_workspaceTypeId)
 				{
-					if (wsType == WorkspaceTypes::All || wsType == m_workspaceTypeId)
-					{
-						OpenWindow(windowType.typeId, nullptr);
-						break;
-					}
+					OpenWindowInternal(windowType.typeId, AllocateWindowId(), nullptr, true, false);
+					break;
 				}
 			}
 		}
+	}
+
+	void EditorWorkspace::ResetLayout()
+	{
+		DestroyAllWindows();
+		m_dockInitialized = false;
 	}
 
 	void EditorWorkspace::DrawWindows()
@@ -164,6 +202,7 @@ namespace Skore
 			openWindowStorage.instance->Draw(open);
 			if (!open)
 			{
+				EditorLayout::OnWindowClosed(m_workspaceTypeId, openWindowStorage.id);
 				openWindowStorage.reflectType->Destroy(openWindowStorage.instance);
 				m_openWindows.Erase(m_openWindows.begin() + i, m_openWindows.begin() + i + 1);
 			}

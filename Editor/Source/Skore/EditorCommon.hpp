@@ -88,6 +88,7 @@ namespace Skore
 
 		EditorWorkspace* workspace = nullptr;
 		u32              id = 0;
+		bool             skipFocusOnFirstAppearance = false;
 
 		virtual void        Init(VoidPtr userData) {}
 		virtual const char* GetTitle() const = 0;

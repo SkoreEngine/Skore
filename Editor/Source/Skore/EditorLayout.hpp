@@ -1,0 +1,29 @@
+#pragma once
+
+#include "Skore/Common.hpp"
+#include "Skore/Core/Span.hpp"
+#include "Skore/Core/TypeInfo.hpp"
+
+namespace Skore
+{
+	struct SavedEditorWindow
+	{
+		TypeID typeId{};
+		u32    id{};
+	};
+
+	namespace EditorLayout
+	{
+		SK_API void Init();
+		SK_API void Shutdown();
+
+		SK_API bool                    HasSavedWorkspace(u8 workspaceTypeId);
+		SK_API Span<SavedEditorWindow> GetSavedWindows(u8 workspaceTypeId);
+
+		SK_API void OnWindowOpened(u8 workspaceTypeId, TypeID windowType, u32 id);
+		SK_API void OnWindowClosed(u8 workspaceTypeId, u32 id);
+
+		SK_API void Flush();
+		SK_API void ResetAll();
+	}
+}
