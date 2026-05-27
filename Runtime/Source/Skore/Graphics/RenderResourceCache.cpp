@@ -84,6 +84,7 @@ namespace Skore
 			Texture,
 			StreamTexture,
 			Mesh,
+			ProceduralMesh,
 			GenerateIBL
 		};
 
@@ -92,6 +93,7 @@ namespace Skore
 		//				 (timeline semaphore is cleanest — one semaphore, monotonically increasing values, no per-frame pool).
 		class ResourceWorker
 		{
+		public:
 			struct WorkerData
 			{
 				WorkerType                          type = WorkerType::None;
@@ -103,6 +105,15 @@ namespace Skore
 				std::shared_ptr<std::promise<void>> blasPromise = nullptr;
 
 				u32 streamTargetSkippedMips = 0;
+
+				ByteBuffer           proceduralVertexData;
+				ByteBuffer           proceduralIndexData;
+				Array<MeshPrimitive> proceduralPrimitives;
+				u32                  proceduralDstVertexOffset = U32_MAX;
+				u32                  proceduralDstIndexOffset  = U32_MAX;
+				u32                  proceduralVertexCount     = 0;
+				u32                  proceduralStride          = 0;
+				bool                 proceduralBuildBlas       = false;
 			};
 
 			struct MeshTaskFutures
@@ -112,7 +123,7 @@ namespace Skore
 			};
 
 		public:
-			void Init(u32 numWorkerThreads)
+			ResourceWorker(u32 numWorkerThreads)
 			{
 				running.store(true, std::memory_order_release);
 				for (u32 i = 0; i < numWorkerThreads; i++)
@@ -123,7 +134,7 @@ namespace Skore
 				}
 			}
 
-			void Shutdown()
+			~ResourceWorker()
 			{
 				running.store(false, std::memory_order_release);
 				for (usize i = 0; i < workerThreads.Size(); i++)
@@ -138,7 +149,6 @@ namespace Skore
 						workerThread.join();
 					}
 				}
-
 			}
 
 			std::future<void> AddTask(WorkerType type, ResourceCachePtr resourceCache)
@@ -177,6 +187,30 @@ namespace Skore
 				data.resourceCache = std::move(resourceCache);
 				data.streamTargetSkippedMips = targetSkippedMips;
 				AddTask(std::move(data));
+			}
+
+			MeshTaskFutures AddProceduralMeshTask(WorkerData&& data, bool wantsUploadFuture, bool wantsBlasFuture)
+			{
+				MeshTaskFutures futures;
+
+				if (wantsUploadFuture)
+				{
+					auto p = std::make_shared<std::promise<void>>();
+					futures.uploadComplete = p->get_future().share();
+					data.promise = std::move(p);
+				}
+
+				if (wantsBlasFuture)
+				{
+					auto p = std::make_shared<std::promise<void>>();
+					futures.blasComplete = p->get_future().share();
+					data.blasPromise = std::move(p);
+				}
+
+				data.type = WorkerType::ProceduralMesh;
+				AddTask(std::move(data));
+
+				return futures;
 			}
 
 			bool Idle()
@@ -693,6 +727,163 @@ namespace Skore
 
 							break;
 						}
+						case WorkerType::ProceduralMesh:
+						{
+							MeshResourceCachePtr meshCache = std::dynamic_pointer_cast<MeshResourceCache>(data.resourceCache);
+							if (!meshCache) break;
+
+							const u32 vertexBytes = data.proceduralVertexCount * data.proceduralStride;
+							const u32 indexBytes  = static_cast<u32>(data.proceduralIndexData.Size());
+							const u32 vertexDstOffset = data.proceduralDstVertexOffset;
+							const u32 indexDstOffset  = data.proceduralDstIndexOffset;
+
+							auto uploadFromCpu = [&](u8* src, u64 size, u32 dstOffsetBytes)
+							{
+								u64 done = 0;
+								while (done < size)
+								{
+									u64 chunk = std::min<u64>(StagingBufferSize, size - done);
+									memcpy(stagingBuffer->GetMappedData(), src + done, chunk);
+
+									transferCmd->Begin();
+									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::ShaderReadOnly, ResourceState::CopyDest);
+									transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, chunk, 0, dstOffsetBytes + done);
+									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+									transferCmd->End();
+									transferQueue->SubmitAndWait(transferCmd);
+									transferCmd->Reset();
+
+									done += chunk;
+								}
+							};
+
+							if (vertexBytes > 0 && vertexDstOffset != U32_MAX)
+							{
+								if (vertexBytes + indexBytes <= StagingBufferSize)
+								{
+									u8* mapped = static_cast<u8*>(stagingBuffer->GetMappedData());
+									memcpy(mapped, data.proceduralVertexData.begin(), vertexBytes);
+									if (indexBytes > 0)
+									{
+										memcpy(mapped + vertexBytes, data.proceduralIndexData.begin(), indexBytes);
+									}
+
+									transferCmd->Begin();
+									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::ShaderReadOnly, ResourceState::CopyDest);
+									transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, vertexBytes, 0, vertexDstOffset);
+									if (indexBytes > 0 && indexDstOffset != U32_MAX)
+									{
+										transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, indexBytes, vertexBytes, indexDstOffset);
+									}
+									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+									transferCmd->End();
+									transferQueue->SubmitAndWait(transferCmd);
+									transferCmd->Reset();
+								}
+								else
+								{
+									uploadFromCpu(data.proceduralVertexData.begin(), vertexBytes, vertexDstOffset);
+									if (indexBytes > 0 && indexDstOffset != U32_MAX)
+									{
+										uploadFromCpu(data.proceduralIndexData.begin(), indexBytes, indexDstOffset);
+									}
+								}
+							}
+							else if (indexBytes > 0 && indexDstOffset != U32_MAX)
+							{
+								uploadFromCpu(data.proceduralIndexData.begin(), indexBytes, indexDstOffset);
+							}
+
+							if (data.promise)
+							{
+								data.promise->set_value();
+								data.promise = nullptr;
+							}
+
+							if (data.proceduralBuildBlas && !data.proceduralPrimitives.Empty())
+							{
+								const u32 primitiveCount = static_cast<u32>(data.proceduralPrimitives.Size());
+
+								Array<GPUBottomLevelAS*> builtBlas(primitiveCount, nullptr);
+								Array<BottomLevelASDesc> blasDescs(primitiveCount);
+								Array<GeometryDesc>      geometries(primitiveCount);
+								u64                      maxScratch = 0;
+
+								for (u32 p = 0; p < primitiveCount; ++p)
+								{
+									const MeshPrimitive& prim = data.proceduralPrimitives[p];
+
+									u32 firstIndexUnits = prim.firstIndex + (indexDstOffset / static_cast<u32>(sizeof(u32)));
+
+									geometries[p] = GeometryDesc{};
+									geometries[p].type = GeometryType::Triangles;
+									geometries[p].triangles.vertexBuffer = meshDataBuffer;
+									geometries[p].triangles.vertexOffset = vertexDstOffset;
+									geometries[p].triangles.vertexCount  = data.proceduralVertexCount;
+									geometries[p].triangles.vertexStride = data.proceduralStride;
+									geometries[p].triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
+									geometries[p].triangles.indexBuffer  = meshDataBuffer;
+									geometries[p].triangles.indexOffset  = static_cast<u64>(firstIndexUnits) * sizeof(u32);
+									geometries[p].triangles.indexCount   = prim.indexCount;
+									geometries[p].triangles.indexType    = IndexType::Uint32;
+									geometries[p].triangles.opaque       = true;
+
+									blasDescs[p] = BottomLevelASDesc{};
+									blasDescs[p].geometries = Span<GeometryDesc>(&geometries[p], 1);
+									blasDescs[p].flags = BuildAccelerationStructureFlags::PreferFastTrace;
+									blasDescs[p].debugName = String(meshCache->debugName) + "_BLAS_" + ToString(p);
+
+									builtBlas[p] = Graphics::CreateBottomLevelAS(blasDescs[p]);
+									maxScratch = std::max(maxScratch, static_cast<u64>(Graphics::GetAccelerationStructureBuildScratchSize(blasDescs[p])));
+								}
+
+								if (maxScratch > blasScratchSize)
+								{
+									if (blasScratchBuffer) blasScratchBuffer->Destroy();
+									blasScratchBuffer = Graphics::CreateBuffer(BufferDesc{
+										.size = maxScratch,
+										.usage = ResourceUsage::ShaderResource,
+										.hostVisible = false,
+										.persistentMapped = false,
+										.debugName = "MeshWorker_BLASScratch"
+									});
+									blasScratchSize = maxScratch;
+								}
+
+								computeCmd->Begin();
+								for (u32 p = 0; p < primitiveCount; ++p)
+								{
+									computeCmd->BuildBottomLevelAS(builtBlas[p], AccelerationStructureBuildInfo{.scratchBuffer = blasScratchBuffer});
+									if (p + 1 < primitiveCount)
+									{
+										computeCmd->MemoryBarrier();
+									}
+								}
+								computeCmd->End();
+								computeQueue->SubmitAndWait(computeCmd);
+								computeCmd->Reset();
+
+								auto pendingBlasPromise = std::move(data.blasPromise);
+								ExecuteOnMainThread(
+									[meshCache, builtBlas = std::move(builtBlas), pendingBlasPromise = std::move(pendingBlasPromise)]() mutable
+									{
+										Array<GPUBottomLevelAS*> oldBlas = std::move(meshCache->blasArray);
+										meshCache->blasArray = std::move(builtBlas);
+										for (GPUBottomLevelAS* old : oldBlas)
+										{
+											if (old) old->Destroy();
+										}
+										if (pendingBlasPromise) pendingBlasPromise->set_value();
+									});
+							}
+							else if (data.blasPromise)
+							{
+								data.blasPromise->set_value();
+								data.blasPromise = nullptr;
+							}
+
+							break;
+						}
 						case WorkerType::GenerateIBL:
 						{
 							MaterialResourceCachePtr materialCache = std::dynamic_pointer_cast<MaterialResourceCache>(data.resourceCache);
@@ -859,7 +1050,7 @@ namespace Skore
 			freePrimitiveInfoSlots.EmplaceBack(slot);
 		}
 
-		ResourceWorker worker;
+		std::unique_ptr<ResourceWorker> worker;
 
 		std::mutex                        mainThreadTasksMutex;
 		std::queue<std::function<void()>> mainThreadTasks;
@@ -1219,7 +1410,7 @@ namespace Skore
 						});
 					}
 
-					materialCache->iblComplete = worker.AddTask(WorkerType::GenerateIBL, materialCache).share();
+					materialCache->iblComplete = worker->AddTask(WorkerType::GenerateIBL, materialCache).share();
 				}
 			}
 		}
@@ -1296,7 +1487,7 @@ namespace Skore
 				{
 					return;
 				}
-				worker.AddStreamTextureTask(texCache, desiredSkippedMips);
+				worker->AddStreamTextureTask(texCache, desiredSkippedMips);
 			}
 			else if (desiredSkippedMips > texCache->skippedMips)
 			{
@@ -1309,7 +1500,7 @@ namespace Skore
 					return;
 				}
 				texCache->streamingDecayFrames = 0;
-				worker.AddStreamTextureTask(texCache, desiredSkippedMips);
+				worker->AddStreamTextureTask(texCache, desiredSkippedMips);
 			}
 			else
 			{
@@ -1443,7 +1634,7 @@ namespace Skore
 
 	bool RenderResourceCache::WorkerIdle()
 	{
-		return worker.Idle();
+		return worker->Idle();
 	}
 
 	void RenderResourceCache::Flush()
@@ -1693,7 +1884,7 @@ namespace Skore
 
 			Graphics::SetTextureState(textureStorage->texture, ResourceState::Undefined, ResourceState::ShaderReadOnly);
 
-			textureStorage->uploadComplete = worker.AddTask(WorkerType::Texture, textureStorage).share();
+			textureStorage->uploadComplete = worker->AddTask(WorkerType::Texture, textureStorage).share();
 		}
 
 		// Phase 3: brief lock — race re-check, then insert + bindless descriptor update.
@@ -2006,7 +2197,7 @@ namespace Skore
 			layoutData.boneWeightsOff = boneWeightsOffset;
 			layoutValid = true;
 
-			auto meshFutures = worker.AddMeshTask(meshData);
+			auto meshFutures = worker->AddMeshTask(meshData);
 			meshData->uploadComplete = std::move(meshFutures.uploadComplete);
 			meshData->blasComplete = std::move(meshFutures.blasComplete);
 
@@ -2054,6 +2245,346 @@ namespace Skore
 
 		if (!async) WaitForMesh(result);
 		return result;
+	}
+
+	VertexLayoutCachePtr RenderResourceCache::CreateCustomVoxelLayout(const VertexLayoutDesc& desc)
+	{
+		if (desc.stride == 0)
+		{
+			logger.Error("CreateCustomVoxelLayout: stride must be > 0.");
+			return nullptr;
+		}
+
+		VertexLayoutOffsetData layoutData{};
+		layoutData.stride         = desc.stride;
+		layoutData.posOff         = U32_MAX;
+		layoutData.normalOff      = U32_MAX;
+		layoutData.uvOff          = U32_MAX;
+		layoutData.uv1Off         = U32_MAX;
+		layoutData.colorOff       = U32_MAX;
+		layoutData.tangentOff     = U32_MAX;
+		layoutData.boneIndicesOff = U32_MAX;
+		layoutData.boneWeightsOff = U32_MAX;
+
+		bool hasUV1 = false, hasColor = false, hasSkin = false;
+
+		for (const VertexLayoutAttribute& attr : desc.attributes)
+		{
+			if (attr.name == "position")          layoutData.posOff = attr.offset;
+			else if (attr.name == "normal")       layoutData.normalOff = attr.offset;
+			else if (attr.name == "uv0")          layoutData.uvOff = attr.offset;
+			else if (attr.name == "uv1")        { layoutData.uv1Off = attr.offset; hasUV1 = true; }
+			else if (attr.name == "color")      { layoutData.colorOff = attr.offset; hasColor = true; }
+			else if (attr.name == "tangent")      layoutData.tangentOff = attr.offset;
+			else if (attr.name == "boneIndices"){ layoutData.boneIndicesOff = attr.offset; hasSkin = true; }
+			else if (attr.name == "boneWeights"){ layoutData.boneWeightsOff = attr.offset; hasSkin = true; }
+		}
+
+		auto layout = std::make_shared<VertexLayoutCache>();
+		layout->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
+		layout->stride         = desc.stride;
+		layout->hasUV1         = hasUV1;
+		layout->hasColor       = hasColor;
+		layout->hasSkin        = hasSkin;
+		return layout;
+	}
+
+	MeshResourceCachePtr RenderResourceCache::CreateProceduralMesh(const ProceduralMeshDesc& desc)
+	{
+		if (!desc.layout || desc.layout->vertexLayoutId == U32_MAX)
+		{
+			logger.Error("CreateProceduralMesh: layout is null or invalid.");
+			return nullptr;
+		}
+		if (desc.vertexCount == 0 || desc.vertexData.Size() < static_cast<usize>(desc.vertexCount) * desc.layout->stride)
+		{
+			logger.Error("CreateProceduralMesh: vertexData ({} bytes) is smaller than vertexCount * stride ({} bytes).",
+				desc.vertexData.Size(), desc.vertexCount * desc.layout->stride);
+			return nullptr;
+		}
+		if (desc.indices.Empty() || desc.primitives.Empty())
+		{
+			logger.Error("CreateProceduralMesh: indices and primitives must be non-empty.");
+			return nullptr;
+		}
+		if (!meshDataAllocator)
+		{
+			logger.Error("CreateProceduralMesh: mesh data allocator not initialized (engine not started or already shut down).");
+			return nullptr;
+		}
+
+		MeshResourceCachePtr meshData(Alloc<MeshResourceCache>(RID{}), [](MeshResourceCache* obj)
+		{
+			DestroyAndFree(obj);
+		});
+
+		meshData->isProcedural    = true;
+		meshData->layoutCache     = desc.layout;
+		meshData->vertexLayoutId  = desc.layout->vertexLayoutId;
+		meshData->stride          = desc.layout->stride;
+		meshData->hasUV1          = desc.layout->hasUV1;
+		meshData->hasColor        = desc.layout->hasColor;
+		meshData->hasSkin         = desc.layout->hasSkin;
+		meshData->vertexCount     = desc.vertexCount;
+		meshData->aabb            = desc.aabb;
+		meshData->lightmapSizeHint = desc.lightmapSizeHint;
+		meshData->debugName       = desc.debugName;
+
+		bool rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
+		meshData->wantsBlas = desc.wantsBlas && rtSupported && !meshData->hasSkin;
+
+		const u32 vertexBytes = desc.vertexCount * meshData->stride;
+		const u32 indexBytes  = static_cast<u32>(desc.indices.Size() * sizeof(u32));
+		const u32 alignedVertSize = AlignMeshAllocSize(vertexBytes);
+		const u32 alignedIdxSize  = AlignMeshAllocSize(indexBytes);
+
+		meshData->vertexAlloc = AllocateMeshData(alignedVertSize);
+		meshData->indexAlloc  = AllocateMeshData(alignedIdxSize);
+
+		if (meshData->vertexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE ||
+			meshData->indexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE)
+		{
+			logger.Error("CreateProceduralMesh '{}': out of mesh-data buffer space ({} MB total).",
+				desc.debugName, MeshDataBufferSize / (1024 * 1024));
+			if (meshData->vertexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+			{
+				FreeMeshData(meshData->vertexAlloc);
+				meshData->vertexAlloc = OffsetAllocator::Allocation{};
+			}
+			if (meshData->indexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+			{
+				FreeMeshData(meshData->indexAlloc);
+				meshData->indexAlloc = OffsetAllocator::Allocation{};
+			}
+			return nullptr;
+		}
+
+		meshData->vertexByteOffset = meshData->vertexAlloc.offset;
+		meshData->indexByteOffset  = meshData->indexAlloc.offset;
+		meshData->vertexAllocSize  = alignedVertSize;
+		meshData->indexAllocSize   = alignedIdxSize;
+
+		const u32 primCount = static_cast<u32>(desc.primitives.Size());
+		meshData->primitives.Resize(primCount);
+		for (u32 p = 0; p < primCount; ++p) meshData->primitives[p] = desc.primitives[p];
+
+		const u32 indexBaseUnits = meshData->indexByteOffset / static_cast<u32>(sizeof(u32));
+		meshData->primitiveInfoSlots.Resize(primCount);
+		for (u32 p = 0; p < primCount; ++p)
+		{
+			u32 slot = AllocatePrimitiveInfoSlot();
+			meshData->primitiveInfoSlots[p] = slot;
+
+			GpuMeshPrimitiveInfo info{};
+			info.lodCount = 1;
+			info.lods[0].firstIndex = indexBaseUnits + desc.primitives[p].firstIndex;
+			info.lods[0].indexCount = desc.primitives[p].indexCount;
+			info.lods[0].screenSize = 0.0f;
+			WriteMeshPrimitiveInfo(slot, info);
+		}
+
+		if (!desc.materials.Empty())
+		{
+			meshData->materials.Reserve(desc.materials.Size());
+			for (const MaterialResourceCachePtr& m : desc.materials)
+			{
+				meshData->materials.EmplaceBack(m);
+			}
+		}
+		else
+		{
+			meshData->materials.EmplaceBack(GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), true));
+		}
+
+		ResourceWorker::WorkerData wd;
+		wd.resourceCache              = meshData;
+		wd.proceduralVertexData.Resize(vertexBytes);
+		memcpy(wd.proceduralVertexData.begin(), desc.vertexData.begin(), vertexBytes);
+		wd.proceduralIndexData.Resize(indexBytes);
+		memcpy(wd.proceduralIndexData.begin(), desc.indices.begin(), indexBytes);
+		wd.proceduralPrimitives.Resize(primCount);
+		for (u32 p = 0; p < primCount; ++p) wd.proceduralPrimitives[p] = desc.primitives[p];
+		wd.proceduralDstVertexOffset = meshData->vertexByteOffset;
+		wd.proceduralDstIndexOffset  = meshData->indexByteOffset;
+		wd.proceduralVertexCount     = desc.vertexCount;
+		wd.proceduralStride          = meshData->stride;
+		wd.proceduralBuildBlas       = meshData->wantsBlas;
+
+		auto futures = worker->AddProceduralMeshTask(std::move(wd), true, meshData->wantsBlas);
+		meshData->uploadComplete = std::move(futures.uploadComplete);
+		meshData->blasComplete   = std::move(futures.blasComplete);
+
+		return meshData;
+	}
+
+	void RenderResourceCache::UpdateProceduralMesh(const MeshResourceCachePtr& mesh, const ProceduralMeshUpdate& update)
+	{
+		if (!mesh)
+		{
+			logger.Error("UpdateProceduralMesh: mesh is null.");
+			return;
+		}
+		if (!mesh->isProcedural)
+		{
+			logger.Error("UpdateProceduralMesh: mesh is asset-backed (RID = {}), updates only work on procedural meshes.", mesh->rid.id);
+			return;
+		}
+		if (!meshDataAllocator)
+		{
+			logger.Error("UpdateProceduralMesh: mesh data allocator not initialized.");
+			return;
+		}
+
+		const bool hasVertexUpdate = !update.vertexData.Empty() && update.vertexCount > 0;
+		const bool hasIndexUpdate  = !update.indices.Empty();
+		const bool hasPrimUpdate   = !update.primitives.Empty();
+		const u32  stride          = mesh->stride;
+
+		if (hasVertexUpdate)
+		{
+			const u32 vertexBytes = update.vertexCount * stride;
+			if (update.vertexData.Size() < static_cast<usize>(vertexBytes))
+			{
+				logger.Error("UpdateProceduralMesh: vertexData ({} bytes) smaller than vertexCount * stride ({} bytes).",
+					update.vertexData.Size(), vertexBytes);
+				return;
+			}
+
+			const u32 alignedSize = AlignMeshAllocSize(vertexBytes);
+			if (alignedSize > mesh->vertexAllocSize)
+			{
+				FreeMeshData(mesh->vertexAlloc);
+				mesh->vertexAlloc = AllocateMeshData(alignedSize);
+				if (mesh->vertexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE)
+				{
+					logger.Error("UpdateProceduralMesh '{}': out of mesh-data buffer space for vertex grow.", mesh->debugName);
+					mesh->vertexByteOffset = U32_MAX;
+					mesh->vertexAllocSize  = 0;
+					return;
+				}
+				mesh->vertexByteOffset = mesh->vertexAlloc.offset;
+				mesh->vertexAllocSize  = alignedSize;
+			}
+			mesh->vertexCount = update.vertexCount;
+		}
+
+		if (hasIndexUpdate)
+		{
+			const u32 indexBytes  = static_cast<u32>(update.indices.Size() * sizeof(u32));
+			const u32 alignedSize = AlignMeshAllocSize(indexBytes);
+			if (alignedSize > mesh->indexAllocSize)
+			{
+				FreeMeshData(mesh->indexAlloc);
+				mesh->indexAlloc = AllocateMeshData(alignedSize);
+				if (mesh->indexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE)
+				{
+					logger.Error("UpdateProceduralMesh '{}': out of mesh-data buffer space for index grow.", mesh->debugName);
+					mesh->indexByteOffset = U32_MAX;
+					mesh->indexAllocSize  = 0;
+					return;
+				}
+				mesh->indexByteOffset = mesh->indexAlloc.offset;
+				mesh->indexAllocSize  = alignedSize;
+			}
+		}
+
+		if (hasPrimUpdate)
+		{
+			const u32 oldCount = static_cast<u32>(mesh->primitiveInfoSlots.Size());
+			const u32 newCount = static_cast<u32>(update.primitives.Size());
+
+			for (u32 i = newCount; i < oldCount; ++i)
+			{
+				FreePrimitiveInfoSlot(mesh->primitiveInfoSlots[i]);
+			}
+			mesh->primitiveInfoSlots.Resize(newCount);
+			for (u32 i = oldCount; i < newCount; ++i)
+			{
+				mesh->primitiveInfoSlots[i] = AllocatePrimitiveInfoSlot();
+			}
+
+			mesh->primitives.Resize(newCount);
+			for (u32 p = 0; p < newCount; ++p) mesh->primitives[p] = update.primitives[p];
+
+			const u32 indexBaseUnits = mesh->indexByteOffset / static_cast<u32>(sizeof(u32));
+			for (u32 p = 0; p < newCount; ++p)
+			{
+				GpuMeshPrimitiveInfo info{};
+				info.lodCount = 1;
+				info.lods[0].firstIndex = indexBaseUnits + update.primitives[p].firstIndex;
+				info.lods[0].indexCount = update.primitives[p].indexCount;
+				info.lods[0].screenSize = 0.0f;
+				WriteMeshPrimitiveInfo(mesh->primitiveInfoSlots[p], info);
+			}
+		}
+		else if (hasIndexUpdate)
+		{
+			const u32 indexBaseUnits = mesh->indexByteOffset / static_cast<u32>(sizeof(u32));
+			for (u32 p = 0; p < mesh->primitives.Size(); ++p)
+			{
+				GpuMeshPrimitiveInfo info{};
+				info.lodCount = 1;
+				info.lods[0].firstIndex = indexBaseUnits + mesh->primitives[p].firstIndex;
+				info.lods[0].indexCount = mesh->primitives[p].indexCount;
+				info.lods[0].screenSize = 0.0f;
+				WriteMeshPrimitiveInfo(mesh->primitiveInfoSlots[p], info);
+			}
+		}
+
+		if (update.aabbValid)
+		{
+			mesh->aabb = update.aabb;
+		}
+
+		if (!hasVertexUpdate && !hasIndexUpdate && !(update.rebuildBlas && mesh->wantsBlas))
+		{
+			return;
+		}
+
+		ResourceWorker::WorkerData wd;
+		wd.resourceCache = mesh;
+
+		if (hasVertexUpdate)
+		{
+			const u32 vertexBytes = update.vertexCount * stride;
+			wd.proceduralVertexData.Resize(vertexBytes);
+			memcpy(wd.proceduralVertexData.begin(), update.vertexData.begin(), vertexBytes);
+			wd.proceduralVertexCount = update.vertexCount;
+		}
+		else
+		{
+			wd.proceduralVertexCount = 0;
+		}
+
+		if (hasIndexUpdate)
+		{
+			const u32 indexBytes = static_cast<u32>(update.indices.Size() * sizeof(u32));
+			wd.proceduralIndexData.Resize(indexBytes);
+			memcpy(wd.proceduralIndexData.begin(), update.indices.begin(), indexBytes);
+		}
+
+		wd.proceduralDstVertexOffset = hasVertexUpdate ? mesh->vertexByteOffset : U32_MAX;
+		wd.proceduralDstIndexOffset  = hasIndexUpdate  ? mesh->indexByteOffset  : U32_MAX;
+		wd.proceduralStride          = stride;
+
+		const bool rebuildBlas = update.rebuildBlas && mesh->wantsBlas;
+		if (rebuildBlas)
+		{
+			if (!hasVertexUpdate)
+			{
+				wd.proceduralVertexCount     = mesh->vertexCount;
+				wd.proceduralDstVertexOffset = mesh->vertexByteOffset;
+			}
+			if (!hasIndexUpdate)
+			{
+				wd.proceduralDstIndexOffset = mesh->indexByteOffset;
+			}
+			wd.proceduralPrimitives.Resize(mesh->primitives.Size());
+			for (u32 p = 0; p < mesh->primitives.Size(); ++p) wd.proceduralPrimitives[p] = mesh->primitives[p];
+			wd.proceduralBuildBlas = true;
+		}
+
+		worker->AddProceduralMeshTask(std::move(wd), false, false);
 	}
 
 	i32& RenderDebug::ForcedLod()
@@ -2172,7 +2703,7 @@ namespace Skore
 
 		EnsurePrimitiveInfoCapacity(1024);
 
-		worker.Init(4);
+		worker = std::make_unique<ResourceWorker>(4);
 	}
 
 	void RenderResourceCacheShutdown()
@@ -2247,6 +2778,6 @@ namespace Skore
 		materialDataBufferCapacity = 0;
 		materialDataCount = 0;
 
-		worker.Shutdown();
+		worker = {};
 	}
 }

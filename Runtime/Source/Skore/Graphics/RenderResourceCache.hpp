@@ -10,8 +10,11 @@
 #include "GraphicsResources.hpp"
 #include "Skore/Common.hpp"
 #include "Skore/Core/Array.hpp"
+#include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/OffsetAllocator.hpp"
+#include "Skore/Core/Span.hpp"
+#include "Skore/Core/String.hpp"
 
 namespace Skore
 {
@@ -35,6 +38,7 @@ namespace Skore
 	struct MaterialResourceCache;
 	struct SkinResourceCache;
 	struct MeshResourceCache;
+	struct VertexLayoutCache;
 
 	using ResourceCachePtr     = std::shared_ptr<ResourceCache>;
 	using FontResourceCachePtr     = std::shared_ptr<FontResourceCache>;
@@ -42,6 +46,7 @@ namespace Skore
 	using MaterialResourceCachePtr = std::shared_ptr<MaterialResourceCache>;
 	using SkinResourceCachePtr     = std::shared_ptr<SkinResourceCache>;
 	using MeshResourceCachePtr     = std::shared_ptr<MeshResourceCache>;
+	using VertexLayoutCachePtr     = std::shared_ptr<VertexLayoutCache>;
 
 	struct SK_API ResourceCache
 	{
@@ -198,6 +203,13 @@ namespace Skore
 		Array<u32>                       primitiveInfoSlots;
 		Array<MaterialResourceCachePtr>  materials;
 
+		bool                 isProcedural    = false;
+		u32                  vertexCount     = 0;
+		u32                  vertexAllocSize = 0;
+		u32                  indexAllocSize  = 0;
+		VertexLayoutCachePtr layoutCache;
+		String               debugName;
+
 		AABB aabb;
 
 		// Resolved once the vertex/index data is uploaded. The mesh can be rendered as soon as
@@ -226,6 +238,53 @@ namespace Skore
 		static i32& ForcedLod();
 	};
 
+	struct VertexLayoutAttribute
+	{
+		StringView name;
+		u32        offset = 0;
+		u32        size   = 0;
+	};
+
+	struct VertexLayoutDesc
+	{
+		u32                        stride = 0;
+		Span<VertexLayoutAttribute> attributes;
+	};
+
+	struct SK_API VertexLayoutCache
+	{
+		u32  vertexLayoutId = U32_MAX;
+		u32  stride         = 0;
+		bool hasUV1         = false;
+		bool hasColor       = false;
+		bool hasSkin        = false;
+	};
+
+	struct ProceduralMeshDesc
+	{
+		VertexLayoutCachePtr           layout;
+		Span<u8>                       vertexData;
+		u32                            vertexCount = 0;
+		Span<u32>                      indices;
+		Span<MeshPrimitive>            primitives;
+		Span<MaterialResourceCachePtr> materials;
+		AABB                           aabb;
+		Vec2                           lightmapSizeHint = Vec2(0.0f, 0.0f);
+		bool                           wantsBlas = true;
+		StringView                     debugName;
+	};
+
+	struct ProceduralMeshUpdate
+	{
+		Span<u8>            vertexData;
+		u32                 vertexCount = 0;
+		Span<u32>           indices;
+		Span<MeshPrimitive> primitives;
+		AABB                aabb;
+		bool                aabbValid   = false;
+		bool                rebuildBlas = false;
+	};
+
 	struct SK_API RenderResourceCache
 	{
 		static bool                     WorkerIdle();
@@ -238,6 +297,10 @@ namespace Skore
 		static GPUBuffer*               GetMaterialDataBuffer();
 		static u32                      GetMaterialDataCount();
 		static GPUBuffer*               GetMeshDataBuffer();
+
+		static VertexLayoutCachePtr CreateCustomVoxelLayout(const VertexLayoutDesc& desc);
+		static MeshResourceCachePtr CreateProceduralMesh(const ProceduralMeshDesc& desc);
+		static void                 UpdateProceduralMesh(const MeshResourceCachePtr& mesh, const ProceduralMeshUpdate& update);
 
 		static void Flush();
 		static void Flush(GPUCommandBuffer* cmd);

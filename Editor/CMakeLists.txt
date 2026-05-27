@@ -36,9 +36,13 @@ endif ()
 add_binary_file(SkoreEditor ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/dxc dxcompiler)
 
 
-add_executable(Skore
-				Source/Main/Main.cpp
-)
+set(SKORE_EXECUTABLE_SOURCES Source/Main/Main.cpp)
+
+if(WIN32)
+	list(APPEND SKORE_EXECUTABLE_SOURCES Source/Main/Skore.rc)
+endif()
+
+add_executable(Skore ${SKORE_EXECUTABLE_SOURCES})
 
 target_link_libraries(Skore PUBLIC SkoreEditor)
 

@@ -175,6 +175,17 @@ namespace Skore
 		SDL_MaximizeWindow(GetSDLWindowFromHandler(window));
 	}
 
+	void Platform::SetWindowIcon(Window window, const u8* rgbaPixels, i32 width, i32 height)
+	{
+		if (!rgbaPixels || width <= 0 || height <= 0) return;
+
+		SDL_Surface* surface = SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_RGBA32, const_cast<u8*>(rgbaPixels), width * 4);
+		if (!surface) return;
+
+		SDL_SetWindowIcon(GetSDLWindowFromHandler(window), surface);
+		SDL_DestroySurface(surface);
+	}
+
 	VoidPtr Platform::GetNativeWindowHandle(Window window)
 	{
 		return GetSDLWindowFromHandler(window);

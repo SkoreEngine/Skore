@@ -62,6 +62,7 @@ namespace Skore
 		SK_API bool   IsWindowMinimized(Window window);
 		SK_API void   SetWindowCursorLockMode(Window window, CursorLockMode cursorLockMode);
 		SK_API void   MaximizeWindow(Window window);
+		SK_API void   SetWindowIcon(Window window, const u8* rgbaPixels, i32 width, i32 height);
 		SK_API VoidPtr GetNativeWindowHandle(Window window);
 
 		SK_API bool ShowSimpleMessageBox(MessageBoxType type, StringView title, StringView message, Window window = {});

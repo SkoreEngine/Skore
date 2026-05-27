@@ -62,6 +62,29 @@ namespace Skore::StaticContent
 		return texture;
 	}
 
+	Image GetImage(StringView path)
+	{
+		Array<u8> file = GetBinaryFile(path);
+
+		Image image{};
+		i32   imageChannels{};
+
+		stbi_uc* bytes = stbi_load_from_memory(file.Data(), file.Size(), &image.width, &image.height, &imageChannels, 4);
+		if (!bytes)
+		{
+			logger.Error("Failed to decode image {}", path);
+			return {};
+		}
+
+		const usize size = static_cast<usize>(image.width * image.height * 4);
+		image.pixels.Resize(size);
+		memcpy(image.pixels.Data(), bytes, size);
+
+		stbi_image_free(bytes);
+
+		return image;
+	}
+
 	void SaveFilesToDirectory(StringView path, StringView directory)
 	{
 		auto fs = cmrc::StaticContent::get_filesystem();

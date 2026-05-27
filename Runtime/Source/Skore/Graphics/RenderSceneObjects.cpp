@@ -31,6 +31,7 @@ namespace Skore
 
 		bool meshDirty = false;
 		bool materialsDirty = false;
+		bool meshCacheExplicit = false;
 	};
 
 	void RenderSceneObjectsInit()
@@ -138,8 +139,9 @@ namespace Skore
 	{
 		if (!obj) return;
 		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
-		if (o->mesh == mesh) return;
+		if (!o->meshCacheExplicit && o->mesh == mesh) return;
 		o->mesh = mesh;
+		o->meshCacheExplicit = false;
 		o->meshDirty = true;
 		MarkDirty(o);
 	}
@@ -147,6 +149,22 @@ namespace Skore
 	RID RenderSceneObjects::GetMesh(RenderableObject obj) const
 	{
 		return obj ? obj.ToPtr<RenderableObjectStorage>()->mesh : RID{};
+	}
+
+	void RenderSceneObjects::SetMeshCache(RenderableObject obj, MeshResourceCachePtr meshCache)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		o->mesh = RID{};
+		o->meshCache = std::move(meshCache);
+		o->meshCacheExplicit = o->meshCache != nullptr;
+		o->meshDirty = true;
+		MarkDirty(o);
+	}
+
+	MeshResourceCachePtr RenderSceneObjects::GetMeshCache(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->meshCache : nullptr;
 	}
 
 	void RenderSceneObjects::SetMaterials(RenderableObject obj, Span<RID> materials)
@@ -322,6 +340,7 @@ namespace Skore
 	{
 		if (!obj->meshDirty) return;
 		obj->meshDirty = false;
+		if (obj->meshCacheExplicit) return;
 		obj->meshCache = obj->mesh ? RenderResourceCache::GetMeshCache(obj->mesh, asyncLoad) : nullptr;
 	}
 

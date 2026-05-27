@@ -52,12 +52,19 @@ namespace Skore
 		HashMap<RID, bool> openTreeFolders{};
 		RID                windowObjectRID;
 		bool               newSelection = false;
+		bool               treeOnlyView = false;
+		bool               selectionInTree = false;
+		bool               renameFocusSet = false;
+		String             renameBuffer;
 		RID                popupFolder = {};
 		Array<RID>         directoryCache;
 		ImGuiTextFilter    filter;
 
 		void DrawPathItems();
 		void DrawDirectoryTreeNode(RID asset);
+		void DrawAssetTreeLeaf(RID asset);
+		bool DrawTreeRenameInput(RID asset, const String& currentName);
+		bool ShouldRenameInTree() const;
 		void SetOpenDirectory(RID rid);
 
 		static void OnDropFile(StringView filePath);

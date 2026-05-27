@@ -161,7 +161,8 @@ namespace Skore
 			ImGui::SetNextItemOpen(true);
 		}
 
-		if (openDirectory && openDirectory == rid)
+		bool folderSelected = windowObject.HasOnReferenceArray(ProjectBrowserWindowData::SelectedItems, asset);
+		if (folderSelected)
 		{
 			flags |= ImGuiTreeNodeFlags_Selected;
 		}
@@ -178,6 +179,17 @@ namespace Skore
 		}
 
 		bool readOnly = assetObject.GetBool(ResourceAsset::ReadOnly);
+
+		RID  renamingItem = windowObject.GetReference(ProjectBrowserWindowData::RenamingItem);
+		bool renamingHere = renamingItem == asset && ShouldRenameInTree();
+
+		if (renamingHere)
+		{
+			ImGui::Indent(ImGui::GetTreeNodeToLabelSpacing());
+			DrawTreeRenameInput(asset, assetObject.GetString(ResourceAsset::Name));
+			ImGui::Unindent(ImGui::GetTreeNodeToLabelSpacing());
+			return;
+		}
 
 		stringCache.Append(" ");
 		stringCache.Append(assetObject.GetString(ResourceAsset::Name));
@@ -222,9 +234,24 @@ namespace Skore
 		//     ImGui::EndDragDropSource();
 		// }
 
-		if (openDir == isNodeOpen && ImGui::IsItemClicked(ImGuiMouseButton_Left))
+		if (openDir == isNodeOpen && (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right)))
 		{
-			SetOpenDirectory(rid);
+			if (!folderSelected)
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Selection");
+				if (!(ImGui::IsKeyDown((ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown((ImGuiKey_RightCtrl))))
+				{
+					ClearSelection(scope);
+				}
+				SelectItem(asset, scope);
+			}
+			newSelection = true;
+			selectionInTree = true;
+
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+			{
+				SetOpenDirectory(rid);
+			}
 		}
 
 		openTreeFolders[asset] = isNodeOpen;
@@ -235,8 +262,130 @@ namespace Skore
 			{
 				DrawDirectoryTreeNode(child);
 			}
+
+			if (treeOnlyView)
+			{
+				for (RID childAsset : directoryObject.GetSubObjectList(ResourceAssetDirectory::Assets))
+				{
+					DrawAssetTreeLeaf(childAsset);
+				}
+			}
+
 			ImGui::TreePop();
 		}
+	}
+
+	void ProjectBrowserWindow::DrawAssetTreeLeaf(RID asset)
+	{
+		if (!asset) return;
+
+		ResourceObject assetObject = Resources::Read(asset);
+		StringView     extension = assetObject.GetString(ResourceAsset::Extension);
+		if (hiddenExtensions.Has(extension)) return;
+
+		ResourceObject windowObject = Resources::Read(windowObjectRID);
+
+		RID  renamingItem = windowObject.GetReference(ProjectBrowserWindowData::RenamingItem);
+		bool renamingHere = renamingItem == asset && ShouldRenameInTree();
+
+		if (renamingHere)
+		{
+			ImGui::Indent(ImGui::GetTreeNodeToLabelSpacing());
+			DrawTreeRenameInput(asset, assetObject.GetString(ResourceAsset::Name));
+			ImGui::Unindent(ImGui::GetTreeNodeToLabelSpacing());
+			return;
+		}
+
+		stringCache.Clear();
+		if (const char* icon = ResourceAssets::GetIcon(asset); icon && icon[0])
+		{
+			stringCache = icon;
+			stringCache.Append(" ");
+		}
+		stringCache.Append(assetObject.GetString(ResourceAsset::Name));
+		stringCache.Append(extension);
+
+		ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
+		bool selected = windowObject.HasOnReferenceArray(ProjectBrowserWindowData::SelectedItems, asset);
+		if (selected) flags |= ImGuiTreeNodeFlags_Selected;
+
+		ImGuiTreeLeaf(reinterpret_cast<void*>((usize)asset.id), stringCache.CStr(), flags);
+
+		bool isHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+
+		if (isHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		{
+			ResourceAssets::OpenAsset(asset);
+		}
+		else if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
+		{
+			if (!selected)
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Selection");
+				if (!(ImGui::IsKeyDown((ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown((ImGuiKey_RightCtrl))))
+				{
+					ClearSelection(scope);
+				}
+				SelectItem(asset, scope);
+			}
+			newSelection = true;
+			selectionInTree = true;
+		}
+
+		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
+		{
+			AssetPayload payload = {
+				.asset = assetObject.GetSubObject(ResourceAsset::Object),
+				.windowObjectRID = windowObjectRID
+			};
+
+			ImGui::SetDragDropPayload(SK_ASSET_PAYLOAD, &payload, sizeof(AssetPayload));
+			ImGui::Text("%s", stringCache.CStr());
+			ImGui::EndDragDropSource();
+		}
+	}
+
+	bool ProjectBrowserWindow::ShouldRenameInTree() const
+	{
+		return treeOnlyView || selectionInTree;
+	}
+
+	bool ProjectBrowserWindow::DrawTreeRenameInput(RID asset, const String& currentName)
+	{
+		bool firstFrame = !renameFocusSet;
+
+		if (firstFrame)
+		{
+			renameBuffer = currentName;
+			ImGui::SetKeyboardFocusHere();
+		}
+
+		ScopedStyleColor frameColor(ImGuiCol_FrameBg, IM_COL32(52, 53, 55, 255));
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		ImGuiInputText((u32)asset.id, renameBuffer);
+
+		if (firstFrame)
+		{
+			renameFocusSet = true;
+			return false;
+		}
+
+		if (!ImGui::IsItemActive())
+		{
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Rename Finished");
+			if (!ImGui::IsKeyPressed(ImGuiKey_Escape) && !renameBuffer.Empty())
+			{
+				ResourceObject write = Resources::Write(asset);
+				write.SetString(ResourceAsset::Name, renameBuffer);
+				write.Commit(scope);
+			}
+			ResourceObject objWrite = Resources::Write(windowObjectRID);
+			objWrite.SetReference(ProjectBrowserWindowData::RenamingItem, {});
+			objWrite.Commit(scope);
+			renameFocusSet = false;
+			return true;
+		}
+		return false;
 	}
 
 	void ProjectBrowserWindow::SetOpenDirectory(RID rid)
@@ -334,9 +483,29 @@ namespace Skore
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 0.f, 0.f, 0.f));
 			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.f, 0.f, 0.f, 0.f));
 
-			if (ImGui::Button(ICON_FA_GEAR " Settings")) {}
+			if (ImGui::Button(ICON_FA_GEAR " Settings"))
+			{
+				ImGui::OpenPopup("project-browser-settings-popup");
+			}
 
 			ImGui::PopStyleColor(2);
+
+			auto settingsPopupRes = ImGuiBeginPopupMenu("project-browser-settings-popup");
+			if (settingsPopupRes)
+			{
+				bool splitView = !treeOnlyView;
+				if (ImGui::MenuItem("Two Columns (Tree + Content)", nullptr, splitView))
+				{
+					treeOnlyView = false;
+					cachedDirectory = {};
+				}
+				if (ImGui::MenuItem("One Column (Tree Only)", nullptr, treeOnlyView))
+				{
+					treeOnlyView = true;
+				}
+			}
+			ImGuiEndPopupMenu(settingsPopupRes);
+
 			ImGui::EndHorizontal();
 
 			ImGui::EndChild();
@@ -349,13 +518,21 @@ namespace Skore
 		drawList->AddLine(p1, p2, IM_COL32(0, 0, 0, 255), 1.f * style.ScaleFactor);
 		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 1.f * style.ScaleFactor);
 
-		bool browseFolder = true;
+		bool browseFolder = !treeOnlyView;
 
 		static ImGuiTableFlags flags = ImGuiTableFlags_Resizable;
 
-		if (ImGui::BeginTable("table-project-browser", browseFolder ? 2 : 1, flags))
+		const char* tableId = browseFolder ? "table-project-browser-split" : "table-project-browser-tree";
+		if (ImGui::BeginTable(tableId, browseFolder ? 2 : 1, flags))
 		{
-			ImGui::TableSetupColumn("one", ImGuiTableColumnFlags_WidthFixed, 300 * style.ScaleFactor);
+			if (browseFolder)
+			{
+				ImGui::TableSetupColumn("one", ImGuiTableColumnFlags_WidthFixed, 300 * style.ScaleFactor);
+			}
+			else
+			{
+				ImGui::TableSetupColumn("one", ImGuiTableColumnFlags_WidthStretch);
+			}
 			ImGui::TableNextColumn();
 			{
 				ScopedStyleColor childBg(ImGuiCol_ChildBg, IM_COL32(22, 23, 25, 255));
@@ -389,6 +566,8 @@ namespace Skore
 				ImGui::EndChild();
 			}
 
+			if (browseFolder)
+			{
 			ImGui::TableNextColumn();
 			{
 				ScopedStyleColor childBg(ImGuiCol_ChildBg, IM_COL32(27, 28, 30, 255));
@@ -470,7 +649,7 @@ namespace Skore
 									StringView     extension = assetObject.GetString(ResourceAsset::Extension);
 
 									labelCache.Clear();
-									bool renaming = renamingItem == asset;
+									bool renaming = renamingItem == asset && !ShouldRenameInTree();
 									if (!renaming && ResourceAssets::IsUpdated(asset)) labelCache = "*";
 									labelCache += assetObject.GetString(ResourceAsset::Name);
 									if (!renaming) labelCache += extension;
@@ -500,6 +679,7 @@ namespace Skore
 											SelectItem(asset, scope);
 										}
 										newSelection = true;
+										selectionInTree = false;
 									}
 
 									if (state.renameFinish)
@@ -660,6 +840,7 @@ namespace Skore
 						}
 					}
 				}
+			}
 			}
 			ImGui::EndTable();
 		}
