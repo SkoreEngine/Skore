@@ -28,9 +28,10 @@ namespace Skore
 		SceneViewWindow() = default;
 		~SceneViewWindow() override;
 
-		void Init(u32 id, VoidPtr userData) override;
-		void Draw(u32 id, bool& open) override;
-		void Render(GPUCommandBuffer* cmd) override;
+		const char* GetTitle() const override;
+		void        Init(VoidPtr userData) override;
+		void        Draw(bool& open) override;
+		void        Render(GPUCommandBuffer* cmd) override;
 
 		static void ViewEntity(Entity* entity);
 		static void ViewEntity(RID entity);

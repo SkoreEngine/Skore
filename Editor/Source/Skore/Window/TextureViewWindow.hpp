@@ -14,8 +14,9 @@ namespace Skore
 		SK_CLASS(TextureViewWindow, EditorWindow);
 
 
-		void Init(u32 id, VoidPtr userData) override;
-		void Draw(u32 id, bool& open) override;
+		const char* GetTitle() const override { return "Texture View"; }
+		void        Init(VoidPtr userData) override;
+		void        Draw(bool& open) override;
 
 		static void Open(GPUTexture* texture);
 

@@ -84,7 +84,12 @@ namespace Skore
 		}
 	}
 
-	void ResourceDebuggerWindow::Init(u32 id, VoidPtr userData)
+	const char* ResourceDebuggerWindow::GetTitle() const
+	{
+		return "Resource Debugger";
+	}
+
+	void ResourceDebuggerWindow::Init(VoidPtr userData)
 	{
 		if (userData)
 		{
@@ -105,10 +110,10 @@ namespace Skore
 		switchToInstanceTab = true;
 	}
 
-	void ResourceDebuggerWindow::Draw(u32 id, bool& open)
+	void ResourceDebuggerWindow::Draw(bool& open)
 	{
 		ImGui::SetNextWindowSize(ImVec2(900.0f, 600.0f), ImGuiCond_FirstUseEver);
-		if (!ImGuiBegin(id, "Resource Debugger", &open))
+		if (!ImGuiBegin(this, &open))
 		{
 			ImGui::End();
 			return;

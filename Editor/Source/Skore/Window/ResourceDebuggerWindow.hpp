@@ -14,8 +14,9 @@ namespace Skore
 	public:
 		SK_CLASS(ResourceDebuggerWindow, EditorWindow);
 
-		void Init(u32 id, VoidPtr userData) override;
-		void Draw(u32 id, bool& open) override;
+		const char* GetTitle() const override;
+		void        Init(VoidPtr userData) override;
+		void        Draw(bool& open) override;
 
 		static void RegisterType(NativeReflectType<ResourceDebuggerWindow>& type);
 		static void Open(const MenuItemEventData& eventData);

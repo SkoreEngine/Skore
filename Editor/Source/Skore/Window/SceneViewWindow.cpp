@@ -82,7 +82,12 @@ namespace Skore
 		}
 	}
 
-	void SceneViewWindow::Init(u32 id, VoidPtr userData)
+	const char* SceneViewWindow::GetTitle() const
+	{
+		return ICON_FA_BORDER_ALL " Scene Viewport";
+	}
+
+	void SceneViewWindow::Init(VoidPtr userData)
 	{
 		freeViewCamera.SetPosition(Vec3{0.0f, 10.0f, 0.0f});
 		guizmoOperation = ImGuizmo::TRANSLATE;
@@ -504,7 +509,7 @@ namespace Skore
 
 	}
 
-	void SceneViewWindow::Draw(u32 id, bool& open)
+	void SceneViewWindow::Draw(bool& open)
 	{
 		lastWindow = this;
 
@@ -530,7 +535,7 @@ namespace Skore
 			flags |= ImGuiWindowFlags_NoMove;
 		}
 
-		ImGuiBegin(id, ICON_FA_BORDER_ALL " Scene Viewport", &open, flags);
+		ImGuiBegin(this, &open, flags);
 
 		hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
 

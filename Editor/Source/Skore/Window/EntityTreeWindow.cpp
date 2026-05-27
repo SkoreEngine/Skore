@@ -39,7 +39,12 @@ namespace Skore
 	}
 
 
-	void EntityTreeWindow::Init(u32 id, VoidPtr userData)
+	const char* EntityTreeWindow::GetTitle() const
+	{
+		return ICON_FA_LIST " Entity Tree";
+	}
+
+	void EntityTreeWindow::Init(VoidPtr userData)
 	{
 		iconSize = ImGui::CalcTextSize(ICON_FA_EYE).x;
 	}
@@ -363,7 +368,7 @@ namespace Skore
 		}
 	}
 
-	void EntityTreeWindow::Draw(u32 id, bool& open)
+	void EntityTreeWindow::Draw(bool& open)
 	{
 		SceneEditor* sceneEditor = workspace->GetSceneEditor();
 
@@ -372,7 +377,7 @@ namespace Skore
 		auto  originalWindowPadding = style.WindowPadding;
 
 		ScopedStyleVar windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-		if (!ImGuiBegin(id, ICON_FA_LIST " Entity Tree", &open, ImGuiWindowFlags_NoScrollbar))
+		if (!ImGuiBegin(this, &open, ImGuiWindowFlags_NoScrollbar))
 		{
 			ImGui::End();
 			return;

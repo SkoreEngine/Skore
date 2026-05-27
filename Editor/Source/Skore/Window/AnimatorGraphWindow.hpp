@@ -11,7 +11,8 @@ namespace Skore
 	{
 	public:
 		SK_CLASS(AnimatorGraphWindow, EditorWindow);
-		void Draw(u32 id, bool& open) override;
+		const char* GetTitle() const override;
+		void        Draw(bool& open) override;
 
 		static void AddMenuItem(const MenuItemCreation& menuItem);
 		static void RegisterType(NativeReflectType<AnimatorGraphWindow>& type);

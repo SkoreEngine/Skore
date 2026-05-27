@@ -10,9 +10,14 @@ namespace Skore
 {
 	void ImGuiDrawUndoRedoActions();
 
-	void HistoryWindow::Draw(u32 id, bool& open)
+	const char* HistoryWindow::GetTitle() const
 	{
-		ImGuiBegin(id, ICON_FA_CLOCK_ROTATE_LEFT " History", &open);
+		return ICON_FA_CLOCK_ROTATE_LEFT " History";
+	}
+
+	void HistoryWindow::Draw(bool& open)
+	{
+		ImGuiBegin(this, &open);
 
 		if (ImGui::BeginListBox("###", ImGui::GetWindowSize()))
 		{
