@@ -76,6 +76,16 @@ namespace Skore
 		return m_enableShadows;
 	}
 
+	void LightComponent::SetMaxShadowDistance(f32 distance)
+	{
+		m_maxShadowDistance = distance;
+	}
+
+	f32 LightComponent::GetMaxShadowDistance() const
+	{
+		return m_maxShadowDistance;
+	}
+
 	void LightComponent::SetCullingMask(u64 cullingMask)
 	{
 		m_cullingMask = cullingMask;
@@ -115,6 +125,7 @@ namespace Skore
 		type.Field<&LightComponent::m_innerConeAngle, &LightComponent::GetInnerConeAngle, &LightComponent::SetInnerConeAngle>("innerConeAngle");
 		type.Field<&LightComponent::m_outerConeAngle, &LightComponent::GetOuterConeAngle, &LightComponent::SetOuterConeAngle>("outerConeAngle");
 		type.Field<&LightComponent::m_enableShadows, &LightComponent::GetEnableShadows, &LightComponent::SetEnableShadows>("enableShadows");
+		type.Field<&LightComponent::m_maxShadowDistance, &LightComponent::GetMaxShadowDistance, &LightComponent::SetMaxShadowDistance>("maxShadowDistance");
 		type.Field<&LightComponent::m_cullingMask, &LightComponent::GetCullingMask, &LightComponent::SetCullingMask>("cullingMask").Attribute<UILayerMaskProperty>();
 		type.Field<&LightComponent::m_sourceRadius, &LightComponent::GetSourceRadius, &LightComponent::SetSourceRadius>("sourceRadius");
 		type.Attribute<ComponentDesc>(ComponentDesc{.allowMultiple = true});
