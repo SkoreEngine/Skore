@@ -34,6 +34,13 @@ namespace Skore
 			i32 vertexOffset;
 			u32 startInstanceLocation;
 		};
+
+		struct ShadowCascadeUniform
+		{
+			Mat4 viewProj;
+			u32  disableMask;
+			u32  pad[3];
+		};
 	}
 
 	RenderPipelinePassSetup CascadeShadowPassBase::GetPassSetup()
@@ -68,7 +75,7 @@ namespace Skore
 		}
 
 		u64 uboAlignment = Graphics::GetDevice()->GetProperties().limits.minUniformBufferOffsetAlignment;
-		m_uniformBufferAlignedSize = AlignedSize(static_cast<u64>(sizeof(Mat4)), uboAlignment);
+		m_uniformBufferAlignedSize = AlignedSize(static_cast<u64>(sizeof(ShadowCascadeUniform)), uboAlignment);
 
 		shadowMapUniformBuffer = Graphics::CreateBuffer(BufferDesc{
 			.size = m_uniformBufferAlignedSize * shadowMapData->numCascades * SK_FRAMES_IN_FLIGHT,
@@ -123,7 +130,7 @@ namespace Skore
 				descriptorUpdate.binding = 0;
 				descriptorUpdate.buffer = shadowMapUniformBuffer;
 				descriptorUpdate.bufferOffset = m_uniformBufferAlignedSize * (f * shadowMapData->numCascades + i);
-				descriptorUpdate.bufferRange = sizeof(Mat4);
+				descriptorUpdate.bufferRange = sizeof(ShadowCascadeUniform);
 				m_shadowMapDescriptorSets[f][i]->Update(descriptorUpdate);
 			}
 		}
@@ -203,6 +210,7 @@ namespace Skore
 		f32  lightMaxShadowDistance = 100.0f;
 		f32  lightSplitLambda = 0.85f;
 		bool lightInterleavedCascadeUpdates = true;
+		u32  lightOpaqueShadowCascades = 0;
 		bool foundDirectionalShadow = false;
 
 		scene->Iterate<LightComponent>([&](LightComponent* light)
@@ -215,6 +223,7 @@ namespace Skore
 			lightMaxShadowDistance = light->GetMaxShadowDistance();
 			lightSplitLambda = light->GetSplitLambda();
 			lightInterleavedCascadeUpdates = light->GetInterleavedCascadeUpdates();
+			lightOpaqueShadowCascades = light->GetOpaqueShadowCascades();
 			foundDirectionalShadow = true;
 		});
 
@@ -318,7 +327,8 @@ namespace Skore
 			Vec3 maxExtents = Vec3{radius, radius, radius};
 			Vec3 minExtents = -maxExtents;
 
-			Mat4 lightViewMatrix = Mat4::LookAt(frustumCenter - lightDir * -minExtents.z, frustumCenter, Vec3{0.0f, 1.0f, 0.0f});
+			Vec3 lightUp = Math::Abs(Vec3::Dot(lightDir, Vec3{0.0f, 1.0f, 0.0f})) > 0.99f ? Vec3{0.0f, 0.0f, 1.0f} : Vec3{0.0f, 1.0f, 0.0f};
+			Mat4 lightViewMatrix = Mat4::LookAt(frustumCenter - lightDir * -minExtents.z, frustumCenter, lightUp);
 			Mat4 lightOrthoMatrix = Mat4::Ortho(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, 0.0f, maxExtents.z - minExtents.z);
 
 			f32 sMapSize  = static_cast<f32>(shadowMapData->shadowMapSize);
@@ -353,7 +363,9 @@ namespace Skore
 			m_lastLightDir[i]      = lightDir;
 
 			char* memory = static_cast<char*>(shadowMapUniformBuffer->GetMappedData()) + m_uniformBufferAlignedSize * (frame * shadowMapData->numCascades + i);
-			new(memory) Mat4{shadowMapData->cascadeViewProjMat[i]};
+			ShadowCascadeUniform* cascadeUniform = new(memory) ShadowCascadeUniform{};
+			cascadeUniform->viewProj    = shadowMapData->cascadeViewProjMat[i];
+			cascadeUniform->disableMask = (lightOpaqueShadowCascades > 0 && i + lightOpaqueShadowCascades >= shadowMapData->numCascades) ? 1u : 0u;
 
 			cascadeUpdated[i] = true;
 			++updatedCount;

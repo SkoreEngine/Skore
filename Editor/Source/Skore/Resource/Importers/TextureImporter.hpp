@@ -11,6 +11,8 @@ namespace Skore
 		bool        overrideIfExists = false;
 		bool        async = false;
 		bool        isSubAsset = false;
+		bool        preserveAlphaCoverage = false;
+		f32         alphaCoverageCutoff = 0.5f;
 	};
 
 	SK_API RID ImportTexture(RID directory, const TextureImportSettings& settings, const String& path, UndoRedoScope* scope);

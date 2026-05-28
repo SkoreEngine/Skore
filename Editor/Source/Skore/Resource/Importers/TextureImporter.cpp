@@ -43,6 +43,61 @@ namespace Skore
 		Reflection::Type<TextureImporter>();
 	}
 
+	static void ScaleAlphaToCoverage(ByteBuffer& mips, u32 width, u32 height, u32 mipLevels, f32 cutoff)
+	{
+		auto computeCoverage = [](const u8* pixels, usize count, f32 cutoff, f32 scale) -> f64
+		{
+			usize covered = 0;
+			for (usize i = 0; i < count; ++i)
+			{
+				f32 a = (static_cast<f32>(pixels[i * 4 + 3]) / 255.0f) * scale;
+				if (a >= cutoff) ++covered;
+			}
+			return count > 0 ? static_cast<f64>(covered) / static_cast<f64>(count) : 0.0;
+		};
+
+		u8* base = mips.begin();
+		f64 refCoverage = computeCoverage(base, static_cast<usize>(width) * height, cutoff, 1.0f);
+		if (refCoverage <= 0.0) return;
+
+		usize offset    = static_cast<usize>(width) * height * 4;
+		u32   mipWidth  = width > 1 ? width / 2 : 1;
+		u32   mipHeight = height > 1 ? height / 2 : 1;
+
+		for (u32 mip = 1; mip < mipLevels; ++mip)
+		{
+			u8*   pixels = base + offset;
+			usize count  = static_cast<usize>(mipWidth) * mipHeight;
+
+			f32 lo    = 0.0f;
+			f32 hi    = 4.0f;
+			f32 scale = 1.0f;
+			for (u32 iter = 0; iter < 12; ++iter)
+			{
+				scale = 0.5f * (lo + hi);
+				if (computeCoverage(pixels, count, cutoff, scale) < refCoverage)
+				{
+					lo = scale;
+				}
+				else
+				{
+					hi = scale;
+				}
+			}
+
+			for (usize i = 0; i < count; ++i)
+			{
+				f32 a = (static_cast<f32>(pixels[i * 4 + 3]) / 255.0f) * scale;
+				a = a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
+				pixels[i * 4 + 3] = static_cast<u8>(a * 255.0f + 0.5f);
+			}
+
+			offset += count * 4;
+			mipWidth  = mipWidth > 1 ? mipWidth / 2 : 1;
+			mipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
+		}
+	}
+
 	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, TextureFormat format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope)
 	{
 
@@ -153,6 +208,11 @@ namespace Skore
 			gpuTexture->Destroy();
 			srcBuffer->Destroy();
 			dstBuffer->Destroy();
+
+			if (settings.preserveAlphaCoverage && format == TextureFormat::R8G8B8A8_UNORM)
+			{
+				ScaleAlphaToCoverage(mipsBuffer, width, height, mipLevels, settings.alphaCoverageCutoff);
+			}
 
 			toCompressSpan = {mipsBuffer.begin(), totalUncompressedSize};
 		}

@@ -106,6 +106,16 @@ namespace Skore
 		return m_interleavedCascadeUpdates;
 	}
 
+	void LightComponent::SetOpaqueShadowCascades(u32 count)
+	{
+		m_opaqueShadowCascades = count;
+	}
+
+	u32 LightComponent::GetOpaqueShadowCascades() const
+	{
+		return m_opaqueShadowCascades;
+	}
+
 	void LightComponent::SetCullingMask(u64 cullingMask)
 	{
 		m_cullingMask = cullingMask;
@@ -148,6 +158,7 @@ namespace Skore
 		type.Field<&LightComponent::m_maxShadowDistance, &LightComponent::GetMaxShadowDistance, &LightComponent::SetMaxShadowDistance>("maxShadowDistance");
 		type.Field<&LightComponent::m_splitLambda, &LightComponent::GetSplitLambda, &LightComponent::SetSplitLambda>("splitLambda");
 		type.Field<&LightComponent::m_interleavedCascadeUpdates, &LightComponent::GetInterleavedCascadeUpdates, &LightComponent::SetInterleavedCascadeUpdates>("interleavedCascadeUpdates");
+		type.Field<&LightComponent::m_opaqueShadowCascades, &LightComponent::GetOpaqueShadowCascades, &LightComponent::SetOpaqueShadowCascades>("opaqueShadowCascades");
 		type.Field<&LightComponent::m_cullingMask, &LightComponent::GetCullingMask, &LightComponent::SetCullingMask>("cullingMask").Attribute<UILayerMaskProperty>();
 		type.Field<&LightComponent::m_sourceRadius, &LightComponent::GetSourceRadius, &LightComponent::SetSourceRadius>("sourceRadius");
 		type.Attribute<ComponentDesc>(ComponentDesc{.allowMultiple = true});

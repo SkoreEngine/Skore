@@ -100,10 +100,10 @@ namespace Skore
 	{
 		void FormatBytes(char* out, usize outSize, u64 bytes)
 		{
-			constexpr double KB = 1024.0;
-			constexpr double MB = KB * 1024.0;
-			constexpr double GB = MB * 1024.0;
-			double b = static_cast<double>(bytes);
+			constexpr f64 KB = 1024.0;
+			constexpr f64 MB = KB * 1024.0;
+			constexpr f64 GB = MB * 1024.0;
+			f64 b = static_cast<f64>(bytes);
 			if (b >= GB)      std::snprintf(out, outSize, "%.2f GB", b / GB);
 			else if (b >= MB) std::snprintf(out, outSize, "%.2f MB", b / MB);
 			else if (b >= KB) std::snprintf(out, outSize, "%.2f KB", b / KB);
@@ -305,6 +305,7 @@ namespace Skore
 				m_historyCount = 0;
 				m_historyWritePos = 0;
 				m_taskCount = 0;
+				Profiler::ResetStats();
 			}
 
 			ImGui::SameLine();
@@ -328,11 +329,17 @@ namespace Skore
 			}
 		}
 
+		{
+			Profiler::FrameStats fs = Profiler::GetFrameStats();
+			ImGui::Text("Frame: %.2f ms   avg %.2f   min %.2f   max %.2f   (%u samples)",
+				fs.current * 1000.0, fs.avg * 1000.0, fs.min * 1000.0, fs.max * 1000.0, fs.count);
+		}
+
 		// --- Layout: Left tree + Right charts ---
 		ImVec2 avail = ImGui::GetContentRegionAvail();
 		if (avail.x < 100 || avail.y < 50) return;
 
-		float treeWidth = avail.x * 0.35f;
+		float treeWidth = avail.x * 0.5f;
 		float plotWidth = avail.x - treeWidth;
 
 		// Left panel: hierarchy tree
@@ -378,16 +385,32 @@ namespace Skore
 			ImGuiTableFlags_RowBg |
 			ImGuiTableFlags_Resizable |
 			ImGuiTableFlags_ScrollY |
+			ImGuiTableFlags_ScrollX |
 			ImGuiTableFlags_BordersInnerV;
 
-		if (!ImGui::BeginTable("##profiler_table", 3, tableFlags))
+		if (!ImGui::BeginTable("##profiler_table", 9, tableFlags))
 			return;
 
-		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch);
-		ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-		ImGui::TableSetupColumn("GPU", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-		ImGui::TableSetupScrollFreeze(0, 1);
+		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, 200.0f);
+		ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		ImGui::TableSetupColumn("avg##cpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		ImGui::TableSetupColumn("min##cpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		ImGui::TableSetupColumn("max##cpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		ImGui::TableSetupColumn("GPU", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		ImGui::TableSetupColumn("avg##gpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		ImGui::TableSetupColumn("min##gpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		ImGui::TableSetupColumn("max##gpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		ImGui::TableSetupScrollFreeze(1, 1);
 		ImGui::TableHeadersRow();
+
+		auto statCell = [](int col, bool show, f64 ms)
+		{
+			ImGui::TableSetColumnIndex(col);
+			if (show)
+				ImGui::Text("%.2f", ms);
+			else
+				ImGui::TextDisabled("-");
+		};
 
 		i32 currentDepth = 0;
 
@@ -434,22 +457,14 @@ namespace Skore
 				);
 			}
 
-			// CPU time column
-			ImGui::TableSetColumnIndex(1);
-			double cpuMs = (entry.cpuEndTime - entry.cpuStartTime) * 1000.0;
-			ImGui::Text("%.2f ms", cpuMs);
-
-			// GPU time column
-			ImGui::TableSetColumnIndex(2);
-			if (entry.hasGPU)
-			{
-				double gpuMs = (entry.gpuEndTime - entry.gpuStartTime) * 1000.0;
-				ImGui::Text("%.2f ms", gpuMs);
-			}
-			else
-			{
-				ImGui::TextDisabled("-");
-			}
+			statCell(1, entry.present, entry.cpuTime * 1000.0);
+			statCell(2, entry.cpuCount > 0, entry.cpuAvg * 1000.0);
+			statCell(3, entry.cpuCount > 0, entry.cpuMin * 1000.0);
+			statCell(4, entry.cpuCount > 0, entry.cpuMax * 1000.0);
+			statCell(5, entry.present && entry.hasGPU, entry.gpuTime * 1000.0);
+			statCell(6, entry.gpuCount > 0, entry.gpuAvg * 1000.0);
+			statCell(7, entry.gpuCount > 0, entry.gpuMin * 1000.0);
+			statCell(8, entry.gpuCount > 0, entry.gpuMax * 1000.0);
 
 			if (hasChildren)
 			{
@@ -601,9 +616,9 @@ namespace Skore
 		for (u32 i = 0; i < count; i++)
 		{
 			// Only depth-0 entries contribute to stacked bar segments
-			if (entries[i].depth == 0)
+			if (entries[i].depth == 0 && entries[i].present)
 			{
-				f32 cpuDur = (f32)(entries[i].cpuEndTime - entries[i].cpuStartTime);
+				f32 cpuDur = (f32)entries[i].cpuTime;
 				record.totalCpu += cpuDur;
 
 				if (record.cpuSegmentCount < MaxSegments)
@@ -615,7 +630,7 @@ namespace Skore
 
 				if (entries[i].hasGPU)
 				{
-					f32 gpuDur = (f32)(entries[i].gpuEndTime - entries[i].gpuStartTime);
+					f32 gpuDur = (f32)entries[i].gpuTime;
 					record.totalGpu += gpuDur;
 
 					if (record.gpuSegmentCount < MaxSegments)

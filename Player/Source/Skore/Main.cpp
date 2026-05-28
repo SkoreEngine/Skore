@@ -19,6 +19,7 @@ namespace Skore
 {
 	struct SwapchainRenderPipelineModule;
 	struct DefaultRenderPipeline;
+	struct ProfilerOverlayPipelineModule;
 
 
 	StdOutSink stdOutSink{};
@@ -104,6 +105,7 @@ namespace Skore
 
 		Array<TypeID> extraModules;
 		extraModules.EmplaceBack(TypeInfo<SwapchainRenderPipelineModule>::ID());
+		extraModules.EmplaceBack(TypeInfo<ProfilerOverlayPipelineModule>::ID());
 
 		RenderPipelineContextSettings contextSettings;
 		pipelineContext = RenderPipeline::CreateContext(TypeInfo<DefaultRenderPipeline>::ID(), extraModules, contextSettings);
