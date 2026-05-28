@@ -109,7 +109,7 @@ namespace Skore
 
 				entityObject.IterateSubObjectList(EntityResource::Children, [&](RID child)
 				{
-					Instantiate(entity->m_scene, entity, child, true);
+					Instantiate(entity->m_scene, entity, child, instanceOfAsset);
 				});
 
 				entity->SetActive(!entityObject.GetBool(EntityResource::Deactivated));
