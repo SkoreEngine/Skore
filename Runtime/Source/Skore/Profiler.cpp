@@ -22,8 +22,8 @@ namespace Skore
 		struct Sample
 		{
 			char              name[64]{};
-			double            cpuStart = 0.0;
-			double            cpuEnd = 0.0;
+			f64               cpuStart = 0.0;
+			f64               cpuEnd = 0.0;
 			u32               gpuQueryStart = 0;
 			u32               gpuQueryEnd = 0;
 			bool              hasGPU = false;
@@ -67,6 +67,13 @@ namespace Skore
 		TimePoint            frameStart{};
 		bool                 active = false;
 
+		f64                  frameTimeCur = 0.0;
+		f64                  frameTimeMin = 0.0;
+		f64                  frameTimeMax = 0.0;
+		f64                  frameTimeAvg = 0.0;
+		u32                  frameTimeCount = 0;
+		bool                 hasLastFrame = false;
+
 		// Stack for tracking nesting
 		i32                  sampleStack[MaxSamples]{};
 		i32                  stackDepth = 0;
@@ -93,18 +100,24 @@ namespace Skore
 			return colorPalette[HashName(name) % colorPaletteSize];
 		}
 
-		double GetElapsedSeconds()
+		f64 GetElapsedSeconds()
 		{
-			return std::chrono::duration<double>(Clock::now() - frameStart).count();
+			return std::chrono::duration<f64>(Clock::now() - frameStart).count();
+		}
+
+		i32 FindTask(const char* name)
+		{
+			for (u32 i = 0; i < taskCount; i++)
+			{
+				if (std::strcmp(tasks[i].name, name) == 0) return static_cast<i32>(i);
+			}
+			return -1;
 		}
 
 		void BuildTasks()
 		{
-			taskCount = 0;
-
 			auto& buf = buffers[readIdx];
 
-			// Read GPU timestamps if available
 			u64 gpuTimestamps[MaxSamples * 2]{};
 			bool hasGPUResults = false;
 			if (buf.queryIndex > 0 && buf.queryPool)
@@ -112,40 +125,110 @@ namespace Skore
 				hasGPUResults = buf.queryPool->GetResults(0, buf.queryIndex, gpuTimestamps, sizeof(u64), true);
 			}
 
-			double gpuBaseTime = -1.0;
+			for (u32 i = 0; i < taskCount; i++)
+			{
+				tasks[i].present = false;
+				tasks[i].cpuTime = 0.0;
+				tasks[i].gpuTime = 0.0;
+				tasks[i].hasGPU = false;
+			}
+
+			i32 pathStack[MaxSamples]{};
 
 			for (u32 i = 0; i < buf.sampleCount; i++)
 			{
 				auto& sample = buf.samples[i];
 
-				if (taskCount >= MaxSamples) break;
+				i32 idx = FindTask(sample.name);
+				if (idx < 0)
+				{
+					if (taskCount >= MaxSamples) continue;
 
-				auto& task = tasks[taskCount++];
-				task.cpuStartTime = sample.cpuStart;
-				task.cpuEndTime = sample.cpuEnd;
-				task.color = GetColorForName(sample.name);
-				strncpy(task.name, sample.name, sizeof(task.name) - 1);
-				task.name[sizeof(task.name) - 1] = '\0';
-				task.depth = sample.depth;
-				task.hasGPU = false;
-				task.gpuStartTime = 0.0;
-				task.gpuEndTime = 0.0;
+					i32 insertAt = static_cast<i32>(taskCount);
+					if (sample.depth > 0)
+					{
+						insertAt = pathStack[sample.depth - 1] + 1;
+						while (insertAt < static_cast<i32>(taskCount) && tasks[insertAt].depth > sample.depth)
+						{
+							insertAt++;
+						}
+					}
 
-				// GPU task
+					for (i32 j = static_cast<i32>(taskCount); j > insertAt; j--)
+					{
+						tasks[j] = tasks[j - 1];
+					}
+					taskCount++;
+
+					idx = insertAt;
+					auto& created = tasks[idx];
+					strncpy(created.name, sample.name, sizeof(created.name) - 1);
+					created.name[sizeof(created.name) - 1] = '\0';
+					created.color = GetColorForName(sample.name);
+					created.depth = sample.depth;
+					created.cpuTime = 0.0;
+					created.gpuTime = 0.0;
+					created.cpuMin = 0.0;
+					created.cpuMax = 0.0;
+					created.cpuAvg = 0.0;
+					created.gpuMin = 0.0;
+					created.gpuMax = 0.0;
+					created.gpuAvg = 0.0;
+					created.cpuCount = 0;
+					created.gpuCount = 0;
+					created.hasGPU = false;
+					created.present = false;
+				}
+
+				auto& task = tasks[idx];
+				task.present = true;
+				task.cpuTime += sample.cpuEnd - sample.cpuStart;
+
 				if (sample.hasGPU && hasGPUResults)
 				{
 					u64 startTick = gpuTimestamps[sample.gpuQueryStart];
 					u64 endTick = gpuTimestamps[sample.gpuQueryEnd];
-
-					double startSec = double(startTick) * double(timestampPeriod) * 1e-9;
-					double endSec = double(endTick) * double(timestampPeriod) * 1e-9;
-
-					if (gpuBaseTime < 0.0)
-						gpuBaseTime = startSec;
-
-					task.gpuStartTime = startSec - gpuBaseTime;
-					task.gpuEndTime = endSec - gpuBaseTime;
+					task.gpuTime += f64(endTick - startTick) * f64(timestampPeriod) * 1e-9;
 					task.hasGPU = true;
+				}
+
+				pathStack[sample.depth] = idx;
+			}
+
+			for (u32 i = 0; i < taskCount; i++)
+			{
+				auto& task = tasks[i];
+				if (!task.present) continue;
+
+				if (task.cpuCount == 0)
+				{
+					task.cpuMin = task.cpuTime;
+					task.cpuMax = task.cpuTime;
+					task.cpuAvg = task.cpuTime;
+				}
+				else
+				{
+					if (task.cpuTime < task.cpuMin) task.cpuMin = task.cpuTime;
+					if (task.cpuTime > task.cpuMax) task.cpuMax = task.cpuTime;
+					task.cpuAvg += (task.cpuTime - task.cpuAvg) / f64(task.cpuCount + 1);
+				}
+				task.cpuCount++;
+
+				if (task.hasGPU)
+				{
+					if (task.gpuCount == 0)
+					{
+						task.gpuMin = task.gpuTime;
+						task.gpuMax = task.gpuTime;
+						task.gpuAvg = task.gpuTime;
+					}
+					else
+					{
+						if (task.gpuTime < task.gpuMin) task.gpuMin = task.gpuTime;
+						if (task.gpuTime > task.gpuMax) task.gpuMax = task.gpuTime;
+						task.gpuAvg += (task.gpuTime - task.gpuAvg) / f64(task.gpuCount + 1);
+					}
+					task.gpuCount++;
 				}
 			}
 		}
@@ -278,7 +361,29 @@ namespace Skore
 		buffers[writeIdx].queryPoolReset = false;
 
 		stackDepth = 0;
-		frameStart = Clock::now();
+
+		TimePoint now = Clock::now();
+		if (hasLastFrame)
+		{
+			frameTimeCur = std::chrono::duration<f64>(now - frameStart).count();
+
+			if (frameTimeCount == 0)
+			{
+				frameTimeMin = frameTimeCur;
+				frameTimeMax = frameTimeCur;
+				frameTimeAvg = frameTimeCur;
+			}
+			else
+			{
+				if (frameTimeCur < frameTimeMin) frameTimeMin = frameTimeCur;
+				if (frameTimeCur > frameTimeMax) frameTimeMax = frameTimeCur;
+				frameTimeAvg += (frameTimeCur - frameTimeAvg) / f64(frameTimeCount + 1);
+			}
+			frameTimeCount++;
+		}
+		hasLastFrame = true;
+
+		frameStart = now;
 
 		frameNumber++;
 	}
@@ -293,12 +398,44 @@ namespace Skore
 		return tasks;
 	}
 
+	Profiler::FrameStats Profiler::GetFrameStats()
+	{
+		return FrameStats{frameTimeCur, frameTimeMin, frameTimeMax, frameTimeAvg, frameTimeCount};
+	}
+
+	void Profiler::ResetStats()
+	{
+		for (u32 i = 0; i < taskCount; i++)
+		{
+			tasks[i].cpuMin = 0.0;
+			tasks[i].cpuMax = 0.0;
+			tasks[i].cpuAvg = 0.0;
+			tasks[i].gpuMin = 0.0;
+			tasks[i].gpuMax = 0.0;
+			tasks[i].gpuAvg = 0.0;
+			tasks[i].cpuCount = 0;
+			tasks[i].gpuCount = 0;
+		}
+
+		frameTimeCur = 0.0;
+		frameTimeMin = 0.0;
+		frameTimeMax = 0.0;
+		frameTimeAvg = 0.0;
+		frameTimeCount = 0;
+	}
+
 	void Profiler::SetActive(bool value)
 	{
 		active = value;
 		if (!active)
 		{
 			taskCount = 0;
+			frameTimeCur = 0.0;
+			frameTimeMin = 0.0;
+			frameTimeMax = 0.0;
+			frameTimeAvg = 0.0;
+			frameTimeCount = 0;
+			hasLastFrame = false;
 		}
 	}
 

@@ -8,6 +8,7 @@ namespace Skore
 	void RegisterTAARenderModule();
 	void RegisterFXAARenderModule();
 	void RegisterBloomModule();
+	void RegisterProfilerOverlayModule();
 
 	void RegisterPipelineTypes()
 	{
@@ -19,5 +20,6 @@ namespace Skore
 		RegisterTAARenderModule();
 		RegisterFXAARenderModule();
 		RegisterBloomModule();
+		RegisterProfilerOverlayModule();
 	}
 }

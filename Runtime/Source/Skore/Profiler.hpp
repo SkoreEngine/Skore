@@ -19,14 +19,30 @@ namespace Skore::Profiler
 
 	struct TaskEntry
 	{
-		double   cpuStartTime;
-		double   cpuEndTime;
-		double   gpuStartTime;
-		double   gpuEndTime;
+		f64      cpuTime;
+		f64      gpuTime;
+		f64      cpuMin;
+		f64      cpuMax;
+		f64      cpuAvg;
+		f64      gpuMin;
+		f64      gpuMax;
+		f64      gpuAvg;
+		u32      cpuCount;
+		u32      gpuCount;
 		u32      color;
 		char     name[64];
 		i32      depth;
 		bool     hasGPU;
+		bool     present;
+	};
+
+	struct FrameStats
+	{
+		f64      current;
+		f64      min;
+		f64      max;
+		f64      avg;
+		u32      count;
 	};
 
 	SK_API void Init();
@@ -39,6 +55,8 @@ namespace Skore::Profiler
 	SK_API void EndFrame();
 
 	SK_API const TaskEntry* GetTasks(u32& count);
+	SK_API FrameStats GetFrameStats();
+	SK_API void ResetStats();
 
 	SK_API void SetActive(bool active);
 	SK_API bool IsActive();

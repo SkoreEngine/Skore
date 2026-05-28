@@ -8,6 +8,8 @@
 cbuffer CameraBuffer : register(b0, space2)
 {
 	matrix cascadeViewProjection;
+	uint   disableMask;
+	uint3  cameraPad;
 };
 
 #ifdef HAS_BONES
@@ -69,16 +71,19 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 void MainPS(PixelInput input)
 {
 #ifdef HAS_MASK
-	MaterialData mat = MaterialDataBuffer[input.matIndex];
-	float2 uv = input.texCoord * mat.uvScale;
-	float  alpha = 1.0;
-	if (mat.baseColorTexture >= 0)
+	if (disableMask == 0)
 	{
-		alpha = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].Sample(LinearSampler, uv).a;
-	}
-	if (alpha < mat.alphaCutoff)
-	{
-		discard;
+		MaterialData mat = MaterialDataBuffer[input.matIndex];
+		float2 uv = input.texCoord * mat.uvScale;
+		float  alpha = 1.0;
+		if (mat.baseColorTexture >= 0)
+		{
+			alpha = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].Sample(LinearSampler, uv).a;
+		}
+		if (alpha < mat.alphaCutoff)
+		{
+			discard;
+		}
 	}
 #endif
 }

@@ -696,7 +696,7 @@ namespace Skore
 			}
 		}
 
-		const bool tlasDirty = tlasTopologyDirty || tlasTransformsDirty;
+		const bool tlasDirty = false;//  tlasTopologyDirty || tlasTransformsDirty;
 		if (tlasDirty && Graphics::GetDevice()->GetFeatures().rayTracing)
 		{
 			if (!instances.Empty())
