@@ -16,6 +16,7 @@ namespace Skore
 
 		RID                  mesh;
 		Array<RID>           materials;
+		RID                  shader;
 		bool                 castShadows = true;
 		Mat4                 transform = Mat4(1.0);
 		u64                  userData = 0;
@@ -191,6 +192,20 @@ namespace Skore
 	Span<RID> RenderSceneObjects::GetMaterials(RenderableObject obj) const
 	{
 		return obj ? Span<RID>{obj.ToPtr<RenderableObjectStorage>()->materials} : Span<RID>{};
+	}
+
+	void RenderSceneObjects::SetShader(RenderableObject obj, RID shader)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		if (o->shader == shader) return;
+		o->shader = shader;
+		MarkDirty(o);
+	}
+
+	RID RenderSceneObjects::GetShader(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->shader : RID{};
 	}
 
 	void RenderSceneObjects::SetCastShadows(RenderableObject obj, bool castShadows)
@@ -462,7 +477,8 @@ namespace Skore
 		DrawPipelineDesc pipelineDesc;
 		pipelineDesc.cullMode = cullMode;
 		pipelineDesc.hasBones = hasBones;
-		pipelineDesc.shader = material->shader;
+		pipelineDesc.masked   = material->masked;
+		pipelineDesc.shader   = obj->shader;
 
 		Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
 		ref.pipelineIndex = GetOrCreatePipeline(pipelineStorage, pipelineDesc);
@@ -493,8 +509,9 @@ namespace Skore
 		if (castShadow)
 		{
 			DrawPipelineDesc shadowDesc;
-			shadowDesc.cullMode = CullMode::Front;
+			shadowDesc.cullMode = material->masked ? CullMode::None : CullMode::Front;
 			shadowDesc.hasBones = hasBones;
+			shadowDesc.masked   = material->masked;
 
 			ref.shadowPipelineIndex = GetOrCreatePipeline(shadowPipelines, shadowDesc);
 

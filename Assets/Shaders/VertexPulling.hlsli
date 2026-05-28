@@ -14,9 +14,9 @@ struct VertexLayoutOffset
 	uint tangentOffset;
 	uint boneIndicesOffset;
 	uint boneWeightsOffset;
-	uint pad0;
-	uint pad1;
-	uint pad2;
+	uint custom0Offset;
+	uint custom1Offset;
+	uint custom2Offset;
 };
 
 struct MeshLODInfo
@@ -91,6 +91,27 @@ float4 GetVertexBoneWeights(uint vertexByteOffset, uint layoutIdx, uint vertexId
 	VertexLayoutOffset layout = VertexLayouts[NonUniformResourceIndex(layoutIdx)];
 	if (layout.boneWeightsOffset == 0xFFFFFFFF) return float4(1, 0, 0, 0);
 	return asfloat(MeshDataBuffer.Load4(vertexByteOffset + vertexId * layout.stride + layout.boneWeightsOffset));
+}
+
+uint GetVertexCustom0Uint(uint vertexByteOffset, uint layoutIdx, uint vertexId)
+{
+	VertexLayoutOffset layout = VertexLayouts[NonUniformResourceIndex(layoutIdx)];
+	if (layout.custom0Offset == 0xFFFFFFFF) return 0;
+	return MeshDataBuffer.Load(vertexByteOffset + vertexId * layout.stride + layout.custom0Offset);
+}
+
+uint GetVertexCustom1Uint(uint vertexByteOffset, uint layoutIdx, uint vertexId)
+{
+	VertexLayoutOffset layout = VertexLayouts[NonUniformResourceIndex(layoutIdx)];
+	if (layout.custom1Offset == 0xFFFFFFFF) return 0;
+	return MeshDataBuffer.Load(vertexByteOffset + vertexId * layout.stride + layout.custom1Offset);
+}
+
+uint GetVertexCustom2Uint(uint vertexByteOffset, uint layoutIdx, uint vertexId)
+{
+	VertexLayoutOffset layout = VertexLayouts[NonUniformResourceIndex(layoutIdx)];
+	if (layout.custom2Offset == 0xFFFFFFFF) return 0;
+	return MeshDataBuffer.Load(vertexByteOffset + vertexId * layout.stride + layout.custom2Offset);
 }
 
 #endif

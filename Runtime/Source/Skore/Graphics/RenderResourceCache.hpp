@@ -119,9 +119,6 @@ namespace Skore
 		u32                            materialIndex = U32_MAX;
 		GPUDescriptorSet*              descriptorSet = nullptr;
 
-		// Optional custom shader for the opaque GBuffer/depth pass. Null = use engine default.
-		RID shader = {};
-
 		// Keeps PBR textures alive while this material exists.
 		Array<TextureResourceCachePtr> textures;
 
@@ -135,6 +132,7 @@ namespace Skore
 
 		// MaterialResource::MaterialType needs to be transparent?
 		bool transparent = false;
+		bool masked = false;
 
 		// Set true once the resource-change event has been registered, so the dtor can unregister it.
 		bool eventRegistered = false;

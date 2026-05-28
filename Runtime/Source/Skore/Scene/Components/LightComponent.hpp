@@ -35,6 +35,12 @@ namespace Skore
 		void SetMaxShadowDistance(f32 distance);
 		f32  GetMaxShadowDistance() const;
 
+		void SetSplitLambda(f32 lambda);
+		f32  GetSplitLambda() const;
+
+		void SetInterleavedCascadeUpdates(bool enable);
+		bool GetInterleavedCascadeUpdates() const;
+
 		void SetCullingMask(u64 cullingMask);
 		u64  GetCullingMask() const;
 
@@ -58,5 +64,7 @@ namespace Skore
 		u64       m_cullingMask = ~0ULL;
 		f32       m_sourceRadius = 0.0f;
 		f32       m_maxShadowDistance = 100.0f;
+		f32       m_splitLambda = 0.85f;
+		bool      m_interleavedCascadeUpdates = true;
 	};
 }

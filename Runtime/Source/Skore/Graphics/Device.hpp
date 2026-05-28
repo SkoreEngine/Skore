@@ -507,6 +507,7 @@ namespace Skore
 		bool rayTracing;
 		bool resolveDepth;
 		bool memoryBudget;
+		bool fragmentShaderBarycentric;
 	};
 
 	struct DeviceLimits

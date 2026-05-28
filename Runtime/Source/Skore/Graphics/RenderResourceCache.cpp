@@ -1148,9 +1148,9 @@ namespace Skore
 			u32 tangentOff;
 			u32 boneIndicesOff;
 			u32 boneWeightsOff;
-			u32 pad0;
-			u32 pad1;
-			u32 pad2;
+			u32 custom0Off;
+			u32 custom1Off;
+			u32 custom2Off;
 		};
 
 		Array<VertexLayoutOffsetData> vertexLayoutDescs;
@@ -1321,7 +1321,6 @@ namespace Skore
 			StringView name = materialObject.GetString(MaterialResource::Name);
 
 			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
-			materialCache->shader = materialObject.GetReference(MaterialResource::Shader);
 
 			// Drop previous texture references; rebuild based on the new material data.
 			materialCache->textures.Clear();
@@ -1365,7 +1364,9 @@ namespace Skore
 				matData.alphaMode = materialObject.GetEnum(MaterialResource::AlphaMode);
 				matData.alphaCutoff = materialObject.GetFloat(MaterialResource::AlphaCutoff);
 
-				materialCache->transparent = materialObject.GetEnum<MaterialResource::MaterialAlphaMode>(MaterialResource::AlphaMode) == MaterialResource::MaterialAlphaMode::Blend;
+				MaterialResource::MaterialAlphaMode alphaModeEnum = materialObject.GetEnum<MaterialResource::MaterialAlphaMode>(MaterialResource::AlphaMode);
+				materialCache->transparent = alphaModeEnum == MaterialResource::MaterialAlphaMode::Blend;
+				materialCache->masked = alphaModeEnum == MaterialResource::MaterialAlphaMode::Mask;
 
 				if (materialCache->materialIndex == U32_MAX)
 				{
@@ -2053,6 +2054,9 @@ namespace Skore
 			u32 tangentOffset  = U32_MAX;
 			u32 boneIndicesOffset = U32_MAX;
 			u32 boneWeightsOffset = U32_MAX;
+			u32 custom0Offset = U32_MAX;
+			u32 custom1Offset = U32_MAX;
+			u32 custom2Offset = U32_MAX;
 
 			RID vertexLayoutRID = meshObject.GetSubObject(MeshResource::VertexLayout);
 			if (vertexLayoutRID)
@@ -2079,6 +2083,9 @@ namespace Skore
 							else if (attrName == "tangent")  tangentOffset = attrOffset;
 							else if (attrName == "boneIndices") boneIndicesOffset = attrOffset;
 							else if (attrName == "boneWeights") boneWeightsOffset = attrOffset;
+							else if (attrName == "custom0") custom0Offset = attrOffset;
+							else if (attrName == "custom1") custom1Offset = attrOffset;
+							else if (attrName == "custom2") custom2Offset = attrOffset;
 						}
 					}
 				}
@@ -2210,6 +2217,9 @@ namespace Skore
 			layoutData.tangentOff     = tangentOffset;
 			layoutData.boneIndicesOff = boneIndicesOffset;
 			layoutData.boneWeightsOff = boneWeightsOffset;
+			layoutData.custom0Off     = custom0Offset;
+			layoutData.custom1Off     = custom1Offset;
+			layoutData.custom2Off     = custom2Offset;
 			layoutValid = true;
 
 			auto meshFutures = worker->AddMeshTask(meshData);
@@ -2280,6 +2290,9 @@ namespace Skore
 		layoutData.tangentOff     = U32_MAX;
 		layoutData.boneIndicesOff = U32_MAX;
 		layoutData.boneWeightsOff = U32_MAX;
+		layoutData.custom0Off     = U32_MAX;
+		layoutData.custom1Off     = U32_MAX;
+		layoutData.custom2Off     = U32_MAX;
 
 		bool hasUV1 = false, hasColor = false, hasSkin = false;
 
@@ -2293,6 +2306,9 @@ namespace Skore
 			else if (attr.name == "tangent")      layoutData.tangentOff = attr.offset;
 			else if (attr.name == "boneIndices"){ layoutData.boneIndicesOff = attr.offset; hasSkin = true; }
 			else if (attr.name == "boneWeights"){ layoutData.boneWeightsOff = attr.offset; hasSkin = true; }
+			else if (attr.name == "custom0")      layoutData.custom0Off = attr.offset;
+			else if (attr.name == "custom1")      layoutData.custom1Off = attr.offset;
+			else if (attr.name == "custom2")      layoutData.custom2Off = attr.offset;
 		}
 
 		auto layout = std::make_shared<VertexLayoutCache>();

@@ -19,12 +19,14 @@ namespace Skore
 	{
 		CullMode cullMode = CullMode::Back;
 		bool     hasBones = false;
+		bool     masked = false;
 		RID      shader = {};
 
 		bool operator==(const DrawPipelineDesc& other) const
 		{
 			return cullMode == other.cullMode
 				&& hasBones == other.hasBones
+				&& masked == other.masked
 				&& shader == other.shader;
 		}
 	};
@@ -113,6 +115,9 @@ namespace Skore
 
 		void      SetMaterials(RenderableObject obj, Span<RID> materials);
 		Span<RID> GetMaterials(RenderableObject obj) const;
+
+		void SetShader(RenderableObject obj, RID shader);
+		RID  GetShader(RenderableObject obj) const;
 
 		void SetCastShadows(RenderableObject obj, bool castShadows);
 		bool GetCastShadows(RenderableObject obj) const;

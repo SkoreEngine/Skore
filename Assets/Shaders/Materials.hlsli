@@ -161,4 +161,122 @@ MaterialSample SampleMaterialLevel(uint materialIndex, float2 texCoord, float3 n
 	return material;
 }
 
+float3 TriplanarBlendWeights(float3 worldNormal)
+{
+	float3 w = pow(abs(worldNormal), 4.0);
+	return w / max(w.x + w.y + w.z, 0.0001);
+}
+
+float3 SampleAlbedoTriplanar(int textureIdx, float3 worldPos, float3 weights, float2 uvScale)
+{
+	float2 uvX = worldPos.zy * uvScale;
+	float2 uvY = worldPos.xz * uvScale;
+	float2 uvZ = worldPos.xy * uvScale;
+
+	float3 cx = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvX).rgb;
+	float3 cy = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvY).rgb;
+	float3 cz = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvZ).rgb;
+
+	return cx * weights.x + cy * weights.y + cz * weights.z;
+}
+
+float SampleChannelTriplanar(int textureIdx, float3 worldPos, float3 weights, float2 uvScale, uint channel)
+{
+	float2 uvX = worldPos.zy * uvScale;
+	float2 uvY = worldPos.xz * uvScale;
+	float2 uvZ = worldPos.xy * uvScale;
+
+	float vx = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvX)[channel];
+	float vy = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvY)[channel];
+	float vz = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvZ)[channel];
+
+	return vx * weights.x + vy * weights.y + vz * weights.z;
+}
+
+float3 SampleNormalTriplanar(int textureIdx, float3 worldPos, float3 worldNormal, float3 weights, float2 uvScale)
+{
+	float2 uvX = worldPos.zy * uvScale;
+	float2 uvY = worldPos.xz * uvScale;
+	float2 uvZ = worldPos.xy * uvScale;
+
+	float3 nx = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvX).rgb * 2.0 - 1.0;
+	float3 ny = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvY).rgb * 2.0 - 1.0;
+	float3 nz = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvZ).rgb * 2.0 - 1.0;
+
+	float3 tnX = float3(0.0, nx.y, nx.x) + worldNormal;
+	float3 tnY = float3(ny.x, 0.0, ny.y) + worldNormal;
+	float3 tnZ = float3(nz.x, nz.y, 0.0) + worldNormal;
+
+	return normalize(tnX * weights.x + tnY * weights.y + tnZ * weights.z);
+}
+
+inline void WriteMipmapFeedbackTriplanar(uint materialIndex, float3 worldPos, float2 uvScale)
+{
+	float3 dpdx = ddx_coarse(worldPos);
+	float3 dpdy = ddy_coarse(worldPos);
+
+	const float lodX = GetLod(65536u, dpdx.zy * uvScale, dpdy.zy * uvScale);
+	const float lodY = GetLod(65536u, dpdx.xz * uvScale, dpdy.xz * uvScale);
+	const float lodZ = GetLod(65536u, dpdx.xy * uvScale, dpdy.xy * uvScale);
+	const float lod  = min(lodX, min(lodY, lodZ));
+
+	const uint resolution = 65536u >> uint(max(0, lod));
+	const uint waveMask   = WaveActiveBitOr(resolution);
+	if (WaveIsFirstLane())
+	{
+		InterlockedOr(MaterialMaskBuffer[materialIndex], waveMask);
+	}
+}
+
+MaterialSample SampleMaterialTriplanar(uint materialIndex, float3 worldPos, float3 worldNormal, float3 weights)
+{
+	MaterialSample material;
+	MaterialData   mat = MaterialDataBuffer[materialIndex];
+
+	material.baseColor = mat.baseColor;
+	material.alpha = 1.0;
+
+	if (mat.baseColorTexture >= 0)
+	{
+		float3 sampled = SampleAlbedoTriplanar(mat.baseColorTexture, worldPos, weights, mat.uvScale);
+		material.baseColor = pow(sampled * mat.baseColor, 2.2);
+	}
+
+	if (mat.alphaMode == 2 && material.alpha < mat.alphaCutoff)
+	{
+		discard;
+	}
+
+	WriteMipmapFeedbackTriplanar(materialIndex, worldPos, mat.uvScale);
+
+	material.normal = worldNormal;
+	if (mat.normalTexture >= 0)
+	{
+		material.normal = SampleNormalTriplanar(mat.normalTexture, worldPos, worldNormal, weights, mat.uvScale);
+	}
+
+	material.roughness = mat.roughness;
+	if (mat.roughnessTexture >= 0)
+	{
+		material.roughness = SampleChannelTriplanar(mat.roughnessTexture, worldPos, weights, mat.uvScale, 1);
+	}
+	material.roughness = max(material.roughness, 0.002);
+
+	material.metallic = mat.metallic;
+	if (mat.metallicTexture >= 0)
+	{
+		material.metallic = SampleChannelTriplanar(mat.metallicTexture, worldPos, weights, mat.uvScale, 2);
+	}
+
+	material.emissive = mat.emissiveColor * mat.emissiveFactor;
+	if (mat.emissiveTexture >= 0)
+	{
+		float3 emTex = SampleAlbedoTriplanar(mat.emissiveTexture, worldPos, weights, mat.uvScale);
+		material.emissive *= emTex;
+	}
+	material.occlusion = 1.0;
+
+	return material;
+}
+
 #endif

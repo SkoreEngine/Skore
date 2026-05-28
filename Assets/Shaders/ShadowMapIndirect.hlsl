@@ -1,8 +1,10 @@
 #include "Common.hlsli"
 #include "SceneBindings.hlsli"
 #include "VertexPulling.hlsli"
+#ifdef HAS_MASK
+#include "GlobalBindings.hlsli"
+#endif
 
-// Per-cascade camera buffer.
 cbuffer CameraBuffer : register(b0, space2)
 {
 	matrix cascadeViewProjection;
@@ -18,6 +20,10 @@ cbuffer SkinnedBuffer : register(b0, space3)
 struct PixelInput
 {
     float4 position : SV_POSITION;
+#ifdef HAS_MASK
+    float2 texCoord : TEXCOORD0;
+    nointerpolation uint matIndex : MATERIAL1;
+#endif
 };
 
 PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] uint idx : SV_StartInstanceLocation)
@@ -52,10 +58,27 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 	float4 worldPosition = mul(instance.transform, float4(position, 1.0f));
 	output.position = mul(cascadeViewProjection, worldPosition);
 
+#ifdef HAS_MASK
+	output.texCoord = GetVertexUV(vboff, layoutIdx, vertexId);
+	output.matIndex = instance.materialIndex;
+#endif
+
     return output;
 }
 
 void MainPS(PixelInput input)
 {
-    //nothing
+#ifdef HAS_MASK
+	MaterialData mat = MaterialDataBuffer[input.matIndex];
+	float2 uv = input.texCoord * mat.uvScale;
+	float  alpha = 1.0;
+	if (mat.baseColorTexture >= 0)
+	{
+		alpha = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].Sample(LinearSampler, uv).a;
+	}
+	if (alpha < mat.alphaCutoff)
+	{
+		discard;
+	}
+#endif
 }
