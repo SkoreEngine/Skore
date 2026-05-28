@@ -204,6 +204,7 @@ namespace Skore
 		HashSet<RenderableObjectStorage*>  renderables;
 		DenseSet<RenderableObjectStorage*> pendingUpdate;
 		DenseSet<RenderableObjectStorage*> pendingBlas;
+		DenseSet<u32>                      dirtyInstances;
 
 		GPUBuffer* tlasScratchBuffer = nullptr;
 		u32        tlasMaxInstances = 0;
@@ -214,6 +215,7 @@ namespace Skore
 		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
 
 		void MarkDirty(RenderableObjectStorage* obj);
+		void MarkInstanceDirty(u32 instanceDescIndex);
 		bool TryRebuild(RenderableObjectStorage* obj);
 		void ClearDrawcalls(RenderableObjectStorage* obj);
 		void UpdateAABB(RenderableObjectStorage* obj);

@@ -850,6 +850,7 @@ namespace Skore
 	struct TopLevelASDesc
 	{
 		Span<InstanceDesc>              instances;
+		u32                             maxInstances{0};
 		BuildAccelerationStructureFlags flags{BuildAccelerationStructureFlags::PreferFastTrace};
 		String                          debugName;
 	};
@@ -1193,6 +1194,8 @@ namespace Skore
 		virtual const TopLevelASDesc& GetDesc() const = 0;
 
 		virtual bool UpdateInstances(Span<InstanceDesc> instances) = 0;
+		virtual void UpdateInstance(u32 index, const InstanceDesc& instance) = 0;
+		virtual void SetInstanceCount(u32 count) = 0;
 		virtual void Destroy() = 0;
 	};
 
