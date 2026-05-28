@@ -1,9 +1,12 @@
 #pragma once
 
+#include <memory>
+
 #include "Entity.hpp"
 #include "Skore/Common.hpp"
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/Math.hpp"
+#include "Skore/Core/Span.hpp"
 
 namespace JPH
 {
@@ -74,6 +77,9 @@ namespace Skore
 		Array<BodyShapeBuilder> shapes;
 	};
 
+	struct CollisionShape;
+	using CollisionShapePtr = std::shared_ptr<CollisionShape>;
+
 	class SK_API PhysicsScene
 	{
 	public:
@@ -89,6 +95,10 @@ namespace Skore
 		void UnregisterPhysicsEntity(Entity* entity);
 		void PhysicsEntityRequireUpdate(Entity* entity);
 		void UpdateTransform(Entity* entity);
+
+		CollisionShapePtr CreateStaticMeshShape(Span<Vec3> vertices, Span<u32> indices);
+		u32               AddStaticMeshBody(const CollisionShapePtr& shape, const Vec3& position, const Quat& rotation, u8 layer = 0);
+		void              RemoveStaticBody(u32 bodyHandle);
 
 		void DrawEntities(GPUCommandBuffer* cmd, GPUPipeline* pipeline, const HashSet<Entity*>& entities);
 		void DrawShape(Entity* entity, GPUCommandBuffer* cmd, GPUPipeline* pipeline);
