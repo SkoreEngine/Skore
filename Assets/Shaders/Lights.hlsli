@@ -13,43 +13,21 @@ static const float4x4 biasMat = float4x4(
 	0.0, 0.0, 0.0, 1.0
 );
 
-float TextureProj(float4 shadowCoord, float2 offset, uint cascadeIndex)
+float SampleShadowTap(float2 sampleUV, float sampleDepth, uint cascadeIndex)
 {
-	float bias = 0.002;
-	if ( shadowCoord.z > -1.0 && shadowCoord.z < 1.0 )
+	if (sampleDepth > -1.0 && sampleDepth < 1.0)
 	{
 #if SK_USE_COMPARISON_STATE
-		return shadowMapTexture.SampleCmpLevelZero(shadowMapSampler, float3(shadowCoord.xy + offset, cascadeIndex), shadowCoord.z - bias).r;
+		return shadowMapTexture.SampleCmpLevelZero(shadowMapSampler, float3(sampleUV, cascadeIndex), sampleDepth).r;
 #else
-		float dist = shadowMapTexture.Sample(shadowMapSampler, float3(shadowCoord.xy + offset, cascadeIndex)).r;
-		if (shadowCoord.w > 0 && dist < shadowCoord.z - bias)
+		float dist = shadowMapTexture.Sample(shadowMapSampler, float3(sampleUV, cascadeIndex)).r;
+		if (dist < sampleDepth)
 		{
 			return 0.0;
 		}
 #endif
 	}
 	return 1.0;
-}
-
-float FilterPCF(float4 sc, uint cascadeIndex)
-{
-	int3 texDim;
-	shadowMapTexture.GetDimensions(texDim.x, texDim.y, texDim.z);
-	float scale = 1.0;
-	float dx = scale * 1.0 / float(texDim.x);
-	float dy = scale * 1.0 / float(texDim.y);
-
-	float shadowFactor = 0.0;
-	int count = 0;
-	int range = SK_PCF_RANGE;
-
-	for (int x = -range; x <= range; x++) {
-		for (int y = -range; y <= range; y++) {
-			shadowFactor += TextureProj(sc, float2(dx*x, dy*y), cascadeIndex);
-			count++;
-		}
-	}
-	return shadowFactor / count;
 }
 
 struct LightPixelData
@@ -67,11 +45,38 @@ float SampleShadowCascade(float3 worldPos, float3 N, uint cascadeIndex)
 {
 	float3 lightDir = normalize(-lights[shadowLightIndex].direction.xyz);
 	float  nDotL = dot(N, lightDir);
-	float  normalBias = 0.02 * (1.0 - nDotL);
+
+	float  normalBias = 0.02 * saturate(1.0 - nDotL);
 	float3 biasedPos = worldPos + N * normalBias;
 
-	float4 shadowCoord = mul(biasMat, mul(cascadeViewProjMat[cascadeIndex], float4(biasedPos, 1.0)));
-	return FilterPCF(shadowCoord / shadowCoord.w, cascadeIndex);
+	float4 shadowCoord4 = mul(biasMat, mul(cascadeViewProjMat[cascadeIndex], float4(biasedPos, 1.0)));
+	float3 shadowCoord  = shadowCoord4.xyz / shadowCoord4.w;
+
+	float nDotLClamp = max(saturate(nDotL), 0.05);
+	float slopeTan   = sqrt(1.0 - nDotLClamp * nDotLClamp) / nDotLClamp;
+	float depthBias  = 0.0008 + 0.0015 * slopeTan;
+	depthBias        = min(depthBias, 0.01);
+
+	int3 texDim;
+	shadowMapTexture.GetDimensions(texDim.x, texDim.y, texDim.z);
+	float2 texelSize = 1.0 / float2(texDim.x, texDim.y);
+
+	float shadowFactor = 0.0;
+	int count = 0;
+	int range = SK_PCF_RANGE;
+
+	[unroll]
+	for (int y = -range; y <= range; y++)
+	{
+		[unroll]
+		for (int x = -range; x <= range; x++)
+		{
+			float2 sampleOffset = float2(x, y) * texelSize;
+			shadowFactor += SampleShadowTap(shadowCoord.xy + sampleOffset, shadowCoord.z - depthBias, cascadeIndex);
+			count++;
+		}
+	}
+	return shadowFactor / count;
 }
 
 float3 SampleLights(in LightPixelData input)
