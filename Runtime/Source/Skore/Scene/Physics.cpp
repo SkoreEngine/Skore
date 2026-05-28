@@ -612,6 +612,84 @@ namespace Skore
 		}
 	}
 
+	struct CollisionShape
+	{
+		JPH::Ref<JPH::Shape> ref;
+	};
+
+	CollisionShapePtr PhysicsScene::CreateStaticMeshShape(Span<Vec3> vertices, Span<u32> indices)
+	{
+		if (vertices.Size() == 0 || indices.Size() < 3 || (indices.Size() % 3) != 0)
+		{
+			return {};
+		}
+
+		JPH::VertexList vertexList;
+		vertexList.reserve(vertices.Size());
+		for (usize i = 0; i < vertices.Size(); ++i)
+		{
+			vertexList.emplace_back(vertices[i].x, vertices[i].y, vertices[i].z);
+		}
+
+		JPH::IndexedTriangleList triList;
+		const usize triCount = indices.Size() / 3;
+		triList.reserve(triCount);
+		for (usize i = 0; i < triCount; ++i)
+		{
+			triList.emplace_back(indices[i * 3 + 0], indices[i * 3 + 1], indices[i * 3 + 2], 0);
+		}
+
+		JPH::MeshShapeSettings settings(std::move(vertexList), std::move(triList));
+		auto                   created = settings.Create();
+		if (created.HasError())
+		{
+			logger.Warn("Failed to create static mesh shape: {}", created.GetError().c_str());
+			return {};
+		}
+
+		auto wrapper = std::make_shared<CollisionShape>();
+		wrapper->ref = created.Get();
+		return wrapper;
+	}
+
+	u32 PhysicsScene::AddStaticMeshBody(const CollisionShapePtr& shape, const Vec3& position, const Quat& rotation, u8 layer)
+	{
+		if (!shape || !shape->ref) return JPH::BodyID::cInvalidBodyID;
+		if (!context) return JPH::BodyID::cInvalidBodyID;
+
+		JPH::BodyCreationSettings settings(shape->ref, Cast(position), Cast(rotation), JPH::EMotionType::Static, PhysicsLayers::Encode(layer, false));
+		settings.mUserData = 0;
+
+		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+		JPH::Body*          body          = bodyInterface.CreateBody(settings);
+		if (!body) return JPH::BodyID::cInvalidBodyID;
+
+		context->pendingBodiesToAdd.push_back(body->GetID());
+		return body->GetID().GetIndexAndSequenceNumber();
+	}
+
+	void PhysicsScene::RemoveStaticBody(u32 bodyHandle)
+	{
+		if (bodyHandle == JPH::BodyID::cInvalidBodyID) return;
+		if (!context) return;
+
+		JPH::BodyID id(bodyHandle);
+		if (id.IsInvalid()) return;
+
+		JPH::BodyInterface& bodyInterface = context->physicsSystem.GetBodyInterface();
+		auto&               pending       = context->pendingBodiesToAdd;
+		auto                it            = std::find(pending.begin(), pending.end(), id);
+		if (it != pending.end())
+		{
+			pending.erase(it);
+		}
+		else
+		{
+			bodyInterface.RemoveBody(id);
+		}
+		bodyInterface.DestroyBody(id);
+	}
+
 	void PhysicsScene::RegisterPhysicsEntity(Entity* entity)
 	{
 		entity->m_physicsUpdatedFrame = App::Frame();
@@ -981,10 +1059,25 @@ namespace Skore
 			updateSettings.mWalkStairsMinStepForward *= 4.0f;
 
 			f32 frameDt = Math::Clamp(static_cast<f32>(App::DeltaTime()), 0.0001f, 0.1f);
+
+			JPH::Vec3 gravity = context->physicsSystem.GetGravity();
+			JPH::Vec3 up = characterVirtual->GetUp();
+			JPH::Vec3 velocity = characterVirtual->GetLinearVelocity();
+			float verticalSpeed = velocity.Dot(up);
+			if (characterVirtual->IsSupported() && verticalSpeed <= 1.0e-3f)
+			{
+				velocity -= verticalSpeed * up;
+			}
+			else
+			{
+				velocity += gravity * frameDt;
+			}
+			characterVirtual->SetLinearVelocity(velocity);
+
 			JPH::ObjectLayer charObjectLayer = PhysicsLayers::Encode(characterController->entity->GetLayer(), true);
 			characterVirtual->ExtendedUpdate(
 				frameDt,
-				-characterVirtual->GetUp() * context->physicsSystem.GetGravity().Length(),
+				gravity,
 				updateSettings,
 				context->physicsSystem.GetDefaultBroadPhaseLayerFilter(charObjectLayer),
 				context->physicsSystem.GetDefaultLayerFilter(charObjectLayer),
@@ -1107,6 +1200,7 @@ namespace Skore
 				context->writingBackTransforms = false;
 			}
 
+			characterController->SetLinearVelocity(Cast(characterVirtual->GetLinearVelocity()));
 			characterController->SetOnGround(characterVirtual->IsSupported());
 		}
 	}
