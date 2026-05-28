@@ -32,6 +32,9 @@ namespace Skore
 		void SetEnableShadows(bool enable);
 		bool GetEnableShadows() const;
 
+		void SetMaxShadowDistance(f32 distance);
+		f32  GetMaxShadowDistance() const;
+
 		void SetCullingMask(u64 cullingMask);
 		u64  GetCullingMask() const;
 
@@ -54,5 +57,6 @@ namespace Skore
 		bool      m_enableShadows = true;
 		u64       m_cullingMask = ~0ULL;
 		f32       m_sourceRadius = 0.0f;
+		f32       m_maxShadowDistance = 100.0f;
 	};
 }

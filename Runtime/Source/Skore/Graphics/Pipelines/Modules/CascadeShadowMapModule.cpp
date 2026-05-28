@@ -199,6 +199,7 @@ namespace Skore
 		}
 
 		Vec3 lightDir = Vec3(-1.0f, -1.0f, -1.0f);
+		f32  lightMaxShadowDistance = 100.0f;
 		bool foundDirectionalShadow = false;
 
 		scene->Iterate<LightComponent>([&](LightComponent* light)
@@ -208,6 +209,7 @@ namespace Skore
 
 			const Mat4& transform = light->GetEntity()->GetWorldTransform();
 			lightDir = Vec3::Normalize(-Vec3(transform[2]));
+			lightMaxShadowDistance = light->GetMaxShadowDistance();
 			foundDirectionalShadow = true;
 		});
 
@@ -219,7 +221,7 @@ namespace Skore
 		float cascadeSplits[MaxNumCascades];
 
 		float nearClip = context->camera.nearClip;
-		float farClip = context->camera.farClip;
+		float farClip  = Math::Max(lightMaxShadowDistance, nearClip * 2.0f);
 		float clipRange = farClip - nearClip;
 
 		float minZ = nearClip;
@@ -237,7 +239,10 @@ namespace Skore
 			cascadeSplits[i] = (d - nearClip) / clipRange;
 		}
 
-		Mat4 invCam = Mat4::Inverse(context->camera.viewProjectionNoJitter);
+		Mat4 shadowProj = context->camera.projectionNoJitter;
+		shadowProj[2][2] = farClip / (nearClip - farClip);
+		shadowProj[3][2] = -(farClip * nearClip) / (farClip - nearClip);
+		Mat4 invCam = Mat4::Inverse(shadowProj * context->camera.view);
 
 		u32 frame = context->GetCurrentFrame();
 
