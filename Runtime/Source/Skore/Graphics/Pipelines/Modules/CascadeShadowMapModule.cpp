@@ -83,7 +83,8 @@ namespace Skore
 			m_shadowMapTextureViews[i] = Graphics::CreateTextureView(TextureViewDesc{
 				.texture = shadowMapData->shadowTexture,
 				.type = TextureViewType::Type2DArray,
-				.baseArrayLayer = i
+				.baseArrayLayer = i,
+				.arrayLayerCount = 1
 			});
 
 			m_shadowMapRenderPass[i] = Graphics::CreateRenderPass(RenderPassDesc{
@@ -200,6 +201,8 @@ namespace Skore
 
 		Vec3 lightDir = Vec3(-1.0f, -1.0f, -1.0f);
 		f32  lightMaxShadowDistance = 100.0f;
+		f32  lightSplitLambda = 0.85f;
+		bool lightInterleavedCascadeUpdates = true;
 		bool foundDirectionalShadow = false;
 
 		scene->Iterate<LightComponent>([&](LightComponent* light)
@@ -210,6 +213,8 @@ namespace Skore
 			const Mat4& transform = light->GetEntity()->GetWorldTransform();
 			lightDir = Vec3::Normalize(-Vec3(transform[2]));
 			lightMaxShadowDistance = light->GetMaxShadowDistance();
+			lightSplitLambda = light->GetSplitLambda();
+			lightInterleavedCascadeUpdates = light->GetInterleavedCascadeUpdates();
 			foundDirectionalShadow = true;
 		});
 
@@ -235,7 +240,7 @@ namespace Skore
 			float p = (i + 1) / static_cast<float>(shadowMapData->numCascades);
 			float log = minZ * std::pow(ratio, p);
 			float uniform = minZ + range * p;
-			float d = m_lambda * (log - uniform) + uniform;
+			float d = lightSplitLambda * (log - uniform) + uniform;
 			cascadeSplits[i] = (d - nearClip) / clipRange;
 		}
 
@@ -293,18 +298,21 @@ namespace Skore
 				float distance = Vec3::Length(frustumCorner - frustumCenter);
 				radius = Math::Max(radius, distance);
 			}
-			radius = std::ceil(radius * 16.0f) / 16.0f;
+			radius = std::round(radius * 16.0f) / 16.0f;
 
 			lastSplitDist = cascadeSplits[i];
 
-			u32  period       = Math::Min(1u << i, m_maxUpdatePeriod);
-			bool periodReady  = (m_frameCounter % period) == 0;
-			bool largeMove    = Vec3::Length(frustumCenter - m_lastFrustumCenter[i]) > radius * m_centerMoveThreshold;
-			bool lightRotated = Vec3::Dot(lightDir, m_lastLightDir[i]) < m_lightRotationDotThreshold;
-
-			if (!(periodReady || largeMove || lightRotated))
+			if (lightInterleavedCascadeUpdates)
 			{
-				continue;
+				u32  period       = Math::Min(1u << i, m_maxUpdatePeriod);
+				bool periodReady  = (m_frameCounter % period) == 0;
+				bool largeMove    = Vec3::Length(frustumCenter - m_lastFrustumCenter[i]) > radius * m_centerMoveThreshold;
+				bool lightRotated = Vec3::Dot(lightDir, m_lastLightDir[i]) < m_lightRotationDotThreshold;
+
+				if (!(periodReady || largeMove || lightRotated))
+				{
+					continue;
+				}
 			}
 
 			Vec3 maxExtents = Vec3{radius, radius, radius};
@@ -367,6 +375,7 @@ namespace Skore
 
 			Array<String> macros;
 			if (desc.hasBones) macros.EmplaceBack("HAS_BONES");
+			if (desc.masked)   macros.EmplaceBack("HAS_MASK");
 
 			GPUPipeline* p = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
 				.shader = shadowShader,

@@ -41,8 +41,6 @@ namespace Skore
 
 		ShadowMapInstanceData* shadowMapData = nullptr;
 
-		f32 m_lambda = 0.85f;
-
 		Array<Vec4>    m_cascadeOffsets;
 		Array<Vec4>    m_cascadeScales;
 		Array<Frustum> m_cascadeCullingFrustums;

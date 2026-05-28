@@ -172,7 +172,6 @@ namespace Skore
 		{
 			Name,                    //String
 			Type,                    //Enum
-			Shader,                  //Reference (ShaderResource) — optional override; null = default GBuffer shader
 			BaseColor,               //Color
 			BaseColorTexture,        //Reference
 			NormalTexture,           //Reference

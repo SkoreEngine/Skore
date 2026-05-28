@@ -1800,6 +1800,9 @@ namespace Skore
 		multiviewFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
 		multiviewFeatures.multiview = true;
 
+		VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentricFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR};
+		barycentricFeatures.fragmentShaderBarycentric = true;
+
 		if (!AddIfPresent(VK_KHR_SWAPCHAIN_EXTENSION_NAME))
 		{
 			return false;
@@ -1820,6 +1823,7 @@ namespace Skore
 		features.bufferDeviceAddress = AddIfPresent(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, &bufferDeviceAddressFeatures);
 		features.drawIndirectCount = AddIfPresent(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
 		features.memoryBudget = AddIfPresent(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+		features.fragmentShaderBarycentric = AddIfPresent(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME, &barycentricFeatures);
 
 		features.rayTracing = AddIfPresent(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) && AddIfPresent(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
 

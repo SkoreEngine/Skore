@@ -65,7 +65,6 @@ struct LightPixelData
 
 float SampleShadowCascade(float3 worldPos, float3 N, uint cascadeIndex)
 {
-	// Normal offset bias: push the sample point along the normal to reduce acne
 	float3 lightDir = normalize(-lights[shadowLightIndex].direction.xyz);
 	float  nDotL = dot(N, lightDir);
 	float  normalBias = 0.02 * (1.0 - nDotL);
@@ -82,31 +81,39 @@ float3 SampleLights(in LightPixelData input)
 	float  cosLo = max(dot(N, V), 0.0);
 	float3 Lr   = 2.0 * cosLo * N - V;
 
-	// Cascade selection
-	uint cascadeIndex = 0;
-	for(uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; ++i)
-	{
-		if(input.fragViewPos.z < cascadeSplits[i])
-		{
-			cascadeIndex = i + 1;
-		}
-	}
+	float maxShadowZ = cascadeSplits[SHADOW_MAP_CASCADE_COUNT - 1];
 
-	// Shadow with cascade blending
-	float shadow = SampleShadowCascade(input.worldPos, N, cascadeIndex);
+	float shadow = 1.0;
+	uint  cascadeIndex = 0;
 
-	// Blend with next cascade near the far boundary of the current cascade
-	if (cascadeIndex < SHADOW_MAP_CASCADE_COUNT - 1)
+	if (input.fragViewPos.z > maxShadowZ)
 	{
-		float splitZ = cascadeSplits[cascadeIndex];        // negative value
-		float blendDist = abs(splitZ) * 0.1;              // positive blend zone width
-		float blendStart = splitZ + blendDist;             // less negative = start of blend zone
-		float blendFactor = saturate((blendStart - input.fragViewPos.z) / blendDist);
-		if (blendFactor > 0.0)
+		for (uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; ++i)
 		{
-			float nextShadow = SampleShadowCascade(input.worldPos, N, cascadeIndex + 1);
-			shadow = lerp(shadow, nextShadow, blendFactor);
+			if (input.fragViewPos.z < cascadeSplits[i])
+			{
+				cascadeIndex = i + 1;
+			}
 		}
+
+		shadow = SampleShadowCascade(input.worldPos, N, cascadeIndex);
+
+		if (cascadeIndex < SHADOW_MAP_CASCADE_COUNT - 1)
+		{
+			float splitZ = cascadeSplits[cascadeIndex];
+			float blendDist = abs(splitZ) * 0.1;
+			float blendStart = splitZ + blendDist;
+			float blendFactor = saturate((blendStart - input.fragViewPos.z) / blendDist);
+			if (blendFactor > 0.0)
+			{
+				float nextShadow = SampleShadowCascade(input.worldPos, N, cascadeIndex + 1);
+				shadow = lerp(shadow, nextShadow, blendFactor);
+			}
+		}
+
+		float fadeRange = abs(maxShadowZ) * 0.03;
+		float distanceFade = smoothstep(maxShadowZ, maxShadowZ + fadeRange, input.fragViewPos.z);
+		shadow = lerp(1.0, shadow, distanceFade);
 	}
 
 	float3 F0 = 0.04;
@@ -114,16 +121,16 @@ float3 SampleLights(in LightPixelData input)
 
 	float3 lighting = 0.0;
 
-    for (uint i = 0; i < lightCount; i++)
-    {
-        float3 contrib = EvaluateDirectLighting(lights[i], N, V, input.worldPos, input.baseColor, input.roughness, input.metallic, F0);
+	for (uint i = 0; i < lightCount; i++)
+	{
+		float3 contrib = EvaluateDirectLighting(lights[i], N, V, input.worldPos, input.baseColor, input.roughness, input.metallic, F0);
 
-        if (shadowLightIndex == i)
-        {
-            contrib *= shadow;
-        }
-        lighting += contrib;
-    }
+		if (shadowLightIndex == i)
+		{
+			contrib *= shadow;
+		}
+		lighting += contrib;
+	}
 
 	#ifdef CASCADE_DEBUG
 	    static const float3 cascadeColors[4] = {
