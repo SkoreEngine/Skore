@@ -3748,6 +3748,50 @@ namespace Skore
 		return desc;
 	}
 
+	void VulkanTopLevelAS::UpdateInstance(u32 index, const InstanceDesc& inst)
+	{
+		if (!instanceMappedData || index >= maxInstanceCount)
+		{
+			return;
+		}
+
+		auto* vkInstances = static_cast<VkAccelerationStructureInstanceKHR*>(instanceMappedData);
+		VkAccelerationStructureInstanceKHR& vkInst = vkInstances[index];
+		vkInst = {};
+
+		const Mat4& m = inst.transform;
+		for (u32 row = 0; row < 3; ++row)
+		{
+			for (u32 col = 0; col < 4; ++col)
+			{
+				vkInst.transform.matrix[row][col] = m[col][row];
+			}
+		}
+
+		vkInst.instanceCustomIndex = inst.instanceID & 0x00FFFFFF;
+		vkInst.mask = inst.instanceMask;
+		vkInst.instanceShaderBindingTableRecordOffset = inst.instanceShaderBindingTableRecordOffset & 0x00FFFFFF;
+
+		VkGeometryInstanceFlagsKHR flags = 0;
+		if (inst.frontCounterClockwise)
+			flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FRONT_COUNTERCLOCKWISE_BIT_KHR;
+		if (inst.forceOpaque)
+			flags |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+		if (inst.forceNonOpaque)
+			flags |= VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR;
+		vkInst.flags = flags;
+
+		if (inst.bottomLevelAS)
+		{
+			vkInst.accelerationStructureReference = static_cast<VulkanBottomLevelAS*>(inst.bottomLevelAS)->deviceAddress;
+		}
+	}
+
+	void VulkanTopLevelAS::SetInstanceCount(u32 count)
+	{
+		instanceCount = count < maxInstanceCount ? count : maxInstanceCount;
+	}
+
 	bool VulkanTopLevelAS::UpdateInstances(Span<InstanceDesc> instances)
 	{
 		if (instances.Size() > maxInstanceCount || !instanceMappedData)
@@ -3755,41 +3799,9 @@ namespace Skore
 			return false;
 		}
 
-		auto* vkInstances = static_cast<VkAccelerationStructureInstanceKHR*>(instanceMappedData);
-
 		for (u32 i = 0; i < instances.Size(); ++i)
 		{
-			const InstanceDesc& inst = instances[i];
-			VkAccelerationStructureInstanceKHR& vkInst = vkInstances[i];
-			vkInst = {};
-
-			// Convert column-major Mat4 to row-major 3x4 VkTransformMatrixKHR
-			const Mat4& m = inst.transform;
-			for (u32 row = 0; row < 3; ++row)
-			{
-				for (u32 col = 0; col < 4; ++col)
-				{
-					vkInst.transform.matrix[row][col] = m[col][row];
-				}
-			}
-
-			vkInst.instanceCustomIndex = inst.instanceID & 0x00FFFFFF;
-			vkInst.mask = inst.instanceMask;
-			vkInst.instanceShaderBindingTableRecordOffset = inst.instanceShaderBindingTableRecordOffset & 0x00FFFFFF;
-
-			VkGeometryInstanceFlagsKHR flags = 0;
-			if (inst.frontCounterClockwise)
-				flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FRONT_COUNTERCLOCKWISE_BIT_KHR;
-			if (inst.forceOpaque)
-				flags |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
-			if (inst.forceNonOpaque)
-				flags |= VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR;
-			vkInst.flags = flags;
-
-			if (inst.bottomLevelAS)
-			{
-				vkInst.accelerationStructureReference = static_cast<VulkanBottomLevelAS*>(inst.bottomLevelAS)->deviceAddress;
-			}
+			UpdateInstance(i, instances[i]);
 		}
 
 		instanceCount = static_cast<u32>(instances.Size());
@@ -3895,6 +3907,7 @@ namespace Skore
 	{
 		VkBuildAccelerationStructureFlagsKHR buildFlags = ConvertBuildASFlags(desc.flags);
 		u32 instanceCount = static_cast<u32>(desc.instances.Size());
+		u32 capacity = desc.maxInstances > instanceCount ? desc.maxInstances : instanceCount;
 
 		// Set up geometry for instances
 		VkAccelerationStructureGeometryKHR geometry{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
@@ -3911,7 +3924,7 @@ namespace Skore
 		buildInfo.pGeometries = &geometry;
 
 		VkAccelerationStructureBuildSizesInfoKHR sizeInfo{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
-		vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &instanceCount, &sizeInfo);
+		vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &capacity, &sizeInfo);
 
 		// Create backing buffer
 		VkBufferCreateInfo bufferCreateInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -3952,7 +3965,7 @@ namespace Skore
 
 		// Create host-visible instance buffer
 		VkBufferCreateInfo instanceBufInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-		instanceBufInfo.size = sizeof(VkAccelerationStructureInstanceKHR) * (instanceCount > 0 ? instanceCount : 1);
+		instanceBufInfo.size = sizeof(VkAccelerationStructureInstanceKHR) * (capacity > 0 ? capacity : 1);
 		instanceBufInfo.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
 		VmaAllocationCreateInfo instanceAllocInfo{};
@@ -3984,7 +3997,7 @@ namespace Skore
 		tlas->instanceAllocation = instanceAllocation;
 		tlas->instanceMappedData = instanceAllocResult.pMappedData;
 		tlas->instanceCount = instanceCount;
-		tlas->maxInstanceCount = instanceCount > 0 ? instanceCount : 1;
+		tlas->maxInstanceCount = capacity > 0 ? capacity : 1;
 
 		// Fill instance data
 		tlas->UpdateInstances(desc.instances);
@@ -4081,6 +4094,7 @@ namespace Skore
 	usize VulkanDevice::GetAccelerationStructureBuildScratchSize(const TopLevelASDesc& desc)
 	{
 		u32 instanceCount = static_cast<u32>(desc.instances.Size());
+		u32 capacity = desc.maxInstances > instanceCount ? desc.maxInstances : instanceCount;
 
 		VkAccelerationStructureGeometryKHR geometry{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
 		geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
@@ -4094,7 +4108,7 @@ namespace Skore
 		buildInfo.pGeometries = &geometry;
 
 		VkAccelerationStructureBuildSizesInfoKHR sizeInfo{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
-		vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &instanceCount, &sizeInfo);
+		vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &capacity, &sizeInfo);
 
 		usize alignment = selectedAdapter->accelerationStructureProperties.minAccelerationStructureScratchOffsetAlignment;
 		return sizeInfo.buildScratchSize + alignment;

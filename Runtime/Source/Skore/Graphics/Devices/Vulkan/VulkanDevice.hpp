@@ -235,6 +235,8 @@ namespace Skore
 	public:
 		const TopLevelASDesc& GetDesc() const override;
 		bool                  UpdateInstances(Span<InstanceDesc> instances) override;
+		void                  UpdateInstance(u32 index, const InstanceDesc& instance) override;
+		void                  SetInstanceCount(u32 count) override;
 		void                  Destroy() override;
 
 		VulkanDevice*                vulkanDevice;
