@@ -94,6 +94,7 @@ namespace Skore
 	SK_FINLINE HashMap<Key, Value>::HashMap(HashMap&& other) noexcept
 	{
 		m_buckets.Swap(other.m_buckets);
+		m_size       = other.m_size;
 		other.m_size = 0;
 	}
 
