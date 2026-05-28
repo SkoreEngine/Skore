@@ -1,5 +1,6 @@
 #include "Skore/Graphics/Graphics.hpp"
 
+#include <cstdlib>
 #include <future>
 #include <SDL3/SDL.h>
 
@@ -7,6 +8,7 @@
 #include "Skore/Graphics/GraphicsCommon.hpp"
 #include "Skore/App.hpp"
 #include "Skore/OpenXRManager.hpp"
+#include "Skore/Core/ArgParser.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -98,7 +100,24 @@ namespace Skore
 			return left->GetScore() > right->GetScore();
 		});
 
-		if (!device->SelectAdapter(adapters[0]))
+		GPUAdapter* selectedAdapter = adapters[0];
+
+		if (String value = App::GetArgs().Get("force-adapter"); !value.Empty())
+		{
+			char* end = nullptr;
+			u32   index = static_cast<u32>(std::strtoul(value.CStr(), &end, 10));
+			if (end != value.CStr() && index < adapters.Size())
+			{
+				selectedAdapter = adapters[index];
+				logger.Info("--force-adapter {}, using GPU '{}'", index, selectedAdapter->GetName());
+			}
+			else
+			{
+				logger.Warn("--force-adapter '{}' is invalid (valid range 0..{}), selecting best GPU", value, adapters.Size() - 1);
+			}
+		}
+
+		if (!device->SelectAdapter(selectedAdapter))
 		{
 			ShowGraphicsStartError();
 			return false;
