@@ -71,7 +71,7 @@ namespace Skore
 		thisId = std::this_thread::get_id();
 
 		DeviceInitDesc desc;
-		desc.enableDebugLayers = false;
+		desc.enableDebugLayers = true;
 
 		RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(GraphicsSettings));
 		if (ResourceObject settingsObject = Resources::Read(settings))
@@ -148,7 +148,7 @@ namespace Skore
 			.mipmapFilter = FilterMode::Nearest,
 			.addressModeU = AddressMode::ClampToEdge,
 			.addressModeV = AddressMode::ClampToEdge,
-			.addressModeW = AddressMode::ClampToEdge,
+			.addressModeW = AddressMode::ClampToEdge
 		});
 
 		for (u32 i = 0; i < 3; ++i)
