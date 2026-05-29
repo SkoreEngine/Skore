@@ -102,8 +102,8 @@ void SpdStoreIntermediate(AU1 x, AU1 y, AF4 value)
 
 AF4 SpdReduce4(AF4 v0, AF4 v1, AF4 v2, AF4 v3)
 {
-    //return min(min(v0, v1), min(v2, v3));
-    return max(max(v0, v1), max(v2, v3));
+    return min(min(v0, v1), min(v2, v3));
+    //return max(max(v0, v1), max(v2, v3));
     //return (v0 + v1 + v2 + v3) * 0.25;
 }
 

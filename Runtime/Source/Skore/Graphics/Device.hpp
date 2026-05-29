@@ -577,7 +577,7 @@ namespace Skore
 		AddressMode addressModeU{AddressMode::Repeat};
 		AddressMode addressModeV{AddressMode::Repeat};
 		AddressMode addressModeW{AddressMode::Repeat};
-		f32         mipLodBias{-1.0f};
+		f32         mipLodBias{0.0f};
 		bool        anisotropyEnable{false};
 		f32         maxAnisotropy{1.0f};
 		bool        compareEnable{false};

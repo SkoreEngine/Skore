@@ -269,6 +269,7 @@ namespace Skore
 			lightInstanceData->ambientLight = Vec3(0.4);
 			lightInstanceData->ambientMultiplier = 1.0;
 			lightInstanceData->reflectionMultiplier = 1.0;
+			lightInstanceData->indirectLightFlags = LightFlags::None;
 			lightInstanceData->diffuseIrradianceTexture = Graphics::GetWhiteCubemapTexture();
 			lightInstanceData->specularMapTexture = Graphics::GetWhiteCubemapTexture();
 
@@ -1281,6 +1282,7 @@ namespace Skore
 				int   maxMipLevel;   // e.g. 6   — highest (coarsest) mip to use
 				float thickness;     // e.g. 0.1 — depth tolerance for a hit
 				float rayBias;       // e.g. 0.001
+				float nearClip;
 			};
 
 			ReflectionPushConstants pc;
@@ -1288,14 +1290,15 @@ namespace Skore
 			pc.reflectionMultiplier = lightInstanceData->reflectionMultiplier;
 			pc.outputSize = {static_cast<f32>(context->GetOutputSize().width), static_cast<f32>(context->GetOutputSize().height)};
 			pc.farClip = context->camera.farClip;
+			pc.nearClip = context->camera.nearClip;
 			pc.flags = lightInstanceData->indirectLightFlags;
 			pc.proj = context->camera.projection;
 			pc.view = context->camera.view;
 			pc.invView = context->camera.invView;
 
-			//TODO - WIP
-			//pc.flags |= LightFlags::SSREnabled;
-			pc.maxIterations = 128;
+			////TODO - WIP
+			pc.flags |= LightFlags::SSREnabled;
+			pc.maxIterations = 300;
 			pc.maxMipLevel = 4;
 			pc.thickness = 0.1;
 			pc.rayBias = 0.001;
