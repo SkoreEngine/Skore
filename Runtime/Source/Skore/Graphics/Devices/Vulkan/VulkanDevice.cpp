@@ -642,6 +642,31 @@ namespace Skore
 		vkCmdPushDescriptorSetKHR(commandBuffer, vulkanPipeline->bindPoint, vulkanPipeline->pipelineLayout, set, 1, &write);
 	}
 
+	void VulkanCommandBuffer::SetAccelerationStructure(GPUPipeline* pipeline, u32 set, u32 binding, GPUTopLevelAS* topLevelAS)
+	{
+		SK_ASSERT(topLevelAS, "top level acceleration structure is required");
+
+		VulkanPipeline*             vulkanPipeline = static_cast<VulkanPipeline*>(pipeline);
+		DescriptorSetLayoutBinding& layout = vulkanPipeline->pipelineDesc.descriptors[set].bindings[binding];
+		if (layout.descriptorType == DescriptorType::None) return;
+
+		VulkanTopLevelAS* vkTlas = static_cast<VulkanTopLevelAS*>(topLevelAS);
+
+		VkWriteDescriptorSetAccelerationStructureKHR accelerationStructureWrite{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
+		accelerationStructureWrite.accelerationStructureCount = 1;
+		accelerationStructureWrite.pAccelerationStructures = &vkTlas->accelerationStructure;
+
+		VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+		write.pNext = &accelerationStructureWrite;
+		write.dstSet = nullptr;
+		write.dstBinding = binding;
+		write.descriptorType = ConvertDescriptorType(layout.descriptorType);
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+
+		vkCmdPushDescriptorSetKHR(commandBuffer, vulkanPipeline->bindPoint, vulkanPipeline->pipelineLayout, set, 1, &write);
+	}
+
 	void VulkanCommandBuffer::PushConstants(GPUPipeline* pipeline, ShaderStage stages, u32 offset, u32 size, const void* data)
 	{
 		vkCmdPushConstants(commandBuffer, static_cast<VulkanPipeline*>(pipeline)->pipelineLayout, ConvertShaderStageFlags(stages), offset, size, data);

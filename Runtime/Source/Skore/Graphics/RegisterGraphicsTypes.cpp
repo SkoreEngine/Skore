@@ -927,6 +927,7 @@ namespace Skore
 		//gpuCommandBuffer.Function<&GPUCommandBuffer::SetBuffer>("SetBuffer", "pipeline", "set", "binding", "buffer", "offset", "range");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::SetSampler>("SetSampler", "pipeline", "set", "binding", "sampler");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::SetTextureView>("SetTextureView", "pipeline", "set", "binding", "textureView", "arrayElement");
+		gpuCommandBuffer.Function<&GPUCommandBuffer::SetAccelerationStructure>("SetAccelerationStructure", "pipeline", "set", "binding", "topLevelAS");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::Draw>("Draw", "vertexCount", "instanceCount", "firstVertex", "firstInstance");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::DrawIndexed>("DrawIndexed", "indexCount", "instanceCount", "firstIndex", "vertexOffset", "firstInstance");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::DrawIndirect>("DrawIndirect", "buffer", "offset", "drawCount", "stride");

@@ -1265,6 +1265,8 @@ namespace Skore
 
 		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
+			if (scene->renderObjects.tlas == nullptr) return;
+
 			struct ReflectionPushConstants
 			{
 				Vec3  cameraPosition;
@@ -1276,6 +1278,7 @@ namespace Skore
 
 				Mat4 proj;
 				Mat4 view;
+				Mat4 viewProj;
 				Mat4 invView;
 
 				int   maxIterations; // e.g. 64  — max total cells crossed
@@ -1294,14 +1297,14 @@ namespace Skore
 			pc.flags = lightInstanceData->indirectLightFlags;
 			pc.proj = context->camera.projection;
 			pc.view = context->camera.view;
+			pc.viewProj = context->camera.previousViewProjection;
 			pc.invView = context->camera.invView;
 
 			////TODO - WIP
-			pc.flags |= LightFlags::SSREnabled;
-			pc.maxIterations = 300;
-			pc.maxMipLevel = 4;
-			pc.thickness = 0.1;
-			pc.rayBias = 0.001;
+			pc.flags |= LightFlags::None;
+			pc.maxIterations = 0;
+			pc.thickness = 10.0;
+			pc.rayBias = 0.01;
 
 			cmd->BindPipeline(pipeline);
 
@@ -1316,6 +1319,7 @@ namespace Skore
 			cmd->SetSampler(pipeline, 0, 8, brdfLUT.GetSampler());
 			cmd->SetSampler(pipeline, 0, 9, Graphics::GetLinearSampler());
 			cmd->SetSampler(pipeline, 0, 10, Graphics::GetNearestClampToEdgeSampler());
+			cmd->SetAccelerationStructure(pipeline, 0, 11, scene->renderObjects.tlas);
 
 			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(ReflectionPushConstants), &pc);
 			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
