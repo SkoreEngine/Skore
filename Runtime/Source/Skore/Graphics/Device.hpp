@@ -1020,6 +1020,7 @@ namespace Skore
 		virtual void SetBuffer(GPUPipeline* pipeline, u32 set, u32 binding, GPUBuffer* buffer, u64 offset, u64 range, u32 arrayIndex) = 0;
 		virtual void SetSampler(GPUPipeline* pipeline, u32 set, u32 binding, GPUSampler* sampler) = 0;
 		virtual void SetTextureView(GPUPipeline* pipeline, u32 set, u32 binding, GPUTextureView* textureView, u32 arrayElement) = 0;
+		virtual void SetAccelerationStructure(GPUPipeline* pipeline, u32 set, u32 binding, GPUTopLevelAS* topLevelAS) = 0;
 
 		virtual void Draw(u32 vertexCount, u32 instanceCount, u32 firstVertex, u32 firstInstance) = 0;
 		virtual void DrawIndirectCount(GPUBuffer* buffer, u64 offset, GPUBuffer* countBuffer, u64 countBufferOffset, u32 maxDrawCount, u32 stride) = 0;
