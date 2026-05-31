@@ -1,7 +1,18 @@
-#include "CascadeShadowPass.hpp"
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/Pipelines/Modules/CascadeShadowMapModule.hpp"
 
 namespace Skore
 {
+	struct CascadeShadowPass : CascadeShadowPassBase
+	{
+		SK_CLASS(CascadeShadowPass, CascadeShadowPassBase);
+	};
+
+	void RegisterCascadeShadowPass()
+	{
+		Reflection::Type<CascadeShadowPass>();
+	}
+
 	// Legacy CPU-side per-drawcall shadow rendering. Kept for reference
 	// while the new GPU-driven indirect path bakes in; superseded by
 	// CascadeShadowPassBase::Render which builds pipelines + dispatches

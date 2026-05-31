@@ -1,57 +1,68 @@
-#include "CameraMotionVectorPass.hpp"
-
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "PipelineCommon.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	RenderPipelinePassSetup CameraMotionVectorPass::GetPassSetup()
+	struct CameraMotionVectorPass : RenderPipelinePass
 	{
-		RenderPipelinePassSetup setup;
-		setup.type = RenderPipelinePassType::Compute;
-		setup.stage = PipelineRenderStage::PostProcess;
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "MotionVector", .access = RenderPipelineTextureAccess::Write});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = LinearDepthMipChainName, .access = RenderPipelineTextureAccess::Read});
-		return setup;
-	}
+		SK_CLASS(CameraMotionVectorPass, RenderPipelinePass);
 
-	void CameraMotionVectorPass::Init()
-	{
-		pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
-			.shader = Resources::FindByPath("Skore://Shaders/ComputeCameraMotion.comp"),
-			.allowImmediateSet = true
-		});
-	}
+		GPUPipeline* pipeline = nullptr;
 
-	void CameraMotionVectorPass::Render(Scene* scene, GPUCommandBuffer* cmd)
-	{
-		struct PushConstants
+		RenderPipelinePassSetup GetPassSetup() override
 		{
-			Mat4  projectionNoJitter;
-			Mat4  viewInverse;
-			Mat4  previousViewProjectionNoJitter;
-			IVec2 resolution;
-			Vec2  pad;
-		};
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Compute;
+			setup.stage = PipelineRenderStage::PostProcess;
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "MotionVector", .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = LinearDepthMipChainName, .access = RenderPipelineTextureAccess::Read});
+			return setup;
+		}
 
-		PushConstants pc;
-		pc.projectionNoJitter = context->camera.projectionNoJitter;
-		pc.viewInverse = context->camera.invView;
-		pc.previousViewProjectionNoJitter = context->camera.previousViewProjectionNoJitter;
-		pc.resolution = IVec2{static_cast<i32>(context->GetOutputSize().width), static_cast<i32>(context->GetOutputSize().height)};
-		pc.pad = Vec2(0.0f);
+		void Init() override
+		{
+			pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
+				.shader = Resources::FindByPath("Skore://Shaders/ComputeCameraMotion.comp"),
+				.allowImmediateSet = true
+			});
+		}
 
-		cmd->BindPipeline(pipeline);
-		cmd->SetTexture(pipeline, 0, 0, context->GetTexture("MotionVector"), 0);
-		cmd->SetTexture(pipeline, 0, 1, context->GetTexture(LinearDepthMipChainName), 0);
-		cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(PushConstants), &pc);
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			struct PushConstants
+			{
+				Mat4  projectionNoJitter;
+				Mat4  viewInverse;
+				Mat4  previousViewProjectionNoJitter;
+				IVec2 resolution;
+				Vec2  pad;
+			};
 
-		cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
-	}
+			PushConstants pc;
+			pc.projectionNoJitter = context->camera.projectionNoJitter;
+			pc.viewInverse = context->camera.invView;
+			pc.previousViewProjectionNoJitter = context->camera.previousViewProjectionNoJitter;
+			pc.resolution = IVec2{static_cast<i32>(context->GetOutputSize().width), static_cast<i32>(context->GetOutputSize().height)};
+			pc.pad = Vec2(0.0f);
 
-	void CameraMotionVectorPass::Destroy()
+			cmd->BindPipeline(pipeline);
+			cmd->SetTexture(pipeline, 0, 0, context->GetTexture("MotionVector"), 0);
+			cmd->SetTexture(pipeline, 0, 1, context->GetTexture(LinearDepthMipChainName), 0);
+			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(PushConstants), &pc);
+
+			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
+		}
+
+		void Destroy() override
+		{
+			pipeline->Destroy();
+		}
+	};
+
+	void RegisterCameraMotionVectorPass()
 	{
-		pipeline->Destroy();
+		Reflection::Type<CameraMotionVectorPass>();
 	}
 }

@@ -1,5 +1,4 @@
-#include "DeferredGBufferPass.hpp"
-
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
@@ -8,115 +7,131 @@
 
 namespace Skore
 {
-	RenderPipelinePassSetup DeferredGBufferPass::GetPassSetup()
+	struct DeferredGBufferPass : RenderPipelinePass
 	{
-		RenderPipelinePassSetup setup;
-		setup.type = RenderPipelinePassType::Graphics;
-		setup.stage = PipelineRenderStage::GBuffer;
-		setup.invertViewport = true;
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "SceneCullingData", .access = RenderPipelineTextureAccess::Read});
+		SK_CLASS(DeferredGBufferPass, RenderPipelinePass);
 
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferAlbedoMetallic", .access = RenderPipelineTextureAccess::Write});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferRoughnessAO", .access = RenderPipelineTextureAccess::Write});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Write});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferEmissive", .access = RenderPipelineTextureAccess::Write});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::Write});
+		Array<GPUPipeline*> opaquePipelines = {};
+		Scene*              cachedPipelineOwner = nullptr;
 
-		return setup;
-	}
-
-	void DeferredGBufferPass::CleanupPipelines()
-	{
-		for (GPUPipeline* pipeline : opaquePipelines)
+		struct MeshPushConstants
 		{
-			pipeline->Destroy();
-		}
-		opaquePipelines.Clear();
-	}
+			Mat4 world;
+			u32  materialIndex;
+			u32  vertexByteOffset;
+			u32  vertexLayoutIndex;
+			u32  pad;
+		};
 
-	void DeferredGBufferPass::Init()
-	{
-		//TODO
-	}
-
-	void DeferredGBufferPass::Render(Scene* scene, GPUCommandBuffer* cmd)
-	{
-		if (!scene) return;
-		RenderSceneObjects* objects = &scene->renderObjects;
-
-		u32 frame = context->GetCurrentFrame();
-
-		if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
+		RenderPipelinePassSetup GetPassSetup() override
 		{
-			CleanupPipelines();
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Graphics;
+			setup.stage = PipelineRenderStage::GBuffer;
+			setup.invertViewport = true;
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "SceneCullingData", .access = RenderPipelineTextureAccess::Read});
+
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferAlbedoMetallic", .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferRoughnessAO", .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferEmissive", .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::Write});
+
+			return setup;
 		}
 
-		while (opaquePipelines.Size() < objects->opaquePipelines.Size())
+		void CleanupPipelines()
 		{
-			const DrawPipelineDesc& desc = objects->opaquePipelines[opaquePipelines.Size()].desc;
-
-			//RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
-			RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferIndirect.raster");
-
-			Array<String> macros;
-			if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");
-
-			DepthStencilStateDesc depthStencilState;
-			depthStencilState.depthTestEnable = true;
-			depthStencilState.depthWriteEnable = true;
-			depthStencilState.depthCompareOp = CompareOp::Less;
-
-			GraphicsPipelineDesc gpuDesc = GraphicsPipelineDesc{
-				.shader = deferredGBuffer,
-				.variant = ShaderResource::GetVariantName(macros),
-				.rasterizerState = {
-					.cullMode = desc.cullMode,
-				},
-				.depthStencilState = depthStencilState,
-				.blendStates = {
-					BlendStateDesc{},
-					BlendStateDesc{},
-					BlendStateDesc{},
-					BlendStateDesc{}
-				},
-				.renderPass = renderPass,
-			};
-
-			gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
-				.set = 0,
-				.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
-			});
-			gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
-				.set = 1,
-				.descriptorSet = context->GetSceneDescriptorSet(0)
-			});
-
-			opaquePipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
+			for (GPUPipeline* pipeline : opaquePipelines)
+			{
+				pipeline->Destroy();
+			}
+			opaquePipelines.Clear();
 		}
 
-		cachedPipelineOwner = scene;
-
-		SceneCullingData* cullingData = context->GetInstanceData<SceneCullingData>("SceneCullingData");
-
-		cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
-
-		for (u32 i = 0; i < objects->opaquePipelines.Size(); i++)
+		void Init() override
 		{
+			//TODO
+		}
 
-			GPUPipeline* pipeline = opaquePipelines[i];
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			if (!scene) return;
+			RenderSceneObjects* objects = &scene->renderObjects;
 
-			cmd->BindPipeline(pipeline);
-			cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
-			cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+			u32 frame = context->GetCurrentFrame();
+
+			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
+			{
+				CleanupPipelines();
+			}
+
+			while (opaquePipelines.Size() < objects->opaquePipelines.Size())
+			{
+				const DrawPipelineDesc& desc = objects->opaquePipelines[opaquePipelines.Size()].desc;
+
+				//RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
+				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferIndirect.raster");
+
+				Array<String> macros;
+				if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");
+
+				DepthStencilStateDesc depthStencilState;
+				depthStencilState.depthTestEnable = true;
+				depthStencilState.depthWriteEnable = true;
+				depthStencilState.depthCompareOp = CompareOp::Less;
+
+				GraphicsPipelineDesc gpuDesc = GraphicsPipelineDesc{
+					.shader = deferredGBuffer,
+					.variant = ShaderResource::GetVariantName(macros),
+					.rasterizerState = {
+						.cullMode = desc.cullMode,
+					},
+					.depthStencilState = depthStencilState,
+					.blendStates = {
+						BlendStateDesc{},
+						BlendStateDesc{},
+						BlendStateDesc{},
+						BlendStateDesc{}
+					},
+					.renderPass = renderPass,
+				};
+
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 0,
+					.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+				});
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 1,
+					.descriptorSet = context->GetSceneDescriptorSet(0)
+				});
+
+				opaquePipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
+			}
+
+			cachedPipelineOwner = scene;
+
+			SceneCullingData* cullingData = context->GetInstanceData<SceneCullingData>("SceneCullingData");
+
+			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
+			for (u32 i = 0; i < objects->opaquePipelines.Size(); i++)
+			{
+
+				GPUPipeline* pipeline = opaquePipelines[i];
+
+				cmd->BindPipeline(pipeline);
+				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 
 
-			ScenePipelineCullingData& cullingPipelineData = cullingData->pipelines[i];
-			cmd->DrawIndexedIndirectCount(cullingPipelineData.indirectDrawBuffer[frame],
-			                              0,
-			                              cullingData->countBuffer[frame],
-			                              cullingPipelineData.countBufferOffset,
-			                              objects->opaquePipelines[i].drawcalls.Size(),
-			                              sizeof(DrawIndexedIndirectArguments));
+				ScenePipelineCullingData& cullingPipelineData = cullingData->pipelines[i];
+				cmd->DrawIndexedIndirectCount(cullingPipelineData.indirectDrawBuffer[frame],
+				                              0,
+				                              cullingData->countBuffer[frame],
+				                              cullingPipelineData.countBufferOffset,
+				                              objects->opaquePipelines[i].drawcalls.Size(),
+				                              sizeof(DrawIndexedIndirectArguments));
 
 /*
 
@@ -156,11 +171,17 @@ namespace Skore
 				}
 				*/
 
+			}
 		}
-	}
 
-	void DeferredGBufferPass::Destroy()
+		void Destroy() override
+		{
+			CleanupPipelines();
+		}
+	};
+
+	void RegisterDeferredGBufferPass()
 	{
-		CleanupPipelines();
+		Reflection::Type<DeferredGBufferPass>();
 	}
 }
