@@ -394,10 +394,12 @@ SamplerState                          volumeSampler  : register(s4, space2);
 
 struct IrradianceTracePushConstants
 {
-    uint  volumeIndex;
-    uint  enableMultibounce;
-    float skyIntensity;
-    uint  volumeCount;
+    uint   volumeIndex;
+    uint   enableMultibounce;
+    uint   volumeCount;
+    uint   ambientMode;
+    float3 ambientColor;
+    float  ambientIntensity;
 };
 
 [[vk::push_constant]] IrradianceTracePushConstants pc;
@@ -538,7 +540,16 @@ void IrradianceProbeClosestHit(inout IrradiancePayload payload, in BuiltInTriang
 void IrradianceProbeMiss(inout IrradiancePayload payload)
 {
     IrradianceVolumeGPU v = volumes[pc.volumeIndex];
-    payload.radiance = skyCube.SampleLevel(volumeSampler, WorldRayDirection(), 0).rgb * pc.skyIntensity;
+    float3 sky = float3(0.0, 0.0, 0.0);
+    if (pc.ambientMode == 1)
+    {
+        sky = skyCube.SampleLevel(volumeSampler, WorldRayDirection(), 0).rgb;
+    }
+    else if (pc.ambientMode == 2)
+    {
+        sky = pc.ambientColor;
+    }
+    payload.radiance = sky * pc.ambientIntensity;
     payload.hitT = v.maxRayDistance;
 }
 
@@ -722,10 +733,10 @@ StructuredBuffer<IrradianceVolumeGPU> volumes                   : register(t1, s
 Texture2D<float4> irradianceArray                               : register(t2, space2);
 Texture2D<float2> distanceArray                                 : register(t3, space2);
 Texture2D         albedoMetallicTexture                          : register(t4, space2);
-Texture2D<float2> roughnessAoTexture                             : register(t5, space2);
-Texture2D<float2> normalTexture                                  : register(t6, space2);
-Texture2D<float>  linearDepthTexture                             : register(t7, space2);
-SamplerState      volumeSampler                                  : register(s8, space2);
+Texture2D<float2> normalTexture                                  : register(t5, space2);
+Texture2D<float>  linearDepthTexture                             : register(t6, space2);
+SamplerState      volumeSampler                                  : register(s7, space2);
+SamplerState      gbufferSampler                                 : register(s8, space2);
 
 struct IrradianceSamplePushConstants
 {
@@ -740,63 +751,61 @@ struct IrradianceSamplePushConstants
 [numthreads(8, 8, 1)]
 void IrradianceVolumeSampleCS(uint2 px : SV_DispatchThreadID)
 {
-    float2 size = float2(outputSize);
-    if (any(float2(px) >= size))
+    uint outW, outH;
+    outputLight.GetDimensions(outW, outH);
+    if (px.x >= outW || px.y >= outH)
     {
         return;
     }
 
-    float linearDepth = linearDepthTexture[px].r;
-    if (linearDepth >= farClip - 0.1)
+    float2 uv = (float2(px) + 0.5) / float2(outW, outH);
+
+    float3 result = float3(0.0, 0.0, 0.0);
+    float  linearDepth = linearDepthTexture.SampleLevel(gbufferSampler, uv, 0).r;
+
+    if (linearDepth < farClip - 0.1)
     {
-        return;
-    }
+        float4 albedoMetallic = albedoMetallicTexture.SampleLevel(gbufferSampler, uv, 0);
+        float3 baseColor = albedoMetallic.rgb;
+        float  metallic = albedoMetallic.a;
+        float3 normal = OctohedralDecode(normalTexture.SampleLevel(gbufferSampler, uv, 0).rg);
 
-    float2 uv = (float2(px) + 0.5) / size;
+        float3 viewPosition = GetViewPositionFromLinearDepth(uv, linearDepth, projection);
+        float3 worldPosition = mul(viewInv, float4(viewPosition, 1.0)).xyz;
 
-    float3 baseColor = albedoMetallicTexture[px].rgb;
-    float  metallic = albedoMetallicTexture[px].a;
-    float  ao = roughnessAoTexture[px].g;
-    float3 normal = OctohedralDecode(normalTexture[px].rg);
+        float3 irradiance = float3(0.0, 0.0, 0.0);
+        float  totalWeight = 0.0;
 
-    float3 viewPosition = GetViewPositionFromLinearDepth(uv, linearDepth, projection);
-    float3 worldPosition = mul(viewInv, float4(viewPosition, 1.0)).xyz;
-
-    float3 irradiance = float3(0.0, 0.0, 0.0);
-    float  totalWeight = 0.0;
-
-    for (uint i = 0; i < spc.volumeCount; ++i)
-    {
-        if (totalWeight >= 1.0)
+        for (uint i = 0; i < spc.volumeCount; ++i)
         {
-            break;
+            if (totalWeight >= 1.0)
+            {
+                break;
+            }
+
+            IrradianceVolumeGPU v = volumes[i];
+            float volumeWeight = VolumeBlendWeight(v, worldPosition);
+            if (volumeWeight <= 0.0)
+            {
+                continue;
+            }
+
+            float3 sampled = GetVolumeIrradiance(v, irradianceArray, distanceArray, volumeSampler, int(i), int(spc.volumeCount), worldPosition, normal, cameraPosition);
+
+            float contribution = min(volumeWeight, 1.0 - totalWeight);
+            irradiance += sampled * contribution;
+            totalWeight += contribution;
         }
 
-        IrradianceVolumeGPU v = volumes[i];
-        float volumeWeight = VolumeBlendWeight(v, worldPosition);
-        if (volumeWeight <= 0.0)
+        if (totalWeight > 0.0)
         {
-            continue;
+            irradiance /= totalWeight;
+            float3 kD = (1.0 - metallic);
+            result = kD * baseColor * irradiance * spc.indirectIntensity;
         }
-
-        float3 sampled = GetVolumeIrradiance(v, irradianceArray, distanceArray, volumeSampler, int(i), int(spc.volumeCount), worldPosition, normal, cameraPosition);
-
-        float contribution = min(volumeWeight, 1.0 - totalWeight);
-        irradiance += sampled * contribution;
-        totalWeight += contribution;
     }
 
-    if (totalWeight <= 0.0)
-    {
-        return;
-    }
-
-    irradiance /= totalWeight;
-
-    float3 kD = (1.0 - metallic);
-    float3 diffuse = kD * baseColor * irradiance * ao * spc.indirectIntensity;
-
-    outputLight[px] += float4(diffuse, 0.0);
+    outputLight[px] = float4(result, 1.0);
 }
 
 #endif

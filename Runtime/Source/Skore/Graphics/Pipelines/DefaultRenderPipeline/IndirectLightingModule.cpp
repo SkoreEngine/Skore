@@ -10,6 +10,7 @@
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "PipelineCommon.hpp"
+#include "Skore/Profiler.hpp"
 
 namespace Skore
 {
@@ -56,10 +57,12 @@ namespace Skore
 
 	struct IrradianceTracePushConstants
 	{
-		u32 volumeIndex;
-		u32 enableMultibounce;
-		f32 skyIntensity;
-		u32 volumeCount;
+		u32  volumeIndex;
+		u32  enableMultibounce;
+		u32  volumeCount;
+		u32  ambientMode;
+		Vec3 ambientColor;
+		f32  ambientIntensity;
 	};
 
 	struct IrradianceBlendPushConstants
@@ -351,9 +354,14 @@ namespace Skore
 			cmd->BindDescriptorSet(tracePipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
 			cmd->BindDescriptorSet(tracePipeline, 1, context->GetSceneDescriptorSet());
 			cmd->BindDescriptorSet(tracePipeline, 2, tset);
+			u32 ambientMode = 0;
+			if (light->indirectLightFlags & LightFlags::HasAmbientTexture) ambientMode = 1;
+			else if (light->indirectLightFlags & LightFlags::HasAmbientColor) ambientMode = 2;
+
 			for (i32 idx : scheduled)
 			{
-				IrradianceTracePushConstants pc{static_cast<u32>(idx), 0u, 1.0f, layers};
+				SK_SCOPED_ZONE("IrradianceProbeTrace", cmd);
+				IrradianceTracePushConstants pc{static_cast<u32>(idx), 0u, layers, ambientMode, light->ambientLight, light->ambientMultiplier};
 				cmd->PushConstants(tracePipeline, ShaderStage::RayGen | ShaderStage::ClosestHit | ShaderStage::Miss, 0, sizeof(pc), &pc);
 				cmd->TraceRays(tracePipeline, static_cast<u32>(raysPerProbe), static_cast<u32>(totalProbes), 1);
 			}
@@ -379,15 +387,21 @@ namespace Skore
 			{
 				IrradianceBlendPushConstants bpc{static_cast<u32>(idx), 0, 0, 0};
 
-				cmd->BindPipeline(blendIrrPipeline);
-				cmd->BindDescriptorSet(blendIrrPipeline, 0, bi);
-				cmd->PushConstants(blendIrrPipeline, ShaderStage::Compute, 0, sizeof(bpc), &bpc);
-				cmd->Dispatch((irrW + 7) / 8, (irrH + 7) / 8, 1);
+				{
+					SK_SCOPED_ZONE("IrradianceProbeBlendIrradiance", cmd);
+					cmd->BindPipeline(blendIrrPipeline);
+					cmd->BindDescriptorSet(blendIrrPipeline, 0, bi);
+					cmd->PushConstants(blendIrrPipeline, ShaderStage::Compute, 0, sizeof(bpc), &bpc);
+					cmd->Dispatch((irrW + 7) / 8, (irrH + 7) / 8, 1);
+				}
 
-				cmd->BindPipeline(blendDistPipeline);
-				cmd->BindDescriptorSet(blendDistPipeline, 0, bd);
-				cmd->PushConstants(blendDistPipeline, ShaderStage::Compute, 0, sizeof(bpc), &bpc);
-				cmd->Dispatch((visW + 7) / 8, (visH + 7) / 8, 1);
+				{
+					SK_SCOPED_ZONE("IrradianceProbeBlendDistance", cmd);
+					cmd->BindPipeline(blendDistPipeline);
+					cmd->BindDescriptorSet(blendDistPipeline, 0, bd);
+					cmd->PushConstants(blendDistPipeline, ShaderStage::Compute, 0, sizeof(bpc), &bpc);
+					cmd->Dispatch((visW + 7) / 8, (visH + 7) / 8, 1);
+				}
 			}
 
 			cmd->ResourceBarrier(irradianceArray, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
@@ -413,124 +427,6 @@ namespace Skore
 		}
 	};
 
-	struct ReflectionPass : RenderPipelinePass
-	{
-		SK_CLASS(ReflectionPass, RenderPipelinePass);
-
-		GPUPipeline* pipeline = nullptr;
-		GPUDescriptorSet* descriptorSet[SK_FRAMES_IN_FLIGHT] = {};
-		LightPassInstanceData* lightInstanceData = nullptr;
-		BRDFLUTTexture brdfLUT;
-
-		RenderPipelinePassSetup GetPassSetup() override
-		{
-			RenderPipelinePassSetup setup;
-			setup.type = RenderPipelinePassType::Compute;
-			setup.stage = PipelineRenderStage::Indirect;
-
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightInstanceData", .access = RenderPipelineTextureAccess::Read});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ColorAttachment", .access = RenderPipelineTextureAccess::Read});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferAlbedoMetallic", .access = RenderPipelineTextureAccess::Read});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferRoughnessAO", .access = RenderPipelineTextureAccess::Read});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Read});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = LinearDepthMipChainName, .access = RenderPipelineTextureAccess::Read});
-
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ReflectionAttachment", .access = RenderPipelineTextureAccess::Write});
-			return setup;
-		}
-
-		void Init() override
-		{
-			brdfLUT.Init({512, 512});
-			lightInstanceData = context->GetInstanceData<LightPassInstanceData>("LightInstanceData");
-
-			RID shader = Resources::FindByPath("Skore://Shaders/DefaultIndirectLighting.shader");
-
-			pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
-				.shader = shader,
-				.variant = "Reflection"
-			});
-
-			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
-			{
-				descriptorSet[f] = Graphics::CreateDescriptorSet(shader, "Reflection", 0);
-			}
-		}
-
-		void Render(Scene* scene, GPUCommandBuffer* cmd) override
-		{
-			if (scene->renderObjects.tlas == nullptr) return;
-
-			struct ReflectionPushConstants
-			{
-				Vec3  cameraPosition;
-				float reflectionMultiplier;
-
-				Vec2  outputSize;
-				float farClip;
-				u32   flags;
-
-				Mat4 proj;
-				Mat4 view;
-				Mat4 viewProj;
-				Mat4 invView;
-
-				int   maxIterations;
-				int   maxMipLevel;
-				float thickness;
-				float rayBias;
-				float nearClip;
-			};
-
-			ReflectionPushConstants pc;
-			pc.cameraPosition = context->camera.cameraPosition;
-			pc.reflectionMultiplier = lightInstanceData->reflectionMultiplier;
-			pc.outputSize = {static_cast<f32>(context->GetOutputSize().width), static_cast<f32>(context->GetOutputSize().height)};
-			pc.farClip = context->camera.farClip;
-			pc.nearClip = context->camera.nearClip;
-			pc.flags = lightInstanceData->indirectLightFlags;
-			pc.proj = context->camera.projection;
-			pc.view = context->camera.view;
-			pc.viewProj = context->camera.previousViewProjection;
-			pc.invView = context->camera.invView;
-
-			pc.flags |= LightFlags::None;
-			pc.maxIterations = 0;
-			pc.thickness = 10.0;
-			pc.rayBias = 0.01;
-
-			GPUDescriptorSet* set = descriptorSet[context->GetCurrentFrame()];
-
-			set->UpdateTexture(0, context->GetTexture("ReflectionAttachment"));
-			set->UpdateTexture(1, context->GetPrevTexture("ColorAttachment"));
-			set->UpdateTexture(2, context->GetTexture("GBufferAlbedoMetallic"));
-			set->UpdateTexture(3, context->GetTexture("GBufferRoughnessAO"));
-			set->UpdateTexture(4, context->GetTexture("GBufferNormals"));
-			set->UpdateTexture(5, context->GetTexture(LinearDepthMipChainName));
-			set->UpdateTexture(6, lightInstanceData->specularMapTexture);
-			set->UpdateTexture(7, brdfLUT.GetTexture());
-			set->UpdateSampler(8, brdfLUT.GetSampler());
-			set->UpdateSampler(9, Graphics::GetLinearSampler());
-			set->UpdateSampler(10, Graphics::GetNearestClampToEdgeSampler());
-			set->Update(DescriptorUpdate{.type = DescriptorType::AccelerationStructure, .binding = 11, .topLevelAS = scene->renderObjects.tlas});
-
-			cmd->BindPipeline(pipeline);
-			cmd->BindDescriptorSet(pipeline, 0, set);
-
-			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(ReflectionPushConstants), &pc);
-			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
-		}
-
-		void Destroy() override
-		{
-			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
-			{
-				descriptorSet[f]->Destroy();
-			}
-			pipeline->Destroy();
-			brdfLUT.Destroy();
-		}
-	};
 
 	struct IrradianceVolumeSamplingPass : RenderPipelinePass
 	{
@@ -547,11 +443,11 @@ namespace Skore
 			setup.type = RenderPipelinePassType::Compute;
 			setup.stage = PipelineRenderStage::Indirect + 2;
 
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightInstanceData", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferAlbedoMetallic", .access = RenderPipelineTextureAccess::Read});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferRoughnessAO", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = LinearDepthMipChainName, .access = RenderPipelineTextureAccess::Read});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightAttachment", .access = RenderPipelineTextureAccess::ReadWrite});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "IrradianceVolumeAttachment", .access = RenderPipelineTextureAccess::Write});
 			return setup;
 		}
 
@@ -586,17 +482,24 @@ namespace Skore
 			u64 frameOffset = static_cast<u64>(frame) * MaxIrradianceVolumes * stride;
 			u64 range = static_cast<u64>(MaxIrradianceVolumes) * stride;
 
+			if (LightPassInstanceData* light = context->GetInstanceData<LightPassInstanceData>("LightInstanceData"))
+			{
+				light->indirectLightFlags |= LightFlags::GlobalIlluminationEnabled;
+			}
+
+			GPUTexture* output = context->GetTexture("IrradianceVolumeAttachment");
+
 			GPUDescriptorSet* set = descriptorSet[frame];
 
-			set->UpdateTexture(0, context->GetTexture("LightAttachment"));
+			set->UpdateTexture(0, output);
 			set->UpdateBuffer(1, data->volumeBuffer, frameOffset, range);
 			set->UpdateTexture(2, data->irradianceArray);
 			set->UpdateTexture(3, data->distanceArray);
 			set->UpdateTexture(4, context->GetTexture("GBufferAlbedoMetallic"));
-			set->UpdateTexture(5, context->GetTexture("GBufferRoughnessAO"));
-			set->UpdateTexture(6, context->GetTexture("GBufferNormals"));
-			set->UpdateTexture(7, context->GetTexture(LinearDepthMipChainName));
-			set->UpdateSampler(8, Graphics::GetLinearClampToEdgeSampler());
+			set->UpdateTexture(5, context->GetTexture("GBufferNormals"));
+			set->UpdateTexture(6, context->GetTexture(LinearDepthMipChainName));
+			set->UpdateSampler(7, Graphics::GetLinearClampToEdgeSampler());
+			set->UpdateSampler(8, Graphics::GetNearestClampToEdgeSampler());
 
 			cmd->BindPipeline(pipeline);
 			cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
@@ -610,7 +513,9 @@ namespace Skore
 
 			IrradianceSamplePushConstants pc{data->volumeCount, intensity, 0, 0};
 			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(pc), &pc);
-			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
+
+			Extent3D outputExtent = output->GetDesc().extent;
+			cmd->Dispatch((outputExtent.width + 7) / 8, (outputExtent.height + 7) / 8, 1);
 		}
 
 		void Destroy() override
@@ -746,6 +651,126 @@ namespace Skore
 		}
 	};
 
+	struct ReflectionPass : RenderPipelinePass
+	{
+		SK_CLASS(ReflectionPass, RenderPipelinePass);
+
+		GPUPipeline* pipeline = nullptr;
+		GPUDescriptorSet* descriptorSet[SK_FRAMES_IN_FLIGHT] = {};
+		LightPassInstanceData* lightInstanceData = nullptr;
+		BRDFLUTTexture brdfLUT;
+
+		RenderPipelinePassSetup GetPassSetup() override
+		{
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Compute;
+			setup.stage = PipelineRenderStage::Indirect;
+
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightInstanceData", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ColorAttachment", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferAlbedoMetallic", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferRoughnessAO", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = LinearDepthMipChainName, .access = RenderPipelineTextureAccess::Read});
+
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ReflectionAttachment", .access = RenderPipelineTextureAccess::Write});
+			return setup;
+		}
+
+		void Init() override
+		{
+			brdfLUT.Init({512, 512});
+			lightInstanceData = context->GetInstanceData<LightPassInstanceData>("LightInstanceData");
+
+			RID shader = Resources::FindByPath("Skore://Shaders/DefaultIndirectLighting.shader");
+
+			pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
+				.shader = shader,
+				.variant = "Reflection"
+			});
+
+			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+			{
+				descriptorSet[f] = Graphics::CreateDescriptorSet(shader, "Reflection", 0);
+			}
+		}
+
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			if (scene->renderObjects.tlas == nullptr) return;
+
+			struct ReflectionPushConstants
+			{
+				Vec3  cameraPosition;
+				float reflectionMultiplier;
+
+				Vec2  outputSize;
+				float farClip;
+				u32   flags;
+
+				Mat4 proj;
+				Mat4 view;
+				Mat4 viewProj;
+				Mat4 invView;
+
+				int   maxIterations;
+				int   maxMipLevel;
+				float thickness;
+				float rayBias;
+				float nearClip;
+			};
+
+			ReflectionPushConstants pc;
+			pc.cameraPosition = context->camera.cameraPosition;
+			pc.reflectionMultiplier = lightInstanceData->reflectionMultiplier;
+			pc.outputSize = {static_cast<f32>(context->GetOutputSize().width), static_cast<f32>(context->GetOutputSize().height)};
+			pc.farClip = context->camera.farClip;
+			pc.nearClip = context->camera.nearClip;
+			pc.flags = lightInstanceData->indirectLightFlags;
+			pc.proj = context->camera.projection;
+			pc.view = context->camera.view;
+			pc.viewProj = context->camera.previousViewProjection;
+			pc.invView = context->camera.invView;
+
+			pc.flags |= LightFlags::None;
+			pc.maxIterations = 0;
+			pc.thickness = 10.0;
+			pc.rayBias = 0.01;
+
+			GPUDescriptorSet* set = descriptorSet[context->GetCurrentFrame()];
+
+			set->UpdateTexture(0, context->GetTexture("ReflectionAttachment"));
+			set->UpdateTexture(1, context->GetPrevTexture("ColorAttachment"));
+			set->UpdateTexture(2, context->GetTexture("GBufferAlbedoMetallic"));
+			set->UpdateTexture(3, context->GetTexture("GBufferRoughnessAO"));
+			set->UpdateTexture(4, context->GetTexture("GBufferNormals"));
+			set->UpdateTexture(5, context->GetTexture(LinearDepthMipChainName));
+			set->UpdateTexture(6, lightInstanceData->specularMapTexture);
+			set->UpdateTexture(7, brdfLUT.GetTexture());
+			set->UpdateSampler(8, brdfLUT.GetSampler());
+			set->UpdateSampler(9, Graphics::GetLinearSampler());
+			set->UpdateSampler(10, Graphics::GetNearestClampToEdgeSampler());
+			set->Update(DescriptorUpdate{.type = DescriptorType::AccelerationStructure, .binding = 11, .topLevelAS = scene->renderObjects.tlas});
+
+			cmd->BindPipeline(pipeline);
+			cmd->BindDescriptorSet(pipeline, 0, set);
+
+			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(ReflectionPushConstants), &pc);
+			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
+		}
+
+		void Destroy() override
+		{
+			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+			{
+				descriptorSet[f]->Destroy();
+			}
+			pipeline->Destroy();
+			brdfLUT.Destroy();
+		}
+	};
+
+
 	struct IndirectLightingModule : RenderPipelineModule
 	{
 		SK_CLASS(IndirectLightingModule, RenderPipelineModule);
@@ -770,6 +795,13 @@ namespace Skore
 		{
 			Array<RenderPipelineResource> resources;
 			resources.EmplaceBack(RenderPipelineResource{.name = "ReflectionAttachment", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16B16A16_FLOAT, .textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess});
+			resources.EmplaceBack(RenderPipelineResource{
+				.name = "IrradianceVolumeAttachment",
+				.type = RenderPipelineResourceType::Attachment,
+				.format = TextureFormat::R16G16B16A16_FLOAT,
+				.scale = Vec2(0.5, 0.5),
+				.textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess
+			});
 			resources.EmplaceBack(RenderPipelineResource{.name = "IrradianceVolumeData", .type = RenderPipelineResourceType::Instance, .instanceTypeId = sktypeid(IrradianceVolumeData)});
 			return resources;
 		}

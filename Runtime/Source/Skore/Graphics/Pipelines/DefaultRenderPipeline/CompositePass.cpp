@@ -25,6 +25,7 @@ namespace Skore
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ReflectionAttachment", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "IrradianceVolumeAttachment", .access = RenderPipelineTextureAccess::Read});
 
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ColorAttachment", .access = RenderPipelineTextureAccess::Write});
 			return setup;
@@ -93,6 +94,13 @@ namespace Skore
 			cmd->SetTexture(pipeline, 0, 7, ssaoTexture, 0);
 			cmd->SetTexture(pipeline, 0, 8, reflectionTexture, 0);
 			cmd->SetSampler(pipeline, 0, 9, Graphics::GetLinearSampler());
+
+			GPUTexture* indirectDiffuseTexture = context->GetTexture("IrradianceVolumeAttachment");
+			if (indirectDiffuseTexture == nullptr)
+			{
+				indirectDiffuseTexture = Graphics::GetWhiteTexture();
+			}
+			cmd->SetTexture(pipeline, 0, 10, indirectDiffuseTexture, 0);
 
 			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(DefaultCompositePushConstants), &pc);
 			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
