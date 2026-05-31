@@ -7,7 +7,7 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
-#include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/Scene/Components/LightComponent.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Scene.hpp"
@@ -47,7 +47,7 @@ namespace Skore
 	{
 		RenderPipelinePassSetup setup;
 		setup.type = RenderPipelinePassType::Other;
-		setup.stage = DefaultPipelineRenderStage::ShadowPass;
+		setup.stage = PipelineRenderStage::ShadowPass;
 		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = ShadowMapInstanceDataName, .access = RenderPipelineTextureAccess::Write});
 		return setup;
 	}

@@ -300,10 +300,10 @@ namespace Skore
 
 		// Scene set (space1) — single descriptor set shared by all raster/RT pipelines:
 		//   binding 0: GlobalSceneBuffer (camera matrices)
-		//   binding 1: Instances (populated by DefaultLightSetupPass)
-		//   binding 2: LightBuffer (populated by DefaultLightSetupPass)
-		//   binding 3: shadowMapTexture (populated by DefaultLightSetupPass)
-		//   binding 4: shadowMapSampler (populated by DefaultLightSetupPass)
+		//   binding 1: Instances (populated by LightSetupPass)
+		//   binding 2: LightBuffer (populated by LightSetupPass)
+		//   binding 3: shadowMapTexture (populated by LightSetupPass)
+		//   binding 4: shadowMapSampler (populated by LightSetupPass)
 		//   binding 6: sceneTLAS (populated each frame from RenderSceneObjects, only when RT is supported)
 		DescriptorSetDesc desc;
 		desc.bindings = {

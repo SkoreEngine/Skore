@@ -2,7 +2,7 @@
 #include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/IO/Input.hpp"
 
 namespace Skore
@@ -87,7 +87,7 @@ namespace Skore
 		{
 			RenderPipelinePassSetup setup;
 			setup.type = RenderPipelinePassType::Other;
-			setup.stage =  DefaultPipelineRenderStage::Swapchain;
+			setup.stage =  PipelineRenderStage::Swapchain;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Read});
 			return setup;
 		}

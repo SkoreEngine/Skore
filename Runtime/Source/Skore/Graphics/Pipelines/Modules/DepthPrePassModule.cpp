@@ -4,7 +4,7 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
-#include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/Scene/Scene.hpp"
 
 namespace Skore
@@ -13,7 +13,7 @@ namespace Skore
 	{
 		RenderPipelinePassSetup setup;
 		setup.type = RenderPipelinePassType::Graphics;
-		setup.stage = DefaultPipelineRenderStage::DepthPrePass;
+		setup.stage = PipelineRenderStage::DepthPrePass;
 		setup.invertViewport = true;
 		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::Write});
 		return setup;

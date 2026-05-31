@@ -6,7 +6,7 @@
 #include "Skore/Graphics/DrawList.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/IO/Input.hpp"
 #include "Skore/Platform/Platform.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -39,7 +39,7 @@ namespace Skore
 		{
 			RenderPipelinePassSetup setup;
 			setup.type = RenderPipelinePassType::Graphics;
-			setup.stage = DefaultPipelineRenderStage::UI;
+			setup.stage = PipelineRenderStage::UI;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::ReadWrite});
 			return setup;
 		}

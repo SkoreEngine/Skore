@@ -1,7 +1,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 
 namespace Skore
 {
@@ -23,7 +23,7 @@ namespace Skore
 		{
 			RenderPipelinePassSetup setup;
 			setup.type = RenderPipelinePassType::Compute;
-			setup.stage = DefaultPipelineRenderStage::PostProcess;
+			setup.stage = PipelineRenderStage::PostProcess;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ColorAttachment", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = FXAAOutputName, .access = RenderPipelineTextureAccess::Write});
 			return setup;
