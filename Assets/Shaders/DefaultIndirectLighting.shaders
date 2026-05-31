@@ -1,6 +1,0 @@
-shaderFile: DefaultIndirectLighting.hlsl
-variants:
-	- name : BloomPrefilter
-		stages:
-			- entryPoint: BloomPrefilter
-				stage: Compute

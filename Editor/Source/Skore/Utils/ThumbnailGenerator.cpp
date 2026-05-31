@@ -4,7 +4,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Scene.hpp"

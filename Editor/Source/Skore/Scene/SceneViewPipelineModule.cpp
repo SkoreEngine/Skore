@@ -4,7 +4,7 @@
 #include "Skore/Graphics/DebugDraw.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/IO/Input.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
@@ -39,7 +39,7 @@ namespace Skore
 		{
 			RenderPipelinePassSetup setup;
 			setup.type = RenderPipelinePassType::Other;
-			setup.stage = DefaultPipelineRenderStage::UI;
+			setup.stage = PipelineRenderStage::UI;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "SelectionOutline", .access = RenderPipelineTextureAccess::Write});
 			return setup;
 		}
@@ -433,7 +433,7 @@ namespace Skore
 		{
 			RenderPipelinePassSetup setup;
 			setup.type = RenderPipelinePassType::Other;
-			setup.stage =  DefaultPipelineRenderStage::UI;
+			setup.stage =  PipelineRenderStage::UI;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "SelectionOutline", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::Read});

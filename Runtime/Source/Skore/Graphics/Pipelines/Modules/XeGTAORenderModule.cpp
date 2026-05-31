@@ -4,7 +4,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Graphics/Pipelines/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 
 namespace Skore
 {
@@ -123,7 +123,7 @@ namespace Skore
 		{
 			RenderPipelinePassSetup setup;
 			setup.type = RenderPipelinePassType::Other;
-			setup.stage = DefaultPipelineRenderStage::Indirect;
+			setup.stage = PipelineRenderStage::Indirect;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "XeGTAOConstants", .access = RenderPipelineTextureAccess::Write});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = LinearDepthMipChainName, .access = RenderPipelineTextureAccess::Read});
 			return setup;
@@ -155,7 +155,7 @@ namespace Skore
 		{
 			RenderPipelinePassSetup setup;
 			setup.type = RenderPipelinePassType::Compute;
-			setup.stage = DefaultPipelineRenderStage::Indirect;
+			setup.stage = PipelineRenderStage::Indirect;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = LinearDepthMipChainName, .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "XeGTAOConstants", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Read});
