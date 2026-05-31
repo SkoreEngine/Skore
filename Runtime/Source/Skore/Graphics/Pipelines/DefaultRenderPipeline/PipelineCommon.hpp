@@ -79,7 +79,8 @@ namespace Skore
 			HasAmbientColor      = 1 << 2,
 			HasReflectionTexture = 1 << 3,
 			HasSSAOTexture       = 1 << 4,
-			SSREnabled           = 1 << 5
+			SSREnabled                = 1 << 5,
+			GlobalIlluminationEnabled = 1 << 6
 		};
 	};
 

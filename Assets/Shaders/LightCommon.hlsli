@@ -10,6 +10,7 @@
 #define SK_LIGHT_FLAGS_HAS_REFLECTION_TEXTURE 	1 << 3
 #define SK_LIGHT_FLAGS_HAS_SSAO_TEXTURE 	    1 << 4
 #define SK_LIGHT_FLAGS_SSR_ENABLED 	            1 << 5
+#define SK_LIGHT_FLAGS_GLOBAL_ILLUMINATION_ENABLED 	1 << 6
 
 // Extracts light direction and max shadow-ray distance for a given light and world position.
 void GetLightDirectionAndDistance(Light light, float3 worldPos, out float3 lightDir, out float maxDist)
