@@ -181,11 +181,19 @@ void ReflectionCS(uint2 px : SV_DispatchThreadID)
 
 #endif
 
-#if SK_IRRADIANCE_TRACE || SK_IRRADIANCE_BLEND || SK_IRRADIANCE_SAMPLE || SK_IRRADIANCE_DEBUG
+#if SK_IRRADIANCE_TRACE || SK_IRRADIANCE_BLEND || SK_IRRADIANCE_SAMPLE || SK_IRRADIANCE_DEBUG || SK_IRRADIANCE_RELOCATE || SK_IRRADIANCE_CLASSIFY
 
 #include "Common.hlsli"
 
 #define SK_MAX_IRRADIANCE_VOLUMES 16
+
+#define SK_IRRADIANCE_FIXED_RAYS 32
+#define SK_IRRADIANCE_RELOCATION_ENABLED (1 << 0)
+#define SK_IRRADIANCE_CLASSIFICATION_ENABLED (1 << 1)
+#define SK_IRRADIANCE_PROBE_ACTIVE 0.0
+#define SK_IRRADIANCE_PROBE_INACTIVE 1.0
+#define SK_IRRADIANCE_BACKFACE_THRESHOLD 0.25
+#define SK_IRRADIANCE_CLASSIFY_CELL_SCALE 1.0
 
 struct IrradianceVolumeGPU
 {
@@ -286,7 +294,57 @@ int GetProbeIndexFromPixels(int2 pixels, int probeWithBorderSide, int texWidth)
     return (pixels.x / probeWithBorderSide) + probesPerRow * (pixels.y / probeWithBorderSide);
 }
 
-float3 GetVolumeIrradiance(IrradianceVolumeGPU v, Texture2D<float4> irradianceTex, Texture2D<float2> visibilityTex, SamplerState samp, int slice, int volumeCount,
+bool IrradianceRelocationEnabled(IrradianceVolumeGPU v)
+{
+    return (v.probeCounts.w & SK_IRRADIANCE_RELOCATION_ENABLED) != 0;
+}
+
+bool IrradianceClassificationEnabled(IrradianceVolumeGPU v)
+{
+    return (v.probeCounts.w & SK_IRRADIANCE_CLASSIFICATION_ENABLED) != 0;
+}
+
+bool IrradianceFixedRaysEnabled(IrradianceVolumeGPU v)
+{
+    return (v.probeCounts.w & (SK_IRRADIANCE_RELOCATION_ENABLED | SK_IRRADIANCE_CLASSIFICATION_ENABLED)) != 0;
+}
+
+int2 ProbeDataTexel(IrradianceVolumeGPU v, int storageIndex, int slice)
+{
+    int probesPerRow = v.probeCounts.x * v.probeCounts.y;
+    return int2(storageIndex % probesPerRow, storageIndex / probesPerRow + slice * v.probeCounts.z);
+}
+
+float3 GetProbeRayDirection(IrradianceVolumeGPU v, int rayIndex)
+{
+    if (IrradianceFixedRaysEnabled(v))
+    {
+        if (rayIndex < SK_IRRADIANCE_FIXED_RAYS)
+        {
+            return normalize(SphericalFibonacci(float(rayIndex), float(SK_IRRADIANCE_FIXED_RAYS)));
+        }
+        return normalize(QuatRotate(v.probeRayRotation, SphericalFibonacci(float(rayIndex - SK_IRRADIANCE_FIXED_RAYS), float(v.raysPerProbe - SK_IRRADIANCE_FIXED_RAYS))));
+    }
+    return normalize(QuatRotate(v.probeRayRotation, SphericalFibonacci(float(rayIndex), float(v.raysPerProbe))));
+}
+
+bool IsProbeNewlyExposed(IrradianceVolumeGPU v, int3 logical)
+{
+    if (v.scrollDelta.w != 0)
+    {
+        return true;
+    }
+    [unroll]
+    for (int a = 0; a < 3; ++a)
+    {
+        int d = v.scrollDelta[a];
+        if (d > 0 && logical[a] >= v.probeCounts[a] - d) return true;
+        if (d < 0 && logical[a] < -d) return true;
+    }
+    return false;
+}
+
+float3 GetVolumeIrradiance(IrradianceVolumeGPU v, Texture2D<float4> irradianceTex, Texture2D<float2> visibilityTex, RWTexture2D<float4> probeDataTex, SamplerState samp, int slice, int volumeCount,
                            float3 worldPosition, float3 normal, float3 cameraPosition)
 {
     float3 spacing = v.probeSpacing.xyz;
@@ -308,7 +366,13 @@ float3 GetVolumeIrradiance(IrradianceVolumeGPU v, Texture2D<float4> irradianceTe
         int3 logical = clamp(baseLogical + offset, int3(0, 0, 0), counts - int3(1, 1, 1));
         int3 storageCoords = LogicalToStorage(v, logical);
         int  storageIndex = ProbeStorageIndex(v, storageCoords);
-        float3 probePos = v.origin.xyz + float3(logical) * spacing;
+
+        float3 probeOffset = float3(0.0, 0.0, 0.0);
+        if (IrradianceRelocationEnabled(v))
+        {
+            probeOffset = probeDataTex[ProbeDataTexel(v, storageIndex, slice)].xyz * spacing;
+        }
+        float3 probePos = v.origin.xyz + float3(logical) * spacing + probeOffset;
 
         float3 trilinear = lerp(1.0 - alpha, alpha, float3(offset));
         float  weight = 1.0;
@@ -391,6 +455,7 @@ Texture2D<float4>                     prevIrradiance : register(t1, space2);
 Texture2D<float2>                     prevDistance   : register(t2, space2);
 TextureCube<float4>                   skyCube        : register(t3, space2);
 SamplerState                          volumeSampler  : register(s4, space2);
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> probeData : register(u6, space2);
 
 struct IrradianceTracePushConstants
 {
@@ -424,8 +489,23 @@ void IrradianceProbeRayGen()
     }
 
     int3   storageCoords = ProbeStorageCoords(v, storageIndex);
+    bool   newlyExposed = IsProbeNewlyExposed(v, StorageToLogical(v, storageCoords));
+
+    if (IrradianceFixedRaysEnabled(v) && !newlyExposed)
+    {
+        float4 pd = probeData[ProbeDataTexel(v, storageIndex, int(pc.volumeIndex))];
+        if (IrradianceClassificationEnabled(v) && pd.w >= 0.5 && rayIndex >= SK_IRRADIANCE_FIXED_RAYS)
+        {
+            return;
+        }
+    }
+
     float3 origin = ProbeWorldPosition(v, storageCoords);
-    float3 direction = normalize(QuatRotate(v.probeRayRotation, SphericalFibonacci(float(rayIndex), float(v.raysPerProbe))));
+    if (IrradianceRelocationEnabled(v) && !newlyExposed)
+    {
+        origin += probeData[ProbeDataTexel(v, storageIndex, int(pc.volumeIndex))].xyz * v.probeSpacing.xyz;
+    }
+    float3 direction = GetProbeRayDirection(v, rayIndex);
 
     RayDesc ray;
     ray.Origin = origin;
@@ -528,7 +608,7 @@ void IrradianceProbeClosestHit(inout IrradiancePayload payload, in BuiltInTriang
 
     if (pc.enableMultibounce != 0 && v.frame > 2)
     {
-        float3 irradiance = GetVolumeIrradiance(v, prevIrradiance, prevDistance, volumeSampler, int(pc.volumeIndex), int(pc.volumeCount), hitPos, N, WorldRayOrigin());
+        float3 irradiance = GetVolumeIrradiance(v, prevIrradiance, prevDistance, probeData, volumeSampler, int(pc.volumeIndex), int(pc.volumeCount), hitPos, N, WorldRayOrigin());
         lit += (min(baseColor, 0.9) / PI) * irradiance;
     }
 
@@ -566,6 +646,8 @@ StructuredBuffer<IrradianceVolumeGPU> volumes : register(t0);
 [[vk::image_format("rg16f")]] RWTexture2D<float2> visibilityImage : register(u2);
 #endif
 
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> probeData : register(u3);
+
 struct IrradianceBlendPushConstants
 {
     uint volumeIndex;
@@ -575,6 +657,8 @@ struct IrradianceBlendPushConstants
 };
 
 [[vk::push_constant]] IrradianceBlendPushConstants bpc;
+
+#define SK_IRRADIANCE_CASCADE_SEED 0
 
 static const int kReadTable[6] = {5, 3, 1, -1, -3, -5};
 
@@ -626,13 +710,19 @@ void IrradianceProbeBlendCS(uint3 dispatchThreadID : SV_DispatchThreadID)
         float4 result = float4(0.0, 0.0, 0.0, 0.0);
         bool   keepPrevious = false;
 
-        uint backfaces = 0;
-        uint maxBackfaces = uint(float(v.raysPerProbe) * 0.1);
+        if (IrradianceClassificationEnabled(v) && !clearProbe && probeData[ProbeDataTexel(v, storageIndex, slice)].w >= 0.5)
+        {
+            keepPrevious = true;
+        }
 
-        for (int rayIndex = 0; rayIndex < v.raysPerProbe; ++rayIndex)
+        int  firstRay = IrradianceFixedRaysEnabled(v) ? SK_IRRADIANCE_FIXED_RAYS : 0;
+        uint backfaces = 0;
+        uint maxBackfaces = uint(float(v.raysPerProbe - firstRay) * 0.1);
+
+        for (int rayIndex = firstRay; rayIndex < v.raysPerProbe && !keepPrevious; ++rayIndex)
         {
             int2   samplePos = int2(rayIndex, storageIndex + slice * total);
-            float3 rayDirection = normalize(QuatRotate(v.probeRayRotation, SphericalFibonacci(float(rayIndex), float(v.raysPerProbe))));
+            float3 rayDirection = GetProbeRayDirection(v, rayIndex);
             float3 texelDirection = OctohedralDecode(NormalizedOctCoord(coords, side));
             float  weight = max(0.0, dot(texelDirection, rayDirection));
             float  hitT = rayData[samplePos].w;
@@ -682,6 +772,7 @@ void IrradianceProbeBlendCS(uint3 dispatchThreadID : SV_DispatchThreadID)
             }
             else if (clearProbe)
             {
+#if SK_IRRADIANCE_CASCADE_SEED
                 int coarse = slice + 1;
                 if (coarse < int(bpc.volumeCount))
                 {
@@ -694,6 +785,7 @@ void IrradianceProbeBlendCS(uint3 dispatchThreadID : SV_DispatchThreadID)
                     prevTexel = int2(cTile.x + (int(coords.x) % withBorder), cTile.y + (int(coords.y) % withBorder) + coarse * texHeight);
                 }
                 else
+#endif
                 {
                     useBlack = true;
                     hysteresis = 0.0;
@@ -764,6 +856,7 @@ Texture2D<float2> normalTexture                                  : register(t5, 
 Texture2D<float>  linearDepthTexture                             : register(t6, space2);
 SamplerState      volumeSampler                                  : register(s7, space2);
 SamplerState      gbufferSampler                                 : register(s8, space2);
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> probeData     : register(u9, space2);
 
 struct IrradianceSamplePushConstants
 {
@@ -817,7 +910,7 @@ void IrradianceVolumeSampleCS(uint2 px : SV_DispatchThreadID)
                 continue;
             }
 
-            float3 sampled = GetVolumeIrradiance(v, irradianceArray, distanceArray, volumeSampler, int(i), int(spc.volumeCount), worldPosition, normal, cameraPosition);
+            float3 sampled = GetVolumeIrradiance(v, irradianceArray, distanceArray, probeData, volumeSampler, int(i), int(spc.volumeCount), worldPosition, normal, cameraPosition);
 
             float contribution = min(volumeWeight, 1.0 - totalWeight);
             irradiance += sampled * contribution;
@@ -845,6 +938,7 @@ void IrradianceVolumeSampleCS(uint2 px : SV_DispatchThreadID)
 StructuredBuffer<IrradianceVolumeGPU> volumes : register(t0, space2);
 Texture2D<float4> irradianceTex               : register(t1, space2);
 SamplerState      volumeSampler               : register(s2, space2);
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> probeData : register(u3, space2);
 
 struct IrradianceDebugPushConstants
 {
@@ -858,10 +952,12 @@ struct IrradianceDebugPushConstants
 
 struct DebugVSOutput
 {
-    float4 pos    : SV_POSITION;
-    float3 normal : NORMAL0;
+    float4 pos      : SV_POSITION;
+    float3 normal   : NORMAL0;
+    float3 worldPos : TEXCOORD2;
     nointerpolation uint volumeIndex  : TEXCOORD0;
     nointerpolation uint storageIndex : TEXCOORD1;
+    nointerpolation uint stateFlags   : TEXCOORD3;
 };
 
 DebugVSOutput IrradianceProbeDebugVS(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
@@ -873,6 +969,20 @@ DebugVSOutput IrradianceProbeDebugVS(uint vertexId : SV_VertexID, uint instanceI
     int3   storageCoords = ProbeStorageCoords(v, int(storageIndex));
     float3 probePos = ProbeWorldPosition(v, storageCoords);
 
+    uint stateFlags = 0;
+    if (IrradianceFixedRaysEnabled(v))
+    {
+        float4 pd = probeData[ProbeDataTexel(v, int(storageIndex), int(volumeIndex))];
+        if (IrradianceRelocationEnabled(v))
+        {
+            probePos += pd.xyz * v.probeSpacing.xyz;
+        }
+        if (IrradianceClassificationEnabled(v) && pd.w >= 0.5)
+        {
+            stateFlags = 1;
+        }
+    }
+
     float  radius = min(v.probeSpacing.x, min(v.probeSpacing.y, v.probeSpacing.z)) * 5;
     float3 localPos = GetVertexPosition(dpc.vertexByteOffset, dpc.vertexLayoutIndex, vertexId);
     float3 worldPos = probePos + localPos * radius;
@@ -880,8 +990,10 @@ DebugVSOutput IrradianceProbeDebugVS(uint vertexId : SV_VertexID, uint instanceI
     DebugVSOutput o;
     o.pos = mul(viewProjection, float4(worldPos, 1.0));
     o.normal = normalize(localPos);
+    o.worldPos = worldPos;
     o.volumeIndex = volumeIndex;
     o.storageIndex = storageIndex;
+    o.stateFlags = stateFlags;
     return o;
 }
 
@@ -893,7 +1005,189 @@ float4 IrradianceProbeDebugPS(DebugVSOutput input) : SV_TARGET
     float3 irr = irradianceTex.SampleLevel(volumeSampler, uv, 0).rgb;
     irr = pow(max(irr, 0.0), v.irradianceGamma * 0.5);
     irr = irr * irr;
+
+    if (IrradianceClassificationEnabled(v))
+    {
+        float3 N = normalize(input.normal);
+        float3 V = normalize(cameraPosition - input.worldPos);
+        float  rim = 1.0 - saturate(dot(N, V));
+        float  border = smoothstep(0.55, 0.75, rim);
+        float3 stateColor = (input.stateFlags != 0) ? float3(1.0, 0.04, 0.04) : float3(0.04, 1.0, 0.04);
+        irr = lerp(irr, stateColor, border);
+    }
+
     return float4(irr, 1.0);
+}
+
+#endif
+
+#if SK_IRRADIANCE_RELOCATE || SK_IRRADIANCE_CLASSIFY
+
+StructuredBuffer<IrradianceVolumeGPU> volumes : register(t0);
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> rayData   : register(u1);
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> probeData : register(u2);
+
+struct IrradianceProbePushConstants
+{
+    uint volumeIndex;
+    uint volumeCount;
+    uint pad0;
+    uint pad1;
+};
+
+[[vk::push_constant]] IrradianceProbePushConstants ipc;
+
+#endif
+
+#if SK_IRRADIANCE_RELOCATE
+
+[numthreads(64, 1, 1)]
+void IrradianceProbeRelocateCS(uint3 tid : SV_DispatchThreadID)
+{
+    IrradianceVolumeGPU v = volumes[ipc.volumeIndex];
+    int total = v.probeCounts.x * v.probeCounts.y * v.probeCounts.z;
+    int storageIndex = int(tid.x);
+    if (storageIndex >= total)
+    {
+        return;
+    }
+
+    int slice = int(ipc.volumeIndex);
+    int rowBase = storageIndex + slice * total;
+    int numFixed = min(SK_IRRADIANCE_FIXED_RAYS, v.raysPerProbe);
+
+    int   closestBackfaceIndex = -1;
+    int   closestFrontfaceIndex = -1;
+    int   farthestFrontfaceIndex = -1;
+    float closestBackfaceDistance = 1e27;
+    float closestFrontfaceDistance = 1e27;
+    float farthestFrontfaceDistance = 0.0;
+    int   backfaceCount = 0;
+
+    for (int r = 0; r < numFixed; ++r)
+    {
+        float hitT = rayData[int2(r, rowBase)].w;
+        if (hitT < 0.0)
+        {
+            ++backfaceCount;
+            hitT *= -5.0;
+            if (hitT < closestBackfaceDistance)
+            {
+                closestBackfaceDistance = hitT;
+                closestBackfaceIndex = r;
+            }
+        }
+        else
+        {
+            if (hitT < closestFrontfaceDistance)
+            {
+                closestFrontfaceDistance = hitT;
+                closestFrontfaceIndex = r;
+            }
+            else if (hitT > farthestFrontfaceDistance)
+            {
+                farthestFrontfaceDistance = hitT;
+                farthestFrontfaceIndex = r;
+            }
+        }
+    }
+
+    int2   pdTexel = ProbeDataTexel(v, storageIndex, slice);
+    float4 pd = probeData[pdTexel];
+    bool   newlyExposed = IsProbeNewlyExposed(v, StorageToLogical(v, ProbeStorageCoords(v, storageIndex)));
+    float3 currentOffset = newlyExposed ? float3(0.0, 0.0, 0.0) : pd.xyz * v.probeSpacing.xyz;
+    float  state = pd.w;
+
+    float minSpacing = min(v.probeSpacing.x, min(v.probeSpacing.y, v.probeSpacing.z));
+    float probeMinFrontfaceDistance = minSpacing;
+
+    float3 fullOffset = float3(1e27, 1e27, 1e27);
+
+    if (closestBackfaceIndex != -1 && (float(backfaceCount) / float(numFixed)) > SK_IRRADIANCE_BACKFACE_THRESHOLD)
+    {
+        float3 closestBackfaceDirection = GetProbeRayDirection(v, closestBackfaceIndex);
+        fullOffset = currentOffset + closestBackfaceDirection * (closestBackfaceDistance + probeMinFrontfaceDistance * 0.5);
+    }
+    else if (closestFrontfaceDistance < probeMinFrontfaceDistance)
+    {
+        float3 closestFrontfaceDirection = GetProbeRayDirection(v, closestFrontfaceIndex);
+        float3 farthestFrontfaceDirection = GetProbeRayDirection(v, farthestFrontfaceIndex);
+        if (dot(closestFrontfaceDirection, farthestFrontfaceDirection) <= 0.0)
+        {
+            fullOffset = currentOffset + farthestFrontfaceDirection * minSpacing * 0.25;
+        }
+    }
+    else if (closestFrontfaceDistance > probeMinFrontfaceDistance)
+    {
+        float  moveBackLength = length(currentOffset);
+        float  moveBackMargin = min(closestFrontfaceDistance - probeMinFrontfaceDistance, moveBackLength);
+        float3 moveBackDirection = (moveBackLength > 1e-6) ? (-currentOffset / moveBackLength) : float3(0.0, 0.0, 0.0);
+        fullOffset = currentOffset + moveBackMargin * moveBackDirection;
+    }
+
+    float3 normalizedOffset = fullOffset / v.probeSpacing.xyz;
+    if (dot(normalizedOffset, normalizedOffset) < 0.2025)
+    {
+        currentOffset = fullOffset;
+    }
+
+    probeData[pdTexel] = float4(currentOffset / v.probeSpacing.xyz, state);
+}
+
+#endif
+
+#if SK_IRRADIANCE_CLASSIFY
+
+[numthreads(64, 1, 1)]
+void IrradianceProbeClassifyCS(uint3 tid : SV_DispatchThreadID)
+{
+    IrradianceVolumeGPU v = volumes[ipc.volumeIndex];
+    int total = v.probeCounts.x * v.probeCounts.y * v.probeCounts.z;
+    int storageIndex = int(tid.x);
+    if (storageIndex >= total)
+    {
+        return;
+    }
+
+    int slice = int(ipc.volumeIndex);
+    int rowBase = storageIndex + slice * total;
+    int numFixed = min(SK_IRRADIANCE_FIXED_RAYS, v.raysPerProbe);
+
+    int backfaceCount = 0;
+    [loop]
+    for (int r = 0; r < numFixed; ++r)
+    {
+        if (rayData[int2(r, rowBase)].w < 0.0)
+        {
+            ++backfaceCount;
+        }
+    }
+
+    int2   pdTexel = ProbeDataTexel(v, storageIndex, slice);
+    float4 pd = probeData[pdTexel];
+    float  state = SK_IRRADIANCE_PROBE_INACTIVE;
+
+    if ((float(backfaceCount) / float(numFixed)) <= SK_IRRADIANCE_BACKFACE_THRESHOLD)
+    {
+        float3 cellBounds = v.probeSpacing.xyz * SK_IRRADIANCE_CLASSIFY_CELL_SCALE;
+        [loop]
+        for (int r2 = 0; r2 < numFixed; ++r2)
+        {
+            float hitT = rayData[int2(r2, rowBase)].w;
+            if (hitT < 0.0)
+            {
+                continue;
+            }
+            float3 hitRelative = GetProbeRayDirection(v, r2) * hitT;
+            if (all(abs(hitRelative) <= cellBounds))
+            {
+                state = SK_IRRADIANCE_PROBE_ACTIVE;
+                break;
+            }
+        }
+    }
+
+    probeData[pdTexel] = float4(pd.xyz, state);
 }
 
 #endif

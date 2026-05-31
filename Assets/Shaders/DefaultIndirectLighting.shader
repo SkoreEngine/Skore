@@ -34,6 +34,18 @@ variants:
         macros:
           - SK_IRRADIANCE_BLEND=1
           - SK_IRRADIANCE_BLEND_RADIANCE=0
+  - name : IrradianceProbeRelocate
+    stages:
+      - entryPoint: IrradianceProbeRelocateCS
+        stage: Compute
+        macros:
+          - SK_IRRADIANCE_RELOCATE=1
+  - name : IrradianceProbeClassify
+    stages:
+      - entryPoint: IrradianceProbeClassifyCS
+        stage: Compute
+        macros:
+          - SK_IRRADIANCE_CLASSIFY=1
   - name : IrradianceVolumeSample
     stages:
       - entryPoint: IrradianceVolumeSampleCS

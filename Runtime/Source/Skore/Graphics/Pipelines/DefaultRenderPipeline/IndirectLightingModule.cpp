@@ -15,6 +15,8 @@
 namespace Skore
 {
 	constexpr u32 MaxIrradianceVolumes = 16;
+	constexpr i32 IrradianceRelocationEnabledFlag = 1 << 0;
+	constexpr i32 IrradianceClassificationEnabledFlag = 1 << 1;
 
 	struct IrradianceVolumeGPU
 	{
@@ -51,6 +53,7 @@ namespace Skore
 		u32         probesPerVolume = 0;
 		GPUTexture* irradianceArray = nullptr;
 		GPUTexture* distanceArray = nullptr;
+		GPUTexture* probeDataArray = nullptr;
 
 		static void RegisterType(NativeReflectType<IrradianceVolumeData>&) {}
 	};
@@ -100,13 +103,18 @@ namespace Skore
 		GPUPipeline*            tracePipeline = nullptr;
 		GPUPipeline*            blendIrrPipeline = nullptr;
 		GPUPipeline*            blendDistPipeline = nullptr;
+		GPUPipeline*            relocatePipeline = nullptr;
+		GPUPipeline*            classifyPipeline = nullptr;
 		GPUBuffer*              volumeBuffer = nullptr;
 		GPUTexture*             rayDataArray = nullptr;
 		GPUTexture*             irradianceArray = nullptr;
 		GPUTexture*             distanceArray = nullptr;
+		GPUTexture*             probeDataArray = nullptr;
 		GPUDescriptorSet*       traceSet[SK_FRAMES_IN_FLIGHT] = {};
 		GPUDescriptorSet*       blendIrrSet[SK_FRAMES_IN_FLIGHT] = {};
 		GPUDescriptorSet*       blendDistSet[SK_FRAMES_IN_FLIGHT] = {};
+		GPUDescriptorSet*       relocateSet[SK_FRAMES_IN_FLIGHT] = {};
+		GPUDescriptorSet*       classifySet[SK_FRAMES_IN_FLIGHT] = {};
 
 		Array<IrradianceVolume> volumes;
 		Array<i32>              scheduled;
@@ -168,6 +176,8 @@ namespace Skore
 
 			blendIrrPipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{.shader = shader, .variant = "IrradianceProbeBlendIrradiance"});
 			blendDistPipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{.shader = shader, .variant = "IrradianceProbeBlendDistance"});
+			relocatePipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{.shader = shader, .variant = "IrradianceProbeRelocate"});
+			classifyPipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{.shader = shader, .variant = "IrradianceProbeClassify"});
 
 			i32 irrBorder = irradianceSide + 2;
 			i32 visBorder = visibilitySide + 2;
@@ -209,6 +219,12 @@ namespace Skore
 				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 				.debugName = "IrradianceVolumeDistance"
 			});
+			probeDataArray = Graphics::CreateTexture(TextureDesc{
+				.extent = {static_cast<u32>(countX * countY), static_cast<u32>(countZ) * layers, 1},
+				.format = TextureFormat::R16G16B16A16_FLOAT,
+				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest,
+				.debugName = "IrradianceVolumeProbeData"
+			});
 
 			BufferDesc bd;
 			bd.size = static_cast<usize>(SK_FRAMES_IN_FLIGHT) * MaxIrradianceVolumes * stride;
@@ -223,6 +239,8 @@ namespace Skore
 				traceSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeTrace", 2);
 				blendIrrSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeBlendIrradiance", 0);
 				blendDistSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeBlendDistance", 0);
+				relocateSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeRelocate", 0);
+				classifySet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeClassify", 0);
 			}
 		}
 
@@ -235,6 +253,7 @@ namespace Skore
 			data->probesPerVolume = static_cast<u32>(totalProbes);
 			data->irradianceArray = irradianceArray;
 			data->distanceArray = distanceArray;
+			data->probeDataArray = probeDataArray;
 		}
 
 		void Render(Scene* scene, GPUCommandBuffer* cmd) override
@@ -252,12 +271,26 @@ namespace Skore
 				cmd->ResourceBarrier(rayDataArray, ResourceState::Undefined, ResourceState::General, 0, 0);
 				cmd->ResourceBarrier(irradianceArray, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
 				cmd->ResourceBarrier(distanceArray, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
+				cmd->ResourceBarrier(probeDataArray, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
+				cmd->ClearColorTexture(probeDataArray, Vec4(0.0f, 0.0f, 0.0f, 0.0f), 0, 0);
+				cmd->ResourceBarrier(probeDataArray, ResourceState::CopyDest, ResourceState::General, 0, 0);
 				texturesInitialized = true;
 			}
 
 			scheduled.Clear();
 			scheduled.EmplaceBack(static_cast<i32>(nextVolume));
 			nextVolume = (nextVolume + 1) % layers;
+
+			auto boolOption = [&](StringView name, bool fallback) -> bool
+			{
+				PipelineOption opt = context->GetOption(name);
+				const bool* value = std::get_if<bool>(&opt);
+				return value ? *value : fallback;
+			};
+
+			bool relocationEnabled = boolOption("Probe Relocation", true);
+			bool classificationEnabled = boolOption("Probe Classification", true);
+			i32  volumeFlags = (relocationEnabled ? IrradianceRelocationEnabledFlag : 0) | (classificationEnabled ? IrradianceClassificationEnabledFlag : 0);
 
 			Vec3 cam = context->camera.cameraPosition;
 
@@ -308,7 +341,7 @@ namespace Skore
 				g.probeCountsX = countX;
 				g.probeCountsY = countY;
 				g.probeCountsZ = countZ;
-				g.flags = 0;
+				g.flags = volumeFlags;
 				g.scrollOffsetsX = v.scrollX;
 				g.scrollOffsetsY = v.scrollY;
 				g.scrollOffsetsZ = v.scrollZ;
@@ -349,6 +382,7 @@ namespace Skore
 			tset->UpdateTexture(3, light->cubeMapSkyTexture);
 			tset->UpdateSampler(4, samp);
 			tset->UpdateBuffer(5, volumeBuffer, frameOffset, range);
+			tset->UpdateTexture(6, probeDataArray);
 
 			cmd->BeginDebugMarker("IrradianceVolumeTrace", Vec4(0.2f, 0.6f, 1.0f, 1.0f));
 			cmd->BindPipeline(tracePipeline);
@@ -378,11 +412,13 @@ namespace Skore
 			bi->UpdateBuffer(0, volumeBuffer, frameOffset, range);
 			bi->UpdateTexture(1, rayDataArray);
 			bi->UpdateTexture(2, irradianceArray);
+			bi->UpdateTexture(3, probeDataArray);
 
 			GPUDescriptorSet* bd = blendDistSet[frame];
 			bd->UpdateBuffer(0, volumeBuffer, frameOffset, range);
 			bd->UpdateTexture(1, rayDataArray);
 			bd->UpdateTexture(2, distanceArray);
+			bd->UpdateTexture(3, probeDataArray);
 
 			for (i32 idx : scheduled)
 			{
@@ -408,6 +444,56 @@ namespace Skore
 			cmd->ResourceBarrier(irradianceArray, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
 			cmd->ResourceBarrier(distanceArray, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
 			cmd->EndDebugMarker();
+
+			if (relocationEnabled || classificationEnabled)
+			{
+				cmd->MemoryBarrier();
+				cmd->BeginDebugMarker("IrradianceVolumeProbeData", Vec4(1.0f, 0.7f, 0.2f, 1.0f));
+
+				GPUDescriptorSet* rs = relocateSet[frame];
+				rs->UpdateBuffer(0, volumeBuffer, frameOffset, range);
+				rs->UpdateTexture(1, rayDataArray);
+				rs->UpdateTexture(2, probeDataArray);
+
+				GPUDescriptorSet* cs = classifySet[frame];
+				cs->UpdateBuffer(0, volumeBuffer, frameOffset, range);
+				cs->UpdateTexture(1, rayDataArray);
+				cs->UpdateTexture(2, probeDataArray);
+
+				u32 groups = (static_cast<u32>(totalProbes) + 63) / 64;
+
+				for (i32 idx : scheduled)
+				{
+					IrradianceBlendPushConstants ppc{static_cast<u32>(idx), layers, 0, 0};
+
+					if (relocationEnabled)
+					{
+						SK_SCOPED_ZONE("IrradianceProbeRelocate", cmd);
+						cmd->BindPipeline(relocatePipeline);
+						cmd->BindDescriptorSet(relocatePipeline, 0, rs);
+						cmd->PushConstants(relocatePipeline, ShaderStage::Compute, 0, sizeof(ppc), &ppc);
+						cmd->Dispatch(groups, 1, 1);
+					}
+
+					if (relocationEnabled && classificationEnabled)
+					{
+						cmd->MemoryBarrier();
+					}
+
+					if (classificationEnabled)
+					{
+						SK_SCOPED_ZONE("IrradianceProbeClassify", cmd);
+						cmd->BindPipeline(classifyPipeline);
+						cmd->BindDescriptorSet(classifyPipeline, 0, cs);
+						cmd->PushConstants(classifyPipeline, ShaderStage::Compute, 0, sizeof(ppc), &ppc);
+						cmd->Dispatch(groups, 1, 1);
+					}
+				}
+
+				cmd->EndDebugMarker();
+			}
+
+			cmd->MemoryBarrier();
 		}
 
 		void Destroy() override
@@ -417,14 +503,19 @@ namespace Skore
 				if (traceSet[f]) traceSet[f]->Destroy();
 				if (blendIrrSet[f]) blendIrrSet[f]->Destroy();
 				if (blendDistSet[f]) blendDistSet[f]->Destroy();
+				if (relocateSet[f]) relocateSet[f]->Destroy();
+				if (classifySet[f]) classifySet[f]->Destroy();
 			}
 			if (rayDataArray) rayDataArray->Destroy();
 			if (irradianceArray) irradianceArray->Destroy();
 			if (distanceArray) distanceArray->Destroy();
+			if (probeDataArray) probeDataArray->Destroy();
 			if (volumeBuffer) volumeBuffer->Destroy();
 			if (tracePipeline) tracePipeline->Destroy();
 			if (blendIrrPipeline) blendIrrPipeline->Destroy();
 			if (blendDistPipeline) blendDistPipeline->Destroy();
+			if (relocatePipeline) relocatePipeline->Destroy();
+			if (classifyPipeline) classifyPipeline->Destroy();
 		}
 	};
 
@@ -477,7 +568,7 @@ namespace Skore
 			if (!scene || scene->renderObjects.tlas == nullptr) return;
 
 			data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
-			if (!data || data->volumeBuffer == nullptr || data->volumeCount == 0 || data->irradianceArray == nullptr) return;
+			if (!data || data->volumeBuffer == nullptr || data->volumeCount == 0 || data->irradianceArray == nullptr || data->probeDataArray == nullptr) return;
 
 			u32 frame = context->GetCurrentFrame();
 			u64 frameOffset = static_cast<u64>(frame) * MaxIrradianceVolumes * stride;
@@ -501,6 +592,7 @@ namespace Skore
 			set->UpdateTexture(6, context->GetTexture(LinearDepthMipChainName));
 			set->UpdateSampler(7, Graphics::GetLinearClampToEdgeSampler());
 			set->UpdateSampler(8, Graphics::GetNearestClampToEdgeSampler());
+			set->UpdateTexture(9, data->probeDataArray);
 
 			cmd->BindPipeline(pipeline);
 			cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
@@ -591,7 +683,7 @@ namespace Skore
 			if (!sphereMesh || !sphereMesh->IsLoaded()) return;
 
 			data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
-			if (!data || data->volumeBuffer == nullptr || data->volumeCount == 0 || data->irradianceArray == nullptr || data->probesPerVolume == 0) return;
+			if (!data || data->volumeBuffer == nullptr || data->volumeCount == 0 || data->irradianceArray == nullptr || data->probeDataArray == nullptr || data->probesPerVolume == 0) return;
 
 			static const char* cascadeOptionNames[4] = {
 				"Show Probe Cascade 0", "Show Probe Cascade 1", "Show Probe Cascade 2", "Show Probe Cascade 3"
@@ -620,6 +712,7 @@ namespace Skore
 			set->UpdateBuffer(0, data->volumeBuffer, frameOffset, range);
 			set->UpdateTexture(1, data->irradianceArray);
 			set->UpdateSampler(2, Graphics::GetLinearClampToEdgeSampler());
+			set->UpdateTexture(3, data->probeDataArray);
 
 			cmd->BindPipeline(pipeline);
 			cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
@@ -789,6 +882,8 @@ namespace Skore
 			setup.options.Insert("Show Probe Cascade 2", PipelineOption{false});
 			setup.options.Insert("Show Probe Cascade 3", PipelineOption{false});
 			setup.options.Insert("Indirect Intensity", PipelineOption{2.0});
+			setup.options.Insert("Probe Relocation", PipelineOption{true});
+			setup.options.Insert("Probe Classification", PipelineOption{true});
 			return setup;
 		}
 
