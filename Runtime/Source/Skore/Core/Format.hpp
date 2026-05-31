@@ -52,3 +52,27 @@ struct fmt::formatter<Skore::TypeID> : formatter<std::string_view>
 		return format_to(ctx.out(), "{}", v.id);
 	}
 };
+
+
+namespace Skore
+{
+	template <typename T>
+	class Array;
+}
+
+
+template<typename T>
+struct fmt::formatter<Skore::Array<T>> : formatter<std::string_view>
+{
+	auto format(const Skore::Array<T>& arr, format_context& ctx) const
+	{
+		auto out = ctx.out();
+		format_to(out, "[");
+		for (int i = 0; i < arr.Size(); ++i)
+		{
+			if (i > 0) format_to(out, ", ");
+			fmt::format_to(out, "{}", arr[i]);
+		}
+		return format_to(out, "]");
+	}
+};

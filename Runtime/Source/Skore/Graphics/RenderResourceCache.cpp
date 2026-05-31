@@ -905,33 +905,22 @@ namespace Skore
 								continue;
 							}
 
-							GPUTexture* cubeMapTexture = Graphics::CreateTexture(TextureDesc{
-								.extent = {256, 256, 1},
-								.mipLevels = 8,
-								.arrayLayers = 6,
-								.format = TextureFormat::R16G16B16A16_FLOAT,
-								.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
-								.cubemap = true,
-								.debugName = "SceneRendererViewport_CubemapTexture"
-							});
-
-
 							computeCmd->Begin();
 
 							EquirectangularToCubeMap equirectangularToCubemap;
 							equirectangularToCubemap.Init();
-							equirectangularToCubemap.Execute(computeCmd, materialCache->skyMaterialTexture->texture, cubeMapTexture);
+							equirectangularToCubemap.Execute(computeCmd, materialCache->skyMaterialTexture->texture, materialCache->cubeMapSkyTexture);
 
 							SinglePassDownsampler downsampler;
-							downsampler.Init(cubeMapTexture);
+							downsampler.Init(materialCache->cubeMapSkyTexture);
 							downsampler.Execute(computeCmd);
 
 							DiffuseIrradianceGenerator diffuseIrradianceGenerator;
 							diffuseIrradianceGenerator.Init();
-							diffuseIrradianceGenerator.Execute(computeCmd, cubeMapTexture, materialCache->diffuseIrradianceTexture);
+							diffuseIrradianceGenerator.Execute(computeCmd, materialCache->cubeMapSkyTexture, materialCache->diffuseIrradianceTexture);
 
 							SpecularMapGenerator specularMapGenerator;
-							specularMapGenerator.Init(cubeMapTexture, materialCache->specularMapTexture);
+							specularMapGenerator.Init(materialCache->cubeMapSkyTexture, materialCache->specularMapTexture);
 							specularMapGenerator.Execute(computeCmd);
 
 							computeCmd->End();
@@ -940,7 +929,6 @@ namespace Skore
 
 							equirectangularToCubemap.Destroy();
 							diffuseIrradianceGenerator.Destroy();
-							cubeMapTexture->Destroy();
 							break;
 						}
 						default:
@@ -1426,6 +1414,20 @@ namespace Skore
 						});
 					}
 
+					if (!materialCache->cubeMapSkyTexture)
+					{
+						materialCache->cubeMapSkyTexture = Graphics::CreateTexture(TextureDesc{
+							.extent = {256, 256, 1},
+							.mipLevels = 8,
+							.arrayLayers = 6,
+							.format = TextureFormat::R16G16B16A16_FLOAT,
+							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+							.cubemap = true,
+							.debugName = "SceneRendererViewport_CubemapTexture"
+						});
+
+					}
+
 					materialCache->iblComplete = worker->AddTask(WorkerType::GenerateIBL, materialCache).share();
 				}
 			}
@@ -1615,6 +1617,7 @@ namespace Skore
 		if (descriptorSet) descriptorSet->Destroy();
 		if (diffuseIrradianceTexture) diffuseIrradianceTexture->Destroy();
 		if (specularMapTexture) specularMapTexture->Destroy();
+		if (cubeMapSkyTexture) cubeMapSkyTexture->Destroy();
 	}
 
 	MeshResourceCache::~MeshResourceCache()

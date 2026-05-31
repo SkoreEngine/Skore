@@ -82,6 +82,7 @@ namespace Skore
 			lightInstanceData->indirectLightFlags = LightFlags::None;
 			lightInstanceData->diffuseIrradianceTexture = Graphics::GetWhiteCubemapTexture();
 			lightInstanceData->specularMapTexture = Graphics::GetWhiteCubemapTexture();
+			lightInstanceData->cubeMapSkyTexture = Graphics::GetWhiteCubemapTexture();
 
 			scene->Iterate<EnvironmentComponent>([&](EnvironmentComponent* env)
 			{
@@ -96,6 +97,12 @@ namespace Skore
 							{
 								lightInstanceData->diffuseIrradianceTexture = materialCache->diffuseIrradianceTexture;
 							}
+
+							if (lightInstanceData->cubeMapSkyTexture != materialCache->cubeMapSkyTexture)
+							{
+								lightInstanceData->cubeMapSkyTexture = materialCache->cubeMapSkyTexture;
+							}
+
 							lightInstanceData->ambientMultiplier = env->GetAmbientLightIntensity();
 							lightInstanceData->indirectLightFlags |= LightFlags::HasAmbientTexture;
 						}

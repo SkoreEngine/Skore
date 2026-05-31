@@ -7,12 +7,16 @@
 #include "Skore/Core/Span.hpp"
 #include "Skore/Core/HashMap.hpp"
 
+#include <variant>
+
 namespace Skore
 {
 	class Scene;
 	class RenderPipelineContext;
 	struct RenderPipeline;
 	class GPUCommandBuffer;
+
+	using PipelineOption = std::variant<bool, i64, u64, f64, std::string>;
 
 	typedef void (*RenderPipelineContextSubmitFn)(GPUCommandBuffer* cmd, VoidPtr userData);
 
@@ -96,6 +100,7 @@ namespace Skore
 		i32                                 stage = 0;
 		Array<RenderPipelinePassDependency> dependencies;
 		Array<String>                       resolve;
+		HashMap<String, PipelineOption>			options;
 	};
 
 	struct SK_API RenderPipelinePass : Object
@@ -123,6 +128,7 @@ namespace Skore
 	{
 		Array<TypeID> passes;
 		Array<String> resolve;
+		HashMap<String, PipelineOption> options;
 	};
 
 	struct SK_API RenderPipelineModule : Object
@@ -179,6 +185,10 @@ namespace Skore
 		GPUTexture* GetPrevTexture(StringView textureName);
 		VoidPtr     GetInstanceData(StringView name);
 		GPUBuffer*  GetBuffer(StringView name);
+
+		PipelineOption                         GetOption(StringView name) const;
+		void                                   SetOption(StringView name, const PipelineOption& value);
+		const HashMap<String, PipelineOption>& GetOptions() const;
 
 		//output
 		void SetOutputAttachments(StringView name, Span<GPUTexture*> attachments, ResourceState requiredState);
@@ -390,6 +400,7 @@ namespace Skore
 
 
 		HashMap<String, PipelineResourceStorage> resources;
+		HashMap<String, PipelineOption>          options;
 		Array<PassBarrier>                       initializationBarriers;
 		bool                                     resourceCreated = false;
 		bool                                     resourceDirty = false;

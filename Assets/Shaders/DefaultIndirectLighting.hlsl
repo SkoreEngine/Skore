@@ -1,4 +1,6 @@
 
+#if SK_REFLECTION_PASS
+
 #include "LightCommon.hlsli"
 #include "PBR.hlsli"
 
@@ -176,3 +178,686 @@ void ReflectionCS(uint2 px : SV_DispatchThreadID)
     }
     outputTexture[px] = float4(specularColor, 1.0);
 }
+
+#endif
+
+#if SK_IRRADIANCE_TRACE || SK_IRRADIANCE_BLEND || SK_IRRADIANCE_SAMPLE || SK_IRRADIANCE_DEBUG
+
+#include "Common.hlsli"
+
+#define SK_MAX_IRRADIANCE_VOLUMES 16
+
+struct IrradianceVolumeGPU
+{
+    float4 origin;
+    float4 probeSpacing;
+    float4 probeRayRotation;
+    int4   probeCounts;
+    int4   scrollOffsets;
+    int4   scrollDelta;
+    int    irradianceTextureWidth;
+    int    irradianceTextureHeight;
+    int    irradianceSideLength;
+    int    raysPerProbe;
+    int    visibilityTextureWidth;
+    int    visibilityTextureHeight;
+    int    visibilitySideLength;
+    int    frame;
+    float  hysteresis;
+    float  normalBias;
+    float  viewBias;
+    float  maxRayDistance;
+    float  irradianceGamma;
+    float  energyConservation;
+    float  distanceExponent;
+    float  pad0;
+};
+
+float3 QuatRotate(float4 q, float3 v)
+{
+    return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+}
+
+float3 SphericalFibonacci(float sampleIndex, float numSamples)
+{
+    const float b = (sqrt(5.0) * 0.5 + 0.5) - 1.0;
+    float phi = TwoPI * frac(sampleIndex * b);
+    float cosTheta = 1.0 - (2.0 * sampleIndex + 1.0) * (1.0 / numSamples);
+    float sinTheta = sqrt(saturate(1.0 - cosTheta * cosTheta));
+    return float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+}
+
+float2 NormalizedOctCoord(int2 coords, int side)
+{
+    int withBorder = side + 2;
+    float2 c = float2((coords.x - 1) % withBorder, (coords.y - 1) % withBorder);
+    c += 0.5;
+    c *= (2.0 / float(side));
+    c -= 1.0;
+    return c;
+}
+
+int3 PositiveMod(int3 a, int3 n)
+{
+    return ((a % n) + n) % n;
+}
+
+int3 ProbeStorageCoords(IrradianceVolumeGPU v, int storageIndex)
+{
+    int cx = v.probeCounts.x;
+    int cxy = v.probeCounts.x * v.probeCounts.y;
+    return int3(storageIndex % cx, (storageIndex % cxy) / cx, storageIndex / cxy);
+}
+
+int ProbeStorageIndex(IrradianceVolumeGPU v, int3 storageCoords)
+{
+    return storageCoords.x + storageCoords.y * v.probeCounts.x + storageCoords.z * v.probeCounts.x * v.probeCounts.y;
+}
+
+int3 StorageToLogical(IrradianceVolumeGPU v, int3 storageCoords)
+{
+    return PositiveMod(storageCoords - v.scrollOffsets.xyz, v.probeCounts.xyz);
+}
+
+int3 LogicalToStorage(IrradianceVolumeGPU v, int3 logicalCoords)
+{
+    return PositiveMod(logicalCoords + v.scrollOffsets.xyz, v.probeCounts.xyz);
+}
+
+float3 ProbeWorldPosition(IrradianceVolumeGPU v, int3 storageCoords)
+{
+    int3 logical = StorageToLogical(v, storageCoords);
+    return v.origin.xyz + float3(logical) * v.probeSpacing.xyz;
+}
+
+float2 GetProbeUV(float3 direction, int storageIndex, int texWidth, int texHeight, int side)
+{
+    float2 oct = OctohedralEncode(normalize(direction));
+    float withBorder = float(side) + 2.0;
+    int probesPerRow = texWidth / int(withBorder);
+    int2 probeIndices = int2(storageIndex % probesPerRow, storageIndex / probesPerRow);
+    float2 texel = float2(probeIndices) * withBorder + float2(1.0, 1.0) + float2(side * 0.5, side * 0.5) + oct * (side * 0.5);
+    return texel / float2(float(texWidth), float(texHeight));
+}
+
+int GetProbeIndexFromPixels(int2 pixels, int probeWithBorderSide, int texWidth)
+{
+    int probesPerRow = texWidth / probeWithBorderSide;
+    return (pixels.x / probeWithBorderSide) + probesPerRow * (pixels.y / probeWithBorderSide);
+}
+
+float3 GetVolumeIrradiance(IrradianceVolumeGPU v, Texture2D<float4> irradianceTex, Texture2D<float2> visibilityTex, SamplerState samp, int slice, int volumeCount,
+                           float3 worldPosition, float3 normal, float3 cameraPosition)
+{
+    float3 spacing = v.probeSpacing.xyz;
+    float3 Wo = normalize(cameraPosition - worldPosition);
+    float3 biasedWorldPosition = worldPosition + (normal * v.normalBias) + (Wo * v.viewBias);
+
+    int3   counts = v.probeCounts.xyz;
+    float3 gridLocal = (biasedWorldPosition - v.origin.xyz) / spacing;
+    int3   baseLogical = clamp(int3(floor(gridLocal)), int3(0, 0, 0), counts - int3(1, 1, 1));
+    float3 baseLogicalWorld = v.origin.xyz + float3(baseLogical) * spacing;
+    float3 alpha = clamp((biasedWorldPosition - baseLogicalWorld) / spacing, 0.0, 1.0);
+
+    float3 sumIrradiance = float3(0.0, 0.0, 0.0);
+    float  sumWeight = 0.0;
+
+    for (int i = 0; i < 8; ++i)
+    {
+        int3 offset = int3(i, i >> 1, i >> 2) & int3(1, 1, 1);
+        int3 logical = clamp(baseLogical + offset, int3(0, 0, 0), counts - int3(1, 1, 1));
+        int3 storageCoords = LogicalToStorage(v, logical);
+        int  storageIndex = ProbeStorageIndex(v, storageCoords);
+        float3 probePos = v.origin.xyz + float3(logical) * spacing;
+
+        float3 trilinear = lerp(1.0 - alpha, alpha, float3(offset));
+        float  weight = 1.0;
+
+        float3 dirToProbe = normalize(probePos - worldPosition);
+        float  dirDotN = (dot(dirToProbe, normal) + 1.0) * 0.5;
+        weight *= (dirDotN * dirDotN) + 0.2;
+
+        float3 probeToPoint = biasedWorldPosition - probePos;
+        float  distToPoint = length(probeToPoint);
+        probeToPoint /= max(distToPoint, 1e-6);
+
+        float2 visSubUV = GetProbeUV(probeToPoint, storageIndex, v.visibilityTextureWidth, v.visibilityTextureHeight, v.visibilitySideLength);
+        float2 vis = visibilityTex.SampleLevel(samp, float2(visSubUV.x, (float(slice) + visSubUV.y) / float(volumeCount)), 0);
+        float  meanDist = vis.x;
+        float  cheb = 1.0;
+        if (distToPoint > meanDist)
+        {
+            float variance = abs((vis.x * vis.x) - vis.y);
+            float diff = distToPoint - meanDist;
+            cheb = variance / (variance + (diff * diff));
+            cheb = max(cheb * cheb * cheb, 0.0);
+        }
+        weight *= max(0.05, cheb);
+        weight = max(0.000001, weight);
+
+        const float crush = 0.2;
+        if (weight < crush)
+        {
+            weight *= (weight * weight) * (1.0 / (crush * crush));
+        }
+
+        float2 irrSubUV = GetProbeUV(normal, storageIndex, v.irradianceTextureWidth, v.irradianceTextureHeight, v.irradianceSideLength);
+        float3 probeIrradiance = irradianceTex.SampleLevel(samp, float2(irrSubUV.x, (float(slice) + irrSubUV.y) / float(volumeCount)), 0).rgb;
+        probeIrradiance = pow(max(probeIrradiance, 0.0), v.irradianceGamma * 0.5);
+
+        weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
+        sumIrradiance += weight * probeIrradiance;
+        sumWeight += weight;
+    }
+
+    if (sumWeight <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float3 net = sumIrradiance / sumWeight;
+    net = net * net;
+    return 0.5 * PI * net;
+}
+
+float VolumeBlendWeight(IrradianceVolumeGPU v, float3 worldPosition)
+{
+    float3 spacing = v.probeSpacing.xyz;
+    float3 extent = spacing * float3(v.probeCounts.xyz - int3(1, 1, 1)) * 0.5;
+    float3 center = v.origin.xyz + extent;
+    float3 delta = abs(worldPosition - center) - extent;
+    if (all(delta < 0.0))
+    {
+        return 1.0;
+    }
+    float w = 1.0;
+    w *= 1.0 - saturate(delta.x / spacing.x);
+    w *= 1.0 - saturate(delta.y / spacing.y);
+    w *= 1.0 - saturate(delta.z / spacing.z);
+    return w;
+}
+
+#endif
+
+#if SK_IRRADIANCE_TRACE
+
+#include "GlobalBindings.hlsli"
+#include "SceneBindings.hlsli"
+#include "Lights.hlsli"
+
+StructuredBuffer<IrradianceVolumeGPU> volumes : register(t5, space2);
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> rayDataImage : register(u0, space2);
+Texture2D<float4>                     prevIrradiance : register(t1, space2);
+Texture2D<float2>                     prevDistance   : register(t2, space2);
+TextureCube<float4>                   skyCube        : register(t3, space2);
+SamplerState                          volumeSampler  : register(s4, space2);
+
+struct IrradianceTracePushConstants
+{
+    uint  volumeIndex;
+    uint  enableMultibounce;
+    float skyIntensity;
+    uint  volumeCount;
+};
+
+[[vk::push_constant]] IrradianceTracePushConstants pc;
+
+struct [raypayload] IrradiancePayload
+{
+    float3 radiance : read(caller) : write(closesthit, miss);
+    float  hitT     : read(caller) : write(closesthit, miss);
+};
+
+[shader("raygeneration")]
+void IrradianceProbeRayGen()
+{
+    IrradianceVolumeGPU v = volumes[pc.volumeIndex];
+
+    int rayIndex = int(DispatchRaysIndex().x);
+    int storageIndex = int(DispatchRaysIndex().y);
+    int total = v.probeCounts.x * v.probeCounts.y * v.probeCounts.z;
+    if (rayIndex >= v.raysPerProbe || storageIndex >= total)
+    {
+        return;
+    }
+
+    int3   storageCoords = ProbeStorageCoords(v, storageIndex);
+    float3 origin = ProbeWorldPosition(v, storageCoords);
+    float3 direction = normalize(QuatRotate(v.probeRayRotation, SphericalFibonacci(float(rayIndex), float(v.raysPerProbe))));
+
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.Direction = direction;
+    ray.TMin = 0.0001;
+    ray.TMax = 10000.0;
+
+    IrradiancePayload payload;
+    payload.radiance = float3(0.0, 0.0, 0.0);
+    payload.hitT = v.maxRayDistance;
+
+    TraceRay(sceneTLAS, RAY_FLAG_FORCE_OPAQUE, 0xff, 0, 0, 0, ray, payload);
+
+    rayDataImage[int2(rayIndex, storageIndex + int(pc.volumeIndex) * total)] = float4(payload.radiance, payload.hitT);
+}
+
+float ComputeSunShadow(float3 worldPos, float3 N)
+{
+    if (shadowLightIndex >= lightCount)
+    {
+        return 1.0;
+    }
+
+    float viewZ = mul(view, float4(worldPos, 1.0)).z;
+    float maxShadowZ = cascadeSplits[SHADOW_MAP_CASCADE_COUNT - 1];
+    if (viewZ <= maxShadowZ)
+    {
+        return 1.0;
+    }
+
+    uint cascadeIndex = 0;
+    for (uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; ++i)
+    {
+        if (viewZ < cascadeSplits[i])
+        {
+            cascadeIndex = i + 1;
+        }
+    }
+    return SampleShadowCascade(worldPos, N, cascadeIndex);
+}
+
+[shader("closesthit")]
+void IrradianceProbeClosestHit(inout IrradiancePayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    IrradianceVolumeGPU v = volumes[pc.volumeIndex];
+    float3 hitPos = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
+
+    if (HitKind() == HIT_KIND_TRIANGLE_BACK_FACE)
+    {
+        payload.radiance = float3(0.0, 0.0, 0.0);
+        payload.hitT = -RayTCurrent() * 0.2;
+        return;
+    }
+
+    InstanceData inst = instances[InstanceID()];
+
+    if (inst.primitiveInfoIndex == 0xFFFFFFFF)
+    {
+        payload.radiance = float3(0.0, 0.0, 0.0);
+        payload.hitT = RayTCurrent();
+        return;
+    }
+
+    MeshPrimitiveInfo info = MeshLODBuffer[inst.primitiveInfoIndex];
+    uint lodIdx = min(1u, info.lodCount - 1u);
+    uint firstIndex = info.lods[lodIdx].firstIndex;
+    uint baseIdx = firstIndex + PrimitiveIndex() * 3;
+
+    uint i0 = MeshDataBuffer.Load((baseIdx + 0) << 2);
+    uint i1 = MeshDataBuffer.Load((baseIdx + 1) << 2);
+    uint i2 = MeshDataBuffer.Load((baseIdx + 2) << 2);
+
+    float3 n0 = GetVertexNormal(inst.vertexByteOffset, inst.vertexLayoutIndex, i0);
+    float3 n1 = GetVertexNormal(inst.vertexByteOffset, inst.vertexLayoutIndex, i1);
+    float3 n2 = GetVertexNormal(inst.vertexByteOffset, inst.vertexLayoutIndex, i2);
+
+    float3 bary = float3(1.0 - attr.barycentrics.x - attr.barycentrics.y, attr.barycentrics.x, attr.barycentrics.y);
+    float3 nLocal = normalize(n0 * bary.x + n1 * bary.y + n2 * bary.z);
+    float3 N = normalize(mul((float3x3)inst.transform, nLocal));
+
+    MaterialData mat = MaterialDataBuffer[inst.materialIndex];
+    float3 baseColor = mat.baseColor;
+    float  roughness = mat.roughness;
+    float  metallic = mat.metallic;
+    float3 F0 = lerp(float3(0.04, 0.04, 0.04), baseColor, metallic);
+    float3 V = -WorldRayDirection();
+
+    float  shadow = ComputeSunShadow(hitPos, N);
+
+    float3 lit = float3(0.0, 0.0, 0.0);
+    for (uint l = 0; l < lightCount; ++l)
+    {
+        float3 contrib = EvaluateDirectLighting(lights[l], N, V, hitPos, baseColor, roughness, metallic, F0);
+        if (l == shadowLightIndex)
+        {
+            contrib *= shadow;
+        }
+        lit += contrib;
+    }
+
+    if (pc.enableMultibounce != 0 && v.frame > 2)
+    {
+        float3 irradiance = GetVolumeIrradiance(v, prevIrradiance, prevDistance, volumeSampler, int(pc.volumeIndex), int(pc.volumeCount), hitPos, N, WorldRayOrigin());
+        lit += baseColor * irradiance;
+    }
+
+    payload.radiance = lit;
+    payload.hitT = RayTCurrent();
+}
+
+[shader("miss")]
+void IrradianceProbeMiss(inout IrradiancePayload payload)
+{
+    IrradianceVolumeGPU v = volumes[pc.volumeIndex];
+    payload.radiance = skyCube.SampleLevel(volumeSampler, WorldRayDirection(), 0).rgb * pc.skyIntensity;
+    payload.hitT = v.maxRayDistance;
+}
+
+#endif
+
+#if SK_IRRADIANCE_BLEND
+
+StructuredBuffer<IrradianceVolumeGPU> volumes : register(t0);
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> rayData : register(u1);
+
+#if SK_IRRADIANCE_BLEND_RADIANCE
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> irradianceImage : register(u2);
+#else
+[[vk::image_format("rg16f")]] RWTexture2D<float2> visibilityImage : register(u2);
+#endif
+
+struct IrradianceBlendPushConstants
+{
+    uint volumeIndex;
+    uint pad0;
+    uint pad1;
+    uint pad2;
+};
+
+[[vk::push_constant]] IrradianceBlendPushConstants bpc;
+
+static const int kReadTable[6] = {5, 3, 1, -1, -3, -5};
+
+[numthreads(8, 8, 1)]
+void IrradianceProbeBlendCS(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
+    IrradianceVolumeGPU v = volumes[bpc.volumeIndex];
+    int slice = int(bpc.volumeIndex);
+    int total = v.probeCounts.x * v.probeCounts.y * v.probeCounts.z;
+
+#if SK_IRRADIANCE_BLEND_RADIANCE
+    int texWidth = v.irradianceTextureWidth;
+    int texHeight = v.irradianceTextureHeight;
+    int side = v.irradianceSideLength;
+#else
+    int texWidth = v.visibilityTextureWidth;
+    int texHeight = v.visibilityTextureHeight;
+    int side = v.visibilitySideLength;
+#endif
+
+    int yOff = slice * texHeight;
+
+    int2 coords = int2(dispatchThreadID.xy);
+    if (coords.x >= texWidth || coords.y >= texHeight)
+    {
+        return;
+    }
+
+    int withBorder = side + 2;
+    int lastPixel = side + 1;
+    int storageIndex = GetProbeIndexFromPixels(coords, withBorder, texWidth);
+
+    bool border = ((dispatchThreadID.x % withBorder) == 0) || ((dispatchThreadID.x % withBorder) == lastPixel)
+               || ((dispatchThreadID.y % withBorder) == 0) || ((dispatchThreadID.y % withBorder) == lastPixel);
+
+    if (!border)
+    {
+        int3 storageCoords = ProbeStorageCoords(v, storageIndex);
+        int3 logical = StorageToLogical(v, storageCoords);
+        bool clearProbe = v.scrollDelta.w != 0;
+        [unroll]
+        for (int a = 0; a < 3; ++a)
+        {
+            int d = v.scrollDelta[a];
+            if (d > 0 && logical[a] >= v.probeCounts[a] - d) clearProbe = true;
+            if (d < 0 && logical[a] < -d) clearProbe = true;
+        }
+
+        float4 result = float4(0.0, 0.0, 0.0, 0.0);
+        bool   keepPrevious = false;
+
+        uint backfaces = 0;
+        uint maxBackfaces = uint(float(v.raysPerProbe) * 0.1);
+
+        for (int rayIndex = 0; rayIndex < v.raysPerProbe; ++rayIndex)
+        {
+            int2   samplePos = int2(rayIndex, storageIndex + slice * total);
+            float3 rayDirection = normalize(QuatRotate(v.probeRayRotation, SphericalFibonacci(float(rayIndex), float(v.raysPerProbe))));
+            float3 texelDirection = OctohedralDecode(NormalizedOctCoord(coords, side));
+            float  weight = max(0.0, dot(texelDirection, rayDirection));
+            float  hitT = rayData[samplePos].w;
+
+#if SK_IRRADIANCE_BLEND_RADIANCE
+            if (hitT < 0.0)
+            {
+                ++backfaces;
+                if (backfaces >= maxBackfaces)
+                {
+                    keepPrevious = true;
+                    break;
+                }
+                continue;
+            }
+            if (weight >= Epsilon)
+            {
+                float3 radiance = rayData[samplePos].rgb * v.energyConservation;
+                result += float4(radiance * weight, weight);
+            }
+#else
+            weight = pow(weight, v.distanceExponent);
+            if (weight >= Epsilon)
+            {
+                float dist = min(abs(hitT), v.maxRayDistance);
+                result += float4(dist * weight, dist * dist * weight, 0.0, weight);
+            }
+#endif
+        }
+
+        if (!keepPrevious)
+        {
+            if (result.w > Epsilon)
+            {
+                result.xyz /= result.w;
+                result.w = 1.0;
+            }
+
+            float hysteresis = (clearProbe || v.frame <= 2) ? 0.0 : v.hysteresis;
+
+#if SK_IRRADIANCE_BLEND_RADIANCE
+            result.rgb = pow(max(result.rgb, 0.0), 1.0 / v.irradianceGamma);
+            float4 previous = clearProbe ? float4(0.0, 0.0, 0.0, 0.0) : irradianceImage[int2(coords.x, coords.y + yOff)];
+            result = lerp(result, previous, hysteresis);
+            irradianceImage[int2(coords.x, coords.y + yOff)] = result;
+#else
+            float2 previous = clearProbe ? float2(0.0, 0.0) : visibilityImage[int2(coords.x, coords.y + yOff)];
+            result.rg = lerp(result.rg, previous, hysteresis);
+            visibilityImage[int2(coords.x, coords.y + yOff)] = result.rg;
+#endif
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (!border)
+    {
+        return;
+    }
+
+    int probePixelX = int(dispatchThreadID.x) % withBorder;
+    int probePixelY = int(dispatchThreadID.y) % withBorder;
+    bool cornerPixel = (probePixelX == 0 || probePixelX == lastPixel) && (probePixelY == 0 || probePixelY == lastPixel);
+    bool rowPixel = (probePixelX > 0 && probePixelX < lastPixel);
+
+    int2 src = coords;
+    if (cornerPixel)
+    {
+        src.x += (probePixelX == 0) ? side : -side;
+        src.y += (probePixelY == 0) ? side : -side;
+    }
+    else if (rowPixel)
+    {
+        src.x += kReadTable[probePixelX - 1];
+        src.y += (probePixelY > 0) ? -1 : 1;
+    }
+    else
+    {
+        src.x += (probePixelX > 0) ? -1 : 1;
+        src.y += kReadTable[probePixelY - 1];
+    }
+
+#if SK_IRRADIANCE_BLEND_RADIANCE
+    irradianceImage[int2(coords.x, coords.y + yOff)] = irradianceImage[int2(src.x, src.y + yOff)];
+#else
+    visibilityImage[int2(coords.x, coords.y + yOff)] = visibilityImage[int2(src.x, src.y + yOff)];
+#endif
+}
+
+#endif
+
+#if SK_IRRADIANCE_SAMPLE
+
+#include "SceneBindings.hlsli"
+
+[[vk::image_format("rgba16f")]] RWTexture2D<float4> outputLight : register(u0, space2);
+StructuredBuffer<IrradianceVolumeGPU> volumes                   : register(t1, space2);
+Texture2D<float4> irradianceArray                               : register(t2, space2);
+Texture2D<float2> distanceArray                                 : register(t3, space2);
+Texture2D         albedoMetallicTexture                          : register(t4, space2);
+Texture2D<float2> roughnessAoTexture                             : register(t5, space2);
+Texture2D<float2> normalTexture                                  : register(t6, space2);
+Texture2D<float>  linearDepthTexture                             : register(t7, space2);
+SamplerState      volumeSampler                                  : register(s8, space2);
+
+struct IrradianceSamplePushConstants
+{
+    uint  volumeCount;
+    float indirectIntensity;
+    uint  pad0;
+    uint  pad1;
+};
+
+[[vk::push_constant]] IrradianceSamplePushConstants spc;
+
+[numthreads(8, 8, 1)]
+void IrradianceVolumeSampleCS(uint2 px : SV_DispatchThreadID)
+{
+    float2 size = float2(outputSize);
+    if (any(float2(px) >= size))
+    {
+        return;
+    }
+
+    float linearDepth = linearDepthTexture[px].r;
+    if (linearDepth >= farClip - 0.1)
+    {
+        return;
+    }
+
+    float2 uv = (float2(px) + 0.5) / size;
+
+    float3 baseColor = albedoMetallicTexture[px].rgb;
+    float  metallic = albedoMetallicTexture[px].a;
+    float  ao = roughnessAoTexture[px].g;
+    float3 normal = OctohedralDecode(normalTexture[px].rg);
+
+    float3 viewPosition = GetViewPositionFromLinearDepth(uv, linearDepth, projection);
+    float3 worldPosition = mul(viewInv, float4(viewPosition, 1.0)).xyz;
+
+    float3 irradiance = float3(0.0, 0.0, 0.0);
+    float  totalWeight = 0.0;
+
+    for (uint i = 0; i < spc.volumeCount; ++i)
+    {
+        if (totalWeight >= 1.0)
+        {
+            break;
+        }
+
+        IrradianceVolumeGPU v = volumes[i];
+        float volumeWeight = VolumeBlendWeight(v, worldPosition);
+        if (volumeWeight <= 0.0)
+        {
+            continue;
+        }
+
+        float3 sampled = GetVolumeIrradiance(v, irradianceArray, distanceArray, volumeSampler, int(i), int(spc.volumeCount), worldPosition, normal, cameraPosition);
+
+        float contribution = min(volumeWeight, 1.0 - totalWeight);
+        irradiance += sampled * contribution;
+        totalWeight += contribution;
+    }
+
+    if (totalWeight <= 0.0)
+    {
+        return;
+    }
+
+    irradiance /= totalWeight;
+
+    float3 kD = (1.0 - metallic);
+    float3 diffuse = kD * baseColor * irradiance * ao * spc.indirectIntensity;
+
+    outputLight[px] += float4(diffuse, 0.0);
+}
+
+#endif
+
+#if SK_IRRADIANCE_DEBUG
+
+#include "GlobalBindings.hlsli"
+#include "SceneBindings.hlsli"
+
+StructuredBuffer<IrradianceVolumeGPU> volumes : register(t0, space2);
+Texture2D<float4> irradianceTex               : register(t1, space2);
+SamplerState      volumeSampler               : register(s2, space2);
+
+struct IrradianceDebugPushConstants
+{
+    uint vertexByteOffset;
+    uint vertexLayoutIndex;
+    uint volumeCount;
+    uint renderVolumeIndex;
+};
+
+[[vk::push_constant]] IrradianceDebugPushConstants dpc;
+
+struct DebugVSOutput
+{
+    float4 pos    : SV_POSITION;
+    float3 normal : NORMAL0;
+    nointerpolation uint volumeIndex  : TEXCOORD0;
+    nointerpolation uint storageIndex : TEXCOORD1;
+};
+
+DebugVSOutput IrradianceProbeDebugVS(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
+{
+    uint volumeIndex = dpc.renderVolumeIndex;
+    uint storageIndex = instanceId;
+
+    IrradianceVolumeGPU v = volumes[volumeIndex];
+    int3   storageCoords = ProbeStorageCoords(v, int(storageIndex));
+    float3 probePos = ProbeWorldPosition(v, storageCoords);
+
+    float  radius = min(v.probeSpacing.x, min(v.probeSpacing.y, v.probeSpacing.z)) * 5;
+    float3 localPos = GetVertexPosition(dpc.vertexByteOffset, dpc.vertexLayoutIndex, vertexId);
+    float3 worldPos = probePos + localPos * radius;
+
+    DebugVSOutput o;
+    o.pos = mul(viewProjection, float4(worldPos, 1.0));
+    o.normal = normalize(localPos);
+    o.volumeIndex = volumeIndex;
+    o.storageIndex = storageIndex;
+    return o;
+}
+
+float4 IrradianceProbeDebugPS(DebugVSOutput input) : SV_TARGET
+{
+    IrradianceVolumeGPU v = volumes[input.volumeIndex];
+    float2 subUV = GetProbeUV(input.normal, int(input.storageIndex), v.irradianceTextureWidth, v.irradianceTextureHeight, v.irradianceSideLength);
+    float2 uv = float2(subUV.x, (float(input.volumeIndex) + subUV.y) / float(dpc.volumeCount));
+    float3 irr = irradianceTex.SampleLevel(volumeSampler, uv, 0).rgb;
+    irr = pow(max(irr, 0.0), v.irradianceGamma * 0.5);
+    irr = irr * irr;
+    return float4(irr, 1.0);
+}
+
+#endif

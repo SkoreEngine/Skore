@@ -94,7 +94,7 @@ namespace Skore
 
 		u32 indirectLightFlags = LightFlags::None;
 
-		GPUTexture* skyTexture = nullptr;
+		GPUTexture* cubeMapSkyTexture = nullptr;
 		GPUTexture* diffuseIrradianceTexture = nullptr;
 		GPUTexture* specularMapTexture = nullptr;
 
