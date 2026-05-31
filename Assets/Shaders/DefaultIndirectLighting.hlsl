@@ -529,7 +529,7 @@ void IrradianceProbeClosestHit(inout IrradiancePayload payload, in BuiltInTriang
     if (pc.enableMultibounce != 0 && v.frame > 2)
     {
         float3 irradiance = GetVolumeIrradiance(v, prevIrradiance, prevDistance, volumeSampler, int(pc.volumeIndex), int(pc.volumeCount), hitPos, N, WorldRayOrigin());
-        lit += baseColor * irradiance;
+        lit += (min(baseColor, 0.9) / PI) * irradiance;
     }
 
     payload.radiance = lit;
@@ -569,7 +569,7 @@ StructuredBuffer<IrradianceVolumeGPU> volumes : register(t0);
 struct IrradianceBlendPushConstants
 {
     uint volumeIndex;
-    uint pad0;
+    uint volumeCount;
     uint pad1;
     uint pad2;
 };
@@ -671,15 +671,42 @@ void IrradianceProbeBlendCS(uint3 dispatchThreadID : SV_DispatchThreadID)
                 result.w = 1.0;
             }
 
-            float hysteresis = (clearProbe || v.frame <= 2) ? 0.0 : v.hysteresis;
+            int2  prevTexel = int2(coords.x, coords.y + yOff);
+            float hysteresis = v.hysteresis;
+            bool  useBlack = false;
+
+            if (v.frame <= 2)
+            {
+                useBlack = true;
+                hysteresis = 0.0;
+            }
+            else if (clearProbe)
+            {
+                int coarse = slice + 1;
+                if (coarse < int(bpc.volumeCount))
+                {
+                    IrradianceVolumeGPU cv = volumes[coarse];
+                    float3 probeWorld = v.origin.xyz + float3(logical) * v.probeSpacing.xyz;
+                    int3   cLogical = clamp(int3(floor((probeWorld - cv.origin.xyz) / cv.probeSpacing.xyz)), int3(0, 0, 0), cv.probeCounts.xyz - int3(1, 1, 1));
+                    int    cIdx = ProbeStorageIndex(cv, LogicalToStorage(cv, cLogical));
+                    int    probesPerRow = texWidth / withBorder;
+                    int2   cTile = int2(cIdx % probesPerRow, cIdx / probesPerRow) * withBorder;
+                    prevTexel = int2(cTile.x + (int(coords.x) % withBorder), cTile.y + (int(coords.y) % withBorder) + coarse * texHeight);
+                }
+                else
+                {
+                    useBlack = true;
+                    hysteresis = 0.0;
+                }
+            }
 
 #if SK_IRRADIANCE_BLEND_RADIANCE
             result.rgb = pow(max(result.rgb, 0.0), 1.0 / v.irradianceGamma);
-            float4 previous = clearProbe ? float4(0.0, 0.0, 0.0, 0.0) : irradianceImage[int2(coords.x, coords.y + yOff)];
+            float4 previous = useBlack ? float4(0.0, 0.0, 0.0, 0.0) : irradianceImage[prevTexel];
             result = lerp(result, previous, hysteresis);
             irradianceImage[int2(coords.x, coords.y + yOff)] = result;
 #else
-            float2 previous = clearProbe ? float2(0.0, 0.0) : visibilityImage[int2(coords.x, coords.y + yOff)];
+            float2 previous = useBlack ? float2(0.0, 0.0) : visibilityImage[prevTexel];
             result.rg = lerp(result.rg, previous, hysteresis);
             visibilityImage[int2(coords.x, coords.y + yOff)] = result.rg;
 #endif
