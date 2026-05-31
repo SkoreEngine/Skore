@@ -27,6 +27,8 @@
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 
+#include <variant>
+
 namespace Skore
 {
 	struct DefaultRenderPipeline;
@@ -783,6 +785,60 @@ namespace Skore
 					else
 					{
 						selectedTextureToShow = resources[e].desc.name;
+					}
+				}
+
+				ImGui::EndMenu();
+			}
+
+			if (renderPipelineContext && ImGui::BeginMenu("Pipeline Options"))
+			{
+				for (const auto& it : renderPipelineContext->GetOptions())
+				{
+					const String& name = it.first;
+					PipelineOption value = it.second;
+					String         label = FormatName(name) + "##" + name;
+
+					if (bool* b = std::get_if<bool>(&value))
+					{
+						if (ImGui::Checkbox(label.CStr(), b))
+						{
+							renderPipelineContext->SetOption(name, *b);
+						}
+					}
+					else if (i64* i = std::get_if<i64>(&value))
+					{
+						ImGui::SetNextItemWidth(150 * style.ScaleFactor);
+						if (ImGui::InputScalar(label.CStr(), ImGuiDataType_S64, i))
+						{
+							renderPipelineContext->SetOption(name, *i);
+						}
+					}
+					else if (u64* u = std::get_if<u64>(&value))
+					{
+						ImGui::SetNextItemWidth(150 * style.ScaleFactor);
+						if (ImGui::InputScalar(label.CStr(), ImGuiDataType_U64, u))
+						{
+							renderPipelineContext->SetOption(name, *u);
+						}
+					}
+					else if (f64* f = std::get_if<f64>(&value))
+					{
+						ImGui::SetNextItemWidth(150 * style.ScaleFactor);
+						if (ImGui::InputScalar(label.CStr(), ImGuiDataType_Double, f))
+						{
+							renderPipelineContext->SetOption(name, *f);
+						}
+					}
+					else if (std::string* s = std::get_if<std::string>(&value))
+					{
+						char buffer[256];
+						snprintf(buffer, sizeof(buffer), "%s", s->c_str());
+						ImGui::SetNextItemWidth(150 * style.ScaleFactor);
+						if (ImGui::InputText(label.CStr(), buffer, sizeof(buffer)))
+						{
+							renderPipelineContext->SetOption(name, std::string(buffer));
+						}
 					}
 				}
 

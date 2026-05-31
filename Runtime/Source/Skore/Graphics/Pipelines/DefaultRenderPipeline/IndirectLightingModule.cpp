@@ -1,12 +1,418 @@
+#include <cmath>
+#include <cstring>
+#include <variant>
+
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
+#include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "PipelineCommon.hpp"
 
 namespace Skore
 {
+	constexpr u32 MaxIrradianceVolumes = 16;
+
+	struct IrradianceVolumeGPU
+	{
+		Vec4 origin;
+		Vec4 probeSpacing;
+		Vec4 probeRayRotation;
+
+		i32 probeCountsX, probeCountsY, probeCountsZ, flags;
+		i32 scrollOffsetsX, scrollOffsetsY, scrollOffsetsZ, scrollPad;
+		i32 scrollDeltaX, scrollDeltaY, scrollDeltaZ, scrollClearAll;
+
+		i32 irradianceTextureWidth, irradianceTextureHeight, irradianceSideLength, raysPerProbe;
+		i32 visibilityTextureWidth, visibilityTextureHeight, visibilitySideLength, frame;
+
+		f32 hysteresis, normalBias, viewBias, maxRayDistance;
+		f32 irradianceGamma, energyConservation, distanceExponent, pad0;
+	};
+
+	struct IrradianceVolume
+	{
+		f32 spacingX = 1.0f, spacingY = 1.0f, spacingZ = 1.0f;
+		bool isCascade = true;
+
+		i32 cornerX = 0, cornerY = 0, cornerZ = 0;
+		i32 scrollX = 0, scrollY = 0, scrollZ = 0;
+		Vec4 rayRotation = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		i32 updateCount = 0;
+	};
+
+	struct IrradianceVolumeData
+	{
+		GPUBuffer*  volumeBuffer = nullptr;
+		u32         volumeCount = 0;
+		u32         probesPerVolume = 0;
+		GPUTexture* irradianceArray = nullptr;
+		GPUTexture* distanceArray = nullptr;
+
+		static void RegisterType(NativeReflectType<IrradianceVolumeData>&) {}
+	};
+
+	struct IrradianceTracePushConstants
+	{
+		u32 volumeIndex;
+		u32 enableMultibounce;
+		f32 skyIntensity;
+		u32 volumeCount;
+	};
+
+	struct IrradianceBlendPushConstants
+	{
+		u32 volumeIndex;
+		u32 pad0, pad1, pad2;
+	};
+
+	struct IrradianceSamplePushConstants
+	{
+		u32 volumeCount;
+		f32 indirectIntensity;
+		u32 pad0, pad1;
+	};
+
+	struct IrradianceDebugPushConstants
+	{
+		u32 vertexByteOffset;
+		u32 vertexLayoutIndex;
+		u32 volumeCount;
+		u32 renderVolumeIndex;
+	};
+
+	static i32 PositiveMod(i32 a, i32 n)
+	{
+		return ((a % n) + n) % n;
+	}
+
+	struct IrradianceVolumeUpdatePass : RenderPipelinePass
+	{
+		SK_CLASS(IrradianceVolumeUpdatePass, RenderPipelinePass);
+
+		IrradianceVolumeData*   data = nullptr;
+		GPUPipeline*            tracePipeline = nullptr;
+		GPUPipeline*            blendIrrPipeline = nullptr;
+		GPUPipeline*            blendDistPipeline = nullptr;
+		GPUBuffer*              volumeBuffer = nullptr;
+		GPUTexture*             rayDataArray = nullptr;
+		GPUTexture*             irradianceArray = nullptr;
+		GPUTexture*             distanceArray = nullptr;
+		GPUDescriptorSet*       traceSet[SK_FRAMES_IN_FLIGHT] = {};
+		GPUDescriptorSet*       blendIrrSet[SK_FRAMES_IN_FLIGHT] = {};
+		GPUDescriptorSet*       blendDistSet[SK_FRAMES_IN_FLIGHT] = {};
+
+		Array<IrradianceVolume> volumes;
+		Array<i32>              scheduled;
+		u32                     nextVolume = 0;
+		bool                    texturesInitialized = false;
+		u32                     rngState = 2463534242u;
+		usize                   stride = sizeof(IrradianceVolumeGPU);
+
+		i32 countX = 16, countY = 8, countZ = 16;
+		i32 raysPerProbe = 144;
+		i32 irradianceSide = 6;
+		i32 visibilitySide = 6;
+		i32 irrW = 0, irrH = 0, visW = 0, visH = 0, totalProbes = 0;
+
+		RenderPipelinePassSetup GetPassSetup() override
+		{
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Raytrace;
+			setup.stage = PipelineRenderStage::Indirect + 1;
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightInstanceData", .access = RenderPipelineTextureAccess::Read});
+			return setup;
+		}
+
+		f32 NextRandom()
+		{
+			rngState ^= rngState << 13;
+			rngState ^= rngState >> 17;
+			rngState ^= rngState << 5;
+			return f32(rngState & 0xFFFFFFu) / f32(0x1000000);
+		}
+
+		Vec4 RandomQuaternion()
+		{
+			f32 u1 = NextRandom();
+			f32 u2 = NextRandom();
+			f32 u3 = NextRandom();
+			f32 s1 = std::sqrt(1.0f - u1);
+			f32 s2 = std::sqrt(u1);
+			f32 t2 = 6.28318530718f * u2;
+			f32 t3 = 6.28318530718f * u3;
+			return Vec4(s1 * std::sin(t2), s1 * std::cos(t2), s2 * std::sin(t3), s2 * std::cos(t3));
+		}
+
+		void Init() override
+		{
+			data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
+
+			RID shader = Resources::FindByPath("Skore://Shaders/DefaultIndirectLighting.shader");
+
+			tracePipeline = Graphics::CreateRayTracingPipeline(RayTracingPipelineDesc{
+				.shader = shader,
+				.variant = "IrradianceProbeTrace",
+				.maxRecursionDepth = 1,
+				.descriptorSetsOverride = {
+					DescriptorSetOverride{.set = 0, .descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()},
+					DescriptorSetOverride{.set = 1, .descriptorSet = context->GetSceneDescriptorSet(0)}
+				}
+			});
+
+			blendIrrPipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{.shader = shader, .variant = "IrradianceProbeBlendIrradiance"});
+			blendDistPipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{.shader = shader, .variant = "IrradianceProbeBlendDistance"});
+
+			i32 irrBorder = irradianceSide + 2;
+			i32 visBorder = visibilitySide + 2;
+			irrW = irrBorder * countX * countY;
+			irrH = irrBorder * countZ;
+			visW = visBorder * countX * countY;
+			visH = visBorder * countZ;
+			totalProbes = countX * countY * countZ;
+
+			f32 spacing = 1.0f;
+			for (i32 c = 0; c < 4; ++c)
+			{
+				IrradianceVolume v;
+				v.spacingX = spacing;
+				v.spacingY = spacing;
+				v.spacingZ = spacing;
+				v.isCascade = true;
+				volumes.EmplaceBack(v);
+				spacing *= 2.0f;
+			}
+
+			u32 layers = static_cast<u32>(volumes.Size());
+
+			rayDataArray = Graphics::CreateTexture(TextureDesc{
+				.extent = {static_cast<u32>(raysPerProbe), static_cast<u32>(totalProbes) * layers, 1},
+				.format = TextureFormat::R16G16B16A16_FLOAT,
+				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+				.debugName = "IrradianceVolumeRayData"
+			});
+			irradianceArray = Graphics::CreateTexture(TextureDesc{
+				.extent = {static_cast<u32>(irrW), static_cast<u32>(irrH) * layers, 1},
+				.format = TextureFormat::R16G16B16A16_FLOAT,
+				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+				.debugName = "IrradianceVolumeIrradiance"
+			});
+			distanceArray = Graphics::CreateTexture(TextureDesc{
+				.extent = {static_cast<u32>(visW), static_cast<u32>(visH) * layers, 1},
+				.format = TextureFormat::R16G16_FLOAT,
+				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+				.debugName = "IrradianceVolumeDistance"
+			});
+
+			BufferDesc bd;
+			bd.size = static_cast<usize>(SK_FRAMES_IN_FLIGHT) * MaxIrradianceVolumes * stride;
+			bd.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess;
+			bd.hostVisible = true;
+			bd.persistentMapped = true;
+			bd.debugName = "IrradianceVolumeBuffer";
+			volumeBuffer = Graphics::CreateBuffer(bd);
+
+			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+			{
+				traceSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeTrace", 2);
+				blendIrrSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeBlendIrradiance", 0);
+				blendDistSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeBlendDistance", 0);
+			}
+		}
+
+		void PublishVolumeData()
+		{
+			if (!data) data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
+			if (!data) return;
+			data->volumeBuffer = volumeBuffer;
+			data->volumeCount = static_cast<u32>(volumes.Size());
+			data->probesPerVolume = static_cast<u32>(totalProbes);
+			data->irradianceArray = irradianceArray;
+			data->distanceArray = distanceArray;
+		}
+
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			if (!scene || scene->renderObjects.tlas == nullptr || volumes.Empty()) return;
+
+			PublishVolumeData();
+
+			u32 frame = context->GetCurrentFrame();
+			u32 layers = static_cast<u32>(volumes.Size());
+			LightPassInstanceData* light = context->GetInstanceData<LightPassInstanceData>("LightInstanceData");
+
+			if (!texturesInitialized)
+			{
+				cmd->ResourceBarrier(rayDataArray, ResourceState::Undefined, ResourceState::General, 0, 0);
+				cmd->ResourceBarrier(irradianceArray, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
+				cmd->ResourceBarrier(distanceArray, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
+				texturesInitialized = true;
+			}
+
+			scheduled.Clear();
+			scheduled.EmplaceBack(static_cast<i32>(nextVolume));
+			nextVolume = (nextVolume + 1) % layers;
+
+			Vec3 cam = context->camera.cameraPosition;
+
+			IrradianceVolumeGPU gpuArray[MaxIrradianceVolumes];
+			for (usize i = 0; i < volumes.Size(); ++i)
+			{
+				IrradianceVolume& v = volumes[i];
+
+				bool isScheduled = false;
+				for (i32 s : scheduled) { if (s == static_cast<i32>(i)) isScheduled = true; }
+
+				i32 dx = 0, dy = 0, dz = 0;
+				bool clearAll = false;
+
+				if (isScheduled)
+				{
+					i32 ncx = static_cast<i32>(std::floor(cam.x / v.spacingX)) - countX / 2;
+					i32 ncy = static_cast<i32>(std::floor(cam.y / v.spacingY)) - countY / 2;
+					i32 ncz = static_cast<i32>(std::floor(cam.z / v.spacingZ)) - countZ / 2;
+
+					dx = ncx - v.cornerX;
+					dy = ncy - v.cornerY;
+					dz = ncz - v.cornerZ;
+
+					if (Math::Abs(dx) >= countX || Math::Abs(dy) >= countY || Math::Abs(dz) >= countZ)
+					{
+						clearAll = true;
+					}
+
+					dx = Math::Clamp(dx, -countX, countX);
+					dy = Math::Clamp(dy, -countY, countY);
+					dz = Math::Clamp(dz, -countZ, countZ);
+
+					v.cornerX = ncx;
+					v.cornerY = ncy;
+					v.cornerZ = ncz;
+					v.scrollX = PositiveMod(ncx, countX);
+					v.scrollY = PositiveMod(ncy, countY);
+					v.scrollZ = PositiveMod(ncz, countZ);
+					v.rayRotation = RandomQuaternion();
+					v.updateCount++;
+				}
+
+				IrradianceVolumeGPU& g = gpuArray[i];
+				g.origin = Vec4(v.cornerX * v.spacingX, v.cornerY * v.spacingY, v.cornerZ * v.spacingZ, 0.0f);
+				g.probeSpacing = Vec4(v.spacingX, v.spacingY, v.spacingZ, 0.0f);
+				g.probeRayRotation = v.rayRotation;
+				g.probeCountsX = countX;
+				g.probeCountsY = countY;
+				g.probeCountsZ = countZ;
+				g.flags = 0;
+				g.scrollOffsetsX = v.scrollX;
+				g.scrollOffsetsY = v.scrollY;
+				g.scrollOffsetsZ = v.scrollZ;
+				g.scrollPad = 0;
+				g.scrollDeltaX = dx;
+				g.scrollDeltaY = dy;
+				g.scrollDeltaZ = dz;
+				g.scrollClearAll = clearAll ? 1 : 0;
+				g.irradianceTextureWidth = irrW;
+				g.irradianceTextureHeight = irrH;
+				g.irradianceSideLength = irradianceSide;
+				g.raysPerProbe = raysPerProbe;
+				g.visibilityTextureWidth = visW;
+				g.visibilityTextureHeight = visH;
+				g.visibilitySideLength = visibilitySide;
+				g.frame = v.updateCount;
+				g.hysteresis = 0.97f;
+				g.normalBias = v.spacingX * 0.2f;
+				g.viewBias = v.spacingX * 0.4f;
+				g.maxRayDistance = std::sqrt(v.spacingX * v.spacingX + v.spacingY * v.spacingY + v.spacingZ * v.spacingZ) * 1.5f;
+				g.irradianceGamma = 5.0f;
+				g.energyConservation = 0.95f;
+				g.distanceExponent = 50.0f;
+				g.pad0 = 0.0f;
+			}
+
+			u8* base = static_cast<u8*>(volumeBuffer->GetMappedData());
+			u64 frameOffset = static_cast<u64>(frame) * MaxIrradianceVolumes * stride;
+			std::memcpy(base + frameOffset, gpuArray, volumes.Size() * stride);
+			u64 range = static_cast<u64>(MaxIrradianceVolumes) * stride;
+
+			GPUSampler* samp = Graphics::GetLinearClampToEdgeSampler();
+
+			GPUDescriptorSet* tset = traceSet[frame];
+			tset->UpdateTexture(0, rayDataArray);
+			tset->UpdateTexture(1, irradianceArray);
+			tset->UpdateTexture(2, distanceArray);
+			tset->UpdateTexture(3, light->cubeMapSkyTexture);
+			tset->UpdateSampler(4, samp);
+			tset->UpdateBuffer(5, volumeBuffer, frameOffset, range);
+
+			cmd->BeginDebugMarker("IrradianceVolumeTrace", Vec4(0.2f, 0.6f, 1.0f, 1.0f));
+			cmd->BindPipeline(tracePipeline);
+			cmd->BindDescriptorSet(tracePipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+			cmd->BindDescriptorSet(tracePipeline, 1, context->GetSceneDescriptorSet());
+			cmd->BindDescriptorSet(tracePipeline, 2, tset);
+			for (i32 idx : scheduled)
+			{
+				IrradianceTracePushConstants pc{static_cast<u32>(idx), 0u, 1.0f, layers};
+				cmd->PushConstants(tracePipeline, ShaderStage::RayGen | ShaderStage::ClosestHit | ShaderStage::Miss, 0, sizeof(pc), &pc);
+				cmd->TraceRays(tracePipeline, static_cast<u32>(raysPerProbe), static_cast<u32>(totalProbes), 1);
+			}
+			cmd->EndDebugMarker();
+
+			cmd->MemoryBarrier();
+
+			cmd->BeginDebugMarker("IrradianceVolumeBlend", Vec4(0.6f, 0.2f, 1.0f, 1.0f));
+			cmd->ResourceBarrier(irradianceArray, ResourceState::ShaderReadOnly, ResourceState::General, 0, 0);
+			cmd->ResourceBarrier(distanceArray, ResourceState::ShaderReadOnly, ResourceState::General, 0, 0);
+
+			GPUDescriptorSet* bi = blendIrrSet[frame];
+			bi->UpdateBuffer(0, volumeBuffer, frameOffset, range);
+			bi->UpdateTexture(1, rayDataArray);
+			bi->UpdateTexture(2, irradianceArray);
+
+			GPUDescriptorSet* bd = blendDistSet[frame];
+			bd->UpdateBuffer(0, volumeBuffer, frameOffset, range);
+			bd->UpdateTexture(1, rayDataArray);
+			bd->UpdateTexture(2, distanceArray);
+
+			for (i32 idx : scheduled)
+			{
+				IrradianceBlendPushConstants bpc{static_cast<u32>(idx), 0, 0, 0};
+
+				cmd->BindPipeline(blendIrrPipeline);
+				cmd->BindDescriptorSet(blendIrrPipeline, 0, bi);
+				cmd->PushConstants(blendIrrPipeline, ShaderStage::Compute, 0, sizeof(bpc), &bpc);
+				cmd->Dispatch((irrW + 7) / 8, (irrH + 7) / 8, 1);
+
+				cmd->BindPipeline(blendDistPipeline);
+				cmd->BindDescriptorSet(blendDistPipeline, 0, bd);
+				cmd->PushConstants(blendDistPipeline, ShaderStage::Compute, 0, sizeof(bpc), &bpc);
+				cmd->Dispatch((visW + 7) / 8, (visH + 7) / 8, 1);
+			}
+
+			cmd->ResourceBarrier(irradianceArray, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
+			cmd->ResourceBarrier(distanceArray, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
+			cmd->EndDebugMarker();
+		}
+
+		void Destroy() override
+		{
+			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+			{
+				if (traceSet[f]) traceSet[f]->Destroy();
+				if (blendIrrSet[f]) blendIrrSet[f]->Destroy();
+				if (blendDistSet[f]) blendDistSet[f]->Destroy();
+			}
+			if (rayDataArray) rayDataArray->Destroy();
+			if (irradianceArray) irradianceArray->Destroy();
+			if (distanceArray) distanceArray->Destroy();
+			if (volumeBuffer) volumeBuffer->Destroy();
+			if (tracePipeline) tracePipeline->Destroy();
+			if (blendIrrPipeline) blendIrrPipeline->Destroy();
+			if (blendDistPipeline) blendDistPipeline->Destroy();
+		}
+	};
+
 	struct ReflectionPass : RenderPipelinePass
 	{
 		SK_CLASS(ReflectionPass, RenderPipelinePass);
@@ -126,6 +532,220 @@ namespace Skore
 		}
 	};
 
+	struct IrradianceVolumeSamplingPass : RenderPipelinePass
+	{
+		SK_CLASS(IrradianceVolumeSamplingPass, RenderPipelinePass);
+
+		IrradianceVolumeData* data = nullptr;
+		GPUPipeline*          pipeline = nullptr;
+		GPUDescriptorSet*     descriptorSet[SK_FRAMES_IN_FLIGHT] = {};
+		usize                 stride = sizeof(IrradianceVolumeGPU);
+
+		RenderPipelinePassSetup GetPassSetup() override
+		{
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Compute;
+			setup.stage = PipelineRenderStage::Indirect + 2;
+
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferAlbedoMetallic", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferRoughnessAO", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = LinearDepthMipChainName, .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightAttachment", .access = RenderPipelineTextureAccess::ReadWrite});
+			return setup;
+		}
+
+		void Init() override
+		{
+			data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
+
+			RID shader = Resources::FindByPath("Skore://Shaders/DefaultIndirectLighting.shader");
+
+			pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
+				.shader = shader,
+				.variant = "IrradianceVolumeSample",
+				.descriptorSetsOverride = {
+					DescriptorSetOverride{.set = 1, .descriptorSet = context->GetSceneDescriptorSet(0)}
+				}
+			});
+
+			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+			{
+				descriptorSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceVolumeSample", 2);
+			}
+		}
+
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			if (!scene || scene->renderObjects.tlas == nullptr) return;
+
+			data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
+			if (!data || data->volumeBuffer == nullptr || data->volumeCount == 0 || data->irradianceArray == nullptr) return;
+
+			u32 frame = context->GetCurrentFrame();
+			u64 frameOffset = static_cast<u64>(frame) * MaxIrradianceVolumes * stride;
+			u64 range = static_cast<u64>(MaxIrradianceVolumes) * stride;
+
+			GPUDescriptorSet* set = descriptorSet[frame];
+
+			set->UpdateTexture(0, context->GetTexture("LightAttachment"));
+			set->UpdateBuffer(1, data->volumeBuffer, frameOffset, range);
+			set->UpdateTexture(2, data->irradianceArray);
+			set->UpdateTexture(3, data->distanceArray);
+			set->UpdateTexture(4, context->GetTexture("GBufferAlbedoMetallic"));
+			set->UpdateTexture(5, context->GetTexture("GBufferRoughnessAO"));
+			set->UpdateTexture(6, context->GetTexture("GBufferNormals"));
+			set->UpdateTexture(7, context->GetTexture(LinearDepthMipChainName));
+			set->UpdateSampler(8, Graphics::GetLinearClampToEdgeSampler());
+
+			cmd->BindPipeline(pipeline);
+			cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+			cmd->BindDescriptorSet(pipeline, 2, set);
+
+			f32 intensity = 1.0f;
+			{
+				PipelineOption opt = context->GetOption("Indirect Intensity");
+				if (const f64* value = std::get_if<f64>(&opt)) intensity = static_cast<f32>(*value);
+			}
+
+			IrradianceSamplePushConstants pc{data->volumeCount, intensity, 0, 0};
+			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(pc), &pc);
+			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
+		}
+
+		void Destroy() override
+		{
+			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+			{
+				if (descriptorSet[f]) descriptorSet[f]->Destroy();
+			}
+			if (pipeline) pipeline->Destroy();
+		}
+	};
+
+	struct IrradianceVolumeDebugPass : RenderPipelinePass
+	{
+		SK_CLASS(IrradianceVolumeDebugPass, RenderPipelinePass);
+
+		IrradianceVolumeData* data = nullptr;
+		GPUPipeline*          pipeline = nullptr;
+		GPUDescriptorSet*     descriptorSet[SK_FRAMES_IN_FLIGHT] = {};
+		MeshResourceCachePtr  sphereMesh;
+		usize                 stride = sizeof(IrradianceVolumeGPU);
+
+		RenderPipelinePassSetup GetPassSetup() override
+		{
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Graphics;
+			setup.stage = PipelineRenderStage::Indirect + 3;
+			setup.invertViewport = true;
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightAttachment", .access = RenderPipelineTextureAccess::ReadWrite});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::ReadWrite});
+			return setup;
+		}
+
+		void Init() override
+		{
+			data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
+
+			RID shader = Resources::FindByPath("Skore://Shaders/DefaultIndirectLighting.shader");
+
+			DepthStencilStateDesc depthStencilState;
+			depthStencilState.depthTestEnable = true;
+			depthStencilState.depthWriteEnable = true;
+			depthStencilState.depthCompareOp = CompareOp::LessEqual;
+
+			pipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
+				.shader = shader,
+				.variant = "IrradianceProbeDebug",
+				.rasterizerState = {.cullMode = CullMode::None},
+				.depthStencilState = depthStencilState,
+				.blendStates = {BlendStateDesc{}},
+				.renderPass = renderPass,
+				.descriptorSetsOverride = {
+					DescriptorSetOverride{.set = 0, .descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()},
+					DescriptorSetOverride{.set = 1, .descriptorSet = context->GetSceneDescriptorSet(0)}
+				}
+			});
+
+			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+			{
+				descriptorSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeDebug", 2);
+			}
+		}
+
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			if (!scene) return;
+
+			if (!sphereMesh)
+			{
+				sphereMesh = RenderResourceCache::GetMeshCache(Resources::FindByPath("Skore://Meshes/Sphere.mesh"), false);
+			}
+			if (!sphereMesh || !sphereMesh->IsLoaded()) return;
+
+			data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
+			if (!data || data->volumeBuffer == nullptr || data->volumeCount == 0 || data->irradianceArray == nullptr || data->probesPerVolume == 0) return;
+
+			static const char* cascadeOptionNames[4] = {
+				"Show Probe Cascade 0", "Show Probe Cascade 1", "Show Probe Cascade 2", "Show Probe Cascade 3"
+			};
+
+			auto showOption = [&](StringView name) -> bool
+			{
+				PipelineOption opt = context->GetOption(name);
+				const bool* value = std::get_if<bool>(&opt);
+				return value && *value;
+			};
+
+			bool showAll = showOption("Show All Probes");
+			bool anyShow = showAll;
+			for (u32 i = 0; i < data->volumeCount && i < 4 && !anyShow; ++i)
+			{
+				if (showOption(cascadeOptionNames[i])) anyShow = true;
+			}
+			if (!anyShow) return;
+
+			u32 frame = context->GetCurrentFrame();
+			u64 frameOffset = static_cast<u64>(frame) * MaxIrradianceVolumes * stride;
+			u64 range = static_cast<u64>(MaxIrradianceVolumes) * stride;
+
+			GPUDescriptorSet* set = descriptorSet[frame];
+			set->UpdateBuffer(0, data->volumeBuffer, frameOffset, range);
+			set->UpdateTexture(1, data->irradianceArray);
+			set->UpdateSampler(2, Graphics::GetLinearClampToEdgeSampler());
+
+			cmd->BindPipeline(pipeline);
+			cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+			cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+			cmd->BindDescriptorSet(pipeline, 2, set);
+			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
+			for (u32 i = 0; i < data->volumeCount; ++i)
+			{
+				if (!showAll && !(i < 4 && showOption(cascadeOptionNames[i]))) continue;
+
+				IrradianceDebugPushConstants pc{sphereMesh->vertexByteOffset, sphereMesh->vertexLayoutId, data->volumeCount, i};
+				cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(pc), &pc);
+
+				for (const MeshPrimitive& prim : sphereMesh->primitives)
+				{
+					cmd->DrawIndexed(prim.indexCount, data->probesPerVolume, static_cast<u32>(sphereMesh->indexByteOffset / sizeof(u32)) + prim.firstIndex, 0, 0);
+				}
+			}
+		}
+
+		void Destroy() override
+		{
+			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+			{
+				if (descriptorSet[f]) descriptorSet[f]->Destroy();
+			}
+			if (pipeline) pipeline->Destroy();
+			sphereMesh.reset();
+		}
+	};
+
 	struct IndirectLightingModule : RenderPipelineModule
 	{
 		SK_CLASS(IndirectLightingModule, RenderPipelineModule);
@@ -133,7 +753,16 @@ namespace Skore
 		RenderPipelineModuleSetup GetSetup() override
 		{
 			RenderPipelineModuleSetup setup;
+			setup.passes.EmplaceBack(sktypeid(IrradianceVolumeUpdatePass));
+			setup.passes.EmplaceBack(sktypeid(IrradianceVolumeSamplingPass));
+			setup.passes.EmplaceBack(sktypeid(IrradianceVolumeDebugPass));
 			setup.passes.EmplaceBack(sktypeid(ReflectionPass));
+			setup.options.Insert("Show All Probes", PipelineOption{false});
+			setup.options.Insert("Show Probe Cascade 0", PipelineOption{false});
+			setup.options.Insert("Show Probe Cascade 1", PipelineOption{false});
+			setup.options.Insert("Show Probe Cascade 2", PipelineOption{false});
+			setup.options.Insert("Show Probe Cascade 3", PipelineOption{false});
+			setup.options.Insert("Indirect Intensity", PipelineOption{2.0});
 			return setup;
 		}
 
@@ -141,13 +770,18 @@ namespace Skore
 		{
 			Array<RenderPipelineResource> resources;
 			resources.EmplaceBack(RenderPipelineResource{.name = "ReflectionAttachment", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16B16A16_FLOAT, .textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess});
+			resources.EmplaceBack(RenderPipelineResource{.name = "IrradianceVolumeData", .type = RenderPipelineResourceType::Instance, .instanceTypeId = sktypeid(IrradianceVolumeData)});
 			return resources;
 		}
 	};
 
 	void RegisterIndirectLightingModule()
 	{
+		Reflection::Type<IrradianceVolumeData>();
 		Reflection::Type<ReflectionPass>();
 		Reflection::Type<IndirectLightingModule>();
+		Reflection::Type<IrradianceVolumeUpdatePass>();
+		Reflection::Type<IrradianceVolumeSamplingPass>();
+		Reflection::Type<IrradianceVolumeDebugPass>();
 	}
 }

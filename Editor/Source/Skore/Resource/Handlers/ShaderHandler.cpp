@@ -390,6 +390,8 @@ namespace Skore
 						return false;
 					};
 
+					logger.Trace("compiling shader {} with macros {} ", configStage.entryPoint, shaderCompileInfo.macros);
+
 
 					String log = {};
 					if (!CompileShader(shaderCompileInfo, bytes, log))

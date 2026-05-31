@@ -124,6 +124,8 @@ namespace Skore
 
 		// Skybox-specific.
 		TextureResourceCachePtr skyMaterialTexture;
+
+		GPUTexture*             cubeMapSkyTexture = nullptr;
 		GPUTexture*             diffuseIrradianceTexture = nullptr;
 		GPUTexture*             specularMapTexture = nullptr;
 

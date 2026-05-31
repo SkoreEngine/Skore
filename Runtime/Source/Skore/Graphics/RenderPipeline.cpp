@@ -103,6 +103,15 @@ namespace Skore
 		for (RenderPipelineModule* module : modules)
 		{
 			RenderPipelineModuleSetup moduleSetup = module->GetSetup();
+
+			for (auto& option : moduleSetup.options)
+			{
+				if (!options.Has(option.first))
+				{
+					options.Insert(option.first, option.second);
+				}
+			}
+
 			for (TypeID passId : moduleSetup.passes)
 			{
 				ReflectType* passReflectType = Reflection::FindTypeById(passId);
@@ -142,6 +151,14 @@ namespace Skore
 				info.module = module;
 				info.setup = pass->GetPassSetup();
 				info.name = passReflectType->GetSimpleName();
+
+				for (auto& option : info.setup.options)
+				{
+					if (!options.Has(option.first))
+					{
+						options.Insert(option.first, option.second);
+					}
+				}
 
 				if (info.setup.requireJitter)
 				{
@@ -466,6 +483,32 @@ namespace Skore
 			return it->second.buffer;
 		}
 		return nullptr;
+	}
+
+	PipelineOption RenderPipelineContext::GetOption(StringView name) const
+	{
+		if (auto it = options.Find(name))
+		{
+			return it->second;
+		}
+		return {};
+	}
+
+	void RenderPipelineContext::SetOption(StringView name, const PipelineOption& value)
+	{
+		if (auto it = options.Find(name))
+		{
+			it->second = value;
+		}
+		else
+		{
+			options.Insert(name, value);
+		}
+	}
+
+	const HashMap<String, PipelineOption>& RenderPipelineContext::GetOptions() const
+	{
+		return options;
 	}
 
 	void RenderPipelineContext::SetOutputAttachments(StringView name, Span<GPUTexture*> attachments, ResourceState requiredState)
