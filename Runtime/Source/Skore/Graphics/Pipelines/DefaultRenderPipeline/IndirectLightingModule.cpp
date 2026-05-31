@@ -68,7 +68,8 @@ namespace Skore
 	struct IrradianceBlendPushConstants
 	{
 		u32 volumeIndex;
-		u32 pad0, pad1, pad2;
+		u32 volumeCount;
+		u32 pad1, pad2;
 	};
 
 	struct IrradianceSamplePushConstants
@@ -361,7 +362,7 @@ namespace Skore
 			for (i32 idx : scheduled)
 			{
 				SK_SCOPED_ZONE("IrradianceProbeTrace", cmd);
-				IrradianceTracePushConstants pc{static_cast<u32>(idx), 0u, layers, ambientMode, light->ambientLight, light->ambientMultiplier};
+				IrradianceTracePushConstants pc{static_cast<u32>(idx), 1u, layers, ambientMode, light->ambientLight, light->ambientMultiplier};
 				cmd->PushConstants(tracePipeline, ShaderStage::RayGen | ShaderStage::ClosestHit | ShaderStage::Miss, 0, sizeof(pc), &pc);
 				cmd->TraceRays(tracePipeline, static_cast<u32>(raysPerProbe), static_cast<u32>(totalProbes), 1);
 			}
@@ -385,7 +386,7 @@ namespace Skore
 
 			for (i32 idx : scheduled)
 			{
-				IrradianceBlendPushConstants bpc{static_cast<u32>(idx), 0, 0, 0};
+				IrradianceBlendPushConstants bpc{static_cast<u32>(idx), layers, 0, 0};
 
 				{
 					SK_SCOPED_ZONE("IrradianceProbeBlendIrradiance", cmd);
