@@ -1,5 +1,4 @@
-#include "CompositePass.hpp"
-
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "PipelineCommon.hpp"
 #include "Skore/Graphics/Pipelines/Modules/XeGTAORenderModule.hpp"
@@ -7,93 +6,106 @@
 
 namespace Skore
 {
-	RenderPipelinePassSetup CompositePass::GetPassSetup()
+	struct CompositePass : RenderPipelinePass
 	{
-		RenderPipelinePassSetup setup;
-		setup.type = RenderPipelinePassType::Compute;
-		setup.stage = PipelineRenderStage::Composite;
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightInstanceData", .access = RenderPipelineTextureAccess::Read});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightAttachment", .access = RenderPipelineTextureAccess::Read});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferAlbedoMetallic", .access = RenderPipelineTextureAccess::Read});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferRoughnessAO", .access = RenderPipelineTextureAccess::Read});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Read});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::Read});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ReflectionAttachment", .access = RenderPipelineTextureAccess::Read});
+		SK_CLASS(CompositePass, RenderPipelinePass);
 
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ColorAttachment", .access = RenderPipelineTextureAccess::Write});
-		return setup;
-	}
+		GPUPipeline* pipeline = nullptr;
+		LightPassInstanceData* lightInstanceData = nullptr;
 
-	void CompositePass::Init()
-	{
-		lightInstanceData = context->GetInstanceData<LightPassInstanceData>("LightInstanceData");
-
-		pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
-			.shader = Resources::FindByPath("Skore://Shaders/DefaultComposite.comp"),
-			.variant = "Default",
-			.allowImmediateSet = true
-		});
-	}
-
-	void CompositePass::Render(Scene* scene, GPUCommandBuffer* cmd)
-	{
-		struct DefaultCompositePushConstants
+		RenderPipelinePassSetup GetPassSetup() override
 		{
-			Vec3  ambientLight;
-			float ambientMultiplier;
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Compute;
+			setup.stage = PipelineRenderStage::Composite;
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightInstanceData", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightAttachment", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferAlbedoMetallic", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferRoughnessAO", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "GBufferNormals", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ReflectionAttachment", .access = RenderPipelineTextureAccess::Read});
 
-			Vec2  outputSize;
-			u32   flags;
-			float farClip;
-		};
-
-		DefaultCompositePushConstants pc;
-
-		pc.ambientLight = lightInstanceData->ambientLight;
-		pc.ambientMultiplier = lightInstanceData->ambientMultiplier;
-		pc.outputSize = {static_cast<f32>(context->GetOutputSize().width), static_cast<f32>(context->GetOutputSize().height)};
-		pc.flags = lightInstanceData->indirectLightFlags;
-		pc.farClip = context->camera.farClip;
-
-		GPUTexture* ssaoTexture = context->GetTexture(XeGTAOOutputName);
-		if (ssaoTexture != nullptr)
-		{
-			pc.flags |= LightFlags::HasSSAOTexture;
-		}
-		else
-		{
-			ssaoTexture = Graphics::GetWhiteTexture();
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ColorAttachment", .access = RenderPipelineTextureAccess::Write});
+			return setup;
 		}
 
-		GPUTexture* reflectionTexture = context->GetTexture("ReflectionAttachment");
-		if (reflectionTexture != nullptr)
+		void Init() override
 		{
-			pc.flags |= LightFlags::HasReflectionTexture;
+			lightInstanceData = context->GetInstanceData<LightPassInstanceData>("LightInstanceData");
+
+			pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
+				.shader = Resources::FindByPath("Skore://Shaders/DefaultComposite.comp"),
+				.variant = "Default",
+				.allowImmediateSet = true
+			});
 		}
-		else
+
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
-			reflectionTexture = Graphics::GetWhiteTexture();
+			struct DefaultCompositePushConstants
+			{
+				Vec3  ambientLight;
+				float ambientMultiplier;
+
+				Vec2  outputSize;
+				u32   flags;
+				float farClip;
+			};
+
+			DefaultCompositePushConstants pc;
+
+			pc.ambientLight = lightInstanceData->ambientLight;
+			pc.ambientMultiplier = lightInstanceData->ambientMultiplier;
+			pc.outputSize = {static_cast<f32>(context->GetOutputSize().width), static_cast<f32>(context->GetOutputSize().height)};
+			pc.flags = lightInstanceData->indirectLightFlags;
+			pc.farClip = context->camera.farClip;
+
+			GPUTexture* ssaoTexture = context->GetTexture(XeGTAOOutputName);
+			if (ssaoTexture != nullptr)
+			{
+				pc.flags |= LightFlags::HasSSAOTexture;
+			}
+			else
+			{
+				ssaoTexture = Graphics::GetWhiteTexture();
+			}
+
+			GPUTexture* reflectionTexture = context->GetTexture("ReflectionAttachment");
+			if (reflectionTexture != nullptr)
+			{
+				pc.flags |= LightFlags::HasReflectionTexture;
+			}
+			else
+			{
+				reflectionTexture = Graphics::GetWhiteTexture();
+			}
+
+			cmd->BindPipeline(pipeline);
+
+			cmd->SetTexture(pipeline, 0, 0, context->GetTexture("ColorAttachment"), 0);
+			cmd->SetTexture(pipeline, 0, 1, context->GetTexture("LightAttachment"), 0);
+			cmd->SetTexture(pipeline, 0, 2, context->GetTexture("GBufferAlbedoMetallic"), 0);
+			cmd->SetTexture(pipeline, 0, 3, context->GetTexture("GBufferRoughnessAO"), 0);
+			cmd->SetTexture(pipeline, 0, 4, context->GetTexture("GBufferNormals"), 0);
+			cmd->SetTexture(pipeline, 0, 5, context->GetTexture(OutputDepthName), 0);
+			cmd->SetTexture(pipeline, 0, 6, lightInstanceData->diffuseIrradianceTexture, 0);
+			cmd->SetTexture(pipeline, 0, 7, ssaoTexture, 0);
+			cmd->SetTexture(pipeline, 0, 8, reflectionTexture, 0);
+			cmd->SetSampler(pipeline, 0, 9, Graphics::GetLinearSampler());
+
+			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(DefaultCompositePushConstants), &pc);
+			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
 		}
 
-		cmd->BindPipeline(pipeline);
+		void Destroy() override
+		{
+			pipeline->Destroy();
+		}
+	};
 
-		cmd->SetTexture(pipeline, 0, 0, context->GetTexture("ColorAttachment"), 0);
-		cmd->SetTexture(pipeline, 0, 1, context->GetTexture("LightAttachment"), 0);
-		cmd->SetTexture(pipeline, 0, 2, context->GetTexture("GBufferAlbedoMetallic"), 0);
-		cmd->SetTexture(pipeline, 0, 3, context->GetTexture("GBufferRoughnessAO"), 0);
-		cmd->SetTexture(pipeline, 0, 4, context->GetTexture("GBufferNormals"), 0);
-		cmd->SetTexture(pipeline, 0, 5, context->GetTexture(OutputDepthName), 0);
-		cmd->SetTexture(pipeline, 0, 6, lightInstanceData->diffuseIrradianceTexture, 0);
-		cmd->SetTexture(pipeline, 0, 7, ssaoTexture, 0);
-		cmd->SetTexture(pipeline, 0, 8, reflectionTexture, 0);
-		cmd->SetSampler(pipeline, 0, 9, Graphics::GetLinearSampler());
-
-		cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(DefaultCompositePushConstants), &pc);
-		cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
-	}
-
-	void CompositePass::Destroy()
+	void RegisterCompositePass()
 	{
-		pipeline->Destroy();
+		Reflection::Type<CompositePass>();
 	}
 }

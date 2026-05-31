@@ -1,54 +1,70 @@
-#include "PostProcessPass.hpp"
-
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "PipelineCommon.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
-	RenderPipelinePassSetup PostProcessPass::GetPassSetup()
+	struct PostProcessPass : RenderPipelinePass
 	{
-		RenderPipelinePassSetup setup;
-		setup.type = RenderPipelinePassType::Compute;
-		setup.stage = PipelineRenderStage::PostProcess;
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ColorAttachment", .access = RenderPipelineTextureAccess::Read});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ResolvedHDR", .access = RenderPipelineTextureAccess::Read});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "BloomTexture", .access = RenderPipelineTextureAccess::Read});
-		setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Write});
-		return setup;
-	}
+		SK_CLASS(PostProcessPass, RenderPipelinePass);
 
-	void PostProcessPass::Init()
-	{
-		pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
-			.shader = Resources::FindByPath("Skore://Shaders/PostProcess.comp"),
-			.allowImmediateSet = true
-		});
-	}
+		GPUPipeline* pipeline = nullptr;
 
-	void PostProcessPass::Render(Scene* scene, GPUCommandBuffer* cmd)
-	{
-		PostProcessPushConstants pc;
-		pc.bloomIntensity = 0.04f;
-
-		cmd->BindPipeline(pipeline);
-		cmd->SetTexture(pipeline, 0, 0, context->GetTexture(OutputColorName), 0);
-		cmd->SetTexture(pipeline, 0, 1, context->GetTexture("ColorAttachment"), 0);
-		cmd->SetSampler(pipeline, 0, 2, Graphics::GetNearestClampToEdgeSampler());
-
-		GPUTexture* bloomTexture = context->GetTexture("BloomTexture");
-		if (bloomTexture)
+		struct PostProcessPushConstants
 		{
-			cmd->SetTexture(pipeline, 0, 3, bloomTexture, 0);
-			cmd->SetSampler(pipeline, 0, 4, Graphics::GetLinearClampToEdgeSampler());
+			f32 bloomIntensity;
+		};
+
+		RenderPipelinePassSetup GetPassSetup() override
+		{
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Compute;
+			setup.stage = PipelineRenderStage::PostProcess;
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ColorAttachment", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ResolvedHDR", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "BloomTexture", .access = RenderPipelineTextureAccess::Read});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Write});
+			return setup;
 		}
 
-		cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(PostProcessPushConstants), &pc);
-		cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
-	}
+		void Init() override
+		{
+			pipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
+				.shader = Resources::FindByPath("Skore://Shaders/PostProcess.comp"),
+				.allowImmediateSet = true
+			});
+		}
 
-	void PostProcessPass::Destroy()
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			PostProcessPushConstants pc;
+			pc.bloomIntensity = 0.04f;
+
+			cmd->BindPipeline(pipeline);
+			cmd->SetTexture(pipeline, 0, 0, context->GetTexture(OutputColorName), 0);
+			cmd->SetTexture(pipeline, 0, 1, context->GetTexture("ColorAttachment"), 0);
+			cmd->SetSampler(pipeline, 0, 2, Graphics::GetNearestClampToEdgeSampler());
+
+			GPUTexture* bloomTexture = context->GetTexture("BloomTexture");
+			if (bloomTexture)
+			{
+				cmd->SetTexture(pipeline, 0, 3, bloomTexture, 0);
+				cmd->SetSampler(pipeline, 0, 4, Graphics::GetLinearClampToEdgeSampler());
+			}
+
+			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(PostProcessPushConstants), &pc);
+			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);
+		}
+
+		void Destroy() override
+		{
+			pipeline->Destroy();
+		}
+	};
+
+	void RegisterPostProcessPass()
 	{
-		pipeline->Destroy();
+		Reflection::Type<PostProcessPass>();
 	}
 }

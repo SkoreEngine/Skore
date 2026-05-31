@@ -14,6 +14,18 @@ namespace Skore
 	struct TemporalAntiAliasingModule;
 	struct FXAARenderModule;
 	struct BloomModule;
+	struct IndirectLightingModule;
+
+	struct CascadeShadowPass;
+	struct LightSetupPass;
+	struct CullingPass;
+	struct DeferredGBufferPass;
+	struct DeferredLightingPass;
+	struct ForwardPass;
+	struct DepthLinearizePass;
+	struct CompositePass;
+	struct CameraMotionVectorPass;
+	struct PostProcessPass;
 
 	constexpr const char* OutputColorName = "OutputColorAttachment";
 	constexpr const char* OutputDepthName = "OutputDepthAttachment";
