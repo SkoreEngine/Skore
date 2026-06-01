@@ -67,6 +67,7 @@ namespace Skore
 		u32  instanceIndex = U32_MAX;
 		u32  instanceDescIndex = U32_MAX;
 		bool transparent = false;
+		bool masked = false;
 	};
 
 	constexpr static u32 InitialInstanceNumber = 1000;

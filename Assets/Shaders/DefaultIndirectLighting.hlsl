@@ -527,6 +527,26 @@ void IrradianceProbeRayGen()
     rayDataImage[int2(rayIndex, storageIndex + int(pc.volumeIndex) * total)] = float4(payload.radiance, payload.hitT);
 }
 
+float TraceSunShadow(float3 worldPos, float3 N)
+{
+    float3 L = normalize(-lights[shadowLightIndex].direction.xyz);
+    if (dot(N, L) <= 0.0)
+    {
+        return 0.0;
+    }
+
+    RayDesc ray;
+    ray.Origin    = worldPos + N * 0.05;
+    ray.Direction = L;
+    ray.TMin      = 0.01;
+    ray.TMax      = 10000.0;
+
+    RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
+    q.TraceRayInline(sceneTLAS, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xff, ray);
+    while (q.Proceed()) {}
+    return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT) ? 0.0 : 1.0;
+}
+
 float ComputeSunShadow(float3 worldPos, float3 N)
 {
     if (shadowLightIndex >= lightCount)
@@ -534,22 +554,18 @@ float ComputeSunShadow(float3 worldPos, float3 N)
         return 1.0;
     }
 
-    float viewZ = mul(view, float4(worldPos, 1.0)).z;
-    float maxShadowZ = cascadeSplits[SHADOW_MAP_CASCADE_COUNT - 1];
-    if (viewZ <= maxShadowZ)
+    [unroll]
+    for (uint i = 0; i < SHADOW_MAP_CASCADE_COUNT; ++i)
     {
-        return 1.0;
-    }
-
-    uint cascadeIndex = 0;
-    for (uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; ++i)
-    {
-        if (viewZ < cascadeSplits[i])
+        float4 clip = mul(biasMat, mul(cascadeViewProjMat[i], float4(worldPos, 1.0)));
+        float3 coord = clip.xyz / clip.w;
+        if (all(coord.xy >= 0.02) && all(coord.xy <= 0.98) && coord.z >= 0.0 && coord.z <= 1.0)
         {
-            cascadeIndex = i + 1;
+            return SampleShadowCascade(worldPos, N, i);
         }
     }
-    return SampleShadowCascade(worldPos, N, cascadeIndex);
+
+    return TraceSunShadow(worldPos, N);
 }
 
 float3 ShadeIrradianceSurface(IrradianceVolumeGPU v, float3 hitPos, float3 N, float3 baseColor, float roughness, float metallic)

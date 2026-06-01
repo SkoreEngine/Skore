@@ -3,12 +3,15 @@
 #include <variant>
 
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Scene.hpp"
+#include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/Components/IrradianceVolumeComponent.hpp"
 #include "PipelineCommon.hpp"
 #include "Skore/Profiler.hpp"
 
@@ -54,6 +57,7 @@ namespace Skore
 		GPUTexture* irradianceArray = nullptr;
 		GPUTexture* distanceArray = nullptr;
 		GPUTexture* probeDataArray = nullptr;
+		f32         indirectIntensity = 1.0f;
 
 		static void RegisterType(NativeReflectType<IrradianceVolumeData>&) {}
 	};
@@ -95,6 +99,11 @@ namespace Skore
 		return ((a % n) + n) % n;
 	}
 
+	static String CascadeProbeOptionName(u32 index)
+	{
+		return "Show Probe Cascade " + ToString(static_cast<u64>(index));
+	}
+
 	struct IrradianceVolumeUpdatePass : RenderPipelinePass
 	{
 		SK_CLASS(IrradianceVolumeUpdatePass, RenderPipelinePass);
@@ -120,10 +129,12 @@ namespace Skore
 		Array<i32>              scheduled;
 		u32                     nextVolume = 0;
 		bool                    texturesInitialized = false;
+		u64                     builtConfigVersion = 0;
 		u32                     rngState = 2463534242u;
 		usize                   stride = sizeof(IrradianceVolumeGPU);
 
 		i32 countX = 16, countY = 8, countZ = 16;
+		f32 baseSpacing = 1.0f;
 		i32 raysPerProbe = 144;
 		i32 irradianceSide = 6;
 		i32 visibilitySide = 6;
@@ -179,16 +190,53 @@ namespace Skore
 			relocatePipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{.shader = shader, .variant = "IrradianceProbeRelocate"});
 			classifyPipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{.shader = shader, .variant = "IrradianceProbeClassify"});
 
-			i32 irrBorder = irradianceSide + 2;
-			i32 visBorder = visibilitySide + 2;
-			irrW = irrBorder * countX * countY;
-			irrH = irrBorder * countZ;
-			visW = visBorder * countX * countY;
-			visH = visBorder * countZ;
-			totalProbes = countX * countY * countZ;
+			BufferDesc bd;
+			bd.size = static_cast<usize>(SK_FRAMES_IN_FLIGHT) * MaxIrradianceVolumes * stride;
+			bd.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess;
+			bd.hostVisible = true;
+			bd.persistentMapped = true;
+			bd.debugName = "IrradianceVolumeBuffer";
+			volumeBuffer = Graphics::CreateBuffer(bd);
 
-			f32 spacing = 1.0f;
-			for (i32 c = 0; c < 4; ++c)
+			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
+			{
+				traceSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeTrace", 2);
+				blendIrrSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeBlendIrradiance", 0);
+				blendDistSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeBlendDistance", 0);
+				relocateSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeRelocate", 0);
+				classifySet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeClassify", 0);
+			}
+		}
+
+		void EnsureResources(i32 rays, i32 cascades, i32 probeCountX, i32 probeCountY, i32 probeCountZ, f32 probeSpacing, u64 configVersion)
+		{
+			if (rayDataArray && configVersion == builtConfigVersion)
+			{
+				return;
+			}
+			builtConfigVersion = configVersion;
+
+			if (rayDataArray)
+			{
+				rayDataArray->Destroy();
+				irradianceArray->Destroy();
+				distanceArray->Destroy();
+				probeDataArray->Destroy();
+				rayDataArray = nullptr;
+				irradianceArray = nullptr;
+				distanceArray = nullptr;
+				probeDataArray = nullptr;
+			}
+
+			raysPerProbe = rays;
+			countX = probeCountX;
+			countY = probeCountY;
+			countZ = probeCountZ;
+			baseSpacing = probeSpacing;
+
+			volumes.Clear();
+			f32 spacing = baseSpacing;
+			for (i32 c = 0; c < cascades; ++c)
 			{
 				IrradianceVolume v;
 				v.spacingX = spacing;
@@ -198,6 +246,15 @@ namespace Skore
 				volumes.EmplaceBack(v);
 				spacing *= 2.0f;
 			}
+			nextVolume = 0;
+
+			i32 irrBorder = irradianceSide + 2;
+			i32 visBorder = visibilitySide + 2;
+			irrW = irrBorder * countX * countY;
+			irrH = irrBorder * countZ;
+			visW = visBorder * countX * countY;
+			visH = visBorder * countZ;
+			totalProbes = countX * countY * countZ;
 
 			u32 layers = static_cast<u32>(volumes.Size());
 
@@ -226,22 +283,7 @@ namespace Skore
 				.debugName = "IrradianceVolumeProbeData"
 			});
 
-			BufferDesc bd;
-			bd.size = static_cast<usize>(SK_FRAMES_IN_FLIGHT) * MaxIrradianceVolumes * stride;
-			bd.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess;
-			bd.hostVisible = true;
-			bd.persistentMapped = true;
-			bd.debugName = "IrradianceVolumeBuffer";
-			volumeBuffer = Graphics::CreateBuffer(bd);
-
-			for (u32 f = 0; f < SK_FRAMES_IN_FLIGHT; ++f)
-			{
-				traceSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeTrace", 2);
-				blendIrrSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeBlendIrradiance", 0);
-				blendDistSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeBlendDistance", 0);
-				relocateSet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeRelocate", 0);
-				classifySet[f] = Graphics::CreateDescriptorSet(shader, "IrradianceProbeClassify", 0);
-			}
+			texturesInitialized = false;
 		}
 
 		void PublishVolumeData()
@@ -258,9 +300,42 @@ namespace Skore
 
 		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
-			if (!scene || scene->renderObjects.tlas == nullptr || volumes.Empty()) return;
+			if (!data) data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
+
+			IrradianceVolumeComponent* volumeComponent = nullptr;
+			if (scene)
+			{
+				scene->Iterate<IrradianceVolumeComponent>([&](IrradianceVolumeComponent* component)
+				{
+					if (!volumeComponent) volumeComponent = component;
+				});
+			}
+
+			if (!scene || scene->renderObjects.tlas == nullptr || volumeComponent == nullptr)
+			{
+				if (data) data->volumeCount = 0;
+				if (LightPassInstanceData* light = context->GetInstanceData<LightPassInstanceData>("LightInstanceData"))
+				{
+					light->indirectLightFlags &= ~LightFlags::GlobalIlluminationEnabled;
+				}
+				return;
+			}
+
+			i32  desiredRays = Math::Clamp(volumeComponent->GetRaysPerProbe(), 1, 1024);
+			i32  desiredCascades = Math::Clamp(volumeComponent->GetCascadeCount(), 1, static_cast<i32>(MaxIrradianceVolumes));
+			i32  desiredCountX = Math::Clamp(volumeComponent->GetProbeCountX(), 1, 128);
+			i32  desiredCountY = Math::Clamp(volumeComponent->GetProbeCountY(), 1, 128);
+			i32  desiredCountZ = Math::Clamp(volumeComponent->GetProbeCountZ(), 1, 128);
+			f32  desiredSpacing = Math::Max(volumeComponent->GetProbeSpacing(), 0.01f);
+			bool scrollWithCamera = volumeComponent->GetScrollWithCamera();
+			f32  hysteresis = Math::Clamp(volumeComponent->GetHysteresis(), 0.0f, 1.0f);
+			bool relocationEnabled = volumeComponent->GetProbeRelocation();
+			bool classificationEnabled = volumeComponent->GetProbeClassification();
+
+			EnsureResources(desiredRays, desiredCascades, desiredCountX, desiredCountY, desiredCountZ, desiredSpacing, volumeComponent->GetResourceConfigVersion());
 
 			PublishVolumeData();
+			if (data) data->indirectIntensity = volumeComponent->GetIndirectIntensity();
 
 			u32 frame = context->GetCurrentFrame();
 			u32 layers = static_cast<u32>(volumes.Size());
@@ -281,18 +356,9 @@ namespace Skore
 			scheduled.EmplaceBack(static_cast<i32>(nextVolume));
 			nextVolume = (nextVolume + 1) % layers;
 
-			auto boolOption = [&](StringView name, bool fallback) -> bool
-			{
-				PipelineOption opt = context->GetOption(name);
-				const bool* value = std::get_if<bool>(&opt);
-				return value ? *value : fallback;
-			};
-
-			bool relocationEnabled = boolOption("Probe Relocation", true);
-			bool classificationEnabled = boolOption("Probe Classification", true);
 			i32  volumeFlags = (relocationEnabled ? IrradianceRelocationEnabledFlag : 0) | (classificationEnabled ? IrradianceClassificationEnabledFlag : 0);
 
-			Vec3 cam = context->camera.cameraPosition;
+			Vec3 cam = scrollWithCamera ? context->camera.cameraPosition : volumeComponent->GetEntity()->GetWorldPosition();
 
 			IrradianceVolumeGPU gpuArray[MaxIrradianceVolumes];
 			for (usize i = 0; i < volumes.Size(); ++i)
@@ -358,7 +424,7 @@ namespace Skore
 				g.visibilityTextureHeight = visH;
 				g.visibilitySideLength = visibilitySide;
 				g.frame = v.updateCount;
-				g.hysteresis = 0.97f;
+				g.hysteresis = hysteresis;
 				g.normalBias = v.spacingX * 0.2f;
 				g.viewBias = v.spacingX * 0.4f;
 				g.maxRayDistance = std::sqrt(v.spacingX * v.spacingX + v.spacingY * v.spacingY + v.spacingZ * v.spacingZ) * 1.5f;
@@ -598,11 +664,7 @@ namespace Skore
 			cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 			cmd->BindDescriptorSet(pipeline, 2, set);
 
-			f32 intensity = 1.0f;
-			{
-				PipelineOption opt = context->GetOption("Indirect Intensity");
-				if (const f64* value = std::get_if<f64>(&opt)) intensity = static_cast<f32>(*value);
-			}
+			f32 intensity = data->indirectIntensity;
 
 			IrradianceSamplePushConstants pc{data->volumeCount, intensity, 0, 0};
 			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(pc), &pc);
@@ -685,10 +747,6 @@ namespace Skore
 			data = context->GetInstanceData<IrradianceVolumeData>("IrradianceVolumeData");
 			if (!data || data->volumeBuffer == nullptr || data->volumeCount == 0 || data->irradianceArray == nullptr || data->probeDataArray == nullptr || data->probesPerVolume == 0) return;
 
-			static const char* cascadeOptionNames[4] = {
-				"Show Probe Cascade 0", "Show Probe Cascade 1", "Show Probe Cascade 2", "Show Probe Cascade 3"
-			};
-
 			auto showOption = [&](StringView name) -> bool
 			{
 				PipelineOption opt = context->GetOption(name);
@@ -698,9 +756,9 @@ namespace Skore
 
 			bool showAll = showOption("Show All Probes");
 			bool anyShow = showAll;
-			for (u32 i = 0; i < data->volumeCount && i < 4 && !anyShow; ++i)
+			for (u32 i = 0; i < data->volumeCount && !anyShow; ++i)
 			{
-				if (showOption(cascadeOptionNames[i])) anyShow = true;
+				if (showOption(CascadeProbeOptionName(i))) anyShow = true;
 			}
 			if (!anyShow) return;
 
@@ -722,7 +780,7 @@ namespace Skore
 
 			for (u32 i = 0; i < data->volumeCount; ++i)
 			{
-				if (!showAll && !(i < 4 && showOption(cascadeOptionNames[i]))) continue;
+				if (!showAll && !showOption(CascadeProbeOptionName(i))) continue;
 
 				IrradianceDebugPushConstants pc{sphereMesh->vertexByteOffset, sphereMesh->vertexLayoutId, data->volumeCount, i};
 				cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(pc), &pc);
@@ -877,13 +935,10 @@ namespace Skore
 			setup.passes.EmplaceBack(sktypeid(IrradianceVolumeDebugPass));
 			setup.passes.EmplaceBack(sktypeid(ReflectionPass));
 			setup.options.Insert("Show All Probes", PipelineOption{false});
-			setup.options.Insert("Show Probe Cascade 0", PipelineOption{false});
-			setup.options.Insert("Show Probe Cascade 1", PipelineOption{false});
-			setup.options.Insert("Show Probe Cascade 2", PipelineOption{false});
-			setup.options.Insert("Show Probe Cascade 3", PipelineOption{false});
-			setup.options.Insert("Indirect Intensity", PipelineOption{2.0});
-			setup.options.Insert("Probe Relocation", PipelineOption{true});
-			setup.options.Insert("Probe Classification", PipelineOption{true});
+			for (u32 i = 0; i < MaxIrradianceVolumes; ++i)
+			{
+				setup.options.Insert(CascadeProbeOptionName(i), PipelineOption{false});
+			}
 			return setup;
 		}
 
