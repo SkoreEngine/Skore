@@ -2298,7 +2298,20 @@ namespace Skore
 								});
 							};
 
-							drawEntity(sceneEditor->GetOpenedResource());
+							if (sceneEditor->IsOpenedScene())
+							{
+								if (ResourceObject sceneObject = Resources::Read(sceneEditor->GetOpenedResource()))
+								{
+										for (RID entity : sceneObject.GetSubObjectList(SceneResource::Entities))
+										{
+											drawEntity(entity);
+										}
+								}
+							}
+							else
+							{
+								drawEntity(sceneEditor->GetOpenedResource());
+							}
 
 							ImGui::EndListBox();
 						}
