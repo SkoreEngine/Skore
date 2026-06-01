@@ -25,6 +25,16 @@ namespace Skore
 		return retVariant;
 	}
 
+	u32 ShaderResource::GetRayHitGroup(RID shader)
+	{
+		if (!shader) return 0;
+		if (ResourceObject shaderObject = Resources::Read(shader))
+		{
+			return static_cast<u32>(shaderObject.GetUInt(RayHitGroup));
+		}
+		return 0;
+	}
+
 	String ShaderResource::GetVariantName(Span<String> macros)
 	{
 		if (macros.Empty()) return "Default";

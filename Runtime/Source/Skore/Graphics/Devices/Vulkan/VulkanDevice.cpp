@@ -3070,16 +3070,19 @@ namespace Skore
 		Array<VkShaderModule>                     shaderModules;
 		Array<VkPipelineShaderStageCreateInfo>     shaderStages;
 		Array<VkRayTracingShaderGroupCreateInfoKHR> shaderGroups;
+		Array<u32>                                 groupHitSlot;
 
 		// Track group indices for SBT
 		u32 raygenCount = 0;
 		u32 missCount = 0;
 		u32 hitCount = 0;
 		u32 callableCount = 0;
+		u32 maxHitSlot = 0;
 
 		for (u32 i = 0; i < stages.Size(); ++i)
 		{
 			const ShaderStageInfo& stageInfo = stages[i];
+			u32 hitSlot = 0;
 
 			Span<u8> shaderData = Span<u8>{
 				bytes.begin() + stageInfo.offset,
@@ -3129,18 +3132,24 @@ namespace Skore
 					stageCreateInfo.stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 					groupInfo.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
 					groupInfo.closestHitShader = i;
+					hitSlot = stageInfo.hitGroup;
+					if (hitSlot > maxHitSlot) maxHitSlot = hitSlot;
 					hitCount++;
 					break;
 				case ShaderStage::AnyHit:
 					stageCreateInfo.stage = VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
 					groupInfo.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
 					groupInfo.anyHitShader = i;
+					hitSlot = stageInfo.hitGroup;
+					if (hitSlot > maxHitSlot) maxHitSlot = hitSlot;
 					hitCount++;
 					break;
 				case ShaderStage::Intersection:
 					stageCreateInfo.stage = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
 					groupInfo.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR;
 					groupInfo.intersectionShader = i;
+					hitSlot = stageInfo.hitGroup;
+					if (hitSlot > maxHitSlot) maxHitSlot = hitSlot;
 					hitCount++;
 					break;
 				case ShaderStage::Callable:
@@ -3156,6 +3165,7 @@ namespace Skore
 
 			shaderStages.EmplaceBack(stageCreateInfo);
 			shaderGroups.EmplaceBack(groupInfo);
+			groupHitSlot.EmplaceBack(hitSlot);
 		}
 
 		// Create ray tracing pipeline
@@ -3211,9 +3221,11 @@ namespace Skore
 			return (value + alignment - 1) & ~(alignment - 1);
 		};
 
+		u32 hitSlotCount = hitCount > 0 ? maxHitSlot + 1 : 0;
+
 		u32 raygenRegionSize = alignUp(raygenCount * handleSizeAligned, baseAlignment);
 		u32 missRegionSize = alignUp(missCount * handleSizeAligned, baseAlignment);
-		u32 hitRegionSize = alignUp(hitCount * handleSizeAligned, baseAlignment);
+		u32 hitRegionSize = alignUp(hitSlotCount * handleSizeAligned, baseAlignment);
 		u32 callableRegionSize = alignUp(callableCount * handleSizeAligned, baseAlignment);
 		u32 sbtSize = raygenRegionSize + missRegionSize + hitRegionSize + callableRegionSize;
 
@@ -3271,14 +3283,12 @@ namespace Skore
 		sbtOffset += missRegionSize;
 
 		// Hit region
-		groupIndex = 0;
-		for (u32 i = 0; i < hitCount && groupIndex < totalGroupCount; ++groupIndex)
+		for (groupIndex = 0; groupIndex < totalGroupCount; ++groupIndex)
 		{
 			if (shaderGroups[groupIndex].type == VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR ||
 				shaderGroups[groupIndex].type == VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR)
 			{
-				memcpy(sbtData + sbtOffset + i * handleSizeAligned, handleStorage.Data() + groupIndex * handleSize, handleSize);
-				i++;
+				memcpy(sbtData + sbtOffset + groupHitSlot[groupIndex] * handleSizeAligned, handleStorage.Data() + groupIndex * handleSize, handleSize);
 			}
 		}
 		sbtOffset += hitRegionSize;

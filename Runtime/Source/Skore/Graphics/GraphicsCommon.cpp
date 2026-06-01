@@ -10,5 +10,6 @@ namespace Skore
 		type.Field<&ShaderStageInfo::entryPoint>("entryPoint");
 		type.Field<&ShaderStageInfo::offset>("offset");
 		type.Field<&ShaderStageInfo::size>("size");
+		type.Field<&ShaderStageInfo::hitGroup>("hitGroup");
 	}
 }

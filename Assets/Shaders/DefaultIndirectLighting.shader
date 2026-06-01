@@ -14,6 +14,12 @@ variants:
           - SK_IRRADIANCE_TRACE=1
       - entryPoint: IrradianceProbeClosestHit
         stage: ClosestHit
+        hitGroup: 0
+        macros:
+          - SK_IRRADIANCE_TRACE=1
+      - entryPoint: IrradianceProbeTerrainClosestHit
+        stage: ClosestHit
+        hitGroup: 1
         macros:
           - SK_IRRADIANCE_TRACE=1
       - entryPoint: IrradianceProbeMiss

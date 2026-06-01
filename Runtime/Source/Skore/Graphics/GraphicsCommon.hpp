@@ -47,6 +47,7 @@ namespace Skore
 		String      entryPoint{};
 		u32         offset{};
 		u32         size{};
+		u32         hitGroup{};
 
 		static void RegisterType(NativeReflectType<ShaderStageInfo>& type);
 	};

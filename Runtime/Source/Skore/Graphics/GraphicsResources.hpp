@@ -28,12 +28,14 @@ namespace Skore
 	{
 		enum
 		{
-			Name,     //String
-			Variants, //SubobjectList
+			Name,        //String
+			Variants,    //SubobjectList
+			RayHitGroup, //Uint
 		};
 
 		static RID    GetVariant(RID shader, StringView name);
 		static String GetVariantName(Span<String> macros);
+		static u32    GetRayHitGroup(RID shader);
 	};
 
 
