@@ -367,10 +367,15 @@ float3 GetVolumeIrradiance(IrradianceVolumeGPU v, Texture2D<float4> irradianceTe
         int3 storageCoords = LogicalToStorage(v, logical);
         int  storageIndex = ProbeStorageIndex(v, storageCoords);
 
+        float4 probeMeta = probeDataTex[ProbeDataTexel(v, storageIndex, slice)];
+        if (IrradianceClassificationEnabled(v) && probeMeta.w >= 0.5)
+        {
+            continue;
+        }
         float3 probeOffset = float3(0.0, 0.0, 0.0);
         if (IrradianceRelocationEnabled(v))
         {
-            probeOffset = probeDataTex[ProbeDataTexel(v, storageIndex, slice)].xyz * spacing;
+            probeOffset = probeMeta.xyz * spacing;
         }
         float3 probePos = v.origin.xyz + float3(logical) * spacing + probeOffset;
 
@@ -547,6 +552,65 @@ float ComputeSunShadow(float3 worldPos, float3 N)
     return SampleShadowCascade(worldPos, N, cascadeIndex);
 }
 
+float3 ShadeIrradianceSurface(IrradianceVolumeGPU v, float3 hitPos, float3 N, float3 baseColor, float roughness, float metallic)
+{
+    float3 F0 = lerp(float3(0.04, 0.04, 0.04), baseColor, metallic);
+    float3 V = -WorldRayDirection();
+    float  shadow = ComputeSunShadow(hitPos, N);
+
+    float3 lit = float3(0.0, 0.0, 0.0);
+    for (uint l = 0; l < lightCount; ++l)
+    {
+        float3 contrib = EvaluateDirectLighting(lights[l], N, V, hitPos, baseColor, roughness, metallic, F0);
+        if (l == shadowLightIndex)
+        {
+            contrib *= shadow;
+        }
+        lit += contrib;
+    }
+
+    if (pc.enableMultibounce != 0 && v.frame > 2)
+    {
+        float3 irradiance = GetVolumeIrradiance(v, prevIrradiance, prevDistance, probeData, volumeSampler, int(pc.volumeIndex), int(pc.volumeCount), hitPos, N, WorldRayOrigin());
+        lit += (min(baseColor, 0.9) / PI) * irradiance;
+    }
+
+    return lit;
+}
+
+float4 UnpackTerrainLayerWeights(uint packed)
+{
+    return float4(
+        (packed >>  0) & 0xFF,
+        (packed >>  8) & 0xFF,
+        (packed >> 16) & 0xFF,
+        (packed >> 24) & 0xFF) * (1.0 / 255.0);
+}
+
+float3 TerrainTriplanarWeights(float3 worldNormal)
+{
+    float3 w = pow(abs(worldNormal), 4.0);
+    return w / max(w.x + w.y + w.z, 0.0001);
+}
+
+float3 TerrainLayerAlbedo(uint materialIndex, float3 worldPos, float3 triWeights)
+{
+    MaterialData mat = MaterialDataBuffer[materialIndex];
+    float3 albedo = mat.baseColor;
+    if (mat.baseColorTexture >= 0)
+    {
+        float2 uvX = worldPos.zy * mat.uvScale;
+        float2 uvY = worldPos.xz * mat.uvScale;
+        float2 uvZ = worldPos.xy * mat.uvScale;
+        float3 cx = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(LinearSampler, uvX, 0).rgb;
+        float3 cy = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(LinearSampler, uvY, 0).rgb;
+        float3 cz = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(LinearSampler, uvZ, 0).rgb;
+        float3 sampled = cx * triWeights.x + cy * triWeights.y + cz * triWeights.z;
+        albedo = pow(sampled * mat.baseColor, 2.2);
+    }
+    return albedo;
+}
+
 [shader("closesthit")]
 void IrradianceProbeClosestHit(inout IrradiancePayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
@@ -587,32 +651,81 @@ void IrradianceProbeClosestHit(inout IrradiancePayload payload, in BuiltInTriang
     float3 N = normalize(mul((float3x3)inst.transform, nLocal));
 
     MaterialData mat = MaterialDataBuffer[inst.materialIndex];
-    float3 baseColor = mat.baseColor;
-    float  roughness = mat.roughness;
-    float  metallic = mat.metallic;
-    float3 F0 = lerp(float3(0.04, 0.04, 0.04), baseColor, metallic);
-    float3 V = -WorldRayDirection();
 
-    float  shadow = ComputeSunShadow(hitPos, N);
+    payload.radiance = ShadeIrradianceSurface(v, hitPos, N, mat.baseColor, mat.roughness, mat.metallic);
+    payload.hitT = RayTCurrent();
+}
 
-    float3 lit = float3(0.0, 0.0, 0.0);
-    for (uint l = 0; l < lightCount; ++l)
+[shader("closesthit")]
+void IrradianceProbeTerrainClosestHit(inout IrradiancePayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    IrradianceVolumeGPU v = volumes[pc.volumeIndex];
+    float3 hitPos = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
+
+    if (HitKind() == HIT_KIND_TRIANGLE_BACK_FACE)
     {
-        float3 contrib = EvaluateDirectLighting(lights[l], N, V, hitPos, baseColor, roughness, metallic, F0);
-        if (l == shadowLightIndex)
-        {
-            contrib *= shadow;
-        }
-        lit += contrib;
+        payload.radiance = float3(0.0, 0.0, 0.0);
+        payload.hitT = -RayTCurrent() * 0.2;
+        return;
     }
 
-    if (pc.enableMultibounce != 0 && v.frame > 2)
+    InstanceData inst = instances[InstanceID()];
+
+    if (inst.primitiveInfoIndex == 0xFFFFFFFF)
     {
-        float3 irradiance = GetVolumeIrradiance(v, prevIrradiance, prevDistance, probeData, volumeSampler, int(pc.volumeIndex), int(pc.volumeCount), hitPos, N, WorldRayOrigin());
-        lit += (min(baseColor, 0.9) / PI) * irradiance;
+        payload.radiance = float3(0.0, 0.0, 0.0);
+        payload.hitT = RayTCurrent();
+        return;
     }
 
-    payload.radiance = lit;
+    MeshPrimitiveInfo info = MeshLODBuffer[inst.primitiveInfoIndex];
+    uint lodIdx = min(1u, info.lodCount - 1u);
+    uint firstIndex = info.lods[lodIdx].firstIndex;
+    uint baseIdx = firstIndex + PrimitiveIndex() * 3;
+
+    uint i0 = MeshDataBuffer.Load((baseIdx + 0) << 2);
+    uint i1 = MeshDataBuffer.Load((baseIdx + 1) << 2);
+    uint i2 = MeshDataBuffer.Load((baseIdx + 2) << 2);
+
+    float3 n0 = GetVertexNormal(inst.vertexByteOffset, inst.vertexLayoutIndex, i0);
+    float3 n1 = GetVertexNormal(inst.vertexByteOffset, inst.vertexLayoutIndex, i1);
+    float3 n2 = GetVertexNormal(inst.vertexByteOffset, inst.vertexLayoutIndex, i2);
+
+    float3 bary = float3(1.0 - attr.barycentrics.x - attr.barycentrics.y, attr.barycentrics.x, attr.barycentrics.y);
+    float3 nLocal = normalize(n0 * bary.x + n1 * bary.y + n2 * bary.z);
+    float3 N = normalize(mul((float3x3)inst.transform, nLocal));
+
+    float4 w0 = UnpackTerrainLayerWeights(GetVertexCustom0Uint(inst.vertexByteOffset, inst.vertexLayoutIndex, i0));
+    float4 w1 = UnpackTerrainLayerWeights(GetVertexCustom0Uint(inst.vertexByteOffset, inst.vertexLayoutIndex, i1));
+    float4 w2 = UnpackTerrainLayerWeights(GetVertexCustom0Uint(inst.vertexByteOffset, inst.vertexLayoutIndex, i2));
+    float4 w = w0 * bary.x + w1 * bary.y + w2 * bary.z;
+    float total = w.x + w.y + w.z + w.w;
+    w /= max(total, 0.0001);
+
+    uint packed01 = GetVertexCustom1Uint(inst.vertexByteOffset, inst.vertexLayoutIndex, i0);
+    uint packed23 = GetVertexCustom2Uint(inst.vertexByteOffset, inst.vertexLayoutIndex, i0);
+    uint4 palette = uint4(packed01 & 0xFFFF, (packed01 >> 16) & 0xFFFF, packed23 & 0xFFFF, (packed23 >> 16) & 0xFFFF);
+
+    float3 triWeights = TerrainTriplanarWeights(N);
+
+    float3 baseColor = float3(0.0, 0.0, 0.0);
+    float  roughness = 0.0;
+    float  metallic = 0.0;
+
+    [unroll]
+    for (uint i = 0; i < 4; ++i)
+    {
+        float wi = w[i];
+        if (wi <= 0.005) continue;
+
+        MaterialData mat = MaterialDataBuffer[palette[i]];
+        baseColor += TerrainLayerAlbedo(palette[i], hitPos, triWeights) * wi;
+        roughness += mat.roughness * wi;
+        metallic  += mat.metallic  * wi;
+    }
+    roughness = max(roughness, 0.002);
+
+    payload.radiance = ShadeIrradianceSurface(v, hitPos, N, baseColor, roughness, metallic);
     payload.hitT = RayTCurrent();
 }
 
@@ -620,14 +733,18 @@ void IrradianceProbeClosestHit(inout IrradiancePayload payload, in BuiltInTriang
 void IrradianceProbeMiss(inout IrradiancePayload payload)
 {
     IrradianceVolumeGPU v = volumes[pc.volumeIndex];
+    float3 dir = WorldRayDirection();
     float3 sky = float3(0.0, 0.0, 0.0);
-    if (pc.ambientMode == 1)
+    if (dir.y >= 0.0)
     {
-        sky = skyCube.SampleLevel(volumeSampler, WorldRayDirection(), 0).rgb;
-    }
-    else if (pc.ambientMode == 2)
-    {
-        sky = pc.ambientColor;
+        if (pc.ambientMode == 1)
+        {
+            sky = skyCube.SampleLevel(volumeSampler, dir, 0).rgb;
+        }
+        else if (pc.ambientMode == 2)
+        {
+            sky = pc.ambientColor;
+        }
     }
     payload.radiance = sky * pc.ambientIntensity;
     payload.hitT = v.maxRayDistance;

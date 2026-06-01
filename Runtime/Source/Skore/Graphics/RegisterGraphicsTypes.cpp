@@ -1131,6 +1131,7 @@ namespace Skore
 		Resources::Type<ShaderResource>()
 			.Field<ShaderResource::Name>(ResourceFieldType::String)
 			.Field<ShaderResource::Variants>(ResourceFieldType::SubObjectList)
+			.Field<ShaderResource::RayHitGroup>(ResourceFieldType::UInt)
 			.Build();
 
 		Resources::Type<TextureImageResource>()

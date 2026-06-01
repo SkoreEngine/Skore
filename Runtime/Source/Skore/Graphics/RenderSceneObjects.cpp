@@ -1,6 +1,7 @@
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Profiler.hpp"
 
@@ -17,6 +18,7 @@ namespace Skore
 		RID                  mesh;
 		Array<RID>           materials;
 		RID                  shader;
+		u32                  rayHitGroup = 0;
 		bool                 castShadows = true;
 		Mat4                 transform = Mat4(1.0);
 		u64                  userData = 0;
@@ -202,6 +204,7 @@ namespace Skore
 		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
 		if (o->shader == shader) return;
 		o->shader = shader;
+		o->rayHitGroup = ShaderResource::GetRayHitGroup(shader);
 		MarkDirty(o);
 	}
 
@@ -604,6 +607,7 @@ namespace Skore
 			.bottomLevelAS = blas,
 			.transform = obj->transform,
 			.instanceID = ref.instanceIndex,
+			.instanceShaderBindingTableRecordOffset = obj->rayHitGroup,
 			.forceOpaque = true,
 		});
 		instanceDescOwners.EmplaceBack(InstanceOwner{obj, primitiveIndex});

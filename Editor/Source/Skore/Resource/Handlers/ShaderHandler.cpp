@@ -25,12 +25,14 @@ namespace Skore
 		String        entryPoint;
 		ShaderStage   stage;
 		Array<String> macros;
+		u32           hitGroup = 0;
 
 		static void RegisterType(NativeReflectType<ShaderConfigStage>& type)
 		{
 			type.Field<&ShaderConfigStage::entryPoint>("entryPoint");
 			type.Field<&ShaderConfigStage::stage>("stage");
 			type.Field<&ShaderConfigStage::macros>("macros");
+			type.Field<&ShaderConfigStage::hitGroup>("hitGroup");
 		}
 	};
 
@@ -53,12 +55,14 @@ namespace Skore
 		String shaderFile;
 		Array<ShaderConfigVariant> variants;
 		Array<String> booleanStates;
+		u32 rayHitGroup = 0;
 
 		static void RegisterType(NativeReflectType<ShaderConfig>& type)
 		{
 			type.Field<&ShaderConfig::shaderFile>("shaderFile");
 			type.Field<&ShaderConfig::variants>("variants");
 			type.Field<&ShaderConfig::booleanStates>("booleanStates");
+			type.Field<&ShaderConfig::rayHitGroup>("rayHitGroup");
 		}
 	};
 
@@ -111,6 +115,27 @@ namespace Skore
 			bool             hasRaygen = str.find("[shader(\"raygeneration\")]") != std::string_view::npos;
 			bool             hasMiss = str.find("[shader(\"miss\")]") != std::string_view::npos;
 			bool             hasClosestHit = str.find("[shader(\"closesthit\")]") != std::string_view::npos;
+
+			u32 rayHitGroup = config.rayHitGroup;
+			{
+				constexpr std::string_view marker = "SK_RAY_HIT_GROUP";
+				size_t pos = str.find(marker);
+				if (pos != std::string_view::npos)
+				{
+					pos += marker.size();
+					while (pos < str.size() && (str[pos] == ' ' || str[pos] == '\t')) ++pos;
+					u32  value = 0;
+					bool hasDigits = false;
+					while (pos < str.size() && str[pos] >= '0' && str[pos] <= '9')
+					{
+						value = value * 10u + static_cast<u32>(str[pos] - '0');
+						hasDigits = true;
+						++pos;
+					}
+					if (hasDigits) rayHitGroup = value;
+				}
+			}
+			shaderResourceObject.SetUInt(ShaderResource::RayHitGroup, rayHitGroup);
 
 			if (!config.booleanStates.Empty())
 			{
@@ -255,6 +280,7 @@ namespace Skore
 								stage.entryPoint = baseStage.entryPoint;
 								stage.stage = baseStage.stage;
 								stage.macros = baseStage.macros;
+								stage.hitGroup = baseStage.hitGroup;
 								for (const String& m : stateMacros)
 								{
 									stage.macros.EmplaceBack(m);
@@ -406,7 +432,8 @@ namespace Skore
 						.stage = configStage.stage,
 						.entryPoint = configStage.entryPoint,
 						.offset = stageOffset,
-						.size = shaderSize
+						.size = shaderSize,
+						.hitGroup = configStage.hitGroup
 					});
 					stageOffset += shaderSize;
 				}
