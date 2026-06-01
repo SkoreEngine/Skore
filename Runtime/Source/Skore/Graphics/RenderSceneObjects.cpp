@@ -475,6 +475,7 @@ namespace Skore
 		DrawcallRef& ref = obj->references[primitiveIndex];
 		ref = DrawcallRef{};
 		ref.transparent = material->transparent;
+		ref.masked = material->masked;
 
 		const u32 vertexByteOffset = obj->meshCache->vertexByteOffset;
 		const u32 indexByteOffset  = obj->meshCache->indexByteOffset;
@@ -596,6 +597,7 @@ namespace Skore
 		if (ref.instanceDescIndex != U32_MAX) return;
 		if (ref.pipelineIndex == U32_MAX) return;
 		if (ref.transparent) return;
+		if (ref.masked) return;
 		if (obj->bonesDescriptor != nullptr) return;
 
 		if (!obj->meshCache || primitiveIndex >= obj->meshCache->blasArray.Size()) return;
