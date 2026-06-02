@@ -79,7 +79,7 @@ namespace Skore
 				DepthStencilStateDesc depthStencilState;
 				depthStencilState.depthTestEnable = true;
 				depthStencilState.depthWriteEnable = true;
-				depthStencilState.depthCompareOp = CompareOp::Less;
+				depthStencilState.depthCompareOp = CompareOp::Greater; // reverse-Z
 
 				GraphicsPipelineDesc gpuDesc = GraphicsPipelineDesc{
 					.shader = deferredGBuffer,

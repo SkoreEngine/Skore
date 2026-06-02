@@ -33,19 +33,20 @@ float2 GetClosestVelocity(in float2 uv, in float2 texelSize, out bool isSkyPixel
 {
     // Scale uv for lower resolution motion vector texture
     float2 velocity;
-    float closestDepth = 1.1f;
+    // reverse-Z: closest = largest depth value; sky/far = 0.
+    float closestDepth = -0.1f;
     for (int y = -1; y <= 1; ++y)
         for (int x = -1; x <= 1; ++x)
         {
             const float2 st = uv + float2(x, y) * texelSize;
             const float depth = depthTexture.SampleLevel(nearestSampler, st, 0.0f).x;
-            if (depth < closestDepth)
+            if (depth > closestDepth)
             {
                 velocity = motionVector.SampleLevel(nearestSampler, st, 0.0f).xy;
                 closestDepth = depth;
             }
         }
-    isSkyPixel = (closestDepth == 1.0f);
+    isSkyPixel = (closestDepth == 0.0f);
     return velocity;
 }
 
