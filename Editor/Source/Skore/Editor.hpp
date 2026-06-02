@@ -25,6 +25,10 @@ namespace Skore
 		static StringView        GetProjectLocalPath();
 		static Span<RID>         GetPackages();
 		static RID               LoadPackage(StringView name, StringView directory);
+
+		static Span<String>      GetProjectPackages();
+		static void              AddProjectPackage(StringView directory);
+		static void              RemoveProjectPackage(StringView directory);
 		static void              ExecuteOnMainThread(std::function<void()> func);
 		static void              AddTask(std::function<void()> func, StringView name = "");
 
