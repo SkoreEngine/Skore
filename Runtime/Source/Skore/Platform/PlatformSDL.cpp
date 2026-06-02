@@ -367,5 +367,24 @@ namespace Skore
 		SDL_ShowOpenFileDialog(callback, funcPtr, GetSDLWindowFromHandler(window), reinterpret_cast<const SDL_DialogFileFilter*>(filters.Data()), 1, defaultPath.CStr(), true);
 	}
 
-	void Platform::PickFolder(std::function<void(StringView path)>&& func, StringView defaultPath, Window window) {}
+	void Platform::PickFolder(std::function<void(StringView path)>&& func, StringView defaultPath, Window window)
+	{
+		auto funcPtr = Alloc<std::function<void(StringView)>>(func);
+		auto callback = [](void* userdata, const char* const* filelist, int filter)
+		{
+			if (filelist && filelist[0])
+			{
+				String          path = filelist[0];
+				std::lock_guard lock(mutex);
+				runOnMainThread.EmplaceBack([userdata, path]
+				{
+					std::function<void(StringView)>& func = *static_cast<std::function<void(StringView)>*>(userdata);
+					func(path);
+					DestroyAndFree(&func);
+				});
+			}
+		};
+
+		SDL_ShowOpenFolderDialog(callback, funcPtr, GetSDLWindowFromHandler(window), defaultPath.CStr(), false);
+	}
 }

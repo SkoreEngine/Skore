@@ -29,6 +29,7 @@
 #include "Skore/Window/SceneViewWindow.hpp"
 #include "Skore/Window/TextureViewWindow.hpp"
 #include "Skore/Window/GraphEditorWindow.hpp"
+#include "Skore/Window/PackagesWindow.hpp"
 
 #include <thread>
 #include <chrono>
@@ -110,6 +111,7 @@ namespace Skore
 		};
 
 		RID                     projectRID;
+		String                  projectFilePath;
 		String                  projectPath;
 		String                  projectAssetPath;
 		String								  projectLocalPath;
@@ -125,6 +127,9 @@ namespace Skore
 		//c++ dev plugin
 		String                   pluginProjectPath;
 		u64                      pluginLastModifiedTime = 0;
+
+		//extra packages referenced by the .skore project file (each has Assets and/or Binaries)
+		Array<String>            projectPackages;
 
 		Array<RID>    packages;
 		Array<String> packagePaths;
@@ -346,13 +351,41 @@ namespace Skore
 				}
 			}
 
-			//TODO copy plugins
-
-			if (FileSystem::GetFileStatus(pluginProjectPath).exists)
+			//copy package binaries (shared libraries) into the player's "Plugins" folder.
+			//the project itself is treated as a package, alongside every referenced package.
 			{
 				String pluginsPath = Path::Join(exportPath, "Plugins");
-				FileSystem::CreateDirectory(pluginsPath);
-				FileSystem::CopyFile(pluginProjectPath, Path::Join(pluginsPath, Path::Name(pluginProjectPath) + SK_SHARED_EXT));
+
+				auto exportPackageBinaries = [&](StringView packageRoot)
+				{
+					String binariesPath = Path::Join(packageRoot, "Binaries");
+					if (!FileSystem::GetFileStatus(binariesPath).exists)
+					{
+						return;
+					}
+
+					for (const String& file : DirectoryEntries{binariesPath})
+					{
+						if (Path::Extension(file) != SK_SHARED_EXT)
+						{
+							continue;
+						}
+
+						if (!FileSystem::GetFileStatus(pluginsPath).exists)
+						{
+							FileSystem::CreateDirectory(pluginsPath);
+						}
+
+						FileSystem::CopyFile(file, Path::Join(pluginsPath, Path::Name(file) + SK_SHARED_EXT));
+					}
+				};
+
+				exportPackageBinaries(projectPath);
+
+				for (const String& packagePath : packagePaths)
+				{
+					exportPackageBinaries(packagePath);
+				}
 			}
 
 			String assetsPath = Path::Join(exportPath, "Assets");
@@ -751,6 +784,78 @@ namespace Skore
 			}
 		}
 
+		//loads the shared libraries (plugins) found in a package's "Binaries" folder
+		void LoadPackageBinaries(StringView packagePath)
+		{
+			String binariesPath = Path::Join(packagePath, "Binaries");
+			if (!FileSystem::GetFileStatus(binariesPath).exists)
+			{
+				return;
+			}
+
+			for (const String& file : DirectoryEntries{binariesPath})
+			{
+				if (Path::Extension(file) == SK_SHARED_EXT)
+				{
+					logger.Info("Loading package binary: {}", file);
+					App::LoadPlugin(file);
+				}
+			}
+		}
+
+		void LoadProjectFile()
+		{
+			projectPackages.Clear();
+
+			if (!FileSystem::GetFileStatus(projectFilePath).exists)
+			{
+				return;
+			}
+
+			YamlArchiveReader reader(FileSystem::ReadFileAsString(projectFilePath));
+			if (reader.BeginSeq("packages"))
+			{
+				while (reader.NextSeqEntry())
+				{
+					if (StringView package = reader.GetString(); !package.Empty())
+					{
+						projectPackages.EmplaceBack(package);
+					}
+				}
+				reader.EndSeq();
+			}
+		}
+
+		void SaveProjectFile()
+		{
+			YamlArchiveWriter writer;
+			writer.BeginSeq("packages");
+			for (const String& package : projectPackages)
+			{
+				writer.AddString(package);
+			}
+			writer.EndSeq();
+
+			FileSystem::SaveFileAsString(projectFilePath, writer.EmitAsString());
+			logger.Debug("Project file saved at {}", projectFilePath);
+		}
+
+		//loads a full package: binaries first (so any types they register are available),
+		//then the "Assets" folder via the package system
+		void LoadPackageWithBinaries(StringView packagePath)
+		{
+			LoadPackageBinaries(packagePath);
+			Editor::LoadPackage(Path::Name(packagePath), packagePath);
+		}
+
+		void LoadProjectPackages()
+		{
+			for (const String& package : projectPackages)
+			{
+				LoadPackageWithBinaries(package);
+			}
+		}
+
 		std::chrono::time_point lastExecution = std::chrono::steady_clock::now();
 
 		void LoadProjectPlugin()
@@ -1022,6 +1127,50 @@ namespace Skore
 		return rid;
 	}
 
+	Span<String> Editor::GetProjectPackages()
+	{
+		return projectPackages;
+	}
+
+	void Editor::AddProjectPackage(StringView directory)
+	{
+		if (directory.Empty()) return;
+
+		bool hasAssets = FileSystem::GetFileStatus(Path::Join(directory, "Assets")).exists;
+		bool hasBinaries = FileSystem::GetFileStatus(Path::Join(directory, "Binaries")).exists;
+
+		if (!hasAssets && !hasBinaries)
+		{
+			Editor::ShowErrorDialog("The selected folder is not a valid package.\nA package must contain an \"Assets\" and/or \"Binaries\" folder.");
+			return;
+		}
+
+		for (const String& existing : projectPackages)
+		{
+			if (existing == directory)
+			{
+				return;
+			}
+		}
+
+		projectPackages.EmplaceBack(directory);
+		SaveProjectFile();
+		LoadPackageWithBinaries(directory);
+	}
+
+	void Editor::RemoveProjectPackage(StringView directory)
+	{
+		for (auto it = projectPackages.begin(); it != projectPackages.end(); ++it)
+		{
+			if (*it == directory)
+			{
+				projectPackages.Erase(it);
+				SaveProjectFile();
+				return;
+			}
+		}
+	}
+
 	void Editor::ExecuteOnMainThread(std::function<void()> func)
 	{
 		std::scoped_lock lock(funcsMutex);
@@ -1122,6 +1271,7 @@ namespace Skore
 		}
 
 		threadPool = std::make_unique<ThreadPool>();
+		projectFilePath = projectFile;
 		projectPath = Path::Parent(projectFile);
 
 		projectAssetPath = Path::Join(projectPath, "Assets");
@@ -1245,8 +1395,12 @@ namespace Skore
 				continue;
 			}
 #endif
-			Editor::LoadPackage(Path::Name(package), package);
+			LoadPackageWithBinaries(package);
 		}
+
+		//load extra packages referenced by the .skore project file (editor only, player loads them separately)
+		LoadProjectFile();
+		LoadProjectPackages();
 
 		projectRID = ResourceAssets::ScanPackageFromDirectory(Path::Name(projectFile), projectPath);
 
@@ -1320,6 +1474,7 @@ namespace Skore
 		Reflection::Type<PropertiesWindow>();
 		Reflection::Type<ResourceDebuggerWindow>();
 		Reflection::Type<SettingsWindow>();
+		Reflection::Type<PackagesWindow>();
 		Reflection::Type<GraphEditorWindow>();
 		Reflection::Type<DebuggerWindow>();
 		Reflection::Type<AnimatorTreeViewWindow>();

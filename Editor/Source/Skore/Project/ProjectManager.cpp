@@ -107,7 +107,7 @@ namespace Skore
 			CreateCMakeProject(projectPath);
 		}
 
-		FileSystem::SaveFileAsString(projectFile, "//TODO: Create project file");
+		FileSystem::SaveFileAsString(projectFile, "packages: []\n");
 
 		projectManagerUserData.recentProjects.EmplaceBack(projectFile);
 		projectManagerUserData.recentProjectDirectory = location;
