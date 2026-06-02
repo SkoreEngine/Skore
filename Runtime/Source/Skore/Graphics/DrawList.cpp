@@ -157,13 +157,21 @@ namespace Skore
 	{
 		if (batch->vertexCount + vertexCount > batch->vertexCapacity)
 		{
-			batch->vertexCapacity = batch->vertexCapacity * 2;
+			u32 required = batch->vertexCount + vertexCount;
+			while (batch->vertexCapacity < required)
+			{
+				batch->vertexCapacity *= 2;
+			}
 			batch->vertices = ReallocElements<DrawListVertex>(batch->vertices, batch->vertexCapacity);
 		}
 
 		if (batch->indexCount + indexCount > batch->indexCapacity)
 		{
-			batch->indexCapacity = batch->indexCapacity * 2;
+			u32 required = batch->indexCount + indexCount;
+			while (batch->indexCapacity < required)
+			{
+				batch->indexCapacity *= 2;
+			}
 			batch->indices = ReallocElements<u32>(batch->indices, batch->indexCapacity);
 		}
 	}
