@@ -45,7 +45,7 @@ namespace Skore
 			{
 				DepthStencilStateDesc depthStencilState;
 				depthStencilState.depthTestEnable = true;
-				depthStencilState.depthCompareOp = CompareOp::LessEqual;
+				depthStencilState.depthCompareOp = CompareOp::GreaterEqual; // reverse-Z (skybox at far=0)
 
 				skyboxMaterialPipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
 					.shader = Resources::FindByPath("Skore://Shaders/SkyboxRender.raster"),
@@ -69,7 +69,7 @@ namespace Skore
 					.depthStencilState = {
 						.depthTestEnable = true,
 						.depthWriteEnable = false,
-						.depthCompareOp = CompareOp::Less
+						.depthCompareOp = CompareOp::Greater // reverse-Z
 					},
 					.blendStates = {
 						BlendStateDesc{
@@ -127,7 +127,7 @@ namespace Skore
 				DepthStencilStateDesc depthStencilState;
 				depthStencilState.depthTestEnable = true;
 				depthStencilState.depthWriteEnable = true;
-				depthStencilState.depthCompareOp = CompareOp::Less;
+				depthStencilState.depthCompareOp = CompareOp::Greater; // reverse-Z
 
 				GraphicsPipelineDesc gpuDesc = GraphicsPipelineDesc{
 					.shader = forwardShader,

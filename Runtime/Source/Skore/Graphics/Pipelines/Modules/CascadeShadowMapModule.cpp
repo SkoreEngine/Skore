@@ -475,6 +475,7 @@ namespace Skore
 			cmd->BeginDebugMarker("Cascade: " + ToString(i), Vec4{0, 0, 0, 1});
 
 			ClearValues clearValues = {};
+			clearValues.depth = 1.0f; // shadows stay STANDARD-Z (far = 1); the reverse-Z default is for the main camera
 
 			BeginRenderPassInfo beginInfo;
 			beginInfo.renderPass  = m_shadowMapRenderPass[i];

@@ -41,7 +41,8 @@ groupshared AF1 spdIntermediateA[16][16];
 
 float LinearizeDepth(float rawDepth, float nearClip, float farClip)
 {
-    return nearClip * farClip / (farClip - rawDepth * (farClip - nearClip));
+    // Reverse-Z: rawDepth 1=near, 0=far (was 0=near, 1=far).
+    return nearClip * farClip / (nearClip + rawDepth * (farClip - nearClip));
 }
 
 AF4 SpdLoadSourceImage(ASU2 tex, AU1 slice)

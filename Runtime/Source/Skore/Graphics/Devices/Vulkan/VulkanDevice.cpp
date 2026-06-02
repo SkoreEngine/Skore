@@ -555,6 +555,22 @@ namespace Skore
 		vkCmdBindIndexBuffer(commandBuffer, static_cast<VulkanBuffer*>(buffer)->buffer, offset, vkIndexType);
 	}
 
+	static DescriptorSetLayoutBinding* FindDescriptorBinding(VulkanPipeline* vulkanPipeline, u32 set, u32 binding)
+	{
+		for (DescriptorSetLayout& descriptorSet : vulkanPipeline->pipelineDesc.descriptors)
+		{
+			if (descriptorSet.set == set)
+			{
+				if (binding < descriptorSet.bindings.Size())
+				{
+					return &descriptorSet.bindings[binding];
+				}
+				return nullptr;
+			}
+		}
+		return nullptr;
+	}
+
 	void VulkanCommandBuffer::SetTexture(GPUPipeline* pipeline, u32 set, u32 binding, GPUTexture* texture, u32 arrayElement)
 	{
 		SK_ASSERT(texture, "texture is required");
@@ -570,8 +586,8 @@ namespace Skore
 	void VulkanCommandBuffer::SetBuffer(GPUPipeline* pipeline, u32 set, u32 binding, GPUBuffer* buffer, u64 offset, u64 range)
 	{
 		VulkanPipeline*             vulkanPipeline = static_cast<VulkanPipeline*>(pipeline);
-		DescriptorSetLayoutBinding& layout = vulkanPipeline->pipelineDesc.descriptors[set].bindings[binding];
-		if (layout.descriptorType == DescriptorType::None) return;
+		DescriptorSetLayoutBinding* layout = FindDescriptorBinding(vulkanPipeline, set, binding);
+		if (layout == nullptr || layout->descriptorType == DescriptorType::None) return;
 
 		VkDescriptorBufferInfo      bufferInfo;
 		bufferInfo.buffer = static_cast<VulkanBuffer*>(buffer)->buffer;
@@ -582,7 +598,7 @@ namespace Skore
 		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		write.dstSet = nullptr;
 		write.dstBinding = binding;
-		write.descriptorType = ConvertDescriptorType(layout.descriptorType);
+		write.descriptorType = ConvertDescriptorType(layout->descriptorType);
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
 
@@ -595,8 +611,8 @@ namespace Skore
 	void VulkanCommandBuffer::SetBuffer(GPUPipeline* pipeline, u32 set, u32 binding, GPUBuffer* buffer, u64 offset, u64 range, u32 arrayIndex)
 	{
 		VulkanPipeline*             vulkanPipeline = static_cast<VulkanPipeline*>(pipeline);
-		DescriptorSetLayoutBinding& layout = vulkanPipeline->pipelineDesc.descriptors[set].bindings[binding];
-		if (layout.descriptorType == DescriptorType::None) return;
+		DescriptorSetLayoutBinding* layout = FindDescriptorBinding(vulkanPipeline, set, binding);
+		if (layout == nullptr || layout->descriptorType == DescriptorType::None) return;
 
 		VkDescriptorBufferInfo      bufferInfo;
 		bufferInfo.buffer = static_cast<VulkanBuffer*>(buffer)->buffer;
@@ -607,7 +623,7 @@ namespace Skore
 		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		write.dstSet = nullptr;
 		write.dstBinding = binding;
-		write.descriptorType = ConvertDescriptorType(layout.descriptorType);
+		write.descriptorType = ConvertDescriptorType(layout->descriptorType);
 		write.dstArrayElement = arrayIndex;
 		write.descriptorCount = 1;
 
@@ -620,8 +636,8 @@ namespace Skore
 	void VulkanCommandBuffer::SetSampler(GPUPipeline* pipeline, u32 set, u32 binding, GPUSampler* sampler)
 	{
 		VulkanPipeline*             vulkanPipeline = static_cast<VulkanPipeline*>(pipeline);
-		DescriptorSetLayoutBinding& layout = vulkanPipeline->pipelineDesc.descriptors[set].bindings[binding];
-		if (layout.descriptorType == DescriptorType::None) return;
+		DescriptorSetLayoutBinding* layout = FindDescriptorBinding(vulkanPipeline, set, binding);
+		if (layout == nullptr || layout->descriptorType == DescriptorType::None) return;
 
 		VkDescriptorImageInfo imageInfo = {};
 		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -632,7 +648,7 @@ namespace Skore
 		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		write.dstSet = nullptr;
 		write.dstBinding = binding;
-		write.descriptorType = ConvertDescriptorType(layout.descriptorType);
+		write.descriptorType = ConvertDescriptorType(layout->descriptorType);
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
 
@@ -647,8 +663,8 @@ namespace Skore
 		SK_ASSERT(topLevelAS, "top level acceleration structure is required");
 
 		VulkanPipeline*             vulkanPipeline = static_cast<VulkanPipeline*>(pipeline);
-		DescriptorSetLayoutBinding& layout = vulkanPipeline->pipelineDesc.descriptors[set].bindings[binding];
-		if (layout.descriptorType == DescriptorType::None) return;
+		DescriptorSetLayoutBinding* layout = FindDescriptorBinding(vulkanPipeline, set, binding);
+		if (layout == nullptr || layout->descriptorType == DescriptorType::None) return;
 
 		VulkanTopLevelAS* vkTlas = static_cast<VulkanTopLevelAS*>(topLevelAS);
 
@@ -660,7 +676,7 @@ namespace Skore
 		write.pNext = &accelerationStructureWrite;
 		write.dstSet = nullptr;
 		write.dstBinding = binding;
-		write.descriptorType = ConvertDescriptorType(layout.descriptorType);
+		write.descriptorType = ConvertDescriptorType(layout->descriptorType);
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
 
@@ -1652,13 +1668,13 @@ namespace Skore
 	{
 		VulkanPipeline* vulkanPipeline = static_cast<VulkanPipeline*>(pipeline);
 
-		DescriptorSetLayoutBinding& layout = vulkanPipeline->pipelineDesc.descriptors[set].bindings[binding];
-		if (layout.descriptorType == DescriptorType::None) return;
+		DescriptorSetLayoutBinding* layout = FindDescriptorBinding(vulkanPipeline, set, binding);
+		if (layout == nullptr || layout->descriptorType == DescriptorType::None) return;
 
 		VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
 		write.dstSet = nullptr;
 		write.dstBinding = binding;
-		write.descriptorType = ConvertDescriptorType(layout.descriptorType);
+		write.descriptorType = ConvertDescriptorType(layout->descriptorType);
 		write.dstArrayElement = arrayElement;
 		write.descriptorCount = 1;
 
@@ -1681,7 +1697,7 @@ namespace Skore
 
 		imageInfo.imageLayout = depthFormat
 													? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-													: layout.descriptorType == DescriptorType::StorageImage
+													: layout->descriptorType == DescriptorType::StorageImage
 													? VK_IMAGE_LAYOUT_GENERAL
 													: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
