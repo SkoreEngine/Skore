@@ -5,6 +5,7 @@
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Resource/Resources.hpp"
+#include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/SceneEditor.hpp"
 
 namespace Skore
@@ -42,7 +43,7 @@ namespace Skore
 			depth = Graphics::CreateTexture({
 				.extent = currentExtent,
 				.format = TextureFormat::D32_FLOAT,
-				.usage = ResourceUsage::DepthStencil,
+				.usage = ResourceUsage::DepthStencil | ResourceUsage::CopySource,
 				.debugName = "EntityPicker_DepthTexture"
 			});
 
@@ -52,6 +53,14 @@ namespace Skore
 				.hostVisible = true,
 				.persistentMapped = true,
 				.debugName = "EntityPicker_ImageBuffer"
+			});
+
+			depthBuffer = Graphics::CreateBuffer({
+				.size = currentExtent.width * currentExtent.height * sizeof(f32),
+				.usage = ResourceUsage::CopyDest,
+				.hostVisible = true,
+				.persistentMapped = true,
+				.debugName = "EntityPicker_DepthBuffer"
 			});
 
 			renderPass = Graphics::CreateRenderPass({
@@ -82,8 +91,9 @@ namespace Skore
 		}
 	}
 
-	Entity* EntityPicker::PickEntity(Mat4 viewProjection, SceneEditor* sceneEditor, Vec2 mousePosition)
+	Entity* EntityPicker::PickEntity(Mat4 viewProjection, SceneEditor* sceneEditor, Vec2 mousePosition, Vec3* outWorldPosition, bool* outSurfaceHit, Entity* ignoreEntity)
 	{
+		if (outSurfaceHit) *outSurfaceHit = false;
 
 		if (static_cast<u32>(mousePosition.x + 1) > currentExtent.width || static_cast<u32>(mousePosition.y + 1) > currentExtent.height) return {};
 
@@ -170,6 +180,20 @@ namespace Skore
 
 				for (const Drawcall& drawcall : drawPipeline.drawcalls)
 				{
+					if (ignoreEntity != nullptr && drawcall.userData != 0)
+					{
+						bool ignored = false;
+						for (Entity* e = static_cast<Entity*>(IntToPtr(drawcall.userData)); e != nullptr; e = e->GetParent())
+						{
+							if (e == ignoreEntity)
+							{
+								ignored = true;
+								break;
+							}
+						}
+						if (ignored) continue;
+					}
+
 					pushConstants.world = drawcall.transform;
 					pushConstants.entityID = drawcall.userData;
 					pushConstants.vertexByteOffset = drawcall.vertexByteOffset;
@@ -189,6 +213,15 @@ namespace Skore
 				.extent = Extent3D(currentExtent.width, currentExtent.height, 1),
 			});
 			cmd->ResourceBarrier(imageBuffer, ResourceState::Undefined, ResourceState::CopyDest);
+
+			cmd->ResourceBarrier(depth, ResourceState::DepthStencilAttachment, ResourceState::CopySource, 0, 0);
+			cmd->CopyTextureToBuffer({
+				.buffer = depthBuffer,
+				.texture = depth,
+				.extent = Extent3D(currentExtent.width, currentExtent.height, 1),
+			});
+			cmd->ResourceBarrier(depthBuffer, ResourceState::Undefined, ResourceState::CopyDest);
+
 			cmd->EndDebugMarker();
 			cmd->End();
 
@@ -202,6 +235,27 @@ namespace Skore
 			if (imageBuffer->GetDesc().size <= pixelOffset)
 			{
 				return {};
+			}
+
+			if (outWorldPosition && depthBuffer)
+			{
+				usize depthOffset = (static_cast<usize>(mousePosition.y) * currentExtent.width + static_cast<usize>(mousePosition.x)) * sizeof(f32);
+				if (depthBuffer->GetDesc().size > depthOffset)
+				{
+					f32 depthValue = *reinterpret_cast<f32*>(static_cast<u8*>(depthBuffer->GetMappedData()) + depthOffset);
+					if (depthValue > 0.0f)
+					{
+						f32  ndcX = (2.0f * mousePosition.x) / currentExtent.width - 1.0f;
+						f32  ndcY = 1.0f - (2.0f * mousePosition.y) / currentExtent.height;
+						Vec4 worldPosition = Mat4::Inverse(viewProjection) * Vec4(ndcX, ndcY, depthValue, 1.0f);
+						if (worldPosition.w != 0.0f)
+						{
+							worldPosition /= worldPosition.w;
+							*outWorldPosition = Vec3(worldPosition.x, worldPosition.y, worldPosition.z);
+							if (outSurfaceHit) *outSurfaceHit = true;
+						}
+					}
+				}
 			}
 
 			u64 entityPtr = *reinterpret_cast<u64*>(data + pixelOffset);
@@ -231,9 +285,11 @@ namespace Skore
 		}
 		pickerPipelines.Clear();
 		if (imageBuffer) imageBuffer->Destroy();
+		if (depthBuffer) depthBuffer->Destroy();
 
 		texture = nullptr;
 		imageBuffer = nullptr;
+		depthBuffer = nullptr;
 		renderPass = nullptr;
 	}
 }
