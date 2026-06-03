@@ -59,7 +59,7 @@ namespace Skore
 		static u32        GetTargetFPS();
 		static void       RunOnMainThread(const std::function<void()>& callback);
 		static ThreadPool& GetThreadPool();
-		static void       LoadPlugin(StringView path);
+		static void       LoadPlugin(StringView path, StringView entryPoint = "SkoreLoadPlugin");
 		static bool       ReloadedEnabled();
 		static void       SetReloadEnabled(bool enabled);
 

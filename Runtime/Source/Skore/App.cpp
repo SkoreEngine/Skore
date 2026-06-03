@@ -372,11 +372,11 @@ namespace Skore
 		return *threadPool;
 	}
 
-	void App::LoadPlugin(StringView path)
+	void App::LoadPlugin(StringView path, StringView entryPoint)
 	{
 		if (VoidPtr library = Platform::LoadObject(path.CStr()))
 		{
-			if (auto func = reinterpret_cast<void(*)()>(Platform::LoadFunction(library, "SkoreLoadPlugin")))
+			if (auto func = reinterpret_cast<void(*)()>(Platform::LoadFunction(library, entryPoint)))
 			{
 				bool isReload = enableReload && loadedPluginPaths.Has(Path::Name(path));
 				func();

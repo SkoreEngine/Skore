@@ -358,7 +358,7 @@ namespace Skore
 
 				auto exportPackageBinaries = [&](StringView packageRoot)
 				{
-					String binariesPath = Path::Join(packageRoot, "Binaries");
+					String binariesPath = Path::Join(Path::Join(packageRoot, "Binaries"), "Runtime");
 					if (!FileSystem::GetFileStatus(binariesPath).exists)
 					{
 						return;
@@ -784,10 +784,8 @@ namespace Skore
 			}
 		}
 
-		//loads the shared libraries (plugins) found in a package's "Binaries" folder
-		void LoadPackageBinaries(StringView packagePath)
+		void LoadBinariesFrom(StringView binariesPath, StringView entryPoint)
 		{
-			String binariesPath = Path::Join(packagePath, "Binaries");
 			if (!FileSystem::GetFileStatus(binariesPath).exists)
 			{
 				return;
@@ -797,10 +795,17 @@ namespace Skore
 			{
 				if (Path::Extension(file) == SK_SHARED_EXT)
 				{
-					logger.Info("Loading package binary: {}", file);
-					App::LoadPlugin(file);
+					logger.Info("Loading package binary: {} ({})", file, entryPoint);
+					App::LoadPlugin(file, entryPoint);
 				}
 			}
+		}
+
+		void LoadPackageBinaries(StringView packagePath)
+		{
+			String binariesPath = Path::Join(packagePath, "Binaries");
+			LoadBinariesFrom(Path::Join(binariesPath, "Runtime"), "SkoreLoadPlugin");
+			LoadBinariesFrom(Path::Join(binariesPath, "Editor"), "SkoreLoadEditorPlugin");
 		}
 
 		void LoadProjectFile()
@@ -1289,7 +1294,7 @@ namespace Skore
 		}
 
 		//TODO - not sure?
-		pluginProjectPath = Path::Join(Path::Join(projectPath, "Binaries"), Path::Name(projectFile) + SK_SHARED_EXT);
+		pluginProjectPath = Path::Join(Path::Join(Path::Join(projectPath, "Binaries"), "Runtime"), Path::Name(projectFile) + SK_SHARED_EXT);
 
 
 		if (!FileSystem::GetFileStatus(projectAssetPath).exists)
@@ -1329,33 +1334,6 @@ namespace Skore
 		ProjectBrowserWindowInit();
 		EditorLayout::Init();
 
-		for (TypeID typeId : Reflection::GetDerivedTypes(TypeInfo<EditorWindow>::ID()))
-		{
-			if (ReflectType* reflectType = Reflection::FindTypeById(typeId))
-			{
-				EditorWindowProperties properties{};
-
-				if (const EditorWindowProperties* editorWindowProperties = reflectType->GetAttribute<EditorWindowProperties>())
-				{
-					properties.dockPosition = editorWindowProperties->dockPosition;
-					properties.order = editorWindowProperties->order;
-					properties.workspaceTypes = editorWindowProperties->workspaceTypes;
-				}
-
-				editorWindowStorages.EmplaceBack(EditorWindowStorage{
-					.typeId = reflectType->GetProps().typeId,
-					.dockPosition = properties.dockPosition,
-					.order = properties.order,
-					.workspaceTypes = properties.workspaceTypes
-				});
-			}
-		}
-
-		std::sort(editorWindowStorages.begin(), editorWindowStorages.end(), [](const EditorWindowStorage& l, const EditorWindowStorage& r)
-		{
-			return l.order < r.order;
-		});
-
 		logger.Debug("projectSettingsPath {}", projectSettingsPath);
 		if (!FileSystem::GetFileStatus(projectSettingsPath).exists)
 		{
@@ -1374,6 +1352,8 @@ namespace Skore
 		{
 			LoadProjectPlugin();
 		}
+
+		LoadBinariesFrom(Path::Join(Path::Join(projectPath, "Binaries"), "Editor"), "SkoreLoadEditorPlugin");
 
 #ifdef SK_DEV_ASSETS
 		Editor::LoadPackage("Skore", Path::Join(SK_ROOT_SOURCE_PATH));
@@ -1401,6 +1381,33 @@ namespace Skore
 		//load extra packages referenced by the .skore project file (editor only, player loads them separately)
 		LoadProjectFile();
 		LoadProjectPackages();
+
+		for (TypeID typeId : Reflection::GetDerivedTypes(TypeInfo<EditorWindow>::ID()))
+		{
+			if (ReflectType* reflectType = Reflection::FindTypeById(typeId))
+			{
+				EditorWindowProperties properties{};
+
+				if (const EditorWindowProperties* editorWindowProperties = reflectType->GetAttribute<EditorWindowProperties>())
+				{
+					properties.dockPosition = editorWindowProperties->dockPosition;
+					properties.order = editorWindowProperties->order;
+					properties.workspaceTypes = editorWindowProperties->workspaceTypes;
+				}
+
+				editorWindowStorages.EmplaceBack(EditorWindowStorage{
+					.typeId = reflectType->GetProps().typeId,
+					.dockPosition = properties.dockPosition,
+					.order = properties.order,
+					.workspaceTypes = properties.workspaceTypes
+				});
+			}
+		}
+
+		std::sort(editorWindowStorages.begin(), editorWindowStorages.end(), [](const EditorWindowStorage& l, const EditorWindowStorage& r)
+		{
+			return l.order < r.order;
+		});
 
 		projectRID = ResourceAssets::ScanPackageFromDirectory(Path::Name(projectFile), projectPath);
 
