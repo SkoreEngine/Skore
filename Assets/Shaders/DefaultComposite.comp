@@ -37,7 +37,7 @@ void MainCS(uint2 px : SV_DispatchThreadID)
         return;
 
     float depth = depthTexture[px].r;
-    if (depth >= 0.9999)
+    if (depth <= 0.0001) // reverse-Z: sky/background at far = 0
     {
         outputTexture[px] = lightTexture[px];
         return;

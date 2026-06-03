@@ -640,7 +640,7 @@ namespace Skore
 	{
 		bool               depthTestEnable{true};
 		bool               depthWriteEnable{true};
-		CompareOp          depthCompareOp{CompareOp::Less};
+		CompareOp          depthCompareOp{CompareOp::Greater}; // reverse-Z default (was Less)
 		bool               depthBoundsTestEnable{false};
 		bool               stencilTestEnable{false};
 		StencilOpStateDesc front;
@@ -715,7 +715,7 @@ namespace Skore
 	struct ClearValues
 	{
 		Vec4 color = Vec4(0, 0, 0, 0);
-		f32  depth = 1.0;
+		f32  depth = 0.0; // reverse-Z: far plane = 0 (was 1.0)
 		f32  stencil = 0.0;
 	};
 

@@ -32,6 +32,7 @@
 namespace Skore
 {
 	struct DefaultRenderPipeline;
+	struct KajiyaRenderPipeline; // SkoreKajiya plugin pipeline (test hardcode; swap back to DefaultRenderPipeline to restore)
 
 	MenuItemContext SceneViewWindow::menuItemContext = {};
 

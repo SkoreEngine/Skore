@@ -713,7 +713,7 @@ namespace Skore
 			DepthStencilStateDesc depthStencilState;
 			depthStencilState.depthTestEnable = true;
 			depthStencilState.depthWriteEnable = true;
-			depthStencilState.depthCompareOp = CompareOp::LessEqual;
+			depthStencilState.depthCompareOp = CompareOp::GreaterEqual; // reverse-Z
 
 			pipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
 				.shader = shader,

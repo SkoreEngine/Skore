@@ -1994,7 +1994,12 @@ namespace Skore
 
 	inline Mat4 Mat4::Perspective(f32 fovRadians, f32 aspectRatio, f32 zNear, f32 zFar)
 	{
-		return PerspectiveRH_ZO(fovRadians, aspectRatio, zNear, zFar);
+		// Reverse-Z: feeding near/far swapped into the RH ZO builder maps far->0,
+		// near->1 (better depth precision; matches the renderer's depth convention).
+		// Depth buffers are cleared to 0.0 and tested with CompareOp::Greater.
+		// PerspectiveRH_ZO itself stays standard-Z for any caller that needs it
+		// (e.g. shadow cascades build their own standard-Z projection).
+		return PerspectiveRH_ZO(fovRadians, aspectRatio, zFar, zNear);
 	}
 
 	inline Mat4 Mat4::LookAt(const Vec3& eye, const Vec3& center, const Vec3& up)
