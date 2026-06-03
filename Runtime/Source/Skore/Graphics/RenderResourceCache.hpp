@@ -81,6 +81,8 @@ namespace Skore
 		// contents are populated before sampling.
 		std::shared_future<void> uploadComplete;
 
+		bool eventRegistered = false;
+
 		TextureResourceCache(RID rid) : rid(rid) {}
 		~TextureResourceCache() override;
 

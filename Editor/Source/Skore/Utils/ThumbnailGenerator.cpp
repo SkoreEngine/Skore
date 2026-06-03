@@ -15,7 +15,7 @@
 
 namespace Skore
 {
-	struct DefaultRenderPipeline;
+	struct ThumbnailRenderPipeline;
 
 
 	struct OutputToBufferPass : RenderPipelinePass
@@ -75,6 +75,7 @@ namespace Skore
 		Scene* scene = Alloc<Scene>();
 
 		scene->renderObjects.asyncLoad = false;
+		scene->renderObjects.requireTlas = false;
 
 		SetupScene(scene);
 
@@ -86,6 +87,7 @@ namespace Skore
 
 			LightComponent* light = lightEntity->AddComponent<LightComponent>();
 			light->SetIntensity(2.0);
+			light->SetEnableShadows(true);
 		}
 
 		if (scene->FindFirstComponent(sktypeid(EnvironmentComponent)) == nullptr)
@@ -145,7 +147,7 @@ namespace Skore
 		settings.userData = this;
 		Array<TypeID> modules;
 		modules.EmplaceBack(sktypeid(OutputToBufferModule));
-		RenderPipelineContext* renderPipelineContext = RenderPipeline::CreateContext(sktypeid(DefaultRenderPipeline), modules, settings);
+		RenderPipelineContext* renderPipelineContext = RenderPipeline::CreateContext(sktypeid(ThumbnailRenderPipeline), modules, settings);
 
 		Vec2 nearFar = {0.1, 100.0f};
 		if (aabb)

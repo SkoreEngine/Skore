@@ -962,6 +962,7 @@ namespace Skore
 		};
 
 		HashMap<RID, FontResourceCachePtr>                 fontCache;
+		HashMap<RID, std::weak_ptr<TextureResourceCache>>  textureAsyncCache;
 		HashMap<RID, std::weak_ptr<TextureResourceCache>>  textureCache;
 		HashMap<RID, std::weak_ptr<MaterialResourceCache>> materialCache;
 		HashMap<RID, std::weak_ptr<MeshResourceCache>>     meshCache;
@@ -1196,8 +1197,8 @@ namespace Skore
 
 			i32  alphaMode;
 			f32  alphaCutoff;
-			f32 pad0;
-			f32 pad1;
+			u32  samplerIndices0;
+			u32  samplerIndices1;
 		};
 
 		struct PendingMaterial
@@ -1337,6 +1338,19 @@ namespace Skore
 					return -1;
 				};
 
+				auto resolveSamplerIndex = [](RID textureRID) -> u32
+				{
+					if (!textureRID) return 0;
+					ResourceObject textureObject = Resources::Read(textureRID);
+					if (!textureObject) return 0;
+					AddressMode wrap    = textureObject.GetEnum<AddressMode>(TextureResource::WrapMode);
+					FilterMode  filter  = textureObject.GetEnum<FilterMode>(TextureResource::FilterMode);
+					bool        clamp   = wrap == AddressMode::ClampToEdge || wrap == AddressMode::ClampToBorder;
+					bool        nearest = filter == FilterMode::Nearest;
+					if (clamp) return nearest ? 3u : 2u;
+					return nearest ? 1u : 0u;
+				};
+
 				MaterialData matData{};
 				matData.baseColor = baseColor.ToVec3();
 				matData.roughness = materialObject.GetFloat(MaterialResource::Roughness);
@@ -1351,6 +1365,13 @@ namespace Skore
 				matData.emissiveTexture = resolveTextureIndex(emissiveTexture);
 				matData.alphaMode = materialObject.GetEnum(MaterialResource::AlphaMode);
 				matData.alphaCutoff = materialObject.GetFloat(MaterialResource::AlphaCutoff);
+
+				matData.samplerIndices0 = resolveSamplerIndex(baseColorTexture)
+				                        | (resolveSamplerIndex(normalTexture)    << 8)
+				                        | (resolveSamplerIndex(roughnessTexture) << 16)
+				                        | (resolveSamplerIndex(metallicTexture)  << 24);
+
+				matData.samplerIndices1 = resolveSamplerIndex(emissiveTexture);
 
 				MaterialResource::MaterialAlphaMode alphaModeEnum = materialObject.GetEnum<MaterialResource::MaterialAlphaMode>(MaterialResource::AlphaMode);
 				materialCache->transparent = alphaModeEnum == MaterialResource::MaterialAlphaMode::Blend;
@@ -1443,6 +1464,115 @@ namespace Skore
 				if (auto sp = it->second.lock())
 				{
 					UpdateMaterialStorageData(newValue, sp, true);
+				}
+			}
+		}
+
+		void ReloadTextureGpuData(const TextureResourceCachePtr& textureStorage, const ResourceObject& textureObject, bool async)
+		{
+			Span<RID> images = textureObject.GetSubObjectList(TextureResource::Images);
+			if (images.Empty()) return;
+
+			StringView    name = textureObject.GetString(TextureResource::Name);
+			TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+
+			ResourceObject firstImageObject = Resources::Read(images[0]);
+			Vec2           extent = firstImageObject.GetVec2(TextureImageResource::Extent);
+			u32            mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
+			u32            totalMips = std::max(mipLevels, 1u);
+			u32            newExtentW = static_cast<u32>(extent.x);
+			u32            newExtentH = static_cast<u32>(extent.y);
+
+			bool gpuDescChanged = !textureStorage->texture
+				|| textureStorage->texture->GetDesc().format != format
+				|| textureStorage->fullExtentWidth != newExtentW
+				|| textureStorage->fullExtentHeight != newExtentH
+				|| textureStorage->fullMipCount != totalMips;
+
+			if (!gpuDescChanged) return;
+
+			u32 mipsToLoad = async ? ((MaxTextureMipsToLoad == 0 || MaxTextureMipsToLoad >= totalMips) ? totalMips : MaxTextureMipsToLoad) : totalMips;
+			textureStorage->skippedMips = totalMips - mipsToLoad;
+			textureStorage->fullExtentWidth = newExtentW;
+			textureStorage->fullExtentHeight = newExtentH;
+			textureStorage->fullMipCount = totalMips;
+
+			u32 baseWidth = std::max(newExtentW >> textureStorage->skippedMips, 1u);
+			u32 baseHeight = std::max(newExtentH >> textureStorage->skippedMips, 1u);
+
+			GPUTexture* oldTexture = textureStorage->texture;
+
+			textureStorage->texture = Graphics::CreateTexture(TextureDesc{
+				.extent = {baseWidth, baseHeight, 1},
+				.mipLevels = mipsToLoad,
+				.format = format,
+				.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
+				.debugName = String(name) + "_Texture"
+			});
+
+			Graphics::SetTextureState(textureStorage->texture, ResourceState::Undefined, ResourceState::ShaderReadOnly);
+			textureStorage->uploadComplete = worker->AddTask(WorkerType::Texture, textureStorage).share();
+
+			if (textureStorage->textureIndex != U32_MAX && globalDescriptorSetAlive && globalDescriptorSet)
+			{
+				DescriptorUpdate texUpdate;
+				texUpdate.type = DescriptorType::SampledImage;
+				texUpdate.binding = 3;
+				texUpdate.arrayElement = textureStorage->textureIndex;
+				texUpdate.texture = textureStorage->texture;
+				globalDescriptorSet->Update(texUpdate);
+			}
+
+			if (oldTexture) oldTexture->Destroy();
+		}
+
+		void GraphicsResourceStorageTextureReload(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+		{
+			RID textureRID = newValue.GetRID();
+
+			TextureResourceCachePtr asyncStorage;
+			TextureResourceCachePtr fullStorage;
+			{
+				std::scoped_lock lock(textureCacheMutex);
+				auto             it = textureAsyncCache.Find(textureRID);
+				if (it != textureAsyncCache.end()) asyncStorage = it->second.lock();
+				auto             fullIt = textureCache.Find(textureRID);
+				if (fullIt != textureCache.end()) fullStorage = fullIt->second.lock();
+			}
+
+			if (asyncStorage)
+			{
+				ReloadTextureGpuData(asyncStorage, newValue, true);
+			}
+			if (fullStorage)
+			{
+				ReloadTextureGpuData(fullStorage, newValue, false);
+			}
+
+			Array<MaterialResourceCachePtr> affected;
+			{
+				std::scoped_lock lock(materialCacheMutex);
+				for (auto& it : materialCache)
+				{
+					if (auto m = it.second.lock())
+					{
+						for (const TextureResourceCachePtr& tc : m->textures)
+						{
+							if (tc && tc->rid == textureRID)
+							{
+								affected.EmplaceBack(m);
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			for (const MaterialResourceCachePtr& m : affected)
+			{
+				if (ResourceObject materialObject = Resources::Read(m->rid))
+				{
+					UpdateMaterialStorageData(materialObject, m, true);
 				}
 			}
 		}
@@ -1580,6 +1710,15 @@ namespace Skore
 
 	TextureResourceCache::~TextureResourceCache()
 	{
+		if (eventRegistered)
+		{
+			if (ResourceStorage* storage = Resources::GetStorage(rid))
+			{
+				storage->UnregisterEvent(ResourceEventType::Changed, GraphicsResourceStorageTextureReload, nullptr);
+			}
+			eventRegistered = false;
+		}
+
 		if (textureIndex != U32_MAX)
 		{
 			if (globalDescriptorSetAlive && globalDescriptorSet)
@@ -1714,8 +1853,8 @@ namespace Skore
 				Array<MaterialResourceCachePtr> matSnap;
 				{
 					std::scoped_lock lock(textureCacheMutex);
-					texSnap.Reserve(textureCache.Size());
-					for (auto& it : textureCache)
+					texSnap.Reserve(textureAsyncCache.Size());
+					for (auto& it : textureAsyncCache)
 					{
 						if (auto sp = it.second.lock()) texSnap.EmplaceBack(std::move(sp));
 					}
@@ -1853,11 +1992,13 @@ namespace Skore
 	{
 		if (!texture) return nullptr;
 
+		HashMap<RID, std::weak_ptr<TextureResourceCache>>& cache = async ? textureAsyncCache : textureCache;
+
 		// Phase 1: brief lock — return existing cache if any.
 		{
 			std::unique_lock lock(textureCacheMutex);
-			auto it = textureCache.Find(texture);
-			if (it != textureCache.end())
+			auto it = cache.Find(texture);
+			if (it != cache.end())
 			{
 				if (auto sp = it->second.lock())
 				{
@@ -1865,11 +2006,17 @@ namespace Skore
 					if (!async && sp->uploadComplete.valid()) sp->uploadComplete.wait();
 					return sp;
 				}
-				textureCache.Erase(it);
+				cache.Erase(it);
 			}
 		}
 
-		TextureResourceCachePtr textureStorage(Alloc<TextureResourceCache>(texture), MakeCacheDeleter<TextureResourceCache>(textureCache, textureCacheMutex, texture));
+		TextureResourceCachePtr textureStorage(Alloc<TextureResourceCache>(texture), MakeCacheDeleter<TextureResourceCache>(cache, textureCacheMutex, texture));
+
+		if (ResourceStorage* storage = Resources::GetStorage(texture))
+		{
+			storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageTextureReload, nullptr);
+			textureStorage->eventRegistered = true;
+		}
 
 		if (ResourceObject textureObject = Resources::Read(texture))
 		{
@@ -1882,9 +2029,9 @@ namespace Skore
 			u32 mipLevels = textureObject.GetUInt(TextureResource::MipLevels);
 
 			u32 totalMips = std::max(mipLevels, 1u);
-			u32 mipsToLoad = (MaxTextureMipsToLoad == 0 || MaxTextureMipsToLoad >= totalMips)
-				? totalMips
-				: MaxTextureMipsToLoad;
+			u32 mipsToLoad = async
+				? ((MaxTextureMipsToLoad == 0 || MaxTextureMipsToLoad >= totalMips) ? totalMips : MaxTextureMipsToLoad)
+				: totalMips;
 			textureStorage->skippedMips = totalMips - mipsToLoad;
 			textureStorage->fullExtentWidth  = static_cast<u32>(extent.x);
 			textureStorage->fullExtentHeight = static_cast<u32>(extent.y);
@@ -1911,8 +2058,8 @@ namespace Skore
 		{
 			std::unique_lock lock(textureCacheMutex);
 
-			auto it = textureCache.Find(texture);
-			if (it != textureCache.end())
+			auto it = cache.Find(texture);
+			if (it != cache.end())
 			{
 				if (auto sp = it->second.lock())
 				{
@@ -1920,7 +2067,7 @@ namespace Skore
 				}
 				else
 				{
-					textureCache.Erase(it);
+					cache.Erase(it);
 				}
 			}
 
@@ -1938,7 +2085,7 @@ namespace Skore
 					globalDescriptorSet->Update(texUpdate);
 				}
 
-				textureCache.Insert(texture, std::weak_ptr(textureStorage));
+				cache.Insert(texture, std::weak_ptr(textureStorage));
 				result = textureStorage;
 			}
 		}
@@ -2698,6 +2845,7 @@ namespace Skore
 				},
 				DescriptorSetLayoutBinding{
 					.binding = 2,
+					.count = 4,
 					.descriptorType = DescriptorType::Sampler
 				},
 				DescriptorSetLayoutBinding{
@@ -2722,12 +2870,15 @@ namespace Skore
 			.debugName = "GlobalDescriptorSet"
 		});
 
-		globalDescriptorSet->UpdateSampler(2, Graphics::GetLinearSampler());
+		globalDescriptorSet->UpdateSampler(2, Graphics::GetLinearSampler(), 0);
+		globalDescriptorSet->UpdateSampler(2, Graphics::GetNearestSampler(), 1);
+		globalDescriptorSet->UpdateSampler(2, Graphics::GetLinearClampToEdgeSampler(), 2);
+		globalDescriptorSet->UpdateSampler(2, Graphics::GetNearestClampToEdgeSampler(), 3);
 		globalDescriptorSetAlive = true;
 
 		meshDataBuffer = Graphics::CreateBuffer(BufferDesc{
 			.size = MeshDataBufferSize,
-			.usage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer | ResourceUsage::ShaderResource,
+			.usage = ResourceUsage::CopyDest | ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer | ResourceUsage::ShaderResource | ResourceUsage::AccelerationStructure,
 			.hostVisible = false,
 			.persistentMapped = false,
 			.debugName = "MeshDataBuffer"
@@ -2745,6 +2896,7 @@ namespace Skore
 	void RenderResourceCacheShutdown()
 	{
 		fontCache.Clear();
+		textureAsyncCache.Clear();
 		textureCache.Clear();
 		materialCache.Clear();
 		meshCache.Clear();

@@ -200,6 +200,7 @@ namespace Skore
 		}
 
 		bool asyncLoad = true;
+		bool requireTlas = true;
 
 	private:
 		HashSet<RenderableObjectStorage*>  renderables;

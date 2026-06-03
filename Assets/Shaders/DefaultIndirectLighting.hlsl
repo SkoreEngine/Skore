@@ -29,7 +29,6 @@ struct ReflectionPushConstants
     uint     flags;
 
     float4x4 proj;
-    float4x4 view;
     float4x4 viewProj;
     float4x4 invView;
 
@@ -618,9 +617,9 @@ float3 TerrainLayerAlbedo(uint materialIndex, float3 worldPos, float3 triWeights
         float2 uvX = worldPos.zy * mat.uvScale;
         float2 uvY = worldPos.xz * mat.uvScale;
         float2 uvZ = worldPos.xy * mat.uvScale;
-        float3 cx = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(LinearSampler, uvX, 0).rgb;
-        float3 cy = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(LinearSampler, uvY, 0).rgb;
-        float3 cz = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(LinearSampler, uvZ, 0).rgb;
+        float3 cx = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(samplers[mat.GetBaseColorSamplerIndex()], uvX, 0).rgb;
+        float3 cy = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(samplers[mat.GetBaseColorSamplerIndex()], uvY, 0).rgb;
+        float3 cz = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(samplers[mat.GetBaseColorSamplerIndex()], uvZ, 0).rgb;
         float3 sampled = cx * triWeights.x + cy * triWeights.y + cz * triWeights.z;
         albedo = pow(sampled * mat.baseColor, 2.2);
     }

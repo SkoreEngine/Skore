@@ -45,7 +45,7 @@ namespace Skore
 			Name,
 			Extension,
 			Type,
-			Object,
+			Object,							/// << this is the "real" object
 			Parent,
 			PathId,
 			Directory,

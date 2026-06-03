@@ -6,6 +6,7 @@
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/Compression.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Window/TextureViewWindow.hpp"
 
 namespace Skore
 {
@@ -20,7 +21,13 @@ namespace Skore
 
 		void OpenAsset(RID rid) override
 		{
-			//TODO
+			if (ResourceObject assetObject = Resources::Read(rid))
+			{
+				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
+				{
+					TextureViewWindow::Open(object);
+				}
+			}
 		}
 
 		TypeID GetResourceTypeId() override

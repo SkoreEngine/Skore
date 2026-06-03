@@ -407,9 +407,10 @@ namespace Skore
 		// needs to be polled for a BLAS that hasn't landed yet.
 		pendingBlas.erase(obj);
 
+		UpdateAABB(obj);
+
 		if (!obj->visible || !obj->meshCache)
 		{
-			UpdateAABB(obj);
 			return true;
 		}
 
@@ -430,8 +431,6 @@ namespace Skore
 			if (mat && !mat->IsLoaded()) return false;
 		}
 
-		UpdateAABB(obj);
-
 		obj->references.Resize(obj->meshCache->primitives.Size());
 
 		for (u32 p = 0; p < obj->meshCache->primitives.Size(); ++p)
@@ -446,7 +445,7 @@ namespace Skore
 		}
 
 		// Mesh is rendered but BLAS isn't ready yet — queue for deferred TLAS enrollment.
-		if (obj->meshCache->wantsBlas && !obj->meshCache->IsBlasReady())
+		if (requireTlas &&  obj->meshCache->wantsBlas && !obj->meshCache->IsBlasReady())
 		{
 			pendingBlas.insert(obj);
 		}
@@ -590,6 +589,7 @@ namespace Skore
 
 	void RenderSceneObjects::EnrollBlasInstance(RenderableObjectStorage* obj, u32 primitiveIndex)
 	{
+		if (!requireTlas) return;
 		if (primitiveIndex >= obj->references.Size()) return;
 		DrawcallRef& ref = obj->references[primitiveIndex];
 
@@ -712,8 +712,8 @@ namespace Skore
 			}
 		}
 
-		const bool tlasDirty = tlasTopologyDirty || tlasTransformsDirty;
-		if (tlasDirty && Graphics::GetDevice()->GetFeatures().rayTracing)
+		const bool tlasDirty = tlasTopologyDirty || tlasTransformsDirty ;
+		if (requireTlas && tlasDirty && Graphics::GetDevice()->GetFeatures().rayTracing)
 		{
 			if (!instances.Empty())
 			{
