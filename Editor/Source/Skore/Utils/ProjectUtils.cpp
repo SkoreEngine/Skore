@@ -34,7 +34,7 @@ namespace Skore
 		}
 
 		FileSystem::CreateDirectory(Path::Join(directory, "Source"));
-		FileSystem::CreateDirectory(Path::Join(directory, "Binaries"));
+		FileSystem::CreateDirectory(Path::Join(Path::Join(directory, "Binaries"), "Runtime"));
 
 		String projectName = Path::Name(directory);
 		String projectUpper = ToUpper(projectName);
@@ -55,9 +55,9 @@ namespace Skore
 		cmakeSource += "target_include_directories(" + projectName + " PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/Source)\n\n";
 
 		cmakeSource += "set_target_properties(" + projectName + " PROPERTIES \n";
-		cmakeSource += "	RUNTIME_OUTPUT_DIRECTORY \"${CMAKE_SOURCE_DIR}/Binaries\"\n";
-		cmakeSource += "	LIBRARY_OUTPUT_DIRECTORY \"${CMAKE_SOURCE_DIR}/Binaries\"\n";
-		cmakeSource += "	ARCHIVE_OUTPUT_DIRECTORY \"${CMAKE_SOURCE_DIR}/Binaries\"\n";
+		cmakeSource += "	RUNTIME_OUTPUT_DIRECTORY \"${CMAKE_SOURCE_DIR}/Binaries/Runtime\"\n";
+		cmakeSource += "	LIBRARY_OUTPUT_DIRECTORY \"${CMAKE_SOURCE_DIR}/Binaries/Runtime\"\n";
+		cmakeSource += "	ARCHIVE_OUTPUT_DIRECTORY \"${CMAKE_SOURCE_DIR}/Binaries/Runtime\"\n";
 		cmakeSource += ") ";
 
 
