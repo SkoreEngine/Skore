@@ -1953,6 +1953,8 @@ namespace Skore
 	MaterialResourceCachePtr RenderResourceCache::GetMaterialCache(RID material, bool async)
 	{
 		if (!material) return nullptr;
+		ResourceObject materialObject = Resources::Read(material);
+		if (!materialObject) return nullptr;
 
 		// Phase 1: brief lock — return existing cache if any.
 		{
@@ -1980,7 +1982,7 @@ namespace Skore
 			materialData->eventRegistered = true;
 		}
 
-		ResourceObject materialObject = Resources::Read(material);
+
 		UpdateMaterialStorageData(materialObject, materialData, async);
 
 		// Phase 3: brief lock — race re-check, then insert.
