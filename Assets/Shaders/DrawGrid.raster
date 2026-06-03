@@ -41,8 +41,9 @@ VSOutput MainVS(uint vertexId : SV_VertexID)
 
     VSOutput output;
     output.position = float4(position, 1.0);
-    output.nearPoint = UnprojectPoint(position.x, position.y, 0.0);
-    output.farPoint = UnprojectPoint(position.x, position.y, 1.0);
+    // reverse-Z: near = clip z 1, far = clip z 0 (swapped from standard-Z).
+    output.nearPoint = UnprojectPoint(position.x, position.y, 1.0);
+    output.farPoint = UnprojectPoint(position.x, position.y, 0.0);
     return output;
 }
 

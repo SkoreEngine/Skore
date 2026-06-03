@@ -115,7 +115,7 @@ namespace Skore
 						.depthStencilState = {
 							.depthTestEnable = true,
 							.depthWriteEnable = true,
-							.depthCompareOp = CompareOp::LessEqual
+							.depthCompareOp = CompareOp::GreaterEqual // reverse-Z
 						},
 						.blendStates = {
 							BlendStateDesc{}

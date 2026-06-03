@@ -46,7 +46,9 @@ PSInput MainVS(uint vertexID : SV_VertexID)
 
 	uint index = vertexID % 36;
 	float3 position = CubePositions[CubeIndices[index]];
-    output.Position = mul(skyboxConstants.viewProjection, float4(position, 1.0)).xyww;
+    // reverse-Z: force the skybox to the far plane (z = 0) instead of standard-Z z = w.
+    float4 clip = mul(skyboxConstants.viewProjection, float4(position, 1.0));
+    output.Position = float4(clip.xy, 0.0, clip.w);
 	output.TexCoord = position;
 	return output;
 }
