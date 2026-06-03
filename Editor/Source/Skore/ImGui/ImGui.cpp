@@ -23,6 +23,7 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/Devices/Vulkan/VulkanDevice.hpp"
+#include "Skore/IO/Input.hpp"
 #include "Skore/IO/InputTypes.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Scene/Entity.hpp"
