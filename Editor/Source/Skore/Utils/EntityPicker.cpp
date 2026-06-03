@@ -82,7 +82,7 @@ namespace Skore
 		}
 	}
 
-	RID EntityPicker::PickEntity(Mat4 viewProjection, SceneEditor* sceneEditor, Vec2 mousePosition)
+	Entity* EntityPicker::PickEntity(Mat4 viewProjection, SceneEditor* sceneEditor, Vec2 mousePosition)
 	{
 
 		if (static_cast<u32>(mousePosition.x + 1) > currentExtent.width || static_cast<u32>(mousePosition.y + 1) > currentExtent.height) return {};
@@ -204,14 +204,9 @@ namespace Skore
 				return {};
 			}
 
-			u64   entityPtr = *reinterpret_cast<u64*>(data + pixelOffset);
-			if (Entity* entity = static_cast<Entity*>(IntToPtr(entityPtr)))
-			{
-				return entity->GetRID();
-			}
-			return {};
+			u64 entityPtr = *reinterpret_cast<u64*>(data + pixelOffset);
+			return static_cast<Entity*>(IntToPtr(entityPtr));
 		}
-
 		return {};
 	}
 

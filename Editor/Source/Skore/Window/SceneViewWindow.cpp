@@ -101,12 +101,12 @@ namespace Skore
 	{
 		if (!movingScene)
 		{
-			movingScene = !windowStartedSimulation && hovered && Input::IsMouseDown(MouseButton::Right);
+			movingScene = !windowStartedSimulation && hovered && ImGui::IsMouseDown(ImGuiMouseButton_Right);
 		}
 
 		if (movingScene)
 		{
-			bool rightDown = Input::IsMouseDown(MouseButton::Right);
+			bool rightDown = ImGui::IsMouseDown(ImGuiMouseButton_Right);
 			freeViewCamera.SetActive(rightDown);
 			movingScene = rightDown;
 		}
@@ -117,7 +117,7 @@ namespace Skore
 		Extent extent = {static_cast<u32>(size.x * screenScale), static_cast<u32>(size.y * screenScale)};
 
 		Rect bb{(i32)cursor.x, (i32)cursor.y, u32(cursor.x + size.x), u32(cursor.y + size.y)};
-		mousePosRelativeToWindow = (Input::GetMousePosition() - Vec2{(f32)bb.x, (f32)bb.y}) * screenScale;
+		mousePosRelativeToWindow = (FromImVec2(ImGui::GetMousePos()) - Vec2{(f32)bb.x, (f32)bb.y}) * screenScale;
 
 		bool   sizeUpdated = renderPipelineContext == nullptr || renderPipelineContext->GetOutputSize() != extent;
 
@@ -165,7 +165,7 @@ namespace Skore
 		ImGuizmo::SetDrawlist();
 		ImGuizmo::SetRect(cursor.x, cursor.y, size.x, size.y);
 
-		if (sceneEditor && sceneEditor->GetCurrentScene() && !sceneEditor->IsSimulationRunning())
+		if (sceneEditor && sceneEditor->GetCurrentScene() && !windowStartedSimulation)
 		{
 			auto guizmoMove = [&](Entity* entity) -> bool
 			{
@@ -313,7 +313,7 @@ namespace Skore
 		}
 
 		bool isImgHovered = ImGui::IsMouseHoveringRect(ImVec2(bb.x, bb.y), ImVec2(bb.width, bb.height), false);
-		Input::DisableInputs(!isImgHovered && !movingScene);
+		Input::DisableInputs(ImGui::GetIO().WantCaptureKeyboard || movingScene);
 
 		if (!windowStartedSimulation &&
 			!ImGuizmo::IsUsing() &&
@@ -322,27 +322,28 @@ namespace Skore
 			ImGui::IsWindowHovered() &&
 			ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
-			if (RID selectedEntity = entityPicker.PickEntity(renderPipelineContext->camera.projectionNoJitter * renderPipelineContext->camera.view, sceneEditor, mousePosRelativeToWindow))
+			if (Entity* entity = entityPicker.PickEntity(renderPipelineContext->camera.projectionNoJitter * renderPipelineContext->camera.view, sceneEditor, mousePosRelativeToWindow))
 			{
-
-				if (Resources::GetPrototype(selectedEntity))
+				if (RID selectedEntity = entity->GetRID())
 				{
-					RID parentNoPrototype = Resources::GetParent(selectedEntity);
-					while (Resources::GetPrototype(Resources::GetParent(parentNoPrototype)))
+					if (Resources::GetPrototype(selectedEntity))
 					{
-						parentNoPrototype = Resources::GetParent(parentNoPrototype);
+						RID parentNoPrototype = Resources::GetParent(selectedEntity);
+						while (Resources::GetPrototype(Resources::GetParent(parentNoPrototype)))
+						{
+							parentNoPrototype = Resources::GetParent(parentNoPrototype);
+						}
+						selectedEntity = parentNoPrototype;
 					}
-					selectedEntity = parentNoPrototype;
-				}
 
-
-				if (sceneEditor->IsSelected(selectedEntity) || sceneEditor->IsSelected(selectedEntity) || selectedEntity == sceneEditor->GetOpenedResource())
-				{
-					sceneEditor->SelectEntity(selectedEntity, !ctrlDown);
-				}
-				else
-				{
-					sceneEditor->SelectEntity(selectedEntity, !ctrlDown);
+					if (sceneEditor->IsSelected(selectedEntity) || sceneEditor->IsSelected(selectedEntity) || selectedEntity == sceneEditor->GetOpenedResource())
+					{
+						sceneEditor->SelectEntity(selectedEntity, !ctrlDown);
+					}
+					else
+					{
+						sceneEditor->SelectEntity(selectedEntity, !ctrlDown);
+					}
 				}
 			}
 			else
@@ -1001,7 +1002,7 @@ namespace Skore
 
 		if (renderPipelineContext)
 		{
-			if (!sceneEditor->IsSimulationRunning())
+			if (!sceneEditor->IsSimulationRunning() || !windowStartedSimulation)
 			{
 				renderPipelineContext->UpdateCamera(0.1f, 300.0f, cameraFov, Projection::Perspective, {freeViewCamera.GetView()}, freeViewCamera.GetPosition(), !lockCameraFrustum);
 			}

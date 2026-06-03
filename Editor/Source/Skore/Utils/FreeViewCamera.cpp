@@ -2,12 +2,53 @@
 
 #include <cmath>
 
+#include <SDL3/SDL.h>
+
+#include "Skore/Core/Event.hpp"
+#include "Skore/Events.hpp"
 #include "Skore/IO/Input.hpp"
 
 namespace Skore
 {
+	SK_API void AddSDLEventCallback(void (*callback)(SDL_Event* event, VoidPtr userData), VoidPtr userData);
+
+	namespace
+	{
+		Vec2 cameraMouseRelative{};
+		f32  cameraMouseWheel{};
+		bool cameraInputRegistered = false;
+
+		void CameraInputEndFrame()
+		{
+			cameraMouseRelative = {};
+			cameraMouseWheel = {};
+		}
+
+		void CameraSDLEvent(SDL_Event* event, VoidPtr userData)
+		{
+			switch (event->type)
+			{
+				case SDL_EVENT_MOUSE_MOTION:
+					cameraMouseRelative += Vec2{event->motion.xrel, event->motion.yrel};
+					break;
+				case SDL_EVENT_MOUSE_WHEEL:
+					cameraMouseWheel += event->wheel.y;
+					break;
+			}
+		}
+
+		void RegisterCameraInput()
+		{
+			if (cameraInputRegistered) return;
+			cameraInputRegistered = true;
+			AddSDLEventCallback(CameraSDLEvent, nullptr);
+			Event::Bind<OnEndFrame, CameraInputEndFrame>();
+		}
+	}
+
 	FreeViewCamera::FreeViewCamera()
 	{
+		RegisterCameraInput();
 		UpdateViewMatrix();
 	}
 
@@ -25,82 +66,74 @@ namespace Skore
 				firstMouse = false;
 			}
 
-			// Handle mouse movement with smoothing
-			Vec2 currentMouseOffset = Input::GetMouseAxis() * sensitivity;
+			const bool* keyboard = SDL_GetKeyboardState(nullptr);
 
-			// Frame-rate independent smoothing (normalized to 60fps reference rate)
+			Vec2 currentMouseOffset = cameraMouseRelative * 0.1f * sensitivity;
+
 			f32 mouseAlpha = 1.0f - std::pow(smoothingFactor, dt * 60.0f);
 			Vec2 smoothedMouseOffset;
 			smoothedMouseOffset.x = previousMouseOffset.x + (currentMouseOffset.x - previousMouseOffset.x) * mouseAlpha;
 			smoothedMouseOffset.y = previousMouseOffset.y + (currentMouseOffset.y - previousMouseOffset.y) * mouseAlpha;
 
-			// Store for next frame
 			previousMouseOffset = smoothedMouseOffset;
 
-			// Apply smoothed mouse movement
 			yaw += smoothedMouseOffset.x;
 			pitch += smoothedMouseOffset.y;
 
-			// Clamp pitch to avoid gimbal lock
 			pitch = Math::Clamp(pitch, -Math::Radians(89.0f), Math::Radians(89.0f));
 
 			Quat pitchRotation = Quat::AngleAxis(pitch, Vec3{1.0f, 0.0f, 0.0f});
 			Quat yawRotation = Quat::AngleAxis(yaw, Vec3{0.0f, 1.0f, 0.0f});
 			rotation = Quat::Normalized(pitchRotation * yawRotation);
 
-			// Adjust camera speed with mouse wheel
-			f32 wheel = Input::GetMouseWheel().y;
+			f32 wheel = cameraMouseWheel;
 			if (wheel != 0.0f)
 			{
 				cameraSpeed *= (wheel > 0.0f) ? 1.1f : 0.9f;
 				cameraSpeed = Math::Clamp(cameraSpeed, 0.1f, 500.0f);
 			}
 
-			// Handle keyboard movement
 			Vec3 targetMovement{};
 			f32 localCameraSpeed = cameraSpeed;
 
-			if (Input::IsKeyDown(Key::LeftShift))
+			if (keyboard[SDL_SCANCODE_LSHIFT])
 			{
 				localCameraSpeed *= 3.f;
 			}
 
-			if (Input::IsKeyDown(Key::A))
+			if (keyboard[SDL_SCANCODE_A])
 			{
 				targetMovement += right * -localCameraSpeed;
 			}
-			if (Input::IsKeyDown(Key::D))
+			if (keyboard[SDL_SCANCODE_D])
 			{
 				targetMovement += right * localCameraSpeed;
 			}
-			if (Input::IsKeyDown(Key::W))
+			if (keyboard[SDL_SCANCODE_W])
 			{
 				targetMovement += direction * -localCameraSpeed;
 			}
-			if (Input::IsKeyDown(Key::S))
+			if (keyboard[SDL_SCANCODE_S])
 			{
 				targetMovement += direction * localCameraSpeed;
 			}
-			if (Input::IsKeyDown(Key::E))
+			if (keyboard[SDL_SCANCODE_E])
 			{
 				targetMovement += up * localCameraSpeed;
 			}
-			if (Input::IsKeyDown(Key::Q))
+			if (keyboard[SDL_SCANCODE_Q])
 			{
 				targetMovement += up * -localCameraSpeed;
 			}
 
-			// Frame-rate independent smoothing for keyboard movement
 			f32 moveAlpha = 1.0f - std::pow(movementSmoothingFactor, dt * 60.0f);
 			Vec3 smoothedMovement;
 			smoothedMovement.x = previousMovement.x + (targetMovement.x - previousMovement.x) * moveAlpha;
 			smoothedMovement.y = previousMovement.y + (targetMovement.y - previousMovement.y) * moveAlpha;
 			smoothedMovement.z = previousMovement.z + (targetMovement.z - previousMovement.z) * moveAlpha;
 
-			// Store for next frame
 			previousMovement = smoothedMovement;
 
-			// Apply smoothed movement with delta time
 			position += smoothedMovement * deltaTime;
 
 			UpdateViewMatrix();
@@ -130,7 +163,6 @@ namespace Skore
 		pitch = p_pitch;
 		yaw = p_yaw;
 
-		// Clamp pitch to avoid gimbal lock
 		pitch = Math::Clamp(pitch, -Math::Radians(89.0f), Math::Radians(89.0f));
 
 		Quat pitchRotation = Quat::AngleAxis(pitch, Vec3{1.0f, 0.0f, 0.0f});

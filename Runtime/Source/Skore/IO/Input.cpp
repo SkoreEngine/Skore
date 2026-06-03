@@ -105,7 +105,8 @@ namespace Skore
 
 	void Input::DisableInputs(bool disable)
 	{
-		//inputDisabled = disable;
+		bool diff = inputDisabled != disable;
+		inputDisabled = disable;
 	}
 
 	void InputHandlerEvents(SDL_Event* event)
