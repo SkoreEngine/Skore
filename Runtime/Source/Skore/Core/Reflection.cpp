@@ -15,6 +15,8 @@ namespace Skore
 	static HashMap<TypeID, Array<TypeID>>                       typesByAttribute{};
 	static Logger&                                              logger = Logger::GetLogger("Skore::Reflection");
 
+	static u32 reflectionVersion = 0;
+
 	bool reloadEnabled = false;
 
 	static Array<String> groupStack;
@@ -820,6 +822,8 @@ namespace Skore
 			it->second.EmplaceBack(reflectType);
 		}
 
+		reflectionVersion++;
+
 		logger.Debug("Type {} Registered, version {} ", name, reflectType->version);
 
 		return {reflectType.get()};
@@ -841,6 +845,11 @@ namespace Skore
 			return it->second.Back().get();
 		}
 		return nullptr;
+	}
+
+	u32 Reflection::GetVersion()
+	{
+		return reflectionVersion;
 	}
 
 	Array<TypeID> Reflection::GetDerivedTypes(TypeID typeId)

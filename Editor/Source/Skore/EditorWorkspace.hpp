@@ -10,7 +10,7 @@
 
 namespace Skore
 {
-	class EditorWorkspace
+	class SK_API EditorWorkspace
 	{
 	public:
 		EditorWorkspace(u8 workspaceTypeId);

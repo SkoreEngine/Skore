@@ -411,6 +411,7 @@ namespace Skore
 
 		static ReflectType*        FindTypeByName(StringView name);
 		static ReflectType*        FindTypeById(TypeID typeId);
+		static u32                 GetVersion();
 		static Array<TypeID>       GetDerivedTypes(TypeID typeId);
 		static Span<TypeID>        GetTypesAnnotatedWith(TypeID typeId);
 		static Array<ReflectType*> GetAllTypes();

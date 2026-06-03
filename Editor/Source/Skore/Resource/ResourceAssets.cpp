@@ -47,14 +47,15 @@ namespace Skore
 		};
 
 
-		Array<ResourceAssetHandler*>  handlers;
-		Array<ResourceAssetImporter*> importers;
-		HashMap<String, String>       loadedPackages;
+		HashMap<String, String> loadedPackages;
 
 		HashMap<String, ResourceAssetHandler*> handlersByExtension;
 		HashMap<TypeID, ResourceAssetHandler*> handlersByTypeID;
 
 		HashMap<String, ResourceAssetImporter*> importersByExtension;
+
+		HashMap<TypeID, ResourceAssetHandler*>  handlersByHandlerType;
+		HashMap<TypeID, ResourceAssetImporter*> importersByImporterType;
 
 		Array<AssetsPendingImport> pendingImports;
 
@@ -1745,14 +1746,14 @@ namespace Skore
 
 	void ResourceAssetsShutdown()
 	{
-		for (ResourceAssetHandler* handler : handlers)
+		for (auto& it : handlersByHandlerType)
 		{
-			DestroyAndFree(handler);
+			DestroyAndFree(it.second);
 		}
 
-		for (ResourceAssetImporter* importer : importers)
+		for (auto& it : importersByImporterType)
 		{
-			DestroyAndFree(importer);
+			DestroyAndFree(it.second);
 		}
 
 		for (auto& it : thumbnails)
@@ -1763,8 +1764,12 @@ namespace Skore
 			}
 		}
 
+		handlersByExtension.Clear();
+		handlersByTypeID.Clear();
+		handlersByHandlerType.Clear();
+
 		importersByExtension.Clear();
-		importers.Clear();
+		importersByImporterType.Clear();
 
 		if (efswWatcher)
 		{
@@ -1775,10 +1780,115 @@ namespace Skore
 	}
 
 
+	void ReloadAssetHandlers()
+	{
+		for (TypeID derivedId : Reflection::GetDerivedTypes(TypeInfo<ResourceAssetHandler>::ID()))
+		{
+			ReflectType* type = Reflection::FindTypeById(derivedId);
+			if (!type)
+			{
+				continue;
+			}
+
+			Object* newObject = type->NewObject();
+			if (!newObject)
+			{
+				continue;
+			}
+
+			ResourceAssetHandler* handler = newObject->SafeCast<ResourceAssetHandler>();
+			if (!handler)
+			{
+				DestroyAndFree(newObject);
+				continue;
+			}
+
+			if (auto it = handlersByHandlerType.Find(derivedId))
+			{
+				ResourceAssetHandler* previous = it->second;
+
+				if (StringView extension = previous->Extension(); !extension.Empty())
+				{
+					handlersByExtension.Erase(extension);
+				}
+
+				if (TypeID typeId = previous->GetResourceTypeId())
+				{
+					handlersByTypeID.Erase(typeId);
+				}
+
+				DestroyAndFree(previous);
+				it->second = handler;
+			}
+			else
+			{
+				handlersByHandlerType.Insert(derivedId, handler);
+			}
+
+			logger.Debug("Registered asset handler {} for extension {} ", type->GetName(), handler->Extension());
+
+			if (StringView extension = handler->Extension(); !extension.Empty())
+			{
+				handlersByExtension.Insert(extension, handler);
+			}
+
+			if (TypeID typeId = handler->GetResourceTypeId())
+			{
+				handlersByTypeID.Insert(typeId, handler);
+			}
+		}
+
+		for (TypeID derivedId : Reflection::GetDerivedTypes(TypeInfo<ResourceAssetImporter>::ID()))
+		{
+			ReflectType* type = Reflection::FindTypeById(derivedId);
+			if (!type)
+			{
+				continue;
+			}
+
+			Object* newObject = type->NewObject();
+			if (!newObject)
+			{
+				continue;
+			}
+
+			ResourceAssetImporter* importer = newObject->SafeCast<ResourceAssetImporter>();
+			if (!importer)
+			{
+				DestroyAndFree(newObject);
+				continue;
+			}
+
+			if (auto it = importersByImporterType.Find(derivedId))
+			{
+				ResourceAssetImporter* previous = it->second;
+
+				for (const String& extension : previous->ImportedExtensions())
+				{
+					importersByExtension.Erase(extension);
+				}
+
+				DestroyAndFree(previous);
+				it->second = importer;
+			}
+			else
+			{
+				importersByImporterType.Insert(derivedId, importer);
+			}
+
+			for (const String& extension : importer->ImportedExtensions())
+			{
+				logger.Debug("Registered asset importer {} for extension {} ", type->GetName(), extension);
+				importersByExtension.Insert(extension, importer);
+			}
+		}
+	}
+
 	void ResourceAssetsInit()
 	{
 		Event::Bind<OnShutdown, ResourceAssetsShutdown>();
 		Event::Bind<OnUpdate, ResourceAssetsUpdate>();
+		Event::Bind<OnReflectionUpdated, ReloadAssetHandlers>();
 
 		assertTexture = StaticContent::GetTexture("Content/Images/FileIcon.png");
 
@@ -1801,44 +1911,7 @@ namespace Skore
 			FileSystem::CreateDirectory(thumbnailDirectory);
 		}
 
-		for (TypeID derivedId : Reflection::GetDerivedTypes(TypeInfo<ResourceAssetHandler>::ID()))
-		{
-			if (ReflectType* type = Reflection::FindTypeById(derivedId))
-			{
-				if (Object* newObject = type->NewObject())
-				{
-					if (ResourceAssetHandler* handler = newObject->SafeCast<ResourceAssetHandler>())
-					{
-						logger.Debug("Registered asset handler {} for extension {} ", type->GetName(), handler->Extension());
-
-						if (StringView extension = handler->Extension(); !extension.Empty())
-						{
-							handlersByExtension.Insert(extension, handler);
-						}
-
-						if (TypeID typeId = handler->GetResourceTypeId())
-						{
-							handlersByTypeID.Insert(typeId, handler);
-						}
-					}
-				}
-			}
-		}
-
-		for (TypeID derivedId : Reflection::GetDerivedTypes(TypeInfo<ResourceAssetImporter>::ID()))
-		{
-			if (ReflectType* type = Reflection::FindTypeById(derivedId))
-			{
-				if (ResourceAssetImporter* importer = type->NewObject()->SafeCast<ResourceAssetImporter>())
-				{
-					for (const String& extension : importer->ImportedExtensions())
-					{
-						logger.Debug("Registered asset importer {} for extension {} ", type->GetName(), extension);
-						importersByExtension.Insert(extension, importer);
-					}
-				}
-			}
-		}
+		ReloadAssetHandlers();
 
 		efswWatcher = Alloc<efsw::FileWatcher>();
 		efswWatcher->watch();
