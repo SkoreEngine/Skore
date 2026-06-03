@@ -632,12 +632,26 @@ namespace Skore
 
 				for (auto block : blockVariables)
 				{
-					pipelineLayout.pushConstants.EmplaceBack(PushConstantRange{
-						.name = block->name,
-						.offset = block->offset,
-						.size = block->size,
-						.stages = stageInfo.stage
-					});
+					bool merged = false;
+					for (PushConstantRange& existing : pipelineLayout.pushConstants)
+					{
+						if (existing.offset == block->offset && existing.size == block->size)
+						{
+							existing.stages = existing.stages | stageInfo.stage;
+							merged = true;
+							break;
+						}
+					}
+
+					if (!merged)
+					{
+						pipelineLayout.pushConstants.EmplaceBack(PushConstantRange{
+							.name = block->name,
+							.offset = block->offset,
+							.size = block->size,
+							.stages = stageInfo.stage
+						});
+					}
 				}
 
 				u32 varCount{0};

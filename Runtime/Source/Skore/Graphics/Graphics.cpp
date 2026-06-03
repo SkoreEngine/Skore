@@ -34,6 +34,7 @@ namespace Skore
 		Logger& logger = Logger::GetLogger("Skore::Graphics");
 
 		GPUSampler* linearSampler = nullptr;
+		GPUSampler* nearestSampler = nullptr;
 		GPUSampler* linearClampToEdgeSampler = nullptr;
 		GPUSampler* nearestClampToEdgeSampler = nullptr;
 		GPUTexture* whiteTexture = nullptr;
@@ -136,6 +137,12 @@ namespace Skore
 		linearSampler = device->CreateSampler(SamplerDesc{
 		});
 
+		nearestSampler = Graphics::CreateSampler(SamplerDesc{
+			.minFilter = FilterMode::Nearest,
+			.magFilter = FilterMode::Nearest,
+			.mipmapFilter = FilterMode::Nearest,
+		});
+
 		linearClampToEdgeSampler = Graphics::CreateSampler(SamplerDesc{
 			.addressModeU = AddressMode::ClampToEdge,
 			.addressModeV = AddressMode::ClampToEdge,
@@ -207,6 +214,7 @@ namespace Skore
 		RenderSceneObjectsShutdown();
 
 		linearSampler->Destroy();
+		nearestSampler->Destroy();
 		linearClampToEdgeSampler->Destroy();
 		nearestClampToEdgeSampler->Destroy();
 		whiteTexture->Destroy();
@@ -472,6 +480,11 @@ namespace Skore
 	GPUSampler* Graphics::GetLinearSampler()
 	{
 		return linearSampler;
+	}
+
+	GPUSampler* Graphics::GetNearestSampler()
+	{
+		return nearestSampler;
 	}
 
 	GPUSampler* Graphics::GetLinearClampToEdgeSampler()

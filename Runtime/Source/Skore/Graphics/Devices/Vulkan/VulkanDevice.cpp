@@ -1940,6 +1940,11 @@ namespace Skore
 			deviceFeatures2.features.fragmentStoresAndAtomics = VK_TRUE;
 		}
 
+		if (vulkanAdapter->deviceFeatures.features.vertexPipelineStoresAndAtomics)
+		{
+			deviceFeatures2.features.vertexPipelineStoresAndAtomics = VK_TRUE;
+		}
+
 		Array<String> xrExtensions = OpenXRManagerGetDeviceExtensions();
 
 		for (const String& extension : xrExtensions)

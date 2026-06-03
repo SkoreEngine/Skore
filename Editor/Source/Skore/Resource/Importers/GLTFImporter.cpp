@@ -100,6 +100,38 @@ namespace Skore
 			return Vec4{vec[0], vec[1], vec[2], vec[3]};
 		}
 
+		FilterMode ToFilterMode(cgltf_filter_type filter)
+		{
+			switch (filter)
+			{
+				case cgltf_filter_type_nearest:
+				case cgltf_filter_type_nearest_mipmap_nearest:
+				case cgltf_filter_type_nearest_mipmap_linear:
+					return FilterMode::Nearest;
+				case cgltf_filter_type_linear:
+				case cgltf_filter_type_linear_mipmap_nearest:
+				case cgltf_filter_type_linear_mipmap_linear:
+					return FilterMode::Linear;
+				default:
+					return FilterMode::Linear;
+			}
+		}
+
+		AddressMode ToAddressMode(cgltf_wrap_mode wrap)
+		{
+			switch (wrap)
+			{
+				case cgltf_wrap_mode_clamp_to_edge:
+					return AddressMode::ClampToEdge;
+				case cgltf_wrap_mode_mirrored_repeat:
+					return AddressMode::MirroredRepeat;
+				case cgltf_wrap_mode_repeat:
+					return AddressMode::Repeat;
+				default:
+					return AddressMode::Repeat;
+			}
+		}
+
 		LightType ToLightType(cgltf_light_type type)
 		{
 			switch (type)
@@ -1019,7 +1051,7 @@ namespace Skore
 			return {".gltf", ".glb"};
 		}
 
-		void ProcessTexture(GLTFImportData& gltfData, cgltf_texture* texture)
+		void ProcessTexture(GLTFImportData& gltfData, u32 index, cgltf_texture* texture)
 		{
 			RID textureRID = {};
 
@@ -1030,13 +1062,26 @@ namespace Skore
 				return;
 			}
 
-			String texName = image->name ? image->name : (image->uri ? image->uri : "Texture");
-			logger.Debug("Processing texture: {}, {} ", texName, (void*)texture);
-			//texture->sampler->mag_filter
+			String texName;
+			if (image->name)
+			{
+				texName = image->name;
+			}
+			else
+			{
+				auto s = fmt::format("texture {}", index);
+				texName = s.c_str();
+			}
+
+			logger.Debug("Processing texture: {}, {} ", texName, index);
 
 			TextureImportSettings textureImportSettings;
-			textureImportSettings.filterMode = FilterMode::Linear;
-			textureImportSettings.wrapMode = AddressMode::Repeat;
+			if (texture->sampler)
+			{
+				cgltf_filter_type filter = texture->sampler->mag_filter != cgltf_filter_type_undefined ? texture->sampler->mag_filter : texture->sampler->min_filter;
+				textureImportSettings.filterMode = ToFilterMode(filter);
+				textureImportSettings.wrapMode = ToAddressMode(texture->sampler->wrap_s);
+			}
 			textureImportSettings.async = ImportChildAssetsAsync;
 			textureImportSettings.isSubAsset = true;
 
@@ -1675,7 +1720,7 @@ namespace Skore
 			logger.Debug("Processing {} textures", data->textures_count);
 			for (size_t i = 0; i < data->textures_count; i++)
 			{
-				ProcessTexture(importData, &data->textures[i]);
+				ProcessTexture(importData, i, &data->textures[i]);
 			}
 
 			logger.Debug("Processing {} materials", data->materials_count);

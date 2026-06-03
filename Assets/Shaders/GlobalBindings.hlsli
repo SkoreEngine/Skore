@@ -22,13 +22,25 @@ struct MaterialData
 	int    emissiveTexture;
 	int		 alphaMode;
 	float	 alphaCutoff;
-	float	 pad0;
-	float  pad1;
+	uint   samplerIndices0;
+	uint   samplerIndices1;
+
+	uint GetBaseColorSamplerIndex() { return  samplerIndices0        & 0xFF; }
+	uint GetNormalSamplerIndex()    { return (samplerIndices0 >> 8)  & 0xFF; }
+	uint GetRoughnessSamplerIndex() { return (samplerIndices0 >> 16) & 0xFF; }
+	uint GetMetallicSamplerIndex()  { return (samplerIndices0 >> 24) & 0xFF; }
+	uint GetEmissiveSamplerIndex()  { return  samplerIndices1        & 0xFF; }
 };
+
+#define SK_LINEAR_SAMPLER        0
+#define SK_NEAREST_SAMPLER       1
+#define SK_LINEAR_CLAMP_SAMPLER  2
+#define SK_NEAREST_CLAMP_SAMPLER 3
+#define SK_SAMPLER_COUNT         4
 
 StructuredBuffer<MaterialData> MaterialDataBuffer : register(t0, space0);
 RWStructuredBuffer<uint> MaterialMaskBuffer       : register(u1, space0);
-SamplerState LinearSampler                        : register(s2, space0);
+SamplerState samplers[SK_SAMPLER_COUNT]           : register(s2, space0);
 Texture2D BindlessTextures[]                      : register(t3, space0);
 
 #endif

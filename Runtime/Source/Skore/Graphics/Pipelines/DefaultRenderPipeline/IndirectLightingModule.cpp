@@ -861,7 +861,6 @@ namespace Skore
 				u32   flags;
 
 				Mat4 proj;
-				Mat4 view;
 				Mat4 viewProj;
 				Mat4 invView;
 
@@ -880,7 +879,6 @@ namespace Skore
 			pc.nearClip = context->camera.nearClip;
 			pc.flags = lightInstanceData->indirectLightFlags;
 			pc.proj = context->camera.projection;
-			pc.view = context->camera.view;
 			pc.viewProj = context->camera.previousViewProjection;
 			pc.invView = context->camera.invView;
 

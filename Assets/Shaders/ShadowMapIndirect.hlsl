@@ -78,7 +78,7 @@ void MainPS(PixelInput input)
 		float  alpha = 1.0;
 		if (mat.baseColorTexture >= 0)
 		{
-			alpha = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].Sample(LinearSampler, uv).a;
+			alpha = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].Sample(samplers[mat.GetBaseColorSamplerIndex()], uv).a;
 		}
 		if (alpha < mat.alphaCutoff)
 		{

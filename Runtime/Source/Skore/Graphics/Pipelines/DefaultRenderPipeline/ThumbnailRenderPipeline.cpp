@@ -1,0 +1,300 @@
+#include "Skore/Core/Reflection.hpp"
+#include "Skore/Core/Math.hpp"
+#include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
+#include "Skore/Graphics/RenderSceneObjects.hpp"
+#include "Skore/Graphics/Pipelines/Modules/CascadeShadowMapModule.hpp"
+#include "PipelineCommon.hpp"
+#include "Skore/Resource/Resources.hpp"
+#include "Skore/Scene/Scene.hpp"
+#include "Skore/Scene/Components/EnvironmentComponent.hpp"
+
+namespace Skore
+{
+	static u32 thumbnailMsaaSamples = 4;
+
+	constexpr const char* ThumbnailColorMSName = "ThumbnailColorMS";
+	constexpr const char* ThumbnailDepthMSName = "ThumbnailDepthMS";
+
+	struct ThumbnailForwardPass : RenderPipelinePass
+	{
+		SK_CLASS(ThumbnailForwardPass, RenderPipelinePass);
+
+		Array<GPUPipeline*>    opaquePipelines;
+		GPUPipeline*           skyboxPipeline = nullptr;
+		GPUDescriptorSet*      iblDescriptorSet = nullptr;
+		LightPassInstanceData* lightInstanceData = nullptr;
+		Scene*                 cachedPipelineOwner = nullptr;
+
+		GPUTexture* boundDiffuseIrradiance = nullptr;
+		GPUTexture* boundSpecularMap = nullptr;
+
+		struct MeshPushConstants
+		{
+			Mat4 world;
+			u32  materialIndex;
+			u32  vertexByteOffset;
+			u32  vertexLayoutIndex;
+			u32  ambientFlags;
+			Vec3 ambientLight;
+			f32  ambientMultiplier;
+			f32  reflectionMultiplier;
+		};
+
+		RenderPipelinePassSetup GetPassSetup() override
+		{
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Graphics;
+			setup.stage = PipelineRenderStage::Forward;
+			setup.invertViewport = true;
+
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = ThumbnailColorMSName, .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = ThumbnailDepthMSName, .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightInstanceData", .access = RenderPipelineTextureAccess::Read});
+
+			setup.resolve.EmplaceBack(OutputColorName);
+			return setup;
+		}
+
+		void Init() override
+		{
+			lightInstanceData = context->GetInstanceData<LightPassInstanceData>("LightInstanceData");
+
+			iblDescriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+				.bindings = {
+					DescriptorSetLayoutBinding{.binding = 0, .descriptorType = DescriptorType::SampledImage},
+					DescriptorSetLayoutBinding{.binding = 1, .descriptorType = DescriptorType::SampledImage},
+					DescriptorSetLayoutBinding{.binding = 2, .descriptorType = DescriptorType::Sampler}
+				},
+				.debugName = "ThumbnailIBLDescriptorSet"
+			});
+
+			iblDescriptorSet->UpdateTexture(0, Graphics::GetWhiteCubemapTexture());
+			iblDescriptorSet->UpdateTexture(1, Graphics::GetWhiteCubemapTexture());
+			iblDescriptorSet->UpdateSampler(2, Graphics::GetLinearSampler());
+
+			DepthStencilStateDesc skyboxDepth;
+			skyboxDepth.depthTestEnable = true;
+			skyboxDepth.depthWriteEnable = false;
+			skyboxDepth.depthCompareOp = CompareOp::GreaterEqual;
+
+			skyboxPipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
+				.shader = Resources::FindByPath("Skore://Shaders/Editor/ThumbnailSky.raster"),
+				.rasterizerState = {
+					.cullMode = CullMode::Front
+				},
+				.depthStencilState = skyboxDepth,
+				.blendStates = {
+					BlendStateDesc{}
+				},
+				.renderPass = renderPass
+			});
+		}
+
+		void CleanupPipelines()
+		{
+			for (GPUPipeline* pipeline : opaquePipelines)
+			{
+				pipeline->Destroy();
+			}
+			opaquePipelines.Clear();
+		}
+
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			if (!scene) return;
+			RenderSceneObjects* objects = &scene->renderObjects;
+
+			if (cachedPipelineOwner != nullptr && cachedPipelineOwner != scene)
+			{
+				CleanupPipelines();
+			}
+			cachedPipelineOwner = scene;
+
+			if (boundDiffuseIrradiance != lightInstanceData->diffuseIrradianceTexture)
+			{
+				boundDiffuseIrradiance = lightInstanceData->diffuseIrradianceTexture;
+				iblDescriptorSet->UpdateTexture(0, boundDiffuseIrradiance);
+			}
+			if (boundSpecularMap != lightInstanceData->specularMapTexture)
+			{
+				boundSpecularMap = lightInstanceData->specularMapTexture;
+				iblDescriptorSet->UpdateTexture(1, boundSpecularMap);
+			}
+
+			while (opaquePipelines.Size() < objects->opaquePipelines.Size())
+			{
+				const DrawPipelineDesc& desc = objects->opaquePipelines[opaquePipelines.Size()].desc;
+
+				Array<String> macros;
+				if (desc.hasBones) macros.EmplaceBack("HAS_BONES");
+
+				DepthStencilStateDesc depthStencilState;
+				depthStencilState.depthTestEnable = true;
+				depthStencilState.depthWriteEnable = true;
+				depthStencilState.depthCompareOp = CompareOp::Greater;
+
+				GraphicsPipelineDesc gpuDesc = GraphicsPipelineDesc{
+					.shader = Resources::FindByPath("Skore://Shaders/Editor/ThumbnailForward.shader"),
+					.variant = ShaderResource::GetVariantName(macros),
+					.rasterizerState = {
+						.cullMode = desc.cullMode,
+					},
+					.depthStencilState = depthStencilState,
+					.blendStates = {
+						BlendStateDesc{}
+					},
+					.renderPass = renderPass,
+				};
+
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 0,
+					.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+				});
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 1,
+					.descriptorSet = context->GetSceneDescriptorSet(0)
+				});
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 2,
+					.descriptorSet = iblDescriptorSet
+				});
+
+				opaquePipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
+			}
+
+			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
+			for (u32 i = 0; i < objects->opaquePipelines.Size(); i++)
+			{
+				GPUPipeline* pipeline = opaquePipelines[i];
+
+				cmd->BindPipeline(pipeline);
+				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 2, iblDescriptorSet);
+
+				for (const Drawcall& drawcall : objects->opaquePipelines[i].drawcalls)
+				{
+					if (!drawcall.material || drawcall.material->materialIndex == U32_MAX)
+					{
+						continue;
+					}
+
+					if (!drawcall.aabb.IsOnFrustum(context->camera.frustum))
+					{
+						continue;
+					}
+
+					if ((drawcall.layerMask & context->camera.cullingMask) == 0)
+					{
+						continue;
+					}
+
+					if (drawcall.bones)
+					{
+						cmd->BindDescriptorSet(pipeline, 3, drawcall.bones);
+					}
+
+					MeshPushConstants pc;
+					pc.world = drawcall.transform;
+					pc.materialIndex = drawcall.material->materialIndex;
+					pc.vertexByteOffset = drawcall.vertexByteOffset;
+					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
+					pc.ambientFlags = lightInstanceData->indirectLightFlags;
+					pc.ambientLight = lightInstanceData->ambientLight;
+					pc.ambientMultiplier = lightInstanceData->ambientMultiplier;
+					pc.reflectionMultiplier = lightInstanceData->reflectionMultiplier;
+
+					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(MeshPushConstants), &pc);
+					cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
+				}
+			}
+
+			EnvironmentComponent* skyboxEnv = nullptr;
+			scene->Iterate<EnvironmentComponent>([&](EnvironmentComponent* env)
+			{
+				if (skyboxEnv == nullptr && env->GetMaterialCache() != nullptr)
+				{
+					skyboxEnv = env;
+				}
+			});
+
+			if (skyboxEnv)
+			{
+				MaterialResourceCache* skyMaterial = skyboxEnv->GetMaterialCache();
+
+				cmd->BindPipeline(skyboxPipeline);
+				Mat4 viewProj = context->camera.projection * Mat4(Mat34(context->camera.view));
+
+				cmd->PushConstants(skyboxPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &viewProj);
+				cmd->BindDescriptorSet(skyboxPipeline, 3, skyMaterial->descriptorSet, {});
+				cmd->Draw(36, 1, 0, 0);
+			}
+		}
+
+		void Destroy() override
+		{
+			CleanupPipelines();
+			skyboxPipeline->Destroy();
+			iblDescriptorSet->Destroy();
+		}
+	};
+
+	struct ThumbnailForwardModule : RenderPipelineModule
+	{
+		SK_CLASS(ThumbnailForwardModule, RenderPipelineModule);
+
+		RenderPipelineModuleSetup GetSetup() override
+		{
+			RenderPipelineModuleSetup setup;
+			setup.passes.EmplaceBack(sktypeid(LightSetupPass));
+			setup.passes.EmplaceBack(sktypeid(ThumbnailForwardPass));
+			return setup;
+		}
+
+		Array<RenderPipelineResource> GetResources() override
+		{
+			const DeviceProperties& properties = Graphics::GetDevice()->GetProperties();
+			thumbnailMsaaSamples = Math::Min(properties.limits.maxAttachmentSamples, 4u);
+
+			Array<RenderPipelineResource> resources;
+			resources.EmplaceBack(RenderPipelineResource{.name = "LightInstanceData", .type = RenderPipelineResourceType::Instance, .instanceTypeId = sktypeid(LightPassInstanceData)});
+			resources.EmplaceBack(RenderPipelineResource{.name = ThumbnailColorMSName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM, .samples = thumbnailMsaaSamples});
+			resources.EmplaceBack(RenderPipelineResource{.name = ThumbnailDepthMSName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::D32_FLOAT, .samples = thumbnailMsaaSamples});
+			return resources;
+		}
+	};
+
+	struct ThumbnailCascadeShadowModule : CascadeShadowMapModuleBase
+	{
+		SK_CLASS(ThumbnailCascadeShadowModule, CascadeShadowMapModuleBase);
+
+		TypeID GetCascadeShadowPassTypeId() override
+		{
+			return sktypeid(CascadeShadowPass);
+		}
+	};
+
+	struct ThumbnailRenderPipeline : RenderPipeline
+	{
+		SK_CLASS(ThumbnailRenderPipeline, RenderPipeline);
+
+		RenderPipelineSetup GetPipelineSetup() override
+		{
+			RenderPipelineSetup setup;
+			setup.modules.EmplaceBack(sktypeid(ThumbnailCascadeShadowModule));
+			setup.modules.EmplaceBack(sktypeid(ThumbnailForwardModule));
+			return setup;
+		}
+	};
+
+	void RegisterThumbnailRenderPipeline()
+	{
+		Reflection::Type<ThumbnailForwardPass>();
+		Reflection::Type<ThumbnailForwardModule>();
+		Reflection::Type<ThumbnailCascadeShadowModule>();
+		Reflection::Type<ThumbnailRenderPipeline>();
+	}
+}

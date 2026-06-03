@@ -55,6 +55,7 @@ namespace Skore
 		static void SetTextureState(GPUTexture* texture, ResourceState oldState, ResourceState newState);
 
 		static GPUSampler* GetLinearSampler();
+		static GPUSampler* GetNearestSampler();
 		static GPUSampler* GetLinearClampToEdgeSampler();
 		static GPUSampler* GetNearestClampToEdgeSampler();
 		static GPUTexture* GetWhiteTexture();

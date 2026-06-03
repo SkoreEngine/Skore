@@ -46,7 +46,7 @@ MaterialSample SampleMaterial(uint materialIndex, float2 texCoord, float3 worldN
 
 	if (mat.baseColorTexture >= 0)
 	{
-		float4 texColor = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].Sample(LinearSampler, texCoord);
+		float4 texColor = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].Sample(samplers[mat.GetBaseColorSamplerIndex()], texCoord);
 		material.baseColor = pow(texColor.rgb * mat.baseColor, 2.2);
 		material.alpha = texColor.a;
 	}
@@ -63,21 +63,21 @@ MaterialSample SampleMaterial(uint materialIndex, float2 texCoord, float3 worldN
 	material.roughness = mat.roughness;
 	if (mat.roughnessTexture >= 0)
 	{
-		float4 value = BindlessTextures[NonUniformResourceIndex(mat.roughnessTexture)].Sample(LinearSampler, texCoord);
+		float4 value = BindlessTextures[NonUniformResourceIndex(mat.roughnessTexture)].Sample(samplers[mat.GetRoughnessSamplerIndex()], texCoord);
 		material.roughness = value.g;
 	}
 
 	material.metallic = mat.metallic;
 	if (mat.metallicTexture >= 0)
 	{
-		float4 value = BindlessTextures[NonUniformResourceIndex(mat.metallicTexture)].Sample(LinearSampler, texCoord);
+		float4 value = BindlessTextures[NonUniformResourceIndex(mat.metallicTexture)].Sample(samplers[mat.GetMetallicSamplerIndex()], texCoord);
 		material.metallic = value.b;
 	}
 
 	material.emissive = mat.emissiveColor * mat.emissiveFactor;
 	if (mat.emissiveTexture >= 0)
 	{
-		float3 emTex = BindlessTextures[NonUniformResourceIndex(mat.emissiveTexture)].Sample(LinearSampler, texCoord).rgb;
+		float3 emTex = BindlessTextures[NonUniformResourceIndex(mat.emissiveTexture)].Sample(samplers[mat.GetEmissiveSamplerIndex()], texCoord).rgb;
 		material.emissive *= emTex;
 	}
 	material.occlusion = 1.0;
@@ -93,7 +93,7 @@ MaterialSample SampleMaterial(uint materialIndex, float2 texCoord, float3 normal
 	if (mat.normalTexture >= 0)
 	{
 		float2 uv = texCoord * mat.uvScale;
-		float3 n = BindlessTextures[NonUniformResourceIndex(mat.normalTexture)].Sample(LinearSampler, uv).rgb * 2.0 - 1.0;
+		float3 n = BindlessTextures[NonUniformResourceIndex(mat.normalTexture)].Sample(samplers[mat.GetNormalSamplerIndex()], uv).rgb * 2.0 - 1.0;
 		material.normal = normalize(mul(TBN, n));
 	}
 
@@ -112,7 +112,7 @@ MaterialSample SampleMaterialLevel(uint materialIndex, float2 texCoord, float3 w
 
 	if (mat.baseColorTexture >= 0)
 	{
-		float4 texColor = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(LinearSampler, texCoord, level);
+		float4 texColor = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].SampleLevel(samplers[mat.GetBaseColorSamplerIndex()], texCoord, level);
 		material.baseColor = pow(texColor.rgb * mat.baseColor, 2.2);
 		material.alpha = texColor.a;
 	}
@@ -122,7 +122,7 @@ MaterialSample SampleMaterialLevel(uint materialIndex, float2 texCoord, float3 w
 	material.roughness = mat.roughness;
 	if (mat.roughnessTexture >= 0)
 	{
-		float4 value = BindlessTextures[NonUniformResourceIndex(mat.roughnessTexture)].SampleLevel(LinearSampler, texCoord, level);
+		float4 value = BindlessTextures[NonUniformResourceIndex(mat.roughnessTexture)].SampleLevel(samplers[mat.GetRoughnessSamplerIndex()], texCoord, level);
 		material.roughness = value.g;
 	}
 
@@ -131,14 +131,14 @@ MaterialSample SampleMaterialLevel(uint materialIndex, float2 texCoord, float3 w
 	material.metallic = mat.metallic;
 	if (mat.metallicTexture >= 0)
 	{
-		float4 value = BindlessTextures[NonUniformResourceIndex(mat.metallicTexture)].SampleLevel(LinearSampler, texCoord, level);
+		float4 value = BindlessTextures[NonUniformResourceIndex(mat.metallicTexture)].SampleLevel(samplers[mat.GetMetallicSamplerIndex()], texCoord, level);
 		material.metallic = value.b;
 	}
 
 	material.emissive = mat.emissiveColor * mat.emissiveFactor;
 	if (mat.emissiveTexture >= 0)
 	{
-		float3 emTex = BindlessTextures[NonUniformResourceIndex(mat.emissiveTexture)].SampleLevel(LinearSampler, texCoord, level).rgb;
+		float3 emTex = BindlessTextures[NonUniformResourceIndex(mat.emissiveTexture)].SampleLevel(samplers[mat.GetEmissiveSamplerIndex()], texCoord, level).rgb;
 		material.emissive *= emTex;
 	}
 	material.occlusion = 1.0;
@@ -154,7 +154,7 @@ MaterialSample SampleMaterialLevel(uint materialIndex, float2 texCoord, float3 n
 	if (mat.normalTexture >= 0)
 	{
 		float2 uv = texCoord * mat.uvScale;
-		float3 n = BindlessTextures[NonUniformResourceIndex(mat.normalTexture)].SampleLevel(LinearSampler, uv, level).rgb * 2.0 - 1.0;
+		float3 n = BindlessTextures[NonUniformResourceIndex(mat.normalTexture)].SampleLevel(samplers[mat.GetNormalSamplerIndex()], uv, level).rgb * 2.0 - 1.0;
 		material.normal = normalize(mul(TBN, n));
 	}
 
@@ -167,41 +167,41 @@ float3 TriplanarBlendWeights(float3 worldNormal)
 	return w / max(w.x + w.y + w.z, 0.0001);
 }
 
-float3 SampleAlbedoTriplanar(int textureIdx, float3 worldPos, float3 weights, float2 uvScale)
+float3 SampleAlbedoTriplanar(int textureIdx, float3 worldPos, float3 weights, float2 uvScale, uint samplerIndex)
 {
 	float2 uvX = worldPos.zy * uvScale;
 	float2 uvY = worldPos.xz * uvScale;
 	float2 uvZ = worldPos.xy * uvScale;
 
-	float3 cx = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvX).rgb;
-	float3 cy = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvY).rgb;
-	float3 cz = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvZ).rgb;
+	float3 cx = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(samplers[samplerIndex], uvX).rgb;
+	float3 cy = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(samplers[samplerIndex], uvY).rgb;
+	float3 cz = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(samplers[samplerIndex], uvZ).rgb;
 
 	return cx * weights.x + cy * weights.y + cz * weights.z;
 }
 
-float SampleChannelTriplanar(int textureIdx, float3 worldPos, float3 weights, float2 uvScale, uint channel)
+float SampleChannelTriplanar(int textureIdx, float3 worldPos, float3 weights, float2 uvScale, uint channel, uint samplerIndex)
 {
 	float2 uvX = worldPos.zy * uvScale;
 	float2 uvY = worldPos.xz * uvScale;
 	float2 uvZ = worldPos.xy * uvScale;
 
-	float vx = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvX)[channel];
-	float vy = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvY)[channel];
-	float vz = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvZ)[channel];
+	float vx = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(samplers[samplerIndex], uvX)[channel];
+	float vy = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(samplers[samplerIndex], uvY)[channel];
+	float vz = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(samplers[samplerIndex], uvZ)[channel];
 
 	return vx * weights.x + vy * weights.y + vz * weights.z;
 }
 
-float3 SampleNormalTriplanar(int textureIdx, float3 worldPos, float3 worldNormal, float3 weights, float2 uvScale)
+float3 SampleNormalTriplanar(int textureIdx, float3 worldPos, float3 worldNormal, float3 weights, float2 uvScale, uint samplerIndex)
 {
 	float2 uvX = worldPos.zy * uvScale;
 	float2 uvY = worldPos.xz * uvScale;
 	float2 uvZ = worldPos.xy * uvScale;
 
-	float3 nx = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvX).rgb * 2.0 - 1.0;
-	float3 ny = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvY).rgb * 2.0 - 1.0;
-	float3 nz = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(LinearSampler, uvZ).rgb * 2.0 - 1.0;
+	float3 nx = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(samplers[samplerIndex], uvX).rgb * 2.0 - 1.0;
+	float3 ny = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(samplers[samplerIndex], uvY).rgb * 2.0 - 1.0;
+	float3 nz = BindlessTextures[NonUniformResourceIndex(textureIdx)].Sample(samplers[samplerIndex], uvZ).rgb * 2.0 - 1.0;
 
 	float3 tnX = float3(0.0, nx.y, nx.x) + worldNormal;
 	float3 tnY = float3(ny.x, 0.0, ny.y) + worldNormal;
@@ -238,7 +238,7 @@ MaterialSample SampleMaterialTriplanar(uint materialIndex, float3 worldPos, floa
 
 	if (mat.baseColorTexture >= 0)
 	{
-		float3 sampled = SampleAlbedoTriplanar(mat.baseColorTexture, worldPos, weights, mat.uvScale);
+		float3 sampled = SampleAlbedoTriplanar(mat.baseColorTexture, worldPos, weights, mat.uvScale, mat.GetBaseColorSamplerIndex());
 		material.baseColor = pow(sampled * mat.baseColor, 2.2);
 	}
 
@@ -252,26 +252,26 @@ MaterialSample SampleMaterialTriplanar(uint materialIndex, float3 worldPos, floa
 	material.normal = worldNormal;
 	if (mat.normalTexture >= 0)
 	{
-		material.normal = SampleNormalTriplanar(mat.normalTexture, worldPos, worldNormal, weights, mat.uvScale);
+		material.normal = SampleNormalTriplanar(mat.normalTexture, worldPos, worldNormal, weights, mat.uvScale, mat.GetNormalSamplerIndex());
 	}
 
 	material.roughness = mat.roughness;
 	if (mat.roughnessTexture >= 0)
 	{
-		material.roughness = SampleChannelTriplanar(mat.roughnessTexture, worldPos, weights, mat.uvScale, 1);
+		material.roughness = SampleChannelTriplanar(mat.roughnessTexture, worldPos, weights, mat.uvScale, 1, mat.GetRoughnessSamplerIndex());
 	}
 	material.roughness = max(material.roughness, 0.002);
 
 	material.metallic = mat.metallic;
 	if (mat.metallicTexture >= 0)
 	{
-		material.metallic = SampleChannelTriplanar(mat.metallicTexture, worldPos, weights, mat.uvScale, 2);
+		material.metallic = SampleChannelTriplanar(mat.metallicTexture, worldPos, weights, mat.uvScale, 2, mat.GetMetallicSamplerIndex());
 	}
 
 	material.emissive = mat.emissiveColor * mat.emissiveFactor;
 	if (mat.emissiveTexture >= 0)
 	{
-		float3 emTex = SampleAlbedoTriplanar(mat.emissiveTexture, worldPos, weights, mat.uvScale);
+		float3 emTex = SampleAlbedoTriplanar(mat.emissiveTexture, worldPos, weights, mat.uvScale, mat.GetEmissiveSamplerIndex());
 		material.emissive *= emTex;
 	}
 	material.occlusion = 1.0;
