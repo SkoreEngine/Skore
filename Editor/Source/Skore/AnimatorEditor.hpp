@@ -10,7 +10,7 @@ namespace Skore
 	class EditorWorkspace;
 	struct UndoRedoScope;
 
-	class AnimatorEditor
+	class SK_API AnimatorEditor
 	{
 	public:
 		explicit AnimatorEditor(EditorWorkspace& workspace);

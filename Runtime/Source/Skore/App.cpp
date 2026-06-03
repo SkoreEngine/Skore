@@ -76,6 +76,9 @@ namespace Skore
 		EventHandler<OnShutdownRequest>  onShutdownRequest{};
 		EventHandler<OnDropFileCallback> onDropFileCallback{};
 		EventHandler<OnPluginReloaded>   onPluginReloaded{};
+		EventHandler<OnReflectionUpdated> onReflectionUpdated{};
+
+		u32 lastReflectionVersion = 0;
 
 		Array<VoidPtr>  plugLibraries;
 		HashSet<String> loadedPluginPaths;
@@ -215,6 +218,13 @@ namespace Skore
 		//logger.Info("fps {} ", fps);
 
 		Profiler::BeginFrame();
+
+		if (u32 reflectionVersion = Reflection::GetVersion(); reflectionVersion != lastReflectionVersion)
+		{
+			lastReflectionVersion = reflectionVersion;
+			onReflectionUpdated.Invoke();
+		}
+
 		onBeginFrameHandler.Invoke();
 		RenderResourceCache::Flush();
 		onUpdateHandler.Invoke();
