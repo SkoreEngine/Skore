@@ -940,7 +940,7 @@ namespace Skore
 		copyRegion.bufferRowLength = 0;   // Tightly packed
 		copyRegion.bufferImageHeight = 0; // Tightly packed
 
-		copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		copyRegion.imageSubresource.aspectMask = GetImageAspectFlags(ToVkFormat(static_cast<VulkanTexture*>(copy.texture)->desc.format));
 		copyRegion.imageSubresource.mipLevel = copy.mipLevel;
 		copyRegion.imageSubresource.baseArrayLayer = copy.arrayLayer;
 		copyRegion.imageSubresource.layerCount = 1;

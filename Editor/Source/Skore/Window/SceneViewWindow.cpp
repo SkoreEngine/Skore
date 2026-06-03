@@ -409,19 +409,32 @@ namespace Skore
 
 							if (Transform* transform = previewEntity->GetComponent<Transform>(); transform != nullptr && viewType == ViewType_3D)
 							{
-								f32  x = (2.0f * mousePosRelativeToWindow.x) / extent.width - 1.0f;
-								f32  y = 1.0f - (2.0f * mousePosRelativeToWindow.y) / extent.height;
-								Vec4 rayNDC = Vec4(x, y, -1.0f, 1.0f);
+								Vec3 entityPos;
+								Vec3 surfacePos;
+								bool surfaceHit = false;
+								entityPicker.PickEntity(renderPipelineContext->camera.projectionNoJitter * renderPipelineContext->camera.view,
+								                        sceneEditor, mousePosRelativeToWindow, &surfacePos, &surfaceHit, previewEntity);
 
-								Mat4 inverseVP = Mat4::Inverse(renderPipelineContext->camera.viewProjectionNoJitter);
-								Vec4 rayWorld = inverseVP * rayNDC;
-								rayWorld /= rayWorld.w;
+								if (surfaceHit)
+								{
+									entityPos = surfacePos;
+								}
+								else
+								{
+									f32  x = (2.0f * mousePosRelativeToWindow.x) / extent.width - 1.0f;
+									f32  y = 1.0f - (2.0f * mousePosRelativeToWindow.y) / extent.height;
+									Vec4 rayNDC = Vec4(x, y, -1.0f, 1.0f);
 
-								Vec3  cameraPos = freeViewCamera.GetPosition();
-								Vec3  rayDirection = Vec3::Normalize(Vec3(rayWorld) - cameraPos);
-								float t = -cameraPos.y / rayDirection.y;
+									Mat4 inverseVP = Mat4::Inverse(renderPipelineContext->camera.viewProjectionNoJitter);
+									Vec4 rayWorld = inverseVP * rayNDC;
+									rayWorld /= rayWorld.w;
 
-								Vec3 entityPos = Vec3(cameraPos.x + t * rayDirection.x, 0, cameraPos.z + t * rayDirection.z);
+									Vec3  cameraPos = freeViewCamera.GetPosition();
+									Vec3  rayDirection = Vec3::Normalize(Vec3(rayWorld) - cameraPos);
+									float t = -cameraPos.y / rayDirection.y;
+
+									entityPos = Vec3(cameraPos.x + t * rayDirection.x, 0, cameraPos.z + t * rayDirection.z);
+								}
 
 								if (guizmoSnapEnabled || ctrlDown)
 								{
