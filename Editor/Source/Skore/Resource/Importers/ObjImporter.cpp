@@ -5,12 +5,16 @@
 
 #include "Skore/Resource/Importers/TextureImporter.hpp"
 #include "tiny_obj_loader.h"
+#include "Skore/Editor.hpp"
 #include "Skore/EditorCommon.hpp"
+#include "Skore/Core/Algorithm.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
+#include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
@@ -29,20 +33,107 @@ namespace Skore
 			return {".obj"};
 		}
 
-		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
+		StringView OutputExtension() override
 		{
+			return ".dcc_asset";
+		}
+
+		u32 CookerVersion() override
+		{
+			return 1;
+		}
+
+		void Ingest(IngestContext& ctx) override
+		{
+			ctx.DeclareSubResource("root", TypeInfo<DCCAsset>::ID());
+
+			String parent = Path::Parent(ctx.sourcePath);
+
+			auto addDep = [&](StringView relName)
+			{
+				if (relName.Empty() || ctx.HasDependency(relName)) return;
+				String abs = Path::Join(parent, relName);
+				if (!FileSystem::GetFileStatus(abs).exists)
+				{
+					logger.Warn("obj dependency {} not found", abs);
+					return;
+				}
+				ByteBuffer bytes;
+				FileSystem::ReadFileAsByteBuffer(abs, bytes);
+				ctx.AddDependency(relName, Span<u8>(bytes.begin(), bytes.Size()));
+			};
+
+			String objText = FileSystem::ReadFileAsString(ctx.sourcePath);
+			Split(StringView(objText), StringView("\n"), [&](StringView line)
+			{
+				while (!line.Empty() && (line[line.Size() - 1] == '\r' || line[line.Size() - 1] == ' '))
+				{
+					line = StringView(line.begin(), line.Size() - 1);
+				}
+				if (line.StartsWith("mtllib "))
+				{
+					StringView rest(line.begin() + 7, line.Size() - 7);
+					Split(rest, StringView(" "), [&](StringView mtl) { addDep(mtl); });
+				}
+			});
+
 			tinyobj::ObjReaderConfig readerConfig{};
-			String parent = Path::Parent(path);
+			readerConfig.mtl_search_path = parent.CStr();
+			tinyobj::ObjReader reader{};
+			if (reader.ParseFromFile(std::string{ctx.sourcePath.CStr(), ctx.sourcePath.Size()}, readerConfig))
+			{
+				for (const tinyobj::material_t& material : reader.GetMaterials())
+				{
+					addDep(StringView(material.diffuse_texname.c_str()));
+					addDep(StringView(material.normal_texname.c_str()));
+					addDep(StringView(material.emissive_texname.c_str()));
+				}
+			}
+		}
+
+		void Cook(CookContext& ctx) override
+		{
+			UndoRedoScope* scope = ctx.scope;
+
+			String originalName = "model.obj";
+			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
+			{
+				originalName = wrapper.GetString(ResourceImportedAsset::OriginalFileName);
+			}
+
+			String tempDir = Path::Join(Editor::GetProjectTempPath(), String("ObjCook_") + UUID::RandomUUID().ToString());
+			FileSystem::CreateDirectory(tempDir);
+
+			String objFilePath = Path::Join(tempDir, originalName);
+			FileSystem::SaveFileAsByteArray(objFilePath, ctx.sourceBytes);
+
+			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
+			{
+				for (RID depRid : wrapper.GetSubObjectList(ResourceImportedAsset::Dependencies))
+				{
+					ResourceObject dep = Resources::Read(depRid);
+					if (!dep) continue;
+					String    relPath = dep.GetString(ResourceDependencyEntry::RelPath);
+					ByteBuffer bytes = ctx.Dependency(relPath);
+					String    depPath = Path::Join(tempDir, relPath);
+					FileSystem::CreateDirectory(Path::Parent(depPath));
+					FileSystem::SaveFileAsByteArray(depPath, Span<u8>(bytes.begin(), bytes.Size()));
+				}
+			}
+
+			tinyobj::ObjReaderConfig readerConfig{};
+			String                  parent = Path::Parent(objFilePath);
 			readerConfig.mtl_search_path = parent.CStr();
 
 			tinyobj::ObjReader reader{};
-			if (!reader.ParseFromFile(std::string{path.CStr(), path.Size()}, readerConfig))
+			if (!reader.ParseFromFile(std::string{objFilePath.CStr(), objFilePath.Size()}, readerConfig))
 			{
 				if (!reader.Error().empty())
 				{
 					logger.Error("tinyobj {}", reader.Error().c_str());
 				}
-				return false;
+				FileSystem::Remove(tempDir);
+				return;
 			}
 
 			if (!reader.Warning().empty())
@@ -50,7 +141,7 @@ namespace Skore
 				logger.Warn("tinyobj {}", reader.Warning().c_str());
 			}
 
-			String fileName = Path::Name(path);
+			String fileName = Path::Name(objFilePath);
 
 			Allocator* heapAllocator = MemoryGlobals::GetHeapAllocator();
 
@@ -89,9 +180,9 @@ namespace Skore
 				String textureAbsolutePath = Path::Join(parent, diffuseTexName.c_str());
 
 				TextureImportSettings settings = {};
-				settings.async = ImportChildAssetsAsync;
+				settings.async = false;
 				settings.isSubAsset = true;
-				if (RID texture = ImportTexture(directory, settings, textureAbsolutePath, scope))
+				if (RID texture = ImportTexture({}, settings, textureAbsolutePath, scope))
 				{
 					textureCache.Insert(texName, texture);
 					allTextures.EmplaceBack(texture);
@@ -290,7 +381,7 @@ namespace Skore
 				MeshImportSettings settings = {};
 				settings.regenerateNormals = missingNormals;
 				settings.recalculateTangents = true;
-				RID meshResource = ImportMesh(directory, settings, name, meshMaterials, primitives, importData, allIndices, {}, Vec3(1.0),  scope);
+				RID meshResource = ImportMesh({}, settings, name, meshMaterials, primitives, importData, allIndices, {}, Vec3(1.0),  scope);
 				allMeshes.EmplaceBack(meshResource);
 
 				RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
@@ -321,7 +412,7 @@ namespace Skore
 			entityObject.AddToSubObjectList(EntityResource::Children, entities);
 			entityObject.Commit(scope);
 
-			RID dccAsset = ResourceAssets::CreateImportedAsset(directory, TypeInfo<DCCAsset>::ID(), fileName, scope, path);
+			RID dccAsset = ctx.SubResource("root", TypeInfo<DCCAsset>::ID());
 			ResourceObject dccObject = Resources::Write(dccAsset);
 			dccObject.SetString(DCCAsset::Name, fileName);
 			dccObject.SetSubObject(DCCAsset::RootEntity, rootEntity);
@@ -330,9 +421,9 @@ namespace Skore
 			dccObject.AddToSubObjectList(DCCAsset::Materials, ridMaterials);
 			dccObject.Commit(scope);
 
-			logger.Debug("obj {} imported ", path);
+			logger.Debug("obj {} imported ", fileName);
 
-			return true;
+			FileSystem::Remove(tempDir);
 		}
 	};
 

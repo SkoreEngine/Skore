@@ -18,19 +18,29 @@ namespace Skore
 			return {".wav", ".mp3", ".ogg", ".flac"};
 		}
 
-		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
+		StringView OutputExtension() override
 		{
-			RID audio = ResourceAssets::CreateImportedAsset(directory, TypeInfo<AudioResource>::ID(), Path::Name(path), scope, path);
+			return ".audio";
+		}
 
-			Array<u8> data;
-			FileSystem::ReadFileAsByteArray(path, data);
+		void Ingest(IngestContext& ctx) override
+		{
+			ctx.DeclareSubResource("main", TypeInfo<AudioResource>::ID());
+		}
 
+		void Cook(CookContext& ctx) override
+		{
+			String name = "audio";
+			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
+			{
+				name = Path::Name(wrapper.GetString(ResourceImportedAsset::OriginalFileName));
+			}
+
+			RID audio = ctx.SubResource("main", TypeInfo<AudioResource>::ID());
 			ResourceObject audioObject = Resources::Write(audio);
-			audioObject.SetString(AudioResource::Name, Path::Name(path));
-			audioObject.SetBlob(AudioResource::Bytes, data);
-			audioObject.Commit(scope);
-
-			return true;
+			audioObject.SetString(AudioResource::Name, name);
+			audioObject.SetBlob(AudioResource::Bytes, ctx.sourceBytes);
+			audioObject.Commit(ctx.scope);
 		}
 	};
 

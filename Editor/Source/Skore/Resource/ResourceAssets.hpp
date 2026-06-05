@@ -4,6 +4,10 @@
 #include <Skore/Common.hpp>
 #include "Skore/Core/StringView.hpp"
 #include "Skore/Core/Object.hpp"
+#include "Skore/Core/Array.hpp"
+#include "Skore/Core/ByteBuffer.hpp"
+#include "Skore/Core/Span.hpp"
+#include "Skore/Core/UUID.hpp"
 #include "Skore/Resource/ResourceBuffer.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
 
@@ -14,6 +18,95 @@ namespace Skore
 
 namespace Skore
 {
+	struct ResourceImportedAsset
+	{
+		enum : u8
+		{
+			OriginalFileName,
+			Extension,
+			ContentHash,
+			ImporterId,
+			CookerVersion,
+			ImportSettings,
+			OriginalData,
+			OriginalSize,
+			SubResources,
+			Dependencies,
+		};
+	};
+
+	struct ResourceSubIdEntry
+	{
+		enum : u8
+		{
+			SubId,
+			TargetUUID,
+			TypeName,
+		};
+	};
+
+	struct ResourceDependencyEntry
+	{
+		enum : u8
+		{
+			RelPath,
+			Data,
+			Size,
+		};
+	};
+
+	SK_API UUID SubResourceUUID(RID importedAsset, StringView subId);
+	SK_API void RegisterResourceImportedAssetTypes();
+	SK_API void ReloadAssetHandlers();
+
+	struct SubResourceDecl
+	{
+		String subId;
+		UUID   uuid;
+		TypeID type;
+	};
+
+	struct DependencyDecl
+	{
+		String     relPath;
+		ByteBuffer bytes;
+	};
+
+	struct SK_API IngestContext
+	{
+		RID            importedAsset;
+		StringView     sourcePath;
+		Span<u8>       sourceBytes;
+		UndoRedoScope* scope = nullptr;
+
+		Array<SubResourceDecl> subResources;
+		Array<DependencyDecl>  dependencies;
+
+		UUID DeclareSubResource(StringView subId, TypeID type);
+		void AddDependency(StringView relPath, Span<u8> bytes);
+		bool HasDependency(StringView relPath) const;
+	};
+
+	struct SK_API CookContext
+	{
+		RID            importedAsset;
+		Span<u8>       sourceBytes;
+		UndoRedoScope* scope = nullptr;
+
+		Array<RID> produced;
+
+		RID        SubResource(StringView subId, TypeID type);
+		ByteBuffer Dependency(StringView relPath) const;
+
+		template <typename T>
+		RID SubResource(StringView subId)
+		{
+			return SubResource(subId, TypeInfo<T>::ID());
+		}
+	};
+
+	SK_API void ApplyIngest(IngestContext& ctx);
+
 	struct ResourceAssetPackage
 	{
 		enum :u8
@@ -45,13 +138,14 @@ namespace Skore
 			Name,
 			Extension,
 			Type,
-			Object,							/// << this is the "real" object
+			Object,
 			Parent,
 			PathId,
 			Directory,
 			AssetFile,
 			SourcePath,
-			ReadOnly
+			ReadOnly,
+			ImportedAsset
 		};
 	};
 
@@ -132,7 +226,12 @@ namespace Skore
 		SK_CLASS(ResourceAssetImporter, Object);
 
 		virtual Array<String> ImportedExtensions() = 0;
-		virtual bool          ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) = 0;
+		virtual StringView    OutputExtension() { return {}; }
+		virtual u32           CookerVersion() { return 1; }
+		virtual void          Ingest(IngestContext& ctx) {}
+		virtual void          Cook(CookContext& ctx) {}
+
+		virtual bool          ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) { return false; }
 	};
 
 	struct SK_API ResourceAssets
@@ -147,7 +246,11 @@ namespace Skore
 		static RID                     DuplicateAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
 		static RID                     CreateInheritedAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
 		static RID                     CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
-		static RID                     CreateExtractedAsset(RID parent, TypeID typeId, StringView desiredName, RID object, UndoRedoScope* scope);
+		static RID                     CreateImportedAssetWrapper(RID parent, StringView desiredName, StringView extension, UndoRedoScope* scope);
+		static void                    EnsureCooked(RID rid);
+		static RID                     GetWrapperForSubResource(RID subResource);
+		static void                    InitTestFolders(StringView rootDir);
+		static void                    ClearCookCacheState();
 		static RID                     FindAssetOnDirectory(RID directory, TypeID typeId, StringView name);
 		static RID                     CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
 		static String                  CreateUniqueAssetName(RID parent, StringView desiredName, StringView extension, bool directory);
