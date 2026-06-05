@@ -619,7 +619,7 @@ namespace Skore
 				ResourceObject assetFileObject = Resources::Write(assetToUpdate.assetFile);
 				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, absolutePath);
 				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::PathId));
-				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, importedAsset ? Resources::GetVersion(importedAsset) : static_cast<u64>(storage->version));
+				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, storage->version);
 				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
 				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
 				assetFileObject.Commit();
@@ -671,7 +671,7 @@ namespace Skore
 				assetFileObject.SetReference(ResourceAssetFile::AssetRef, assetToUpdate.asset);
 				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, absolutePath);
 				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::PathId));
-				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, importedAsset ? Resources::GetVersion(importedAsset) : static_cast<u64>(storage->version));
+				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, storage->version);
 				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
 				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
 				assetFileObject.Commit();
@@ -1049,7 +1049,7 @@ namespace Skore
 			usize      bound = Compression::GetMaxCompressedBufferSize(dep.bytes.Size(), CompressionMode::ZSTD);
 			ByteBuffer compressed;
 			compressed.Resize(bound);
-			usize compressedSize = Compression::Compress(compressed.begin(), bound, dep.bytes.begin(), dep.bytes.Size(), CompressionMode::ZSTD);
+			usize compressedSize = Compression::Compress(compressed.begin(), bound, dep.bytes.begin(), dep.bytes.Size(), CompressionMode::ZSTD, CompressionMaxLevel);
 
 			RID            depRid = Resources::Create<ResourceDependencyEntry>(UUID::RandomUUID(), ctx.scope);
 			ResourceObject depObj = Resources::Write(depRid);
@@ -1553,7 +1553,7 @@ namespace Skore
 			usize      bound = Compression::GetMaxCompressedBufferSize(source.Size(), CompressionMode::ZSTD);
 			ByteBuffer compressed;
 			compressed.Resize(bound);
-			usize compressedSize = Compression::Compress(compressed.begin(), bound, source.begin(), source.Size(), CompressionMode::ZSTD);
+			usize compressedSize = Compression::Compress(compressed.begin(), bound, source.begin(), source.Size(), CompressionMode::ZSTD, CompressionMaxLevel);
 
 			ResourceObject wrapperObj = Resources::Write(wrapper);
 			wrapperObj.SetString(ResourceImportedAsset::OriginalFileName, Path::Name(path) + Path::Extension(path));
@@ -1886,8 +1886,7 @@ namespace Skore
 			return false;
 		}
 
-		RID importedAsset = assetObject.GetSubObject(ResourceAsset::ImportedAsset);
-		currentVersion = importedAsset ? Resources::GetVersion(importedAsset) : assetObject.GetVersion();
+		currentVersion = assetObject.GetVersion();
 		persistedVersion = assetFileObject.GetUInt(ResourceAssetFile::PersistedVersion);
 
 		return true;
