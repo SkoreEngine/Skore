@@ -16,6 +16,8 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/FileSystem.hpp"
+#include "Skore/Resource/ResourceReflection.hpp"
+#include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
@@ -105,6 +107,11 @@ namespace Skore
 			return 1;
 		}
 
+		TypeID GetSettingsType() override
+		{
+			return TypeInfo<FBXImportSettings>::ID();
+		}
+
 		void Ingest(IngestContext& ctx) override
 		{
 			ctx.DeclareSubResource("root", TypeInfo<DCCAsset>::ID());
@@ -184,7 +191,8 @@ namespace Skore
 				}
 			}
 
-			FBXImportSettings fbxImportSettings;
+			FBXImportSettings fbxImportSettings{};
+			Resources::FromResource(ctx.importSettings, &fbxImportSettings);
 			ImportFBX(ctx, fbxImportSettings, path);
 
 			FileSystem::Remove(tempDir);
@@ -200,8 +208,7 @@ namespace Skore
 
 		RID textureRID = {};
 
-		TextureImportSettings textureImportSettings;
-		textureImportSettings.filterMode = FilterMode::Linear;
+		TextureImportSettings textureImportSettings = fbxData.settings.texture;
 		textureImportSettings.wrapMode = texture->wrap_u == UFBX_WRAP_CLAMP ? AddressMode::ClampToBorder : AddressMode::Repeat;
 
 		TextureImportOptions textureImportOptions;
@@ -512,8 +519,7 @@ namespace Skore
 		}
 		allIndices.Resize(totalIndicesCount);
 
-		MeshImportSettings meshImportSettings = {};
-		meshImportSettings.generateUV1s = true;
+		MeshImportSettings meshImportSettings = fbxData.settings.mesh;
 
 		String meshName;
 
@@ -919,6 +925,7 @@ namespace Skore
 			fbxData.directory = {};
 			fbxData.scene = scene;
 			fbxData.scope = scope;
+			fbxData.settings = settings;
 
 			String basePath = Path::Parent(path);
 			String name = Path::Name(path);
@@ -982,9 +989,12 @@ namespace Skore
 			}
 
 			//animations
-			for (u32 i = 0; i < scene->anim_stacks.count; i++)
+			if (settings.importAnimations)
 			{
-				ProcessAnimation(fbxData, scene->anim_stacks.data[i]);
+				for (u32 i = 0; i < scene->anim_stacks.count; i++)
+				{
+					ProcessAnimation(fbxData, scene->anim_stacks.data[i]);
+				}
 			}
 
 			// Add sub-assets to DCCAsset
@@ -1014,6 +1024,11 @@ namespace Skore
 
 	void RegisterFBXImporter()
 	{
+		auto settings = Reflection::Type<FBXImportSettings>();
+		settings.Field<&FBXImportSettings::mesh>("mesh");
+		settings.Field<&FBXImportSettings::texture>("texture");
+		settings.Field<&FBXImportSettings::importAnimations>("importAnimations");
+
 		Reflection::Type<FBXImporter>();
 	}
 }

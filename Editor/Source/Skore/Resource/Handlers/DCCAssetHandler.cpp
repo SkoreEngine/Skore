@@ -1,3 +1,5 @@
+#include "Skore/Editor.hpp"
+#include "Skore/EditorWorkspace.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
@@ -34,6 +36,13 @@ namespace Skore
 
 		void OpenAsset(RID asset) override
 		{
+			if (ResourceObject object = Resources::Read(asset))
+			{
+				if (RID importSettings = ResourceAssets::GetImportSettings(object.GetSubObject(ResourceAsset::Object)))
+				{
+					Editor::GetActiveWorkspace()->OpenAsset(importSettings);
+				}
+			}
 		}
 
 		TypeID GetResourceTypeId() override

@@ -1659,8 +1659,18 @@ namespace Skore
 
 			if (TypeID settingsType = importer->GetSettingsType())
 			{
-				RID settings = Resources::Create(settingsType, UUID::RandomUUID(), scope);
-				wrapperObj.SetSubObject(ResourceImportedAsset::ImportSettings, settings);
+
+				if (ReflectType* type = Reflection::FindTypeById(settingsType))
+				{
+					VoidPtr ptr = MemAlloc(type->GetProps().size);
+					type->GetDefaultConstructor()->Construct(ptr, nullptr);
+
+					RID settings = Resources::Create(settingsType, UUID::RandomUUID(), scope);
+					Resources::ToResource(settings, ptr, scope);
+
+					wrapperObj.SetSubObject(ResourceImportedAsset::ImportSettings, settings);
+					MemFree(ptr);
+				}
 			}
 
 			wrapperObj.Commit(scope);
@@ -2524,6 +2534,11 @@ namespace Skore
 
 	static void OnImportSettingsChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
+		if (oldValue.GetInstance() == newValue.GetInstance())
+		{
+			return;
+		}
+
 		RID settings = newValue.GetRID();
 		if (!settings) return;
 
@@ -2765,6 +2780,7 @@ namespace Skore
 
 	void RegisterAudioImporter();
 	void RegisterTextureImporter();
+	void RegisterMeshImportSettings();
 	void RegisterFBXImporter();
 	void RegisterGLTFImporter();
 	void RegisterObjImporter();
@@ -2827,6 +2843,7 @@ namespace Skore
 
 		RegisterAudioImporter();
 		RegisterTextureImporter();
+		RegisterMeshImportSettings();
 		RegisterFBXImporter();
 		RegisterGLTFImporter();
 		RegisterObjImporter();

@@ -14,6 +14,8 @@
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Resource/ResourceReflection.hpp"
+#include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Scene/Components/LightComponent.hpp"
 #include "Skore/Scene/Components/PhysicShapes.hpp"
@@ -23,6 +25,15 @@
 
 namespace Skore
 {
+	struct GLTFImportSettings
+	{
+		MeshImportSettings    mesh = {};
+		TextureImportSettings texture = {};
+		bool                  importAnimations = true;
+		bool                  importLights = true;
+		bool                  importPhysics = true;
+	};
+
 	namespace
 	{
 		enum class OMIShapeType
@@ -58,6 +69,7 @@ namespace Skore
 			RID                           directory;
 			String                        basePath;
 			UndoRedoScope*                scope;
+			GLTFImportSettings            settings;
 			cgltf_data*                   gltfData = nullptr;
 			HashMap<cgltf_image*, RID>    images;
 			HashMap<cgltf_material*, RID> materials;
@@ -1076,7 +1088,7 @@ namespace Skore
 
 			logger.Debug("Processing texture: {}, {} ", texName, index);
 
-			TextureImportSettings textureImportSettings;
+			TextureImportSettings textureImportSettings = gltfData.settings.texture;
 			if (texture->sampler)
 			{
 				cgltf_filter_type filter = texture->sampler->mag_filter != cgltf_filter_type_undefined ? texture->sampler->mag_filter : texture->sampler->min_filter;
@@ -1492,7 +1504,7 @@ namespace Skore
 
 			logger.Debug("Mesh '{}': {} vertices, {} indices, {} primitives", meshName, positions.Size(), indices.Size(), primitives.Size());
 
-			MeshImportSettings meshImportSettings = {};
+			MeshImportSettings meshImportSettings = data.settings.mesh;
 
 			MeshVertexImportData importData;
 			importData.positions = positions;
@@ -1627,7 +1639,7 @@ namespace Skore
 				}
 			}
 
-			if (node->light)
+			if (node->light && data.settings.importLights)
 			{
 				// glTF KHR_lights_punctual: range == 0 (or omitted) means infinite range.
 				// The engine's attenuation is `1 - saturate(d/range)`, so 0 would kill the light — remap to a large value.
@@ -1652,7 +1664,10 @@ namespace Skore
 			}
 
 			// Process OMI_physics_body extension
-			ProcessOMIPhysicsBody(data, node, entityObject);
+			if (data.settings.importPhysics)
+			{
+				ProcessOMIPhysicsBody(data, node, entityObject);
+			}
 
 			for (size_t i = 0; i < node->children_count; i++)
 			{
@@ -1690,6 +1705,11 @@ namespace Skore
 		u32 CookerVersion() override
 		{
 			return 1;
+		}
+
+		TypeID GetSettingsType() override
+		{
+			return TypeInfo<GLTFImportSettings>::ID();
 		}
 
 		void Ingest(IngestContext& ctx) override
@@ -1799,10 +1819,14 @@ namespace Skore
 			importData.basePath = Path::Parent(path);
 			importData.scope = scope;
 			importData.gltfData = data;
+			Resources::FromResource(ctx.importSettings, &importData.settings);
 
 			// Parse OMI physics extensions from document-level data
-			ParseOMIPhysicsShapes(importData);
-			ParseOMIPhysicsMaterials(importData);
+			if (importData.settings.importPhysics)
+			{
+				ParseOMIPhysicsShapes(importData);
+				ParseOMIPhysicsMaterials(importData);
+			}
 
 			logger.Debug("Processing {} textures", data->textures_count);
 			for (size_t i = 0; i < data->textures_count; i++)
@@ -1864,7 +1888,7 @@ namespace Skore
 			entityObject.Commit(scope);
 
 			// Process animations
-			if (data->animations_count > 0)
+			if (importData.settings.importAnimations && data->animations_count > 0)
 			{
 				logger.Debug("Processing {} animations", data->animations_count);
 				for (size_t i = 0; i < data->animations_count; i++)
@@ -1904,6 +1928,13 @@ namespace Skore
 
 	void RegisterGLTFImporter()
 	{
+		auto settings = Reflection::Type<GLTFImportSettings>();
+		settings.Field<&GLTFImportSettings::mesh>("mesh");
+		settings.Field<&GLTFImportSettings::texture>("texture");
+		settings.Field<&GLTFImportSettings::importAnimations>("importAnimations");
+		settings.Field<&GLTFImportSettings::importLights>("importLights");
+		settings.Field<&GLTFImportSettings::importPhysics>("importPhysics");
+
 		Reflection::Type<GLTFImporter>();
 	}
 }
