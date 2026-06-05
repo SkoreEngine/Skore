@@ -14,6 +14,7 @@
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Resource/ResourceReflection.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
@@ -23,6 +24,12 @@ namespace Skore
 {
 
 	static Logger& logger = Logger::GetLogger("Skore::ObjImporter");
+
+	struct ObjImportSettings
+	{
+		MeshImportSettings    mesh;
+		TextureImportSettings texture;
+	};
 
 	struct ObjImporter : ResourceAssetImporter
 	{
@@ -41,6 +48,11 @@ namespace Skore
 		u32 CookerVersion() override
 		{
 			return 1;
+		}
+
+		TypeID GetSettingsType() override
+		{
+			return TypeInfo<ObjImportSettings>::ID();
 		}
 
 		void Ingest(IngestContext& ctx) override
@@ -94,6 +106,9 @@ namespace Skore
 		void Cook(CookContext& ctx) override
 		{
 			UndoRedoScope* scope = ctx.scope;
+
+			ObjImportSettings settings{};
+			Resources::FromResource(ctx.importSettings, &settings);
 
 			String originalName = "model.obj";
 			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
@@ -179,11 +194,10 @@ namespace Skore
 
 				String textureAbsolutePath = Path::Join(parent, diffuseTexName.c_str());
 
-				TextureImportSettings settings = {};
 				TextureImportOptions options = {};
 				options.async = false;
 				options.isSubAsset = true;
-				if (RID texture = ImportTexture({}, settings, options, textureAbsolutePath, scope))
+				if (RID texture = ImportTexture({}, settings.texture, options, textureAbsolutePath, scope))
 				{
 					textureCache.Insert(texName, texture);
 					allTextures.EmplaceBack(texture);
@@ -379,10 +393,9 @@ namespace Skore
 				importData.uv = soaUVs;
 				importData.colors = soaColors;
 
-				MeshImportSettings settings = {};
-				settings.regenerateNormals = missingNormals;
-				settings.recalculateTangents = true;
-				RID meshResource = ImportMesh({}, settings, name, meshMaterials, primitives, importData, allIndices, {}, Vec3(1.0),  scope);
+				MeshImportSettings meshSettings = settings.mesh;
+				meshSettings.regenerateNormals = meshSettings.regenerateNormals || missingNormals;
+				RID meshResource = ImportMesh({}, meshSettings, name, meshMaterials, primitives, importData, allIndices, {}, Vec3(1.0),  scope);
 				allMeshes.EmplaceBack(meshResource);
 
 				RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
@@ -430,6 +443,10 @@ namespace Skore
 
 	void RegisterObjImporter()
 	{
+		auto settings = Reflection::Type<ObjImportSettings>();
+		settings.Field<&ObjImportSettings::mesh>("mesh");
+		settings.Field<&ObjImportSettings::texture>("texture");
+
 		Reflection::Type<ObjImporter>();
 	}
 }

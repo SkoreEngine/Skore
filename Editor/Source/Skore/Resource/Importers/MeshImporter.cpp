@@ -2,9 +2,11 @@
 
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Resource/ResourceReflection.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 #include "meshoptimizer.h"
@@ -591,5 +593,21 @@ namespace Skore
 
 		u64 newVertexCount = positions.Size();
 		logger.Info("ReimportMesh '{}' done: {} -> {} vertices", meshName, vertexCount, newVertexCount);
+	}
+
+	void RegisterMeshImportSettings()
+	{
+		auto settings = Reflection::Type<MeshImportSettings>();
+		settings.Field<&MeshImportSettings::regenerateNormals>("regenerateNormals");
+		settings.Field<&MeshImportSettings::recalculateTangents>("recalculateTangents");
+		settings.Field<&MeshImportSettings::generateUV1s>("generateUV1s");
+		settings.Field<&MeshImportSettings::lightMapTexelSize>("lightMapTexelSize");
+		settings.Field<&MeshImportSettings::optimizeMesh>("optimizeMesh");
+		settings.Field<&MeshImportSettings::generateLODs>("generateLODs");
+		settings.Field<&MeshImportSettings::lodCount>("lodCount");
+		settings.Field<&MeshImportSettings::lodReduction>("lodReduction");
+		settings.Field<&MeshImportSettings::lodTargetError>("lodTargetError");
+		settings.Field<&MeshImportSettings::lodSwitchDistance>("lodSwitchDistance");
+		settings.Field<&MeshImportSettings::overdrawThreshold>("overdrawThreshold");
 	}
 }
