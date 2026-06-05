@@ -203,14 +203,16 @@ namespace Skore
 		TextureImportSettings textureImportSettings;
 		textureImportSettings.filterMode = FilterMode::Linear;
 		textureImportSettings.wrapMode = texture->wrap_u == UFBX_WRAP_CLAMP ? AddressMode::ClampToBorder : AddressMode::Repeat;
-		textureImportSettings.async = false;
-		textureImportSettings.isSubAsset = true;
+
+		TextureImportOptions textureImportOptions;
+		textureImportOptions.async = false;
+		textureImportOptions.isSubAsset = true;
 
 		if (texture->content.data != nullptr && texture->content.size > 0)
 		{
 			Span   data = Span((u8*)texture->content.data, texture->content.size);
 			String name = Path::Name(StringView{texture->relative_filename.data, texture->relative_filename.length});
-			textureRID = ImportTextureFromMemory(directory, textureImportSettings, name, data, fbxData.scope);
+			textureRID = ImportTextureFromMemory(directory, textureImportSettings, textureImportOptions, name, data, fbxData.scope);
 		}
 		else
 		{
@@ -230,7 +232,7 @@ namespace Skore
 			//if found, import the texture
 			if (FileSystem::GetFileStatus(absolutePath).exists)
 			{
-				textureRID = ImportTexture(directory, textureImportSettings, absolutePath, fbxData.scope);
+				textureRID = ImportTexture(directory, textureImportSettings, textureImportOptions, absolutePath, fbxData.scope);
 			}
 		}
 

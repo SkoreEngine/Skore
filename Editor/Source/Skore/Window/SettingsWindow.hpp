@@ -37,7 +37,7 @@ namespace Skore
 
 	private:
 		String              title;
-		TypeID              settingsType = 0;
+		TypeID              settingsType = {0};
 		String              searchText;
 		const SettingsItem* selectedItem = nullptr;
 

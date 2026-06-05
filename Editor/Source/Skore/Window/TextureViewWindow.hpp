@@ -35,12 +35,11 @@ namespace Skore
 		bool fitRequested = true;
 		bool resourcesDirty = true;
 
-		FilterMode  filterMode = FilterMode::Linear;
-		AddressMode addressMode = AddressMode::Repeat;
+		RID importSettingsRID = {};
+		u64 textureVersion = 0;
 
 		void RebuildResources();
 		void ReleaseResources();
-		void WriteSamplerSettings();
 		void DrawToolbar();
 		void DrawViewport();
 		void DrawProperties();
