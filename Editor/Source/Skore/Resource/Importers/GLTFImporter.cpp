@@ -1083,8 +1083,10 @@ namespace Skore
 				textureImportSettings.filterMode = ToFilterMode(filter);
 				textureImportSettings.wrapMode = ToAddressMode(texture->sampler->wrap_s);
 			}
-			textureImportSettings.async = false;
-			textureImportSettings.isSubAsset = true;
+
+			TextureImportOptions textureImportOptions;
+			textureImportOptions.async = false;
+			textureImportOptions.isSubAsset = true;
 
 
 			if (bool embedded = (image->buffer_view && image->buffer_view->buffer && image->buffer_view->buffer->data) || (image->uri && strncmp(image->uri, "data:", 5) == 0))
@@ -1096,7 +1098,7 @@ namespace Skore
 					usize     bufferSize = image->buffer_view->size;
 
 					Span<u8> data = Span(const_cast<u8*>(bufferData), bufferSize);
-					textureRID = ImportTextureFromMemory(gltfData.directory, textureImportSettings, texName, data, gltfData.scope);
+					textureRID = ImportTextureFromMemory(gltfData.directory, textureImportSettings, textureImportOptions, texName, data, gltfData.scope);
 				}
 				else if (image->uri)
 				{
@@ -1108,7 +1110,7 @@ namespace Skore
 							usize size = strlen(base64Start);
 
 							Array<u8> output = base64::decode_into<Array<u8>>(std::string_view(base64Start, size));
-							textureRID = ImportTextureFromMemory(gltfData.directory, textureImportSettings, texName, Span(output.Data(), output.Size()), gltfData.scope);
+							textureRID = ImportTextureFromMemory(gltfData.directory, textureImportSettings, textureImportOptions, texName, Span(output.Data(), output.Size()), gltfData.scope);
 						}
 					}
 				}
@@ -1125,7 +1127,7 @@ namespace Skore
 				u32 size = cgltf_decode_uri(uri.begin());
 				uri.Resize(size);
 				String texturePath = Path::Join(gltfData.basePath, uri);
-				textureRID = ImportTexture(gltfData.directory, textureImportSettings, texturePath, gltfData.scope);
+				textureRID = ImportTexture(gltfData.directory, textureImportSettings, textureImportOptions, texturePath, gltfData.scope);
 			}
 
 			gltfData.images.Insert(image, textureRID);

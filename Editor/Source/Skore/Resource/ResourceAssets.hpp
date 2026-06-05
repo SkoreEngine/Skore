@@ -90,6 +90,7 @@ namespace Skore
 	struct SK_API CookContext
 	{
 		RID            importedAsset;
+		RID						 importSettings;
 		Span<u8>       sourceBytes;
 		UndoRedoScope* scope = nullptr;
 
@@ -228,6 +229,7 @@ namespace Skore
 		virtual Array<String> ImportedExtensions() = 0;
 		virtual StringView    OutputExtension() { return {}; }
 		virtual u32           CookerVersion() { return 1; }
+		virtual TypeID        GetSettingsType() { return {}; }
 		virtual void          Ingest(IngestContext& ctx) {}
 		virtual void          Cook(CookContext& ctx) {}
 
@@ -248,7 +250,9 @@ namespace Skore
 		static RID                     CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
 		static RID                     CreateImportedAssetWrapper(RID parent, StringView desiredName, StringView extension, UndoRedoScope* scope);
 		static void                    EnsureCooked(RID rid);
+		static void                    ReimportAssetFromFile(RID object);
 		static RID                     GetWrapperForSubResource(RID subResource);
+		static RID                     GetImportSettings(RID object);
 		static void                    InitTestFolders(StringView rootDir);
 		static void                    ClearCookCacheState();
 		static RID                     FindAssetOnDirectory(RID directory, TypeID typeId, StringView name);
