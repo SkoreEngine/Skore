@@ -17,6 +17,8 @@ namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("Skore::TextureImporter");
 
+	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, TextureFormat format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope);
+
 	struct TextureImporter : ResourceAssetImporter
 	{
 		SK_CLASS(TextureImporter, ResourceAssetImporter);
@@ -26,15 +28,61 @@ namespace Skore
 			return {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr"};
 		}
 
-		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
+		StringView OutputExtension() override
 		{
-			TextureImportSettings importSettings = settings
-				                                       ? *static_cast<const TextureImportSettings*>(settings)
-				                                       : TextureImportSettings{
-				                                       };
+			return ".texture";
+		}
 
-			ImportTexture(directory, importSettings, path, scope);
-			return true;
+		u32 CookerVersion() override
+		{
+			return 1;
+		}
+
+		void Ingest(IngestContext& ctx) override
+		{
+			ctx.DeclareSubResource("main", TypeInfo<TextureResource>::ID());
+		}
+
+		void Cook(CookContext& ctx) override
+		{
+			TextureImportSettings settings{};
+
+			i32 width{};
+			i32 height{};
+			i32 channels{};
+			i32 desiredChannels = 4;
+
+			VoidPtr       bytes = nullptr;
+			TextureFormat format;
+
+			bool hdr = stbi_is_hdr_from_memory(ctx.sourceBytes.begin(), static_cast<i32>(ctx.sourceBytes.Size()));
+			if (hdr)
+			{
+				bytes = stbi_loadf_from_memory(ctx.sourceBytes.begin(), static_cast<i32>(ctx.sourceBytes.Size()), &width, &height, &channels, desiredChannels);
+				format = TextureFormat::R32G32B32A32_FLOAT;
+			}
+			else
+			{
+				bytes = stbi_load_from_memory(ctx.sourceBytes.begin(), static_cast<i32>(ctx.sourceBytes.Size()), &width, &height, &channels, desiredChannels);
+				format = TextureFormat::R8G8B8A8_UNORM;
+			}
+
+			if (bytes == nullptr)
+			{
+				logger.Error("Failed to decode texture");
+				return;
+			}
+
+			String name = "texture";
+			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
+			{
+				name = Path::Name(wrapper.GetString(ResourceImportedAsset::OriginalFileName));
+			}
+
+			RID texture = ctx.SubResource("main", TypeInfo<TextureResource>::ID());
+			ProcessTextureAsset(texture, name, settings, format, width, height, bytes, ctx.scope);
+
+			stbi_image_free(bytes);
 		}
 	};
 

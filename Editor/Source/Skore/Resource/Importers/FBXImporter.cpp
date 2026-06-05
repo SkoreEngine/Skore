@@ -9,6 +9,7 @@
 
 #include "Skore/Resource/Importers/MeshImporter.hpp"
 #include "Skore/Resource/Importers/TextureImporter.hpp"
+#include "Skore/Editor.hpp"
 #include "Skore/EditorCommon.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Logger.hpp"
@@ -94,10 +95,99 @@ namespace Skore
 			return {".fbx"};
 		}
 
-		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
+		StringView OutputExtension() override
 		{
+			return ".dcc_asset";
+		}
+
+		u32 CookerVersion() override
+		{
+			return 1;
+		}
+
+		void Ingest(IngestContext& ctx) override
+		{
+			ctx.DeclareSubResource("root", TypeInfo<DCCAsset>::ID());
+
+			String sourcePath = ctx.sourcePath;
+			String basePath = Path::Parent(sourcePath);
+
+			ufbx_load_opts opts = {};
+			ufbx_error     error;
+			ufbx_scene*    scene = ufbx_load_file(sourcePath.CStr(), &opts, &error);
+			if (!scene)
+			{
+				return;
+			}
+
+			for (u32 i = 0; i < scene->textures.count; i++)
+			{
+				ufbx_texture* texture = scene->textures.data[i];
+				if (!texture || (texture->content.data != nullptr && texture->content.size > 0))
+				{
+					continue;
+				}
+
+				String relName = String{texture->element.name.data, texture->element.name.length};
+				if (relName.Empty() || ctx.HasDependency(relName))
+				{
+					continue;
+				}
+
+				String absolutePath;
+				if (texture->filename.length > 0)
+				{
+					absolutePath = String{texture->filename.data, texture->filename.length};
+				}
+				if (!FileSystem::GetFileStatus(absolutePath).exists)
+				{
+					absolutePath = Path::Join(basePath, relName);
+				}
+				if (!FileSystem::GetFileStatus(absolutePath).exists)
+				{
+					continue;
+				}
+
+				ByteBuffer bytes;
+				FileSystem::ReadFileAsByteBuffer(absolutePath, bytes);
+				ctx.AddDependency(relName, Span<u8>(bytes.begin(), bytes.Size()));
+			}
+
+			ufbx_free_scene(scene);
+		}
+
+		void Cook(CookContext& ctx) override
+		{
+			String originalName = "model.fbx";
+			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
+			{
+				originalName = wrapper.GetString(ResourceImportedAsset::OriginalFileName);
+			}
+
+			String tempDir = Path::Join(Editor::GetProjectTempPath(), String("FbxCook_") + UUID::RandomUUID().ToString());
+			FileSystem::CreateDirectory(tempDir);
+
+			String path = Path::Join(tempDir, originalName);
+			FileSystem::SaveFileAsByteArray(path, ctx.sourceBytes);
+
+			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
+			{
+				for (RID depRid : wrapper.GetSubObjectList(ResourceImportedAsset::Dependencies))
+				{
+					ResourceObject dep = Resources::Read(depRid);
+					if (!dep) continue;
+					String    relPath = dep.GetString(ResourceDependencyEntry::RelPath);
+					ByteBuffer bytes = ctx.Dependency(relPath);
+					String    depPath = Path::Join(tempDir, relPath);
+					FileSystem::CreateDirectory(Path::Parent(depPath));
+					FileSystem::SaveFileAsByteArray(depPath, Span<u8>(bytes.begin(), bytes.Size()));
+				}
+			}
+
 			FBXImportSettings fbxImportSettings;
-			return ImportFBX(directory, fbxImportSettings, path, scope);
+			ImportFBX(ctx, fbxImportSettings, path);
+
+			FileSystem::Remove(tempDir);
 		}
 	};
 
@@ -113,7 +203,7 @@ namespace Skore
 		TextureImportSettings textureImportSettings;
 		textureImportSettings.filterMode = FilterMode::Linear;
 		textureImportSettings.wrapMode = texture->wrap_u == UFBX_WRAP_CLAMP ? AddressMode::ClampToBorder : AddressMode::Repeat;
-		textureImportSettings.async = ImportChildAssetsAsync;
+		textureImportSettings.async = false;
 		textureImportSettings.isSubAsset = true;
 
 		if (texture->content.data != nullptr && texture->content.size > 0)
@@ -775,9 +865,10 @@ namespace Skore
 		return entity;
 	}
 
-	bool ImportFBX(RID directory, const FBXImportSettings& settings, StringView path, UndoRedoScope* scope)
+	bool ImportFBX(CookContext& cookCtx, const FBXImportSettings& settings, StringView path)
 	{
-		String fileName = Path::Name(path);
+		UndoRedoScope* scope = cookCtx.scope;
+		String         fileName = Path::Name(path);
 
 		bool allowGeometryHelperNodes = false;
 
@@ -823,7 +914,7 @@ namespace Skore
 
 			FBXImportData fbxData;
 			fbxData.basePath = path;
-			fbxData.directory = directory;
+			fbxData.directory = {};
 			fbxData.scene = scene;
 			fbxData.scope = scope;
 
@@ -832,7 +923,7 @@ namespace Skore
 
 			for (u32 i = 0; i < scene->textures.count; i++)
 			{
-				ProcessTextures(directory, fbxData, basePath, scene->textures.data[i]);
+				ProcessTextures({}, fbxData, basePath, scene->textures.data[i]);
 			}
 
 			// Process Materials
@@ -842,7 +933,7 @@ namespace Skore
 			}
 
 			//not sure about mesh > 0
-			RID dccAsset = ResourceAssets::CreateImportedAsset(directory, TypeInfo<DCCAsset>::ID(), fileName, scope, path);
+			RID dccAsset = cookCtx.SubResource("root", TypeInfo<DCCAsset>::ID());
 			ResourceObject dccObject = Resources::Write(dccAsset);
 			dccObject.SetString(DCCAsset::Name, fileName);
 

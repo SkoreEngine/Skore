@@ -32,6 +32,9 @@ namespace Skore
 		const T* Data() const;
 		T*       Data();
 
+		T&       operator[](usize idx) { return m_first[idx]; }
+		const T& operator[](usize idx) const { return m_first[idx]; }
+
 		BasicByteBuffer&   operator=(const BasicByteBuffer& other);
 		BasicByteBuffer&   operator=(BasicByteBuffer&& other) noexcept;
 		BasicByteBuffer&   operator=(const Span<T>& span);

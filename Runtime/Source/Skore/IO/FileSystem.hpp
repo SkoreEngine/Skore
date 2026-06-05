@@ -4,6 +4,7 @@
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/StringView.hpp"
 #include "Skore/Core/Array.hpp"
+#include "Skore/Core/ByteBuffer.hpp"
 
 namespace Skore
 {
@@ -41,6 +42,7 @@ namespace Skore
 		static void   SaveFileAsString(const StringView& path, const StringView& string);
 
 		static void ReadFileAsByteArray(const StringView& path, Array<u8>& buffer);
+		static void ReadFileAsByteBuffer(const StringView& path, ByteBuffer& buffer);
 		static void SaveFileAsByteArray(const StringView& path, Span<u8> bytes);
 
 
