@@ -7,6 +7,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 
@@ -14,35 +15,6 @@ namespace Skore
 {
 	namespace
 	{
-		template <typename T>
-		bool EnumCombo(const char* id, T& value)
-		{
-			ReflectType* type = Reflection::FindType<T>();
-			if (!type) return false;
-
-			ReflectValue* current = type->FindValueByCode(static_cast<i64>(value));
-
-			bool changed = false;
-			if (ImGui::BeginCombo(id, current ? current->GetDesc().CStr() : ""))
-			{
-				for (ReflectValue* reflectValue : type->GetValues())
-				{
-					bool selected = reflectValue->GetCode() == static_cast<i64>(value);
-					if (ImGui::Selectable(reflectValue->GetDesc().CStr(), selected))
-					{
-						value = static_cast<T>(reflectValue->GetCode());
-						changed = true;
-					}
-					if (selected)
-					{
-						ImGui::SetItemDefaultFocus();
-					}
-				}
-				ImGui::EndCombo();
-			}
-			return changed;
-		}
-
 		u32 MipSize(u32 base, u32 mip)
 		{
 			return Math::Max(1u, base >> mip);
@@ -91,11 +63,8 @@ namespace Skore
 		textureCache = RenderResourceCache::GetTextureCache(textureRID, false);
 		texture = textureCache ? textureCache->texture : nullptr;
 
-		if (ResourceObject textureObject = Resources::Read(textureRID))
-		{
-			filterMode = textureObject.GetEnum<FilterMode>(TextureResource::FilterMode);
-			addressMode = textureObject.GetEnum<AddressMode>(TextureResource::WrapMode);
-		}
+		importSettingsRID = ResourceAssets::GetImportSettings(textureRID);
+		textureVersion = Resources::GetVersion(textureRID);
 
 		resourcesDirty = true;
 		fitRequested = true;
@@ -128,6 +97,14 @@ namespace Skore
 			mipLevel = desc.mipLevels - 1;
 		}
 
+		FilterMode  filterMode = FilterMode::Linear;
+		AddressMode addressMode = AddressMode::Repeat;
+		if (ResourceObject textureObject = Resources::Read(textureRID))
+		{
+			filterMode = textureObject.GetEnum<FilterMode>(TextureResource::FilterMode);
+			addressMode = textureObject.GetEnum<AddressMode>(TextureResource::WrapMode);
+		}
+
 		SamplerDesc samplerDesc{};
 		samplerDesc.minFilter = filterMode;
 		samplerDesc.magFilter = filterMode;
@@ -149,17 +126,6 @@ namespace Skore
 		textureView = Graphics::CreateTextureView(viewDesc);
 	}
 
-	void TextureViewWindow::WriteSamplerSettings()
-	{
-		if (!textureRID) return;
-
-		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Update Texture Sampler");
-		ResourceObject textureObject = Resources::Write(textureRID);
-		textureObject.SetEnum(TextureResource::FilterMode, filterMode);
-		textureObject.SetEnum(TextureResource::WrapMode, addressMode);
-		textureObject.Commit(scope);
-	}
-
 	void TextureViewWindow::Draw(bool& open)
 	{
 		ScopedStyleVar windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -169,6 +135,12 @@ namespace Skore
 		if (current != texture)
 		{
 			texture = current;
+			resourcesDirty = true;
+		}
+
+		if (u64 version = Resources::GetVersion(textureRID); version != textureVersion)
+		{
+			textureVersion = version;
 			resourcesDirty = true;
 		}
 
@@ -253,6 +225,17 @@ namespace Skore
 			{
 				mipLevel = static_cast<u32>(mip);
 				resourcesDirty = true;
+			}
+		}
+
+		if (importSettingsRID)
+		{
+			const char* reimportLabel = ICON_FA_UPLOAD " Reimport";
+			f32         reimportWidth = ImGui::CalcTextSize(reimportLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+			ImGui::SameLine(ImGui::GetContentRegionMax().x - reimportWidth);
+			if (ImGui::Button(reimportLabel))
+			{
+				ResourceAssets::ReimportAssetFromFile(textureRID);
 			}
 		}
 
@@ -356,29 +339,17 @@ namespace Skore
 		infoLabel("Viewing Mip");
 		ImGui::Text("%u  (%u x %u)", mipLevel, MipSize(desc.extent.width, mipLevel), MipSize(desc.extent.height, mipLevel));
 
+		if (!importSettingsRID) return;
+
 		ImGui::Spacing();
 		ImGui::Spacing();
 
-		ImGui::TextUnformatted("Sampler");
-		ImGui::Separator();
-		ImGui::Spacing();
-
-		ImGui::TextDisabled("Filter Mode");
-		ImGui::SameLine(labelWidth);
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-		if (EnumCombo("##filtermode", filterMode))
+		if (ImGui::CollapsingHeader("Import Settings", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			resourcesDirty = true;
-			WriteSamplerSettings();
-		}
-
-		ImGui::TextDisabled("Wrap Mode");
-		ImGui::SameLine(labelWidth);
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-		if (EnumCombo("##wrapmode", addressMode))
-		{
-			resourcesDirty = true;
-			WriteSamplerSettings();
+			ImGuiDrawResource(ImGuiDrawResourceInfo{
+				.rid = importSettingsRID,
+				.scopeName = "Texture Import Settings",
+			});
 		}
 	}
 

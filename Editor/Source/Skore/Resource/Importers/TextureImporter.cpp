@@ -38,6 +38,11 @@ namespace Skore
 			return 1;
 		}
 
+		TypeID GetSettingsType() override
+		{
+			return TypeInfo<TextureImportSettings>::ID();
+		}
+
 		void Ingest(IngestContext& ctx) override
 		{
 			ctx.DeclareSubResource("main", TypeInfo<TextureResource>::ID());
@@ -46,6 +51,8 @@ namespace Skore
 		void Cook(CookContext& ctx) override
 		{
 			TextureImportSettings settings{};
+			Resources::FromResource(ctx.importSettings, &settings);
+
 
 			i32 width{};
 			i32 height{};
@@ -88,6 +95,12 @@ namespace Skore
 
 	void RegisterTextureImporter()
 	{
+		auto settings = Reflection::Type<TextureImportSettings>();
+		settings.Field<&TextureImportSettings::wrapMode>("wrapMode");
+		settings.Field<&TextureImportSettings::filterMode>("filterMode");
+		settings.Field<&TextureImportSettings::preserveAlphaCoverage>("preserveAlphaCoverage");
+		settings.Field<&TextureImportSettings::alphaCoverageCutoff>("alphaCoverageCutoff");
+
 		Reflection::Type<TextureImporter>();
 	}
 
@@ -377,9 +390,9 @@ namespace Skore
 		stbi_image_free(bytes);
 	}
 
-	RID ImportTexture(RID directory, const TextureImportSettings& settings, const String& path, UndoRedoScope* scope)
+	RID ImportTexture(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, const String& path, UndoRedoScope* scope)
 	{
-		if (!settings.overrideIfExists)
+		if (!options.overrideIfExists)
 		{
 			if (RID texture = ResourceAssets::FindAssetOnDirectory(directory, TypeInfo<TextureResource>::ID(), Path::Name(path)))
 			{
@@ -389,11 +402,11 @@ namespace Skore
 		}
 
 
-		RID texture = settings.isSubAsset
+		RID texture = options.isSubAsset
 			? Resources::Create<TextureResource>(UUID::RandomUUID(), scope)
 			: ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), Path::Name(path), scope, path);
 
-		if (settings.async)
+		if (options.async)
 		{
 			struct ImportData
 			{
@@ -443,13 +456,13 @@ namespace Skore
 		stbi_image_free(bytes);
 	}
 
-	RID ImportTextureFromMemory(RID directory, const TextureImportSettings& settings, StringView name, Span<u8> data, UndoRedoScope* scope)
+	RID ImportTextureFromMemory(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, StringView name, Span<u8> data, UndoRedoScope* scope)
 	{
-		RID texture = settings.isSubAsset
+		RID texture = options.isSubAsset
 			? Resources::Create<TextureResource>(UUID::RandomUUID(), scope)
 			: ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), name, scope, "");
 
-		if (settings.async)
+		if (options.async)
 		{
 			struct ImportData
 			{

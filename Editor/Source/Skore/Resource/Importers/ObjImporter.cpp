@@ -180,9 +180,10 @@ namespace Skore
 				String textureAbsolutePath = Path::Join(parent, diffuseTexName.c_str());
 
 				TextureImportSettings settings = {};
-				settings.async = false;
-				settings.isSubAsset = true;
-				if (RID texture = ImportTexture({}, settings, textureAbsolutePath, scope))
+				TextureImportOptions options = {};
+				options.async = false;
+				options.isSubAsset = true;
+				if (RID texture = ImportTexture({}, settings, options, textureAbsolutePath, scope))
 				{
 					textureCache.Insert(texName, texture);
 					allTextures.EmplaceBack(texture);
