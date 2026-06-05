@@ -7,15 +7,13 @@
 
 namespace Skore
 {
-	constexpr int zstdLlevel = 3;
-
-	usize Compression::Compress(u8* dest, usize descSize, const u8* src, usize srcSize, CompressionMode mode)
+	usize Compression::Compress(u8* dest, usize descSize, const u8* src, usize srcSize, CompressionMode mode, i32 level)
 	{
 		switch (mode)
 		{
 			case CompressionMode::ZSTD:
 			{
-				return ZSTD_compress(dest, descSize, src, srcSize, zstdLlevel);
+				return ZSTD_compress(dest, descSize, src, srcSize, level);
 			}
 				// case CompressionMode::LZ4:
 				// {
