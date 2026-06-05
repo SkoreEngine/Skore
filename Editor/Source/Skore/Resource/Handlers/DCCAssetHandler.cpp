@@ -74,68 +74,7 @@ namespace Skore
 			return GenerateThumbnail;
 		}
 
-		bool CanExtractAsset(RID rid) override
-		{
-			return true;
-		}
-
-		void ExtractAsset(RID directory, RID object, UndoRedoScope* scope) override;
 	};
-
-	namespace
-	{
-		Logger& logger = Logger::GetLogger("Skore::DCCAssetHandler");
-	}
-
-	void ExtractSubObjectList(RID directory, ResourceObject& dccRead, ResourceObject& dccWrite, u32 field, TypeID typeId, UndoRedoScope* scope)
-	{
-		Array<RID> subObjects;
-		dccRead.IterateSubObjectList(field, [&](RID rid)
-		{
-			subObjects.EmplaceBack(rid);
-		});
-
-		for (RID subObject : subObjects)
-		{
-			ResourceObject subRead = Resources::Read(subObject);
-			if (!subRead) continue;
-
-			// Get the name from the resource's Name field (field 0 is Name for Mesh/Texture/Material/AnimationClip)
-			StringView nameView = subRead.GetString(0);
-			String name = !nameView.Empty() ? String(nameView) : String("Unnamed");
-
-			dccWrite.RemoveFromSubObjectList(field, subObject);
-			ResourceAssets::CreateExtractedAsset(directory, typeId, name, subObject, scope);
-		}
-	}
-
-	void DCCAssetHandler::ExtractAsset(RID directory, RID object, UndoRedoScope* scope)
-	{
-		ResourceObject dccRead = Resources::Read(object);
-		if (!dccRead) return;
-
-		ResourceObject dccWrite = Resources::Write(object);
-
-		ExtractSubObjectList(directory, dccRead, dccWrite, DCCAsset::Meshes, TypeInfo<MeshResource>::ID(), scope);
-		ExtractSubObjectList(directory, dccRead, dccWrite, DCCAsset::Textures, TypeInfo<TextureResource>::ID(), scope);
-		ExtractSubObjectList(directory, dccRead, dccWrite, DCCAsset::Materials, TypeInfo<MaterialResource>::ID(), scope);
-		ExtractSubObjectList(directory, dccRead, dccWrite, DCCAsset::AnimationClips, TypeInfo<AnimationClipResource>::ID(), scope);
-
-		// Extract root entity
-		if (RID rootEntity = dccRead.GetSubObject(DCCAsset::RootEntity))
-		{
-			ResourceObject entityRead = Resources::Read(rootEntity);
-			StringView nameView = entityRead ? entityRead.GetString(EntityResource::Name) : "";
-			String name = !nameView.Empty() ? String(nameView) : String("Entity");
-
-			dccWrite.SetSubObject(DCCAsset::RootEntity, {});
-			ResourceAssets::CreateExtractedAsset(directory, TypeInfo<EntityResource>::ID(), name, rootEntity, scope);
-		}
-
-		dccWrite.Commit(scope);
-
-		logger.Info("DCC asset extracted successfully");
-	}
 
 	void UnregisterDCCSubObjects(ResourceObject& object, u32 field)
 	{

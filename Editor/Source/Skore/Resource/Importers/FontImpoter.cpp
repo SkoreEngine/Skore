@@ -41,15 +41,34 @@ namespace Skore
 			return {".ttf", ".otf"};
 		}
 
-		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
+		StringView OutputExtension() override
 		{
+			return ".font";
+		}
+
+		void Ingest(IngestContext& ctx) override
+		{
+			ctx.DeclareSubResource("main", TypeInfo<FontResource>::ID());
+		}
+
+		void Cook(CookContext& ctx) override
+		{
+			UndoRedoScope* scope = ctx.scope;
+
+			String name = "font";
+			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
+			{
+				name = Path::Name(wrapper.GetString(ResourceImportedAsset::OriginalFileName));
+			}
+
 			msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype();
-			msdfgen::FontHandle*     font = msdfgen::loadFont(ft, path.CStr());
+			msdfgen::FontHandle*     font = msdfgen::loadFontData(ft, ctx.sourceBytes.begin(), static_cast<int>(ctx.sourceBytes.Size()));
 
 			if (!font)
 			{
-				logger.Error("Failed to load font {}", path);
-				return {};
+				logger.Error("Failed to load font {}", name);
+				msdfgen::deinitializeFreetype(ft);
+				return;
 			}
 
 			struct CharsetRange
@@ -123,9 +142,6 @@ namespace Skore
 				glyph.getQuadAtlasBounds(quadAtlasBounds.x, quadAtlasBounds.y, quadAtlasBounds.z, quadAtlasBounds.w);
 				glyph.getQuadPlaneBounds(quadPlaneBounds.x, quadPlaneBounds.y, quadPlaneBounds.z, quadPlaneBounds.w);
 
-				RID glyphRID = Resources::Create<FontGlyph>(UUID::RandomUUID(), scope);
-				ResourceObject glyphObject = Resources::Write(glyphRID);
-
 				FontGlyph fontGlyph;
 				fontGlyph.codepoint = glyph.getCodepoint();
 				fontGlyph.index = glyph.getIndex();
@@ -146,21 +162,19 @@ namespace Skore
 
 			Span<u8> writerData = writer.GetData();
 			usize maxSize = Compression::GetMaxCompressedBufferSize(writerData.Size(), CompressionMode::ZSTD);
-			Array<u8> compressedData(maxSize);
+			ByteBuffer compressedData;
+			compressedData.Resize(maxSize);
 			usize size = Compression::Compress(compressedData.Data(), maxSize, writerData.Data(), writerData.Size(), CompressionMode::ZSTD);
 
-			RID fontRID = ResourceAssets::CreateImportedAsset(directory, TypeInfo<FontResource>::ID(), Path::Name(path), scope, path);
-
+			RID            fontRID = ctx.SubResource("main", TypeInfo<FontResource>::ID());
 			ResourceObject fontObject = Resources::Write(fontRID);
-			fontObject.SetString(FontResource::Name, Path::Name(path));
+			fontObject.SetString(FontResource::Name, name);
 			fontObject.SetUInt(FontResource::FontDataUncompressedSize, writerData.Size());
 			fontObject.SetBlob(FontResource::FontData, Span{compressedData.Data(), size});
 			fontObject.Commit(scope);
 
 			msdfgen::destroyFont(font);
 			msdfgen::deinitializeFreetype(ft);
-
-			return true;
 		}
 	};
 

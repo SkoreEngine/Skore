@@ -6,6 +6,7 @@
 namespace Skore
 {
 	struct UndoRedoScope;
+	struct CookContext;
 
 	struct FBXImportSettings
 	{
@@ -13,5 +14,5 @@ namespace Skore
 		bool recalculateTangents = true;
 	};
 
-	SK_API bool ImportFBX(RID directory, const FBXImportSettings& settings, StringView path, UndoRedoScope* scope);
+	SK_API bool ImportFBX(CookContext& cookCtx, const FBXImportSettings& settings, StringView path);
 }

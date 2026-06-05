@@ -7,6 +7,7 @@
 
 #include "Skore/Resource/Importers/MeshImporter.hpp"
 #include "Skore/Resource/Importers/TextureImporter.hpp"
+#include "Skore/Editor.hpp"
 #include "Skore/EditorCommon.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Logger.hpp"
@@ -1082,7 +1083,7 @@ namespace Skore
 				textureImportSettings.filterMode = ToFilterMode(filter);
 				textureImportSettings.wrapMode = ToAddressMode(texture->sampler->wrap_s);
 			}
-			textureImportSettings.async = ImportChildAssetsAsync;
+			textureImportSettings.async = false;
 			textureImportSettings.isSubAsset = true;
 
 
@@ -1679,28 +1680,112 @@ namespace Skore
 			return entity;
 		}
 
-		bool ImportAsset(RID directory, ConstPtr settings, StringView path, UndoRedoScope* scope) override
+		StringView OutputExtension() override
 		{
+			return ".dcc_asset";
+		}
+
+		u32 CookerVersion() override
+		{
+			return 1;
+		}
+
+		void Ingest(IngestContext& ctx) override
+		{
+			ctx.DeclareSubResource("root", TypeInfo<DCCAsset>::ID());
+
+			String parent = Path::Parent(ctx.sourcePath);
+			String sourcePath = ctx.sourcePath;
+
+			cgltf_options options = {};
+			cgltf_data*   data = nullptr;
+			if (cgltf_parse_file(&options, sourcePath.CStr(), &data) != cgltf_result_success)
+			{
+				return;
+			}
+
+			auto addDep = [&](const char* uri)
+			{
+				if (!uri || strncmp(uri, "data:", 5) == 0) return;
+				String decoded = uri;
+				u32    size = cgltf_decode_uri(decoded.begin());
+				decoded.Resize(size);
+				if (decoded.Empty() || ctx.HasDependency(decoded)) return;
+				String abs = Path::Join(parent, decoded);
+				if (!FileSystem::GetFileStatus(abs).exists)
+				{
+					logger.Warn("gltf dependency {} not found", abs);
+					return;
+				}
+				ByteBuffer bytes;
+				FileSystem::ReadFileAsByteBuffer(abs, bytes);
+				ctx.AddDependency(decoded, Span<u8>(bytes.begin(), bytes.Size()));
+			};
+
+			for (cgltf_size i = 0; i < data->buffers_count; i++)
+			{
+				addDep(data->buffers[i].uri);
+			}
+			for (cgltf_size i = 0; i < data->images_count; i++)
+			{
+				addDep(data->images[i].uri);
+			}
+
+			cgltf_free(data);
+		}
+
+		void Cook(CookContext& ctx) override
+		{
+			UndoRedoScope* scope = ctx.scope;
+
+			String originalName = "model.gltf";
+			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
+			{
+				originalName = wrapper.GetString(ResourceImportedAsset::OriginalFileName);
+			}
+
+			String tempDir = Path::Join(Editor::GetProjectTempPath(), String("GltfCook_") + UUID::RandomUUID().ToString());
+			FileSystem::CreateDirectory(tempDir);
+
+			String path = Path::Join(tempDir, originalName);
+			FileSystem::SaveFileAsByteArray(path, ctx.sourceBytes);
+
+			if (ResourceObject wrapper = Resources::Read(ctx.importedAsset))
+			{
+				for (RID depRid : wrapper.GetSubObjectList(ResourceImportedAsset::Dependencies))
+				{
+					ResourceObject dep = Resources::Read(depRid);
+					if (!dep) continue;
+					String    relPath = dep.GetString(ResourceDependencyEntry::RelPath);
+					ByteBuffer bytes = ctx.Dependency(relPath);
+					String    depPath = Path::Join(tempDir, relPath);
+					FileSystem::CreateDirectory(Path::Parent(depPath));
+					FileSystem::SaveFileAsByteArray(depPath, Span<u8>(bytes.begin(), bytes.Size()));
+				}
+			}
+
 			logger.Info("Starting GLTF import: {}", path);
 
 			cgltf_options options = {};
 			cgltf_data*   data = nullptr;
-			cgltf_result  result = cgltf_parse_file(&options, path.Data(), &data);
+			cgltf_result  result = cgltf_parse_file(&options, path.CStr(), &data);
 
 			if (result != cgltf_result_success)
 			{
 				logger.Error("Failed to parse GLTF file: {}", path);
-				return false;
+				FileSystem::Remove(tempDir);
+				return;
 			}
 
 			logger.Debug("GLTF file parsed successfully");
 
-			result = cgltf_load_buffers(&options, data, path.Data());
+			result = cgltf_load_buffers(&options, data, path.CStr());
 			if (result != cgltf_result_success)
 			{
 				logger.Error("Failed to load GLTF buffers: {}", path);
 				cgltf_free(data);
-				return false;
+				FileSystem::Remove(tempDir);
+				return;
 			}
 
 			logger.Debug("GLTF buffers loaded ({} buffers)", data->buffers_count);
@@ -1708,7 +1793,7 @@ namespace Skore
 			String fileName = Path::Name(path);
 
 			GLTFImportData importData = {};
-			importData.directory = directory;
+			importData.directory = {};
 			importData.basePath = Path::Parent(path);
 			importData.scope = scope;
 			importData.gltfData = data;
@@ -1742,7 +1827,7 @@ namespace Skore
 				}
 			}
 
-			RID dccAsset = ResourceAssets::CreateImportedAsset(directory, TypeInfo<DCCAsset>::ID(), fileName, scope, path);
+			RID dccAsset = ctx.SubResource("root", TypeInfo<DCCAsset>::ID());
 			ResourceObject dccObject = Resources::Write(dccAsset);
 			dccObject.SetString(DCCAsset::Name, fileName);
 
@@ -1811,8 +1896,7 @@ namespace Skore
 				importData.skins.Size(), data->animations_count, data->nodes_count);
 
 			cgltf_free(data);
-
-			return true;
+			FileSystem::Remove(tempDir);
 		}
 	};
 

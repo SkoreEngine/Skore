@@ -100,6 +100,16 @@ namespace Skore
 		}
 	}
 
+	void FileSystem::ReadFileAsByteBuffer(const StringView& path, ByteBuffer& buffer)
+	{
+		if (FileHandler fileHandler = OpenFile(path, AccessMode::ReadOnly))
+		{
+			buffer.Resize(GetFileSize(fileHandler));
+			ReadFile(fileHandler, buffer.begin(), buffer.Size());
+			CloseFile(fileHandler);
+		}
+	}
+
 	void FileSystem::SaveFileAsByteArray(const StringView& path, Span<u8> bytes)
 	{
 		if (!GetFileStatus(Path::Parent(path)).exists)

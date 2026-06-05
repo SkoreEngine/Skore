@@ -11,6 +11,7 @@
 #include "Skore/Events.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Event.hpp"
+#include "Skore/Core/Hash.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Settings.hpp"
@@ -58,6 +59,14 @@ namespace Skore
 		HashMap<TypeID, ResourceAssetImporter*> importersByImporterType;
 
 		Array<AssetsPendingImport> pendingImports;
+
+		String             libraryDirectory;
+		HashMap<RID, RID>  subResourceToWrapper;
+		HashSet<String>    loadedCookKeys;
+		Array<FileHandler> libraryBufferHandlers;
+		std::mutex         libraryMutex;
+
+		constexpr u32 kLibraryFormatVersion = 1;
 
 		struct FileWatchEvent
 		{
@@ -207,6 +216,10 @@ namespace Skore
 			int    loadOrder;
 		};
 	}
+
+	void RegisterWrapperSubResources(RID wrapper);
+	RID  GetPrimaryCookedResource(RID wrapper);
+	void AttachCookedPrimary(RID assetRid, RID wrapper, UndoRedoScope* scope);
 
 	RID ResourceAssetHandler::Load(RID asset, StringView path)
 	{
@@ -501,14 +514,30 @@ namespace Skore
 				resourceFileObject.Commit();
 			}
 
+			bool isWrapper = false;
 			if (object)
 			{
-				assetObject.SetSubObject(ResourceAsset::Object, object);
-				Resources::SetPath(object, pending.path);
-				ResourceAssets::RegisterAssetByType(object);
+				if (ResourceType* objectType = Resources::GetType(object); objectType != nullptr && objectType->GetID() == TypeInfo<ResourceImportedAsset>::ID())
+				{
+					isWrapper = true;
+					assetObject.SetSubObject(ResourceAsset::ImportedAsset, object);
+				}
+				else
+				{
+					assetObject.SetSubObject(ResourceAsset::Object, object);
+					Resources::SetPath(object, pending.path);
+					ResourceAssets::RegisterAssetByType(object);
+				}
 			}
 
 			assetObject.Commit();
+
+			if (isWrapper)
+			{
+				RegisterWrapperSubResources(object);
+				ResourceAssets::EnsureCooked(object);
+				AttachCookedPrimary(asset, object, nullptr);
+			}
 
 			ResourceObject assetFileObject = Resources::Write(assetFile);
 			assetFileObject.SetReference(ResourceAssetFile::AssetRef, asset);
@@ -550,7 +579,8 @@ namespace Skore
 				StringView oldAbsolutePath = Resources::Read(assetToUpdate.assetFile).GetString(ResourceAssetFile::AbsolutePath);
 
 				ResourceObject        assetObject = Resources::Read(assetToUpdate.asset);
-				RID                   object = assetObject.GetSubObject(ResourceAsset::Object);
+				RID importedAsset = assetObject.GetSubObject(ResourceAsset::ImportedAsset);
+				RID object = importedAsset ? importedAsset : assetObject.GetSubObject(ResourceAsset::Object);
 				ResourceAssetHandler* handler = nullptr;
 				if (object)
 				{
@@ -589,7 +619,7 @@ namespace Skore
 				ResourceObject assetFileObject = Resources::Write(assetToUpdate.assetFile);
 				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, absolutePath);
 				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::PathId));
-				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, storage->version);
+				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, importedAsset ? Resources::GetVersion(importedAsset) : static_cast<u64>(storage->version));
 				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
 				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
 				assetFileObject.Commit();
@@ -626,7 +656,8 @@ namespace Skore
 				}
 
 				ResourceObject assetObject = Resources::Read(assetToUpdate.asset);
-				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
+				RID            importedAsset = assetObject.GetSubObject(ResourceAsset::ImportedAsset);
+				if (RID object = importedAsset ? importedAsset : assetObject.GetSubObject(ResourceAsset::Object))
 				{
 					if (auto it = handlersByTypeID.Find(Resources::GetType(object)->GetID()))
 					{
@@ -640,7 +671,7 @@ namespace Skore
 				assetFileObject.SetReference(ResourceAssetFile::AssetRef, assetToUpdate.asset);
 				assetFileObject.SetString(ResourceAssetFile::AbsolutePath, absolutePath);
 				assetFileObject.SetString(ResourceAssetFile::RelativePath, assetObject.GetString(ResourceAsset::PathId));
-				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, storage->version);
+				assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, importedAsset ? Resources::GetVersion(importedAsset) : static_cast<u64>(storage->version));
 				assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
 				assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
 				assetFileObject.Commit();
@@ -885,6 +916,670 @@ namespace Skore
 		return {};
 	}
 
+	UUID SubResourceUUID(RID importedAsset, StringView subId)
+	{
+		String key = Resources::GetUUID(importedAsset).ToString();
+		key.Append(":");
+		key.Append(subId);
+		return UUID::FromName(key.CStr());
+	}
+
+	UUID IngestContext::DeclareSubResource(StringView subId, TypeID type)
+	{
+		for (SubResourceDecl& decl : subResources)
+		{
+			if (decl.subId == subId)
+			{
+				return decl.uuid;
+			}
+		}
+
+		UUID uuid = SubResourceUUID(importedAsset, subId);
+		subResources.EmplaceBack(SubResourceDecl{String(subId), uuid, type});
+		return uuid;
+	}
+
+	bool IngestContext::HasDependency(StringView relPath) const
+	{
+		for (const DependencyDecl& decl : dependencies)
+		{
+			if (decl.relPath == relPath)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void IngestContext::AddDependency(StringView relPath, Span<u8> bytes)
+	{
+		if (HasDependency(relPath))
+		{
+			return;
+		}
+
+		DependencyDecl decl;
+		decl.relPath = String(relPath);
+		decl.bytes.Resize(bytes.Size());
+		if (bytes.Size() > 0)
+		{
+			memcpy(decl.bytes.begin(), bytes.begin(), bytes.Size());
+		}
+		dependencies.EmplaceBack(Traits::Move(decl));
+	}
+
+	RID CookContext::SubResource(StringView subId, TypeID type)
+	{
+		UUID uuid = SubResourceUUID(importedAsset, subId);
+		RID  rid = Resources::Create(type, uuid, scope);
+
+		for (RID existing : produced)
+		{
+			if (existing == rid)
+			{
+				return rid;
+			}
+		}
+		produced.EmplaceBack(rid);
+		return rid;
+	}
+
+	ByteBuffer CookContext::Dependency(StringView relPath) const
+	{
+		ByteBuffer result;
+
+		ResourceObject wrapper = Resources::Read(importedAsset);
+		if (!wrapper)
+		{
+			return result;
+		}
+
+		for (RID depRid : wrapper.GetSubObjectList(ResourceImportedAsset::Dependencies))
+		{
+			ResourceObject dep = Resources::Read(depRid);
+			if (!dep) continue;
+
+			if (dep.GetString(ResourceDependencyEntry::RelPath) == relPath)
+			{
+				ResourceBuffer buffer = dep.GetBuffer(ResourceDependencyEntry::Data);
+				u64            compressedSize = buffer.GetSize();
+				u64            uncompressedSize = dep.GetUInt(ResourceDependencyEntry::Size);
+
+				ByteBuffer compressed;
+				compressed.Resize(compressedSize);
+				buffer.CopyData(compressed.begin(), compressedSize);
+
+				result.Resize(uncompressedSize);
+				Compression::Decompress(result.begin(), uncompressedSize, compressed.begin(), compressedSize, CompressionMode::ZSTD);
+				return result;
+			}
+		}
+
+		logger.Warn("dependency {} not found on imported asset", relPath);
+		return result;
+	}
+
+	String ComputeImportedContentHash(Span<u8> original, const Array<DependencyDecl>& dependencies)
+	{
+		u64 acc[2] = {0, 0};
+
+		auto fold = [&](const void* data, usize len)
+		{
+			u64 h[2] = {0, 0};
+			MurmurHash3X64128(data, static_cast<u32>(len), HashSeed32, h);
+			acc[0] = acc[0] * 31 + h[0];
+			acc[1] = acc[1] * 31 + h[1];
+		};
+
+		fold(original.begin(), original.Size());
+		for (const DependencyDecl& dep : dependencies)
+		{
+			fold(dep.relPath.CStr(), dep.relPath.Size());
+			fold(dep.bytes.begin(), dep.bytes.Size());
+		}
+
+		return UUID{acc[0], acc[1]}.ToString();
+	}
+
+	void ApplyIngest(IngestContext& ctx)
+	{
+		Array<RID> dependencyRids;
+		for (const DependencyDecl& dep : ctx.dependencies)
+		{
+			usize      bound = Compression::GetMaxCompressedBufferSize(dep.bytes.Size(), CompressionMode::ZSTD);
+			ByteBuffer compressed;
+			compressed.Resize(bound);
+			usize compressedSize = Compression::Compress(compressed.begin(), bound, dep.bytes.begin(), dep.bytes.Size(), CompressionMode::ZSTD);
+
+			RID            depRid = Resources::Create<ResourceDependencyEntry>(UUID::RandomUUID(), ctx.scope);
+			ResourceObject depObj = Resources::Write(depRid);
+			depObj.SetString(ResourceDependencyEntry::RelPath, dep.relPath);
+			depObj.SetUInt(ResourceDependencyEntry::Size, dep.bytes.Size());
+			depObj.SetBuffer(ResourceDependencyEntry::Data, ResourceAssets::CreateTempBuffer(compressed.begin(), compressedSize));
+			depObj.Commit(ctx.scope);
+
+			dependencyRids.EmplaceBack(depRid);
+		}
+
+		Array<RID> subResourceRids;
+		for (const SubResourceDecl& decl : ctx.subResources)
+		{
+			RID            entryRid = Resources::Create<ResourceSubIdEntry>(UUID::RandomUUID(), ctx.scope);
+			ResourceObject entryObj = Resources::Write(entryRid);
+			entryObj.SetString(ResourceSubIdEntry::SubId, decl.subId);
+			entryObj.SetString(ResourceSubIdEntry::TargetUUID, decl.uuid.ToString());
+			if (ResourceType* type = Resources::FindTypeByID(decl.type))
+			{
+				entryObj.SetString(ResourceSubIdEntry::TypeName, type->GetName());
+			}
+			entryObj.Commit(ctx.scope);
+
+			subResourceRids.EmplaceBack(entryRid);
+		}
+
+		String contentHash = ComputeImportedContentHash(ctx.sourceBytes, ctx.dependencies);
+
+		ResourceObject wrapper = Resources::Write(ctx.importedAsset);
+		wrapper.SetString(ResourceImportedAsset::ContentHash, contentHash);
+		if (!dependencyRids.Empty())
+		{
+			wrapper.AddToSubObjectList(ResourceImportedAsset::Dependencies, dependencyRids);
+		}
+		if (!subResourceRids.Empty())
+		{
+			wrapper.AddToSubObjectList(ResourceImportedAsset::SubResources, subResourceRids);
+		}
+		wrapper.Commit(ctx.scope);
+	}
+
+	void RegisterResourceImportedAssetTypes()
+	{
+		Resources::Type<ResourceImportedAsset>()
+			.Field<ResourceImportedAsset::OriginalFileName>(ResourceFieldType::String)
+			.Field<ResourceImportedAsset::Extension>(ResourceFieldType::String)
+			.Field<ResourceImportedAsset::ContentHash>(ResourceFieldType::String)
+			.Field<ResourceImportedAsset::ImporterId>(ResourceFieldType::TypeID)
+			.Field<ResourceImportedAsset::CookerVersion>(ResourceFieldType::UInt)
+			.Field<ResourceImportedAsset::ImportSettings>(ResourceFieldType::SubObject)
+			.Field<ResourceImportedAsset::OriginalData>(ResourceFieldType::Buffer)
+			.Field<ResourceImportedAsset::OriginalSize>(ResourceFieldType::UInt)
+			.Field<ResourceImportedAsset::SubResources>(ResourceFieldType::SubObjectList)
+			.Field<ResourceImportedAsset::Dependencies>(ResourceFieldType::SubObjectList)
+			.Build();
+
+		Resources::Type<ResourceSubIdEntry>()
+			.Field<ResourceSubIdEntry::SubId>(ResourceFieldType::String)
+			.Field<ResourceSubIdEntry::TargetUUID>(ResourceFieldType::String)
+			.Field<ResourceSubIdEntry::TypeName>(ResourceFieldType::String)
+			.Build();
+
+		Resources::Type<ResourceDependencyEntry>()
+			.Field<ResourceDependencyEntry::RelPath>(ResourceFieldType::String)
+			.Field<ResourceDependencyEntry::Data>(ResourceFieldType::Buffer)
+			.Field<ResourceDependencyEntry::Size>(ResourceFieldType::UInt)
+			.Build();
+	}
+
+	static String CookCacheKey(const ResourceObject& wrapper)
+	{
+		u64 acc[2] = {0, 0};
+
+		auto fold = [&](const void* data, usize len)
+		{
+			u64 h[2] = {0, 0};
+			MurmurHash3X64128(data, static_cast<u32>(len), HashSeed32, h);
+			acc[0] = acc[0] * 31 + h[0];
+			acc[1] = acc[1] * 31 + h[1];
+		};
+
+		String contentHash = wrapper.GetString(ResourceImportedAsset::ContentHash);
+		u64    cookerVersion = wrapper.GetUInt(ResourceImportedAsset::CookerVersion);
+		TypeID importerId = wrapper.GetTypeID(ResourceImportedAsset::ImporterId);
+		u32    formatVersion = kLibraryFormatVersion;
+		UUID   wrapperUUID = wrapper.GetUUID();
+
+		fold(&wrapperUUID, sizeof(wrapperUUID));
+		fold(contentHash.CStr(), contentHash.Size());
+		fold(&cookerVersion, sizeof(cookerVersion));
+		fold(&importerId, sizeof(importerId));
+		fold(&formatVersion, sizeof(formatVersion));
+
+		return UUID{acc[0], acc[1]}.ToString();
+	}
+
+	static void WriteCookedAsset(BinaryArchiveWriter& writer, StringView pathId, RID root, FileHandler bufferHandler, u64& offset, ByteBuffer& scratch, bool useHandlerExport)
+	{
+		writer.BeginMap();
+		writer.WriteString("pathId", pathId);
+
+		if (ResourceAssetHandler* handler = useHandlerExport ? ResourceAssets::GetAssetHandler(root) : nullptr)
+		{
+			handler->Export(root, writer);
+		}
+		else
+		{
+			Resources::Serialize(root, writer);
+		}
+
+		if (ResourceObject object = Resources::Read(root))
+		{
+			u32 bufferCount = 0;
+			object.IterateAllBuffers([&](const ResourceBuffer& buffer)
+			{
+				if (bufferCount == 0)
+				{
+					writer.BeginSeq("buffers");
+				}
+
+				u64 bufferSize = buffer.GetSize();
+				if (bufferSize > scratch.Size())
+				{
+					scratch.Resize(bufferSize);
+				}
+				buffer.CopyData(scratch.begin(), bufferSize);
+
+				writer.BeginMap();
+				writer.WriteString("id", buffer.GetIdAsString());
+				writer.WriteUInt("offset", offset);
+				writer.WriteUInt("size", bufferSize);
+				writer.EndMap();
+
+				offset += FileSystem::WriteFile(bufferHandler, scratch.begin(), bufferSize);
+				bufferCount++;
+			});
+
+			if (bufferCount > 0)
+			{
+				writer.EndSeq();
+			}
+			writer.WriteUInt("bufferCount", bufferCount);
+		}
+		writer.EndMap();
+	}
+
+	static void LoadCookedBlob(StringView cookedPath, StringView bufferPath)
+	{
+		ByteBuffer compressed;
+		FileSystem::ReadFileAsByteBuffer(cookedPath, compressed);
+
+		usize      decompressedSize = Compression::GetMaxDecompressedBufferSize(compressed.Data(), compressed.Size(), CompressionMode::ZSTD);
+		ByteBuffer uncompressed;
+		uncompressed.Resize(decompressedSize);
+		Compression::Decompress(uncompressed.Data(), uncompressed.Size(), compressed.Data(), compressed.Size(), CompressionMode::ZSTD);
+
+		BinaryArchiveReader reader{Span<u8>(uncompressed.Data(), uncompressed.Size())};
+
+		FileHandler bufferHandler = FileSystem::OpenFile(bufferPath, AccessMode::ReadOnly);
+		libraryBufferHandlers.EmplaceBack(bufferHandler);
+
+		reader.BeginSeq("assets");
+		while (reader.NextSeqEntry())
+		{
+			reader.BeginMap();
+			String pathId = reader.ReadString("pathId");
+			RID    rid = Resources::Deserialize(reader);
+
+			struct BufferInfo
+			{
+				u64 offset;
+				u64 size;
+			};
+			HashMap<String, BufferInfo> buffers;
+
+			if (reader.ReadUInt("bufferCount") > 0)
+			{
+				reader.BeginSeq("buffers");
+				while (reader.NextSeqEntry())
+				{
+					reader.BeginMap();
+					buffers.Emplace(reader.ReadString("id"), BufferInfo{
+						                .offset = reader.ReadUInt("offset"),
+						                .size = reader.ReadUInt("size")
+					                });
+					reader.EndSeq();
+				}
+				reader.EndSeq();
+			}
+			reader.EndMap();
+
+			if (ResourceObject resourceObject = Resources::Read(rid))
+			{
+				resourceObject.IterateAllBuffers([&](const ResourceBuffer& buffer)
+				{
+					if (auto it = buffers.Find(buffer.GetIdAsString()))
+					{
+						buffer.MapFile(bufferHandler, true, it->second.offset, it->second.size);
+					}
+				});
+			}
+		}
+		reader.EndSeq();
+	}
+
+	static void CookWrapper(RID wrapper, const ResourceObject& wrapperObj, StringView cookedPath, StringView bufferPath)
+	{
+		TypeID importerId = wrapperObj.GetTypeID(ResourceImportedAsset::ImporterId);
+		auto   it = importersByImporterType.Find(importerId);
+		if (it == importersByImporterType.end())
+		{
+			logger.Error("no importer registered for imported asset {}", Resources::GetUUID(wrapper).ToString());
+			return;
+		}
+		ResourceAssetImporter* importer = it->second;
+
+		ResourceBuffer original = wrapperObj.GetBuffer(ResourceImportedAsset::OriginalData);
+		u64            originalSize = wrapperObj.GetUInt(ResourceImportedAsset::OriginalSize);
+
+		ByteBuffer source;
+		if (original && originalSize > 0)
+		{
+			ByteBuffer originalCompressed;
+			originalCompressed.Resize(original.GetSize());
+			original.CopyData(originalCompressed.begin(), original.GetSize());
+
+			source.Resize(originalSize);
+			Compression::Decompress(source.begin(), originalSize, originalCompressed.begin(), original.GetSize(), CompressionMode::ZSTD);
+		}
+
+		CookContext ctx;
+		ctx.importedAsset = wrapper;
+		ctx.sourceBytes = {source.begin(), source.Size()};
+		ctx.scope = nullptr;
+		importer->Cook(ctx);
+
+		BinaryArchiveWriter writer;
+		writer.BeginSeq("assets");
+
+		FileHandler bufferHandler = FileSystem::OpenFile(bufferPath, AccessMode::WriteOnly);
+		u64         offset = 0;
+		ByteBuffer  scratch;
+		scratch.Resize(10000);
+
+		for (RID root : ctx.produced)
+		{
+			WriteCookedAsset(writer, Resources::GetUUID(root).ToString(), root, bufferHandler, offset, scratch, false);
+		}
+
+		FileSystem::CloseFile(bufferHandler);
+		writer.EndSeq();
+
+		Span<u8>   data = writer.GetData();
+		usize      bound = Compression::GetMaxCompressedBufferSize(data.Size(), CompressionMode::ZSTD);
+		ByteBuffer compressed;
+		compressed.Resize(bound);
+		usize compressedSize = Compression::Compress(compressed.begin(), bound, data.begin(), data.Size(), CompressionMode::ZSTD);
+		FileSystem::SaveFileAsByteArray(cookedPath, Span<u8>(compressed.begin(), compressedSize));
+
+		logger.Debug("cooked imported asset {} ({} sub-resources)", Resources::GetUUID(wrapper).ToString(), ctx.produced.Size());
+	}
+
+	static bool IsImportedAssetWrapper(RID rid)
+	{
+		ResourceType* type = Resources::GetType(rid);
+		return type != nullptr && type->GetID() == TypeInfo<ResourceImportedAsset>::ID();
+	}
+
+	static RID ResolveWrapperRID(RID rid)
+	{
+		if (!rid) return {};
+
+		if (IsImportedAssetWrapper(rid))
+		{
+			return rid;
+		}
+
+		if (auto it = subResourceToWrapper.Find(rid))
+		{
+			return it->second;
+		}
+
+		if (ResourceType* type = Resources::GetType(rid); type != nullptr && type->GetID() == TypeInfo<ResourceAsset>::ID())
+		{
+			if (ResourceObject assetObject = Resources::Read(rid))
+			{
+				RID wrapper = assetObject.GetSubObject(ResourceAsset::ImportedAsset);
+				if (wrapper && IsImportedAssetWrapper(wrapper))
+				{
+					return wrapper;
+				}
+			}
+		}
+
+		return {};
+	}
+
+	void RegisterWrapperSubResources(RID wrapper)
+	{
+		ResourceObject wrapperObj = Resources::Read(wrapper);
+		if (!wrapperObj) return;
+
+		std::unique_lock lock(libraryMutex);
+		for (RID entryRid : wrapperObj.GetSubObjectList(ResourceImportedAsset::SubResources))
+		{
+			ResourceObject entry = Resources::Read(entryRid);
+			if (!entry) continue;
+
+			UUID uuid = UUID::FromString(entry.GetString(ResourceSubIdEntry::TargetUUID));
+			if (RID sub = Resources::FindOrReserveByUUID(uuid))
+			{
+				subResourceToWrapper.Insert(sub, wrapper);
+			}
+		}
+	}
+
+	RID ResourceAssets::GetWrapperForSubResource(RID subResource)
+	{
+		std::unique_lock lock(libraryMutex);
+		if (auto it = subResourceToWrapper.Find(subResource))
+		{
+			return it->second;
+		}
+		return {};
+	}
+
+	RID GetPrimaryCookedResource(RID wrapper)
+	{
+		ResourceObject wrapperObj = Resources::Read(wrapper);
+		if (!wrapperObj) return {};
+
+		Span<RID> subs = wrapperObj.GetSubObjectList(ResourceImportedAsset::SubResources);
+		if (subs.Empty()) return {};
+
+		ResourceObject entry = Resources::Read(subs[0]);
+		if (!entry) return {};
+
+		return Resources::FindByUUID(UUID::FromString(entry.GetString(ResourceSubIdEntry::TargetUUID)));
+	}
+
+	void AttachCookedPrimary(RID assetRid, RID wrapper, UndoRedoScope* scope)
+	{
+		RID primary = GetPrimaryCookedResource(wrapper);
+		if (!primary) return;
+
+		String pathId;
+		if (ResourceObject assetObject = Resources::Read(assetRid))
+		{
+			pathId = assetObject.GetString(ResourceAsset::PathId);
+		}
+
+		ResourceObject assetWrite = Resources::Write(assetRid);
+		assetWrite.SetSubObject(ResourceAsset::Object, primary);
+		assetWrite.Commit(scope);
+
+		if (!pathId.Empty())
+		{
+			Resources::SetPath(primary, pathId);
+		}
+		ResourceAssets::RegisterAssetByType(primary);
+	}
+
+	void ResourceAssets::EnsureCooked(RID rid)
+	{
+		std::unique_lock lock(libraryMutex);
+
+		RID wrapper = ResolveWrapperRID(rid);
+		if (!wrapper) return;
+
+		ResourceObject wrapperObj = Resources::Read(wrapper);
+		if (!wrapperObj) return;
+
+		String key = CookCacheKey(wrapperObj);
+		if (loadedCookKeys.Has(key))
+		{
+			return;
+		}
+
+		String cookedPath = Path::Join(libraryDirectory, key + ".cooked");
+		String bufferPath = Path::Join(libraryDirectory, key + ".buffer");
+
+		if (FileSystem::GetFileStatus(cookedPath).exists && FileSystem::GetFileStatus(bufferPath).exists)
+		{
+			LoadCookedBlob(cookedPath, bufferPath);
+		}
+		else
+		{
+			CookWrapper(wrapper, wrapperObj, cookedPath, bufferPath);
+		}
+
+		loadedCookKeys.Insert(key);
+	}
+
+	void ResourceAssets::InitTestFolders(StringView rootDir)
+	{
+		bufferTempFolder = Path::Join(rootDir, "Buffers");
+		if (FileSystem::GetFileStatus(bufferTempFolder).exists)
+		{
+			FileSystem::Remove(bufferTempFolder);
+		}
+		FileSystem::CreateDirectory(bufferTempFolder);
+
+		libraryDirectory = Path::Join(rootDir, "Library");
+		if (FileSystem::GetFileStatus(libraryDirectory).exists)
+		{
+			FileSystem::Remove(libraryDirectory);
+		}
+		FileSystem::CreateDirectory(libraryDirectory);
+	}
+
+	void ResourceAssets::ClearCookCacheState()
+	{
+		std::unique_lock lock(libraryMutex);
+		loadedCookKeys.Clear();
+		subResourceToWrapper.Clear();
+
+		for (FileHandler handler : libraryBufferHandlers)
+		{
+			FileSystem::CloseFile(handler);
+		}
+		libraryBufferHandlers.Clear();
+	}
+
+	struct ImportedAssetHandler : ResourceAssetHandler
+	{
+		SK_CLASS(ImportedAssetHandler, ResourceAssetHandler);
+
+		StringView Extension() override
+		{
+			return {};
+		}
+
+		void OpenAsset(RID asset) override {}
+
+		TypeID GetResourceTypeId() override
+		{
+			return TypeInfo<ResourceImportedAsset>::ID();
+		}
+
+		StringView GetDesc() override
+		{
+			return "Imported Asset";
+		}
+
+		const char* GetIcon() const override
+		{
+			return ICON_FA_FILE;
+		}
+	};
+
+	void RegisterImportedAssetHandler()
+	{
+		Reflection::Type<ImportedAssetHandler>();
+	}
+
+	RID ResourceAssets::CreateImportedAssetWrapper(RID parent, StringView desiredName, StringView extension, UndoRedoScope* scope)
+	{
+		String newName = CreateUniqueAssetName(parent, desiredName.Empty() ? String("New Asset") : String(desiredName), extension, false);
+		String path = GetDirectoryPathId(parent) + "/" + newName + extension;
+
+		RID wrapper = Resources::Create<ResourceImportedAsset>(UUID::RandomUUID(), scope);
+
+		RID            rid = Resources::Create<ResourceAsset>(UUID::RandomUUID(), scope);
+		ResourceObject object = Resources::Write(rid);
+		object.SetString(ResourceAsset::Name, newName);
+		object.SetString(ResourceAsset::Extension, extension);
+		object.SetSubObject(ResourceAsset::ImportedAsset, wrapper);
+		object.SetReference(ResourceAsset::Parent, parent);
+		object.SetString(ResourceAsset::PathId, path);
+		object.SetBool(ResourceAsset::Directory, false);
+		object.Commit(scope);
+
+		ResourceObject parentObject = Resources::Write(parent);
+		parentObject.AddToSubObjectList(ResourceAssetDirectory::Assets, rid);
+		parentObject.Commit(scope);
+
+		return wrapper;
+	}
+
+	static TypeID ImporterTypeId(ResourceAssetImporter* importer)
+	{
+		for (auto& kv : importersByImporterType)
+		{
+			if (kv.second == importer)
+			{
+				return kv.first;
+			}
+		}
+		return {};
+	}
+
+	static void IngestImportedAsset(ResourceAssetImporter* importer, RID parent, const String& path, UndoRedoScope* scope)
+	{
+		ByteBuffer source;
+		FileSystem::ReadFileAsByteBuffer(path, source);
+
+		RID wrapper = ResourceAssets::CreateImportedAssetWrapper(parent, Path::Name(path), importer->OutputExtension(), scope);
+
+		{
+			usize      bound = Compression::GetMaxCompressedBufferSize(source.Size(), CompressionMode::ZSTD);
+			ByteBuffer compressed;
+			compressed.Resize(bound);
+			usize compressedSize = Compression::Compress(compressed.begin(), bound, source.begin(), source.Size(), CompressionMode::ZSTD);
+
+			ResourceObject wrapperObj = Resources::Write(wrapper);
+			wrapperObj.SetString(ResourceImportedAsset::OriginalFileName, Path::Name(path) + Path::Extension(path));
+			wrapperObj.SetString(ResourceImportedAsset::Extension, importer->OutputExtension());
+			wrapperObj.SetTypeID(ResourceImportedAsset::ImporterId, ImporterTypeId(importer));
+			wrapperObj.SetUInt(ResourceImportedAsset::CookerVersion, importer->CookerVersion());
+			wrapperObj.SetUInt(ResourceImportedAsset::OriginalSize, source.Size());
+			wrapperObj.SetBuffer(ResourceImportedAsset::OriginalData, ResourceAssets::CreateTempBuffer(compressed.begin(), compressedSize));
+			wrapperObj.Commit(scope);
+		}
+
+		IngestContext ctx;
+		ctx.importedAsset = wrapper;
+		ctx.sourcePath = path;
+		ctx.sourceBytes = {source.begin(), source.Size()};
+		ctx.scope = scope;
+		importer->Ingest(ctx);
+
+		ApplyIngest(ctx);
+
+		RegisterWrapperSubResources(wrapper);
+		ResourceAssets::EnsureCooked(wrapper);
+
+		AttachCookedPrimary(Resources::GetParent(wrapper), wrapper, scope);
+	}
+
 	RID ResourceAssets::CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath)
 	{
 		if (auto it = handlersByTypeID.Find(typeId))
@@ -925,41 +1620,6 @@ namespace Skore
 		}
 
 		logger.Error("asset from type {} cannot be created, no handler found for it", typeId);
-		return {};
-	}
-
-	RID ResourceAssets::CreateExtractedAsset(RID parent, TypeID typeId, StringView desiredName, RID object, UndoRedoScope* scope)
-	{
-		if (auto it = handlersByTypeID.Find(typeId))
-		{
-			ResourceAssetHandler* handler = it->second;
-
-			String newName = CreateUniqueAssetName(parent, desiredName.Empty() ? String("New ").Append(handler->GetDesc()) : String(desiredName), handler->Extension(), false);
-			String path = GetDirectoryPathId(parent) + "/" + newName + handler->Extension();
-
-			RID rid = Resources::Create<ResourceAsset>(UUID::RandomUUID(), scope);
-
-			ResourceObject assetObject = Resources::Write(rid);
-			assetObject.SetString(ResourceAsset::Name, newName);
-			assetObject.SetString(ResourceAsset::Extension, handler->Extension());
-			assetObject.SetSubObject(ResourceAsset::Object, object);
-			assetObject.SetReference(ResourceAsset::Parent, parent);
-			assetObject.SetString(ResourceAsset::PathId, path);
-			assetObject.SetBool(ResourceAsset::Directory, false);
-			assetObject.Commit(scope);
-
-			ResourceObject parentObject = Resources::Write(parent);
-			parentObject.AddToSubObjectList(ResourceAssetDirectory::Assets, rid);
-			parentObject.Commit(scope);
-
-			RegisterAssetByType(object);
-
-			logger.Debug("extracted asset from type {} created with uuid {} name {} ", handler->GetDesc(), Resources::GetUUID(object).ToString(), newName);
-
-			return rid;
-		}
-
-		logger.Error("extracted asset from type {} cannot be created, no handler found for it", typeId);
 		return {};
 	}
 
@@ -1226,7 +1886,8 @@ namespace Skore
 			return false;
 		}
 
-		currentVersion = assetObject.GetVersion();
+		RID importedAsset = assetObject.GetSubObject(ResourceAsset::ImportedAsset);
+		currentVersion = importedAsset ? Resources::GetVersion(importedAsset) : assetObject.GetVersion();
 		persistedVersion = assetFileObject.GetUInt(ResourceAssetFile::PersistedVersion);
 
 		return true;
@@ -1383,7 +2044,7 @@ namespace Skore
 				directoryObject.IterateSubObjectList(ResourceAssetDirectory::Assets, [&](RID asset)
 				{
 					ResourceObject assetObject = Resources::Read(asset);
-					if (assetObject.GetSubObject(ResourceAsset::Object))
+					if (assetObject.GetSubObject(ResourceAsset::Object) || assetObject.GetSubObject(ResourceAsset::ImportedAsset))
 					{
 						int loadOrder = INT32_MAX;
 						if (String extension = assetObject.GetString(ResourceAsset::Extension); !extension.Empty())
@@ -1422,58 +2083,32 @@ namespace Skore
 		for (const AssetToExport& entry : assetsToExport)
 		{
 			ResourceObject assetObject = Resources::Read(entry.asset);
-			RID            object = assetObject.GetSubObject(ResourceAsset::Object);
+			RID            importedAsset = assetObject.GetSubObject(ResourceAsset::ImportedAsset);
 
-			writer.BeginMap();
+			if (importedAsset)
 			{
-				writer.WriteString("pathId", GetPathId(entry.asset));
+				EnsureCooked(importedAsset);
 
-				if (ResourceAssetHandler* handler = GetAssetHandler(object))
+				ResourceObject wrapperObject = Resources::Read(importedAsset);
+				String         basePathId = GetPathId(entry.asset);
+
+				for (RID subEntryRid : wrapperObject.GetSubObjectList(ResourceImportedAsset::SubResources))
 				{
-					handler->Export(object, writer);
-				}
-				else
-				{
-					Resources::Serialize(object, writer);
-				}
+					ResourceObject subEntry = Resources::Read(subEntryRid);
+					if (!subEntry) continue;
 
-				if (ResourceObject assetFileObject = Resources::Read(object))
-				{
-					u32 bufferCount = 0;
+					UUID targetUUID = UUID::FromString(subEntry.GetString(ResourceSubIdEntry::TargetUUID));
+					RID  root = Resources::FindByUUID(targetUUID);
+					if (!root) continue;
 
-					assetFileObject.IterateAllBuffers([&](const ResourceBuffer& buffer)
-					{
-						if (bufferCount == 0)
-						{
-							writer.BeginSeq("buffers");
-						}
-
-						u64 bufferSize = buffer.GetSize();
-						if (buffer.GetSize() > byteBuffer.Size())
-						{
-							byteBuffer.Resize(buffer.GetSize());
-						}
-						buffer.CopyData(byteBuffer.begin(), bufferSize);
-
-						writer.BeginMap();
-						writer.WriteString("id", buffer.GetIdAsString());
-						writer.WriteUInt("offset", offset);
-						writer.WriteUInt("size", bufferSize);
-						writer.EndMap();
-
-						offset += FileSystem::WriteFile(bufferHandler, byteBuffer.begin(), bufferSize);
-
-						bufferCount++;
-					});
-
-					if (bufferCount > 0)
-					{
-						writer.EndSeq();
-					}
-					writer.WriteUInt("bufferCount", bufferCount);
+					String pathId = basePathId + "#" + subEntry.GetString(ResourceSubIdEntry::SubId);
+					WriteCookedAsset(writer, pathId, root, bufferHandler, offset, byteBuffer, true);
 				}
 			}
-			writer.EndMap();
+			else if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
+			{
+				WriteCookedAsset(writer, GetPathId(entry.asset), object, bufferHandler, offset, byteBuffer, true);
+			}
 		}
 
 		FileSystem::CloseFile(bufferHandler);
@@ -1682,7 +2317,14 @@ namespace Skore
 
 					auto func = [importer, toImport, scope]
 					{
-						importer->ImportAsset(toImport.parent, nullptr, toImport.path, scope);
+						if (!importer->OutputExtension().Empty())
+						{
+							IngestImportedAsset(importer, toImport.parent, toImport.path, scope);
+						}
+						else
+						{
+							importer->ImportAsset(toImport.parent, nullptr, toImport.path, scope);
+						}
 					};
 
 					//	- hard to check if asset with name is already imported.
@@ -1881,6 +2523,14 @@ namespace Skore
 				logger.Debug("Registered asset importer {} for extension {} ", type->GetName(), extension);
 				importersByExtension.Insert(extension, importer);
 			}
+
+			if (StringView outputExtension = importer->OutputExtension(); !outputExtension.Empty())
+			{
+				if (auto handlerIt = handlersByTypeID.Find(TypeInfo<ResourceImportedAsset>::ID()))
+				{
+					handlersByExtension.Insert(outputExtension, handlerIt->second);
+				}
+			}
 		}
 	}
 
@@ -1909,6 +2559,12 @@ namespace Skore
 		if (!FileSystem::GetFileStatus(thumbnailDirectory).exists)
 		{
 			FileSystem::CreateDirectory(thumbnailDirectory);
+		}
+
+		libraryDirectory = Path::Join(Editor::GetProjectLocalPath(), "Library");
+		if (!FileSystem::GetFileStatus(libraryDirectory).exists)
+		{
+			FileSystem::CreateDirectory(libraryDirectory);
 		}
 
 		ReloadAssetHandlers();
@@ -1996,6 +2652,8 @@ namespace Skore
 
 	void RegisterResourceAssetTypes()
 	{
+		RegisterResourceImportedAssetTypes();
+
 		Resources::Type<ResourceAssetPackage>()
 			.Field<ResourceAssetPackage::Name>(ResourceFieldType::String)
 			.Field<ResourceAssetPackage::AbsolutePath>(ResourceFieldType::String)
@@ -2029,10 +2687,12 @@ namespace Skore
 			.Field<ResourceAsset::AssetFile>(ResourceFieldType::Reference)
 			.Field<ResourceAsset::SourcePath>(ResourceFieldType::String)
 			.Field<ResourceAsset::ReadOnly>(ResourceFieldType::Bool)
+			.Field<ResourceAsset::ImportedAsset>(ResourceFieldType::SubObject)
 			.Build();
 
 		Resources::FindType<ResourceAsset>()->RegisterEvent(ResourceEventType::Changed, OnUpdateAsset, nullptr);
 
+		RegisterImportedAssetHandler();
 		RegisterAudioHandler();
 		RegisterEntityHandler();
 		RegisterSceneHandler();

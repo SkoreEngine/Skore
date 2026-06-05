@@ -76,13 +76,19 @@ namespace Skore
 
 			yyjson_mut_val* key = JsonMakeKey(context.doc, name);
 			SK_ASSERT(key != nullptr, "Failed to create JSON key");
-			SK_ASSERT(yyjson_mut_obj_add(context.current, key, value), "Failed to add object value");
+			if (!yyjson_mut_obj_add(context.current, key, value))
+			{
+				SK_ASSERT(false, "Failed to add object value");
+			}
 		}
 
 		void JsonAddArrayValue(JsonArchiveWriterContext& context, yyjson_mut_val* value)
 		{
 			SK_ASSERT(yyjson_mut_is_arr(context.current), "Current value must be an array for Add() operations");
-			SK_ASSERT(yyjson_mut_arr_add_val(context.current, value), "Failed to append array value");
+			if (!yyjson_mut_arr_add_val(context.current, value))
+			{
+				SK_ASSERT(false, "Failed to append array value");
+			}
 		}
 
 		yyjson_val* JsonGetCurrentValue(const JsonArchiveReaderContext& context)
