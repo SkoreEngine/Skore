@@ -601,6 +601,24 @@ namespace Skore
 		return nullptr;
 	}
 
+	ResourceType* Resources::FindOrCreateTypeByID(TypeID typeId)
+	{
+		if (ResourceType* type = FindTypeByID(typeId))
+		{
+			return type;
+		}
+
+		if (typeId)
+		{
+			if (ReflectType* reflectType = Reflection::FindTypeById(typeId))
+			{
+				return CreateFromReflectType(reflectType);
+			}
+		}
+
+		return nullptr;
+	}
+
 	ResourceType* Resources::FindTypeByName(StringView name)
 	{
 		std::unique_lock lock(resourceTypeMutex);

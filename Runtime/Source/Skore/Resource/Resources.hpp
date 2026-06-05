@@ -15,6 +15,7 @@ namespace Skore
 		//type api
 		static ResourceTypeBuilder Type(TypeID typeId, StringView name);
 		static ResourceType*       FindTypeByID(TypeID typeId);
+		static ResourceType*       FindOrCreateTypeByID(TypeID typeId);
 		static ResourceType*       FindTypeByName(StringView name);
 		static Array<ResourceType*> GetTypes();
 		static Array<TypeID>       FindTypesByAttribute(TypeID attributeId);
