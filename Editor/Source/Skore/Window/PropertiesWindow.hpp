@@ -33,6 +33,7 @@ namespace Skore
 		u32    selectedComponentIndex = U32_MAX;
 		RID    selectedAsset = {};
 		RID    selectedResource = {};
+		u64   importSettingsVersion = U64_MAX;
 
 		Entity* selectedDebugEntity = nullptr;
 

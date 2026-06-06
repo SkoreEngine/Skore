@@ -12,7 +12,8 @@ namespace Skore
 
 	struct FBXImportSettings
 	{
-		MeshImportSettings    mesh{.generateUV1s = true};
+		f32                   scaleFactor = 1.0f;
+		MeshImportSettings    mesh{.generateLightmapUVs = true};
 		TextureImportSettings texture;
 		bool                  importAnimations = true;
 	};

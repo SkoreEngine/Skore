@@ -56,7 +56,6 @@ namespace Skore
 	};
 
 	SK_API UUID SubResourceUUID(RID importedAsset, StringView subId);
-	SK_API void RegisterResourceImportedAssetTypes();
 	SK_API void ReloadAssetHandlers();
 
 	struct SubResourceDecl
@@ -249,12 +248,12 @@ namespace Skore
 		static RID                     CreateInheritedAsset(RID parent, RID sourceAsset, StringView desiredName, UndoRedoScope* scope);
 		static RID                     CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
 		static RID                     CreateImportedAssetWrapper(RID parent, StringView desiredName, StringView extension, UndoRedoScope* scope);
-		static void                    EnsureCooked(RID rid);
+		static void                    EnsureCooked(RID rid, UndoRedoScope* scope);
 		static void                    ReimportAssetFromFile(RID object);
+		static void                    CookAsset(RID object, UndoRedoScope* scope);
 		static RID                     GetWrapperForSubResource(RID subResource);
 		static RID                     GetImportSettings(RID object);
 		static void                    InitTestFolders(StringView rootDir);
-		static void                    ClearCookCacheState();
 		static RID                     FindAssetOnDirectory(RID directory, TypeID typeId, StringView name);
 		static RID                     CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
 		static String                  CreateUniqueAssetName(RID parent, StringView desiredName, StringView extension, bool directory);

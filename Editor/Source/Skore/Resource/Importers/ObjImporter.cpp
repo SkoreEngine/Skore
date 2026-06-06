@@ -27,6 +27,7 @@ namespace Skore
 
 	struct ObjImportSettings
 	{
+		f32                   scaleFactor = 1.0f;
 		MeshImportSettings    mesh;
 		TextureImportSettings texture;
 	};
@@ -395,7 +396,9 @@ namespace Skore
 
 				MeshImportSettings meshSettings = settings.mesh;
 				meshSettings.regenerateNormals = meshSettings.regenerateNormals || missingNormals;
-				RID meshResource = ImportMesh({}, meshSettings, name, meshMaterials, primitives, importData, allIndices, {}, Vec3(1.0),  scope);
+				MeshImportOptions meshOptions;
+				meshOptions.scaleFactor = settings.scaleFactor;
+				RID meshResource = ImportMesh({}, meshSettings, meshOptions, name, meshMaterials, primitives, importData, allIndices, {}, Vec3(1.0),  scope);
 				allMeshes.EmplaceBack(meshResource);
 
 				RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
@@ -444,6 +447,7 @@ namespace Skore
 	void RegisterObjImporter()
 	{
 		auto settings = Reflection::Type<ObjImportSettings>();
+		settings.Field<&ObjImportSettings::scaleFactor>("scaleFactor");
 		settings.Field<&ObjImportSettings::mesh>("mesh");
 		settings.Field<&ObjImportSettings::texture>("texture");
 

@@ -62,10 +62,6 @@ namespace Skore
 		Array<AssetsPendingImport> pendingImports;
 
 		String             libraryDirectory;
-		HashMap<RID, RID>  subResourceToWrapper;
-		HashSet<String>    loadedCookKeys;
-		Array<FileHandler> libraryBufferHandlers;
-		std::mutex         libraryMutex;
 
 		constexpr u32 kLibraryFormatVersion = 1;
 
@@ -218,7 +214,6 @@ namespace Skore
 		};
 	}
 
-	void RegisterWrapperSubResources(RID wrapper);
 	RID  GetPrimaryCookedResource(RID wrapper);
 	void AttachCookedPrimary(RID assetRid, RID wrapper, UndoRedoScope* scope);
 
@@ -535,8 +530,7 @@ namespace Skore
 
 			if (isWrapper)
 			{
-				RegisterWrapperSubResources(object);
-				ResourceAssets::EnsureCooked(object);
+				ResourceAssets::EnsureCooked(object, nullptr);
 				AttachCookedPrimary(asset, object, nullptr);
 			}
 
@@ -1093,34 +1087,6 @@ namespace Skore
 		wrapper.Commit(ctx.scope);
 	}
 
-	void RegisterResourceImportedAssetTypes()
-	{
-		Resources::Type<ResourceImportedAsset>()
-			.Field<ResourceImportedAsset::OriginalFileName>(ResourceFieldType::String)
-			.Field<ResourceImportedAsset::Extension>(ResourceFieldType::String)
-			.Field<ResourceImportedAsset::ContentHash>(ResourceFieldType::String)
-			.Field<ResourceImportedAsset::ImporterId>(ResourceFieldType::TypeID)
-			.Field<ResourceImportedAsset::CookerVersion>(ResourceFieldType::UInt)
-			.Field<ResourceImportedAsset::ImportSettings>(ResourceFieldType::SubObject)
-			.Field<ResourceImportedAsset::OriginalData>(ResourceFieldType::Buffer)
-			.Field<ResourceImportedAsset::OriginalSize>(ResourceFieldType::UInt)
-			.Field<ResourceImportedAsset::SubResources>(ResourceFieldType::SubObjectList)
-			.Field<ResourceImportedAsset::Dependencies>(ResourceFieldType::SubObjectList)
-			.Build();
-
-		Resources::Type<ResourceSubIdEntry>()
-			.Field<ResourceSubIdEntry::SubId>(ResourceFieldType::String)
-			.Field<ResourceSubIdEntry::TargetUUID>(ResourceFieldType::String)
-			.Field<ResourceSubIdEntry::TypeName>(ResourceFieldType::String)
-			.Build();
-
-		Resources::Type<ResourceDependencyEntry>()
-			.Field<ResourceDependencyEntry::RelPath>(ResourceFieldType::String)
-			.Field<ResourceDependencyEntry::Data>(ResourceFieldType::Buffer)
-			.Field<ResourceDependencyEntry::Size>(ResourceFieldType::UInt)
-			.Build();
-	}
-
 	static String CookCacheKey(const ResourceObject& wrapper)
 	{
 		u64 acc[2] = {0, 0};
@@ -1218,9 +1184,6 @@ namespace Skore
 
 		BinaryArchiveReader reader{Span<u8>(uncompressed.Data(), uncompressed.Size())};
 
-		FileHandler bufferHandler = FileSystem::OpenFile(bufferPath, AccessMode::ReadOnly);
-		libraryBufferHandlers.EmplaceBack(bufferHandler);
-
 		reader.BeginSeq("assets");
 		while (reader.NextSeqEntry())
 		{
@@ -1257,7 +1220,7 @@ namespace Skore
 				{
 					if (auto it = buffers.Find(buffer.GetIdAsString()))
 					{
-						buffer.MapFile(bufferHandler, true, it->second.offset, it->second.size);
+						buffer.MapFile(bufferPath, true, it->second.offset, it->second.size);
 					}
 				});
 			}
@@ -1265,7 +1228,7 @@ namespace Skore
 		reader.EndSeq();
 	}
 
-	static void CookWrapper(RID wrapper, const ResourceObject& wrapperObj, StringView cookedPath, StringView bufferPath)
+	static void CookWrapper(RID wrapper, const ResourceObject& wrapperObj, StringView cookedPath, StringView bufferPath, UndoRedoScope* scope)
 	{
 		TypeID importerId = wrapperObj.GetTypeID(ResourceImportedAsset::ImporterId);
 		auto   it = importersByImporterType.Find(importerId);
@@ -1294,7 +1257,7 @@ namespace Skore
 		ctx.importedAsset = wrapper;
 		ctx.importSettings = wrapperObj.GetSubObject(ResourceImportedAsset::ImportSettings);
 		ctx.sourceBytes = {source.begin(), source.Size()};
-		ctx.scope = nullptr;
+		ctx.scope = scope;
 		importer->Cook(ctx);
 
 		BinaryArchiveWriter writer;
@@ -1338,53 +1301,27 @@ namespace Skore
 			return rid;
 		}
 
-		if (auto it = subResourceToWrapper.Find(rid))
+		RID asset = rid;
+		if (ResourceType* type = Resources::GetType(asset); type == nullptr || type->GetID() != TypeInfo<ResourceAsset>::ID())
 		{
-			return it->second;
+			asset = Resources::GetParent(rid);
 		}
 
-		if (ResourceType* type = Resources::GetType(rid); type != nullptr && type->GetID() == TypeInfo<ResourceAsset>::ID())
+		if (ResourceObject assetObject = Resources::Read(asset))
 		{
-			if (ResourceObject assetObject = Resources::Read(rid))
+			RID wrapper = assetObject.GetSubObject(ResourceAsset::ImportedAsset);
+			if (wrapper && IsImportedAssetWrapper(wrapper))
 			{
-				RID wrapper = assetObject.GetSubObject(ResourceAsset::ImportedAsset);
-				if (wrapper && IsImportedAssetWrapper(wrapper))
-				{
-					return wrapper;
-				}
+				return wrapper;
 			}
 		}
 
 		return {};
-	}
-
-	void RegisterWrapperSubResources(RID wrapper)
-	{
-		ResourceObject wrapperObj = Resources::Read(wrapper);
-		if (!wrapperObj) return;
-
-		std::unique_lock lock(libraryMutex);
-		for (RID entryRid : wrapperObj.GetSubObjectList(ResourceImportedAsset::SubResources))
-		{
-			ResourceObject entry = Resources::Read(entryRid);
-			if (!entry) continue;
-
-			UUID uuid = UUID::FromString(entry.GetString(ResourceSubIdEntry::TargetUUID));
-			if (RID sub = Resources::FindOrReserveByUUID(uuid))
-			{
-				subResourceToWrapper.Insert(sub, wrapper);
-			}
-		}
 	}
 
 	RID ResourceAssets::GetWrapperForSubResource(RID subResource)
 	{
-		std::unique_lock lock(libraryMutex);
-		if (auto it = subResourceToWrapper.Find(subResource))
-		{
-			return it->second;
-		}
-		return {};
+		return ResolveWrapperRID(subResource);
 	}
 
 	RID ResourceAssets::GetImportSettings(RID object)
@@ -1434,7 +1371,7 @@ namespace Skore
 		ResourceAssets::RegisterAssetByType(primary);
 	}
 
-	static void CookOrLoad(RID wrapper, const ResourceObject& wrapperObj, const String& key)
+	static void CookOrLoad(RID wrapper, const ResourceObject& wrapperObj, const String& key, UndoRedoScope* scope)
 	{
 		String cookedPath = Path::Join(libraryDirectory, key + ".cooked");
 		String bufferPath = Path::Join(libraryDirectory, key + ".buffer");
@@ -1445,39 +1382,19 @@ namespace Skore
 		}
 		else
 		{
-			CookWrapper(wrapper, wrapperObj, cookedPath, bufferPath);
+			CookWrapper(wrapper, wrapperObj, cookedPath, bufferPath, scope);
 		}
-
-		loadedCookKeys.Insert(key);
 	}
 
-	static void ForceCookWrapper(RID wrapper)
+	void ResourceAssets::EnsureCooked(RID rid, UndoRedoScope* scope)
 	{
-		std::unique_lock lock(libraryMutex);
-
-		ResourceObject wrapperObj = Resources::Read(wrapper);
-		if (!wrapperObj) return;
-
-		CookOrLoad(wrapper, wrapperObj, CookCacheKey(wrapperObj));
-	}
-
-	void ResourceAssets::EnsureCooked(RID rid)
-	{
-		std::unique_lock lock(libraryMutex);
-
 		RID wrapper = ResolveWrapperRID(rid);
 		if (!wrapper) return;
 
 		ResourceObject wrapperObj = Resources::Read(wrapper);
 		if (!wrapperObj) return;
 
-		String key = CookCacheKey(wrapperObj);
-		if (loadedCookKeys.Has(key))
-		{
-			return;
-		}
-
-		CookOrLoad(wrapper, wrapperObj, key);
+		CookOrLoad(wrapper, wrapperObj, CookCacheKey(wrapperObj), scope);
 	}
 
 	static void ReimportWrapperFromFile(RID wrapper, const String& path, UndoRedoScope* scope)
@@ -1500,7 +1417,7 @@ namespace Skore
 			wrapperObj.Commit(scope);
 		}
 
-		ForceCookWrapper(wrapper);
+		ResourceAssets::EnsureCooked(wrapper, scope);
 	}
 
 	void ResourceAssets::ReimportAssetFromFile(RID object)
@@ -1538,6 +1455,15 @@ namespace Skore
 		}, {&filter, 1}, "", Graphics::GetWindow());
 	}
 
+	void ResourceAssets::CookAsset(RID object, UndoRedoScope* scope)
+	{
+		Editor::AddTask([object, scope]
+		{
+			EnsureCooked(object, scope);
+		},
+		"Cooking import settings");
+	}
+
 	void ResourceAssets::InitTestFolders(StringView rootDir)
 	{
 		bufferTempFolder = Path::Join(rootDir, "Buffers");
@@ -1553,19 +1479,6 @@ namespace Skore
 			FileSystem::Remove(libraryDirectory);
 		}
 		FileSystem::CreateDirectory(libraryDirectory);
-	}
-
-	void ResourceAssets::ClearCookCacheState()
-	{
-		std::unique_lock lock(libraryMutex);
-		loadedCookKeys.Clear();
-		subResourceToWrapper.Clear();
-
-		for (FileHandler handler : libraryBufferHandlers)
-		{
-			FileSystem::CloseFile(handler);
-		}
-		libraryBufferHandlers.Clear();
 	}
 
 	struct ImportedAssetHandler : ResourceAssetHandler
@@ -1685,8 +1598,7 @@ namespace Skore
 
 		ApplyIngest(ctx);
 
-		RegisterWrapperSubResources(wrapper);
-		ResourceAssets::EnsureCooked(wrapper);
+		ResourceAssets::EnsureCooked(wrapper, scope);
 
 		AttachCookedPrimary(Resources::GetParent(wrapper), wrapper, scope);
 	}
@@ -2197,8 +2109,6 @@ namespace Skore
 
 			if (importedAsset)
 			{
-				EnsureCooked(importedAsset);
-
 				ResourceObject wrapperObject = Resources::Read(importedAsset);
 				String         basePathId = GetPathId(entry.asset);
 
@@ -2532,22 +2442,6 @@ namespace Skore
 	}
 
 
-	static void OnImportSettingsChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
-	{
-		if (oldValue.GetInstance() == newValue.GetInstance())
-		{
-			return;
-		}
-
-		RID settings = newValue.GetRID();
-		if (!settings) return;
-
-		RID wrapper = Resources::GetParent(settings);
-		if (!wrapper) return;
-
-		Editor::AddTask([wrapper] { ForceCookWrapper(wrapper); }, "Cooking import settings");
-	}
-
 	void ReloadAssetHandlers()
 	{
 		for (TypeID derivedId : Reflection::GetDerivedTypes(TypeInfo<ResourceAssetHandler>::ID()))
@@ -2648,15 +2542,6 @@ namespace Skore
 			{
 				logger.Debug("Registered asset importer {} for extension {} ", type->GetName(), extension);
 				importersByExtension.Insert(extension, importer);
-			}
-
-			if (TypeID settingsType = importer->GetSettingsType())
-			{
-				if (ResourceType* settingsResourceType = Resources::FindOrCreateTypeByID(settingsType))
-				{
-					settingsResourceType->UnregisterEvent(ResourceEventType::Changed, OnImportSettingsChanged, nullptr);
-					settingsResourceType->RegisterEvent(ResourceEventType::Changed, OnImportSettingsChanged, nullptr);
-				}
 			}
 
 			if (StringView outputExtension = importer->OutputExtension(); !outputExtension.Empty())
@@ -2786,10 +2671,37 @@ namespace Skore
 	void RegisterObjImporter();
 	void RegisterFontImporter();
 
+
+	SK_API void RegisterResourceImportedAssetTypes()
+	{
+		Resources::Type<ResourceImportedAsset>()
+			.Field<ResourceImportedAsset::OriginalFileName>(ResourceFieldType::String)
+			.Field<ResourceImportedAsset::Extension>(ResourceFieldType::String)
+			.Field<ResourceImportedAsset::ContentHash>(ResourceFieldType::String)
+			.Field<ResourceImportedAsset::ImporterId>(ResourceFieldType::TypeID)
+			.Field<ResourceImportedAsset::CookerVersion>(ResourceFieldType::UInt)
+			.Field<ResourceImportedAsset::ImportSettings>(ResourceFieldType::SubObject)
+			.Field<ResourceImportedAsset::OriginalData>(ResourceFieldType::Buffer)
+			.Field<ResourceImportedAsset::OriginalSize>(ResourceFieldType::UInt)
+			.Field<ResourceImportedAsset::SubResources>(ResourceFieldType::SubObjectList)
+			.Field<ResourceImportedAsset::Dependencies>(ResourceFieldType::SubObjectList)
+			.Build();
+
+		Resources::Type<ResourceSubIdEntry>()
+			.Field<ResourceSubIdEntry::SubId>(ResourceFieldType::String)
+			.Field<ResourceSubIdEntry::TargetUUID>(ResourceFieldType::String)
+			.Field<ResourceSubIdEntry::TypeName>(ResourceFieldType::String)
+			.Build();
+
+		Resources::Type<ResourceDependencyEntry>()
+			.Field<ResourceDependencyEntry::RelPath>(ResourceFieldType::String)
+			.Field<ResourceDependencyEntry::Data>(ResourceFieldType::Buffer)
+			.Field<ResourceDependencyEntry::Size>(ResourceFieldType::UInt)
+			.Build();
+	}
+
 	void RegisterResourceAssetTypes()
 	{
-		RegisterResourceImportedAssetTypes();
-
 		Resources::Type<ResourceAssetPackage>()
 			.Field<ResourceAssetPackage::Name>(ResourceFieldType::String)
 			.Field<ResourceAssetPackage::AbsolutePath>(ResourceFieldType::String)
@@ -2825,6 +2737,8 @@ namespace Skore
 			.Field<ResourceAsset::ReadOnly>(ResourceFieldType::Bool)
 			.Field<ResourceAsset::ImportedAsset>(ResourceFieldType::SubObject)
 			.Build();
+
+		RegisterResourceImportedAssetTypes();
 
 		Resources::FindType<ResourceAsset>()->RegisterEvent(ResourceEventType::Changed, OnUpdateAsset, nullptr);
 

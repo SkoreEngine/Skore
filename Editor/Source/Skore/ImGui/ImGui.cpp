@@ -100,6 +100,7 @@ namespace Skore
 
 		struct ResourceTypeRenderer
 		{
+			String label;
 			Array<ResourceFieldRenderer> fields;
 			std::shared_ptr<ResourceActions> actions;
 			Array<FnOnResourceDraw> drawCallbacks;
@@ -1895,174 +1896,199 @@ namespace Skore
 			it = resourceTypeRenders.Insert(resourceType->GetID(), typeRenderer).first;
 		}
 
+		Array<RID> subobjects;
+
 		ResourceTypeRenderer& typeRenderer = it->second;
 		if (!typeRenderer.fields.Empty())
 		{
-			if (ImGui::BeginTable("##object-table", 2))
+			if (!drawResourceInfo.drawCollapseHeader || ImGui::CollapsingHeader(FormatName(resourceType->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
 			{
-				ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.6f);
-				ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
-
-				u64 c = 0;
-
-				if (Editor::DebugOptionsEnabled())
+				if (drawResourceInfo.drawCollapseHeader)
 				{
-					ResourceStorage* storage = Resources::GetStorage(drawResourceInfo.rid);
-
-					ImGui::TableNextColumn();
-					ImGui::AlignTextToFramePadding();
-
-
-					ImGui::Text("%s", "RID");
-					ImGui::TableNextColumn();
-
-					u64 id = 0;
-					HashCombine(id, drawResourceInfo.rid.id, 5ull);
-
-					ImGui::SetNextItemWidth(-1);
-					ImGuiInputTextReadOnly(id, ToString(drawResourceInfo.rid.id));
-
-
-					ImGui::TableNextColumn();
-					ImGui::AlignTextToFramePadding();
-
-
-					ImGui::Text("%s", "UUID");
-					ImGui::TableNextColumn();
-
-					id = 0;
-					HashCombine(id, drawResourceInfo.rid.id, 10ull);
-
-					ImGui::SetNextItemWidth(-1);
-					ImGuiInputTextReadOnly(id, storage->uuid.ToString());
-
-					if (storage->prototype)
-					{
-						ImGui::TableNextColumn();
-						ImGui::AlignTextToFramePadding();
-
-						ImGui::Text("%s", "Prototype");
-
-						ImGui::TableNextColumn();
-						ImGui::SetNextItemWidth(-1);
-						ImGuiInputTextReadOnly(id + 1, storage->prototype->uuid.ToString());
-					}
-
-					ImGui::Separator();
+					ImGui::Indent();
 				}
 
-
-				for (ResourceFieldRenderer& field : typeRenderer.fields)
+				if (ImGui::BeginTable("##object-table", 2))
 				{
-					c++;
-					ResourceField* resourceField = resourceType->GetFields()[field.index];
+					ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+					ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
 
-					if (field.visibilityControl && !field.visibilityControl(object))
+					u64 c = 0;
+
+					if (Editor::DebugOptionsEnabled())
 					{
-						continue;
-					}
+						ResourceStorage* storage = Resources::GetStorage(drawResourceInfo.rid);
 
-					if (resourceField->GetReflectField() != nullptr && resourceField->GetReflectField()->GetAttribute<UIIgnore>() != nullptr)
-					{
-						continue;
-					}
-
-					u64 id = 0;
-					HashCombine(id, resourceType->GetID().id, HashValue(c));
-
-					bool overridden = object.IsValueOverridden(field.index);
-
-					ImGui::TableNextColumn();
-
-					if (field.drawLabel)
-					{
+						ImGui::TableNextColumn();
 						ImGui::AlignTextToFramePadding();
 
-						ImGui::BeginHorizontal(id, ImVec2(ImGui::GetColumnWidth(0), 0));
-						ImGui::Text("%s", field.label.CStr());
 
-						ImGui::Spring(1.0);
+						ImGui::Text("%s", "RID");
+						ImGui::TableNextColumn();
 
-						if (overridden && ImGui::Button(ICON_FA_ARROWS_ROTATE))
+						u64 id = 0;
+						HashCombine(id, drawResourceInfo.rid.id, 5ull);
+
+						ImGui::SetNextItemWidth(-1);
+						ImGuiInputTextReadOnly(id, ToString(drawResourceInfo.rid.id));
+
+
+						ImGui::TableNextColumn();
+						ImGui::AlignTextToFramePadding();
+
+
+						ImGui::Text("%s", "UUID");
+						ImGui::TableNextColumn();
+
+						id = 0;
+						HashCombine(id, drawResourceInfo.rid.id, 10ull);
+
+						ImGui::SetNextItemWidth(-1);
+						ImGuiInputTextReadOnly(id, storage->uuid.ToString());
+
+						if (storage->prototype)
 						{
-							UndoRedoScope* scope = Editor::CreateUndoRedoScope("Reset Value");
-							ResourceObject writeObject = Resources::Write(drawResourceInfo.rid);
-							writeObject.ResetValue(field.index);
-							writeObject.Commit(scope);
+							ImGui::TableNextColumn();
+							ImGui::AlignTextToFramePadding();
+
+							ImGui::Text("%s", "Prototype");
+
+							ImGui::TableNextColumn();
+							ImGui::SetNextItemWidth(-1);
+							ImGuiInputTextReadOnly(id + 1, storage->prototype->uuid.ToString());
 						}
-						ImGui::EndHorizontal();
+
+						ImGui::Separator();
 					}
 
-					ImGui::TableNextColumn();
-
-					ImGuiDrawFieldContext fieldContext;
-					fieldContext.id = id + 1;
-					fieldContext.rid = drawResourceInfo.rid;
-					fieldContext.fieldProps = field.fieldProps;
-					fieldContext.userData = drawResourceInfo.userData;
-					fieldContext.reflectFieldType = field.reflectFieldType;
-					fieldContext.resourceField = resourceField;
-					fieldContext.reflectField = resourceField->GetReflectField();
-					fieldContext.scopeName = drawResourceInfo.scopeName;
-					fieldContext.overridden = overridden;
-					fieldContext.label = field.label;
-
-					for (auto& drawField : field.drawFn)
+					for (ResourceFieldRenderer& field : typeRenderer.fields)
 					{
-						String stringBuffer;
+						c++;
+						ResourceField* resourceField = resourceType->GetFields()[field.index];
 
-						fieldContext.customContext = drawField.context;
-						bool updated = false;
-						bool updatedFinished = false;
-
-						switch (resourceField->GetType())
+						if (field.visibilityControl && !field.visibilityControl(object))
 						{
-							case ResourceFieldType::Blob:
-							case ResourceFieldType::SubObject:
-							case ResourceFieldType::SubObjectList:
-							case ResourceFieldType::ReferenceArray:
-								drawField.drawField(fieldContext, nullptr, updated, updatedFinished);
-								break;
-							case ResourceFieldType::String:
-								stringBuffer = object.GetString(field.index);
-								drawField.drawField(fieldContext, &stringBuffer, updated, updatedFinished);
-								break;
-							default:
-								object.CopyValue(field.index, buffer, 1000);
-								drawField.drawField(fieldContext, buffer, updated, updatedFinished);
-								break;
+							continue;
 						}
 
-						if (updated)
+						if (resourceField->GetReflectField() != nullptr && resourceField->GetReflectField()->GetAttribute<UIIgnore>() != nullptr)
 						{
-							ResourceObject resourceObject = Resources::Write(fieldContext.rid);
-							switch (fieldContext.resourceField->GetType())
+							continue;
+						}
+
+						u64 id = 0;
+						HashCombine(id, resourceType->GetID().id, HashValue(c));
+
+						bool overridden = object.IsValueOverridden(field.index);
+
+						ImGui::TableNextColumn();
+
+						if (field.drawLabel)
+						{
+							ImGui::AlignTextToFramePadding();
+
+							ImGui::BeginHorizontal(id, ImVec2(ImGui::GetColumnWidth(0), 0));
+							ImGui::Text("%s", field.label.CStr());
+
+							ImGui::Spring(1.0);
+
+							if (overridden && ImGui::Button(ICON_FA_ARROWS_ROTATE))
 							{
-								case ResourceFieldType::String:
-									resourceObject.SetString(fieldContext.resourceField->GetIndex(), stringBuffer);
-									break;
+								UndoRedoScope* scope = Editor::CreateUndoRedoScope("Reset Value");
+								ResourceObject writeObject = Resources::Write(drawResourceInfo.rid);
+								writeObject.ResetValue(field.index);
+								writeObject.Commit(scope);
+							}
+							ImGui::EndHorizontal();
+						}
+
+						ImGui::TableNextColumn();
+
+						ImGuiDrawFieldContext fieldContext;
+						fieldContext.id = id + 1;
+						fieldContext.rid = drawResourceInfo.rid;
+						fieldContext.fieldProps = field.fieldProps;
+						fieldContext.userData = drawResourceInfo.userData;
+						fieldContext.reflectFieldType = field.reflectFieldType;
+						fieldContext.resourceField = resourceField;
+						fieldContext.reflectField = resourceField->GetReflectField();
+						fieldContext.scopeName = drawResourceInfo.scopeName;
+						fieldContext.overridden = overridden;
+						fieldContext.label = field.label;
+
+						for (auto& drawField : field.drawFn)
+						{
+							String stringBuffer;
+
+							fieldContext.customContext = drawField.context;
+							bool updated = false;
+							bool updatedFinished = false;
+
+							switch (resourceField->GetType())
+							{
 								case ResourceFieldType::Blob:
-								case ResourceFieldType::SubObject:
 								case ResourceFieldType::SubObjectList:
-									//TODO: not handled yet
+								case ResourceFieldType::ReferenceArray:
+									drawField.drawField(fieldContext, nullptr, updated, updatedFinished);
 									break;
+								case ResourceFieldType::String:
+									stringBuffer = object.GetString(field.index);
+									drawField.drawField(fieldContext, &stringBuffer, updated, updatedFinished);
+									break;
+								case ResourceFieldType::SubObject:
+								{
+									if (drawResourceInfo.drawCollapseHeader)
+									{
+										subobjects.EmplaceBack(object.GetSubObject(field.index));
+									}
+									else
+									{
+										drawField.drawField(fieldContext, nullptr, updated, updatedFinished);
+									}
+									break;
+								}
 								default:
-									resourceObject.SetValue(fieldContext.resourceField->GetIndex(), buffer, field.fieldProps.size);
+									object.CopyValue(field.index, buffer, 1000);
+									drawField.drawField(fieldContext, buffer, updated, updatedFinished);
 									break;
 							}
-							resourceObject.Commit();
-						}
 
-						if (updatedFinished)
-						{
-							UndoRedoScope* scope = Editor::CreateUndoRedoScope(!fieldContext.scopeName.Empty() ? fieldContext.scopeName : "Update Field");
-							Resources::PushChange(scope, object.GetStorage(), context.beforeEditInstance, object.GetInstance());
-							context.beforeEditInstance = object.GetInstance();
+							if (updated)
+							{
+								ResourceObject resourceObject = Resources::Write(fieldContext.rid);
+								switch (fieldContext.resourceField->GetType())
+								{
+									case ResourceFieldType::String:
+										resourceObject.SetString(fieldContext.resourceField->GetIndex(), stringBuffer);
+										break;
+									case ResourceFieldType::Blob:
+									case ResourceFieldType::SubObject:
+									case ResourceFieldType::SubObjectList:
+										//TODO: not handled yet
+										break;
+									default:
+										resourceObject.SetValue(fieldContext.resourceField->GetIndex(), buffer, field.fieldProps.size);
+										break;
+								}
+								resourceObject.Commit();
+							}
+
+							if (updatedFinished)
+							{
+								UndoRedoScope* scope = Editor::CreateUndoRedoScope(!fieldContext.scopeName.Empty() ? fieldContext.scopeName : "Update Field");
+								Resources::PushChange(scope, object.GetStorage(), context.beforeEditInstance, object.GetInstance());
+								context.beforeEditInstance = object.GetInstance();
+							}
 						}
 					}
+
+					ImGui::EndTable();
 				}
 
-				ImGui::EndTable();
+				if (drawResourceInfo.drawCollapseHeader)
+				{
+					ImGui::Unindent();
+				}
 			}
 		}
 
@@ -2091,6 +2117,17 @@ namespace Skore
 		{
 			draw(object);
 		}
+
+
+		for (RID subobject: subobjects)
+		{
+			ImGuiDrawResource(ImGuiDrawResourceInfo{
+				.rid = subobject,
+				.scopeName = drawResourceInfo.scopeName,
+				.drawCollapseHeader = true
+			});
+		}
+
 	}
 
 	void ImGuiResourceSelectionPopup(u64 id, TypeID typeId, RID contextRid, bool open, FnResourceSelectionCallback callback, VoidPtr userData)

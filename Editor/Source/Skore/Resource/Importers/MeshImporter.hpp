@@ -13,16 +13,16 @@ namespace Skore
 	{
 		bool  regenerateNormals = false;
 		bool  recalculateTangents = true;
-		bool  generateUV1s = false;
+		bool  generateLightmapUVs = false;
 		float lightMapTexelSize = 1.0f;
 
 		bool  optimizeMesh = true;
 		bool  generateLODs = true;
-		u32   lodCount = 5;
-		float lodReduction = 0.5f;
-		float lodTargetError = 0.08f;
-		float lodSwitchDistance = 8.0f;
-		float overdrawThreshold = 1.05f;
+	};
+
+	struct MeshImportOptions
+	{
+		f32 scaleFactor = 1.0f;
 	};
 
 	struct BoneInfluence
@@ -42,7 +42,7 @@ namespace Skore
 		Span<BoneInfluence> bones;     // Optional, empty for static meshes
 	};
 
-	SK_API RID ImportMesh(RID directory, const MeshImportSettings& settings, StringView name, Span<RID> materials, Span<MeshPrimitive> primitives,
+	SK_API RID ImportMesh(RID directory, const MeshImportSettings& settings, const MeshImportOptions& options, StringView name, Span<RID> materials, Span<MeshPrimitive> primitives,
 		const MeshVertexImportData& vertexData, Span<u32> indices, RID skin, Vec3 scale, UndoRedoScope* scope);
 
 	SK_API void ReimportMesh(RID meshRID, const MeshImportSettings& settings, UndoRedoScope* scope);

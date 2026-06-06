@@ -14,6 +14,7 @@ namespace Skore
 {
 	void SK_API ResourceInit();
 	void SK_API ResourceShutdown();
+	void SK_API RegisterResourceImportedAssetTypes();
 }
 
 namespace
@@ -83,7 +84,6 @@ namespace
 
 		~TmpFolders()
 		{
-			ResourceAssets::ClearCookCacheState();
 			FileSystem::Remove(dir);
 		}
 	};
@@ -261,7 +261,7 @@ namespace
 
 		UUID mainUUID = SubResourceUUID(wrapper, "main");
 
-		ResourceAssets::EnsureCooked(wrapper);
+		ResourceAssets::EnsureCooked(wrapper, nullptr);
 
 		RID cooked = Resources::FindByUUID(mainUUID);
 		REQUIRE(cooked);
@@ -274,10 +274,9 @@ namespace
 		}
 
 		Resources::Destroy(cooked);
-		ResourceAssets::ClearCookCacheState();
 		CHECK(!Resources::HasValue(cooked));
 
-		ResourceAssets::EnsureCooked(wrapper);
+		ResourceAssets::EnsureCooked(wrapper, nullptr);
 
 		RID reloaded = Resources::FindByUUID(mainUUID);
 		REQUIRE(reloaded);
@@ -326,15 +325,14 @@ namespace
 		UUID mainUUID = SubResourceUUID(wrapper, "main");
 
 		WriteTestWrapper(wrapper, 50, "hash-1", 1);
-		ResourceAssets::EnsureCooked(wrapper);
+		ResourceAssets::EnsureCooked(wrapper, nullptr);
 		{
 			ResourceObject object = Resources::Read(Resources::FindByUUID(mainUUID));
 			CHECK(object.GetInt(TestImportTarget::Value) == 50);
 		}
 
 		WriteTestWrapper(wrapper, 90, "hash-2", 1);
-		ResourceAssets::ClearCookCacheState();
-		ResourceAssets::EnsureCooked(wrapper);
+		ResourceAssets::EnsureCooked(wrapper, nullptr);
 		{
 			ResourceObject object = Resources::Read(Resources::FindByUUID(mainUUID));
 			CHECK(object.GetInt(TestImportTarget::Value) == 90);
@@ -357,8 +355,8 @@ namespace
 		WriteTestWrapper(wrapperA, 100, "same-hash", 1);
 		WriteTestWrapper(wrapperB, 100, "same-hash", 1);
 
-		ResourceAssets::EnsureCooked(wrapperA);
-		ResourceAssets::EnsureCooked(wrapperB);
+		ResourceAssets::EnsureCooked(wrapperA, nullptr);
+		ResourceAssets::EnsureCooked(wrapperB, nullptr);
 
 		RID mainA = Resources::FindByUUID(SubResourceUUID(wrapperA, "main"));
 		RID mainB = Resources::FindByUUID(SubResourceUUID(wrapperB, "main"));
