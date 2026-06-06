@@ -30,6 +30,7 @@ namespace Skore
 		RID                          directory;
 		ufbx_scene*                  scene = nullptr;
 		UndoRedoScope*               scope = nullptr;
+		SubResourceAllocator         alloc;
 		FBXImportSettings            settings;
 		HashMap<ufbx_texture*, RID>  textures;
 		HashMap<ufbx_material*, RID> materials;
@@ -219,7 +220,7 @@ namespace Skore
 		{
 			Span   data = Span((u8*)texture->content.data, texture->content.size);
 			String name = Path::Name(StringView{texture->relative_filename.data, texture->relative_filename.length});
-			textureRID = ImportTextureFromMemory(directory, textureImportSettings, textureImportOptions, name, data, fbxData.scope);
+			textureRID = ImportTextureFromMemory(directory, textureImportSettings, textureImportOptions, name, data, fbxData.alloc, String("texture:") + ToString(texture->typed_id));
 		}
 		else
 		{
@@ -239,7 +240,7 @@ namespace Skore
 			//if found, import the texture
 			if (FileSystem::GetFileStatus(absolutePath).exists)
 			{
-				textureRID = ImportTexture(directory, textureImportSettings, textureImportOptions, absolutePath, fbxData.scope);
+				textureRID = ImportTexture(directory, textureImportSettings, textureImportOptions, absolutePath, fbxData.alloc, String("texture:") + ToString(texture->typed_id));
 			}
 		}
 
@@ -255,7 +256,7 @@ namespace Skore
 	void ProcessMaterials(FBXImportData& fbxData, ufbx_material* material)
 	{
 		String materialName = !IsStrNullOrEmpty(material->name.data) ? material->name.data : "Material";
-		RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), fbxData.scope);
+		RID materialResource = fbxData.alloc.Create<MaterialResource>(String("material:") + ToString(material->typed_id));
 
 		ResourceObject materialObject = Resources::Write(materialResource);
 		materialObject.SetString(MaterialResource::Name, !IsStrNullOrEmpty(material->name.data) ? material->name.data : "Material");
@@ -556,11 +557,11 @@ namespace Skore
 		MeshImportOptions meshImportOptions;
 		meshImportOptions.scaleFactor = fbxData.settings.scaleFactor;
 
-		RID meshRID = ImportMesh(fbxData.directory, meshImportSettings, meshImportOptions, meshName, meshMaterials, primitives, importData, allIndices, skin, Vec3(1.0), fbxData.scope);
+		RID meshRID = ImportMesh(fbxData.directory, meshImportSettings, meshImportOptions, meshName, meshMaterials, primitives, importData, allIndices, skin, Vec3(1.0), fbxData.alloc, String("mesh:") + ToString(mesh->typed_id));
 		fbxData.meshes.Insert(mesh, meshRID);
 	}
 
-	RID ReadAnimationNode(FBXImportData& fbxData, u32 numFrames, f32 framerate, ufbx_anim_stack* stack, ufbx_node* node, FileHandler handler, u64& offset)
+	RID ReadAnimationNode(FBXImportData& fbxData, u32 numFrames, f32 framerate, ufbx_anim_stack* stack, ufbx_node* node, FileHandler handler, u64& offset, UUID animBase)
 	{
 		StringView nodeName = "Bone";
 		if (!IsStrNullOrEmpty(node->name.data))
@@ -568,7 +569,7 @@ namespace Skore
 			nodeName = node->name.data;
 		}
 
-		RID animationChannel = Resources::Create<AnimationChannelResource>(UUID::RandomUUID());
+		RID animationChannel = Resources::Create<AnimationChannelResource>(SubResourceUUID(animBase, String("channel:") + ToString(node->typed_id)), fbxData.scope);
 		ResourceObject animationChannelObject = Resources::Write(animationChannel);
 		animationChannelObject.SetString(AnimationChannelResource::Name, nodeName);
 		animationChannelObject.SetUInt(AnimationChannelResource::BufferOffset, offset);
@@ -617,7 +618,8 @@ namespace Skore
 		{
 			animationName = "Animation";
 		}
-		RID animation = Resources::Create<AnimationClipResource>(UUID::RandomUUID(), fbxData.scope);
+		RID  animation = fbxData.alloc.Create<AnimationClipResource>(String("anim:") + ToString(stack->typed_id));
+		UUID animBase = Resources::GetUUID(animation);
 
 		ResourceObject animationObject = Resources::Write(animation);
 		animationObject.SetString(AnimationClipResource::Name, animationName);
@@ -648,7 +650,7 @@ namespace Skore
 			ufbx_node* node = fbxData.scene->nodes.data[i];
 			if (!node->bone) continue;
 
-			if (RID channel = ReadAnimationNode(fbxData, numFrames, framerate, stack, node, handler, offset))
+			if (RID channel = ReadAnimationNode(fbxData, numFrames, framerate, stack, node, handler, offset, animBase))
 			{
 				animationObject.AddToSubObjectList(AnimationClipResource::Channels, channel);
 			}
@@ -675,7 +677,8 @@ namespace Skore
 		{
 			String skinName = GetStr(skin->name, "Skin");
 
-			RID skinRID = Resources::Create<SkinResource>(UUID::RandomUUID(), fbxData.scope);
+			RID  skinRID = fbxData.alloc.Create<SkinResource>(String("skin:") + ToString(skin->typed_id));
+			UUID skinBase = Resources::GetUUID(skinRID);
 
 			ResourceObject skinObject = Resources::Write(skinRID);
 			skinObject.SetString(SkinResource::Name, skinName);
@@ -684,7 +687,7 @@ namespace Skore
 			{
 				ufbx_skin_cluster* cluster = skin->clusters[i];
 
-				RID skinBind = Resources::Create<SkinBindResource>(UUID::RandomUUID());
+				RID skinBind = Resources::Create<SkinBindResource>(SubResourceUUID(skinBase, String("bind:") + ToString(i)), fbxData.scope);
 				ResourceObject skinBindObject = Resources::Write(skinBind);
 				Mat4 bindPose = ToMat4(cluster->geometry_to_bone);
 				bindPose[3].x *= fbxData.settings.scaleFactor;
@@ -705,7 +708,8 @@ namespace Skore
 		auto it = fbxData.nodeSkeletons.Find(skin->clusters[0]->bone_node);
 		if (it == fbxData.nodeSkeletons.end())
 		{
-			RID            skeletonComponent = Resources::Create<Skeleton>(UUID::RandomUUID());
+			RID            skeletonComponent = fbxData.alloc.Create<Skeleton>(String("skeleton:") + ToString(skin->clusters[0]->bone_node->typed_id));
+			UUID           skeletonBase = Resources::GetUUID(skeletonComponent);
 			ResourceObject skeletonComponentObject = Resources::Write(skeletonComponent);
 
 			Array<RID>               bones;
@@ -728,7 +732,7 @@ namespace Skore
 					}
 				}
 
-				RID boneNodeRID = Resources::Create<BoneNode>(UUID::RandomUUID());
+				RID boneNodeRID = Resources::Create<BoneNode>(SubResourceUUID(skeletonBase, String("bone:") + ToString(i)), fbxData.scope);
 
 				ResourceObject boneObject = Resources::Write(boneNodeRID);
 				boneObject.SetString(boneObject.GetIndex("name"), !IsStrNullOrEmpty(bone_node->name.data) ? bone_node->name.data : "Bone");
@@ -744,7 +748,7 @@ namespace Skore
 			skeletonComponentObject.AddToSubObjectList(skeletonComponentObject.GetIndex("bones"), bones);
 			skeletonComponentObject.Commit(fbxData.scope);
 
-			RID skeletonEntity = Resources::Create<EntityResource>(UUID::RandomUUID());
+			RID skeletonEntity = fbxData.alloc.Create<EntityResource>(String("skeletonEntity:") + ToString(skin->clusters[0]->bone_node->typed_id));
 
 			ResourceObject skeletonObject = Resources::Write(skeletonEntity);
 			skeletonObject.SetString(EntityResource::Name, "Skeleton"); //need a name here?
@@ -783,7 +787,7 @@ namespace Skore
 
 		if (newEntity)
 		{
-			entity = Resources::Create<EntityResource>(UUID::RandomUUID());
+			entity = fbxData.alloc.Create<EntityResource>(String("node:") + ToString(node->typed_id));
 		}
 
 		ResourceObject entityObject = Resources::Write(entity);
@@ -801,7 +805,20 @@ namespace Skore
 		}
 
 		// Extract transform
-		RID transformRID = EntityResource::GetOrCreateComponent(entityObject, sktypeid(Transform), fbxData.scope);
+		RID transformRID;
+		for (RID existingComponent : entityObject.GetSubObjectList(EntityResource::Components))
+		{
+			if (Resources::GetType(existingComponent)->GetID() == sktypeid(Transform))
+			{
+				transformRID = existingComponent;
+				break;
+			}
+		}
+		if (!transformRID)
+		{
+			transformRID = fbxData.alloc.Create<Transform>(String("node:") + ToString(node->typed_id) + ":transform");
+			entityObject.AddToSubObjectList(EntityResource::Components, transformRID);
+		}
 
 		ResourceObject transformObject = Resources::Write(transformRID);
 		transformObject.SetVec3(Transform::Position, ToVec3(node->local_transform.translation) * fbxData.settings.scaleFactor);
@@ -825,7 +842,7 @@ namespace Skore
 				ResourceObject meshObject = Resources::Write(meshIt->second);
 				if (RID skin = meshObject.GetSubObject(MeshResource::Skin))
 				{
-					RID meshRenderer = Resources::Create<SkinnedMeshRenderer>(UUID::RandomUUID());
+					RID meshRenderer = fbxData.alloc.Create<SkinnedMeshRenderer>(String("node:") + ToString(node->typed_id) + ":meshRenderer");
 					ResourceObject skinnedMeshRenderObject = Resources::Write(meshRenderer);
 
 					if (auto rootIt = fbxData.meshSkeleton.Find(meshIt->first))
@@ -840,7 +857,7 @@ namespace Skore
 				}
 				else
 				{
-					RID meshRenderer = Resources::Create<StaticMeshRenderer>(UUID::RandomUUID());
+					RID meshRenderer = fbxData.alloc.Create<StaticMeshRenderer>(String("node:") + ToString(node->typed_id) + ":meshRenderer");
 
 					ResourceObject staticMeshRenderObject = Resources::Write(meshRenderer);
 					staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshIt->second);
@@ -932,6 +949,7 @@ namespace Skore
 			fbxData.directory = {};
 			fbxData.scene = scene;
 			fbxData.scope = scope;
+			fbxData.alloc = cookCtx.Allocator();
 			fbxData.settings = settings;
 
 			String basePath = Path::Parent(path);
@@ -955,8 +973,8 @@ namespace Skore
 
 			if (scene->nodes.count > 0 && scene->meshes.count > 0)
 			{
-				RID transformRID = Resources::Create<Transform>(UUID::RandomUUID(), scope);
-				RID root = Resources::Create<EntityResource>(UUID::RandomUUID(), scope);
+				RID transformRID = fbxData.alloc.Create<Transform>("rootEntity:transform");
+				RID root = fbxData.alloc.Create<EntityResource>("rootEntity");
 
 				ResourceObject entityObject = Resources::Write(root);
 				entityObject.SetString(EntityResource::Name, fileName);

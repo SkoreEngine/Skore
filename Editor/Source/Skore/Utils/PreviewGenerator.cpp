@@ -1,4 +1,4 @@
-#include "Skore/Utils/ThumbnailGenerator.hpp"
+#include "Skore/Utils/PreviewGenerator.hpp"
 
 #include "Skore/EditorCommon.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -15,7 +15,7 @@
 
 namespace Skore
 {
-	struct ThumbnailRenderPipeline;
+	struct PreviewRenderPipeline;
 
 
 	struct OutputToBufferPass : RenderPipelinePass
@@ -70,15 +70,8 @@ namespace Skore
 	};
 
 
-	void ThumbnailGenerator::GenerateThumbnail(RID asset)
+	void PreviewGenerator::SetupDefaultEnvironment(Scene* scene)
 	{
-		Scene* scene = Alloc<Scene>();
-
-		scene->renderObjects.asyncLoad = false;
-		scene->renderObjects.requireTlas = false;
-
-		SetupScene(scene);
-
 		if (scene->FindFirstComponent(sktypeid(LightComponent)) == nullptr)
 		{
 			Entity*    lightEntity = scene->CreateEntity();
@@ -96,6 +89,22 @@ namespace Skore
 			EnvironmentComponent* envComp = env->AddComponent<EnvironmentComponent>();
 			envComp->SetSkyboxMaterial(Resources::FindByPath("Skore://Materials/DefaultSkyMaterial.material"));
 		}
+	}
+
+	void PreviewGenerator::PopulateScene(Scene* scene)
+	{
+		SetupScene(scene);
+		SetupDefaultEnvironment(scene);
+	}
+
+	void PreviewGenerator::GenerateThumbnail(RID asset)
+	{
+		Scene* scene = Alloc<Scene>();
+
+		scene->renderObjects.asyncLoad = false;
+		scene->renderObjects.requireTlas = false;
+
+		PopulateScene(scene);
 
 		{
 			scene->ExecuteEvents(false);
@@ -147,7 +156,7 @@ namespace Skore
 		settings.userData = this;
 		Array<TypeID> modules;
 		modules.EmplaceBack(sktypeid(OutputToBufferModule));
-		RenderPipelineContext* renderPipelineContext = RenderPipeline::CreateContext(sktypeid(ThumbnailRenderPipeline), modules, settings);
+		RenderPipelineContext* renderPipelineContext = RenderPipeline::CreateContext(sktypeid(PreviewRenderPipeline), modules, settings);
 
 		Vec2 nearFar = {0.1, 100.0f};
 		if (aabb)

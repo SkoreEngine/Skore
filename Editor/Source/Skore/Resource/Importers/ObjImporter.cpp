@@ -106,7 +106,8 @@ namespace Skore
 
 		void Cook(CookContext& ctx) override
 		{
-			UndoRedoScope* scope = ctx.scope;
+			UndoRedoScope*       scope = ctx.scope;
+			SubResourceAllocator alloc = ctx.Allocator();
 
 			ObjImportSettings settings{};
 			Resources::FromResource(ctx.importSettings, &settings);
@@ -198,7 +199,7 @@ namespace Skore
 				TextureImportOptions options = {};
 				options.async = false;
 				options.isSubAsset = true;
-				if (RID texture = ImportTexture({}, settings.texture, options, textureAbsolutePath, scope))
+				if (RID texture = ImportTexture({}, settings.texture, options, textureAbsolutePath, alloc, String("texture:") + texName))
 				{
 					textureCache.Insert(texName, texture);
 					allTextures.EmplaceBack(texture);
@@ -212,7 +213,7 @@ namespace Skore
 				const tinyobj::material_t& material = materials[m];
 				String materialName = !material.name.empty() ? material.name.c_str() : String{"Material_"}.Append(m);
 
-				RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), scope);
+				RID materialResource = alloc.Create<MaterialResource>(String("material:") + ToString(m));
 
 				ResourceObject materialObject = Resources::Write(materialResource);
 				materialObject.SetString(MaterialResource::Name, materialName);
@@ -398,17 +399,17 @@ namespace Skore
 				meshSettings.regenerateNormals = meshSettings.regenerateNormals || missingNormals;
 				MeshImportOptions meshOptions;
 				meshOptions.scaleFactor = settings.scaleFactor;
-				RID meshResource = ImportMesh({}, meshSettings, meshOptions, name, meshMaterials, primitives, importData, allIndices, {}, Vec3(1.0),  scope);
+				RID meshResource = ImportMesh({}, meshSettings, meshOptions, name, meshMaterials, primitives, importData, allIndices, {}, Vec3(1.0), alloc, String("mesh:") + ToString(i));
 				allMeshes.EmplaceBack(meshResource);
 
-				RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
+				RID entity = alloc.Create<EntityResource>(String("entity:") + ToString(i));
 
 				ResourceObject entityObject = Resources::Write(entity);
 				entityObject.SetString(EntityResource::Name, name);
 
-				entityObject.AddToSubObjectList(EntityResource::Components, Resources::Create<Transform>(UUID::RandomUUID()));
+				entityObject.AddToSubObjectList(EntityResource::Components, alloc.Create<Transform>(String("entity:") + ToString(i) + ":transform"));
 
-				RID meshRenderer = Resources::Create<StaticMeshRenderer>(UUID::RandomUUID());
+				RID meshRenderer = alloc.Create<StaticMeshRenderer>(String("entity:") + ToString(i) + ":meshRenderer");
 
 				ResourceObject staticMeshRenderObject = Resources::Write(meshRenderer);
 				staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), meshResource);
@@ -420,12 +421,12 @@ namespace Skore
 				entities.EmplaceBack(entity);
 			}
 
-			RID rootEntity = Resources::Create<EntityResource>(UUID::RandomUUID(), scope);
+			RID rootEntity = alloc.Create<EntityResource>("rootEntity");
 
 			ResourceObject entityObject = Resources::Write(rootEntity);
 			entityObject.SetString(EntityResource::Name, fileName);
 
-			entityObject.AddToSubObjectList(EntityResource::Components, Resources::Create<Transform>(UUID::RandomUUID()));
+			entityObject.AddToSubObjectList(EntityResource::Components, alloc.Create<Transform>("rootEntity:transform"));
 			entityObject.AddToSubObjectList(EntityResource::Children, entities);
 			entityObject.Commit(scope);
 

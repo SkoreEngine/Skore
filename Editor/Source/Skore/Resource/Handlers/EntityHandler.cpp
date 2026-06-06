@@ -5,15 +5,15 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
-#include "Skore/Utils/ThumbnailGenerator.hpp"
+#include "Skore/Utils/PreviewGenerator.hpp"
 
 namespace Skore
 {
-	struct EntityThumbnailGenerator : ThumbnailGenerator
+	struct EntityPreviewGenerator : PreviewGenerator
 	{
 		RID entityRID;
 
-		explicit EntityThumbnailGenerator(const RID& entity)
+		explicit EntityPreviewGenerator(const RID& entity)
 			: entityRID(entity) {}
 
 		void SetupScene(Scene* scene) override
@@ -52,8 +52,8 @@ namespace Skore
 		{
 			if (ResourceObject object = Resources::Read(asset))
 			{
-				EntityThumbnailGenerator entityThumbnailGenerator{object.GetSubObject(ResourceAsset::Object)};
-				entityThumbnailGenerator.GenerateThumbnail(asset);
+				EntityPreviewGenerator entityPreviewGenerator{object.GetSubObject(ResourceAsset::Object)};
+				entityPreviewGenerator.GenerateThumbnail(asset);
 			}
 		}
 

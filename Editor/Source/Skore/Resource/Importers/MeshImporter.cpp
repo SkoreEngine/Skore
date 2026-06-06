@@ -3,6 +3,7 @@
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
@@ -23,9 +24,10 @@ namespace Skore
 		constexpr float cLodSwitchDistance = 8.0f;
 		constexpr float cOverdrawThreshold = 1.05f;
 
-		RID CreateVertexAttributeResource(StringView name, u32 offset, u32 size, UndoRedoScope* scope)
+		RID CreateVertexAttributeResource(StringView name, u32 offset, u32 size, UUID base, UndoRedoScope* scope)
 		{
-			RID rid = Resources::Create<VertexAttributeResource>(UUID::RandomUUID(), scope);
+			String subId = String("attr:").Append(name);
+			RID rid = Resources::Create<VertexAttributeResource>(SubResourceUUID(base, subId), scope);
 			ResourceObject obj = Resources::Write(rid);
 			obj.SetString(VertexAttributeResource::Name, name);
 			obj.SetUInt(VertexAttributeResource::Offset, offset);
@@ -49,6 +51,7 @@ namespace Skore
 		                                       Array<Vec3>& colors, Array<Vec4>& tangents, Array<BoneInfluence>& bones,
 		                                       Array<u32>& indices, Array<MeshPrimitive>& primitives,
 		                                       const Vec3& scale,
+		                                       UUID base,
 		                                       UndoRedoScope* scope)
 		{
 			u64 vertexCount = positions.Size();
@@ -97,42 +100,42 @@ namespace Skore
 			u32 stride = 0;
 			Array<RID> layoutAttributes;
 
-			layoutAttributes.EmplaceBack(CreateVertexAttributeResource("position", stride, sizeof(Vec3), scope));
+			layoutAttributes.EmplaceBack(CreateVertexAttributeResource("position", stride, sizeof(Vec3), base, scope));
 			stride += sizeof(Vec3);
 
-			layoutAttributes.EmplaceBack(CreateVertexAttributeResource("normal", stride, sizeof(Vec3), scope));
+			layoutAttributes.EmplaceBack(CreateVertexAttributeResource("normal", stride, sizeof(Vec3), base, scope));
 			stride += sizeof(Vec3);
 
-			layoutAttributes.EmplaceBack(CreateVertexAttributeResource("uv0", stride, sizeof(Vec2), scope));
+			layoutAttributes.EmplaceBack(CreateVertexAttributeResource("uv0", stride, sizeof(Vec2), base, scope));
 			stride += sizeof(Vec2);
 
 			bool hasUV2 = !uv2s.Empty();
 			if (hasUV2)
 			{
-				layoutAttributes.EmplaceBack(CreateVertexAttributeResource("uv1", stride, sizeof(Vec2), scope));
+				layoutAttributes.EmplaceBack(CreateVertexAttributeResource("uv1", stride, sizeof(Vec2), base, scope));
 				stride += sizeof(Vec2);
 			}
 
 			bool hasColors = !colors.Empty();
 			if (hasColors)
 			{
-				layoutAttributes.EmplaceBack(CreateVertexAttributeResource("color", stride, sizeof(Vec3), scope));
+				layoutAttributes.EmplaceBack(CreateVertexAttributeResource("color", stride, sizeof(Vec3), base, scope));
 				stride += sizeof(Vec3);
 			}
 
-			layoutAttributes.EmplaceBack(CreateVertexAttributeResource("tangent", stride, sizeof(Vec4), scope));
+			layoutAttributes.EmplaceBack(CreateVertexAttributeResource("tangent", stride, sizeof(Vec4), base, scope));
 			stride += sizeof(Vec4);
 
 			if (hasBones)
 			{
-				layoutAttributes.EmplaceBack(CreateVertexAttributeResource("boneIndices", stride, sizeof(u32) * 4, scope));
+				layoutAttributes.EmplaceBack(CreateVertexAttributeResource("boneIndices", stride, sizeof(u32) * 4, base, scope));
 				stride += sizeof(u32) * 4;
 
-				layoutAttributes.EmplaceBack(CreateVertexAttributeResource("boneWeights", stride, sizeof(Vec4), scope));
+				layoutAttributes.EmplaceBack(CreateVertexAttributeResource("boneWeights", stride, sizeof(Vec4), base, scope));
 				stride += sizeof(Vec4);
 			}
 
-			RID vertexLayoutRID = Resources::Create<VertexLayoutResource>(UUID::RandomUUID(), scope);
+			RID vertexLayoutRID = Resources::Create<VertexLayoutResource>(SubResourceUUID(base, "layout"), scope);
 			ResourceObject vertexLayoutObj = Resources::Write(vertexLayoutRID);
 			vertexLayoutObj.AddToSubObjectList(VertexLayoutResource::Attributes, layoutAttributes);
 			vertexLayoutObj.SetUInt(VertexLayoutResource::Stride, stride);
@@ -345,7 +348,7 @@ namespace Skore
 			meshLODs.Reserve(lodIndices.Size());
 			for (u64 i = 0; i < lodIndices.Size(); i++)
 			{
-				RID            lodRID = Resources::Create<MeshLodResource>(UUID::RandomUUID(), scope);
+				RID            lodRID = Resources::Create<MeshLodResource>(SubResourceUUID(base, String("lod:") + ToString(i)), scope);
 				ResourceObject lodObj = Resources::Write(lodRID);
 				lodObj.SetUInt(MeshLodResource::LodNumber, static_cast<u32>(i));
 				lodObj.SetUInt(MeshLodResource::VerticesOffset, 0);
@@ -389,8 +392,10 @@ namespace Skore
 	}
 
 	RID ImportMesh(RID directory, const MeshImportSettings& settings, const MeshImportOptions& options, StringView name, Span<RID> materials, Span<MeshPrimitive> primitives,
-	               const MeshVertexImportData& vertexData, Span<u32> indices, RID skin, Vec3 scale, UndoRedoScope* scope)
+	               const MeshVertexImportData& vertexData, Span<u32> indices, RID skin, Vec3 scale, const SubResourceAllocator& alloc, StringView subId)
 	{
+		UndoRedoScope* scope = alloc.scope;
+
 		// Position is mandatory
 		if (vertexData.positions.Empty())
 		{
@@ -448,10 +453,11 @@ namespace Skore
 			bones.Assign(vertexData.bones.begin(), vertexData.bones.end());
 		}
 
-		MeshGeometryResult result = ProcessMeshGeometry(settings, positions, normals, uvs, uv2s, colors, tangents, bones,
-		                                                localIndices, localPrimitives, scale, scope);
+		RID  meshResource = alloc.Create<MeshResource>(subId);
+		UUID base = Resources::GetUUID(meshResource);
 
-		RID meshResource = Resources::Create<MeshResource>(UUID::RandomUUID(), scope);
+		MeshGeometryResult result = ProcessMeshGeometry(settings, positions, normals, uvs, uv2s, colors, tangents, bones,
+		                                                localIndices, localPrimitives, scale, base, scope);
 
 		ResourceObject meshObject = Resources::Write(meshResource);
 		meshObject.SetString(MeshResource::Name, name);
@@ -599,7 +605,7 @@ namespace Skore
 		logger.Info("ReimportMesh '{}': {} vertices, {} indices", meshName, vertexCount, indexCount);
 
 		MeshGeometryResult result = ProcessMeshGeometry(settings, positions, normals, uvs, uv2s, colors, tangents, bones,
-		                                                indices, primitives, Vec3(1.0), scope);
+		                                                indices, primitives, Vec3(1.0), Resources::GetUUID(meshRID), scope);
 
 		// Single Write+Commit — preserves existing Name, Materials, Skin
 		ResourceObject writeObj = Resources::Write(meshRID);

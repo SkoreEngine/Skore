@@ -19,6 +19,6 @@ namespace Skore
 		bool isSubAsset = false;
 	};
 
-	SK_API RID ImportTexture(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, const String& path, UndoRedoScope* scope);
-	SK_API RID ImportTextureFromMemory(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, StringView name, Span<u8> data, UndoRedoScope* scope);
+	SK_API RID ImportTexture(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, const String& path, const SubResourceAllocator& alloc, StringView subId);
+	SK_API RID ImportTextureFromMemory(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, StringView name, Span<u8> data, const SubResourceAllocator& alloc, StringView subId);
 }

@@ -7,7 +7,7 @@
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
-#include "Skore/Utils/ThumbnailGenerator.hpp"
+#include "Skore/Utils/PreviewGenerator.hpp"
 
 namespace Skore
 {
@@ -15,11 +15,11 @@ namespace Skore
 
 	static Logger& logger = Logger::GetLogger("Skore::MeshHandler");
 
-	struct MeshThumbnailGenerator : ThumbnailGenerator
+	struct MeshPreviewGenerator : PreviewGenerator
 	{
 		RID mesh;
 
-		explicit MeshThumbnailGenerator(const RID& mesh)
+		explicit MeshPreviewGenerator(const RID& mesh)
 			: mesh(mesh) {}
 
 		void SetupScene(Scene* scene) override
@@ -72,13 +72,13 @@ namespace Skore
 			{
 				if (object.GetType()->GetID() == TypeInfo<ResourceAsset>::ID())
 				{
-					MeshThumbnailGenerator meshThumbnailGenerator{object.GetSubObject(ResourceAsset::Object)};
-					meshThumbnailGenerator.GenerateThumbnail(asset);
+					MeshPreviewGenerator meshPreviewGenerator{object.GetSubObject(ResourceAsset::Object)};
+					meshPreviewGenerator.GenerateThumbnail(asset);
 				}
 				else if (object.GetType()->GetID() == TypeInfo<MeshResource>::ID())
 				{
-					MeshThumbnailGenerator meshThumbnailGenerator{asset};
-					meshThumbnailGenerator.GenerateThumbnail(asset);
+					MeshPreviewGenerator meshPreviewGenerator{asset};
+					meshPreviewGenerator.GenerateThumbnail(asset);
 				}
 			}
 		}

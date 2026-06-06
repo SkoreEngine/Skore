@@ -11,6 +11,7 @@
 #include "Skore/EditorCommon.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
@@ -70,6 +71,7 @@ namespace Skore
 			RID                           directory;
 			String                        basePath;
 			UndoRedoScope*                scope;
+			SubResourceAllocator          alloc;
 			GLTFImportSettings            settings;
 			cgltf_data*                   gltfData = nullptr;
 			HashMap<cgltf_image*, RID>    images;
@@ -417,6 +419,9 @@ namespace Skore
 				return;
 			}
 
+			u32    nodeIndex = static_cast<u32>(node - data.gltfData->nodes);
+			String nodeSubId = String("node:") + ToString(nodeIndex);
+
 			yyjson_doc* doc = yyjson_read(bodyJson, strlen(bodyJson), 0);
 			if (!doc)
 			{
@@ -453,7 +458,7 @@ namespace Skore
 
 				if (strcmp(motionType, "dynamic") == 0 || strcmp(motionType, "kinematic") == 0)
 				{
-					RID rigidBodyRID = Resources::Create<RigidBody>(UUID::RandomUUID());
+					RID rigidBodyRID = data.alloc.Create<RigidBody>(nodeSubId + ":rigidbody");
 					ResourceObject rbObject = Resources::Write(rigidBodyRID);
 
 					rbObject.SetBool(rbObject.GetIndex("isKinematic"), strcmp(motionType, "kinematic") == 0);
@@ -486,7 +491,7 @@ namespace Skore
 					{
 						case OMIShapeType::Box:
 						{
-							RID colliderRID = Resources::Create<BoxCollider>(UUID::RandomUUID());
+							RID colliderRID = data.alloc.Create<BoxCollider>(nodeSubId + ":collider");
 							ResourceObject colliderObject = Resources::Write(colliderRID);
 							// BoxCollider uses half-size, OMI uses full size
 							colliderObject.SetVec3(colliderObject.GetIndex("halfSize"), shape.size * 0.5f);
@@ -497,7 +502,7 @@ namespace Skore
 						}
 						case OMIShapeType::Sphere:
 						{
-							RID colliderRID = Resources::Create<SphereCollider>(UUID::RandomUUID());
+							RID colliderRID = data.alloc.Create<SphereCollider>(nodeSubId + ":collider");
 							ResourceObject colliderObject = Resources::Write(colliderRID);
 							colliderObject.SetFloat(colliderObject.GetIndex("radius"), shape.radius);
 							colliderObject.SetBool(colliderObject.GetIndex("isSensor"), false);
@@ -507,7 +512,7 @@ namespace Skore
 						}
 						case OMIShapeType::Capsule:
 						{
-							RID colliderRID = Resources::Create<CapsuleCollider>(UUID::RandomUUID());
+							RID colliderRID = data.alloc.Create<CapsuleCollider>(nodeSubId + ":collider");
 							ResourceObject colliderObject = Resources::Write(colliderRID);
 							// Use average of top/bottom radius for engines that don't support tapered capsules
 							colliderObject.SetFloat(colliderObject.GetIndex("radius"), (shape.radiusTop + shape.radiusBottom) * 0.5f);
@@ -519,7 +524,7 @@ namespace Skore
 						}
 						case OMIShapeType::Cylinder:
 						{
-							RID colliderRID = Resources::Create<CylinderCollider>(UUID::RandomUUID());
+							RID colliderRID = data.alloc.Create<CylinderCollider>(nodeSubId + ":collider");
 							ResourceObject colliderObject = Resources::Write(colliderRID);
 							colliderObject.SetFloat(colliderObject.GetIndex("radius"), (shape.radiusTop + shape.radiusBottom) * 0.5f);
 							colliderObject.SetFloat(colliderObject.GetIndex("height"), shape.height);
@@ -553,7 +558,7 @@ namespace Skore
 					{
 						case OMIShapeType::Box:
 						{
-							RID colliderRID = Resources::Create<BoxCollider>(UUID::RandomUUID());
+							RID colliderRID = data.alloc.Create<BoxCollider>(nodeSubId + ":trigger");
 							ResourceObject colliderObject = Resources::Write(colliderRID);
 							colliderObject.SetVec3(colliderObject.GetIndex("halfSize"), shape.size * 0.5f);
 							colliderObject.SetBool(colliderObject.GetIndex("isSensor"), true);
@@ -563,7 +568,7 @@ namespace Skore
 						}
 						case OMIShapeType::Sphere:
 						{
-							RID colliderRID = Resources::Create<SphereCollider>(UUID::RandomUUID());
+							RID colliderRID = data.alloc.Create<SphereCollider>(nodeSubId + ":trigger");
 							ResourceObject colliderObject = Resources::Write(colliderRID);
 							colliderObject.SetFloat(colliderObject.GetIndex("radius"), shape.radius);
 							colliderObject.SetBool(colliderObject.GetIndex("isSensor"), true);
@@ -573,7 +578,7 @@ namespace Skore
 						}
 						case OMIShapeType::Capsule:
 						{
-							RID colliderRID = Resources::Create<CapsuleCollider>(UUID::RandomUUID());
+							RID colliderRID = data.alloc.Create<CapsuleCollider>(nodeSubId + ":trigger");
 							ResourceObject colliderObject = Resources::Write(colliderRID);
 							colliderObject.SetFloat(colliderObject.GetIndex("radius"), (shape.radiusTop + shape.radiusBottom) * 0.5f);
 							colliderObject.SetFloat(colliderObject.GetIndex("height"), shape.height);
@@ -584,7 +589,7 @@ namespace Skore
 						}
 						case OMIShapeType::Cylinder:
 						{
-							RID colliderRID = Resources::Create<CylinderCollider>(UUID::RandomUUID());
+							RID colliderRID = data.alloc.Create<CylinderCollider>(nodeSubId + ":trigger");
 							ResourceObject colliderObject = Resources::Write(colliderRID);
 							colliderObject.SetFloat(colliderObject.GetIndex("radius"), (shape.radiusTop + shape.radiusBottom) * 0.5f);
 							colliderObject.SetFloat(colliderObject.GetIndex("height"), shape.height);
@@ -616,14 +621,18 @@ namespace Skore
 			StringView skinName = skin->name ? skin->name : "Skin";
 			logger.Debug("Processing skin: {} ({} joints)", skinName, skin->joints_count);
 
+			u32    skinIndex = static_cast<u32>(skin - data.gltfData->skins);
+			String skinSubId = String("skin:") + ToString(skinIndex);
+
 			// Create SkinResource with inverse bind matrices
-			RID skinRID = Resources::Create<SkinResource>(UUID::RandomUUID(), data.scope);
+			RID  skinRID = data.alloc.Create<SkinResource>(skinSubId);
+			UUID skinBase = Resources::GetUUID(skinRID);
 			ResourceObject skinObject = Resources::Write(skinRID);
 			skinObject.SetString(SkinResource::Name, skinName);
 
 			for (cgltf_size i = 0; i < skin->joints_count; i++)
 			{
-				RID skinBind = Resources::Create<SkinBindResource>(UUID::RandomUUID());
+				RID skinBind = Resources::Create<SkinBindResource>(SubResourceUUID(skinBase, String("bind:") + ToString(i)), data.scope);
 				ResourceObject skinBindObject = Resources::Write(skinBind);
 
 				Mat4 inverseBindMatrix{1.0f};
@@ -657,7 +666,8 @@ namespace Skore
 			}
 
 			// Create Skeleton component with BoneNodes
-			RID skeletonComponent = Resources::Create<Skeleton>(UUID::RandomUUID());
+			RID  skeletonComponent = data.alloc.Create<Skeleton>(skinSubId + ":skeleton");
+			UUID skeletonBase = Resources::GetUUID(skeletonComponent);
 			ResourceObject skeletonComponentObject = Resources::Write(skeletonComponent);
 
 			Array<RID> boneRIDs;
@@ -675,7 +685,7 @@ namespace Skore
 					}
 				}
 
-				RID boneNodeRID = Resources::Create<BoneNode>(UUID::RandomUUID());
+				RID boneNodeRID = Resources::Create<BoneNode>(SubResourceUUID(skeletonBase, String("bone:") + ToString(i)), data.scope);
 				ResourceObject boneObject = Resources::Write(boneNodeRID);
 
 				StringView boneName = joint->name ? joint->name : "Bone";
@@ -693,7 +703,7 @@ namespace Skore
 			skeletonComponentObject.Commit(data.scope);
 
 			// Create skeleton entity
-			RID skeletonEntity = Resources::Create<EntityResource>(UUID::RandomUUID());
+			RID skeletonEntity = data.alloc.Create<EntityResource>(skinSubId + ":skeletonEntity");
 			ResourceObject skeletonObject = Resources::Write(skeletonEntity);
 			skeletonObject.SetString(EntityResource::Name, "Skeleton");
 			skeletonObject.AddToSubObjectList(EntityResource::Components, skeletonComponent);
@@ -707,7 +717,9 @@ namespace Skore
 			String animationName = animation->name ? animation->name : "Animation";
 			logger.Debug("Processing animation: {} ({} channels, {} samplers)", animationName, animation->channels_count, animation->samplers_count);
 
-			RID animRID = Resources::Create<AnimationClipResource>(UUID::RandomUUID(), data.scope);
+			u32  animIndex = static_cast<u32>(animation - data.gltfData->animations);
+			RID  animRID = data.alloc.Create<AnimationClipResource>(String("anim:") + ToString(animIndex));
+			UUID animBase = Resources::GetUUID(animRID);
 			ResourceObject animObject = Resources::Write(animRID);
 			animObject.SetString(AnimationClipResource::Name, animationName);
 
@@ -811,7 +823,7 @@ namespace Skore
 				ChannelGroup& group = channelGroups[g];
 				StringView boneName = group.node->name ? group.node->name : "Bone";
 
-				RID animationChannel = Resources::Create<AnimationChannelResource>(UUID::RandomUUID());
+				RID animationChannel = Resources::Create<AnimationChannelResource>(SubResourceUUID(animBase, String("channel:") + ToString(g)), data.scope);
 				ResourceObject channelObject = Resources::Write(animationChannel);
 				channelObject.SetString(AnimationChannelResource::Name, boneName);
 				channelObject.SetUInt(AnimationChannelResource::BufferOffset, offset);
@@ -1114,7 +1126,7 @@ namespace Skore
 					usize     bufferSize = image->buffer_view->size;
 
 					Span<u8> data = Span(const_cast<u8*>(bufferData), bufferSize);
-					textureRID = ImportTextureFromMemory(gltfData.directory, textureImportSettings, textureImportOptions, texName, data, gltfData.scope);
+					textureRID = ImportTextureFromMemory(gltfData.directory, textureImportSettings, textureImportOptions, texName, data, gltfData.alloc, String("texture:") + ToString(index));
 				}
 				else if (image->uri)
 				{
@@ -1126,7 +1138,7 @@ namespace Skore
 							usize size = strlen(base64Start);
 
 							Array<u8> output = base64::decode_into<Array<u8>>(std::string_view(base64Start, size));
-							textureRID = ImportTextureFromMemory(gltfData.directory, textureImportSettings, textureImportOptions, texName, Span(output.Data(), output.Size()), gltfData.scope);
+							textureRID = ImportTextureFromMemory(gltfData.directory, textureImportSettings, textureImportOptions, texName, Span(output.Data(), output.Size()), gltfData.alloc, String("texture:") + ToString(index));
 						}
 					}
 				}
@@ -1143,7 +1155,7 @@ namespace Skore
 				u32 size = cgltf_decode_uri(uri.begin());
 				uri.Resize(size);
 				String texturePath = Path::Join(gltfData.basePath, uri);
-				textureRID = ImportTexture(gltfData.directory, textureImportSettings, textureImportOptions, texturePath, gltfData.scope);
+				textureRID = ImportTexture(gltfData.directory, textureImportSettings, textureImportOptions, texturePath, gltfData.alloc, String("texture:") + ToString(index));
 			}
 
 			gltfData.images.Insert(image, textureRID);
@@ -1159,7 +1171,8 @@ namespace Skore
 
 			StringView name = material->name ? material->name : "Material";
 			logger.Debug("Processing material: {}", name);
-			RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), data.scope);
+			u32 materialIndex = static_cast<u32>(material - data.gltfData->materials);
+			RID materialResource = data.alloc.Create<MaterialResource>(String("material:") + ToString(materialIndex));
 
 			ResourceObject materialObject = Resources::Write(materialResource);
 			materialObject.SetString(MaterialResource::Name, name);
@@ -1533,7 +1546,8 @@ namespace Skore
 				}
 			}
 
-			RID meshRID = ImportMesh(data.directory, meshImportSettings, meshImportOptions, meshName, materials, primitives, importData, indices, skinRID, Mat4::GetScale(worldTransform), data.scope);
+			u32 meshIndex = static_cast<u32>(mesh - data.gltfData->meshes);
+			RID meshRID = ImportMesh(data.directory, meshImportSettings, meshImportOptions, meshName, materials, primitives, importData, indices, skinRID, Mat4::GetScale(worldTransform), data.alloc, String("mesh:") + ToString(meshIndex));
 
 			data.meshes.Insert(mesh, meshRID);
 		}
@@ -1550,7 +1564,10 @@ namespace Skore
 				return {};
 			}
 
-			RID entity = Resources::Create<EntityResource>(UUID::RandomUUID());
+			u32        nodeIndex = static_cast<u32>(node - data.gltfData->nodes);
+			String     nodeSubId = String("node:") + ToString(nodeIndex);
+
+			RID entity = data.alloc.Create<EntityResource>(nodeSubId);
 			StringView nodeName = node->name ? node->name : "Node";
 			logger.Debug("Processing node: '{}' (mesh={}, skin={}, light={}, children={})", nodeName, node->mesh != nullptr, node->skin != nullptr, node->light != nullptr, node->children_count);
 
@@ -1560,7 +1577,7 @@ namespace Skore
 			// Extract local transform
 			Mat4 localTransform{1.0};
 
-			RID transformRID = Resources::Create<Transform>(UUID::RandomUUID(), data.scope);
+			RID transformRID = data.alloc.Create<Transform>(nodeSubId + ":transform");
 			ResourceObject transformObject = Resources::Write(transformRID);
 
 			entityObject.AddToSubObjectList(EntityResource::Components, transformRID);
@@ -1619,7 +1636,7 @@ namespace Skore
 					if (RID skin = meshObject.GetSubObject(MeshResource::Skin))
 					{
 						// Skinned mesh — use SkinnedMeshRenderer and link skeleton
-						RID meshRenderer = Resources::Create<SkinnedMeshRenderer>(UUID::RandomUUID());
+						RID meshRenderer = data.alloc.Create<SkinnedMeshRenderer>(nodeSubId + ":meshRenderer");
 						ResourceObject skinnedMeshRenderObject = Resources::Write(meshRenderer);
 						skinnedMeshRenderObject.SetReference(skinnedMeshRenderObject.GetIndex("mesh"), it->second);
 
@@ -1637,7 +1654,7 @@ namespace Skore
 					else
 					{
 						// Static mesh
-						RID meshRenderer = Resources::Create<StaticMeshRenderer>(UUID::RandomUUID());
+						RID meshRenderer = data.alloc.Create<StaticMeshRenderer>(nodeSubId + ":meshRenderer");
 						ResourceObject staticMeshRenderObject = Resources::Write(meshRenderer);
 						staticMeshRenderObject.SetReference(staticMeshRenderObject.GetIndex("mesh"), it->second);
 						staticMeshRenderObject.Commit(data.scope);
@@ -1656,7 +1673,7 @@ namespace Skore
 				// (683 lm/W) to a watts-like scalar so the engine's unitless multiplier sits in a sensible range.
 				f32 intensity = node->light->intensity / 683.0f;
 
-				RID lightRID = Resources::Create<LightComponent>(UUID::RandomUUID());
+				RID lightRID = data.alloc.Create<LightComponent>(nodeSubId + ":light");
 				ResourceObject lightObject = Resources::Write(lightRID);
 				lightObject.SetEnum(lightObject.GetIndex("lightType"), ToLightType(node->light->type));
 				lightObject.SetColor(lightObject.GetIndex("color"), Color::FromVec3(ToVec3(node->light->color)));
@@ -1825,6 +1842,7 @@ namespace Skore
 			importData.directory = {};
 			importData.basePath = Path::Parent(path);
 			importData.scope = scope;
+			importData.alloc = ctx.Allocator();
 			importData.gltfData = data;
 			Resources::FromResource(ctx.importSettings, &importData.settings);
 
@@ -1864,8 +1882,8 @@ namespace Skore
 			ResourceObject dccObject = Resources::Write(dccAsset);
 			dccObject.SetString(DCCAsset::Name, fileName);
 
-			RID transformRID = Resources::Create<Transform>(UUID::RandomUUID(), scope);
-			RID root = Resources::Create<EntityResource>(UUID::RandomUUID(), scope);
+			RID transformRID = importData.alloc.Create<Transform>("rootEntity:transform");
+			RID root = importData.alloc.Create<EntityResource>("rootEntity");
 
 			ResourceObject entityObject = Resources::Write(root);
 			entityObject.SetString(EntityResource::Name, fileName);

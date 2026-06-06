@@ -5,16 +5,16 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
-#include "Skore/Utils/ThumbnailGenerator.hpp"
+#include "Skore/Utils/PreviewGenerator.hpp"
 
 namespace Skore
 {
 
-	struct MaterialThumbnailGenerator : ThumbnailGenerator
+	struct MaterialPreviewGenerator : PreviewGenerator
 	{
 		RID material;
 
-		explicit MaterialThumbnailGenerator(const RID& material)
+		explicit MaterialPreviewGenerator(const RID& material)
 			: material(material) {}
 
 		void SetupScene(Scene* scene) override
@@ -64,8 +64,8 @@ namespace Skore
 		{
 			if (ResourceObject object = Resources::Read(asset))
 			{
-				MaterialThumbnailGenerator materialThumbnailGenerator{object.GetSubObject(ResourceAsset::Object)};
-				materialThumbnailGenerator.GenerateThumbnail(asset);
+				MaterialPreviewGenerator materialPreviewGenerator{object.GetSubObject(ResourceAsset::Object)};
+				materialPreviewGenerator.GenerateThumbnail(asset);
 			}
 		}
 
