@@ -526,17 +526,57 @@ namespace Skore
 
 		ImGui::Dummy(ImVec2(0, 5 * style.ScaleFactor));
 
-		ResourceType* type = Resources::GetType(asset);
 
-		if (ImGui::CollapsingHeader(FormatName(type->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
+		if (RID importSettings = ResourceAssets::GetImportSettings(asset))
 		{
-			ImGui::Indent();
+			if (importSettingsVersion == U64_MAX)
+			{
+				importSettingsVersion = Resources::GetVersion(importSettings);
+			}
+
+			f32  width = ImGui::GetContentRegionAvail().x;
+			auto size = ImGui::GetFontSize() + style.FramePadding.y * 2.0f;
+
+			ImGui::BeginHorizontal("horizontal-01", ImVec2(width, size));
+
+			ImGui::Spring(1.f);
+
+			u64 currVersion = Resources::GetVersion(importSettings);
+
+			ImGui::BeginDisabled(currVersion == importSettingsVersion);
+
+			if (ImGuiBorderedButton("Apply", ImVec2(width * 2 / 3, size)))
+			{
+				importSettingsVersion = currVersion;
+				ResourceAssets::CookAsset(asset, Editor::CreateUndoRedoScope("Apply Import Changes"));
+			}
+
+			ImGui::EndDisabled();
+
+			ImGui::Spring(1.f);
+
+			ImGui::EndHorizontal();
+
+
 			ImGuiDrawResource(ImGuiDrawResourceInfo{
-				.rid = asset,
-				.scopeName = "Asset Edit",
-				.ignoreFirstItem = true
+				.rid = importSettings,
+				.scopeName = "Import Settings Edit",
+				.drawCollapseHeader = true
 			});
-			ImGui::Unindent();
+		}
+		else
+		{
+			ResourceType* type = Resources::GetType(asset);
+			if (ImGui::CollapsingHeader(FormatName(type->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
+			{
+				ImGui::Indent();
+				ImGuiDrawResource(ImGuiDrawResourceInfo{
+					.rid = asset,
+					.scopeName = "Asset Edit",
+					.ignoreFirstItem = true
+				});
+				ImGui::Unindent();
+			}
 		}
 	}
 
@@ -581,6 +621,7 @@ namespace Skore
 		selectedDebugEntity = nullptr;
 		selectedAsset = {};
 		selectedResource = {};
+		importSettingsVersion = U64_MAX;
 	}
 
 	void PropertiesWindow::OpenProperties(const MenuItemEventData& eventData)

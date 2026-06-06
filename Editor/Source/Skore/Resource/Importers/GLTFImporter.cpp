@@ -27,6 +27,7 @@ namespace Skore
 {
 	struct GLTFImportSettings
 	{
+		f32                   scaleFactor = 1.0f;
 		MeshImportSettings    mesh = {};
 		TextureImportSettings texture = {};
 		bool                  importAnimations = true;
@@ -638,6 +639,9 @@ namespace Skore
 					);
 				}
 
+				inverseBindMatrix[3].x *= data.settings.scaleFactor;
+				inverseBindMatrix[3].y *= data.settings.scaleFactor;
+				inverseBindMatrix[3].z *= data.settings.scaleFactor;
 				skinBindObject.SetMat4(SkinBindResource::Pose, inverseBindMatrix);
 				skinBindObject.Commit(data.scope);
 				skinObject.AddToSubObjectList(SkinResource::Binds, skinBind);
@@ -677,7 +681,7 @@ namespace Skore
 				StringView boneName = joint->name ? joint->name : "Bone";
 				boneObject.SetString(boneObject.GetIndex("name"), boneName);
 				boneObject.SetUInt(boneObject.GetIndex("parentIndex"), parentIndex);
-				boneObject.SetVec3(boneObject.GetIndex("position"), GetNodeLocalPosition(joint));
+				boneObject.SetVec3(boneObject.GetIndex("position"), GetNodeLocalPosition(joint) * data.settings.scaleFactor);
 				boneObject.SetQuat(boneObject.GetIndex("rotation"), GetNodeLocalRotation(joint));
 				boneObject.SetVec3(boneObject.GetIndex("scale"), GetNodeLocalScale(joint));
 				boneObject.Commit(data.scope);
@@ -1032,7 +1036,7 @@ namespace Skore
 
 					AnimationKeyFrame keyFrame;
 					keyFrame.time = time;
-					keyFrame.position = position;
+					keyFrame.position = position * data.settings.scaleFactor;
 					keyFrame.rotation = rotation;
 					keyFrame.scale = scale;
 
@@ -1506,6 +1510,9 @@ namespace Skore
 
 			MeshImportSettings meshImportSettings = data.settings.mesh;
 
+			MeshImportOptions meshImportOptions;
+			meshImportOptions.scaleFactor = data.settings.scaleFactor;
+
 			MeshVertexImportData importData;
 			importData.positions = positions;
 			importData.normals = normals;
@@ -1526,7 +1533,7 @@ namespace Skore
 				}
 			}
 
-			RID meshRID = ImportMesh(data.directory, meshImportSettings, meshName, materials, primitives, importData, indices, skinRID, Mat4::GetScale(worldTransform), data.scope);
+			RID meshRID = ImportMesh(data.directory, meshImportSettings, meshImportOptions, meshName, materials, primitives, importData, indices, skinRID, Mat4::GetScale(worldTransform), data.scope);
 
 			data.meshes.Insert(mesh, meshRID);
 		}
@@ -1567,7 +1574,7 @@ namespace Skore
 					Vec4{node->matrix[12], node->matrix[13], node->matrix[14], node->matrix[15]}
 				);
 
-				transformObject.SetVec3(Transform::Position, Mat4::GetTranslation(localTransform));
+				transformObject.SetVec3(Transform::Position, Mat4::GetTranslation(localTransform) * data.settings.scaleFactor);
 				transformObject.SetQuat(Transform::Rotation, Mat4::GetQuaternion(localTransform));
 				transformObject.SetVec3(Transform::Scale, Mat4::GetScale(localTransform));
 			}
@@ -1580,7 +1587,7 @@ namespace Skore
 				if (node->has_translation)
 				{
 					position = ToVec3(node->translation);
-					transformObject.SetVec3(Transform::Position, position);
+					transformObject.SetVec3(Transform::Position, position * data.settings.scaleFactor);
 				}
 
 				if (node->has_rotation)
@@ -1929,6 +1936,7 @@ namespace Skore
 	void RegisterGLTFImporter()
 	{
 		auto settings = Reflection::Type<GLTFImportSettings>();
+		settings.Field<&GLTFImportSettings::scaleFactor>("scaleFactor");
 		settings.Field<&GLTFImportSettings::mesh>("mesh");
 		settings.Field<&GLTFImportSettings::texture>("texture");
 		settings.Field<&GLTFImportSettings::importAnimations>("importAnimations");

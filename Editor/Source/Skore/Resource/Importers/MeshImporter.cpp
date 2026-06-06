@@ -17,6 +17,12 @@ namespace Skore
 	{
 		Logger& logger = Logger::GetLogger("Skore::MeshImporter");
 
+		constexpr u32   cLodCount = 5;
+		constexpr float cLodReduction = 0.5f;
+		constexpr float cLodTargetError = 0.08f;
+		constexpr float cLodSwitchDistance = 8.0f;
+		constexpr float cOverdrawThreshold = 1.05f;
+
 		RID CreateVertexAttributeResource(StringView name, u32 offset, u32 size, UndoRedoScope* scope)
 		{
 			RID rid = Resources::Create<VertexAttributeResource>(UUID::RandomUUID(), scope);
@@ -64,7 +70,7 @@ namespace Skore
 			Vec2 lightmapSizeHint = {};
 
 			// Generate UV2s (xatlas splits vertices, so update vertexCount)
-			if (settings.generateUV1s && !hasBones)
+			if (settings.generateLightmapUVs && !hasBones)
 			{
 				MeshTools::GenerateLightmapUV(settings.lightMapTexelSize, positions, normals, uvs, uv2s, colors, tangents, indices, primitives, scale, lightmapSizeHint);
 				vertexCount = positions.Size();
@@ -172,7 +178,7 @@ namespace Skore
 					meshopt_optimizeVertexCache(idx, idx, p.indexCount, vertexCount);
 					meshopt_optimizeOverdraw(idx, idx, p.indexCount,
 					                         reinterpret_cast<const float*>(vertexBuffer.Data()),
-					                         vertexCount, stride, settings.overdrawThreshold);
+					                         vertexCount, stride, cOverdrawThreshold);
 				}
 
 				ByteBuffer reordered;
@@ -217,7 +223,7 @@ namespace Skore
 
 			computePrimAABBs(indices, primitives);
 
-			u32 maxLods = (settings.generateLODs && !hasBones) ? Math::Max(settings.lodCount, 1u) : 1u;
+			u32 maxLods = (settings.generateLODs && !hasBones) ? Math::Max(cLodCount, 1u) : 1u;
 
 			Array<Array<u32>>           lodIndices;
 			Array<Array<MeshPrimitive>> lodPrims;
@@ -226,14 +232,14 @@ namespace Skore
 			lodIndices.EmplaceBack(std::move(indices));
 			lodPrims.EmplaceBack(std::move(primitives));
 
-			if (settings.generateLODs && !hasBones && settings.lodCount > 1)
+			if (settings.generateLODs && !hasBones && cLodCount > 1)
 			{
-				for (u32 lod = 1; lod < settings.lodCount; lod++)
+				for (u32 lod = 1; lod < cLodCount; lod++)
 				{
 					const Array<u32>&           srcIdx   = lodIndices[0];
 					const Array<MeshPrimitive>& srcPrims = lodPrims[0];
 
-					float reduction = std::pow(settings.lodReduction, static_cast<float>(lod));
+					float reduction = std::pow(cLodReduction, static_cast<float>(lod));
 
 					Array<u32>           newIdx;
 					Array<MeshPrimitive> newPrims;
@@ -259,7 +265,7 @@ namespace Skore
 
 						const float attribWeights[5] = {0.5f, 0.5f, 0.5f, 1.0f, 1.0f};
 						const unsigned int simplifyOptions = meshopt_SimplifyLockBorder;
-						float effectiveError = settings.lodTargetError * std::pow(2.0f, static_cast<float>(lod) - 1.0f);
+						float effectiveError = cLodTargetError * std::pow(2.0f, static_cast<float>(lod) - 1.0f);
 
 						float  resultError = 0.0f;
 						size_t got = meshopt_simplifyWithAttributes(
@@ -348,7 +354,7 @@ namespace Skore
 				lodObj.SetUInt(MeshLodResource::IndicesCount, lodIndices[i].Size());
 				lodObj.SetUInt(MeshLodResource::PrimitiveOffset, primOffsets[i]);
 				lodObj.SetUInt(MeshLodResource::PrimitiveCount, lodPrims[i].Size());
-				float threshold = settings.lodSwitchDistance * std::pow(2.0f, static_cast<float>(i) - 1.0f);
+				float threshold = cLodSwitchDistance * std::pow(2.0f, static_cast<float>(i) - 1.0f);
 				lodObj.SetFloat(MeshLodResource::ScreenSize, threshold);
 				lodObj.Commit(scope);
 				meshLODs.EmplaceBack(lodRID);
@@ -382,7 +388,7 @@ namespace Skore
 		}
 	}
 
-	RID ImportMesh(RID directory, const MeshImportSettings& settings, StringView name, Span<RID> materials, Span<MeshPrimitive> primitives,
+	RID ImportMesh(RID directory, const MeshImportSettings& settings, const MeshImportOptions& options, StringView name, Span<RID> materials, Span<MeshPrimitive> primitives,
 	               const MeshVertexImportData& vertexData, Span<u32> indices, RID skin, Vec3 scale, UndoRedoScope* scope)
 	{
 		// Position is mandatory
@@ -394,6 +400,15 @@ namespace Skore
 
 		// Make local copies since processing may modify or rebuild arrays
 		Array<Vec3> positions(vertexData.positions);
+
+		if (options.scaleFactor != 1.0f)
+		{
+			for (Vec3& position : positions)
+			{
+				position = options.scaleFactor * position;
+			}
+		}
+
 		Array<Vec3> normals;
 		Array<Vec2> uvs;
 		Array<Vec2> uv2s;
@@ -600,14 +615,9 @@ namespace Skore
 		auto settings = Reflection::Type<MeshImportSettings>();
 		settings.Field<&MeshImportSettings::regenerateNormals>("regenerateNormals");
 		settings.Field<&MeshImportSettings::recalculateTangents>("recalculateTangents");
-		settings.Field<&MeshImportSettings::generateUV1s>("generateUV1s");
+		settings.Field<&MeshImportSettings::generateLightmapUVs>("generateLightmapUVs");
 		settings.Field<&MeshImportSettings::lightMapTexelSize>("lightMapTexelSize");
 		settings.Field<&MeshImportSettings::optimizeMesh>("optimizeMesh");
 		settings.Field<&MeshImportSettings::generateLODs>("generateLODs");
-		settings.Field<&MeshImportSettings::lodCount>("lodCount");
-		settings.Field<&MeshImportSettings::lodReduction>("lodReduction");
-		settings.Field<&MeshImportSettings::lodTargetError>("lodTargetError");
-		settings.Field<&MeshImportSettings::lodSwitchDistance>("lodSwitchDistance");
-		settings.Field<&MeshImportSettings::overdrawThreshold>("overdrawThreshold");
 	}
 }

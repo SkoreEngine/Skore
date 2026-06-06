@@ -553,7 +553,10 @@ namespace Skore
 			skin = itSkin->second;
 		}
 
-		RID meshRID = ImportMesh(fbxData.directory, meshImportSettings, meshName, meshMaterials, primitives, importData, allIndices, skin, Vec3(1.0), fbxData.scope);
+		MeshImportOptions meshImportOptions;
+		meshImportOptions.scaleFactor = fbxData.settings.scaleFactor;
+
+		RID meshRID = ImportMesh(fbxData.directory, meshImportSettings, meshImportOptions, meshName, meshMaterials, primitives, importData, allIndices, skin, Vec3(1.0), fbxData.scope);
 		fbxData.meshes.Insert(mesh, meshRID);
 	}
 
@@ -584,7 +587,7 @@ namespace Skore
 
 			AnimationKeyFrame keyFrame;
 			keyFrame.time = time;
-			keyFrame.position = position;
+			keyFrame.position = position * fbxData.settings.scaleFactor;
 			keyFrame.rotation = rotation;
 			keyFrame.scale = scale;
 
@@ -683,7 +686,11 @@ namespace Skore
 
 				RID skinBind = Resources::Create<SkinBindResource>(UUID::RandomUUID());
 				ResourceObject skinBindObject = Resources::Write(skinBind);
-				skinBindObject.SetMat4(SkinBindResource::Pose, ToMat4(cluster->geometry_to_bone));
+				Mat4 bindPose = ToMat4(cluster->geometry_to_bone);
+				bindPose[3].x *= fbxData.settings.scaleFactor;
+				bindPose[3].y *= fbxData.settings.scaleFactor;
+				bindPose[3].z *= fbxData.settings.scaleFactor;
+				skinBindObject.SetMat4(SkinBindResource::Pose, bindPose);
 				skinBindObject.Commit(fbxData.scope);
 
 				skinObject.AddToSubObjectList(SkinResource::Binds, skinBind);
@@ -726,7 +733,7 @@ namespace Skore
 				ResourceObject boneObject = Resources::Write(boneNodeRID);
 				boneObject.SetString(boneObject.GetIndex("name"), !IsStrNullOrEmpty(bone_node->name.data) ? bone_node->name.data : "Bone");
 				boneObject.SetUInt(boneObject.GetIndex("parentIndex"), parentIndex);
-				boneObject.SetVec3(boneObject.GetIndex("position"), ToVec3(bone_node->local_transform.translation));
+				boneObject.SetVec3(boneObject.GetIndex("position"), ToVec3(bone_node->local_transform.translation) * fbxData.settings.scaleFactor);
 				boneObject.SetQuat(boneObject.GetIndex("rotation"), ToQuat(bone_node->local_transform.rotation));
 				boneObject.SetVec3(boneObject.GetIndex("scale"), ToVec3(bone_node->local_transform.scale));
 				boneObject.Commit(fbxData.scope);
@@ -797,7 +804,7 @@ namespace Skore
 		RID transformRID = EntityResource::GetOrCreateComponent(entityObject, sktypeid(Transform), fbxData.scope);
 
 		ResourceObject transformObject = Resources::Write(transformRID);
-		transformObject.SetVec3(Transform::Position, ToVec3(node->local_transform.translation));
+		transformObject.SetVec3(Transform::Position, ToVec3(node->local_transform.translation) * fbxData.settings.scaleFactor);
 		transformObject.SetQuat(Transform::Rotation, ToQuat(node->local_transform.rotation));
 		transformObject.SetVec3(Transform::Scale, ToVec3(node->local_transform.scale));
 		transformObject.Commit(fbxData.scope);
@@ -1025,6 +1032,7 @@ namespace Skore
 	void RegisterFBXImporter()
 	{
 		auto settings = Reflection::Type<FBXImportSettings>();
+		settings.Field<&FBXImportSettings::scaleFactor>("scaleFactor");
 		settings.Field<&FBXImportSettings::mesh>("mesh");
 		settings.Field<&FBXImportSettings::texture>("texture");
 		settings.Field<&FBXImportSettings::importAnimations>("importAnimations");

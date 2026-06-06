@@ -190,6 +190,7 @@ namespace Skore
 
 		//workaround to hide asset name.
 		bool ignoreFirstItem = false;
+		bool drawCollapseHeader = false;
 	};
 
 	typedef void (*FnResourceDrawOverride)(const ImGuiDrawResourceInfo& info, const ResourceObject& object);

@@ -38,10 +38,7 @@ namespace Skore
 		{
 			if (ResourceObject object = Resources::Read(asset))
 			{
-				if (RID importSettings = ResourceAssets::GetImportSettings(object.GetSubObject(ResourceAsset::Object)))
-				{
-					Editor::GetActiveWorkspace()->OpenAsset(importSettings);
-				}
+				Editor::GetActiveWorkspace()->OpenAsset(object.GetSubObject(ResourceAsset::Object));
 			}
 		}
 
