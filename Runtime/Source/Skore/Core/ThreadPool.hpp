@@ -13,11 +13,12 @@ namespace Skore
 	class ThreadPool
 	{
 	public:
-		ThreadPool(size_t num_threads = std::thread::hardware_concurrency())
+		ThreadPool(String name, size_t num_threads = std::thread::hardware_concurrency())
 		{
 			for (size_t i = 0; i < num_threads; ++i)
 			{
-				threads_.emplace_back([this]
+
+				auto t = std::thread([this]
 				{
 					while (true)
 					{
@@ -41,6 +42,9 @@ namespace Skore
 						--size_;
 					}
 				});
+				auto string = fmt::format("{} - {} ", name, i);
+				Platform::SetThreadName(t, {string.c_str(), string.size()});
+				threads_.emplace_back(std::move(t));
 			}
 		}
 

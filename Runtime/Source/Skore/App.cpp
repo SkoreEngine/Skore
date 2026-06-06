@@ -377,7 +377,7 @@ namespace Skore
 	{
 		if (!threadPool)
 		{
-			threadPool = std::make_unique<ThreadPool>();
+			threadPool = std::make_unique<ThreadPool>("App::ThreadPool");
 		}
 		return *threadPool;
 	}
