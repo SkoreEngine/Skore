@@ -11,7 +11,6 @@ namespace Skore
 	};
 
 	constexpr i32 CompressionDefaultLevel = 3;
-	constexpr i32 CompressionMaxLevel = 19;
 }
 
 namespace Skore::Compression

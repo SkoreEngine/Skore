@@ -1275,7 +1275,7 @@ namespace Skore
 			return;
 		}
 
-		threadPool = std::make_unique<ThreadPool>();
+		threadPool = std::make_unique<ThreadPool>("Editor::ThreadPool");
 		projectFilePath = projectFile;
 		projectPath = Path::Parent(projectFile);
 

@@ -1055,7 +1055,7 @@ namespace Skore
 			usize      bound = Compression::GetMaxCompressedBufferSize(dep.bytes.Size(), CompressionMode::ZSTD);
 			ByteBuffer compressed;
 			compressed.Resize(bound);
-			usize compressedSize = Compression::Compress(compressed.begin(), bound, dep.bytes.begin(), dep.bytes.Size(), CompressionMode::ZSTD, CompressionMaxLevel);
+			usize compressedSize = Compression::Compress(compressed.begin(), bound, dep.bytes.begin(), dep.bytes.Size(), CompressionMode::ZSTD, CompressionDefaultLevel);
 
 			RID            depRid = Resources::Create<ResourceDependencyEntry>(UUID::RandomUUID(), ctx.scope);
 			ResourceObject depObj = Resources::Write(depRid);
@@ -1417,7 +1417,7 @@ namespace Skore
 		usize      bound = Compression::GetMaxCompressedBufferSize(source.Size(), CompressionMode::ZSTD);
 		ByteBuffer compressed;
 		compressed.Resize(bound);
-		usize compressedSize = Compression::Compress(compressed.begin(), bound, source.begin(), source.Size(), CompressionMode::ZSTD, CompressionMaxLevel);
+		usize compressedSize = Compression::Compress(compressed.begin(), bound, source.begin(), source.Size(), CompressionMode::ZSTD, CompressionDefaultLevel);
 
 		{
 			ResourceObject wrapperObj = Resources::Write(wrapper);
@@ -1571,7 +1571,7 @@ namespace Skore
 			usize      bound = Compression::GetMaxCompressedBufferSize(source.Size(), CompressionMode::ZSTD);
 			ByteBuffer compressed;
 			compressed.Resize(bound);
-			usize compressedSize = Compression::Compress(compressed.begin(), bound, source.begin(), source.Size(), CompressionMode::ZSTD, CompressionMaxLevel);
+			usize compressedSize = Compression::Compress(compressed.begin(), bound, source.begin(), source.Size(), CompressionMode::ZSTD, CompressionDefaultLevel);
 
 			ResourceObject wrapperObj = Resources::Write(wrapper);
 			wrapperObj.SetString(ResourceImportedAsset::OriginalFileName, Path::Name(path) + Path::Extension(path));
