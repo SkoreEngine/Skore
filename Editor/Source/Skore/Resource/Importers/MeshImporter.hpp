@@ -8,6 +8,7 @@
 namespace Skore
 {
 	struct UndoRedoScope;
+	struct SubResourceAllocator;
 
 	struct MeshImportSettings
 	{
@@ -43,7 +44,7 @@ namespace Skore
 	};
 
 	SK_API RID ImportMesh(RID directory, const MeshImportSettings& settings, const MeshImportOptions& options, StringView name, Span<RID> materials, Span<MeshPrimitive> primitives,
-		const MeshVertexImportData& vertexData, Span<u32> indices, RID skin, Vec3 scale, UndoRedoScope* scope);
+		const MeshVertexImportData& vertexData, Span<u32> indices, RID skin, Vec3 scale, const SubResourceAllocator& alloc, StringView subId);
 
 	SK_API void ReimportMesh(RID meshRID, const MeshImportSettings& settings, UndoRedoScope* scope);
 }

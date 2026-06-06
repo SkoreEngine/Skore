@@ -8,15 +8,15 @@
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
-#include "Skore/Utils/ThumbnailGenerator.hpp"
+#include "Skore/Utils/PreviewGenerator.hpp"
 
 namespace Skore
 {
-	struct DCCAssetThumbnailGenerator : ThumbnailGenerator
+	struct DCCAssetPreviewGenerator : PreviewGenerator
 	{
 		RID entityRID;
 
-		explicit DCCAssetThumbnailGenerator(const RID& entity)
+		explicit DCCAssetPreviewGenerator(const RID& entity)
 			: entityRID(entity) {}
 
 		void SetupScene(Scene* scene) override
@@ -70,7 +70,7 @@ namespace Skore
 				RID rootEntity = dcc.GetSubObject(DCCAsset::RootEntity);
 				if (!rootEntity) return;
 
-				DCCAssetThumbnailGenerator generator{rootEntity};
+				DCCAssetPreviewGenerator generator{rootEntity};
 				generator.GenerateThumbnail(asset);
 			}
 		}

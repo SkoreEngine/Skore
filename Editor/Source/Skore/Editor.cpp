@@ -1458,6 +1458,7 @@ namespace Skore
 	void RegisterSceneViewPipelineModule();
 	void RegisterThumbnailGenerationTypes();
 	void RegisterAnimatorEditorTypes();
+	void RegisterPreviewWindow();
 
 	SK_API void EditorTypeRegister()
 	{
@@ -1489,5 +1490,6 @@ namespace Skore
 
 		RegisterThumbnailGenerationTypes();
 		RegisterAnimatorEditorTypes();
+		RegisterPreviewWindow();
 	}
 }

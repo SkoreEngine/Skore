@@ -911,12 +911,23 @@ namespace Skore
 		return {};
 	}
 
-	UUID SubResourceUUID(RID importedAsset, StringView subId)
+	UUID SubResourceUUID(UUID base, StringView subId)
 	{
-		String key = Resources::GetUUID(importedAsset).ToString();
+		String key = base.ToString();
 		key.Append(":");
 		key.Append(subId);
 		return UUID::FromName(key.CStr());
+	}
+
+	UUID SubResourceUUID(RID importedAsset, StringView subId)
+	{
+		return SubResourceUUID(Resources::GetUUID(importedAsset), subId);
+	}
+
+	RID SubResourceAllocator::Create(StringView subId, TypeID type) const
+	{
+		UUID uuid = importedAsset ? SubResourceUUID(importedAsset, subId) : UUID::RandomUUID();
+		return Resources::Create(type, uuid, scope);
 	}
 
 	UUID IngestContext::DeclareSubResource(StringView subId, TypeID type)

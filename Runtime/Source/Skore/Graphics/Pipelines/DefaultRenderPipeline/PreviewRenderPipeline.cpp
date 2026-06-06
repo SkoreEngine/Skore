@@ -11,14 +11,14 @@
 
 namespace Skore
 {
-	static u32 thumbnailMsaaSamples = 4;
+	static u32 previewMsaaSamples = 4;
 
-	constexpr const char* ThumbnailColorMSName = "ThumbnailColorMS";
-	constexpr const char* ThumbnailDepthMSName = "ThumbnailDepthMS";
+	constexpr const char* PreviewColorMSName = "PreviewColorMS";
+	constexpr const char* PreviewDepthMSName = "PreviewDepthMS";
 
-	struct ThumbnailForwardPass : RenderPipelinePass
+	struct PreviewForwardPass : RenderPipelinePass
 	{
-		SK_CLASS(ThumbnailForwardPass, RenderPipelinePass);
+		SK_CLASS(PreviewForwardPass, RenderPipelinePass);
 
 		Array<GPUPipeline*>    opaquePipelines;
 		GPUPipeline*           skyboxPipeline = nullptr;
@@ -48,8 +48,8 @@ namespace Skore
 			setup.stage = PipelineRenderStage::Forward;
 			setup.invertViewport = true;
 
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = ThumbnailColorMSName, .access = RenderPipelineTextureAccess::Write});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = ThumbnailDepthMSName, .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = PreviewColorMSName, .access = RenderPipelineTextureAccess::Write});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = PreviewDepthMSName, .access = RenderPipelineTextureAccess::Write});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Write});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightInstanceData", .access = RenderPipelineTextureAccess::Read});
 
@@ -67,7 +67,7 @@ namespace Skore
 					DescriptorSetLayoutBinding{.binding = 1, .descriptorType = DescriptorType::SampledImage},
 					DescriptorSetLayoutBinding{.binding = 2, .descriptorType = DescriptorType::Sampler}
 				},
-				.debugName = "ThumbnailIBLDescriptorSet"
+				.debugName = "PreviewIBLDescriptorSet"
 			});
 
 			iblDescriptorSet->UpdateTexture(0, Graphics::GetWhiteCubemapTexture());
@@ -80,7 +80,7 @@ namespace Skore
 			skyboxDepth.depthCompareOp = CompareOp::GreaterEqual;
 
 			skyboxPipeline = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
-				.shader = Resources::FindByPath("Skore://Shaders/Editor/ThumbnailSky.raster"),
+				.shader = Resources::FindByPath("Skore://Shaders/Editor/PreviewSky.raster"),
 				.rasterizerState = {
 					.cullMode = CullMode::Front
 				},
@@ -136,7 +136,7 @@ namespace Skore
 				depthStencilState.depthCompareOp = CompareOp::Greater;
 
 				GraphicsPipelineDesc gpuDesc = GraphicsPipelineDesc{
-					.shader = Resources::FindByPath("Skore://Shaders/Editor/ThumbnailForward.shader"),
+					.shader = Resources::FindByPath("Skore://Shaders/Editor/PreviewForward.shader"),
 					.variant = ShaderResource::GetVariantName(macros),
 					.rasterizerState = {
 						.cullMode = desc.cullMode,
@@ -242,34 +242,34 @@ namespace Skore
 		}
 	};
 
-	struct ThumbnailForwardModule : RenderPipelineModule
+	struct PreviewForwardModule : RenderPipelineModule
 	{
-		SK_CLASS(ThumbnailForwardModule, RenderPipelineModule);
+		SK_CLASS(PreviewForwardModule, RenderPipelineModule);
 
 		RenderPipelineModuleSetup GetSetup() override
 		{
 			RenderPipelineModuleSetup setup;
 			setup.passes.EmplaceBack(sktypeid(LightSetupPass));
-			setup.passes.EmplaceBack(sktypeid(ThumbnailForwardPass));
+			setup.passes.EmplaceBack(sktypeid(PreviewForwardPass));
 			return setup;
 		}
 
 		Array<RenderPipelineResource> GetResources() override
 		{
 			const DeviceProperties& properties = Graphics::GetDevice()->GetProperties();
-			thumbnailMsaaSamples = Math::Min(properties.limits.maxAttachmentSamples, 4u);
+			previewMsaaSamples = Math::Min(properties.limits.maxAttachmentSamples, 4u);
 
 			Array<RenderPipelineResource> resources;
 			resources.EmplaceBack(RenderPipelineResource{.name = "LightInstanceData", .type = RenderPipelineResourceType::Instance, .instanceTypeId = sktypeid(LightPassInstanceData)});
-			resources.EmplaceBack(RenderPipelineResource{.name = ThumbnailColorMSName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM, .samples = thumbnailMsaaSamples});
-			resources.EmplaceBack(RenderPipelineResource{.name = ThumbnailDepthMSName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::D32_FLOAT, .samples = thumbnailMsaaSamples});
+			resources.EmplaceBack(RenderPipelineResource{.name = PreviewColorMSName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM, .samples = previewMsaaSamples});
+			resources.EmplaceBack(RenderPipelineResource{.name = PreviewDepthMSName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::D32_FLOAT, .samples = previewMsaaSamples});
 			return resources;
 		}
 	};
 
-	struct ThumbnailCascadeShadowModule : CascadeShadowMapModuleBase
+	struct PreviewCascadeShadowModule : CascadeShadowMapModuleBase
 	{
-		SK_CLASS(ThumbnailCascadeShadowModule, CascadeShadowMapModuleBase);
+		SK_CLASS(PreviewCascadeShadowModule, CascadeShadowMapModuleBase);
 
 		TypeID GetCascadeShadowPassTypeId() override
 		{
@@ -277,24 +277,24 @@ namespace Skore
 		}
 	};
 
-	struct ThumbnailRenderPipeline : RenderPipeline
+	struct PreviewRenderPipeline : RenderPipeline
 	{
-		SK_CLASS(ThumbnailRenderPipeline, RenderPipeline);
+		SK_CLASS(PreviewRenderPipeline, RenderPipeline);
 
 		RenderPipelineSetup GetPipelineSetup() override
 		{
 			RenderPipelineSetup setup;
-			setup.modules.EmplaceBack(sktypeid(ThumbnailCascadeShadowModule));
-			setup.modules.EmplaceBack(sktypeid(ThumbnailForwardModule));
+			setup.modules.EmplaceBack(sktypeid(PreviewCascadeShadowModule));
+			setup.modules.EmplaceBack(sktypeid(PreviewForwardModule));
 			return setup;
 		}
 	};
 
-	void RegisterThumbnailRenderPipeline()
+	void RegisterPreviewRenderPipeline()
 	{
-		Reflection::Type<ThumbnailForwardPass>();
-		Reflection::Type<ThumbnailForwardModule>();
-		Reflection::Type<ThumbnailCascadeShadowModule>();
-		Reflection::Type<ThumbnailRenderPipeline>();
+		Reflection::Type<PreviewForwardPass>();
+		Reflection::Type<PreviewForwardModule>();
+		Reflection::Type<PreviewCascadeShadowModule>();
+		Reflection::Type<PreviewRenderPipeline>();
 	}
 }

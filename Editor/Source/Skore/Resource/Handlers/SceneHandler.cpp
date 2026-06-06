@@ -5,7 +5,7 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
-#include "Skore/Utils/ThumbnailGenerator.hpp"
+#include "Skore/Utils/PreviewGenerator.hpp"
 
 namespace Skore
 {

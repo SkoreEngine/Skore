@@ -56,6 +56,7 @@ namespace Skore
 	};
 
 	SK_API UUID SubResourceUUID(RID importedAsset, StringView subId);
+	SK_API UUID SubResourceUUID(UUID base, StringView subId);
 	SK_API void ReloadAssetHandlers();
 
 	struct SubResourceDecl
@@ -69,6 +70,20 @@ namespace Skore
 	{
 		String     relPath;
 		ByteBuffer bytes;
+	};
+
+	struct SK_API SubResourceAllocator
+	{
+		RID            importedAsset;
+		UndoRedoScope* scope = nullptr;
+
+		RID Create(StringView subId, TypeID type) const;
+
+		template <typename T>
+		RID Create(StringView subId) const
+		{
+			return Create(subId, TypeInfo<T>::ID());
+		}
 	};
 
 	struct SK_API IngestContext
@@ -102,6 +117,11 @@ namespace Skore
 		RID SubResource(StringView subId)
 		{
 			return SubResource(subId, TypeInfo<T>::ID());
+		}
+
+		SubResourceAllocator Allocator() const
+		{
+			return SubResourceAllocator{importedAsset, scope};
 		}
 	};
 

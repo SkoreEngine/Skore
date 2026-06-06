@@ -9,6 +9,7 @@
 #include "Skore/Editor.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/Compression.hpp"
@@ -161,6 +162,7 @@ namespace Skore
 
 	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, TextureFormat format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope)
 	{
+		UUID textureBase = Resources::GetUUID(texture);
 
 		u32 formatSize = GetTextureFormatSize(format);
 		u32 originalUncompressedSize = width * height * formatSize;
@@ -312,7 +314,7 @@ namespace Skore
 				totalCompressedSize += compressedSize;
 			}
 
-			RID imageResource = Resources::Create<TextureImageResource>(UUID::RandomUUID(), scope);
+			RID imageResource = Resources::Create<TextureImageResource>(SubResourceUUID(textureBase, String("image:") + ToString(mip)), scope);
 			ResourceObject textureImageObject = Resources::Write(imageResource);
 			textureImageObject.SetVec2(TextureImageResource::Extent, Vec2(static_cast<f32>(mipWidth), static_cast<f32>(mipHeight)));
 			textureImageObject.SetUInt(TextureImageResource::Mip, mip);
@@ -390,8 +392,10 @@ namespace Skore
 		stbi_image_free(bytes);
 	}
 
-	RID ImportTexture(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, const String& path, UndoRedoScope* scope)
+	RID ImportTexture(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, const String& path, const SubResourceAllocator& alloc, StringView subId)
 	{
+		UndoRedoScope* scope = alloc.scope;
+
 		if (!options.overrideIfExists)
 		{
 			if (RID texture = ResourceAssets::FindAssetOnDirectory(directory, TypeInfo<TextureResource>::ID(), Path::Name(path)))
@@ -403,7 +407,7 @@ namespace Skore
 
 
 		RID texture = options.isSubAsset
-			? Resources::Create<TextureResource>(UUID::RandomUUID(), scope)
+			? alloc.Create<TextureResource>(subId)
 			: ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), Path::Name(path), scope, path);
 
 		if (options.async)
@@ -456,10 +460,12 @@ namespace Skore
 		stbi_image_free(bytes);
 	}
 
-	RID ImportTextureFromMemory(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, StringView name, Span<u8> data, UndoRedoScope* scope)
+	RID ImportTextureFromMemory(RID directory, const TextureImportSettings& settings, const TextureImportOptions& options, StringView name, Span<u8> data, const SubResourceAllocator& alloc, StringView subId)
 	{
+		UndoRedoScope* scope = alloc.scope;
+
 		RID texture = options.isSubAsset
-			? Resources::Create<TextureResource>(UUID::RandomUUID(), scope)
+			? alloc.Create<TextureResource>(subId)
 			: ResourceAssets::CreateImportedAsset(directory, TypeInfo<TextureResource>::ID(), name, scope, "");
 
 		if (options.async)
