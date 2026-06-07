@@ -969,8 +969,6 @@ namespace Skore
 		virtual usize GetAccelerationStructureBuildScratchSize(const BottomLevelASDesc& desc) = 0;
 		virtual usize GetAccelerationStructureBuildScratchSize(const TopLevelASDesc& desc) = 0;
 
-		virtual void SubmitGPUWork(GPUCommandBuffer* cmd, std::function<void(bool)> callback, bool submitImmediately) = 0;
-
 		virtual void GetMemoryBudgets(Array<MemoryHeapBudget>& outBudgets) = 0;
 	};
 

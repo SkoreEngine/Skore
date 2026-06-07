@@ -631,12 +631,10 @@ namespace Skore
 			.debugName = "ShadowMapDepthTexture"
 		});
 
-		GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-		cmd->Begin();
-		cmd->ResourceBarrier(shadowMapData->shadowTexture, ResourceState::Undefined, ResourceState::DepthStencilReadOnly, 0, 1, 0, shadowMapData->numCascades);
-		cmd->End();
-		Graphics::SubmitGPUWork(cmd, true);
-		Graphics::AddFreeCommandBuffer(cmd);
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			cmd->ResourceBarrier(shadowMapData->shadowTexture, ResourceState::Undefined, ResourceState::DepthStencilReadOnly, 0, 1, 0, shadowMapData->numCascades);
+		});
 
 		shadowMapData->shadowSampler = Graphics::CreateSampler(SamplerDesc{
 			.minFilter = FilterMode::Linear,

@@ -28,9 +28,6 @@ namespace Skore
 		static void              WaitIdle();
 		static Window            GetWindow();
 
-		static GPUCommandBuffer* GetFreeCommandBuffer();
-		static void              AddFreeCommandBuffer(GPUCommandBuffer* cmd);
-
 		static GPUSwapchain*     CreateSwapchain(const SwapchainDesc& desc);
 		static GPURenderPass*    CreateRenderPass(const RenderPassDesc& desc);
 		static GPUFramebuffer*   CreateFramebuffer(const FramebufferDesc& desc);
@@ -68,7 +65,7 @@ namespace Skore
 
 		static void ShowSubmitError();
 
-		static bool SubmitGPUWork(GPUCommandBuffer* cmd, bool blocking);
+		static bool SubmitGPUWork(QueueType queueType, std::function<void(GPUCommandBuffer*)> func);
 
 		static void GetMemoryBudgets(Array<MemoryHeapBudget>& outBudgets);
 

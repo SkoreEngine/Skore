@@ -224,46 +224,42 @@ namespace Skore
 			memcpy(srcBuffer->Map(), bytes, originalUncompressedSize);
 			singlePassDownsampler.Init(gpuTexture);
 
-			GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-			cmd->Begin();
-			cmd->ResourceBarrier(gpuTexture, ResourceState::Undefined, ResourceState::ShaderReadOnly, 1, mipLevels - 1, 0, 1);
-
-			cmd->ResourceBarrier(gpuTexture, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
-			cmd->CopyBufferToTexture({
-				.buffer = srcBuffer,
-				.texture = gpuTexture,
-				.extent = {width, height, 1},
-			});
-			cmd->ResourceBarrier(gpuTexture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
-
-			singlePassDownsampler.Execute(cmd);
-
-			cmd->ResourceBarrier(gpuTexture, ResourceState::ShaderReadOnly, ResourceState::CopySource, 0, mipLevels, 0, 1);
-
+			Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 			{
-				u32 offset{};
-				u32 mipWidth = width;
-				u32 mipHeight = height;
-				for (u32 m = 0; m < mipLevels; m++)
+				cmd->ResourceBarrier(gpuTexture, ResourceState::Undefined, ResourceState::ShaderReadOnly, 1, mipLevels - 1, 0, 1);
+
+				cmd->ResourceBarrier(gpuTexture, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
+				cmd->CopyBufferToTexture({
+					.buffer = srcBuffer,
+					.texture = gpuTexture,
+					.extent = {width, height, 1},
+				});
+				cmd->ResourceBarrier(gpuTexture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
+
+				singlePassDownsampler.Execute(cmd);
+
+				cmd->ResourceBarrier(gpuTexture, ResourceState::ShaderReadOnly, ResourceState::CopySource, 0, mipLevels, 0, 1);
+
 				{
-					cmd->CopyTextureToBuffer({
-						.buffer = dstBuffer,
-						.texture = gpuTexture,
-						.extent = {mipWidth, mipHeight, 1},
-						.mipLevel = m,
-						.bufferOffset = offset,
-					});
-					offset += mipWidth * mipHeight * formatSize;
+					u32 offset{};
+					u32 mipWidth = width;
+					u32 mipHeight = height;
+					for (u32 m = 0; m < mipLevels; m++)
+					{
+						cmd->CopyTextureToBuffer({
+							.buffer = dstBuffer,
+							.texture = gpuTexture,
+							.extent = {mipWidth, mipHeight, 1},
+							.mipLevel = m,
+							.bufferOffset = offset,
+						});
+						offset += mipWidth * mipHeight * formatSize;
 
-					if (mipWidth > 1) mipWidth /= 2;
-					if (mipHeight > 1) mipHeight /= 2;
+						if (mipWidth > 1) mipWidth /= 2;
+						if (mipHeight > 1) mipHeight /= 2;
+					}
 				}
-			}
-
-			cmd->End();
-
-			Graphics::SubmitGPUWork(cmd, true);
-			Graphics::AddFreeCommandBuffer(cmd);
+			});
 
 			mipsBuffer.Resize(totalUncompressedSize);
 			memcpy(mipsBuffer.begin(), dstBuffer->Map(), totalUncompressedSize);

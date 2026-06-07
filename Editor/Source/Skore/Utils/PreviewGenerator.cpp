@@ -108,12 +108,10 @@ namespace Skore
 
 		{
 			scene->ExecuteEvents(false);
-			GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-			cmd->Begin();
-			scene->renderObjects.DoUpdate(cmd);
-			cmd->End();
-			Graphics::SubmitGPUWork(cmd, true);
-			Graphics::AddFreeCommandBuffer(cmd);
+			Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+			{
+				scene->renderObjects.DoUpdate(cmd);
+			});
 		}
 
 		Vec3 center = {};
@@ -166,13 +164,10 @@ namespace Skore
 
 		renderPipelineContext->UpdateCamera(nearFar.x, nearFar.y, fov, Projection::Perspective, camera, cameraPos);
 
-		GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-		cmd->Begin();
-		renderPipelineContext->Execute(cmd, scene);
-		cmd->End();
-
-		Graphics::SubmitGPUWork(cmd, true);
-		Graphics::AddFreeCommandBuffer(cmd);
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			renderPipelineContext->Execute(cmd, scene);
+		});
 
 		GPUBuffer* buffer = renderPipelineContext->GetBuffer("OutputBuffer");
 		Span data(static_cast<u8*>(buffer->GetMappedData()), thumbnailSize.width * thumbnailSize.height * 4);

@@ -102,32 +102,28 @@ namespace Skore
 							.debugName = String(name) + "_Texture"
 						});
 
-						GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-						cmd->Begin();
+						Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+						{
+							cmd->ResourceBarrier(dst, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
 
-						cmd->ResourceBarrier(dst, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
+							cmd->ResourceBarrier(src, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
+							cmd->CopyBufferToTexture({
+								.buffer = tempSrcBuffer,
+								.texture = src,
+								.extent = src->GetDesc().extent,
+							});
+							cmd->ResourceBarrier(src, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
 
-						cmd->ResourceBarrier(src, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
-						cmd->CopyBufferToTexture({
-							.buffer = tempSrcBuffer,
-							.texture = src,
-							.extent = src->GetDesc().extent,
+							RenderTools::TextureResize(cmd, src, dst);
+
+							cmd->ResourceBarrier(dst, ResourceState::ShaderReadOnly, ResourceState::CopySource, 0, 0);
+							cmd->CopyTextureToBuffer({
+								.buffer = tempDstBuffer,
+								.texture = dst,
+								.extent = dst->GetDesc().extent,
+							});
+							cmd->ResourceBarrier(dst, ResourceState::CopySource, ResourceState::ShaderReadOnly, 0, 0);
 						});
-						cmd->ResourceBarrier(src, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
-
-						RenderTools::TextureResize(cmd, src, dst);
-
-						cmd->ResourceBarrier(dst, ResourceState::ShaderReadOnly, ResourceState::CopySource, 0, 0);
-						cmd->CopyTextureToBuffer({
-							.buffer = tempDstBuffer,
-							.texture = dst,
-							.extent = dst->GetDesc().extent,
-						});
-						cmd->ResourceBarrier(dst, ResourceState::CopySource, ResourceState::ShaderReadOnly, 0, 0);
-
-						cmd->End();
-						Graphics::SubmitGPUWork(cmd, true);
-						Graphics::AddFreeCommandBuffer(cmd);
 
 						Span data(static_cast<u8*>(tempDstBuffer->GetMappedData()), thumbnailSize.width * thumbnailSize.height * 4);
 						ResourceAssets::UpdateThumbnail(asset, data);
