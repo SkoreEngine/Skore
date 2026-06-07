@@ -975,6 +975,8 @@ namespace Skore
 		std::mutex meshCacheMutex{};
 		std::mutex skinCacheMutex{};
 
+		std::atomic<u64> meshReloadVersion{0};
+
 		u32               nextMaterialIndex = 0;
 		u32               nextTextureIndex = 0;
 		Array<u32>        freeMaterialIndices;
@@ -1456,16 +1458,21 @@ namespace Skore
 
 		void GraphicsResourceStorageMaterialReload(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 		{
-			std::unique_lock lock(materialCacheMutex);
-
-			auto it = materialCache.Find(newValue.GetRID());
-			if (it != materialCache.end())
+			RID materialRID = newValue.GetRID();
+			ExecuteOnMainThread([materialRID]
 			{
-				if (auto sp = it->second.lock())
+				MaterialResourceCachePtr sp;
 				{
-					UpdateMaterialStorageData(newValue, sp, true);
+					std::scoped_lock lock(materialCacheMutex);
+					auto it = materialCache.Find(materialRID);
+					if (it != materialCache.end()) sp = it->second.lock();
 				}
-			}
+				if (!sp) return;
+				if (ResourceObject materialObject = Resources::Read(materialRID))
+				{
+					UpdateMaterialStorageData(materialObject, sp, true);
+				}
+			});
 		}
 
 		void ReloadTextureGpuData(const TextureResourceCachePtr& textureStorage, const ResourceObject& textureObject, bool async)
@@ -1529,52 +1536,57 @@ namespace Skore
 		void GraphicsResourceStorageTextureReload(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 		{
 			RID textureRID = newValue.GetRID();
-
-			TextureResourceCachePtr asyncStorage;
-			TextureResourceCachePtr fullStorage;
+			ExecuteOnMainThread([textureRID]
 			{
-				std::scoped_lock lock(textureCacheMutex);
-				auto             it = textureAsyncCache.Find(textureRID);
-				if (it != textureAsyncCache.end()) asyncStorage = it->second.lock();
-				auto             fullIt = textureCache.Find(textureRID);
-				if (fullIt != textureCache.end()) fullStorage = fullIt->second.lock();
-			}
-
-			if (asyncStorage)
-			{
-				ReloadTextureGpuData(asyncStorage, newValue, true);
-			}
-			if (fullStorage)
-			{
-				ReloadTextureGpuData(fullStorage, newValue, false);
-			}
-
-			Array<MaterialResourceCachePtr> affected;
-			{
-				std::scoped_lock lock(materialCacheMutex);
-				for (auto& it : materialCache)
+				TextureResourceCachePtr asyncStorage;
+				TextureResourceCachePtr fullStorage;
 				{
-					if (auto m = it.second.lock())
+					std::scoped_lock lock(textureCacheMutex);
+					auto             it = textureAsyncCache.Find(textureRID);
+					if (it != textureAsyncCache.end()) asyncStorage = it->second.lock();
+					auto             fullIt = textureCache.Find(textureRID);
+					if (fullIt != textureCache.end()) fullStorage = fullIt->second.lock();
+				}
+
+				ResourceObject textureObject = Resources::Read(textureRID);
+				if (!textureObject) return;
+
+				if (asyncStorage)
+				{
+					ReloadTextureGpuData(asyncStorage, textureObject, true);
+				}
+				if (fullStorage)
+				{
+					ReloadTextureGpuData(fullStorage, textureObject, false);
+				}
+
+				Array<MaterialResourceCachePtr> affected;
+				{
+					std::scoped_lock lock(materialCacheMutex);
+					for (auto& it : materialCache)
 					{
-						for (const TextureResourceCachePtr& tc : m->textures)
+						if (auto m = it.second.lock())
 						{
-							if (tc && tc->rid == textureRID)
+							for (const TextureResourceCachePtr& tc : m->textures)
 							{
-								affected.EmplaceBack(m);
-								break;
+								if (tc && tc->rid == textureRID)
+								{
+									affected.EmplaceBack(m);
+									break;
+								}
 							}
 						}
 					}
 				}
-			}
 
-			for (const MaterialResourceCachePtr& m : affected)
-			{
-				if (ResourceObject materialObject = Resources::Read(m->rid))
+				for (const MaterialResourceCachePtr& m : affected)
 				{
-					UpdateMaterialStorageData(materialObject, m, true);
+					if (ResourceObject materialObject = Resources::Read(m->rid))
+					{
+						UpdateMaterialStorageData(materialObject, m, true);
+					}
 				}
-			}
+			});
 		}
 
 		template<typename V, typename Map, typename Mutex>
@@ -1926,10 +1938,8 @@ namespace Skore
 			meshData->hasSkin = false;
 		}
 
-		void GraphicsResourceStorageMeshReload(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+		void ReloadMeshGpuData(RID meshRID)
 		{
-			RID meshRID = newValue.GetRID();
-
 			MeshResourceCachePtr meshData;
 			{
 				std::scoped_lock lock(meshCacheMutex);
@@ -1941,31 +1951,37 @@ namespace Skore
 			}
 			if (!meshData) return;
 
-			auto drain = [](const std::shared_future<void>& fut)
+			auto pending = [](const std::shared_future<void>& fut)
 			{
-				while (fut.valid() && fut.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
-				{
-					RenderResourceCache::Flush();
-					std::this_thread::yield();
-				}
+				return fut.valid() && fut.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready;
 			};
-			drain(meshData->uploadComplete);
-			drain(meshData->blasComplete);
+			if (pending(meshData->uploadComplete) || pending(meshData->blasComplete))
+			{
+				ExecuteOnMainThread([meshRID] { ReloadMeshGpuData(meshRID); });
+				return;
+			}
 
 			ResetMeshGpuState(meshData);
 
 			VertexLayoutOffsetData layoutData{};
 			bool                   layoutValid = false;
-			if (!PopulateMeshGpuData(meshData, newValue, true, layoutData, layoutValid))
+			if (ResourceObject meshObject = Resources::Read(meshRID))
 			{
-				return;
+				if (PopulateMeshGpuData(meshData, meshObject, true, layoutData, layoutValid) && layoutValid)
+				{
+					std::scoped_lock lock(meshCacheMutex);
+					meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
+				}
 			}
 
-			if (layoutValid)
-			{
-				std::scoped_lock lock(meshCacheMutex);
-				meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
-			}
+			meshData->version.fetch_add(1, std::memory_order_release);
+			meshReloadVersion.fetch_add(1, std::memory_order_release);
+		}
+
+		void GraphicsResourceStorageMeshReload(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+		{
+			RID meshRID = newValue.GetRID();
+			ExecuteOnMainThread([meshRID] { ReloadMeshGpuData(meshRID); });
 		}
 	}
 
@@ -2900,6 +2916,11 @@ namespace Skore
 	GPUBuffer* RenderResourceCache::GetMeshDataBuffer()
 	{
 		return meshDataBuffer;
+	}
+
+	u64 RenderResourceCache::GetMeshReloadVersion()
+	{
+		return meshReloadVersion.load(std::memory_order_acquire);
 	}
 
 	SkinResourceCachePtr RenderResourceCache::GetSkinCache(RID mesh)

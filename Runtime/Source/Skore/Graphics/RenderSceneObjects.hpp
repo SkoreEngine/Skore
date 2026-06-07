@@ -37,6 +37,7 @@ namespace Skore
 		u32 indexCount = 0;
 
 		MeshResourceCachePtr     mesh;
+		u64                      meshVersion = 0;
 		MaterialResourceCachePtr material;
 		u64                      userData = 0;
 		u32                      vertexByteOffset = U32_MAX; // mesh's vertex slab offset in MeshDataBuffer
@@ -213,6 +214,8 @@ namespace Skore
 
 		bool       tlasTopologyDirty = false;
 		bool       tlasTransformsDirty = false;
+
+		u64        meshReloadVersion = 0;
 
 		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
 
