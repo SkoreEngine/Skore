@@ -364,21 +364,17 @@ namespace Skore
 
 		descriptorSet->UpdateTexture(0, m_texture);
 
-		GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-		cmd->Begin();
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			cmd->ResourceBarrier(m_texture, ResourceState::Undefined, ResourceState::General, 0, 0);
 
-		cmd->ResourceBarrier(m_texture, ResourceState::Undefined, ResourceState::General, 0, 0);
+			cmd->BindPipeline(computePipeline);
+			cmd->BindDescriptorSet(computePipeline, 0, descriptorSet, {});
 
-		cmd->BindPipeline(computePipeline);
-		cmd->BindDescriptorSet(computePipeline, 0, descriptorSet, {});
+			cmd->Dispatch((extent.width + 31) / 32, (extent.height + 31) / 32, 1);
 
-		cmd->Dispatch((extent.width + 31) / 32, (extent.height + 31) / 32, 1);
-
-		cmd->ResourceBarrier(m_texture, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
-
-		cmd->End();
-		Graphics::SubmitGPUWork(cmd, true);
-		Graphics::AddFreeCommandBuffer(cmd);
+			cmd->ResourceBarrier(m_texture, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
+		});
 
 		computePipeline->Destroy();
 		descriptorSet->Destroy();
@@ -774,20 +770,18 @@ namespace Skore
 
 			for (u32 mip = 0; mip < desc.mipLevels; ++mip)
 			{
-				GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-				cmd->Begin();
-				cmd->ResourceBarrier(texture, currentState, ResourceState::CopySource, mip, layer);
-				cmd->CopyTextureToBuffer({
-					.buffer = stagingBuffer,
-					.texture = texture,
-					.extent = Extent3D(mipWidth, mipHeight, 1),
-					.mipLevel = mip,
-					.arrayLayer = layer,
+				Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+				{
+					cmd->ResourceBarrier(texture, currentState, ResourceState::CopySource, mip, layer);
+					cmd->CopyTextureToBuffer({
+						.buffer = stagingBuffer,
+						.texture = texture,
+						.extent = Extent3D(mipWidth, mipHeight, 1),
+						.mipLevel = mip,
+						.arrayLayer = layer,
+					});
+					cmd->ResourceBarrier(texture, ResourceState::CopySource, currentState, mip, layer);
 				});
-				cmd->ResourceBarrier(texture, ResourceState::CopySource, currentState, mip, layer);
-				cmd->End();
-				Graphics::SubmitGPUWork(cmd, true);
-				Graphics::AddFreeCommandBuffer(cmd);
 
 				String fileName{name};
 				if (layers > 1)

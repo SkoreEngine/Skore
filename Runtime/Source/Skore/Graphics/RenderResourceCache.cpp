@@ -1683,6 +1683,290 @@ namespace Skore
 				WaitForMaterial(mat);
 			}
 		}
+
+		bool PopulateMeshGpuData(const MeshResourceCachePtr& meshData, const ResourceObject& meshObject, bool async,
+		                         VertexLayoutOffsetData& outLayoutData, bool& outLayoutValid)
+		{
+			StringView name = meshObject.GetString(MeshResource::Name);
+			meshData->aabb = AABB{meshObject.GetVec3(MeshResource::AABBMin), meshObject.GetVec3(MeshResource::AABBMax)};
+			meshData->lightmapSizeHint = meshObject.GetVec2(MeshResource::LightmapSizeHint);
+
+			// Vertex layout attribute offsets (U32_MAX = not present)
+			u32 positionOffset = U32_MAX;
+			u32 normalOffset   = U32_MAX;
+			u32 uvOffset       = U32_MAX;
+			u32 uv1Offset      = U32_MAX;
+			u32 colorOffset    = U32_MAX;
+			u32 tangentOffset  = U32_MAX;
+			u32 boneIndicesOffset = U32_MAX;
+			u32 boneWeightsOffset = U32_MAX;
+			u32 custom0Offset = U32_MAX;
+			u32 custom1Offset = U32_MAX;
+			u32 custom2Offset = U32_MAX;
+
+			RID vertexLayoutRID = meshObject.GetSubObject(MeshResource::VertexLayout);
+			if (vertexLayoutRID)
+			{
+				ResourceObject layoutObject = Resources::Read(vertexLayoutRID);
+				if (layoutObject)
+				{
+					meshData->stride = layoutObject.GetUInt(VertexLayoutResource::Stride);
+
+					Span<RID> attrs = layoutObject.GetSubObjectList(VertexLayoutResource::Attributes);
+					for (RID attrRID : attrs)
+					{
+						ResourceObject attrObj = Resources::Read(attrRID);
+						if (attrObj)
+						{
+							StringView attrName = attrObj.GetString(VertexAttributeResource::Name);
+							u32 attrOffset = attrObj.GetUInt(VertexAttributeResource::Offset);
+
+							if (attrName == "position") positionOffset = attrOffset;
+							else if (attrName == "normal")   normalOffset = attrOffset;
+							else if (attrName == "uv0")      uvOffset = attrOffset;
+							else if (attrName == "uv1")    { uv1Offset = attrOffset; meshData->hasUV1 = true; }
+							else if (attrName == "color")  { colorOffset = attrOffset; meshData->hasColor = true; }
+							else if (attrName == "tangent")  tangentOffset = attrOffset;
+							else if (attrName == "boneIndices") boneIndicesOffset = attrOffset;
+							else if (attrName == "boneWeights") boneWeightsOffset = attrOffset;
+							else if (attrName == "custom0") custom0Offset = attrOffset;
+							else if (attrName == "custom1") custom1Offset = attrOffset;
+							else if (attrName == "custom2") custom2Offset = attrOffset;
+						}
+					}
+				}
+			}
+			Span<RID> materials = meshObject.GetReferenceArray(MeshResource::Materials);
+
+			ResourceBuffer buffer = meshObject.GetBuffer(MeshResource::MeshData);
+			Span<RID>      lods = meshObject.GetSubObjectList(MeshResource::MeshLODs);
+
+			if (lods.Empty())
+			{
+				logger.Error("Mesh '{}' has no LODs.", name);
+				return false;
+			}
+
+			u32 lodCount = static_cast<u32>(lods.Size());
+			if (lodCount > MaxLods) lodCount = MaxLods;
+
+			struct LodMeta
+			{
+				u64 indexSrcOffset;
+				u64 indexCount;
+				u64 primSrcOffset;
+				u64 primCount;
+				f32 screenSize;
+			};
+			Array<LodMeta> lodMeta(lodCount);
+
+			u64 totalIndexBytes = 0;
+			for (u32 i = 0; i < lodCount; i++)
+			{
+				ResourceObject lodObj = Resources::Read(lods[i]);
+				lodMeta[i].indexSrcOffset = lodObj.GetUInt(MeshLodResource::IndicesOffset);
+				lodMeta[i].indexCount     = lodObj.GetUInt(MeshLodResource::IndicesCount);
+				lodMeta[i].primSrcOffset  = lodObj.GetUInt(MeshLodResource::PrimitiveOffset);
+				lodMeta[i].primCount      = lodObj.GetUInt(MeshLodResource::PrimitiveCount);
+				lodMeta[i].screenSize     = static_cast<f32>(lodObj.GetFloat(MeshLodResource::ScreenSize));
+				totalIndexBytes += lodMeta[i].indexCount * sizeof(u32);
+			}
+
+			ResourceObject lod0 = Resources::Read(lods[0]);
+			u64 vertexCountTotal = lod0.GetUInt(MeshLodResource::VerticesCount);
+			u64 vertexSrcOffset  = lod0.GetUInt(MeshLodResource::VerticesOffset);
+			u64 vertexBytes      = vertexCountTotal * meshData->stride;
+
+			u64 primCountLod0 = lodMeta[0].primCount;
+
+			bool rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
+
+			meshData->hasSkin = static_cast<bool>(meshObject.GetSubObject(MeshResource::Skin));
+			meshData->wantsBlas = rtSupported && !meshData->hasSkin;
+
+			meshData->primitives.Resize(primCountLod0);
+			buffer.CopyData(meshData->primitives.Data(), primCountLod0 * sizeof(MeshPrimitive), lodMeta[0].primSrcOffset);
+
+			u32 alignedVertSize  = AlignMeshAllocSize(vertexBytes);
+			u32 alignedIdxSize   = AlignMeshAllocSize(totalIndexBytes);
+
+			meshData->vertexAlloc = AllocateMeshData(alignedVertSize);
+			meshData->indexAlloc  = AllocateMeshData(alignedIdxSize);
+
+			if (meshData->vertexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE ||
+				meshData->indexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE)
+			{
+				logger.Error("Mesh '{}' could not fit into shared mesh data buffer ({} MB used).", name, MeshDataBufferSize / (1024 * 1024));
+				if (meshData->vertexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+				{
+					FreeMeshData(meshData->vertexAlloc);
+					meshData->vertexAlloc = OffsetAllocator::Allocation{};
+				}
+				if (meshData->indexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+				{
+					FreeMeshData(meshData->indexAlloc);
+					meshData->indexAlloc = OffsetAllocator::Allocation{};
+				}
+				return false;
+			}
+
+			meshData->vertexByteOffset = meshData->vertexAlloc.offset;
+			meshData->indexByteOffset  = meshData->indexAlloc.offset;
+
+			meshData->primitiveInfoSlots.Resize(primCountLod0);
+
+			Array<Array<MeshPrimitive>> lodPrims(lodCount);
+			for (u32 i = 0; i < lodCount; i++)
+			{
+				lodPrims[i].Resize(lodMeta[i].primCount);
+				buffer.CopyData(lodPrims[i].Data(), lodMeta[i].primCount * sizeof(MeshPrimitive), lodMeta[i].primSrcOffset);
+			}
+
+			Array<u32> lodIndexUnitOffset(lodCount);
+			{
+				u64 cumulativeBytes = 0;
+				const u32 indexBaseUnits = meshData->indexByteOffset / static_cast<u32>(sizeof(u32));
+				for (u32 i = 0; i < lodCount; i++)
+				{
+					lodIndexUnitOffset[i] = indexBaseUnits + static_cast<u32>(cumulativeBytes / sizeof(u32));
+					cumulativeBytes += lodMeta[i].indexCount * sizeof(u32);
+				}
+			}
+
+			for (u32 p = 0; p < primCountLod0; p++)
+			{
+				u32 slot = AllocatePrimitiveInfoSlot();
+				meshData->primitiveInfoSlots[p] = slot;
+
+				GpuMeshPrimitiveInfo info{};
+				info.lodCount = lodCount;
+				for (u32 i = 0; i < lodCount; i++)
+				{
+					const MeshPrimitive& srcPrim = (p < lodPrims[i].Size())
+						? lodPrims[i][p]
+						: lodPrims[0][p];
+
+					info.lods[i].firstIndex = lodIndexUnitOffset[i] + srcPrim.firstIndex;
+					info.lods[i].indexCount = srcPrim.indexCount;
+					info.lods[i].screenSize = lodMeta[i].screenSize;
+				}
+
+				WriteMeshPrimitiveInfo(slot, info);
+			}
+
+			outLayoutData.stride         = meshData->stride;
+			outLayoutData.posOff         = positionOffset;
+			outLayoutData.normalOff      = normalOffset;
+			outLayoutData.uvOff          = uvOffset;
+			outLayoutData.uv1Off         = uv1Offset;
+			outLayoutData.colorOff       = colorOffset;
+			outLayoutData.tangentOff     = tangentOffset;
+			outLayoutData.boneIndicesOff = boneIndicesOffset;
+			outLayoutData.boneWeightsOff = boneWeightsOffset;
+			outLayoutData.custom0Off     = custom0Offset;
+			outLayoutData.custom1Off     = custom1Offset;
+			outLayoutData.custom2Off     = custom2Offset;
+			outLayoutValid = true;
+
+			auto meshFutures = worker->AddMeshTask(meshData);
+			meshData->uploadComplete = std::move(meshFutures.uploadComplete);
+			meshData->blasComplete = std::move(meshFutures.blasComplete);
+
+			if (!materials.Empty())
+			{
+				meshData->materials.Reserve(materials.Size());
+				for (usize i = 0; i < materials.Size(); i++)
+				{
+					meshData->materials.EmplaceBack(RenderResourceCache::GetMaterialCache(materials[i], async));
+				}
+			}
+			else
+			{
+				meshData->materials.EmplaceBack(RenderResourceCache::GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), async));
+			}
+
+			return true;
+		}
+
+		void ResetMeshGpuState(const MeshResourceCachePtr& meshData)
+		{
+			for (GPUBottomLevelAS* blas : meshData->blasArray)
+			{
+				if (blas) blas->Destroy();
+			}
+			meshData->blasArray.Clear();
+
+			if (meshDataAllocator)
+			{
+				if (meshData->vertexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+				{
+					FreeMeshData(meshData->vertexAlloc);
+				}
+				if (meshData->indexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
+				{
+					FreeMeshData(meshData->indexAlloc);
+				}
+			}
+			meshData->vertexAlloc = OffsetAllocator::Allocation{};
+			meshData->indexAlloc = OffsetAllocator::Allocation{};
+			meshData->vertexByteOffset = U32_MAX;
+			meshData->indexByteOffset = U32_MAX;
+
+			for (u32 slot : meshData->primitiveInfoSlots)
+			{
+				FreePrimitiveInfoSlot(slot);
+			}
+			meshData->primitiveInfoSlots.Clear();
+
+			meshData->primitives.Clear();
+			meshData->materials.Clear();
+			meshData->stride = 0;
+			meshData->hasUV1 = false;
+			meshData->hasColor = false;
+			meshData->hasSkin = false;
+		}
+
+		void GraphicsResourceStorageMeshReload(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+		{
+			RID meshRID = newValue.GetRID();
+
+			MeshResourceCachePtr meshData;
+			{
+				std::scoped_lock lock(meshCacheMutex);
+				auto it = meshCache.Find(meshRID);
+				if (it != meshCache.end())
+				{
+					meshData = it->second.lock();
+				}
+			}
+			if (!meshData) return;
+
+			auto drain = [](const std::shared_future<void>& fut)
+			{
+				while (fut.valid() && fut.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+				{
+					RenderResourceCache::Flush();
+					std::this_thread::yield();
+				}
+			};
+			drain(meshData->uploadComplete);
+			drain(meshData->blasComplete);
+
+			ResetMeshGpuState(meshData);
+
+			VertexLayoutOffsetData layoutData{};
+			bool                   layoutValid = false;
+			if (!PopulateMeshGpuData(meshData, newValue, true, layoutData, layoutValid))
+			{
+				return;
+			}
+
+			if (layoutValid)
+			{
+				std::scoped_lock lock(meshCacheMutex);
+				meshData->vertexLayoutId = FindOrCreateVertexLayout(layoutData);
+			}
+		}
 	}
 
 	bool FontResourceCache::GetAdvance(f64& advance, u32 codepoint1, u32 codepoint2)
@@ -1761,6 +2045,15 @@ namespace Skore
 
 	MeshResourceCache::~MeshResourceCache()
 	{
+		if (eventRegistered)
+		{
+			if (ResourceStorage* storage = Resources::GetStorage(rid))
+			{
+				storage->UnregisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMeshReload, nullptr);
+			}
+			eventRegistered = false;
+		}
+
 		for (GPUBottomLevelAS* blas : blasArray)
 		{
 			if (blas) blas->Destroy();
@@ -2188,207 +2481,20 @@ namespace Skore
 		// deferred to Phase 3 because it mutates global vertexLayoutDescs.
 		MeshResourceCachePtr meshData(Alloc<MeshResourceCache>(mesh), MakeCacheDeleter<MeshResourceCache>(meshCache, meshCacheMutex, mesh));
 
+		if (ResourceStorage* storage = Resources::GetStorage(mesh))
+		{
+			storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMeshReload, nullptr);
+			meshData->eventRegistered = true;
+		}
+
 		VertexLayoutOffsetData layoutData{};
 		bool                   layoutValid = false;
 
 		if (ResourceObject meshObject = Resources::Read(mesh))
 		{
-			StringView name = meshObject.GetString(MeshResource::Name);
-			meshData->aabb = AABB{meshObject.GetVec3(MeshResource::AABBMin), meshObject.GetVec3(MeshResource::AABBMax)};
-			meshData->lightmapSizeHint = meshObject.GetVec2(MeshResource::LightmapSizeHint);
-
-			// Vertex layout attribute offsets (U32_MAX = not present)
-			u32 positionOffset = U32_MAX;
-			u32 normalOffset   = U32_MAX;
-			u32 uvOffset       = U32_MAX;
-			u32 uv1Offset      = U32_MAX;
-			u32 colorOffset    = U32_MAX;
-			u32 tangentOffset  = U32_MAX;
-			u32 boneIndicesOffset = U32_MAX;
-			u32 boneWeightsOffset = U32_MAX;
-			u32 custom0Offset = U32_MAX;
-			u32 custom1Offset = U32_MAX;
-			u32 custom2Offset = U32_MAX;
-
-			RID vertexLayoutRID = meshObject.GetSubObject(MeshResource::VertexLayout);
-			if (vertexLayoutRID)
+			if (!PopulateMeshGpuData(meshData, meshObject, async, layoutData, layoutValid))
 			{
-				ResourceObject layoutObject = Resources::Read(vertexLayoutRID);
-				if (layoutObject)
-				{
-					meshData->stride = layoutObject.GetUInt(VertexLayoutResource::Stride);
-
-					Span<RID> attrs = layoutObject.GetSubObjectList(VertexLayoutResource::Attributes);
-					for (RID attrRID : attrs)
-					{
-						ResourceObject attrObj = Resources::Read(attrRID);
-						if (attrObj)
-						{
-							StringView attrName = attrObj.GetString(VertexAttributeResource::Name);
-							u32 attrOffset = attrObj.GetUInt(VertexAttributeResource::Offset);
-
-							if (attrName == "position") positionOffset = attrOffset;
-							else if (attrName == "normal")   normalOffset = attrOffset;
-							else if (attrName == "uv0")      uvOffset = attrOffset;
-							else if (attrName == "uv1")    { uv1Offset = attrOffset; meshData->hasUV1 = true; }
-							else if (attrName == "color")  { colorOffset = attrOffset; meshData->hasColor = true; }
-							else if (attrName == "tangent")  tangentOffset = attrOffset;
-							else if (attrName == "boneIndices") boneIndicesOffset = attrOffset;
-							else if (attrName == "boneWeights") boneWeightsOffset = attrOffset;
-							else if (attrName == "custom0") custom0Offset = attrOffset;
-							else if (attrName == "custom1") custom1Offset = attrOffset;
-							else if (attrName == "custom2") custom2Offset = attrOffset;
-						}
-					}
-				}
-			}
-			Span<RID> materials = meshObject.GetReferenceArray(MeshResource::Materials);
-
-			ResourceBuffer buffer = meshObject.GetBuffer(MeshResource::MeshData);
-			Span<RID>      lods = meshObject.GetSubObjectList(MeshResource::MeshLODs);
-
-			if (lods.Empty())
-			{
-				logger.Error("Mesh '{}' has no LODs.", name);
 				return nullptr;
-			}
-
-			u32 lodCount = static_cast<u32>(lods.Size());
-			if (lodCount > MaxLods) lodCount = MaxLods;
-
-			struct LodMeta
-			{
-				u64 indexSrcOffset;
-				u64 indexCount;
-				u64 primSrcOffset;
-				u64 primCount;
-				f32 screenSize;
-			};
-			Array<LodMeta> lodMeta(lodCount);
-
-			u64 totalIndexBytes = 0;
-			for (u32 i = 0; i < lodCount; i++)
-			{
-				ResourceObject lodObj = Resources::Read(lods[i]);
-				lodMeta[i].indexSrcOffset = lodObj.GetUInt(MeshLodResource::IndicesOffset);
-				lodMeta[i].indexCount     = lodObj.GetUInt(MeshLodResource::IndicesCount);
-				lodMeta[i].primSrcOffset  = lodObj.GetUInt(MeshLodResource::PrimitiveOffset);
-				lodMeta[i].primCount      = lodObj.GetUInt(MeshLodResource::PrimitiveCount);
-				lodMeta[i].screenSize     = static_cast<f32>(lodObj.GetFloat(MeshLodResource::ScreenSize));
-				totalIndexBytes += lodMeta[i].indexCount * sizeof(u32);
-			}
-
-			ResourceObject lod0 = Resources::Read(lods[0]);
-			u64 vertexCountTotal = lod0.GetUInt(MeshLodResource::VerticesCount);
-			u64 vertexSrcOffset  = lod0.GetUInt(MeshLodResource::VerticesOffset);
-			u64 vertexBytes      = vertexCountTotal * meshData->stride;
-
-			u64 primCountLod0 = lodMeta[0].primCount;
-
-			bool rtSupported = Graphics::GetDevice()->GetFeatures().rayTracing;
-
-			meshData->hasSkin = static_cast<bool>(meshObject.GetSubObject(MeshResource::Skin));
-			meshData->wantsBlas = rtSupported && !meshData->hasSkin;
-
-			meshData->primitives.Resize(primCountLod0);
-			buffer.CopyData(meshData->primitives.Data(), primCountLod0 * sizeof(MeshPrimitive), lodMeta[0].primSrcOffset);
-
-			u32 alignedVertSize  = AlignMeshAllocSize(vertexBytes);
-			u32 alignedIdxSize   = AlignMeshAllocSize(totalIndexBytes);
-
-			meshData->vertexAlloc = AllocateMeshData(alignedVertSize);
-			meshData->indexAlloc  = AllocateMeshData(alignedIdxSize);
-
-			if (meshData->vertexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE ||
-				meshData->indexAlloc.offset == OffsetAllocator::Allocation::NO_SPACE)
-			{
-				logger.Error("Mesh '{}' could not fit into shared mesh data buffer ({} MB used).", name, MeshDataBufferSize / (1024 * 1024));
-				if (meshData->vertexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
-				{
-					FreeMeshData(meshData->vertexAlloc);
-					meshData->vertexAlloc = OffsetAllocator::Allocation{};
-				}
-				if (meshData->indexAlloc.offset != OffsetAllocator::Allocation::NO_SPACE)
-				{
-					FreeMeshData(meshData->indexAlloc);
-					meshData->indexAlloc = OffsetAllocator::Allocation{};
-				}
-				return nullptr;
-			}
-
-			meshData->vertexByteOffset = meshData->vertexAlloc.offset;
-			meshData->indexByteOffset  = meshData->indexAlloc.offset;
-
-			meshData->primitiveInfoSlots.Resize(primCountLod0);
-
-			Array<Array<MeshPrimitive>> lodPrims(lodCount);
-			for (u32 i = 0; i < lodCount; i++)
-			{
-				lodPrims[i].Resize(lodMeta[i].primCount);
-				buffer.CopyData(lodPrims[i].Data(), lodMeta[i].primCount * sizeof(MeshPrimitive), lodMeta[i].primSrcOffset);
-			}
-
-			Array<u32> lodIndexUnitOffset(lodCount);
-			{
-				u64 cumulativeBytes = 0;
-				const u32 indexBaseUnits = meshData->indexByteOffset / static_cast<u32>(sizeof(u32));
-				for (u32 i = 0; i < lodCount; i++)
-				{
-					lodIndexUnitOffset[i] = indexBaseUnits + static_cast<u32>(cumulativeBytes / sizeof(u32));
-					cumulativeBytes += lodMeta[i].indexCount * sizeof(u32);
-				}
-			}
-
-			for (u32 p = 0; p < primCountLod0; p++)
-			{
-				u32 slot = AllocatePrimitiveInfoSlot();
-				meshData->primitiveInfoSlots[p] = slot;
-
-				GpuMeshPrimitiveInfo info{};
-				info.lodCount = lodCount;
-				for (u32 i = 0; i < lodCount; i++)
-				{
-					const MeshPrimitive& srcPrim = (p < lodPrims[i].Size())
-						? lodPrims[i][p]
-						: lodPrims[0][p];
-
-					info.lods[i].firstIndex = lodIndexUnitOffset[i] + srcPrim.firstIndex;
-					info.lods[i].indexCount = srcPrim.indexCount;
-					info.lods[i].screenSize = lodMeta[i].screenSize;
-				}
-
-				WriteMeshPrimitiveInfo(slot, info);
-			}
-
-			layoutData.stride         = meshData->stride;
-			layoutData.posOff         = positionOffset;
-			layoutData.normalOff      = normalOffset;
-			layoutData.uvOff          = uvOffset;
-			layoutData.uv1Off         = uv1Offset;
-			layoutData.colorOff       = colorOffset;
-			layoutData.tangentOff     = tangentOffset;
-			layoutData.boneIndicesOff = boneIndicesOffset;
-			layoutData.boneWeightsOff = boneWeightsOffset;
-			layoutData.custom0Off     = custom0Offset;
-			layoutData.custom1Off     = custom1Offset;
-			layoutData.custom2Off     = custom2Offset;
-			layoutValid = true;
-
-			auto meshFutures = worker->AddMeshTask(meshData);
-			meshData->uploadComplete = std::move(meshFutures.uploadComplete);
-			meshData->blasComplete = std::move(meshFutures.blasComplete);
-
-			if (!materials.Empty())
-			{
-				meshData->materials.Reserve(materials.Size());
-				for (usize i = 0; i < materials.Size(); i++)
-				{
-					meshData->materials.EmplaceBack(GetMaterialCache(materials[i], async));
-				}
-			}
-			else
-			{
-				meshData->materials.EmplaceBack(GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), async));
 			}
 		}
 

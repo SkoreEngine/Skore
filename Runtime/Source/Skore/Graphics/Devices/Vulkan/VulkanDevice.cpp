@@ -43,12 +43,6 @@ namespace Skore
 	Array<String>              OpenXRManagerGetDeviceExtensions();
 	VulkanGraphicsRequirements OpenXRManagerGetGraphicsRequirements();
 
-	struct VulkanGPUWork
-	{
-		VkCommandBuffer           cmd;
-		std::function<void(bool)> callback;
-	};
-
 	//huge object, maybe decrease a bit?
 	struct VulkanResourceDestructor
 	{
@@ -79,8 +73,6 @@ namespace Skore
 			moodycamel::ConcurrentQueue<VulkanResourceDestructor>(50),
 			moodycamel::ConcurrentQueue<VulkanResourceDestructor>(50)
 		};
-
-		moodycamel::ConcurrentQueue<VulkanGPUWork> gpuWorkQueue = moodycamel::ConcurrentQueue<VulkanGPUWork>(10);
 
 		void EnqueueDestructor(VulkanResourceDestructor destructor)
 		{
@@ -4183,8 +4175,6 @@ namespace Skore
 		RenderResourceCache::Flush(cmd);
 		cmd->End();
 
-		FlushGPUWork();
-
 		VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 		VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
 
@@ -4337,68 +4327,6 @@ namespace Skore
 				vkDestroyAccelerationStructureKHR(device, destructor.accelerationStructure, nullptr);
 			}
 		}
-	}
-
-	void VulkanDevice::FlushGPUWork()
-	{
-		VulkanGPUWork work = {};
-		while (gpuWorkQueue.try_dequeue(work))
-		{
-			VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-			submitInfo.commandBufferCount = 1;
-			submitInfo.pCommandBuffers = &work.cmd;
-
-			VkFence fence = nullptr;
-
-			if (work.callback)
-			{
-				VkFenceCreateInfo fenceCreateInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-				vkCreateFence(device, &fenceCreateInfo, nullptr, &fence);
-			}
-
-			if (graphicsQueue.Submit(&submitInfo, fence) != VK_SUCCESS)
-			{
-				continue;
-			}
-
-			if (work.callback)
-			{
-				std::thread([this, work, fence]
-				{
-					vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-					work.callback(true);
-					vkDestroyFence(device, fence, nullptr);
-				}).detach();
-			}
-		}
-	}
-
-	void VulkanDevice::SubmitGPUWork(GPUCommandBuffer* cmd, std::function<void(bool)> callback, bool submitImmediately)
-	{
-		VulkanCommandBuffer* vulkanCommandBuffer = static_cast<VulkanCommandBuffer*>(cmd);
-
-		if (submitImmediately)
-		{
-			VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-			submitInfo.commandBufferCount = 1;
-			submitInfo.pCommandBuffers = &vulkanCommandBuffer->commandBuffer;
-
-			VkFence           fence;
-			VkFenceCreateInfo fenceCreateInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-			vkCreateFence(device, &fenceCreateInfo, nullptr, &fence);
-
-			graphicsQueue.Submit(&submitInfo, fence);
-
-			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-			vkDestroyFence(device, fence, nullptr);
-
-			return;
-		}
-
-		gpuWorkQueue.enqueue(VulkanGPUWork{
-			.cmd = vulkanCommandBuffer->commandBuffer,
-			.callback = callback,
-		});
 	}
 
 	void VulkanDevice::GetMemoryBudgets(Array<MemoryHeapBudget>& outBudgets)

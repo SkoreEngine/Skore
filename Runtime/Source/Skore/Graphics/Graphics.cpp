@@ -40,7 +40,13 @@ namespace Skore
 		GPUTexture* whiteTexture = nullptr;
 		GPUTexture* whiteCubemapTexture = nullptr;
 
-		Array<GPUCommandBuffer*> freeCommandBuffers;
+		struct FreeCommandBuffer
+		{
+			GPUQueue*         queue;
+			GPUCommandBuffer* cmd;
+		};
+
+		Array<FreeCommandBuffer> freeCommandBuffers;
 		std::mutex               freeCommandBuffersMutex{};
 		std::thread::id          thisId;
 
@@ -160,7 +166,10 @@ namespace Skore
 
 		for (u32 i = 0; i < 3; ++i)
 		{
-			freeCommandBuffers.EmplaceBack(device->CreateCommandBuffer(QueueType::Graphics));
+			freeCommandBuffers.EmplaceBack(FreeCommandBuffer{
+				.queue = device->CreateQueue(QueueDesc{.type = QueueType::Graphics}),
+				.cmd = device->CreateCommandBuffer(QueueType::Graphics)
+			});
 		}
 
 		whiteTexture = device->CreateTexture(TextureDesc{
@@ -220,9 +229,10 @@ namespace Skore
 		whiteTexture->Destroy();
 		whiteCubemapTexture->Destroy();
 
-		for (auto& cmd : freeCommandBuffers)
+		for (auto& entry : freeCommandBuffers)
 		{
-			cmd->Destroy();
+			entry.cmd->Destroy();
+			entry.queue->Destroy();
 		}
 
 		DestroyAndFree(device);
@@ -273,26 +283,6 @@ namespace Skore
 	Window Graphics::GetWindow()
 	{
 		return window;
-	}
-
-	GPUCommandBuffer* Graphics::GetFreeCommandBuffer()
-	{
-		std::unique_lock lock(freeCommandBuffersMutex);
-
-		if (!freeCommandBuffers.Empty())
-		{
-			GPUCommandBuffer* cmd = freeCommandBuffers.Back();
-			freeCommandBuffers.PopBack();
-			return cmd;
-		}
-
-		return device->CreateCommandBuffer(QueueType::Graphics);
-	}
-
-	void Graphics::AddFreeCommandBuffer(GPUCommandBuffer* cmd)
-	{
-		std::unique_lock lock(freeCommandBuffersMutex);
-		freeCommandBuffers.EmplaceBack(cmd);
 	}
 
 	GPUSwapchain* Graphics::CreateSwapchain(const SwapchainDesc& desc)
@@ -392,12 +382,10 @@ namespace Skore
 		memcpy(mem, static_cast<const char*>(bufferUploadInfo.data) + bufferUploadInfo.srcOffset, bufferUploadInfo.size);
 		tempBuffer->Unmap();
 
-		GPUCommandBuffer* cmd = GetFreeCommandBuffer();
-		cmd->Begin();
-		cmd->CopyBuffer(tempBuffer, bufferUploadInfo.buffer, bufferUploadInfo.size, 0, bufferUploadInfo.dstOffset);
-		cmd->End();
-		SubmitGPUWork(cmd, true);
-		AddFreeCommandBuffer(cmd);
+		SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			cmd->CopyBuffer(tempBuffer, bufferUploadInfo.buffer, bufferUploadInfo.size, 0, bufferUploadInfo.dstOffset);
+		});
 
 		tempBuffer->Destroy();
 	}
@@ -419,62 +407,52 @@ namespace Skore
 		VoidPtr mem = tempBuffer->GetMappedData();
 		memcpy(mem, textureDataInfo.data, textureDataInfo.size);
 
-		GPUCommandBuffer* cmd = GetFreeCommandBuffer();
-		cmd->Begin();
-
-		if (textureDataInfo.regions.Empty())
+		SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 		{
-			cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
-			cmd->CopyBufferToTexture({
-				.buffer = tempBuffer,
-				.texture = textureDataInfo.texture,
-				.extent = textureDataInfo.texture->GetDesc().extent,
-			});
-			cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
-		}
-		else
-		{
-			// Upload specific regions
-			for (const TextureDataRegion& region : textureDataInfo.regions)
+			if (textureDataInfo.regions.Empty())
 			{
-				for (u32 layer = 0; layer < region.layerCount; ++layer)
+				cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
+				cmd->CopyBufferToTexture({
+					.buffer = tempBuffer,
+					.texture = textureDataInfo.texture,
+					.extent = textureDataInfo.texture->GetDesc().extent,
+				});
+				cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
+			}
+			else
+			{
+				for (const TextureDataRegion& region : textureDataInfo.regions)
 				{
-					for (u32 level = 0; level < region.levelCount; ++level)
+					for (u32 layer = 0; layer < region.layerCount; ++layer)
 					{
-						cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::Undefined, ResourceState::CopyDest, region.mipLevel, region.arrayLayer);
-						cmd->CopyBufferToTexture({
-							.buffer = tempBuffer,
-							.texture = textureDataInfo.texture,
-							.extent = region.extent,
-							.mipLevel = region.mipLevel + level,
-							.arrayLayer = region.arrayLayer + layer,
-							.bufferOffset = region.dataOffset,
-						});
-						cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, region.mipLevel, region.arrayLayer);
+						for (u32 level = 0; level < region.levelCount; ++level)
+						{
+							cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::Undefined, ResourceState::CopyDest, region.mipLevel, region.arrayLayer);
+							cmd->CopyBufferToTexture({
+								.buffer = tempBuffer,
+								.texture = textureDataInfo.texture,
+								.extent = region.extent,
+								.mipLevel = region.mipLevel + level,
+								.arrayLayer = region.arrayLayer + layer,
+								.bufferOffset = region.dataOffset,
+							});
+							cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, region.mipLevel, region.arrayLayer);
+						}
 					}
 				}
 			}
-		}
-
-		cmd->End();
-
-		SubmitGPUWork(cmd, true);
-		AddFreeCommandBuffer(cmd);
+		});
 
 		tempBuffer->Destroy();
 	}
 
 	void Graphics::SetTextureState(GPUTexture* texture, ResourceState oldState, ResourceState newState)
 	{
-		GPUCommandBuffer* cmd = GetFreeCommandBuffer();
-
-		const TextureDesc& desc = texture->GetDesc();
-
-		cmd->Begin();
-		cmd->ResourceBarrier(texture, oldState, newState, 0, desc.mipLevels, 0, desc.arrayLayers);
-		cmd->End();
-		SubmitGPUWork(cmd, true);
-		AddFreeCommandBuffer(cmd);
+		SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			const TextureDesc& desc = texture->GetDesc();
+			cmd->ResourceBarrier(texture, oldState, newState, 0, desc.mipLevels, 0, desc.arrayLayers);
+		});
 	}
 
 	GPUSampler* Graphics::GetLinearSampler()
@@ -539,30 +517,34 @@ namespace Skore
 		                              window);
 	}
 
-	bool Graphics::SubmitGPUWork(GPUCommandBuffer* cmd, bool blocking)
+	bool Graphics::SubmitGPUWork(QueueType queueType, std::function<void(GPUCommandBuffer*)> func)
 	{
-		if (blocking)
+		FreeCommandBuffer entry{};
 		{
-			if (thisId == std::this_thread::get_id())
+			std::unique_lock lock(freeCommandBuffersMutex);
+			if (!freeCommandBuffers.Empty())
 			{
-				device->SubmitGPUWork(cmd, {}, true);
-				return true;
+				entry = freeCommandBuffers.Back();
+				freeCommandBuffers.PopBack();
 			}
-
-			auto              promPtr = std::make_shared<std::promise<bool>>();
-			std::future<bool> fut = promPtr->get_future();
-
-			auto callback = [promPtr](bool success)
+			else
 			{
-				promPtr->set_value(success);
-			};
-
-			device->SubmitGPUWork(cmd, callback, false);
-
-			return fut.get();
+				entry.queue = device->CreateQueue(QueueDesc{.type = queueType});
+				entry.cmd = device->CreateCommandBuffer(queueType);
+			}
 		}
 
-		device->SubmitGPUWork(cmd, {}, false);
+		entry.cmd->Begin();
+		func(entry.cmd);
+		entry.cmd->End();
+
+		entry.queue->SubmitAndWait(entry.cmd);
+
+		{
+			std::unique_lock lock(freeCommandBuffersMutex);
+			freeCommandBuffers.EmplaceBack(entry);
+		}
+
 		return true;
 	}
 
@@ -574,8 +556,6 @@ namespace Skore
 		type.Function<&Graphics::GetAPI>("GetAPI");
 		type.Function<&Graphics::WaitIdle>("WaitIdle");
 		type.Function<&Graphics::GetWindow>("GetWindow");
-		type.Function<&Graphics::GetFreeCommandBuffer>("GetFreeCommandBuffer");
-		type.Function<&Graphics::AddFreeCommandBuffer>("AddFreeCommandBuffer", "cmd");
 		type.Function<&Graphics::CreateSwapchain>("CreateSwapchain", "desc");
 		type.Function<&Graphics::CreateRenderPass>("CreateRenderPass", "desc");
 		type.Function<&Graphics::CreateFramebuffer>("CreateFramebuffer", "desc");
@@ -603,6 +583,5 @@ namespace Skore
 		type.Function<static_cast<usize(*)(const BottomLevelASDesc&)>(&Graphics::GetAccelerationStructureBuildScratchSize)>("GetAccelerationStructureBuildScratchSizeForBottomLevel", "desc");
 		type.Function<static_cast<usize(*)(const TopLevelASDesc&)>(&Graphics::GetAccelerationStructureBuildScratchSize)>("GetAccelerationStructureBuildScratchSizeForTopLevel", "desc");
 		type.Function<&Graphics::ShowSubmitError>("ShowSubmitError");
-		type.Function<&Graphics::SubmitGPUWork>("SubmitGPUWork", "cmd", "blocking");
 	}
 }

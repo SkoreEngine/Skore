@@ -142,91 +142,87 @@ namespace Skore
 				}
 			});
 
-			GPUCommandBuffer* cmd = Graphics::GetFreeCommandBuffer();
-
-			cmd->Begin();
-			cmd->BeginDebugMarker("Entity Picker", Vec4{0, 0, 0, 1});
-
-
-			ClearValues clearValues;
-			clearValues.color = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
-
-			BeginRenderPassInfo beginInfo;
-			beginInfo.renderPass = renderPass;
-			beginInfo.framebuffer = framebuffer;
-			beginInfo.clearValues = &clearValues;
-			cmd->BeginRenderPass(beginInfo);
-
-			ViewportInfo viewportInfo{};
-			viewportInfo.x = 0.;
-			viewportInfo.y = 0.;
-			viewportInfo.y = (f32)currentExtent.height;
-			viewportInfo.width = (f32)currentExtent.width;
-			viewportInfo.height = -(f32)currentExtent.height;
-
-			viewportInfo.minDepth = 0.;
-			viewportInfo.maxDepth = 1.;
-
-			cmd->SetViewport(viewportInfo);
-			cmd->SetScissor({0, 0}, currentExtent);
-
-			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
-
-			objects->ForEachVisiblePipeline([&](u32 index, const DrawPipeline& drawPipeline)
+			Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 			{
-				GPUPipeline* pipeline = pickerPipelines[index];
-				cmd->BindPipeline(pipeline);
-				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+				cmd->BeginDebugMarker("Entity Picker", Vec4{0, 0, 0, 1});
 
-				for (const Drawcall& drawcall : drawPipeline.drawcalls)
+
+				ClearValues clearValues;
+				clearValues.color = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+
+				BeginRenderPassInfo beginInfo;
+				beginInfo.renderPass = renderPass;
+				beginInfo.framebuffer = framebuffer;
+				beginInfo.clearValues = &clearValues;
+				cmd->BeginRenderPass(beginInfo);
+
+				ViewportInfo viewportInfo{};
+				viewportInfo.x = 0.;
+				viewportInfo.y = 0.;
+				viewportInfo.y = (f32)currentExtent.height;
+				viewportInfo.width = (f32)currentExtent.width;
+				viewportInfo.height = -(f32)currentExtent.height;
+
+				viewportInfo.minDepth = 0.;
+				viewportInfo.maxDepth = 1.;
+
+				cmd->SetViewport(viewportInfo);
+				cmd->SetScissor({0, 0}, currentExtent);
+
+				cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
+
+				objects->ForEachVisiblePipeline([&](u32 index, const DrawPipeline& drawPipeline)
 				{
-					if (ignoreEntity != nullptr && drawcall.userData != 0)
+					GPUPipeline* pipeline = pickerPipelines[index];
+					cmd->BindPipeline(pipeline);
+					cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+
+					for (const Drawcall& drawcall : drawPipeline.drawcalls)
 					{
-						bool ignored = false;
-						for (Entity* e = static_cast<Entity*>(IntToPtr(drawcall.userData)); e != nullptr; e = e->GetParent())
+						if (ignoreEntity != nullptr && drawcall.userData != 0)
 						{
-							if (e == ignoreEntity)
+							bool ignored = false;
+							for (Entity* e = static_cast<Entity*>(IntToPtr(drawcall.userData)); e != nullptr; e = e->GetParent())
 							{
-								ignored = true;
-								break;
+								if (e == ignoreEntity)
+								{
+									ignored = true;
+									break;
+								}
 							}
+							if (ignored) continue;
 						}
-						if (ignored) continue;
+
+						pushConstants.world = drawcall.transform;
+						pushConstants.entityID = drawcall.userData;
+						pushConstants.vertexByteOffset = drawcall.vertexByteOffset;
+						pushConstants.vertexLayoutIndex = drawcall.vertexLayoutIndex;
+						cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(PickerPushConstants), &pushConstants);
+
+						cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
 					}
+				});
 
-					pushConstants.world = drawcall.transform;
-					pushConstants.entityID = drawcall.userData;
-					pushConstants.vertexByteOffset = drawcall.vertexByteOffset;
-					pushConstants.vertexLayoutIndex = drawcall.vertexLayoutIndex;
-					cmd->PushConstants(pipeline, ShaderStage::Vertex, 0, sizeof(PickerPushConstants), &pushConstants);
+				cmd->EndRenderPass();
 
-					cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
-				}
+				cmd->ResourceBarrier(texture, ResourceState::ColorAttachment, ResourceState::CopySource, 0, 0);
+				cmd->CopyTextureToBuffer({
+					.buffer = imageBuffer,
+					.texture = texture,
+					.extent = Extent3D(currentExtent.width, currentExtent.height, 1),
+				});
+				cmd->ResourceBarrier(imageBuffer, ResourceState::Undefined, ResourceState::CopyDest);
+
+				cmd->ResourceBarrier(depth, ResourceState::DepthStencilAttachment, ResourceState::CopySource, 0, 0);
+				cmd->CopyTextureToBuffer({
+					.buffer = depthBuffer,
+					.texture = depth,
+					.extent = Extent3D(currentExtent.width, currentExtent.height, 1),
+				});
+				cmd->ResourceBarrier(depthBuffer, ResourceState::Undefined, ResourceState::CopyDest);
+
+				cmd->EndDebugMarker();
 			});
-
-			cmd->EndRenderPass();
-
-			cmd->ResourceBarrier(texture, ResourceState::ColorAttachment, ResourceState::CopySource, 0, 0);
-			cmd->CopyTextureToBuffer({
-				.buffer = imageBuffer,
-				.texture = texture,
-				.extent = Extent3D(currentExtent.width, currentExtent.height, 1),
-			});
-			cmd->ResourceBarrier(imageBuffer, ResourceState::Undefined, ResourceState::CopyDest);
-
-			cmd->ResourceBarrier(depth, ResourceState::DepthStencilAttachment, ResourceState::CopySource, 0, 0);
-			cmd->CopyTextureToBuffer({
-				.buffer = depthBuffer,
-				.texture = depth,
-				.extent = Extent3D(currentExtent.width, currentExtent.height, 1),
-			});
-			cmd->ResourceBarrier(depthBuffer, ResourceState::Undefined, ResourceState::CopyDest);
-
-			cmd->EndDebugMarker();
-			cmd->End();
-
-			Graphics::SubmitGPUWork(cmd, true);
-			Graphics::AddFreeCommandBuffer(cmd);
 
 			u32   bytesPerPixel = 8;
 			u8*   data = static_cast<u8*>(imageBuffer->GetMappedData());

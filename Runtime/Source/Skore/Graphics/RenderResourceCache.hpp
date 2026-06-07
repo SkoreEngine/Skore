@@ -220,6 +220,8 @@ namespace Skore
 		std::shared_future<void> uploadComplete;
 		std::shared_future<void> blasComplete;
 
+		bool eventRegistered = false;
+
 		bool IsLoaded() const
 		{
 			if (vertexByteOffset == U32_MAX || indexByteOffset == U32_MAX) return false;
