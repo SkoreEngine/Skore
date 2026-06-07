@@ -500,6 +500,7 @@ namespace Skore
 		dc.vertexByteOffset = vertexByteOffset;
 		dc.indexByteOffset = indexByteOffset;
 		dc.mesh = obj->meshCache;
+		dc.meshVersion = obj->meshCache->version.load(std::memory_order_acquire);
 		dc.material = material;
 		dc.userData = obj->userData;
 		dc.vertexLayoutIndex = vertexLayoutIndex;
@@ -670,6 +671,25 @@ namespace Skore
 	void RenderSceneObjects::DoUpdate(GPUCommandBuffer* cmd)
 	{
 		SK_SCOPED_CPU_ZONE("RenderSceneObjects::DoUpdate");
+
+		if (u64 cacheVersion = RenderResourceCache::GetMeshReloadVersion(); cacheVersion != meshReloadVersion)
+		{
+			meshReloadVersion = cacheVersion;
+			for (RenderableObjectStorage* obj : renderables)
+			{
+				for (const DrawcallRef& ref : obj->references)
+				{
+					if (ref.pipelineIndex == U32_MAX) continue;
+					Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
+					const Drawcall& dc = storage[ref.pipelineIndex].drawcalls[ref.handle];
+					if (dc.mesh && dc.mesh->version.load(std::memory_order_acquire) != dc.meshVersion)
+					{
+						MarkDirty(obj);
+						break;
+					}
+				}
+			}
+		}
 
 		if (!pendingUpdate.empty())
 		{

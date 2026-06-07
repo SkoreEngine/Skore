@@ -948,7 +948,7 @@ namespace Skore
 				.name = "IrradianceVolumeAttachment",
 				.type = RenderPipelineResourceType::Attachment,
 				.format = TextureFormat::R16G16B16A16_FLOAT,
-				.scale = Vec2(0.5, 0.5),
+				.scale = Vec2(1.0, 1.0),
 				.textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess
 			});
 			resources.EmplaceBack(RenderPipelineResource{.name = "IrradianceVolumeData", .type = RenderPipelineResourceType::Instance, .instanceTypeId = sktypeid(IrradianceVolumeData)});

@@ -182,6 +182,7 @@ namespace Skore
 	struct SK_API MeshResourceCache : ResourceCache
 	{
 		RID rid;
+		std::atomic<u64> version{0};
 
 		MeshResourceCache(RID rid) : rid(rid) {}
 		~MeshResourceCache() override;
@@ -301,6 +302,7 @@ namespace Skore
 		static GPUBuffer*               GetMaterialDataBuffer();
 		static u32                      GetMaterialDataCount();
 		static GPUBuffer*               GetMeshDataBuffer();
+		static u64                      GetMeshReloadVersion();
 
 		static VertexLayoutCachePtr CreateCustomVoxelLayout(const VertexLayoutDesc& desc);
 		static MeshResourceCachePtr CreateProceduralMesh(const ProceduralMeshDesc& desc);
