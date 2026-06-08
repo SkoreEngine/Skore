@@ -8,7 +8,6 @@
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/Compression.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
-#include "Skore/Window/PreviewWindow.hpp"
 
 namespace Skore
 {
@@ -28,8 +27,7 @@ namespace Skore
 
 				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
 				{
-					Editor::GetActiveWorkspace()->OpenAsset(object);
-					PreviewWindow::OpenTexture(object);
+					Editor::GetActiveWorkspace()->OpenAsset(object, object);
 				}
 			}
 		}

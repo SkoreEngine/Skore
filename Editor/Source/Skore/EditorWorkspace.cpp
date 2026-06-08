@@ -19,7 +19,8 @@ namespace Skore
 	{
 		enum
 		{
-			SelectedAsset
+			SelectedAsset,
+			SelectedPreview
 		};
 	};
 
@@ -84,11 +85,12 @@ namespace Skore
 		return m_animatorEditor;
 	}
 
-	void EditorWorkspace::OpenAsset(RID rid)
+	void EditorWorkspace::OpenAsset(RID rid, RID preview)
 	{
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Open Asset");
 		ResourceObject stateObject = Resources::Write(state);
 		stateObject.SetReference(WorkspaceResourceState::SelectedAsset, rid);
+		stateObject.SetReference(WorkspaceResourceState::SelectedPreview, preview);
 		stateObject.Commit(scope);
 	}
 
@@ -275,6 +277,7 @@ namespace Skore
 	{
 		Resources::Type<WorkspaceResourceState>()
 			.Field<WorkspaceResourceState::SelectedAsset>(ResourceFieldType::Reference)
+			.Field<WorkspaceResourceState::SelectedPreview>(ResourceFieldType::Reference)
 			.Build();
 	}
 
@@ -283,7 +286,9 @@ namespace Skore
 		EditorWorkspace* workspace = static_cast<EditorWorkspace*>(userData);
 		if (newValue)
 		{
-			onAssetSelectionHandler.Invoke(workspace->id, newValue.GetReference(WorkspaceResourceState::SelectedAsset));
+			onAssetSelectionHandler.Invoke(workspace->id,
+				newValue.GetReference(WorkspaceResourceState::SelectedAsset),
+				newValue.GetReference(WorkspaceResourceState::SelectedPreview));
 		}
 	}
 }
