@@ -9,6 +9,7 @@
 #include "Skore/ImGui/Icons.h"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Window/PreviewWindow.hpp"
 #include "Skore/Scene/Component.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/LayerSystem.hpp"
@@ -549,6 +550,7 @@ namespace Skore
 			{
 				importSettingsVersion = currVersion;
 				ResourceAssets::CookAsset(asset, Editor::CreateUndoRedoScope("Apply Import Changes"));
+				PreviewWindow::Refresh();
 			}
 
 			ImGui::EndDisabled();

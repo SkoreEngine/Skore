@@ -27,7 +27,6 @@
 #include "Skore/Window/PropertiesWindow.hpp"
 #include "Skore/Window/ResourceDebuggerWindow.hpp"
 #include "Skore/Window/SceneViewWindow.hpp"
-#include "Skore/Window/TextureViewWindow.hpp"
 #include "Skore/Window/GraphEditorWindow.hpp"
 #include "Skore/Window/PackagesWindow.hpp"
 
@@ -1476,7 +1475,6 @@ namespace Skore
 		Reflection::Type<ProjectBrowserWindow>();
 		Reflection::Type<EntityTreeWindow>();
 		Reflection::Type<SceneViewWindow>();
-		Reflection::Type<TextureViewWindow>();
 		Reflection::Type<HistoryWindow>();
 		Reflection::Type<ConsoleWindow>();
 		Reflection::Type<PropertiesWindow>();

@@ -1,4 +1,6 @@
+#include "Skore/Editor.hpp"
 #include "Skore/EditorCommon.hpp"
+#include "Skore/EditorWorkspace.hpp"
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
@@ -6,7 +8,7 @@
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/Compression.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
-#include "Skore/Window/TextureViewWindow.hpp"
+#include "Skore/Window/PreviewWindow.hpp"
 
 namespace Skore
 {
@@ -23,9 +25,11 @@ namespace Skore
 		{
 			if (ResourceObject assetObject = Resources::Read(rid))
 			{
+
 				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
 				{
-					TextureViewWindow::Open(object);
+					Editor::GetActiveWorkspace()->OpenAsset(object);
+					PreviewWindow::OpenTexture(object);
 				}
 			}
 		}
