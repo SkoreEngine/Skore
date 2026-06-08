@@ -1148,10 +1148,11 @@ namespace Skore
 		writer.EndMap();
 	}
 
-	static void LoadCookedBlob(StringView cookedPath, StringView bufferPath)
+	static void LoadCookedResource(StringView folder, StringView cookedFile)
 	{
 		ByteBuffer compressed;
-		FileSystem::ReadFileAsByteBuffer(cookedPath, compressed);
+		FileSystem::ReadFileAsByteBuffer(cookedFile, compressed);
+		if (compressed.Empty()) return;
 
 		usize      decompressedSize = Compression::GetMaxDecompressedBufferSize(compressed.Data(), compressed.Size(), CompressionMode::ZSTD);
 		ByteBuffer uncompressed;
@@ -1160,51 +1161,79 @@ namespace Skore
 
 		BinaryArchiveReader reader{Span<u8>(uncompressed.Data(), uncompressed.Size())};
 
-		reader.BeginSeq("assets");
-		while (reader.NextSeqEntry())
+		reader.BeginMap("asset");
+		RID rid = Resources::Deserialize(reader);
+		reader.EndMap();
+
+		if (ResourceObject resourceObject = Resources::Read(rid))
 		{
-			reader.BeginMap();
-			String pathId = reader.ReadString("pathId");
-			RID    rid = Resources::Deserialize(reader);
-
-			struct BufferInfo
+			resourceObject.IterateAllBuffers([&](const ResourceBuffer& buffer)
 			{
-				u64 offset;
-				u64 size;
-			};
-			HashMap<String, BufferInfo> buffers;
-
-			if (reader.ReadUInt("bufferCount") > 0)
-			{
-				reader.BeginSeq("buffers");
-				while (reader.NextSeqEntry())
-				{
-					reader.BeginMap();
-					buffers.Emplace(reader.ReadString("id"), BufferInfo{
-						                .offset = reader.ReadUInt("offset"),
-						                .size = reader.ReadUInt("size")
-					                });
-					reader.EndSeq();
-				}
-				reader.EndSeq();
-			}
-			reader.EndMap();
-
-			if (ResourceObject resourceObject = Resources::Read(rid))
-			{
-				resourceObject.IterateAllBuffers([&](const ResourceBuffer& buffer)
-				{
-					if (auto it = buffers.Find(buffer.GetIdAsString()))
-					{
-						buffer.MapFile(bufferPath, true, it->second.offset, it->second.size);
-					}
-				});
-			}
+				String bufferFilePath = Path::Join(folder, buffer.GetIdAsString() + ".buffer");
+				buffer.MapFile(bufferFilePath, true, 0, 0);
+			});
 		}
-		reader.EndSeq();
 	}
 
-	static void CookWrapper(RID wrapper, const ResourceObject& wrapperObj, StringView cookedPath, StringView bufferPath, UndoRedoScope* scope)
+	static void LoadCookedFolder(StringView folder)
+	{
+		for (const String& file : DirectoryEntries(folder))
+		{
+			if (Path::Extension(file) == ".cooked")
+			{
+				LoadCookedResource(folder, file);
+			}
+		}
+	}
+
+	static void WriteCookedResource(StringView folder, RID root, HashSet<String>& currentFiles)
+	{
+		BinaryArchiveWriter writer;
+		writer.BeginMap("asset");
+		writer.WriteString("pathId", Resources::GetUUID(root).ToString());
+		Resources::Serialize(root, writer);
+		writer.EndMap();
+
+		Span<u8>   data = writer.GetData();
+		usize      bound = Compression::GetMaxCompressedBufferSize(data.Size(), CompressionMode::ZSTD);
+		ByteBuffer compressed;
+		compressed.Resize(bound);
+		usize compressedSize = Compression::Compress(compressed.begin(), bound, data.begin(), data.Size(), CompressionMode::ZSTD);
+
+		String cookedFileName = Resources::GetUUID(root).ToString() + ".cooked";
+		FileSystem::SaveFileAsByteArray(Path::Join(folder, cookedFileName), Span<u8>(compressed.begin(), compressedSize));
+		currentFiles.Emplace(cookedFileName);
+
+		if (ResourceObject object = Resources::Read(root))
+		{
+			ByteBuffer scratch;
+			object.IterateAllBuffers([&](const ResourceBuffer& buffer)
+			{
+				u64 bufferSize = buffer.GetSize();
+				if (bufferSize > scratch.Size())
+				{
+					scratch.Resize(bufferSize);
+				}
+				buffer.CopyData(scratch.begin(), bufferSize);
+
+				String bufferFileName = buffer.GetIdAsString() + ".buffer";
+				String bufferFilePath = Path::Join(folder, bufferFileName);
+				FileSystem::SaveFileAsByteArray(bufferFilePath, Span<u8>(scratch.begin(), bufferSize));
+				buffer.MapFile(bufferFilePath, true, 0, 0);
+				currentFiles.Emplace(bufferFileName);
+			});
+		}
+	}
+
+	static String CookToken(const ResourceObject& wrapperObj)
+	{
+		String token = wrapperObj.GetString(ResourceImportedAsset::ContentHash);
+		token.Append(":");
+		token.Append(ToString(wrapperObj.GetUInt(ResourceImportedAsset::CookerVersion)));
+		return token;
+	}
+
+	static void CookWrapper(RID wrapper, const ResourceObject& wrapperObj, StringView folder, UndoRedoScope* scope)
 	{
 		TypeID importerId = wrapperObj.GetTypeID(ResourceImportedAsset::ImporterId);
 		auto   it = importersByImporterType.Find(importerId);
@@ -1236,28 +1265,29 @@ namespace Skore
 		ctx.scope = scope;
 		importer->Cook(ctx);
 
-		BinaryArchiveWriter writer;
-		writer.BeginSeq("assets");
-
-		FileHandler bufferHandler = FileSystem::OpenFile(bufferPath, AccessMode::WriteOnly);
-		u64         offset = 0;
-		ByteBuffer  scratch;
-		scratch.Resize(10000);
-
-		for (RID root : ctx.produced)
+		if (!FileSystem::GetFileStatus(folder).exists)
 		{
-			WriteCookedAsset(writer, Resources::GetUUID(root).ToString(), root, bufferHandler, offset, scratch, false);
+			FileSystem::CreateDirectory(folder);
 		}
 
-		FileSystem::CloseFile(bufferHandler);
-		writer.EndSeq();
+		HashSet<String> currentFiles;
+		for (RID root : ctx.produced)
+		{
+			WriteCookedResource(folder, root, currentFiles);
+		}
 
-		Span<u8>   data = writer.GetData();
-		usize      bound = Compression::GetMaxCompressedBufferSize(data.Size(), CompressionMode::ZSTD);
-		ByteBuffer compressed;
-		compressed.Resize(bound);
-		usize compressedSize = Compression::Compress(compressed.begin(), bound, data.begin(), data.Size(), CompressionMode::ZSTD);
-		FileSystem::SaveFileAsByteArray(cookedPath, Span<u8>(compressed.begin(), compressedSize));
+		String cookInfoName = "cook.info";
+		FileSystem::SaveFileAsString(Path::Join(folder, cookInfoName), CookToken(wrapperObj));
+		currentFiles.Emplace(cookInfoName);
+
+		for (const String& file : DirectoryEntries(folder))
+		{
+			String fileName = Path::Name(file) + Path::Extension(file);
+			if (!currentFiles.Has(fileName))
+			{
+				FileSystem::Remove(file);
+			}
+		}
 
 		logger.Debug("cooked imported asset {} ({} sub-resources)", Resources::GetUUID(wrapper).ToString(), ctx.produced.Size());
 	}
@@ -1347,6 +1377,17 @@ namespace Skore
 		ResourceAssets::RegisterAssetByType(primary);
 	}
 
+	static bool HasCookedResources(StringView folder)
+	{
+		if (!FileSystem::GetFileStatus(folder).exists) return false;
+
+		for (const String& file : DirectoryEntries(folder))
+		{
+			if (Path::Extension(file) == ".cooked") return true;
+		}
+		return false;
+	}
+
 	void ResourceAssets::EnsureCooked(RID rid, UndoRedoScope* scope)
 	{
 		UUID uuid = GetAssetUUID(rid);
@@ -1356,16 +1397,15 @@ namespace Skore
 		ResourceObject wrapperObj = Resources::Read(wrapper);
 		if (!wrapperObj) return;
 
-		String cookedPath = Path::Join(libraryDirectory, uuid.ToString(), ".cooked");
-		String bufferPath = Path::Join(libraryDirectory, uuid.ToString(), ".buffer");
+		String folder = Path::Join(libraryDirectory, uuid.ToString());
 
-		if (FileSystem::GetFileStatus(cookedPath).exists && FileSystem::GetFileStatus(bufferPath).exists)
+		if (HasCookedResources(folder) && FileSystem::ReadFileAsString(Path::Join(folder, "cook.info")) == CookToken(wrapperObj))
 		{
-			LoadCookedBlob(cookedPath, bufferPath);
+			LoadCookedFolder(folder);
 		}
 		else
 		{
-			CookWrapper(wrapper, wrapperObj, cookedPath, bufferPath, scope);
+			CookWrapper(wrapper, wrapperObj, folder, scope);
 		}
 	}
 
@@ -1378,9 +1418,8 @@ namespace Skore
 		ResourceObject wrapperObj = Resources::Read(wrapper);
 		if (!wrapperObj) return;
 
-		String cookedPath = Path::Join(libraryDirectory, uuid.ToString(), ".cooked");
-		String bufferPath = Path::Join(libraryDirectory, uuid.ToString(), ".buffer");
-		CookWrapper(wrapper, wrapperObj, cookedPath, bufferPath, scope);
+		String folder = Path::Join(libraryDirectory, uuid.ToString());
+		CookWrapper(wrapper, wrapperObj, folder, scope);
 	}
 
 	static void ReimportWrapperFromFile(RID wrapper, const String& path, UndoRedoScope* scope)
@@ -2250,6 +2289,9 @@ namespace Skore
 			FileSystem::SaveFileAsByteArray(bufferPath, Span{static_cast<u8*>(bytes), size});
 		}
 		buffer.MapFile(bufferPath, false, 0, 0);
+
+		logger.Debug("buffer mapped to {} ", bufferPath);
+
 		return buffer;
 	}
 

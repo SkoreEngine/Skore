@@ -169,7 +169,7 @@ namespace Skore
 		String                        path;
 		ResourceType*                 resourceType = nullptr;
 		u32                           resourceTypeVersion = 0;
-		std::atomic<ResourceInstance> instance = {};	//TODO: rename to value
+		std::atomic<ResourceInstance> instance = {};
 		std::atomic<u64>              version = 1;
 		ResourceStorage*              parent = nullptr;
 		u32                           parentFieldIndex = U32_MAX;
@@ -192,6 +192,8 @@ namespace Skore
 				events[static_cast<u32>(type)].Erase(itAsset);
 			}
 		}
+
+		Array<RID> GetPrototypeInstancesSafe();
 	};
 
 

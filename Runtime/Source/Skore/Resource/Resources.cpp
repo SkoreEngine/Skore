@@ -42,6 +42,20 @@ namespace Skore
 		void Redo();
 	};
 
+	Array<RID> ResourceStorage::GetPrototypeInstancesSafe()
+	{
+		Array<RID> instances;
+		{
+			std::unique_lock lock(prototypeInstancesMutex);
+			instances.Reserve(prototypeInstances.Size());
+			for (RID rid : prototypeInstances)
+			{
+				instances.EmplaceBack(rid);
+			}
+		}
+		return instances;
+	}
+
 	namespace
 	{
 		struct DestroyResourcePayload
@@ -276,48 +290,64 @@ namespace Skore
 					{
 						if (field && field->GetType() == ResourceFieldType::SubObjectList)
 						{
-							struct CompareSubObjectListUserData
+							for (RID instance : instances)
 							{
-								Span<RID>      instances;
-								ResourceField* field;
-								UndoRedoScope* scope;
-							};
-
-							CompareSubObjectListUserData userData = {};
-							userData.instances = instances;
-							userData.field = field;
-							userData.scope = scope;
-
-							Resources::CompareSubObjectList(oldValue, newValue, field->GetIndex(), &userData, [](const CompareSubObjectListResult& result, VoidPtr userDataPtr)
-							{
-								CompareSubObjectListUserData& userData = *static_cast<CompareSubObjectListUserData*>(userDataPtr);
-
-								if (result.type == CompareSubObjectSetType::Removed)
+								Array<RID> toRemove;
+								Array<RID> toAdd;
 								{
-									for (RID instance : userData.instances)
+									ResourceObject instanceObjRead = Resources::Read(instance);
+									instanceObjRead.IterateSubObjectList(field->GetIndex(), [&](RID rid)
 									{
-										ResourceObject write = Resources::Write(instance);
-										Array<RID>     removed = write.RemoveFromSubObjectListByPrototype(userData.field->GetIndex(), result.rid);
-										write.Commit(userData.scope);
+										if (RID prototype = Resources::GetPrototype(rid))
+										{
+											if (!newValue.HasOnSubObjectList(field->GetIndex(), prototype))
+											{
+												toRemove.EmplaceBack(prototype);
+											}
+										}
+									});
+								}
 
+								{
+									newValue.IterateSubObjectList(field->GetIndex(), [&](RID prototype)
+									{
+										bool found = false;
+										ResourceObject instanceObjRead = Resources::Read(instance);
+										instanceObjRead.IterateSubObjectList(field->GetIndex(), [&](RID rid)
+										{
+											if (Resources::GetPrototype(rid) == prototype)
+											{
+												found = true;
+											}
+										});
+										if (!found)
+										{
+											toAdd.EmplaceBack(prototype);
+										}
+									});
+								}
+
+								if (!toAdd.Empty() || !toRemove.Empty())
+								{
+									ResourceObject instanceWrite = Resources::Write(instance);
+
+									for (RID add: toAdd)
+									{
+										RID newSubObject = Resources::CreateFromPrototype(add, Resources::GetUUID(add) != UUID{} ? UUID::RandomUUID() : UUID{}, scope);
+										instanceWrite.AddToSubObjectList(field->GetIndex(), newSubObject);
+									}
+
+									for (RID remove: toRemove)
+									{
+										Array<RID> removed = instanceWrite.RemoveFromSubObjectListByPrototype(field->GetIndex(), remove);
 										for (RID removedInstance : removed)
 										{
-											Resources::Destroy(removedInstance, userData.scope);
+											Resources::Destroy(removedInstance, scope);
 										}
 									}
+									instanceWrite.Commit(scope);
 								}
-								else if (result.type == CompareSubObjectSetType::Added)
-								{
-									for (RID instance : userData.instances)
-									{
-										RID newSubObject = Resources::CreateFromPrototype(result.rid, UUID{}, userData.scope);
-
-										ResourceObject write = Resources::Write(instance);
-										write.AddToSubObjectList(userData.field->GetIndex(), newSubObject);
-										write.Commit(userData.scope);
-									}
-								}
-							});
+							}
 						}
 					}
 				}
@@ -733,11 +763,6 @@ namespace Skore
 			{
 				requestedType = CreateFromReflectType(reflectType);
 			}
-		}
-
-		if (storage->resourceType == requestedType)
-		{
-			return rid;
 		}
 
 		storage->instance = nullptr;
@@ -1791,20 +1816,38 @@ namespace Skore
 		PendingEvent pendingEvent{};
 		while (pendingEvents.try_dequeue(pendingEvent))
 		{
-			ResourceObject oldValue(pendingEvent.oldStorage, pendingEvent.oldInstance);
-			ResourceObject newValue(pendingEvent.newStorage, pendingEvent.newInstance);
-
-			for (const ResourceEvent& event : pendingEvent.subject->events[static_cast<u32>(pendingEvent.type)])
+			auto dispatch = [](ResourceEventType type, ResourceStorage* storage, ResourceObject&& oldValue, ResourceObject&& newValue)
 			{
-				event.function(oldValue, newValue, event.userData);
-			}
-
-			if (pendingEvent.subject->resourceType != nullptr)
-			{
-				for (const ResourceEvent& event : pendingEvent.subject->resourceType->GetEvents(pendingEvent.type))
+				for (const ResourceEvent& event : storage->events[static_cast<u32>(type)])
 				{
 					event.function(oldValue, newValue, event.userData);
 				}
+
+				if (storage->resourceType != nullptr)
+				{
+					for (const ResourceEvent& event : storage->resourceType->GetEvents(type))
+					{
+						event.function(oldValue, newValue, event.userData);
+					}
+				}
+			};
+
+			dispatch(pendingEvent.type,
+			         pendingEvent.subject,
+			         ResourceObject{pendingEvent.oldStorage, pendingEvent.oldInstance},
+			         ResourceObject{pendingEvent.newStorage, pendingEvent.newInstance}
+			);
+
+			for (RID rid : pendingEvent.newStorage->GetPrototypeInstancesSafe())
+			{
+				ResourceStorage* prototypeInstanceStorage = GetStorage(rid);
+				ResourceInstance value = prototypeInstanceStorage->instance.load();
+				dispatch(
+					pendingEvent.type,
+					prototypeInstanceStorage,
+					ResourceObject{prototypeInstanceStorage, value},
+					ResourceObject{prototypeInstanceStorage, value}
+				);
 			}
 		}
 	}

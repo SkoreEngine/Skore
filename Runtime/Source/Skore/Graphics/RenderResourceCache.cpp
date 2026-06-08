@@ -1313,6 +1313,9 @@ namespace Skore
 
 			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
 
+			//keep textures alive in the scope. so we don't need to reload textures in a material refresh.
+			auto oldtextures = materialCache->textures;
+
 			// Drop previous texture references; rebuild based on the new material data.
 			materialCache->textures.Clear();
 
@@ -1458,10 +1461,6 @@ namespace Skore
 
 		void GraphicsResourceStorageMaterialReload(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 		{
-			//return;
-
-			logger.Debug("material {} reload", newValue.GetString(MaterialResource::Name));
-
 			std::unique_lock lock(materialCacheMutex);
 
 			auto it = materialCache.Find(newValue.GetRID());
@@ -1529,10 +1528,6 @@ namespace Skore
 
 		void GraphicsResourceStorageTextureReload(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 		{
-			return;
-
-			logger.Debug("texture {} reload", newValue.GetString(TextureResource::Name));
-
 			RID textureRID = newValue.GetRID();
 
 			TextureResourceCachePtr asyncStorage;
