@@ -182,7 +182,7 @@ namespace Skore
 	struct SK_API MeshResourceCache : ResourceCache
 	{
 		RID rid;
-		std::atomic<u64> version{0};
+		u64 version = 0;
 
 		MeshResourceCache(RID rid) : rid(rid) {}
 		~MeshResourceCache() override;
