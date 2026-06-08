@@ -9,7 +9,6 @@
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Utils/PreviewGenerator.hpp"
-#include "Skore/Window/PreviewWindow.hpp"
 
 namespace Skore
 {
@@ -41,12 +40,13 @@ namespace Skore
 			{
 				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
 				{
-					Editor::GetActiveWorkspace()->OpenAsset(object);
-
+					RID previewEntity = {};
 					if (ResourceObject dccAssetObject = Resources::Read(object))
 					{
-						PreviewWindow::OpenAsset(dccAssetObject.GetSubObject(DCCAsset::RootEntity));
+						previewEntity = dccAssetObject.GetSubObject(DCCAsset::RootEntity);
 					}
+
+					Editor::GetActiveWorkspace()->OpenAsset(object, previewEntity);
 				}
 			}
 		}
