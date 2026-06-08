@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include "ResourceCommon.hpp"
 #include "Skore/Common.hpp"
 #include "Skore/Core/Hash.hpp"
@@ -173,6 +175,7 @@ namespace Skore
 		u32                           parentFieldIndex = U32_MAX;
 		ResourceStorage*              prototype = nullptr;
 		HashSet<RID>                  prototypeInstances;
+		std::mutex                    prototypeInstancesMutex;
 
 		Array<ResourceEvent> events[static_cast<u32>(ResourceEventType::MAX)];
 

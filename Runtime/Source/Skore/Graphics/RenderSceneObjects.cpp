@@ -500,7 +500,7 @@ namespace Skore
 		dc.vertexByteOffset = vertexByteOffset;
 		dc.indexByteOffset = indexByteOffset;
 		dc.mesh = obj->meshCache;
-		dc.meshVersion = obj->meshCache->version.load(std::memory_order_acquire);
+		dc.meshVersion = obj->meshCache->version;
 		dc.material = material;
 		dc.userData = obj->userData;
 		dc.vertexLayoutIndex = vertexLayoutIndex;
@@ -682,7 +682,7 @@ namespace Skore
 					if (ref.pipelineIndex == U32_MAX) continue;
 					Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
 					const Drawcall& dc = storage[ref.pipelineIndex].drawcalls[ref.handle];
-					if (dc.mesh && dc.mesh->version.load(std::memory_order_acquire) != dc.meshVersion)
+					if (dc.mesh && dc.mesh->version != dc.meshVersion)
 					{
 						MarkDirty(obj);
 						break;

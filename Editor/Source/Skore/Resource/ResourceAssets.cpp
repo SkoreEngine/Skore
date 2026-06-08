@@ -1098,41 +1098,6 @@ namespace Skore
 		wrapper.Commit(ctx.scope);
 	}
 
-	static String CookCacheKey(const ResourceObject& wrapper)
-	{
-		u64 acc[2] = {0, 0};
-
-		auto fold = [&](const void* data, usize len)
-		{
-			u64 h[2] = {0, 0};
-			MurmurHash3X64128(data, static_cast<u32>(len), HashSeed32, h);
-			acc[0] = acc[0] * 31 + h[0];
-			acc[1] = acc[1] * 31 + h[1];
-		};
-
-		String contentHash = wrapper.GetString(ResourceImportedAsset::ContentHash);
-		u64    cookerVersion = wrapper.GetUInt(ResourceImportedAsset::CookerVersion);
-		TypeID importerId = wrapper.GetTypeID(ResourceImportedAsset::ImporterId);
-		u32    formatVersion = kLibraryFormatVersion;
-		UUID   wrapperUUID = wrapper.GetUUID();
-
-		fold(&wrapperUUID, sizeof(wrapperUUID));
-		fold(contentHash.CStr(), contentHash.Size());
-		fold(&cookerVersion, sizeof(cookerVersion));
-		fold(&importerId, sizeof(importerId));
-		fold(&formatVersion, sizeof(formatVersion));
-
-		if (RID importSettings = wrapper.GetSubObject(ResourceImportedAsset::ImportSettings))
-		{
-			BinaryArchiveWriter settingsWriter;
-			Resources::Serialize(importSettings, settingsWriter);
-			Span<u8> settingsData = settingsWriter.GetData();
-			fold(settingsData.begin(), settingsData.Size());
-		}
-
-		return UUID{acc[0], acc[1]}.ToString();
-	}
-
 	static void WriteCookedAsset(BinaryArchiveWriter& writer, StringView pathId, RID root, FileHandler bufferHandler, u64& offset, ByteBuffer& scratch, bool useHandlerExport)
 	{
 		writer.BeginMap();
@@ -1382,10 +1347,17 @@ namespace Skore
 		ResourceAssets::RegisterAssetByType(primary);
 	}
 
-	static void CookOrLoad(RID wrapper, const ResourceObject& wrapperObj, const String& key, UndoRedoScope* scope)
+	void ResourceAssets::EnsureCooked(RID rid, UndoRedoScope* scope)
 	{
-		String cookedPath = Path::Join(libraryDirectory, key + ".cooked");
-		String bufferPath = Path::Join(libraryDirectory, key + ".buffer");
+		UUID uuid = GetAssetUUID(rid);
+		RID wrapper = ResolveWrapperRID(rid);
+		if (!wrapper) return;
+
+		ResourceObject wrapperObj = Resources::Read(wrapper);
+		if (!wrapperObj) return;
+
+		String cookedPath = Path::Join(libraryDirectory, uuid.ToString(), ".cooked");
+		String bufferPath = Path::Join(libraryDirectory, uuid.ToString(), ".buffer");
 
 		if (FileSystem::GetFileStatus(cookedPath).exists && FileSystem::GetFileStatus(bufferPath).exists)
 		{
@@ -1397,15 +1369,18 @@ namespace Skore
 		}
 	}
 
-	void ResourceAssets::EnsureCooked(RID rid, UndoRedoScope* scope)
+	void ReCook(RID rid, UndoRedoScope* scope)
 	{
+		UUID uuid = ResourceAssets::GetAssetUUID(rid);
 		RID wrapper = ResolveWrapperRID(rid);
 		if (!wrapper) return;
 
 		ResourceObject wrapperObj = Resources::Read(wrapper);
 		if (!wrapperObj) return;
 
-		CookOrLoad(wrapper, wrapperObj, CookCacheKey(wrapperObj), scope);
+		String cookedPath = Path::Join(libraryDirectory, uuid.ToString(), ".cooked");
+		String bufferPath = Path::Join(libraryDirectory, uuid.ToString(), ".buffer");
+		CookWrapper(wrapper, wrapperObj, cookedPath, bufferPath, scope);
 	}
 
 	static void ReimportWrapperFromFile(RID wrapper, const String& path, UndoRedoScope* scope)
@@ -1470,7 +1445,7 @@ namespace Skore
 	{
 		Editor::AddTask([object, scope]
 		{
-			EnsureCooked(object, scope);
+			ReCook(object, scope);
 		},
 		"Cooking import settings");
 	}

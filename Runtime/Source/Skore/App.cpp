@@ -230,6 +230,7 @@ namespace Skore
 		onUpdateHandler.Invoke();
 		onEndFrameHandler.Invoke();
 		Profiler::EndFrame();
+		Resources::EndFrame();
 
 		frame++;
 

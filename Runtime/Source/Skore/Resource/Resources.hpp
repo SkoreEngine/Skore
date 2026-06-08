@@ -97,6 +97,8 @@ namespace Skore
 
 		static void LoadResources(StringView filePath);
 		static void GarbageCollect();
+		static void DispatchEvents();
+		static void EndFrame();
 		static void MigrateResourcesForReflection();
 		static void MigrateResourceForType(TypeID typeId);
 		static void MigrateResources(ResourceType* oldType, ResourceType* newType);

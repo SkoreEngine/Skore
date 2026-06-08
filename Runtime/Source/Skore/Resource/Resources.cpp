@@ -118,6 +118,18 @@ namespace Skore
 
 		moodycamel::ConcurrentQueue<DestroyResourcePayload> toCollectItems = moodycamel::ConcurrentQueue<DestroyResourcePayload>(100);
 
+		struct PendingEvent
+		{
+			ResourceEventType type;
+			ResourceStorage*  subject;
+			ResourceStorage*  oldStorage;
+			ResourceInstance  oldInstance;
+			ResourceStorage*  newStorage;
+			ResourceInstance  newInstance;
+		};
+
+		moodycamel::ConcurrentQueue<PendingEvent> pendingEvents = moodycamel::ConcurrentQueue<PendingEvent>(100);
+
 
 		RID GetFreeID()
 		{
@@ -234,69 +246,80 @@ namespace Skore
 
 		void ExecuteEvents(ResourceEventType type, ResourceStorage* resourceStorage, ResourceObject&& oldValue, ResourceObject&& newValue, UndoRedoScope* scope)
 		{
+			ResourceStorage* oldStorage = oldValue.GetStorage();
+			ResourceStorage* newStorage = newValue.GetStorage();
 
-			for (const ResourceEvent& eventStorage : resourceStorage->events[static_cast<u32>(type)])
-			{
-				eventStorage.function(oldValue, newValue, eventStorage.userData);
-			}
+			pendingEvents.enqueue(PendingEvent{
+				.type = type,
+				.subject = resourceStorage,
+				.oldStorage = oldStorage,
+				.oldInstance = oldStorage ? oldValue.GetInstance() : nullptr,
+				.newStorage = newStorage,
+				.newInstance = newStorage ? newValue.GetInstance() : nullptr,
+			});
 
-			if (oldValue && type == ResourceEventType::Changed && !resourceStorage->prototypeInstances.Empty())
+			if (oldValue && type == ResourceEventType::Changed)
 			{
-				for (ResourceField* field : resourceStorage->resourceType->GetFields())
+				Array<RID> instances;
 				{
-					if (field->GetType() == ResourceFieldType::SubObjectList)
+					std::unique_lock lock(resourceStorage->prototypeInstancesMutex);
+					instances.Reserve(resourceStorage->prototypeInstances.Size());
+					for (RID instance : resourceStorage->prototypeInstances)
 					{
-						struct CompareSubObjectListUserData
-						{
-							ResourceStorage* storage;
-							ResourceField*   field;
-							UndoRedoScope*   scope;
-						};
-
-						CompareSubObjectListUserData userData = {};
-						userData.storage = resourceStorage;
-						userData.field = field;
-						userData.scope = scope;
-
-						Resources::CompareSubObjectList(oldValue, newValue, field->GetIndex(), &userData, [](const CompareSubObjectListResult& result, VoidPtr userDataPtr)
-						{
-							CompareSubObjectListUserData& userData = *static_cast<CompareSubObjectListUserData*>(userDataPtr);
-
-							if (result.type == CompareSubObjectSetType::Removed)
-							{
-								for (RID instance : userData.storage->prototypeInstances)
-								{
-									ResourceObject write = Resources::Write(instance);
-									Array<RID>     removed = write.RemoveFromSubObjectListByPrototype(userData.field->GetIndex(), result.rid);
-									write.Commit(userData.scope);
-
-									for (RID removedInstance : removed)
-									{
-										Resources::Destroy(removedInstance, userData.scope);
-									}
-								}
-							}
-							else if (result.type == CompareSubObjectSetType::Added)
-							{
-								for (RID instance : userData.storage->prototypeInstances)
-								{
-									RID newSubObject = Resources::CreateFromPrototype(result.rid, UUID{}, userData.scope);
-
-									ResourceObject write = Resources::Write(instance);
-									write.AddToSubObjectList(userData.field->GetIndex(), newSubObject);
-									write.Commit(userData.scope);
-								}
-							}
-						});
+						instances.EmplaceBack(instance);
 					}
 				}
-			}
 
-			if (resourceStorage->resourceType != nullptr)
-			{
-				for (const ResourceEvent& eventType : resourceStorage->resourceType->GetEvents(type))
+				if (!instances.Empty())
 				{
-					eventType.function(oldValue, newValue, eventType.userData);
+					for (ResourceField* field : resourceStorage->resourceType->GetFields())
+					{
+						if (field && field->GetType() == ResourceFieldType::SubObjectList)
+						{
+							struct CompareSubObjectListUserData
+							{
+								Span<RID>      instances;
+								ResourceField* field;
+								UndoRedoScope* scope;
+							};
+
+							CompareSubObjectListUserData userData = {};
+							userData.instances = instances;
+							userData.field = field;
+							userData.scope = scope;
+
+							Resources::CompareSubObjectList(oldValue, newValue, field->GetIndex(), &userData, [](const CompareSubObjectListResult& result, VoidPtr userDataPtr)
+							{
+								CompareSubObjectListUserData& userData = *static_cast<CompareSubObjectListUserData*>(userDataPtr);
+
+								if (result.type == CompareSubObjectSetType::Removed)
+								{
+									for (RID instance : userData.instances)
+									{
+										ResourceObject write = Resources::Write(instance);
+										Array<RID>     removed = write.RemoveFromSubObjectListByPrototype(userData.field->GetIndex(), result.rid);
+										write.Commit(userData.scope);
+
+										for (RID removedInstance : removed)
+										{
+											Resources::Destroy(removedInstance, userData.scope);
+										}
+									}
+								}
+								else if (result.type == CompareSubObjectSetType::Added)
+								{
+									for (RID instance : userData.instances)
+									{
+										RID newSubObject = Resources::CreateFromPrototype(result.rid, UUID{}, userData.scope);
+
+										ResourceObject write = Resources::Write(instance);
+										write.AddToSubObjectList(userData.field->GetIndex(), newSubObject);
+										write.Commit(userData.scope);
+									}
+								}
+							});
+						}
+					}
 				}
 			}
 
@@ -702,28 +725,35 @@ namespace Skore
 	{
 		RID  rid = GetID(uuid);
 		ResourceStorage* storage = GetOrAllocate(rid, uuid);
-		storage->instance = nullptr;
-		storage->resourceType = FindTypeByID(typeId);
 
-		if (storage->resourceType == nullptr && typeId)
+		ResourceType* requestedType = FindTypeByID(typeId);
+		if (requestedType == nullptr && typeId)
 		{
 			if (ReflectType* reflectType = Reflection::FindTypeById(typeId))
 			{
-				storage->resourceType = CreateFromReflectType(reflectType);
+				requestedType = CreateFromReflectType(reflectType);
 			}
 		}
+
+		if (storage->resourceType == requestedType)
+		{
+			return rid;
+		}
+
+		storage->instance = nullptr;
+		storage->resourceType = requestedType;
 
 		if (storage->resourceType)
 		{
 			storage->resourceTypeVersion = storage->resourceType->version;
-		}
 
-		if (storage->resourceType && storage->resourceType->defaultValue)
-		{
-			ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
-			CloneContext context = {
-			};
-			storage->instance = CreateResourceInstanceClone(context, storage, defaultValueStorage->instance.load(), scope);
+			if (storage->resourceType->defaultValue)
+			{
+				ResourceStorage* defaultValueStorage = GetStorage(storage->resourceType->defaultValue);
+				CloneContext context = {
+				};
+				storage->instance = CreateResourceInstanceClone(context, storage, defaultValueStorage->instance.load(), scope);
+			}
 		}
 
 		if (scope && storage->instance)
@@ -756,7 +786,10 @@ namespace Skore
 		storage->resourceType = prototype->resourceType;
 		storage->resourceTypeVersion = prototype->resourceTypeVersion;
 		storage->prototype = prototype;
-		prototype->prototypeInstances.Insert(rid);
+		{
+			std::unique_lock lock(prototype->prototypeInstancesMutex);
+			prototype->prototypeInstances.Insert(rid);
+		}
 
 		ResourceObject object = Resources::Write(rid);
 
@@ -1338,7 +1371,10 @@ namespace Skore
 			{
 				//it should be GetOrAllocate, but it's not working.
 				storage->prototype = GetOrAllocate(prototype, prototypeUUID);
-				storage->prototype->prototypeInstances.Insert(rid);
+				{
+					std::unique_lock lock(storage->prototype->prototypeInstancesMutex);
+					storage->prototype->prototypeInstances.Insert(rid);
+				}
 			}
 
 			if (storage->resourceType)
@@ -1748,6 +1784,35 @@ namespace Skore
 		{
 			DestroyResourceInstance(payload.type, payload.instance);
 		}
+	}
+
+	void Resources::DispatchEvents()
+	{
+		PendingEvent pendingEvent{};
+		while (pendingEvents.try_dequeue(pendingEvent))
+		{
+			ResourceObject oldValue(pendingEvent.oldStorage, pendingEvent.oldInstance);
+			ResourceObject newValue(pendingEvent.newStorage, pendingEvent.newInstance);
+
+			for (const ResourceEvent& event : pendingEvent.subject->events[static_cast<u32>(pendingEvent.type)])
+			{
+				event.function(oldValue, newValue, event.userData);
+			}
+
+			if (pendingEvent.subject->resourceType != nullptr)
+			{
+				for (const ResourceEvent& event : pendingEvent.subject->resourceType->GetEvents(pendingEvent.type))
+				{
+					event.function(oldValue, newValue, event.userData);
+				}
+			}
+		}
+	}
+
+	void Resources::EndFrame()
+	{
+		DispatchEvents();
+		GarbageCollect();
 	}
 
 	void CopyFieldData(ResourceType* oldType, ResourceInstance oldInstance, ResourceField* oldField,
