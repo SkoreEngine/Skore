@@ -1855,7 +1855,10 @@ namespace Skore
 	void Resources::EndFrame()
 	{
 		DispatchEvents();
-		GarbageCollect();
+
+		//TODO - garbage collect is disabled - it's generating a ton of issues because it was disabled before.
+		//need to map all issues caused by enabling it.
+		//GarbageCollect();
 	}
 
 	void CopyFieldData(ResourceType* oldType, ResourceInstance oldInstance, ResourceField* oldField,

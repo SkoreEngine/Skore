@@ -79,7 +79,7 @@ namespace Skore
 		Mat4           GetMat4(u32 index) const;
 		Color          GetColor(u32 index) const;
 		i64            GetEnum(u32 index) const;
-		Skore::TypeID  GetTypeID(u32 index) const;
+		TypeID				 GetTypeID(u32 index) const;
 		RID            GetSubObject(u32 index) const;
 		RID            GetReference(u32 index) const;
 		Span<u8>       GetBlob(u32 index) const;
