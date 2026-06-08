@@ -39,6 +39,8 @@ namespace Skore
 
 		operator bool() const;
 
+		String Path() const;
+
 		friend class ResourceObject;
 	private:
 		std::shared_ptr<ResourceBufferInstance> m_instance = nullptr;

@@ -58,13 +58,15 @@ namespace Skore
 		{
 			if (m_instance->handler)
 			{
-				FileSystem::ReadFileAt(m_instance->handler, data, size, m_instance->offset + offset);
+				return FileSystem::ReadFileAt(m_instance->handler, data, size, m_instance->offset + offset);
 			}
-			else if (!m_instance->filePath.Empty())
+
+			if (!m_instance->filePath.Empty())
 			{
 				FileHandler fileHandler = FileSystem::OpenFile(m_instance->filePath, AccessMode::ReadOnly);
-				FileSystem::ReadFileAt(fileHandler, data, size, m_instance->offset + offset);
+				u64         s = FileSystem::ReadFileAt(fileHandler, data, size, m_instance->offset + offset);
 				FileSystem::CloseFile(fileHandler);
+				return s;
 			}
 		}
 		return 0;
@@ -103,5 +105,11 @@ namespace Skore
 	ResourceBuffer::operator bool() const
 	{
 		return m_instance != nullptr;
+	}
+
+	String ResourceBuffer::Path() const
+	{
+		if (m_instance == nullptr) return "";
+		return m_instance->filePath;
 	}
 }

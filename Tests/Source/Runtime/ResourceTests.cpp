@@ -662,6 +662,108 @@ namespace
 	}
 #endif
 
+	TEST_CASE("Resource::SubObjectListPrototypePropagation")
+	{
+		ResourceInit();
+		{
+			RegisterTestTypes();
+
+			auto makeSub = [](i64 marker) -> RID
+			{
+				RID rid = Resources::Create<ResourceTest>();
+				ResourceObject write = Resources::Write(rid);
+				write.SetInt(ResourceTest::IntValue, marker);
+				write.Commit();
+				return rid;
+			};
+
+			auto verifyMirror = [&](RID instance, const Array<RID>& expectedProtos)
+			{
+				ResourceObject read = Resources::Read(instance);
+				Array<RID>     list = read.GetSubObjectList(ResourceTest::SubObjectList);
+
+				REQUIRE(list.Size() == expectedProtos.Size());
+
+				HashSet<RID> seen;
+				for (RID sub : list)
+				{
+					RID proto = Resources::GetPrototype(sub);
+					REQUIRE(proto);
+
+					ResourceObject subRead = Resources::Read(sub);
+					ResourceObject protoRead = Resources::Read(proto);
+					CHECK(subRead.GetInt(ResourceTest::IntValue) == protoRead.GetInt(ResourceTest::IntValue));
+
+					seen.Insert(proto);
+				}
+
+				CHECK(seen.Size() == expectedProtos.Size());
+				for (RID expected : expectedProtos)
+				{
+					CHECK(seen.Has(expected));
+				}
+			};
+
+			RID prototype = Resources::Create<ResourceTest>();
+			RID sub1 = makeSub(1);
+			RID sub2 = makeSub(2);
+
+			{
+				ResourceObject write = Resources::Write(prototype);
+				write.SetString(ResourceTest::StringValue, "prototype");
+				write.AddToSubObjectList(ResourceTest::SubObjectList, sub1);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, sub2);
+				write.Commit();
+			}
+
+			RID instance1 = Resources::CreateFromPrototype(prototype);
+			RID instance2 = Resources::CreateFromPrototype(prototype);
+			RID instance3 = Resources::CreateFromPrototype(prototype);
+
+			verifyMirror(instance1, {sub1, sub2});
+			verifyMirror(instance2, {sub1, sub2});
+			verifyMirror(instance3, {sub1, sub2});
+
+			RID sub3 = makeSub(3);
+			RID sub4 = makeSub(4);
+
+			{
+				ResourceObject write = Resources::Write(prototype);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, sub3);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, sub4);
+				write.RemoveFromSubObjectList(ResourceTest::SubObjectList, sub1);
+				write.Commit();
+			}
+
+			verifyMirror(instance1, {sub2, sub3, sub4});
+			verifyMirror(instance2, {sub2, sub3, sub4});
+			verifyMirror(instance3, {sub2, sub3, sub4});
+
+			RID sub5 = makeSub(5);
+
+			{
+				ResourceObject write = Resources::Write(prototype);
+				write.RemoveFromSubObjectList(ResourceTest::SubObjectList, sub2);
+				write.AddToSubObjectList(ResourceTest::SubObjectList, sub5);
+				write.Commit();
+			}
+
+			verifyMirror(instance1, {sub3, sub4, sub5});
+			verifyMirror(instance2, {sub3, sub4, sub5});
+			verifyMirror(instance3, {sub3, sub4, sub5});
+
+			{
+				ResourceObject read = Resources::Read(prototype);
+				HashSet<RID>   protoSet = ToHashSet<RID>(read.GetSubObjectList(ResourceTest::SubObjectList));
+				CHECK(protoSet.Size() == 3);
+				CHECK(protoSet.Has(sub3));
+				CHECK(protoSet.Has(sub4));
+				CHECK(protoSet.Has(sub5));
+			}
+		}
+		ResourceShutdown();
+	}
+
 	TEST_CASE("Resource::DuplicateReference")
 	{
 		ResourceInit();
