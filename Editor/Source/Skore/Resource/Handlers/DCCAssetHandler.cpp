@@ -9,6 +9,7 @@
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Utils/PreviewGenerator.hpp"
+#include "Skore/Window/PreviewWindow.hpp"
 
 namespace Skore
 {
@@ -36,9 +37,17 @@ namespace Skore
 
 		void OpenAsset(RID asset) override
 		{
-			if (ResourceObject object = Resources::Read(asset))
+			if (ResourceObject assetObject = Resources::Read(asset))
 			{
-				Editor::GetActiveWorkspace()->OpenAsset(object.GetSubObject(ResourceAsset::Object));
+				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
+				{
+					Editor::GetActiveWorkspace()->OpenAsset(object);
+
+					if (ResourceObject dccAssetObject = Resources::Read(object))
+					{
+						PreviewWindow::OpenAsset(dccAssetObject.GetSubObject(DCCAsset::RootEntity));
+					}
+				}
 			}
 		}
 
