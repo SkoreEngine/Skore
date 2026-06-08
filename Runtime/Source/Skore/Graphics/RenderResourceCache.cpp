@@ -1513,8 +1513,6 @@ namespace Skore
 			if (textureStorage->textureIndex != U32_MAX && globalDescriptorSetAlive && globalDescriptorSet)
 			{
 
-				logger.Debug("texture {} set to index {} ", name, textureStorage->textureIndex);
-
 				DescriptorUpdate texUpdate;
 				texUpdate.type = DescriptorType::SampledImage;
 				texUpdate.binding = 3;
@@ -1878,7 +1876,6 @@ namespace Skore
 				for (usize i = 0; i < materials.Size(); i++)
 				{
 					MaterialResourceCachePtr material = RenderResourceCache::GetMaterialCache(materials[i], async);
-					logger.Debug("mesh {} loaded with material {} ", name, materials[i].id);
 					meshData->materials.EmplaceBack(std::move(material));
 				}
 			}
@@ -1996,8 +1993,6 @@ namespace Skore
 
 	TextureResourceCache::~TextureResourceCache()
 	{
-		logger.Debug("texture {} destroyed ", textureIndex);
-
 		if (eventRegistered)
 		{
 			if (ResourceStorage* storage = Resources::GetStorage(rid))
@@ -2391,7 +2386,6 @@ namespace Skore
 		{
 			result->uploadComplete.wait();
 		}
-		logger.Debug("texture {} got ", result->textureIndex);
 		return result;
 	}
 
