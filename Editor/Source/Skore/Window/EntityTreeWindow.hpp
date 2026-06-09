@@ -52,6 +52,9 @@ namespace Skore
 		RID parentSelection = {};
 		RID entitySelection = {};
 
+		//pending runtime selection (Scene*/Entity* mode), committed on mouse release like the editor RID path
+		Entity* entityPtrSelection = nullptr;
+
 		RID lastParentSelection = {};
 		RID lastEntitySelection = {};
 		bool lastSelectionRemoved = false;

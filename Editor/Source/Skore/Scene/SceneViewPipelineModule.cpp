@@ -1,5 +1,6 @@
 #include "imgui.h"
 #include "Skore/Scene/SceneEditor.hpp"
+#include "Skore/Selection.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/DebugDraw.hpp"
 #include "Skore/Graphics/Graphics.hpp"
@@ -646,7 +647,7 @@ namespace Skore
 						}
 						else
 						{
-							for (Entity* entity : sceneViewWindow->sceneEditor->GetSelectionCache())
+							for (Entity* entity : Selection::ResolveEntities(scene))
 							{
 								entity->NotifyEvent(eventDesc, false);
 							}

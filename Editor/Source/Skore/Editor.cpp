@@ -11,6 +11,7 @@
 
 #include "Skore/EditorLayout.hpp"
 #include "Skore/EditorWorkspace.hpp"
+#include "Skore/Selection.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Events.hpp"
@@ -504,6 +505,8 @@ namespace Skore
 			}
 			workspaces.Clear();
 			activeWorkspaceIndex = 0;
+
+			Selection::Shutdown();
 
 			editorWindowStorages.Clear();
 			editorWindowStorages.ShrinkToFit();
@@ -1438,6 +1441,8 @@ namespace Skore
 		}
 		Resources::FindType<EditorState>()->RegisterEvent(ResourceEventType::Changed, OnEditorStateChange, nullptr);
 
+		Selection::Init();
+
 		{
 			RID sceneSettings = Settings::Get<ProjectSettings, SceneSettings>();
 			if (ResourceObject sceneSettingsObject = Resources::Read(sceneSettings))
@@ -1464,6 +1469,7 @@ namespace Skore
 		RegisterResourceAssetTypes();
 		RegisterSceneEditorTypes();
 		RegisterSceneViewPipelineModule();
+		Selection::RegisterType();
 
 		Resources::Type<EditorState>()
 			.Field<EditorState::ActiveWorkspaceIndex>(ResourceFieldType::UInt)

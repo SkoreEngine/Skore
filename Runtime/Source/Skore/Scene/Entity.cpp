@@ -12,6 +12,20 @@ namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("Skore::Entity");
 
+	static EventHandler<OnEntityCreated> onEntityCreatedHandler;
+	static EventHandler<OnEntityRemoved> onEntityRemovedHandler;
+
+	Entity::Entity()
+	{
+		onEntityCreatedHandler.Invoke(this);
+	}
+
+	Entity::~Entity()
+	{
+		onEntityRemovedHandler.Invoke(this);
+	}
+
+
 	Entity* Entity::Instantiate()
 	{
 		return Instantiate(nullptr, {});

@@ -83,12 +83,9 @@ namespace Skore
 
 		void DoUpdate();
 
-		const HashSet<Entity*>& GetSelectionCache() const;
-
 	private:
 		EditorWorkspace& m_workspace;
 		RID              m_state = {};
-		RID              m_selection = {};
 
 		std::shared_ptr<Scene> m_editorScene;
 		std::shared_ptr<Scene> m_simulationScene;
@@ -96,18 +93,9 @@ namespace Skore
 		bool m_shouldStartSimulation = false;
 		bool m_shouldStopSimulation = false;
 
-		HashSet<Entity*> m_selectedEntities{};
-
-		//TODO - check if it's possible to merge with m_selectedEntities
-		HashSet<Entity*>      m_selectionCache{};
-		HashMap<RID, Entity*> m_selectionCacheByRID{};
-
 		static void OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
-		static void OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
-		static void OnEntityChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 
 		void ClearSelection(UndoRedoScope* scope);
-		void ClearDebugEntitySelection();
 
 		void ChangeParentOfSelected(RID newParent, UndoRedoScope* scope);
 	};
