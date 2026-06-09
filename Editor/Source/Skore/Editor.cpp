@@ -42,6 +42,7 @@
 #include "Skore/Utils/StaticContent.hpp"
 #include "Skore/Window/SettingsWindow.hpp"
 #include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/EntityTracker.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Window/AnimatorGraphWindow.hpp"
 #include "Skore/Window/AnimatorTreeViewWindow.hpp"
@@ -507,6 +508,7 @@ namespace Skore
 			activeWorkspaceIndex = 0;
 
 			Selection::Shutdown();
+			EntityTracker::Shutdown();
 
 			editorWindowStorages.Clear();
 			editorWindowStorages.ShrinkToFit();
@@ -1441,6 +1443,7 @@ namespace Skore
 		}
 		Resources::FindType<EditorState>()->RegisterEvent(ResourceEventType::Changed, OnEditorStateChange, nullptr);
 
+		EntityTracker::Init();
 		Selection::Init();
 
 		{

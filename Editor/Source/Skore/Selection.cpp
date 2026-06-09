@@ -6,6 +6,7 @@
 #include "Skore/Core/Event.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/EntityTracker.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 
@@ -24,9 +25,9 @@ namespace Skore
 
 	namespace
 	{
-		RID            gState = {};
-		Array<Entity*> gRuntimeEntities{};
-		Entity*        gActiveRuntime = nullptr;
+		RID            state = {};
+		Array<Entity*> runtimeEntities{};
+		Entity*        activeRuntime = nullptr;
 
 		EventHandler<OnSelectionChanged>       onSelectionChangedHandler{};
 		EventHandler<OnEntitySelection>        onEntitySelectionHandler{};
@@ -45,7 +46,7 @@ namespace Skore
 
 		bool RuntimeContains(Entity* entity)
 		{
-			for (Entity* current : gRuntimeEntities)
+			for (Entity* current : runtimeEntities)
 			{
 				if (current == entity) return true;
 			}
@@ -54,28 +55,49 @@ namespace Skore
 
 		bool RuntimeErase(Entity* entity)
 		{
-			for (usize i = 0; i < gRuntimeEntities.Size(); ++i)
+			for (usize i = 0; i < runtimeEntities.Size(); ++i)
 			{
-				if (gRuntimeEntities[i] == entity)
+				if (runtimeEntities[i] == entity)
 				{
-					gRuntimeEntities.Erase(gRuntimeEntities.begin() + i, gRuntimeEntities.begin() + i + 1);
+					runtimeEntities.Erase(runtimeEntities.begin() + i, runtimeEntities.begin() + i + 1);
 					return true;
 				}
 			}
 			return false;
 		}
 
+		//entities can be destroyed at any time from other threads, so instead of listening to
+		//removal events the selection drops dead pointers lazily before they are read or mutated
+		void PruneDeadRuntime()
+		{
+			for (usize i = runtimeEntities.Size(); i > 0; --i)
+			{
+				if (!EntityTracker::IsAlive(runtimeEntities[i - 1]))
+				{
+					runtimeEntities.Erase(runtimeEntities.begin() + (i - 1), runtimeEntities.begin() + i);
+				}
+			}
+
+			if (activeRuntime && !EntityTracker::IsAlive(activeRuntime))
+			{
+				activeRuntime = runtimeEntities.Empty() ? nullptr : runtimeEntities[runtimeEntities.Size() - 1];
+			}
+		}
+
 		void ClearRuntimeInternal()
 		{
-			if (gRuntimeEntities.Empty()) return;
+			PruneDeadRuntime();
 
-			u32 workspaceId = ActiveWorkspaceId();
-			for (Entity* entity : gRuntimeEntities)
+			if (!runtimeEntities.Empty())
 			{
-				onEntityDebugDeselectionHandler.Invoke(workspaceId, entity);
+				u32 workspaceId = ActiveWorkspaceId();
+				for (Entity* entity : runtimeEntities)
+				{
+					onEntityDebugDeselectionHandler.Invoke(workspaceId, entity);
+				}
+				runtimeEntities.Clear();
 			}
-			gRuntimeEntities.Clear();
-			gActiveRuntime = nullptr;
+			activeRuntime = nullptr;
 		}
 
 		void OnSelectionStateChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
@@ -100,61 +122,43 @@ namespace Skore
 
 			onSelectionChangedHandler.Invoke();
 		}
-
-		void EntityRemoved(Entity* entity)
-		{
-			bool changed = RuntimeErase(entity);
-			if (changed)
-			{
-				onEntityDebugDeselectionHandler.Invoke(ActiveWorkspaceId(), entity);
-			}
-			if (gActiveRuntime == entity)
-			{
-				gActiveRuntime = gRuntimeEntities.Empty() ? nullptr : gRuntimeEntities[gRuntimeEntities.Size() - 1];
-			}
-			if (changed)
-			{
-				onSelectionChangedHandler.Invoke();
-			}
-		}
 	}
 
 	void Selection::Init()
 	{
-		gState = Resources::Create<SelectionState>();
-		Resources::Write(gState).Commit();
+		state = Resources::Create<SelectionState>();
+		Resources::Write(state).Commit();
 
 		Resources::FindType<SelectionState>()->RegisterEvent(ResourceEventType::Changed, OnSelectionStateChanged, nullptr);
-		Event::Bind<OnEntityRemoved, &EntityRemoved>();
 	}
 
 	void Selection::Shutdown()
 	{
-		Event::Unbind<OnEntityRemoved, &EntityRemoved>();
 		Resources::FindType<SelectionState>()->UnregisterEvent(ResourceEventType::Changed, OnSelectionStateChanged, nullptr);
 
-		Resources::Destroy(gState);
-		gState = {};
-		gRuntimeEntities.Clear();
-		gActiveRuntime = nullptr;
+		Resources::Destroy(state);
+		state = {};
+		runtimeEntities.Clear();
+		activeRuntime = nullptr;
 	}
 
 	SelectionType Selection::GetType()
 	{
-		ResourceObject object = Resources::Read(gState);
+		ResourceObject object = Resources::Read(state);
 		return static_cast<SelectionType>(object.GetUInt(SelectionState::Type));
 	}
 
 	bool Selection::Empty()
 	{
-		return GetSelectedRIDs().Empty() && gRuntimeEntities.Empty();
+		PruneDeadRuntime();
+		return GetSelectedRIDs().Empty() && runtimeEntities.Empty();
 	}
 
 	void Selection::Clear(UndoRedoScope* scope)
 	{
 		ClearRuntimeInternal();
 
-		ResourceObject object = Resources::Write(gState);
+		ResourceObject object = Resources::Write(state);
 		object.SetUInt(SelectionState::Type, static_cast<u64>(SelectionType::None));
 		object.ClearReferenceArray(SelectionState::Items);
 		object.SetReference(SelectionState::Active, {});
@@ -168,7 +172,7 @@ namespace Skore
 
 		ClearRuntimeInternal();
 
-		ResourceObject object = Resources::Write(gState);
+		ResourceObject object = Resources::Write(state);
 		bool typeChanged = static_cast<SelectionType>(object.GetUInt(SelectionState::Type)) != type;
 		if (clearSelection || typeChanged)
 		{
@@ -185,7 +189,7 @@ namespace Skore
 	{
 		ClearRuntimeInternal();
 
-		ResourceObject object = Resources::Write(gState);
+		ResourceObject object = Resources::Write(state);
 		bool typeChanged = static_cast<SelectionType>(object.GetUInt(SelectionState::Type)) != type;
 		if (clearSelection || typeChanged)
 		{
@@ -214,7 +218,7 @@ namespace Skore
 	{
 		if (!rid) return;
 
-		ResourceObject object = Resources::Write(gState);
+		ResourceObject object = Resources::Write(state);
 		object.RemoveFromReferenceArray(SelectionState::Items, rid);
 		if (object.GetReference(SelectionState::Active) == rid)
 		{
@@ -226,19 +230,19 @@ namespace Skore
 	bool Selection::IsSelected(RID rid)
 	{
 		if (!rid) return false;
-		ResourceObject object = Resources::Read(gState);
+		ResourceObject object = Resources::Read(state);
 		return object.HasOnReferenceArray(SelectionState::Items, rid);
 	}
 
 	Span<RID> Selection::GetSelectedRIDs()
 	{
-		ResourceObject object = Resources::Read(gState);
+		ResourceObject object = Resources::Read(state);
 		return object.GetReferenceArray(SelectionState::Items);
 	}
 
 	RID Selection::GetActiveRID()
 	{
-		ResourceObject object = Resources::Read(gState);
+		ResourceObject object = Resources::Read(state);
 		return object.GetReference(SelectionState::Active);
 	}
 
@@ -248,7 +252,7 @@ namespace Skore
 
 		ClearRuntimeInternal();
 
-		ResourceObject object = Resources::Write(gState);
+		ResourceObject object = Resources::Write(state);
 		object.SetUInt(SelectionState::Type, static_cast<u64>(SelectionType::Asset));
 		object.ClearReferenceArray(SelectionState::Items);
 		object.AddToReferenceArray(SelectionState::Items, asset);
@@ -259,16 +263,18 @@ namespace Skore
 
 	RID Selection::GetPreview()
 	{
-		ResourceObject object = Resources::Read(gState);
+		ResourceObject object = Resources::Read(state);
 		return object.GetReference(SelectionState::Preview);
 	}
 
 	void Selection::Select(Entity* entity, bool clearSelection)
 	{
-		if (!entity) return;
+		if (!EntityTracker::IsAlive(entity)) return;
+
+		PruneDeadRuntime();
 
 		{
-			ResourceObject object = Resources::Write(gState);
+			ResourceObject object = Resources::Write(state);
 			object.SetUInt(SelectionState::Type, static_cast<u64>(SelectionType::RuntimeEntity));
 			object.ClearReferenceArray(SelectionState::Items);
 			object.SetReference(SelectionState::Active, {});
@@ -283,9 +289,9 @@ namespace Skore
 
 		if (!RuntimeContains(entity))
 		{
-			gRuntimeEntities.EmplaceBack(entity);
+			runtimeEntities.EmplaceBack(entity);
 		}
-		gActiveRuntime = entity;
+		activeRuntime = entity;
 
 		onEntityDebugSelectionHandler.Invoke(ActiveWorkspaceId(), entity);
 		onSelectionChangedHandler.Invoke();
@@ -294,11 +300,13 @@ namespace Skore
 	void Selection::Deselect(Entity* entity)
 	{
 		if (!entity) return;
+
+		PruneDeadRuntime();
 		if (!RuntimeErase(entity)) return;
 
-		if (gActiveRuntime == entity)
+		if (activeRuntime == entity)
 		{
-			gActiveRuntime = gRuntimeEntities.Empty() ? nullptr : gRuntimeEntities[gRuntimeEntities.Size() - 1];
+			activeRuntime = runtimeEntities.Empty() ? nullptr : runtimeEntities[runtimeEntities.Size() - 1];
 		}
 
 		onEntityDebugDeselectionHandler.Invoke(ActiveWorkspaceId(), entity);
@@ -307,17 +315,20 @@ namespace Skore
 
 	bool Selection::IsSelected(Entity* entity)
 	{
+		PruneDeadRuntime();
 		return RuntimeContains(entity);
 	}
 
 	Span<Entity*> Selection::GetSelectedEntities()
 	{
-		return gRuntimeEntities;
+		PruneDeadRuntime();
+		return runtimeEntities;
 	}
 
 	Entity* Selection::GetActiveEntity()
 	{
-		return gActiveRuntime;
+		PruneDeadRuntime();
+		return activeRuntime;
 	}
 
 	Array<Entity*> Selection::ResolveEntities(Scene* scene)
@@ -325,9 +336,11 @@ namespace Skore
 		Array<Entity*> result;
 		if (!scene) return result;
 
-		if (!gRuntimeEntities.Empty())
+		PruneDeadRuntime();
+
+		if (!runtimeEntities.Empty())
 		{
-			for (Entity* entity : gRuntimeEntities)
+			for (Entity* entity : runtimeEntities)
 			{
 				if (entity->GetScene() == scene)
 				{
@@ -339,7 +352,7 @@ namespace Skore
 
 		if (GetType() == SelectionType::Entity)
 		{
-			ResourceObject object = Resources::Read(gState);
+			ResourceObject object = Resources::Read(state);
 			for (RID rid : object.GetReferenceArray(SelectionState::Items))
 			{
 				if (Entity* entity = scene->FindEntityByRID(rid))

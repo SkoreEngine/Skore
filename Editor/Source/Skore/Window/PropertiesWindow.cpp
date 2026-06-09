@@ -2,6 +2,7 @@
 
 #include "Skore/Editor.hpp"
 #include "Skore/EditorWorkspace.hpp"
+#include "Skore/Selection.hpp"
 #include "Skore/Core/Allocator.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Math.hpp"
@@ -19,6 +20,7 @@
 #include "Skore/Scene/Component.hpp"
 #include "Skore/Scene/Components/Camera.hpp"
 #include "Skore/Scene/Entity.hpp"
+#include "Skore/Scene/EntityTracker.hpp"
 #include "Skore/Scene/LayerSystem.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
@@ -522,6 +524,8 @@ namespace Skore
 
 	void PropertiesWindow::DrawDebugEntity(u32 id, SceneEditor* sceneEditor, Entity* entity)
 	{
+		if (!EntityTracker::IsAlive(entity)) return;
+
 		ImGuiStyle& style = ImGui::GetStyle();
 
 		if (ImGui::BeginTable("#entity-table", 2))
@@ -732,6 +736,13 @@ namespace Skore
 		{
 			ScopedStyleVar contentPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 			ImGui::BeginChild("##properties-content", ImVec2(0, 0));
+		}
+
+		//the selection system prunes runtime entities as they are destroyed (e.g. when the
+		//simulation stops); drop a stale cached pointer before it is ever dereferenced
+		if (selectedDebugEntity && !Selection::IsSelected(selectedDebugEntity))
+		{
+			selectedDebugEntity = nullptr;
 		}
 
 		if (selectedEntity)
