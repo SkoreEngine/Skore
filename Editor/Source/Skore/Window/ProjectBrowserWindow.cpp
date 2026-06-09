@@ -4,6 +4,7 @@
 #include "Skore/Window/SceneViewWindow.hpp"
 #include "Skore/Editor.hpp"
 #include "Skore/EditorWorkspace.hpp"
+#include "Skore/Selection.hpp"
 #include "Skore/Events.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/ImGui/Icons.h"
@@ -161,7 +162,7 @@ namespace Skore
 			ImGui::SetNextItemOpen(true);
 		}
 
-		bool folderSelected = windowObject.HasOnReferenceArray(ProjectBrowserWindowData::SelectedItems, asset);
+		bool folderSelected = Selection::IsSelected(asset);
 		if (folderSelected)
 		{
 			flags |= ImGuiTreeNodeFlags_Selected;
@@ -209,7 +210,7 @@ namespace Skore
 						{
 							UndoRedoScope* scope = Editor::CreateUndoRedoScope("Move Assets");
 
-							for (RID selected : originWindowObject.GetReferenceArray(ProjectBrowserWindowData::SelectedItems))
+							for (RID selected : Selection::GetSelectedRIDs())
 							{
 								ResourceAssets::MoveAsset(asset, selected, scope);
 							}
@@ -306,7 +307,7 @@ namespace Skore
 		stringCache.Append(extension);
 
 		ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
-		bool selected = windowObject.HasOnReferenceArray(ProjectBrowserWindowData::SelectedItems, asset);
+		bool selected = Selection::IsSelected(asset);
 		if (selected) flags |= ImGuiTreeNodeFlags_Selected;
 
 		ImGuiTreeLeaf(reinterpret_cast<void*>((usize)asset.id), stringCache.CStr(), flags);
@@ -666,7 +667,7 @@ namespace Skore
 									desc.icon = ResourceAssets::GetIcon(asset);
 									desc.thumbnailScale = contentBrowserZoom;
 									desc.renameItem = renaming;
-									desc.selected = windowObject.HasOnReferenceArray(ProjectBrowserWindowData::SelectedItems, asset);
+									desc.selected = Selection::IsSelected(asset);
 
 									ImGuiContentItemState state = ImGuiContentItem(desc);
 
@@ -881,14 +882,15 @@ namespace Skore
 			{
 				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Move Assets");
 
-				for (RID rid : originWindowObject.GetReferenceArray(ProjectBrowserWindowData::SelectedItems))
+				for (RID rid : Selection::GetSelectedRIDs())
 				{
 					ResourceAssets::MoveAsset(moveAssetsTo, rid, scope);
 				}
 			}
 		}
 
-		if (!popupRes && !newSelection && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
+		if (!popupRes && !newSelection && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+			(ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
 		{
 			ClearSelection(nullptr);
 		}
@@ -909,18 +911,12 @@ namespace Skore
 
 	void ProjectBrowserWindow::ClearSelection(UndoRedoScope* scope)
 	{
-		ResourceObject windowObject = Resources::Write(windowObjectRID);
-		windowObject.ClearReferenceArray(ProjectBrowserWindowData::SelectedItems);
-		windowObject.SetReference(ProjectBrowserWindowData::LastSelectedItem, {});
-		windowObject.Commit(scope);
+		Selection::Clear(scope);
 	}
 
 	void ProjectBrowserWindow::SelectItem(RID rid, UndoRedoScope* scope)
 	{
-		ResourceObject windowObject = Resources::Write(windowObjectRID);
-		windowObject.AddToReferenceArray(ProjectBrowserWindowData::SelectedItems, rid);
-		windowObject.SetReference(ProjectBrowserWindowData::LastSelectedItem, rid);
-		windowObject.Commit(scope);
+		Selection::Select(SelectionType::Asset, rid, false, scope);
 	}
 
 	void ProjectBrowserWindow::SetRenameItem(RID rid, UndoRedoScope* scope)
@@ -936,8 +932,7 @@ namespace Skore
 
 	RID ProjectBrowserWindow::GetLastSelectedItem() const
 	{
-		ResourceObject windowObject = Resources::Read(windowObjectRID);
-		return windowObject.GetReference(ProjectBrowserWindowData::LastSelectedItem);
+		return Selection::GetActiveRID();
 	}
 
 	RID ProjectBrowserWindow::GetOpenDirectory() const
@@ -1005,12 +1000,15 @@ namespace Skore
 
 	void ProjectBrowserWindow::AssetDelete(const MenuItemEventData& eventData)
 	{
-		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		ResourceObject        windowObject = Resources::Write(projectBrowserWindow->windowObjectRID);
-
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Delete");
 
-		for (RID rid : windowObject.GetReferenceArray(ProjectBrowserWindowData::SelectedItems))
+		Array<RID> selected;
+		for (RID rid : Selection::GetSelectedRIDs())
+		{
+			selected.EmplaceBack(rid);
+		}
+
+		for (RID rid : selected)
 		{
 			if (Resources::GetStorage(rid)->parentFieldIndex == ResourceAssetDirectory::DirectoryAsset)
 			{
@@ -1021,9 +1019,7 @@ namespace Skore
 				Resources::Destroy(rid, scope);
 			}
 		}
-		windowObject.ClearReferenceArray(ProjectBrowserWindowData::SelectedItems);
-		windowObject.Commit(scope);
-
+		Selection::Clear(scope);
 	}
 
 	void ProjectBrowserWindow::AssetShowInExplorer(const MenuItemEventData& eventData)

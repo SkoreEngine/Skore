@@ -292,26 +292,58 @@ namespace Skore
 
 	void EntityTreeWindow::DrawEntity(SceneEditor* sceneEditor, Entity* entity, bool& entitySelected)
 	{
+		if (entity == nullptr) return;
+
+		bool root = entity->GetParent() == nullptr;
+		bool isSelected = sceneEditor->IsSelected(entity);
+		bool hasChildren = !entity->GetChildren().Empty();
+		bool active = entity->IsActive();
+
+		StringView name = entity->GetName();
+
+		//when a filter is active the tree collapses to a flat list: skip non-matching
+		//nodes but keep recursing so matching descendants stay reachable
+		if (!filter.PassFilter(name.CStr()))
+		{
+			for (Entity* child : entity->GetChildren())
+			{
+				DrawEntity(sceneEditor, child, entitySelected);
+			}
+			return;
+		}
 
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn();
 
-		bool root = entity->GetParent() == nullptr;
-		bool isSelected = sceneEditor->IsSelected(entity);
-
 		stringCache.Clear();
 		stringCache += root ? ICON_FA_CUBES : ICON_FA_CUBE;
 		stringCache += " ";
-		stringCache += entity->GetName();
+		stringCache += name;
+
 		bool open = false;
+		bool hasOpen = false;
 
 		if (root)
 		{
 			ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 		}
 
-		if (!entity->GetChildren().Empty())
+		if (!active)
 		{
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+		}
+
+		if (hasChildren && !filter.IsActive())
+		{
+			ImGuiID id = ImGui::GetCurrentWindow()->GetID(entity);
+
+			auto flags = ImGuiTreeNodeFlags_OpenOnArrow |
+				ImGuiTreeNodeFlags_OpenOnDoubleClick |
+				ImGuiTreeNodeFlags_SpanAvailWidth |
+				ImGuiTreeNodeFlags_SpanFullWidth |
+				ImGuiTreeNodeFlags_FramePadding;
+
+			hasOpen = ImGui::TreeNodeUpdateNextOpen(id, flags);
 			open = ImGuiTreeNode(entity, stringCache.CStr());
 		}
 		else
@@ -319,16 +351,27 @@ namespace Skore
 			ImGuiTreeLeaf(entity, stringCache.CStr());
 		}
 
-		bool isHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
-		bool ctrlDown = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
-
-		if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
+		if (!active)
 		{
-			sceneEditor->SelectEntity(entity, !ctrlDown && !sceneEditor->IsSelected(entity));
+			ImGui::PopStyleColor();
+		}
+
+		//a click that toggles the node open/closed must not also select the entity
+		bool nodeChanged = (!hasOpen && open) || (hasOpen && !open);
+		if (nodeChanged)
+		{
+			cancelSelection = true;
+		}
+
+		bool isHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+
+		//record the click here, but commit the selection on mouse release in Draw() to mimic the editor RID path
+		if (!nodeChanged && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) && isHovered)
+		{
+			entityPtrSelection = entity;
 		}
 
 		ImGui::TableNextColumn();
-
 		ImGui::TableNextColumn();
 
 		if (isSelected)
@@ -337,9 +380,8 @@ namespace Skore
 		}
 		else if (isHovered)
 		{
-			fillRowWithColour(ImVec4(0.26f, 0.59f, 0.98f, 0.67f));
+			fillRowWithColour(ImVec4(1.0f, 1.0f, 1.0f, 0.2f));
 		}
-
 
 		if (open)
 		{
@@ -349,7 +391,14 @@ namespace Skore
 			}
 			ImGui::TreePop();
 		}
-
+		else if (filter.IsActive())
+		{
+			//flat filtered list: recurse without a tree node so matching descendants still show
+			for (Entity* child : entity->GetChildren())
+			{
+				DrawEntity(sceneEditor, child, entitySelected);
+			}
+		}
 	}
 
 	void EntityTreeWindow::DrawMovePayload(u64 id, RID moveBefore) const
@@ -399,6 +448,7 @@ namespace Skore
 			}
 			entitySelection = {};
 			parentSelection = {};
+			entityPtrSelection = nullptr;
 		}
 
 		if (!sceneEditor->GetOpenedResource())
@@ -406,6 +456,14 @@ namespace Skore
 			ImGuiCentralizedText("Open a scene or entity in the Project Browser");
 			ImGui::End();
 			return;
+		}
+
+		//RID/resource hierarchy while editing; live Scene*/Entity* hierarchy while simulating or when the debug toggle is on
+		bool drawRID = !showSceneEntity && !sceneEditor->IsSimulationRunning();
+		if (drawRID)
+		{
+			//not showing the live scene; drop any stale pending runtime selection
+			entityPtrSelection = nullptr;
 		}
 
 		bool openPopup = false;
@@ -456,7 +514,6 @@ namespace Skore
 					ScopedStyleVar       spacing(ImGuiStyleVar_ItemSpacing, ImVec2{0.0f, 0.0f});
 					ImGuiInvisibleHeader invisibleHeader;
 
-					bool drawRID = !showSceneEntity && !sceneEditor->IsSimulationRunning();
 					if (drawRID)
 					{
 						if (!filter.IsActive())
@@ -484,9 +541,12 @@ namespace Skore
 						}
 
 					}
-					else if (sceneEditor->GetCurrentScene() != nullptr)
+					else if (Scene* scene = sceneEditor->GetCurrentScene())
 					{
-//						DrawEntity(sceneEditor, sceneEditor->GetCurrentScene()->GetRootEntity(), entitySelected);
+						for (Entity* entity : scene->GetEntities())
+						{
+							DrawEntity(sceneEditor, entity, entitySelected);
+						}
 					}
 
 					ImGui::TableNextRow();
@@ -505,7 +565,7 @@ namespace Skore
 
 		bool closePopup = false;
 
-		if (!cancelSelection && shouldClear && (!entitySelection || lastSelectionRemoved))
+		if (!cancelSelection && shouldClear && ((!entitySelection && !entityPtrSelection) || lastSelectionRemoved))
 		{
 			sceneEditor->ClearSelection();
 		}
@@ -518,6 +578,13 @@ namespace Skore
 		if (!cancelSelection && !lastSelectionRemoved && entitySelection && (released || pushSelection))
 		{
 			sceneEditor->SelectEntity(entitySelection, !ctrlDown);
+			shouldClearInternal = true;
+		}
+
+		//runtime Scene*/Entity* selection: same deferred commit, but on Entity* instead of RID
+		if (!cancelSelection && entityPtrSelection && (released || pushSelection))
+		{
+			sceneEditor->SelectEntity(entityPtrSelection, !ctrlDown);
 			shouldClearInternal = true;
 		}
 
@@ -569,6 +636,7 @@ namespace Skore
 		{
 			entitySelection = {};
 			parentSelection = {};
+			entityPtrSelection = nullptr;
 		}
 	}
 

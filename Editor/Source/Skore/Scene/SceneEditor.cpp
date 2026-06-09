@@ -3,6 +3,7 @@
 #include "Skore/Editor.hpp"
 #include "Skore/EditorCommon.hpp"
 #include "Skore/EditorWorkspace.hpp"
+#include "Skore/Selection.hpp"
 #include "Skore/Core/Event.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -12,27 +13,9 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Scene/SceneManager.hpp"
 
-//TODO: selection between RID and Entity* need to be merged, maybe with UUID?
-
 namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("Skore::SceneEditor");
-
-	static EventHandler<OnEntitySelection>   onEntitySelectionHandler{};
-	static EventHandler<OnEntityDeselection> onEntityDeselectionHandler{};
-
-	static EventHandler<OnEntityDebugSelection>   onEntityDebugSelectionHandler{};
-	static EventHandler<OnEntityDebugDeselection> onEntityDebugDeselectionHandler{};
-
-
-	struct SceneEditorSelection
-	{
-		enum
-		{
-			Workspace,
-			SelectedEntities
-		};
-	};
 
 	struct SceneEditorState
 	{
@@ -53,25 +36,13 @@ namespace Skore
 			stateObject.Commit();
 		}
 
-		{
-			m_selection = Resources::Create<SceneEditorSelection>();
-			ResourceObject selectionObject = Resources::Write(m_selection);
-			selectionObject.SetUInt(SceneEditorState::Workspace, workspace.GetId());
-			selectionObject.Commit();
-		}
-
-		Resources::FindType<SceneEditorSelection>()->RegisterEvent(ResourceEventType::Changed, OnSelectionChange, this);
 		Resources::FindType<SceneEditorState>()->RegisterEvent(ResourceEventType::Changed, OnStateChange, this);
-		Resources::FindType<EntityResource>()->RegisterEvent(ResourceEventType::Changed, OnEntityChange, this);
 	}
 
 	SceneEditor::~SceneEditor()
 	{
-		Resources::FindType<SceneEditorSelection>()->UnregisterEvent(ResourceEventType::Changed, OnSelectionChange, this);
 		Resources::FindType<SceneEditorState>()->UnregisterEvent(ResourceEventType::Changed, OnStateChange, this);
-		Resources::FindType<EntityResource>()->UnregisterEvent(ResourceEventType::Changed, OnEntityChange, this);
 
-		Resources::Destroy(m_selection);
 		Resources::Destroy(m_state);
 	}
 
@@ -127,10 +98,14 @@ namespace Skore
 	void SceneEditor::Create(EntityCreationType type, RID entityAsset)
 	{
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Entity");
-		Span<RID>      selectedEntities = GetSelectedEntities();
 
-		ResourceObject selectionObject = Resources::Write(m_selection);
-		selectionObject.ClearReferenceArray(SceneEditorSelection::SelectedEntities);
+		Array<RID> parents;
+		for (RID selected : GetSelectedEntities())
+		{
+			parents.EmplaceBack(selected);
+		}
+
+		Array<RID> created;
 
 		auto createEntity = [&](RID parent)
 		{
@@ -174,22 +149,22 @@ namespace Skore
 			parentObject.AddToSubObjectList(GetChildrenField(parent), newEntity);
 			parentObject.Commit(scope);
 
-			selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, newEntity);
+			created.EmplaceBack(newEntity);
 		};
 
-		if (selectedEntities.Empty())
+		if (parents.Empty())
 		{
 			createEntity(GetOpenedResource());
 		}
 		else
 		{
-			for (RID parent : selectedEntities)
+			for (RID parent : parents)
 			{
 				createEntity(parent);
 			}
 		}
 
-		selectionObject.Commit(scope);
+		Selection::Select(SelectionType::Entity, created, true, scope);
 	}
 
 	RID SceneEditor::CreateFromAsset(RID parent, RID entityAsset, UndoRedoScope* scope)
@@ -223,23 +198,28 @@ namespace Skore
 
 	void SceneEditor::DuplicateSelected()
 	{
-		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Destroy Entity");
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Duplicate Entity");
 
-		ResourceObject selectionObject = Resources::Write(m_selection);
-		selectionObject.ClearReferenceArray(SceneEditorSelection::SelectedEntities);
-
-		for (RID selected : GetSelectedEntities())
+		Array<RID> selected;
+		for (RID rid : GetSelectedEntities())
 		{
-			RID newEntity = Resources::Clone(selected, UUID::RandomUUID(), scope);
+			selected.EmplaceBack(rid);
+		}
 
-			RID            parentRID = Resources::GetParent(selected);
+		Array<RID> created;
+		for (RID rid : selected)
+		{
+			RID newEntity = Resources::Clone(rid, UUID::RandomUUID(), scope);
+
+			RID            parentRID = Resources::GetParent(rid);
 			ResourceObject parentObject = Resources::Write(parentRID);
 			parentObject.AddToSubObjectList(GetChildrenField(parentRID), newEntity);
 			parentObject.Commit(scope);
 
-			selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, newEntity);
+			created.EmplaceBack(newEntity);
 		}
-		selectionObject.Commit(scope);
+
+		Selection::Select(SelectionType::Entity, created, true, scope);
 	}
 
 	void SceneEditor::ChangeParentOfSelected(RID newParent)
@@ -349,18 +329,14 @@ namespace Skore
 		entityObject.AddToSubObjectList(GetChildrenField(entity), newInstance);
 		entityObject.Commit(scope);
 
-		ResourceObject selectionObject = Resources::Write(m_selection);
-		selectionObject.ClearReferenceArray(SceneEditorSelection::SelectedEntities);
-		selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, newInstance);
-		selectionObject.Commit(scope);
+		Selection::Select(SelectionType::Entity, newInstance, true, scope);
 	}
 
 	void SceneEditor::ClearSelection()
 	{
-		ClearDebugEntitySelection();
-		if (HasSelectedEntities())
+		if (!Selection::Empty())
 		{
-			ClearSelection(Editor::CreateUndoRedoScope("Clear selection"));
+			Selection::Clear(Editor::CreateUndoRedoScope("Clear selection"));
 		}
 	}
 
@@ -375,49 +351,29 @@ namespace Skore
 	{
 		if (IsSelected(entity)) return;
 
-		ResourceObject selectionObject = Resources::Write(m_selection);
-		if (clearSelection)
-		{
-			selectionObject.ClearReferenceArray(SceneEditorSelection::SelectedEntities);
-		}
-		selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, entity);
-		selectionObject.Commit(scope);
+		Selection::Select(SelectionType::Entity, entity, clearSelection, scope);
 	}
 
 	void SceneEditor::SelectEntities(Span<RID> entities, bool clearSelection)
 	{
-		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Select Entities");
-		ResourceObject selectionObject = Resources::Write(m_selection);
-		if (clearSelection)
-		{
-			selectionObject.ClearReferenceArray(SceneEditorSelection::SelectedEntities);
-		}
-		//performnace: add in one command.
-		for (RID entity : entities)
-		{
-			selectionObject.AddToReferenceArray(SceneEditorSelection::SelectedEntities, entity);
-		}
-		selectionObject.Commit(scope);
+		Selection::Select(SelectionType::Entity, entities, clearSelection, Editor::CreateUndoRedoScope("Select Entities"));
 	}
 
 	void SceneEditor::DeselectEntity(RID entity)
 	{
-		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Deselect Entity");
-		ResourceObject selectionObject = Resources::Write(m_selection);
-		selectionObject.RemoveFromReferenceArray(SceneEditorSelection::SelectedEntities, entity);
-		selectionObject.Commit(scope);
+		Selection::Deselect(entity, Editor::CreateUndoRedoScope("Deselect Entity"));
 	}
 
 	bool SceneEditor::IsSelected(RID entity)
 	{
-		ResourceObject selectionObject = Resources::Read(m_selection);
-		return selectionObject.HasOnReferenceArray(SceneEditorSelection::SelectedEntities, entity);
+		return Selection::GetType() == SelectionType::Entity && Selection::IsSelected(entity);
 	}
 
 	bool SceneEditor::IsParentOfSelected(RID entity)
 	{
-		ResourceObject selectionObject = Resources::Read(m_selection);
-		for (RID selected : selectionObject.GetReferenceArray(SceneEditorSelection::SelectedEntities))
+		if (Selection::GetType() != SelectionType::Entity) return false;
+
+		for (RID selected : Selection::GetSelectedRIDs())
 		{
 			RID parent = Resources::GetParent(selected);
 			while (parent)
@@ -434,30 +390,23 @@ namespace Skore
 
 	bool SceneEditor::HasSelectedEntities() const
 	{
-		ResourceObject selectionObject = Resources::Read(m_selection);
-		return !selectionObject.GetReferenceArray(SceneEditorSelection::SelectedEntities).Empty();
+		return Selection::GetType() == SelectionType::Entity && !Selection::GetSelectedRIDs().Empty();
 	}
 
 	Span<RID> SceneEditor::GetSelectedEntities() const
 	{
-		ResourceObject selectionObject = Resources::Read(m_selection);
-		return selectionObject.GetReferenceArray(SceneEditorSelection::SelectedEntities);
+		if (Selection::GetType() != SelectionType::Entity) return {};
+		return Selection::GetSelectedRIDs();
 	}
 
 	void SceneEditor::SelectEntity(Entity* entity, bool clearSelection)
 	{
-		if (clearSelection)
-		{
-			ClearDebugEntitySelection();
-		}
-		m_selectedEntities.Emplace(entity);
-
-		onEntityDebugSelectionHandler.Invoke(m_workspace.GetId(), entity);
+		Selection::Select(entity, clearSelection);
 	}
 
 	bool SceneEditor::IsSelected(Entity* entity) const
 	{
-		return m_selectedEntities.Has(entity);
+		return Selection::IsSelected(entity);
 	}
 
 	void SceneEditor::SetActivated(RID entity, bool activated)
@@ -606,17 +555,11 @@ namespace Skore
 		m_shouldStopSimulation = false;
 	}
 
-	const HashSet<Entity*>& SceneEditor::GetSelectionCache() const
-	{
-		return m_selectionCache;
-	}
-
-
 	void SceneEditor::OnStateChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
 		SceneEditor* sceneEditor = static_cast<SceneEditor*>(userData);
 
-		if (newValue.GetUInt(SceneEditorSelection::Workspace) != sceneEditor->m_workspace.GetId())
+		if (newValue.GetUInt(SceneEditorState::Workspace) != sceneEditor->m_workspace.GetId())
 		{
 			return;
 		}
@@ -674,79 +617,14 @@ namespace Skore
 		}
 	}
 
-	void SceneEditor::OnSelectionChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
-	{
-		SceneEditor* sceneEditor = static_cast<SceneEditor*>(userData);
-
-		if (newValue.GetUInt(SceneEditorSelection::Workspace) != sceneEditor->m_workspace.GetId())
-		{
-			return;
-		}
-
-		if (oldValue && sceneEditor->m_selection == oldValue.GetRID())
-		{
-			for (RID deselected : oldValue.GetReferenceArray(SceneEditorSelection::SelectedEntities))
-			{
-				onEntityDeselectionHandler.Invoke(sceneEditor->m_workspace.GetId(), deselected);
-
-				if (Entity* entity = sceneEditor->m_editorScene->FindEntityByRID(deselected))
-				{
-					sceneEditor->m_selectionCache.Erase(entity);
-					sceneEditor->m_selectionCacheByRID.Erase(deselected);
-				}
-			}
-		}
-
-		if (newValue && sceneEditor->m_selection == newValue.GetRID())
-		{
-			for (RID selected : newValue.GetReferenceArray(SceneEditorSelection::SelectedEntities))
-			{
-				if (Entity* entity = sceneEditor->m_editorScene->FindEntityByRID(selected))
-				{
-					sceneEditor->m_selectionCache.Insert(entity);
-					sceneEditor->m_selectionCacheByRID.Insert(selected, entity);
-				}
-				onEntitySelectionHandler.Invoke(sceneEditor->m_workspace.GetId(), selected);
-			}
-		}
-	}
-
-	void SceneEditor::OnEntityChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
-	{
-		SceneEditor* sceneEditor = static_cast<SceneEditor*>(userData);
-		if (oldValue && !newValue)
-		{
-			if (auto it = sceneEditor->m_selectionCacheByRID.Find(oldValue.GetRID()))
-			{
-				sceneEditor->m_selectionCache.Erase(it->second);
-				sceneEditor->m_selectionCacheByRID.Erase(it);
-			}
-		}
-	}
-
 	void SceneEditor::ClearSelection(UndoRedoScope* scope)
 	{
-		ResourceObject selectionObject = Resources::Write(m_selection);
-		selectionObject.ClearReferenceArray(SceneEditorSelection::SelectedEntities);
-		selectionObject.Commit(scope);
-	}
-
-	void SceneEditor::ClearDebugEntitySelection()
-	{
-		for (Entity* entity : m_selectedEntities)
-		{
-			onEntityDebugDeselectionHandler.Invoke(m_workspace.GetId(), entity);
-		}
-		m_selectedEntities.Clear();
+		Selection::Clear(scope);
 	}
 
 
 	void RegisterSceneEditorTypes()
 	{
-		Resources::Type<SceneEditorSelection>()
-			.Field<SceneEditorSelection::Workspace>(ResourceFieldType::UInt)
-			.Field<SceneEditorSelection::SelectedEntities>(ResourceFieldType::ReferenceArray)
-			.Build();
 
 		Resources::Type<SceneEditorState>()
 			.Field<SceneEditorState::Workspace>(ResourceFieldType::UInt)

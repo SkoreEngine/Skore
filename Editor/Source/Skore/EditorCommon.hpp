@@ -26,6 +26,8 @@ namespace Skore
 	class Entity;
 	class EditorWorkspace;
 
+	using OnSelectionChanged = EventType<"Skore::Editor::OnSelectionChanged"_h, void()>;
+
 	using OnEntityDebugSelection = EventType<"Skore::Editor::OnEntityDebugSelection"_h, void(u32, Entity*)>;
 	using OnEntityDebugDeselection = EventType<"Skore::Editor::OnEntityDebugDeselection"_h, void(u32, Entity*)>;
 

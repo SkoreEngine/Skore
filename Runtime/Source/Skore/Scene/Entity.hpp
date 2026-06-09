@@ -97,7 +97,8 @@ namespace Skore
 		friend class PhysicsScene;
 
 	private:
-		Entity() = default;
+		Entity();
+		~Entity();
 
 		//bool instanceOfAsset = true means it's an instance of RID
 		//bool instanceOfAsset = false means it's just a new entity, cloning the RID. (but no reference with the original)

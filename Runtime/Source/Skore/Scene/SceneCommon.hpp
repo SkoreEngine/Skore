@@ -3,11 +3,13 @@
 
 #include "Skore/Common.hpp"
 #include "Skore/Core/Array.hpp"
+#include "Skore/Core/Event.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 
 namespace Skore
 {
+	class Entity;
 	struct UndoRedoScope;
 	struct GPUCommandBuffer;
 	struct GPUPipeline;
@@ -108,4 +110,7 @@ namespace Skore
 		u64     flags = 0;
 		VoidPtr eventData = nullptr;
 	};
+
+	using OnEntityCreated = EventType<"Skore::OnEntityAdded"_h, void(Entity*)>;
+	using OnEntityRemoved = EventType<"Skore::OnEntityRemoved"_h, void(Entity*)>;
 }
