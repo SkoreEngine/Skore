@@ -294,7 +294,13 @@ namespace Skore
 	{
 		if (entity == nullptr) return;
 
-		bool root = entity->GetParent() == nullptr;
+		//mark that the pending runtime selection still exists in the live scene this frame; the
+		//deferred commit in Draw() relies on this so it never selects an entity that was destroyed
+		if (entity == entityPtrSelection)
+		{
+			entitySelected = true;
+		}
+
 		bool isSelected = sceneEditor->IsSelected(entity);
 		bool hasChildren = !entity->GetChildren().Empty();
 		bool active = entity->IsActive();
@@ -316,17 +322,21 @@ namespace Skore
 		ImGui::TableNextColumn();
 
 		stringCache.Clear();
-		stringCache += root ? ICON_FA_CUBES : ICON_FA_CUBE;
+		stringCache += ICON_FA_CUBE;
 		stringCache += " ";
 		stringCache += name;
 
 		bool open = false;
 		bool hasOpen = false;
 
-		if (root)
-		{
-			ImGui::SetNextItemOpen(true, ImGuiCond_Once);
-		}
+		//top-level entities are always drawn as rows by the caller's loop; don't force their
+		//subtrees open (a runtime scene has many roots, so opening them all expands everything)
+
+		//use the resource RID as the imgui id when the entity has one, so the open/closed state
+		//lines up with the editor (RID) tree and is preserved across entering/leaving play mode;
+		//fall back to the entity pointer for runtime-spawned entities with no backing resource
+		RID     entityRid = entity->GetRID();
+		VoidPtr nodeId = entityRid ? IntToPtr(entityRid.id) : static_cast<VoidPtr>(entity);
 
 		if (!active)
 		{
@@ -335,7 +345,7 @@ namespace Skore
 
 		if (hasChildren && !filter.IsActive())
 		{
-			ImGuiID id = ImGui::GetCurrentWindow()->GetID(entity);
+			ImGuiID id = ImGui::GetCurrentWindow()->GetID(nodeId);
 
 			auto flags = ImGuiTreeNodeFlags_OpenOnArrow |
 				ImGuiTreeNodeFlags_OpenOnDoubleClick |
@@ -344,11 +354,11 @@ namespace Skore
 				ImGuiTreeNodeFlags_FramePadding;
 
 			hasOpen = ImGui::TreeNodeUpdateNextOpen(id, flags);
-			open = ImGuiTreeNode(entity, stringCache.CStr());
+			open = ImGuiTreeNode(nodeId, stringCache.CStr());
 		}
 		else
 		{
-			ImGuiTreeLeaf(entity, stringCache.CStr());
+			ImGuiTreeLeaf(nodeId, stringCache.CStr());
 		}
 
 		if (!active)
@@ -543,9 +553,67 @@ namespace Skore
 					}
 					else if (Scene* scene = sceneEditor->GetCurrentScene())
 					{
-						for (Entity* entity : scene->GetEntities())
+						//draw a single scene root node (like editor mode) with the live entities nested under it
+						StringView sceneName = "";
+						if (ResourceObject assetObject = Resources::Read(Resources::GetParent(sceneEditor->GetOpenedResource())))
 						{
-							DrawEntity(sceneEditor, entity, entitySelected);
+							sceneName = assetObject.GetString(ResourceAsset::Name);
+						}
+
+						ImGui::TableNextRow();
+						ImGui::TableNextColumn();
+
+						stringCache.Clear();
+						stringCache += ICON_FA_CUBES;
+						stringCache += " ";
+						stringCache += sceneName;
+
+						bool sceneOpen = false;
+
+						//id the scene node by the opened resource (same as the editor scene root),
+						//so its open/closed state carries over when entering/leaving play mode
+						VoidPtr sceneNodeId = IntToPtr(sceneEditor->GetOpenedResource().id);
+
+						if (!filter.IsActive())
+						{
+							ImGuiID sceneId = ImGui::GetCurrentWindow()->GetID(sceneNodeId);
+
+							auto sceneFlags = ImGuiTreeNodeFlags_OpenOnArrow |
+								ImGuiTreeNodeFlags_OpenOnDoubleClick |
+								ImGuiTreeNodeFlags_SpanAvailWidth |
+								ImGuiTreeNodeFlags_SpanFullWidth |
+								ImGuiTreeNodeFlags_FramePadding;
+
+							//only the scene node is open by default; its entities start collapsed
+							ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+							bool sceneHadOpen = ImGui::TreeNodeUpdateNextOpen(sceneId, sceneFlags);
+							sceneOpen = ImGuiTreeNode(sceneNodeId, stringCache.CStr());
+
+							//toggling the scene node must not clear the entity selection
+							if ((!sceneHadOpen && sceneOpen) || (sceneHadOpen && !sceneOpen))
+							{
+								cancelSelection = true;
+							}
+						}
+						else
+						{
+							ImGuiTreeLeaf(sceneNodeId, stringCache.CStr());
+						}
+
+						ImGui::TableNextColumn();
+						ImGui::TableNextColumn();
+
+						if (sceneOpen || filter.IsActive())
+						{
+							for (Entity* entity : scene->GetEntities())
+							{
+								DrawEntity(sceneEditor, entity, entitySelected);
+							}
+
+							if (sceneOpen)
+							{
+								ImGui::TreePop();
+							}
 						}
 					}
 
@@ -581,10 +649,17 @@ namespace Skore
 			shouldClearInternal = true;
 		}
 
-		//runtime Scene*/Entity* selection: same deferred commit, but on Entity* instead of RID
-		if (!cancelSelection && entityPtrSelection && (released || pushSelection))
+		//runtime Scene*/Entity* selection: same deferred commit, but on Entity* instead of RID.
+		//only commit if the pending entity was actually drawn from the live scene this frame
+		//(entitySelected) - otherwise it was destroyed between press and release and committing
+		//it would push a dangling pointer into the selection.
+		if (entityPtrSelection && (released || pushSelection))
 		{
-			sceneEditor->SelectEntity(entityPtrSelection, !ctrlDown);
+			if (!cancelSelection && entitySelected)
+			{
+				sceneEditor->SelectEntity(entityPtrSelection, !ctrlDown);
+			}
+			//drop the pending pointer either way once the interaction ends
 			shouldClearInternal = true;
 		}
 

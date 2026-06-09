@@ -1687,6 +1687,9 @@ namespace Skore
 
 				for (ObjectTypeFieldRenderer& field : typeRenderer.fields)
 				{
+					bool updated = false;
+					bool updatedFinished = false;
+
 					c++;
 
 					if (field.fieldVisibilityControl && !field.fieldVisibilityControl(object))
@@ -1725,8 +1728,7 @@ namespace Skore
 					for (auto& drawField : field.drawFn)
 					{
 						context.customContext = drawField.context;
-						SK_ASSERT(false, "TODO");
-						//			drawField.drawField(context, buffer);
+						drawField.drawField(context, buffer, updated, updatedFinished);
 					}
 				}
 				ImGui::EndTable();

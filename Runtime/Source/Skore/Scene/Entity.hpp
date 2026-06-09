@@ -14,6 +14,8 @@ namespace Skore
 	public:
 		SK_CLASS(Entity, Object);
 
+		~Entity() override;
+
 		Scene*           GetScene() const;
 		void             SetParent(Entity* newParent);
 		Entity*          GetParent() const;
@@ -98,7 +100,6 @@ namespace Skore
 
 	private:
 		Entity();
-		~Entity();
 
 		//bool instanceOfAsset = true means it's an instance of RID
 		//bool instanceOfAsset = false means it's just a new entity, cloning the RID. (but no reference with the original)
