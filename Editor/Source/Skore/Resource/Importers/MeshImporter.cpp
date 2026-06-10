@@ -52,7 +52,8 @@ namespace Skore
 		                                       Array<u32>& indices, Array<MeshPrimitive>& primitives,
 		                                       const Vec3& scale,
 		                                       UUID base,
-		                                       UndoRedoScope* scope)
+		                                       UndoRedoScope* scope,
+		                                       const SubResourceAllocator& alloc)
 		{
 			u64 vertexCount = positions.Size();
 			bool hasBones = !bones.Empty();
@@ -333,7 +334,7 @@ namespace Skore
 				cursor += lodPrims[i].Size() * sizeof(MeshPrimitive);
 			}
 
-			ResourceBuffer resourceBuffer = ResourceAssets::CreateTempBuffer();
+			ResourceBuffer resourceBuffer = alloc.CreateBuffer();
 			FileHandler    bufferFile = resourceBuffer.OpenFile(AccessMode::WriteOnly);
 
 			FileSystem::WriteFile(bufferFile, vertexBuffer.Data(), vertexBufferSize);
@@ -457,7 +458,7 @@ namespace Skore
 		UUID base = Resources::GetUUID(meshResource);
 
 		MeshGeometryResult result = ProcessMeshGeometry(settings, positions, normals, uvs, uv2s, colors, tangents, bones,
-		                                                localIndices, localPrimitives, scale, base, scope);
+		                                                localIndices, localPrimitives, scale, base, scope, alloc);
 
 		ResourceObject meshObject = Resources::Write(meshResource);
 		meshObject.SetString(MeshResource::Name, name);
@@ -605,7 +606,7 @@ namespace Skore
 		logger.Info("ReimportMesh '{}': {} vertices, {} indices", meshName, vertexCount, indexCount);
 
 		MeshGeometryResult result = ProcessMeshGeometry(settings, positions, normals, uvs, uv2s, colors, tangents, bones,
-		                                                indices, primitives, Vec3(1.0), Resources::GetUUID(meshRID), scope);
+		                                                indices, primitives, Vec3(1.0), Resources::GetUUID(meshRID), scope, SubResourceAllocator{});
 
 		// Single Write+Commit — preserves existing Name, Materials, Skin
 		ResourceObject writeObj = Resources::Write(meshRID);

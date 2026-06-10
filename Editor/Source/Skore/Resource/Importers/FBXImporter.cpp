@@ -641,7 +641,7 @@ namespace Skore
 		animationObject.SetFloat(AnimationClipResource::TimeBegin, stack->time_begin);
 		animationObject.SetFloat(AnimationClipResource::TimeEnd, stack->time_end);
 
-		ResourceBuffer buffer = ResourceAssets::CreateTempBuffer();
+		ResourceBuffer buffer = fbxData.alloc.CreateBuffer();
 		FileHandler handler = buffer.OpenFile(AccessMode::ReadAndWrite);
 		u64 offset = 0;
 

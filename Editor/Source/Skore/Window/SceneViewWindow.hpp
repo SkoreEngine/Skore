@@ -46,6 +46,16 @@ namespace Skore
 		friend struct SceneViewPipelinePass;
 
 	private:
+		//world transform of an entity captured when the gizmo drag starts,
+		//cumulative gizmo deltas are applied on top of these values
+		struct GizmoTarget
+		{
+			RID  entity;
+			Vec3 worldPos;
+			Quat worldRot;
+			Vec3 worldScale;
+		};
+
 		u32            guizmoOperation{1};
 		u8             guizmoMode{0};
 		bool           guizmoSnapEnabled = false;
@@ -54,6 +64,12 @@ namespace Skore
 		bool           movingScene{};
 		FreeViewCamera freeViewCamera{};
 		bool           usingGuizmo{};
+
+		Array<GizmoTarget> gizmoTargets;
+		Mat4               gizmoMatrix{1.0};
+		Vec3               gizmoStartPos{};
+		Quat               gizmoStartRot{0, 0, 0, 1};
+		Vec3               gizmoStartScale{1.0f, 1.0f, 1.0f};
 		ViewType       viewType = ViewType_3D;
 		bool           drawIcons = true;
 		f32            cameraFov = 60.f;

@@ -1634,6 +1634,11 @@ namespace Skore
 			typeRenderer.reflectType = Reflection::FindTypeById(object->GetTypeId());
 			for (ReflectField* field : typeRenderer.reflectType->GetFields())
 			{
+				if (field->GetAttribute<UIIgnore>() != nullptr)
+				{
+					continue;
+				}
+
 				TypeID typeId = field->GetProps().typeId;
 
 				ObjectTypeFieldRenderer& objectFieldRenderer = typeRenderer.fields.EmplaceBack(ObjectTypeFieldRenderer{
@@ -1687,9 +1692,6 @@ namespace Skore
 
 				for (ObjectTypeFieldRenderer& field : typeRenderer.fields)
 				{
-					bool updated = false;
-					bool updatedFinished = false;
-
 					c++;
 
 					if (field.fieldVisibilityControl && !field.fieldVisibilityControl(object))
@@ -1723,12 +1725,39 @@ namespace Skore
 					context.reflectFieldType = field.reflectType;
 					context.object = object;
 					context.userData = info.userData;
-					field.reflectField->Get(object, buffer, 1000);
+					context.label = field.label;
+
+					bool isString = context.fieldProps.typeId == TypeInfo<String>::ID();
 
 					for (auto& drawField : field.drawFn)
 					{
+						bool updated = false;
+						bool updatedFinished = false;
+
 						context.customContext = drawField.context;
-						drawField.drawField(context, buffer, updated, updatedFinished);
+
+						field.reflectField->Get(object, buffer, sizeof(buffer));
+
+						if (isString)
+						{
+							//Get does a shallow copy, the renderer can only mutate a real one.
+							String stringBuffer = *reinterpret_cast<String*>(buffer);
+							drawField.drawField(context, &stringBuffer, updated, updatedFinished);
+
+							if (updated)
+							{
+								field.reflectField->Set(object, &stringBuffer, sizeof(String));
+							}
+						}
+						else
+						{
+							drawField.drawField(context, buffer, updated, updatedFinished);
+
+							if (updated && context.fieldProps.isTriviallyCopyable)
+							{
+								field.reflectField->Set(object, buffer, context.fieldProps.size);
+							}
+						}
 					}
 				}
 				ImGui::EndTable();

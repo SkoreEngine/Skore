@@ -930,6 +930,45 @@ namespace Skore
 		return Resources::Create(type, uuid, scope);
 	}
 
+	static ResourceBuffer CreateBufferInDirectory(StringView directory, VoidPtr bytes, usize size)
+	{
+		ResourceBuffer buffer = ResourceBuffer(Random::Xorshift64star());
+		String         bufferPath = Path::Join(directory, buffer.GetIdAsString().Append(".buffer"));
+		if (size > 0 && bytes)
+		{
+			FileSystem::SaveFileAsByteArray(bufferPath, Span{static_cast<u8*>(bytes), size});
+		}
+		buffer.MapFile(bufferPath, false, 0, 0);
+
+		logger.Debug("buffer mapped to {} ", bufferPath);
+
+		return buffer;
+	}
+
+	ResourceBuffer SubResourceAllocator::CreateBuffer() const
+	{
+		return CreateBuffer(nullptr, 0);
+	}
+
+	ResourceBuffer SubResourceAllocator::CreateBuffer(VoidPtr bytes, usize size) const
+	{
+		if (bufferDirectory.Empty())
+		{
+			return ResourceAssets::CreateTempBuffer(bytes, size);
+		}
+		return CreateBufferInDirectory(bufferDirectory, bytes, size);
+	}
+
+	ResourceBuffer CookContext::CreateBuffer() const
+	{
+		return CreateBuffer(nullptr, 0);
+	}
+
+	ResourceBuffer CookContext::CreateBuffer(VoidPtr bytes, usize size) const
+	{
+		return Allocator().CreateBuffer(bytes, size);
+	}
+
 	UUID IngestContext::DeclareSubResource(StringView subId, TypeID type)
 	{
 		for (SubResourceDecl& decl : subResources)
@@ -1209,16 +1248,21 @@ namespace Skore
 			ByteBuffer scratch;
 			object.IterateAllBuffers([&](const ResourceBuffer& buffer)
 			{
-				u64 bufferSize = buffer.GetSize();
-				if (bufferSize > scratch.Size())
-				{
-					scratch.Resize(bufferSize);
-				}
-				buffer.CopyData(scratch.begin(), bufferSize);
-
 				String bufferFileName = buffer.GetIdAsString() + ".buffer";
 				String bufferFilePath = Path::Join(folder, bufferFileName);
-				FileSystem::SaveFileAsByteArray(bufferFilePath, Span<u8>(scratch.begin(), bufferSize));
+
+				//buffers created with CookContext::CreateBuffer are already in the cook folder
+				if (buffer.Path() != bufferFilePath)
+				{
+					u64 bufferSize = buffer.GetSize();
+					if (bufferSize > scratch.Size())
+					{
+						scratch.Resize(bufferSize);
+					}
+					buffer.CopyData(scratch.begin(), bufferSize);
+					FileSystem::SaveFileAsByteArray(bufferFilePath, Span<u8>(scratch.begin(), bufferSize));
+				}
+
 				buffer.MapFile(bufferFilePath, true, 0, 0);
 				currentFiles.Emplace(bufferFileName);
 			});
@@ -1258,17 +1302,18 @@ namespace Skore
 			Compression::Decompress(source.begin(), originalSize, originalCompressed.begin(), original.GetSize(), CompressionMode::ZSTD);
 		}
 
+		if (!FileSystem::GetFileStatus(folder).exists)
+		{
+			FileSystem::CreateDirectory(folder);
+		}
+
 		CookContext ctx;
 		ctx.importedAsset = wrapper;
 		ctx.importSettings = wrapperObj.GetSubObject(ResourceImportedAsset::ImportSettings);
 		ctx.sourceBytes = {source.begin(), source.Size()};
 		ctx.scope = scope;
+		ctx.bufferDirectory = folder;
 		importer->Cook(ctx);
-
-		if (!FileSystem::GetFileStatus(folder).exists)
-		{
-			FileSystem::CreateDirectory(folder);
-		}
 
 		HashSet<String> currentFiles;
 		for (RID root : ctx.produced)
@@ -2282,17 +2327,7 @@ namespace Skore
 
 	ResourceBuffer ResourceAssets::CreateTempBuffer(VoidPtr bytes, usize size)
 	{
-		ResourceBuffer buffer = ResourceBuffer(Random::Xorshift64star());
-		String         bufferPath = Path::Join(bufferTempFolder, buffer.GetIdAsString().Append(".buffer"));
-		if (size > 0 && bytes)
-		{
-			FileSystem::SaveFileAsByteArray(bufferPath, Span{static_cast<u8*>(bytes), size});
-		}
-		buffer.MapFile(bufferPath, false, 0, 0);
-
-		logger.Debug("buffer mapped to {} ", bufferPath);
-
-		return buffer;
+		return CreateBufferInDirectory(bufferTempFolder, bytes, size);
 	}
 
 	void ResourceAssets::RegisterAssetByType(RID asset)
