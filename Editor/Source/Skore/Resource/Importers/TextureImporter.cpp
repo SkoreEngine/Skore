@@ -18,7 +18,7 @@ namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("Skore::TextureImporter");
 
-	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, TextureFormat format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope);
+	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, TextureFormat format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope, const SubResourceAllocator& alloc);
 
 	struct TextureImporter : ResourceAssetImporter
 	{
@@ -88,7 +88,7 @@ namespace Skore
 			}
 
 			RID texture = ctx.SubResource("main", TypeInfo<TextureResource>::ID());
-			ProcessTextureAsset(texture, name, settings, format, width, height, bytes, ctx.scope);
+			ProcessTextureAsset(texture, name, settings, format, width, height, bytes, ctx.scope, ctx.Allocator());
 
 			stbi_image_free(bytes);
 		}
@@ -160,7 +160,7 @@ namespace Skore
 		}
 	}
 
-	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, TextureFormat format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope)
+	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, TextureFormat format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope, const SubResourceAllocator& alloc)
 	{
 		UUID textureBase = Resources::GetUUID(texture);
 
@@ -350,11 +350,11 @@ namespace Skore
 		textureObject.SetEnum(TextureResource::CompressionMode, compressionMode);
 		textureObject.SetUInt(TextureResource::TotalUncompressedSize, totalUncompressedSize);
 		textureObject.AddToSubObjectList(TextureResource::Images, imageResources);
-		textureObject.SetBuffer(TextureResource::PixelData, ResourceAssets::CreateTempBuffer(byteSpan.begin(), byteSpan.Size()));
+		textureObject.SetBuffer(TextureResource::PixelData, alloc.CreateBuffer(byteSpan.begin(), byteSpan.Size()));
 		textureObject.Commit(scope);
 	}
 
-	void ProcessFromFileTexture(RID texture, TextureImportSettings settings, String path, UndoRedoScope* scope)
+	void ProcessFromFileTexture(RID texture, TextureImportSettings settings, String path, UndoRedoScope* scope, const SubResourceAllocator& alloc)
 	{
 		i32 width{};
 		i32 height{};
@@ -383,7 +383,7 @@ namespace Skore
 			return;
 		}
 
-		ProcessTextureAsset(texture, Path::Name(path), settings, format, width, height, bytes, scope);
+		ProcessTextureAsset(texture, Path::Name(path), settings, format, width, height, bytes, scope, alloc);
 
 		stbi_image_free(bytes);
 	}
@@ -414,6 +414,7 @@ namespace Skore
 				TextureImportSettings settings;
 				String path;
 				UndoRedoScope* scope;
+				SubResourceAllocator alloc;
 			};
 
 			ImportData* importData = Alloc<ImportData>();
@@ -421,24 +422,25 @@ namespace Skore
 			importData->settings = settings;
 			importData->path = path;
 			importData->scope = scope;
+			importData->alloc = alloc;
 
 			Editor::AddTask([importData]
 			                {
-				                ProcessFromFileTexture(importData->texture, importData->settings, importData->path, importData->scope);
+				                ProcessFromFileTexture(importData->texture, importData->settings, importData->path, importData->scope, importData->alloc);
 				                DestroyAndFree(importData);
 			                },
 			                String("Importing texture: ") + Path::Name(importData->path));
 		}
 		else
 		{
-			ProcessFromFileTexture(texture, settings, path, scope);
+			ProcessFromFileTexture(texture, settings, path, scope, alloc);
 		}
 
 
 		return texture;
 	}
 
-	void ProcessFromMemoryTexture(RID texture, TextureImportSettings settings, StringView name, Span<u8> data, UndoRedoScope* scope)
+	void ProcessFromMemoryTexture(RID texture, TextureImportSettings settings, StringView name, Span<u8> data, UndoRedoScope* scope, const SubResourceAllocator& alloc)
 	{
 		i32 width{};
 		i32 height{};
@@ -451,7 +453,7 @@ namespace Skore
 			logger.Error("Failed to load texture from memory: {}", name);
 		}
 
-		ProcessTextureAsset(texture, name, settings, TextureFormat::R8G8B8A8_UNORM, width, height, bytes, scope);
+		ProcessTextureAsset(texture, name, settings, TextureFormat::R8G8B8A8_UNORM, width, height, bytes, scope, alloc);
 
 		stbi_image_free(bytes);
 	}
@@ -473,6 +475,7 @@ namespace Skore
 				String name;
 				ByteBuffer data;
 				UndoRedoScope* scope;
+				SubResourceAllocator alloc;
 			};
 
 			ImportData* importData = Alloc<ImportData>();
@@ -481,17 +484,18 @@ namespace Skore
 			importData->name = name;
 			importData->data = data;
 			importData->scope = scope;
+			importData->alloc = alloc;
 
 			Editor::AddTask([importData]
 			                {
-				                ProcessFromMemoryTexture(importData->texture, importData->settings, importData->name, importData->data, importData->scope);
+				                ProcessFromMemoryTexture(importData->texture, importData->settings, importData->name, importData->data, importData->scope, importData->alloc);
 				                DestroyAndFree(importData);
 			                },
 			                String("Importing texture: ") + name);
 		}
 		else
 		{
-			ProcessFromMemoryTexture(texture, settings, name, data, scope);
+			ProcessFromMemoryTexture(texture, settings, name, data, scope, alloc);
 		}
 
 

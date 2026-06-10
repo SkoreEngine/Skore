@@ -543,15 +543,32 @@ namespace Skore
 
 	bool CanDrawResourceField(const ImGuiDrawFieldDrawCheck& check)
 	{
-		return check.IsResourceFieldType(ResourceFieldType::Reference);
+		if (check.IsResourceFieldType(ResourceFieldType::Reference))
+		{
+			return true;
+		}
+
+		//object fields like TypedRID<T> map to references, pointer fields (e.g. Entity*) don't hold a RID value.
+		return check.resourceField == nullptr &&
+			check.reflectField != nullptr &&
+			!check.fieldProps.isPointer &&
+			check.reflectField->GetResourceFieldInfo().type == ResourceFieldType::Reference;
 	}
 
 	void DrawResourceField(const ImGuiDrawFieldContext& context, VoidPtr value, bool& updated, bool& updatedFinished)
 	{
-		SK_ASSERT(context.resourceField, "reflectFieldType cannot be null");
+		TypeID subType = {};
+		if (context.resourceField)
+		{
+			subType = context.resourceField->GetSubType();
+		}
+		else if (context.reflectField)
+		{
+			subType = context.reflectField->GetResourceFieldInfo().subType;
+		}
 
 		RID& rid = *static_cast<RID*>(value);
-		DrawResource(context, rid, context.id, context.resourceField->GetSubType(), [&](RID newRid)
+		DrawResource(context, rid, context.id, subType, [&](RID newRid)
 		{
 			ImGuiCommitFieldChanges(context, &newRid, sizeof(RID));
 		});
@@ -696,11 +713,69 @@ namespace Skore
 
 	bool CanDrawReferenceArray(const ImGuiDrawFieldDrawCheck& check)
 	{
-		return check.IsResourceFieldType(ResourceFieldType::ReferenceArray);
+		if (check.IsResourceFieldType(ResourceFieldType::ReferenceArray))
+		{
+			return true;
+		}
+
+		return check.resourceField == nullptr &&
+			check.reflectField != nullptr &&
+			check.reflectField->GetResourceFieldInfo().type == ResourceFieldType::ReferenceArray;
+	}
+
+	void DrawObjectReferenceArray(const ImGuiDrawFieldContext& context, VoidPtr value)
+	{
+		//value holds a shallow copy of an Array<TypedRID<T>>, never mutate it in place,
+		//commits go through ReflectField::Set with a fresh array instead.
+		Array<RID> elements = *static_cast<const Array<RID>*>(value);
+		TypeID subType = context.reflectField->GetResourceFieldInfo().subType;
+
+		ImGui::PushID(IntToPtr(context.id));
+
+		if (ImGui::Button(ICON_FA_PLUS))
+		{
+			Array<RID> newArray = elements;
+			newArray.EmplaceBack(RID{});
+			ImGuiCommitFieldChanges(context, &newArray, sizeof(Array<RID>));
+		}
+
+		ImGui::SameLine();
+
+		ImGui::BeginDisabled(elements.Empty());
+
+		if (ImGui::Button(ICON_FA_MINUS))
+		{
+			Array<RID> newArray = elements;
+			newArray.PopBack();
+			ImGuiCommitFieldChanges(context, &newArray, sizeof(Array<RID>));
+		}
+
+		ImGui::EndDisabled();
+
+		for (usize i = 0; i < elements.Size(); ++i)
+		{
+			DrawResource(context, elements[i], context.id + i, subType, [&](RID newRid)
+			{
+				Array<RID> newArray = elements;
+				newArray[i] = newRid;
+				ImGuiCommitFieldChanges(context, &newArray, sizeof(Array<RID>));
+			});
+		}
+
+		ImGui::PopID();
 	}
 
 	void DrawReferenceArray(const ImGuiDrawFieldContext& context, VoidPtr value, bool& updated, bool& updatedFinished)
 	{
+		if (context.resourceField == nullptr)
+		{
+			if (context.object && context.reflectField && value)
+			{
+				DrawObjectReferenceArray(context, value);
+			}
+			return;
+		}
+
 		ResourceObject object = Resources::Read(context.rid);
 		Span<RID> elements = object.GetReferenceArray(context.resourceField->GetIndex());
 

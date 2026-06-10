@@ -76,8 +76,14 @@ namespace Skore
 	{
 		RID            importedAsset;
 		UndoRedoScope* scope = nullptr;
+		String         bufferDirectory;
 
 		RID Create(StringView subId, TypeID type) const;
+
+		//creates a buffer directly in bufferDirectory (the cook's library folder),
+		//falls back to a temp buffer when bufferDirectory is empty (non-cook contexts).
+		ResourceBuffer CreateBuffer() const;
+		ResourceBuffer CreateBuffer(VoidPtr bytes, usize size) const;
 
 		template <typename T>
 		RID Create(StringView subId) const
@@ -107,11 +113,17 @@ namespace Skore
 		RID						 importSettings;
 		Span<u8>       sourceBytes;
 		UndoRedoScope* scope = nullptr;
+		String         bufferDirectory;
 
 		Array<RID> produced;
 
 		RID        SubResource(StringView subId, TypeID type);
 		ByteBuffer Dependency(StringView relPath) const;
+
+		//creates a buffer directly in the cook's library folder, so cooked data
+		//is persisted without the temp copy made by ResourceAssets::CreateTempBuffer.
+		ResourceBuffer CreateBuffer() const;
+		ResourceBuffer CreateBuffer(VoidPtr bytes, usize size) const;
 
 		template <typename T>
 		RID SubResource(StringView subId)
@@ -121,7 +133,7 @@ namespace Skore
 
 		SubResourceAllocator Allocator() const
 		{
-			return SubResourceAllocator{importedAsset, scope};
+			return SubResourceAllocator{importedAsset, scope, bufferDirectory};
 		}
 	};
 

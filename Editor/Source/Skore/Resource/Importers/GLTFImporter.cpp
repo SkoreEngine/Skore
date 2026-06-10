@@ -814,7 +814,7 @@ namespace Skore
 			}
 
 			// Sample all channels at fixed framerate and write to buffer
-			ResourceBuffer buffer = ResourceAssets::CreateTempBuffer();
+			ResourceBuffer buffer = data.alloc.CreateBuffer();
 			FileHandler handler = buffer.OpenFile(AccessMode::ReadAndWrite);
 			u64 offset = 0;
 

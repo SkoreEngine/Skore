@@ -167,85 +167,181 @@ namespace Skore
 
 		if (sceneEditor && sceneEditor->GetCurrentScene() && !windowStartedSimulation)
 		{
-			auto guizmoMove = [&](Entity* entity) -> bool
+			Scene* scene = sceneEditor->GetCurrentScene();
+
+			auto hasSelectedAncestor = [&](Entity* entity) -> bool
 			{
-				if (Transform* transform = entity->GetComponent<Transform>())
+				for (Entity* parent = entity->GetParent(); parent != nullptr; parent = parent->GetParent())
 				{
-					Mat4 globalMatrix = entity->GetWorldTransform();
-
-					float snap[3] = {0.0f, 0.0f, 0.0f};
-
-					if (guizmoSnapEnabled || ctrlDown)
+					if (sceneEditor->IsSelected(parent))
 					{
-						snap[0] = guizmoSnap.x;
-						snap[1] = guizmoSnap.y;
-						snap[2] = guizmoSnap.z;
-					}
-
-					ImGuizmo::Manipulate(&renderPipelineContext->camera.view[0][0],
-					                     &renderPipelineContext->camera.projectionNoJitter[0][0],
-					                     static_cast<ImGuizmo::OPERATION>(guizmoOperation),
-					                     static_cast<ImGuizmo::MODE>(guizmoMode),
-					                     &globalMatrix[0][0],
-					                     nullptr,
-					                     snap);
-
-					if (ImGuizmo::IsUsing())
-					{
-						if (!usingGuizmo)
-						{
-							usingGuizmo = true;
-						}
-
-						globalMatrix = Mat4::Inverse(transform->GetParentWorldTransform()) * globalMatrix;
-
-						Vec3 position, rotation, scale;
-						Mat4::Decompose(globalMatrix, position, rotation, scale);
-						auto deltaRotation = rotation - Quat::EulerAngles(transform->GetRotation());
-						transform->SetTransform(position, Quat::EulerAngles(transform->GetRotation()) + deltaRotation, scale);
-
 						return true;
 					}
 				}
 				return false;
 			};
 
+			//entities moved by the gizmo: selected entities with a transform, skipping the ones
+			//that already inherit the movement from a selected ancestor
+			Array<Entity*> gizmoEntities;
 			for (RID selectedEntity : sceneEditor->GetSelectedEntities())
 			{
-				if (Entity* entity = sceneEditor->GetCurrentScene()->FindEntityByRID(selectedEntity))
+				if (Entity* entity = scene->FindEntityByRID(selectedEntity))
 				{
-					if (!guizmoMove(entity) && usingGuizmo)
+					if (entity->GetComponent<Transform>() != nullptr && !hasSelectedAncestor(entity))
 					{
-						if (Transform* transform = entity->GetComponent<Transform>())
-						{
-							if (RID rid = transform->GetRID())
-							{
-								UndoRedoScope* scope = Editor::CreateUndoRedoScope("Entity Transform Update");
-
-								ResourceObject transformObject = Resources::Write(rid);
-
-								if (transform->GetPosition() != transformObject.GetVec3(Transform::Position))
-								{
-									transformObject.SetVec3(Transform::Position, transform->GetPosition());
-								}
-
-								if (transform->GetRotation() != transformObject.GetQuat(Transform::Rotation))
-								{
-									transformObject.SetQuat(Transform::Rotation, transform->GetRotation());
-								}
-
-								if (transform->GetScale() != transformObject.GetVec3(Transform::Scale))
-								{
-									transformObject.SetVec3(Transform::Scale, transform->GetScale());
-								}
-
-								transformObject.Commit(scope);
-
-								usingGuizmo = false;
-							}
-						}
+						gizmoEntities.EmplaceBack(entity);
 					}
 				}
+			}
+
+			if (!gizmoEntities.Empty())
+			{
+				if (!usingGuizmo)
+				{
+					//single gizmo on the center of the selection, oriented like the last selected entity
+					Vec3 center = {};
+					for (Entity* entity : gizmoEntities)
+					{
+						center = center + entity->GetWorldPosition();
+					}
+					center = center * (1.0f / static_cast<f32>(gizmoEntities.Size()));
+
+					Vec3 anchorPos, anchorRot, anchorScale;
+					Mat4::Decompose(gizmoEntities.Back()->GetWorldTransform(), anchorPos, anchorRot, anchorScale);
+
+					gizmoMatrix = Mat4::Translate(center) * Quat::ToMatrix4(Quat(anchorRot));
+				}
+
+				float snap[3] = {0.0f, 0.0f, 0.0f};
+
+				if (guizmoSnapEnabled || ctrlDown)
+				{
+					snap[0] = guizmoSnap.x;
+					snap[1] = guizmoSnap.y;
+					snap[2] = guizmoSnap.z;
+				}
+
+				Mat4 preManipulateMatrix = gizmoMatrix;
+
+				ImGuizmo::Manipulate(&renderPipelineContext->camera.view[0][0],
+				                     &renderPipelineContext->camera.projectionNoJitter[0][0],
+				                     static_cast<ImGuizmo::OPERATION>(guizmoOperation),
+				                     static_cast<ImGuizmo::MODE>(guizmoMode),
+				                     &gizmoMatrix[0][0],
+				                     nullptr,
+				                     snap);
+
+				if (ImGuizmo::IsUsing())
+				{
+					if (!usingGuizmo)
+					{
+						usingGuizmo = true;
+
+						//drag started, snapshot the gizmo and every entity so the
+						//cumulative delta can be applied individually on top of them
+						Vec3 rotation;
+						Mat4::Decompose(preManipulateMatrix, gizmoStartPos, rotation, gizmoStartScale);
+						gizmoStartRot = Quat(rotation);
+
+						gizmoTargets.Clear();
+						for (Entity* entity : gizmoEntities)
+						{
+							Vec3 worldPos, worldRot, worldScale;
+							Mat4::Decompose(entity->GetWorldTransform(), worldPos, worldRot, worldScale);
+							gizmoTargets.EmplaceBack(GizmoTarget{
+								.entity = entity->GetRID(),
+								.worldPos = worldPos,
+								.worldRot = Quat(worldRot),
+								.worldScale = worldScale,
+							});
+						}
+					}
+
+					Vec3 gizmoPos, gizmoRotEuler, gizmoScale;
+					Mat4::Decompose(gizmoMatrix, gizmoPos, gizmoRotEuler, gizmoScale);
+
+					Quat gizmoStartRotConjugate = Quat{-gizmoStartRot.x, -gizmoStartRot.y, -gizmoStartRot.z, gizmoStartRot.w};
+
+					Vec3 deltaPos = gizmoPos - gizmoStartPos;
+					Quat deltaRot = Quat(gizmoRotEuler) * gizmoStartRotConjugate;
+					Vec3 deltaScale = gizmoScale / gizmoStartScale;
+
+					for (const GizmoTarget& target : gizmoTargets)
+					{
+						Entity* entity = scene->FindEntityByRID(target.entity);
+						if (entity == nullptr)
+						{
+							continue;
+						}
+
+						Transform* transform = entity->GetComponent<Transform>();
+						if (transform == nullptr)
+						{
+							continue;
+						}
+
+						//translation moves the entity, but rotation and scale are applied on its own pivot
+						Mat4 worldMatrix = Mat4::Translate(target.worldPos + deltaPos) *
+							Quat::ToMatrix4(Quat::Normalized(deltaRot * target.worldRot)) *
+							Mat4::Scale(target.worldScale * deltaScale);
+
+						Mat4 localMatrix = Mat4::Inverse(transform->GetParentWorldTransform()) * worldMatrix;
+
+						Vec3 position, rotation, scale;
+						Mat4::Decompose(localMatrix, position, rotation, scale);
+						transform->SetTransform(position, Quat(rotation), scale);
+					}
+				}
+			}
+
+			if (usingGuizmo && !ImGuizmo::IsUsing())
+			{
+				usingGuizmo = false;
+
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Entity Transform Update");
+
+				for (const GizmoTarget& target : gizmoTargets)
+				{
+					Entity* entity = scene->FindEntityByRID(target.entity);
+					if (entity == nullptr)
+					{
+						continue;
+					}
+
+					Transform* transform = entity->GetComponent<Transform>();
+					if (transform == nullptr)
+					{
+						continue;
+					}
+
+					RID rid = transform->GetRID();
+					if (!rid)
+					{
+						continue;
+					}
+
+					ResourceObject transformObject = Resources::Write(rid);
+
+					if (transform->GetPosition() != transformObject.GetVec3(Transform::Position))
+					{
+						transformObject.SetVec3(Transform::Position, transform->GetPosition());
+					}
+
+					if (transform->GetRotation() != transformObject.GetQuat(Transform::Rotation))
+					{
+						transformObject.SetQuat(Transform::Rotation, transform->GetRotation());
+					}
+
+					if (transform->GetScale() != transformObject.GetVec3(Transform::Scale))
+					{
+						transformObject.SetVec3(Transform::Scale, transform->GetScale());
+					}
+
+					transformObject.Commit(scope);
+				}
+
+				gizmoTargets.Clear();
 			}
 		}
 
