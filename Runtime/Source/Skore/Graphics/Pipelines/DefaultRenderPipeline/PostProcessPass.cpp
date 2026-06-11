@@ -46,8 +46,7 @@ namespace Skore
 			cmd->SetTexture(pipeline, 0, 1, context->GetTexture("ColorAttachment"), 0);
 			cmd->SetSampler(pipeline, 0, 2, Graphics::GetNearestClampToEdgeSampler());
 
-			GPUTexture* bloomTexture = context->GetTexture("BloomTexture");
-			if (bloomTexture)
+			if (GPUTexture* bloomTexture = context->GetTexture("BloomTexture"))
 			{
 				cmd->SetTexture(pipeline, 0, 3, bloomTexture, 0);
 				cmd->SetSampler(pipeline, 0, 4, Graphics::GetLinearClampToEdgeSampler());

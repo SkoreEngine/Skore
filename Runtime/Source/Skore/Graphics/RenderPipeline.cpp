@@ -47,7 +47,7 @@ namespace Skore
 		Array<TypeID> modulesIds = setup.modules;
 		modulesIds.Insert(modulesIds.end(), extraModules.begin(), extraModules.end());
 
-		modules.Reserve(modulesIds.Size());
+		allModules.Reserve(modulesIds.Size());
 
 		HashSet<TypeID> moduleIdsSet;
 
@@ -80,27 +80,17 @@ namespace Skore
 				continue;
 			}
 			module->context = this;
-			modules.EmplaceBack(module);
+			allModules.EmplaceBack(module);
 			moduleIdsSet.Emplace(moduleId);
 		}
 
-		modules.ShrinkToFit();
+		allModules.ShrinkToFit();
 
 		HashSet<TypeID> passIdsSet;
 
-		struct PassInfo
-		{
-			RenderPipelinePass*     pass = nullptr;
-			String                  name;
-			RenderPipelineModule*   module;
-			Array<String>           writes;
-			Array<String>           reads;
-			RenderPipelinePassSetup setup;
-		};
-
-		Array<PassInfo> tempPasses;
-
-		for (RenderPipelineModule* module : modules)
+		//create every pass object once (persistent). Which passes are part of the graph
+		//is decided later in BuildGraph() from their (and their module's) IsEnabled().
+		for (RenderPipelineModule* module : allModules)
 		{
 			RenderPipelineModuleSetup moduleSetup = module->GetSetup();
 
@@ -146,13 +136,13 @@ namespace Skore
 
 				pass->context = this;
 
-				PassInfo info;
-				info.pass = pass;
-				info.module = module;
-				info.setup = pass->GetPassSetup();
-				info.name = passReflectType->GetSimpleName();
+				PassStorage storage;
+				storage.pass = pass;
+				storage.module = module;
+				storage.setup = pass->GetPassSetup();
+				storage.name = passReflectType->GetSimpleName();
 
-				for (auto& option : info.setup.options)
+				for (auto& option : storage.setup.options)
 				{
 					if (!options.Has(option.first))
 					{
@@ -160,150 +150,29 @@ namespace Skore
 					}
 				}
 
-				if (info.setup.requireJitter)
-				{
-					applyJitter = true;
-				}
-
-				for (const auto& dependency : info.setup.dependencies)
+				for (const auto& dependency : storage.setup.dependencies)
 				{
 					if (dependency.access == RenderPipelineTextureAccess::Write)
 					{
-						info.writes.EmplaceBack(dependency.name);
-						logger.Debug("Pass {} writes to texture {}", info.name, dependency.name);
+						storage.writes.EmplaceBack(dependency.name);
 					}
 					else if (dependency.access == RenderPipelineTextureAccess::Read)
 					{
-						info.reads.EmplaceBack(dependency.name);
-						logger.Debug("Pass {} reads from texture {}", info.name, dependency.name);
+						storage.reads.EmplaceBack(dependency.name);
 					}
 					else if (dependency.access == RenderPipelineTextureAccess::ReadWrite)
 					{
-						info.writes.EmplaceBack(dependency.name);
-						info.reads.EmplaceBack(dependency.name);
-						logger.Debug("Pass {} reads and writes to texture {}", info.name, dependency.name);
+						storage.writes.EmplaceBack(dependency.name);
+						storage.reads.EmplaceBack(dependency.name);
 					}
 				}
 
-				tempPasses.EmplaceBack(info);
-			}
-
-			//setup resources
-			for (RenderPipelineResource& resource : module->GetResources())
-			{
-				if (resources.Find(resource.name) == resources.end())
-				{
-					resources.Insert(resource.name, PipelineResourceStorage{
-						                 .desc = resource,
-						                 .context = this,
-					                 });
-				}
+				passStorages.EmplaceBack(storage);
 			}
 		}
 
-		Graph<i32, PassStorage> graph;
-		for (int i = 0; i < tempPasses.Size(); ++i)
-		{
-			graph.AddNode(i, PassStorage{
-				              .name = tempPasses[i].name,
-				              .pass = tempPasses[i].pass,
-				              .setup = tempPasses[i].setup,
-				              .module = tempPasses[i].module
-			              });
-		}
-
-		//Build dependency graph
-		for (int i = 0; i < tempPasses.Size(); ++i)
-		{
-			for (int j = 0; j < tempPasses.Size(); j++)
-			{
-				if (i == j) continue;
-
-				for (const String& written : tempPasses[i].writes)
-				{
-					for (const String& read : tempPasses[j].reads)
-					{
-						if (written == read)
-						{
-							logger.Debug("Pass {} depends on pass {}", tempPasses[j].name, tempPasses[i].name);
-							graph.AddEdge(j, i);
-							break;
-						}
-					}
-				}
-			}
-		}
-
-		//sort passes
-		passes = graph.Sort();
-
-		//stable sort by stage - insertion sort to preserve topological order within the same stage
-		//passes with stage 0 keep their topological position
-		for (i32 i = 1; i < passes.Size(); ++i)
-		{
-			if (passes[i].setup.stage == 0) continue;
-			PassStorage temp = passes[i];
-			i32 j = i - 1;
-			while (j >= 0 && passes[j].setup.stage != 0 && passes[j].setup.stage > temp.setup.stage)
-			{
-				passes[j + 1] = passes[j];
-				--j;
-			}
-			passes[j + 1] = temp;
-		}
-
-		{
-			//trying to sort modules using passes. (not perfect, passes on a module don't necessarily run together)
-			auto modulesTemp = modules;
-			modules.Clear();
-
-			HashSet<RenderPipelineModule*> modulesAdded;
-
-			for (int i = 0; i < passes.Size(); ++i)
-			{
-				if (!modulesAdded.Has(passes[i].module))
-				{
-					modules.EmplaceBack(passes[i].module);
-					modulesAdded.Emplace(passes[i].module);
-				}
-			}
-
-			for (RenderPipelineModule* module : modulesTemp)
-			{
-				if (!modulesAdded.Has(module))
-				{
-					modules.EmplaceBack(module);;
-				}
-			}
-		}
-
-		//call create function by order
-		for (int i = 0; i < passes.Size(); ++i)
-		{
-			passes[i].pass->Create();
-		}
-
-		//at this stage, it should know the output size.
-		CreateContextResources();
-
-
-		//track lastWrite
-		for (int i = 0; i < passes.Size(); ++i)
-		{
-			for (RenderPipelinePassDependency& dependency : passes[i].setup.dependencies)
-			{
-				if (dependency.access == RenderPipelineTextureAccess::Write || dependency.access == RenderPipelineTextureAccess::ReadWrite)
-				{
-					if (auto it = resources.Find(dependency.name))
-					{
-						it->second.lastWrite = i;
-					}
-				}
-			}
-		}
-
-		CreatePasses();
-		CreateBarriers();
+		//passStorages must not reallocate after this point: passes[] holds pointers into it.
+		passStorages.ShrinkToFit();
 
 		u64 alignment = Graphics::GetDevice()->GetProperties().limits.minMemoryMapAlignment;
 		sceneBufferFrameSize = AlignedSize(sizeof(GlobalSceneBuffer), alignment);
@@ -367,15 +236,288 @@ namespace Skore
 			sceneDescriptorSets[i]->Update(descriptorUpdate);
 		}
 
-		for (auto& module : modules)
+		//build the initial graph: selects enabled passes/modules, creates their resources,
+		//calls Create()/Init() on them.
+		BuildGraph(true);
+	}
+
+	void RenderPipelineContext::BuildGraph(bool firstBuild)
+	{
+		if (!firstBuild)
 		{
-			module->Init();
+			//graph is being rebuilt while frames may be in flight - make sure the GPU is done
+			//with the resources/framebuffers we are about to destroy.
+			Graphics::WaitIdle();
 		}
 
-		for (int i = 0; i < passes.Size(); ++i)
+		//1) determine which modules are enabled this build
+		HashSet<RenderPipelineModule*> newActiveModules;
+		for (RenderPipelineModule* module : allModules)
 		{
-			passes[i].pass->Init();
+			if (module->IsEnabled())
+			{
+				newActiveModules.Emplace(module);
+			}
 		}
+
+		//2) build the dependency graph over enabled passes (enabled pass inside an enabled module)
+		Graph<i32, i32> graph;
+		Array<i32>      activeIndices;
+		for (i32 i = 0; i < passStorages.Size(); ++i)
+		{
+			PassStorage& ps = passStorages[i];
+			if (newActiveModules.Has(ps.module) && ps.pass->IsEnabled())
+			{
+				graph.AddNode(i, i);
+				activeIndices.EmplaceBack(i);
+			}
+		}
+
+		for (i32 a : activeIndices)
+		{
+			for (i32 b : activeIndices)
+			{
+				if (a == b) continue;
+
+				//b reads what a writes => b depends on a
+				bool depends = false;
+				for (const String& written : passStorages[a].writes)
+				{
+					for (const String& read : passStorages[b].reads)
+					{
+						if (written == read)
+						{
+							graph.AddEdge(b, a);
+							depends = true;
+							break;
+						}
+					}
+					if (depends) break;
+				}
+			}
+		}
+
+		Array<i32> sorted = graph.Sort();
+
+		//3) build the active execution list (pointers into the persistent passStorages)
+		passes.Clear();
+		passes.Reserve(sorted.Size());
+		for (i32 idx : sorted)
+		{
+			passes.EmplaceBack(&passStorages[idx]);
+		}
+
+		//stable sort by stage - insertion sort to preserve topological order within the same stage
+		//passes with stage 0 keep their topological position
+		for (i32 i = 1; i < passes.Size(); ++i)
+		{
+			if (passes[i]->setup.stage == 0) continue;
+			PassStorage* temp = passes[i];
+			i32          j = i - 1;
+			while (j >= 0 && passes[j]->setup.stage != 0 && passes[j]->setup.stage > temp->setup.stage)
+			{
+				passes[j + 1] = passes[j];
+				--j;
+			}
+			passes[j + 1] = temp;
+		}
+
+		//4) build the active module execution order from the pass order
+		modules.Clear();
+		{
+			HashSet<RenderPipelineModule*> modulesAdded;
+			for (PassStorage* storage : passes)
+			{
+				if (!modulesAdded.Has(storage->module))
+				{
+					modules.EmplaceBack(storage->module);
+					modulesAdded.Emplace(storage->module);
+				}
+			}
+
+			//enabled modules with no (enabled) passes still need to run, append them
+			for (RenderPipelineModule* module : allModules)
+			{
+				if (newActiveModules.Has(module) && !modulesAdded.Has(module))
+				{
+					modules.EmplaceBack(module);
+					modulesAdded.Emplace(module);
+				}
+			}
+		}
+
+		//jitter is only needed when an enabled pass requires it
+		applyJitter = false;
+		for (PassStorage* storage : passes)
+		{
+			if (storage->setup.requireJitter)
+			{
+				applyJitter = true;
+			}
+		}
+
+		//5) tear down passes that are no longer part of the graph
+		HashSet<RenderPipelinePass*> newActivePasses;
+		for (PassStorage* storage : passes)
+		{
+			newActivePasses.Emplace(storage->pass);
+		}
+
+		for (PassStorage& ps : passStorages)
+		{
+			if (ps.active && !newActivePasses.Has(ps.pass))
+			{
+				ps.pass->Destroy();
+				if (ps.pass->renderPass)
+				{
+					ps.pass->renderPass->Destroy();
+					ps.pass->renderPass = nullptr;
+				}
+				for (GPUFramebuffer* framebuffer : ps.framebuffers)
+				{
+					framebuffer->Destroy();
+				}
+				ps.framebuffers.Clear();
+				ps.preBarriers.Clear();
+				ps.postBarriers.Clear();
+				ps.active = false;
+			}
+		}
+
+		//6) tear down modules that are no longer enabled (after their passes are gone)
+		for (RenderPipelineModule* module : allModules)
+		{
+			if (activeModulesSet.Has(module) && !newActiveModules.Has(module))
+			{
+				module->Destroy();
+				activeModulesSet.Erase(module);
+			}
+		}
+
+		//7) Create() newly activated passes before resources are created (matches first build order)
+		for (PassStorage* storage : passes)
+		{
+			if (!storage->active)
+			{
+				storage->pass->Create();
+			}
+		}
+
+		//8) create resources newly required and destroy the ones no longer used
+		ReconcileResources(newActiveModules);
+
+		//9) track lastWrite for the new pass order
+		for (auto& resourceIt : resources)
+		{
+			resourceIt.second.lastWrite = U32_MAX;
+		}
+		for (i32 i = 0; i < passes.Size(); ++i)
+		{
+			for (RenderPipelinePassDependency& dependency : passes[i]->setup.dependencies)
+			{
+				if (dependency.access == RenderPipelineTextureAccess::Write || dependency.access == RenderPipelineTextureAccess::ReadWrite)
+				{
+					if (auto it = resources.Find(dependency.name))
+					{
+						it->second.lastWrite = i;
+					}
+				}
+			}
+		}
+
+		//10) create render passes / framebuffers for graphics passes that don't have them yet
+		CreatePasses();
+
+		//11) rebuild the barriers for the new graph
+		CreateBarriers();
+
+		//12) Init() newly activated modules (module order first), then newly activated passes
+		for (RenderPipelineModule* module : modules)
+		{
+			if (!activeModulesSet.Has(module))
+			{
+				module->Init();
+				activeModulesSet.Emplace(module);
+			}
+		}
+
+		for (PassStorage* storage : passes)
+		{
+			if (!storage->active)
+			{
+				storage->pass->Init();
+				storage->active = true;
+			}
+		}
+	}
+
+	void RenderPipelineContext::ReconcileResources(const HashSet<RenderPipelineModule*>& activeModules)
+	{
+		//collect the resources declared by the currently enabled modules
+		HashSet<String> declared;
+		for (RenderPipelineModule* module : allModules)
+		{
+			if (!activeModules.Has(module)) continue;
+
+			for (RenderPipelineResource& resource : module->GetResources())
+			{
+				declared.Emplace(resource.name);
+
+				auto it = resources.Find(resource.name);
+				if (it == resources.end())
+				{
+					resources.Insert(resource.name, PipelineResourceStorage{
+						                 .desc = resource,
+						                 .context = this,
+						                 .moduleDeclared = true,
+					                 });
+				}
+				else
+				{
+					it->second.moduleDeclared = true;
+				}
+			}
+		}
+
+		//destroy resources that were module-declared but are no longer declared by any enabled module
+		Array<String> toRemove;
+		for (auto& resourceIt : resources)
+		{
+			if (resourceIt.second.moduleDeclared && !declared.Has(resourceIt.first))
+			{
+				resourceIt.second.Destroy();
+				toRemove.EmplaceBack(resourceIt.first);
+			}
+		}
+		for (const String& name : toRemove)
+		{
+			resources.Erase(name);
+		}
+
+		//create GPU objects for every resource still missing them (idempotent for existing ones)
+		CreateContextResources();
+	}
+
+	bool RenderPipelineContext::HasEnabledStateChanged()
+	{
+		for (RenderPipelineModule* module : allModules)
+		{
+			if (module->IsEnabled() != activeModulesSet.Has(module))
+			{
+				return true;
+			}
+		}
+
+		for (PassStorage& ps : passStorages)
+		{
+			bool shouldBeActive = ps.module->IsEnabled() && ps.pass->IsEnabled();
+			if (shouldBeActive != ps.active)
+			{
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	void RenderPipelineContext::UpdateCamera(f32 nearClip, f32 farClip, f32 fov, Projection projection, const Mat4& view, const Vec3& cameraPosition, bool updateFrustum)
@@ -617,6 +759,11 @@ namespace Skore
 
 		if (!contextDisabled)
 		{
+			//rebuild the graph if any pass/module changed its IsEnabled() state since last frame
+			if (HasEnabledStateChanged())
+			{
+				BuildGraph(false);
+			}
 
 			auto executeBarriers = [&](const Span<PassBarrier> barriers)
 			{
@@ -688,34 +835,34 @@ namespace Skore
 				module->Update(scene);
 			}
 
-			for (auto& storage : passes)
+			for (PassStorage* storage : passes)
 			{
-				storage.pass->Update();
+				storage->pass->Update();
 			}
 
 			cmd->BeginDebugMarker(renderPipeline->GetType()->GetSimpleName(), Vec4(0.0, 0.0, 0.0, 1.0));
 			SK_SCOPED_ZONE(renderPipeline->GetType()->GetSimpleName(), cmd);
 
-			for (auto& storage : passes)
+			for (PassStorage* storage : passes)
 			{
-				SK_SCOPED_ZONE(storage.name, cmd);
+				SK_SCOPED_ZONE(storage->name, cmd);
 
-				if (storage.setup.type != RenderPipelinePassType::Other)
+				if (storage->setup.type != RenderPipelinePassType::Other)
 				{
-					cmd->BeginDebugMarker(storage.name, Vec4(0.0, 0.0, 0.0, 1.0));
+					cmd->BeginDebugMarker(storage->name, Vec4(0.0, 0.0, 0.0, 1.0));
 				}
 
-				executeBarriers(storage.preBarriers);
+				executeBarriers(storage->preBarriers);
 
-				if (storage.pass->renderPass)
+				if (storage->pass->renderPass)
 				{
 					ClearValues clearValues = {};
 					clearValues.color = Vec4(0.1, 0.1, 0.1, 1.0);
 
-					GPUFramebuffer* framebuffer = storage.GetCurrentFramebuffer(currentOutputIndex);
+					GPUFramebuffer* framebuffer = storage->GetCurrentFramebuffer(currentOutputIndex);
 
 					BeginRenderPassInfo beginRenderPassInfo;
-					beginRenderPassInfo.renderPass = storage.pass->renderPass;
+					beginRenderPassInfo.renderPass = storage->pass->renderPass;
 					beginRenderPassInfo.framebuffer = framebuffer;
 					beginRenderPassInfo.clearValues = &clearValues;
 					cmd->BeginRenderPass(beginRenderPassInfo);
@@ -726,7 +873,7 @@ namespace Skore
 					viewportInfo.x = 0.;
 					viewportInfo.y = 0.;
 
-					if (api == GraphicsAPI::Vulkan && storage.setup.invertViewport)
+					if (api == GraphicsAPI::Vulkan && storage->setup.invertViewport)
 					{
 						viewportInfo.y = (f32)extent.height;
 						viewportInfo.width = (f32)extent.width;
@@ -746,16 +893,16 @@ namespace Skore
 					cmd->SetScissor({0, 0}, extent);
 				}
 
-				storage.pass->Render(scene, cmd);
+				storage->pass->Render(scene, cmd);
 
-				if (storage.pass->renderPass)
+				if (storage->pass->renderPass)
 				{
 					cmd->EndRenderPass();
 				}
 
-				executeBarriers(storage.postBarriers);
+				executeBarriers(storage->postBarriers);
 
-				if (storage.setup.type != RenderPipelinePassType::Other)
+				if (storage->setup.type != RenderPipelinePassType::Other)
 				{
 					cmd->EndDebugMarker();
 				}
@@ -771,27 +918,39 @@ namespace Skore
 	{
 		Graphics::WaitIdle();
 
-		for (auto& storage : passes)
+		for (PassStorage& storage : passStorages)
 		{
+			//only passes that are part of the active graph had Create()/Init() called
+			if (storage.active)
+			{
+				storage.pass->Destroy();
+				storage.active = false;
+			}
+
 			if (storage.pass->renderPass)
 			{
 				storage.pass->renderPass->Destroy();
+				storage.pass->renderPass = nullptr;
 			}
 
 			for (GPUFramebuffer* frambuffer : storage.framebuffers)
 			{
 				frambuffer->Destroy();
 			}
+			storage.framebuffers.Clear();
 
-			storage.pass->Destroy();
 			DestroyAndFree(storage.pass);
 		}
 
-		for (auto& module : modules)
+		for (RenderPipelineModule* module : allModules)
 		{
-			module->Destroy();
+			if (activeModulesSet.Has(module))
+			{
+				module->Destroy();
+			}
 			DestroyAndFree(module);
 		}
+		activeModulesSet.Clear();
 
 		DestroyAndFree(renderPipeline);
 
@@ -993,6 +1152,11 @@ namespace Skore
 				}
 				case RenderPipelineResourceType::Buffer:
 				{
+					if (storage.buffer != nullptr)
+					{
+						break;
+					}
+
 					BufferDesc bufferDesc;
 					bufferDesc.size = desc.size;
 					bufferDesc.usage = desc.usage;
@@ -1006,6 +1170,11 @@ namespace Skore
 				}
 				case RenderPipelineResourceType::Instance:
 				{
+					if (storage.instanceData != nullptr)
+					{
+						break;
+					}
+
 					ReflectType* type = Reflection::FindTypeById(desc.instanceTypeId);
 					SK_ASSERT(type, "type not found");
 					if (type)
@@ -1032,8 +1201,14 @@ namespace Skore
 		//create render passes / framebuffers
 		for (i32 i = 0; i < passes.Size(); ++i)
 		{
-			auto& storage = passes[i];
+			auto& storage = *passes[i];
 			if (storage.setup.type != RenderPipelinePassType::Graphics)
+			{
+				continue;
+			}
+
+			//already created on a previous build (pass stayed active across a rebuild)
+			if (storage.pass->renderPass != nullptr)
 			{
 				continue;
 			}
@@ -1109,9 +1284,17 @@ namespace Skore
 
 	void RenderPipelineContext::CreateBarriers()
 	{
+		//barriers are graph-order dependent, rebuild them from scratch
+		initializationBarriers.Clear();
+		for (PassStorage* storage : passes)
+		{
+			storage->preBarriers.Clear();
+			storage->postBarriers.Clear();
+		}
+
 		for (u32 i = 0; i < passes.Size(); ++i)
 		{
-			auto& pass = passes[i];
+			auto& pass = *passes[i];
 
 			if (pass.setup.type == RenderPipelinePassType::Other) continue;
 
@@ -1156,7 +1339,7 @@ namespace Skore
 					}
 					else if (nextUsage.access == RenderPipelineTextureAccess::ReadWrite || nextUsage.access == RenderPipelineTextureAccess::Write)
 					{
-						if (passes[nextUsage.passIndex].setup.type == RenderPipelinePassType::Graphics)
+						if (passes[nextUsage.passIndex]->setup.type == RenderPipelinePassType::Graphics)
 						{
 							barrier.dstState = isDepth ? ResourceState::DepthStencilAttachment : ResourceState::ColorAttachment;
 						}
@@ -1206,7 +1389,7 @@ namespace Skore
 						{
 							barrier.srcState = ResourceState::Undefined;
 						}
-						else if ((lastUsage.access == RenderPipelineTextureAccess::Write || lastUsage.access == RenderPipelineTextureAccess::ReadWrite) && passes[lastUsage.passIndex].setup.type != RenderPipelinePassType::Graphics)
+						else if ((lastUsage.access == RenderPipelineTextureAccess::Write || lastUsage.access == RenderPipelineTextureAccess::ReadWrite) && passes[lastUsage.passIndex]->setup.type != RenderPipelinePassType::Graphics)
 						{
 							barrier.srcState = ResourceState::General;
 						}
@@ -1230,7 +1413,7 @@ namespace Skore
 
 				auto firstUsage = GetFirstUsageInfo(resIt.second.desc.name);
 
-				if (firstUsage.passIndex != U32_MAX && passes[firstUsage.passIndex].setup.type != RenderPipelinePassType::Graphics)
+				if (firstUsage.passIndex != U32_MAX && passes[firstUsage.passIndex]->setup.type != RenderPipelinePassType::Graphics)
 				{
 					auto lastUsage = GetLastUsageInfo(resIt.second.desc.name);
 
@@ -1277,17 +1460,17 @@ namespace Skore
 			}
 		}
 
-		for (auto& pass : passes)
+		for (PassStorage* pass : passes)
 		{
-			if (pass.setup.type == RenderPipelinePassType::Graphics)
+			if (pass->setup.type == RenderPipelinePassType::Graphics)
 			{
-				pass.CreateFrameBuffers(this);
+				pass->CreateFrameBuffers(this);
 			}
 		}
 
-		for (auto& storage : passes)
+		for (PassStorage* storage : passes)
 		{
-			storage.pass->OnResize(outputSize);
+			storage->pass->OnResize(outputSize);
 		}
 	}
 
@@ -1298,7 +1481,7 @@ namespace Skore
 		//check if the next passes contain a writing for this attachment.
 		for (u32 i = currentPass + 1; i < passes.Size(); ++i)
 		{
-			auto& pass = passes[i];
+			auto& pass = *passes[i];
 			for (auto& dependency : pass.setup.dependencies)
 			{
 				if (dependency.name == attachmentName)
@@ -1317,7 +1500,7 @@ namespace Skore
 
 		for (i32 i = static_cast<i32>(currentPass) - 1; i >= 0; --i)
 		{
-			auto& pass = passes[i];
+			auto& pass = *passes[i];
 			for (auto& dependency : pass.setup.dependencies)
 			{
 				if (dependency.name == attachmentName)
