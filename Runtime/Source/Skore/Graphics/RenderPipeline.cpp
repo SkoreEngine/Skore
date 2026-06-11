@@ -521,6 +521,20 @@ namespace Skore
 		return false;
 	}
 
+	bool RenderPipelineContext::IsMotionVectorRequired() const
+	{
+		for (const PassStorage& ps : passStorages)
+		{
+			//a pass that produces motion vectors must not itself require them (avoids recursing into
+			//MotionVectorModule::IsEnabled), so checking the flag before the module is enough.
+			if (ps.setup.requireMotionVector && ps.module->IsEnabled() && ps.pass->IsEnabled())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	void RenderPipelineContext::UpdateCamera(f32 nearClip, f32 farClip, f32 fov, Projection projection, const Mat4& view, const Vec3& cameraPosition, bool updateFrustum)
 	{
 		camera.view = view;

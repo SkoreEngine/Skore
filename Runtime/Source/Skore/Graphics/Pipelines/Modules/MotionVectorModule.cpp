@@ -1,6 +1,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
-#include "PipelineCommon.hpp"
+#include "Skore/Graphics/RenderPipeline.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
@@ -61,8 +62,33 @@ namespace Skore
 		}
 	};
 
-	void RegisterCameraMotionVectorPass()
+	struct MotionVectorModule : RenderPipelineModule
+	{
+		SK_CLASS(MotionVectorModule, RenderPipelineModule);
+
+		RenderPipelineModuleSetup GetSetup() override
+		{
+			RenderPipelineModuleSetup setup;
+			setup.passes.EmplaceBack(sktypeid(CameraMotionVectorPass));
+			return setup;
+		}
+
+		Array<RenderPipelineResource> GetResources() override
+		{
+			Array<RenderPipelineResource> resources;
+			resources.EmplaceBack(RenderPipelineResource{.name = "MotionVector", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16_FLOAT, .textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess});
+			return resources;
+		}
+
+		bool IsEnabled() override
+		{
+			return context->IsMotionVectorRequired();
+		}
+	};
+
+	void RegisterMotionVectorModule()
 	{
 		Reflection::Type<CameraMotionVectorPass>();
+		Reflection::Type<MotionVectorModule>();
 	}
 }

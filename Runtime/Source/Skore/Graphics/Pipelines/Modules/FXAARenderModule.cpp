@@ -1,7 +1,9 @@
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Core/Settings.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
@@ -91,6 +93,17 @@ namespace Skore
 				.textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess | ResourceUsage::CopySource
 			});
 			return resources;
+		}
+
+		//enabled only when the project settings select FXAA as the anti-aliasing method
+		bool IsEnabled() override
+		{
+			RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(DefaultRenderPipelineSettings));
+			if (ResourceObject settingsObject = Resources::Read(settings))
+			{
+				return settingsObject.GetEnum<DefaultAntiAliasingMethod>(DefaultRenderPipelineSettings::AntiAliasingMethod) == DefaultAntiAliasingMethod::FXAA;
+			}
+			return false;
 		}
 	};
 

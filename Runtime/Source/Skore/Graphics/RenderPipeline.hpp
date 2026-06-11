@@ -98,6 +98,7 @@ namespace Skore
 		RenderPipelinePassType              type = RenderPipelinePassType::Other;
 		bool                                invertViewport = false;
 		bool																requireJitter = false;
+		bool																requireMotionVector = false;
 		i32                                 stage = 0;
 		Array<RenderPipelinePassDependency> dependencies;
 		Array<String>                       resolve;
@@ -220,6 +221,10 @@ namespace Skore
 		{
 			return currentScene;
 		}
+
+		//true when any currently enabled pass declares requireMotionVector in its setup.
+		//queried by MotionVectorModule::IsEnabled() so it only runs when something consumes motion vectors.
+		bool IsMotionVectorRequired() const;
 
 		void DisableContext(bool disabled);
 

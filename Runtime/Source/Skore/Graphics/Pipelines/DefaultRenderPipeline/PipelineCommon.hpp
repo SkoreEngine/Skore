@@ -15,6 +15,7 @@ namespace Skore
 	struct FXAARenderModule;
 	struct BloomModule;
 	struct IndirectLightingModule;
+	struct MotionVectorModule;
 
 	struct CascadeShadowPass;
 	struct LightSetupPass;
@@ -49,13 +50,13 @@ namespace Skore
 	};
 
 
-	enum class ShadingMethod : i8
+	enum class DefaultShadingMethod : i8
 	{
 		Deferred,
 		Forward
 	};
 
-	enum class AntiAliasingMethod : i8
+	enum class DefaultAntiAliasingMethod : i8
 	{
 		None,
 		FXAA,

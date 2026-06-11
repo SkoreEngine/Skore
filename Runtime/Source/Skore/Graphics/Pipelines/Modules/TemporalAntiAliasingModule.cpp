@@ -2,9 +2,11 @@
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/StringUtils.hpp"
+#include "Skore/Core/Settings.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
@@ -26,6 +28,7 @@ namespace Skore
 			setup.type = RenderPipelinePassType::Compute;
 			setup.stage = PipelineRenderStage::PostProcess;
 			setup.requireJitter = true;
+			setup.requireMotionVector = true;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "MotionVector", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "ColorAttachment", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::Read});
@@ -139,6 +142,17 @@ namespace Skore
 			RenderPipelineModuleSetup setup;
 			setup.passes.EmplaceBack(sktypeid(TemporalAntiAliasingPass));
 			return setup;
+		}
+
+		//enabled only when the project settings select TAA as the anti-aliasing method
+		bool IsEnabled() override
+		{
+			RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(DefaultRenderPipelineSettings));
+			if (ResourceObject settingsObject = Resources::Read(settings))
+			{
+				return settingsObject.GetEnum<DefaultAntiAliasingMethod>(DefaultRenderPipelineSettings::AntiAliasingMethod) == DefaultAntiAliasingMethod::TAA;
+			}
+			return false;
 		}
 	};
 
