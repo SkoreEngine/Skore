@@ -11,13 +11,18 @@ namespace Skore
 {
 	struct EntityPreviewGenerator : PreviewGenerator
 	{
-		RID entityRID;
-
-		explicit EntityPreviewGenerator(const RID& entity)
-			: entityRID(entity) {}
+		SK_CLASS(EntityPreviewGenerator, PreviewGenerator);
 
 		void SetupScene(Scene* scene) override
 		{
+			RID entityRID = asset;
+			if (ResourceObject object = Resources::Read(asset))
+			{
+				if (object.GetType()->GetID() == TypeInfo<ResourceAsset>::ID())
+				{
+					entityRID = object.GetSubObject(ResourceAsset::Object);
+				}
+			}
 			scene->CreateEntityFromRID(entityRID);
 		}
 	};
@@ -48,18 +53,9 @@ namespace Skore
 			return entity;
 		}
 
-		static void GenerateThumbnail(RID asset)
+		TypeID GetPreviewGenerator() override
 		{
-			if (ResourceObject object = Resources::Read(asset))
-			{
-				EntityPreviewGenerator entityPreviewGenerator{object.GetSubObject(ResourceAsset::Object)};
-				entityPreviewGenerator.GenerateThumbnail(asset);
-			}
-		}
-
-		FnThumbnailGenerator GetThumbnailGenerator(RID rid) const override
-		{
-			return GenerateThumbnail;
+			return TypeInfo<EntityPreviewGenerator>::ID();
 		}
 
 		TypeID GetResourceTypeId() override
@@ -89,6 +85,7 @@ namespace Skore
 			.userData = TypeInfo<EntityResource>::ID()
 		});
 
+		Reflection::Type<EntityPreviewGenerator>();
 		Reflection::Type<EntityHandler>();
 	}
 }

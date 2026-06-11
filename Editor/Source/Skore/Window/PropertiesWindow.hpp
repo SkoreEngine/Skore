@@ -13,6 +13,7 @@ namespace Skore
 	class Entity;
 	class Scene;
 	class RenderPipelineContext;
+	class PreviewGenerator;
 
 	class PropertiesWindow : public EditorWindow
 	{
@@ -63,12 +64,13 @@ namespace Skore
 		f32  m_orbitYaw = 45.0f;
 		f32  m_orbitPitch = 30.0f;
 		f32  m_orbitDistance = 7.0f;
+		f32  m_sceneRadius = 7.0f;
 		Vec3 m_orbitTarget = {};
 		f32  m_fov = 60.0f;
 
 		Extent m_outputSize = {512, 512};
 
-		RID m_sceneAsset = {};
+		PreviewGenerator* m_previewGenerator = nullptr;
 
 		RID                     m_textureRID = {};
 		TextureResourceCachePtr m_textureCache = {};
@@ -91,11 +93,12 @@ namespace Skore
 		void DrawTextureViewport();
 		void DrawTextureInfo();
 
-		void SetAsset(RID asset);
+		void SetPreview(RID asset, TypeID previewType);
 		void SetTexture(RID texture);
 		void RefreshPreview();
 		void RecreateScene();
 		void RebuildScene();
+		void DestroyPreviewGenerator();
 		void FrameCamera();
 		void EnsureContext(Extent extent);
 		void RebuildTextureResources();
@@ -114,7 +117,7 @@ namespace Skore
 		void EntitySelection(u32 workspaceId, RID entityId);
 		void EntityDeselection(u32 workspaceId, RID entityId);
 
-		void AssetSelection(u32 workspaceId, RID assetId, RID previewId);
+		void AssetSelection(u32 workspaceId, RID assetId);
 		void ResourceSelection(u32 workspaceId, RID resourceId);
 	};
 }

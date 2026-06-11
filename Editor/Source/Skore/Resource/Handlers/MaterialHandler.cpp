@@ -12,13 +12,19 @@ namespace Skore
 
 	struct MaterialPreviewGenerator : PreviewGenerator
 	{
-		RID material;
-
-		explicit MaterialPreviewGenerator(const RID& material)
-			: material(material) {}
+		SK_CLASS(MaterialPreviewGenerator, PreviewGenerator);
 
 		void SetupScene(Scene* scene) override
 		{
+			RID material = asset;
+			if (ResourceObject object = Resources::Read(asset))
+			{
+				if (object.GetType()->GetID() == TypeInfo<ResourceAsset>::ID())
+				{
+					material = object.GetSubObject(ResourceAsset::Object);
+				}
+			}
+
 			Entity* entity = scene->CreateEntity();
 			entity->AddComponent<Transform>();
 			StaticMeshRenderer* staticMeshRenderer = entity->AddComponent<StaticMeshRenderer>();
@@ -60,18 +66,9 @@ namespace Skore
 			return "Material";
 		}
 
-		static void GenerateThumbnail(RID asset)
+		TypeID GetPreviewGenerator() override
 		{
-			if (ResourceObject object = Resources::Read(asset))
-			{
-				MaterialPreviewGenerator materialPreviewGenerator{object.GetSubObject(ResourceAsset::Object)};
-				materialPreviewGenerator.GenerateThumbnail(asset);
-			}
-		}
-
-		FnThumbnailGenerator GetThumbnailGenerator(RID rid) const override
-		{
-			return GenerateThumbnail;
+			return TypeInfo<MaterialPreviewGenerator>::ID();
 		}
 
 		bool CanInherit(RID rid) override
@@ -83,6 +80,7 @@ namespace Skore
 
 	void RegisterMaterialHandler()
 	{
+		Reflection::Type<MaterialPreviewGenerator>();
 		Reflection::Type<MaterialHandler>();
 	}
 }

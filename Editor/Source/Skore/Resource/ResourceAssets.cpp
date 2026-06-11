@@ -27,6 +27,7 @@
 #include "Skore/Platform/Platform.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Resource/ResourceType.hpp"
+#include "Skore/Utils/PreviewGenerator.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 
 namespace Skore
@@ -311,10 +312,9 @@ namespace Skore
 		Resources::Serialize(object, writer);
 	}
 
-
-	FnThumbnailGenerator ResourceAssetHandler::GetThumbnailGenerator(RID rid) const
+	TypeID ResourceAssetHandler::GetPreviewGenerator()
 	{
-		return nullptr;
+		return {};
 	}
 
 	const char* ResourceAssetHandler::GetIcon() const
@@ -952,11 +952,7 @@ namespace Skore
 
 	ResourceBuffer SubResourceAllocator::CreateBuffer(VoidPtr bytes, usize size) const
 	{
-		if (bufferDirectory.Empty())
-		{
-			return ResourceAssets::CreateTempBuffer(bytes, size);
-		}
-		return CreateBufferInDirectory(bufferDirectory, bytes, size);
+		return ResourceAssets::CreateTempBuffer(bytes, size);
 	}
 
 	ResourceBuffer CookContext::CreateBuffer() const
@@ -1245,25 +1241,18 @@ namespace Skore
 
 		if (ResourceObject object = Resources::Read(root))
 		{
-			ByteBuffer scratch;
 			object.IterateAllBuffers([&](const ResourceBuffer& buffer)
 			{
 				String bufferFileName = buffer.GetIdAsString() + ".buffer";
 				String bufferFilePath = Path::Join(folder, bufferFileName);
+				String bufferTempPath = Path::Join(bufferTempFolder, bufferFileName);
 
-				//buffers created with CookContext::CreateBuffer are already in the cook folder
-				if (buffer.Path() != bufferFilePath)
+				//cooked buffers live in the temp folder until the asset is saved; move them
+				//into the library folder, mirroring how /Assets buffers are persisted on save.
+				if (FileSystem::Rename(bufferTempPath, bufferFilePath))
 				{
-					u64 bufferSize = buffer.GetSize();
-					if (bufferSize > scratch.Size())
-					{
-						scratch.Resize(bufferSize);
-					}
-					buffer.CopyData(scratch.begin(), bufferSize);
-					FileSystem::SaveFileAsByteArray(bufferFilePath, Span<u8>(scratch.begin(), bufferSize));
+					buffer.MapFile(bufferFilePath, true, 0, 0);
 				}
-
-				buffer.MapFile(bufferFilePath, true, 0, 0);
 				currentFiles.Emplace(bufferFileName);
 			});
 		}
@@ -1277,7 +1266,46 @@ namespace Skore
 		return token;
 	}
 
-	static void CookWrapper(RID wrapper, const ResourceObject& wrapperObj, StringView folder, UndoRedoScope* scope)
+	//flushes the cooked sub-resources produced for an imported asset into its /Library
+	//folder, moving their buffers out of the temp folder and writing the cook token.
+	//called when the imported asset is saved (not at cook time).
+	static void WriteCookedFolder(RID wrapper, const ResourceObject& wrapperObj, StringView folder)
+	{
+		if (!FileSystem::GetFileStatus(folder).exists)
+		{
+			FileSystem::CreateDirectory(folder);
+		}
+
+		HashSet<String> currentFiles;
+		for (RID entryRid : wrapperObj.GetSubObjectList(ResourceImportedAsset::SubResources))
+		{
+			ResourceObject entry = Resources::Read(entryRid);
+			if (!entry) continue;
+
+			RID root = Resources::FindByUUID(UUID::FromString(entry.GetString(ResourceSubIdEntry::TargetUUID)));
+			if (!root) continue;
+
+			WriteCookedResource(folder, root, currentFiles);
+		}
+
+		String cookInfoName = "cook.info";
+		FileSystem::SaveFileAsString(Path::Join(folder, cookInfoName), CookToken(wrapperObj));
+		currentFiles.Emplace(cookInfoName);
+
+		for (const String& file : DirectoryEntries(folder))
+		{
+			String fileName = Path::Name(file) + Path::Extension(file);
+			if (!currentFiles.Has(fileName))
+			{
+				FileSystem::Remove(file);
+			}
+		}
+	}
+
+	//cooks an imported asset into memory. produced resources keep their buffers in the
+	//temp folder (like normal asset processing); they are only flushed to the /Library
+	//folder when the asset is saved (see ImportedAssetHandler::Save / WriteCookedFolder).
+	static void CookWrapper(RID wrapper, const ResourceObject& wrapperObj, UndoRedoScope* scope)
 	{
 		TypeID importerId = wrapperObj.GetTypeID(ResourceImportedAsset::ImporterId);
 		auto   it = importersByImporterType.Find(importerId);
@@ -1302,39 +1330,14 @@ namespace Skore
 			Compression::Decompress(source.begin(), originalSize, originalCompressed.begin(), original.GetSize(), CompressionMode::ZSTD);
 		}
 
-		if (!FileSystem::GetFileStatus(folder).exists)
-		{
-			FileSystem::CreateDirectory(folder);
-		}
-
 		CookContext ctx;
 		ctx.importedAsset = wrapper;
 		ctx.importSettings = wrapperObj.GetSubObject(ResourceImportedAsset::ImportSettings);
 		ctx.sourceBytes = {source.begin(), source.Size()};
 		ctx.scope = scope;
-		ctx.bufferDirectory = folder;
 		importer->Cook(ctx);
 
-		HashSet<String> currentFiles;
-		for (RID root : ctx.produced)
-		{
-			WriteCookedResource(folder, root, currentFiles);
-		}
-
-		String cookInfoName = "cook.info";
-		FileSystem::SaveFileAsString(Path::Join(folder, cookInfoName), CookToken(wrapperObj));
-		currentFiles.Emplace(cookInfoName);
-
-		for (const String& file : DirectoryEntries(folder))
-		{
-			String fileName = Path::Name(file) + Path::Extension(file);
-			if (!currentFiles.Has(fileName))
-			{
-				FileSystem::Remove(file);
-			}
-		}
-
-		logger.Debug("cooked imported asset {} ({} sub-resources)", Resources::GetUUID(wrapper).ToString(), ctx.produced.Size());
+		logger.Debug("cooked imported asset {} into memory ({} sub-resources)", Resources::GetUUID(wrapper).ToString(), ctx.produced.Size());
 	}
 
 	static bool IsImportedAssetWrapper(RID rid)
@@ -1450,21 +1453,19 @@ namespace Skore
 		}
 		else
 		{
-			CookWrapper(wrapper, wrapperObj, folder, scope);
+			CookWrapper(wrapper, wrapperObj, scope);
 		}
 	}
 
 	void ReCook(RID rid, UndoRedoScope* scope)
 	{
-		UUID uuid = ResourceAssets::GetAssetUUID(rid);
 		RID wrapper = ResolveWrapperRID(rid);
 		if (!wrapper) return;
 
 		ResourceObject wrapperObj = Resources::Read(wrapper);
 		if (!wrapperObj) return;
 
-		String folder = Path::Join(libraryDirectory, uuid.ToString());
-		CookWrapper(wrapper, wrapperObj, folder, scope);
+		CookWrapper(wrapper, wrapperObj, scope);
 	}
 
 	static void ReimportWrapperFromFile(RID wrapper, const String& path, UndoRedoScope* scope)
@@ -1575,6 +1576,20 @@ namespace Skore
 		const char* GetIcon() const override
 		{
 			return ICON_FA_FILE;
+		}
+
+		void Save(RID object, StringView absolutePath) override
+		{
+			//persist the imported-asset wrapper (.asset + original/dependency buffers) into /Assets
+			ResourceAssetHandler::Save(object, absolutePath);
+
+			//flush the cooked sub-resources from memory into the /Library folder, moving their
+			//buffers out of the temp folder (cooking itself no longer writes to /Library).
+			if (ResourceObject wrapperObj = Resources::Read(object))
+			{
+				String folder = Path::Join(libraryDirectory, ResourceAssets::GetAssetUUID(object).ToString());
+				WriteCookedFolder(object, wrapperObj, folder);
+			}
 		}
 	};
 
@@ -2253,7 +2268,7 @@ namespace Skore
 		//not loaded, create empty one
 		if (ResourceAssetHandler* handler = GetAssetHandler(rid))
 		{
-			if (FnThumbnailGenerator generator = handler->GetThumbnailGenerator(rid))
+			if (TypeID previewGeneratorType = handler->GetPreviewGenerator())
 			{
 				std::unique_lock lock(thumbnailsMutex);
 				if (auto it = thumbnails.Find(rid); it == thumbnails.end())
@@ -2262,7 +2277,7 @@ namespace Skore
 						                  .texture = nullptr,
 						                  .version = GetAssetObjectVersion(rid),
 						                  .lastCheck = currentTime,
-						                  .canUpdate = generator != nullptr
+						                  .canUpdate = true
 					                  });
 				}
 
@@ -2273,11 +2288,23 @@ namespace Skore
 						UpdateThumbnailData(rid);
 					});
 				}
-				else if (generator)
+				else
 				{
-					Editor::AddTask([generator, rid]
+					Editor::AddTask([previewGeneratorType, rid]
 					                {
-						                generator(rid);
+						                ReflectType* reflectType = Reflection::FindTypeById(previewGeneratorType);
+						                if (reflectType == nullptr) return;
+
+						                Object* object = reflectType->NewObject();
+						                if (object == nullptr) return;
+
+						                if (PreviewGenerator* generator = object->SafeCast<PreviewGenerator>())
+						                {
+							                generator->asset = rid;
+							                generator->GenerateThumbnail();
+						                }
+
+						                DestroyAndFree(object);
 					                },
 					                "Generating Thumbnail");
 				}

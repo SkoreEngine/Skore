@@ -34,7 +34,7 @@ namespace Skore
 	using OnEntitySelection = EventType<"Skore::Editor::OnEntitySelection"_h, void(u32, RID)>;
 	using OnEntityDeselection = EventType<"Skore::Editor::OnEntityDeselection"_h, void(u32, RID)>;
 
-	using OnAssetSelection = EventType<"Skore::Editor::OnAssetSelection"_h, void(u32, RID, RID)>;
+	using OnAssetSelection = EventType<"Skore::Editor::OnAssetSelection"_h, void(u32, RID)>;
 	using OnResourceSelection = EventType<"Skore::Editor::OnResourceSelection"_h, void(u32, RID)>;
 
 	struct SceneViewPipelineModule;
