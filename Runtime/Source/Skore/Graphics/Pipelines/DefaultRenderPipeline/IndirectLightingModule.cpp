@@ -104,6 +104,14 @@ namespace Skore
 		return "Show Probe Cascade " + ToString(static_cast<u64>(index));
 	}
 
+	//irradiance passes only run when the scene actually has an IrradianceVolumeComponent;
+	//checked from IsEnabled() so the render graph drops them when the component is absent.
+	static bool SceneHasIrradianceVolume(RenderPipelineContext* context)
+	{
+		Scene* scene = context->GetScene();
+		return scene != nullptr && scene->HasIterable<IrradianceVolumeComponent>();
+	}
+
 	struct IrradianceVolumeUpdatePass : RenderPipelinePass
 	{
 		SK_CLASS(IrradianceVolumeUpdatePass, RenderPipelinePass);
@@ -147,6 +155,11 @@ namespace Skore
 			setup.stage = PipelineRenderStage::Indirect + 1;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightInstanceData", .access = RenderPipelineTextureAccess::Read});
 			return setup;
+		}
+
+		bool IsEnabled() override
+		{
+			return SceneHasIrradianceVolume(context);
 		}
 
 		f32 NextRandom()
@@ -571,6 +584,7 @@ namespace Skore
 				if (blendDistSet[f]) blendDistSet[f]->Destroy();
 				if (relocateSet[f]) relocateSet[f]->Destroy();
 				if (classifySet[f]) classifySet[f]->Destroy();
+				traceSet[f] = blendIrrSet[f] = blendDistSet[f] = relocateSet[f] = classifySet[f] = nullptr;
 			}
 			if (rayDataArray) rayDataArray->Destroy();
 			if (irradianceArray) irradianceArray->Destroy();
@@ -582,6 +596,13 @@ namespace Skore
 			if (blendDistPipeline) blendDistPipeline->Destroy();
 			if (relocatePipeline) relocatePipeline->Destroy();
 			if (classifyPipeline) classifyPipeline->Destroy();
+
+			//null everything so a re-enable (Init/EnsureResources) rebuilds from a clean state
+			//instead of reusing dangling handles - EnsureResources keys off rayDataArray being null.
+			rayDataArray = irradianceArray = distanceArray = probeDataArray = nullptr;
+			volumeBuffer = nullptr;
+			tracePipeline = blendIrrPipeline = blendDistPipeline = relocatePipeline = classifyPipeline = nullptr;
+			texturesInitialized = false;
 		}
 	};
 
@@ -607,6 +628,11 @@ namespace Skore
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = LinearDepthMipChainName, .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "IrradianceVolumeAttachment", .access = RenderPipelineTextureAccess::Write});
 			return setup;
+		}
+
+		bool IsEnabled() override
+		{
+			return SceneHasIrradianceVolume(context);
 		}
 
 		void Init() override
@@ -702,6 +728,11 @@ namespace Skore
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "LightAttachment", .access = RenderPipelineTextureAccess::ReadWrite});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::ReadWrite});
 			return setup;
+		}
+
+		bool IsEnabled() override
+		{
+			return SceneHasIrradianceVolume(context);
 		}
 
 		void Init() override
