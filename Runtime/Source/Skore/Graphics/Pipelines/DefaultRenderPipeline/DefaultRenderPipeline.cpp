@@ -2,6 +2,7 @@
 #include "Skore/Graphics/Pipelines/Modules/CascadeShadowMapModule.hpp"
 #include "Skore/Graphics/Pipelines/Modules/XeGTAORenderModule.hpp"
 #include "PipelineCommon.hpp"
+#include "Skore/Core/Settings.hpp"
 
 namespace Skore
 {
@@ -21,7 +22,6 @@ namespace Skore
 			setup.passes.EmplaceBack(sktypeid(ForwardPass));
 			setup.passes.EmplaceBack(sktypeid(DepthLinearizePass));
 			setup.passes.EmplaceBack(sktypeid(CompositePass));
-			setup.passes.EmplaceBack(sktypeid(CameraMotionVectorPass));
 			setup.passes.EmplaceBack(sktypeid(PostProcessPass));
 			return setup;
 		}
@@ -46,9 +46,6 @@ namespace Skore
 			resources.EmplaceBack(RenderPipelineResource{.name = "LightAttachment", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16B16A16_FLOAT, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest});
 			resources.EmplaceBack(RenderPipelineResource{.name = "ColorAttachment", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16B16A16_FLOAT, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest, .pingPong = true});
 
-			//velocity
-			resources.EmplaceBack(RenderPipelineResource{.name = "MotionVector", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16_FLOAT, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess});
-
 			resources.EmplaceBack(RenderPipelineResource{.name = OutputDepthName, .type = RenderPipelineResourceType::Attachment, .format = mainDepthFormat});
 			return resources;
 		}
@@ -72,17 +69,17 @@ namespace Skore
 		{
 			RenderPipelineSetup setup;
 			setup.modules.EmplaceBack(sktypeid(CascadeShadowMapModule));
+
 			//setup.modules.EmplaceBack(sktypeid(DepthPrePassModule));
+
 			setup.modules.EmplaceBack(sktypeid(DeferredRenderModule));
 			setup.modules.EmplaceBack(sktypeid(IndirectLightingModule));
 
-			//TODO - check if TAA is enabled.
-			setup.modules.EmplaceBack(sktypeid(TemporalAntiAliasingModule));
-			//TODO - check if FXAA is enabled
-			//setup.modules.EmplaceBack(sktypeid(FXAARenderModule));
+			setup.modules.EmplaceBack(sktypeid(MotionVectorModule));
 
-			//modules below self-gate via IsEnabled() based on scene components:
-			//BloomModule -> BloomComponent, XeGTAORenderModule -> SSAOComponent
+			setup.modules.EmplaceBack(sktypeid(TemporalAntiAliasingModule));
+			setup.modules.EmplaceBack(sktypeid(FXAARenderModule));
+
 			setup.modules.EmplaceBack(sktypeid(BloomModule));
 			setup.modules.EmplaceBack(sktypeid(XeGTAORenderModule));
 
@@ -98,5 +95,30 @@ namespace Skore
 		Reflection::Type<CascadeShadowMapModule>();
 		Reflection::Type<DeferredRenderModule>();
 		Reflection::Type<DefaultRenderPipeline>();
+
+
+		{
+			auto type = Reflection::Type<DefaultShadingMethod>();
+			type.Value<DefaultShadingMethod::Deferred>("Deferred");
+			type.Value<DefaultShadingMethod::Forward>("Forward");
+		}
+
+		{
+			auto type = Reflection::Type<DefaultAntiAliasingMethod>();
+			type.Value<DefaultAntiAliasingMethod::None>("None");
+			type.Value<DefaultAntiAliasingMethod::FXAA>("FXAA");
+			type.Value<DefaultAntiAliasingMethod::MSAA>("MSAA");
+			type.Value<DefaultAntiAliasingMethod::TAA>("TAA");
+		}
+
+		Resources::Type<DefaultRenderPipelineSettings>()
+			.Field<DefaultRenderPipelineSettings::ShadingMethod>(ResourceFieldType::Enum, sktypeid(DefaultShadingMethod))
+			.Field<DefaultRenderPipelineSettings::AntiAliasingMethod>(ResourceFieldType::Enum, sktypeid(DefaultAntiAliasingMethod))
+			.Attribute<EditableSettings>(EditableSettings{
+				.path = "Engine/Rendering",
+				.type = TypeInfo<ProjectSettings>::ID(),
+				.order = 20
+			})
+			.Build();
 	}
 }

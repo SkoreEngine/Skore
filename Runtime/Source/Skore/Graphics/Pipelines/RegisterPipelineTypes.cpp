@@ -11,6 +11,7 @@ namespace Skore
 	void RegisterBloomModule();
 	void RegisterProfilerOverlayModule();
 	void RegisterIndirectLightingModule();
+	void RegisterMotionVectorModule();
 
 	void RegisterCascadeShadowPass();
 	void RegisterLightSetupPass();
@@ -20,7 +21,6 @@ namespace Skore
 	void RegisterForwardPass();
 	void RegisterDepthLinearizePass();
 	void RegisterCompositePass();
-	void RegisterCameraMotionVectorPass();
 	void RegisterPostProcessPass();
 
 	void RegisterPipelineTypes()
@@ -36,6 +36,7 @@ namespace Skore
 		RegisterBloomModule();
 		RegisterProfilerOverlayModule();
 		RegisterIndirectLightingModule();
+		RegisterMotionVectorModule();
 
 		RegisterCascadeShadowPass();
 		RegisterLightSetupPass();
@@ -45,7 +46,6 @@ namespace Skore
 		RegisterForwardPass();
 		RegisterDepthLinearizePass();
 		RegisterCompositePass();
-		RegisterCameraMotionVectorPass();
 		RegisterPostProcessPass();
 	}
 }

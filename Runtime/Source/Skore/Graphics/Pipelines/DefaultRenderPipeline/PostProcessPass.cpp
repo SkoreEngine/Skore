@@ -47,15 +47,12 @@ namespace Skore
 			{
 				pc.bloomIntensity = bloom->GetIntensity();
 			});
+			GPUTexture* bloomTexture = context->GetTexture("BloomTexture");
 
 			cmd->BindPipeline(pipeline);
 			cmd->SetTexture(pipeline, 0, 0, context->GetTexture(OutputColorName), 0);
 			cmd->SetTexture(pipeline, 0, 1, context->GetTexture("ColorAttachment"), 0);
 			cmd->SetSampler(pipeline, 0, 2, Graphics::GetNearestClampToEdgeSampler());
-
-			//bloom texture only exists while the BloomModule is enabled; bind a fallback otherwise
-			//(bloomIntensity is 0 when there's no BloomComponent, so the fallback is never visible)
-			GPUTexture* bloomTexture = context->GetTexture("BloomTexture");
 			cmd->SetTexture(pipeline, 0, 3, bloomTexture ? bloomTexture : Graphics::GetWhiteTexture(), 0);
 			cmd->SetSampler(pipeline, 0, 4, Graphics::GetLinearClampToEdgeSampler());
 
