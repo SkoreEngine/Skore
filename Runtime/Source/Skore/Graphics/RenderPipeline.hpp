@@ -6,6 +6,7 @@
 #include "Skore/Core/Object.hpp"
 #include "Skore/Core/Span.hpp"
 #include "Skore/Core/HashMap.hpp"
+#include "Skore/Core/HashSet.hpp"
 
 #include <variant>
 
@@ -112,6 +113,9 @@ namespace Skore
 
 		virtual RenderPipelinePassSetup GetPassSetup() = 0;
 
+		//checked every frame; when the returned value changes the render graph is rebuilt
+		virtual bool IsEnabled() { return true; }
+
 		//called right after creation, no resources, passes are created at this usage
 		virtual void Create() {}
 
@@ -143,6 +147,9 @@ namespace Skore
 		}
 
 		virtual RenderPipelineModuleSetup GetSetup() = 0;
+
+		//checked every frame; when the returned value changes the render graph is rebuilt
+		virtual bool IsEnabled() { return true; }
 
 		virtual void Init() {}
 		virtual void Destroy() {}
@@ -288,6 +295,9 @@ namespace Skore
 
 			bool ownsResource = false;
 
+			//true when this resource was declared by a module's GetResources(); reconciled when modules toggle
+			bool moduleDeclared = false;
+
 			Array<GPUTexture*> outputAttachments;
 
 			ResourceState requiredState = ResourceState::Undefined;
@@ -372,7 +382,14 @@ namespace Skore
 			String                  name;
 			RenderPipelinePass*     pass = nullptr;
 			RenderPipelinePassSetup setup;
-			RenderPipelineModule*   module;
+			RenderPipelineModule*   module = nullptr;
+
+			//cached from setup.dependencies, used to build the dependency graph
+			Array<String> writes;
+			Array<String> reads;
+
+			//true while the pass is part of the active graph (Create()/Init() have run)
+			bool active = false;
 
 			Array<GPUFramebuffer*> framebuffers;
 
@@ -384,8 +401,11 @@ namespace Skore
 			void CreateFrameBuffers(RenderPipelineContext* context);
 		};
 
-		Array<PassStorage>           passes;
-		Array<RenderPipelineModule*> modules;
+		Array<PassStorage>             passStorages;       //all passes (persistent, created once)
+		Array<PassStorage*>            passes;             //active passes in execution order
+		Array<RenderPipelineModule*>   allModules;         //all modules (persistent, created once)
+		Array<RenderPipelineModule*>   modules;            //active modules in execution order
+		HashSet<RenderPipelineModule*> activeModulesSet;   //modules currently initialized
 
 		Extent outputSize;
 
@@ -404,6 +424,17 @@ namespace Skore
 		Array<PassBarrier>                       initializationBarriers;
 		bool                                     resourceCreated = false;
 		bool                                     resourceDirty = false;
+
+		//(re)builds the execution graph from the currently enabled passes/modules.
+		//firstBuild=true is the initial build from the constructor; otherwise the previous
+		//graph is diffed: newly enabled passes/modules are Created/Init'd, disabled ones Destroyed.
+		void BuildGraph(bool firstBuild);
+
+		//creates resources newly required by the active modules and destroys the ones no longer used.
+		void ReconcileResources(const HashSet<RenderPipelineModule*>& activeModules);
+
+		//returns true if any pass/module IsEnabled() differs from the current active graph.
+		bool HasEnabledStateChanged();
 
 		void CreateContextResources();
 		void CreatePasses();

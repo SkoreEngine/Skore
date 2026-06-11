@@ -48,6 +48,30 @@ namespace Skore
 		constexpr static i32 Swapchain = 1200;
 	};
 
+
+	enum class ShadingMethod : i8
+	{
+		Deferred,
+		Forward
+	};
+
+	enum class AntiAliasingMethod : i8
+	{
+		None,
+		FXAA,
+		MSAA,
+		TAA
+	};
+
+	struct DefaultRenderPipelineSettings
+	{
+		enum
+		{
+			ShadingMethod,
+			AntiAliasingMethod
+		};
+	};
+
 	struct LightData
 	{
 		u32  type;
