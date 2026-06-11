@@ -1318,6 +1318,17 @@ namespace Skore
 
 			for (auto& dependency : pass.setup.dependencies)
 			{
+				auto resIt = resources.Find(dependency.name);
+				if (resIt == resources.end()) continue;
+
+				//Only resources owned by the render graph (or external output attachments) take part in
+				//automatic barriers. Textures published by a pass through context->SetTexture() (e.g.
+				//LinearDepthMipChain, HistoryTexture) are owned and transitioned by that pass itself -
+				//auto-barriering them would reference a stale pointer once the pass recreates its texture
+				//(e.g. on resize), since the barrier stores the resource by name but resolves the texture
+				//that was published at build time.
+				if (!resIt->second.ownsResource && resIt->second.outputAttachments.Empty()) continue;
+
 				GPUTexture* texture = GetTexture(dependency.name);
 				if (texture == nullptr) continue;
 				bool isDepth = IsDepthFormat(texture->GetDesc().format);
@@ -1428,6 +1439,9 @@ namespace Skore
 			if (resIt.second.desc.type == RenderPipelineResourceType::Attachment || resIt.second.desc.type == RenderPipelineResourceType::Texture)
 			{
 				if (!resIt.second.outputAttachments.Empty()) continue;
+
+				//skip pass-published textures (context->SetTexture) - the graph doesn't own their lifetime
+				if (!resIt.second.ownsResource) continue;
 
 				auto firstUsage = GetFirstUsageInfo(resIt.second.desc.name);
 
