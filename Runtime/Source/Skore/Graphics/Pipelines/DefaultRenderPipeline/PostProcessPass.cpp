@@ -2,6 +2,8 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "PipelineCommon.hpp"
 #include "Skore/Resource/Resources.hpp"
+#include "Skore/Scene/Scene.hpp"
+#include "Skore/Scene/Components/BloomComponent.hpp"
 
 namespace Skore
 {
@@ -39,18 +41,23 @@ namespace Skore
 		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			PostProcessPushConstants pc;
-			pc.bloomIntensity = 0.04f;
+			pc.bloomIntensity = 0.0f;
+
+			scene->Iterate<BloomComponent>([&](BloomComponent* bloom)
+			{
+				pc.bloomIntensity = bloom->GetIntensity();
+			});
 
 			cmd->BindPipeline(pipeline);
 			cmd->SetTexture(pipeline, 0, 0, context->GetTexture(OutputColorName), 0);
 			cmd->SetTexture(pipeline, 0, 1, context->GetTexture("ColorAttachment"), 0);
 			cmd->SetSampler(pipeline, 0, 2, Graphics::GetNearestClampToEdgeSampler());
 
-			if (GPUTexture* bloomTexture = context->GetTexture("BloomTexture"))
-			{
-				cmd->SetTexture(pipeline, 0, 3, bloomTexture, 0);
-				cmd->SetSampler(pipeline, 0, 4, Graphics::GetLinearClampToEdgeSampler());
-			}
+			//bloom texture only exists while the BloomModule is enabled; bind a fallback otherwise
+			//(bloomIntensity is 0 when there's no BloomComponent, so the fallback is never visible)
+			GPUTexture* bloomTexture = context->GetTexture("BloomTexture");
+			cmd->SetTexture(pipeline, 0, 3, bloomTexture ? bloomTexture : Graphics::GetWhiteTexture(), 0);
+			cmd->SetSampler(pipeline, 0, 4, Graphics::GetLinearClampToEdgeSampler());
 
 			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(PostProcessPushConstants), &pc);
 			cmd->Dispatch((context->GetOutputSize().width + 7) / 8, (context->GetOutputSize().height + 7) / 8, 1);

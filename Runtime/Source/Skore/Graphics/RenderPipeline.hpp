@@ -214,6 +214,13 @@ namespace Skore
 		void SetColorOutput(StringView name);
 		void SetDepthOutput(StringView name);
 
+		//scene currently being rendered (set each frame by Execute). null before the first frame.
+		//modules/passes can query it from IsEnabled() to toggle themselves based on scene components.
+		Scene* GetScene() const
+		{
+			return currentScene;
+		}
+
 		void DisableContext(bool disabled);
 
 		TypeID GetPipelineTypeId() const;
@@ -365,6 +372,7 @@ namespace Skore
 
 	private:
 		bool              contextDisabled = false;
+		Scene*            currentScene = nullptr;
 		RenderPipeline*   renderPipeline{};
 		u64               sceneBufferFrameSize = 0;
 		GPUDescriptorSet* sceneDescriptorSets[SK_FRAMES_IN_FLIGHT] = {nullptr, nullptr};

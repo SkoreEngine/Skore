@@ -157,7 +157,7 @@ namespace Skore
 
 		ImGui::SetNextItemWidth(-1);
 		ImGuiSearchInputText(4001, searchText);
-		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5 * ImGui::GetStyle().ScaleFactor);
+		ImGui::Dummy(ImVec2(0.0f, 5 * ImGui::GetStyle().ScaleFactor));
 
 		ImGuiBeginTreeNodeStyle();
 

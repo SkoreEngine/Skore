@@ -7,10 +7,12 @@
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Components/AudioListener.hpp"
 #include "Skore/Scene/Components/AudioSource.hpp"
+#include "Skore/Scene/Components/BloomComponent.hpp"
 #include "Skore/Scene/Components/Camera.hpp"
 #include "Skore/Scene/Components/CharacterController.hpp"
 #include "Skore/Scene/Components/EnvironmentComponent.hpp"
 #include "Skore/Scene/Components/IrradianceVolumeComponent.hpp"
+#include "Skore/Scene/Components/SSAOComponent.hpp"
 #include "Skore/Scene/Components/LightComponent.hpp"
 #include "Skore/Scene/Components/ParticleEmitter.hpp"
 #include "Skore/Scene/Components/PhysicShapes.hpp"
@@ -122,6 +124,8 @@ namespace Skore
 		Reflection::Type<LightComponent>();
 		Reflection::Type<EnvironmentComponent>();
 		Reflection::Type<IrradianceVolumeComponent>();
+		Reflection::Type<SSAOComponent>();
+		Reflection::Type<BloomComponent>();
 		Reflection::Type<AnimationPlayer>();
 		Reflection::Type<RigidBody>();
 		Reflection::Type<BoxCollider>();

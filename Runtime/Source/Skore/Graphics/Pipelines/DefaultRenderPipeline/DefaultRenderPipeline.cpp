@@ -80,8 +80,10 @@ namespace Skore
 			setup.modules.EmplaceBack(sktypeid(TemporalAntiAliasingModule));
 			//TODO - check if FXAA is enabled
 			//setup.modules.EmplaceBack(sktypeid(FXAARenderModule));
+
+			//modules below self-gate via IsEnabled() based on scene components:
+			//BloomModule -> BloomComponent, XeGTAORenderModule -> SSAOComponent
 			setup.modules.EmplaceBack(sktypeid(BloomModule));
-			//TODO - check if XeGTAO is enabled
 			setup.modules.EmplaceBack(sktypeid(XeGTAORenderModule));
 
 			return setup;

@@ -5,6 +5,8 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
+#include "Skore/Scene/Scene.hpp"
+#include "Skore/Scene/Components/SSAOComponent.hpp"
 
 namespace Skore
 {
@@ -134,8 +136,17 @@ namespace Skore
 			GPUTexture* linearDepth = context->GetTexture(LinearDepthMipChainName);
 			i32 depthMipLevels = linearDepth ? static_cast<i32>(linearDepth->GetDesc().mipLevels) : 5;
 
+			XeGTAOSettings settings = XeGTAODefaultSettings;
+			scene->Iterate<SSAOComponent>([&](SSAOComponent* ssao)
+			{
+				settings.Radius = ssao->GetRadius();
+				settings.FalloffRange = ssao->GetFalloffRange();
+				settings.FinalValuePower = ssao->GetFinalValuePower();
+				settings.DenoisePasses = ssao->GetDenoisePasses();
+			});
+
 			XeGTAOUpdateConstants(*static_cast<XeGTAOConstants*>(context->GetBuffer("XeGTAOConstants")->GetMappedData()),
-														XeGTAODefaultSettings,
+														settings,
 														context,
 														depthMipLevels
 			);
@@ -239,6 +250,13 @@ namespace Skore
 	public:
 		SK_CLASS(XeGTAORenderModule, RenderPipelineModule);
 
+
+		//enabled only while the scene has an SSAOComponent
+		bool IsEnabled() override
+		{
+			Scene* scene = context->GetScene();
+			return scene && scene->HasIterable<SSAOComponent>();
+		}
 
 		RenderPipelineModuleSetup GetSetup() override
 		{

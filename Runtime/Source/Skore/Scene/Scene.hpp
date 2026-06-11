@@ -46,6 +46,16 @@ namespace Skore
 			}
 		}
 
+		template <typename T>
+		bool HasIterable()
+		{
+			if (auto it = m_iterableComponents.Find(TypeInfo<T>::ID()))
+			{
+				return !it->second.empty();
+			}
+			return false;
+		}
+
 		AABB GetBounds() const;
 
 		friend class Entity;

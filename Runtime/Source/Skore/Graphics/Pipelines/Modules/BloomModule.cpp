@@ -6,6 +6,8 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
+#include "Skore/Scene/Scene.hpp"
+#include "Skore/Scene/Components/BloomComponent.hpp"
 
 namespace Skore
 {
@@ -144,6 +146,13 @@ namespace Skore
 		{
 			if (mipCount < 2) return;
 
+			scene->Iterate<BloomComponent>([&](BloomComponent* bloom)
+			{
+				threshold = bloom->GetThreshold();
+				softKnee = bloom->GetSoftKnee();
+				bloomRadius = bloom->GetRadius();
+			});
+
 			GPUTexture* lightAttachment = context->GetTexture("LightAttachment");
 			Extent outputSize = context->GetOutputSize();
 
@@ -256,6 +265,13 @@ namespace Skore
 	struct BloomModule : RenderPipelineModule
 	{
 		SK_CLASS(BloomModule, RenderPipelineModule);
+
+		//enabled only while the scene has a BloomComponent
+		bool IsEnabled() override
+		{
+			Scene* scene = context->GetScene();
+			return scene && scene->HasIterable<BloomComponent>();
+		}
 
 		RenderPipelineModuleSetup GetSetup() override
 		{

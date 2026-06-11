@@ -502,7 +502,8 @@ namespace Skore
 	{
 		for (RenderPipelineModule* module : allModules)
 		{
-			if (module->IsEnabled() != activeModulesSet.Has(module))
+			bool enabled = module->IsEnabled();
+			if (enabled != activeModulesSet.Has(module))
 			{
 				return true;
 			}
@@ -751,6 +752,9 @@ namespace Skore
 		logger.Debug("------------  Frame {} ---------------", App::Frame());
 
 		GraphicsAPI api = Graphics::GetDevice()->GetAPI();
+
+		//expose the scene to modules/passes so their IsEnabled() can toggle based on scene components
+		currentScene = scene;
 
 		if (scene)
 		{
