@@ -14,14 +14,26 @@ namespace Skore
 {
 	struct DCCAssetPreviewGenerator : PreviewGenerator
 	{
-		RID entityRID;
-
-		explicit DCCAssetPreviewGenerator(const RID& entity)
-			: entityRID(entity) {}
+		SK_CLASS(DCCAssetPreviewGenerator, PreviewGenerator);
 
 		void SetupScene(Scene* scene) override
 		{
-			scene->CreateEntityFromRID(entityRID);
+			RID dccObject = asset;
+			if (ResourceObject object = Resources::Read(asset))
+			{
+				if (object.GetType()->GetID() == TypeInfo<ResourceAsset>::ID())
+				{
+					dccObject = object.GetSubObject(ResourceAsset::Object);
+				}
+			}
+
+			ResourceObject dcc = Resources::Read(dccObject);
+			if (!dcc) return;
+
+			RID rootEntity = dcc.GetSubObject(DCCAsset::RootEntity);
+			if (!rootEntity) return;
+
+			scene->CreateEntityFromRID(rootEntity);
 		}
 	};
 
@@ -40,13 +52,7 @@ namespace Skore
 			{
 				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
 				{
-					RID previewEntity = {};
-					if (ResourceObject dccAssetObject = Resources::Read(object))
-					{
-						previewEntity = dccAssetObject.GetSubObject(DCCAsset::RootEntity);
-					}
-
-					Editor::GetActiveWorkspace()->OpenAsset(object, previewEntity);
+					Editor::GetActiveWorkspace()->OpenAsset(object);
 				}
 			}
 		}
@@ -66,27 +72,9 @@ namespace Skore
 			return ICON_FA_CUBES;
 		}
 
-		static void GenerateThumbnail(RID asset)
+		TypeID GetPreviewGenerator() override
 		{
-			if (ResourceObject object = Resources::Read(asset))
-			{
-				RID dccObject = object.GetSubObject(ResourceAsset::Object);
-				if (!dccObject) return;
-
-				ResourceObject dcc = Resources::Read(dccObject);
-				if (!dcc) return;
-
-				RID rootEntity = dcc.GetSubObject(DCCAsset::RootEntity);
-				if (!rootEntity) return;
-
-				DCCAssetPreviewGenerator generator{rootEntity};
-				generator.GenerateThumbnail(asset);
-			}
-		}
-
-		FnThumbnailGenerator GetThumbnailGenerator(RID rid) const override
-		{
-			return GenerateThumbnail;
+			return TypeInfo<DCCAssetPreviewGenerator>::ID();
 		}
 
 	};
@@ -138,6 +126,7 @@ namespace Skore
 
 	void RegisterDCCAssetHandler()
 	{
+		Reflection::Type<DCCAssetPreviewGenerator>();
 		Reflection::Type<DCCAssetHandler>();
 
 		if (ResourceType* dccType = Resources::FindType<DCCAsset>())

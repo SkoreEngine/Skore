@@ -76,12 +76,11 @@ namespace Skore
 	{
 		RID            importedAsset;
 		UndoRedoScope* scope = nullptr;
-		String         bufferDirectory;
 
 		RID Create(StringView subId, TypeID type) const;
 
-		//creates a buffer directly in bufferDirectory (the cook's library folder),
-		//falls back to a temp buffer when bufferDirectory is empty (non-cook contexts).
+		//cooked buffers are created in the temp folder (like normal asset processing)
+		//and only moved into the /Library folder when the imported asset is saved.
 		ResourceBuffer CreateBuffer() const;
 		ResourceBuffer CreateBuffer(VoidPtr bytes, usize size) const;
 
@@ -113,15 +112,14 @@ namespace Skore
 		RID						 importSettings;
 		Span<u8>       sourceBytes;
 		UndoRedoScope* scope = nullptr;
-		String         bufferDirectory;
 
 		Array<RID> produced;
 
 		RID        SubResource(StringView subId, TypeID type);
 		ByteBuffer Dependency(StringView relPath) const;
 
-		//creates a buffer directly in the cook's library folder, so cooked data
-		//is persisted without the temp copy made by ResourceAssets::CreateTempBuffer.
+		//cooked buffers are created in the temp folder (like normal asset processing);
+		//they are moved into the /Library folder when the imported asset is saved.
 		ResourceBuffer CreateBuffer() const;
 		ResourceBuffer CreateBuffer(VoidPtr bytes, usize size) const;
 
@@ -133,7 +131,7 @@ namespace Skore
 
 		SubResourceAllocator Allocator() const
 		{
-			return SubResourceAllocator{importedAsset, scope, bufferDirectory};
+			return SubResourceAllocator{importedAsset, scope};
 		}
 	};
 
@@ -211,7 +209,6 @@ namespace Skore
 	typedef RID (* FnResourceAssetLoader)(StringView path);
 	typedef void (*FnResourceExtractAssets)(RID parent, RID asset);
 	typedef void (*FnResourceGetAssetName)(RID rid, String& assetName);
-	typedef void (*FnThumbnailGenerator)(RID asset);
 
 	struct SK_API ResourceAssetHandler : Object
 	{
@@ -229,7 +226,7 @@ namespace Skore
 		virtual void AfterMove(RID asset, StringView oldAbsolutePath, StringView newAbsolutePath);
 		virtual void Export(RID object, ArchiveWriter& writer);
 
-		virtual FnThumbnailGenerator GetThumbnailGenerator(RID rid) const;
+		virtual TypeID GetPreviewGenerator();
 
 		virtual const char* GetIcon() const;
 

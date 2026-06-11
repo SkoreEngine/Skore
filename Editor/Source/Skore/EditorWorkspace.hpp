@@ -20,7 +20,7 @@ namespace Skore
 		u8              GetWorkspaceTypeId() const;
 		SceneEditor*    GetSceneEditor();
 		AnimatorEditor& GetAnimatorEditor();
-		void            OpenAsset(RID rid, RID preview = {});
+		void            OpenAsset(RID rid);
 
 		// Window management
 		void OpenWindow(TypeID windowType, VoidPtr userData = nullptr);

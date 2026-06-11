@@ -17,13 +17,19 @@ namespace Skore
 
 	struct MeshPreviewGenerator : PreviewGenerator
 	{
-		RID mesh;
-
-		explicit MeshPreviewGenerator(const RID& mesh)
-			: mesh(mesh) {}
+		SK_CLASS(MeshPreviewGenerator, PreviewGenerator);
 
 		void SetupScene(Scene* scene) override
 		{
+			RID mesh = asset;
+			if (ResourceObject object = Resources::Read(asset))
+			{
+				if (object.GetType()->GetID() == TypeInfo<ResourceAsset>::ID())
+				{
+					mesh = object.GetSubObject(ResourceAsset::Object);
+				}
+			}
+
 			Entity* entity = scene->CreateEntity();
 			entity->AddComponent<Transform>();
 			StaticMeshRenderer* staticMeshRenderer = entity->AddComponent<StaticMeshRenderer>();
@@ -66,31 +72,15 @@ namespace Skore
 			return "Mesh";
 		}
 
-		static void GenerateThumbnail(RID asset)
+		TypeID GetPreviewGenerator() override
 		{
-			if (ResourceObject object = Resources::Read(asset))
-			{
-				if (object.GetType()->GetID() == TypeInfo<ResourceAsset>::ID())
-				{
-					MeshPreviewGenerator meshPreviewGenerator{object.GetSubObject(ResourceAsset::Object)};
-					meshPreviewGenerator.GenerateThumbnail(asset);
-				}
-				else if (object.GetType()->GetID() == TypeInfo<MeshResource>::ID())
-				{
-					MeshPreviewGenerator meshPreviewGenerator{asset};
-					meshPreviewGenerator.GenerateThumbnail(asset);
-				}
-			}
-		}
-
-		FnThumbnailGenerator GetThumbnailGenerator(RID rid) const override
-		{
-			return GenerateThumbnail;
+			return TypeInfo<MeshPreviewGenerator>::ID();
 		}
 	};
 
 	void RegisterMeshHandler()
 	{
+		Reflection::Type<MeshPreviewGenerator>();
 		Reflection::Type<MeshHandler>();
 	}
 }

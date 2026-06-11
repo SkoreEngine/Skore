@@ -97,7 +97,7 @@ namespace Skore
 		SetupDefaultEnvironment(scene);
 	}
 
-	void PreviewGenerator::GenerateThumbnail(RID asset)
+	void PreviewGenerator::GenerateThumbnail()
 	{
 		Scene* scene = Alloc<Scene>();
 

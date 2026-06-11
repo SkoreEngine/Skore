@@ -120,6 +120,7 @@ namespace Skore
 			DestroyAndFree(m_scene);
 			m_scene = nullptr;
 		}
+		DestroyPreviewGenerator();
 	}
 
 	void PropertiesWindow::Init(VoidPtr userData)
@@ -834,28 +835,55 @@ namespace Skore
 			m_scene = nullptr;
 		}
 
-		if (m_sceneAsset)
-		{
-			m_scene = Alloc<Scene>(TypedRID<EntityResource>(m_sceneAsset), true);
-		}
-		else
-		{
-			m_scene = Alloc<Scene>();
-		}
+		m_scene = Alloc<Scene>();
 	}
 
 	void PropertiesWindow::RebuildScene()
 	{
 		RecreateScene();
-		PreviewGenerator::SetupDefaultEnvironment(m_scene);
+		if (m_previewGenerator)
+		{
+			m_previewGenerator->PopulateScene(m_scene);
+		}
+		else
+		{
+			PreviewGenerator::SetupDefaultEnvironment(m_scene);
+		}
 		m_scene->ExecuteEvents(false);
 		m_framePending = true;
 	}
 
-	void PropertiesWindow::SetAsset(RID asset)
+	void PropertiesWindow::DestroyPreviewGenerator()
+	{
+		if (m_previewGenerator)
+		{
+			DestroyAndFree(m_previewGenerator);
+			m_previewGenerator = nullptr;
+		}
+	}
+
+	void PropertiesWindow::SetPreview(RID asset, TypeID previewType)
 	{
 		m_mode = PreviewMode::Scene;
-		m_sceneAsset = asset;
+
+		DestroyPreviewGenerator();
+
+		if (ReflectType* reflectType = Reflection::FindTypeById(previewType))
+		{
+			if (Object* object = reflectType->NewObject())
+			{
+				m_previewGenerator = object->SafeCast<PreviewGenerator>();
+				if (m_previewGenerator)
+				{
+					m_previewGenerator->asset = asset;
+				}
+				else
+				{
+					DestroyAndFree(object);
+				}
+			}
+		}
+
 		RebuildScene();
 		m_previewVisible = true;
 		m_focusRequested = true;
@@ -890,7 +918,9 @@ namespace Skore
 			radius = aabb.GetRadius();
 		}
 
-		m_orbitDistance = radius / tan(Math::Radians(m_fov) * 0.70f);
+		//keep a floor so degenerate/point bounds don't collapse the zoom limits to zero
+		m_sceneRadius = Math::Max(radius, 0.01f);
+		m_orbitDistance = m_sceneRadius / tan(Math::Radians(m_fov) * 0.70f);
 	}
 
 	void PropertiesWindow::EnsureContext(Extent extent)
@@ -931,7 +961,12 @@ namespace Skore
 				{
 					ImGuiIO& io = ImGui::GetIO();
 
-					if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+					//double-click re-frames the camera so the user can always recover the default view
+					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					{
+						m_framePending = true;
+					}
+					else if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 					{
 						m_orbitYaw -= io.MouseDelta.x * 0.5f;
 						m_orbitPitch += io.MouseDelta.y * 0.5f;
@@ -953,8 +988,15 @@ namespace Skore
 
 					if (io.MouseWheel != 0.0f)
 					{
-						m_orbitDistance -= io.MouseWheel * m_orbitDistance * 0.1f;
-						m_orbitDistance = Math::Clamp(m_orbitDistance, 0.1f, 10000.0f);
+						//step by the wheel sign only (like the texture viewer); the raw magnitude can spike
+						//on high-resolution mice/touchpads and send the first zoom flying.
+						const f32 zoomStep = io.MouseWheel > 0.0f ? (1.0f / 1.15f) : 1.15f;
+						m_orbitDistance *= zoomStep;
+
+						//clamp relative to the framed scene so the object can't shrink to a dot or clip inside it
+						const f32 minDistance = Math::Max(m_sceneRadius * 0.15f, 0.01f);
+						const f32 maxDistance = Math::Max(m_sceneRadius * 12.0f, minDistance);
+						m_orbitDistance = Math::Clamp(m_orbitDistance, minDistance, maxDistance);
 					}
 				}
 			}
@@ -1221,7 +1263,7 @@ namespace Skore
 				m_context = nullptr;
 			}
 
-			if (m_sceneAsset)
+			if (m_previewGenerator)
 			{
 				RebuildScene();
 			}
@@ -1241,6 +1283,7 @@ namespace Skore
 		selectedResource = {};
 		importSettingsVersion = U64_MAX;
 		m_previewVisible = false;
+		DestroyPreviewGenerator();
 	}
 
 	void PropertiesWindow::OpenProperties(const MenuItemEventData& eventData)
@@ -1269,25 +1312,25 @@ namespace Skore
 		}
 	}
 
-	void PropertiesWindow::AssetSelection(u32 workspaceId, RID assetId, RID previewId)
+	void PropertiesWindow::AssetSelection(u32 workspaceId, RID assetId)
 	{
 		if (workspace->GetId() != workspaceId) return;
 
 		ClearSelection();
 		selectedAsset = assetId;
 
-		if (previewId)
+		if (!assetId) return;
+
+		//textures keep their dedicated 2D viewer; everything else previews through its PreviewGenerator.
+		if (ResourceType* type = Resources::GetType(assetId); type != nullptr && type->GetID() == sktypeid(TextureResource))
 		{
-			if (ResourceType* type = Resources::GetType(previewId))
+			SetTexture(assetId);
+		}
+		else if (ResourceAssetHandler* handler = ResourceAssets::GetAssetHandler(assetId))
+		{
+			if (TypeID previewType = handler->GetPreviewGenerator())
 			{
-				if (type->GetID() == sktypeid(TextureResource))
-				{
-					SetTexture(previewId);
-				}
-				else if (type->GetID() == sktypeid(EntityResource))
-				{
-					SetAsset(previewId);
-				}
+				SetPreview(assetId, previewType);
 			}
 		}
 	}

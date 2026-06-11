@@ -8,41 +8,17 @@
 #include "Skore/Graphics/RenderTools.hpp"
 #include "Skore/IO/Compression.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Utils/PreviewGenerator.hpp"
 
 namespace Skore
 {
-	struct TextureHandler : ResourceAssetHandler
+	struct TexturePreviewGenerator : PreviewGenerator
 	{
-		SK_CLASS(TextureHandler, ResourceAssetHandler);
+		SK_CLASS(TexturePreviewGenerator, PreviewGenerator);
 
-		StringView Extension() override
-		{
-			return ".texture";
-		}
+		void SetupScene(Scene* scene) override {}
 
-		void OpenAsset(RID rid) override
-		{
-			if (ResourceObject assetObject = Resources::Read(rid))
-			{
-
-				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
-				{
-					Editor::GetActiveWorkspace()->OpenAsset(object, object);
-				}
-			}
-		}
-
-		TypeID GetResourceTypeId() override
-		{
-			return TypeInfo<TextureResource>::ID();
-		}
-
-		StringView GetDesc() override
-		{
-			return "Texture";
-		}
-
-		static void GenerateThumbnail(RID asset)
+		void GenerateThumbnail() override
 		{
 			if (ResourceObject assetObject = Resources::Read(asset))
 			{
@@ -138,15 +114,48 @@ namespace Skore
 				}
 			}
 		}
+	};
 
-		FnThumbnailGenerator GetThumbnailGenerator(RID rid) const override
+	struct TextureHandler : ResourceAssetHandler
+	{
+		SK_CLASS(TextureHandler, ResourceAssetHandler);
+
+		StringView Extension() override
 		{
-			return GenerateThumbnail;
+			return ".texture";
+		}
+
+		void OpenAsset(RID rid) override
+		{
+			if (ResourceObject assetObject = Resources::Read(rid))
+			{
+
+				if (RID object = assetObject.GetSubObject(ResourceAsset::Object))
+				{
+					Editor::GetActiveWorkspace()->OpenAsset(object);
+				}
+			}
+		}
+
+		TypeID GetResourceTypeId() override
+		{
+			return TypeInfo<TextureResource>::ID();
+		}
+
+		StringView GetDesc() override
+		{
+			return "Texture";
+		}
+
+		TypeID GetPreviewGenerator() override
+		{
+			return TypeInfo<TexturePreviewGenerator>::ID();
 		}
 	};
 
 	void RegisterTextureHandler()
 	{
+		Reflection::Type<TexturePreviewGenerator>();
 		Reflection::Type<TextureHandler>();
 	}
 }
