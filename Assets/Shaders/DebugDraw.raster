@@ -1,14 +1,26 @@
 #include "Common.hlsli"
 
+//debug lines are expanded to camera-facing quads in screen space with constant pixel thickness.
+//each vertex carries the full segment (start + end), flags select which corner of the quad it becomes.
+
+#define DEBUG_DRAW_FLAG_END    1u  //vertex anchors on the end point
+#define DEBUG_DRAW_FLAG_SIDE   2u  //offset to the positive perpendicular side
+#define DEBUG_DRAW_FLAG_EXTEND 4u  //also offset along the line direction (used for points)
+
 struct VertexInput
 {
-    float3 pos : POSITION;
-    uint   color : COLOR;
+    float3 position  : POSITION;
+    uint   color     : COLOR;
+    float3 endPos    : TEXCOORD0;
+    float  thickness : TEXCOORD1;
+    uint   flags     : TEXCOORD2;
 };
 
 struct PushConstants
 {
     float4x4 viewProjection;
+    float2   screenSize;
+    float2   pad;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
@@ -23,9 +35,56 @@ struct VertexToPixel
 VertexToPixel MainVS(VertexInput input)
 {
     VertexToPixel output;
-    output.position = mul(pushConstants.viewProjection, float4(input.pos.xyz, 1.0));
-    output.position.y = -output.position.y;
     output.color = input.color;
+
+    float4 p0 = mul(pushConstants.viewProjection, float4(input.position, 1.0));
+    float4 p1 = mul(pushConstants.viewProjection, float4(input.endPos, 1.0));
+    p0.y = -p0.y;
+    p1.y = -p1.y;
+
+    const float nearEps = 0.0001;
+    bool visible0 = p0.w > nearEps;
+    bool visible1 = p1.w > nearEps;
+
+    //segment fully behind the camera, emit a degenerate triangle
+    if (!visible0 && !visible1)
+    {
+        output.position = float4(2.0, 2.0, 2.0, 1.0);
+        return output;
+    }
+
+    //clip the segment against the near plane so the screen-space math stays stable
+    if (!visible0)
+    {
+        p0 = lerp(p0, p1, (nearEps - p0.w) / (p1.w - p0.w));
+    }
+    else if (!visible1)
+    {
+        p1 = lerp(p1, p0, (nearEps - p1.w) / (p0.w - p1.w));
+    }
+
+    float2 screen0 = (p0.xy / p0.w * 0.5 + 0.5) * pushConstants.screenSize;
+    float2 screen1 = (p1.xy / p1.w * 0.5 + 0.5) * pushConstants.screenSize;
+
+    float2 dir = screen1 - screen0;
+    float len = length(dir);
+    dir = len > 0.0001 ? dir / len : float2(1.0, 0.0);
+    float2 perp = float2(-dir.y, dir.x);
+
+    bool  isEnd  = (input.flags & DEBUG_DRAW_FLAG_END) != 0;
+    float side   = (input.flags & DEBUG_DRAW_FLAG_SIDE) != 0 ? 1.0 : -1.0;
+    float extend = (input.flags & DEBUG_DRAW_FLAG_EXTEND) != 0 ? 1.0 : 0.0;
+
+    //clamp to one pixel minimum so lines never vanish with distance
+    float halfThickness = max(input.thickness, 1.0) * 0.5;
+
+    float4 p = isEnd ? p1 : p0;
+    float2 screen = isEnd ? screen1 : screen0;
+    screen += perp * (side * halfThickness);
+    screen += dir * ((isEnd ? 1.0 : -1.0) * halfThickness * extend);
+
+    float2 ndc = screen / pushConstants.screenSize * 2.0 - 1.0;
+    output.position = float4(ndc * p.w, p.z, p.w);
     return output;
 }
 

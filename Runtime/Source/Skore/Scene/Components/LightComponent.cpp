@@ -2,6 +2,8 @@
 
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/DebugDraw.hpp"
+#include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 
 namespace Skore
@@ -144,6 +146,69 @@ namespace Skore
 	f32 LightComponent::GetOuterConeAngleRadians() const
 	{
 		return Math::Radians(-m_outerConeAngle);
+	}
+
+	void LightComponent::ProcessEvent(const EntityEventDesc& event)
+	{
+		if (event.type == EntityEventType::DrawGizmos)
+		{
+			DrawGizmosEvent* data = static_cast<DrawGizmosEvent*>(event.eventData);
+			DebugDraw* debugDraw = data->debugDraw;
+
+			const Mat4& transform = entity->GetWorldTransform();
+			Vec3 position = Mat4::GetTranslation(transform);
+			Vec3 direction = Vec3::Normalize(Mat4::GetForwardVector(transform));
+
+			Color gizmoColor = Color::YELLOW;
+
+			switch (m_lightType)
+			{
+				case LightType::Directional:
+				{
+					constexpr f32 rayLength = 2.0f;
+					constexpr f32 diskRadius = 0.25f;
+
+					Vec3 tangent, bitangent;
+					DebugDraw::BuildOrthonormalBasis(direction, tangent, bitangent);
+
+					debugDraw->DrawCircle(position, diskRadius, direction, 1.0f, gizmoColor, true, 16);
+					debugDraw->DrawArrow(position, position + direction * rayLength, 1.0f, gizmoColor);
+
+					Vec3 rayOffsets[4] = {
+						tangent * diskRadius,
+						tangent * -diskRadius,
+						bitangent * diskRadius,
+						bitangent * -diskRadius
+					};
+
+					for (const Vec3& offset : rayOffsets)
+					{
+						debugDraw->DrawLine(position + offset, position + offset + direction * (rayLength * 0.75f), 1.0f, gizmoColor);
+					}
+					break;
+				}
+				case LightType::Point:
+				{
+					debugDraw->DrawSphere(position, m_range, 1.0f, gizmoColor);
+
+					if (m_sourceRadius > 0.0f)
+					{
+						debugDraw->DrawSphere(position, m_sourceRadius, 1.0f, Color::WHITE);
+					}
+					break;
+				}
+				case LightType::Spot:
+				{
+					debugDraw->DrawCone(position, direction, m_range, Math::Radians(Math::Abs(m_outerConeAngle)), 1.0f, gizmoColor);
+
+					if (m_innerConeAngle < m_outerConeAngle)
+					{
+						debugDraw->DrawCone(position, direction, m_range, Math::Radians(Math::Abs(m_innerConeAngle)), 1.0f, Color{255, 255, 0, 90});
+					}
+					break;
+				}
+			}
+		}
 	}
 
 	void LightComponent::RegisterType(NativeReflectType<LightComponent>& type)

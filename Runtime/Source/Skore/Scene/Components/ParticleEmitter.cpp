@@ -3,6 +3,7 @@
 #include "Skore/App.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/DebugDraw.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
@@ -161,6 +162,11 @@ namespace Skore
 		if (event.type == EntityEventType::EntityIsSelectedOnEditor)
 		{
 			Tick();
+		}
+		else if (event.type == EntityEventType::DrawGizmos)
+		{
+			DrawGizmosEvent* data = static_cast<DrawGizmosEvent*>(event.eventData);
+			data->debugDraw->DrawSphere(entity->GetWorldPosition(), m_emitRadius, 1.0f, Color{255, 140, 0, 255});
 		}
 	}
 

@@ -1051,6 +1051,7 @@ namespace Skore
 
 				addTableBoolOption("Selection Outline", &drawSelectionOutline);
 				addTableBoolOption("Draw Icons", &drawIcons);
+				addTableBoolOption("Draw Gizmos", &drawComponentGizmos);
 				addTableBoolOption("Draw Debug Physics", &drawDebugPhysics);
 				addTableBoolOption("Show All Physics Shapes", &showAllPhysicsShapes);
 				addTableBoolOption("Draw Mesh AABB", &drawMeshAABB);

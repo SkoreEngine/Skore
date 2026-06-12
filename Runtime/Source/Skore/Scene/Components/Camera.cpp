@@ -2,6 +2,7 @@
 
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/DebugDraw.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Scene/Entity.hpp"
 
@@ -73,6 +74,15 @@ namespace Skore
 		{
 			context->UpdateCamera(m_near, m_far, m_fov, m_projection, {Mat4::Inverse(entity->GetWorldTransform())}, entity->GetWorldPosition());
 			context->camera.cullingMask = m_cullingMask;
+		}
+	}
+
+	void Camera::ProcessEvent(const EntityEventDesc& event)
+	{
+		if (event.type == EntityEventType::DrawGizmos)
+		{
+			DrawGizmosEvent* data = static_cast<DrawGizmosEvent*>(event.eventData);
+			data->debugDraw->DrawCameraFrustum(entity->GetWorldTransform(), m_fov, data->viewportAspect, m_near, m_far, 1.0f, Color::WHITE);
 		}
 	}
 

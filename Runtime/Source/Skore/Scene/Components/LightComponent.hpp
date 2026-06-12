@@ -54,6 +54,8 @@ namespace Skore
 		f32 GetInnerConeAngleRadians() const;
 		f32 GetOuterConeAngleRadians() const;
 
+		void ProcessEvent(const EntityEventDesc& event) override;
+
 		static void RegisterType(NativeReflectType<LightComponent>& type);
 
 	private:

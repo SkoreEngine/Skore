@@ -418,7 +418,6 @@ namespace Skore
 		GPUPipeline*     gridPipeline = nullptr;
 		GPUPipeline*     debugPhysicsPipeline = nullptr;
 		GPUPipeline*     fullscreenPipeline = nullptr;
-		GPUPipeline*     debugDrawPipeline = nullptr;
 		GPUPipeline*     drawNavMeshPipeline = nullptr;
 
 		GPURenderPass * sceneViewRenderPass = nullptr;
@@ -522,17 +521,6 @@ namespace Skore
 					.descriptorSetsOverride = {
 						DescriptorSetOverride{.set = 1, .descriptorSet = context->GetSceneDescriptorSet(0)}
 					}
-				});
-			}
-
-			{
-				debugDrawPipeline = Graphics::CreateGraphicsPipeline({
-					.shader = Resources::FindByPath("Skore://Shaders/DebugDraw.raster"),
-					.blendStates = {
-						BlendStateDesc{}
-					},
-					.renderPass = sceneViewRenderPass,
-					.vertexInputStride = sizeof(DebugDrawVertex)
 				});
 			}
 
@@ -716,11 +704,26 @@ namespace Skore
 					});
 
 					//debugDraw.DrawFrustum(context->camera.frustum, 2, Color::YELLOW);
-
-					cmd->BindPipeline(debugDrawPipeline);
-					cmd->PushConstants(debugDrawPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &context->camera.viewProjection);
-					debugDraw.Draw(cmd);
 				}
+
+				if (sceneViewWindow->drawComponentGizmos)
+				{
+					if (Scene* currentScene = sceneViewWindow->sceneEditor->GetCurrentScene())
+					{
+						DrawGizmosEvent gizmosEvent;
+						gizmosEvent.debugDraw = &debugDraw;
+						gizmosEvent.viewportAspect = currentExtent.height > 0 ? (f32)currentExtent.width / (f32)currentExtent.height : 1.0f;
+
+						EntityEventDesc eventDesc{.type = EntityEventType::DrawGizmos, .eventData = &gizmosEvent};
+
+						for (Entity* entity : Selection::ResolveEntities(currentScene))
+						{
+							entity->NotifyEvent(eventDesc, false);
+						}
+					}
+				}
+
+				debugDraw.Flush(cmd, sceneViewRenderPass, context->camera.viewProjection, currentExtent);
 			}
 
 
