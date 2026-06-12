@@ -448,10 +448,13 @@ namespace Skore
 			f32            width = ImGui::GetContentRegionAvail().x - a.x;
 			ImGui::BeginChild(id + 5, ImVec2(width, 30 * style.ScaleFactor), false, ImGuiWindowFlags_AlwaysUseWindowPadding | ImGuiWindowFlags_NoScrollbar);
 
-			ImGui::BeginHorizontal((i32)id + 10, ImVec2(width - a.x - pad.x, 0));
+			f32 horizontalWidth = width - a.x - pad.x;
+			// When the header gets narrow, collapse the Import/Settings buttons to icon only.
+			bool compactHeader = horizontalWidth < 350.f * style.ScaleFactor;
+			ImGui::BeginHorizontal((i32)id + 10, ImVec2(horizontalWidth, 0));
 
 			ImGui::BeginDisabled(readOnly);
-			if (ImGui::Button(ICON_FA_PLUS " Import"))
+			if (ImGui::Button(compactHeader ? ICON_FA_PLUS : ICON_FA_PLUS " Import"))
 			{
 				auto func = [openDirectory](Span<StringView> paths)
 				{
@@ -467,16 +470,33 @@ namespace Skore
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 0.f, 0.f, 0.f));
 			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.f, 0.f, 0.f, 0.f));
 
-			DrawPathItems();
-
-			ImGui::Spring(1.0f);
+			// In one column mode the path breadcrumb is hidden, only import + search + settings remain.
+			// Two columns: spring after the breadcrumb pushes the zoom/search/settings to the right.
+			// One column: the spring moves after the search so import + search stay together on the left.
+			if (!treeOnlyView)
+			{
+				DrawPathItems();
+				ImGui::Spring(1.0f);
+			}
 
 			ImGui::PopStyleColor(2);
 
-			ImGui::SetNextItemWidth(250 * style.ScaleFactor);
-			ImGui::SliderFloat("###zoom", &contentBrowserZoom, 0.4f, 5.0f, "");
+			// The zoom slider only applies to the content grid, which is not shown in one column mode.
+			if (!treeOnlyView)
+			{
+				ImGui::SetNextItemWidth(250 * style.ScaleFactor);
+				ImGui::SliderFloat("###zoom", &contentBrowserZoom, 0.4f, 5.0f, "");
+			}
 
-			ImGui::SetNextItemWidth(400 * style.ScaleFactor);
+			f32 searchWidth = 400 * style.ScaleFactor;
+			if (treeOnlyView)
+			{
+				// Shrink the search field so import and settings stay visible in narrow one column layouts.
+				// Icon only buttons need less reserved space, so the search field can keep more room.
+				f32 buttonsReserve = compactHeader ? 90.f * style.ScaleFactor : 200.f * style.ScaleFactor;
+				searchWidth = Math::Clamp(horizontalWidth - buttonsReserve, 100.f * style.ScaleFactor, 400.f * style.ScaleFactor);
+			}
+			ImGui::SetNextItemWidth(searchWidth);
 			if (ImGuiSearchInputText(id + 20, searchString))
 			{
 				cachedDirectory = {};
@@ -485,11 +505,16 @@ namespace Skore
 				filter.Build();
 			}
 
+			// One column has no breadcrumb spring, so push settings to the right after the search.
+			if (treeOnlyView)
+			{
+				ImGui::Spring(1.0f);
+			}
 
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 0.f, 0.f, 0.f));
 			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.f, 0.f, 0.f, 0.f));
 
-			if (ImGui::Button(ICON_FA_GEAR " Settings"))
+			if (ImGui::Button(compactHeader ? ICON_FA_GEAR : ICON_FA_GEAR " Settings"))
 			{
 				ImGui::OpenPopup("project-browser-settings-popup");
 			}
