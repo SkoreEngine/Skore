@@ -1,0 +1,22 @@
+objects:
+  - _uuid: 0536e58c-5206-c573-452b-d159ee0ac955
+    _type: 'Skore::EntityResource'
+    _parent: 4c559e92-4256-df8f-e514-4385369ca814
+    _parentField: Object
+    Name: PostProcessing
+  - _uuid: 2e17e4bf-3d17-0ec3-d05b-8cc3009e6b6f
+    _type: 'Skore::SSAOComponent'
+    _parent: 0536e58c-5206-c573-452b-d159ee0ac955
+    _parentField: Components
+    radius: 0.30000001192092896
+    falloffRange: 0.6150000095367432
+    finalValuePower: 2.200000047683716
+    denoisePasses: 1
+  - _uuid: e9d48b0b-009a-d84e-692a-9afa5d2b908f
+    _type: 'Skore::BloomComponent'
+    _parent: 0536e58c-5206-c573-452b-d159ee0ac955
+    _parentField: Components
+    threshold: 1
+    softKnee: 0.5
+    radius: 1
+    intensity: 0.03999999910593033

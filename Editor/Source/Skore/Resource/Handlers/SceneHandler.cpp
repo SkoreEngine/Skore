@@ -26,14 +26,17 @@ namespace Skore
 			}
 		}
 
-		// RID Create(UUID uuid, UndoRedoScope* scope) override
-		// {
-		// 	RID entity = Resources::Create(GetResourceTypeId(), UUID::RandomUUID(), scope);
-		// 	ResourceObject assetObject = Resources::Write(entity);
-		// 	assetObject.SetString(EntityResource::Name, "Entity");
-		// 	assetObject.Commit(scope);
-		// 	return entity;
-		// }
+		 RID Create(UUID uuid, UndoRedoScope* scope) override
+		 {
+		 	RID asset = Resources::Create(GetResourceTypeId(), UUID::RandomUUID(), scope);
+		 	ResourceObject assetObject = Resources::Write(asset);
+
+			assetObject.AddToSubObjectList(SceneResource::Entities, Resources::CreateFromPrototype(Resources::FindByPath("Skore://Prototypes/Lighting.entity")));
+			assetObject.AddToSubObjectList(SceneResource::Entities, Resources::CreateFromPrototype(Resources::FindByPath("Skore://Prototypes/PostProcessing.entity")));
+
+		 	assetObject.Commit(scope);
+		 	return asset;
+		 }
 
 		TypeID GetResourceTypeId() override
 		{

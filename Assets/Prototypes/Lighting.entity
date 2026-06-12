@@ -1,0 +1,60 @@
+objects:
+  - _uuid: fc3d8881-1d41-c3a5-e0dd-b7b6193401f7
+    _type: 'Skore::EntityResource'
+    _parent: 886812e0-dfdb-2d08-580e-f25b4269b32f
+    _parentField: Object
+    Name: Lighting
+  - _uuid: eeaa2880-c0fc-ddc8-5ea9-03f957a759a8
+    _type: 'Skore::Transform'
+    _parent: fc3d8881-1d41-c3a5-e0dd-b7b6193401f7
+    _parentField: Components
+    position:
+      x: 0
+      y: 0
+      z: 0
+    rotation:
+      x: -0.6396777033805847
+      y: -0.008178174495697021
+      z: -0.003925539553165436
+      w: 0.7685897350311279
+    scale:
+      x: 1.0000003576278687
+      y: 1.0000001192092896
+      z: 1.0000001192092896
+    mobility: Static
+  - _uuid: 92c0eacd-d071-e8d9-db2a-9e55c85db79e
+    _type: 'Skore::LightComponent'
+    _parent: fc3d8881-1d41-c3a5-e0dd-b7b6193401f7
+    _parentField: Components
+    lightType: Directional
+    color:
+      red: 255
+      green: 255
+      blue: 255
+      alpha: 255
+    intensity: 2
+    range: 10
+    innerConeAngle: 25
+    outerConeAngle: 30
+    enableShadows: true
+    maxShadowDistance: 100
+    splitLambda: 0.8500000238418579
+    interleavedCascadeUpdates: true
+    opaqueShadowCascades: 1
+    cullingMask: 18446744073709551615
+    sourceRadius: 0
+  - _uuid: 6964afc5-c9d0-a279-a473-3a0975f35528
+    _type: 'Skore::EnvironmentComponent'
+    _parent: fc3d8881-1d41-c3a5-e0dd-b7b6193401f7
+    _parentField: Components
+    skyboxMaterial: c74afded-555f-b6a4-b6b3-8d4e0ae50f01
+    useSkyboxAsBackground: true
+    ambientLightSource: Skybox
+    ambientLightColor:
+      red: 255
+      green: 255
+      blue: 255
+      alpha: 255
+    ambientLightIntensity: 1.3
+    reflectedLightSource: Skybox
+    reflectedLightIntensity: 0.5
