@@ -454,7 +454,7 @@ namespace Skore
 							{
 								newProjectPath = path;
 							};
-							Platform::OpenDialog(func, {}, newProjectPath.CStr(), Graphics::GetWindow());
+							Platform::PickFolder(func, newProjectPath.CStr(), Graphics::GetWindow());
 						}
 						ImGui::SameLine();
 						ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padding.x);

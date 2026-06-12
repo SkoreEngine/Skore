@@ -20,19 +20,6 @@ namespace Skore
 
 	void CreateCMakeProject(StringView directory)
 	{
-		String engineSourcePath;
-
-#ifdef SK_ROOT_SOURCE_PATH
-		engineSourcePath = SK_ROOT_SOURCE_PATH;
-#endif
-
-		if (!FileSystem::GetFileStatus(engineSourcePath).exists)
-		{
-			//TODO maybe fetch content if not found.
-			logger.Error("error on create cpp project, skore source directory not found");
-			return;
-		}
-
 		FileSystem::CreateDirectory(Path::Join(directory, "Source"));
 		FileSystem::CreateDirectory(Path::Join(Path::Join(directory, "Binaries"), "Runtime"));
 
@@ -48,7 +35,13 @@ namespace Skore
 		cmakeSource += "cmake_minimum_required(VERSION 3.30)\n\n";
 		cmakeSource += "project(" + projectName + ")\n\n";
 		cmakeSource += "set(CMAKE_CXX_STANDARD 20)\n\n";
-		cmakeSource += "add_subdirectory(\"" + engineSourcePath + "\" Skore)\n\n";
+		cmakeSource += "include(FetchContent)\n";
+		cmakeSource += "FetchContent_Declare(\n";
+		cmakeSource += "	Skore\n";
+		cmakeSource += "	GIT_REPOSITORY https://github.com/SkoreEngine/Skore\n";
+		cmakeSource += "	GIT_TAG main\n";
+		cmakeSource += ")\n";
+		cmakeSource += "FetchContent_MakeAvailable(Skore)\n\n";
 		cmakeSource += "file(GLOB_RECURSE " + projectUpper + "_RUNTIME_SOURCES Source/*.hpp Source/*.cpp Source/*.h Source/*.c) \n";
 		cmakeSource += "add_library(" + projectName + " SHARED ${" + projectUpper + "_RUNTIME_SOURCES})\n";
 		cmakeSource += "target_link_libraries(" + projectName + " SkoreRuntime)\n";
