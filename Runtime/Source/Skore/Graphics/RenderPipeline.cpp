@@ -859,11 +859,11 @@ namespace Skore
 			}
 
 			cmd->BeginDebugMarker(renderPipeline->GetType()->GetSimpleName(), Vec4(0.0, 0.0, 0.0, 1.0));
-			SK_SCOPED_ZONE(renderPipeline->GetType()->GetSimpleName(), cmd);
+			SK_SCOPED_GPU_ZONE(renderPipeline->GetType()->GetSimpleName(), cmd);
 
 			for (PassStorage* storage : passes)
 			{
-				SK_SCOPED_ZONE(storage->name, cmd);
+				SK_SCOPED_GPU_ZONE(storage->name, cmd);
 
 				if (storage->setup.type != RenderPipelinePassType::Other)
 				{

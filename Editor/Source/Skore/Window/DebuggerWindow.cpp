@@ -70,13 +70,25 @@ namespace Skore
 				ImGui::EndTabItem();
 			}
 
-			if (ImGui::BeginTabItem("Profiler"))
+			if (ImGui::BeginTabItem("CPU Profiler"))
 			{
 				ScopedStyleColor childBg(ImGuiCol_ChildBg, IM_COL32(22, 23, 25, 255));
 				ScopedStyleVar   childPadding(ImGuiStyleVar_WindowPadding, pad);
-				if (ImGui::BeginChild("profiler_child", ImGui::GetContentRegionAvail(), 0, ImGuiWindowFlags_AlwaysUseWindowPadding))
+				if (ImGui::BeginChild("cpu_profiler_child", ImGui::GetContentRegionAvail(), 0, ImGuiWindowFlags_AlwaysUseWindowPadding))
 				{
-					DrawProfiler();
+					DrawProfiler(m_cpuView, false);
+				}
+				ImGui::EndChild();
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("GPU Profiler"))
+			{
+				ScopedStyleColor childBg(ImGuiCol_ChildBg, IM_COL32(22, 23, 25, 255));
+				ScopedStyleVar   childPadding(ImGuiStyleVar_WindowPadding, pad);
+				if (ImGui::BeginChild("gpu_profiler_child", ImGui::GetContentRegionAvail(), 0, ImGuiWindowFlags_AlwaysUseWindowPadding))
+				{
+					DrawProfiler(m_gpuView, true);
 				}
 				ImGui::EndChild();
 				ImGui::EndTabItem();
@@ -265,17 +277,17 @@ namespace Skore
 		ImGui::EndTable();
 	}
 
-	void DebuggerWindow::DrawProfiler()
+	void DebuggerWindow::DrawProfiler(ProfilerView& view, bool gpu)
 	{
 		// Fetch profiler data
 		u32 count = 0;
-		const Profiler::TaskEntry* entries = Profiler::GetTasks(count);
+		const Profiler::TaskEntry* entries = gpu ? Profiler::GetGpuTasks(count) : Profiler::GetCpuTasks(count);
 
-		if (!m_paused && count > 0)
+		if (!view.paused && count > 0)
 		{
-			m_taskCount = std::min(count, MaxTasks);
-			std::memcpy(m_tasks, entries, m_taskCount * sizeof(Profiler::TaskEntry));
-			UpdateHistory(m_tasks, m_taskCount);
+			view.taskCount = std::min(count, MaxTasks);
+			std::memcpy(view.tasks, entries, view.taskCount * sizeof(Profiler::TaskEntry));
+			UpdateHistory(view, gpu, view.tasks, view.taskCount);
 		}
 
 		// --- Toolbar ---
@@ -296,15 +308,15 @@ namespace Skore
 			}
 
 			ImGui::SameLine();
-			if (ImGui::Button(m_paused ? (ICON_FA_PLAY " Resume") : (ICON_FA_PAUSE " Pause")))
-				m_paused = !m_paused;
+			if (ImGui::Button(view.paused ? (ICON_FA_PLAY " Resume") : (ICON_FA_PAUSE " Pause")))
+				view.paused = !view.paused;
 
 			ImGui::SameLine();
 			if (ImGui::Button(ICON_FA_TRASH " Clear"))
 			{
-				m_historyCount = 0;
-				m_historyWritePos = 0;
-				m_taskCount = 0;
+				view.historyCount = 0;
+				view.historyWritePos = 0;
+				view.taskCount = 0;
 				Profiler::ResetStats();
 			}
 
@@ -312,15 +324,15 @@ namespace Skore
 			static const char* scaleLabels[] = {"2ms", "4ms", "8ms", "16ms (60fps)", "33ms (30fps)", "66ms (15fps)"};
 			static const float scaleValues[] = {0.002f, 0.004f, 0.008f, 1.0f / 60.0f, 1.0f / 30.0f, 1.0f / 15.0f};
 			ImGui::SetNextItemWidth(150.0f * (ImGui::GetFontSize() / 13.0f));
-			if (ImGui::BeginCombo("##scale", scaleLabels[m_scaleIndex]))
+			if (ImGui::BeginCombo("##scale", scaleLabels[view.scaleIndex]))
 			{
 				for (int i = 0; i < IM_ARRAYSIZE(scaleLabels); i++)
 				{
-					bool selected = (m_scaleIndex == i);
+					bool selected = (view.scaleIndex == i);
 					if (ImGui::Selectable(scaleLabels[i], selected))
 					{
-						m_scaleIndex = i;
-						m_maxFrameTime = scaleValues[i];
+						view.scaleIndex = i;
+						view.maxFrameTime = scaleValues[i];
 					}
 					if (selected)
 						ImGui::SetItemDefaultFocus();
@@ -330,12 +342,12 @@ namespace Skore
 		}
 
 		{
-			Profiler::FrameStats fs = Profiler::GetFrameStats();
+			Profiler::FrameStats fs = gpu ? Profiler::GetGpuFrameStats() : Profiler::GetCpuFrameStats();
 			ImGui::Text("Frame: %.2f ms   avg %.2f   min %.2f   max %.2f   (%u samples)",
 				fs.current * 1000.0, fs.avg * 1000.0, fs.min * 1000.0, fs.max * 1000.0, fs.count);
 		}
 
-		// --- Layout: Left tree + Right charts ---
+		// --- Layout: Left tree + Right chart ---
 		ImVec2 avail = ImGui::GetContentRegionAvail();
 		if (avail.x < 100 || avail.y < 50) return;
 
@@ -348,32 +360,28 @@ namespace Skore
 			ScopedStyleVar treeCellPadding(ImGuiStyleVar_CellPadding, ImVec2(4, 2));
 
 			ImGui::BeginChild("##profiler_tree", ImVec2(treeWidth, avail.y), 0, ImGuiWindowFlags_AlwaysUseWindowPadding);
-			DrawProfilerTree(m_tasks, m_taskCount);
+			DrawProfilerTree(view.tasks, view.taskCount, gpu);
 			ImGui::EndChild();
 		}
 
 		ImGui::SameLine();
 
-		// Right panel: charts
+		// Right panel: chart
 		{
 			ImGui::BeginChild("##profiler_charts", ImVec2(plotWidth, avail.y));
 
-			float spacing = ImGui::GetStyle().ItemSpacing.y;
 			float labelHeight = ImGui::GetTextLineHeightWithSpacing();
-			float chartHeight = (avail.y - labelHeight * 2 - spacing) * 0.5f;
+			float chartHeight = avail.y - labelHeight;
 			chartHeight = std::max(chartHeight, 40.0f);
 
-			ImGui::Text("CPU");
-			DrawProfilerChart("##cpu_chart", true, ImVec2(plotWidth, chartHeight));
-
-			ImGui::Text("GPU");
-			DrawProfilerChart("##gpu_chart", false, ImVec2(plotWidth, chartHeight));
+			ImGui::TextUnformatted(gpu ? "GPU" : "CPU");
+			DrawProfilerChart(view, "##profiler_chart", ImVec2(plotWidth, chartHeight));
 
 			ImGui::EndChild();
 		}
 	}
 
-	void DebuggerWindow::DrawProfilerTree(const Profiler::TaskEntry* entries, u32 count)
+	void DebuggerWindow::DrawProfilerTree(const Profiler::TaskEntry* entries, u32 count, bool gpu)
 	{
 		if (count == 0)
 		{
@@ -388,7 +396,10 @@ namespace Skore
 			ImGuiTableFlags_ScrollX |
 			ImGuiTableFlags_BordersInnerV;
 
-		if (!ImGui::BeginTable("##profiler_table", 9, tableFlags))
+		// The GPU profiler also reports the CPU cost of recording each zone, so it
+		// shows both CPU and GPU columns; the CPU profiler shows CPU only.
+		int columns = gpu ? 9 : 5;
+		if (!ImGui::BeginTable("##profiler_table", columns, tableFlags))
 			return;
 
 		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, 200.0f);
@@ -396,10 +407,13 @@ namespace Skore
 		ImGui::TableSetupColumn("avg##cpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
 		ImGui::TableSetupColumn("min##cpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
 		ImGui::TableSetupColumn("max##cpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
-		ImGui::TableSetupColumn("GPU", ImGuiTableColumnFlags_WidthFixed, 52.0f);
-		ImGui::TableSetupColumn("avg##gpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
-		ImGui::TableSetupColumn("min##gpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
-		ImGui::TableSetupColumn("max##gpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		if (gpu)
+		{
+			ImGui::TableSetupColumn("GPU", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+			ImGui::TableSetupColumn("avg##gpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+			ImGui::TableSetupColumn("min##gpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+			ImGui::TableSetupColumn("max##gpu", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+		}
 		ImGui::TableSetupScrollFreeze(1, 1);
 		ImGui::TableHeadersRow();
 
@@ -461,10 +475,14 @@ namespace Skore
 			statCell(2, entry.cpuCount > 0, entry.cpuAvg * 1000.0);
 			statCell(3, entry.cpuCount > 0, entry.cpuMin * 1000.0);
 			statCell(4, entry.cpuCount > 0, entry.cpuMax * 1000.0);
-			statCell(5, entry.present && entry.hasGPU, entry.gpuTime * 1000.0);
-			statCell(6, entry.gpuCount > 0, entry.gpuAvg * 1000.0);
-			statCell(7, entry.gpuCount > 0, entry.gpuMin * 1000.0);
-			statCell(8, entry.gpuCount > 0, entry.gpuMax * 1000.0);
+
+			if (gpu)
+			{
+				statCell(5, entry.present && entry.hasGPU, entry.gpuTime * 1000.0);
+				statCell(6, entry.gpuCount > 0, entry.gpuAvg * 1000.0);
+				statCell(7, entry.gpuCount > 0, entry.gpuMin * 1000.0);
+				statCell(8, entry.gpuCount > 0, entry.gpuMax * 1000.0);
+			}
 
 			if (hasChildren)
 			{
@@ -491,7 +509,7 @@ namespace Skore
 		ImGui::EndTable();
 	}
 
-	void DebuggerWindow::DrawProfilerChart(const char* label, bool isCpu, ImVec2 size)
+	void DebuggerWindow::DrawProfilerChart(ProfilerView& view, const char* label, ImVec2 size)
 	{
 		ImVec2 pos = ImGui::GetCursorScreenPos();
 		ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -504,7 +522,7 @@ namespace Skore
 		// Reference lines
 		auto drawRefLine = [&](float timeMs, const char* text, ImU32 color)
 		{
-			float normalized = (timeMs * 0.001f) / m_maxFrameTime;
+			float normalized = (timeMs * 0.001f) / view.maxFrameTime;
 			if (normalized <= 0.0f || normalized >= 1.0f) return;
 			float y = pos.y + size.y * (1.0f - normalized);
 			dl->AddLine(ImVec2(pos.x, y), ImVec2(pos.x + size.x, y), color);
@@ -515,44 +533,40 @@ namespace Skore
 		drawRefLine(33.33f, "33.3ms (30fps)", IM_COL32(150, 120, 50, 180));
 
 		// Draw frame history bars
-		if (m_historyCount > 0)
+		if (view.historyCount > 0)
 		{
 			float barWidth = size.x / (float)MaxHistoryFrames;
 			float barGap = std::max(barWidth * 0.15f, 0.5f);
 			float effectiveBarWidth = std::max(barWidth - barGap, 1.0f);
 
-			for (u32 f = 0; f < m_historyCount; f++)
+			for (u32 f = 0; f < view.historyCount; f++)
 			{
-				u32 idx = (m_historyWritePos + MaxHistoryFrames - m_historyCount + f) % MaxHistoryFrames;
-				const auto& record = m_history[idx];
-
-				const auto* segments = isCpu ? record.cpuSegments : record.gpuSegments;
-				u32 segCount = isCpu ? record.cpuSegmentCount : record.gpuSegmentCount;
+				u32 idx = (view.historyWritePos + MaxHistoryFrames - view.historyCount + f) % MaxHistoryFrames;
+				const auto& record = view.history[idx];
 
 				float x = pos.x + f * barWidth;
 				float yBottom = pos.y + size.y;
 
-				if (segCount > 0)
+				if (record.segmentCount > 0)
 				{
 					float y = yBottom;
-					for (u32 s = 0; s < segCount; s++)
+					for (u32 s = 0; s < record.segmentCount; s++)
 					{
-						float segHeight = (segments[s].duration / m_maxFrameTime) * size.y;
+						float segHeight = (record.segments[s].duration / view.maxFrameTime) * size.y;
 						segHeight = std::min(segHeight, y - pos.y);
 						if (segHeight < 0.5f) continue;
 
 						dl->AddRectFilled(
 							ImVec2(x, y - segHeight),
 							ImVec2(x + effectiveBarWidth, y),
-							ProfilerToImColorAlpha(segments[s].color, 200)
+							ProfilerToImColorAlpha(record.segments[s].color, 200)
 						);
 						y -= segHeight;
 					}
 				}
 				else
 				{
-					float totalTime = isCpu ? record.totalCpu : record.totalGpu;
-					float barHeight = (totalTime / m_maxFrameTime) * size.y;
+					float barHeight = (record.total / view.maxFrameTime) * size.y;
 					barHeight = std::min(barHeight, size.y);
 					if (barHeight >= 0.5f)
 					{
@@ -570,21 +584,18 @@ namespace Skore
 			{
 				float mx = ImGui::GetMousePos().x - pos.x;
 				int frameIdx = (int)(mx / barWidth);
-				if (frameIdx >= 0 && frameIdx < (int)m_historyCount)
+				if (frameIdx >= 0 && frameIdx < (int)view.historyCount)
 				{
-					u32 idx = (m_historyWritePos + MaxHistoryFrames - m_historyCount + frameIdx) % MaxHistoryFrames;
-					const auto& record = m_history[idx];
-					float totalTime = isCpu ? record.totalCpu : record.totalGpu;
+					u32 idx = (view.historyWritePos + MaxHistoryFrames - view.historyCount + frameIdx) % MaxHistoryFrames;
+					const auto& record = view.history[idx];
 
 					ImGui::BeginTooltip();
-					ImGui::Text("Frame Time: %.3f ms", totalTime * 1000.0f);
+					ImGui::Text("Frame Time: %.3f ms", record.total * 1000.0f);
 
-					const auto* segments = isCpu ? record.cpuSegments : record.gpuSegments;
-					u32 segCount = isCpu ? record.cpuSegmentCount : record.gpuSegmentCount;
-					for (u32 s = 0; s < segCount; s++)
+					for (u32 s = 0; s < record.segmentCount; s++)
 					{
-						ImVec4 col = ImGui::ColorConvertU32ToFloat4(ProfilerToImColor(segments[s].color));
-						ImGui::TextColored(col, "  %.3f ms", segments[s].duration * 1000.0f);
+						ImVec4 col = ImGui::ColorConvertU32ToFloat4(ProfilerToImColor(record.segments[s].color));
+						ImGui::TextColored(col, "  %.3f ms", record.segments[s].duration * 1000.0f);
 					}
 					ImGui::EndTooltip();
 
@@ -605,45 +616,31 @@ namespace Skore
 		ImGui::Dummy(size);
 	}
 
-	void DebuggerWindow::UpdateHistory(const Profiler::TaskEntry* entries, u32 count)
+	void DebuggerWindow::UpdateHistory(ProfilerView& view, bool gpu, const Profiler::TaskEntry* entries, u32 count)
 	{
-		auto& record = m_history[m_historyWritePos];
-		record.cpuSegmentCount = 0;
-		record.gpuSegmentCount = 0;
-		record.totalCpu = 0.0f;
-		record.totalGpu = 0.0f;
+		auto& record = view.history[view.historyWritePos];
+		record.segmentCount = 0;
+		record.total = 0.0f;
 
 		for (u32 i = 0; i < count; i++)
 		{
 			// Only depth-0 entries contribute to stacked bar segments
-			if (entries[i].depth == 0 && entries[i].present)
+			if (entries[i].depth != 0 || !entries[i].present) continue;
+
+			if (gpu && !entries[i].hasGPU) continue;
+
+			f32 dur = (f32)(gpu ? entries[i].gpuTime : entries[i].cpuTime);
+			record.total += dur;
+
+			if (record.segmentCount < MaxSegments)
 			{
-				f32 cpuDur = (f32)entries[i].cpuTime;
-				record.totalCpu += cpuDur;
-
-				if (record.cpuSegmentCount < MaxSegments)
-				{
-					record.cpuSegments[record.cpuSegmentCount].duration = cpuDur;
-					record.cpuSegments[record.cpuSegmentCount].color = entries[i].color;
-					record.cpuSegmentCount++;
-				}
-
-				if (entries[i].hasGPU)
-				{
-					f32 gpuDur = (f32)entries[i].gpuTime;
-					record.totalGpu += gpuDur;
-
-					if (record.gpuSegmentCount < MaxSegments)
-					{
-						record.gpuSegments[record.gpuSegmentCount].duration = gpuDur;
-						record.gpuSegments[record.gpuSegmentCount].color = entries[i].color;
-						record.gpuSegmentCount++;
-					}
-				}
+				record.segments[record.segmentCount].duration = dur;
+				record.segments[record.segmentCount].color = entries[i].color;
+				record.segmentCount++;
 			}
 		}
 
-		m_historyWritePos = (m_historyWritePos + 1) % MaxHistoryFrames;
-		if (m_historyCount < MaxHistoryFrames) m_historyCount++;
+		view.historyWritePos = (view.historyWritePos + 1) % MaxHistoryFrames;
+		if (view.historyCount < MaxHistoryFrames) view.historyCount++;
 	}
 }

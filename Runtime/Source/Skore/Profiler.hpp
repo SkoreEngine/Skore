@@ -3,15 +3,23 @@
 #include "Core/StringView.hpp"
 #include "Graphics/Device.hpp"
 
-#define SK_SCOPED_ZONE(name, cmd) Skore::Profiler::ScopedSample SK_CONCAT(scopedZone_, __LINE__)(name, cmd)
-#define SK_SCOPED_CPU_ZONE(name)  Skore::Profiler::ScopedSample SK_CONCAT(scopedZone_, __LINE__)(name, nullptr)
+#define SK_SCOPED_GPU_ZONE(name, cmd) Skore::Profiler::ScopedGpuSample SK_CONCAT(scopedZone_, __LINE__)(name, cmd)
+#define SK_SCOPED_CPU_ZONE(name)      Skore::Profiler::ScopedCpuSample SK_CONCAT(scopedZone_, __LINE__)(name)
 
 namespace Skore::Profiler
 {
-	struct ScopedSample
+	struct ScopedCpuSample
 	{
-		ScopedSample(const StringView& name, GPUCommandBuffer* cmd);
-		~ScopedSample();
+		ScopedCpuSample(const StringView& name);
+		~ScopedCpuSample();
+
+		StringView name;
+	};
+
+	struct ScopedGpuSample
+	{
+		ScopedGpuSample(const StringView& name, GPUCommandBuffer* cmd);
+		~ScopedGpuSample();
 
 		StringView        name;
 		GPUCommandBuffer* cmd;
@@ -48,14 +56,23 @@ namespace Skore::Profiler
 	SK_API void Init();
 	SK_API void Shutdown();
 
-	SK_API void BeginSample(StringView name, GPUCommandBuffer* cmd);
-	SK_API void EndSample(StringView name, GPUCommandBuffer* cmd);
+	// CPU profiler
+	SK_API void BeginCpuSample(StringView name);
+	SK_API void EndCpuSample(StringView name);
+
+	// GPU profiler
+	SK_API void BeginGpuSample(StringView name, GPUCommandBuffer* cmd);
+	SK_API void EndGpuSample(StringView name, GPUCommandBuffer* cmd);
 
 	SK_API void BeginFrame();
 	SK_API void EndFrame();
 
-	SK_API const TaskEntry* GetTasks(u32& count);
-	SK_API FrameStats GetFrameStats();
+	SK_API const TaskEntry* GetCpuTasks(u32& count);
+	SK_API const TaskEntry* GetGpuTasks(u32& count);
+
+	SK_API FrameStats GetCpuFrameStats();
+	SK_API FrameStats GetGpuFrameStats();
+
 	SK_API void ResetStats();
 
 	SK_API void SetActive(bool active);
