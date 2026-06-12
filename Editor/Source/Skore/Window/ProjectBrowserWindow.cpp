@@ -1175,6 +1175,10 @@ namespace Skore
 			.workspaceTypes = {WorkspaceTypes::All}
 		});
 
+		//view preferences persisted with the editor layout across sessions
+		type.Field<&ProjectBrowserWindow::treeOnlyView>("treeOnlyView").Attribute<EditorSerialize>();      //one vs two column layout
+		type.Field<&ProjectBrowserWindow::contentBrowserZoom>("contentBrowserZoom").Attribute<EditorSerialize>();
+
 		Resources::Type<ProjectBrowserWindowData>()
 			.Field(ProjectBrowserWindowData::OpenDirectory, "openDirectory", ResourceFieldType::Reference)
 			.Field(ProjectBrowserWindowData::RenamingItem, "renamingItem", ResourceFieldType::Reference)

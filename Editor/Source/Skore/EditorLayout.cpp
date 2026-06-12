@@ -28,6 +28,18 @@ namespace Skore::EditorLayout
 		String                 lastSerializedImGuiSettings;
 		bool                   dirty = false;
 
+		FnCaptureWindowStates  captureCallback = nullptr;
+		VoidPtr                captureUserData = nullptr;
+
+		//pull fresh per-window state from the owner (see SetCaptureCallback / SaveWindowState)
+		void CaptureWindowStates()
+		{
+			if (captureCallback)
+			{
+				captureCallback(captureUserData);
+			}
+		}
+
 		WorkspaceLayout* FindWorkspace(u8 workspaceTypeId)
 		{
 			for (WorkspaceLayout& wl : workspaceLayouts)
@@ -60,6 +72,7 @@ namespace Skore::EditorLayout
 
 		void WriteToDisk()
 		{
+			CaptureWindowStates();
 			CaptureImGuiSettings();
 
 			JsonArchiveWriter writer;
@@ -80,6 +93,10 @@ namespace Skore::EditorLayout
 					writer.BeginMap();
 					writer.WriteString("type", rt->GetName());
 					writer.WriteUInt("id", w.id);
+					if (!w.state.Empty())
+					{
+						writer.WriteString("state", w.state);
+					}
 					writer.EndMap();
 				}
 				writer.EndSeq();
@@ -138,10 +155,11 @@ namespace Skore::EditorLayout
 						reader.BeginMap();
 						StringView   typeName = reader.ReadString("type");
 						u32          id = static_cast<u32>(reader.ReadUInt("id"));
+						StringView   state = reader.ReadString("state");
 						ReflectType* rt = Reflection::FindTypeByName(typeName);
 						if (rt)
 						{
-							wl.openWindows.EmplaceBack(SavedEditorWindow{rt->GetProps().typeId, id});
+							wl.openWindows.EmplaceBack(SavedEditorWindow{rt->GetProps().typeId, id, state});
 						}
 						else
 						{
@@ -166,6 +184,9 @@ namespace Skore::EditorLayout
 
 	void Shutdown()
 	{
+		//capture before the dirty check so window-only state changes still force a final write
+		CaptureWindowStates();
+
 		if (ImGui::GetCurrentContext())
 		{
 			CaptureImGuiSettings();
@@ -186,6 +207,8 @@ namespace Skore::EditorLayout
 		lastSerializedImGuiSettings.Clear();
 		filePath.Clear();
 		dirty = false;
+		captureCallback = nullptr;
+		captureUserData = nullptr;
 	}
 
 	bool HasSavedWorkspace(u8 workspaceTypeId)
@@ -224,6 +247,31 @@ namespace Skore::EditorLayout
 			{
 				wl->openWindows.Erase(wl->openWindows.begin() + i, wl->openWindows.begin() + i + 1);
 				dirty = true;
+				return;
+			}
+		}
+	}
+
+	void SetCaptureCallback(FnCaptureWindowStates callback, VoidPtr userData)
+	{
+		captureCallback = callback;
+		captureUserData = userData;
+	}
+
+	void SaveWindowState(u8 workspaceTypeId, u32 id, StringView state)
+	{
+		WorkspaceLayout* wl = FindWorkspace(workspaceTypeId);
+		if (!wl) return;
+
+		for (SavedEditorWindow& w : wl->openWindows)
+		{
+			if (w.id == id)
+			{
+				if (w.state != state)
+				{
+					w.state = state;
+					dirty = true;
+				}
 				return;
 			}
 		}
