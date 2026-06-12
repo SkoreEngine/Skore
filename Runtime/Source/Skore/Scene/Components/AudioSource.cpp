@@ -3,6 +3,7 @@
 #include "Skore/Scene/Components/Transform.hpp"
 #include "Skore/Audio/AudioEngine.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/DebugDraw.hpp"
 #include "Skore/Scene/Entity.hpp"
 
 
@@ -11,6 +12,18 @@ namespace Skore
 	void AudioSource::OnStart()
 	{
 		CreateAudioInstance();
+	}
+
+	void AudioSource::ProcessEvent(const EntityEventDesc& event)
+	{
+		if (event.type == EntityEventType::DrawGizmos && m_is3D)
+		{
+			DrawGizmosEvent* data = static_cast<DrawGizmosEvent*>(event.eventData);
+
+			Vec3 position = entity->GetWorldPosition();
+			data->debugDraw->DrawSphere(position, m_minDistance, 1.0f, Color{120, 200, 255, 255});
+			data->debugDraw->DrawSphere(position, m_maxDistance, 1.0f, Color{40, 120, 255, 255});
+		}
 	}
 
 	void AudioSource::CreateAudioInstance()

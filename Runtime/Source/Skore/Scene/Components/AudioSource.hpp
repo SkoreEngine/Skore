@@ -47,6 +47,8 @@ namespace Skore
 		void PauseAudio() const;
 		void ResumeAudio() const;
 
+		void ProcessEvent(const EntityEventDesc& event) override;
+
 		static void RegisterType(NativeReflectType<AudioSource>& type);
 
 	private:

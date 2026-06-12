@@ -91,6 +91,7 @@ namespace Skore
 		bool lockCameraFrustum = false;
 		bool drawMeshAABB = false;
 		bool drawNavMesh = false;
+		bool drawComponentGizmos = true;
 		String selectedTextureToShow = "";
 
 		Vec2 textPos = {100, 100};

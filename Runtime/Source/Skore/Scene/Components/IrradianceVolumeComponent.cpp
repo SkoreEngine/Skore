@@ -2,6 +2,8 @@
 
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/DebugDraw.hpp"
+#include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 
 namespace Skore
@@ -131,6 +133,26 @@ namespace Skore
 		mix(static_cast<u32>(m_probeCountZ));
 		mix(static_cast<u64>(m_probeSpacing * 1000.0f));
 		return hash;
+	}
+
+	void IrradianceVolumeComponent::ProcessEvent(const EntityEventDesc& event)
+	{
+		if (event.type == EntityEventType::DrawGizmos)
+		{
+			DrawGizmosEvent* data = static_cast<DrawGizmosEvent*>(event.eventData);
+
+			Mat4 translation = Mat4::Translate(entity->GetWorldPosition());
+
+			//each cascade doubles the probe spacing
+			f32 spacing = m_probeSpacing;
+			for (i32 cascade = 0; cascade < m_cascadeCount; ++cascade)
+			{
+				Vec3 halfExtents = Vec3((f32)m_probeCountX, (f32)m_probeCountY, (f32)m_probeCountZ) * spacing * 0.5f;
+				u8 alpha = static_cast<u8>(Math::Max(40, 255 - cascade * 70));
+				data->debugDraw->DrawBox(translation, halfExtents, 1.0f, Color{80, 220, 120, alpha});
+				spacing *= 2.0f;
+			}
+		}
 	}
 
 	void IrradianceVolumeComponent::RegisterType(NativeReflectType<IrradianceVolumeComponent>& type)

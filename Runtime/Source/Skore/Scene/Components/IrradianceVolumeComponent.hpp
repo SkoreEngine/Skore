@@ -43,6 +43,8 @@ namespace Skore
 
 		u64 GetResourceConfigVersion() const;
 
+		void ProcessEvent(const EntityEventDesc& event) override;
+
 		static void RegisterType(NativeReflectType<IrradianceVolumeComponent>& type);
 
 	private:

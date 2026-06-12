@@ -10,6 +10,7 @@
 namespace Skore
 {
 	class Entity;
+	class DebugDraw;
 	struct UndoRedoScope;
 	struct GPUCommandBuffer;
 	struct GPUPipeline;
@@ -75,6 +76,7 @@ namespace Skore
 		constexpr static i32 SkeletonUpdated = 1150;
 		constexpr static i32 EntityLayerChanged = 1160;
 		constexpr static i32 DrawPhysicsShape = 1170;
+		constexpr static i32 DrawGizmos = 1180;
 
 	};
 
@@ -82,6 +84,13 @@ namespace Skore
 	{
 		GPUCommandBuffer* cmd = nullptr;
 		GPUPipeline*      pipeline = nullptr;
+	};
+
+	//sent by the editor to selected entities so components can draw their gizmos (light shapes, camera frustum, ranges...)
+	struct DrawGizmosEvent
+	{
+		DebugDraw* debugDraw = nullptr;
+		f32        viewportAspect = 16.0f / 9.0f;
 	};
 
 	enum class EntityFlags : u64

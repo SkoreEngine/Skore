@@ -24,6 +24,7 @@ namespace Skore
 		void       SetCullingMask(u64 cullingMask);
 
 		void OnUpdate(f64 deltaTime) override;
+		void ProcessEvent(const EntityEventDesc& event) override;
 
 		static void RegisterType(NativeReflectType<Camera>& type);
 
