@@ -319,7 +319,7 @@ namespace Skore
 
 	const char* ResourceAssetHandler::GetIcon() const
 	{
-		return nullptr;
+		return ICON_FA_FILE;
 	}
 
 	RID ResourceAssets::ScanPackageFromDirectory(StringView packageName, StringView packagePath)
