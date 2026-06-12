@@ -41,6 +41,9 @@ namespace Skore
 		u32  GetDockSpaceId() const;
 		void DoUpdate();
 
+		//serializes every open window's EditorSerialize-tagged fields into the editor layout
+		void CaptureWindowStates();
+
 		static void RegisterType(NativeReflectType<EditorWorkspace>& type);
 
 	private:
@@ -64,7 +67,7 @@ namespace Skore
 		u32  m_leftDockId{};
 
 		u32 GetDockId(DockPosition dockPosition) const;
-		void OpenWindowInternal(TypeID windowType, u32 windowId, VoidPtr userData, bool dockToDefault, bool autoFocus);
+		void OpenWindowInternal(TypeID windowType, u32 windowId, VoidPtr userData, bool dockToDefault, bool autoFocus, StringView state = {});
 
 		static void WorkspaceStateChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 	};

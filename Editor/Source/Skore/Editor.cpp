@@ -31,13 +31,10 @@
 #include "Skore/Window/GraphEditorWindow.hpp"
 #include "Skore/Window/PackagesWindow.hpp"
 
-#include <thread>
 #include <chrono>
 
-#include "Skore/ImGui/Icons.h"
 #include "Skore/Core/Settings.hpp"
 #include "Skore/Core/ThreadPool.hpp"
-#include "Skore/IO/Compression.hpp"
 #include "Skore/IO/Input.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 #include "Skore/Window/SettingsWindow.hpp"
@@ -151,6 +148,16 @@ namespace Skore
 			if (newIndex < workspaces.Size())
 			{
 				activeWorkspaceIndex = newIndex;
+			}
+		}
+
+		//bridges the layout system to the live workspaces so each open window's internal
+		//state is refreshed right before the layout is persisted
+		void CaptureWorkspaceWindowStates(VoidPtr userData)
+		{
+			for (auto& ws : workspaces)
+			{
+				ws->CaptureWindowStates();
 			}
 		}
 
@@ -1337,6 +1344,7 @@ namespace Skore
 		ShaderManagerInit();
 		ProjectBrowserWindowInit();
 		EditorLayout::Init();
+		EditorLayout::SetCaptureCallback(CaptureWorkspaceWindowStates, nullptr);
 
 		logger.Debug("projectSettingsPath {}", projectSettingsPath);
 		if (!FileSystem::GetFileStatus(projectSettingsPath).exists)
@@ -1481,6 +1489,7 @@ namespace Skore
 		Reflection::Type<EditorWorkspace>();
 		Reflection::Type<EditorWindow>();
 		Reflection::Type<EditorWindowProperties>();
+		Reflection::Type<EditorSerialize>();
 		Reflection::Type<ProjectBrowserWindow>();
 		Reflection::Type<EntityTreeWindow>();
 		Reflection::Type<SceneViewWindow>();

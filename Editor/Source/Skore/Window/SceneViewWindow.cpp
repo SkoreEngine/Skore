@@ -73,7 +73,6 @@ namespace Skore
 
 	SceneViewWindow::~SceneViewWindow()
 	{
-		if (logoTexture) logoTexture->Destroy();
 		if (lastWindow == this)
 		{
 			lastWindow = nullptr;
@@ -94,7 +93,6 @@ namespace Skore
 	{
 		freeViewCamera.SetPosition(Vec3{0.0f, 10.0f, 0.0f});
 		guizmoOperation = ImGuizmo::TRANSLATE;
-		logoTexture = StaticContent::GetTexture("Content/Images/LogoSmall.jpeg");
 	}
 
 	void SceneViewWindow::Draw3DViewport(u32 id)
@@ -1199,5 +1197,21 @@ namespace Skore
 			.dockPosition = DockPosition::Center,
 			.workspaceTypes = {WorkspaceTypes::Scene}
 		});
+
+		//view / gizmo preferences persisted with the editor layout across sessions
+		type.Field<&SceneViewWindow::guizmoOperation>("guizmoOperation").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::guizmoMode>("guizmoMode").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::guizmoSnapEnabled>("guizmoSnapEnabled").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::viewType>("viewType").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::drawIcons>("drawIcons").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::cameraFov>("cameraFov").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::drawGrid>("drawGrid").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::drawSelectionOutline>("drawSelectionOutline").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::drawDebugPhysics>("drawDebugPhysics").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::showAllPhysicsShapes>("showAllPhysicsShapes").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::lockCameraFrustum>("lockCameraFrustum").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::drawMeshAABB>("drawMeshAABB").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::drawNavMesh>("drawNavMesh").Attribute<EditorSerialize>();
+		type.Field<&SceneViewWindow::drawComponentGizmos>("drawComponentGizmos").Attribute<EditorSerialize>();
 	}
 }

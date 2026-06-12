@@ -84,6 +84,13 @@ namespace Skore
 		Array<u8>    workspaceTypes{};
 	};
 
+	//Marker attribute placed on reflected fields of an EditorWindow.
+	//Fields tagged with it have their values persisted to / restored from the editor layout,
+	//capturing the window's internal state across editor sessions.
+	struct EditorSerialize
+	{
+	};
+
 	struct EditorWindow : Object
 	{
 		SK_CLASS(EditorWindow, Object);

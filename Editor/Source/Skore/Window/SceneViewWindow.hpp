@@ -94,11 +94,6 @@ namespace Skore
 		bool drawComponentGizmos = true;
 		String selectedTextureToShow = "";
 
-		Vec2 textPos = {100, 100};
-		f32  textSize = 14;
-
-		GPUTexture* logoTexture = nullptr;
-
 		Entity* previewEntity = nullptr;
 		RID     previewEntityRID = {};
 

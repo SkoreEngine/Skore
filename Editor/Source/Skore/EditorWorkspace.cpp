@@ -7,6 +7,7 @@
 #include "Skore/EditorLayout.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Core/Serialization.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -29,6 +30,43 @@ namespace Skore
 		Logger& logger = Logger::GetLogger("Skore::EditorWorkspace");
 
 		EventHandler<OnAssetSelection>   onAssetSelectionHandler{};
+
+		//serializes the window's EditorSerialize-tagged fields into a self-contained json blob.
+		//returns an empty string when the window opts out (no tagged fields).
+		String SerializeWindowState(const OpenWindowStorage& window)
+		{
+			if (window.reflectType == nullptr || window.instance == nullptr) return {};
+
+			u32               fieldCount = 0;
+			JsonArchiveWriter writer;
+			for (ReflectField* field : window.reflectType->GetFields())
+			{
+				if (field->HasAttribute<EditorSerialize>())
+				{
+					field->Serialize(writer, window.instance);
+					++fieldCount;
+				}
+			}
+
+			if (fieldCount == 0) return {};
+			return writer.EmitAsString();
+		}
+
+		//restores a blob produced by SerializeWindowState back into the live window instance.
+		void RestoreWindowState(const OpenWindowStorage& window, StringView state)
+		{
+			if (window.reflectType == nullptr || window.instance == nullptr || state.Empty()) return;
+
+			JsonArchiveReader reader(state);
+			while (reader.NextMapEntry())
+			{
+				ReflectField* field = window.reflectType->FindField(reader.GetCurrentKey());
+				if (field != nullptr && field->HasAttribute<EditorSerialize>())
+				{
+					field->Deserialize(reader, window.instance);
+				}
+			}
+		}
 	}
 
 	EditorWorkspace::EditorWorkspace(u8 workspaceTypeId)
@@ -102,7 +140,7 @@ namespace Skore
 		OpenWindowInternal(windowType, windowId, userData, false, false);
 	}
 
-	void EditorWorkspace::OpenWindowInternal(TypeID windowType, u32 windowId, VoidPtr userData, bool dockToDefault, bool autoFocus)
+	void EditorWorkspace::OpenWindowInternal(TypeID windowType, u32 windowId, VoidPtr userData, bool dockToDefault, bool autoFocus, StringView state)
 	{
 		for (const EditorWindowStorage& window : GetEditorWindowStorages())
 		{
@@ -120,6 +158,9 @@ namespace Skore
 				openWindowStorage.instance->id = openWindowStorage.id;
 				openWindowStorage.instance->skipFocusOnFirstAppearance = !autoFocus;
 				openWindowStorage.instance->Init(userData);
+
+				//restore persisted internal state on top of the defaults set by Init
+				RestoreWindowState(openWindowStorage, state);
 
 				m_openWindows.EmplaceBack(openWindowStorage);
 
@@ -156,7 +197,7 @@ namespace Skore
 		{
 			for (const SavedEditorWindow& saved : EditorLayout::GetSavedWindows(m_workspaceTypeId))
 			{
-				OpenWindowWithId(saved.typeId, saved.id, nullptr);
+				OpenWindowInternal(saved.typeId, saved.id, nullptr, false, false, saved.state);
 			}
 			return;
 		}
@@ -254,6 +295,14 @@ namespace Skore
 	void EditorWorkspace::DoUpdate()
 	{
 		m_sceneEditor.DoUpdate();
+	}
+
+	void EditorWorkspace::CaptureWindowStates()
+	{
+		for (const OpenWindowStorage& window : m_openWindows)
+		{
+			EditorLayout::SaveWindowState(m_workspaceTypeId, window.id, SerializeWindowState(window));
+		}
 	}
 
 	u32 EditorWorkspace::GetDockId(DockPosition dockPosition) const
