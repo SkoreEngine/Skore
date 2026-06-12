@@ -12,6 +12,7 @@ namespace Skore
 	void RegisterProfilerOverlayModule();
 	void RegisterIndirectLightingModule();
 	void RegisterMotionVectorModule();
+	void RegisterRmlUiRenderModule();
 
 	void RegisterCascadeShadowPass();
 	void RegisterLightSetupPass();
@@ -37,6 +38,7 @@ namespace Skore
 		RegisterProfilerOverlayModule();
 		RegisterIndirectLightingModule();
 		RegisterMotionVectorModule();
+		RegisterRmlUiRenderModule();
 
 		RegisterCascadeShadowPass();
 		RegisterLightSetupPass();

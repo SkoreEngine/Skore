@@ -6,6 +6,9 @@
 
 namespace Skore
 {
+
+	struct RmlUiRenderPipelineModule;
+
 	TextureFormat mainDepthFormat = TextureFormat::D32_FLOAT;
 
 	struct DeferredRenderModule : RenderPipelineModule
@@ -82,6 +85,8 @@ namespace Skore
 
 			setup.modules.EmplaceBack(sktypeid(BloomModule));
 			setup.modules.EmplaceBack(sktypeid(XeGTAORenderModule));
+
+			setup.modules.EmplaceBack(sktypeid(RmlUiRenderPipelineModule));
 
 			return setup;
 		}

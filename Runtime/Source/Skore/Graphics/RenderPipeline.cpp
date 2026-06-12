@@ -37,7 +37,7 @@ namespace Skore
 		Vec4  frustumPlanes[6];
 	};
 
-	static Logger& logger = Logger::GetLogger("Skore::RenderPipeline", LogLevel::Off);
+	static Logger& logger = Logger::GetLogger("Skore::RenderPipeline", LogLevel::Error);
 
 	RenderPipelineContext::RenderPipelineContext(RenderPipeline* pipeline, Span<TypeID> extraModules, const RenderPipelineContextSettings& pSettings) : settings(pSettings), renderPipeline(pipeline)
 	{
@@ -70,13 +70,14 @@ namespace Skore
 			if (object == nullptr)
 			{
 				logger.Error("Could not create module object for type {} ", moduleReflectType->GetName());
+				continue;
 			}
 
 			RenderPipelineModule* module = object->SafeCast<RenderPipelineModule>();
 			if (module == nullptr)
 			{
-				logger.Error("Could not cast object to RenderPipelineModule");
-				DestroyAndFree(module);
+				logger.Error("Could not cast {} to RenderPipelineModule", moduleReflectType->GetName());
+				DestroyAndFree(object);
 				continue;
 			}
 			module->context = this;

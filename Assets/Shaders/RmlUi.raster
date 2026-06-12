@@ -1,0 +1,49 @@
+#include "Common.hlsli"
+
+// Field order/offsets must match Rml::Vertex (position : float2, colour : 4xu8, tex_coord : float2).
+struct VertexInput
+{
+    float2 position : POSITION;
+    uint   colour : COLOR;
+    float2 tex_coord : TEXCOORD0;
+};
+
+struct PushConstants
+{
+    float4x4 transform; // projection * (user transform) * translation
+};
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+struct VertexToPixel
+{
+    float4 position : SV_POSITION;
+    float2 tex_coord : TEXCOORD0;
+    float4 colour : COLOR0;
+};
+
+VertexToPixel MainVS(VertexInput input)
+{
+    VertexToPixel output;
+    output.position = mul(pushConstants.transform, float4(input.position, 0.0, 1.0));
+    output.tex_coord = input.tex_coord;
+    output.colour = ColorFromU32(input.colour);
+    return output;
+}
+
+Texture2D texture;
+SamplerState samplerState;
+
+struct PSOutput
+{
+    float4 color : SV_Target0;
+};
+
+PSOutput MainPS(VertexToPixel input)
+{
+    PSOutput output;
+    // RmlUi works in premultiplied-alpha space: vertex colours and the font/texture
+    // data are premultiplied, so a straight multiply keeps the result premultiplied.
+    output.color = texture.Sample(samplerState, input.tex_coord) * input.colour;
+    return output;
+}

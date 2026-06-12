@@ -1,0 +1,63 @@
+#include "Common.hlsli"
+
+// Field order/offsets must match Rml::Vertex (position : float2, colour : 4xu8, tex_coord : float2).
+struct VertexInput
+{
+    float2 position : POSITION;
+    uint   colour : COLOR;
+    float2 tex_coord : TEXCOORD0;
+};
+
+struct PushConstants
+{
+    float4x4 transform; // projection * (user transform) * translation
+    float2   atlasSize; // MSDF atlas dimensions in texels
+    float2   pad;
+};
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+struct VertexToPixel
+{
+    float4 position : SV_POSITION;
+    float2 tex_coord : TEXCOORD0;
+    float4 colour : COLOR0;
+    float2 atlasSize : TEXCOORD1;
+};
+
+VertexToPixel MainVS(VertexInput input)
+{
+    VertexToPixel output;
+    output.position = mul(pushConstants.transform, float4(input.position, 0.0, 1.0));
+    output.tex_coord = input.tex_coord;
+    output.colour = ColorFromU32(input.colour);
+    output.atlasSize = pushConstants.atlasSize;
+    return output;
+}
+
+Texture2D texture;
+SamplerState samplerState;
+
+struct PSOutput
+{
+    float4 color : SV_Target0;
+};
+
+float Median(float r, float g, float b, float a)
+{
+    return min(max(min(r, g), min(max(r, g), b)), a);
+}
+
+PSOutput MainPS(VertexToPixel input)
+{
+    float4 msdf = texture.Sample(samplerState, input.tex_coord);
+    float2 destSize = 1.0 / fwidth(input.tex_coord);
+    float  pxSize = max(0.5 * dot((1.0 / input.atlasSize), destSize), 1.0);
+    float  d = Median(msdf.r, msdf.g, msdf.b, msdf.a) - 0.5;
+    float  coverage = clamp(d * pxSize + 0.5, 0.0, 1.0);
+
+    PSOutput output;
+    // input.colour is premultiplied; scaling all channels by coverage keeps it premultiplied.
+    output.color = input.colour * coverage;
+    return output;
+}
