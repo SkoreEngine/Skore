@@ -737,7 +737,7 @@ namespace Skore
 		{
 			if (!instances.Empty())
 			{
-				SK_SCOPED_ZONE("RenderSceneObjects - TLAS Update", cmd);
+				SK_SCOPED_GPU_ZONE("RenderSceneObjects - TLAS Update", cmd);
 
 				bool recreated = false;
 				if (tlas == nullptr || instances.Size() > tlasMaxInstances)

@@ -61,28 +61,23 @@ namespace Skore
 			togglePressed = down;
 		}
 
-		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		// Draws a single profiler panel (CPU or GPU) starting at originY and
+		// returns the Y coordinate just below it so panels can be stacked.
+		f32 DrawPanel(f32 originX, f32 originY, f32 dpi, const char* label, bool gpu,
+			const Profiler::TaskEntry* entries, u32 count, const Profiler::FrameStats& fs)
 		{
-			if (!visible) return;
-
-			u32                        count = 0;
-			const Profiler::TaskEntry* entries = Profiler::GetTasks(count);
-
-			Extent extent = context->GetOutputSize();
-
-			const f32 dpi = Platform::GetWindowDPI(Graphics::GetWindow());
-
 			const f32 fontSize = 15.0f * dpi;
 			const f32 lineH = 19.0f * dpi;
 			const f32 pad = 8.0f * dpi;
-			const f32 originX = 12.0f * dpi;
-			const f32 originY = 12.0f * dpi;
 			const f32 swatch = 9.0f * dpi;
 			const f32 indentStep = 12.0f * dpi;
 			const f32 textGap = 14.0f * dpi;
 			const f32 nameW = 250.0f * dpi;
 			const f32 colW = 66.0f * dpi;
-			const f32 panelW = pad + nameW + 8.0f * colW + pad;
+			// The GPU panel also lists the CPU recording cost, so it needs the CPU
+			// columns followed by the GPU columns; the CPU panel shows CPU only.
+			const f32 numCols = gpu ? 8.0f : 4.0f;
+			const f32 panelW = pad + nameW + numCols * colW + pad;
 
 			const u32 maxRows = 48;
 			u32       rows = count < maxRows ? count : maxRows;
@@ -118,10 +113,8 @@ namespace Skore
 			}
 
 			char buf[256];
-
-			Profiler::FrameStats fs = Profiler::GetFrameStats();
-			std::snprintf(buf, sizeof(buf), "Profiler   FPS %.1f   frame %.2f   avg %.2f   min %.2f   max %.2f ms",
-				App::GetFPS(), fs.current * 1000.0, fs.avg * 1000.0, fs.min * 1000.0, fs.max * 1000.0);
+			std::snprintf(buf, sizeof(buf), "%s   FPS %.1f   frame %.2f   avg %.2f   min %.2f   max %.2f ms",
+				label, App::GetFPS(), fs.current * 1000.0, fs.avg * 1000.0, fs.min * 1000.0, fs.max * 1000.0);
 			DrawList::AddText(drawList, font, Vec2(originX + pad, originY + pad), fontSize, buf, Color{235, 235, 245, 255});
 
 			const Color cpuHdr{150, 170, 200, 255};
@@ -132,10 +125,13 @@ namespace Skore
 			DrawList::AddText(drawList, font, Vec2(colCpuAvg, hdrY), fontSize, "avg", subHdr);
 			DrawList::AddText(drawList, font, Vec2(colCpuMin, hdrY), fontSize, "min", subHdr);
 			DrawList::AddText(drawList, font, Vec2(colCpuMax, hdrY), fontSize, "max", subHdr);
-			DrawList::AddText(drawList, font, Vec2(colGpuCur, hdrY), fontSize, "GPU", gpuHdr);
-			DrawList::AddText(drawList, font, Vec2(colGpuAvg, hdrY), fontSize, "avg", subHdr);
-			DrawList::AddText(drawList, font, Vec2(colGpuMin, hdrY), fontSize, "min", subHdr);
-			DrawList::AddText(drawList, font, Vec2(colGpuMax, hdrY), fontSize, "max", subHdr);
+			if (gpu)
+			{
+				DrawList::AddText(drawList, font, Vec2(colGpuCur, hdrY), fontSize, "GPU", gpuHdr);
+				DrawList::AddText(drawList, font, Vec2(colGpuAvg, hdrY), fontSize, "avg", subHdr);
+				DrawList::AddText(drawList, font, Vec2(colGpuMin, hdrY), fontSize, "min", subHdr);
+				DrawList::AddText(drawList, font, Vec2(colGpuMax, hdrY), fontSize, "max", subHdr);
+			}
 
 			rowY = originY + pad + headerH;
 
@@ -173,13 +169,40 @@ namespace Skore
 				drawCell(colCpuMin, entry.cpuCount > 0, entry.cpuMin * 1000.0, cpuDim);
 				drawCell(colCpuMax, entry.cpuCount > 0, entry.cpuMax * 1000.0, cpuDim);
 
-				drawCell(colGpuCur, entry.present && entry.hasGPU, entry.gpuTime * 1000.0, gpuBright);
-				drawCell(colGpuAvg, entry.gpuCount > 0, entry.gpuAvg * 1000.0, gpuDim);
-				drawCell(colGpuMin, entry.gpuCount > 0, entry.gpuMin * 1000.0, gpuDim);
-				drawCell(colGpuMax, entry.gpuCount > 0, entry.gpuMax * 1000.0, gpuDim);
+				if (gpu)
+				{
+					drawCell(colGpuCur, entry.present && entry.hasGPU, entry.gpuTime * 1000.0, gpuBright);
+					drawCell(colGpuAvg, entry.gpuCount > 0, entry.gpuAvg * 1000.0, gpuDim);
+					drawCell(colGpuMin, entry.gpuCount > 0, entry.gpuMin * 1000.0, gpuDim);
+					drawCell(colGpuMax, entry.gpuCount > 0, entry.gpuMax * 1000.0, gpuDim);
+				}
 
 				rowY += lineH;
 			}
+
+			return originY + panelH;
+		}
+
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			if (!visible) return;
+
+			Extent extent = context->GetOutputSize();
+
+			const f32 dpi = Platform::GetWindowDPI(Graphics::GetWindow());
+			const f32 originX = 12.0f * dpi;
+			const f32 gap = 8.0f * dpi;
+			f32       y = 12.0f * dpi;
+
+			u32                        cpuCount = 0;
+			const Profiler::TaskEntry* cpuEntries = Profiler::GetCpuTasks(cpuCount);
+			y = DrawPanel(originX, y, dpi, "CPU Profiler", false, cpuEntries, cpuCount, Profiler::GetCpuFrameStats());
+
+			y += gap;
+
+			u32                        gpuCount = 0;
+			const Profiler::TaskEntry* gpuEntries = Profiler::GetGpuTasks(gpuCount);
+			y = DrawPanel(originX, y, dpi, "GPU Profiler", true, gpuEntries, gpuCount, Profiler::GetGpuFrameStats());
 
 			DrawList::Flush(drawList, renderPass, extent, cmd);
 		}

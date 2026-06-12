@@ -474,7 +474,7 @@ namespace Skore
 
 			for (i32 idx : scheduled)
 			{
-				SK_SCOPED_ZONE("IrradianceProbeTrace", cmd);
+				SK_SCOPED_GPU_ZONE("IrradianceProbeTrace", cmd);
 				IrradianceTracePushConstants pc{static_cast<u32>(idx), 1u, layers, ambientMode, light->ambientLight, light->ambientMultiplier};
 				cmd->PushConstants(tracePipeline, ShaderStage::RayGen | ShaderStage::ClosestHit | ShaderStage::Miss, 0, sizeof(pc), &pc);
 				cmd->TraceRays(tracePipeline, static_cast<u32>(raysPerProbe), static_cast<u32>(totalProbes), 1);
@@ -504,7 +504,7 @@ namespace Skore
 				IrradianceBlendPushConstants bpc{static_cast<u32>(idx), layers, 0, 0};
 
 				{
-					SK_SCOPED_ZONE("IrradianceProbeBlendIrradiance", cmd);
+					SK_SCOPED_GPU_ZONE("IrradianceProbeBlendIrradiance", cmd);
 					cmd->BindPipeline(blendIrrPipeline);
 					cmd->BindDescriptorSet(blendIrrPipeline, 0, bi);
 					cmd->PushConstants(blendIrrPipeline, ShaderStage::Compute, 0, sizeof(bpc), &bpc);
@@ -512,7 +512,7 @@ namespace Skore
 				}
 
 				{
-					SK_SCOPED_ZONE("IrradianceProbeBlendDistance", cmd);
+					SK_SCOPED_GPU_ZONE("IrradianceProbeBlendDistance", cmd);
 					cmd->BindPipeline(blendDistPipeline);
 					cmd->BindDescriptorSet(blendDistPipeline, 0, bd);
 					cmd->PushConstants(blendDistPipeline, ShaderStage::Compute, 0, sizeof(bpc), &bpc);
@@ -547,7 +547,7 @@ namespace Skore
 
 					if (relocationEnabled)
 					{
-						SK_SCOPED_ZONE("IrradianceProbeRelocate", cmd);
+						SK_SCOPED_GPU_ZONE("IrradianceProbeRelocate", cmd);
 						cmd->BindPipeline(relocatePipeline);
 						cmd->BindDescriptorSet(relocatePipeline, 0, rs);
 						cmd->PushConstants(relocatePipeline, ShaderStage::Compute, 0, sizeof(ppc), &ppc);
@@ -561,7 +561,7 @@ namespace Skore
 
 					if (classificationEnabled)
 					{
-						SK_SCOPED_ZONE("IrradianceProbeClassify", cmd);
+						SK_SCOPED_GPU_ZONE("IrradianceProbeClassify", cmd);
 						cmd->BindPipeline(classifyPipeline);
 						cmd->BindDescriptorSet(classifyPipeline, 0, cs);
 						cmd->PushConstants(classifyPipeline, ShaderStage::Compute, 0, sizeof(ppc), &ppc);
