@@ -1,7 +1,8 @@
 #pragma once
 
 #include "Skore/Scene/Component.hpp"
-#include "Skore/Core/String.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
+#include "Skore/UI/RmlUi/RmlUiResources.hpp"
 
 namespace Rml
 {
@@ -19,8 +20,8 @@ namespace Skore
 		void Create() override;
 		void Destroy() override;
 
-		void          SetDocument(const String& document);
-		const String& GetDocument() const;
+		void SetDocument(RID document);
+		RID  GetDocument() const;
 
 		Rml::Context* GetContext() const { return m_context; }
 
@@ -29,8 +30,8 @@ namespace Skore
 	private:
 		void ReloadDocument();
 
-		String                m_document;
-		Rml::Context*         m_context = nullptr;
-		Rml::ElementDocument* m_documentElement = nullptr;
+		TypedRID<UIDocumentResource> m_document = {};
+		Rml::Context*                m_context = nullptr;
+		Rml::ElementDocument*        m_documentElement = nullptr;
 	};
 }

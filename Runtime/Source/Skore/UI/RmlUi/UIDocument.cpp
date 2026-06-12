@@ -6,8 +6,11 @@
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Attributes.hpp"
+#include "Skore/Core/String.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Platform/Platform.hpp"
+#include "Skore/Resource/Resources.hpp"
+#include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 
 #include <RmlUi/Core.h>
@@ -50,13 +53,13 @@ namespace Skore
 		}
 	}
 
-	void UIDocument::SetDocument(const String& document)
+	void UIDocument::SetDocument(RID document)
 	{
 		m_document = document;
 		ReloadDocument();
 	}
 
-	const String& UIDocument::GetDocument() const
+	RID UIDocument::GetDocument() const
 	{
 		return m_document;
 	}
@@ -74,12 +77,21 @@ namespace Skore
 			m_documentElement = nullptr;
 		}
 
-		if (!m_document.Empty())
+		if (!m_document)
 		{
-			m_documentElement = m_context->LoadDocumentFromMemory(Rml::String(m_document.CStr()));
-			if (m_documentElement)
+			return;
+		}
+
+		if (ResourceObject object = Resources::Read(m_document))
+		{
+			String content = object.GetString(UIDocumentResource::Content);
+			if (!content.Empty())
 			{
-				m_documentElement->Show();
+				m_documentElement = m_context->LoadDocumentFromMemory(Rml::String(content.CStr()));
+				if (m_documentElement)
+				{
+					m_documentElement->Show();
+				}
 			}
 		}
 	}

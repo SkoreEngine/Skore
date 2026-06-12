@@ -399,7 +399,7 @@ namespace Skore
 				if (nameExtension[0] == '.') continue;
 
 				String extension = Path::Extension(entry);
-				if (extension == ".buffer" || extension == ".buffers") continue;
+				if (extension == ".buffer" || extension == ".buffers" || extension == ".info") continue;
 
 				String fileName = Path::Name(entry);
 				String path = String().Append(scan.path).Append("/").Append(fileName).Append(extension);
@@ -2752,6 +2752,7 @@ namespace Skore
 	void RegisterAnimationHandler();
 	void RegisterAnimationControllerHandler();
 	void RegisterDCCAssetHandler();
+	void RegisterRmlUiHandler();
 
 	void RegisterAudioImporter();
 	void RegisterTextureImporter();
@@ -2844,6 +2845,7 @@ namespace Skore
 		RegisterAnimationHandler();
 		RegisterAnimationControllerHandler();
 		RegisterDCCAssetHandler();
+		RegisterRmlUiHandler();
 
 		RegisterAudioImporter();
 		RegisterTextureImporter();
