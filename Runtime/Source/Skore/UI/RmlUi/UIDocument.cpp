@@ -36,7 +36,6 @@ namespace Skore
 		}
 
 		ReloadDocument();
-		RmlUiManager::RegisterContext(m_context);
 	}
 
 	void UIDocument::Destroy()
@@ -45,7 +44,6 @@ namespace Skore
 		{
 			if (RmlUiManager::GetRenderInterface() != nullptr)
 			{
-				RmlUiManager::UnregisterContext(m_context);
 				Rml::RemoveContext(m_context->GetName());
 			}
 			m_context = nullptr;
@@ -100,5 +98,6 @@ namespace Skore
 	{
 		type.Field<&UIDocument::m_document, &UIDocument::GetDocument, &UIDocument::SetDocument>("document");
 		type.Attribute<ComponentDesc>(ComponentDesc{.category = "UI"});
+		type.Attribute<Iterable>();
 	}
 }

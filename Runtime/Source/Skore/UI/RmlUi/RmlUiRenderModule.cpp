@@ -1,11 +1,15 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 #include "RmlUiManager.hpp"
 #include "RenderInterfaceSkore.hpp"
+#include "UIDocument.hpp"
 
 #include <RmlUi/Core/Context.h>
+
+#include "Skore/Graphics/Graphics.hpp"
 
 namespace Skore
 {
@@ -24,37 +28,34 @@ namespace Skore
 
 		bool IsEnabled() override
 		{
-			return RmlUiManager::GetRenderInterface() != nullptr && RmlUiManager::GetContexts().Size() > 0;
+			Scene* scene = context->GetScene();
+			return RmlUiManager::GetRenderInterface() != nullptr && scene != nullptr && scene->HasIterable<UIDocument>();
 		}
 
 		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
 			RenderInterfaceSkore* renderInterface = RmlUiManager::GetRenderInterface();
-			if (!renderInterface)
+			if (!renderInterface || !scene)
 			{
 				return;
 			}
+			const Extent size = context->GetOutputSize();
 
-			const Extent logicalSize = context->GetOutputSize();
-			Extent       physicalSize = logicalSize;
-			if (GPUTexture* colorOutput = context->GetColorOutput())
+			scene->Iterate<UIDocument>([&](UIDocument* document)
 			{
-				const Extent3D& texExtent = colorOutput->GetDesc().extent;
-				physicalSize = {texExtent.width, texExtent.height};
-			}
+				Rml::Context* rmlContext = document->GetContext();
+				if (!rmlContext)
+				{
+					return;
+				}
 
-			const f32 densityRatio = logicalSize.width > 0 ? static_cast<f32>(physicalSize.width) / static_cast<f32>(logicalSize.width) : 1.0f;
-
-			Span<Rml::Context*> contexts = RmlUiManager::GetContexts();
-			for (usize i = 0; i < contexts.Size(); ++i)
-			{
-				contexts[i]->SetDimensions(Rml::Vector2i(static_cast<int>(physicalSize.width), static_cast<int>(physicalSize.height)));
-				contexts[i]->SetDensityIndependentPixelRatio(1.5);
-				contexts[i]->Update();
-				renderInterface->BeginFrame(cmd, renderPass, physicalSize);
-				contexts[i]->Render();
+				rmlContext->SetDimensions(Rml::Vector2i(static_cast<int>(size.width), static_cast<int>(size.height)));
+				rmlContext->SetDensityIndependentPixelRatio(Platform::GetWindowDPI(Graphics::GetWindow()));
+				rmlContext->Update();
+				renderInterface->BeginFrame(cmd, renderPass, size);
+				rmlContext->Render();
 				renderInterface->EndFrame();
-			}
+			});
 		}
 	};
 
