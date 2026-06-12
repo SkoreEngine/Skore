@@ -78,7 +78,7 @@ namespace Skore
 		thisId = std::this_thread::get_id();
 
 		DeviceInitDesc desc;
-		desc.enableDebugLayers = true;
+		desc.enableDebugLayers = false;
 
 		RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(GraphicsSettings));
 		if (ResourceObject settingsObject = Resources::Read(settings))
