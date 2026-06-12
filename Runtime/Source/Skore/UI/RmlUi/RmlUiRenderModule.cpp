@@ -49,7 +49,7 @@ namespace Skore
 			for (usize i = 0; i < contexts.Size(); ++i)
 			{
 				contexts[i]->SetDimensions(Rml::Vector2i(static_cast<int>(physicalSize.width), static_cast<int>(physicalSize.height)));
-				contexts[i]->SetDensityIndependentPixelRatio(densityRatio);
+				contexts[i]->SetDensityIndependentPixelRatio(1.5);
 				contexts[i]->Update();
 				renderInterface->BeginFrame(cmd, renderPass, physicalSize);
 				contexts[i]->Render();

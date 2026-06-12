@@ -3,6 +3,7 @@
 #include "RenderInterfaceSkore.hpp"
 #include "SystemInterfaceSkore.hpp"
 #include "FontEngineSkore.hpp"
+#include "FileInterfaceSkore.hpp"
 
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/Allocator.hpp"
@@ -16,6 +17,7 @@ namespace Skore
 		RenderInterfaceSkore* renderInterface = nullptr;
 		SystemInterfaceSkore* systemInterface = nullptr;
 		FontEngineSkore*      fontEngine = nullptr;
+		FileInterfaceSkore*   fileInterface = nullptr;
 		Array<Rml::Context*>  contexts;
 	}
 
@@ -47,10 +49,12 @@ namespace Skore
 		renderInterface = Alloc<RenderInterfaceSkore>();
 		systemInterface = Alloc<SystemInterfaceSkore>();
 		fontEngine = Alloc<FontEngineSkore>();
+		fileInterface = Alloc<FileInterfaceSkore>();
 
 		Rml::SetRenderInterface(renderInterface);
 		Rml::SetSystemInterface(systemInterface);
 		Rml::SetFontEngineInterface(fontEngine);
+		Rml::SetFileInterface(fileInterface);
 		Rml::Initialise();
 	}
 
@@ -73,6 +77,11 @@ namespace Skore
 		{
 			DestroyAndFree(fontEngine);
 			fontEngine = nullptr;
+		}
+		if (fileInterface)
+		{
+			DestroyAndFree(fileInterface);
+			fileInterface = nullptr;
 		}
 		contexts.Clear();
 	}

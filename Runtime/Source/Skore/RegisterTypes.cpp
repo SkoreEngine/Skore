@@ -10,6 +10,7 @@ namespace Skore
 	void RegisterAppTypes();
 	void RegisterIOTypes();
 	void RegisterSceneTypes();
+	void RegisterUITypes();
 	void RegisterGraphicsTypes();
 	void RegisterAudioTypes();
 	void RegisterOpenXRTypes();
@@ -50,6 +51,11 @@ namespace Skore
 		{
 			GroupScope scope("World");
 			RegisterSceneTypes();
+		}
+
+		{
+			GroupScope scope("UI");
+			RegisterUITypes();
 		}
 
 		{
