@@ -22,7 +22,6 @@ namespace Skore
 			return setup;
 		}
 
-		// Only part of the graph while there is something to draw; toggling rebuilds the graph.
 		bool IsEnabled() override
 		{
 			return RmlUiManager::GetRenderInterface() != nullptr && RmlUiManager::GetContexts().Size() > 0;
@@ -36,13 +35,23 @@ namespace Skore
 				return;
 			}
 
-			// The framework has already begun this pass's render pass and set a full-output viewport.
-			Extent              extent = context->GetOutputSize();
-			Span<Rml::Context*> contexts = RmlUiManager::GetContexts();
+			const Extent logicalSize = context->GetOutputSize();
+			Extent       physicalSize = logicalSize;
+			if (GPUTexture* colorOutput = context->GetColorOutput())
+			{
+				const Extent3D& texExtent = colorOutput->GetDesc().extent;
+				physicalSize = {texExtent.width, texExtent.height};
+			}
 
+			const f32 densityRatio = logicalSize.width > 0 ? static_cast<f32>(physicalSize.width) / static_cast<f32>(logicalSize.width) : 1.0f;
+
+			Span<Rml::Context*> contexts = RmlUiManager::GetContexts();
 			for (usize i = 0; i < contexts.Size(); ++i)
 			{
-				renderInterface->BeginFrame(cmd, renderPass, extent);
+				contexts[i]->SetDimensions(Rml::Vector2i(static_cast<int>(physicalSize.width), static_cast<int>(physicalSize.height)));
+				contexts[i]->SetDensityIndependentPixelRatio(densityRatio);
+				contexts[i]->Update();
+				renderInterface->BeginFrame(cmd, renderPass, physicalSize);
 				contexts[i]->Render();
 				renderInterface->EndFrame();
 			}

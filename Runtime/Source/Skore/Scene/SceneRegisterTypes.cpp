@@ -20,6 +20,7 @@
 #include "Skore/Scene/Components/RigidBody.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
 #include "Skore/Scene/Components/XRComponents.hpp"
+#include "Skore/UI/RmlUi/UIDocument.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Settings.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
@@ -136,6 +137,7 @@ namespace Skore
 		Reflection::Type<AudioSource>();
 		Reflection::Type<AudioListener>();
 		Reflection::Type<ParticleEmitter>();
+		Reflection::Type<UIDocument>();
 
 #ifdef SK_ENABLE_ALPHA_FEATURES
 		//XR

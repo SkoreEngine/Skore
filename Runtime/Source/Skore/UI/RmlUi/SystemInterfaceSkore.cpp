@@ -14,7 +14,6 @@ namespace Skore
 
 	double SystemInterfaceSkore::GetElapsedTime()
 	{
-		// Platform::GetTime() is SDL time in nanoseconds.
 		return static_cast<double>(Platform::GetTime() - startTime) / 1.0e9;
 	}
 

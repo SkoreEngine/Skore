@@ -131,7 +131,7 @@ namespace Skore
 		auto userData = (InputTextCallback_UserData*)data->UserData;
 		if (data->BufTextLen >= (userData->str.Capacity() - 1))
 		{
-			auto newSize = userData->str.Capacity() + (userData->str.Capacity() * 2) / 3;
+			auto newSize = data->BufTextLen + (data->BufTextLen * 2) / 3;
 			userData->str.Reserve(newSize);
 			data->Buf = userData->str.begin();
 		}

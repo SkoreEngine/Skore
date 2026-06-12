@@ -29,13 +29,9 @@ namespace Skore
 
 		void SetTransform(const Rml::Matrix4f* transform) override;
 
-		// Called by RmlUiRenderPass once per frame, around Rml::Context::Render(). The render pass
-		// owns the command buffer/render pass; the interface only records into what it is handed.
 		void BeginFrame(GPUCommandBuffer* cmd, GPURenderPass* renderPass, Extent viewport);
 		void EndFrame();
 
-		// Wraps an existing GPU texture (e.g. the engine's MSDF font atlas) as an RmlUi texture handle
-		// tagged for MSDF rendering. The texture is borrowed, not owned. Used by FontEngineSkore.
 		Rml::TextureHandle CreateMsdfTextureHandle(GPUTexture* atlas);
 
 		void Destroy();
@@ -57,7 +53,6 @@ namespace Skore
 
 		GPUDescriptorSet* whiteDescriptorSet = nullptr;
 
-		// CSS transform set via SetTransform; identity when none is active.
 		Mat4 transform = Mat4(1.0);
 
 		bool            scissorEnabled = false;

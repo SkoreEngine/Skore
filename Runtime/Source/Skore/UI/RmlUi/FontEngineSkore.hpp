@@ -8,17 +8,12 @@
 
 namespace Skore
 {
-	// RmlUi font engine backed by the engine's MSDF font resources (Skore://Fonts/*.font), rendered
-	// through the RmlUiFont.raster MSDF shader. Replaces RmlUi's default FreeType bitmap font engine;
-	// install with Rml::SetFontEngineInterface() before Rml::Initialise().
 	class FontEngineSkore : public Rml::FontEngineInterface
 	{
 	public:
 		FontEngineSkore() = default;
 		~FontEngineSkore() override;
 
-		// Optional: explicitly map a CSS font-family to an engine .font resource. If a family is not
-		// registered, it is resolved by convention: Skore://Fonts/<family>.font
 		void RegisterFont(StringView family, RID fontResource);
 
 		void Shutdown() override;

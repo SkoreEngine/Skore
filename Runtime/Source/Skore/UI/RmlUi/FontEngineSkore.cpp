@@ -29,8 +29,6 @@ namespace Skore
 	{
 		Logger& logger = Logger::GetLogger("Skore.RmlUi");
 
-		// One per (font resource, size). The MSDF atlas is scale-independent, so every size shares the
-		// same atlas texture; only the per-size scale and metrics differ.
 		struct SkoreFontFace
 		{
 			FontResourceCachePtr       cache;
@@ -79,7 +77,6 @@ namespace Skore
 
 	void FontEngineSkore::Shutdown()
 	{
-		// Release while RmlUi's render managers are still alive (callback textures reference them).
 		ReleaseFontResources();
 	}
 
@@ -102,7 +99,7 @@ namespace Skore
 		FontResourceCachePtr cache = RenderResourceCache::GetFontCache(rid);
 		if (!cache || !cache->texture)
 		{
-			return 0; // not ready yet; RmlUi re-resolves on a later frame
+			return 0;
 		}
 
 		SkoreFontFace* face = Alloc<SkoreFontFace>();
@@ -131,7 +128,6 @@ namespace Skore
 		}
 		face->metrics.has_ellipsis = cache->glyphs.Find(0x2026) != cache->glyphs.end();
 
-		// Bridge the engine's MSDF atlas into RmlUi as a borrowed, MSDF-tagged texture.
 		GPUTexture* atlas = cache->texture;
 		face->textureSource = Rml::CallbackTextureSource([atlas](const Rml::CallbackTextureInterface& textureInterface) -> bool
 		{
@@ -222,21 +218,19 @@ namespace Skore
 			}
 			const FontGlyph& glyph = it->second;
 
-			// planeBounds are in EM units relative to the baseline (y up); RmlUi position.y is the
-			// baseline with y increasing downward, so the glyph top subtracts planeBounds.w.
 			const f32 quadW = static_cast<f32>(glyph.planeBounds.z - glyph.planeBounds.x);
 			const f32 quadH = static_cast<f32>(glyph.planeBounds.w - glyph.planeBounds.y);
-			if (quadW > 0.0f && quadH > 0.0f) // skip whitespace (degenerate quad)
+			if (quadW > 0.0f && quadH > 0.0f)
 			{
 				const f32 x0 = static_cast<f32>(penX + glyph.planeBounds.x * face->scale);
 				const f32 x1 = static_cast<f32>(penX + glyph.planeBounds.z * face->scale);
-				const f32 y0 = static_cast<f32>(position.y - glyph.planeBounds.w * face->scale); // top
-				const f32 y1 = static_cast<f32>(position.y - glyph.planeBounds.y * face->scale); // bottom
+				const f32 y0 = static_cast<f32>(position.y - glyph.planeBounds.w * face->scale);
+				const f32 y1 = static_cast<f32>(position.y - glyph.planeBounds.y * face->scale);
 
 				const f32 u0 = static_cast<f32>(glyph.atlasBounds.x) / atlasW;
 				const f32 u1 = static_cast<f32>(glyph.atlasBounds.z) / atlasW;
-				const f32 v0 = static_cast<f32>(glyph.atlasBounds.w) / atlasH; // top
-				const f32 v1 = static_cast<f32>(glyph.atlasBounds.y) / atlasH; // bottom
+				const f32 v0 = static_cast<f32>(glyph.atlasBounds.w) / atlasH;
+				const f32 v1 = static_cast<f32>(glyph.atlasBounds.y) / atlasH;
 
 				const int base = static_cast<int>(mesh.vertices.size());
 				mesh.vertices.push_back(Rml::Vertex{Rml::Vector2f(x0, y0), colour, Rml::Vector2f(u0, v0)});
@@ -266,7 +260,6 @@ namespace Skore
 
 	int FontEngineSkore::GetVersion(Rml::FontFaceHandle handle)
 	{
-		// Atlas/glyphs are static for a given handle, so geometry never needs regenerating.
 		return 1;
 	}
 
