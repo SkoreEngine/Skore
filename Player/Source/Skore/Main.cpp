@@ -113,6 +113,7 @@ namespace Skore
 		Event::Bind<OnRecordRenderCommands, &OnPlayerOnRecordRenderCommands>();
 		Event::Bind<OnShutdown, &OnPlayerShutdown>();
 
+
 		if (resourceLoaded)
 		{
 			//------------step3 - Main scene load------------
