@@ -18,9 +18,6 @@ namespace Skore
 		Logger& logger = Logger::GetLogger("Skore.RmlUi");
 	}
 
-	// RmlUi compiles geometry once and re-renders it many times, so each compiled geometry keeps
-	// its own GPU vertex/index buffers alive until ReleaseGeometry. Buffer Destroy() is deferred by
-	// the device (per-frame destructor queue), so releasing mid-frame is safe.
 	struct SkoreCompiledGeometry
 	{
 		GPUBuffer* vertexBuffer = nullptr;
@@ -32,14 +29,12 @@ namespace Skore
 	{
 		GPUTexture*       texture = nullptr;
 		GPUDescriptorSet* descriptorSet = nullptr;
-		bool              owned = false; // true: created by GenerateTexture (we destroy it); false: borrowed from the resource cache
-		bool              isMsdf = false; // true: MSDF font atlas, rendered with the MSDF pipeline
+		bool              owned = false;
+		bool              isMsdf = false;
 
-		// keeps the resource cache entry alive while RmlUi references this texture (LoadTexture path)
 		TextureResourceCachePtr cache;
 	};
 
-	// MSDF text needs the atlas size in the shader (for the screen-space distance-field AA).
 	struct MsdfPushConstants
 	{
 		Mat4 transform;
@@ -233,7 +228,6 @@ namespace Skore
 
 	void RenderInterfaceSkore::SetTransform(const Rml::Matrix4f* newTransform)
 	{
-		// Rml::Matrix4f defaults to column-major storage, matching Skore's Mat4, so a straight copy works.
 		if (newTransform)
 		{
 			memcpy(&transform, newTransform->data(), sizeof(f32) * 16);
@@ -249,7 +243,6 @@ namespace Skore
 		currentCmd = cmd;
 		frameRenderPass = renderPass;
 		viewport = viewportSize;
-		// (0,0) -> top-left in Vulkan clip space, y increasing downward: RmlUi's coordinate convention.
 		projection = Mat4::Ortho(0.0f, static_cast<f32>(viewportSize.width), 0.0f, static_cast<f32>(viewportSize.height), -1.0f, 1.0f);
 		transform = Mat4(1.0);
 		scissorEnabled = false;
@@ -294,7 +287,7 @@ namespace Skore
 			.blendStates = {
 				BlendStateDesc{
 					.blendEnable = true,
-					.srcColorBlendFactor = BlendFactor::One, // premultiplied alpha
+					.srcColorBlendFactor = BlendFactor::One,
 					.dstColorBlendFactor = BlendFactor::OneMinusSrcAlpha,
 					.colorBlendOp = BlendOp::Add,
 					.srcAlphaBlendFactor = BlendFactor::One,
@@ -314,7 +307,7 @@ namespace Skore
 	{
 		SkoreTexture* skoreTexture = Alloc<SkoreTexture>();
 		skoreTexture->texture = atlas;
-		skoreTexture->owned = false; // owned by the font resource cache
+		skoreTexture->owned = false;
 		skoreTexture->isMsdf = true;
 		skoreTexture->descriptorSet = CreateTextureDescriptorSet(atlas);
 		return reinterpret_cast<Rml::TextureHandle>(skoreTexture);
