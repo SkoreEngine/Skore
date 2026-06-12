@@ -17,6 +17,7 @@ struct FXAAConstants
 
 [[vk::push_constant]] FXAAConstants pc;
 
+[[vk::image_format("rgba")]]
 RWTexture2D<float4>     colorOutput       : register(u0);
 Texture2D               inputTexture      : register(t1);
 SamplerState            linearSampler      : register(s2);
@@ -44,5 +45,5 @@ void MainCS(uint3 threadId : SV_DispatchThreadID)
         0, 0, 0, 0
     ).rgb;
 
-    colorOutput[threadId.xy] = float4(color, colorOutput[threadId.xy].a);
+    colorOutput[threadId.xy] = float4(color, inputTexture[threadId.xy].a);
 }
