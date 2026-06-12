@@ -1,4 +1,4 @@
-add_library(SPIRV-Reflect
+add_library(SPIRV-Reflect STATIC
 				Source/spirv_reflect.c
 				Source/spirv_reflect.h
 )

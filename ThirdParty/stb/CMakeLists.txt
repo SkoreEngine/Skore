@@ -1,2 +1,2 @@
-add_library(stb src/stb.c)
+add_library(stb STATIC src/stb.c)
 target_include_directories(stb PUBLIC src)

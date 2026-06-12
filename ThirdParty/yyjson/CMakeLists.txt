@@ -1,4 +1,4 @@
-add_library(yyjson src/yyjson.h src/yyjson.c)
+add_library(yyjson STATIC src/yyjson.h src/yyjson.c)
 target_include_directories(yyjson PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
 
 

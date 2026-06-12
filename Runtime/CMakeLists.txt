@@ -18,9 +18,9 @@ target_include_directories(SkoreRuntime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../T
 target_include_directories(SkoreRuntime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../Assets/Shaders)
 
 target_link_libraries(SkoreRuntime PRIVATE
+				mikktspace
 				yyjson
 				stb
-				mikktspace
 				Jolt
 				RecastNavigation
 				miniaudio
@@ -28,6 +28,7 @@ target_link_libraries(SkoreRuntime PRIVATE
 				mimalloc
 				OpenXR
 				xatlas
+				rmlui
 )
 
 target_link_libraries(SkoreRuntime PUBLIC

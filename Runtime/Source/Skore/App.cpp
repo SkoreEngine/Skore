@@ -39,6 +39,9 @@ namespace Skore
 	void LayerSystemInit();
 	void LayerSystemShutdown();
 
+	void RmlUIInit();
+	void RmlUIShutdown();
+
 	void PlatformProcessEvents();
 
 	void CreateGraphicsDefaultValues();
@@ -109,6 +112,7 @@ namespace Skore
 		InputInit();
 		ScriptEngineInit();
 		LayerSystemInit();
+		RmlUIInit();
 
 		if (callback)
 		{
@@ -164,6 +168,7 @@ namespace Skore
 
 		threadPool.reset();
 
+		RmlUIShutdown();
 		AudioEngineShutdown();
 		PhysicsShutdown();
 		GraphicsShutdown();
