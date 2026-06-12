@@ -753,7 +753,9 @@ namespace Skore
 			context->SetDepthOutput(OutputDepthName);
 
 			Array<RenderPipelineResource> resources;
-			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess});
+			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM,
+				.textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest
+			});
 			resources.EmplaceBack(RenderPipelineResource{.name = OutputDepthName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::D32_FLOAT, });
 			resources.EmplaceBack(RenderPipelineResource{.name = "SelectionOutline", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM, .textureUsage = ResourceUsage::CopyDest});
 			return resources;
