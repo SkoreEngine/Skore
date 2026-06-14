@@ -138,15 +138,17 @@ namespace Skore
 
 	void InputHandlerEvents(SDL_Event* event)
 	{
-		if (inputDisabled && (event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_MOUSE_BUTTON_DOWN)) return;
-
 		switch (event->type)
 		{
 			case SDL_EVENT_KEY_UP:
 			case SDL_EVENT_KEY_DOWN:
 			{
 				const bool down = event->type == SDL_EVENT_KEY_DOWN;
-				const Key  key = FromSDL(event->key.scancode);
+				if (inputDisabled && down)
+				{
+					break;
+				}
+				const Key key = FromSDL(event->key.scancode);
 				keyState[static_cast<usize>(key)] = down;
 				if (down)
 				{
@@ -162,7 +164,10 @@ namespace Skore
 			case SDL_EVENT_MOUSE_BUTTON_DOWN:
 			{
 				const bool down = event->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-				mouseButtonState[event->button.button] = down;
+				if (!inputDisabled || !down)
+				{
+					mouseButtonState[event->button.button] = down;
+				}
 				onMouseButtonHandler.Invoke(static_cast<MouseButton>(event->button.button), down);
 				break;
 			}
@@ -170,17 +175,11 @@ namespace Skore
 				mousePosition = Vec2{event->motion.x, event->motion.y};
 				mouseRelativePosition += Vec2{event->motion.xrel, event->motion.yrel};
 				mouseMoved = true;
-				if (!inputDisabled)
-				{
-					onMouseMoveHandler.Invoke(mousePosition);
-				}
+				onMouseMoveHandler.Invoke(mousePosition);
 				break;
 			case SDL_EVENT_MOUSE_WHEEL:
 				mouseWheel += Vec2{event->wheel.x, event->wheel.y};
-				if (!inputDisabled)
-				{
-					onMouseScrollHandler.Invoke(Vec2{event->wheel.x, event->wheel.y});
-				}
+				onMouseScrollHandler.Invoke(Vec2{event->wheel.x, event->wheel.y});
 				break;
 			case SDL_EVENT_TEXT_INPUT:
 				if (!inputDisabled)
