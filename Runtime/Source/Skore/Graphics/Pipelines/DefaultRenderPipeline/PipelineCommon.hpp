@@ -45,8 +45,9 @@ namespace Skore
 		constexpr static i32 Indirect = 800;
 		constexpr static i32 Composite = 900;
 		constexpr static i32 PostProcess = 1000;
-		constexpr static i32 UI = 1100;
-		constexpr static i32 Swapchain = 1200;
+		constexpr static i32 Tools = 1100;
+		constexpr static i32 UI = 1200;
+		constexpr static i32 Swapchain = 1300;
 	};
 
 

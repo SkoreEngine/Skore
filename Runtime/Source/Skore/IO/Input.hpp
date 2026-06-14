@@ -22,5 +22,6 @@ namespace Skore
 		static CursorLockMode GetCursorLockMode();
 		static Vec2           GetMouseAxis();
 		static void           DisableInputs(bool disable);
+		static void           SetTextInputActive(bool active);
 	};
 }

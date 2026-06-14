@@ -35,6 +35,8 @@ namespace Skore
 			return;
 		}
 
+		RmlUiManager::RegisterContext(m_context);
+
 		ReloadDocument();
 	}
 
@@ -42,6 +44,8 @@ namespace Skore
 	{
 		if (m_context)
 		{
+			RmlUiManager::UnregisterContext(m_context);
+
 			if (RmlUiManager::GetRenderInterface() != nullptr)
 			{
 				Rml::RemoveContext(m_context->GetName());
