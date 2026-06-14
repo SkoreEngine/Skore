@@ -1,6 +1,7 @@
 #include "SystemInterfaceSkore.hpp"
 
 #include "Skore/Core/Logger.hpp"
+#include "Skore/IO/Input.hpp"
 #include "Skore/Platform/Platform.hpp"
 
 namespace Skore
@@ -33,5 +34,15 @@ namespace Skore
 				break;
 		}
 		return true;
+	}
+
+	void SystemInterfaceSkore::ActivateKeyboard(Rml::Vector2f caret_position, float line_height)
+	{
+		Input::SetTextInputActive(true);
+	}
+
+	void SystemInterfaceSkore::DeactivateKeyboard()
+	{
+		Input::SetTextInputActive(false);
 	}
 }

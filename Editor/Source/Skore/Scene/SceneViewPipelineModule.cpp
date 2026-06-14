@@ -40,7 +40,7 @@ namespace Skore
 		{
 			RenderPipelinePassSetup setup;
 			setup.type = RenderPipelinePassType::Other;
-			setup.stage = PipelineRenderStage::UI;
+			setup.stage = PipelineRenderStage::Tools;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "SelectionOutline", .access = RenderPipelineTextureAccess::Write});
 			return setup;
 		}
@@ -433,7 +433,7 @@ namespace Skore
 		{
 			RenderPipelinePassSetup setup;
 			setup.type = RenderPipelinePassType::Other;
-			setup.stage =  PipelineRenderStage::UI;
+			setup.stage =  PipelineRenderStage::Tools;
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "SelectionOutline", .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Read});
 			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::Read});

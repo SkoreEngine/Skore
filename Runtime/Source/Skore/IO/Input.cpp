@@ -7,12 +7,14 @@
 #include <SDL3/SDL.h>
 
 #include "Skore/Events.hpp"
+#include "Skore/IO/InputEvents.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 
 namespace Skore
 {
 	Key         FromSDL(u32 key);
+	SDL_Window* GetSDLWindowFromHandler(Window window);
 
 	namespace
 	{
@@ -29,6 +31,13 @@ namespace Skore
 		FixedArray<u32, 512>                                 keyMap;
 
 		Logger& logger = Logger::GetLogger("Skore::Input");
+
+		EventHandler<OnKeyDown>     onKeyDownHandler{};
+		EventHandler<OnKeyUp>       onKeyUpHandler{};
+		EventHandler<OnTextInput>   onTextInputHandler{};
+		EventHandler<OnMouseMove>   onMouseMoveHandler{};
+		EventHandler<OnMouseButton> onMouseButtonHandler{};
+		EventHandler<OnMouseScroll> onMouseScrollHandler{};
 	}
 
 	bool Input::IsKeyDown(Key key)
@@ -109,6 +118,24 @@ namespace Skore
 		inputDisabled = disable;
 	}
 
+	void Input::SetTextInputActive(bool active)
+	{
+		SDL_Window* window = GetSDLWindowFromHandler(Graphics::GetWindow());
+		if (!window)
+		{
+			return;
+		}
+
+		if (active)
+		{
+			SDL_StartTextInput(window);
+		}
+		else
+		{
+			SDL_StopTextInput(window);
+		}
+	}
+
 	void InputHandlerEvents(SDL_Event* event)
 	{
 		if (inputDisabled && (event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_MOUSE_BUTTON_DOWN)) return;
@@ -117,19 +144,49 @@ namespace Skore
 		{
 			case SDL_EVENT_KEY_UP:
 			case SDL_EVENT_KEY_DOWN:
-			keyState[static_cast<usize>(FromSDL(event->key.scancode))] = event->type == SDL_EVENT_KEY_DOWN;
+			{
+				const bool down = event->type == SDL_EVENT_KEY_DOWN;
+				const Key  key = FromSDL(event->key.scancode);
+				keyState[static_cast<usize>(key)] = down;
+				if (down)
+				{
+					onKeyDownHandler.Invoke(key, event->key.repeat);
+				}
+				else
+				{
+					onKeyUpHandler.Invoke(key);
+				}
 				break;
+			}
 			case SDL_EVENT_MOUSE_BUTTON_UP:
 			case SDL_EVENT_MOUSE_BUTTON_DOWN:
-				mouseButtonState[event->button.button] = event->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+			{
+				const bool down = event->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+				mouseButtonState[event->button.button] = down;
+				onMouseButtonHandler.Invoke(static_cast<MouseButton>(event->button.button), down);
 				break;
+			}
 			case SDL_EVENT_MOUSE_MOTION:
 				mousePosition = Vec2{event->motion.x, event->motion.y};
 				mouseRelativePosition += Vec2{event->motion.xrel, event->motion.yrel};
 				mouseMoved = true;
+				if (!inputDisabled)
+				{
+					onMouseMoveHandler.Invoke(mousePosition);
+				}
 				break;
 			case SDL_EVENT_MOUSE_WHEEL:
 				mouseWheel += Vec2{event->wheel.x, event->wheel.y};
+				if (!inputDisabled)
+				{
+					onMouseScrollHandler.Invoke(Vec2{event->wheel.x, event->wheel.y});
+				}
+				break;
+			case SDL_EVENT_TEXT_INPUT:
+				if (!inputDisabled)
+				{
+					onTextInputHandler.Invoke(StringView{event->text.text});
+				}
 				break;
 		}
 	}
