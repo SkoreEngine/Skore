@@ -6,7 +6,6 @@
 namespace Skore
 {
 	struct DefaultRenderPipeline;
-	struct SwapchainRenderModule;
 	class CascadeShadowPassBase;
 
 
