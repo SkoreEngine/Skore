@@ -25,6 +25,8 @@
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
 #include "Skore/Scene/Scene.hpp"
+#include "Skore/UI/RmlUi/RmlUiManager.hpp"
+#include "Skore/UI/RmlUi/UIDocument.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 
 #include <variant>
@@ -116,6 +118,17 @@ namespace Skore
 
 		Rect bb{(i32)cursor.x, (i32)cursor.y, u32(cursor.x + size.x), u32(cursor.y + size.y)};
 		mousePosRelativeToWindow = (FromImVec2(ImGui::GetMousePos()) - Vec2{(f32)bb.x, (f32)bb.y}) * screenScale;
+
+		if (hovered && sceneEditor != nullptr)
+		{
+			if (Scene* uiScene = sceneEditor->GetCurrentScene())
+			{
+				uiScene->Iterate<UIDocument>([&](UIDocument* document)
+				{
+					RmlUiManager::SetContextInputTransform(document->GetContext(), Vec2{(f32)bb.x, (f32)bb.y}, screenScale);
+				});
+			}
+		}
 
 		bool   sizeUpdated = renderPipelineContext == nullptr || renderPipelineContext->GetOutputSize() != extent;
 

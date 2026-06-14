@@ -24,7 +24,14 @@ namespace Skore
 		FontEngineSkore*      fontEngine = nullptr;
 		FileInterfaceSkore*   fileInterface = nullptr;
 
-		Array<Rml::Context*> contexts;
+		struct ContextEntry
+		{
+			Rml::Context* context = nullptr;
+			Vec2          offset = {0, 0};
+			f32           scale = 1.0f;
+		};
+
+		Array<ContextEntry> contexts;
 
 		Rml::Input::KeyIdentifier ToRmlKey(Key key)
 		{
@@ -178,9 +185,9 @@ namespace Skore
 		{
 			Rml::Input::KeyIdentifier identifier = ToRmlKey(key);
 			int                       modifiers = GetRmlModifiers();
-			for (Rml::Context* context : contexts)
+			for (const ContextEntry& entry : contexts)
 			{
-				context->ProcessKeyDown(identifier, modifiers);
+				entry.context->ProcessKeyDown(identifier, modifiers);
 			}
 		}
 
@@ -188,27 +195,28 @@ namespace Skore
 		{
 			Rml::Input::KeyIdentifier identifier = ToRmlKey(key);
 			int                       modifiers = GetRmlModifiers();
-			for (Rml::Context* context : contexts)
+			for (const ContextEntry& entry : contexts)
 			{
-				context->ProcessKeyUp(identifier, modifiers);
+				entry.context->ProcessKeyUp(identifier, modifiers);
 			}
 		}
 
 		void OnTextInputEvent(StringView text)
 		{
 			Rml::String string(text.Data(), text.Size());
-			for (Rml::Context* context : contexts)
+			for (const ContextEntry& entry : contexts)
 			{
-				context->ProcessTextInput(string);
+				entry.context->ProcessTextInput(string);
 			}
 		}
 
 		void OnMouseMoveEvent(Vec2 position)
 		{
 			int modifiers = GetRmlModifiers();
-			for (Rml::Context* context : contexts)
+			for (const ContextEntry& entry : contexts)
 			{
-				context->ProcessMouseMove(static_cast<int>(position.x), static_cast<int>(position.y), modifiers);
+				Vec2 local = (position - entry.offset) * entry.scale;
+				entry.context->ProcessMouseMove(static_cast<int>(local.x), static_cast<int>(local.y), modifiers);
 			}
 		}
 
@@ -216,15 +224,15 @@ namespace Skore
 		{
 			int index = ToRmlMouseButton(button);
 			int modifiers = GetRmlModifiers();
-			for (Rml::Context* context : contexts)
+			for (const ContextEntry& entry : contexts)
 			{
 				if (pressed)
 				{
-					context->ProcessMouseButtonDown(index, modifiers);
+					entry.context->ProcessMouseButtonDown(index, modifiers);
 				}
 				else
 				{
-					context->ProcessMouseButtonUp(index, modifiers);
+					entry.context->ProcessMouseButtonUp(index, modifiers);
 				}
 			}
 		}
@@ -232,9 +240,9 @@ namespace Skore
 		void OnMouseScrollEvent(Vec2 delta)
 		{
 			int modifiers = GetRmlModifiers();
-			for (Rml::Context* context : contexts)
+			for (const ContextEntry& entry : contexts)
 			{
-				context->ProcessMouseWheel(Rml::Vector2f(-delta.x, -delta.y), modifiers);
+				entry.context->ProcessMouseWheel(Rml::Vector2f(-delta.x, -delta.y), modifiers);
 			}
 		}
 	}
@@ -248,7 +256,7 @@ namespace Skore
 	{
 		if (context)
 		{
-			contexts.EmplaceBack(context);
+			contexts.EmplaceBack(ContextEntry{context});
 		}
 	}
 
@@ -256,9 +264,22 @@ namespace Skore
 	{
 		for (auto it = contexts.begin(); it != contexts.end(); ++it)
 		{
-			if (*it == context)
+			if (it->context == context)
 			{
 				contexts.Erase(it);
+				break;
+			}
+		}
+	}
+
+	void RmlUiManager::SetContextInputTransform(Rml::Context* context, Vec2 offset, f32 scale)
+	{
+		for (ContextEntry& entry : contexts)
+		{
+			if (entry.context == context)
+			{
+				entry.offset = offset;
+				entry.scale = scale;
 				break;
 			}
 		}
