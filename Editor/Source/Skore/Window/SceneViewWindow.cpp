@@ -25,8 +25,8 @@
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
 #include "Skore/Scene/Scene.hpp"
-#include "Skore/UI/RmlUi/RmlUiManager.hpp"
-#include "Skore/UI/RmlUi/UIDocument.hpp"
+#include "../../../../Runtime/Source/Skore/UI/RmlUI.hpp"
+#include "../../../../Runtime/Source/Skore/Scene/Components/UIDocument.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 
 #include <variant>

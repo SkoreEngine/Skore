@@ -2,7 +2,7 @@
 
 #include "Skore/Scene/Component.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
-#include "Skore/UI/RmlUi/RmlUiResources.hpp"
+#include "Skore/UI/RmlUI.hpp"
 
 namespace Rml
 {

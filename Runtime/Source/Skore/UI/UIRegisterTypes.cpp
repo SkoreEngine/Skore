@@ -1,7 +1,7 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/Resources.hpp"
-#include "Skore/UI/RmlUi/UIDocument.hpp"
-#include "Skore/UI/RmlUi/RmlUiResources.hpp"
+#include "Skore/Scene/Components/UIDocument.hpp"
+#include "RmlUI.hpp"
 
 namespace Skore
 {

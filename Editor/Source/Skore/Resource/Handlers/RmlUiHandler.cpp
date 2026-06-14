@@ -7,7 +7,7 @@
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
-#include "Skore/UI/RmlUi/RmlUiResources.hpp"
+#include "../../../../../Runtime/Source/Skore/UI/RmlUI.hpp"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
 
 namespace Skore
