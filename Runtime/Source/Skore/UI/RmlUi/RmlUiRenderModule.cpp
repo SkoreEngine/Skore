@@ -9,6 +9,7 @@
 
 #include <RmlUi/Core/Context.h>
 
+#include "Skore/App.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 
 namespace Skore
@@ -49,12 +50,13 @@ namespace Skore
 					return;
 				}
 
-				rmlContext->SetDimensions(Rml::Vector2i(static_cast<int>(size.width), static_cast<int>(size.height)));
-				rmlContext->SetDensityIndependentPixelRatio(Platform::GetWindowDPI(Graphics::GetWindow()));
-				rmlContext->Update();
-				renderInterface->BeginFrame(cmd, renderPass, size);
-				rmlContext->Render();
-				renderInterface->EndFrame();
+				if (document->lastFrameRendered <= document->lastFrameUpdated)
+				{
+					renderInterface->BeginFrame(cmd, renderPass, size);
+					rmlContext->Render();
+					renderInterface->EndFrame();
+					document->lastFrameRendered = App::Frame();
+				}
 			});
 		}
 	};

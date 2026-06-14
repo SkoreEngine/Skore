@@ -12,6 +12,7 @@
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Navigation/Navigation.hpp"
 #include "Skore/Navigation/NavigationCommon.hpp"
+#include "Skore/UI/RmlUi/UIDocument.hpp"
 #include "Skore/Window/SceneViewWindow.hpp"
 
 namespace Skore
@@ -706,19 +707,27 @@ namespace Skore
 					//debugDraw.DrawFrustum(context->camera.frustum, 2, Color::YELLOW);
 				}
 
-				if (sceneViewWindow->drawComponentGizmos)
+				if (Scene* currentScene = sceneViewWindow->sceneEditor->GetCurrentScene())
 				{
-					if (Scene* currentScene = sceneViewWindow->sceneEditor->GetCurrentScene())
+					DrawGizmosEvent gizmosEvent;
+					gizmosEvent.debugDraw = &debugDraw;
+					gizmosEvent.viewportAspect = currentExtent.height > 0 ? (f32)currentExtent.width / (f32)currentExtent.height : 1.0f;
+
+					EntityEventDesc eventDesc{.type = EntityEventType::DrawGizmos, .eventData = &gizmosEvent};
+
+					for (Entity* entity : Selection::ResolveEntities(currentScene))
 					{
-						DrawGizmosEvent gizmosEvent;
-						gizmosEvent.debugDraw = &debugDraw;
-						gizmosEvent.viewportAspect = currentExtent.height > 0 ? (f32)currentExtent.width / (f32)currentExtent.height : 1.0f;
-
-						EntityEventDesc eventDesc{.type = EntityEventType::DrawGizmos, .eventData = &gizmosEvent};
-
-						for (Entity* entity : Selection::ResolveEntities(currentScene))
+						if (sceneViewWindow->drawComponentGizmos)
 						{
 							entity->NotifyEvent(eventDesc, false);
+						}
+
+						for (Component* component: entity->GetComponents())
+						{
+							if (UIDocument* uiDocument = component->SafeCast<UIDocument>())
+							{
+								uiDocument->UpdateContext(currentExtent);
+							}
 						}
 					}
 				}

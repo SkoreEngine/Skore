@@ -17,8 +17,13 @@
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/ElementDocument.h>
 
+#include "Skore/App.hpp"
+#include "Skore/Graphics/RenderPipeline.hpp"
+
 namespace Skore
 {
+	class RenderPipelineContext;
+
 	namespace
 	{
 		u64 contextCounter = 0;
@@ -52,6 +57,14 @@ namespace Skore
 			}
 			m_context = nullptr;
 			m_documentElement = nullptr;
+		}
+	}
+
+	void UIDocument::OnUpdate(f64 deltaTime)
+	{
+		if (RenderPipelineContext* pipelineContext = RenderPipeline::GetMainContext())
+		{
+			UpdateContext(pipelineContext->GetOutputSize());
 		}
 	}
 
@@ -95,6 +108,17 @@ namespace Skore
 					m_documentElement->Show();
 				}
 			}
+		}
+	}
+
+	void UIDocument::UpdateContext(Extent extent)
+	{
+		if (m_context)
+		{
+			m_context->SetDimensions(Rml::Vector2i(static_cast<int>(extent.width), static_cast<int>(extent.height)));
+			m_context->SetDensityIndependentPixelRatio(Platform::GetWindowDPI(Graphics::GetWindow()));
+			m_context->Update();
+			lastFrameUpdated = App::Frame();
 		}
 	}
 

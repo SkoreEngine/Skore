@@ -12,7 +12,7 @@ namespace Rml
 
 namespace Skore
 {
-	class SK_API UIDocument : public Component
+	class SK_API UIDocument : public Component, public Tickable
 	{
 	public:
 		SK_CLASS(UIDocument, Component);
@@ -20,13 +20,20 @@ namespace Skore
 		void Create() override;
 		void Destroy() override;
 
+		void OnUpdate(f64 deltaTime) override;
+
 		void SetDocument(RID document);
 		RID  GetDocument() const;
 
 		Rml::Context* GetContext() const { return m_context; }
 
+		void UpdateContext(Extent extent);
+
 		static void RegisterType(NativeReflectType<UIDocument>& type);
 
+		//TODO - find a better way of handling it.
+		u64 lastFrameRendered = 0;
+		u64 lastFrameUpdated = 0;
 	private:
 		void ReloadDocument();
 

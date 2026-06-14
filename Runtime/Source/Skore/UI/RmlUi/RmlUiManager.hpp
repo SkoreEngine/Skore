@@ -10,6 +10,8 @@ namespace Rml
 
 namespace Skore
 {
+	class GPUCommandBuffer;
+	class GPUTexture;
 	class RenderInterfaceSkore;
 
 	struct SK_API RmlUiManager
