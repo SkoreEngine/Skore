@@ -25,8 +25,7 @@
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
 #include "Skore/Scene/Scene.hpp"
-#include "../../../../Runtime/Source/Skore/UI/RmlUI.hpp"
-#include "../../../../Runtime/Source/Skore/Scene/Components/UIDocument.hpp"
+#include "Skore/UI/RmlUI.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 
 #include <variant>
@@ -121,13 +120,7 @@ namespace Skore
 
 		if (hovered && sceneEditor != nullptr)
 		{
-			if (Scene* uiScene = sceneEditor->GetCurrentScene())
-			{
-				uiScene->Iterate<UIDocument>([&](UIDocument* document)
-				{
-					RmlUiManager::SetContextInputTransform(document->GetContext(), Vec2{(f32)bb.x, (f32)bb.y}, screenScale);
-				});
-			}
+			RmlUiManager::SetInputTransform(Vec2{(f32)bb.x, (f32)bb.y}, screenScale);
 		}
 
 		bool   sizeUpdated = renderPipelineContext == nullptr || renderPipelineContext->GetOutputSize() != extent;

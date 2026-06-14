@@ -721,14 +721,6 @@ namespace Skore
 						{
 							entity->NotifyEvent(eventDesc, false);
 						}
-
-						for (Component* component: entity->GetComponents())
-						{
-							if (UIDocument* uiDocument = component->SafeCast<UIDocument>())
-							{
-								uiDocument->UpdateContext(currentExtent);
-							}
-						}
 					}
 				}
 
