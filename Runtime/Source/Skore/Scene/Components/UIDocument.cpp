@@ -2,8 +2,6 @@
 
 #include <string>
 
-#include "RmlUiManager.hpp"
-
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/String.hpp"

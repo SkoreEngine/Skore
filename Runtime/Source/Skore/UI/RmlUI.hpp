@@ -10,9 +10,25 @@ namespace Rml
 
 namespace Skore
 {
-	class GPUCommandBuffer;
-	class GPUTexture;
 	class RenderInterfaceSkore;
+
+	struct UIDocumentResource
+	{
+		enum
+		{
+			Name,
+			Content,
+		};
+	};
+
+	struct UIStyleResource
+	{
+		enum
+		{
+			Name,
+			Content,
+		};
+	};
 
 	struct SK_API RmlUiManager
 	{

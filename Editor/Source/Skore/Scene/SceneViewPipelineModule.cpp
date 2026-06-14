@@ -12,7 +12,7 @@
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Navigation/Navigation.hpp"
 #include "Skore/Navigation/NavigationCommon.hpp"
-#include "Skore/UI/RmlUi/UIDocument.hpp"
+#include "../../../../Runtime/Source/Skore/Scene/Components/UIDocument.hpp"
 #include "Skore/Window/SceneViewWindow.hpp"
 
 namespace Skore
