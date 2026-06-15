@@ -2111,10 +2111,15 @@ namespace Skore
 		{
 		public:
 			EventListenerSkore(FnUIEventCallback callback, VoidPtr userData) : callback(callback), userData(userData) {}
+			EventListenerSkore(FnUIEvent func) : func(std::move(func)) {}
 
 			void ProcessEvent(Rml::Event& event) override
 			{
-				if (callback)
+				if (func)
+				{
+					func(UIEvent(&event));
+				}
+				else if (callback)
 				{
 					callback(UIEvent(&event), userData);
 				}
@@ -2128,6 +2133,7 @@ namespace Skore
 		private:
 			FnUIEventCallback callback = nullptr;
 			VoidPtr           userData = nullptr;
+			FnUIEvent         func;
 		};
 	}
 
@@ -2139,6 +2145,18 @@ namespace Skore
 			return {};
 		}
 		EventListenerSkore* listener = Alloc<EventListenerSkore>(callback, userData);
+		el->AddEventListener(ToRmlString(event), listener, inCapturePhase);
+		return UIEventListener(listener);
+	}
+
+	UIEventListener RmlUI::AddEventListener(UIElement element, StringView event, FnUIEvent callback, bool inCapturePhase)
+	{
+		Rml::Element* el = element.ToPtr<Rml::Element>();
+		if (!el || !callback)
+		{
+			return {};
+		}
+		EventListenerSkore* listener = Alloc<EventListenerSkore>(std::move(callback));
 		el->AddEventListener(ToRmlString(event), listener, inCapturePhase);
 		return UIEventListener(listener);
 	}
@@ -2361,6 +2379,26 @@ namespace Skore
 		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
 	}
 
+	bool RmlUI::BindFunc(UIDataModelConstructor constructor, StringView name, FnUIDataGet getCallback, FnUIDataSet setCallback)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !getCallback) return false;
+
+		Rml::DataGetFunc rmlGet = [getCallback = std::move(getCallback)](Rml::Variant& v) {
+			getCallback(UIDataVariant(&v));
+		};
+
+		Rml::DataSetFunc rmlSet = {};
+		if (setCallback)
+		{
+			rmlSet = [setCallback = std::move(setCallback)](const Rml::Variant& v) {
+				setCallback(UIDataVariant(const_cast<Rml::Variant*>(&v)));
+			};
+		}
+
+		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
+	}
+
 	bool RmlUI::BindEventCallback(UIDataModelConstructor constructor, StringView name,
 	                              FnUIDataEventCallback callback, VoidPtr userData)
 	{
@@ -2370,6 +2408,17 @@ namespace Skore
 		return entry->constructor.BindEventCallback(ToRmlString(name),
 			[callback, userData](Rml::DataModelHandle handle, Rml::Event& event, const Rml::VariantList&) {
 				callback(UIDataModel(ExtractDataModelPtr(handle)), UIEvent(&event), userData);
+			});
+	}
+
+	bool RmlUI::BindEventCallback(UIDataModelConstructor constructor, StringView name, FnUIDataEvent callback)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !callback) return false;
+
+		return entry->constructor.BindEventCallback(ToRmlString(name),
+			[callback = std::move(callback)](Rml::DataModelHandle handle, Rml::Event& event, const Rml::VariantList&) {
+				callback(UIDataModel(ExtractDataModelPtr(handle)), UIEvent(&event));
 			});
 	}
 

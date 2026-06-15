@@ -30,7 +30,7 @@ namespace Skore
 
 		auto type = Reflection::Type<RmlUI>();
 
-		type.Function<&RmlUI::CreateContext>("CreateContext", "name", "dimensions");
+		type.Function<&RmlUI::CreateContext>("CreateContext", "name", "dimensions", "enableResourceSync");
 		type.Function<&RmlUI::RemoveContext>("RemoveContext", "context");
 		type.Function<&RmlUI::SetDimensions>("SetDimensions", "context", "dimensions");
 		type.Function<&RmlUI::SetDensityIndependentPixelRatio>("SetDensityIndependentPixelRatio", "context", "ratio");

@@ -5,6 +5,9 @@
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/StringView.hpp"
+#include "Skore/Core/Traits.hpp"
+
+#include <functional>
 
 namespace Skore
 {
@@ -21,6 +24,11 @@ namespace Skore
 	typedef void (*FnUIDataGetCallback)(UIDataVariant variant, VoidPtr userData);
 	typedef void (*FnUIDataSetCallback)(UIDataVariant variant, VoidPtr userData);
 	typedef void (*FnUIDataEventCallback)(UIDataModel model, UIEvent event, VoidPtr userData);
+
+	using FnUIEvent     = std::function<void(UIEvent)>;
+	using FnUIDataGet   = std::function<void(UIDataVariant)>;
+	using FnUIDataSet   = std::function<void(UIDataVariant)>;
+	using FnUIDataEvent = std::function<void(UIDataModel, UIEvent)>;
 
 	enum class UIEventPhase
 	{
@@ -171,16 +179,7 @@ namespace Skore
 		static UIEventListener AddEventListener(UIElement element, StringView event, FnUIEventCallback callback, VoidPtr userData = nullptr, bool inCapturePhase = false);
 		static void            RemoveEventListener(UIElement element, StringView event, UIEventListener listener, bool inCapturePhase = false);
 
-		template <typename Func>
-		static UIEventListener AddEventListener(UIElement element, StringView event, Func* callback, bool inCapturePhase = false)
-		{
-			return AddEventListener(element, event,
-				[](UIEvent event, VoidPtr userData)
-				{
-					(*static_cast<Func*>(userData))(event);
-				},
-				callback, inCapturePhase);
-		}
+		static UIEventListener AddEventListener(UIElement element, StringView event, FnUIEvent callback, bool inCapturePhase = false);
 
 		static bool            DispatchEvent(UIElement element, StringView type);
 
@@ -211,28 +210,8 @@ namespace Skore
 		static bool        BindEventCallback(UIDataModelConstructor constructor, StringView name,
 		                       FnUIDataEventCallback callback, VoidPtr userData = nullptr);
 
-		template <typename GetFunc>
-		static bool BindFunc(UIDataModelConstructor constructor, StringView name, GetFunc* getCallback)
-		{
-			return BindFunc(constructor, name,
-				[](UIDataVariant variant, VoidPtr userData) { (*static_cast<GetFunc*>(userData))(variant); }, getCallback);
-		}
-
-		template <typename GetFunc, typename SetFunc>
-		static bool BindFunc(UIDataModelConstructor constructor, StringView name, GetFunc* getCallback, SetFunc* setCallback)
-		{
-			return BindFunc(constructor, name,
-				[](UIDataVariant variant, VoidPtr userData) { (*static_cast<GetFunc*>(userData))(variant); }, getCallback,
-				[](UIDataVariant variant, VoidPtr userData) { (*static_cast<SetFunc*>(userData))(variant); }, setCallback);
-		}
-
-		template <typename Func>
-		static bool BindEventCallback(UIDataModelConstructor constructor, StringView name, Func* callback)
-		{
-			return BindEventCallback(constructor, name,
-				[](UIDataModel model, UIEvent event, VoidPtr userData) { (*static_cast<Func*>(userData))(model, event); },
-				callback);
-		}
+		static bool BindFunc(UIDataModelConstructor constructor, StringView name, FnUIDataGet getCallback, FnUIDataSet setCallback = {});
+		static bool BindEventCallback(UIDataModelConstructor constructor, StringView name, FnUIDataEvent callback);
 
 		static bool BindVariable(UIDataModelConstructor constructor, StringView name, f32* ptr);
 		static bool BindVariable(UIDataModelConstructor constructor, StringView name, i32* ptr);
@@ -251,19 +230,17 @@ namespace Skore
 		                       String (*get)(VoidPtr), VoidPtr getData = nullptr,
 		                       void (*set)(StringView, VoidPtr) = nullptr, VoidPtr setData = nullptr);
 
-		template <typename GetFunc>
-		static bool BindScalar(UIDataModelConstructor constructor, StringView name, GetFunc* getCallback)
+		template <typename Get>
+		static bool BindScalar(UIDataModelConstructor constructor, StringView name, Get get)
 		{
-			return BindScalar(constructor, name,
-				+[](VoidPtr userData) { return (*static_cast<GetFunc*>(userData))(); }, getCallback);
+			return BindFunc(constructor, name, MakeScalarGet<decltype(get())>(std::move(get)));
 		}
 
-		template <typename SetArg, typename GetFunc, typename SetFunc>
-		static bool BindScalar(UIDataModelConstructor constructor, StringView name, GetFunc* getCallback, SetFunc* setCallback)
+		template <typename Get, typename Set>
+		static bool BindScalar(UIDataModelConstructor constructor, StringView name, Get get, Set set)
 		{
-			return BindScalar(constructor, name,
-				+[](VoidPtr userData) { return (*static_cast<GetFunc*>(userData))(); }, getCallback,
-				+[](SetArg value, VoidPtr userData) { (*static_cast<SetFunc*>(userData))(value); }, setCallback);
+			using R = decltype(get());
+			return BindFunc(constructor, name, MakeScalarGet<R>(std::move(get)), MakeScalarSet<R>(std::move(set)));
 		}
 
 		static bool IsVariableDirty(UIDataModel model, StringView variableName);
@@ -278,5 +255,30 @@ namespace Skore
 		static void   SetVariantInt(UIDataVariant variant, i32 value);
 		static bool   GetVariantBool(UIDataVariant variant, bool defaultValue = false);
 		static void   SetVariantBool(UIDataVariant variant, bool value);
+
+	private:
+		template <typename R, typename Get>
+		static FnUIDataGet MakeScalarGet(Get get)
+		{
+			return [get = std::move(get)](UIDataVariant variant) mutable
+			{
+				if constexpr (Traits::IsSame<R, f32>)       SetVariantFloat(variant, get());
+				else if constexpr (Traits::IsSame<R, i32>)  SetVariantInt(variant, get());
+				else if constexpr (Traits::IsSame<R, bool>) SetVariantBool(variant, get());
+				else                                        SetVariantString(variant, get());
+			};
+		}
+
+		template <typename R, typename Set>
+		static FnUIDataSet MakeScalarSet(Set set)
+		{
+			return [set = std::move(set)](UIDataVariant variant) mutable
+			{
+				if constexpr (Traits::IsSame<R, f32>)       set(GetVariantFloat(variant));
+				else if constexpr (Traits::IsSame<R, i32>)  set(GetVariantInt(variant));
+				else if constexpr (Traits::IsSame<R, bool>) set(GetVariantBool(variant));
+				else                                        set(GetVariantString(variant));
+			};
+		}
 	};
 }
