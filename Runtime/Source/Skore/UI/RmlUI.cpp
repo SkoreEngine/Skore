@@ -32,6 +32,7 @@
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/CallbackTexture.h>
 #include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/DataModelHandle.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
@@ -2024,6 +2025,267 @@ namespace Skore
 			return ev->GetParameter<bool>(ToRmlString(key), defaultValue);
 		}
 		return defaultValue;
+	}
+
+	namespace
+	{
+		struct UIDataModelConstructorEntry
+		{
+			Rml::DataModelConstructor constructor;
+		};
+
+		Rml::DataModel* ExtractDataModelPtr(Rml::DataModelHandle handle)
+		{
+			Rml::DataModel* ptr = nullptr;
+			static_assert(sizeof(Rml::DataModelHandle) == sizeof(ptr), "DataModelHandle layout mismatch");
+			memcpy(&ptr, &handle, sizeof(ptr));
+			return ptr;
+		}
+	}
+
+	UIDataModelConstructor RmlUI::CreateDataModel(UIContext context, StringView name)
+	{
+		Rml::Context* rmlContext = GetRmlContext(context);
+		if (!rmlContext) return {};
+		Rml::DataModelConstructor constructor = rmlContext->CreateDataModel(ToRmlString(name));
+		if (!constructor) return {};
+		UIDataModelConstructorEntry* entry = Alloc<UIDataModelConstructorEntry>();
+		entry->constructor = std::move(constructor);
+		return UIDataModelConstructor(entry);
+	}
+
+	UIDataModelConstructor RmlUI::GetDataModel(UIContext context, StringView name)
+	{
+		Rml::Context* rmlContext = GetRmlContext(context);
+		if (!rmlContext) return {};
+		Rml::DataModelConstructor constructor = rmlContext->GetDataModel(ToRmlString(name));
+		if (!constructor) return {};
+		UIDataModelConstructorEntry* entry = Alloc<UIDataModelConstructorEntry>();
+		entry->constructor = std::move(constructor);
+		return UIDataModelConstructor(entry);
+	}
+
+	bool RmlUI::RemoveDataModel(UIContext context, StringView name)
+	{
+		if (Rml::Context* rmlContext = GetRmlContext(context))
+		{
+			return rmlContext->RemoveDataModel(ToRmlString(name));
+		}
+		return false;
+	}
+
+	void RmlUI::DestroyDataModelConstructor(UIDataModelConstructor constructor)
+	{
+		if (auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>())
+		{
+			DestroyAndFree(entry);
+		}
+	}
+
+	UIDataModel RmlUI::GetModelHandle(UIDataModelConstructor constructor)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry) return {};
+		return UIDataModel(ExtractDataModelPtr(entry->constructor.GetModelHandle()));
+	}
+
+	bool RmlUI::BindFunc(UIDataModelConstructor constructor, StringView name,
+	                     FnUIDataGetCallback getCallback, VoidPtr getCallbackData,
+	                     FnUIDataSetCallback setCallback, VoidPtr setCallbackData)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !getCallback) return false;
+
+		Rml::DataGetFunc rmlGet = [getCallback, getCallbackData](Rml::Variant& v) {
+			getCallback(UIDataVariant(&v), getCallbackData);
+		};
+
+		Rml::DataSetFunc rmlSet = {};
+		if (setCallback)
+		{
+			rmlSet = [setCallback, setCallbackData](const Rml::Variant& v) {
+				setCallback(UIDataVariant(const_cast<Rml::Variant*>(&v)), setCallbackData);
+			};
+		}
+
+		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
+	}
+
+	bool RmlUI::BindEventCallback(UIDataModelConstructor constructor, StringView name,
+	                              FnUIDataEventCallback callback, VoidPtr userData)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !callback) return false;
+
+		return entry->constructor.BindEventCallback(ToRmlString(name),
+			[callback, userData](Rml::DataModelHandle handle, Rml::Event& event, const Rml::VariantList&) {
+				callback(UIDataModel(ExtractDataModelPtr(handle)), UIEvent(&event), userData);
+			});
+	}
+
+	bool RmlUI::BindVariable(UIDataModelConstructor constructor, StringView name, f32* ptr)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !ptr) return false;
+		return entry->constructor.Bind(ToRmlString(name), ptr);
+	}
+
+	bool RmlUI::BindVariable(UIDataModelConstructor constructor, StringView name, i32* ptr)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !ptr) return false;
+		return entry->constructor.Bind(ToRmlString(name), ptr);
+	}
+
+	bool RmlUI::BindVariable(UIDataModelConstructor constructor, StringView name, bool* ptr)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !ptr) return false;
+		return entry->constructor.Bind(ToRmlString(name), ptr);
+	}
+
+	bool RmlUI::BindScalar(UIDataModelConstructor constructor, StringView name,
+	                       f32 (*get)(VoidPtr), VoidPtr getData,
+	                       void (*set)(f32, VoidPtr), VoidPtr setData)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !get) return false;
+
+		Rml::DataGetFunc rmlGet = [get, getData](Rml::Variant& v) {
+			v = static_cast<float>(get(getData));
+		};
+		Rml::DataSetFunc rmlSet = {};
+		if (set) {
+			rmlSet = [set, setData](const Rml::Variant& v) {
+				set(static_cast<f32>(v.Get<float>(0.0f)), setData);
+			};
+		}
+		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
+	}
+
+	bool RmlUI::BindScalar(UIDataModelConstructor constructor, StringView name,
+	                       i32 (*get)(VoidPtr), VoidPtr getData,
+	                       void (*set)(i32, VoidPtr), VoidPtr setData)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !get) return false;
+
+		Rml::DataGetFunc rmlGet = [get, getData](Rml::Variant& v) {
+			v = static_cast<int>(get(getData));
+		};
+		Rml::DataSetFunc rmlSet = {};
+		if (set) {
+			rmlSet = [set, setData](const Rml::Variant& v) {
+				set(static_cast<i32>(v.Get<int>(0)), setData);
+			};
+		}
+		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
+	}
+
+	bool RmlUI::BindScalar(UIDataModelConstructor constructor, StringView name,
+	                       bool (*get)(VoidPtr), VoidPtr getData,
+	                       void (*set)(bool, VoidPtr), VoidPtr setData)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !get) return false;
+
+		Rml::DataGetFunc rmlGet = [get, getData](Rml::Variant& v) {
+			v = get(getData);
+		};
+		Rml::DataSetFunc rmlSet = {};
+		if (set) {
+			rmlSet = [set, setData](const Rml::Variant& v) {
+				set(v.Get<bool>(false), setData);
+			};
+		}
+		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
+	}
+
+	bool RmlUI::BindScalar(UIDataModelConstructor constructor, StringView name,
+	                       String (*get)(VoidPtr), VoidPtr getData,
+	                       void (*set)(StringView, VoidPtr), VoidPtr setData)
+	{
+		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		if (!entry || !get) return false;
+
+		Rml::DataGetFunc rmlGet = [get, getData](Rml::Variant& v) {
+			String s = get(getData);
+			v = ToRmlString(StringView(s));
+		};
+		Rml::DataSetFunc rmlSet = {};
+		if (set) {
+			rmlSet = [set, setData](const Rml::Variant& v) {
+				Rml::String s = v.Get<Rml::String>({});
+				set(StringView(s.c_str(), s.size()), setData);
+			};
+		}
+		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
+	}
+
+	bool RmlUI::IsVariableDirty(UIDataModel model, StringView variableName)
+	{
+		if (!model) return false;
+		return Rml::DataModelHandle(model.ToPtr<Rml::DataModel>()).IsVariableDirty(ToRmlString(variableName));
+	}
+
+	void RmlUI::DirtyVariable(UIDataModel model, StringView variableName)
+	{
+		if (!model) return;
+		Rml::DataModelHandle(model.ToPtr<Rml::DataModel>()).DirtyVariable(ToRmlString(variableName));
+	}
+
+	void RmlUI::DirtyAllVariables(UIDataModel model)
+	{
+		if (!model) return;
+		Rml::DataModelHandle(model.ToPtr<Rml::DataModel>()).DirtyAllVariables();
+	}
+
+	String RmlUI::GetVariantString(UIDataVariant variant, StringView defaultValue)
+	{
+		if (!variant) return String(defaultValue);
+		return FromRmlString(variant.ToPtr<Rml::Variant>()->Get<Rml::String>(ToRmlString(defaultValue)));
+	}
+
+	void RmlUI::SetVariantString(UIDataVariant variant, StringView value)
+	{
+		if (!variant) return;
+		*variant.ToPtr<Rml::Variant>() = ToRmlString(value);
+	}
+
+	f32 RmlUI::GetVariantFloat(UIDataVariant variant, f32 defaultValue)
+	{
+		if (!variant) return defaultValue;
+		return variant.ToPtr<Rml::Variant>()->Get<float>(defaultValue);
+	}
+
+	void RmlUI::SetVariantFloat(UIDataVariant variant, f32 value)
+	{
+		if (!variant) return;
+		*variant.ToPtr<Rml::Variant>() = static_cast<float>(value);
+	}
+
+	i32 RmlUI::GetVariantInt(UIDataVariant variant, i32 defaultValue)
+	{
+		if (!variant) return defaultValue;
+		return variant.ToPtr<Rml::Variant>()->Get<int>(defaultValue);
+	}
+
+	void RmlUI::SetVariantInt(UIDataVariant variant, i32 value)
+	{
+		if (!variant) return;
+		*variant.ToPtr<Rml::Variant>() = static_cast<int>(value);
+	}
+
+	bool RmlUI::GetVariantBool(UIDataVariant variant, bool defaultValue)
+	{
+		if (!variant) return defaultValue;
+		return variant.ToPtr<Rml::Variant>()->Get<bool>(defaultValue);
+	}
+
+	void RmlUI::SetVariantBool(UIDataVariant variant, bool value)
+	{
+		if (!variant) return;
+		*variant.ToPtr<Rml::Variant>() = value;
 	}
 
 	void RmlUIInit()

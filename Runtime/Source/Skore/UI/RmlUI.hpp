@@ -13,8 +13,14 @@ namespace Skore
 	SK_HANDLER(UIElement);
 	SK_HANDLER(UIEvent);
 	SK_HANDLER(UIEventListener);
+	SK_HANDLER(UIDataModel);
+	SK_HANDLER(UIDataModelConstructor);
+	SK_HANDLER(UIDataVariant);
 
 	typedef void (*FnUIEventCallback)(UIEvent event, VoidPtr userData);
+	typedef void (*FnUIDataGetCallback)(UIDataVariant variant, VoidPtr userData);
+	typedef void (*FnUIDataSetCallback)(UIDataVariant variant, VoidPtr userData);
+	typedef void (*FnUIDataEventCallback)(UIDataModel model, UIEvent event, VoidPtr userData);
 
 	enum class UIEventPhase
 	{
@@ -165,7 +171,7 @@ namespace Skore
 		static void            RemoveEventListener(UIElement element, StringView event, UIEventListener listener, bool inCapturePhase = false);
 		static bool            DispatchEvent(UIElement element, StringView type);
 
-		static String       GetEventType(UIEvent event);
+		static String        GetEventType(UIEvent event);
 		static UIElement     GetEventTargetElement(UIEvent event);
 		static UIElement     GetEventCurrentElement(UIEvent event);
 		static UIEventPhase  GetEventPhase(UIEvent event);
@@ -179,5 +185,47 @@ namespace Skore
 		static f32    GetEventParameterFloat(UIEvent event, StringView key, f32 defaultValue = 0.0f);
 		static i32    GetEventParameterInt(UIEvent event, StringView key, i32 defaultValue = 0);
 		static bool   GetEventParameterBool(UIEvent event, StringView key, bool defaultValue = false);
+
+		static UIDataModelConstructor CreateDataModel(UIContext context, StringView name);
+		static UIDataModelConstructor GetDataModel(UIContext context, StringView name);
+		static bool                   RemoveDataModel(UIContext context, StringView name);
+		static void                   DestroyDataModelConstructor(UIDataModelConstructor constructor);
+
+		static UIDataModel GetModelHandle(UIDataModelConstructor constructor);
+		static bool        BindFunc(UIDataModelConstructor constructor, StringView name,
+		                       FnUIDataGetCallback getCallback, VoidPtr getCallbackData = nullptr,
+		                       FnUIDataSetCallback setCallback = nullptr, VoidPtr setCallbackData = nullptr);
+		static bool        BindEventCallback(UIDataModelConstructor constructor, StringView name,
+		                       FnUIDataEventCallback callback, VoidPtr userData = nullptr);
+
+		static bool BindVariable(UIDataModelConstructor constructor, StringView name, f32* ptr);
+		static bool BindVariable(UIDataModelConstructor constructor, StringView name, i32* ptr);
+		static bool BindVariable(UIDataModelConstructor constructor, StringView name, bool* ptr);
+
+		static bool BindScalar(UIDataModelConstructor constructor, StringView name,
+		                       f32 (*get)(VoidPtr), VoidPtr getData = nullptr,
+		                       void (*set)(f32, VoidPtr) = nullptr, VoidPtr setData = nullptr);
+		static bool BindScalar(UIDataModelConstructor constructor, StringView name,
+		                       i32 (*get)(VoidPtr), VoidPtr getData = nullptr,
+		                       void (*set)(i32, VoidPtr) = nullptr, VoidPtr setData = nullptr);
+		static bool BindScalar(UIDataModelConstructor constructor, StringView name,
+		                       bool (*get)(VoidPtr), VoidPtr getData = nullptr,
+		                       void (*set)(bool, VoidPtr) = nullptr, VoidPtr setData = nullptr);
+		static bool BindScalar(UIDataModelConstructor constructor, StringView name,
+		                       String (*get)(VoidPtr), VoidPtr getData = nullptr,
+		                       void (*set)(StringView, VoidPtr) = nullptr, VoidPtr setData = nullptr);
+
+		static bool IsVariableDirty(UIDataModel model, StringView variableName);
+		static void DirtyVariable(UIDataModel model, StringView variableName);
+		static void DirtyAllVariables(UIDataModel model);
+
+		static String GetVariantString(UIDataVariant variant, StringView defaultValue = {});
+		static void   SetVariantString(UIDataVariant variant, StringView value);
+		static f32    GetVariantFloat(UIDataVariant variant, f32 defaultValue = 0.0f);
+		static void   SetVariantFloat(UIDataVariant variant, f32 value);
+		static i32    GetVariantInt(UIDataVariant variant, i32 defaultValue = 0);
+		static void   SetVariantInt(UIDataVariant variant, i32 value);
+		static bool   GetVariantBool(UIDataVariant variant, bool defaultValue = false);
+		static void   SetVariantBool(UIDataVariant variant, bool value);
 	};
 }
