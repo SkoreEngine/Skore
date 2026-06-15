@@ -187,13 +187,18 @@ namespace Skore
 
 	void SkinnedMeshRenderer::Destroy()
 	{
+		if (renderable)
+		{
+			scene->renderObjects.SetBonesDescriptor(renderable, nullptr);
+			scene->renderObjects.SetBonesBuffer(renderable, nullptr);
+		}
+		RendererComponent::Destroy();
+
 		m_skinCache.reset();
 		if (m_bonesDescriptor) m_bonesDescriptor->Destroy();
 		if (m_bonesBuffer) m_bonesBuffer->Destroy();
 		m_bonesDescriptor = nullptr;
 		m_bonesBuffer = nullptr;
-
-		RendererComponent::Destroy();
 	}
 
 	void SkinnedMeshRenderer::EnsureBonesData()
@@ -202,7 +207,7 @@ namespace Skore
 		{
 			m_bonesBuffer = Graphics::CreateBuffer(BufferDesc{
 				.size = sizeof(Mat4) * MaxBones,
-				.usage = ResourceUsage::ConstantBuffer,
+				.usage = ResourceUsage::ConstantBuffer | ResourceUsage::ShaderResource,
 				.hostVisible = true,
 				.persistentMapped = true
 			});
@@ -236,7 +241,16 @@ namespace Skore
 			if (m_skinCache)
 			{
 				EnsureBonesData();
-				if (renderable) scene->renderObjects.SetBonesDescriptor(renderable, m_bonesDescriptor);
+				if (renderable)
+				{
+					scene->renderObjects.SetBonesDescriptor(renderable, m_bonesDescriptor);
+					scene->renderObjects.SetBonesBuffer(renderable, m_bonesBuffer);
+				}
+			}
+			else if (renderable)
+			{
+				scene->renderObjects.SetBonesDescriptor(renderable, nullptr);
+				scene->renderObjects.SetBonesBuffer(renderable, nullptr);
 			}
 		}
 

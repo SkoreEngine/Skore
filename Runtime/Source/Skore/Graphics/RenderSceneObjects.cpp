@@ -25,6 +25,8 @@ namespace Skore
 		bool                 visible = true;
 		u64                  layerMask = 1ULL;
 		GPUDescriptorSet*    bonesDescriptor = nullptr;
+		GPUBuffer*           bonesBuffer = nullptr;
+		u32                  boneBufferSlot = U32_MAX;
 
 		MeshResourceCachePtr            meshCache;
 		Array<MaterialResourceCachePtr> overrideMaterialsCache;
@@ -54,6 +56,32 @@ namespace Skore
 			.persistentMapped = true,
 			.debugName = "InstanceBuffer"
 		});
+
+		skinningDescriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+			.bindings = {
+				DescriptorSetLayoutBinding{
+					.binding = 0,
+					.descriptorType = DescriptorType::StorageBuffer,
+					.renderType = RenderType::RuntimeArray,
+					.shaderStage = ShaderStage::Vertex
+				},
+			},
+			.debugName = "SceneSkinningDescriptorSet"
+		});
+
+		fallbackBoneBuffer = Graphics::CreateBuffer(BufferDesc{
+			.size = sizeof(Mat4) * MaxBones,
+			.usage = ResourceUsage::ShaderResource,
+			.hostVisible = true,
+			.persistentMapped = true,
+			.debugName = "SceneFallbackBoneBuffer"
+		});
+
+		Mat4* bones = static_cast<Mat4*>(fallbackBoneBuffer->GetMappedData());
+		for (u32 i = 0; i < MaxBones; ++i)
+		{
+			new(bones + i) Mat4{Mat4(1.0)};
+		}
 	}
 
 	RenderSceneObjects::~RenderSceneObjects()
@@ -71,6 +99,8 @@ namespace Skore
 		{
 			instanceDataBuffer->Destroy();
 		}
+		if (skinningDescriptorSet) skinningDescriptorSet->Destroy();
+		if (fallbackBoneBuffer) fallbackBoneBuffer->Destroy();
 		if (tlas) tlas->Destroy();
 		if (tlasScratchBuffer) tlasScratchBuffer->Destroy();
 	}
@@ -87,6 +117,9 @@ namespace Skore
 		if (!obj) return;
 		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
 		ClearDrawcalls(o);
+		ReleaseBoneBufferSlot(o->boneBufferSlot);
+		o->boneBufferSlot = U32_MAX;
+		o->bonesBuffer = nullptr;
 		pendingUpdate.erase(o);
 		pendingBlas.erase(o);
 		renderables.Erase(o);
@@ -309,6 +342,22 @@ namespace Skore
 		return obj ? obj.ToPtr<RenderableObjectStorage>()->bonesDescriptor : nullptr;
 	}
 
+	void RenderSceneObjects::SetBonesBuffer(RenderableObject obj, GPUBuffer* bonesBuffer)
+	{
+		if (!obj) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		if (o->bonesBuffer == bonesBuffer) return;
+
+		o->bonesBuffer = bonesBuffer;
+		UpdateRenderableBoneSlot(o);
+		MarkDirty(o);
+	}
+
+	GPUBuffer* RenderSceneObjects::GetBonesBuffer(RenderableObject obj) const
+	{
+		return obj ? obj.ToPtr<RenderableObjectStorage>()->bonesBuffer : nullptr;
+	}
+
 	AABB RenderSceneObjects::GetAABB(RenderableObject obj) const
 	{
 		return obj ? obj.ToPtr<RenderableObjectStorage>()->aabb : AABB();
@@ -482,7 +531,7 @@ namespace Skore
 
 		bool frontFace = Determinant(Mat34(obj->transform)) < 0.0f;
 		CullMode cullMode = !frontFace ? CullMode::Back : CullMode::Front;
-		bool hasBones = obj->bonesDescriptor != nullptr;
+		bool hasBones = obj->bonesDescriptor != nullptr || obj->boneBufferSlot != U32_MAX;
 
 		DrawPipelineDesc pipelineDesc;
 		pipelineDesc.cullMode = cullMode;
@@ -505,6 +554,7 @@ namespace Skore
 		dc.userData = obj->userData;
 		dc.vertexLayoutIndex = vertexLayoutIndex;
 		dc.bones = obj->bonesDescriptor;
+		dc.boneBufferIndex = obj->boneBufferSlot;
 		dc.localAabb = primitive.aabb;
 		dc.aabb = Math::TransformAABB(primitive.aabb, obj->transform);
 		dc.transform = obj->transform;
@@ -539,6 +589,7 @@ namespace Skore
 				sdc.userData = obj->userData;
 				sdc.vertexLayoutIndex = vertexLayoutIndex;
 				sdc.bones = obj->bonesDescriptor;
+				sdc.boneBufferIndex = obj->boneBufferSlot;
 				sdc.localAabb = primitive.aabb;
 				sdc.aabb = dc.aabb;
 				sdc.transform = obj->transform;
@@ -583,6 +634,7 @@ namespace Skore
 			.transparent = ref.transparent,
 			.layerMask = obj->layerMask,
 			.shadowPipelineIndex = castShadow ? ref.shadowPipelineIndex : U32_MAX,
+			.boneBufferIndex = obj->boneBufferSlot,
 		};
 
 		EnrollBlasInstance(obj, primitiveIndex);
@@ -599,7 +651,7 @@ namespace Skore
 		if (ref.pipelineIndex == U32_MAX) return;
 		if (ref.transparent) return;
 		if (ref.masked) return;
-		if (obj->bonesDescriptor != nullptr) return;
+		if (obj->bonesDescriptor != nullptr || obj->boneBufferSlot != U32_MAX) return;
 
 		if (!obj->meshCache || primitiveIndex >= obj->meshCache->blasArray.Size()) return;
 		GPUBottomLevelAS* blas = obj->meshCache->blasArray[primitiveIndex];
@@ -665,6 +717,99 @@ namespace Skore
 			instances.PopBack();
 			instanceDescOwners.PopBack();
 			tlasTopologyDirty = true;
+		}
+	}
+
+	u32 RenderSceneObjects::AcquireBoneBufferSlot(GPUBuffer* bonesBuffer)
+	{
+		SK_ASSERT(bonesBuffer, "bones buffer is required");
+
+		u32 slot = U32_MAX;
+		if (!freeBoneBufferSlots.Empty())
+		{
+			slot = freeBoneBufferSlots.Back();
+			freeBoneBufferSlots.PopBack();
+		}
+		else
+		{
+			slot = static_cast<u32>(boneBuffers.Size());
+			SK_ASSERT(slot < MaxBindlessResources, "scene skinning buffer table is full");
+			boneBuffers.EmplaceBack(nullptr);
+		}
+
+		UpdateBoneBufferSlot(slot, bonesBuffer);
+		return slot;
+	}
+
+	void RenderSceneObjects::ReleaseBoneBufferSlot(u32 slot)
+	{
+		if (slot == U32_MAX || slot >= boneBuffers.Size()) return;
+		boneBuffers[slot] = nullptr;
+		if (fallbackBoneBuffer)
+		{
+			DescriptorUpdate update = {};
+			update.type = DescriptorType::StorageBuffer;
+			update.binding = 0;
+			update.arrayElement = slot;
+			update.buffer = fallbackBoneBuffer;
+			update.bufferOffset = 0;
+			update.bufferRange = sizeof(Mat4) * MaxBones;
+			skinningDescriptorSet->Update(update);
+		}
+		freeBoneBufferSlots.EmplaceBack(slot);
+	}
+
+	void RenderSceneObjects::UpdateBoneBufferSlot(u32 slot, GPUBuffer* bonesBuffer)
+	{
+		if (slot == U32_MAX || slot >= boneBuffers.Size() || bonesBuffer == nullptr) return;
+
+		boneBuffers[slot] = bonesBuffer;
+
+		DescriptorUpdate update = {};
+		update.type = DescriptorType::StorageBuffer;
+		update.binding = 0;
+		update.arrayElement = slot;
+		update.buffer = bonesBuffer;
+		update.bufferOffset = 0;
+		update.bufferRange = sizeof(Mat4) * MaxBones;
+		skinningDescriptorSet->Update(update);
+	}
+
+	void RenderSceneObjects::UpdateRenderableBoneSlot(RenderableObjectStorage* obj)
+	{
+		if (obj->bonesBuffer)
+		{
+			if (obj->boneBufferSlot == U32_MAX)
+			{
+				obj->boneBufferSlot = AcquireBoneBufferSlot(obj->bonesBuffer);
+			}
+			else
+			{
+				UpdateBoneBufferSlot(obj->boneBufferSlot, obj->bonesBuffer);
+			}
+		}
+		else
+		{
+			ReleaseBoneBufferSlot(obj->boneBufferSlot);
+			obj->boneBufferSlot = U32_MAX;
+		}
+
+		for (const DrawcallRef& ref : obj->references)
+		{
+			if (ref.pipelineIndex != U32_MAX)
+			{
+				Array<DrawPipeline>& storage = ref.transparent ? transparentPipelines : opaquePipelines;
+				storage[ref.pipelineIndex].drawcalls[ref.handle].boneBufferIndex = obj->boneBufferSlot;
+			}
+			if (ref.shadowPipelineIndex != U32_MAX && ref.shadowHandle != U64_MAX)
+			{
+				shadowPipelines[ref.shadowPipelineIndex].drawcalls[ref.shadowHandle].boneBufferIndex = obj->boneBufferSlot;
+			}
+			if (ref.instanceIndex != U32_MAX)
+			{
+				InstanceData* data = static_cast<InstanceData*>(instanceDataBuffer->GetMappedData());
+				data[ref.instanceIndex].boneBufferIndex = obj->boneBufferSlot;
+			}
 		}
 	}
 

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <utility>
 
 #include "Skore/App.hpp"
@@ -802,6 +803,7 @@ namespace Skore
 		};
 
 		Array<ContextEntry*> contexts;
+		std::mutex           contextsMutex;
 
 		ContextEntry* GetContextEntry(UIContext context)
 		{
@@ -833,6 +835,7 @@ namespace Skore
 				return {};
 			}
 
+			std::scoped_lock lock(contextsMutex);
 			for (ContextEntry* entry : contexts)
 			{
 				if (entry->context == context)
@@ -1159,6 +1162,7 @@ namespace Skore
 		{
 			Rml::Input::KeyIdentifier identifier = ToRmlKey(key);
 			int                       modifiers = GetRmlModifiers();
+			std::scoped_lock          lock(contextsMutex);
 			for (const ContextEntry* entry : contexts)
 			{
 				if (!entry->visible) continue;
@@ -1170,6 +1174,7 @@ namespace Skore
 		{
 			Rml::Input::KeyIdentifier identifier = ToRmlKey(key);
 			int                       modifiers = GetRmlModifiers();
+			std::scoped_lock          lock(contextsMutex);
 			for (const ContextEntry* entry : contexts)
 			{
 				if (!entry->visible) continue;
@@ -1179,7 +1184,8 @@ namespace Skore
 
 		void OnTextInputEvent(StringView text)
 		{
-			Rml::String string(text.Data(), text.Size());
+			Rml::String      string(text.Data(), text.Size());
+			std::scoped_lock lock(contextsMutex);
 			for (const ContextEntry* entry : contexts)
 			{
 				if (!entry->visible) continue;
@@ -1189,7 +1195,8 @@ namespace Skore
 
 		void OnMouseMoveEvent(Vec2 position)
 		{
-			int modifiers = GetRmlModifiers();
+			int              modifiers = GetRmlModifiers();
+			std::scoped_lock lock(contextsMutex);
 			for (const ContextEntry* entry : contexts)
 			{
 				if (!entry->visible) continue;
@@ -1200,8 +1207,9 @@ namespace Skore
 
 		void OnMouseButtonEvent(MouseButton button, bool pressed)
 		{
-			int index = ToRmlMouseButton(button);
-			int modifiers = GetRmlModifiers();
+			int              index = ToRmlMouseButton(button);
+			int              modifiers = GetRmlModifiers();
+			std::scoped_lock lock(contextsMutex);
 			for (const ContextEntry* entry : contexts)
 			{
 				if (!entry->visible) continue;
@@ -1218,7 +1226,8 @@ namespace Skore
 
 		void OnMouseScrollEvent(Vec2 delta)
 		{
-			int modifiers = GetRmlModifiers();
+			int              modifiers = GetRmlModifiers();
+			std::scoped_lock lock(contextsMutex);
 			for (const ContextEntry* entry : contexts)
 			{
 				if (!entry->visible) continue;
@@ -1240,7 +1249,10 @@ namespace Skore
 		ContextEntry* entry = Alloc<ContextEntry>();
 		entry->context = context;
 		entry->resourceSync = enableResourceSync;
-		contexts.EmplaceBack(entry);
+		{
+			std::scoped_lock lock(contextsMutex);
+			contexts.EmplaceBack(entry);
+		}
 		return UIContext(entry);
 	}
 
@@ -1272,12 +1284,15 @@ namespace Skore
 			Rml::RemoveContext(rmlContext->GetName());
 		}
 
-		for (auto it = contexts.begin(); it != contexts.end(); ++it)
 		{
-			if (*it == entry)
+			std::scoped_lock lock(contextsMutex);
+			for (auto it = contexts.begin(); it != contexts.end(); ++it)
 			{
-				contexts.Erase(it);
-				break;
+				if (*it == entry)
+				{
+					contexts.Erase(it);
+					break;
+				}
 			}
 		}
 
@@ -2624,15 +2639,18 @@ namespace Skore
 		}
 		documents.Clear();
 
-		for (ContextEntry* entry : contexts)
 		{
-			if (entry->context)
+			std::scoped_lock lock(contextsMutex);
+			for (ContextEntry* entry : contexts)
 			{
-				Rml::RemoveContext(entry->context->GetName());
+				if (entry->context)
+				{
+					Rml::RemoveContext(entry->context->GetName());
+				}
+				DestroyAndFree(entry);
 			}
-			DestroyAndFree(entry);
+			contexts.Clear();
 		}
-		contexts.Clear();
 
 		Rml::Shutdown();
 

@@ -70,8 +70,7 @@ namespace Skore
 			{
 				const DrawPipelineDesc& desc = objects->opaquePipelines[opaquePipelines.Size()].desc;
 
-				//RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBuffer.shader");
-				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferIndirect.raster");
+				RID deferredGBuffer = desc.shader ? desc.shader : Resources::FindByPath("Skore://Shaders/DeferredGBufferIndirect.shader");
 
 				Array<String> macros;
 				if (desc.hasBones)  macros.EmplaceBack("HAS_BONES");
@@ -105,6 +104,10 @@ namespace Skore
 					.set = 1,
 					.descriptorSet = context->GetSceneDescriptorSet(0)
 				});
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 2,
+					.descriptorSet = objects->GetSkinningDescriptorSet()
+				});
 
 				opaquePipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
 			}
@@ -123,6 +126,7 @@ namespace Skore
 				cmd->BindPipeline(pipeline);
 				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
 				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+				cmd->BindDescriptorSet(pipeline, 2, objects->GetSkinningDescriptorSet());
 
 
 				ScenePipelineCullingData& cullingPipelineData = cullingData->pipelines[i];

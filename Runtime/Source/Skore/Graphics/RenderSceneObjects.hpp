@@ -45,6 +45,7 @@ namespace Skore
 		u32                      vertexLayoutIndex = U32_MAX;
 
 		GPUDescriptorSet* bones = nullptr;
+		u32               boneBufferIndex = U32_MAX;
 
 		AABB localAabb = {};
 		AABB aabb = {};
@@ -93,7 +94,9 @@ namespace Skore
 
 		// U32_MAX when this instance does not cast a shadow.
 		u32  shadowPipelineIndex;
-		u32  pad3[3];
+		// U32_MAX when this instance has no scene skinning buffer.
+		u32  boneBufferIndex;
+		u32  pad3[2];
 	};
 
 	class SK_API RenderSceneObjects
@@ -135,6 +138,8 @@ namespace Skore
 
 		void              SetBonesDescriptor(RenderableObject obj, GPUDescriptorSet* bones);
 		GPUDescriptorSet* GetBonesDescriptor(RenderableObject obj) const;
+		void              SetBonesBuffer(RenderableObject obj, GPUBuffer* bonesBuffer);
+		GPUBuffer*        GetBonesBuffer(RenderableObject obj) const;
 
 		AABB GetAABB(RenderableObject obj) const;
 
@@ -175,6 +180,8 @@ namespace Skore
 		Array<InstanceDesc>  instances;
 		Array<InstanceOwner> instanceDescOwners;
 
+		GPUDescriptorSet* GetSkinningDescriptorSet() const { return skinningDescriptorSet; }
+
 		u32 GetVisiblePipelineCount() const
 		{
 			return static_cast<u32>(opaquePipelines.Size() + transparentPipelines.Size());
@@ -212,6 +219,11 @@ namespace Skore
 		GPUBuffer* tlasScratchBuffer = nullptr;
 		u32        tlasMaxInstances = 0;
 
+		GPUDescriptorSet* skinningDescriptorSet = nullptr;
+		GPUBuffer*        fallbackBoneBuffer = nullptr;
+		Array<GPUBuffer*> boneBuffers;
+		Array<u32>        freeBoneBufferSlots;
+
 		bool       tlasTopologyDirty = false;
 		bool       tlasTransformsDirty = false;
 
@@ -230,6 +242,10 @@ namespace Skore
 		void CreatePrimitiveDrawcall(RenderableObjectStorage* obj, u32 primitiveIndex, const MaterialResourceCachePtr& material);
 		void EnrollBlasInstance(RenderableObjectStorage* obj, u32 primitiveIndex);
 		void RemoveDrawcall(const DrawcallRef& ref);
+		u32  AcquireBoneBufferSlot(GPUBuffer* bonesBuffer);
+		void ReleaseBoneBufferSlot(u32 slot);
+		void UpdateBoneBufferSlot(u32 slot, GPUBuffer* bonesBuffer);
+		void UpdateRenderableBoneSlot(RenderableObjectStorage* obj);
 	};
 
 }

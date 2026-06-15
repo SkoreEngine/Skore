@@ -50,7 +50,9 @@ struct InstanceData
 
     // 0xFFFFFFFF when this instance does not cast a shadow.
     uint    shadowPipelineIndex;
-    uint3   pad3;
+    // 0xFFFFFFFF when this instance has no scene skinning buffer.
+    uint    boneBufferIndex;
+    uint2   pad3;
 };
 
 StructuredBuffer<InstanceData> instances : register(t1, space1);

@@ -3,10 +3,7 @@
 #include "SceneBindings.hlsli"
 
 #ifdef HAS_BONES
-cbuffer SkinnedBuffer : register(b0, space3)
-{
-    matrix boneMatrices[SK_MAX_BONES];
-};
+StructuredBuffer<float4x4> BoneMatrices[] : register(t0, space2);
 #endif
 
 struct PixelInput
@@ -37,30 +34,38 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 	float4 inputTangent = GetVertexTangent(vboff, layoutIdx, vertexId);
 
 #ifdef HAS_BONES
-	float3 position = 0.0;
-	float3 normal = 0.0;
-	float3 tangent = 0.0;
-	uint4 boneIndices = GetVertexBoneIndices(vboff, layoutIdx, vertexId);
-	float4 boneWeights = GetVertexBoneWeights(vboff, layoutIdx, vertexId);
+	float3 position = inputPosition;
+	float3 normal = inputNormal;
+	float3 tangent = inputTangent.xyz;
 
-	[unroll]
-	for (int i = 0; i < 4; i++)
+	if (instance.boneBufferIndex != 0xFFFFFFFF)
 	{
-		float weight = boneWeights[i];
-		matrix boneTransform = boneMatrices[boneIndices[i]];
+		position = 0.0;
+		normal = 0.0;
+		tangent = 0.0;
 
-		float4 localPosition = mul(boneTransform, float4(inputPosition, 1.0f));
-		position += localPosition.xyz * weight;
+		uint4 boneIndices = GetVertexBoneIndices(vboff, layoutIdx, vertexId);
+		float4 boneWeights = GetVertexBoneWeights(vboff, layoutIdx, vertexId);
 
-		float3 localNormal = mul((float3x3)boneTransform, inputNormal);
-		normal += localNormal * weight;
+		[unroll]
+		for (int i = 0; i < 4; i++)
+		{
+			float weight = boneWeights[i];
+			matrix boneTransform = BoneMatrices[NonUniformResourceIndex(instance.boneBufferIndex)][boneIndices[i]];
 
-		float3 localTangent = mul((float3x3)boneTransform, inputTangent.xyz);
-		tangent += localTangent * weight;
+			float4 localPosition = mul(boneTransform, float4(inputPosition, 1.0f));
+			position += localPosition.xyz * weight;
+
+			float3 localNormal = mul((float3x3)boneTransform, inputNormal);
+			normal += localNormal * weight;
+
+			float3 localTangent = mul((float3x3)boneTransform, inputTangent.xyz);
+			tangent += localTangent * weight;
+		}
+
+		normal = normalize(normal);
+		tangent = normalize(tangent);
 	}
-
-	normal = normalize(normal);
-	tangent = normalize(tangent);
 #else
 	float3 position = inputPosition;
 	float3 normal = inputNormal;
