@@ -785,7 +785,7 @@ namespace Skore
 	{
 		if (!Graphics::GetDevice()->GetFeatures().rayTracing) return false;
 		if (!obj || !obj->meshCache || !obj->meshCache->hasSkin || !obj->bonesBuffer) return false;
-		if (obj->meshCache->vertexCount == 0 || obj->meshCache->vertexByteOffset == U32_MAX || obj->meshCache->indexByteOffset == U32_MAX) return false;
+		if (obj->meshCache->vertexByteOffset == U32_MAX || obj->meshCache->indexByteOffset == U32_MAX) return false;
 		if (!RenderResourceCache::GetMeshDataBuffer()) return false;
 
 		const u32 primitiveCount = static_cast<u32>(obj->meshCache->primitives.Size());
