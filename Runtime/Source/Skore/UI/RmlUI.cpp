@@ -55,6 +55,16 @@ namespace Skore
 	{
 		Logger& logger = Logger::GetLogger("Skore.RmlUi");
 		RenderInterfaceSkore* renderInterface = nullptr;
+
+		Array<RID>* dependencyCapture = nullptr;
+
+		void CaptureDependency(RID rid)
+		{
+			if (dependencyCapture && rid && dependencyCapture->IndexOf(rid) == nPos)
+			{
+				dependencyCapture->EmplaceBack(rid);
+			}
+		}
 	}
 
 	struct SkoreCompiledGeometry
@@ -203,6 +213,8 @@ namespace Skore
 				logger.Warn("RmlUi could not resolve texture '{}' through Resources", source.c_str());
 				return 0;
 			}
+
+			CaptureDependency(rid);
 
 			TextureResourceCachePtr cache = RenderResourceCache::GetTextureCache(rid, false);
 			if (!cache || !cache->texture)
@@ -716,6 +728,8 @@ namespace Skore
 				return 0;
 			}
 
+			CaptureDependency(rid);
+
 			ResourceObject object = Resources::Read(rid);
 			if (!object)
 			{
@@ -784,6 +798,7 @@ namespace Skore
 			Vec2          offset = {0, 0};
 			f32           scale = 1.0f;
 			bool          visible = true;
+			bool          resourceSync = false;
 		};
 
 		Array<ContextEntry*> contexts;
@@ -827,6 +842,169 @@ namespace Skore
 			}
 
 			return {};
+		}
+
+		struct DocumentEntry
+		{
+			Rml::ElementDocument* document = nullptr;
+			UIContext             context = {};
+			RID                   resource = {};
+			Array<RID>            dependencies = {};
+			bool                  resourceSync = false;
+			bool                  needsReload = false;
+		};
+
+		Array<DocumentEntry*> documents;
+
+		DocumentEntry* GetDocumentEntry(UIElementDocument document)
+		{
+			return document.ToPtr<DocumentEntry>();
+		}
+
+		Rml::ElementDocument* GetRmlDocument(UIElementDocument document)
+		{
+			if (DocumentEntry* entry = GetDocumentEntry(document))
+			{
+				return entry->document;
+			}
+			return nullptr;
+		}
+
+		UIElementDocument FindDocumentEntry(Rml::ElementDocument* rmlDocument)
+		{
+			if (!rmlDocument)
+			{
+				return {};
+			}
+
+			for (DocumentEntry* entry : documents)
+			{
+				if (entry->document == rmlDocument)
+				{
+					return UIElementDocument(entry);
+				}
+			}
+
+			return {};
+		}
+
+		void OnDocumentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+		{
+			static_cast<DocumentEntry*>(userData)->needsReload = true;
+		}
+
+		void RegisterDocumentEvents(DocumentEntry* entry)
+		{
+			if (!entry->resourceSync)
+			{
+				return;
+			}
+
+			if (entry->resource)
+			{
+				Resources::GetStorage(entry->resource)->RegisterEvent(ResourceEventType::Changed, OnDocumentResourceChange, entry);
+			}
+
+			for (RID dependency : entry->dependencies)
+			{
+				if (dependency != entry->resource)
+				{
+					Resources::GetStorage(dependency)->RegisterEvent(ResourceEventType::Changed, OnDocumentResourceChange, entry);
+				}
+			}
+		}
+
+		void UnregisterDocumentEvents(DocumentEntry* entry)
+		{
+			if (!entry->resourceSync)
+			{
+				return;
+			}
+
+			if (entry->resource)
+			{
+				Resources::GetStorage(entry->resource)->UnregisterEvent(ResourceEventType::Changed, OnDocumentResourceChange, entry);
+			}
+
+			for (RID dependency : entry->dependencies)
+			{
+				if (dependency != entry->resource)
+				{
+					Resources::GetStorage(dependency)->UnregisterEvent(ResourceEventType::Changed, OnDocumentResourceChange, entry);
+				}
+			}
+		}
+
+		void LoadDocumentIntoEntry(DocumentEntry* entry)
+		{
+			Rml::Context* rmlContext = GetRmlContext(entry->context);
+			if (!rmlContext || !entry->resource)
+			{
+				return;
+			}
+
+			ResourceObject object = Resources::Read(entry->resource);
+			if (!object)
+			{
+				return;
+			}
+
+			String content = object.GetString(UIDocumentResource::Content);
+			if (content.Empty())
+			{
+				return;
+			}
+
+			StringView sourceUrl = Resources::GetPath(entry->resource);
+
+			entry->dependencies.Clear();
+			Array<RID>* previousCapture = dependencyCapture;
+			dependencyCapture = &entry->dependencies;
+
+			entry->document = rmlContext->LoadDocumentFromMemory(
+				Rml::String(content.CStr(), content.Size()),
+				Rml::String(sourceUrl.Data(), sourceUrl.Size()));
+
+			dependencyCapture = previousCapture;
+		}
+
+		void ReloadDocumentEntry(DocumentEntry* entry)
+		{
+			Rml::Context* rmlContext = GetRmlContext(entry->context);
+			if (!rmlContext)
+			{
+				return;
+			}
+
+			UnregisterDocumentEvents(entry);
+
+			bool wasVisible = entry->document != nullptr && entry->document->IsVisible();
+
+			if (entry->document)
+			{
+				rmlContext->UnloadDocument(entry->document);
+				entry->document = nullptr;
+			}
+
+			LoadDocumentIntoEntry(entry);
+			RegisterDocumentEvents(entry);
+
+			if (wasVisible && entry->document)
+			{
+				entry->document->Show();
+			}
+		}
+
+		void ProcessPendingReloads(UIContext context)
+		{
+			for (DocumentEntry* entry : documents)
+			{
+				if (entry->context == context && entry->needsReload)
+				{
+					entry->needsReload = false;
+					ReloadDocumentEntry(entry);
+				}
+			}
 		}
 
 		Rml::Input::KeyIdentifier ToRmlKey(Key key)
@@ -1050,7 +1228,7 @@ namespace Skore
 	}
 
 
-	UIContext RmlUI::CreateContext(StringView name, Extent dimensions)
+	UIContext RmlUI::CreateContext(StringView name, Extent dimensions, bool enableResourceSync)
 	{
 		Rml::Context* context = Rml::CreateContext(Rml::String(name.Data(), name.Size()),
 		                                           Rml::Vector2i(static_cast<int>(dimensions.width), static_cast<int>(dimensions.height)));
@@ -1061,6 +1239,7 @@ namespace Skore
 
 		ContextEntry* entry = Alloc<ContextEntry>();
 		entry->context = context;
+		entry->resourceSync = enableResourceSync;
 		contexts.EmplaceBack(entry);
 		return UIContext(entry);
 	}
@@ -1071,6 +1250,21 @@ namespace Skore
 		if (!entry)
 		{
 			return;
+		}
+
+		for (auto it = documents.begin(); it != documents.end();)
+		{
+			DocumentEntry* documentEntry = *it;
+			if (documentEntry->context == context)
+			{
+				UnregisterDocumentEvents(documentEntry);
+				DestroyAndFree(documentEntry);
+				it = documents.Erase(it);
+			}
+			else
+			{
+				++it;
+			}
 		}
 
 		if (Rml::Context* rmlContext = entry->context)
@@ -1117,6 +1311,8 @@ namespace Skore
 
 	void RmlUI::Update(UIContext context)
 	{
+		ProcessPendingReloads(context);
+
 		if (Rml::Context* rmlContext = GetRmlContext(context))
 		{
 			rmlContext->Update();
@@ -1146,16 +1342,70 @@ namespace Skore
 		{
 			return {};
 		}
-		return UIElementDocument(rmlContext->LoadDocumentFromMemory(Rml::String(content.Data(), content.Size())));
+
+		Rml::ElementDocument* element = rmlContext->LoadDocumentFromMemory(Rml::String(content.Data(), content.Size()));
+		if (!element)
+		{
+			return {};
+		}
+
+		DocumentEntry* entry = Alloc<DocumentEntry>();
+		entry->document = element;
+		entry->context = context;
+		documents.EmplaceBack(entry);
+		return UIElementDocument(entry);
+	}
+
+	UIElementDocument RmlUI::LoadDocumentFromResource(UIContext context, RID document)
+	{
+		ContextEntry* contextEntry = GetContextEntry(context);
+		if (!contextEntry || !contextEntry->context || !document)
+		{
+			return {};
+		}
+
+		DocumentEntry* entry = Alloc<DocumentEntry>();
+		entry->context = context;
+		entry->resource = document;
+		entry->resourceSync = contextEntry->resourceSync;
+
+		LoadDocumentIntoEntry(entry);
+		if (!entry->document)
+		{
+			DestroyAndFree(entry);
+			return {};
+		}
+
+		documents.EmplaceBack(entry);
+		RegisterDocumentEvents(entry);
+		return UIElementDocument(entry);
 	}
 
 	void RmlUI::UnloadDocument(UIContext context, UIElementDocument document)
 	{
-		Rml::Context* rmlContext = GetRmlContext(context);
-		if (rmlContext && document)
+		DocumentEntry* entry = GetDocumentEntry(document);
+		if (!entry)
 		{
-			rmlContext->UnloadDocument(document.ToPtr<Rml::ElementDocument>());
+			return;
 		}
+
+		UnregisterDocumentEvents(entry);
+
+		if (Rml::Context* rmlContext = GetRmlContext(context); rmlContext && entry->document)
+		{
+			rmlContext->UnloadDocument(entry->document);
+		}
+
+		for (auto it = documents.begin(); it != documents.end(); ++it)
+		{
+			if (*it == entry)
+			{
+				documents.Erase(it);
+				break;
+			}
+		}
+
+		DestroyAndFree(entry);
 	}
 
 	namespace
@@ -1193,7 +1443,7 @@ namespace Skore
 
 	void RmlUI::ShowDocument(UIElementDocument document, UIModalFlag modalFlag, UIFocusFlag focusFlag, UIScrollFlag scrollFlag)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			element->Show(ToRmlModalFlag(modalFlag), ToRmlFocusFlag(focusFlag), ToRmlScrollFlag(scrollFlag));
 		}
@@ -1201,7 +1451,7 @@ namespace Skore
 
 	void RmlUI::HideDocument(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			element->Hide();
 		}
@@ -1209,7 +1459,7 @@ namespace Skore
 
 	void RmlUI::CloseDocument(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			element->Close();
 		}
@@ -1217,7 +1467,7 @@ namespace Skore
 
 	void RmlUI::PullDocumentToFront(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			element->PullToFront();
 		}
@@ -1225,7 +1475,7 @@ namespace Skore
 
 	void RmlUI::PushDocumentToBack(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			element->PushToBack();
 		}
@@ -1233,7 +1483,7 @@ namespace Skore
 
 	void RmlUI::SetDocumentTitle(UIElementDocument document, StringView title)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			element->SetTitle(Rml::String(title.Data(), title.Size()));
 		}
@@ -1241,7 +1491,7 @@ namespace Skore
 
 	String RmlUI::GetDocumentTitle(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			const Rml::String& title = element->GetTitle();
 			return String(title.c_str(), title.size());
@@ -1251,7 +1501,7 @@ namespace Skore
 
 	String RmlUI::GetDocumentSourceURL(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			const Rml::String& url = element->GetSourceURL();
 			return String(url.c_str(), url.size());
@@ -1261,7 +1511,7 @@ namespace Skore
 
 	bool RmlUI::IsDocumentModal(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			return element->IsModal();
 		}
@@ -1270,7 +1520,7 @@ namespace Skore
 
 	void RmlUI::ReloadDocumentStyleSheet(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			element->ReloadStyleSheet();
 		}
@@ -1278,7 +1528,7 @@ namespace Skore
 
 	void RmlUI::UpdateDocument(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			element->UpdateDocument();
 		}
@@ -1286,7 +1536,7 @@ namespace Skore
 
 	UIContext RmlUI::GetDocumentContext(UIElementDocument document)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			return FindContextEntry(element->GetContext());
 		}
@@ -1295,7 +1545,7 @@ namespace Skore
 
 	UIElement RmlUI::FindNextTabElement(UIElementDocument document, UIElement currentElement, bool forward, bool wrapAround)
 	{
-		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* element = GetRmlDocument(document))
 		{
 			return UIElement(element->FindNextTabElement(currentElement.ToPtr<Rml::Element>(), forward, wrapAround));
 		}
@@ -1328,7 +1578,7 @@ namespace Skore
 
 	UIElement RmlUI::CreateElement(UIElementDocument document, StringView name)
 	{
-		if (Rml::ElementDocument* doc = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* doc = GetRmlDocument(document))
 		{
 			return UIElement(doc->CreateElement(ToRmlString(name)).release());
 		}
@@ -1337,7 +1587,7 @@ namespace Skore
 
 	UIElement RmlUI::CreateTextNode(UIElementDocument document, StringView text)
 	{
-		if (Rml::ElementDocument* doc = document.ToPtr<Rml::ElementDocument>())
+		if (Rml::ElementDocument* doc = GetRmlDocument(document))
 		{
 			return UIElement(doc->CreateTextNode(ToRmlString(text)).release());
 		}
@@ -1763,7 +2013,7 @@ namespace Skore
 	{
 		if (Rml::Element* el = element.ToPtr<Rml::Element>())
 		{
-			return UIElementDocument(el->GetOwnerDocument());
+			return FindDocumentEntry(el->GetOwnerDocument());
 		}
 		return {};
 	}
@@ -2317,6 +2567,13 @@ namespace Skore
 		Event::Unbind<OnMouseMove, OnMouseMoveEvent>();
 		Event::Unbind<OnMouseButton, OnMouseButtonEvent>();
 		Event::Unbind<OnMouseScroll, OnMouseScrollEvent>();
+
+		for (DocumentEntry* entry : documents)
+		{
+			UnregisterDocumentEvents(entry);
+			DestroyAndFree(entry);
+		}
+		documents.Clear();
 
 		for (ContextEntry* entry : contexts)
 		{

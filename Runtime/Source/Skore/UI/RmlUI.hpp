@@ -71,7 +71,7 @@ namespace Skore
 
 	struct SK_API RmlUI
 	{
-		static UIContext         CreateContext(StringView name, Extent dimensions);
+		static UIContext         CreateContext(StringView name, Extent dimensions, bool enableResourceSync = false);
 		static void              RemoveContext(UIContext context);
 		static void              SetDimensions(UIContext context, Extent dimensions);
 		static void              SetDensityIndependentPixelRatio(UIContext context, f32 ratio);
@@ -81,6 +81,7 @@ namespace Skore
 		static void              SetContextVisible(UIContext context, bool visible);
 
 		static UIElementDocument LoadDocumentFromMemory(UIContext context, StringView content);
+		static UIElementDocument LoadDocumentFromResource(UIContext context, RID document);
 		static void              UnloadDocument(UIContext context, UIElementDocument document);
 
 		static void      ShowDocument(UIElementDocument document, UIModalFlag modalFlag = UIModalFlag::None, UIFocusFlag focusFlag = UIFocusFlag::Auto, UIScrollFlag scrollFlag = UIScrollFlag::Auto);
@@ -169,6 +170,18 @@ namespace Skore
 
 		static UIEventListener AddEventListener(UIElement element, StringView event, FnUIEventCallback callback, VoidPtr userData = nullptr, bool inCapturePhase = false);
 		static void            RemoveEventListener(UIElement element, StringView event, UIEventListener listener, bool inCapturePhase = false);
+
+		template <typename Func>
+		static UIEventListener AddEventListener(UIElement element, StringView event, Func* callback, bool inCapturePhase = false)
+		{
+			return AddEventListener(element, event,
+				[](UIEvent event, VoidPtr userData)
+				{
+					(*static_cast<Func*>(userData))(event);
+				},
+				callback, inCapturePhase);
+		}
+
 		static bool            DispatchEvent(UIElement element, StringView type);
 
 		static String        GetEventType(UIEvent event);
@@ -198,6 +211,29 @@ namespace Skore
 		static bool        BindEventCallback(UIDataModelConstructor constructor, StringView name,
 		                       FnUIDataEventCallback callback, VoidPtr userData = nullptr);
 
+		template <typename GetFunc>
+		static bool BindFunc(UIDataModelConstructor constructor, StringView name, GetFunc* getCallback)
+		{
+			return BindFunc(constructor, name,
+				[](UIDataVariant variant, VoidPtr userData) { (*static_cast<GetFunc*>(userData))(variant); }, getCallback);
+		}
+
+		template <typename GetFunc, typename SetFunc>
+		static bool BindFunc(UIDataModelConstructor constructor, StringView name, GetFunc* getCallback, SetFunc* setCallback)
+		{
+			return BindFunc(constructor, name,
+				[](UIDataVariant variant, VoidPtr userData) { (*static_cast<GetFunc*>(userData))(variant); }, getCallback,
+				[](UIDataVariant variant, VoidPtr userData) { (*static_cast<SetFunc*>(userData))(variant); }, setCallback);
+		}
+
+		template <typename Func>
+		static bool BindEventCallback(UIDataModelConstructor constructor, StringView name, Func* callback)
+		{
+			return BindEventCallback(constructor, name,
+				[](UIDataModel model, UIEvent event, VoidPtr userData) { (*static_cast<Func*>(userData))(model, event); },
+				callback);
+		}
+
 		static bool BindVariable(UIDataModelConstructor constructor, StringView name, f32* ptr);
 		static bool BindVariable(UIDataModelConstructor constructor, StringView name, i32* ptr);
 		static bool BindVariable(UIDataModelConstructor constructor, StringView name, bool* ptr);
@@ -214,6 +250,21 @@ namespace Skore
 		static bool BindScalar(UIDataModelConstructor constructor, StringView name,
 		                       String (*get)(VoidPtr), VoidPtr getData = nullptr,
 		                       void (*set)(StringView, VoidPtr) = nullptr, VoidPtr setData = nullptr);
+
+		template <typename GetFunc>
+		static bool BindScalar(UIDataModelConstructor constructor, StringView name, GetFunc* getCallback)
+		{
+			return BindScalar(constructor, name,
+				+[](VoidPtr userData) { return (*static_cast<GetFunc*>(userData))(); }, getCallback);
+		}
+
+		template <typename SetArg, typename GetFunc, typename SetFunc>
+		static bool BindScalar(UIDataModelConstructor constructor, StringView name, GetFunc* getCallback, SetFunc* setCallback)
+		{
+			return BindScalar(constructor, name,
+				+[](VoidPtr userData) { return (*static_cast<GetFunc*>(userData))(); }, getCallback,
+				+[](SetArg value, VoidPtr userData) { (*static_cast<SetFunc*>(userData))(value); }, setCallback);
+		}
 
 		static bool IsVariableDirty(UIDataModel model, StringView variableName);
 		static void DirtyVariable(UIDataModel model, StringView variableName);

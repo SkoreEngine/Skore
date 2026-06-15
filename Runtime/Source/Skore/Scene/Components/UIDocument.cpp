@@ -57,17 +57,10 @@ namespace Skore
 			return;
 		}
 
-		if (ResourceObject object = Resources::Read(m_document))
+		root = RmlUI::LoadDocumentFromResource(scene->uiContext, m_document);
+		if (root)
 		{
-			String content = object.GetString(UIDocumentResource::Content);
-			if (!content.Empty())
-			{
-				root = RmlUI::LoadDocumentFromMemory(scene->uiContext, content);
-				if (root)
-				{
-					RmlUI::ShowDocument(root);
-				}
-			}
+			RmlUI::ShowDocument(root);
 		}
 	}
 
