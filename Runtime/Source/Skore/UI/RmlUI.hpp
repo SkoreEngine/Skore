@@ -8,8 +8,6 @@
 
 namespace Skore
 {
-	class RenderInterfaceSkore;
-
 	SK_HANDLER(UIContext);
 	SK_HANDLER(UIElementDocument);
 	SK_HANDLER(UIElement);
@@ -71,8 +69,10 @@ namespace Skore
 		static void              RemoveContext(UIContext context);
 		static void              SetDimensions(UIContext context, Extent dimensions);
 		static void              SetDensityIndependentPixelRatio(UIContext context, f32 ratio);
+		static void              SetInputTransform(UIContext context, Vec2 offset, f32 scale);
 		static void              Update(UIContext context);
 		static void              Render(UIContext context);
+		static void              SetContextVisible(UIContext context, bool visible);
 
 		static UIElementDocument LoadDocumentFromMemory(UIContext context, StringView content);
 		static void              UnloadDocument(UIContext context, UIElementDocument document);
@@ -179,13 +179,5 @@ namespace Skore
 		static f32    GetEventParameterFloat(UIEvent event, StringView key, f32 defaultValue = 0.0f);
 		static i32    GetEventParameterInt(UIEvent event, StringView key, i32 defaultValue = 0);
 		static bool   GetEventParameterBool(UIEvent event, StringView key, bool defaultValue = false);
-	};
-
-	struct SK_API RmlUiManager
-	{
-		static RenderInterfaceSkore* GetRenderInterface();
-		static void                  RegisterContext(UIContext context);
-		static void                  UnregisterContext(UIContext context);
-		static void                  SetInputTransform(Vec2 offset, f32 scale);
 	};
 }

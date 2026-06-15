@@ -48,9 +48,12 @@
 
 namespace Skore
 {
+	class RenderInterfaceSkore;
+
 	namespace
 	{
 		Logger& logger = Logger::GetLogger("Skore.RmlUi");
+		RenderInterfaceSkore* renderInterface = nullptr;
 	}
 
 	struct SkoreCompiledGeometry
@@ -550,7 +553,6 @@ namespace Skore
 			GPUTexture* atlas = cache->texture;
 			face->textureSource = Rml::CallbackTextureSource([atlas](const Rml::CallbackTextureInterface& textureInterface) -> bool
 			{
-				RenderInterfaceSkore* renderInterface = RmlUiManager::GetRenderInterface();
 				if (!renderInterface)
 				{
 					return false;
@@ -771,7 +773,6 @@ namespace Skore
 
 	namespace
 	{
-		RenderInterfaceSkore* renderInterface = nullptr;
 		SystemInterfaceSkore* systemInterface = nullptr;
 		FontEngineSkore*      fontEngine = nullptr;
 		FileInterfaceSkore*   fileInterface = nullptr;
@@ -781,9 +782,51 @@ namespace Skore
 			Rml::Context* context = nullptr;
 			Vec2          offset = {0, 0};
 			f32           scale = 1.0f;
+			bool          visible = true;
 		};
 
-		Array<ContextEntry> contexts;
+		Array<ContextEntry*> contexts;
+
+		ContextEntry* GetContextEntry(UIContext context)
+		{
+			return context.ToPtr<ContextEntry>();
+		}
+
+		Rml::Context* GetRmlContext(UIContext context)
+		{
+			if (ContextEntry* entry = GetContextEntry(context))
+			{
+				return entry->context;
+			}
+			return nullptr;
+		}
+
+		bool IsContextVisible(UIContext context)
+		{
+			if (ContextEntry* entry = GetContextEntry(context))
+			{
+				return entry->visible;
+			}
+			return false;
+		}
+
+		UIContext FindContextEntry(Rml::Context* context)
+		{
+			if (!context)
+			{
+				return {};
+			}
+
+			for (ContextEntry* entry : contexts)
+			{
+				if (entry->context == context)
+				{
+					return UIContext(entry);
+				}
+			}
+
+			return {};
+		}
 
 		Rml::Input::KeyIdentifier ToRmlKey(Key key)
 		{
@@ -937,9 +980,10 @@ namespace Skore
 		{
 			Rml::Input::KeyIdentifier identifier = ToRmlKey(key);
 			int                       modifiers = GetRmlModifiers();
-			for (const ContextEntry& entry : contexts)
+			for (const ContextEntry* entry : contexts)
 			{
-				entry.context->ProcessKeyDown(identifier, modifiers);
+				if (!entry->visible) continue;
+				entry->context->ProcessKeyDown(identifier, modifiers);
 			}
 		}
 
@@ -947,28 +991,31 @@ namespace Skore
 		{
 			Rml::Input::KeyIdentifier identifier = ToRmlKey(key);
 			int                       modifiers = GetRmlModifiers();
-			for (const ContextEntry& entry : contexts)
+			for (const ContextEntry* entry : contexts)
 			{
-				entry.context->ProcessKeyUp(identifier, modifiers);
+				if (!entry->visible) continue;
+				entry->context->ProcessKeyUp(identifier, modifiers);
 			}
 		}
 
 		void OnTextInputEvent(StringView text)
 		{
 			Rml::String string(text.Data(), text.Size());
-			for (const ContextEntry& entry : contexts)
+			for (const ContextEntry* entry : contexts)
 			{
-				entry.context->ProcessTextInput(string);
+				if (!entry->visible) continue;
+				entry->context->ProcessTextInput(string);
 			}
 		}
 
 		void OnMouseMoveEvent(Vec2 position)
 		{
 			int modifiers = GetRmlModifiers();
-			for (const ContextEntry& entry : contexts)
+			for (const ContextEntry* entry : contexts)
 			{
-				Vec2 local = (position - entry.offset) * entry.scale;
-				entry.context->ProcessMouseMove(static_cast<int>(local.x), static_cast<int>(local.y), modifiers);
+				if (!entry->visible) continue;
+				Vec2 local = (position - entry->offset) * entry->scale;
+				entry->context->ProcessMouseMove(static_cast<int>(local.x), static_cast<int>(local.y), modifiers);
 			}
 		}
 
@@ -976,15 +1023,16 @@ namespace Skore
 		{
 			int index = ToRmlMouseButton(button);
 			int modifiers = GetRmlModifiers();
-			for (const ContextEntry& entry : contexts)
+			for (const ContextEntry* entry : contexts)
 			{
+				if (!entry->visible) continue;
 				if (pressed)
 				{
-					entry.context->ProcessMouseButtonDown(index, modifiers);
+					entry->context->ProcessMouseButtonDown(index, modifiers);
 				}
 				else
 				{
-					entry.context->ProcessMouseButtonUp(index, modifiers);
+					entry->context->ProcessMouseButtonUp(index, modifiers);
 				}
 			}
 		}
@@ -992,66 +1040,58 @@ namespace Skore
 		void OnMouseScrollEvent(Vec2 delta)
 		{
 			int modifiers = GetRmlModifiers();
-			for (const ContextEntry& entry : contexts)
+			for (const ContextEntry* entry : contexts)
 			{
-				entry.context->ProcessMouseWheel(Rml::Vector2f(-delta.x, -delta.y), modifiers);
+				if (!entry->visible) continue;
+				entry->context->ProcessMouseWheel(Rml::Vector2f(-delta.x, -delta.y), modifiers);
 			}
 		}
 	}
 
-	RenderInterfaceSkore* RmlUiManager::GetRenderInterface()
-	{
-		return renderInterface;
-	}
-
-	void RmlUiManager::RegisterContext(UIContext context)
-	{
-		if (Rml::Context* rmlContext = context.ToPtr<Rml::Context>())
-		{
-			contexts.EmplaceBack(ContextEntry{rmlContext});
-		}
-	}
-
-	void RmlUiManager::UnregisterContext(UIContext context)
-	{
-		Rml::Context* rmlContext = context.ToPtr<Rml::Context>();
-		for (auto it = contexts.begin(); it != contexts.end(); ++it)
-		{
-			if (it->context == rmlContext)
-			{
-				contexts.Erase(it);
-				break;
-			}
-		}
-	}
-
-	void RmlUiManager::SetInputTransform(Vec2 offset, f32 scale)
-	{
-		for (ContextEntry& entry : contexts)
-		{
-			entry.offset = offset;
-			entry.scale = scale;
-		}
-	}
 
 	UIContext RmlUI::CreateContext(StringView name, Extent dimensions)
 	{
 		Rml::Context* context = Rml::CreateContext(Rml::String(name.Data(), name.Size()),
 		                                           Rml::Vector2i(static_cast<int>(dimensions.width), static_cast<int>(dimensions.height)));
-		return UIContext(context);
+		if (!context)
+		{
+			return {};
+		}
+
+		ContextEntry* entry = Alloc<ContextEntry>();
+		entry->context = context;
+		contexts.EmplaceBack(entry);
+		return UIContext(entry);
 	}
 
 	void RmlUI::RemoveContext(UIContext context)
 	{
-		if (Rml::Context* rmlContext = context.ToPtr<Rml::Context>())
+		ContextEntry* entry = GetContextEntry(context);
+		if (!entry)
+		{
+			return;
+		}
+
+		if (Rml::Context* rmlContext = entry->context)
 		{
 			Rml::RemoveContext(rmlContext->GetName());
 		}
+
+		for (auto it = contexts.begin(); it != contexts.end(); ++it)
+		{
+			if (*it == entry)
+			{
+				contexts.Erase(it);
+				break;
+			}
+		}
+
+		DestroyAndFree(entry);
 	}
 
 	void RmlUI::SetDimensions(UIContext context, Extent dimensions)
 	{
-		if (Rml::Context* rmlContext = context.ToPtr<Rml::Context>())
+		if (Rml::Context* rmlContext = GetRmlContext(context))
 		{
 			rmlContext->SetDimensions(Rml::Vector2i(static_cast<int>(dimensions.width), static_cast<int>(dimensions.height)));
 		}
@@ -1059,15 +1099,24 @@ namespace Skore
 
 	void RmlUI::SetDensityIndependentPixelRatio(UIContext context, f32 ratio)
 	{
-		if (Rml::Context* rmlContext = context.ToPtr<Rml::Context>())
+		if (Rml::Context* rmlContext = GetRmlContext(context))
 		{
 			rmlContext->SetDensityIndependentPixelRatio(ratio);
 		}
 	}
 
+	void RmlUI::SetInputTransform(UIContext context, Vec2 offset, f32 scale)
+	{
+		if (ContextEntry* entry = GetContextEntry(context))
+		{
+			entry->offset = offset;
+			entry->scale = scale;
+		}
+	}
+
 	void RmlUI::Update(UIContext context)
 	{
-		if (Rml::Context* rmlContext = context.ToPtr<Rml::Context>())
+		if (Rml::Context* rmlContext = GetRmlContext(context))
 		{
 			rmlContext->Update();
 		}
@@ -1075,15 +1124,23 @@ namespace Skore
 
 	void RmlUI::Render(UIContext context)
 	{
-		if (Rml::Context* rmlContext = context.ToPtr<Rml::Context>())
+		if (Rml::Context* rmlContext = GetRmlContext(context))
 		{
 			rmlContext->Render();
 		}
 	}
 
+	void RmlUI::SetContextVisible(UIContext context, bool visible)
+	{
+		if (ContextEntry* entry = GetContextEntry(context))
+		{
+			entry->visible = visible;
+		}
+	}
+
 	UIElementDocument RmlUI::LoadDocumentFromMemory(UIContext context, StringView content)
 	{
-		Rml::Context* rmlContext = context.ToPtr<Rml::Context>();
+		Rml::Context* rmlContext = GetRmlContext(context);
 		if (!rmlContext)
 		{
 			return {};
@@ -1093,7 +1150,7 @@ namespace Skore
 
 	void RmlUI::UnloadDocument(UIContext context, UIElementDocument document)
 	{
-		Rml::Context* rmlContext = context.ToPtr<Rml::Context>();
+		Rml::Context* rmlContext = GetRmlContext(context);
 		if (rmlContext && document)
 		{
 			rmlContext->UnloadDocument(document.ToPtr<Rml::ElementDocument>());
@@ -1230,7 +1287,7 @@ namespace Skore
 	{
 		if (Rml::ElementDocument* element = document.ToPtr<Rml::ElementDocument>())
 		{
-			return UIContext(element->GetContext());
+			return FindContextEntry(element->GetContext());
 		}
 		return {};
 	}
@@ -1714,7 +1771,7 @@ namespace Skore
 	{
 		if (Rml::Element* el = element.ToPtr<Rml::Element>())
 		{
-			return UIContext(el->GetContext());
+			return FindContextEntry(el->GetContext());
 		}
 		return {};
 	}
@@ -1999,6 +2056,16 @@ namespace Skore
 		Event::Unbind<OnMouseButton, OnMouseButtonEvent>();
 		Event::Unbind<OnMouseScroll, OnMouseScrollEvent>();
 
+		for (ContextEntry* entry : contexts)
+		{
+			if (entry->context)
+			{
+				Rml::RemoveContext(entry->context->GetName());
+			}
+			DestroyAndFree(entry);
+		}
+		contexts.Clear();
+
 		Rml::Shutdown();
 
 		if (renderInterface)
@@ -2028,17 +2095,6 @@ namespace Skore
 	{
 		SK_CLASS(RmlUiRenderPass, RenderPipelinePass);
 
-		struct DocumentEntry
-		{
-			UIContext         uiContext = {};
-			UIElementDocument element = {};
-			RID               loadedDocument = {};
-			u64               lastSeenFrame = 0;
-		};
-
-		HashMap<UIDocument*, DocumentEntry> entries;
-		u64                                 contextCounter = 0;
-
 		RenderPipelinePassSetup GetPassSetup() override
 		{
 			RenderPipelinePassSetup setup;
@@ -2051,119 +2107,23 @@ namespace Skore
 		bool IsEnabled() override
 		{
 			Scene* scene = context->GetScene();
-			return RmlUiManager::GetRenderInterface() != nullptr && scene != nullptr && scene->HasIterable<UIDocument>();
-		}
-
-		void DestroyEntry(DocumentEntry& entry)
-		{
-			if (!entry.uiContext)
-			{
-				return;
-			}
-			if (entry.element)
-			{
-				RmlUI::UnloadDocument(entry.uiContext, entry.element);
-			}
-			RmlUiManager::UnregisterContext(entry.uiContext);
-			RmlUI::RemoveContext(entry.uiContext);
-		}
-
-		void Destroy() override
-		{
-			for (auto it = entries.begin(); it != entries.end(); ++it)
-			{
-				DestroyEntry(it->second);
-			}
-			entries.Clear();
-		}
-
-		void SyncDocument(DocumentEntry& entry, UIDocument* document, Extent size)
-		{
-			if (!entry.uiContext)
-			{
-				String name = "UIDocument_" + ToString(contextCounter++);
-				entry.uiContext = RmlUI::CreateContext(name, size);
-				if (!entry.uiContext)
-				{
-					return;
-				}
-				RmlUiManager::RegisterContext(entry.uiContext);
-			}
-
-			RID documentRid = document->GetDocument();
-			if (documentRid == entry.loadedDocument)
-			{
-				return;
-			}
-
-			if (entry.element)
-			{
-				RmlUI::UnloadDocument(entry.uiContext, entry.element);
-				entry.element = {};
-			}
-
-			entry.loadedDocument = documentRid;
-
-			if (ResourceObject object = Resources::Read(documentRid))
-			{
-				String content = object.GetString(UIDocumentResource::Content);
-				if (!content.Empty())
-				{
-					entry.element = RmlUI::LoadDocumentFromMemory(entry.uiContext, content);
-					if (entry.element)
-					{
-						RmlUI::ShowDocument(entry.element);
-					}
-				}
-			}
+			return renderInterface != nullptr && scene != nullptr && IsContextVisible(scene->uiContext) && scene->HasIterable<UIDocument>();
 		}
 
 		void Render(Scene* scene, GPUCommandBuffer* cmd) override
 		{
-			RenderInterfaceSkore* renderInterface = RmlUiManager::GetRenderInterface();
-			if (!renderInterface || !scene)
+			if (!renderInterface || !scene || !IsContextVisible(scene->uiContext))
 			{
 				return;
 			}
 
-			const Extent size = context->GetOutputSize();
-			const u64    frame = App::Frame();
-			const f32    dpi = Platform::GetWindowDPI(Graphics::GetWindow());
+			RmlUI::SetDimensions(scene->uiContext, context->GetOutputSize());
+			RmlUI::SetDensityIndependentPixelRatio(scene->uiContext, Platform::GetWindowDPI(Graphics::GetWindow()));
+			RmlUI::Update(scene->uiContext);
 
-			scene->Iterate<UIDocument>([&](UIDocument* document)
-			{
-				DocumentEntry& entry = entries[document];
-
-				SyncDocument(entry, document, size);
-				if (!entry.uiContext)
-				{
-					return;
-				}
-
-				entry.lastSeenFrame = frame;
-
-				RmlUI::SetDimensions(entry.uiContext, size);
-				RmlUI::SetDensityIndependentPixelRatio(entry.uiContext, dpi);
-				RmlUI::Update(entry.uiContext);
-
-				renderInterface->BeginFrame(cmd, renderPass, size);
-				RmlUI::Render(entry.uiContext);
-				renderInterface->EndFrame();
-			});
-
-			Array<UIDocument*> stale;
-			for (auto it = entries.begin(); it != entries.end(); ++it)
-			{
-				if (it->second.lastSeenFrame != frame)
-				{
-					DestroyEntry(it->second);
-					stale.EmplaceBack(it->first);
-				}
-			}
-			for (UIDocument* document : stale)
-			{
-				entries.Erase(document);
-			}
+			renderInterface->BeginFrame(cmd, renderPass, context->GetOutputSize());
+			RmlUI::Render(scene->uiContext);
+			renderInterface->EndFrame();
 		}
 	};
 

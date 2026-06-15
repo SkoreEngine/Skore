@@ -7,6 +7,7 @@
 #include "Skore/Core/UnorderedDense.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Resource/ResourceReflection.hpp"
+#include "Skore/UI/RmlUI.hpp"
 
 namespace Skore
 {
@@ -16,7 +17,7 @@ namespace Skore
 		SK_CLASS(Scene, Object);
 		SK_NO_COPY_CONSTRUCTOR(Scene);
 
-		Scene() = default;
+		Scene();
 		Scene(RID rid, bool enableResourceSync = false);
 		Scene(TypedRID<EntityResource> rid, bool enableResourceSync = false);
 		~Scene() override;
@@ -68,6 +69,7 @@ namespace Skore
 		RenderSceneObjects renderObjects;
 		PhysicsScene       physicsScene;
 		NavigationScene    navigationScene;
+		UIContext					 uiContext;
 
 		void NotifyEvent(const EntityEventDesc& event, bool notifyChildren = false);
 
@@ -106,6 +108,8 @@ namespace Skore
 		void OnSceneActivated();
 		void Update();
 		void DoReflectionUpdated();
+
+		void InitUI();
 
 		static void OnSceneResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData);
 	};

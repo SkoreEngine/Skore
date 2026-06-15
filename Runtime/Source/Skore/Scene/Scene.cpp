@@ -11,8 +11,14 @@
 
 namespace Skore
 {
+	Scene::Scene()
+	{
+		InitUI();
+	}
+
 	Scene::Scene(RID rid, bool enableResourceSync) : m_enableResourceSync(enableResourceSync), m_sceneRID(rid)
 	{
+		InitUI();
 		if (ResourceObject sceneResource = Resources::Read(rid))
 		{
 			Span<RID> entitiesRID = sceneResource.GetSubObjectList(SceneResource::Entities);
@@ -27,10 +33,12 @@ namespace Skore
 			Resources::GetStorage(rid)->RegisterEvent(ResourceEventType::Changed, OnSceneResourceChange, this);
 			Event::Bind<OnPluginReloaded, &Scene::DoReflectionUpdated>(this);
 		}
+
 	}
 
 	Scene::Scene(TypedRID<EntityResource> rid, bool enableResourceSync) : m_enableResourceSync(enableResourceSync)
 	{
+		InitUI();
 		Entity::Instantiate(this, nullptr, rid, true);
 		if (enableResourceSync)
 		{
@@ -61,6 +69,8 @@ namespace Skore
 		}
 		entitiesByRID.Clear();
 		entities.Clear();
+
+		RmlUI::RemoveContext(uiContext);
 	}
 
 	bool Scene::IsResourceSyncEnabled() const
@@ -259,6 +269,20 @@ namespace Skore
 		}
 	}
 
+	void Scene::DoReflectionUpdated()
+	{
+		for (Entity* entity : entities)
+		{
+			entity->ReflectionReload();
+		}
+	}
+
+	void Scene::InitUI()
+	{
+		auto contextName = fmt::format("UIContext_{}", PtrToInt(this));
+		uiContext = RmlUI::CreateContext(StringView{contextName.c_str(), contextName.size()}, Extent(800, 600));
+	}
+
 	void Scene::OnSceneResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 	{
 		Scene* scene = static_cast<Scene*>(userData);
@@ -283,14 +307,6 @@ namespace Skore
 					}
 				}
 			}
-		}
-	}
-
-	void Scene::DoReflectionUpdated()
-	{
-		for (Entity* entity : entities)
-		{
-			entity->ReflectionReload();
 		}
 	}
 }
