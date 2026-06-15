@@ -218,6 +218,10 @@ namespace Skore
 
 		GPUBuffer* tlasScratchBuffer = nullptr;
 		u32        tlasMaxInstances = 0;
+		bool       tlasFastBuild = false;
+
+		GPUBuffer* skinnedBlasScratchBuffer = nullptr;
+		u64        skinnedBlasScratchSize = 0;
 
 		GPUDescriptorSet* skinningDescriptorSet = nullptr;
 		GPUBuffer*        fallbackBoneBuffer = nullptr;
@@ -242,6 +246,11 @@ namespace Skore
 		void CreatePrimitiveDrawcall(RenderableObjectStorage* obj, u32 primitiveIndex, const MaterialResourceCachePtr& material);
 		void EnrollBlasInstance(RenderableObjectStorage* obj, u32 primitiveIndex);
 		void RemoveDrawcall(const DrawcallRef& ref);
+		bool EnsureSkinnedRayTracingResources(RenderableObjectStorage* obj);
+		void DestroySkinnedRayTracingResources(RenderableObjectStorage* obj);
+		void EnsureSkinnedBlasScratchBuffer(u64 requiredSize);
+		void UpdateSkinnedRayTracing(GPUCommandBuffer* cmd);
+		bool HasSkinnedTlasInstances() const;
 		u32  AcquireBoneBufferSlot(GPUBuffer* bonesBuffer);
 		void ReleaseBoneBufferSlot(u32 slot);
 		void UpdateBoneBufferSlot(u32 slot, GPUBuffer* bonesBuffer);

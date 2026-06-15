@@ -2906,6 +2906,41 @@ namespace Skore
 		return meshReloadVersion;
 	}
 
+	bool RenderResourceCache::GetMeshPrimitiveBlasLod(const MeshResourceCachePtr& mesh, u32 primitiveIndex, u32& firstIndex, u32& indexCount)
+	{
+		if (!mesh || primitiveIndex >= mesh->primitives.Size() || mesh->indexByteOffset == U32_MAX)
+		{
+			return false;
+		}
+
+		const MeshPrimitive& primitive = mesh->primitives[primitiveIndex];
+		firstIndex = primitive.firstIndex + static_cast<u32>(mesh->indexByteOffset / sizeof(u32));
+		indexCount = primitive.indexCount;
+
+		std::scoped_lock lock(primitiveInfoMutex);
+		const GpuMeshPrimitiveInfo* lodInfoBuffer =
+			meshPrimitiveInfoBuffer
+				? static_cast<const GpuMeshPrimitiveInfo*>(meshPrimitiveInfoBuffer->GetMappedData())
+				: nullptr;
+
+		if (lodInfoBuffer && primitiveIndex < mesh->primitiveInfoSlots.Size())
+		{
+			u32 slot = mesh->primitiveInfoSlots[primitiveIndex];
+			if (slot != U32_MAX)
+			{
+				const GpuMeshPrimitiveInfo& info = lodInfoBuffer[slot];
+				if (info.lodCount > 0)
+				{
+					u32 lodIdx = std::min(BlasLod, info.lodCount - 1);
+					firstIndex = info.lods[lodIdx].firstIndex;
+					indexCount = info.lods[lodIdx].indexCount;
+				}
+			}
+		}
+
+		return indexCount > 0;
+	}
+
 	SkinResourceCachePtr RenderResourceCache::GetSkinCache(RID mesh)
 	{
 		if (!mesh) return nullptr;

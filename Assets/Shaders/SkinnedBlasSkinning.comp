@@ -1,0 +1,39 @@
+#include "VertexPulling.hlsli"
+
+StructuredBuffer<float4x4> SkinningBoneMatrices : register(t0, space2);
+RWByteAddressBuffer        SkinnedPositionBuffer : register(u1, space2);
+
+struct SkinnedBlasSkinningPushConstants
+{
+    uint vertexByteOffset;
+    uint vertexLayoutIndex;
+    uint vertexCount;
+    uint pad;
+};
+
+[[vk::push_constant]] SkinnedBlasSkinningPushConstants pc;
+
+[numthreads(64, 1, 1)]
+void MainCS(uint vertexId : SV_DispatchThreadID)
+{
+    if (vertexId >= pc.vertexCount)
+    {
+        return;
+    }
+
+    float3 inputPosition = GetVertexPosition(pc.vertexByteOffset, pc.vertexLayoutIndex, vertexId);
+    uint4  boneIndices   = GetVertexBoneIndices(pc.vertexByteOffset, pc.vertexLayoutIndex, vertexId);
+    float4 boneWeights   = GetVertexBoneWeights(pc.vertexByteOffset, pc.vertexLayoutIndex, vertexId);
+
+    float3 position = 0.0;
+
+    [unroll]
+    for (int i = 0; i < 4; ++i)
+    {
+        float weight = boneWeights[i];
+        float4x4 boneTransform = SkinningBoneMatrices[boneIndices[i]];
+        position += mul(boneTransform, float4(inputPosition, 1.0)).xyz * weight;
+    }
+
+    SkinnedPositionBuffer.Store3(vertexId * 12, asuint(position));
+}

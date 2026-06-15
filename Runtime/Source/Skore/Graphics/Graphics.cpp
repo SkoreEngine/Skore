@@ -219,8 +219,8 @@ namespace Skore
 	void GraphicsShutdown()
 	{
 		RenderToolsShutdown();
-		RenderResourceCacheShutdown();
 		RenderSceneObjectsShutdown();
+		RenderResourceCacheShutdown();
 
 		linearSampler->Destroy();
 		nearestSampler->Destroy();

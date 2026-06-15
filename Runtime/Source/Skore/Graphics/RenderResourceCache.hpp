@@ -303,6 +303,7 @@ namespace Skore
 		static u32                      GetMaterialDataCount();
 		static GPUBuffer*               GetMeshDataBuffer();
 		static u64                      GetMeshReloadVersion();
+		static bool                     GetMeshPrimitiveBlasLod(const MeshResourceCachePtr& mesh, u32 primitiveIndex, u32& firstIndex, u32& indexCount);
 
 		static VertexLayoutCachePtr CreateCustomVoxelLayout(const VertexLayoutDesc& desc);
 		static MeshResourceCachePtr CreateProceduralMesh(const ProceduralMeshDesc& desc);

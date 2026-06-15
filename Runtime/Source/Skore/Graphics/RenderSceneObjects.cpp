@@ -1,12 +1,49 @@
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 
+#include <algorithm>
+
+#include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Profiler.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
+	namespace
+	{
+		constexpr u32 SkinnedBlasVertexStride = sizeof(Vec3);
+
+		GPUPipeline* skinnedBlasSkinningPipeline = nullptr;
+
+		struct SkinnedBlasSkinningPushConstants
+		{
+			u32 vertexByteOffset = 0;
+			u32 vertexLayoutIndex = 0;
+			u32 vertexCount = 0;
+			u32 pad = 0;
+		};
+
+		GPUPipeline* GetSkinnedBlasSkinningPipeline()
+		{
+			if (!skinnedBlasSkinningPipeline)
+			{
+				skinnedBlasSkinningPipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
+					.shader = Resources::FindByPath("Skore://Shaders/SkinnedBlasSkinning.comp"),
+					.allowImmediateSet = true,
+					.debugName = "SkinnedBlasSkinningPipeline",
+					.descriptorSetsOverride = {
+						DescriptorSetOverride{
+							.set = 0,
+							.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+						}
+					}
+				});
+			}
+			return skinnedBlasSkinningPipeline;
+		}
+	}
 
 	struct RenderableObjectStorage
 	{
@@ -34,6 +71,11 @@ namespace Skore
 		Array<DrawcallRef> references;
 		AABB               aabb = {};
 
+		GPUBuffer*               skinnedRayTracingVertexBuffer = nullptr;
+		Array<GPUBottomLevelAS*> skinnedRayTracingBlas;
+		u32                      skinnedRayTracingVertexCount = 0;
+		bool                     skinnedRayTracingBuilt = false;
+
 		bool meshDirty = false;
 		bool materialsDirty = false;
 		bool meshCacheExplicit = false;
@@ -45,6 +87,11 @@ namespace Skore
 
 	void RenderSceneObjectsShutdown()
 	{
+		if (skinnedBlasSkinningPipeline)
+		{
+			skinnedBlasSkinningPipeline->Destroy();
+			skinnedBlasSkinningPipeline = nullptr;
+		}
 	}
 
 	RenderSceneObjects::RenderSceneObjects()
@@ -88,6 +135,7 @@ namespace Skore
 	{
 		for (RenderableObjectStorage* obj : renderables)
 		{
+			DestroySkinnedRayTracingResources(obj);
 			DestroyAndFree(obj);
 		}
 		renderables.Clear();
@@ -103,6 +151,7 @@ namespace Skore
 		if (fallbackBoneBuffer) fallbackBoneBuffer->Destroy();
 		if (tlas) tlas->Destroy();
 		if (tlasScratchBuffer) tlasScratchBuffer->Destroy();
+		if (skinnedBlasScratchBuffer) skinnedBlasScratchBuffer->Destroy();
 	}
 
 	RenderableObject RenderSceneObjects::CreateRenderable()
@@ -399,6 +448,7 @@ namespace Skore
 			RemoveDrawcall(ref);
 		}
 		obj->references.Clear();
+		DestroySkinnedRayTracingResources(obj);
 	}
 
 	void RenderSceneObjects::UpdateAABB(RenderableObjectStorage* obj)
@@ -651,10 +701,21 @@ namespace Skore
 		if (ref.pipelineIndex == U32_MAX) return;
 		if (ref.transparent) return;
 		if (ref.masked) return;
-		if (obj->bonesDescriptor != nullptr || obj->boneBufferSlot != U32_MAX) return;
 
-		if (!obj->meshCache || primitiveIndex >= obj->meshCache->blasArray.Size()) return;
-		GPUBottomLevelAS* blas = obj->meshCache->blasArray[primitiveIndex];
+		GPUBottomLevelAS* blas = nullptr;
+		const bool hasBones = obj->bonesBuffer != nullptr || obj->boneBufferSlot != U32_MAX || obj->bonesDescriptor != nullptr;
+		if (hasBones)
+		{
+			if (!EnsureSkinnedRayTracingResources(obj)) return;
+			if (primitiveIndex >= obj->skinnedRayTracingBlas.Size()) return;
+			blas = obj->skinnedRayTracingBlas[primitiveIndex];
+		}
+		else
+		{
+			if (!obj->meshCache || primitiveIndex >= obj->meshCache->blasArray.Size()) return;
+			blas = obj->meshCache->blasArray[primitiveIndex];
+		}
+
 		if (!blas) return;
 
 		ref.instanceDescIndex = static_cast<u32>(instances.Size());
@@ -718,6 +779,206 @@ namespace Skore
 			instanceDescOwners.PopBack();
 			tlasTopologyDirty = true;
 		}
+	}
+
+	bool RenderSceneObjects::EnsureSkinnedRayTracingResources(RenderableObjectStorage* obj)
+	{
+		if (!Graphics::GetDevice()->GetFeatures().rayTracing) return false;
+		if (!obj || !obj->meshCache || !obj->meshCache->hasSkin || !obj->bonesBuffer) return false;
+		if (obj->meshCache->vertexCount == 0 || obj->meshCache->vertexByteOffset == U32_MAX || obj->meshCache->indexByteOffset == U32_MAX) return false;
+		if (!RenderResourceCache::GetMeshDataBuffer()) return false;
+
+		const u32 primitiveCount = static_cast<u32>(obj->meshCache->primitives.Size());
+		if (primitiveCount == 0) return false;
+
+		if (obj->skinnedRayTracingVertexBuffer &&
+			obj->skinnedRayTracingVertexCount == obj->meshCache->vertexCount &&
+			obj->skinnedRayTracingBlas.Size() == primitiveCount)
+		{
+			return true;
+		}
+
+		DestroySkinnedRayTracingResources(obj);
+
+		obj->skinnedRayTracingVertexCount = obj->meshCache->vertexCount;
+		obj->skinnedRayTracingVertexBuffer = Graphics::CreateBuffer(BufferDesc{
+			.size = static_cast<usize>(obj->skinnedRayTracingVertexCount) * SkinnedBlasVertexStride,
+			.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess | ResourceUsage::AccelerationStructure,
+			.hostVisible = false,
+			.persistentMapped = false,
+			.debugName = String(obj->meshCache->debugName) + "_SkinnedRTPositions"
+		});
+
+		Array<GeometryDesc>      geometries(primitiveCount);
+		Array<BottomLevelASDesc> blasDescs(primitiveCount);
+		u64                      maxScratch = 0;
+
+		obj->skinnedRayTracingBlas.Resize(primitiveCount, nullptr);
+		for (u32 p = 0; p < primitiveCount; ++p)
+		{
+			u32 firstIndexUnits = 0;
+			u32 indexCount = 0;
+			if (!RenderResourceCache::GetMeshPrimitiveBlasLod(obj->meshCache, p, firstIndexUnits, indexCount))
+			{
+				DestroySkinnedRayTracingResources(obj);
+				return false;
+			}
+
+			geometries[p] = GeometryDesc{};
+			geometries[p].type = GeometryType::Triangles;
+			geometries[p].triangles.vertexBuffer = obj->skinnedRayTracingVertexBuffer;
+			geometries[p].triangles.vertexOffset = 0;
+			geometries[p].triangles.vertexCount = obj->skinnedRayTracingVertexCount;
+			geometries[p].triangles.vertexStride = SkinnedBlasVertexStride;
+			geometries[p].triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
+			geometries[p].triangles.indexBuffer = RenderResourceCache::GetMeshDataBuffer();
+			geometries[p].triangles.indexOffset = static_cast<u64>(firstIndexUnits) * sizeof(u32);
+			geometries[p].triangles.indexCount = indexCount;
+			geometries[p].triangles.indexType = IndexType::Uint32;
+			geometries[p].triangles.opaque = true;
+
+			blasDescs[p] = BottomLevelASDesc{};
+			blasDescs[p].geometries = Span<GeometryDesc>(&geometries[p], 1);
+			blasDescs[p].flags = BuildAccelerationStructureFlags::PreferFastBuild | BuildAccelerationStructureFlags::AllowUpdate;
+			blasDescs[p].debugName = String(obj->meshCache->debugName) + "_SkinnedBLAS_" + ToString(p);
+
+			obj->skinnedRayTracingBlas[p] = Graphics::CreateBottomLevelAS(blasDescs[p]);
+			if (!obj->skinnedRayTracingBlas[p])
+			{
+				DestroySkinnedRayTracingResources(obj);
+				return false;
+			}
+			maxScratch = std::max(maxScratch, static_cast<u64>(Graphics::GetAccelerationStructureBuildScratchSize(blasDescs[p])));
+		}
+
+		EnsureSkinnedBlasScratchBuffer(maxScratch);
+		obj->skinnedRayTracingBuilt = false;
+		return true;
+	}
+
+	void RenderSceneObjects::DestroySkinnedRayTracingResources(RenderableObjectStorage* obj)
+	{
+		if (!obj) return;
+
+		for (GPUBottomLevelAS* blas : obj->skinnedRayTracingBlas)
+		{
+			if (blas) blas->Destroy();
+		}
+		obj->skinnedRayTracingBlas.Clear();
+
+		if (obj->skinnedRayTracingVertexBuffer)
+		{
+			obj->skinnedRayTracingVertexBuffer->Destroy();
+			obj->skinnedRayTracingVertexBuffer = nullptr;
+		}
+
+		obj->skinnedRayTracingVertexCount = 0;
+		obj->skinnedRayTracingBuilt = false;
+	}
+
+	void RenderSceneObjects::EnsureSkinnedBlasScratchBuffer(u64 requiredSize)
+	{
+		if (requiredSize <= skinnedBlasScratchSize) return;
+
+		if (skinnedBlasScratchBuffer)
+		{
+			skinnedBlasScratchBuffer->Destroy();
+		}
+
+		skinnedBlasScratchBuffer = Graphics::CreateBuffer(BufferDesc{
+			.size = requiredSize,
+			.usage = ResourceUsage::ShaderResource,
+			.hostVisible = false,
+			.persistentMapped = false,
+			.debugName = "SceneSkinnedBLAS_Scratch"
+		});
+		skinnedBlasScratchSize = requiredSize;
+	}
+
+	void RenderSceneObjects::UpdateSkinnedRayTracing(GPUCommandBuffer* cmd)
+	{
+		if (!cmd || !Graphics::GetDevice()->GetFeatures().rayTracing) return;
+
+		bool hasSkinnedBlas = false;
+		for (RenderableObjectStorage* obj : renderables)
+		{
+			if (obj->skinnedRayTracingVertexBuffer && !obj->skinnedRayTracingBlas.Empty() && obj->bonesBuffer)
+			{
+				hasSkinnedBlas = true;
+				break;
+			}
+		}
+		if (!hasSkinnedBlas) return;
+
+		GPUPipeline* pipeline = GetSkinnedBlasSkinningPipeline();
+		if (!pipeline) return;
+
+		bool dispatched = false;
+		cmd->BindPipeline(pipeline);
+		cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+
+		for (RenderableObjectStorage* obj : renderables)
+		{
+			if (!obj->skinnedRayTracingVertexBuffer || obj->skinnedRayTracingBlas.Empty() || !obj->bonesBuffer) continue;
+
+			SkinnedBlasSkinningPushConstants pc;
+			pc.vertexByteOffset = obj->meshCache->vertexByteOffset;
+			pc.vertexLayoutIndex = obj->meshCache->vertexLayoutId;
+			pc.vertexCount = obj->skinnedRayTracingVertexCount;
+
+			cmd->SetBuffer(pipeline, 2, 0, obj->bonesBuffer, 0, sizeof(Mat4) * MaxBones);
+			cmd->SetBuffer(pipeline, 2, 1, obj->skinnedRayTracingVertexBuffer, 0, obj->skinnedRayTracingVertexBuffer->GetDesc().size);
+			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(SkinnedBlasSkinningPushConstants), &pc);
+			cmd->Dispatch((obj->skinnedRayTracingVertexCount + 63) / 64, 1, 1);
+			dispatched = true;
+		}
+
+		if (dispatched)
+		{
+			cmd->MemoryBarrier();
+		}
+
+		bool built = false;
+		for (RenderableObjectStorage* obj : renderables)
+		{
+			if (obj->skinnedRayTracingBlas.Empty() || !obj->bonesBuffer) continue;
+
+			for (u32 p = 0; p < obj->skinnedRayTracingBlas.Size(); ++p)
+			{
+				GPUBottomLevelAS* blas = obj->skinnedRayTracingBlas[p];
+				if (!blas) continue;
+				cmd->BuildBottomLevelAS(blas, AccelerationStructureBuildInfo{
+					.update = obj->skinnedRayTracingBuilt,
+					.scratchBuffer = skinnedBlasScratchBuffer
+				});
+				if (p + 1 < obj->skinnedRayTracingBlas.Size())
+				{
+					cmd->MemoryBarrier();
+				}
+				built = true;
+			}
+
+			obj->skinnedRayTracingBuilt = true;
+		}
+
+		if (built)
+		{
+			cmd->MemoryBarrier();
+		}
+	}
+
+	bool RenderSceneObjects::HasSkinnedTlasInstances() const
+	{
+		for (const InstanceOwner& owner : instanceDescOwners)
+		{
+			if (!owner.renderable) continue;
+			if (owner.primitiveIndex < owner.renderable->skinnedRayTracingBlas.Size() &&
+				owner.renderable->skinnedRayTracingBlas[owner.primitiveIndex] != nullptr)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	u32 RenderSceneObjects::AcquireBoneBufferSlot(GPUBuffer* bonesBuffer)
@@ -877,6 +1138,8 @@ namespace Skore
 			}
 		}
 
+		UpdateSkinnedRayTracing(cmd);
+
 		const bool tlasDirty = tlasTopologyDirty || tlasTransformsDirty ;
 		if (requireTlas && tlasDirty && Graphics::GetDevice()->GetFeatures().rayTracing)
 		{
@@ -885,7 +1148,8 @@ namespace Skore
 				SK_SCOPED_GPU_ZONE("RenderSceneObjects - TLAS Update", cmd);
 
 				bool recreated = false;
-				if (tlas == nullptr || instances.Size() > tlasMaxInstances)
+				const bool wantsFastBuildTlas = HasSkinnedTlasInstances();
+				if (tlas == nullptr || instances.Size() > tlasMaxInstances || tlasFastBuild != wantsFastBuildTlas)
 				{
 					if (tlas) tlas->Destroy();
 					if (tlasScratchBuffer) tlasScratchBuffer->Destroy();
@@ -896,7 +1160,8 @@ namespace Skore
 					TopLevelASDesc tlasDesc{};
 					tlasDesc.instances = instances;
 					tlasDesc.maxInstances = newCapacity;
-					tlasDesc.flags = BuildAccelerationStructureFlags::PreferFastTrace | BuildAccelerationStructureFlags::AllowUpdate;
+					tlasDesc.flags = (wantsFastBuildTlas ? BuildAccelerationStructureFlags::PreferFastBuild : BuildAccelerationStructureFlags::PreferFastTrace)
+						| BuildAccelerationStructureFlags::AllowUpdate;
 					tlasDesc.debugName = "SceneTLAS";
 
 					tlas = Graphics::CreateTopLevelAS(tlasDesc);
@@ -911,6 +1176,7 @@ namespace Skore
 					});
 
 					tlasMaxInstances = newCapacity;
+					tlasFastBuild = wantsFastBuildTlas;
 					recreated = true;
 				}
 
