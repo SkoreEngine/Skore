@@ -12,4 +12,5 @@ namespace Skore::EntityTracker
 	SK_API void Init();
 	SK_API void Shutdown();
 	SK_API bool IsAlive(Entity* entity);
+	SK_API u64  GetRevision();
 }

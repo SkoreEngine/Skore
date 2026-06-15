@@ -11,7 +11,6 @@
 #include "Skore/Events.hpp"
 #include "Skore/IO/Input.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
-#include "Skore/Scene/Components/UIDocument.hpp"
 #include "Skore/Scene/SceneManager.hpp"
 
 namespace Skore
@@ -27,26 +26,6 @@ namespace Skore
 			OpenScene
 		};
 	};
-
-	static bool HasSelectedUIDocument(Scene* scene, Span<RID> selectedEntities)
-	{
-		if (!scene)
-		{
-			return false;
-		}
-
-		for (RID selected : selectedEntities)
-		{
-			if (Entity* entity = scene->FindEntityByRID(selected))
-			{
-				if (entity->IsActive() && entity->GetComponent<UIDocument>())
-				{
-					return true;
-				}
-			}
-		}
-		return false;
-	}
 
 	SceneEditor::SceneEditor(EditorWorkspace& workspace) : m_workspace(workspace)
 	{
@@ -414,6 +393,11 @@ namespace Skore
 		return Selection::GetType() == SelectionType::Entity && !Selection::GetSelectedRIDs().Empty();
 	}
 
+	bool SceneEditor::HasSelectedUIDocument() const
+	{
+		return Selection::HasSelectionUI();
+	}
+
 	Span<RID> SceneEditor::GetSelectedEntities() const
 	{
 		if (Selection::GetType() != SelectionType::Entity) return {};
@@ -573,7 +557,7 @@ namespace Skore
 		}
 
 		RmlUI::SetContextVisible(m_simulationScene ? m_simulationScene->uiContext : UIContext{}, SceneManager::GetActiveScene() == m_simulationScene.get());
-		RmlUI::SetContextVisible(m_editorScene ? m_editorScene->uiContext : UIContext{}, SceneManager::GetActiveScene() == nullptr && HasSelectedUIDocument(m_editorScene.get(), GetSelectedEntities()));
+		RmlUI::SetContextVisible(m_editorScene ? m_editorScene->uiContext : UIContext{}, SceneManager::GetActiveScene() == nullptr && HasSelectedUIDocument());
 
 		m_shouldStartSimulation = false;
 		m_shouldStopSimulation = false;

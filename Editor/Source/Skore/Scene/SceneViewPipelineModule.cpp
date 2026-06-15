@@ -589,7 +589,7 @@ namespace Skore
 			cmd->SetViewport(viewportInfo);
 			cmd->SetScissor({0, 0}, currentExtent);
 
-			if (!sceneViewWindow->windowStartedSimulation)
+			if (!sceneViewWindow->IsSceneInteractionDisabled())
 			{
 				if (sceneViewWindow->drawGrid)
 				{

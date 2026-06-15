@@ -43,6 +43,7 @@ namespace Skore
 
 
 		SceneEditor* GetSceneEditor() const { return sceneEditor; }
+		bool         IsSceneInteractionDisabled() const;
 		friend struct SceneViewPipelinePass;
 
 	private:

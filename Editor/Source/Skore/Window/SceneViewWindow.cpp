@@ -96,11 +96,23 @@ namespace Skore
 		guizmoOperation = ImGuizmo::TRANSLATE;
 	}
 
+	bool SceneViewWindow::IsSceneInteractionDisabled() const
+	{
+		return windowStartedSimulation || (sceneEditor && sceneEditor->HasSelectedUIDocument());
+	}
+
 	void SceneViewWindow::Draw3DViewport(u32 id)
 	{
-		if (!movingScene)
+		const bool sceneInteractionDisabled = IsSceneInteractionDisabled();
+
+		if (sceneInteractionDisabled)
 		{
-			movingScene = !windowStartedSimulation && hovered && ImGui::IsMouseDown(ImGuiMouseButton_Right);
+			movingScene = false;
+			freeViewCamera.SetActive(false);
+		}
+		else if (!movingScene)
+		{
+			movingScene = hovered && ImGui::IsMouseDown(ImGuiMouseButton_Right);
 		}
 
 		if (movingScene)
@@ -172,7 +184,7 @@ namespace Skore
 		ImGuizmo::SetDrawlist();
 		ImGuizmo::SetRect(cursor.x, cursor.y, size.x, size.y);
 
-		if (sceneEditor && sceneEditor->GetCurrentScene() && !windowStartedSimulation)
+		if (sceneEditor && sceneEditor->GetCurrentScene() && !sceneInteractionDisabled)
 		{
 			Scene* scene = sceneEditor->GetCurrentScene();
 
@@ -356,7 +368,7 @@ namespace Skore
 
 		ImDrawList* drawList = ImGui::GetCurrentWindow()->DrawList;
 
-		if (!windowStartedSimulation && drawIcons)
+		if (!sceneInteractionDisabled && drawIcons)
 		{
 			if (Scene* scene = sceneEditor->GetCurrentScene())
 			{
@@ -418,7 +430,7 @@ namespace Skore
 		bool isImgHovered = ImGui::IsMouseHoveringRect(ImVec2(bb.x, bb.y), ImVec2(bb.width, bb.height), false);
 		Input::DisableInputs(ImGui::GetIO().WantCaptureKeyboard || movingScene);
 
-		if (!windowStartedSimulation &&
+		if (!sceneInteractionDisabled &&
 			!ImGuizmo::IsUsing() &&
 			isImgHovered &&
 			!selectedIcon &&
@@ -457,7 +469,7 @@ namespace Skore
 
 		bool previewRendered = false;
 
-		if (sceneEditor && sceneEditor->GetOpenedResource() && !windowStartedSimulation)
+		if (sceneEditor && sceneEditor->GetOpenedResource() && !sceneInteractionDisabled)
 		{
 			if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
 			{

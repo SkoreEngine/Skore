@@ -56,6 +56,7 @@ namespace Skore
 		bool      IsSelected(RID entity);
 		bool      IsParentOfSelected(RID entity);
 		bool      HasSelectedEntities() const;
+		bool      HasSelectedUIDocument() const;
 		Span<RID> GetSelectedEntities() const;
 
 		//selection for Scene/Entity

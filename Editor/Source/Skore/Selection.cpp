@@ -7,6 +7,7 @@
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/EntityTracker.hpp"
+#include "Skore/Scene/Components/UIDocument.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 
@@ -28,6 +29,24 @@ namespace Skore
 		RID            state = {};
 		Array<Entity*> runtimeEntities{};
 		Entity*        activeRuntime = nullptr;
+		bool           hasSelectionUI = false;
+
+		SelectionType cachedType = SelectionType::None;
+		Array<RID>    cachedRIDs{};
+		RID           cachedActive = {};
+		RID           cachedPreview = {};
+		u64           selectionRevision = 0;
+
+		struct ResolvedEntityCache
+		{
+			Scene*         scene = nullptr;
+			u64            selectionRevision = 0;
+			u64            entityRevision = 0;
+			bool           valid = false;
+			Array<Entity*> entities{};
+		};
+
+		ResolvedEntityCache resolvedEntityCache{};
 
 		EventHandler<OnSelectionChanged>       onSelectionChangedHandler{};
 		EventHandler<OnEntitySelection>        onEntitySelectionHandler{};
@@ -66,26 +85,178 @@ namespace Skore
 			return false;
 		}
 
+		void InvalidateResolvedEntities()
+		{
+			++selectionRevision;
+			resolvedEntityCache.scene = nullptr;
+			resolvedEntityCache.valid = false;
+			resolvedEntityCache.entities.Clear();
+		}
+
+		void CacheSelectionState(ResourceObject& value)
+		{
+			cachedType = SelectionType::None;
+			cachedRIDs.Clear();
+			cachedActive = {};
+			cachedPreview = {};
+
+			if (value)
+			{
+				cachedType = static_cast<SelectionType>(value.GetUInt(SelectionState::Type));
+				Span<RID> selected = value.GetReferenceArray(SelectionState::Items);
+				cachedRIDs.Assign(selected.begin(), selected.end());
+				cachedActive = value.GetReference(SelectionState::Active);
+				cachedPreview = value.GetReference(SelectionState::Preview);
+			}
+
+			InvalidateResolvedEntities();
+		}
+
+		bool IsUIDocumentComponent(RID component)
+		{
+			if (!component) return false;
+
+			if (ResourceType* type = Resources::GetType(component))
+			{
+				return type->GetID() == TypeInfo<UIDocument>::ID();
+			}
+			return false;
+		}
+
+		bool EntityResourceIsActive(RID entity)
+		{
+			RID current = entity;
+			while (current)
+			{
+				ResourceType* type = Resources::GetType(current);
+				if (!type)
+				{
+					return false;
+				}
+
+				if (type->GetID() != TypeInfo<EntityResource>::ID())
+				{
+					return true;
+				}
+
+				ResourceObject entityObject = Resources::Read(current);
+				if (!entityObject || entityObject.GetBool(EntityResource::Deactivated))
+				{
+					return false;
+				}
+
+				current = Resources::GetParent(current);
+			}
+			return true;
+		}
+
+		bool EntityHasUIDocumentResource(RID entity)
+		{
+			if (!entity) return false;
+
+			if (ResourceType* type = Resources::GetType(entity))
+			{
+				if (type->GetID() != TypeInfo<EntityResource>::ID())
+				{
+					return false;
+				}
+			}
+
+			if (!EntityResourceIsActive(entity))
+			{
+				return false;
+			}
+
+			ResourceObject entityObject = Resources::Read(entity);
+			if (!entityObject)
+			{
+				return false;
+			}
+
+			for (RID component : entityObject.GetSubObjectList(EntityResource::Components))
+			{
+				if (IsUIDocumentComponent(component))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		bool SelectionStateHasUI(ResourceObject& value)
+		{
+			if (!value || static_cast<SelectionType>(value.GetUInt(SelectionState::Type)) != SelectionType::Entity)
+			{
+				return false;
+			}
+
+			for (RID selected : value.GetReferenceArray(SelectionState::Items))
+			{
+				if (EntityHasUIDocumentResource(selected))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		bool RuntimeSelectionHasUI()
+		{
+			for (Entity* entity : runtimeEntities)
+			{
+				if (EntityTracker::IsAlive(entity) && entity->IsActive() && entity->GetComponent<UIDocument>())
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		void RebuildSelectedEntityResourceUI()
+		{
+			ResourceObject object = Resources::Read(state);
+			if (object && static_cast<SelectionType>(object.GetUInt(SelectionState::Type)) == SelectionType::Entity)
+			{
+				hasSelectionUI = SelectionStateHasUI(object);
+			}
+		}
+
 		//entities can be destroyed at any time from other threads, so instead of listening to
 		//removal events the selection drops dead pointers lazily before they are read or mutated
-		void PruneDeadRuntime()
+		bool PruneDeadRuntime()
 		{
+			if (runtimeEntities.Empty() && !activeRuntime)
+			{
+				return false;
+			}
+
+			bool pruned = false;
 			for (usize i = runtimeEntities.Size(); i > 0; --i)
 			{
 				if (!EntityTracker::IsAlive(runtimeEntities[i - 1]))
 				{
 					runtimeEntities.Erase(runtimeEntities.begin() + (i - 1), runtimeEntities.begin() + i);
+					pruned = true;
 				}
 			}
 
 			if (activeRuntime && !EntityTracker::IsAlive(activeRuntime))
 			{
 				activeRuntime = runtimeEntities.Empty() ? nullptr : runtimeEntities[runtimeEntities.Size() - 1];
+				pruned = true;
 			}
+
+			if (pruned)
+			{
+				hasSelectionUI = RuntimeSelectionHasUI();
+				InvalidateResolvedEntities();
+			}
+			return pruned;
 		}
 
 		void ClearRuntimeInternal()
 		{
+			bool changed = !runtimeEntities.Empty() || activeRuntime;
 			PruneDeadRuntime();
 
 			if (!runtimeEntities.Empty())
@@ -96,13 +267,25 @@ namespace Skore
 					onEntityDebugDeselectionHandler.Invoke(workspaceId, entity);
 				}
 				runtimeEntities.Clear();
+				changed = true;
 			}
-			activeRuntime = nullptr;
+			if (activeRuntime)
+			{
+				changed = true;
+				activeRuntime = nullptr;
+			}
+			hasSelectionUI = false;
+			if (changed)
+			{
+				InvalidateResolvedEntities();
+			}
 		}
 
 		void OnSelectionStateChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
 		{
 			u32 workspaceId = ActiveWorkspaceId();
+			CacheSelectionState(newValue);
+			hasSelectionUI = SelectionStateHasUI(newValue);
 
 			if (oldValue && static_cast<SelectionType>(oldValue.GetUInt(SelectionState::Type)) == SelectionType::Entity)
 			{
@@ -122,6 +305,11 @@ namespace Skore
 
 			onSelectionChangedHandler.Invoke();
 		}
+
+		void OnEntityResourceChanged(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
+		{
+			RebuildSelectedEntityResourceUI();
+		}
 	}
 
 	void Selection::Init()
@@ -130,28 +318,45 @@ namespace Skore
 		Resources::Write(state).Commit();
 
 		Resources::FindType<SelectionState>()->RegisterEvent(ResourceEventType::Changed, OnSelectionStateChanged, nullptr);
+		Resources::FindType<EntityResource>()->RegisterEvent(ResourceEventType::Changed, OnEntityResourceChanged, nullptr);
 	}
 
 	void Selection::Shutdown()
 	{
+		Resources::FindType<EntityResource>()->UnregisterEvent(ResourceEventType::Changed, OnEntityResourceChanged, nullptr);
 		Resources::FindType<SelectionState>()->UnregisterEvent(ResourceEventType::Changed, OnSelectionStateChanged, nullptr);
 
 		Resources::Destroy(state);
 		state = {};
 		runtimeEntities.Clear();
 		activeRuntime = nullptr;
+		hasSelectionUI = false;
+		cachedType = SelectionType::None;
+		cachedRIDs.Clear();
+		cachedActive = {};
+		cachedPreview = {};
+		InvalidateResolvedEntities();
 	}
 
 	SelectionType Selection::GetType()
 	{
-		ResourceObject object = Resources::Read(state);
-		return static_cast<SelectionType>(object.GetUInt(SelectionState::Type));
+		return cachedType;
 	}
 
 	bool Selection::Empty()
 	{
 		PruneDeadRuntime();
-		return GetSelectedRIDs().Empty() && runtimeEntities.Empty();
+		return cachedRIDs.Empty() && runtimeEntities.Empty();
+	}
+
+	bool Selection::HasSelectionUI()
+	{
+		PruneDeadRuntime();
+		if (!runtimeEntities.Empty())
+		{
+			hasSelectionUI = RuntimeSelectionHasUI();
+		}
+		return hasSelectionUI;
 	}
 
 	void Selection::Clear(UndoRedoScope* scope)
@@ -230,20 +435,24 @@ namespace Skore
 	bool Selection::IsSelected(RID rid)
 	{
 		if (!rid) return false;
-		ResourceObject object = Resources::Read(state);
-		return object.HasOnReferenceArray(SelectionState::Items, rid);
+		for (RID selected : cachedRIDs)
+		{
+			if (selected == rid)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	Span<RID> Selection::GetSelectedRIDs()
 	{
-		ResourceObject object = Resources::Read(state);
-		return object.GetReferenceArray(SelectionState::Items);
+		return cachedRIDs;
 	}
 
 	RID Selection::GetActiveRID()
 	{
-		ResourceObject object = Resources::Read(state);
-		return object.GetReference(SelectionState::Active);
+		return cachedActive;
 	}
 
 	void Selection::SelectAsset(RID asset, RID preview, UndoRedoScope* scope)
@@ -263,8 +472,7 @@ namespace Skore
 
 	RID Selection::GetPreview()
 	{
-		ResourceObject object = Resources::Read(state);
-		return object.GetReference(SelectionState::Preview);
+		return cachedPreview;
 	}
 
 	void Selection::Select(Entity* entity, bool clearSelection)
@@ -292,6 +500,8 @@ namespace Skore
 			runtimeEntities.EmplaceBack(entity);
 		}
 		activeRuntime = entity;
+		hasSelectionUI = RuntimeSelectionHasUI();
+		InvalidateResolvedEntities();
 
 		onEntityDebugSelectionHandler.Invoke(ActiveWorkspaceId(), entity);
 		onSelectionChangedHandler.Invoke();
@@ -308,6 +518,8 @@ namespace Skore
 		{
 			activeRuntime = runtimeEntities.Empty() ? nullptr : runtimeEntities[runtimeEntities.Size() - 1];
 		}
+		hasSelectionUI = RuntimeSelectionHasUI();
+		InvalidateResolvedEntities();
 
 		onEntityDebugDeselectionHandler.Invoke(ActiveWorkspaceId(), entity);
 		onSelectionChangedHandler.Invoke();
@@ -331,37 +543,56 @@ namespace Skore
 		return activeRuntime;
 	}
 
-	Array<Entity*> Selection::ResolveEntities(Scene* scene)
+	Span<Entity*> Selection::ResolveEntities(Scene* scene)
 	{
-		Array<Entity*> result;
-		if (!scene) return result;
+		if (!scene) return {};
 
-		PruneDeadRuntime();
+		u64 entityRevision = EntityTracker::GetRevision();
+		if (resolvedEntityCache.valid &&
+			resolvedEntityCache.scene == scene &&
+			resolvedEntityCache.selectionRevision == selectionRevision &&
+			resolvedEntityCache.entityRevision == entityRevision)
+		{
+			return resolvedEntityCache.entities;
+		}
+
+		if (!runtimeEntities.Empty() || activeRuntime)
+		{
+			PruneDeadRuntime();
+			entityRevision = EntityTracker::GetRevision();
+		}
+
+		resolvedEntityCache.entities.Clear();
+		resolvedEntityCache.scene = scene;
+		resolvedEntityCache.selectionRevision = selectionRevision;
+		resolvedEntityCache.entityRevision = entityRevision;
+		resolvedEntityCache.valid = true;
 
 		if (!runtimeEntities.Empty())
 		{
+			resolvedEntityCache.entities.Reserve(runtimeEntities.Size());
 			for (Entity* entity : runtimeEntities)
 			{
 				if (entity->GetScene() == scene)
 				{
-					result.EmplaceBack(entity);
+					resolvedEntityCache.entities.EmplaceBack(entity);
 				}
 			}
-			return result;
+			return resolvedEntityCache.entities;
 		}
 
-		if (GetType() == SelectionType::Entity)
+		if (cachedType == SelectionType::Entity)
 		{
-			ResourceObject object = Resources::Read(state);
-			for (RID rid : object.GetReferenceArray(SelectionState::Items))
+			resolvedEntityCache.entities.Reserve(cachedRIDs.Size());
+			for (RID rid : cachedRIDs)
 			{
 				if (Entity* entity = scene->FindEntityByRID(rid))
 				{
-					result.EmplaceBack(entity);
+					resolvedEntityCache.entities.EmplaceBack(entity);
 				}
 			}
 		}
-		return result;
+		return resolvedEntityCache.entities;
 	}
 
 	void Selection::RegisterType()

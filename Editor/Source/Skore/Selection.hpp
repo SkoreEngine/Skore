@@ -35,6 +35,7 @@ namespace Skore
 
 		static SelectionType GetType();
 		static bool          Empty();
+		static bool          HasSelectionUI();
 		static void          Clear(UndoRedoScope* scope = nullptr);
 
 		static void      Select(SelectionType type, RID rid, bool clearSelection, UndoRedoScope* scope = nullptr);
@@ -53,6 +54,6 @@ namespace Skore
 		static Span<Entity*> GetSelectedEntities();
 		static Entity*       GetActiveEntity();
 
-		static Array<Entity*> ResolveEntities(Scene* scene);
+		static Span<Entity*> ResolveEntities(Scene* scene);
 	};
 }
