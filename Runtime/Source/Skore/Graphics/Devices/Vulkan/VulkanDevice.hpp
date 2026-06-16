@@ -433,7 +433,9 @@ namespace Skore
 
 		void GetMemoryBudgets(Array<MemoryHeapBudget>& outBudgets) override;
 
-		EventHandler<OnRecordRenderCommands> onRecordRenderCommands{};
+		EventHandler<OnBeginRecordRenderCommands> onBeginRecordRenderCommands{};
+		EventHandler<OnRecordRenderCommands>      onRecordRenderCommands{};
+		EventHandler<OnEndRecordRenderCommands>   onEndRecordRenderCommands{};
 
 		void ExecuteFrame();
 	};

@@ -10,7 +10,9 @@ namespace Skore
 	using OnWindowMinimized = EventType<"Skore::OnWindowMinimized"_h, void(VoidPtr windowHandle)>;
 	using OnWindowRestored = EventType<"Skore::OnWindowRestored"_h, void(VoidPtr windowHandle)>;
 
+	using OnBeginRecordRenderCommands = EventType<"Skore::OnBeginRecordRenderCommands"_h, void(GPUCommandBuffer* commandBuffer)>;
 	using OnRecordRenderCommands = EventType<"Skore::OnRecordRenderCommands"_h, void(GPUCommandBuffer* commandBuffer)>;
+	using OnEndRecordRenderCommands = EventType<"Skore::OnEndRecordRenderCommands"_h, void(GPUCommandBuffer* commandBuffer)>;
 
 	enum class GpuWorkType
 	{

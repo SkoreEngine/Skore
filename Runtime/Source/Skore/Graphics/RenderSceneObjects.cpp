@@ -64,6 +64,7 @@ namespace Skore
 		GPUDescriptorSet*    bonesDescriptor = nullptr;
 		GPUBuffer*           bonesBuffer = nullptr;
 		u32                  boneBufferSlot = U32_MAX;
+		u32                  movedRenderableIndex = U32_MAX;
 
 		MeshResourceCachePtr            meshCache;
 		Array<MaterialResourceCachePtr> overrideMaterialsCache;
@@ -129,10 +130,16 @@ namespace Skore
 		{
 			new(bones + i) Mat4{Mat4(1.0)};
 		}
+
+		Event::Bind<OnBeginRecordRenderCommands, &RenderSceneObjects::OnBeginRecord>(this);
+		Event::Bind<OnEndRecordRenderCommands, &RenderSceneObjects::OnEndRecord>(this);
 	}
 
 	RenderSceneObjects::~RenderSceneObjects()
 	{
+		Event::Unbind<OnBeginRecordRenderCommands, &RenderSceneObjects::OnBeginRecord>(this);
+		Event::Unbind<OnEndRecordRenderCommands, &RenderSceneObjects::OnEndRecord>(this);
+
 		for (RenderableObjectStorage* obj : renderables)
 		{
 			DestroySkinnedRayTracingResources(obj);
@@ -165,6 +172,7 @@ namespace Skore
 	{
 		if (!obj) return;
 		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		RemoveMovedRenderable(o);
 		ClearDrawcalls(o);
 		ReleaseBoneBufferSlot(o->boneBufferSlot);
 		o->boneBufferSlot = U32_MAX;
@@ -179,6 +187,10 @@ namespace Skore
 	{
 		if (!obj) return;
 		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+		if (o->transform == transform) return;
+
+		const Mat4 previousTransform = o->transform;
+		TrackMovedRenderable(o, previousTransform, transform);
 
 		o->transform = transform;
 		UpdateAABB(o);
@@ -429,6 +441,53 @@ namespace Skore
 				fn(transparentOffset + ref.pipelineIndex, transparentPipelines[ref.pipelineIndex].drawcalls[ref.handle], userData);
 			}
 		}
+	}
+
+	void RenderSceneObjects::TrackMovedRenderable(RenderableObjectStorage* obj, const Mat4& previousTransform, const Mat4& transform)
+	{
+		if (!obj || previousTransform == transform || obj->references.Empty()) return;
+
+		if (obj->movedRenderableIndex != U32_MAX)
+		{
+			MovedRenderableObject& moved = movedRenderables[obj->movedRenderableIndex];
+			if (moved.previousTransform == transform)
+			{
+				RemoveMovedRenderable(obj);
+			}
+			return;
+		}
+
+		obj->movedRenderableIndex = static_cast<u32>(movedRenderables.Size());
+		movedRenderables.EmplaceBack(MovedRenderableObject{
+			.object = RenderableObject{obj},
+			.previousTransform = previousTransform,
+		});
+	}
+
+	void RenderSceneObjects::RemoveMovedRenderable(RenderableObjectStorage* obj)
+	{
+		if (!obj) return;
+
+		const u32 index = obj->movedRenderableIndex;
+		if (index == U32_MAX)
+		{
+			return;
+		}
+
+		obj->movedRenderableIndex = U32_MAX;
+		if (index >= movedRenderables.Size())
+		{
+			return;
+		}
+
+		const u32 last = static_cast<u32>(movedRenderables.Size() - 1);
+		if (index != last)
+		{
+			movedRenderables[index] = movedRenderables[last];
+			RenderableObjectStorage* movedObj = movedRenderables[index].object.ToPtr<RenderableObjectStorage>();
+			movedObj->movedRenderableIndex = index;
+		}
+		movedRenderables.PopBack();
 	}
 
 	void RenderSceneObjects::MarkDirty(RenderableObjectStorage* obj)
@@ -1074,9 +1133,30 @@ namespace Skore
 		}
 	}
 
-	void RenderSceneObjects::DoUpdate(GPUCommandBuffer* cmd)
+	void RenderSceneObjects::OnBeginRecord(GPUCommandBuffer* cmd)
 	{
-		SK_SCOPED_CPU_ZONE("RenderSceneObjects::DoUpdate");
+		if (bindEvents) Begin(cmd);
+	}
+
+	void RenderSceneObjects::OnEndRecord(GPUCommandBuffer* cmd)
+	{
+		if (bindEvents) End(cmd);
+	}
+
+	void RenderSceneObjects::End(GPUCommandBuffer* cmd)
+	{
+		for (MovedRenderableObject& moved : movedRenderables)
+		{
+			if (!moved.object) continue;
+			RenderableObjectStorage* obj = moved.object.ToPtr<RenderableObjectStorage>();
+			obj->movedRenderableIndex = U32_MAX;
+		}
+		movedRenderables.Clear();
+	}
+
+	void RenderSceneObjects::Begin(GPUCommandBuffer* cmd)
+	{
+		SK_SCOPED_CPU_ZONE("RenderSceneObjects::Begin");
 
 		if (u64 cacheVersion = RenderResourceCache::GetMeshReloadVersion(); cacheVersion != meshReloadVersion)
 		{

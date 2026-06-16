@@ -2,7 +2,10 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
+#include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Resource/Resources.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
@@ -62,6 +65,228 @@ namespace Skore
 		}
 	};
 
+	struct ObjectMotionVectorPass : RenderPipelinePass
+	{
+		SK_CLASS(ObjectMotionVectorPass, RenderPipelinePass);
+
+		Array<GPUPipeline*> pipelines;
+		Scene*              cachedPipelineOwner = nullptr;
+		GPUBuffer*          drawDataBuffer[SK_FRAMES_IN_FLIGHT] = {};
+		u32                 drawDataCapacity = 0;
+
+		struct DrawData
+		{
+			Mat4 currentModelViewProjection;
+			Mat4 currentModelViewProjectionNoJitter;
+			Mat4 previousModelViewProjectionNoJitter;
+			u32  materialIndex;
+			u32  vertexByteOffset;
+			u32  vertexLayoutIndex;
+			u32  pad;
+		};
+
+		struct PushConstants
+		{
+			u32 drawDataIndex;
+		};
+
+		RenderPipelinePassSetup GetPassSetup() override
+		{
+			RenderPipelinePassSetup setup;
+			setup.type = RenderPipelinePassType::Graphics;
+			setup.stage = PipelineRenderStage::PostProcess;
+			setup.invertViewport = true;
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "MotionVector", .access = RenderPipelineTextureAccess::ReadWrite});
+			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputDepthName, .access = RenderPipelineTextureAccess::ReadWrite});
+			return setup;
+		}
+
+		void CleanupPipelines()
+		{
+			for (GPUPipeline* pipeline : pipelines)
+			{
+				if (pipeline)
+				{
+					pipeline->Destroy();
+				}
+			}
+			pipelines.Clear();
+		}
+
+		void DestroyDrawDataBuffers()
+		{
+			for (GPUBuffer*& buffer : drawDataBuffer)
+			{
+				if (buffer)
+				{
+					buffer->Destroy();
+					buffer = nullptr;
+				}
+			}
+			drawDataCapacity = 0;
+		}
+
+		const DrawPipelineDesc& GetVisiblePipelineDesc(const RenderSceneObjects* objects, u32 visiblePipelineIndex) const
+		{
+			if (visiblePipelineIndex < objects->opaquePipelines.Size())
+			{
+				return objects->opaquePipelines[visiblePipelineIndex].desc;
+			}
+			return objects->transparentPipelines[visiblePipelineIndex - objects->opaquePipelines.Size()].desc;
+		}
+
+		void EnsurePipelines(RenderSceneObjects* objects)
+		{
+			while (pipelines.Size() < objects->GetVisiblePipelineCount())
+			{
+				const DrawPipelineDesc& desc = GetVisiblePipelineDesc(objects, static_cast<u32>(pipelines.Size()));
+				if (desc.hasBones)
+				{
+					pipelines.EmplaceBack(nullptr);
+					continue;
+				}
+
+				DepthStencilStateDesc depthStencilState;
+				depthStencilState.depthTestEnable = true;
+				depthStencilState.depthWriteEnable = false;
+				depthStencilState.depthCompareOp = CompareOp::GreaterEqual; // reverse-Z
+
+				GraphicsPipelineDesc gpuDesc = GraphicsPipelineDesc{
+					.shader = Resources::FindByPath("Skore://Shaders/ObjectMotionVector.shader"),
+					.rasterizerState = {
+						.cullMode = desc.cullMode,
+					},
+					.depthStencilState = depthStencilState,
+					.blendStates = {
+						BlendStateDesc{}
+					},
+					.renderPass = renderPass,
+					.allowImmediateSet = true,
+				};
+
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 0,
+					.descriptorSet = RenderResourceCache::GetGlobalDescriptorSet()
+				});
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 1,
+					.descriptorSet = context->GetSceneDescriptorSet(0)
+				});
+
+				pipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
+			}
+		}
+
+		void EnsureDrawDataCapacity(u32 requiredCount)
+		{
+			if (requiredCount <= drawDataCapacity) return;
+
+			u32 newCapacity = Math::Max(requiredCount * 2, 64u);
+			DestroyDrawDataBuffers();
+
+			for (GPUBuffer*& buffer : drawDataBuffer)
+			{
+				buffer = Graphics::CreateBuffer(BufferDesc{
+					.size = sizeof(DrawData) * newCapacity,
+					.usage = ResourceUsage::ShaderResource,
+					.hostVisible = true,
+					.persistentMapped = true,
+					.debugName = "ObjectMotionVectorDrawData"
+				});
+			}
+
+			drawDataCapacity = newCapacity;
+		}
+
+		void Render(Scene* scene, GPUCommandBuffer* cmd) override
+		{
+			if (!scene) return;
+
+			RenderSceneObjects* objects = &scene->renderObjects;
+			if (objects->movedRenderables.Empty()) return;
+
+			if (cachedPipelineOwner != scene)
+			{
+				CleanupPipelines();
+				cachedPipelineOwner = scene;
+			}
+
+			EnsurePipelines(objects);
+
+			GPUBuffer* meshDataBuffer = RenderResourceCache::GetMeshDataBuffer();
+			if (!meshDataBuffer) return;
+
+			u32 requiredDrawDataCount = 0;
+			for (const MovedRenderableObject& moved : objects->movedRenderables)
+			{
+				objects->ForEachVisibleDrawcallRef(moved.object, [&](u32 pipelineIndex, const Drawcall& drawcall)
+				{
+					if (pipelineIndex >= pipelines.Size() || pipelines[pipelineIndex] == nullptr) return;
+					if (drawcall.bones || drawcall.boneBufferIndex != U32_MAX) return;
+					if (!drawcall.aabb.IsOnFrustum(context->camera.frustum)) return;
+					if (!drawcall.material || drawcall.material->materialIndex == U32_MAX) return;
+					if ((drawcall.layerMask & context->camera.cullingMask) == 0) return;
+					++requiredDrawDataCount;
+				});
+			}
+			if (requiredDrawDataCount == 0) return;
+
+			const u32 frame = context->GetCurrentFrame();
+			EnsureDrawDataCapacity(requiredDrawDataCount);
+
+			DrawData* drawData = static_cast<DrawData*>(drawDataBuffer[frame]->GetMappedData());
+			u32 drawDataIndex = 0;
+
+			cmd->BindIndexBuffer(meshDataBuffer, 0, IndexType::Uint32);
+
+			GPUPipeline* boundPipeline = nullptr;
+			for (const MovedRenderableObject& moved : objects->movedRenderables)
+			{
+				objects->ForEachVisibleDrawcallRef(moved.object, [&](u32 pipelineIndex, const Drawcall& drawcall)
+				{
+					if (pipelineIndex >= pipelines.Size()) return;
+
+					GPUPipeline* pipeline = pipelines[pipelineIndex];
+					if (!pipeline) return;
+
+					if (drawcall.bones || drawcall.boneBufferIndex != U32_MAX) return;
+
+					if (!drawcall.aabb.IsOnFrustum(context->camera.frustum)) return;
+					if (!drawcall.material || drawcall.material->materialIndex == U32_MAX) return;
+					if ((drawcall.layerMask & context->camera.cullingMask) == 0) return;
+
+					if (boundPipeline != pipeline)
+					{
+						boundPipeline = pipeline;
+						cmd->BindPipeline(pipeline);
+						cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
+						cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
+						cmd->SetBuffer(pipeline, 2, 0, drawDataBuffer[frame], 0, sizeof(DrawData) * requiredDrawDataCount);
+					}
+
+					DrawData& data = drawData[drawDataIndex];
+					data.currentModelViewProjection = context->camera.viewProjection * drawcall.transform;
+					data.currentModelViewProjectionNoJitter = context->camera.viewProjectionNoJitter * drawcall.transform;
+					data.previousModelViewProjectionNoJitter = context->camera.previousViewProjectionNoJitter * moved.previousTransform;
+					data.materialIndex = drawcall.material->materialIndex;
+					data.vertexByteOffset = drawcall.vertexByteOffset;
+					data.vertexLayoutIndex = drawcall.vertexLayoutIndex;
+					data.pad = 0;
+
+					PushConstants pc{drawDataIndex++};
+					cmd->PushConstants(pipeline, ShaderStage::Vertex | ShaderStage::Pixel, 0, sizeof(PushConstants), &pc);
+					cmd->DrawIndexed(drawcall.indexCount, 1, (drawcall.indexByteOffset / sizeof(u32)) + drawcall.firstIndex, 0, 0);
+				});
+			}
+		}
+
+		void Destroy() override
+		{
+			CleanupPipelines();
+			DestroyDrawDataBuffers();
+		}
+	};
+
 	struct MotionVectorModule : RenderPipelineModule
 	{
 		SK_CLASS(MotionVectorModule, RenderPipelineModule);
@@ -70,6 +295,7 @@ namespace Skore
 		{
 			RenderPipelineModuleSetup setup;
 			setup.passes.EmplaceBack(sktypeid(CameraMotionVectorPass));
+			setup.passes.EmplaceBack(sktypeid(ObjectMotionVectorPass));
 			return setup;
 		}
 
@@ -89,6 +315,7 @@ namespace Skore
 	void RegisterMotionVectorModule()
 	{
 		Reflection::Type<CameraMotionVectorPass>();
+		Reflection::Type<ObjectMotionVectorPass>();
 		Reflection::Type<MotionVectorModule>();
 	}
 }

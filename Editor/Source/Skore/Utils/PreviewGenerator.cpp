@@ -103,6 +103,7 @@ namespace Skore
 
 		scene->renderObjects.asyncLoad = false;
 		scene->renderObjects.requireTlas = false;
+		scene->renderObjects.bindEvents = false;
 
 		PopulateScene(scene);
 
@@ -110,7 +111,7 @@ namespace Skore
 			scene->ExecuteEvents(false);
 			Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 			{
-				scene->renderObjects.DoUpdate(cmd);
+				scene->renderObjects.Begin(cmd);
 			});
 		}
 
@@ -167,6 +168,7 @@ namespace Skore
 		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 		{
 			renderPipelineContext->Execute(cmd, scene);
+			scene->renderObjects.End(cmd);
 		});
 
 		GPUBuffer* buffer = renderPipelineContext->GetBuffer("OutputBuffer");

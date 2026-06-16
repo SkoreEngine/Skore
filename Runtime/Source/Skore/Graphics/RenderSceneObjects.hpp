@@ -72,6 +72,12 @@ namespace Skore
 		bool masked = false;
 	};
 
+	struct MovedRenderableObject
+	{
+		RenderableObject object;
+		Mat4             previousTransform = Mat4(1.0);
+	};
+
 	constexpr static u32 InitialInstanceNumber = 1000;
 
 	struct InstanceData
@@ -159,11 +165,13 @@ namespace Skore
 				static_cast<void*>(&fn));
 		}
 
-		void DoUpdate(GPUCommandBuffer* cmd);
+		void Begin(GPUCommandBuffer* cmd);
+		void End(GPUCommandBuffer* cmd);
 
 		Array<DrawPipeline> opaquePipelines;
 		Array<DrawPipeline> transparentPipelines;
 		Array<DrawPipeline> shadowPipelines;
+		Array<MovedRenderableObject> movedRenderables;
 
 		GPUBuffer* instanceDataBuffer = nullptr;
 		u32        instanceDataCount = 0;
@@ -209,8 +217,12 @@ namespace Skore
 
 		bool asyncLoad = true;
 		bool requireTlas = true;
+		bool bindEvents = true;
 
 	private:
+		void OnBeginRecord(GPUCommandBuffer* cmd);
+		void OnEndRecord(GPUCommandBuffer* cmd);
+
 		HashSet<RenderableObjectStorage*>  renderables;
 		DenseSet<RenderableObjectStorage*> pendingUpdate;
 		DenseSet<RenderableObjectStorage*> pendingBlas;
@@ -235,6 +247,8 @@ namespace Skore
 
 		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
 
+		void TrackMovedRenderable(RenderableObjectStorage* obj, const Mat4& previousTransform, const Mat4& transform);
+		void RemoveMovedRenderable(RenderableObjectStorage* obj);
 		void MarkDirty(RenderableObjectStorage* obj);
 		void MarkInstanceDirty(u32 instanceDescIndex);
 		bool TryRebuild(RenderableObjectStorage* obj);

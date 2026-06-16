@@ -4171,7 +4171,9 @@ namespace Skore
 
 		VulkanCommandBuffer* cmd = commandBuffers[currentFrame];
 		cmd->Begin();
+		onBeginRecordRenderCommands.Invoke(cmd);
 		onRecordRenderCommands.Invoke(cmd);
+		onEndRecordRenderCommands.Invoke(cmd);
 		RenderResourceCache::Flush(cmd);
 		cmd->End();
 

@@ -139,8 +139,6 @@ namespace Skore
 			return;
 		}
 
-		m_scene->renderObjects.DoUpdate(cmd);
-
 		if (m_framePending)
 		{
 			FrameCamera();

@@ -771,11 +771,6 @@ namespace Skore
 		//expose the scene to modules/passes so their IsEnabled() can toggle based on scene components
 		currentScene = scene;
 
-		if (scene)
-		{
-			scene->renderObjects.DoUpdate(cmd);
-		}
-
 		if (!contextDisabled)
 		{
 			//rebuild the graph if any pass/module changed its IsEnabled() state since last frame
