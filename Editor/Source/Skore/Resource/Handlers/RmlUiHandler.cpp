@@ -59,6 +59,31 @@ namespace Skore
 			return resource;
 		}
 
+		void Reloaded(RID asset, StringView absolutePath) override
+		{
+			if (!FileSystem::GetFileStatus(absolutePath).exists)
+			{
+				return;
+			}
+
+			RID resource = Resources::Read(asset).GetSubObject(ResourceAsset::Object);
+			if (!resource)
+			{
+				return;
+			}
+
+			String content = FileSystem::ReadFileAsString(absolutePath);
+
+			if (content == Resources::Read(resource).GetString(UIDocumentResource::Content))
+			{
+				return;
+			}
+
+			ResourceObject object = Resources::Write(resource);
+			object.SetString(UIDocumentResource::Content, content);
+			object.Commit();
+		}
+
 		void Save(RID asset, StringView absolutePath) override
 		{
 			ResourceObject object = Resources::Read(asset);

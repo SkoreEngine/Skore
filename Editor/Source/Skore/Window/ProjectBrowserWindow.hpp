@@ -55,6 +55,9 @@ namespace Skore
 		bool               newSelection = false;
 		bool               treeOnlyView = false;
 		bool               selectionInTree = false;
+		RID                pendingSelection = {};
+		bool               pendingSelectionInTree = false;
+		RID                pendingOpenDirectory = {};
 		bool               renameFocusSet = false;
 		String             renameBuffer;
 		RID                popupFolder = {};
@@ -64,6 +67,7 @@ namespace Skore
 		void DrawPathItems();
 		void DrawDirectoryTreeNode(RID asset);
 		void DrawAssetTreeLeaf(RID asset);
+		void MoveDraggedAssets(RID targetDirectory, RID draggedObject);
 		bool DrawTreeRenameInput(RID asset, const String& currentName);
 		bool ShouldRenameInTree() const;
 		void SetOpenDirectory(RID rid);

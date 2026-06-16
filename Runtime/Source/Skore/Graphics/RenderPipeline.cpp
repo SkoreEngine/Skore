@@ -1228,6 +1228,7 @@ namespace Skore
 			}
 
 			RenderPassDesc renderPassDesc;
+			bool hasAttachmentWrites = false;
 
 			for (auto& dependency : storage.setup.dependencies)
 			{
@@ -1237,6 +1238,8 @@ namespace Skore
 					{
 						if (it->second.desc.type == RenderPipelineResourceType::Attachment)
 						{
+							hasAttachmentWrites = true;
+
 							GPUTexture* texture = it->second.GetResourceTexture(currentFrame);
 							if (texture == nullptr)
 							{
@@ -1289,7 +1292,7 @@ namespace Skore
 				storage.CreateFrameBuffers(this);
 				SK_ASSERT(storage.pass->renderPass, "render pass cannot bre created");
 			}
-			else
+			else if (hasAttachmentWrites)
 			{
 				logger.Error("no attachments for pass {}", storage.name);
 			}

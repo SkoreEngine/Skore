@@ -1264,6 +1264,18 @@ namespace Skore
 			return;
 		}
 
+		{
+			std::scoped_lock lock(contextsMutex);
+			for (auto it = contexts.begin(); it != contexts.end(); ++it)
+			{
+				if (*it == entry)
+				{
+					contexts.Erase(it);
+					break;
+				}
+			}
+		}
+
 		for (auto it = documents.begin(); it != documents.end();)
 		{
 			DocumentEntry* documentEntry = *it;
@@ -1282,18 +1294,6 @@ namespace Skore
 		if (Rml::Context* rmlContext = entry->context)
 		{
 			Rml::RemoveContext(rmlContext->GetName());
-		}
-
-		{
-			std::scoped_lock lock(contextsMutex);
-			for (auto it = contexts.begin(); it != contexts.end(); ++it)
-			{
-				if (*it == entry)
-				{
-					contexts.Erase(it);
-					break;
-				}
-			}
 		}
 
 		DestroyAndFree(entry);

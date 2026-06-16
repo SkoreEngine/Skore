@@ -162,7 +162,7 @@ namespace Skore
 			ImGui::SetNextItemOpen(true);
 		}
 
-		bool folderSelected = Selection::IsSelected(asset);
+		bool folderSelected = Selection::IsSelected(asset) || asset == pendingSelection;
 		if (folderSelected)
 		{
 			flags |= ImGuiTreeNodeFlags_Selected;
@@ -208,12 +208,7 @@ namespace Skore
 					{
 						if (ResourceObject originWindowObject = Resources::Read(assetPayload->windowObjectRID))
 						{
-							UndoRedoScope* scope = Editor::CreateUndoRedoScope("Move Assets");
-
-							for (RID selected : Selection::GetSelectedRIDs())
-							{
-								ResourceAssets::MoveAsset(asset, selected, scope);
-							}
+							MoveDraggedAssets(asset, assetPayload->asset);
 						}
 					}
 				}
@@ -237,22 +232,10 @@ namespace Skore
 
 		if (openDir == isNodeOpen && (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right)))
 		{
-			if (!folderSelected)
-			{
-				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Selection");
-				if (!(ImGui::IsKeyDown((ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown((ImGuiKey_RightCtrl))))
-				{
-					ClearSelection(scope);
-				}
-				SelectItem(asset, scope);
-			}
+			pendingSelection = asset;
+			pendingSelectionInTree = true;
+			pendingOpenDirectory = ImGui::IsItemClicked(ImGuiMouseButton_Left) ? rid : RID{};
 			newSelection = true;
-			selectionInTree = true;
-
-			if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
-			{
-				SetOpenDirectory(rid);
-			}
 		}
 
 		openTreeFolders[asset] = isNodeOpen;
@@ -307,7 +290,7 @@ namespace Skore
 		stringCache.Append(extension);
 
 		ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
-		bool selected = Selection::IsSelected(asset);
+		bool selected = Selection::IsSelected(asset) || asset == pendingSelection;
 		if (selected) flags |= ImGuiTreeNodeFlags_Selected;
 
 		ImGuiTreeLeaf(reinterpret_cast<void*>((usize)asset.id), stringCache.CStr(), flags);
@@ -320,17 +303,9 @@ namespace Skore
 		}
 		else if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
 		{
-			if (!selected)
-			{
-				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Selection");
-				if (!(ImGui::IsKeyDown((ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown((ImGuiKey_RightCtrl))))
-				{
-					ClearSelection(scope);
-				}
-				SelectItem(asset, scope);
-			}
+			pendingSelection = asset;
+			pendingSelectionInTree = true;
 			newSelection = true;
-			selectionInTree = true;
 		}
 
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoHoldToOpenOthers))
@@ -426,6 +401,7 @@ namespace Skore
 
 		RID moveAssetsTo = {};
 		RID moveOrigin = {};
+		RID moveDraggedObject = {};
 
 		ResourceObject windowObject = Resources::Read(windowObjectRID);
 		RID            openDirectory = windowObject.GetReference(ProjectBrowserWindowData::OpenDirectory);
@@ -692,25 +668,15 @@ namespace Skore
 									desc.icon = ResourceAssets::GetIcon(asset);
 									desc.thumbnailScale = contentBrowserZoom;
 									desc.renameItem = renaming;
-									desc.selected = Selection::IsSelected(asset);
+									desc.selected = Selection::IsSelected(asset) || asset == pendingSelection;
 
 									ImGuiContentItemState state = ImGuiContentItem(desc);
 
 									if (state.clicked)
 									{
-										if (!desc.selected)
-										{
-											UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Selection");
-
-											if (!(ImGui::IsKeyDown((ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown((ImGuiKey_RightCtrl))))
-											{
-												ClearSelection(scope);
-											}
-
-											SelectItem(asset, scope);
-										}
+										pendingSelection = asset;
+										pendingSelectionInTree = false;
 										newSelection = true;
-										selectionInTree = false;
 									}
 
 									if (state.renameFinish)
@@ -742,6 +708,7 @@ namespace Skore
 												{
 													moveAssetsTo = asset;
 													moveOrigin = assetPayload->windowObjectRID;
+													moveDraggedObject = assetPayload->asset;
 												}
 											}
 										}
@@ -876,6 +843,31 @@ namespace Skore
 			ImGui::EndTable();
 		}
 
+		bool released = ImGui::IsMouseReleased(ImGuiMouseButton_Left) || ImGui::IsMouseReleased(ImGuiMouseButton_Right);
+		bool dropInProgress = ImGui::GetDragDropPayload() != nullptr;
+		if (pendingSelection && released)
+		{
+			if (!dropInProgress)
+			{
+				if (!Selection::IsSelected(pendingSelection))
+				{
+					UndoRedoScope* scope = Editor::CreateUndoRedoScope("Asset Selection");
+					if (!(ImGui::IsKeyDown((ImGuiKey_LeftCtrl)) || ImGui::IsKeyDown((ImGuiKey_RightCtrl))))
+					{
+						ClearSelection(scope);
+					}
+					SelectItem(pendingSelection, scope);
+				}
+				selectionInTree = pendingSelectionInTree;
+				if (pendingOpenDirectory)
+				{
+					SetOpenDirectory(pendingOpenDirectory);
+				}
+			}
+			pendingSelection = {};
+			pendingOpenDirectory = {};
+		}
+
 		bool closePopup = false;
 		if (!windowObject.GetReference(ProjectBrowserWindowData::RenamingItem) && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
 		{
@@ -905,12 +897,7 @@ namespace Skore
 		{
 			if (ResourceObject originWindowObject = Resources::Read(moveOrigin))
 			{
-				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Move Assets");
-
-				for (RID rid : Selection::GetSelectedRIDs())
-				{
-					ResourceAssets::MoveAsset(moveAssetsTo, rid, scope);
-				}
+				MoveDraggedAssets(moveAssetsTo, moveDraggedObject);
 			}
 		}
 
@@ -942,6 +929,26 @@ namespace Skore
 	void ProjectBrowserWindow::SelectItem(RID rid, UndoRedoScope* scope)
 	{
 		Selection::Select(SelectionType::Asset, rid, false, scope);
+	}
+
+	void ProjectBrowserWindow::MoveDraggedAssets(RID targetDirectory, RID draggedObject)
+	{
+		RID draggedAsset = Resources::GetParent(draggedObject);
+		if (!draggedAsset) return;
+
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Move Assets");
+
+		if (Selection::IsSelected(draggedAsset))
+		{
+			for (RID rid : Selection::GetSelectedRIDs())
+			{
+				ResourceAssets::MoveAsset(targetDirectory, rid, scope);
+			}
+		}
+		else
+		{
+			ResourceAssets::MoveAsset(targetDirectory, draggedAsset, scope);
+		}
 	}
 
 	void ProjectBrowserWindow::SetRenameItem(RID rid, UndoRedoScope* scope)

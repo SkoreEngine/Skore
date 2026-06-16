@@ -167,6 +167,7 @@ namespace Skore
 
 		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 		{
+			scene->renderObjects.Begin(cmd);
 			renderPipelineContext->Execute(cmd, scene);
 			scene->renderObjects.End(cmd);
 		});

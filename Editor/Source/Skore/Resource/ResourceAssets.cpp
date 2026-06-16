@@ -2485,8 +2485,22 @@ namespace Skore
 							RID asset = Resources::GetParent(object);
 							if (ResourceAssetHandler* handler = ResourceAssets::GetAssetHandler(asset))
 							{
+								u64 versionBefore = Resources::GetVersion(asset);
 								logger.Debug("updating asset {}", pathId);
 								handler->Reloaded(asset, eventPath);
+
+								if (Resources::GetVersion(asset) != versionBefore)
+								{
+									if (RID assetFile = Resources::Read(asset).GetReference(ResourceAsset::AssetFile))
+									{
+										FileStatus     status = FileSystem::GetFileStatus(eventPath);
+										ResourceObject assetFileObject = Resources::Write(assetFile);
+										assetFileObject.SetUInt(ResourceAssetFile::PersistedVersion, Resources::GetVersion(asset));
+										assetFileObject.SetUInt(ResourceAssetFile::TotalSizeInDisk, status.fileSize);
+										assetFileObject.SetUInt(ResourceAssetFile::LastModifiedTime, status.lastModifiedTime);
+										assetFileObject.Commit();
+									}
+								}
 							}
 						}
 						break;
