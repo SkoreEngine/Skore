@@ -31,6 +31,14 @@ Skore is developed as a native engine with a focus on responsive editing, real-t
 
 Follow the public [Skore Roadmap](https://trello.com/b/345PmeGL/skore-roadmap) to see what is planned, in progress, and recently completed.
 
+## Community
+
+Skore is still young, and feedback is especially valuable while the foundations are being shaped. If you try the engine, run into problems, or have ideas for the editor and runtime, please open a [GitHub issue](https://github.com/SkoreEngine/Skore/issues) so the discussion stays visible and easy to track.
+
+## Contributing
+
+Contributions are welcome. Focused bug reports, small fixes, documentation improvements, tests, and thoughtful engine or editor changes all help the project move forward. For larger changes, check the [roadmap](https://trello.com/b/345PmeGL/skore-roadmap) first or start a discussion in an issue before opening a pull request.
+
 ## License
 
 Skore Engine is released under the [MIT License](LICENSE).
