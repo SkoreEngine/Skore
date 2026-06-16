@@ -63,6 +63,10 @@ add_subdirectory(ThirdParty)
 add_subdirectory(Player)
 add_subdirectory(Runtime)
 
+if (NOT ANDROID)
+	add_subdirectory(Scripting/Dotnet/SkoreEngine)
+endif ()
+
 if(NOT ANDROID)
 
 	file(GLOB_RECURSE SK_ALL_ASSETS Assets/*)

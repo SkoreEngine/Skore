@@ -29,6 +29,7 @@ target_link_libraries(SkoreRuntime PRIVATE
 				OpenXR
 				xatlas
 				rmlui
+				dotnet
 )
 
 target_link_libraries(SkoreRuntime PUBLIC

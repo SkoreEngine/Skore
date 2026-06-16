@@ -110,7 +110,6 @@ namespace Skore
 		ResourceInit();
 		RegisterTypes();
 		InputInit();
-		ScriptEngineInit();
 		LayerSystemInit();
 		RmlUIInit();
 
@@ -294,6 +293,7 @@ namespace Skore
 		CreateGraphicsDefaultValues();
 		PhysicsInit();
 		AudioEngineInit();
+		ScriptEngineInit();
 
 		return AppResult::Continue;
 	}
