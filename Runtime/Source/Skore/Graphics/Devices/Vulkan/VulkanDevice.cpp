@@ -74,6 +74,8 @@ namespace Skore
 			moodycamel::ConcurrentQueue<VulkanResourceDestructor>(50)
 		};
 
+		Array<VulkanResourceDestructor> pendingDestructors[SK_FRAMES_IN_FLIGHT];
+
 		void EnqueueDestructor(VulkanResourceDestructor destructor)
 		{
 			destructor.frame = App::Frame() % SK_FRAMES_IN_FLIGHT;
@@ -1702,8 +1704,11 @@ namespace Skore
 
 	VulkanDevice::~VulkanDevice()
 	{
+		vkDeviceWaitIdle(device);
+
 		for (u32 i = 0; i < SK_FRAMES_IN_FLIGHT; ++i)
 		{
+			FlushDestructors(i);
 			FlushDestructors(i);
 		}
 
@@ -4164,10 +4169,10 @@ namespace Skore
 
 	void VulkanDevice::ExecuteFrame()
 	{
-		FlushDestructors(currentFrame);
-
 		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 		vkResetFences(device, 1, &inFlightFences[currentFrame]);
+
+		FlushDestructors(currentFrame);
 
 		VulkanCommandBuffer* cmd = commandBuffers[currentFrame];
 		cmd->Begin();
@@ -4246,9 +4251,13 @@ namespace Skore
 
 	void VulkanDevice::FlushDestructors(u8 frame)
 	{
-		VulkanResourceDestructor destructor{};
-		while (destructorQueues[frame].try_dequeue(destructor))
+		for (VulkanResourceDestructor& destructor : pendingDestructors[frame])
 		{
+			if (destructor.accelerationStructure)
+			{
+				vkDestroyAccelerationStructureKHR(device, destructor.accelerationStructure, nullptr);
+			}
+
 			if (destructor.buffer && destructor.allocation)
 			{
 				vmaDestroyBuffer(vmaAllocator, destructor.buffer, destructor.allocation);
@@ -4323,11 +4332,13 @@ namespace Skore
 			{
 				vkDestroyQueryPool(device, destructor.queryPool, nullptr);
 			}
+		}
+		pendingDestructors[frame].Clear();
 
-			if (destructor.accelerationStructure)
-			{
-				vkDestroyAccelerationStructureKHR(device, destructor.accelerationStructure, nullptr);
-			}
+		VulkanResourceDestructor destructor{};
+		while (destructorQueues[frame].try_dequeue(destructor))
+		{
+			pendingDestructors[frame].EmplaceBack(Traits::Move(destructor));
 		}
 	}
 

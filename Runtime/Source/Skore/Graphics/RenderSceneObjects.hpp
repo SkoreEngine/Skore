@@ -76,6 +76,7 @@ namespace Skore
 	{
 		RenderableObject object;
 		Mat4             previousTransform = Mat4(1.0);
+		bool             bonesChanged = false;
 	};
 
 	constexpr static u32 InitialInstanceNumber = 1000;
@@ -146,6 +147,7 @@ namespace Skore
 		GPUDescriptorSet* GetBonesDescriptor(RenderableObject obj) const;
 		void              SetBonesBuffer(RenderableObject obj, GPUBuffer* bonesBuffer);
 		GPUBuffer*        GetBonesBuffer(RenderableObject obj) const;
+		void              UpdateSkinnedBones(RenderableObject obj, GPUBuffer* currentBones, GPUBuffer* previousBones);
 
 		AABB GetAABB(RenderableObject obj) const;
 
@@ -189,6 +191,7 @@ namespace Skore
 		Array<InstanceOwner> instanceDescOwners;
 
 		GPUDescriptorSet* GetSkinningDescriptorSet() const { return skinningDescriptorSet; }
+		GPUDescriptorSet* GetPreviousSkinningDescriptorSet() const { return previousSkinningDescriptorSet; }
 
 		u32 GetVisiblePipelineCount() const
 		{
@@ -236,6 +239,7 @@ namespace Skore
 		u64        skinnedBlasScratchSize = 0;
 
 		GPUDescriptorSet* skinningDescriptorSet = nullptr;
+		GPUDescriptorSet* previousSkinningDescriptorSet = nullptr;
 		GPUBuffer*        fallbackBoneBuffer = nullptr;
 		Array<GPUBuffer*> boneBuffers;
 		Array<u32>        freeBoneBufferSlots;
@@ -248,6 +252,7 @@ namespace Skore
 		static u32 GetOrCreatePipeline(Array<DrawPipeline>& pipelines, const DrawPipelineDesc& desc);
 
 		void TrackMovedRenderable(RenderableObjectStorage* obj, const Mat4& previousTransform, const Mat4& transform);
+		void TrackMovedRenderableBones(RenderableObjectStorage* obj);
 		void RemoveMovedRenderable(RenderableObjectStorage* obj);
 		void MarkDirty(RenderableObjectStorage* obj);
 		void MarkInstanceDirty(u32 instanceDescIndex);
@@ -268,6 +273,7 @@ namespace Skore
 		u32  AcquireBoneBufferSlot(GPUBuffer* bonesBuffer);
 		void ReleaseBoneBufferSlot(u32 slot);
 		void UpdateBoneBufferSlot(u32 slot, GPUBuffer* bonesBuffer);
+		void WriteBoneSlot(GPUDescriptorSet* set, u32 slot, GPUBuffer* bonesBuffer);
 		void UpdateRenderableBoneSlot(RenderableObjectStorage* obj);
 	};
 

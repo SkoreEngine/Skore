@@ -117,6 +117,18 @@ namespace Skore
 			.debugName = "SceneSkinningDescriptorSet"
 		});
 
+		previousSkinningDescriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+			.bindings = {
+				DescriptorSetLayoutBinding{
+					.binding = 0,
+					.descriptorType = DescriptorType::StorageBuffer,
+					.renderType = RenderType::RuntimeArray,
+					.shaderStage = ShaderStage::Vertex
+				},
+			},
+			.debugName = "ScenePreviousSkinningDescriptorSet"
+		});
+
 		fallbackBoneBuffer = Graphics::CreateBuffer(BufferDesc{
 			.size = sizeof(Mat4) * MaxBones,
 			.usage = ResourceUsage::ShaderResource,
@@ -155,6 +167,7 @@ namespace Skore
 			instanceDataBuffer->Destroy();
 		}
 		if (skinningDescriptorSet) skinningDescriptorSet->Destroy();
+		if (previousSkinningDescriptorSet) previousSkinningDescriptorSet->Destroy();
 		if (fallbackBoneBuffer) fallbackBoneBuffer->Destroy();
 		if (tlas) tlas->Destroy();
 		if (tlasScratchBuffer) tlasScratchBuffer->Destroy();
@@ -461,6 +474,24 @@ namespace Skore
 		movedRenderables.EmplaceBack(MovedRenderableObject{
 			.object = RenderableObject{obj},
 			.previousTransform = previousTransform,
+		});
+	}
+
+	void RenderSceneObjects::TrackMovedRenderableBones(RenderableObjectStorage* obj)
+	{
+		if (!obj || obj->references.Empty()) return;
+
+		if (obj->movedRenderableIndex != U32_MAX)
+		{
+			movedRenderables[obj->movedRenderableIndex].bonesChanged = true;
+			return;
+		}
+
+		obj->movedRenderableIndex = static_cast<u32>(movedRenderables.Size());
+		movedRenderables.EmplaceBack(MovedRenderableObject{
+			.object = RenderableObject{obj},
+			.previousTransform = obj->transform,
+			.bonesChanged = true,
 		});
 	}
 
@@ -1067,23 +1098,15 @@ namespace Skore
 		boneBuffers[slot] = nullptr;
 		if (fallbackBoneBuffer)
 		{
-			DescriptorUpdate update = {};
-			update.type = DescriptorType::StorageBuffer;
-			update.binding = 0;
-			update.arrayElement = slot;
-			update.buffer = fallbackBoneBuffer;
-			update.bufferOffset = 0;
-			update.bufferRange = sizeof(Mat4) * MaxBones;
-			skinningDescriptorSet->Update(update);
+			WriteBoneSlot(skinningDescriptorSet, slot, fallbackBoneBuffer);
+			WriteBoneSlot(previousSkinningDescriptorSet, slot, fallbackBoneBuffer);
 		}
 		freeBoneBufferSlots.EmplaceBack(slot);
 	}
 
-	void RenderSceneObjects::UpdateBoneBufferSlot(u32 slot, GPUBuffer* bonesBuffer)
+	void RenderSceneObjects::WriteBoneSlot(GPUDescriptorSet* set, u32 slot, GPUBuffer* bonesBuffer)
 	{
-		if (slot == U32_MAX || slot >= boneBuffers.Size() || bonesBuffer == nullptr) return;
-
-		boneBuffers[slot] = bonesBuffer;
+		if (!set || slot == U32_MAX || bonesBuffer == nullptr) return;
 
 		DescriptorUpdate update = {};
 		update.type = DescriptorType::StorageBuffer;
@@ -1092,7 +1115,39 @@ namespace Skore
 		update.buffer = bonesBuffer;
 		update.bufferOffset = 0;
 		update.bufferRange = sizeof(Mat4) * MaxBones;
-		skinningDescriptorSet->Update(update);
+		set->Update(update);
+	}
+
+	void RenderSceneObjects::UpdateBoneBufferSlot(u32 slot, GPUBuffer* bonesBuffer)
+	{
+		if (slot == U32_MAX || slot >= boneBuffers.Size() || bonesBuffer == nullptr) return;
+
+		boneBuffers[slot] = bonesBuffer;
+		WriteBoneSlot(skinningDescriptorSet, slot, bonesBuffer);
+	}
+
+	void RenderSceneObjects::UpdateSkinnedBones(RenderableObject obj, GPUBuffer* currentBones, GPUBuffer* previousBones)
+	{
+		if (!obj || currentBones == nullptr) return;
+		RenderableObjectStorage* o = obj.ToPtr<RenderableObjectStorage>();
+
+		if (o->boneBufferSlot == U32_MAX)
+		{
+			o->bonesBuffer = currentBones;
+			UpdateRenderableBoneSlot(o);
+		}
+		else if (o->bonesBuffer != currentBones)
+		{
+			o->bonesBuffer = currentBones;
+			UpdateBoneBufferSlot(o->boneBufferSlot, currentBones);
+		}
+
+		if (o->boneBufferSlot != U32_MAX)
+		{
+			WriteBoneSlot(previousSkinningDescriptorSet, o->boneBufferSlot, previousBones ? previousBones : currentBones);
+		}
+
+		TrackMovedRenderableBones(o);
 	}
 
 	void RenderSceneObjects::UpdateRenderableBoneSlot(RenderableObjectStorage* obj)

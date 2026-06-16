@@ -58,6 +58,7 @@ namespace Skore
 		static GPUSampler* GetLinearClampToEdgeSampler();
 		static GPUSampler* GetNearestClampToEdgeSampler();
 		static GPUTexture* GetWhiteTexture();
+		static GPUTexture* GetWhiteTextureUint();
 		static GPUTexture* GetWhiteCubemapTexture();
 
 		static usize GetBottomLevelASSize(const BottomLevelASDesc& desc);

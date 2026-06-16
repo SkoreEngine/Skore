@@ -101,7 +101,9 @@ namespace Skore
 	private:
 		Entity*              m_skeleton = nullptr;
 		SkinResourceCachePtr m_skinCache;
-		GPUBuffer*           m_bonesBuffer = nullptr;
+		GPUBuffer*           m_bonesBuffers[2] = {};
+		u32                  m_writeIndex = 0;
+		bool                 m_bonesInitialized = false;
 		GPUDescriptorSet*    m_bonesDescriptor = nullptr;
 
 		void EnsureBonesData();

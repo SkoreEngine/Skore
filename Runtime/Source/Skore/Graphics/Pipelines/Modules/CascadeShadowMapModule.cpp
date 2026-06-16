@@ -389,7 +389,7 @@ namespace Skore
 			if (desc.hasBones) macros.EmplaceBack("HAS_BONES");
 			if (desc.masked)   macros.EmplaceBack("HAS_MASK");
 
-			GPUPipeline* p = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
+			GraphicsPipelineDesc gpuDesc = GraphicsPipelineDesc{
 				.shader = shadowShader,
 				.variant = ShaderResource::GetVariantName(macros),
 				.rasterizerState = {
@@ -415,8 +415,17 @@ namespace Skore
 						.descriptorSet = context->GetSceneDescriptorSet(0)
 					}
 				}
-			});
-			shadowMapPipelines.EmplaceBack(p);
+			};
+
+			if (desc.hasBones)
+			{
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{
+					.set = 3,
+					.descriptorSet = objects->GetSkinningDescriptorSet()
+				});
+			}
+
+			shadowMapPipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
 		}
 
 		const u32 numShadowPipes = static_cast<u32>(objects->shadowPipelines.Size());
@@ -500,6 +509,10 @@ namespace Skore
 				cmd->BindDescriptorSet(pipeline, 0, RenderResourceCache::GetGlobalDescriptorSet());
 				cmd->BindDescriptorSet(pipeline, 1, context->GetSceneDescriptorSet());
 				cmd->BindDescriptorSet(pipeline, 2, m_shadowMapDescriptorSets[frame][i], {});
+				if (objects->shadowPipelines[sp].desc.hasBones)
+				{
+					cmd->BindDescriptorSet(pipeline, 3, objects->GetSkinningDescriptorSet());
+				}
 
 				u32 slot = i * numShadowPipes + sp;
 				cmd->DrawIndexedIndirectCount(

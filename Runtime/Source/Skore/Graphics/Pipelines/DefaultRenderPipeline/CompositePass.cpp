@@ -69,7 +69,7 @@ namespace Skore
 			}
 			else
 			{
-				ssaoTexture = Graphics::GetWhiteTexture();
+				ssaoTexture = Graphics::GetWhiteTextureUint();
 			}
 
 			GPUTexture* reflectionTexture = context->GetTexture("ReflectionAttachment");

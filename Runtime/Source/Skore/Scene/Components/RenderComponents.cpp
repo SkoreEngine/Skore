@@ -196,26 +196,33 @@ namespace Skore
 
 		m_skinCache.reset();
 		if (m_bonesDescriptor) m_bonesDescriptor->Destroy();
-		if (m_bonesBuffer) m_bonesBuffer->Destroy();
+		for (GPUBuffer*& buffer : m_bonesBuffers)
+		{
+			if (buffer) buffer->Destroy();
+			buffer = nullptr;
+		}
 		m_bonesDescriptor = nullptr;
-		m_bonesBuffer = nullptr;
+		m_bonesInitialized = false;
 	}
 
 	void SkinnedMeshRenderer::EnsureBonesData()
 	{
-		if (m_bonesBuffer == nullptr)
+		if (m_bonesBuffers[0] == nullptr)
 		{
-			m_bonesBuffer = Graphics::CreateBuffer(BufferDesc{
-				.size = sizeof(Mat4) * MaxBones,
-				.usage = ResourceUsage::ConstantBuffer | ResourceUsage::ShaderResource,
-				.hostVisible = true,
-				.persistentMapped = true
-			});
-
-			Mat4* bones = static_cast<Mat4*>(m_bonesBuffer->GetMappedData());
-			for (int i = 0; i < MaxBones; ++i)
+			for (GPUBuffer*& buffer : m_bonesBuffers)
 			{
-				new(bones + i) Mat4{Mat4(1.0)};
+				buffer = Graphics::CreateBuffer(BufferDesc{
+					.size = sizeof(Mat4) * MaxBones,
+					.usage = ResourceUsage::ConstantBuffer | ResourceUsage::ShaderResource,
+					.hostVisible = true,
+					.persistentMapped = true
+				});
+
+				Mat4* bones = static_cast<Mat4*>(buffer->GetMappedData());
+				for (int i = 0; i < MaxBones; ++i)
+				{
+					new(bones + i) Mat4{Mat4(1.0)};
+				}
 			}
 		}
 
@@ -229,7 +236,7 @@ namespace Skore
 					}
 				}
 			});
-			m_bonesDescriptor->UpdateBuffer(0, m_bonesBuffer, 0, sizeof(Mat4) * MaxBones);
+			m_bonesDescriptor->UpdateBuffer(0, m_bonesBuffers[0], 0, sizeof(Mat4) * MaxBones);
 		}
 	}
 
@@ -241,11 +248,7 @@ namespace Skore
 			if (m_skinCache)
 			{
 				EnsureBonesData();
-				if (renderable)
-				{
-					scene->renderObjects.SetBonesDescriptor(renderable, m_bonesDescriptor);
-					scene->renderObjects.SetBonesBuffer(renderable, m_bonesBuffer);
-				}
+				m_bonesInitialized = false;
 			}
 			else if (renderable)
 			{
@@ -254,12 +257,33 @@ namespace Skore
 			}
 		}
 
-		if (!m_bonesBuffer || !m_skinCache) return;
+		if (!m_skinCache || m_bonesBuffers[0] == nullptr) return;
 
-		Mat4* data = static_cast<Mat4*>(m_bonesBuffer->GetMappedData());
+		m_writeIndex ^= 1;
+		GPUBuffer* current = m_bonesBuffers[m_writeIndex];
+		GPUBuffer* previous = m_bonesBuffers[m_writeIndex ^ 1];
+
+		Mat4* data = static_cast<Mat4*>(current->GetMappedData());
 		for (i32 i = 0; i < bones.Size(); ++i)
 		{
 			data[i] = bones[i] * m_skinCache->poses[i];
+		}
+
+		if (!m_bonesInitialized)
+		{
+			Mat4* prevData = static_cast<Mat4*>(previous->GetMappedData());
+			for (i32 i = 0; i < bones.Size(); ++i)
+			{
+				prevData[i] = data[i];
+			}
+			m_bonesInitialized = true;
+		}
+
+		if (renderable)
+		{
+			m_bonesDescriptor->UpdateBuffer(0, current, 0, sizeof(Mat4) * MaxBones);
+			scene->renderObjects.SetBonesDescriptor(renderable, m_bonesDescriptor);
+			scene->renderObjects.UpdateSkinnedBones(renderable, current, previous);
 		}
 	}
 

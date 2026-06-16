@@ -38,6 +38,7 @@ namespace Skore
 		GPUSampler* linearClampToEdgeSampler = nullptr;
 		GPUSampler* nearestClampToEdgeSampler = nullptr;
 		GPUTexture* whiteTexture = nullptr;
+		GPUTexture* whiteTextureUint = nullptr;
 		GPUTexture* whiteCubemapTexture = nullptr;
 
 		struct FreeCommandBuffer
@@ -78,7 +79,7 @@ namespace Skore
 		thisId = std::this_thread::get_id();
 
 		DeviceInitDesc desc;
-		desc.enableDebugLayers = false;
+		desc.enableDebugLayers = true;
 
 		RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(GraphicsSettings));
 		if (ResourceObject settingsObject = Resources::Read(settings))
@@ -184,6 +185,19 @@ namespace Skore
 			.size = 4
 		});
 
+		whiteTextureUint = device->CreateTexture(TextureDesc{
+			.format = TextureFormat::R8_UINT,
+			.debugName = "DefaultWhiteTextureUint"
+		});
+
+		u8 whiteUintData[1] = {255};
+
+		Graphics::UploadTextureData(TextureDataInfo{
+			.texture = whiteTextureUint,
+			.data = whiteUintData,
+			.size = 1
+		});
+
 		whiteCubemapTexture = device->CreateTexture(TextureDesc{
 			.arrayLayers = 6,
 			.cubemap = true,
@@ -227,6 +241,7 @@ namespace Skore
 		linearClampToEdgeSampler->Destroy();
 		nearestClampToEdgeSampler->Destroy();
 		whiteTexture->Destroy();
+		whiteTextureUint->Destroy();
 		whiteCubemapTexture->Destroy();
 
 		for (auto& entry : freeCommandBuffers)
@@ -480,6 +495,11 @@ namespace Skore
 		return whiteTexture;
 	}
 
+	GPUTexture* Graphics::GetWhiteTextureUint()
+	{
+		return whiteTextureUint;
+	}
+
 	GPUTexture* Graphics::GetWhiteCubemapTexture()
 	{
 		return whiteCubemapTexture;
@@ -577,6 +597,7 @@ namespace Skore
 		type.Function<&Graphics::SetTextureState>("SetTextureState", "texture", "oldState", "newState");
 		type.Function<&Graphics::GetLinearSampler>("GetLinearSampler");
 		type.Function<&Graphics::GetWhiteTexture>("GetWhiteTexture");
+		type.Function<&Graphics::GetWhiteTextureUint>("GetWhiteTextureUint");
 		type.Function<&Graphics::GetWhiteCubemapTexture>("GetWhiteCubemapTexture");
 		type.Function<static_cast<usize(*)(const BottomLevelASDesc&)>(&Graphics::GetBottomLevelASSize)>("GetBottomLevelASSize", "desc");
 		type.Function<&Graphics::GetTopLevelASSize>("GetTopLevelASSize", "desc");

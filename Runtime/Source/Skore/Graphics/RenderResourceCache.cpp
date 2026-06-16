@@ -435,7 +435,7 @@ namespace Skore
 
 					if (!running.load(std::memory_order_acquire))
 					{
-						return;
+						break;
 					}
 
 					WorkerData data;

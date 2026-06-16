@@ -13,10 +13,7 @@ cbuffer CameraBuffer : register(b0, space2)
 };
 
 #ifdef HAS_BONES
-cbuffer SkinnedBuffer : register(b0, space3)
-{
-    matrix boneMatrices[SK_MAX_BONES];
-};
+StructuredBuffer<float4x4> BoneMatrices[] : register(t0, space3);
 #endif
 
 struct PixelInput
@@ -40,18 +37,22 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 	float3 inputPosition = GetVertexPosition(vboff, layoutIdx, vertexId);
 
 #ifdef HAS_BONES
-	float3 position = 0.0;
-	uint4 boneIndices = GetVertexBoneIndices(vboff, layoutIdx, vertexId);
-	float4 boneWeights = GetVertexBoneWeights(vboff, layoutIdx, vertexId);
-
-	[unroll]
-	for (int i = 0; i < 4; i++)
+	float3 position = inputPosition;
+	if (instance.boneBufferIndex != 0xFFFFFFFF)
 	{
-		float weight = boneWeights[i];
-		matrix boneTransform = boneMatrices[boneIndices[i]];
+		position = 0.0;
+		uint4 boneIndices = GetVertexBoneIndices(vboff, layoutIdx, vertexId);
+		float4 boneWeights = GetVertexBoneWeights(vboff, layoutIdx, vertexId);
 
-		float4 localPosition = mul(boneTransform, float4(inputPosition, 1.0f));
-		position += localPosition.xyz * weight;
+		[unroll]
+		for (int i = 0; i < 4; i++)
+		{
+			float weight = boneWeights[i];
+			matrix boneTransform = BoneMatrices[NonUniformResourceIndex(instance.boneBufferIndex)][boneIndices[i]];
+
+			float4 localPosition = mul(boneTransform, float4(inputPosition, 1.0f));
+			position += localPosition.xyz * weight;
+		}
 	}
 #else
 	float3 position = inputPosition;
