@@ -62,10 +62,7 @@ include(CMake/CMakeFunctions.cmake)
 add_subdirectory(ThirdParty)
 add_subdirectory(Player)
 add_subdirectory(Runtime)
-
-if (NOT ANDROID)
-	add_subdirectory(Scripting/Dotnet/SkoreEngine)
-endif ()
+add_subdirectory(Dotnet/SkoreEngine)
 
 if(NOT ANDROID)
 

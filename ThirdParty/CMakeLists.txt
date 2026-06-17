@@ -25,6 +25,10 @@ set(MESHOPT_BUILD_GLTFPACK OFF CACHE BOOL "")
 set(MESHOPT_BUILD_SHARED_LIBS OFF CACHE BOOL "")
 set(MESHOPT_INSTALL OFF CACHE BOOL "")
 
+#rmlui
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
+
+
 if (SK_ENABLE_TRACY)
 	option(TRACY_ENABLE "" ON)
 endif()
@@ -46,7 +50,6 @@ add_subdirectory(recastnavigation)
 add_subdirectory(freetype)
 
 add_library(Freetype::Freetype ALIAS freetype)
-add_library(SDL::SDL ALIAS SDL3-shared)
 add_subdirectory(RmlUi)
 
 add_subdirectory(meshoptimizer)

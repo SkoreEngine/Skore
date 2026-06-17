@@ -2,20 +2,19 @@ find_program(SK_DOTNET_EXECUTABLE NAMES dotnet REQUIRED)
 
 set(SK_MANAGED_PROJECT ${CMAKE_CURRENT_SOURCE_DIR}/SkoreEngine.csproj)
 set(SK_MANAGED_OUTPUT_DIR ${CMAKE_BINARY_DIR}/bin/managed)
+set(SK_MANAGED_INTERMEDIATE_DIR ${CMAKE_BINARY_DIR}/dotnet/SkoreEngine/obj)
 set(SK_MANAGED_ASSEMBLY ${SK_MANAGED_OUTPUT_DIR}/SkoreEngine.dll)
 
 file(GLOB_RECURSE SK_MANAGED_SOURCES CONFIGURE_DEPENDS
 		${CMAKE_CURRENT_SOURCE_DIR}/*.cs)
 
-add_custom_command(
-		OUTPUT ${SK_MANAGED_ASSEMBLY}
+add_custom_target(SkoreManaged ALL
 		COMMAND ${SK_DOTNET_EXECUTABLE} build ${SK_MANAGED_PROJECT}
 				--configuration $<IF:$<CONFIG:Debug>,Debug,Release>
 				--output ${SK_MANAGED_OUTPUT_DIR}
+				-p:BaseIntermediateOutputPath=${SK_MANAGED_INTERMEDIATE_DIR}/
 				-nologo
-		DEPENDS ${SK_MANAGED_SOURCES} ${SK_MANAGED_PROJECT}
+		BYPRODUCTS ${SK_MANAGED_ASSEMBLY}
 		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 		COMMENT "Building managed assembly SkoreEngine.dll (dotnet)"
 		VERBATIM)
-
-add_custom_target(SkoreManaged ALL DEPENDS ${SK_MANAGED_ASSEMBLY})
