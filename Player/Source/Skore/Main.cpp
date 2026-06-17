@@ -98,9 +98,9 @@ namespace Skore
 			appConfig.maximized = appSettingsObject.GetBool(AppSettings::Maximized);
 		}
 
-		if (App::CreateContext(appConfig) != AppResult::Continue)
+		if (AppResult result = App::CreateContext(appConfig); result != AppResult::Continue)
 		{
-			return 1;
+			return result == AppResult::Success ? 0 : 1;
 		}
 
 		Array<TypeID> extraModules;

@@ -6,7 +6,11 @@ namespace Skore
     {
         public static int Bootstrap(IntPtr arg, int argSizeBytes)
         {
-            Console.WriteLine("[SkoreEngine] Managed runtime initialized.");
+            Reflection.Initialize(arg);
+
+            ReflectType[] types = Reflection.GetAllTypes();
+            Console.WriteLine($"[SkoreEngine] Managed runtime initialized. {types.Length} reflected types, reflection version {Reflection.Version}.");
+
             return 0;
         }
     }

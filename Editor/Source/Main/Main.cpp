@@ -48,9 +48,9 @@ namespace Skore
 			appConfig.maximized = true;
 		}
 
-		if (App::CreateContext(appConfig) != AppResult::Continue)
+		if (AppResult result = App::CreateContext(appConfig); result != AppResult::Continue)
 		{
-			return 1;
+			return result == AppResult::Success ? 0 : 1;
 		}
 
 		{

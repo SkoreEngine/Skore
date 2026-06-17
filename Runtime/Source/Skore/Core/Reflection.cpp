@@ -63,6 +63,11 @@ namespace Skore
 		return isStatic;
 	}
 
+	VoidPtr ReflectFunction::GetFunctionPointer() const
+	{
+		return functionPointer;
+	}
+
 	void ReflectFunction::Invoke(VoidPtr instance, VoidPtr ret, VoidPtr* params) const
 	{
 		if (invoke)

@@ -18,3 +18,14 @@ add_custom_target(SkoreManaged ALL
 		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 		COMMENT "Building managed assembly SkoreEngine.dll (dotnet)"
 		VERBATIM)
+
+set(SK_GENERATED_BINDINGS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Generated)
+
+add_custom_target(SkoreGenerateBindings
+		COMMAND $<TARGET_FILE:SkorePlayer> --generate-bindings ${SK_GENERATED_BINDINGS_DIR}
+		WORKING_DIRECTORY $<TARGET_FILE_DIR:SkorePlayer>
+		COMMENT "Generating C# bindings (SkorePlayer --generate-bindings -> Generated/)"
+		USES_TERMINAL
+		VERBATIM)
+
+add_dependencies(SkoreGenerateBindings SkorePlayer)

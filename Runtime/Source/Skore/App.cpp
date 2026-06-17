@@ -17,6 +17,7 @@
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/InputTypes.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Script/Dotnet/CSharpBindingGenerator.hpp"
 
 namespace Skore
 {
@@ -268,6 +269,13 @@ namespace Skore
 		{
 			String apiPath = argParser.Get("export-api");
 			Reflection::Export(!apiPath.Empty() ? Path::Join(apiPath, "skore-api.json") : Path::Join(FileSystem::CurrentDir(), "skore-api.json"));
+			return AppResult::Success;
+		}
+
+		if (argParser.Has("generate-bindings"))
+		{
+			String outPath = argParser.Get("generate-bindings");
+			CSharpBindingGenerator::Generate(!outPath.Empty() ? outPath : FileSystem::CurrentDir());
 			return AppResult::Success;
 		}
 

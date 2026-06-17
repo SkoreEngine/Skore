@@ -200,6 +200,7 @@ namespace Skore
 		FieldProps          GetReturn() const;
 		Span<ReflectParam*> GetParams() const;
 		bool                IsStatic() const;
+		VoidPtr             GetFunctionPointer() const;
 
 		void Invoke(VoidPtr instance, VoidPtr ret, VoidPtr* params) const;
 

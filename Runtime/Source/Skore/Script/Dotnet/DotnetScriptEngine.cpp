@@ -3,6 +3,7 @@
 #include "HostfxrResolver.hpp"
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Core/ReflectionApi.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
 #include "Skore/Platform/Platform.hpp"
@@ -123,7 +124,8 @@ namespace Skore
 			return;
 		}
 
-		i32 result = bootstrap(nullptr, 0);
+		const ReflectionApi* reflectionApi = GetReflectionApi();
+		i32                  result = bootstrap(const_cast<ReflectionApi*>(reflectionApi), static_cast<i32>(sizeof(ReflectionApi)));
 		logger.Info("managed entry point 'Skore.EntryPoint.Bootstrap' invoked, returned {}", result);
 	}
 }

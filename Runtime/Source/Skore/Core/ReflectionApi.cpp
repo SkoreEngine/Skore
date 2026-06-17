@@ -1,0 +1,151 @@
+#include "ReflectionApi.hpp"
+
+#include "Reflection.hpp"
+#include "Array.hpp"
+
+namespace Skore
+{
+	namespace
+	{
+		ReflectType** ApiGetAllTypes(u32* outCount)
+		{
+			static Array<ReflectType*> cache;
+			cache = Reflection::GetAllTypes();
+			if (outCount)
+			{
+				*outCount = cache.Size();
+			}
+			return cache.Data();
+		}
+
+		TypeID* ApiGetDerivedTypes(TypeID baseType, u32* outCount)
+		{
+			static Array<TypeID> cache;
+			cache = Reflection::GetDerivedTypes(baseType);
+			if (outCount)
+			{
+				*outCount = cache.Size();
+			}
+			return cache.Data();
+		}
+
+		const TypeProps* ApiTypeGetProps(const ReflectType* type)
+		{
+			return &type->GetProps();
+		}
+
+		const FieldProps* ApiFieldGetProps(const ReflectField* field)
+		{
+			return &field->GetProps();
+		}
+
+		void ApiFunctionGetReturn(const ReflectFunction* function, FieldProps* outProps)
+		{
+			if (outProps)
+			{
+				*outProps = function->GetReturn();
+			}
+		}
+
+		const FieldProps* ApiParamGetProps(const ReflectParam* param)
+		{
+			return &param->GetProps();
+		}
+
+		Object* ApiTypeNewObject(const ReflectType* type)
+		{
+			return type->NewObject();
+		}
+
+		void ApiTypeDestroy(const ReflectType* type, VoidPtr instance)
+		{
+			type->Destroy(instance);
+		}
+
+		Object* ApiConstructorNewObject(const ReflectConstructor* constructor, VoidPtr* params)
+		{
+			return constructor->NewObject(MemoryGlobals::GetDefaultAllocator(), params);
+		}
+
+		ConstPtr ApiTypeGetAttribute(const ReflectType* type, TypeID attributeId)
+		{
+			return type->GetAttribute(attributeId);
+		}
+
+		ConstPtr ApiFieldGetAttribute(const ReflectField* field, TypeID attributeId)
+		{
+			return field->GetAttribute(attributeId);
+		}
+
+		ConstPtr ApiFunctionGetAttribute(const ReflectFunction* function, TypeID attributeId)
+		{
+			return function->GetAttribute(attributeId);
+		}
+
+		const ReflectionApi api = {
+			.FindTypeByName = &Reflection::FindTypeByName,
+			.FindTypeById = &Reflection::FindTypeById,
+			.GetAllTypes = ApiGetAllTypes,
+			.GetDerivedTypes = ApiGetDerivedTypes,
+			.GetTypesAnnotatedWith = &Reflection::GetTypesAnnotatedWith,
+			.GetReflectionVersion = &Reflection::GetVersion,
+
+			.TypeGetName = [](const ReflectType* type) { return type->GetName(); },
+			.TypeGetSimpleName = [](const ReflectType* type) { return type->GetSimpleName(); },
+			.TypeGetScope = [](const ReflectType* type) { return type->GetScope(); },
+			.TypeGetProps = ApiTypeGetProps,
+			.TypeGetVersion = [](const ReflectType* type) { return type->GetVersion(); },
+			.TypeIsDerivedOf = [](const ReflectType* type, TypeID typeId) { return type->IsDerivedOf(typeId); },
+			.TypeGetBaseTypes = [](const ReflectType* type) { return type->GetBaseTypes(); },
+			.TypeGetFields = [](const ReflectType* type) { return type->GetFields(); },
+			.TypeFindField = [](const ReflectType* type, StringView name) { return type->FindField(name); },
+			.TypeGetFunctions = [](const ReflectType* type) { return type->GetFunctions(); },
+			.TypeFindFunction = [](const ReflectType* type, StringView name) { return type->FindFunction(name); },
+			.TypeGetConstructors = [](const ReflectType* type) { return type->GetConstructors(); },
+			.TypeGetDefaultConstructor = [](const ReflectType* type) { return type->GetDefaultConstructor(); },
+			.TypeGetValues = [](const ReflectType* type) { return type->GetValues(); },
+			.TypeFindValueByName = [](const ReflectType* type, StringView name) { return type->FindValueByName(name); },
+			.TypeFindValueByCode = [](const ReflectType* type, i64 code) { return type->FindValueByCode(code); },
+			.TypeNewObject = ApiTypeNewObject,
+			.TypeDestroy = ApiTypeDestroy,
+			.TypeDestructor = [](const ReflectType* type, VoidPtr instance) { type->Destructor(instance); },
+			.TypeCopy = [](const ReflectType* type, ConstPtr source, VoidPtr dest) { type->Copy(source, dest); },
+			.TypeGetAttribute = ApiTypeGetAttribute,
+
+			.FieldGetName = [](const ReflectField* field) { return field->GetName(); },
+			.FieldGetIndex = [](const ReflectField* field) { return field->GetIndex(); },
+			.FieldGetProps = ApiFieldGetProps,
+			.FieldGet = [](const ReflectField* field, ConstPtr instance, VoidPtr dest, usize destSize) { field->Get(instance, dest, destSize); },
+			.FieldSet = [](const ReflectField* field, VoidPtr instance, ConstPtr src, usize srcSize) { field->Set(instance, src, srcSize); },
+			.FieldGetObject = [](const ReflectField* field, ConstPtr instance) { return field->GetObject(instance); },
+			.FieldGetAttribute = ApiFieldGetAttribute,
+
+			.FunctionGetName = [](const ReflectFunction* function) { return function->GetName(); },
+			.FunctionGetSimpleName = [](const ReflectFunction* function) { return function->GetSimpleName(); },
+			.FunctionGetReturn = ApiFunctionGetReturn,
+			.FunctionGetParams = [](const ReflectFunction* function) { return function->GetParams(); },
+			.FunctionIsStatic = [](const ReflectFunction* function) { return function->IsStatic(); },
+			.FunctionInvoke = [](const ReflectFunction* function, VoidPtr instance, VoidPtr ret, VoidPtr* params) { function->Invoke(instance, ret, params); },
+			.FunctionGetFunctionPointer = [](const ReflectFunction* function) { return function->GetFunctionPointer(); },
+			.FunctionGetAttribute = ApiFunctionGetAttribute,
+
+			.ParamGetName = [](const ReflectParam* param) { return param->GetName(); },
+			.ParamGetProps = ApiParamGetProps,
+
+			.ConstructorGetParams = [](const ReflectConstructor* constructor) { return constructor->GetParams(); },
+			.ConstructorNewObject = ApiConstructorNewObject,
+			.ConstructorConstruct = [](const ReflectConstructor* constructor, VoidPtr memory, VoidPtr* params) { constructor->Construct(memory, params); },
+
+			.ValueGetDesc = [](const ReflectValue* value) { return value->GetDesc(); },
+			.ValueGetCode = [](const ReflectValue* value) { return value->GetCode(); },
+			.ValueGetValue = [](const ReflectValue* value) { return value->GetValue(); },
+			.ValueCompare = [](const ReflectValue* value, ConstPtr compareValue) { return value->Compare(compareValue); },
+			.ValueSetToPointer = [](const ReflectValue* value, VoidPtr pointer) { value->SetToPointer(pointer); },
+		};
+	}
+
+	const ReflectionApi* GetReflectionApi()
+	{
+		return &api;
+	}
+}

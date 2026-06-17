@@ -49,7 +49,7 @@ namespace Skore
 		}
 
 		{
-			GroupScope scope("World");
+			GroupScope scope("Scene");
 			RegisterSceneTypes();
 		}
 
