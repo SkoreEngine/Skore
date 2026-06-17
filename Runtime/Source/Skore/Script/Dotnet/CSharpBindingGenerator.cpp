@@ -255,60 +255,36 @@ namespace Skore
 			return false;
 		}
 
-		bool IsFullyBlittable(TypeID typeId, const HashMap<TypeID, GenType>& genTypes, HashMap<TypeID, i32>& cache)
+		bool CanEmitNamedFields(const GenType& genType, const HashMap<TypeID, GenType>& genTypes)
 		{
-			if (auto it = cache.Find(typeId))
-			{
-				return it->second == 1;
-			}
-
-			auto git = genTypes.Find(typeId);
-			if (!git || git->second.kind != CsKind::Struct)
+			Span<ReflectField*> fields = genType.type->GetFields();
+			if (fields.Empty())
 			{
 				return false;
 			}
-
-			cache[typeId] = 2;
-
-			Span<ReflectField*> fields = git->second.type->GetFields();
-			bool                result = !fields.Empty();
-			for (usize i = 0; result && i < fields.Size(); ++i)
+			for (usize i = 0; i < fields.Size(); ++i)
 			{
 				const FieldProps& fp = fields[i]->GetProps();
 				if (fp.isPointer || fp.isReference)
 				{
-					result = false;
-					break;
+					return false;
 				}
 				String prim{};
 				if (MapPrimitive(fp.name, prim))
 				{
 					continue;
 				}
-				if (auto fit = genTypes.Find(fp.typeId))
+				if (auto it = genTypes.Find(fp.typeId); it && (it->second.kind == CsKind::Enum || it->second.kind == CsKind::Struct))
 				{
-					if (fit->second.kind == CsKind::Enum)
-					{
-						continue;
-					}
-					if (fit->second.kind == CsKind::Struct && IsFullyBlittable(fp.typeId, genTypes, cache))
-					{
-						continue;
-					}
+					continue;
 				}
-				result = false;
-			}
-
-			cache[typeId] = result ? 1 : 0;
-			return result;
-		}
-
-		bool ResolveType(const FieldProps& props, const HashMap<TypeID, GenType>& genTypes, Resolved& out)
-		{
-			if (props.isPointer || props.isReference)
-			{
 				return false;
 			}
+			return true;
+		}
+
+		bool ResolveValueName(const FieldProps& props, const HashMap<TypeID, GenType>& genTypes, Resolved& out)
+		{
 			if (MapPrimitive(props.name, out.name))
 			{
 				return true;
@@ -320,6 +296,44 @@ namespace Skore
 					out.name = it->second.fullName;
 					return true;
 				}
+			}
+			return false;
+		}
+
+		bool ResolveType(const FieldProps& props, const HashMap<TypeID, GenType>& genTypes, Resolved& out)
+		{
+			if (props.isPointer || props.isReference)
+			{
+				return false;
+			}
+			return ResolveValueName(props, genTypes, out);
+		}
+
+		String TypeDetail(const FieldProps& props)
+		{
+			String detail{};
+			if (props.isConst)
+			{
+				detail += "const ";
+			}
+			detail += String{props.name};
+			if (props.isPointer)
+			{
+				detail += "*";
+			}
+			if (props.isReference)
+			{
+				detail += "&";
+			}
+			return detail;
+		}
+
+		bool ResolveClassName(const FieldProps& props, const HashMap<TypeID, GenType>& genTypes, String& out)
+		{
+			if (auto it = genTypes.Find(props.typeId); it && it->second.kind == CsKind::Class)
+			{
+				out = it->second.fullName;
+				return true;
 			}
 			return false;
 		}
@@ -427,43 +441,6 @@ namespace Skore
 			writer.Line("}");
 		}
 
-		void EmitStruct(Writer& writer, const GenType& genType, const HashMap<TypeID, GenType>& genTypes)
-		{
-			String nsLine = "namespace ";
-			nsLine += genType.ns;
-			writer.Line(nsLine);
-			writer.Line("{");
-			writer.indent++;
-
-			writer.Line("[StructLayout(LayoutKind.Sequential)]");
-			String decl = "public struct ";
-			decl += genType.simpleName;
-			writer.Line(decl);
-			writer.Line("{");
-			writer.indent++;
-
-			Array<String> usedNames{};
-			usedNames.EmplaceBack(genType.simpleName);
-
-			Span<ReflectField*> fields = genType.type->GetFields();
-			for (usize i = 0; i < fields.Size(); ++i)
-			{
-				Resolved resolved{};
-				ResolveType(fields[i]->GetProps(), genTypes, resolved);
-				String line = "public ";
-				line += resolved.name;
-				line += " ";
-				line += Disambiguate(ToPascalCase(fields[i]->GetName()), usedNames);
-				line += ";";
-				writer.Line(line);
-			}
-
-			writer.indent--;
-			writer.Line("}");
-			writer.indent--;
-			writer.Line("}");
-		}
-
 		struct FieldEmit
 		{
 			u32    index = 0;
@@ -476,11 +453,330 @@ namespace Skore
 			u32           index = 0;
 			String        name{};
 			String        returnType{};
+			String        returnDelegateType{};
+			String        returnPrefix{};
+			String        returnSuffix{};
+			String        returnClass{};
 			bool          isStatic = false;
-			bool          returnsVoid = false;
 			Array<String> paramTypes{};
+			Array<String> paramDelegateTypes{};
 			Array<String> paramNames{};
+			Array<String> paramArgs{};
 		};
+
+		Array<FunctionEmit> CollectFunctions(ReflectType*                    type,
+		                                     usize                           startIndex,
+		                                     bool                            allowInstance,
+		                                     const GenType&                  genType,
+		                                     const HashMap<TypeID, GenType>& genTypes,
+		                                     Array<String>&                  usedNames,
+		                                     Array<String>&                  warnings)
+		{
+			Array<FunctionEmit>    result{};
+			Span<ReflectFunction*> functions = type->GetFunctions();
+			for (usize i = startIndex; i < functions.Size(); ++i)
+			{
+				ReflectFunction* function = functions[i];
+
+				if (!allowInstance && !function->IsStatic())
+				{
+					String warn = genType.fullName;
+					warn += ".";
+					warn += String{function->GetSimpleName()};
+					warn += ": instance method on value type (not generated)";
+					warnings.EmplaceBack(warn);
+					continue;
+				}
+
+				FieldProps returnProps = function->GetReturn();
+
+				FunctionEmit emit{};
+				emit.index = static_cast<u32>(i);
+				emit.isStatic = function->IsStatic();
+
+				bool   ok = true;
+				String reason{};
+
+				if (function->GetFunctionPointer() == nullptr)
+				{
+					ok = false;
+					reason = "no function pointer";
+				}
+
+				bool returnsVoid = returnProps.name == "void" && !returnProps.isPointer && !returnProps.isReference;
+				if (ok && returnsVoid)
+				{
+					emit.returnType = "void";
+					emit.returnDelegateType = "void";
+				}
+				else if (ok)
+				{
+					Resolved resolved{};
+					String   className{};
+					if (ResolveValueName(returnProps, genTypes, resolved))
+					{
+						emit.returnType = resolved.name;
+						emit.returnDelegateType = resolved.name;
+						if (returnProps.isPointer || returnProps.isReference)
+						{
+							emit.returnDelegateType += "*";
+							emit.returnPrefix = "return *";
+						}
+						else
+						{
+							emit.returnPrefix = "return ";
+						}
+					}
+					else if ((returnProps.isPointer || returnProps.isReference) && ResolveClassName(returnProps, genTypes, className))
+					{
+						emit.returnType = className;
+						emit.returnType += "?";
+						emit.returnDelegateType = "IntPtr";
+						emit.returnClass = className;
+					}
+					else
+					{
+						ok = false;
+						reason = "return type '";
+						reason += TypeDetail(returnProps);
+						reason += "'";
+					}
+				}
+
+				Span<ReflectParam*> params = function->GetParams();
+				for (usize p = 0; ok && p < params.Size(); ++p)
+				{
+					const FieldProps& paramProps = params[p]->GetProps();
+					String            paramName = EscapeName(params[p]->GetName());
+					if (paramName == "_")
+					{
+						paramName = "arg";
+						paramName += I64ToStr(static_cast<i64>(p));
+					}
+
+					Resolved resolved{};
+					String   className{};
+					if (ResolveValueName(paramProps, genTypes, resolved))
+					{
+						emit.paramTypes.EmplaceBack(resolved.name);
+						emit.paramNames.EmplaceBack(paramName);
+						if (paramProps.isPointer || paramProps.isReference)
+						{
+							String delegateType = resolved.name;
+							delegateType += "*";
+							emit.paramDelegateTypes.EmplaceBack(delegateType);
+							String arg = "&";
+							arg += paramName;
+							emit.paramArgs.EmplaceBack(arg);
+						}
+						else
+						{
+							emit.paramDelegateTypes.EmplaceBack(resolved.name);
+							emit.paramArgs.EmplaceBack(paramName);
+						}
+					}
+					else if ((paramProps.isPointer || paramProps.isReference) && ResolveClassName(paramProps, genTypes, className))
+					{
+						emit.paramTypes.EmplaceBack(className);
+						emit.paramNames.EmplaceBack(paramName);
+						emit.paramDelegateTypes.EmplaceBack("IntPtr");
+						String arg = paramName;
+						arg += "?.Handle ?? IntPtr.Zero";
+						emit.paramArgs.EmplaceBack(arg);
+					}
+					else
+					{
+						ok = false;
+						reason = "param '";
+						reason += String{params[p]->GetName()};
+						reason += "' type '";
+						reason += TypeDetail(paramProps);
+						reason += "'";
+					}
+				}
+
+				if (!ok)
+				{
+					String warn = genType.fullName;
+					warn += ".";
+					warn += String{function->GetSimpleName()};
+					warn += ": ";
+					warn += reason;
+					warnings.EmplaceBack(warn);
+					continue;
+				}
+
+				emit.name = Disambiguate(ToPascalCase(function->GetSimpleName()), usedNames);
+				result.EmplaceBack(Traits::Move(emit));
+			}
+			return result;
+		}
+
+		void EmitStaticCache(Writer& writer, const GenType& genType, bool cacheFields)
+		{
+			writer.Line("private static readonly IntPtr[] __fns;");
+			writer.Line("private static readonly IntPtr[] __fps;");
+			if (cacheFields)
+			{
+				writer.Line("private static readonly IntPtr[] __flds;");
+			}
+			writer.Blank();
+
+			String staticCtor = "static ";
+			staticCtor += genType.simpleName;
+			staticCtor += "()";
+			writer.Line(staticCtor);
+			writer.Line("{");
+			writer.indent++;
+			String findType = "var __rt = Reflection.FindTypeByName(\"";
+			findType += String{genType.type->GetName()};
+			findType += "\")!.Value;";
+			writer.Line(findType);
+			writer.Line("var __fn = __rt.GetFunctions();");
+			writer.Line("__fns = new IntPtr[__fn.Length];");
+			writer.Line("__fps = new IntPtr[__fn.Length];");
+			writer.Line("for (int i = 0; i < __fn.Length; i++) { __fns[i] = __fn[i].Handle; __fps[i] = __fn[i].GetFunctionPointer(); }");
+			if (cacheFields)
+			{
+				writer.Line("var __fl = __rt.GetFields();");
+				writer.Line("__flds = new IntPtr[__fl.Length];");
+				writer.Line("for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;");
+			}
+			writer.indent--;
+			writer.Line("}");
+		}
+
+		void EmitMethod(Writer& writer, const FunctionEmit& function)
+		{
+			writer.Blank();
+
+			String signature = "public ";
+			if (function.isStatic)
+			{
+				signature += "static ";
+			}
+			signature += "unsafe ";
+			signature += function.returnType;
+			signature += " ";
+			signature += function.name;
+			signature += "(";
+			for (usize p = 0; p < function.paramTypes.Size(); ++p)
+			{
+				if (p > 0)
+				{
+					signature += ", ";
+				}
+				signature += function.paramTypes[p];
+				signature += " ";
+				signature += function.paramNames[p];
+			}
+			signature += ")";
+			writer.Line(signature);
+			writer.Line("{");
+			writer.indent++;
+
+			String cast = "var __fp = (";
+			cast += DelegateSignature(function.paramDelegateTypes, function.returnDelegateType);
+			cast += ")__fps[";
+			cast += I64ToStr(static_cast<i64>(function.index));
+			cast += "];";
+			writer.Line(cast);
+
+			String callExpr = "__fp(__fns[";
+			callExpr += I64ToStr(static_cast<i64>(function.index));
+			callExpr += "], ";
+			callExpr += function.isStatic ? "IntPtr.Zero" : "Handle";
+			for (usize p = 0; p < function.paramArgs.Size(); ++p)
+			{
+				callExpr += ", ";
+				callExpr += function.paramArgs[p];
+			}
+			callExpr += ")";
+
+			if (!function.returnClass.Empty())
+			{
+				String tmp = "var __ret = ";
+				tmp += callExpr;
+				tmp += ";";
+				writer.Line(tmp);
+				String ret = "return __ret == IntPtr.Zero ? null : new ";
+				ret += function.returnClass;
+				ret += "(__ret);";
+				writer.Line(ret);
+			}
+			else
+			{
+				String call = function.returnPrefix;
+				call += callExpr;
+				call += function.returnSuffix;
+				call += ";";
+				writer.Line(call);
+			}
+
+			writer.indent--;
+			writer.Line("}");
+		}
+
+		void EmitStruct(Writer& writer, const GenType& genType, const HashMap<TypeID, GenType>& genTypes, Array<String>& warnings)
+		{
+			Array<String> usedNames{};
+			usedNames.EmplaceBack(genType.simpleName);
+
+			Array<FunctionEmit> functionEmits = CollectFunctions(genType.type, 0, false, genType, genTypes, usedNames, warnings);
+
+			bool named = CanEmitNamedFields(genType, genTypes);
+
+			String nsLine = "namespace ";
+			nsLine += genType.ns;
+			writer.Line(nsLine);
+			writer.Line("{");
+			writer.indent++;
+
+			writer.Line("[StructLayout(LayoutKind.Sequential)]");
+			String decl = named ? "public partial struct " : "public unsafe partial struct ";
+			decl += genType.simpleName;
+			writer.Line(decl);
+			writer.Line("{");
+			writer.indent++;
+
+			if (named)
+			{
+				Span<ReflectField*> fields = genType.type->GetFields();
+				for (usize i = 0; i < fields.Size(); ++i)
+				{
+					Resolved resolved{};
+					ResolveType(fields[i]->GetProps(), genTypes, resolved);
+					String line = "public ";
+					line += resolved.name;
+					line += " ";
+					line += Disambiguate(ToPascalCase(fields[i]->GetName()), usedNames);
+					line += ";";
+					writer.Line(line);
+				}
+			}
+			else
+			{
+				String buf = "private fixed byte _data[";
+				buf += I64ToStr(static_cast<i64>(genType.type->GetProps().size));
+				buf += "];";
+				writer.Line(buf);
+			}
+
+			if (!functionEmits.Empty())
+			{
+				writer.Blank();
+				EmitStaticCache(writer, genType, false);
+				for (const FunctionEmit& function : functionEmits)
+				{
+					EmitMethod(writer, function);
+				}
+			}
+
+			writer.indent--;
+			writer.Line("}");
+			writer.indent--;
+			writer.Line("}");
+		}
 
 		void EmitClass(Writer&                          writer,
 		               const GenType&                   genType,
@@ -489,12 +785,28 @@ namespace Skore
 		{
 			ReflectType* type = genType.type;
 
+			bool         hasBase = false;
+			String       baseFullName{};
+			usize        baseFieldCount = 0;
+			usize        baseFuncCount = 0;
+			Span<TypeID> baseTypes = type->GetBaseTypes();
+			if (!baseTypes.Empty())
+			{
+				if (auto it = genTypes.Find(baseTypes[0]); it && it->second.kind == CsKind::Class)
+				{
+					hasBase = true;
+					baseFullName = it->second.fullName;
+					baseFieldCount = it->second.type->GetFields().Size();
+					baseFuncCount = it->second.type->GetFunctions().Size();
+				}
+			}
+
 			Array<String> usedNames{};
 			usedNames.EmplaceBack(genType.simpleName);
 
 			Array<FieldEmit>    fieldEmits{};
 			Span<ReflectField*> fields = type->GetFields();
-			for (usize i = 0; i < fields.Size(); ++i)
+			for (usize i = baseFieldCount; i < fields.Size(); ++i)
 			{
 				ReflectField* field = fields[i];
 				Resolved      resolved{};
@@ -517,7 +829,7 @@ namespace Skore
 
 			Array<FunctionEmit>    functionEmits{};
 			Span<ReflectFunction*> functions = type->GetFunctions();
-			for (usize i = 0; i < functions.Size(); ++i)
+			for (usize i = baseFuncCount; i < functions.Size(); ++i)
 			{
 				ReflectFunction* function = functions[i];
 				FieldProps       returnProps = function->GetReturn();
@@ -525,54 +837,115 @@ namespace Skore
 				FunctionEmit emit{};
 				emit.index = static_cast<u32>(i);
 				emit.isStatic = function->IsStatic();
-				emit.returnsVoid = returnProps.name == "void" && !returnProps.isPointer && !returnProps.isReference;
 
-				bool ok = function->GetFunctionPointer() != nullptr;
+				bool   ok = true;
+				String reason{};
 
-				if (ok && !emit.returnsVoid)
+				if (function->GetFunctionPointer() == nullptr)
+				{
+					ok = false;
+					reason = "no function pointer";
+				}
+
+				bool returnsVoid = returnProps.name == "void" && !returnProps.isPointer && !returnProps.isReference;
+				if (ok && returnsVoid)
+				{
+					emit.returnType = "void";
+					emit.returnDelegateType = "void";
+				}
+				else if (ok)
 				{
 					Resolved resolved{};
-					if (ResolveType(returnProps, genTypes, resolved))
+					String   className{};
+					if (ResolveValueName(returnProps, genTypes, resolved))
 					{
 						emit.returnType = resolved.name;
+						emit.returnDelegateType = resolved.name;
+						if (returnProps.isPointer || returnProps.isReference)
+						{
+							emit.returnDelegateType += "*";
+							emit.returnPrefix = "return *";
+						}
+						else
+						{
+							emit.returnPrefix = "return ";
+						}
+					}
+					else if ((returnProps.isPointer || returnProps.isReference) && ResolveClassName(returnProps, genTypes, className))
+					{
+						emit.returnType = className;
+						emit.returnType += "?";
+						emit.returnDelegateType = "IntPtr";
+						emit.returnClass = className;
 					}
 					else
 					{
 						ok = false;
+						reason = "return type '";
+						reason += TypeDetail(returnProps);
+						reason += "'";
 					}
-				}
-				else
-				{
-					emit.returnType = "void";
 				}
 
 				Span<ReflectParam*> params = function->GetParams();
 				for (usize p = 0; ok && p < params.Size(); ++p)
 				{
+					const FieldProps& paramProps = params[p]->GetProps();
+					String            paramName = EscapeName(params[p]->GetName());
+					if (paramName == "_")
+					{
+						paramName = "arg";
+						paramName += I64ToStr(static_cast<i64>(p));
+					}
+
 					Resolved resolved{};
-					if (ResolveType(params[p]->GetProps(), genTypes, resolved))
+					String   className{};
+					if (ResolveValueName(paramProps, genTypes, resolved))
 					{
 						emit.paramTypes.EmplaceBack(resolved.name);
-						String paramName = EscapeName(params[p]->GetName());
-						if (paramName == "_")
-						{
-							paramName = "arg";
-							paramName += I64ToStr(static_cast<i64>(p));
-						}
 						emit.paramNames.EmplaceBack(paramName);
+						if (paramProps.isPointer || paramProps.isReference)
+						{
+							String delegateType = resolved.name;
+							delegateType += "*";
+							emit.paramDelegateTypes.EmplaceBack(delegateType);
+							String arg = "&";
+							arg += paramName;
+							emit.paramArgs.EmplaceBack(arg);
+						}
+						else
+						{
+							emit.paramDelegateTypes.EmplaceBack(resolved.name);
+							emit.paramArgs.EmplaceBack(paramName);
+						}
+					}
+					else if ((paramProps.isPointer || paramProps.isReference) && ResolveClassName(paramProps, genTypes, className))
+					{
+						emit.paramTypes.EmplaceBack(className);
+						emit.paramNames.EmplaceBack(paramName);
+						emit.paramDelegateTypes.EmplaceBack("IntPtr");
+						String arg = paramName;
+						arg += "?.Handle ?? IntPtr.Zero";
+						emit.paramArgs.EmplaceBack(arg);
 					}
 					else
 					{
 						ok = false;
+						reason = "param '";
+						reason += String{params[p]->GetName()};
+						reason += "' type '";
+						reason += TypeDetail(paramProps);
+						reason += "'";
 					}
 				}
 
 				if (!ok)
 				{
 					String warn = genType.fullName;
-					warn += ": skipped function '";
-					warn += String{function->GetName()};
-					warn += "' (unsupported signature)";
+					warn += ".";
+					warn += String{function->GetSimpleName()};
+					warn += ": ";
+					warn += reason;
 					warnings.EmplaceBack(warn);
 					continue;
 				}
@@ -588,18 +961,27 @@ namespace Skore
 			writer.Line("{");
 			writer.indent++;
 
-			String classDecl = "public unsafe partial class ";
+			String classDecl = "public partial class ";
 			classDecl += genType.simpleName;
+			if (hasBase)
+			{
+				classDecl += " : ";
+				classDecl += baseFullName;
+			}
 			writer.Line(classDecl);
 			writer.Line("{");
 			writer.indent++;
 
-			writer.Line("public IntPtr Handle;");
-			writer.Blank();
+			if (!hasBase)
+			{
+				writer.Line("public IntPtr Handle;");
+				writer.Blank();
+			}
 
 			String ctor = "public ";
 			ctor += genType.simpleName;
-			ctor += "(IntPtr handle) { Handle = handle; }";
+			ctor += "(IntPtr handle)";
+			ctor += hasBase ? " : base(handle) { }" : " { Handle = handle; }";
 			writer.Line(ctor);
 			writer.Blank();
 
@@ -661,6 +1043,7 @@ namespace Skore
 				{
 					signature += "static ";
 				}
+				signature += "unsafe ";
 				signature += function.returnType;
 				signature += " ";
 				signature += function.name;
@@ -681,28 +1064,42 @@ namespace Skore
 				writer.indent++;
 
 				String cast = "var __fp = (";
-				cast += DelegateSignature(function.paramTypes, function.returnType);
+				cast += DelegateSignature(function.paramDelegateTypes, function.returnDelegateType);
 				cast += ")__fps[";
 				cast += I64ToStr(static_cast<i64>(function.index));
 				cast += "];";
 				writer.Line(cast);
 
-				String call{};
-				if (!function.returnsVoid)
+				String callExpr = "__fp(__fns[";
+				callExpr += I64ToStr(static_cast<i64>(function.index));
+				callExpr += "], ";
+				callExpr += function.isStatic ? "IntPtr.Zero" : "Handle";
+				for (usize p = 0; p < function.paramArgs.Size(); ++p)
 				{
-					call += "return ";
+					callExpr += ", ";
+					callExpr += function.paramArgs[p];
 				}
-				call += "__fp(__fns[";
-				call += I64ToStr(static_cast<i64>(function.index));
-				call += "], ";
-				call += function.isStatic ? "IntPtr.Zero" : "Handle";
-				for (usize p = 0; p < function.paramNames.Size(); ++p)
+				callExpr += ")";
+
+				if (!function.returnClass.Empty())
 				{
-					call += ", ";
-					call += function.paramNames[p];
+					String tmp = "var __ret = ";
+					tmp += callExpr;
+					tmp += ";";
+					writer.Line(tmp);
+					String ret = "return __ret == IntPtr.Zero ? null : new ";
+					ret += function.returnClass;
+					ret += "(__ret);";
+					writer.Line(ret);
 				}
-				call += ");";
-				writer.Line(call);
+				else
+				{
+					String call = function.returnPrefix;
+					call += callExpr;
+					call += function.returnSuffix;
+					call += ";";
+					writer.Line(call);
+				}
 
 				writer.indent--;
 				writer.Line("}");
@@ -759,23 +1156,6 @@ namespace Skore
 			genTypes.Insert(genType.typeId, genType);
 		}
 
-		HashMap<TypeID, i32> blitCache{};
-		Array<TypeID>        demote{};
-		for (const auto& entry : genTypes)
-		{
-			if (entry.second.kind == CsKind::Struct && !IsFullyBlittable(entry.second.typeId, genTypes, blitCache))
-			{
-				demote.EmplaceBack(entry.second.typeId);
-			}
-		}
-		for (TypeID id : demote)
-		{
-			if (auto it = genTypes.Find(id))
-			{
-				it->second.kind = CsKind::Class;
-			}
-		}
-
 		u32 fileCount = 0;
 		for (const auto& entry : genTypes)
 		{
@@ -783,6 +1163,7 @@ namespace Skore
 
 			Writer writer{};
 			writer.Line("// <auto-generated/>");
+			writer.Line("#nullable enable");
 			writer.Line("using System;");
 			writer.Line("using System.Runtime.InteropServices;");
 			writer.Blank();
@@ -793,7 +1174,7 @@ namespace Skore
 			}
 			else if (genType.kind == CsKind::Struct)
 			{
-				EmitStruct(writer, genType, genTypes);
+				EmitStruct(writer, genType, genTypes, warnings);
 			}
 			else
 			{
