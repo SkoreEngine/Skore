@@ -29,7 +29,7 @@ namespace Skore
 
         public TypeId[] GetBaseTypes()
         {
-            Span<TypeId> span = Reflection.Api.TypeGetBaseTypes(Handle);
+            UnmanagedSpan<TypeId> span = Reflection.Api.TypeGetBaseTypes(Handle);
             int count = (int)span.Size;
             var result = new TypeId[count];
             for (int i = 0; i < count; i++)
@@ -41,7 +41,7 @@ namespace Skore
 
         public ReflectField[] GetFields()
         {
-            Span<IntPtr> span = Reflection.Api.TypeGetFields(Handle);
+            UnmanagedSpan<IntPtr> span = Reflection.Api.TypeGetFields(Handle);
             int count = (int)span.Size;
             var result = new ReflectField[count];
             for (int i = 0; i < count; i++)
@@ -59,7 +59,7 @@ namespace Skore
 
         public ReflectFunction[] GetFunctions()
         {
-            Span<IntPtr> span = Reflection.Api.TypeGetFunctions(Handle);
+            UnmanagedSpan<IntPtr> span = Reflection.Api.TypeGetFunctions(Handle);
             int count = (int)span.Size;
             var result = new ReflectFunction[count];
             for (int i = 0; i < count; i++)
@@ -77,7 +77,7 @@ namespace Skore
 
         public ReflectConstructor[] GetConstructors()
         {
-            Span<IntPtr> span = Reflection.Api.TypeGetConstructors(Handle);
+            UnmanagedSpan<IntPtr> span = Reflection.Api.TypeGetConstructors(Handle);
             int count = (int)span.Size;
             var result = new ReflectConstructor[count];
             for (int i = 0; i < count; i++)
@@ -95,7 +95,7 @@ namespace Skore
 
         public ReflectValue[] GetValues()
         {
-            Span<IntPtr> span = Reflection.Api.TypeGetValues(Handle);
+            UnmanagedSpan<IntPtr> span = Reflection.Api.TypeGetValues(Handle);
             int count = (int)span.Size;
             var result = new ReflectValue[count];
             for (int i = 0; i < count; i++)

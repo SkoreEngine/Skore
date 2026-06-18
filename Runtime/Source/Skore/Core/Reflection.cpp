@@ -19,25 +19,6 @@ namespace Skore
 
 	bool reloadEnabled = false;
 
-	static Array<String> groupStack;
-
-	namespace
-	{
-		String GetCurrentScope()
-		{
-			String result;
-			for (int i = 0; i < groupStack.Size(); ++i)
-			{
-				result += groupStack[i];
-				if (i != groupStack.Size() - 1)
-				{
-					result += ".";
-				}
-			}
-			return result;
-		}
-	}
-
 	StringView ReflectFunction::GetName() const
 	{
 		return name;
@@ -896,16 +877,6 @@ namespace Skore
 		}
 
 		return types;
-	}
-
-	void Reflection::PushGroup(StringView name)
-	{
-		groupStack.EmplaceBack(name);
-	}
-
-	void Reflection::PopGroup()
-	{
-		groupStack.PopBack();
 	}
 
 	namespace

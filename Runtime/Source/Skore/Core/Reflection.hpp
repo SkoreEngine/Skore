@@ -5,6 +5,7 @@
 #include "TypeInfo.hpp"
 #include "Object.hpp"
 #include "HashMap.hpp"
+#include "GroupScope.hpp"
 
 #include "Serialization.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
@@ -417,9 +418,6 @@ namespace Skore
 		static Span<TypeID>        GetTypesAnnotatedWith(TypeID typeId);
 		static Array<ReflectType*> GetAllTypes();
 
-		static void PushGroup(StringView name);
-		static void PopGroup();
-
 		static void Export(StringView path);
 
 		template <typename T>
@@ -433,20 +431,6 @@ namespace Skore
 		static ReflectType* FindType()
 		{
 			return FindTypeById(TypeInfo<T>::ID());
-		}
-	};
-
-
-	struct GroupScope
-	{
-		GroupScope(StringView name)
-		{
-			Reflection::PushGroup(name);
-		}
-
-		~GroupScope()
-		{
-			Reflection::PopGroup();
 		}
 	};
 

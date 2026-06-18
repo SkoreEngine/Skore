@@ -573,6 +573,7 @@ namespace Skore
 
 		ResourceType* type = builder.GetResourceType();
 		type->reflectType = reflectType;
+		type->scope = reflectType->GetScope();
 
 		//default value
 		if (ReflectConstructor* defaultConstructor = reflectType->GetDefaultConstructor())

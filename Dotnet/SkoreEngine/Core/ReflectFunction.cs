@@ -28,7 +28,7 @@ namespace Skore
 
         public ReflectParam[] GetParams()
         {
-            Span<IntPtr> span = Reflection.Api.FunctionGetParams(Handle);
+            UnmanagedSpan<IntPtr> span = Reflection.Api.FunctionGetParams(Handle);
             int count = (int)span.Size;
             var result = new ReflectParam[count];
             for (int i = 0; i < count; i++)

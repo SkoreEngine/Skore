@@ -55,7 +55,7 @@ namespace Skore
             Init();
             int byteCount = System.Text.Encoding.UTF8.GetByteCount(value);
             byte* bytes = stackalloc byte[byteCount];
-            System.Text.Encoding.UTF8.GetBytes(value, new Span<byte>(bytes, byteCount));
+            System.Text.Encoding.UTF8.GetBytes(value, new System.Span<byte>(bytes, byteCount));
             StringView view = new StringView(bytes, (ulong)byteCount);
             new ReflectConstructor(_ctor).Construct(dest, new IntPtr[] { (IntPtr)(&view) });
         }

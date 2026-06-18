@@ -22,6 +22,8 @@ _deps
 
 #skore
 *.pak
+# C# bindings are generated into the CMake binary dir, never the source tree
+Dotnet/SkoreEngine/Generated/
 
 #android
 # Gradle files

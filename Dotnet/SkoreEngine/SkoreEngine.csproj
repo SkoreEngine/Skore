@@ -13,4 +13,10 @@
         <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
     </PropertyGroup>
 
+    <ItemGroup Condition="'$(GeneratedBindingsDir)' != ''">
+        <Compile Include="$(GeneratedBindingsDir)/**/*.cs">
+            <Link>Generated/%(RecursiveDir)%(Filename)%(Extension)</Link>
+        </Compile>
+    </ItemGroup>
+
 </Project>

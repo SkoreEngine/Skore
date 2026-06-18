@@ -12,6 +12,8 @@
 #include "Skore/Core/Traits.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Resource/Resources.hpp"
+#include "Skore/Resource/ResourceType.hpp"
 
 namespace Skore
 {
@@ -109,30 +111,17 @@ namespace Skore
 			return result;
 		}
 
-		String NamespaceFromScope(StringView scope)
-		{
-			String ns = "Skore";
-			if (scope.Empty()) return ns;
-			usize start = 0;
-			for (usize i = 0; i <= scope.Size(); ++i)
-			{
-				if (i == scope.Size() || scope[i] == '.')
-				{
-					if (i > start)
-					{
-						ns += ".";
-						ns += String{scope.Substr(start, i - start)};
-					}
-					start = i + 1;
-				}
-			}
-			return ns;
-		}
-
 		String I64ToStr(i64 value)
 		{
 			char tmp[32];
 			snprintf(tmp, sizeof(tmp), "%lld", static_cast<long long>(value));
+			return String{tmp};
+		}
+
+		String U64ToStr(u64 value)
+		{
+			char tmp[32];
+			snprintf(tmp, sizeof(tmp), "%llu", static_cast<unsigned long long>(value));
 			return String{tmp};
 		}
 
@@ -211,6 +200,11 @@ namespace Skore
 			static const char* denied[] = {
 				"Skore::String",
 				"Skore::StringView",
+				"Skore::Vec2",
+				"Skore::Vec3",
+				"Skore::Vec4",
+				"Skore::Quat",
+				"Skore::Mat4",
 			};
 			for (const char* entry : denied)
 			{
@@ -277,9 +271,29 @@ namespace Skore
 				out = "Skore.TypeId";
 				return true;
 			}
+			struct HandWritten
+			{
+				const char* cpp;
+				const char* cs;
+			};
+			static const HandWritten handWritten[] = {
+				{"Skore::Vec2", "Skore.Vec2"},
+				{"Skore::Vec3", "Skore.Vec3"},
+				{"Skore::Vec4", "Skore.Vec4"},
+				{"Skore::Quat", "Skore.Quat"},
+				{"Skore::Mat4", "Skore.Mat4"},
+			};
+			for (const HandWritten& entry : handWritten)
+			{
+				if (name == entry.cpp)
+				{
+					out = entry.cs;
+					return true;
+				}
+			}
 			if (StartsWith(name, StringView{"Skore::TypedRID<"}) || StartsWith(name, StringView{"Skore::SubObjectRID<"}))
 			{
-				out = "Skore.Resources.RID";
+				out = "Skore.RID";
 				return true;
 			}
 			return false;
@@ -635,7 +649,17 @@ namespace Skore
 			Array<String> paramArgs{};
 			Array<String> prologue{};
 			Array<String> epilogue{};
+			bool          hidesBase = false;
 		};
+
+		bool HidesObjectMethod(StringView name, usize paramCount)
+		{
+			if (paramCount != 0)
+			{
+				return false;
+			}
+			return name == "ToString" || name == "GetType" || name == "GetHashCode";
+		}
 
 		Array<FunctionEmit> CollectFunctions(ReflectType*                    type,
 		                                     usize                           startIndex,
@@ -713,7 +737,7 @@ namespace Skore
 					}
 					else if (!returnProps.isPointer && !returnProps.isReference && ParseSpan(returnProps.name, genTypes, span))
 					{
-						emit.returnDelegateType = "Skore.Span<";
+						emit.returnDelegateType = "Skore.UnmanagedSpan<";
 						emit.returnDelegateType += span.abiElement;
 						emit.returnDelegateType += ">";
 
@@ -952,7 +976,7 @@ namespace Skore
 						emit.prologue.EmplaceBack(f);
 						String mk = "var ";
 						mk += sp;
-						mk += " = new Skore.Span<";
+						mk += " = new Skore.UnmanagedSpan<";
 						mk += span.abiElement;
 						mk += ">(";
 						mk += sp;
@@ -970,7 +994,7 @@ namespace Skore
 						mtype += ">";
 						emit.paramTypes.EmplaceBack(mtype);
 						emit.paramNames.EmplaceBack(paramName);
-						String spanType = "Skore.Span<";
+						String spanType = "Skore.UnmanagedSpan<";
 						spanType += span.abiElement;
 						spanType += ">";
 						if (paramProps.isPointer || paramProps.isReference)
@@ -1038,6 +1062,7 @@ namespace Skore
 				}
 
 				emit.name = Disambiguate(ToPascalCase(function->GetSimpleName()), usedNames);
+				emit.hidesBase = HidesObjectMethod(emit.name, emit.paramTypes.Size());
 				result.EmplaceBack(Traits::Move(emit));
 			}
 			return result;
@@ -1082,6 +1107,10 @@ namespace Skore
 			writer.Blank();
 
 			String signature = "public ";
+			if (function.hidesBase)
+			{
+				signature += "new ";
+			}
 			if (function.isStatic)
 			{
 				signature += "static ";
@@ -1202,11 +1231,45 @@ namespace Skore
 
 			bool named = CanEmitNamedFields(genType, genTypes);
 
+			bool staticOnly = genType.type->GetFields().Empty();
+			for (const FunctionEmit& function : functionEmits)
+			{
+				if (!function.isStatic)
+				{
+					staticOnly = false;
+					break;
+				}
+			}
+
 			String nsLine = "namespace ";
 			nsLine += genType.ns;
 			writer.Line(nsLine);
 			writer.Line("{");
 			writer.indent++;
+
+			if (staticOnly)
+			{
+				String classDecl = "public static partial class ";
+				classDecl += genType.simpleName;
+				writer.Line(classDecl);
+				writer.Line("{");
+				writer.indent++;
+
+				if (!functionEmits.Empty())
+				{
+					EmitStaticCache(writer, genType, false);
+					for (const FunctionEmit& function : functionEmits)
+					{
+						EmitMethod(writer, function);
+					}
+				}
+
+				writer.indent--;
+				writer.Line("}");
+				writer.indent--;
+				writer.Line("}");
+				return;
+			}
 
 			writer.Line("[StructLayout(LayoutKind.Sequential)]");
 			String decl = named ? "public partial struct " : "public unsafe partial struct ";
@@ -1422,7 +1485,7 @@ namespace Skore
 					String index = I64ToStr(static_cast<i64>(field.index));
 					String element = field.arrayElement;
 					String size = I64ToStr(static_cast<i64>(field.arrayElementSize));
-					String reader = field.arrayIsSpan ? "Skore.Span<byte>" : "Skore.NativeArray<byte>";
+					String reader = field.arrayIsSpan ? "Skore.UnmanagedSpan<byte>" : "Skore.NativeArray<byte>";
 					String count = field.arrayIsSpan ? "(int)__a.Size" : "__a.Count";
 
 					String decl = "public unsafe List<";
@@ -1467,7 +1530,7 @@ namespace Skore
 				{
 					String index = I64ToStr(static_cast<i64>(field.index));
 					String element = field.arrayElement;
-					String span = "Skore.Span<";
+					String span = "Skore.UnmanagedSpan<";
 					span += element;
 					span += ">";
 
@@ -1614,7 +1677,7 @@ namespace Skore
 			genType.type = type;
 			genType.scope = type->GetScope();
 			genType.simpleName = EscapeName(simpleName);
-			genType.ns = NamespaceFromScope(genType.scope);
+			genType.ns = String{"Skore"};
 			genType.fullName = genType.ns;
 			genType.fullName += ".";
 			genType.fullName += genType.simpleName;
@@ -1677,10 +1740,91 @@ namespace Skore
 			fileCount++;
 		}
 
+		u32                  resourceCount = 0;
+		Array<ResourceType*> resourceTypes = Resources::GetTypes();
+		for (usize ti = 0; ti < resourceTypes.Size(); ++ti)
+		{
+			ResourceType* resourceType = resourceTypes[ti];
+
+			StringView fullName = resourceType->GetName();
+			StringView simpleNameRaw = resourceType->GetSimpleName();
+			if (!IsValidIdentifier(simpleNameRaw))
+			{
+				skippedTypes.EmplaceBack(String{fullName});
+				continue;
+			}
+
+			if (genTypes.Find(resourceType->GetID()))
+			{
+				String warn = String{fullName};
+				warn += ": resource type collides with reflected type, skipped index constants";
+				warnings.EmplaceBack(warn);
+				continue;
+			}
+
+			String scope = resourceType->GetScope();
+			String ns = String{"Skore"};
+			String simpleName = EscapeName(simpleNameRaw);
+
+			Writer writer{};
+			writer.Line("// <auto-generated/>");
+			writer.Line("#nullable enable");
+			writer.Line("using System;");
+			writer.Blank();
+
+			String nsLine = "namespace ";
+			nsLine += ns;
+			writer.Line(nsLine);
+			writer.Line("{");
+			writer.indent++;
+
+			String decl = "public static class ";
+			decl += simpleName;
+			writer.Line(decl);
+			writer.Line("{");
+			writer.indent++;
+
+			Array<String> usedNames{};
+			usedNames.EmplaceBack(simpleName);
+			usedNames.EmplaceBack(String{"ID"});
+
+			String idLine = "public static readonly Skore.TypeId ID = new Skore.TypeId(";
+			idLine += U64ToStr(resourceType->GetID().id);
+			idLine += "UL);";
+			writer.Line(idLine);
+			writer.Blank();
+
+			Span<ResourceField*> resourceFields = resourceType->GetFields();
+			for (usize fi = 0; fi < resourceFields.Size(); ++fi)
+			{
+				ResourceField* field = resourceFields[fi];
+				String         line = "public const int ";
+				line += Disambiguate(ToPascalCase(field->GetName()), usedNames);
+				line += " = ";
+				line += I64ToStr(static_cast<i64>(field->GetIndex()));
+				line += ";";
+				writer.Line(line);
+			}
+
+			writer.indent--;
+			writer.Line("}");
+			writer.indent--;
+			writer.Line("}");
+
+			String dir = EnsureScopeDir(outputDir, scope);
+			String fileName = simpleName;
+			fileName += ".gen.cs";
+			FileSystem::SaveFileAsString(Path::Join(dir, fileName), writer.buf);
+			fileCount++;
+			resourceCount++;
+		}
+
 		String report{};
 		report += "Generated ";
 		report += I64ToStr(static_cast<i64>(fileCount));
-		report += " files.\n\nSkipped types (invalid identifier):\n";
+		report += " files (";
+		report += I64ToStr(static_cast<i64>(resourceCount));
+		report += " resource types).\n\nSkipped types (invalid identifier):\n";
 		for (const String& skipped : skippedTypes)
 		{
 			report += "  ";
@@ -1696,7 +1840,7 @@ namespace Skore
 		}
 		FileSystem::SaveFileAsString(Path::Join(outputDir, "_BindingsReport.txt"), report);
 
-		logger.Info("generated {} C# binding files to '{}'", fileCount, outputDir);
+		logger.Info("generated {} C# binding files ({} resource types) to '{}'", fileCount, resourceCount, outputDir);
 		logger.Info("skipped {} types, {} members (see _BindingsReport.txt)", skippedTypes.Size(), warnings.Size());
 	}
 }

@@ -10,7 +10,7 @@ namespace Skore
         public delegate* unmanaged[Cdecl]<TypeId, IntPtr> FindTypeById;
         public delegate* unmanaged[Cdecl]<uint*, IntPtr> GetAllTypes;
         public delegate* unmanaged[Cdecl]<TypeId, uint*, IntPtr> GetDerivedTypes;
-        public delegate* unmanaged[Cdecl]<TypeId, Span<TypeId>> GetTypesAnnotatedWith;
+        public delegate* unmanaged[Cdecl]<TypeId, UnmanagedSpan<TypeId>> GetTypesAnnotatedWith;
         public delegate* unmanaged[Cdecl]<uint> GetReflectionVersion;
         public delegate* unmanaged[Cdecl]<IntPtr> GetDefaultAllocator;
 
@@ -20,14 +20,14 @@ namespace Skore
         public delegate* unmanaged[Cdecl]<IntPtr, TypeProps*> TypeGetProps;
         public delegate* unmanaged[Cdecl]<IntPtr, uint> TypeGetVersion;
         public delegate* unmanaged[Cdecl]<IntPtr, TypeId, byte> TypeIsDerivedOf;
-        public delegate* unmanaged[Cdecl]<IntPtr, Span<TypeId>> TypeGetBaseTypes;
-        public delegate* unmanaged[Cdecl]<IntPtr, Span<IntPtr>> TypeGetFields;
+        public delegate* unmanaged[Cdecl]<IntPtr, UnmanagedSpan<TypeId>> TypeGetBaseTypes;
+        public delegate* unmanaged[Cdecl]<IntPtr, UnmanagedSpan<IntPtr>> TypeGetFields;
         public delegate* unmanaged[Cdecl]<IntPtr, StringView, IntPtr> TypeFindField;
-        public delegate* unmanaged[Cdecl]<IntPtr, Span<IntPtr>> TypeGetFunctions;
+        public delegate* unmanaged[Cdecl]<IntPtr, UnmanagedSpan<IntPtr>> TypeGetFunctions;
         public delegate* unmanaged[Cdecl]<IntPtr, StringView, IntPtr> TypeFindFunction;
-        public delegate* unmanaged[Cdecl]<IntPtr, Span<IntPtr>> TypeGetConstructors;
+        public delegate* unmanaged[Cdecl]<IntPtr, UnmanagedSpan<IntPtr>> TypeGetConstructors;
         public delegate* unmanaged[Cdecl]<IntPtr, IntPtr> TypeGetDefaultConstructor;
-        public delegate* unmanaged[Cdecl]<IntPtr, Span<IntPtr>> TypeGetValues;
+        public delegate* unmanaged[Cdecl]<IntPtr, UnmanagedSpan<IntPtr>> TypeGetValues;
         public delegate* unmanaged[Cdecl]<IntPtr, StringView, IntPtr> TypeFindValueByName;
         public delegate* unmanaged[Cdecl]<IntPtr, long, IntPtr> TypeFindValueByCode;
         public delegate* unmanaged[Cdecl]<IntPtr, IntPtr> TypeNewObject;
@@ -47,7 +47,7 @@ namespace Skore
         public delegate* unmanaged[Cdecl]<IntPtr, StringView> FunctionGetName;
         public delegate* unmanaged[Cdecl]<IntPtr, StringView> FunctionGetSimpleName;
         public delegate* unmanaged[Cdecl]<IntPtr, FieldProps*, void> FunctionGetReturn;
-        public delegate* unmanaged[Cdecl]<IntPtr, Span<IntPtr>> FunctionGetParams;
+        public delegate* unmanaged[Cdecl]<IntPtr, UnmanagedSpan<IntPtr>> FunctionGetParams;
         public delegate* unmanaged[Cdecl]<IntPtr, byte> FunctionIsStatic;
         public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr*, void> FunctionInvoke;
         public delegate* unmanaged[Cdecl]<IntPtr, IntPtr> FunctionGetFunctionPointer;
@@ -56,7 +56,7 @@ namespace Skore
         public delegate* unmanaged[Cdecl]<IntPtr, StringView> ParamGetName;
         public delegate* unmanaged[Cdecl]<IntPtr, FieldProps*> ParamGetProps;
 
-        public delegate* unmanaged[Cdecl]<IntPtr, Span<IntPtr>> ConstructorGetParams;
+        public delegate* unmanaged[Cdecl]<IntPtr, UnmanagedSpan<IntPtr>> ConstructorGetParams;
         public delegate* unmanaged[Cdecl]<IntPtr, IntPtr*, IntPtr> ConstructorNewObject;
         public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr*, void> ConstructorConstruct;
 

@@ -2,6 +2,7 @@
 
 #include "Skore/Core/ByteBuffer.hpp"
 #include "Skore/Core/Color.hpp"
+#include "Skore/Core/GroupScope.hpp"
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Span.hpp"
@@ -97,6 +98,7 @@ namespace Skore
 	ResourceType::ResourceType(TypeID type, StringView name) : type(type), name(name)
 	{
 		simpleName = MakeSimpleName(name);
+		scope = GetCurrentScope();
 	}
 
 	ResourceType::~ResourceType()
@@ -135,6 +137,11 @@ namespace Skore
 	StringView ResourceType::GetSimpleName() const
 	{
 		return simpleName;
+	}
+
+	StringView ResourceType::GetScope() const
+	{
+		return scope;
 	}
 
 	RID ResourceType::GetDefaultValue() const
