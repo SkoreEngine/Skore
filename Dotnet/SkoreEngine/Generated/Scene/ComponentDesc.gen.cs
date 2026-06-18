@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Scene
 {
-    public partial class ComponentDesc : IDisposable
+    public partial class ComponentDesc
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[80]; }
 
         public ComponentDesc(IntPtr handle) { Handle = handle; }
-        internal ComponentDesc(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -40,6 +34,16 @@ namespace Skore.Scene
             set => new ReflectField(__flds[0]).Set(Handle, value);
         }
 
-        public string Category => new ReflectField(__flds[2]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe ReadOnlySpan<Skore.TypeId> Dependencies
+        {
+            get { var __a = new ReflectField(__flds[1]).Get<Skore.NativeArray<Skore.TypeId>>(Handle); return new ReadOnlySpan<Skore.TypeId>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<Skore.TypeId>(value); new ReflectField(__flds[1]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<Skore.TypeId>)); __t.Dispose(); }
+        }
+
+        public unsafe string Category
+        {
+            get => new ReflectField(__flds[2]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[2]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
     }
 }

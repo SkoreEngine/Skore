@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class BufferDesc : IDisposable
+    public partial class BufferDesc
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[56]; }
 
         public BufferDesc(IntPtr handle) { Handle = handle; }
-        internal BufferDesc(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -58,6 +52,10 @@ namespace Skore.Graphics
             set => new ReflectField(__flds[3]).Set(Handle, value);
         }
 
-        public string DebugName => new ReflectField(__flds[4]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe string DebugName
+        {
+            get => new ReflectField(__flds[4]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[4]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
     }
 }

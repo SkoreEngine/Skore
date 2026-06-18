@@ -81,11 +81,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool, void>)__fps[6];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(className);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(className, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool, void>)__fps[6];
                 __fp(__fns[6], (IntPtr)__self, __sv0, activate);
             }
         }
@@ -94,11 +94,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[7];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(className);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(className, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[7];
                 return __fp(__fns[7], (IntPtr)__self, __sv0);
             }
         }
@@ -107,12 +107,24 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[8];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(classNames);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(classNames, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[8];
                 __fp(__fns[8], (IntPtr)__self, __sv0);
+            }
+        }
+
+        public unsafe string GetClassNames()
+        {
+            fixed (Skore.UI.UIElement* __self = &this)
+            {
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.NativeString>)__fps[9];
+                var __ret = __fp(__fns[9], (IntPtr)__self);
+                string __s = __ret.ToString();
+                Skore.NativeString.Destruct((IntPtr)(&__ret));
+                return __s;
             }
         }
 
@@ -120,11 +132,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool, void>)__fps[10];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(pseudoClass);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(pseudoClass, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool, void>)__fps[10];
                 __fp(__fns[10], (IntPtr)__self, __sv0, activate);
             }
         }
@@ -133,11 +145,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[11];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(pseudoClass);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(pseudoClass, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[11];
                 return __fp(__fns[11], (IntPtr)__self, __sv0);
             }
         }
@@ -146,7 +158,6 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.StringView, bool>)__fps[12];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
@@ -155,6 +166,7 @@ namespace Skore.UI
                 byte* __sv1_b = stackalloc byte[__sv1_len];
                 System.Text.Encoding.UTF8.GetBytes(value, new System.Span<byte>(__sv1_b, __sv1_len));
                 var __sv1 = new Skore.StringView(__sv1_b, (ulong)__sv1_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.StringView, bool>)__fps[12];
                 return __fp(__fns[12], (IntPtr)__self, __sv0, __sv1);
             }
         }
@@ -163,11 +175,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[13];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[13];
                 __fp(__fns[13], (IntPtr)__self, __sv0);
             }
         }
@@ -176,7 +188,6 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.StringView, void>)__fps[14];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
@@ -185,7 +196,28 @@ namespace Skore.UI
                 byte* __sv1_b = stackalloc byte[__sv1_len];
                 System.Text.Encoding.UTF8.GetBytes(value, new System.Span<byte>(__sv1_b, __sv1_len));
                 var __sv1 = new Skore.StringView(__sv1_b, (ulong)__sv1_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.StringView, void>)__fps[14];
                 __fp(__fns[14], (IntPtr)__self, __sv0, __sv1);
+            }
+        }
+
+        public unsafe string GetAttribute(string name, string defaultValue)
+        {
+            fixed (Skore.UI.UIElement* __self = &this)
+            {
+                int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
+                byte* __sv0_b = stackalloc byte[__sv0_len];
+                System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
+                var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                int __sv1_len = System.Text.Encoding.UTF8.GetByteCount(defaultValue);
+                byte* __sv1_b = stackalloc byte[__sv1_len];
+                System.Text.Encoding.UTF8.GetBytes(defaultValue, new System.Span<byte>(__sv1_b, __sv1_len));
+                var __sv1 = new Skore.StringView(__sv1_b, (ulong)__sv1_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.StringView, Skore.NativeString>)__fps[15];
+                var __ret = __fp(__fns[15], (IntPtr)__self, __sv0, __sv1);
+                string __s = __ret.ToString();
+                Skore.NativeString.Destruct((IntPtr)(&__ret));
+                return __s;
             }
         }
 
@@ -193,11 +225,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[16];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[16];
                 return __fp(__fns[16], (IntPtr)__self, __sv0);
             }
         }
@@ -206,12 +238,36 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[17];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[17];
                 __fp(__fns[17], (IntPtr)__self, __sv0);
+            }
+        }
+
+        public unsafe string GetTagName()
+        {
+            fixed (Skore.UI.UIElement* __self = &this)
+            {
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.NativeString>)__fps[18];
+                var __ret = __fp(__fns[18], (IntPtr)__self);
+                string __s = __ret.ToString();
+                Skore.NativeString.Destruct((IntPtr)(&__ret));
+                return __s;
+            }
+        }
+
+        public unsafe string GetId()
+        {
+            fixed (Skore.UI.UIElement* __self = &this)
+            {
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.NativeString>)__fps[19];
+                var __ret = __fp(__fns[19], (IntPtr)__self);
+                string __s = __ret.ToString();
+                Skore.NativeString.Destruct((IntPtr)(&__ret));
+                return __s;
             }
         }
 
@@ -219,12 +275,24 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[20];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(id);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(id, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[20];
                 __fp(__fns[20], (IntPtr)__self, __sv0);
+            }
+        }
+
+        public unsafe string GetInnerRML()
+        {
+            fixed (Skore.UI.UIElement* __self = &this)
+            {
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.NativeString>)__fps[21];
+                var __ret = __fp(__fns[21], (IntPtr)__self);
+                string __s = __ret.ToString();
+                Skore.NativeString.Destruct((IntPtr)(&__ret));
+                return __s;
             }
         }
 
@@ -232,11 +300,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[22];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(rml);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(rml, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[22];
                 __fp(__fns[22], (IntPtr)__self, __sv0);
             }
         }
@@ -479,11 +547,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.UI.UIElement*>)__fps[49];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(id);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(id, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.UI.UIElement*>)__fps[49];
                 return *__fp(__fns[49], (IntPtr)__self, __sv0);
             }
         }
@@ -492,11 +560,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.UI.UIElement*>)__fps[50];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(selector);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(selector, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.UI.UIElement*>)__fps[50];
                 return *__fp(__fns[50], (IntPtr)__self, __sv0);
             }
         }
@@ -505,11 +573,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.UI.UIElement*>)__fps[54];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(selectors);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(selectors, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.UI.UIElement*>)__fps[54];
                 return *__fp(__fns[54], (IntPtr)__self, __sv0);
             }
         }
@@ -518,11 +586,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[55];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(selector);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(selector, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[55];
                 return __fp(__fns[55], (IntPtr)__self, __sv0);
             }
         }
@@ -540,11 +608,11 @@ namespace Skore.UI
         {
             fixed (Skore.UI.UIElement* __self = &this)
             {
-                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[59];
                 int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(type);
                 byte* __sv0_b = stackalloc byte[__sv0_len];
                 System.Text.Encoding.UTF8.GetBytes(type, new System.Span<byte>(__sv0_b, __sv0_len));
                 var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, bool>)__fps[59];
                 return __fp(__fns[59], (IntPtr)__self, __sv0);
             }
         }

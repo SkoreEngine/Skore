@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Scene
 {
-    public partial class Entity : IDisposable
+    public partial class Entity
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[240]; }
 
         public Entity(IntPtr handle) { Handle = handle; }
-        internal Entity(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -93,11 +87,11 @@ namespace Skore.Scene
 
         public unsafe void SetName(string name)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[8];
             int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
             byte* __sv0_b = stackalloc byte[__sv0_len];
             System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
             var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, void>)__fps[8];
             __fp(__fns[8], Handle, __sv0);
         }
 

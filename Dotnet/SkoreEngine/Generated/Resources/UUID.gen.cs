@@ -32,12 +32,24 @@ namespace Skore.Resources
 
         public static unsafe Skore.Resources.UUID FromString(string str)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView*, Skore.Resources.UUID>)__fps[1];
             int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(str);
             byte* __sv0_b = stackalloc byte[__sv0_len];
             System.Text.Encoding.UTF8.GetBytes(str, new System.Span<byte>(__sv0_b, __sv0_len));
             var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView*, Skore.Resources.UUID>)__fps[1];
             return __fp(__fns[1], IntPtr.Zero, &__sv0);
+        }
+
+        public unsafe string ToString()
+        {
+            fixed (Skore.Resources.UUID* __self = &this)
+            {
+                var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.NativeString>)__fps[2];
+                var __ret = __fp(__fns[2], (IntPtr)__self);
+                string __s = __ret.ToString();
+                Skore.NativeString.Destruct((IntPtr)(&__ret));
+                return __s;
+            }
         }
     }
 }

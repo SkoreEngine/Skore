@@ -12,6 +12,7 @@ namespace Skore
         public delegate* unmanaged[Cdecl]<TypeId, uint*, IntPtr> GetDerivedTypes;
         public delegate* unmanaged[Cdecl]<TypeId, Span<TypeId>> GetTypesAnnotatedWith;
         public delegate* unmanaged[Cdecl]<uint> GetReflectionVersion;
+        public delegate* unmanaged[Cdecl]<IntPtr> GetDefaultAllocator;
 
         public delegate* unmanaged[Cdecl]<IntPtr, StringView> TypeGetName;
         public delegate* unmanaged[Cdecl]<IntPtr, StringView> TypeGetSimpleName;

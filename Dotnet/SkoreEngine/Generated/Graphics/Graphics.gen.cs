@@ -81,6 +81,13 @@ namespace Skore.Graphics
             return __ret == IntPtr.Zero ? null : new Skore.Graphics.GPUFramebuffer(__ret);
         }
 
+        public static unsafe Skore.Graphics.GPUCommandBuffer? CreateCommandBuffer(Skore.Graphics.QueueType queueType)
+        {
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.Graphics.QueueType*, IntPtr>)__fps[9];
+            var __ret = __fp(__fns[9], IntPtr.Zero, &queueType);
+            return __ret == IntPtr.Zero ? null : new Skore.Graphics.GPUCommandBuffer(__ret);
+        }
+
         public static unsafe Skore.Graphics.GPUBuffer? CreateBuffer(Skore.Graphics.BufferDesc desc)
         {
             var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr>)__fps[10];
@@ -139,11 +146,11 @@ namespace Skore.Graphics
 
         public static unsafe Skore.Graphics.GPUDescriptorSet? CreateDescriptorSetFromShader(Skore.Resources.RID shader, string variant, int set)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.Resources.RID, Skore.StringView, int, IntPtr>)__fps[18];
             int __sv1_len = System.Text.Encoding.UTF8.GetByteCount(variant);
             byte* __sv1_b = stackalloc byte[__sv1_len];
             System.Text.Encoding.UTF8.GetBytes(variant, new System.Span<byte>(__sv1_b, __sv1_len));
             var __sv1 = new Skore.StringView(__sv1_b, (ulong)__sv1_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.Resources.RID, Skore.StringView, int, IntPtr>)__fps[18];
             var __ret = __fp(__fns[18], IntPtr.Zero, shader, __sv1, set);
             return __ret == IntPtr.Zero ? null : new Skore.Graphics.GPUDescriptorSet(__ret);
         }

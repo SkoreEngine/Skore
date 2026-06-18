@@ -26,6 +26,12 @@ namespace Skore.Navigation
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
         }
 
+        public Skore.Resources.RID NavMeshData
+        {
+            get => new ReflectField(__flds[0]).Get<Skore.Resources.RID>(Handle);
+            set => new ReflectField(__flds[0]).Set(Handle, value);
+        }
+
         public float CellSize
         {
             get => new ReflectField(__flds[1]).Get<float>(Handle);

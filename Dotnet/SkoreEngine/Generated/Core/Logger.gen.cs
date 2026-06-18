@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Core
 {
-    public partial class Logger : IDisposable
+    public partial class Logger
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[80]; }
 
         public Logger(IntPtr handle) { Handle = handle; }
-        internal Logger(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -36,22 +30,22 @@ namespace Skore.Core
 
         public static unsafe Skore.Core.Logger? GetLogger(string name)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, IntPtr>)__fps[0];
             int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
             byte* __sv0_b = stackalloc byte[__sv0_len];
             System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
             var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, IntPtr>)__fps[0];
             var __ret = __fp(__fns[0], IntPtr.Zero, __sv0);
             return __ret == IntPtr.Zero ? null : new Skore.Core.Logger(__ret);
         }
 
         public unsafe void PrintLog(Skore.Core.LogLevel level, string message)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.Core.LogLevel, Skore.StringView, void>)__fps[1];
             int __sv1_len = System.Text.Encoding.UTF8.GetByteCount(message);
             byte* __sv1_b = stackalloc byte[__sv1_len];
             System.Text.Encoding.UTF8.GetBytes(message, new System.Span<byte>(__sv1_b, __sv1_len));
             var __sv1 = new Skore.StringView(__sv1_b, (ulong)__sv1_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.Core.LogLevel, Skore.StringView, void>)__fps[1];
             __fp(__fns[1], Handle, level, __sv1);
         }
     }

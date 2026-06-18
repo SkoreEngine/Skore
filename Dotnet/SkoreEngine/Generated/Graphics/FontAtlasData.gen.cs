@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class FontAtlasData : IDisposable
+    public partial class FontAtlasData
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[40]; }
 
         public FontAtlasData(IntPtr handle) { Handle = handle; }
-        internal FontAtlasData(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -38,6 +32,12 @@ namespace Skore.Graphics
         {
             get => new ReflectField(__flds[0]).Get<Skore.Core.Vec2>(Handle);
             set => new ReflectField(__flds[0]).Set(Handle, value);
+        }
+
+        public unsafe ReadOnlySpan<byte> Pixels
+        {
+            get { var __a = new ReflectField(__flds[1]).Get<Skore.NativeArray<byte>>(Handle); return new ReadOnlySpan<byte>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<byte>(value); new ReflectField(__flds[1]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<byte>)); __t.Dispose(); }
         }
     }
 }

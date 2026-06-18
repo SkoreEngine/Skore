@@ -25,5 +25,11 @@ namespace Skore.UI
             __flds = new IntPtr[__fl.Length];
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
         }
+
+        public Skore.Resources.RID Document
+        {
+            get => new ReflectField(__flds[1]).Get<Skore.Resources.RID>(Handle);
+            set => new ReflectField(__flds[1]).Set(Handle, value);
+        }
     }
 }

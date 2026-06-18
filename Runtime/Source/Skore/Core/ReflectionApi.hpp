@@ -23,6 +23,7 @@ namespace Skore
 		TypeID*       (*GetDerivedTypes)(TypeID baseType, u32* outCount);
 		Span<TypeID>  (*GetTypesAnnotatedWith)(TypeID attributeId);
 		u32           (*GetReflectionVersion)();
+		VoidPtr       (*GetDefaultAllocator)();
 
 		StringView                 (*TypeGetName)(const ReflectType* type);
 		StringView                 (*TypeGetSimpleName)(const ReflectType* type);

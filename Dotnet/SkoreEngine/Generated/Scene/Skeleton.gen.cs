@@ -25,5 +25,17 @@ namespace Skore.Scene
             __flds = new IntPtr[__fl.Length];
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
         }
+
+        public unsafe List<Skore.Scene.BoneNode> Bones
+        {
+            get
+            {
+                var __a = new ReflectField(__flds[0]).Get<Skore.NativeArray<byte>>(Handle);
+                int __c = __a.Count / 88;
+                var __list = new List<Skore.Scene.BoneNode>(__c);
+                for (int __i = 0; __i < __c; __i++) __list.Add(new Skore.Scene.BoneNode((IntPtr)(__a.Data + __i * 88)));
+                return __list;
+            }
+        }
     }
 }

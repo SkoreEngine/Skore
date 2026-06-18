@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Resources
 {
-    public partial class UndoRedoScope : IDisposable
+    public partial class UndoRedoScope
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[152]; }
 
         public UndoRedoScope(IntPtr handle) { Handle = handle; }
-        internal UndoRedoScope(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -36,11 +30,11 @@ namespace Skore.Resources
 
         public static unsafe Skore.Resources.UndoRedoScope? Create(string name)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, IntPtr>)__fps[0];
             int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
             byte* __sv0_b = stackalloc byte[__sv0_len];
             System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
             var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, IntPtr>)__fps[0];
             var __ret = __fp(__fns[0], IntPtr.Zero, __sv0);
             return __ret == IntPtr.Zero ? null : new Skore.Resources.UndoRedoScope(__ret);
         }

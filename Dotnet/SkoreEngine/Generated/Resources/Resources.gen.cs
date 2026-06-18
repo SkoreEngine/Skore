@@ -32,13 +32,25 @@ namespace Skore.Resources
 
         public static unsafe Skore.Resources.ResourceType? FindTypeByName(string name)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, IntPtr>)__fps[1];
             int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(name);
             byte* __sv0_b = stackalloc byte[__sv0_len];
             System.Text.Encoding.UTF8.GetBytes(name, new System.Span<byte>(__sv0_b, __sv0_len));
             var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, IntPtr>)__fps[1];
             var __ret = __fp(__fns[1], IntPtr.Zero, __sv0);
             return __ret == IntPtr.Zero ? null : new Skore.Resources.ResourceType(__ret);
+        }
+
+        public static unsafe Skore.NativeArray<IntPtr> GetTypes()
+        {
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.NativeArray<IntPtr>>)__fps[2];
+            return __fp(__fns[2], IntPtr.Zero);
+        }
+
+        public static unsafe Skore.NativeArray<Skore.TypeId> FindTypesByAttribute(Skore.TypeId attributeId)
+        {
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.TypeId, Skore.NativeArray<Skore.TypeId>>)__fps[3];
+            return __fp(__fns[3], IntPtr.Zero, attributeId);
         }
 
         public static unsafe Skore.Resources.RID Create(Skore.TypeId typeId, Skore.Resources.UUID uuid, Skore.Resources.UndoRedoScope scope)
@@ -144,13 +156,19 @@ namespace Skore.Resources
             return __fp(__fns[19], IntPtr.Zero, parent, child);
         }
 
+        public static unsafe Skore.NativeArray<Skore.Resources.RID> GetResourcesByType(Skore.Resources.ResourceType type)
+        {
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, Skore.NativeArray<Skore.Resources.RID>>)__fps[20];
+            return __fp(__fns[20], IntPtr.Zero, type?.Handle ?? IntPtr.Zero);
+        }
+
         public static unsafe void SetPath(Skore.Resources.RID rid, string path)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.Resources.RID, Skore.StringView, void>)__fps[21];
             int __sv1_len = System.Text.Encoding.UTF8.GetByteCount(path);
             byte* __sv1_b = stackalloc byte[__sv1_len];
             System.Text.Encoding.UTF8.GetBytes(path, new System.Span<byte>(__sv1_b, __sv1_len));
             var __sv1 = new Skore.StringView(__sv1_b, (ulong)__sv1_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.Resources.RID, Skore.StringView, void>)__fps[21];
             __fp(__fns[21], IntPtr.Zero, rid, __sv1);
         }
 
@@ -163,11 +181,11 @@ namespace Skore.Resources
 
         public static unsafe Skore.Resources.RID FindByPath(string path)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.Resources.RID>)__fps[23];
             int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(path);
             byte* __sv0_b = stackalloc byte[__sv0_len];
             System.Text.Encoding.UTF8.GetBytes(path, new System.Span<byte>(__sv0_b, __sv0_len));
             var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, Skore.Resources.RID>)__fps[23];
             return __fp(__fns[23], IntPtr.Zero, __sv0);
         }
     }

@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class PipelineDesc : IDisposable
+    public partial class PipelineDesc
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[136]; }
 
         public PipelineDesc(IntPtr handle) { Handle = handle; }
-        internal PipelineDesc(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -32,6 +26,54 @@ namespace Skore.Graphics
             var __fl = __rt.GetFields();
             __flds = new IntPtr[__fl.Length];
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
+        }
+
+        public unsafe List<Skore.Graphics.InterfaceVariable> InputVariables
+        {
+            get
+            {
+                var __a = new ReflectField(__flds[0]).Get<Skore.NativeArray<byte>>(Handle);
+                int __c = __a.Count / 56;
+                var __list = new List<Skore.Graphics.InterfaceVariable>(__c);
+                for (int __i = 0; __i < __c; __i++) __list.Add(new Skore.Graphics.InterfaceVariable((IntPtr)(__a.Data + __i * 56)));
+                return __list;
+            }
+        }
+
+        public unsafe List<Skore.Graphics.InterfaceVariable> OutputVariables
+        {
+            get
+            {
+                var __a = new ReflectField(__flds[1]).Get<Skore.NativeArray<byte>>(Handle);
+                int __c = __a.Count / 56;
+                var __list = new List<Skore.Graphics.InterfaceVariable>(__c);
+                for (int __i = 0; __i < __c; __i++) __list.Add(new Skore.Graphics.InterfaceVariable((IntPtr)(__a.Data + __i * 56)));
+                return __list;
+            }
+        }
+
+        public unsafe List<Skore.Graphics.DescriptorSetLayout> Descriptors
+        {
+            get
+            {
+                var __a = new ReflectField(__flds[2]).Get<Skore.NativeArray<byte>>(Handle);
+                int __c = __a.Count / 80;
+                var __list = new List<Skore.Graphics.DescriptorSetLayout>(__c);
+                for (int __i = 0; __i < __c; __i++) __list.Add(new Skore.Graphics.DescriptorSetLayout((IntPtr)(__a.Data + __i * 80)));
+                return __list;
+            }
+        }
+
+        public unsafe List<Skore.Graphics.PushConstantRange> PushConstants
+        {
+            get
+            {
+                var __a = new ReflectField(__flds[3]).Get<Skore.NativeArray<byte>>(Handle);
+                int __c = __a.Count / 56;
+                var __list = new List<Skore.Graphics.PushConstantRange>(__c);
+                for (int __i = 0; __i < __c; __i++) __list.Add(new Skore.Graphics.PushConstantRange((IntPtr)(__a.Data + __i * 56)));
+                return __list;
+            }
         }
 
         public int Stride

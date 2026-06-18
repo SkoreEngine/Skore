@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class GraphicsPipelineDesc : IDisposable
+    public partial class GraphicsPipelineDesc
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[296]; }
 
         public GraphicsPipelineDesc(IntPtr handle) { Handle = handle; }
-        internal GraphicsPipelineDesc(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -40,7 +34,11 @@ namespace Skore.Graphics
             set => new ReflectField(__flds[0]).Set(Handle, value);
         }
 
-        public string Variant => new ReflectField(__flds[1]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe string Variant
+        {
+            get => new ReflectField(__flds[1]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[1]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
 
         public Skore.Graphics.PrimitiveTopology Topology
         {
@@ -60,13 +58,23 @@ namespace Skore.Graphics
             set => new ReflectField(__flds[4]).Set(Handle, value);
         }
 
+        public unsafe ReadOnlySpan<Skore.Graphics.BlendStateDesc> BlendStates
+        {
+            get { var __a = new ReflectField(__flds[5]).Get<Skore.NativeArray<Skore.Graphics.BlendStateDesc>>(Handle); return new ReadOnlySpan<Skore.Graphics.BlendStateDesc>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<Skore.Graphics.BlendStateDesc>(value); new ReflectField(__flds[5]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<Skore.Graphics.BlendStateDesc>)); __t.Dispose(); }
+        }
+
         public Skore.Graphics.GPURenderPass? RenderPass
         {
             get { var __p = new ReflectField(__flds[6]).Get<IntPtr>(Handle); return __p == IntPtr.Zero ? null : new Skore.Graphics.GPURenderPass(__p); }
             set => new ReflectField(__flds[6]).Set(Handle, value?.Handle ?? IntPtr.Zero);
         }
 
-        public string DebugName => new ReflectField(__flds[7]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe string DebugName
+        {
+            get => new ReflectField(__flds[7]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[7]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
 
         public Skore.Graphics.GPUPipeline? PreviousState
         {

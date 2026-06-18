@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class TopLevelASDesc : IDisposable
+    public partial class TopLevelASDesc
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[64]; }
 
         public TopLevelASDesc(IntPtr handle) { Handle = handle; }
-        internal TopLevelASDesc(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -34,12 +28,21 @@ namespace Skore.Graphics
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
         }
 
+        public unsafe ReadOnlySpan<Skore.Graphics.InstanceDesc> Instances
+        {
+            get { var __a = new ReflectField(__flds[0]).Get<Skore.Span<Skore.Graphics.InstanceDesc>>(Handle); return new ReadOnlySpan<Skore.Graphics.InstanceDesc>(__a.Data, (int)__a.Size); }
+        }
+
         public Skore.Graphics.BuildAccelerationStructureFlags Flags
         {
             get => new ReflectField(__flds[1]).Get<Skore.Graphics.BuildAccelerationStructureFlags>(Handle);
             set => new ReflectField(__flds[1]).Set(Handle, value);
         }
 
-        public string DebugName => new ReflectField(__flds[2]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe string DebugName
+        {
+            get => new ReflectField(__flds[2]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[2]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
     }
 }

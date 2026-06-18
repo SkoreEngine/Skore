@@ -255,6 +255,16 @@ namespace Skore
 			return false;
 		}
 
+		bool StartsWith(StringView s, StringView prefix)
+		{
+			if (s.Size() < prefix.Size()) return false;
+			for (usize i = 0; i < prefix.Size(); ++i)
+			{
+				if (s[i] != prefix[i]) return false;
+			}
+			return true;
+		}
+
 		bool MapKnownType(StringView name, String& out)
 		{
 			if (name == "Skore::BasicStringView<char>")
@@ -265,6 +275,11 @@ namespace Skore
 			if (name == "Skore::TypeID")
 			{
 				out = "Skore.TypeId";
+				return true;
+			}
+			if (StartsWith(name, StringView{"Skore::TypedRID<"}) || StartsWith(name, StringView{"Skore::SubObjectRID<"}))
+			{
+				out = "Skore.Resources.RID";
 				return true;
 			}
 			return false;
@@ -317,11 +332,12 @@ namespace Skore
 			String csElement{};
 			String abiElement{};
 			bool   isObject = false;
+			bool   isValueClass = false;
+			u32    elementSize = 0;
 		};
 
-		bool ParseSpan(StringView name, const HashMap<TypeID, GenType>& genTypes, SpanInfo& out)
+		bool ParseContainer(StringView name, StringView prefix, const HashMap<TypeID, GenType>& genTypes, SpanInfo& out, bool allowValueClass = false)
 		{
-			StringView prefix{"Skore::Span<"};
 			if (name.Size() <= prefix.Size() + 1 || name[name.Size() - 1] != '>')
 			{
 				return false;
@@ -357,7 +373,7 @@ namespace Skore
 			}
 
 			String prim{};
-			if (MapPrimitive(inner, prim))
+			if (MapPrimitive(inner, prim) || MapKnownType(inner, prim))
 			{
 				out.csElement = prim;
 				out.abiElement = prim;
@@ -365,14 +381,34 @@ namespace Skore
 			}
 			if (element)
 			{
-				if (auto it = genTypes.Find(element->GetProps().typeId); it && (it->second.kind == CsKind::Enum || it->second.kind == CsKind::Struct))
+				if (auto it = genTypes.Find(element->GetProps().typeId))
 				{
-					out.csElement = it->second.fullName;
-					out.abiElement = it->second.fullName;
-					return true;
+					if (it->second.kind == CsKind::Enum || it->second.kind == CsKind::Struct)
+					{
+						out.csElement = it->second.fullName;
+						out.abiElement = it->second.fullName;
+						return true;
+					}
+					if (allowValueClass && it->second.kind == CsKind::Class)
+					{
+						out.csElement = it->second.fullName;
+						out.isValueClass = true;
+						out.elementSize = static_cast<u32>(element->GetProps().size);
+						return true;
+					}
 				}
 			}
 			return false;
+		}
+
+		bool ParseSpan(StringView name, const HashMap<TypeID, GenType>& genTypes, SpanInfo& out, bool allowValueClass = false)
+		{
+			return ParseContainer(name, StringView{"Skore::Span<"}, genTypes, out, allowValueClass);
+		}
+
+		bool ParseArray(StringView name, const HashMap<TypeID, GenType>& genTypes, SpanInfo& out, bool allowValueClass = false)
+		{
+			return ParseContainer(name, StringView{"Skore::Array<"}, genTypes, out, allowValueClass);
 		}
 
 		bool CanEmitNamedFields(const GenType& genType, const HashMap<TypeID, GenType>& genTypes)
@@ -576,6 +612,10 @@ namespace Skore
 			String name{};
 			String objClass{};
 			bool   isString = false;
+			String arrayElement{};
+			bool   arrayIsValueClass = false;
+			u32    arrayElementSize = 0;
+			bool   arrayIsSpan = false;
 		};
 
 		struct FunctionEmit
@@ -594,6 +634,7 @@ namespace Skore
 			Array<String> paramNames{};
 			Array<String> paramArgs{};
 			Array<String> prologue{};
+			Array<String> epilogue{};
 		};
 
 		Array<FunctionEmit> CollectFunctions(ReflectType*                    type,
@@ -654,6 +695,22 @@ namespace Skore
 							emit.returnLines.EmplaceBack(String{"return __ret.ToString();"});
 						}
 					}
+					else if (IsString(returnProps))
+					{
+						emit.returnType = "string";
+						if (returnProps.isPointer || returnProps.isReference)
+						{
+							emit.returnDelegateType = "Skore.NativeString*";
+							emit.returnLines.EmplaceBack(String{"return __ret->ToString();"});
+						}
+						else
+						{
+							emit.returnDelegateType = "Skore.NativeString";
+							emit.returnLines.EmplaceBack(String{"string __s = __ret.ToString();"});
+							emit.returnLines.EmplaceBack(String{"Skore.NativeString.Destruct((IntPtr)(&__ret));"});
+							emit.returnLines.EmplaceBack(String{"return __s;"});
+						}
+					}
 					else if (!returnProps.isPointer && !returnProps.isReference && ParseSpan(returnProps.name, genTypes, span))
 					{
 						emit.returnDelegateType = "Skore.Span<";
@@ -687,7 +744,15 @@ namespace Skore
 						emit.returnLines.EmplaceBack(l2);
 						emit.returnLines.EmplaceBack(String{"return __list;"});
 					}
-					else if (ResolveValueName(returnProps, genTypes, resolved))
+					else if (!returnProps.isPointer && !returnProps.isReference && ParseArray(returnProps.name, genTypes, span))
+						{
+							emit.returnType = "Skore.NativeArray<";
+							emit.returnType += span.abiElement;
+							emit.returnType += ">";
+							emit.returnDelegateType = emit.returnType;
+							emit.returnPrefix = "return ";
+						}
+						else if (ResolveValueName(returnProps, genTypes, resolved))
 					{
 						emit.returnType = resolved.name;
 						emit.returnDelegateType = resolved.name;
@@ -803,6 +868,45 @@ namespace Skore
 							emit.paramDelegateTypes.EmplaceBack("Skore.StringView");
 							emit.paramArgs.EmplaceBack(sv);
 						}
+					}
+					else if (IsString(paramProps) && (paramProps.isPointer || paramProps.isReference))
+					{
+						String sb = "__str";
+						sb += I64ToStr(static_cast<i64>(p));
+						String l1 = "byte* ";
+						l1 += sb;
+						l1 += " = stackalloc byte[sizeof(Skore.NativeString)];";
+						emit.prologue.EmplaceBack(l1);
+						String l2 = "Skore.NativeString.Construct((IntPtr)";
+						l2 += sb;
+						l2 += ", ";
+						l2 += paramName;
+						l2 += ");";
+						emit.prologue.EmplaceBack(l2);
+						String e1 = "Skore.NativeString.Destruct((IntPtr)";
+						e1 += sb;
+						e1 += ");";
+						emit.epilogue.EmplaceBack(e1);
+						emit.paramTypes.EmplaceBack(String{"string"});
+						emit.paramNames.EmplaceBack(paramName);
+						emit.paramDelegateTypes.EmplaceBack(String{"Skore.NativeString*"});
+						String arg = "(Skore.NativeString*)";
+						arg += sb;
+						emit.paramArgs.EmplaceBack(arg);
+					}
+					else if ((paramProps.isPointer || paramProps.isReference) && ParseArray(paramProps.name, genTypes, span))
+					{
+						String arrayType = "Skore.NativeArray<";
+						arrayType += span.abiElement;
+						arrayType += ">";
+						emit.paramTypes.EmplaceBack(arrayType);
+						emit.paramNames.EmplaceBack(paramName);
+						String delegateType = arrayType;
+						delegateType += "*";
+						emit.paramDelegateTypes.EmplaceBack(delegateType);
+						String arg = "&";
+						arg += paramName;
+						emit.paramArgs.EmplaceBack(arg);
 					}
 					else if (ParseSpan(paramProps.name, genTypes, span))
 					{
@@ -1013,17 +1117,25 @@ namespace Skore
 				writer.indent++;
 			}
 
+			for (const String& line : function.prologue)
+			{
+				writer.Line(line);
+			}
+
+			bool hasEpilogue = !function.epilogue.Empty();
+			if (hasEpilogue)
+			{
+				writer.Line("try");
+				writer.Line("{");
+				writer.indent++;
+			}
+
 			String cast = "var __fp = (";
 			cast += DelegateSignature(function.paramDelegateTypes, function.returnDelegateType);
 			cast += ")__fps[";
 			cast += I64ToStr(static_cast<i64>(function.index));
 			cast += "];";
 			writer.Line(cast);
-
-			for (const String& line : function.prologue)
-			{
-				writer.Line(line);
-			}
 
 			String callExpr = "__fp(__fns[";
 			callExpr += I64ToStr(static_cast<i64>(function.index));
@@ -1054,6 +1166,21 @@ namespace Skore
 				call += function.returnSuffix;
 				call += ";";
 				writer.Line(call);
+			}
+
+			if (hasEpilogue)
+			{
+				writer.indent--;
+				writer.Line("}");
+				writer.Line("finally");
+				writer.Line("{");
+				writer.indent++;
+				for (const String& line : function.epilogue)
+				{
+					writer.Line(line);
+				}
+				writer.indent--;
+				writer.Line("}");
 			}
 
 			if (valueInstance)
@@ -1130,9 +1257,11 @@ namespace Skore
 		void EmitClass(Writer&                          writer,
 		               const GenType&                   genType,
 		               const HashMap<TypeID, GenType>&  genTypes,
+		               const HashMap<TypeID, u8>&       ownedTypes,
 		               Array<String>&                   warnings)
 		{
 			ReflectType* type = genType.type;
+			bool         isOwned = static_cast<bool>(ownedTypes.Find(genType.typeId));
 
 			bool         hasBase = false;
 			String       baseFullName{};
@@ -1163,6 +1292,7 @@ namespace Skore
 				const FieldProps& fp = field->GetProps();
 				Resolved          resolved{};
 				String            className{};
+				SpanInfo          arr{};
 				if (ResolveType(fp, genTypes, resolved))
 				{
 					String propName = Disambiguate(ToPascalCase(field->GetName()), usedNames);
@@ -1177,6 +1307,20 @@ namespace Skore
 				{
 					String propName = Disambiguate(ToPascalCase(field->GetName()), usedNames);
 					fieldEmits.EmplaceBack(FieldEmit{static_cast<u32>(i), String{}, propName, String{}, true});
+				}
+				else if (ParseArray(fp.name, genTypes, arr, true))
+				{
+					String propName = Disambiguate(ToPascalCase(field->GetName()), usedNames);
+					String element = arr.isValueClass ? arr.csElement : arr.abiElement;
+					fieldEmits.EmplaceBack(FieldEmit{static_cast<u32>(i), String{}, propName, String{}, false, element, arr.isValueClass, arr.elementSize});
+				}
+				else if (ParseSpan(fp.name, genTypes, arr, true))
+				{
+					String propName = Disambiguate(ToPascalCase(field->GetName()), usedNames);
+					String element = arr.isValueClass ? arr.csElement : arr.abiElement;
+					FieldEmit fe{static_cast<u32>(i), String{}, propName, String{}, false, element, arr.isValueClass, arr.elementSize};
+					fe.arrayIsSpan = true;
+					fieldEmits.EmplaceBack(Traits::Move(fe));
 				}
 				else
 				{
@@ -1205,7 +1349,7 @@ namespace Skore
 				classDecl += " : ";
 				classDecl += baseFullName;
 			}
-			else
+			else if (isOwned)
 			{
 				classDecl += " : IDisposable";
 			}
@@ -1216,14 +1360,20 @@ namespace Skore
 			if (!hasBase)
 			{
 				writer.Line("public IntPtr Handle;");
-				writer.Line("private IntPtr __owned;");
+				if (isOwned)
+				{
+					writer.Line("private IntPtr __owned;");
+				}
 				writer.Blank();
 
-				String storage = "internal unsafe struct __Storage { private fixed byte _data[";
-				storage += I64ToStr(static_cast<i64>(type->GetProps().size));
-				storage += "]; }";
-				writer.Line(storage);
-				writer.Blank();
+				if (isOwned)
+				{
+					String storage = "internal unsafe struct __Storage { private fixed byte _data[";
+					storage += I64ToStr(static_cast<i64>(type->GetProps().size));
+					storage += "]; }";
+					writer.Line(storage);
+					writer.Blank();
+				}
 			}
 
 			String ctor = "public ";
@@ -1232,7 +1382,7 @@ namespace Skore
 			ctor += hasBase ? " : base(handle) { }" : " { Handle = handle; }";
 			writer.Line(ctor);
 
-			if (!hasBase)
+			if (!hasBase && isOwned)
 			{
 				String ownedCtor = "internal ";
 				ownedCtor += genType.simpleName;
@@ -1250,12 +1400,128 @@ namespace Skore
 				writer.Blank();
 				if (field.isString)
 				{
-					String prop = "public string ";
-					prop += field.name;
-					prop += " => new ReflectField(__flds[";
-					prop += I64ToStr(static_cast<i64>(field.index));
-					prop += "]).Get<Skore.NativeString>(Handle).ToString();";
-					writer.Line(prop);
+					String index = I64ToStr(static_cast<i64>(field.index));
+					String decl = "public unsafe string ";
+					decl += field.name;
+					writer.Line(decl);
+					writer.Line("{");
+					writer.indent++;
+					String getter = "get => new ReflectField(__flds[";
+					getter += index;
+					getter += "]).Get<Skore.NativeString>(Handle).ToString();";
+					writer.Line(getter);
+					String setter = "set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[";
+					setter += index;
+					setter += "]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }";
+					writer.Line(setter);
+					writer.indent--;
+					writer.Line("}");
+				}
+				else if (!field.arrayElement.Empty() && field.arrayIsValueClass)
+				{
+					String index = I64ToStr(static_cast<i64>(field.index));
+					String element = field.arrayElement;
+					String size = I64ToStr(static_cast<i64>(field.arrayElementSize));
+					String reader = field.arrayIsSpan ? "Skore.Span<byte>" : "Skore.NativeArray<byte>";
+					String count = field.arrayIsSpan ? "(int)__a.Size" : "__a.Count";
+
+					String decl = "public unsafe List<";
+					decl += element;
+					decl += "> ";
+					decl += field.name;
+					writer.Line(decl);
+					writer.Line("{");
+					writer.indent++;
+					writer.Line("get");
+					writer.Line("{");
+					writer.indent++;
+					String l1 = "var __a = new ReflectField(__flds[";
+					l1 += index;
+					l1 += "]).Get<";
+					l1 += reader;
+					l1 += ">(Handle);";
+					writer.Line(l1);
+					String l2 = "int __c = ";
+					l2 += count;
+					l2 += " / ";
+					l2 += size;
+					l2 += ";";
+					writer.Line(l2);
+					String l3 = "var __list = new List<";
+					l3 += element;
+					l3 += ">(__c);";
+					writer.Line(l3);
+					String l4 = "for (int __i = 0; __i < __c; __i++) __list.Add(new ";
+					l4 += element;
+					l4 += "((IntPtr)(__a.Data + __i * ";
+					l4 += size;
+					l4 += ")));";
+					writer.Line(l4);
+					writer.Line("return __list;");
+					writer.indent--;
+					writer.Line("}");
+					writer.indent--;
+					writer.Line("}");
+				}
+				else if (!field.arrayElement.Empty() && field.arrayIsSpan)
+				{
+					String index = I64ToStr(static_cast<i64>(field.index));
+					String element = field.arrayElement;
+					String span = "Skore.Span<";
+					span += element;
+					span += ">";
+
+					String decl = "public unsafe ReadOnlySpan<";
+					decl += element;
+					decl += "> ";
+					decl += field.name;
+					writer.Line(decl);
+					writer.Line("{");
+					writer.indent++;
+					String getter = "get { var __a = new ReflectField(__flds[";
+					getter += index;
+					getter += "]).Get<";
+					getter += span;
+					getter += ">(Handle); return new ReadOnlySpan<";
+					getter += element;
+					getter += ">(__a.Data, (int)__a.Size); }";
+					writer.Line(getter);
+					writer.indent--;
+					writer.Line("}");
+				}
+				else if (!field.arrayElement.Empty())
+				{
+					String index = I64ToStr(static_cast<i64>(field.index));
+					String element = field.arrayElement;
+					String nativeArray = "Skore.NativeArray<";
+					nativeArray += element;
+					nativeArray += ">";
+
+					String decl = "public unsafe ReadOnlySpan<";
+					decl += element;
+					decl += "> ";
+					decl += field.name;
+					writer.Line(decl);
+					writer.Line("{");
+					writer.indent++;
+					String getter = "get { var __a = new ReflectField(__flds[";
+					getter += index;
+					getter += "]).Get<";
+					getter += nativeArray;
+					getter += ">(Handle); return new ReadOnlySpan<";
+					getter += element;
+					getter += ">(__a.Data, __a.Count); }";
+					writer.Line(getter);
+					String setter = "set { var __t = new ";
+					setter += nativeArray;
+					setter += "(value); new ReflectField(__flds[";
+					setter += index;
+					setter += "]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(";
+					setter += nativeArray;
+					setter += ")); __t.Dispose(); }";
+					writer.Line(setter);
+					writer.indent--;
+					writer.Line("}");
 				}
 				else if (!field.objClass.Empty())
 				{
@@ -1359,6 +1625,24 @@ namespace Skore
 			genTypes.Insert(genType.typeId, genType);
 		}
 
+		HashMap<TypeID, u8> ownedTypes{};
+		for (const auto& entry : genTypes)
+		{
+			Span<ReflectFunction*> fns = entry.second.type->GetFunctions();
+			for (usize i = 0; i < fns.Size(); ++i)
+			{
+				FieldProps ret = fns[i]->GetReturn();
+				if (ret.isPointer || ret.isReference)
+				{
+					continue;
+				}
+				if (auto it = genTypes.Find(ret.typeId); it && it->second.kind == CsKind::Class && !HasGeneratedBase(it->second.type, genTypes))
+				{
+					ownedTypes.Insert(ret.typeId, static_cast<u8>(1));
+				}
+			}
+		}
+
 		u32 fileCount = 0;
 		for (const auto& entry : genTypes)
 		{
@@ -1382,7 +1666,7 @@ namespace Skore
 			}
 			else
 			{
-				EmitClass(writer, genType, genTypes, warnings);
+				EmitClass(writer, genType, genTypes, ownedTypes, warnings);
 			}
 
 			String dir = EnsureScopeDir(outputDir, genType.scope);

@@ -45,5 +45,17 @@ namespace Skore.Graphics
             get => new ReflectField(__flds[1]).Get<bool>(Handle);
             set => new ReflectField(__flds[1]).Set(Handle, value);
         }
+
+        public unsafe List<Skore.Graphics.RenderPipelinePassDependency> Dependencies
+        {
+            get
+            {
+                var __a = new ReflectField(__flds[2]).Get<Skore.NativeArray<byte>>(Handle);
+                int __c = __a.Count / 48;
+                var __list = new List<Skore.Graphics.RenderPipelinePassDependency>(__c);
+                for (int __i = 0; __i < __c; __i++) __list.Add(new Skore.Graphics.RenderPipelinePassDependency((IntPtr)(__a.Data + __i * 48)));
+                return __list;
+            }
+        }
     }
 }

@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class RenderPassDesc : IDisposable
+    public partial class RenderPassDesc
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[104]; }
 
         public RenderPassDesc(IntPtr handle) { Handle = handle; }
-        internal RenderPassDesc(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -34,6 +28,22 @@ namespace Skore.Graphics
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
         }
 
-        public string DebugName => new ReflectField(__flds[2]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe ReadOnlySpan<Skore.Graphics.AttachmentDesc> Attachments
+        {
+            get { var __a = new ReflectField(__flds[0]).Get<Skore.NativeArray<Skore.Graphics.AttachmentDesc>>(Handle); return new ReadOnlySpan<Skore.Graphics.AttachmentDesc>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<Skore.Graphics.AttachmentDesc>(value); new ReflectField(__flds[0]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<Skore.Graphics.AttachmentDesc>)); __t.Dispose(); }
+        }
+
+        public unsafe ReadOnlySpan<Skore.Graphics.AttachmentDesc> ResolveAttachments
+        {
+            get { var __a = new ReflectField(__flds[1]).Get<Skore.NativeArray<Skore.Graphics.AttachmentDesc>>(Handle); return new ReadOnlySpan<Skore.Graphics.AttachmentDesc>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<Skore.Graphics.AttachmentDesc>(value); new ReflectField(__flds[1]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<Skore.Graphics.AttachmentDesc>)); __t.Dispose(); }
+        }
+
+        public unsafe string DebugName
+        {
+            get => new ReflectField(__flds[2]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[2]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
     }
 }

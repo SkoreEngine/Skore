@@ -136,7 +136,7 @@ namespace Skore
 		Reflection::Type<f32>("f32");
 		Reflection::Type<f64>("f64");
 		Reflection::Type<Array<u8>>("Skore::ByteArray");
-		Reflection::Type<String>("Skore::String");
+		Reflection::Type<String>("Skore::String").Constructor<StringView>("value");
 		Reflection::Type<StringView>("Skore::StringView");
 		Reflection::Type<ProjectSettings>();
 

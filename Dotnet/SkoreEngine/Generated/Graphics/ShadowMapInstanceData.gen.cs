@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class ShadowMapInstanceData : IDisposable
+    public partial class ShadowMapInstanceData
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[88]; }
 
         public ShadowMapInstanceData(IntPtr handle) { Handle = handle; }
-        internal ShadowMapInstanceData(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -56,6 +50,18 @@ namespace Skore.Graphics
         {
             get { var __p = new ReflectField(__flds[3]).Get<IntPtr>(Handle); return __p == IntPtr.Zero ? null : new Skore.Graphics.GPUTexture(__p); }
             set => new ReflectField(__flds[3]).Set(Handle, value?.Handle ?? IntPtr.Zero);
+        }
+
+        public unsafe ReadOnlySpan<float> CascadeSplits
+        {
+            get { var __a = new ReflectField(__flds[4]).Get<Skore.NativeArray<float>>(Handle); return new ReadOnlySpan<float>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<float>(value); new ReflectField(__flds[4]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<float>)); __t.Dispose(); }
+        }
+
+        public unsafe ReadOnlySpan<Skore.Core.Mat4> CascadeViewProjMat
+        {
+            get { var __a = new ReflectField(__flds[5]).Get<Skore.NativeArray<Skore.Core.Mat4>>(Handle); return new ReadOnlySpan<Skore.Core.Mat4>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<Skore.Core.Mat4>(value); new ReflectField(__flds[5]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<Skore.Core.Mat4>)); __t.Dispose(); }
         }
     }
 }

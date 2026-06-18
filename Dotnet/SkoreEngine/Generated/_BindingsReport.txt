@@ -1,74 +1,27 @@
-Generated 213 files.
+Generated 214 files.
 
 Skipped types (invalid identifier):
 
 Skipped members (unsupported signature):
-  Skore.Graphics.GPUDevice.CreateCommandBuffer: param 'queueType' type 'Skore::QueueType&'
-  Skore.Graphics.TopLevelASDesc: skipped field 'instances' (type 'Skore::Span<struct Skore::InstanceDesc>')
-  Skore.Scene.Skeleton: skipped field 'bones' (type 'Skore::Array<struct Skore::BoneNode>')
-  Skore.Graphics.RenderPipelineSetup: skipped field 'modules' (type 'Skore::Array<struct Skore::TypeID>')
-  Skore.Resources.Resources.GetTypes: return type 'Skore::Array<class Skore::ResourceType *>'
-  Skore.Resources.Resources.FindTypesByAttribute: return type 'Skore::Array<struct Skore::TypeID>'
-  Skore.Resources.Resources.GetResourcesByType: return type 'Skore::Array<struct Skore::RID>'
   Skore.Graphics.SwapchainDesc: skipped field 'window' (type 'Skore::Window')
-  Skore.Graphics.FramebufferDesc: skipped field 'attachments' (type 'Skore::Array<class Skore::GPUTextureView *>')
-  Skore.Graphics.DescriptorSetDesc: skipped field 'bindings' (type 'Skore::Array<struct Skore::DescriptorSetLayoutBinding>')
-  Skore.Scene.EnvironmentComponent: skipped field 'skyboxMaterial' (type 'Skore::TypedRID<struct Skore::MaterialResource>')
-  Skore.Graphics.RenderPipelinePassSetup: skipped field 'dependencies' (type 'Skore::Array<struct Skore::RenderPipelinePassDependency>')
-  Skore.UI.UIDataVariant.GetString: return type 'Skore::BasicString<char,18>'
-  Skore.Graphics.DescriptorSetLayout: skipped field 'bindings' (type 'Skore::Array<struct Skore::DescriptorSetLayoutBinding>')
   Skore.Graphics.RenderPipelinePass: skipped field 'context' (type 'Skore::RenderPipelineContext')
-  Skore.Graphics.FontAtlasData: skipped field 'pixels' (type 'Skore::Array<unsigned char>')
-  Skore.Graphics.PipelineDesc: skipped field 'inputVariables' (type 'Skore::Array<struct Skore::InterfaceVariable>')
-  Skore.Graphics.PipelineDesc: skipped field 'outputVariables' (type 'Skore::Array<struct Skore::InterfaceVariable>')
-  Skore.Graphics.PipelineDesc: skipped field 'descriptors' (type 'Skore::Array<struct Skore::DescriptorSetLayout>')
-  Skore.Graphics.PipelineDesc: skipped field 'pushConstants' (type 'Skore::Array<struct Skore::PushConstantRange>')
   Skore.Resources.ResourceType.GetReflectType: return type 'Skore::ReflectType*'
   Skore.Resources.ResourceType.GetFields: return type 'Skore::Span<class Skore::ResourceField *>'
   Skore.Resources.ResourceType.FindFieldByName: return type 'Skore::ResourceField*'
-  Skore.Scene.RendererComponent: skipped field 'mesh' (type 'Skore::TypedRID<struct Skore::MeshResource>')
-  Skore.Scene.RendererComponent: skipped field 'materials' (type 'Skore::Array<struct Skore::TypedRID<struct Skore::MaterialResource> >')
   Skore.Graphics.RenderPipelineModule: skipped field 'context' (type 'Skore::RenderPipelineContext')
   Skore.Graphics.RenderPipelineModule.GetResources: return type 'Skore::Array<struct Skore::RenderPipelineResource>'
   Skore.Graphics.Graphics.GetWindow: return type 'Skore::Window'
-  Skore.Graphics.Graphics.CreateCommandBuffer: param 'queueType' type 'Skore::QueueType&'
-  Skore.Scene.AudioSource: skipped field 'audioResource' (type 'Skore::TypedRID<struct Skore::AudioResource>')
-  Skore.Graphics.BottomLevelASDesc: skipped field 'geometries' (type 'Skore::Span<struct Skore::GeometryDesc>')
-  Skore.Navigation.NavMeshSurface: skipped field 'navMeshData' (type 'Skore::SubObjectRID<struct Skore::NavMeshResource>')
   Skore.Navigation.Navigation.FindPath: param 'path' type 'Skore::NavMeshPath&'
-  Skore.Graphics.ShadowMapInstanceData: skipped field 'cascadeSplits' (type 'Skore::Array<float>')
-  Skore.Graphics.ShadowMapInstanceData: skipped field 'cascadeViewProjMat' (type 'Skore::Array<struct Skore::Mat4>')
   Skore.Scene.Physics.Raycast: param 'hit' type 'Skore::RaycastHit&'
   Skore.Scene.Physics.RaycastAll: param 'hits' type 'Skore::Array<struct Skore::RaycastHit>&'
   Skore.Scene.Physics.SphereCast: param 'hit' type 'Skore::RaycastHit&'
   Skore.Scene.Physics.BoxCast: param 'hit' type 'Skore::RaycastHit&'
   Skore.Scene.Physics.CapsuleCast: param 'hit' type 'Skore::RaycastHit&'
-  Skore.Scene.ComponentDesc: skipped field 'dependencies' (type 'Skore::Array<struct Skore::TypeID>')
-  Skore.UI.UIElementDocument.GetTitle: return type 'Skore::BasicString<char,18>'
-  Skore.UI.UIElementDocument.GetSourceURL: return type 'Skore::BasicString<char,18>'
-  Skore.Graphics.GraphicsPipelineDesc: skipped field 'blendStates' (type 'Skore::Array<struct Skore::BlendStateDesc>')
-  Skore.Scene.AnimationPlayer: skipped field 'controller' (type 'Skore::TypedRID<struct Skore::AnimationControllerResource>')
-  Skore.Scene.AnimationPlayer.SetFloat: param 'name' type 'Skore::BasicString<char,18>&'
-  Skore.Scene.AnimationPlayer.SetInt: param 'name' type 'Skore::BasicString<char,18>&'
-  Skore.Scene.AnimationPlayer.SetBool: param 'name' type 'Skore::BasicString<char,18>&'
-  Skore.Scene.AnimationPlayer.SetTrigger: param 'name' type 'Skore::BasicString<char,18>&'
-  Skore.Scene.AnimationPlayer.GetFloat: param 'name' type 'Skore::BasicString<char,18>&'
-  Skore.Scene.AnimationPlayer.GetInt: param 'name' type 'Skore::BasicString<char,18>&'
-  Skore.Scene.AnimationPlayer.GetBool: param 'name' type 'Skore::BasicString<char,18>&'
-  Skore.Graphics.RenderPassDesc: skipped field 'attachments' (type 'Skore::Array<struct Skore::AttachmentDesc>')
-  Skore.Graphics.RenderPassDesc: skipped field 'resolveAttachments' (type 'Skore::Array<struct Skore::AttachmentDesc>')
-  Skore.UI.UIElement.GetClassNames: return type 'Skore::BasicString<char,18>'
-  Skore.UI.UIElement.GetAttribute: return type 'Skore::BasicString<char,18>'
-  Skore.UI.UIElement.GetTagName: return type 'Skore::BasicString<char,18>'
-  Skore.UI.UIElement.GetId: return type 'Skore::BasicString<char,18>'
-  Skore.UI.UIElement.GetInnerRML: return type 'Skore::BasicString<char,18>'
   Skore.UI.UIElement.QuerySelectorAll: return type 'Skore::Array<class Skore::UIElement *>'
   Skore.UI.UIElement.GetElementsByTagName: return type 'Skore::Array<class Skore::UIElement *>'
   Skore.UI.UIElement.GetElementsByClassName: return type 'Skore::Array<class Skore::UIElement *>'
   Skore.UI.UIElement.AddEventListener: return type 'Skore::UIEventListener*'
   Skore.UI.UIElement.RemoveEventListener: param 'listener' type 'Skore::UIEventListener*'
-  Skore.UI.UIEvent.GetType: return type 'Skore::BasicString<char,18>'
-  Skore.UI.UIEvent.GetParameterString: return type 'Skore::BasicString<char,18>'
   Skore.UI.UIDataModelConstructor.BindFunc: param 'getCallback' type 'Skore::UIDataVariant *,void *)*'
   Skore.UI.UIDataModelConstructor.BindEventCallback: param 'callback' type 'Skore::UIDataModel *,class Skore::UIEvent *,void *)*'
   Skore.UI.UIDataModelConstructor.BindScalar: param 'get' type '*)*'
@@ -76,10 +29,5 @@ Skipped members (unsupported signature):
   Skore.UI.UIDataModelConstructor.BindScalar: param 'get' type '*)*'
   Skore.UI.UIDataModelConstructor.BindScalar: param 'get' type 'Skore::BasicString<char,18>(void *)*'
   Skore.UI.UIDocument: skipped field 'root' (type 'Skore::UIElementDocument')
-  Skore.UI.UIDocument: skipped field 'document' (type 'Skore::TypedRID<struct Skore::UIDocumentResource>')
-  Skore.Graphics.RenderPipelineModuleSetup: skipped field 'passes' (type 'Skore::Array<struct Skore::TypeID>')
   Skore.Graphics.FontResourceData: skipped field 'metrics' (type 'Skore::FontMetrics')
-  Skore.Graphics.FontResourceData: skipped field 'glyphs' (type 'Skore::Array<struct Skore::FontGlyph>')
-  Skore.Graphics.FontResourceData: skipped field 'kernings' (type 'Skore::Array<struct Skore::FontKerning>')
   Skore.Graphics.FontResourceData: skipped field 'atlas' (type 'Skore::FontAtlasData')
-  Skore.Resources.UUID.ToString: return type 'Skore::BasicString<char,18>'

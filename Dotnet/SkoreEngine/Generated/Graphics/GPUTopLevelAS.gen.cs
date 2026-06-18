@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class GPUTopLevelAS : IDisposable
+    public partial class GPUTopLevelAS
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[8]; }
 
         public GPUTopLevelAS(IntPtr handle) { Handle = handle; }
-        internal GPUTopLevelAS(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -43,11 +37,11 @@ namespace Skore.Graphics
 
         public unsafe bool UpdateInstances(List<Skore.Graphics.InstanceDesc> instances)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.Span<Skore.Graphics.InstanceDesc>, bool>)__fps[1];
             int __sp0_count = instances.Count;
             Skore.Graphics.InstanceDesc* __sp0_b = stackalloc Skore.Graphics.InstanceDesc[__sp0_count];
             for (int __sp0_i = 0; __sp0_i < __sp0_count; __sp0_i++) __sp0_b[__sp0_i] = instances[__sp0_i];
             var __sp0 = new Skore.Span<Skore.Graphics.InstanceDesc>(__sp0_b, (ulong)__sp0_count);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.Span<Skore.Graphics.InstanceDesc>, bool>)__fps[1];
             return __fp(__fns[1], Handle, __sp0);
         }
 

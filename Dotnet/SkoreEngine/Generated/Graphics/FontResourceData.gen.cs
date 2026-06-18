@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class FontResourceData : IDisposable
+    public partial class FontResourceData
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[176]; }
 
         public FontResourceData(IntPtr handle) { Handle = handle; }
-        internal FontResourceData(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -32,6 +26,18 @@ namespace Skore.Graphics
             var __fl = __rt.GetFields();
             __flds = new IntPtr[__fl.Length];
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
+        }
+
+        public unsafe ReadOnlySpan<Skore.Graphics.FontGlyph> Glyphs
+        {
+            get { var __a = new ReflectField(__flds[1]).Get<Skore.NativeArray<Skore.Graphics.FontGlyph>>(Handle); return new ReadOnlySpan<Skore.Graphics.FontGlyph>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<Skore.Graphics.FontGlyph>(value); new ReflectField(__flds[1]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<Skore.Graphics.FontGlyph>)); __t.Dispose(); }
+        }
+
+        public unsafe ReadOnlySpan<Skore.Graphics.FontKerning> Kernings
+        {
+            get { var __a = new ReflectField(__flds[2]).Get<Skore.NativeArray<Skore.Graphics.FontKerning>>(Handle); return new ReadOnlySpan<Skore.Graphics.FontKerning>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<Skore.Graphics.FontKerning>(value); new ReflectField(__flds[2]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<Skore.Graphics.FontKerning>)); __t.Dispose(); }
         }
 
         public float MaxHeightGlyph

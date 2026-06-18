@@ -89,6 +89,7 @@ namespace Skore
 			.GetDerivedTypes = ApiGetDerivedTypes,
 			.GetTypesAnnotatedWith = &Reflection::GetTypesAnnotatedWith,
 			.GetReflectionVersion = &Reflection::GetVersion,
+			.GetDefaultAllocator = []() -> VoidPtr { return MemoryGlobals::GetDefaultAllocator(); },
 
 			.TypeGetName = [](const ReflectType* type) { return type->GetName(); },
 			.TypeGetSimpleName = [](const ReflectType* type) { return type->GetSimpleName(); },

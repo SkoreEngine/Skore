@@ -60,11 +60,11 @@ namespace Skore.Resources
 
         public unsafe void SetString(int index, string value)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, Skore.StringView, void>)__fps[4];
             int __sv1_len = System.Text.Encoding.UTF8.GetByteCount(value);
             byte* __sv1_b = stackalloc byte[__sv1_len];
             System.Text.Encoding.UTF8.GetBytes(value, new System.Span<byte>(__sv1_b, __sv1_len));
             var __sv1 = new Skore.StringView(__sv1_b, (ulong)__sv1_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, Skore.StringView, void>)__fps[4];
             __fp(__fns[4], Handle, index, __sv1);
         }
 
@@ -130,21 +130,21 @@ namespace Skore.Resources
 
         public unsafe void SetBlob(int index, List<byte> bytes)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, Skore.Span<byte>, void>)__fps[15];
             int __sp1_count = bytes.Count;
             byte* __sp1_b = stackalloc byte[__sp1_count];
             for (int __sp1_i = 0; __sp1_i < __sp1_count; __sp1_i++) __sp1_b[__sp1_i] = bytes[__sp1_i];
             var __sp1 = new Skore.Span<byte>(__sp1_b, (ulong)__sp1_count);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, Skore.Span<byte>, void>)__fps[15];
             __fp(__fns[15], Handle, index, __sp1);
         }
 
         public unsafe void SetReferenceArray(int index, List<Skore.Resources.RID> refs)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, Skore.Span<Skore.Resources.RID>, void>)__fps[16];
             int __sp1_count = refs.Count;
             Skore.Resources.RID* __sp1_b = stackalloc Skore.Resources.RID[__sp1_count];
             for (int __sp1_i = 0; __sp1_i < __sp1_count; __sp1_i++) __sp1_b[__sp1_i] = refs[__sp1_i];
             var __sp1 = new Skore.Span<Skore.Resources.RID>(__sp1_b, (ulong)__sp1_count);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, Skore.Span<Skore.Resources.RID>, void>)__fps[16];
             __fp(__fns[16], Handle, index, __sp1);
         }
 
@@ -370,11 +370,11 @@ namespace Skore.Resources
 
         public unsafe int GetIndex(string fieldName)
         {
-            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, int>)__fps[52];
             int __sv0_len = System.Text.Encoding.UTF8.GetByteCount(fieldName);
             byte* __sv0_b = stackalloc byte[__sv0_len];
             System.Text.Encoding.UTF8.GetBytes(fieldName, new System.Span<byte>(__sv0_b, __sv0_len));
             var __sv0 = new Skore.StringView(__sv0_b, (ulong)__sv0_len);
+            var __fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, Skore.StringView, int>)__fps[52];
             return __fp(__fns[52], Handle, __sv0);
         }
 

@@ -33,5 +33,11 @@ namespace Skore.Graphics
             __flds = new IntPtr[__fl.Length];
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
         }
+
+        public unsafe ReadOnlySpan<Skore.TypeId> Modules
+        {
+            get { var __a = new ReflectField(__flds[0]).Get<Skore.NativeArray<Skore.TypeId>>(Handle); return new ReadOnlySpan<Skore.TypeId>(__a.Data, __a.Count); }
+            set { var __t = new Skore.NativeArray<Skore.TypeId>(value); new ReflectField(__flds[0]).Set(Handle, (IntPtr)(&__t), (nuint)sizeof(Skore.NativeArray<Skore.TypeId>)); __t.Dispose(); }
+        }
     }
 }

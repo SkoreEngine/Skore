@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class DescriptorSetDesc : IDisposable
+    public partial class DescriptorSetDesc
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[72]; }
 
         public DescriptorSetDesc(IntPtr handle) { Handle = handle; }
-        internal DescriptorSetDesc(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -34,6 +28,22 @@ namespace Skore.Graphics
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
         }
 
-        public string DebugName => new ReflectField(__flds[1]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe List<Skore.Graphics.DescriptorSetLayoutBinding> Bindings
+        {
+            get
+            {
+                var __a = new ReflectField(__flds[0]).Get<Skore.NativeArray<byte>>(Handle);
+                int __c = __a.Count / 72;
+                var __list = new List<Skore.Graphics.DescriptorSetLayoutBinding>(__c);
+                for (int __i = 0; __i < __c; __i++) __list.Add(new Skore.Graphics.DescriptorSetLayoutBinding((IntPtr)(__a.Data + __i * 72)));
+                return __list;
+            }
+        }
+
+        public unsafe string DebugName
+        {
+            get => new ReflectField(__flds[1]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[1]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
     }
 }

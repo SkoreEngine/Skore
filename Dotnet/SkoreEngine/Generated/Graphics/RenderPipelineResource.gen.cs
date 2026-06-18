@@ -6,17 +6,11 @@ using System.Runtime.InteropServices;
 
 namespace Skore.Graphics
 {
-    public partial class RenderPipelineResource : IDisposable
+    public partial class RenderPipelineResource
     {
         public IntPtr Handle;
-        private IntPtr __owned;
-
-        internal unsafe struct __Storage { private fixed byte _data[200]; }
 
         public RenderPipelineResource(IntPtr handle) { Handle = handle; }
-        internal RenderPipelineResource(IntPtr handle, IntPtr ownedType) { Handle = handle; __owned = ownedType; }
-
-        public void Dispose() { if (__owned != IntPtr.Zero) { new ReflectType(__owned).Destructor(Handle); System.Runtime.InteropServices.Marshal.FreeHGlobal(Handle); __owned = IntPtr.Zero; } }
 
         private static readonly IntPtr[] __fns;
         private static readonly IntPtr[] __fps;
@@ -34,7 +28,11 @@ namespace Skore.Graphics
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
         }
 
-        public string Name => new ReflectField(__flds[0]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe string Name
+        {
+            get => new ReflectField(__flds[0]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[0]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
 
         public Skore.Graphics.RenderPipelineResourceType Type
         {
@@ -84,7 +82,11 @@ namespace Skore.Graphics
             set => new ReflectField(__flds[8]).Set(Handle, value);
         }
 
-        public string TextureName => new ReflectField(__flds[9]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe string TextureName
+        {
+            get => new ReflectField(__flds[9]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[9]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
 
         public Skore.Graphics.TextureViewType ViewType
         {

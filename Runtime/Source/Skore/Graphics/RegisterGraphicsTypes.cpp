@@ -266,6 +266,13 @@ namespace Skore
 		queryType.Value<QueryType::PipelineStatistics>("PipelineStatistics");
 		queryType.Value<QueryType::Timestamp>("Timestamp");
 
+		auto queueType = Reflection::Type<QueueType>();
+		queueType.Value<QueueType::None>("None");
+		queueType.Value<QueueType::Graphics>("Graphics");
+		queueType.Value<QueueType::Compute>("Compute");
+		queueType.Value<QueueType::Transfer>("Transfer");
+		queueType.Value<QueueType::All>("All");
+
 		auto attachmentLoadOp = Reflection::Type<AttachmentLoadOp>();
 		attachmentLoadOp.Value<AttachmentLoadOp::Load>("Load");
 		attachmentLoadOp.Value<AttachmentLoadOp::Clear>("Clear");

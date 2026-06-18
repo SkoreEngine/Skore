@@ -26,6 +26,12 @@ namespace Skore.Scene
             for (int i = 0; i < __fl.Length; i++) __flds[i] = __fl[i].Handle;
         }
 
+        public Skore.Resources.RID AudioResource
+        {
+            get => new ReflectField(__flds[0]).Get<Skore.Resources.RID>(Handle);
+            set => new ReflectField(__flds[0]).Set(Handle, value);
+        }
+
         public float Volume
         {
             get => new ReflectField(__flds[1]).Get<float>(Handle);

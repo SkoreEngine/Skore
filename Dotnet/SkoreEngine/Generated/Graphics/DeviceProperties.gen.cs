@@ -40,11 +40,23 @@ namespace Skore.Graphics
             set => new ReflectField(__flds[0]).Set(Handle, value);
         }
 
-        public string DeviceName => new ReflectField(__flds[1]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe string DeviceName
+        {
+            get => new ReflectField(__flds[1]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[1]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
 
-        public string VendorName => new ReflectField(__flds[2]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe string VendorName
+        {
+            get => new ReflectField(__flds[2]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[2]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
 
-        public string DriverVersion => new ReflectField(__flds[3]).Get<Skore.NativeString>(Handle).ToString();
+        public unsafe string DriverVersion
+        {
+            get => new ReflectField(__flds[3]).Get<Skore.NativeString>(Handle).ToString();
+            set { byte* __s = stackalloc byte[sizeof(Skore.NativeString)]; Skore.NativeString.Construct((IntPtr)__s, value); new ReflectField(__flds[3]).Set(Handle, (IntPtr)__s, (nuint)sizeof(Skore.NativeString)); Skore.NativeString.Destruct((IntPtr)__s); }
+        }
 
         public Skore.Graphics.DeviceFeatures Features
         {

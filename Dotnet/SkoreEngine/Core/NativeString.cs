@@ -26,5 +26,44 @@ namespace Skore
                 return data == null ? string.Empty : Marshal.PtrToStringUTF8((nint)data, (int)length) ?? string.Empty;
             }
         }
+
+        private static IntPtr _type;
+        private static IntPtr _ctor;
+        private static bool _initialized;
+
+        private static void Init()
+        {
+            if (_initialized)
+            {
+                return;
+            }
+            ReflectType type = Reflection.FindTypeByName("Skore::String")!.Value;
+            _type = type.Handle;
+            foreach (ReflectConstructor ctor in type.GetConstructors())
+            {
+                if (ctor.GetParams().Length == 1)
+                {
+                    _ctor = ctor.Handle;
+                    break;
+                }
+            }
+            _initialized = true;
+        }
+
+        public static void Construct(IntPtr dest, string value)
+        {
+            Init();
+            int byteCount = System.Text.Encoding.UTF8.GetByteCount(value);
+            byte* bytes = stackalloc byte[byteCount];
+            System.Text.Encoding.UTF8.GetBytes(value, new Span<byte>(bytes, byteCount));
+            StringView view = new StringView(bytes, (ulong)byteCount);
+            new ReflectConstructor(_ctor).Construct(dest, new IntPtr[] { (IntPtr)(&view) });
+        }
+
+        public static void Destruct(IntPtr dest)
+        {
+            Init();
+            new ReflectType(_type).Destructor(dest);
+        }
     }
 }
