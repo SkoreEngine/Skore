@@ -23,7 +23,7 @@ namespace Skore
 
 		static void RegisterType(NativeReflectType<UIDocument>& type);
 
-		UIElementDocument root = {};
+		UIElementDocument* root = nullptr;
 
 	private:
 		void ReloadDocument();

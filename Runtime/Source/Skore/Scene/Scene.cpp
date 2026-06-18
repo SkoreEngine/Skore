@@ -70,7 +70,7 @@ namespace Skore
 		entitiesByRID.Clear();
 		entities.Clear();
 
-		RmlUI::RemoveContext(uiContext);
+		if (uiContext) uiContext->Destroy();
 	}
 
 	bool Scene::IsResourceSyncEnabled() const
@@ -280,7 +280,7 @@ namespace Skore
 	void Scene::InitUI()
 	{
 		auto contextName = fmt::format("UIContext_{}", PtrToInt(this));
-		uiContext = RmlUI::CreateContext(StringView{contextName.c_str(), contextName.size()}, Extent(800, 600), m_enableResourceSync);
+		uiContext = UIContext::Create(StringView{contextName.c_str(), contextName.size()}, Extent(800, 600), m_enableResourceSync);
 	}
 
 	void Scene::OnSceneResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)

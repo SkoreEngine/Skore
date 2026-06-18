@@ -30,18 +30,6 @@ namespace Skore
 		~UndoRedoChange();
 	};
 
-	struct UndoRedoScope
-	{
-		String name;
-
-		std::mutex mutex;
-		Array<std::unique_ptr<UndoRedoChange>> changes;
-
-		void PushChange(ResourceStorage* storage, ResourceInstance before, ResourceInstance after);
-		void Undo();
-		void Redo();
-	};
-
 	Array<RID> ResourceStorage::GetPrototypeInstancesSafe()
 	{
 		Array<RID> instances;
@@ -2239,6 +2227,9 @@ namespace Skore
 		DestroyResourceInstance(storage->resourceType, after);
 	}
 
+	UndoRedoScope::UndoRedoScope(StringView name) : name(name) {}
+
+	UndoRedoScope::~UndoRedoScope() = default;
 
 	void UndoRedoScope::PushChange(ResourceStorage* storage, ResourceInstance before, ResourceInstance after)
 	{
@@ -2294,34 +2285,19 @@ namespace Skore
 	}
 
 
-	UndoRedoScope* Resources::CreateScope(StringView name)
+	UndoRedoScope* UndoRedoScope::Create(StringView name)
 	{
 		return Alloc<UndoRedoScope>(name);
 	}
 
-	void Resources::DestroyScope(UndoRedoScope* scope)
+	void UndoRedoScope::Destroy()
 	{
-		DestroyAndFree(scope);
+		DestroyAndFree(this);
 	}
 
-	void Resources::PushChange(UndoRedoScope* scope, ResourceStorage* storage, ResourceInstance before, ResourceInstance after)
+	StringView UndoRedoScope::GetName() const
 	{
-		scope->PushChange(storage, before, after);
-	}
-
-	void Resources::Undo(UndoRedoScope* scope)
-	{
-		scope->Undo();
-	}
-
-	void Resources::Redo(UndoRedoScope* scope)
-	{
-		scope->Redo();
-	}
-
-	StringView Resources::GetScopeName(UndoRedoScope* scope)
-	{
-		return scope->name;
+		return name;
 	}
 
 

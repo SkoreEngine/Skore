@@ -9,11 +9,11 @@ namespace Skore
 {
 	void UIDocument::Destroy()
 	{
-		if (root)
+		if (root && scene->uiContext)
 		{
-			RmlUI::UnloadDocument(scene->uiContext, root);
+			scene->uiContext->UnloadDocument(root);
 		}
-		root = {};
+		root = nullptr;
 	}
 
 	void UIDocument::SetDocument(RID document)
@@ -34,10 +34,10 @@ namespace Skore
 		switch (event.type)
 		{
 			case EntityEventType::EntityActivated:
-				RmlUI::ShowDocument(root);
+				root->Show();
 				break;
 			case EntityEventType::EntityDeactivated:
-				RmlUI::HideDocument(root);
+				root->Hide();
 				break;
 			default:
 				break;
@@ -46,21 +46,21 @@ namespace Skore
 
 	void UIDocument::ReloadDocument()
 	{
-		if (root)
+		if (root && scene->uiContext)
 		{
-			RmlUI::UnloadDocument(scene->uiContext, root);
-			root = {};
+			scene->uiContext->UnloadDocument(root);
 		}
+		root = nullptr;
 
-		if (!m_document)
+		if (!m_document || !scene->uiContext)
 		{
 			return;
 		}
 
-		root = RmlUI::LoadDocumentFromResource(scene->uiContext, m_document);
+		root = scene->uiContext->LoadDocumentFromResource(m_document);
 		if (root)
 		{
-			RmlUI::ShowDocument(root);
+			root->Show();
 		}
 	}
 

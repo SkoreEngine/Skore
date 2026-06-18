@@ -11,24 +11,24 @@
 
 namespace Skore
 {
-	SK_HANDLER(UIContext);
-	SK_HANDLER(UIElementDocument);
-	SK_HANDLER(UIElement);
-	SK_HANDLER(UIEvent);
-	SK_HANDLER(UIEventListener);
-	SK_HANDLER(UIDataModel);
-	SK_HANDLER(UIDataModelConstructor);
-	SK_HANDLER(UIDataVariant);
+	class UIContext;
+	class UIElementDocument;
+	class UIElement;
+	class UIEvent;
+	class UIEventListener;
+	class UIDataModel;
+	class UIDataModelConstructor;
+	class UIDataVariant;
 
-	typedef void (*FnUIEventCallback)(UIEvent event, VoidPtr userData);
-	typedef void (*FnUIDataGetCallback)(UIDataVariant variant, VoidPtr userData);
-	typedef void (*FnUIDataSetCallback)(UIDataVariant variant, VoidPtr userData);
-	typedef void (*FnUIDataEventCallback)(UIDataModel model, UIEvent event, VoidPtr userData);
+	typedef void (*FnUIEventCallback)(UIEvent* event, VoidPtr userData);
+	typedef void (*FnUIDataGetCallback)(UIDataVariant* variant, VoidPtr userData);
+	typedef void (*FnUIDataSetCallback)(UIDataVariant* variant, VoidPtr userData);
+	typedef void (*FnUIDataEventCallback)(UIDataModel* model, UIEvent* event, VoidPtr userData);
 
-	using FnUIEvent     = std::function<void(UIEvent)>;
-	using FnUIDataGet   = std::function<void(UIDataVariant)>;
-	using FnUIDataSet   = std::function<void(UIDataVariant)>;
-	using FnUIDataEvent = std::function<void(UIDataModel, UIEvent)>;
+	using FnUIEvent     = std::function<void(UIEvent*)>;
+	using FnUIDataGet   = std::function<void(UIDataVariant*)>;
+	using FnUIDataSet   = std::function<void(UIDataVariant*)>;
+	using FnUIDataEvent = std::function<void(UIDataModel*, UIEvent*)>;
 
 	enum class UIEventPhase
 	{
@@ -77,208 +77,230 @@ namespace Skore
 		};
 	};
 
-	struct SK_API RmlUI
+	class SK_API UIDataVariant
 	{
-		static UIContext         CreateContext(StringView name, Extent dimensions, bool enableResourceSync = false);
-		static void              RemoveContext(UIContext context);
-		static void              SetDimensions(UIContext context, Extent dimensions);
-		static void              SetDensityIndependentPixelRatio(UIContext context, f32 ratio);
-		static void              SetInputTransform(UIContext context, Vec2 offset, f32 scale);
-		static void              Update(UIContext context);
-		static void              Render(UIContext context);
-		static void              SetContextVisible(UIContext context, bool visible);
+	public:
+		String GetString(StringView defaultValue = {});
+		void   SetString(StringView value);
+		f32    GetFloat(f32 defaultValue = 0.0f);
+		void   SetFloat(f32 value);
+		i32    GetInt(i32 defaultValue = 0);
+		void   SetInt(i32 value);
+		bool   GetBool(bool defaultValue = false);
+		void   SetBool(bool value);
+	};
 
-		static UIElementDocument LoadDocumentFromMemory(UIContext context, StringView content);
-		static UIElementDocument LoadDocumentFromResource(UIContext context, RID document);
-		static void              UnloadDocument(UIContext context, UIElementDocument document);
+	class SK_API UIDataModel
+	{
+	public:
+		bool IsVariableDirty(StringView variableName);
+		void DirtyVariable(StringView variableName);
+		void DirtyAllVariables();
+	};
 
-		static void      ShowDocument(UIElementDocument document, UIModalFlag modalFlag = UIModalFlag::None, UIFocusFlag focusFlag = UIFocusFlag::Auto, UIScrollFlag scrollFlag = UIScrollFlag::Auto);
-		static void      HideDocument(UIElementDocument document);
-		static void      CloseDocument(UIElementDocument document);
-		static void      PullDocumentToFront(UIElementDocument document);
-		static void      PushDocumentToBack(UIElementDocument document);
-		static void      SetDocumentTitle(UIElementDocument document, StringView title);
-		static String    GetDocumentTitle(UIElementDocument document);
-		static String    GetDocumentSourceURL(UIElementDocument document);
-		static bool      IsDocumentModal(UIElementDocument document);
-		static void      ReloadDocumentStyleSheet(UIElementDocument document);
-		static void      UpdateDocument(UIElementDocument document);
-		static UIContext GetDocumentContext(UIElementDocument document);
-		static UIElement FindNextTabElement(UIElementDocument document, UIElement currentElement, bool forward, bool wrapAround = true);
+	class SK_API UIEventListener
+	{
+	};
 
-		static UIElement CreateElement(UIElementDocument document, StringView name);
-		static UIElement CreateTextNode(UIElementDocument document, StringView text);
-		static UIElement CloneElement(UIElement element);
-		static void      DestroyElement(UIElement element);
+	class SK_API UIEvent
+	{
+	public:
+		String       GetType();
+		UIElement*   GetTargetElement();
+		UIElement*   GetCurrentElement();
+		UIEventPhase GetPhase();
+		bool         IsInterruptible();
+		bool         IsPropagating();
+		void         StopPropagation();
+		void         StopImmediatePropagation();
+		Vec2         GetUnprojectedMouseScreenPos();
 
-		static UIElement AppendChild(UIElement parent, UIElement child);
-		static UIElement InsertBefore(UIElement parent, UIElement child, UIElement adjacentElement);
-		static UIElement RemoveChild(UIElement parent, UIElement child);
-		static bool      HasChildNodes(UIElement element);
+		String GetParameterString(StringView key, StringView defaultValue = {});
+		f32    GetParameterFloat(StringView key, f32 defaultValue = 0.0f);
+		i32    GetParameterInt(StringView key, i32 defaultValue = 0);
+		bool   GetParameterBool(StringView key, bool defaultValue = false);
+	};
 
-		static void   SetElementClass(UIElement element, StringView className, bool activate);
-		static bool   IsElementClassSet(UIElement element, StringView className);
-		static void   SetElementClassNames(UIElement element, StringView classNames);
-		static String GetElementClassNames(UIElement element);
+	class SK_API UIElement
+	{
+	public:
+		UIElement* Clone();
+		void       Destroy();
 
-		static void SetElementPseudoClass(UIElement element, StringView pseudoClass, bool activate);
-		static bool IsElementPseudoClassSet(UIElement element, StringView pseudoClass);
+		UIElement* AppendChild(UIElement* child);
+		UIElement* InsertBefore(UIElement* child, UIElement* adjacentElement);
+		UIElement* RemoveChild(UIElement* child);
+		bool       HasChildNodes();
 
-		static bool SetElementProperty(UIElement element, StringView name, StringView value);
-		static void RemoveElementProperty(UIElement element, StringView name);
+		void   SetClass(StringView className, bool activate);
+		bool   IsClassSet(StringView className);
+		void   SetClassNames(StringView classNames);
+		String GetClassNames();
 
-		static void   SetElementAttribute(UIElement element, StringView name, StringView value);
-		static String GetElementAttribute(UIElement element, StringView name, StringView defaultValue = {});
-		static bool   HasElementAttribute(UIElement element, StringView name);
-		static void   RemoveElementAttribute(UIElement element, StringView name);
+		void SetPseudoClass(StringView pseudoClass, bool activate);
+		bool IsPseudoClassSet(StringView pseudoClass);
 
-		static String GetElementTagName(UIElement element);
-		static String GetElementId(UIElement element);
-		static void   SetElementId(UIElement element, StringView id);
-		static String GetElementInnerRML(UIElement element);
-		static void   SetElementInnerRML(UIElement element, StringView rml);
-		static bool   IsElementVisible(UIElement element, bool includeAncestors = false);
+		bool SetProperty(StringView name, StringView value);
+		void RemoveProperty(StringView name);
 
-		static f32  GetElementAbsoluteLeft(UIElement element);
-		static f32  GetElementAbsoluteTop(UIElement element);
-		static f32  GetElementClientWidth(UIElement element);
-		static f32  GetElementClientHeight(UIElement element);
-		static f32  GetElementOffsetWidth(UIElement element);
-		static f32  GetElementOffsetHeight(UIElement element);
-		static f32  GetElementScrollLeft(UIElement element);
-		static void SetElementScrollLeft(UIElement element, f32 scrollLeft);
-		static f32  GetElementScrollTop(UIElement element);
-		static void SetElementScrollTop(UIElement element, f32 scrollTop);
-		static f32  GetElementScrollWidth(UIElement element);
-		static f32  GetElementScrollHeight(UIElement element);
+		void   SetAttribute(StringView name, StringView value);
+		String GetAttribute(StringView name, StringView defaultValue = {});
+		bool   HasAttribute(StringView name);
+		void   RemoveAttribute(StringView name);
 
-		static bool FocusElement(UIElement element, bool focusVisible = false);
-		static void BlurElement(UIElement element);
-		static void ClickElement(UIElement element);
-		static void ScrollElementIntoView(UIElement element, bool alignWithTop = true);
+		String GetTagName();
+		String GetId();
+		void   SetId(StringView id);
+		String GetInnerRML();
+		void   SetInnerRML(StringView rml);
+		bool   IsVisible(bool includeAncestors = false);
 
-		static UIElement         GetElementParentNode(UIElement element);
-		static UIElement         GetElementNextSibling(UIElement element);
-		static UIElement         GetElementPreviousSibling(UIElement element);
-		static UIElement         GetElementFirstChild(UIElement element);
-		static UIElement         GetElementLastChild(UIElement element);
-		static UIElement         GetElementChild(UIElement element, i32 index);
-		static i32               GetElementNumChildren(UIElement element);
-		static UIElementDocument GetElementOwnerDocument(UIElement element);
-		static UIContext         GetElementContext(UIElement element);
+		f32  GetAbsoluteLeft();
+		f32  GetAbsoluteTop();
+		f32  GetClientWidth();
+		f32  GetClientHeight();
+		f32  GetOffsetWidth();
+		f32  GetOffsetHeight();
+		f32  GetScrollLeft();
+		void SetScrollLeft(f32 scrollLeft);
+		f32  GetScrollTop();
+		void SetScrollTop(f32 scrollTop);
+		f32  GetScrollWidth();
+		f32  GetScrollHeight();
 
-		static UIElement         GetElementById(UIElement element, StringView id);
-		static UIElement         QuerySelector(UIElement element, StringView selector);
-		static Array<UIElement>  QuerySelectorAll(UIElement element, StringView selector);
-		static Array<UIElement>  GetElementsByTagName(UIElement element, StringView tag);
-		static Array<UIElement>  GetElementsByClassName(UIElement element, StringView className);
-		static UIElement         Closest(UIElement element, StringView selectors);
-		static bool              ElementMatches(UIElement element, StringView selector);
-		static bool              ElementContains(UIElement element, UIElement other);
+		bool Focus(bool focusVisible = false);
+		void Blur();
+		void Click();
+		void ScrollIntoView(bool alignWithTop = true);
 
-		static UIEventListener AddEventListener(UIElement element, StringView event, FnUIEventCallback callback, VoidPtr userData = nullptr, bool inCapturePhase = false);
-		static void            RemoveEventListener(UIElement element, StringView event, UIEventListener listener, bool inCapturePhase = false);
+		UIElement*         GetParentNode();
+		UIElement*         GetNextSibling();
+		UIElement*         GetPreviousSibling();
+		UIElement*         GetFirstChild();
+		UIElement*         GetLastChild();
+		UIElement*         GetChild(i32 index);
+		i32                GetNumChildren();
+		UIElementDocument* GetOwnerDocument();
+		UIContext*         GetContext();
 
-		static UIEventListener AddEventListener(UIElement element, StringView event, FnUIEvent callback, bool inCapturePhase = false);
+		UIElement*        GetElementById(StringView id);
+		UIElement*        QuerySelector(StringView selector);
+		Array<UIElement*> QuerySelectorAll(StringView selector);
+		Array<UIElement*> GetElementsByTagName(StringView tag);
+		Array<UIElement*> GetElementsByClassName(StringView className);
+		UIElement*        Closest(StringView selectors);
+		bool              Matches(StringView selector);
+		bool              Contains(UIElement* other);
 
-		static bool            DispatchEvent(UIElement element, StringView type);
+		UIEventListener* AddEventListener(StringView event, FnUIEventCallback callback, VoidPtr userData = nullptr, bool inCapturePhase = false);
+		UIEventListener* AddEventListener(StringView event, FnUIEvent callback, bool inCapturePhase = false);
+		void             RemoveEventListener(StringView event, UIEventListener* listener, bool inCapturePhase = false);
+		bool             DispatchEvent(StringView type);
+	};
 
-		static String        GetEventType(UIEvent event);
-		static UIElement     GetEventTargetElement(UIEvent event);
-		static UIElement     GetEventCurrentElement(UIEvent event);
-		static UIEventPhase  GetEventPhase(UIEvent event);
-		static bool          IsEventInterruptible(UIEvent event);
-		static bool          IsEventPropagating(UIEvent event);
-		static void          StopEventPropagation(UIEvent event);
-		static void          StopEventImmediatePropagation(UIEvent event);
-		static Vec2          GetEventUnprojectedMouseScreenPos(UIEvent event);
+	class SK_API UIElementDocument
+	{
+	public:
+		void       Show(UIModalFlag modalFlag = UIModalFlag::None, UIFocusFlag focusFlag = UIFocusFlag::Auto, UIScrollFlag scrollFlag = UIScrollFlag::Auto);
+		void       Hide();
+		void       Close();
+		void       PullToFront();
+		void       PushToBack();
+		void       SetTitle(StringView title);
+		String     GetTitle();
+		String     GetSourceURL();
+		bool       IsModal();
+		void       ReloadStyleSheet();
+		void       Update();
+		UIContext* GetContext();
+		UIElement* FindNextTabElement(UIElement* currentElement, bool forward, bool wrapAround = true);
 
-		static String GetEventParameterString(UIEvent event, StringView key, StringView defaultValue = {});
-		static f32    GetEventParameterFloat(UIEvent event, StringView key, f32 defaultValue = 0.0f);
-		static i32    GetEventParameterInt(UIEvent event, StringView key, i32 defaultValue = 0);
-		static bool   GetEventParameterBool(UIEvent event, StringView key, bool defaultValue = false);
+		UIElement* CreateElement(StringView name);
+		UIElement* CreateTextNode(StringView text);
+	};
 
-		static UIDataModelConstructor CreateDataModel(UIContext context, StringView name);
-		static UIDataModelConstructor GetDataModel(UIContext context, StringView name);
-		static bool                   RemoveDataModel(UIContext context, StringView name);
-		static void                   DestroyDataModelConstructor(UIDataModelConstructor constructor);
+	class SK_API UIDataModelConstructor
+	{
+	public:
+		void         Destroy();
+		UIDataModel* GetModelHandle();
 
-		static UIDataModel GetModelHandle(UIDataModelConstructor constructor);
-		static bool        BindFunc(UIDataModelConstructor constructor, StringView name,
-		                       FnUIDataGetCallback getCallback, VoidPtr getCallbackData = nullptr,
-		                       FnUIDataSetCallback setCallback = nullptr, VoidPtr setCallbackData = nullptr);
-		static bool        BindEventCallback(UIDataModelConstructor constructor, StringView name,
-		                       FnUIDataEventCallback callback, VoidPtr userData = nullptr);
+		bool BindFunc(StringView name,
+		              FnUIDataGetCallback getCallback, VoidPtr getCallbackData = nullptr,
+		              FnUIDataSetCallback setCallback = nullptr, VoidPtr setCallbackData = nullptr);
+		bool BindEventCallback(StringView name, FnUIDataEventCallback callback, VoidPtr userData = nullptr);
 
-		static bool BindFunc(UIDataModelConstructor constructor, StringView name, FnUIDataGet getCallback, FnUIDataSet setCallback = {});
-		static bool BindEventCallback(UIDataModelConstructor constructor, StringView name, FnUIDataEvent callback);
+		bool BindFunc(StringView name, FnUIDataGet getCallback, FnUIDataSet setCallback = {});
+		bool BindEventCallback(StringView name, FnUIDataEvent callback);
 
-		static bool BindVariable(UIDataModelConstructor constructor, StringView name, f32* ptr);
-		static bool BindVariable(UIDataModelConstructor constructor, StringView name, i32* ptr);
-		static bool BindVariable(UIDataModelConstructor constructor, StringView name, bool* ptr);
+		bool BindVariable(StringView name, f32* ptr);
+		bool BindVariable(StringView name, i32* ptr);
+		bool BindVariable(StringView name, bool* ptr);
 
-		static bool BindScalar(UIDataModelConstructor constructor, StringView name,
-		                       f32 (*get)(VoidPtr), VoidPtr getData = nullptr,
-		                       void (*set)(f32, VoidPtr) = nullptr, VoidPtr setData = nullptr);
-		static bool BindScalar(UIDataModelConstructor constructor, StringView name,
-		                       i32 (*get)(VoidPtr), VoidPtr getData = nullptr,
-		                       void (*set)(i32, VoidPtr) = nullptr, VoidPtr setData = nullptr);
-		static bool BindScalar(UIDataModelConstructor constructor, StringView name,
-		                       bool (*get)(VoidPtr), VoidPtr getData = nullptr,
-		                       void (*set)(bool, VoidPtr) = nullptr, VoidPtr setData = nullptr);
-		static bool BindScalar(UIDataModelConstructor constructor, StringView name,
-		                       String (*get)(VoidPtr), VoidPtr getData = nullptr,
-		                       void (*set)(StringView, VoidPtr) = nullptr, VoidPtr setData = nullptr);
+		bool BindScalar(StringView name, f32 (*get)(VoidPtr), VoidPtr getData = nullptr, void (*set)(f32, VoidPtr) = nullptr, VoidPtr setData = nullptr);
+		bool BindScalar(StringView name, i32 (*get)(VoidPtr), VoidPtr getData = nullptr, void (*set)(i32, VoidPtr) = nullptr, VoidPtr setData = nullptr);
+		bool BindScalar(StringView name, bool (*get)(VoidPtr), VoidPtr getData = nullptr, void (*set)(bool, VoidPtr) = nullptr, VoidPtr setData = nullptr);
+		bool BindScalar(StringView name, String (*get)(VoidPtr), VoidPtr getData = nullptr, void (*set)(StringView, VoidPtr) = nullptr, VoidPtr setData = nullptr);
 
 		template <typename Get>
-		static bool BindScalar(UIDataModelConstructor constructor, StringView name, Get get)
+		bool BindScalar(StringView name, Get get)
 		{
-			return BindFunc(constructor, name, MakeScalarGet<decltype(get())>(std::move(get)));
+			return BindFunc(name, MakeScalarGet<decltype(get())>(std::move(get)));
 		}
 
 		template <typename Get, typename Set>
-		static bool BindScalar(UIDataModelConstructor constructor, StringView name, Get get, Set set)
+		bool BindScalar(StringView name, Get get, Set set)
 		{
 			using R = decltype(get());
-			return BindFunc(constructor, name, MakeScalarGet<R>(std::move(get)), MakeScalarSet<R>(std::move(set)));
+			return BindFunc(name, MakeScalarGet<R>(std::move(get)), MakeScalarSet<R>(std::move(set)));
 		}
-
-		static bool IsVariableDirty(UIDataModel model, StringView variableName);
-		static void DirtyVariable(UIDataModel model, StringView variableName);
-		static void DirtyAllVariables(UIDataModel model);
-
-		static String GetVariantString(UIDataVariant variant, StringView defaultValue = {});
-		static void   SetVariantString(UIDataVariant variant, StringView value);
-		static f32    GetVariantFloat(UIDataVariant variant, f32 defaultValue = 0.0f);
-		static void   SetVariantFloat(UIDataVariant variant, f32 value);
-		static i32    GetVariantInt(UIDataVariant variant, i32 defaultValue = 0);
-		static void   SetVariantInt(UIDataVariant variant, i32 value);
-		static bool   GetVariantBool(UIDataVariant variant, bool defaultValue = false);
-		static void   SetVariantBool(UIDataVariant variant, bool value);
 
 	private:
 		template <typename R, typename Get>
 		static FnUIDataGet MakeScalarGet(Get get)
 		{
-			return [get = std::move(get)](UIDataVariant variant) mutable
+			return [get = std::move(get)](UIDataVariant* variant) mutable
 			{
-				if constexpr (Traits::IsSame<R, f32>)       SetVariantFloat(variant, get());
-				else if constexpr (Traits::IsSame<R, i32>)  SetVariantInt(variant, get());
-				else if constexpr (Traits::IsSame<R, bool>) SetVariantBool(variant, get());
-				else                                        SetVariantString(variant, get());
+				if constexpr (Traits::IsSame<R, f32>)       variant->SetFloat(get());
+				else if constexpr (Traits::IsSame<R, i32>)  variant->SetInt(get());
+				else if constexpr (Traits::IsSame<R, bool>) variant->SetBool(get());
+				else                                        variant->SetString(get());
 			};
 		}
 
 		template <typename R, typename Set>
 		static FnUIDataSet MakeScalarSet(Set set)
 		{
-			return [set = std::move(set)](UIDataVariant variant) mutable
+			return [set = std::move(set)](UIDataVariant* variant) mutable
 			{
-				if constexpr (Traits::IsSame<R, f32>)       set(GetVariantFloat(variant));
-				else if constexpr (Traits::IsSame<R, i32>)  set(GetVariantInt(variant));
-				else if constexpr (Traits::IsSame<R, bool>) set(GetVariantBool(variant));
-				else                                        set(GetVariantString(variant));
+				if constexpr (Traits::IsSame<R, f32>)       set(variant->GetFloat());
+				else if constexpr (Traits::IsSame<R, i32>)  set(variant->GetInt());
+				else if constexpr (Traits::IsSame<R, bool>) set(variant->GetBool());
+				else                                        set(variant->GetString());
 			};
 		}
+	};
+
+	class SK_API UIContext
+	{
+	public:
+		static UIContext* Create(StringView name, Extent dimensions, bool enableResourceSync = false);
+
+		void Destroy();
+		void SetDimensions(Extent dimensions);
+		void SetDensityIndependentPixelRatio(f32 ratio);
+		void SetInputTransform(Vec2 offset, f32 scale);
+		void Update();
+		void Render();
+		void SetVisible(bool visible);
+		bool IsVisible();
+
+		UIElementDocument* LoadDocumentFromMemory(StringView content);
+		UIElementDocument* LoadDocumentFromResource(RID document);
+		void               UnloadDocument(UIElementDocument* document);
+
+		UIDataModelConstructor* CreateDataModel(StringView name);
+		UIDataModelConstructor* GetDataModel(StringView name);
+		bool                    RemoveDataModel(StringView name);
 	};
 }

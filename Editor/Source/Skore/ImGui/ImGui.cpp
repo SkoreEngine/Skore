@@ -26,6 +26,7 @@
 #include "Skore/IO/Input.hpp"
 #include "Skore/IO/InputTypes.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Scene/SceneEditor.hpp"
@@ -2107,7 +2108,7 @@ namespace Skore
 							if (updatedFinished)
 							{
 								UndoRedoScope* scope = Editor::CreateUndoRedoScope(!fieldContext.scopeName.Empty() ? fieldContext.scopeName : "Update Field");
-								Resources::PushChange(scope, object.GetStorage(), context.beforeEditInstance, object.GetInstance());
+								scope->PushChange(object.GetStorage(), context.beforeEditInstance, object.GetInstance());
 								context.beforeEditInstance = object.GetInstance();
 							}
 						}

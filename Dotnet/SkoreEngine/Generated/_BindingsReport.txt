@@ -1,227 +1,41 @@
-Generated 204 files.
+Generated 213 files.
 
 Skipped types (invalid identifier):
-  Skore::TColor<unsigned char>
 
 Skipped members (unsupported signature):
-  Skore.Graphics.GPUDevice.GetAdapters: return type 'Skore::Span<class Skore::GPUAdapter *>'
   Skore.Graphics.GPUDevice.CreateCommandBuffer: param 'queueType' type 'Skore::QueueType&'
-  Skore.Graphics.GPUDevice.CreateDescriptorSetFromShader: param 'variant' type 'Skore::BasicStringView<char>'
   Skore.Graphics.TopLevelASDesc: skipped field 'instances' (type 'Skore::Span<struct Skore::InstanceDesc>')
-  Skore.Graphics.TopLevelASDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.DeviceProperties: skipped field 'deviceName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.DeviceProperties: skipped field 'vendorName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.DeviceProperties: skipped field 'driverVersion' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.GPUTopLevelAS.UpdateInstances: param 'instances' type 'Skore::Span<struct Skore::InstanceDesc>'
   Skore.Scene.Skeleton: skipped field 'bones' (type 'Skore::Array<struct Skore::BoneNode>')
   Skore.Graphics.RenderPipelineSetup: skipped field 'modules' (type 'Skore::Array<struct Skore::TypeID>')
-  Skore.Resources.Resources.FindTypeByID: return type 'Skore::ResourceType*'
-  Skore.Resources.Resources.FindTypeByName: return type 'Skore::ResourceType*'
   Skore.Resources.Resources.GetTypes: return type 'Skore::Array<class Skore::ResourceType *>'
   Skore.Resources.Resources.FindTypesByAttribute: return type 'Skore::Array<struct Skore::TypeID>'
-  Skore.Resources.Resources.Create: param 'typeId' type 'Skore::TypeID'
-  Skore.Resources.Resources.CreateFromPrototype: param 'scope' type 'Skore::UndoRedoScope*'
-  Skore.Resources.Resources.Write: return type 'Skore::ResourceObject'
-  Skore.Resources.Resources.Read: return type 'Skore::ResourceObject'
-  Skore.Resources.Resources.Clone: param 'scope' type 'Skore::UndoRedoScope*'
-  Skore.Resources.Resources.Reset: param 'scope' type 'Skore::UndoRedoScope*'
-  Skore.Resources.Resources.Destroy: param 'scope' type 'Skore::UndoRedoScope*'
-  Skore.Resources.Resources.GetType: return type 'Skore::ResourceType*'
   Skore.Resources.Resources.GetResourcesByType: return type 'Skore::Array<struct Skore::RID>'
-  Skore.Resources.Resources.SetPath: param 'path' type 'Skore::BasicStringView<char>'
-  Skore.Resources.Resources.GetPath: return type 'Skore::BasicStringView<char>'
-  Skore.Resources.Resources.FindByPath: param 'path' type 'Skore::BasicStringView<char>'
-  Skore.Resources.Resources.CreateScope: return type 'Skore::UndoRedoScope*'
-  Skore.Resources.Resources.DestroyScope: param 'scope' type 'Skore::UndoRedoScope*'
-  Skore.Resources.Resources.Undo: param 'scope' type 'Skore::UndoRedoScope*'
-  Skore.Resources.Resources.Redo: param 'scope' type 'Skore::UndoRedoScope*'
-  Skore.Resources.Resources.GetScopeName: return type 'Skore::BasicStringView<char>'
   Skore.Graphics.SwapchainDesc: skipped field 'window' (type 'Skore::Window')
-  Skore.Graphics.SwapchainDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.RenderPipeline.GetPipelineSetup: return type 'Skore::RenderPipelineSetup'
-  Skore.Graphics.FramebufferDesc: skipped field 'renderPass' (type 'Skore::GPURenderPass')
   Skore.Graphics.FramebufferDesc: skipped field 'attachments' (type 'Skore::Array<class Skore::GPUTextureView *>')
-  Skore.Graphics.FramebufferDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
   Skore.Graphics.DescriptorSetDesc: skipped field 'bindings' (type 'Skore::Array<struct Skore::DescriptorSetLayoutBinding>')
-  Skore.Graphics.DescriptorSetDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.GPUAdapter.GetName: return type 'Skore::BasicStringView<char>'
   Skore.Scene.EnvironmentComponent: skipped field 'skyboxMaterial' (type 'Skore::TypedRID<struct Skore::MaterialResource>')
-  Skore.Scene.EnvironmentComponent: skipped field 'ambientLightColor' (type 'Skore::TColor<unsigned char>')
-  Skore.Scene.LightComponent: skipped field 'color' (type 'Skore::TColor<unsigned char>')
-  Skore.Graphics.TextureViewDesc: skipped field 'texture' (type 'Skore::GPUTexture')
-  Skore.Graphics.TextureViewDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
   Skore.Graphics.RenderPipelinePassSetup: skipped field 'dependencies' (type 'Skore::Array<struct Skore::RenderPipelinePassDependency>')
-  Skore.Graphics.BufferDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.RenderPipelineResource: skipped field 'name' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.RenderPipelineResource: skipped field 'textureName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.RenderPipelineResource: skipped field 'instanceTypeId' (type 'Skore::TypeID')
+  Skore.UI.UIDataVariant.GetString: return type 'Skore::BasicString<char,18>'
   Skore.Graphics.DescriptorSetLayout: skipped field 'bindings' (type 'Skore::Array<struct Skore::DescriptorSetLayoutBinding>')
-  Skore.Graphics.DescriptorSetLayout: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
   Skore.Graphics.RenderPipelinePass: skipped field 'context' (type 'Skore::RenderPipelineContext')
-  Skore.Graphics.RenderPipelinePass: skipped field 'renderPass' (type 'Skore::GPURenderPass')
-  Skore.Graphics.RenderPipelinePass.GetPassSetup: return type 'Skore::RenderPipelinePassSetup'
   Skore.Graphics.FontAtlasData: skipped field 'pixels' (type 'Skore::Array<unsigned char>')
   Skore.Graphics.PipelineDesc: skipped field 'inputVariables' (type 'Skore::Array<struct Skore::InterfaceVariable>')
   Skore.Graphics.PipelineDesc: skipped field 'outputVariables' (type 'Skore::Array<struct Skore::InterfaceVariable>')
   Skore.Graphics.PipelineDesc: skipped field 'descriptors' (type 'Skore::Array<struct Skore::DescriptorSetLayout>')
   Skore.Graphics.PipelineDesc: skipped field 'pushConstants' (type 'Skore::Array<struct Skore::PushConstantRange>')
-  Skore.Graphics.PushConstantRange: skipped field 'name' (type 'Skore::BasicString<char,18>')
+  Skore.Resources.ResourceType.GetReflectType: return type 'Skore::ReflectType*'
+  Skore.Resources.ResourceType.GetFields: return type 'Skore::Span<class Skore::ResourceField *>'
+  Skore.Resources.ResourceType.FindFieldByName: return type 'Skore::ResourceField*'
   Skore.Scene.RendererComponent: skipped field 'mesh' (type 'Skore::TypedRID<struct Skore::MeshResource>')
   Skore.Scene.RendererComponent: skipped field 'materials' (type 'Skore::Array<struct Skore::TypedRID<struct Skore::MaterialResource> >')
-  Skore.Graphics.ComputePipelineDesc: skipped field 'variant' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.ComputePipelineDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.ComputePipelineDesc: skipped field 'previousState' (type 'Skore::GPUPipeline')
   Skore.Graphics.RenderPipelineModule: skipped field 'context' (type 'Skore::RenderPipelineContext')
   Skore.Graphics.RenderPipelineModule.GetResources: return type 'Skore::Array<struct Skore::RenderPipelineResource>'
-  Skore.Graphics.RenderPipelineModule.GetSetup: return type 'Skore::RenderPipelineModuleSetup'
-  Skore.Scene.Entity.GetChildren: return type 'Skore::Span<class Skore::Entity *>'
-  Skore.Scene.Entity.GetComponents: return type 'Skore::Span<class Skore::Component *>'
-  Skore.Scene.Entity.SetName: param 'name' type 'Skore::BasicStringView<char>'
-  Skore.Scene.Entity.GetName: return type 'Skore::BasicStringView<char>'
-  Skore.Scene.Entity.AddComponent: param 'typeId' type 'Skore::TypeID'
-  Skore.Scene.Entity.GetComponent: param 'typeId' type 'Skore::TypeID'
-  Skore.Scene.Entity.FindFirstComponentOnHierarchy: param 'typeId' type 'Skore::TypeID'
-  Skore.Graphics.Graphics.GetAdapters: return type 'Skore::Span<class Skore::GPUAdapter *>'
-  Skore.Graphics.Graphics.GetProperties: return type 'Skore::DeviceProperties'
   Skore.Graphics.Graphics.GetWindow: return type 'Skore::Window'
   Skore.Graphics.Graphics.CreateCommandBuffer: param 'queueType' type 'Skore::QueueType&'
-  Skore.Graphics.Graphics.CreateDescriptorSetFromShader: param 'variant' type 'Skore::BasicStringView<char>'
-  Skore.Graphics.TextureDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
   Skore.Scene.AudioSource: skipped field 'audioResource' (type 'Skore::TypedRID<struct Skore::AudioResource>')
-  Skore.Graphics.InterfaceVariable: skipped field 'name' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.RenderPipelinePassDependency: skipped field 'name' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.QueryPoolDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.UI.RmlUI.CreateContext: return type 'Skore::UIContext'
-  Skore.UI.RmlUI.RemoveContext: param 'context' type 'Skore::UIContext'
-  Skore.UI.RmlUI.SetDimensions: param 'context' type 'Skore::UIContext'
-  Skore.UI.RmlUI.SetDensityIndependentPixelRatio: param 'context' type 'Skore::UIContext'
-  Skore.UI.RmlUI.SetInputTransform: param 'context' type 'Skore::UIContext'
-  Skore.UI.RmlUI.Update: param 'context' type 'Skore::UIContext'
-  Skore.UI.RmlUI.Render: param 'context' type 'Skore::UIContext'
-  Skore.UI.RmlUI.SetContextVisible: param 'context' type 'Skore::UIContext'
-  Skore.UI.RmlUI.LoadDocumentFromMemory: return type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.UnloadDocument: param 'context' type 'Skore::UIContext'
-  Skore.UI.RmlUI.ShowDocument: param 'document' type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.HideDocument: param 'document' type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.CloseDocument: param 'document' type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.PullDocumentToFront: param 'document' type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.PushDocumentToBack: param 'document' type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.SetDocumentTitle: param 'document' type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.GetDocumentTitle: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.GetDocumentSourceURL: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.IsDocumentModal: param 'document' type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.ReloadDocumentStyleSheet: param 'document' type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.UpdateDocument: param 'document' type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.GetDocumentContext: return type 'Skore::UIContext'
-  Skore.UI.RmlUI.FindNextTabElement: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.CreateElement: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.CreateTextNode: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.CloneElement: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.DestroyElement: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.AppendChild: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.InsertBefore: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.RemoveChild: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.HasChildNodes: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.SetElementClass: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.IsElementClassSet: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.SetElementClassNames: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementClassNames: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.SetElementPseudoClass: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.IsElementPseudoClassSet: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.SetElementProperty: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.RemoveElementProperty: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.SetElementAttribute: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementAttribute: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.HasElementAttribute: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.RemoveElementAttribute: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementTagName: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.GetElementId: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.SetElementId: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementInnerRML: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.SetElementInnerRML: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.IsElementVisible: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementAbsoluteLeft: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementAbsoluteTop: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementClientWidth: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementClientHeight: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementOffsetWidth: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementOffsetHeight: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementScrollLeft: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.SetElementScrollLeft: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementScrollTop: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.SetElementScrollTop: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementScrollWidth: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementScrollHeight: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.FocusElement: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.BlurElement: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.ClickElement: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.ScrollElementIntoView: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementParentNode: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementNextSibling: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementPreviousSibling: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementFirstChild: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementLastChild: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementChild: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementNumChildren: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetElementOwnerDocument: return type 'Skore::UIElementDocument'
-  Skore.UI.RmlUI.GetElementContext: return type 'Skore::UIContext'
-  Skore.UI.RmlUI.GetElementById: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.QuerySelector: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.QuerySelectorAll: return type 'Skore::Array<struct Skore::UIElement>'
-  Skore.UI.RmlUI.GetElementsByTagName: return type 'Skore::Array<struct Skore::UIElement>'
-  Skore.UI.RmlUI.GetElementsByClassName: return type 'Skore::Array<struct Skore::UIElement>'
-  Skore.UI.RmlUI.Closest: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.ElementMatches: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.ElementContains: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.AddEventListener: return type 'Skore::UIEventListener'
-  Skore.UI.RmlUI.RemoveEventListener: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.DispatchEvent: param 'element' type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetEventType: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.GetEventTargetElement: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetEventCurrentElement: return type 'Skore::UIElement'
-  Skore.UI.RmlUI.GetEventPhase: param 'event' type 'Skore::UIEvent'
-  Skore.UI.RmlUI.IsEventInterruptible: param 'event' type 'Skore::UIEvent'
-  Skore.UI.RmlUI.IsEventPropagating: param 'event' type 'Skore::UIEvent'
-  Skore.UI.RmlUI.StopEventPropagation: param 'event' type 'Skore::UIEvent'
-  Skore.UI.RmlUI.StopEventImmediatePropagation: param 'event' type 'Skore::UIEvent'
-  Skore.UI.RmlUI.GetEventUnprojectedMouseScreenPos: param 'event' type 'Skore::UIEvent'
-  Skore.UI.RmlUI.GetEventParameterString: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.GetEventParameterFloat: param 'event' type 'Skore::UIEvent'
-  Skore.UI.RmlUI.GetEventParameterInt: param 'event' type 'Skore::UIEvent'
-  Skore.UI.RmlUI.GetEventParameterBool: param 'event' type 'Skore::UIEvent'
-  Skore.UI.RmlUI.CreateDataModel: return type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.GetDataModel: return type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.RemoveDataModel: param 'context' type 'Skore::UIContext'
-  Skore.UI.RmlUI.DestroyDataModelConstructor: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.GetModelHandle: return type 'Skore::UIDataModel'
-  Skore.UI.RmlUI.BindFunc: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.BindEventCallback: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.BindVariable: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.BindVariable: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.BindVariable: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.BindScalar: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.BindScalar: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.BindScalar: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.BindScalar: param 'constructor' type 'Skore::UIDataModelConstructor'
-  Skore.UI.RmlUI.IsVariableDirty: param 'model' type 'Skore::UIDataModel'
-  Skore.UI.RmlUI.DirtyVariable: param 'model' type 'Skore::UIDataModel'
-  Skore.UI.RmlUI.DirtyAllVariables: param 'model' type 'Skore::UIDataModel'
-  Skore.UI.RmlUI.GetVariantString: return type 'Skore::BasicString<char,18>'
-  Skore.UI.RmlUI.SetVariantString: param 'variant' type 'Skore::UIDataVariant'
-  Skore.UI.RmlUI.GetVariantFloat: param 'variant' type 'Skore::UIDataVariant'
-  Skore.UI.RmlUI.SetVariantFloat: param 'variant' type 'Skore::UIDataVariant'
-  Skore.UI.RmlUI.GetVariantInt: param 'variant' type 'Skore::UIDataVariant'
-  Skore.UI.RmlUI.SetVariantInt: param 'variant' type 'Skore::UIDataVariant'
-  Skore.UI.RmlUI.GetVariantBool: param 'variant' type 'Skore::UIDataVariant'
-  Skore.UI.RmlUI.SetVariantBool: param 'variant' type 'Skore::UIDataVariant'
   Skore.Graphics.BottomLevelASDesc: skipped field 'geometries' (type 'Skore::Span<struct Skore::GeometryDesc>')
-  Skore.Graphics.BottomLevelASDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.DescriptorSetLayoutBinding: skipped field 'name' (type 'Skore::BasicString<char,18>')
-  Skore.Scene.Scene.FindFirstByName: param 'name' type 'Skore::BasicStringView<char>'
   Skore.Navigation.NavMeshSurface: skipped field 'navMeshData' (type 'Skore::SubObjectRID<struct Skore::NavMeshResource>')
   Skore.Navigation.Navigation.FindPath: param 'path' type 'Skore::NavMeshPath&'
-  Skore.Graphics.ShadowMapInstanceData: skipped field 'shadowSampler' (type 'Skore::GPUSampler')
-  Skore.Graphics.ShadowMapInstanceData: skipped field 'shadowTexture' (type 'Skore::GPUTexture')
   Skore.Graphics.ShadowMapInstanceData: skipped field 'cascadeSplits' (type 'Skore::Array<float>')
   Skore.Graphics.ShadowMapInstanceData: skipped field 'cascadeViewProjMat' (type 'Skore::Array<struct Skore::Mat4>')
   Skore.Scene.Physics.Raycast: param 'hit' type 'Skore::RaycastHit&'
@@ -229,31 +43,10 @@ Skipped members (unsupported signature):
   Skore.Scene.Physics.SphereCast: param 'hit' type 'Skore::RaycastHit&'
   Skore.Scene.Physics.BoxCast: param 'hit' type 'Skore::RaycastHit&'
   Skore.Scene.Physics.CapsuleCast: param 'hit' type 'Skore::RaycastHit&'
-  Skore.Resources.ResourceObject.SetString: param 'value' type 'Skore::BasicStringView<char>'
-  Skore.Resources.ResourceObject.SetColor: param 'value' type 'Skore::TColor<unsigned char>'
-  Skore.Resources.ResourceObject.SetTypeID: param 'value' type 'Skore::TypeID'
-  Skore.Resources.ResourceObject.SetBlob: param 'bytes' type 'Skore::Span<unsigned char>'
-  Skore.Resources.ResourceObject.SetReferenceArray: param 'refs' type 'Skore::Span<struct Skore::RID>'
-  Skore.Resources.ResourceObject.GetString: return type 'Skore::BasicStringView<char>'
-  Skore.Resources.ResourceObject.GetColor: return type 'Skore::TColor<unsigned char>'
-  Skore.Resources.ResourceObject.GetTypeID: return type 'Skore::TypeID'
-  Skore.Resources.ResourceObject.GetBlob: return type 'Skore::Span<unsigned char>'
-  Skore.Resources.ResourceObject.GetReferenceArray: return type 'Skore::Span<struct Skore::RID>'
-  Skore.Resources.ResourceObject.GetSubObjectList: return type 'Skore::Span<struct Skore::RID>'
-  Skore.Resources.ResourceObject.GetIndex: param 'fieldName' type 'Skore::BasicStringView<char>'
-  Skore.Resources.ResourceObject.Commit: param 'scope' type 'Skore::UndoRedoScope*'
   Skore.Scene.ComponentDesc: skipped field 'dependencies' (type 'Skore::Array<struct Skore::TypeID>')
-  Skore.Scene.ComponentDesc: skipped field 'category' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.RayTracingPipelineDesc: skipped field 'variant' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.RayTracingPipelineDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Scene.BoneNode: skipped field 'name' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.GraphicsPipelineDesc: skipped field 'variant' (type 'Skore::BasicString<char,18>')
+  Skore.UI.UIElementDocument.GetTitle: return type 'Skore::BasicString<char,18>'
+  Skore.UI.UIElementDocument.GetSourceURL: return type 'Skore::BasicString<char,18>'
   Skore.Graphics.GraphicsPipelineDesc: skipped field 'blendStates' (type 'Skore::Array<struct Skore::BlendStateDesc>')
-  Skore.Graphics.GraphicsPipelineDesc: skipped field 'renderPass' (type 'Skore::GPURenderPass')
-  Skore.Graphics.GraphicsPipelineDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.GraphicsPipelineDesc: skipped field 'previousState' (type 'Skore::GPUPipeline')
-  Skore.Core.Logger.GetLogger: param 'name' type 'Skore::BasicStringView<char>'
-  Skore.Core.Logger.PrintLog: param 'message' type 'Skore::BasicStringView<char>'
   Skore.Scene.AnimationPlayer: skipped field 'controller' (type 'Skore::TypedRID<struct Skore::AnimationControllerResource>')
   Skore.Scene.AnimationPlayer.SetFloat: param 'name' type 'Skore::BasicString<char,18>&'
   Skore.Scene.AnimationPlayer.SetInt: param 'name' type 'Skore::BasicString<char,18>&'
@@ -262,16 +55,26 @@ Skipped members (unsupported signature):
   Skore.Scene.AnimationPlayer.GetFloat: param 'name' type 'Skore::BasicString<char,18>&'
   Skore.Scene.AnimationPlayer.GetInt: param 'name' type 'Skore::BasicString<char,18>&'
   Skore.Scene.AnimationPlayer.GetBool: param 'name' type 'Skore::BasicString<char,18>&'
-  Skore.Graphics.GPUCommandBuffer.BindDescriptorSet: param 'dynamicOffsets' type 'Skore::Span<unsigned int>'
-  Skore.Graphics.GPUCommandBuffer.BeginDebugMarker: param 'name' type 'Skore::BasicStringView<char>'
-  Skore.Graphics.GPUCommandBuffer.InsertDebugMarker: param 'name' type 'Skore::BasicStringView<char>'
   Skore.Graphics.RenderPassDesc: skipped field 'attachments' (type 'Skore::Array<struct Skore::AttachmentDesc>')
   Skore.Graphics.RenderPassDesc: skipped field 'resolveAttachments' (type 'Skore::Array<struct Skore::AttachmentDesc>')
-  Skore.Graphics.RenderPassDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.ShaderStageInfo: skipped field 'entryPoint' (type 'Skore::BasicString<char,18>')
-  Skore.Graphics.SamplerDesc: skipped field 'debugName' (type 'Skore::BasicString<char,18>')
-  Skore.Scene.ParticleEmitter: skipped field 'startColor' (type 'Skore::TColor<unsigned char>')
-  Skore.Scene.SkinnedMeshRenderer: skipped field 'skeleton' (type 'Skore::Entity')
+  Skore.UI.UIElement.GetClassNames: return type 'Skore::BasicString<char,18>'
+  Skore.UI.UIElement.GetAttribute: return type 'Skore::BasicString<char,18>'
+  Skore.UI.UIElement.GetTagName: return type 'Skore::BasicString<char,18>'
+  Skore.UI.UIElement.GetId: return type 'Skore::BasicString<char,18>'
+  Skore.UI.UIElement.GetInnerRML: return type 'Skore::BasicString<char,18>'
+  Skore.UI.UIElement.QuerySelectorAll: return type 'Skore::Array<class Skore::UIElement *>'
+  Skore.UI.UIElement.GetElementsByTagName: return type 'Skore::Array<class Skore::UIElement *>'
+  Skore.UI.UIElement.GetElementsByClassName: return type 'Skore::Array<class Skore::UIElement *>'
+  Skore.UI.UIElement.AddEventListener: return type 'Skore::UIEventListener*'
+  Skore.UI.UIElement.RemoveEventListener: param 'listener' type 'Skore::UIEventListener*'
+  Skore.UI.UIEvent.GetType: return type 'Skore::BasicString<char,18>'
+  Skore.UI.UIEvent.GetParameterString: return type 'Skore::BasicString<char,18>'
+  Skore.UI.UIDataModelConstructor.BindFunc: param 'getCallback' type 'Skore::UIDataVariant *,void *)*'
+  Skore.UI.UIDataModelConstructor.BindEventCallback: param 'callback' type 'Skore::UIDataModel *,class Skore::UIEvent *,void *)*'
+  Skore.UI.UIDataModelConstructor.BindScalar: param 'get' type '*)*'
+  Skore.UI.UIDataModelConstructor.BindScalar: param 'get' type '*)*'
+  Skore.UI.UIDataModelConstructor.BindScalar: param 'get' type '*)*'
+  Skore.UI.UIDataModelConstructor.BindScalar: param 'get' type 'Skore::BasicString<char,18>(void *)*'
   Skore.UI.UIDocument: skipped field 'root' (type 'Skore::UIElementDocument')
   Skore.UI.UIDocument: skipped field 'document' (type 'Skore::TypedRID<struct Skore::UIDocumentResource>')
   Skore.Graphics.RenderPipelineModuleSetup: skipped field 'passes' (type 'Skore::Array<struct Skore::TypeID>')
@@ -279,6 +82,4 @@ Skipped members (unsupported signature):
   Skore.Graphics.FontResourceData: skipped field 'glyphs' (type 'Skore::Array<struct Skore::FontGlyph>')
   Skore.Graphics.FontResourceData: skipped field 'kernings' (type 'Skore::Array<struct Skore::FontKerning>')
   Skore.Graphics.FontResourceData: skipped field 'atlas' (type 'Skore::FontAtlasData')
-  Skore.Resources.UUID.FromString: param 'str' type 'Skore::BasicStringView<char>&'
-  Skore.Resources.UUID.ToString: instance method on value type (not generated)
-  Skore.Graphics.GPUSwapchain.GetTextures: return type 'Skore::Span<class Skore::GPUTexture *>'
+  Skore.Resources.UUID.ToString: return type 'Skore::BasicString<char,18>'

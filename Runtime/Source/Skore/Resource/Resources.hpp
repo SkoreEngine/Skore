@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <mutex>
+
 #include "ResourceCommon.hpp"
 #include "ResourceObject.hpp"
 #include "ResourceType.hpp"
@@ -9,6 +12,26 @@
 
 namespace Skore
 {
+	struct UndoRedoChange;
+
+	struct SK_API UndoRedoScope
+	{
+		String                                 name;
+		std::mutex                             mutex;
+		Array<std::unique_ptr<UndoRedoChange>> changes;
+
+		explicit UndoRedoScope(StringView name);
+		~UndoRedoScope();
+
+		void       PushChange(ResourceStorage* storage, ResourceInstance before, ResourceInstance after);
+		void       Undo();
+		void       Redo();
+		StringView GetName() const;
+		void       Destroy();
+
+		static UndoRedoScope* Create(StringView name = "");
+	};
+
 	class SK_API Resources
 	{
 	public:
@@ -87,13 +110,6 @@ namespace Skore
 		{
 			return Create(TypeInfo<T>::ID(), uuid, scope);
 		}
-
-		static UndoRedoScope* CreateScope(StringView name = "");
-		static void           DestroyScope(UndoRedoScope* scope);
-		static void           PushChange(UndoRedoScope* scope, ResourceStorage* storage, ResourceInstance before, ResourceInstance after);
-		static void           Undo(UndoRedoScope* scope);
-		static void           Redo(UndoRedoScope* scope);
-		static StringView     GetScopeName(UndoRedoScope* scope);
 
 		static void LoadResources(StringView filePath);
 		static void GarbageCollect();

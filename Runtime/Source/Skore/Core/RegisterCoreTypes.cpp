@@ -116,7 +116,7 @@ namespace Skore
 		aabb.Field<&AABB::max>("max");
 
 		Reflection::Type<Random>();
-		Reflection::Type<Color>();
+		Reflection::Type<Color>("Skore::Color");
 	}
 
 	void RegisterSettingsType();

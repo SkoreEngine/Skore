@@ -134,7 +134,7 @@ namespace Skore
 		{
 			if (Scene* scene = sceneEditor->GetCurrentScene())
 			{
-				RmlUI::SetInputTransform(scene->uiContext, Vec2{(f32)bb.x, (f32)bb.y}, screenScale);
+				if (scene->uiContext) scene->uiContext->SetInputTransform(Vec2{(f32)bb.x, (f32)bb.y}, screenScale);
 			}
 		}
 

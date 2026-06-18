@@ -805,12 +805,12 @@ namespace Skore
 		Array<ContextEntry*> contexts;
 		std::mutex           contextsMutex;
 
-		ContextEntry* GetContextEntry(UIContext context)
+		ContextEntry* GetContextEntry(UIContext* context)
 		{
-			return context.ToPtr<ContextEntry>();
+			return reinterpret_cast<ContextEntry*>(context);
 		}
 
-		Rml::Context* GetRmlContext(UIContext context)
+		Rml::Context* GetRmlContext(UIContext* context)
 		{
 			if (ContextEntry* entry = GetContextEntry(context))
 			{
@@ -819,7 +819,7 @@ namespace Skore
 			return nullptr;
 		}
 
-		bool IsContextVisible(UIContext context)
+		bool IsContextVisible(UIContext* context)
 		{
 			if (ContextEntry* entry = GetContextEntry(context))
 			{
@@ -828,11 +828,11 @@ namespace Skore
 			return false;
 		}
 
-		UIContext FindContextEntry(Rml::Context* context)
+		UIContext* FindContextEntry(Rml::Context* context)
 		{
 			if (!context)
 			{
-				return {};
+				return nullptr;
 			}
 
 			std::scoped_lock lock(contextsMutex);
@@ -840,17 +840,17 @@ namespace Skore
 			{
 				if (entry->context == context)
 				{
-					return UIContext(entry);
+					return reinterpret_cast<UIContext*>(entry);
 				}
 			}
 
-			return {};
+			return nullptr;
 		}
 
 		struct DocumentEntry
 		{
 			Rml::ElementDocument* document = nullptr;
-			UIContext             context = {};
+			UIContext*            context = nullptr;
 			RID                   resource = {};
 			Array<RID>            dependencies = {};
 			bool                  resourceSync = false;
@@ -859,12 +859,12 @@ namespace Skore
 
 		Array<DocumentEntry*> documents;
 
-		DocumentEntry* GetDocumentEntry(UIElementDocument document)
+		DocumentEntry* GetDocumentEntry(UIElementDocument* document)
 		{
-			return document.ToPtr<DocumentEntry>();
+			return reinterpret_cast<DocumentEntry*>(document);
 		}
 
-		Rml::ElementDocument* GetRmlDocument(UIElementDocument document)
+		Rml::ElementDocument* GetRmlDocument(UIElementDocument* document)
 		{
 			if (DocumentEntry* entry = GetDocumentEntry(document))
 			{
@@ -873,22 +873,22 @@ namespace Skore
 			return nullptr;
 		}
 
-		UIElementDocument FindDocumentEntry(Rml::ElementDocument* rmlDocument)
+		UIElementDocument* FindDocumentEntry(Rml::ElementDocument* rmlDocument)
 		{
 			if (!rmlDocument)
 			{
-				return {};
+				return nullptr;
 			}
 
 			for (DocumentEntry* entry : documents)
 			{
 				if (entry->document == rmlDocument)
 				{
-					return UIElementDocument(entry);
+					return reinterpret_cast<UIElementDocument*>(entry);
 				}
 			}
 
-			return {};
+			return nullptr;
 		}
 
 		void OnDocumentResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)
@@ -998,7 +998,7 @@ namespace Skore
 			}
 		}
 
-		void ProcessPendingReloads(UIContext context)
+		void ProcessPendingReloads(UIContext* context)
 		{
 			for (DocumentEntry* entry : documents)
 			{
@@ -1237,13 +1237,13 @@ namespace Skore
 	}
 
 
-	UIContext RmlUI::CreateContext(StringView name, Extent dimensions, bool enableResourceSync)
+	UIContext* UIContext::Create(StringView name, Extent dimensions, bool enableResourceSync)
 	{
 		Rml::Context* context = Rml::CreateContext(Rml::String(name.Data(), name.Size()),
 		                                           Rml::Vector2i(static_cast<int>(dimensions.width), static_cast<int>(dimensions.height)));
 		if (!context)
 		{
-			return {};
+			return nullptr;
 		}
 
 		ContextEntry* entry = Alloc<ContextEntry>();
@@ -1253,12 +1253,12 @@ namespace Skore
 			std::scoped_lock lock(contextsMutex);
 			contexts.EmplaceBack(entry);
 		}
-		return UIContext(entry);
+		return reinterpret_cast<UIContext*>(entry);
 	}
 
-	void RmlUI::RemoveContext(UIContext context)
+	void UIContext::Destroy()
 	{
-		ContextEntry* entry = GetContextEntry(context);
+		ContextEntry* entry = GetContextEntry(this);
 		if (!entry)
 		{
 			return;
@@ -1279,7 +1279,7 @@ namespace Skore
 		for (auto it = documents.begin(); it != documents.end();)
 		{
 			DocumentEntry* documentEntry = *it;
-			if (documentEntry->context == context)
+			if (documentEntry->context == this)
 			{
 				UnregisterDocumentEvents(documentEntry);
 				DestroyAndFree(documentEntry);
@@ -1299,88 +1299,97 @@ namespace Skore
 		DestroyAndFree(entry);
 	}
 
-	void RmlUI::SetDimensions(UIContext context, Extent dimensions)
+	void UIContext::SetDimensions(Extent dimensions)
 	{
-		if (Rml::Context* rmlContext = GetRmlContext(context))
+		if (Rml::Context* rmlContext = GetRmlContext(this))
 		{
 			rmlContext->SetDimensions(Rml::Vector2i(static_cast<int>(dimensions.width), static_cast<int>(dimensions.height)));
 		}
 	}
 
-	void RmlUI::SetDensityIndependentPixelRatio(UIContext context, f32 ratio)
+	void UIContext::SetDensityIndependentPixelRatio(f32 ratio)
 	{
-		if (Rml::Context* rmlContext = GetRmlContext(context))
+		if (Rml::Context* rmlContext = GetRmlContext(this))
 		{
 			rmlContext->SetDensityIndependentPixelRatio(ratio);
 		}
 	}
 
-	void RmlUI::SetInputTransform(UIContext context, Vec2 offset, f32 scale)
+	void UIContext::SetInputTransform(Vec2 offset, f32 scale)
 	{
-		if (ContextEntry* entry = GetContextEntry(context))
+		if (ContextEntry* entry = GetContextEntry(this))
 		{
 			entry->offset = offset;
 			entry->scale = scale;
 		}
 	}
 
-	void RmlUI::Update(UIContext context)
+	void UIContext::Update()
 	{
-		ProcessPendingReloads(context);
+		ProcessPendingReloads(this);
 
-		if (Rml::Context* rmlContext = GetRmlContext(context))
+		if (Rml::Context* rmlContext = GetRmlContext(this))
 		{
 			rmlContext->Update();
 		}
 	}
 
-	void RmlUI::Render(UIContext context)
+	void UIContext::Render()
 	{
-		if (Rml::Context* rmlContext = GetRmlContext(context))
+		if (Rml::Context* rmlContext = GetRmlContext(this))
 		{
 			rmlContext->Render();
 		}
 	}
 
-	void RmlUI::SetContextVisible(UIContext context, bool visible)
+	void UIContext::SetVisible(bool visible)
 	{
-		if (ContextEntry* entry = GetContextEntry(context))
+		if (ContextEntry* entry = GetContextEntry(this))
 		{
 			entry->visible = visible;
 		}
 	}
 
-	UIElementDocument RmlUI::LoadDocumentFromMemory(UIContext context, StringView content)
+	bool UIContext::IsVisible()
 	{
-		Rml::Context* rmlContext = GetRmlContext(context);
+		if (ContextEntry* entry = GetContextEntry(this))
+		{
+			return entry->visible;
+		}
+		return false;
+	}
+
+	UIElementDocument* UIContext::LoadDocumentFromMemory(StringView content)
+	{
+		Rml::Context* rmlContext = GetRmlContext(this);
 		if (!rmlContext)
 		{
-			return {};
+			return nullptr;
 		}
 
 		Rml::ElementDocument* element = rmlContext->LoadDocumentFromMemory(Rml::String(content.Data(), content.Size()));
 		if (!element)
 		{
-			return {};
+			return nullptr;
 		}
 
 		DocumentEntry* entry = Alloc<DocumentEntry>();
 		entry->document = element;
-		entry->context = context;
+		entry->context = this;
 		documents.EmplaceBack(entry);
-		return UIElementDocument(entry);
+		return reinterpret_cast<UIElementDocument*>(entry);
 	}
 
-	UIElementDocument RmlUI::LoadDocumentFromResource(UIContext context, RID document)
+	UIElementDocument* UIContext::LoadDocumentFromResource(RID document)
 	{
-		ContextEntry* contextEntry = GetContextEntry(context);
+		ContextEntry* contextEntry = GetContextEntry(this);
 		if (!contextEntry || !contextEntry->context || !document)
 		{
-			return {};
+			return nullptr;
 		}
 
 		DocumentEntry* entry = Alloc<DocumentEntry>();
-		entry->context = context;
+		entry->context = this;
 		entry->resource = document;
 		entry->resourceSync = contextEntry->resourceSync;
 
@@ -1388,15 +1397,15 @@ namespace Skore
 		if (!entry->document)
 		{
 			DestroyAndFree(entry);
-			return {};
+			return nullptr;
 		}
 
 		documents.EmplaceBack(entry);
 		RegisterDocumentEvents(entry);
-		return UIElementDocument(entry);
+		return reinterpret_cast<UIElementDocument*>(entry);
 	}
 
-	void RmlUI::UnloadDocument(UIContext context, UIElementDocument document)
+	void UIContext::UnloadDocument(UIElementDocument* document)
 	{
 		DocumentEntry* entry = GetDocumentEntry(document);
 		if (!entry)
@@ -1406,7 +1415,7 @@ namespace Skore
 
 		UnregisterDocumentEvents(entry);
 
-		if (Rml::Context* rmlContext = GetRmlContext(context); rmlContext && entry->document)
+		if (Rml::Context* rmlContext = GetRmlContext(this); rmlContext && entry->document)
 		{
 			rmlContext->UnloadDocument(entry->document);
 		}
@@ -1456,57 +1465,57 @@ namespace Skore
 		}
 	}
 
-	void RmlUI::ShowDocument(UIElementDocument document, UIModalFlag modalFlag, UIFocusFlag focusFlag, UIScrollFlag scrollFlag)
+	void UIElementDocument::Show(UIModalFlag modalFlag, UIFocusFlag focusFlag, UIScrollFlag scrollFlag)
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			element->Show(ToRmlModalFlag(modalFlag), ToRmlFocusFlag(focusFlag), ToRmlScrollFlag(scrollFlag));
 		}
 	}
 
-	void RmlUI::HideDocument(UIElementDocument document)
+	void UIElementDocument::Hide()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			element->Hide();
 		}
 	}
 
-	void RmlUI::CloseDocument(UIElementDocument document)
+	void UIElementDocument::Close()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			element->Close();
 		}
 	}
 
-	void RmlUI::PullDocumentToFront(UIElementDocument document)
+	void UIElementDocument::PullToFront()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			element->PullToFront();
 		}
 	}
 
-	void RmlUI::PushDocumentToBack(UIElementDocument document)
+	void UIElementDocument::PushToBack()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			element->PushToBack();
 		}
 	}
 
-	void RmlUI::SetDocumentTitle(UIElementDocument document, StringView title)
+	void UIElementDocument::SetTitle(StringView title)
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			element->SetTitle(Rml::String(title.Data(), title.Size()));
 		}
 	}
 
-	String RmlUI::GetDocumentTitle(UIElementDocument document)
+	String UIElementDocument::GetTitle()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			const Rml::String& title = element->GetTitle();
 			return String(title.c_str(), title.size());
@@ -1514,9 +1523,9 @@ namespace Skore
 		return {};
 	}
 
-	String RmlUI::GetDocumentSourceURL(UIElementDocument document)
+	String UIElementDocument::GetSourceURL()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			const Rml::String& url = element->GetSourceURL();
 			return String(url.c_str(), url.size());
@@ -1524,47 +1533,47 @@ namespace Skore
 		return {};
 	}
 
-	bool RmlUI::IsDocumentModal(UIElementDocument document)
+	bool UIElementDocument::IsModal()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			return element->IsModal();
 		}
 		return false;
 	}
 
-	void RmlUI::ReloadDocumentStyleSheet(UIElementDocument document)
+	void UIElementDocument::ReloadStyleSheet()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			element->ReloadStyleSheet();
 		}
 	}
 
-	void RmlUI::UpdateDocument(UIElementDocument document)
+	void UIElementDocument::Update()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			element->UpdateDocument();
 		}
 	}
 
-	UIContext RmlUI::GetDocumentContext(UIElementDocument document)
+	UIContext* UIElementDocument::GetContext()
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
 			return FindContextEntry(element->GetContext());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::FindNextTabElement(UIElementDocument document, UIElement currentElement, bool forward, bool wrapAround)
+	UIElement* UIElementDocument::FindNextTabElement(UIElement* currentElement, bool forward, bool wrapAround)
 	{
-		if (Rml::ElementDocument* element = GetRmlDocument(document))
+		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
-			return UIElement(element->FindNextTabElement(currentElement.ToPtr<Rml::Element>(), forward, wrapAround));
+			return reinterpret_cast<UIElement*>(element->FindNextTabElement(reinterpret_cast<Rml::Element*>(currentElement), forward, wrapAround));
 		}
-		return {};
+		return nullptr;
 	}
 
 	namespace
@@ -1579,490 +1588,490 @@ namespace Skore
 			return String(string.c_str(), string.size());
 		}
 
-		Array<UIElement> ToElementArray(const Rml::ElementList& list)
+		Array<UIElement*> ToElementArray(const Rml::ElementList& list)
 		{
-			Array<UIElement> result;
+			Array<UIElement*> result;
 			result.Reserve(list.size());
 			for (Rml::Element* element : list)
 			{
-				result.EmplaceBack(UIElement(element));
+				result.EmplaceBack(reinterpret_cast<UIElement*>(element));
 			}
 			return result;
 		}
 	}
 
-	UIElement RmlUI::CreateElement(UIElementDocument document, StringView name)
+	UIElement* UIElementDocument::CreateElement(StringView name)
 	{
-		if (Rml::ElementDocument* doc = GetRmlDocument(document))
+		if (Rml::ElementDocument* doc = GetRmlDocument(this))
 		{
-			return UIElement(doc->CreateElement(ToRmlString(name)).release());
+			return reinterpret_cast<UIElement*>(doc->CreateElement(ToRmlString(name)).release());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::CreateTextNode(UIElementDocument document, StringView text)
+	UIElement* UIElementDocument::CreateTextNode(StringView text)
 	{
-		if (Rml::ElementDocument* doc = GetRmlDocument(document))
+		if (Rml::ElementDocument* doc = GetRmlDocument(this))
 		{
-			return UIElement(doc->CreateTextNode(ToRmlString(text)).release());
+			return reinterpret_cast<UIElement*>(doc->CreateTextNode(ToRmlString(text)).release());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::CloneElement(UIElement element)
+	UIElement* UIElement::Clone()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->Clone().release());
+			return reinterpret_cast<UIElement*>(el->Clone().release());
 		}
-		return {};
+		return nullptr;
 	}
 
-	void RmlUI::DestroyElement(UIElement element)
+	void UIElement::Destroy()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			Rml::ElementPtr owned(el);
 		}
 	}
 
-	UIElement RmlUI::AppendChild(UIElement parent, UIElement child)
+	UIElement* UIElement::AppendChild(UIElement* child)
 	{
-		Rml::Element* parentElement = parent.ToPtr<Rml::Element>();
-		Rml::Element* childElement = child.ToPtr<Rml::Element>();
+		Rml::Element* parentElement = reinterpret_cast<Rml::Element*>(this);
+		Rml::Element* childElement = reinterpret_cast<Rml::Element*>(child);
 		if (parentElement && childElement)
 		{
-			return UIElement(parentElement->AppendChild(Rml::ElementPtr(childElement)));
+			return reinterpret_cast<UIElement*>(parentElement->AppendChild(Rml::ElementPtr(childElement)));
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::InsertBefore(UIElement parent, UIElement child, UIElement adjacentElement)
+	UIElement* UIElement::InsertBefore(UIElement* child, UIElement* adjacentElement)
 	{
-		Rml::Element* parentElement = parent.ToPtr<Rml::Element>();
-		Rml::Element* childElement = child.ToPtr<Rml::Element>();
+		Rml::Element* parentElement = reinterpret_cast<Rml::Element*>(this);
+		Rml::Element* childElement = reinterpret_cast<Rml::Element*>(child);
 		if (parentElement && childElement)
 		{
-			return UIElement(parentElement->InsertBefore(Rml::ElementPtr(childElement), adjacentElement.ToPtr<Rml::Element>()));
+			return reinterpret_cast<UIElement*>(parentElement->InsertBefore(Rml::ElementPtr(childElement), reinterpret_cast<Rml::Element*>(adjacentElement)));
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::RemoveChild(UIElement parent, UIElement child)
+	UIElement* UIElement::RemoveChild(UIElement* child)
 	{
-		Rml::Element* parentElement = parent.ToPtr<Rml::Element>();
-		Rml::Element* childElement = child.ToPtr<Rml::Element>();
+		Rml::Element* parentElement = reinterpret_cast<Rml::Element*>(this);
+		Rml::Element* childElement = reinterpret_cast<Rml::Element*>(child);
 		if (parentElement && childElement)
 		{
-			return UIElement(parentElement->RemoveChild(childElement).release());
+			return reinterpret_cast<UIElement*>(parentElement->RemoveChild(childElement).release());
 		}
-		return {};
+		return nullptr;
 	}
 
-	bool RmlUI::HasChildNodes(UIElement element)
+	bool UIElement::HasChildNodes()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->HasChildNodes();
 		}
 		return false;
 	}
 
-	void RmlUI::SetElementClass(UIElement element, StringView className, bool activate)
+	void UIElement::SetClass(StringView className, bool activate)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->SetClass(ToRmlString(className), activate);
 		}
 	}
 
-	bool RmlUI::IsElementClassSet(UIElement element, StringView className)
+	bool UIElement::IsClassSet(StringView className)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->IsClassSet(ToRmlString(className));
 		}
 		return false;
 	}
 
-	void RmlUI::SetElementClassNames(UIElement element, StringView classNames)
+	void UIElement::SetClassNames(StringView classNames)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->SetClassNames(ToRmlString(classNames));
 		}
 	}
 
-	String RmlUI::GetElementClassNames(UIElement element)
+	String UIElement::GetClassNames()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return FromRmlString(el->GetClassNames());
 		}
 		return {};
 	}
 
-	void RmlUI::SetElementPseudoClass(UIElement element, StringView pseudoClass, bool activate)
+	void UIElement::SetPseudoClass(StringView pseudoClass, bool activate)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->SetPseudoClass(ToRmlString(pseudoClass), activate);
 		}
 	}
 
-	bool RmlUI::IsElementPseudoClassSet(UIElement element, StringView pseudoClass)
+	bool UIElement::IsPseudoClassSet(StringView pseudoClass)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->IsPseudoClassSet(ToRmlString(pseudoClass));
 		}
 		return false;
 	}
 
-	bool RmlUI::SetElementProperty(UIElement element, StringView name, StringView value)
+	bool UIElement::SetProperty(StringView name, StringView value)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->SetProperty(ToRmlString(name), ToRmlString(value));
 		}
 		return false;
 	}
 
-	void RmlUI::RemoveElementProperty(UIElement element, StringView name)
+	void UIElement::RemoveProperty(StringView name)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->RemoveProperty(ToRmlString(name));
 		}
 	}
 
-	void RmlUI::SetElementAttribute(UIElement element, StringView name, StringView value)
+	void UIElement::SetAttribute(StringView name, StringView value)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->SetAttribute(ToRmlString(name), ToRmlString(value));
 		}
 	}
 
-	String RmlUI::GetElementAttribute(UIElement element, StringView name, StringView defaultValue)
+	String UIElement::GetAttribute(StringView name, StringView defaultValue)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return FromRmlString(el->GetAttribute<Rml::String>(ToRmlString(name), ToRmlString(defaultValue)));
 		}
 		return FromRmlString(ToRmlString(defaultValue));
 	}
 
-	bool RmlUI::HasElementAttribute(UIElement element, StringView name)
+	bool UIElement::HasAttribute(StringView name)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->HasAttribute(ToRmlString(name));
 		}
 		return false;
 	}
 
-	void RmlUI::RemoveElementAttribute(UIElement element, StringView name)
+	void UIElement::RemoveAttribute(StringView name)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->RemoveAttribute(ToRmlString(name));
 		}
 	}
 
-	String RmlUI::GetElementTagName(UIElement element)
+	String UIElement::GetTagName()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return FromRmlString(el->GetTagName());
 		}
 		return {};
 	}
 
-	String RmlUI::GetElementId(UIElement element)
+	String UIElement::GetId()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return FromRmlString(el->GetId());
 		}
 		return {};
 	}
 
-	void RmlUI::SetElementId(UIElement element, StringView id)
+	void UIElement::SetId(StringView id)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->SetId(ToRmlString(id));
 		}
 	}
 
-	String RmlUI::GetElementInnerRML(UIElement element)
+	String UIElement::GetInnerRML()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return FromRmlString(el->GetInnerRML());
 		}
 		return {};
 	}
 
-	void RmlUI::SetElementInnerRML(UIElement element, StringView rml)
+	void UIElement::SetInnerRML(StringView rml)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->SetInnerRML(ToRmlString(rml));
 		}
 	}
 
-	bool RmlUI::IsElementVisible(UIElement element, bool includeAncestors)
+	bool UIElement::IsVisible(bool includeAncestors)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->IsVisible(includeAncestors);
 		}
 		return false;
 	}
 
-	f32 RmlUI::GetElementAbsoluteLeft(UIElement element)
+	f32 UIElement::GetAbsoluteLeft()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetAbsoluteLeft();
 		}
 		return 0.0f;
 	}
 
-	f32 RmlUI::GetElementAbsoluteTop(UIElement element)
+	f32 UIElement::GetAbsoluteTop()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetAbsoluteTop();
 		}
 		return 0.0f;
 	}
 
-	f32 RmlUI::GetElementClientWidth(UIElement element)
+	f32 UIElement::GetClientWidth()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetClientWidth();
 		}
 		return 0.0f;
 	}
 
-	f32 RmlUI::GetElementClientHeight(UIElement element)
+	f32 UIElement::GetClientHeight()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetClientHeight();
 		}
 		return 0.0f;
 	}
 
-	f32 RmlUI::GetElementOffsetWidth(UIElement element)
+	f32 UIElement::GetOffsetWidth()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetOffsetWidth();
 		}
 		return 0.0f;
 	}
 
-	f32 RmlUI::GetElementOffsetHeight(UIElement element)
+	f32 UIElement::GetOffsetHeight()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetOffsetHeight();
 		}
 		return 0.0f;
 	}
 
-	f32 RmlUI::GetElementScrollLeft(UIElement element)
+	f32 UIElement::GetScrollLeft()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetScrollLeft();
 		}
 		return 0.0f;
 	}
 
-	void RmlUI::SetElementScrollLeft(UIElement element, f32 scrollLeft)
+	void UIElement::SetScrollLeft(f32 scrollLeft)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->SetScrollLeft(scrollLeft);
 		}
 	}
 
-	f32 RmlUI::GetElementScrollTop(UIElement element)
+	f32 UIElement::GetScrollTop()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetScrollTop();
 		}
 		return 0.0f;
 	}
 
-	void RmlUI::SetElementScrollTop(UIElement element, f32 scrollTop)
+	void UIElement::SetScrollTop(f32 scrollTop)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->SetScrollTop(scrollTop);
 		}
 	}
 
-	f32 RmlUI::GetElementScrollWidth(UIElement element)
+	f32 UIElement::GetScrollWidth()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetScrollWidth();
 		}
 		return 0.0f;
 	}
 
-	f32 RmlUI::GetElementScrollHeight(UIElement element)
+	f32 UIElement::GetScrollHeight()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetScrollHeight();
 		}
 		return 0.0f;
 	}
 
-	bool RmlUI::FocusElement(UIElement element, bool focusVisible)
+	bool UIElement::Focus(bool focusVisible)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->Focus(focusVisible);
 		}
 		return false;
 	}
 
-	void RmlUI::BlurElement(UIElement element)
+	void UIElement::Blur()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->Blur();
 		}
 	}
 
-	void RmlUI::ClickElement(UIElement element)
+	void UIElement::Click()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->Click();
 		}
 	}
 
-	void RmlUI::ScrollElementIntoView(UIElement element, bool alignWithTop)
+	void UIElement::ScrollIntoView(bool alignWithTop)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			el->ScrollIntoView(alignWithTop);
 		}
 	}
 
-	UIElement RmlUI::GetElementParentNode(UIElement element)
+	UIElement* UIElement::GetParentNode()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->GetParentNode());
+			return reinterpret_cast<UIElement*>(el->GetParentNode());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::GetElementNextSibling(UIElement element)
+	UIElement* UIElement::GetNextSibling()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->GetNextSibling());
+			return reinterpret_cast<UIElement*>(el->GetNextSibling());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::GetElementPreviousSibling(UIElement element)
+	UIElement* UIElement::GetPreviousSibling()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->GetPreviousSibling());
+			return reinterpret_cast<UIElement*>(el->GetPreviousSibling());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::GetElementFirstChild(UIElement element)
+	UIElement* UIElement::GetFirstChild()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->GetFirstChild());
+			return reinterpret_cast<UIElement*>(el->GetFirstChild());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::GetElementLastChild(UIElement element)
+	UIElement* UIElement::GetLastChild()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->GetLastChild());
+			return reinterpret_cast<UIElement*>(el->GetLastChild());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::GetElementChild(UIElement element, i32 index)
+	UIElement* UIElement::GetChild(i32 index)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->GetChild(index));
+			return reinterpret_cast<UIElement*>(el->GetChild(index));
 		}
-		return {};
+		return nullptr;
 	}
 
-	i32 RmlUI::GetElementNumChildren(UIElement element)
+	i32 UIElement::GetNumChildren()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->GetNumChildren();
 		}
 		return 0;
 	}
 
-	UIElementDocument RmlUI::GetElementOwnerDocument(UIElement element)
+	UIElementDocument* UIElement::GetOwnerDocument()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return FindDocumentEntry(el->GetOwnerDocument());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIContext RmlUI::GetElementContext(UIElement element)
+	UIContext* UIElement::GetContext()
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return FindContextEntry(el->GetContext());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::GetElementById(UIElement element, StringView id)
+	UIElement* UIElement::GetElementById(StringView id)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->GetElementById(ToRmlString(id)));
+			return reinterpret_cast<UIElement*>(el->GetElementById(ToRmlString(id)));
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::QuerySelector(UIElement element, StringView selector)
+	UIElement* UIElement::QuerySelector(StringView selector)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->QuerySelector(ToRmlString(selector)));
+			return reinterpret_cast<UIElement*>(el->QuerySelector(ToRmlString(selector)));
 		}
-		return {};
+		return nullptr;
 	}
 
-	Array<UIElement> RmlUI::QuerySelectorAll(UIElement element, StringView selector)
+	Array<UIElement*> UIElement::QuerySelectorAll(StringView selector)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			Rml::ElementList list;
 			el->QuerySelectorAll(list, ToRmlString(selector));
@@ -2071,9 +2080,9 @@ namespace Skore
 		return {};
 	}
 
-	Array<UIElement> RmlUI::GetElementsByTagName(UIElement element, StringView tag)
+	Array<UIElement*> UIElement::GetElementsByTagName(StringView tag)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			Rml::ElementList list;
 			el->GetElementsByTagName(list, ToRmlString(tag));
@@ -2082,9 +2091,9 @@ namespace Skore
 		return {};
 	}
 
-	Array<UIElement> RmlUI::GetElementsByClassName(UIElement element, StringView className)
+	Array<UIElement*> UIElement::GetElementsByClassName(StringView className)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			Rml::ElementList list;
 			el->GetElementsByClassName(list, ToRmlString(className));
@@ -2093,29 +2102,29 @@ namespace Skore
 		return {};
 	}
 
-	UIElement RmlUI::Closest(UIElement element, StringView selectors)
+	UIElement* UIElement::Closest(StringView selectors)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return UIElement(el->Closest(ToRmlString(selectors)));
+			return reinterpret_cast<UIElement*>(el->Closest(ToRmlString(selectors)));
 		}
-		return {};
+		return nullptr;
 	}
 
-	bool RmlUI::ElementMatches(UIElement element, StringView selector)
+	bool UIElement::Matches(StringView selector)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->Matches(ToRmlString(selector));
 		}
 		return false;
 	}
 
-	bool RmlUI::ElementContains(UIElement element, UIElement other)
+	bool UIElement::Contains(UIElement* other)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
-			return el->Contains(other.ToPtr<Rml::Element>());
+			return el->Contains(reinterpret_cast<Rml::Element*>(other));
 		}
 		return false;
 	}
@@ -2132,11 +2141,11 @@ namespace Skore
 			{
 				if (func)
 				{
-					func(UIEvent(&event));
+					func(reinterpret_cast<UIEvent*>(&event));
 				}
 				else if (callback)
 				{
-					callback(UIEvent(&event), userData);
+					callback(reinterpret_cast<UIEvent*>(&event), userData);
 				}
 			}
 
@@ -2152,121 +2161,121 @@ namespace Skore
 		};
 	}
 
-	UIEventListener RmlUI::AddEventListener(UIElement element, StringView event, FnUIEventCallback callback, VoidPtr userData, bool inCapturePhase)
+	UIEventListener* UIElement::AddEventListener(StringView event, FnUIEventCallback callback, VoidPtr userData, bool inCapturePhase)
 	{
-		Rml::Element* el = element.ToPtr<Rml::Element>();
+		Rml::Element* el = reinterpret_cast<Rml::Element*>(this);
 		if (!el || !callback)
 		{
-			return {};
+			return nullptr;
 		}
 		EventListenerSkore* listener = Alloc<EventListenerSkore>(callback, userData);
 		el->AddEventListener(ToRmlString(event), listener, inCapturePhase);
-		return UIEventListener(listener);
+		return reinterpret_cast<UIEventListener*>(listener);
 	}
 
-	UIEventListener RmlUI::AddEventListener(UIElement element, StringView event, FnUIEvent callback, bool inCapturePhase)
+	UIEventListener* UIElement::AddEventListener(StringView event, FnUIEvent callback, bool inCapturePhase)
 	{
-		Rml::Element* el = element.ToPtr<Rml::Element>();
+		Rml::Element* el = reinterpret_cast<Rml::Element*>(this);
 		if (!el || !callback)
 		{
-			return {};
+			return nullptr;
 		}
 		EventListenerSkore* listener = Alloc<EventListenerSkore>(std::move(callback));
 		el->AddEventListener(ToRmlString(event), listener, inCapturePhase);
-		return UIEventListener(listener);
+		return reinterpret_cast<UIEventListener*>(listener);
 	}
 
-	void RmlUI::RemoveEventListener(UIElement element, StringView event, UIEventListener listener, bool inCapturePhase)
+	void UIElement::RemoveEventListener(StringView event, UIEventListener* listener, bool inCapturePhase)
 	{
-		Rml::Element* el = element.ToPtr<Rml::Element>();
+		Rml::Element* el = reinterpret_cast<Rml::Element*>(this);
 		if (el && listener)
 		{
-			el->RemoveEventListener(ToRmlString(event), listener.ToPtr<Rml::EventListener>(), inCapturePhase);
+			el->RemoveEventListener(ToRmlString(event), reinterpret_cast<Rml::EventListener*>(listener), inCapturePhase);
 		}
 	}
 
-	bool RmlUI::DispatchEvent(UIElement element, StringView type)
+	bool UIElement::DispatchEvent(StringView type)
 	{
-		if (Rml::Element* el = element.ToPtr<Rml::Element>())
+		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
 			return el->DispatchEvent(ToRmlString(type), Rml::Dictionary());
 		}
 		return false;
 	}
 
-	String RmlUI::GetEventType(UIEvent event)
+	String UIEvent::GetType()
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			return FromRmlString(ev->GetType());
 		}
 		return {};
 	}
 
-	UIElement RmlUI::GetEventTargetElement(UIEvent event)
+	UIElement* UIEvent::GetTargetElement()
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
-			return UIElement(ev->GetTargetElement());
+			return reinterpret_cast<UIElement*>(ev->GetTargetElement());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIElement RmlUI::GetEventCurrentElement(UIEvent event)
+	UIElement* UIEvent::GetCurrentElement()
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
-			return UIElement(ev->GetCurrentElement());
+			return reinterpret_cast<UIElement*>(ev->GetCurrentElement());
 		}
-		return {};
+		return nullptr;
 	}
 
-	UIEventPhase RmlUI::GetEventPhase(UIEvent event)
+	UIEventPhase UIEvent::GetPhase()
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			return static_cast<UIEventPhase>(ev->GetPhase());
 		}
 		return UIEventPhase::None;
 	}
 
-	bool RmlUI::IsEventInterruptible(UIEvent event)
+	bool UIEvent::IsInterruptible()
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			return ev->IsInterruptible();
 		}
 		return false;
 	}
 
-	bool RmlUI::IsEventPropagating(UIEvent event)
+	bool UIEvent::IsPropagating()
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			return ev->IsPropagating();
 		}
 		return false;
 	}
 
-	void RmlUI::StopEventPropagation(UIEvent event)
+	void UIEvent::StopPropagation()
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			ev->StopPropagation();
 		}
 	}
 
-	void RmlUI::StopEventImmediatePropagation(UIEvent event)
+	void UIEvent::StopImmediatePropagation()
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			ev->StopImmediatePropagation();
 		}
 	}
 
-	Vec2 RmlUI::GetEventUnprojectedMouseScreenPos(UIEvent event)
+	Vec2 UIEvent::GetUnprojectedMouseScreenPos()
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			Rml::Vector2f pos = ev->GetUnprojectedMouseScreenPos();
 			return Vec2(pos.x, pos.y);
@@ -2274,36 +2283,36 @@ namespace Skore
 		return Vec2(0.0f, 0.0f);
 	}
 
-	String RmlUI::GetEventParameterString(UIEvent event, StringView key, StringView defaultValue)
+	String UIEvent::GetParameterString(StringView key, StringView defaultValue)
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			return FromRmlString(ev->GetParameter<Rml::String>(ToRmlString(key), ToRmlString(defaultValue)));
 		}
 		return FromRmlString(ToRmlString(defaultValue));
 	}
 
-	f32 RmlUI::GetEventParameterFloat(UIEvent event, StringView key, f32 defaultValue)
+	f32 UIEvent::GetParameterFloat(StringView key, f32 defaultValue)
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			return ev->GetParameter<float>(ToRmlString(key), defaultValue);
 		}
 		return defaultValue;
 	}
 
-	i32 RmlUI::GetEventParameterInt(UIEvent event, StringView key, i32 defaultValue)
+	i32 UIEvent::GetParameterInt(StringView key, i32 defaultValue)
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			return ev->GetParameter<int>(ToRmlString(key), defaultValue);
 		}
 		return defaultValue;
 	}
 
-	bool RmlUI::GetEventParameterBool(UIEvent event, StringView key, bool defaultValue)
+	bool UIEvent::GetParameterBool(StringView key, bool defaultValue)
 	{
-		if (Rml::Event* ev = event.ToPtr<Rml::Event>())
+		if (Rml::Event* ev = reinterpret_cast<Rml::Event*>(this))
 		{
 			return ev->GetParameter<bool>(ToRmlString(key), defaultValue);
 		}
@@ -2326,143 +2335,143 @@ namespace Skore
 		}
 	}
 
-	UIDataModelConstructor RmlUI::CreateDataModel(UIContext context, StringView name)
+	UIDataModelConstructor* UIContext::CreateDataModel(StringView name)
 	{
-		Rml::Context* rmlContext = GetRmlContext(context);
-		if (!rmlContext) return {};
+		Rml::Context* rmlContext = GetRmlContext(this);
+		if (!rmlContext) return nullptr;
 		Rml::DataModelConstructor constructor = rmlContext->CreateDataModel(ToRmlString(name));
-		if (!constructor) return {};
+		if (!constructor) return nullptr;
 		UIDataModelConstructorEntry* entry = Alloc<UIDataModelConstructorEntry>();
 		entry->constructor = std::move(constructor);
-		return UIDataModelConstructor(entry);
+		return reinterpret_cast<UIDataModelConstructor*>(entry);
 	}
 
-	UIDataModelConstructor RmlUI::GetDataModel(UIContext context, StringView name)
+	UIDataModelConstructor* UIContext::GetDataModel(StringView name)
 	{
-		Rml::Context* rmlContext = GetRmlContext(context);
-		if (!rmlContext) return {};
+		Rml::Context* rmlContext = GetRmlContext(this);
+		if (!rmlContext) return nullptr;
 		Rml::DataModelConstructor constructor = rmlContext->GetDataModel(ToRmlString(name));
-		if (!constructor) return {};
+		if (!constructor) return nullptr;
 		UIDataModelConstructorEntry* entry = Alloc<UIDataModelConstructorEntry>();
 		entry->constructor = std::move(constructor);
-		return UIDataModelConstructor(entry);
+		return reinterpret_cast<UIDataModelConstructor*>(entry);
 	}
 
-	bool RmlUI::RemoveDataModel(UIContext context, StringView name)
+	bool UIContext::RemoveDataModel(StringView name)
 	{
-		if (Rml::Context* rmlContext = GetRmlContext(context))
+		if (Rml::Context* rmlContext = GetRmlContext(this))
 		{
 			return rmlContext->RemoveDataModel(ToRmlString(name));
 		}
 		return false;
 	}
 
-	void RmlUI::DestroyDataModelConstructor(UIDataModelConstructor constructor)
+	void UIDataModelConstructor::Destroy()
 	{
-		if (auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>())
+		if (auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this))
 		{
 			DestroyAndFree(entry);
 		}
 	}
 
-	UIDataModel RmlUI::GetModelHandle(UIDataModelConstructor constructor)
+	UIDataModel* UIDataModelConstructor::GetModelHandle()
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
-		if (!entry) return {};
-		return UIDataModel(ExtractDataModelPtr(entry->constructor.GetModelHandle()));
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
+		if (!entry) return nullptr;
+		return reinterpret_cast<UIDataModel*>(ExtractDataModelPtr(entry->constructor.GetModelHandle()));
 	}
 
-	bool RmlUI::BindFunc(UIDataModelConstructor constructor, StringView name,
-	                     FnUIDataGetCallback getCallback, VoidPtr getCallbackData,
-	                     FnUIDataSetCallback setCallback, VoidPtr setCallbackData)
+	bool UIDataModelConstructor::BindFunc(StringView name,
+	                                      FnUIDataGetCallback getCallback, VoidPtr getCallbackData,
+	                                      FnUIDataSetCallback setCallback, VoidPtr setCallbackData)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !getCallback) return false;
 
 		Rml::DataGetFunc rmlGet = [getCallback, getCallbackData](Rml::Variant& v) {
-			getCallback(UIDataVariant(&v), getCallbackData);
+			getCallback(reinterpret_cast<UIDataVariant*>(&v), getCallbackData);
 		};
 
 		Rml::DataSetFunc rmlSet = {};
 		if (setCallback)
 		{
 			rmlSet = [setCallback, setCallbackData](const Rml::Variant& v) {
-				setCallback(UIDataVariant(const_cast<Rml::Variant*>(&v)), setCallbackData);
+				setCallback(reinterpret_cast<UIDataVariant*>(const_cast<Rml::Variant*>(&v)), setCallbackData);
 			};
 		}
 
 		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
 	}
 
-	bool RmlUI::BindFunc(UIDataModelConstructor constructor, StringView name, FnUIDataGet getCallback, FnUIDataSet setCallback)
+	bool UIDataModelConstructor::BindFunc(StringView name, FnUIDataGet getCallback, FnUIDataSet setCallback)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !getCallback) return false;
 
 		Rml::DataGetFunc rmlGet = [getCallback = std::move(getCallback)](Rml::Variant& v) {
-			getCallback(UIDataVariant(&v));
+			getCallback(reinterpret_cast<UIDataVariant*>(&v));
 		};
 
 		Rml::DataSetFunc rmlSet = {};
 		if (setCallback)
 		{
 			rmlSet = [setCallback = std::move(setCallback)](const Rml::Variant& v) {
-				setCallback(UIDataVariant(const_cast<Rml::Variant*>(&v)));
+				setCallback(reinterpret_cast<UIDataVariant*>(const_cast<Rml::Variant*>(&v)));
 			};
 		}
 
 		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
 	}
 
-	bool RmlUI::BindEventCallback(UIDataModelConstructor constructor, StringView name,
-	                              FnUIDataEventCallback callback, VoidPtr userData)
+	bool UIDataModelConstructor::BindEventCallback(StringView name,
+	                                               FnUIDataEventCallback callback, VoidPtr userData)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !callback) return false;
 
 		return entry->constructor.BindEventCallback(ToRmlString(name),
 			[callback, userData](Rml::DataModelHandle handle, Rml::Event& event, const Rml::VariantList&) {
-				callback(UIDataModel(ExtractDataModelPtr(handle)), UIEvent(&event), userData);
+				callback(reinterpret_cast<UIDataModel*>(ExtractDataModelPtr(handle)), reinterpret_cast<UIEvent*>(&event), userData);
 			});
 	}
 
-	bool RmlUI::BindEventCallback(UIDataModelConstructor constructor, StringView name, FnUIDataEvent callback)
+	bool UIDataModelConstructor::BindEventCallback(StringView name, FnUIDataEvent callback)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !callback) return false;
 
 		return entry->constructor.BindEventCallback(ToRmlString(name),
 			[callback = std::move(callback)](Rml::DataModelHandle handle, Rml::Event& event, const Rml::VariantList&) {
-				callback(UIDataModel(ExtractDataModelPtr(handle)), UIEvent(&event));
+				callback(reinterpret_cast<UIDataModel*>(ExtractDataModelPtr(handle)), reinterpret_cast<UIEvent*>(&event));
 			});
 	}
 
-	bool RmlUI::BindVariable(UIDataModelConstructor constructor, StringView name, f32* ptr)
+	bool UIDataModelConstructor::BindVariable(StringView name, f32* ptr)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !ptr) return false;
 		return entry->constructor.Bind(ToRmlString(name), ptr);
 	}
 
-	bool RmlUI::BindVariable(UIDataModelConstructor constructor, StringView name, i32* ptr)
+	bool UIDataModelConstructor::BindVariable(StringView name, i32* ptr)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !ptr) return false;
 		return entry->constructor.Bind(ToRmlString(name), ptr);
 	}
 
-	bool RmlUI::BindVariable(UIDataModelConstructor constructor, StringView name, bool* ptr)
+	bool UIDataModelConstructor::BindVariable(StringView name, bool* ptr)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !ptr) return false;
 		return entry->constructor.Bind(ToRmlString(name), ptr);
 	}
 
-	bool RmlUI::BindScalar(UIDataModelConstructor constructor, StringView name,
-	                       f32 (*get)(VoidPtr), VoidPtr getData,
-	                       void (*set)(f32, VoidPtr), VoidPtr setData)
+	bool UIDataModelConstructor::BindScalar(StringView name,
+	                                        f32 (*get)(VoidPtr), VoidPtr getData,
+	                                        void (*set)(f32, VoidPtr), VoidPtr setData)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !get) return false;
 
 		Rml::DataGetFunc rmlGet = [get, getData](Rml::Variant& v) {
@@ -2477,11 +2486,11 @@ namespace Skore
 		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
 	}
 
-	bool RmlUI::BindScalar(UIDataModelConstructor constructor, StringView name,
-	                       i32 (*get)(VoidPtr), VoidPtr getData,
-	                       void (*set)(i32, VoidPtr), VoidPtr setData)
+	bool UIDataModelConstructor::BindScalar(StringView name,
+	                                        i32 (*get)(VoidPtr), VoidPtr getData,
+	                                        void (*set)(i32, VoidPtr), VoidPtr setData)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !get) return false;
 
 		Rml::DataGetFunc rmlGet = [get, getData](Rml::Variant& v) {
@@ -2496,11 +2505,11 @@ namespace Skore
 		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
 	}
 
-	bool RmlUI::BindScalar(UIDataModelConstructor constructor, StringView name,
-	                       bool (*get)(VoidPtr), VoidPtr getData,
-	                       void (*set)(bool, VoidPtr), VoidPtr setData)
+	bool UIDataModelConstructor::BindScalar(StringView name,
+	                                        bool (*get)(VoidPtr), VoidPtr getData,
+	                                        void (*set)(bool, VoidPtr), VoidPtr setData)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !get) return false;
 
 		Rml::DataGetFunc rmlGet = [get, getData](Rml::Variant& v) {
@@ -2515,11 +2524,11 @@ namespace Skore
 		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
 	}
 
-	bool RmlUI::BindScalar(UIDataModelConstructor constructor, StringView name,
-	                       String (*get)(VoidPtr), VoidPtr getData,
-	                       void (*set)(StringView, VoidPtr), VoidPtr setData)
+	bool UIDataModelConstructor::BindScalar(StringView name,
+	                                        String (*get)(VoidPtr), VoidPtr getData,
+	                                        void (*set)(StringView, VoidPtr), VoidPtr setData)
 	{
-		auto* entry = constructor.ToPtr<UIDataModelConstructorEntry>();
+		auto* entry = reinterpret_cast<UIDataModelConstructorEntry*>(this);
 		if (!entry || !get) return false;
 
 		Rml::DataGetFunc rmlGet = [get, getData](Rml::Variant& v) {
@@ -2536,70 +2545,81 @@ namespace Skore
 		return entry->constructor.BindFunc(ToRmlString(name), std::move(rmlGet), std::move(rmlSet));
 	}
 
-	bool RmlUI::IsVariableDirty(UIDataModel model, StringView variableName)
+	bool UIDataModel::IsVariableDirty(StringView variableName)
 	{
+		Rml::DataModel* model = reinterpret_cast<Rml::DataModel*>(this);
 		if (!model) return false;
-		return Rml::DataModelHandle(model.ToPtr<Rml::DataModel>()).IsVariableDirty(ToRmlString(variableName));
+		return Rml::DataModelHandle(model).IsVariableDirty(ToRmlString(variableName));
 	}
 
-	void RmlUI::DirtyVariable(UIDataModel model, StringView variableName)
+	void UIDataModel::DirtyVariable(StringView variableName)
 	{
+		Rml::DataModel* model = reinterpret_cast<Rml::DataModel*>(this);
 		if (!model) return;
-		Rml::DataModelHandle(model.ToPtr<Rml::DataModel>()).DirtyVariable(ToRmlString(variableName));
+		Rml::DataModelHandle(model).DirtyVariable(ToRmlString(variableName));
 	}
 
-	void RmlUI::DirtyAllVariables(UIDataModel model)
+	void UIDataModel::DirtyAllVariables()
 	{
+		Rml::DataModel* model = reinterpret_cast<Rml::DataModel*>(this);
 		if (!model) return;
-		Rml::DataModelHandle(model.ToPtr<Rml::DataModel>()).DirtyAllVariables();
+		Rml::DataModelHandle(model).DirtyAllVariables();
 	}
 
-	String RmlUI::GetVariantString(UIDataVariant variant, StringView defaultValue)
+	String UIDataVariant::GetString(StringView defaultValue)
 	{
+		Rml::Variant* variant = reinterpret_cast<Rml::Variant*>(this);
 		if (!variant) return String(defaultValue);
-		return FromRmlString(variant.ToPtr<Rml::Variant>()->Get<Rml::String>(ToRmlString(defaultValue)));
+		return FromRmlString(variant->Get<Rml::String>(ToRmlString(defaultValue)));
 	}
 
-	void RmlUI::SetVariantString(UIDataVariant variant, StringView value)
+	void UIDataVariant::SetString(StringView value)
 	{
+		Rml::Variant* variant = reinterpret_cast<Rml::Variant*>(this);
 		if (!variant) return;
-		*variant.ToPtr<Rml::Variant>() = ToRmlString(value);
+		*variant = ToRmlString(value);
 	}
 
-	f32 RmlUI::GetVariantFloat(UIDataVariant variant, f32 defaultValue)
+	f32 UIDataVariant::GetFloat(f32 defaultValue)
 	{
+		Rml::Variant* variant = reinterpret_cast<Rml::Variant*>(this);
 		if (!variant) return defaultValue;
-		return variant.ToPtr<Rml::Variant>()->Get<float>(defaultValue);
+		return variant->Get<float>(defaultValue);
 	}
 
-	void RmlUI::SetVariantFloat(UIDataVariant variant, f32 value)
+	void UIDataVariant::SetFloat(f32 value)
 	{
+		Rml::Variant* variant = reinterpret_cast<Rml::Variant*>(this);
 		if (!variant) return;
-		*variant.ToPtr<Rml::Variant>() = static_cast<float>(value);
+		*variant = static_cast<float>(value);
 	}
 
-	i32 RmlUI::GetVariantInt(UIDataVariant variant, i32 defaultValue)
+	i32 UIDataVariant::GetInt(i32 defaultValue)
 	{
+		Rml::Variant* variant = reinterpret_cast<Rml::Variant*>(this);
 		if (!variant) return defaultValue;
-		return variant.ToPtr<Rml::Variant>()->Get<int>(defaultValue);
+		return variant->Get<int>(defaultValue);
 	}
 
-	void RmlUI::SetVariantInt(UIDataVariant variant, i32 value)
+	void UIDataVariant::SetInt(i32 value)
 	{
+		Rml::Variant* variant = reinterpret_cast<Rml::Variant*>(this);
 		if (!variant) return;
-		*variant.ToPtr<Rml::Variant>() = static_cast<int>(value);
+		*variant = static_cast<int>(value);
 	}
 
-	bool RmlUI::GetVariantBool(UIDataVariant variant, bool defaultValue)
+	bool UIDataVariant::GetBool(bool defaultValue)
 	{
+		Rml::Variant* variant = reinterpret_cast<Rml::Variant*>(this);
 		if (!variant) return defaultValue;
-		return variant.ToPtr<Rml::Variant>()->Get<bool>(defaultValue);
+		return variant->Get<bool>(defaultValue);
 	}
 
-	void RmlUI::SetVariantBool(UIDataVariant variant, bool value)
+	void UIDataVariant::SetBool(bool value)
 	{
+		Rml::Variant* variant = reinterpret_cast<Rml::Variant*>(this);
 		if (!variant) return;
-		*variant.ToPtr<Rml::Variant>() = value;
+		*variant = value;
 	}
 
 	void RmlUIInit()
@@ -2703,12 +2723,12 @@ namespace Skore
 				return;
 			}
 
-			RmlUI::SetDimensions(scene->uiContext, context->GetOutputSize());
-			RmlUI::SetDensityIndependentPixelRatio(scene->uiContext, Platform::GetWindowDPI(Graphics::GetWindow()));
-			RmlUI::Update(scene->uiContext);
+			scene->uiContext->SetDimensions(context->GetOutputSize());
+			scene->uiContext->SetDensityIndependentPixelRatio(Platform::GetWindowDPI(Graphics::GetWindow()));
+			scene->uiContext->Update();
 
 			renderInterface->BeginFrame(cmd, renderPass, context->GetOutputSize());
-			RmlUI::Render(scene->uiContext);
+			scene->uiContext->Render();
 			renderInterface->EndFrame();
 		}
 	};

@@ -28,153 +28,146 @@ namespace Skore
 		scrollFlagEnum.Value<UIScrollFlag::None>("None");
 		scrollFlagEnum.Value<UIScrollFlag::Auto>("Auto");
 
-		auto type = Reflection::Type<RmlUI>();
+		auto uiContext = Reflection::Type<UIContext>();
+		uiContext.Function<&UIContext::Create>("Create", "name", "dimensions", "enableResourceSync");
+		uiContext.Function<&UIContext::Destroy>("Destroy");
+		uiContext.Function<&UIContext::SetDimensions>("SetDimensions", "dimensions");
+		uiContext.Function<&UIContext::SetDensityIndependentPixelRatio>("SetDensityIndependentPixelRatio", "ratio");
+		uiContext.Function<&UIContext::SetInputTransform>("SetInputTransform", "offset", "scale");
+		uiContext.Function<&UIContext::Update>("Update");
+		uiContext.Function<&UIContext::Render>("Render");
+		uiContext.Function<&UIContext::SetVisible>("SetVisible", "visible");
+		uiContext.Function<&UIContext::IsVisible>("IsVisible");
+		uiContext.Function<&UIContext::LoadDocumentFromMemory>("LoadDocumentFromMemory", "content");
+		uiContext.Function<&UIContext::LoadDocumentFromResource>("LoadDocumentFromResource", "document");
+		uiContext.Function<&UIContext::UnloadDocument>("UnloadDocument", "document");
+		uiContext.Function<&UIContext::CreateDataModel>("CreateDataModel", "name");
+		uiContext.Function<&UIContext::GetDataModel>("GetDataModel", "name");
+		uiContext.Function<&UIContext::RemoveDataModel>("RemoveDataModel", "name");
 
-		type.Function<&RmlUI::CreateContext>("CreateContext", "name", "dimensions", "enableResourceSync");
-		type.Function<&RmlUI::RemoveContext>("RemoveContext", "context");
-		type.Function<&RmlUI::SetDimensions>("SetDimensions", "context", "dimensions");
-		type.Function<&RmlUI::SetDensityIndependentPixelRatio>("SetDensityIndependentPixelRatio", "context", "ratio");
-		type.Function<&RmlUI::SetInputTransform>("SetInputTransform", "context", "offset", "scale");
-		type.Function<&RmlUI::Update>("Update", "context");
-		type.Function<&RmlUI::Render>("Render", "context");
-		type.Function<&RmlUI::SetContextVisible>("SetContextVisible", "context", "visible");
+		auto uiElementDocument = Reflection::Type<UIElementDocument>();
+		uiElementDocument.Function<&UIElementDocument::Show>("Show", "modalFlag", "focusFlag", "scrollFlag");
+		uiElementDocument.Function<&UIElementDocument::Hide>("Hide");
+		uiElementDocument.Function<&UIElementDocument::Close>("Close");
+		uiElementDocument.Function<&UIElementDocument::PullToFront>("PullToFront");
+		uiElementDocument.Function<&UIElementDocument::PushToBack>("PushToBack");
+		uiElementDocument.Function<&UIElementDocument::SetTitle>("SetTitle", "title");
+		uiElementDocument.Function<&UIElementDocument::GetTitle>("GetTitle");
+		uiElementDocument.Function<&UIElementDocument::GetSourceURL>("GetSourceURL");
+		uiElementDocument.Function<&UIElementDocument::IsModal>("IsModal");
+		uiElementDocument.Function<&UIElementDocument::ReloadStyleSheet>("ReloadStyleSheet");
+		uiElementDocument.Function<&UIElementDocument::Update>("Update");
+		uiElementDocument.Function<&UIElementDocument::GetContext>("GetContext");
+		uiElementDocument.Function<&UIElementDocument::FindNextTabElement>("FindNextTabElement", "currentElement", "forward", "wrapAround");
+		uiElementDocument.Function<&UIElementDocument::CreateElement>("CreateElement", "name");
+		uiElementDocument.Function<&UIElementDocument::CreateTextNode>("CreateTextNode", "text");
 
-		type.Function<&RmlUI::LoadDocumentFromMemory>("LoadDocumentFromMemory", "context", "content");
-		type.Function<&RmlUI::UnloadDocument>("UnloadDocument", "context", "document");
+		auto uiElement = Reflection::Type<UIElement>();
+		uiElement.Function<&UIElement::Clone>("Clone");
+		uiElement.Function<&UIElement::Destroy>("Destroy");
+		uiElement.Function<&UIElement::AppendChild>("AppendChild", "child");
+		uiElement.Function<&UIElement::InsertBefore>("InsertBefore", "child", "adjacentElement");
+		uiElement.Function<&UIElement::RemoveChild>("RemoveChild", "child");
+		uiElement.Function<&UIElement::HasChildNodes>("HasChildNodes");
+		uiElement.Function<&UIElement::SetClass>("SetClass", "className", "activate");
+		uiElement.Function<&UIElement::IsClassSet>("IsClassSet", "className");
+		uiElement.Function<&UIElement::SetClassNames>("SetClassNames", "classNames");
+		uiElement.Function<&UIElement::GetClassNames>("GetClassNames");
+		uiElement.Function<&UIElement::SetPseudoClass>("SetPseudoClass", "pseudoClass", "activate");
+		uiElement.Function<&UIElement::IsPseudoClassSet>("IsPseudoClassSet", "pseudoClass");
+		uiElement.Function<&UIElement::SetProperty>("SetProperty", "name", "value");
+		uiElement.Function<&UIElement::RemoveProperty>("RemoveProperty", "name");
+		uiElement.Function<&UIElement::SetAttribute>("SetAttribute", "name", "value");
+		uiElement.Function<&UIElement::GetAttribute>("GetAttribute", "name", "defaultValue");
+		uiElement.Function<&UIElement::HasAttribute>("HasAttribute", "name");
+		uiElement.Function<&UIElement::RemoveAttribute>("RemoveAttribute", "name");
+		uiElement.Function<&UIElement::GetTagName>("GetTagName");
+		uiElement.Function<&UIElement::GetId>("GetId");
+		uiElement.Function<&UIElement::SetId>("SetId", "id");
+		uiElement.Function<&UIElement::GetInnerRML>("GetInnerRML");
+		uiElement.Function<&UIElement::SetInnerRML>("SetInnerRML", "rml");
+		uiElement.Function<&UIElement::IsVisible>("IsVisible", "includeAncestors");
+		uiElement.Function<&UIElement::GetAbsoluteLeft>("GetAbsoluteLeft");
+		uiElement.Function<&UIElement::GetAbsoluteTop>("GetAbsoluteTop");
+		uiElement.Function<&UIElement::GetClientWidth>("GetClientWidth");
+		uiElement.Function<&UIElement::GetClientHeight>("GetClientHeight");
+		uiElement.Function<&UIElement::GetOffsetWidth>("GetOffsetWidth");
+		uiElement.Function<&UIElement::GetOffsetHeight>("GetOffsetHeight");
+		uiElement.Function<&UIElement::GetScrollLeft>("GetScrollLeft");
+		uiElement.Function<&UIElement::SetScrollLeft>("SetScrollLeft", "scrollLeft");
+		uiElement.Function<&UIElement::GetScrollTop>("GetScrollTop");
+		uiElement.Function<&UIElement::SetScrollTop>("SetScrollTop", "scrollTop");
+		uiElement.Function<&UIElement::GetScrollWidth>("GetScrollWidth");
+		uiElement.Function<&UIElement::GetScrollHeight>("GetScrollHeight");
+		uiElement.Function<&UIElement::Focus>("Focus", "focusVisible");
+		uiElement.Function<&UIElement::Blur>("Blur");
+		uiElement.Function<&UIElement::Click>("Click");
+		uiElement.Function<&UIElement::ScrollIntoView>("ScrollIntoView", "alignWithTop");
+		uiElement.Function<&UIElement::GetParentNode>("GetParentNode");
+		uiElement.Function<&UIElement::GetNextSibling>("GetNextSibling");
+		uiElement.Function<&UIElement::GetPreviousSibling>("GetPreviousSibling");
+		uiElement.Function<&UIElement::GetFirstChild>("GetFirstChild");
+		uiElement.Function<&UIElement::GetLastChild>("GetLastChild");
+		uiElement.Function<&UIElement::GetChild>("GetChild", "index");
+		uiElement.Function<&UIElement::GetNumChildren>("GetNumChildren");
+		uiElement.Function<&UIElement::GetOwnerDocument>("GetOwnerDocument");
+		uiElement.Function<&UIElement::GetContext>("GetContext");
+		uiElement.Function<&UIElement::GetElementById>("GetElementById", "id");
+		uiElement.Function<&UIElement::QuerySelector>("QuerySelector", "selector");
+		uiElement.Function<&UIElement::QuerySelectorAll>("QuerySelectorAll", "selector");
+		uiElement.Function<&UIElement::GetElementsByTagName>("GetElementsByTagName", "tag");
+		uiElement.Function<&UIElement::GetElementsByClassName>("GetElementsByClassName", "className");
+		uiElement.Function<&UIElement::Closest>("Closest", "selectors");
+		uiElement.Function<&UIElement::Matches>("Matches", "selector");
+		uiElement.Function<&UIElement::Contains>("Contains", "other");
+		uiElement.Function<static_cast<UIEventListener* (UIElement::*)(StringView, FnUIEventCallback, VoidPtr, bool)>(&UIElement::AddEventListener)>("AddEventListener", "event", "callback", "userData", "inCapturePhase");
+		uiElement.Function<&UIElement::RemoveEventListener>("RemoveEventListener", "event", "listener", "inCapturePhase");
+		uiElement.Function<&UIElement::DispatchEvent>("DispatchEvent", "type");
 
-		type.Function<&RmlUI::ShowDocument>("ShowDocument", "document", "modalFlag", "focusFlag", "scrollFlag");
-		type.Function<&RmlUI::HideDocument>("HideDocument", "document");
-		type.Function<&RmlUI::CloseDocument>("CloseDocument", "document");
-		type.Function<&RmlUI::PullDocumentToFront>("PullDocumentToFront", "document");
-		type.Function<&RmlUI::PushDocumentToBack>("PushDocumentToBack", "document");
-		type.Function<&RmlUI::SetDocumentTitle>("SetDocumentTitle", "document", "title");
-		type.Function<&RmlUI::GetDocumentTitle>("GetDocumentTitle", "document");
-		type.Function<&RmlUI::GetDocumentSourceURL>("GetDocumentSourceURL", "document");
-		type.Function<&RmlUI::IsDocumentModal>("IsDocumentModal", "document");
-		type.Function<&RmlUI::ReloadDocumentStyleSheet>("ReloadDocumentStyleSheet", "document");
-		type.Function<&RmlUI::UpdateDocument>("UpdateDocument", "document");
-		type.Function<&RmlUI::GetDocumentContext>("GetDocumentContext", "document");
-		type.Function<&RmlUI::FindNextTabElement>("FindNextTabElement", "document", "currentElement", "forward", "wrapAround");
+		auto uiEvent = Reflection::Type<UIEvent>();
+		uiEvent.Function<&UIEvent::GetType>("GetType");
+		uiEvent.Function<&UIEvent::GetTargetElement>("GetTargetElement");
+		uiEvent.Function<&UIEvent::GetCurrentElement>("GetCurrentElement");
+		uiEvent.Function<&UIEvent::GetPhase>("GetPhase");
+		uiEvent.Function<&UIEvent::IsInterruptible>("IsInterruptible");
+		uiEvent.Function<&UIEvent::IsPropagating>("IsPropagating");
+		uiEvent.Function<&UIEvent::StopPropagation>("StopPropagation");
+		uiEvent.Function<&UIEvent::StopImmediatePropagation>("StopImmediatePropagation");
+		uiEvent.Function<&UIEvent::GetUnprojectedMouseScreenPos>("GetUnprojectedMouseScreenPos");
+		uiEvent.Function<&UIEvent::GetParameterString>("GetParameterString", "key", "defaultValue");
+		uiEvent.Function<&UIEvent::GetParameterFloat>("GetParameterFloat", "key", "defaultValue");
+		uiEvent.Function<&UIEvent::GetParameterInt>("GetParameterInt", "key", "defaultValue");
+		uiEvent.Function<&UIEvent::GetParameterBool>("GetParameterBool", "key", "defaultValue");
 
-		type.Function<&RmlUI::CreateElement>("CreateElement", "document", "name");
-		type.Function<&RmlUI::CreateTextNode>("CreateTextNode", "document", "text");
-		type.Function<&RmlUI::CloneElement>("CloneElement", "element");
-		type.Function<&RmlUI::DestroyElement>("DestroyElement", "element");
+		Reflection::Type<UIEventListener>();
 
-		type.Function<&RmlUI::AppendChild>("AppendChild", "parent", "child");
-		type.Function<&RmlUI::InsertBefore>("InsertBefore", "parent", "child", "adjacentElement");
-		type.Function<&RmlUI::RemoveChild>("RemoveChild", "parent", "child");
-		type.Function<&RmlUI::HasChildNodes>("HasChildNodes", "element");
+		auto uiDataModel = Reflection::Type<UIDataModel>();
+		uiDataModel.Function<&UIDataModel::IsVariableDirty>("IsVariableDirty", "variableName");
+		uiDataModel.Function<&UIDataModel::DirtyVariable>("DirtyVariable", "variableName");
+		uiDataModel.Function<&UIDataModel::DirtyAllVariables>("DirtyAllVariables");
 
-		type.Function<&RmlUI::SetElementClass>("SetElementClass", "element", "className", "activate");
-		type.Function<&RmlUI::IsElementClassSet>("IsElementClassSet", "element", "className");
-		type.Function<&RmlUI::SetElementClassNames>("SetElementClassNames", "element", "classNames");
-		type.Function<&RmlUI::GetElementClassNames>("GetElementClassNames", "element");
+		auto uiDataVariant = Reflection::Type<UIDataVariant>();
+		uiDataVariant.Function<&UIDataVariant::GetString>("GetString", "defaultValue");
+		uiDataVariant.Function<&UIDataVariant::SetString>("SetString", "value");
+		uiDataVariant.Function<&UIDataVariant::GetFloat>("GetFloat", "defaultValue");
+		uiDataVariant.Function<&UIDataVariant::SetFloat>("SetFloat", "value");
+		uiDataVariant.Function<&UIDataVariant::GetInt>("GetInt", "defaultValue");
+		uiDataVariant.Function<&UIDataVariant::SetInt>("SetInt", "value");
+		uiDataVariant.Function<&UIDataVariant::GetBool>("GetBool", "defaultValue");
+		uiDataVariant.Function<&UIDataVariant::SetBool>("SetBool", "value");
 
-		type.Function<&RmlUI::SetElementPseudoClass>("SetElementPseudoClass", "element", "pseudoClass", "activate");
-		type.Function<&RmlUI::IsElementPseudoClassSet>("IsElementPseudoClassSet", "element", "pseudoClass");
-
-		type.Function<&RmlUI::SetElementProperty>("SetElementProperty", "element", "name", "value");
-		type.Function<&RmlUI::RemoveElementProperty>("RemoveElementProperty", "element", "name");
-
-		type.Function<&RmlUI::SetElementAttribute>("SetElementAttribute", "element", "name", "value");
-		type.Function<&RmlUI::GetElementAttribute>("GetElementAttribute", "element", "name", "defaultValue");
-		type.Function<&RmlUI::HasElementAttribute>("HasElementAttribute", "element", "name");
-		type.Function<&RmlUI::RemoveElementAttribute>("RemoveElementAttribute", "element", "name");
-
-		type.Function<&RmlUI::GetElementTagName>("GetElementTagName", "element");
-		type.Function<&RmlUI::GetElementId>("GetElementId", "element");
-		type.Function<&RmlUI::SetElementId>("SetElementId", "element", "id");
-		type.Function<&RmlUI::GetElementInnerRML>("GetElementInnerRML", "element");
-		type.Function<&RmlUI::SetElementInnerRML>("SetElementInnerRML", "element", "rml");
-		type.Function<&RmlUI::IsElementVisible>("IsElementVisible", "element", "includeAncestors");
-
-		type.Function<&RmlUI::GetElementAbsoluteLeft>("GetElementAbsoluteLeft", "element");
-		type.Function<&RmlUI::GetElementAbsoluteTop>("GetElementAbsoluteTop", "element");
-		type.Function<&RmlUI::GetElementClientWidth>("GetElementClientWidth", "element");
-		type.Function<&RmlUI::GetElementClientHeight>("GetElementClientHeight", "element");
-		type.Function<&RmlUI::GetElementOffsetWidth>("GetElementOffsetWidth", "element");
-		type.Function<&RmlUI::GetElementOffsetHeight>("GetElementOffsetHeight", "element");
-		type.Function<&RmlUI::GetElementScrollLeft>("GetElementScrollLeft", "element");
-		type.Function<&RmlUI::SetElementScrollLeft>("SetElementScrollLeft", "element", "scrollLeft");
-		type.Function<&RmlUI::GetElementScrollTop>("GetElementScrollTop", "element");
-		type.Function<&RmlUI::SetElementScrollTop>("SetElementScrollTop", "element", "scrollTop");
-		type.Function<&RmlUI::GetElementScrollWidth>("GetElementScrollWidth", "element");
-		type.Function<&RmlUI::GetElementScrollHeight>("GetElementScrollHeight", "element");
-
-		type.Function<&RmlUI::FocusElement>("FocusElement", "element", "focusVisible");
-		type.Function<&RmlUI::BlurElement>("BlurElement", "element");
-		type.Function<&RmlUI::ClickElement>("ClickElement", "element");
-		type.Function<&RmlUI::ScrollElementIntoView>("ScrollElementIntoView", "element", "alignWithTop");
-
-		type.Function<&RmlUI::GetElementParentNode>("GetElementParentNode", "element");
-		type.Function<&RmlUI::GetElementNextSibling>("GetElementNextSibling", "element");
-		type.Function<&RmlUI::GetElementPreviousSibling>("GetElementPreviousSibling", "element");
-		type.Function<&RmlUI::GetElementFirstChild>("GetElementFirstChild", "element");
-		type.Function<&RmlUI::GetElementLastChild>("GetElementLastChild", "element");
-		type.Function<&RmlUI::GetElementChild>("GetElementChild", "element", "index");
-		type.Function<&RmlUI::GetElementNumChildren>("GetElementNumChildren", "element");
-		type.Function<&RmlUI::GetElementOwnerDocument>("GetElementOwnerDocument", "element");
-		type.Function<&RmlUI::GetElementContext>("GetElementContext", "element");
-
-		type.Function<&RmlUI::GetElementById>("GetElementById", "element", "id");
-		type.Function<&RmlUI::QuerySelector>("QuerySelector", "element", "selector");
-		type.Function<&RmlUI::QuerySelectorAll>("QuerySelectorAll", "element", "selector");
-		type.Function<&RmlUI::GetElementsByTagName>("GetElementsByTagName", "element", "tag");
-		type.Function<&RmlUI::GetElementsByClassName>("GetElementsByClassName", "element", "className");
-		type.Function<&RmlUI::Closest>("Closest", "element", "selectors");
-		type.Function<&RmlUI::ElementMatches>("ElementMatches", "element", "selector");
-		type.Function<&RmlUI::ElementContains>("ElementContains", "element", "other");
-
-		type.Function<static_cast<UIEventListener (*)(UIElement, StringView, FnUIEventCallback, VoidPtr, bool)>(&RmlUI::AddEventListener)>("AddEventListener", "element", "event", "callback", "userData", "inCapturePhase");
-		type.Function<&RmlUI::RemoveEventListener>("RemoveEventListener", "element", "event", "listener", "inCapturePhase");
-		type.Function<&RmlUI::DispatchEvent>("DispatchEvent", "element", "type");
-
-		type.Function<&RmlUI::GetEventType>("GetEventType", "event");
-		type.Function<&RmlUI::GetEventTargetElement>("GetEventTargetElement", "event");
-		type.Function<&RmlUI::GetEventCurrentElement>("GetEventCurrentElement", "event");
-		type.Function<&RmlUI::GetEventPhase>("GetEventPhase", "event");
-		type.Function<&RmlUI::IsEventInterruptible>("IsEventInterruptible", "event");
-		type.Function<&RmlUI::IsEventPropagating>("IsEventPropagating", "event");
-		type.Function<&RmlUI::StopEventPropagation>("StopEventPropagation", "event");
-		type.Function<&RmlUI::StopEventImmediatePropagation>("StopEventImmediatePropagation", "event");
-		type.Function<&RmlUI::GetEventUnprojectedMouseScreenPos>("GetEventUnprojectedMouseScreenPos", "event");
-
-		type.Function<&RmlUI::GetEventParameterString>("GetEventParameterString", "event", "key", "defaultValue");
-		type.Function<&RmlUI::GetEventParameterFloat>("GetEventParameterFloat", "event", "key", "defaultValue");
-		type.Function<&RmlUI::GetEventParameterInt>("GetEventParameterInt", "event", "key", "defaultValue");
-		type.Function<&RmlUI::GetEventParameterBool>("GetEventParameterBool", "event", "key", "defaultValue");
-
-		type.Function<&RmlUI::CreateDataModel>("CreateDataModel", "context", "name");
-		type.Function<&RmlUI::GetDataModel>("GetDataModel", "context", "name");
-		type.Function<&RmlUI::RemoveDataModel>("RemoveDataModel", "context", "name");
-		type.Function<&RmlUI::DestroyDataModelConstructor>("DestroyDataModelConstructor", "constructor");
-
-		type.Function<&RmlUI::GetModelHandle>("GetModelHandle", "constructor");
-		type.Function<static_cast<bool (*)(UIDataModelConstructor, StringView, FnUIDataGetCallback, VoidPtr, FnUIDataSetCallback, VoidPtr)>(&RmlUI::BindFunc)>("BindFunc", "constructor", "name", "getCallback", "getCallbackData", "setCallback", "setCallbackData");
-		type.Function<static_cast<bool (*)(UIDataModelConstructor, StringView, FnUIDataEventCallback, VoidPtr)>(&RmlUI::BindEventCallback)>("BindEventCallback", "constructor", "name", "callback", "userData");
-
-		type.Function<static_cast<bool (*)(UIDataModelConstructor, StringView, f32*)>(&RmlUI::BindVariable)>("BindVariable", "constructor", "name", "ptr");
-		type.Function<static_cast<bool (*)(UIDataModelConstructor, StringView, i32*)>(&RmlUI::BindVariable)>("BindVariable", "constructor", "name", "ptr");
-		type.Function<static_cast<bool (*)(UIDataModelConstructor, StringView, bool*)>(&RmlUI::BindVariable)>("BindVariable", "constructor", "name", "ptr");
-
-		type.Function<static_cast<bool (*)(UIDataModelConstructor, StringView, f32 (*)(VoidPtr), VoidPtr, void (*)(f32, VoidPtr), VoidPtr)>(&RmlUI::BindScalar)>("BindScalar", "constructor", "name", "get", "getData", "set", "setData");
-		type.Function<static_cast<bool (*)(UIDataModelConstructor, StringView, i32 (*)(VoidPtr), VoidPtr, void (*)(i32, VoidPtr), VoidPtr)>(&RmlUI::BindScalar)>("BindScalar", "constructor", "name", "get", "getData", "set", "setData");
-		type.Function<static_cast<bool (*)(UIDataModelConstructor, StringView, bool (*)(VoidPtr), VoidPtr, void (*)(bool, VoidPtr), VoidPtr)>(&RmlUI::BindScalar)>("BindScalar", "constructor", "name", "get", "getData", "set", "setData");
-		type.Function<static_cast<bool (*)(UIDataModelConstructor, StringView, String (*)(VoidPtr), VoidPtr, void (*)(StringView, VoidPtr), VoidPtr)>(&RmlUI::BindScalar)>("BindScalar", "constructor", "name", "get", "getData", "set", "setData");
-
-		type.Function<&RmlUI::IsVariableDirty>("IsVariableDirty", "model", "variableName");
-		type.Function<&RmlUI::DirtyVariable>("DirtyVariable", "model", "variableName");
-		type.Function<&RmlUI::DirtyAllVariables>("DirtyAllVariables", "model");
-
-		type.Function<&RmlUI::GetVariantString>("GetVariantString", "variant", "defaultValue");
-		type.Function<&RmlUI::SetVariantString>("SetVariantString", "variant", "value");
-		type.Function<&RmlUI::GetVariantFloat>("GetVariantFloat", "variant", "defaultValue");
-		type.Function<&RmlUI::SetVariantFloat>("SetVariantFloat", "variant", "value");
-		type.Function<&RmlUI::GetVariantInt>("GetVariantInt", "variant", "defaultValue");
-		type.Function<&RmlUI::SetVariantInt>("SetVariantInt", "variant", "value");
-		type.Function<&RmlUI::GetVariantBool>("GetVariantBool", "variant", "defaultValue");
-		type.Function<&RmlUI::SetVariantBool>("SetVariantBool", "variant", "value");
+		auto uiDataModelConstructor = Reflection::Type<UIDataModelConstructor>();
+		uiDataModelConstructor.Function<&UIDataModelConstructor::Destroy>("Destroy");
+		uiDataModelConstructor.Function<&UIDataModelConstructor::GetModelHandle>("GetModelHandle");
+		uiDataModelConstructor.Function<static_cast<bool (UIDataModelConstructor::*)(StringView, FnUIDataGetCallback, VoidPtr, FnUIDataSetCallback, VoidPtr)>(&UIDataModelConstructor::BindFunc)>("BindFunc", "name", "getCallback", "getCallbackData", "setCallback", "setCallbackData");
+		uiDataModelConstructor.Function<static_cast<bool (UIDataModelConstructor::*)(StringView, FnUIDataEventCallback, VoidPtr)>(&UIDataModelConstructor::BindEventCallback)>("BindEventCallback", "name", "callback", "userData");
+		uiDataModelConstructor.Function<static_cast<bool (UIDataModelConstructor::*)(StringView, f32*)>(&UIDataModelConstructor::BindVariable)>("BindVariable", "name", "ptr");
+		uiDataModelConstructor.Function<static_cast<bool (UIDataModelConstructor::*)(StringView, i32*)>(&UIDataModelConstructor::BindVariable)>("BindVariable", "name", "ptr");
+		uiDataModelConstructor.Function<static_cast<bool (UIDataModelConstructor::*)(StringView, bool*)>(&UIDataModelConstructor::BindVariable)>("BindVariable", "name", "ptr");
+		uiDataModelConstructor.Function<static_cast<bool (UIDataModelConstructor::*)(StringView, f32 (*)(VoidPtr), VoidPtr, void (*)(f32, VoidPtr), VoidPtr)>(&UIDataModelConstructor::BindScalar)>("BindScalar", "name", "get", "getData", "set", "setData");
+		uiDataModelConstructor.Function<static_cast<bool (UIDataModelConstructor::*)(StringView, i32 (*)(VoidPtr), VoidPtr, void (*)(i32, VoidPtr), VoidPtr)>(&UIDataModelConstructor::BindScalar)>("BindScalar", "name", "get", "getData", "set", "setData");
+		uiDataModelConstructor.Function<static_cast<bool (UIDataModelConstructor::*)(StringView, bool (*)(VoidPtr), VoidPtr, void (*)(bool, VoidPtr), VoidPtr)>(&UIDataModelConstructor::BindScalar)>("BindScalar", "name", "get", "getData", "set", "setData");
+		uiDataModelConstructor.Function<static_cast<bool (UIDataModelConstructor::*)(StringView, String (*)(VoidPtr), VoidPtr, void (*)(StringView, VoidPtr), VoidPtr)>(&UIDataModelConstructor::BindScalar)>("BindScalar", "name", "get", "getData", "set", "setData");
 	}
 
 	void RegisterUITypes()

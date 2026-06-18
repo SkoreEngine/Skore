@@ -91,7 +91,7 @@ namespace Skore
 			{
 				if (scope != nullptr)
 				{
-					Resources::DestroyScope(scope);
+					scope->Destroy();
 				}
 			}
 		};
@@ -261,7 +261,7 @@ namespace Skore
 		void Undo(const MenuItemEventData& eventData)
 		{
 			std::unique_ptr<UndoRedoScopeStorage> action = Traits::Move(undoActions.Back());
-			Resources::Undo(action->scope);
+			action->scope->Undo();
 			redoActions.EmplaceBack(Traits::Move(action));
 			undoActions.PopBack();
 		}
@@ -274,7 +274,7 @@ namespace Skore
 		void Redo(const MenuItemEventData& eventData)
 		{
 			std::unique_ptr<UndoRedoScopeStorage> action = Traits::Move(redoActions.Back());
-			Resources::Redo(action->scope);
+			action->scope->Redo();
 			redoActions.PopBack();
 			undoActions.EmplaceBack(Traits::Move(action));
 		}
@@ -1097,7 +1097,7 @@ namespace Skore
 
 	UndoRedoScope* Editor::CreateUndoRedoScope(StringView name)
 	{
-		UndoRedoScope* scope = Resources::CreateScope(name);
+		UndoRedoScope* scope = UndoRedoScope::Create(name);
 		redoActions.Clear();
 		undoActions.EmplaceBack(std::make_unique<UndoRedoScopeStorage>(scope));
 		return scope;
@@ -1252,14 +1252,14 @@ namespace Skore
 	{
 		for (const auto& redo: redoActions)
 		{
-			StringView name = Resources::GetScopeName(redo->scope);
+			StringView name = redo->scope->GetName();
 			ImGui::Selectable(!name.Empty() ? name.CStr() : "Unnamed action", false, ImGuiSelectableFlags_Disabled);
 		}
 
 		bool first = true;
 		for (const auto& action: undoActions)
 		{
-			StringView name = Resources::GetScopeName(action->scope);
+			StringView name = action->scope->GetName();
 			ImGui::Selectable(!name.Empty() ? name.CStr() : "Unnamed action", first, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_SpanAvailWidth);
 			first = false;
 		}

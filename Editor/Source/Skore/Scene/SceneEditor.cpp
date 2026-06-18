@@ -556,8 +556,8 @@ namespace Skore
 			}
 		}
 
-		RmlUI::SetContextVisible(m_simulationScene ? m_simulationScene->uiContext : UIContext{}, SceneManager::GetActiveScene() == m_simulationScene.get());
-		RmlUI::SetContextVisible(m_editorScene ? m_editorScene->uiContext : UIContext{}, SceneManager::GetActiveScene() == nullptr && HasSelectedUIDocument());
+		if (UIContext* simContext = m_simulationScene ? m_simulationScene->uiContext : nullptr) simContext->SetVisible(SceneManager::GetActiveScene() == m_simulationScene.get());
+		if (UIContext* editorContext = m_editorScene ? m_editorScene->uiContext : nullptr) editorContext->SetVisible(SceneManager::GetActiveScene() == nullptr && HasSelectedUIDocument());
 
 		m_shouldStartSimulation = false;
 		m_shouldStopSimulation = false;

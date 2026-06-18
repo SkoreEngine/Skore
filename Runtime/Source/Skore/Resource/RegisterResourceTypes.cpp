@@ -1,5 +1,6 @@
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
+#include "Skore/Resource/ResourceType.hpp"
 #include "Skore/Core/Reflection.hpp"
 
 namespace Skore
@@ -71,6 +72,22 @@ namespace Skore
 			auto compareSubObjectSetType = Reflection::Type<CompareSubObjectSetType>();
 			compareSubObjectSetType.Value<CompareSubObjectSetType::Added>("Added");
 			compareSubObjectSetType.Value<CompareSubObjectSetType::Removed>("Removed");
+		}
+
+		// ResourceType
+		{
+			auto resourceType = Reflection::Type<ResourceType>();
+			resourceType.Function<&ResourceType::GetID>("GetID");
+			resourceType.Function<&ResourceType::GetName>("GetName");
+			resourceType.Function<&ResourceType::GetSimpleName>("GetSimpleName");
+			resourceType.Function<&ResourceType::GetDefaultValue>("GetDefaultValue");
+			resourceType.Function<&ResourceType::SetDefaultValue>("SetDefaultValue", "defaultValue");
+			resourceType.Function<&ResourceType::GetAllocSize>("GetAllocSize");
+			resourceType.Function<&ResourceType::GetVersion>("GetVersion");
+			resourceType.Function<&ResourceType::GetReflectType>("GetReflectType");
+			resourceType.Function<&ResourceType::GetFields>("GetFields");
+			resourceType.Function<&ResourceType::HasFieldWithType>("HasFieldWithType", "fieldType");
+			resourceType.Function<&ResourceType::FindFieldByName>("FindFieldByName", "name");
 		}
 
 		// ResourceObject
@@ -175,13 +192,16 @@ namespace Skore
 			resources.Function<&Resources::SetPath>("SetPath", "rid", "path");
 			resources.Function<&Resources::GetPath>("GetPath", "rid");
 			resources.Function<&Resources::FindByPath>("FindByPath", "path");
+		}
 
-			// Undo/Redo
-			resources.Function<&Resources::CreateScope>("CreateScope", "name");
-			resources.Function<&Resources::DestroyScope>("DestroyScope", "scope");
-			resources.Function<&Resources::Undo>("Undo", "scope");
-			resources.Function<&Resources::Redo>("Redo", "scope");
-			resources.Function<&Resources::GetScopeName>("GetScopeName", "scope");
+		// UndoRedoScope
+		{
+			auto undoRedoScope = Reflection::Type<UndoRedoScope>();
+			undoRedoScope.Function<&UndoRedoScope::Create>("Create", "name");
+			undoRedoScope.Function<&UndoRedoScope::Destroy>("Destroy");
+			undoRedoScope.Function<&UndoRedoScope::Undo>("Undo");
+			undoRedoScope.Function<&UndoRedoScope::Redo>("Redo");
+			undoRedoScope.Function<&UndoRedoScope::GetName>("GetName");
 		}
 	}
 }

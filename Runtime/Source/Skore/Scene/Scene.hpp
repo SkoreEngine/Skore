@@ -69,7 +69,7 @@ namespace Skore
 		RenderSceneObjects renderObjects;
 		PhysicsScene       physicsScene;
 		NavigationScene    navigationScene;
-		UIContext					 uiContext;
+		UIContext*					 uiContext = nullptr;
 
 		void NotifyEvent(const EntityEventDesc& event, bool notifyChildren = false);
 

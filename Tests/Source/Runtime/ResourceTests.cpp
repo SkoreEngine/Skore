@@ -416,7 +416,7 @@ namespace
 			write.Commit();
 		}
 
-		UndoRedoScope* scope = Resources::CreateScope("test scope");
+		UndoRedoScope* scope = UndoRedoScope::Create("test scope");
 
 		{
 			ResourceObject write = Resources::Write(rid);
@@ -438,7 +438,7 @@ namespace
 			CHECK(subobjects.Size() == 0);
 		}
 
-		Resources::Undo(scope);
+		scope->Undo();
 
 		{
 			ResourceObject read = Resources::Read(rid);
