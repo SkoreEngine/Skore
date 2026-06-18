@@ -107,6 +107,14 @@ namespace Skore
 		collisionEventType.Value<CollisionEventType::TriggerEnter>();
 		collisionEventType.Value<CollisionEventType::TriggerExit>();
 
+		{
+			auto raycastHit = Reflection::Type<RaycastHit>();
+			raycastHit.Field<&RaycastHit::entity>("entity");
+			raycastHit.Field<&RaycastHit::point>("point");
+			raycastHit.Field<&RaycastHit::normal>("normal");
+			raycastHit.Field<&RaycastHit::distance>("distance");
+		}
+
 		Reflection::Type<Entity>();
 		Reflection::Type<Scene>();
 		Reflection::Type<SceneManager>();

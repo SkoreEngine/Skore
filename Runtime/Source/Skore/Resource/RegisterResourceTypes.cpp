@@ -74,6 +74,18 @@ namespace Skore
 			compareSubObjectSetType.Value<CompareSubObjectSetType::Removed>("Removed");
 		}
 
+		// ResourceField
+		{
+			auto resourceField = Reflection::Type<ResourceField>();
+			resourceField.Function<&ResourceField::GetName>("GetName");
+			resourceField.Function<&ResourceField::GetIndex>("GetIndex");
+			resourceField.Function<&ResourceField::GetSize>("GetSize");
+			resourceField.Function<&ResourceField::GetOffset>("GetOffset");
+			resourceField.Function<&ResourceField::GetType>("GetType");
+			resourceField.Function<&ResourceField::GetSubType>("GetSubType");
+			resourceField.Function<&ResourceField::GetReflectField>("GetReflectField");
+		}
+
 		// ResourceType
 		{
 			auto resourceType = Reflection::Type<ResourceType>();

@@ -31,7 +31,10 @@ namespace Skore
 		buildSettings.Field<&NavMeshBuildSettings::detailSampleDist>("detailSampleDist");
 		buildSettings.Field<&NavMeshBuildSettings::detailSampleMaxError>("detailSampleMaxError");
 
-		Reflection::Type<NavMeshPath>();
+		auto navMeshPath = Reflection::Type<NavMeshPath>();
+		navMeshPath.Field<&NavMeshPath::waypoints>("waypoints");
+		navMeshPath.Field<&NavMeshPath::isPartial>("isPartial");
+
 		Reflection::Type<Navigation>();
 		Reflection::Type<NavMeshSurface>();
 		Reflection::Type<NavMeshAgent>();
