@@ -11,7 +11,7 @@ namespace Skore
 		AudioEngine::SetListenerActive(true);
 	}
 
-	void AudioListener::Destroy()
+	void AudioListener::OnDestroy()
 	{
 		AudioEngine::SetListenerActive(false);
 	}

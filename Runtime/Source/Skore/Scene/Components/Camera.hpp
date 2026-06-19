@@ -10,7 +10,7 @@ namespace Skore
 	public:
 		SK_CLASS(Camera, Component);
 
-		void Create() override;
+		void OnCreate() override;
 
 		Projection GetProjection() const;
 		void       SetProjection(Projection projection);

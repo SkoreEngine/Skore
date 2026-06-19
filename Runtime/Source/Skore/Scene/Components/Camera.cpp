@@ -9,7 +9,7 @@
 
 namespace Skore
 {
-	void Camera::Create()
+	void Camera::OnCreate()
 	{
 		if (RenderPipelineContext* context = RenderPipeline::GetMainContext())
 		{

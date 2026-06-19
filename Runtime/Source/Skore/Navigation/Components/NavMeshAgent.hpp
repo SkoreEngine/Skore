@@ -12,10 +12,10 @@ namespace Skore
 	public:
 		SK_CLASS(NavMeshAgent, Component);
 
-		void Create() override;
+		void OnCreate() override;
 		void OnStart() override;
 		void OnUpdate(f64 deltaTime) override;
-		void Destroy() override;
+		void OnDestroy() override;
 
 		void SetDestination(const Vec3& target);
 		Vec3 GetDestination() const;

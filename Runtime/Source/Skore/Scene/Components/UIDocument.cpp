@@ -7,7 +7,7 @@
 
 namespace Skore
 {
-	void UIDocument::Destroy()
+	void UIDocument::OnDestroy()
 	{
 		if (root && scene->uiContext)
 		{

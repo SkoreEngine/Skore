@@ -56,7 +56,7 @@ namespace Skore
 		}
 	}
 
-	void ParticleEmitter::Create()
+	void ParticleEmitter::OnCreate()
 	{
 		m_particles.Resize(m_maxParticles);
 		for (u32 i = 0; i < m_maxParticles; i++)
@@ -68,7 +68,7 @@ namespace Skore
 		UploadParticles();
 	}
 
-	void ParticleEmitter::Destroy()
+	void ParticleEmitter::OnDestroy()
 	{
 		DestroyGPUResources();
 		m_particles.Clear();

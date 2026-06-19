@@ -18,13 +18,13 @@ namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("RenderComponents");
 
-	void RendererComponent::Create()
+	void RendererComponent::OnCreate()
 	{
 		renderable = scene->renderObjects.CreateRenderable();
 		PushStateToRenderable();
 	}
 
-	void RendererComponent::Destroy()
+	void RendererComponent::OnDestroy()
 	{
 		if (renderable)
 		{
@@ -185,14 +185,14 @@ namespace Skore
 		}
 	}
 
-	void SkinnedMeshRenderer::Destroy()
+	void SkinnedMeshRenderer::OnDestroy()
 	{
 		if (renderable)
 		{
 			scene->renderObjects.SetBonesDescriptor(renderable, nullptr);
 			scene->renderObjects.SetBonesBuffer(renderable, nullptr);
 		}
-		RendererComponent::Destroy();
+		RendererComponent::OnDestroy();
 
 		m_skinCache.reset();
 		if (m_bonesDescriptor) m_bonesDescriptor->Destroy();
@@ -292,7 +292,7 @@ namespace Skore
 		type.Field<&SkinnedMeshRenderer::m_skeleton, &SkinnedMeshRenderer::GetSkeleton, &SkinnedMeshRenderer::SetSkeleton>("skeleton");
 	}
 
-	void AnimationPlayer::Create()
+	void AnimationPlayer::OnCreate()
 	{
 	}
 
@@ -1176,7 +1176,7 @@ namespace Skore
 		type.Field<&BoneNode::scale>("scale");
 	}
 
-	void Skeleton::Create()
+	void Skeleton::OnCreate()
 	{
 		entity->AddFlag(EntityFlags::HasSkeleton);
 	}

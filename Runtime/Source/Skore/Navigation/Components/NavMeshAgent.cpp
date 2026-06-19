@@ -11,7 +11,7 @@ namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("Skore::NavMeshAgent");
 
-	void NavMeshAgent::Create()
+	void NavMeshAgent::OnCreate()
 	{
 	}
 
@@ -54,7 +54,7 @@ namespace Skore
 		}
 	}
 
-	void NavMeshAgent::Destroy()
+	void NavMeshAgent::OnDestroy()
 	{
 		if (m_agentIndex >= 0 && scene)
 		{

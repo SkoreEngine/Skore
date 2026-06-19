@@ -28,7 +28,7 @@ namespace Skore
 		return m_navMeshData;
 	}
 
-	void NavMeshSurface::Create()
+	void NavMeshSurface::OnCreate()
 	{
 		LoadNavMeshData();
 	}

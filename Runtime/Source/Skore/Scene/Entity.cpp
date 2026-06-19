@@ -343,7 +343,7 @@ namespace Skore
 			}
 		}
 
-		component->Create();
+		component->OnCreate();
 		component->RegisterEvents();
 
 		m_components.EmplaceBack(component);
@@ -529,7 +529,7 @@ namespace Skore
 	void Entity::DestroyComponent(Component* component) const
 	{
 		component->RemoveEvents();
-		component->Destroy();
+		component->OnDestroy();
 
 		if (m_scene->IsResourceSyncEnabled())
 		{

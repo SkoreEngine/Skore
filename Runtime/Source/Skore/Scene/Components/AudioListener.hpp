@@ -9,7 +9,7 @@ namespace Skore
 		SK_CLASS(AudioListener, Component);
 
 		void OnStart() override;
-		void Destroy() override;
+		void OnDestroy() override;
 
 		void ProcessEvent(const EntityEventDesc& event) override;
 

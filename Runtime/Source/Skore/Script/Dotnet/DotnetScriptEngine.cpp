@@ -59,7 +59,7 @@ namespace Skore
 			return;
 		}
 
-		logger.Info("dotnet runtime found, root: '{}', hostfxr: '{}'", dotnetRoot, fxrPath);
+		logger.Debug("dotnet runtime found, root: '{}', hostfxr: '{}'", dotnetRoot, fxrPath);
 
 		m_hostfxrLibrary = Platform::LoadObject(fxrPath);
 		if (m_hostfxrLibrary == nullptr)
@@ -126,6 +126,6 @@ namespace Skore
 
 		const ReflectionApi* reflectionApi = GetReflectionApi();
 		i32                  result = bootstrap(const_cast<ReflectionApi*>(reflectionApi), static_cast<i32>(sizeof(ReflectionApi)));
-		logger.Info("managed entry point 'Skore.EntryPoint.Bootstrap' invoked, returned {}", result);
+		logger.Debug("managed entry point 'Skore.EntryPoint.Bootstrap' invoked, returned {}", result);
 	}
 }

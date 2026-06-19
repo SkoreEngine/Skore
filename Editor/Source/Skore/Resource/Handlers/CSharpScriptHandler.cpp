@@ -92,6 +92,11 @@ namespace Skore
 				}
 			});
 		}
+
+		bool CanCreateCSharpScript(const MenuItemEventData& eventData)
+		{
+			return ProjectBrowserWindow::CanCreateAsset(eventData) && HasDotnetProject(Editor::GetProjectPath());
+		}
 	}
 
 	struct CSharpScriptHandler : ResourceAssetHandler
@@ -202,7 +207,7 @@ namespace Skore
 			.icon = ICON_FA_FILE_CODE,
 			.priority = 35,
 			.action = ProjectBrowserWindow::AssetNew,
-			.visible = ProjectBrowserWindow::CanCreateAsset,
+			.visible = CanCreateCSharpScript,
 			.userData = TypeInfo<CSharpScriptResource>::ID()
 		});
 	}

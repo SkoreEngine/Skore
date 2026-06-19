@@ -14,7 +14,7 @@ namespace Skore
 		SK_CLASS(UIDocument, Component);
 
 
-		void Destroy() override;
+		void OnDestroy() override;
 
 		void SetDocument(RID document);
 		RID  GetDocument() const;

@@ -12,7 +12,7 @@ namespace Skore
 	public:
 		SK_CLASS(AudioSource, Component);
 
-		void Destroy() override;
+		void OnDestroy() override;
 		void OnStart() override;
 
 		void SetAudioResource(RID audioResource);

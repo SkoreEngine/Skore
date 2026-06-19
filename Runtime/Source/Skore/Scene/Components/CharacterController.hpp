@@ -11,8 +11,8 @@ namespace Skore
 	public:
 		SK_CLASS(CharacterController, Component);
 
-		void Create() override;
-		void Destroy() override;
+		void OnCreate() override;
+		void OnDestroy() override;
 		void ProcessEvent(const EntityEventDesc& event) override;
 
 		f32  GetHeight() const;

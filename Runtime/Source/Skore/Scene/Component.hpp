@@ -32,10 +32,10 @@ namespace Skore
 		Scene* GetScene() const { return scene; }
 
 		//called after construction / deserialization
-		virtual void Create() {}
+		virtual void OnCreate() {}
 
 		//called before destruction
-		virtual void Destroy() {}
+		virtual void OnDestroy() {}
 		virtual void OnStart() {}
 
 		virtual void ProcessEvent(const EntityEventDesc& event) {}

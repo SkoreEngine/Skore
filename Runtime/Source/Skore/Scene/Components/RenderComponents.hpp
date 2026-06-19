@@ -21,8 +21,8 @@ namespace Skore
 	public:
 		SK_CLASS(RendererComponent, Component);
 
-		void Create() override;
-		void Destroy() override;
+		void OnCreate() override;
+		void OnDestroy() override;
 		void ProcessEvent(const EntityEventDesc& event) override;
 
 		void SetMesh(RID mesh);
@@ -82,7 +82,7 @@ namespace Skore
 	public:
 		SK_CLASS(SkinnedMeshRenderer, RendererComponent);
 
-		void Destroy() override;
+		void OnDestroy() override;
 
 		void SetSkeleton(Entity* skeleton);
 		Entity* GetSkeleton() const;
@@ -198,7 +198,7 @@ namespace Skore
 	public:
 		SK_CLASS(AnimationPlayer, Component);
 
-		void Create() override;
+		void OnCreate() override;
 		void OnStart() override;
 		void OnUpdate(f64 deltaTime) override;
 
@@ -258,7 +258,7 @@ namespace Skore
 	{
 	public:
 		SK_CLASS(Skeleton, Component);
-		void Create() override;
+		void OnCreate() override;
 
 		void SetBones(const Array<BoneNode>& bones);
 		const Array<BoneNode>& GetBones() const;

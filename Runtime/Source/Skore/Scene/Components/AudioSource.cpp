@@ -257,7 +257,7 @@ namespace Skore
 	}
 
 
-	void AudioSource::Destroy()
+	void AudioSource::OnDestroy()
 	{
 		if (m_instance)
 		{

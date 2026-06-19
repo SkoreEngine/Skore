@@ -24,8 +24,8 @@ namespace Skore
 	public:
 		SK_CLASS(ParticleEmitter, Component);
 
-		void Create() override;
-		void Destroy() override;
+		void OnCreate() override;
+		void OnDestroy() override;
 		void ProcessEvent(const EntityEventDesc& event) override;
 
 		void OnUpdate(f64 deltaTime) override;

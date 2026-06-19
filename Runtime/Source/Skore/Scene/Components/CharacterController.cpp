@@ -8,14 +8,14 @@
 
 namespace Skore
 {
-	void CharacterController::Create()
+	void CharacterController::OnCreate()
 	{
 		entity->AddFlag(EntityFlags::HasPhysics);
 		entity->AddFlag(EntityFlags::HasCharacterController);
 		PhysicsRequireUpdate();
 	}
 
-	void CharacterController::Destroy()
+	void CharacterController::OnDestroy()
 	{
 		PhysicsRequireUpdate();
 	}
