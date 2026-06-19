@@ -82,7 +82,8 @@ namespace Skore
 
 		SK_API void OpenURL(StringView url);
 
-		SK_API VoidPtr CreateProcess(const char * const *args, bool pipeStdio);
+		SK_API VoidPtr CreateProcess(const char * const *args, bool pipeStdio, bool background = false);
+		SK_API String  ReadProcess(VoidPtr process, i32* exitCode = nullptr);
 		SK_API void DestroyProcess(VoidPtr process);
 
 		SK_API u64 GetTime();

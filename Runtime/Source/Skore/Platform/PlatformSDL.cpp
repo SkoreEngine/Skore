@@ -270,9 +270,54 @@ namespace Skore
 		SDL_OpenURL(url.CStr());
 	}
 
-	VoidPtr Platform::CreateProcess(const char* const* args, bool pipeStdio)
+	VoidPtr Platform::CreateProcess(const char* const* args, bool pipeStdio, bool background)
 	{
-		return SDL_CreateProcess(args, pipeStdio);
+		if (!background)
+		{
+			return SDL_CreateProcess(args, pipeStdio);
+		}
+
+		SDL_PropertiesID props = SDL_CreateProperties();
+		SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, const_cast<void*>(static_cast<const void*>(args)));
+		if (pipeStdio)
+		{
+			SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_APP);
+			SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_APP);
+		}
+		SDL_SetBooleanProperty(props, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true);
+
+		SDL_Process* process = SDL_CreateProcessWithProperties(props);
+		SDL_DestroyProperties(props);
+		return process;
+	}
+
+	String Platform::ReadProcess(VoidPtr process, i32* exitCode)
+	{
+		if (process == nullptr)
+		{
+			if (exitCode)
+			{
+				*exitCode = -1;
+			}
+			return {};
+		}
+
+		usize size = 0;
+		int   code = 0;
+		void* data = SDL_ReadProcess(static_cast<SDL_Process*>(process), &size, &code);
+
+		if (exitCode)
+		{
+			*exitCode = code;
+		}
+
+		String output;
+		if (data)
+		{
+			output = String(static_cast<const char*>(data), size);
+			SDL_free(data);
+		}
+		return output;
 	}
 
 	void Platform::DestroyProcess(VoidPtr process)

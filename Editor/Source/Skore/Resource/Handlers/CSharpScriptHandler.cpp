@@ -1,4 +1,5 @@
 #include <cstring>
+#include <mutex>
 
 #include "Skore/Editor.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -52,6 +53,45 @@ namespace Skore
 			content += "\n{\n    \n}\n";
 			return content;
 		}
+
+		std::mutex dotnetBuildMutex;
+		bool       dotnetBuildRunning = false;
+		bool       dotnetBuildQueued = false;
+
+		void RebuildDotnetProject()
+		{
+			String projectPath = Editor::GetProjectPath();
+			if (!HasDotnetProject(projectPath))
+			{
+				return;
+			}
+
+			{
+				std::scoped_lock lock(dotnetBuildMutex);
+				if (dotnetBuildRunning)
+				{
+					dotnetBuildQueued = true;
+					return;
+				}
+				dotnetBuildRunning = true;
+			}
+
+			Editor::AddTask([projectPath]
+			{
+				for (;;)
+				{
+					BuildDotnetProject(projectPath);
+
+					std::scoped_lock lock(dotnetBuildMutex);
+					if (!dotnetBuildQueued)
+					{
+						dotnetBuildRunning = false;
+						return;
+					}
+					dotnetBuildQueued = false;
+				}
+			});
+		}
 	}
 
 	struct CSharpScriptHandler : ResourceAssetHandler
@@ -98,6 +138,11 @@ namespace Skore
 			object.SetString(CSharpScriptResource::Name, Path::Name(absolutePath));
 			object.Commit();
 			return resource;
+		}
+
+		void Reloaded(RID asset, StringView absolutePath) override
+		{
+			RebuildDotnetProject();
 		}
 
 		void Save(RID asset, StringView absolutePath) override

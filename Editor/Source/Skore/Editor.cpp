@@ -483,6 +483,20 @@ namespace Skore
 			OpenDotnetProjectInEditor(projectPath);
 		}
 
+		bool CanBuildDotnetProject(const MenuItemEventData& eventData)
+		{
+			return HasDotnetProject(projectPath);
+		}
+
+		void BuildDotnetProjectAction(const MenuItemEventData& eventData)
+		{
+			String path = projectPath;
+			Editor::AddTask([path]
+			{
+				BuildDotnetProject(path);
+			});
+		}
+
 
 
 		void CreateMenuItems()
@@ -505,6 +519,7 @@ namespace Skore
 
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Editor Preferences...", .priority = 1000, .action = SettingsWindow::Open, .userData = GetTypeID<EditorPreferences>()});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Build", .priority = 55});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "Build/Build C# Project", .priority = 10, .action = BuildDotnetProjectAction, .visible = CanBuildDotnetProject});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Open Editor", .priority = 5, .action = OpenProjectInEditorAction, .visible = CanOpenEditor});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Open C# Project", .priority = 7, .action = OpenDotnetProjectInEditorAction, .visible = CanOpenDotnetEditor});

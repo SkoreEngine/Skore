@@ -153,6 +153,45 @@ namespace Skore
 		}
 	}
 
+	bool BuildDotnetProject(StringView directory)
+	{
+		String projectName = Path::Name(directory);
+		String csprojPath = Path::Join(directory, projectName + ".csproj");
+
+		if (!FileSystem::GetFileStatus(csprojPath).exists)
+		{
+			logger.Error("No C# project found at {}", csprojPath);
+			return false;
+		}
+
+		WriteDotnetEngineProps(directory);
+
+		const char* args[] = {"dotnet", "build", csprojPath.CStr(), "--nologo", nullptr};
+
+		VoidPtr process = Platform::CreateProcess(args, true, true);
+		if (process == nullptr)
+		{
+			logger.Error("Failed to start 'dotnet build'. Make sure the .NET SDK is installed and available in PATH.");
+			return false;
+		}
+
+		logger.Info("Building C# project '{}'...", projectName);
+
+		String output = Platform::ReadProcess(process);
+		Platform::DestroyProcess(process);
+
+		bool succeeded = ContainsIgnoreCase(output, "Build succeeded") && !ContainsIgnoreCase(output, ": error");
+
+		if (succeeded)
+		{
+			logger.Info("C# project '{}' built successfully.\n{}", projectName, output);
+			return true;
+		}
+
+		logger.Error("C# project '{}' build failed.\n{}", projectName, output);
+		return false;
+	}
+
 	void OpenProjectInEditor(StringView projectPath)
 	{
 		if (FileSystem::GetFileStatus(Path::Join(projectPath, "CMakeLists.txt")).exists)
@@ -188,7 +227,7 @@ namespace Skore
 			}
 			args.EmplaceBack(nullptr);
 
-			if (VoidPtr process = Platform::CreateProcess(args.Data(), false))
+			if (VoidPtr process = Platform::CreateProcess(args.Data(), false, true))
 			{
 				Platform::DestroyProcess(process);
 				return;

@@ -9,6 +9,7 @@ namespace Skore
 	SK_API void CreateCMakeProject(StringView directory);
 	SK_API bool HasDotnetProject(StringView directory);
 	SK_API void CreateDotnetProject(StringView directory);
+	SK_API bool BuildDotnetProject(StringView directory);
 	SK_API void WriteDotnetEngineProps(StringView directory);
 	SK_API void OpenProjectInEditor(StringView projectPath);
 	SK_API void OpenDotnetProjectInEditor(StringView projectPath);
