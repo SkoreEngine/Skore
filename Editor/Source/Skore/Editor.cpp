@@ -318,6 +318,16 @@ namespace Skore
 			CreateCMakeProject(projectPath);
 		}
 
+		bool CreateDotnetProjectVisible(const MenuItemEventData& eventData)
+		{
+			return !HasDotnetProject(projectPath);
+		}
+
+		void CreateDotnetProject(const MenuItemEventData& eventData)
+		{
+			CreateDotnetProject(projectPath);
+		}
+
 
 		void ExportProject(bool run)
 		{
@@ -463,6 +473,16 @@ namespace Skore
 			OpenProjectInEditor(projectPath);
 		}
 
+		bool CanOpenDotnetEditor(const MenuItemEventData& eventData)
+		{
+			return HasDotnetProject(projectPath);
+		}
+
+		void OpenDotnetProjectInEditorAction(const MenuItemEventData& eventData)
+		{
+			OpenDotnetProjectInEditor(projectPath);
+		}
+
 
 
 		void CreateMenuItems()
@@ -487,7 +507,9 @@ namespace Skore
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Build", .priority = 55});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools", .priority = 50});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Open Editor", .priority = 5, .action = OpenProjectInEditorAction, .visible = CanOpenEditor});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Open C# Project", .priority = 7, .action = OpenDotnetProjectInEditorAction, .visible = CanOpenDotnetEditor});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create CMake Project", .priority = 10, .action = CreateCMakeProject, .visible = CreateCMakeProjectVisible});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create C# Project", .priority = 15, .action = CreateDotnetProject, .visible = CreateDotnetProjectVisible});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Reload Shaders", .priority = 100, .itemShortcut = {.presKey = Key::F5}, .action = ReloadShaders});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Show Debug Options", .priority = 105, .action = ShowDebugOptions, .selected = IsDebugOptionsEnabled});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window", .priority = 60});
@@ -1331,6 +1353,10 @@ namespace Skore
 
 		FileSystem::CreateDirectory(projectTempPath);
 
+		if (HasDotnetProject(projectPath))
+		{
+			WriteDotnetEngineProps(projectPath);
+		}
 
 		logger.Info("Initializing Editor with project: {}", projectFile);
 

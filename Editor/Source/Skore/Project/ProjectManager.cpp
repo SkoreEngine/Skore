@@ -106,6 +106,10 @@ namespace Skore
 		{
 			CreateCMakeProject(projectPath);
 		}
+		else if (templateId == 3)
+		{
+			CreateDotnetProject(projectPath);
+		}
 
 		FileSystem::SaveFileAsString(projectFile, "packages: []\n");
 
@@ -400,6 +404,22 @@ namespace Skore
 								if (state.clicked)
 								{
 									templateSelected = 2;
+								}
+							}
+
+							{
+								ImGuiContentItemDesc contentItem{};
+								contentItem.id = 879457896;
+								contentItem.label = "C# Project";
+								contentItem.thumbnailScale = 1.0;
+								contentItem.texture = emptyProject;
+								contentItem.selected = templateSelected == 3;
+
+								ImGuiContentItemState state = ImGuiContentItem(contentItem);
+
+								if (state.clicked)
+								{
+									templateSelected = 3;
 								}
 							}
 

@@ -71,6 +71,86 @@ namespace Skore
 		FileSystem::SaveFileAsString(Path::Join(directory, "Source",  entryPointFile, "EntryPoint.cpp"), cppSource);
 	}
 
+	bool HasDotnetProject(StringView directory)
+	{
+		String projectName = Path::Name(directory);
+		bool   exists = FileSystem::GetFileStatus(Path::Join(directory, projectName + ".csproj")).exists;
+		return exists;
+	}
+
+	void WriteDotnetEngineProps(StringView directory)
+	{
+		String enginePath = Path::Join(FileSystem::CurrentDir(), "managed");
+		for (usize i = 0; i < enginePath.Size(); ++i)
+		{
+			if (enginePath[i] == '\\')
+			{
+				enginePath[i] = '/';
+			}
+		}
+
+		String props;
+		props += "<Project>\n";
+		props += "	<PropertyGroup>\n";
+		props += "		<SkoreEnginePath>" + enginePath + "</SkoreEnginePath>\n";
+		props += "	</PropertyGroup>\n";
+		props += "</Project>\n";
+
+		FileSystem::SaveFileAsString(Path::Join(directory, "Intermediate", "Scripting", "SkoreEngine.props"), props);
+	}
+
+	void CreateDotnetProject(StringView directory)
+	{
+		String projectName = Path::Name(directory);
+
+		String csproj;
+		csproj += "<Project>\n\n";
+		csproj += "	<PropertyGroup>\n";
+		csproj += "		<BaseIntermediateOutputPath>Intermediate/Scripting/obj/</BaseIntermediateOutputPath>\n";
+		csproj += "	</PropertyGroup>\n\n";
+		csproj += "	<Import Project=\"Sdk.props\" Sdk=\"Microsoft.NET.Sdk\" />\n\n";
+		csproj += "	<Import Project=\"Intermediate/Scripting/SkoreEngine.props\" Condition=\"Exists('Intermediate/Scripting/SkoreEngine.props')\" />\n\n";
+		csproj += "	<PropertyGroup>\n";
+		csproj += "		<TargetFramework>net10.0</TargetFramework>\n";
+		csproj += "		<RootNamespace>" + projectName + "</RootNamespace>\n";
+		csproj += "		<AssemblyName>" + projectName + "</AssemblyName>\n";
+		csproj += "		<ImplicitUsings>enable</ImplicitUsings>\n";
+		csproj += "		<Nullable>enable</Nullable>\n";
+		csproj += "		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>\n";
+		csproj += "		<EnableDynamicLoading>true</EnableDynamicLoading>\n";
+		csproj += "		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>\n";
+		csproj += "		<AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>\n";
+		csproj += "		<OutputPath>Intermediate/Scripting/</OutputPath>\n";
+		csproj += "		<EnableDefaultNoneItems>false</EnableDefaultNoneItems>\n";
+		csproj += "		<DefaultItemExcludes>$(DefaultItemExcludes);Intermediate/**;Local/**;Packages/**</DefaultItemExcludes>\n";
+		csproj += "	</PropertyGroup>\n\n";
+		csproj += "	<ItemGroup>\n";
+		csproj += "		<Reference Include=\"SkoreEngine\">\n";
+		csproj += "			<HintPath>$(SkoreEnginePath)/SkoreEngine.dll</HintPath>\n";
+		csproj += "			<Private>false</Private>\n";
+		csproj += "		</Reference>\n";
+		csproj += "	</ItemGroup>\n\n";
+		csproj += "	<Target Name=\"EnsureSkoreEnginePath\" BeforeTargets=\"ResolveAssemblyReferences\" Condition=\"'$(SkoreEnginePath)' == ''\">\n";
+		csproj += "		<Error Text=\"SkoreEnginePath is not set. Open this project in the Skore editor to generate Intermediate/Scripting/SkoreEngine.props.\" />\n";
+		csproj += "	</Target>\n\n";
+		csproj += "	<Import Project=\"Sdk.targets\" Sdk=\"Microsoft.NET.Sdk\" />\n\n";
+		csproj += "</Project>\n";
+
+		FileSystem::SaveFileAsString(Path::Join(directory, projectName + ".csproj"), csproj);
+
+		WriteDotnetEngineProps(directory);
+
+		String gitignorePath = Path::Join(directory, ".gitignore");
+		if (!FileSystem::GetFileStatus(gitignorePath).exists)
+		{
+			String gitignore;
+			gitignore += "# Skore generated\n";
+			gitignore += "/Intermediate/\n";
+			gitignore += "/Local/\n";
+			FileSystem::SaveFileAsString(gitignorePath, gitignore);
+		}
+	}
+
 	void OpenProjectInEditor(StringView projectPath)
 	{
 		if (FileSystem::GetFileStatus(Path::Join(projectPath, "CMakeLists.txt")).exists)
@@ -78,6 +158,22 @@ namespace Skore
 			//TODO: only clion now, add vs and vscode later
 			String command = "clion ";
 			command += projectPath;
+			command += " &";
+
+			system(command.CStr());
+		}
+	}
+
+	void OpenDotnetProjectInEditor(StringView projectPath)
+	{
+		String projectName = Path::Name(projectPath);
+		String csprojPath = Path::Join(projectPath, projectName + ".csproj");
+
+		if (FileSystem::GetFileStatus(csprojPath).exists)
+		{
+			//TODO: only rider now, add vs and vscode later
+			String command = "rider ";
+			command += csprojPath;
 			command += " &";
 
 			system(command.CStr());
