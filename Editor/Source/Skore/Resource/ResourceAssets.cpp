@@ -2767,6 +2767,7 @@ namespace Skore
 	void RegisterAnimationControllerHandler();
 	void RegisterDCCAssetHandler();
 	void RegisterRmlUiHandler();
+	void RegisterCSharpScriptHandler();
 
 	void RegisterAudioImporter();
 	void RegisterTextureImporter();
@@ -2860,6 +2861,7 @@ namespace Skore
 		RegisterAnimationControllerHandler();
 		RegisterDCCAssetHandler();
 		RegisterRmlUiHandler();
+		RegisterCSharpScriptHandler();
 
 		RegisterAudioImporter();
 		RegisterTextureImporter();

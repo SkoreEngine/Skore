@@ -9,7 +9,6 @@ namespace Skore
 	{
 		Resources::Type<ResourceFile>()
 			.Field<ResourceFile::Name>(ResourceFieldType::String)
-			.Field<ResourceFile::Content>(ResourceFieldType::Blob)
 			.Build();
 
 		// RID

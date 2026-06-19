@@ -1,10 +1,12 @@
 #include "Skore/Utils/ProjectUtils.hpp"
 
+#include "Skore/Core/Array.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Platform/Platform.hpp"
 
 
 namespace Skore
@@ -164,6 +166,36 @@ namespace Skore
 		}
 	}
 
+	static void RunRider(StringView csprojPath, StringView filePath)
+	{
+#if defined(SK_WIN)
+		const char* launchers[] = {"rider.cmd", "rider.bat", "rider64.exe", "rider.exe"};
+#else
+		const char* launchers[] = {"rider"};
+#endif
+
+		for (const char* launcher : launchers)
+		{
+			Array<const char*> args;
+			args.EmplaceBack(launcher);
+			if (!csprojPath.Empty())
+			{
+				args.EmplaceBack(csprojPath.CStr());
+			}
+			if (!filePath.Empty())
+			{
+				args.EmplaceBack(filePath.CStr());
+			}
+			args.EmplaceBack(nullptr);
+
+			if (VoidPtr process = Platform::CreateProcess(args.Data(), false))
+			{
+				Platform::DestroyProcess(process);
+				return;
+			}
+		}
+	}
+
 	void OpenDotnetProjectInEditor(StringView projectPath)
 	{
 		String projectName = Path::Name(projectPath);
@@ -171,12 +203,24 @@ namespace Skore
 
 		if (FileSystem::GetFileStatus(csprojPath).exists)
 		{
-			//TODO: only rider now, add vs and vscode later
-			String command = "rider ";
-			command += csprojPath;
-			command += " &";
+			RunRider(csprojPath, {});
+		}
+	}
 
-			system(command.CStr());
+	void OpenDotnetFileInEditor(StringView projectPath, StringView filePath)
+	{
+		String projectName = Path::Name(projectPath);
+		String csprojPath = Path::Join(projectPath, projectName + ".csproj");
+		String file = filePath;
+
+		//passing the project first makes rider reuse the window when the project is already open
+		if (FileSystem::GetFileStatus(csprojPath).exists)
+		{
+			RunRider(csprojPath, file);
+		}
+		else
+		{
+			RunRider({}, file);
 		}
 	}
 }

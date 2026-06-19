@@ -156,8 +156,7 @@ namespace Skore
 	{
 		enum
 		{
-			Name,
-			Content
+			Name
 		};
 	};
 

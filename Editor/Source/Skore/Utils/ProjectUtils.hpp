@@ -12,4 +12,5 @@ namespace Skore
 	SK_API void WriteDotnetEngineProps(StringView directory);
 	SK_API void OpenProjectInEditor(StringView projectPath);
 	SK_API void OpenDotnetProjectInEditor(StringView projectPath);
+	SK_API void OpenDotnetFileInEditor(StringView projectPath, StringView filePath);
 }
