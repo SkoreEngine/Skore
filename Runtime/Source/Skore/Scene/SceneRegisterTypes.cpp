@@ -1,3 +1,4 @@
+#include "Components/ScriptComponent.hpp"
 #include "Skore/Scene/Component.hpp"
 #include "Skore/Scene/LayerSystem.hpp"
 #include "Skore/Scene/Physics.hpp"
@@ -123,6 +124,7 @@ namespace Skore
 		Reflection::Type<Component>();
 		Reflection::Type<Transform>();
 		Reflection::Type<Transform2D>();
+		Reflection::Type<ScriptComponent>();
 		Reflection::Type<Camera>();
 		Reflection::Type<RendererComponent>();
 		Reflection::Type<StaticMeshRenderer>();

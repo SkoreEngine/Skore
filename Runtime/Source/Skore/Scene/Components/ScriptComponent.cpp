@@ -1,41 +1,56 @@
 #include "ScriptComponent.hpp"
 
+#include "Skore/Core/Reflection.hpp"
+
 namespace Skore
 {
+	ScriptComponent::ScriptComponent(ReflectType* type, VoidPtr instance, ScriptComponentApi* api) : m_type(type), m_instance(instance), m_api(api)
+	{
+	}
+
 	TypeID ScriptComponent::GetTypeId() const
 	{
+		if (m_type)
+		{
+			return m_type->GetProps().typeId;
+		}
 		return Component::GetTypeId();
 	}
 
 	void ScriptComponent::OnCreate()
 	{
-		if (m_onCreate)
+		if (m_api->onCreate)
 		{
-			m_onCreate(this);
+			m_api->onCreate(m_instance);
 		}
 	}
 
 	void ScriptComponent::OnDestroy()
 	{
-		if (m_onDestroy)
+		if (m_api->onDestroy)
 		{
-			m_onDestroy(this);
+			m_api->onDestroy(m_instance);
 		}
 	}
 
 	void ScriptComponent::OnStart()
 	{
-		if (m_onStart)
+		if (m_api->onStart)
 		{
-			m_onStart(this);
+			m_api->onStart(m_instance);
 		}
 	}
 
 	void ScriptComponent::ProcessEvent(const EntityEventDesc& event)
 	{
-		if (m_onProcessEvent)
+		if (m_api->onProcessEvent)
 		{
-			m_onProcessEvent(this, event);
+			m_api->onProcessEvent(m_instance, event);
 		}
+	}
+
+	void ScriptComponent::RegisterType(NativeReflectType<ScriptComponent>& type)
+	{
+		type.Constructor<ReflectType*, VoidPtr, ScriptComponentApi*>("type", "instance", "api");
 	}
 }

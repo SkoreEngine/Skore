@@ -14,8 +14,8 @@ namespace Skore
 		type.Function<&Component::GetScene>("GetScene");
 		type.Function<&Component::GetRID>("GetRID");
 
-		type.Function<&Component::OnCreate>("Create").Attribute<VirtualMethod>();
-		type.Function<&Component::OnDestroy>("Destroy").Attribute<VirtualMethod>();
+		type.Function<&Component::OnCreate>("OnCreate").Attribute<VirtualMethod>();
+		type.Function<&Component::OnDestroy>("OnDestroy").Attribute<VirtualMethod>();
 		type.Function<&Component::OnStart>("OnStart").Attribute<VirtualMethod>();
 		type.Function<&Component::ProcessEvent>("ProcessEvent", "event").Attribute<VirtualMethod>();
 	}
