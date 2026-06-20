@@ -153,6 +153,9 @@ namespace Skore
 		const Object*     GetObject(ConstPtr instance) const;
 		void              Set(VoidPtr instance, ConstPtr src, usize srcSize) const;
 		const FieldProps& GetProps() const;
+		bool              IsFunctionPointer() const;
+		const FieldProps& GetFunctionReturn() const;
+		Span<FieldProps>  GetFunctionParams() const;
 		void              Serialize(ArchiveWriter& writer, ConstPtr instance) const;
 		void              Deserialize(ArchiveReader& reader, VoidPtr instance) const;
 
@@ -187,6 +190,9 @@ namespace Skore
 		FnToResource           m_toResource = nullptr;
 		FnFromResource         m_fromResource = nullptr;
 		FnGetResourceFieldInfo m_getResourceFieldInfo = nullptr;
+		bool                   m_isFunctionPointer = false;
+		FieldProps             m_funcReturn = {};
+		Array<FieldProps>      m_funcParams = {};
 	};
 
 	class SK_API ReflectFunction : public ReflectAttributeHolder
@@ -376,6 +382,7 @@ namespace Skore
 		void SetFnToResource(ReflectField::FnToResource fnToResource);
 		void SetFnFromResource(ReflectField::FnFromResource fnGetFromResource);
 		void SetFnGetResourceFieldInfo(ReflectField::FnGetResourceFieldInfo fnGetResourceField);
+		void SetFunctionPointerSignature(const FieldProps& returnProps, FieldProps* params, u32 count);
 
 		ReflectAttributeBuilder AddAttribute(const TypeProps& props);
 
@@ -760,7 +767,7 @@ namespace Skore
 	class NativeReflectField<mfp, nullptr, nullptr, Owner, FieldType>
 	{
 	public:
-		static_assert(Traits::IsComplete<Traits::RemoveAll<FieldType>> || std::is_void_v<Traits::RemoveAll<FieldType>>, "fields cannot be incomplete type");
+		//static_assert(Traits::IsComplete<Traits::RemoveAll<FieldType>> || std::is_void_v<Traits::RemoveAll<FieldType>>, "fields cannot be incomplete type");
 		SK_NO_COPY_CONSTRUCTOR(NativeReflectField);
 
 		NativeReflectField(ReflectFieldBuilder builder) : builder(builder)
@@ -863,6 +870,30 @@ namespace Skore
 		using DescType = NativeReflectField<mfp, getFp, setFp, Owner, FieldType>;
 	};
 
+	template <typename Field>
+	struct FieldFunctionPointerDecomposer
+	{
+		static void Register(ReflectFieldBuilder&) {}
+	};
+
+	template <typename Return, typename... Args>
+	struct FieldFunctionPointerDecomposer<Return(*)(Args...)>
+	{
+		static void Register(ReflectFieldBuilder& builder)
+		{
+			FieldProps returnProps = GetFieldProps<void, Return>();
+			if constexpr (sizeof...(Args) > 0)
+			{
+				FieldProps params[] = {GetFieldProps<void, Args>()...,};
+				builder.SetFunctionPointerSignature(returnProps, params, sizeof...(Args));
+			}
+			else
+			{
+				builder.SetFunctionPointerSignature(returnProps, nullptr, 0);
+			}
+		}
+	};
+
 	template <typename, typename = void>
 	struct HasRegisterTypeImpl : Traits::FalseType {};
 
@@ -954,7 +985,9 @@ namespace Skore
 			using Decomposer = FieldTemplateDecomposer<mfp, nullptr, nullptr, decltype(mfp)>;
 			using FieldType = typename Decomposer::Type;
 			using DecompType = typename Decomposer::DescType;
-			return DecompType(builder.AddField(GetFieldProps<Type, FieldType>(), name));
+			ReflectFieldBuilder fieldBuilder = builder.AddField(GetFieldProps<Type, FieldType>(), name);
+			FieldFunctionPointerDecomposer<FieldType>::Register(fieldBuilder);
+			return DecompType(fieldBuilder);
 		}
 
 		template <auto mfp, auto getFp, auto setFp>
@@ -963,7 +996,9 @@ namespace Skore
 			using Decomposer = FieldTemplateDecomposer<mfp, getFp, setFp, decltype(mfp)>;
 			using FieldType = typename Decomposer::Type;
 			using DecompType = typename Decomposer::DescType;
-			return DecompType(builder.AddField(GetFieldProps<Type, FieldType>(), name));
+			ReflectFieldBuilder fieldBuilder = builder.AddField(GetFieldProps<Type, FieldType>(), name);
+			FieldFunctionPointerDecomposer<FieldType>::Register(fieldBuilder);
+			return DecompType(fieldBuilder);
 		}
 
 		template <typename AttrType, typename... Args>

@@ -10,6 +10,9 @@ namespace Skore
 	class Entity;
 	class PhysicsScene;
 
+	using EmptyFp = void(*)(VoidPtr instance);
+	using EventFp = void(*)(VoidPtr instance, const EntityEventDesc& event);
+
 	struct Collision
 	{
 		Entity* entity = nullptr;        // The other entity involved in the collision
@@ -54,6 +57,38 @@ namespace Skore
 		void RegisterEvents();
 		void RemoveEvents();
 	};
+
+	struct ComponentProxyApi
+	{
+		EmptyFp onCreate = {};
+		EmptyFp onDestroy = {};
+		EmptyFp onStart = {};
+		EventFp onProcessEvent = {};
+	};
+
+	class ComponentProxy : public Component
+	{
+	public:
+		using Base = Component;
+
+		ComponentProxy(ReflectType* type, VoidPtr instance, VoidPtr api);
+
+		TypeID  GetTypeId() const override;
+		VoidPtr GetInstance() override;
+
+		void    OnCreate() override;
+		void    OnDestroy() override;
+		void    OnStart() override;
+		void    ProcessEvent(const EntityEventDesc& event) override;
+
+		static void RegisterType(NativeReflectType<ComponentProxy>& type);
+
+	private:
+		ReflectType*       m_type{};
+		VoidPtr            m_instance{};
+		ComponentProxyApi* m_api{};
+	};
+
 
 	class SK_API Tickable
 	{

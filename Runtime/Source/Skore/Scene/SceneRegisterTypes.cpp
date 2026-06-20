@@ -1,4 +1,3 @@
-#include "Components/ScriptComponent.hpp"
 #include "Skore/Scene/Component.hpp"
 #include "Skore/Scene/LayerSystem.hpp"
 #include "Skore/Scene/Physics.hpp"
@@ -124,7 +123,6 @@ namespace Skore
 		Reflection::Type<Component>();
 		Reflection::Type<Transform>();
 		Reflection::Type<Transform2D>();
-		Reflection::Type<ScriptComponent>();
 		Reflection::Type<Camera>();
 		Reflection::Type<RendererComponent>();
 		Reflection::Type<StaticMeshRenderer>();
@@ -146,6 +144,12 @@ namespace Skore
 		Reflection::Type<AudioSource>();
 		Reflection::Type<AudioListener>();
 		Reflection::Type<ParticleEmitter>();
+
+		auto componentProxyApi = Reflection::Type<ComponentProxyApi>();
+		componentProxyApi.Field<&ComponentProxyApi::onCreate>("onCreate");
+		componentProxyApi.Field<&ComponentProxyApi::onDestroy>("onDestroy");
+		componentProxyApi.Field<&ComponentProxyApi::onStart>("onStart");
+		componentProxyApi.Field<&ComponentProxyApi::onProcessEvent>("onProcessEvent");
 
 #ifdef SK_ENABLE_ALPHA_FEATURES
 		//XR

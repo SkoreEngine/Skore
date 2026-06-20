@@ -268,6 +268,21 @@ namespace Skore
 		return m_props;
 	}
 
+	bool ReflectField::IsFunctionPointer() const
+	{
+		return m_isFunctionPointer;
+	}
+
+	const FieldProps& ReflectField::GetFunctionReturn() const
+	{
+		return m_funcReturn;
+	}
+
+	Span<FieldProps> ReflectField::GetFunctionParams() const
+	{
+		return m_funcParams;
+	}
+
 	void ReflectField::Serialize(ArchiveWriter& writer, ConstPtr instance) const
 	{
 		if (m_serialize)
@@ -672,6 +687,18 @@ namespace Skore
 	void ReflectFieldBuilder::SetFnGetResourceFieldInfo(ReflectField::FnGetResourceFieldInfo fnGetResourceField)
 	{
 		field->m_getResourceFieldInfo = fnGetResourceField;
+	}
+
+	void ReflectFieldBuilder::SetFunctionPointerSignature(const FieldProps& returnProps, FieldProps* params, u32 count)
+	{
+		field->m_isFunctionPointer = true;
+		field->m_funcReturn = returnProps;
+		field->m_funcParams.Clear();
+		field->m_funcParams.Reserve(count);
+		for (u32 i = 0; i < count; ++i)
+		{
+			field->m_funcParams.EmplaceBack(params[i]);
+		}
 	}
 
 	ReflectAttributeBuilder ReflectFieldBuilder::AddAttribute(const TypeProps& props)

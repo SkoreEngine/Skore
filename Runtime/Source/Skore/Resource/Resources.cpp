@@ -1755,7 +1755,7 @@ namespace Skore
 	bool Resources::FromResource(RID rid, Object* object, VoidPtr userData)
 	{
 		if (object == nullptr) return false;
-		return FromResource(rid, nullptr, userData);
+		return FromResource(rid, object->GetInstance(), userData);
 	}
 
 	Array<CompareSubObjectListResult> Resources::CompareSubObjectList(const ResourceObject& oldObject, const ResourceObject& newObject, u32 index)

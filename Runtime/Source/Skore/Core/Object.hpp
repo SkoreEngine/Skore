@@ -48,6 +48,11 @@ namespace Skore
 			return static_cast<T*>(this);
 		}
 
+		virtual VoidPtr GetInstance()
+		{
+			return this;
+		}
+
 		virtual void Serialize(ArchiveWriter& archiveWriter) const;
 		virtual void Deserialize(ArchiveReader& archiveReader);
 	};

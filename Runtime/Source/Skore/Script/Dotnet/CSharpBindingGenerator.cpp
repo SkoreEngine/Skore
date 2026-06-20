@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "Skore/Core/Array.hpp"
+#include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -463,6 +464,80 @@ namespace Skore
 			return ParseContainer(name, StringView{"Skore::Array<"}, genTypes, out, allowValueClass);
 		}
 
+		bool ResolveFunctionPointerArg(const FieldProps& props, const HashMap<TypeID, GenType>& genTypes, String& out)
+		{
+			bool isVoid = props.name == "void" && !props.isPointer && !props.isReference;
+			if (isVoid)
+			{
+				out = "void";
+				return true;
+			}
+			if (props.isPointer && props.name == "void")
+			{
+				out = "IntPtr";
+				return true;
+			}
+			String prim{};
+			if (MapPrimitive(props.name, prim) || MapKnownType(props.name, prim))
+			{
+				out = prim;
+				if (props.isPointer || props.isReference)
+				{
+					out += "*";
+				}
+				return true;
+			}
+			String handleWrapper{};
+			if ((props.isPointer || props.isReference) && MapHandleWrapper(props.name, handleWrapper))
+			{
+				out = "IntPtr";
+				return true;
+			}
+			if (auto it = genTypes.Find(props.typeId))
+			{
+				if (it->second.kind == CsKind::Enum || it->second.kind == CsKind::Struct)
+				{
+					out = it->second.fullName;
+					if (props.isPointer || props.isReference)
+					{
+						out += "*";
+					}
+					return true;
+				}
+				if (it->second.kind == CsKind::Class && (props.isPointer || props.isReference))
+				{
+					out = "IntPtr";
+					return true;
+				}
+			}
+			return false;
+		}
+
+		bool BuildFunctionPointerType(const ReflectField* field, const HashMap<TypeID, GenType>& genTypes, String& out)
+		{
+			String returnType{};
+			if (!ResolveFunctionPointerArg(field->GetFunctionReturn(), genTypes, returnType))
+			{
+				return false;
+			}
+			String sig = "delegate* unmanaged[Cdecl]<";
+			Span<FieldProps> params = field->GetFunctionParams();
+			for (usize i = 0; i < params.Size(); ++i)
+			{
+				String paramType{};
+				if (!ResolveFunctionPointerArg(params[i], genTypes, paramType))
+				{
+					return false;
+				}
+				sig += paramType;
+				sig += ", ";
+			}
+			sig += returnType;
+			sig += ">";
+			out = sig;
+			return true;
+		}
+
 		bool CanEmitNamedFields(const GenType& genType, const HashMap<TypeID, GenType>& genTypes)
 		{
 			Span<ReflectField*> fields = genType.type->GetFields();
@@ -473,6 +548,15 @@ namespace Skore
 			for (usize i = 0; i < fields.Size(); ++i)
 			{
 				const FieldProps& fp = fields[i]->GetProps();
+				if (fields[i]->IsFunctionPointer())
+				{
+					String sig{};
+					if (BuildFunctionPointerType(fields[i], genTypes, sig))
+					{
+						continue;
+					}
+					return false;
+				}
 				if (fp.isReference)
 				{
 					return false;
@@ -697,6 +781,7 @@ namespace Skore
 			Array<String> prologue{};
 			Array<String> epilogue{};
 			bool          hidesBase = false;
+			bool          isVirtual = false;
 		};
 
 		bool HidesObjectMethod(StringView name, usize paramCount)
@@ -727,6 +812,7 @@ namespace Skore
 				FunctionEmit emit{};
 				emit.index = static_cast<u32>(i);
 				emit.isStatic = function->IsStatic();
+				emit.isVirtual = !emit.isStatic && !valueType && function->HasAttribute<VirtualMethod>();
 				if (valueType && !emit.isStatic)
 				{
 					emit.selfType = genType.fullName;
@@ -735,7 +821,7 @@ namespace Skore
 				bool   ok = true;
 				String reason{};
 
-				if (function->GetFunctionPointer() == nullptr)
+				if (!emit.isVirtual && function->GetFunctionPointer() == nullptr)
 				{
 					ok = false;
 					reason = "no function pointer";
@@ -1604,15 +1690,22 @@ namespace Skore
 			writer.Blank();
 
 			String signature = "public ";
-			if (function.hidesBase)
+			if (function.isVirtual)
 			{
-				signature += "new ";
+				signature += "virtual ";
 			}
-			if (function.isStatic)
+			else
 			{
-				signature += "static ";
+				if (function.hidesBase)
+				{
+					signature += "new ";
+				}
+				if (function.isStatic)
+				{
+					signature += "static ";
+				}
+				signature += "unsafe ";
 			}
-			signature += "unsafe ";
 			signature += function.returnType;
 			signature += " ";
 			signature += function.name;
@@ -1631,6 +1724,17 @@ namespace Skore
 			writer.Line(signature);
 			writer.Line("{");
 			writer.indent++;
+
+			if (function.isVirtual)
+			{
+				if (function.returnType != "void")
+				{
+					writer.Line("return default!;");
+				}
+				writer.indent--;
+				writer.Line("}");
+				return;
+			}
 
 			bool valueInstance = !function.selfType.Empty();
 			if (valueInstance)
@@ -1747,6 +1851,20 @@ namespace Skore
 
 			bool named = CanEmitNamedFields(genType, genTypes);
 
+			bool namedHasFunctionPtr = false;
+			if (named)
+			{
+				Span<ReflectField*> namedFields = genType.type->GetFields();
+				for (usize i = 0; i < namedFields.Size(); ++i)
+				{
+					if (namedFields[i]->IsFunctionPointer())
+					{
+						namedHasFunctionPtr = true;
+						break;
+					}
+				}
+			}
+
 			bool staticOnly = genType.type->GetFields().Empty() && constructorEmits.Empty();
 			for (const FunctionEmit& function : functionEmits)
 			{
@@ -1788,7 +1906,7 @@ namespace Skore
 			}
 
 			writer.Line("[StructLayout(LayoutKind.Sequential)]");
-			String decl = named ? "public partial struct " : "public unsafe partial struct ";
+			String decl = (named && !namedHasFunctionPtr) ? "public partial struct " : "public unsafe partial struct ";
 			decl += genType.simpleName;
 			writer.Line(decl);
 			writer.Line("{");
@@ -1801,7 +1919,18 @@ namespace Skore
 				{
 					const FieldProps& fp = fields[i]->GetProps();
 					String            className{};
-					if (fp.isPointer && ResolveClassName(fp, genTypes, className))
+					if (fields[i]->IsFunctionPointer())
+					{
+						String sig{};
+						BuildFunctionPointerType(fields[i], genTypes, sig);
+						String line = "public ";
+						line += sig;
+						line += " ";
+						line += Disambiguate(ToPascalCase(fields[i]->GetName()), usedNames);
+						line += ";";
+						writer.Line(line);
+					}
+					else if (fp.isPointer && ResolveClassName(fp, genTypes, className))
 					{
 						String backing = "__obj";
 						backing += I64ToStr(static_cast<i64>(i));

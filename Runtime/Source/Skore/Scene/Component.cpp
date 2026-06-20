@@ -91,4 +91,59 @@ namespace Skore
 			}
 		}
 	}
+
+	ComponentProxy::ComponentProxy(ReflectType* type, VoidPtr instance, VoidPtr api) : m_type(type), m_instance(instance), m_api(static_cast<ComponentProxyApi*>(api))
+	{
+	}
+
+	TypeID ComponentProxy::GetTypeId() const
+	{
+		if (m_type)
+		{
+			return m_type->GetProps().typeId;
+		}
+		return Component::GetTypeId();
+	}
+
+	VoidPtr ComponentProxy::GetInstance()
+	{
+		return m_instance;
+	}
+
+	void ComponentProxy::OnCreate()
+	{
+		if (m_api->onCreate)
+		{
+			m_api->onCreate(m_instance);
+		}
+	}
+
+	void ComponentProxy::OnDestroy()
+	{
+		if (m_api->onDestroy)
+		{
+			m_api->onDestroy(m_instance);
+		}
+	}
+
+	void ComponentProxy::OnStart()
+	{
+		if (m_api->onStart)
+		{
+			m_api->onStart(m_instance);
+		}
+	}
+
+	void ComponentProxy::ProcessEvent(const EntityEventDesc& event)
+	{
+		if (m_api->onProcessEvent)
+		{
+			m_api->onProcessEvent(m_instance, event);
+		}
+	}
+
+	void ComponentProxy::RegisterType(NativeReflectType<ComponentProxy>& type)
+	{
+		type.Constructor<ReflectType*, VoidPtr, VoidPtr>("type", "instance", "api");
+	}
 }
