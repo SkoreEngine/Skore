@@ -65,5 +65,52 @@ namespace Skore
         public delegate* unmanaged[Cdecl]<IntPtr, IntPtr> ValueGetValue;
         public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, byte> ValueCompare;
         public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> ValueSetToPointer;
+
+        public delegate* unmanaged[Cdecl]<StringView, StringView, TypeProps*, IntPtr> RegisterType;
+
+        public delegate* unmanaged[Cdecl]<IntPtr, FieldProps*, StringView, IntPtr> TypeBuilderAddField;
+        public delegate* unmanaged[Cdecl]<IntPtr, StringView, IntPtr> TypeBuilderAddFunction;
+        public delegate* unmanaged[Cdecl]<IntPtr, FieldProps*, StringView*, uint, IntPtr> TypeBuilderAddConstructor;
+        public delegate* unmanaged[Cdecl]<IntPtr, TypeProps*, IntPtr> TypeBuilderAddAttribute;
+        public delegate* unmanaged[Cdecl]<IntPtr, StringView, IntPtr> TypeBuilderAddValue;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> TypeBuilderSetFnDestroy;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> TypeBuilderSetFnCopy;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> TypeBuilderSetFnDestructor;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> TypeBuilderSetFnBatchDestructor;
+        public delegate* unmanaged[Cdecl]<IntPtr, TypeId, void> TypeBuilderAddBaseType;
+
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetSerializer;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetDeserialize;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetCopy;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetGet;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetGetObject;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetFnSet;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetFnToResource;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetFnFromResource;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetFnGetResourceFieldInfo;
+        public delegate* unmanaged[Cdecl]<IntPtr, FieldProps*, FieldProps*, uint, void> FieldBuilderSetFunctionPointerSignature;
+        public delegate* unmanaged[Cdecl]<IntPtr, TypeProps*, IntPtr> FieldBuilderAddAttribute;
+
+        public delegate* unmanaged[Cdecl]<IntPtr, StringView*, FieldProps*, uint, void> FunctionBuilderAddParams;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FunctionBuilderSetFnInvoke;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FunctionBuilderSetFunctionPointer;
+        public delegate* unmanaged[Cdecl]<IntPtr, FieldProps*, void> FunctionBuilderSetReturnProps;
+        public delegate* unmanaged[Cdecl]<IntPtr, byte, void> FunctionBuilderSetIsStatic;
+        public delegate* unmanaged[Cdecl]<IntPtr, TypeProps*, IntPtr> FunctionBuilderAddAttribute;
+
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> ConstructorBuilderSetPlacementNewFn;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> ConstructorBuilderSetNewObjectFn;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> ConstructorBuilderSetUserData;
+
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> ValueBuilderSetFnGetValue;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> ValueBuilderSetFnGetCode;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> ValueBuilderSetFnCompare;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> ValueBuilderSetFnSetToPointer;
+
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> AttributeBuilderSetGetValue;
+
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr> FieldGetUserData;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> FieldBuilderSetUserData;
+        public delegate* unmanaged[Cdecl]<IntPtr, IntPtr> ConstructorGetUserData;
     }
 }

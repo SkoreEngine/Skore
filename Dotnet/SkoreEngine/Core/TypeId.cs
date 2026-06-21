@@ -14,6 +14,19 @@ namespace Skore
 
         public bool Valid => Id > 0;
 
+        public static TypeId FromName(string name)
+        {
+            ulong hash = 0;
+            foreach (byte b in System.Text.Encoding.UTF8.GetBytes(name))
+            {
+                unchecked
+                {
+                    hash = b + (hash << 6) + (hash << 16) - hash;
+                }
+            }
+            return new TypeId(hash);
+        }
+
         public bool Equals(TypeId other) => Id == other.Id;
 
         public override bool Equals(object? obj) => obj is TypeId other && Equals(other);

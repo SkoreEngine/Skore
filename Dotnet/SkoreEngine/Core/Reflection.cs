@@ -82,5 +82,26 @@ namespace Skore
                 return fn(handle, new StringView(buffer, (ulong)byteCount));
             }
         }
+
+        public static ReflectTypeBuilder RegisterType(string name, string simpleName, TypeProps props)
+        {
+            fixed (char* nameChars = name)
+            fixed (char* simpleChars = simpleName)
+            {
+                int nameBytes = Encoding.UTF8.GetByteCount(nameChars, name.Length);
+                byte* nameBuffer = stackalloc byte[nameBytes];
+                Encoding.UTF8.GetBytes(nameChars, name.Length, nameBuffer, nameBytes);
+
+                int simpleBytes = Encoding.UTF8.GetByteCount(simpleChars, simpleName.Length);
+                byte* simpleBuffer = stackalloc byte[simpleBytes];
+                Encoding.UTF8.GetBytes(simpleChars, simpleName.Length, simpleBuffer, simpleBytes);
+
+                IntPtr handle = _api.RegisterType(
+                    new StringView(nameBuffer, (ulong)nameBytes),
+                    new StringView(simpleBuffer, (ulong)simpleBytes),
+                    &props);
+                return new ReflectTypeBuilder(handle);
+            }
+        }
     }
 }

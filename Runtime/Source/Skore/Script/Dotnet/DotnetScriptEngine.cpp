@@ -127,5 +127,62 @@ namespace Skore
 		const ReflectionApi* reflectionApi = GetReflectionApi();
 		i32                  result = bootstrap(const_cast<ReflectionApi*>(reflectionApi), static_cast<i32>(sizeof(ReflectionApi)));
 		logger.Debug("managed entry point 'Skore.EntryPoint.Bootstrap' invoked, returned {}", result);
+
+		Array<char_t> loadAssemblyMethod = ToCharT("LoadAssembly");
+		VoidPtr       fnLoadAssembly = nullptr;
+		if (i32 rc = loadAssembly(assemblyPathChars.Data(), typeNameChars.Data(), loadAssemblyMethod.Data(), UNMANAGEDCALLERSONLY_METHOD, nullptr, &fnLoadAssembly); rc != 0 || fnLoadAssembly == nullptr)
+		{
+			logger.Error("failed to resolve managed function 'LoadAssembly': {:#x}", static_cast<u32>(rc));
+			return;
+		}
+		m_fnLoadAssembly = reinterpret_cast<FnLoadAssembly>(fnLoadAssembly);
+	}
+
+	void DotnetScriptEngine::LoadAssemblyCallback(VoidPtr userData, TypeID typeId)
+	{
+		auto* types = static_cast<Array<ReflectType*>*>(userData);
+		if (ReflectType* type = Reflection::FindTypeById(typeId))
+		{
+			types->EmplaceBack(type);
+		}
+	}
+
+	void DotnetScriptEngine::LoadAssembly(StringView assemblyPath)
+	{
+		if (m_fnLoadAssembly == nullptr)
+		{
+			logger.Error("dotnet script engine not initialized, cannot load '{}'", assemblyPath);
+			return;
+		}
+
+		String path = assemblyPath;
+
+		Array<ReflectType*>& types = m_scriptTypes[path];
+		types.Clear();
+
+		m_fnLoadAssembly(assemblyPath, &types, &LoadAssemblyCallback);
+
+		logger.Info("loaded managed assembly '{}', {} script types registered", path, types.Size());
+	}
+
+	Array<ReflectType*> DotnetScriptEngine::GetScriptTypes() const
+	{
+		Array<ReflectType*> result{};
+
+		usize total = 0;
+		for (const auto& it : m_scriptTypes)
+		{
+			total += it.second.Size();
+		}
+		result.Reserve(total);
+
+		for (const auto& it : m_scriptTypes)
+		{
+			for (ReflectType* type : it.second)
+			{
+				result.EmplaceBack(type);
+			}
+		}
+		return result;
 	}
 }

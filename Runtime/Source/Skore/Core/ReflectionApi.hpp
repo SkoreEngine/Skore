@@ -4,6 +4,7 @@
 #include "Span.hpp"
 #include "StringView.hpp"
 #include "TypeInfo.hpp"
+#include "Reflection.hpp"
 
 namespace Skore
 {
@@ -76,6 +77,53 @@ namespace Skore
 		ConstPtr   (*ValueGetValue)(const ReflectValue* value);
 		bool       (*ValueCompare)(const ReflectValue* value, ConstPtr compareValue);
 		void       (*ValueSetToPointer)(const ReflectValue* value, VoidPtr pointer);
+
+		ReflectTypeBuilder        (*RegisterType)(StringView name, StringView simpleName, const TypeProps* props);
+
+		ReflectFieldBuilder       (*TypeBuilderAddField)(ReflectTypeBuilder builder, const FieldProps* props, StringView name);
+		ReflectFunctionBuilder    (*TypeBuilderAddFunction)(ReflectTypeBuilder builder, StringView name);
+		ReflectConstructorBuilder (*TypeBuilderAddConstructor)(ReflectTypeBuilder builder, FieldProps* props, StringView* names, u32 size);
+		ReflectAttributeBuilder   (*TypeBuilderAddAttribute)(ReflectTypeBuilder builder, const TypeProps* props);
+		ReflectValueBuilder       (*TypeBuilderAddValue)(ReflectTypeBuilder builder, StringView valueDesc);
+		void                      (*TypeBuilderSetFnDestroy)(ReflectTypeBuilder builder, VoidPtr fnDestroy);
+		void                      (*TypeBuilderSetFnCopy)(ReflectTypeBuilder builder, VoidPtr fnCopy);
+		void                      (*TypeBuilderSetFnDestructor)(ReflectTypeBuilder builder, VoidPtr fnDestructor);
+		void                      (*TypeBuilderSetFnBatchDestructor)(ReflectTypeBuilder builder, VoidPtr fnBatchDestructor);
+		void                      (*TypeBuilderAddBaseType)(ReflectTypeBuilder builder, TypeID typeId);
+
+		void                    (*FieldBuilderSetSerializer)(ReflectFieldBuilder builder, VoidPtr serialize);
+		void                    (*FieldBuilderSetDeserialize)(ReflectFieldBuilder builder, VoidPtr deserialize);
+		void                    (*FieldBuilderSetCopy)(ReflectFieldBuilder builder, VoidPtr copy);
+		void                    (*FieldBuilderSetGet)(ReflectFieldBuilder builder, VoidPtr get);
+		void                    (*FieldBuilderSetGetObject)(ReflectFieldBuilder builder, VoidPtr getObject);
+		void                    (*FieldBuilderSetFnSet)(ReflectFieldBuilder builder, VoidPtr set);
+		void                    (*FieldBuilderSetFnToResource)(ReflectFieldBuilder builder, VoidPtr fnToResource);
+		void                    (*FieldBuilderSetFnFromResource)(ReflectFieldBuilder builder, VoidPtr fnFromResource);
+		void                    (*FieldBuilderSetFnGetResourceFieldInfo)(ReflectFieldBuilder builder, VoidPtr fnGetResourceFieldInfo);
+		void                    (*FieldBuilderSetFunctionPointerSignature)(ReflectFieldBuilder builder, const FieldProps* returnProps, FieldProps* params, u32 count);
+		ReflectAttributeBuilder (*FieldBuilderAddAttribute)(ReflectFieldBuilder builder, const TypeProps* props);
+
+		void                    (*FunctionBuilderAddParams)(ReflectFunctionBuilder builder, StringView* names, FieldProps* props, u32 size);
+		void                    (*FunctionBuilderSetFnInvoke)(ReflectFunctionBuilder builder, VoidPtr fnInvoke);
+		void                    (*FunctionBuilderSetFunctionPointer)(ReflectFunctionBuilder builder, VoidPtr functionPointer);
+		void                    (*FunctionBuilderSetReturnProps)(ReflectFunctionBuilder builder, const FieldProps* returnProps);
+		void                    (*FunctionBuilderSetIsStatic)(ReflectFunctionBuilder builder, bool isStatic);
+		ReflectAttributeBuilder (*FunctionBuilderAddAttribute)(ReflectFunctionBuilder builder, const TypeProps* props);
+
+		void (*ConstructorBuilderSetPlacementNewFn)(ReflectConstructorBuilder builder, VoidPtr placementNew);
+		void (*ConstructorBuilderSetNewObjectFn)(ReflectConstructorBuilder builder, VoidPtr newObject);
+		void (*ConstructorBuilderSetUserData)(ReflectConstructorBuilder builder, VoidPtr userData);
+
+		void (*ValueBuilderSetFnGetValue)(ReflectValueBuilder builder, VoidPtr fnGetValue);
+		void (*ValueBuilderSetFnGetCode)(ReflectValueBuilder builder, VoidPtr fnGetCode);
+		void (*ValueBuilderSetFnCompare)(ReflectValueBuilder builder, VoidPtr fnCompare);
+		void (*ValueBuilderSetFnSetToPointer)(ReflectValueBuilder builder, VoidPtr fnSetToPointer);
+
+		void (*AttributeBuilderSetGetValue)(ReflectAttributeBuilder builder, VoidPtr fnGetValue);
+
+		VoidPtr (*FieldGetUserData)(const ReflectField* field);
+		void    (*FieldBuilderSetUserData)(ReflectFieldBuilder builder, VoidPtr userData);
+		VoidPtr (*ConstructorGetUserData)(const ReflectConstructor* constructor);
 	};
 
 	SK_API const ReflectionApi* GetReflectionApi();

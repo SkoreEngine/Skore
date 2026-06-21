@@ -153,6 +153,7 @@ namespace Skore
 		const Object*     GetObject(ConstPtr instance) const;
 		void              Set(VoidPtr instance, ConstPtr src, usize srcSize) const;
 		const FieldProps& GetProps() const;
+		VoidPtr           GetUserData() const;
 		bool              IsFunctionPointer() const;
 		const FieldProps& GetFunctionReturn() const;
 		Span<FieldProps>  GetFunctionParams() const;
@@ -193,6 +194,7 @@ namespace Skore
 		bool                   m_isFunctionPointer = false;
 		FieldProps             m_funcReturn = {};
 		Array<FieldProps>      m_funcParams = {};
+		VoidPtr                m_userData = nullptr;
 	};
 
 	class SK_API ReflectFunction : public ReflectAttributeHolder
@@ -383,6 +385,7 @@ namespace Skore
 		void SetFnFromResource(ReflectField::FnFromResource fnGetFromResource);
 		void SetFnGetResourceFieldInfo(ReflectField::FnGetResourceFieldInfo fnGetResourceField);
 		void SetFunctionPointerSignature(const FieldProps& returnProps, FieldProps* params, u32 count);
+		void SetUserData(VoidPtr userData);
 
 		ReflectAttributeBuilder AddAttribute(const TypeProps& props);
 

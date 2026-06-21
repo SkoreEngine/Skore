@@ -268,6 +268,11 @@ namespace Skore
 		return m_props;
 	}
 
+	VoidPtr ReflectField::GetUserData() const
+	{
+		return m_userData;
+	}
+
 	bool ReflectField::IsFunctionPointer() const
 	{
 		return m_isFunctionPointer;
@@ -699,6 +704,11 @@ namespace Skore
 		{
 			field->m_funcParams.EmplaceBack(params[i]);
 		}
+	}
+
+	void ReflectFieldBuilder::SetUserData(VoidPtr userData)
+	{
+		field->m_userData = userData;
 	}
 
 	ReflectAttributeBuilder ReflectFieldBuilder::AddAttribute(const TypeProps& props)
