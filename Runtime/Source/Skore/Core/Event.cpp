@@ -1,4 +1,7 @@
 #include "Skore/Core/Event.hpp"
+
+#include <atomic>
+
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/HashSet.hpp"
 

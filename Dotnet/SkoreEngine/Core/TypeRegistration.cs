@@ -81,7 +81,7 @@ namespace Skore
         {
             foreach (FieldInfo field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
             {
-                if (field.IsInitOnly || field.IsLiteral)
+                if (field.IsInitOnly || field.IsLiteral || field.DeclaringType == typeof(SkoreObject))
                 {
                     continue;
                 }
@@ -296,22 +296,17 @@ namespace Skore
             {
                 return IntPtr.Zero;
             }
-            object? instance = Activator.CreateInstance(type);
-            return instance == null ? IntPtr.Zero : GCHandle.ToIntPtr(GCHandle.Alloc(instance));
+            if (Activator.CreateInstance(type) is not SkoreObject instance)
+            {
+                return IntPtr.Zero;
+            }
+            return instance.Handle;
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static void DestroyInstanceThunk(IntPtr type, IntPtr allocator, IntPtr instance)
         {
-            if (instance == IntPtr.Zero)
-            {
-                return;
-            }
-            GCHandle handle = GCHandle.FromIntPtr(instance);
-            if (handle.IsAllocated)
-            {
-                handle.Free();
-            }
+            FreeInstance(instance);
         }
     }
 }

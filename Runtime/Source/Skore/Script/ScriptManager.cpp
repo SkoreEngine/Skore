@@ -33,4 +33,25 @@ namespace Skore
 	{
 		ScriptEngineInit();
 	}
+
+	void ScriptManager::LoadAssembly(StringView assemblyPath)
+	{
+		for (ScriptEngine* engine : scriptEngineList)
+		{
+			engine->LoadAssembly(assemblyPath);
+		}
+	}
+
+	Array<ReflectType*> ScriptManager::GetScriptTypes()
+	{
+		Array<ReflectType*> result;
+		for (ScriptEngine* engine : scriptEngineList)
+		{
+			for (ReflectType* type : engine->GetScriptTypes())
+			{
+				result.EmplaceBack(type);
+			}
+		}
+		return result;
+	}
 }

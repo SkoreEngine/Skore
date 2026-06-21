@@ -21,6 +21,7 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Script/ScriptManager.hpp"
 #include "Skore/Utils/ProjectUtils.hpp"
 #include "Skore/Window/ConsoleWindow.hpp"
 #include "Skore/Window/EntityTreeWindow.hpp"
@@ -488,12 +489,32 @@ namespace Skore
 			return HasDotnetProject(projectPath);
 		}
 
+		void LoadDotnetAssembly()
+		{
+			if (!HasDotnetProject(projectPath))
+			{
+				return;
+			}
+
+			String assemblyPath = Path::Join(projectPath, "Intermediate", "Scripting", Path::Name(projectPath) + ".dll");
+			if (!FileSystem::GetFileStatus(assemblyPath).exists)
+			{
+				logger.Info("Managed assembly not built yet, skipping load: {}", assemblyPath);
+				return;
+			}
+
+			ScriptManager::LoadAssembly(assemblyPath);
+		}
+
 		void BuildDotnetProjectAction(const MenuItemEventData& eventData)
 		{
 			String path = projectPath;
 			Editor::AddTask([path]
 			{
-				BuildDotnetProject(path);
+				if (BuildDotnetProject(path))
+				{
+					Editor::ExecuteOnMainThread([] { LoadDotnetAssembly(); });
+				}
 			});
 		}
 
@@ -1371,6 +1392,7 @@ namespace Skore
 		if (HasDotnetProject(projectPath))
 		{
 			WriteDotnetEngineProps(projectPath);
+			LoadDotnetAssembly();
 		}
 
 		logger.Info("Initializing Editor with project: {}", projectFile);

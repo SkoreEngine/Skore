@@ -78,13 +78,13 @@ namespace Skore
 		bool       (*ValueCompare)(const ReflectValue* value, ConstPtr compareValue);
 		void       (*ValueSetToPointer)(const ReflectValue* value, VoidPtr pointer);
 
-		ReflectTypeBuilder        (*RegisterType)(StringView name, StringView simpleName, const TypeProps* props);
+		VoidPtr                   (*RegisterType)(StringView name, StringView simpleName, const TypeProps* props);
 
-		ReflectFieldBuilder       (*TypeBuilderAddField)(ReflectTypeBuilder builder, const FieldProps* props, StringView name);
-		ReflectFunctionBuilder    (*TypeBuilderAddFunction)(ReflectTypeBuilder builder, StringView name);
-		ReflectConstructorBuilder (*TypeBuilderAddConstructor)(ReflectTypeBuilder builder, FieldProps* props, StringView* names, u32 size);
-		ReflectAttributeBuilder   (*TypeBuilderAddAttribute)(ReflectTypeBuilder builder, const TypeProps* props);
-		ReflectValueBuilder       (*TypeBuilderAddValue)(ReflectTypeBuilder builder, StringView valueDesc);
+		VoidPtr                   (*TypeBuilderAddField)(ReflectTypeBuilder builder, const FieldProps* props, StringView name);
+		VoidPtr                   (*TypeBuilderAddFunction)(ReflectTypeBuilder builder, StringView name);
+		VoidPtr                   (*TypeBuilderAddConstructor)(ReflectTypeBuilder builder, FieldProps* props, StringView* names, u32 size);
+		VoidPtr                   (*TypeBuilderAddAttribute)(ReflectTypeBuilder builder, const TypeProps* props);
+		VoidPtr                   (*TypeBuilderAddValue)(ReflectTypeBuilder builder, StringView valueDesc);
 		void                      (*TypeBuilderSetFnDestroy)(ReflectTypeBuilder builder, VoidPtr fnDestroy);
 		void                      (*TypeBuilderSetFnCopy)(ReflectTypeBuilder builder, VoidPtr fnCopy);
 		void                      (*TypeBuilderSetFnDestructor)(ReflectTypeBuilder builder, VoidPtr fnDestructor);
@@ -101,14 +101,14 @@ namespace Skore
 		void                    (*FieldBuilderSetFnFromResource)(ReflectFieldBuilder builder, VoidPtr fnFromResource);
 		void                    (*FieldBuilderSetFnGetResourceFieldInfo)(ReflectFieldBuilder builder, VoidPtr fnGetResourceFieldInfo);
 		void                    (*FieldBuilderSetFunctionPointerSignature)(ReflectFieldBuilder builder, const FieldProps* returnProps, FieldProps* params, u32 count);
-		ReflectAttributeBuilder (*FieldBuilderAddAttribute)(ReflectFieldBuilder builder, const TypeProps* props);
+		VoidPtr                 (*FieldBuilderAddAttribute)(ReflectFieldBuilder builder, const TypeProps* props);
 
 		void                    (*FunctionBuilderAddParams)(ReflectFunctionBuilder builder, StringView* names, FieldProps* props, u32 size);
 		void                    (*FunctionBuilderSetFnInvoke)(ReflectFunctionBuilder builder, VoidPtr fnInvoke);
 		void                    (*FunctionBuilderSetFunctionPointer)(ReflectFunctionBuilder builder, VoidPtr functionPointer);
 		void                    (*FunctionBuilderSetReturnProps)(ReflectFunctionBuilder builder, const FieldProps* returnProps);
 		void                    (*FunctionBuilderSetIsStatic)(ReflectFunctionBuilder builder, bool isStatic);
-		ReflectAttributeBuilder (*FunctionBuilderAddAttribute)(ReflectFunctionBuilder builder, const TypeProps* props);
+		VoidPtr                 (*FunctionBuilderAddAttribute)(ReflectFunctionBuilder builder, const TypeProps* props);
 
 		void (*ConstructorBuilderSetPlacementNewFn)(ReflectConstructorBuilder builder, VoidPtr placementNew);
 		void (*ConstructorBuilderSetNewObjectFn)(ReflectConstructorBuilder builder, VoidPtr newObject);

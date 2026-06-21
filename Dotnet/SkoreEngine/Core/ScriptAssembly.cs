@@ -8,11 +8,24 @@ namespace Skore
 {
     internal sealed class ScriptLoadContext : AssemblyLoadContext
     {
+        private static readonly AssemblyLoadContext EngineContext =
+            GetLoadContext(typeof(ScriptLoadContext).Assembly) ?? Default;
+
         public ScriptLoadContext() : base(isCollectible: false)
         {
         }
 
-        protected override Assembly? Load(AssemblyName assemblyName) => null;
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            foreach (Assembly assembly in EngineContext.Assemblies)
+            {
+                if (assembly.GetName().Name == assemblyName.Name)
+                {
+                    return assembly;
+                }
+            }
+            return null;
+        }
     }
 
     internal sealed unsafe class ScriptAssembly
@@ -66,6 +79,10 @@ namespace Skore
                 return false;
             }
             if (type.IsAbstract && type.IsSealed)
+            {
+                return false;
+            }
+            if (type == typeof(SkoreObject) || !typeof(SkoreObject).IsAssignableFrom(type))
             {
                 return false;
             }

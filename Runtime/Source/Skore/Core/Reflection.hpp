@@ -320,6 +320,8 @@ namespace Skore
 	public:
 		ReflectValueBuilder(ReflectValue* reflectValue) : reflectValue(reflectValue) {}
 
+		VoidPtr GetHandle() const { return reflectValue; }
+
 		void SetFnGetValue(ReflectValue::FnGetValue fnGetValue);
 		void SerFnGetCode(ReflectValue::FnGetCode fnGetCode);
 		void SetFnCompare(ReflectValue::FnCompare fnCompare);
@@ -335,6 +337,8 @@ namespace Skore
 		void SetGetValue(ReflectAttribute::FnGetValue value);
 		ReflectAttributeBuilder(ReflectAttribute* attribute);
 
+		VoidPtr GetHandle() const { return attribute; }
+
 	private:
 		ReflectAttribute* attribute;
 	};
@@ -343,6 +347,8 @@ namespace Skore
 	{
 	public:
 		friend class ReflectTypeBuilder;
+
+		VoidPtr GetHandle() const { return constructor; }
 
 		void SetPlacementNewFn(ReflectConstructor::PlacementNewFn placementNew);
 		void SetNewObjectFn(ReflectConstructor::NewObjectFn newInstance);
@@ -358,6 +364,8 @@ namespace Skore
 	public:
 		void AddParams(StringView* names, FieldProps* props, u32 size);
 		friend class ReflectTypeBuilder;
+
+		VoidPtr GetHandle() const { return function; }
 
 		void SetFnInvoke(ReflectFunction::FnInvoke fnInvoke);
 		void SetFunctionPointer(VoidPtr functionPointer);
@@ -375,6 +383,9 @@ namespace Skore
 	{
 	public:
 		friend class ReflectTypeBuilder;
+
+		VoidPtr GetHandle() const { return field; }
+
 		void SetSerializer(ReflectField::FnSerialize serialize);
 		void SetDeserialize(ReflectField::FnDeserialize deserialize);
 		void SetCopy(ReflectField::FnCopy copy);
@@ -398,6 +409,9 @@ namespace Skore
 	{
 	public:
 		friend class Reflection;
+
+		VoidPtr GetHandle() const { return type; }
+
 		ReflectFieldBuilder       AddField(const FieldProps& props, StringView name);
 		ReflectFunctionBuilder    AddFunction(StringView name);
 		ReflectConstructorBuilder AddConstructor(FieldProps* props, StringView* names, u32 size);

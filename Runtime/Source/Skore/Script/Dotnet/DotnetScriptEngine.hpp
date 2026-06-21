@@ -18,9 +18,9 @@ namespace Skore
 
 		void Init() override;
 
-		void LoadAssembly(StringView assemblyPath);
+		void LoadAssembly(StringView assemblyPath) override;
 
-		Array<ReflectType*> GetScriptTypes() const;
+		Array<ReflectType*> GetScriptTypes() const override;
 
 	private:
 		using FnLoadAssemblyCallback = void (*)(VoidPtr userData, TypeID typeId);
