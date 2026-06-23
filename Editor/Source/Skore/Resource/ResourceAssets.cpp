@@ -1305,7 +1305,7 @@ namespace Skore
 	//cooks an imported asset into memory. produced resources keep their buffers in the
 	//temp folder (like normal asset processing); they are only flushed to the /Library
 	//folder when the asset is saved (see ImportedAssetHandler::Save / WriteCookedFolder).
-	static void CookWrapper(RID wrapper, const ResourceObject& wrapperObj, UndoRedoScope* scope)
+	static void CookWrapper(RID wrapper, const ResourceObject& wrapperObj, RID importSettings, UndoRedoScope* scope)
 	{
 		TypeID importerId = wrapperObj.GetTypeID(ResourceImportedAsset::ImporterId);
 		auto   it = importersByImporterType.Find(importerId);
@@ -1332,7 +1332,7 @@ namespace Skore
 
 		CookContext ctx;
 		ctx.importedAsset = wrapper;
-		ctx.importSettings = wrapperObj.GetSubObject(ResourceImportedAsset::ImportSettings);
+		ctx.importSettings = importSettings ? importSettings : wrapperObj.GetSubObject(ResourceImportedAsset::ImportSettings);
 		ctx.sourceBytes = {source.begin(), source.Size()};
 		ctx.scope = scope;
 		importer->Cook(ctx);
@@ -1453,11 +1453,11 @@ namespace Skore
 		}
 		else
 		{
-			CookWrapper(wrapper, wrapperObj, scope);
+			CookWrapper(wrapper, wrapperObj, {}, scope);
 		}
 	}
 
-	void ReCook(RID rid, UndoRedoScope* scope)
+	void ReCook(RID rid, RID importSettings, UndoRedoScope* scope)
 	{
 		RID wrapper = ResolveWrapperRID(rid);
 		if (!wrapper) return;
@@ -1465,7 +1465,21 @@ namespace Skore
 		ResourceObject wrapperObj = Resources::Read(wrapper);
 		if (!wrapperObj) return;
 
-		CookWrapper(wrapper, wrapperObj, scope);
+		RID currentImportSettings = wrapperObj.GetSubObject(ResourceImportedAsset::ImportSettings);
+
+		CookWrapper(wrapper, wrapperObj, importSettings, scope);
+
+		if (importSettings && importSettings != currentImportSettings)
+		{
+			ResourceObject wrapperWrite = Resources::Write(wrapper);
+			wrapperWrite.SetSubObject(ResourceImportedAsset::ImportSettings, importSettings);
+			wrapperWrite.Commit(scope);
+
+			if (currentImportSettings)
+			{
+				Resources::Destroy(currentImportSettings, scope);
+			}
+		}
 	}
 
 	static void ReimportWrapperFromFile(RID wrapper, const String& path, UndoRedoScope* scope)
@@ -1530,7 +1544,16 @@ namespace Skore
 	{
 		Editor::AddTask([object, scope]
 		{
-			ReCook(object, scope);
+			ReCook(object, {}, scope);
+		},
+		"Cooking import settings");
+	}
+
+	void ResourceAssets::CookAsset(RID object, RID importSettings, UndoRedoScope* scope)
+	{
+		Editor::AddTask([object, importSettings, scope]
+		{
+			ReCook(object, importSettings, scope);
 		},
 		"Cooking import settings");
 	}

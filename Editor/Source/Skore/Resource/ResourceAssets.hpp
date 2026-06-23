@@ -280,6 +280,7 @@ namespace Skore
 		static void                    EnsureCooked(RID rid, UndoRedoScope* scope);
 		static void                    ReimportAssetFromFile(RID object);
 		static void                    CookAsset(RID object, UndoRedoScope* scope);
+		static void                    CookAsset(RID object, RID importSettings, UndoRedoScope* scope);
 		static RID                     GetWrapperForSubResource(RID subResource);
 		static RID                     GetImportSettings(RID object);
 		static void                    InitTestFolders(StringView rootDir);

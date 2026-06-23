@@ -109,6 +109,7 @@ namespace Skore
 		Event::Unbind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
 		Event::Unbind<OnResourceSelection, &PropertiesWindow::ResourceSelection>(this);
 
+		ClearImportSettingsDraft();
 		ReleaseTextureResources();
 		if (m_context)
 		{
@@ -663,10 +664,17 @@ namespace Skore
 
 		if (RID importSettings = ResourceAssets::GetImportSettings(asset))
 		{
-			if (importSettingsVersion == U64_MAX)
+			if (importSettingsPendingApply && importSettings == importSettingsPendingApply)
 			{
-				importSettingsVersion = Resources::GetVersion(importSettings);
+				importSettingsSource = {};
+				importSettingsDraft = {};
+				importSettingsPendingApply = {};
+				importSettingsVersion = U64_MAX;
+				importSettingsSourceVersion = U64_MAX;
 			}
+
+			RID importSettingsEdit = GetImportSettingsDraft(importSettings);
+			if (!importSettingsEdit) return;
 
 			f32  width = ImGui::GetContentRegionAvail().x;
 			auto size = ImGui::GetFontSize() + style.FramePadding.y * 2.0f;
@@ -675,14 +683,17 @@ namespace Skore
 
 			ImGui::Spring(1.f);
 
-			u64 currVersion = Resources::GetVersion(importSettings);
+			u64 currVersion = Resources::GetVersion(importSettingsEdit);
+			bool applying = importSettingsPendingApply != RID{};
 
-			ImGui::BeginDisabled(currVersion == importSettingsVersion);
+			ImGui::BeginDisabled(applying || currVersion == importSettingsVersion);
 
 			if (ImGuiBorderedButton("Apply", ImVec2(width * 2 / 3, size)))
 			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Apply Import Changes");
 				importSettingsVersion = currVersion;
-				ResourceAssets::CookAsset(asset, Editor::CreateUndoRedoScope("Apply Import Changes"));
+				importSettingsPendingApply = importSettingsEdit;
+				ResourceAssets::CookAsset(asset, importSettingsEdit, scope);
 				RefreshPreview();
 			}
 
@@ -693,11 +704,13 @@ namespace Skore
 			ImGui::EndHorizontal();
 
 
+			ImGui::BeginDisabled(applying);
 			ImGuiDrawResource(ImGuiDrawResourceInfo{
-				.rid = importSettings,
+				.rid = importSettingsEdit,
 				.scopeName = "Import Settings Edit",
 				.drawCollapseHeader = true
 			});
+			ImGui::EndDisabled();
 		}
 		else
 		{
@@ -1279,9 +1292,44 @@ namespace Skore
 		selectedDebugEntity = nullptr;
 		selectedAsset = {};
 		selectedResource = {};
-		importSettingsVersion = U64_MAX;
+		ClearImportSettingsDraft();
 		m_previewVisible = false;
 		DestroyPreviewGenerator();
+	}
+
+	void PropertiesWindow::ClearImportSettingsDraft()
+	{
+		if (importSettingsDraft && importSettingsDraft != importSettingsSource && importSettingsDraft != importSettingsPendingApply)
+		{
+			Resources::Destroy(importSettingsDraft);
+		}
+
+		importSettingsSource = {};
+		importSettingsDraft = {};
+		importSettingsPendingApply = {};
+		importSettingsVersion = U64_MAX;
+		importSettingsSourceVersion = U64_MAX;
+	}
+
+	RID PropertiesWindow::GetImportSettingsDraft(RID importSettings)
+	{
+		u64 sourceVersion = Resources::GetVersion(importSettings);
+		bool draftUnchanged = !importSettingsDraft || Resources::GetVersion(importSettingsDraft) == importSettingsVersion;
+
+		if (importSettingsSource != importSettings || !importSettingsDraft || (draftUnchanged && importSettingsSourceVersion != sourceVersion))
+		{
+			if (importSettingsDraft && importSettingsDraft != importSettingsPendingApply)
+			{
+				Resources::Destroy(importSettingsDraft);
+			}
+
+			importSettingsSource = importSettings;
+			importSettingsSourceVersion = sourceVersion;
+			importSettingsDraft = Resources::Clone(importSettings, UUID::RandomUUID());
+			importSettingsVersion = Resources::GetVersion(importSettingsDraft);
+		}
+
+		return importSettingsDraft;
 	}
 
 	void PropertiesWindow::OpenProperties(const MenuItemEventData& eventData)

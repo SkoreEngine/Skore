@@ -46,7 +46,11 @@ namespace Skore
 		u32    selectedComponentIndex = U32_MAX;
 		RID    selectedAsset = {};
 		RID    selectedResource = {};
-		u64   importSettingsVersion = U64_MAX;
+		RID    importSettingsSource = {};
+		RID    importSettingsDraft = {};
+		RID    importSettingsPendingApply = {};
+		u64    importSettingsVersion = U64_MAX;
+		u64    importSettingsSourceVersion = U64_MAX;
 
 		Entity* selectedDebugEntity = nullptr;
 
@@ -103,6 +107,8 @@ namespace Skore
 		void EnsureContext(Extent extent);
 		void RebuildTextureResources();
 		void ReleaseTextureResources();
+		void ClearImportSettingsDraft();
+		RID  GetImportSettingsDraft(RID importSettings);
 
 		static void OpenProperties(const MenuItemEventData& eventData);
 
