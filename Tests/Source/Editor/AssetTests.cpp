@@ -70,7 +70,7 @@ namespace
 			GetPipelineLayout(GraphicsAPI::Vulkan, bytes, stages, pipelineDesc);
 
 			CHECK(pipelineDesc.inputVariables.Size() == 3);
-			CHECK(pipelineDesc.inputVariables[0].format == TextureFormat::R32G32B32_FLOAT);
+			CHECK(pipelineDesc.inputVariables[0].format == Format::RGB32_FLOAT);
 			CHECK(pipelineDesc.inputVariables[0].offset == 0);
 			CHECK(pipelineDesc.descriptors.Size() == 2);
 			CHECK(pipelineDesc.descriptors[0].bindings.Size() == 1);

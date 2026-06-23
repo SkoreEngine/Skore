@@ -119,7 +119,7 @@ namespace Skore
 			resources.EmplaceBack(RenderPipelineResource{
 				.name = FXAAOutputName,
 				.type = RenderPipelineResourceType::Texture,
-				.format = TextureFormat::R8G8B8A8_UNORM,
+				.format = Format::RGBA8_UNORM,
 				.textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess
 			});
 			return resources;

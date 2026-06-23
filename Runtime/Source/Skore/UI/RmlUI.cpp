@@ -240,7 +240,7 @@ namespace Skore
 		{
 			GPUTexture* texture = Graphics::CreateTexture(TextureDesc{
 				.extent = {static_cast<u32>(source_dimensions.x), static_cast<u32>(source_dimensions.y), 1},
-				.format = TextureFormat::R8G8B8A8_UNORM,
+				.format = Format::RGBA8_UNORM,
 				.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
 				.debugName = "RmlUiTexture",
 			});

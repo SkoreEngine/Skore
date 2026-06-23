@@ -76,7 +76,7 @@ namespace Skore
 		Array<RenderPipelineResource> GetResources() override
 		{
 			Array<RenderPipelineResource> resources;
-			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM, .samples = 1});
+			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA8_UNORM, .samples = 1});
 			return resources;
 		}
 
@@ -1240,7 +1240,7 @@ namespace Skore
 		ImGui::BeginChild("##texture-info", ImVec2(0, ImGui::GetFrameHeight() + 8.0f * scale), ImGuiChildFlags_Border, ImGuiWindowFlags_NoScrollbar);
 
 		const char* formatName = "Unknown";
-		if (ReflectType* formatType = Reflection::FindType<TextureFormat>())
+		if (ReflectType* formatType = Reflection::FindType<Format>())
 		{
 			if (ReflectValue* formatValue = formatType->FindValueByCode(static_cast<i64>(desc.format)))
 			{

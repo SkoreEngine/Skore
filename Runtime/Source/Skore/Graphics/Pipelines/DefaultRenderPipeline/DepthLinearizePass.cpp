@@ -85,7 +85,7 @@ namespace Skore
 			linearDepthTexture = Graphics::CreateTexture(TextureDesc{
 				.extent = {outputSize.width, outputSize.height, 1},
 				.mipLevels = mipCount,
-				.format = TextureFormat::R32_FLOAT,
+				.format = Format::R32_FLOAT,
 				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 				.debugName = "LinearDepthMipChain"
 			});

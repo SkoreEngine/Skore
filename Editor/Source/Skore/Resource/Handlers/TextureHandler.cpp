@@ -27,7 +27,7 @@ namespace Skore
 					if (ResourceObject textureObject = Resources::Read(object))
 					{
 						StringView    name = textureObject.GetString(TextureResource::Name);
-						TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+						Format format = textureObject.GetEnum<Format>(TextureResource::Format);
 						CompressionMode compressionMode = textureObject.GetEnum<CompressionMode>(TextureResource::CompressionMode);
 						ResourceBuffer buffer = textureObject.GetBuffer(TextureResource::PixelData);
 						Span<RID> images = textureObject.GetSubObjectList(TextureResource::Images);
@@ -75,7 +75,7 @@ namespace Skore
 
 						GPUTexture* dst = Graphics::CreateTexture(TextureDesc{
 							.extent = {thumbnailSize.width, thumbnailSize.height, 1},
-							.format = TextureFormat::R8G8B8A8_UNORM,
+							.format = Format::RGBA8_UNORM,
 							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess | ResourceUsage::CopySource,
 							.debugName = String(name) + "_Texture"
 						});

@@ -187,7 +187,7 @@ namespace Skore
 		Extent               GetExtent() override;
 		void                 Destroy() override;
 		u32                  GetImageCount() const override;
-		TextureFormat        GetFormat() const override;
+		Format        GetFormat() const override;
 		Span<GPUTexture*>    GetTextures() const override;
 
 		bool CreateInternal();

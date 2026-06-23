@@ -55,7 +55,7 @@ namespace Skore
 		{
 			const Extent extent = context->GetOutputSize();
 			Array<RenderPipelineResource> resources;
-			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM, .samples = 1, .textureUsage = ResourceUsage::CopySource | ResourceUsage::UnorderedAccess});
+			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA8_UNORM, .samples = 1, .textureUsage = ResourceUsage::CopySource | ResourceUsage::UnorderedAccess});
 			resources.EmplaceBack(RenderPipelineResource{.name = "OutputBuffer", .type = RenderPipelineResourceType::Buffer, .size = extent.width * extent.height * 4, .usage = ResourceUsage::CopyDest, .persistentMapped = true});
 			return resources;
 		}

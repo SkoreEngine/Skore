@@ -16,7 +16,7 @@ namespace Skore
 		void CreateSwapchain()
 		{
 			SwapchainDesc swapchainDesc;
-			swapchainDesc.desiredFormat = TextureFormat::B8G8R8A8_UNORM;
+			swapchainDesc.desiredFormat = Format::BGRA8_UNORM;
 			swapchainDesc.vsync = true;
 			swapchainDesc.window = Graphics::GetWindow();
 			swapchainDesc.debugName = "Swapchain";

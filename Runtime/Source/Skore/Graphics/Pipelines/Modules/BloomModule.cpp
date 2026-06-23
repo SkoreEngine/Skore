@@ -94,7 +94,7 @@ namespace Skore
 			bloomMipChain = Graphics::CreateTexture(TextureDesc{
 				.extent = {mipWidth, mipHeight, 1},
 				.mipLevels = mipCount,
-				.format = TextureFormat::R11G11B10_FLOAT,
+				.format = Format::RG11B10_FLOAT,
 				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 				.debugName = "BloomMipChain"
 			});

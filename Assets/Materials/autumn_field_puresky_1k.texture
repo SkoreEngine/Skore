@@ -4,7 +4,7 @@ objects:
     _parent: e167be1c-ddc8-e2ff-6e6e-8379a87eb04d
     _parentField: Object
     Name: autumn_field_puresky_1k
-    Format: R32G32B32A32_FLOAT
+    Format: RGBA32_FLOAT
     MipLevels: 1
     WrapMode: Repeat
     FilterMode: Linear

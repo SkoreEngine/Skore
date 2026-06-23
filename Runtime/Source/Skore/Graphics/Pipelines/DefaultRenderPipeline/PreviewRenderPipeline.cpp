@@ -261,8 +261,8 @@ namespace Skore
 
 			Array<RenderPipelineResource> resources;
 			resources.EmplaceBack(RenderPipelineResource{.name = "LightInstanceData", .type = RenderPipelineResourceType::Instance, .instanceTypeId = sktypeid(LightPassInstanceData)});
-			resources.EmplaceBack(RenderPipelineResource{.name = PreviewColorMSName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM, .samples = previewMsaaSamples});
-			resources.EmplaceBack(RenderPipelineResource{.name = PreviewDepthMSName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::D32_FLOAT, .samples = previewMsaaSamples});
+			resources.EmplaceBack(RenderPipelineResource{.name = PreviewColorMSName, .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA8_UNORM, .samples = previewMsaaSamples});
+			resources.EmplaceBack(RenderPipelineResource{.name = PreviewDepthMSName, .type = RenderPipelineResourceType::Attachment, .format = Format::D32_FLOAT, .samples = previewMsaaSamples});
 			return resources;
 		}
 	};

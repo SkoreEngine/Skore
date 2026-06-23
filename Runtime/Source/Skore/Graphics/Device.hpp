@@ -105,7 +105,7 @@ namespace Skore
 
 	ENUM_FLAGS(ResourceUsage, u32);
 
-	enum class TextureFormat
+	enum class Format
 	{
 		Unknown,
 
@@ -122,61 +122,61 @@ namespace Skore
 		R16_UINT,
 		R16_SINT,
 		R16_FLOAT,
-		R8G8_UNORM,
-		R8G8_SNORM,
-		R8G8_UINT,
-		R8G8_SINT,
-		R8G8_SRGB,
+		RG8_UNORM,
+		RG8_SNORM,
+		RG8_UINT,
+		RG8_SINT,
+		RG8_SRGB,
 
-		R16G16B16_UNORM,
-		R16G16B16_SNORM,
-		R16G16B16_UINT,
-		R16G16B16_SINT,
-		R16G16B16_FLOAT,
+		RGB16_UNORM,
+		RGB16_SNORM,
+		RGB16_UINT,
+		RGB16_SINT,
+		RGB16_FLOAT,
 
 		// 32-bit formats
 		R32_UINT,
 		R32_SINT,
 		R32_FLOAT,
-		R16G16_UNORM,
-		R16G16_SNORM,
-		R16G16_UINT,
-		R16G16_SINT,
-		R16G16_FLOAT,
-		R8G8B8A8_UNORM,
-		R8G8B8A8_SNORM,
-		R8G8B8A8_UINT,
-		R8G8B8A8_SINT,
-		R8G8B8A8_SRGB,
-		B8G8R8A8_UNORM,
-		B8G8R8A8_SNORM,
-		B8G8R8A8_UINT,
-		B8G8R8A8_SINT,
-		B8G8R8A8_SRGB,
-		R10G10B10A2_UNORM,
-		R10G10B10A2_UINT,
-		R11G11B10_FLOAT,
-		R9G9B9E5_FLOAT,
+		RG16_UNORM,
+		RG16_SNORM,
+		RG16_UINT,
+		RG16_SINT,
+		RG16_FLOAT,
+		RGBA8_UNORM,
+		RGBA8_SNORM,
+		RGBA8_UINT,
+		RGBA8_SINT,
+		RGBA8_SRGB,
+		BGRA8_UNORM,
+		BGRA8_SNORM,
+		BGRA8_UINT,
+		BGRA8_SINT,
+		BGRA8_SRGB,
+		RGB10A2_UNORM,
+		RGB10A2_UINT,
+		RG11B10_FLOAT,
+		RGB9E5_FLOAT,
 
 		// 64-bit formats
-		R32G32_UINT,
-		R32G32_SINT,
-		R32G32_FLOAT,
-		R16G16B16A16_UNORM,
-		R16G16B16A16_SNORM,
-		R16G16B16A16_UINT,
-		R16G16B16A16_SINT,
-		R16G16B16A16_FLOAT,
+		RG32_UINT,
+		RG32_SINT,
+		RG32_FLOAT,
+		RGBA16_UNORM,
+		RGBA16_SNORM,
+		RGBA16_UINT,
+		RGBA16_SINT,
+		RGBA16_FLOAT,
 
 		// 96-bit formats
-		R32G32B32_UINT,
-		R32G32B32_SINT,
-		R32G32B32_FLOAT,
+		RGB32_UINT,
+		RGB32_SINT,
+		RGB32_FLOAT,
 
 		// 128-bit formats
-		R32G32B32A32_UINT,
-		R32G32B32A32_SINT,
-		R32G32B32A32_FLOAT,
+		RGBA32_UINT,
+		RGBA32_SINT,
+		RGBA32_FLOAT,
 
 		// Depth/stencil formats
 		D16_UNORM,
@@ -552,7 +552,7 @@ namespace Skore
 		u32           mipLevels{1};
 		u32           arrayLayers{1};
 		u32           sampleCount{1};
-		TextureFormat format{TextureFormat::R8G8B8A8_UNORM};
+		Format format{Format::RGBA8_UNORM};
 		ResourceUsage usage{ResourceUsage::ShaderResource | ResourceUsage::CopyDest};
 		bool          cubemap{false};
 		String        debugName;
@@ -593,7 +593,7 @@ namespace Skore
 		u32           location{};
 		u32           offset{};
 		String        name{};
-		TextureFormat format{};
+		Format format{};
 		u32           size{};
 	};
 
@@ -701,7 +701,7 @@ namespace Skore
 		AttachmentStoreOp stencilStoreOp{AttachmentStoreOp::DontCare};
 
 		u32           sampleCount{1};
-		TextureFormat format{TextureFormat::R8G8B8A8_UNORM};
+		Format format{Format::RGBA8_UNORM};
 
 	};
 
@@ -798,7 +798,7 @@ namespace Skore
 		usize         vertexOffset{0};
 		u32           vertexCount{0};
 		u32           vertexStride{0};
-		TextureFormat vertexFormat{TextureFormat::R32G32B32_FLOAT};
+		Format vertexFormat{Format::RGB32_FLOAT};
 
 		GPUBuffer* indexBuffer{nullptr};
 		usize      indexOffset{0};
@@ -878,7 +878,7 @@ namespace Skore
 
 	struct SwapchainDesc
 	{
-		TextureFormat desiredFormat{TextureFormat::B8G8R8A8_UNORM};
+		Format desiredFormat{Format::BGRA8_UNORM};
 		bool          vsync = true;
 		Window				window = {};
 		String        debugName;
@@ -985,7 +985,7 @@ namespace Skore
 		virtual u32               GetImageCount() const = 0;
 		virtual Span<GPUTexture*> GetTextures() const = 0;
 		virtual u32               GetCurrentImageIndex() const = 0;
-		virtual TextureFormat     GetFormat() const = 0;
+		virtual Format     GetFormat() const = 0;
 	};
 
 	class SK_API GPUCommandBuffer
@@ -1244,316 +1244,316 @@ namespace Skore
 		u32 startInstanceLocation;
 	};
 
-	inline u32 GetTextureFormatSize(TextureFormat format)
+	inline u32 GetFormatSize(Format format)
 	{
 		switch (format)
 		{
 			// 8-bit formats
-			case TextureFormat::R8_UNORM:
-			case TextureFormat::R8_SNORM:
-			case TextureFormat::R8_UINT:
-			case TextureFormat::R8_SINT:
-			case TextureFormat::R8_SRGB:
+			case Format::R8_UNORM:
+			case Format::R8_SNORM:
+			case Format::R8_UINT:
+			case Format::R8_SINT:
+			case Format::R8_SRGB:
 				return 1;
 
 			// 16-bit formats
-			case TextureFormat::R16_UNORM:
-			case TextureFormat::R16_SNORM:
-			case TextureFormat::R16_UINT:
-			case TextureFormat::R16_SINT:
-			case TextureFormat::R16_FLOAT:
-			case TextureFormat::R8G8_UNORM:
-			case TextureFormat::R8G8_SNORM:
-			case TextureFormat::R8G8_UINT:
-			case TextureFormat::R8G8_SINT:
-			case TextureFormat::R8G8_SRGB:
+			case Format::R16_UNORM:
+			case Format::R16_SNORM:
+			case Format::R16_UINT:
+			case Format::R16_SINT:
+			case Format::R16_FLOAT:
+			case Format::RG8_UNORM:
+			case Format::RG8_SNORM:
+			case Format::RG8_UINT:
+			case Format::RG8_SINT:
+			case Format::RG8_SRGB:
 				return 2;
 
 			// 24-bit formats (3 bytes)
-			case TextureFormat::R16G16B16_UNORM:
-			case TextureFormat::R16G16B16_SNORM:
-			case TextureFormat::R16G16B16_UINT:
-			case TextureFormat::R16G16B16_SINT:
-			case TextureFormat::R16G16B16_FLOAT:
+			case Format::RGB16_UNORM:
+			case Format::RGB16_SNORM:
+			case Format::RGB16_UINT:
+			case Format::RGB16_SINT:
+			case Format::RGB16_FLOAT:
 				return 6; // 3 components, 2 bytes each
 
 			// 32-bit formats (4 bytes)
-			case TextureFormat::R32_UINT:
-			case TextureFormat::R32_SINT:
-			case TextureFormat::R32_FLOAT:
-			case TextureFormat::R16G16_UNORM:
-			case TextureFormat::R16G16_SNORM:
-			case TextureFormat::R16G16_UINT:
-			case TextureFormat::R16G16_SINT:
-			case TextureFormat::R16G16_FLOAT:
-			case TextureFormat::R8G8B8A8_UNORM:
-			case TextureFormat::R8G8B8A8_SNORM:
-			case TextureFormat::R8G8B8A8_UINT:
-			case TextureFormat::R8G8B8A8_SINT:
-			case TextureFormat::R8G8B8A8_SRGB:
-			case TextureFormat::B8G8R8A8_UNORM:
-			case TextureFormat::B8G8R8A8_SNORM:
-			case TextureFormat::B8G8R8A8_UINT:
-			case TextureFormat::B8G8R8A8_SINT:
-			case TextureFormat::B8G8R8A8_SRGB:
-			case TextureFormat::R10G10B10A2_UNORM:
-			case TextureFormat::R10G10B10A2_UINT:
-			case TextureFormat::R11G11B10_FLOAT:
-			case TextureFormat::R9G9B9E5_FLOAT:
+			case Format::R32_UINT:
+			case Format::R32_SINT:
+			case Format::R32_FLOAT:
+			case Format::RG16_UNORM:
+			case Format::RG16_SNORM:
+			case Format::RG16_UINT:
+			case Format::RG16_SINT:
+			case Format::RG16_FLOAT:
+			case Format::RGBA8_UNORM:
+			case Format::RGBA8_SNORM:
+			case Format::RGBA8_UINT:
+			case Format::RGBA8_SINT:
+			case Format::RGBA8_SRGB:
+			case Format::BGRA8_UNORM:
+			case Format::BGRA8_SNORM:
+			case Format::BGRA8_UINT:
+			case Format::BGRA8_SINT:
+			case Format::BGRA8_SRGB:
+			case Format::RGB10A2_UNORM:
+			case Format::RGB10A2_UINT:
+			case Format::RG11B10_FLOAT:
+			case Format::RGB9E5_FLOAT:
 				return 4;
 
 			// 64-bit formats (8 bytes)
-			case TextureFormat::R32G32_UINT:
-			case TextureFormat::R32G32_SINT:
-			case TextureFormat::R32G32_FLOAT:
-			case TextureFormat::R16G16B16A16_UNORM:
-			case TextureFormat::R16G16B16A16_SNORM:
-			case TextureFormat::R16G16B16A16_UINT:
-			case TextureFormat::R16G16B16A16_SINT:
-			case TextureFormat::R16G16B16A16_FLOAT:
+			case Format::RG32_UINT:
+			case Format::RG32_SINT:
+			case Format::RG32_FLOAT:
+			case Format::RGBA16_UNORM:
+			case Format::RGBA16_SNORM:
+			case Format::RGBA16_UINT:
+			case Format::RGBA16_SINT:
+			case Format::RGBA16_FLOAT:
 				return 8;
 
 			// 96-bit formats (12 bytes)
-			case TextureFormat::R32G32B32_UINT:
-			case TextureFormat::R32G32B32_SINT:
-			case TextureFormat::R32G32B32_FLOAT:
+			case Format::RGB32_UINT:
+			case Format::RGB32_SINT:
+			case Format::RGB32_FLOAT:
 				return 12;
 
 			// 128-bit formats (16 bytes)
-			case TextureFormat::R32G32B32A32_UINT:
-			case TextureFormat::R32G32B32A32_SINT:
-			case TextureFormat::R32G32B32A32_FLOAT:
+			case Format::RGBA32_UINT:
+			case Format::RGBA32_SINT:
+			case Format::RGBA32_FLOAT:
 				return 16;
 
 			// Depth/stencil formats
-			case TextureFormat::D16_UNORM:
+			case Format::D16_UNORM:
 				return 2;
-			case TextureFormat::D24_UNORM_S8_UINT:
+			case Format::D24_UNORM_S8_UINT:
 				return 4;
-			case TextureFormat::D32_FLOAT:
+			case Format::D32_FLOAT:
 				return 4;
-			case TextureFormat::D32_FLOAT_S8_UINT:
+			case Format::D32_FLOAT_S8_UINT:
 				return 5; // Sometimes implemented as 8 bytes with padding
 
 			// BC compressed formats (block size 4x4 texels)
 			// BC1: 64 bits per 4x4 block = 0.5 bytes per texel
-			case TextureFormat::BC1_UNORM:
-			case TextureFormat::BC1_SRGB:
+			case Format::BC1_UNORM:
+			case Format::BC1_SRGB:
 				return 8; // 8 bytes per 4x4 block
 
 			// BC2/BC3: 128 bits per 4x4 block = 1 byte per texel
-			case TextureFormat::BC2_UNORM:
-			case TextureFormat::BC2_SRGB:
-			case TextureFormat::BC3_UNORM:
-			case TextureFormat::BC3_SRGB:
-			case TextureFormat::BC4_UNORM:
-			case TextureFormat::BC4_SNORM:
-			case TextureFormat::BC5_UNORM:
-			case TextureFormat::BC5_SNORM:
-			case TextureFormat::BC6H_UF16:
-			case TextureFormat::BC6H_SF16:
-			case TextureFormat::BC7_UNORM:
-			case TextureFormat::BC7_SRGB:
+			case Format::BC2_UNORM:
+			case Format::BC2_SRGB:
+			case Format::BC3_UNORM:
+			case Format::BC3_SRGB:
+			case Format::BC4_UNORM:
+			case Format::BC4_SNORM:
+			case Format::BC5_UNORM:
+			case Format::BC5_SNORM:
+			case Format::BC6H_UF16:
+			case Format::BC6H_SF16:
+			case Format::BC7_UNORM:
+			case Format::BC7_SRGB:
 				return 16; // 16 bytes per 4x4 block
 
 			// ETC compressed formats
-			case TextureFormat::ETC1_UNORM:
-			case TextureFormat::ETC2_UNORM:
-			case TextureFormat::ETC2_SRGB:
+			case Format::ETC1_UNORM:
+			case Format::ETC2_UNORM:
+			case Format::ETC2_SRGB:
 				return 8; // 8 bytes per 4x4 block
-			case TextureFormat::ETC2A_UNORM:
-			case TextureFormat::ETC2A_SRGB:
+			case Format::ETC2A_UNORM:
+			case Format::ETC2A_SRGB:
 				return 16; // 16 bytes per 4x4 block
 
 			// ASTC compressed formats (block sizes vary)
-			case TextureFormat::ASTC_4x4_UNORM:
-			case TextureFormat::ASTC_4x4_SRGB:
-			case TextureFormat::ASTC_5x4_UNORM:
-			case TextureFormat::ASTC_5x4_SRGB:
-			case TextureFormat::ASTC_5x5_UNORM:
-			case TextureFormat::ASTC_5x5_SRGB:
-			case TextureFormat::ASTC_6x5_UNORM:
-			case TextureFormat::ASTC_6x5_SRGB:
-			case TextureFormat::ASTC_6x6_UNORM:
-			case TextureFormat::ASTC_6x6_SRGB:
-			case TextureFormat::ASTC_8x5_UNORM:
-			case TextureFormat::ASTC_8x5_SRGB:
-			case TextureFormat::ASTC_8x6_UNORM:
-			case TextureFormat::ASTC_8x6_SRGB:
-			case TextureFormat::ASTC_8x8_UNORM:
-			case TextureFormat::ASTC_8x8_SRGB:
-			case TextureFormat::ASTC_10x5_UNORM:
-			case TextureFormat::ASTC_10x5_SRGB:
-			case TextureFormat::ASTC_10x6_UNORM:
-			case TextureFormat::ASTC_10x6_SRGB:
-			case TextureFormat::ASTC_10x8_UNORM:
-			case TextureFormat::ASTC_10x8_SRGB:
-			case TextureFormat::ASTC_10x10_UNORM:
-			case TextureFormat::ASTC_10x10_SRGB:
-			case TextureFormat::ASTC_12x10_UNORM:
-			case TextureFormat::ASTC_12x10_SRGB:
-			case TextureFormat::ASTC_12x12_UNORM:
-			case TextureFormat::ASTC_12x12_SRGB:
+			case Format::ASTC_4x4_UNORM:
+			case Format::ASTC_4x4_SRGB:
+			case Format::ASTC_5x4_UNORM:
+			case Format::ASTC_5x4_SRGB:
+			case Format::ASTC_5x5_UNORM:
+			case Format::ASTC_5x5_SRGB:
+			case Format::ASTC_6x5_UNORM:
+			case Format::ASTC_6x5_SRGB:
+			case Format::ASTC_6x6_UNORM:
+			case Format::ASTC_6x6_SRGB:
+			case Format::ASTC_8x5_UNORM:
+			case Format::ASTC_8x5_SRGB:
+			case Format::ASTC_8x6_UNORM:
+			case Format::ASTC_8x6_SRGB:
+			case Format::ASTC_8x8_UNORM:
+			case Format::ASTC_8x8_SRGB:
+			case Format::ASTC_10x5_UNORM:
+			case Format::ASTC_10x5_SRGB:
+			case Format::ASTC_10x6_UNORM:
+			case Format::ASTC_10x6_SRGB:
+			case Format::ASTC_10x8_UNORM:
+			case Format::ASTC_10x8_SRGB:
+			case Format::ASTC_10x10_UNORM:
+			case Format::ASTC_10x10_SRGB:
+			case Format::ASTC_12x10_UNORM:
+			case Format::ASTC_12x10_SRGB:
+			case Format::ASTC_12x12_UNORM:
+			case Format::ASTC_12x12_SRGB:
 				return 16; // 16 bytes per block, regardless of block size
 
-			case TextureFormat::Unknown:
+			case Format::Unknown:
 			default:
 				return 0;
 		}
 	}
 
-	inline i8 GetTextureFormatNumChannels(TextureFormat format)
+	inline i8 GetFormatNumChannels(Format format)
 	{
 		switch (format)
 		{
 			// Single channel formats
-			case TextureFormat::R8_UNORM:
-			case TextureFormat::R8_SNORM:
-			case TextureFormat::R8_UINT:
-			case TextureFormat::R8_SINT:
-			case TextureFormat::R8_SRGB:
-			case TextureFormat::R16_UNORM:
-			case TextureFormat::R16_SNORM:
-			case TextureFormat::R16_UINT:
-			case TextureFormat::R16_SINT:
-			case TextureFormat::R16_FLOAT:
-			case TextureFormat::R32_UINT:
-			case TextureFormat::R32_SINT:
-			case TextureFormat::R32_FLOAT:
+			case Format::R8_UNORM:
+			case Format::R8_SNORM:
+			case Format::R8_UINT:
+			case Format::R8_SINT:
+			case Format::R8_SRGB:
+			case Format::R16_UNORM:
+			case Format::R16_SNORM:
+			case Format::R16_UINT:
+			case Format::R16_SINT:
+			case Format::R16_FLOAT:
+			case Format::R32_UINT:
+			case Format::R32_SINT:
+			case Format::R32_FLOAT:
 				return 1;
 
 			// Two channel formats
-			case TextureFormat::R8G8_UNORM:
-			case TextureFormat::R8G8_SNORM:
-			case TextureFormat::R8G8_UINT:
-			case TextureFormat::R8G8_SINT:
-			case TextureFormat::R8G8_SRGB:
-			case TextureFormat::R16G16_UNORM:
-			case TextureFormat::R16G16_SNORM:
-			case TextureFormat::R16G16_UINT:
-			case TextureFormat::R16G16_SINT:
-			case TextureFormat::R16G16_FLOAT:
-			case TextureFormat::R32G32_UINT:
-			case TextureFormat::R32G32_SINT:
-			case TextureFormat::R32G32_FLOAT:
+			case Format::RG8_UNORM:
+			case Format::RG8_SNORM:
+			case Format::RG8_UINT:
+			case Format::RG8_SINT:
+			case Format::RG8_SRGB:
+			case Format::RG16_UNORM:
+			case Format::RG16_SNORM:
+			case Format::RG16_UINT:
+			case Format::RG16_SINT:
+			case Format::RG16_FLOAT:
+			case Format::RG32_UINT:
+			case Format::RG32_SINT:
+			case Format::RG32_FLOAT:
 				return 2;
 
 			// Three channel formats
-			case TextureFormat::R16G16B16_UNORM:
-			case TextureFormat::R16G16B16_SNORM:
-			case TextureFormat::R16G16B16_UINT:
-			case TextureFormat::R16G16B16_SINT:
-			case TextureFormat::R16G16B16_FLOAT:
-			case TextureFormat::R32G32B32_UINT:
-			case TextureFormat::R32G32B32_SINT:
-			case TextureFormat::R32G32B32_FLOAT:
-			case TextureFormat::R11G11B10_FLOAT:
+			case Format::RGB16_UNORM:
+			case Format::RGB16_SNORM:
+			case Format::RGB16_UINT:
+			case Format::RGB16_SINT:
+			case Format::RGB16_FLOAT:
+			case Format::RGB32_UINT:
+			case Format::RGB32_SINT:
+			case Format::RGB32_FLOAT:
+			case Format::RG11B10_FLOAT:
 				return 3;
 
 			// Four channel formats
-			case TextureFormat::R8G8B8A8_UNORM:
-			case TextureFormat::R8G8B8A8_SNORM:
-			case TextureFormat::R8G8B8A8_UINT:
-			case TextureFormat::R8G8B8A8_SINT:
-			case TextureFormat::R8G8B8A8_SRGB:
-			case TextureFormat::B8G8R8A8_UNORM:
-			case TextureFormat::B8G8R8A8_SNORM:
-			case TextureFormat::B8G8R8A8_UINT:
-			case TextureFormat::B8G8R8A8_SINT:
-			case TextureFormat::B8G8R8A8_SRGB:
-			case TextureFormat::R10G10B10A2_UNORM:
-			case TextureFormat::R10G10B10A2_UINT:
-			case TextureFormat::R16G16B16A16_UNORM:
-			case TextureFormat::R16G16B16A16_SNORM:
-			case TextureFormat::R16G16B16A16_UINT:
-			case TextureFormat::R16G16B16A16_SINT:
-			case TextureFormat::R16G16B16A16_FLOAT:
-			case TextureFormat::R32G32B32A32_UINT:
-			case TextureFormat::R32G32B32A32_SINT:
-			case TextureFormat::R32G32B32A32_FLOAT:
+			case Format::RGBA8_UNORM:
+			case Format::RGBA8_SNORM:
+			case Format::RGBA8_UINT:
+			case Format::RGBA8_SINT:
+			case Format::RGBA8_SRGB:
+			case Format::BGRA8_UNORM:
+			case Format::BGRA8_SNORM:
+			case Format::BGRA8_UINT:
+			case Format::BGRA8_SINT:
+			case Format::BGRA8_SRGB:
+			case Format::RGB10A2_UNORM:
+			case Format::RGB10A2_UINT:
+			case Format::RGBA16_UNORM:
+			case Format::RGBA16_SNORM:
+			case Format::RGBA16_UINT:
+			case Format::RGBA16_SINT:
+			case Format::RGBA16_FLOAT:
+			case Format::RGBA32_UINT:
+			case Format::RGBA32_SINT:
+			case Format::RGBA32_FLOAT:
 				return 4;
 
 			// Special formats with packed channels
-			case TextureFormat::R9G9B9E5_FLOAT:
+			case Format::RGB9E5_FLOAT:
 				return 3;
 
 			// Depth/stencil formats
-			case TextureFormat::D16_UNORM:
+			case Format::D16_UNORM:
 				return 1;
-			case TextureFormat::D24_UNORM_S8_UINT:
-			case TextureFormat::D32_FLOAT_S8_UINT:
+			case Format::D24_UNORM_S8_UINT:
+			case Format::D32_FLOAT_S8_UINT:
 				return 2; // Depth + stencil
-			case TextureFormat::D32_FLOAT:
+			case Format::D32_FLOAT:
 				return 1;
 
 			// Compressed formats
 			// BC1, BC2, BC3 typically represent RGBA data
-			case TextureFormat::BC1_UNORM:
-			case TextureFormat::BC1_SRGB:
-			case TextureFormat::BC2_UNORM:
-			case TextureFormat::BC2_SRGB:
-			case TextureFormat::BC3_UNORM:
-			case TextureFormat::BC3_SRGB:
-			case TextureFormat::BC7_UNORM:
-			case TextureFormat::BC7_SRGB:
+			case Format::BC1_UNORM:
+			case Format::BC1_SRGB:
+			case Format::BC2_UNORM:
+			case Format::BC2_SRGB:
+			case Format::BC3_UNORM:
+			case Format::BC3_SRGB:
+			case Format::BC7_UNORM:
+			case Format::BC7_SRGB:
 				return 4;
 
 			// BC4 represents a single channel
-			case TextureFormat::BC4_UNORM:
-			case TextureFormat::BC4_SNORM:
+			case Format::BC4_UNORM:
+			case Format::BC4_SNORM:
 				return 1;
 
 			// BC5 represents two channels (typically RG)
-			case TextureFormat::BC5_UNORM:
-			case TextureFormat::BC5_SNORM:
+			case Format::BC5_UNORM:
+			case Format::BC5_SNORM:
 				return 2;
 
 			// BC6H represents RGB data
-			case TextureFormat::BC6H_UF16:
-			case TextureFormat::BC6H_SF16:
+			case Format::BC6H_UF16:
+			case Format::BC6H_SF16:
 				return 3;
 
 			// ETC formats
-			case TextureFormat::ETC1_UNORM:
-			case TextureFormat::ETC2_UNORM:
-			case TextureFormat::ETC2_SRGB:
+			case Format::ETC1_UNORM:
+			case Format::ETC2_UNORM:
+			case Format::ETC2_SRGB:
 				return 3; // RGB
-			case TextureFormat::ETC2A_UNORM:
-			case TextureFormat::ETC2A_SRGB:
+			case Format::ETC2A_UNORM:
+			case Format::ETC2A_SRGB:
 				return 4; // RGBA
 
 			// ASTC formats (all represent RGBA data)
-			case TextureFormat::ASTC_4x4_UNORM:
-			case TextureFormat::ASTC_4x4_SRGB:
-			case TextureFormat::ASTC_5x4_UNORM:
-			case TextureFormat::ASTC_5x4_SRGB:
-			case TextureFormat::ASTC_5x5_UNORM:
-			case TextureFormat::ASTC_5x5_SRGB:
-			case TextureFormat::ASTC_6x5_UNORM:
-			case TextureFormat::ASTC_6x5_SRGB:
-			case TextureFormat::ASTC_6x6_UNORM:
-			case TextureFormat::ASTC_6x6_SRGB:
-			case TextureFormat::ASTC_8x5_UNORM:
-			case TextureFormat::ASTC_8x5_SRGB:
-			case TextureFormat::ASTC_8x6_UNORM:
-			case TextureFormat::ASTC_8x6_SRGB:
-			case TextureFormat::ASTC_8x8_UNORM:
-			case TextureFormat::ASTC_8x8_SRGB:
-			case TextureFormat::ASTC_10x5_UNORM:
-			case TextureFormat::ASTC_10x5_SRGB:
-			case TextureFormat::ASTC_10x6_UNORM:
-			case TextureFormat::ASTC_10x6_SRGB:
-			case TextureFormat::ASTC_10x8_UNORM:
-			case TextureFormat::ASTC_10x8_SRGB:
-			case TextureFormat::ASTC_10x10_UNORM:
-			case TextureFormat::ASTC_10x10_SRGB:
-			case TextureFormat::ASTC_12x10_UNORM:
-			case TextureFormat::ASTC_12x10_SRGB:
-			case TextureFormat::ASTC_12x12_UNORM:
-			case TextureFormat::ASTC_12x12_SRGB:
+			case Format::ASTC_4x4_UNORM:
+			case Format::ASTC_4x4_SRGB:
+			case Format::ASTC_5x4_UNORM:
+			case Format::ASTC_5x4_SRGB:
+			case Format::ASTC_5x5_UNORM:
+			case Format::ASTC_5x5_SRGB:
+			case Format::ASTC_6x5_UNORM:
+			case Format::ASTC_6x5_SRGB:
+			case Format::ASTC_6x6_UNORM:
+			case Format::ASTC_6x6_SRGB:
+			case Format::ASTC_8x5_UNORM:
+			case Format::ASTC_8x5_SRGB:
+			case Format::ASTC_8x6_UNORM:
+			case Format::ASTC_8x6_SRGB:
+			case Format::ASTC_8x8_UNORM:
+			case Format::ASTC_8x8_SRGB:
+			case Format::ASTC_10x5_UNORM:
+			case Format::ASTC_10x5_SRGB:
+			case Format::ASTC_10x6_UNORM:
+			case Format::ASTC_10x6_SRGB:
+			case Format::ASTC_10x8_UNORM:
+			case Format::ASTC_10x8_SRGB:
+			case Format::ASTC_10x10_UNORM:
+			case Format::ASTC_10x10_SRGB:
+			case Format::ASTC_12x10_UNORM:
+			case Format::ASTC_12x10_SRGB:
+			case Format::ASTC_12x12_UNORM:
+			case Format::ASTC_12x12_SRGB:
 				return 4;
 
-			case TextureFormat::Unknown:
+			case Format::Unknown:
 			default:
 				return 0;
 		}
@@ -1578,9 +1578,9 @@ namespace Skore
 		return TextureViewType::Type2D;
 	}
 
-	inline bool IsDepthFormat(TextureFormat format)
+	inline bool IsDepthFormat(Format format)
 	{
-		return format == TextureFormat::D16_UNORM || format == TextureFormat::D24_UNORM_S8_UINT || format == TextureFormat::D32_FLOAT || format == TextureFormat::D32_FLOAT_S8_UINT;
+		return format == Format::D16_UNORM || format == Format::D24_UNORM_S8_UINT || format == Format::D32_FLOAT || format == Format::D32_FLOAT_S8_UINT;
 	}
 
 	inline StringView ResourceStateToString(ResourceState state)

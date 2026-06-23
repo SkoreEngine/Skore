@@ -9,7 +9,7 @@ namespace Skore
 
 	struct RmlUiRenderPipelineModule;
 
-	TextureFormat mainDepthFormat = TextureFormat::D32_FLOAT;
+	Format mainDepthFormat = Format::D32_FLOAT;
 
 	struct DeferredRenderModule : RenderPipelineModule
 	{
@@ -40,14 +40,14 @@ namespace Skore
 			resources.EmplaceBack(RenderPipelineResource{.name = "SceneCullingData", .type = RenderPipelineResourceType::Instance, .instanceTypeId = sktypeid(SceneCullingData)});
 
 			//GBuffer attachments
-			resources.EmplaceBack(RenderPipelineResource{.name = "GBufferAlbedoMetallic", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM});
-			resources.EmplaceBack(RenderPipelineResource{.name = "GBufferRoughnessAO", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8_UNORM});
-			resources.EmplaceBack(RenderPipelineResource{.name = "GBufferNormals", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16_FLOAT});
-			resources.EmplaceBack(RenderPipelineResource{.name = "GBufferEmissive", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R11G11B10_FLOAT});
+			resources.EmplaceBack(RenderPipelineResource{.name = "GBufferAlbedoMetallic", .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA8_UNORM});
+			resources.EmplaceBack(RenderPipelineResource{.name = "GBufferRoughnessAO", .type = RenderPipelineResourceType::Attachment, .format = Format::RG8_UNORM});
+			resources.EmplaceBack(RenderPipelineResource{.name = "GBufferNormals", .type = RenderPipelineResourceType::Attachment, .format = Format::RG16_FLOAT});
+			resources.EmplaceBack(RenderPipelineResource{.name = "GBufferEmissive", .type = RenderPipelineResourceType::Attachment, .format = Format::RG11B10_FLOAT});
 
 			//lighting
-			resources.EmplaceBack(RenderPipelineResource{.name = "LightAttachment", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16B16A16_FLOAT, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest});
-			resources.EmplaceBack(RenderPipelineResource{.name = "ColorAttachment", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16B16A16_FLOAT, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest, .pingPong = true});
+			resources.EmplaceBack(RenderPipelineResource{.name = "LightAttachment", .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA16_FLOAT, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest});
+			resources.EmplaceBack(RenderPipelineResource{.name = "ColorAttachment", .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA16_FLOAT, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest, .pingPong = true});
 
 			resources.EmplaceBack(RenderPipelineResource{.name = OutputDepthName, .type = RenderPipelineResourceType::Attachment, .format = mainDepthFormat});
 			return resources;

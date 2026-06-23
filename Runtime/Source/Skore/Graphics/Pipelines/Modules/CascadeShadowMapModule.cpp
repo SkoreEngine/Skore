@@ -100,7 +100,7 @@ namespace Skore
 						.finalState = ResourceState::DepthStencilAttachment,
 						.loadOp = AttachmentLoadOp::Clear,
 						.storeOp = AttachmentStoreOp::Store,
-						.format = TextureFormat::D32_FLOAT,
+						.format = Format::D32_FLOAT,
 					}
 				},
 				.debugName = "ShadowMapRenderPass_Cascade_" + ToString(i)
@@ -639,7 +639,7 @@ namespace Skore
 			.extent = {shadowMapData->shadowMapSize, shadowMapData->shadowMapSize, 1},
 			.mipLevels = 1,
 			.arrayLayers = shadowMapData->numCascades,
-			.format = TextureFormat::D32_FLOAT,
+			.format = Format::D32_FLOAT,
 			.usage = ResourceUsage::DepthStencil | ResourceUsage::ShaderResource,
 			.debugName = "ShadowMapDepthTexture"
 		});

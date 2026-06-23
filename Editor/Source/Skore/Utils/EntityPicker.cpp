@@ -35,14 +35,14 @@ namespace Skore
 
 			texture = Graphics::CreateTexture({
 				.extent = currentExtent,
-				.format = TextureFormat::R32G32_UINT,
+				.format = Format::RG32_UINT,
 				.usage = ResourceUsage::RenderTarget | ResourceUsage::CopySource,
 				.debugName = "EntityPicker_Texture"
 			});
 
 			depth = Graphics::CreateTexture({
 				.extent = currentExtent,
-				.format = TextureFormat::D32_FLOAT,
+				.format = Format::D32_FLOAT,
 				.usage = ResourceUsage::DepthStencil | ResourceUsage::CopySource,
 				.debugName = "EntityPicker_DepthTexture"
 			});
@@ -70,14 +70,14 @@ namespace Skore
 						.finalState = ResourceState::ColorAttachment,
 						.loadOp = AttachmentLoadOp::Clear,
 						.storeOp = AttachmentStoreOp::Store,
-						.format = TextureFormat::R32G32_UINT
+						.format = Format::RG32_UINT
 					},
 					AttachmentDesc{
 						.initialState = ResourceState::Undefined,
 						.finalState = ResourceState::DepthStencilAttachment,
 						.loadOp = AttachmentLoadOp::Clear,
 						.storeOp = AttachmentStoreOp::Store,
-						.format = TextureFormat::D32_FLOAT,
+						.format = Format::D32_FLOAT,
 					}
 				}
 			});

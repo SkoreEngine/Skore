@@ -273,25 +273,25 @@ namespace Skore
 
 			rayDataArray = Graphics::CreateTexture(TextureDesc{
 				.extent = {static_cast<u32>(raysPerProbe), static_cast<u32>(totalProbes) * layers, 1},
-				.format = TextureFormat::R16G16B16A16_FLOAT,
+				.format = Format::RGBA16_FLOAT,
 				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 				.debugName = "IrradianceVolumeRayData"
 			});
 			irradianceArray = Graphics::CreateTexture(TextureDesc{
 				.extent = {static_cast<u32>(irrW), static_cast<u32>(irrH) * layers, 1},
-				.format = TextureFormat::R16G16B16A16_FLOAT,
+				.format = Format::RGBA16_FLOAT,
 				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 				.debugName = "IrradianceVolumeIrradiance"
 			});
 			distanceArray = Graphics::CreateTexture(TextureDesc{
 				.extent = {static_cast<u32>(visW), static_cast<u32>(visH) * layers, 1},
-				.format = TextureFormat::R16G16_FLOAT,
+				.format = Format::RG16_FLOAT,
 				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 				.debugName = "IrradianceVolumeDistance"
 			});
 			probeDataArray = Graphics::CreateTexture(TextureDesc{
 				.extent = {static_cast<u32>(countX * countY), static_cast<u32>(countZ) * layers, 1},
-				.format = TextureFormat::R16G16B16A16_FLOAT,
+				.format = Format::RGBA16_FLOAT,
 				.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest,
 				.debugName = "IrradianceVolumeProbeData"
 			});
@@ -974,11 +974,11 @@ namespace Skore
 		Array<RenderPipelineResource> GetResources() override
 		{
 			Array<RenderPipelineResource> resources;
-			resources.EmplaceBack(RenderPipelineResource{.name = "ReflectionAttachment", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R16G16B16A16_FLOAT, .textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess});
+			resources.EmplaceBack(RenderPipelineResource{.name = "ReflectionAttachment", .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA16_FLOAT, .textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess});
 			resources.EmplaceBack(RenderPipelineResource{
 				.name = "IrradianceVolumeAttachment",
 				.type = RenderPipelineResourceType::Attachment,
-				.format = TextureFormat::R16G16B16A16_FLOAT,
+				.format = Format::RGBA16_FLOAT,
 				.scale = Vec2(1.0, 1.0),
 				.textureUsage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess
 			});

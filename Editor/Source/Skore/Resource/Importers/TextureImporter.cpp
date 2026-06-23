@@ -18,7 +18,7 @@ namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("Skore::TextureImporter");
 
-	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, TextureFormat format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope, const SubResourceAllocator& alloc);
+	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, Format format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope, const SubResourceAllocator& alloc);
 
 	struct TextureImporter : ResourceAssetImporter
 	{
@@ -61,18 +61,18 @@ namespace Skore
 			i32 desiredChannels = 4;
 
 			VoidPtr       bytes = nullptr;
-			TextureFormat format;
+			Format format;
 
 			bool hdr = stbi_is_hdr_from_memory(ctx.sourceBytes.begin(), static_cast<i32>(ctx.sourceBytes.Size()));
 			if (hdr)
 			{
 				bytes = stbi_loadf_from_memory(ctx.sourceBytes.begin(), static_cast<i32>(ctx.sourceBytes.Size()), &width, &height, &channels, desiredChannels);
-				format = TextureFormat::R32G32B32A32_FLOAT;
+				format = Format::RGBA32_FLOAT;
 			}
 			else
 			{
 				bytes = stbi_load_from_memory(ctx.sourceBytes.begin(), static_cast<i32>(ctx.sourceBytes.Size()), &width, &height, &channels, desiredChannels);
-				format = TextureFormat::R8G8B8A8_UNORM;
+				format = Format::RGBA8_UNORM;
 			}
 
 			if (bytes == nullptr)
@@ -160,20 +160,20 @@ namespace Skore
 		}
 	}
 
-	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, TextureFormat format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope, const SubResourceAllocator& alloc)
+	void ProcessTextureAsset(RID texture, StringView name, const TextureImportSettings& settings, Format format, u32 width, u32 height, VoidPtr bytes, UndoRedoScope* scope, const SubResourceAllocator& alloc)
 	{
 		UUID textureBase = Resources::GetUUID(texture);
 
-		u32 formatSize = GetTextureFormatSize(format);
+		u32 formatSize = GetFormatSize(format);
 		u32 originalUncompressedSize = width * height * formatSize;
 
-		bool generateMips = format != TextureFormat::R32G32B32A32_FLOAT; //mips - not going to generate for hdri.
+		bool generateMips = format != Format::RGBA32_FLOAT; //mips - not going to generate for hdri.
 		u32 mipLevels = generateMips ? static_cast<u32>(std::floor(std::log2(std::max(width, height)))) + 1 : 1;
 
 		CompressionMode compressionMode = CompressionMode::None;
 
-		//compress only R32G32B32A32_FLOAT for now.
-		if (format == TextureFormat::R32G32B32A32_FLOAT)
+		//compress only RGBA32_FLOAT for now.
+		if (format == Format::RGBA32_FLOAT)
 		{
 			compressionMode = CompressionMode::ZSTD;
 		}
@@ -268,7 +268,7 @@ namespace Skore
 			srcBuffer->Destroy();
 			dstBuffer->Destroy();
 
-			if (settings.preserveAlphaCoverage && format == TextureFormat::R8G8B8A8_UNORM)
+			if (settings.preserveAlphaCoverage && format == Format::RGBA8_UNORM)
 			{
 				ScaleAlphaToCoverage(mipsBuffer, width, height, mipLevels, settings.alphaCoverageCutoff);
 			}
@@ -360,7 +360,7 @@ namespace Skore
 		i32 height{};
 		i32 channels{};
 		i32 desiredChannels = 4;
-		TextureFormat format;
+		Format format;
 
 		bool hdr = Path::Extension(path) == ".hdr";
 
@@ -369,12 +369,12 @@ namespace Skore
 		if (!hdr)
 		{
 			bytes = stbi_load(path.CStr(), &width, &height, &channels, desiredChannels);
-			format = TextureFormat::R8G8B8A8_UNORM;
+			format = Format::RGBA8_UNORM;
 		}
 		else
 		{
 			bytes = stbi_loadf(path.CStr(), &width, &height, &channels, desiredChannels);
-			format = TextureFormat::R32G32B32A32_FLOAT;
+			format = Format::RGBA32_FLOAT;
 		}
 
 		if (bytes == nullptr)
@@ -453,7 +453,7 @@ namespace Skore
 			logger.Error("Failed to load texture from memory: {}", name);
 		}
 
-		ProcessTextureAsset(texture, name, settings, TextureFormat::R8G8B8A8_UNORM, width, height, bytes, scope, alloc);
+		ProcessTextureAsset(texture, name, settings, Format::RGBA8_UNORM, width, height, bytes, scope, alloc);
 
 		stbi_image_free(bytes);
 	}

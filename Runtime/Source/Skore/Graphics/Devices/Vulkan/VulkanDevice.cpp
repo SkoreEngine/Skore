@@ -267,9 +267,9 @@ namespace Skore
 		return textures.Size();
 	}
 
-	TextureFormat VulkanSwapchain::GetFormat() const
+	Format VulkanSwapchain::GetFormat() const
 	{
-		return ToTextureFormat(format);
+		return ToFormat(format);
 	}
 
 	Span<GPUTexture*> VulkanSwapchain::GetTextures() const
@@ -381,7 +381,7 @@ namespace Skore
 
 		TextureDesc textureDesc;
 		textureDesc.extent = {extent.width, extent.height, 1};
-		textureDesc.format = ToTextureFormat(format);
+		textureDesc.format = ToFormat(format);
 		textureDesc.usage = ResourceUsage::RenderTarget;
 
 		for (u32 i = 0; i < imageCount; ++i)

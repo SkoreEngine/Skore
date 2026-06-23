@@ -164,7 +164,7 @@ namespace Skore
 				{
 					texture = Graphics::CreateTexture(TextureDesc{
 						.extent = {thumbnailSize.width, thumbnailSize.height, 1},
-						.format = TextureFormat::R8G8B8A8_UNORM,
+						.format = Format::RGBA8_UNORM,
 						.usage = ResourceUsage::ShaderResource | ResourceUsage::CopyDest,
 					});
 				}

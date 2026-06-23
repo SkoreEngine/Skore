@@ -294,72 +294,72 @@ namespace Skore
 
 	namespace SpirvUtils
 	{
-		TextureFormat CastFormat(SpvReflectFormat format)
+		Format CastFormat(SpvReflectFormat format)
 		{
 			switch (format)
 			{
 				case SPV_REFLECT_FORMAT_UNDEFINED:
-					return TextureFormat::Unknown;
+					return Format::Unknown;
 
 				// R16 formats
-				case SPV_REFLECT_FORMAT_R16_UINT: return TextureFormat::R16_UINT;
-				case SPV_REFLECT_FORMAT_R16_SINT: return TextureFormat::R16_SINT;
-				case SPV_REFLECT_FORMAT_R16_SFLOAT: return TextureFormat::R16_FLOAT;
+				case SPV_REFLECT_FORMAT_R16_UINT: return Format::R16_UINT;
+				case SPV_REFLECT_FORMAT_R16_SINT: return Format::R16_SINT;
+				case SPV_REFLECT_FORMAT_R16_SFLOAT: return Format::R16_FLOAT;
 
 				// R16G16 formats
-				case SPV_REFLECT_FORMAT_R16G16_UINT: return TextureFormat::R16G16_UINT;
-				case SPV_REFLECT_FORMAT_R16G16_SINT: return TextureFormat::R16G16_SINT;
-				case SPV_REFLECT_FORMAT_R16G16_SFLOAT: return TextureFormat::R16G16_FLOAT;
+				case SPV_REFLECT_FORMAT_R16G16_UINT: return Format::RG16_UINT;
+				case SPV_REFLECT_FORMAT_R16G16_SINT: return Format::RG16_SINT;
+				case SPV_REFLECT_FORMAT_R16G16_SFLOAT: return Format::RG16_FLOAT;
 
 				// R16G16B16 formats - now with proper mapping
 				case SPV_REFLECT_FORMAT_R16G16B16_UINT:
-					return TextureFormat::R16G16B16_UINT;
+					return Format::RGB16_UINT;
 				case SPV_REFLECT_FORMAT_R16G16B16_SINT:
-					return TextureFormat::R16G16B16_SINT;
+					return Format::RGB16_SINT;
 				case SPV_REFLECT_FORMAT_R16G16B16_SFLOAT:
-					return TextureFormat::R16G16B16_FLOAT;
+					return Format::RGB16_FLOAT;
 
 				// R16G16B16A16 formats
 				case SPV_REFLECT_FORMAT_R16G16B16A16_UINT:
-					return TextureFormat::R16G16B16A16_UINT;
+					return Format::RGBA16_UINT;
 				case SPV_REFLECT_FORMAT_R16G16B16A16_SINT:
-					return TextureFormat::R16G16B16A16_SINT;
+					return Format::RGBA16_SINT;
 				case SPV_REFLECT_FORMAT_R16G16B16A16_SFLOAT:
-					return TextureFormat::R16G16B16A16_FLOAT;
+					return Format::RGBA16_FLOAT;
 
 				// R32 formats
 				case SPV_REFLECT_FORMAT_R32_UINT:
-					return TextureFormat::R32_UINT;
+					return Format::R32_UINT;
 				case SPV_REFLECT_FORMAT_R32_SINT:
-					return TextureFormat::R32_SINT;
+					return Format::R32_SINT;
 				case SPV_REFLECT_FORMAT_R32_SFLOAT:
-					return TextureFormat::R32_FLOAT;
+					return Format::R32_FLOAT;
 
 				// R32G32 formats
 				case SPV_REFLECT_FORMAT_R32G32_UINT:
-					return TextureFormat::R32G32_UINT;
+					return Format::RG32_UINT;
 				case SPV_REFLECT_FORMAT_R32G32_SINT:
-					return TextureFormat::R32G32_SINT;
+					return Format::RG32_SINT;
 				case SPV_REFLECT_FORMAT_R32G32_SFLOAT:
-					return TextureFormat::R32G32_FLOAT;
+					return Format::RG32_FLOAT;
 
 				// R32G32B32 formats
 				case SPV_REFLECT_FORMAT_R32G32B32_UINT:
-					return TextureFormat::R32G32B32_UINT;
+					return Format::RGB32_UINT;
 				case SPV_REFLECT_FORMAT_R32G32B32_SINT:
-					return TextureFormat::R32G32B32_SINT;
+					return Format::RGB32_SINT;
 				case SPV_REFLECT_FORMAT_R32G32B32_SFLOAT:
-					return TextureFormat::R32G32B32_FLOAT;
+					return Format::RGB32_FLOAT;
 
 				// R32G32B32A32 formats
 				case SPV_REFLECT_FORMAT_R32G32B32A32_UINT:
-					return TextureFormat::R32G32B32A32_UINT;
+					return Format::RGBA32_UINT;
 				case SPV_REFLECT_FORMAT_R32G32B32A32_SINT:
-					return TextureFormat::R32G32B32A32_SINT;
+					return Format::RGBA32_SINT;
 				case SPV_REFLECT_FORMAT_R32G32B32A32_SFLOAT:
-					return TextureFormat::R32G32B32A32_FLOAT;
+					return Format::RGBA32_FLOAT;
 
-				// R64 formats - no direct mapping in TextureFormat
+				// R64 formats - no direct mapping in Format
 				case SPV_REFLECT_FORMAT_R64_UINT:
 				case SPV_REFLECT_FORMAT_R64_SINT:
 				case SPV_REFLECT_FORMAT_R64_SFLOAT:
@@ -372,10 +372,10 @@ namespace Skore
 				case SPV_REFLECT_FORMAT_R64G64B64A64_UINT:
 				case SPV_REFLECT_FORMAT_R64G64B64A64_SINT:
 				case SPV_REFLECT_FORMAT_R64G64B64A64_SFLOAT:
-					return TextureFormat::Unknown;
+					return Format::Unknown;
 
 				default:
-					return TextureFormat::Unknown;
+					return Format::Unknown;
 			}
 		}
 

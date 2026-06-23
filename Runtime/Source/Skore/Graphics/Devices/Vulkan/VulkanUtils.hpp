@@ -51,8 +51,8 @@ namespace Skore
 	VkQueryType                   ConvertQueryType(QueryType type);
 	void                          SetObjectName(VulkanDevice& device, VkObjectType type, u64 handle, StringView name);
 	void                          CreateDescriptorSetLayout(VkDevice vkDevice, Span<DescriptorSetLayoutBinding> bindings, VkDescriptorSetLayout* descriptorSetLayout, bool* hasRuntimeArrays, bool pushDescriptor = false);
-	VkFormat                      ToVkFormat(TextureFormat format);
-	TextureFormat                 ToTextureFormat(VkFormat format);
+	VkFormat                      ToVkFormat(Format format);
+	Format                 ToFormat(VkFormat format);
 	VulkanSwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
 	VkSurfaceFormatKHR            ChooseSwapSurfaceFormat(const VulkanSwapChainSupportDetails& supportDetails, VkSurfaceFormatKHR desiredFormat);
 	VkPresentModeKHR              ChooseSwapPresentMode(const VulkanSwapChainSupportDetails& supportDetails, VkPresentModeKHR desiredPresentMode);

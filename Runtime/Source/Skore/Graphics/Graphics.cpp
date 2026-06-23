@@ -186,7 +186,7 @@ namespace Skore
 		});
 
 		whiteTextureUint = device->CreateTexture(TextureDesc{
-			.format = TextureFormat::R8_UINT,
+			.format = Format::R8_UINT,
 			.debugName = "DefaultWhiteTextureUint"
 		});
 

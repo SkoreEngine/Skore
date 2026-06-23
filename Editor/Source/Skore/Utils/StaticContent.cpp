@@ -47,7 +47,7 @@ namespace Skore::StaticContent
 
 		GPUTexture* texture = Graphics::CreateTexture({
 			.extent = {static_cast<u32>(imageWidth), static_cast<u32>(imageHeight), 1},
-			.format = TextureFormat::R8G8B8A8_UNORM,
+			.format = Format::RGBA8_UNORM,
 			.usage = ResourceUsage::CopyDest | ResourceUsage::ShaderResource
 		});
 

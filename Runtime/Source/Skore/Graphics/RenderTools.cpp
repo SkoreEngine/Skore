@@ -241,15 +241,15 @@ namespace Skore
 		ComputePipelineDesc desc;
 		desc.shader = Resources::FindByPath("Skore://Shaders/FidelityFX/SPD.shader");
 
-		if (textureDesc.format == TextureFormat::R8G8B8A8_UNORM)
+		if (textureDesc.format == Format::RGBA8_UNORM)
 		{
 			desc.variant = "VariantRGBA";
 		}
-		else if (textureDesc.format == TextureFormat::R32G32B32A32_FLOAT)
+		else if (textureDesc.format == Format::RGBA32_FLOAT)
 		{
 			desc.variant = "VariantRGBA32F";
 		}
-		else if (textureDesc.format == TextureFormat::R16G16B16A16_FLOAT)
+		else if (textureDesc.format == Format::RGBA16_FLOAT)
 		{
 			desc.variant = "VariantRGBA16F";
 		}
@@ -344,7 +344,7 @@ namespace Skore
 
 		m_texture = Graphics::CreateTexture(TextureDesc{
 			.extent = {extent.width, extent.height, 1},
-			.format = TextureFormat::R16G16_FLOAT,
+			.format = Format::RG16_FLOAT,
 			.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 			.debugName = "BRDFLUTTexture"
 		});
@@ -671,32 +671,32 @@ namespace Skore
 
 	namespace
 	{
-		bool IsHDRFormat(TextureFormat format)
+		bool IsHDRFormat(Format format)
 		{
 			switch (format)
 			{
-				case TextureFormat::R16_FLOAT:
-				case TextureFormat::R16G16_FLOAT:
-				case TextureFormat::R16G16B16_FLOAT:
-				case TextureFormat::R16G16B16A16_FLOAT:
-				case TextureFormat::R32_FLOAT:
-				case TextureFormat::R32G32_FLOAT:
-				case TextureFormat::R32G32B32_FLOAT:
-				case TextureFormat::R32G32B32A32_FLOAT:
+				case Format::R16_FLOAT:
+				case Format::RG16_FLOAT:
+				case Format::RGB16_FLOAT:
+				case Format::RGBA16_FLOAT:
+				case Format::R32_FLOAT:
+				case Format::RG32_FLOAT:
+				case Format::RGB32_FLOAT:
+				case Format::RGBA32_FLOAT:
 					return true;
 				default:
 					return false;
 			}
 		}
 
-		bool IsR16FloatFormat(TextureFormat format)
+		bool IsR16FloatFormat(Format format)
 		{
 			switch (format)
 			{
-				case TextureFormat::R16_FLOAT:
-				case TextureFormat::R16G16_FLOAT:
-				case TextureFormat::R16G16B16_FLOAT:
-				case TextureFormat::R16G16B16A16_FLOAT:
+				case Format::R16_FLOAT:
+				case Format::RG16_FLOAT:
+				case Format::RGB16_FLOAT:
+				case Format::RGBA16_FLOAT:
 					return true;
 				default:
 					return false;
@@ -749,8 +749,8 @@ namespace Skore
 
 		const TextureDesc& desc = texture->GetDesc();
 		u32 layers = desc.cubemap ? desc.arrayLayers : 1;
-		u32 formatSize = GetTextureFormatSize(desc.format);
-		i8 channels = GetTextureFormatNumChannels(desc.format);
+		u32 formatSize = GetFormatSize(desc.format);
+		i8 channels = GetFormatNumChannels(desc.format);
 		bool isHDR = IsHDRFormat(desc.format);
 		bool isR16 = IsR16FloatFormat(desc.format);
 

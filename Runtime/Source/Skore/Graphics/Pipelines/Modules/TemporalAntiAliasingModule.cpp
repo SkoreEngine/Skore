@@ -52,7 +52,7 @@ namespace Skore
 			{
 				historyTextures[i] = Graphics::CreateTexture(TextureDesc{
 					.extent = context->GetOutputSize(),
-					.format = TextureFormat::R16G16B16A16_FLOAT,
+					.format = Format::RGBA16_FLOAT,
 					.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess | ResourceUsage::CopySource,
 					.debugName = "HistoryTexture_" + ToString(i)
 				});

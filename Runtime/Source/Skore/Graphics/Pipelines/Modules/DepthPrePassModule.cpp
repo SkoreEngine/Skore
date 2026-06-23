@@ -148,7 +148,7 @@ namespace Skore
 		context->SetDepthOutput(OutputDepthName);
 
 		Array<RenderPipelineResource> resources;
-		resources.EmplaceBack(RenderPipelineResource{.name = OutputDepthName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::D32_FLOAT});
+		resources.EmplaceBack(RenderPipelineResource{.name = OutputDepthName, .type = RenderPipelineResourceType::Attachment, .format = Format::D32_FLOAT});
 		return resources;
 	}
 

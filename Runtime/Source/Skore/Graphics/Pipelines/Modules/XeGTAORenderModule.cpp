@@ -269,8 +269,8 @@ namespace Skore
 		Array<RenderPipelineResource> GetResources() override
 		{
 			Array<RenderPipelineResource> resources;
-			resources.EmplaceBack(RenderPipelineResource{.name = XeGTAOOutputName, .type = RenderPipelineResourceType::Texture, .format = TextureFormat::R8_UINT, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess});
-			resources.EmplaceBack(RenderPipelineResource{.name = "XeGTAOWorkingEdges", .type = RenderPipelineResourceType::Texture, .format = TextureFormat::R8_UNORM, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess});
+			resources.EmplaceBack(RenderPipelineResource{.name = XeGTAOOutputName, .type = RenderPipelineResourceType::Texture, .format = Format::R8_UINT, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess});
+			resources.EmplaceBack(RenderPipelineResource{.name = "XeGTAOWorkingEdges", .type = RenderPipelineResourceType::Texture, .format = Format::R8_UNORM, .textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess});
 
 
 			resources.EmplaceBack(RenderPipelineResource{.name = "XeGTAOConstants", .type = RenderPipelineResourceType::Buffer, .size = sizeof(XeGTAOConstants), .usage = ResourceUsage::ConstantBuffer, .persistentMapped = true});

@@ -920,7 +920,7 @@ namespace Skore
 			geometries[p].triangles.vertexOffset = 0;
 			geometries[p].triangles.vertexCount = obj->skinnedRayTracingVertexCount;
 			geometries[p].triangles.vertexStride = SkinnedBlasVertexStride;
-			geometries[p].triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
+			geometries[p].triangles.vertexFormat = Format::RGB32_FLOAT;
 			geometries[p].triangles.indexBuffer = RenderResourceCache::GetMeshDataBuffer();
 			geometries[p].triangles.indexOffset = static_cast<u64>(firstIndexUnits) * sizeof(u32);
 			geometries[p].triangles.indexCount = indexCount;

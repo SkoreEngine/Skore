@@ -249,11 +249,11 @@ namespace Skore
 				auto uploadTexturePixels = [&](GPUTexture* targetTexture, u32 skippedMips, ResourceObject& textureObject)
 				{
 					u32             srcMipLevels = textureObject.GetUInt(TextureResource::MipLevels);
-					TextureFormat   format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+					Format   format = textureObject.GetEnum<Format>(TextureResource::Format);
 					CompressionMode compressionMode = textureObject.GetEnum<CompressionMode>(TextureResource::CompressionMode);
 					Span<RID>       images = textureObject.GetSubObjectList(TextureResource::Images);
 					ResourceBuffer  buffer = textureObject.GetBuffer(TextureResource::PixelData);
-					u32             texelSize = GetTextureFormatSize(format);
+					u32             texelSize = GetFormatSize(format);
 
 					u32 mipLevels = std::max(srcMipLevels, 1u) - skippedMips;
 
@@ -470,7 +470,7 @@ namespace Skore
 								if (ResourceObject textureObject = Resources::Read(textureCache->rid))
 								{
 									StringView    name   = textureObject.GetString(TextureResource::Name);
-									TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+									Format format = textureObject.GetEnum<Format>(TextureResource::Format);
 
 									u32 mipsToLoad = textureCache->fullMipCount - newSkippedMips;
 									u32 newWidth   = std::max(textureCache->fullExtentWidth  >> newSkippedMips, 1u);
@@ -674,7 +674,7 @@ namespace Skore
 									geometries[p].triangles.vertexOffset = vertexDstOffset;
 									geometries[p].triangles.vertexCount = vertexCount;
 									geometries[p].triangles.vertexStride = meshCache->stride;
-									geometries[p].triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
+									geometries[p].triangles.vertexFormat = Format::RGB32_FLOAT;
 									geometries[p].triangles.indexBuffer = meshDataBuffer;
 									geometries[p].triangles.indexOffset = static_cast<u64>(firstIndexUnits) * sizeof(u32);
 									geometries[p].triangles.indexCount = indexCountForBlas;
@@ -832,7 +832,7 @@ namespace Skore
 									geometries[p].triangles.vertexOffset = vertexDstOffset;
 									geometries[p].triangles.vertexCount  = data.proceduralVertexCount;
 									geometries[p].triangles.vertexStride = data.proceduralStride;
-									geometries[p].triangles.vertexFormat = TextureFormat::R32G32B32_FLOAT;
+									geometries[p].triangles.vertexFormat = Format::RGB32_FLOAT;
 									geometries[p].triangles.indexBuffer  = meshDataBuffer;
 									geometries[p].triangles.indexOffset  = static_cast<u64>(firstIndexUnits) * sizeof(u32);
 									geometries[p].triangles.indexCount   = prim.indexCount;
@@ -1420,7 +1420,7 @@ namespace Skore
 						materialCache->diffuseIrradianceTexture = Graphics::CreateTexture(TextureDesc{
 							.extent = {64, 64, 1},
 							.arrayLayers = 6,
-							.format = TextureFormat::R16G16B16A16_FLOAT,
+							.format = Format::RGBA16_FLOAT,
 							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 							.cubemap = true,
 							.debugName = "SceneRendererViewport_irradianceTexture"
@@ -1433,7 +1433,7 @@ namespace Skore
 							.extent = {256, 256, 1},
 							.mipLevels = 8,
 							.arrayLayers = 6,
-							.format = TextureFormat::R16G16B16A16_FLOAT,
+							.format = Format::RGBA16_FLOAT,
 							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 							.cubemap = true,
 							.debugName = "SceneRendererViewport_SpecularMapTexture"
@@ -1446,7 +1446,7 @@ namespace Skore
 							.extent = {256, 256, 1},
 							.mipLevels = 8,
 							.arrayLayers = 6,
-							.format = TextureFormat::R16G16B16A16_FLOAT,
+							.format = Format::RGBA16_FLOAT,
 							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
 							.cubemap = true,
 							.debugName = "SceneRendererViewport_CubemapTexture"
@@ -1479,7 +1479,7 @@ namespace Skore
 			if (images.Empty()) return;
 
 			StringView    name = textureObject.GetString(TextureResource::Name);
-			TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+			Format format = textureObject.GetEnum<Format>(TextureResource::Format);
 
 			ResourceObject firstImageObject = Resources::Read(images[0]);
 			Vec2           extent = firstImageObject.GetVec2(TextureImageResource::Extent);
@@ -2264,7 +2264,7 @@ namespace Skore
 
 		fontData->texture = Graphics::CreateTexture(TextureDesc{
 			.extent = Extent3D(data.atlas.extent.width, data.atlas.extent.height, 1),
-			.format = TextureFormat::R32G32B32A32_FLOAT,
+			.format = Format::RGBA32_FLOAT,
 			.debugName = "FontAtlas_" + name
 		});
 
@@ -2313,7 +2313,7 @@ namespace Skore
 		if (ResourceObject textureObject = Resources::Read(texture))
 		{
 			StringView name = textureObject.GetString(TextureResource::Name);
-			TextureFormat format = textureObject.GetEnum<TextureFormat>(TextureResource::Format);
+			Format format = textureObject.GetEnum<Format>(TextureResource::Format);
 			Span<RID> images = textureObject.GetSubObjectList(TextureResource::Images);
 
 			ResourceObject firstImageObject = Resources::Read(images[0]);

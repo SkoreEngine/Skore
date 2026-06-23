@@ -57,7 +57,7 @@ namespace Skore
 						.finalState = ResourceState::ColorAttachment,
 						.loadOp = AttachmentLoadOp::Clear,
 						.storeOp = AttachmentStoreOp::Store,
-						.format = TextureFormat::R8G8B8A8_UNORM,
+						.format = Format::RGBA8_UNORM,
 					},
 				}
 			});
@@ -69,7 +69,7 @@ namespace Skore
 						.finalState = ResourceState::ColorAttachment,
 						.loadOp = AttachmentLoadOp::Clear,
 						.storeOp = AttachmentStoreOp::Store,
-						.format = TextureFormat::R8G8B8A8_UNORM,
+						.format = Format::RGBA8_UNORM,
 					},
 				}
 			});
@@ -110,7 +110,7 @@ namespace Skore
 						.finalState = ResourceState::ColorAttachment,
 						.loadOp = AttachmentLoadOp::Load,
 						.storeOp = AttachmentStoreOp::Store,
-						.format = TextureFormat::R8G8B8A8_UNORM,
+						.format = Format::RGBA8_UNORM,
 					},
 				}
 			});
@@ -160,7 +160,7 @@ namespace Skore
 
 			maskTexture = Graphics::CreateTexture({
 				.extent = size,
-				.format = TextureFormat::R8G8B8A8_UNORM,
+				.format = Format::RGBA8_UNORM,
 				.usage = ResourceUsage::RenderTarget | ResourceUsage::ShaderResource,
 				.debugName = "SelectPickerMask_Texture"
 			});
@@ -174,7 +174,7 @@ namespace Skore
 
 			compositeMaskTexture = Graphics::CreateTexture({
 				.extent = size,
-				.format = TextureFormat::R8G8B8A8_UNORM,
+				.format = Format::RGBA8_UNORM,
 				.usage = ResourceUsage::RenderTarget | ResourceUsage::ShaderResource | ResourceUsage::CopySource,
 				.debugName = "SelectPickerMask_Texture"
 			});
@@ -757,11 +757,11 @@ namespace Skore
 			context->SetDepthOutput(OutputDepthName);
 
 			Array<RenderPipelineResource> resources;
-			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM,
+			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA8_UNORM,
 				.textureUsage = ResourceUsage::ShaderResource |  ResourceUsage::UnorderedAccess | ResourceUsage::CopyDest
 			});
-			resources.EmplaceBack(RenderPipelineResource{.name = OutputDepthName, .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::D32_FLOAT, });
-			resources.EmplaceBack(RenderPipelineResource{.name = "SelectionOutline", .type = RenderPipelineResourceType::Attachment, .format = TextureFormat::R8G8B8A8_UNORM, .textureUsage = ResourceUsage::CopyDest});
+			resources.EmplaceBack(RenderPipelineResource{.name = OutputDepthName, .type = RenderPipelineResourceType::Attachment, .format = Format::D32_FLOAT, });
+			resources.EmplaceBack(RenderPipelineResource{.name = "SelectionOutline", .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA8_UNORM, .textureUsage = ResourceUsage::CopyDest});
 			return resources;
 		}
 

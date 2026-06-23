@@ -1111,7 +1111,7 @@ namespace Skore
 				case RenderPipelineResourceType::Attachment:
 				case RenderPipelineResourceType::Texture:
 				{
-					if (desc.format == TextureFormat::Unknown)
+					if (desc.format == Format::Unknown)
 					{
 						continue;
 					}

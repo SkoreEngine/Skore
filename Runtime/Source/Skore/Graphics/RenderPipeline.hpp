@@ -54,7 +54,7 @@ namespace Skore
 		RenderPipelineResourceType type = RenderPipelineResourceType::None;
 
 		//texture
-		TextureFormat format = TextureFormat::Unknown;
+		Format format = Format::Unknown;
 		Extent        extent{};
 		Vec2          scale = Vec2(1.0f);
 		u32           arrayLayers = 1;
