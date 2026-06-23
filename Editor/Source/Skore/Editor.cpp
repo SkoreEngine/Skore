@@ -31,6 +31,7 @@
 #include "Skore/Window/SceneViewWindow.hpp"
 #include "Skore/Window/GraphEditorWindow.hpp"
 #include "Skore/Window/PackagesWindow.hpp"
+#include "Skore/Project/ProjectManager.hpp"
 
 #include <chrono>
 
@@ -183,6 +184,18 @@ namespace Skore
 		std::unique_ptr<ThreadPool> threadPool;
 
 		MenuItemContext menuContext{};
+		Array<String>    recentProjectMenuPaths;
+
+		enum class PendingProjectLaunchType
+		{
+			None,
+			ProjectManagerRecentProjects,
+			ProjectManagerNewProject,
+			Project
+		};
+
+		PendingProjectLaunchType pendingProjectLaunchType = PendingProjectLaunchType::None;
+		String                   pendingProjectLaunchFile;
 		bool            showImGuiDemo = false;
 
 		Logger& logger = Logger::GetLogger("Skore::Editor");
@@ -190,6 +203,77 @@ namespace Skore
 		void ShowImGuiDemo(const MenuItemEventData& eventData)
 		{
 			showImGuiDemo = true;
+		}
+
+		void ClearPendingProjectLaunch()
+		{
+			pendingProjectLaunchType = PendingProjectLaunchType::None;
+			pendingProjectLaunchFile.Clear();
+		}
+
+		void LaunchPendingProjectTarget()
+		{
+			switch (pendingProjectLaunchType)
+			{
+				case PendingProjectLaunchType::ProjectManagerRecentProjects:
+					ProjectManager::LaunchProjectManager(ProjectManagerTab::RecentProjects);
+					break;
+				case PendingProjectLaunchType::ProjectManagerNewProject:
+					ProjectManager::LaunchProjectManager(ProjectManagerTab::NewProject);
+					break;
+				case PendingProjectLaunchType::Project:
+					ProjectManager::LaunchProject(pendingProjectLaunchFile);
+					break;
+				case PendingProjectLaunchType::None:
+					break;
+			}
+
+			ClearPendingProjectLaunch();
+		}
+
+		void RequestProjectManagerLaunch(ProjectManagerTab tab)
+		{
+			pendingProjectLaunchType = tab == ProjectManagerTab::NewProject ? PendingProjectLaunchType::ProjectManagerNewProject : PendingProjectLaunchType::ProjectManagerRecentProjects;
+			pendingProjectLaunchFile.Clear();
+			App::RequestShutdown();
+		}
+
+		void RequestProjectLaunch(StringView projectFile)
+		{
+			if (Path::Extension(projectFile) != SK_PROJECT_EXTENSION || !FileSystem::GetFileStatus(projectFile).exists)
+			{
+				Editor::ShowErrorDialog("Project file is unavailable or invalid.");
+				return;
+			}
+
+			pendingProjectLaunchType = PendingProjectLaunchType::Project;
+			pendingProjectLaunchFile = projectFile;
+			App::RequestShutdown();
+		}
+
+		void NewProjectAction(const MenuItemEventData& eventData)
+		{
+			RequestProjectManagerLaunch(ProjectManagerTab::NewProject);
+		}
+
+		void CloseProjectAction(const MenuItemEventData& eventData)
+		{
+			RequestProjectManagerLaunch(ProjectManagerTab::RecentProjects);
+		}
+
+		void OpenRecentProjectAction(const MenuItemEventData& eventData)
+		{
+			if (eventData.userData >= recentProjectMenuPaths.Size())
+			{
+				return;
+			}
+
+			RequestProjectLaunch(recentProjectMenuPaths[static_cast<usize>(eventData.userData)]);
+		}
+
+		bool DisabledMenuItem(const MenuItemEventData& eventData)
+		{
+			return false;
 		}
 
 		void ResetLayoutAction(const MenuItemEventData& eventData)
@@ -256,6 +340,7 @@ namespace Skore
 
 		void CloseEngine(const MenuItemEventData& eventData)
 		{
+			ClearPendingProjectLaunch();
 			App::RequestShutdown();
 		}
 
@@ -523,6 +608,28 @@ namespace Skore
 		void CreateMenuItems()
 		{
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "File", .priority = 0});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "File/New Project", .priority = 0, .action = NewProjectAction});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Close Project", .priority = 10, .action = CloseProjectAction});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Recent Projects", .priority = 20});
+			recentProjectMenuPaths = ProjectManager::GetRecentProjects();
+			if (recentProjectMenuPaths.Empty())
+			{
+				Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Recent Projects/No Recent Projects", .priority = 0, .enable = DisabledMenuItem});
+			}
+			else
+			{
+				for (usize i = 0; i < recentProjectMenuPaths.Size(); ++i)
+				{
+					String projectName = Path::Name(recentProjectMenuPaths[i]);
+					if (projectName.Empty())
+					{
+						projectName = "Project";
+					}
+
+					String itemName = String("File/Recent Projects/") + projectName + "###RecentProject" + ToString(static_cast<u64>(i));
+					Editor::AddMenuItem(MenuItemCreation{.itemName = itemName, .priority = static_cast<i32>(i), .action = OpenRecentProjectAction, .userData = static_cast<u64>(i)});
+				}
+			}
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "File/New Scene", .priority = 0, .action = NewProject});
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Open Scene", .priority = 10, .action = OpenScene});
 			// Editor::AddMenuItem(MenuItemCreation{.itemName = "File/Recent Scenes", .priority = 10, .action = OpenScene});
@@ -556,6 +663,8 @@ namespace Skore
 
 		void Shutdown()
 		{
+			LaunchPendingProjectTarget();
+
 			EditorLayout::Shutdown();
 
 			threadPool = {};
@@ -787,6 +896,7 @@ namespace Skore
 
 						if (ImGui::Button("Cancel"))
 						{
+							ClearPendingProjectLaunch();
 							ImGui::CloseCurrentPopup();
 						}
 
@@ -796,6 +906,7 @@ namespace Skore
 				}
 				else if (!updatedItems.Empty())
 				{
+					ClearPendingProjectLaunch();
 					updatedItems.Clear();
 				}
 			}

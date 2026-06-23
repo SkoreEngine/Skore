@@ -85,6 +85,7 @@ namespace Skore
 		SK_API VoidPtr CreateProcess(const char * const *args, bool pipeStdio, bool background = false);
 		SK_API String  ReadProcess(VoidPtr process, i32* exitCode = nullptr);
 		SK_API void DestroyProcess(VoidPtr process);
+		SK_API String GetExecutablePath();
 
 		SK_API u64 GetTime();
 

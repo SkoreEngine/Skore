@@ -22,6 +22,17 @@ namespace Skore
 		return (static_cast<u64>(ft.dwHighDateTime) << 32) | static_cast<u64>(ft.dwLowDateTime);
 	}
 
+	String Platform::GetExecutablePath()
+	{
+		char  path[MAX_PATH];
+		DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
+		if (length == 0 || length == MAX_PATH)
+		{
+			return {};
+		}
+		return {path, static_cast<usize>(length)};
+	}
+
 	ProcessMemoryInfo Platform::GetProcessMemoryInfo()
 	{
 		ProcessMemoryInfo info{};

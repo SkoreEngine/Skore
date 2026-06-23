@@ -41,11 +41,23 @@ namespace Skore
 		ArgParser argParser;
 		argParser.Parse(argc, argv);
 		String initialProject;
+		bool saveInitialProject = false;
+		bool openProjectManager = argParser.Has("project-manager") || argParser.Has("new-project");
+		ProjectManagerTab projectManagerTab = argParser.Has("new-project") ? ProjectManagerTab::NewProject : ProjectManagerTab::RecentProjects;
 
 		if (argParser.Has("project"))
 		{
 			initialProject = argParser.Get("project");
+			saveInitialProject = true;
 			appConfig.maximized = true;
+		}
+		else if (!openProjectManager)
+		{
+			initialProject = ProjectManager::LoadLastOpenedProject();
+			if (!initialProject.Empty())
+			{
+				appConfig.maximized = true;
+			}
 		}
 
 		if (AppResult result = App::CreateContext(appConfig); result != AppResult::Continue)
@@ -62,11 +74,15 @@ namespace Skore
 
 		if (!initialProject.Empty())
 		{
+			if (saveInitialProject)
+			{
+				ProjectManager::SaveLastOpenedProject(initialProject);
+			}
 			EditorInit(initialProject);
 		}
 		else
 		{
-			ProjectManager::Init();
+			ProjectManager::Init(projectManagerTab);
 		}
 
 		if (App::Run() == AppResult::Failure)

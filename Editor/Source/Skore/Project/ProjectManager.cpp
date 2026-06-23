@@ -6,7 +6,9 @@
 #include "Skore/App.hpp"
 #include "Skore/EditorCommon.hpp"
 #include "Skore/Events.hpp"
+#include "Skore/Core/ArgParser.hpp"
 #include "Skore/Core/Event.hpp"
+#include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 #include "Skore/Graphics/Device.hpp"
@@ -15,6 +17,7 @@
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Platform/Platform.hpp"
 #include "Skore/Utils/ProjectUtils.hpp"
 
 namespace Skore
@@ -29,6 +32,7 @@ namespace Skore
 
 		Array<String> recentProjects;
 		String        recentProjectDirectory;
+		String        lastOpenedProject;
 	};
 
 	namespace
@@ -42,6 +46,8 @@ namespace Skore
 		String      selectedProject;
 		String      projectToOpen;
 
+		Logger& logger = Logger::GetLogger("Skore::ProjectManager");
+
 		u32  selectedWindow = RECENT_PROJECTS;
 		u32  templateSelected = 1;
 		bool createProject = false;
@@ -49,27 +55,115 @@ namespace Skore
 		bool focus = false;
 
 		ProjectManagerUserData projectManagerUserData;
-	}
 
-	void EditorInit(StringView project);
+		u32 GetSelectedWindow(ProjectManagerTab tab)
+		{
+			return tab == ProjectManagerTab::NewProject ? NEW_PROJECTS : RECENT_PROJECTS;
+		}
+
+		const String& GetSettingsFilePath()
+		{
+			if (settingsFilePath.Empty())
+			{
+				settingsFilePath = Path::Join(FileSystem::AppFolder(), "Skore", "ProjectManager.cfg");
+			}
+			return settingsFilePath;
+		}
+
+		void ResetUserData()
+		{
+			projectManagerUserData.recentProjects.Clear();
+			projectManagerUserData.recentProjectDirectory.Clear();
+			projectManagerUserData.lastOpenedProject.Clear();
+		}
+
+		bool IsValidProjectFile(StringView projectFile)
+		{
+			if (projectFile.Empty() || Path::Extension(projectFile) != SK_PROJECT_EXTENSION)
+			{
+				return false;
+			}
+
+			FileStatus status = FileSystem::GetFileStatus(projectFile);
+			return status.exists && !status.isDirectory;
+		}
+
+		bool RememberProject(StringView projectFile)
+		{
+			if (!IsValidProjectFile(projectFile))
+			{
+				return false;
+			}
+
+			projectManagerUserData.lastOpenedProject = projectFile;
+
+			bool projectFound = false;
+			for (StringView str : projectManagerUserData.recentProjects)
+			{
+				if (str == projectFile)
+				{
+					projectFound = true;
+					break;
+				}
+			}
+
+			if (!projectFound)
+			{
+				projectManagerUserData.recentProjects.EmplaceBack(projectFile);
+			}
+
+			return true;
+		}
+
+		bool LaunchProjectInNewEditor(StringView projectFile)
+		{
+			String executable = Platform::GetExecutablePath();
+			if (executable.Empty())
+			{
+				executable = App::GetArgs().Get(static_cast<usize>(0));
+			}
+			String project = projectFile;
+
+			if (executable.Empty())
+			{
+				logger.Error("Failed to open project '{}': editor executable path could not be resolved.", project);
+				Platform::ShowSimpleMessageBox(MessageBoxType::Error, "Open Project", "Failed to start a new editor instance.", Graphics::GetWindow());
+				return false;
+			}
+
+			const char* args[] = {executable.CStr(), "--project", project.CStr(), nullptr};
+			if (VoidPtr process = Platform::CreateProcess(args, false, true))
+			{
+				Platform::DestroyProcess(process);
+				return true;
+			}
+
+			logger.Error("Failed to open project '{}' using editor executable '{}'.", project, executable);
+			Platform::ShowSimpleMessageBox(MessageBoxType::Error, "Open Project", "Failed to start a new editor instance.", Graphics::GetWindow());
+			return false;
+		}
+	}
 
 	SK_API void RegisterProjectManagerTypes()
 	{
 		auto projectManagerUserData = Reflection::Type<ProjectManagerUserData>();
 		projectManagerUserData.Field<&ProjectManagerUserData::recentProjects>("recentProjects");
 		projectManagerUserData.Field<&ProjectManagerUserData::recentProjectDirectory>("recentProjectDirectory");
+		projectManagerUserData.Field<&ProjectManagerUserData::lastOpenedProject>("lastOpenedProject");
 	}
 
-	void ProjectManager::Init()
+	void ProjectManager::Init(ProjectManagerTab initialTab)
 	{
 		Event::Bind<OnUpdate, &ProjectManager::Update>();
 		Event::Bind<OnShutdown, &ProjectManager::Shutdown>();
 
 		logoTexture = StaticContent::GetTexture("Content/Images/LogoSmall.jpeg");
 		emptyProject = StaticContent::GetTexture("Content/Images/minimalist-logo.png");
-		settingsFilePath = Path::Join(FileSystem::AppFolder(), "Skore", "ProjectManager.cfg");
+		GetSettingsFilePath();
 
 		LoadDataFile();
+		selectedWindow = GetSelectedWindow(initialTab);
+		focus = initialTab != ProjectManagerTab::NewProject;
 
 		if (projectManagerUserData.recentProjectDirectory.Empty())
 		{
@@ -81,10 +175,10 @@ namespace Skore
 		}
 	}
 
-	void ProjectManager::RequestShutdown()
+	Array<String> ProjectManager::GetRecentProjects()
 	{
-		Event::Unbind<OnShutdown, &ProjectManager::Shutdown>();
-		Shutdown();
+		LoadDataFile();
+		return projectManagerUserData.recentProjects;
 	}
 
 	void ProjectManager::Shutdown()
@@ -92,7 +186,6 @@ namespace Skore
 		Graphics::WaitIdle();
 		logoTexture->Destroy();
 		emptyProject->Destroy();
-		Event::Unbind<OnUpdate, &ProjectManager::Update>();
 	}
 
 	void ProjectManager::CreateProject(StringView location, StringView projectName, u32 templateId)
@@ -113,53 +206,89 @@ namespace Skore
 
 		FileSystem::SaveFileAsString(projectFile, "packages: []\n");
 
-		projectManagerUserData.recentProjects.EmplaceBack(projectFile);
 		projectManagerUserData.recentProjectDirectory = location;
 
-		SaveDataFile();
-		RequestShutdown();
-
-		Platform::MaximizeWindow(Graphics::GetWindow());
-
-		App::RunOnMainThread([projectFile]
+		if (RememberProject(projectFile))
 		{
-			EditorInit(projectFile);
-		});
+			SaveDataFile();
+		}
+
+		if (LaunchProjectInNewEditor(projectFile))
+		{
+			App::RequestShutdown();
+		}
+	}
+
+	bool ProjectManager::LaunchProject(StringView projectFile)
+	{
+		if (!IsValidProjectFile(projectFile))
+		{
+			logger.Error("Failed to open project '{}': project file is unavailable or invalid.", projectFile);
+			Platform::ShowSimpleMessageBox(MessageBoxType::Error, "Open Project", "Project file is unavailable or invalid.", Graphics::GetWindow());
+			return false;
+		}
+
+		LoadDataFile();
+		if (RememberProject(projectFile))
+		{
+			SaveDataFile();
+		}
+
+		return LaunchProjectInNewEditor(projectFile);
+	}
+
+	bool ProjectManager::LaunchProjectManager(ProjectManagerTab initialTab)
+	{
+		String executable = Platform::GetExecutablePath();
+		if (executable.Empty())
+		{
+			executable = App::GetArgs().Get(static_cast<usize>(0));
+		}
+
+		if (executable.Empty())
+		{
+			logger.Error("Failed to open project manager: editor executable path could not be resolved.");
+			Platform::ShowSimpleMessageBox(MessageBoxType::Error, "Project Manager", "Failed to start a new editor instance.", Graphics::GetWindow());
+			return false;
+		}
+
+		if (initialTab == ProjectManagerTab::NewProject)
+		{
+			const char* args[] = {executable.CStr(), "--project-manager", "--new-project", nullptr};
+			if (VoidPtr process = Platform::CreateProcess(args, false, true))
+			{
+				Platform::DestroyProcess(process);
+				return true;
+			}
+		}
+		else
+		{
+			const char* args[] = {executable.CStr(), "--project-manager", nullptr};
+			if (VoidPtr process = Platform::CreateProcess(args, false, true))
+			{
+				Platform::DestroyProcess(process);
+				return true;
+			}
+		}
+
+		logger.Error("Failed to open project manager using editor executable '{}'.", executable);
+		Platform::ShowSimpleMessageBox(MessageBoxType::Error, "Project Manager", "Failed to start a new editor instance.", Graphics::GetWindow());
+		return false;
 	}
 
 	void ProjectManager::OpenProject(StringView projectFile)
 	{
-		if (projectFile.Empty()) return;
-
-		bool projectFound = false;
-		for (StringView str : projectManagerUserData.recentProjects)
+		if (LaunchProject(projectFile))
 		{
-			if (str == projectFile)
-			{
-				projectFound = true;
-				break;
-			}
+			App::RequestShutdown();
 		}
-
-		if (!projectFound)
-		{
-			projectManagerUserData.recentProjects.EmplaceBack(projectFile);
-			SaveDataFile();
-		}
-
-		RequestShutdown();
-
-		Platform::MaximizeWindow(Graphics::GetWindow());
-
-		App::RunOnMainThread([projectFile]
-		{
-			EditorInit(projectFile);
-		});
 	}
 
 	void ProjectManager::LoadDataFile()
 	{
-		YamlArchiveReader reader(FileSystem::ReadFileAsString(settingsFilePath));
+		ResetUserData();
+
+		YamlArchiveReader reader(FileSystem::ReadFileAsString(GetSettingsFilePath()));
 		projectManagerUserData.Deserialize(reader);
 
 		HashSet<String> projectHash;
@@ -179,6 +308,13 @@ namespace Skore
 				++it;
 			}
 		}
+		if (!projectManagerUserData.lastOpenedProject.Empty() && !IsValidProjectFile(projectManagerUserData.lastOpenedProject))
+		{
+			logger.Warn("Ignoring unavailable last opened project: {}", projectManagerUserData.lastOpenedProject);
+			projectManagerUserData.lastOpenedProject.Clear();
+			hasErased = true;
+		}
+
 		if (hasErased)
 		{
 			SaveDataFile();
@@ -189,7 +325,27 @@ namespace Skore
 	{
 		YamlArchiveWriter writer;
 		projectManagerUserData.Serialize(writer);
-		FileSystem::SaveFileAsString(settingsFilePath, writer.EmitAsString());
+		FileSystem::SaveFileAsString(GetSettingsFilePath(), writer.EmitAsString());
+	}
+
+	String ProjectManager::LoadLastOpenedProject()
+	{
+		LoadDataFile();
+		return projectManagerUserData.lastOpenedProject;
+	}
+
+	void ProjectManager::SaveLastOpenedProject(StringView projectFile)
+	{
+		if (!IsValidProjectFile(projectFile))
+		{
+			return;
+		}
+
+		LoadDataFile();
+		if (RememberProject(projectFile))
+		{
+			SaveDataFile();
+		}
 	}
 
 	void ProjectManager::Update()
@@ -197,12 +353,15 @@ namespace Skore
 
 		if (!projectToOpen.Empty())
 		{
-			OpenProject(projectToOpen);
+			String pendingProject = projectToOpen;
+			projectToOpen.Clear();
+			OpenProject(pendingProject);
 			return;
 		}
 
 		if (createProject)
 		{
+			createProject = false;
 			CreateProject(newProjectPath, newProjectName, templateSelected);
 			return;
 		}

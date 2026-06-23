@@ -2,6 +2,10 @@
 
 #define SDL_FUNCTION_POINTER_IS_VOID_POINTER
 #include <mutex>
+#if defined(SK_LINUX)
+#include <limits.h>
+#include <unistd.h>
+#endif
 #include <SDL3/SDL.h>
 #include "SDL3/SDL_vulkan.h"
 
@@ -324,6 +328,25 @@ namespace Skore
 	{
 		SDL_DestroyProcess(static_cast<SDL_Process*>(process));
 	}
+
+#if defined(SK_LINUX)
+	String Platform::GetExecutablePath()
+	{
+		char    path[PATH_MAX];
+		ssize_t length = readlink("/proc/self/exe", path, sizeof(path) - 1);
+		if (length <= 0)
+		{
+			return {};
+		}
+		path[length] = 0;
+		return {path, static_cast<usize>(length)};
+	}
+#elif !defined(SK_WIN)
+	String Platform::GetExecutablePath()
+	{
+		return {};
+	}
+#endif
 
 	u64 Platform::GetTime()
 	{
