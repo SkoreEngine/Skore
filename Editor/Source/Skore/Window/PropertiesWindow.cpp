@@ -688,13 +688,22 @@ namespace Skore
 
 			ImGui::BeginDisabled(applying || currVersion == importSettingsVersion);
 
-			if (ImGuiBorderedButton("Apply", ImVec2(width * 2 / 3, size)))
+			if (ImGuiBorderedButton("Apply", ImVec2(width * 1 / 3, size)))
 			{
 				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Apply Import Changes");
 				importSettingsVersion = currVersion;
 				importSettingsPendingApply = importSettingsEdit;
 				ResourceAssets::CookAsset(asset, importSettingsEdit, scope);
 				RefreshPreview();
+			}
+
+			ImGui::EndDisabled();
+
+			ImGui::BeginDisabled(applying);
+
+			if (ImGuiBorderedButton("Reimport", ImVec2(width * 1 / 3, size)))
+			{
+				ResourceAssets::ReimportAssetFromFile(asset);
 			}
 
 			ImGui::EndDisabled();

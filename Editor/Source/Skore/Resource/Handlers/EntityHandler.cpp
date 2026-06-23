@@ -67,11 +67,6 @@ namespace Skore
 		{
 			return "Entity";
 		}
-
-		bool CanInherit(RID rid) override
-		{
-			return true;
-		}
 	};
 
 

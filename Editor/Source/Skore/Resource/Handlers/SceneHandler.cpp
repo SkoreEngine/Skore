@@ -52,12 +52,6 @@ namespace Skore
 		{
 			return ICON_FA_CUBES;
 		}
-
-		bool CanInherit(RID rid) override
-		{
-			//can?
-			return false;
-		}
 	};
 
 

@@ -70,11 +70,6 @@ namespace Skore
 		{
 			return TypeInfo<MaterialPreviewGenerator>::ID();
 		}
-
-		bool CanInherit(RID rid) override
-		{
-			return true;
-		}
 	};
 
 

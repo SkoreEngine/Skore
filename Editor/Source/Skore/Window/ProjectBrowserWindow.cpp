@@ -1077,76 +1077,6 @@ namespace Skore
 		}
 	}
 
-	bool ProjectBrowserWindow::CanReimportAsset(const MenuItemEventData& eventData)
-	{
-		return false;
-	}
-
-	void ProjectBrowserWindow::ReimportAsset(const MenuItemEventData& eventData) {}
-
-	bool ProjectBrowserWindow::CanExtractAsset(const MenuItemEventData& eventData)
-	{
-		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		if (RID lastSelected = projectBrowserWindow->GetLastSelectedItem())
-		{
-			if (ResourceAssetHandler* handler = ResourceAssets::GetAssetHandler(lastSelected))
-			{
-				return handler->CanExtractAsset(ResourceAssets::GetAssetPayload(lastSelected));
-			}
-		}
-		return false;
-	}
-
-	void ProjectBrowserWindow::ExtractAsset(const MenuItemEventData& eventData)
-	{
-		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		if (RID lastSelected = projectBrowserWindow->GetLastSelectedItem())
-		{
-			if (ResourceAssetHandler* handler = ResourceAssets::GetAssetHandler(lastSelected))
-			{
-				RID asset = ResourceAssets::GetAssetPayload(lastSelected);
-				if (handler->CanExtractAsset(asset))
-				{
-					UndoRedoScope* scope = Editor::CreateUndoRedoScope("Extract Asset");
-					handler->ExtractAsset(projectBrowserWindow->GetOpenDirectory(), asset, scope);
-			
-				}
-			}
-		}
-	}
-
-	bool ProjectBrowserWindow::CanCreateInherited(const MenuItemEventData& eventData)
-	{
-		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		if (RID lastSelected = projectBrowserWindow->GetLastSelectedItem())
-		{
-			if (ResourceAssetHandler* handler = ResourceAssets::GetAssetHandler(lastSelected))
-			{
-				RID asset = ResourceAssets::GetAssetPayload(lastSelected);
-				return handler->CanInherit(asset);
-			}
-		}
-		return false;
-	}
-
-	void ProjectBrowserWindow::CreateInherited(const MenuItemEventData& eventData)
-	{
-		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
-		UndoRedoScope*        scope = Editor::CreateUndoRedoScope("Asset Creation");
-
-		if (RID lastSelected = projectBrowserWindow->GetLastSelectedItem())
-		{
-			if (ResourceAssetHandler* handler = ResourceAssets::GetAssetHandler(lastSelected))
-			{
-				RID asset = ResourceAssets::GetAssetPayload(lastSelected);
-				RID newAsset = ResourceAssets::CreateInheritedAsset(projectBrowserWindow->GetOpenDirectory(), asset, "", scope);
-				projectBrowserWindow->ClearSelection(scope);
-				projectBrowserWindow->SetRenameItem(Resources::GetParent(newAsset), scope);
-		
-			}
-		}
-	}
-
 	void ProjectBrowserWindow::ShowResourceInspector(const MenuItemEventData& eventData)
 	{
 		ProjectBrowserWindow* window = static_cast<ProjectBrowserWindow*>(eventData.drawData);
@@ -1162,8 +1092,6 @@ namespace Skore
 
 		Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Project Browser", .action = OpenProjectBrowser});
 
-		AddMenuItem(MenuItemCreation{.itemName = "Create Inherited Asset", .icon = ICON_FA_ENVELOPE, .priority = -100, .action = CreateInherited, .visible = CanCreateInherited});
-
 		AddMenuItem(MenuItemCreation{.itemName = "Create", .icon = ICON_FA_SQUARE_PLUS, .priority = 0});
 		AddMenuItem(MenuItemCreation{.itemName = "Create/New Folder", .icon = ICON_FA_FOLDER, .priority = 0, .action = AssetNewFolder, .visible = CanCreateAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "Create/New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 30, .action = AssetNew, .visible = CanCreateAsset, .userData = TypeInfo<MaterialResource>::ID()});
@@ -1173,9 +1101,6 @@ namespace Skore
 		AddMenuItem(MenuItemCreation{.itemName = "Show in Explorer", .icon = ICON_FA_FOLDER, .priority = 240, .action = AssetShowInExplorer});
 		AddMenuItem(MenuItemCreation{.itemName = "Copy Path Id", .icon = ICON_FA_COPY, .priority = 250, .action = AssetCopyPathIdToClipboard});
 		AddMenuItem(MenuItemCreation{.itemName = "Show Resource Inspector", .icon = ICON_FA_MAGNIFYING_GLASS, .priority = 500, .action = ShowResourceInspector, .enable = CheckSelectedAsset});
-		AddMenuItem(MenuItemCreation{.itemName = "Reimport Asset", .icon = ICON_FA_UPLOAD, .priority = 1000, .action = ReimportAsset, .enable = CanReimportAsset});
-		AddMenuItem(MenuItemCreation{.itemName = "Extract Assets", .icon = ICON_FA_EXPAND, .priority = 1010, .action = ExtractAsset, .enable = CanExtractAsset});
-
 
 		type.Attribute<EditorWindowProperties>(EditorWindowProperties{
 			.dockPosition = DockPosition::BottomLeft,

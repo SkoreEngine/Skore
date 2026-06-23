@@ -207,7 +207,6 @@ namespace Skore
 	};
 
 	typedef RID (* FnResourceAssetLoader)(StringView path);
-	typedef void (*FnResourceExtractAssets)(RID parent, RID asset);
 	typedef void (*FnResourceGetAssetName)(RID rid, String& assetName);
 
 	struct SK_API ResourceAssetHandler : Object
@@ -236,18 +235,6 @@ namespace Skore
 		{
 			return false;
 		}
-
-		virtual bool CanExtractAsset(RID rid)
-		{
-			return false;
-		}
-
-		virtual bool CanInherit(RID rid)
-		{
-			return false;
-		}
-
-		virtual void ExtractAsset(RID directory, RID object, UndoRedoScope* scope) {}
 	};
 
 	struct SK_API ResourceAssetImporter : Object
