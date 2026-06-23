@@ -452,6 +452,9 @@ float VolumeBlendWeight(IrradianceVolumeGPU v, float3 worldPosition)
 #include "GlobalBindings.hlsli"
 #include "SceneBindings.hlsli"
 #include "Lights.hlsli"
+#include "Materials.hlsli"
+
+#define SK_IRRADIANCE_MATERIAL_MIP 4.0
 
 StructuredBuffer<IrradianceVolumeGPU> volumes : register(t5, space2);
 [[vk::image_format("rgba16f")]] RWTexture2D<float4> rayDataImage : register(u0, space2);
@@ -665,9 +668,14 @@ void IrradianceProbeClosestHit(inout IrradiancePayload payload, in BuiltInTriang
     float3 nLocal = normalize(n0 * bary.x + n1 * bary.y + n2 * bary.z);
     float3 N = normalize(mul((float3x3)inst.transform, nLocal));
 
-    MaterialData mat = MaterialDataBuffer[inst.materialIndex];
+    float2 uv0 = GetVertexUV(inst.vertexByteOffset, inst.vertexLayoutIndex, i0);
+    float2 uv1 = GetVertexUV(inst.vertexByteOffset, inst.vertexLayoutIndex, i1);
+    float2 uv2 = GetVertexUV(inst.vertexByteOffset, inst.vertexLayoutIndex, i2);
+    float2 uv = uv0 * bary.x + uv1 * bary.y + uv2 * bary.z;
 
-    payload.radiance = ShadeIrradianceSurface(v, hitPos, N, mat.baseColor, mat.roughness, mat.metallic);
+    MaterialSample material = SampleMaterialLevel(inst.materialIndex, uv, N, SK_IRRADIANCE_MATERIAL_MIP);
+
+    payload.radiance = ShadeIrradianceSurface(v, hitPos, N, material.baseColor, material.roughness, material.metallic) + material.emissive;
     payload.hitT = RayTCurrent();
 }
 
