@@ -2309,7 +2309,7 @@ namespace Skore
 	}
 
 
-	void Resources::LoadResources(StringView filePath)
+	RID Resources::LoadResources(StringView filePath)
 	{
 		Array<u8> compressedBuffer(MemoryGlobals::GetHeapAllocator());
 		FileSystem::ReadFileAsByteArray(filePath, compressedBuffer);
@@ -2321,8 +2321,9 @@ namespace Skore
 
 		BinaryArchiveReader reader{uncompressedBuffer};
 
+		RID projectSettings = {};
 		reader.BeginMap("projectSettings");
-		Settings::Load(reader, TypeInfo<ProjectSettings>::ID());
+		projectSettings = Settings::Load(reader, TypeInfo<ProjectSettings>::ID());
 		reader.EndMap();
 
 		String bufferFile = Path::Join(Path::Parent(filePath), Path::Name(filePath) + SK_BUFFER_EXT);
@@ -2391,5 +2392,7 @@ namespace Skore
 			}
 		}
 		reader.EndSeq();
+
+		return projectSettings;
 	}
 }

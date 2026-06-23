@@ -1,22 +1,16 @@
 #include "Skore/Main.hpp"
 #include "Skore/Core/Reflection.hpp"
-#include "Skore/Graphics/Graphics.hpp"
-#include "Skore/Platform/Platform.hpp"
 #include "Skore/Project/ProjectManager.hpp"
 #include "Skore/Core/ArgParser.hpp"
 #include "Skore/Core/Sinks.hpp"
-#include "Skore/Utils/StaticContent.hpp"
 
 namespace Skore
 {
-	SK_API void EditorInit(StringView project);
+	SK_API AppResult EditorInit(StringView project, const AppConfig& appConfig);
 	SK_API void EditorTypeRegister();
 	SK_API void RegisterProjectManagerTypes();
 	ConsoleSink& GetConsoleSink();
 	StdOutSink stdOutSink{};
-
-	void ImGuiInit();
-	void ImGuiNewFrame();
 
 	i32 Main(int argc, char** argv)
 	{
@@ -60,29 +54,23 @@ namespace Skore
 			}
 		}
 
-		if (AppResult result = App::CreateContext(appConfig); result != AppResult::Continue)
-		{
-			return result == AppResult::Success ? 0 : 1;
-		}
-
-		{
-			StaticContent::Image icon = StaticContent::GetImage("Content/Images/LogoSmall.jpeg");
-			Platform::SetWindowIcon(Graphics::GetWindow(), icon.pixels.Data(), icon.width, icon.height);
-		}
-
-		ImGuiInit();
-
+		AppResult initResult = AppResult::Failure;
 		if (!initialProject.Empty())
 		{
 			if (saveInitialProject)
 			{
 				ProjectManager::SaveLastOpenedProject(initialProject);
 			}
-			EditorInit(initialProject);
+			initResult = EditorInit(initialProject, appConfig);
 		}
 		else
 		{
-			ProjectManager::Init(projectManagerTab);
+			initResult = ProjectManager::Init(projectManagerTab, appConfig);
+		}
+
+		if (initResult != AppResult::Continue)
+		{
+			return initResult == AppResult::Success ? 0 : 1;
 		}
 
 		if (App::Run() == AppResult::Failure)

@@ -37,7 +37,9 @@
 
 #include "Skore/Core/Settings.hpp"
 #include "Skore/Core/ThreadPool.hpp"
+#include "Skore/Graphics/Graphics.hpp"
 #include "Skore/IO/Input.hpp"
+#include "Skore/Platform/Platform.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 #include "Skore/Window/SettingsWindow.hpp"
 #include "Skore/Scene/Entity.hpp"
@@ -51,6 +53,7 @@ namespace Skore
 {
 	void ShaderManagerInit();
 	void ShaderManagerShutdown();
+	void ImGuiInit();
 
 	struct EditorState
 	{
@@ -1437,22 +1440,34 @@ namespace Skore
 	void ProjectBrowserWindowInit();
 	void ResourceAssetsInit();
 
-	SK_API void EditorInit(StringView projectFile)
+	SK_API AppResult EditorCreateContext(const AppConfig& appConfig)
+	{
+		if (AppResult result = App::CreateContext(appConfig); result != AppResult::Continue)
+		{
+			return result;
+		}
+
+		StaticContent::Image icon = StaticContent::GetImage("Content/Images/LogoSmall.jpeg");
+		Platform::SetWindowIcon(Graphics::GetWindow(), icon.pixels.Data(), icon.width, icon.height);
+
+		ImGuiInit();
+		return AppResult::Continue;
+	}
+
+	SK_API AppResult EditorInit(StringView projectFile, const AppConfig& appConfig)
 	{
 
 		if (projectFile.Empty())
 		{
 			logger.Error("Project file is empty");
-			App::RequestShutdown();
-			return;
+			return AppResult::Failure;
 		}
 
 		if (Path::Extension(projectFile) != ".skore")
 		{
 			auto error = fmt::format("Project file \"{}\" is not a skore project, \nEngine will close", projectFile);
 			Platform::ShowSimpleMessageBox(MessageBoxType::Error, "Initialization Error", error.c_str(), {});
-			App::RequestShutdown();
-			return;
+			return AppResult::Failure;
 		}
 
 		threadPool = std::make_unique<ThreadPool>("Editor::ThreadPool");
@@ -1508,18 +1523,6 @@ namespace Skore
 
 		logger.Info("Initializing Editor with project: {}", projectFile);
 
-		Event::Bind<OnUpdate, &EditorUpdate>();
-		Event::Bind<OnShutdown, &Shutdown>();
-		Event::Bind<OnShutdownRequest, &OnEditorShutdownRequest>();
-
-		CreateMenuItems();
-		ResourceAssetsInit();
-
-		ShaderManagerInit();
-		ProjectBrowserWindowInit();
-		EditorLayout::Init();
-		EditorLayout::SetCaptureCallback(CaptureWorkspaceWindowStates, nullptr);
-
 		logger.Debug("projectSettingsPath {}", projectSettingsPath);
 		if (!FileSystem::GetFileStatus(projectSettingsPath).exists)
 		{
@@ -1533,6 +1536,23 @@ namespace Skore
 			projectSettingsRID = Settings::Load(reader, TypeInfo<ProjectSettings>::ID());
 			projectSettingsLastPersistedVersion = Resources::GetVersion(projectSettingsRID);
 		}
+
+		if (AppResult result = EditorCreateContext(appConfig); result != AppResult::Continue)
+		{
+			return result;
+		}
+
+		Event::Bind<OnUpdate, &EditorUpdate>();
+		Event::Bind<OnShutdown, &Shutdown>();
+		Event::Bind<OnShutdownRequest, &OnEditorShutdownRequest>();
+
+		CreateMenuItems();
+		ResourceAssetsInit();
+
+		ShaderManagerInit();
+		ProjectBrowserWindowInit();
+		EditorLayout::Init();
+		EditorLayout::SetCaptureCallback(CaptureWorkspaceWindowStates, nullptr);
 
 		if (FileSystem::GetFileStatus(pluginProjectPath).exists)
 		{
@@ -1639,6 +1659,7 @@ namespace Skore
 			}
 		}
 
+		return AppResult::Continue;
 	}
 
 

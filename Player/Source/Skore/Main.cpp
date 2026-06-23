@@ -63,6 +63,7 @@ namespace Skore
 		InitResourceLoaders();
 
 		bool resourceLoaded = false;
+		bool projectSettingsLoaded = false;
 
 		String assetsPath = Path::Join(currentDir, "Assets");
 
@@ -73,8 +74,27 @@ namespace Skore
 			if (Path::Extension(file) == SK_RESOURCE_EXT)
 			{
 				resourceLoaded = true;
-				Resources::LoadResources(file);
+				RID loadedProjectSettings = Resources::LoadResources(file);
+				projectSettingsLoaded = loadedProjectSettings || projectSettingsLoaded;
 			}
+		}
+
+		if (!projectSettingsLoaded)
+		{
+			logger.Warn("Project settings were not found in resources; loading default project settings before creating the app context.");
+
+			YamlArchiveWriter writer;
+			Settings::CreateDefault(writer, TypeInfo<ProjectSettings>::ID());
+
+			YamlArchiveReader reader(writer.EmitAsString());
+			RID defaultProjectSettings = Settings::Load(reader, TypeInfo<ProjectSettings>::ID());
+			projectSettingsLoaded = defaultProjectSettings || projectSettingsLoaded;
+		}
+
+		if (!projectSettingsLoaded)
+		{
+			logger.Error("Failed to load project settings before creating the app context.");
+			return 1;
 		}
 
 #ifdef SK_ENABLE_ALPHA_FEATURES

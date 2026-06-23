@@ -112,7 +112,7 @@ namespace Skore
 			return Create(TypeInfo<T>::ID(), uuid, scope);
 		}
 
-		static void LoadResources(StringView filePath);
+		static RID  LoadResources(StringView filePath);
 		static void GarbageCollect();
 		static void DispatchEvents();
 		static void EndFrame();

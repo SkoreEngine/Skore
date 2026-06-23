@@ -1,4 +1,5 @@
 #pragma once
+#include "Skore/App.hpp"
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/StringView.hpp"
@@ -15,7 +16,7 @@ namespace Skore
 	class SK_API ProjectManager
 	{
 	public:
-		static void Init(ProjectManagerTab initialTab = ProjectManagerTab::RecentProjects);
+		static AppResult Init(ProjectManagerTab initialTab, const AppConfig& appConfig);
 		static Array<String> GetRecentProjects();
 		static bool LaunchProject(StringView projectFile);
 		static bool LaunchProjectManager(ProjectManagerTab initialTab = ProjectManagerTab::RecentProjects);

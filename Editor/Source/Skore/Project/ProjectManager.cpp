@@ -22,6 +22,8 @@
 
 namespace Skore
 {
+	SK_API AppResult EditorCreateContext(const AppConfig& appConfig);
+
 #define RECENT_PROJECTS 10
 #define NEW_PROJECTS 11
 
@@ -152,8 +154,13 @@ namespace Skore
 		projectManagerUserData.Field<&ProjectManagerUserData::lastOpenedProject>("lastOpenedProject");
 	}
 
-	void ProjectManager::Init(ProjectManagerTab initialTab)
+	AppResult ProjectManager::Init(ProjectManagerTab initialTab, const AppConfig& appConfig)
 	{
+		if (AppResult result = EditorCreateContext(appConfig); result != AppResult::Continue)
+		{
+			return result;
+		}
+
 		Event::Bind<OnUpdate, &ProjectManager::Update>();
 		Event::Bind<OnShutdown, &ProjectManager::Shutdown>();
 
@@ -173,6 +180,8 @@ namespace Skore
 		{
 			newProjectPath = projectManagerUserData.recentProjectDirectory;
 		}
+
+		return AppResult::Continue;
 	}
 
 	Array<String> ProjectManager::GetRecentProjects()
