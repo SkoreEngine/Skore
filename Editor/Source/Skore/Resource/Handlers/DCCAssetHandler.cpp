@@ -9,6 +9,7 @@
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 #include "Skore/Utils/PreviewGenerator.hpp"
+#include "Skore/Window/ProjectBrowserWindow.hpp"
 
 namespace Skore
 {
@@ -124,6 +125,39 @@ namespace Skore
 		}
 	}
 
+	bool IsDCCAssetSelected(const MenuItemEventData& eventData)
+	{
+		if (ProjectBrowserWindow* window = static_cast<ProjectBrowserWindow*>(eventData.drawData))
+		{
+			return ResourceAssets::IsDCCAsset(window->GetLastSelectedItem());
+		}
+		return false;
+	}
+
+	void ExtractMaterialsAction(const MenuItemEventData& eventData)
+	{
+		ProjectBrowserWindow* window = static_cast<ProjectBrowserWindow*>(eventData.drawData);
+		if (!window) return;
+
+		RID selected = window->GetLastSelectedItem();
+		if (!selected) return;
+
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Extract Materials");
+		Editor::AddTask([selected, scope] { ResourceAssets::ExtractMaterials(selected, scope); }, "Extracting Materials");
+	}
+
+	void ExtractTexturesAction(const MenuItemEventData& eventData)
+	{
+		ProjectBrowserWindow* window = static_cast<ProjectBrowserWindow*>(eventData.drawData);
+		if (!window) return;
+
+		RID selected = window->GetLastSelectedItem();
+		if (!selected) return;
+
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Extract Textures");
+		Editor::AddTask([selected, scope] { ResourceAssets::ExtractTextures(selected, scope); }, "Extracting Textures");
+	}
+
 	void RegisterDCCAssetHandler()
 	{
 		Reflection::Type<DCCAssetPreviewGenerator>();
@@ -133,5 +167,21 @@ namespace Skore
 		{
 			dccType->RegisterEvent(ResourceEventType::Changed, OnDCCAssetChanged, nullptr);
 		}
+
+		ProjectBrowserWindow::AddMenuItem(MenuItemCreation{
+			.itemName = "Extract Materials",
+			.icon = ICON_FA_PAINTBRUSH,
+			.priority = 60,
+			.action = ExtractMaterialsAction,
+			.visible = IsDCCAssetSelected
+		});
+
+		ProjectBrowserWindow::AddMenuItem(MenuItemCreation{
+			.itemName = "Extract Textures",
+			.icon = ICON_FA_IMAGE,
+			.priority = 61,
+			.action = ExtractTexturesAction,
+			.visible = IsDCCAssetSelected
+		});
 	}
 }

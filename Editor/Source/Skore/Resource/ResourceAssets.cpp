@@ -18,6 +18,7 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/ImGui/Icons.h"
 #include "Skore/IO/Compression.hpp"
 #include "Skore/IO/FileSystem.hpp"
@@ -1302,6 +1303,200 @@ namespace Skore
 		}
 	}
 
+	//walks the resource graph rooted at 'rid' and rewrites every Reference / ReferenceArray
+	//field whose value appears in 'remap'. used to point a cooked bundle at extracted assets.
+	static void RemapReferencesRecursive(RID rid, const HashMap<RID, RID>& remap, HashSet<RID>& visited, UndoRedoScope* scope)
+	{
+		if (!rid || visited.Has(rid)) return;
+		visited.Insert(rid);
+
+		ResourceType* type = Resources::GetType(rid);
+		if (!type) return;
+
+		Array<RID> children;
+		bool       changed = false;
+
+		{
+			ResourceObject read = Resources::Read(rid);
+			if (!read) return;
+
+			for (ResourceField* field : type->GetFields())
+			{
+				u32 index = field->GetIndex();
+				switch (field->GetType())
+				{
+					case ResourceFieldType::Reference:
+					{
+						if (RID ref = read.GetReference(index); ref)
+						{
+							if (auto it = remap.Find(ref)) changed = true;
+						}
+						break;
+					}
+					case ResourceFieldType::ReferenceArray:
+					{
+						for (RID ref : read.GetReferenceArray(index))
+						{
+							if (ref)
+							{
+								if (auto it = remap.Find(ref)) { changed = true; break; }
+							}
+						}
+						break;
+					}
+					case ResourceFieldType::SubObject:
+					{
+						if (RID sub = read.GetSubObject(index)) children.EmplaceBack(sub);
+						break;
+					}
+					case ResourceFieldType::SubObjectList:
+					{
+						for (RID sub : read.GetSubObjectList(index)) children.EmplaceBack(sub);
+						break;
+					}
+					default:
+						break;
+				}
+			}
+		}
+
+		if (changed)
+		{
+			ResourceObject write = Resources::Write(rid);
+			for (ResourceField* field : type->GetFields())
+			{
+				u32 index = field->GetIndex();
+				if (field->GetType() == ResourceFieldType::Reference)
+				{
+					if (auto it = remap.Find(write.GetReference(index)))
+					{
+						write.SetReference(index, it->second);
+					}
+				}
+				else if (field->GetType() == ResourceFieldType::ReferenceArray)
+				{
+					Span<RID>  refs = write.GetReferenceArray(index);
+					Array<RID> updated;
+					updated.Reserve(refs.Size());
+					bool any = false;
+					for (RID ref : refs)
+					{
+						if (auto it = remap.Find(ref)) { updated.EmplaceBack(it->second); any = true; }
+						else updated.EmplaceBack(ref);
+					}
+					if (any) write.SetReferenceArray(index, updated);
+				}
+			}
+			write.Commit(scope);
+		}
+
+		for (RID child : children)
+		{
+			RemapReferencesRecursive(child, remap, visited, scope);
+		}
+	}
+
+	//reconciles the extraction remap after a (re)cook (and after a manual extract).
+	//materials are authoritative: the freshly-cooked internal material is dropped and every
+	//reference to it is redirected to the external asset. textures are refreshed: the
+	//freshly-cooked texture is moved back out of the bundle into its standalone asset.
+	static void ApplyExtractionRemap(RID wrapper, UndoRedoScope* scope)
+	{
+		Array<RID> entries;
+		if (ResourceObject wrapperObj = Resources::Read(wrapper))
+		{
+			for (RID entryRid : wrapperObj.GetSubObjectList(ResourceImportedAsset::ExtractedResources))
+			{
+				entries.EmplaceBack(entryRid);
+			}
+		}
+		if (entries.Empty()) return;
+
+		RID dccAsset = GetPrimaryCookedResource(wrapper);
+		if (!dccAsset) return;
+
+		HashMap<RID, RID> materialRemap;
+		Array<RID>        internalMaterials;
+		Array<RID>        movedTextures;
+
+		for (RID entryRid : entries)
+		{
+			ResourceObject entry = Resources::Read(entryRid);
+			if (!entry) continue;
+
+			ExtractKind kind = static_cast<ExtractKind>(entry.GetUInt(ResourceExtractedEntry::Kind));
+			RID         internal = Resources::FindByUUID(UUID::FromString(entry.GetString(ResourceExtractedEntry::SourceUUID)));
+			if (!internal) continue;
+
+			if (kind == ExtractKind::Material)
+			{
+				RID external = Resources::FindByUUID(UUID::FromString(entry.GetString(ResourceExtractedEntry::TargetUUID)));
+				if (external && external != internal)
+				{
+					materialRemap.Insert(internal, external);
+					internalMaterials.EmplaceBack(internal);
+				}
+			}
+			else
+			{
+				movedTextures.EmplaceBack(internal);
+			}
+		}
+
+		if (!materialRemap.Empty())
+		{
+			HashSet<RID> visited;
+			RemapReferencesRecursive(dccAsset, materialRemap, visited, scope);
+
+			ResourceObject dccWrite = Resources::Write(dccAsset);
+			for (RID internal : internalMaterials)
+			{
+				dccWrite.RemoveFromSubObjectList(DCCAsset::Materials, internal);
+			}
+			dccWrite.Commit(scope);
+
+			for (RID internal : internalMaterials)
+			{
+				Resources::Destroy(internal, scope);
+			}
+		}
+
+		if (!movedTextures.Empty())
+		{
+			ResourceObject dccWrite = Resources::Write(dccAsset);
+			for (RID texture : movedTextures)
+			{
+				dccWrite.RemoveFromSubObjectList(DCCAsset::Textures, texture);
+			}
+			dccWrite.Commit(scope);
+
+			RID directory;
+			if (ResourceObject assetObj = Resources::Read(Resources::GetParent(dccAsset)))
+			{
+				directory = assetObj.GetReference(ResourceAsset::Parent);
+			}
+
+			if (directory)
+			{
+				ResourceObject dirObj = Resources::Read(directory);
+				for (RID texture : movedTextures)
+				{
+					for (RID childAsset : dirObj.GetSubObjectList(ResourceAssetDirectory::Assets))
+					{
+						if (Resources::Read(childAsset).GetSubObject(ResourceAsset::Object) == texture)
+						{
+							ResourceObject childWrite = Resources::Write(childAsset);
+							childWrite.SetSubObject(ResourceAsset::Object, texture);
+							childWrite.Commit(scope);
+							ResourceAssets::RegisterAssetByType(texture);
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+
 	//cooks an imported asset into memory. produced resources keep their buffers in the
 	//temp folder (like normal asset processing); they are only flushed to the /Library
 	//folder when the asset is saved (see ImportedAssetHandler::Save / WriteCookedFolder).
@@ -1336,6 +1531,9 @@ namespace Skore
 		ctx.sourceBytes = {source.begin(), source.Size()};
 		ctx.scope = scope;
 		importer->Cook(ctx);
+
+		//redirect/move-out any resources the user previously extracted so re-cooks keep using the same files.
+		ApplyExtractionRemap(wrapper, scope);
 
 		logger.Debug("cooked imported asset {} into memory ({} sub-resources)", Resources::GetUUID(wrapper).ToString(), ctx.produced.Size());
 	}
@@ -1538,6 +1736,170 @@ namespace Skore
 
 			Editor::AddTask([wrapper, pathStr, scope] { ReimportWrapperFromFile(wrapper, pathStr, scope); }, "Reimporting asset");
 		}, {&filter, 1}, "", Graphics::GetWindow());
+	}
+
+	//copies every buffer of 'resource' into a fresh temp-folder buffer so a standalone asset
+	//Save can persist them into its own .buffers folder (cooked buffers may live in /Library).
+	static void RehomeBuffersToTemp(RID resource, UndoRedoScope* scope)
+	{
+		ResourceType* type = Resources::GetType(resource);
+		if (!type) return;
+
+		for (ResourceField* field : type->GetFields())
+		{
+			if (field->GetType() != ResourceFieldType::Buffer) continue;
+
+			ResourceBuffer source;
+			if (ResourceObject read = Resources::Read(resource))
+			{
+				source = read.GetBuffer(field->GetIndex());
+			}
+			if (!source) continue;
+
+			u64        size = source.GetSize();
+			ByteBuffer data;
+			data.Resize(size);
+			if (size > 0)
+			{
+				source.CopyData(data.begin(), size);
+			}
+
+			ResourceBuffer temp = ResourceAssets::CreateTempBuffer(data.begin(), size);
+
+			ResourceObject write = Resources::Write(resource);
+			write.SetBuffer(field->GetIndex(), temp);
+			write.Commit(scope);
+		}
+	}
+
+	static void ExtractResourcesInternal(RID asset, ExtractKind kind, UndoRedoScope* scope)
+	{
+		RID wrapper = ResolveWrapperRID(asset);
+		if (!wrapper) return;
+
+		RID dccAsset = GetPrimaryCookedResource(wrapper);
+		if (!dccAsset) return;
+
+		RID directory;
+		if (ResourceObject assetObj = Resources::Read(Resources::GetParent(dccAsset)))
+		{
+			directory = assetObj.GetReference(ResourceAsset::Parent);
+		}
+		if (!directory) return;
+
+		u32        listIndex = (kind == ExtractKind::Material) ? DCCAsset::Materials : DCCAsset::Textures;
+		StringView extension = (kind == ExtractKind::Material) ? StringView(".material") : StringView(".texture");
+
+		Array<RID> resources;
+		if (ResourceObject dccObj = Resources::Read(dccAsset))
+		{
+			for (RID r : dccObj.GetSubObjectList(listIndex)) resources.EmplaceBack(r);
+		}
+		if (resources.Empty()) return;
+
+		HashSet<String> alreadyExtracted;
+		if (ResourceObject wrapperObj = Resources::Read(wrapper))
+		{
+			for (RID entryRid : wrapperObj.GetSubObjectList(ResourceImportedAsset::ExtractedResources))
+			{
+				if (ResourceObject entry = Resources::Read(entryRid))
+				{
+					alreadyExtracted.Emplace(entry.GetString(ResourceExtractedEntry::SourceUUID));
+				}
+			}
+		}
+
+		for (RID resource : resources)
+		{
+			UUID sourceUUID = Resources::GetUUID(resource);
+			if (alreadyExtracted.Has(sourceUUID.ToString())) continue;
+
+			String name;
+			if (ResourceObject resObj = Resources::Read(resource))
+			{
+				name = resObj.GetString(0); //Name is field 0 for both MaterialResource and TextureResource
+			}
+			if (name.Empty())
+			{
+				name = (kind == ExtractKind::Material) ? "Material" : "Texture";
+			}
+
+			String newName = ResourceAssets::CreateUniqueAssetName(directory, name, extension, false);
+			String path = ResourceAssets::GetDirectoryPathId(directory) + "/" + newName + extension;
+
+			RID  objectRid;
+			UUID targetUUID;
+			if (kind == ExtractKind::Material)
+			{
+				objectRid = Resources::Clone(resource, UUID::RandomUUID(), scope);
+				targetUUID = Resources::GetUUID(objectRid);
+			}
+			else
+			{
+				objectRid = resource; //move-out: keep the deterministic UUID so existing references stay valid
+				targetUUID = sourceUUID;
+				RehomeBuffersToTemp(objectRid, scope);
+			}
+
+			RID            assetRid = Resources::Create<ResourceAsset>(UUID::RandomUUID(), scope);
+			ResourceObject assetObj = Resources::Write(assetRid);
+			assetObj.SetString(ResourceAsset::Name, newName);
+			assetObj.SetString(ResourceAsset::Extension, extension);
+			assetObj.SetSubObject(ResourceAsset::Object, objectRid);
+			assetObj.SetReference(ResourceAsset::Parent, directory);
+			assetObj.SetString(ResourceAsset::PathId, path);
+			assetObj.SetBool(ResourceAsset::Directory, false);
+			assetObj.Commit(scope);
+
+			ResourceObject dirObj = Resources::Write(directory);
+			dirObj.AddToSubObjectList(ResourceAssetDirectory::Assets, assetRid);
+			dirObj.Commit(scope);
+
+			Resources::SetPath(objectRid, path);
+			ResourceAssets::RegisterAssetByType(objectRid);
+
+			RID            entryRid = Resources::Create<ResourceExtractedEntry>(UUID::RandomUUID(), scope);
+			ResourceObject entryObj = Resources::Write(entryRid);
+			entryObj.SetString(ResourceExtractedEntry::SourceUUID, sourceUUID.ToString());
+			entryObj.SetString(ResourceExtractedEntry::TargetUUID, targetUUID.ToString());
+			entryObj.SetUInt(ResourceExtractedEntry::Kind, static_cast<u64>(kind));
+			entryObj.Commit(scope);
+
+			ResourceObject wrapperWrite = Resources::Write(wrapper);
+			wrapperWrite.AddToSubObjectList(ResourceImportedAsset::ExtractedResources, entryRid);
+			wrapperWrite.Commit(scope);
+
+			logger.Debug("extracted {} '{}' from {} to {}", extension, newName, Resources::GetUUID(wrapper).ToString(), path);
+		}
+
+		//mirror what a re-cook would do so the in-memory bundle is consistent immediately.
+		ApplyExtractionRemap(wrapper, scope);
+	}
+
+	void ResourceAssets::ExtractMaterials(RID asset, UndoRedoScope* scope)
+	{
+		ExtractResourcesInternal(asset, ExtractKind::Material, scope);
+	}
+
+	void ResourceAssets::ExtractTextures(RID asset, UndoRedoScope* scope)
+	{
+		ExtractResourcesInternal(asset, ExtractKind::Texture, scope);
+	}
+
+	bool ResourceAssets::IsDCCAsset(RID asset)
+	{
+		if (!asset) return false;
+		if (ResourceObject obj = Resources::Read(asset))
+		{
+			if (RID object = obj.GetSubObject(ResourceAsset::Object))
+			{
+				if (ResourceType* type = Resources::GetType(object))
+				{
+					return type->GetID() == TypeInfo<DCCAsset>::ID();
+				}
+			}
+		}
+		return false;
 	}
 
 	void ResourceAssets::CookAsset(RID object, UndoRedoScope* scope)
@@ -2814,6 +3176,13 @@ namespace Skore
 			.Field<ResourceImportedAsset::OriginalSize>(ResourceFieldType::UInt)
 			.Field<ResourceImportedAsset::SubResources>(ResourceFieldType::SubObjectList)
 			.Field<ResourceImportedAsset::Dependencies>(ResourceFieldType::SubObjectList)
+			.Field<ResourceImportedAsset::ExtractedResources>(ResourceFieldType::SubObjectList)
+			.Build();
+
+		Resources::Type<ResourceExtractedEntry>()
+			.Field<ResourceExtractedEntry::SourceUUID>(ResourceFieldType::String)
+			.Field<ResourceExtractedEntry::TargetUUID>(ResourceFieldType::String)
+			.Field<ResourceExtractedEntry::Kind>(ResourceFieldType::UInt)
 			.Build();
 
 		Resources::Type<ResourceSubIdEntry>()

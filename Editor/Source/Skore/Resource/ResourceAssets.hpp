@@ -32,6 +32,26 @@ namespace Skore
 			OriginalSize,
 			SubResources,
 			Dependencies,
+			ExtractedResources,
+		};
+	};
+
+	//how a sub-resource extracted out of an imported asset behaves on re-cook.
+	enum class ExtractKind : u32
+	{
+		Material = 0, //authoritative: the standalone asset is never overwritten by a re-cook
+		Texture  = 1, //refresh: the standalone asset is regenerated each cook but keeps its file
+	};
+
+	//records a sub-resource that was pulled out of an imported asset into a standalone asset file.
+	//persisted on the imported asset wrapper so re-cooks keep reusing the same files.
+	struct ResourceExtractedEntry
+	{
+		enum : u8
+		{
+			SourceUUID, //String – deterministic UUID of the cooked sub-resource produced each cook
+			TargetUUID, //String – UUID of the standalone asset's object (== SourceUUID for textures)
+			Kind,       //UInt   – ExtractKind
 		};
 	};
 
@@ -265,6 +285,9 @@ namespace Skore
 		static RID                     CreateImportedAsset(RID parent, TypeID typeId, StringView desiredName, UndoRedoScope* scope, StringView sourcePath);
 		static RID                     CreateImportedAssetWrapper(RID parent, StringView desiredName, StringView extension, UndoRedoScope* scope);
 		static void                    EnsureCooked(RID rid, UndoRedoScope* scope);
+		static void                    ExtractMaterials(RID asset, UndoRedoScope* scope);
+		static void                    ExtractTextures(RID asset, UndoRedoScope* scope);
+		static bool                    IsDCCAsset(RID asset);
 		static void                    ReimportAssetFromFile(RID object);
 		static void                    CookAsset(RID object, UndoRedoScope* scope);
 		static void                    CookAsset(RID object, RID importSettings, UndoRedoScope* scope);
