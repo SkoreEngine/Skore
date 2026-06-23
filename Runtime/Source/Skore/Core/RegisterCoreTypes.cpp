@@ -139,6 +139,7 @@ namespace Skore
 		Reflection::Type<String>("Skore::String").Constructor<StringView>("value");
 		Reflection::Type<StringView>("Skore::StringView");
 		Reflection::Type<ProjectSettings>();
+		Reflection::Type<EditorSettings>();
 
 		Reflection::Type<Object>();
 

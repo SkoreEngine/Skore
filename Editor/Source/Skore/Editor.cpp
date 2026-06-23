@@ -10,6 +10,7 @@
 #include "Skore/Window/ProjectBrowserWindow.hpp"
 
 #include "Skore/EditorLayout.hpp"
+#include "Skore/EditorSettings.hpp"
 #include "Skore/EditorWorkspace.hpp"
 #include "Skore/Selection.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
@@ -123,9 +124,12 @@ namespace Skore
 
 
 		String projectSettingsPath;
+		String editorSettingsPath;
 		String projectTypesPath;
 		RID    projectSettingsRID;
+		RID    editorSettingsRID;
 		u64    projectSettingsLastPersistedVersion = 0;
+		u64    editorSettingsLastPersistedVersion = 0;
 
 		//c++ dev plugin
 		String                   pluginProjectPath;
@@ -778,6 +782,17 @@ namespace Skore
 				projectSettingsLastPersistedVersion = Resources::GetVersion(projectSettingsRID);
 
 				logger.Debug("Project settings saved at {}", projectSettingsPath);
+			}
+
+			if (editorSettingsLastPersistedVersion != Resources::GetVersion(editorSettingsRID))
+			{
+				YamlArchiveWriter writer;
+				Settings::Save(writer, TypeInfo<EditorSettings>::ID());
+				FileSystem::SaveFileAsString(editorSettingsPath, writer.EmitAsString());
+
+				editorSettingsLastPersistedVersion = Resources::GetVersion(editorSettingsRID);
+
+				logger.Debug("Editor settings saved at {}", editorSettingsPath);
 			}
 
 
@@ -1479,6 +1494,7 @@ namespace Skore
 		projectLocalPath = Path::Join(projectPath, "Local");
 		projectTempPath = Path::Join(projectLocalPath, "Temp");
 		projectSettingsPath =  Path::Join(projectPath, "ProjectSettings.cfg");
+		editorSettingsPath = GetEditorSettingsPath();
 		projectTypesPath = Path::Join(projectPath, "types.json");
 
 		if (FileSystem::GetFileStatus(projectTypesPath).exists)
@@ -1536,6 +1552,10 @@ namespace Skore
 			projectSettingsRID = Settings::Load(reader, TypeInfo<ProjectSettings>::ID());
 			projectSettingsLastPersistedVersion = Resources::GetVersion(projectSettingsRID);
 		}
+
+		logger.Debug("editorSettingsPath {}", editorSettingsPath);
+		editorSettingsRID = LoadEditorSettingsResource();
+		editorSettingsLastPersistedVersion = Resources::GetVersion(editorSettingsRID);
 
 		if (AppResult result = EditorCreateContext(appConfig); result != AppResult::Continue)
 		{
@@ -1673,6 +1693,7 @@ namespace Skore
 	SK_API void EditorTypeRegister()
 	{
 		RegisterResourceAssetTypes();
+		RegisterEditorSettingsTypes();
 		RegisterSceneEditorTypes();
 		RegisterSceneViewPipelineModule();
 		Selection::RegisterType();

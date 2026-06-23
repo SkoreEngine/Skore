@@ -51,6 +51,7 @@ namespace Skore
 
 	struct PlaceHolder {};
 	struct ProjectSettings{};
+	struct EditorSettings{};
 
 	static constexpr usize nPos = -1;
 	constexpr u64          Prime = 1099511628211ULL;

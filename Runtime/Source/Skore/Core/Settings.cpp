@@ -128,6 +128,7 @@ namespace Skore
 	{
 		Reflection::Type<EditableSettings>();
 		Reflection::Type<ProjectSettings>();
+		Reflection::Type<EditorSettings>();
 
 		Resources::Type<SettingTypeResource>()
 			.Field<SettingTypeResource::Settings>(ResourceFieldType::SubObjectList)

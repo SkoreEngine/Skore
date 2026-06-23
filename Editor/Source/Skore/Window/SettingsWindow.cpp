@@ -372,6 +372,7 @@ namespace Skore
 
 	void SettingsWindow::RegisterType(NativeReflectType<SettingsWindow>& type)
 	{
+		Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Editor Settings", .priority = 1000, .action = OpenAction, .userData = TypeInfo<EditorSettings>::ID()});
 		Editor::AddMenuItem(MenuItemCreation{.itemName = "Edit/Project Settings", .priority = 1010, .action = OpenAction, .userData = TypeInfo<ProjectSettings>::ID()});
 	}
 }

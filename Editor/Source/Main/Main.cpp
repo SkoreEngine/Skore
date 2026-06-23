@@ -1,5 +1,6 @@
 #include "Skore/Main.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/EditorSettings.hpp"
 #include "Skore/Project/ProjectManager.hpp"
 #include "Skore/Core/ArgParser.hpp"
 #include "Skore/Core/Sinks.hpp"
@@ -45,7 +46,7 @@ namespace Skore
 			saveInitialProject = true;
 			appConfig.maximized = true;
 		}
-		else if (!openProjectManager)
+		else if (!openProjectManager && ShouldLoadPreviousProjectOnStartup())
 		{
 			initialProject = ProjectManager::LoadLastOpenedProject();
 			if (!initialProject.Empty())
