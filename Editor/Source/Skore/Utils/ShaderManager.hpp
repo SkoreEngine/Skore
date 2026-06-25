@@ -17,6 +17,9 @@ namespace Skore
 		FnGetShaderInclude getShaderInclude = nullptr;
 	};
 
-	bool CompileShader(const ShaderCompileInfo& shaderCompileInfo, Array<u8>& bytes, String& log);
-	bool GetPipelineLayout(GraphicsAPI api, Span<u8> bytes, Span<ShaderStageInfo> stages, PipelineDesc& pipelineDesc);
+	SK_API void ShaderManagerInit();
+	SK_API void ShaderManagerShutdown();
+
+	SK_API bool CompileShader(const ShaderCompileInfo& shaderCompileInfo, Array<u8>& bytes, String& log);
+	SK_API bool GetPipelineLayout(GraphicsAPI api, Span<u8> bytes, Span<ShaderStageInfo> stages, PipelineDesc& pipelineDesc);
 }

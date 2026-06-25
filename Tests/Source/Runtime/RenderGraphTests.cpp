@@ -13,6 +13,33 @@ namespace
 		return (usage & flag) == flag;
 	}
 
+	bool AliasPlanIsValid(const Array<RenderGraphAliasResource>& resources, const RenderGraphAliasPlan& plan)
+	{
+		if (plan.placements.Size() != resources.Size()) return false;
+
+		for (u32 i = 0; i < resources.Size(); ++i)
+		{
+			const RenderGraphAliasPlacement& p = plan.placements[i];
+			if (p.bucket >= plan.buckets.Size()) return false;
+			if (p.offset + resources[i].size > plan.buckets[p.bucket].size) return false;
+			if (resources[i].alignment != 0 && (p.offset % resources[i].alignment) != 0) return false;
+
+			for (u32 j = i + 1; j < resources.Size(); ++j)
+			{
+				if (plan.placements[j].bucket != p.bucket) continue;
+
+				const RenderGraphAliasResource& a = resources[i];
+				const RenderGraphAliasResource& b = resources[j];
+				if (!(a.firstPass <= b.lastPass && b.firstPass <= a.lastPass)) continue;
+
+				const u64 aStart = p.offset;
+				const u64 bStart = plan.placements[j].offset;
+				if (aStart < bStart + b.size && bStart < aStart + a.size) return false;
+			}
+		}
+		return true;
+	}
+
 	TEST_CASE("RenderGraph::InferTextureUsage")
 	{
 		TestRenderDevice device;
@@ -589,4 +616,195 @@ namespace
 		CHECK(HasUsage(rg.InferTextureUsage("Light"), ResourceUsage::UnorderedAccess));
 		CHECK(rg.GetInstanceData<LightInstanceData>("LightInstanceData") != nullptr);
 	}
+
+	TEST_CASE("RenderGraph::ComputeAliasPlanPacksDisjointLifetimes")
+	{
+		Array<RenderGraphAliasResource> resources;
+		resources.EmplaceBack(RenderGraphAliasResource{.firstPass = 0, .lastPass = 1, .size = 100, .alignment = 1, .memoryTypeBits = 0xFFFFFFFF});
+		resources.EmplaceBack(RenderGraphAliasResource{.firstPass = 1, .lastPass = 2, .size = 50, .alignment = 1, .memoryTypeBits = 0xFFFFFFFF});
+		resources.EmplaceBack(RenderGraphAliasResource{.firstPass = 2, .lastPass = 3, .size = 200, .alignment = 1, .memoryTypeBits = 0xFFFFFFFF});
+
+		RenderGraphAliasPlan plan = ComputeRenderGraphAliasPlan(resources);
+
+		REQUIRE(plan.placements.Size() == 3);
+		CHECK(plan.buckets.Size() == 1);
+		CHECK(AliasPlanIsValid(resources, plan));
+		CHECK(plan.placements[0].offset == plan.placements[2].offset);
+		CHECK(plan.placements[1].offset != plan.placements[0].offset);
+		CHECK(plan.buckets[0].size == 250);
+	}
+
+	TEST_CASE("RenderGraph::ComputeAliasPlanSeparatesIncompatibleMemoryTypes")
+	{
+		Array<RenderGraphAliasResource> resources;
+		resources.EmplaceBack(RenderGraphAliasResource{.firstPass = 0, .lastPass = 0, .size = 100, .alignment = 256, .memoryTypeBits = 0b01});
+		resources.EmplaceBack(RenderGraphAliasResource{.firstPass = 1, .lastPass = 1, .size = 100, .alignment = 256, .memoryTypeBits = 0b10});
+
+		RenderGraphAliasPlan plan = ComputeRenderGraphAliasPlan(resources);
+
+		CHECK(plan.buckets.Size() == 2);
+		CHECK(plan.placements[0].bucket != plan.placements[1].bucket);
+	}
+
+	TEST_CASE("RenderGraph::AnalyzeMemoryAliasing")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+
+		rg.SetOutputSize({64, 64});
+
+		rg.Create("GBufferAlbedo", RenderGraphTextureDesc{.format = Format::RGBA8_UNORM});
+		rg.Create("Depth", RenderGraphTextureDesc{.format = Format::D32_FLOAT});
+		rg.Create("Light", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("Color", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		rg.AddGraphicsPass("GBuffer")
+			.Write("GBufferAlbedo")
+			.Write("Depth");
+
+		rg.AddComputePass("Lighting", "Shaders/DeferredLighting")
+			.Read("GBufferAlbedo")
+			.Read("Depth")
+			.Write("Light");
+
+		rg.AddComputePass("Composite", "Shaders/Composite")
+			.Read("Light")
+			.Write("Color");
+
+		RenderGraphAliasReport report = rg.AnalyzeMemoryAliasing();
+
+		CHECK(report.resources.Size() == 4);
+		CHECK(report.plan.buckets.Size() == 1);
+		CHECK(AliasPlanIsValid(report.resources, report.plan));
+		CHECK(report.aliasedBytes < report.standaloneBytes);
+		CHECK(report.standaloneBytes == 98304);
+		CHECK(report.aliasedBytes == 65536);
+	}
+
+	TEST_CASE("RenderGraph::AnalyzeMemoryAliasingExclusions")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+
+		rg.SetOutputSize({64, 64});
+
+		rg.Create("History", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT, .pingPong = true});
+		rg.Create("ExternalInput", RenderGraphTextureDesc{.format = Format::RGBA8_UNORM});
+		rg.Create("Output", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		rg.AddComputePass("Accumulate", "Shaders/Accumulate")
+			.WriteRead("History")
+			.Read("ExternalInput")
+			.Write("Output");
+
+		RenderGraphAliasReport report = rg.AnalyzeMemoryAliasing();
+
+		auto contains = [&](const char* name)
+		{
+			for (const String& resourceName : report.resourceNames)
+			{
+				if (resourceName.Compare(name) == 0) return true;
+			}
+			return false;
+		};
+
+		CHECK(!contains("History"));
+		CHECK(!contains("ExternalInput"));
+		CHECK(contains("Output"));
+		CHECK(report.resources.Size() == 1);
+	}
+
+	TEST_CASE("RenderGraph::ExecuteWithAliasingSharesHeaps")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{128, 128});
+
+		rg.Create("A", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("B", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("C", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		int dispatches = 0;
+		rg.AddComputePass("Produce", "Shaders/Produce")
+			.Write("A")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(1, 1, 1); });
+		rg.AddComputePass("Process", "Shaders/Process")
+			.Read("A")
+			.Write("B")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(1, 1, 1); });
+		rg.AddComputePass("Finalize", "Shaders/Finalize")
+			.Read("B")
+			.Write("C")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(1, 1, 1); });
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		CHECK(dispatches == 3);
+		CHECK(device.GetCreatedMemoryCount() == 1);
+
+		TestGPUTexture* a = static_cast<TestGPUTexture*>(rg.GetTexture("A"));
+		TestGPUTexture* b = static_cast<TestGPUTexture*>(rg.GetTexture("B"));
+		TestGPUTexture* c = static_cast<TestGPUTexture*>(rg.GetTexture("C"));
+		REQUIRE(a != nullptr);
+		REQUIRE(b != nullptr);
+		REQUIRE(c != nullptr);
+		REQUIRE(a->aliasMemory != nullptr);
+		REQUIRE(b->aliasMemory != nullptr);
+		REQUIRE(c->aliasMemory != nullptr);
+
+		CHECK(a->aliasMemory == b->aliasMemory);
+		CHECK(a->aliasMemory == c->aliasMemory);
+		CHECK(a->aliasOffset == c->aliasOffset);
+		CHECK(b->aliasOffset != a->aliasOffset);
+
+		TestGPUCommandBuffer* testCmd = static_cast<TestGPUCommandBuffer*>(cmd);
+		CHECK(testCmd->stats.memoryBarrierCount == 3);
+	}
+
+	TEST_CASE("RenderGraph::ExecuteWithAliasingForcesUndefinedEachFrame")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{128, 128});
+
+		rg.Create("A", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("B", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("C", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		auto build = [&]
+		{
+			rg.AddComputePass("Produce", "Shaders/Produce").Write("A").Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			rg.AddComputePass("Process", "Shaders/Process").Read("A").Write("B").Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			rg.AddComputePass("Finalize", "Shaders/Finalize").Read("B").Write("C").Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+		};
+
+		for (int frame = 0; frame < 2; ++frame)
+		{
+			rg.Begin(nullptr);
+			build();
+			GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+			cmd->Begin();
+			rg.Execute(cmd);
+			cmd->End();
+		}
+
+		TestGPUTexture* a = static_cast<TestGPUTexture*>(rg.GetTexture("A"));
+		REQUIRE(a != nullptr);
+
+		u32 undefinedTransitions = 0;
+		for (const TestBarrierRecord& record : a->barrierHistory)
+		{
+			if (record.oldState == ResourceState::Undefined)
+			{
+				++undefinedTransitions;
+			}
+		}
+
+		CHECK(undefinedTransitions == 2);
+		CHECK(a->mismatchCount == 0);
+	}
+
 }

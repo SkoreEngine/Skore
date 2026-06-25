@@ -74,73 +74,11 @@ namespace Skore
 
 	GPUDevice* InitVulkan(const DeviceInitDesc& initDesc);
 
-	bool GraphicsInit(const AppConfig& appConfig)
+	// Creates the device-owned default resources (samplers, command-buffer pool and the white
+	// placeholder textures). Shared by the windowed (GraphicsInit) and headless (Graphics::InitHeadless)
+	// paths; assumes the device has already been created and an adapter selected.
+	static void CreateDefaultGraphicsResources()
 	{
-		thisId = std::this_thread::get_id();
-
-		DeviceInitDesc desc;
-		desc.enableDebugLayers = false;
-
-		RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(GraphicsSettings));
-		if (ResourceObject settingsObject = Resources::Read(settings))
-		{
-			desc.enableDebugLayers = settingsObject.GetBool(GraphicsSettings::EnableValidationLayers);
-		}
-
-		device = InitVulkan(desc);
-
-		if (!device)
-		{
-			ShowGPUErrorMessage();
-			return false;
-		}
-
-		Array adapters = device->GetAdapters();
-
-		if (adapters.Empty())
-		{
-			ShowGPUErrorMessage();
-			return false;
-		}
-
-		Sort(adapters.begin(), adapters.end(), [](GPUAdapter* left, GPUAdapter* right)
-		{
-			return left->GetScore() > right->GetScore();
-		});
-
-		GPUAdapter* selectedAdapter = adapters[0];
-
-		if (String value = App::GetArgs().Get("force-adapter"); !value.Empty())
-		{
-			char* end = nullptr;
-			u32   index = static_cast<u32>(std::strtoul(value.CStr(), &end, 10));
-			if (end != value.CStr() && index < adapters.Size())
-			{
-				selectedAdapter = adapters[index];
-				logger.Info("--force-adapter {}, using GPU '{}'", index, selectedAdapter->GetName());
-			}
-			else
-			{
-				logger.Warn("--force-adapter '{}' is invalid (valid range 0..{}), selecting best GPU", value, adapters.Size() - 1);
-			}
-		}
-
-		if (!device->SelectAdapter(selectedAdapter))
-		{
-			ShowGraphicsStartError();
-			return false;
-		}
-
-		WindowFlags flags = WindowFlags::None;
-
-		if (appConfig.fullscreen)
-			flags |= WindowFlags::Fullscreen;
-
-		if (appConfig.maximized)
-			flags |= WindowFlags::Maximized;
-
-		window = Platform::CreateWindow(appConfig.title, appConfig.width, appConfig.height, flags);
-
 		linearSampler = device->CreateSampler(SamplerDesc{
 		});
 
@@ -221,10 +159,125 @@ namespace Skore
 			info.regions = regions;
 			Graphics::UploadTextureData(info);
 		}
+	}
+
+	bool GraphicsInit(const AppConfig& appConfig)
+	{
+		thisId = std::this_thread::get_id();
+
+		DeviceInitDesc desc;
+		desc.enableDebugLayers = false;
+
+		RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(GraphicsSettings));
+		if (ResourceObject settingsObject = Resources::Read(settings))
+		{
+			desc.enableDebugLayers = settingsObject.GetBool(GraphicsSettings::EnableValidationLayers);
+		}
+
+		device = InitVulkan(desc);
+
+		if (!device)
+		{
+			ShowGPUErrorMessage();
+			return false;
+		}
+
+		Array adapters = device->GetAdapters();
+
+		if (adapters.Empty())
+		{
+			ShowGPUErrorMessage();
+			return false;
+		}
+
+		Sort(adapters.begin(), adapters.end(), [](GPUAdapter* left, GPUAdapter* right)
+		{
+			return left->GetScore() > right->GetScore();
+		});
+
+		GPUAdapter* selectedAdapter = adapters[0];
+
+		if (String value = App::GetArgs().Get("force-adapter"); !value.Empty())
+		{
+			char* end = nullptr;
+			u32   index = static_cast<u32>(std::strtoul(value.CStr(), &end, 10));
+			if (end != value.CStr() && index < adapters.Size())
+			{
+				selectedAdapter = adapters[index];
+				logger.Info("--force-adapter {}, using GPU '{}'", index, selectedAdapter->GetName());
+			}
+			else
+			{
+				logger.Warn("--force-adapter '{}' is invalid (valid range 0..{}), selecting best GPU", value, adapters.Size() - 1);
+			}
+		}
+
+		if (!device->SelectAdapter(selectedAdapter))
+		{
+			ShowGraphicsStartError();
+			return false;
+		}
+
+		WindowFlags flags = WindowFlags::None;
+
+		if (appConfig.fullscreen)
+			flags |= WindowFlags::Fullscreen;
+
+		if (appConfig.maximized)
+			flags |= WindowFlags::Maximized;
+
+		window = Platform::CreateWindow(appConfig.title, appConfig.width, appConfig.height, flags);
+
+		CreateDefaultGraphicsResources();
 
 		RenderResourceCacheInit();
 		RenderSceneObjectsInit();
 		RenderToolsInit();
+
+		return true;
+	}
+
+	bool Graphics::InitHeadless(bool enableValidationLayers)
+	{
+		thisId = std::this_thread::get_id();
+
+		// Headless init does not go through SDL_Init(SDL_INIT_VIDEO), but creating the Vulkan
+		// instance still needs SDL's Vulkan loader and the required-instance-extension list.
+		if (!SDL_InitSubSystem(SDL_INIT_VIDEO))
+		{
+			logger.Error("failed to initialize SDL video subsystem: {}", SDL_GetError());
+			return false;
+		}
+
+		DeviceInitDesc desc;
+		desc.enableDebugLayers = enableValidationLayers;
+
+		device = InitVulkan(desc);
+		if (!device)
+		{
+			logger.Error("failed to initialize the Vulkan device");
+			return false;
+		}
+
+		Array adapters = device->GetAdapters();
+		if (adapters.Empty())
+		{
+			logger.Error("no compatible GPU adapter found");
+			return false;
+		}
+
+		Sort(adapters.begin(), adapters.end(), [](GPUAdapter* left, GPUAdapter* right)
+		{
+			return left->GetScore() > right->GetScore();
+		});
+
+		if (!device->SelectAdapter(adapters[0]))
+		{
+			logger.Error("failed to select a GPU adapter");
+			return false;
+		}
+
+		CreateDefaultGraphicsResources();
 
 		return true;
 	}

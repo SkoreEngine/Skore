@@ -5,6 +5,7 @@
 #include "Skore/Core/Hash.hpp"
 #include "Skore/Core/Allocator.hpp"
 #include "Skore/Core/Algorithm.hpp"
+#include "Skore/Core/Logger.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Scene.hpp"
 
@@ -37,6 +38,8 @@ namespace Skore
 
 	namespace
 	{
+		Logger& logger = Logger::GetLogger("Skore::RenderGraph");
+
 		void HashCombine(usize& seed, usize value)
 		{
 			seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
@@ -182,10 +185,11 @@ namespace Skore
 		}
 		renderPassCache.Clear();
 
-		for (auto& it : pipelineCache)
+		for (GPUPipeline* pipeline : ownedPipelines)
 		{
-			it.second->Destroy();
+			pipeline->Destroy();
 		}
+		ownedPipelines.Clear();
 		pipelineCache.Clear();
 
 		for (auto& it : descriptorSetCache)
@@ -243,35 +247,61 @@ namespace Skore
 				res.instanceData = nullptr;
 			}
 		}
+
+		for (GPUMemory* heap : aliasHeaps)
+		{
+			if (heap != nullptr) heap->Destroy();
+		}
+		aliasHeaps.Clear();
 	}
 
 	RenderGraphPass& RenderGraphPass::Write(StringView name)
 	{
-		dependencies.EmplaceBack(Dependency{.name = name, .access = RenderGraphAccess::Write});
+		AddDependency(name, RenderGraphAccess::Write);
 		return *this;
 	}
 
 	RenderGraphPass& RenderGraphPass::Read(StringView name)
 	{
-		dependencies.EmplaceBack(Dependency{.name = name, .access = RenderGraphAccess::Read});
+		AddDependency(name, RenderGraphAccess::Read);
 		return *this;
 	}
 
 	RenderGraphPass& RenderGraphPass::WriteRead(StringView name)
 	{
-		dependencies.EmplaceBack(Dependency{.name = name, .access = RenderGraphAccess::ReadWrite});
+		AddDependency(name, RenderGraphAccess::ReadWrite);
 		return *this;
 	}
 
 	RenderGraphPass& RenderGraphPass::Resolve(StringView name)
 	{
-		resolves.EmplaceBack(name);
+		AddResolve(name);
 		return *this;
 	}
 
 	RenderGraphPass& RenderGraphPass::DescriptorSet(u32 set, GPUDescriptorSet* ds)
 	{
-		boundDescriptorSets.Insert(set, ds);
+		for (usize i = 0; i < boundDescriptorSetCount; ++i)
+		{
+			if (boundDescriptorSets[i].set == set)
+			{
+				return *this;
+			}
+		}
+
+		BoundDescriptorSet* binding = nullptr;
+		if (boundDescriptorSetCount < boundDescriptorSets.Size())
+		{
+			binding = &boundDescriptorSets[boundDescriptorSetCount];
+		}
+		else
+		{
+			binding = &boundDescriptorSets.EmplaceBack();
+		}
+
+		binding->set = set;
+		binding->descriptorSet = ds;
+		++boundDescriptorSetCount;
 		return *this;
 	}
 
@@ -320,9 +350,9 @@ namespace Skore
 		renderPass = nullptr;
 		framebuffer = nullptr;
 
-		dependencies.Clear();
-		resolves.Clear();
-		boundDescriptorSets.Clear();
+		dependencyCount = 0;
+		resolveCount = 0;
+		boundDescriptorSetCount = 0;
 
 		invertViewport = false;
 		requireJitter = false;
@@ -338,6 +368,67 @@ namespace Skore
 		constantsFn = {};
 		resizeFn = {};
 		renderFn = {};
+	}
+
+	void RenderGraphPass::AddDependency(StringView name, RenderGraphAccess access)
+	{
+		Dependency* dependency = nullptr;
+		if (dependencyCount < dependencies.Size())
+		{
+			dependency = &dependencies[dependencyCount];
+		}
+		else
+		{
+			dependency = &dependencies.EmplaceBack();
+		}
+
+		SetNameReference(dependency->nameStorage, dependency->name, name);
+		dependency->access = access;
+		++dependencyCount;
+	}
+
+	void RenderGraphPass::AddResolve(StringView name)
+	{
+		ResolveTarget* resolve = nullptr;
+		if (resolveCount < resolves.Size())
+		{
+			resolve = &resolves[resolveCount];
+		}
+		else
+		{
+			resolve = &resolves.EmplaceBack();
+		}
+
+		SetNameReference(resolve->nameStorage, resolve->name, name);
+		++resolveCount;
+	}
+
+	void RenderGraphPass::SetNameReference(String& storage, StringView& view, StringView name)
+	{
+		if (graph != nullptr)
+		{
+			StringView resourceName = graph->FindResourceName(name);
+			if (!resourceName.Empty())
+			{
+				view = resourceName;
+				return;
+			}
+		}
+
+		storage = name;
+		view = storage;
+	}
+
+	bool RenderGraphPass::HasResolve(StringView name) const
+	{
+		for (usize i = 0; i < resolveCount; ++i)
+		{
+			if (resolves[i].name == name)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	RenderGraphPass& RenderGraphPass::Resize(std::function<void(RenderGraph& rg, Extent newExtent)> f)
@@ -420,17 +511,25 @@ namespace Skore
 		return it != resources.end() ? &it->second : nullptr;
 	}
 
+	StringView RenderGraph::FindResourceName(StringView name) const
+	{
+		auto it = resources.Find(name);
+		return it != resources.end() ? StringView(it->first) : StringView{};
+	}
+
 	void RenderGraph::Create(StringView name, const RenderGraphTextureDesc& textureDesc)
 	{
 		if (Resource* existing = FindResource(name))
 		{
 			existing->textureDesc = textureDesc;
+			existing->lastUsed = frameGeneration;
 			return;
 		}
 
 		Resource resource;
 		resource.kind = Resource::Kind::Texture;
 		resource.textureDesc = textureDesc;
+		resource.lastUsed = frameGeneration;
 		resources.Insert(name, Traits::Move(resource));
 		resourcesDirty = true;
 	}
@@ -440,12 +539,14 @@ namespace Skore
 		if (Resource* existing = FindResource(name))
 		{
 			existing->bufferDesc = bufferDesc;
+			existing->lastUsed = frameGeneration;
 			return;
 		}
 
 		Resource resource;
 		resource.kind = Resource::Kind::Buffer;
 		resource.bufferDesc = bufferDesc;
+		resource.lastUsed = frameGeneration;
 		resources.Insert(name, Traits::Move(resource));
 		resourcesDirty = true;
 	}
@@ -455,12 +556,14 @@ namespace Skore
 		if (Resource* existing = FindResource(name))
 		{
 			existing->viewDesc = viewDesc;
+			existing->lastUsed = frameGeneration;
 			return;
 		}
 
 		Resource resource;
 		resource.kind = Resource::Kind::View;
 		resource.viewDesc = viewDesc;
+		resource.lastUsed = frameGeneration;
 		resources.Insert(name, Traits::Move(resource));
 		resourcesDirty = true;
 	}
@@ -477,27 +580,40 @@ namespace Skore
 		}
 
 		resource->kind = Resource::Kind::Imported;
-		resource->imported.Clear();
-		resource->imported.Insert(resource->imported.end(), textures.begin(), textures.end());
-		resource->importedState = state;
-		resource->importedStates.Clear();
-		resource->importedScopes.Clear();
-		resource->importedLastWrites.Clear();
-
-		for (GPUTexture* texture : resource->imported)
+		resource->lastUsed = frameGeneration;
+		resource->imported.Resize(textures.Size());
+		for (usize i = 0; i < textures.Size(); ++i)
 		{
-			Array<ResourceState> states;
-			Array<BarrierSyncScope> scopes;
-			Array<bool>         lastWrites;
+			resource->imported[i] = textures[i];
+		}
+		resource->importedState = state;
+		resource->importedStates.Resize(textures.Size());
+		resource->importedScopes.Resize(textures.Size());
+		resource->importedLastWrites.Resize(textures.Size());
+
+		for (usize i = 0; i < resource->imported.Size(); ++i)
+		{
+			GPUTexture* texture = resource->imported[i];
+			Array<ResourceState>& states = resource->importedStates[i];
+			Array<BarrierSyncScope>& scopes = resource->importedScopes[i];
+			Array<bool>& lastWrites = resource->importedLastWrites[i];
+
+			usize subresourceCount = 0;
 			if (texture != nullptr)
 			{
-				states.Resize(TextureMipCount(texture) * TextureLayerCount(texture), state);
-				scopes.Resize(states.Size(), BarrierSyncScope::Automatic);
-				lastWrites.Resize(states.Size(), false);
+				subresourceCount = TextureMipCount(texture) * TextureLayerCount(texture);
 			}
-			resource->importedStates.EmplaceBack(Traits::Move(states));
-			resource->importedScopes.EmplaceBack(Traits::Move(scopes));
-			resource->importedLastWrites.EmplaceBack(Traits::Move(lastWrites));
+
+			states.Resize(subresourceCount);
+			scopes.Resize(subresourceCount);
+			lastWrites.Resize(subresourceCount);
+
+			for (usize subresource = 0; subresource < subresourceCount; ++subresource)
+			{
+				states[subresource] = state;
+				scopes[subresource] = BarrierSyncScope::Automatic;
+				lastWrites[subresource] = false;
+			}
 		}
 	}
 
@@ -507,6 +623,7 @@ namespace Skore
 		{
 			if (existing->instanceData && existing->instanceSize == size)
 			{
+				existing->lastUsed = frameGeneration;
 				return existing->instanceData;
 			}
 		}
@@ -515,6 +632,7 @@ namespace Skore
 		resource.kind = Resource::Kind::Instance;
 		resource.instanceSize = size;
 		resource.instanceData = operator new(size);
+		resource.lastUsed = frameGeneration;
 		VoidPtr ptr = resource.instanceData;
 		resources.Insert(name, Traits::Move(resource));
 		return ptr;
@@ -776,8 +894,9 @@ namespace Skore
 
 		for (const RenderGraphPass* pass : passes)
 		{
-			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 			{
+				const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
 				bool referencesResource = dependency.name == name;
 				if (!referencesResource)
 				{
@@ -851,8 +970,9 @@ namespace Skore
 
 		for (const RenderGraphPass* pass : passes)
 		{
-			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 			{
+				const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
 				if (dependency.name != name) continue;
 
 				switch (pass->type)
@@ -903,6 +1023,7 @@ namespace Skore
 		if (sceneBuffer != nullptr) return;
 
 		u64 alignment = device->GetProperties().limits.minMemoryMapAlignment;
+		if (alignment == 0) alignment = 1;
 		sceneBufferFrameSize = AlignedSize(static_cast<u64>(sizeof(GlobalSceneBuffer)), alignment);
 
 		BufferDesc bufferDesc;
@@ -962,9 +1083,10 @@ namespace Skore
 		{
 			HashCombine(signature, HashValue(pass->name));
 			HashCombine(signature, static_cast<usize>(pass->type));
-			HashCombine(signature, pass->dependencies.Size());
-			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			HashCombine(signature, pass->dependencyCount);
+			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 			{
+				const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
 				HashCombine(signature, HashValue(dependency.name));
 				if (const Resource* dependencyResource = FindResource(dependency.name))
 				{
@@ -975,17 +1097,17 @@ namespace Skore
 				}
 				HashCombine(signature, static_cast<usize>(dependency.access));
 			}
-			HashCombine(signature, pass->resolves.Size());
-			for (const String& resolve : pass->resolves)
+			HashCombine(signature, pass->resolveCount);
+			for (usize resolveIndex = 0; resolveIndex < pass->resolveCount; ++resolveIndex)
 			{
-				HashCombine(signature, HashValue(resolve));
+				HashCombine(signature, HashValue(pass->resolves[resolveIndex].name));
 			}
 		}
 
 		if (passGraphCacheValid && passGraphSignature == signature && cachedSortedPassIndices.Size() == count)
 		{
-			Array<RenderGraphPass*> sorted;
-			sorted.Reserve(count);
+			sortedPassScratch.Clear();
+			sortedPassScratch.Reserve(count);
 			for (u32 index : cachedSortedPassIndices)
 			{
 				SK_ASSERT(index < count, "cached render graph pass index out of range");
@@ -994,12 +1116,15 @@ namespace Skore
 					passGraphCacheValid = false;
 					break;
 				}
-				sorted.EmplaceBack(passes[index]);
+				sortedPassScratch.EmplaceBack(passes[index]);
 			}
 
-			if (sorted.Size() == count)
+			if (sortedPassScratch.Size() == count)
 			{
-				passes = Traits::Move(sorted);
+				for (u32 i = 0; i < count; ++i)
+				{
+					passes[i] = sortedPassScratch[i];
+				}
 				passesSorted = true;
 				return;
 			}
@@ -1011,7 +1136,7 @@ namespace Skore
 		Array<u32> indegrees;
 		indegrees.Resize(count, 0);
 
-		auto dependencyResourceName = [&](const RenderGraphPass::Dependency& dependency) -> String
+		auto dependencyResourceName = [&](const RenderGraphPass::Dependency& dependency) -> StringView
 		{
 			if (const Resource* dependencyResource = FindResource(dependency.name))
 			{
@@ -1023,11 +1148,13 @@ namespace Skore
 			return dependency.name;
 		};
 
-		HashMap<String, Array<u32>> writers;
+		HashMap<StringView, Array<u32>> writers;
 		for (u32 passIndex = 0; passIndex < count; ++passIndex)
 		{
-			for (const RenderGraphPass::Dependency& dependency : passes[passIndex]->dependencies)
+			RenderGraphPass* pass = passes[passIndex];
+			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 			{
+				const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
 				if (WritesResource(dependency.access))
 				{
 					writers[dependencyResourceName(dependency)].EmplaceBack(passIndex);
@@ -1035,16 +1162,17 @@ namespace Skore
 			}
 		}
 
-		HashMap<String, u32>        lastWriter;
-		HashMap<String, Array<u32>> readersSinceWrite;
+		HashMap<StringView, u32>        lastWriter;
+		HashMap<StringView, Array<u32>> readersSinceWrite;
 
 		for (u32 passIndex = 0; passIndex < count; ++passIndex)
 		{
 			RenderGraphPass* pass = passes[passIndex];
 
-			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 			{
-				String resourceName = dependencyResourceName(dependency);
+				const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
+				StringView                         resourceName = dependencyResourceName(dependency);
 
 				if (ReadsResource(dependency.access))
 				{
@@ -1131,11 +1259,11 @@ namespace Skore
 			}
 		}
 
-		Array<RenderGraphPass*> sorted;
-		sorted.Reserve(count);
+		sortedPassScratch.Clear();
+		sortedPassScratch.Reserve(count);
 		for (u32 index : sortedIndices)
 		{
-			sorted.EmplaceBack(passes[index]);
+			sortedPassScratch.EmplaceBack(passes[index]);
 		}
 
 		cachedSortedPassIndices = sortedIndices;
@@ -1143,12 +1271,37 @@ namespace Skore
 		passGraphCacheValid = true;
 		++topologyBuildCount;
 
-		passes = Traits::Move(sorted);
+		for (u32 i = 0; i < count; ++i)
+		{
+			passes[i] = sortedPassScratch[i];
+		}
 		passesSorted = true;
+	}
+
+	TextureDesc RenderGraph::BuildTextureDesc(StringView name, const Resource& res) const
+	{
+		const RenderGraphTextureDesc& rgDesc = res.textureDesc;
+		bool                          followOutput = rgDesc.extent.width == 0 && rgDesc.extent.height == 0;
+		Extent                        size = followOutput
+			                                     ? Extent{static_cast<u32>(outputSize.width * rgDesc.scale.x), static_cast<u32>(outputSize.height * rgDesc.scale.y)}
+			                                     : rgDesc.extent;
+
+		TextureDesc desc;
+		desc.extent = Extent3D{size.width, size.height, 1};
+		desc.format = rgDesc.format;
+		desc.mipLevels = rgDesc.mipLevels;
+		desc.arrayLayers = rgDesc.arrayLayers;
+		desc.sampleCount = rgDesc.samples;
+		desc.cubemap = rgDesc.cubemap;
+		desc.usage = InferTextureUsage(name);
+		desc.debugName = name;
+		return desc;
 	}
 
 	void RenderGraph::CreateResourceTextures()
 	{
+		BuildAliasGroup();
+
 		for (auto& it : resources)
 		{
 			const String& name = it.first;
@@ -1159,20 +1312,7 @@ namespace Skore
 				if (res.textures[0] != nullptr) continue;
 
 				const RenderGraphTextureDesc& rgDesc = res.textureDesc;
-				bool                          followOutput = rgDesc.extent.width == 0 && rgDesc.extent.height == 0;
-				Extent                        size = followOutput
-					                                     ? Extent{static_cast<u32>(outputSize.width * rgDesc.scale.x), static_cast<u32>(outputSize.height * rgDesc.scale.y)}
-					                                     : rgDesc.extent;
-
-				TextureDesc desc;
-				desc.extent = Extent3D{size.width, size.height, 1};
-				desc.format = rgDesc.format;
-				desc.mipLevels = rgDesc.mipLevels;
-				desc.arrayLayers = rgDesc.arrayLayers;
-				desc.sampleCount = rgDesc.samples;
-				desc.cubemap = rgDesc.cubemap;
-				desc.usage = InferTextureUsage(name);
-				desc.debugName = name;
+				TextureDesc                   desc = BuildTextureDesc(name, res);
 
 				res.textures[0] = device->CreateTexture(desc);
 				res.states[0] = ResourceState::Undefined;
@@ -1230,6 +1370,357 @@ namespace Skore
 			desc.arrayLayerCount = res.viewDesc.arrayLayerCount;
 			desc.debugName = it.first;
 			res.view = device->CreateTextureView(desc);
+		}
+	}
+
+	RenderGraphAliasPlan ComputeRenderGraphAliasPlan(const Array<RenderGraphAliasResource>& resources)
+	{
+		auto alignUp = [](u64 value, u64 alignment) -> u64
+		{
+			if (alignment == 0) return value;
+			return ((value + alignment - 1) / alignment) * alignment;
+		};
+
+		RenderGraphAliasPlan plan;
+		plan.placements.Resize(resources.Size());
+
+		Array<u32> order;
+		for (u32 i = 0; i < resources.Size(); ++i)
+		{
+			order.EmplaceBack(i);
+		}
+
+		Sort(order.Data(), order.Data() + order.Size(), [&](u32 a, u32 b)
+		{
+			const RenderGraphAliasResource& ra = resources[a];
+			const RenderGraphAliasResource& rb = resources[b];
+			if (ra.size != rb.size) return ra.size > rb.size;
+			if (ra.firstPass != rb.firstPass) return ra.firstPass < rb.firstPass;
+			if (ra.lastPass != rb.lastPass) return ra.lastPass < rb.lastPass;
+			return a < b;
+		});
+
+		struct Placed
+		{
+			u32 firstPass;
+			u32 lastPass;
+			u64 offset;
+			u64 size;
+		};
+		Array<Array<Placed>> heapTenants;
+
+		for (u32 idx : order)
+		{
+			const RenderGraphAliasResource& r = resources[idx];
+
+			u32 chosenHeap = U32_MAX;
+			u64 chosenOffset = 0;
+
+			for (u32 h = 0; h < plan.buckets.Size(); ++h)
+			{
+				if ((plan.buckets[h].memoryTypeBits & r.memoryTypeBits) == 0) continue;
+
+				Array<Placed> blocked;
+				for (const Placed& tenant : heapTenants[h])
+				{
+					if (r.firstPass <= tenant.lastPass && tenant.firstPass <= r.lastPass)
+					{
+						blocked.EmplaceBack(tenant);
+					}
+				}
+
+				Sort(blocked.Data(), blocked.Data() + blocked.Size(), [](const Placed& a, const Placed& b)
+				{
+					return a.offset < b.offset;
+				});
+
+				u64 candidate = 0;
+				for (const Placed& block : blocked)
+				{
+					candidate = alignUp(candidate, r.alignment);
+					if (candidate + r.size <= block.offset) break;
+					candidate = Math::Max(candidate, block.offset + block.size);
+				}
+
+				chosenOffset = alignUp(candidate, r.alignment);
+				chosenHeap = h;
+				break;
+			}
+
+			if (chosenHeap == U32_MAX)
+			{
+				chosenHeap = static_cast<u32>(plan.buckets.Size());
+				chosenOffset = 0;
+
+				RenderGraphAliasBucket bucket;
+				bucket.size = 0;
+				bucket.alignment = r.alignment;
+				bucket.memoryTypeBits = r.memoryTypeBits;
+				plan.buckets.EmplaceBack(bucket);
+				heapTenants.EmplaceBack();
+			}
+
+			RenderGraphAliasBucket& bucket = plan.buckets[chosenHeap];
+			bucket.size = Math::Max(bucket.size, chosenOffset + r.size);
+			bucket.alignment = Math::Max(bucket.alignment, r.alignment);
+			bucket.memoryTypeBits &= r.memoryTypeBits;
+
+			heapTenants[chosenHeap].EmplaceBack(Placed{r.firstPass, r.lastPass, chosenOffset, r.size});
+
+			plan.placements[idx].bucket = chosenHeap;
+			plan.placements[idx].offset = chosenOffset;
+		}
+
+		return plan;
+	}
+
+	RenderGraphAliasReport RenderGraph::AnalyzeMemoryAliasing()
+	{
+		SortPasses();
+
+		struct Lifetime
+		{
+			u32  firstPass = 0;
+			u32  lastPass = 0;
+			bool firstPassWrites = false;
+			bool firstPassReads = false;
+			bool used = false;
+		};
+
+		HashMap<StringView, Lifetime> lifetimes;
+
+		for (u32 passIndex = 0; passIndex < passes.Size(); ++passIndex)
+		{
+			RenderGraphPass* pass = passes[passIndex];
+			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
+			{
+				const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
+				StringView                         resourceName = dependency.name;
+				if (const Resource* dep = FindResource(resourceName))
+				{
+					if (dep->kind == Resource::Kind::View)
+					{
+						resourceName = dep->viewDesc.texture;
+					}
+				}
+
+				Lifetime&  lifetime = lifetimes[resourceName];
+				const bool writes = WritesResource(dependency.access);
+				const bool reads = ReadsResource(dependency.access);
+
+				if (!lifetime.used)
+				{
+					lifetime.firstPass = passIndex;
+					lifetime.lastPass = passIndex;
+					lifetime.firstPassWrites = writes;
+					lifetime.firstPassReads = reads;
+					lifetime.used = true;
+				}
+				else
+				{
+					if (passIndex == lifetime.firstPass)
+					{
+						lifetime.firstPassWrites = lifetime.firstPassWrites || writes;
+						lifetime.firstPassReads = lifetime.firstPassReads || reads;
+					}
+					lifetime.lastPass = Math::Max(lifetime.lastPass, passIndex);
+				}
+			}
+		}
+
+		Array<StringView> names;
+		for (const auto& it : lifetimes)
+		{
+			names.EmplaceBack(it.first);
+		}
+		Sort(names.Data(), names.Data() + names.Size(), [](StringView a, StringView b)
+		{
+			return a < b;
+		});
+
+		RenderGraphAliasReport report;
+
+		for (StringView name : names)
+		{
+			const Resource* res = FindResource(name);
+			if (res == nullptr || res->kind != Resource::Kind::Texture) continue;
+			if (res->textureDesc.pingPong) continue;
+			if (name.Compare(colorOutputName) == 0 || name.Compare(depthOutputName) == 0) continue;
+
+			auto            lifetimeIt = lifetimes.Find(name);
+			const Lifetime& lifetime = lifetimeIt->second;
+			if (!lifetime.firstPassWrites || lifetime.firstPassReads) continue;
+
+			TextureDesc               desc = BuildTextureDesc(name, *res);
+			TextureMemoryRequirements requirements = device->GetTextureMemoryRequirements(desc);
+			if (requirements.size == 0) continue;
+
+			RenderGraphAliasResource aliasResource;
+			aliasResource.firstPass = lifetime.firstPass;
+			aliasResource.lastPass = lifetime.lastPass;
+			aliasResource.size = requirements.size;
+			aliasResource.alignment = requirements.alignment;
+			aliasResource.memoryTypeBits = requirements.memoryTypeBits;
+
+			report.resourceNames.EmplaceBack(name);
+			report.resources.EmplaceBack(aliasResource);
+			report.standaloneBytes += requirements.size;
+		}
+
+		report.plan = ComputeRenderGraphAliasPlan(report.resources);
+
+		for (const RenderGraphAliasBucket& bucket : report.plan.buckets)
+		{
+			report.aliasedBytes += bucket.size;
+		}
+
+		return report;
+	}
+
+	void RenderGraph::BuildAliasGroup()
+	{
+		DestroyAliasGroup();
+
+		RenderGraphAliasReport report = AnalyzeMemoryAliasing();
+		if (report.resourceNames.Empty()) return;
+
+		logger.Debug("memory aliasing: {} transient textures in {} heap(s), {} KB -> {} KB",
+		             report.resourceNames.Size(), report.plan.buckets.Size(), report.standaloneBytes / 1024, report.aliasedBytes / 1024);
+
+		aliasHeaps.Resize(report.plan.buckets.Size(), nullptr);
+		for (u32 b = 0; b < report.plan.buckets.Size(); ++b)
+		{
+			const RenderGraphAliasBucket& bucket = report.plan.buckets[b];
+			aliasHeaps[b] = device->CreateMemory(bucket.size, bucket.alignment, bucket.memoryTypeBits);
+		}
+
+		for (u32 i = 0; i < report.resourceNames.Size(); ++i)
+		{
+			const String&                    name = report.resourceNames[i];
+			const RenderGraphAliasPlacement& placement = report.plan.placements[i];
+
+			Resource* res = FindResource(name);
+			if (res == nullptr || aliasHeaps[placement.bucket] == nullptr) continue;
+
+			TextureDesc desc = BuildTextureDesc(name, *res);
+			res->textures[0] = device->CreateAliasedTexture(desc, aliasHeaps[placement.bucket], placement.offset);
+			res->states[0] = ResourceState::Undefined;
+			res->textureStates[0].Resize(TextureMipCount(res->textures[0]) * TextureLayerCount(res->textures[0]), ResourceState::Undefined);
+			res->textureScopes[0].Resize(res->textureStates[0].Size(), BarrierSyncScope::Automatic);
+			res->textureLastWrites[0].Resize(res->textureStates[0].Size(), false);
+			res->aliased = true;
+		}
+	}
+
+	void RenderGraph::DestroyAliasGroup()
+	{
+		if (aliasHeaps.Empty()) return;
+
+		device->WaitIdle();
+
+		for (auto& it : framebufferCache)
+		{
+			it.second->Destroy();
+		}
+		framebufferCache.Clear();
+
+		for (auto& it : resources)
+		{
+			Resource& res = it.second;
+			if (res.kind != Resource::Kind::View || res.view == nullptr) continue;
+
+			Resource* source = FindResource(res.viewDesc.texture);
+			if (source != nullptr && source->aliased)
+			{
+				res.view->Destroy();
+				res.view = nullptr;
+			}
+		}
+
+		for (auto& it : resources)
+		{
+			Resource& res = it.second;
+			if (!res.aliased) continue;
+
+			if (res.textures[0] != nullptr)
+			{
+				res.textures[0]->Destroy();
+				res.textures[0] = nullptr;
+			}
+			res.states[0] = ResourceState::Undefined;
+			res.textureStates[0].Clear();
+			res.textureScopes[0].Clear();
+			res.textureLastWrites[0].Clear();
+			res.aliased = false;
+		}
+
+		for (GPUMemory* heap : aliasHeaps)
+		{
+			if (heap != nullptr) heap->Destroy();
+		}
+		aliasHeaps.Clear();
+	}
+
+	void RenderGraph::CollectUnusedResources()
+	{
+		bool anyStale = false;
+		for (auto& it : resources)
+		{
+			if (it.second.kind == Resource::Kind::Instance || it.second.aliased) continue;
+			if (frameGeneration - it.second.lastUsed >= SK_FRAMES_IN_FLIGHT)
+			{
+				anyStale = true;
+				break;
+			}
+		}
+
+		if (!anyStale) return;
+
+		device->WaitIdle();
+
+		for (auto& it : framebufferCache)
+		{
+			it.second->Destroy();
+		}
+		framebufferCache.Clear();
+
+		Array<String> toRemove;
+		for (auto& it : resources)
+		{
+			Resource& res = it.second;
+			if (res.kind == Resource::Kind::Instance || res.aliased) continue;
+			if (frameGeneration - res.lastUsed < SK_FRAMES_IN_FLIGHT) continue;
+
+			for (GPUTexture*& texture : res.textures)
+			{
+				if (texture != nullptr)
+				{
+					texture->Destroy();
+					texture = nullptr;
+				}
+			}
+
+			if (res.view != nullptr)
+			{
+				res.view->Destroy();
+				res.view = nullptr;
+			}
+
+			for (GPUBuffer*& buffer : res.buffers)
+			{
+				if (buffer != nullptr)
+				{
+					buffer->Destroy();
+					buffer = nullptr;
+				}
+			}
+
+			toRemove.EmplaceBack(it.first);
+		}
+
+		for (const String& name : toRemove)
+		{
+			resources.Erase(name);
 		}
 	}
 
@@ -1309,6 +1800,7 @@ namespace Skore
 					pipeline = device->CreateRayTracingPipeline(pipelineDesc);
 				}
 
+				ownedPipelines.EmplaceBack(pipeline);
 				pipelineCache.Insert(pipelineKey, pipeline);
 				pass->pipeline = pipeline;
 				continue;
@@ -1316,16 +1808,12 @@ namespace Skore
 
 			if (pass->type != RenderGraphPassType::Graphics) continue;
 
-			struct Attachment
-			{
-				AttachmentDesc  desc;
-				GPUTextureView* view = nullptr;
-				bool            resolve = false;
-			};
-			Array<Attachment> attachments;
+			Array<RenderPassAttachment>& attachments = renderPassAttachmentsScratch;
+			attachments.Clear();
 
-			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 			{
+				const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
 				if (!WritesResource(dependency.access)) continue;
 
 				Resource* res = FindResource(dependency.name);
@@ -1356,7 +1844,7 @@ namespace Skore
 				const TextureDesc& textureDesc = texture->GetDesc();
 				const bool         isDepth = IsDepthFormat(textureDesc.format);
 
-				Attachment attachment;
+				RenderPassAttachment attachment;
 				attachment.desc.format = textureDesc.format;
 				attachment.desc.sampleCount = textureDesc.sampleCount;
 				attachment.desc.initialState = isDepth ? ResourceState::DepthStencilAttachment : ResourceState::ColorAttachment;
@@ -1364,7 +1852,7 @@ namespace Skore
 				attachment.desc.loadOp = dependency.access == RenderGraphAccess::Write ? AttachmentLoadOp::Clear : AttachmentLoadOp::Load;
 				attachment.desc.storeOp = AttachmentStoreOp::Store;
 				attachment.view = view;
-				attachment.resolve = pass->resolves.IndexOf(dependency.name) != nPos;
+				attachment.resolve = pass->HasResolve(dependency.name);
 				attachments.EmplaceBack(attachment);
 			}
 
@@ -1376,7 +1864,7 @@ namespace Skore
 			}
 
 			usize renderPassKey = 0;
-			for (const Attachment& attachment : attachments)
+			for (const RenderPassAttachment& attachment : attachments)
 			{
 				HashCombine(renderPassKey, static_cast<usize>(attachment.desc.format));
 				HashCombine(renderPassKey, attachment.desc.sampleCount);
@@ -1393,7 +1881,7 @@ namespace Skore
 			else
 			{
 				RenderPassDesc renderPassDesc;
-				for (const Attachment& attachment : attachments)
+				for (const RenderPassAttachment& attachment : attachments)
 				{
 					if (attachment.resolve)
 					{
@@ -1411,7 +1899,7 @@ namespace Skore
 
 			usize framebufferKey = renderPassKey;
 			HashCombine(framebufferKey, reinterpret_cast<usize>(renderPass));
-			for (const Attachment& attachment : attachments)
+			for (const RenderPassAttachment& attachment : attachments)
 			{
 				HashCombine(framebufferKey, reinterpret_cast<usize>(attachment.view));
 			}
@@ -1425,7 +1913,7 @@ namespace Skore
 			{
 				FramebufferDesc framebufferDesc;
 				framebufferDesc.renderPass = renderPass;
-				for (const Attachment& attachment : attachments)
+				for (const RenderPassAttachment& attachment : attachments)
 				{
 					framebufferDesc.attachments.EmplaceBack(attachment.view);
 				}
@@ -1496,6 +1984,7 @@ namespace Skore
 		currentScene = scene;
 		prevFrame = currentFrame;
 		currentFrame = (currentFrame + 1) % SK_FRAMES_IN_FLIGHT;
+		++frameGeneration;
 
 		for (RenderGraphPass* pass : passes)
 		{
@@ -1503,6 +1992,8 @@ namespace Skore
 		}
 		passes.Clear();
 		passesSorted = false;
+
+		CollectUnusedResources();
 	}
 
 	void RenderGraph::Resize(Extent newExtent)
@@ -1763,14 +2254,79 @@ namespace Skore
 			lastWrite = writes;
 		};
 
-		for (RenderGraphPass* pass : passes)
+		for (auto& it : resources)
 		{
+			Resource& res = it.second;
+			if (!res.aliased) continue;
+
+			res.states[0] = ResourceState::Undefined;
+			for (ResourceState& state : res.textureStates[0]) state = ResourceState::Undefined;
+			for (BarrierSyncScope& scope : res.textureScopes[0]) scope = BarrierSyncScope::Automatic;
+			for (bool& lastWrite : res.textureLastWrites[0]) lastWrite = false;
+		}
+
+		passActivatesAliasScratch.Clear();
+		passActivatesAliasScratch.Resize(passes.Size(), false);
+		activatedAliasResourcesScratch.Clear();
+		for (u32 passIndex = 0; passIndex < passes.Size(); ++passIndex)
+		{
+			RenderGraphPass* pass = passes[passIndex];
+			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
+			{
+				const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
+				StringView                         resourceName = dependency.name;
+				if (const Resource* dep = FindResource(resourceName))
+				{
+					if (dep->kind == Resource::Kind::View)
+					{
+						resourceName = dep->viewDesc.texture;
+					}
+				}
+
+				const Resource* res = FindResource(resourceName);
+				if (res == nullptr || !res->aliased) continue;
+
+				bool alreadyActivated = false;
+				for (const Resource* activated : activatedAliasResourcesScratch)
+				{
+					if (activated == res)
+					{
+						alreadyActivated = true;
+						break;
+					}
+				}
+				if (alreadyActivated) continue;
+
+				activatedAliasResourcesScratch.EmplaceBack(res);
+				passActivatesAliasScratch[passIndex] = true;
+			}
+		}
+
+		for (u32 passIndex = 0; passIndex < passes.Size(); ++passIndex)
+		{
+			RenderGraphPass* pass = passes[passIndex];
+
+			if (passActivatesAliasScratch[passIndex])
+			{
+				cmd->MemoryBarrier();
+			}
+
 			const BarrierSyncScope passScope = PassSyncScope(pass->type);
 
-			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 			{
+				const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
 				Resource* res = FindResource(dependency.name);
 				if (res == nullptr) continue;
+
+				res->lastUsed = frameGeneration;
+				if (res->kind == Resource::Kind::View)
+				{
+					if (Resource* source = FindResource(res->viewDesc.texture))
+					{
+						source->lastUsed = frameGeneration;
+					}
+				}
 
 				if (res->kind == Resource::Kind::Buffer)
 				{
@@ -1800,8 +2356,9 @@ namespace Skore
 			if (useRenderPass)
 			{
 				ClearValues clearValues = {};
-				for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+				for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 				{
+					const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
 					if (!WritesResource(dependency.access)) continue;
 					const Resource* res = FindResource(dependency.name);
 					if (res != nullptr && res->kind == Resource::Kind::Texture && !IsDepthFormat(res->textureDesc.format))
@@ -1843,9 +2400,10 @@ namespace Skore
 			{
 				cmd->BindPipeline(pass->pipeline);
 
-				for (auto& it : pass->boundDescriptorSets)
+				for (usize descriptorSetIndex = 0; descriptorSetIndex < pass->boundDescriptorSetCount; ++descriptorSetIndex)
 				{
-					cmd->BindDescriptorSet(pass->pipeline, it.first, it.second);
+					const RenderGraphPass::BoundDescriptorSet& binding = pass->boundDescriptorSets[descriptorSetIndex];
+					cmd->BindDescriptorSet(pass->pipeline, binding.set, binding.descriptorSet);
 				}
 
 				if (pass->constantsFn && pass->constantsSize > 0)

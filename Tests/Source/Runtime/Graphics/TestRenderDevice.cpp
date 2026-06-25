@@ -30,6 +30,17 @@ namespace Skore
 	}
 
 	//---------------------------------------------------------------------------------------------
+	// Memory
+	//---------------------------------------------------------------------------------------------
+
+	u64 TestGPUMemory::GetSize() const
+	{
+		return size;
+	}
+
+	void TestGPUMemory::Destroy() {}
+
+	//---------------------------------------------------------------------------------------------
 	// Texture
 	//---------------------------------------------------------------------------------------------
 
@@ -545,7 +556,7 @@ namespace Skore
 
 	void TestGPUCommandBuffer::ResourceBarrier(GPUTopLevelAS* topLevelAS, ResourceState oldState, ResourceState newState) {}
 
-	void TestGPUCommandBuffer::MemoryBarrier() {}
+	void TestGPUCommandBuffer::MemoryBarrier() { ++stats.memoryBarrierCount; }
 
 	void TestGPUCommandBuffer::BeginQuery(GPUQueryPool* queryPool, u32 query) {}
 
@@ -608,6 +619,7 @@ namespace Skore
 		for (TestGPUSampler* sampler : samplers) delete sampler;
 		for (TestGPUTextureView* textureView : textureViews) delete textureView;
 		for (TestGPUTexture* texture : textures) delete texture;
+		for (TestGPUMemory* memory : memories) delete memory;
 		for (TestGPUBuffer* buffer : buffers) delete buffer;
 	}
 
@@ -725,6 +737,35 @@ namespace Skore
 		textureView->texture = static_cast<TestGPUTexture*>(desc.texture);
 		textureViews.EmplaceBack(textureView);
 		return textureView;
+	}
+
+	TextureMemoryRequirements TestRenderDevice::GetTextureMemoryRequirements(const TextureDesc& desc)
+	{
+		u64 elements = u64(desc.extent.width) * desc.extent.height * desc.extent.depth * desc.arrayLayers;
+
+		TextureMemoryRequirements requirements;
+		requirements.size = elements * GetFormatSize(desc.format);
+		requirements.alignment = 256;
+		requirements.memoryTypeBits = 0xFFFFFFFF;
+		return requirements;
+	}
+
+	GPUMemory* TestRenderDevice::CreateMemory(u64 size, u64 alignment, u32 memoryTypeBits)
+	{
+		TestGPUMemory* memory = new TestGPUMemory();
+		memory->device = this;
+		memory->size = size;
+		memory->memoryTypeBits = memoryTypeBits;
+		memories.EmplaceBack(memory);
+		return memory;
+	}
+
+	GPUTexture* TestRenderDevice::CreateAliasedTexture(const TextureDesc& desc, GPUMemory* memory, u64 offset)
+	{
+		TestGPUTexture* texture = static_cast<TestGPUTexture*>(CreateTexture(desc));
+		texture->aliasMemory = static_cast<TestGPUMemory*>(memory);
+		texture->aliasOffset = offset;
+		return texture;
 	}
 
 	GPUSampler* TestRenderDevice::CreateSampler(const SamplerDesc& desc)
@@ -854,5 +895,10 @@ namespace Skore
 	u32 TestRenderDevice::GetCreatedBufferCount() const
 	{
 		return static_cast<u32>(buffers.Size());
+	}
+
+	u32 TestRenderDevice::GetCreatedMemoryCount() const
+	{
+		return static_cast<u32>(memories.Size());
 	}
 }

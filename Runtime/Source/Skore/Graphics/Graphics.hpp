@@ -23,6 +23,11 @@ namespace Skore
 
 	struct SK_API Graphics
 	{
+		// Initializes the graphics device without a window or swapchain, for offscreen/background
+		// rendering (e.g. tests). Selects the best adapter and creates the default samplers and
+		// placeholder textures. Returns false when no compatible GPU is available.
+		static bool InitHeadless(bool enableValidationLayers);
+
 		static Span<GPUAdapter*> GetAdapters();
 		static GPUDevice*        GetDevice();
 		static DeviceProperties  GetProperties();

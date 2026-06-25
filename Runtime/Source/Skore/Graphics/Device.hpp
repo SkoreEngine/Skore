@@ -16,6 +16,7 @@ namespace Skore
 	class GPUSwapchain;
 	class GPUCommandBuffer;
 	class GPUBuffer;
+	class GPUMemory;
 	class GPUTexture;
 	class GPUSampler;
 	class GPUPipeline;
@@ -600,6 +601,13 @@ namespace Skore
 		String          debugName;
 	};
 
+	struct TextureMemoryRequirements
+	{
+		u64 size{};
+		u64 alignment{};
+		u32 memoryTypeBits{};
+	};
+
 	struct SamplerDesc
 	{
 		FilterMode  minFilter{FilterMode::Linear};
@@ -985,6 +993,11 @@ namespace Skore
 		virtual GPUBuffer*              CreateBuffer(const BufferDesc& desc) = 0;
 		virtual GPUTexture*             CreateTexture(const TextureDesc& desc) = 0;
 		virtual GPUTextureView*         CreateTextureView(const TextureViewDesc& desc) = 0;
+
+		virtual TextureMemoryRequirements GetTextureMemoryRequirements(const TextureDesc& desc) = 0;
+		virtual GPUMemory*              CreateMemory(u64 size, u64 alignment, u32 memoryTypeBits) = 0;
+		virtual GPUTexture*             CreateAliasedTexture(const TextureDesc& desc, GPUMemory* memory, u64 offset) = 0;
+
 		virtual GPUSampler*             CreateSampler(const SamplerDesc& desc) = 0;
 		virtual GPUPipeline*            CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) = 0;
 		virtual GPUPipeline*            CreateComputePipeline(const ComputePipelineDesc& desc) = 0;
@@ -1119,6 +1132,15 @@ namespace Skore
 		virtual VoidPtr GetMappedData() = 0;
 
 		virtual const BufferDesc& GetDesc() const = 0;
+	};
+
+	class SK_API GPUMemory
+	{
+	public:
+		virtual ~GPUMemory() = default;
+
+		virtual u64  GetSize() const = 0;
+		virtual void Destroy() = 0;
 	};
 
 	class SK_API GPUTexture

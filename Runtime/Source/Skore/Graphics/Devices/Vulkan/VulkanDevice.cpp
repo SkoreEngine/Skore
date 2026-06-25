@@ -49,6 +49,7 @@ namespace Skore
 		u64                          frame = 0;
 		VulkanTexture*               texture = nullptr;
 		VulkanTextureView*           textureView = nullptr;
+		VulkanMemory*                memory = nullptr;
 		VkBuffer                     buffer = nullptr;
 		VmaAllocation                allocation = nullptr;
 		VkDescriptorSet              descriptorSet = nullptr;
@@ -2452,6 +2453,18 @@ namespace Skore
 		return mappedData;
 	}
 
+	u64 VulkanMemory::GetSize() const
+	{
+		return size;
+	}
+
+	void VulkanMemory::Destroy()
+	{
+		VulkanResourceDestructor destructor;
+		destructor.memory = this;
+		EnqueueDestructor(destructor);
+	}
+
 	const TextureDesc& VulkanTexture::GetDesc() const
 	{
 		return desc;
@@ -2552,32 +2565,31 @@ namespace Skore
 		return buffer;
 	}
 
+	namespace
+	{
+		VkImageCreateInfo MakeImageCreateInfo(const TextureDesc& desc)
+		{
+			VkImageCreateInfo imageCreateInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+			imageCreateInfo.imageType = desc.extent.depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
+			imageCreateInfo.extent.width = desc.extent.width;
+			imageCreateInfo.extent.height = desc.extent.height;
+			imageCreateInfo.extent.depth = desc.extent.depth;
+			imageCreateInfo.format = ToVkFormat(desc.format);
+			imageCreateInfo.mipLevels = desc.mipLevels;
+			imageCreateInfo.arrayLayers = desc.arrayLayers;
+			imageCreateInfo.samples = CastSampleCount(desc.sampleCount);
+			imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+			imageCreateInfo.usage = GetImageUsageFlags(desc.usage);
+			imageCreateInfo.flags |= desc.cubemap ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
+			imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			return imageCreateInfo;
+		}
+	}
+
 	GPUTexture* VulkanDevice::CreateTexture(const TextureDesc& desc)
 	{
-		VkImageCreateInfo imageCreateInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-
-		if (desc.extent.depth > 1)
-		{
-			imageCreateInfo.imageType = VK_IMAGE_TYPE_3D;
-		}
-		else
-		{
-			imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-		}
-
-		imageCreateInfo.extent.width = desc.extent.width;
-		imageCreateInfo.extent.height = desc.extent.height;
-		imageCreateInfo.extent.depth = desc.extent.depth;
-
-		imageCreateInfo.format = ToVkFormat(desc.format);
-		imageCreateInfo.mipLevels = desc.mipLevels;
-		imageCreateInfo.arrayLayers = desc.arrayLayers;
-		imageCreateInfo.samples = CastSampleCount(desc.sampleCount);
-		imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-		imageCreateInfo.usage = GetImageUsageFlags(desc.usage);
-		imageCreateInfo.flags |= desc.cubemap ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
-		imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		VkImageCreateInfo imageCreateInfo = MakeImageCreateInfo(desc);
 
 		VmaAllocationCreateInfo allocInfo{};
 		allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
@@ -2597,6 +2609,90 @@ namespace Skore
 		texture->desc = desc;
 		texture->image = vkImage;
 		texture->allocation = vmaAllocation;
+		texture->isDepth = IsDepthFormat(imageCreateInfo.format);
+
+		TextureViewDesc textureViewDesc;
+		textureViewDesc.texture = texture;
+		textureViewDesc.type = GetTextureViewType(desc.cubemap, desc.extent.depth, desc.extent.height, desc.arrayLayers);
+
+		texture->textureView = CreateTextureView(textureViewDesc);
+
+		SetObjectName(*this, VK_OBJECT_TYPE_IMAGE, PtrToInt(texture->image), desc.debugName);
+
+		return texture;
+	}
+
+	TextureMemoryRequirements VulkanDevice::GetTextureMemoryRequirements(const TextureDesc& desc)
+	{
+		VkImageCreateInfo imageCreateInfo = MakeImageCreateInfo(desc);
+
+		VkImage  vkImage;
+		VkResult result = vkCreateImage(device, &imageCreateInfo, nullptr, &vkImage);
+		if (result != VK_SUCCESS)
+		{
+			logger.Error("error on query texture memory requirements: {} ", string_VkResult(result));
+			return {};
+		}
+
+		VkMemoryRequirements memRequirements{};
+		vkGetImageMemoryRequirements(device, vkImage, &memRequirements);
+		vkDestroyImage(device, vkImage, nullptr);
+
+		TextureMemoryRequirements requirements;
+		requirements.size = memRequirements.size;
+		requirements.alignment = memRequirements.alignment;
+		requirements.memoryTypeBits = memRequirements.memoryTypeBits;
+		return requirements;
+	}
+
+	GPUMemory* VulkanDevice::CreateMemory(u64 size, u64 alignment, u32 memoryTypeBits)
+	{
+		VkMemoryRequirements memRequirements{};
+		memRequirements.size = size;
+		memRequirements.alignment = alignment;
+		memRequirements.memoryTypeBits = memoryTypeBits;
+
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_CAN_ALIAS_BIT;
+
+		VmaAllocation vmaAllocation;
+		VkResult      result = vmaAllocateMemory(vmaAllocator, &memRequirements, &allocInfo, &vmaAllocation, nullptr);
+		if (result != VK_SUCCESS)
+		{
+			logger.Error("error on create memory: {} ", string_VkResult(result));
+			return nullptr;
+		}
+
+		VulkanMemory* memory = Alloc<VulkanMemory>();
+		memory->vulkanDevice = this;
+		memory->allocation = vmaAllocation;
+		memory->size = size;
+		memory->memoryTypeBits = memoryTypeBits;
+		return memory;
+	}
+
+	GPUTexture* VulkanDevice::CreateAliasedTexture(const TextureDesc& desc, GPUMemory* memory, u64 offset)
+	{
+		SK_ASSERT(memory, "memory is required");
+
+		VkImageCreateInfo imageCreateInfo = MakeImageCreateInfo(desc);
+		VulkanMemory*     vulkanMemory = static_cast<VulkanMemory*>(memory);
+
+		VkImage  vkImage;
+		VkResult result = vmaCreateAliasingImage2(vmaAllocator, vulkanMemory->allocation, offset, &imageCreateInfo, &vkImage);
+		if (result != VK_SUCCESS)
+		{
+			logger.Error("error on create aliased texture: {} ", string_VkResult(result));
+			return nullptr;
+		}
+
+		VulkanTexture* texture = Alloc<VulkanTexture>();
+		texture->vulkanDevice = this;
+		texture->desc = desc;
+		texture->image = vkImage;
+		texture->allocation = nullptr;
+		texture->aliased = true;
 		texture->isDepth = IsDepthFormat(imageCreateInfo.format);
 
 		TextureViewDesc textureViewDesc;
@@ -4335,7 +4431,20 @@ namespace Skore
 				{
 					vmaDestroyImage(vmaAllocator, destructor.texture->image, destructor.texture->allocation);
 				}
+				else if (destructor.texture->aliased)
+				{
+					vkDestroyImage(device, destructor.texture->image, nullptr);
+				}
 				DestroyAndFree(destructor.texture);
+			}
+
+			if (destructor.memory)
+			{
+				if (destructor.memory->allocation)
+				{
+					vmaFreeMemory(vmaAllocator, destructor.memory->allocation);
+				}
+				DestroyAndFree(destructor.memory);
 			}
 
 			if (destructor.pipeline)

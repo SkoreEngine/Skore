@@ -28,6 +28,7 @@ namespace Skore
 		u32 clearCount = 0;
 		u32 textureBarrierCount = 0;
 		u32 bufferBarrierCount = 0;
+		u32 memoryBarrierCount = 0;
 	};
 
 	class TestGPUBuffer final : public GPUBuffer
@@ -44,6 +45,17 @@ namespace Skore
 		Array<u8>         storage;
 		ResourceState     state = ResourceState::Undefined;
 		bool              mapped = false;
+	};
+
+	class TestGPUMemory final : public GPUMemory
+	{
+	public:
+		u64  GetSize() const override;
+		void Destroy() override;
+
+		TestRenderDevice* device = nullptr;
+		u64               size = 0;
+		u32               memoryTypeBits = 0;
 	};
 
 	class TestGPUTexture final : public GPUTexture
@@ -71,6 +83,8 @@ namespace Skore
 		Array<ResourceState>     subresourceStates; // indexed by SubresourceIndex(mip, layer)
 		Array<TestBarrierRecord> barrierHistory;
 		u32                      mismatchCount = 0; // times a barrier's declared oldState != the tracked state
+		TestGPUMemory*           aliasMemory = nullptr; // non-null when created via CreateAliasedTexture
+		u64                      aliasOffset = 0;
 	};
 
 	class TestGPUTextureView final : public GPUTextureView
@@ -310,6 +324,9 @@ namespace Skore
 		GPUBuffer*              CreateBuffer(const BufferDesc& desc) override;
 		GPUTexture*             CreateTexture(const TextureDesc& desc) override;
 		GPUTextureView*         CreateTextureView(const TextureViewDesc& desc) override;
+		TextureMemoryRequirements GetTextureMemoryRequirements(const TextureDesc& desc) override;
+		GPUMemory*              CreateMemory(u64 size, u64 alignment, u32 memoryTypeBits) override;
+		GPUTexture*             CreateAliasedTexture(const TextureDesc& desc, GPUMemory* memory, u64 offset) override;
 		GPUSampler*             CreateSampler(const SamplerDesc& desc) override;
 		GPUPipeline*            CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
 		GPUPipeline*            CreateComputePipeline(const ComputePipelineDesc& desc) override;
@@ -331,12 +348,14 @@ namespace Skore
 		// Test introspection.
 		u32 GetCreatedTextureCount() const;
 		u32 GetCreatedBufferCount() const;
+		u32 GetCreatedMemoryCount() const;
 
 		DeviceProperties properties{};
 		DeviceFeatures   features{};
 
 	private:
 		Array<TestGPUBuffer*>        buffers;
+		Array<TestGPUMemory*>        memories;
 		Array<TestGPUTexture*>       textures;
 		Array<TestGPUTextureView*>   textureViews;
 		Array<TestGPUSampler*>       samplers;

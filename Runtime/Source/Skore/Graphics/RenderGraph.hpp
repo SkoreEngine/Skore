@@ -68,6 +68,45 @@ namespace Skore
 		u32             arrayLayerCount = 1;
 	};
 
+	struct RenderGraphAliasResource
+	{
+		u32 firstPass = 0;
+		u32 lastPass = 0;
+		u64 size = 0;
+		u64 alignment = 0;
+		u32 memoryTypeBits = 0;
+	};
+
+	struct RenderGraphAliasPlacement
+	{
+		u32 bucket = 0;
+		u64 offset = 0;
+	};
+
+	struct RenderGraphAliasBucket
+	{
+		u64 size = 0;
+		u64 alignment = 0;
+		u32 memoryTypeBits = 0;
+	};
+
+	struct RenderGraphAliasPlan
+	{
+		Array<RenderGraphAliasBucket>    buckets;
+		Array<RenderGraphAliasPlacement> placements;
+	};
+
+	SK_API RenderGraphAliasPlan ComputeRenderGraphAliasPlan(const Array<RenderGraphAliasResource>& resources);
+
+	struct RenderGraphAliasReport
+	{
+		Array<String>                   resourceNames;
+		Array<RenderGraphAliasResource> resources;
+		RenderGraphAliasPlan            plan;
+		u64                             standaloneBytes = 0;
+		u64                             aliasedBytes = 0;
+	};
+
 	class SK_API RenderGraphPass
 	{
 	public:
@@ -108,12 +147,29 @@ namespace Skore
 
 		struct Dependency
 		{
-			String            name;
+			String            nameStorage;
+			StringView        name;
 			RenderGraphAccess access = RenderGraphAccess::Read;
+		};
+
+		struct ResolveTarget
+		{
+			String     nameStorage;
+			StringView name;
+		};
+
+		struct BoundDescriptorSet
+		{
+			u32               set = 0;
+			GPUDescriptorSet* descriptorSet = nullptr;
 		};
 
 		RenderGraphPass& SetConstants(u32 size, ShaderStage stages, std::function<void(RenderGraph&, void*)> f);
 		void             Reset(RenderGraph* graph, StringView name, RenderGraphPassType type);
+		void             AddDependency(StringView name, RenderGraphAccess access);
+		void             AddResolve(StringView name);
+		void             SetNameReference(String& storage, StringView& view, StringView name);
+		bool             HasResolve(StringView name) const;
 
 		RenderGraph*        graph = nullptr;
 		String              name;
@@ -123,9 +179,12 @@ namespace Skore
 		GPURenderPass*      renderPass = nullptr;
 		GPUFramebuffer*     framebuffer = nullptr;
 
-		Array<Dependency>               dependencies;
-		Array<String>                   resolves;
-		HashMap<u32, GPUDescriptorSet*> boundDescriptorSets;
+		Array<Dependency>         dependencies;
+		usize                     dependencyCount = 0;
+		Array<ResolveTarget>      resolves;
+		usize                     resolveCount = 0;
+		Array<BoundDescriptorSet> boundDescriptorSets;
+		usize                     boundDescriptorSetCount = 0;
 
 		bool invertViewport = false;
 		bool requireJitter = false;
@@ -181,6 +240,8 @@ namespace Skore
 		GPUBuffer*      GetBuffer(StringView name) const;
 
 		ResourceUsage InferTextureUsage(StringView name) const;
+
+		RenderGraphAliasReport AnalyzeMemoryAliasing();
 
 		VoidPtr CreateInstance(StringView name, usize size);
 		VoidPtr GetInstanceData(StringView name) const;
@@ -293,17 +354,32 @@ namespace Skore
 
 			VoidPtr instanceData = nullptr;
 			usize   instanceSize = 0;
+
+			u64  lastUsed = 0;
+			bool aliased = false;
+		};
+
+		struct RenderPassAttachment
+		{
+			AttachmentDesc  desc;
+			GPUTextureView* view = nullptr;
+			bool            resolve = false;
 		};
 
 		RenderGraphPass& EmplacePass(StringView name, RenderGraphPassType type);
 		Resource*        FindResource(StringView name);
 		const Resource*  FindResource(StringView name) const;
+		StringView       FindResourceName(StringView name) const;
 		GPUPipeline*     GetOrCreatePipeline(StringView key, GPUPipeline* (*create)(VoidPtr userData), VoidPtr userData);
 
 		void CreateSceneResources();
 		void SortPasses();
+		TextureDesc BuildTextureDesc(StringView name, const Resource& res) const;
 		void CreateResourceTextures();
+		void BuildAliasGroup();
+		void DestroyAliasGroup();
 		void DestroyOutputFollowingResources();
+		void CollectUnusedResources();
 		void CreateRenderPasses();
 		void UpdateSceneBuffer();
 		ResourceUsage InferBufferUsage(StringView name) const;
@@ -315,6 +391,7 @@ namespace Skore
 		u32 currentFrame = 0;
 		u32 prevFrame = 0;
 		u32 currentOutputIndex = 0;
+		u64 frameGeneration = 0;
 
 		String colorOutputName;
 		String depthOutputName;
@@ -327,10 +404,16 @@ namespace Skore
 		Array<RenderGraphPass*>           passes;
 		Array<RenderGraphPass*>           passPool;
 		Array<u32>                        cachedSortedPassIndices;
+		Array<RenderGraphPass*>           sortedPassScratch;
+		Array<RenderPassAttachment>       renderPassAttachmentsScratch;
+		Array<bool>                       passActivatesAliasScratch;
+		Array<const Resource*>            activatedAliasResourcesScratch;
 		HashMap<usize, GPUPipeline*>      pipelineCache;
 		HashMap<usize, GPUDescriptorSet*> descriptorSetCache;
 		HashMap<usize, GPURenderPass*>    renderPassCache;
 		HashMap<usize, GPUFramebuffer*>   framebufferCache;
+		Array<GPUPipeline*>               ownedPipelines;
+		Array<GPUMemory*>                 aliasHeaps;
 
 		bool resourcesDirty = true;
 		bool sizeChanged = false;
