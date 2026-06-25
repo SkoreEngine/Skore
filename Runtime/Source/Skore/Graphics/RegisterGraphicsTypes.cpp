@@ -137,6 +137,13 @@ namespace Skore
 		resourceState.Value<ResourceState::CopySource>("CopySource");
 		resourceState.Value<ResourceState::Present>("Present");
 
+		auto barrierSyncScope = Reflection::Type<BarrierSyncScope>();
+		barrierSyncScope.Value<BarrierSyncScope::Automatic>("Automatic");
+		barrierSyncScope.Value<BarrierSyncScope::Graphics>("Graphics");
+		barrierSyncScope.Value<BarrierSyncScope::Compute>("Compute");
+		barrierSyncScope.Value<BarrierSyncScope::Raytrace>("Raytrace");
+		barrierSyncScope.Value<BarrierSyncScope::Transfer>("Transfer");
+
 		auto resourceUsage = Reflection::Type<ResourceUsage>();
 		resourceUsage.Value<ResourceUsage::None>("None");
 		resourceUsage.Value<ResourceUsage::ShaderResource>("ShaderResource");
@@ -797,6 +804,24 @@ namespace Skore
 		textureBlit.Field<&TextureBlit::dstMipLevel>("dstMipLevel");
 		textureBlit.Field<&TextureBlit::dstArrayLayer>("dstArrayLayer");
 
+		auto bufferBarrierDesc = Reflection::Type<BufferBarrierDesc>();
+		bufferBarrierDesc.Field<&BufferBarrierDesc::buffer>("buffer");
+		bufferBarrierDesc.Field<&BufferBarrierDesc::oldState>("oldState");
+		bufferBarrierDesc.Field<&BufferBarrierDesc::newState>("newState");
+		bufferBarrierDesc.Field<&BufferBarrierDesc::srcScope>("srcScope");
+		bufferBarrierDesc.Field<&BufferBarrierDesc::dstScope>("dstScope");
+
+		auto textureBarrierDesc = Reflection::Type<TextureBarrierDesc>();
+		textureBarrierDesc.Field<&TextureBarrierDesc::texture>("texture");
+		textureBarrierDesc.Field<&TextureBarrierDesc::oldState>("oldState");
+		textureBarrierDesc.Field<&TextureBarrierDesc::newState>("newState");
+		textureBarrierDesc.Field<&TextureBarrierDesc::srcScope>("srcScope");
+		textureBarrierDesc.Field<&TextureBarrierDesc::dstScope>("dstScope");
+		textureBarrierDesc.Field<&TextureBarrierDesc::baseMipLevel>("baseMipLevel");
+		textureBarrierDesc.Field<&TextureBarrierDesc::mipLevelCount>("mipLevelCount");
+		textureBarrierDesc.Field<&TextureBarrierDesc::baseArrayLayer>("baseArrayLayer");
+		textureBarrierDesc.Field<&TextureBarrierDesc::arrayLayerCount>("arrayLayerCount");
+
 		auto bufferUploadInfo = Reflection::Type<BufferUploadInfo>();
 		bufferUploadInfo.Field<&BufferUploadInfo::buffer>("buffer");
 		bufferUploadInfo.Field<&BufferUploadInfo::size>("size");
@@ -956,9 +981,8 @@ namespace Skore
 		gpuCommandBuffer.Function<&GPUCommandBuffer::FillBuffer>("FillBuffer", "buffer", "offset", "size", "data");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::ClearColorTexture>("ClearColorTexture", "texture", "clearValue", "mipLevel", "arrayLayer");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::ClearDepthStencilTexture>("ClearDepthStencilTexture", "texture", "depth", "stencil", "mipLevel", "arrayLayer");
-		gpuCommandBuffer.Function<static_cast<void(GPUCommandBuffer::*)(GPUBuffer*, ResourceState, ResourceState)>(&GPUCommandBuffer::ResourceBarrier)>("ResourceBarrierBuffer", "buffer", "oldState", "newState");
-		gpuCommandBuffer.Function<static_cast<void(GPUCommandBuffer::*)(GPUTexture*, ResourceState, ResourceState, u32, u32)>(&GPUCommandBuffer::ResourceBarrier)>("ResourceBarrierTexture", "texture", "oldState", "newState", "mipLevel", "arrayLayer");
-		gpuCommandBuffer.Function<static_cast<void(GPUCommandBuffer::*)(GPUTexture*, ResourceState, ResourceState, u32, u32, u32, u32)>(&GPUCommandBuffer::ResourceBarrier)>("ResourceBarrierTextureRange", "texture", "oldState", "newState", "mipLevel", "levelCount", "arrayLayer", "layerCount");
+		gpuCommandBuffer.Function<static_cast<void(GPUCommandBuffer::*)(const BufferBarrierDesc&)>(&GPUCommandBuffer::ResourceBarrier)>("ResourceBarrierBuffer", "barrier");
+		gpuCommandBuffer.Function<static_cast<void(GPUCommandBuffer::*)(const TextureBarrierDesc&)>(&GPUCommandBuffer::ResourceBarrier)>("ResourceBarrierTexture", "barrier");
 		gpuCommandBuffer.Function<static_cast<void(GPUCommandBuffer::*)(GPUBottomLevelAS*, ResourceState, ResourceState)>(&GPUCommandBuffer::ResourceBarrier)>("ResourceBarrierBottomLevelAS", "bottomLevelAS", "oldState", "newState");
 		gpuCommandBuffer.Function<static_cast<void(GPUCommandBuffer::*)(GPUTopLevelAS*, ResourceState, ResourceState)>(&GPUCommandBuffer::ResourceBarrier)>("ResourceBarrierTopLevelAS", "topLevelAS", "oldState", "newState");
 		gpuCommandBuffer.Function<&GPUCommandBuffer::MemoryBarrier>("MemoryBarrier");
