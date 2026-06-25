@@ -34,6 +34,7 @@ if (SK_ENABLE_TRACY)
 endif()
 
 add_subdirectory(base64)
+add_subdirectory(cpp-httplib)
 add_subdirectory(efsw)
 add_subdirectory(cgltf)
 add_subdirectory(dotnet)

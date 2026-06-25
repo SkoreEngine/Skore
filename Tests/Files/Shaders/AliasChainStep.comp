@@ -1,0 +1,16 @@
+// One step of a producer/consumer chain used to test memory aliasing: sample the input texture and
+// write input + 0.25 to the output. Reads are sampled (not image loads) so the graph's ShaderReadOnly
+// transition for a .Read() dependency is correct, and so the read extends the input's lifetime - which
+// is what keeps a still-needed texture from being aliased over.
+
+[[vk::binding(0)]] Texture2D<float4>   inputTexture;
+[[vk::binding(1)]] SamplerState        inputSampler;
+[[vk::binding(2)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> outputTexture;
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 id : SV_DispatchThreadID)
+{
+    float2 uv = (float2(id.xy) + 0.5) / 64.0;
+    float4 prev = inputTexture.SampleLevel(inputSampler, uv, 0);
+    outputTexture[id.xy] = prev + float4(0.25, 0.25, 0.25, 0.0);
+}

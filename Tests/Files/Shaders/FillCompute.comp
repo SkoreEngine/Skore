@@ -1,0 +1,12 @@
+// Minimal compute shader for render-graph GPU tests. Writes a deterministic gradient into a
+// storage texture (UAV) so the readback can verify the dispatch covered the whole 64x64 image.
+// The output size is hard-coded to keep the shader free of push constants / descriptor wiring.
+
+[[vk::image_format("rgba32f")]] RWTexture2D<float4> outputTexture : register(u0);
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 id : SV_DispatchThreadID)
+{
+    float2 uv = (float2(id.xy) + 0.5) / 64.0;
+    outputTexture[id.xy] = float4(uv.x, uv.y, 0.25, 1.0);
+}

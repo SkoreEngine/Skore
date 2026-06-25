@@ -2411,7 +2411,18 @@ namespace Skore
 					u8 constantsData[256] = {};
 					SK_ASSERT(pass->constantsSize <= sizeof(constantsData), "render graph push constants exceed scratch buffer");
 					pass->constantsFn(*this, constantsData);
-					cmd->PushConstants(pass->pipeline, pass->constantsStages, 0, pass->constantsSize, constantsData);
+
+					ShaderStage stages = ShaderStage::None;
+					for (const PushConstantRange& range : pass->pipeline->GetPipelineDesc().pushConstants)
+					{
+						stages |= range.stages;
+					}
+					if (stages == ShaderStage::None)
+					{
+						stages = pass->constantsStages;
+					}
+
+					cmd->PushConstants(pass->pipeline, stages, 0, pass->constantsSize, constantsData);
 				}
 			}
 

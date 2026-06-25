@@ -91,6 +91,45 @@ namespace Skore::GpuTest
 				.Field<ShaderResource::RayHitGroup>(ResourceFieldType::UInt)
 				.Build();
 		}
+
+		// Wraps already-compiled SPIR-V (one blob, one entry per stage) into a single-variant
+		// ShaderResource RID, mirroring Editor/.../Handlers/ShaderHandler.cpp.
+		RID BuildShaderResource(const Array<u8>& bytes, const Array<ShaderStageInfo>& stages, StringView name)
+		{
+			PipelineDesc pipelineDesc;
+			GetPipelineLayout(GraphicsAPI::Vulkan, bytes, stages, pipelineDesc);
+
+			RID pipelineDescRID = Resources::Create<PipelineDesc>();
+			Resources::ToResource(pipelineDescRID, &pipelineDesc, nullptr);
+
+			RID shaderVariant = Resources::Create<ShaderVariantResource>();
+			{
+				ResourceObject variantObject = Resources::Write(shaderVariant);
+				variantObject.SetString(ShaderVariantResource::Name, "Default");
+				variantObject.SetBlob(ShaderVariantResource::Spriv, bytes);
+				variantObject.SetSubObject(ShaderVariantResource::PipelineDesc, pipelineDescRID);
+
+				for (const ShaderStageInfo& stage : stages)
+				{
+					RID stageRID = Resources::Create<ShaderStageInfo>();
+					Resources::ToResource(stageRID, &stage, nullptr);
+					variantObject.AddToSubObjectList(ShaderVariantResource::Stages, stageRID);
+				}
+
+				variantObject.Commit();
+			}
+
+			RID shaderResource = Resources::Create<ShaderResource>();
+			{
+				ResourceObject shaderObject = Resources::Write(shaderResource);
+				shaderObject.SetString(ShaderResource::Name, name);
+				shaderObject.SetUInt(ShaderResource::RayHitGroup, 0);
+				shaderObject.AddToSubObjectList(ShaderResource::Variants, shaderVariant);
+				shaderObject.Commit();
+			}
+
+			return shaderResource;
+		}
 	}
 
 	bool IsAvailable()
@@ -176,39 +215,41 @@ namespace Skore::GpuTest
 			stageOffset += stageSize;
 		}
 
-		PipelineDesc pipelineDesc;
-		GetPipelineLayout(GraphicsAPI::Vulkan, bytes, stages, pipelineDesc);
+		return BuildShaderResource(bytes, stages, "TestShader");
+	}
 
-		RID pipelineDescRID = Resources::Create<PipelineDesc>();
-		Resources::ToResource(pipelineDescRID, &pipelineDesc, nullptr);
-
-		RID shaderVariant = Resources::Create<ShaderVariantResource>();
+	RID CompileComputeShader(StringView absolutePath, StringView csEntry)
+	{
+		String source = FileSystem::ReadFileAsString(absolutePath);
+		if (source.Empty())
 		{
-			ResourceObject variantObject = Resources::Write(shaderVariant);
-			variantObject.SetString(ShaderVariantResource::Name, "Default");
-			variantObject.SetBlob(ShaderVariantResource::Spriv, bytes);
-			variantObject.SetSubObject(ShaderVariantResource::PipelineDesc, pipelineDescRID);
-
-			for (const ShaderStageInfo& stage : stages)
-			{
-				RID stageRID = Resources::Create<ShaderStageInfo>();
-				Resources::ToResource(stageRID, &stage, nullptr);
-				variantObject.AddToSubObjectList(ShaderVariantResource::Stages, stageRID);
-			}
-
-			variantObject.Commit();
+			logger.Error("shader file is empty or missing: {}", absolutePath);
+			return {};
 		}
 
-		RID shaderResource = Resources::Create<ShaderResource>();
+		ShaderCompileInfo compileInfo;
+		compileInfo.source = source;
+		compileInfo.entryPoint = csEntry;
+		compileInfo.shaderStage = ShaderStage::Compute;
+		compileInfo.api = GraphicsAPI::Vulkan;
+
+		Array<u8> bytes;
+		String    log;
+		if (!CompileShader(compileInfo, bytes, log))
 		{
-			ResourceObject shaderObject = Resources::Write(shaderResource);
-			shaderObject.SetString(ShaderResource::Name, "TestShader");
-			shaderObject.SetUInt(ShaderResource::RayHitGroup, 0);
-			shaderObject.AddToSubObjectList(ShaderResource::Variants, shaderVariant);
-			shaderObject.Commit();
+			logger.Error("failed to compile compute shader '{}': {}", csEntry, log);
+			return {};
 		}
 
-		return shaderResource;
+		Array<ShaderStageInfo> stages;
+		stages.EmplaceBack(ShaderStageInfo{
+			.stage = ShaderStage::Compute,
+			.entryPoint = String(csEntry),
+			.offset = 0,
+			.size = static_cast<u32>(bytes.Size()),
+		});
+
+		return BuildShaderResource(bytes, stages, "TestComputeShader");
 	}
 }
 

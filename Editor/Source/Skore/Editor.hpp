@@ -31,6 +31,7 @@ namespace Skore
 		static void              RemoveProjectPackage(StringView directory);
 		static void              ExecuteOnMainThread(std::function<void()> func);
 		static void              AddTask(std::function<void()> func, StringView name = "");
+		static void              SaveAll();
 
 		static EditorWorkspace*  CreateWorkspace(u8 type);
 		static EditorWorkspace*  GetActiveWorkspace();

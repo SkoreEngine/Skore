@@ -25,6 +25,7 @@ target_link_libraries(SkoreEditor PUBLIC
 				ImGuizmo
 				efsw-static
 				yyjson
+				cpp-httplib
 )
 
 

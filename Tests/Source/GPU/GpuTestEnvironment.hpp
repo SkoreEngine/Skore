@@ -39,6 +39,11 @@ namespace Skore::GpuTest
 	// CreateGraphicsPipeline. Must be called inside an active ResourceScope. Returns an invalid RID
 	// on failure.
 	RID CompileGraphicsShader(StringView absolutePath, StringView vsEntry = "MainVS", StringView psEntry = "MainPS");
+
+	// Compiles a compute HLSL file into a ShaderResource RID usable with AddComputePass /
+	// CreateComputePipeline. Must be called inside an active ResourceScope. Returns an invalid RID on
+	// failure.
+	RID CompileComputeShader(StringView absolutePath, StringView csEntry = "MainCS");
 }
 
 #endif

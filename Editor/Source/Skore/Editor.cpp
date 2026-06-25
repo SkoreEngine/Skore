@@ -33,6 +33,7 @@
 #include "Skore/Window/GraphEditorWindow.hpp"
 #include "Skore/Window/PackagesWindow.hpp"
 #include "Skore/Project/ProjectManager.hpp"
+#include "Skore/Server/EditorServer.hpp"
 
 #include <chrono>
 
@@ -341,8 +342,7 @@ namespace Skore
 
 		void SaveAll(const MenuItemEventData& eventData)
 		{
-			GetUpdatedItems();
-			Save();
+			Editor::SaveAll();
 		}
 
 		void CloseEngine(const MenuItemEventData& eventData)
@@ -670,6 +670,8 @@ namespace Skore
 
 		void Shutdown()
 		{
+			EditorServer::Shutdown();
+
 			LaunchPendingProjectTarget();
 
 			EditorLayout::Shutdown();
@@ -1122,6 +1124,8 @@ namespace Skore
 
 			LoadProjectPlugin();
 
+			EditorServer::Update();
+
 			{
 				std::scoped_lock lock(funcsMutex);
 				while (!funcs.IsEmpty())
@@ -1383,6 +1387,12 @@ namespace Skore
 	void Editor::AddTask(std::function<void()> func, StringView name)
 	{
 		threadPool->Enqueue(Traits::Move(func));
+	}
+
+	void Editor::SaveAll()
+	{
+		GetUpdatedItems();
+		Save();
 	}
 
 	EditorWorkspace* Editor::CreateWorkspace(u8 type)
@@ -1679,6 +1689,8 @@ namespace Skore
 			}
 		}
 
+		EditorServer::Init();
+
 		return AppResult::Continue;
 	}
 
@@ -1694,6 +1706,7 @@ namespace Skore
 	{
 		RegisterResourceAssetTypes();
 		RegisterEditorSettingsTypes();
+		RegisterEditorServerTypes();
 		RegisterSceneEditorTypes();
 		RegisterSceneViewPipelineModule();
 		Selection::RegisterType();
