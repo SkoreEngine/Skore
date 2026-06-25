@@ -17,6 +17,7 @@
 #include "Skore/Scene/Components/ParticleEmitter.hpp"
 #include "Skore/Scene/Components/PhysicShapes.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
+#include "Skore/Animation/Components/AnimationGraphComponent.hpp"
 #include "Skore/Scene/Components/RigidBody.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
 #include "Skore/Scene/Components/XRComponents.hpp"
@@ -135,6 +136,7 @@ namespace Skore
 		Reflection::Type<SSAOComponent>();
 		Reflection::Type<BloomComponent>();
 		Reflection::Type<AnimationPlayer>();
+		Reflection::Type<AnimationGraphComponent>(); // new Esoterica-style seam; coexists with AnimationPlayer (Migration Phase A)
 		Reflection::Type<RigidBody>();
 		Reflection::Type<BoxCollider>();
 		Reflection::Type<SphereCollider>();
