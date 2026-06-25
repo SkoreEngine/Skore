@@ -91,7 +91,7 @@ namespace Skore
 			previousHistoryTextureIndex = currentHistoryTextureIndex;
 			currentHistoryTextureIndex = (currentHistoryTextureIndex + 1) % 2;
 
-			cmd->ResourceBarrier(historyTextures[currentHistoryTextureIndex], ResourceState::ShaderReadOnly, ResourceState::General, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = historyTextures[currentHistoryTextureIndex], .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::General});
 
 			cmd->BindPipeline(pipeline);
 			cmd->SetTexture(pipeline, 0, 0, historyTextures[currentHistoryTextureIndex], 0);
@@ -108,16 +108,16 @@ namespace Skore
 
 			firstFrame = false;
 			context->SetTexture("HistoryTexture", historyTextures[currentHistoryTextureIndex]);
-			cmd->ResourceBarrier(historyTextures[currentHistoryTextureIndex], ResourceState::General, ResourceState::CopySource, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = historyTextures[currentHistoryTextureIndex], .oldState = ResourceState::General, .newState = ResourceState::CopySource});
 
-			cmd->ResourceBarrier(texture, ResourceState::ShaderReadOnly, ResourceState::CopyDest, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = texture, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopyDest});
 			cmd->CopyTexture({
 				.srcTexture = historyTextures[currentHistoryTextureIndex],
 				.dstTexture = texture,
 				.extent = Extent3D{context->GetOutputSize().width, context->GetOutputSize().height, 1},
 			});
-			cmd->ResourceBarrier(texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
-			cmd->ResourceBarrier(historyTextures[currentHistoryTextureIndex], ResourceState::CopySource, ResourceState::ShaderReadOnly, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = texture, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = historyTextures[currentHistoryTextureIndex], .oldState = ResourceState::CopySource, .newState = ResourceState::ShaderReadOnly});
 		}
 
 		void OnResize(Extent size) override

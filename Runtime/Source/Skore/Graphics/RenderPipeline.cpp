@@ -790,15 +790,15 @@ namespace Skore
 
 						if (GPUTexture* texture = it->second.GetTexture(currentFrame))
 						{
-							cmd->ResourceBarrier(texture, barrier.srcState, barrier.dstState, 0, 0);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = texture, .oldState = barrier.srcState, .newState = barrier.dstState});
 						}
 						else if (it->second.textureView)
 						{
-							cmd->ResourceBarrier(it->second.textureView->GetTexture(), barrier.srcState, barrier.dstState, 0, 0);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = it->second.textureView->GetTexture(), .oldState = barrier.srcState, .newState = barrier.dstState});
 						}
 						else if (!it->second.outputAttachments.Empty())
 						{
-							cmd->ResourceBarrier(it->second.outputAttachments[currentOutputIndex], barrier.srcState, barrier.dstState, 0, 0);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = it->second.outputAttachments[currentOutputIndex], .oldState = barrier.srcState, .newState = barrier.dstState});
 						}
 					}
 				}

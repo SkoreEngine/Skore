@@ -426,13 +426,13 @@ namespace Skore
 		{
 			if (textureDataInfo.regions.Empty())
 			{
-				cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = textureDataInfo.texture, .oldState = ResourceState::Undefined, .newState = ResourceState::CopyDest});
 				cmd->CopyBufferToTexture({
 					.buffer = tempBuffer,
 					.texture = textureDataInfo.texture,
 					.extent = textureDataInfo.texture->GetDesc().extent,
 				});
-				cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = textureDataInfo.texture, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
 			}
 			else
 			{
@@ -442,7 +442,7 @@ namespace Skore
 					{
 						for (u32 level = 0; level < region.levelCount; ++level)
 						{
-							cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::Undefined, ResourceState::CopyDest, region.mipLevel, region.arrayLayer);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = textureDataInfo.texture, .oldState = ResourceState::Undefined, .newState = ResourceState::CopyDest, .baseMipLevel = region.mipLevel, .baseArrayLayer = region.arrayLayer});
 							cmd->CopyBufferToTexture({
 								.buffer = tempBuffer,
 								.texture = textureDataInfo.texture,
@@ -451,7 +451,7 @@ namespace Skore
 								.arrayLayer = region.arrayLayer + layer,
 								.bufferOffset = region.dataOffset,
 							});
-							cmd->ResourceBarrier(textureDataInfo.texture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, region.mipLevel, region.arrayLayer);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = textureDataInfo.texture, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = region.mipLevel, .baseArrayLayer = region.arrayLayer});
 						}
 					}
 				}
@@ -466,7 +466,7 @@ namespace Skore
 		SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 		{
 			const TextureDesc& desc = texture->GetDesc();
-			cmd->ResourceBarrier(texture, oldState, newState, 0, desc.mipLevels, 0, desc.arrayLayers);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = texture, .oldState = oldState, .newState = newState, .baseMipLevel = 0, .mipLevelCount = desc.mipLevels, .baseArrayLayer = 0, .arrayLayerCount = desc.arrayLayers});
 		});
 	}
 

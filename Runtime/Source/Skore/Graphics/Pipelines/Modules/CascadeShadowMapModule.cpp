@@ -526,7 +526,7 @@ namespace Skore
 			}
 
 			cmd->EndRenderPass();
-			cmd->ResourceBarrier(shadowMapData->shadowTexture, ResourceState::DepthStencilAttachment, ResourceState::DepthStencilReadOnly, 0, i);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = shadowMapData->shadowTexture, .oldState = ResourceState::DepthStencilAttachment, .newState = ResourceState::DepthStencilReadOnly, .baseArrayLayer = i});
 			cmd->EndDebugMarker();
 		}
 
@@ -646,7 +646,7 @@ namespace Skore
 
 		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 		{
-			cmd->ResourceBarrier(shadowMapData->shadowTexture, ResourceState::Undefined, ResourceState::DepthStencilReadOnly, 0, 1, 0, shadowMapData->numCascades);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = shadowMapData->shadowTexture, .oldState = ResourceState::Undefined, .newState = ResourceState::DepthStencilReadOnly, .baseMipLevel = 0, .mipLevelCount = 1, .baseArrayLayer = 0, .arrayLayerCount = shadowMapData->numCascades});
 		});
 
 		shadowMapData->shadowSampler = Graphics::CreateSampler(SamplerDesc{

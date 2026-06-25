@@ -86,6 +86,37 @@ namespace Skore
 		Present                = 8
 	};
 
+	enum class BarrierSyncScope
+	{
+		Automatic,
+		Graphics,
+		Compute,
+		Raytrace,
+		Transfer
+	};
+
+	struct BufferBarrierDesc
+	{
+		GPUBuffer*       buffer = nullptr;
+		ResourceState    oldState = ResourceState::Undefined;
+		ResourceState    newState = ResourceState::Undefined;
+		BarrierSyncScope srcScope = BarrierSyncScope::Automatic;
+		BarrierSyncScope dstScope = BarrierSyncScope::Automatic;
+	};
+
+	struct TextureBarrierDesc
+	{
+		GPUTexture*      texture = nullptr;
+		ResourceState    oldState = ResourceState::Undefined;
+		ResourceState    newState = ResourceState::Undefined;
+		BarrierSyncScope srcScope = BarrierSyncScope::Automatic;
+		BarrierSyncScope dstScope = BarrierSyncScope::Automatic;
+		u32              baseMipLevel = 0;
+		u32              mipLevelCount = 1;
+		u32              baseArrayLayer = 0;
+		u32              arrayLayerCount = 1;
+	};
+
 	enum class ResourceUsage : u32
 	{
 		None                  = 0,
@@ -1049,9 +1080,9 @@ namespace Skore
 		virtual void ClearColorTexture(GPUTexture* texture, Vec4 clearValue, u32 mipLevel, u32 arrayLayer) = 0;
 		virtual void ClearDepthStencilTexture(GPUTexture* texture, f32 depth, u32 stencil, u32 mipLevel, u32 arrayLayer) = 0;
 
-		virtual void ResourceBarrier(GPUBuffer* buffer, ResourceState oldState, ResourceState newState) = 0;
-		virtual void ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 arrayLayer) = 0;
-		virtual void ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 levelCount, u32 arrayLayer, u32 layerCount) = 0;
+		virtual void ResourceBarrier(const BufferBarrierDesc& barrier) = 0;
+		virtual void ResourceBarrier(const TextureBarrierDesc& barrier) = 0;
+
 		virtual void ResourceBarrier(GPUBottomLevelAS* bottomLevelAS, ResourceState oldState, ResourceState newState) = 0;
 		virtual void ResourceBarrier(GPUTopLevelAS* topLevelAS, ResourceState oldState, ResourceState newState) = 0;
 		virtual void MemoryBarrier() = 0;

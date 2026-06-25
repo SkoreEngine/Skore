@@ -46,6 +46,22 @@ namespace Skore
 			return access == RenderGraphAccess::Read ? ResourceState::ShaderReadOnly : ResourceState::General;
 		}
 
+		BarrierSyncScope PassSyncScope(RenderGraphPassType type)
+		{
+			switch (type)
+			{
+				case RenderGraphPassType::Graphics:
+					return BarrierSyncScope::Graphics;
+				case RenderGraphPassType::Compute:
+					return BarrierSyncScope::Compute;
+				case RenderGraphPassType::Raytrace:
+					return BarrierSyncScope::Raytrace;
+				case RenderGraphPassType::Transfer:
+					return BarrierSyncScope::Transfer;
+			}
+			return BarrierSyncScope::Automatic;
+		}
+
 		u32 TextureMipCount(GPUTexture* texture)
 		{
 			const TextureDesc& desc = texture->GetDesc();
@@ -356,18 +372,22 @@ namespace Skore
 		resource->imported.Insert(resource->imported.end(), textures.begin(), textures.end());
 		resource->importedState = state;
 		resource->importedStates.Clear();
+		resource->importedScopes.Clear();
 		resource->importedLastWrites.Clear();
 
 		for (GPUTexture* texture : resource->imported)
 		{
 			Array<ResourceState> states;
+			Array<BarrierSyncScope> scopes;
 			Array<bool>         lastWrites;
 			if (texture != nullptr)
 			{
 				states.Resize(TextureMipCount(texture) * TextureLayerCount(texture), state);
+				scopes.Resize(states.Size(), BarrierSyncScope::Automatic);
 				lastWrites.Resize(states.Size(), false);
 			}
 			resource->importedStates.EmplaceBack(Traits::Move(states));
+			resource->importedScopes.EmplaceBack(Traits::Move(scopes));
 			resource->importedLastWrites.EmplaceBack(Traits::Move(lastWrites));
 		}
 	}
@@ -961,6 +981,7 @@ namespace Skore
 				res.textures[0] = device->CreateTexture(desc);
 				res.states[0] = ResourceState::Undefined;
 				res.textureStates[0].Resize(TextureMipCount(res.textures[0]) * TextureLayerCount(res.textures[0]), ResourceState::Undefined);
+				res.textureScopes[0].Resize(res.textureStates[0].Size(), BarrierSyncScope::Automatic);
 				res.textureLastWrites[0].Resize(res.textureStates[0].Size(), false);
 
 				if (rgDesc.pingPong)
@@ -968,6 +989,7 @@ namespace Skore
 					res.textures[1] = device->CreateTexture(desc);
 					res.states[1] = ResourceState::Undefined;
 					res.textureStates[1].Resize(TextureMipCount(res.textures[1]) * TextureLayerCount(res.textures[1]), ResourceState::Undefined);
+					res.textureScopes[1].Resize(res.textureStates[1].Size(), BarrierSyncScope::Automatic);
 					res.textureLastWrites[1].Resize(res.textureStates[1].Size(), false);
 				}
 			}
@@ -989,6 +1011,7 @@ namespace Skore
 				{
 					res.buffers[i] = device->CreateBuffer(desc);
 					res.bufferStates[i] = ResourceState::Undefined;
+					res.bufferScopes[i] = BarrierSyncScope::Automatic;
 					res.bufferLastWrites[i] = false;
 				}
 			}
@@ -1059,6 +1082,7 @@ namespace Skore
 		{
 			GPUTexture*           texture = nullptr;
 			Array<ResourceState>* states = nullptr;
+			Array<BarrierSyncScope>* scopes = nullptr;
 			Array<bool>*          lastWrites = nullptr;
 			ResourceState*        coarseState = nullptr;
 			u32                   baseMipLevel = 0;
@@ -1067,12 +1091,16 @@ namespace Skore
 			u32                   arrayLayerCount = 0;
 		};
 
-		auto ensureTextureStateTracking = [](GPUTexture* texture, Array<ResourceState>& states, Array<bool>& lastWrites, ResourceState initialState)
+		auto ensureTextureStateTracking = [](GPUTexture* texture, Array<ResourceState>& states, Array<BarrierSyncScope>& scopes, Array<bool>& lastWrites, ResourceState initialState)
 		{
 			const u32 subresourceCount = TextureMipCount(texture) * TextureLayerCount(texture);
 			if (states.Size() != subresourceCount)
 			{
 				states.Resize(subresourceCount, initialState);
+			}
+			if (scopes.Size() != subresourceCount)
+			{
+				scopes.Resize(subresourceCount, BarrierSyncScope::Automatic);
 			}
 			if (lastWrites.Size() != subresourceCount)
 			{
@@ -1088,10 +1116,11 @@ namespace Skore
 				GPUTexture* texture = res.textures[slot];
 				if (texture == nullptr) return false;
 
-				ensureTextureStateTracking(texture, res.textureStates[slot], res.textureLastWrites[slot], res.states[slot]);
+				ensureTextureStateTracking(texture, res.textureStates[slot], res.textureScopes[slot], res.textureLastWrites[slot], res.states[slot]);
 
 				target.texture = texture;
 				target.states = &res.textureStates[slot];
+				target.scopes = &res.textureScopes[slot];
 				target.lastWrites = &res.textureLastWrites[slot];
 				target.coarseState = &res.states[slot];
 				target.baseMipLevel = 0;
@@ -1106,12 +1135,13 @@ namespace Skore
 				if (res.imported.Empty() || currentOutputIndex >= res.imported.Size()) return false;
 				GPUTexture* texture = res.imported[currentOutputIndex];
 				if (texture == nullptr) return false;
-				if (currentOutputIndex >= res.importedStates.Size() || currentOutputIndex >= res.importedLastWrites.Size()) return false;
+				if (currentOutputIndex >= res.importedStates.Size() || currentOutputIndex >= res.importedScopes.Size() || currentOutputIndex >= res.importedLastWrites.Size()) return false;
 
-				ensureTextureStateTracking(texture, res.importedStates[currentOutputIndex], res.importedLastWrites[currentOutputIndex], res.importedState);
+				ensureTextureStateTracking(texture, res.importedStates[currentOutputIndex], res.importedScopes[currentOutputIndex], res.importedLastWrites[currentOutputIndex], res.importedState);
 
 				target.texture = texture;
 				target.states = &res.importedStates[currentOutputIndex];
+				target.scopes = &res.importedScopes[currentOutputIndex];
 				target.lastWrites = &res.importedLastWrites[currentOutputIndex];
 				target.coarseState = nullptr;
 				target.baseMipLevel = 0;
@@ -1153,7 +1183,7 @@ namespace Skore
 			return target.mipLevelCount != 0 && target.arrayLayerCount != 0;
 		};
 
-		auto transitionTexture = [](GPUCommandBuffer* cmd, TextureBarrierTarget& resource, ResourceState targetState, bool writes)
+		auto transitionTexture = [](GPUCommandBuffer* cmd, TextureBarrierTarget& resource, ResourceState targetState, BarrierSyncScope targetScope, bool writes)
 		{
 			const u32 arrayLayers = TextureLayerCount(resource.texture);
 
@@ -1161,6 +1191,7 @@ namespace Skore
 			bool          canBatch = true;
 			bool          batchedNeedsBarrier = false;
 			ResourceState batchedOldState = ResourceState::Undefined;
+			BarrierSyncScope batchedOldScope = BarrierSyncScope::Automatic;
 
 			for (u32 mip = resource.baseMipLevel; mip < resource.baseMipLevel + resource.mipLevelCount; ++mip)
 			{
@@ -1168,15 +1199,17 @@ namespace Skore
 				{
 					const u32 index = SubresourceIndex(mip, layer, arrayLayers);
 					const ResourceState oldState = (*resource.states)[index];
+					const BarrierSyncScope oldScope = (*resource.scopes)[index];
 					const bool needsBarrier = oldState != targetState || (*resource.lastWrites)[index] || writes;
 
 					if (first)
 					{
 						batchedOldState = oldState;
+						batchedOldScope = oldScope;
 						batchedNeedsBarrier = needsBarrier;
 						first = false;
 					}
-					else if (oldState != batchedOldState || needsBarrier != batchedNeedsBarrier)
+					else if (oldState != batchedOldState || oldScope != batchedOldScope || needsBarrier != batchedNeedsBarrier)
 					{
 						canBatch = false;
 					}
@@ -1187,15 +1220,17 @@ namespace Skore
 			{
 				if (batchedNeedsBarrier)
 				{
-					cmd->ResourceBarrier(
-						resource.texture,
-						batchedOldState,
-						targetState,
-						resource.baseMipLevel,
-						resource.mipLevelCount,
-						resource.baseArrayLayer,
-						resource.arrayLayerCount
-					);
+					cmd->ResourceBarrier(TextureBarrierDesc{
+						.texture = resource.texture,
+						.oldState = batchedOldState,
+						.newState = targetState,
+						.srcScope = batchedOldScope,
+						.dstScope = targetScope,
+						.baseMipLevel = resource.baseMipLevel,
+						.mipLevelCount = resource.mipLevelCount,
+						.baseArrayLayer = resource.baseArrayLayer,
+						.arrayLayerCount = resource.arrayLayerCount
+					});
 				}
 
 				for (u32 mip = resource.baseMipLevel; mip < resource.baseMipLevel + resource.mipLevelCount; ++mip)
@@ -1204,6 +1239,7 @@ namespace Skore
 					{
 						const u32 index = SubresourceIndex(mip, layer, arrayLayers);
 						(*resource.states)[index] = targetState;
+						(*resource.scopes)[index] = targetScope;
 						(*resource.lastWrites)[index] = writes;
 					}
 				}
@@ -1216,11 +1252,23 @@ namespace Skore
 					{
 						const u32 index = SubresourceIndex(mip, layer, arrayLayers);
 						const ResourceState oldState = (*resource.states)[index];
+						const BarrierSyncScope oldScope = (*resource.scopes)[index];
 						if (oldState != targetState || (*resource.lastWrites)[index] || writes)
 						{
-							cmd->ResourceBarrier(resource.texture, oldState, targetState, mip, 1, layer, 1);
+							cmd->ResourceBarrier(TextureBarrierDesc{
+								.texture = resource.texture,
+								.oldState = oldState,
+								.newState = targetState,
+								.srcScope = oldScope,
+								.dstScope = targetScope,
+								.baseMipLevel = mip,
+								.mipLevelCount = 1,
+								.baseArrayLayer = layer,
+								.arrayLayerCount = 1
+							});
 						}
 						(*resource.states)[index] = targetState;
+						(*resource.scopes)[index] = targetScope;
 						(*resource.lastWrites)[index] = writes;
 					}
 				}
@@ -1232,18 +1280,27 @@ namespace Skore
 			}
 		};
 
-		auto transitionBuffer = [](GPUCommandBuffer* cmd, GPUBuffer* buffer, ResourceState& currentState, bool& lastWrite, ResourceState targetState, bool writes)
+		auto transitionBuffer = [](GPUCommandBuffer* cmd, GPUBuffer* buffer, ResourceState& currentState, BarrierSyncScope& currentScope, bool& lastWrite, ResourceState targetState, BarrierSyncScope targetScope, bool writes)
 		{
 			if (currentState != targetState || lastWrite || writes)
 			{
-				cmd->ResourceBarrier(buffer, currentState, targetState);
+				cmd->ResourceBarrier(BufferBarrierDesc{
+					.buffer = buffer,
+					.oldState = currentState,
+					.newState = targetState,
+					.srcScope = currentScope,
+					.dstScope = targetScope
+				});
 			}
 			currentState = targetState;
+			currentScope = targetScope;
 			lastWrite = writes;
 		};
 
 		for (RenderGraphPass* pass : passes)
 		{
+			const BarrierSyncScope passScope = PassSyncScope(pass->type);
+
 			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
 			{
 				Resource* res = FindResource(dependency.name);
@@ -1256,7 +1313,7 @@ namespace Skore
 					if (buffer == nullptr) continue;
 
 					const ResourceState target = PassBufferTargetState(pass->type, dependency.access);
-					transitionBuffer(cmd, buffer, res->bufferStates[slot], res->bufferLastWrites[slot], target, WritesResource(dependency.access));
+					transitionBuffer(cmd, buffer, res->bufferStates[slot], res->bufferScopes[slot], res->bufferLastWrites[slot], target, passScope, WritesResource(dependency.access));
 					continue;
 				}
 
@@ -1269,7 +1326,7 @@ namespace Skore
 				if (!resolveTextureDependency(*res, textureTarget)) continue;
 
 				const ResourceState target = PassTargetState(pass->type, dependency.access, IsDepthFormat(textureTarget.texture->GetDesc().format));
-				transitionTexture(cmd, textureTarget, target, WritesResource(dependency.access));
+				transitionTexture(cmd, textureTarget, target, passScope, WritesResource(dependency.access));
 			}
 
 			if (pass->renderFn)
@@ -1286,7 +1343,7 @@ namespace Skore
 			TextureBarrierTarget textureTarget;
 			if (resolveWholeTextureResource(res, textureTarget))
 			{
-				transitionTexture(cmd, textureTarget, res.importedState, false);
+				transitionTexture(cmd, textureTarget, res.importedState, BarrierSyncScope::Automatic, false);
 			}
 		}
 	}

@@ -1158,45 +1158,139 @@ namespace Skore
 			return access;
 		}
 
-		VkAccessFlags GetBufferAccessFlagsFromResourceState(ResourceState state)
+		VkAccessFlags ShaderReadWriteAccessForScope(BarrierSyncScope scope)
 		{
-			VkAccessFlags access = GetAccessFlagsFromResourceState(state);
+			switch (scope)
+			{
+				case BarrierSyncScope::Transfer:
+					return VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+				case BarrierSyncScope::Graphics:
+				case BarrierSyncScope::Compute:
+				case BarrierSyncScope::Raytrace:
+					return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+				case BarrierSyncScope::Automatic:
+					break;
+			}
+			return VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+		}
+
+		VkPipelineStageFlags ShaderStageForScope(BarrierSyncScope scope)
+		{
+			switch (scope)
+			{
+				case BarrierSyncScope::Graphics:
+					return VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+				case BarrierSyncScope::Compute:
+					return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+				case BarrierSyncScope::Raytrace:
+					return VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
+				case BarrierSyncScope::Transfer:
+					return VK_PIPELINE_STAGE_TRANSFER_BIT;
+				case BarrierSyncScope::Automatic:
+					break;
+			}
+			return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		}
+
+		VkAccessFlags GetAccessFlagsFromResourceState(ResourceState state, BarrierSyncScope scope)
+		{
+			if (scope == BarrierSyncScope::Automatic)
+			{
+				return Skore::GetAccessFlagsFromResourceState(state);
+			}
+
+			switch (state)
+			{
+				case ResourceState::Undefined:
+				case ResourceState::Present:
+					return 0;
+				case ResourceState::General:
+					return ShaderReadWriteAccessForScope(scope);
+				default:
+					return Skore::GetAccessFlagsFromResourceState(state);
+			}
+		}
+
+		VkPipelineStageFlags GetPipelineStageFromResourceState(ResourceState state, BarrierSyncScope scope)
+		{
+			if (scope == BarrierSyncScope::Automatic)
+			{
+				return Skore::GetPipelineStageFromResourceState(state);
+			}
+
+			switch (state)
+			{
+				case ResourceState::Undefined:
+					return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+				case ResourceState::Present:
+					return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+				case ResourceState::General:
+					return ShaderStageForScope(scope);
+				default:
+					return Skore::GetPipelineStageFromResourceState(state);
+			}
+		}
+
+		VkAccessFlags GetBufferAccessFlagsFromResourceState(ResourceState state, BarrierSyncScope scope)
+		{
+			VkAccessFlags access = GetAccessFlagsFromResourceState(state, scope);
 			if (state == ResourceState::ShaderReadOnly)
 			{
-				access |= VK_ACCESS_UNIFORM_READ_BIT |
-					VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
-					VK_ACCESS_INDEX_READ_BIT |
-					VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+				if (scope == BarrierSyncScope::Automatic)
+				{
+					access |= VK_ACCESS_UNIFORM_READ_BIT |
+						VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+						VK_ACCESS_INDEX_READ_BIT |
+						VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+				}
+				else if (scope == BarrierSyncScope::Graphics)
+				{
+					access |= VK_ACCESS_UNIFORM_READ_BIT |
+						VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+						VK_ACCESS_INDEX_READ_BIT |
+						VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+				}
+				else if (scope == BarrierSyncScope::Compute || scope == BarrierSyncScope::Raytrace)
+				{
+					access |= VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+				}
 			}
 			return access;
 		}
 
-		VkPipelineStageFlags GetBufferPipelineStageFromResourceState(ResourceState state)
+		VkPipelineStageFlags GetBufferPipelineStageFromResourceState(ResourceState state, BarrierSyncScope scope)
 		{
-			VkPipelineStageFlags stage = GetPipelineStageFromResourceState(state);
+			VkPipelineStageFlags stage = GetPipelineStageFromResourceState(state, scope);
 			if (state == ResourceState::ShaderReadOnly)
 			{
-				stage |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+				if (scope == BarrierSyncScope::Automatic || scope == BarrierSyncScope::Graphics)
+				{
+					stage |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+				}
+				else if (scope == BarrierSyncScope::Compute || scope == BarrierSyncScope::Raytrace)
+				{
+					stage |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+				}
 			}
 			return stage;
 		}
 	}
 
-	void VulkanCommandBuffer::ResourceBarrier(GPUBuffer* buffer, ResourceState oldState, ResourceState newState)
+	void VulkanCommandBuffer::ResourceBarrier(const BufferBarrierDesc& barrier)
 	{
-		VulkanBuffer* vulkanBuffer = static_cast<VulkanBuffer*>(buffer);
+		VulkanBuffer* vulkanBuffer = static_cast<VulkanBuffer*>(barrier.buffer);
 
 		VkBufferMemoryBarrier bufferBarrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-		bufferBarrier.srcAccessMask = ClampAccessForQueue(GetBufferAccessFlagsFromResourceState(oldState), queueType);
-		bufferBarrier.dstAccessMask = ClampAccessForQueue(GetBufferAccessFlagsFromResourceState(newState), queueType);
+		bufferBarrier.srcAccessMask = ClampAccessForQueue(GetBufferAccessFlagsFromResourceState(barrier.oldState, barrier.srcScope), queueType);
+		bufferBarrier.dstAccessMask = ClampAccessForQueue(GetBufferAccessFlagsFromResourceState(barrier.newState, barrier.dstScope), queueType);
 		bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		bufferBarrier.buffer = vulkanBuffer->buffer;
 		bufferBarrier.offset = 0;
 		bufferBarrier.size = vulkanBuffer->desc.size;
 
-		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetBufferPipelineStageFromResourceState(oldState), queueType);
-		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetBufferPipelineStageFromResourceState(newState), queueType);
+		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetBufferPipelineStageFromResourceState(barrier.oldState, barrier.srcScope), queueType);
+		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetBufferPipelineStageFromResourceState(barrier.newState, barrier.dstScope), queueType);
 
 		vkCmdPipelineBarrier(
 			commandBuffer,
@@ -1209,33 +1303,28 @@ namespace Skore
 		);
 	}
 
-	void VulkanCommandBuffer::ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 arrayLayer)
+	void VulkanCommandBuffer::ResourceBarrier(const TextureBarrierDesc& barrier)
 	{
-		ResourceBarrier(texture, oldState, newState, mipLevel, 1, arrayLayer, 1);
-	}
-
-	void VulkanCommandBuffer::ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 levelCount, u32 arrayLayer, u32 layerCount)
-	{
-		VulkanTexture* vulkanTexture = static_cast<VulkanTexture*>(texture);
+		VulkanTexture* vulkanTexture = static_cast<VulkanTexture*>(barrier.texture);
 
 		VkImageMemoryBarrier imageBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-		imageBarrier.oldLayout = CastState(oldState);
-		imageBarrier.newLayout = CastState(newState);
+		imageBarrier.oldLayout = CastState(barrier.oldState);
+		imageBarrier.newLayout = CastState(barrier.newState);
 		imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		imageBarrier.image = vulkanTexture->image;
 
 		imageBarrier.subresourceRange.aspectMask = GetImageAspectFlags(ToVkFormat(vulkanTexture->desc.format));
-		imageBarrier.subresourceRange.baseMipLevel = mipLevel;
-		imageBarrier.subresourceRange.levelCount = levelCount;
-		imageBarrier.subresourceRange.baseArrayLayer = arrayLayer;
-		imageBarrier.subresourceRange.layerCount = layerCount;
+		imageBarrier.subresourceRange.baseMipLevel = barrier.baseMipLevel;
+		imageBarrier.subresourceRange.levelCount = barrier.mipLevelCount;
+		imageBarrier.subresourceRange.baseArrayLayer = barrier.baseArrayLayer;
+		imageBarrier.subresourceRange.layerCount = barrier.arrayLayerCount;
 
-		imageBarrier.srcAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(oldState), queueType);
-		imageBarrier.dstAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(newState), queueType);
+		imageBarrier.srcAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(barrier.oldState, barrier.srcScope), queueType);
+		imageBarrier.dstAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(barrier.newState, barrier.dstScope), queueType);
 
-		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(oldState), queueType);
-		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(newState), queueType);
+		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(barrier.oldState, barrier.srcScope), queueType);
+		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(barrier.newState, barrier.dstScope), queueType);
 
 		vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
 	}
@@ -1246,8 +1335,8 @@ namespace Skore
 		// Acceleration structures typically use the VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR and
 		// VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR access flags
 
-		VkAccessFlags srcAccessMask = GetAccessFlagsFromResourceState(oldState);
-		VkAccessFlags dstAccessMask = GetAccessFlagsFromResourceState(newState);
+		VkAccessFlags srcAccessMask = Skore::GetAccessFlagsFromResourceState(oldState);
+		VkAccessFlags dstAccessMask = Skore::GetAccessFlagsFromResourceState(newState);
 
 		// For acceleration structures, we need to add specific access flags
 		if (oldState == ResourceState::ShaderReadOnly || oldState == ResourceState::General)
@@ -1274,8 +1363,8 @@ namespace Skore
 		memoryBarrier.srcAccessMask = srcAccessMask;
 		memoryBarrier.dstAccessMask = dstAccessMask;
 
-		VkPipelineStageFlags srcStageMask = GetPipelineStageFromResourceState(oldState);
-		VkPipelineStageFlags dstStageMask = GetPipelineStageFromResourceState(newState);
+		VkPipelineStageFlags srcStageMask = Skore::GetPipelineStageFromResourceState(oldState);
+		VkPipelineStageFlags dstStageMask = Skore::GetPipelineStageFromResourceState(newState);
 
 		// Add ray tracing pipeline stages for acceleration structures
 		if (oldState == ResourceState::ShaderReadOnly || oldState == ResourceState::General)
@@ -1309,8 +1398,8 @@ namespace Skore
 		// Top-level AS barriers are similar to bottom-level AS barriers
 		// They use the same memory barrier approach with acceleration structure access flags
 
-		VkAccessFlags srcAccessMask = GetAccessFlagsFromResourceState(oldState);
-		VkAccessFlags dstAccessMask = GetAccessFlagsFromResourceState(newState);
+		VkAccessFlags srcAccessMask = Skore::GetAccessFlagsFromResourceState(oldState);
+		VkAccessFlags dstAccessMask = Skore::GetAccessFlagsFromResourceState(newState);
 
 		// For acceleration structures, we need to add specific access flags
 		if (oldState == ResourceState::ShaderReadOnly || oldState == ResourceState::General)
@@ -1337,8 +1426,8 @@ namespace Skore
 		memoryBarrier.srcAccessMask = srcAccessMask;
 		memoryBarrier.dstAccessMask = dstAccessMask;
 
-		VkPipelineStageFlags srcStageMask = GetPipelineStageFromResourceState(oldState);
-		VkPipelineStageFlags dstStageMask = GetPipelineStageFromResourceState(newState);
+		VkPipelineStageFlags srcStageMask = Skore::GetPipelineStageFromResourceState(oldState);
+		VkPipelineStageFlags dstStageMask = Skore::GetPipelineStageFromResourceState(newState);
 
 		// Add ray tracing pipeline stages for acceleration structures
 		if (oldState == ResourceState::ShaderReadOnly || oldState == ResourceState::General)

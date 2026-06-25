@@ -226,19 +226,19 @@ namespace Skore
 
 			Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 			{
-				cmd->ResourceBarrier(gpuTexture, ResourceState::Undefined, ResourceState::ShaderReadOnly, 1, mipLevels - 1, 0, 1);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = gpuTexture, .oldState = ResourceState::Undefined, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = 1, .mipLevelCount = mipLevels - 1, .baseArrayLayer = 0, .arrayLayerCount = 1});
 
-				cmd->ResourceBarrier(gpuTexture, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = gpuTexture, .oldState = ResourceState::Undefined, .newState = ResourceState::CopyDest});
 				cmd->CopyBufferToTexture({
 					.buffer = srcBuffer,
 					.texture = gpuTexture,
 					.extent = {width, height, 1},
 				});
-				cmd->ResourceBarrier(gpuTexture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = gpuTexture, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
 
 				singlePassDownsampler.Execute(cmd);
 
-				cmd->ResourceBarrier(gpuTexture, ResourceState::ShaderReadOnly, ResourceState::CopySource, 0, mipLevels, 0, 1);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = gpuTexture, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopySource, .baseMipLevel = 0, .mipLevelCount = mipLevels, .baseArrayLayer = 0, .arrayLayerCount = 1});
 
 				{
 					u32 offset{};

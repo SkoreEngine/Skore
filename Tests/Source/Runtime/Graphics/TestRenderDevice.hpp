@@ -219,6 +219,8 @@ namespace Skore
 	class TestGPUCommandBuffer final : public GPUCommandBuffer
 	{
 	public:
+		using GPUCommandBuffer::ResourceBarrier;
+
 		void Begin() override;
 		void End() override;
 		void Reset() override;
@@ -259,9 +261,8 @@ namespace Skore
 		void UpdateBuffer(GPUBuffer* buffer, usize offset, usize size, const void* data) override;
 		void ClearColorTexture(GPUTexture* texture, Vec4 clearValue, u32 mipLevel, u32 arrayLayer) override;
 		void ClearDepthStencilTexture(GPUTexture* texture, f32 depth, u32 stencil, u32 mipLevel, u32 arrayLayer) override;
-		void ResourceBarrier(GPUBuffer* buffer, ResourceState oldState, ResourceState newState) override;
-		void ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 arrayLayer) override;
-		void ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 levelCount, u32 arrayLayer, u32 layerCount) override;
+		void ResourceBarrier(const BufferBarrierDesc& barrier) override;
+		void ResourceBarrier(const TextureBarrierDesc& barrier) override;
 		void ResourceBarrier(GPUBottomLevelAS* bottomLevelAS, ResourceState oldState, ResourceState newState) override;
 		void ResourceBarrier(GPUTopLevelAS* topLevelAS, ResourceState oldState, ResourceState newState) override;
 		void MemoryBarrier() override;

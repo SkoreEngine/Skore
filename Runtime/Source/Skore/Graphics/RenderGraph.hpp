@@ -276,15 +276,18 @@ namespace Skore
 			GPUTexture*     textures[2] = {nullptr, nullptr};
 			ResourceState   states[2] = {ResourceState::Undefined, ResourceState::Undefined};
 			Array<ResourceState> textureStates[2];
+			Array<BarrierSyncScope> textureScopes[2];
 			Array<bool>          textureLastWrites[2];
 			GPUTextureView* view = nullptr;
 			GPUBuffer*      buffers[SK_FRAMES_IN_FLIGHT] = {};
 			ResourceState   bufferStates[SK_FRAMES_IN_FLIGHT] = {};
+			BarrierSyncScope bufferScopes[SK_FRAMES_IN_FLIGHT] = {};
 			bool            bufferLastWrites[SK_FRAMES_IN_FLIGHT] = {};
 
 			Array<GPUTexture*> imported;
 			ResourceState      importedState = ResourceState::Undefined;
 			Array<Array<ResourceState>> importedStates;
+			Array<Array<BarrierSyncScope>> importedScopes;
 			Array<Array<bool>>          importedLastWrites;
 
 			VoidPtr instanceData = nullptr;

@@ -226,9 +226,9 @@ namespace Skore
 		cmd->SetTexture(textureResizePipeline, 0, 1, dstTexture, 0);
 		cmd->SetSampler(textureResizePipeline, 0, 2, Graphics::GetLinearSampler());
 
-		cmd->ResourceBarrier(dstTexture, ResourceState::ShaderReadOnly, ResourceState::General, 0, 0);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = dstTexture, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::General});
 		cmd->Dispatch((extent.width + 7) / 8, (extent.height + 7) / 8, 1);
-		cmd->ResourceBarrier(dstTexture, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = dstTexture, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly});
 	}
 
 	void SinglePassDownsampler::Init(GPUTexture* inputTexture)
@@ -316,9 +316,9 @@ namespace Skore
 		cmd->PushConstants(m_pipeline, ShaderStage::Compute, 0, sizeof(SpdConstants), &data);
 		cmd->BindDescriptorSet(m_pipeline, 0, m_descriptorSet, {});
 
-		cmd->ResourceBarrier(m_texture, ResourceState::ShaderReadOnly, ResourceState::General, 0, textureDesc.mipLevels, 0, textureDesc.arrayLayers);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = m_texture, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::General, .baseMipLevel = 0, .mipLevelCount = textureDesc.mipLevels, .baseArrayLayer = 0, .arrayLayerCount = textureDesc.arrayLayers});
 		cmd->Dispatch(dispatchX, dispatchY, dispatchZ);
-		cmd->ResourceBarrier(m_texture, ResourceState::General, ResourceState::ShaderReadOnly, 0, textureDesc.mipLevels, 0, textureDesc.arrayLayers);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = m_texture, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = 0, .mipLevelCount = textureDesc.mipLevels, .baseArrayLayer = 0, .arrayLayerCount = textureDesc.arrayLayers});
 	}
 
 	SinglePassDownsampler::~SinglePassDownsampler()
@@ -366,14 +366,14 @@ namespace Skore
 
 		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 		{
-			cmd->ResourceBarrier(m_texture, ResourceState::Undefined, ResourceState::General, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = m_texture, .oldState = ResourceState::Undefined, .newState = ResourceState::General});
 
 			cmd->BindPipeline(computePipeline);
 			cmd->BindDescriptorSet(computePipeline, 0, descriptorSet, {});
 
 			cmd->Dispatch((extent.width + 31) / 32, (extent.height + 31) / 32, 1);
 
-			cmd->ResourceBarrier(m_texture, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = m_texture, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly});
 		});
 
 		computePipeline->Destroy();
@@ -433,9 +433,9 @@ namespace Skore
 
 		cmd->BindPipeline(m_pipeline);
 		cmd->BindDescriptorSet(m_pipeline, 0, m_descriptorSet, {});
-		cmd->ResourceBarrier(cubeMapTexture, ResourceState::Undefined, ResourceState::General, 0, cubemapDesc.mipLevels, 0, cubemapDesc.arrayLayers);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = cubeMapTexture, .oldState = ResourceState::Undefined, .newState = ResourceState::General, .baseMipLevel = 0, .mipLevelCount = cubemapDesc.mipLevels, .baseArrayLayer = 0, .arrayLayerCount = cubemapDesc.arrayLayers});
 		cmd->Dispatch((textureDesc.extent.width + 31) / 32, (textureDesc.extent.height + 31) / 32, 6.0f);
-		cmd->ResourceBarrier(cubeMapTexture, ResourceState::General, ResourceState::ShaderReadOnly, 0, cubemapDesc.mipLevels, 0, cubemapDesc.arrayLayers);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = cubeMapTexture, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = 0, .mipLevelCount = cubemapDesc.mipLevels, .baseArrayLayer = 0, .arrayLayerCount = cubemapDesc.arrayLayers});
 	}
 
 	void EquirectangularToCubeMap::Destroy()
@@ -483,9 +483,9 @@ namespace Skore
 
 		cmd->BindPipeline(m_pipeline);
 		cmd->BindDescriptorSet(m_pipeline, 0, m_descriptorSet, {});
-		cmd->ResourceBarrier(irradianceTexture, ResourceState::Undefined, ResourceState::General, 0, 1, 0, 6);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = irradianceTexture, .oldState = ResourceState::Undefined, .newState = ResourceState::General, .baseMipLevel = 0, .mipLevelCount = 1, .baseArrayLayer = 0, .arrayLayerCount = 6});
 		cmd->Dispatch((textureDesc.extent.width + 7) / 8, (textureDesc.extent.height + 7) / 8, 6.0f);
-		cmd->ResourceBarrier(irradianceTexture, ResourceState::General, ResourceState::ShaderReadOnly, 0, 1, 0, 6);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = irradianceTexture, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = 0, .mipLevelCount = 1, .baseArrayLayer = 0, .arrayLayerCount = 6});
 	}
 
 	void DiffuseIrradianceGenerator::Destroy()
@@ -533,7 +533,7 @@ namespace Skore
 		cmd->BindPipeline(m_pipeline);
 		TextureDesc specularDesc = m_specularMapTexture->GetDesc();
 
-		cmd->ResourceBarrier(m_specularMapTexture, ResourceState::Undefined, ResourceState::General, 0, specularDesc.mipLevels, 0, specularDesc.arrayLayers);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = m_specularMapTexture, .oldState = ResourceState::Undefined, .newState = ResourceState::General, .baseMipLevel = 0, .mipLevelCount = specularDesc.mipLevels, .baseArrayLayer = 0, .arrayLayerCount = specularDesc.arrayLayers});
 
 		for (u32 mip = 0; mip < specularDesc.mipLevels; ++mip)
 		{
@@ -552,7 +552,7 @@ namespace Skore
 
 			cmd->Dispatch(std::ceil(mipWidth / 32.f), std::ceil(mipHeight / 32.f), 6);
 		}
-		cmd->ResourceBarrier(m_specularMapTexture, ResourceState::General, ResourceState::ShaderReadOnly, 0, specularDesc.mipLevels, 0, specularDesc.arrayLayers);
+		cmd->ResourceBarrier(TextureBarrierDesc{.texture = m_specularMapTexture, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = 0, .mipLevelCount = specularDesc.mipLevels, .baseArrayLayer = 0, .arrayLayerCount = specularDesc.arrayLayers});
 	}
 
 
@@ -772,7 +772,7 @@ namespace Skore
 			{
 				Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 				{
-					cmd->ResourceBarrier(texture, currentState, ResourceState::CopySource, mip, layer);
+					cmd->ResourceBarrier(TextureBarrierDesc{.texture = texture, .oldState = currentState, .newState = ResourceState::CopySource, .baseMipLevel = mip, .baseArrayLayer = layer});
 					cmd->CopyTextureToBuffer({
 						.buffer = stagingBuffer,
 						.texture = texture,
@@ -780,7 +780,7 @@ namespace Skore
 						.mipLevel = mip,
 						.arrayLayer = layer,
 					});
-					cmd->ResourceBarrier(texture, ResourceState::CopySource, currentState, mip, layer);
+					cmd->ResourceBarrier(TextureBarrierDesc{.texture = texture, .oldState = ResourceState::CopySource, .newState = currentState, .baseMipLevel = mip, .baseArrayLayer = layer});
 				});
 
 				String fileName{name};

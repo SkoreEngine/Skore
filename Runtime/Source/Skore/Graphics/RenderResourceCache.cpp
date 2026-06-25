@@ -276,7 +276,7 @@ namespace Skore
 					{
 						if (firstBatch)
 						{
-							transferCmd->ResourceBarrier(targetTexture, ResourceState::Undefined, ResourceState::CopyDest, 0, mipLevels, 0, 1);
+							transferCmd->ResourceBarrier(TextureBarrierDesc{.texture = targetTexture, .oldState = ResourceState::Undefined, .newState = ResourceState::CopyDest, .baseMipLevel = 0, .mipLevelCount = mipLevels, .baseArrayLayer = 0, .arrayLayerCount = 1});
 							firstBatch = false;
 						}
 					};
@@ -423,7 +423,7 @@ namespace Skore
 					}
 
 					transferCmd->Begin();
-					transferCmd->ResourceBarrier(targetTexture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, mipLevels, 0, 1);
+					transferCmd->ResourceBarrier(TextureBarrierDesc{.texture = targetTexture, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = 0, .mipLevelCount = mipLevels, .baseArrayLayer = 0, .arrayLayerCount = 1});
 					transferCmd->End();
 					transferQueue->SubmitAndWait(transferCmd);
 					transferCmd->Reset();
@@ -561,9 +561,9 @@ namespace Skore
 									buffer.CopyData(stagingBuffer->GetMappedData(), chunk, srcOffset + done);
 
 									transferCmd->Begin();
-									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::ShaderReadOnly, ResourceState::CopyDest);
+									transferCmd->ResourceBarrier(BufferBarrierDesc{.buffer = meshDataBuffer, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopyDest});
 									transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, chunk, 0, dstOffsetBytes + done);
-									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+									transferCmd->ResourceBarrier(BufferBarrierDesc{.buffer = meshDataBuffer, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
 									transferCmd->End();
 									transferQueue->SubmitAndWait(transferCmd);
 									transferCmd->Reset();
@@ -586,7 +586,7 @@ namespace Skore
 								}
 
 								transferCmd->Begin();
-								transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::ShaderReadOnly, ResourceState::CopyDest);
+								transferCmd->ResourceBarrier(BufferBarrierDesc{.buffer = meshDataBuffer, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopyDest});
 								transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, vertexBufferSize, 0, vertexDstOffset);
 
 								u64 stagingOffset = vertexBufferSize;
@@ -596,7 +596,7 @@ namespace Skore
 									stagingOffset += idxRanges[i].sizeBytes;
 									lodDstCursor  += static_cast<u32>(idxRanges[i].sizeBytes);
 								}
-								transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+								transferCmd->ResourceBarrier(BufferBarrierDesc{.buffer = meshDataBuffer, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
 								transferCmd->End();
 								transferQueue->SubmitAndWait(transferCmd);
 								transferCmd->Reset();
@@ -757,9 +757,9 @@ namespace Skore
 									memcpy(stagingBuffer->GetMappedData(), src + done, chunk);
 
 									transferCmd->Begin();
-									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::ShaderReadOnly, ResourceState::CopyDest);
+									transferCmd->ResourceBarrier(BufferBarrierDesc{.buffer = meshDataBuffer, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopyDest});
 									transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, chunk, 0, dstOffsetBytes + done);
-									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+									transferCmd->ResourceBarrier(BufferBarrierDesc{.buffer = meshDataBuffer, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
 									transferCmd->End();
 									transferQueue->SubmitAndWait(transferCmd);
 									transferCmd->Reset();
@@ -780,13 +780,13 @@ namespace Skore
 									}
 
 									transferCmd->Begin();
-									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::ShaderReadOnly, ResourceState::CopyDest);
+									transferCmd->ResourceBarrier(BufferBarrierDesc{.buffer = meshDataBuffer, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopyDest});
 									transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, vertexBytes, 0, vertexDstOffset);
 									if (indexBytes > 0 && indexDstOffset != U32_MAX)
 									{
 										transferCmd->CopyBuffer(stagingBuffer, meshDataBuffer, indexBytes, vertexBytes, indexDstOffset);
 									}
-									transferCmd->ResourceBarrier(meshDataBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+									transferCmd->ResourceBarrier(BufferBarrierDesc{.buffer = meshDataBuffer, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
 									transferCmd->End();
 									transferQueue->SubmitAndWait(transferCmd);
 									transferCmd->Reset();
@@ -2208,11 +2208,11 @@ namespace Skore
 
 		u32 sizeBytes = materialDataCount * sizeof(u32);
 
-		cmd->ResourceBarrier(materialMaskBuffer, ResourceState::ShaderReadOnly, ResourceState::CopySource);
+		cmd->ResourceBarrier(BufferBarrierDesc{.buffer = materialMaskBuffer, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopySource});
 		cmd->CopyBuffer(materialMaskBuffer, readback, sizeBytes, 0, 0);
-		cmd->ResourceBarrier(materialMaskBuffer, ResourceState::CopySource, ResourceState::CopyDest);
+		cmd->ResourceBarrier(BufferBarrierDesc{.buffer = materialMaskBuffer, .oldState = ResourceState::CopySource, .newState = ResourceState::CopyDest});
 		cmd->FillBuffer(materialMaskBuffer, 0, sizeBytes, 0);
-		cmd->ResourceBarrier(materialMaskBuffer, ResourceState::CopyDest, ResourceState::ShaderReadOnly);
+		cmd->ResourceBarrier(BufferBarrierDesc{.buffer = materialMaskBuffer, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
 	}
 
 	FontResourceCachePtr RenderResourceCache::GetFontCache(RID font)

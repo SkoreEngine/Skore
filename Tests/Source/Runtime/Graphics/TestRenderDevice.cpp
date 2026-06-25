@@ -516,26 +516,28 @@ namespace Skore
 		++stats.clearCount;
 	}
 
-	void TestGPUCommandBuffer::ResourceBarrier(GPUBuffer* buffer, ResourceState oldState, ResourceState newState)
+	void TestGPUCommandBuffer::ResourceBarrier(const BufferBarrierDesc& barrier)
 	{
 		++stats.bufferBarrierCount;
-		if (TestGPUBuffer* testBuffer = static_cast<TestGPUBuffer*>(buffer))
+		if (TestGPUBuffer* testBuffer = static_cast<TestGPUBuffer*>(barrier.buffer))
 		{
-			testBuffer->state = newState;
+			testBuffer->state = barrier.newState;
 		}
 	}
 
-	void TestGPUCommandBuffer::ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 arrayLayer)
-	{
-		ResourceBarrier(texture, oldState, newState, mipLevel, 1, arrayLayer, 1);
-	}
-
-	void TestGPUCommandBuffer::ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 levelCount, u32 arrayLayer, u32 layerCount)
+	void TestGPUCommandBuffer::ResourceBarrier(const TextureBarrierDesc& barrier)
 	{
 		++stats.textureBarrierCount;
-		if (TestGPUTexture* testTexture = static_cast<TestGPUTexture*>(texture))
+		if (TestGPUTexture* testTexture = static_cast<TestGPUTexture*>(barrier.texture))
 		{
-			testTexture->ApplyBarrier(oldState, newState, mipLevel, levelCount, arrayLayer, layerCount);
+			testTexture->ApplyBarrier(
+				barrier.oldState,
+				barrier.newState,
+				barrier.baseMipLevel,
+				barrier.mipLevelCount,
+				barrier.baseArrayLayer,
+				barrier.arrayLayerCount
+			);
 		}
 	}
 
