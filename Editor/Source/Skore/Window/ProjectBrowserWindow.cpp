@@ -1006,7 +1006,7 @@ namespace Skore
 	{
 		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
 		UndoRedoScope*        scope = Editor::CreateUndoRedoScope("Folder Creation");
-		RID                   rid = ResourceAssets::CreateDirectory(projectBrowserWindow->GetOpenDirectory(), "New Folder", scope);
+		RID                   rid = ResourceAssets::CreateAssetDirectory(projectBrowserWindow->GetOpenDirectory(), "New Folder", scope);
 		projectBrowserWindow->SetRenameItem(rid, scope);
 
 	}

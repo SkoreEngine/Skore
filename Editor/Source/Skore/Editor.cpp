@@ -33,6 +33,7 @@
 #include "Skore/Window/GraphEditorWindow.hpp"
 #include "Skore/Window/PackagesWindow.hpp"
 #include "Skore/Project/ProjectManager.hpp"
+#include "Skore/Server/EditorServer.hpp"
 
 #include <chrono>
 
@@ -341,8 +342,7 @@ namespace Skore
 
 		void SaveAll(const MenuItemEventData& eventData)
 		{
-			GetUpdatedItems();
-			Save();
+			Editor::SaveAll();
 		}
 
 		void CloseEngine(const MenuItemEventData& eventData)
@@ -561,6 +561,16 @@ namespace Skore
 			return debugOptionsEnabled;
 		}
 
+		void InstallSkoreMcp(const MenuItemEventData& eventData)
+		{
+			EditorServer::InstallMcp();
+		}
+
+		bool SkoreMcpNotInstalled(const MenuItemEventData& eventData)
+		{
+			return !EditorServer::IsMcpInstalled();
+		}
+
 		void OpenProjectInEditorAction(const MenuItemEventData& eventData)
 		{
 			OpenProjectInEditor(projectPath);
@@ -662,6 +672,7 @@ namespace Skore
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Create C# Project", .priority = 15, .action = CreateDotnetProject, .visible = CreateDotnetProjectVisible});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Reload Shaders", .priority = 100, .itemShortcut = {.presKey = Key::F5}, .action = ReloadShaders});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Show Debug Options", .priority = 105, .action = ShowDebugOptions, .selected = IsDebugOptionsEnabled});
+			Editor::AddMenuItem(MenuItemCreation{.itemName = "Tools/Install Skore MCP", .priority = 120, .action = InstallSkoreMcp, .visible = SkoreMcpNotInstalled});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window", .priority = 60});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Help", .priority = 70});
 			Editor::AddMenuItem(MenuItemCreation{.itemName = "Window/Reset Layout", .priority = I32_MAX - 1, .action = ResetLayoutAction});
@@ -670,6 +681,8 @@ namespace Skore
 
 		void Shutdown()
 		{
+			EditorServer::Shutdown();
+
 			LaunchPendingProjectTarget();
 
 			EditorLayout::Shutdown();
@@ -1122,6 +1135,8 @@ namespace Skore
 
 			LoadProjectPlugin();
 
+			EditorServer::Update();
+
 			{
 				std::scoped_lock lock(funcsMutex);
 				while (!funcs.IsEmpty())
@@ -1383,6 +1398,12 @@ namespace Skore
 	void Editor::AddTask(std::function<void()> func, StringView name)
 	{
 		threadPool->Enqueue(Traits::Move(func));
+	}
+
+	void Editor::SaveAll()
+	{
+		GetUpdatedItems();
+		Save();
 	}
 
 	EditorWorkspace* Editor::CreateWorkspace(u8 type)
@@ -1679,6 +1700,8 @@ namespace Skore
 			}
 		}
 
+		EditorServer::Init();
+
 		return AppResult::Continue;
 	}
 
@@ -1694,6 +1717,7 @@ namespace Skore
 	{
 		RegisterResourceAssetTypes();
 		RegisterEditorSettingsTypes();
+		RegisterEditorServerTypes();
 		RegisterSceneEditorTypes();
 		RegisterSceneViewPipelineModule();
 		Selection::RegisterType();

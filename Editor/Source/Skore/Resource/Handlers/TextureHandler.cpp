@@ -82,25 +82,25 @@ namespace Skore
 
 						Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 						{
-							cmd->ResourceBarrier(dst, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = dst, .oldState = ResourceState::Undefined, .newState = ResourceState::ShaderReadOnly});
 
-							cmd->ResourceBarrier(src, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = src, .oldState = ResourceState::Undefined, .newState = ResourceState::CopyDest});
 							cmd->CopyBufferToTexture({
 								.buffer = tempSrcBuffer,
 								.texture = src,
 								.extent = src->GetDesc().extent,
 							});
-							cmd->ResourceBarrier(src, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = src, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
 
 							RenderTools::TextureResize(cmd, src, dst);
 
-							cmd->ResourceBarrier(dst, ResourceState::ShaderReadOnly, ResourceState::CopySource, 0, 0);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = dst, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopySource});
 							cmd->CopyTextureToBuffer({
 								.buffer = tempDstBuffer,
 								.texture = dst,
 								.extent = dst->GetDesc().extent,
 							});
-							cmd->ResourceBarrier(dst, ResourceState::CopySource, ResourceState::ShaderReadOnly, 0, 0);
+							cmd->ResourceBarrier(TextureBarrierDesc{.texture = dst, .oldState = ResourceState::CopySource, .newState = ResourceState::ShaderReadOnly});
 						});
 
 						Span data(static_cast<u8*>(tempDstBuffer->GetMappedData()), thumbnailSize.width * thumbnailSize.height * 4);

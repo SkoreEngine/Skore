@@ -1,0 +1,10 @@
+// Seeds a history/ping-pong texture to a known zero state (RGB=0, A=1). Run once per ping-pong slot
+// before accumulation so the first HistoryAccumulate read never samples uninitialised memory.
+
+[[vk::image_format("rgba32f")]] RWTexture2D<float4> historyOut : register(u0);
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 id : SV_DispatchThreadID)
+{
+    historyOut[id.xy] = float4(0.0, 0.0, 0.0, 1.0);
+}

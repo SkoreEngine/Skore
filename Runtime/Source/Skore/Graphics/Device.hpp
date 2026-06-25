@@ -16,6 +16,7 @@ namespace Skore
 	class GPUSwapchain;
 	class GPUCommandBuffer;
 	class GPUBuffer;
+	class GPUMemory;
 	class GPUTexture;
 	class GPUSampler;
 	class GPUPipeline;
@@ -83,7 +84,39 @@ namespace Skore
 		ShaderReadOnly         = 5,
 		CopyDest               = 6,
 		CopySource             = 7,
-		Present                = 8
+		Present                = 8,
+		IndirectArgument       = 9
+	};
+
+	enum class BarrierSyncScope
+	{
+		Automatic,
+		Graphics,
+		Compute,
+		Raytrace,
+		Transfer
+	};
+
+	struct BufferBarrierDesc
+	{
+		GPUBuffer*       buffer = nullptr;
+		ResourceState    oldState = ResourceState::Undefined;
+		ResourceState    newState = ResourceState::Undefined;
+		BarrierSyncScope srcScope = BarrierSyncScope::Automatic;
+		BarrierSyncScope dstScope = BarrierSyncScope::Automatic;
+	};
+
+	struct TextureBarrierDesc
+	{
+		GPUTexture*      texture = nullptr;
+		ResourceState    oldState = ResourceState::Undefined;
+		ResourceState    newState = ResourceState::Undefined;
+		BarrierSyncScope srcScope = BarrierSyncScope::Automatic;
+		BarrierSyncScope dstScope = BarrierSyncScope::Automatic;
+		u32              baseMipLevel = 0;
+		u32              mipLevelCount = 1;
+		u32              baseArrayLayer = 0;
+		u32              arrayLayerCount = 1;
 	};
 
 	enum class ResourceUsage : u32
@@ -569,6 +602,13 @@ namespace Skore
 		String          debugName;
 	};
 
+	struct TextureMemoryRequirements
+	{
+		u64 size{};
+		u64 alignment{};
+		u32 memoryTypeBits{};
+	};
+
 	struct SamplerDesc
 	{
 		FilterMode  minFilter{FilterMode::Linear};
@@ -689,6 +729,7 @@ namespace Skore
 		Array<DescriptorSetLayout> descriptors{};
 		Array<PushConstantRange>   pushConstants{};
 		u32                        stride{};
+		Extent3D                   numThreads{1, 1, 1};
 	};
 
 	struct AttachmentDesc
@@ -953,6 +994,11 @@ namespace Skore
 		virtual GPUBuffer*              CreateBuffer(const BufferDesc& desc) = 0;
 		virtual GPUTexture*             CreateTexture(const TextureDesc& desc) = 0;
 		virtual GPUTextureView*         CreateTextureView(const TextureViewDesc& desc) = 0;
+
+		virtual TextureMemoryRequirements GetTextureMemoryRequirements(const TextureDesc& desc) = 0;
+		virtual GPUMemory*              CreateMemory(u64 size, u64 alignment, u32 memoryTypeBits) = 0;
+		virtual GPUTexture*             CreateAliasedTexture(const TextureDesc& desc, GPUMemory* memory, u64 offset) = 0;
+
 		virtual GPUSampler*             CreateSampler(const SamplerDesc& desc) = 0;
 		virtual GPUPipeline*            CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) = 0;
 		virtual GPUPipeline*            CreateComputePipeline(const ComputePipelineDesc& desc) = 0;
@@ -1049,9 +1095,9 @@ namespace Skore
 		virtual void ClearColorTexture(GPUTexture* texture, Vec4 clearValue, u32 mipLevel, u32 arrayLayer) = 0;
 		virtual void ClearDepthStencilTexture(GPUTexture* texture, f32 depth, u32 stencil, u32 mipLevel, u32 arrayLayer) = 0;
 
-		virtual void ResourceBarrier(GPUBuffer* buffer, ResourceState oldState, ResourceState newState) = 0;
-		virtual void ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 arrayLayer) = 0;
-		virtual void ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 levelCount, u32 arrayLayer, u32 layerCount) = 0;
+		virtual void ResourceBarrier(const BufferBarrierDesc& barrier) = 0;
+		virtual void ResourceBarrier(const TextureBarrierDesc& barrier) = 0;
+
 		virtual void ResourceBarrier(GPUBottomLevelAS* bottomLevelAS, ResourceState oldState, ResourceState newState) = 0;
 		virtual void ResourceBarrier(GPUTopLevelAS* topLevelAS, ResourceState oldState, ResourceState newState) = 0;
 		virtual void MemoryBarrier() = 0;
@@ -1087,6 +1133,15 @@ namespace Skore
 		virtual VoidPtr GetMappedData() = 0;
 
 		virtual const BufferDesc& GetDesc() const = 0;
+	};
+
+	class SK_API GPUMemory
+	{
+	public:
+		virtual ~GPUMemory() = default;
+
+		virtual u64  GetSize() const = 0;
+		virtual void Destroy() = 0;
 	};
 
 	class SK_API GPUTexture

@@ -1,0 +1,13 @@
+// Reads the previous frame's history slot (bound to u0) and writes the current slot (u1) with a
+// fixed increment. Driven across frames against a ping-pong texture, the RGB channels accumulate by
+// +0.2 each frame, which the test verifies after a known number of frames.
+
+[[vk::image_format("rgba32f")]] RWTexture2D<float4> historyIn  : register(u0);
+[[vk::image_format("rgba32f")]] RWTexture2D<float4> historyOut : register(u1);
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 id : SV_DispatchThreadID)
+{
+    float4 prev = historyIn[id.xy];
+    historyOut[id.xy] = prev + float4(0.2, 0.2, 0.2, 0.0);
+}

@@ -247,9 +247,9 @@ namespace Skore
 
 				GPUTexture* outlineTexture = context->GetTexture("SelectionOutline");
 
-				cmd->ResourceBarrier(outlineTexture, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = outlineTexture, .oldState = ResourceState::Undefined, .newState = ResourceState::CopyDest});
 				cmd->ClearColorTexture(outlineTexture, Vec4(0.0, 0.0, 0.0, 0.0), 0, 0);
-				cmd->ResourceBarrier(outlineTexture, ResourceState::CopyDest, ResourceState::ShaderReadOnly, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = outlineTexture, .oldState = ResourceState::CopyDest, .newState = ResourceState::ShaderReadOnly});
 
 
 				std::function<void(Entity* entity)> drawEntity;
@@ -326,7 +326,7 @@ namespace Skore
 								drawEntity(entity);
 
 								cmd->EndRenderPass();
-								cmd->ResourceBarrier(maskTexture, ResourceState::ColorAttachment, ResourceState::ShaderReadOnly, 0, 0);
+								cmd->ResourceBarrier(TextureBarrierDesc{.texture = maskTexture, .oldState = ResourceState::ColorAttachment, .newState = ResourceState::ShaderReadOnly});
 							}
 
 							{
@@ -361,7 +361,7 @@ namespace Skore
 								cmd->Draw(6, 1, 0, 0);
 
 								cmd->EndRenderPass();
-								cmd->ResourceBarrier(compositeMaskTexture, ResourceState::ColorAttachment, ResourceState::ShaderReadOnly, 0, 0);
+								cmd->ResourceBarrier(TextureBarrierDesc{.texture = compositeMaskTexture, .oldState = ResourceState::ColorAttachment, .newState = ResourceState::ShaderReadOnly});
 							}
 
 							{
@@ -385,7 +385,7 @@ namespace Skore
 
 								cmd->EndRenderPass();
 
-								cmd->ResourceBarrier(outlineTexture, ResourceState::ColorAttachment, ResourceState::ShaderReadOnly, 0, 0);
+								cmd->ResourceBarrier(TextureBarrierDesc{.texture = outlineTexture, .oldState = ResourceState::ColorAttachment, .newState = ResourceState::ShaderReadOnly});
 							}
 
 						}
@@ -732,8 +732,8 @@ namespace Skore
 			cmd->EndDebugMarker();
 			//how to take a screenshot from here?
 
-			cmd->ResourceBarrier(context->GetTexture(OutputColorName), ResourceState::ColorAttachment, ResourceState::ShaderReadOnly, 0, 0);
-			cmd->ResourceBarrier(context->GetTexture(OutputDepthName), ResourceState::DepthStencilReadOnly, ResourceState::DepthStencilReadOnly, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = context->GetTexture(OutputColorName), .oldState = ResourceState::ColorAttachment, .newState = ResourceState::ShaderReadOnly});
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = context->GetTexture(OutputDepthName), .oldState = ResourceState::DepthStencilReadOnly, .newState = ResourceState::DepthStencilReadOnly});
 		}
 
 		void Destroy() override

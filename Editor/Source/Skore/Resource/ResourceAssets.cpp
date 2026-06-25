@@ -2141,7 +2141,7 @@ namespace Skore
 		return {};
 	}
 
-	RID ResourceAssets::CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope)
+	RID ResourceAssets::CreateAssetDirectory(RID parent, StringView desiredName, UndoRedoScope* scope)
 	{
 		String newName = CreateUniqueAssetName(parent, desiredName, "", true);
 		String path = GetDirectoryPathId(parent) + "/" + newName;

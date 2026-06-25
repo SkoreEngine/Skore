@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 11)
 
 option(SK_ENABLE_TRACY "Enable tracy profiler" OFF)
+option(SK_ENABLE_GPU_TESTS "Enable real GPU (Vulkan) tests that render offscreen" OFF)
 
 
 if (SK_ENABLE_TRACY)
@@ -88,5 +89,6 @@ if(NOT ANDROID)
 
 	add_subdirectory(Editor)
 	add_subdirectory(Tests)
+	add_subdirectory(Tools/SkoreMcp)
 
 endif()

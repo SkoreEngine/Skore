@@ -21,8 +21,31 @@ namespace Skore
 		Transfer
 	};
 
+	enum class GpuMessageSeverity
+	{
+		Verbose,
+		Info,
+		Warning,
+		Error
+	};
+
+	using GpuMessageCallback = std::function<void(GpuMessageSeverity severity, StringView message)>;
+
+	// Invoked by the graphics backend for every validation/debug message (when validation layers are
+	// enabled). Internal plumbing between the backend and Graphics::SetMessageCallback.
+	void DispatchGpuMessage(GpuMessageSeverity severity, StringView message);
+
 	struct SK_API Graphics
 	{
+		// Initializes the graphics device without a window or swapchain, for offscreen/background
+		// rendering (e.g. tests). Selects the best adapter and creates the default samplers and
+		// placeholder textures. Returns false when no compatible GPU is available.
+		static bool InitHeadless(bool enableValidationLayers);
+
+		// Registers a callback invoked for every backend validation/debug message (requires
+		// validation layers to be enabled). Pass {} to clear. Used by tests to fail on warnings/errors.
+		static void SetMessageCallback(const GpuMessageCallback& callback);
+
 		static Span<GPUAdapter*> GetAdapters();
 		static GPUDevice*        GetDevice();
 		static DeviceProperties  GetProperties();

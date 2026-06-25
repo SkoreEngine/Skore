@@ -1,0 +1,26 @@
+// Minimal triangle shader for GPU render tests. The three vertices are generated from
+// SV_VertexID (no vertex buffer), forming a centered triangle that covers the middle of the
+// target but leaves the corners untouched. The pixel shader outputs solid red.
+
+struct VSOutput
+{
+    float4 position : SV_Position;
+};
+
+VSOutput MainVS(uint vertexId : SV_VertexID)
+{
+    float2 positions[3] = {
+        float2( 0.0, -0.6),
+        float2( 0.6,  0.6),
+        float2(-0.6,  0.6)
+    };
+
+    VSOutput output;
+    output.position = float4(positions[vertexId], 0.0, 1.0);
+    return output;
+}
+
+float4 MainPS(VSOutput input) : SV_Target
+{
+    return float4(1.0, 0.0, 0.0, 1.0);
+}

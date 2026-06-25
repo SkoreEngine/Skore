@@ -32,6 +32,18 @@ namespace Skore
 		void*         mappedData{nullptr};
 	};
 
+	class VulkanMemory final : public GPUMemory
+	{
+	public:
+		u64  GetSize() const override;
+		void Destroy() override;
+
+		VulkanDevice* vulkanDevice;
+		VmaAllocation allocation;
+		u64           size;
+		u32           memoryTypeBits;
+	};
+
 	class VulkanTexture final : public GPUTexture
 	{
 	public:
@@ -47,6 +59,7 @@ namespace Skore
 		VmaAllocation   allocation;
 		GPUTextureView* textureView;
 		bool            isDepth = false;
+		bool            aliased = false;
 	};
 
 	class VulkanTextureView final : public GPUTextureView
@@ -94,14 +107,14 @@ namespace Skore
 
 	struct VulkanQueueContext
 	{
-		VkQueue vkQueue;
+		VkQueue    vkQueue;
 		std::mutex mutex;
 	};
 
 	struct VulkanQueue : GPUQueue
 	{
-		VulkanDevice* vulkanDevice;
-		VkFence fence;
+		VulkanDevice*                       vulkanDevice;
+		VkFence                             fence;
 		std::shared_ptr<VulkanQueueContext> context;
 
 		void Destroy() override;
@@ -121,10 +134,10 @@ namespace Skore
 		u32 transferFamily = U32_MAX;
 		u32 presentFamily = U32_MAX;
 
-		VkPhysicalDeviceAccelerationStructurePropertiesKHR			accelerationStructureProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
-		VkPhysicalDeviceRayTracingPipelinePropertiesKHR					rayTracingPipelineProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR, &accelerationStructureProperties};
-		VkPhysicalDeviceConservativeRasterizationPropertiesEXT	conservativeRasterProps{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONSERVATIVE_RASTERIZATION_PROPERTIES_EXT, &rayTracingPipelineProperties};
-		VkPhysicalDeviceProperties2															deviceProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &conservativeRasterProps};
+		VkPhysicalDeviceAccelerationStructurePropertiesKHR     accelerationStructureProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+		VkPhysicalDeviceRayTracingPipelinePropertiesKHR        rayTracingPipelineProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR, &accelerationStructureProperties};
+		VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservativeRasterProps{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONSERVATIVE_RASTERIZATION_PROPERTIES_EXT, &rayTracingPipelineProperties};
+		VkPhysicalDeviceProperties2                            deviceProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &conservativeRasterProps};
 
 		VkPhysicalDeviceRayQueryFeaturesKHR              deviceRayQueryFeaturesKhr{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
 		VkPhysicalDeviceAccelerationStructureFeaturesKHR deviceAccelerationStructureFeaturesKhr{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR, &deviceRayQueryFeaturesKhr};
@@ -172,7 +185,7 @@ namespace Skore
 		FramebufferDesc desc;
 		VkFramebuffer   framebuffer;
 
-		Extent extent;
+		Extent              extent;
 		Array<VkClearValue> clearValues;
 	};
 
@@ -187,7 +200,7 @@ namespace Skore
 		Extent               GetExtent() override;
 		void                 Destroy() override;
 		u32                  GetImageCount() const override;
-		Format        GetFormat() const override;
+		Format               GetFormat() const override;
 		Span<GPUTexture*>    GetTextures() const override;
 
 		bool CreateInternal();
@@ -203,7 +216,7 @@ namespace Skore
 		u32                imageIndex;
 
 		FixedArray<VkSemaphore, SK_FRAMES_IN_FLIGHT> imageAvailableSemaphores{};
-		Array<VkSemaphore> renderFinishedSemaphores{};
+		Array<VkSemaphore>                           renderFinishedSemaphores{};
 
 		bool ValidSwapchain() const;
 	};
@@ -212,22 +225,22 @@ namespace Skore
 	{
 	public:
 		const BottomLevelASDesc& GetDesc() const override;
-		bool                    IsCompacted() const override;
-		usize                   GetCompactedSize() const override;
-		void                    Destroy() override;
+		bool                     IsCompacted() const override;
+		usize                    GetCompactedSize() const override;
+		void                     Destroy() override;
 
-		VulkanDevice*                vulkanDevice;
-		BottomLevelASDesc            desc;
-		VkAccelerationStructureKHR   accelerationStructure = VK_NULL_HANDLE;
-		VkBuffer                     buffer = VK_NULL_HANDLE;
-		VmaAllocation                allocation = nullptr;
-		VkDeviceAddress              deviceAddress = 0;
+		VulkanDevice*                        vulkanDevice;
+		BottomLevelASDesc                    desc;
+		VkAccelerationStructureKHR           accelerationStructure = VK_NULL_HANDLE;
+		VkBuffer                             buffer = VK_NULL_HANDLE;
+		VmaAllocation                        allocation = nullptr;
+		VkDeviceAddress                      deviceAddress = 0;
 		VkBuildAccelerationStructureFlagsKHR buildFlags = 0;
-		bool                         compacted = false;
+		bool                                 compacted = false;
 
 		Array<VkAccelerationStructureGeometryKHR>       geometries;
-		Array<VkAccelerationStructureBuildRangeInfoKHR>  buildRangeInfos;
-		Array<u32>                                       maxPrimitiveCounts;
+		Array<VkAccelerationStructureBuildRangeInfoKHR> buildRangeInfos;
+		Array<u32>                                      maxPrimitiveCounts;
 	};
 
 	class VulkanTopLevelAS final : public GPUTopLevelAS
@@ -239,19 +252,19 @@ namespace Skore
 		void                  SetInstanceCount(u32 count) override;
 		void                  Destroy() override;
 
-		VulkanDevice*                vulkanDevice;
-		TopLevelASDesc               desc;
-		VkAccelerationStructureKHR   accelerationStructure = VK_NULL_HANDLE;
-		VkBuffer                     buffer = VK_NULL_HANDLE;
-		VmaAllocation                allocation = nullptr;
-		VkDeviceAddress              deviceAddress = 0;
+		VulkanDevice*                        vulkanDevice;
+		TopLevelASDesc                       desc;
+		VkAccelerationStructureKHR           accelerationStructure = VK_NULL_HANDLE;
+		VkBuffer                             buffer = VK_NULL_HANDLE;
+		VmaAllocation                        allocation = nullptr;
+		VkDeviceAddress                      deviceAddress = 0;
 		VkBuildAccelerationStructureFlagsKHR buildFlags = 0;
 
-		VkBuffer                     instanceBuffer = VK_NULL_HANDLE;
-		VmaAllocation                instanceAllocation = nullptr;
-		void*                        instanceMappedData = nullptr;
-		u32                          instanceCount = 0;
-		u32                          maxInstanceCount = 0;
+		VkBuffer      instanceBuffer = VK_NULL_HANDLE;
+		VmaAllocation instanceAllocation = nullptr;
+		void*         instanceMappedData = nullptr;
+		u32           instanceCount = 0;
+		u32           maxInstanceCount = 0;
 	};
 
 	class VulkanPipeline final : public GPUPipeline
@@ -270,12 +283,12 @@ namespace Skore
 		Array<VkDescriptorSetLayout> descriptorSetLayouts;
 
 		// Ray tracing SBT
-		VkBuffer                          sbtBuffer = VK_NULL_HANDLE;
-		VmaAllocation                     sbtAllocation = nullptr;
-		VkStridedDeviceAddressRegionKHR   sbtRaygenRegion{};
-		VkStridedDeviceAddressRegionKHR   sbtMissRegion{};
-		VkStridedDeviceAddressRegionKHR   sbtHitRegion{};
-		VkStridedDeviceAddressRegionKHR   sbtCallableRegion{};
+		VkBuffer                        sbtBuffer = VK_NULL_HANDLE;
+		VmaAllocation                   sbtAllocation = nullptr;
+		VkStridedDeviceAddressRegionKHR sbtRaygenRegion{};
+		VkStridedDeviceAddressRegionKHR sbtMissRegion{};
+		VkStridedDeviceAddressRegionKHR sbtHitRegion{};
+		VkStridedDeviceAddressRegionKHR sbtCallableRegion{};
 	};
 
 	class VulkanDescriptorSet final : public GPUDescriptorSet
@@ -298,13 +311,16 @@ namespace Skore
 		VkDescriptorSet       descriptorSet;
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkDescriptorPool      dedicatedPool = nullptr;
+
 	private:
-		void InternalUpdateTexture(u32 binding,  GPUTexture* texture, GPUTextureView* textureView, u32 arrayElement);
+		void InternalUpdateTexture(u32 binding, GPUTexture* texture, GPUTextureView* textureView, u32 arrayElement);
 	};
 
 	class VulkanCommandBuffer : public GPUCommandBuffer
 	{
 	public:
+		using GPUCommandBuffer::ResourceBarrier;
+
 		void Begin() override;
 		void End() override;
 		void Reset() override;
@@ -345,9 +361,8 @@ namespace Skore
 		void UpdateBuffer(GPUBuffer* buffer, usize offset, usize size, const void* data) override;
 		void ClearColorTexture(GPUTexture* texture, Vec4 clearValue, u32 mipLevel, u32 arrayLayer) override;
 		void ClearDepthStencilTexture(GPUTexture* texture, f32 depth, u32 stencil, u32 mipLevel, u32 arrayLayer) override;
-		void ResourceBarrier(GPUBuffer* buffer, ResourceState oldState, ResourceState newState) override;
-		void ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 arrayLayer) override;
-		void ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 levelCount, u32 arrayLayer, u32 layerCount) override;
+		void ResourceBarrier(const BufferBarrierDesc& barrier) override;
+		void ResourceBarrier(const TextureBarrierDesc& barrier) override;
 		void ResourceBarrier(GPUBottomLevelAS* bottomLevelAS, ResourceState oldState, ResourceState newState) override;
 		void ResourceBarrier(GPUTopLevelAS* topLevelAS, ResourceState oldState, ResourceState newState) override;
 		void MemoryBarrier() override;
@@ -374,33 +389,36 @@ namespace Skore
 	public:
 		~VulkanDevice() override;
 
-		Span<GPUAdapter*>       GetAdapters() override;
-		bool                    SelectAdapter(GPUAdapter* adapter) override;
-		const DeviceProperties& GetProperties() override;
-		const DeviceFeatures&   GetFeatures() override;
-		GraphicsAPI             GetAPI() const override;
-		void                    WaitIdle() override;
-		GPUSwapchain*           CreateSwapchain(const SwapchainDesc& desc) override;
-		GPURenderPass*          CreateRenderPass(const RenderPassDesc& desc) override;
-		GPUFramebuffer*         CreateFramebuffer(const FramebufferDesc& desc) override;
-		GPUCommandBuffer*       CreateCommandBuffer(const QueueType& queueType) override;
-		GPUBuffer*              CreateBuffer(const BufferDesc& desc) override;
-		GPUTexture*             CreateTexture(const TextureDesc& desc) override;
-		GPUTextureView*         CreateTextureView(const TextureViewDesc& desc) override;
-		GPUSampler*             CreateSampler(const SamplerDesc& desc) override;
-		GPUPipeline*            CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
-		GPUPipeline*            CreateComputePipeline(const ComputePipelineDesc& desc) override;
-		GPUPipeline*            CreateRayTracingPipeline(const RayTracingPipelineDesc& desc) override;
-		GPUDescriptorSet*       CreateDescriptorSet(const DescriptorSetDesc& desc) override;
-		GPUDescriptorSet*       CreateDescriptorSet(RID shader, StringView variant, u32 set) override;
-		GPUQueryPool*           CreateQueryPool(const QueryPoolDesc& desc) override;
-		GPUBottomLevelAS*       CreateBottomLevelAS(const BottomLevelASDesc& desc) override;
-		GPUTopLevelAS*          CreateTopLevelAS(const TopLevelASDesc& desc) override;
-		GPUQueue*               CreateQueue(const QueueDesc& desc) override;
-		usize                   GetBottomLevelASSize(const BottomLevelASDesc& desc) override;
-		usize                   GetTopLevelASSize(const TopLevelASDesc& desc) override;
-		usize                   GetAccelerationStructureBuildScratchSize(const BottomLevelASDesc& desc) override;
-		usize                   GetAccelerationStructureBuildScratchSize(const TopLevelASDesc& desc) override;
+		Span<GPUAdapter*>         GetAdapters() override;
+		bool                      SelectAdapter(GPUAdapter* adapter) override;
+		const DeviceProperties&   GetProperties() override;
+		const DeviceFeatures&     GetFeatures() override;
+		GraphicsAPI               GetAPI() const override;
+		void                      WaitIdle() override;
+		GPUSwapchain*             CreateSwapchain(const SwapchainDesc& desc) override;
+		GPURenderPass*            CreateRenderPass(const RenderPassDesc& desc) override;
+		GPUFramebuffer*           CreateFramebuffer(const FramebufferDesc& desc) override;
+		GPUCommandBuffer*         CreateCommandBuffer(const QueueType& queueType) override;
+		GPUBuffer*                CreateBuffer(const BufferDesc& desc) override;
+		GPUTexture*               CreateTexture(const TextureDesc& desc) override;
+		GPUTextureView*           CreateTextureView(const TextureViewDesc& desc) override;
+		TextureMemoryRequirements GetTextureMemoryRequirements(const TextureDesc& desc) override;
+		GPUMemory*                CreateMemory(u64 size, u64 alignment, u32 memoryTypeBits) override;
+		GPUTexture*               CreateAliasedTexture(const TextureDesc& desc, GPUMemory* memory, u64 offset) override;
+		GPUSampler*               CreateSampler(const SamplerDesc& desc) override;
+		GPUPipeline*              CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
+		GPUPipeline*              CreateComputePipeline(const ComputePipelineDesc& desc) override;
+		GPUPipeline*              CreateRayTracingPipeline(const RayTracingPipelineDesc& desc) override;
+		GPUDescriptorSet*         CreateDescriptorSet(const DescriptorSetDesc& desc) override;
+		GPUDescriptorSet*         CreateDescriptorSet(RID shader, StringView variant, u32 set) override;
+		GPUQueryPool*             CreateQueryPool(const QueryPoolDesc& desc) override;
+		GPUBottomLevelAS*         CreateBottomLevelAS(const BottomLevelASDesc& desc) override;
+		GPUTopLevelAS*            CreateTopLevelAS(const TopLevelASDesc& desc) override;
+		GPUQueue*                 CreateQueue(const QueueDesc& desc) override;
+		usize                     GetBottomLevelASSize(const BottomLevelASDesc& desc) override;
+		usize                     GetTopLevelASSize(const TopLevelASDesc& desc) override;
+		usize                     GetAccelerationStructureBuildScratchSize(const BottomLevelASDesc& desc) override;
+		usize                     GetAccelerationStructureBuildScratchSize(const TopLevelASDesc& desc) override;
 
 		DeviceFeatures     features;
 		DeviceProperties   properties;
@@ -422,7 +440,7 @@ namespace Skore
 
 		u32 currentFrame = 0;
 
-		FixedArray<VkFence, SK_FRAMES_IN_FLIGHT>     inFlightFences{};
+		FixedArray<VkFence, SK_FRAMES_IN_FLIGHT> inFlightFences{};
 
 		VkCommandPool                                         commandPool;
 		FixedArray<VulkanCommandBuffer*, SK_FRAMES_IN_FLIGHT> commandBuffers;

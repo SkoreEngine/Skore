@@ -163,9 +163,9 @@ namespace Skore
 			cmd->PushConstants(pipeline, ShaderStage::Compute, 0, sizeof(SpdConstants), &pc);
 			cmd->BindDescriptorSet(pipeline, 0, descriptorSet, {});
 
-			cmd->ResourceBarrier(linearDepthTexture, ResourceState::Undefined, ResourceState::General, 0, mipCount, 0, 1);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = linearDepthTexture, .oldState = ResourceState::Undefined, .newState = ResourceState::General, .baseMipLevel = 0, .mipLevelCount = mipCount, .baseArrayLayer = 0, .arrayLayerCount = 1});
 			cmd->Dispatch(dispatchThreadGroupCountXY[0], dispatchThreadGroupCountXY[1], 1);
-			cmd->ResourceBarrier(linearDepthTexture, ResourceState::General, ResourceState::ShaderReadOnly, 0, mipCount, 0, 1);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = linearDepthTexture, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = 0, .mipLevelCount = mipCount, .baseArrayLayer = 0, .arrayLayerCount = 1});
 		}
 
 		void OnResize(Extent size) override

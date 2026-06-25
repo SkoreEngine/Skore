@@ -4,6 +4,7 @@
 
 #include "Skore/Graphics/Devices/Vulkan/VulkanDevice.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -205,6 +206,7 @@ namespace Skore
 			case ResourceState::CopyDest: return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			case ResourceState::CopySource: return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 			case ResourceState::Present: return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			case ResourceState::IndirectArgument: return VK_IMAGE_LAYOUT_GENERAL; // buffer-only state; never used for an image layout
 		}
 		SK_ASSERT(false, "castLayout not found");
 		return VK_IMAGE_LAYOUT_UNDEFINED;
@@ -540,23 +542,31 @@ namespace Skore
 	                       const VkDebugUtilsMessengerCallbackDataEXT* callbackDataExt,
 	                       void*                                       userData)
 	{
+		GpuMessageSeverity severity = GpuMessageSeverity::Info;
+
 		switch (messageSeverity)
 		{
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+				severity = GpuMessageSeverity::Verbose;
 				logger.Trace("{}", callbackDataExt->pMessage);
 				break;
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+				severity = GpuMessageSeverity::Info;
 				logger.Info("{}", callbackDataExt->pMessage);
 				break;
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+				severity = GpuMessageSeverity::Warning;
 				logger.Warn("{}", callbackDataExt->pMessage);
 				break;
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+				severity = GpuMessageSeverity::Error;
 				logger.Error("{}", callbackDataExt->pMessage);
 				break;
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_FLAG_BITS_MAX_ENUM_EXT:
 				break;
 		}
+
+		DispatchGpuMessage(severity, callbackDataExt->pMessage);
 
 		return VK_FALSE;
 	}
@@ -1086,7 +1096,7 @@ namespace Skore
 				return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
 			case ResourceState::DepthStencilReadOnly:
-				return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+				return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
 
 			case ResourceState::ShaderReadOnly:
 				return VK_ACCESS_SHADER_READ_BIT;
@@ -1096,6 +1106,9 @@ namespace Skore
 
 			case ResourceState::CopySource:
 				return VK_ACCESS_TRANSFER_READ_BIT;
+
+			case ResourceState::IndirectArgument:
+				return VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 
 			case ResourceState::Present:
 				return 0; // No access needed for present
@@ -1120,17 +1133,28 @@ namespace Skore
 				return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
 			case ResourceState::DepthStencilAttachment:
-			case ResourceState::DepthStencilReadOnly:
 				return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+
+			case ResourceState::DepthStencilReadOnly:
+				return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+					VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+					VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+					VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
 
 			case ResourceState::ShaderReadOnly:
 				return VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
 					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
-					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+					VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
 
 			case ResourceState::CopyDest:
 			case ResourceState::CopySource:
 				return VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+			case ResourceState::IndirectArgument:
+				return VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
 
 			case ResourceState::Present:
 				return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;

@@ -170,7 +170,7 @@ namespace Skore
 
 				pc.texelSize = Vec2(1.0f / static_cast<f32>(outputSize.width), 1.0f / static_cast<f32>(outputSize.height));
 
-				cmd->ResourceBarrier(bloomMipChain, ResourceState::ShaderReadOnly, ResourceState::General, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = bloomMipChain, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::General});
 
 				cmd->BindPipeline(prefilterPipeline);
 				cmd->SetTexture(prefilterPipeline, 0, 0, lightAttachment, 0);
@@ -193,8 +193,8 @@ namespace Skore
 
 				pc.texelSize = Vec2(1.0f / static_cast<f32>(srcWidth), 1.0f / static_cast<f32>(srcHeight));
 
-				cmd->ResourceBarrier(bloomMipChain, ResourceState::General, ResourceState::ShaderReadOnly, i - 1, 0);
-				cmd->ResourceBarrier(bloomMipChain, ResourceState::ShaderReadOnly, ResourceState::General, i, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = bloomMipChain, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = i - 1});
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = bloomMipChain, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::General, .baseMipLevel = i});
 
 				cmd->BindPipeline(downsamplePipeline);
 				cmd->SetTextureView(downsamplePipeline, 0, 0, mipViews[i - 1], 0);
@@ -220,17 +220,17 @@ namespace Skore
 
 				pc.texelSize = Vec2(1.0f / static_cast<f32>(srcWidth), 1.0f / static_cast<f32>(srcHeight));
 
-				cmd->ResourceBarrier(bloomMipChain, ResourceState::General, ResourceState::ShaderReadOnly, srcMip, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = bloomMipChain, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly, .baseMipLevel = srcMip});
 				if (i < static_cast<i32>(mipCount) - 2)
 				{
 					// dstMip was left in ShaderReadOnly from downsample; transition to General for write
-					cmd->ResourceBarrier(bloomMipChain, ResourceState::ShaderReadOnly, ResourceState::General, dstMip, 0);
+					cmd->ResourceBarrier(TextureBarrierDesc{.texture = bloomMipChain, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::General, .baseMipLevel = dstMip});
 				}
 				else
 				{
 					// Last downsample mip (N-1) was just transitioned to ShaderReadOnly above
 					// dstMip (N-2) is still in ShaderReadOnly from downsample loop
-					cmd->ResourceBarrier(bloomMipChain, ResourceState::ShaderReadOnly, ResourceState::General, dstMip, 0);
+					cmd->ResourceBarrier(TextureBarrierDesc{.texture = bloomMipChain, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::General, .baseMipLevel = dstMip});
 				}
 
 				cmd->BindPipeline(upsamplePipeline);
@@ -242,7 +242,7 @@ namespace Skore
 			}
 
 			// Final barrier: mip 0 → ShaderReadOnly so composite can sample it
-			cmd->ResourceBarrier(bloomMipChain, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = bloomMipChain, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly});
 
 			context->SetTexture(BloomTextureName, bloomMipChain);
 		}

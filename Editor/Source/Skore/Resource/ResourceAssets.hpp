@@ -295,7 +295,7 @@ namespace Skore
 		static RID                     GetImportSettings(RID object);
 		static void                    InitTestFolders(StringView rootDir);
 		static RID                     FindAssetOnDirectory(RID directory, TypeID typeId, StringView name);
-		static RID                     CreateDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
+		static RID                     CreateAssetDirectory(RID parent, StringView desiredName, UndoRedoScope* scope);
 		static String                  CreateUniqueAssetName(RID parent, StringView desiredName, StringView extension, bool directory);
 		static void                    MoveAsset(RID newParent, RID rid, UndoRedoScope* scope);
 		static String                  GetDirectoryPathId(RID directory);

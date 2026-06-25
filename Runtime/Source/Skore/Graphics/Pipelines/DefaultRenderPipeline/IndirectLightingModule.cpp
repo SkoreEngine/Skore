@@ -356,12 +356,12 @@ namespace Skore
 
 			if (!texturesInitialized)
 			{
-				cmd->ResourceBarrier(rayDataArray, ResourceState::Undefined, ResourceState::General, 0, 0);
-				cmd->ResourceBarrier(irradianceArray, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
-				cmd->ResourceBarrier(distanceArray, ResourceState::Undefined, ResourceState::ShaderReadOnly, 0, 0);
-				cmd->ResourceBarrier(probeDataArray, ResourceState::Undefined, ResourceState::CopyDest, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = rayDataArray, .oldState = ResourceState::Undefined, .newState = ResourceState::General});
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = irradianceArray, .oldState = ResourceState::Undefined, .newState = ResourceState::ShaderReadOnly});
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = distanceArray, .oldState = ResourceState::Undefined, .newState = ResourceState::ShaderReadOnly});
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = probeDataArray, .oldState = ResourceState::Undefined, .newState = ResourceState::CopyDest});
 				cmd->ClearColorTexture(probeDataArray, Vec4(0.0f, 0.0f, 0.0f, 0.0f), 0, 0);
-				cmd->ResourceBarrier(probeDataArray, ResourceState::CopyDest, ResourceState::General, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = probeDataArray, .oldState = ResourceState::CopyDest, .newState = ResourceState::General});
 				texturesInitialized = true;
 			}
 
@@ -484,8 +484,8 @@ namespace Skore
 			cmd->MemoryBarrier();
 
 			cmd->BeginDebugMarker("IrradianceVolumeBlend", Vec4(0.6f, 0.2f, 1.0f, 1.0f));
-			cmd->ResourceBarrier(irradianceArray, ResourceState::ShaderReadOnly, ResourceState::General, 0, 0);
-			cmd->ResourceBarrier(distanceArray, ResourceState::ShaderReadOnly, ResourceState::General, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = irradianceArray, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::General});
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = distanceArray, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::General});
 
 			GPUDescriptorSet* bi = blendIrrSet[frame];
 			bi->UpdateBuffer(0, volumeBuffer, frameOffset, range);
@@ -520,8 +520,8 @@ namespace Skore
 				}
 			}
 
-			cmd->ResourceBarrier(irradianceArray, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
-			cmd->ResourceBarrier(distanceArray, ResourceState::General, ResourceState::ShaderReadOnly, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = irradianceArray, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly});
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = distanceArray, .oldState = ResourceState::General, .newState = ResourceState::ShaderReadOnly});
 			cmd->EndDebugMarker();
 
 			if (relocationEnabled || classificationEnabled)

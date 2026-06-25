@@ -49,6 +49,7 @@ namespace Skore
 		u64                          frame = 0;
 		VulkanTexture*               texture = nullptr;
 		VulkanTextureView*           textureView = nullptr;
+		VulkanMemory*                memory = nullptr;
 		VkBuffer                     buffer = nullptr;
 		VmaAllocation                allocation = nullptr;
 		VkDescriptorSet              descriptorSet = nullptr;
@@ -1157,28 +1158,140 @@ namespace Skore
 			}
 			return access;
 		}
-	}
 
-	void VulkanCommandBuffer::ResourceBarrier(GPUBuffer* buffer, ResourceState oldState, ResourceState newState)
-	{
-		if (oldState == newState)
+		VkAccessFlags ShaderReadWriteAccessForScope(BarrierSyncScope scope)
 		{
-			return;
+			switch (scope)
+			{
+				case BarrierSyncScope::Transfer:
+					return VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+				case BarrierSyncScope::Graphics:
+				case BarrierSyncScope::Compute:
+				case BarrierSyncScope::Raytrace:
+					return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+				case BarrierSyncScope::Automatic:
+					break;
+			}
+			return VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
 		}
 
-		VulkanBuffer* vulkanBuffer = static_cast<VulkanBuffer*>(buffer);
+		VkPipelineStageFlags ShaderStageForScope(BarrierSyncScope scope)
+		{
+			switch (scope)
+			{
+				case BarrierSyncScope::Graphics:
+					return VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+				case BarrierSyncScope::Compute:
+					return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+				case BarrierSyncScope::Raytrace:
+					return VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
+				case BarrierSyncScope::Transfer:
+					return VK_PIPELINE_STAGE_TRANSFER_BIT;
+				case BarrierSyncScope::Automatic:
+					break;
+			}
+			return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		}
+
+		VkAccessFlags GetAccessFlagsFromResourceState(ResourceState state, BarrierSyncScope scope)
+		{
+			if (scope == BarrierSyncScope::Automatic)
+			{
+				return Skore::GetAccessFlagsFromResourceState(state);
+			}
+
+			switch (state)
+			{
+				case ResourceState::Undefined:
+				case ResourceState::Present:
+					return 0;
+				case ResourceState::General:
+					return ShaderReadWriteAccessForScope(scope);
+				default:
+					return Skore::GetAccessFlagsFromResourceState(state);
+			}
+		}
+
+		VkPipelineStageFlags GetPipelineStageFromResourceState(ResourceState state, BarrierSyncScope scope)
+		{
+			if (scope == BarrierSyncScope::Automatic)
+			{
+				return Skore::GetPipelineStageFromResourceState(state);
+			}
+
+			switch (state)
+			{
+				case ResourceState::Undefined:
+					return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+				case ResourceState::Present:
+					return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+				case ResourceState::General:
+					return ShaderStageForScope(scope);
+				default:
+					return Skore::GetPipelineStageFromResourceState(state);
+			}
+		}
+
+		VkAccessFlags GetBufferAccessFlagsFromResourceState(ResourceState state, BarrierSyncScope scope)
+		{
+			VkAccessFlags access = GetAccessFlagsFromResourceState(state, scope);
+			if (state == ResourceState::ShaderReadOnly)
+			{
+				if (scope == BarrierSyncScope::Automatic)
+				{
+					access |= VK_ACCESS_UNIFORM_READ_BIT |
+						VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+						VK_ACCESS_INDEX_READ_BIT |
+						VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+				}
+				else if (scope == BarrierSyncScope::Graphics)
+				{
+					access |= VK_ACCESS_UNIFORM_READ_BIT |
+						VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+						VK_ACCESS_INDEX_READ_BIT |
+						VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+				}
+				else if (scope == BarrierSyncScope::Compute || scope == BarrierSyncScope::Raytrace)
+				{
+					access |= VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+				}
+			}
+			return access;
+		}
+
+		VkPipelineStageFlags GetBufferPipelineStageFromResourceState(ResourceState state, BarrierSyncScope scope)
+		{
+			VkPipelineStageFlags stage = GetPipelineStageFromResourceState(state, scope);
+			if (state == ResourceState::ShaderReadOnly)
+			{
+				if (scope == BarrierSyncScope::Automatic || scope == BarrierSyncScope::Graphics)
+				{
+					stage |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+				}
+				else if (scope == BarrierSyncScope::Compute || scope == BarrierSyncScope::Raytrace)
+				{
+					stage |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+				}
+			}
+			return stage;
+		}
+	}
+
+	void VulkanCommandBuffer::ResourceBarrier(const BufferBarrierDesc& barrier)
+	{
+		VulkanBuffer* vulkanBuffer = static_cast<VulkanBuffer*>(barrier.buffer);
 
 		VkBufferMemoryBarrier bufferBarrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-		bufferBarrier.srcAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(oldState), queueType);
-		bufferBarrier.dstAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(newState), queueType);
+		bufferBarrier.srcAccessMask = ClampAccessForQueue(GetBufferAccessFlagsFromResourceState(barrier.oldState, barrier.srcScope), queueType);
+		bufferBarrier.dstAccessMask = ClampAccessForQueue(GetBufferAccessFlagsFromResourceState(barrier.newState, barrier.dstScope), queueType);
 		bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		bufferBarrier.buffer = vulkanBuffer->buffer;
 		bufferBarrier.offset = 0;
 		bufferBarrier.size = vulkanBuffer->desc.size;
 
-		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(oldState), queueType);
-		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(newState), queueType);
+		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetBufferPipelineStageFromResourceState(barrier.oldState, barrier.srcScope), queueType);
+		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetBufferPipelineStageFromResourceState(barrier.newState, barrier.dstScope), queueType);
 
 		vkCmdPipelineBarrier(
 			commandBuffer,
@@ -1191,105 +1304,28 @@ namespace Skore
 		);
 	}
 
-	void VulkanCommandBuffer::ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 arrayLayer)
+	void VulkanCommandBuffer::ResourceBarrier(const TextureBarrierDesc& barrier)
 	{
-		ResourceBarrier(texture, oldState, newState, mipLevel, 1, arrayLayer, 1);
-	}
-
-	void VulkanCommandBuffer::ResourceBarrier(GPUTexture* texture, ResourceState oldState, ResourceState newState, u32 mipLevel, u32 levelCount, u32 arrayLayer, u32 layerCount)
-	{
-		VulkanTexture* vulkanTexture = static_cast<VulkanTexture*>(texture);
+		VulkanTexture* vulkanTexture = static_cast<VulkanTexture*>(barrier.texture);
 
 		VkImageMemoryBarrier imageBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-		imageBarrier.oldLayout = CastState(oldState);
-		imageBarrier.newLayout = CastState(newState);
+		imageBarrier.oldLayout = CastState(barrier.oldState);
+		imageBarrier.newLayout = CastState(barrier.newState);
 		imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		imageBarrier.image = vulkanTexture->image;
 
 		imageBarrier.subresourceRange.aspectMask = GetImageAspectFlags(ToVkFormat(vulkanTexture->desc.format));
-		imageBarrier.subresourceRange.baseMipLevel = mipLevel;
-		imageBarrier.subresourceRange.levelCount = levelCount;
-		imageBarrier.subresourceRange.baseArrayLayer = arrayLayer;
-		imageBarrier.subresourceRange.layerCount = layerCount;
+		imageBarrier.subresourceRange.baseMipLevel = barrier.baseMipLevel;
+		imageBarrier.subresourceRange.levelCount = barrier.mipLevelCount;
+		imageBarrier.subresourceRange.baseArrayLayer = barrier.baseArrayLayer;
+		imageBarrier.subresourceRange.layerCount = barrier.arrayLayerCount;
 
-		imageBarrier.srcAccessMask = 0;
+		imageBarrier.srcAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(barrier.oldState, barrier.srcScope), queueType);
+		imageBarrier.dstAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(barrier.newState, barrier.dstScope), queueType);
 
-		switch (imageBarrier.oldLayout)
-		{
-			case VK_IMAGE_LAYOUT_PREINITIALIZED:
-				imageBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-				break;
-			case VK_IMAGE_LAYOUT_GENERAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-				break;
-			default:
-				// Other source layouts aren't handled (yet)
-				break;
-		}
-
-		switch (imageBarrier.newLayout)
-		{
-			case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-				imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-				imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-				imageBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-				if (imageBarrier.oldLayout != VK_IMAGE_LAYOUT_UNDEFINED)
-				{
-					imageBarrier.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-				}
-				break;
-
-			case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-				imageBarrier.dstAccessMask = imageBarrier.dstAccessMask | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-				if (imageBarrier.srcAccessMask == 0 && imageBarrier.oldLayout != VK_IMAGE_LAYOUT_UNDEFINED)
-				{
-					imageBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-				}
-				imageBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-				break;
-			case VK_IMAGE_LAYOUT_GENERAL:
-				imageBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-				break;
-			default:
-				break;
-		}
-
-		imageBarrier.srcAccessMask = ClampAccessForQueue(imageBarrier.srcAccessMask, queueType);
-		imageBarrier.dstAccessMask = ClampAccessForQueue(imageBarrier.dstAccessMask, queueType);
-
-		//TODO remove VK_PIPELINE_STAGE_ALL_COMMANDS_BIT and use correct VkPipelineStageFlags
-		VkPipelineStageFlags srcStageMask = ClampStageForQueue(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queueType);
-		VkPipelineStageFlags dstStageMask = ClampStageForQueue(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queueType);
+		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(barrier.oldState, barrier.srcScope), queueType);
+		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(barrier.newState, barrier.dstScope), queueType);
 
 		vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
 	}
@@ -1300,8 +1336,8 @@ namespace Skore
 		// Acceleration structures typically use the VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR and
 		// VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR access flags
 
-		VkAccessFlags srcAccessMask = GetAccessFlagsFromResourceState(oldState);
-		VkAccessFlags dstAccessMask = GetAccessFlagsFromResourceState(newState);
+		VkAccessFlags srcAccessMask = Skore::GetAccessFlagsFromResourceState(oldState);
+		VkAccessFlags dstAccessMask = Skore::GetAccessFlagsFromResourceState(newState);
 
 		// For acceleration structures, we need to add specific access flags
 		if (oldState == ResourceState::ShaderReadOnly || oldState == ResourceState::General)
@@ -1328,8 +1364,8 @@ namespace Skore
 		memoryBarrier.srcAccessMask = srcAccessMask;
 		memoryBarrier.dstAccessMask = dstAccessMask;
 
-		VkPipelineStageFlags srcStageMask = GetPipelineStageFromResourceState(oldState);
-		VkPipelineStageFlags dstStageMask = GetPipelineStageFromResourceState(newState);
+		VkPipelineStageFlags srcStageMask = Skore::GetPipelineStageFromResourceState(oldState);
+		VkPipelineStageFlags dstStageMask = Skore::GetPipelineStageFromResourceState(newState);
 
 		// Add ray tracing pipeline stages for acceleration structures
 		if (oldState == ResourceState::ShaderReadOnly || oldState == ResourceState::General)
@@ -1363,8 +1399,8 @@ namespace Skore
 		// Top-level AS barriers are similar to bottom-level AS barriers
 		// They use the same memory barrier approach with acceleration structure access flags
 
-		VkAccessFlags srcAccessMask = GetAccessFlagsFromResourceState(oldState);
-		VkAccessFlags dstAccessMask = GetAccessFlagsFromResourceState(newState);
+		VkAccessFlags srcAccessMask = Skore::GetAccessFlagsFromResourceState(oldState);
+		VkAccessFlags dstAccessMask = Skore::GetAccessFlagsFromResourceState(newState);
 
 		// For acceleration structures, we need to add specific access flags
 		if (oldState == ResourceState::ShaderReadOnly || oldState == ResourceState::General)
@@ -1391,8 +1427,8 @@ namespace Skore
 		memoryBarrier.srcAccessMask = srcAccessMask;
 		memoryBarrier.dstAccessMask = dstAccessMask;
 
-		VkPipelineStageFlags srcStageMask = GetPipelineStageFromResourceState(oldState);
-		VkPipelineStageFlags dstStageMask = GetPipelineStageFromResourceState(newState);
+		VkPipelineStageFlags srcStageMask = Skore::GetPipelineStageFromResourceState(oldState);
+		VkPipelineStageFlags dstStageMask = Skore::GetPipelineStageFromResourceState(newState);
 
 		// Add ray tracing pipeline stages for acceleration structures
 		if (oldState == ResourceState::ShaderReadOnly || oldState == ResourceState::General)
@@ -2306,7 +2342,12 @@ namespace Skore
 		{
 			if (VulkanTextureView* vulkanTextureView = static_cast<VulkanTextureView*>(attachment))
 			{
+				// The framebuffer dimensions follow the view's mip level, not the base texture, so a
+				// view targeting a non-zero mip renders into the correctly sized attachment.
+				const u32 mipLevel = vulkanTextureView->desc.baseMipLevel;
 				extent = vulkanTextureView->GetTexture()->GetDesc().extent;
+				extent.width = std::max(1u, extent.width >> mipLevel);
+				extent.height = std::max(1u, extent.height >> mipLevel);
 				imageViews.EmplaceBack(vulkanTextureView->imageView);
 			}
 		}
@@ -2417,6 +2458,18 @@ namespace Skore
 		return mappedData;
 	}
 
+	u64 VulkanMemory::GetSize() const
+	{
+		return size;
+	}
+
+	void VulkanMemory::Destroy()
+	{
+		VulkanResourceDestructor destructor;
+		destructor.memory = this;
+		EnqueueDestructor(destructor);
+	}
+
 	const TextureDesc& VulkanTexture::GetDesc() const
 	{
 		return desc;
@@ -2517,32 +2570,31 @@ namespace Skore
 		return buffer;
 	}
 
+	namespace
+	{
+		VkImageCreateInfo MakeImageCreateInfo(const TextureDesc& desc)
+		{
+			VkImageCreateInfo imageCreateInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+			imageCreateInfo.imageType = desc.extent.depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
+			imageCreateInfo.extent.width = desc.extent.width;
+			imageCreateInfo.extent.height = desc.extent.height;
+			imageCreateInfo.extent.depth = desc.extent.depth;
+			imageCreateInfo.format = ToVkFormat(desc.format);
+			imageCreateInfo.mipLevels = desc.mipLevels;
+			imageCreateInfo.arrayLayers = desc.arrayLayers;
+			imageCreateInfo.samples = CastSampleCount(desc.sampleCount);
+			imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+			imageCreateInfo.usage = GetImageUsageFlags(desc.usage);
+			imageCreateInfo.flags |= desc.cubemap ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
+			imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			return imageCreateInfo;
+		}
+	}
+
 	GPUTexture* VulkanDevice::CreateTexture(const TextureDesc& desc)
 	{
-		VkImageCreateInfo imageCreateInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-
-		if (desc.extent.depth > 1)
-		{
-			imageCreateInfo.imageType = VK_IMAGE_TYPE_3D;
-		}
-		else
-		{
-			imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-		}
-
-		imageCreateInfo.extent.width = desc.extent.width;
-		imageCreateInfo.extent.height = desc.extent.height;
-		imageCreateInfo.extent.depth = desc.extent.depth;
-
-		imageCreateInfo.format = ToVkFormat(desc.format);
-		imageCreateInfo.mipLevels = desc.mipLevels;
-		imageCreateInfo.arrayLayers = desc.arrayLayers;
-		imageCreateInfo.samples = CastSampleCount(desc.sampleCount);
-		imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-		imageCreateInfo.usage = GetImageUsageFlags(desc.usage);
-		imageCreateInfo.flags |= desc.cubemap ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
-		imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		VkImageCreateInfo imageCreateInfo = MakeImageCreateInfo(desc);
 
 		VmaAllocationCreateInfo allocInfo{};
 		allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
@@ -2562,6 +2614,90 @@ namespace Skore
 		texture->desc = desc;
 		texture->image = vkImage;
 		texture->allocation = vmaAllocation;
+		texture->isDepth = IsDepthFormat(imageCreateInfo.format);
+
+		TextureViewDesc textureViewDesc;
+		textureViewDesc.texture = texture;
+		textureViewDesc.type = GetTextureViewType(desc.cubemap, desc.extent.depth, desc.extent.height, desc.arrayLayers);
+
+		texture->textureView = CreateTextureView(textureViewDesc);
+
+		SetObjectName(*this, VK_OBJECT_TYPE_IMAGE, PtrToInt(texture->image), desc.debugName);
+
+		return texture;
+	}
+
+	TextureMemoryRequirements VulkanDevice::GetTextureMemoryRequirements(const TextureDesc& desc)
+	{
+		VkImageCreateInfo imageCreateInfo = MakeImageCreateInfo(desc);
+
+		VkImage  vkImage;
+		VkResult result = vkCreateImage(device, &imageCreateInfo, nullptr, &vkImage);
+		if (result != VK_SUCCESS)
+		{
+			logger.Error("error on query texture memory requirements: {} ", string_VkResult(result));
+			return {};
+		}
+
+		VkMemoryRequirements memRequirements{};
+		vkGetImageMemoryRequirements(device, vkImage, &memRequirements);
+		vkDestroyImage(device, vkImage, nullptr);
+
+		TextureMemoryRequirements requirements;
+		requirements.size = memRequirements.size;
+		requirements.alignment = memRequirements.alignment;
+		requirements.memoryTypeBits = memRequirements.memoryTypeBits;
+		return requirements;
+	}
+
+	GPUMemory* VulkanDevice::CreateMemory(u64 size, u64 alignment, u32 memoryTypeBits)
+	{
+		VkMemoryRequirements memRequirements{};
+		memRequirements.size = size;
+		memRequirements.alignment = alignment;
+		memRequirements.memoryTypeBits = memoryTypeBits;
+
+		VmaAllocationCreateInfo allocInfo{};
+		allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_CAN_ALIAS_BIT;
+
+		VmaAllocation vmaAllocation;
+		VkResult      result = vmaAllocateMemory(vmaAllocator, &memRequirements, &allocInfo, &vmaAllocation, nullptr);
+		if (result != VK_SUCCESS)
+		{
+			logger.Error("error on create memory: {} ", string_VkResult(result));
+			return nullptr;
+		}
+
+		VulkanMemory* memory = Alloc<VulkanMemory>();
+		memory->vulkanDevice = this;
+		memory->allocation = vmaAllocation;
+		memory->size = size;
+		memory->memoryTypeBits = memoryTypeBits;
+		return memory;
+	}
+
+	GPUTexture* VulkanDevice::CreateAliasedTexture(const TextureDesc& desc, GPUMemory* memory, u64 offset)
+	{
+		SK_ASSERT(memory, "memory is required");
+
+		VkImageCreateInfo imageCreateInfo = MakeImageCreateInfo(desc);
+		VulkanMemory*     vulkanMemory = static_cast<VulkanMemory*>(memory);
+
+		VkImage  vkImage;
+		VkResult result = vmaCreateAliasingImage2(vmaAllocator, vulkanMemory->allocation, offset, &imageCreateInfo, &vkImage);
+		if (result != VK_SUCCESS)
+		{
+			logger.Error("error on create aliased texture: {} ", string_VkResult(result));
+			return nullptr;
+		}
+
+		VulkanTexture* texture = Alloc<VulkanTexture>();
+		texture->vulkanDevice = this;
+		texture->desc = desc;
+		texture->image = vkImage;
+		texture->allocation = nullptr;
+		texture->aliased = true;
 		texture->isDepth = IsDepthFormat(imageCreateInfo.format);
 
 		TextureViewDesc textureViewDesc;
@@ -4300,7 +4436,20 @@ namespace Skore
 				{
 					vmaDestroyImage(vmaAllocator, destructor.texture->image, destructor.texture->allocation);
 				}
+				else if (destructor.texture->aliased)
+				{
+					vkDestroyImage(device, destructor.texture->image, nullptr);
+				}
 				DestroyAndFree(destructor.texture);
+			}
+
+			if (destructor.memory)
+			{
+				if (destructor.memory->allocation)
+				{
+					vmaFreeMemory(vmaAllocator, destructor.memory->allocation);
+				}
+				DestroyAndFree(destructor.memory);
 			}
 
 			if (destructor.pipeline)

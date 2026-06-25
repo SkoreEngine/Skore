@@ -1,0 +1,49 @@
+#pragma once
+
+#ifdef SK_GPU_TESTS
+
+#include "Skore/Core/Array.hpp"
+#include "Skore/Core/String.hpp"
+#include "Skore/Core/StringView.hpp"
+#include "Skore/Resource/ResourceCommon.hpp"
+
+// Shared support for real (non-mocked) Vulkan tests that render offscreen, without a window or
+// swapchain. Enabled only when the SK_ENABLE_GPU_TESTS CMake option is on (defines SK_GPU_TESTS).
+//
+// The heavy, process-wide state (SDL video, engine reflection types, the DXC shader compiler and a
+// headless graphics device with validation layers enabled) is created once on first use via
+// Graphics::InitHeadless. Tests then use the regular Graphics:: API (CreateTexture,
+// CreateGraphicsPipeline, SubmitGPUWork, ...). Mutable resource-database state and captured
+// validation messages are scoped per test through ResourceScope, matching the setup/teardown
+// discipline the rest of the suite uses so test cases stay isolated regardless of execution order.
+namespace Skore::GpuTest
+{
+	// True when a graphics device could be created. GPU test cases should early-out (or skip) when
+	// this is false so the suite still passes on machines without a usable GPU.
+	bool IsAvailable();
+
+	// Vulkan validation warnings + errors captured since the owning ResourceScope was created. A
+	// non-empty result means validation flagged something and the test should fail.
+	Array<String> ValidationMessages();
+
+	struct ResourceScope
+	{
+		ResourceScope();
+		~ResourceScope();
+
+		ResourceScope(const ResourceScope&) = delete;
+		ResourceScope& operator=(const ResourceScope&) = delete;
+	};
+
+	// Compiles a vertex + pixel HLSL file into a ShaderResource RID usable with
+	// CreateGraphicsPipeline. Must be called inside an active ResourceScope. Returns an invalid RID
+	// on failure.
+	RID CompileGraphicsShader(StringView absolutePath, StringView vsEntry = "MainVS", StringView psEntry = "MainPS");
+
+	// Compiles a compute HLSL file into a ShaderResource RID usable with AddComputePass /
+	// CreateComputePipeline. Must be called inside an active ResourceScope. Returns an invalid RID on
+	// failure.
+	RID CompileComputeShader(StringView absolutePath, StringView csEntry = "MainCS");
+}
+
+#endif

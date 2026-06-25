@@ -36,13 +36,13 @@ namespace Skore
 			GPUTexture* outputTexture = context->GetTexture(OutputColorName);
 			GPUBuffer* outputBuffer = context->GetBuffer("OutputBuffer");
 
-			cmd->ResourceBarrier(outputTexture, ResourceState::ShaderReadOnly, ResourceState::CopySource, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = outputTexture, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopySource});
 			cmd->CopyTextureToBuffer({
 				.buffer = outputBuffer,
 				.texture = outputTexture,
 				.extent = outputTexture->GetDesc().extent,
 			});
-			cmd->ResourceBarrier(outputTexture, ResourceState::CopySource, ResourceState::ColorAttachment, 0, 0);
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = outputTexture, .oldState = ResourceState::CopySource, .newState = ResourceState::ColorAttachment});
 		}
 	};
 

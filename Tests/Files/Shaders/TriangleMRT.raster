@@ -1,0 +1,35 @@
+// Multiple-render-target variant of the triangle shader. Same centered triangle, but the pixel
+// shader writes red to color target 0 and green to color target 1 so a render-graph pass with two
+// color attachments can be verified independently.
+
+struct VSOutput
+{
+    float4 position : SV_Position;
+};
+
+VSOutput MainVS(uint vertexId : SV_VertexID)
+{
+    float2 positions[3] = {
+        float2( 0.0, -0.6),
+        float2( 0.6,  0.6),
+        float2(-0.6,  0.6)
+    };
+
+    VSOutput output;
+    output.position = float4(positions[vertexId], 0.0, 1.0);
+    return output;
+}
+
+struct PSOutput
+{
+    float4 color0 : SV_Target0;
+    float4 color1 : SV_Target1;
+};
+
+PSOutput MainPS(VSOutput input)
+{
+    PSOutput output;
+    output.color0 = float4(1.0, 0.0, 0.0, 1.0); // red   -> target 0
+    output.color1 = float4(0.0, 1.0, 0.0, 1.0); // green -> target 1
+    return output;
+}

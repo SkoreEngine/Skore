@@ -205,21 +205,21 @@ namespace Skore
 
 				cmd->EndRenderPass();
 
-				cmd->ResourceBarrier(texture, ResourceState::ColorAttachment, ResourceState::CopySource, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = texture, .oldState = ResourceState::ColorAttachment, .newState = ResourceState::CopySource});
 				cmd->CopyTextureToBuffer({
 					.buffer = imageBuffer,
 					.texture = texture,
 					.extent = Extent3D(currentExtent.width, currentExtent.height, 1),
 				});
-				cmd->ResourceBarrier(imageBuffer, ResourceState::Undefined, ResourceState::CopyDest);
+				cmd->ResourceBarrier(BufferBarrierDesc{.buffer = imageBuffer, .oldState = ResourceState::Undefined, .newState = ResourceState::CopyDest});
 
-				cmd->ResourceBarrier(depth, ResourceState::DepthStencilAttachment, ResourceState::CopySource, 0, 0);
+				cmd->ResourceBarrier(TextureBarrierDesc{.texture = depth, .oldState = ResourceState::DepthStencilAttachment, .newState = ResourceState::CopySource});
 				cmd->CopyTextureToBuffer({
 					.buffer = depthBuffer,
 					.texture = depth,
 					.extent = Extent3D(currentExtent.width, currentExtent.height, 1),
 				});
-				cmd->ResourceBarrier(depthBuffer, ResourceState::Undefined, ResourceState::CopyDest);
+				cmd->ResourceBarrier(BufferBarrierDesc{.buffer = depthBuffer, .oldState = ResourceState::Undefined, .newState = ResourceState::CopyDest});
 
 				cmd->EndDebugMarker();
 			});
