@@ -21,8 +21,16 @@ into HTTP requests against the editor's asset API.
 ```bash
 cd Tools/SkoreMcp
 npm install
-npm run build        # compiles src -> dist
+npm run build        # typecheck + esbuild -> dist/skore-mcp.mjs (one self-contained file)
 ```
+
+When you build the engine, CMake builds this automatically and deploys the bundled
+file next to the editor at `<build>/bin/Mcp/skore-mcp.mjs`. The bundle has no runtime
+dependencies, so it runs anywhere with just `node skore-mcp.mjs` (no `node_modules`).
+
+The easiest way to wire it into Claude Code is the editor's **Tools -> Install Skore MCP**
+menu item, which writes the project `.mcp.json`, enables the Http Server, and shows the
+config for other clients.
 
 ## Configuration
 
@@ -42,22 +50,22 @@ responses, so you can confirm the editor side independently of the MCP layer.
 
 ## Register with an MCP client
 
-Point your client (Claude Desktop, Claude Code, Cursor, ...) at the built entry.
-Example `mcpServers` block:
+Point your client (Claude Desktop, Claude Code, Cursor, ...) at the bundled entry
+`skore-mcp.mjs` (self-contained, no `node_modules`). Example `mcpServers` block:
 
 ```json
 {
   "mcpServers": {
     "skore": {
       "command": "node",
-      "args": ["C:/dev/SkoreEngine/Skore/Tools/SkoreMcp/dist/index.js"],
+      "args": ["C:/dev/SkoreEngine/Skore/cmake-build-debug/bin/Mcp/skore-mcp.mjs"],
       "env": { "SKORE_MCP_URL": "http://127.0.0.1:8090" }
     }
   }
 }
 ```
 
-(For Claude Code: `claude mcp add skore -- node C:/dev/SkoreEngine/Skore/Tools/SkoreMcp/dist/index.js`.)
+(For Claude Code: `claude mcp add skore -- node C:/dev/SkoreEngine/Skore/cmake-build-debug/bin/Mcp/skore-mcp.mjs`.)
 
 ## Tools
 

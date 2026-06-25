@@ -5,15 +5,17 @@
   "description": "MCP server bridging an LLM to the Skore editor's HTTP asset API.",
   "type": "module",
   "bin": {
-    "skore-mcp": "dist/index.js"
+    "skore-mcp": "dist/skore-mcp.mjs"
   },
-  "main": "dist/index.js",
+  "main": "dist/skore-mcp.mjs",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "bundle": "node esbuild.config.mjs",
+    "build": "npm run typecheck && npm run bundle",
+    "start": "node dist/skore-mcp.mjs",
     "dev": "tsx src/index.ts",
     "smoke": "node smoke.mjs",
     "e2e": "node mcptest.mjs"
@@ -24,6 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "^22",
+    "esbuild": "^0.24",
     "tsx": "^4",
     "typescript": "^5.6"
   }

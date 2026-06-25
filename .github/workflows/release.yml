@@ -29,6 +29,11 @@ jobs:
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v5
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Configure (Release)
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
@@ -45,6 +50,16 @@ jobs:
             | Where-Object { $_.BaseName -notlike 'SkoreTests*' } `
             | Copy-Item -Destination $stage
           Get-ChildItem $stage
+
+      - name: Stage MCP
+        shell: pwsh
+        run: |
+          $mcpSrc = "${{ github.workspace }}\build\bin\Mcp"
+          $mcpDst = "${{ github.workspace }}\stage\Skore-Windows-x64\Mcp"
+          New-Item -ItemType Directory -Force -Path $mcpDst | Out-Null
+          Copy-Item "$mcpSrc\skore-mcp.mjs" $mcpDst
+          Copy-Item "$mcpSrc\README.md" $mcpDst
+          Get-ChildItem $mcpDst
 
       - name: Package zip
         shell: pwsh

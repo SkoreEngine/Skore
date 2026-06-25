@@ -24,6 +24,9 @@ namespace Skore
 		static bool       IsRunning();
 		static u16        GetPort();
 		static StringView GetHost();
+
+		static bool IsMcpInstalled();
+		static void InstallMcp();
 	};
 
 	void RegisterEditorServerTypes();

@@ -3,7 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const transport = new StdioClientTransport({
   command: "node",
-  args: ["dist/index.js"],
+  args: ["dist/skore-mcp.mjs"],
   env: { ...process.env },
 });
 

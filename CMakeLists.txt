@@ -89,5 +89,6 @@ if(NOT ANDROID)
 
 	add_subdirectory(Editor)
 	add_subdirectory(Tests)
+	add_subdirectory(Tools/SkoreMcp)
 
 endif()
