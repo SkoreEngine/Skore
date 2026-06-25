@@ -1,15 +1,12 @@
 #include <httplib.h>
 
-// httplib pulls in <windows.h>, whose CreateDirectory macro otherwise rewrites the
-// ResourceAssets::CreateDirectory call below to CreateDirectoryA and breaks linking.
-#ifdef CreateDirectory
-#undef CreateDirectory
-#endif
-
 #include <functional>
 
 #include "Skore/Editor.hpp"
 #include "Skore/Core/Array.hpp"
+#include "Skore/Core/Color.hpp"
+#include "Skore/Core/Math.hpp"
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Serialization.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/StringUtils.hpp"
@@ -72,18 +69,23 @@ namespace Skore
 			return PackageRootDir(Editor::GetProject());
 		}
 
-		RID FindPackageByName(StringView name)
+		RID FindPackageRootByName(StringView name)
 		{
-			auto matches = [&](RID package)
+			auto rootIfMatches = [&](RID package) -> RID
 			{
-				ResourceObject packageObject = Resources::Read(package);
-				return packageObject && packageObject.GetString(ResourceAssetPackage::Name) == name;
+				RID root = PackageRootDir(package);
+				if (!root) return {};
+				ResourceObject directoryObject = Resources::Read(root);
+				if (!directoryObject) return {};
+				RID directoryAsset = directoryObject.GetSubObject(ResourceAssetDirectory::DirectoryAsset);
+				if (directoryAsset && name == Resources::Read(directoryAsset).GetString(ResourceAsset::Name)) return root;
+				return {};
 			};
 
-			if (RID project = Editor::GetProject(); matches(project)) return project;
+			if (RID root = rootIfMatches(Editor::GetProject())) return root;
 			for (RID package : Editor::GetPackages())
 			{
-				if (matches(package)) return package;
+				if (RID root = rootIfMatches(package)) return root;
 			}
 			return {};
 		}
@@ -114,7 +116,7 @@ namespace Skore
 				}
 			}
 
-			RID rootDir = packageName.Empty() ? DefaultRootDir() : PackageRootDir(FindPackageByName(packageName));
+			RID rootDir = packageName.Empty() ? DefaultRootDir() : FindPackageRootByName(packageName);
 			if (!rootDir) return result;
 
 			Array<String> segments;
@@ -285,9 +287,39 @@ namespace Skore
 			writer.EndMap();
 		}
 
-		void EmitFieldValue(JsonArchiveWriter& writer, StringView key, const ResourceObject& object, ResourceField* field)
+		ResourceType* ResolveResourceType(StringView name)
 		{
-			u32 index = field->GetIndex();
+			if (name.Empty()) return nullptr;
+			if (ResourceType* type = Resources::FindTypeByName(name)) return type;
+			for (ResourceType* type : Resources::GetTypes())
+			{
+				if (type->GetSimpleName() == name || type->GetName() == name) return type;
+			}
+			return nullptr;
+		}
+
+		void EmitField(JsonArchiveWriter& writer, const ResourceObject& object, ResourceField* field);
+		void EmitObjectInto(JsonArchiveWriter& writer, RID rid);
+
+		void EmitObjectInto(JsonArchiveWriter& writer, RID rid)
+		{
+			if (!rid) return;
+			ResourceObject object = Resources::Read(rid);
+			ResourceType*  type = Resources::GetType(rid);
+			if (!object || !type) return;
+
+			writer.WriteString("_type", type->GetSimpleName());
+			writer.WriteString("_uuid", Resources::GetUUID(rid).ToString());
+			for (ResourceField* field : type->GetFields())
+			{
+				EmitField(writer, object, field);
+			}
+		}
+
+		void EmitField(JsonArchiveWriter& writer, const ResourceObject& object, ResourceField* field)
+		{
+			u32        index = field->GetIndex();
+			StringView key = field->GetName();
 			switch (field->GetType())
 			{
 				case ResourceFieldType::Bool: writer.WriteBool(key, object.GetBool(index)); break;
@@ -296,15 +328,108 @@ namespace Skore
 				case ResourceFieldType::Float: writer.WriteFloat(key, object.GetFloat(index)); break;
 				case ResourceFieldType::String: writer.WriteString(key, object.GetString(index)); break;
 				case ResourceFieldType::Enum: writer.WriteInt(key, object.GetEnum(index)); break;
+				case ResourceFieldType::Vec2:
+				{
+					Vec2 v = object.GetVec2(index);
+					writer.BeginSeq(key);
+					writer.AddFloat(v.x);
+					writer.AddFloat(v.y);
+					writer.EndSeq();
+					break;
+				}
+				case ResourceFieldType::Vec3:
+				{
+					Vec3 v = object.GetVec3(index);
+					writer.BeginSeq(key);
+					writer.AddFloat(v.x);
+					writer.AddFloat(v.y);
+					writer.AddFloat(v.z);
+					writer.EndSeq();
+					break;
+				}
+				case ResourceFieldType::Vec4:
+				{
+					Vec4 v = object.GetVec4(index);
+					writer.BeginSeq(key);
+					writer.AddFloat(v.x);
+					writer.AddFloat(v.y);
+					writer.AddFloat(v.z);
+					writer.AddFloat(v.w);
+					writer.EndSeq();
+					break;
+				}
+				case ResourceFieldType::Quat:
+				{
+					Quat q = object.GetQuat(index);
+					writer.BeginSeq(key);
+					writer.AddFloat(q.x);
+					writer.AddFloat(q.y);
+					writer.AddFloat(q.z);
+					writer.AddFloat(q.w);
+					writer.EndSeq();
+					break;
+				}
+				case ResourceFieldType::Mat4:
+				{
+					Mat4 m = object.GetMat4(index);
+					writer.BeginSeq(key);
+					for (u32 k = 0; k < 16; ++k) writer.AddFloat(m.a[k]);
+					writer.EndSeq();
+					break;
+				}
+				case ResourceFieldType::Color:
+				{
+					Color c = object.GetColor(index);
+					writer.BeginSeq(key);
+					writer.AddUInt(c.red);
+					writer.AddUInt(c.green);
+					writer.AddUInt(c.blue);
+					writer.AddUInt(c.alpha);
+					writer.EndSeq();
+					break;
+				}
+				case ResourceFieldType::TypeID:
+				{
+					ReflectType* reflectType = Reflection::FindTypeById(object.GetTypeID(index));
+					writer.WriteString(key, reflectType ? reflectType->GetSimpleName() : StringView{});
+					break;
+				}
 				case ResourceFieldType::Reference:
 				{
-					if (RID reference = object.GetReference(index))
+					RID reference = object.GetReference(index);
+					writer.WriteString(key, reference ? Resources::GetUUID(reference).ToString() : String{});
+					break;
+				}
+				case ResourceFieldType::ReferenceArray:
+				{
+					writer.BeginSeq(key);
+					for (RID reference : object.GetReferenceArray(index)) writer.AddString(Resources::GetUUID(reference).ToString());
+					writer.EndSeq();
+					break;
+				}
+				case ResourceFieldType::SubObject:
+				{
+					if (RID sub = object.GetSubObject(index))
 					{
-						writer.WriteString(key, Resources::GetUUID(reference).ToString());
+						writer.BeginMap(key);
+						EmitObjectInto(writer, sub);
+						writer.EndMap();
 					}
 					break;
 				}
-				default: break;
+				case ResourceFieldType::SubObjectList:
+				{
+					writer.BeginSeq(key);
+					object.IterateSubObjectList(index, [&](RID sub)
+					{
+						writer.BeginMap();
+						EmitObjectInto(writer, sub);
+						writer.EndMap();
+					});
+					writer.EndSeq();
+					break;
+				}
+				default: break; // Blob, Buffer, None
 			}
 		}
 
@@ -333,19 +458,200 @@ namespace Skore
 					if (ResourceType* type = Resources::GetType(data))
 					{
 						writer.WriteString("type", type->GetSimpleName());
-
-						ResourceObject dataObject = Resources::Read(data);
-						writer.BeginMap("fields");
-						for (ResourceField* field : type->GetFields())
-						{
-							EmitFieldValue(writer, field->GetName(), dataObject, field);
-						}
-						writer.EndMap();
 					}
+					writer.BeginMap("object");
+					EmitObjectInto(writer, data);
+					writer.EndMap();
 				}
 			}
 
 			return writer.EmitAsString();
+		}
+
+		u32 ReadFloatArray(JsonArchiveReader& reader, Float* out, u32 max)
+		{
+			u32 count = 0;
+			reader.BeginSeq();
+			while (reader.NextSeqEntry() && count < max)
+			{
+				out[count++] = static_cast<Float>(reader.GetFloat());
+			}
+			reader.EndSeq();
+			return count;
+		}
+
+		void ApplyFields(JsonArchiveReader& reader, ResourceObject& object, ResourceType* type, UndoRedoScope* scope, Array<String>& updated, Array<String>& skipped);
+
+		void ApplySubObject(JsonArchiveReader& reader, ResourceObject& parent, ResourceField* field, UndoRedoScope* scope, Array<String>& updated, Array<String>& skipped)
+		{
+			u32 index = field->GetIndex();
+
+			reader.BeginMap();
+			String typeName = reader.ReadString("_type");
+
+			RID           existing = parent.GetSubObject(index);
+			ResourceType* childType = ResolveResourceType(typeName);
+			if (!childType && existing) childType = Resources::GetType(existing);
+			if (!childType) childType = Resources::FindTypeByID(field->GetSubType());
+
+			if (!childType)
+			{
+				skipped.EmplaceBack(field->GetName());
+				reader.EndMap();
+				return;
+			}
+
+			RID child = existing;
+			if (!child || Resources::GetType(child)->GetID() != childType->GetID())
+			{
+				if (existing) Resources::Destroy(existing, scope);
+				child = Resources::Create(childType->GetID(), UUID::RandomUUID(), scope);
+				parent.SetSubObject(index, child);
+			}
+
+			ResourceObject childObject = Resources::Write(child);
+			ApplyFields(reader, childObject, childType, scope, updated, skipped);
+			childObject.Commit(scope);
+
+			reader.EndMap();
+			updated.EmplaceBack(field->GetName());
+		}
+
+		void ApplySubObjectList(JsonArchiveReader& reader, ResourceObject& parent, ResourceField* field, UndoRedoScope* scope, Array<String>& updated, Array<String>& skipped)
+		{
+			u32 index = field->GetIndex();
+
+			Array<RID> existing;
+			for (RID rid : parent.GetSubObjectList(index)) existing.EmplaceBack(rid);
+			for (RID rid : existing)
+			{
+				parent.RemoveFromSubObjectList(index, rid);
+				Resources::Destroy(rid, scope);
+			}
+
+			ResourceType* baseType = Resources::FindTypeByID(field->GetSubType());
+
+			reader.BeginSeq();
+			while (reader.NextSeqEntry())
+			{
+				reader.BeginMap();
+				String        typeName = reader.ReadString("_type");
+				ResourceType* itemType = typeName.Empty() ? baseType : ResolveResourceType(typeName);
+				if (!itemType) itemType = baseType;
+
+				if (itemType)
+				{
+					RID            item = Resources::Create(itemType->GetID(), UUID::RandomUUID(), scope);
+					ResourceObject itemObject = Resources::Write(item);
+					ApplyFields(reader, itemObject, itemType, scope, updated, skipped);
+					itemObject.Commit(scope);
+					parent.AddToSubObjectList(index, item);
+				}
+				reader.EndMap();
+			}
+			reader.EndSeq();
+			updated.EmplaceBack(field->GetName());
+		}
+
+		void ApplyFields(JsonArchiveReader& reader, ResourceObject& object, ResourceType* type, UndoRedoScope* scope, Array<String>& updated, Array<String>& skipped)
+		{
+			while (reader.NextMapEntry())
+			{
+				String key = reader.GetCurrentKey();
+				if (key == "_type" || key == "_uuid") continue;
+
+				ResourceField* field = type->FindFieldByName(key);
+				if (!field)
+				{
+					skipped.EmplaceBack(key);
+					continue;
+				}
+
+				u32 index = field->GetIndex();
+				switch (field->GetType())
+				{
+					case ResourceFieldType::Bool: object.SetBool(index, reader.GetBool()); updated.EmplaceBack(key); break;
+					case ResourceFieldType::Int: object.SetInt(index, reader.GetInt()); updated.EmplaceBack(key); break;
+					case ResourceFieldType::UInt: object.SetUInt(index, reader.GetUInt()); updated.EmplaceBack(key); break;
+					case ResourceFieldType::Float: object.SetFloat(index, reader.GetFloat()); updated.EmplaceBack(key); break;
+					case ResourceFieldType::String: object.SetString(index, reader.GetString()); updated.EmplaceBack(key); break;
+					case ResourceFieldType::Enum: object.SetEnum(index, reader.GetInt()); updated.EmplaceBack(key); break;
+					case ResourceFieldType::Vec2:
+					{
+						Float v[2] = {};
+						ReadFloatArray(reader, v, 2);
+						object.SetVec2(index, Vec2{v[0], v[1]});
+						updated.EmplaceBack(key);
+						break;
+					}
+					case ResourceFieldType::Vec3:
+					{
+						Float v[3] = {};
+						ReadFloatArray(reader, v, 3);
+						object.SetVec3(index, Vec3{v[0], v[1], v[2]});
+						updated.EmplaceBack(key);
+						break;
+					}
+					case ResourceFieldType::Vec4:
+					{
+						Float v[4] = {};
+						ReadFloatArray(reader, v, 4);
+						object.SetVec4(index, Vec4{v[0], v[1], v[2], v[3]});
+						updated.EmplaceBack(key);
+						break;
+					}
+					case ResourceFieldType::Quat:
+					{
+						Float v[4] = {};
+						ReadFloatArray(reader, v, 4);
+						object.SetQuat(index, Quat{v[0], v[1], v[2], v[3]});
+						updated.EmplaceBack(key);
+						break;
+					}
+					case ResourceFieldType::Mat4:
+					{
+						Float v[16] = {};
+						ReadFloatArray(reader, v, 16);
+						Mat4 m;
+						for (u32 k = 0; k < 16; ++k) m.a[k] = v[k];
+						object.SetMat4(index, m);
+						updated.EmplaceBack(key);
+						break;
+					}
+					case ResourceFieldType::Color:
+					{
+						Float v[4] = {};
+						u32   n = ReadFloatArray(reader, v, 4);
+						Color c{static_cast<u8>(v[0]), static_cast<u8>(v[1]), static_cast<u8>(v[2]), n > 3 ? static_cast<u8>(v[3]) : static_cast<u8>(255)};
+						object.SetColor(index, c);
+						updated.EmplaceBack(key);
+						break;
+					}
+					case ResourceFieldType::TypeID:
+					{
+						ReflectType* reflectType = Reflection::FindTypeByName(reader.GetString());
+						object.SetTypeID(index, reflectType ? reflectType->GetProps().typeId : TypeID{});
+						updated.EmplaceBack(key);
+						break;
+					}
+					case ResourceFieldType::Reference: object.SetReference(index, ResolveDataObject(reader.GetString())); updated.EmplaceBack(key); break;
+					case ResourceFieldType::ReferenceArray:
+					{
+						object.ClearReferenceArray(index);
+						reader.BeginSeq();
+						while (reader.NextSeqEntry())
+						{
+							if (RID reference = ResolveDataObject(reader.GetString())) object.AddToReferenceArray(index, reference);
+						}
+						reader.EndSeq();
+						updated.EmplaceBack(key);
+						break;
+					}
+					case ResourceFieldType::SubObject: ApplySubObject(reader, object, field, scope, updated, skipped); break;
+					case ResourceFieldType::SubObjectList: ApplySubObjectList(reader, object, field, scope, updated, skipped); break;
+					default: skipped.EmplaceBack(key); break; // Blob, Buffer, None
+				}
+			}
 		}
 	}
 
@@ -488,7 +794,7 @@ namespace Skore
 				}
 
 				UndoRedoScope* scope = Editor::CreateUndoRedoScope("MCP: Create Directory");
-				RID            dirAsset = ResourceAssets::CreateDirectory(parent.directoryNode, name.Empty() ? StringView("New Folder") : StringView(name), scope);
+				RID            dirAsset = ResourceAssets::CreateAssetDirectory(parent.directoryNode, name.Empty() ? StringView("New Folder") : StringView(name), scope);
 				out = BuildAssetDetail(dirAsset);
 			});
 			WriteJson(res, ok ? status : 503, ok ? out : ErrorJson("editor busy"));
@@ -676,29 +982,7 @@ namespace Skore
 
 				if (reader.BeginMap("fields"))
 				{
-					while (reader.NextMapEntry())
-					{
-						String         key = reader.GetCurrentKey();
-						ResourceField* field = type->FindFieldByName(key);
-						if (!field)
-						{
-							skipped.EmplaceBack(key);
-							continue;
-						}
-
-						u32 index = field->GetIndex();
-						switch (field->GetType())
-						{
-							case ResourceFieldType::Bool: object.SetBool(index, reader.GetBool()); updated.EmplaceBack(key); break;
-							case ResourceFieldType::Int: object.SetInt(index, reader.GetInt()); updated.EmplaceBack(key); break;
-							case ResourceFieldType::UInt: object.SetUInt(index, reader.GetUInt()); updated.EmplaceBack(key); break;
-							case ResourceFieldType::Float: object.SetFloat(index, reader.GetFloat()); updated.EmplaceBack(key); break;
-							case ResourceFieldType::String: object.SetString(index, reader.GetString()); updated.EmplaceBack(key); break;
-							case ResourceFieldType::Enum: object.SetEnum(index, reader.GetInt()); updated.EmplaceBack(key); break;
-							case ResourceFieldType::Reference: object.SetReference(index, ResolveDataObject(reader.GetString())); updated.EmplaceBack(key); break;
-							default: skipped.EmplaceBack(key); break;
-						}
-					}
+					ApplyFields(reader, object, type, scope, updated, skipped);
 					reader.EndMap();
 				}
 

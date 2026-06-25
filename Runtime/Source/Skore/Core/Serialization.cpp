@@ -679,7 +679,7 @@ namespace Skore
 	void JsonArchiveWriter::WriteString(StringView name, StringView value)
 	{
 		JsonArchiveWriterContext& context = *static_cast<JsonArchiveWriterContext*>(m_context);
-		JsonWriteNamedValue(context, name, yyjson_mut_strncpy(context.doc, value.Data(), value.Size()));
+		JsonWriteNamedValue(context, name, yyjson_mut_strncpy(context.doc, value.Data() ? value.Data() : "", value.Size()));
 	}
 
 	void JsonArchiveWriter::WriteBlob(StringView name, ConstPtr data, u64 size)
@@ -720,7 +720,7 @@ namespace Skore
 	void JsonArchiveWriter::AddString(StringView value)
 	{
 		JsonArchiveWriterContext& context = *static_cast<JsonArchiveWriterContext*>(m_context);
-		JsonAddArrayValue(context, yyjson_mut_strncpy(context.doc, value.Data(), value.Size()));
+		JsonAddArrayValue(context, yyjson_mut_strncpy(context.doc, value.Data() ? value.Data() : "", value.Size()));
 	}
 
 	void JsonArchiveWriter::AddBlob(ConstPtr data, u64 size)

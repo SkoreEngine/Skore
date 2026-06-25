@@ -206,6 +206,7 @@ namespace Skore
 			case ResourceState::CopyDest: return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			case ResourceState::CopySource: return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 			case ResourceState::Present: return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			case ResourceState::IndirectArgument: return VK_IMAGE_LAYOUT_GENERAL; // buffer-only state; never used for an image layout
 		}
 		SK_ASSERT(false, "castLayout not found");
 		return VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1106,6 +1107,9 @@ namespace Skore
 			case ResourceState::CopySource:
 				return VK_ACCESS_TRANSFER_READ_BIT;
 
+			case ResourceState::IndirectArgument:
+				return VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+
 			case ResourceState::Present:
 				return 0; // No access needed for present
 
@@ -1148,6 +1152,9 @@ namespace Skore
 			case ResourceState::CopyDest:
 			case ResourceState::CopySource:
 				return VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+			case ResourceState::IndirectArgument:
+				return VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
 
 			case ResourceState::Present:
 				return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;

@@ -1,0 +1,30 @@
+{
+  "name": "skore-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server bridging an LLM to the Skore editor's HTTP asset API.",
+  "type": "module",
+  "bin": {
+    "skore-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "smoke": "node smoke.mjs",
+    "e2e": "node mcptest.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsx": "^4",
+    "typescript": "^5.6"
+  }
+}

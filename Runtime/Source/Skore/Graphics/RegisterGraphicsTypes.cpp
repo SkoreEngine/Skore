@@ -136,6 +136,7 @@ namespace Skore
 		resourceState.Value<ResourceState::CopyDest>("CopyDest");
 		resourceState.Value<ResourceState::CopySource>("CopySource");
 		resourceState.Value<ResourceState::Present>("Present");
+		resourceState.Value<ResourceState::IndirectArgument>("IndirectArgument");
 
 		auto barrierSyncScope = Reflection::Type<BarrierSyncScope>();
 		barrierSyncScope.Value<BarrierSyncScope::Automatic>("Automatic");

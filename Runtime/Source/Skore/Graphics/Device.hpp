@@ -84,7 +84,8 @@ namespace Skore
 		ShaderReadOnly         = 5,
 		CopyDest               = 6,
 		CopySource             = 7,
-		Present                = 8
+		Present                = 8,
+		IndirectArgument       = 9
 	};
 
 	enum class BarrierSyncScope

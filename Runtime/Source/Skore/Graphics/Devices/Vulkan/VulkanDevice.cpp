@@ -2342,7 +2342,12 @@ namespace Skore
 		{
 			if (VulkanTextureView* vulkanTextureView = static_cast<VulkanTextureView*>(attachment))
 			{
+				// The framebuffer dimensions follow the view's mip level, not the base texture, so a
+				// view targeting a non-zero mip renders into the correctly sized attachment.
+				const u32 mipLevel = vulkanTextureView->desc.baseMipLevel;
 				extent = vulkanTextureView->GetTexture()->GetDesc().extent;
+				extent.width = std::max(1u, extent.width >> mipLevel);
+				extent.height = std::max(1u, extent.height >> mipLevel);
 				imageViews.EmplaceBack(vulkanTextureView->imageView);
 			}
 		}

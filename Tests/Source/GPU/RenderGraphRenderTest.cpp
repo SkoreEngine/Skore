@@ -1249,6 +1249,267 @@ namespace
 		dsProcessC->Destroy();
 		readback->Destroy();
 	}
+
+	// A transfer pass (AddPass) that copies one graph texture into another. The graph moves Src to
+	// CopySource and Dst to CopyDest (with the Transfer sync scope) before the callback runs the
+	// actual CopyTexture, and orders the producing graphics pass first via the Src dependency.
+	TEST_CASE("Graphics::Vulkan::RenderGraphTransferPassCopiesTexture")
+	{
+		if (!GpuTest::IsAvailable())
+		{
+			MESSAGE("Vulkan device not available - skipping GPU test");
+			return;
+		}
+
+		GpuTest::ResourceScope resourceScope;
+
+		RID shader = GpuTest::CompileGraphicsShader(Path::Join(SK_EDITOR_TEST_FILES, "Shaders/Triangle.raster"));
+		REQUIRE(shader);
+
+		RenderGraph rg;
+		rg.SetOutputSize(Extent{kWidth, kHeight});
+
+		GPUBuffer* readback = CreateReadbackBuffer("RenderGraphTransferReadback");
+		REQUIRE(readback != nullptr);
+
+		GPUPipeline* pipeline = nullptr;
+
+		rg.Begin(nullptr);
+		rg.Create("Src", ColorTargetDesc(Extent{kWidth, kHeight}));
+		// CopySource for the readback + ShaderResource so the texture is view-compatible (the device
+		// creates a default view for every texture, which a transfer-only image can't have).
+		rg.Create("Dst", RenderGraphTextureDesc{
+			.format = Format::RGBA8_UNORM,
+			.extent = Extent{kWidth, kHeight},
+			.usage = ResourceUsage::CopySource | ResourceUsage::ShaderResource
+		});
+
+		AddTrianglePass(rg, shader, pipeline, "Src");
+
+		rg.AddPass("CopySrcToDst")
+			.Read("Src")
+			.Write("Dst")
+			.Render([](RenderGraph& graph, Scene*, GPUCommandBuffer* cmd)
+			{
+				cmd->CopyTexture(TextureCopy{
+					.srcTexture = graph.GetTexture("Src"),
+					.dstTexture = graph.GetTexture("Dst"),
+					.extent = Extent3D{kWidth, kHeight, 1}
+				});
+			});
+
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			rg.Execute(cmd);
+		});
+
+		// Dst is left in CopyDest by the transfer pass.
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			GPUTexture* dst = rg.GetTexture("Dst");
+			cmd->ResourceBarrier(TextureBarrierDesc{
+				.texture = dst,
+				.oldState = ResourceState::CopyDest,
+				.newState = ResourceState::CopySource
+			});
+			cmd->CopyTextureToBuffer(BufferTextureCopy{
+				.buffer = readback,
+				.texture = dst,
+				.extent = Extent3D{kWidth, kHeight, 1}
+			});
+		});
+
+		const u8* pixels = static_cast<const u8*>(readback->Map());
+		REQUIRE(pixels != nullptr);
+		CheckTriangleReadback(pixels, kWidth, kHeight);
+		readback->Unmap();
+
+		if (pipeline != nullptr) pipeline->Destroy();
+		readback->Destroy();
+	}
+
+	// Renders into a specific mip level through a CreateView. The graph builds the framebuffer from
+	// the mip-1 view (so the viewport is the mip's 32x32 size) and transitions only that subresource;
+	// the readback reads mip 1 back and expects the triangle, proving subresource-targeted rendering.
+	TEST_CASE("Graphics::Vulkan::RenderGraphRendersIntoMipView")
+	{
+		if (!GpuTest::IsAvailable())
+		{
+			MESSAGE("Vulkan device not available - skipping GPU test");
+			return;
+		}
+
+		GpuTest::ResourceScope resourceScope;
+
+		RID shader = GpuTest::CompileGraphicsShader(Path::Join(SK_EDITOR_TEST_FILES, "Shaders/Triangle.raster"));
+		REQUIRE(shader);
+
+		constexpr u32 kMip = 1;
+		constexpr u32 kMipWidth = kWidth >> kMip;
+		constexpr u32 kMipHeight = kHeight >> kMip;
+
+		RenderGraph rg;
+		rg.SetOutputSize(Extent{kWidth, kHeight});
+
+		GPUBuffer* readback = CreateReadbackBuffer("RenderGraphMipViewReadback");
+		REQUIRE(readback != nullptr);
+
+		GPUPipeline* pipeline = nullptr;
+
+		rg.Begin(nullptr);
+		rg.Create("MipTexture", RenderGraphTextureDesc{
+			.format = Format::RGBA8_UNORM,
+			.extent = Extent{kWidth, kHeight},
+			.mipLevels = 2,
+			.usage = ResourceUsage::CopySource,
+			.clearColor = Vec4(0.0f, 0.0f, 0.0f, 1.0f)
+		});
+		rg.CreateView("Mip1", RenderGraphViewDesc{
+			.texture = "MipTexture",
+			.baseMipLevel = kMip,
+			.mipLevelCount = 1,
+			.baseArrayLayer = 0,
+			.arrayLayerCount = 1
+		});
+
+		AddTrianglePass(rg, shader, pipeline, "Mip1");
+
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			rg.Execute(cmd);
+		});
+
+		// Read mip 1 (32x32) specifically; mip 0 is never written and is left untouched.
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			GPUTexture* texture = rg.GetTexture("MipTexture");
+			cmd->ResourceBarrier(TextureBarrierDesc{
+				.texture = texture,
+				.oldState = ResourceState::ColorAttachment,
+				.newState = ResourceState::CopySource,
+				.baseMipLevel = kMip,
+				.mipLevelCount = 1
+			});
+			cmd->CopyTextureToBuffer(BufferTextureCopy{
+				.buffer = readback,
+				.texture = texture,
+				.extent = Extent3D{kMipWidth, kMipHeight, 1},
+				.mipLevel = kMip
+			});
+		});
+
+		const u8* pixels = static_cast<const u8*>(readback->Map());
+		REQUIRE(pixels != nullptr);
+		CheckTriangleReadback(pixels, kMipWidth, kMipHeight);
+		readback->Unmap();
+
+		if (pipeline != nullptr) pipeline->Destroy();
+		readback->Destroy();
+	}
+
+	// Indirect compute dispatch: the group counts come from a buffer instead of the pass. The buffer is
+	// transitioned to the new ResourceState::IndirectArgument (VK_ACCESS_INDIRECT_COMMAND_READ /
+	// DRAW_INDIRECT stage) before the graph issues DispatchIndirect. (8,8,1) groups cover the 64x64
+	// image, so a wrong indirect read would leave part of it unwritten.
+	TEST_CASE("Graphics::Vulkan::RenderGraphComputeDispatchIndirect")
+	{
+		if (!GpuTest::IsAvailable())
+		{
+			MESSAGE("Vulkan device not available - skipping GPU test");
+			return;
+		}
+
+		GpuTest::ResourceScope resourceScope;
+
+		RID shader = GpuTest::CompileComputeShader(Path::Join(SK_EDITOR_TEST_FILES, "Shaders/FillSolid.comp"));
+		REQUIRE(shader);
+
+		GPUTexture* external = Graphics::CreateTexture(TextureDesc{
+			.extent = {kWidth, kHeight, 1},
+			.format = Format::RGBA32_FLOAT,
+			.usage = ResourceUsage::UnorderedAccess | ResourceUsage::CopySource,
+			.debugName = "DispatchIndirectOutput"
+		});
+		REQUIRE(external != nullptr);
+
+		GPUDescriptorSet* descriptorSet = Graphics::GetDevice()->CreateDescriptorSet(shader, "Default", 0);
+		REQUIRE(descriptorSet != nullptr);
+		descriptorSet->UpdateTexture(0, external);
+
+		GPUBuffer* indirectBuffer = Graphics::CreateBuffer(BufferDesc{
+			.size = sizeof(u32) * 3,
+			.usage = ResourceUsage::IndirectBuffer,
+			.hostVisible = true,
+			.persistentMapped = true,
+			.debugName = "DispatchIndirectArgs"
+		});
+		REQUIRE(indirectBuffer != nullptr);
+
+		// VkDispatchIndirectCommand { x, y, z } group counts: (64/8, 64/8, 1) covers the image exactly.
+		u32* args = static_cast<u32*>(indirectBuffer->GetMappedData());
+		args[0] = kWidth / 8;
+		args[1] = kHeight / 8;
+		args[2] = 1;
+
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			cmd->ResourceBarrier(TextureBarrierDesc{.texture = external, .oldState = ResourceState::Undefined, .newState = ResourceState::CopySource});
+		});
+
+		RenderGraph rg;
+		rg.SetOutputSize(Extent{kWidth, kHeight});
+
+		GPUBuffer* readback = CreateFloatReadbackBuffer("RenderGraphDispatchIndirectReadback");
+		REQUIRE(readback != nullptr);
+
+		rg.Begin(nullptr);
+		rg.SetOutputAttachments("Output", {external}, ResourceState::CopySource);
+		rg.AddComputePass("Fill", shader)
+			.Write("Output")
+			.DescriptorSet(0, descriptorSet)
+			.DispatchIndirect(indirectBuffer);
+
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			cmd->ResourceBarrier(BufferBarrierDesc{
+				.buffer = indirectBuffer,
+				.oldState = ResourceState::Undefined,
+				.newState = ResourceState::IndirectArgument
+			});
+			rg.Execute(cmd);
+		});
+
+		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+		{
+			cmd->CopyTextureToBuffer(BufferTextureCopy{
+				.buffer = readback,
+				.texture = external,
+				.extent = Extent3D{kWidth, kHeight, 1}
+			});
+		});
+
+		const f32* pixels = static_cast<const f32*>(readback->Map());
+		REQUIRE(pixels != nullptr);
+
+		auto checkFillColor = [&](u32 x, u32 y)
+		{
+			const f32* texel = pixels + (y * kWidth + x) * 4;
+			CHECK(texel[0] == doctest::Approx(0.2f).epsilon(0.01));
+			CHECK(texel[1] == doctest::Approx(0.4f).epsilon(0.01));
+			CHECK(texel[2] == doctest::Approx(0.6f).epsilon(0.01));
+			CHECK(texel[3] == doctest::Approx(1.0f));
+		};
+
+		checkFillColor(0, 0);
+		checkFillColor(kWidth / 2, kHeight / 2);
+		checkFillColor(kWidth - 1, kHeight - 1);
+		readback->Unmap();
+
+		descriptorSet->Destroy();
+		indirectBuffer->Destroy();
+		readback->Destroy();
+		external->Destroy();
+	}
 }
 
 #endif
