@@ -27,9 +27,66 @@ namespace Skore
 				case RenderGraphPassType::Raytrace:
 					return access == RenderGraphAccess::Read ? ResourceState::ShaderReadOnly : ResourceState::General;
 				case RenderGraphPassType::Transfer:
-					return access == RenderGraphAccess::Read ? ResourceState::CopySource : ResourceState::CopyDest;
+					if (access == RenderGraphAccess::Read) return ResourceState::CopySource;
+					if (access == RenderGraphAccess::Write) return ResourceState::CopyDest;
+					return ResourceState::General;
 			}
 			return ResourceState::General;
+		}
+
+		ResourceState PassBufferTargetState(RenderGraphPassType type, RenderGraphAccess access)
+		{
+			if (type == RenderGraphPassType::Transfer)
+			{
+				if (access == RenderGraphAccess::Read) return ResourceState::CopySource;
+				if (access == RenderGraphAccess::Write) return ResourceState::CopyDest;
+				return ResourceState::General;
+			}
+
+			return access == RenderGraphAccess::Read ? ResourceState::ShaderReadOnly : ResourceState::General;
+		}
+
+		u32 TextureMipCount(GPUTexture* texture)
+		{
+			const TextureDesc& desc = texture->GetDesc();
+			return desc.mipLevels != 0 ? desc.mipLevels : 1;
+		}
+
+		u32 TextureLayerCount(GPUTexture* texture)
+		{
+			const TextureDesc& desc = texture->GetDesc();
+			return desc.arrayLayers != 0 ? desc.arrayLayers : 1;
+		}
+
+		u32 SubresourceIndex(u32 mipLevel, u32 arrayLayer, u32 arrayLayers)
+		{
+			return mipLevel * arrayLayers + arrayLayer;
+		}
+
+		bool ReadsResource(RenderGraphAccess access)
+		{
+			return access == RenderGraphAccess::Read || access == RenderGraphAccess::ReadWrite;
+		}
+
+		bool WritesResource(RenderGraphAccess access)
+		{
+			return access == RenderGraphAccess::Write || access == RenderGraphAccess::ReadWrite;
+		}
+
+		void AddPassEdge(Array<Array<u32>>& edges, Array<u32>& indegrees, u32 from, u32 to)
+		{
+			if (from == to) return;
+
+			for (u32 existing : edges[from])
+			{
+				if (existing == to)
+				{
+					return;
+				}
+			}
+
+			edges[from].EmplaceBack(to);
+			++indegrees[to];
 		}
 	}
 
@@ -222,6 +279,7 @@ namespace Skore
 
 		pass->Reset(this, name, type);
 		passes.EmplaceBack(pass);
+		passesSorted = false;
 		return *pass;
 	}
 
@@ -297,6 +355,21 @@ namespace Skore
 		resource->imported.Clear();
 		resource->imported.Insert(resource->imported.end(), textures.begin(), textures.end());
 		resource->importedState = state;
+		resource->importedStates.Clear();
+		resource->importedLastWrites.Clear();
+
+		for (GPUTexture* texture : resource->imported)
+		{
+			Array<ResourceState> states;
+			Array<bool>         lastWrites;
+			if (texture != nullptr)
+			{
+				states.Resize(TextureMipCount(texture) * TextureLayerCount(texture), state);
+				lastWrites.Resize(states.Size(), false);
+			}
+			resource->importedStates.EmplaceBack(Traits::Move(states));
+			resource->importedLastWrites.EmplaceBack(Traits::Move(lastWrites));
+		}
 	}
 
 	VoidPtr RenderGraph::CreateInstance(StringView name, usize size)
@@ -458,6 +531,11 @@ namespace Skore
 		return prevFrame;
 	}
 
+	u32 RenderGraph::GetTopologyBuildCount() const
+	{
+		return topologyBuildCount;
+	}
+
 	void RenderGraph::UpdateCamera(f32 nearClip, f32 farClip, f32 fov, Projection projection, const Mat4& view, const Vec3& cameraPosition, bool updateFrustum)
 	{
 	}
@@ -523,7 +601,15 @@ namespace Skore
 		{
 			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
 			{
-				if (dependency.name != name) continue;
+				bool referencesResource = dependency.name == name;
+				if (!referencesResource)
+				{
+					const Resource* dependencyResource = FindResource(dependency.name);
+					referencesResource = dependencyResource != nullptr
+						&& dependencyResource->kind == Resource::Kind::View
+						&& dependencyResource->viewDesc.texture == name;
+				}
+				if (!referencesResource) continue;
 
 				switch (pass->type)
 				{
@@ -558,7 +644,74 @@ namespace Skore
 					}
 					case RenderGraphPassType::Transfer:
 					{
-						usage |= dependency.access == RenderGraphAccess::Read ? ResourceUsage::CopySource : ResourceUsage::CopyDest;
+						if (dependency.access == RenderGraphAccess::Read)
+						{
+							usage |= ResourceUsage::CopySource;
+						}
+						else if (dependency.access == RenderGraphAccess::Write)
+						{
+							usage |= ResourceUsage::CopyDest;
+						}
+						else
+						{
+							usage |= ResourceUsage::CopySource | ResourceUsage::CopyDest;
+						}
+						break;
+					}
+				}
+			}
+		}
+
+		return usage;
+	}
+
+	ResourceUsage RenderGraph::InferBufferUsage(StringView name) const
+	{
+		const Resource* resource = FindResource(name);
+		if (resource == nullptr) return ResourceUsage::None;
+
+		ResourceUsage usage = resource->bufferDesc.usage;
+
+		for (const RenderGraphPass* pass : passes)
+		{
+			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			{
+				if (dependency.name != name) continue;
+
+				switch (pass->type)
+				{
+					case RenderGraphPassType::Transfer:
+					{
+						if (dependency.access == RenderGraphAccess::Read)
+						{
+							usage |= ResourceUsage::CopySource;
+						}
+						else if (dependency.access == RenderGraphAccess::Write)
+						{
+							usage |= ResourceUsage::CopyDest;
+						}
+						else
+						{
+							usage |= ResourceUsage::CopySource | ResourceUsage::CopyDest;
+						}
+						break;
+					}
+					case RenderGraphPassType::Graphics:
+					case RenderGraphPassType::Compute:
+					case RenderGraphPassType::Raytrace:
+					{
+						if (dependency.access == RenderGraphAccess::Read)
+						{
+							usage |= ResourceUsage::ShaderResource;
+						}
+						else if (dependency.access == RenderGraphAccess::Write)
+						{
+							usage |= ResourceUsage::UnorderedAccess;
+						}
+						else
+						{
+							usage |= ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess;
+						}
 						break;
 					}
 				}
@@ -570,6 +723,212 @@ namespace Skore
 
 	void RenderGraph::CreateSceneResources()
 	{
+	}
+
+	void RenderGraph::SortPasses()
+	{
+		if (passesSorted)
+		{
+			return;
+		}
+
+		if (passes.Size() < 2)
+		{
+			passesSorted = true;
+			return;
+		}
+
+		const u32 count = static_cast<u32>(passes.Size());
+
+		usize signature = 0;
+		HashCombine(signature, count);
+		for (const RenderGraphPass* pass : passes)
+		{
+			HashCombine(signature, HashValue(pass->name));
+			HashCombine(signature, static_cast<usize>(pass->type));
+			HashCombine(signature, pass->dependencies.Size());
+			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			{
+				HashCombine(signature, HashValue(dependency.name));
+				if (const Resource* dependencyResource = FindResource(dependency.name))
+				{
+					if (dependencyResource->kind == Resource::Kind::View)
+					{
+						HashCombine(signature, HashValue(dependencyResource->viewDesc.texture));
+					}
+				}
+				HashCombine(signature, static_cast<usize>(dependency.access));
+			}
+			HashCombine(signature, pass->resolves.Size());
+			for (const String& resolve : pass->resolves)
+			{
+				HashCombine(signature, HashValue(resolve));
+			}
+		}
+
+		if (passGraphCacheValid && passGraphSignature == signature && cachedSortedPassIndices.Size() == count)
+		{
+			Array<RenderGraphPass*> sorted;
+			sorted.Reserve(count);
+			for (u32 index : cachedSortedPassIndices)
+			{
+				SK_ASSERT(index < count, "cached render graph pass index out of range");
+				if (index >= count)
+				{
+					passGraphCacheValid = false;
+					break;
+				}
+				sorted.EmplaceBack(passes[index]);
+			}
+
+			if (sorted.Size() == count)
+			{
+				passes = Traits::Move(sorted);
+				passesSorted = true;
+				return;
+			}
+		}
+
+		Array<Array<u32>> edges;
+		edges.Resize(count);
+
+		Array<u32> indegrees;
+		indegrees.Resize(count, 0);
+
+		auto dependencyResourceName = [&](const RenderGraphPass::Dependency& dependency) -> String
+		{
+			if (const Resource* dependencyResource = FindResource(dependency.name))
+			{
+				if (dependencyResource->kind == Resource::Kind::View)
+				{
+					return dependencyResource->viewDesc.texture;
+				}
+			}
+			return dependency.name;
+		};
+
+		HashMap<String, Array<u32>> writers;
+		for (u32 passIndex = 0; passIndex < count; ++passIndex)
+		{
+			for (const RenderGraphPass::Dependency& dependency : passes[passIndex]->dependencies)
+			{
+				if (WritesResource(dependency.access))
+				{
+					writers[dependencyResourceName(dependency)].EmplaceBack(passIndex);
+				}
+			}
+		}
+
+		HashMap<String, u32>        lastWriter;
+		HashMap<String, Array<u32>> readersSinceWrite;
+
+		for (u32 passIndex = 0; passIndex < count; ++passIndex)
+		{
+			RenderGraphPass* pass = passes[passIndex];
+
+			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			{
+				String resourceName = dependencyResourceName(dependency);
+
+				if (ReadsResource(dependency.access))
+				{
+					bool readHasProducer = false;
+
+					if (auto writer = lastWriter.Find(resourceName))
+					{
+						AddPassEdge(edges, indegrees, writer->second, passIndex);
+						readHasProducer = true;
+					}
+					else if (auto resourceWriters = writers.Find(resourceName))
+					{
+						if (resourceWriters->second.Size() == 1 && resourceWriters->second[0] != passIndex)
+						{
+							AddPassEdge(edges, indegrees, resourceWriters->second[0], passIndex);
+							readHasProducer = true;
+						}
+					}
+
+					if (!readHasProducer && !WritesResource(dependency.access))
+					{
+						readersSinceWrite[resourceName].EmplaceBack(passIndex);
+					}
+				}
+
+				if (WritesResource(dependency.access))
+				{
+					if (auto writer = lastWriter.Find(resourceName))
+					{
+						AddPassEdge(edges, indegrees, writer->second, passIndex);
+					}
+
+					if (auto readers = readersSinceWrite.Find(resourceName))
+					{
+						for (u32 reader : readers->second)
+						{
+							AddPassEdge(edges, indegrees, reader, passIndex);
+						}
+						readers->second.Clear();
+					}
+
+					if (auto writer = lastWriter.Find(resourceName))
+					{
+						writer->second = passIndex;
+					}
+					else
+					{
+						lastWriter.Insert(resourceName, passIndex);
+					}
+				}
+			}
+		}
+
+		Array<u32> sortedIndices;
+		sortedIndices.Reserve(count);
+
+		Array<bool> emitted;
+		emitted.Resize(count, false);
+
+		while (sortedIndices.Size() < count)
+		{
+			u32 next = U32_MAX;
+			for (u32 passIndex = 0; passIndex < count; ++passIndex)
+			{
+				if (!emitted[passIndex] && indegrees[passIndex] == 0)
+				{
+					next = passIndex;
+					break;
+				}
+			}
+
+			if (next == U32_MAX)
+			{
+				SK_ASSERT(false, "RenderGraph contains cyclic pass dependencies");
+				return;
+			}
+
+			emitted[next] = true;
+			sortedIndices.EmplaceBack(next);
+
+			for (u32 dependent : edges[next])
+			{
+				--indegrees[dependent];
+			}
+		}
+
+		Array<RenderGraphPass*> sorted;
+		sorted.Reserve(count);
+		for (u32 index : sortedIndices)
+		{
+			sorted.EmplaceBack(passes[index]);
+		}
+
+		cachedSortedPassIndices = sortedIndices;
+		passGraphSignature = signature;
+		passGraphCacheValid = true;
+		++topologyBuildCount;
+
+		passes = Traits::Move(sorted);
+		passesSorted = true;
 	}
 
 	void RenderGraph::CreateResourceTextures()
@@ -601,11 +960,15 @@ namespace Skore
 
 				res.textures[0] = device->CreateTexture(desc);
 				res.states[0] = ResourceState::Undefined;
+				res.textureStates[0].Resize(TextureMipCount(res.textures[0]) * TextureLayerCount(res.textures[0]), ResourceState::Undefined);
+				res.textureLastWrites[0].Resize(res.textureStates[0].Size(), false);
 
 				if (rgDesc.pingPong)
 				{
 					res.textures[1] = device->CreateTexture(desc);
 					res.states[1] = ResourceState::Undefined;
+					res.textureStates[1].Resize(TextureMipCount(res.textures[1]) * TextureLayerCount(res.textures[1]), ResourceState::Undefined);
+					res.textureLastWrites[1].Resize(res.textureStates[1].Size(), false);
 				}
 			}
 			else if (res.kind == Resource::Kind::Buffer)
@@ -616,7 +979,7 @@ namespace Skore
 
 				BufferDesc desc;
 				desc.size = rgDesc.size;
-				desc.usage = rgDesc.usage;
+				desc.usage = InferBufferUsage(name);
 				desc.hostVisible = rgDesc.hostVisible;
 				desc.persistentMapped = rgDesc.persistentMapped;
 				desc.debugName = name;
@@ -625,6 +988,8 @@ namespace Skore
 				for (u32 i = 0; i < count; ++i)
 				{
 					res.buffers[i] = device->CreateBuffer(desc);
+					res.bufferStates[i] = ResourceState::Undefined;
+					res.bufferLastWrites[i] = false;
 				}
 			}
 		}
@@ -672,6 +1037,7 @@ namespace Skore
 			passPool.EmplaceBack(pass);
 		}
 		passes.Clear();
+		passesSorted = false;
 	}
 
 	void RenderGraph::Resize(Extent newExtent)
@@ -681,11 +1047,200 @@ namespace Skore
 
 	void RenderGraph::Execute(GPUCommandBuffer* cmd)
 	{
+		SortPasses();
+
 		if (resourcesDirty)
 		{
 			CreateResourceTextures();
 			resourcesDirty = false;
 		}
+
+		struct TextureBarrierTarget
+		{
+			GPUTexture*           texture = nullptr;
+			Array<ResourceState>* states = nullptr;
+			Array<bool>*          lastWrites = nullptr;
+			ResourceState*        coarseState = nullptr;
+			u32                   baseMipLevel = 0;
+			u32                   mipLevelCount = 0;
+			u32                   baseArrayLayer = 0;
+			u32                   arrayLayerCount = 0;
+		};
+
+		auto ensureTextureStateTracking = [](GPUTexture* texture, Array<ResourceState>& states, Array<bool>& lastWrites, ResourceState initialState)
+		{
+			const u32 subresourceCount = TextureMipCount(texture) * TextureLayerCount(texture);
+			if (states.Size() != subresourceCount)
+			{
+				states.Resize(subresourceCount, initialState);
+			}
+			if (lastWrites.Size() != subresourceCount)
+			{
+				lastWrites.Resize(subresourceCount, false);
+			}
+		};
+
+		auto resolveWholeTextureResource = [&](Resource& res, TextureBarrierTarget& target) -> bool
+		{
+			if (res.kind == Resource::Kind::Texture)
+			{
+				const u32 slot = res.textures[1] != nullptr ? currentFrame : 0;
+				GPUTexture* texture = res.textures[slot];
+				if (texture == nullptr) return false;
+
+				ensureTextureStateTracking(texture, res.textureStates[slot], res.textureLastWrites[slot], res.states[slot]);
+
+				target.texture = texture;
+				target.states = &res.textureStates[slot];
+				target.lastWrites = &res.textureLastWrites[slot];
+				target.coarseState = &res.states[slot];
+				target.baseMipLevel = 0;
+				target.mipLevelCount = TextureMipCount(texture);
+				target.baseArrayLayer = 0;
+				target.arrayLayerCount = TextureLayerCount(texture);
+				return true;
+			}
+
+			if (res.kind == Resource::Kind::Imported)
+			{
+				if (res.imported.Empty() || currentOutputIndex >= res.imported.Size()) return false;
+				GPUTexture* texture = res.imported[currentOutputIndex];
+				if (texture == nullptr) return false;
+				if (currentOutputIndex >= res.importedStates.Size() || currentOutputIndex >= res.importedLastWrites.Size()) return false;
+
+				ensureTextureStateTracking(texture, res.importedStates[currentOutputIndex], res.importedLastWrites[currentOutputIndex], res.importedState);
+
+				target.texture = texture;
+				target.states = &res.importedStates[currentOutputIndex];
+				target.lastWrites = &res.importedLastWrites[currentOutputIndex];
+				target.coarseState = nullptr;
+				target.baseMipLevel = 0;
+				target.mipLevelCount = TextureMipCount(texture);
+				target.baseArrayLayer = 0;
+				target.arrayLayerCount = TextureLayerCount(texture);
+				return true;
+			}
+
+			return false;
+		};
+
+		auto resolveTextureDependency = [&](Resource& res, TextureBarrierTarget& target) -> bool
+		{
+			if (res.kind != Resource::Kind::View)
+			{
+				return resolveWholeTextureResource(res, target);
+			}
+
+			Resource* source = FindResource(res.viewDesc.texture);
+			if (source == nullptr || !resolveWholeTextureResource(*source, target)) return false;
+
+			const u32 totalMipLevels = TextureMipCount(target.texture);
+			const u32 totalArrayLayers = TextureLayerCount(target.texture);
+			if (res.viewDesc.baseMipLevel >= totalMipLevels || res.viewDesc.baseArrayLayer >= totalArrayLayers) return false;
+
+			const u32 availableMipLevels = totalMipLevels - res.viewDesc.baseMipLevel;
+			const u32 availableArrayLayers = totalArrayLayers - res.viewDesc.baseArrayLayer;
+
+			target.baseMipLevel = res.viewDesc.baseMipLevel;
+			target.mipLevelCount = res.viewDesc.mipLevelCount == U32_MAX || res.viewDesc.mipLevelCount > availableMipLevels
+				                       ? availableMipLevels
+				                       : res.viewDesc.mipLevelCount;
+			target.baseArrayLayer = res.viewDesc.baseArrayLayer;
+			target.arrayLayerCount = res.viewDesc.arrayLayerCount == U32_MAX || res.viewDesc.arrayLayerCount > availableArrayLayers
+				                         ? availableArrayLayers
+				                         : res.viewDesc.arrayLayerCount;
+
+			return target.mipLevelCount != 0 && target.arrayLayerCount != 0;
+		};
+
+		auto transitionTexture = [](GPUCommandBuffer* cmd, TextureBarrierTarget& resource, ResourceState targetState, bool writes)
+		{
+			const u32 arrayLayers = TextureLayerCount(resource.texture);
+
+			bool          first = true;
+			bool          canBatch = true;
+			bool          batchedNeedsBarrier = false;
+			ResourceState batchedOldState = ResourceState::Undefined;
+
+			for (u32 mip = resource.baseMipLevel; mip < resource.baseMipLevel + resource.mipLevelCount; ++mip)
+			{
+				for (u32 layer = resource.baseArrayLayer; layer < resource.baseArrayLayer + resource.arrayLayerCount; ++layer)
+				{
+					const u32 index = SubresourceIndex(mip, layer, arrayLayers);
+					const ResourceState oldState = (*resource.states)[index];
+					const bool needsBarrier = oldState != targetState || (*resource.lastWrites)[index] || writes;
+
+					if (first)
+					{
+						batchedOldState = oldState;
+						batchedNeedsBarrier = needsBarrier;
+						first = false;
+					}
+					else if (oldState != batchedOldState || needsBarrier != batchedNeedsBarrier)
+					{
+						canBatch = false;
+					}
+				}
+			}
+
+			if (canBatch)
+			{
+				if (batchedNeedsBarrier)
+				{
+					cmd->ResourceBarrier(
+						resource.texture,
+						batchedOldState,
+						targetState,
+						resource.baseMipLevel,
+						resource.mipLevelCount,
+						resource.baseArrayLayer,
+						resource.arrayLayerCount
+					);
+				}
+
+				for (u32 mip = resource.baseMipLevel; mip < resource.baseMipLevel + resource.mipLevelCount; ++mip)
+				{
+					for (u32 layer = resource.baseArrayLayer; layer < resource.baseArrayLayer + resource.arrayLayerCount; ++layer)
+					{
+						const u32 index = SubresourceIndex(mip, layer, arrayLayers);
+						(*resource.states)[index] = targetState;
+						(*resource.lastWrites)[index] = writes;
+					}
+				}
+			}
+			else
+			{
+				for (u32 mip = resource.baseMipLevel; mip < resource.baseMipLevel + resource.mipLevelCount; ++mip)
+				{
+					for (u32 layer = resource.baseArrayLayer; layer < resource.baseArrayLayer + resource.arrayLayerCount; ++layer)
+					{
+						const u32 index = SubresourceIndex(mip, layer, arrayLayers);
+						const ResourceState oldState = (*resource.states)[index];
+						if (oldState != targetState || (*resource.lastWrites)[index] || writes)
+						{
+							cmd->ResourceBarrier(resource.texture, oldState, targetState, mip, 1, layer, 1);
+						}
+						(*resource.states)[index] = targetState;
+						(*resource.lastWrites)[index] = writes;
+					}
+				}
+			}
+
+			if (resource.coarseState != nullptr)
+			{
+				*resource.coarseState = targetState;
+			}
+		};
+
+		auto transitionBuffer = [](GPUCommandBuffer* cmd, GPUBuffer* buffer, ResourceState& currentState, bool& lastWrite, ResourceState targetState, bool writes)
+		{
+			if (currentState != targetState || lastWrite || writes)
+			{
+				cmd->ResourceBarrier(buffer, currentState, targetState);
+			}
+			currentState = targetState;
+			lastWrite = writes;
+		};
 
 		for (RenderGraphPass* pass : passes)
 		{
@@ -694,25 +1249,44 @@ namespace Skore
 				Resource* res = FindResource(dependency.name);
 				if (res == nullptr) continue;
 
-				u32         slot = res->textures[1] != nullptr ? currentFrame : 0;
-				GPUTexture* texture = res->textures[slot];
-				if (texture == nullptr && !res->imported.Empty())
+				if (res->kind == Resource::Kind::Buffer)
 				{
-					texture = res->imported[currentOutputIndex];
-				}
-				if (texture == nullptr) continue;
+					const u32 slot = res->bufferDesc.perFrame ? currentFrame : 0;
+					GPUBuffer* buffer = res->buffers[slot];
+					if (buffer == nullptr) continue;
 
-				ResourceState target = PassTargetState(pass->type, dependency.access, IsDepthFormat(res->textureDesc.format));
-				if (res->states[slot] != target)
-				{
-					cmd->ResourceBarrier(texture, res->states[slot], target, 0, U32_MAX, 0, U32_MAX);
-					res->states[slot] = target;
+					const ResourceState target = PassBufferTargetState(pass->type, dependency.access);
+					transitionBuffer(cmd, buffer, res->bufferStates[slot], res->bufferLastWrites[slot], target, WritesResource(dependency.access));
+					continue;
 				}
+
+				if (res->kind == Resource::Kind::Instance)
+				{
+					continue;
+				}
+
+				TextureBarrierTarget textureTarget;
+				if (!resolveTextureDependency(*res, textureTarget)) continue;
+
+				const ResourceState target = PassTargetState(pass->type, dependency.access, IsDepthFormat(textureTarget.texture->GetDesc().format));
+				transitionTexture(cmd, textureTarget, target, WritesResource(dependency.access));
 			}
 
 			if (pass->renderFn)
 			{
 				pass->renderFn(*this, currentScene, cmd);
+			}
+		}
+
+		for (auto& it : resources)
+		{
+			Resource& res = it.second;
+			if (res.kind != Resource::Kind::Imported || res.importedState == ResourceState::Undefined) continue;
+
+			TextureBarrierTarget textureTarget;
+			if (resolveWholeTextureResource(res, textureTarget))
+			{
+				transitionTexture(cmd, textureTarget, res.importedState, false);
 			}
 		}
 	}

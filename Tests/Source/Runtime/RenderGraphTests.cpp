@@ -188,6 +188,339 @@ namespace
 		CHECK(testLight->mismatchCount == 0);
 	}
 
+	TEST_CASE("RenderGraph::ExecuteTransitionsBuffers")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+
+		rg.Create("LightList", RenderGraphBufferDesc{.size = 256, .hostVisible = false});
+
+		rg.AddComputePass("BuildLightList", "Shaders/BuildLightList")
+			.Write("LightList")
+			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+
+		rg.AddComputePass("Shade", "Shaders/Shade")
+			.Read("LightList")
+			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		GPUBuffer* lightList = rg.GetBuffer("LightList");
+		REQUIRE(lightList != nullptr);
+		CHECK(HasUsage(lightList->GetDesc().usage, ResourceUsage::UnorderedAccess));
+		CHECK(HasUsage(lightList->GetDesc().usage, ResourceUsage::ShaderResource));
+
+		TestGPUBuffer* testLightList = static_cast<TestGPUBuffer*>(lightList);
+		CHECK(testLightList->state == ResourceState::ShaderReadOnly);
+
+		TestGPUCommandBuffer* testCmd = static_cast<TestGPUCommandBuffer*>(cmd);
+		CHECK(testCmd->stats.bufferBarrierCount == 2);
+		CHECK(testCmd->stats.textureBarrierCount == 0);
+	}
+
+	TEST_CASE("RenderGraph::ExecuteBarriersSameStateWriteHazards")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("Accum", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("Counter", RenderGraphBufferDesc{.size = 16, .hostVisible = false});
+
+		rg.AddComputePass("Clear", "Shaders/Clear")
+			.Write("Accum")
+			.Write("Counter")
+			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+
+		rg.AddComputePass("Accumulate", "Shaders/Accumulate")
+			.Write("Accum")
+			.Write("Counter")
+			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		TestGPUTexture* accum = static_cast<TestGPUTexture*>(rg.GetTexture("Accum"));
+		REQUIRE(accum != nullptr);
+		CHECK(accum->GetSubresourceState(0, 0) == ResourceState::General);
+		CHECK(accum->barrierHistory.Size() == 2);
+		CHECK(accum->barrierHistory[1].oldState == ResourceState::General);
+		CHECK(accum->barrierHistory[1].newState == ResourceState::General);
+		CHECK(accum->mismatchCount == 0);
+
+		TestGPUBuffer* counter = static_cast<TestGPUBuffer*>(rg.GetBuffer("Counter"));
+		REQUIRE(counter != nullptr);
+		CHECK(counter->state == ResourceState::General);
+
+		TestGPUCommandBuffer* testCmd = static_cast<TestGPUCommandBuffer*>(cmd);
+		CHECK(testCmd->stats.bufferBarrierCount == 2);
+	}
+
+	TEST_CASE("RenderGraph::ExecuteTransitionsAllTextureSubresources")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("MipChain", RenderGraphTextureDesc{
+			.format = Format::RGBA16_FLOAT,
+			.arrayLayers = 2,
+			.mipLevels = 3
+		});
+
+		rg.AddComputePass("BuildMipChain", "Shaders/BuildMipChain")
+			.Write("MipChain")
+			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+
+		rg.AddComputePass("SampleMipChain", "Shaders/SampleMipChain")
+			.Read("MipChain")
+			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		TestGPUTexture* mipChain = static_cast<TestGPUTexture*>(rg.GetTexture("MipChain"));
+		REQUIRE(mipChain != nullptr);
+		CHECK(mipChain->AllSubresourcesInState(ResourceState::ShaderReadOnly));
+		REQUIRE(mipChain->barrierHistory.Size() == 2);
+		CHECK(mipChain->barrierHistory[0].levelCount == 3);
+		CHECK(mipChain->barrierHistory[0].layerCount == 2);
+		CHECK(mipChain->barrierHistory[1].levelCount == 3);
+		CHECK(mipChain->barrierHistory[1].layerCount == 2);
+		CHECK(mipChain->mismatchCount == 0);
+	}
+
+	TEST_CASE("RenderGraph::ExecuteTransitionsTextureViewSubresources")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("MipChain", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT, .mipLevels = 3});
+		rg.CreateView("Mip1", RenderGraphViewDesc{
+			.texture = "MipChain",
+			.baseMipLevel = 1,
+			.mipLevelCount = 1,
+			.baseArrayLayer = 0,
+			.arrayLayerCount = 1
+		});
+
+		rg.AddComputePass("BuildMip1", "Shaders/BuildMip1")
+			.Write("Mip1")
+			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+
+		CHECK(HasUsage(rg.InferTextureUsage("MipChain"), ResourceUsage::UnorderedAccess));
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		TestGPUTexture* mipChain = static_cast<TestGPUTexture*>(rg.GetTexture("MipChain"));
+		REQUIRE(mipChain != nullptr);
+		CHECK(mipChain->GetSubresourceState(0, 0) == ResourceState::Undefined);
+		CHECK(mipChain->GetSubresourceState(1, 0) == ResourceState::General);
+		CHECK(mipChain->GetSubresourceState(2, 0) == ResourceState::Undefined);
+		REQUIRE(mipChain->barrierHistory.Size() == 1);
+		CHECK(mipChain->barrierHistory[0].baseMipLevel == 1);
+		CHECK(mipChain->barrierHistory[0].levelCount == 1);
+		CHECK(mipChain->mismatchCount == 0);
+	}
+
+	TEST_CASE("RenderGraph::ExecuteSortsTextureViewAliasBeforeParentRead")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("MipChain", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT, .mipLevels = 3});
+		rg.CreateView("Mip1", RenderGraphViewDesc{
+			.texture = "MipChain",
+			.baseMipLevel = 1,
+			.mipLevelCount = 1,
+			.baseArrayLayer = 0,
+			.arrayLayerCount = 1
+		});
+
+		Array<int> executionOrder;
+
+		rg.AddComputePass("SampleMipChain", "Shaders/SampleMipChain")
+			.Read("MipChain")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+
+		rg.AddComputePass("BuildMip1", "Shaders/BuildMip1")
+			.Write("Mip1")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		REQUIRE(executionOrder.Size() == 2);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+
+		TestGPUTexture* mipChain = static_cast<TestGPUTexture*>(rg.GetTexture("MipChain"));
+		REQUIRE(mipChain != nullptr);
+		CHECK(mipChain->AllSubresourcesInState(ResourceState::ShaderReadOnly));
+		CHECK(mipChain->mismatchCount == 0);
+	}
+
+	TEST_CASE("RenderGraph::ExecuteSortsWriterBeforeReader")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("Light", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		Array<int> executionOrder;
+
+		rg.AddComputePass("Composite", "Shaders/Composite")
+			.Read("Light")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+
+		rg.AddComputePass("Lighting", "Shaders/Lighting")
+			.Write("Light")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		REQUIRE(executionOrder.Size() == 2);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+
+		TestGPUTexture* light = static_cast<TestGPUTexture*>(rg.GetTexture("Light"));
+		REQUIRE(light != nullptr);
+		CHECK(light->mismatchCount == 0);
+	}
+
+	TEST_CASE("RenderGraph::ExecuteSortsDependencyChain")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("A", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("B", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("C", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		Array<int> executionOrder;
+
+		rg.AddComputePass("Final", "Shaders/Final")
+			.Read("C")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(4); });
+
+		rg.AddComputePass("BuildC", "Shaders/BuildC")
+			.Read("B")
+			.Write("C")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(3); });
+
+		rg.AddComputePass("BuildB", "Shaders/BuildB")
+			.Read("A")
+			.Write("B")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+
+		rg.AddComputePass("BuildA", "Shaders/BuildA")
+			.Write("A")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		REQUIRE(executionOrder.Size() == 4);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+		CHECK(executionOrder[2] == 3);
+		CHECK(executionOrder[3] == 4);
+	}
+
+	TEST_CASE("RenderGraph::ExecuteCachesTopologicalSort")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("Light", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("Color", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		Array<int> executionOrder;
+
+		auto declareBaseGraph = [&]
+		{
+			rg.AddComputePass("Composite", "Shaders/Composite")
+				.Read("Light")
+				.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+
+			rg.AddComputePass("Lighting", "Shaders/Lighting")
+				.Write("Light")
+				.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+		};
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		auto execute = [&]
+		{
+			cmd->Begin();
+			rg.Execute(cmd);
+			cmd->End();
+		};
+
+		declareBaseGraph();
+		execute();
+
+		REQUIRE(executionOrder.Size() == 2);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+		CHECK(rg.GetTopologyBuildCount() == 1);
+
+		rg.Begin(nullptr);
+		executionOrder.Clear();
+		declareBaseGraph();
+		execute();
+
+		REQUIRE(executionOrder.Size() == 2);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+		CHECK(rg.GetTopologyBuildCount() == 1);
+
+		rg.Begin(nullptr);
+		executionOrder.Clear();
+
+		rg.AddComputePass("Composite", "Shaders/Composite")
+			.Read("Light")
+			.Write("Color")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+
+		rg.AddComputePass("Lighting", "Shaders/Lighting")
+			.Write("Light")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+
+		rg.AddComputePass("Tonemap", "Shaders/Tonemap")
+			.Read("Color")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(3); });
+
+		execute();
+
+		REQUIRE(executionOrder.Size() == 3);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+		CHECK(executionOrder[2] == 3);
+		CHECK(rg.GetTopologyBuildCount() == 2);
+	}
+
 	TEST_CASE("RenderGraph::DeferredPipelineExample")
 	{
 		struct LightInstanceData

@@ -207,6 +207,7 @@ namespace Skore
 
 		u32 GetCurrentFrame() const;
 		u32 GetPrevFrame() const;
+		u32 GetTopologyBuildCount() const;
 
 		void UpdateCamera(f32 nearClip, f32 farClip, f32 fov, Projection projection, const Mat4& view, const Vec3& cameraPosition, bool updateFrustum = true);
 
@@ -274,11 +275,17 @@ namespace Skore
 
 			GPUTexture*     textures[2] = {nullptr, nullptr};
 			ResourceState   states[2] = {ResourceState::Undefined, ResourceState::Undefined};
+			Array<ResourceState> textureStates[2];
+			Array<bool>          textureLastWrites[2];
 			GPUTextureView* view = nullptr;
 			GPUBuffer*      buffers[SK_FRAMES_IN_FLIGHT] = {};
+			ResourceState   bufferStates[SK_FRAMES_IN_FLIGHT] = {};
+			bool            bufferLastWrites[SK_FRAMES_IN_FLIGHT] = {};
 
 			Array<GPUTexture*> imported;
 			ResourceState      importedState = ResourceState::Undefined;
+			Array<Array<ResourceState>> importedStates;
+			Array<Array<bool>>          importedLastWrites;
 
 			VoidPtr instanceData = nullptr;
 			usize   instanceSize = 0;
@@ -290,10 +297,12 @@ namespace Skore
 		GPUPipeline*     GetOrCreatePipeline(StringView key, GPUPipeline* (*create)(VoidPtr userData), VoidPtr userData);
 
 		void CreateSceneResources();
+		void SortPasses();
 		void CreateResourceTextures();
 		void CreateRenderPasses();
 		void CreateBarriers();
 		void UpdateSceneBuffer();
+		ResourceUsage InferBufferUsage(StringView name) const;
 
 		GPUDevice* device = nullptr;
 		Scene*     currentScene = nullptr;
@@ -313,9 +322,14 @@ namespace Skore
 		HashMap<String, Resource>         resources;
 		Array<RenderGraphPass*>           passes;
 		Array<RenderGraphPass*>           passPool;
+		Array<u32>                        cachedSortedPassIndices;
 		HashMap<usize, GPUPipeline*>      pipelineCache;
 		HashMap<usize, GPUDescriptorSet*> descriptorSetCache;
 
 		bool resourcesDirty = true;
+		bool passesSorted = false;
+		bool passGraphCacheValid = false;
+		usize passGraphSignature = 0;
+		u32 topologyBuildCount = 0;
 	};
 }

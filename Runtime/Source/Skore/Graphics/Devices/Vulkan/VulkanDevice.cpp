@@ -1157,28 +1157,46 @@ namespace Skore
 			}
 			return access;
 		}
+
+		VkAccessFlags GetBufferAccessFlagsFromResourceState(ResourceState state)
+		{
+			VkAccessFlags access = GetAccessFlagsFromResourceState(state);
+			if (state == ResourceState::ShaderReadOnly)
+			{
+				access |= VK_ACCESS_UNIFORM_READ_BIT |
+					VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+					VK_ACCESS_INDEX_READ_BIT |
+					VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+			}
+			return access;
+		}
+
+		VkPipelineStageFlags GetBufferPipelineStageFromResourceState(ResourceState state)
+		{
+			VkPipelineStageFlags stage = GetPipelineStageFromResourceState(state);
+			if (state == ResourceState::ShaderReadOnly)
+			{
+				stage |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+			}
+			return stage;
+		}
 	}
 
 	void VulkanCommandBuffer::ResourceBarrier(GPUBuffer* buffer, ResourceState oldState, ResourceState newState)
 	{
-		if (oldState == newState)
-		{
-			return;
-		}
-
 		VulkanBuffer* vulkanBuffer = static_cast<VulkanBuffer*>(buffer);
 
 		VkBufferMemoryBarrier bufferBarrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-		bufferBarrier.srcAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(oldState), queueType);
-		bufferBarrier.dstAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(newState), queueType);
+		bufferBarrier.srcAccessMask = ClampAccessForQueue(GetBufferAccessFlagsFromResourceState(oldState), queueType);
+		bufferBarrier.dstAccessMask = ClampAccessForQueue(GetBufferAccessFlagsFromResourceState(newState), queueType);
 		bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		bufferBarrier.buffer = vulkanBuffer->buffer;
 		bufferBarrier.offset = 0;
 		bufferBarrier.size = vulkanBuffer->desc.size;
 
-		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(oldState), queueType);
-		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(newState), queueType);
+		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetBufferPipelineStageFromResourceState(oldState), queueType);
+		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetBufferPipelineStageFromResourceState(newState), queueType);
 
 		vkCmdPipelineBarrier(
 			commandBuffer,
@@ -1213,83 +1231,11 @@ namespace Skore
 		imageBarrier.subresourceRange.baseArrayLayer = arrayLayer;
 		imageBarrier.subresourceRange.layerCount = layerCount;
 
-		imageBarrier.srcAccessMask = 0;
+		imageBarrier.srcAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(oldState), queueType);
+		imageBarrier.dstAccessMask = ClampAccessForQueue(GetAccessFlagsFromResourceState(newState), queueType);
 
-		switch (imageBarrier.oldLayout)
-		{
-			case VK_IMAGE_LAYOUT_PREINITIALIZED:
-				imageBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-				break;
-			case VK_IMAGE_LAYOUT_GENERAL:
-				imageBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-				break;
-			default:
-				// Other source layouts aren't handled (yet)
-				break;
-		}
-
-		switch (imageBarrier.newLayout)
-		{
-			case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-				imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-				imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-				imageBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-				if (imageBarrier.oldLayout != VK_IMAGE_LAYOUT_UNDEFINED)
-				{
-					imageBarrier.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-				}
-				break;
-
-			case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-				imageBarrier.dstAccessMask = imageBarrier.dstAccessMask | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-				break;
-
-			case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-				if (imageBarrier.srcAccessMask == 0 && imageBarrier.oldLayout != VK_IMAGE_LAYOUT_UNDEFINED)
-				{
-					imageBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-				}
-				imageBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-				break;
-			case VK_IMAGE_LAYOUT_GENERAL:
-				imageBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-				break;
-			default:
-				break;
-		}
-
-		imageBarrier.srcAccessMask = ClampAccessForQueue(imageBarrier.srcAccessMask, queueType);
-		imageBarrier.dstAccessMask = ClampAccessForQueue(imageBarrier.dstAccessMask, queueType);
-
-		//TODO remove VK_PIPELINE_STAGE_ALL_COMMANDS_BIT and use correct VkPipelineStageFlags
-		VkPipelineStageFlags srcStageMask = ClampStageForQueue(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queueType);
-		VkPipelineStageFlags dstStageMask = ClampStageForQueue(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queueType);
+		VkPipelineStageFlags srcStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(oldState), queueType);
+		VkPipelineStageFlags dstStageMask = ClampStageForQueue(GetPipelineStageFromResourceState(newState), queueType);
 
 		vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
 	}
