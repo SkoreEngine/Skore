@@ -580,6 +580,12 @@ namespace Skore
 				SpvReflectShaderModule module{};
 				spvReflectCreateShaderModule(data.Size(), data.Data(), &module);
 
+				if ((stageInfo.stage == ShaderStage::Compute || stageInfo.stage == ShaderStage::Mesh || stageInfo.stage == ShaderStage::Amplification) && module.entry_point_count > 0)
+				{
+					const SpvReflectEntryPoint& entryPoint = module.entry_points[0];
+					pipelineLayout.numThreads = Extent3D{entryPoint.local_size.x, entryPoint.local_size.y, entryPoint.local_size.z};
+				}
+
 				if (stageInfo.stage == ShaderStage::Vertex)
 				{
 					spvReflectEnumerateInputVariables(&module, &varCount, nullptr);

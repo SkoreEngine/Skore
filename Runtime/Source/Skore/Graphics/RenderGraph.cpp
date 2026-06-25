@@ -1,11 +1,40 @@
 #include "RenderGraph.hpp"
 
 #include "Graphics.hpp"
+#include "RenderSceneObjects.hpp"
 #include "Skore/Core/Hash.hpp"
 #include "Skore/Core/Allocator.hpp"
+#include "Skore/Core/Algorithm.hpp"
+#include "Skore/Resource/Resources.hpp"
+#include "Skore/Scene/Scene.hpp"
 
 namespace Skore
 {
+	struct GlobalSceneBuffer
+	{
+		Mat4  viewProjection;
+		Mat4  view;
+		Mat4  projection;
+		Mat4  viewInv;
+		Mat4  projectionInv;
+		Mat4  viewProjInv;
+
+		Vec3  cameraPosition;
+		f32   farClip;
+
+		IVec2 outputSize;
+		Vec2  pad1;
+
+		Vec2  jitter;
+		Vec2  prevJitter;
+
+		u32   instanceCount;
+		u32   pad0;
+		u64   cullingMask;
+
+		Vec4  frustumPlanes[6];
+	};
+
 	namespace
 	{
 		void HashCombine(usize& seed, usize value)
@@ -104,6 +133,18 @@ namespace Skore
 			edges[from].EmplaceBack(to);
 			++indegrees[to];
 		}
+
+		Extent3D DispatchGroupCount(GPUPipeline* pipeline, u32 x, u32 y, u32 z)
+		{
+			const Extent3D numThreads = pipeline->GetPipelineDesc().numThreads;
+			const u32      threadsX = numThreads.width != 0 ? numThreads.width : 1;
+			const u32      threadsY = numThreads.height != 0 ? numThreads.height : 1;
+			const u32      threadsZ = numThreads.depth != 0 ? numThreads.depth : 1;
+			const u32      sizeX = x != 0 ? x : 1;
+			const u32      sizeY = y != 0 ? y : 1;
+			const u32      sizeZ = z != 0 ? z : 1;
+			return Extent3D{(sizeX + threadsX - 1) / threadsX, (sizeY + threadsY - 1) / threadsY, (sizeZ + threadsZ - 1) / threadsZ};
+		}
 	}
 
 	RenderGraph::RenderGraph(GPUDevice* device) : device(device) {}
@@ -115,6 +156,8 @@ namespace Skore
 
 	RenderGraph::~RenderGraph()
 	{
+		device->WaitIdle();
+
 		for (RenderGraphPass* pass : passes)
 		{
 			DestroyAndFree(pass);
@@ -127,12 +170,77 @@ namespace Skore
 		}
 		passPool.Clear();
 
+		for (auto& it : framebufferCache)
+		{
+			it.second->Destroy();
+		}
+		framebufferCache.Clear();
+
+		for (auto& it : renderPassCache)
+		{
+			it.second->Destroy();
+		}
+		renderPassCache.Clear();
+
+		for (auto& it : pipelineCache)
+		{
+			it.second->Destroy();
+		}
+		pipelineCache.Clear();
+
+		for (auto& it : descriptorSetCache)
+		{
+			it.second->Destroy();
+		}
+		descriptorSetCache.Clear();
+
+		for (u32 i = 0; i < SK_FRAMES_IN_FLIGHT; ++i)
+		{
+			if (sceneDescriptorSets[i] != nullptr)
+			{
+				sceneDescriptorSets[i]->Destroy();
+				sceneDescriptorSets[i] = nullptr;
+			}
+		}
+
+		if (sceneBuffer != nullptr)
+		{
+			sceneBuffer->Destroy();
+			sceneBuffer = nullptr;
+		}
+
 		for (auto& it : resources)
 		{
-			if (it.second.instanceData)
+			Resource& res = it.second;
+
+			for (GPUTexture*& texture : res.textures)
 			{
-				operator delete(it.second.instanceData);
-				it.second.instanceData = nullptr;
+				if (texture != nullptr)
+				{
+					texture->Destroy();
+					texture = nullptr;
+				}
+			}
+
+			if (res.view != nullptr)
+			{
+				res.view->Destroy();
+				res.view = nullptr;
+			}
+
+			for (GPUBuffer*& buffer : res.buffers)
+			{
+				if (buffer != nullptr)
+				{
+					buffer->Destroy();
+					buffer = nullptr;
+				}
+			}
+
+			if (res.instanceData != nullptr)
+			{
+				operator delete(res.instanceData);
+				res.instanceData = nullptr;
 			}
 		}
 	}
@@ -210,6 +318,7 @@ namespace Skore
 		shader = {};
 		pipeline = nullptr;
 		renderPass = nullptr;
+		framebuffer = nullptr;
 
 		dependencies.Clear();
 		resolves.Clear();
@@ -422,7 +531,9 @@ namespace Skore
 
 	RenderGraphPass& RenderGraph::AddComputePass(StringView name, StringView shaderPath)
 	{
-		return EmplacePass(name, RenderGraphPassType::Compute);
+		RenderGraphPass& pass = EmplacePass(name, RenderGraphPassType::Compute);
+		pass.shader = Resources::FindByPath(shaderPath);
+		return pass;
 	}
 
 	RenderGraphPass& RenderGraph::AddComputePass(StringView name, RID shaderRID)
@@ -558,6 +669,51 @@ namespace Skore
 
 	void RenderGraph::UpdateCamera(f32 nearClip, f32 farClip, f32 fov, Projection projection, const Mat4& view, const Vec3& cameraPosition, bool updateFrustum)
 	{
+		bool applyJitter = false;
+		for (const RenderGraphPass* pass : passes)
+		{
+			if (pass->requireJitter)
+			{
+				applyJitter = true;
+				break;
+			}
+		}
+
+		camera.view = view;
+		camera.invView = Mat4::Inverse(camera.view);
+		camera.projection = Mat4::Perspective(Math::Radians(fov), outputSize.width / static_cast<f32>(outputSize.height), nearClip, farClip);
+		camera.invProjection = Mat4::Inverse(camera.projection);
+
+		camera.nearClip = nearClip;
+		camera.farClip = farClip;
+
+		camera.cameraPosition = cameraPosition;
+		camera.previousViewProjection = camera.viewProjection;
+		camera.previousViewProjectionNoJitter = camera.viewProjectionNoJitter;
+		camera.projectionNoJitter = camera.projection;
+		camera.viewProjectionNoJitter = camera.projection * camera.view;
+
+		if (applyJitter)
+		{
+			Vec2 jitterValues = Halton23Sequence(camera.jitterIndex);
+			camera.jitterIndex = (camera.jitterIndex + 1) % camera.jitterPeriod;
+
+			Vec2 jitterOffsets = Vec2{jitterValues.x * 2.0f - 1.0f, jitterValues.y * 2.0f - 1.0f};
+
+			camera.previousJitter = camera.jitter;
+			camera.jitter = Vec2{jitterOffsets.x / static_cast<f32>(outputSize.width), jitterOffsets.y / static_cast<f32>(outputSize.height)};
+
+			Mat4 jitterMatrix = Mat4::Translate(Mat4{1.0}, Vec3{camera.jitter.x, camera.jitter.y, 0.0f});
+			camera.projection = jitterMatrix * camera.projection;
+		}
+
+		camera.viewProjection = camera.projection * camera.view;
+		camera.invViewProj = Mat4::Inverse(camera.viewProjection);
+
+		if (updateFrustum)
+		{
+			camera.frustum = Math::CreateFrustumFromCamera(camera.viewProjection);
+		}
 	}
 
 	void RenderGraph::SetColorOutput(StringView name)
@@ -586,6 +742,7 @@ namespace Skore
 		{
 			outputSize = size;
 			resourcesDirty = true;
+			sizeChanged = true;
 		}
 	}
 
@@ -743,6 +900,45 @@ namespace Skore
 
 	void RenderGraph::CreateSceneResources()
 	{
+		if (sceneBuffer != nullptr) return;
+
+		u64 alignment = device->GetProperties().limits.minMemoryMapAlignment;
+		sceneBufferFrameSize = AlignedSize(static_cast<u64>(sizeof(GlobalSceneBuffer)), alignment);
+
+		BufferDesc bufferDesc;
+		bufferDesc.size = sceneBufferFrameSize * SK_FRAMES_IN_FLIGHT;
+		bufferDesc.usage = ResourceUsage::ConstantBuffer;
+		bufferDesc.hostVisible = true;
+		bufferDesc.persistentMapped = true;
+		bufferDesc.debugName = "RenderGraph_sceneBuffer";
+		sceneBuffer = device->CreateBuffer(bufferDesc);
+
+		DescriptorSetDesc desc;
+		desc.bindings = {
+			DescriptorSetLayoutBinding{.binding = 0, .descriptorType = DescriptorType::UniformBuffer},
+			DescriptorSetLayoutBinding{.binding = 1, .descriptorType = DescriptorType::StorageBuffer},
+			DescriptorSetLayoutBinding{.binding = 2, .descriptorType = DescriptorType::UniformBuffer},
+			DescriptorSetLayoutBinding{.binding = 3, .descriptorType = DescriptorType::SampledImage},
+			DescriptorSetLayoutBinding{.binding = 4, .descriptorType = DescriptorType::Sampler}
+		};
+		if (device->GetFeatures().rayTracing)
+		{
+			desc.bindings.EmplaceBack(DescriptorSetLayoutBinding{.binding = 6, .descriptorType = DescriptorType::AccelerationStructure});
+		}
+		desc.debugName = "RenderGraph_sceneDescriptorSet";
+
+		for (u32 i = 0; i < SK_FRAMES_IN_FLIGHT; ++i)
+		{
+			sceneDescriptorSets[i] = device->CreateDescriptorSet(desc);
+
+			DescriptorUpdate descriptorUpdate;
+			descriptorUpdate.type = DescriptorType::UniformBuffer;
+			descriptorUpdate.binding = 0;
+			descriptorUpdate.buffer = sceneBuffer;
+			descriptorUpdate.bufferOffset = sceneBufferFrameSize * i;
+			descriptorUpdate.bufferRange = sizeof(GlobalSceneBuffer);
+			sceneDescriptorSets[i]->Update(descriptorUpdate);
+		}
 	}
 
 	void RenderGraph::SortPasses()
@@ -1037,16 +1233,262 @@ namespace Skore
 		}
 	}
 
-	void RenderGraph::CreateRenderPasses()
+	void RenderGraph::DestroyOutputFollowingResources()
 	{
+		device->WaitIdle();
+
+		for (auto& it : framebufferCache)
+		{
+			it.second->Destroy();
+		}
+		framebufferCache.Clear();
+
+		for (auto& it : resources)
+		{
+			Resource& res = it.second;
+			if (res.kind == Resource::Kind::Texture)
+			{
+				bool followsOutput = res.textureDesc.extent.width == 0 && res.textureDesc.extent.height == 0;
+				if (!followsOutput) continue;
+
+				for (u32 i = 0; i < 2; ++i)
+				{
+					if (res.textures[i] != nullptr)
+					{
+						res.textures[i]->Destroy();
+						res.textures[i] = nullptr;
+					}
+					res.states[i] = ResourceState::Undefined;
+					res.textureStates[i].Clear();
+					res.textureScopes[i].Clear();
+					res.textureLastWrites[i].Clear();
+				}
+			}
+			else if (res.kind == Resource::Kind::View)
+			{
+				if (res.view != nullptr)
+				{
+					res.view->Destroy();
+					res.view = nullptr;
+				}
+			}
+		}
 	}
 
-	void RenderGraph::CreateBarriers()
+	void RenderGraph::CreateRenderPasses()
 	{
+		for (RenderGraphPass* pass : passes)
+		{
+			if (pass->type == RenderGraphPassType::Compute || pass->type == RenderGraphPassType::Raytrace)
+			{
+				if (!pass->shader) continue;
+
+				usize pipelineKey = 0;
+				HashCombine(pipelineKey, HashValue(pass->shader));
+				HashCombine(pipelineKey, static_cast<usize>(pass->type));
+
+				if (auto it = pipelineCache.Find(pipelineKey))
+				{
+					pass->pipeline = it->second;
+					continue;
+				}
+
+				GPUPipeline* pipeline = nullptr;
+				if (pass->type == RenderGraphPassType::Compute)
+				{
+					ComputePipelineDesc pipelineDesc;
+					pipelineDesc.shader = pass->shader;
+					pipelineDesc.debugName = pass->name;
+					pipeline = device->CreateComputePipeline(pipelineDesc);
+				}
+				else
+				{
+					RayTracingPipelineDesc pipelineDesc;
+					pipelineDesc.shader = pass->shader;
+					pipelineDesc.debugName = pass->name;
+					pipeline = device->CreateRayTracingPipeline(pipelineDesc);
+				}
+
+				pipelineCache.Insert(pipelineKey, pipeline);
+				pass->pipeline = pipeline;
+				continue;
+			}
+
+			if (pass->type != RenderGraphPassType::Graphics) continue;
+
+			struct Attachment
+			{
+				AttachmentDesc  desc;
+				GPUTextureView* view = nullptr;
+				bool            resolve = false;
+			};
+			Array<Attachment> attachments;
+
+			for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+			{
+				if (!WritesResource(dependency.access)) continue;
+
+				Resource* res = FindResource(dependency.name);
+				if (res == nullptr) continue;
+
+				GPUTexture*     texture = nullptr;
+				GPUTextureView* view = nullptr;
+
+				if (res->kind == Resource::Kind::Texture)
+				{
+					const u32 slot = res->textures[1] != nullptr ? currentFrame : 0;
+					texture = res->textures[slot];
+					if (texture != nullptr) view = texture->GetTextureView();
+				}
+				else if (res->kind == Resource::Kind::Imported)
+				{
+					if (currentOutputIndex < res->imported.Size()) texture = res->imported[currentOutputIndex];
+					if (texture != nullptr) view = texture->GetTextureView();
+				}
+				else if (res->kind == Resource::Kind::View)
+				{
+					view = res->view;
+					if (view != nullptr) texture = view->GetTexture();
+				}
+
+				if (texture == nullptr || view == nullptr) continue;
+
+				const TextureDesc& textureDesc = texture->GetDesc();
+				const bool         isDepth = IsDepthFormat(textureDesc.format);
+
+				Attachment attachment;
+				attachment.desc.format = textureDesc.format;
+				attachment.desc.sampleCount = textureDesc.sampleCount;
+				attachment.desc.initialState = isDepth ? ResourceState::DepthStencilAttachment : ResourceState::ColorAttachment;
+				attachment.desc.finalState = attachment.desc.initialState;
+				attachment.desc.loadOp = dependency.access == RenderGraphAccess::Write ? AttachmentLoadOp::Clear : AttachmentLoadOp::Load;
+				attachment.desc.storeOp = AttachmentStoreOp::Store;
+				attachment.view = view;
+				attachment.resolve = pass->resolves.IndexOf(dependency.name) != nPos;
+				attachments.EmplaceBack(attachment);
+			}
+
+			if (attachments.Empty())
+			{
+				pass->renderPass = nullptr;
+				pass->framebuffer = nullptr;
+				continue;
+			}
+
+			usize renderPassKey = 0;
+			for (const Attachment& attachment : attachments)
+			{
+				HashCombine(renderPassKey, static_cast<usize>(attachment.desc.format));
+				HashCombine(renderPassKey, attachment.desc.sampleCount);
+				HashCombine(renderPassKey, static_cast<usize>(attachment.desc.loadOp));
+				HashCombine(renderPassKey, static_cast<usize>(attachment.desc.initialState));
+				HashCombine(renderPassKey, attachment.resolve ? 1u : 0u);
+			}
+
+			GPURenderPass* renderPass = nullptr;
+			if (auto it = renderPassCache.Find(renderPassKey))
+			{
+				renderPass = it->second;
+			}
+			else
+			{
+				RenderPassDesc renderPassDesc;
+				for (const Attachment& attachment : attachments)
+				{
+					if (attachment.resolve)
+					{
+						renderPassDesc.resolveAttachments.EmplaceBack(attachment.desc);
+					}
+					else
+					{
+						renderPassDesc.attachments.EmplaceBack(attachment.desc);
+					}
+				}
+				renderPassDesc.debugName = pass->name;
+				renderPass = device->CreateRenderPass(renderPassDesc);
+				renderPassCache.Insert(renderPassKey, renderPass);
+			}
+
+			usize framebufferKey = renderPassKey;
+			HashCombine(framebufferKey, reinterpret_cast<usize>(renderPass));
+			for (const Attachment& attachment : attachments)
+			{
+				HashCombine(framebufferKey, reinterpret_cast<usize>(attachment.view));
+			}
+
+			GPUFramebuffer* framebuffer = nullptr;
+			if (auto it = framebufferCache.Find(framebufferKey))
+			{
+				framebuffer = it->second;
+			}
+			else
+			{
+				FramebufferDesc framebufferDesc;
+				framebufferDesc.renderPass = renderPass;
+				for (const Attachment& attachment : attachments)
+				{
+					framebufferDesc.attachments.EmplaceBack(attachment.view);
+				}
+				framebufferDesc.debugName = pass->name;
+				framebuffer = device->CreateFramebuffer(framebufferDesc);
+				framebufferCache.Insert(framebufferKey, framebuffer);
+			}
+
+			pass->renderPass = renderPass;
+			pass->framebuffer = framebuffer;
+		}
 	}
 
 	void RenderGraph::UpdateSceneBuffer()
 	{
+		if (sceneBuffer == nullptr) return;
+
+		u32 instanceCount = 0;
+		GPUBuffer* instanceBuffer = nullptr;
+		GPUTopLevelAS* tlas = nullptr;
+		if (currentScene != nullptr)
+		{
+			instanceCount = currentScene->renderObjects.instanceDataCount;
+			instanceBuffer = currentScene->renderObjects.instanceDataBuffer;
+			tlas = currentScene->renderObjects.tlas;
+		}
+
+		u8* data = static_cast<u8*>(sceneBuffer->GetMappedData());
+		GlobalSceneBuffer* sceneBufferData = new(data + currentFrame * sceneBufferFrameSize) GlobalSceneBuffer{
+			.viewProjection = camera.viewProjection,
+			.view = camera.view,
+			.projection = camera.projection,
+			.viewInv = camera.invView,
+			.projectionInv = camera.invProjection,
+			.viewProjInv = camera.invViewProj,
+			.cameraPosition = camera.cameraPosition,
+			.farClip = camera.farClip,
+			.outputSize = IVec2{static_cast<i32>(outputSize.width), static_cast<i32>(outputSize.height)},
+			.jitter = camera.jitter,
+			.prevJitter = camera.previousJitter,
+			.instanceCount = instanceCount,
+			.cullingMask = camera.cullingMask,
+		};
+
+		for (u32 i = 0; i < 6; ++i)
+		{
+			const Plane& plane = camera.frustum.planes[i];
+			sceneBufferData->frustumPlanes[i] = Vec4{plane.normal.x, plane.normal.y, plane.normal.z, plane.distance};
+		}
+
+		if (instanceBuffer != nullptr)
+		{
+			sceneDescriptorSets[currentFrame]->UpdateBuffer(1, instanceBuffer, 0, 0);
+		}
+
+		if (device->GetFeatures().rayTracing && tlas != nullptr)
+		{
+			DescriptorUpdate tlasUpdate;
+			tlasUpdate.type = DescriptorType::AccelerationStructure;
+			tlasUpdate.binding = 6;
+			tlasUpdate.topLevelAS = tlas;
+			sceneDescriptorSets[currentFrame]->Update(tlasUpdate);
+		}
 	}
 
 	void RenderGraph::Begin(Scene* scene)
@@ -1070,13 +1512,37 @@ namespace Skore
 
 	void RenderGraph::Execute(GPUCommandBuffer* cmd)
 	{
+		CreateSceneResources();
+
 		SortPasses();
+
+		const bool resized = sizeChanged;
+		if (sizeChanged)
+		{
+			DestroyOutputFollowingResources();
+			sizeChanged = false;
+			resourcesDirty = true;
+		}
 
 		if (resourcesDirty)
 		{
 			CreateResourceTextures();
 			resourcesDirty = false;
 		}
+
+		if (resized)
+		{
+			for (RenderGraphPass* pass : passes)
+			{
+				if (pass->resizeFn)
+				{
+					pass->resizeFn(*this, outputSize);
+				}
+			}
+		}
+
+		CreateRenderPasses();
+		UpdateSceneBuffer();
 
 		struct TextureBarrierTarget
 		{
@@ -1329,9 +1795,95 @@ namespace Skore
 				transitionTexture(cmd, textureTarget, target, passScope, WritesResource(dependency.access));
 			}
 
+			const bool useRenderPass = pass->type == RenderGraphPassType::Graphics && pass->renderPass != nullptr && pass->framebuffer != nullptr;
+
+			if (useRenderPass)
+			{
+				ClearValues clearValues = {};
+				for (const RenderGraphPass::Dependency& dependency : pass->dependencies)
+				{
+					if (!WritesResource(dependency.access)) continue;
+					const Resource* res = FindResource(dependency.name);
+					if (res != nullptr && res->kind == Resource::Kind::Texture && !IsDepthFormat(res->textureDesc.format))
+					{
+						clearValues.color = res->textureDesc.clearColor;
+						break;
+					}
+				}
+
+				BeginRenderPassInfo info;
+				info.renderPass = pass->renderPass;
+				info.framebuffer = pass->framebuffer;
+				info.clearValues = &clearValues;
+				cmd->BeginRenderPass(info);
+
+				const Extent extent = pass->framebuffer->GetExtent();
+
+				ViewportInfo viewport{};
+				viewport.x = 0.0f;
+				viewport.minDepth = 0.0f;
+				viewport.maxDepth = 1.0f;
+				if (device->GetAPI() == GraphicsAPI::Vulkan && pass->invertViewport)
+				{
+					viewport.y = static_cast<f32>(extent.height);
+					viewport.width = static_cast<f32>(extent.width);
+					viewport.height = -static_cast<f32>(extent.height);
+				}
+				else
+				{
+					viewport.y = 0.0f;
+					viewport.width = static_cast<f32>(extent.width);
+					viewport.height = static_cast<f32>(extent.height);
+				}
+				cmd->SetViewport(viewport);
+				cmd->SetScissor({0, 0}, extent);
+			}
+
+			if (pass->pipeline != nullptr)
+			{
+				cmd->BindPipeline(pass->pipeline);
+
+				for (auto& it : pass->boundDescriptorSets)
+				{
+					cmd->BindDescriptorSet(pass->pipeline, it.first, it.second);
+				}
+
+				if (pass->constantsFn && pass->constantsSize > 0)
+				{
+					u8 constantsData[256] = {};
+					SK_ASSERT(pass->constantsSize <= sizeof(constantsData), "render graph push constants exceed scratch buffer");
+					pass->constantsFn(*this, constantsData);
+					cmd->PushConstants(pass->pipeline, pass->constantsStages, 0, pass->constantsSize, constantsData);
+				}
+			}
+
 			if (pass->renderFn)
 			{
 				pass->renderFn(*this, currentScene, cmd);
+			}
+			else if (pass->pipeline != nullptr)
+			{
+				if (pass->type == RenderGraphPassType::Compute)
+				{
+					if (pass->indirectBuffer != nullptr)
+					{
+						cmd->DispatchIndirect(pass->indirectBuffer, 0);
+					}
+					else
+					{
+						const Extent3D groups = DispatchGroupCount(pass->pipeline, pass->dispatchX, pass->dispatchY, pass->dispatchZ);
+						cmd->Dispatch(groups.width, groups.height, groups.depth);
+					}
+				}
+				else if (pass->type == RenderGraphPassType::Raytrace)
+				{
+					cmd->TraceRays(pass->pipeline, pass->dispatchX, pass->dispatchY, pass->dispatchZ);
+				}
+			}
+
+			if (useRenderPass)
+			{
+				cmd->EndRenderPass();
 			}
 		}
 

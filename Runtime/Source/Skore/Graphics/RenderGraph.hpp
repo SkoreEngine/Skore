@@ -121,6 +121,7 @@ namespace Skore
 		RID                 shader;
 		GPUPipeline*        pipeline = nullptr;
 		GPURenderPass*      renderPass = nullptr;
+		GPUFramebuffer*     framebuffer = nullptr;
 
 		Array<Dependency>               dependencies;
 		Array<String>                   resolves;
@@ -302,8 +303,8 @@ namespace Skore
 		void CreateSceneResources();
 		void SortPasses();
 		void CreateResourceTextures();
+		void DestroyOutputFollowingResources();
 		void CreateRenderPasses();
-		void CreateBarriers();
 		void UpdateSceneBuffer();
 		ResourceUsage InferBufferUsage(StringView name) const;
 
@@ -328,8 +329,11 @@ namespace Skore
 		Array<u32>                        cachedSortedPassIndices;
 		HashMap<usize, GPUPipeline*>      pipelineCache;
 		HashMap<usize, GPUDescriptorSet*> descriptorSetCache;
+		HashMap<usize, GPURenderPass*>    renderPassCache;
+		HashMap<usize, GPUFramebuffer*>   framebufferCache;
 
 		bool resourcesDirty = true;
+		bool sizeChanged = false;
 		bool passesSorted = false;
 		bool passGraphCacheValid = false;
 		usize passGraphSignature = 0;

@@ -631,6 +631,7 @@ namespace Skore
 		pipelineDesc.Field<&PipelineDesc::descriptors>("descriptors");
 		pipelineDesc.Field<&PipelineDesc::pushConstants>("pushConstants");
 		pipelineDesc.Field<&PipelineDesc::stride>("stride");
+		pipelineDesc.Field<&PipelineDesc::numThreads>("numThreads");
 
 		auto attachmentDesc = Reflection::Type<AttachmentDesc>();
 		attachmentDesc.Field<&AttachmentDesc::initialState>("initialState");

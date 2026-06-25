@@ -720,6 +720,7 @@ namespace Skore
 		Array<DescriptorSetLayout> descriptors{};
 		Array<PushConstantRange>   pushConstants{};
 		u32                        stride{};
+		Extent3D                   numThreads{1, 1, 1};
 	};
 
 	struct AttachmentDesc
