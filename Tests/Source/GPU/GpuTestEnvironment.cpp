@@ -2,6 +2,10 @@
 
 #include "GpuTestEnvironment.hpp"
 
+#include <mutex>
+
+#include "doctest.h"
+
 #include "Skore/RegisterTypes.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Graphics/Graphics.hpp"
@@ -26,6 +30,15 @@ namespace Skore::GpuTest
 		bool initialized = false;
 		bool available = false;
 
+		std::mutex    validationMutex;
+		Array<String> validationMessages;
+
+		void ClearValidationMessages()
+		{
+			std::lock_guard lock(validationMutex);
+			validationMessages.Clear();
+		}
+
 		void EnsureInitialized()
 		{
 			if (initialized)
@@ -41,11 +54,21 @@ namespace Skore::GpuTest
 			RegisterTypes();
 			ResourceShutdown();
 
-			if (!Graphics::InitHeadless(false))
+			// Validation layers are forced on so tests fail on any Vulkan warning/error.
+			if (!Graphics::InitHeadless(true))
 			{
 				logger.Warn("no Vulkan device available; GPU tests will be skipped");
 				return;
 			}
+
+			Graphics::SetMessageCallback([](GpuMessageSeverity severity, StringView message)
+			{
+				if (severity == GpuMessageSeverity::Warning || severity == GpuMessageSeverity::Error)
+				{
+					std::lock_guard lock(validationMutex);
+					validationMessages.EmplaceBack(String(message));
+				}
+			});
 
 			// Loaded only once a device exists so machines without a GPU don't require the DXC dll.
 			ShaderManagerInit();
@@ -76,15 +99,31 @@ namespace Skore::GpuTest
 		return available;
 	}
 
+	Array<String> ValidationMessages()
+	{
+		std::lock_guard lock(validationMutex);
+		return validationMessages;
+	}
+
 	ResourceScope::ResourceScope()
 	{
 		EnsureInitialized();
+		ClearValidationMessages();
 		ResourceInit();
 		RegisterShaderResourceTypes();
 	}
 
 	ResourceScope::~ResourceScope()
 	{
+		// Every GPU test validates automatically: any Vulkan validation warning/error captured while
+		// the scope was alive fails the running test.
+		Array<String> messages = ValidationMessages();
+		for (const String& message : messages)
+		{
+			MESSAGE("Vulkan validation: ", message.CStr());
+		}
+		CHECK(messages.Empty());
+
 		ResourceShutdown();
 	}
 

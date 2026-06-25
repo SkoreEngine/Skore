@@ -53,6 +53,8 @@ namespace Skore
 
 		Window window;
 
+		GpuMessageCallback messageCallback;
+
 		void ShowGPUErrorMessage()
 		{
 			Platform::ShowSimpleMessageBox(MessageBoxType::Error,
@@ -73,6 +75,19 @@ namespace Skore
 	}
 
 	GPUDevice* InitVulkan(const DeviceInitDesc& initDesc);
+
+	void Graphics::SetMessageCallback(const GpuMessageCallback& callback)
+	{
+		messageCallback = callback;
+	}
+
+	void DispatchGpuMessage(GpuMessageSeverity severity, StringView message)
+	{
+		if (messageCallback)
+		{
+			messageCallback(severity, message);
+		}
+	}
 
 	// Creates the device-owned default resources (samplers, command-buffer pool and the white
 	// placeholder textures). Shared by the windowed (GraphicsInit) and headless (Graphics::InitHeadless)

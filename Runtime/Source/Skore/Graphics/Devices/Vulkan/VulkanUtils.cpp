@@ -4,6 +4,7 @@
 
 #include "Skore/Graphics/Devices/Vulkan/VulkanDevice.hpp"
 #include "Skore/Core/Logger.hpp"
+#include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Resource/Resources.hpp"
@@ -540,23 +541,31 @@ namespace Skore
 	                       const VkDebugUtilsMessengerCallbackDataEXT* callbackDataExt,
 	                       void*                                       userData)
 	{
+		GpuMessageSeverity severity = GpuMessageSeverity::Info;
+
 		switch (messageSeverity)
 		{
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+				severity = GpuMessageSeverity::Verbose;
 				logger.Trace("{}", callbackDataExt->pMessage);
 				break;
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+				severity = GpuMessageSeverity::Info;
 				logger.Info("{}", callbackDataExt->pMessage);
 				break;
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+				severity = GpuMessageSeverity::Warning;
 				logger.Warn("{}", callbackDataExt->pMessage);
 				break;
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+				severity = GpuMessageSeverity::Error;
 				logger.Error("{}", callbackDataExt->pMessage);
 				break;
 			case VK_DEBUG_UTILS_MESSAGE_SEVERITY_FLAG_BITS_MAX_ENUM_EXT:
 				break;
 		}
+
+		DispatchGpuMessage(severity, callbackDataExt->pMessage);
 
 		return VK_FALSE;
 	}
