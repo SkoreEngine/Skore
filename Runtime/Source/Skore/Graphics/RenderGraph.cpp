@@ -338,6 +338,12 @@ namespace Skore
 		return *this;
 	}
 
+	RenderGraphPass& RenderGraphPass::Stage(i32 stage)
+	{
+		this->stage = stage;
+		return *this;
+	}
+
 	RenderGraphPass& RenderGraphPass::SetConstants(u32 size, ShaderStage stages, std::function<void(RenderGraph&, void*)> f)
 	{
 		constantsSize = size;
@@ -363,6 +369,7 @@ namespace Skore
 		invertViewport = false;
 		requireJitter = false;
 		requireMotionVector = false;
+		stage = 0;
 
 		dispatchX = 0;
 		dispatchY = 0;
@@ -1269,6 +1276,7 @@ namespace Skore
 		{
 			HashCombine(signature, HashValue(pass->name));
 			HashCombine(signature, static_cast<usize>(pass->type));
+			HashCombine(signature, static_cast<usize>(pass->stage));
 			HashCombine(signature, pass->dependencyCount);
 			for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 			{
@@ -1425,8 +1433,10 @@ namespace Skore
 			{
 				if (!emitted[passIndex] && indegrees[passIndex] == 0)
 				{
-					next = passIndex;
-					break;
+					if (next == U32_MAX || passes[passIndex]->stage < passes[next]->stage)
+					{
+						next = passIndex;
+					}
 				}
 			}
 

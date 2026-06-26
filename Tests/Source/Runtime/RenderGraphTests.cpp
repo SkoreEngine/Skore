@@ -475,6 +475,135 @@ namespace
 		CHECK(executionOrder[3] == 4);
 	}
 
+	TEST_CASE("RenderGraph::StageOrdersIndependentPasses")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("A", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("B", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("C", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		Array<int> executionOrder;
+
+		rg.AddComputePass("PassC", "Shaders/PassC")
+			.Write("C")
+			.Stage(300)
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(3); });
+
+		rg.AddComputePass("PassB", "Shaders/PassB")
+			.Write("B")
+			.Stage(200)
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+
+		rg.AddComputePass("PassA", "Shaders/PassA")
+			.Write("A")
+			.Stage(100)
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		REQUIRE(executionOrder.Size() == 3);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+		CHECK(executionOrder[2] == 3);
+	}
+
+	TEST_CASE("RenderGraph::StageDoesNotOverrideDependencies")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("Light", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		Array<int> executionOrder;
+
+		rg.AddComputePass("Reader", "Shaders/Reader")
+			.Read("Light")
+			.Stage(100)
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+
+		rg.AddComputePass("Writer", "Shaders/Writer")
+			.Write("Light")
+			.Stage(900)
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		REQUIRE(executionOrder.Size() == 2);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+	}
+
+	TEST_CASE("RenderGraph::StageTieKeepsInsertionOrder")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("A", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("B", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		Array<int> executionOrder;
+
+		rg.AddComputePass("First", "Shaders/First")
+			.Write("A")
+			.Stage(500)
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+
+		rg.AddComputePass("Second", "Shaders/Second")
+			.Write("B")
+			.Stage(500)
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		REQUIRE(executionOrder.Size() == 2);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+	}
+
+	TEST_CASE("RenderGraph::StageDefaultRunsBeforeExplicit")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Create("A", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+		rg.Create("B", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		Array<int> executionOrder;
+
+		rg.AddComputePass("Explicit", "Shaders/Explicit")
+			.Write("A")
+			.Stage(100)
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+
+		rg.AddComputePass("Default", "Shaders/Default")
+			.Write("B")
+			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		REQUIRE(executionOrder.Size() == 2);
+		CHECK(executionOrder[0] == 1);
+		CHECK(executionOrder[1] == 2);
+	}
+
 	TEST_CASE("RenderGraph::ExecuteCachesTopologicalSort")
 	{
 		TestRenderDevice device;

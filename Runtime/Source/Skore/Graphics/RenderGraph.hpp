@@ -126,6 +126,7 @@ namespace Skore
 		RenderGraphPass& RequireJitter(bool value = true);
 		RenderGraphPass& RequireMotionVector(bool value = true);
 		RenderGraphPass& ClearColor(StringView name, const Vec4& color);
+		RenderGraphPass& Stage(i32 stage);
 
 		template <typename T>
 		RenderGraphPass& Constants(std::function<void(RenderGraph& rg, T& constants)> f)
@@ -194,6 +195,7 @@ namespace Skore
 		bool invertViewport = false;
 		bool requireJitter = false;
 		bool requireMotionVector = false;
+		i32  stage = 0;
 
 		u32        dispatchX = 0;
 		u32        dispatchY = 0;
