@@ -2,6 +2,8 @@
 
 #include "Skore/EditorCommon.hpp"
 #include "Skore/MenuItem.hpp"
+#include "Skore/Core/HashMap.hpp"
+#include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/ImGui/GraphEditor.hpp"
 #include "Skore/MaterialGraph/MaterialNode.hpp"
@@ -16,14 +18,14 @@ namespace Skore
 		SK_CLASS(MaterialGraphEditorWindow, EditorWindow);
 
 		const char* GetTitle() const override;
-		void        Init(VoidPtr userData) override;
 		void        Draw(bool& open) override;
 
 		static void RegisterType(NativeReflectType<MaterialGraphEditorWindow>& type);
 
 	private:
 		GraphEditor m_editor{};
-		RID         m_graph{};
+
+		RID CurrentGraph() const;
 
 		Vec2 m_popupMousePos{};
 		bool m_openPopup = false;
@@ -38,9 +40,19 @@ namespace Skore
 		RID  m_editNode{};
 		Vec4 m_editValue{};
 
+		//backing store for the inline default-value widgets on unconnected input pins. Keyed by
+		//PinKey(nodeId, pinIndex); the entry being dragged (m_activePinKey) keeps its live value
+		//instead of being refreshed from the resource each frame.
+		HashMap<u64, Vec4> m_pinValues{};
+		u64                m_activePinKey = 0;
+
+		static u64 PinKey(u64 nodeId, u32 pinIndex) { return (nodeId << 8) | pinIndex; }
+
 		void DrawToolbar();
 		void DrawGraph();
 		void DrawValueInspector(RID node, MaterialNode* def);
+		void DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins);
+		void CommitPinValue(RID node, u32 pinIndex, Vec4 value);
 		void DrawCodePanel();
 
 		void Build();

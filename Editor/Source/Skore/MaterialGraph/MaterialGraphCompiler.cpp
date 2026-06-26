@@ -95,7 +95,7 @@ namespace Skore
 				{
 					return pin.defaultExpr;
 				}
-				return MaterialLiteralExpr(pin.type, pin.defaultValue);
+				return MaterialLiteralExpr(pin.type, MaterialReadPinValue(node, inputPin, pin.defaultValue));
 			}
 
 			void EmitNode(RID node)

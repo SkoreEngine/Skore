@@ -20,7 +20,7 @@ Core pipeline is working end-to-end: author a graph → generate HLSL → compil
 - [x] **HLSL codegen + SPIR-V compile** — `MaterialGraphCompiler` (post-order DFS from the output
   node → standalone `MainPS` → `CompileShader`). Type coercion via `MaterialConvertExpr`.
 - [x] **Editor window** — `MaterialGraphEditorWindow` (add/move/delete/connect, value inspector,
-  Build button + HLSL/log panel).
+  inline default-value widgets on unconnected input pins, Build button + HLSL/log panel).
 - [x] **Asset handler** — `.matgraph` create/open + content-browser "Create > New Material Graph".
 - [x] **Tests** — `Tests/Source/Editor/MaterialGraphTests.cpp` (9 cases, incl. live SPIR-V).
 

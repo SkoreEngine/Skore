@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AnimatorEditor.hpp"
+#include "MaterialEditor.hpp"
 #include "EditorCommon.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/StringView.hpp"
@@ -20,6 +21,7 @@ namespace Skore
 		u8              GetWorkspaceTypeId() const;
 		SceneEditor*    GetSceneEditor();
 		AnimatorEditor& GetAnimatorEditor();
+		MaterialEditor& GetMaterialEditor();
 		void            OpenAsset(RID rid);
 
 		// Window management
@@ -52,6 +54,7 @@ namespace Skore
 		u8             m_workspaceTypeId{};
 		SceneEditor    m_sceneEditor{*this};
 		AnimatorEditor m_animatorEditor{*this};
+		MaterialEditor m_materialEditor{*this};
 
 		RID state = {};
 

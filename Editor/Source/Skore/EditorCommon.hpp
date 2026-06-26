@@ -68,6 +68,7 @@ namespace Skore
 		constexpr u8 Scene = 1;
 		constexpr u8 Graph = 2;
 		constexpr u8 Animator = 3;
+		constexpr u8 Material = 4;
 	}
 
 	struct EditorWorkspaceTypeDesc

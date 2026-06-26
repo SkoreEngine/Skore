@@ -31,6 +31,8 @@ namespace Skore
 	{
 		None,
 		InputFloat,
+		DragFloatN,
+		Color,
 		InputText,
 		Checkbox,
 		Combo
@@ -59,6 +61,12 @@ namespace Skore
 		Vec2 position{};
 	};
 
+	struct GraphEditorPinEdit
+	{
+		u64 nodeId = 0;
+		u32 pinIndex = 0;
+	};
+
 	struct GraphEditorSelectionChanged
 	{
 		Array<u64> oldSelectedNodes{};
@@ -75,6 +83,12 @@ namespace Skore
 		Array<GraphEditorNodeMoved> movedNodes{};
 		GraphEditorSelectionChanged selectionChanged{};
 		bool                        hasSelectionChanged = false;
+
+		//pin value widgets (PinWidgetDragFloatN / PinWidgetColor): which one is being dragged this
+		//frame, and which finished an edit (so the caller can persist it).
+		bool                      pinValueActive = false;
+		GraphEditorPinEdit        activePinValue{};
+		Array<GraphEditorPinEdit> committedPinValues{};
 	};
 
 	class GraphEditor
@@ -89,6 +103,8 @@ namespace Skore
 
 		// Pin widget functions — call right after InputPin to attach a widget to it
 		void PinWidgetDragFloat(f32* value, f32 speed = 0.1f);
+		void PinWidgetDragFloatN(f32* values, u32 count, f32 speed = 0.1f);
+		void PinWidgetColor(f32* rgb);
 		void PinWidgetInputText(char* buffer, u32 bufferSize);
 		void PinWidgetCheckbox(bool* value);
 		void PinWidgetCombo(i32* selectedIndex, const char* options);
@@ -121,6 +137,7 @@ namespace Skore
 			ImColor         color = ImColor(150, 200, 150);
 			GraphWidgetType widgetType = GraphWidgetType::None;
 			f32*            floatPtr = nullptr;
+			u32             floatCount = 1;
 			f32             dragSpeed = 0.1f;
 			bool*           boolPtr = nullptr;
 			i32*            comboIndexPtr = nullptr;
@@ -220,6 +237,11 @@ namespace Skore
 		// Widget interaction tracking
 		bool  m_nodeWidgetActive = false;
 		bool  m_nodeWidgetHovered = false;
+
+		// Pin value widget edit tracking (filled by DrawNodeWidgets, surfaced in GraphEditorResult)
+		bool                      m_hasActiveValuePin = false;
+		GraphEditorPinEdit        m_activeValuePin{};
+		Array<GraphEditorPinEdit> m_committedPinValues{};
 
 		// Constants
 		static constexpr f32 PinRadius = 4.0f;

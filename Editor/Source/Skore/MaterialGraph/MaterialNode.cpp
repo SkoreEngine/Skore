@@ -2,6 +2,9 @@
 
 #include "Skore/Core/Allocator.hpp"
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Resource/ResourceObject.hpp"
+#include "Skore/Resource/Resources.hpp"
 
 #include <cstdio>
 
@@ -36,10 +39,10 @@ namespace Skore
 
 		void DefinePins() override
 		{
-			AddInput("Base Color", MaterialDataType::Vec3, Vec4{0.8f, 0.8f, 0.8f, 1.0f});
+			AddInput("Base Color", MaterialDataType::Vec3, Vec4{0.8f, 0.8f, 0.8f, 1.0f}, {}, true);
 			AddInput("Metallic", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 0.0f});
 			AddInput("Roughness", MaterialDataType::Float, Vec4{0.5f, 0.0f, 0.0f, 0.0f});
-			AddInput("Emissive", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 0.0f, 1.0f});
+			AddInput("Emissive", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, true);
 			AddInput("Normal", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 1.0f, 0.0f}); //tangent-space
 			AddInput("Ambient Occlusion", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
 			AddInput("Opacity", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
@@ -273,9 +276,9 @@ namespace Skore
 		DefinePins();
 	}
 
-	void MaterialNode::AddInput(StringView name, MaterialDataType type, Vec4 defaultValue, StringView defaultExpr)
+	void MaterialNode::AddInput(StringView name, MaterialDataType type, Vec4 defaultValue, StringView defaultExpr, bool color)
 	{
-		m_inputs.EmplaceBack(MaterialNodePin{String{name}, type, defaultValue, String{defaultExpr}});
+		m_inputs.EmplaceBack(MaterialNodePin{String{name}, type, defaultValue, String{defaultExpr}, color});
 	}
 
 	void MaterialNode::AddOutput(StringView name, MaterialDataType type)
@@ -414,6 +417,26 @@ namespace Skore
 		}
 		result += ")";
 		return result;
+	}
+
+	Vec4 MaterialReadPinValue(RID node, u32 pinIndex, Vec4 fallback)
+	{
+		ResourceObject nodeObj = Resources::Read(node);
+		if (!nodeObj)
+		{
+			return fallback;
+		}
+
+		for (RID entry : nodeObj.GetSubObjectList(MaterialGraphNodeResource::InputValues))
+		{
+			ResourceObject entryObj = Resources::Read(entry);
+			if (entryObj && static_cast<u32>(entryObj.GetUInt(MaterialGraphPinValueResource::PinIndex)) == pinIndex)
+			{
+				return entryObj.GetVec4(MaterialGraphPinValueResource::Value);
+			}
+		}
+
+		return fallback;
 	}
 
 	String MaterialLiteralExpr(MaterialDataType type, Vec4 value)

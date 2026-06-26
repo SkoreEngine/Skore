@@ -84,7 +84,7 @@ namespace Skore
 		}
 		name = String(typeName).Append(" ").Append(ToString(id));
 
-		m_dockSpaceId = 10000 + (id * 10000);
+		m_dockSpaceId = 10000 + (static_cast<u32>(m_workspaceTypeId - 1) * 10000);
 		m_centerSpaceId = m_dockSpaceId;
 
 		Resources::FindType<WorkspaceResourceState>()->RegisterEvent(ResourceEventType::Changed,  WorkspaceStateChanged, this);
@@ -120,6 +120,11 @@ namespace Skore
 	AnimatorEditor& EditorWorkspace::GetAnimatorEditor()
 	{
 		return m_animatorEditor;
+	}
+
+	MaterialEditor& EditorWorkspace::GetMaterialEditor()
+	{
+		return m_materialEditor;
 	}
 
 	void EditorWorkspace::OpenAsset(RID rid)

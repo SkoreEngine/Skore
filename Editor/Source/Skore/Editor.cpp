@@ -1263,24 +1263,16 @@ namespace Skore
 
 	EditorWorkspace* Editor::GetWorkspaceOfType(u8 type)
 	{
-		EditorWorkspace* selectedWorkspace = nullptr;
-
-		for (auto& workspace : workspaces)
+		for (u32 i = 0; i < workspaces.Size(); ++i)
 		{
-			if (workspace && workspace->GetWorkspaceTypeId() == type)
+			if (workspaces[i] && workspaces[i]->GetWorkspaceTypeId() == type)
 			{
-				selectedWorkspace = workspace.get();
+				SwitchWorkspace(i);
+				return workspaces[i].get();
 			}
 		}
 
-		if (selectedWorkspace == nullptr)
-		{
-			selectedWorkspace = CreateWorkspace(type);
-		}
-
-		SwitchWorkspace(selectedWorkspace->GetId());
-
-		return selectedWorkspace;
+		return CreateWorkspace(type);
 	}
 
 	UndoRedoScope* Editor::CreateUndoRedoScope(StringView name)
@@ -1389,8 +1381,9 @@ namespace Skore
 	EditorWorkspace* Editor::CreateWorkspace(u8 type)
 	{
 		workspaces.EmplaceBack(std::make_unique<EditorWorkspace>(type));
-		SwitchWorkspace(workspaces.Size() - 1);
-		return GetActiveWorkspace();
+		u32 index = workspaces.Size() - 1;
+		SwitchWorkspace(index);
+		return workspaces[index].get();
 	}
 
 	bool Editor::DebugOptionsEnabled()
@@ -1654,6 +1647,12 @@ namespace Skore
 			.id = WorkspaceTypes::Animator,
 			.displayName = "Animator",
 			.order = 2
+		});
+
+		editorWorkspaceTypeDescs.EmplaceBack(EditorWorkspaceTypeDesc{
+			.id = WorkspaceTypes::Material,
+			.displayName = "Material",
+			.order = 3
 		});
 
 		workspaces.EmplaceBack(std::make_unique<EditorWorkspace>(WorkspaceTypes::Scene));

@@ -1189,11 +1189,17 @@ namespace Skore
 			.Field<MaterialResource::BackgroundColor>(ResourceFieldType::Color)
 			.Build();
 
+		Resources::Type<MaterialGraphPinValueResource>()
+			.Field<MaterialGraphPinValueResource::PinIndex>(ResourceFieldType::UInt)
+			.Field<MaterialGraphPinValueResource::Value>(ResourceFieldType::Vec4)
+			.Build();
+
 		Resources::Type<MaterialGraphNodeResource>()
 			.Field<MaterialGraphNodeResource::Type>(ResourceFieldType::String)
 			.Field<MaterialGraphNodeResource::Position>(ResourceFieldType::Vec2)
 			.Field<MaterialGraphNodeResource::Value>(ResourceFieldType::Vec4)
 			.Field<MaterialGraphNodeResource::Texture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
+			.Field<MaterialGraphNodeResource::InputValues>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphPinValueResource>::ID())
 			.Build();
 
 		Resources::Type<MaterialGraphConnectionResource>()

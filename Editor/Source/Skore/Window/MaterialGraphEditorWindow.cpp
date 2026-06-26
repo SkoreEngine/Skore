@@ -36,12 +36,9 @@ namespace Skore
 		return ICON_FA_DIAGRAM_PROJECT " Material Graph";
 	}
 
-	void MaterialGraphEditorWindow::Init(VoidPtr userData)
+	RID MaterialGraphEditorWindow::CurrentGraph() const
 	{
-		if (userData)
-		{
-			m_graph = *static_cast<RID*>(userData);
-		}
+		return workspace ? workspace->GetMaterialEditor().GetMaterialGraph() : RID{};
 	}
 
 	void MaterialGraphEditorWindow::Draw(bool& open)
@@ -53,7 +50,7 @@ namespace Skore
 			return;
 		}
 
-		if (!m_graph)
+		if (!CurrentGraph())
 		{
 			ImGui::TextDisabled("No material graph open.");
 			ImGui::End();
@@ -153,12 +150,103 @@ namespace Skore
 		}
 	}
 
+	void MaterialGraphEditorWindow::DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins)
+	{
+		Span<MaterialNodePin> inputs = def->GetInputs();
+		for (u32 i = 0; i < inputs.Size(); ++i)
+		{
+			const MaterialNodePin& pin = inputs[i];
+			m_editor.InputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin.type));
+
+			//pins with a computed default expression (e.g. mesh UVs) have no editable literal
+			if (!pin.defaultExpr.Empty())
+			{
+				continue;
+			}
+
+			u64 key = PinKey(node.id, i);
+			if (connectedPins.Has(key))
+			{
+				continue;
+			}
+
+			Vec4& slot = m_pinValues[key];
+			if (key != m_activePinKey)
+			{
+				slot = MaterialReadPinValue(node, i, pin.defaultValue);
+			}
+
+			if (pin.color && pin.type == MaterialDataType::Vec3)
+			{
+				m_editor.PinWidgetColor(&slot.x);
+			}
+			else
+			{
+				m_editor.PinWidgetDragFloatN(&slot.x, MaterialComponentCount(pin.type), 0.01f);
+			}
+		}
+	}
+
+	void MaterialGraphEditorWindow::CommitPinValue(RID node, u32 pinIndex, Vec4 value)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Edit Pin Value");
+
+		RID existing{};
+		if (ResourceObject nodeObj = Resources::Read(node))
+		{
+			for (RID entry : nodeObj.GetSubObjectList(MaterialGraphNodeResource::InputValues))
+			{
+				ResourceObject entryObj = Resources::Read(entry);
+				if (entryObj && static_cast<u32>(entryObj.GetUInt(MaterialGraphPinValueResource::PinIndex)) == pinIndex)
+				{
+					existing = entry;
+					break;
+				}
+			}
+		}
+
+		if (existing)
+		{
+			ResourceObject entryObj = Resources::Write(existing);
+			entryObj.SetVec4(MaterialGraphPinValueResource::Value, value);
+			entryObj.Commit(scope);
+			return;
+		}
+
+		RID entry = Resources::Create<MaterialGraphPinValueResource>(UUID::RandomUUID(), scope);
+		{
+			ResourceObject entryObj = Resources::Write(entry);
+			entryObj.SetUInt(MaterialGraphPinValueResource::PinIndex, pinIndex);
+			entryObj.SetVec4(MaterialGraphPinValueResource::Value, value);
+			entryObj.Commit(scope);
+		}
+
+		ResourceObject nodeObj = Resources::Write(node);
+		nodeObj.AddToSubObjectList(MaterialGraphNodeResource::InputValues, entry);
+		nodeObj.Commit(scope);
+	}
+
 	void MaterialGraphEditorWindow::DrawGraph()
 	{
 		m_editor.Begin("material_graph");
 
-		if (ResourceObject graphObj = Resources::Read(m_graph))
+		if (ResourceObject graphObj = Resources::Read(CurrentGraph()))
 		{
+			HashSet<u64> connectedPins;
+			graphObj.IterateSubObjectList(MaterialGraphResource::Connections, [&](RID connRid)
+			{
+				ResourceObject connObj = Resources::Read(connRid);
+				if (!connObj)
+				{
+					return;
+				}
+				RID inNode = connObj.GetReference(MaterialGraphConnectionResource::InputNode);
+				if (inNode)
+				{
+					connectedPins.Insert(PinKey(inNode.id, static_cast<u32>(connObj.GetUInt(MaterialGraphConnectionResource::InputPin))));
+				}
+			});
+
 			graphObj.IterateSubObjectList(MaterialGraphResource::Nodes, [&](RID nodeRid)
 			{
 				ResourceObject nodeObj = Resources::Read(nodeRid);
@@ -179,10 +267,8 @@ namespace Skore
 					.headerColor = ImColor(color.r, color.g, color.b)
 				});
 
-				for (const MaterialNodePin& pin : def->GetInputs())
-				{
-					m_editor.InputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin.type));
-				}
+				DrawPinValueWidgets(nodeRid, def, connectedPins);
+
 				for (const MaterialNodePin& pin : def->GetOutputs())
 				{
 					m_editor.OutputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin.type));
@@ -211,6 +297,27 @@ namespace Skore
 		}
 
 		GraphEditorResult result = m_editor.End();
+
+		//Keep the active pin "sticky" from first activation until its edit commits: a color picker
+		//popup reports the swatch as inactive while open, so clearing on every inactive frame would
+		//let the per-frame resource refresh clobber the in-progress edit.
+		if (result.pinValueActive)
+		{
+			m_activePinKey = PinKey(result.activePinValue.nodeId, result.activePinValue.pinIndex);
+		}
+
+		for (const GraphEditorPinEdit& edit : result.committedPinValues)
+		{
+			u64 key = PinKey(edit.nodeId, edit.pinIndex);
+			if (auto it = m_pinValues.Find(key); it != m_pinValues.end())
+			{
+				CommitPinValue(RID{edit.nodeId}, edit.pinIndex, it->second);
+			}
+			if (key == m_activePinKey)
+			{
+				m_activePinKey = 0;
+			}
+		}
 
 		for (const GraphEditorNewLink& newLink : result.createdLinks)
 		{
@@ -274,7 +381,7 @@ namespace Skore
 
 	void MaterialGraphEditorWindow::Build()
 	{
-		MaterialGraphCompileResult result = MaterialGraphCompiler::Compile(m_graph);
+		MaterialGraphCompileResult result = MaterialGraphCompiler::Compile(CurrentGraph());
 		m_generatedHlsl = result.hlsl;
 		m_buildLog = result.log;
 		m_showCode = true;
@@ -297,7 +404,7 @@ namespace Skore
 			nodeObj.Commit(scope);
 		}
 
-		ResourceObject graphObj = Resources::Write(m_graph);
+		ResourceObject graphObj = Resources::Write(CurrentGraph());
 		graphObj.AddToSubObjectList(MaterialGraphResource::Nodes, node);
 		graphObj.Commit(scope);
 	}
@@ -319,7 +426,7 @@ namespace Skore
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Delete Material Node");
 
 		Array<RID> staleConnections;
-		if (ResourceObject graphObj = Resources::Read(m_graph))
+		if (ResourceObject graphObj = Resources::Read(CurrentGraph()))
 		{
 			graphObj.IterateSubObjectList(MaterialGraphResource::Connections, [&](RID conn)
 			{
@@ -332,7 +439,7 @@ namespace Skore
 			});
 		}
 
-		ResourceObject graphObj = Resources::Write(m_graph);
+		ResourceObject graphObj = Resources::Write(CurrentGraph());
 		for (RID conn : staleConnections)
 		{
 			graphObj.RemoveFromSubObjectList(MaterialGraphResource::Connections, conn);
@@ -346,7 +453,7 @@ namespace Skore
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Connect Material Nodes");
 
 		Array<RID> staleConnections;
-		if (ResourceObject graphObj = Resources::Read(m_graph))
+		if (ResourceObject graphObj = Resources::Read(CurrentGraph()))
 		{
 			graphObj.IterateSubObjectList(MaterialGraphResource::Connections, [&](RID conn)
 			{
@@ -370,7 +477,7 @@ namespace Skore
 			connObj.Commit(scope);
 		}
 
-		ResourceObject graphObj = Resources::Write(m_graph);
+		ResourceObject graphObj = Resources::Write(CurrentGraph());
 		for (RID stale : staleConnections)
 		{
 			graphObj.RemoveFromSubObjectList(MaterialGraphResource::Connections, stale);
@@ -382,7 +489,7 @@ namespace Skore
 	void MaterialGraphEditorWindow::RemoveConnection(RID connection)
 	{
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Disconnect Material Nodes");
-		ResourceObject graphObj = Resources::Write(m_graph);
+		ResourceObject graphObj = Resources::Write(CurrentGraph());
 		graphObj.RemoveFromSubObjectList(MaterialGraphResource::Connections, connection);
 		graphObj.Commit(scope);
 	}
@@ -448,7 +555,7 @@ namespace Skore
 
 		type.Attribute<EditorWindowProperties>(EditorWindowProperties{
 			.dockPosition = DockPosition::Center,
-			.workspaceTypes = {WorkspaceTypes::All}
+			.workspaceTypes = {WorkspaceTypes::Material}
 		});
 	}
 }

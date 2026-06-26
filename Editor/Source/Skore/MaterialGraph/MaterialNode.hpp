@@ -33,6 +33,7 @@ namespace Skore
 		MaterialDataType type = MaterialDataType::Float;
 		Vec4             defaultValue{}; //literal used when the pin is left unconnected
 		String           defaultExpr{}; //HLSL expr used when unconnected (overrides defaultValue), e.g. "input.texCoord"
+		bool             color = false;  //edit the unconnected literal as a color swatch instead of raw components
 	};
 
 	struct MaterialNodeColor
@@ -93,7 +94,7 @@ namespace Skore
 
 	protected:
 		virtual void DefinePins() {}
-		void         AddInput(StringView name, MaterialDataType type, Vec4 defaultValue = {}, StringView defaultExpr = {});
+		void         AddInput(StringView name, MaterialDataType type, Vec4 defaultValue = {}, StringView defaultExpr = {}, bool color = false);
 		void         AddOutput(StringView name, MaterialDataType type);
 
 	private:
@@ -133,4 +134,8 @@ namespace Skore
 
 	//Literal HLSL expression for a value of `type` taken from `value`.
 	SK_API String MaterialLiteralExpr(MaterialDataType type, Vec4 value);
+
+	//Reads the per-instance literal override stored for an input pin of `node`, returning `fallback`
+	//(the pin's default) when the node has no override for that pin.
+	SK_API Vec4 MaterialReadPinValue(RID node, u32 pinIndex, Vec4 fallback);
 }

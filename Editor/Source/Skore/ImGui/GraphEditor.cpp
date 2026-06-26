@@ -72,6 +72,25 @@ namespace Skore
 		pin.dragSpeed = speed;
 	}
 
+	void GraphEditor::PinWidgetDragFloatN(f32* values, u32 count, f32 speed)
+	{
+		if (m_currentNodeIndex < 0 || m_framePins.Empty()) return;
+		FramePin& pin = m_framePins.Back();
+		pin.widgetType = GraphWidgetType::DragFloatN;
+		pin.floatPtr = values;
+		pin.floatCount = count < 1 ? 1 : count;
+		pin.dragSpeed = speed;
+	}
+
+	void GraphEditor::PinWidgetColor(f32* rgb)
+	{
+		if (m_currentNodeIndex < 0 || m_framePins.Empty()) return;
+		FramePin& pin = m_framePins.Back();
+		pin.widgetType = GraphWidgetType::Color;
+		pin.floatPtr = rgb;
+		pin.floatCount = 3;
+	}
+
 	void GraphEditor::PinWidgetInputText(char* buffer, u32 bufferSize)
 	{
 		if (m_currentNodeIndex < 0 || m_framePins.Empty()) return;
@@ -302,6 +321,8 @@ namespace Skore
 		// Draw widgets in canvas space
 		m_nodeWidgetActive = false;
 		m_nodeWidgetHovered = false;
+		m_hasActiveValuePin = false;
+		m_committedPinValues.Clear();
 		ImGui::SetFontRasterizerDensity(m_zoom);
 		for (auto& node : m_frameNodes)
 		{
@@ -309,6 +330,10 @@ namespace Skore
 				DrawNodeWidgets(node);
 		}
 		ImGui::SetFontRasterizerDensity(1.0f);
+
+		result.pinValueActive = m_hasActiveValuePin;
+		result.activePinValue = m_activeValuePin;
+		result.committedPinValues = m_committedPinValues;
 
 		// Box selection rectangle
 		if (m_boxSelecting)
@@ -578,6 +603,7 @@ namespace Skore
 
 		f32 maxInputLabelW = 0.0f;
 		bool hasInputWidgets = false;
+		f32 maxWidgetW = 0.0f;
 		for (u32 i = 0; i < node.inputCount; i++)
 		{
 			const FramePin& pin = m_framePins[node.inputStart + i];
@@ -586,10 +612,23 @@ namespace Skore
 				ImVec2 sz = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, pin.name.CStr());
 				maxInputLabelW = Math::Max(maxInputLabelW, sz.x);
 			}
-			if (pin.widgetType != GraphWidgetType::None) hasInputWidgets = true;
+			if (pin.widgetType != GraphWidgetType::None)
+			{
+				hasInputWidgets = true;
+				f32 wantW = 60.0f;
+				switch (pin.widgetType)
+				{
+					case GraphWidgetType::Color:      wantW = 40.0f; break;
+					case GraphWidgetType::Checkbox:   wantW = 24.0f; break;
+					case GraphWidgetType::Combo:      wantW = 90.0f; break;
+					case GraphWidgetType::DragFloatN: wantW = pin.floatCount <= 1 ? 55.0f : (pin.floatCount == 2 ? 84.0f : (pin.floatCount == 3 ? 112.0f : 140.0f)); break;
+					default:                          wantW = 60.0f; break;
+				}
+				maxWidgetW = Math::Max(maxWidgetW, wantW);
+			}
 		}
 
-		f32 minWidgetW = hasInputWidgets ? 60.0f * s : 0.0f;
+		f32 minWidgetW = hasInputWidgets ? maxWidgetW * s : 0.0f;
 
 		f32 titleW = titleSize.x + padding * 4.0f;
 		f32 outputW = pinArea + maxOutputLabelW + gap + pinArea;
@@ -819,6 +858,33 @@ namespace Skore
 						ImGui::DragFloat("##f", pin.floatPtr, pin.dragSpeed, 0.0f, 0.0f, "%.2f");
 					break;
 
+				case GraphWidgetType::DragFloatN:
+					if (pin.floatPtr)
+						ImGui::DragScalarN("##fn", ImGuiDataType_Float, pin.floatPtr, (i32)pin.floatCount, pin.dragSpeed, nullptr, nullptr, "%.2f");
+					break;
+
+				case GraphWidgetType::Color:
+				{
+					if (!pin.floatPtr) break;
+
+					m_canvas.Suspend();
+					ImGui::SetFontRasterizerDensity(m_zoom);
+					ImGui::SetWindowFontScale(m_zoom);
+
+					ImVec2 screenPos = m_canvas.FromLocal(ImVec2(widgetX, widgetY));
+					f32 screenW = widgetW * m_zoom;
+
+					ImGui::SetCursorScreenPos(screenPos);
+					ImGui::PushItemWidth(screenW);
+					ImGui::ColorEdit3("##col", pin.floatPtr, ImGuiColorEditFlags_NoInputs);
+					ImGui::PopItemWidth();
+
+					ImGui::SetWindowFontScale(1.0f);
+					ImGui::SetFontRasterizerDensity(m_zoom);
+					m_canvas.Resume();
+					break;
+				}
+
 				case GraphWidgetType::InputText:
 					if (pin.textBuffer)
 						ImGuiInputText(44444, pin.textBuffer);
@@ -888,6 +954,19 @@ namespace Skore
 
 			if (ImGui::IsItemActive()) m_nodeWidgetActive = true;
 			if (ImGui::IsItemHovered()) m_nodeWidgetHovered = true;
+
+			if (pin.widgetType == GraphWidgetType::DragFloatN || pin.widgetType == GraphWidgetType::Color)
+			{
+				if (ImGui::IsItemActive())
+				{
+					m_hasActiveValuePin = true;
+					m_activeValuePin = GraphEditorPinEdit{node.id, i};
+				}
+				if (ImGui::IsItemDeactivatedAfterEdit())
+				{
+					m_committedPinValues.EmplaceBack(GraphEditorPinEdit{node.id, i});
+				}
+			}
 
 			ImGui::PopID();
 			ImGui::PopItemWidth();

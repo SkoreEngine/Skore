@@ -8,7 +8,6 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Resource/Resources.hpp"
-#include "Skore/Window/MaterialGraphEditorWindow.hpp"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
 
 namespace Skore
@@ -27,7 +26,7 @@ namespace Skore
 			if (ResourceObject object = Resources::Read(asset))
 			{
 				RID graph = object.GetSubObject(ResourceAsset::Object);
-				Editor::GetActiveWorkspace()->OpenWindow<MaterialGraphEditorWindow>(&graph);
+				Editor::GetWorkspaceOfType(WorkspaceTypes::Material)->GetMaterialEditor().OpenMaterialGraph(graph);
 			}
 		}
 

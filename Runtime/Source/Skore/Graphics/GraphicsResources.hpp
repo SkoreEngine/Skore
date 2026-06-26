@@ -207,10 +207,22 @@ namespace Skore
 	{
 		enum
 		{
-			Type,     //String     - node type id (matches MaterialNodeRegistry)
-			Position, //Vec2       - canvas position
-			Value,    //Vec4       - literal/default value for constant-style nodes
-			Texture,  //Reference  - optional TextureResource for texture nodes
+			Type,        //String        - node type id (matches MaterialNodeRegistry)
+			Position,    //Vec2          - canvas position
+			Value,       //Vec4          - literal/default value for constant-style nodes
+			Texture,     //Reference     - optional TextureResource for texture nodes
+			InputValues, //SubObjectList - per-input-pin literal overrides used when a pin is unconnected
+		};
+	};
+
+	//Literal value an input pin uses when nothing is connected to it. Stored sparsely: only pins the
+	//user has edited get an entry; the rest fall back to the node type's pin default.
+	struct MaterialGraphPinValueResource
+	{
+		enum
+		{
+			PinIndex, //UInt - input pin index on the owning node
+			Value,    //Vec4 - literal value (components used depend on the pin type)
 		};
 	};
 
