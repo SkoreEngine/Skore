@@ -31,6 +31,7 @@
 #include "Skore/Window/ResourceDebuggerWindow.hpp"
 #include "Skore/Window/SceneViewWindow.hpp"
 #include "Skore/Window/GraphEditorWindow.hpp"
+#include "Skore/Window/MaterialGraphEditorWindow.hpp"
 #include "Skore/Window/PackagesWindow.hpp"
 #include "Skore/Project/ProjectManager.hpp"
 
@@ -1716,6 +1717,7 @@ namespace Skore
 		Reflection::Type<SettingsWindow>();
 		Reflection::Type<PackagesWindow>();
 		Reflection::Type<GraphEditorWindow>();
+		Reflection::Type<MaterialGraphEditorWindow>();
 		Reflection::Type<DebuggerWindow>();
 		Reflection::Type<AnimatorTreeViewWindow>();
 		Reflection::Type<AnimatorGraphWindow>();

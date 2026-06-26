@@ -201,6 +201,41 @@ namespace Skore
 
 	using MaterialArray = Array<TypedRID<MaterialResource>>;
 
+	//Node-based material system (editor-authored shader graph).
+	//A graph owns a list of nodes and connections; one node is flagged as the output (master) node.
+	struct MaterialGraphNodeResource
+	{
+		enum
+		{
+			Type,     //String     - node type id (matches MaterialNodeRegistry)
+			Position, //Vec2       - canvas position
+			Value,    //Vec4       - literal/default value for constant-style nodes
+			Texture,  //Reference  - optional TextureResource for texture nodes
+		};
+	};
+
+	struct MaterialGraphConnectionResource
+	{
+		enum
+		{
+			OutputNode, //Reference (MaterialGraphNodeResource) - value source
+			OutputPin,  //UInt      - source output pin index
+			InputNode,  //Reference (MaterialGraphNodeResource) - value consumer
+			InputPin,   //UInt      - destination input pin index
+		};
+	};
+
+	struct MaterialGraphResource
+	{
+		enum
+		{
+			Name,        //String
+			Nodes,       //SubObjectList (MaterialGraphNodeResource)
+			Connections, //SubObjectList (MaterialGraphConnectionResource)
+			OutputNode,  //Reference (the master/output node)
+		};
+	};
+
 	struct AnimationKeyFrame
 	{
 		f64  time = 0.f;
