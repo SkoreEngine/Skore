@@ -40,11 +40,11 @@ namespace Skore
 
 		void DrawToolbar();
 		void DrawGraph();
-		void DrawValueInspector(RID node, const MaterialNodeDef& def);
+		void DrawValueInspector(RID node, MaterialNode* def);
 		void DrawCodePanel();
 
 		void Build();
-		void AddNode(const MaterialNodeDef& def, Vec2 position);
+		void AddNode(MaterialNode* node, Vec2 position);
 		void DeleteNode(RID node);
 		void AddConnection(RID outputNode, u32 outputPin, RID inputNode, u32 inputPin);
 		void RemoveConnection(RID connection);

@@ -13,7 +13,7 @@ namespace Skore
 		u32    spirvSize = 0;
 	};
 
-	struct MaterialGraphCompiler
+	struct SK_API MaterialGraphCompiler
 	{
 		//Generates HLSL from the graph and compiles it to SPIR-V (editor side).
 		static MaterialGraphCompileResult Compile(RID graph);

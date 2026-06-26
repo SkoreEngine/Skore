@@ -53,8 +53,8 @@
 
 namespace Skore
 {
-	void ShaderManagerInit();
-	void ShaderManagerShutdown();
+	void SK_API ShaderManagerInit();
+	void SK_API ShaderManagerShutdown();
 	void ImGuiInit();
 
 	struct EditorState
@@ -1717,6 +1717,7 @@ namespace Skore
 		Reflection::Type<SettingsWindow>();
 		Reflection::Type<PackagesWindow>();
 		Reflection::Type<GraphEditorWindow>();
+		RegisterMaterialNodes();
 		Reflection::Type<MaterialGraphEditorWindow>();
 		Reflection::Type<DebuggerWindow>();
 		Reflection::Type<AnimatorTreeViewWindow>();

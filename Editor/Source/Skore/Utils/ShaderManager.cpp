@@ -159,7 +159,7 @@ namespace Skore
 	};
 
 
-	void ShaderManagerInit()
+	void SK_API ShaderManagerInit()
 	{
 		String path = Path::Join(FileSystem::CurrentDir(), DXC_LIBRARY);
 		library = Platform::LoadObject(path.CStr());
@@ -172,7 +172,7 @@ namespace Skore
 		}
 	}
 
-	void ShaderManagerShutdown()
+	void SK_API ShaderManagerShutdown()
 	{
 		if (library)
 		{

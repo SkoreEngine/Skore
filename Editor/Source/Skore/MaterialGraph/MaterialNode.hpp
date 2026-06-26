@@ -2,6 +2,7 @@
 
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/Math.hpp"
+#include "Skore/Core/Object.hpp"
 #include "Skore/Core/Span.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/StringView.hpp"
@@ -33,9 +34,16 @@ namespace Skore
 		Vec4             defaultValue{}; //used when the pin is left unconnected
 	};
 
-	//Context passed to a node's codegen function. The compiler fills `inputs` (each already
-	//converted to the matching input pin type) and `value`, then the codegen writes one HLSL
-	//expression per output pin into `outputs`.
+	struct MaterialNodeColor
+	{
+		u8 r = 60;
+		u8 g = 110;
+		u8 b = 180;
+	};
+
+	//Context passed to a node's Generate(). The compiler fills `inputs` (each already converted
+	//to the matching input pin type) and `value`, then the node writes one HLSL expression per
+	//output pin into `outputs`.
 	struct MaterialCodegenContext
 	{
 		Span<String>   inputs{};
@@ -46,34 +54,50 @@ namespace Skore
 		void       SetOutput(u32 index, StringView expr) { outputs[index] = expr; }
 	};
 
-	using FnMaterialNodeCodegen = void (*)(MaterialCodegenContext& ctx);
-
-	struct MaterialNodeColor
+	//Abstract material graph node type. Subclass once per node; instances are singletons owned by
+	//MaterialNodeRegistry and used for both editor UI info and HLSL code generation. To add a node:
+	//  - derive from MaterialNode, add SK_CLASS(MyNode, MaterialNode)
+	//  - override GetNodeTypeId()/GetDisplayName()/Generate() (others as needed)
+	//  - declare pins in DefinePins() via AddInput()/AddOutput()
+	//  - register it with Reflection::Type<MyNode>() inside RegisterMaterialNodes()
+	struct MaterialNode : Object
 	{
-		u8 r = 60;
-		u8 g = 110;
-		u8 b = 180;
+		SK_CLASS(MaterialNode, Object);
+
+		~MaterialNode() override = default;
+
+		virtual StringView            GetNodeTypeId() const = 0;
+		virtual StringView            GetDisplayName() const = 0;
+		virtual StringView            GetCategory() const { return ""; }
+		virtual MaterialNodeColor     GetHeaderColor() const { return {}; }
+		virtual bool                  IsOutput() const { return false; }
+		virtual MaterialNodeValueKind GetValueKind() const { return MaterialNodeValueKind::None; }
+		virtual Vec4                  GetDefaultValue() const { return {}; }
+
+		//Emit HLSL. Read ctx.Input(i)/ctx.value, write ctx.SetOutput(i, expr).
+		virtual void Generate(MaterialCodegenContext& ctx) const = 0;
+
+		Span<MaterialNodePin> GetInputs() const { return m_inputs; }
+		Span<MaterialNodePin> GetOutputs() const { return m_outputs; }
+
+		//Rebuilds the pin lists by invoking DefinePins(). Called by the registry after construction.
+		void BuildPins();
+
+	protected:
+		virtual void DefinePins() {}
+		void         AddInput(StringView name, MaterialDataType type, Vec4 defaultValue = {});
+		void         AddOutput(StringView name, MaterialDataType type);
+
+	private:
+		Array<MaterialNodePin> m_inputs{};
+		Array<MaterialNodePin> m_outputs{};
 	};
 
-	struct MaterialNodeDef
+	//Global registry of available material node types, populated from reflection on first access.
+	struct SK_API MaterialNodeRegistry
 	{
-		String                 typeId{};
-		String                 displayName{};
-		String                 category{};
-		Array<MaterialNodePin> inputs{};
-		Array<MaterialNodePin> outputs{};
-		MaterialNodeValueKind  valueKind = MaterialNodeValueKind::None;
-		Vec4                   defaultValue{};
-		MaterialNodeColor      headerColor{};
-		bool                   isOutput = false; //the single master node of a graph
-		FnMaterialNodeCodegen  codegen = nullptr;
-	};
-
-	//Global registry of available material node types. Built lazily on first access.
-	struct MaterialNodeRegistry
-	{
-		static Span<MaterialNodeDef> GetDefs();
-		static const MaterialNodeDef* Find(StringView typeId);
+		static Span<MaterialNode*> GetNodes();
+		static MaterialNode*       Find(StringView typeId);
 
 		//Fixed input pin layout of the output (master) node, mapped to surface fields by the compiler.
 		enum OutputPin
@@ -87,12 +111,15 @@ namespace Skore
 		static StringView OutputTypeId();
 	};
 
-	StringView MaterialHlslType(MaterialDataType type);
-	u32        MaterialComponentCount(MaterialDataType type);
+	//Registers all built-in node types with reflection. Call before the registry is first used.
+	SK_API void RegisterMaterialNodes();
+
+	SK_API StringView MaterialHlslType(MaterialDataType type);
+	SK_API u32        MaterialComponentCount(MaterialDataType type);
 
 	//Builds an HLSL expression converting `expr` (of `from` type) to the `to` type.
-	String MaterialConvertExpr(StringView expr, MaterialDataType from, MaterialDataType to);
+	SK_API String MaterialConvertExpr(StringView expr, MaterialDataType from, MaterialDataType to);
 
 	//Literal HLSL expression for a value of `type` taken from `value`.
-	String MaterialLiteralExpr(MaterialDataType type, Vec4 value);
+	SK_API String MaterialLiteralExpr(MaterialDataType type, Vec4 value);
 }

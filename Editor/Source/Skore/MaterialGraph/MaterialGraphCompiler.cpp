@@ -54,8 +54,9 @@ namespace Skore
 				return "0.0";
 			}
 
-			String ResolveInput(RID node, const MaterialNodeDef& def, u32 inputPin)
+			String ResolveInput(RID node, const MaterialNode& def, u32 inputPin)
 			{
+				Span<MaterialNodePin> inputs = def.GetInputs();
 				for (const ConnRec& c : conns)
 				{
 					if (c.inNode != node.id || c.inPin != inputPin)
@@ -76,18 +77,18 @@ namespace Skore
 						break;
 					}
 
-					const MaterialNodeDef* srcDef = MaterialNodeRegistry::Find(srcObj.GetString(MaterialGraphNodeResource::Type));
-					if (!srcDef || c.outPin >= srcDef->outputs.Size())
+					MaterialNode* srcDef = MaterialNodeRegistry::Find(srcObj.GetString(MaterialGraphNodeResource::Type));
+					if (!srcDef || c.outPin >= srcDef->GetOutputs().Size())
 					{
 						break;
 					}
 
-					MaterialDataType srcType = srcDef->outputs[c.outPin].type;
+					MaterialDataType srcType = srcDef->GetOutputs()[c.outPin].type;
 					String           srcVar = GetOutputVar(srcNode, c.outPin);
-					return MaterialConvertExpr(srcVar, srcType, def.inputs[inputPin].type);
+					return MaterialConvertExpr(srcVar, srcType, inputs[inputPin].type);
 				}
 
-				return MaterialLiteralExpr(def.inputs[inputPin].type, def.inputs[inputPin].defaultValue);
+				return MaterialLiteralExpr(inputs[inputPin].type, inputs[inputPin].defaultValue);
 			}
 
 			void EmitNode(RID node)
@@ -109,44 +110,44 @@ namespace Skore
 					return;
 				}
 
-				StringView             typeId = obj.GetString(MaterialGraphNodeResource::Type);
-				const MaterialNodeDef* def = MaterialNodeRegistry::Find(typeId);
+				StringView    typeId = obj.GetString(MaterialGraphNodeResource::Type);
+				MaterialNode* def = MaterialNodeRegistry::Find(typeId);
 				if (!def)
 				{
 					log += String{"Unknown node type: "} + typeId + "\n";
 					return;
 				}
 
-				if (def->isOutput)
+				if (def->IsOutput())
 				{
 					return;
 				}
 
 				emitting.Insert(node.id);
 
+				Span<MaterialNodePin> inputs = def->GetInputs();
+				Span<MaterialNodePin> outputs = def->GetOutputs();
+
 				Array<String> inputExprs;
-				inputExprs.Resize(def->inputs.Size());
-				for (u32 i = 0; i < def->inputs.Size(); ++i)
+				inputExprs.Resize(inputs.Size());
+				for (u32 i = 0; i < inputs.Size(); ++i)
 				{
 					inputExprs[i] = ResolveInput(node, *def, i);
 				}
 
 				Array<String> outputExprs;
-				outputExprs.Resize(def->outputs.Size());
+				outputExprs.Resize(outputs.Size());
 
 				MaterialCodegenContext ctx{Span<String>(inputExprs), obj.GetVec4(MaterialGraphNodeResource::Value), outputExprs};
-				if (def->codegen)
-				{
-					def->codegen(ctx);
-				}
+				def->Generate(ctx);
 
 				Array<String> varNames;
-				varNames.Resize(def->outputs.Size());
-				for (u32 o = 0; o < def->outputs.Size(); ++o)
+				varNames.Resize(outputs.Size());
+				for (u32 o = 0; o < outputs.Size(); ++o)
 				{
 					String varName = "n" + UIntStr(varCounter++);
 					varNames[o] = varName;
-					body += String{"    "} + MaterialHlslType(def->outputs[o].type) + " " + varName + " = " + outputExprs[o] + ";\n";
+					body += String{"    "} + MaterialHlslType(outputs[o].type) + " " + varName + " = " + outputExprs[o] + ";\n";
 				}
 
 				emitting.Erase(node.id);
@@ -203,7 +204,7 @@ namespace Skore
 			}
 		}
 
-		const MaterialNodeDef* outDef = MaterialNodeRegistry::Find(MaterialNodeRegistry::OutputTypeId());
+		MaterialNode* outDef = MaterialNodeRegistry::Find(MaterialNodeRegistry::OutputTypeId());
 
 		Emitter emitter{nodeById, connRecs, log};
 

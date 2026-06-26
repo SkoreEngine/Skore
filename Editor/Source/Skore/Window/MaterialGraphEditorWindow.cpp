@@ -97,19 +97,19 @@ namespace Skore
 			RID node = RID{selected[0]};
 			if (ResourceObject nodeObj = Resources::Read(node))
 			{
-				const MaterialNodeDef* def = MaterialNodeRegistry::Find(nodeObj.GetString(MaterialGraphNodeResource::Type));
-				if (def && def->valueKind != MaterialNodeValueKind::None)
+				MaterialNode* def = MaterialNodeRegistry::Find(nodeObj.GetString(MaterialGraphNodeResource::Type));
+				if (def && def->GetValueKind() != MaterialNodeValueKind::None)
 				{
 					ImGui::SameLine();
-					ImGui::TextUnformatted(def->displayName.CStr());
+					ImGui::TextUnformatted(def->GetDisplayName().CStr());
 					ImGui::SameLine();
-					DrawValueInspector(node, *def);
+					DrawValueInspector(node, def);
 				}
 			}
 		}
 	}
 
-	void MaterialGraphEditorWindow::DrawValueInspector(RID node, const MaterialNodeDef& def)
+	void MaterialGraphEditorWindow::DrawValueInspector(RID node, MaterialNode* def)
 	{
 		ResourceObject nodeObj = Resources::Read(node);
 		if (!nodeObj)
@@ -121,7 +121,7 @@ namespace Skore
 
 		bool changed = false;
 		ImGui::SetNextItemWidth(220.0f);
-		switch (def.valueKind)
+		switch (def->GetValueKind())
 		{
 			case MaterialNodeValueKind::Float:
 				changed = ImGui::DragFloat("##mg_value", &v.x, 0.01f);
@@ -167,22 +167,23 @@ namespace Skore
 					return;
 				}
 
-				const MaterialNodeDef* def = MaterialNodeRegistry::Find(nodeObj.GetString(MaterialGraphNodeResource::Type));
+				MaterialNode* def = MaterialNodeRegistry::Find(nodeObj.GetString(MaterialGraphNodeResource::Type));
 				if (!def)
 				{
 					return;
 				}
 
-				Vec2 position = nodeObj.GetVec2(MaterialGraphNodeResource::Position);
-				m_editor.BeginNode(nodeRid.id, def->displayName.CStr(), position, GraphNodeDesc{
-					.headerColor = ImColor(def->headerColor.r, def->headerColor.g, def->headerColor.b)
+				MaterialNodeColor color = def->GetHeaderColor();
+				Vec2              position = nodeObj.GetVec2(MaterialGraphNodeResource::Position);
+				m_editor.BeginNode(nodeRid.id, def->GetDisplayName().CStr(), position, GraphNodeDesc{
+					.headerColor = ImColor(color.r, color.g, color.b)
 				});
 
-				for (const MaterialNodePin& pin : def->inputs)
+				for (const MaterialNodePin& pin : def->GetInputs())
 				{
 					m_editor.InputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin.type));
 				}
-				for (const MaterialNodePin& pin : def->outputs)
+				for (const MaterialNodePin& pin : def->GetOutputs())
 				{
 					m_editor.OutputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin.type));
 				}
@@ -279,15 +280,20 @@ namespace Skore
 		m_showCode = true;
 	}
 
-	void MaterialGraphEditorWindow::AddNode(const MaterialNodeDef& def, Vec2 position)
+	void MaterialGraphEditorWindow::AddNode(MaterialNode* def, Vec2 position)
 	{
+		if (!def)
+		{
+			return;
+		}
+
 		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Add Material Node");
 		RID node = Resources::Create<MaterialGraphNodeResource>(UUID::RandomUUID(), scope);
 		{
 			ResourceObject nodeObj = Resources::Write(node);
-			nodeObj.SetString(MaterialGraphNodeResource::Type, def.typeId);
+			nodeObj.SetString(MaterialGraphNodeResource::Type, def->GetNodeTypeId());
 			nodeObj.SetVec2(MaterialGraphNodeResource::Position, position);
-			nodeObj.SetVec4(MaterialGraphNodeResource::Value, def.defaultValue);
+			nodeObj.SetVec4(MaterialGraphNodeResource::Value, def->GetDefaultValue());
 			nodeObj.Commit(scope);
 		}
 
@@ -384,10 +390,10 @@ namespace Skore
 	void MaterialGraphEditorWindow::AddNodeAction(const MenuItemEventData& eventData)
 	{
 		MaterialGraphEditorWindow* window = static_cast<MaterialGraphEditorWindow*>(eventData.drawData);
-		Span<MaterialNodeDef>      defs = MaterialNodeRegistry::GetDefs();
-		if (eventData.userData < defs.Size())
+		Span<MaterialNode*>        nodes = MaterialNodeRegistry::GetNodes();
+		if (eventData.userData < nodes.Size())
 		{
-			window->AddNode(defs[eventData.userData], window->m_popupMousePos);
+			window->AddNode(nodes[eventData.userData], window->m_popupMousePos);
 		}
 	}
 
@@ -408,18 +414,19 @@ namespace Skore
 
 	void MaterialGraphEditorWindow::RegisterType(NativeReflectType<MaterialGraphEditorWindow>& type)
 	{
-		Span<MaterialNodeDef> defs = MaterialNodeRegistry::GetDefs();
-		for (u32 i = 0; i < defs.Size(); ++i)
+		Span<MaterialNode*> nodes = MaterialNodeRegistry::GetNodes();
+		for (u32 i = 0; i < nodes.Size(); ++i)
 		{
-			const MaterialNodeDef& def = defs[i];
-			if (def.isOutput)
+			MaterialNode* node = nodes[i];
+			if (node->IsOutput())
 			{
 				continue;
 			}
 
-			String path = def.category.Empty()
-				              ? ("Add Node/" + def.displayName)
-				              : ("Add Node/" + def.category + "/" + def.displayName);
+			StringView category = node->GetCategory();
+			String     path = category.Empty()
+				                  ? (String{"Add Node/"} + node->GetDisplayName())
+				                  : (String{"Add Node/"} + category + "/" + node->GetDisplayName());
 
 			s_menu.AddMenuItem(MenuItemCreation{
 				.itemName = path,
