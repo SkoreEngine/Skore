@@ -1510,6 +1510,86 @@ namespace
 		readback->Destroy();
 		external->Destroy();
 	}
+
+	// Auto descriptor set: a compute pass's Read/Write/WriteRead resources are mapped onto the shader's
+	// set-0 bindings in declaration order, with no manual DescriptorSet() and no Render() callback. Seed
+	// fills "In" through its single storage-image binding; Step samples "In" (binding 0), takes the
+	// graph's default sampler (binding 1, no resource consumed) and writes "Out" (binding 2), so the read
+	// back Out is In + 0.25 on rgb. Ordering matters: a wrong dependency->binding mapping would sample the
+	// output or write the input and the values would not match.
+	TEST_CASE("Graphics::Vulkan::RenderGraphComputeAutoDescriptorSetFromDependencies")
+	{
+		if (!GpuTest::IsAvailable())
+		{
+			MESSAGE("Vulkan device not available - skipping GPU test");
+			return;
+		}
+
+		GpuTest::ResourceScope resourceScope;
+
+		RID seedShader = GpuTest::CompileComputeShader(Path::Join(SK_EDITOR_TEST_FILES, "Shaders/FillSolid.comp"));
+		RID stepShader = GpuTest::CompileComputeShader(Path::Join(SK_EDITOR_TEST_FILES, "Shaders/AliasChainStep.comp"));
+		REQUIRE(seedShader);
+		REQUIRE(stepShader);
+
+		RenderGraph rg;
+		rg.SetOutputSize(Extent{kWidth, kHeight});
+
+		GPUBuffer* readback = CreateFloatReadbackBuffer("RenderGraphAutoDescriptorReadback");
+		REQUIRE(readback != nullptr);
+
+		constexpr u32 kFrameCount = 3;
+		for (u32 frame = 0; frame < kFrameCount; ++frame)
+		{
+			rg.Begin(nullptr);
+
+			rg.Create("In", RenderGraphTextureDesc{
+				.format = Format::RGBA32_FLOAT,
+				.extent = Extent{kWidth, kHeight},
+				.usage = ResourceUsage::UnorderedAccess | ResourceUsage::ShaderResource
+			});
+			rg.Create("Out", RenderGraphTextureDesc{
+				.format = Format::RGBA32_FLOAT,
+				.extent = Extent{kWidth, kHeight},
+				.usage = ResourceUsage::UnorderedAccess | ResourceUsage::CopySource
+			});
+
+			rg.AddComputePass("Seed", seedShader)
+				.Write("In")
+				.Dispatch(kWidth, kHeight, 1);
+
+			rg.AddComputePass("Step", stepShader)
+				.Read("In")
+				.Write("Out")
+				.Dispatch(kWidth, kHeight, 1);
+
+			Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+			{
+				rg.Execute(cmd);
+			});
+		}
+
+		ReadbackStorage(rg, "Out", readback, Extent{kWidth, kHeight});
+
+		const f32* pixels = static_cast<const f32*>(readback->Map());
+		REQUIRE(pixels != nullptr);
+
+		auto checkPixel = [&](u32 x, u32 y)
+		{
+			const f32* texel = pixels + (y * kWidth + x) * 4;
+			CHECK(texel[0] == doctest::Approx(0.45f).epsilon(0.01));
+			CHECK(texel[1] == doctest::Approx(0.65f).epsilon(0.01));
+			CHECK(texel[2] == doctest::Approx(0.85f).epsilon(0.01));
+			CHECK(texel[3] == doctest::Approx(1.0f));
+		};
+
+		checkPixel(0, 0);
+		checkPixel(kWidth / 2, kHeight / 2);
+		checkPixel(kWidth - 1, kHeight - 1);
+
+		readback->Unmap();
+		readback->Destroy();
+	}
 }
 
 #endif

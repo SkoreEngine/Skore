@@ -29,6 +29,7 @@ namespace Skore
 		u32 textureBarrierCount = 0;
 		u32 bufferBarrierCount = 0;
 		u32 memoryBarrierCount = 0;
+		u32 bindDescriptorSetCount = 0;
 	};
 
 	class TestGPUBuffer final : public GPUBuffer
@@ -352,6 +353,9 @@ namespace Skore
 
 		DeviceProperties properties{};
 		DeviceFeatures   features{};
+
+		PipelineDesc            nextPipelineDesc{};
+		Array<DescriptorUpdate> recordedDescriptorUpdates;
 
 	private:
 		Array<TestGPUBuffer*>        buffers;

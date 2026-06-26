@@ -198,6 +198,12 @@ namespace Skore
 		}
 		descriptorSetCache.Clear();
 
+		for (auto& it : autoDescriptorSetCache)
+		{
+			it.second->Destroy();
+		}
+		autoDescriptorSetCache.Clear();
+
 		for (u32 i = 0; i < SK_FRAMES_IN_FLIGHT; ++i)
 		{
 			if (sceneDescriptorSets[i] != nullptr)
@@ -551,6 +557,22 @@ namespace Skore
 		resourcesDirty = true;
 	}
 
+	void RenderGraph::Create(StringView name, const RenderGraphAccelStructDesc& accelStructDesc)
+	{
+		if (Resource* existing = FindResource(name))
+		{
+			existing->topLevelAS = accelStructDesc.topLevelAS;
+			existing->lastUsed = frameGeneration;
+			return;
+		}
+
+		Resource resource;
+		resource.kind = Resource::Kind::AccelerationStructure;
+		resource.topLevelAS = accelStructDesc.topLevelAS;
+		resource.lastUsed = frameGeneration;
+		resources.Insert(name, Traits::Move(resource));
+	}
+
 	void RenderGraph::CreateView(StringView name, const RenderGraphViewDesc& viewDesc)
 	{
 		if (Resource* existing = FindResource(name))
@@ -723,6 +745,12 @@ namespace Skore
 		return resource->bufferDesc.perFrame ? resource->buffers[currentFrame] : resource->buffers[0];
 	}
 
+	GPUTopLevelAS* RenderGraph::GetTopLevelAS(StringView name) const
+	{
+		const Resource* resource = FindResource(name);
+		return resource != nullptr ? resource->topLevelAS : nullptr;
+	}
+
 	GPUPipeline* RenderGraph::GetOrCreatePipeline(StringView key, GPUPipeline* (*create)(VoidPtr userData), VoidPtr userData)
 	{
 		usize hash = HashValue(key);
@@ -743,6 +771,164 @@ namespace Skore
 		GPUDescriptorSet* ds = device->CreateDescriptorSet(shader, variant, set);
 		descriptorSetCache.Insert(key, ds);
 		return ds;
+	}
+
+	GPUDescriptorSet* RenderGraph::GetAutoDescriptorSet(const RenderGraphPass* pass, u32 set)
+	{
+		usize key = 0;
+		HashCombine(key, HashValue(StringView(pass->name)));
+		HashCombine(key, HashValue(pass->shader));
+		HashCombine(key, set);
+		HashCombine(key, currentFrame);
+		if (auto it = autoDescriptorSetCache.Find(key)) return it->second;
+
+		GPUDescriptorSet* ds = device->CreateDescriptorSet(pass->shader, "Default", set);
+		if (ds != nullptr)
+		{
+			autoDescriptorSetCache.Insert(key, ds);
+		}
+		return ds;
+	}
+
+	void RenderGraph::BindAutoDescriptorSet(RenderGraphPass* pass, GPUCommandBuffer* cmd)
+	{
+		if (pass->renderFn || pass->pipeline == nullptr || !pass->shader) return;
+		if (pass->type != RenderGraphPassType::Compute && pass->type != RenderGraphPassType::Raytrace) return;
+		if (pass->dependencyCount == 0) return;
+
+		constexpr u32 set = 0;
+
+		for (usize i = 0; i < pass->boundDescriptorSetCount; ++i)
+		{
+			if (pass->boundDescriptorSets[i].set == set) return;
+		}
+
+		const PipelineDesc&        pipelineDesc = pass->pipeline->GetPipelineDesc();
+		const DescriptorSetLayout* layout = nullptr;
+		for (const DescriptorSetLayout& candidate : pipelineDesc.descriptors)
+		{
+			if (candidate.set == set)
+			{
+				layout = &candidate;
+				break;
+			}
+		}
+		if (layout == nullptr || layout->bindings.Empty()) return;
+
+		GPUDescriptorSet* descriptorSet = GetAutoDescriptorSet(pass, set);
+		if (descriptorSet == nullptr) return;
+
+		usize dependencyCursor = 0;
+
+		auto nextResource = [&](u32 bindingIndex) -> const RenderGraphPass::Dependency*
+		{
+			if (dependencyCursor >= pass->dependencyCount)
+			{
+				logger.Warn("RenderGraph pass '{}' set {} binding {}: no Read/Write resource left to bind", pass->name, set, bindingIndex);
+				return nullptr;
+			}
+			return &pass->dependencies[dependencyCursor++];
+		};
+
+		for (u32 bindingIndex = 0; bindingIndex < layout->bindings.Size(); ++bindingIndex)
+		{
+			const DescriptorSetLayoutBinding& binding = layout->bindings[bindingIndex];
+
+			switch (binding.descriptorType)
+			{
+				case DescriptorType::Sampler:
+				{
+					DescriptorUpdate update;
+					update.type = DescriptorType::Sampler;
+					update.binding = bindingIndex;
+					update.sampler = Graphics::GetLinearSampler();
+					descriptorSet->Update(update);
+					break;
+				}
+				case DescriptorType::SampledImage:
+				case DescriptorType::StorageImage:
+				case DescriptorType::InputAttachment:
+				{
+					const RenderGraphPass::Dependency* dependency = nextResource(bindingIndex);
+					if (dependency == nullptr) break;
+
+					const Resource* res = FindResource(dependency->name);
+					if (res == nullptr)
+					{
+						logger.Warn("RenderGraph pass '{}' set {} binding {}: resource '{}' not found", pass->name, set, bindingIndex, dependency->name);
+						break;
+					}
+
+					DescriptorUpdate update;
+					update.type = binding.descriptorType;
+					update.binding = bindingIndex;
+					if (res->kind == Resource::Kind::View)
+					{
+						update.textureView = GetTextureView(dependency->name);
+					}
+					else
+					{
+						update.texture = GetTexture(dependency->name);
+					}
+
+					if (update.texture == nullptr && update.textureView == nullptr)
+					{
+						logger.Warn("RenderGraph pass '{}' set {} binding {}: resource '{}' has no texture", pass->name, set, bindingIndex, dependency->name);
+						break;
+					}
+					descriptorSet->Update(update);
+					break;
+				}
+				case DescriptorType::UniformBuffer:
+				case DescriptorType::StorageBuffer:
+				case DescriptorType::UniformBufferDynamic:
+				case DescriptorType::StorageBufferDynamic:
+				{
+					const RenderGraphPass::Dependency* dependency = nextResource(bindingIndex);
+					if (dependency == nullptr) break;
+
+					const Resource* res = FindResource(dependency->name);
+					GPUBuffer*      buffer = GetBuffer(dependency->name);
+					if (buffer == nullptr)
+					{
+						logger.Warn("RenderGraph pass '{}' set {} binding {}: resource '{}' has no buffer", pass->name, set, bindingIndex, dependency->name);
+						break;
+					}
+
+					DescriptorUpdate update;
+					update.type = binding.descriptorType;
+					update.binding = bindingIndex;
+					update.buffer = buffer;
+					update.bufferOffset = 0;
+					update.bufferRange = res != nullptr ? res->bufferDesc.size : 0;
+					descriptorSet->Update(update);
+					break;
+				}
+				case DescriptorType::AccelerationStructure:
+				{
+					const RenderGraphPass::Dependency* dependency = nextResource(bindingIndex);
+					if (dependency == nullptr) break;
+
+					const Resource* res = FindResource(dependency->name);
+					if (res == nullptr || res->topLevelAS == nullptr)
+					{
+						logger.Warn("RenderGraph pass '{}' set {} binding {}: resource '{}' has no acceleration structure", pass->name, set, bindingIndex, dependency->name);
+						break;
+					}
+
+					DescriptorUpdate update;
+					update.type = DescriptorType::AccelerationStructure;
+					update.binding = bindingIndex;
+					update.topLevelAS = res->topLevelAS;
+					descriptorSet->Update(update);
+					break;
+				}
+				default:
+					break;
+			}
+		}
+
+		cmd->BindDescriptorSet(pass->pipeline, set, descriptorSet);
 	}
 
 	GPUDescriptorSet* RenderGraph::GetSceneDescriptorSet() const
@@ -2339,7 +2525,7 @@ namespace Skore
 					continue;
 				}
 
-				if (res->kind == Resource::Kind::Instance)
+				if (res->kind == Resource::Kind::Instance || res->kind == Resource::Kind::AccelerationStructure)
 				{
 					continue;
 				}
@@ -2405,6 +2591,8 @@ namespace Skore
 					const RenderGraphPass::BoundDescriptorSet& binding = pass->boundDescriptorSets[descriptorSetIndex];
 					cmd->BindDescriptorSet(pass->pipeline, binding.set, binding.descriptorSet);
 				}
+
+				BindAutoDescriptorSet(pass, cmd);
 
 				if (pass->constantsFn && pass->constantsSize > 0)
 				{

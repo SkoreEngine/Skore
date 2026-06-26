@@ -807,4 +807,59 @@ namespace
 		CHECK(a->mismatchCount == 0);
 	}
 
+	TEST_CASE("RenderGraph::AutoDescriptorSetBindsAccelerationStructure")
+	{
+		TestRenderDevice device;
+		device.features.rayTracing = true;
+
+		DescriptorSetLayout layout;
+		layout.set = 0;
+		layout.bindings.Resize(2);
+		layout.bindings[0] = DescriptorSetLayoutBinding{.binding = 0, .descriptorType = DescriptorType::AccelerationStructure};
+		layout.bindings[1] = DescriptorSetLayoutBinding{.binding = 1, .descriptorType = DescriptorType::StorageImage};
+		device.nextPipelineDesc.descriptors.EmplaceBack(layout);
+
+		GPUTopLevelAS* tlas = device.CreateTopLevelAS(TopLevelASDesc{});
+		REQUIRE(tlas != nullptr);
+
+		RenderGraph rg(&device);
+		rg.SetOutputSize(Extent{64, 64});
+
+		rg.Begin(nullptr);
+		rg.Create("Tlas", RenderGraphAccelStructDesc{.topLevelAS = tlas});
+		rg.Create("Out", RenderGraphTextureDesc{.format = Format::RGBA16_FLOAT});
+
+		CHECK(rg.GetTopLevelAS("Tlas") == tlas);
+
+		rg.AddComputePass("RayQueryCompute", RID{1})
+			.Read("Tlas")
+			.Write("Out")
+			.Dispatch(64, 64, 1);
+
+		rg.AddRaytracePass("RayQueryRaytrace", RID{2})
+			.Read("Tlas")
+			.Write("Out")
+			.TraceRays(64, 64, 1);
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		u32 asUpdates = 0;
+		for (const DescriptorUpdate& update : device.recordedDescriptorUpdates)
+		{
+			if (update.type == DescriptorType::AccelerationStructure && update.topLevelAS == tlas)
+			{
+				++asUpdates;
+			}
+		}
+		CHECK(asUpdates == 2);
+
+		TestGPUCommandBuffer* testCmd = static_cast<TestGPUCommandBuffer*>(cmd);
+		CHECK(testCmd->stats.dispatchCount == 1);
+		CHECK(testCmd->stats.traceRaysCount == 1);
+		CHECK(testCmd->stats.bindDescriptorSetCount >= 2);
+	}
+
 }

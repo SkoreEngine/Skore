@@ -179,6 +179,10 @@ namespace Skore
 	void TestGPUDescriptorSet::Update(const DescriptorUpdate& update)
 	{
 		++updateCount;
+		if (device != nullptr)
+		{
+			device->recordedDescriptorUpdates.EmplaceBack(update);
+		}
 	}
 
 	void TestGPUDescriptorSet::UpdateBuffer(u32 binding, GPUBuffer* buffer, usize offset, usize size)
@@ -393,7 +397,10 @@ namespace Skore
 		boundPipeline = pipeline;
 	}
 
-	void TestGPUCommandBuffer::BindDescriptorSet(GPUPipeline* pipeline, u32 setIndex, GPUDescriptorSet* descriptorSet, Span<u32> dynamicOffsets) {}
+	void TestGPUCommandBuffer::BindDescriptorSet(GPUPipeline* pipeline, u32 setIndex, GPUDescriptorSet* descriptorSet, Span<u32> dynamicOffsets)
+	{
+		++stats.bindDescriptorSetCount;
+	}
 
 	void TestGPUCommandBuffer::BindVertexBuffer(u32 firstBinding, GPUBuffer* buffers, usize offset) {}
 
@@ -791,6 +798,7 @@ namespace Skore
 		TestGPUPipeline* pipeline = new TestGPUPipeline();
 		pipeline->device = this;
 		pipeline->bindPoint = PipelineBindPoint::Compute;
+		pipeline->pipelineDesc = nextPipelineDesc;
 		pipelines.EmplaceBack(pipeline);
 		return pipeline;
 	}
@@ -800,6 +808,7 @@ namespace Skore
 		TestGPUPipeline* pipeline = new TestGPUPipeline();
 		pipeline->device = this;
 		pipeline->bindPoint = PipelineBindPoint::RayTracing;
+		pipeline->pipelineDesc = nextPipelineDesc;
 		pipelines.EmplaceBack(pipeline);
 		return pipeline;
 	}

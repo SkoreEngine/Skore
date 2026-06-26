@@ -58,6 +58,11 @@ namespace Skore
 		bool          perFrame = false;
 	};
 
+	struct RenderGraphAccelStructDesc
+	{
+		GPUTopLevelAS* topLevelAS = nullptr;
+	};
+
 	struct RenderGraphViewDesc
 	{
 		String          texture;
@@ -215,6 +220,7 @@ namespace Skore
 
 		void Create(StringView name, const RenderGraphTextureDesc& textureDesc);
 		void Create(StringView name, const RenderGraphBufferDesc& bufferDesc);
+		void Create(StringView name, const RenderGraphAccelStructDesc& accelStructDesc);
 		void CreateView(StringView name, const RenderGraphViewDesc& viewDesc);
 
 		template <typename F>
@@ -238,6 +244,7 @@ namespace Skore
 		GPUTexture*     GetPrevTexture(StringView name) const;
 		GPUTextureView* GetTextureView(StringView name) const;
 		GPUBuffer*      GetBuffer(StringView name) const;
+		GPUTopLevelAS*  GetTopLevelAS(StringView name) const;
 
 		ResourceUsage InferTextureUsage(StringView name) const;
 
@@ -328,6 +335,7 @@ namespace Skore
 				View,
 				Imported,
 				Instance,
+				AccelerationStructure,
 			};
 
 			Kind                   kind = Kind::Texture;
@@ -355,6 +363,8 @@ namespace Skore
 			VoidPtr instanceData = nullptr;
 			usize   instanceSize = 0;
 
+			GPUTopLevelAS* topLevelAS = nullptr;
+
 			u64  lastUsed = 0;
 			bool aliased = false;
 		};
@@ -371,6 +381,9 @@ namespace Skore
 		const Resource*  FindResource(StringView name) const;
 		StringView       FindResourceName(StringView name) const;
 		GPUPipeline*     GetOrCreatePipeline(StringView key, GPUPipeline* (*create)(VoidPtr userData), VoidPtr userData);
+
+		GPUDescriptorSet* GetAutoDescriptorSet(const RenderGraphPass* pass, u32 set);
+		void              BindAutoDescriptorSet(RenderGraphPass* pass, GPUCommandBuffer* cmd);
 
 		void CreateSceneResources();
 		void SortPasses();
@@ -410,6 +423,7 @@ namespace Skore
 		Array<const Resource*>            activatedAliasResourcesScratch;
 		HashMap<usize, GPUPipeline*>      pipelineCache;
 		HashMap<usize, GPUDescriptorSet*> descriptorSetCache;
+		HashMap<usize, GPUDescriptorSet*> autoDescriptorSetCache;
 		HashMap<usize, GPURenderPass*>    renderPassCache;
 		HashMap<usize, GPUFramebuffer*>   framebufferCache;
 		Array<GPUPipeline*>               ownedPipelines;
