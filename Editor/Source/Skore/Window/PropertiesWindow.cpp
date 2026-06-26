@@ -15,6 +15,7 @@
 #include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/ImGui/Icons.h"
 #include "Skore/ImGui/ImGui.hpp"
+#include "Skore/MaterialGraph/MaterialNode.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Component.hpp"
@@ -96,6 +97,7 @@ namespace Skore
 
 		Event::Bind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
 		Event::Bind<OnResourceSelection, &PropertiesWindow::ResourceSelection>(this);
+		Event::Bind<OnMaterialNodeSelection, &PropertiesWindow::MaterialNodeSelection>(this);
 	}
 
 	PropertiesWindow::~PropertiesWindow()
@@ -108,6 +110,7 @@ namespace Skore
 
 		Event::Unbind<OnAssetSelection, &PropertiesWindow::AssetSelection>(this);
 		Event::Unbind<OnResourceSelection, &PropertiesWindow::ResourceSelection>(this);
+		Event::Unbind<OnMaterialNodeSelection, &PropertiesWindow::MaterialNodeSelection>(this);
 
 		ClearImportSettingsDraft();
 		ReleaseTextureResources();
@@ -784,6 +787,10 @@ namespace Skore
 		{
 			DrawResource(id, selectedResource);
 		}
+		else if (selectedMaterialNode)
+		{
+			DrawMaterialNode(id, selectedMaterialNode);
+		}
 		else
 		{
 			ImGuiCentralizedText("Select something...");
@@ -1301,6 +1308,7 @@ namespace Skore
 		selectedDebugEntity = nullptr;
 		selectedAsset = {};
 		selectedResource = {};
+		selectedMaterialNode = {};
 		ClearImportSettingsDraft();
 		m_previewVisible = false;
 		DestroyPreviewGenerator();
@@ -1396,6 +1404,147 @@ namespace Skore
 
 		ClearSelection();
 		selectedResource = resourceId;
+	}
+
+	void PropertiesWindow::MaterialNodeSelection(u32 workspaceId, RID nodeId)
+	{
+		if (workspace->GetId() != workspaceId) return;
+
+		if (!nodeId && !selectedMaterialNode) return;
+
+		ClearSelection();
+		selectedMaterialNode = nodeId;
+	}
+
+	void PropertiesWindow::SetNodeTexture(RID node, RID texture)
+	{
+		if (!node) return;
+
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Node Texture");
+		ResourceObject write = Resources::Write(node);
+		write.SetReference(MaterialGraphNodeResource::Texture, texture);
+		write.Commit(scope);
+	}
+
+	void PropertiesWindow::DrawNodeTextureProperty(u64 id, RID node)
+	{
+		ResourceObject nodeObj = Resources::Read(node);
+		if (!nodeObj) return;
+
+		const f32 scale = ImGui::GetStyle().ScaleFactor;
+		const f32 frameHeight = ImGui::GetFrameHeight();
+
+		RID    texture = nodeObj.GetReference(MaterialGraphNodeResource::Texture);
+		String name = texture ? ResourceAssets::GetAssetName(texture) : String{"None"};
+
+		bool openPopup = false;
+
+		ImGui::PushID(static_cast<i32>(id));
+
+		f32 reserve = frameHeight + 4.0f * scale;
+		if (texture)
+		{
+			reserve += frameHeight + ImGui::GetStyle().ItemSpacing.x;
+		}
+		ImGui::SetNextItemWidth(-reserve);
+
+		ImGuiInputTextReadOnly(static_cast<u32>(id), name);
+
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
+			{
+				if (payload->IsDataType(SK_ASSET_PAYLOAD))
+				{
+					if (AssetPayload* assetPayload = static_cast<AssetPayload*>(payload->Data))
+					{
+						if (ResourceType* type = Resources::GetType(assetPayload->asset);
+							type != nullptr && type->GetID() == TypeInfo<TextureResource>::ID())
+						{
+							if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+							{
+								SetNodeTexture(node, assetPayload->asset);
+							}
+						}
+					}
+				}
+			}
+			ImGui::EndDragDropTarget();
+		}
+
+		ImGui::SameLine(0, 0);
+		if (ImGui::Button(ICON_FA_CIRCLE_DOT, ImVec2(frameHeight, frameHeight)))
+		{
+			openPopup = true;
+		}
+
+		if (texture)
+		{
+			ImGui::SameLine();
+			if (ImGui::Button(ICON_FA_XMARK, ImVec2(frameHeight, frameHeight)))
+			{
+				SetNodeTexture(node, {});
+			}
+		}
+
+		ImGui::PopID();
+
+		ImGuiResourceSelectionPopup(id, TypeInfo<TextureResource>::ID(), node, openPopup, [](RID selected, VoidPtr userData)
+		{
+			PropertiesWindow* self = static_cast<PropertiesWindow*>(userData);
+			self->SetNodeTexture(self->selectedMaterialNode, selected);
+		}, this);
+	}
+
+	void PropertiesWindow::DrawMaterialNode(u32 windowId, RID node)
+	{
+		ResourceObject nodeObj = Resources::Read(node);
+		if (!nodeObj) return;
+
+		MaterialNode* def = MaterialNodeRegistry::Find(nodeObj.GetString(MaterialGraphNodeResource::Type));
+		if (!def) return;
+
+		ImGui::Dummy(ImVec2(0, 4 * ImGui::GetStyle().ScaleFactor));
+
+		if (ImGui::CollapsingHeader(def->GetDisplayName().CStr(), ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			Span<MaterialNodeProperty> properties = def->GetProperties();
+			if (properties.Empty())
+			{
+				ImGui::Indent();
+				ImGui::TextDisabled("This node has no properties.");
+				ImGui::Unindent();
+				return;
+			}
+
+			ImGui::Indent();
+			if (ImGui::BeginTable("##material-node-props", 2))
+			{
+				ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+				ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+				for (u32 i = 0; i < properties.Size(); ++i)
+				{
+					const MaterialNodeProperty& prop = properties[i];
+
+					ImGui::TableNextColumn();
+					ImGui::AlignTextToFramePadding();
+					ImGui::TextUnformatted(prop.name.CStr());
+					ImGui::TableNextColumn();
+					ImGui::SetNextItemWidth(-1);
+
+					switch (prop.type)
+					{
+						case MaterialNodePropertyType::Texture:
+							DrawNodeTextureProperty(HashValue(node.id) + i, node);
+							break;
+					}
+				}
+
+				ImGui::EndTable();
+			}
+			ImGui::Unindent();
+		}
 	}
 
 	void PropertiesWindow::DrawResource(u32 id, RID resource)

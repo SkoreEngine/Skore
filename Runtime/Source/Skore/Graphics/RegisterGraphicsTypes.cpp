@@ -1215,6 +1215,33 @@ namespace Skore
 			.Field<MaterialResource::BackgroundColor>(ResourceFieldType::Color)
 			.Build();
 
+		Resources::Type<MaterialGraphPinValueResource>()
+			.Field<MaterialGraphPinValueResource::PinIndex>(ResourceFieldType::UInt)
+			.Field<MaterialGraphPinValueResource::Value>(ResourceFieldType::Vec4)
+			.Build();
+
+		Resources::Type<MaterialGraphNodeResource>()
+			.Field<MaterialGraphNodeResource::Type>(ResourceFieldType::String)
+			.Field<MaterialGraphNodeResource::Position>(ResourceFieldType::Vec2)
+			.Field<MaterialGraphNodeResource::Value>(ResourceFieldType::Vec4)
+			.Field<MaterialGraphNodeResource::Texture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
+			.Field<MaterialGraphNodeResource::InputValues>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphPinValueResource>::ID())
+			.Build();
+
+		Resources::Type<MaterialGraphConnectionResource>()
+			.Field<MaterialGraphConnectionResource::OutputNode>(ResourceFieldType::Reference, TypeInfo<MaterialGraphNodeResource>::ID())
+			.Field<MaterialGraphConnectionResource::OutputPin>(ResourceFieldType::UInt)
+			.Field<MaterialGraphConnectionResource::InputNode>(ResourceFieldType::Reference, TypeInfo<MaterialGraphNodeResource>::ID())
+			.Field<MaterialGraphConnectionResource::InputPin>(ResourceFieldType::UInt)
+			.Build();
+
+		Resources::Type<MaterialGraphResource>()
+			.Field<MaterialGraphResource::Name>(ResourceFieldType::String)
+			.Field<MaterialGraphResource::Nodes>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphNodeResource>::ID())
+			.Field<MaterialGraphResource::Connections>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphConnectionResource>::ID())
+			.Field<MaterialGraphResource::OutputNode>(ResourceFieldType::Reference, TypeInfo<MaterialGraphNodeResource>::ID())
+			.Build();
+
 		Resources::Type<VertexAttributeResource>()
 			.Field<VertexAttributeResource::Name>(ResourceFieldType::String)
 			.Field<VertexAttributeResource::Offset>(ResourceFieldType::UInt)

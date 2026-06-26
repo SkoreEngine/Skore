@@ -31,6 +31,8 @@ namespace Skore
 	{
 		None,
 		InputFloat,
+		DragFloatN,
+		Color,
 		InputText,
 		Checkbox,
 		Combo
@@ -59,6 +61,12 @@ namespace Skore
 		Vec2 position{};
 	};
 
+	struct GraphEditorPinEdit
+	{
+		u64 nodeId = 0;
+		u32 pinIndex = 0;
+	};
+
 	struct GraphEditorSelectionChanged
 	{
 		Array<u64> oldSelectedNodes{};
@@ -75,6 +83,18 @@ namespace Skore
 		Array<GraphEditorNodeMoved> movedNodes{};
 		GraphEditorSelectionChanged selectionChanged{};
 		bool                        hasSelectionChanged = false;
+
+		//pin value widgets (PinWidgetDragFloatN / PinWidgetColor): which one is being dragged this
+		//frame, and which finished an edit (so the caller can persist it).
+		bool                      pinValueActive = false;
+		GraphEditorPinEdit        activePinValue{};
+		Array<GraphEditorPinEdit> committedPinValues{};
+
+		//node currently under the mouse this frame (0 if none) and its world-space rect, so callers can
+		//implement drop targets / overlays over a specific node. Valid after End().
+		u64  hoveredNodeId = 0;
+		Vec2 hoveredNodeMin{};
+		Vec2 hoveredNodeMax{};
 	};
 
 	class GraphEditor
@@ -85,10 +105,16 @@ namespace Skore
 		void BeginNode(u64 id, const char* name, Vec2 position, const GraphNodeDesc& desc = {});
 		void InputPin(const char* name, GraphPinType type = GraphPinType::Value, ImColor color = ImColor(150, 200, 150));
 		void OutputPin(const char* name, GraphPinType type = GraphPinType::Value, ImColor color = ImColor(150, 200, 150));
+
+		// Attach a preview image rendered at the bottom of the current node. Call between BeginNode and EndNode.
+		void NodeThumbnail(ImTextureID texture);
+
 		void EndNode();
 
 		// Pin widget functions — call right after InputPin to attach a widget to it
 		void PinWidgetDragFloat(f32* value, f32 speed = 0.1f);
+		void PinWidgetDragFloatN(f32* values, u32 count, f32 speed = 0.1f);
+		void PinWidgetColor(f32* rgb);
 		void PinWidgetInputText(char* buffer, u32 bufferSize);
 		void PinWidgetCheckbox(bool* value);
 		void PinWidgetCombo(i32* selectedIndex, const char* options);
@@ -121,6 +147,7 @@ namespace Skore
 			ImColor         color = ImColor(150, 200, 150);
 			GraphWidgetType widgetType = GraphWidgetType::None;
 			f32*            floatPtr = nullptr;
+			u32             floatCount = 1;
 			f32             dragSpeed = 0.1f;
 			bool*           boolPtr = nullptr;
 			i32*            comboIndexPtr = nullptr;
@@ -141,6 +168,7 @@ namespace Skore
 			u32           inputCount = 0;
 			u32           outputStart = 0;
 			u32           outputCount = 0;
+			ImTextureID   thumbnail = 0;
 		};
 
 		struct FrameLink
@@ -221,12 +249,18 @@ namespace Skore
 		bool  m_nodeWidgetActive = false;
 		bool  m_nodeWidgetHovered = false;
 
+		// Pin value widget edit tracking (filled by DrawNodeWidgets, surfaced in GraphEditorResult)
+		bool                      m_hasActiveValuePin = false;
+		GraphEditorPinEdit        m_activeValuePin{};
+		Array<GraphEditorPinEdit> m_committedPinValues{};
+
 		// Constants
 		static constexpr f32 PinRadius = 4.0f;
 		static constexpr f32 NodeHeaderHeight = 22.0f;
 		static constexpr f32 NodePadding = 10.0f;
 		static constexpr f32 NodeRounding = 4.0f;
 		static constexpr f32 NodeMinWidth = 200.0f;
+		static constexpr f32 NodeThumbnailSize = 154.0f;
 		static constexpr f32 LinkThickness = 2.5f;
 		static constexpr f32 GridSize = 32.0f;
 		static constexpr f32 ZoomMin = 0.1f;

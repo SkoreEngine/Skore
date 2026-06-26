@@ -31,6 +31,7 @@
 #include "Skore/Window/ResourceDebuggerWindow.hpp"
 #include "Skore/Window/SceneViewWindow.hpp"
 #include "Skore/Window/GraphEditorWindow.hpp"
+#include "Skore/Window/MaterialGraphEditorWindow.hpp"
 #include "Skore/Window/PackagesWindow.hpp"
 #include "Skore/Project/ProjectManager.hpp"
 #include "Skore/Server/EditorServer.hpp"
@@ -53,8 +54,8 @@
 
 namespace Skore
 {
-	void ShaderManagerInit();
-	void ShaderManagerShutdown();
+	void SK_API ShaderManagerInit();
+	void SK_API ShaderManagerShutdown();
 	void ImGuiInit();
 
 	struct EditorState
@@ -1277,24 +1278,16 @@ namespace Skore
 
 	EditorWorkspace* Editor::GetWorkspaceOfType(u8 type)
 	{
-		EditorWorkspace* selectedWorkspace = nullptr;
-
-		for (auto& workspace : workspaces)
+		for (u32 i = 0; i < workspaces.Size(); ++i)
 		{
-			if (workspace && workspace->GetWorkspaceTypeId() == type)
+			if (workspaces[i] && workspaces[i]->GetWorkspaceTypeId() == type)
 			{
-				selectedWorkspace = workspace.get();
+				SwitchWorkspace(i);
+				return workspaces[i].get();
 			}
 		}
 
-		if (selectedWorkspace == nullptr)
-		{
-			selectedWorkspace = CreateWorkspace(type);
-		}
-
-		SwitchWorkspace(selectedWorkspace->GetId());
-
-		return selectedWorkspace;
+		return CreateWorkspace(type);
 	}
 
 	UndoRedoScope* Editor::CreateUndoRedoScope(StringView name)
@@ -1409,8 +1402,9 @@ namespace Skore
 	EditorWorkspace* Editor::CreateWorkspace(u8 type)
 	{
 		workspaces.EmplaceBack(std::make_unique<EditorWorkspace>(type));
-		SwitchWorkspace(workspaces.Size() - 1);
-		return GetActiveWorkspace();
+		u32 index = workspaces.Size() - 1;
+		SwitchWorkspace(index);
+		return workspaces[index].get();
 	}
 
 	bool Editor::DebugOptionsEnabled()
@@ -1676,6 +1670,12 @@ namespace Skore
 			.order = 2
 		});
 
+		editorWorkspaceTypeDescs.EmplaceBack(EditorWorkspaceTypeDesc{
+			.id = WorkspaceTypes::Material,
+			.displayName = "Material",
+			.order = 3
+		});
+
 		workspaces.EmplaceBack(std::make_unique<EditorWorkspace>(WorkspaceTypes::Scene));
 
 		editorState = Resources::Create<EditorState>();
@@ -1740,6 +1740,8 @@ namespace Skore
 		Reflection::Type<SettingsWindow>();
 		Reflection::Type<PackagesWindow>();
 		Reflection::Type<GraphEditorWindow>();
+		RegisterMaterialNodes();
+		Reflection::Type<MaterialGraphEditorWindow>();
 		Reflection::Type<DebuggerWindow>();
 		Reflection::Type<AnimatorTreeViewWindow>();
 		Reflection::Type<AnimatorGraphWindow>();

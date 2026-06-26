@@ -46,6 +46,7 @@ namespace Skore
 		u32    selectedComponentIndex = U32_MAX;
 		RID    selectedAsset = {};
 		RID    selectedResource = {};
+		RID    selectedMaterialNode = {};
 		RID    importSettingsSource = {};
 		RID    importSettingsDraft = {};
 		RID    importSettingsPendingApply = {};
@@ -116,6 +117,9 @@ namespace Skore
 		void DrawDebugEntity(u32 id, SceneEditor* sceneEditor, Entity* entity);
 		void DrawAsset(u32 id, RID asset);
 		void DrawResource(u32 id, RID resource);
+		void DrawMaterialNode(u32 id, RID node);
+		void DrawNodeTextureProperty(u64 id, RID node);
+		void SetNodeTexture(RID node, RID texture);
 
 		void EntityDebugSelection(u32 workspaceId, Entity* entity);
 		void EntityDebugDeselection(u32 workspaceId, Entity* entity);
@@ -125,5 +129,6 @@ namespace Skore
 
 		void AssetSelection(u32 workspaceId, RID assetId);
 		void ResourceSelection(u32 workspaceId, RID resourceId);
+		void MaterialNodeSelection(u32 workspaceId, RID nodeId);
 	};
 }

@@ -55,6 +55,12 @@ namespace Skore
 		m_frameNodes[m_currentNodeIndex].outputCount++;
 	}
 
+	void GraphEditor::NodeThumbnail(ImTextureID texture)
+	{
+		if (m_currentNodeIndex < 0) return;
+		m_frameNodes[m_currentNodeIndex].thumbnail = texture;
+	}
+
 	void GraphEditor::EndNode()
 	{
 		if (m_currentNodeIndex < 0) return;
@@ -70,6 +76,25 @@ namespace Skore
 		pin.widgetType = GraphWidgetType::InputFloat;
 		pin.floatPtr = value;
 		pin.dragSpeed = speed;
+	}
+
+	void GraphEditor::PinWidgetDragFloatN(f32* values, u32 count, f32 speed)
+	{
+		if (m_currentNodeIndex < 0 || m_framePins.Empty()) return;
+		FramePin& pin = m_framePins.Back();
+		pin.widgetType = GraphWidgetType::DragFloatN;
+		pin.floatPtr = values;
+		pin.floatCount = count < 1 ? 1 : count;
+		pin.dragSpeed = speed;
+	}
+
+	void GraphEditor::PinWidgetColor(f32* rgb)
+	{
+		if (m_currentNodeIndex < 0 || m_framePins.Empty()) return;
+		FramePin& pin = m_framePins.Back();
+		pin.widgetType = GraphWidgetType::Color;
+		pin.floatPtr = rgb;
+		pin.floatCount = 3;
 	}
 
 	void GraphEditor::PinWidgetInputText(char* buffer, u32 bufferSize)
@@ -189,6 +214,15 @@ namespace Skore
 		// Interaction
 		HandleInteraction(result);
 
+		// Node under the mouse this frame (world coords), used by callers for per-node drop targets.
+		if (i32 hoveredIdx = FindHoveredNode(); hoveredIdx >= 0)
+		{
+			const FrameNode& hovered = m_frameNodes[hoveredIdx];
+			result.hoveredNodeId = hovered.id;
+			result.hoveredNodeMin = hovered.position;
+			result.hoveredNodeMax = hovered.position + hovered.size;
+		}
+
 		// Detect selection changes
 		bool selChanged = (m_selectedNodes.Size() != m_prevSelectedNodes.Size()) ||
 		                  (m_selectedLinks.Size() != m_prevSelectedLinks.Size());
@@ -302,6 +336,8 @@ namespace Skore
 		// Draw widgets in canvas space
 		m_nodeWidgetActive = false;
 		m_nodeWidgetHovered = false;
+		m_hasActiveValuePin = false;
+		m_committedPinValues.Clear();
 		ImGui::SetFontRasterizerDensity(m_zoom);
 		for (auto& node : m_frameNodes)
 		{
@@ -309,6 +345,10 @@ namespace Skore
 				DrawNodeWidgets(node);
 		}
 		ImGui::SetFontRasterizerDensity(1.0f);
+
+		result.pinValueActive = m_hasActiveValuePin;
+		result.activePinValue = m_activeValuePin;
+		result.committedPinValues = m_committedPinValues;
 
 		// Box selection rectangle
 		if (m_boxSelecting)
@@ -578,6 +618,7 @@ namespace Skore
 
 		f32 maxInputLabelW = 0.0f;
 		bool hasInputWidgets = false;
+		f32 maxWidgetW = 0.0f;
 		for (u32 i = 0; i < node.inputCount; i++)
 		{
 			const FramePin& pin = m_framePins[node.inputStart + i];
@@ -586,17 +627,40 @@ namespace Skore
 				ImVec2 sz = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, pin.name.CStr());
 				maxInputLabelW = Math::Max(maxInputLabelW, sz.x);
 			}
-			if (pin.widgetType != GraphWidgetType::None) hasInputWidgets = true;
+			if (pin.widgetType != GraphWidgetType::None)
+			{
+				hasInputWidgets = true;
+				f32 wantW = 60.0f;
+				switch (pin.widgetType)
+				{
+					case GraphWidgetType::Color:      wantW = 40.0f; break;
+					case GraphWidgetType::Checkbox:   wantW = 24.0f; break;
+					case GraphWidgetType::Combo:      wantW = 90.0f; break;
+					case GraphWidgetType::DragFloatN: wantW = pin.floatCount <= 1 ? 55.0f : (pin.floatCount == 2 ? 84.0f : (pin.floatCount == 3 ? 112.0f : 140.0f)); break;
+					default:                          wantW = 60.0f; break;
+				}
+				maxWidgetW = Math::Max(maxWidgetW, wantW);
+			}
 		}
 
-		f32 minWidgetW = hasInputWidgets ? 60.0f * s : 0.0f;
+		f32 minWidgetW = hasInputWidgets ? maxWidgetW * s : 0.0f;
 
 		f32 titleW = titleSize.x + padding * 4.0f;
 		f32 outputW = pinArea + maxOutputLabelW + gap + pinArea;
 		f32 inputW = pinArea + maxInputLabelW + (hasInputWidgets ? gap + minWidgetW + gap : gap) + pinArea;
 		f32 nodeW = Math::Max(NodeMinWidth * s, Math::Max(titleW, Math::Max(outputW, inputW)));
 
-		node.size = {nodeW, headerH + contentHeight};
+		f32 nodeH = headerH + contentHeight;
+
+		//reserve a square preview area below the pins; the trailing content padding doubles as the gap
+		if (node.thumbnail)
+		{
+			f32 thumb = NodeThumbnailSize * s;
+			nodeW = Math::Max(nodeW, thumb + padding * 2.0f);
+			nodeH += thumb + padding;
+		}
+
+		node.size = {nodeW, nodeH};
 	}
 
 	// --- Drawing ---
@@ -712,6 +776,21 @@ namespace Skore
 				drawList->AddCircle(ImVec2(pinPos.x, pinPos.y), pinR, IM_COL32(200, 200, 200, 200), 0, 1.0f);
 			}
 		}
+
+		// Preview thumbnail (e.g. a texture node's assigned image) centered along the node bottom
+		if (node.thumbnail)
+		{
+			f32    padding = NodePadding * s;
+			f32    thumb = NodeThumbnailSize * s;
+			f32    imgX = node.position.x + (node.size.x - thumb) * 0.5f;
+			f32    imgY = node.position.y + node.size.y - thumb - padding;
+			ImVec2 imgMin(imgX, imgY);
+			ImVec2 imgMax(imgX + thumb, imgY + thumb);
+
+			drawList->AddRectFilled(imgMin, imgMax, IM_COL32(20, 20, 22, 255), 2.0f * s);
+			drawList->AddImage(node.thumbnail, imgMin, imgMax);
+			drawList->AddRect(imgMin, imgMax, IM_COL32(0, 0, 0, 200), 2.0f * s, 0, 1.0f);
+		}
 	}
 
 	void GraphEditor::DrawNodeText(ImDrawList* drawList, const FrameNode& node) const
@@ -819,6 +898,33 @@ namespace Skore
 						ImGui::DragFloat("##f", pin.floatPtr, pin.dragSpeed, 0.0f, 0.0f, "%.2f");
 					break;
 
+				case GraphWidgetType::DragFloatN:
+					if (pin.floatPtr)
+						ImGui::DragScalarN("##fn", ImGuiDataType_Float, pin.floatPtr, (i32)pin.floatCount, pin.dragSpeed, nullptr, nullptr, "%.2f");
+					break;
+
+				case GraphWidgetType::Color:
+				{
+					if (!pin.floatPtr) break;
+
+					m_canvas.Suspend();
+					ImGui::SetFontRasterizerDensity(m_zoom);
+					ImGui::SetWindowFontScale(m_zoom);
+
+					ImVec2 screenPos = m_canvas.FromLocal(ImVec2(widgetX, widgetY));
+					f32 screenW = widgetW * m_zoom;
+
+					ImGui::SetCursorScreenPos(screenPos);
+					ImGui::PushItemWidth(screenW);
+					ImGui::ColorEdit3("##col", pin.floatPtr, ImGuiColorEditFlags_NoInputs);
+					ImGui::PopItemWidth();
+
+					ImGui::SetWindowFontScale(1.0f);
+					ImGui::SetFontRasterizerDensity(m_zoom);
+					m_canvas.Resume();
+					break;
+				}
+
 				case GraphWidgetType::InputText:
 					if (pin.textBuffer)
 						ImGuiInputText(44444, pin.textBuffer);
@@ -888,6 +994,19 @@ namespace Skore
 
 			if (ImGui::IsItemActive()) m_nodeWidgetActive = true;
 			if (ImGui::IsItemHovered()) m_nodeWidgetHovered = true;
+
+			if (pin.widgetType == GraphWidgetType::DragFloatN || pin.widgetType == GraphWidgetType::Color)
+			{
+				if (ImGui::IsItemActive())
+				{
+					m_hasActiveValuePin = true;
+					m_activeValuePin = GraphEditorPinEdit{node.id, i};
+				}
+				if (ImGui::IsItemDeactivatedAfterEdit())
+				{
+					m_committedPinValues.EmplaceBack(GraphEditorPinEdit{node.id, i});
+				}
+			}
 
 			ImGui::PopID();
 			ImGui::PopItemWidth();
