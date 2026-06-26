@@ -415,6 +415,99 @@ namespace
 		ResourceShutdown();
 	}
 
+	TEST_CASE("MaterialGraph::ExtendedMathNodes")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		// The Tier 1 math/vector batch is registered.
+		for (const char* typeId : {"subtract", "divide", "power", "min", "max", "step", "one_minus",
+			 "saturate", "clamp", "smoothstep", "remap", "dot", "normalize", "length"})
+		{
+			CHECK_MESSAGE(MaterialNodeRegistry::Find(typeId) != nullptr, typeId);
+		}
+
+		// Subtract is a generic binary op like Multiply/Add: both pins and the output adapt to the
+		// connected type.
+		MaterialNode* sub = MaterialNodeRegistry::Find("subtract");
+		REQUIRE(sub != nullptr);
+		CHECK(sub->GetInputs().Size() == 2);
+		CHECK(sub->GetInputs()[0].generic);
+		CHECK(sub->GetInputs()[1].generic);
+		CHECK(sub->GetOutputs()[0].generic);
+
+		// Dot collapses any vector width to a scalar: inputs are generic but the output is a fixed Float.
+		MaterialNode* dot = MaterialNodeRegistry::Find("dot");
+		REQUIRE(dot != nullptr);
+		CHECK(dot->GetInputs()[0].generic);
+		CHECK_FALSE(dot->GetOutputs()[0].generic);
+		CHECK(dot->GetOutputs()[0].type == MaterialDataType::Float);
+
+		// Length likewise always yields a scalar.
+		MaterialNode* length = MaterialNodeRegistry::Find("length");
+		REQUIRE(length != nullptr);
+		CHECK_FALSE(length->GetOutputs()[0].generic);
+		CHECK(length->GetOutputs()[0].type == MaterialDataType::Float);
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::SubtractCodegen")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		// Single scalar chain: sources emit first (n0, n1), then the Subtract temp (n2) stays scalar.
+		RID a = AddNode(graph, "constant_float", Vec4{5.0f, 0.0f, 0.0f, 0.0f});
+		RID b = AddNode(graph, "constant_float", Vec4{2.0f, 0.0f, 0.0f, 0.0f});
+		RID sub = AddNode(graph, "subtract", Vec4{});
+		Connect(graph, a, 0, sub, 0);
+		Connect(graph, b, 0, sub, 1);
+		Connect(graph, sub, 0, outputNode, MaterialNodeRegistry::Roughness);
+
+		String log;
+		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+
+		CHECK(Contains(hlsl, "float n2 = (n0 - n1)"));
+		CHECK_FALSE(Contains(hlsl, "float3 n2"));
+		CHECK(Contains(hlsl, "roughness ="));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::DotCollapsesToScalar")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		// Two Vec3 colors feed a Dot whose output is a fixed Float, so the temp is declared scalar
+		// even though both inputs are vectors.
+		RID c0 = AddNode(graph, "constant_color", Vec4{1.0f, 0.0f, 0.0f, 1.0f});
+		RID c1 = AddNode(graph, "constant_color", Vec4{0.0f, 1.0f, 0.0f, 1.0f});
+		RID dot = AddNode(graph, "dot", Vec4{});
+		Connect(graph, c0, 0, dot, 0);
+		Connect(graph, c1, 0, dot, 1);
+		Connect(graph, dot, 0, outputNode, MaterialNodeRegistry::Roughness);
+
+		String log;
+		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+
+		CHECK(Contains(hlsl, "float n2 = dot(n0, n1)"));
+		CHECK_FALSE(Contains(hlsl, "float3 n2 = dot("));
+		CHECK(Contains(hlsl, "roughness ="));
+
+		ResourceShutdown();
+	}
+
 	TEST_CASE("MaterialGraph::CompileToSpirv")
 	{
 		ResourceInit();
@@ -429,6 +522,17 @@ namespace
 		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
 		RID normalNode = AddNode(graph, "normal_map", Vec4{});
 		Connect(graph, normalNode, 0, outputNode, MaterialNodeRegistry::Normal);
+
+		// Also push a couple of the extended math/vector nodes through the real compiler: a generic
+		// Clamp (scalar) into Roughness and a Dot collapsing vectors to a scalar into Metallic.
+		RID half = AddNode(graph, "constant_float", Vec4{0.5f, 0.0f, 0.0f, 0.0f});
+		RID clampNode = AddNode(graph, "clamp", Vec4{});
+		Connect(graph, half, 0, clampNode, 0);
+		Connect(graph, clampNode, 0, outputNode, MaterialNodeRegistry::Roughness);
+		RID dotNode = AddNode(graph, "dot", Vec4{});
+		Connect(graph, texNode, 0, dotNode, 0);
+		Connect(graph, normalNode, 0, dotNode, 1);
+		Connect(graph, dotNode, 0, outputNode, MaterialNodeRegistry::Metallic);
 
 		// Live SPIR-V compilation needs dxcompiler.dll in the working directory. ShaderManagerInit
 		// asserts if it can't be loaded, so only init when the library is actually present.

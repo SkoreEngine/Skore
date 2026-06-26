@@ -22,7 +22,8 @@ Core pipeline is working end-to-end: author a graph → generate HLSL → compil
 - [x] **Editor window** — `MaterialGraphEditorWindow` (add/move/delete/connect, value inspector,
   inline default-value widgets on unconnected input pins, Build button + HLSL/log panel).
 - [x] **Asset handler** — `.matgraph` create/open + content-browser "Create > New Material Graph".
-- [x] **Tests** — `Tests/Source/Editor/MaterialGraphTests.cpp` (9 cases, incl. live SPIR-V).
+- [x] **Tests** — `Tests/Source/Editor/MaterialGraphTests.cpp` (16 cases, incl. generic-math
+  type promotion + live SPIR-V compile).
 
 ### Nodes implemented so far
 - [x] Material Output (master) — Base Color, Metallic, Roughness, Emissive, Normal, Ambient Occlusion, Opacity
@@ -30,6 +31,9 @@ Core pipeline is working end-to-end: author a graph → generate HLSL → compil
 - [x] Texture Coordinate (UV0)
 - [x] Sample Texture 2D · Normal Map · Tiling & Offset
 - [x] Multiply · Add · Lerp
+- [x] Subtract · Divide · Power · Min · Max · Step
+- [x] One Minus · Saturate · Clamp · Smoothstep · Remap
+- [x] Dot · Normalize · Length
 
 ---
 
@@ -61,13 +65,13 @@ emissive, occlusion). Pixel-stage outputs first; vertex-stage later.
 - [x] Sample Texture 2D
 - [x] Normal Map sample (unpack + strength)
 - [x] Tiling & Offset (UV transform)
-- [ ] Subtract · Divide · Power
-- [ ] Min / Max · Clamp / Saturate · One-Minus
-- [ ] Dot · Normalize · Length
+- [x] Subtract · Divide · Power
+- [x] Min / Max · Clamp / Saturate · One-Minus
+- [x] Dot · Normalize · Length
 - [ ] Fresnel
 - [ ] Make/Combine (float→vector) · Split/Break · Component Mask (swizzle)
 - [x] Lerp
-- [ ] Step · Smoothstep · Remap
+- [x] Step · Smoothstep · Remap
 
 ### Tier 2 — production baseline
 - [ ] Math: Abs · Floor/Ceil/Frac · Fmod · Sqrt · Sign · Sin/Cos · Cross · Reflect · Distance · Atan2
@@ -96,11 +100,15 @@ These are higher-impact than any single node.
   system already supports macros/variants). Avoids runtime branch cost.
 - [ ] **Material Functions / Subgraphs** — reusable nested node groups.
 - [ ] **Reroute / knot nodes** + **Comment frames** — graph ergonomics.
-- [ ] **Per-node preview thumbnails** (engine has `PreviewGenerator`) + live material preview.
+- [~] **Per-node preview thumbnails** (engine has `PreviewGenerator`) + live material preview —
+  texture nodes already render the assigned texture's thumbnail (`ResolveThumbnail`). **Remaining:**
+  live preview of a node's *computed output* + a full material preview.
 - [~] **Texture / bindless wiring** — codegen emits a bindless `MaterialTextures[]` array + sampler
-  and samples it; texture slot is currently the node index (placeholder). **Remaining:** consume the
-  `Texture` reference field on `MaterialGraphNodeResource` (texture picker in the inspector) and
-  resolve real runtime bindless indices via the material's texture table (ties into parameters).
+  and samples it; texture slot is currently the node index (placeholder). The `Texture` reference
+  field on `MaterialGraphNodeResource` is now consumed: drag-drop a `TextureResource` onto a node
+  assigns it (or onto the canvas to auto-create a pre-wired sample node), with a thumbnail shown.
+  **Remaining:** resolve real runtime bindless indices via the material's texture table (ties into
+  parameters + runtime consumption).
 - [ ] **Codegen quality** — constant folding / dead-code elimination · DDX/DDY-aware sampling.
 - [ ] **Runtime consumption** — feed generated SPIR-V into a `ShaderResource` and the real
   `Materials.hlsli` / `SampleMaterial` surface pipeline (currently a standalone PS).

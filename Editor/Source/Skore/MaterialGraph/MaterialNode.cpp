@@ -288,6 +288,316 @@ namespace Skore
 		}
 	};
 
+	struct MaterialSubtractNode : MaterialNode
+	{
+		SK_CLASS(MaterialSubtractNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "subtract"; }
+		StringView        GetDisplayName() const override { return "Subtract"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("A", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddInput("B", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"("} + ctx.Input(0) + " - " + ctx.Input(1) + ")");
+		}
+	};
+
+	struct MaterialDivideNode : MaterialNode
+	{
+		SK_CLASS(MaterialDivideNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "divide"; }
+		StringView        GetDisplayName() const override { return "Divide"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("A", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddInput("B", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"("} + ctx.Input(0) + " / " + ctx.Input(1) + ")");
+		}
+	};
+
+	struct MaterialPowerNode : MaterialNode
+	{
+		SK_CLASS(MaterialPowerNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "power"; }
+		StringView        GetDisplayName() const override { return "Power"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("Base", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddInput("Exp", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"pow("} + ctx.Input(0) + ", " + ctx.Input(1) + ")");
+		}
+	};
+
+	struct MaterialMinNode : MaterialNode
+	{
+		SK_CLASS(MaterialMinNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "min"; }
+		StringView        GetDisplayName() const override { return "Min"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("A", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddInput("B", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"min("} + ctx.Input(0) + ", " + ctx.Input(1) + ")");
+		}
+	};
+
+	struct MaterialMaxNode : MaterialNode
+	{
+		SK_CLASS(MaterialMaxNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "max"; }
+		StringView        GetDisplayName() const override { return "Max"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("A", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddInput("B", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"max("} + ctx.Input(0) + ", " + ctx.Input(1) + ")");
+		}
+	};
+
+	struct MaterialStepNode : MaterialNode
+	{
+		SK_CLASS(MaterialStepNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "step"; }
+		StringView        GetDisplayName() const override { return "Step"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("Edge", MaterialDataType::Float, Vec4{0.5f, 0.0f, 0.0f, 0.0f}, {}, false, true);
+			AddInput("X", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"step("} + ctx.Input(0) + ", " + ctx.Input(1) + ")");
+		}
+	};
+
+	struct MaterialOneMinusNode : MaterialNode
+	{
+		SK_CLASS(MaterialOneMinusNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "one_minus"; }
+		StringView        GetDisplayName() const override { return "One Minus"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("In", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"(1.0 - "} + ctx.Input(0) + ")");
+		}
+	};
+
+	struct MaterialSaturateNode : MaterialNode
+	{
+		SK_CLASS(MaterialSaturateNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "saturate"; }
+		StringView        GetDisplayName() const override { return "Saturate"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("In", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"saturate("} + ctx.Input(0) + ")");
+		}
+	};
+
+	struct MaterialClampNode : MaterialNode
+	{
+		SK_CLASS(MaterialClampNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "clamp"; }
+		StringView        GetDisplayName() const override { return "Clamp"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("In", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddInput("Min", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 0.0f}, {}, false, true);
+			AddInput("Max", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"clamp("} + ctx.Input(0) + ", " + ctx.Input(1) + ", " + ctx.Input(2) + ")");
+		}
+	};
+
+	struct MaterialSmoothstepNode : MaterialNode
+	{
+		SK_CLASS(MaterialSmoothstepNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "smoothstep"; }
+		StringView        GetDisplayName() const override { return "Smoothstep"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("Min", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 0.0f}, {}, false, true);
+			AddInput("Max", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddInput("In", MaterialDataType::Float, Vec4{0.5f, 0.0f, 0.0f, 0.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"smoothstep("} + ctx.Input(0) + ", " + ctx.Input(1) + ", " + ctx.Input(2) + ")");
+		}
+	};
+
+	struct MaterialRemapNode : MaterialNode
+	{
+		SK_CLASS(MaterialRemapNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "remap"; }
+		StringView        GetDisplayName() const override { return "Remap"; }
+		StringView        GetCategory() const override { return "Math"; }
+		MaterialNodeColor GetHeaderColor() const override { return {150, 110, 180}; }
+
+		void DefinePins() override
+		{
+			AddInput("In", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddInput("In Min", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 0.0f}, {}, false, true);
+			AddInput("In Max", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddInput("Out Min", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 0.0f}, {}, false, true);
+			AddInput("Out Max", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"(("} + ctx.Input(0) + " - " + ctx.Input(1) + ") / (" + ctx.Input(2) + " - " + ctx.Input(1) + ") * (" + ctx.Input(4) + " - " + ctx.Input(3) + ") + " + ctx.Input(3) + ")");
+		}
+	};
+
+	//--- Vector ----------------------------------------------------------------------------------
+	struct MaterialDotNode : MaterialNode
+	{
+		SK_CLASS(MaterialDotNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "dot"; }
+		StringView        GetDisplayName() const override { return "Dot"; }
+		StringView        GetCategory() const override { return "Vector"; }
+		MaterialNodeColor GetHeaderColor() const override { return {100, 140, 200}; }
+
+		void DefinePins() override
+		{
+			AddInput("A", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 1.0f, 0.0f}, {}, false, true);
+			AddInput("B", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 1.0f, 0.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"dot("} + ctx.Input(0) + ", " + ctx.Input(1) + ")");
+		}
+	};
+
+	struct MaterialNormalizeNode : MaterialNode
+	{
+		SK_CLASS(MaterialNormalizeNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "normalize"; }
+		StringView        GetDisplayName() const override { return "Normalize"; }
+		StringView        GetCategory() const override { return "Vector"; }
+		MaterialNodeColor GetHeaderColor() const override { return {100, 140, 200}; }
+
+		void DefinePins() override
+		{
+			AddInput("In", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 1.0f, 0.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Vec3, true);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"normalize("} + ctx.Input(0) + ")");
+		}
+	};
+
+	struct MaterialLengthNode : MaterialNode
+	{
+		SK_CLASS(MaterialLengthNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "length"; }
+		StringView        GetDisplayName() const override { return "Length"; }
+		StringView        GetCategory() const override { return "Vector"; }
+		MaterialNodeColor GetHeaderColor() const override { return {100, 140, 200}; }
+
+		void DefinePins() override
+		{
+			AddInput("In", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 1.0f, 0.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"length("} + ctx.Input(0) + ")");
+		}
+	};
+
 	//--- MaterialNode base -----------------------------------------------------------------------
 	void MaterialNode::BuildPins()
 	{
@@ -328,6 +638,20 @@ namespace Skore
 		Reflection::Type<MaterialMultiplyNode>();
 		Reflection::Type<MaterialAddNode>();
 		Reflection::Type<MaterialLerpNode>();
+		Reflection::Type<MaterialSubtractNode>();
+		Reflection::Type<MaterialDivideNode>();
+		Reflection::Type<MaterialPowerNode>();
+		Reflection::Type<MaterialMinNode>();
+		Reflection::Type<MaterialMaxNode>();
+		Reflection::Type<MaterialStepNode>();
+		Reflection::Type<MaterialOneMinusNode>();
+		Reflection::Type<MaterialSaturateNode>();
+		Reflection::Type<MaterialClampNode>();
+		Reflection::Type<MaterialSmoothstepNode>();
+		Reflection::Type<MaterialRemapNode>();
+		Reflection::Type<MaterialDotNode>();
+		Reflection::Type<MaterialNormalizeNode>();
+		Reflection::Type<MaterialLengthNode>();
 	}
 
 	Span<MaterialNode*> MaterialNodeRegistry::GetNodes()
