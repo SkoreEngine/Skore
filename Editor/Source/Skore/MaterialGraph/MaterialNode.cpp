@@ -15,6 +15,13 @@ namespace Skore
 			snprintf(buf, sizeof(buf), "%g", v);
 			return String{buf};
 		}
+
+		String IndexStr(u32 v)
+		{
+			char buf[32];
+			snprintf(buf, sizeof(buf), "%u", v);
+			return String{buf};
+		}
 	}
 
 	//--- Output / master node --------------------------------------------------------------------
@@ -33,6 +40,9 @@ namespace Skore
 			AddInput("Metallic", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 0.0f});
 			AddInput("Roughness", MaterialDataType::Float, Vec4{0.5f, 0.0f, 0.0f, 0.0f});
 			AddInput("Emissive", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 0.0f, 1.0f});
+			AddInput("Normal", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 1.0f, 0.0f}); //tangent-space
+			AddInput("Ambient Occlusion", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+			AddInput("Opacity", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
 		}
 
 		//The compiler maps the output node's inputs directly to surface fields, so nothing to emit.
@@ -114,6 +124,79 @@ namespace Skore
 		}
 	};
 
+	//--- Texture ---------------------------------------------------------------------------------
+	struct MaterialSampleTexture2DNode : MaterialNode
+	{
+		SK_CLASS(MaterialSampleTexture2DNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "sample_texture"; }
+		StringView        GetDisplayName() const override { return "Sample Texture 2D"; }
+		StringView        GetCategory() const override { return "Texture"; }
+		MaterialNodeColor GetHeaderColor() const override { return {180, 130, 70}; }
+
+		void DefinePins() override
+		{
+			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
+			AddOutput("RGBA", MaterialDataType::Vec4);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.UseTextures();
+			String slot = IndexStr(ctx.TextureSlot());
+			ctx.SetOutput(0, String{"MaterialTextures["} + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ")");
+		}
+	};
+
+	struct MaterialNormalMapNode : MaterialNode
+	{
+		SK_CLASS(MaterialNormalMapNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "normal_map"; }
+		StringView        GetDisplayName() const override { return "Normal Map"; }
+		StringView        GetCategory() const override { return "Texture"; }
+		MaterialNodeColor GetHeaderColor() const override { return {180, 130, 70}; }
+
+		void DefinePins() override
+		{
+			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
+			AddInput("Strength", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+			AddOutput("Normal", MaterialDataType::Vec3);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.UseTextures();
+			String slot = IndexStr(ctx.TextureSlot());
+			String temp = String{"nm"} + IndexStr(ctx.nodeIndex);
+			ctx.AddStatement(String{"float3 "} + temp + " = MaterialTextures[" + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ").xyz * 2.0 - 1.0;");
+			ctx.SetOutput(0, String{"normalize(float3("} + temp + ".xy * " + ctx.Input(1) + ", " + temp + ".z))");
+		}
+	};
+
+	struct MaterialTilingOffsetNode : MaterialNode
+	{
+		SK_CLASS(MaterialTilingOffsetNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "tiling_offset"; }
+		StringView        GetDisplayName() const override { return "Tiling & Offset"; }
+		StringView        GetCategory() const override { return "Texture"; }
+		MaterialNodeColor GetHeaderColor() const override { return {180, 130, 70}; }
+
+		void DefinePins() override
+		{
+			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
+			AddInput("Tiling", MaterialDataType::Vec2, Vec4{1.0f, 1.0f, 0.0f, 0.0f});
+			AddInput("Offset", MaterialDataType::Vec2, Vec4{0.0f, 0.0f, 0.0f, 0.0f});
+			AddOutput("UV", MaterialDataType::Vec2);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, String{"("} + ctx.Input(0) + " * " + ctx.Input(1) + " + " + ctx.Input(2) + ")");
+		}
+	};
+
 	//--- Math ------------------------------------------------------------------------------------
 	struct MaterialMultiplyNode : MaterialNode
 	{
@@ -190,9 +273,9 @@ namespace Skore
 		DefinePins();
 	}
 
-	void MaterialNode::AddInput(StringView name, MaterialDataType type, Vec4 defaultValue)
+	void MaterialNode::AddInput(StringView name, MaterialDataType type, Vec4 defaultValue, StringView defaultExpr)
 	{
-		m_inputs.EmplaceBack(MaterialNodePin{String{name}, type, defaultValue});
+		m_inputs.EmplaceBack(MaterialNodePin{String{name}, type, defaultValue, String{defaultExpr}});
 	}
 
 	void MaterialNode::AddOutput(StringView name, MaterialDataType type)
@@ -209,6 +292,9 @@ namespace Skore
 		Reflection::Type<MaterialConstantColorNode>();
 		Reflection::Type<MaterialConstantVec2Node>();
 		Reflection::Type<MaterialTexCoordNode>();
+		Reflection::Type<MaterialSampleTexture2DNode>();
+		Reflection::Type<MaterialNormalMapNode>();
+		Reflection::Type<MaterialTilingOffsetNode>();
 		Reflection::Type<MaterialMultiplyNode>();
 		Reflection::Type<MaterialAddNode>();
 		Reflection::Type<MaterialLerpNode>();

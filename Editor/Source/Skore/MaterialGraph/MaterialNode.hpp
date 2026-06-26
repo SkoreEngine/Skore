@@ -31,7 +31,8 @@ namespace Skore
 	{
 		String           name{};
 		MaterialDataType type = MaterialDataType::Float;
-		Vec4             defaultValue{}; //used when the pin is left unconnected
+		Vec4             defaultValue{}; //literal used when the pin is left unconnected
+		String           defaultExpr{}; //HLSL expr used when unconnected (overrides defaultValue), e.g. "input.texCoord"
 	};
 
 	struct MaterialNodeColor
@@ -41,17 +42,24 @@ namespace Skore
 		u8 b = 180;
 	};
 
-	//Context passed to a node's Generate(). The compiler fills `inputs` (each already converted
-	//to the matching input pin type) and `value`, then the node writes one HLSL expression per
-	//output pin into `outputs`.
+	//Context passed to a node's Generate(). The compiler fills `inputs` (each already converted to the
+	//matching input pin type), `value`, and `nodeIndex` (a unique per-node id). A node writes one HLSL
+	//expression per output pin via SetOutput(), may emit helper statements that run before the output
+	//variables via AddStatement(), and signals texture usage via UseTextures() + TextureSlot().
 	struct MaterialCodegenContext
 	{
 		Span<String>   inputs{};
 		Vec4           value{};
+		u32            nodeIndex = 0;
 		Array<String>& outputs;
+		Array<String>& statements;
+		bool*          usesTextures = nullptr;
 
 		StringView Input(u32 index) const { return inputs[index]; }
 		void       SetOutput(u32 index, StringView expr) { outputs[index] = expr; }
+		void       AddStatement(StringView statement) { statements.EmplaceBack(String{statement}); }
+		void       UseTextures() { if (usesTextures) *usesTextures = true; }
+		u32        TextureSlot() const { return nodeIndex; }
 	};
 
 	//Abstract material graph node type. Subclass once per node; instances are singletons owned by
@@ -85,7 +93,7 @@ namespace Skore
 
 	protected:
 		virtual void DefinePins() {}
-		void         AddInput(StringView name, MaterialDataType type, Vec4 defaultValue = {});
+		void         AddInput(StringView name, MaterialDataType type, Vec4 defaultValue = {}, StringView defaultExpr = {});
 		void         AddOutput(StringView name, MaterialDataType type);
 
 	private:
@@ -106,6 +114,9 @@ namespace Skore
 			Metallic  = 1,
 			Roughness = 2,
 			Emissive  = 3,
+			Normal    = 4,
+			Occlusion = 5,
+			Opacity   = 6,
 		};
 
 		static StringView OutputTypeId();

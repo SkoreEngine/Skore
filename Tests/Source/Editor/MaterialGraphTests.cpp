@@ -141,15 +141,25 @@ namespace
 		RegisterMaterialNodes();
 
 		Span<MaterialNode*> nodes = MaterialNodeRegistry::GetNodes();
-		CHECK(nodes.Size() >= 8);
+		CHECK(nodes.Size() >= 11);
 
 		MaterialNode* output = MaterialNodeRegistry::Find("output");
 		REQUIRE(output != nullptr);
 		CHECK(output->IsOutput());
-		CHECK(output->GetInputs().Size() == 4);
+		CHECK(output->GetInputs().Size() == 7);
 		CHECK(output->GetOutputs().Size() == 0);
 		CHECK(output->GetInputs()[MaterialNodeRegistry::BaseColor].type == MaterialDataType::Vec3);
 		CHECK(output->GetInputs()[MaterialNodeRegistry::Metallic].type == MaterialDataType::Float);
+		CHECK(output->GetInputs()[MaterialNodeRegistry::Normal].type == MaterialDataType::Vec3);
+		CHECK(output->GetInputs()[MaterialNodeRegistry::Opacity].type == MaterialDataType::Float);
+
+		MaterialNode* sampleTexture = MaterialNodeRegistry::Find("sample_texture");
+		REQUIRE(sampleTexture != nullptr);
+		CHECK(sampleTexture->GetInputs().Size() == 1);
+		CHECK(sampleTexture->GetOutputs()[0].type == MaterialDataType::Vec4);
+
+		CHECK(MaterialNodeRegistry::Find("normal_map") != nullptr);
+		CHECK(MaterialNodeRegistry::Find("tiling_offset") != nullptr);
 
 		MaterialNode* multiply = MaterialNodeRegistry::Find("multiply");
 		REQUIRE(multiply != nullptr);
@@ -232,6 +242,38 @@ namespace
 		// unconnected output inputs fall back to their pin defaults
 		CHECK(Contains(hlsl, "float3 baseColor = float3(0.8, 0.8, 0.8)"));
 		CHECK(Contains(hlsl, "float  roughness = 0.5"));
+		// the expanded master node emits normal / occlusion / opacity surface fields
+		CHECK(Contains(hlsl, "float3 normal"));
+		CHECK(Contains(hlsl, "float  occlusion"));
+		CHECK(Contains(hlsl, "float  opacity"));
+		CHECK(Contains(hlsl, "float3(0, 0, 1)")); // tangent-space normal default
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::GenerateHlslTexture")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		RID texNode = AddNode(graph, "sample_texture", Vec4{});
+		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
+
+		String log;
+		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+
+		// bindless texture preamble is emitted only when a texture node is present
+		CHECK(Contains(hlsl, "Texture2D    MaterialTextures["));
+		CHECK(Contains(hlsl, "SamplerState MaterialSampler"));
+		CHECK(Contains(hlsl, ".Sample(MaterialSampler,"));
+		// unconnected UV falls back to the mesh UVs via the pin's default expression
+		CHECK(Contains(hlsl, "input.texCoord"));
+		// the Vec4 sample feeding a Vec3 input is swizzled down
+		CHECK(Contains(hlsl, ".xyz"));
 
 		ResourceShutdown();
 	}
@@ -292,8 +334,12 @@ namespace
 
 		RID outputNode;
 		RID graph = NewGraph(outputNode);
-		RID colorNode = AddNode(graph, "constant_color", Vec4{0.2f, 0.4f, 0.8f, 1.0f});
-		Connect(graph, colorNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
+		// Exercise the bindless texture preamble, Sample(), the normal-map helper statement, and the
+		// new Normal output — all the way through real DXC → SPIR-V.
+		RID texNode = AddNode(graph, "sample_texture", Vec4{});
+		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
+		RID normalNode = AddNode(graph, "normal_map", Vec4{});
+		Connect(graph, normalNode, 0, outputNode, MaterialNodeRegistry::Normal);
 
 		// Live SPIR-V compilation needs dxcompiler.dll in the working directory. ShaderManagerInit
 		// asserts if it can't be loaded, so only init when the library is actually present.
