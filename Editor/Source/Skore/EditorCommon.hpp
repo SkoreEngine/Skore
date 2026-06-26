@@ -37,6 +37,9 @@ namespace Skore
 	using OnAssetSelection = EventType<"Skore::Editor::OnAssetSelection"_h, void(u32, RID)>;
 	using OnResourceSelection = EventType<"Skore::Editor::OnResourceSelection"_h, void(u32, RID)>;
 
+	//a material graph node was selected (empty RID clears); the Properties window shows its node properties
+	using OnMaterialNodeSelection = EventType<"Skore::Editor::OnMaterialNodeSelection"_h, void(u32, RID)>;
+
 	struct SceneViewPipelineModule;
 
 

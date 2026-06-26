@@ -26,6 +26,17 @@ namespace Skore
 			return String{buf};
 		}
 
+		MaterialDataType TypeFromComponentCount(u32 count)
+		{
+			switch (count)
+			{
+				case 1:  return MaterialDataType::Float;
+				case 2:  return MaterialDataType::Vec2;
+				case 3:  return MaterialDataType::Vec3;
+				default: return MaterialDataType::Vec4;
+			}
+		}
+
 		struct ConnRec
 		{
 			u64 inNode = 0;
@@ -43,7 +54,8 @@ namespace Skore
 			u32                         varCounter = 0;
 			u32                         nodeCounter = 0;
 			bool                        usedTextures = false;
-			HashMap<u64, Array<String>> outVars{};
+			HashMap<u64, Array<String>>           outVars{};
+			HashMap<u64, Array<MaterialDataType>> outTypes{};
 			HashSet<u64>                emitting{};
 
 			String GetOutputVar(RID node, u32 pin)
@@ -56,9 +68,76 @@ namespace Skore
 				return "0.0";
 			}
 
-			String ResolveInput(RID node, const MaterialNode& def, u32 inputPin)
+			//Effective output type of a node's pin: the type resolved at emit time for generic
+			//outputs (memoized in outTypes), or the statically declared pin type otherwise.
+			MaterialDataType OutputType(RID node, const MaterialNode& def, u32 pin)
+			{
+				if (auto it = outTypes.Find(node.id); it != outTypes.end() && pin < it->second.Size())
+				{
+					return it->second[pin];
+				}
+				Span<MaterialNodePin> outputs = def.GetOutputs();
+				return pin < outputs.Size() ? outputs[pin].type : MaterialDataType::Float;
+			}
+
+			//Resolves the concrete type a generic node operates at: the widest (largest component
+			//count) type among its connected generic inputs, or Float when none is connected.
+			MaterialDataType ResolveGenericType(RID node, const MaterialNode& def)
 			{
 				Span<MaterialNodePin> inputs = def.GetInputs();
+				u32                   maxCount = 0;
+
+				for (u32 i = 0; i < inputs.Size(); ++i)
+				{
+					if (!inputs[i].generic)
+					{
+						continue;
+					}
+
+					for (const ConnRec& c : conns)
+					{
+						if (c.inNode != node.id || c.inPin != i)
+						{
+							continue;
+						}
+
+						auto srcIt = nodeById.Find(c.outNode);
+						if (srcIt == nodeById.end())
+						{
+							break;
+						}
+
+						RID            srcNode = srcIt->second;
+						ResourceObject srcObj = Resources::Read(srcNode);
+						if (!srcObj)
+						{
+							break;
+						}
+
+						MaterialNode* srcDef = MaterialNodeRegistry::Find(srcObj.GetString(MaterialGraphNodeResource::Type));
+						if (!srcDef || c.outPin >= srcDef->GetOutputs().Size())
+						{
+							break;
+						}
+
+						EmitNode(srcNode);
+						u32 count = MaterialComponentCount(OutputType(srcNode, *srcDef, c.outPin));
+						if (count > maxCount)
+						{
+							maxCount = count;
+						}
+						break;
+					}
+				}
+
+				return maxCount == 0 ? MaterialDataType::Float : TypeFromComponentCount(maxCount);
+			}
+
+			String ResolveInput(RID node, const MaterialNode& def, u32 inputPin, MaterialDataType resolvedType = MaterialDataType::Float)
+			{
+				Span<MaterialNodePin> inputs = def.GetInputs();
+				MaterialDataType      targetType = inputs[inputPin].generic ? resolvedType : inputs[inputPin].type;
+
 				for (const ConnRec& c : conns)
 				{
 					if (c.inNode != node.id || c.inPin != inputPin)
@@ -85,9 +164,9 @@ namespace Skore
 						break;
 					}
 
-					MaterialDataType srcType = srcDef->GetOutputs()[c.outPin].type;
 					String           srcVar = GetOutputVar(srcNode, c.outPin);
-					return MaterialConvertExpr(srcVar, srcType, inputs[inputPin].type);
+					MaterialDataType srcType = OutputType(srcNode, *srcDef, c.outPin);
+					return MaterialConvertExpr(srcVar, srcType, targetType);
 				}
 
 				const MaterialNodePin& pin = inputs[inputPin];
@@ -95,7 +174,7 @@ namespace Skore
 				{
 					return pin.defaultExpr;
 				}
-				return MaterialLiteralExpr(pin.type, MaterialReadPinValue(node, inputPin, pin.defaultValue));
+				return MaterialLiteralExpr(targetType, MaterialReadPinValue(node, inputPin, pin.defaultValue));
 			}
 
 			void EmitNode(RID node)
@@ -135,11 +214,13 @@ namespace Skore
 				Span<MaterialNodePin> inputs = def->GetInputs();
 				Span<MaterialNodePin> outputs = def->GetOutputs();
 
+				MaterialDataType resolvedType = ResolveGenericType(node, *def);
+
 				Array<String> inputExprs;
 				inputExprs.Resize(inputs.Size());
 				for (u32 i = 0; i < inputs.Size(); ++i)
 				{
-					inputExprs[i] = ResolveInput(node, *def, i);
+					inputExprs[i] = ResolveInput(node, *def, i, resolvedType);
 				}
 
 				Array<String> outputExprs;
@@ -156,16 +237,21 @@ namespace Skore
 					body += String{"    "} + statement + "\n";
 				}
 
-				Array<String> varNames;
+				Array<String>           varNames;
+				Array<MaterialDataType> varTypes;
 				varNames.Resize(outputs.Size());
+				varTypes.Resize(outputs.Size());
 				for (u32 o = 0; o < outputs.Size(); ++o)
 				{
-					String varName = "n" + UIntStr(varCounter++);
+					MaterialDataType outType = outputs[o].generic ? resolvedType : outputs[o].type;
+					String           varName = "n" + UIntStr(varCounter++);
 					varNames[o] = varName;
-					body += String{"    "} + MaterialHlslType(outputs[o].type) + " " + varName + " = " + outputExprs[o] + ";\n";
+					varTypes[o] = outType;
+					body += String{"    "} + MaterialHlslType(outType) + " " + varName + " = " + outputExprs[o] + ";\n";
 				}
 
 				emitting.Erase(node.id);
+				outTypes.Insert(node.id, Traits::Move(varTypes));
 				outVars.Insert(node.id, Traits::Move(varNames));
 			}
 		};

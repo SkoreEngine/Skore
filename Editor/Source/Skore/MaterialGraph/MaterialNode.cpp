@@ -141,13 +141,28 @@ namespace Skore
 		{
 			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
 			AddOutput("RGBA", MaterialDataType::Vec4);
+			AddOutput("R", MaterialDataType::Float);
+			AddOutput("G", MaterialDataType::Float);
+			AddOutput("B", MaterialDataType::Float);
+			AddOutput("A", MaterialDataType::Float);
+		}
+
+		void DefineProperties() override
+		{
+			AddProperty("Texture", MaterialNodePropertyType::Texture);
 		}
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
 			ctx.UseTextures();
 			String slot = IndexStr(ctx.TextureSlot());
-			ctx.SetOutput(0, String{"MaterialTextures["} + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ")");
+			String sample = String{"tex"} + IndexStr(ctx.nodeIndex);
+			ctx.AddStatement(String{"float4 "} + sample + " = MaterialTextures[" + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ");");
+			ctx.SetOutput(0, sample);
+			ctx.SetOutput(1, sample + ".r");
+			ctx.SetOutput(2, sample + ".g");
+			ctx.SetOutput(3, sample + ".b");
+			ctx.SetOutput(4, sample + ".a");
 		}
 	};
 
@@ -165,6 +180,11 @@ namespace Skore
 			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
 			AddInput("Strength", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
 			AddOutput("Normal", MaterialDataType::Vec3);
+		}
+
+		void DefineProperties() override
+		{
+			AddProperty("Texture", MaterialNodePropertyType::Texture);
 		}
 
 		void Generate(MaterialCodegenContext& ctx) const override
@@ -212,9 +232,9 @@ namespace Skore
 
 		void DefinePins() override
 		{
-			AddInput("A", MaterialDataType::Vec3, Vec4{1.0f, 1.0f, 1.0f, 1.0f});
-			AddInput("B", MaterialDataType::Vec3, Vec4{1.0f, 1.0f, 1.0f, 1.0f});
-			AddOutput("Out", MaterialDataType::Vec3);
+			AddInput("A", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddInput("B", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
 		}
 
 		void Generate(MaterialCodegenContext& ctx) const override
@@ -234,9 +254,9 @@ namespace Skore
 
 		void DefinePins() override
 		{
-			AddInput("A", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 0.0f, 1.0f});
-			AddInput("B", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 0.0f, 1.0f});
-			AddOutput("Out", MaterialDataType::Vec3);
+			AddInput("A", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddInput("B", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddOutput("Out", MaterialDataType::Float, true);
 		}
 
 		void Generate(MaterialCodegenContext& ctx) const override
@@ -256,10 +276,10 @@ namespace Skore
 
 		void DefinePins() override
 		{
-			AddInput("A", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 0.0f, 1.0f});
-			AddInput("B", MaterialDataType::Vec3, Vec4{1.0f, 1.0f, 1.0f, 1.0f});
+			AddInput("A", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, false, true);
+			AddInput("B", MaterialDataType::Float, Vec4{1.0f, 1.0f, 1.0f, 1.0f}, {}, false, true);
 			AddInput("T", MaterialDataType::Float, Vec4{0.5f, 0.0f, 0.0f, 0.0f});
-			AddOutput("Out", MaterialDataType::Vec3);
+			AddOutput("Out", MaterialDataType::Float, true);
 		}
 
 		void Generate(MaterialCodegenContext& ctx) const override
@@ -273,17 +293,24 @@ namespace Skore
 	{
 		m_inputs.Clear();
 		m_outputs.Clear();
+		m_properties.Clear();
 		DefinePins();
+		DefineProperties();
 	}
 
-	void MaterialNode::AddInput(StringView name, MaterialDataType type, Vec4 defaultValue, StringView defaultExpr, bool color)
+	void MaterialNode::AddInput(StringView name, MaterialDataType type, Vec4 defaultValue, StringView defaultExpr, bool color, bool generic)
 	{
-		m_inputs.EmplaceBack(MaterialNodePin{String{name}, type, defaultValue, String{defaultExpr}, color});
+		m_inputs.EmplaceBack(MaterialNodePin{String{name}, type, defaultValue, String{defaultExpr}, color, generic});
 	}
 
-	void MaterialNode::AddOutput(StringView name, MaterialDataType type)
+	void MaterialNode::AddOutput(StringView name, MaterialDataType type, bool generic)
 	{
-		m_outputs.EmplaceBack(MaterialNodePin{String{name}, type, Vec4{}});
+		m_outputs.EmplaceBack(MaterialNodePin{String{name}, type, Vec4{}, String{}, false, generic});
+	}
+
+	void MaterialNode::AddProperty(StringView name, MaterialNodePropertyType type)
+	{
+		m_properties.EmplaceBack(MaterialNodeProperty{String{name}, type});
 	}
 
 	//--- Registry --------------------------------------------------------------------------------

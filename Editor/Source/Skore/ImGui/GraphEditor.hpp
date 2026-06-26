@@ -89,6 +89,12 @@ namespace Skore
 		bool                      pinValueActive = false;
 		GraphEditorPinEdit        activePinValue{};
 		Array<GraphEditorPinEdit> committedPinValues{};
+
+		//node currently under the mouse this frame (0 if none) and its world-space rect, so callers can
+		//implement drop targets / overlays over a specific node. Valid after End().
+		u64  hoveredNodeId = 0;
+		Vec2 hoveredNodeMin{};
+		Vec2 hoveredNodeMax{};
 	};
 
 	class GraphEditor
@@ -99,6 +105,10 @@ namespace Skore
 		void BeginNode(u64 id, const char* name, Vec2 position, const GraphNodeDesc& desc = {});
 		void InputPin(const char* name, GraphPinType type = GraphPinType::Value, ImColor color = ImColor(150, 200, 150));
 		void OutputPin(const char* name, GraphPinType type = GraphPinType::Value, ImColor color = ImColor(150, 200, 150));
+
+		// Attach a preview image rendered at the bottom of the current node. Call between BeginNode and EndNode.
+		void NodeThumbnail(ImTextureID texture);
+
 		void EndNode();
 
 		// Pin widget functions — call right after InputPin to attach a widget to it
@@ -158,6 +168,7 @@ namespace Skore
 			u32           inputCount = 0;
 			u32           outputStart = 0;
 			u32           outputCount = 0;
+			ImTextureID   thumbnail = 0;
 		};
 
 		struct FrameLink
@@ -249,6 +260,7 @@ namespace Skore
 		static constexpr f32 NodePadding = 10.0f;
 		static constexpr f32 NodeRounding = 4.0f;
 		static constexpr f32 NodeMinWidth = 200.0f;
+		static constexpr f32 NodeThumbnailSize = 154.0f;
 		static constexpr f32 LinkThickness = 2.5f;
 		static constexpr f32 GridSize = 32.0f;
 		static constexpr f32 ZoomMin = 0.1f;

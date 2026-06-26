@@ -5,6 +5,7 @@
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/String.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/ImGui/GraphEditor.hpp"
 #include "Skore/MaterialGraph/MaterialNode.hpp"
 
@@ -46,17 +47,29 @@ namespace Skore
 		HashMap<u64, Vec4> m_pinValues{};
 		u64                m_activePinKey = 0;
 
+		//keeps the GPU texture caches for node thumbnails alive across frames (the global cache holds
+		//only weak references). Keyed by texture RID; pruned each frame to what is still referenced.
+		HashMap<RID, TextureResourceCachePtr> m_thumbnailCaches{};
+
+		//mirrors the editor's single-node selection so a redundant event isn't fired every frame
+		RID m_selectedNode{};
+
 		static u64 PinKey(u64 nodeId, u32 pinIndex) { return (nodeId << 8) | pinIndex; }
 
-		void DrawToolbar();
-		void DrawGraph();
-		void DrawValueInspector(RID node, MaterialNode* def);
-		void DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins);
-		void CommitPinValue(RID node, u32 pinIndex, Vec4 value);
-		void DrawCodePanel();
+		void        DrawToolbar();
+		void        DrawGraph();
+		void        DrawValueInspector(RID node, MaterialNode* def);
+		void        DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins);
+		void        CommitPinValue(RID node, u32 pinIndex, Vec4 value);
+		ImTextureID ResolveThumbnail(RID node, MaterialNode* def, HashSet<u64>& usedTextures);
+		bool        NodeAcceptsTexture(RID node);
+		void        SetNodeTexture(RID node, RID texture);
+		void        HandleTextureDrop(const GraphEditorResult& result);
+		void        DrawCodePanel();
 
 		void Build();
 		void AddNode(MaterialNode* node, Vec2 position);
+		void AddTextureNode(Vec2 position, RID texture);
 		void DeleteNode(RID node);
 		void AddConnection(RID outputNode, u32 outputPin, RID inputNode, u32 inputPin);
 		void RemoveConnection(RID connection);

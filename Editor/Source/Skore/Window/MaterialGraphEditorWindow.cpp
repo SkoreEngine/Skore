@@ -2,9 +2,12 @@
 
 #include "Skore/Editor.hpp"
 #include "Skore/EditorWorkspace.hpp"
+#include "Skore/Selection.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/UUID.hpp"
+#include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/ImGui/Icons.h"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/MaterialGraph/MaterialGraphCompiler.hpp"
@@ -28,6 +31,16 @@ namespace Skore
 				case MaterialDataType::Vec4:  return ImColor(200, 120, 220);
 			}
 			return ImColor(150, 200, 150);
+		}
+
+		ImColor PinColor(const MaterialNodePin& pin)
+		{
+			//generic pins resolve their type at compile time from their connections; show neutral.
+			if (pin.generic)
+			{
+				return ImColor(230, 230, 230);
+			}
+			return PinColor(pin.type);
 		}
 	}
 
@@ -156,7 +169,7 @@ namespace Skore
 		for (u32 i = 0; i < inputs.Size(); ++i)
 		{
 			const MaterialNodePin& pin = inputs[i];
-			m_editor.InputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin.type));
+			m_editor.InputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin));
 
 			//pins with a computed default expression (e.g. mesh UVs) have no editable literal
 			if (!pin.defaultExpr.Empty())
@@ -226,9 +239,144 @@ namespace Skore
 		nodeObj.Commit(scope);
 	}
 
+	ImTextureID MaterialGraphEditorWindow::ResolveThumbnail(RID node, MaterialNode* def, HashSet<u64>& usedTextures)
+	{
+		bool hasTextureProperty = false;
+		for (const MaterialNodeProperty& prop : def->GetProperties())
+		{
+			if (prop.type == MaterialNodePropertyType::Texture)
+			{
+				hasTextureProperty = true;
+				break;
+			}
+		}
+
+		if (!hasTextureProperty)
+		{
+			return 0;
+		}
+
+		ResourceObject nodeObj = Resources::Read(node);
+		if (!nodeObj)
+		{
+			return 0;
+		}
+
+		RID texture = nodeObj.GetReference(MaterialGraphNodeResource::Texture);
+		if (!texture)
+		{
+			return 0;
+		}
+
+		usedTextures.Insert(texture.id);
+
+		TextureResourceCachePtr& cache = m_thumbnailCaches[texture];
+		if (!cache)
+		{
+			cache = RenderResourceCache::GetTextureCache(texture, false);
+		}
+
+		if (cache && cache->texture)
+		{
+			return GetImGuiTextureId(cache->texture->GetTextureView());
+		}
+
+		return 0;
+	}
+
+	bool MaterialGraphEditorWindow::NodeAcceptsTexture(RID node)
+	{
+		ResourceObject nodeObj = Resources::Read(node);
+		if (!nodeObj)
+		{
+			return false;
+		}
+
+		MaterialNode* def = MaterialNodeRegistry::Find(nodeObj.GetString(MaterialGraphNodeResource::Type));
+		if (!def)
+		{
+			return false;
+		}
+
+		for (const MaterialNodeProperty& prop : def->GetProperties())
+		{
+			if (prop.type == MaterialNodePropertyType::Texture)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void MaterialGraphEditorWindow::SetNodeTexture(RID node, RID texture)
+	{
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Node Texture");
+		ResourceObject write = Resources::Write(node);
+		write.SetReference(MaterialGraphNodeResource::Texture, texture);
+		write.Commit(scope);
+	}
+
+	void MaterialGraphEditorWindow::HandleTextureDrop(const GraphEditorResult& result)
+	{
+		const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+		if (!payload || !payload->IsDataType(SK_ASSET_PAYLOAD))
+		{
+			return;
+		}
+
+		AssetPayload* assetPayload = static_cast<AssetPayload*>(payload->Data);
+		ResourceType* type = assetPayload ? Resources::GetType(assetPayload->asset) : nullptr;
+		if (!type || type->GetID() != TypeInfo<TextureResource>::ID())
+		{
+			return;
+		}
+
+		const ImGuiEx::Canvas& canvas = m_editor.GetCanvas();
+		ImDrawList*            drawList = ImGui::GetWindowDrawList();
+		f32                    scale = m_editor.GetScale();
+
+		RID  hoveredNode{result.hoveredNodeId};
+		bool overTextureNode = result.hoveredNodeId != 0 && NodeAcceptsTexture(hoveredNode);
+
+		if (overTextureNode)
+		{
+			//Dropping onto an existing texture node assigns the texture; outline it as feedback.
+			ImVec2 nodeMin = canvas.FromLocal(ImVec2(result.hoveredNodeMin.x, result.hoveredNodeMin.y));
+			ImVec2 nodeMax = canvas.FromLocal(ImVec2(result.hoveredNodeMax.x, result.hoveredNodeMax.y));
+			drawList->AddRect(nodeMin, nodeMax, IM_COL32(120, 200, 120, 255), 4.0f, 0, 2.0f * scale);
+		}
+		else
+		{
+			//Dropping onto empty graph space spawns a new texture node; preview where it will appear.
+			ImVec2 cursor = ImGui::GetMousePos();
+			ImVec2 ghostMax(cursor.x + 200.0f * scale * m_editor.GetZoom(), cursor.y + 90.0f * scale * m_editor.GetZoom());
+			drawList->AddRectFilled(cursor, ghostMax, IM_COL32(120, 200, 120, 30), 4.0f);
+			drawList->AddRect(cursor, ghostMax, IM_COL32(120, 200, 120, 200), 4.0f, 0, 1.5f * scale);
+		}
+
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD, ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
+			{
+				if (overTextureNode)
+				{
+					SetNodeTexture(hoveredNode, assetPayload->asset);
+				}
+				else
+				{
+					ImVec2 local = canvas.ToLocal(ImGui::GetMousePos());
+					AddTextureNode(Vec2{local.x, local.y}, assetPayload->asset);
+				}
+			}
+			ImGui::EndDragDropTarget();
+		}
+	}
+
 	void MaterialGraphEditorWindow::DrawGraph()
 	{
 		m_editor.Begin("material_graph");
+
+		HashSet<u64> usedTextures;
 
 		if (ResourceObject graphObj = Resources::Read(CurrentGraph()))
 		{
@@ -271,7 +419,12 @@ namespace Skore
 
 				for (const MaterialNodePin& pin : def->GetOutputs())
 				{
-					m_editor.OutputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin.type));
+					m_editor.OutputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin));
+				}
+
+				if (ImTextureID thumbnail = ResolveThumbnail(nodeRid, def, usedTextures))
+				{
+					m_editor.NodeThumbnail(thumbnail);
 				}
 
 				m_editor.EndNode();
@@ -297,6 +450,66 @@ namespace Skore
 		}
 
 		GraphEditorResult result = m_editor.End();
+
+		//The canvas leaves a full-area item as the last item, so this attaches a drop target to it.
+		HandleTextureDrop(result);
+
+		//Drop GPU thumbnail caches for textures no longer shown so their textures can be released.
+		Array<RID> staleThumbnails;
+		for (auto& entry : m_thumbnailCaches)
+		{
+			if (!usedTextures.Has(entry.first.id))
+			{
+				staleThumbnails.EmplaceBack(entry.first);
+			}
+		}
+		for (RID stale : staleThumbnails)
+		{
+			m_thumbnailCaches.Erase(stale);
+		}
+
+		const Array<u64>& selectedNodes = m_editor.GetSelectedNodes();
+		RID               widgetNode = selectedNodes.Size() == 1 ? RID{selectedNodes[0]} : RID{};
+
+		RID selectionNode{};
+		if (Selection::GetType() == SelectionType::Resource)
+		{
+			RID           active = Selection::GetActiveRID();
+			ResourceType* activeType = active ? Resources::GetType(active) : nullptr;
+			if (activeType && activeType->GetID() == TypeInfo<MaterialGraphNodeResource>::ID())
+			{
+				selectionNode = active;
+			}
+		}
+
+		if (widgetNode != m_selectedNode)
+		{
+			m_selectedNode = widgetNode;
+			if (widgetNode)
+			{
+				Selection::Select(SelectionType::Resource, widgetNode, true, Editor::CreateUndoRedoScope("Select Node"));
+			}
+			else if (Selection::GetType() == SelectionType::Resource)
+			{
+				Selection::Clear(Editor::CreateUndoRedoScope("Clear Node Selection"));
+			}
+			EventHandler<OnMaterialNodeSelection>{}.Invoke(workspace->GetId(), widgetNode);
+		}
+		else if (selectionNode != m_selectedNode)
+		{
+			m_selectedNode = selectionNode;
+			if (selectionNode)
+			{
+				Array<u64> nodes;
+				nodes.EmplaceBack(selectionNode.id);
+				m_editor.SetSelectedNodes(nodes);
+			}
+			else
+			{
+				m_editor.ClearSelection();
+			}
+			EventHandler<OnMaterialNodeSelection>{}.Invoke(workspace->GetId(), selectionNode);
+		}
 
 		//Keep the active pin "sticky" from first activation until its edit commits: a color picker
 		//popup reports the swatch as inactive while open, so clearing on every inactive frame would
@@ -401,6 +614,31 @@ namespace Skore
 			nodeObj.SetString(MaterialGraphNodeResource::Type, def->GetNodeTypeId());
 			nodeObj.SetVec2(MaterialGraphNodeResource::Position, position);
 			nodeObj.SetVec4(MaterialGraphNodeResource::Value, def->GetDefaultValue());
+			nodeObj.Commit(scope);
+		}
+
+		ResourceObject graphObj = Resources::Write(CurrentGraph());
+		graphObj.AddToSubObjectList(MaterialGraphResource::Nodes, node);
+		graphObj.Commit(scope);
+	}
+
+	void MaterialGraphEditorWindow::AddTextureNode(Vec2 position, RID texture)
+	{
+		//"sample_texture" is the type id of MaterialSampleTexture2DNode, the canonical node for a texture.
+		MaterialNode* def = MaterialNodeRegistry::Find("sample_texture");
+		if (!def)
+		{
+			return;
+		}
+
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Add Texture Node");
+		RID            node = Resources::Create<MaterialGraphNodeResource>(UUID::RandomUUID(), scope);
+		{
+			ResourceObject nodeObj = Resources::Write(node);
+			nodeObj.SetString(MaterialGraphNodeResource::Type, def->GetNodeTypeId());
+			nodeObj.SetVec2(MaterialGraphNodeResource::Position, position);
+			nodeObj.SetVec4(MaterialGraphNodeResource::Value, def->GetDefaultValue());
+			nodeObj.SetReference(MaterialGraphNodeResource::Texture, texture);
 			nodeObj.Commit(scope);
 		}
 

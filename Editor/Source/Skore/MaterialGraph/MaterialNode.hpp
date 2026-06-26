@@ -27,13 +27,26 @@ namespace Skore
 		Color, //value.xyz shown as a color swatch
 	};
 
+	//A node setting that isn't a pin (no incoming connection), edited in the Properties window.
+	enum class MaterialNodePropertyType : u8
+	{
+		Texture, //a TextureResource reference, stored in MaterialGraphNodeResource::Texture
+	};
+
+	struct MaterialNodeProperty
+	{
+		String                   name{};
+		MaterialNodePropertyType type = MaterialNodePropertyType::Texture;
+	};
+
 	struct MaterialNodePin
 	{
 		String           name{};
 		MaterialDataType type = MaterialDataType::Float;
 		Vec4             defaultValue{}; //literal used when the pin is left unconnected
 		String           defaultExpr{}; //HLSL expr used when unconnected (overrides defaultValue), e.g. "input.texCoord"
-		bool             color = false;  //edit the unconnected literal as a color swatch instead of raw components
+		bool             color = false;   //edit the unconnected literal as a color swatch instead of raw components
+		bool             generic = false; //type adapts to the connected pins; `type` is the fallback (when nothing is connected)
 	};
 
 	struct MaterialNodeColor
@@ -86,20 +99,25 @@ namespace Skore
 		//Emit HLSL. Read ctx.Input(i)/ctx.value, write ctx.SetOutput(i, expr).
 		virtual void Generate(MaterialCodegenContext& ctx) const = 0;
 
-		Span<MaterialNodePin> GetInputs() const { return m_inputs; }
-		Span<MaterialNodePin> GetOutputs() const { return m_outputs; }
+		Span<MaterialNodePin>      GetInputs() const { return m_inputs; }
+		Span<MaterialNodePin>      GetOutputs() const { return m_outputs; }
+		Span<MaterialNodeProperty> GetProperties() const { return m_properties; }
 
-		//Rebuilds the pin lists by invoking DefinePins(). Called by the registry after construction.
+		//Rebuilds the pin and property lists by invoking DefinePins()/DefineProperties(). Called by the
+		//registry after construction.
 		void BuildPins();
 
 	protected:
 		virtual void DefinePins() {}
-		void         AddInput(StringView name, MaterialDataType type, Vec4 defaultValue = {}, StringView defaultExpr = {}, bool color = false);
-		void         AddOutput(StringView name, MaterialDataType type);
+		virtual void DefineProperties() {}
+		void         AddInput(StringView name, MaterialDataType type, Vec4 defaultValue = {}, StringView defaultExpr = {}, bool color = false, bool generic = false);
+		void         AddOutput(StringView name, MaterialDataType type, bool generic = false);
+		void         AddProperty(StringView name, MaterialNodePropertyType type);
 
 	private:
-		Array<MaterialNodePin> m_inputs{};
-		Array<MaterialNodePin> m_outputs{};
+		Array<MaterialNodePin>      m_inputs{};
+		Array<MaterialNodePin>      m_outputs{};
+		Array<MaterialNodeProperty> m_properties{};
 	};
 
 	//Global registry of available material node types, populated from reflection on first access.

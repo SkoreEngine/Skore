@@ -156,7 +156,15 @@ namespace
 		MaterialNode* sampleTexture = MaterialNodeRegistry::Find("sample_texture");
 		REQUIRE(sampleTexture != nullptr);
 		CHECK(sampleTexture->GetInputs().Size() == 1);
+		// RGBA plus the four separated channels
+		REQUIRE(sampleTexture->GetOutputs().Size() == 5);
 		CHECK(sampleTexture->GetOutputs()[0].type == MaterialDataType::Vec4);
+		CHECK(sampleTexture->GetOutputs()[0].name == "RGBA");
+		CHECK(sampleTexture->GetOutputs()[1].type == MaterialDataType::Float);
+		CHECK(sampleTexture->GetOutputs()[1].name == "R");
+		CHECK(sampleTexture->GetOutputs()[2].name == "G");
+		CHECK(sampleTexture->GetOutputs()[3].name == "B");
+		CHECK(sampleTexture->GetOutputs()[4].name == "A");
 
 		CHECK(MaterialNodeRegistry::Find("normal_map") != nullptr);
 		CHECK(MaterialNodeRegistry::Find("tiling_offset") != nullptr);
@@ -166,7 +174,11 @@ namespace
 		CHECK_FALSE(multiply->IsOutput());
 		CHECK(multiply->GetInputs().Size() == 2);
 		CHECK(multiply->GetOutputs().Size() == 1);
-		CHECK(multiply->GetOutputs()[0].type == MaterialDataType::Vec3);
+		// math nodes are generic: pins fall back to Float and resolve their real type from connections
+		CHECK(multiply->GetInputs()[0].generic);
+		CHECK(multiply->GetInputs()[1].generic);
+		CHECK(multiply->GetOutputs()[0].generic);
+		CHECK(multiply->GetOutputs()[0].type == MaterialDataType::Float);
 
 		MaterialNode* constantFloat = MaterialNodeRegistry::Find("constant_float");
 		REQUIRE(constantFloat != nullptr);
@@ -278,6 +290,30 @@ namespace
 		ResourceShutdown();
 	}
 
+	TEST_CASE("MaterialGraph::GenerateHlslTextureChannel")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		RID texNode = AddNode(graph, "sample_texture", Vec4{});
+		// Output pin 1 is the separated R channel (Float) feeding the Float Roughness input.
+		Connect(graph, texNode, 1, outputNode, MaterialNodeRegistry::Roughness);
+
+		String log;
+		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+
+		// The texture is sampled once into a temp and the channel is taken via swizzle.
+		CHECK(Contains(hlsl, ".Sample(MaterialSampler,"));
+		CHECK(Contains(hlsl, ".r"));
+		CHECK(Contains(hlsl, "roughness ="));
+
+		ResourceShutdown();
+	}
+
 	TEST_CASE("MaterialGraph::GenerateHlslConnected")
 	{
 		ResourceInit();
@@ -322,6 +358,59 @@ namespace
 		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
 
 		CHECK(Contains(hlsl, "(float3)("));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::GenericMathFloat")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		// float * float resolves the Multiply node to Float (no vector promotion).
+		RID a = AddNode(graph, "constant_float", Vec4{2.0f, 0.0f, 0.0f, 0.0f});
+		RID b = AddNode(graph, "constant_float", Vec4{3.0f, 0.0f, 0.0f, 0.0f});
+		RID mul = AddNode(graph, "multiply", Vec4{});
+		Connect(graph, a, 0, mul, 0);
+		Connect(graph, b, 0, mul, 1);
+		Connect(graph, mul, 0, outputNode, MaterialNodeRegistry::Roughness);
+
+		String log;
+		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+
+		// Sources emit first (n0, n1), then the Multiply temp (n2); the output stays scalar.
+		CHECK(Contains(hlsl, "float n2 = (n0 * n1)"));
+		CHECK_FALSE(Contains(hlsl, "float3 n2"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::GenericMathVectorPromotion")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		// Vec3 * float resolves the Multiply node to Vec3; the scalar input is broadcast.
+		RID color = AddNode(graph, "constant_color", Vec4{0.5f, 0.5f, 0.5f, 1.0f});
+		RID scalar = AddNode(graph, "constant_float", Vec4{2.0f, 0.0f, 0.0f, 0.0f});
+		RID mul = AddNode(graph, "multiply", Vec4{});
+		Connect(graph, color, 0, mul, 0);
+		Connect(graph, scalar, 0, mul, 1);
+		Connect(graph, mul, 0, outputNode, MaterialNodeRegistry::Roughness);
+
+		String log;
+		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+
+		// The Multiply output is float3 and the scalar B operand is broadcast to float3.
+		CHECK(Contains(hlsl, "float3 n2 = (n0 * (float3)(n1))"));
 
 		ResourceShutdown();
 	}

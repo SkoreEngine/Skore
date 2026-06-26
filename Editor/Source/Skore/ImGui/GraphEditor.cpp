@@ -55,6 +55,12 @@ namespace Skore
 		m_frameNodes[m_currentNodeIndex].outputCount++;
 	}
 
+	void GraphEditor::NodeThumbnail(ImTextureID texture)
+	{
+		if (m_currentNodeIndex < 0) return;
+		m_frameNodes[m_currentNodeIndex].thumbnail = texture;
+	}
+
 	void GraphEditor::EndNode()
 	{
 		if (m_currentNodeIndex < 0) return;
@@ -207,6 +213,15 @@ namespace Skore
 
 		// Interaction
 		HandleInteraction(result);
+
+		// Node under the mouse this frame (world coords), used by callers for per-node drop targets.
+		if (i32 hoveredIdx = FindHoveredNode(); hoveredIdx >= 0)
+		{
+			const FrameNode& hovered = m_frameNodes[hoveredIdx];
+			result.hoveredNodeId = hovered.id;
+			result.hoveredNodeMin = hovered.position;
+			result.hoveredNodeMax = hovered.position + hovered.size;
+		}
 
 		// Detect selection changes
 		bool selChanged = (m_selectedNodes.Size() != m_prevSelectedNodes.Size()) ||
@@ -635,7 +650,17 @@ namespace Skore
 		f32 inputW = pinArea + maxInputLabelW + (hasInputWidgets ? gap + minWidgetW + gap : gap) + pinArea;
 		f32 nodeW = Math::Max(NodeMinWidth * s, Math::Max(titleW, Math::Max(outputW, inputW)));
 
-		node.size = {nodeW, headerH + contentHeight};
+		f32 nodeH = headerH + contentHeight;
+
+		//reserve a square preview area below the pins; the trailing content padding doubles as the gap
+		if (node.thumbnail)
+		{
+			f32 thumb = NodeThumbnailSize * s;
+			nodeW = Math::Max(nodeW, thumb + padding * 2.0f);
+			nodeH += thumb + padding;
+		}
+
+		node.size = {nodeW, nodeH};
 	}
 
 	// --- Drawing ---
@@ -750,6 +775,21 @@ namespace Skore
 				drawList->AddCircleFilled(ImVec2(pinPos.x, pinPos.y), pinR, pin.color);
 				drawList->AddCircle(ImVec2(pinPos.x, pinPos.y), pinR, IM_COL32(200, 200, 200, 200), 0, 1.0f);
 			}
+		}
+
+		// Preview thumbnail (e.g. a texture node's assigned image) centered along the node bottom
+		if (node.thumbnail)
+		{
+			f32    padding = NodePadding * s;
+			f32    thumb = NodeThumbnailSize * s;
+			f32    imgX = node.position.x + (node.size.x - thumb) * 0.5f;
+			f32    imgY = node.position.y + node.size.y - thumb - padding;
+			ImVec2 imgMin(imgX, imgY);
+			ImVec2 imgMax(imgX + thumb, imgY + thumb);
+
+			drawList->AddRectFilled(imgMin, imgMax, IM_COL32(20, 20, 22, 255), 2.0f * s);
+			drawList->AddImage(node.thumbnail, imgMin, imgMax);
+			drawList->AddRect(imgMin, imgMax, IM_COL32(0, 0, 0, 200), 2.0f * s, 0, 1.0f);
 		}
 	}
 
