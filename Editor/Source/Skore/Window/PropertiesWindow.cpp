@@ -1496,6 +1496,105 @@ namespace Skore
 		}, this);
 	}
 
+	void PropertiesWindow::DrawNodeNameProperty(u64 id, RID node)
+	{
+		ResourceObject nodeObj = Resources::Read(node);
+		if (!nodeObj) return;
+
+		stringCache = nodeObj.GetString(MaterialGraphNodeResource::ParameterName);
+
+		if (ImGuiInputText(static_cast<u32>(id), stringCache))
+		{
+			m_nodeNameEdit = stringCache;
+			m_nodeNameFocus = true;
+			m_nodeNameNode = node;
+		}
+
+		if (!ImGui::IsItemActive() && m_nodeNameFocus && m_nodeNameNode == node)
+		{
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope("Rename Parameter");
+			ResourceObject write = Resources::Write(node);
+			write.SetString(MaterialGraphNodeResource::ParameterName, m_nodeNameEdit);
+			write.Commit(scope);
+			m_nodeNameFocus = false;
+			m_nodeNameEdit.Clear();
+		}
+	}
+
+	void PropertiesWindow::DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type)
+	{
+		ResourceObject nodeObj = Resources::Read(node);
+		if (!nodeObj) return;
+
+		Vec4 v = (m_nodeValueEditing && m_nodeValueNode == node) ? m_nodeValueEdit : nodeObj.GetVec4(MaterialGraphNodeResource::Value);
+
+		ImGui::PushID(static_cast<i32>(id));
+
+		bool changed = false;
+		bool commit = false;
+
+		switch (type)
+		{
+			case MaterialNodePropertyType::Float:
+				changed = ImGui::DragFloat("##v", &v.x, 0.01f);
+				break;
+			case MaterialNodePropertyType::Int:
+			{
+				int iv = static_cast<int>(v.x);
+				if (ImGui::DragInt("##v", &iv, 1.0f))
+				{
+					v.x = static_cast<f32>(iv);
+					changed = true;
+				}
+				break;
+			}
+			case MaterialNodePropertyType::Bool:
+			{
+				bool bv = v.x != 0.0f;
+				if (ImGui::Checkbox("##v", &bv))
+				{
+					v.x = bv ? 1.0f : 0.0f;
+					changed = true;
+					commit = true; //a checkbox has no drag to settle, so persist the toggle immediately
+				}
+				break;
+			}
+			case MaterialNodePropertyType::Color:
+				changed = ImGui::ColorEdit3("##v", &v.x);
+				break;
+			case MaterialNodePropertyType::Vec2:
+				changed = ImGui::DragFloat2("##v", &v.x, 0.01f);
+				break;
+			case MaterialNodePropertyType::Vec3:
+				changed = ImGui::DragFloat3("##v", &v.x, 0.01f);
+				break;
+			case MaterialNodePropertyType::Vec4:
+				changed = ImGui::DragFloat4("##v", &v.x, 0.01f);
+				break;
+			default:
+				ImGui::PopID();
+				return;
+		}
+
+		if (changed)
+		{
+			m_nodeValueEditing = true;
+			m_nodeValueNode = node;
+			m_nodeValueEdit = v;
+		}
+
+		if (commit || ImGui::IsItemDeactivatedAfterEdit())
+		{
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope("Edit Parameter Default");
+			ResourceObject write = Resources::Write(node);
+			write.SetVec4(MaterialGraphNodeResource::Value, v);
+			write.Commit(scope);
+			m_nodeValueEditing = false;
+		}
+
+		ImGui::PopID();
+	}
+
 	void PropertiesWindow::DrawMaterialNode(u32 windowId, RID node)
 	{
 		ResourceObject nodeObj = Resources::Read(node);
@@ -1533,10 +1632,23 @@ namespace Skore
 					ImGui::TableNextColumn();
 					ImGui::SetNextItemWidth(-1);
 
+					u64 propId = HashValue(node.id) + i;
 					switch (prop.type)
 					{
 						case MaterialNodePropertyType::Texture:
-							DrawNodeTextureProperty(HashValue(node.id) + i, node);
+							DrawNodeTextureProperty(propId, node);
+							break;
+						case MaterialNodePropertyType::Name:
+							DrawNodeNameProperty(propId, node);
+							break;
+						case MaterialNodePropertyType::Float:
+						case MaterialNodePropertyType::Int:
+						case MaterialNodePropertyType::Bool:
+						case MaterialNodePropertyType::Color:
+						case MaterialNodePropertyType::Vec2:
+						case MaterialNodePropertyType::Vec3:
+						case MaterialNodePropertyType::Vec4:
+							DrawNodeValueProperty(propId, node, prop.type);
 							break;
 					}
 				}

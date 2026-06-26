@@ -36,11 +36,6 @@ namespace Skore
 		String m_generatedHlsl{};
 		String m_buildLog{};
 
-		//transient state so an in-progress value drag isn't clobbered by per-frame resource reads
-		bool m_editing = false;
-		RID  m_editNode{};
-		Vec4 m_editValue{};
-
 		//backing store for the inline default-value widgets on unconnected input pins. Keyed by
 		//PinKey(nodeId, pinIndex); the entry being dragged (m_activePinKey) keeps its live value
 		//instead of being refreshed from the resource each frame.
@@ -54,11 +49,15 @@ namespace Skore
 		//mirrors the editor's single-node selection so a redundant event isn't fired every frame
 		RID m_selectedNode{};
 
+		//tracks the graph the view was last centered on, so the output node is centered once when a graph opens
+		RID m_centeredGraph{};
+
+		void CenterOnOutputNode();
+
 		static u64 PinKey(u64 nodeId, u32 pinIndex) { return (nodeId << 8) | pinIndex; }
 
 		void        DrawToolbar();
 		void        DrawGraph();
-		void        DrawValueInspector(RID node, MaterialNode* def);
 		void        DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins);
 		void        CommitPinValue(RID node, u32 pinIndex, Vec4 value);
 		ImTextureID ResolveThumbnail(RID node, MaterialNode* def, HashSet<u64>& usedTextures);

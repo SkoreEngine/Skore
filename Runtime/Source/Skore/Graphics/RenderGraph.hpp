@@ -56,6 +56,7 @@ namespace Skore
 		bool          hostVisible = true;
 		bool          persistentMapped = false;
 		bool          perFrame = false;
+		bool          pingPong = false;
 	};
 
 	struct RenderGraphAccelStructDesc
@@ -246,6 +247,7 @@ namespace Skore
 		GPUTexture*     GetPrevTexture(StringView name) const;
 		GPUTextureView* GetTextureView(StringView name) const;
 		GPUBuffer*      GetBuffer(StringView name) const;
+		GPUBuffer*      GetPrevBuffer(StringView name) const;
 		GPUTopLevelAS*  GetTopLevelAS(StringView name) const;
 
 		ResourceUsage InferTextureUsage(StringView name) const;

@@ -207,11 +207,12 @@ namespace Skore
 	{
 		enum
 		{
-			Type,        //String        - node type id (matches MaterialNodeRegistry)
-			Position,    //Vec2          - canvas position
-			Value,       //Vec4          - literal/default value for constant-style nodes
-			Texture,     //Reference     - optional TextureResource for texture nodes
-			InputValues, //SubObjectList - per-input-pin literal overrides used when a pin is unconnected
+			Type,          //String        - node type id (matches MaterialNodeRegistry)
+			Position,      //Vec2          - canvas position
+			Value,         //Vec4          - literal/default value for constant- and parameter-style nodes
+			Texture,       //Reference     - optional TextureResource for texture nodes
+			InputValues,   //SubObjectList - per-input-pin literal overrides used when a pin is unconnected
+			ParameterName, //String        - exposed name for Parameters-category nodes; drives material instance overrides
 		};
 	};
 

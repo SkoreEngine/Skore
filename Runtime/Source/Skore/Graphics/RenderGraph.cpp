@@ -749,7 +749,16 @@ namespace Skore
 	{
 		const Resource* resource = FindResource(name);
 		if (resource == nullptr) return nullptr;
-		return resource->bufferDesc.perFrame ? resource->buffers[currentFrame] : resource->buffers[0];
+		const bool perFrameCopies = resource->bufferDesc.perFrame || resource->bufferDesc.pingPong;
+		return perFrameCopies ? resource->buffers[currentFrame] : resource->buffers[0];
+	}
+
+	GPUBuffer* RenderGraph::GetPrevBuffer(StringView name) const
+	{
+		const Resource* resource = FindResource(name);
+		if (resource == nullptr) return nullptr;
+		const bool perFrameCopies = resource->bufferDesc.perFrame || resource->bufferDesc.pingPong;
+		return perFrameCopies ? resource->buffers[prevFrame] : resource->buffers[0];
 	}
 
 	GPUTopLevelAS* RenderGraph::GetTopLevelAS(StringView name) const
@@ -1538,7 +1547,7 @@ namespace Skore
 				desc.persistentMapped = rgDesc.persistentMapped;
 				desc.debugName = name;
 
-				u32 count = rgDesc.perFrame ? SK_FRAMES_IN_FLIGHT : 1;
+				u32 count = (rgDesc.perFrame || rgDesc.pingPong) ? SK_FRAMES_IN_FLIGHT : 1;
 				for (u32 i = 0; i < count; ++i)
 				{
 					res.buffers[i] = device->CreateBuffer(desc);
@@ -2526,7 +2535,7 @@ namespace Skore
 
 				if (res->kind == Resource::Kind::Buffer)
 				{
-					const u32 slot = res->bufferDesc.perFrame ? currentFrame : 0;
+					const u32 slot = (res->bufferDesc.perFrame || res->bufferDesc.pingPong) ? currentFrame : 0;
 					GPUBuffer* buffer = res->buffers[slot];
 					if (buffer == nullptr) continue;
 

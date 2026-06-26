@@ -14,6 +14,7 @@ namespace Skore
 	class Scene;
 	class RenderPipelineContext;
 	class PreviewGenerator;
+	enum class MaterialNodePropertyType : u8;
 
 	class PropertiesWindow : public EditorWindow
 	{
@@ -47,6 +48,16 @@ namespace Skore
 		RID    selectedAsset = {};
 		RID    selectedResource = {};
 		RID    selectedMaterialNode = {};
+
+		//transient material-node edit state so an in-progress value drag or name edit isn't clobbered
+		//by the per-frame resource read; the live value is held here until the widget deactivates.
+		bool   m_nodeValueEditing = false;
+		RID    m_nodeValueNode = {};
+		Vec4   m_nodeValueEdit = {};
+		bool   m_nodeNameFocus = false;
+		RID    m_nodeNameNode = {};
+		String m_nodeNameEdit = {};
+
 		RID    importSettingsSource = {};
 		RID    importSettingsDraft = {};
 		RID    importSettingsPendingApply = {};
@@ -119,6 +130,8 @@ namespace Skore
 		void DrawResource(u32 id, RID resource);
 		void DrawMaterialNode(u32 id, RID node);
 		void DrawNodeTextureProperty(u64 id, RID node);
+		void DrawNodeNameProperty(u64 id, RID node);
+		void DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type);
 		void SetNodeTexture(RID node, RID texture);
 
 		void EntityDebugSelection(u32 workspaceId, Entity* entity);

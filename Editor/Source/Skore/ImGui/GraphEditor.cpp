@@ -198,6 +198,20 @@ namespace Skore
 		{
 			return result;
 		}
+
+		// Apply a deferred center request now that the canvas size is known and node sizes can be computed
+		if (m_hasPendingCenter)
+		{
+			if (FrameNode* targetNode = FindNodeById(m_pendingCenterNodeId))
+			{
+				ComputeNodeSize(*targetNode);
+				Vec2 nodeCenter = targetNode->position + targetNode->size * 0.5f;
+				m_scrollOffset.x = canvasSize.x * 0.5f - nodeCenter.x * m_zoom;
+				m_scrollOffset.y = canvasSize.y * 0.5f - nodeCenter.y * m_zoom;
+			}
+			m_hasPendingCenter = false;
+		}
+
 		m_canvas.SetView(ImVec2(m_scrollOffset.x, m_scrollOffset.y), m_zoom);
 
 		// Grid in screen space

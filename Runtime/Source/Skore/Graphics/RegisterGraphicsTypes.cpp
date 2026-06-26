@@ -1226,6 +1226,7 @@ namespace Skore
 			.Field<MaterialGraphNodeResource::Value>(ResourceFieldType::Vec4)
 			.Field<MaterialGraphNodeResource::Texture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
 			.Field<MaterialGraphNodeResource::InputValues>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphPinValueResource>::ID())
+			.Field<MaterialGraphNodeResource::ParameterName>(ResourceFieldType::String)
 			.Build();
 
 		Resources::Type<MaterialGraphConnectionResource>()

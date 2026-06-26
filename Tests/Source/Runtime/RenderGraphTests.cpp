@@ -288,6 +288,78 @@ namespace
 		CHECK(testCmd->stats.bufferBarrierCount == 2);
 	}
 
+	TEST_CASE("RenderGraph::PingPongBufferSwapsAcrossFrames")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+
+		rg.Create("Accum", RenderGraphBufferDesc{.size = 256, .hostVisible = false, .pingPong = true});
+
+		auto declarePass = [&]
+		{
+			rg.AddComputePass("Accumulate", "Shaders/Accumulate")
+				.WriteRead("Accum")
+				.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+		};
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		auto execute = [&]
+		{
+			cmd->Begin();
+			rg.Execute(cmd);
+			cmd->End();
+		};
+
+		declarePass();
+		execute();
+
+		GPUBuffer* f0Current = rg.GetBuffer("Accum");
+		GPUBuffer* f0Prev = rg.GetPrevBuffer("Accum");
+		REQUIRE(f0Current != nullptr);
+		REQUIRE(f0Prev != nullptr);
+		CHECK(f0Current == f0Prev);
+
+		rg.Begin(nullptr);
+		declarePass();
+		execute();
+
+		GPUBuffer* f1Current = rg.GetBuffer("Accum");
+		GPUBuffer* f1Prev = rg.GetPrevBuffer("Accum");
+		CHECK(f1Current != f0Current);
+		CHECK(f1Prev == f0Current);
+
+		rg.Begin(nullptr);
+		declarePass();
+		execute();
+
+		GPUBuffer* f2Current = rg.GetBuffer("Accum");
+		GPUBuffer* f2Prev = rg.GetPrevBuffer("Accum");
+		CHECK(f2Current == f0Current);
+		CHECK(f2Prev == f1Current);
+	}
+
+	TEST_CASE("RenderGraph::GetPrevBufferAliasesCurrentForSingleCopy")
+	{
+		TestRenderDevice device;
+		RenderGraph      rg(&device);
+
+		rg.Create("Single", RenderGraphBufferDesc{.size = 128, .hostVisible = false});
+
+		rg.AddComputePass("Use", "Shaders/Use")
+			.WriteRead("Single")
+			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+
+		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
+		cmd->Begin();
+		rg.Execute(cmd);
+		cmd->End();
+
+		GPUBuffer* current = rg.GetBuffer("Single");
+		GPUBuffer* prev = rg.GetPrevBuffer("Single");
+		REQUIRE(current != nullptr);
+		CHECK(current == prev);
+	}
+
 	TEST_CASE("RenderGraph::ExecuteTransitionsAllTextureSubresources")
 	{
 		TestRenderDevice device;

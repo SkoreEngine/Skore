@@ -139,6 +139,9 @@ namespace Skore
 		f32 GetZoom() const { return m_zoom; }
 		f32 GetScale() const { return m_scale; }
 
+		// Pan the canvas so the given node is centered in the viewport on the next End().
+		void CenterOnNode(u64 nodeId) { m_pendingCenterNodeId = nodeId; m_hasPendingCenter = true; }
+
 	private:
 		struct FramePin
 		{
@@ -244,6 +247,10 @@ namespace Skore
 		// Canvas drag
 		bool  m_draggingCanvas = false;
 		Vec2  m_canvasDragStart{};
+
+		// Deferred request to center a node in the viewport (applied in End once node sizes are known)
+		bool  m_hasPendingCenter = false;
+		u64   m_pendingCenterNodeId = 0;
 
 		// Widget interaction tracking
 		bool  m_nodeWidgetActive = false;

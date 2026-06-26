@@ -57,14 +57,14 @@ namespace Skore
 	{
 		SK_CLASS(MaterialConstantFloatNode, MaterialNode);
 
-		StringView            GetNodeTypeId() const override { return "constant_float"; }
-		StringView            GetDisplayName() const override { return "Float"; }
-		StringView            GetCategory() const override { return "Constants"; }
-		MaterialNodeColor     GetHeaderColor() const override { return {120, 170, 90}; }
-		MaterialNodeValueKind GetValueKind() const override { return MaterialNodeValueKind::Float; }
-		Vec4                  GetDefaultValue() const override { return Vec4{1.0f, 0.0f, 0.0f, 0.0f}; }
+		StringView        GetNodeTypeId() const override { return "constant_float"; }
+		StringView        GetDisplayName() const override { return "Float"; }
+		StringView        GetCategory() const override { return "Constants"; }
+		MaterialNodeColor GetHeaderColor() const override { return {120, 170, 90}; }
+		Vec4              GetDefaultValue() const override { return Vec4{1.0f, 0.0f, 0.0f, 0.0f}; }
 
 		void DefinePins() override { AddOutput("Out", MaterialDataType::Float); }
+		void DefineProperties() override { AddProperty("Value", MaterialNodePropertyType::Float); }
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
@@ -76,14 +76,14 @@ namespace Skore
 	{
 		SK_CLASS(MaterialConstantColorNode, MaterialNode);
 
-		StringView            GetNodeTypeId() const override { return "constant_color"; }
-		StringView            GetDisplayName() const override { return "Color"; }
-		StringView            GetCategory() const override { return "Constants"; }
-		MaterialNodeColor     GetHeaderColor() const override { return {120, 170, 90}; }
-		MaterialNodeValueKind GetValueKind() const override { return MaterialNodeValueKind::Color; }
-		Vec4                  GetDefaultValue() const override { return Vec4{1.0f, 1.0f, 1.0f, 1.0f}; }
+		StringView        GetNodeTypeId() const override { return "constant_color"; }
+		StringView        GetDisplayName() const override { return "Color"; }
+		StringView        GetCategory() const override { return "Constants"; }
+		MaterialNodeColor GetHeaderColor() const override { return {120, 170, 90}; }
+		Vec4              GetDefaultValue() const override { return Vec4{1.0f, 1.0f, 1.0f, 1.0f}; }
 
 		void DefinePins() override { AddOutput("Out", MaterialDataType::Vec3); }
+		void DefineProperties() override { AddProperty("Value", MaterialNodePropertyType::Color); }
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
@@ -95,17 +95,217 @@ namespace Skore
 	{
 		SK_CLASS(MaterialConstantVec2Node, MaterialNode);
 
-		StringView            GetNodeTypeId() const override { return "constant_vec2"; }
-		StringView            GetDisplayName() const override { return "Vector2"; }
-		StringView            GetCategory() const override { return "Constants"; }
-		MaterialNodeColor     GetHeaderColor() const override { return {120, 170, 90}; }
-		MaterialNodeValueKind GetValueKind() const override { return MaterialNodeValueKind::Vec2; }
+		StringView        GetNodeTypeId() const override { return "constant_vec2"; }
+		StringView        GetDisplayName() const override { return "Vector2"; }
+		StringView        GetCategory() const override { return "Constants"; }
+		MaterialNodeColor GetHeaderColor() const override { return {120, 170, 90}; }
 
 		void DefinePins() override { AddOutput("Out", MaterialDataType::Vec2); }
+		void DefineProperties() override { AddProperty("Value", MaterialNodePropertyType::Vec2); }
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
 			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec2, ctx.value));
+		}
+	};
+
+	//--- Parameters ------------------------------------------------------------------------------
+	//Named, instance-overridable inputs. The exposed name + default value live on the node resource
+	//(ParameterName / Value / Texture) and are edited in the Properties window. Codegen currently inlines
+	//the default value (runtime material-instance binding is a separate TODO).
+	struct MaterialParameterNode : MaterialNode
+	{
+		SK_CLASS(MaterialParameterNode, MaterialNode);
+
+		StringView        GetCategory() const override { return "Parameters"; }
+		MaterialNodeColor GetHeaderColor() const override { return {70, 160, 160}; }
+	};
+
+	struct MaterialParamFloatNode : MaterialParameterNode
+	{
+		SK_CLASS(MaterialParamFloatNode, MaterialParameterNode);
+
+		StringView GetNodeTypeId() const override { return "param_float"; }
+		StringView GetDisplayName() const override { return "Float"; }
+		Vec4       GetDefaultValue() const override { return Vec4{0.0f, 0.0f, 0.0f, 0.0f}; }
+
+		void DefinePins() override { AddOutput("Out", MaterialDataType::Float); }
+
+		void DefineProperties() override
+		{
+			AddProperty("Name", MaterialNodePropertyType::Name);
+			AddProperty("Default", MaterialNodePropertyType::Float);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Float, ctx.value));
+		}
+	};
+
+	struct MaterialParamIntNode : MaterialParameterNode
+	{
+		SK_CLASS(MaterialParamIntNode, MaterialParameterNode);
+
+		StringView GetNodeTypeId() const override { return "param_int"; }
+		StringView GetDisplayName() const override { return "Int"; }
+		Vec4       GetDefaultValue() const override { return Vec4{0.0f, 0.0f, 0.0f, 0.0f}; }
+
+		void DefinePins() override { AddOutput("Out", MaterialDataType::Float); }
+
+		void DefineProperties() override
+		{
+			AddProperty("Name", MaterialNodePropertyType::Name);
+			AddProperty("Default", MaterialNodePropertyType::Int);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Float, ctx.value));
+		}
+	};
+
+	struct MaterialParamBoolNode : MaterialParameterNode
+	{
+		SK_CLASS(MaterialParamBoolNode, MaterialParameterNode);
+
+		StringView GetNodeTypeId() const override { return "param_bool"; }
+		StringView GetDisplayName() const override { return "Bool"; }
+		Vec4       GetDefaultValue() const override { return Vec4{0.0f, 0.0f, 0.0f, 0.0f}; }
+
+		void DefinePins() override { AddOutput("Out", MaterialDataType::Float); }
+
+		void DefineProperties() override
+		{
+			AddProperty("Name", MaterialNodePropertyType::Name);
+			AddProperty("Default", MaterialNodePropertyType::Bool);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Float, ctx.value));
+		}
+	};
+
+	struct MaterialParamColorNode : MaterialParameterNode
+	{
+		SK_CLASS(MaterialParamColorNode, MaterialParameterNode);
+
+		StringView GetNodeTypeId() const override { return "param_color"; }
+		StringView GetDisplayName() const override { return "Color"; }
+		Vec4       GetDefaultValue() const override { return Vec4{1.0f, 1.0f, 1.0f, 1.0f}; }
+
+		void DefinePins() override { AddOutput("Out", MaterialDataType::Vec3); }
+
+		void DefineProperties() override
+		{
+			AddProperty("Name", MaterialNodePropertyType::Name);
+			AddProperty("Default", MaterialNodePropertyType::Color);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec3, ctx.value));
+		}
+	};
+
+	struct MaterialParamVec2Node : MaterialParameterNode
+	{
+		SK_CLASS(MaterialParamVec2Node, MaterialParameterNode);
+
+		StringView GetNodeTypeId() const override { return "param_vec2"; }
+		StringView GetDisplayName() const override { return "Vector2"; }
+
+		void DefinePins() override { AddOutput("Out", MaterialDataType::Vec2); }
+
+		void DefineProperties() override
+		{
+			AddProperty("Name", MaterialNodePropertyType::Name);
+			AddProperty("Default", MaterialNodePropertyType::Vec2);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec2, ctx.value));
+		}
+	};
+
+	struct MaterialParamVec3Node : MaterialParameterNode
+	{
+		SK_CLASS(MaterialParamVec3Node, MaterialParameterNode);
+
+		StringView GetNodeTypeId() const override { return "param_vec3"; }
+		StringView GetDisplayName() const override { return "Vector3"; }
+
+		void DefinePins() override { AddOutput("Out", MaterialDataType::Vec3); }
+
+		void DefineProperties() override
+		{
+			AddProperty("Name", MaterialNodePropertyType::Name);
+			AddProperty("Default", MaterialNodePropertyType::Vec3);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec3, ctx.value));
+		}
+	};
+
+	struct MaterialParamVec4Node : MaterialParameterNode
+	{
+		SK_CLASS(MaterialParamVec4Node, MaterialParameterNode);
+
+		StringView GetNodeTypeId() const override { return "param_vec4"; }
+		StringView GetDisplayName() const override { return "Vector4"; }
+
+		void DefinePins() override { AddOutput("Out", MaterialDataType::Vec4); }
+
+		void DefineProperties() override
+		{
+			AddProperty("Name", MaterialNodePropertyType::Name);
+			AddProperty("Default", MaterialNodePropertyType::Vec4);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec4, ctx.value));
+		}
+	};
+
+	struct MaterialParamTexture2DNode : MaterialParameterNode
+	{
+		SK_CLASS(MaterialParamTexture2DNode, MaterialParameterNode);
+
+		StringView GetNodeTypeId() const override { return "param_texture2d"; }
+		StringView GetDisplayName() const override { return "Texture2D"; }
+
+		void DefinePins() override
+		{
+			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
+			AddOutput("RGBA", MaterialDataType::Vec4);
+			AddOutput("R", MaterialDataType::Float);
+			AddOutput("G", MaterialDataType::Float);
+			AddOutput("B", MaterialDataType::Float);
+			AddOutput("A", MaterialDataType::Float);
+		}
+
+		void DefineProperties() override
+		{
+			AddProperty("Name", MaterialNodePropertyType::Name);
+			AddProperty("Default", MaterialNodePropertyType::Texture);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.UseTextures();
+			String slot = IndexStr(ctx.TextureSlot());
+			String sample = String{"tex"} + IndexStr(ctx.nodeIndex);
+			ctx.AddStatement(String{"float4 "} + sample + " = MaterialTextures[" + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ");");
+			ctx.SetOutput(0, sample);
+			ctx.SetOutput(1, sample + ".r");
+			ctx.SetOutput(2, sample + ".g");
+			ctx.SetOutput(3, sample + ".b");
+			ctx.SetOutput(4, sample + ".a");
 		}
 	};
 
@@ -631,6 +831,15 @@ namespace Skore
 		Reflection::Type<MaterialConstantFloatNode>();
 		Reflection::Type<MaterialConstantColorNode>();
 		Reflection::Type<MaterialConstantVec2Node>();
+		Reflection::Type<MaterialParameterNode>();
+		Reflection::Type<MaterialParamFloatNode>();
+		Reflection::Type<MaterialParamIntNode>();
+		Reflection::Type<MaterialParamBoolNode>();
+		Reflection::Type<MaterialParamColorNode>();
+		Reflection::Type<MaterialParamVec2Node>();
+		Reflection::Type<MaterialParamVec3Node>();
+		Reflection::Type<MaterialParamVec4Node>();
+		Reflection::Type<MaterialParamTexture2DNode>();
 		Reflection::Type<MaterialTexCoordNode>();
 		Reflection::Type<MaterialSampleTexture2DNode>();
 		Reflection::Type<MaterialNormalMapNode>();

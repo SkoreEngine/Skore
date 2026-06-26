@@ -18,19 +18,19 @@ namespace Skore
 		Vec4,
 	};
 
-	//How a node's literal Value field is edited in the inspector.
-	enum class MaterialNodeValueKind : u8
-	{
-		None,  //no editable literal
-		Float, //value.x
-		Vec2,  //value.xy
-		Color, //value.xyz shown as a color swatch
-	};
-
 	//A node setting that isn't a pin (no incoming connection), edited in the Properties window.
+	//Scalar/vector kinds store into MaterialGraphNodeResource::Value; Texture into ::Texture; Name into ::ParameterName.
 	enum class MaterialNodePropertyType : u8
 	{
 		Texture, //a TextureResource reference, stored in MaterialGraphNodeResource::Texture
+		Name,    //the exposed parameter name (String), stored in MaterialGraphNodeResource::ParameterName
+		Float,   //Value.x
+		Int,     //Value.x edited as an integer
+		Bool,    //Value.x edited as a checkbox (0/1)
+		Color,   //Value.xyz shown as a color swatch
+		Vec2,    //Value.xy
+		Vec3,    //Value.xyz
+		Vec4,    //Value.xyzw
 	};
 
 	struct MaterialNodeProperty
@@ -93,7 +93,6 @@ namespace Skore
 		virtual StringView            GetCategory() const { return ""; }
 		virtual MaterialNodeColor     GetHeaderColor() const { return {}; }
 		virtual bool                  IsOutput() const { return false; }
-		virtual MaterialNodeValueKind GetValueKind() const { return MaterialNodeValueKind::None; }
 		virtual Vec4                  GetDefaultValue() const { return {}; }
 
 		//Emit HLSL. Read ctx.Input(i)/ctx.value, write ctx.SetOutput(i, expr).

@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 
+#include "Skore/EditorCommon.hpp"
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/Logger.hpp"
 #include "Skore/Core/Reflection.hpp"
@@ -82,6 +83,8 @@ namespace Skore::EditorLayout
 			writer.BeginSeq("workspaces");
 			for (const WorkspaceLayout& wl : workspaceLayouts)
 			{
+				if (wl.workspaceTypeId != WorkspaceTypes::Scene) continue;
+
 				writer.BeginMap();
 				writer.WriteUInt("type", wl.workspaceTypeId);
 				writer.BeginSeq("windows");

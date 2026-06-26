@@ -57,6 +57,12 @@ namespace Skore
 	void MaterialGraphEditorWindow::Draw(bool& open)
 	{
 		ImGui::SetNextWindowSize(ImVec2(960, 600), ImGuiCond_FirstUseEver);
+
+		//drop the window padding so the graph canvas runs edge-to-edge; the toolbar and code panel each
+		//restore it locally via their child windows so their contents keep a normal margin
+		const ImVec2   contentPadding = ImGui::GetStyle().WindowPadding;
+		ScopedStyleVar windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+
 		if (!ImGuiBegin(this, &open))
 		{
 			ImGui::End();
@@ -65,13 +71,21 @@ namespace Skore
 
 		if (!CurrentGraph())
 		{
+			ScopedStyleVar emptyPadding(ImGuiStyleVar_WindowPadding, contentPadding);
+			ImGui::BeginChild("##mg_empty", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysUseWindowPadding);
 			ImGui::TextDisabled("No material graph open.");
+			ImGui::EndChild();
 			ImGui::End();
 			return;
 		}
 
-		DrawToolbar();
-		ImGui::Separator();
+		{
+			ScopedStyleVar toolbarPadding(ImGuiStyleVar_WindowPadding, contentPadding);
+			ImGui::BeginChild("##mg_toolbar", ImVec2(0.0f, ImGui::GetFrameHeight() + contentPadding.y * 2.0f), false,
+			                  ImGuiWindowFlags_AlwaysUseWindowPadding | ImGuiWindowFlags_NoScrollbar);
+			DrawToolbar();
+			ImGui::EndChild();
+		}
 
 		if (m_showCode)
 		{
@@ -80,7 +94,8 @@ namespace Skore
 			DrawGraph();
 			ImGui::EndChild();
 			ImGui::SameLine();
-			ImGui::BeginChild("##mg_code", ImVec2(0.0f, 0.0f), true);
+			ScopedStyleVar codePadding(ImGuiStyleVar_WindowPadding, contentPadding);
+			ImGui::BeginChild("##mg_code", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_AlwaysUseWindowPadding);
 			DrawCodePanel();
 			ImGui::EndChild();
 		}
@@ -100,67 +115,6 @@ namespace Skore
 		}
 		ImGui::SameLine();
 		ImGui::Checkbox(ICON_FA_CODE " Show HLSL", &m_showCode);
-
-		const Array<u64>& selected = m_editor.GetSelectedNodes();
-		if (selected.Size() == 1)
-		{
-			RID node = RID{selected[0]};
-			if (ResourceObject nodeObj = Resources::Read(node))
-			{
-				MaterialNode* def = MaterialNodeRegistry::Find(nodeObj.GetString(MaterialGraphNodeResource::Type));
-				if (def && def->GetValueKind() != MaterialNodeValueKind::None)
-				{
-					ImGui::SameLine();
-					ImGui::TextUnformatted(def->GetDisplayName().CStr());
-					ImGui::SameLine();
-					DrawValueInspector(node, def);
-				}
-			}
-		}
-	}
-
-	void MaterialGraphEditorWindow::DrawValueInspector(RID node, MaterialNode* def)
-	{
-		ResourceObject nodeObj = Resources::Read(node);
-		if (!nodeObj)
-		{
-			return;
-		}
-
-		Vec4 v = (m_editing && m_editNode == node) ? m_editValue : nodeObj.GetVec4(MaterialGraphNodeResource::Value);
-
-		bool changed = false;
-		ImGui::SetNextItemWidth(220.0f);
-		switch (def->GetValueKind())
-		{
-			case MaterialNodeValueKind::Float:
-				changed = ImGui::DragFloat("##mg_value", &v.x, 0.01f);
-				break;
-			case MaterialNodeValueKind::Vec2:
-				changed = ImGui::DragFloat2("##mg_value", &v.x, 0.01f);
-				break;
-			case MaterialNodeValueKind::Color:
-				changed = ImGui::ColorEdit3("##mg_value", &v.x);
-				break;
-			default:
-				return;
-		}
-
-		if (changed)
-		{
-			m_editing = true;
-			m_editNode = node;
-			m_editValue = v;
-		}
-
-		if (ImGui::IsItemDeactivatedAfterEdit())
-		{
-			UndoRedoScope* scope = Editor::CreateUndoRedoScope("Edit Node Value");
-			ResourceObject write = Resources::Write(node);
-			write.SetVec4(MaterialGraphNodeResource::Value, v);
-			write.Commit(scope);
-			m_editing = false;
-		}
 	}
 
 	void MaterialGraphEditorWindow::DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins)
@@ -372,8 +326,31 @@ namespace Skore
 		}
 	}
 
+	void MaterialGraphEditorWindow::CenterOnOutputNode()
+	{
+		RID graph = CurrentGraph();
+		if (graph == m_centeredGraph)
+		{
+			return;
+		}
+		m_centeredGraph = graph;
+
+		RID outputNode;
+		if (ResourceObject graphObj = Resources::Read(graph))
+		{
+			outputNode = graphObj.GetReference(MaterialGraphResource::OutputNode);
+		}
+
+		if (outputNode)
+		{
+			m_editor.CenterOnNode(outputNode.id);
+		}
+	}
+
 	void MaterialGraphEditorWindow::DrawGraph()
 	{
+		CenterOnOutputNode();
+
 		m_editor.Begin("material_graph");
 
 		HashSet<u64> usedTextures;

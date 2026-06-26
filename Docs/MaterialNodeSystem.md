@@ -19,8 +19,9 @@ Core pipeline is working end-to-end: author a graph → generate HLSL → compil
   subclass + `Reflection::Type<MyNode>()` in `RegisterMaterialNodes()`.
 - [x] **HLSL codegen + SPIR-V compile** — `MaterialGraphCompiler` (post-order DFS from the output
   node → standalone `MainPS` → `CompileShader`). Type coercion via `MaterialConvertExpr`.
-- [x] **Editor window** — `MaterialGraphEditorWindow` (add/move/delete/connect, value inspector,
-  inline default-value widgets on unconnected input pins, Build button + HLSL/log panel).
+- [x] **Editor window** — `MaterialGraphEditorWindow` (add/move/delete/connect, inline default-value
+  widgets on unconnected input pins, Build button + HLSL/log panel). Constant/parameter values are
+  edited in the **Properties window** (node properties), not in the graph toolbar.
 - [x] **Asset handler** — `.matgraph` create/open + content-browser "Create > New Material Graph".
 - [x] **Tests** — `Tests/Source/Editor/MaterialGraphTests.cpp` (16 cases, incl. generic-math
   type promotion + live SPIR-V compile).
@@ -28,6 +29,7 @@ Core pipeline is working end-to-end: author a graph → generate HLSL → compil
 ### Nodes implemented so far
 - [x] Material Output (master) — Base Color, Metallic, Roughness, Emissive, Normal, Ambient Occlusion, Opacity
 - [x] Constant Float · Constant Color · Constant Vector2
+- [x] Parameters (named, instance-overridable): Float · Int · Bool · Color · Vector2/3/4 · Texture2D
 - [x] Texture Coordinate (UV0)
 - [x] Sample Texture 2D · Normal Map · Tiling & Offset
 - [x] Multiply · Add · Lerp
@@ -91,9 +93,13 @@ emissive, occlusion). Pixel-stage outputs first; vertex-stage later.
 
 These are higher-impact than any single node.
 
-- [ ] **★ Material Parameters + Material Instances** — named exposed params (Scalar/Vector/Color/
+- [~] **★ Material Parameters + Material Instances** — named exposed params (Scalar/Vector/Color/
   Texture/Bool) packed into a constant buffer / `MaterialData`, overridable per-instance without
-  recompiling. Touches the resource model + codegen. *The keystone feature.*
+  recompiling. *The keystone feature.* **Done:** the **Parameters** node category (Float/Int/Bool/
+  Color/Vec2-4/Texture2D), each with a `Name` + default value stored on the node resource
+  (`ParameterName` / `Value` / `Texture`) and edited in the Properties window. **Remaining:** collect
+  params into a `MaterialParams` cbuffer in codegen (currently the default value is inlined), and the
+  per-instance override buffer + runtime binding.
 - [ ] **★ Custom HLSL / Expression node** — raw-code escape hatch with typed pins. Ships before the
   library is complete.
 - [ ] **★ Static Switch → shader variants** — compile-time branches emitting macro variants (shader

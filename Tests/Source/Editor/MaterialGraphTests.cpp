@@ -182,16 +182,39 @@ namespace
 
 		MaterialNode* constantFloat = MaterialNodeRegistry::Find("constant_float");
 		REQUIRE(constantFloat != nullptr);
-		CHECK(constantFloat->GetValueKind() == MaterialNodeValueKind::Float);
+		REQUIRE(constantFloat->GetProperties().Size() == 1);
+		CHECK(constantFloat->GetProperties()[0].type == MaterialNodePropertyType::Float);
 		CHECK(constantFloat->GetOutputs()[0].type == MaterialDataType::Float);
 
 		MaterialNode* color = MaterialNodeRegistry::Find("constant_color");
 		REQUIRE(color != nullptr);
-		CHECK(color->GetValueKind() == MaterialNodeValueKind::Color);
+		REQUIRE(color->GetProperties().Size() == 1);
+		CHECK(color->GetProperties()[0].type == MaterialNodePropertyType::Color);
 
 		MaterialNode* texCoord = MaterialNodeRegistry::Find("tex_coord");
 		REQUIRE(texCoord != nullptr);
 		CHECK(texCoord->GetOutputs()[0].type == MaterialDataType::Vec2);
+
+		// Parameters: every parameter node exposes a Name plus a typed default, both edited in Properties.
+		const char* paramTypes[] = {"param_float", "param_int", "param_bool", "param_color", "param_vec2", "param_vec3", "param_vec4", "param_texture2d"};
+		for (const char* typeId : paramTypes)
+		{
+			MaterialNode* param = MaterialNodeRegistry::Find(typeId);
+			REQUIRE(param != nullptr);
+			CHECK(param->GetCategory() == "Parameters");
+			REQUIRE(param->GetProperties().Size() == 2);
+			CHECK(param->GetProperties()[0].type == MaterialNodePropertyType::Name);
+		}
+
+		MaterialNode* paramColor = MaterialNodeRegistry::Find("param_color");
+		CHECK(paramColor->GetProperties()[1].type == MaterialNodePropertyType::Color);
+		CHECK(paramColor->GetOutputs()[0].type == MaterialDataType::Vec3);
+
+		// the Texture2D parameter samples like sample_texture: its default is a texture reference
+		MaterialNode* paramTexture = MaterialNodeRegistry::Find("param_texture2d");
+		CHECK(paramTexture->GetProperties()[1].type == MaterialNodePropertyType::Texture);
+		REQUIRE(paramTexture->GetOutputs().Size() == 5);
+		CHECK(paramTexture->GetOutputs()[0].type == MaterialDataType::Vec4);
 
 		CHECK(MaterialNodeRegistry::Find("does_not_exist") == nullptr);
 
