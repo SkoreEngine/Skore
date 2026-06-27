@@ -5,6 +5,7 @@
 #include <base64.hpp>
 #include "yyjson.h"
 
+#include "Skore/Resource/Importers/MaterialImporter.hpp"
 #include "Skore/Resource/Importers/MeshImporter.hpp"
 #include "Skore/Resource/Importers/TextureImporter.hpp"
 #include "Skore/Editor.hpp"
@@ -1172,10 +1173,9 @@ namespace Skore
 			StringView name = material->name ? material->name : "Material";
 			logger.Debug("Processing material: {}", name);
 			u32 materialIndex = static_cast<u32>(material - data.gltfData->materials);
-			RID materialResource = data.alloc.Create<MaterialResource>(String("material:") + ToString(materialIndex));
 
-			ResourceObject materialObject = Resources::Write(materialResource);
-			materialObject.SetString(MaterialResource::Name, name);
+			MaterialImportData materialData;
+			materialData.name = name;
 
 			if (material->has_pbr_metallic_roughness)
 			{
@@ -1187,16 +1187,19 @@ namespace Skore
 			{
 				auto& pbr = material->pbr_metallic_roughness;
 
-				materialObject.SetColor(MaterialResource::BaseColor, Color::FromVec4Gamma(pbr.base_color_factor));
+				materialData.hasBaseColor = true;
+				materialData.baseColor = Color::FromVec4Gamma(pbr.base_color_factor);
 
-				materialObject.SetFloat(MaterialResource::Metallic, pbr.metallic_factor);
-				materialObject.SetFloat(MaterialResource::Roughness, pbr.roughness_factor);
+				materialData.hasMetallic = true;
+				materialData.metallic = pbr.metallic_factor;
+				materialData.hasRoughness = true;
+				materialData.roughness = pbr.roughness_factor;
 
 				if (pbr.base_color_texture.texture && pbr.base_color_texture.texture->image)
 				{
 					if (auto it = data.images.Find(pbr.base_color_texture.texture->image))
 					{
-						materialObject.SetReference(MaterialResource::BaseColorTexture, it->second);
+						materialData.baseColorTexture = it->second;
 					}
 				}
 
@@ -1204,10 +1207,12 @@ namespace Skore
 				{
 					if (auto it = data.images.Find(pbr.metallic_roughness_texture.texture->image))
 					{
-						materialObject.SetReference(MaterialResource::MetallicTexture, it->second);
-						materialObject.SetReference(MaterialResource::RoughnessTexture, it->second);
-						materialObject.SetEnum(MaterialResource::MetallicTextureChannel, TextureChannel::Blue);
-						materialObject.SetEnum(MaterialResource::RoughnessTextureChannel, TextureChannel::Green);
+						materialData.metallicTexture = it->second;
+						materialData.roughnessTexture = it->second;
+						materialData.hasMetallicTextureChannel = true;
+						materialData.metallicTextureChannel = TextureChannel::Blue;
+						materialData.hasRoughnessTextureChannel = true;
+						materialData.roughnessTextureChannel = TextureChannel::Green;
 					}
 				}
 			}
@@ -1216,8 +1221,9 @@ namespace Skore
 			{
 				if (auto it = data.images.Find(material->normal_texture.texture->image))
 				{
-					materialObject.SetReference(MaterialResource::NormalTexture, it->second);
-					materialObject.SetFloat(MaterialResource::NormalMultiplier, material->normal_texture.scale);
+					materialData.normalTexture = it->second;
+					materialData.hasNormalMultiplier = true;
+					materialData.normalMultiplier = material->normal_texture.scale;
 				}
 			}
 
@@ -1225,9 +1231,11 @@ namespace Skore
 			{
 				if (auto it = data.images.Find(material->occlusion_texture.texture->image))
 				{
-					materialObject.SetReference(MaterialResource::OcclusionTexture, it->second);
-					materialObject.SetFloat(MaterialResource::OcclusionStrength, material->occlusion_texture.scale);
-					materialObject.SetEnum(MaterialResource::OcclusionTextureChannel, TextureChannel::Red);
+					materialData.occlusionTexture = it->second;
+					materialData.hasOcclusionStrength = true;
+					materialData.occlusionStrength = material->occlusion_texture.scale;
+					materialData.hasOcclusionTextureChannel = true;
+					materialData.occlusionTextureChannel = TextureChannel::Red;
 				}
 			}
 
@@ -1235,39 +1243,42 @@ namespace Skore
 			{
 				if (auto it = data.images.Find(material->emissive_texture.texture->image))
 				{
-					materialObject.SetReference(MaterialResource::EmissiveTexture, it->second);
+					materialData.emissiveTexture = it->second;
 				}
 			}
 
-			materialObject.SetFloat(MaterialResource::AlphaCutoff, material->alpha_cutoff);
+			materialData.hasAlphaCutoff = true;
+			materialData.alphaCutoff = material->alpha_cutoff;
+			materialData.hasAlphaMode = true;
 
 			switch (material->alpha_mode)
 			{
 				case cgltf_alpha_mode_opaque:
-					materialObject.SetEnum(MaterialResource::AlphaMode, MaterialResource::MaterialAlphaMode::Opaque);
+					materialData.alphaMode = MaterialResource::MaterialAlphaMode::Opaque;
 					break;
 				case cgltf_alpha_mode_mask:
-					materialObject.SetEnum(MaterialResource::AlphaMode, MaterialResource::MaterialAlphaMode::Mask);
+					materialData.alphaMode = MaterialResource::MaterialAlphaMode::Mask;
 					break;
 				case cgltf_alpha_mode_blend:
-					materialObject.SetEnum(MaterialResource::AlphaMode, MaterialResource::MaterialAlphaMode::Blend);
+					materialData.alphaMode = MaterialResource::MaterialAlphaMode::Blend;
 					break;
 				default:
-					materialObject.SetEnum(MaterialResource::AlphaMode, MaterialResource::MaterialAlphaMode::None);
+					materialData.alphaMode = MaterialResource::MaterialAlphaMode::None;
 			}
 
 			{
 				f32 emissive[4] = {material->emissive_factor[0], material->emissive_factor[1], material->emissive_factor[2], 1.0f};
-				materialObject.SetColor(MaterialResource::EmissiveColor, Color::FromVec4Gamma(emissive));
+				materialData.hasEmissiveColor = true;
+				materialData.emissiveColor = Color::FromVec4Gamma(emissive);
 			}
 
 			if (material->has_emissive_strength)
 			{
-				materialObject.SetFloat(MaterialResource::EmissiveFactor, material->emissive_strength.emissive_strength);
+				materialData.hasEmissiveFactor = true;
+				materialData.emissiveFactor = material->emissive_strength.emissive_strength;
 			}
 
-			materialObject.Commit();
-
+			RID materialResource = ImportMaterial(materialData, data.alloc, String("material:") + ToString(materialIndex));
 			data.materials.Insert(material, materialResource);
 		}
 

@@ -7,6 +7,7 @@
 
 #include <ufbx.h>
 
+#include "Skore/Resource/Importers/MaterialImporter.hpp"
 #include "Skore/Resource/Importers/MeshImporter.hpp"
 #include "Skore/Resource/Importers/TextureImporter.hpp"
 #include "Skore/Editor.hpp"
@@ -256,49 +257,43 @@ namespace Skore
 	void ProcessMaterials(FBXImportData& fbxData, ufbx_material* material)
 	{
 		String materialName = !IsStrNullOrEmpty(material->name.data) ? material->name.data : "Material";
-		RID materialResource = fbxData.alloc.Create<MaterialResource>(String("material:") + ToString(material->typed_id));
 
-		ResourceObject materialObject = Resources::Write(materialResource);
-		materialObject.SetString(MaterialResource::Name, !IsStrNullOrEmpty(material->name.data) ? material->name.data : "Material");
-		materialObject.SetColor(MaterialResource::BaseColor, Color::FromVec3(ToVec3(material->pbr.base_color.value_vec3)));
-
-		if (auto it = fbxData.textures.Find(material->pbr.base_color.texture))
-		{
-			materialObject.SetReference(MaterialResource::BaseColorTexture, it->second);
-		}
+		MaterialImportData materialData;
+		materialData.name = materialName;
+		materialData.hasBaseColor = true;
+		materialData.baseColor = Color::FromVec3(ToVec3(material->pbr.base_color.value_vec3));
 
 		if (auto it = fbxData.textures.Find(material->pbr.base_color.texture))
 		{
-			materialObject.SetReference(MaterialResource::BaseColorTexture, it->second);
+			materialData.baseColorTexture = it->second;
 		}
 
 		if (auto it = fbxData.textures.Find(material->pbr.normal_map.texture))
 		{
-			materialObject.SetReference(MaterialResource::NormalTexture, it->second);
+			materialData.normalTexture = it->second;
 		}
 
 		if (auto it = fbxData.textures.Find(material->pbr.metalness.texture))
 		{
-			materialObject.SetReference(MaterialResource::MetallicTexture, it->second);
+			materialData.metallicTexture = it->second;
 		}
 
 		if (auto it = fbxData.textures.Find(material->pbr.roughness.texture))
 		{
-			materialObject.SetReference(MaterialResource::RoughnessTexture, it->second);
+			materialData.roughnessTexture = it->second;
 		}
 
 		if (auto it = fbxData.textures.Find(material->pbr.ambient_occlusion.texture))
 		{
-			materialObject.SetReference(MaterialResource::OcclusionTexture, it->second);
+			materialData.occlusionTexture = it->second;
 		}
 
 		if (auto it = fbxData.textures.Find(material->pbr.emission_color.texture))
 		{
-			materialObject.SetReference(MaterialResource::EmissiveTexture, it->second);
+			materialData.emissiveTexture = it->second;
 		}
 
-		materialObject.Commit(fbxData.scope);
-
+		RID materialResource = ImportMaterial(materialData, fbxData.alloc, String("material:") + ToString(material->typed_id));
 		fbxData.materials.Insert(material, materialResource);
 	}
 

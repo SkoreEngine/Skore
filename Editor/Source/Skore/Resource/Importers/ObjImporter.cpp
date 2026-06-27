@@ -1,4 +1,5 @@
 
+#include "Skore/Resource/Importers/MaterialImporter.hpp"
 #include "Skore/Resource/Importers/MeshImporter.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
@@ -213,56 +214,19 @@ namespace Skore
 				const tinyobj::material_t& material = materials[m];
 				String materialName = !material.name.empty() ? material.name.c_str() : String{"Material_"}.Append(m);
 
-				RID materialResource = alloc.Create<MaterialResource>(String("material:") + ToString(m));
+				MaterialImportData materialData;
+				materialData.name = materialName;
+				materialData.hasBaseColor = true;
+				materialData.baseColor = Color::FromVec3(material.diffuse);
+				materialData.hasEmissiveColor = true;
+				materialData.emissiveColor = Color::FromVec3(material.emission);
+				materialData.emissiveTexture = processTexture(material.emissive_texname);
+				materialData.normalTexture = processTexture(material.normal_texname);
+				materialData.baseColorTexture = processTexture(material.diffuse_texname);
 
-				ResourceObject materialObject = Resources::Write(materialResource);
-				materialObject.SetString(MaterialResource::Name, materialName);
-
-				materialObject.SetColor(MaterialResource::BaseColor, Color::FromVec3(material.diffuse));
-				materialObject.SetColor(MaterialResource::EmissiveColor, Color::FromVec3(material.emission));
-
-				materialObject.SetReference(MaterialResource::EmissiveTexture, processTexture(material.emissive_texname));
-				materialObject.SetReference(MaterialResource::NormalTexture, processTexture(material.normal_texname));
-				materialObject.SetReference(MaterialResource::BaseColorTexture, processTexture(material.diffuse_texname));
-
-				materialObject.Commit(scope);
-
+				RID materialResource = ImportMaterial(materialData, alloc, String("material:") + ToString(m));
 				ridMaterials[m] = materialResource;
 			}
-
-
-			// for (u32 m = 0; m < mesh->material_count; m++)
-			// {
-			// 	const fastObjMaterial& mat = mesh->materials[m];
-			//
-			// 	RID materialResource = Resources::Create<MaterialResource>(UUID::RandomUUID(), scope);
-			//
-			// 	ResourceObject materialObject = Resources::Write(materialResource);
-			// 	materialObject.SetString(MaterialResource::Name, mat.name);
-			//
-			// 	materialObject.SetColor(MaterialResource::BaseColor, Color::FromVec3(Vec3(mat.Kd[0], mat.Kd[1], mat.Kd[2])));
-			// 	materialObject.SetColor(MaterialResource::EmissiveColor, Color::FromVec3(Vec3(mat.Ke[0], mat.Ke[1], mat.Ke[2])));
-			//
-			// 	if (mat.map_Kd)
-			// 	{
-			// 		if (RID texture = processTexture(mat.map_Kd))
-			// 		{
-			// 			materialObject.SetReference(MaterialResource::BaseColorTexture, texture);
-			// 		}
-			// 	}
-			//
-			// 	if (mat.map_Ke)
-			// 	{
-			// 		if (RID texture = processTexture(mat.map_Ke))
-			// 		{
-			// 			materialObject.SetReference(MaterialResource::EmissiveTexture, texture);
-			// 		}
-			// 	}
-			//
-			// 	materialObject.Commit(scope);
-			//
-			// 	ridMaterials[m] = materialResource;
-			// }
 
 
 			Array<RID> entities;
