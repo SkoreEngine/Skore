@@ -1676,13 +1676,10 @@ namespace Skore
 
 			if (node->light && data.settings.importLights)
 			{
-				// glTF KHR_lights_punctual: range == 0 (or omitted) means infinite range.
-				// The engine's attenuation is `1 - saturate(d/range)`, so 0 would kill the light — remap to a large value.
-				f32 range = node->light->range > 0.0f ? node->light->range : 1000.0f;
+				// glTF KHR_lights_punctual: range <= 0 means unbounded. Finite ranges use scene units.
+				f32 range = node->light->range > 0.0f ? node->light->range * data.settings.scaleFactor : 0.0f;
 
-				// glTF intensity is candela for point/spot and lux for directional. Convert via luminous efficacy
-				// (683 lm/W) to a watts-like scalar so the engine's unitless multiplier sits in a sensible range.
-				f32 intensity = node->light->intensity / 683.0f;
+				f32 intensity = node->light->intensity;
 
 				RID lightRID = data.alloc.Create<LightComponent>(nodeSubId + ":light");
 				ResourceObject lightObject = Resources::Write(lightRID);

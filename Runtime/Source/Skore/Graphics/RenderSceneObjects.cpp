@@ -710,7 +710,7 @@ namespace Skore
 		if (castShadow)
 		{
 			DrawPipelineDesc shadowDesc;
-			shadowDesc.cullMode = material->masked ? CullMode::None : CullMode::Front;
+			shadowDesc.cullMode = material->masked ? CullMode::None : cullMode;
 			shadowDesc.hasBones = hasBones;
 			shadowDesc.masked   = material->masked;
 

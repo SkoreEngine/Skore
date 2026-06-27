@@ -12,6 +12,32 @@
 #define SK_LIGHT_FLAGS_SSR_ENABLED 	            1 << 5
 #define SK_LIGHT_FLAGS_GLOBAL_ILLUMINATION_ENABLED 	1 << 6
 
+float GetRangeAttenuation(float distance, float range)
+{
+	float distanceSq = max(distance * distance, Epsilon);
+	float attenuation = rcp(distanceSq);
+
+	if (range > 0.0)
+	{
+		float distanceOverRange = distance / max(range, Epsilon);
+		float distanceOverRangeSq = distanceOverRange * distanceOverRange;
+		attenuation *= saturate(1.0 - distanceOverRangeSq * distanceOverRangeSq);
+	}
+
+	return attenuation;
+}
+
+float GetSpotAttenuation(Light light, float3 lightDir)
+{
+	float innerAngle = min(abs(light.innerConeAngle), abs(light.outerConeAngle));
+	float outerAngle = max(abs(light.innerConeAngle), abs(light.outerConeAngle));
+	float innerConeCos = cos(innerAngle);
+	float outerConeCos = cos(outerAngle);
+	float cosRange = max(innerConeCos - outerConeCos, Epsilon);
+	float theta = dot(lightDir, normalize(-light.direction.xyz));
+	return saturate((theta - outerConeCos) / cosRange);
+}
+
 // Extracts light direction and max shadow-ray distance for a given light and world position.
 void GetLightDirectionAndDistance(Light light, float3 worldPos, out float3 lightDir, out float maxDist)
 {
@@ -51,22 +77,18 @@ float3 EvaluateDirectLighting(
 			break;
 		case 1: // Point
 		{
-			lightDir = normalize(light.position - worldPos);
-			float distance = length(light.position - worldPos);
-			attenuation = 1.0 - saturate(distance / light.range);
-			attenuation *= attenuation;
+			float3 toLight = light.position - worldPos;
+			lightDir = normalize(toLight);
+			float distance = length(toLight);
+			attenuation = GetRangeAttenuation(distance, light.range);
 			break;
 		}
 		case 2: // Spot
 		{
-			lightDir = normalize(light.position - worldPos);
-			float distance = length(light.position - worldPos);
-			attenuation = 1.0 - saturate(distance / light.range);
-			attenuation *= attenuation;
-			float theta = dot(lightDir, normalize(-light.direction.xyz));
-			float epsilon = light.innerConeAngle - light.outerConeAngle;
-			float spotIntensity = saturate((theta - cos(light.outerConeAngle)) / epsilon);
-			attenuation *= spotIntensity;
+			float3 toLight = light.position - worldPos;
+			lightDir = normalize(toLight);
+			float distance = length(toLight);
+			attenuation = GetRangeAttenuation(distance, light.range) * GetSpotAttenuation(light, lightDir);
 			break;
 		}
 	}

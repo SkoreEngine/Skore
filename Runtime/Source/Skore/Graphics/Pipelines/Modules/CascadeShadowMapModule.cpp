@@ -395,6 +395,10 @@ namespace Skore
 				.rasterizerState = {
 					.cullMode = desc.cullMode,
 					.depthClampEnable = true,
+					.depthBiasEnable = true,
+					.depthBiasConstantFactor = 1.0f,
+					.depthBiasClamp = 0.0f,
+					.depthBiasSlopeFactor = 1.5f,
 				},
 				.depthStencilState = {
 					.depthTestEnable = true,

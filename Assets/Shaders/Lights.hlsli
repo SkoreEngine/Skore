@@ -46,7 +46,7 @@ float SampleShadowCascade(float3 worldPos, float3 N, uint cascadeIndex)
 	float3 lightDir = normalize(-lights[shadowLightIndex].direction.xyz);
 	float  nDotL = dot(N, lightDir);
 
-	float  normalBias = 0.02 * saturate(1.0 - nDotL);
+	float  normalBias = 0.004 * saturate(1.0 - nDotL);
 	float3 biasedPos = worldPos + N * normalBias;
 
 	float4 shadowCoord4 = mul(biasMat, mul(cascadeViewProjMat[cascadeIndex], float4(biasedPos, 1.0)));
@@ -54,8 +54,8 @@ float SampleShadowCascade(float3 worldPos, float3 N, uint cascadeIndex)
 
 	float nDotLClamp = max(saturate(nDotL), 0.05);
 	float slopeTan   = sqrt(1.0 - nDotLClamp * nDotLClamp) / nDotLClamp;
-	float depthBias  = 0.0008 + 0.0015 * slopeTan;
-	depthBias        = min(depthBias, 0.01);
+	float depthBias  = 0.00015 + 0.00035 * slopeTan;
+	depthBias        = min(depthBias, 0.0015);
 
 	int3 texDim;
 	shadowMapTexture.GetDimensions(texDim.x, texDim.y, texDim.z);
