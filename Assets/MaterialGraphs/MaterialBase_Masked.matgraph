@@ -1,0 +1,676 @@
+objects:
+  - _uuid: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _type: 'Skore::MaterialGraphResource'
+    _parent: 872d5f82-ac6e-720f-4ea6-92ef66a05cd2
+    _parentField: Object
+    Name: MaterialBase_Masked
+    OutputNode: 02b9f051-c25b-3c83-8776-8a89347d6634
+    AlphaMode: Mask
+    MaskCutoff: 0.5
+    Kind: Graph
+  - _uuid: 02b9f051-c25b-3c83-8776-8a89347d6634
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: output
+    Position:
+      x: 400
+      y: 220
+  - _uuid: 47eed2a6-6e6d-ff1f-f0e5-fdbd9efff0e6
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_color
+    Position:
+      x: -650
+      y: -650
+    Value:
+      x: 1
+      y: 1
+      z: 1
+      w: 1
+    ParameterName: BaseColor
+  - _uuid: 05840ddf-323d-5e29-ff09-222e18c39e6f
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_texture2d
+    Position:
+      x: -650
+      y: -510
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: BaseColorTexture
+  - _uuid: 4ec22df4-0340-3eee-7194-844c9575c909
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_float
+    Position:
+      x: -650
+      y: -370
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: Metallic
+  - _uuid: d8b7370f-e757-21f7-dd50-b18c38f0cb5e
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_texture2d
+    Position:
+      x: -650
+      y: -250
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: MetallicTexture
+  - _uuid: 1d98ccb8-31ae-36ed-fc11-f6ec133d0598
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_float
+    Position:
+      x: -650
+      y: -110
+    Value:
+      x: 1
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: Roughness
+  - _uuid: 5d18448d-996b-a979-ce36-6bbb6f8b08e2
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_texture2d
+    Position:
+      x: -650
+      y: 10
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: RoughnessTexture
+  - _uuid: 5cd1200e-c514-cebf-1af7-fdbad89607b8
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_texture2d
+    Position:
+      x: -650
+      y: 150
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: NormalTexture
+  - _uuid: eb91fc36-8f37-6108-1de8-b98410507841
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_float
+    Position:
+      x: -650
+      y: 290
+    Value:
+      x: 1
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: NormalMultiplier
+  - _uuid: 4e596fff-1898-4f7a-0fc2-c21a039282d0
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_color
+    Position:
+      x: -650
+      y: 430
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 1
+    ParameterName: EmissiveColor
+  - _uuid: dee199be-4ddf-f737-ef4e-20c7cc624c5a
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_float
+    Position:
+      x: -650
+      y: 570
+    Value:
+      x: 1
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: EmissiveFactor
+  - _uuid: cd8367ec-9c29-8f8f-8397-09b8ac6ce8f7
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_texture2d
+    Position:
+      x: -650
+      y: 710
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: EmissiveTexture
+  - _uuid: 89051cae-ade1-5ccc-05df-669b71829d49
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_texture2d
+    Position:
+      x: -650
+      y: 850
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: OcclusionTexture
+  - _uuid: 30fad568-9352-8e4e-8f6f-e8f90eb36579
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_float
+    Position:
+      x: -650
+      y: 990
+    Value:
+      x: 1
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: OcclusionStrength
+  - _uuid: 4281b91e-274d-26a7-a104-8db7fbeda69b
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: param_vec2
+    Position:
+      x: -950
+      y: 320
+    Value:
+      x: 1
+      y: 1
+      z: 0
+      w: 0
+    ParameterName: UvScale
+  - _uuid: 102556ca-5d79-a7b1-6be7-690e1be399b0
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: tiling_offset
+    Position:
+      x: -400
+      y: 360
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: 23100332-22d8-77a9-f755-ba2f5965b571
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: constant_float
+    Position:
+      x: -420
+      y: 60
+    Value:
+      x: 2
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: f69aa75c-68c2-1630-c530-c7ab40a1e9c5
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: constant_float
+    Position:
+      x: -150
+      y: 980
+    Value:
+      x: 1
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: 212979da-86f9-d1aa-2441-7d036e24f52c
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: constant_color
+    Position:
+      x: -150
+      y: 60
+    Value:
+      x: 0
+      y: 0
+      z: 1
+      w: 1
+  - _uuid: 22901205-d41c-0c60-43e0-b1aa4b88506d
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: multiply
+    Position:
+      x: 0
+      y: -620
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: 8c926494-5dc3-33e0-6759-918867368fa3
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: multiply
+    Position:
+      x: 0
+      y: -300
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: fb98a2bf-843a-52e3-c50e-14b8296a5e7d
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: multiply
+    Position:
+      x: 0
+      y: -50
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: 8e24a7bb-0e54-6daf-1d00-fea289c91f3d
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: multiply
+    Position:
+      x: -50
+      y: 480
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: 848724ff-64ef-657a-3f6d-ad3e78dd2451
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: multiply
+    Position:
+      x: 150
+      y: 560
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: ef3bd701-18be-66e2-94e2-fcbd50c37518
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: multiply
+    Position:
+      x: -300
+      y: 180
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: edbcc6df-6878-2783-1fa2-58e688a282fd
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: subtract
+    Position:
+      x: -130
+      y: 180
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: 2ba2e8ad-db3f-e980-73e9-43efa2475797
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: lerp
+    Position:
+      x: 40
+      y: 180
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: 8a5ef961-f2fa-bd2d-58e3-7ba2eb9af32b
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: normalize
+    Position:
+      x: 210
+      y: 180
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: d22c04a6-6784-0f3c-01aa-55262bb20d47
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Nodes
+    Type: lerp
+    Position:
+      x: 40
+      y: 850
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+  - _uuid: 780401e4-b1c1-919f-76c2-e4ce1c154dbf
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 4281b91e-274d-26a7-a104-8db7fbeda69b
+    OutputPin: 0
+    InputNode: 102556ca-5d79-a7b1-6be7-690e1be399b0
+    InputPin: 1
+  - _uuid: 2da01c92-c664-c6a5-eb0c-4ca41de0ece2
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 102556ca-5d79-a7b1-6be7-690e1be399b0
+    OutputPin: 0
+    InputNode: 05840ddf-323d-5e29-ff09-222e18c39e6f
+    InputPin: 0
+  - _uuid: 078bdc8e-8998-94ce-b906-fab19df68dfa
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 102556ca-5d79-a7b1-6be7-690e1be399b0
+    OutputPin: 0
+    InputNode: d8b7370f-e757-21f7-dd50-b18c38f0cb5e
+    InputPin: 0
+  - _uuid: 0ef6f5e6-6fd1-a1cd-121c-68aae1657fcf
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 102556ca-5d79-a7b1-6be7-690e1be399b0
+    OutputPin: 0
+    InputNode: 5d18448d-996b-a979-ce36-6bbb6f8b08e2
+    InputPin: 0
+  - _uuid: f44f1861-1455-3053-af15-71517156dbe2
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 102556ca-5d79-a7b1-6be7-690e1be399b0
+    OutputPin: 0
+    InputNode: 5cd1200e-c514-cebf-1af7-fdbad89607b8
+    InputPin: 0
+  - _uuid: acc39bd4-51d2-800a-f4aa-a2234bd0ec34
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 102556ca-5d79-a7b1-6be7-690e1be399b0
+    OutputPin: 0
+    InputNode: cd8367ec-9c29-8f8f-8397-09b8ac6ce8f7
+    InputPin: 0
+  - _uuid: 4f6eab10-b109-5754-2246-fb04244034e2
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 102556ca-5d79-a7b1-6be7-690e1be399b0
+    OutputPin: 0
+    InputNode: 89051cae-ade1-5ccc-05df-669b71829d49
+    InputPin: 0
+  - _uuid: df3afed9-00e9-48fe-a886-29723df6bf7e
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 47eed2a6-6e6d-ff1f-f0e5-fdbd9efff0e6
+    OutputPin: 0
+    InputNode: 22901205-d41c-0c60-43e0-b1aa4b88506d
+    InputPin: 0
+  - _uuid: ebd0e672-6583-3601-43a8-393d4fd89e43
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 05840ddf-323d-5e29-ff09-222e18c39e6f
+    OutputPin: 0
+    InputNode: 22901205-d41c-0c60-43e0-b1aa4b88506d
+    InputPin: 1
+  - _uuid: 5881a1e9-e34f-3166-883f-8c9cc7fcc118
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 22901205-d41c-0c60-43e0-b1aa4b88506d
+    OutputPin: 0
+    InputNode: 02b9f051-c25b-3c83-8776-8a89347d6634
+    InputPin: 0
+  - _uuid: 521f2358-2df0-0196-f6cb-2db45052ba9f
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 4ec22df4-0340-3eee-7194-844c9575c909
+    OutputPin: 0
+    InputNode: 8c926494-5dc3-33e0-6759-918867368fa3
+    InputPin: 0
+  - _uuid: a97e605f-b907-1ece-17d3-b79834799d8f
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: d8b7370f-e757-21f7-dd50-b18c38f0cb5e
+    OutputPin: 3
+    InputNode: 8c926494-5dc3-33e0-6759-918867368fa3
+    InputPin: 1
+  - _uuid: ee587d4f-d6d9-e8ed-be38-1e6af754f92f
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 8c926494-5dc3-33e0-6759-918867368fa3
+    OutputPin: 0
+    InputNode: 02b9f051-c25b-3c83-8776-8a89347d6634
+    InputPin: 1
+  - _uuid: ffa3c6ac-bfff-7168-57cd-8d815c9ce947
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 1d98ccb8-31ae-36ed-fc11-f6ec133d0598
+    OutputPin: 0
+    InputNode: fb98a2bf-843a-52e3-c50e-14b8296a5e7d
+    InputPin: 0
+  - _uuid: 1a5b1188-7d25-345e-0da1-92f428a43fe0
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 5d18448d-996b-a979-ce36-6bbb6f8b08e2
+    OutputPin: 2
+    InputNode: fb98a2bf-843a-52e3-c50e-14b8296a5e7d
+    InputPin: 1
+  - _uuid: 023efddc-f850-d50c-513d-b397fb57e3c2
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: fb98a2bf-843a-52e3-c50e-14b8296a5e7d
+    OutputPin: 0
+    InputNode: 02b9f051-c25b-3c83-8776-8a89347d6634
+    InputPin: 2
+  - _uuid: f61181b6-a504-9c82-35bf-82b9019e7449
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 4e596fff-1898-4f7a-0fc2-c21a039282d0
+    OutputPin: 0
+    InputNode: 8e24a7bb-0e54-6daf-1d00-fea289c91f3d
+    InputPin: 0
+  - _uuid: 72461e0d-5f83-3ac4-ed10-490cfe777617
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: dee199be-4ddf-f737-ef4e-20c7cc624c5a
+    OutputPin: 0
+    InputNode: 8e24a7bb-0e54-6daf-1d00-fea289c91f3d
+    InputPin: 1
+  - _uuid: 5f008360-08c0-ebe8-8ec1-e59ccb127bad
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 8e24a7bb-0e54-6daf-1d00-fea289c91f3d
+    OutputPin: 0
+    InputNode: 848724ff-64ef-657a-3f6d-ad3e78dd2451
+    InputPin: 0
+  - _uuid: 620b0434-7b9f-e57f-535b-d210183a4e0c
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: cd8367ec-9c29-8f8f-8397-09b8ac6ce8f7
+    OutputPin: 0
+    InputNode: 848724ff-64ef-657a-3f6d-ad3e78dd2451
+    InputPin: 1
+  - _uuid: 1f4ea274-06c6-010b-04db-f14b9b50d660
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 848724ff-64ef-657a-3f6d-ad3e78dd2451
+    OutputPin: 0
+    InputNode: 02b9f051-c25b-3c83-8776-8a89347d6634
+    InputPin: 3
+  - _uuid: bb0f19a2-a195-d438-f9b6-f368a7740156
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 5cd1200e-c514-cebf-1af7-fdbad89607b8
+    OutputPin: 0
+    InputNode: ef3bd701-18be-66e2-94e2-fcbd50c37518
+    InputPin: 0
+  - _uuid: 9b30c88f-3cbd-7559-1e9a-c0057464260e
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 23100332-22d8-77a9-f755-ba2f5965b571
+    OutputPin: 0
+    InputNode: ef3bd701-18be-66e2-94e2-fcbd50c37518
+    InputPin: 1
+  - _uuid: c6fe3f3b-44cf-caca-d655-9545e4a3e696
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: ef3bd701-18be-66e2-94e2-fcbd50c37518
+    OutputPin: 0
+    InputNode: edbcc6df-6878-2783-1fa2-58e688a282fd
+    InputPin: 0
+  - _uuid: bba739ea-fa82-5fb8-74b8-8d5f0da29663
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: f69aa75c-68c2-1630-c530-c7ab40a1e9c5
+    OutputPin: 0
+    InputNode: edbcc6df-6878-2783-1fa2-58e688a282fd
+    InputPin: 1
+  - _uuid: dabe256f-3c1e-2fc9-3689-000e546a8779
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 212979da-86f9-d1aa-2441-7d036e24f52c
+    OutputPin: 0
+    InputNode: 2ba2e8ad-db3f-e980-73e9-43efa2475797
+    InputPin: 0
+  - _uuid: 1049eeac-c9eb-3db4-d97e-78d4df07dcf0
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: edbcc6df-6878-2783-1fa2-58e688a282fd
+    OutputPin: 0
+    InputNode: 2ba2e8ad-db3f-e980-73e9-43efa2475797
+    InputPin: 1
+  - _uuid: 0e2eb0fd-a57c-b767-ca76-32603f036340
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: eb91fc36-8f37-6108-1de8-b98410507841
+    OutputPin: 0
+    InputNode: 2ba2e8ad-db3f-e980-73e9-43efa2475797
+    InputPin: 2
+  - _uuid: ba8f61cc-2b35-cb2f-e1ff-39c698faa897
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 2ba2e8ad-db3f-e980-73e9-43efa2475797
+    OutputPin: 0
+    InputNode: 8a5ef961-f2fa-bd2d-58e3-7ba2eb9af32b
+    InputPin: 0
+  - _uuid: 0080ea09-5cec-f58f-4105-2faaa9d15c6a
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 8a5ef961-f2fa-bd2d-58e3-7ba2eb9af32b
+    OutputPin: 0
+    InputNode: 02b9f051-c25b-3c83-8776-8a89347d6634
+    InputPin: 4
+  - _uuid: e50fab8f-8193-2e8d-8979-75e9e02a92ff
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: f69aa75c-68c2-1630-c530-c7ab40a1e9c5
+    OutputPin: 0
+    InputNode: d22c04a6-6784-0f3c-01aa-55262bb20d47
+    InputPin: 0
+  - _uuid: eba5f468-e9ec-c4f7-3bf7-cffecd6c506d
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 89051cae-ade1-5ccc-05df-669b71829d49
+    OutputPin: 1
+    InputNode: d22c04a6-6784-0f3c-01aa-55262bb20d47
+    InputPin: 1
+  - _uuid: 518577d6-f3fc-6882-e456-f394cb466c5a
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 30fad568-9352-8e4e-8f6f-e8f90eb36579
+    OutputPin: 0
+    InputNode: d22c04a6-6784-0f3c-01aa-55262bb20d47
+    InputPin: 2
+  - _uuid: dc1f3983-465f-378a-4e42-63219b7205e2
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: d22c04a6-6784-0f3c-01aa-55262bb20d47
+    OutputPin: 0
+    InputNode: 02b9f051-c25b-3c83-8776-8a89347d6634
+    InputPin: 5
+  - _uuid: a833e4e3-1b0a-98f9-029f-058ea4f3e191
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: 961db9b2-63b9-d2e3-8aa7-0f59a52ae45a
+    _parentField: Connections
+    OutputNode: 05840ddf-323d-5e29-ff09-222e18c39e6f
+    OutputPin: 4
+    InputNode: 02b9f051-c25b-3c83-8776-8a89347d6634
+    InputPin: 7
