@@ -40,6 +40,22 @@ export const api = {
   baseUrl: BASE,
   ping: () => req("GET", "/api/ping"),
   types: () => req("GET", "/api/types"),
+  materialNodes: () => req("GET", "/api/material/nodes"),
+  addMaterialNode: (body: {
+    ref: string;
+    typeId: string;
+    position?: number[];
+    value?: number[];
+    parameterName?: string;
+    texture?: string;
+  }) => req("POST", "/api/material/addNode", body),
+  connectMaterialNodes: (body: {
+    ref: string;
+    outputNode: string;
+    outputPin: number;
+    inputNode: string;
+    inputPin: number;
+  }) => req("POST", "/api/material/connect", body),
   listAssets: (dir?: string) => req("GET", "/api/assets" + qs({ dir })),
   getAsset: (ref: string) => req("GET", "/api/asset" + qs({ ref })),
   createAsset: (type: string, parent?: string, name?: string) => req("POST", "/api/assets/create", { type, parent, name }),

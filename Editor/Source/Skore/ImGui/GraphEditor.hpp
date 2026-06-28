@@ -103,7 +103,7 @@ namespace Skore
 		void Begin(const char* id);
 
 		void BeginNode(u64 id, const char* name, Vec2 position, const GraphNodeDesc& desc = {});
-		void InputPin(const char* name, GraphPinType type = GraphPinType::Value, ImColor color = ImColor(150, 200, 150));
+		void InputPin(const char* name, GraphPinType type = GraphPinType::Value, ImColor color = ImColor(150, 200, 150), bool disabled = false);
 		void OutputPin(const char* name, GraphPinType type = GraphPinType::Value, ImColor color = ImColor(150, 200, 150));
 
 		// Attach a preview image rendered at the bottom of the current node. Call between BeginNode and EndNode.
@@ -148,6 +148,7 @@ namespace Skore
 			String					name = "";
 			GraphPinType    type = GraphPinType::Value;
 			ImColor         color = ImColor(150, 200, 150);
+			bool            disabled = false;
 			GraphWidgetType widgetType = GraphWidgetType::None;
 			f32*            floatPtr = nullptr;
 			u32             floatCount = 1;

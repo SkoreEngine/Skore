@@ -240,12 +240,23 @@ namespace Skore
 
 	struct MaterialGraphResource
 	{
+		//How the material's alpha is interpreted. Opaque ignores opacity entirely; Mask clips the pixel
+		//when the Opacity Mask output falls below MaskCutoff; Blend writes the Opacity output as alpha.
+		enum class GraphAlphaMode : u8
+		{
+			Opaque,
+			Mask,
+			Blend,
+		};
+
 		enum
 		{
 			Name,        //String
 			Nodes,       //SubObjectList (MaterialGraphNodeResource)
 			Connections, //SubObjectList (MaterialGraphConnectionResource)
 			OutputNode,  //Reference (the master/output node)
+			AlphaMode,   //Enum (GraphAlphaMode)
+			MaskCutoff,  //Float - clip threshold used when AlphaMode == Mask
 		};
 	};
 

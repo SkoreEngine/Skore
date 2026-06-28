@@ -33,13 +33,14 @@ namespace Skore
 		m_currentNodeIndex = (i32)m_frameNodes.Size() - 1;
 	}
 
-	void GraphEditor::InputPin(const char* name, GraphPinType type, ImColor color)
+	void GraphEditor::InputPin(const char* name, GraphPinType type, ImColor color, bool disabled)
 	{
 		if (m_currentNodeIndex < 0) return;
 		FramePin pin{};
 		pin.name = name;
 		pin.type = type;
 		pin.color = color;
+		pin.disabled = disabled;
 		m_framePins.EmplaceBack(pin);
 		m_frameNodes[m_currentNodeIndex].inputCount++;
 	}
@@ -764,7 +765,8 @@ namespace Skore
 			}
 			else
 			{
-				drawList->AddCircleFilled(ImVec2(pinPos.x, pinPos.y), pinR, pin.color);
+				ImU32 dotColor = pin.disabled ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : (ImU32)pin.color;
+				drawList->AddCircleFilled(ImVec2(pinPos.x, pinPos.y), pinR, dotColor);
 				drawList->AddCircle(ImVec2(pinPos.x, pinPos.y), pinR, IM_COL32(200, 200, 200, 200), 0, 1.0f);
 			}
 		}
@@ -832,7 +834,8 @@ namespace Skore
 			f32 pinExtent = (pin.type == GraphPinType::Flow) ? PinRadius * 1.6f * 0.5f : PinRadius;
 			f32 screenPinExtent = pinExtent * s * m_zoom;
 			ImVec2 textPos(screenPinPos.x + screenPinExtent + 6.0f * s * m_zoom, screenPinPos.y - screenFontSize * 0.5f);
-			drawList->AddText(ImGui::GetFont(), screenFontSize, textPos, IM_COL32(200, 200, 200, 255), pin.name.CStr());
+			ImU32  labelColor = pin.disabled ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : IM_COL32(200, 200, 200, 255);
+			drawList->AddText(ImGui::GetFont(), screenFontSize, textPos, labelColor, pin.name.CStr());
 		}
 
 		// Output pin labels

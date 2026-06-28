@@ -7,22 +7,37 @@
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/Span.hpp"
 #include "Skore/Core/Traits.hpp"
+#include "Skore/Core/UUID.hpp"
 #include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/IO/FileSystem.hpp"
+#include "Skore/IO/Path.hpp"
+#include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Utils/ShaderManager.hpp"
 
 #include <cstdio>
+#include <string_view>
 
 namespace Skore
 {
 	namespace
 	{
+		constexpr const char* BodyToken = "// @SK_MATERIAL_GRAPH@";
+		constexpr const char* TemplatePathId = "Skore://ShadersNew/MaterialGraphForward.template.raster";
+
 		String UIntStr(u32 v)
 		{
 			char buf[32];
 			snprintf(buf, sizeof(buf), "%u", v);
+			return String{buf};
+		}
+
+		String FltStr(f32 v)
+		{
+			char buf[64];
+			snprintf(buf, sizeof(buf), "%g", v);
 			return String{buf};
 		}
 
@@ -255,9 +270,71 @@ namespace Skore
 				outVars.Insert(node.id, Traits::Move(varNames));
 			}
 		};
+
+		//Replaces the first occurrence of `token` in `templateText` with `replacement`; returns the
+		//template unchanged when the token is absent.
+		String SpliceToken(StringView templateText, const char* token, const String& replacement)
+		{
+			std::string_view text{templateText.CStr(), templateText.Size()};
+			std::string_view tok{token};
+
+			usize pos = text.find(tok);
+			if (pos == std::string_view::npos)
+			{
+				return String{templateText.CStr(), templateText.Size()};
+			}
+
+			usize  tail = pos + tok.size();
+			String result{text.data(), pos};
+			result += replacement;
+			result += String{text.data() + tail, text.size() - tail};
+			return result;
+		}
+
+		//Reads the runtime template from Skore://; sets `absPathOut` to the resolved on-disk path so the
+		//shader compiler can resolve the template's relative includes from the same folder.
+		String LoadTemplate(String& absPathOut, String& log)
+		{
+			absPathOut = ResourceAssets::GetAbsolutePathFromPathId(TemplatePathId);
+			if (absPathOut.Empty() || !FileSystem::GetFileStatus(absPathOut).exists)
+			{
+				log += String{"Material graph template not found: "} + TemplatePathId + "\n";
+				return "";
+			}
+			return FileSystem::ReadFileAsString(absPathOut);
+		}
+
+		struct TemplateIncludeUserData
+		{
+			StringView baseAbsPath;
+		};
+
+		bool ResolveTemplateInclude(StringView include, void* userData, String& source)
+		{
+			const TemplateIncludeUserData& ud = *static_cast<TemplateIncludeUserData*>(userData);
+
+			std::string_view inc{include.CStr(), include.Size()};
+			if (inc.find(":/") != std::string_view::npos)
+			{
+				String abs = ResourceAssets::GetAbsolutePathFromPathId(include);
+				if (!abs.Empty() && FileSystem::GetFileStatus(abs).exists)
+				{
+					source = FileSystem::ReadFileAsString(abs);
+					return true;
+				}
+			}
+
+			String joined = Path::Join(Path::Parent(ud.baseAbsPath), include);
+			if (FileSystem::GetFileStatus(joined).exists)
+			{
+				source = FileSystem::ReadFileAsString(joined);
+				return true;
+			}
+			return false;
+		}
 	}
 
-	String MaterialGraphCompiler::GenerateHlsl(RID graph, String& log)
+	String MaterialGraphCompiler::GenerateBody(RID graph, String& log)
 	{
 		ResourceObject graphObj = Resources::Read(graph);
 		if (!graphObj)
@@ -309,6 +386,9 @@ namespace Skore
 
 		Emitter emitter{nodeById, connRecs, log};
 
+		MaterialGraphResource::GraphAlphaMode alphaMode = graphObj.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+		f32                                   maskCutoff = graphObj.GetFloat(MaterialGraphResource::MaskCutoff);
+
 		String baseColorExpr = "float3(0.8, 0.8, 0.8)";
 		String metallicExpr = "0.0";
 		String roughnessExpr = "0.5";
@@ -316,6 +396,7 @@ namespace Skore
 		String normalExpr = "float3(0.0, 0.0, 1.0)";
 		String occlusionExpr = "1.0";
 		String opacityExpr = "1.0";
+		String maskExpr = "1.0";
 
 		if (outputNode && outDef)
 		{
@@ -325,64 +406,117 @@ namespace Skore
 			emissiveExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Emissive);
 			normalExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Normal);
 			occlusionExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Occlusion);
-			opacityExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Opacity);
+
+			//Only the opacity pin relevant to the alpha mode is read; the other stays disconnected in the
+			//editor. Opaque reads neither and forces a solid surface.
+			if (alphaMode == MaterialGraphResource::GraphAlphaMode::Blend)
+			{
+				opacityExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Opacity);
+			}
+			else if (alphaMode == MaterialGraphResource::GraphAlphaMode::Mask)
+			{
+				maskExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::OpacityMask);
+			}
 		}
 		else
 		{
 			log += "Material graph has no output node.\n";
 		}
 
-		String shader;
-		shader += "// Generated by Skore Material Graph. Do not edit by hand.\n\n";
-		if (emitter.usedTextures)
+		String body = emitter.body;
+		if (!body.Empty())
 		{
-			u32 textureCount = emitter.nodeCounter > 0 ? emitter.nodeCounter : 1;
-			shader += "Texture2D    MaterialTextures[" + UIntStr(textureCount) + "] : register(t0, space0);\n";
-			shader += "SamplerState MaterialSampler : register(s0, space0);\n\n";
+			body += "\n";
 		}
-		shader += "struct PixelInput\n{\n    float4 position : SV_POSITION;\n    float2 texCoord : TEXCOORD0;\n};\n\n";
-		shader += "struct PixelOutput\n{\n    float4 color : SV_TARGET0;\n};\n\n";
-		shader += "PixelOutput MainPS(PixelInput input)\n{\n";
-		shader += emitter.body;
-		if (!emitter.body.Empty())
+		body += "    surface.baseColor = " + baseColorExpr + ";\n";
+		body += "    surface.metallic  = " + metallicExpr + ";\n";
+		body += "    surface.roughness = " + roughnessExpr + ";\n";
+		body += "    surface.emissive  = " + emissiveExpr + ";\n";
+		body += "    surface.normal    = " + normalExpr + ";\n";
+		body += "    surface.occlusion = " + occlusionExpr + ";\n";
+
+		if (alphaMode == MaterialGraphResource::GraphAlphaMode::Mask)
 		{
-			shader += "\n";
+			body += "    if ((" + maskExpr + ") < " + FltStr(maskCutoff) + ") discard;\n";
+			body += "    surface.opacity   = 1.0;\n";
 		}
-		shader += "    float3 baseColor = " + baseColorExpr + ";\n";
-		shader += "    float  metallic  = " + metallicExpr + ";\n";
-		shader += "    float  roughness = " + roughnessExpr + ";\n";
-		shader += "    float3 emissive  = " + emissiveExpr + ";\n";
-		shader += "    float3 normal    = " + normalExpr + ";\n";
-		shader += "    float  occlusion = " + occlusionExpr + ";\n";
-		shader += "    float  opacity   = " + opacityExpr + ";\n\n";
-		shader += "    float3 surface = lerp(baseColor, baseColor * roughness, metallic) * occlusion + emissive;\n";
-		shader += "    surface += normal * 0.0;\n";
-		shader += "    PixelOutput output;\n";
-		shader += "    output.color = float4(surface, opacity);\n";
-		shader += "    return output;\n";
-		shader += "}\n";
-		return shader;
+		else if (alphaMode == MaterialGraphResource::GraphAlphaMode::Blend)
+		{
+			body += "    surface.opacity   = " + opacityExpr + ";\n";
+		}
+		else
+		{
+			body += "    surface.opacity   = 1.0;\n";
+		}
+		return body;
+	}
+
+	String MaterialGraphCompiler::GenerateShader(RID graph, StringView templateText, String& log)
+	{
+		String body = GenerateBody(graph, log);
+		return SpliceToken(templateText, BodyToken, body);
+	}
+
+	String MaterialGraphCompiler::GenerateHlsl(RID graph, String& log)
+	{
+		String absPath;
+		String templateText = LoadTemplate(absPath, log);
+		if (templateText.Empty())
+		{
+			return GenerateBody(graph, log);
+		}
+		return GenerateShader(graph, templateText, log);
 	}
 
 	MaterialGraphCompileResult MaterialGraphCompiler::Compile(RID graph)
 	{
 		MaterialGraphCompileResult result;
-		result.hlsl = GenerateHlsl(graph, result.log);
 
-		ShaderCompileInfo info;
-		info.source = result.hlsl;
-		info.entryPoint = "MainPS";
-		info.shaderStage = ShaderStage::Pixel;
-		info.api = GraphicsAPI::Vulkan;
+		String absPath;
+		String templateText = LoadTemplate(absPath, result.log);
+		if (templateText.Empty())
+		{
+			result.hlsl = GenerateBody(graph, result.log);
+			return result;
+		}
+
+		result.hlsl = GenerateShader(graph, templateText, result.log);
+
+		TemplateIncludeUserData userData{absPath};
+
+		struct StageDef
+		{
+			const char* entryPoint;
+			ShaderStage stage;
+		};
+		const StageDef stageDefs[] = {
+			{"MainVS", ShaderStage::Vertex},
+			{"MainPS", ShaderStage::Pixel},
+		};
 
 		Array<u8> bytes;
-		String    compileLog;
-		bool      ok = CompileShader(info, bytes, compileLog);
+		bool      ok = true;
 
-		if (!compileLog.Empty())
+		for (const StageDef& stageDef : stageDefs)
 		{
-			result.log += "\n--- Shader Compiler ---\n";
-			result.log += compileLog;
+			ShaderCompileInfo info;
+			info.source = result.hlsl;
+			info.entryPoint = stageDef.entryPoint;
+			info.shaderStage = stageDef.stage;
+			info.api = GraphicsAPI::Vulkan;
+			info.userData = &userData;
+			info.getShaderInclude = ResolveTemplateInclude;
+
+			String stageLog;
+			if (!CompileShader(info, bytes, stageLog))
+			{
+				ok = false;
+			}
+			if (!stageLog.Empty())
+			{
+				result.log += String{"\n--- Shader Compiler ("} + stageDef.entryPoint + ") ---\n";
+				result.log += stageLog;
+			}
 		}
 
 		result.success = ok;
@@ -394,5 +528,93 @@ namespace Skore
 		}
 
 		return result;
+	}
+
+	RID MaterialGraphCompiler::CompileToShaderResource(RID graph, String& log)
+	{
+		String absPath;
+		String templateText = LoadTemplate(absPath, log);
+		if (templateText.Empty())
+		{
+			return {};
+		}
+
+		String hlsl = GenerateShader(graph, templateText, log);
+
+		TemplateIncludeUserData userData{absPath};
+
+		struct StageDef
+		{
+			const char* entryPoint;
+			ShaderStage stage;
+		};
+		const StageDef stageDefs[] = {
+			{"MainVS", ShaderStage::Vertex},
+			{"MainPS", ShaderStage::Pixel},
+		};
+
+		Array<u8>              bytes;
+		Array<ShaderStageInfo> stages;
+		u32                    stageOffset = 0;
+
+		for (const StageDef& stageDef : stageDefs)
+		{
+			ShaderCompileInfo info;
+			info.source = hlsl;
+			info.entryPoint = stageDef.entryPoint;
+			info.shaderStage = stageDef.stage;
+			info.api = GraphicsAPI::Vulkan;
+			info.userData = &userData;
+			info.getShaderInclude = ResolveTemplateInclude;
+
+			String stageLog;
+			if (!CompileShader(info, bytes, stageLog))
+			{
+				log += stageLog;
+				return {};
+			}
+
+			u32 stageSize = static_cast<u32>(bytes.Size()) - stageOffset;
+			stages.EmplaceBack(ShaderStageInfo{
+				.stage = stageDef.stage,
+				.entryPoint = String{stageDef.entryPoint},
+				.offset = stageOffset,
+				.size = stageSize,
+			});
+			stageOffset += stageSize;
+		}
+
+		PipelineDesc pipelineDesc;
+		GetPipelineLayout(GraphicsAPI::Vulkan, bytes, stages, pipelineDesc);
+
+		RID pipelineDescRID = Resources::Create<PipelineDesc>(UUID::RandomUUID());
+		Resources::ToResource(pipelineDescRID, &pipelineDesc, nullptr);
+
+		RID shaderVariant = Resources::Create<ShaderVariantResource>(UUID::RandomUUID());
+		{
+			ResourceObject variantObject = Resources::Write(shaderVariant);
+			variantObject.SetString(ShaderVariantResource::Name, "Default");
+			variantObject.SetBlob(ShaderVariantResource::Spriv, bytes);
+			variantObject.SetSubObject(ShaderVariantResource::PipelineDesc, pipelineDescRID);
+
+			for (const ShaderStageInfo& stage : stages)
+			{
+				RID stageRID = Resources::Create<ShaderStageInfo>(UUID::RandomUUID());
+				Resources::ToResource(stageRID, &stage, nullptr);
+				variantObject.AddToSubObjectList(ShaderVariantResource::Stages, stageRID);
+			}
+
+			variantObject.Commit();
+		}
+
+		RID shaderResource = Resources::Create<ShaderResource>(UUID::RandomUUID());
+		{
+			ResourceObject shaderObject = Resources::Write(shaderResource);
+			shaderObject.SetString(ShaderResource::Name, "MaterialGraph");
+			shaderObject.AddToSubObjectList(ShaderResource::Variants, shaderVariant);
+			shaderObject.Commit();
+		}
+
+		return shaderResource;
 	}
 }

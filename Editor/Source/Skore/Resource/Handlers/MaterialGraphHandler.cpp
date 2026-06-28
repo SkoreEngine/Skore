@@ -46,6 +46,8 @@ namespace Skore
 			graphObj.SetString(MaterialGraphResource::Name, "MaterialGraph");
 			graphObj.AddToSubObjectList(MaterialGraphResource::Nodes, outputNode);
 			graphObj.SetReference(MaterialGraphResource::OutputNode, outputNode);
+			graphObj.SetEnum(MaterialGraphResource::AlphaMode, MaterialGraphResource::GraphAlphaMode::Opaque);
+			graphObj.SetFloat(MaterialGraphResource::MaskCutoff, 0.5f);
 			graphObj.Commit(scope);
 
 			return graph;

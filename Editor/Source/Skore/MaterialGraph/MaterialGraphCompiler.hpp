@@ -2,23 +2,36 @@
 
 #include "Skore/Common.hpp"
 #include "Skore/Core/String.hpp"
+#include "Skore/Core/StringView.hpp"
 
 namespace Skore
 {
 	struct MaterialGraphCompileResult
 	{
 		bool   success = false;
-		String hlsl{};      //the generated HLSL pixel shader
+		String hlsl{};      //the full spliced shader (template + generated body)
 		String log{};       //compiler / codegen diagnostics
 		u32    spirvSize = 0;
 	};
 
 	struct SK_API MaterialGraphCompiler
 	{
-		//Generates HLSL from the graph and compiles it to SPIR-V (editor side).
+		//Generates the full shader (template + body) and compiles it to SPIR-V for validation (editor side).
 		static MaterialGraphCompileResult Compile(RID graph);
 
-		//Only generates the HLSL source without invoking the shader compiler.
+		//Compiles the graph into a runtime ShaderResource (Default variant, MainVS + MainPS). Returns a
+		//null RID on failure (details in log).
+		static RID CompileToShaderResource(RID graph, String& log);
+
+		//Loads the runtime template from Skore:// and splices the generated body into it.
 		static String GenerateHlsl(RID graph, String& log);
+
+		//Splices the generated body into a caller-provided template (token replacement). Used by tests and
+		//by GenerateHlsl once the template has been loaded.
+		static String GenerateShader(RID graph, StringView templateText, String& log);
+
+		//Generates only the material node network: the temporaries plus the surface.* output assignments
+		//that get injected at the template's // @SK_MATERIAL_GRAPH@ marker.
+		static String GenerateBody(RID graph, String& log);
 	};
 }

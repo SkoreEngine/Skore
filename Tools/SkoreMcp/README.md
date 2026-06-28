@@ -72,6 +72,9 @@ Point your client (Claude Desktop, Claude Code, Cursor, ...) at the bundled entr
 | Tool | Purpose |
 | --- | --- |
 | `skore_list_types` | List creatable asset types (use these names when creating). |
+| `skore_list_material_nodes` | List every node type placeable in a MaterialGraph (typeId + pins/properties). |
+| `skore_add_material_node` | Add a node to a `.matgraph`; returns the new node's uuid. |
+| `skore_connect_material_nodes` | Wire a source output pin into a destination input pin. |
 | `skore_list_assets` | List a directory's sub-folders and assets (`dir` optional → root). |
 | `skore_get_asset` | Full metadata + data object (all fields) for one asset. |
 | `skore_create_asset` | Create an asset of a given type in a directory. |
@@ -111,6 +114,20 @@ shapes with `skore_get_asset` (they appear under `object`).
 | SubObject | nested object, optionally with `"_type"` |
 | SubObjectList | array of objects (replaces the whole list) |
 | Blob / Buffer | not supported |
+
+## Authoring material graphs
+
+A `.matgraph` asset is created with `skore_create_asset` (type `MaterialGraph`) and
+already contains the permanent output/master node. To build the graph:
+
+1. `skore_list_material_nodes` — the catalog of valid `typeId`s and their pin layouts.
+2. `skore_add_material_node` — add nodes; each call returns the new node's `uuid`.
+3. `skore_get_asset` — read the graph back; the output node is the entry in
+   `object.Nodes` whose `Type` is `"output"` (its `_uuid` is what you connect into).
+4. `skore_connect_material_nodes` — wire output pins into input pins by index.
+   The output node's input pins are Base Color, Metallic, Roughness, Emissive,
+   Normal, Ambient Occlusion, Opacity (indices 0–6). An input pin holds one
+   connection; re-connecting it replaces the old edge.
 
 ## Persistence
 

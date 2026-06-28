@@ -13,6 +13,8 @@
 #include "Skore/Core/StringView.hpp"
 #include "Skore/Core/Traits.hpp"
 #include "Skore/Core/UUID.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/MaterialGraph/MaterialNode.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Resource/ResourceType.hpp"
@@ -42,6 +44,35 @@ namespace Skore
 			JsonArchiveWriter writer;
 			writer.WriteString("error", message);
 			return writer.EmitAsString();
+		}
+
+		StringView MaterialDataTypeName(MaterialDataType type)
+		{
+			switch (type)
+			{
+				case MaterialDataType::Float: return "Float";
+				case MaterialDataType::Vec2:  return "Vec2";
+				case MaterialDataType::Vec3:  return "Vec3";
+				case MaterialDataType::Vec4:  return "Vec4";
+			}
+			return "Float";
+		}
+
+		StringView MaterialPropertyTypeName(MaterialNodePropertyType type)
+		{
+			switch (type)
+			{
+				case MaterialNodePropertyType::Texture: return "Texture";
+				case MaterialNodePropertyType::Name:    return "Name";
+				case MaterialNodePropertyType::Float:   return "Float";
+				case MaterialNodePropertyType::Int:     return "Int";
+				case MaterialNodePropertyType::Bool:    return "Bool";
+				case MaterialNodePropertyType::Color:   return "Color";
+				case MaterialNodePropertyType::Vec2:    return "Vec2";
+				case MaterialNodePropertyType::Vec3:    return "Vec3";
+				case MaterialNodePropertyType::Vec4:    return "Vec4";
+			}
+			return "Float";
 		}
 
 		bool LooksLikePath(StringView ref)
@@ -240,6 +271,42 @@ namespace Skore
 			ResolveResult result = Resolve(ref);
 			if (!result.wrapper) return {};
 			return ResourceAssets::GetAssetPayload(result.wrapper);
+		}
+
+		//Resolves a ref to a .matgraph asset's data object, returning {} unless it is a MaterialGraphResource.
+		RID ResolveMaterialGraph(StringView ref)
+		{
+			RID data = ResolveDataObject(ref);
+			if (!data) return {};
+			ResourceType* type = Resources::GetType(data);
+			if (!type || type->GetID() != TypeInfo<MaterialGraphResource>::ID()) return {};
+			return data;
+		}
+
+		//Resolves a node uuid to its RID, but only if it actually belongs to `graph`'s node list.
+		RID FindGraphNode(RID graph, StringView nodeUuid)
+		{
+			RID rid = Resources::FindByUUID(UUID::FromString(nodeUuid));
+			if (!rid) return {};
+
+			bool found = false;
+			if (ResourceObject graphObj = Resources::Read(graph))
+			{
+				graphObj.IterateSubObjectList(MaterialGraphResource::Nodes, [&](RID node)
+				{
+					if (node == rid) found = true;
+				});
+			}
+			return found ? rid : RID{};
+		}
+
+		MaterialNode* NodeDefOf(RID node)
+		{
+			if (ResourceObject nodeObj = Resources::Read(node))
+			{
+				return MaterialNodeRegistry::Find(nodeObj.GetString(MaterialGraphNodeResource::Type));
+			}
+			return nullptr;
 		}
 
 		TypeID ResolveAssetType(StringView name)
@@ -657,6 +724,239 @@ namespace Skore
 
 	void RegisterAssetApiRoutes(httplib::Server& svr)
 	{
+		svr.Get("/api/material/nodes", [](const httplib::Request&, httplib::Response& res)
+		{
+			String out;
+			bool   ok = ServerRunOnMainThreadSync([&]
+			{
+				JsonArchiveWriter writer;
+				writer.BeginSeq("nodes");
+				for (MaterialNode* node : MaterialNodeRegistry::GetNodes())
+				{
+					writer.BeginMap();
+					writer.WriteString("typeId", node->GetNodeTypeId());
+					writer.WriteString("displayName", node->GetDisplayName());
+					writer.WriteString("category", node->GetCategory());
+					writer.WriteBool("isOutput", node->IsOutput());
+
+					writer.BeginSeq("inputs");
+					for (const MaterialNodePin& pin : node->GetInputs())
+					{
+						writer.BeginMap();
+						writer.WriteString("name", pin.name);
+						writer.WriteString("type", MaterialDataTypeName(pin.type));
+						if (pin.generic) writer.WriteBool("generic", true);
+						if (!pin.defaultExpr.Empty()) writer.WriteString("defaultExpr", pin.defaultExpr);
+						writer.EndMap();
+					}
+					writer.EndSeq();
+
+					writer.BeginSeq("outputs");
+					for (const MaterialNodePin& pin : node->GetOutputs())
+					{
+						writer.BeginMap();
+						writer.WriteString("name", pin.name);
+						writer.WriteString("type", MaterialDataTypeName(pin.type));
+						if (pin.generic) writer.WriteBool("generic", true);
+						writer.EndMap();
+					}
+					writer.EndSeq();
+
+					writer.BeginSeq("properties");
+					for (const MaterialNodeProperty& prop : node->GetProperties())
+					{
+						writer.BeginMap();
+						writer.WriteString("name", prop.name);
+						writer.WriteString("type", MaterialPropertyTypeName(prop.type));
+						writer.EndMap();
+					}
+					writer.EndSeq();
+
+					writer.EndMap();
+				}
+				writer.EndSeq();
+				out = writer.EmitAsString();
+			});
+			WriteJson(res, ok ? 200 : 503, ok ? out : ErrorJson("editor busy"));
+		});
+
+		svr.Post("/api/material/addNode", [](const httplib::Request& req, httplib::Response& res)
+		{
+			String body(req.body.c_str(), req.body.size());
+			String out;
+			int    status = 200;
+			bool   ok = ServerRunOnMainThreadSync([&]
+			{
+				JsonArchiveReader reader(body);
+				String            ref = reader.ReadString("ref");
+				String            typeId = reader.ReadString("typeId");
+
+				RID graph = ResolveMaterialGraph(ref);
+				if (!graph)
+				{
+					status = 404;
+					out = ErrorJson("material graph not found");
+					return;
+				}
+
+				MaterialNode* def = MaterialNodeRegistry::Find(typeId);
+				if (!def)
+				{
+					status = 400;
+					out = ErrorJson(String("unknown material node typeId: ") + typeId);
+					return;
+				}
+				if (def->IsOutput())
+				{
+					status = 400;
+					out = ErrorJson("the output (master) node already exists and cannot be added");
+					return;
+				}
+
+				Vec2 position{};
+				if (reader.BeginSeq("position"))
+				{
+					f32 comps[2] = {};
+					u32 i = 0;
+					while (reader.NextSeqEntry() && i < 2) comps[i++] = static_cast<f32>(reader.GetFloat());
+					reader.EndSeq();
+					position = Vec2{comps[0], comps[1]};
+				}
+
+				Vec4 value = def->GetDefaultValue();
+				if (reader.BeginSeq("value"))
+				{
+					f32 comps[4] = {};
+					u32 i = 0;
+					while (reader.NextSeqEntry() && i < 4) comps[i++] = static_cast<f32>(reader.GetFloat());
+					reader.EndSeq();
+					value = Vec4{comps[0], comps[1], comps[2], comps[3]};
+				}
+
+				String parameterName = reader.ReadString("parameterName");
+				String textureRef = reader.ReadString("texture");
+				RID    textureData = textureRef.Empty() ? RID{} : ResolveDataObject(textureRef);
+
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("MCP: Add Material Node");
+				RID            node = Resources::Create<MaterialGraphNodeResource>(UUID::RandomUUID(), scope);
+				{
+					ResourceObject nodeObj = Resources::Write(node);
+					nodeObj.SetString(MaterialGraphNodeResource::Type, def->GetNodeTypeId());
+					nodeObj.SetVec2(MaterialGraphNodeResource::Position, position);
+					nodeObj.SetVec4(MaterialGraphNodeResource::Value, value);
+					if (!parameterName.Empty()) nodeObj.SetString(MaterialGraphNodeResource::ParameterName, parameterName);
+					if (textureData) nodeObj.SetReference(MaterialGraphNodeResource::Texture, textureData);
+					nodeObj.Commit(scope);
+				}
+
+				ResourceObject graphObj = Resources::Write(graph);
+				graphObj.AddToSubObjectList(MaterialGraphResource::Nodes, node);
+				graphObj.Commit(scope);
+
+				JsonArchiveWriter writer;
+				writer.WriteBool("ok", true);
+				writer.WriteString("uuid", Resources::GetUUID(node).ToString());
+				writer.WriteString("typeId", def->GetNodeTypeId());
+				out = writer.EmitAsString();
+			});
+			WriteJson(res, ok ? status : 503, ok ? out : ErrorJson("editor busy"));
+		});
+
+		svr.Post("/api/material/connect", [](const httplib::Request& req, httplib::Response& res)
+		{
+			String body(req.body.c_str(), req.body.size());
+			String out;
+			int    status = 200;
+			bool   ok = ServerRunOnMainThreadSync([&]
+			{
+				JsonArchiveReader reader(body);
+				String            ref = reader.ReadString("ref");
+				String            outNodeRef = reader.ReadString("outputNode");
+				String            inNodeRef = reader.ReadString("inputNode");
+				u32               outputPin = static_cast<u32>(reader.ReadUInt("outputPin"));
+				u32               inputPin = static_cast<u32>(reader.ReadUInt("inputPin"));
+
+				RID graph = ResolveMaterialGraph(ref);
+				if (!graph)
+				{
+					status = 404;
+					out = ErrorJson("material graph not found");
+					return;
+				}
+
+				RID outNode = FindGraphNode(graph, outNodeRef);
+				RID inNode = FindGraphNode(graph, inNodeRef);
+				if (!outNode)
+				{
+					status = 404;
+					out = ErrorJson("outputNode not found in this graph");
+					return;
+				}
+				if (!inNode)
+				{
+					status = 404;
+					out = ErrorJson("inputNode not found in this graph");
+					return;
+				}
+
+				MaterialNode* outDef = NodeDefOf(outNode);
+				MaterialNode* inDef = NodeDefOf(inNode);
+				if (!outDef || outputPin >= outDef->GetOutputs().Size())
+				{
+					status = 400;
+					out = ErrorJson("invalid outputPin for the source node");
+					return;
+				}
+				if (!inDef || inputPin >= inDef->GetInputs().Size())
+				{
+					status = 400;
+					out = ErrorJson("invalid inputPin for the destination node");
+					return;
+				}
+
+				Array<RID> staleConnections;
+				if (ResourceObject graphObj = Resources::Read(graph))
+				{
+					graphObj.IterateSubObjectList(MaterialGraphResource::Connections, [&](RID conn)
+					{
+						ResourceObject connObj = Resources::Read(conn);
+						if (connObj
+						    && connObj.GetReference(MaterialGraphConnectionResource::InputNode) == inNode
+						    && static_cast<u32>(connObj.GetUInt(MaterialGraphConnectionResource::InputPin)) == inputPin)
+						{
+							staleConnections.EmplaceBack(conn);
+						}
+					});
+				}
+
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("MCP: Connect Material Nodes");
+				RID            conn = Resources::Create<MaterialGraphConnectionResource>(UUID::RandomUUID(), scope);
+				{
+					ResourceObject connObj = Resources::Write(conn);
+					connObj.SetReference(MaterialGraphConnectionResource::OutputNode, outNode);
+					connObj.SetUInt(MaterialGraphConnectionResource::OutputPin, outputPin);
+					connObj.SetReference(MaterialGraphConnectionResource::InputNode, inNode);
+					connObj.SetUInt(MaterialGraphConnectionResource::InputPin, inputPin);
+					connObj.Commit(scope);
+				}
+
+				ResourceObject graphObj = Resources::Write(graph);
+				for (RID stale : staleConnections)
+				{
+					graphObj.RemoveFromSubObjectList(MaterialGraphResource::Connections, stale);
+				}
+				graphObj.AddToSubObjectList(MaterialGraphResource::Connections, conn);
+				graphObj.Commit(scope);
+
+				JsonArchiveWriter writer;
+				writer.WriteBool("ok", true);
+				writer.WriteString("uuid", Resources::GetUUID(conn).ToString());
+				writer.WriteUInt("replaced", staleConnections.Size());
+				out = writer.EmitAsString();
+			});
+			WriteJson(res, ok ? status : 503, ok ? out : ErrorJson("editor busy"));
+		});
+
 		svr.Get("/api/types", [](const httplib::Request&, httplib::Response& res)
 		{
 			String out;

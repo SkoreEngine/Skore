@@ -1595,6 +1595,61 @@ namespace Skore
 		ImGui::PopID();
 	}
 
+	void PropertiesWindow::DrawMaterialOutputProperties(RID graph)
+	{
+		MaterialGraphResource::GraphAlphaMode mode = MaterialGraphResource::GraphAlphaMode::Opaque;
+		f32                                   cutoff = 0.5f;
+		if (ResourceObject graphObj = Resources::Read(graph))
+		{
+			mode = graphObj.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+			cutoff = graphObj.GetFloat(MaterialGraphResource::MaskCutoff);
+		}
+		else
+		{
+			return;
+		}
+
+		ImGui::Indent();
+		if (ImGui::BeginTable("##material-output-props", 2))
+		{
+			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+			ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Alpha Mode");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+			i32 modeIndex = static_cast<i32>(mode);
+			if (ImGui::Combo("##alphamode", &modeIndex, "Opaque\0Mask\0Blend\0"))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Alpha Mode");
+				ResourceObject write = Resources::Write(graph);
+				write.SetEnum(MaterialGraphResource::AlphaMode, static_cast<MaterialGraphResource::GraphAlphaMode>(modeIndex));
+				write.Commit(scope);
+			}
+
+			if (mode == MaterialGraphResource::GraphAlphaMode::Mask)
+			{
+				ImGui::TableNextColumn();
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextUnformatted("Mask Cutoff");
+				ImGui::TableNextColumn();
+				ImGui::SetNextItemWidth(-1);
+				if (ImGui::DragFloat("##maskcutoff", &cutoff, 0.01f, 0.0f, 1.0f))
+				{
+					UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Mask Cutoff");
+					ResourceObject write = Resources::Write(graph);
+					write.SetFloat(MaterialGraphResource::MaskCutoff, cutoff);
+					write.Commit(scope);
+				}
+			}
+
+			ImGui::EndTable();
+		}
+		ImGui::Unindent();
+	}
+
 	void PropertiesWindow::DrawMaterialNode(u32 windowId, RID node)
 	{
 		ResourceObject nodeObj = Resources::Read(node);
@@ -1607,6 +1662,14 @@ namespace Skore
 
 		if (ImGui::CollapsingHeader(def->GetDisplayName().CStr(), ImGuiTreeNodeFlags_DefaultOpen))
 		{
+			//The output (master) node has no pin-backed properties; it instead exposes the graph-level
+			//material settings (alpha mode + mask cutoff), which live on the MaterialGraphResource.
+			if (def->IsOutput())
+			{
+				DrawMaterialOutputProperties(workspace->GetMaterialEditor().GetMaterialGraph());
+				return;
+			}
+
 			Span<MaterialNodeProperty> properties = def->GetProperties();
 			if (properties.Empty())
 			{

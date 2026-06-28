@@ -5,6 +5,7 @@
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/HashSet.hpp"
 #include "Skore/Core/String.hpp"
+#include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/ImGui/GraphEditor.hpp"
 #include "Skore/MaterialGraph/MaterialNode.hpp"
@@ -58,7 +59,8 @@ namespace Skore
 
 		void        DrawToolbar();
 		void        DrawGraph();
-		void        DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins);
+		static bool IsOutputOpacityPinDisabled(MaterialNode* def, u32 pinIndex, MaterialGraphResource::GraphAlphaMode alphaMode);
+		void        DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins, MaterialGraphResource::GraphAlphaMode alphaMode);
 		void        CommitPinValue(RID node, u32 pinIndex, Vec4 value);
 		ImTextureID ResolveThumbnail(RID node, MaterialNode* def, HashSet<u64>& usedTextures);
 		bool        NodeAcceptsTexture(RID node);

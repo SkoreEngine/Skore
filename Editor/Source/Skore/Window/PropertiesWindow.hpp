@@ -129,6 +129,7 @@ namespace Skore
 		void DrawAsset(u32 id, RID asset);
 		void DrawResource(u32 id, RID resource);
 		void DrawMaterialNode(u32 id, RID node);
+		void DrawMaterialOutputProperties(RID graph);
 		void DrawNodeTextureProperty(u64 id, RID node);
 		void DrawNodeNameProperty(u64 id, RID node);
 		void DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type);

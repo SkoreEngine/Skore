@@ -45,7 +45,8 @@ namespace Skore
 			AddInput("Emissive", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 0.0f, 1.0f}, {}, true);
 			AddInput("Normal", MaterialDataType::Vec3, Vec4{0.0f, 0.0f, 1.0f, 0.0f}); //tangent-space
 			AddInput("Ambient Occlusion", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
-			AddInput("Opacity", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+			AddInput("Opacity", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});      //alpha, used in Blend mode
+			AddInput("Opacity Mask", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f}); //clip threshold input, used in Mask mode
 		}
 
 		//The compiler maps the output node's inputs directly to surface fields, so nothing to emit.
@@ -281,7 +282,7 @@ namespace Skore
 
 		void DefinePins() override
 		{
-			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
+			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "mat.texCoord");
 			AddOutput("RGBA", MaterialDataType::Vec4);
 			AddOutput("R", MaterialDataType::Float);
 			AddOutput("G", MaterialDataType::Float);
@@ -323,7 +324,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, "input.texCoord");
+			ctx.SetOutput(0, "mat.texCoord");
 		}
 	};
 
@@ -339,7 +340,7 @@ namespace Skore
 
 		void DefinePins() override
 		{
-			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
+			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "mat.texCoord");
 			AddOutput("RGBA", MaterialDataType::Vec4);
 			AddOutput("R", MaterialDataType::Float);
 			AddOutput("G", MaterialDataType::Float);
@@ -377,7 +378,7 @@ namespace Skore
 
 		void DefinePins() override
 		{
-			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
+			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "mat.texCoord");
 			AddInput("Strength", MaterialDataType::Float, Vec4{1.0f, 0.0f, 0.0f, 0.0f});
 			AddOutput("Normal", MaterialDataType::Vec3);
 		}
@@ -408,7 +409,7 @@ namespace Skore
 
 		void DefinePins() override
 		{
-			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "input.texCoord");
+			AddInput("UV", MaterialDataType::Vec2, Vec4{}, "mat.texCoord");
 			AddInput("Tiling", MaterialDataType::Vec2, Vec4{1.0f, 1.0f, 0.0f, 0.0f});
 			AddInput("Offset", MaterialDataType::Vec2, Vec4{0.0f, 0.0f, 0.0f, 0.0f});
 			AddOutput("UV", MaterialDataType::Vec2);

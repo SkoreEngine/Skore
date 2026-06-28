@@ -10,6 +10,7 @@
 #include "Skore/MaterialGraph/MaterialNode.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Resource/Resources.hpp"
+#include "Skore/Utils/ShaderManager.hpp"
 
 #include <string_view>
 
@@ -52,6 +53,8 @@ namespace
 			.Field<MaterialGraphResource::Nodes>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphNodeResource>::ID())
 			.Field<MaterialGraphResource::Connections>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphConnectionResource>::ID())
 			.Field<MaterialGraphResource::OutputNode>(ResourceFieldType::Reference, TypeInfo<MaterialGraphNodeResource>::ID())
+			.Field<MaterialGraphResource::AlphaMode>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphAlphaMode>::ID())
+			.Field<MaterialGraphResource::MaskCutoff>(ResourceFieldType::Float)
 			.Build();
 	}
 
@@ -146,7 +149,7 @@ namespace
 		MaterialNode* output = MaterialNodeRegistry::Find("output");
 		REQUIRE(output != nullptr);
 		CHECK(output->IsOutput());
-		CHECK(output->GetInputs().Size() == 7);
+		CHECK(output->GetInputs().Size() == 8);
 		CHECK(output->GetOutputs().Size() == 0);
 		CHECK(output->GetInputs()[MaterialNodeRegistry::BaseColor].type == MaterialDataType::Vec3);
 		CHECK(output->GetInputs()[MaterialNodeRegistry::Metallic].type == MaterialDataType::Float);
@@ -260,7 +263,7 @@ namespace
 
 	// --- HLSL generation ---------------------------------------------------------------------
 
-	TEST_CASE("MaterialGraph::GenerateHlslDefaults")
+	TEST_CASE("MaterialGraph::GenerateBodyDefaults")
 	{
 		ResourceInit();
 		SetupMaterialGraphTypes();
@@ -270,23 +273,78 @@ namespace
 		RID graph = NewGraph(outputNode);
 
 		String log;
-		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
-		CHECK(!hlsl.Empty());
-		CHECK(Contains(hlsl, "PixelOutput MainPS"));
-		// unconnected output inputs fall back to their pin defaults
-		CHECK(Contains(hlsl, "float3 baseColor = float3(0.8, 0.8, 0.8)"));
-		CHECK(Contains(hlsl, "float  roughness = 0.5"));
-		// the expanded master node emits normal / occlusion / opacity surface fields
-		CHECK(Contains(hlsl, "float3 normal"));
-		CHECK(Contains(hlsl, "float  occlusion"));
-		CHECK(Contains(hlsl, "float  opacity"));
-		CHECK(Contains(hlsl, "float3(0, 0, 1)")); // tangent-space normal default
+		CHECK(!body.Empty());
+		// the body assigns the master node's fields onto the template's `surface` struct
+		CHECK(Contains(body, "surface.baseColor = float3(0.8, 0.8, 0.8)"));
+		CHECK(Contains(body, "surface.roughness = 0.5"));
+		CHECK(Contains(body, "surface.normal"));
+		CHECK(Contains(body, "surface.occlusion"));
+		CHECK(Contains(body, "surface.opacity"));
+		CHECK(Contains(body, "float3(0, 0, 1)")); // tangent-space normal default
+		// default Opaque mode forces a solid surface and never discards
+		CHECK(Contains(body, "surface.opacity   = 1.0;"));
+		CHECK(!Contains(body, "discard"));
 
 		ResourceShutdown();
 	}
 
-	TEST_CASE("MaterialGraph::GenerateHlslTexture")
+	TEST_CASE("MaterialGraph::AlphaModeMaskDiscards")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+		{
+			ResourceObject graphObj = Resources::Write(graph);
+			graphObj.SetEnum(MaterialGraphResource::AlphaMode, MaterialGraphResource::GraphAlphaMode::Mask);
+			graphObj.SetFloat(MaterialGraphResource::MaskCutoff, 0.25f);
+			graphObj.Commit();
+		}
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		// Mask mode clips against the cutoff and keeps the surface opaque
+		CHECK(Contains(body, "discard"));
+		CHECK(Contains(body, "0.25"));
+		CHECK(Contains(body, "surface.opacity   = 1.0;"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::AlphaModeBlendOutputsOpacity")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+		{
+			ResourceObject graphObj = Resources::Write(graph);
+			graphObj.SetEnum(MaterialGraphResource::AlphaMode, MaterialGraphResource::GraphAlphaMode::Blend);
+			graphObj.Commit();
+		}
+
+		RID opacityNode = AddNode(graph, "constant_float", Vec4{0.3f, 0.0f, 0.0f, 0.0f});
+		Connect(graph, opacityNode, 0, outputNode, MaterialNodeRegistry::Opacity);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		// Blend mode reads the Opacity pin into the surface alpha and never discards
+		CHECK(Contains(body, "surface.opacity   = "));
+		CHECK(Contains(body, "0.3"));
+		CHECK(!Contains(body, "discard"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::GenerateBodyTexture")
 	{
 		ResourceInit();
 		SetupMaterialGraphTypes();
@@ -299,21 +357,18 @@ namespace
 		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
 
 		String log;
-		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
-		// bindless texture preamble is emitted only when a texture node is present
-		CHECK(Contains(hlsl, "Texture2D    MaterialTextures["));
-		CHECK(Contains(hlsl, "SamplerState MaterialSampler"));
-		CHECK(Contains(hlsl, ".Sample(MaterialSampler,"));
+		CHECK(Contains(body, ".Sample(MaterialSampler,"));
 		// unconnected UV falls back to the mesh UVs via the pin's default expression
-		CHECK(Contains(hlsl, "input.texCoord"));
+		CHECK(Contains(body, "mat.texCoord"));
 		// the Vec4 sample feeding a Vec3 input is swizzled down
-		CHECK(Contains(hlsl, ".xyz"));
+		CHECK(Contains(body, ".xyz"));
 
 		ResourceShutdown();
 	}
 
-	TEST_CASE("MaterialGraph::GenerateHlslTextureChannel")
+	TEST_CASE("MaterialGraph::GenerateBodyTextureChannel")
 	{
 		ResourceInit();
 		SetupMaterialGraphTypes();
@@ -327,17 +382,17 @@ namespace
 		Connect(graph, texNode, 1, outputNode, MaterialNodeRegistry::Roughness);
 
 		String log;
-		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
 		// The texture is sampled once into a temp and the channel is taken via swizzle.
-		CHECK(Contains(hlsl, ".Sample(MaterialSampler,"));
-		CHECK(Contains(hlsl, ".r"));
-		CHECK(Contains(hlsl, "roughness ="));
+		CHECK(Contains(body, ".Sample(MaterialSampler,"));
+		CHECK(Contains(body, ".r"));
+		CHECK(Contains(body, "surface.roughness ="));
 
 		ResourceShutdown();
 	}
 
-	TEST_CASE("MaterialGraph::GenerateHlslConnected")
+	TEST_CASE("MaterialGraph::GenerateBodyConnected")
 	{
 		ResourceInit();
 		SetupMaterialGraphTypes();
@@ -353,18 +408,18 @@ namespace
 		Connect(graph, roughNode, 0, outputNode, MaterialNodeRegistry::Roughness);
 
 		String log;
-		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
-		CHECK(Contains(hlsl, "float3 n"));            // a temp var was emitted for an upstream node
-		CHECK(Contains(hlsl, "float3(1, 0, 0)"));     // the color literal
-		CHECK(Contains(hlsl, "0.25"));                // the roughness literal
-		CHECK(Contains(hlsl, "baseColor ="));
-		CHECK(Contains(hlsl, "roughness ="));
+		CHECK(Contains(body, "float3 n"));            // a temp var was emitted for an upstream node
+		CHECK(Contains(body, "float3(1, 0, 0)"));     // the color literal
+		CHECK(Contains(body, "0.25"));                // the roughness literal
+		CHECK(Contains(body, "surface.baseColor ="));
+		CHECK(Contains(body, "surface.roughness ="));
 
 		ResourceShutdown();
 	}
 
-	TEST_CASE("MaterialGraph::GenerateHlslTypeConversion")
+	TEST_CASE("MaterialGraph::GenerateBodyTypeConversion")
 	{
 		ResourceInit();
 		SetupMaterialGraphTypes();
@@ -378,9 +433,9 @@ namespace
 		Connect(graph, floatNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
 
 		String log;
-		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
-		CHECK(Contains(hlsl, "(float3)("));
+		CHECK(Contains(body, "(float3)("));
 
 		ResourceShutdown();
 	}
@@ -403,11 +458,11 @@ namespace
 		Connect(graph, mul, 0, outputNode, MaterialNodeRegistry::Roughness);
 
 		String log;
-		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
 		// Sources emit first (n0, n1), then the Multiply temp (n2); the output stays scalar.
-		CHECK(Contains(hlsl, "float n2 = (n0 * n1)"));
-		CHECK_FALSE(Contains(hlsl, "float3 n2"));
+		CHECK(Contains(body, "float n2 = (n0 * n1)"));
+		CHECK_FALSE(Contains(body, "float3 n2"));
 
 		ResourceShutdown();
 	}
@@ -430,10 +485,10 @@ namespace
 		Connect(graph, mul, 0, outputNode, MaterialNodeRegistry::Roughness);
 
 		String log;
-		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
 		// The Multiply output is float3 and the scalar B operand is broadcast to float3.
-		CHECK(Contains(hlsl, "float3 n2 = (n0 * (float3)(n1))"));
+		CHECK(Contains(body, "float3 n2 = (n0 * (float3)(n1))"));
 
 		ResourceShutdown();
 	}
@@ -494,11 +549,11 @@ namespace
 		Connect(graph, sub, 0, outputNode, MaterialNodeRegistry::Roughness);
 
 		String log;
-		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
-		CHECK(Contains(hlsl, "float n2 = (n0 - n1)"));
-		CHECK_FALSE(Contains(hlsl, "float3 n2"));
-		CHECK(Contains(hlsl, "roughness ="));
+		CHECK(Contains(body, "float n2 = (n0 - n1)"));
+		CHECK_FALSE(Contains(body, "float3 n2"));
+		CHECK(Contains(body, "surface.roughness ="));
 
 		ResourceShutdown();
 	}
@@ -522,11 +577,11 @@ namespace
 		Connect(graph, dot, 0, outputNode, MaterialNodeRegistry::Roughness);
 
 		String log;
-		String hlsl = MaterialGraphCompiler::GenerateHlsl(graph, log);
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
-		CHECK(Contains(hlsl, "float n2 = dot(n0, n1)"));
-		CHECK_FALSE(Contains(hlsl, "float3 n2 = dot("));
-		CHECK(Contains(hlsl, "roughness ="));
+		CHECK(Contains(body, "float n2 = dot(n0, n1)"));
+		CHECK_FALSE(Contains(body, "float3 n2 = dot("));
+		CHECK(Contains(body, "surface.roughness ="));
 
 		ResourceShutdown();
 	}
@@ -539,23 +594,39 @@ namespace
 
 		RID outputNode;
 		RID graph = NewGraph(outputNode);
-		// Exercise the bindless texture preamble, Sample(), the normal-map helper statement, and the
-		// new Normal output — all the way through real DXC → SPIR-V.
-		RID texNode = AddNode(graph, "sample_texture", Vec4{});
-		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
-		RID normalNode = AddNode(graph, "normal_map", Vec4{});
-		Connect(graph, normalNode, 0, outputNode, MaterialNodeRegistry::Normal);
 
-		// Also push a couple of the extended math/vector nodes through the real compiler: a generic
-		// Clamp (scalar) into Roughness and a Dot collapsing vectors to a scalar into Metallic.
+		// A texture-free graph: a constant color into Base Color, a clamped scalar into Roughness, and a
+		// Dot collapsing two colors to a scalar into Metallic. Bindless texture sampling lands in a later
+		// step, so texture nodes are intentionally excluded from the end-to-end compile here.
+		RID color = AddNode(graph, "constant_color", Vec4{0.4f, 0.6f, 0.8f, 1.0f});
+		Connect(graph, color, 0, outputNode, MaterialNodeRegistry::BaseColor);
+
 		RID half = AddNode(graph, "constant_float", Vec4{0.5f, 0.0f, 0.0f, 0.0f});
 		RID clampNode = AddNode(graph, "clamp", Vec4{});
 		Connect(graph, half, 0, clampNode, 0);
 		Connect(graph, clampNode, 0, outputNode, MaterialNodeRegistry::Roughness);
+
+		RID otherColor = AddNode(graph, "constant_color", Vec4{0.0f, 1.0f, 0.0f, 1.0f});
 		RID dotNode = AddNode(graph, "dot", Vec4{});
-		Connect(graph, texNode, 0, dotNode, 0);
-		Connect(graph, normalNode, 0, dotNode, 1);
+		Connect(graph, color, 0, dotNode, 0);
+		Connect(graph, otherColor, 0, dotNode, 1);
 		Connect(graph, dotNode, 0, outputNode, MaterialNodeRegistry::Metallic);
+
+		#ifndef SK_SHADERS_NEW_DIR
+		REQUIRE(false);
+		#endif
+
+		String shadersDir = String{SK_SHADERS_NEW_DIR};
+		String templateText = FileSystem::ReadFileAsString(Path::Join(shadersDir, "MaterialGraphForward.template.raster"));
+		REQUIRE(!templateText.Empty());
+
+		String log;
+		String hlsl = MaterialGraphCompiler::GenerateShader(graph, templateText, log);
+
+		// the generated body was spliced into the template, replacing the marker
+		CHECK(Contains(hlsl, "EvaluateMaterial"));
+		CHECK(Contains(hlsl, "surface.baseColor ="));
+		CHECK_FALSE(Contains(hlsl, "// @SK_MATERIAL_GRAPH@"));
 
 		// Live SPIR-V compilation needs dxcompiler.dll in the working directory. ShaderManagerInit
 		// asserts if it can't be loaded, so only init when the library is actually present.
@@ -563,18 +634,49 @@ namespace
 		if (dxcAvailable)
 		{
 			ShaderManagerInit();
-		}
 
-		MaterialGraphCompileResult result = MaterialGraphCompiler::Compile(graph);
+			struct IncludeCtx
+			{
+				String dir;
+			};
+			IncludeCtx includeCtx{shadersDir};
 
-		// HLSL generation is deterministic regardless of the shader compiler.
-		CHECK(!result.hlsl.Empty());
-		CHECK(Contains(result.hlsl, "PixelOutput MainPS"));
+			struct StageDef
+			{
+				const char* entryPoint;
+				ShaderStage stage;
+			};
+			const StageDef stageDefs[] = {
+				{"MainVS", ShaderStage::Vertex},
+				{"MainPS", ShaderStage::Pixel},
+			};
 
-		if (dxcAvailable)
-		{
-			CHECK_MESSAGE(result.success, result.log.CStr());
-			CHECK(result.spirvSize > 0);
+			Array<u8> bytes;
+			for (const StageDef& stageDef : stageDefs)
+			{
+				ShaderCompileInfo info;
+				info.source = hlsl;
+				info.entryPoint = stageDef.entryPoint;
+				info.shaderStage = stageDef.stage;
+				info.api = GraphicsAPI::Vulkan;
+				info.userData = &includeCtx;
+				info.getShaderInclude = [](StringView include, void* userData, String& source) -> bool
+				{
+					const IncludeCtx& ctx = *static_cast<IncludeCtx*>(userData);
+					String path = Path::Join(ctx.dir, include);
+					if (FileSystem::GetFileStatus(path).exists)
+					{
+						source = FileSystem::ReadFileAsString(path);
+						return true;
+					}
+					return false;
+				};
+
+				String compileLog;
+				CHECK_MESSAGE(CompileShader(info, bytes, compileLog), compileLog.CStr());
+			}
+
+			CHECK(!bytes.Empty());
 			ShaderManagerShutdown();
 		}
 		else

@@ -44,7 +44,7 @@ namespace Skore
 		String           name{};
 		MaterialDataType type = MaterialDataType::Float;
 		Vec4             defaultValue{}; //literal used when the pin is left unconnected
-		String           defaultExpr{}; //HLSL expr used when unconnected (overrides defaultValue), e.g. "input.texCoord"
+		String           defaultExpr{}; //HLSL expr used when unconnected (overrides defaultValue), e.g. "mat.texCoord"
 		bool             color = false;   //edit the unconnected literal as a color swatch instead of raw components
 		bool             generic = false; //type adapts to the connected pins; `type` is the fallback (when nothing is connected)
 	};
@@ -128,13 +128,14 @@ namespace Skore
 		//Fixed input pin layout of the output (master) node, mapped to surface fields by the compiler.
 		enum OutputPin
 		{
-			BaseColor = 0,
-			Metallic  = 1,
-			Roughness = 2,
-			Emissive  = 3,
-			Normal    = 4,
-			Occlusion = 5,
-			Opacity   = 6,
+			BaseColor   = 0,
+			Metallic    = 1,
+			Roughness   = 2,
+			Emissive    = 3,
+			Normal      = 4,
+			Occlusion   = 5,
+			Opacity     = 6,
+			OpacityMask = 7,
 		};
 
 		static StringView OutputTypeId();

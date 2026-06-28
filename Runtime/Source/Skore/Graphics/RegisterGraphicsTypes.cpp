@@ -1139,6 +1139,11 @@ namespace Skore
 		alphaMode.Value<MaterialResource::MaterialAlphaMode::Mask>("Mask");
 		alphaMode.Value<MaterialResource::MaterialAlphaMode::Blend>("Blend");
 		//
+		auto graphAlphaMode = Reflection::Type<MaterialGraphResource::GraphAlphaMode>();
+		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Opaque>("Opaque");
+		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Mask>("Mask");
+		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Blend>("Blend");
+		//
 		auto textureChannel = Reflection::Type<TextureChannel>();
 		textureChannel.Value<TextureChannel::Red>("Red");
 		textureChannel.Value<TextureChannel::Green>("Green");
@@ -1241,6 +1246,8 @@ namespace Skore
 			.Field<MaterialGraphResource::Nodes>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphNodeResource>::ID())
 			.Field<MaterialGraphResource::Connections>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphConnectionResource>::ID())
 			.Field<MaterialGraphResource::OutputNode>(ResourceFieldType::Reference, TypeInfo<MaterialGraphNodeResource>::ID())
+			.Field<MaterialGraphResource::AlphaMode>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphAlphaMode>::ID())
+			.Field<MaterialGraphResource::MaskCutoff>(ResourceFieldType::Float)
 			.Build();
 
 		Resources::Type<VertexAttributeResource>()

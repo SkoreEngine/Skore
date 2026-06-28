@@ -40,6 +40,69 @@ server.registerTool(
 );
 
 server.registerTool(
+  "skore_list_material_nodes",
+  {
+    title: "List material nodes",
+    description:
+      "List every material node type that can be placed inside a MaterialGraph (.matgraph) asset. " +
+      "Returns each node's typeId, displayName, category, isOutput flag, and its input pins, output pins, and " +
+      "properties (each with a name and a type: Float/Vec2/Vec3/Vec4, or for properties also Texture/Name/Int/Bool/Color). " +
+      "ALWAYS call this before creating or editing a material graph: it is the only source of valid node typeIds and " +
+      "their pin/property layouts. There is exactly one output (master) node (isOutput=true) whose input pins " +
+      "(Base Color, Metallic, Roughness, Emissive, Normal, Ambient Occlusion, Opacity) are the surface outputs.",
+    inputSchema: {},
+  },
+  async () => run(() => api.materialNodes()),
+);
+
+server.registerTool(
+  "skore_add_material_node",
+  {
+    title: "Add material node",
+    description:
+      "Add a node to a MaterialGraph (.matgraph) asset. Use skore_list_material_nodes for valid typeIds and their " +
+      "pins/properties. Returns the new node's uuid (use it with skore_connect_material_nodes). The output (master) " +
+      "node already exists in every graph and cannot be added — find its uuid via skore_get_asset (the node in " +
+      `object.Nodes whose Type is "output"). ${SAVE_NOTE}`,
+    inputSchema: {
+      ref: z.string().describe("MaterialGraph (.matgraph) asset ref (uuid or path)."),
+      typeId: z.string().describe('Node typeId from skore_list_material_nodes (e.g. "multiply", "sample_texture").'),
+      position: z.array(z.number()).optional().describe("Canvas position [x, y]. Cosmetic; optional."),
+      value: z
+        .array(z.number())
+        .optional()
+        .describe("Literal value [x,y,z,w] for constant/parameter nodes (unused components ignored). Defaults to the node's own default."),
+      parameterName: z.string().optional().describe("Exposed parameter name, for Parameters-category nodes."),
+      texture: z.string().optional().describe("Texture asset ref (uuid or path) for texture nodes such as sample_texture."),
+    },
+  },
+  async ({ ref, typeId, position, value, parameterName, texture }) =>
+    run(() => api.addMaterialNode({ ref, typeId, position, value, parameterName, texture })),
+);
+
+server.registerTool(
+  "skore_connect_material_nodes",
+  {
+    title: "Connect material nodes",
+    description:
+      "Create a connection (edge) in a MaterialGraph: wire a source node's output pin into a destination node's input " +
+      "pin. Pin indices come from the node's inputs/outputs order in skore_list_material_nodes. To drive the final " +
+      'surface, connect into the output/master node (its input pins are Base Color, Metallic, Roughness, Emissive, ' +
+      "Normal, Ambient Occlusion, Opacity, indices 0-6). An input pin holds a single connection; connecting to a pin " +
+      `that is already wired replaces the existing edge. ${SAVE_NOTE}`,
+    inputSchema: {
+      ref: z.string().describe("MaterialGraph (.matgraph) asset ref (uuid or path)."),
+      outputNode: z.string().describe("UUID of the source node (the value producer)."),
+      outputPin: z.number().int().describe("Source output pin index (see the node's outputs)."),
+      inputNode: z.string().describe("UUID of the destination node (the value consumer)."),
+      inputPin: z.number().int().describe("Destination input pin index (see the node's inputs)."),
+    },
+  },
+  async ({ ref, outputNode, outputPin, inputNode, inputPin }) =>
+    run(() => api.connectMaterialNodes({ ref, outputNode, outputPin, inputNode, inputPin })),
+);
+
+server.registerTool(
   "skore_list_assets",
   {
     title: "List assets",

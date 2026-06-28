@@ -117,12 +117,38 @@ namespace Skore
 		ImGui::Checkbox(ICON_FA_CODE " Show HLSL", &m_showCode);
 	}
 
-	void MaterialGraphEditorWindow::DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins)
+	bool MaterialGraphEditorWindow::IsOutputOpacityPinDisabled(MaterialNode* def, u32 pinIndex, MaterialGraphResource::GraphAlphaMode alphaMode)
+	{
+		if (!def->IsOutput())
+		{
+			return false;
+		}
+		if (pinIndex == static_cast<u32>(MaterialNodeRegistry::Opacity))
+		{
+			return alphaMode != MaterialGraphResource::GraphAlphaMode::Blend;
+		}
+		if (pinIndex == static_cast<u32>(MaterialNodeRegistry::OpacityMask))
+		{
+			return alphaMode != MaterialGraphResource::GraphAlphaMode::Mask;
+		}
+		return false;
+	}
+
+	void MaterialGraphEditorWindow::DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins, MaterialGraphResource::GraphAlphaMode alphaMode)
 	{
 		Span<MaterialNodePin> inputs = def->GetInputs();
 		for (u32 i = 0; i < inputs.Size(); ++i)
 		{
 			const MaterialNodePin& pin = inputs[i];
+
+			//On the output node the two opacity pins are gated by the material's Alpha Mode: only the pin
+			//relevant to the current mode is connectable/editable; the other is shown greyed out.
+			if (IsOutputOpacityPinDisabled(def, i, alphaMode))
+			{
+				m_editor.InputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin), true);
+				continue;
+			}
+
 			m_editor.InputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin));
 
 			//pins with a computed default expression (e.g. mesh UVs) have no editable literal
@@ -355,8 +381,14 @@ namespace Skore
 
 		HashSet<u64> usedTextures;
 
+		RID                                   outputNodeRid;
+		MaterialGraphResource::GraphAlphaMode alphaMode = MaterialGraphResource::GraphAlphaMode::Opaque;
+
 		if (ResourceObject graphObj = Resources::Read(CurrentGraph()))
 		{
+			outputNodeRid = graphObj.GetReference(MaterialGraphResource::OutputNode);
+			alphaMode = graphObj.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+
 			HashSet<u64> connectedPins;
 			graphObj.IterateSubObjectList(MaterialGraphResource::Connections, [&](RID connRid)
 			{
@@ -392,7 +424,7 @@ namespace Skore
 					.headerColor = ImColor(color.r, color.g, color.b)
 				});
 
-				DrawPinValueWidgets(nodeRid, def, connectedPins);
+				DrawPinValueWidgets(nodeRid, def, connectedPins, alphaMode);
 
 				for (const MaterialNodePin& pin : def->GetOutputs())
 				{
@@ -511,6 +543,15 @@ namespace Skore
 
 		for (const GraphEditorNewLink& newLink : result.createdLinks)
 		{
+			//Reject links dropped onto an opacity pin that the current Alpha Mode has disabled.
+			if (RID{newLink.inputNodeId} == outputNodeRid)
+			{
+				MaterialNode* outDef = MaterialNodeRegistry::Find(MaterialNodeRegistry::OutputTypeId());
+				if (outDef && IsOutputOpacityPinDisabled(outDef, newLink.inputPinIndex, alphaMode))
+				{
+					continue;
+				}
+			}
 			AddConnection(RID{newLink.outputNodeId}, newLink.outputPinIndex, RID{newLink.inputNodeId}, newLink.inputPinIndex);
 		}
 
