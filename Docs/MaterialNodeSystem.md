@@ -108,11 +108,20 @@ node library too far.
   Texture/Bool) packed into a generated parameter table, overridable per-instance without recompiling.
   *The keystone feature.* **Done:** the **Parameters** node category (Float/Int/Bool/Color/Vec2-4/
   Texture2D), each with a `Name` + default value stored on the node resource (`ParameterName` /
-  `Value` / `Texture`) and edited in the Properties window. **Remaining:** define a
-  `MaterialInstanceResource` (base graph/material + overrides), collect parameters into a stable
-  `MaterialParams` layout, emit HLSL reads instead of inlined defaults, specify packing/alignment,
-  validate empty/duplicate names, update override buffers without recompiling, and handle texture
-  parameter overrides through the same texture table as texture nodes.
+  `Value` / `Texture`) and edited in the Properties window; and **Material Instances**, unified into
+  the **same `MaterialGraphResource`** via a `Kind` field (`MaterialKind::Graph | Instance`). A graph
+  authors the node network; an instance sets `Kind=Instance`, references a `Parent` graph, and stores a
+  sparse `Parameters` list of `MaterialParameterOverrideResource` (ParameterName / Value / Texture).
+  One `.matgraph` handler backs both, with two content-browser entries ("New Material Graph" →
+  Kind=Graph → node editor; "New Material Instance" → Kind=Instance → Properties panel). The
+  Properties-window editor (dispatched when the selected asset is Kind=Instance) shows a parent-graph
+  picker then lists the parent's named parameters with a per-parameter override checkbox + value editor
+  (scalar/vector/color/texture); parent selection is restricted to graph-kind materials (no
+  instance-of-instance). Identifying parameter nodes uses a new `MaterialNode::IsParameter()` virtual.
+  **Remaining:** collect parameters into a stable `MaterialParams` layout, emit HLSL reads instead of
+  inlined defaults, specify packing/alignment, validate empty/duplicate names, apply the instance
+  overrides into the runtime parameter buffer (no recompile), and route texture parameter overrides
+  through the texture table.
 - [~] **★ Texture / bindless wiring** — codegen emits a bindless `MaterialTextures[]` array + sampler
   and samples it; texture slot is currently the node index (placeholder). The `Texture` reference field
   on `MaterialGraphNodeResource` is now consumed: drag-drop a `TextureResource` onto a node assigns it

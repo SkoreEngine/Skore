@@ -120,6 +120,7 @@ namespace Skore
 
 		StringView        GetCategory() const override { return "Parameters"; }
 		MaterialNodeColor GetHeaderColor() const override { return {70, 160, 160}; }
+		bool              IsParameter() const override { return true; }
 	};
 
 	struct MaterialParamFloatNode : MaterialParameterNode

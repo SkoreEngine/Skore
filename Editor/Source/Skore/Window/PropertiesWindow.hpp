@@ -58,6 +58,13 @@ namespace Skore
 		RID    m_nodeNameNode = {};
 		String m_nodeNameEdit = {};
 
+		//transient material-instance override edit state (same rationale as the node edit state above);
+		//keyed by the override entry RID so a drag survives the per-frame read.
+		bool   m_instanceValueEditing = false;
+		RID    m_instanceValueEntry = {};
+		Vec4   m_instanceValueEdit = {};
+		RID    m_instanceTextureEntry = {}; //override entry targeted by the texture-selection popup
+
 		RID    importSettingsSource = {};
 		RID    importSettingsDraft = {};
 		RID    importSettingsPendingApply = {};
@@ -134,6 +141,12 @@ namespace Skore
 		void DrawNodeNameProperty(u64 id, RID node);
 		void DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type);
 		void SetNodeTexture(RID node, RID texture);
+
+		void DrawMaterialInstance(u32 id, RID instance);
+		void DrawInstanceParentProperty(u64 id, RID instance, RID parent);
+		void DrawInstanceScalarProperty(u64 id, RID entry, Vec4 value, MaterialNodePropertyType type);
+		void DrawInstanceTextureProperty(u64 id, RID entry, RID texture);
+		void SetInstanceTexture(RID entry, RID texture);
 
 		void EntityDebugSelection(u32 workspaceId, Entity* entity);
 		void EntityDebugDeselection(u32 workspaceId, Entity* entity);

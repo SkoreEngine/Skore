@@ -1143,6 +1143,10 @@ namespace Skore
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Opaque>("Opaque");
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Mask>("Mask");
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Blend>("Blend");
+
+		auto materialKind = Reflection::Type<MaterialGraphResource::MaterialKind>();
+		materialKind.Value<MaterialGraphResource::MaterialKind::Graph>("Graph");
+		materialKind.Value<MaterialGraphResource::MaterialKind::Instance>("Instance");
 		//
 		auto textureChannel = Reflection::Type<TextureChannel>();
 		textureChannel.Value<TextureChannel::Red>("Red");
@@ -1241,6 +1245,12 @@ namespace Skore
 			.Field<MaterialGraphConnectionResource::InputPin>(ResourceFieldType::UInt)
 			.Build();
 
+		Resources::Type<MaterialParameterOverrideResource>()
+			.Field<MaterialParameterOverrideResource::ParameterName>(ResourceFieldType::String)
+			.Field<MaterialParameterOverrideResource::Value>(ResourceFieldType::Vec4)
+			.Field<MaterialParameterOverrideResource::Texture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
+			.Build();
+
 		Resources::Type<MaterialGraphResource>()
 			.Field<MaterialGraphResource::Name>(ResourceFieldType::String)
 			.Field<MaterialGraphResource::Nodes>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphNodeResource>::ID())
@@ -1248,6 +1258,9 @@ namespace Skore
 			.Field<MaterialGraphResource::OutputNode>(ResourceFieldType::Reference, TypeInfo<MaterialGraphNodeResource>::ID())
 			.Field<MaterialGraphResource::AlphaMode>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphAlphaMode>::ID())
 			.Field<MaterialGraphResource::MaskCutoff>(ResourceFieldType::Float)
+			.Field<MaterialGraphResource::Kind>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::MaterialKind>::ID())
+			.Field<MaterialGraphResource::Parent>(ResourceFieldType::Reference, TypeInfo<MaterialGraphResource>::ID())
+			.Field<MaterialGraphResource::Parameters>(ResourceFieldType::SubObjectList, TypeInfo<MaterialParameterOverrideResource>::ID())
 			.Build();
 
 		Resources::Type<VertexAttributeResource>()

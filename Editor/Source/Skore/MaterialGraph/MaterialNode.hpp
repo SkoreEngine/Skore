@@ -93,6 +93,10 @@ namespace Skore
 		virtual StringView            GetCategory() const { return ""; }
 		virtual MaterialNodeColor     GetHeaderColor() const { return {}; }
 		virtual bool                  IsOutput() const { return false; }
+
+		//True for Parameters-category nodes: named, instance-overridable inputs. The exposed name lives on
+		//the node resource (ParameterName); material instances override these by name.
+		virtual bool                  IsParameter() const { return false; }
 		virtual Vec4                  GetDefaultValue() const { return {}; }
 
 		//Emit HLSL. Read ctx.Input(i)/ctx.value, write ctx.SetOutput(i, expr).

@@ -238,8 +238,17 @@ namespace Skore
 		};
 	};
 
+	//A material is authored as one of two kinds backed by this single resource. The editor treats them
+	//as distinct asset kinds (separate "Create" entries, different editors), but they share one type so
+	//an instance is just a material that defers its node network to a parent and only overrides params.
 	struct MaterialGraphResource
 	{
+		enum class MaterialKind : u8
+		{
+			Graph,    //a node network that defines the shader (Nodes/Connections/OutputNode)
+			Instance, //reuses a parent graph's network, overriding only its named parameters (Parent/Parameters)
+		};
+
 		//How the material's alpha is interpreted. Opaque ignores opacity entirely; Mask clips the pixel
 		//when the Opacity Mask output falls below MaskCutoff; Blend writes the Opacity output as alpha.
 		enum class GraphAlphaMode : u8
@@ -252,11 +261,28 @@ namespace Skore
 		enum
 		{
 			Name,        //String
-			Nodes,       //SubObjectList (MaterialGraphNodeResource)
-			Connections, //SubObjectList (MaterialGraphConnectionResource)
-			OutputNode,  //Reference (the master/output node)
+			Nodes,       //SubObjectList (MaterialGraphNodeResource)       - Graph kind
+			Connections, //SubObjectList (MaterialGraphConnectionResource) - Graph kind
+			OutputNode,  //Reference (the master/output node)              - Graph kind
 			AlphaMode,   //Enum (GraphAlphaMode)
 			MaskCutoff,  //Float - clip threshold used when AlphaMode == Mask
+			Kind,        //Enum (MaterialKind) - Graph (default) or Instance
+			Parent,      //Reference (MaterialGraphResource) - Instance kind: the source graph
+			Parameters,  //SubObjectList (MaterialParameterOverrideResource) - Instance kind: sparse overrides
+		};
+	};
+
+	//A single per-instance parameter override. Keyed by the exposed parameter name (matching a
+	//Parameters-category node's MaterialGraphNodeResource::ParameterName on the parent graph). Stored
+	//sparsely: only parameters the user chooses to override get an entry; the rest fall through to the
+	//graph's defaults. Scalar/vector parameters use Value; Texture2D parameters use Texture.
+	struct MaterialParameterOverrideResource
+	{
+		enum
+		{
+			ParameterName, //String    - exposed parameter name this entry overrides
+			Value,         //Vec4      - scalar/vector override (components used depend on the parameter type)
+			Texture,       //Reference - texture override for Texture2D parameters
 		};
 	};
 

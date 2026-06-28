@@ -727,7 +727,22 @@ namespace Skore
 		else
 		{
 			ResourceType* type = Resources::GetType(asset);
-			if (ImGui::CollapsingHeader(FormatName(type->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
+
+			bool isMaterialInstance = false;
+			if (type != nullptr && type->GetID() == TypeInfo<MaterialGraphResource>::ID())
+			{
+				if (ResourceObject materialObj = Resources::Read(asset))
+				{
+					isMaterialInstance = materialObj.GetEnum<MaterialGraphResource::MaterialKind>(MaterialGraphResource::Kind)
+						== MaterialGraphResource::MaterialKind::Instance;
+				}
+			}
+
+			if (isMaterialInstance)
+			{
+				DrawMaterialInstance(id, asset);
+			}
+			else if (ImGui::CollapsingHeader(FormatName(type->GetSimpleName()).CStr()), ImGuiTreeNodeFlags_DefaultOpen)
 			{
 				ImGui::Indent();
 				ImGuiDrawResource(ImGuiDrawResourceInfo{
@@ -1718,6 +1733,437 @@ namespace Skore
 
 				ImGui::EndTable();
 			}
+			ImGui::Unindent();
+		}
+	}
+
+	namespace
+	{
+		//Finds the override entry for `paramName` on a material instance, or a null RID when the parameter
+		//is not currently overridden.
+		RID FindInstanceOverride(const ResourceObject& instanceObj, StringView paramName)
+		{
+			for (RID entry : instanceObj.GetSubObjectList(MaterialGraphResource::Parameters))
+			{
+				ResourceObject entryObj = Resources::Read(entry);
+				if (entryObj && entryObj.GetString(MaterialParameterOverrideResource::ParameterName) == paramName)
+				{
+					return entry;
+				}
+			}
+			return {};
+		}
+
+		//Adds an override for `paramName`, seeded with the parent graph's current default, so toggling the
+		//override on is visually a no-op until the user edits the value.
+		void AddInstanceOverride(RID instance, StringView paramName, Vec4 defaultValue, RID defaultTexture)
+		{
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope("Override Material Parameter");
+
+			RID entry = Resources::Create<MaterialParameterOverrideResource>(UUID::RandomUUID(), scope);
+			{
+				ResourceObject entryObj = Resources::Write(entry);
+				entryObj.SetString(MaterialParameterOverrideResource::ParameterName, paramName);
+				entryObj.SetVec4(MaterialParameterOverrideResource::Value, defaultValue);
+				entryObj.SetReference(MaterialParameterOverrideResource::Texture, defaultTexture);
+				entryObj.Commit(scope);
+			}
+
+			ResourceObject instanceObj = Resources::Write(instance);
+			instanceObj.AddToSubObjectList(MaterialGraphResource::Parameters, entry);
+			instanceObj.Commit(scope);
+		}
+
+		void RemoveInstanceOverride(RID instance, RID entry)
+		{
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope("Remove Material Parameter Override");
+			ResourceObject instanceObj = Resources::Write(instance);
+			instanceObj.RemoveFromSubObjectList(MaterialGraphResource::Parameters, entry);
+			instanceObj.Commit(scope);
+		}
+
+		//True when `rid` is a graph-kind material (the only thing that may serve as an instance's parent;
+		//instance-of-instance chains aren't supported yet).
+		bool IsMaterialGraphKind(RID rid)
+		{
+			ResourceObject obj = Resources::Read(rid);
+			return obj
+				&& obj.GetType()->GetID() == TypeInfo<MaterialGraphResource>::ID()
+				&& obj.GetEnum<MaterialGraphResource::MaterialKind>(MaterialGraphResource::Kind) == MaterialGraphResource::MaterialKind::Graph;
+		}
+
+		void SetInstanceParent(RID instance, RID parent)
+		{
+			//reject self-parenting and instance-as-parent so the override resolution can't cycle
+			if (parent && (parent == instance || !IsMaterialGraphKind(parent)))
+			{
+				return;
+			}
+
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Material Instance Parent");
+			ResourceObject instanceObj = Resources::Write(instance);
+			instanceObj.SetReference(MaterialGraphResource::Parent, parent);
+			instanceObj.Commit(scope);
+		}
+
+		//A parameter node's value-typed "Default" property encodes how its value is edited (Float/Color/
+		//Texture/...). Falls back to Float when none is found (shouldn't happen for a valid parameter).
+		MaterialNodePropertyType ParameterValueType(MaterialNode* def)
+		{
+			for (const MaterialNodeProperty& prop : def->GetProperties())
+			{
+				if (prop.name == "Default")
+				{
+					return prop.type;
+				}
+			}
+			return MaterialNodePropertyType::Float;
+		}
+	}
+
+	void PropertiesWindow::SetInstanceTexture(RID entry, RID texture)
+	{
+		if (!entry) return;
+
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Material Parameter Texture");
+		ResourceObject write = Resources::Write(entry);
+		write.SetReference(MaterialParameterOverrideResource::Texture, texture);
+		write.Commit(scope);
+	}
+
+	void PropertiesWindow::DrawInstanceParentProperty(u64 id, RID instance, RID parent)
+	{
+		const f32 scale = ImGui::GetStyle().ScaleFactor;
+		const f32 frameHeight = ImGui::GetFrameHeight();
+
+		String name = parent ? ResourceAssets::GetAssetName(parent) : String{"None"};
+
+		bool openPopup = false;
+		ImGui::PushID(static_cast<i32>(id));
+
+		f32 reserve = frameHeight + 4.0f * scale;
+		if (parent)
+		{
+			reserve += frameHeight + ImGui::GetStyle().ItemSpacing.x;
+		}
+		ImGui::SetNextItemWidth(-reserve);
+		ImGuiInputTextReadOnly(static_cast<u32>(id), name);
+
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
+			{
+				if (payload->IsDataType(SK_ASSET_PAYLOAD))
+				{
+					if (AssetPayload* assetPayload = static_cast<AssetPayload*>(payload->Data))
+					{
+						if (IsMaterialGraphKind(assetPayload->asset) && assetPayload->asset != instance)
+						{
+							if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+							{
+								SetInstanceParent(instance, assetPayload->asset);
+							}
+						}
+					}
+				}
+			}
+			ImGui::EndDragDropTarget();
+		}
+
+		ImGui::SameLine(0, 0);
+		if (ImGui::Button(ICON_FA_CIRCLE_DOT, ImVec2(frameHeight, frameHeight)))
+		{
+			openPopup = true;
+		}
+
+		if (parent)
+		{
+			ImGui::SameLine();
+			if (ImGui::Button(ICON_FA_XMARK, ImVec2(frameHeight, frameHeight)))
+			{
+				SetInstanceParent(instance, {});
+			}
+		}
+
+		ImGui::PopID();
+
+		ImGuiResourceSelectionPopup(id, TypeInfo<MaterialGraphResource>::ID(), instance, openPopup, [](RID selected, VoidPtr userData)
+		{
+			PropertiesWindow* self = static_cast<PropertiesWindow*>(userData);
+			SetInstanceParent(self->selectedAsset, selected);
+		}, this);
+	}
+
+	void PropertiesWindow::DrawInstanceScalarProperty(u64 id, RID entry, Vec4 value, MaterialNodePropertyType type)
+	{
+		Vec4 v = (m_instanceValueEditing && entry && m_instanceValueEntry == entry) ? m_instanceValueEdit : value;
+
+		ImGui::PushID(static_cast<i32>(id));
+
+		bool changed = false;
+		bool commit = false;
+
+		switch (type)
+		{
+			case MaterialNodePropertyType::Float:
+				changed = ImGui::DragFloat("##v", &v.x, 0.01f);
+				break;
+			case MaterialNodePropertyType::Int:
+			{
+				int iv = static_cast<int>(v.x);
+				if (ImGui::DragInt("##v", &iv, 1.0f))
+				{
+					v.x = static_cast<f32>(iv);
+					changed = true;
+				}
+				break;
+			}
+			case MaterialNodePropertyType::Bool:
+			{
+				bool bv = v.x != 0.0f;
+				if (ImGui::Checkbox("##v", &bv))
+				{
+					v.x = bv ? 1.0f : 0.0f;
+					changed = true;
+					commit = true; //a checkbox has no drag to settle, so persist the toggle immediately
+				}
+				break;
+			}
+			case MaterialNodePropertyType::Color:
+				changed = ImGui::ColorEdit3("##v", &v.x);
+				break;
+			case MaterialNodePropertyType::Vec2:
+				changed = ImGui::DragFloat2("##v", &v.x, 0.01f);
+				break;
+			case MaterialNodePropertyType::Vec3:
+				changed = ImGui::DragFloat3("##v", &v.x, 0.01f);
+				break;
+			case MaterialNodePropertyType::Vec4:
+				changed = ImGui::DragFloat4("##v", &v.x, 0.01f);
+				break;
+			default:
+				ImGui::PopID();
+				return;
+		}
+
+		if (changed && entry)
+		{
+			m_instanceValueEditing = true;
+			m_instanceValueEntry = entry;
+			m_instanceValueEdit = v;
+		}
+
+		if (entry && (commit || ImGui::IsItemDeactivatedAfterEdit()))
+		{
+			UndoRedoScope* scope = Editor::CreateUndoRedoScope("Edit Material Parameter Override");
+			ResourceObject write = Resources::Write(entry);
+			write.SetVec4(MaterialParameterOverrideResource::Value, v);
+			write.Commit(scope);
+			m_instanceValueEditing = false;
+		}
+
+		ImGui::PopID();
+	}
+
+	void PropertiesWindow::DrawInstanceTextureProperty(u64 id, RID entry, RID texture)
+	{
+		const f32 scale = ImGui::GetStyle().ScaleFactor;
+		const f32 frameHeight = ImGui::GetFrameHeight();
+
+		String name = texture ? ResourceAssets::GetAssetName(texture) : String{"None"};
+
+		bool openPopup = false;
+		ImGui::PushID(static_cast<i32>(id));
+
+		f32 reserve = frameHeight + 4.0f * scale;
+		if (entry && texture)
+		{
+			reserve += frameHeight + ImGui::GetStyle().ItemSpacing.x;
+		}
+		ImGui::SetNextItemWidth(-reserve);
+		ImGuiInputTextReadOnly(static_cast<u32>(id), name);
+
+		if (entry && ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::GetDragDropPayload())
+			{
+				if (payload->IsDataType(SK_ASSET_PAYLOAD))
+				{
+					if (AssetPayload* assetPayload = static_cast<AssetPayload*>(payload->Data))
+					{
+						if (ResourceType* type = Resources::GetType(assetPayload->asset);
+							type != nullptr && type->GetID() == TypeInfo<TextureResource>::ID())
+						{
+							if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
+							{
+								SetInstanceTexture(entry, assetPayload->asset);
+							}
+						}
+					}
+				}
+			}
+			ImGui::EndDragDropTarget();
+		}
+
+		ImGui::SameLine(0, 0);
+		if (ImGui::Button(ICON_FA_CIRCLE_DOT, ImVec2(frameHeight, frameHeight)))
+		{
+			openPopup = true;
+			m_instanceTextureEntry = entry;
+		}
+
+		if (entry && texture)
+		{
+			ImGui::SameLine();
+			if (ImGui::Button(ICON_FA_XMARK, ImVec2(frameHeight, frameHeight)))
+			{
+				SetInstanceTexture(entry, {});
+			}
+		}
+
+		ImGui::PopID();
+
+		ImGuiResourceSelectionPopup(id, TypeInfo<TextureResource>::ID(), entry, openPopup, [](RID selected, VoidPtr userData)
+		{
+			PropertiesWindow* self = static_cast<PropertiesWindow*>(userData);
+			self->SetInstanceTexture(self->m_instanceTextureEntry, selected);
+		}, this);
+	}
+
+	void PropertiesWindow::DrawMaterialInstance(u32 windowId, RID instance)
+	{
+		ResourceObject instanceObj = Resources::Read(instance);
+		if (!instanceObj) return;
+
+		const f32 scale = ImGui::GetStyle().ScaleFactor;
+		const f32 frameHeight = ImGui::GetFrameHeight();
+		RID       parent = instanceObj.GetReference(MaterialGraphResource::Parent);
+
+		ImGui::Dummy(ImVec2(0, 4 * scale));
+
+		if (ImGui::CollapsingHeader("Material Instance", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			ImGui::Indent();
+			if (ImGui::BeginTable("##matinst-parent", 2))
+			{
+				ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+				ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+				ImGui::TableNextColumn();
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextUnformatted("Parent Graph");
+				ImGui::TableNextColumn();
+				ImGui::SetNextItemWidth(-1);
+				DrawInstanceParentProperty(HashValue(instance.id), instance, parent);
+
+				ImGui::EndTable();
+			}
+			ImGui::Unindent();
+		}
+
+		if (!parent)
+		{
+			ImGui::Dummy(ImVec2(0, 4 * scale));
+			ImGui::Indent();
+			ImGui::TextDisabled("Assign a parent material graph to expose its parameters.");
+			ImGui::Unindent();
+			return;
+		}
+
+		ResourceObject parentObj = Resources::Read(parent);
+		if (!parentObj) return;
+
+		if (ImGui::CollapsingHeader("Parameters", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			ImGui::Indent();
+
+			bool any = false;
+			if (ImGui::BeginTable("##matinst-params", 3))
+			{
+				ImGui::TableSetupColumn("##override", ImGuiTableColumnFlags_WidthFixed, frameHeight);
+				ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+				ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+				u32 row = 0;
+				for (RID node : parentObj.GetSubObjectList(MaterialGraphResource::Nodes))
+				{
+					ResourceObject nodeObj = Resources::Read(node);
+					if (!nodeObj) continue;
+
+					MaterialNode* def = MaterialNodeRegistry::Find(nodeObj.GetString(MaterialGraphNodeResource::Type));
+					if (!def || !def->IsParameter()) continue;
+
+					String paramName = nodeObj.GetString(MaterialGraphNodeResource::ParameterName);
+					if (paramName.Empty()) continue;
+
+					any = true;
+					MaterialNodePropertyType valueType = ParameterValueType(def);
+
+					RID  entry = FindInstanceOverride(instanceObj, paramName);
+					bool overridden = entry != RID{};
+
+					u64 rowId = HashValue(instance.id) + HashValue(node.id) + row;
+					ImGui::PushID(static_cast<i32>(rowId));
+
+					ImGui::TableNextColumn();
+					ImGui::AlignTextToFramePadding();
+					bool checkbox = overridden;
+					bool toggled = false;
+					if (ImGui::Checkbox("##override", &checkbox))
+					{
+						//the override list changes here; the new state is read back next frame, so the
+						//value cell below is skipped this frame to avoid touching a just-removed entry.
+						toggled = true;
+						if (checkbox)
+						{
+							AddInstanceOverride(instance, paramName,
+								nodeObj.GetVec4(MaterialGraphNodeResource::Value),
+								nodeObj.GetReference(MaterialGraphNodeResource::Texture));
+						}
+						else
+						{
+							RemoveInstanceOverride(instance, entry);
+						}
+					}
+
+					ImGui::TableNextColumn();
+					ImGui::AlignTextToFramePadding();
+					ImGui::TextUnformatted(paramName.CStr());
+
+					ImGui::TableNextColumn();
+					if (!toggled)
+					{
+						ImGui::SetNextItemWidth(-1);
+						ImGui::BeginDisabled(!overridden);
+						if (valueType == MaterialNodePropertyType::Texture)
+						{
+							RID texture = overridden
+								? Resources::Read(entry).GetReference(MaterialParameterOverrideResource::Texture)
+								: nodeObj.GetReference(MaterialGraphNodeResource::Texture);
+							DrawInstanceTextureProperty(rowId, entry, texture);
+						}
+						else
+						{
+							Vec4 value = overridden
+								? Resources::Read(entry).GetVec4(MaterialParameterOverrideResource::Value)
+								: nodeObj.GetVec4(MaterialGraphNodeResource::Value);
+							DrawInstanceScalarProperty(rowId, entry, value, valueType);
+						}
+						ImGui::EndDisabled();
+					}
+
+					ImGui::PopID();
+					row++;
+				}
+
+				ImGui::EndTable();
+			}
+
+			if (!any)
+			{
+				ImGui::TextDisabled("The parent graph has no named parameters.");
+			}
+
 			ImGui::Unindent();
 		}
 	}
