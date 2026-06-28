@@ -34,7 +34,7 @@
 #include <variant>
 
 #ifndef SK_SCENEVIEW_USE_NEW_PIPELINE
-#define SK_SCENEVIEW_USE_NEW_PIPELINE 0
+#define SK_SCENEVIEW_USE_NEW_PIPELINE 1
 #endif
 
 namespace Skore

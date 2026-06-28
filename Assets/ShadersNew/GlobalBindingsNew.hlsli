@@ -46,6 +46,7 @@ struct VertexLayoutOffset
 };
 
 StructuredBuffer<MaterialData>     MaterialDataBuffer        : register(t0, space2);
+RWStructuredBuffer<uint>           MaterialMaskBuffer        : register(u1, space2);
 SamplerState                       Samplers[SK_SAMPLER_COUNT] : register(s2, space2);
 Texture2D                          BindlessTextures[]        : register(t3, space2);
 ByteAddressBuffer                  MeshDataBuffer            : register(t4, space2);
@@ -76,6 +77,25 @@ float3 GetVertexColor(uint vertexByteOffset, uint layoutIdx, uint vertexId)
 	return asfloat(MeshDataBuffer.Load3(vertexByteOffset + vertexId * layout.stride + layout.colorOffset));
 }
 
+float GetMipmapLod(uint2 dim, float2 uvDx, float2 uvDy)
+{
+	return log2(max(length(uvDx * dim), length(uvDy * dim)));
+}
+
+void WriteMipmapFeedback(uint materialIndex, float4 uvsetsDx, float4 uvsetsDy)
+{
+	const float lodUvset0 = GetMipmapLod(65536u, uvsetsDx.xy, uvsetsDy.xy);
+	const float lodUvset1 = GetMipmapLod(65536u, uvsetsDx.zw, uvsetsDy.zw);
+	const uint  resolution0 = 65536u >> uint(max(0, lodUvset0));
+	const uint  resolution1 = 65536u >> uint(max(0, lodUvset1));
+	const uint  mask = resolution0 | (resolution1 << 16u);
+	const uint  waveMask = WaveActiveBitOr(mask);
+	if (WaveIsFirstLane())
+	{
+		InterlockedOr(MaterialMaskBuffer[materialIndex], waveMask);
+	}
+}
+
 struct SurfaceSample
 {
 	float3 baseColor;
@@ -104,6 +124,8 @@ SurfaceSample SampleSurface(uint materialIndex, float2 texCoord)
 	{
 		discard;
 	}
+
+	WriteMipmapFeedback(materialIndex, ddx_coarse(float4(uv, 0, 0)), ddy_coarse(float4(uv, 0, 0)));
 
 	surface.emissive = mat.emissiveColor * mat.emissiveFactor;
 	if (mat.emissiveTexture >= 0)
