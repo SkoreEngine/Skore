@@ -1,6 +1,7 @@
 namespace Skore
 {
 	void RegisterRenderPipelineNew();
+	void RegisterForwardOpaquePassNew();
 
 	void RegisterDefaultRenderPipeline();
 	void RegisterSwapchainRenderModule();
@@ -28,6 +29,7 @@ namespace Skore
 	void RegisterPipelineTypes()
 	{
 		RegisterRenderPipelineNew();
+		RegisterForwardOpaquePassNew();
 
 		RegisterCascadeShadowMapModule();
 		RegisterDepthPrePassModule();

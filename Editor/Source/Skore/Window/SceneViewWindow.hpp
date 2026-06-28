@@ -11,6 +11,7 @@
 namespace Skore
 {
 	class RenderPipelineContext;
+	class RenderPipelineContextNew;
 
 	class SceneViewWindow : public EditorWindow
 	{
@@ -100,7 +101,8 @@ namespace Skore
 
 		EntityPicker entityPicker = {};
 
-		RenderPipelineContext* renderPipelineContext = nullptr;
+		RenderPipelineContext*    renderPipelineContext = nullptr;
+		RenderPipelineContextNew* renderPipelineContextNew = nullptr;
 
 
 		static void OpenSceneView(const MenuItemEventData& eventData);
@@ -111,6 +113,16 @@ namespace Skore
 
 		static MenuItemContext menuItemContext;
 		Scene emptyScene;
+
+		struct ViewportCamera
+		{
+			Mat4 view = Mat4(1.0);
+			Mat4 projectionNoJitter = Mat4(1.0);
+			Mat4 viewProjectionNoJitter = Mat4(1.0);
+		};
+
+		GPUTexture*    GetDisplayTexture() const;
+		ViewportCamera GetViewportCamera() const;
 
 		void Draw3DViewport(u32 id);
 		void Draw2DViewport(u32 id);

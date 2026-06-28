@@ -1,0 +1,62 @@
+#include "SceneBindingsNew.hlsli"
+#include "GlobalBindingsNew.hlsli"
+
+struct PushConstants
+{
+	matrix world;
+	uint   materialIndex;
+	uint   vertexByteOffset;
+	uint   vertexLayoutIndex;
+	uint   pad;
+};
+
+[[vk::push_constant]] PushConstants pushConstants;
+
+struct PixelInput
+{
+	float4 position : SV_POSITION;
+	float3 normal   : NORMAL;
+	float2 texCoord : TEXCOORD0;
+	float3 color    : COLOR;
+	float3 worldPos : POSITION1;
+};
+
+PixelInput MainVS(uint vertexId : SV_VertexID)
+{
+	uint vboff     = pushConstants.vertexByteOffset;
+	uint layoutIdx = pushConstants.vertexLayoutIndex;
+
+	float3 position = GetVertexPosition(vboff, layoutIdx, vertexId);
+	float3 normal   = GetVertexNormal(vboff, layoutIdx, vertexId);
+
+	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0));
+
+	PixelInput output;
+	output.position = mul(viewProjection, worldPosition);
+	output.worldPos = worldPosition.xyz;
+
+	float3x3 normalMat = (float3x3)pushConstants.world;
+	output.normal = normalize(mul(normalMat, normal));
+
+	output.texCoord = GetVertexUV(vboff, layoutIdx, vertexId);
+	output.color    = GetVertexColor(vboff, layoutIdx, vertexId);
+
+	return output;
+}
+
+float4 MainPS(PixelInput input) : SV_Target0
+{
+	SurfaceSample surface = SampleSurface(pushConstants.materialIndex, input.texCoord);
+
+	float3 baseColor = surface.baseColor * input.color;
+
+	float3 N      = normalize(input.normal);
+	float3 sunDir = normalize(float3(0.5, 1.0, 0.4));
+	float  ndl    = saturate(dot(N, sunDir));
+
+	float3 ambient = float3(0.18, 0.20, 0.24);
+	float3 color   = baseColor * (ambient + ndl * float3(1.0, 0.97, 0.92));
+	color += surface.emissive;
+
+	return float4(color, 1.0);
+}
