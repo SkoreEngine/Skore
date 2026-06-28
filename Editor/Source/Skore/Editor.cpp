@@ -1712,6 +1712,7 @@ namespace Skore
 	void RegisterThumbnailGenerationTypes();
 	void RegisterAnimatorEditorTypes();
 	void RegisterPreviewModule();
+	void RegisterPreviewRenderPipeline();
 
 	SK_API void EditorTypeRegister()
 	{
@@ -1749,5 +1750,6 @@ namespace Skore
 		RegisterThumbnailGenerationTypes();
 		RegisterAnimatorEditorTypes();
 		RegisterPreviewModule();
+		RegisterPreviewRenderPipeline();
 	}
 }

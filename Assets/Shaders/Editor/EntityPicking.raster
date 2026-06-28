@@ -1,5 +1,5 @@
 
-#include "VertexPulling.hlsli"
+#include "Skore://Shaders/VertexPulling.hlsli"
 
 // Vertex output / Pixel input structure
 struct VertexOutput

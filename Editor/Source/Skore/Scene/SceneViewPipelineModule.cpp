@@ -76,7 +76,7 @@ namespace Skore
 
 			{
 				GraphicsPipelineDesc pipelineDesc = {
-					.shader = Resources::FindByPath("Skore://Shaders/MaskShader.raster"),
+					.shader = Resources::FindByPath("Skore://Shaders/Editor/MaskShader.raster"),
 					.blendStates = {
 						BlendStateDesc{
 						}
@@ -117,7 +117,7 @@ namespace Skore
 
 			{
 				GraphicsPipelineDesc pipelineDesc = {
-					.shader = Resources::FindByPath("Skore://Shaders/CompositeMaskShader.raster"),
+					.shader = Resources::FindByPath("Skore://Shaders/Editor/CompositeMaskShader.raster"),
 					.blendStates = {
 						BlendStateDesc{
 						}
@@ -223,7 +223,7 @@ namespace Skore
 					if (index >= unlitPipelines.Size())
 					{
 						GPUPipeline* p = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
-							.shader = Resources::FindByPath("Skore://Shaders/Unlit.raster"),
+							.shader = Resources::FindByPath("Skore://Shaders/Editor/Unlit.raster"),
 							.blendStates = {
 								BlendStateDesc{}
 							},
@@ -486,7 +486,7 @@ namespace Skore
 
 			{
 				GraphicsPipelineDesc pipelineDesc = {
-					.shader = Resources::FindByPath("Skore://Shaders/DrawGrid.raster"),
+					.shader = Resources::FindByPath("Skore://Shaders/Editor/DrawGrid.raster"),
 					.depthStencilState = {
 						.depthTestEnable = true,
 						.depthWriteEnable = false,
@@ -509,7 +509,7 @@ namespace Skore
 
 			{
 				debugPhysicsPipeline = Graphics::CreateGraphicsPipeline({
-					.shader = Resources::FindByPath("Skore://Shaders/DebugPhysics.raster"),
+					.shader = Resources::FindByPath("Skore://Shaders/Editor/DebugPhysics.raster"),
 					.rasterizerState = {
 						.polygonMode = PolygonMode::Line,
 						.lineWidth = 2.0f * ImGui::GetStyle().ScaleFactor,

@@ -1,4 +1,4 @@
-#include "Common.hlsli"
+#include "Skore://Shaders/Common.hlsli"
 
 Texture2D                       inputTexture    :   register(t0);
 

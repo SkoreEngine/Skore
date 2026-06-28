@@ -4,7 +4,7 @@
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Graphics/RenderSceneObjects.hpp"
 #include "Skore/Graphics/Pipelines/Modules/CascadeShadowMapModule.hpp"
-#include "PipelineCommon.hpp"
+#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/Components/EnvironmentComponent.hpp"

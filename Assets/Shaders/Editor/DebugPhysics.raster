@@ -1,4 +1,4 @@
-#include "SceneBindings.hlsli"
+#include "Skore://Shaders/SceneBindings.hlsli"
 
 struct PushConstants
 {

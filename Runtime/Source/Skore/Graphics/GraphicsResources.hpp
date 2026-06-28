@@ -34,7 +34,7 @@ namespace Skore
 		};
 
 		static RID    GetVariant(RID shader, StringView name);
-		static String GetVariantName(Span<String> macros);
+		SK_API static String GetVariantName(Span<String> macros);
 		static u32    GetRayHitGroup(RID shader);
 	};
 

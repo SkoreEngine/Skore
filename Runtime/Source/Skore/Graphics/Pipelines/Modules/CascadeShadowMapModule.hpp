@@ -81,7 +81,7 @@ namespace Skore
 		u32               m_shadowIndirectPipelineCount = 0;
 	};
 
-	class CascadeShadowMapModuleBase : public RenderPipelineModule
+	class SK_API CascadeShadowMapModuleBase : public RenderPipelineModule
 	{
 	public:
 		SK_CLASS(CascadeShadowMapModuleBase, RenderPipelineModule);

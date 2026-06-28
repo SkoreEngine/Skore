@@ -203,7 +203,7 @@ namespace Skore
 		if (!textureResizePipeline)
 		{
 			textureResizePipeline = Graphics::CreateComputePipeline(ComputePipelineDesc{
-				.shader = Resources::FindByPath("Skore://Shaders/TextureResize.comp"),
+				.shader = Resources::FindByPath("Skore://Shaders/Tools/TextureResize.comp"),
 				.allowImmediateSet = true,
 				.debugName = "TextureResizePipeline",
 			});
@@ -356,7 +356,7 @@ namespace Skore
 		});
 
 		ComputePipelineDesc desc;
-		desc.shader = Resources::FindByPath("Skore://Shaders/GenBRDFLUT.comp");
+		desc.shader = Resources::FindByPath("Skore://Shaders/Tools/GenBRDFLUT.comp");
 		desc.debugName = "BRDFLUTGen";
 
 		GPUPipeline*      computePipeline = Graphics::CreateComputePipeline(desc);
@@ -401,7 +401,7 @@ namespace Skore
 	void EquirectangularToCubeMap::Init()
 	{
 		ComputePipelineDesc desc;
-		desc.shader = Resources::FindByPath("Skore://Shaders/EquirectangularToCubemap.comp");
+		desc.shader = Resources::FindByPath("Skore://Shaders/Tools/EquirectangularToCubemap.comp");
 		desc.debugName = "EquirectangularToCubemap";
 
 		m_pipeline = Graphics::CreateComputePipeline(desc);
@@ -452,7 +452,7 @@ namespace Skore
 	void DiffuseIrradianceGenerator::Init()
 	{
 		ComputePipelineDesc desc;
-		desc.shader = Resources::FindByPath("Skore://Shaders/DiffuseIrradianceGenerator.comp"),
+		desc.shader = Resources::FindByPath("Skore://Shaders/Tools/DiffuseIrradianceGenerator.comp"),
 			desc.debugName = "DiffuseIrradianceGenerator";
 
 		m_pipeline = Graphics::CreateComputePipeline(desc);
@@ -507,7 +507,7 @@ namespace Skore
 	void SpecularMapGenerator::Init(GPUTexture* cubemapTexture, GPUTexture* specularMapTexture)
 	{
 		ComputePipelineDesc desc;
-		desc.shader = Resources::FindByPath("Skore://Shaders/SpecularMap.comp");
+		desc.shader = Resources::FindByPath("Skore://Shaders/Tools/SpecularMap.comp");
 		desc.allowImmediateSet = true;
 		m_pipeline = Graphics::CreateComputePipeline(desc);
 

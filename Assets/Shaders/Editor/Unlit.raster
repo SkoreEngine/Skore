@@ -1,6 +1,6 @@
 
-#include "GlobalBindings.hlsli"
-#include "SceneBindings.hlsli"
+#include "Skore://Shaders/GlobalBindings.hlsli"
+#include "Skore://Shaders/SceneBindings.hlsli"
 
 struct PushConstants
 {

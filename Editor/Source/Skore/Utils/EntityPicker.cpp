@@ -121,7 +121,7 @@ namespace Skore
 				if (index >= pickerPipelines.Size())
 				{
 					GPUPipeline* p = Graphics::CreateGraphicsPipeline(GraphicsPipelineDesc{
-						.shader = Resources::FindByPath("Skore://Shaders/EntityPicking.raster"),
+						.shader = Resources::FindByPath("Skore://Shaders/Editor/EntityPicking.raster"),
 						.depthStencilState = {
 							.depthTestEnable = true,
 							.depthWriteEnable = true,
