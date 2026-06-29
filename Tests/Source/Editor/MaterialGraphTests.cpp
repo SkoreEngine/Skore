@@ -617,7 +617,7 @@ namespace
 		#endif
 
 		String shadersDir = String{SK_SHADERS_NEW_DIR};
-		String templateText = FileSystem::ReadFileAsString(Path::Join(shadersDir, "MaterialGraphForward.template.raster"));
+		String templateText = FileSystem::ReadFileAsString(Path::Join(shadersDir, "ForwardOpaque.raster"));
 		REQUIRE(!templateText.Empty());
 
 		String log;

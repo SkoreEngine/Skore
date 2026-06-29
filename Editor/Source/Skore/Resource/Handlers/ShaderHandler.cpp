@@ -56,6 +56,7 @@ namespace Skore
 		Array<ShaderConfigVariant> variants;
 		Array<String> booleanStates;
 		u32 rayHitGroup = 0;
+		bool material = false;
 
 		static void RegisterType(NativeReflectType<ShaderConfig>& type)
 		{
@@ -63,6 +64,7 @@ namespace Skore
 			type.Field<&ShaderConfig::variants>("variants");
 			type.Field<&ShaderConfig::booleanStates>("booleanStates");
 			type.Field<&ShaderConfig::rayHitGroup>("rayHitGroup");
+			type.Field<&ShaderConfig::material>("material");
 		}
 	};
 
@@ -115,6 +117,7 @@ namespace Skore
 			bool             hasRaygen = str.find("[shader(\"raygeneration\")]") != std::string_view::npos;
 			bool             hasMiss = str.find("[shader(\"miss\")]") != std::string_view::npos;
 			bool             hasClosestHit = str.find("[shader(\"closesthit\")]") != std::string_view::npos;
+			bool             isMaterial = config.material || str.find("@SK_MATERIAL_GRAPH@") != std::string_view::npos;
 
 			u32 rayHitGroup = config.rayHitGroup;
 			{
@@ -136,6 +139,7 @@ namespace Skore
 				}
 			}
 			shaderResourceObject.SetUInt(ShaderResource::RayHitGroup, rayHitGroup);
+			shaderResourceObject.SetBool(ShaderResource::IsMaterial, isMaterial);
 
 			if (!config.booleanStates.Empty())
 			{
@@ -298,8 +302,23 @@ namespace Skore
 
 			if (config.variants.Empty())
 			{
-				ShaderAssetType shaderType = GetShaderAssetType();
-				if (shaderType == ShaderAssetType::Graphics)
+				ShaderAssetType shaderType = config.material ? ShaderAssetType::None : GetShaderAssetType();
+				if (config.material)
+				{
+					ShaderConfigVariant configVariant;
+					configVariant.name = "Default";
+					for (const ShaderEntryPoint& entryPoint : DetectShaderStages(source))
+					{
+						configVariant.stages.EmplaceBack(ShaderConfigStage{
+							.entryPoint = entryPoint.entryPoint,
+							.stage = entryPoint.stage,
+							.macros = entryPoint.macros,
+							.hitGroup = entryPoint.hitGroup
+						});
+					}
+					config.variants.EmplaceBack(configVariant);
+				}
+				else if (shaderType == ShaderAssetType::Graphics)
 				{
 					ShaderConfigVariant configVariant = ShaderConfigVariant{
 						.name = "Default",

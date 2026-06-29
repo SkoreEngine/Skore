@@ -21,13 +21,15 @@ namespace Skore
 		bool     hasBones = false;
 		bool     masked = false;
 		RID      shader = {};
+		RID      materialGraph = {};
 
 		bool operator==(const DrawPipelineDesc& other) const
 		{
 			return cullMode == other.cullMode
 				&& hasBones == other.hasBones
 				&& masked == other.masked
-				&& shader == other.shader;
+				&& shader == other.shader
+				&& materialGraph == other.materialGraph;
 		}
 	};
 

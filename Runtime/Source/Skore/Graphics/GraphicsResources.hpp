@@ -1,5 +1,8 @@
 #pragma once
 #include "Skore/Core/Object.hpp"
+#include "Skore/Core/Array.hpp"
+#include "Skore/Core/HashMap.hpp"
+#include "Skore/Core/String.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
@@ -20,21 +23,24 @@ namespace Skore
 			Spriv,        //Blob
 			PipelineDesc, //Subobject
 			Stages,       //SubobjectList
+			Material,     //Reference
 		};
 	};
 
 
-	struct ShaderResource
+	struct SK_API ShaderResource
 	{
 		enum
 		{
 			Name,        //String
 			Variants,    //SubobjectList
 			RayHitGroup, //Uint
+			IsMaterial,  //Bool
 		};
 
 		static RID    GetVariant(RID shader, StringView name);
-		SK_API static String GetVariantName(Span<String> macros);
+		static RID    GetVariant(RID shader, RID material, StringView name);
+		static String GetVariantName(Span<String> macros);
 		static u32    GetRayHitGroup(RID shader);
 	};
 
@@ -284,6 +290,42 @@ namespace Skore
 			Value,         //Vec4      - scalar/vector override (components used depend on the parameter type)
 			Texture,       //Reference - texture override for Texture2D parameters
 		};
+	};
+
+	//Per-material parameter block size in bytes (SK_MaterialParamBuffer stride). Must match the editor
+	//codegen in MaterialGraphCompiler (SK_MatParamBase = materialIndex * this).
+	constexpr u32 MaterialParamBlockSize = 256;
+
+	enum class MaterialParamKind : u8
+	{
+		Float,
+		Vec2,
+		Vec3,
+		Vec4,
+		Texture,
+	};
+
+	struct MaterialParamEntry
+	{
+		String            name;                            //exposed parameter name; empty for fixed (non-parameter) textures
+		RID               node = {};                       //node holding the default Value/Texture for this slot
+		MaterialParamKind kind = MaterialParamKind::Float;
+		u32               offset = 0;
+	};
+
+	//Packed parameter layout for a material graph: one slot per named parameter (deduped by name) and per
+	//fixed-texture node, in node order, assigned tight 4-byte-aligned offsets. Built identically on the
+	//editor codegen and runtime packing sides so the generated SK_MaterialParamBuffer reads line up with
+	//the bytes the runtime writes.
+	struct SK_API MaterialParamLayout
+	{
+		Array<MaterialParamEntry> entries;       //unique slots, packed
+		HashMap<u64, u32>         nodeOffsets;    //node id -> slot byte offset (every parameter/texture node)
+		RID                       owningGraph = {};
+		u32                       size = 0;
+
+		//Resolves `material` to its owning graph (following Parent for instances) and builds the layout.
+		static MaterialParamLayout Build(RID material);
 	};
 
 	struct AnimationKeyFrame

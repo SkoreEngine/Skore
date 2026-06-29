@@ -987,6 +987,9 @@ namespace Skore
 		GPUBuffer*        materialMaskReadbackBuffers[SK_FRAMES_IN_FLIGHT] = {};
 		u32               materialDataBufferCapacity = 0;
 		u32               materialDataCount = 0;
+		GPUBuffer*        materialParamBuffer = nullptr;
+		u32               materialParamBufferCapacity = 0;
+		u32               materialParamCount = 0;
 		bool              globalDescriptorSetAlive = false;
 
 		u32 AllocatePrimitiveInfoSlot()
@@ -1212,6 +1215,137 @@ namespace Skore
 		std::mutex           pendingMaterialsMutex;
 		Array<PendingMaterial> pendingMaterials;
 
+		void PackGraphMaterialParams(const MaterialResourceCachePtr& materialCache, const MaterialParamLayout& layout, bool async)
+		{
+			materialCache->materialParamData.Clear();
+			if (layout.size == 0)
+			{
+				return;
+			}
+
+			materialCache->materialParamData.Resize(layout.size, 0);
+			u8* dest = materialCache->materialParamData.Data();
+
+			ResourceObject matObj = Resources::Read(materialCache->rid);
+			bool           isInstance = matObj && matObj.GetEnum<MaterialGraphResource::MaterialKind>(MaterialGraphResource::Kind) == MaterialGraphResource::MaterialKind::Instance;
+
+			for (const MaterialParamEntry& entry : layout.entries)
+			{
+				Vec4 value{};
+				RID  texture{};
+
+				if (ResourceObject nodeObj = Resources::Read(entry.node))
+				{
+					value = nodeObj.GetVec4(MaterialGraphNodeResource::Value);
+					texture = nodeObj.GetReference(MaterialGraphNodeResource::Texture);
+				}
+
+				if (isInstance && !entry.name.Empty())
+				{
+					for (RID overrideRid : matObj.GetSubObjectList(MaterialGraphResource::Parameters))
+					{
+						ResourceObject overrideObj = Resources::Read(overrideRid);
+						if (overrideObj && entry.name == overrideObj.GetString(MaterialParameterOverrideResource::ParameterName))
+						{
+							value = overrideObj.GetVec4(MaterialParameterOverrideResource::Value);
+							if (RID overrideTexture = overrideObj.GetReference(MaterialParameterOverrideResource::Texture))
+							{
+								texture = overrideTexture;
+							}
+							break;
+						}
+					}
+				}
+
+				u8* at = dest + entry.offset;
+				switch (entry.kind)
+				{
+					case MaterialParamKind::Float:
+					{
+						f32 v = value.x;
+						memcpy(at, &v, sizeof(f32));
+						break;
+					}
+					case MaterialParamKind::Vec2:
+					{
+						f32 v[2] = {value.x, value.y};
+						memcpy(at, v, sizeof(v));
+						break;
+					}
+					case MaterialParamKind::Vec3:
+					{
+						f32 v[3] = {value.x, value.y, value.z};
+						memcpy(at, v, sizeof(v));
+						break;
+					}
+					case MaterialParamKind::Vec4:
+					{
+						f32 v[4] = {value.x, value.y, value.z, value.w};
+						memcpy(at, v, sizeof(v));
+						break;
+					}
+					case MaterialParamKind::Texture:
+					{
+						i32 index = -1;
+						if (texture)
+						{
+							TextureResourceCachePtr textureCache = RenderResourceCache::GetTextureCache(texture, async);
+							if (textureCache && textureCache->textureIndex != U32_MAX)
+							{
+								index = static_cast<i32>(textureCache->textureIndex);
+								materialCache->textures.EmplaceBack(std::move(textureCache));
+							}
+						}
+						memcpy(at, &index, sizeof(i32));
+						break;
+					}
+				}
+			}
+		}
+
+		void WriteMaterialParamsToBuffer(const MaterialResourceCachePtr& materialCache)
+		{
+			if (materialCache->materialParamData.Empty() || materialCache->materialIndex == U32_MAX)
+			{
+				return;
+			}
+
+			u32 requiredCapacity = materialCache->materialIndex + 1;
+			if (requiredCapacity > materialParamBufferCapacity)
+			{
+				u32 newCapacity = requiredCapacity * 2;
+				if (newCapacity < 64) newCapacity = 64;
+
+				GPUBuffer* newBuffer = Graphics::CreateBuffer(BufferDesc{
+					.size = newCapacity * MaterialParamBlockSize,
+					.usage = ResourceUsage::ShaderResource,
+					.hostVisible = true,
+					.persistentMapped = true,
+					.debugName = "MaterialParamBuffer"
+				});
+
+				if (materialParamBuffer)
+				{
+					memcpy(newBuffer->GetMappedData(), materialParamBuffer->GetMappedData(), materialParamBufferCapacity * MaterialParamBlockSize);
+					materialParamBuffer->Destroy();
+				}
+
+				materialParamBuffer = newBuffer;
+				materialParamBufferCapacity = newCapacity;
+			}
+
+			u8* mapped = static_cast<u8*>(materialParamBuffer->GetMappedData());
+			u8* dest = mapped + static_cast<usize>(materialCache->materialIndex) * MaterialParamBlockSize;
+			memset(dest, 0, MaterialParamBlockSize);
+
+			usize bytes = materialCache->materialParamData.Size();
+			if (bytes > MaterialParamBlockSize) bytes = MaterialParamBlockSize;
+			memcpy(dest, materialCache->materialParamData.Data(), bytes);
+
+			materialParamCount = std::max(materialParamCount, materialCache->materialIndex + 1);
+			globalDescriptorSet->UpdateBuffer(7, materialParamBuffer, 0, materialParamCount * MaterialParamBlockSize);
+		}
+
 		void WriteMaterialDataToBuffer(const MaterialResourceCachePtr& materialCache, const MaterialData& matData)
 		{
 			if (materialCache->materialIndex == U32_MAX)
@@ -1280,6 +1414,11 @@ namespace Skore
 
 			globalDescriptorSet->UpdateBuffer(0, materialDataBuffer, 0, materialDataCount * sizeof(MaterialData));
 			globalDescriptorSet->UpdateBuffer(1, materialMaskBuffer, 0, materialDataCount * sizeof(u32));
+
+			if (materialCache->materialGraph)
+			{
+				WriteMaterialParamsToBuffer(materialCache);
+			}
 		}
 
 		void AddPendingMaterial(MaterialResourceCachePtr cache, const MaterialData& data)
@@ -1309,6 +1448,39 @@ namespace Skore
 
 		void UpdateMaterialStorageData(const ResourceObject& materialObject, MaterialResourceCachePtr materialCache, bool async)
 		{
+			if (Resources::GetType(materialCache->rid) == Resources::FindType<MaterialGraphResource>())
+			{
+				MaterialParamLayout layout = MaterialParamLayout::Build(materialCache->rid);
+				materialCache->materialGraph = layout.owningGraph ? layout.owningGraph : materialCache->rid;
+
+				MaterialGraphResource::GraphAlphaMode alphaMode = materialObject.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+				materialCache->transparent = alphaMode == MaterialGraphResource::GraphAlphaMode::Blend;
+				materialCache->masked = alphaMode == MaterialGraphResource::GraphAlphaMode::Mask;
+				materialCache->type = MaterialResource::MaterialType::Opaque;
+
+				materialCache->textures.Clear();
+				PackGraphMaterialParams(materialCache, layout, async);
+
+				MaterialData matData{};
+				matData.baseColor = Vec3(1.0f, 1.0f, 1.0f);
+				matData.baseColorTexture = -1;
+				matData.normalTexture = -1;
+				matData.roughnessTexture = -1;
+				matData.metallicTexture = -1;
+				matData.emissiveTexture = -1;
+				matData.uvScale = Vec2(1.0f, 1.0f);
+
+				if (materialCache->materialIndex == U32_MAX)
+				{
+					AddPendingMaterial(materialCache, matData);
+				}
+				else
+				{
+					WriteMaterialDataToBuffer(materialCache, matData);
+				}
+				return;
+			}
+
 			StringView name = materialObject.GetString(MaterialResource::Name);
 
 			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
@@ -2026,6 +2198,7 @@ namespace Skore
 			if (ResourceStorage* storage = Resources::GetStorage(rid))
 			{
 				storage->UnregisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
+				storage->UnregisterEvent(ResourceEventType::VersionUpdated, GraphicsResourceStorageMaterialReload, nullptr);
 			}
 			eventRegistered = false;
 		}
@@ -2389,6 +2562,25 @@ namespace Skore
 		return result;
 	}
 
+	namespace
+	{
+		FnMaterialVariantResolver gMaterialVariantResolver = nullptr;
+	}
+
+	void RenderResourceCache::SetMaterialVariantResolver(FnMaterialVariantResolver resolver)
+	{
+		gMaterialVariantResolver = resolver;
+	}
+
+	RID RenderResourceCache::EnsureMaterialVariant(RID shader, RID material, StringView variantName)
+	{
+		if (gMaterialVariantResolver)
+		{
+			return gMaterialVariantResolver(shader, material, variantName);
+		}
+		return ShaderResource::GetVariant(shader, material, variantName);
+	}
+
 	MaterialResourceCachePtr RenderResourceCache::GetMaterialCache(RID material, bool async)
 	{
 		if (!material) return nullptr;
@@ -2418,6 +2610,7 @@ namespace Skore
 		if (ResourceStorage* storage = Resources::GetStorage(material))
 		{
 			storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
+			storage->RegisterEvent(ResourceEventType::VersionUpdated, GraphicsResourceStorageMaterialReload, nullptr);
 			materialData->eventRegistered = true;
 		}
 
@@ -3011,6 +3204,10 @@ namespace Skore
 					.binding = 6,
 					.descriptorType = DescriptorType::StorageBuffer
 				},
+				DescriptorSetLayoutBinding{
+					.binding = 7,
+					.descriptorType = DescriptorType::StorageBuffer
+				},
 			},
 			.debugName = "GlobalDescriptorSet"
 		});
@@ -3065,6 +3262,12 @@ namespace Skore
 			materialDataBuffer = nullptr;
 		}
 
+		if (materialParamBuffer)
+		{
+			materialParamBuffer->Destroy();
+			materialParamBuffer = nullptr;
+		}
+
 		if (materialMaskBuffer)
 		{
 			materialMaskBuffer->Destroy();
@@ -3110,6 +3313,8 @@ namespace Skore
 		freeTextureIndices.Clear();
 		materialDataBufferCapacity = 0;
 		materialDataCount = 0;
+		materialParamBufferCapacity = 0;
+		materialParamCount = 0;
 
 		worker = {};
 	}

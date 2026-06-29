@@ -29,6 +29,7 @@ namespace Skore
 		};
 
 		Array<GPUPipeline*> pipelines;
+		Array<RID>          pipelineVariants;
 		Scene*              cachedScene = nullptr;
 
 		~ForwardOpaquePassNew() override
@@ -43,6 +44,7 @@ namespace Skore
 				if (pipeline) pipeline->Destroy();
 			}
 			pipelines.Clear();
+			pipelineVariants.Clear();
 		}
 
 		void BuildRenderGraph(RenderGraph& renderGraph) override
@@ -80,13 +82,40 @@ namespace Skore
 			RID forwardShader = Resources::FindByPath("Skore://ShadersNew/ForwardOpaque.raster");
 			if (!forwardShader) return;
 
-			while (pipelines.Size() < objects->opaquePipelines.Size())
+			u32 count = static_cast<u32>(objects->opaquePipelines.Size());
+			if (pipelines.Size() < count)
 			{
-				const DrawPipelineDesc& desc = objects->opaquePipelines[pipelines.Size()].desc;
+				pipelines.Resize(count, nullptr);
+				pipelineVariants.Resize(count);
+			}
+
+			for (u32 i = 0; i < count; ++i)
+			{
+				const DrawPipelineDesc& desc = objects->opaquePipelines[i].desc;
+
+				RID material = {};
+				RID variant = {};
+				if (desc.materialGraph)
+				{
+					variant = RenderResourceCache::EnsureMaterialVariant(forwardShader, desc.materialGraph, "Default");
+					if (variant) material = desc.materialGraph;
+				}
+				if (!variant)
+				{
+					variant = ShaderResource::GetVariant(forwardShader, "Default");
+				}
+
+				if (pipelines[i] && pipelineVariants[i] == variant)
+				{
+					continue;
+				}
+
+				if (pipelines[i]) pipelines[i]->Destroy();
 
 				GraphicsPipelineDesc gpuDesc;
 				gpuDesc.shader = forwardShader;
 				gpuDesc.variant = "Default";
+				gpuDesc.material = material;
 				gpuDesc.rasterizerState.cullMode = desc.cullMode;
 				gpuDesc.depthStencilState.depthTestEnable = true;
 				gpuDesc.depthStencilState.depthWriteEnable = true;
@@ -96,7 +125,8 @@ namespace Skore
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 1, .descriptorSet = sceneSet});
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 2, .descriptorSet = globalSet});
 
-				pipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
+				pipelines[i] = Graphics::CreateGraphicsPipeline(gpuDesc);
+				pipelineVariants[i] = variant;
 			}
 		}
 
@@ -123,6 +153,7 @@ namespace Skore
 			for (u32 i = 0; i < objects->opaquePipelines.Size(); ++i)
 			{
 				GPUPipeline* pipeline = pipelines[i];
+				if (!pipeline) continue;
 
 				cmd->BindPipeline(pipeline);
 				cmd->BindDescriptorSet(pipeline, 1, sceneSet);

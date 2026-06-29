@@ -25,6 +25,39 @@ namespace Skore
 			snprintf(buf, sizeof(buf), "%u", v);
 			return String{buf};
 		}
+
+		String ParamReadExpr(const MaterialCodegenContext& ctx, MaterialDataType type)
+		{
+			if (ctx.paramByteOffset == U32_MAX)
+			{
+				return MaterialLiteralExpr(type, ctx.value);
+			}
+
+			String off = IndexStr(ctx.paramByteOffset) + "u";
+			switch (type)
+			{
+				case MaterialDataType::Float: return String{"MatParamFloat("} + off + ")";
+				case MaterialDataType::Vec2:  return String{"MatParamVec2("} + off + ")";
+				case MaterialDataType::Vec3:  return String{"MatParamVec3("} + off + ")";
+				default:                      return String{"MatParamVec4("} + off + ")";
+			}
+		}
+
+		//Emits `float4 <var>` sampling this node's per-material bindless texture (white when no texture is
+		//bound). The texture's bindless index lives in the material param buffer at the node's slot.
+		void EmitTextureSample(MaterialCodegenContext& ctx, StringView var, StringView uv)
+		{
+			ctx.AddStatement(String{"float4 "} + var + " = float4(1.0, 1.0, 1.0, 1.0);");
+			if (ctx.paramByteOffset != U32_MAX)
+			{
+				String i = IndexStr(ctx.nodeIndex);
+				String uvVar = String{"uv"} + i;
+				String idx = String{"texIdx"} + i;
+				ctx.AddStatement(String{"float2 "} + uvVar + " = " + uv + ";");
+				ctx.AddStatement(String{"int "} + idx + " = MatParamTexture(" + IndexStr(ctx.paramByteOffset) + "u);");
+				ctx.AddStatement(String{"if ("} + idx + " >= 0) { " + var + " = BindlessTextures[NonUniformResourceIndex(" + idx + ")].Sample(Samplers[SK_LINEAR_SAMPLER], " + uvVar + "); WriteMipmapFeedback(pushConstants.materialIndex, ddx_coarse(float4(" + uvVar + ", 0, 0)), ddy_coarse(float4(" + uvVar + ", 0, 0))); }");
+			}
+		}
 	}
 
 	//--- Output / master node --------------------------------------------------------------------
@@ -141,7 +174,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Float, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Float));
 		}
 	};
 
@@ -163,7 +196,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Float, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Float));
 		}
 	};
 
@@ -185,7 +218,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Float, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Float));
 		}
 	};
 
@@ -207,7 +240,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec3, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Vec3));
 		}
 	};
 
@@ -228,7 +261,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec2, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Vec2));
 		}
 	};
 
@@ -249,7 +282,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec3, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Vec3));
 		}
 	};
 
@@ -270,7 +303,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec4, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Vec4));
 		}
 	};
 
@@ -299,10 +332,8 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.UseTextures();
-			String slot = IndexStr(ctx.TextureSlot());
 			String sample = String{"tex"} + IndexStr(ctx.nodeIndex);
-			ctx.AddStatement(String{"float4 "} + sample + " = MaterialTextures[" + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ");");
+			EmitTextureSample(ctx, sample, ctx.Input(0));
 			ctx.SetOutput(0, sample);
 			ctx.SetOutput(1, sample + ".r");
 			ctx.SetOutput(2, sample + ".g");
@@ -356,10 +387,8 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.UseTextures();
-			String slot = IndexStr(ctx.TextureSlot());
 			String sample = String{"tex"} + IndexStr(ctx.nodeIndex);
-			ctx.AddStatement(String{"float4 "} + sample + " = MaterialTextures[" + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ");");
+			EmitTextureSample(ctx, sample, ctx.Input(0));
 			ctx.SetOutput(0, sample);
 			ctx.SetOutput(1, sample + ".r");
 			ctx.SetOutput(2, sample + ".g");
@@ -391,10 +420,10 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.UseTextures();
-			String slot = IndexStr(ctx.TextureSlot());
+			String sample = String{"tex"} + IndexStr(ctx.nodeIndex);
+			EmitTextureSample(ctx, sample, ctx.Input(0));
 			String temp = String{"nm"} + IndexStr(ctx.nodeIndex);
-			ctx.AddStatement(String{"float3 "} + temp + " = MaterialTextures[" + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ").xyz * 2.0 - 1.0;");
+			ctx.AddStatement(String{"float3 "} + temp + " = " + sample + ".xyz * 2.0 - 1.0;");
 			ctx.SetOutput(0, String{"normalize(float3("} + temp + ".xy * " + ctx.Input(1) + ", " + temp + ".z))");
 		}
 	};

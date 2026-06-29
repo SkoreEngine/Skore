@@ -68,6 +68,7 @@ namespace Skore
 		Array<String>& outputs;
 		Array<String>& statements;
 		bool*          usesTextures = nullptr;
+		u32            paramByteOffset = U32_MAX;
 
 		StringView Input(u32 index) const { return inputs[index]; }
 		void       SetOutput(u32 index, StringView expr) { outputs[index] = expr; }

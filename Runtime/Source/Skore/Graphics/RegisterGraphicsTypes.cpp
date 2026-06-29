@@ -1168,12 +1168,14 @@ namespace Skore
 			.Field<ShaderVariantResource::Spriv>(ResourceFieldType::Blob)
 			.Field<ShaderVariantResource::PipelineDesc>(ResourceFieldType::SubObject)
 			.Field<ShaderVariantResource::Stages>(ResourceFieldType::SubObjectList)
+			.Field<ShaderVariantResource::Material>(ResourceFieldType::Reference, TypeInfo<MaterialGraphResource>::ID())
 			.Build();
 
 		Resources::Type<ShaderResource>()
 			.Field<ShaderResource::Name>(ResourceFieldType::String)
 			.Field<ShaderResource::Variants>(ResourceFieldType::SubObjectList)
 			.Field<ShaderResource::RayHitGroup>(ResourceFieldType::UInt)
+			.Field<ShaderResource::IsMaterial>(ResourceFieldType::Bool)
 			.Build();
 
 		Resources::Type<TextureImageResource>()

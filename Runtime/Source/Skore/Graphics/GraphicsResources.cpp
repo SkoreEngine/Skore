@@ -1,21 +1,47 @@
 #include "Skore/Graphics/GraphicsResources.hpp"
 
 #include "Skore/Core/Reflection.hpp"
+#include "Skore/Core/Traits.hpp"
 #include "Skore/Resource/Resources.hpp"
 
 namespace Skore
 {
 	RID ShaderResource::GetVariant(RID shader, StringView name)
 	{
+		return GetVariant(shader, RID{}, name);
+	}
+
+	RID ShaderResource::GetVariant(RID shader, RID material, StringView name)
+	{
+		if (!shader) return {};
+
+		constexpr u32 maxInstanceParentDepth = 16;
+		RID           graph = material;
+		for (u32 depth = 0; graph && depth < maxInstanceParentDepth; ++depth)
+		{
+			ResourceObject materialObject = Resources::Read(graph);
+			if (!materialObject)
+			{
+				graph = {};
+				break;
+			}
+			if (materialObject.GetEnum<MaterialGraphResource::MaterialKind>(MaterialGraphResource::Kind) != MaterialGraphResource::MaterialKind::Instance)
+			{
+				break;
+			}
+			graph = materialObject.GetReference(MaterialGraphResource::Parent);
+		}
+
 		RID retVariant = {};
 		if (ResourceObject shaderObject = Resources::Read(shader))
 		{
 			shaderObject.IterateSubObjectList(Variants, [&](RID variant)
 			{
+				if (retVariant) return;
 				if (ResourceObject variantObject = Resources::Read(variant))
 				{
-					//TODO : break iteration here.
-					if (variantObject.GetString(ShaderVariantResource::Name) == name)
+					if (variantObject.GetReference(ShaderVariantResource::Material) == graph
+						&& variantObject.GetString(ShaderVariantResource::Name) == name)
 					{
 						retVariant = variant;
 					}
@@ -65,6 +91,137 @@ namespace Skore
 			result += sorted[i];
 		}
 		return result;
+	}
+
+	namespace
+	{
+		bool ParamKindFromTypeId(StringView typeId, MaterialParamKind& kind)
+		{
+			if (typeId == "param_float" || typeId == "param_int" || typeId == "param_bool")
+			{
+				kind = MaterialParamKind::Float;
+				return true;
+			}
+			if (typeId == "param_vec2")
+			{
+				kind = MaterialParamKind::Vec2;
+				return true;
+			}
+			if (typeId == "param_color" || typeId == "param_vec3")
+			{
+				kind = MaterialParamKind::Vec3;
+				return true;
+			}
+			if (typeId == "param_vec4")
+			{
+				kind = MaterialParamKind::Vec4;
+				return true;
+			}
+			if (typeId == "param_texture2d")
+			{
+				kind = MaterialParamKind::Texture;
+				return true;
+			}
+			return false;
+		}
+
+		u32 ParamKindSize(MaterialParamKind kind)
+		{
+			switch (kind)
+			{
+				case MaterialParamKind::Float:   return 4;
+				case MaterialParamKind::Vec2:    return 8;
+				case MaterialParamKind::Vec3:    return 12;
+				case MaterialParamKind::Vec4:    return 16;
+				case MaterialParamKind::Texture: return 4;
+			}
+			return 4;
+		}
+	}
+
+	MaterialParamLayout MaterialParamLayout::Build(RID material)
+	{
+		MaterialParamLayout layout;
+
+		RID graph = material;
+		for (u32 depth = 0; graph && depth < 16; ++depth)
+		{
+			ResourceObject obj = Resources::Read(graph);
+			if (!obj)
+			{
+				graph = {};
+				break;
+			}
+			if (obj.GetEnum<MaterialGraphResource::MaterialKind>(MaterialGraphResource::Kind) != MaterialGraphResource::MaterialKind::Instance)
+			{
+				break;
+			}
+			graph = obj.GetReference(MaterialGraphResource::Parent);
+		}
+
+		layout.owningGraph = graph;
+		if (!graph)
+		{
+			return layout;
+		}
+
+		ResourceObject graphObj = Resources::Read(graph);
+		if (!graphObj)
+		{
+			return layout;
+		}
+
+		HashMap<String, u32> nameOffsets;
+		u32                  offset = 0;
+
+		for (RID node : graphObj.GetSubObjectList(MaterialGraphResource::Nodes))
+		{
+			ResourceObject nodeObj = Resources::Read(node);
+			if (!nodeObj)
+			{
+				continue;
+			}
+
+			StringView typeId = nodeObj.GetString(MaterialGraphNodeResource::Type);
+
+			MaterialParamKind kind;
+			bool              isParam = ParamKindFromTypeId(typeId, kind);
+			bool              isFixedTexture = !isParam && (typeId == "sample_texture" || typeId == "normal_map");
+
+			if (!isParam && !isFixedTexture)
+			{
+				continue;
+			}
+
+			if (isParam)
+			{
+				String name = String{nodeObj.GetString(MaterialGraphNodeResource::ParameterName)};
+				if (name.Empty())
+				{
+					continue;
+				}
+
+				if (auto it = nameOffsets.Find(name); it != nameOffsets.end())
+				{
+					layout.nodeOffsets.Insert(node.id, it->second);
+					continue;
+				}
+
+				layout.nodeOffsets.Insert(node.id, offset);
+				nameOffsets.Insert(name, offset);
+				layout.entries.EmplaceBack(MaterialParamEntry{Traits::Move(name), node, kind, offset});
+				offset += ParamKindSize(kind);
+			}
+			else
+			{
+				layout.nodeOffsets.Insert(node.id, offset);
+				layout.entries.EmplaceBack(MaterialParamEntry{String{}, node, MaterialParamKind::Texture, offset});
+				offset += ParamKindSize(MaterialParamKind::Texture);
+			}
+		}
+
+		layout.size = offset;
+		return layout;
 	}
 
 	void FontMetrics::RegisterType(NativeReflectType<FontMetrics>& type)

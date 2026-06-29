@@ -19,9 +19,9 @@ namespace Skore
 		//Generates the full shader (template + body) and compiles it to SPIR-V for validation (editor side).
 		static MaterialGraphCompileResult Compile(RID graph);
 
-		//Compiles the graph into a runtime ShaderResource (Default variant, MainVS + MainPS). Returns a
-		//null RID on failure (details in log).
 		static RID CompileToShaderResource(RID graph, String& log);
+
+		static RID EnsureMaterialVariant(RID shader, RID material, StringView variantName, String& log);
 
 		//Loads the runtime template from Skore:// and splices the generated body into it.
 		static String GenerateHlsl(RID graph, String& log);
@@ -34,4 +34,6 @@ namespace Skore
 		//that get injected at the template's // @SK_MATERIAL_GRAPH@ marker.
 		static String GenerateBody(RID graph, String& log);
 	};
+
+	SK_API void RegisterMaterialVariantResolver();
 }

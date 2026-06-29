@@ -1,6 +1,6 @@
 #include "SceneBindingsNew.hlsli"
 #include "GlobalBindingsNew.hlsli"
-#include "ForwardLighting.hlsli"
+#include "MaterialSurface.hlsli"
 
 struct PushConstants
 {
@@ -45,12 +45,48 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 	return output;
 }
 
+float3 ShadeForward(float3 baseColor, float3 emissive, float3 worldNormal)
+{
+	float3 N      = normalize(worldNormal);
+	float3 sunDir = normalize(float3(0.5, 1.0, 0.4));
+	float  ndl    = saturate(dot(N, sunDir));
+
+	float3 ambient = float3(0.18, 0.20, 0.24);
+	float3 color   = baseColor * (ambient + ndl * float3(1.0, 0.97, 0.92));
+	color += emissive;
+	return color;
+}
+
+// @SK_MATERIAL_GLOBALS@
+
+SurfaceOutput EvaluateMaterial(MaterialInputs mat)
+{
+	SurfaceOutput surface = (SurfaceOutput)0;
+	surface.baseColor = float3(0.8, 0.8, 0.8);
+	surface.metallic  = 0.0;
+	surface.roughness = 0.5;
+	surface.emissive  = float3(0.0, 0.0, 0.0);
+	surface.normal    = float3(0.0, 0.0, 1.0);
+	surface.occlusion = 1.0;
+	surface.opacity   = 1.0;
+
+	// @SK_MATERIAL_GRAPH@
+
+	return surface;
+}
+
 float4 MainPS(PixelInput input) : SV_Target0
 {
-	SurfaceSample surface = SampleSurface(pushConstants.materialIndex, input.texCoord);
+	MaterialInputs mat;
+	mat.texCoord    = input.texCoord;
+	mat.normal      = input.normal;
+	mat.worldPos    = input.worldPos;
+	mat.vertexColor = input.color;
+
+	SurfaceOutput surface = EvaluateMaterial(mat);
 
 	float3 baseColor = surface.baseColor * input.color;
-	float3 color     = ShadeForward(baseColor, surface.emissive, input.normal);
+	float3 color     = ShadeForward(baseColor, surface.emissive, input.normal) * surface.occlusion;
 
-	return float4(color, 1.0);
+	return float4(color, surface.opacity);
 }

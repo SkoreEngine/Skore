@@ -678,6 +678,7 @@ namespace Skore
 		pipelineDesc.hasBones = hasBones;
 		pipelineDesc.masked   = material->masked;
 		pipelineDesc.shader   = obj->shader;
+		pipelineDesc.materialGraph = material->materialGraph;
 
 		Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
 		ref.pipelineIndex = GetOrCreatePipeline(pipelineStorage, pipelineDesc);
