@@ -1,8 +1,9 @@
 # Material Node System — Roadmap & Status
 
 Living tracking document for the node-based material system (editor-authored shader graphs that
-compile to HLSL → SPIR-V). The editor compile path works today; production runtime consumption is
-still a separate milestone.
+compile to HLSL → SPIR-V) and its integration with the new render pipeline (`PipelineNew` /
+`Assets/ShadersNew`). The prioritized remaining-work breakdown lives in
+`MaterialSystemNextSteps.md`.
 
 **Status legend:** `[x]` done · `[~]` partial / in progress · `[ ]` not started
 
@@ -10,32 +11,72 @@ still a separate milestone.
 
 ## 1. Current state (what exists)
 
-Core editor pipeline is working end-to-end: author a graph → generate HLSL → compile to SPIR-V in
-the editor. The generated shader is still a standalone preview/test pixel shader, not yet the real
-runtime `MaterialSample` / `SampleMaterial` path.
+The pipeline works end-to-end **including runtime consumption**: author a graph → generated HLSL is
+spliced into the forward template shader → compiled to SPIR-V as a per-material shader variant →
+rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless textures.
 
 - [x] **Resource data model** — `MaterialGraphResource` / `MaterialGraphNodeResource` /
-  `MaterialGraphConnectionResource` (`Runtime/.../Graphics/GraphicsResources.hpp`, registered in
-  `RegisterGraphicsTypes.cpp`). Connections reference node sub-objects; `RID.id` is the visual id.
+  `MaterialGraphConnectionResource` / `MaterialGraphPinValueResource` /
+  `MaterialParameterOverrideResource` (`Runtime/.../Graphics/GraphicsResources.hpp`, registered in
+  `RegisterGraphicsTypes.cpp`). One resource backs both authoring kinds via
+  `MaterialKind::Graph | Instance`; `GraphAlphaMode::Opaque | Mask | Blend` + `MaskCutoff` select
+  alpha handling.
 - [x] **Polymorphic node registry** — abstract `MaterialNode : Object` + one subclass per node,
   auto-discovered via reflection (`Editor/.../MaterialGraph/MaterialNode.{hpp,cpp}`). Adding a node =
-  subclass + `Reflection::Type<MyNode>()` in `RegisterMaterialNodes()`.
+  subclass + `Reflection::Type<MyNode>()` in `RegisterMaterialNodes()`. 33 concrete node types.
 - [x] **HLSL codegen + SPIR-V compile** — `MaterialGraphCompiler` (post-order DFS from the output
-  node → standalone `MainPS` → `CompileShader`). Type coercion via `MaterialConvertExpr`. Runtime
-  integration with `Materials.hlsli` is not done yet.
+  node). Generated globals + body are spliced into `Skore://ShadersNew/ForwardOpaque.raster` at the
+  `@SK_MATERIAL_GLOBALS@` / `@SK_MATERIAL_GRAPH@` tokens, filling `EvaluateMaterial`'s
+  `SurfaceOutput`. Type coercion via `MaterialConvertExpr`; generic math pins resolve to the widest
+  connected type.
+- [x] **Generic material shader registration** — any shader containing `@SK_MATERIAL_GRAPH@` (or
+  `material: true` in its `.shader` config) is flagged `ShaderResource::IsMaterial` by
+  `ShaderHandler`; entry points are auto-detected (`ShaderManager::DetectShaderStages`, supports
+  VS/PS/GS/CS + ray-tracing stages). Compiled graph shaders are stored as `ShaderVariantResource`
+  sub-objects tagged with the owning graph (`ShaderVariantResource::Material`) and resolved by
+  `ShaderResource::GetVariant(shader, material, name)` (follows the instance → parent chain).
+- [x] **On-demand variant compilation** — `RenderResourceCache::EnsureMaterialVariant` delegates to
+  a resolver the editor registers (`RegisterMaterialVariantResolver` →
+  `MaterialGraphCompiler::EnsureMaterialVariant`), cached by graph version + hash of the generated
+  HLSL; recompiles on graph change. **Editor-only:** runtime builds have no resolver (see §4
+  cooking).
+- [x] **Runtime parameter buffer** — `MaterialParamLayout::Build(material)`
+  (`GraphicsResources.cpp`) is the single layout contract shared by editor codegen and the runtime
+  packer: one 4-byte-aligned slot per unique named parameter (deduped) + per fixed-texture node,
+  256-byte block per material (`MaterialParamBlockSize`). Codegen emits
+  `ByteAddressBuffer SK_MaterialParamBuffer : register(t7, space2)` +
+  `MatParamFloat/Vec2/Vec3/Vec4/Texture` reads; runtime packs defaults + instance overrides
+  (`RenderResourceCache::PackGraphMaterialParams`) and uploads at `materialIndex * 256`. Parameter
+  edits re-pack without recompiling.
+- [x] **Bindless texture wiring** — texture slots live in the param block as real bindless indices
+  resolved from `TextureResourceCache` (−1 → white fallback); codegen samples
+  `BindlessTextures[NonUniformResourceIndex(idx)]` and emits `WriteMipmapFeedback` per sample.
+- [x] **Render pass integration** — `ForwardOpaquePassNew` batches drawcalls by
+  `DrawPipelineDesc` (now includes `materialGraph`), builds one pipeline per bucket with
+  `GraphicsPipelineDesc::material` selecting the compiled variant, falls back to the default gray
+  template variant, and pushes `materialIndex` via push constants.
 - [x] **Editor window** — `MaterialGraphEditorWindow` (add/move/delete/connect, inline default-value
   widgets on unconnected input pins, Build button + HLSL/log panel). Constant/parameter values are
   edited in the **Properties window** (node properties), not in the graph toolbar.
-- [x] **Asset handler** — `.matgraph` create/open + content-browser "Create > New Material Graph".
-- [x] **Tests** — `Tests/Source/Editor/MaterialGraphTests.cpp` (16 cases, incl. generic-math
-  type promotion + live SPIR-V compile).
+- [x] **Asset handler** — `.matgraph` create/open (`MaterialGraphHandler`), content-browser
+  "Create > New Material Graph" and "Create > New Material Instance" (same resource, different
+  `Kind`; instances are edited in the Properties window with parent picker + per-parameter override
+  checkboxes).
+- [x] **Import path** — `MaterialImporter::ImportMaterialGraphInstance` maps imported (GLTF)
+  materials to instances of `Assets/MaterialGraphs/MaterialBase{,_Masked,_Blend}.matgraph` (picked
+  by alpha mode) with sparse named-parameter overrides and reimport-stable UUIDs.
+  `SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE` is **1**: graph instances are the default import path.
+- [x] **Tests** — `Tests/Source/Editor/MaterialGraphTests.cpp` (22 cases, incl. generic-math
+  type promotion, bindless/sRGB codegen, channel-select codegen, validation, and live SPIR-V compile).
 
 ### Nodes implemented so far
-- [x] Material Output (master) — Base Color, Metallic, Roughness, Emissive, Normal, Ambient Occlusion, Opacity
+- [x] Material Output (master) — Base Color, Metallic, Roughness, Emissive, Normal, Ambient Occlusion, Opacity, Opacity Mask
 - [x] Constant Float · Constant Color · Constant Vector2
-- [x] Parameters (named, instance-overridable): Float · Int · Bool · Color · Vector2/3/4 · Texture2D
+- [x] Parameters (named, instance-overridable): Float · Int · Bool · Channel · Color · Vector2/3/4 · Texture2D
 - [x] Texture Coordinate (UV0)
-- [x] Sample Texture 2D · Normal Map · Tiling & Offset
+- [x] Sample Texture 2D · Normal Map · Tiling & Offset · Channel Select (RGBA + runtime channel index → Float;
+  the base graphs route Metallic/Roughness/Occlusion through it so importers and instances can remap
+  packed-texture channels via the `MetallicChannel`/`RoughnessChannel`/`OcclusionChannel` parameters, 0=R 1=G 2=B 3=A)
 - [x] Multiply · Add · Lerp
 - [x] Subtract · Divide · Power · Min · Max · Step
 - [x] One Minus · Saturate · Clamp · Smoothstep · Remap
@@ -45,17 +86,17 @@ runtime `MaterialSample` / `SampleMaterial` path.
 
 ## 2. Master / Output node expansion
 
-Map the master node to the full PBR `MaterialSample` (baseColor, alpha, normal, roughness, metallic,
-emissive, occlusion). Pixel-stage outputs first; vertex-stage later.
-
 - [x] Base Color (Vec3)
-- [x] Metallic (Float)
-- [x] Roughness (Float)
+- [x] Metallic (Float) — consumed by the forward pass GGX shading
+- [x] Roughness (Float) — consumed by the forward pass GGX shading
 - [x] Emissive (Vec3)
-- [x] Normal (Vec3, tangent-space) — pin + surface var emitted; TBN→world transform comes with runtime integration
-- [x] Ambient Occlusion (Float)
-- [x] Opacity (Float) — single pin for now; blend-vs-cutout (Opacity Mask) split deferred to AlphaMode support
-- [ ] World Position Offset (Vec3, **vertex stage**) — requires emitting a vertex shader, not just PS
+- [x] Normal (Vec3, tangent-space) — tangent fetched in `MainVS` (`GetVertexTangent`, w carries the
+  bitangent sign), TBN transform in `MainPS` (`ResolveWorldNormal`); falls back to the vertex normal
+  on meshes without tangents
+- [x] Ambient Occlusion (Float) — applied to the ambient term
+- [x] Opacity (Float) + Opacity Mask (Float) — separate pins; `GraphAlphaMode` selects behavior
+  (Opaque forces 1.0, Mask emits `discard` below `MaskCutoff`, Blend writes alpha)
+- [ ] World Position Offset (Vec3, **vertex stage**) — requires vertex-stage codegen
 - [ ] *Advanced surface outputs:* Clear Coat · Anisotropy · Subsurface · Refraction
 
 ---
@@ -76,6 +117,7 @@ emissive, occlusion). Pixel-stage outputs first; vertex-stage later.
 - [x] Dot · Normalize · Length
 - [ ] Fresnel
 - [ ] Make/Combine (float→vector) · Split/Break · Component Mask (swizzle)
+- [ ] Constant Vector3 / Vector4 (params exist, constants don't)
 - [x] Lerp
 - [x] Step · Smoothstep · Remap
 
@@ -95,91 +137,92 @@ emissive, occlusion). Pixel-stage outputs first; vertex-stage later.
 
 ## 4. System features (not nodes, but required for "production")
 
-These are higher-impact than any single node. Treat them as release gates before growing the Tier 2/3
-node library too far.
-
-- [ ] **★ Runtime material pipeline integration** — generated graph code must feed the real
-  `MaterialSample` / `SampleMaterial` path instead of a standalone `MainPS`. It needs to match the
-  existing `GlobalBindings.hlsli` / `Materials.hlsli` contract: `MaterialDataBuffer`, material index,
-  bindless textures, sampler array, mip feedback writes, alpha discard, roughness floor, and
-  tangent-space normal → world-space TBN conversion. Decide the asset boundary: `.matgraph` compiles
-  into a `ShaderResource`/variant, or `MaterialResource` references a compiled graph shader.
-- [~] **★ Material Parameters + Material Instances** — named exposed params (Scalar/Vector/Color/
-  Texture/Bool) packed into a generated parameter table, overridable per-instance without recompiling.
-  *The keystone feature.* **Done:** the **Parameters** node category (Float/Int/Bool/Color/Vec2-4/
-  Texture2D), each with a `Name` + default value stored on the node resource (`ParameterName` /
-  `Value` / `Texture`) and edited in the Properties window; and **Material Instances**, unified into
-  the **same `MaterialGraphResource`** via a `Kind` field (`MaterialKind::Graph | Instance`). A graph
-  authors the node network; an instance sets `Kind=Instance`, references a `Parent` graph, and stores a
-  sparse `Parameters` list of `MaterialParameterOverrideResource` (ParameterName / Value / Texture).
-  One `.matgraph` handler backs both, with two content-browser entries ("New Material Graph" →
-  Kind=Graph → node editor; "New Material Instance" → Kind=Instance → Properties panel). The
-  Properties-window editor (dispatched when the selected asset is Kind=Instance) shows a parent-graph
-  picker then lists the parent's named parameters with a per-parameter override checkbox + value editor
-  (scalar/vector/color/texture); parent selection is restricted to graph-kind materials (no
-  instance-of-instance). Identifying parameter nodes uses a new `MaterialNode::IsParameter()` virtual.
-  **Remaining:** collect parameters into a stable `MaterialParams` layout, emit HLSL reads instead of
-  inlined defaults, specify packing/alignment, validate empty/duplicate names, apply the instance
-  overrides into the runtime parameter buffer (no recompile), and route texture parameter overrides
-  through the texture table.
-- [~] **★ Texture / bindless wiring** — codegen emits a bindless `MaterialTextures[]` array + sampler
-  and samples it; texture slot is currently the node index (placeholder). The `Texture` reference field
-  on `MaterialGraphNodeResource` is now consumed: drag-drop a `TextureResource` onto a node assigns it
-  (or onto the canvas to auto-create a pre-wired sample node), with a thumbnail shown. **Remaining:**
-  build a stable per-material texture table, dedupe repeated texture references, resolve real bindless
-  indices via `RenderResourceCache`, choose sampler indices from texture wrap/filter settings, provide
-  missing-texture fallbacks, and track color-space intent (sRGB base/emissive vs linear data/normal/
-  mask textures).
-- [ ] **★ Graph validation + diagnostics** — validate before codegen/build instead of relying on
-  fallbacks. Check: one reachable output node, no cycles, valid node types, valid pin indices, one
-  connection per input, stage compatibility, required texture/parameter data, duplicate/empty
-  parameter names, and unsupported node combinations. Report warnings for dead/unreachable nodes and
-  surface errors in the editor with node/pin context.
-- [ ] **★ Type + stage model expansion** — `MaterialDataType` is currently scalar/vector only. Before
-  Custom HLSL, static switches, texture objects, sampler objects, vertex-stage outputs, or real bool/int
-  branches, add explicit pin categories for numeric values, bool/int values, textures/samplers, and
-  shader stage availability (pixel, vertex, shared).
-- [ ] **★ Custom HLSL / Expression node** — raw-code escape hatch with typed pins. Ships before the
-  library is complete, but after the type/stage model and validation rules are strong enough to keep
-  arbitrary snippets contained.
-- [ ] **★ Static Switch → shader variants** — compile-time branches emitting macro variants (shader
-  system already supports macros/variants). Avoids runtime branch cost. Needs a variant key model,
-  default values, material-instance override rules, and shader cache invalidation.
-- [ ] **Material Functions / Subgraphs** — reusable nested node groups. Needs input/output signature
-  resources, dependency tracking, cycle detection across graph assets, local parameter scoping, and
-  preview/build invalidation when a function changes.
+- [~] **★ SurfaceOutput consumption in the forward pass** — `ForwardOpaque.raster` now shades with
+  Cook-Torrance GGX (metallic/roughness), TBN-transformed graph normals, AO on ambient, and opacity
+  as alpha. The light itself is still a single hardcoded directional sun + constant ambient.
+  **Remaining:** real light list, shadows, IBL as the new pipeline grows.
+- [x] **★ Texture sampling quality** — texture slots in the param block are 8 bytes: bindless index
+  + sampler index resolved from the assigned texture's wrap/filter settings (instance overrides
+  re-pack without recompiling). sRGB decode is a per-node Bool property (`Value.x`) on
+  `sample_texture` / `param_texture2d`, baked into the generated HLSL; `normal_map` always samples
+  linear. The `MaterialBase*` graphs mark `BaseColorTexture` as sRGB.
+- [~] **★ Runtime-without-editor (variant cooking)** — variants are compiled on demand by the
+  editor-registered resolver only; a runtime-only build gets the default gray shader for every graph
+  material. **Findings (2026-07):** `ResourceAssetHandler::Export` serializes the current in-memory
+  resource state, so variants compiled during the session *would* ship with the shader that owns
+  them — but the forward shader lives in the embedded `Skore://` package (inside the runtime
+  binary), which `ExportPackages` never writes, so its runtime-added variants are lost in a shipped
+  build. Two viable designs: (A) export material-capable shaders that hold graph variants as
+  project-level cooked overrides (needs deserialize-by-UUID to replace the embedded resource); or
+  (B) cook each compiled variant into the *graph asset's* payload and register it into the shader's
+  variant list at load (keeps the engine package immutable; dependency direction graph→shader is
+  cleaner). Option B recommended. Either way, export needs a warm-up pass that compiles the default
+  forward variant for every graph in the exported set (pairings with custom shaders are only known
+  from scene data).
+- [~] **★ Legacy material migration** — `SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE` is now **1**:
+  imports produce graph instances of `MaterialBase*` (existing imports migrate on reimport).
+  **Remaining:** decide the fate of standalone `MaterialResource` in the new pass (still renders
+  flat gray: `MaterialData` b0 is written but never read by `ForwardOpaque.raster`) and of the
+  `DefaultMaterial.material` fallback (a default *graph* material likely replaces it;
+  `CreateGraphicsDefaultValues` is currently commented out).
+- [~] **★ Custom material shaders per object** — done: `DrawPipelineDesc::shader` is honored by the
+  forward passes when the shader is flagged `IsMaterial` (falls back to `ForwardOpaque.raster`
+  otherwise), and the variant resolver splices the graph into *that shader's own source*
+  (`LoadShaderTemplate`). **Remaining:** an editor affordance to assign the shader per
+  mesh/material.
+- [~] **★ Transparent + shadow passes** — `ForwardTransparentPassNew` renders the transparent
+  buckets on top of opaque (`WriteRead` = load, blend on, depth test Greater / write off, stage
+  `Transparent=750`). **Remaining:** per-drawcall back-to-front sorting, and the shadow buckets are
+  still ignored (no shadow pass in `PipelineNew`).
+- [~] **★ Graph validation + diagnostics** — compile log now reports: empty parameter names,
+  duplicate parameter names across different parameter types, and nothing-connected-to-master
+  (plus the existing cycle / unknown-type / missing-output messages). `MaterialParamLayout::Build`
+  no longer aliases same-name slots of mismatched kinds. **Remaining:** valid pin indices, one
+  connection per input, stage compatibility, dead-node warnings, and surfacing errors with node/pin
+  context in the editor (log only today).
+- [ ] **★ Type + stage model expansion** — `MaterialDataType` is currently scalar/vector only.
+  Before Custom HLSL, static switches, texture objects, sampler objects, vertex-stage outputs, or
+  real bool/int branches, add explicit pin categories for numeric values, bool/int values,
+  textures/samplers, and shader stage availability (pixel, vertex, shared).
+- [ ] **★ Custom HLSL / Expression node** — raw-code escape hatch with typed pins; after the
+  type/stage model and validation rules are strong enough to keep arbitrary snippets contained.
+- [ ] **★ Static Switch → shader variants** — compile-time branches emitting macro variants (the
+  shader system already supports macros/variants). Needs a variant key model, default values,
+  material-instance override rules, and cache invalidation.
+- [ ] **Material Functions / Subgraphs** — reusable nested node groups.
 - [ ] **Reroute / knot nodes** + **Comment frames** — graph ergonomics.
-- [~] **Per-node preview thumbnails** (engine has `PreviewGenerator`) + live material preview —
-  texture nodes already render the assigned texture's thumbnail (`ResolveThumbnail`). **Remaining:**
-  live preview of a node's *computed output* + a full material preview using the same generated shader
-  contract as runtime rendering.
+- [~] **Per-node preview thumbnails** + live material preview — texture nodes render the assigned
+  texture's thumbnail. **Remaining:** live preview of a node's computed output + a full material
+  preview using the same shader contract as runtime rendering.
 - [ ] **Codegen quality** — constant folding / dead-code elimination · deterministic output order ·
-  expression/common-subexpression reuse · DDX/DDY-aware sampling · optional debug names/source mapping
-  from HLSL compiler errors back to graph nodes.
-- [ ] **Asset/versioning/migration** — add graph schema versioning and migration rules for node/pin
-  changes. Pin layout changes should not silently reconnect old graphs to the wrong semantic input.
-- [ ] **Test coverage gates** — add graph validation tests, golden generated-HLSL snapshots,
-  serialization/migration tests, parameter layout/override tests, texture-table/dedupe tests,
-  alpha-mode/static-switch variant tests, and at least one runtime/preview render smoke test.
+  common-subexpression reuse · DDX/DDY-aware sampling · error mapping back to graph nodes.
+- [ ] **Asset/versioning/migration** — graph schema versioning + migration rules for node/pin
+  changes.
+- [~] **Test coverage gates** — 21 cases: bindless texture codegen (index + sampler slot), sRGB
+  decode, validation warnings/clean-graph, and the SPIR-V end-to-end test compiles a graph with a
+  texture node against the real template. **Remaining:** golden generated-HLSL snapshots,
+  serialization/migration tests, parameter layout/override tests, and a runtime render smoke test.
 
 ---
 
 ## 5. Suggested build order
 
-1. **Runtime material pipeline integration** — make generated graph code feed `MaterialSample` /
-   `SampleMaterial` and produce a runtime-consumable shader resource/variant.
-2. **Material parameters + material instances** — stable parameter table, override resource, generated
-   `MaterialParams` reads, and no-recompile runtime updates.
-3. **Texture/bindless table** — real texture references, deduped material texture table, sampler
-   selection, color-space handling, and missing-texture fallbacks.
-4. **Graph validation + diagnostics** — reject invalid graphs before shader compile and show useful
-   node/pin errors in the editor.
-5. **Type/stage model expansion** — unblock Custom HLSL, static switches, texture/sampler pins, and
-   future vertex-stage outputs.
-6. **Custom HLSL + Static Switches** — escape hatch and compile-time variants once validation and
-   caching rules are in place.
-7. Fill remaining Tier 1 math/vector/utility, then **Reroute + Comment** for ergonomics.
-8. Add **World Position Offset** and other advanced outputs after vertex-stage codegen exists.
+*(done 2026-07: stale tests · TBN/PBR SurfaceOutput consumption · sampler + sRGB handling ·
+graph-instance import flag · per-object custom material shaders · transparent pass · first
+validation batch)*
 
-> Most library nodes are mechanical (subclass + register). The real engineering is runtime shader
-> integration, parameter/instance binding, texture table binding, validation, and versioning.
+1. **Variant cooking** for runtime-only builds — option B from §4 (cook variants onto the graph
+   asset + register into the shader at load), plus an export warm-up pass.
+2. **Default-material story** — default *graph* material to replace `DefaultMaterial.material`;
+   decide what legacy `MaterialResource` renders in the new pass.
+3. **Real lighting** — light list, shadow pass (buckets exist), IBL; transparent back-to-front
+   sorting.
+4. **Validation, part 2** — pin-index/stage checks, dead-node warnings, editor surfacing with
+   node/pin context.
+5. **Type/stage model expansion** → **Custom HLSL + Static Switches**.
+6. Fill remaining Tier 1 nodes, **Reroute + Comment**, then **World Position Offset** once
+   vertex-stage codegen exists.
+
+> Most library nodes are mechanical (subclass + register). The remaining engineering is cooking,
+> lighting, validation surfacing, and versioning — the compile/bind/shade chain now works
+> end-to-end in the editor.

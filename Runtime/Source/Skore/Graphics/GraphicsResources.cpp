@@ -61,6 +61,16 @@ namespace Skore
 		return 0;
 	}
 
+	bool ShaderResource::IsMaterialShader(RID shader)
+	{
+		if (!shader) return false;
+		if (ResourceObject shaderObject = Resources::Read(shader))
+		{
+			return shaderObject.GetBool(IsMaterial);
+		}
+		return false;
+	}
+
 	String ShaderResource::GetVariantName(Span<String> macros)
 	{
 		if (macros.Empty()) return "Default";
@@ -97,7 +107,7 @@ namespace Skore
 	{
 		bool ParamKindFromTypeId(StringView typeId, MaterialParamKind& kind)
 		{
-			if (typeId == "param_float" || typeId == "param_int" || typeId == "param_bool")
+			if (typeId == "param_float" || typeId == "param_int" || typeId == "param_bool" || typeId == "param_channel")
 			{
 				kind = MaterialParamKind::Float;
 				return true;
@@ -133,7 +143,7 @@ namespace Skore
 				case MaterialParamKind::Vec2:    return 8;
 				case MaterialParamKind::Vec3:    return 12;
 				case MaterialParamKind::Vec4:    return 16;
-				case MaterialParamKind::Texture: return 4;
+				case MaterialParamKind::Texture: return 8; //i32 bindless index + u32 sampler index
 			}
 			return 4;
 		}
@@ -171,8 +181,13 @@ namespace Skore
 			return layout;
 		}
 
-		HashMap<String, u32> nameOffsets;
-		u32                  offset = 0;
+		struct NamedSlot
+		{
+			u32               offset;
+			MaterialParamKind kind;
+		};
+		HashMap<String, NamedSlot> nameOffsets;
+		u32                        offset = 0;
 
 		for (RID node : graphObj.GetSubObjectList(MaterialGraphResource::Nodes))
 		{
@@ -201,14 +216,19 @@ namespace Skore
 					continue;
 				}
 
-				if (auto it = nameOffsets.Find(name); it != nameOffsets.end())
+				//same-kind nodes with the same name intentionally share one slot; a kind mismatch gets its
+				//own slot so the packed layout never reads past a smaller value (editor validation flags it)
+				if (auto it = nameOffsets.Find(name); it != nameOffsets.end() && it->second.kind == kind)
 				{
-					layout.nodeOffsets.Insert(node.id, it->second);
+					layout.nodeOffsets.Insert(node.id, it->second.offset);
 					continue;
 				}
 
 				layout.nodeOffsets.Insert(node.id, offset);
-				nameOffsets.Insert(name, offset);
+				if (nameOffsets.Find(name) == nameOffsets.end())
+				{
+					nameOffsets.Insert(name, NamedSlot{offset, kind});
+				}
 				layout.entries.EmplaceBack(MaterialParamEntry{Traits::Move(name), node, kind, offset});
 				offset += ParamKindSize(kind);
 			}

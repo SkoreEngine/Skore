@@ -71,6 +71,7 @@ namespace Skore
 				case MaterialNodePropertyType::Vec2:    return "Vec2";
 				case MaterialNodePropertyType::Vec3:    return "Vec3";
 				case MaterialNodePropertyType::Vec4:    return "Vec4";
+				case MaterialNodePropertyType::Channel: return "Channel";
 			}
 			return "Float";
 		}

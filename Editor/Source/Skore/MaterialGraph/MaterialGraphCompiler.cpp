@@ -69,6 +69,7 @@ namespace Skore
 			g += "float3 MatParamVec3(uint o)    { return asfloat(SK_MaterialParamBuffer.Load3(SK_MatParamBase() + o)); }\n";
 			g += "float4 MatParamVec4(uint o)    { return asfloat(SK_MaterialParamBuffer.Load4(SK_MatParamBase() + o)); }\n";
 			g += "int    MatParamTexture(uint o) { return asint(SK_MaterialParamBuffer.Load(SK_MatParamBase() + o)); }\n";
+			g += "uint   MatParamSampler(uint o) { return SK_MaterialParamBuffer.Load(SK_MatParamBase() + o); }\n";
 			return g;
 		}
 
@@ -329,6 +330,25 @@ namespace Skore
 			return FileSystem::ReadFileAsString(absPathOut);
 		}
 
+		//Any shader flagged IsMaterial can host a graph: its own source is the splice template. Falls back
+		//to the default forward template when the shader has no resolvable source file.
+		String LoadShaderTemplate(RID shader, String& absPathOut, String& log)
+		{
+			if (shader)
+			{
+				if (RID asset = ResourceAssets::GetResourceAssetFromResourceRecursive(shader))
+				{
+					StringView abs = ResourceAssets::GetAbsolutePath(asset);
+					if (!abs.Empty() && FileSystem::GetFileStatus(abs).exists)
+					{
+						absPathOut = abs;
+						return FileSystem::ReadFileAsString(absPathOut);
+					}
+				}
+			}
+			return LoadTemplate(absPathOut, log);
+		}
+
 		struct TemplateIncludeUserData
 		{
 			StringView baseAbsPath;
@@ -499,6 +519,58 @@ namespace Skore
 				{
 					outputNode = n;
 					break;
+				}
+			}
+		}
+
+		{
+			HashMap<String, String> paramTypes;
+			for (RID n : nodes)
+			{
+				ResourceObject no = Resources::Read(n);
+				if (!no)
+				{
+					continue;
+				}
+				String        typeId = String{no.GetString(MaterialGraphNodeResource::Type)};
+				MaterialNode* def = MaterialNodeRegistry::Find(typeId);
+				if (!def || !def->IsParameter())
+				{
+					continue;
+				}
+				String name = String{no.GetString(MaterialGraphNodeResource::ParameterName)};
+				if (name.Empty())
+				{
+					log += String{"Parameter node ("} + typeId + ") has no name; it cannot be overridden by material instances.\n";
+					continue;
+				}
+				if (auto it = paramTypes.Find(name); it != paramTypes.end())
+				{
+					if (it->second != typeId)
+					{
+						log += String{"Duplicate parameter name '"} + name + "' is used by different parameter types (" + it->second + " and " + typeId + ").\n";
+					}
+				}
+				else
+				{
+					paramTypes.Insert(Traits::Move(name), Traits::Move(typeId));
+				}
+			}
+
+			if (outputNode)
+			{
+				bool anyIntoOutput = false;
+				for (const ConnRec& rec : connRecs)
+				{
+					if (rec.inNode == outputNode.id)
+					{
+						anyIntoOutput = true;
+						break;
+					}
+				}
+				if (!anyIntoOutput)
+				{
+					log += "Nothing is connected to the material output node; default surface values will be used.\n";
 				}
 			}
 		}
@@ -708,7 +780,7 @@ namespace Skore
 		}
 
 		String absPath;
-		String templateText = LoadTemplate(absPath, log);
+		String templateText = LoadShaderTemplate(shader, absPath, log);
 		if (templateText.Empty())
 		{
 			return existing;

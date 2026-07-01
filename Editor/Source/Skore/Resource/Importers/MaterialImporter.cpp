@@ -7,7 +7,7 @@
 
 // 1: import as a MaterialGraphResource instance of a base graph. 0: legacy standalone MaterialResource.
 #ifndef SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE
-	#define SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE 0
+	#define SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE 1
 #endif
 
 namespace Skore
@@ -182,14 +182,23 @@ namespace Skore
 			materialObject.AddToSubObjectList(MaterialGraphResource::Parameters, entry);
 		};
 
+		// The base graphs sample packed maps through channel_select nodes driven by *Channel parameters,
+		// whose values are the TextureChannel indices (0=R 1=G 2=B 3=A).
+		auto addChannel = [&](StringView name, TextureChannel channel)
+		{
+			addScalar(name, Vec4{static_cast<f32>(channel), 0.0f, 0.0f, 0.0f});
+		};
+
 		if (material.hasBaseColor)         addScalar("BaseColor", material.baseColor.ToVec4());
 		if (material.baseColorTexture)     addTexture("BaseColorTexture", material.baseColorTexture);
 
 		if (material.hasMetallic)          addScalar("Metallic", Vec4{material.metallic, 0.0f, 0.0f, 0.0f});
 		if (material.metallicTexture)      addTexture("MetallicTexture", material.metallicTexture);
+		if (material.metallicTexture && material.hasMetallicTextureChannel) addChannel("MetallicChannel", material.metallicTextureChannel);
 
 		if (material.hasRoughness)         addScalar("Roughness", Vec4{material.roughness, 0.0f, 0.0f, 0.0f});
 		if (material.roughnessTexture)     addTexture("RoughnessTexture", material.roughnessTexture);
+		if (material.roughnessTexture && material.hasRoughnessTextureChannel) addChannel("RoughnessChannel", material.roughnessTextureChannel);
 
 		if (material.normalTexture)        addTexture("NormalTexture", material.normalTexture);
 		if (material.hasNormalMultiplier)  addScalar("NormalMultiplier", Vec4{material.normalMultiplier, 0.0f, 0.0f, 0.0f});
@@ -199,6 +208,7 @@ namespace Skore
 		if (material.emissiveTexture)      addTexture("EmissiveTexture", material.emissiveTexture);
 
 		if (material.occlusionTexture)     addTexture("OcclusionTexture", material.occlusionTexture);
+		if (material.occlusionTexture && material.hasOcclusionTextureChannel) addChannel("OcclusionChannel", material.occlusionTextureChannel);
 		if (material.hasOcclusionStrength) addScalar("OcclusionStrength", Vec4{material.occlusionStrength, 0.0f, 0.0f, 0.0f});
 
 		materialObject.Commit(scope);

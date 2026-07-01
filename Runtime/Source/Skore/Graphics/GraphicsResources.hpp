@@ -42,6 +42,7 @@ namespace Skore
 		static RID    GetVariant(RID shader, RID material, StringView name);
 		static String GetVariantName(Span<String> macros);
 		static u32    GetRayHitGroup(RID shader);
+		static bool   IsMaterialShader(RID shader);
 	};
 
 

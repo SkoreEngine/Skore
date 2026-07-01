@@ -1215,6 +1215,19 @@ namespace Skore
 		std::mutex           pendingMaterialsMutex;
 		Array<PendingMaterial> pendingMaterials;
 
+		u32 ResolveSamplerIndex(RID textureRID)
+		{
+			if (!textureRID) return 0;
+			ResourceObject textureObject = Resources::Read(textureRID);
+			if (!textureObject) return 0;
+			AddressMode wrap    = textureObject.GetEnum<AddressMode>(TextureResource::WrapMode);
+			FilterMode  filter  = textureObject.GetEnum<FilterMode>(TextureResource::FilterMode);
+			bool        clamp   = wrap == AddressMode::ClampToEdge || wrap == AddressMode::ClampToBorder;
+			bool        nearest = filter == FilterMode::Nearest;
+			if (clamp) return nearest ? 3u : 2u;
+			return nearest ? 1u : 0u;
+		}
+
 		void PackGraphMaterialParams(const MaterialResourceCachePtr& materialCache, const MaterialParamLayout& layout, bool async)
 		{
 			materialCache->materialParamData.Clear();
@@ -1296,7 +1309,9 @@ namespace Skore
 								materialCache->textures.EmplaceBack(std::move(textureCache));
 							}
 						}
+						u32 sampler = ResolveSamplerIndex(texture);
 						memcpy(at, &index, sizeof(i32));
+						memcpy(at + sizeof(i32), &sampler, sizeof(u32));
 						break;
 					}
 				}
@@ -1515,19 +1530,6 @@ namespace Skore
 					return -1;
 				};
 
-				auto resolveSamplerIndex = [](RID textureRID) -> u32
-				{
-					if (!textureRID) return 0;
-					ResourceObject textureObject = Resources::Read(textureRID);
-					if (!textureObject) return 0;
-					AddressMode wrap    = textureObject.GetEnum<AddressMode>(TextureResource::WrapMode);
-					FilterMode  filter  = textureObject.GetEnum<FilterMode>(TextureResource::FilterMode);
-					bool        clamp   = wrap == AddressMode::ClampToEdge || wrap == AddressMode::ClampToBorder;
-					bool        nearest = filter == FilterMode::Nearest;
-					if (clamp) return nearest ? 3u : 2u;
-					return nearest ? 1u : 0u;
-				};
-
 				MaterialData matData{};
 				matData.baseColor = baseColor.ToVec3();
 				matData.roughness = materialObject.GetFloat(MaterialResource::Roughness);
@@ -1543,12 +1545,12 @@ namespace Skore
 				matData.alphaMode = materialObject.GetEnum(MaterialResource::AlphaMode);
 				matData.alphaCutoff = materialObject.GetFloat(MaterialResource::AlphaCutoff);
 
-				matData.samplerIndices0 = resolveSamplerIndex(baseColorTexture)
-				                        | (resolveSamplerIndex(normalTexture)    << 8)
-				                        | (resolveSamplerIndex(roughnessTexture) << 16)
-				                        | (resolveSamplerIndex(metallicTexture)  << 24);
+				matData.samplerIndices0 = ResolveSamplerIndex(baseColorTexture)
+				                        | (ResolveSamplerIndex(normalTexture)    << 8)
+				                        | (ResolveSamplerIndex(roughnessTexture) << 16)
+				                        | (ResolveSamplerIndex(metallicTexture)  << 24);
 
-				matData.samplerIndices1 = resolveSamplerIndex(emissiveTexture);
+				matData.samplerIndices1 = ResolveSamplerIndex(emissiveTexture);
 
 				MaterialResource::MaterialAlphaMode alphaModeEnum = materialObject.GetEnum<MaterialResource::MaterialAlphaMode>(MaterialResource::AlphaMode);
 				materialCache->transparent = alphaModeEnum == MaterialResource::MaterialAlphaMode::Blend;

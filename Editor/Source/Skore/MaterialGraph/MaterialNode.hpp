@@ -31,6 +31,7 @@ namespace Skore
 		Vec2,    //Value.xy
 		Vec3,    //Value.xyz
 		Vec4,    //Value.xyzw
+		Channel, //Value.x edited as an R/G/B/A combo (matches the TextureChannel enum indices)
 	};
 
 	struct MaterialNodeProperty

@@ -1586,6 +1586,17 @@ namespace Skore
 			case MaterialNodePropertyType::Vec4:
 				changed = ImGui::DragFloat4("##v", &v.x, 0.01f);
 				break;
+			case MaterialNodePropertyType::Channel:
+			{
+				int iv = static_cast<int>(v.x);
+				if (ImGui::Combo("##v", &iv, "Red\0Green\0Blue\0Alpha\0"))
+				{
+					v.x = static_cast<f32>(iv);
+					changed = true;
+					commit = true; //a combo has no drag to settle, so persist the selection immediately
+				}
+				break;
+			}
 			default:
 				ImGui::PopID();
 				return;
@@ -1726,6 +1737,7 @@ namespace Skore
 						case MaterialNodePropertyType::Vec2:
 						case MaterialNodePropertyType::Vec3:
 						case MaterialNodePropertyType::Vec4:
+						case MaterialNodePropertyType::Channel:
 							DrawNodeValueProperty(propId, node, prop.type);
 							break;
 					}
@@ -1941,6 +1953,17 @@ namespace Skore
 			case MaterialNodePropertyType::Vec4:
 				changed = ImGui::DragFloat4("##v", &v.x, 0.01f);
 				break;
+			case MaterialNodePropertyType::Channel:
+			{
+				int iv = static_cast<int>(v.x);
+				if (ImGui::Combo("##v", &iv, "Red\0Green\0Blue\0Alpha\0"))
+				{
+					v.x = static_cast<f32>(iv);
+					changed = true;
+					commit = true; //a combo has no drag to settle, so persist the selection immediately
+				}
+				break;
+			}
 			default:
 				ImGui::PopID();
 				return;
