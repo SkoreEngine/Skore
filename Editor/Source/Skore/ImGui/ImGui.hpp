@@ -243,7 +243,7 @@ namespace Skore
 	SK_API void                  ImGuiEndContentTable();
 
 	typedef void (*FnResourceSelectionCallback)(RID rid, VoidPtr userData);
-	SK_API void ImGuiResourceSelectionPopup(u64 id, TypeID typeId, RID contextRid, bool open, FnResourceSelectionCallback callback, VoidPtr userData = nullptr, TypeID secondaryType = {});
+	SK_API void ImGuiResourceSelectionPopup(u64 id, TypeID typeId, RID contextRid, bool open, FnResourceSelectionCallback callback, VoidPtr userData = nullptr);
 
 	SK_API void ImGuiRegisterResourceFieldVisibilityControl(TypeID typeId, StringView fieldName, FnResourceFieldVisibilityControl visibilityControl);
 	SK_API void ImGuiRegisterResourceTypeAction(TypeID typeId, StringView actionName, FnResourceAction action);

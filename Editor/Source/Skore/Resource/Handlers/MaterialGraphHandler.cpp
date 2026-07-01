@@ -8,10 +8,41 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/ResourceObject.hpp"
 #include "Skore/Resource/Resources.hpp"
+#include "Skore/Scene/Components/RenderComponents.hpp"
+#include "Skore/Scene/Components/Transform.hpp"
+#include "Skore/Utils/PreviewGenerator.hpp"
 #include "Skore/Window/ProjectBrowserWindow.hpp"
 
 namespace Skore
 {
+	struct MaterialGraphPreviewGenerator : PreviewGenerator
+	{
+		SK_CLASS(MaterialGraphPreviewGenerator, PreviewGenerator);
+
+		void SetupScene(Scene* scene) override
+		{
+			RID material = asset;
+			if (ResourceObject object = Resources::Read(asset))
+			{
+				if (object.GetType()->GetID() == TypeInfo<ResourceAsset>::ID())
+				{
+					material = object.GetSubObject(ResourceAsset::Object);
+				}
+			}
+
+			Entity* entity = scene->CreateEntity();
+			entity->AddComponent<Transform>();
+			StaticMeshRenderer* staticMeshRenderer = entity->AddComponent<StaticMeshRenderer>();
+			staticMeshRenderer->SetMesh(Resources::FindByPath("Skore://Meshes/Sphere.mesh"));
+			staticMeshRenderer->SetMaterial(0, material);
+		}
+
+		f32 PercentageInScreen() override
+		{
+			return 0.9f;
+		}
+	};
+
 	//Both "Material Graph" and "Material Instance" assets are the same MaterialGraphResource behind one
 	//.matgraph handler; they differ only by the Kind field. Graphs are authored in the node editor;
 	//instances reuse a parent graph and are edited (parameter overrides) in the Properties window.
@@ -86,6 +117,11 @@ namespace Skore
 		{
 			return ICON_FA_DIAGRAM_PROJECT;
 		}
+
+		TypeID GetPreviewGenerator() override
+		{
+			return TypeInfo<MaterialGraphPreviewGenerator>::ID();
+		}
 	};
 
 	//Creates a Material Instance: the same MaterialGraphResource but Kind=Instance, with the default
@@ -138,6 +174,7 @@ namespace Skore
 			.visible = ProjectBrowserWindow::CanCreateAsset
 		});
 
+		Reflection::Type<MaterialGraphPreviewGenerator>();
 		Reflection::Type<MaterialGraphHandler>();
 	}
 }

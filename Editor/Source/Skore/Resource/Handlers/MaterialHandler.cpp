@@ -2,10 +2,14 @@
 #include "Skore/EditorWorkspace.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/ImGui/Icons.h"
 #include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Resource/ResourceObject.hpp"
+#include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
 #include "Skore/Utils/PreviewGenerator.hpp"
+#include "Skore/Window/ProjectBrowserWindow.hpp"
 
 namespace Skore
 {
@@ -63,7 +67,7 @@ namespace Skore
 
 		StringView GetDesc() override
 		{
-			return "Material";
+			return "Sky Material";
 		}
 
 		TypeID GetPreviewGenerator() override
@@ -72,9 +76,33 @@ namespace Skore
 		}
 	};
 
+	//Legacy PBR materials were replaced by material graphs; .material assets remain only for the
+	//skybox path, so creation seeds the sky type directly.
+	void CreateSkyMaterialAsset(const MenuItemEventData& eventData)
+	{
+		ProjectBrowserWindow* projectBrowserWindow = static_cast<ProjectBrowserWindow*>(eventData.drawData);
+
+		UndoRedoScope* scope = Editor::CreateUndoRedoScope("Create Sky Material");
+		RID            material = ResourceAssets::CreateAsset(projectBrowserWindow->GetOpenDirectory(), TypeInfo<MaterialResource>::ID(), "", scope);
+
+		ResourceObject materialObject = Resources::Write(material);
+		materialObject.SetString(MaterialResource::Name, "SkyMaterial");
+		materialObject.SetEnum(MaterialResource::Type, MaterialResource::MaterialType::SkyboxEquirectangular);
+		materialObject.Commit(scope);
+
+		projectBrowserWindow->SetRenameItem(Resources::GetParent(material), scope);
+	}
 
 	void RegisterMaterialHandler()
 	{
+		ProjectBrowserWindow::AddMenuItem(MenuItemCreation{
+			.itemName = "Create/New Sky Material",
+			.icon = ICON_FA_CLOUD_SUN,
+			.priority = 37,
+			.action = CreateSkyMaterialAsset,
+			.visible = ProjectBrowserWindow::CanCreateAsset
+		});
+
 		Reflection::Type<MaterialPreviewGenerator>();
 		Reflection::Type<MaterialHandler>();
 	}

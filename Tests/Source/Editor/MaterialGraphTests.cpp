@@ -3,6 +3,7 @@
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/UUID.hpp"
+#include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
@@ -72,6 +73,10 @@ namespace
 			.Field<MaterialGraphResource::Kind>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::MaterialKind>::ID())
 			.Field<MaterialGraphResource::Parent>(ResourceFieldType::Reference, TypeInfo<MaterialGraphResource>::ID())
 			.Field<MaterialGraphResource::Parameters>(ResourceFieldType::SubObjectList, TypeInfo<MaterialParameterOverrideResource>::ID())
+			.Field<MaterialGraphResource::ShadingModel>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphShadingModel>::ID())
+			.Field<MaterialGraphResource::RenderFace>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphRenderFace>::ID())
+			.Field<MaterialGraphResource::DepthWrite>(ResourceFieldType::Bool)
+			.Field<MaterialGraphResource::DepthTest>(ResourceFieldType::Enum, TypeInfo<CompareOp>::ID())
 			.Build();
 	}
 
@@ -376,6 +381,92 @@ namespace
 		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
 		// Blend mode reads the Opacity pin into the surface alpha and never discards
+		CHECK(Contains(body, "surface.opacity   = "));
+		CHECK(Contains(body, "0.3"));
+		CHECK(!Contains(body, "discard"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::UnlitSkipsLitSurfaceInputs")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+		{
+			ResourceObject graphObj = Resources::Write(graph);
+			graphObj.SetEnum(MaterialGraphResource::ShadingModel, MaterialGraphResource::GraphShadingModel::Unlit);
+			graphObj.Commit();
+		}
+
+		RID colorNode = AddNode(graph, "constant_color", Vec4{1.0f, 0.0f, 0.0f, 1.0f});
+		Connect(graph, colorNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
+
+		RID metallicNode = AddNode(graph, "constant_float", Vec4{0.77f, 0.0f, 0.0f, 0.0f});
+		Connect(graph, metallicNode, 0, outputNode, MaterialNodeRegistry::Metallic);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		// Unlit still feeds base color, but the lit inputs keep defaults and their subgraphs never emit
+		CHECK(Contains(body, "float3(1, 0, 0)"));
+		CHECK(Contains(body, "surface.metallic  = 0.0;"));
+		CHECK(!Contains(body, "0.77"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::UnlitDefinesShaderMacro")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		const char* templateText = "// @SK_MATERIAL_GLOBALS@\nvoid Eval()\n{\n// @SK_MATERIAL_GRAPH@\n}\n";
+
+		String log;
+		String lit = MaterialGraphCompiler::GenerateShader(graph, templateText, log);
+		CHECK(!Contains(lit, "SK_MATERIAL_UNLIT"));
+
+		{
+			ResourceObject graphObj = Resources::Write(graph);
+			graphObj.SetEnum(MaterialGraphResource::ShadingModel, MaterialGraphResource::GraphShadingModel::Unlit);
+			graphObj.Commit();
+		}
+
+		String unlit = MaterialGraphCompiler::GenerateShader(graph, templateText, log);
+		CHECK(Contains(unlit, "#define SK_MATERIAL_UNLIT 1"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::UnlitBlendStillReadsOpacity")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+		{
+			ResourceObject graphObj = Resources::Write(graph);
+			graphObj.SetEnum(MaterialGraphResource::ShadingModel, MaterialGraphResource::GraphShadingModel::Unlit);
+			graphObj.SetEnum(MaterialGraphResource::AlphaMode, MaterialGraphResource::GraphAlphaMode::Blend);
+			graphObj.Commit();
+		}
+
+		RID opacityNode = AddNode(graph, "constant_float", Vec4{0.3f, 0.0f, 0.0f, 0.0f});
+		Connect(graph, opacityNode, 0, outputNode, MaterialNodeRegistry::Opacity);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
 		CHECK(Contains(body, "surface.opacity   = "));
 		CHECK(Contains(body, "0.3"));
 		CHECK(!Contains(body, "discard"));

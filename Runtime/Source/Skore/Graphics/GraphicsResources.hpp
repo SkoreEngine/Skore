@@ -206,8 +206,6 @@ namespace Skore
 		};
 	};
 
-	using MaterialArray = Array<TypedRID<MaterialResource>>;
-
 	//Node-based material system (editor-authored shader graph).
 	//A graph owns a list of nodes and connections; one node is flagged as the output (master) node.
 	struct MaterialGraphNodeResource
@@ -265,19 +263,43 @@ namespace Skore
 			Blend,
 		};
 
+		//Lighting model of the generated shader, shown as "Material" on the output node. DefaultLit runs
+		//the forward PBR shading; Unlit outputs base color (plus alpha per GraphAlphaMode) directly, so
+		//only the Base Color and opacity inputs apply.
+		enum class GraphShadingModel : u8
+		{
+			DefaultLit,
+			Unlit,
+		};
+
+		//Which triangle faces the material renders; mapped to the pipeline's CullMode at draw setup
+		//(Front culls back faces - the default, Back culls front faces, Both disables culling).
+		enum class GraphRenderFace : u8
+		{
+			Front,
+			Back,
+			Both,
+		};
+
 		enum
 		{
-			Name,        //String
-			Nodes,       //SubObjectList (MaterialGraphNodeResource)       - Graph kind
-			Connections, //SubObjectList (MaterialGraphConnectionResource) - Graph kind
-			OutputNode,  //Reference (the master/output node)              - Graph kind
-			AlphaMode,   //Enum (GraphAlphaMode)
-			MaskCutoff,  //Float - clip threshold used when AlphaMode == Mask
-			Kind,        //Enum (MaterialKind) - Graph (default) or Instance
-			Parent,      //Reference (MaterialGraphResource) - Instance kind: the source graph
-			Parameters,  //SubObjectList (MaterialParameterOverrideResource) - Instance kind: sparse overrides
+			Name,         //String
+			Nodes,        //SubObjectList (MaterialGraphNodeResource)       - Graph kind
+			Connections,  //SubObjectList (MaterialGraphConnectionResource) - Graph kind
+			OutputNode,   //Reference (the master/output node)              - Graph kind
+			AlphaMode,    //Enum (GraphAlphaMode)
+			MaskCutoff,   //Float - clip threshold used when AlphaMode == Mask
+			Kind,         //Enum (MaterialKind) - Graph (default) or Instance
+			Parent,       //Reference (MaterialGraphResource) - Instance kind: the source graph
+			Parameters,   //SubObjectList (MaterialParameterOverrideResource) - Instance kind: sparse overrides
+			ShadingModel, //Enum (GraphShadingModel)
+			RenderFace,   //Enum (GraphRenderFace)
+			DepthWrite,   //Bool - unset means automatic: on unless AlphaMode == Blend
+			DepthTest,    //Enum (CompareOp) - depth compare used at pipeline creation; unset means Greater (reverse-Z)
 		};
 	};
+
+	using MaterialArray = Array<TypedRID<MaterialGraphResource>>;
 
 	//A single per-instance parameter override. Keyed by the exposed parameter name (matching a
 	//Parameters-category node's MaterialGraphNodeResource::ParameterName on the parent graph). Stored

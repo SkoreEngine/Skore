@@ -582,6 +582,7 @@ namespace Skore
 
 		MaterialGraphResource::GraphAlphaMode alphaMode = graphObj.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
 		f32                                   maskCutoff = graphObj.GetFloat(MaterialGraphResource::MaskCutoff);
+		bool                                  unlit = graphObj.GetEnum<MaterialGraphResource::GraphShadingModel>(MaterialGraphResource::ShadingModel) == MaterialGraphResource::GraphShadingModel::Unlit;
 
 		String baseColorExpr = "float3(0.8, 0.8, 0.8)";
 		String metallicExpr = "0.0";
@@ -595,11 +596,17 @@ namespace Skore
 		if (outputNode && outDef)
 		{
 			baseColorExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::BaseColor);
-			metallicExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Metallic);
-			roughnessExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Roughness);
-			emissiveExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Emissive);
-			normalExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Normal);
-			occlusionExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Occlusion);
+
+			//Unlit only consumes base color (plus the alpha-mode pin below); the lit surface inputs keep
+			//their defaults so their subgraphs are never emitted.
+			if (!unlit)
+			{
+				metallicExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Metallic);
+				roughnessExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Roughness);
+				emissiveExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Emissive);
+				normalExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Normal);
+				occlusionExpr = emitter.ResolveInput(outputNode, *outDef, MaterialNodeRegistry::Occlusion);
+			}
 
 			//Only the opacity pin relevant to the alpha mode is read; the other stays disconnected in the
 			//editor. Opaque reads neither and forces a solid surface.
@@ -649,6 +656,12 @@ namespace Skore
 	{
 		String body = GenerateBody(graph, log);
 		String globals = GenerateParamGlobals(MaterialParamLayout::Build(graph));
+
+		if (ResourceObject graphObj = Resources::Read(graph);
+			graphObj && graphObj.GetEnum<MaterialGraphResource::GraphShadingModel>(MaterialGraphResource::ShadingModel) == MaterialGraphResource::GraphShadingModel::Unlit)
+		{
+			globals = String{"#define SK_MATERIAL_UNLIT 1\n"} + globals;
+		}
 
 		String result = SpliceToken(templateText, GlobalsToken, globals);
 		return SpliceToken(result, BodyToken, body);

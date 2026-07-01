@@ -20,7 +20,12 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
   `MaterialParameterOverrideResource` (`Runtime/.../Graphics/GraphicsResources.hpp`, registered in
   `RegisterGraphicsTypes.cpp`). One resource backs both authoring kinds via
   `MaterialKind::Graph | Instance`; `GraphAlphaMode::Opaque | Mask | Blend` + `MaskCutoff` select
-  alpha handling.
+  alpha handling. Graph-level render settings on the output node: `GraphShadingModel::DefaultLit |
+  Unlit` (shown as "Material"; Unlit bypasses `ShadeForward` via `SK_MATERIAL_UNLIT` and disables all
+  pins except Base Color + the alpha-mode pin), `GraphRenderFace::Front | Back | Both` (→ pipeline
+  `CullMode`), `DepthWrite` (Bool; unset = on unless Blend) and `DepthTest` (`CompareOp`; unset =
+  `Greater`). Resolved into `MaterialResourceCache` (owning graph, so instances inherit) and carried
+  through `DrawPipelineDesc` into the forward pass pipelines.
 - [x] **Polymorphic node registry** — abstract `MaterialNode : Object` + one subclass per node,
   auto-discovered via reflection (`Editor/.../MaterialGraph/MaterialNode.{hpp,cpp}`). Adding a node =
   subclass + `Reflection::Type<MyNode>()` in `RegisterMaterialNodes()`. 33 concrete node types.
@@ -61,11 +66,14 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
 - [x] **Asset handler** — `.matgraph` create/open (`MaterialGraphHandler`), content-browser
   "Create > New Material Graph" and "Create > New Material Instance" (same resource, different
   `Kind`; instances are edited in the Properties window with parent picker + per-parameter override
-  checkboxes).
-- [x] **Import path** — `MaterialImporter::ImportMaterialGraphInstance` maps imported (GLTF)
-  materials to instances of `Assets/MaterialGraphs/MaterialBase{,_Masked,_Blend}.matgraph` (picked
-  by alpha mode) with sparse named-parameter overrides and reimport-stable UUIDs.
-  `SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE` is **1**: graph instances are the default import path.
+  checkboxes). Project-browser thumbnails via `MaterialGraphPreviewGenerator` (sphere + material;
+  still rendered by the legacy preview pipeline, so graph output isn't shown yet — see §4).
+- [x] **Import path** — `MaterialImporter::ImportMaterial` maps imported (GLTF/FBX) materials to
+  instances of `Assets/MaterialGraphs/MaterialBase{,_Masked,_Blend}.matgraph` (picked by alpha mode
+  via the importer-owned `MaterialImportAlphaMode` enum) with sparse named-parameter overrides and
+  reimport-stable UUIDs. Graph instances are the **only** import path: the legacy standalone
+  `MaterialResource` importer and its `SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE` switch are deleted, and
+  "Extract Materials" picks the asset extension per resource type (`.matgraph` for graph instances).
 - [x] **Tests** — `Tests/Source/Editor/MaterialGraphTests.cpp` (22 cases, incl. generic-math
   type promotion, bindless/sRGB codegen, channel-select codegen, validation, and live SPIR-V compile).
 
@@ -96,6 +104,8 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
 - [x] Ambient Occlusion (Float) — applied to the ambient term
 - [x] Opacity (Float) + Opacity Mask (Float) — separate pins; `GraphAlphaMode` selects behavior
   (Opaque forces 1.0, Mask emits `discard` below `MaskCutoff`, Blend writes alpha)
+- [x] Output-node render settings (Properties window) — Material (`Default Lit | Unlit`),
+  Render Face (`Front | Back | Both`), Depth Write, Depth Test (`CompareOp` values)
 - [ ] World Position Offset (Vec3, **vertex stage**) — requires vertex-stage codegen
 - [ ] *Advanced surface outputs:* Clear Coat · Anisotropy · Subsurface · Refraction
 
@@ -159,12 +169,20 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
   cleaner). Option B recommended. Either way, export needs a warm-up pass that compiles the default
   forward variant for every graph in the exported set (pairings with custom shaders are only known
   from scene data).
-- [~] **★ Legacy material migration** — `SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE` is now **1**:
-  imports produce graph instances of `MaterialBase*` (existing imports migrate on reimport).
-  **Remaining:** decide the fate of standalone `MaterialResource` in the new pass (still renders
-  flat gray: `MaterialData` b0 is written but never read by `ForwardOpaque.raster`) and of the
-  `DefaultMaterial.material` fallback (a default *graph* material likely replaces it;
-  `CreateGraphicsDefaultValues` is currently commented out).
+- [~] **★ Legacy material migration** — imports produce graph instances only (legacy import path
+  deleted; existing imports migrate on reimport). The mesh fallback is now
+  `Skore://MaterialGraphs/DefaultMaterial.matgraph` (hand-authored instance of `MaterialBase`;
+  `DefaultMaterial.material` deleted — remember the CMake re-configure for the embedded package).
+  The legacy PBR packing in `UpdateMaterialStorageData` is gone: any non-graph, non-sky material
+  writes a white stub `MaterialData` block (`WriteMaterialStubData`), so stale legacy assets render
+  white instead of disappearing and the old pipeline keeps compiling. `.material` assets and
+  creation are sky-only ("Create > New Sky Material" seeds `Type=SkyboxEquirectangular`), and
+  `MaterialArray` slots are typed to `MaterialGraphResource` — pickers/drag-drop accept graphs only
+  (the `MaterialResource`↔graph interchange hack in the field renderers is removed).
+  **Remaining:** one-time UUID-preserving migration of existing project `.material` PBR assets to
+  graph instances (scene references must survive); full `MaterialResource` deletion then waits on
+  the sky material migration (slim the type to sky fields; the opaque `FieldVisibilityControls`
+  rows go with it).
 - [~] **★ Custom material shaders per object** — done: `DrawPipelineDesc::shader` is honored by the
   forward passes when the shader is flagged `IsMaterial` (falls back to `ForwardOpaque.raster`
   otherwise), and the variant resolver splices the graph into *that shader's own source*
@@ -192,8 +210,10 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
 - [ ] **Material Functions / Subgraphs** — reusable nested node groups.
 - [ ] **Reroute / knot nodes** + **Comment frames** — graph ergonomics.
 - [~] **Per-node preview thumbnails** + live material preview — texture nodes render the assigned
-  texture's thumbnail. **Remaining:** live preview of a node's computed output + a full material
-  preview using the same shader contract as runtime rendering.
+  texture's thumbnail, and `.matgraph` assets get project-browser thumbnails
+  (`MaterialGraphPreviewGenerator`) — but the preview scene renders through the legacy preview
+  pipeline, where graph materials are the white stub. **Remaining:** previews through the new
+  pipeline / generated shader contract, plus live preview of a node's computed output.
 - [ ] **Codegen quality** — constant folding / dead-code elimination · deterministic output order ·
   common-subexpression reuse · DDX/DDY-aware sampling · error mapping back to graph nodes.
 - [ ] **Asset/versioning/migration** — graph schema versioning + migration rules for node/pin
@@ -208,13 +228,15 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
 ## 5. Suggested build order
 
 *(done 2026-07: stale tests · TBN/PBR SurfaceOutput consumption · sampler + sRGB handling ·
-graph-instance import flag · per-object custom material shaders · transparent pass · first
-validation batch)*
+graph-instance imports · per-object custom material shaders · transparent pass · first validation
+batch · legacy-material retirement: default graph material fallback, legacy import/runtime paths
+deleted, sky-only `.material`, graph-typed material slots, `.matgraph` thumbnails)*
 
 1. **Variant cooking** for runtime-only builds — option B from §4 (cook variants onto the graph
-   asset + register into the shader at load), plus an export warm-up pass.
-2. **Default-material story** — default *graph* material to replace `DefaultMaterial.material`;
-   decide what legacy `MaterialResource` renders in the new pass.
+   asset + register into the shader at load), plus an export warm-up pass. Now the top blocker:
+   with the default material a graph instance, even an empty scene needs a cooked variant.
+2. **Legacy asset migration** — one-time UUID-preserving conversion of existing project
+   `.material` PBR assets to graph instances (until then they render as the white stub).
 3. **Real lighting** — light list, shadow pass (buckets exist), IBL; transparent back-to-front
    sorting.
 4. **Validation, part 2** — pin-index/stage checks, dead-node warnings, editor surfacing with

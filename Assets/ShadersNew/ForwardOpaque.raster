@@ -122,6 +122,10 @@ float3 ShadeForward(SurfaceOutput surface, float3 baseColor, float3 N, float3 V)
 
 // @SK_MATERIAL_GLOBALS@
 
+#ifndef SK_MATERIAL_UNLIT
+#define SK_MATERIAL_UNLIT 0
+#endif
+
 SurfaceOutput EvaluateMaterial(MaterialInputs mat)
 {
 	SurfaceOutput surface = (SurfaceOutput)0;
@@ -152,7 +156,11 @@ float4 MainPS(PixelInput input) : SV_Target0
 	float3 N = ResolveWorldNormal(surface.normal, input.normal, input.tangent);
 	float3 V = normalize(cameraPosition - input.worldPos);
 
+#if SK_MATERIAL_UNLIT
+	float3 color = baseColor;
+#else
 	float3 color = ShadeForward(surface, baseColor, N, V);
+#endif
 
 	return float4(color, surface.opacity);
 }

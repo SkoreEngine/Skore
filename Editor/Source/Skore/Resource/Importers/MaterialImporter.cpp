@@ -5,11 +5,6 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/Resources.hpp"
 
-// 1: import as a MaterialGraphResource instance of a base graph. 0: legacy standalone MaterialResource.
-#ifndef SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE
-	#define SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE 1
-#endif
-
 namespace Skore
 {
 	namespace
@@ -20,112 +15,8 @@ namespace Skore
 		constexpr const char* BaseMaterialBlend  = "Skore://MaterialGraphs/MaterialBase_Blend.matgraph";
 	}
 
-	// Legacy: standalone MaterialResource.
-	[[maybe_unused]] static RID ImportMaterialResource(const MaterialImportData& material, const SubResourceAllocator& alloc, StringView subId)
-	{
-		UndoRedoScope* scope = alloc.scope;
-		RID materialResource = alloc.Create<MaterialResource>(subId);
-
-		ResourceObject materialObject = Resources::Write(materialResource);
-		materialObject.SetString(MaterialResource::Name, material.name.Empty() ? StringView("Material") : material.name);
-
-		if (material.hasBaseColor)
-		{
-			materialObject.SetColor(MaterialResource::BaseColor, material.baseColor);
-		}
-
-		if (material.hasEmissiveColor)
-		{
-			materialObject.SetColor(MaterialResource::EmissiveColor, material.emissiveColor);
-		}
-
-		if (material.hasMetallic)
-		{
-			materialObject.SetFloat(MaterialResource::Metallic, material.metallic);
-		}
-
-		if (material.hasRoughness)
-		{
-			materialObject.SetFloat(MaterialResource::Roughness, material.roughness);
-		}
-
-		if (material.hasNormalMultiplier)
-		{
-			materialObject.SetFloat(MaterialResource::NormalMultiplier, material.normalMultiplier);
-		}
-
-		if (material.hasEmissiveFactor)
-		{
-			materialObject.SetFloat(MaterialResource::EmissiveFactor, material.emissiveFactor);
-		}
-
-		if (material.hasOcclusionStrength)
-		{
-			materialObject.SetFloat(MaterialResource::OcclusionStrength, material.occlusionStrength);
-		}
-
-		if (material.hasAlphaCutoff)
-		{
-			materialObject.SetFloat(MaterialResource::AlphaCutoff, material.alphaCutoff);
-		}
-
-		if (material.hasAlphaMode)
-		{
-			materialObject.SetEnum(MaterialResource::AlphaMode, material.alphaMode);
-		}
-
-		if (material.baseColorTexture)
-		{
-			materialObject.SetReference(MaterialResource::BaseColorTexture, material.baseColorTexture);
-		}
-
-		if (material.normalTexture)
-		{
-			materialObject.SetReference(MaterialResource::NormalTexture, material.normalTexture);
-		}
-
-		if (material.metallicTexture)
-		{
-			materialObject.SetReference(MaterialResource::MetallicTexture, material.metallicTexture);
-		}
-
-		if (material.roughnessTexture)
-		{
-			materialObject.SetReference(MaterialResource::RoughnessTexture, material.roughnessTexture);
-		}
-
-		if (material.emissiveTexture)
-		{
-			materialObject.SetReference(MaterialResource::EmissiveTexture, material.emissiveTexture);
-		}
-
-		if (material.occlusionTexture)
-		{
-			materialObject.SetReference(MaterialResource::OcclusionTexture, material.occlusionTexture);
-		}
-
-		if (material.hasMetallicTextureChannel)
-		{
-			materialObject.SetEnum(MaterialResource::MetallicTextureChannel, material.metallicTextureChannel);
-		}
-
-		if (material.hasRoughnessTextureChannel)
-		{
-			materialObject.SetEnum(MaterialResource::RoughnessTextureChannel, material.roughnessTextureChannel);
-		}
-
-		if (material.hasOcclusionTextureChannel)
-		{
-			materialObject.SetEnum(MaterialResource::OcclusionTextureChannel, material.occlusionTextureChannel);
-		}
-
-		materialObject.Commit(scope);
-
-		return materialResource;
-	}
-
-	// Instance of a base graph, overriding only the parameters exposed on it (named to match MaterialResource).
-	[[maybe_unused]] static RID ImportMaterialGraphInstance(const MaterialImportData& material, const SubResourceAllocator& alloc, StringView subId)
+	// Imports as an instance of a base graph, overriding only the parameters the base exposes.
+	RID ImportMaterial(const MaterialImportData& material, const SubResourceAllocator& alloc, StringView subId)
 	{
 		UndoRedoScope* scope = alloc.scope;
 
@@ -135,11 +26,11 @@ namespace Skore
 		{
 			switch (material.alphaMode)
 			{
-				case MaterialResource::MaterialAlphaMode::Mask:
+				case MaterialImportAlphaMode::Mask:
 					parentPath = BaseMaterialMasked;
 					graphAlpha = MaterialGraphResource::GraphAlphaMode::Mask;
 					break;
-				case MaterialResource::MaterialAlphaMode::Blend:
+				case MaterialImportAlphaMode::Blend:
 					parentPath = BaseMaterialBlend;
 					graphAlpha = MaterialGraphResource::GraphAlphaMode::Blend;
 					break;
@@ -214,14 +105,5 @@ namespace Skore
 		materialObject.Commit(scope);
 
 		return materialResource;
-	}
-
-	RID ImportMaterial(const MaterialImportData& material, const SubResourceAllocator& alloc, StringView subId)
-	{
-#if SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE
-		return ImportMaterialGraphInstance(material, alloc, subId);
-#else
-		return ImportMaterialResource(material, alloc, subId);
-#endif
 	}
 }

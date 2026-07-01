@@ -669,14 +669,24 @@ namespace Skore
 		const u32 indexByteOffset  = obj->meshCache->indexByteOffset;
 		const u32 vertexLayoutIndex = obj->meshCache->vertexLayoutId;
 
-		bool frontFace = Determinant(Mat34(obj->transform)) < 0.0f;
-		CullMode cullMode = !frontFace ? CullMode::Back : CullMode::Front;
+		bool mirrored = Determinant(Mat34(obj->transform)) < 0.0f;
+		CullMode cullMode = material->cullMode;
+		if (mirrored && cullMode == CullMode::Back)
+		{
+			cullMode = CullMode::Front;
+		}
+		else if (mirrored && cullMode == CullMode::Front)
+		{
+			cullMode = CullMode::Back;
+		}
 		bool hasBones = obj->bonesDescriptor != nullptr || obj->boneBufferSlot != U32_MAX;
 
 		DrawPipelineDesc pipelineDesc;
 		pipelineDesc.cullMode = cullMode;
 		pipelineDesc.hasBones = hasBones;
 		pipelineDesc.masked   = material->masked;
+		pipelineDesc.depthWrite = material->depthWrite;
+		pipelineDesc.depthTest  = material->depthTest;
 		pipelineDesc.shader   = obj->shader;
 		pipelineDesc.materialGraph = material->materialGraph;
 

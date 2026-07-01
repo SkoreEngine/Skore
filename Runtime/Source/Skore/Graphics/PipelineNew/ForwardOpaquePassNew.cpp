@@ -125,8 +125,8 @@ namespace Skore
 				gpuDesc.material = material;
 				gpuDesc.rasterizerState.cullMode = desc.cullMode;
 				gpuDesc.depthStencilState.depthTestEnable = true;
-				gpuDesc.depthStencilState.depthWriteEnable = true;
-				gpuDesc.depthStencilState.depthCompareOp = CompareOp::Greater;
+				gpuDesc.depthStencilState.depthWriteEnable = desc.depthWrite;
+				gpuDesc.depthStencilState.depthCompareOp = desc.depthTest;
 				gpuDesc.blendStates = {BlendStateDesc{}};
 				gpuDesc.renderPass = renderPass;
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 1, .descriptorSet = sceneSet});

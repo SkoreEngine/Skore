@@ -2162,7 +2162,7 @@ namespace Skore
 
 	}
 
-	void ImGuiResourceSelectionPopup(u64 id, TypeID typeId, RID contextRid, bool open, FnResourceSelectionCallback callback, VoidPtr userData, TypeID secondaryType)
+	void ImGuiResourceSelectionPopup(u64 id, TypeID typeId, RID contextRid, bool open, FnResourceSelectionCallback callback, VoidPtr userData)
 	{
 		static String       stringCache;
 		static Array<RID>   resourceList;
@@ -2170,7 +2170,6 @@ namespace Skore
 		static String       searchString;
 		static ImGuiTextFilter searchFilter;
 		static TypeID       lastType = {};
-		static TypeID       lastSecondary = {};
 
 		auto& style = ImGui::GetStyle();
 		auto& io = ImGui::GetIO();
@@ -2207,22 +2206,15 @@ namespace Skore
 				ImGui::EndChild();
 			}
 
-			if (lastType != typeId || lastSecondary != secondaryType)
+			if (lastType != typeId)
 			{
 				lastType = typeId;
-				lastSecondary = secondaryType;
 				resourceList.Clear();
 
 				if (typeId)
 				{
 					Array<RID> assets = ResourceAssets::GetAssets(typeId);
 					resourceList.Insert(resourceList.end(), assets.begin(), assets.end());
-
-					if (secondaryType)
-					{
-						Array<RID> secondaryAssets = ResourceAssets::GetAssets(secondaryType);
-						resourceList.Insert(resourceList.end(), secondaryAssets.begin(), secondaryAssets.end());
-					}
 
 					if (ResourceObject asset = Resources::Read(ResourceAssets::GetResourceAssetFromResourceRecursive(contextRid)))
 					{
@@ -2231,7 +2223,7 @@ namespace Skore
 							resourceObject.IterateAllSubObjects([&](u32 index, RID rid)
 							{
 								TypeID ridType = Resources::GetType(rid)->GetID();
-								if (Resources::GetUUID(rid) && (ridType == typeId || (secondaryType && ridType == secondaryType)))
+								if (Resources::GetUUID(rid) && ridType == typeId)
 								{
 									resourceList.EmplaceBack(rid);
 								}

@@ -1,9 +1,11 @@
 # Material System — Remaining Work
 
-Snapshot of what is still missing after the 2026-07-01 batch (TBN/PBR shading, sampler + sRGB
-handling, graph-instance imports, per-object custom material shaders, transparent pass, first
-validation batch). Companion to the living checklist in `MaterialNodeSystem.md`; this file is the
-prioritized "what's next" view.
+Snapshot of what is still missing after the 2026-07-01 batches (first batch: TBN/PBR shading,
+sampler + sRGB handling, graph-instance imports, per-object custom material shaders, transparent
+pass, first validation batch; second batch: legacy-material retirement — default graph material
+fallback, legacy import/runtime paths deleted, sky-only `.material`, graph-typed material slots,
+`.matgraph` thumbnails). Companion to the living checklist in `MaterialNodeSystem.md`; this file is
+the prioritized "what's next" view.
 
 Items are ordered by how much they block: shipping first, self-sufficiency second, tooling third,
 expansion last.
@@ -43,15 +45,32 @@ exist if the material happened to be rendered during the session. Pairings with 
 shaders are only discoverable from scene data — accept "rendered at least once" for those, or scan
 scenes at export.
 
-### 1.2 Default material story
+This is now strictly the top shipping blocker: since the mesh fallback is a graph instance
+(`DefaultMaterial.matgraph`, see 1.2), even a scene with no authored materials renders the gray
+template in a runtime-only build.
 
-- Legacy `MaterialResource` renders **flat gray** in the new pass: `UpdateMaterialStorageData`
-  still writes its PBR block to `MaterialDataBuffer` (b0), but `ForwardOpaque.raster` never reads
-  it (`SampleSurface` in `GlobalBindingsNew.hlsli` is dead code). Decide: give the template a
-  legacy-material read path, or migrate legacy assets to graph instances and delete the path.
-- The mesh fallback is still `Skore://Materials/DefaultMaterial.material` (legacy → gray). A
-  default **graph** material should replace it; `CreateGraphicsDefaultValues`
-  (`GraphicsResources.cpp`) is currently commented out and is the natural place.
+### 1.2 Default material story — done except asset migration
+
+Done in the 2026-07-01 retirement batch:
+
+- Mesh fallback is `Skore://MaterialGraphs/DefaultMaterial.matgraph` (hand-authored `Kind=Instance`
+  of `MaterialBase`, no overrides); `DefaultMaterial.material` deleted. Adding/removing the
+  embedded assets needs a CMake re-configure (CMRC glob).
+- The legacy PBR packing in `UpdateMaterialStorageData` is deleted; any non-graph, non-sky material
+  writes the white stub block (`WriteMaterialStubData`), so stale legacy assets render white rather
+  than disappearing, and the old pipeline / material-mask readback keep working. `SampleSurface` in
+  `GlobalBindingsNew.hlsli` and the b0 stub itself only die together with the old pipeline.
+- `.material` is sky-only: the handler reads "Sky Material", "Create > New Sky Material" seeds
+  `Type=SkyboxEquirectangular`, and the generic "New Material" entry is gone. Material slots
+  (`MaterialArray`) are typed to `MaterialGraphResource`, so pickers/drag-drop accept graphs only.
+
+Remaining:
+
+- **One-time migration of existing project `.material` PBR assets** to graph instances of
+  `MaterialBase*`, reusing the importer's parameter mapping and **keeping the original UUID** so
+  scene references survive. Until then those assets render white and can't be re-assigned.
+- Full `MaterialResource` deletion waits on the sky material migration; then the type slims to sky
+  fields and the opaque `FieldVisibilityControls` rows go with it.
 
 ---
 
@@ -101,9 +120,11 @@ cycles, unknown node types, missing output) are **log-only**. Missing:
 
 ### 3.2 Live previews
 
-Texture nodes show the assigned texture's thumbnail. Missing: per-node preview of the *computed*
-output, and a material-sphere preview that uses the same generated shader contract as runtime
-rendering (the engine's `PreviewGenerator` machinery exists for the legacy `.material`).
+Texture nodes show the assigned texture's thumbnail, and `.matgraph` assets now have
+project-browser thumbnails (`MaterialGraphPreviewGenerator`, sphere + material) — but the preview
+scene renders through the legacy preview pipeline, where graph materials are the white stub, so the
+thumbnail doesn't show the actual graph output. Missing: previews through the new pipeline (same
+generated shader contract as runtime rendering) and per-node preview of the *computed* output.
 
 ### 3.3 Test gates
 
@@ -158,10 +179,15 @@ Mostly mechanical: subclass + `Reflection::Type<>()` in `RegisterMaterialNodes()
 
 ## Needs visual verification (not code work)
 
-Nothing in the 2026-07-01 batch has been checked visually yet:
+Nothing in the 2026-07-01 batches has been checked visually yet:
 
 - Overall scene brightness — the PBR rewrite changes the response curve (energy-conserving diffuse
   `/π`, sun ×3 to compensate, AO now only on ambient).
 - A reimported GLTF model through the new base graphs: normal-map orientation (TBN handedness),
   masked foliage (cutoff), metallic/roughness response, sRGB base color.
 - Transparent pass compositing over opaque (load-not-clear, blend, no depth write).
+- The new default fallback: a mesh with no material assigned should render
+  `DefaultMaterial.matgraph` (MaterialBase defaults), not gray/white — requires the CMake
+  re-configure so the embedded package picks up the new asset.
+- "Create > New Sky Material" + the sky path still working end-to-end (skybox render, IBL) after
+  the legacy branch removal.

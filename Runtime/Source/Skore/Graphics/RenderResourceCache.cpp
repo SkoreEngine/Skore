@@ -1461,6 +1461,27 @@ namespace Skore
 			return false;
 		}
 
+		void WriteMaterialStubData(const MaterialResourceCachePtr& materialCache)
+		{
+			MaterialData matData{};
+			matData.baseColor = Vec3(1.0f, 1.0f, 1.0f);
+			matData.baseColorTexture = -1;
+			matData.normalTexture = -1;
+			matData.roughnessTexture = -1;
+			matData.metallicTexture = -1;
+			matData.emissiveTexture = -1;
+			matData.uvScale = Vec2(1.0f, 1.0f);
+
+			if (materialCache->materialIndex == U32_MAX)
+			{
+				AddPendingMaterial(materialCache, matData);
+			}
+			else
+			{
+				WriteMaterialDataToBuffer(materialCache, matData);
+			}
+		}
+
 		void UpdateMaterialStorageData(const ResourceObject& materialObject, MaterialResourceCachePtr materialCache, bool async)
 		{
 			if (Resources::GetType(materialCache->rid) == Resources::FindType<MaterialGraphResource>())
@@ -1468,104 +1489,39 @@ namespace Skore
 				MaterialParamLayout layout = MaterialParamLayout::Build(materialCache->rid);
 				materialCache->materialGraph = layout.owningGraph ? layout.owningGraph : materialCache->rid;
 
-				MaterialGraphResource::GraphAlphaMode alphaMode = materialObject.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+				// Render settings live on the owning graph, so instances inherit them from their parent.
+				ResourceObject        owningGraphObject = materialCache->materialGraph != materialCache->rid ? Resources::Read(materialCache->materialGraph) : ResourceObject{};
+				const ResourceObject& graphSettings = owningGraphObject ? owningGraphObject : materialObject;
+
+				MaterialGraphResource::GraphAlphaMode alphaMode = graphSettings.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
 				materialCache->transparent = alphaMode == MaterialGraphResource::GraphAlphaMode::Blend;
 				materialCache->masked = alphaMode == MaterialGraphResource::GraphAlphaMode::Mask;
 				materialCache->type = MaterialResource::MaterialType::Opaque;
 
+				switch (graphSettings.GetEnum<MaterialGraphResource::GraphRenderFace>(MaterialGraphResource::RenderFace))
+				{
+					case MaterialGraphResource::GraphRenderFace::Front: materialCache->cullMode = CullMode::Back; break;
+					case MaterialGraphResource::GraphRenderFace::Back:  materialCache->cullMode = CullMode::Front; break;
+					case MaterialGraphResource::GraphRenderFace::Both:  materialCache->cullMode = CullMode::None; break;
+				}
+				materialCache->depthWrite = graphSettings.HasValue(MaterialGraphResource::DepthWrite) ? graphSettings.GetBool(MaterialGraphResource::DepthWrite) : !materialCache->transparent;
+				materialCache->depthTest = graphSettings.HasValue(MaterialGraphResource::DepthTest) ? graphSettings.GetEnum<CompareOp>(MaterialGraphResource::DepthTest) : CompareOp::Greater;
+
 				materialCache->textures.Clear();
 				PackGraphMaterialParams(materialCache, layout, async);
 
-				MaterialData matData{};
-				matData.baseColor = Vec3(1.0f, 1.0f, 1.0f);
-				matData.baseColorTexture = -1;
-				matData.normalTexture = -1;
-				matData.roughnessTexture = -1;
-				matData.metallicTexture = -1;
-				matData.emissiveTexture = -1;
-				matData.uvScale = Vec2(1.0f, 1.0f);
-
-				if (materialCache->materialIndex == U32_MAX)
-				{
-					AddPendingMaterial(materialCache, matData);
-				}
-				else
-				{
-					WriteMaterialDataToBuffer(materialCache, matData);
-				}
+				WriteMaterialStubData(materialCache);
 				return;
 			}
 
-			StringView name = materialObject.GetString(MaterialResource::Name);
-
 			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
-
-			//keep textures alive in the scope. so we don't need to reload textures in a material refresh.
-			auto oldtextures = materialCache->textures;
-
-			// Drop previous texture references; rebuild based on the new material data.
 			materialCache->textures.Clear();
 
-			if (materialCache->type == MaterialResource::MaterialType::Opaque)
+			if (materialCache->type != MaterialResource::MaterialType::SkyboxEquirectangular)
 			{
-				Color baseColor = materialObject.GetColor(MaterialResource::BaseColor);
-				RID   baseColorTexture = materialObject.GetReference(MaterialResource::BaseColorTexture);
-				RID   normalTexture = materialObject.GetReference(MaterialResource::NormalTexture);
-				RID   roughnessTexture = materialObject.GetReference(MaterialResource::RoughnessTexture);
-				RID   metallicTexture = materialObject.GetReference(MaterialResource::MetallicTexture);
-				Color emissiveColor = materialObject.GetColor(MaterialResource::EmissiveColor);
-				f32   emissiveFactor = materialObject.GetFloat(MaterialResource::EmissiveFactor);
-				RID   emissiveTexture = materialObject.GetReference(MaterialResource::EmissiveTexture);
-
-				auto resolveTextureIndex = [&materialCache, async](RID textureRID) -> i32
-				{
-					if (!textureRID) return -1;
-					TextureResourceCachePtr tc = RenderResourceCache::GetTextureCache(textureRID, async);
-					if (tc && tc->textureIndex != U32_MAX)
-					{
-						i32 idx = static_cast<i32>(tc->textureIndex);
-						materialCache->textures.EmplaceBack(Traits::Move(tc));
-						return idx;
-					}
-					return -1;
-				};
-
-				MaterialData matData{};
-				matData.baseColor = baseColor.ToVec3();
-				matData.roughness = materialObject.GetFloat(MaterialResource::Roughness);
-				matData.metallic = materialObject.GetFloat(MaterialResource::Metallic);
-				matData.baseColorTexture = resolveTextureIndex(baseColorTexture);
-				matData.normalTexture = resolveTextureIndex(normalTexture);
-				matData.roughnessTexture = resolveTextureIndex(roughnessTexture);
-				matData.metallicTexture = resolveTextureIndex(metallicTexture);
-				matData.uvScale = materialObject.GetVec2(MaterialResource::UvScale);
-				matData.emissiveFactor = emissiveFactor;
-				matData.emissiveColor = emissiveColor.ToVec3();
-				matData.emissiveTexture = resolveTextureIndex(emissiveTexture);
-				matData.alphaMode = materialObject.GetEnum(MaterialResource::AlphaMode);
-				matData.alphaCutoff = materialObject.GetFloat(MaterialResource::AlphaCutoff);
-
-				matData.samplerIndices0 = ResolveSamplerIndex(baseColorTexture)
-				                        | (ResolveSamplerIndex(normalTexture)    << 8)
-				                        | (ResolveSamplerIndex(roughnessTexture) << 16)
-				                        | (ResolveSamplerIndex(metallicTexture)  << 24);
-
-				matData.samplerIndices1 = ResolveSamplerIndex(emissiveTexture);
-
-				MaterialResource::MaterialAlphaMode alphaModeEnum = materialObject.GetEnum<MaterialResource::MaterialAlphaMode>(MaterialResource::AlphaMode);
-				materialCache->transparent = alphaModeEnum == MaterialResource::MaterialAlphaMode::Blend;
-				materialCache->masked = alphaModeEnum == MaterialResource::MaterialAlphaMode::Mask;
-
-				if (materialCache->materialIndex == U32_MAX)
-				{
-					AddPendingMaterial(materialCache, matData);
-				}
-				else
-				{
-					WriteMaterialDataToBuffer(materialCache, matData);
-				}
+				WriteMaterialStubData(materialCache);
 			}
-			else if (materialCache->type == MaterialResource::MaterialType::SkyboxEquirectangular)
+			else
 			{
 				RID sphericalTexture = materialObject.GetReference(MaterialResource::SphericalTexture);
 
@@ -2055,7 +2011,7 @@ namespace Skore
 			}
 			else
 			{
-				meshData->materials.EmplaceBack(RenderResourceCache::GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), async));
+				meshData->materials.EmplaceBack(RenderResourceCache::GetMaterialCache(Resources::FindByPath("Skore://MaterialGraphs/DefaultMaterial.matgraph"), async));
 			}
 
 			return true;
@@ -2876,7 +2832,7 @@ namespace Skore
 		}
 		else
 		{
-			meshData->materials.EmplaceBack(GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), true));
+			meshData->materials.EmplaceBack(GetMaterialCache(Resources::FindByPath("Skore://MaterialGraphs/DefaultMaterial.matgraph"), true));
 		}
 
 		ResourceWorker::WorkerData wd;

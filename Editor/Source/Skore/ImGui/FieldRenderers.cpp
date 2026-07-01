@@ -20,15 +20,6 @@ namespace Skore
 	namespace
 	{
 		Logger& logger = Logger::GetLogger("Skore::FieldRenders");
-
-		//Materials and material graphs are interchangeable in object material slots, so a slot typed to one
-		//also accepts the other. Returns the alternate accepted type, or {} for non-material fields.
-		TypeID MaterialAlternateType(TypeID typeId)
-		{
-			if (typeId == TypeInfo<MaterialResource>::ID()) return TypeInfo<MaterialGraphResource>::ID();
-			if (typeId == TypeInfo<MaterialGraphResource>::ID()) return TypeInfo<MaterialResource>::ID();
-			return {};
-		}
 	}
 
 	template <typename... T>
@@ -466,8 +457,7 @@ namespace Skore
 	template <typename T>
 	void DrawResource(const ImGuiDrawFieldContext& context, const RID rid, u64 id, TypeID typeId, T&& func)
 	{
-		bool   isEntityDraw = typeId == TypeInfo<Entity>::ID();
-		TypeID secondaryType = MaterialAlternateType(typeId);
+		bool isEntityDraw = typeId == TypeInfo<Entity>::ID();
 
 		char pushStr[30];
 		sprintf(pushStr, "###push%llu", id);
@@ -496,7 +486,7 @@ namespace Skore
 						if (AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data))
 						{
 							TypeID assetType = Resources::GetType(assetPayload->asset)->GetID();
-							if (assetType == typeId || (secondaryType && assetType == secondaryType))
+							if (assetType == typeId)
 							{
 								if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
 								{
@@ -549,7 +539,7 @@ namespace Skore
 		ImGuiResourceSelectionPopup(id, typeId, context.rid, openPopup, [](RID rid, VoidPtr userData)
 		{
 			(*static_cast<T*>(userData))(rid);
-		}, &func, secondaryType);
+		}, &func);
 	}
 
 	bool CanDrawResourceField(const ImGuiDrawFieldDrawCheck& check)

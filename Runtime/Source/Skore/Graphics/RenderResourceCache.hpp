@@ -123,6 +123,11 @@ namespace Skore
 		RID                            materialGraph = {};
 		Array<u8>                      materialParamData;
 
+		// Pipeline-state requests resolved from the material's render settings (render face / depth).
+		CullMode  cullMode = CullMode::Back;
+		bool      depthWrite = true;
+		CompareOp depthTest = CompareOp::Greater;
+
 		// Keeps PBR textures alive while this material exists.
 		Array<TextureResourceCachePtr> textures;
 

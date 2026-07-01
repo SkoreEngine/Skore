@@ -59,8 +59,8 @@ namespace Skore
 
 		void        DrawToolbar();
 		void        DrawGraph();
-		static bool IsOutputOpacityPinDisabled(MaterialNode* def, u32 pinIndex, MaterialGraphResource::GraphAlphaMode alphaMode);
-		void        DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins, MaterialGraphResource::GraphAlphaMode alphaMode);
+		static bool IsOutputPinDisabled(MaterialNode* def, u32 pinIndex, MaterialGraphResource::GraphAlphaMode alphaMode, MaterialGraphResource::GraphShadingModel shadingModel);
+		void        DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins, MaterialGraphResource::GraphAlphaMode alphaMode, MaterialGraphResource::GraphShadingModel shadingModel);
 		void        CommitPinValue(RID node, u32 pinIndex, Vec4 value);
 		ImTextureID ResolveThumbnail(RID node, MaterialNode* def, HashSet<u64>& usedTextures);
 		bool        NodeAcceptsTexture(RID node);

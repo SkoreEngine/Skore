@@ -1623,12 +1623,23 @@ namespace Skore
 
 	void PropertiesWindow::DrawMaterialOutputProperties(RID graph)
 	{
-		MaterialGraphResource::GraphAlphaMode mode = MaterialGraphResource::GraphAlphaMode::Opaque;
-		f32                                   cutoff = 0.5f;
+		MaterialGraphResource::GraphShadingModel shadingModel = MaterialGraphResource::GraphShadingModel::DefaultLit;
+		MaterialGraphResource::GraphAlphaMode    mode = MaterialGraphResource::GraphAlphaMode::Opaque;
+		MaterialGraphResource::GraphRenderFace   renderFace = MaterialGraphResource::GraphRenderFace::Front;
+		f32                                      cutoff = 0.5f;
+		bool                                     depthWrite = true;
+		i32                                      depthTest = static_cast<i32>(CompareOp::Greater);
 		if (ResourceObject graphObj = Resources::Read(graph))
 		{
+			shadingModel = graphObj.GetEnum<MaterialGraphResource::GraphShadingModel>(MaterialGraphResource::ShadingModel);
 			mode = graphObj.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+			renderFace = graphObj.GetEnum<MaterialGraphResource::GraphRenderFace>(MaterialGraphResource::RenderFace);
 			cutoff = graphObj.GetFloat(MaterialGraphResource::MaskCutoff);
+			depthWrite = graphObj.HasValue(MaterialGraphResource::DepthWrite) ? graphObj.GetBool(MaterialGraphResource::DepthWrite) : mode != MaterialGraphResource::GraphAlphaMode::Blend;
+			if (graphObj.HasValue(MaterialGraphResource::DepthTest))
+			{
+				depthTest = static_cast<i32>(graphObj.GetEnum<CompareOp>(MaterialGraphResource::DepthTest));
+			}
 		}
 		else
 		{
@@ -1640,6 +1651,20 @@ namespace Skore
 		{
 			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
 			ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Material");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+			i32 shadingIndex = static_cast<i32>(shadingModel);
+			if (ImGui::Combo("##shadingmodel", &shadingIndex, "Default Lit\0Unlit\0"))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Material Shading");
+				ResourceObject write = Resources::Write(graph);
+				write.SetEnum(MaterialGraphResource::ShadingModel, static_cast<MaterialGraphResource::GraphShadingModel>(shadingIndex));
+				write.Commit(scope);
+			}
 
 			ImGui::TableNextColumn();
 			ImGui::AlignTextToFramePadding();
@@ -1669,6 +1694,45 @@ namespace Skore
 					write.SetFloat(MaterialGraphResource::MaskCutoff, cutoff);
 					write.Commit(scope);
 				}
+			}
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Render Face");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+			i32 faceIndex = static_cast<i32>(renderFace);
+			if (ImGui::Combo("##renderface", &faceIndex, "Front\0Back\0Both\0"))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Render Face");
+				ResourceObject write = Resources::Write(graph);
+				write.SetEnum(MaterialGraphResource::RenderFace, static_cast<MaterialGraphResource::GraphRenderFace>(faceIndex));
+				write.Commit(scope);
+			}
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Depth Write");
+			ImGui::TableNextColumn();
+			if (ImGui::Checkbox("##depthwrite", &depthWrite))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Depth Write");
+				ResourceObject write = Resources::Write(graph);
+				write.SetBool(MaterialGraphResource::DepthWrite, depthWrite);
+				write.Commit(scope);
+			}
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Depth Test");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+			if (ImGui::Combo("##depthtest", &depthTest, "Never\0Less\0Equal\0Less Equal\0Greater\0Not Equal\0Greater Equal\0Always\0"))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Depth Test");
+				ResourceObject write = Resources::Write(graph);
+				write.SetEnum(MaterialGraphResource::DepthTest, static_cast<CompareOp>(depthTest));
+				write.Commit(scope);
 			}
 
 			ImGui::EndTable();
