@@ -25,6 +25,42 @@ namespace Skore
 			snprintf(buf, sizeof(buf), "%u", v);
 			return String{buf};
 		}
+
+		String ParamReadExpr(const MaterialCodegenContext& ctx, MaterialDataType type)
+		{
+			if (ctx.paramByteOffset == U32_MAX)
+			{
+				return MaterialLiteralExpr(type, ctx.value);
+			}
+
+			String off = IndexStr(ctx.paramByteOffset) + "u";
+			switch (type)
+			{
+				case MaterialDataType::Float: return String{"MatParamFloat("} + off + ")";
+				case MaterialDataType::Vec2:  return String{"MatParamVec2("} + off + ")";
+				case MaterialDataType::Vec3:  return String{"MatParamVec3("} + off + ")";
+				default:                      return String{"MatParamVec4("} + off + ")";
+			}
+		}
+
+		//Emits `float4 <var>` sampling this node's per-material bindless texture (white when no texture is
+		//bound). The texture's slot in the material param buffer holds the bindless index and the sampler
+		//index picked from the assigned texture's wrap/filter settings. sRGB decode is baked at codegen
+		//time from the node's flag since it is authoring intent, not an instance-overridable value.
+		void EmitTextureSample(MaterialCodegenContext& ctx, StringView var, StringView uv, bool srgb)
+		{
+			ctx.AddStatement(String{"float4 "} + var + " = float4(1.0, 1.0, 1.0, 1.0);");
+			if (ctx.paramByteOffset != U32_MAX)
+			{
+				String i = IndexStr(ctx.nodeIndex);
+				String uvVar = String{"uv"} + i;
+				String idx = String{"texIdx"} + i;
+				String decode = srgb ? String{" "} + var + ".rgb = pow(" + var + ".rgb, 2.2);" : String{};
+				ctx.AddStatement(String{"float2 "} + uvVar + " = " + uv + ";");
+				ctx.AddStatement(String{"int "} + idx + " = MatParamTexture(" + IndexStr(ctx.paramByteOffset) + "u);");
+				ctx.AddStatement(String{"if ("} + idx + " >= 0) { " + var + " = BindlessTextures[NonUniformResourceIndex(" + idx + ")].Sample(Samplers[MatParamSampler(" + IndexStr(ctx.paramByteOffset + 4) + "u)], " + uvVar + ");" + decode + " WriteMipmapFeedback(pushConstants.materialIndex, ddx_coarse(float4(" + uvVar + ", 0, 0)), ddy_coarse(float4(" + uvVar + ", 0, 0))); }");
+			}
+		}
 	}
 
 	//--- Output / master node --------------------------------------------------------------------
@@ -141,7 +177,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Float, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Float));
 		}
 	};
 
@@ -163,7 +199,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Float, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Float));
 		}
 	};
 
@@ -185,7 +221,29 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Float, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Float));
+		}
+	};
+
+	struct MaterialParamChannelNode : MaterialParameterNode
+	{
+		SK_CLASS(MaterialParamChannelNode, MaterialParameterNode);
+
+		StringView GetNodeTypeId() const override { return "param_channel"; }
+		StringView GetDisplayName() const override { return "Channel"; }
+		Vec4       GetDefaultValue() const override { return Vec4{0.0f, 0.0f, 0.0f, 0.0f}; }
+
+		void DefinePins() override { AddOutput("Out", MaterialDataType::Float); }
+
+		void DefineProperties() override
+		{
+			AddProperty("Name", MaterialNodePropertyType::Name);
+			AddProperty("Default", MaterialNodePropertyType::Channel);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Float));
 		}
 	};
 
@@ -207,7 +265,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec3, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Vec3));
 		}
 	};
 
@@ -228,7 +286,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec2, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Vec2));
 		}
 	};
 
@@ -249,7 +307,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec3, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Vec3));
 		}
 	};
 
@@ -270,7 +328,7 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.SetOutput(0, MaterialLiteralExpr(MaterialDataType::Vec4, ctx.value));
+			ctx.SetOutput(0, ParamReadExpr(ctx, MaterialDataType::Vec4));
 		}
 	};
 
@@ -295,14 +353,13 @@ namespace Skore
 		{
 			AddProperty("Name", MaterialNodePropertyType::Name);
 			AddProperty("Default", MaterialNodePropertyType::Texture);
+			AddProperty("sRGB", MaterialNodePropertyType::Bool);
 		}
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.UseTextures();
-			String slot = IndexStr(ctx.TextureSlot());
 			String sample = String{"tex"} + IndexStr(ctx.nodeIndex);
-			ctx.AddStatement(String{"float4 "} + sample + " = MaterialTextures[" + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ");");
+			EmitTextureSample(ctx, sample, ctx.Input(0), ctx.value.x != 0.0f);
 			ctx.SetOutput(0, sample);
 			ctx.SetOutput(1, sample + ".r");
 			ctx.SetOutput(2, sample + ".g");
@@ -352,14 +409,13 @@ namespace Skore
 		void DefineProperties() override
 		{
 			AddProperty("Texture", MaterialNodePropertyType::Texture);
+			AddProperty("sRGB", MaterialNodePropertyType::Bool);
 		}
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.UseTextures();
-			String slot = IndexStr(ctx.TextureSlot());
 			String sample = String{"tex"} + IndexStr(ctx.nodeIndex);
-			ctx.AddStatement(String{"float4 "} + sample + " = MaterialTextures[" + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ");");
+			EmitTextureSample(ctx, sample, ctx.Input(0), ctx.value.x != 0.0f);
 			ctx.SetOutput(0, sample);
 			ctx.SetOutput(1, sample + ".r");
 			ctx.SetOutput(2, sample + ".g");
@@ -391,11 +447,38 @@ namespace Skore
 
 		void Generate(MaterialCodegenContext& ctx) const override
 		{
-			ctx.UseTextures();
-			String slot = IndexStr(ctx.TextureSlot());
+			String sample = String{"tex"} + IndexStr(ctx.nodeIndex);
+			EmitTextureSample(ctx, sample, ctx.Input(0), false);
 			String temp = String{"nm"} + IndexStr(ctx.nodeIndex);
-			ctx.AddStatement(String{"float3 "} + temp + " = MaterialTextures[" + slot + "].Sample(MaterialSampler, " + ctx.Input(0) + ").xyz * 2.0 - 1.0;");
+			ctx.AddStatement(String{"float3 "} + temp + " = " + sample + ".xyz * 2.0 - 1.0;");
 			ctx.SetOutput(0, String{"normalize(float3("} + temp + ".xy * " + ctx.Input(1) + ", " + temp + ".z))");
+		}
+	};
+
+	struct MaterialChannelSelectNode : MaterialNode
+	{
+		SK_CLASS(MaterialChannelSelectNode, MaterialNode);
+
+		StringView        GetNodeTypeId() const override { return "channel_select"; }
+		StringView        GetDisplayName() const override { return "Channel Select"; }
+		StringView        GetCategory() const override { return "Texture"; }
+		MaterialNodeColor GetHeaderColor() const override { return {180, 130, 70}; }
+
+		void DefinePins() override
+		{
+			AddInput("RGBA", MaterialDataType::Vec4, Vec4{0.0f, 0.0f, 0.0f, 0.0f});
+			AddInput("Channel", MaterialDataType::Float, Vec4{0.0f, 0.0f, 0.0f, 0.0f});
+			AddOutput("Out", MaterialDataType::Float);
+		}
+
+		void Generate(MaterialCodegenContext& ctx) const override
+		{
+			String i = IndexStr(ctx.nodeIndex);
+			String v = String{"cs"} + i;
+			String c = String{"csIdx"} + i;
+			ctx.AddStatement(String{"float4 "} + v + " = " + ctx.Input(0) + ";");
+			ctx.AddStatement(String{"int "} + c + " = clamp(int(" + ctx.Input(1) + " + 0.5), 0, 3);");
+			ctx.SetOutput(0, v + "[" + c + "]");
 		}
 	};
 
@@ -837,6 +920,7 @@ namespace Skore
 		Reflection::Type<MaterialParamFloatNode>();
 		Reflection::Type<MaterialParamIntNode>();
 		Reflection::Type<MaterialParamBoolNode>();
+		Reflection::Type<MaterialParamChannelNode>();
 		Reflection::Type<MaterialParamColorNode>();
 		Reflection::Type<MaterialParamVec2Node>();
 		Reflection::Type<MaterialParamVec3Node>();
@@ -845,6 +929,7 @@ namespace Skore
 		Reflection::Type<MaterialTexCoordNode>();
 		Reflection::Type<MaterialSampleTexture2DNode>();
 		Reflection::Type<MaterialNormalMapNode>();
+		Reflection::Type<MaterialChannelSelectNode>();
 		Reflection::Type<MaterialTilingOffsetNode>();
 		Reflection::Type<MaterialMultiplyNode>();
 		Reflection::Type<MaterialAddNode>();

@@ -1094,7 +1094,6 @@ namespace Skore
 
 		AddMenuItem(MenuItemCreation{.itemName = "Create", .icon = ICON_FA_SQUARE_PLUS, .priority = 0});
 		AddMenuItem(MenuItemCreation{.itemName = "Create/New Folder", .icon = ICON_FA_FOLDER, .priority = 0, .action = AssetNewFolder, .visible = CanCreateAsset});
-		AddMenuItem(MenuItemCreation{.itemName = "Create/New Material", .icon = ICON_FA_PAINTBRUSH, .priority = 30, .action = AssetNew, .visible = CanCreateAsset, .userData = TypeInfo<MaterialResource>::ID()});
 
 		AddMenuItem(MenuItemCreation{.itemName = "Delete", .icon = ICON_FA_TRASH, .priority = 25, .itemShortcut{.presKey = Key::Delete}, .action = AssetDelete, .enable = CheckSelectedAsset});
 		AddMenuItem(MenuItemCreation{.itemName = "Rename", .icon = ICON_FA_PEN_TO_SQUARE, .priority = 30, .itemShortcut{.presKey = Key::F2}, .action = AssetRename, .enable = CheckSelectedAsset});

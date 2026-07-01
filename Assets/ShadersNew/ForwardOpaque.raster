@@ -1,6 +1,6 @@
 #include "SceneBindingsNew.hlsli"
 #include "GlobalBindingsNew.hlsli"
-#include "ForwardLighting.hlsli"
+#include "MaterialSurface.hlsli"
 
 struct PushConstants
 {
@@ -20,6 +20,7 @@ struct PixelInput
 	float2 texCoord : TEXCOORD0;
 	float3 color    : COLOR;
 	float3 worldPos : POSITION1;
+	float4 tangent  : TANGENT;
 };
 
 PixelInput MainVS(uint vertexId : SV_VertexID)
@@ -29,6 +30,7 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 
 	float3 position = GetVertexPosition(vboff, layoutIdx, vertexId);
 	float3 normal   = GetVertexNormal(vboff, layoutIdx, vertexId);
+	float4 tangent  = GetVertexTangent(vboff, layoutIdx, vertexId);
 
 	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0));
 
@@ -39,18 +41,126 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 	float3x3 normalMat = (float3x3)pushConstants.world;
 	output.normal = normalize(mul(normalMat, normal));
 
+	//w carries the bitangent sign; w == 0 marks a mesh without tangents
+	output.tangent = float4(0.0, 0.0, 0.0, 0.0);
+	if (dot(tangent.xyz, tangent.xyz) > 0.0)
+	{
+		output.tangent = float4(normalize(mul(normalMat, tangent.xyz)), tangent.w);
+	}
+
 	output.texCoord = GetVertexUV(vboff, layoutIdx, vertexId);
 	output.color    = GetVertexColor(vboff, layoutIdx, vertexId);
 
 	return output;
 }
 
+static const float SK_PI = 3.14159265359;
+
+float DistributionGGX(float3 N, float3 H, float roughness)
+{
+	float a = roughness * roughness;
+	float a2 = a * a;
+	float ndh = saturate(dot(N, H));
+	float denom = ndh * ndh * (a2 - 1.0) + 1.0;
+	return a2 / (SK_PI * denom * denom + 1e-7);
+}
+
+float GeometrySchlickGGX(float ndx, float roughness)
+{
+	float r = roughness + 1.0;
+	float k = (r * r) / 8.0;
+	return ndx / (ndx * (1.0 - k) + k);
+}
+
+float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
+{
+	return GeometrySchlickGGX(saturate(dot(N, V)), roughness) * GeometrySchlickGGX(saturate(dot(N, L)), roughness);
+}
+
+float3 FresnelSchlick(float cosTheta, float3 F0)
+{
+	return F0 + (1.0 - F0) * pow(saturate(1.0 - cosTheta), 5.0);
+}
+
+float3 ResolveWorldNormal(float3 tangentNormal, float3 vertexNormal, float4 tangent)
+{
+	float3 N = normalize(vertexNormal);
+	if (tangent.w == 0.0)
+	{
+		return N;
+	}
+	float3 T = normalize(tangent.xyz - N * dot(N, tangent.xyz));
+	float3 B = cross(N, T) * tangent.w;
+	return normalize(mul(tangentNormal, float3x3(T, B, N)));
+}
+
+float3 ShadeForward(SurfaceOutput surface, float3 baseColor, float3 N, float3 V)
+{
+	float3 L = normalize(float3(0.5, 1.0, 0.4));
+	float3 H = normalize(V + L);
+
+	float ndl = saturate(dot(N, L));
+	float ndv = saturate(dot(N, V));
+
+	float  roughness = clamp(surface.roughness, 0.045, 1.0);
+	float3 F0 = lerp(float3(0.04, 0.04, 0.04), baseColor, surface.metallic);
+
+	float  d = DistributionGGX(N, H, roughness);
+	float  g = GeometrySmith(N, V, L, roughness);
+	float3 f = FresnelSchlick(saturate(dot(H, V)), F0);
+
+	float3 specular = (d * g * f) / max(4.0 * ndv * ndl, 1e-4);
+	float3 kd = (1.0 - f) * (1.0 - surface.metallic);
+
+	float3 sunColor = float3(1.0, 0.97, 0.92) * 3.0;
+	float3 direct = (kd * baseColor / SK_PI + specular) * sunColor * ndl;
+
+	float3 ambient = float3(0.18, 0.20, 0.24) * baseColor * surface.occlusion;
+
+	return direct + ambient + surface.emissive;
+}
+
+// @SK_MATERIAL_GLOBALS@
+
+#ifndef SK_MATERIAL_UNLIT
+#define SK_MATERIAL_UNLIT 0
+#endif
+
+SurfaceOutput EvaluateMaterial(MaterialInputs mat)
+{
+	SurfaceOutput surface = (SurfaceOutput)0;
+	surface.baseColor = float3(0.8, 0.8, 0.8);
+	surface.metallic  = 0.0;
+	surface.roughness = 0.5;
+	surface.emissive  = float3(0.0, 0.0, 0.0);
+	surface.normal    = float3(0.0, 0.0, 1.0);
+	surface.occlusion = 1.0;
+	surface.opacity   = 1.0;
+
+	// @SK_MATERIAL_GRAPH@
+
+	return surface;
+}
+
 float4 MainPS(PixelInput input) : SV_Target0
 {
-	SurfaceSample surface = SampleSurface(pushConstants.materialIndex, input.texCoord);
+	MaterialInputs mat;
+	mat.texCoord    = input.texCoord;
+	mat.normal      = input.normal;
+	mat.worldPos    = input.worldPos;
+	mat.vertexColor = input.color;
+
+	SurfaceOutput surface = EvaluateMaterial(mat);
 
 	float3 baseColor = surface.baseColor * input.color;
-	float3 color     = ShadeForward(baseColor, surface.emissive, input.normal);
+	float3 N = ResolveWorldNormal(surface.normal, input.normal, input.tangent);
+	float3 V = normalize(cameraPosition - input.worldPos);
 
-	return float4(color, 1.0);
+#if SK_MATERIAL_UNLIT
+	float3 color = baseColor;
+#else
+	float3 color = ShadeForward(surface, baseColor, N, V);
+#endif
+
+	return float4(color, surface.opacity);
 }

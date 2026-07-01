@@ -987,6 +987,9 @@ namespace Skore
 		GPUBuffer*        materialMaskReadbackBuffers[SK_FRAMES_IN_FLIGHT] = {};
 		u32               materialDataBufferCapacity = 0;
 		u32               materialDataCount = 0;
+		GPUBuffer*        materialParamBuffer = nullptr;
+		u32               materialParamBufferCapacity = 0;
+		u32               materialParamCount = 0;
 		bool              globalDescriptorSetAlive = false;
 
 		u32 AllocatePrimitiveInfoSlot()
@@ -1212,6 +1215,152 @@ namespace Skore
 		std::mutex           pendingMaterialsMutex;
 		Array<PendingMaterial> pendingMaterials;
 
+		u32 ResolveSamplerIndex(RID textureRID)
+		{
+			if (!textureRID) return 0;
+			ResourceObject textureObject = Resources::Read(textureRID);
+			if (!textureObject) return 0;
+			AddressMode wrap    = textureObject.GetEnum<AddressMode>(TextureResource::WrapMode);
+			FilterMode  filter  = textureObject.GetEnum<FilterMode>(TextureResource::FilterMode);
+			bool        clamp   = wrap == AddressMode::ClampToEdge || wrap == AddressMode::ClampToBorder;
+			bool        nearest = filter == FilterMode::Nearest;
+			if (clamp) return nearest ? 3u : 2u;
+			return nearest ? 1u : 0u;
+		}
+
+		void PackGraphMaterialParams(const MaterialResourceCachePtr& materialCache, const MaterialParamLayout& layout, bool async)
+		{
+			materialCache->materialParamData.Clear();
+			if (layout.size == 0)
+			{
+				return;
+			}
+
+			materialCache->materialParamData.Resize(layout.size, 0);
+			u8* dest = materialCache->materialParamData.Data();
+
+			ResourceObject matObj = Resources::Read(materialCache->rid);
+			bool           isInstance = matObj && matObj.GetEnum<MaterialGraphResource::MaterialKind>(MaterialGraphResource::Kind) == MaterialGraphResource::MaterialKind::Instance;
+
+			for (const MaterialParamEntry& entry : layout.entries)
+			{
+				Vec4 value{};
+				RID  texture{};
+
+				if (ResourceObject nodeObj = Resources::Read(entry.node))
+				{
+					value = nodeObj.GetVec4(MaterialGraphNodeResource::Value);
+					texture = nodeObj.GetReference(MaterialGraphNodeResource::Texture);
+				}
+
+				if (isInstance && !entry.name.Empty())
+				{
+					for (RID overrideRid : matObj.GetSubObjectList(MaterialGraphResource::Parameters))
+					{
+						ResourceObject overrideObj = Resources::Read(overrideRid);
+						if (overrideObj && entry.name == overrideObj.GetString(MaterialParameterOverrideResource::ParameterName))
+						{
+							value = overrideObj.GetVec4(MaterialParameterOverrideResource::Value);
+							if (RID overrideTexture = overrideObj.GetReference(MaterialParameterOverrideResource::Texture))
+							{
+								texture = overrideTexture;
+							}
+							break;
+						}
+					}
+				}
+
+				u8* at = dest + entry.offset;
+				switch (entry.kind)
+				{
+					case MaterialParamKind::Float:
+					{
+						f32 v = value.x;
+						memcpy(at, &v, sizeof(f32));
+						break;
+					}
+					case MaterialParamKind::Vec2:
+					{
+						f32 v[2] = {value.x, value.y};
+						memcpy(at, v, sizeof(v));
+						break;
+					}
+					case MaterialParamKind::Vec3:
+					{
+						f32 v[3] = {value.x, value.y, value.z};
+						memcpy(at, v, sizeof(v));
+						break;
+					}
+					case MaterialParamKind::Vec4:
+					{
+						f32 v[4] = {value.x, value.y, value.z, value.w};
+						memcpy(at, v, sizeof(v));
+						break;
+					}
+					case MaterialParamKind::Texture:
+					{
+						i32 index = -1;
+						if (texture)
+						{
+							TextureResourceCachePtr textureCache = RenderResourceCache::GetTextureCache(texture, async);
+							if (textureCache && textureCache->textureIndex != U32_MAX)
+							{
+								index = static_cast<i32>(textureCache->textureIndex);
+								materialCache->textures.EmplaceBack(std::move(textureCache));
+							}
+						}
+						u32 sampler = ResolveSamplerIndex(texture);
+						memcpy(at, &index, sizeof(i32));
+						memcpy(at + sizeof(i32), &sampler, sizeof(u32));
+						break;
+					}
+				}
+			}
+		}
+
+		void WriteMaterialParamsToBuffer(const MaterialResourceCachePtr& materialCache)
+		{
+			if (materialCache->materialParamData.Empty() || materialCache->materialIndex == U32_MAX)
+			{
+				return;
+			}
+
+			u32 requiredCapacity = materialCache->materialIndex + 1;
+			if (requiredCapacity > materialParamBufferCapacity)
+			{
+				u32 newCapacity = requiredCapacity * 2;
+				if (newCapacity < 64) newCapacity = 64;
+
+				GPUBuffer* newBuffer = Graphics::CreateBuffer(BufferDesc{
+					.size = newCapacity * MaterialParamBlockSize,
+					.usage = ResourceUsage::ShaderResource,
+					.hostVisible = true,
+					.persistentMapped = true,
+					.debugName = "MaterialParamBuffer"
+				});
+
+				if (materialParamBuffer)
+				{
+					memcpy(newBuffer->GetMappedData(), materialParamBuffer->GetMappedData(), materialParamBufferCapacity * MaterialParamBlockSize);
+					materialParamBuffer->Destroy();
+				}
+
+				materialParamBuffer = newBuffer;
+				materialParamBufferCapacity = newCapacity;
+			}
+
+			u8* mapped = static_cast<u8*>(materialParamBuffer->GetMappedData());
+			u8* dest = mapped + static_cast<usize>(materialCache->materialIndex) * MaterialParamBlockSize;
+			memset(dest, 0, MaterialParamBlockSize);
+
+			usize bytes = materialCache->materialParamData.Size();
+			if (bytes > MaterialParamBlockSize) bytes = MaterialParamBlockSize;
+			memcpy(dest, materialCache->materialParamData.Data(), bytes);
+
+			materialParamCount = std::max(materialParamCount, materialCache->materialIndex + 1);
+			globalDescriptorSet->UpdateBuffer(7, materialParamBuffer, 0, materialParamCount * MaterialParamBlockSize);
+		}
+
 		void WriteMaterialDataToBuffer(const MaterialResourceCachePtr& materialCache, const MaterialData& matData)
 		{
 			if (materialCache->materialIndex == U32_MAX)
@@ -1280,6 +1429,11 @@ namespace Skore
 
 			globalDescriptorSet->UpdateBuffer(0, materialDataBuffer, 0, materialDataCount * sizeof(MaterialData));
 			globalDescriptorSet->UpdateBuffer(1, materialMaskBuffer, 0, materialDataCount * sizeof(u32));
+
+			if (materialCache->materialGraph)
+			{
+				WriteMaterialParamsToBuffer(materialCache);
+			}
 		}
 
 		void AddPendingMaterial(MaterialResourceCachePtr cache, const MaterialData& data)
@@ -1307,91 +1461,67 @@ namespace Skore
 			return false;
 		}
 
+		void WriteMaterialStubData(const MaterialResourceCachePtr& materialCache)
+		{
+			MaterialData matData{};
+			matData.baseColor = Vec3(1.0f, 1.0f, 1.0f);
+			matData.baseColorTexture = -1;
+			matData.normalTexture = -1;
+			matData.roughnessTexture = -1;
+			matData.metallicTexture = -1;
+			matData.emissiveTexture = -1;
+			matData.uvScale = Vec2(1.0f, 1.0f);
+
+			if (materialCache->materialIndex == U32_MAX)
+			{
+				AddPendingMaterial(materialCache, matData);
+			}
+			else
+			{
+				WriteMaterialDataToBuffer(materialCache, matData);
+			}
+		}
+
 		void UpdateMaterialStorageData(const ResourceObject& materialObject, MaterialResourceCachePtr materialCache, bool async)
 		{
-			StringView name = materialObject.GetString(MaterialResource::Name);
+			if (Resources::GetType(materialCache->rid) == Resources::FindType<MaterialGraphResource>())
+			{
+				MaterialParamLayout layout = MaterialParamLayout::Build(materialCache->rid);
+				materialCache->materialGraph = layout.owningGraph ? layout.owningGraph : materialCache->rid;
+
+				// Render settings live on the owning graph, so instances inherit them from their parent.
+				ResourceObject        owningGraphObject = materialCache->materialGraph != materialCache->rid ? Resources::Read(materialCache->materialGraph) : ResourceObject{};
+				const ResourceObject& graphSettings = owningGraphObject ? owningGraphObject : materialObject;
+
+				MaterialGraphResource::GraphAlphaMode alphaMode = graphSettings.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+				materialCache->transparent = alphaMode == MaterialGraphResource::GraphAlphaMode::Blend;
+				materialCache->masked = alphaMode == MaterialGraphResource::GraphAlphaMode::Mask;
+				materialCache->type = MaterialResource::MaterialType::Opaque;
+
+				switch (graphSettings.GetEnum<MaterialGraphResource::GraphRenderFace>(MaterialGraphResource::RenderFace))
+				{
+					case MaterialGraphResource::GraphRenderFace::Front: materialCache->cullMode = CullMode::Back; break;
+					case MaterialGraphResource::GraphRenderFace::Back:  materialCache->cullMode = CullMode::Front; break;
+					case MaterialGraphResource::GraphRenderFace::Both:  materialCache->cullMode = CullMode::None; break;
+				}
+				materialCache->depthWrite = graphSettings.HasValue(MaterialGraphResource::DepthWrite) ? graphSettings.GetBool(MaterialGraphResource::DepthWrite) : !materialCache->transparent;
+				materialCache->depthTest = graphSettings.HasValue(MaterialGraphResource::DepthTest) ? graphSettings.GetEnum<CompareOp>(MaterialGraphResource::DepthTest) : CompareOp::Greater;
+
+				materialCache->textures.Clear();
+				PackGraphMaterialParams(materialCache, layout, async);
+
+				WriteMaterialStubData(materialCache);
+				return;
+			}
 
 			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
-
-			//keep textures alive in the scope. so we don't need to reload textures in a material refresh.
-			auto oldtextures = materialCache->textures;
-
-			// Drop previous texture references; rebuild based on the new material data.
 			materialCache->textures.Clear();
 
-			if (materialCache->type == MaterialResource::MaterialType::Opaque)
+			if (materialCache->type != MaterialResource::MaterialType::SkyboxEquirectangular)
 			{
-				Color baseColor = materialObject.GetColor(MaterialResource::BaseColor);
-				RID   baseColorTexture = materialObject.GetReference(MaterialResource::BaseColorTexture);
-				RID   normalTexture = materialObject.GetReference(MaterialResource::NormalTexture);
-				RID   roughnessTexture = materialObject.GetReference(MaterialResource::RoughnessTexture);
-				RID   metallicTexture = materialObject.GetReference(MaterialResource::MetallicTexture);
-				Color emissiveColor = materialObject.GetColor(MaterialResource::EmissiveColor);
-				f32   emissiveFactor = materialObject.GetFloat(MaterialResource::EmissiveFactor);
-				RID   emissiveTexture = materialObject.GetReference(MaterialResource::EmissiveTexture);
-
-				auto resolveTextureIndex = [&materialCache, async](RID textureRID) -> i32
-				{
-					if (!textureRID) return -1;
-					TextureResourceCachePtr tc = RenderResourceCache::GetTextureCache(textureRID, async);
-					if (tc && tc->textureIndex != U32_MAX)
-					{
-						i32 idx = static_cast<i32>(tc->textureIndex);
-						materialCache->textures.EmplaceBack(Traits::Move(tc));
-						return idx;
-					}
-					return -1;
-				};
-
-				auto resolveSamplerIndex = [](RID textureRID) -> u32
-				{
-					if (!textureRID) return 0;
-					ResourceObject textureObject = Resources::Read(textureRID);
-					if (!textureObject) return 0;
-					AddressMode wrap    = textureObject.GetEnum<AddressMode>(TextureResource::WrapMode);
-					FilterMode  filter  = textureObject.GetEnum<FilterMode>(TextureResource::FilterMode);
-					bool        clamp   = wrap == AddressMode::ClampToEdge || wrap == AddressMode::ClampToBorder;
-					bool        nearest = filter == FilterMode::Nearest;
-					if (clamp) return nearest ? 3u : 2u;
-					return nearest ? 1u : 0u;
-				};
-
-				MaterialData matData{};
-				matData.baseColor = baseColor.ToVec3();
-				matData.roughness = materialObject.GetFloat(MaterialResource::Roughness);
-				matData.metallic = materialObject.GetFloat(MaterialResource::Metallic);
-				matData.baseColorTexture = resolveTextureIndex(baseColorTexture);
-				matData.normalTexture = resolveTextureIndex(normalTexture);
-				matData.roughnessTexture = resolveTextureIndex(roughnessTexture);
-				matData.metallicTexture = resolveTextureIndex(metallicTexture);
-				matData.uvScale = materialObject.GetVec2(MaterialResource::UvScale);
-				matData.emissiveFactor = emissiveFactor;
-				matData.emissiveColor = emissiveColor.ToVec3();
-				matData.emissiveTexture = resolveTextureIndex(emissiveTexture);
-				matData.alphaMode = materialObject.GetEnum(MaterialResource::AlphaMode);
-				matData.alphaCutoff = materialObject.GetFloat(MaterialResource::AlphaCutoff);
-
-				matData.samplerIndices0 = resolveSamplerIndex(baseColorTexture)
-				                        | (resolveSamplerIndex(normalTexture)    << 8)
-				                        | (resolveSamplerIndex(roughnessTexture) << 16)
-				                        | (resolveSamplerIndex(metallicTexture)  << 24);
-
-				matData.samplerIndices1 = resolveSamplerIndex(emissiveTexture);
-
-				MaterialResource::MaterialAlphaMode alphaModeEnum = materialObject.GetEnum<MaterialResource::MaterialAlphaMode>(MaterialResource::AlphaMode);
-				materialCache->transparent = alphaModeEnum == MaterialResource::MaterialAlphaMode::Blend;
-				materialCache->masked = alphaModeEnum == MaterialResource::MaterialAlphaMode::Mask;
-
-				if (materialCache->materialIndex == U32_MAX)
-				{
-					AddPendingMaterial(materialCache, matData);
-				}
-				else
-				{
-					WriteMaterialDataToBuffer(materialCache, matData);
-				}
+				WriteMaterialStubData(materialCache);
 			}
-			else if (materialCache->type == MaterialResource::MaterialType::SkyboxEquirectangular)
+			else
 			{
 				RID sphericalTexture = materialObject.GetReference(MaterialResource::SphericalTexture);
 
@@ -1881,7 +2011,7 @@ namespace Skore
 			}
 			else
 			{
-				meshData->materials.EmplaceBack(RenderResourceCache::GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), async));
+				meshData->materials.EmplaceBack(RenderResourceCache::GetMaterialCache(Resources::FindByPath("Skore://MaterialGraphs/DefaultMaterial.matgraph"), async));
 			}
 
 			return true;
@@ -2026,6 +2156,7 @@ namespace Skore
 			if (ResourceStorage* storage = Resources::GetStorage(rid))
 			{
 				storage->UnregisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
+				storage->UnregisterEvent(ResourceEventType::VersionUpdated, GraphicsResourceStorageMaterialReload, nullptr);
 			}
 			eventRegistered = false;
 		}
@@ -2389,6 +2520,25 @@ namespace Skore
 		return result;
 	}
 
+	namespace
+	{
+		FnMaterialVariantResolver gMaterialVariantResolver = nullptr;
+	}
+
+	void RenderResourceCache::SetMaterialVariantResolver(FnMaterialVariantResolver resolver)
+	{
+		gMaterialVariantResolver = resolver;
+	}
+
+	RID RenderResourceCache::EnsureMaterialVariant(RID shader, RID material, StringView variantName)
+	{
+		if (gMaterialVariantResolver)
+		{
+			return gMaterialVariantResolver(shader, material, variantName);
+		}
+		return ShaderResource::GetVariant(shader, material, variantName);
+	}
+
 	MaterialResourceCachePtr RenderResourceCache::GetMaterialCache(RID material, bool async)
 	{
 		if (!material) return nullptr;
@@ -2418,6 +2568,7 @@ namespace Skore
 		if (ResourceStorage* storage = Resources::GetStorage(material))
 		{
 			storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
+			storage->RegisterEvent(ResourceEventType::VersionUpdated, GraphicsResourceStorageMaterialReload, nullptr);
 			materialData->eventRegistered = true;
 		}
 
@@ -2681,7 +2832,7 @@ namespace Skore
 		}
 		else
 		{
-			meshData->materials.EmplaceBack(GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), true));
+			meshData->materials.EmplaceBack(GetMaterialCache(Resources::FindByPath("Skore://MaterialGraphs/DefaultMaterial.matgraph"), true));
 		}
 
 		ResourceWorker::WorkerData wd;
@@ -3011,6 +3162,10 @@ namespace Skore
 					.binding = 6,
 					.descriptorType = DescriptorType::StorageBuffer
 				},
+				DescriptorSetLayoutBinding{
+					.binding = 7,
+					.descriptorType = DescriptorType::StorageBuffer
+				},
 			},
 			.debugName = "GlobalDescriptorSet"
 		});
@@ -3065,6 +3220,12 @@ namespace Skore
 			materialDataBuffer = nullptr;
 		}
 
+		if (materialParamBuffer)
+		{
+			materialParamBuffer->Destroy();
+			materialParamBuffer = nullptr;
+		}
+
 		if (materialMaskBuffer)
 		{
 			materialMaskBuffer->Destroy();
@@ -3110,6 +3271,8 @@ namespace Skore
 		freeTextureIndices.Clear();
 		materialDataBufferCapacity = 0;
 		materialDataCount = 0;
+		materialParamBufferCapacity = 0;
+		materialParamCount = 0;
 
 		worker = {};
 	}

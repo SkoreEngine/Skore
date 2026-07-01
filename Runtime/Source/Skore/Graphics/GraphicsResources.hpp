@@ -1,5 +1,8 @@
 #pragma once
 #include "Skore/Core/Object.hpp"
+#include "Skore/Core/Array.hpp"
+#include "Skore/Core/HashMap.hpp"
+#include "Skore/Core/String.hpp"
 #include "Skore/Resource/ResourceCommon.hpp"
 
 namespace Skore
@@ -20,22 +23,26 @@ namespace Skore
 			Spriv,        //Blob
 			PipelineDesc, //Subobject
 			Stages,       //SubobjectList
+			Material,     //Reference
 		};
 	};
 
 
-	struct ShaderResource
+	struct SK_API ShaderResource
 	{
 		enum
 		{
 			Name,        //String
 			Variants,    //SubobjectList
 			RayHitGroup, //Uint
+			IsMaterial,  //Bool
 		};
 
 		static RID    GetVariant(RID shader, StringView name);
-		SK_API static String GetVariantName(Span<String> macros);
+		static RID    GetVariant(RID shader, RID material, StringView name);
+		static String GetVariantName(Span<String> macros);
 		static u32    GetRayHitGroup(RID shader);
+		static bool   IsMaterialShader(RID shader);
 	};
 
 
@@ -199,8 +206,6 @@ namespace Skore
 		};
 	};
 
-	using MaterialArray = Array<TypedRID<MaterialResource>>;
-
 	//Node-based material system (editor-authored shader graph).
 	//A graph owns a list of nodes and connections; one node is flagged as the output (master) node.
 	struct MaterialGraphNodeResource
@@ -258,19 +263,43 @@ namespace Skore
 			Blend,
 		};
 
+		//Lighting model of the generated shader, shown as "Material" on the output node. DefaultLit runs
+		//the forward PBR shading; Unlit outputs base color (plus alpha per GraphAlphaMode) directly, so
+		//only the Base Color and opacity inputs apply.
+		enum class GraphShadingModel : u8
+		{
+			DefaultLit,
+			Unlit,
+		};
+
+		//Which triangle faces the material renders; mapped to the pipeline's CullMode at draw setup
+		//(Front culls back faces - the default, Back culls front faces, Both disables culling).
+		enum class GraphRenderFace : u8
+		{
+			Front,
+			Back,
+			Both,
+		};
+
 		enum
 		{
-			Name,        //String
-			Nodes,       //SubObjectList (MaterialGraphNodeResource)       - Graph kind
-			Connections, //SubObjectList (MaterialGraphConnectionResource) - Graph kind
-			OutputNode,  //Reference (the master/output node)              - Graph kind
-			AlphaMode,   //Enum (GraphAlphaMode)
-			MaskCutoff,  //Float - clip threshold used when AlphaMode == Mask
-			Kind,        //Enum (MaterialKind) - Graph (default) or Instance
-			Parent,      //Reference (MaterialGraphResource) - Instance kind: the source graph
-			Parameters,  //SubObjectList (MaterialParameterOverrideResource) - Instance kind: sparse overrides
+			Name,         //String
+			Nodes,        //SubObjectList (MaterialGraphNodeResource)       - Graph kind
+			Connections,  //SubObjectList (MaterialGraphConnectionResource) - Graph kind
+			OutputNode,   //Reference (the master/output node)              - Graph kind
+			AlphaMode,    //Enum (GraphAlphaMode)
+			MaskCutoff,   //Float - clip threshold used when AlphaMode == Mask
+			Kind,         //Enum (MaterialKind) - Graph (default) or Instance
+			Parent,       //Reference (MaterialGraphResource) - Instance kind: the source graph
+			Parameters,   //SubObjectList (MaterialParameterOverrideResource) - Instance kind: sparse overrides
+			ShadingModel, //Enum (GraphShadingModel)
+			RenderFace,   //Enum (GraphRenderFace)
+			DepthWrite,   //Bool - unset means automatic: on unless AlphaMode == Blend
+			DepthTest,    //Enum (CompareOp) - depth compare used at pipeline creation; unset means Greater (reverse-Z)
 		};
 	};
+
+	using MaterialArray = Array<TypedRID<MaterialGraphResource>>;
 
 	//A single per-instance parameter override. Keyed by the exposed parameter name (matching a
 	//Parameters-category node's MaterialGraphNodeResource::ParameterName on the parent graph). Stored
@@ -284,6 +313,42 @@ namespace Skore
 			Value,         //Vec4      - scalar/vector override (components used depend on the parameter type)
 			Texture,       //Reference - texture override for Texture2D parameters
 		};
+	};
+
+	//Per-material parameter block size in bytes (SK_MaterialParamBuffer stride). Must match the editor
+	//codegen in MaterialGraphCompiler (SK_MatParamBase = materialIndex * this).
+	constexpr u32 MaterialParamBlockSize = 256;
+
+	enum class MaterialParamKind : u8
+	{
+		Float,
+		Vec2,
+		Vec3,
+		Vec4,
+		Texture,
+	};
+
+	struct MaterialParamEntry
+	{
+		String            name;                            //exposed parameter name; empty for fixed (non-parameter) textures
+		RID               node = {};                       //node holding the default Value/Texture for this slot
+		MaterialParamKind kind = MaterialParamKind::Float;
+		u32               offset = 0;
+	};
+
+	//Packed parameter layout for a material graph: one slot per named parameter (deduped by name) and per
+	//fixed-texture node, in node order, assigned tight 4-byte-aligned offsets. Built identically on the
+	//editor codegen and runtime packing sides so the generated SK_MaterialParamBuffer reads line up with
+	//the bytes the runtime writes.
+	struct SK_API MaterialParamLayout
+	{
+		Array<MaterialParamEntry> entries;       //unique slots, packed
+		HashMap<u64, u32>         nodeOffsets;    //node id -> slot byte offset (every parameter/texture node)
+		RID                       owningGraph = {};
+		u32                       size = 0;
+
+		//Resolves `material` to its owning graph (following Parent for instances) and builds the layout.
+		static MaterialParamLayout Build(RID material);
 	};
 
 	struct AnimationKeyFrame

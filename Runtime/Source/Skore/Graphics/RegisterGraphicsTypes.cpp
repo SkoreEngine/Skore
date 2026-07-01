@@ -1144,6 +1144,15 @@ namespace Skore
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Mask>("Mask");
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Blend>("Blend");
 
+		auto graphShadingModel = Reflection::Type<MaterialGraphResource::GraphShadingModel>();
+		graphShadingModel.Value<MaterialGraphResource::GraphShadingModel::DefaultLit>("DefaultLit");
+		graphShadingModel.Value<MaterialGraphResource::GraphShadingModel::Unlit>("Unlit");
+
+		auto graphRenderFace = Reflection::Type<MaterialGraphResource::GraphRenderFace>();
+		graphRenderFace.Value<MaterialGraphResource::GraphRenderFace::Front>("Front");
+		graphRenderFace.Value<MaterialGraphResource::GraphRenderFace::Back>("Back");
+		graphRenderFace.Value<MaterialGraphResource::GraphRenderFace::Both>("Both");
+
 		auto materialKind = Reflection::Type<MaterialGraphResource::MaterialKind>();
 		materialKind.Value<MaterialGraphResource::MaterialKind::Graph>("Graph");
 		materialKind.Value<MaterialGraphResource::MaterialKind::Instance>("Instance");
@@ -1168,12 +1177,14 @@ namespace Skore
 			.Field<ShaderVariantResource::Spriv>(ResourceFieldType::Blob)
 			.Field<ShaderVariantResource::PipelineDesc>(ResourceFieldType::SubObject)
 			.Field<ShaderVariantResource::Stages>(ResourceFieldType::SubObjectList)
+			.Field<ShaderVariantResource::Material>(ResourceFieldType::Reference, TypeInfo<MaterialGraphResource>::ID())
 			.Build();
 
 		Resources::Type<ShaderResource>()
 			.Field<ShaderResource::Name>(ResourceFieldType::String)
 			.Field<ShaderResource::Variants>(ResourceFieldType::SubObjectList)
 			.Field<ShaderResource::RayHitGroup>(ResourceFieldType::UInt)
+			.Field<ShaderResource::IsMaterial>(ResourceFieldType::Bool)
 			.Build();
 
 		Resources::Type<TextureImageResource>()
@@ -1261,6 +1272,10 @@ namespace Skore
 			.Field<MaterialGraphResource::Kind>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::MaterialKind>::ID())
 			.Field<MaterialGraphResource::Parent>(ResourceFieldType::Reference, TypeInfo<MaterialGraphResource>::ID())
 			.Field<MaterialGraphResource::Parameters>(ResourceFieldType::SubObjectList, TypeInfo<MaterialParameterOverrideResource>::ID())
+			.Field<MaterialGraphResource::ShadingModel>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphShadingModel>::ID())
+			.Field<MaterialGraphResource::RenderFace>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphRenderFace>::ID())
+			.Field<MaterialGraphResource::DepthWrite>(ResourceFieldType::Bool)
+			.Field<MaterialGraphResource::DepthTest>(ResourceFieldType::Enum, TypeInfo<CompareOp>::ID())
 			.Build();
 
 		Resources::Type<VertexAttributeResource>()

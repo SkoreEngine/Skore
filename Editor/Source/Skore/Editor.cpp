@@ -32,6 +32,7 @@
 #include "Skore/Window/SceneViewWindow.hpp"
 #include "Skore/Window/GraphEditorWindow.hpp"
 #include "Skore/Window/MaterialGraphEditorWindow.hpp"
+#include "Skore/MaterialGraph/MaterialGraphCompiler.hpp"
 #include "Skore/Window/PackagesWindow.hpp"
 #include "Skore/Project/ProjectManager.hpp"
 #include "Skore/Server/EditorServer.hpp"
@@ -1742,6 +1743,7 @@ namespace Skore
 		Reflection::Type<PackagesWindow>();
 		Reflection::Type<GraphEditorWindow>();
 		RegisterMaterialNodes();
+		RegisterMaterialVariantResolver();
 		Reflection::Type<MaterialGraphEditorWindow>();
 		Reflection::Type<DebuggerWindow>();
 		Reflection::Type<AnimatorTreeViewWindow>();

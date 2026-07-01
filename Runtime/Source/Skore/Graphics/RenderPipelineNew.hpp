@@ -19,6 +19,7 @@ namespace Skore
 		constexpr static i32 DepthLinearize = 500;
 		constexpr static i32 Lighting = 600;
 		constexpr static i32 Forward = 700;
+		constexpr static i32 Transparent = 750;
 		constexpr static i32 Indirect = 800;
 		constexpr static i32 Composite = 900;
 		constexpr static i32 PostProcess = 1000;

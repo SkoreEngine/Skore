@@ -31,6 +31,7 @@ namespace Skore
 		Vec2,    //Value.xy
 		Vec3,    //Value.xyz
 		Vec4,    //Value.xyzw
+		Channel, //Value.x edited as an R/G/B/A combo (matches the TextureChannel enum indices)
 	};
 
 	struct MaterialNodeProperty
@@ -68,6 +69,7 @@ namespace Skore
 		Array<String>& outputs;
 		Array<String>& statements;
 		bool*          usesTextures = nullptr;
+		u32            paramByteOffset = U32_MAX;
 
 		StringView Input(u32 index) const { return inputs[index]; }
 		void       SetOutput(u32 index, StringView expr) { outputs[index] = expr; }

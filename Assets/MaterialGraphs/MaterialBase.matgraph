@@ -39,7 +39,7 @@ objects:
       x: -998.0001220703125
       y: -597
     Value:
-      x: 0
+      x: 1
       y: 0
       z: 0
       w: 0
@@ -486,8 +486,8 @@ objects:
     _type: 'Skore::MaterialGraphConnectionResource'
     _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
     _parentField: Connections
-    OutputNode: 3156b17e-6ab3-4c2f-3014-09cf32af91ae
-    OutputPin: 3
+    OutputNode: 5d030cb0-b14f-44f9-8d21-84e7489aa57c
+    OutputPin: 0
     InputNode: 7fac217a-07fd-c0e6-25b3-560e56f866ab
     InputPin: 1
   - _uuid: ff9d7324-42a3-0916-2699-568dd85b5ddb
@@ -510,8 +510,8 @@ objects:
     _type: 'Skore::MaterialGraphConnectionResource'
     _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
     _parentField: Connections
-    OutputNode: 46d9855d-f44c-0f16-3f6c-9b2964470171
-    OutputPin: 2
+    OutputNode: ba5bb2e1-6b87-48e1-b643-5529985f6812
+    OutputPin: 0
     InputNode: 61117e49-bb33-be41-b261-b96f5a80def7
     InputPin: 1
   - _uuid: 9954f4de-5bdb-b366-1419-dbda18f82c5e
@@ -646,8 +646,8 @@ objects:
     _type: 'Skore::MaterialGraphConnectionResource'
     _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
     _parentField: Connections
-    OutputNode: afd610cc-2934-6a62-3c02-8b0909e2be7e
-    OutputPin: 1
+    OutputNode: f04ce862-611a-45f5-be8d-ff627e1974cc
+    OutputPin: 0
     InputNode: 30f64fe4-cfbc-fca0-660a-6deb06a8de56
     InputPin: 1
   - _uuid: e77bc8f2-c7ff-dc6d-ca87-030b586b077d
@@ -666,3 +666,117 @@ objects:
     OutputPin: 0
     InputNode: f16e98f8-e38f-58ea-77fd-84bdfcfea57c
     InputPin: 5
+  - _uuid: c0422b13-c8d6-424e-86b0-e53e761008ae
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Nodes
+    Type: param_channel
+    Position:
+      x: -460
+      y: -160
+    Value:
+      x: 2
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: MetallicChannel
+  - _uuid: 5d030cb0-b14f-44f9-8d21-84e7489aa57c
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Nodes
+    Type: channel_select
+    Position:
+      x: -260
+      y: -280
+  - _uuid: f65768aa-7e2f-409e-823c-28eba3dd6b3a
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Nodes
+    Type: param_channel
+    Position:
+      x: -460
+      y: -70
+    Value:
+      x: 1
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: RoughnessChannel
+  - _uuid: ba5bb2e1-6b87-48e1-b643-5529985f6812
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Nodes
+    Type: channel_select
+    Position:
+      x: -260
+      y: -40
+  - _uuid: e442bc54-5f62-4a62-9e77-9a79029ad529
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Nodes
+    Type: param_channel
+    Position:
+      x: -460
+      y: 940
+    Value:
+      x: 0
+      y: 0
+      z: 0
+      w: 0
+    ParameterName: OcclusionChannel
+  - _uuid: f04ce862-611a-45f5-be8d-ff627e1974cc
+    _type: 'Skore::MaterialGraphNodeResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Nodes
+    Type: channel_select
+    Position:
+      x: -260
+      y: 860
+  - _uuid: a6a53586-df70-4d85-a9fb-5b217711a4b8
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Connections
+    OutputNode: 3156b17e-6ab3-4c2f-3014-09cf32af91ae
+    OutputPin: 0
+    InputNode: 5d030cb0-b14f-44f9-8d21-84e7489aa57c
+    InputPin: 0
+  - _uuid: fd3352c0-b03f-4dfa-963b-5f7b3ff003b5
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Connections
+    OutputNode: c0422b13-c8d6-424e-86b0-e53e761008ae
+    OutputPin: 0
+    InputNode: 5d030cb0-b14f-44f9-8d21-84e7489aa57c
+    InputPin: 1
+  - _uuid: 9446d257-1c8b-471b-b600-f52137aa634d
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Connections
+    OutputNode: 46d9855d-f44c-0f16-3f6c-9b2964470171
+    OutputPin: 0
+    InputNode: ba5bb2e1-6b87-48e1-b643-5529985f6812
+    InputPin: 0
+  - _uuid: 0c2891dd-207a-4bb6-9dac-fd82a23a4935
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Connections
+    OutputNode: f65768aa-7e2f-409e-823c-28eba3dd6b3a
+    OutputPin: 0
+    InputNode: ba5bb2e1-6b87-48e1-b643-5529985f6812
+    InputPin: 1
+  - _uuid: 0e01db5d-11e5-4f1b-b208-1bbec7ba16ec
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Connections
+    OutputNode: afd610cc-2934-6a62-3c02-8b0909e2be7e
+    OutputPin: 0
+    InputNode: f04ce862-611a-45f5-be8d-ff627e1974cc
+    InputPin: 0
+  - _uuid: 942fcfcd-3fdd-4e68-aae6-9f0a6291467e
+    _type: 'Skore::MaterialGraphConnectionResource'
+    _parent: bdd89860-816b-5bc5-0492-3dde4c5b414b
+    _parentField: Connections
+    OutputNode: e442bc54-5f62-4a62-9e77-9a79029ad529
+    OutputPin: 0
+    InputNode: f04ce862-611a-45f5-be8d-ff627e1974cc
+    InputPin: 1

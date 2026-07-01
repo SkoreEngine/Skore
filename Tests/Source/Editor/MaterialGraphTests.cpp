@@ -3,6 +3,7 @@
 #include "Skore/Core/Math.hpp"
 #include "Skore/Core/String.hpp"
 #include "Skore/Core/UUID.hpp"
+#include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/Path.hpp"
@@ -31,14 +32,22 @@ namespace
 		return std::string_view(haystack.CStr(), haystack.Size()).find(needle) != std::string_view::npos;
 	}
 
+	//Mirrors the runtime registration in RegisterGraphicsTypes.cpp: MaterialParamLayout::Build and the
+	//compiler read Kind/Parent/Parameters and ParameterName, so the full schema is required.
 	void SetupMaterialGraphTypes()
 	{
-		//Texture field is omitted on purpose: it references TextureResource which these tests
-		//don't register, and none of the tested paths touch it.
+		Resources::Type<MaterialGraphPinValueResource>()
+			.Field<MaterialGraphPinValueResource::PinIndex>(ResourceFieldType::UInt)
+			.Field<MaterialGraphPinValueResource::Value>(ResourceFieldType::Vec4)
+			.Build();
+
 		Resources::Type<MaterialGraphNodeResource>()
 			.Field<MaterialGraphNodeResource::Type>(ResourceFieldType::String)
 			.Field<MaterialGraphNodeResource::Position>(ResourceFieldType::Vec2)
 			.Field<MaterialGraphNodeResource::Value>(ResourceFieldType::Vec4)
+			.Field<MaterialGraphNodeResource::Texture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
+			.Field<MaterialGraphNodeResource::InputValues>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphPinValueResource>::ID())
+			.Field<MaterialGraphNodeResource::ParameterName>(ResourceFieldType::String)
 			.Build();
 
 		Resources::Type<MaterialGraphConnectionResource>()
@@ -48,6 +57,12 @@ namespace
 			.Field<MaterialGraphConnectionResource::InputPin>(ResourceFieldType::UInt)
 			.Build();
 
+		Resources::Type<MaterialParameterOverrideResource>()
+			.Field<MaterialParameterOverrideResource::ParameterName>(ResourceFieldType::String)
+			.Field<MaterialParameterOverrideResource::Value>(ResourceFieldType::Vec4)
+			.Field<MaterialParameterOverrideResource::Texture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
+			.Build();
+
 		Resources::Type<MaterialGraphResource>()
 			.Field<MaterialGraphResource::Name>(ResourceFieldType::String)
 			.Field<MaterialGraphResource::Nodes>(ResourceFieldType::SubObjectList, TypeInfo<MaterialGraphNodeResource>::ID())
@@ -55,6 +70,13 @@ namespace
 			.Field<MaterialGraphResource::OutputNode>(ResourceFieldType::Reference, TypeInfo<MaterialGraphNodeResource>::ID())
 			.Field<MaterialGraphResource::AlphaMode>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphAlphaMode>::ID())
 			.Field<MaterialGraphResource::MaskCutoff>(ResourceFieldType::Float)
+			.Field<MaterialGraphResource::Kind>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::MaterialKind>::ID())
+			.Field<MaterialGraphResource::Parent>(ResourceFieldType::Reference, TypeInfo<MaterialGraphResource>::ID())
+			.Field<MaterialGraphResource::Parameters>(ResourceFieldType::SubObjectList, TypeInfo<MaterialParameterOverrideResource>::ID())
+			.Field<MaterialGraphResource::ShadingModel>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphShadingModel>::ID())
+			.Field<MaterialGraphResource::RenderFace>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphRenderFace>::ID())
+			.Field<MaterialGraphResource::DepthWrite>(ResourceFieldType::Bool)
+			.Field<MaterialGraphResource::DepthTest>(ResourceFieldType::Enum, TypeInfo<CompareOp>::ID())
 			.Build();
 	}
 
@@ -199,13 +221,13 @@ namespace
 		CHECK(texCoord->GetOutputs()[0].type == MaterialDataType::Vec2);
 
 		// Parameters: every parameter node exposes a Name plus a typed default, both edited in Properties.
-		const char* paramTypes[] = {"param_float", "param_int", "param_bool", "param_color", "param_vec2", "param_vec3", "param_vec4", "param_texture2d"};
+		const char* paramTypes[] = {"param_float", "param_int", "param_bool", "param_channel", "param_color", "param_vec2", "param_vec3", "param_vec4", "param_texture2d"};
 		for (const char* typeId : paramTypes)
 		{
 			MaterialNode* param = MaterialNodeRegistry::Find(typeId);
 			REQUIRE(param != nullptr);
 			CHECK(param->GetCategory() == "Parameters");
-			REQUIRE(param->GetProperties().Size() == 2);
+			REQUIRE(param->GetProperties().Size() >= 2);
 			CHECK(param->GetProperties()[0].type == MaterialNodePropertyType::Name);
 		}
 
@@ -213,11 +235,33 @@ namespace
 		CHECK(paramColor->GetProperties()[1].type == MaterialNodePropertyType::Color);
 		CHECK(paramColor->GetOutputs()[0].type == MaterialDataType::Vec3);
 
-		// the Texture2D parameter samples like sample_texture: its default is a texture reference
+		// the Texture2D parameter samples like sample_texture: its default is a texture reference,
+		// plus an sRGB decode toggle stored in Value.x
 		MaterialNode* paramTexture = MaterialNodeRegistry::Find("param_texture2d");
+		REQUIRE(paramTexture->GetProperties().Size() == 3);
 		CHECK(paramTexture->GetProperties()[1].type == MaterialNodePropertyType::Texture);
+		CHECK(paramTexture->GetProperties()[2].type == MaterialNodePropertyType::Bool);
 		REQUIRE(paramTexture->GetOutputs().Size() == 5);
 		CHECK(paramTexture->GetOutputs()[0].type == MaterialDataType::Vec4);
+
+		// the Channel parameter stores a TextureChannel index (0=R 1=G 2=B 3=A) in Value.x and flows as Float
+		MaterialNode* paramChannel = MaterialNodeRegistry::Find("param_channel");
+		REQUIRE(paramChannel != nullptr);
+		REQUIRE(paramChannel->GetProperties().Size() == 2);
+		CHECK(paramChannel->GetProperties()[1].type == MaterialNodePropertyType::Channel);
+		REQUIRE(paramChannel->GetOutputs().Size() == 1);
+		CHECK(paramChannel->GetOutputs()[0].type == MaterialDataType::Float);
+
+		// channel_select extracts one component of an RGBA value by a runtime channel index
+		MaterialNode* channelSelect = MaterialNodeRegistry::Find("channel_select");
+		REQUIRE(channelSelect != nullptr);
+		CHECK(channelSelect->GetCategory() == "Texture");
+		REQUIRE(channelSelect->GetInputs().Size() == 2);
+		CHECK(channelSelect->GetInputs()[0].type == MaterialDataType::Vec4);
+		CHECK(channelSelect->GetInputs()[1].type == MaterialDataType::Float);
+		REQUIRE(channelSelect->GetOutputs().Size() == 1);
+		CHECK(channelSelect->GetOutputs()[0].type == MaterialDataType::Float);
+		CHECK_FALSE(channelSelect->GetOutputs()[0].generic);
 
 		CHECK(MaterialNodeRegistry::Find("does_not_exist") == nullptr);
 
@@ -344,6 +388,92 @@ namespace
 		ResourceShutdown();
 	}
 
+	TEST_CASE("MaterialGraph::UnlitSkipsLitSurfaceInputs")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+		{
+			ResourceObject graphObj = Resources::Write(graph);
+			graphObj.SetEnum(MaterialGraphResource::ShadingModel, MaterialGraphResource::GraphShadingModel::Unlit);
+			graphObj.Commit();
+		}
+
+		RID colorNode = AddNode(graph, "constant_color", Vec4{1.0f, 0.0f, 0.0f, 1.0f});
+		Connect(graph, colorNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
+
+		RID metallicNode = AddNode(graph, "constant_float", Vec4{0.77f, 0.0f, 0.0f, 0.0f});
+		Connect(graph, metallicNode, 0, outputNode, MaterialNodeRegistry::Metallic);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		// Unlit still feeds base color, but the lit inputs keep defaults and their subgraphs never emit
+		CHECK(Contains(body, "float3(1, 0, 0)"));
+		CHECK(Contains(body, "surface.metallic  = 0.0;"));
+		CHECK(!Contains(body, "0.77"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::UnlitDefinesShaderMacro")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		const char* templateText = "// @SK_MATERIAL_GLOBALS@\nvoid Eval()\n{\n// @SK_MATERIAL_GRAPH@\n}\n";
+
+		String log;
+		String lit = MaterialGraphCompiler::GenerateShader(graph, templateText, log);
+		CHECK(!Contains(lit, "SK_MATERIAL_UNLIT"));
+
+		{
+			ResourceObject graphObj = Resources::Write(graph);
+			graphObj.SetEnum(MaterialGraphResource::ShadingModel, MaterialGraphResource::GraphShadingModel::Unlit);
+			graphObj.Commit();
+		}
+
+		String unlit = MaterialGraphCompiler::GenerateShader(graph, templateText, log);
+		CHECK(Contains(unlit, "#define SK_MATERIAL_UNLIT 1"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::UnlitBlendStillReadsOpacity")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+		{
+			ResourceObject graphObj = Resources::Write(graph);
+			graphObj.SetEnum(MaterialGraphResource::ShadingModel, MaterialGraphResource::GraphShadingModel::Unlit);
+			graphObj.SetEnum(MaterialGraphResource::AlphaMode, MaterialGraphResource::GraphAlphaMode::Blend);
+			graphObj.Commit();
+		}
+
+		RID opacityNode = AddNode(graph, "constant_float", Vec4{0.3f, 0.0f, 0.0f, 0.0f});
+		Connect(graph, opacityNode, 0, outputNode, MaterialNodeRegistry::Opacity);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		CHECK(Contains(body, "surface.opacity   = "));
+		CHECK(Contains(body, "0.3"));
+		CHECK(!Contains(body, "discard"));
+
+		ResourceShutdown();
+	}
+
 	TEST_CASE("MaterialGraph::GenerateBodyTexture")
 	{
 		ResourceInit();
@@ -359,7 +489,16 @@ namespace
 		String log;
 		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
-		CHECK(Contains(body, ".Sample(MaterialSampler,"));
+		// a fixed texture node gets slot 0 in the material param block: the bindless index at the slot,
+		// the sampler index (picked from the texture's wrap/filter) 4 bytes after; the sample falls
+		// back to white when no texture is bound
+		CHECK(Contains(body, "= float4(1.0, 1.0, 1.0, 1.0);"));
+		CHECK(Contains(body, "= MatParamTexture(0u);"));
+		CHECK(Contains(body, "BindlessTextures[NonUniformResourceIndex(texIdx"));
+		CHECK(Contains(body, ".Sample(Samplers[MatParamSampler(4u)], uv"));
+		CHECK(Contains(body, "WriteMipmapFeedback(pushConstants.materialIndex"));
+		// sample_texture defaults to linear (Value.x == 0): no sRGB decode is emitted
+		CHECK(!Contains(body, "pow("));
 		// unconnected UV falls back to the mesh UVs via the pin's default expression
 		CHECK(Contains(body, "mat.texCoord"));
 		// the Vec4 sample feeding a Vec3 input is swizzled down
@@ -385,9 +524,68 @@ namespace
 		String body = MaterialGraphCompiler::GenerateBody(graph, log);
 
 		// The texture is sampled once into a temp and the channel is taken via swizzle.
-		CHECK(Contains(body, ".Sample(MaterialSampler,"));
+		CHECK(Contains(body, "= MatParamTexture(0u);"));
+		CHECK(Contains(body, ".Sample(Samplers[MatParamSampler(4u)], uv"));
 		CHECK(Contains(body, ".r"));
 		CHECK(Contains(body, "surface.roughness ="));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::ChannelSelectCodegen")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		RID texNode = AddNode(graph, "sample_texture", Vec4{});
+		RID chanParam = AddNode(graph, "param_channel", Vec4{2.0f, 0.0f, 0.0f, 0.0f});
+		{
+			ResourceObject obj = Resources::Write(chanParam);
+			obj.SetString(MaterialGraphNodeResource::ParameterName, "MetallicChannel");
+			obj.Commit();
+		}
+		RID select = AddNode(graph, "channel_select", Vec4{});
+		Connect(graph, texNode, 0, select, 0);
+		Connect(graph, chanParam, 0, select, 1);
+		Connect(graph, select, 0, outputNode, MaterialNodeRegistry::Metallic);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		// the fixed texture takes the first slot (8 bytes); the channel parameter reads right after it,
+		// so instance overrides swap the channel without recompiling the variant
+		CHECK(Contains(body, "MatParamFloat(8u)"));
+		// the channel index is rounded, clamped to 0..3, and used to index the sampled RGBA
+		CHECK(Contains(body, "clamp(int("));
+		CHECK(Contains(body, "+ 0.5), 0, 3);"));
+		CHECK(Contains(body, "[csIdx"));
+		CHECK(Contains(body, "surface.metallic  ="));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::GenerateBodyTextureSrgb")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		// Value.x == 1 turns on the node's sRGB toggle: the sample is decoded to linear inline.
+		RID texNode = AddNode(graph, "sample_texture", Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		CHECK(Contains(body, ".rgb = pow("));
+		CHECK(Contains(body, ", 2.2);"));
 
 		ResourceShutdown();
 	}
@@ -586,6 +784,65 @@ namespace
 		ResourceShutdown();
 	}
 
+	TEST_CASE("MaterialGraph::ValidationWarnings")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		// unnamed parameter node
+		AddNode(graph, "param_float", Vec4{0.5f, 0.0f, 0.0f, 0.0f});
+
+		// two parameter nodes sharing a name across different types
+		RID p1 = AddNode(graph, "param_float", Vec4{});
+		RID p2 = AddNode(graph, "param_color", Vec4{});
+		for (RID p : {p1, p2})
+		{
+			ResourceObject obj = Resources::Write(p);
+			obj.SetString(MaterialGraphNodeResource::ParameterName, "Tint");
+			obj.Commit();
+		}
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		CHECK(Contains(log, "has no name"));
+		CHECK(Contains(log, "Duplicate parameter name 'Tint'"));
+		// nothing is wired into the master node
+		CHECK(Contains(log, "Nothing is connected to the material output node"));
+		CHECK(!body.Empty());
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::ValidationCleanGraphHasNoWarnings")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		RID p1 = AddNode(graph, "param_float", Vec4{});
+		{
+			ResourceObject obj = Resources::Write(p1);
+			obj.SetString(MaterialGraphNodeResource::ParameterName, "Roughness");
+			obj.Commit();
+		}
+		Connect(graph, p1, 0, outputNode, MaterialNodeRegistry::Roughness);
+
+		String log;
+		MaterialGraphCompiler::GenerateBody(graph, log);
+
+		CHECK(log.Empty());
+
+		ResourceShutdown();
+	}
+
 	TEST_CASE("MaterialGraph::CompileToSpirv")
 	{
 		ResourceInit();
@@ -595,9 +852,8 @@ namespace
 		RID outputNode;
 		RID graph = NewGraph(outputNode);
 
-		// A texture-free graph: a constant color into Base Color, a clamped scalar into Roughness, and a
-		// Dot collapsing two colors to a scalar into Metallic. Bindless texture sampling lands in a later
-		// step, so texture nodes are intentionally excluded from the end-to-end compile here.
+		// A constant color into Base Color, a clamped scalar into Roughness, a Dot collapsing two colors
+		// to a scalar into Metallic, and a bindless texture sample into Emissive.
 		RID color = AddNode(graph, "constant_color", Vec4{0.4f, 0.6f, 0.8f, 1.0f});
 		Connect(graph, color, 0, outputNode, MaterialNodeRegistry::BaseColor);
 
@@ -612,21 +868,40 @@ namespace
 		Connect(graph, otherColor, 0, dotNode, 1);
 		Connect(graph, dotNode, 0, outputNode, MaterialNodeRegistry::Metallic);
 
+		RID texNode = AddNode(graph, "sample_texture", Vec4{});
+		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::Emissive);
+
+		// A channel_select driven by a param_channel into Occlusion: dynamic vector indexing must
+		// survive the live DXC compile below.
+		RID chanParam = AddNode(graph, "param_channel", Vec4{0.0f, 0.0f, 0.0f, 0.0f});
+		{
+			ResourceObject chanObj = Resources::Write(chanParam);
+			chanObj.SetString(MaterialGraphNodeResource::ParameterName, "AOChannel");
+			chanObj.Commit();
+		}
+		RID chanSelect = AddNode(graph, "channel_select", Vec4{});
+		Connect(graph, texNode, 0, chanSelect, 0);
+		Connect(graph, chanParam, 0, chanSelect, 1);
+		Connect(graph, chanSelect, 0, outputNode, MaterialNodeRegistry::Occlusion);
+
 		#ifndef SK_SHADERS_NEW_DIR
 		REQUIRE(false);
 		#endif
 
 		String shadersDir = String{SK_SHADERS_NEW_DIR};
-		String templateText = FileSystem::ReadFileAsString(Path::Join(shadersDir, "MaterialGraphForward.template.raster"));
+		String templateText = FileSystem::ReadFileAsString(Path::Join(shadersDir, "ForwardOpaque.raster"));
 		REQUIRE(!templateText.Empty());
 
 		String log;
 		String hlsl = MaterialGraphCompiler::GenerateShader(graph, templateText, log);
 
-		// the generated body was spliced into the template, replacing the marker
+		// the generated body and param globals were spliced into the template, replacing the markers
 		CHECK(Contains(hlsl, "EvaluateMaterial"));
 		CHECK(Contains(hlsl, "surface.baseColor ="));
+		CHECK(Contains(hlsl, "SK_MaterialParamBuffer"));
+		CHECK(Contains(hlsl, "BindlessTextures[NonUniformResourceIndex("));
 		CHECK_FALSE(Contains(hlsl, "// @SK_MATERIAL_GRAPH@"));
+		CHECK_FALSE(Contains(hlsl, "// @SK_MATERIAL_GLOBALS@"));
 
 		// Live SPIR-V compilation needs dxcompiler.dll in the working directory. ShaderManagerInit
 		// asserts if it can't be loaded, so only init when the library is actually present.

@@ -77,6 +77,13 @@ float3 GetVertexColor(uint vertexByteOffset, uint layoutIdx, uint vertexId)
 	return asfloat(MeshDataBuffer.Load3(vertexByteOffset + vertexId * layout.stride + layout.colorOffset));
 }
 
+float4 GetVertexTangent(uint vertexByteOffset, uint layoutIdx, uint vertexId)
+{
+	VertexLayoutOffset layout = VertexLayouts[NonUniformResourceIndex(layoutIdx)];
+	if (layout.tangentOffset == 0xFFFFFFFF) return float4(0, 0, 0, 0);
+	return asfloat(MeshDataBuffer.Load4(vertexByteOffset + vertexId * layout.stride + layout.tangentOffset));
+}
+
 float GetMipmapLod(uint2 dim, float2 uvDx, float2 uvDy)
 {
 	return log2(max(length(uvDx * dim), length(uvDy * dim)));

@@ -17,17 +17,23 @@ namespace Skore
 
 	struct DrawPipelineDesc
 	{
-		CullMode cullMode = CullMode::Back;
-		bool     hasBones = false;
-		bool     masked = false;
-		RID      shader = {};
+		CullMode  cullMode = CullMode::Back;
+		bool      hasBones = false;
+		bool      masked = false;
+		bool      depthWrite = true;
+		CompareOp depthTest = CompareOp::Greater;
+		RID       shader = {};
+		RID       materialGraph = {};
 
 		bool operator==(const DrawPipelineDesc& other) const
 		{
 			return cullMode == other.cullMode
 				&& hasBones == other.hasBones
 				&& masked == other.masked
-				&& shader == other.shader;
+				&& depthWrite == other.depthWrite
+				&& depthTest == other.depthTest
+				&& shader == other.shader
+				&& materialGraph == other.materialGraph;
 		}
 	};
 

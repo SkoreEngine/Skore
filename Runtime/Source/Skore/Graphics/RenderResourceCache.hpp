@@ -120,6 +120,13 @@ namespace Skore
 		MaterialResource::MaterialType type = MaterialResource::MaterialType::Opaque;
 		u32                            materialIndex = U32_MAX;
 		GPUDescriptorSet*              descriptorSet = nullptr;
+		RID                            materialGraph = {};
+		Array<u8>                      materialParamData;
+
+		// Pipeline-state requests resolved from the material's render settings (render face / depth).
+		CullMode  cullMode = CullMode::Back;
+		bool      depthWrite = true;
+		CompareOp depthTest = CompareOp::Greater;
 
 		// Keeps PBR textures alive while this material exists.
 		Array<TextureResourceCachePtr> textures;
@@ -290,8 +297,13 @@ namespace Skore
 		bool                rebuildBlas = false;
 	};
 
+	using FnMaterialVariantResolver = RID (*)(RID shader, RID material, StringView variantName);
+
 	struct SK_API RenderResourceCache
 	{
+		static void SetMaterialVariantResolver(FnMaterialVariantResolver resolver);
+		static RID  EnsureMaterialVariant(RID shader, RID material, StringView variantName);
+
 		static bool                     WorkerIdle();
 		static FontResourceCachePtr     GetFontCache(RID font);
 		static TextureResourceCachePtr  GetTextureCache(RID texture, bool async);

@@ -15,9 +15,11 @@ namespace Skore
 		constexpr const char* ForwardDepthName = "ForwardDepth";
 	}
 
-	struct ForwardOpaquePassNew : DefaultPipelinePassNew
+	//Renders the transparent buckets on top of the opaque pass output. Draw order follows bucket order;
+	//per-drawcall back-to-front sorting is not done yet.
+	struct ForwardTransparentPassNew : DefaultPipelinePassNew
 	{
-		SK_CLASS(ForwardOpaquePassNew, DefaultPipelinePassNew);
+		SK_CLASS(ForwardTransparentPassNew, DefaultPipelinePassNew);
 
 		struct MeshPushConstants
 		{
@@ -32,7 +34,7 @@ namespace Skore
 		Array<RID>          pipelineVariants;
 		Scene*              cachedScene = nullptr;
 
-		~ForwardOpaquePassNew() override
+		~ForwardTransparentPassNew() override
 		{
 			CleanupPipelines();
 		}
@@ -49,27 +51,12 @@ namespace Skore
 
 		void BuildRenderGraph(RenderGraph& renderGraph) override
 		{
-			renderGraph.Create(ForwardColorName, RenderGraphTextureDesc{
-				.format = Format::RGBA16_FLOAT,
-				.extent = Extent{0, 0},
-				.usage = ResourceUsage::ShaderResource,
-				.clearColor = Vec4(0.10f, 0.11f, 0.13f, 1.0f)
-			});
-
-			renderGraph.Create(ForwardDepthName, RenderGraphTextureDesc{
-				.format = Format::D32_FLOAT,
-				.extent = Extent{0, 0}
-			});
-
-			renderGraph.SetColorOutput(ForwardColorName);
-			renderGraph.SetDepthOutput(ForwardDepthName);
-
-			RenderGraphPass& pass = renderGraph.AddGraphicsPass("ForwardOpaque");
+			RenderGraphPass& pass = renderGraph.AddGraphicsPass("ForwardTransparent");
 			RenderGraphPass* passPtr = &pass;
 
-			pass.Stage(RenderStage::Forward)
-			    .Write(ForwardColorName)
-			    .Write(ForwardDepthName)
+			pass.Stage(RenderStage::Transparent)
+			    .WriteRead(ForwardColorName)
+			    .WriteRead(ForwardDepthName)
 			    .InvertViewport(true)
 			    .Render([this, passPtr](RenderGraph& rg, Scene* scene, GPUCommandBuffer* cmd)
 			    {
@@ -82,7 +69,7 @@ namespace Skore
 			RID forwardShader = Resources::FindByPath("Skore://ShadersNew/ForwardOpaque.raster");
 			if (!forwardShader) return;
 
-			u32 count = static_cast<u32>(objects->opaquePipelines.Size());
+			u32 count = static_cast<u32>(objects->transparentPipelines.Size());
 			if (pipelines.Size() < count)
 			{
 				pipelines.Resize(count, nullptr);
@@ -91,7 +78,7 @@ namespace Skore
 
 			for (u32 i = 0; i < count; ++i)
 			{
-				const DrawPipelineDesc& desc = objects->opaquePipelines[i].desc;
+				const DrawPipelineDesc& desc = objects->transparentPipelines[i].desc;
 
 				RID shader = desc.shader && ShaderResource::IsMaterialShader(desc.shader) ? desc.shader : forwardShader;
 
@@ -127,7 +114,7 @@ namespace Skore
 				gpuDesc.depthStencilState.depthTestEnable = true;
 				gpuDesc.depthStencilState.depthWriteEnable = desc.depthWrite;
 				gpuDesc.depthStencilState.depthCompareOp = desc.depthTest;
-				gpuDesc.blendStates = {BlendStateDesc{}};
+				gpuDesc.blendStates = {BlendStateDesc{.blendEnable = true}};
 				gpuDesc.renderPass = renderPass;
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 1, .descriptorSet = sceneSet});
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 2, .descriptorSet = globalSet});
@@ -157,16 +144,16 @@ namespace Skore
 
 			cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
 
-			for (u32 i = 0; i < objects->opaquePipelines.Size(); ++i)
+			for (u32 i = 0; i < objects->transparentPipelines.Size(); ++i)
 			{
-				GPUPipeline* pipeline = pipelines[i];
+				GPUPipeline* pipeline = i < pipelines.Size() ? pipelines[i] : nullptr;
 				if (!pipeline) continue;
 
 				cmd->BindPipeline(pipeline);
 				cmd->BindDescriptorSet(pipeline, 1, sceneSet);
 				cmd->BindDescriptorSet(pipeline, 2, globalSet);
 
-				for (const Drawcall& drawcall : objects->opaquePipelines[i].drawcalls)
+				for (const Drawcall& drawcall : objects->transparentPipelines[i].drawcalls)
 				{
 					if (!drawcall.material || drawcall.material->materialIndex == U32_MAX) continue;
 					if ((drawcall.layerMask & rg.camera.cullingMask) == 0) continue;
@@ -185,8 +172,8 @@ namespace Skore
 		}
 	};
 
-	void RegisterForwardOpaquePassNew()
+	void RegisterForwardTransparentPassNew()
 	{
-		Reflection::Type<ForwardOpaquePassNew>();
+		Reflection::Type<ForwardTransparentPassNew>();
 	}
 }
