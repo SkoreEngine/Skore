@@ -2655,7 +2655,6 @@ namespace Skore
 			}
 		}
 
-		/*
 		//not loaded, create empty one
 		if (ResourceAssetHandler* handler = GetAssetHandler(rid))
 		{
@@ -2706,7 +2705,6 @@ namespace Skore
 				return nullptr;
 			}
 		}
-		*/
 		return texture;
 	}
 

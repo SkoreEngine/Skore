@@ -1710,7 +1710,6 @@ namespace Skore
 	void RegisterResourceAssetTypes();
 	void RegisterSceneEditorTypes();
 	void RegisterSceneViewRenderPipeline();
-	void RegisterThumbnailGenerationTypes();
 	void RegisterAnimatorEditorTypes();
 
 	SK_API void EditorTypeRegister()
@@ -1747,7 +1746,6 @@ namespace Skore
 		Reflection::Type<AnimatorTreeViewWindow>();
 		Reflection::Type<AnimatorGraphWindow>();
 
-		RegisterThumbnailGenerationTypes();
 		RegisterAnimatorEditorTypes();
 	}
 }

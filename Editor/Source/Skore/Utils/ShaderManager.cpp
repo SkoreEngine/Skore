@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <mutex>
 #include <string_view>
 
 #include "spirv_reflect.h"
@@ -48,6 +49,7 @@ namespace Skore
 		IDxcUtils*            utils;
 		IDxcCompiler3*        compiler;
 		DxcCreateInstanceProc dxcCreateInstance;
+		std::mutex            compilerMutex;
 
 		constexpr auto GetShaderStage(ShaderStage shader)
 		{
@@ -191,6 +193,7 @@ namespace Skore
 			return false;
 		}
 
+		std::scoped_lock compileLock(compilerMutex);
 
 		IDxcBlobEncoding* pSource = {};
 		utils->CreateBlob(shaderCompileInfo.source.CStr(), shaderCompileInfo.source.Size(), CP_UTF8, &pSource);

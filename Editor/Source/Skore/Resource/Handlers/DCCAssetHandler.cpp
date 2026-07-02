@@ -73,10 +73,10 @@ namespace Skore
 			return ICON_FA_CUBES;
 		}
 
-		// TypeID GetPreviewGenerator() override
-		// {
-		// 	return TypeInfo<DCCAssetPreviewGenerator>::ID();
-		// }
+		TypeID GetPreviewGenerator() override
+		{
+			return TypeInfo<DCCAssetPreviewGenerator>::ID();
+		}
 
 	};
 

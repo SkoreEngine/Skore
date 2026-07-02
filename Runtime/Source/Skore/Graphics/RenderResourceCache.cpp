@@ -1452,6 +1452,39 @@ namespace Skore
 			pendingMaterials.EmplaceBack(PendingMaterial{std::move(cache), data});
 		}
 
+		void FlushPendingMaterials()
+		{
+			std::scoped_lock lock(pendingMaterialsMutex);
+			for (usize i = 0; i < pendingMaterials.Size(); )
+			{
+				PendingMaterial& pending = pendingMaterials[i];
+
+				bool allLoaded = true;
+				for (const TextureResourceCachePtr& tex : pending.cache->textures)
+				{
+					if (tex && !tex->IsLoaded())
+					{
+						allLoaded = false;
+						break;
+					}
+				}
+
+				if (allLoaded)
+				{
+					WriteMaterialDataToBuffer(pending.cache, pending.data);
+					if (i + 1 < pendingMaterials.Size())
+					{
+						pendingMaterials[i] = std::move(pendingMaterials.Back());
+					}
+					pendingMaterials.PopBack();
+				}
+				else
+				{
+					++i;
+				}
+			}
+		}
+
 		bool UpdateTexture(GPUDescriptorSet* descriptorSet, const TextureResourceCachePtr& cache, u32 slot)
 		{
 			if (cache && cache->texture)
@@ -1808,6 +1841,10 @@ namespace Skore
 			for (const auto& tex : mat->textures)
 			{
 				WaitForTexture(tex);
+			}
+			if (mat->materialIndex == U32_MAX)
+			{
+				FlushPendingMaterials();
 			}
 		}
 
@@ -2259,37 +2296,7 @@ namespace Skore
 			drained.pop();
 		}
 
-		{
-			std::scoped_lock lock(pendingMaterialsMutex);
-			for (usize i = 0; i < pendingMaterials.Size(); )
-			{
-				PendingMaterial& pending = pendingMaterials[i];
-
-				bool allLoaded = true;
-				for (const TextureResourceCachePtr& tex : pending.cache->textures)
-				{
-					if (tex && !tex->IsLoaded())
-					{
-						allLoaded = false;
-						break;
-					}
-				}
-
-				if (allLoaded)
-				{
-					WriteMaterialDataToBuffer(pending.cache, pending.data);
-					if (i + 1 < pendingMaterials.Size())
-					{
-						pendingMaterials[i] = std::move(pendingMaterials.Back());
-					}
-					pendingMaterials.PopBack();
-				}
-				else
-				{
-					++i;
-				}
-			}
-		}
+		FlushPendingMaterials();
 
 		if (materialMaskBuffer && materialDataCount > 0)
 		{

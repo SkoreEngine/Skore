@@ -20,6 +20,7 @@
 #include "Skore/Utils/ShaderManager.hpp"
 
 #include <cstdio>
+#include <mutex>
 #include <string_view>
 
 namespace Skore
@@ -863,7 +864,10 @@ namespace Skore
 			u64 version;
 			u64 hlslHash;
 		};
+		static std::mutex                 variantMutex;
 		static HashMap<u64, VariantState> variantStates;
+
+		std::scoped_lock lock(variantMutex);
 
 		RID graph = ResolveOwningGraph(material);
 		u64 graphVersion = Resources::GetVersion(graph);
@@ -899,23 +903,28 @@ namespace Skore
 				it->second.version = graphVersion;
 				return existing;
 			}
-
-			ResourceObject shaderObject = Resources::Write(shader);
-			shaderObject.RemoveFromSubObjectList(ShaderResource::Variants, existing);
-			shaderObject.Commit();
-			variantStates.Erase(existing.id);
 		}
 
 		RID shaderVariant = BuildMaterialVariant(templateText, absPath, graph, variantName, graph, log);
 		if (!shaderVariant)
 		{
-			return {};
+			return existing;
 		}
 
 		{
 			ResourceObject shaderObject = Resources::Write(shader);
+			if (existing)
+			{
+				shaderObject.RemoveFromSubObjectList(ShaderResource::Variants, existing);
+			}
 			shaderObject.AddToSubObjectList(ShaderResource::Variants, shaderVariant);
 			shaderObject.Commit();
+		}
+
+		if (existing)
+		{
+			variantStates.Erase(existing.id);
+			Resources::Destroy(existing);
 		}
 
 		variantStates.Insert(shaderVariant.id, VariantState{graphVersion, hlslHash});
