@@ -111,6 +111,44 @@ float4 GetVertexTangent(uint vertexByteOffset, uint layoutIdx, uint vertexId)
 	return asfloat(MeshDataBuffer.Load4(vertexByteOffset + vertexId * layout.stride + layout.tangentOffset));
 }
 
+//per-scene bone-matrix palettes, one storage buffer per skinned instance.
+//InstanceData.boneBufferIndex selects the palette; 0xFFFFFFFF marks a non-skinned instance.
+StructuredBuffer<float4x4> BoneBuffers[] : register(t0, space3);
+
+uint4 GetVertexBoneIndices(uint vertexByteOffset, uint layoutIdx, uint vertexId)
+{
+	VertexLayoutOffset layout = VertexLayouts[NonUniformResourceIndex(layoutIdx)];
+	if (layout.boneIndicesOffset == 0xFFFFFFFF) return uint4(0, 0, 0, 0);
+	return MeshDataBuffer.Load4(vertexByteOffset + vertexId * layout.stride + layout.boneIndicesOffset);
+}
+
+float4 GetVertexBoneWeights(uint vertexByteOffset, uint layoutIdx, uint vertexId)
+{
+	VertexLayoutOffset layout = VertexLayouts[NonUniformResourceIndex(layoutIdx)];
+	if (layout.boneWeightsOffset == 0xFFFFFFFF) return float4(1, 0, 0, 0);
+	return asfloat(MeshDataBuffer.Load4(vertexByteOffset + vertexId * layout.stride + layout.boneWeightsOffset));
+}
+
+bool IsSkinned(uint boneBufferIndex)
+{
+	return boneBufferIndex != 0xFFFFFFFF;
+}
+
+//linear-blend skin matrix: sum of the four influencing bones weighted by their skin weights.
+float4x4 GetSkinningMatrix(uint boneBufferIndex, uint vertexByteOffset, uint layoutIdx, uint vertexId)
+{
+	uint4  indices = GetVertexBoneIndices(vertexByteOffset, layoutIdx, vertexId);
+	float4 weights = GetVertexBoneWeights(vertexByteOffset, layoutIdx, vertexId);
+
+	StructuredBuffer<float4x4> palette = BoneBuffers[NonUniformResourceIndex(boneBufferIndex)];
+
+	float4x4 skin = weights.x * palette[indices.x];
+	skin         += weights.y * palette[indices.y];
+	skin         += weights.z * palette[indices.z];
+	skin         += weights.w * palette[indices.w];
+	return skin;
+}
+
 float GetMipmapLod(uint2 dim, float2 uvDx, float2 uvDy)
 {
 	return log2(max(length(uvDx * dim), length(uvDy * dim)));

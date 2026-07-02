@@ -146,7 +146,7 @@ namespace Skore
 			}
 		}
 
-		void EnsureShadowPipelines(RenderSceneObjects* objects, GPURenderPass* renderPass, GPUDescriptorSet* pipelineSceneSet, GPUDescriptorSet* globalSet)
+		void EnsureShadowPipelines(RenderSceneObjects* objects, GPURenderPass* renderPass, GPUDescriptorSet* pipelineSceneSet, GPUDescriptorSet* globalSet, GPUDescriptorSet* skinningSet)
 		{
 			RID shadowShader = Resources::FindByPath("Skore://ShadersNew/ShadowMapIndirectNew.shader");
 			if (!shadowShader) return;
@@ -176,6 +176,7 @@ namespace Skore
 				gpuDesc.renderPass = renderPass;
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 1, .descriptorSet = pipelineSceneSet});
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 2, .descriptorSet = globalSet});
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 3, .descriptorSet = skinningSet});
 
 				shadowPipelines.EmplaceBack(Graphics::CreateGraphicsPipeline(gpuDesc));
 			}
@@ -521,8 +522,9 @@ namespace Skore
 						if (sceneSet == nullptr || globalSet == nullptr || draws == nullptr || counts == nullptr) return;
 
 						RenderSceneObjects* objects = &scene->renderObjects;
+						GPUDescriptorSet*   skinningSet = objects->GetSkinningDescriptorSet();
 
-						EnsureShadowPipelines(objects, pass.GetRenderPass(), rg.GetSceneDescriptorSet(0), globalSet);
+						EnsureShadowPipelines(objects, pass.GetRenderPass(), rg.GetSceneDescriptorSet(0), globalSet, skinningSet);
 
 						u32 frame = rg.GetCurrentFrame();
 
@@ -537,6 +539,7 @@ namespace Skore
 							cmd->BindDescriptorSet(pipeline, 0, cascadeDescriptorSets[frame][i]);
 							cmd->BindDescriptorSet(pipeline, 1, sceneSet);
 							cmd->BindDescriptorSet(pipeline, 2, globalSet);
+							cmd->BindDescriptorSet(pipeline, 3, skinningSet);
 
 							u32 slot = i * pipesThisFrame + sp;
 							cmd->DrawIndexedIndirectCount(draws,

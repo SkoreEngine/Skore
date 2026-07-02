@@ -10,6 +10,10 @@ struct PushConstants
 	uint   vertexByteOffset;
 	uint   vertexLayoutIndex;
 	uint   useInstanceData;
+	uint   boneBufferIndex;
+	uint   pad0;
+	uint   pad1;
+	uint   pad2;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
@@ -69,6 +73,7 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 	uint   materialIndex;
 	uint   vboff;
 	uint   layoutIdx;
+	uint   boneBufferIndex;
 
 	//GPU-driven draws carry the instance index in startInstanceLocation; direct draws push their data
 	if (pushConstants.useInstanceData != 0)
@@ -78,6 +83,7 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 		materialIndex = instance.materialIndex;
 		vboff = instance.vertexByteOffset;
 		layoutIdx = instance.vertexLayoutIndex;
+		boneBufferIndex = instance.boneBufferIndex;
 	}
 	else
 	{
@@ -85,11 +91,20 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 		materialIndex = pushConstants.materialIndex;
 		vboff = pushConstants.vertexByteOffset;
 		layoutIdx = pushConstants.vertexLayoutIndex;
+		boneBufferIndex = pushConstants.boneBufferIndex;
 	}
 
 	float3 position = GetVertexPosition(vboff, layoutIdx, vertexId);
 	float3 normal   = GetVertexNormal(vboff, layoutIdx, vertexId);
 	float4 tangent  = GetVertexTangent(vboff, layoutIdx, vertexId);
+
+	if (IsSkinned(boneBufferIndex))
+	{
+		float4x4 skin = GetSkinningMatrix(boneBufferIndex, vboff, layoutIdx, vertexId);
+		position    = mul(skin, float4(position, 1.0)).xyz;
+		normal      = mul((float3x3)skin, normal);
+		tangent.xyz = mul((float3x3)skin, tangent.xyz);
+	}
 
 	float4 worldPosition = mul(world, float4(position, 1.0));
 

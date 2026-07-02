@@ -25,6 +25,7 @@ namespace Skore
 			u32  vertexByteOffset;
 			u32  vertexLayoutIndex;
 			u32  useInstanceData;
+			u32  boneBufferIndex;
 		};
 
 		struct PipelineBucket
@@ -105,21 +106,22 @@ namespace Skore
 
 					GPURenderPass*    renderPass = pass.GetRenderPass();
 					GPUDescriptorSet* pipelineSceneSet = rg.GetSceneDescriptorSet(0);
+					GPUDescriptorSet* skinningSet = objects->GetSkinningDescriptorSet();
 
-					EnsurePipelines(opaqueBucket, objects->opaquePipelines, renderPass, pipelineSceneSet, globalSet, false);
-					EnsurePipelines(transparentBucket, objects->transparentPipelines, renderPass, pipelineSceneSet, globalSet, true);
+					EnsurePipelines(opaqueBucket, objects->opaquePipelines, renderPass, pipelineSceneSet, globalSet, skinningSet, false);
+					EnsurePipelines(transparentBucket, objects->transparentPipelines, renderPass, pipelineSceneSet, globalSet, skinningSet, true);
 
 					cmd->BindIndexBuffer(RenderResourceCache::GetMeshDataBuffer(), 0, IndexType::Uint32);
 
 					SceneCullingDataNew* cullingData = rg.GetInstanceData<SceneCullingDataNew>(SceneCullingDataNewName);
 
-					RenderBucket(cmd, rg, opaqueBucket, objects->opaquePipelines, sceneSet, globalSet, cullingData);
+					RenderBucket(cmd, rg, opaqueBucket, objects->opaquePipelines, sceneSet, globalSet, skinningSet, cullingData);
 					RenderSky(cmd, rg, scene, renderPass);
-					RenderBucket(cmd, rg, transparentBucket, objects->transparentPipelines, sceneSet, globalSet, nullptr);
+					RenderBucket(cmd, rg, transparentBucket, objects->transparentPipelines, sceneSet, globalSet, skinningSet, nullptr);
 				});
 		}
 
-		void EnsurePipelines(PipelineBucket& bucket, Array<DrawPipeline>& drawPipelines, GPURenderPass* renderPass, GPUDescriptorSet* sceneSet, GPUDescriptorSet* globalSet, bool blendEnable)
+		void EnsurePipelines(PipelineBucket& bucket, Array<DrawPipeline>& drawPipelines, GPURenderPass* renderPass, GPUDescriptorSet* sceneSet, GPUDescriptorSet* globalSet, GPUDescriptorSet* skinningSet, bool blendEnable)
 		{
 			RID forwardShader = Resources::FindByPath("Skore://ShadersNew/DefaultForward.shader");
 			if (!forwardShader) return;
@@ -173,6 +175,7 @@ namespace Skore
 				gpuDesc.renderPass = renderPass;
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 1, .descriptorSet = sceneSet});
 				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 2, .descriptorSet = globalSet});
+				gpuDesc.descriptorSetsOverride.EmplaceBack(DescriptorSetOverride{.set = 3, .descriptorSet = skinningSet});
 
 				bucket.pipelines[i] = Graphics::CreateGraphicsPipeline(gpuDesc);
 				bucket.variants[i] = variant;
@@ -228,7 +231,7 @@ namespace Skore
 			cmd->Draw(36, 1, 0, 0);
 		}
 
-		void RenderBucket(GPUCommandBuffer* cmd, RenderGraph& rg, PipelineBucket& bucket, Array<DrawPipeline>& drawPipelines, GPUDescriptorSet* sceneSet, GPUDescriptorSet* globalSet, SceneCullingDataNew* cullingData)
+		void RenderBucket(GPUCommandBuffer* cmd, RenderGraph& rg, PipelineBucket& bucket, Array<DrawPipeline>& drawPipelines, GPUDescriptorSet* sceneSet, GPUDescriptorSet* globalSet, GPUDescriptorSet* skinningSet, SceneCullingDataNew* cullingData)
 		{
 			for (u32 i = 0; i < drawPipelines.Size(); ++i)
 			{
@@ -246,12 +249,14 @@ namespace Skore
 				cmd->BindPipeline(pipeline);
 				cmd->BindDescriptorSet(pipeline, 1, sceneSet);
 				cmd->BindDescriptorSet(pipeline, 2, globalSet);
+				cmd->BindDescriptorSet(pipeline, 3, skinningSet);
 
 				if (cullingData != nullptr && cullingData->indirectDrawBuffer != nullptr && cullingData->countBuffer != nullptr && i < cullingData->pipelineCount)
 				{
 					MeshPushConstants pc{};
 					pc.world = Mat4(1.0);
 					pc.useInstanceData = 1;
+					pc.boneBufferIndex = U32_MAX;
 
 					if (pushConstantStages != ShaderStage::None)
 					{
@@ -277,6 +282,7 @@ namespace Skore
 					pc.vertexByteOffset = drawcall.vertexByteOffset;
 					pc.vertexLayoutIndex = drawcall.vertexLayoutIndex;
 					pc.useInstanceData = 0;
+					pc.boneBufferIndex = drawcall.boneBufferIndex;
 
 					if (pushConstantStages != ShaderStage::None)
 					{

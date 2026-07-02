@@ -28,6 +28,12 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 
 	float3 position = GetVertexPosition(vboff, layoutIdx, vertexId);
 
+	if (IsSkinned(instance.boneBufferIndex))
+	{
+		float4x4 skin = GetSkinningMatrix(instance.boneBufferIndex, vboff, layoutIdx, vertexId);
+		position = mul(skin, float4(position, 1.0)).xyz;
+	}
+
 	float4 worldPosition = mul(instance.transform, float4(position, 1.0));
 	output.position = mul(cascadeViewProjection, worldPosition);
 
