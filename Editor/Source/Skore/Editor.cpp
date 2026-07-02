@@ -1709,11 +1709,9 @@ namespace Skore
 
 	void RegisterResourceAssetTypes();
 	void RegisterSceneEditorTypes();
-	void RegisterSceneViewPipelineModule();
+	void RegisterSceneViewRenderPipeline();
 	void RegisterThumbnailGenerationTypes();
 	void RegisterAnimatorEditorTypes();
-	void RegisterPreviewModule();
-	void RegisterPreviewRenderPipeline();
 
 	SK_API void EditorTypeRegister()
 	{
@@ -1721,7 +1719,7 @@ namespace Skore
 		RegisterEditorSettingsTypes();
 		RegisterEditorServerTypes();
 		RegisterSceneEditorTypes();
-		RegisterSceneViewPipelineModule();
+		RegisterSceneViewRenderPipeline();
 		Selection::RegisterType();
 
 		Resources::Type<EditorState>()
@@ -1751,7 +1749,5 @@ namespace Skore
 
 		RegisterThumbnailGenerationTypes();
 		RegisterAnimatorEditorTypes();
-		RegisterPreviewModule();
-		RegisterPreviewRenderPipeline();
 	}
 }

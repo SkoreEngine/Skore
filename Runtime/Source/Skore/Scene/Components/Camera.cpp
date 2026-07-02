@@ -3,6 +3,7 @@
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/DebugDraw.hpp"
+#include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Scene/Entity.hpp"
 
@@ -11,10 +12,11 @@ namespace Skore
 {
 	void Camera::OnCreate()
 	{
-		if (RenderPipelineContext* context = RenderPipeline::GetMainContext())
+		if (RenderPipelineContext* context = RenderPipelineContext::GetMainContext())
 		{
-			context->UpdateCamera(m_near, m_far, m_fov, m_projection, {Mat4::Inverse(entity->GetWorldTransform())}, entity->GetWorldPosition());
-			context->camera.cullingMask = m_cullingMask;
+			RenderGraph& renderGraph = context->GetRenderGraph();
+			renderGraph.UpdateCamera(m_near, m_far, m_fov, m_projection, Mat4::Inverse(entity->GetWorldTransform()), entity->GetWorldPosition());
+			renderGraph.camera.cullingMask = m_cullingMask;
 		}
 	}
 
@@ -70,10 +72,11 @@ namespace Skore
 
 	void Camera::OnUpdate(f64 deltaTime)
 	{
-		if (RenderPipelineContext* context = RenderPipeline::GetMainContext())
+		if (RenderPipelineContext* context = RenderPipelineContext::GetMainContext())
 		{
-			context->UpdateCamera(m_near, m_far, m_fov, m_projection, {Mat4::Inverse(entity->GetWorldTransform())}, entity->GetWorldPosition());
-			context->camera.cullingMask = m_cullingMask;
+			RenderGraph& renderGraph = context->GetRenderGraph();
+			renderGraph.UpdateCamera(m_near, m_far, m_fov, m_projection, Mat4::Inverse(entity->GetWorldTransform()), entity->GetWorldPosition());
+			renderGraph.camera.cullingMask = m_cullingMask;
 		}
 	}
 

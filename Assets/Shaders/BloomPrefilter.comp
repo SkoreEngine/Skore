@@ -1,0 +1,51 @@
+#include "BloomCommon.hlsli"
+
+// First downsample: full-res HDR -> half-res mip 0, with threshold + Karis average.
+[numthreads(8, 8, 1)]
+void MainCS(uint2 px : SV_DispatchThreadID)
+{
+	int2 dstDimensions;
+	dstTexture.GetDimensions(dstDimensions.x, dstDimensions.y);
+	if (any(px >= (uint2)dstDimensions)) return;
+
+	float2 uv = (px + 0.5) / float2(dstDimensions);
+
+	// 13-tap downsample filter (Jimenez 2014)
+	float3 a = SampleSrc(uv + float2(-2, -2) * pc.texelSize);
+	float3 b = SampleSrc(uv + float2( 0, -2) * pc.texelSize);
+	float3 c = SampleSrc(uv + float2( 2, -2) * pc.texelSize);
+	float3 d = SampleSrc(uv + float2(-2,  0) * pc.texelSize);
+	float3 e = SampleSrc(uv);
+	float3 f = SampleSrc(uv + float2( 2,  0) * pc.texelSize);
+	float3 g = SampleSrc(uv + float2(-2,  2) * pc.texelSize);
+	float3 h = SampleSrc(uv + float2( 0,  2) * pc.texelSize);
+	float3 i = SampleSrc(uv + float2( 2,  2) * pc.texelSize);
+	float3 j = SampleSrc(uv + float2(-1, -1) * pc.texelSize);
+	float3 k = SampleSrc(uv + float2( 1, -1) * pc.texelSize);
+	float3 l = SampleSrc(uv + float2(-1,  1) * pc.texelSize);
+	float3 m = SampleSrc(uv + float2( 1,  1) * pc.texelSize);
+
+	// Apply threshold
+	a = SoftThreshold(a); b = SoftThreshold(b); c = SoftThreshold(c);
+	d = SoftThreshold(d); e = SoftThreshold(e); f = SoftThreshold(f);
+	g = SoftThreshold(g); h = SoftThreshold(h); i = SoftThreshold(i);
+	j = SoftThreshold(j); k = SoftThreshold(k); l = SoftThreshold(l); m = SoftThreshold(m);
+
+	// Karis average: weight 5 overlapping box samples by 1/(1+luma) to prevent fireflies
+	float3 group0 = (j + k + l + m) * 0.25;
+	float3 group1 = (a + b + d + e) * 0.25;
+	float3 group2 = (b + c + e + f) * 0.25;
+	float3 group3 = (d + e + g + h) * 0.25;
+	float3 group4 = (e + f + h + i) * 0.25;
+
+	float w0 = KarisWeight(group0);
+	float w1 = KarisWeight(group1);
+	float w2 = KarisWeight(group2);
+	float w3 = KarisWeight(group3);
+	float w4 = KarisWeight(group4);
+
+	float wSum = w0 + w1 + w2 + w3 + w4;
+	float3 result = (group0 * w0 + group1 * w1 + group2 * w2 + group3 * w3 + group4 * w4) / wSum;
+
+	dstTexture[px] = float4(result, 1.0);
+}

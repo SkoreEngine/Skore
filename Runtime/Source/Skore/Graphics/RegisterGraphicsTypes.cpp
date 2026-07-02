@@ -3,7 +3,6 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsCommon.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
-#include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Settings.hpp"
@@ -1009,96 +1008,6 @@ namespace Skore
 
 	}
 
-	void RegisterRenderPipelineBaseTypes()
-	{
-		auto renderPipelinePassType = Reflection::Type<RenderPipelinePassType>();
-		renderPipelinePassType.Value<RenderPipelinePassType::Other>("Other");
-		renderPipelinePassType.Value<RenderPipelinePassType::Graphics>("Graphics");
-		renderPipelinePassType.Value<RenderPipelinePassType::Compute>("Compute");
-		renderPipelinePassType.Value<RenderPipelinePassType::Raytrace>("Raytrace");
-
-		auto renderPipelineTextureAccess = Reflection::Type<RenderPipelineTextureAccess>();
-		renderPipelineTextureAccess.Value<RenderPipelineTextureAccess::None>("None");
-		renderPipelineTextureAccess.Value<RenderPipelineTextureAccess::Read>("Read");
-		renderPipelineTextureAccess.Value<RenderPipelineTextureAccess::Write>("Write");
-		renderPipelineTextureAccess.Value<RenderPipelineTextureAccess::ReadWrite>("ReadWrite");
-
-		auto renderPipelineResourceType = Reflection::Type<RenderPipelineResourceType>();
-		renderPipelineResourceType.Value<RenderPipelineResourceType::None>("None");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Texture>("Texture");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::TextureView>("TextureView");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Attachment>("Attachment");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Buffer>("Buffer");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Reference>("Reference");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Instance>("Instance");
-
-		auto renderPipelineResource = Reflection::Type<RenderPipelineResource>();
-		renderPipelineResource.Field<&RenderPipelineResource::name>("name");
-		renderPipelineResource.Field<&RenderPipelineResource::type>("type");
-		renderPipelineResource.Field<&RenderPipelineResource::format>("format");
-		renderPipelineResource.Field<&RenderPipelineResource::extent>("extent");
-		renderPipelineResource.Field<&RenderPipelineResource::scale>("scale");
-		renderPipelineResource.Field<&RenderPipelineResource::arrayLayers>("arrayLayers");
-		renderPipelineResource.Field<&RenderPipelineResource::samples>("samples");
-		renderPipelineResource.Field<&RenderPipelineResource::mipLevels>("mipLevels");
-		renderPipelineResource.Field<&RenderPipelineResource::textureUsage>("textureUsage");
-		renderPipelineResource.Field<&RenderPipelineResource::textureName>("textureName");
-		renderPipelineResource.Field<&RenderPipelineResource::viewType>("viewType");
-		renderPipelineResource.Field<&RenderPipelineResource::baseMipLevel>("baseMipLevel");
-		renderPipelineResource.Field<&RenderPipelineResource::levelCount>("levelCount");
-		renderPipelineResource.Field<&RenderPipelineResource::baseArrayLayer>("baseArrayLayer");
-		renderPipelineResource.Field<&RenderPipelineResource::layerCount>("layerCount");
-		renderPipelineResource.Field<&RenderPipelineResource::clearColor>("clearColor");
-		renderPipelineResource.Field<&RenderPipelineResource::size>("size");
-		renderPipelineResource.Field<&RenderPipelineResource::usage>("usage");
-		renderPipelineResource.Field<&RenderPipelineResource::hostVisible>("hostVisible");
-		renderPipelineResource.Field<&RenderPipelineResource::persistentMapped>("persistentMapped");
-		renderPipelineResource.Field<&RenderPipelineResource::instanceTypeId>("instanceTypeId");
-
-		auto renderPipelinePassDependency = Reflection::Type<RenderPipelinePassDependency>();
-		renderPipelinePassDependency.Field<&RenderPipelinePassDependency::name>("name");
-		renderPipelinePassDependency.Field<&RenderPipelinePassDependency::access>("access");
-
-		auto renderPipelinePassSetup = Reflection::Type<RenderPipelinePassSetup>();
-		renderPipelinePassSetup.Field<&RenderPipelinePassSetup::type>("type");
-		renderPipelinePassSetup.Field<&RenderPipelinePassSetup::invertViewport>("invertViewport");
-		renderPipelinePassSetup.Field<&RenderPipelinePassSetup::dependencies>("dependencies");
-
-		auto renderPipelineModuleSetup = Reflection::Type<RenderPipelineModuleSetup>();
-		renderPipelineModuleSetup.Field<&RenderPipelineModuleSetup::passes>("passes");
-
-		auto renderPipelineSetup = Reflection::Type<RenderPipelineSetup>();
-		renderPipelineSetup.Field<&RenderPipelineSetup::modules>("modules");
-
-		auto renderPipelineContextSettings = Reflection::Type<RenderPipelineContextSettings>();
-		renderPipelineContextSettings.Field<&RenderPipelineContextSettings::initialOutputSize>("initialOutputSize");
-
-		// Base classes with virtual methods
-		auto renderPipelinePass = Reflection::Type<RenderPipelinePass>();
-		renderPipelinePass.Field<&RenderPipelinePass::context>("context");
-		renderPipelinePass.Field<&RenderPipelinePass::renderPass>("renderPass");
-		renderPipelinePass.Function<&RenderPipelinePass::GetPassSetup>("GetPassSetup").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Create>("Create").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Init>("Init").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Update>("Update").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Render>("Render", "objects", "cmd").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Destroy>("Destroy").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::OnResize>("OnResize", "size").Attribute<VirtualMethod>();
-
-		auto renderPipelineModule = Reflection::Type<RenderPipelineModule>();
-		renderPipelineModule.Field<&RenderPipelineModule::context>("context");
-		renderPipelineModule.Function<&RenderPipelineModule::GetResources>("GetResources").Attribute<VirtualMethod>();
-		renderPipelineModule.Function<&RenderPipelineModule::GetSetup>("GetSetup").Attribute<VirtualMethod>();
-		renderPipelineModule.Function<&RenderPipelineModule::Init>("Init").Attribute<VirtualMethod>();
-		renderPipelineModule.Function<&RenderPipelineModule::Destroy>("Destroy").Attribute<VirtualMethod>();
-		renderPipelineModule.Function<&RenderPipelineModule::Update>("Update", "objects").Attribute<VirtualMethod>();
-
-		auto renderPipeline = Reflection::Type<RenderPipeline>();
-		renderPipeline.Function<&RenderPipeline::GetPipelineSetup>("GetPipelineSetup").Attribute<VirtualMethod>();
-
-		Reflection::Type<RenderPipelineContext>();
-	}
-
 	void RegisterPipelineTypes();
 
 	void RegisterGraphicsTypes()
@@ -1333,7 +1242,6 @@ namespace Skore
 			.Field<SkinResource::Binds>(ResourceFieldType::SubObjectList)
 			.Build();
 
-		RegisterRenderPipelineBaseTypes();
 		RegisterPipelineTypes();
 		RegisterAnimationTypes();
 	}

@@ -1589,6 +1589,211 @@ namespace
 		readback->Unmap();
 		readback->Destroy();
 	}
+
+	// Mirrors the editor's selection-outline chain: a silhouette pass writes a white mask over a
+	// (1,1,1,0) clear, a fullscreen distance pass (the real Editor/MaskShader.raster) converts it
+	// into an edge-distance field, and a final pass (the real Editor/CompositeMaskShader.raster)
+	// alpha-blends the orange outline over the already-rendered color output. All three run at the
+	// same stage, ordered purely by their resource dependencies; the outline Read is attached after
+	// Render() like SceneViewRenderPipeline does. The composite pass carries the scene depth
+	// attachment like the editor's tools pass, so the fullscreen quad must disable depth testing
+	// (reverse-Z clears depth to 0 and the quad sits at z=0 - with the default Greater test it
+	// would be rejected everywhere). The readback must show orange only around the silhouette
+	// edge - background and silhouette interior keep the scene color.
+	TEST_CASE("Graphics::Vulkan::RenderGraphSelectionOutlineChain")
+	{
+		if (!GpuTest::IsAvailable())
+		{
+			MESSAGE("Vulkan device not available - skipping GPU test");
+			return;
+		}
+
+		GpuTest::ResourceScope resourceScope;
+
+		RID silhouetteShader = GpuTest::CompileGraphicsShader(Path::Join(SK_EDITOR_TEST_FILES, "Shaders/MaskSilhouette.raster"));
+		RID distanceShader = GpuTest::CompileGraphicsShader(Path::Join(SK_SHADERS_DIR, "Editor/MaskShader.raster"));
+		RID compositeShader = GpuTest::CompileGraphicsShader(Path::Join(SK_SHADERS_DIR, "Editor/CompositeMaskShader.raster"));
+		REQUIRE(silhouetteShader);
+		REQUIRE(distanceShader);
+		REQUIRE(compositeShader);
+
+		RenderGraph rg;
+		rg.SetOutputSize(Extent{kWidth, kHeight});
+
+		GPUBuffer* readback = CreateReadbackBuffer("RenderGraphOutlineReadback");
+		REQUIRE(readback != nullptr);
+
+		GPUPipeline* silhouettePipeline = nullptr;
+		GPUPipeline* distancePipeline = nullptr;
+		GPUPipeline* compositePipeline = nullptr;
+
+		constexpr u32 kFrameCount = 3;
+		for (u32 frame = 0; frame < kFrameCount; ++frame)
+		{
+			rg.Begin(nullptr);
+
+			rg.Create("Output", RenderGraphTextureDesc{
+				.format = Format::RGBA8_UNORM,
+				.extent = Extent{kWidth, kHeight},
+				.usage = ResourceUsage::CopySource,
+				.clearColor = Vec4(0.0f, 0.0f, 0.0f, 1.0f)
+			});
+			rg.SetColorOutput("Output");
+
+			rg.Create("Depth", RenderGraphTextureDesc{
+				.format = Format::D32_FLOAT,
+				.extent = Extent{kWidth, kHeight},
+				.clearDepth = 0.0f
+			});
+			rg.SetDepthOutput("Depth");
+
+			rg.Create("SelectionMask", RenderGraphTextureDesc{
+				.format = Format::RGBA8_UNORM,
+				.extent = Extent{0, 0},
+				.clearColor = Vec4(1.0f, 1.0f, 1.0f, 0.0f)
+			});
+
+			rg.Create("SelectionOutline", RenderGraphTextureDesc{
+				.format = Format::RGBA8_UNORM,
+				.extent = Extent{0, 0},
+				.clearColor = Vec4(0.0f, 0.0f, 0.0f, 0.0f)
+			});
+
+			rg.AddGraphicsPass("SceneColor")
+				.Stage(700)
+				.Write("Output")
+				.Write("Depth")
+				.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
+
+			rg.AddGraphicsPass("SelectionMask")
+				.Stage(1100)
+				.Write("SelectionMask")
+				.InvertViewport(true)
+				.Render([&silhouettePipeline, silhouetteShader](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
+				{
+					if (silhouettePipeline == nullptr)
+					{
+						GraphicsPipelineDesc pipelineDesc;
+						pipelineDesc.shader = silhouetteShader;
+						pipelineDesc.variant = "Default";
+						pipelineDesc.renderPass = pass.GetRenderPass();
+						pipelineDesc.rasterizerState.cullMode = CullMode::None;
+						pipelineDesc.blendStates = {BlendStateDesc{}};
+						pipelineDesc.debugName = "OutlineSilhouettePipeline";
+						silhouettePipeline = Graphics::CreateGraphicsPipeline(pipelineDesc);
+					}
+
+					cmd->BindPipeline(silhouettePipeline);
+					cmd->Draw(3, 1, 0, 0);
+				});
+
+			rg.AddGraphicsPass("SelectionOutlineDistance")
+				.Stage(1100)
+				.Read("SelectionMask")
+				.Write("SelectionOutline")
+				.Render([&distancePipeline, distanceShader](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
+				{
+					if (distancePipeline == nullptr)
+					{
+						GraphicsPipelineDesc pipelineDesc;
+						pipelineDesc.shader = distanceShader;
+						pipelineDesc.variant = "Default";
+						pipelineDesc.renderPass = pass.GetRenderPass();
+						pipelineDesc.blendStates = {BlendStateDesc{}};
+						pipelineDesc.allowImmediateSet = true;
+						pipelineDesc.debugName = "OutlineDistancePipeline";
+						distancePipeline = Graphics::CreateGraphicsPipeline(pipelineDesc);
+					}
+
+					RenderGraph& graph = *pass.GetGraph();
+					Extent extent = graph.GetOutputSize();
+					Vec4 textureInfo = Vec4(1.0f / extent.width, 1.0f / extent.height, 0.0f, 0.0f);
+
+					cmd->BindPipeline(distancePipeline);
+					cmd->SetSampler(distancePipeline, 0, 0, Graphics::GetLinearSampler());
+					cmd->SetTexture(distancePipeline, 0, 1, graph.GetTexture("SelectionMask"), 0);
+					cmd->PushConstants(distancePipeline, ShaderStage::Vertex, 0, sizeof(Vec4), &textureInfo);
+					cmd->Draw(6, 1, 0, 0);
+				});
+
+			RenderGraphPass& toolsPass = rg.AddGraphicsPass("SceneViewTools")
+				.Stage(1100)
+				.WriteRead("Output")
+				.WriteRead("Depth")
+				.Render([&compositePipeline, compositeShader](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
+				{
+					if (compositePipeline == nullptr)
+					{
+						GraphicsPipelineDesc pipelineDesc;
+						pipelineDesc.shader = compositeShader;
+						pipelineDesc.variant = "Default";
+						pipelineDesc.renderPass = pass.GetRenderPass();
+						pipelineDesc.depthStencilState.depthTestEnable = false;
+						pipelineDesc.depthStencilState.depthWriteEnable = false;
+						pipelineDesc.blendStates = {BlendStateDesc{.blendEnable = true}};
+						pipelineDesc.allowImmediateSet = true;
+						pipelineDesc.debugName = "OutlineCompositePipeline";
+						compositePipeline = Graphics::CreateGraphicsPipeline(pipelineDesc);
+					}
+
+					RenderGraph& graph = *pass.GetGraph();
+
+					cmd->BindPipeline(compositePipeline);
+					cmd->SetSampler(compositePipeline, 0, 0, Graphics::GetLinearSampler());
+					cmd->SetTexture(compositePipeline, 0, 1, graph.GetTexture("SelectionOutline"), 0);
+					cmd->Draw(6, 1, 0, 0);
+				});
+
+			toolsPass.Read("SelectionOutline");
+
+			Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
+			{
+				rg.Execute(cmd);
+			});
+		}
+
+		ReadbackColor(rg, "Output", readback, Extent{kWidth, kHeight});
+
+		const u8* pixels = static_cast<const u8*>(readback->Map());
+		REQUIRE(pixels != nullptr);
+
+		auto pixelAt = [&](u32 x, u32 y) -> const u8* {
+			return pixels + (y * kWidth + x) * 4;
+		};
+
+		auto isOutline = [](const u8* texel) {
+			return texel[0] > 200 && texel[1] > 90 && texel[1] < 170 && texel[2] < 50;
+		};
+
+		u32 outlineCount = 0;
+		for (u32 y = 0; y < kHeight; ++y)
+		{
+			for (u32 x = 0; x < kWidth; ++x)
+			{
+				if (isOutline(pixelAt(x, y))) ++outlineCount;
+			}
+		}
+		CHECK(outlineCount > 20);
+
+		// far from the silhouette: untouched scene color
+		const u8* corner = pixelAt(0, 0);
+		CHECK(corner[0] < 16);
+		CHECK(corner[1] < 16);
+		CHECK(corner[2] < 16);
+
+		// silhouette interior away from the edge: untouched scene color too
+		const u8* interior = pixelAt(kWidth / 2, kHeight / 2);
+		CHECK(interior[0] < 16);
+		CHECK(interior[1] < 16);
+		CHECK(interior[2] < 16);
+
+		readback->Unmap();
+
+		if (silhouettePipeline != nullptr) silhouettePipeline->Destroy();
+		if (distancePipeline != nullptr) distancePipeline->Destroy();
+		if (compositePipeline != nullptr) compositePipeline->Destroy();
+		readback->Destroy();
+	}
 }
 
 #endif

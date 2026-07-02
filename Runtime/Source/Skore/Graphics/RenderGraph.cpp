@@ -395,9 +395,16 @@ namespace Skore
 		else
 		{
 			dependency = &dependencies.EmplaceBack();
+
+			//growth can relocate earlier entries, whose views point into their own storage
+			for (usize i = 0; i < dependencyCount; ++i)
+			{
+				dependencies[i].name = dependencies[i].nameStorage;
+			}
 		}
 
-		SetNameReference(dependency->nameStorage, dependency->name, name);
+		dependency->nameStorage = name;
+		dependency->name = dependency->nameStorage;
 		dependency->access = access;
 		++dependencyCount;
 	}
@@ -412,26 +419,16 @@ namespace Skore
 		else
 		{
 			resolve = &resolves.EmplaceBack();
-		}
 
-		SetNameReference(resolve->nameStorage, resolve->name, name);
-		++resolveCount;
-	}
-
-	void RenderGraphPass::SetNameReference(String& storage, StringView& view, StringView name)
-	{
-		if (graph != nullptr)
-		{
-			StringView resourceName = graph->FindResourceName(name);
-			if (!resourceName.Empty())
+			for (usize i = 0; i < resolveCount; ++i)
 			{
-				view = resourceName;
-				return;
+				resolves[i].name = resolves[i].nameStorage;
 			}
 		}
 
-		storage = name;
-		view = storage;
+		resolve->nameStorage = name;
+		resolve->name = resolve->nameStorage;
+		++resolveCount;
 	}
 
 	bool RenderGraphPass::HasResolve(StringView name) const
@@ -529,12 +526,6 @@ namespace Skore
 	{
 		auto it = resources.Find(name);
 		return it != resources.end() ? &it->second : nullptr;
-	}
-
-	StringView RenderGraph::FindResourceName(StringView name) const
-	{
-		auto it = resources.Find(name);
-		return it != resources.end() ? StringView(it->first) : StringView{};
 	}
 
 	void RenderGraph::Create(StringView name, const RenderGraphTextureDesc& textureDesc)
@@ -2229,6 +2220,10 @@ namespace Skore
 
 	void RenderGraph::Begin(Scene* scene)
 	{
+		//scene buffer + descriptor sets must exist before passes build their graph,
+		//so single-shot graphs (thumbnails) can bind scene data on the first frame
+		CreateSceneResources();
+
 		currentScene = scene;
 		prevFrame = currentFrame;
 		currentFrame = (currentFrame + 1) % SK_FRAMES_IN_FLIGHT;

@@ -1220,11 +1220,11 @@ namespace
 		Connect(graph, fresnelNode, 0, combineNode, 1);
 		Connect(graph, combineNode, 1, outputNode, MaterialNodeRegistry::WorldPositionOffset);
 
-		#ifndef SK_SHADERS_NEW_DIR
+		#ifndef SK_SHADERS_DIR
 		REQUIRE(false);
 		#endif
 
-		String shadersDir = String{SK_SHADERS_NEW_DIR};
+		String shadersDir = String{SK_SHADERS_DIR};
 		String templateText = FileSystem::ReadFileAsString(Path::Join(shadersDir, "DefaultForward.hlsl"));
 		REQUIRE(!templateText.Empty());
 

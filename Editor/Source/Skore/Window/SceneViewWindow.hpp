@@ -11,7 +11,6 @@
 namespace Skore
 {
 	class RenderPipelineContext;
-	class RenderPipelineContextNew;
 
 	class SceneViewWindow : public EditorWindow
 	{
@@ -45,7 +44,7 @@ namespace Skore
 
 		SceneEditor* GetSceneEditor() const { return sceneEditor; }
 		bool         IsSceneInteractionDisabled() const;
-		friend struct SceneViewPipelinePass;
+		friend struct SceneViewRenderPipeline;
 
 	private:
 		//world transform of an entity captured when the gizmo drag starts,
@@ -101,8 +100,7 @@ namespace Skore
 
 		EntityPicker entityPicker = {};
 
-		RenderPipelineContext*    renderPipelineContext = nullptr;
-		RenderPipelineContextNew* renderPipelineContextNew = nullptr;
+		RenderPipelineContext* renderPipelineContext = nullptr;
 
 
 		static void OpenSceneView(const MenuItemEventData& eventData);

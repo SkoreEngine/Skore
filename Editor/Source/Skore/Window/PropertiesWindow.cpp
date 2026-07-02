@@ -10,9 +10,9 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
-#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/ImGui/Icons.h"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/MaterialGraph/MaterialNode.hpp"
@@ -29,8 +29,6 @@
 
 namespace Skore
 {
-	struct PreviewRenderPipeline;
-
 	namespace
 	{
 		u32 MipSize(u32 base, u32 mip)
@@ -70,23 +68,6 @@ namespace Skore
 		}
 	}
 
-	struct PreviewOutputModule : RenderPipelineModule
-	{
-		SK_CLASS(PreviewOutputModule, RenderPipelineModule);
-
-		Array<RenderPipelineResource> GetResources() override
-		{
-			Array<RenderPipelineResource> resources;
-			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA8_UNORM, .samples = 1});
-			return resources;
-		}
-
-		RenderPipelineModuleSetup GetSetup() override
-		{
-			return {};
-		}
-	};
-
 	PropertiesWindow::PropertiesWindow()
 	{
 		Event::Bind<OnEntitySelection, &PropertiesWindow::EntitySelection>(this);
@@ -116,7 +97,7 @@ namespace Skore
 		ReleaseTextureResources();
 		if (m_context)
 		{
-			m_context->Destroy();
+			DestroyAndFree(m_context);
 			m_context = nullptr;
 		}
 		if (m_scene)
@@ -172,7 +153,7 @@ namespace Skore
 			nearFar = Math::GerNearFarFromAABB(aabb, view);
 		}
 
-		m_context->UpdateCamera(nearFar.x, nearFar.y, m_fov, Projection::Perspective, view, cameraPos);
+		m_context->GetRenderGraph().UpdateCamera(nearFar.x, nearFar.y, m_fov, Projection::Perspective, view, cameraPos);
 		m_context->Execute(cmd, m_scene);
 	}
 
@@ -969,20 +950,9 @@ namespace Skore
 	{
 		if (m_context == nullptr)
 		{
-			RenderPipelineContextSettings settings;
-			settings.initialOutputSize = extent;
-			settings.userData = this;
-
-			Array<TypeID> modules;
-			modules.EmplaceBack(sktypeid(PreviewOutputModule));
-
-			m_context = RenderPipeline::CreateContext(sktypeid(PreviewRenderPipeline), modules, settings);
-			m_context->SetColorOutput(OutputColorName);
+			m_context = RenderPipelineContext::Create(sktypeid(DefaultRenderPipeline));
 		}
-		else
-		{
-			m_context->SetOutputSize(extent);
-		}
+		m_context->GetRenderGraph().SetOutputSize(extent);
 
 		m_outputSize = extent;
 	}
@@ -995,7 +965,7 @@ namespace Skore
 		{
 			EnsureContext(Extent{static_cast<u32>(avail.x), static_cast<u32>(avail.y)});
 
-			if (GPUTexture* color = m_context->GetColorOutput())
+			if (GPUTexture* color = m_context->GetRenderGraph().GetColorOutput())
 			{
 				ImGuiTextureItem(color, ImVec2(avail.x, avail.y));
 
@@ -1301,7 +1271,7 @@ namespace Skore
 		{
 			if (m_context)
 			{
-				m_context->Destroy();
+				DestroyAndFree(m_context);
 				m_context = nullptr;
 			}
 
@@ -2285,8 +2255,4 @@ namespace Skore
 		});
 	}
 
-	void RegisterPreviewModule()
-	{
-		Reflection::Type<PreviewOutputModule>();
-	}
 }

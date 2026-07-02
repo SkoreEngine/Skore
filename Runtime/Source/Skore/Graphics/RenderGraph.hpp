@@ -178,7 +178,6 @@ namespace Skore
 		void             Reset(RenderGraph* graph, StringView name, RenderGraphPassType type);
 		void             AddDependency(StringView name, RenderGraphAccess access);
 		void             AddResolve(StringView name);
-		void             SetNameReference(String& storage, StringView& view, StringView name);
 		bool             HasResolve(StringView name) const;
 
 		RenderGraph*        graph = nullptr;
@@ -386,7 +385,6 @@ namespace Skore
 		RenderGraphPass& EmplacePass(StringView name, RenderGraphPassType type);
 		Resource*        FindResource(StringView name);
 		const Resource*  FindResource(StringView name) const;
-		StringView       FindResourceName(StringView name) const;
 		GPUPipeline*     GetOrCreatePipeline(StringView key, GPUPipeline* (*create)(VoidPtr userData), VoidPtr userData);
 
 		GPUDescriptorSet* GetAutoDescriptorSet(const RenderGraphPass* pass, u32 set);

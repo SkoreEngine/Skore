@@ -79,7 +79,7 @@ namespace Skore
 		bool        m_previewVisible = false;
 		bool        m_focusRequested = false;
 
-		Scene*                 m_scene = nullptr;
+		Scene*                    m_scene = nullptr;
 		RenderPipelineContext* m_context = nullptr;
 
 		bool m_framePending = false;

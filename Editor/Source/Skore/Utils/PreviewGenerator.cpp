@@ -3,8 +3,9 @@
 #include "Skore/EditorCommon.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipeline/PipelineCommon.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Scene.hpp"
@@ -15,57 +16,49 @@
 
 namespace Skore
 {
-	struct PreviewRenderPipeline;
-
-
-	struct OutputToBufferPass : RenderPipelinePass
+	namespace
 	{
-		SK_CLASS(OutputToBufferPass, RenderPipelinePass);
+		constexpr const char* ThumbnailBufferName = "ThumbnailBuffer";
+	}
 
-		RenderPipelinePassSetup GetPassSetup() override
+	//default pipeline plus a final pass that copies the output color into a
+	//host-visible buffer so the thumbnail can be read back on the CPU
+	struct ThumbnailRenderPipeline : DefaultRenderPipeline
+	{
+		SK_CLASS(ThumbnailRenderPipeline, DefaultRenderPipeline);
+
+		void BuildRenderGraph(RenderGraph& renderGraph) override
 		{
-			RenderPipelinePassSetup setup;
-			setup.type = RenderPipelinePassType::Graphics;
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::Read});
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = "OutputBuffer", .access = RenderPipelineTextureAccess::Write});
-			return setup;
-		}
+			DefaultRenderPipeline::BuildRenderGraph(renderGraph);
 
-		void Render(Scene* scene, GPUCommandBuffer* cmd) override
-		{
-			GPUTexture* outputTexture = context->GetTexture(OutputColorName);
-			GPUBuffer* outputBuffer = context->GetBuffer("OutputBuffer");
+			Extent extent = renderGraph.GetOutputSize();
 
-			cmd->ResourceBarrier(TextureBarrierDesc{.texture = outputTexture, .oldState = ResourceState::ShaderReadOnly, .newState = ResourceState::CopySource});
-			cmd->CopyTextureToBuffer({
-				.buffer = outputBuffer,
-				.texture = outputTexture,
-				.extent = outputTexture->GetDesc().extent,
+			renderGraph.Create(ThumbnailBufferName, RenderGraphBufferDesc{
+				.size = static_cast<usize>(extent.width) * extent.height * 4,
+				.usage = ResourceUsage::CopyDest,
+				.hostVisible = true,
+				.persistentMapped = true
 			});
-			cmd->ResourceBarrier(TextureBarrierDesc{.texture = outputTexture, .oldState = ResourceState::CopySource, .newState = ResourceState::ColorAttachment});
-		}
-	};
 
+			renderGraph
+				.AddPass("OutputToBuffer")
+				.Stage(RenderStage::Swapchain)
+				.Read(PostProcessOutputName)
+				.Write(ThumbnailBufferName)
+				.Render([](RenderGraphPass& pass, Scene* scene, GPUCommandBuffer* cmd)
+				{
+					RenderGraph& rg = *pass.GetGraph();
 
-	struct OutputToBufferModule : RenderPipelineModule
-	{
-		SK_CLASS(OutputToBufferModule, RenderPipelineModule);
+					GPUTexture* outputTexture = rg.GetTexture(PostProcessOutputName);
+					GPUBuffer*  outputBuffer = rg.GetBuffer(ThumbnailBufferName);
+					if (outputTexture == nullptr || outputBuffer == nullptr) return;
 
-		Array<RenderPipelineResource> GetResources() override
-		{
-			const Extent extent = context->GetOutputSize();
-			Array<RenderPipelineResource> resources;
-			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA8_UNORM, .samples = 1, .textureUsage = ResourceUsage::CopySource | ResourceUsage::UnorderedAccess});
-			resources.EmplaceBack(RenderPipelineResource{.name = "OutputBuffer", .type = RenderPipelineResourceType::Buffer, .size = extent.width * extent.height * 4, .usage = ResourceUsage::CopyDest, .persistentMapped = true});
-			return resources;
-		}
-
-
-		RenderPipelineModuleSetup GetSetup() override
-		{
-			RenderPipelineModuleSetup setup;
-			setup.passes.EmplaceBack(sktypeid(OutputToBufferPass));
-			return setup;
+					cmd->CopyTextureToBuffer({
+						.buffer = outputBuffer,
+						.texture = outputTexture,
+						.extent = outputTexture->GetDesc().extent,
+					});
+				});
 		}
 	};
 
@@ -150,12 +143,9 @@ namespace Skore
 
 		Mat4 camera = Mat4::Inverse(Mat4::Translate(Mat4{1.0}, cameraPos) * Quat::ToMatrix4(cameraRotation) * Mat4::Scale(Mat4{1.0}, Vec3(1.0)));
 
-		RenderPipelineContextSettings settings;
-		settings.initialOutputSize = thumbnailSize;
-		settings.userData = this;
-		Array<TypeID> modules;
-		modules.EmplaceBack(sktypeid(OutputToBufferModule));
-		RenderPipelineContext* renderPipelineContext = RenderPipeline::CreateContext(sktypeid(PreviewRenderPipeline), modules, settings);
+		RenderPipelineContext* renderPipelineContext = RenderPipelineContext::Create(sktypeid(ThumbnailRenderPipeline));
+		RenderGraph&              renderGraph = renderPipelineContext->GetRenderGraph();
+		renderGraph.SetOutputSize(thumbnailSize);
 
 		Vec2 nearFar = {0.1, 100.0f};
 		if (aabb)
@@ -163,7 +153,7 @@ namespace Skore
 			nearFar = Math::GerNearFarFromAABB(aabb, camera);
 		}
 
-		renderPipelineContext->UpdateCamera(nearFar.x, nearFar.y, fov, Projection::Perspective, camera, cameraPos);
+		renderGraph.UpdateCamera(nearFar.x, nearFar.y, fov, Projection::Perspective, camera, cameraPos);
 
 		Graphics::SubmitGPUWork(QueueType::Graphics, [&](GPUCommandBuffer* cmd)
 		{
@@ -172,18 +162,17 @@ namespace Skore
 			scene->renderObjects.End(cmd);
 		});
 
-		GPUBuffer* buffer = renderPipelineContext->GetBuffer("OutputBuffer");
+		GPUBuffer* buffer = renderGraph.GetBuffer(ThumbnailBufferName);
 		Span data(static_cast<u8*>(buffer->GetMappedData()), thumbnailSize.width * thumbnailSize.height * 4);
 		ResourceAssets::UpdateThumbnail(asset, data);
 
 		DestroyAndFree(scene);
 
-		renderPipelineContext->Destroy();
+		DestroyAndFree(renderPipelineContext);
 	}
 
 	void RegisterThumbnailGenerationTypes()
 	{
-		Reflection::Type<OutputToBufferPass>();
-		Reflection::Type<OutputToBufferModule>();
+		Reflection::Type<ThumbnailRenderPipeline>();
 	}
 }
