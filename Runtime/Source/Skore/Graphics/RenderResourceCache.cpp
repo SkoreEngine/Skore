@@ -897,9 +897,9 @@ namespace Skore
 						}
 						case WorkerType::GenerateIBL:
 						{
-							MaterialResourceCachePtr materialCache = std::dynamic_pointer_cast<MaterialResourceCache>(data.resourceCache);
+							EnvironmentResourceCachePtr environmentCache = std::dynamic_pointer_cast<EnvironmentResourceCache>(data.resourceCache);
 
-							if (!materialCache->skyMaterialTexture->IsLoaded())
+							if (!environmentCache->panoramicTexture || !environmentCache->panoramicTexture->IsLoaded())
 							{
 								AddTask(std::move(data));
 								continue;
@@ -909,18 +909,18 @@ namespace Skore
 
 							EquirectangularToCubeMap equirectangularToCubemap;
 							equirectangularToCubemap.Init();
-							equirectangularToCubemap.Execute(computeCmd, materialCache->skyMaterialTexture->texture, materialCache->cubeMapSkyTexture);
+							equirectangularToCubemap.Execute(computeCmd, environmentCache->panoramicTexture->texture, environmentCache->cubeMapSkyTexture);
 
 							SinglePassDownsampler downsampler;
-							downsampler.Init(materialCache->cubeMapSkyTexture);
+							downsampler.Init(environmentCache->cubeMapSkyTexture);
 							downsampler.Execute(computeCmd);
 
 							DiffuseIrradianceGenerator diffuseIrradianceGenerator;
 							diffuseIrradianceGenerator.Init();
-							diffuseIrradianceGenerator.Execute(computeCmd, materialCache->cubeMapSkyTexture, materialCache->diffuseIrradianceTexture);
+							diffuseIrradianceGenerator.Execute(computeCmd, environmentCache->cubeMapSkyTexture, environmentCache->diffuseIrradianceTexture);
 
 							SpecularMapGenerator specularMapGenerator;
-							specularMapGenerator.Init(materialCache->cubeMapSkyTexture, materialCache->specularMapTexture);
+							specularMapGenerator.Init(environmentCache->cubeMapSkyTexture, environmentCache->specularMapTexture);
 							specularMapGenerator.Execute(computeCmd);
 
 							computeCmd->End();
@@ -961,16 +961,18 @@ namespace Skore
 			std::counting_semaphore<>               workSem{0};
 		};
 
-		HashMap<RID, FontResourceCachePtr>                 fontCache;
-		HashMap<RID, std::weak_ptr<TextureResourceCache>>  textureAsyncCache;
-		HashMap<RID, std::weak_ptr<TextureResourceCache>>  textureCache;
-		HashMap<RID, std::weak_ptr<MaterialResourceCache>> materialCache;
-		HashMap<RID, std::weak_ptr<MeshResourceCache>>     meshCache;
-		HashMap<RID, std::weak_ptr<SkinResourceCache>>     skinCache;
+		HashMap<RID, FontResourceCachePtr>                    fontCache;
+		HashMap<RID, std::weak_ptr<TextureResourceCache>>     textureAsyncCache;
+		HashMap<RID, std::weak_ptr<TextureResourceCache>>     textureCache;
+		HashMap<RID, std::weak_ptr<MaterialResourceCache>>    materialCache;
+		HashMap<RID, std::weak_ptr<EnvironmentResourceCache>> environmentCache;
+		HashMap<RID, std::weak_ptr<MeshResourceCache>>        meshCache;
+		HashMap<RID, std::weak_ptr<SkinResourceCache>>        skinCache;
 
 
 		std::mutex fontCacheMutex{};
 		std::mutex materialCacheMutex{};
+		std::mutex environmentCacheMutex{};
 		std::mutex textureCacheMutex{};
 		std::mutex meshCacheMutex{};
 		std::mutex skinCacheMutex{};
@@ -1516,16 +1518,16 @@ namespace Skore
 
 			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
 			materialCache->textures.Clear();
+			WriteMaterialStubData(materialCache);
+		}
 
-			if (materialCache->type != MaterialResource::MaterialType::SkyboxEquirectangular)
+		// Rebuilds the equirect texture binding + IBL bake for an environment cache. Shared by the
+		// initial GetEnvironmentCache path and the sky-texture reload hook.
+		void UpdateEnvironmentStorageData(const EnvironmentResourceCachePtr& environmentCache, bool async)
+		{
+			if (environmentCache->descriptorSet == nullptr)
 			{
-				WriteMaterialStubData(materialCache);
-			}
-			else
-			{
-				RID sphericalTexture = materialObject.GetReference(MaterialResource::SphericalTexture);
-
-				materialCache->descriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+				environmentCache->descriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
 					.bindings = {
 						DescriptorSetLayoutBinding{
 							.binding = 0,
@@ -1537,55 +1539,54 @@ namespace Skore
 						}
 					}
 				});
+			}
 
-				materialCache->skyMaterialTexture = sphericalTexture ? RenderResourceCache::GetTextureCache(sphericalTexture, async) : nullptr;
+			environmentCache->panoramicTexture = environmentCache->skyTexture ? RenderResourceCache::GetTextureCache(environmentCache->skyTexture, async) : nullptr;
 
-				UpdateTexture(materialCache->descriptorSet, materialCache->skyMaterialTexture, 0);
-				materialCache->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
+			UpdateTexture(environmentCache->descriptorSet, environmentCache->panoramicTexture, 0);
+			environmentCache->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
 
-				if (materialCache->skyMaterialTexture && materialCache->skyMaterialTexture->texture)
+			if (environmentCache->panoramicTexture && environmentCache->panoramicTexture->texture)
+			{
+				if (!environmentCache->diffuseIrradianceTexture)
 				{
-					if (!materialCache->diffuseIrradianceTexture)
-					{
-						materialCache->diffuseIrradianceTexture = Graphics::CreateTexture(TextureDesc{
-							.extent = {64, 64, 1},
-							.arrayLayers = 6,
-							.format = Format::RGBA16_FLOAT,
-							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
-							.cubemap = true,
-							.debugName = "SceneRendererViewport_irradianceTexture"
-						});
-					}
-
-					if (!materialCache->specularMapTexture)
-					{
-						materialCache->specularMapTexture = Graphics::CreateTexture(TextureDesc{
-							.extent = {256, 256, 1},
-							.mipLevels = 8,
-							.arrayLayers = 6,
-							.format = Format::RGBA16_FLOAT,
-							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
-							.cubemap = true,
-							.debugName = "SceneRendererViewport_SpecularMapTexture"
-						});
-					}
-
-					if (!materialCache->cubeMapSkyTexture)
-					{
-						materialCache->cubeMapSkyTexture = Graphics::CreateTexture(TextureDesc{
-							.extent = {256, 256, 1},
-							.mipLevels = 8,
-							.arrayLayers = 6,
-							.format = Format::RGBA16_FLOAT,
-							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
-							.cubemap = true,
-							.debugName = "SceneRendererViewport_CubemapTexture"
-						});
-
-					}
-
-					materialCache->iblComplete = worker->AddTask(WorkerType::GenerateIBL, materialCache).share();
+					environmentCache->diffuseIrradianceTexture = Graphics::CreateTexture(TextureDesc{
+						.extent = {64, 64, 1},
+						.arrayLayers = 6,
+						.format = Format::RGBA16_FLOAT,
+						.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+						.cubemap = true,
+						.debugName = "Environment_IrradianceTexture"
+					});
 				}
+
+				if (!environmentCache->specularMapTexture)
+				{
+					environmentCache->specularMapTexture = Graphics::CreateTexture(TextureDesc{
+						.extent = {256, 256, 1},
+						.mipLevels = 8,
+						.arrayLayers = 6,
+						.format = Format::RGBA16_FLOAT,
+						.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+						.cubemap = true,
+						.debugName = "Environment_SpecularMapTexture"
+					});
+				}
+
+				if (!environmentCache->cubeMapSkyTexture)
+				{
+					environmentCache->cubeMapSkyTexture = Graphics::CreateTexture(TextureDesc{
+						.extent = {256, 256, 1},
+						.mipLevels = 8,
+						.arrayLayers = 6,
+						.format = Format::RGBA16_FLOAT,
+						.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+						.cubemap = true,
+						.debugName = "Environment_CubemapTexture"
+					});
+				}
+
+				environmentCache->iblComplete = worker->AddTask(WorkerType::GenerateIBL, environmentCache).share();
 			}
 		}
 
@@ -1703,6 +1704,25 @@ namespace Skore
 					UpdateMaterialStorageData(materialObject, m, true);
 				}
 			}
+
+			// Environment caches are keyed by their source texture, so a reload of that texture
+			// rebinds the panoramic descriptor and re-enqueues the IBL bake off the new pixels.
+			Array<EnvironmentResourceCachePtr> affectedEnv;
+			{
+				std::scoped_lock lock(environmentCacheMutex);
+				for (auto& it : environmentCache)
+				{
+					if (auto e = it.second.lock(); e && e->skyTexture == textureRID)
+					{
+						affectedEnv.EmplaceBack(e);
+					}
+				}
+			}
+
+			for (const EnvironmentResourceCachePtr& e : affectedEnv)
+			{
+				UpdateEnvironmentStorageData(e, true);
+			}
 		}
 
 		template<typename V, typename Map, typename Mutex>
@@ -1787,15 +1807,20 @@ namespace Skore
 		void WaitForMaterial(const MaterialResourceCachePtr& mat)
 		{
 			if (!mat) return;
-			if (mat->iblComplete.valid())
-			{
-				mat->iblComplete.wait();
-			}
 			for (const auto& tex : mat->textures)
 			{
 				WaitForTexture(tex);
 			}
-			WaitForTexture(mat->skyMaterialTexture);
+		}
+
+		void WaitForEnvironment(const EnvironmentResourceCachePtr& env)
+		{
+			if (!env) return;
+			WaitForTexture(env->panoramicTexture);
+			if (env->iblComplete.valid())
+			{
+				env->iblComplete.wait();
+			}
 		}
 
 		void WaitForMesh(const MeshResourceCachePtr& mesh)
@@ -2166,7 +2191,10 @@ namespace Skore
 			freeMaterialIndices.EmplaceBack(materialIndex);
 			materialIndex = U32_MAX;
 		}
+	}
 
+	EnvironmentResourceCache::~EnvironmentResourceCache()
+	{
 		if (descriptorSet) descriptorSet->Destroy();
 		if (diffuseIrradianceTexture) diffuseIrradianceTexture->Destroy();
 		if (specularMapTexture) specularMapTexture->Destroy();
@@ -2602,6 +2630,63 @@ namespace Skore
 		if (!async)
 		{
 			WaitForMaterial(result);
+		}
+		return result;
+	}
+
+	EnvironmentResourceCachePtr RenderResourceCache::GetEnvironmentCache(RID skyTexture, bool async)
+	{
+		if (!skyTexture) return nullptr;
+
+		// Phase 1: brief lock — return existing cache if any.
+		{
+			std::unique_lock lock(environmentCacheMutex);
+			auto it = environmentCache.Find(skyTexture);
+			if (it != environmentCache.end())
+			{
+				if (auto sp = it->second.lock())
+				{
+					lock.unlock();
+					if (!async) WaitForEnvironment(sp);
+					return sp;
+				}
+				environmentCache.Erase(it);
+			}
+		}
+
+		// Phase 2: heavy work without the lock — descriptor-set creation, recursive GetTextureCache
+		// and the IBL bake enqueue all live in UpdateEnvironmentStorageData.
+		EnvironmentResourceCachePtr environmentData(Alloc<EnvironmentResourceCache>(skyTexture), MakeCacheDeleter<EnvironmentResourceCache>(environmentCache, environmentCacheMutex, skyTexture));
+
+		UpdateEnvironmentStorageData(environmentData, async);
+
+		// Phase 3: brief lock — race re-check, then insert.
+		EnvironmentResourceCachePtr result;
+		{
+			std::unique_lock lock(environmentCacheMutex);
+			auto it = environmentCache.Find(skyTexture);
+			if (it != environmentCache.end())
+			{
+				if (auto sp = it->second.lock())
+				{
+					result = sp;
+				}
+				else
+				{
+					environmentCache.Erase(it);
+				}
+			}
+
+			if (!result)
+			{
+				environmentCache.Insert(skyTexture, std::weak_ptr(environmentData));
+				result = environmentData;
+			}
+		}
+
+		if (!async)
+		{
+			WaitForEnvironment(result);
 		}
 		return result;
 	}

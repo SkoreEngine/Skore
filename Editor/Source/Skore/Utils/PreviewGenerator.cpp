@@ -87,7 +87,7 @@ namespace Skore
 		{
 			Entity* env = scene->CreateEntity();
 			EnvironmentComponent* envComp = env->AddComponent<EnvironmentComponent>();
-			envComp->SetSkyboxMaterial(Resources::FindByPath("Skore://Materials/DefaultSkyMaterial.material"));
+			envComp->SetPanoramicTexture(Resources::FindByPath("Skore://Materials/autumn_field_puresky_1k.texture"));
 		}
 	}
 

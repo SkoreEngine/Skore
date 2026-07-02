@@ -86,21 +86,21 @@ namespace Skore
 
 			scene->Iterate<EnvironmentComponent>([&](EnvironmentComponent* env)
 			{
-				MaterialResourceCache* materialCache = env->GetMaterialCache();
+				EnvironmentResourceCache* environmentCache = env->GetEnvironmentCache();
 
 				switch (env->GetAmbientLightSource())
 				{
 					case AmbientLightSource::Skybox:
-						if (materialCache)
+						if (environmentCache && environmentCache->diffuseIrradianceTexture && environmentCache->cubeMapSkyTexture)
 						{
-							if (lightInstanceData->diffuseIrradianceTexture != materialCache->diffuseIrradianceTexture)
+							if (lightInstanceData->diffuseIrradianceTexture != environmentCache->diffuseIrradianceTexture)
 							{
-								lightInstanceData->diffuseIrradianceTexture = materialCache->diffuseIrradianceTexture;
+								lightInstanceData->diffuseIrradianceTexture = environmentCache->diffuseIrradianceTexture;
 							}
 
-							if (lightInstanceData->cubeMapSkyTexture != materialCache->cubeMapSkyTexture)
+							if (lightInstanceData->cubeMapSkyTexture != environmentCache->cubeMapSkyTexture)
 							{
-								lightInstanceData->cubeMapSkyTexture = materialCache->cubeMapSkyTexture;
+								lightInstanceData->cubeMapSkyTexture = environmentCache->cubeMapSkyTexture;
 							}
 
 							lightInstanceData->ambientMultiplier = env->GetAmbientLightIntensity();
@@ -119,11 +119,11 @@ namespace Skore
 				switch (env->GetReflectedLightSource())
 				{
 					case ReflectedLightSource::Skybox:
-						if (materialCache)
+						if (environmentCache && environmentCache->specularMapTexture)
 						{
-							if (lightInstanceData->specularMapTexture != materialCache->specularMapTexture)
+							if (lightInstanceData->specularMapTexture != environmentCache->specularMapTexture)
 							{
-								lightInstanceData->specularMapTexture = materialCache->specularMapTexture;
+								lightInstanceData->specularMapTexture = environmentCache->specularMapTexture;
 							}
 							lightInstanceData->indirectLightFlags |= LightFlags::HasReflectionTexture;
 							lightInstanceData->reflectionMultiplier = env->GetReflectedLightIntensity();

@@ -45,8 +45,10 @@ namespace Skore
 		u32           mipLevels = 1;
 		ResourceUsage usage = ResourceUsage::None;
 		Vec4          clearColor = Vec4(0.0f);
+		f32           clearDepth = 0.0f;
 		bool          cubemap = false;
 		bool          pingPong = false;
+		bool          persistent = false;
 	};
 
 	struct RenderGraphBufferDesc

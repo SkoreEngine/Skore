@@ -1247,7 +1247,12 @@ namespace Skore
 			DescriptorSetLayoutBinding{.binding = 1, .descriptorType = DescriptorType::StorageBuffer},
 			DescriptorSetLayoutBinding{.binding = 2, .descriptorType = DescriptorType::UniformBuffer},
 			DescriptorSetLayoutBinding{.binding = 3, .descriptorType = DescriptorType::SampledImage},
-			DescriptorSetLayoutBinding{.binding = 4, .descriptorType = DescriptorType::Sampler}
+			DescriptorSetLayoutBinding{.binding = 4, .descriptorType = DescriptorType::Sampler},
+			DescriptorSetLayoutBinding{.binding = 5, .descriptorType = DescriptorType::SampledImage, .viewType = TextureViewType::TypeCube},
+			DescriptorSetLayoutBinding{.binding = 7, .descriptorType = DescriptorType::SampledImage, .viewType = TextureViewType::TypeCube},
+			DescriptorSetLayoutBinding{.binding = 8, .descriptorType = DescriptorType::SampledImage},
+			DescriptorSetLayoutBinding{.binding = 9, .descriptorType = DescriptorType::Sampler},
+			DescriptorSetLayoutBinding{.binding = 10, .descriptorType = DescriptorType::StorageBuffer}
 		};
 		if (device->GetFeatures().rayTracing)
 		{
@@ -1283,6 +1288,19 @@ namespace Skore
 		}
 
 		const u32 count = static_cast<u32>(passes.Size());
+
+		for (u32 i = 1; i < count; ++i)
+		{
+			if (passes[i]->stage == 0) continue;
+			RenderGraphPass* current = passes[i];
+			i32              j = static_cast<i32>(i) - 1;
+			while (j >= 0 && passes[j]->stage != 0 && passes[j]->stage > current->stage)
+			{
+				passes[j + 1] = passes[j];
+				--j;
+			}
+			passes[j + 1] = current;
+		}
 
 		usize signature = 0;
 		HashCombine(signature, count);
@@ -1754,7 +1772,7 @@ namespace Skore
 		{
 			const Resource* res = FindResource(name);
 			if (res == nullptr || res->kind != Resource::Kind::Texture) continue;
-			if (res->textureDesc.pingPong) continue;
+			if (res->textureDesc.pingPong || res->textureDesc.persistent) continue;
 			if (name.Compare(colorOutputName) == 0 || name.Compare(depthOutputName) == 0) continue;
 
 			auto            lifetimeIt = lifetimes.Find(name);
@@ -1984,9 +2002,24 @@ namespace Skore
 			{
 				if (!pass->shader) continue;
 
+				//pipelines with bound descriptor sets take the bound set's layout at that slot,
+				//so shaders can use any subset of e.g. the scene set bindings
+				Array<DescriptorSetOverride> overrides;
+				for (usize i = 0; i < pass->boundDescriptorSetCount; ++i)
+				{
+					overrides.EmplaceBack(DescriptorSetOverride{
+						.set = pass->boundDescriptorSets[i].set,
+						.descriptorSet = pass->boundDescriptorSets[i].descriptorSet
+					});
+				}
+
 				usize pipelineKey = 0;
 				HashCombine(pipelineKey, HashValue(pass->shader));
 				HashCombine(pipelineKey, static_cast<usize>(pass->type));
+				for (const DescriptorSetOverride& dsOverride : overrides)
+				{
+					HashCombine(pipelineKey, dsOverride.set);
+				}
 
 				if (auto it = pipelineCache.Find(pipelineKey))
 				{
@@ -2000,6 +2033,7 @@ namespace Skore
 					ComputePipelineDesc pipelineDesc;
 					pipelineDesc.shader = pass->shader;
 					pipelineDesc.debugName = pass->name;
+					pipelineDesc.descriptorSetsOverride = overrides;
 					pipeline = device->CreateComputePipeline(pipelineDesc);
 				}
 				else
@@ -2007,6 +2041,7 @@ namespace Skore
 					RayTracingPipelineDesc pipelineDesc;
 					pipelineDesc.shader = pass->shader;
 					pipelineDesc.debugName = pass->name;
+					pipelineDesc.descriptorSetsOverride = overrides;
 					pipeline = device->CreateRayTracingPipeline(pipelineDesc);
 				}
 
@@ -2566,16 +2601,37 @@ namespace Skore
 			if (useRenderPass)
 			{
 				ClearValues clearValues = {};
+				bool        colorFound = false;
+				bool        depthFound = false;
 				for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 				{
 					const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
 					if (!WritesResource(dependency.access)) continue;
+
 					const Resource* res = FindResource(dependency.name);
-					if (res != nullptr && res->kind == Resource::Kind::Texture && !IsDepthFormat(res->textureDesc.format))
+					if (res == nullptr) continue;
+					if (res->kind == Resource::Kind::View)
+					{
+						res = FindResource(res->viewDesc.texture);
+						if (res == nullptr) continue;
+					}
+					if (res->kind != Resource::Kind::Texture) continue;
+
+					if (IsDepthFormat(res->textureDesc.format))
+					{
+						if (!depthFound)
+						{
+							clearValues.depth = res->textureDesc.clearDepth;
+							depthFound = true;
+						}
+					}
+					else if (!colorFound)
 					{
 						clearValues.color = res->textureDesc.clearColor;
-						break;
+						colorFound = true;
 					}
+
+					if (colorFound && depthFound) break;
 				}
 
 				BeginRenderPassInfo info;

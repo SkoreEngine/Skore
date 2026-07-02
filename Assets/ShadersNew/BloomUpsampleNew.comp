@@ -1,0 +1,34 @@
+#include "BloomCommonNew.hlsli"
+
+// Progressive upsample with a 9-tap tent filter, additively blended over the mip's downsample data.
+[numthreads(8, 8, 1)]
+void MainCS(uint2 px : SV_DispatchThreadID)
+{
+	int2 dstDimensions;
+	dstTexture.GetDimensions(dstDimensions.x, dstDimensions.y);
+	if (any(px >= (uint2)dstDimensions)) return;
+
+	float2 uv = (px + 0.5) / float2(dstDimensions);
+	float radius = pc.bloomRadius;
+
+	// 9-tap tent filter (1-2-1 in each direction)
+	float3 a = SampleSrc(uv + float2(-1, -1) * pc.texelSize * radius);
+	float3 b = SampleSrc(uv + float2( 0, -1) * pc.texelSize * radius);
+	float3 c = SampleSrc(uv + float2( 1, -1) * pc.texelSize * radius);
+	float3 d = SampleSrc(uv + float2(-1,  0) * pc.texelSize * radius);
+	float3 e = SampleSrc(uv);
+	float3 f = SampleSrc(uv + float2( 1,  0) * pc.texelSize * radius);
+	float3 g = SampleSrc(uv + float2(-1,  1) * pc.texelSize * radius);
+	float3 h = SampleSrc(uv + float2( 0,  1) * pc.texelSize * radius);
+	float3 i = SampleSrc(uv + float2( 1,  1) * pc.texelSize * radius);
+
+	float3 upsample = e * 4.0;
+	upsample += (b + d + f + h) * 2.0;
+	upsample += (a + c + g + i);
+	upsample *= (1.0 / 16.0);
+
+	// Additive blend with the existing downsample data at this mip
+	float3 existing = dstTexture[px].rgb;
+
+	dstTexture[px] = float4(existing + upsample, 1.0);
+}

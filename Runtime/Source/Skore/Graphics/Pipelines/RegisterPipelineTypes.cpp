@@ -2,6 +2,11 @@ namespace Skore
 {
 	void RegisterRenderPipelineNew();
 	void RegisterForwardPassNew();
+	void RegisterLightSetupPassNew();
+	void RegisterPostProcessPassNew();
+	void RegisterCullingPassNew();
+	void RegisterCascadeShadowPassNew();
+	void RegisterBloomPassNew();
 
 	void RegisterDefaultRenderPipeline();
 	void RegisterSwapchainRenderModule();
@@ -30,6 +35,11 @@ namespace Skore
 	{
 		RegisterRenderPipelineNew();
 		RegisterForwardPassNew();
+		RegisterLightSetupPassNew();
+		RegisterPostProcessPassNew();
+		RegisterCullingPassNew();
+		RegisterCascadeShadowPassNew();
+		RegisterBloomPassNew();
 
 		RegisterCascadeShadowMapModule();
 		RegisterDepthPrePassModule();

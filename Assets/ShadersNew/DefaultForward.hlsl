@@ -1,5 +1,6 @@
 #include "SceneBindingsNew.hlsli"
 #include "GlobalBindingsNew.hlsli"
+#include "LightsNew.hlsli"
 #include "MaterialSurface.hlsli"
 
 struct PushConstants
@@ -8,10 +9,14 @@ struct PushConstants
 	uint   materialIndex;
 	uint   vertexByteOffset;
 	uint   vertexLayoutIndex;
-	uint   pad;
+	uint   useInstanceData;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
+
+//material-graph code reads material params through this (see MaterialGraphCompiler);
+//assigned from the interpolated instance/push-constant material index at the top of MainPS
+static uint SK_MaterialIndex = 0;
 
 struct PixelInput
 {
@@ -21,24 +26,45 @@ struct PixelInput
 	float3 color    : COLOR;
 	float3 worldPos : POSITION1;
 	float4 tangent  : TANGENT;
+
+	nointerpolation uint matIndex : MATERIAL1;
 };
 
-PixelInput MainVS(uint vertexId : SV_VertexID)
+PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] uint baseInstance : SV_StartInstanceLocation)
 {
-	uint vboff     = pushConstants.vertexByteOffset;
-	uint layoutIdx = pushConstants.vertexLayoutIndex;
+	matrix world;
+	uint   materialIndex;
+	uint   vboff;
+	uint   layoutIdx;
+
+	//GPU-driven draws carry the instance index in startInstanceLocation; direct draws push their data
+	if (pushConstants.useInstanceData != 0)
+	{
+		InstanceData instance = instances[NonUniformResourceIndex(baseInstance)];
+		world = instance.transform;
+		materialIndex = instance.materialIndex;
+		vboff = instance.vertexByteOffset;
+		layoutIdx = instance.vertexLayoutIndex;
+	}
+	else
+	{
+		world = pushConstants.world;
+		materialIndex = pushConstants.materialIndex;
+		vboff = pushConstants.vertexByteOffset;
+		layoutIdx = pushConstants.vertexLayoutIndex;
+	}
 
 	float3 position = GetVertexPosition(vboff, layoutIdx, vertexId);
 	float3 normal   = GetVertexNormal(vboff, layoutIdx, vertexId);
 	float4 tangent  = GetVertexTangent(vboff, layoutIdx, vertexId);
 
-	float4 worldPosition = mul(pushConstants.world, float4(position, 1.0));
+	float4 worldPosition = mul(world, float4(position, 1.0));
 
 	PixelInput output;
 	output.position = mul(viewProjection, worldPosition);
 	output.worldPos = worldPosition.xyz;
 
-	float3x3 normalMat = (float3x3)pushConstants.world;
+	float3x3 normalMat = (float3x3)world;
 	output.normal = normalize(mul(normalMat, normal));
 
 	//w carries the bitangent sign; w == 0 marks a mesh without tangents
@@ -50,36 +76,9 @@ PixelInput MainVS(uint vertexId : SV_VertexID)
 
 	output.texCoord = GetVertexUV(vboff, layoutIdx, vertexId);
 	output.color    = GetVertexColor(vboff, layoutIdx, vertexId);
+	output.matIndex = materialIndex;
 
 	return output;
-}
-
-static const float SK_PI = 3.14159265359;
-
-float DistributionGGX(float3 N, float3 H, float roughness)
-{
-	float a = roughness * roughness;
-	float a2 = a * a;
-	float ndh = saturate(dot(N, H));
-	float denom = ndh * ndh * (a2 - 1.0) + 1.0;
-	return a2 / (SK_PI * denom * denom + 1e-7);
-}
-
-float GeometrySchlickGGX(float ndx, float roughness)
-{
-	float r = roughness + 1.0;
-	float k = (r * r) / 8.0;
-	return ndx / (ndx * (1.0 - k) + k);
-}
-
-float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
-{
-	return GeometrySchlickGGX(saturate(dot(N, V)), roughness) * GeometrySchlickGGX(saturate(dot(N, L)), roughness);
-}
-
-float3 FresnelSchlick(float cosTheta, float3 F0)
-{
-	return F0 + (1.0 - F0) * pow(saturate(1.0 - cosTheta), 5.0);
 }
 
 float3 ResolveWorldNormal(float3 tangentNormal, float3 vertexNormal, float4 tangent)
@@ -94,30 +93,29 @@ float3 ResolveWorldNormal(float3 tangentNormal, float3 vertexNormal, float4 tang
 	return normalize(mul(tangentNormal, float3x3(T, B, N)));
 }
 
-float3 ShadeForward(SurfaceOutput surface, float3 baseColor, float3 N, float3 V)
+float3 ShadeForward(SurfaceOutput surface, float3 baseColor, float3 N, float3 V, float3 worldPos)
 {
-	float3 L = normalize(float3(0.5, 1.0, 0.4));
-	float3 H = normalize(V + L);
-
-	float ndl = saturate(dot(N, L));
-	float ndv = saturate(dot(N, V));
-
 	float  roughness = clamp(surface.roughness, 0.045, 1.0);
 	float3 F0 = lerp(float3(0.04, 0.04, 0.04), baseColor, surface.metallic);
 
-	float  d = DistributionGGX(N, H, roughness);
-	float  g = GeometrySmith(N, V, L, roughness);
-	float3 f = FresnelSchlick(saturate(dot(H, V)), F0);
+	float fragViewZ = mul(view, float4(worldPos, 1.0)).z;
+	float shadow = SampleDirectionalShadow(worldPos, N, fragViewZ);
 
-	float3 specular = (d * g * f) / max(4.0 * ndv * ndl, 1e-4);
-	float3 kd = (1.0 - f) * (1.0 - surface.metallic);
+	float3 color = float3(0.0, 0.0, 0.0);
 
-	float3 sunColor = float3(1.0, 0.97, 0.92) * 3.0;
-	float3 direct = (kd * baseColor / SK_PI + specular) * sunColor * ndl;
+	for (uint i = 0; i < lightCount; i++)
+	{
+		float3 contrib = EvaluateDirectLighting(lights[i], N, V, worldPos, baseColor, roughness, surface.metallic, F0);
+		if (i == shadowLightIndex)
+		{
+			contrib *= shadow;
+		}
+		color += contrib;
+	}
 
-	float3 ambient = float3(0.18, 0.20, 0.24) * baseColor * surface.occlusion;
+	color += EvaluateAmbient(N, V, baseColor, surface.metallic, roughness, surface.occlusion, F0);
 
-	return direct + ambient + surface.emissive;
+	return color + surface.emissive;
 }
 
 // @SK_MATERIAL_GLOBALS@
@@ -144,6 +142,8 @@ SurfaceOutput EvaluateMaterial(MaterialInputs mat)
 
 float4 MainPS(PixelInput input) : SV_Target0
 {
+	SK_MaterialIndex = input.matIndex;
+
 	MaterialInputs mat;
 	mat.texCoord    = input.texCoord;
 	mat.normal      = input.normal;
@@ -159,7 +159,7 @@ float4 MainPS(PixelInput input) : SV_Target0
 #if SK_MATERIAL_UNLIT
 	float3 color = baseColor;
 #else
-	float3 color = ShadeForward(surface, baseColor, N, V);
+	float3 color = ShadeForward(surface, baseColor, N, V, input.worldPos);
 #endif
 
 	return float4(color, surface.opacity);

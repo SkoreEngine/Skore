@@ -7,18 +7,18 @@
 
 namespace Skore
 {
-	TypedRID<MaterialResource> EnvironmentComponent::GetSkyboxMaterial() const
+	TypedRID<TextureResource> EnvironmentComponent::GetPanoramicTexture() const
 	{
-		return m_skyboxMaterial;
+		return m_panoramicTexture;
 	}
 
-	void EnvironmentComponent::SetSkyboxMaterial(TypedRID<MaterialResource> skyboxMaterial)
+	void EnvironmentComponent::SetPanoramicTexture(TypedRID<TextureResource> panoramicTexture)
 	{
-		if (!m_materialCache && m_skyboxMaterial != skyboxMaterial)
+		if (m_panoramicTexture != panoramicTexture || !m_environmentCache)
 		{
-			m_materialCache = RenderResourceCache::GetMaterialCache(skyboxMaterial, false);
+			m_environmentCache = panoramicTexture ? RenderResourceCache::GetEnvironmentCache(panoramicTexture, false) : nullptr;
 		}
-		m_skyboxMaterial = skyboxMaterial;
+		m_panoramicTexture = panoramicTexture;
 	}
 
 	bool EnvironmentComponent::GetUseSkyboxAsBackground() const
@@ -81,14 +81,14 @@ namespace Skore
 		m_reflectedLightIntensity = intensity;
 	}
 
-	MaterialResourceCache* EnvironmentComponent::GetMaterialCache() const
+	EnvironmentResourceCache* EnvironmentComponent::GetEnvironmentCache() const
 	{
-		return m_materialCache.get();
+		return m_environmentCache.get();
 	}
 
 	void EnvironmentComponent::RegisterType(NativeReflectType<EnvironmentComponent>& type)
 	{
-		type.Field<&EnvironmentComponent::m_skyboxMaterial, &EnvironmentComponent::GetSkyboxMaterial, &EnvironmentComponent::SetSkyboxMaterial>("skyboxMaterial");
+		type.Field<&EnvironmentComponent::m_panoramicTexture, &EnvironmentComponent::GetPanoramicTexture, &EnvironmentComponent::SetPanoramicTexture>("panoramicTexture");
 		type.Field<&EnvironmentComponent::m_useSkyboxAsBackground, &EnvironmentComponent::GetUseSkyboxAsBackground, &EnvironmentComponent::SetUseSkyboxAsBackground>("useSkyboxAsBackground");
 		type.Field<&EnvironmentComponent::m_ambientLightSource, &EnvironmentComponent::GetAmbientLightSource, &EnvironmentComponent::SetAmbientLightSource>("ambientLightSource");
 		type.Field<&EnvironmentComponent::m_ambientLightColor, &EnvironmentComponent::GetAmbientLightColor, &EnvironmentComponent::SetAmbientLightColor>("ambientLightColor");

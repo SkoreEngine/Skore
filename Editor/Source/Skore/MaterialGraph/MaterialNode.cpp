@@ -58,7 +58,7 @@ namespace Skore
 				String decode = srgb ? String{" "} + var + ".rgb = pow(" + var + ".rgb, 2.2);" : String{};
 				ctx.AddStatement(String{"float2 "} + uvVar + " = " + uv + ";");
 				ctx.AddStatement(String{"int "} + idx + " = MatParamTexture(" + IndexStr(ctx.paramByteOffset) + "u);");
-				ctx.AddStatement(String{"if ("} + idx + " >= 0) { " + var + " = BindlessTextures[NonUniformResourceIndex(" + idx + ")].Sample(Samplers[MatParamSampler(" + IndexStr(ctx.paramByteOffset + 4) + "u)], " + uvVar + ");" + decode + " WriteMipmapFeedback(pushConstants.materialIndex, ddx_coarse(float4(" + uvVar + ", 0, 0)), ddy_coarse(float4(" + uvVar + ", 0, 0))); }");
+				ctx.AddStatement(String{"if ("} + idx + " >= 0) { " + var + " = BindlessTextures[NonUniformResourceIndex(" + idx + ")].Sample(Samplers[MatParamSampler(" + IndexStr(ctx.paramByteOffset + 4) + "u)], " + uvVar + ");" + decode + " WriteMipmapFeedback(SK_MaterialIndex, ddx_coarse(float4(" + uvVar + ", 0, 0)), ddy_coarse(float4(" + uvVar + ", 0, 0))); }");
 			}
 		}
 	}

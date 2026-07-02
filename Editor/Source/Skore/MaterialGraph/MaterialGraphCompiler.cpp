@@ -63,7 +63,7 @@ namespace Skore
 
 			String g;
 			g += "ByteAddressBuffer SK_MaterialParamBuffer : register(t7, space2);\n";
-			g += "uint   SK_MatParamBase()       { return pushConstants.materialIndex * 256u; }\n";
+			g += "uint   SK_MatParamBase()       { return SK_MaterialIndex * 256u; }\n";
 			g += "float  MatParamFloat(uint o)   { return asfloat(SK_MaterialParamBuffer.Load(SK_MatParamBase() + o)); }\n";
 			g += "float2 MatParamVec2(uint o)    { return asfloat(SK_MaterialParamBuffer.Load2(SK_MatParamBase() + o)); }\n";
 			g += "float3 MatParamVec3(uint o)    { return asfloat(SK_MaterialParamBuffer.Load3(SK_MatParamBase() + o)); }\n";

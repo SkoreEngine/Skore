@@ -212,24 +212,21 @@ namespace Skore
 				}
 			}
 
-			EnvironmentComponent* skyboxEnv = nullptr;
+			EnvironmentResourceCache* skyEnv = nullptr;
 			scene->Iterate<EnvironmentComponent>([&](EnvironmentComponent* env)
 			{
-				if (skyboxEnv == nullptr && env->GetMaterialCache() != nullptr)
-				{
-					skyboxEnv = env;
-				}
+				if (skyEnv != nullptr) return;
+				EnvironmentResourceCache* cache = env->GetEnvironmentCache();
+				if (cache && cache->descriptorSet) skyEnv = cache;
 			});
 
-			if (skyboxEnv)
+			if (skyEnv)
 			{
-				MaterialResourceCache* skyMaterial = skyboxEnv->GetMaterialCache();
-
 				cmd->BindPipeline(skyboxPipeline);
 				Mat4 viewProj = context->camera.projection * Mat4(Mat34(context->camera.view));
 
 				cmd->PushConstants(skyboxPipeline, ShaderStage::Vertex, 0, sizeof(Mat4), &viewProj);
-				cmd->BindDescriptorSet(skyboxPipeline, 3, skyMaterial->descriptorSet, {});
+				cmd->BindDescriptorSet(skyboxPipeline, 3, skyEnv->descriptorSet, {});
 				cmd->Draw(36, 1, 0, 0);
 			}
 		}

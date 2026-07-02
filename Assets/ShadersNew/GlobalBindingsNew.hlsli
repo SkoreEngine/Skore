@@ -45,12 +45,32 @@ struct VertexLayoutOffset
 	uint custom2Offset;
 };
 
-StructuredBuffer<MaterialData>     MaterialDataBuffer        : register(t0, space2);
-RWStructuredBuffer<uint>           MaterialMaskBuffer        : register(u1, space2);
-SamplerState                       Samplers[SK_SAMPLER_COUNT] : register(s2, space2);
-Texture2D                          BindlessTextures[]        : register(t3, space2);
-ByteAddressBuffer                  MeshDataBuffer            : register(t4, space2);
-ConstantBuffer<VertexLayoutOffset> VertexLayouts[]           : register(b5, space2);
+#define SK_MAX_LODS 10
+
+struct MeshLODInfo
+{
+	uint  firstIndex;
+	uint  indexCount;
+	float screenSize;
+	float pad;
+};
+
+struct MeshPrimitiveInfo
+{
+	uint        lodCount;
+	uint        pad0;
+	uint        pad1;
+	uint        pad2;
+	MeshLODInfo lods[SK_MAX_LODS];
+};
+
+StructuredBuffer<MaterialData>      MaterialDataBuffer         : register(t0, space2);
+RWStructuredBuffer<uint>            MaterialMaskBuffer         : register(u1, space2);
+SamplerState                        Samplers[SK_SAMPLER_COUNT] : register(s2, space2);
+Texture2D                           BindlessTextures[]         : register(t3, space2);
+ByteAddressBuffer                   MeshDataBuffer             : register(t4, space2);
+ConstantBuffer<VertexLayoutOffset>  VertexLayouts[]            : register(b5, space2);
+StructuredBuffer<MeshPrimitiveInfo> MeshLODBuffer              : register(t6, space2);
 
 float3 GetVertexPosition(uint vertexByteOffset, uint layoutIdx, uint vertexId)
 {
