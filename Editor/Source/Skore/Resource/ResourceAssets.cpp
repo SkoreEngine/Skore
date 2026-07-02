@@ -3150,7 +3150,6 @@ namespace Skore
 	void RegisterAudioHandler();
 	void RegisterEntityHandler();
 	void RegisterSceneHandler();
-	void RegisterMaterialHandler();
 	void RegisterMaterialGraphHandler();
 	void RegisterTextureHandler();
 	void RegisterMeshHandler();
@@ -3253,7 +3252,6 @@ namespace Skore
 		RegisterEntityHandler();
 		RegisterSceneHandler();
 		RegisterTextureHandler();
-		RegisterMaterialHandler();
 		RegisterMaterialGraphHandler();
 		RegisterMeshHandler();
 		RegisterShaderHandler();

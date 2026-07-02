@@ -119,7 +119,6 @@ namespace Skore
 		MaterialResourceCache(RID rid) : rid(rid) {}
 		~MaterialResourceCache() override;
 
-		MaterialResource::MaterialType type = MaterialResource::MaterialType::Opaque;
 		u32                            materialIndex = U32_MAX;
 		RID                            materialGraph = {};
 		Array<u8>                      materialParamData;
@@ -132,7 +131,6 @@ namespace Skore
 		// Keeps PBR textures alive while this material exists.
 		Array<TextureResourceCachePtr> textures;
 
-		// MaterialResource::MaterialType needs to be transparent?
 		bool transparent = false;
 		bool masked = false;
 

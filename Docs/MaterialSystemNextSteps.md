@@ -1,11 +1,13 @@
 # Material System — Remaining Work
 
-Snapshot of what is still missing after the 2026-07-01 batches (first batch: TBN/PBR shading,
+Snapshot of what is still missing after the 2026-07 batches (first batch: TBN/PBR shading,
 sampler + sRGB handling, graph-instance imports, per-object custom material shaders, transparent
 pass, first validation batch; second batch: legacy-material retirement — default graph material
 fallback, legacy import/runtime paths deleted, sky-only `.material`, graph-typed material slots,
-`.matgraph` thumbnails). Companion to the living checklist in `MaterialNodeSystem.md`; this file is
-the prioritized "what's next" view.
+`.matgraph` thumbnails; third batch — 2026-07-02 render rework: the new pipeline is now
+self-sufficient — real light list, cascade shadows, IBL, GPU culling, skybox, bloom + ACES
+tonemap all landed in `PipelineNew`, so §2.1/§2.2 below are mostly closed). Companion to the living
+checklist in `MaterialNodeSystem.md`; this file is the prioritized "what's next" view.
 
 Items are ordered by how much they block: shipping first, self-sufficiency second, tooling third,
 expansion last.
@@ -49,54 +51,67 @@ This is now strictly the top shipping blocker: since the mesh fallback is a grap
 (`DefaultMaterial.matgraph`, see 1.2), even a scene with no authored materials renders the gray
 template in a runtime-only build.
 
-### 1.2 Default material story — done except asset migration
+### 1.2 Default material story — done
 
 Done in the 2026-07-01 retirement batch:
 
 - Mesh fallback is `Skore://MaterialGraphs/DefaultMaterial.matgraph` (hand-authored `Kind=Instance`
   of `MaterialBase`, no overrides); `DefaultMaterial.material` deleted. Adding/removing the
   embedded assets needs a CMake re-configure (CMRC glob).
-- The legacy PBR packing in `UpdateMaterialStorageData` is deleted; any non-graph, non-sky material
-  writes the white stub block (`WriteMaterialStubData`), so stale legacy assets render white rather
-  than disappearing, and the old pipeline / material-mask readback keep working. `SampleSurface` in
+- The legacy PBR packing in `UpdateMaterialStorageData` is deleted; any non-graph material writes
+  the white stub block (`WriteMaterialStubData`), so stale legacy assets render white rather than
+  disappearing, and the old pipeline / material-mask readback keep working. `SampleSurface` in
   `GlobalBindingsNew.hlsli` and the b0 stub itself only die together with the old pipeline.
-- `.material` is sky-only: the handler reads "Sky Material", "Create > New Sky Material" seeds
-  `Type=SkyboxEquirectangular`, and the generic "New Material" entry is gone. Material slots
-  (`MaterialArray`) are typed to `MaterialGraphResource`, so pickers/drag-drop accept graphs only.
+- The `MaterialResource` asset type is fully removed (struct/reflection/`.material` handler/
+  field-visibility rows/sky enum+fields). The sky is no longer a material: `EnvironmentComponent`
+  references a `TextureResource` directly and `EnvironmentResourceCache` bakes it into the cubemap +
+  IBL. Material slots (`MaterialArray`) are typed to `MaterialGraphResource`.
 
-Remaining:
-
-- **One-time migration of existing project `.material` PBR assets** to graph instances of
-  `MaterialBase*`, reusing the importer's parameter mapping and **keeping the original UUID** so
-  scene references survive. Until then those assets render white and can't be re-assigned.
-- Full `MaterialResource` deletion waits on the sky material migration; then the type slims to sky
-  fields and the opaque `FieldVisibilityControls` rows go with it.
+**Out of scope (decided):** existing project `.material` PBR assets are *not* being migrated. With
+the `.material` handler deleted they are orphaned and render as the white stub — re-author them as
+`MaterialBase*` graph instances by hand where still needed. No UUID-preserving auto-migration is
+planned.
 
 ---
 
 ## 2. Making the new renderer self-sufficient
 
-### 2.1 Real lighting
+### 2.1 Lighting, shadows, IBL — landed (2026-07-02)
 
-`DefaultForward.hlsl` now does Cook-Torrance GGX with TBN normals, but the light is one hardcoded
-directional sun (×3 intensity) + constant ambient. Missing, in rough order:
+`DefaultForward.hlsl`'s Cook-Torrance GGX shading is now fed by real scene data, not the hardcoded
+sun:
 
-- Light list (the old pipeline's `LightSetupPass` contract or a new one).
-- Shadow pass — `RenderSceneObjects` already populates `shadowPipelines`; nothing consumes it in
-  `PipelineNew`.
-- IBL / indirect (the old pipeline has `IndirectLightingModule` for reference).
+- **Light list** — `LightSetupPassNew` gathers every `LightComponent` into a storage buffer
+  (`LightDataNew`, scene space1 binding 10; type/direction/color/intensity/range/cone angles) plus a
+  per-frame `LightBufferNew` UBO (light count, shadow light index, ambient, reflection, cascade
+  splits + matrices).
+- **Ambient + reflections (IBL)** — driven by `EnvironmentComponent`: skybox diffuse-irradiance and
+  specular-prefilter cubemaps (or a flat ambient color) plus a runtime `BRDFLUTTexture`, bound on
+  the scene set (bindings 5/7/8/9).
+- **Shadows** — `CascadeShadowPassNew` renders a `MaxNumCascades`-layer CSM
+  (`ShadowMapIndirectNew` shader) with GPU per-cascade culling, texel-snapped stabilization,
+  interleaved cascade updates, depth bias, and a masked-alpha (`HAS_MASK`) variant;
+  `LightSetupPassNew` binds the array texture + comparison sampler (bindings 3/4).
 
-### 2.2 Rest of the PipelineNew passes
+Remaining lighting polish: only the first directional light casts shadows (no point/spot shadows),
+and no light culling/clustering yet if the light count grows large.
 
-Only `ForwardOpaquePassNew` and `ForwardTransparentPassNew` exist. Still missing vs the old
-pipeline: culling, depth prepass, skybox (the Skybox material type only has the legacy path),
-post-processing/tonemapping, AA. Note the forward output is `RGBA16_FLOAT` with no tonemap step —
-currently relies on whatever consumes `ForwardColor`.
+### 2.2 Rest of the PipelineNew passes — mostly landed
+
+Since the first material batches: **GPU culling** (`CullingPassNew` — frustum + LOD select into a
+flat indirect-draw buffer, consumed by `ForwardPassNew` via `DrawIndexedIndirectCount`), **skybox**
+(`ForwardPassNew::RenderSky`, drawn between opaque and transparent using `SkyboxRender.raster`), and
+**post-processing** (`PostProcessPassNew` — ACES tonemap + sharpen + bloom composite; `BloomPassNew`
+— prefilter / downsample / upsample chain). The HDR `RGBA16_FLOAT` forward color is resolved to the
+`RGBA8_UNORM` display output by `PostProcessPassNew`, so the earlier "no tonemap step" caveat is
+gone.
+
+Still missing vs the old pipeline: **depth prepass** and **anti-aliasing** (no MSAA/TAA/FXAA).
 
 ### 2.3 Transparent sorting
 
-`ForwardTransparentPassNew` renders bucket-ordered; per-drawcall back-to-front sorting by view
-depth is missing, so overlapping transparents can pop.
+`ForwardPassNew` renders the transparent bucket in bucket order; per-drawcall back-to-front sorting
+by view depth is missing, so overlapping transparents can pop.
 
 ### 2.4 Editor affordance for custom material shaders
 
@@ -179,15 +194,21 @@ Mostly mechanical: subclass + `Reflection::Type<>()` in `RegisterMaterialNodes()
 
 ## Needs visual verification (not code work)
 
-Nothing in the 2026-07-01 batches has been checked visually yet:
+Nothing in the 2026-07 batches has been checked visually yet:
 
-- Overall scene brightness — the PBR rewrite changes the response curve (energy-conserving diffuse
-  `/π`, sun ×3 to compensate, AO now only on ambient).
+- Overall scene brightness / exposure — the PBR rewrite (energy-conserving diffuse `/π`, AO on the
+  ambient term) now feeds through real lights, IBL, and the ACES tonemap in `PostProcessPassNew`, so
+  the whole response curve wants a look.
+- Lighting correctness: multiple `LightComponent`s (directional/point/spot), ambient + reflected
+  IBL from `EnvironmentComponent`, and cascade shadows (splits, stabilization, no obvious peter-
+  panning / acne with the current depth bias).
+- Bloom + tonemap output (`BloomComponent` on/off, intensity) and the skybox drawing behind opaque
+  and correctly under transparents.
 - A reimported GLTF model through the new base graphs: normal-map orientation (TBN handedness),
   masked foliage (cutoff), metallic/roughness response, sRGB base color.
 - Transparent pass compositing over opaque (load-not-clear, blend, no depth write).
 - The new default fallback: a mesh with no material assigned should render
   `DefaultMaterial.matgraph` (MaterialBase defaults), not gray/white — requires the CMake
   re-configure so the embedded package picks up the new asset.
-- "Create > New Sky Material" + the sky path still working end-to-end (skybox render, IBL) after
-  the legacy branch removal.
+- The sky path end-to-end (skybox render + IBL bake) now that the sky is a `TextureResource` on
+  `EnvironmentComponent`, not a material.

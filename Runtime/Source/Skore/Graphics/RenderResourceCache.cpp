@@ -1498,7 +1498,6 @@ namespace Skore
 				MaterialGraphResource::GraphAlphaMode alphaMode = graphSettings.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
 				materialCache->transparent = alphaMode == MaterialGraphResource::GraphAlphaMode::Blend;
 				materialCache->masked = alphaMode == MaterialGraphResource::GraphAlphaMode::Mask;
-				materialCache->type = MaterialResource::MaterialType::Opaque;
 
 				switch (graphSettings.GetEnum<MaterialGraphResource::GraphRenderFace>(MaterialGraphResource::RenderFace))
 				{
@@ -1516,7 +1515,6 @@ namespace Skore
 				return;
 			}
 
-			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
 			materialCache->textures.Clear();
 			WriteMaterialStubData(materialCache);
 		}

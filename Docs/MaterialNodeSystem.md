@@ -13,7 +13,8 @@ compile to HLSL → SPIR-V) and its integration with the new render pipeline (`P
 
 The pipeline works end-to-end **including runtime consumption**: author a graph → generated HLSL is
 spliced into the forward template shader → compiled to SPIR-V as a per-material shader variant →
-rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless textures.
+rendered by `ForwardPassNew` with a real parameter buffer and bindless textures, lit by the full
+`PipelineNew` chain (light list, cascade shadows, IBL, GPU culling, skybox, bloom + ACES tonemap).
 
 - [x] **Resource data model** — `MaterialGraphResource` / `MaterialGraphNodeResource` /
   `MaterialGraphConnectionResource` / `MaterialGraphPinValueResource` /
@@ -56,10 +57,11 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
 - [x] **Bindless texture wiring** — texture slots live in the param block as real bindless indices
   resolved from `TextureResourceCache` (−1 → white fallback); codegen samples
   `BindlessTextures[NonUniformResourceIndex(idx)]` and emits `WriteMipmapFeedback` per sample.
-- [x] **Render pass integration** — `ForwardOpaquePassNew` batches drawcalls by
-  `DrawPipelineDesc` (now includes `materialGraph`), builds one pipeline per bucket with
-  `GraphicsPipelineDesc::material` selecting the compiled variant, falls back to the default gray
-  template variant, and pushes `materialIndex` via push constants.
+- [x] **Render pass integration** — `ForwardPassNew` (opaque + sky + transparent in one pass)
+  batches drawcalls by `DrawPipelineDesc` (now includes `materialGraph`), builds one pipeline per
+  bucket with `GraphicsPipelineDesc::material` selecting the compiled variant, falls back to the
+  default gray template variant, and pushes `materialIndex` via push constants. Opaque draws go
+  through the GPU-culled indirect path (`CullingPassNew` → `DrawIndexedIndirectCount`).
 - [x] **Editor window** — `MaterialGraphEditorWindow` (add/move/delete/connect, inline default-value
   widgets on unconnected input pins, Build button + HLSL/log panel). Constant/parameter values are
   edited in the **Properties window** (node properties), not in the graph toolbar.
@@ -147,10 +149,11 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
 
 ## 4. System features (not nodes, but required for "production")
 
-- [~] **★ SurfaceOutput consumption in the forward pass** — `DefaultForward.hlsl` now shades with
+- [x] **★ SurfaceOutput consumption in the forward pass** — `DefaultForward.hlsl` shades with
   Cook-Torrance GGX (metallic/roughness), TBN-transformed graph normals, AO on ambient, and opacity
-  as alpha. The light itself is still a single hardcoded directional sun + constant ambient.
-  **Remaining:** real light list, shadows, IBL as the new pipeline grows.
+  as alpha, now fed by real scene lighting: `LightSetupPassNew` (multi-light storage buffer +
+  ambient/reflection IBL + BRDF LUT) and `CascadeShadowPassNew` (directional CSM). **Remaining
+  polish:** point/spot shadows and light culling/clustering (see `MaterialSystemNextSteps.md` §2.1).
 - [x] **★ Texture sampling quality** — texture slots in the param block are 8 bytes: bindless index
   + sampler index resolved from the assigned texture's wrap/filter settings (instance overrides
   re-pack without recompiling). sRGB decode is a per-node Bool property (`Value.x`) on
@@ -173,25 +176,25 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
   deleted; existing imports migrate on reimport). The mesh fallback is now
   `Skore://MaterialGraphs/DefaultMaterial.matgraph` (hand-authored instance of `MaterialBase`;
   `DefaultMaterial.material` deleted — remember the CMake re-configure for the embedded package).
-  The legacy PBR packing in `UpdateMaterialStorageData` is gone: any non-graph, non-sky material
-  writes a white stub `MaterialData` block (`WriteMaterialStubData`), so stale legacy assets render
-  white instead of disappearing and the old pipeline keeps compiling. `.material` assets and
-  creation are sky-only ("Create > New Sky Material" seeds `Type=SkyboxEquirectangular`), and
-  `MaterialArray` slots are typed to `MaterialGraphResource` — pickers/drag-drop accept graphs only
-  (the `MaterialResource`↔graph interchange hack in the field renderers is removed).
-  **Remaining:** one-time UUID-preserving migration of existing project `.material` PBR assets to
-  graph instances (scene references must survive); full `MaterialResource` deletion then waits on
-  the sky material migration (slim the type to sky fields; the opaque `FieldVisibilityControls`
-  rows go with it).
+  The legacy PBR packing in `UpdateMaterialStorageData` is gone: any non-graph material writes a
+  white stub `MaterialData` block (`WriteMaterialStubData`), so stale legacy assets render white
+  instead of disappearing and the old pipeline keeps compiling. `MaterialArray` slots are typed to
+  `MaterialGraphResource` — pickers/drag-drop accept graphs only. The `MaterialResource` asset type
+  is fully removed (struct, reflection, `.material` handler, field-visibility rows, sky enum/fields
+  all deleted); the sky no longer routes through a material at all — it's a `TextureResource`
+  referenced directly by `EnvironmentComponent`, baked into IBL by `EnvironmentResourceCache`.
+  **Out of scope (decided):** old project `.material` assets are orphaned (no handler) and render as
+  the white stub; they will *not* be auto-migrated — re-author as `MaterialBase*` graph instances by
+  hand where still needed.
 - [~] **★ Custom material shaders per object** — done: `DrawPipelineDesc::shader` is honored by the
   forward passes when the shader is flagged `IsMaterial` (falls back to `DefaultForward.shader`
   otherwise), and the variant resolver splices the graph into *that shader's own source*
   (`LoadShaderTemplate`). **Remaining:** an editor affordance to assign the shader per
   mesh/material.
-- [~] **★ Transparent + shadow passes** — `ForwardTransparentPassNew` renders the transparent
-  buckets on top of opaque (`WriteRead` = load, blend on, depth test Greater / write off, stage
-  `Transparent=750`). **Remaining:** per-drawcall back-to-front sorting, and the shadow buckets are
-  still ignored (no shadow pass in `PipelineNew`).
+- [~] **★ Transparent + shadow passes** — `ForwardPassNew` renders the transparent buckets on top
+  of opaque (load, blend on, depth test Greater / write off) and `CascadeShadowPassNew` now consumes
+  the shadow buckets (GPU-culled directional CSM). **Remaining:** per-drawcall back-to-front sorting
+  of transparents; point/spot shadow casters.
 - [~] **★ Graph validation + diagnostics** — compile log now reports: empty parameter names,
   duplicate parameter names across different parameter types, and nothing-connected-to-master
   (plus the existing cycle / unknown-type / missing-output messages). `MaterialParamLayout::Build`
@@ -230,21 +233,21 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
 *(done 2026-07: stale tests · TBN/PBR SurfaceOutput consumption · sampler + sRGB handling ·
 graph-instance imports · per-object custom material shaders · transparent pass · first validation
 batch · legacy-material retirement: default graph material fallback, legacy import/runtime paths
-deleted, sky-only `.material`, graph-typed material slots, `.matgraph` thumbnails)*
+deleted, sky-only `.material`, graph-typed material slots, `.matgraph` thumbnails · render rework:
+real light list, cascade shadows, IBL, GPU culling, skybox, bloom + ACES tonemap in `PipelineNew`)*
+
+*(explicitly out of scope: one-time migration of legacy `.material` PBR assets — re-author by hand)*
 
 1. **Variant cooking** for runtime-only builds — option B from §4 (cook variants onto the graph
-   asset + register into the shader at load), plus an export warm-up pass. Now the top blocker:
-   with the default material a graph instance, even an empty scene needs a cooked variant.
-2. **Legacy asset migration** — one-time UUID-preserving conversion of existing project
-   `.material` PBR assets to graph instances (until then they render as the white stub).
-3. **Real lighting** — light list, shadow pass (buckets exist), IBL; transparent back-to-front
-   sorting.
-4. **Validation, part 2** — pin-index/stage checks, dead-node warnings, editor surfacing with
+   asset + register into the shader at load), plus an export warm-up pass. The top blocker: with the
+   default material a graph instance, even an empty scene needs a cooked variant.
+2. **Validation, part 2** — pin-index/stage checks, dead-node warnings, editor surfacing with
    node/pin context.
-5. **Type/stage model expansion** → **Custom HLSL + Static Switches**.
-6. Fill remaining Tier 1 nodes, **Reroute + Comment**, then **World Position Offset** once
+3. **Renderer polish** — transparent back-to-front sorting, depth prepass, AA; point/spot shadows.
+4. **Type/stage model expansion** → **Custom HLSL + Static Switches**.
+5. Fill remaining Tier 1 nodes, **Reroute + Comment**, then **World Position Offset** once
    vertex-stage codegen exists.
 
-> Most library nodes are mechanical (subclass + register). The remaining engineering is cooking,
-> lighting, validation surfacing, and versioning — the compile/bind/shade chain now works
-> end-to-end in the editor.
+> Most library nodes are mechanical (subclass + register). With lighting/shadows/culling/post now
+> landed, the remaining engineering is **variant cooking**, validation surfacing, and versioning —
+> the compile/bind/shade/light chain works end-to-end in the editor.

@@ -45,8 +45,6 @@ namespace Skore
 
 	void PlatformProcessEvents();
 
-	void CreateGraphicsDefaultValues();
-
 	//openXR
 	void      OpenXRManagerCreateSession();
 	AppResult OpenXrManagerIterate();
@@ -298,7 +296,6 @@ namespace Skore
 		running = true;
 		requireShutdown = true;
 
-		CreateGraphicsDefaultValues();
 		PhysicsInit();
 		AudioEngineInit();
 		ScriptEngineInit();

@@ -1129,16 +1129,6 @@ namespace Skore
 		primitive.Field<&MeshPrimitive::indexCount>("indexCount");
 		primitive.Field<&MeshPrimitive::materialIndex>("materialIndex");
 		//
-		auto materialType = Reflection::Type<MaterialResource::MaterialType>();
-		materialType.Value<MaterialResource::MaterialType::Opaque>("Opaque");
-		materialType.Value<MaterialResource::MaterialType::SkyboxEquirectangular>("SkyboxEquirectangular");
-		//
-		auto alphaMode = Reflection::Type<MaterialResource::MaterialAlphaMode>();
-		alphaMode.Value<MaterialResource::MaterialAlphaMode::None>("None");
-		alphaMode.Value<MaterialResource::MaterialAlphaMode::Opaque>("Opaque");
-		alphaMode.Value<MaterialResource::MaterialAlphaMode::Mask>("Mask");
-		alphaMode.Value<MaterialResource::MaterialAlphaMode::Blend>("Blend");
-		//
 		auto graphAlphaMode = Reflection::Type<MaterialGraphResource::GraphAlphaMode>();
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Opaque>("Opaque");
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Mask>("Mask");
@@ -1206,33 +1196,6 @@ namespace Skore
 			.Field<TextureResource::TotalUncompressedSize>(ResourceFieldType::UInt)
 			.Field<TextureResource::Images>(ResourceFieldType::SubObjectList)
 			.Field<TextureResource::PixelData>(ResourceFieldType::Buffer)
-			.Build();
-
-		Resources::Type<MaterialResource>()
-			.Field<MaterialResource::Name>(ResourceFieldType::String)
-			.Field<MaterialResource::Type>(ResourceFieldType::Enum, TypeInfo<MaterialResource::MaterialType>::ID())
-			.Field<MaterialResource::BaseColor>(ResourceFieldType::Color)
-			.Field<MaterialResource::BaseColorTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::NormalTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::NormalMultiplier>(ResourceFieldType::Float)
-			.Field<MaterialResource::Metallic>(ResourceFieldType::Float)
-			.Field<MaterialResource::MetallicTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::MetallicTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
-			.Field<MaterialResource::Roughness>(ResourceFieldType::Float)
-			.Field<MaterialResource::RoughnessTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::RoughnessTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
-			.Field<MaterialResource::EmissiveColor>(ResourceFieldType::Color)
-			.Field<MaterialResource::EmissiveFactor>(ResourceFieldType::Float)
-			.Field<MaterialResource::EmissiveTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::OcclusionTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::OcclusionStrength>(ResourceFieldType::Float)
-			.Field<MaterialResource::OcclusionTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
-			.Field<MaterialResource::AlphaCutoff>(ResourceFieldType::Float)
-			.Field<MaterialResource::AlphaMode>(ResourceFieldType::Enum, TypeInfo<MaterialResource::MaterialAlphaMode>::ID())
-			.Field<MaterialResource::UvScale>(ResourceFieldType::Vec2)
-			.Field<MaterialResource::SphericalTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::Exposure>(ResourceFieldType::Float)
-			.Field<MaterialResource::BackgroundColor>(ResourceFieldType::Color)
 			.Build();
 
 		Resources::Type<MaterialGraphPinValueResource>()
@@ -1369,31 +1332,6 @@ namespace Skore
 			.Field<SkinResource::Name>(ResourceFieldType::String)
 			.Field<SkinResource::Binds>(ResourceFieldType::SubObjectList)
 			.Build();
-
-		//default material values
-		{
-			RID rid = Resources::Create<MaterialResource>();
-			ResourceObject object = Resources::Write(rid);
-
-			object.SetEnum(MaterialResource::Type, MaterialResource::MaterialType::Opaque);
-			object.SetColor(MaterialResource::BaseColor, Color::WHITE);
-			object.SetFloat(MaterialResource::NormalMultiplier, 1.0);
-			object.SetFloat(MaterialResource::Metallic, 0.0);
-			object.SetFloat(MaterialResource::Roughness, 1.0);
-
-			object.SetColor(MaterialResource::EmissiveColor, Color::BLACK);
-			object.SetFloat(MaterialResource::EmissiveFactor, 1.0);
-
-			object.SetFloat(MaterialResource::OcclusionStrength, 1.0);
-
-			object.SetFloat(MaterialResource::AlphaCutoff, 0.5);
-			object.SetVec2(MaterialResource::UvScale, Vec2(1.0, 1.0));
-
-			object.SetFloat(MaterialResource::Exposure, 1.0);
-
-			object.Commit();
-			Resources::FindType<MaterialResource>()->SetDefaultValue(rid);
-		}
 
 		RegisterRenderPipelineBaseTypes();
 		RegisterPipelineTypes();

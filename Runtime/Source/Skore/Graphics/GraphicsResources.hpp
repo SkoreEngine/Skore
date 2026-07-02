@@ -145,67 +145,6 @@ namespace Skore
 		};
 	};
 
-	struct MaterialResource
-	{
-		enum class MaterialType
-		{
-			Opaque,
-			SkyboxEquirectangular,
-		};
-
-		struct Buffer
-		{
-			Vec3 baseColor;
-			f32  alphaCutoff;
-
-			f32 metallic;
-			f32 roughness;
-
-			i32 textureFlags;
-			i32 textureProps;
-
-			Vec2 uvScale;
-			Vec2 _pad;
-		};
-
-		enum class MaterialAlphaMode
-		{
-			None   = 0,
-			Opaque = 1,
-			Mask   = 2,
-			Blend  = 3
-		};
-
-
-		enum
-		{
-			Name,                    //String
-			Type,                    //Enum
-			BaseColor,               //Color
-			BaseColorTexture,        //Reference
-			NormalTexture,           //Reference
-			NormalMultiplier,        //Float
-			Metallic,                //Float
-			MetallicTexture,         //Reference,
-			MetallicTextureChannel,  //Enum
-			Roughness,               //Float
-			RoughnessTexture,        //Reference,
-			RoughnessTextureChannel, //Enum
-			EmissiveColor,           //Color
-			EmissiveFactor,          //Float
-			EmissiveTexture,         //Reference
-			OcclusionTexture,        //Reference
-			OcclusionStrength,       //Float
-			OcclusionTextureChannel, //Enum
-			AlphaCutoff,             //Float
-			AlphaMode,               //Enum
-			UvScale,                 //Vec2
-			SphericalTexture,        //Reference
-			Exposure,                //Float
-			BackgroundColor,         //Color
-		};
-	};
-
 	//Node-based material system (editor-authored shader graph).
 	//A graph owns a list of nodes and connections; one node is flagged as the output (master) node.
 	struct MaterialGraphNodeResource
