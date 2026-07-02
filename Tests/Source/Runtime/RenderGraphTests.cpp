@@ -189,11 +189,11 @@ namespace
 
 		rg.AddComputePass("Lighting", "Shaders/Lighting")
 			.Write("Light")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(32, 32, 1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(32, 32, 1); });
 
 		rg.AddComputePass("Composite", "Shaders/Composite")
 			.Read("Light")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(32, 32, 1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(32, 32, 1); });
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -224,11 +224,11 @@ namespace
 
 		rg.AddComputePass("BuildLightList", "Shaders/BuildLightList")
 			.Write("LightList")
-			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 
 		rg.AddComputePass("Shade", "Shaders/Shade")
 			.Read("LightList")
-			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -260,12 +260,12 @@ namespace
 		rg.AddComputePass("Clear", "Shaders/Clear")
 			.Write("Accum")
 			.Write("Counter")
-			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 
 		rg.AddComputePass("Accumulate", "Shaders/Accumulate")
 			.Write("Accum")
 			.Write("Counter")
-			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -299,7 +299,7 @@ namespace
 		{
 			rg.AddComputePass("Accumulate", "Shaders/Accumulate")
 				.WriteRead("Accum")
-				.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+				.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 		};
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
@@ -347,7 +347,7 @@ namespace
 
 		rg.AddComputePass("Use", "Shaders/Use")
 			.WriteRead("Single")
-			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -374,11 +374,11 @@ namespace
 
 		rg.AddComputePass("BuildMipChain", "Shaders/BuildMipChain")
 			.Write("MipChain")
-			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 
 		rg.AddComputePass("SampleMipChain", "Shaders/SampleMipChain")
 			.Read("MipChain")
-			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -413,7 +413,7 @@ namespace
 
 		rg.AddComputePass("BuildMip1", "Shaders/BuildMip1")
 			.Write("Mip1")
-			.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 
 		CHECK(HasUsage(rg.InferTextureUsage("MipChain"), ResourceUsage::UnorderedAccess));
 
@@ -452,11 +452,11 @@ namespace
 
 		rg.AddComputePass("SampleMipChain", "Shaders/SampleMipChain")
 			.Read("MipChain")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
 
 		rg.AddComputePass("BuildMip1", "Shaders/BuildMip1")
 			.Write("Mip1")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -485,11 +485,11 @@ namespace
 
 		rg.AddComputePass("Composite", "Shaders/Composite")
 			.Read("Light")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
 
 		rg.AddComputePass("Lighting", "Shaders/Lighting")
 			.Write("Light")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -519,21 +519,21 @@ namespace
 
 		rg.AddComputePass("Final", "Shaders/Final")
 			.Read("C")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(4); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(4); });
 
 		rg.AddComputePass("BuildC", "Shaders/BuildC")
 			.Read("B")
 			.Write("C")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(3); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(3); });
 
 		rg.AddComputePass("BuildB", "Shaders/BuildB")
 			.Read("A")
 			.Write("B")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
 
 		rg.AddComputePass("BuildA", "Shaders/BuildA")
 			.Write("A")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -562,17 +562,17 @@ namespace
 		rg.AddComputePass("PassC", "Shaders/PassC")
 			.Write("C")
 			.Stage(300)
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(3); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(3); });
 
 		rg.AddComputePass("PassB", "Shaders/PassB")
 			.Write("B")
 			.Stage(200)
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
 
 		rg.AddComputePass("PassA", "Shaders/PassA")
 			.Write("A")
 			.Stage(100)
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -598,12 +598,12 @@ namespace
 		rg.AddComputePass("Reader", "Shaders/Reader")
 			.Read("Light")
 			.Stage(100)
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
 
 		rg.AddComputePass("Writer", "Shaders/Writer")
 			.Write("Light")
 			.Stage(900)
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -629,12 +629,12 @@ namespace
 		rg.AddComputePass("First", "Shaders/First")
 			.Write("A")
 			.Stage(500)
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
 
 		rg.AddComputePass("Second", "Shaders/Second")
 			.Write("B")
 			.Stage(500)
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -660,11 +660,11 @@ namespace
 		rg.AddComputePass("Explicit", "Shaders/Explicit")
 			.Write("A")
 			.Stage(100)
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
 
 		rg.AddComputePass("Default", "Shaders/Default")
 			.Write("B")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -691,11 +691,11 @@ namespace
 		{
 			rg.AddComputePass("Composite", "Shaders/Composite")
 				.Read("Light")
-				.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+				.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
 
 			rg.AddComputePass("Lighting", "Shaders/Lighting")
 				.Write("Light")
-				.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+				.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
 		};
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
@@ -730,15 +730,15 @@ namespace
 		rg.AddComputePass("Composite", "Shaders/Composite")
 			.Read("Light")
 			.Write("Color")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(2); });
 
 		rg.AddComputePass("Lighting", "Shaders/Lighting")
 			.Write("Light")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(1); });
 
 		rg.AddComputePass("Tonemap", "Shaders/Tonemap")
 			.Read("Color")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(3); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer*) { executionOrder.EmplaceBack(3); });
 
 		execute();
 
@@ -781,9 +781,9 @@ namespace
 
 		rg.AddPass("LightSetup")
 			.Write("LightInstanceData")
-			.Render([](RenderGraph& rg, Scene* scene, GPUCommandBuffer* cmd)
+			.Render([](RenderGraphPass& pass, Scene* scene, GPUCommandBuffer* cmd)
 			{
-				LightInstanceData* lights = rg.GetInstanceData<LightInstanceData>("LightInstanceData");
+				LightInstanceData* lights = pass.GetGraph()->GetInstanceData<LightInstanceData>("LightInstanceData");
 				lights->lightCount = 0;
 			});
 
@@ -792,7 +792,7 @@ namespace
 			.Write("GBufferAlbedo")
 			.Write("GBufferNormals")
 			.Write("Depth")
-			.Render([](RenderGraph& rg, Scene* scene, GPUCommandBuffer* cmd) {});
+			.Render([](RenderGraphPass&, Scene* scene, GPUCommandBuffer* cmd) {});
 
 		rg.AddComputePass("DeferredLighting", "Shaders/DeferredLighting")
 			.Read("LightInstanceData")
@@ -928,15 +928,15 @@ namespace
 		int dispatches = 0;
 		rg.AddComputePass("Produce", "Shaders/Produce")
 			.Write("A")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(1, 1, 1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(1, 1, 1); });
 		rg.AddComputePass("Process", "Shaders/Process")
 			.Read("A")
 			.Write("B")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(1, 1, 1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(1, 1, 1); });
 		rg.AddComputePass("Finalize", "Shaders/Finalize")
 			.Read("B")
 			.Write("C")
-			.Render([&](RenderGraph&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(1, 1, 1); });
+			.Render([&](RenderGraphPass&, Scene*, GPUCommandBuffer* cmd) { ++dispatches; cmd->Dispatch(1, 1, 1); });
 
 		GPUCommandBuffer* cmd = device.CreateCommandBuffer(QueueType::Graphics);
 		cmd->Begin();
@@ -977,9 +977,9 @@ namespace
 
 		auto build = [&]
 		{
-			rg.AddComputePass("Produce", "Shaders/Produce").Write("A").Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
-			rg.AddComputePass("Process", "Shaders/Process").Read("A").Write("B").Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
-			rg.AddComputePass("Finalize", "Shaders/Finalize").Read("B").Write("C").Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			rg.AddComputePass("Produce", "Shaders/Produce").Write("A").Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
+			rg.AddComputePass("Process", "Shaders/Process").Read("A").Write("B").Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
+			rg.AddComputePass("Finalize", "Shaders/Finalize").Read("B").Write("C").Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 		};
 
 		for (int frame = 0; frame < 2; ++frame)

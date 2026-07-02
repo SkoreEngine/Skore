@@ -17,7 +17,7 @@ expansion last.
 ### 1.1 Variant cooking ★ (needs a design decision)
 
 Compiled graph variants attach to the shader that hosts them — and the default host,
-`Skore://ShadersNew/ForwardOpaque.raster`, lives in the **embedded engine package inside the
+`Skore://ShadersNew/DefaultForward.shader`, lives in the **embedded engine package inside the
 runtime binary**. `ResourceAssets::ExportPackages` (called from `Editor.cpp` export) only writes
 project + referenced packages, never the embedded one, so a runtime-only build finds no variants
 and renders every graph material with the default gray template.
@@ -78,7 +78,7 @@ Remaining:
 
 ### 2.1 Real lighting
 
-`ForwardOpaque.raster` now does Cook-Torrance GGX with TBN normals, but the light is one hardcoded
+`DefaultForward.hlsl` now does Cook-Torrance GGX with TBN normals, but the light is one hardcoded
 directional sun (×3 intensity) + constant ambient. Missing, in rough order:
 
 - Light list (the old pipeline's `LightSetupPass` contract or a new one).

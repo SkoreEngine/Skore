@@ -23,10 +23,9 @@ namespace
 	void AddTrianglePass(RenderGraph& rg, RID shader, GPUPipeline*& pipeline, StringView target)
 	{
 		RenderGraphPass& pass = rg.AddGraphicsPass("Triangle");
-		RenderGraphPass* passPtr = &pass;
 
 		pass.Write(target)
-			.Render([&pipeline, shader, passPtr](RenderGraph&, Scene*, GPUCommandBuffer* cmd)
+			.Render([&pipeline, shader](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
 			{
 				if (pipeline == nullptr)
 				{
@@ -34,7 +33,7 @@ namespace
 					pipelineDesc.shader = shader;
 					pipelineDesc.variant = "Default";
 					pipelineDesc.topology = PrimitiveTopology::TriangleList;
-					pipelineDesc.renderPass = passPtr->GetRenderPass();
+					pipelineDesc.renderPass = pass.GetRenderPass();
 					pipelineDesc.rasterizerState.cullMode = CullMode::None;
 					pipelineDesc.depthStencilState.depthTestEnable = false;
 					pipelineDesc.depthStencilState.depthWriteEnable = false;
@@ -200,7 +199,7 @@ namespace
 			rg.Create("Transient", RenderGraphTextureDesc{.format = Format::RGBA8_UNORM, .extent = Extent{kWidth, kHeight}});
 			rg.AddGraphicsPass("TransientPass")
 				.WriteRead("Transient")
-				.Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+				.Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 		};
 
 		auto submit = [&]()
@@ -390,13 +389,13 @@ namespace
 			});
 
 			RenderGraphPass& pass = rg.AddComputePass("Fill", shader);
-			RenderGraphPass* passPtr = &pass;
 			pass.Write("Storage")
-				.Render([shader, passPtr](RenderGraph& graph, Scene*, GPUCommandBuffer* cmd)
+				.Render([shader](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
 				{
+					RenderGraph& graph = *pass.GetGraph();
 					GPUDescriptorSet* descriptorSet = graph.GetDescriptorSet(shader, "Default", 0);
 					descriptorSet->UpdateTexture(0, graph.GetTexture("Storage"));
-					cmd->BindDescriptorSet(passPtr->GetPipeline(), 0, descriptorSet);
+					cmd->BindDescriptorSet(pass.GetPipeline(), 0, descriptorSet);
 					cmd->Dispatch(kWidth / 8, kHeight / 8, 1);
 				});
 
@@ -479,13 +478,13 @@ namespace
 			createHistory();
 
 			RenderGraphPass& pass = rg.AddComputePass("Seed", seedShader);
-			RenderGraphPass* passPtr = &pass;
 			pass.Write("History")
-				.Render([seedShader, passPtr](RenderGraph& graph, Scene*, GPUCommandBuffer* cmd)
+				.Render([seedShader](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
 				{
+					RenderGraph& graph = *pass.GetGraph();
 					GPUDescriptorSet* descriptorSet = graph.GetDescriptorSet(seedShader, "Default", 0);
 					descriptorSet->UpdateTexture(0, graph.GetTexture("History"));
-					cmd->BindDescriptorSet(passPtr->GetPipeline(), 0, descriptorSet);
+					cmd->BindDescriptorSet(pass.GetPipeline(), 0, descriptorSet);
 					cmd->Dispatch(kWidth / 8, kHeight / 8, 1);
 				});
 
@@ -500,14 +499,14 @@ namespace
 			createHistory();
 
 			RenderGraphPass& pass = rg.AddComputePass("Accumulate", accumulateShader);
-			RenderGraphPass* passPtr = &pass;
 			pass.Write("History")
-				.Render([accumulateShader, passPtr](RenderGraph& graph, Scene*, GPUCommandBuffer* cmd)
+				.Render([accumulateShader](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
 				{
+					RenderGraph& graph = *pass.GetGraph();
 					GPUDescriptorSet* descriptorSet = graph.GetDescriptorSet(accumulateShader, "Default", 0);
 					descriptorSet->UpdateTexture(0, graph.GetPrevTexture("History")); // previous frame
 					descriptorSet->UpdateTexture(1, graph.GetTexture("History"));     // current frame
-					cmd->BindDescriptorSet(passPtr->GetPipeline(), 0, descriptorSet);
+					cmd->BindDescriptorSet(pass.GetPipeline(), 0, descriptorSet);
 					cmd->Dispatch(kWidth / 8, kHeight / 8, 1);
 				});
 
@@ -618,11 +617,10 @@ namespace
 	void AddMRTTrianglePass(RenderGraph& rg, RID shader, GPUPipeline*& pipeline, StringView targetA, StringView targetB)
 	{
 		RenderGraphPass& pass = rg.AddGraphicsPass("TriangleMRT");
-		RenderGraphPass* passPtr = &pass;
 
 		pass.Write(targetA)
 			.Write(targetB)
-			.Render([&pipeline, shader, passPtr](RenderGraph&, Scene*, GPUCommandBuffer* cmd)
+			.Render([&pipeline, shader](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
 			{
 				if (pipeline == nullptr)
 				{
@@ -630,7 +628,7 @@ namespace
 					pipelineDesc.shader = shader;
 					pipelineDesc.variant = "Default";
 					pipelineDesc.topology = PrimitiveTopology::TriangleList;
-					pipelineDesc.renderPass = passPtr->GetRenderPass();
+					pipelineDesc.renderPass = pass.GetRenderPass();
 					pipelineDesc.rasterizerState.cullMode = CullMode::None;
 					pipelineDesc.depthStencilState.depthTestEnable = false;
 					pipelineDesc.depthStencilState.depthWriteEnable = false;
@@ -849,9 +847,9 @@ namespace
 			rg.Create("AliasB", aliasTarget(Vec4(0.0f, 1.0f, 0.0f, 1.0f)));
 			rg.Create("AliasC", aliasTarget(Vec4(0.0f, 0.0f, 1.0f, 1.0f)));
 
-			rg.AddGraphicsPass("ClearA").Write("AliasA").Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
-			rg.AddGraphicsPass("ClearB").Write("AliasB").Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
-			rg.AddGraphicsPass("ClearC").Write("AliasC").Render([](RenderGraph&, Scene*, GPUCommandBuffer*) {});
+			rg.AddGraphicsPass("ClearA").Write("AliasA").Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
+			rg.AddGraphicsPass("ClearB").Write("AliasB").Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
+			rg.AddGraphicsPass("ClearC").Write("AliasC").Render([](RenderGraphPass&, Scene*, GPUCommandBuffer*) {});
 
 			report = rg.AnalyzeMemoryAliasing();
 
@@ -1026,12 +1024,11 @@ namespace
 	void AddMSAATrianglePass(RenderGraph& rg, RID shader, GPUPipeline*& pipeline, StringView msaaTarget, StringView resolveTarget)
 	{
 		RenderGraphPass& pass = rg.AddGraphicsPass("TriangleMSAA");
-		RenderGraphPass* passPtr = &pass;
 
 		pass.Write(msaaTarget)
 			.Write(resolveTarget)
 			.Resolve(resolveTarget)
-			.Render([&pipeline, shader, passPtr](RenderGraph&, Scene*, GPUCommandBuffer* cmd)
+			.Render([&pipeline, shader](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
 			{
 				if (pipeline == nullptr)
 				{
@@ -1039,7 +1036,7 @@ namespace
 					pipelineDesc.shader = shader;
 					pipelineDesc.variant = "Default";
 					pipelineDesc.topology = PrimitiveTopology::TriangleList;
-					pipelineDesc.renderPass = passPtr->GetRenderPass();
+					pipelineDesc.renderPass = pass.GetRenderPass();
 					pipelineDesc.rasterizerState.cullMode = CullMode::None;
 					pipelineDesc.depthStencilState.depthTestEnable = false;
 					pipelineDesc.depthStencilState.depthWriteEnable = false;
@@ -1157,14 +1154,15 @@ namespace
 			};
 		};
 
-		auto bindStep = [](GPUDescriptorSet* ds, RenderGraphPass* passPtr, StringView input, StringView output)
+		auto bindStep = [](GPUDescriptorSet* ds, StringView input, StringView output)
 		{
-			return [ds, passPtr, input, output](RenderGraph& graph, Scene*, GPUCommandBuffer* cmd)
+			return [ds, input, output](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
 			{
+				RenderGraph& graph = *pass.GetGraph();
 				ds->UpdateTexture(0, graph.GetTexture(input));
 				ds->UpdateSampler(1, Graphics::GetNearestSampler());
 				ds->UpdateTexture(2, graph.GetTexture(output));
-				cmd->BindDescriptorSet(passPtr->GetPipeline(), 0, ds);
+				cmd->BindDescriptorSet(pass.GetPipeline(), 0, ds);
 				cmd->Dispatch(kWidth / 8, kHeight / 8, 1);
 			};
 		};
@@ -1181,17 +1179,17 @@ namespace
 
 			// Declared in reverse to also exercise the topological sort.
 			RenderGraphPass& passC = rg.AddComputePass("ProcessC", stepShader);
-			passC.Read("AliasB").Write("AliasC").Render(bindStep(dsProcessC, &passC, "AliasB", "AliasC"));
+			passC.Read("AliasB").Write("AliasC").Render(bindStep(dsProcessC, "AliasB", "AliasC"));
 
 			RenderGraphPass& passB = rg.AddComputePass("ProcessB", stepShader);
-			passB.Read("AliasA").Write("AliasB").Render(bindStep(dsProcessB, &passB, "AliasA", "AliasB"));
+			passB.Read("AliasA").Write("AliasB").Render(bindStep(dsProcessB, "AliasA", "AliasB"));
 
 			RenderGraphPass& passA = rg.AddComputePass("Produce", seedShader);
-			RenderGraphPass* passAPtr = &passA;
-			passA.Write("AliasA").Render([dsProduce, passAPtr](RenderGraph& graph, Scene*, GPUCommandBuffer* cmd)
+			passA.Write("AliasA").Render([dsProduce](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
 			{
+				RenderGraph& graph = *pass.GetGraph();
 				dsProduce->UpdateTexture(0, graph.GetTexture("AliasA"));
-				cmd->BindDescriptorSet(passAPtr->GetPipeline(), 0, dsProduce);
+				cmd->BindDescriptorSet(pass.GetPipeline(), 0, dsProduce);
 				cmd->Dispatch(kWidth / 8, kHeight / 8, 1);
 			});
 
@@ -1289,8 +1287,9 @@ namespace
 		rg.AddPass("CopySrcToDst")
 			.Read("Src")
 			.Write("Dst")
-			.Render([](RenderGraph& graph, Scene*, GPUCommandBuffer* cmd)
+			.Render([](RenderGraphPass& pass, Scene*, GPUCommandBuffer* cmd)
 			{
+				RenderGraph& graph = *pass.GetGraph();
 				cmd->CopyTexture(TextureCopy{
 					.srcTexture = graph.GetTexture("Src"),
 					.dstTexture = graph.GetTexture("Dst"),

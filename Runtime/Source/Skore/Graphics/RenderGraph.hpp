@@ -139,13 +139,14 @@ namespace Skore
 		}
 
 		RenderGraphPass& Resize(std::function<void(RenderGraph& rg, Extent newExtent)> f);
-		RenderGraphPass& Render(std::function<void(RenderGraph& rg, Scene* scene, GPUCommandBuffer* cmd)> fn);
+		RenderGraphPass& Render(std::function<void(RenderGraphPass& pass, Scene* scene, GPUCommandBuffer* cmd)> fn);
 
 		RenderGraphPass& Dispatch(u32 x, u32 y, u32 z);
 		RenderGraphPass& Dispatch(Extent3D extent);
 		RenderGraphPass& DispatchIndirect(GPUBuffer* indirectBuffer);
 		RenderGraphPass& TraceRays(u32 width, u32 height, u32 depth);
 
+		RenderGraph*   GetGraph() const;
 		GPUPipeline*   GetPipeline() const;
 		GPURenderPass* GetRenderPass() const;
 
@@ -207,8 +208,8 @@ namespace Skore
 		ShaderStage                              constantsStages = ShaderStage::All;
 		std::function<void(RenderGraph&, void*)> constantsFn;
 
-		std::function<void(RenderGraph&, Extent)>                    resizeFn;
-		std::function<void(RenderGraph&, Scene*, GPUCommandBuffer*)> renderFn;
+		std::function<void(RenderGraph&, Extent)>                        resizeFn;
+		std::function<void(RenderGraphPass&, Scene*, GPUCommandBuffer*)> renderFn;
 	};
 
 	class SK_API RenderGraph

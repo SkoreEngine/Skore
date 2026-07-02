@@ -117,7 +117,7 @@ namespace Skore
 			bool             hasRaygen = str.find("[shader(\"raygeneration\")]") != std::string_view::npos;
 			bool             hasMiss = str.find("[shader(\"miss\")]") != std::string_view::npos;
 			bool             hasClosestHit = str.find("[shader(\"closesthit\")]") != std::string_view::npos;
-			bool             isMaterial = config.material || str.find("@SK_MATERIAL_GRAPH@") != std::string_view::npos;
+			bool             isMaterial = config.material;
 
 			u32 rayHitGroup = config.rayHitGroup;
 			{

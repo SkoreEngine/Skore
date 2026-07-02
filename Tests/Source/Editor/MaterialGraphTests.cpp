@@ -889,7 +889,7 @@ namespace
 		#endif
 
 		String shadersDir = String{SK_SHADERS_NEW_DIR};
-		String templateText = FileSystem::ReadFileAsString(Path::Join(shadersDir, "ForwardOpaque.raster"));
+		String templateText = FileSystem::ReadFileAsString(Path::Join(shadersDir, "DefaultForward.hlsl"));
 		REQUIRE(!templateText.Empty());
 
 		String log;

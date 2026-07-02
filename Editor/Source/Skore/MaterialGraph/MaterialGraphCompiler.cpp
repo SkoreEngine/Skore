@@ -5,6 +5,7 @@
 #include "Skore/Core/Array.hpp"
 #include "Skore/Core/HashMap.hpp"
 #include "Skore/Core/HashSet.hpp"
+#include "Skore/Core/Serialization.hpp"
 #include "Skore/Core/Span.hpp"
 #include "Skore/Core/Traits.hpp"
 #include "Skore/Core/UUID.hpp"
@@ -27,7 +28,6 @@ namespace Skore
 	{
 		constexpr const char* BodyToken = "// @SK_MATERIAL_GRAPH@";
 		constexpr const char* GlobalsToken = "// @SK_MATERIAL_GLOBALS@";
-		constexpr const char* TemplatePathId = "Skore://ShadersNew/ForwardOpaque.raster";
 
 		String UIntStr(u32 v)
 		{
@@ -317,34 +317,86 @@ namespace Skore
 			return result;
 		}
 
-		//Reads the runtime template from Skore://; sets `absPathOut` to the resolved on-disk path so the
-		//shader compiler can resolve the template's relative includes from the same folder.
-		String LoadTemplate(String& absPathOut, String& log)
+		//Resolves the splice-template HLSL source behind a shader asset file. `.shader` configs are YAML
+		//wrappers, so the template is the file their `shaderFile` field points at; any other extension is
+		//the source itself. `absPathOut` receives the source path so relative includes resolve from there.
+		String ReadTemplateSource(StringView assetAbsPath, String& absPathOut)
 		{
-			absPathOut = ResourceAssets::GetAbsolutePathFromPathId(TemplatePathId);
-			if (absPathOut.Empty() || !FileSystem::GetFileStatus(absPathOut).exists)
+			if (Path::Extension(assetAbsPath) == ".shader")
 			{
-				log += String{"Material graph template not found: "} + TemplatePathId + "\n";
-				return "";
+				String yaml = FileSystem::ReadFileAsString(assetAbsPath);
+				if (yaml.Empty())
+				{
+					return "";
+				}
+
+				YamlArchiveReader reader(yaml);
+				StringView        shaderFile = reader.ReadString("shaderFile");
+				if (shaderFile.Empty())
+				{
+					return "";
+				}
+
+				String sourcePath = Path::Join(Path::Parent(assetAbsPath), shaderFile);
+				if (!FileSystem::GetFileStatus(sourcePath).exists)
+				{
+					return "";
+				}
+				absPathOut = sourcePath;
+				return FileSystem::ReadFileAsString(absPathOut);
 			}
+
+			absPathOut = assetAbsPath;
 			return FileSystem::ReadFileAsString(absPathOut);
 		}
 
+		String ReadShaderTemplate(RID shader, String& absPathOut)
+		{
+			if (!shader)
+			{
+				return "";
+			}
+			RID asset = ResourceAssets::GetResourceAssetFromResourceRecursive(shader);
+			if (!asset)
+			{
+				return "";
+			}
+			StringView abs = ResourceAssets::GetAbsolutePath(asset);
+			if (abs.Empty() || !FileSystem::GetFileStatus(abs).exists)
+			{
+				return "";
+			}
+			return ReadTemplateSource(abs, absPathOut);
+		}
+
+		//Default template when no specific shader is in play: the first shader asset flagged material
+		//(`material: true` in its `.shader` config).
+		String LoadTemplate(String& absPathOut, String& log)
+		{
+			for (RID shader : Resources::GetResourcesByType(Resources::FindType<ShaderResource>()))
+			{
+				if (!ShaderResource::IsMaterialShader(shader))
+				{
+					continue;
+				}
+				String templateText = ReadShaderTemplate(shader, absPathOut);
+				if (!templateText.Empty())
+				{
+					return templateText;
+				}
+			}
+			log += "Material graph template not found: no shader asset is flagged as material.\n";
+			return "";
+		}
+
 		//Any shader flagged IsMaterial can host a graph: its own source is the splice template. Falls back
-		//to the default forward template when the shader has no resolvable source file.
+		//to the default material template when the shader has no resolvable source file.
 		String LoadShaderTemplate(RID shader, String& absPathOut, String& log)
 		{
-			if (shader)
+			String templateText = ReadShaderTemplate(shader, absPathOut);
+			if (!templateText.Empty())
 			{
-				if (RID asset = ResourceAssets::GetResourceAssetFromResourceRecursive(shader))
-				{
-					StringView abs = ResourceAssets::GetAbsolutePath(asset);
-					if (!abs.Empty() && FileSystem::GetFileStatus(abs).exists)
-					{
-						absPathOut = abs;
-						return FileSystem::ReadFileAsString(absPathOut);
-					}
-				}
+				return templateText;
 			}
 			return LoadTemplate(absPathOut, log);
 		}
@@ -667,17 +719,6 @@ namespace Skore
 		return SpliceToken(result, BodyToken, body);
 	}
 
-	String MaterialGraphCompiler::GenerateHlsl(RID graph, String& log)
-	{
-		String absPath;
-		String templateText = LoadTemplate(absPath, log);
-		if (templateText.Empty())
-		{
-			return GenerateBody(graph, log);
-		}
-		return GenerateShader(graph, templateText, log);
-	}
-
 	MaterialGraphCompileResult MaterialGraphCompiler::Compile(RID graph)
 	{
 		MaterialGraphCompileResult result;
@@ -738,32 +779,6 @@ namespace Skore
 		}
 
 		return result;
-	}
-
-	RID MaterialGraphCompiler::CompileToShaderResource(RID graph, String& log)
-	{
-		String absPath;
-		String templateText = LoadTemplate(absPath, log);
-		if (templateText.Empty())
-		{
-			return {};
-		}
-
-		RID shaderVariant = BuildMaterialVariant(templateText, absPath, graph, "Default", {}, log);
-		if (!shaderVariant)
-		{
-			return {};
-		}
-
-		RID shaderResource = Resources::Create<ShaderResource>(UUID::RandomUUID());
-		{
-			ResourceObject shaderObject = Resources::Write(shaderResource);
-			shaderObject.SetString(ShaderResource::Name, "MaterialGraph");
-			shaderObject.AddToSubObjectList(ShaderResource::Variants, shaderVariant);
-			shaderObject.Commit();
-		}
-
-		return shaderResource;
 	}
 
 	RID MaterialGraphCompiler::EnsureMaterialVariant(RID shader, RID material, StringView variantName, String& log)

@@ -450,7 +450,7 @@ namespace Skore
 		return *this;
 	}
 
-	RenderGraphPass& RenderGraphPass::Render(std::function<void(RenderGraph& rg, Scene* scene, GPUCommandBuffer* cmd)> fn)
+	RenderGraphPass& RenderGraphPass::Render(std::function<void(RenderGraphPass& pass, Scene* scene, GPUCommandBuffer* cmd)> fn)
 	{
 		renderFn = Traits::Move(fn);
 		return *this;
@@ -481,6 +481,11 @@ namespace Skore
 		dispatchY = height;
 		dispatchZ = depth;
 		return *this;
+	}
+
+	RenderGraph* RenderGraphPass::GetGraph() const
+	{
+		return graph;
 	}
 
 	GPUPipeline* RenderGraphPass::GetPipeline() const
@@ -2635,7 +2640,7 @@ namespace Skore
 
 			if (pass->renderFn)
 			{
-				pass->renderFn(*this, currentScene, cmd);
+				pass->renderFn(*pass, currentScene, cmd);
 			}
 			else if (pass->pipeline != nullptr)
 			{

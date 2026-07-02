@@ -30,14 +30,14 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
   auto-discovered via reflection (`Editor/.../MaterialGraph/MaterialNode.{hpp,cpp}`). Adding a node =
   subclass + `Reflection::Type<MyNode>()` in `RegisterMaterialNodes()`. 33 concrete node types.
 - [x] **HLSL codegen + SPIR-V compile** — `MaterialGraphCompiler` (post-order DFS from the output
-  node). Generated globals + body are spliced into `Skore://ShadersNew/ForwardOpaque.raster` at the
+  node). Generated globals + body are spliced into the host shader's source (default host:
+  `Skore://ShadersNew/DefaultForward.shader` → `DefaultForward.hlsl`) at the
   `@SK_MATERIAL_GLOBALS@` / `@SK_MATERIAL_GRAPH@` tokens, filling `EvaluateMaterial`'s
   `SurfaceOutput`. Type coercion via `MaterialConvertExpr`; generic math pins resolve to the widest
   connected type.
-- [x] **Generic material shader registration** — any shader containing `@SK_MATERIAL_GRAPH@` (or
-  `material: true` in its `.shader` config) is flagged `ShaderResource::IsMaterial` by
-  `ShaderHandler`; entry points are auto-detected (`ShaderManager::DetectShaderStages`, supports
-  VS/PS/GS/CS + ray-tracing stages). Compiled graph shaders are stored as `ShaderVariantResource`
+- [x] **Generic material shader registration** — a shader is flagged `ShaderResource::IsMaterial`
+  by `ShaderHandler` solely via `material: true` in its `.shader` config; entry points are
+  auto-detected (`ShaderManager::DetectShaderStages`, supports VS/PS/GS/CS + ray-tracing stages). Compiled graph shaders are stored as `ShaderVariantResource`
   sub-objects tagged with the owning graph (`ShaderVariantResource::Material`) and resolved by
   `ShaderResource::GetVariant(shader, material, name)` (follows the instance → parent chain).
 - [x] **On-demand variant compilation** — `RenderResourceCache::EnsureMaterialVariant` delegates to
@@ -147,7 +147,7 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
 
 ## 4. System features (not nodes, but required for "production")
 
-- [~] **★ SurfaceOutput consumption in the forward pass** — `ForwardOpaque.raster` now shades with
+- [~] **★ SurfaceOutput consumption in the forward pass** — `DefaultForward.hlsl` now shades with
   Cook-Torrance GGX (metallic/roughness), TBN-transformed graph normals, AO on ambient, and opacity
   as alpha. The light itself is still a single hardcoded directional sun + constant ambient.
   **Remaining:** real light list, shadows, IBL as the new pipeline grows.
@@ -184,7 +184,7 @@ rendered by `ForwardOpaquePassNew` with a real parameter buffer and bindless tex
   the sky material migration (slim the type to sky fields; the opaque `FieldVisibilityControls`
   rows go with it).
 - [~] **★ Custom material shaders per object** — done: `DrawPipelineDesc::shader` is honored by the
-  forward passes when the shader is flagged `IsMaterial` (falls back to `ForwardOpaque.raster`
+  forward passes when the shader is flagged `IsMaterial` (falls back to `DefaultForward.shader`
   otherwise), and the variant resolver splices the graph into *that shader's own source*
   (`LoadShaderTemplate`). **Remaining:** an editor affordance to assign the shader per
   mesh/material.
