@@ -29,13 +29,25 @@ rendered by `ForwardPassNew` with a real parameter buffer and bindless textures,
   through `DrawPipelineDesc` into the forward pass pipelines.
 - [x] **Polymorphic node registry** — abstract `MaterialNode : Object` + one subclass per node,
   auto-discovered via reflection (`Editor/.../MaterialGraph/MaterialNode.{hpp,cpp}`). Adding a node =
-  subclass + `Reflection::Type<MyNode>()` in `RegisterMaterialNodes()`. 33 concrete node types.
+  subclass + `Reflection::Type<MyNode>()` in `RegisterMaterialNodes()`. 48 concrete node types.
 - [x] **HLSL codegen + SPIR-V compile** — `MaterialGraphCompiler` (post-order DFS from the output
   node). Generated globals + body are spliced into the host shader's source (default host:
   `Skore://ShadersNew/DefaultForward.shader` → `DefaultForward.hlsl`) at the
   `@SK_MATERIAL_GLOBALS@` / `@SK_MATERIAL_GRAPH@` tokens, filling `EvaluateMaterial`'s
   `SurfaceOutput`. Type coercion via `MaterialConvertExpr`; generic math pins resolve to the widest
-  connected type.
+  connected type. Input nodes read fields of the shared `MaterialInputs` struct
+  (`MaterialSurface.hlsli`: texCoord/texCoord1/normal/worldPos/vertexColor/viewDir/cameraPosition/
+  objectPosition/time) — any host that fills the struct supports them, including compute/ray-tracing
+  material shaders. A node whose output type depends on its properties overrides it via
+  `MaterialCodegenContext::SetOutputType` (Component Mask).
+- [x] **Vertex-stage codegen (World Position Offset)** — the WPO output pin's subgraph is emitted by
+  a second, vertex-stage `Emitter` (`GenerateVertexBody`) and spliced at
+  `@SK_MATERIAL_VERTEX_GRAPH@` inside `EvaluateWorldPositionOffset`, called by `MainVS` before
+  projecting (offset applies to depth/interpolated world position). Vertex-stage texture samples use
+  `SampleLevel` mip 0 and skip mipmap feedback (`MaterialCodegenContext::vertexStage`). Hosts
+  without the token (compute / ray-tracing) ignore the pin entirely. **Limitations:** the shadow
+  pass does not apply WPO (offset meshes keep their un-offset shadows) and stage-compatibility
+  validation is still log-free (§4).
 - [x] **Generic material shader registration** — a shader is flagged `ShaderResource::IsMaterial`
   by `ShaderHandler` solely via `material: true` in its `.shader` config; entry points are
   auto-detected (`ShaderManager::DetectShaderStages`, supports VS/PS/GS/CS + ray-tracing stages). Compiled graph shaders are stored as `ShaderVariantResource`
@@ -76,14 +88,17 @@ rendered by `ForwardPassNew` with a real parameter buffer and bindless textures,
   reimport-stable UUIDs. Graph instances are the **only** import path: the legacy standalone
   `MaterialResource` importer and its `SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE` switch are deleted, and
   "Extract Materials" picks the asset extension per resource type (`.matgraph` for graph instances).
-- [x] **Tests** — `Tests/Source/Editor/MaterialGraphTests.cpp` (22 cases, incl. generic-math
-  type promotion, bindless/sRGB codegen, channel-select codegen, validation, and live SPIR-V compile).
+- [x] **Tests** — `Tests/Source/Editor/MaterialGraphTests.cpp` (35 cases, incl. generic-math
+  type promotion, bindless/sRGB codegen, channel-select codegen, the Tier 1 node batch,
+  vertex-stage/WPO codegen, validation, and live SPIR-V compile of both stages).
 
 ### Nodes implemented so far
-- [x] Material Output (master) — Base Color, Metallic, Roughness, Emissive, Normal, Ambient Occlusion, Opacity, Opacity Mask
-- [x] Constant Float · Constant Color · Constant Vector2
+- [x] Material Output (master) — Base Color, Metallic, Roughness, Emissive, Normal, Ambient Occlusion, Opacity, Opacity Mask, World Position Offset
+- [x] Constant Float · Constant Color · Constant Vector2/3/4
 - [x] Parameters (named, instance-overridable): Float · Int · Bool · Channel · Color · Vector2/3/4 · Texture2D
-- [x] Texture Coordinate (UV0)
+- [x] Texture Coordinate (UV Set property: 0 = UV0, 1 = UV1; UV1 falls back to UV0 on meshes without it)
+- [x] Vertex Color · World Normal · World Position · View Direction · Time · Camera Position · Object Position
+  (all read host-filled `MaterialInputs` fields; Time is engine elapsed seconds via the scene buffer)
 - [x] Sample Texture 2D · Normal Map · Tiling & Offset · Channel Select (RGBA + runtime channel index → Float;
   the base graphs route Metallic/Roughness/Occlusion through it so importers and instances can remap
   packed-texture channels via the `MetallicChannel`/`RoughnessChannel`/`OcclusionChannel` parameters, 0=R 1=G 2=B 3=A)
@@ -91,6 +106,9 @@ rendered by `ForwardPassNew` with a real parameter buffer and bindless textures,
 - [x] Subtract · Divide · Power · Min · Max · Step
 - [x] One Minus · Saturate · Clamp · Smoothstep · Remap
 - [x] Dot · Normalize · Length
+- [x] Fresnel (exponent + overridable normal, dotted against the view direction)
+- [x] Combine (X/Y/Z/W floats → Vec2/Vec3/Vec4 outputs) · Split (Vec4 → X/Y/Z/W) ·
+  Component Mask (per-component toggles → swizzle; output type follows the selected component count)
 
 ---
 
@@ -108,28 +126,31 @@ rendered by `ForwardPassNew` with a real parameter buffer and bindless textures,
   (Opaque forces 1.0, Mask emits `discard` below `MaskCutoff`, Blend writes alpha)
 - [x] Output-node render settings (Properties window) — Material (`Default Lit | Unlit`),
   Render Face (`Front | Back | Both`), Depth Write, Depth Test (`CompareOp` values)
-- [ ] World Position Offset (Vec3, **vertex stage**) — requires vertex-stage codegen
+- [x] World Position Offset (Vec3, **vertex stage**) — WPO subgraph emitted by a vertex-stage
+  emitter into `@SK_MATERIAL_VERTEX_GRAPH@` / `EvaluateWorldPositionOffset` in `MainVS`
+  (`SampleLevel`-only sampling, no mipmap feedback); ignored by hosts without the token
+  (compute/RT). Shadows do not apply WPO yet.
 - [ ] *Advanced surface outputs:* Clear Coat · Anisotropy · Subsurface · Refraction
 
 ---
 
 ## 3. Node library
 
-### Tier 1 — core (build first)
-- [~] Texture Coordinate (UV0 done; add UV1)
-- [ ] Vertex Color
-- [ ] World Normal · World Position · View Direction
-- [ ] Time
-- [ ] Camera Position · Object Position
+### Tier 1 — core (build first) — **complete**
+- [x] Texture Coordinate (UV0 + UV1 via UV Set property)
+- [x] Vertex Color
+- [x] World Normal · World Position · View Direction
+- [x] Time
+- [x] Camera Position · Object Position
 - [x] Sample Texture 2D
 - [x] Normal Map sample (unpack + strength)
 - [x] Tiling & Offset (UV transform)
 - [x] Subtract · Divide · Power
 - [x] Min / Max · Clamp / Saturate · One-Minus
 - [x] Dot · Normalize · Length
-- [ ] Fresnel
-- [ ] Make/Combine (float→vector) · Split/Break · Component Mask (swizzle)
-- [ ] Constant Vector3 / Vector4 (params exist, constants don't)
+- [x] Fresnel
+- [x] Make/Combine (float→vector) · Split/Break · Component Mask (swizzle)
+- [x] Constant Vector3 / Vector4
 - [x] Lerp
 - [x] Step · Smoothstep · Remap
 
@@ -202,9 +223,11 @@ rendered by `ForwardPassNew` with a real parameter buffer and bindless textures,
   connection per input, stage compatibility, dead-node warnings, and surfacing errors with node/pin
   context in the editor (log only today).
 - [ ] **★ Type + stage model expansion** — `MaterialDataType` is currently scalar/vector only.
-  Before Custom HLSL, static switches, texture objects, sampler objects, vertex-stage outputs, or
-  real bool/int branches, add explicit pin categories for numeric values, bool/int values,
-  textures/samplers, and shader stage availability (pixel, vertex, shared).
+  Before Custom HLSL, static switches, texture objects, sampler objects, or real bool/int branches,
+  add explicit pin categories for numeric values, bool/int values, textures/samplers, and shader
+  stage availability (pixel, vertex, shared). A narrow vertex-stage path already exists
+  (`MaterialCodegenContext::vertexStage`, used by the WPO output), but per-pin stage tagging and
+  validation are still missing.
 - [ ] **★ Custom HLSL / Expression node** — raw-code escape hatch with typed pins; after the
   type/stage model and validation rules are strong enough to keep arbitrary snippets contained.
 - [ ] **★ Static Switch → shader variants** — compile-time branches emitting macro variants (the
@@ -221,10 +244,12 @@ rendered by `ForwardPassNew` with a real parameter buffer and bindless textures,
   common-subexpression reuse · DDX/DDY-aware sampling · error mapping back to graph nodes.
 - [ ] **Asset/versioning/migration** — graph schema versioning + migration rules for node/pin
   changes.
-- [~] **Test coverage gates** — 21 cases: bindless texture codegen (index + sampler slot), sRGB
-  decode, validation warnings/clean-graph, and the SPIR-V end-to-end test compiles a graph with a
-  texture node against the real template. **Remaining:** golden generated-HLSL snapshots,
-  serialization/migration tests, parameter layout/override tests, and a runtime render smoke test.
+- [~] **Test coverage gates** — 35 cases: bindless texture codegen (index + sampler slot), sRGB
+  decode, the Tier 1 node batch (inputs/fresnel/combine/split/component-mask/UV1), vertex-stage WPO
+  codegen (SampleLevel, no feedback), validation warnings/clean-graph, and the SPIR-V end-to-end
+  test compiles both stages of a graph with textures + WPO against the real template.
+  **Remaining:** golden generated-HLSL snapshots, serialization/migration tests, parameter
+  layout/override tests, and a runtime render smoke test.
 
 ---
 
@@ -245,8 +270,8 @@ real light list, cascade shadows, IBL, GPU culling, skybox, bloom + ACES tonemap
    node/pin context.
 3. **Renderer polish** — transparent back-to-front sorting, depth prepass, AA; point/spot shadows.
 4. **Type/stage model expansion** → **Custom HLSL + Static Switches**.
-5. Fill remaining Tier 1 nodes, **Reroute + Comment**, then **World Position Offset** once
-   vertex-stage codegen exists.
+5. *(done 2026-07-02: Tier 1 node library + World Position Offset with vertex-stage codegen)*
+   **Reroute + Comment** nodes, then start Tier 2.
 
 > Most library nodes are mechanical (subclass + register). With lighting/shadows/culling/post now
 > landed, the remaining engineering is **variant cooking**, validation surfacing, and versioning —

@@ -14,7 +14,8 @@ cbuffer SceneBuffer : register(b0, space1)
 	float  farClip;
 
 	int2   outputSize;
-	float2 scenePad0;
+	float  time;
+	float  scenePad0;
 
 	float2 jitter;
 	float2 prevJitter;

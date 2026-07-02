@@ -27,6 +27,7 @@ namespace Skore
 	namespace
 	{
 		constexpr const char* BodyToken = "// @SK_MATERIAL_GRAPH@";
+		constexpr const char* VertexBodyToken = "// @SK_MATERIAL_VERTEX_GRAPH@";
 		constexpr const char* GlobalsToken = "// @SK_MATERIAL_GLOBALS@";
 
 		String UIntStr(u32 v)
@@ -90,6 +91,7 @@ namespace Skore
 			u32                         varCounter = 0;
 			u32                         nodeCounter = 0;
 			bool                        usedTextures = false;
+			bool                        vertexStage = false;
 			HashMap<u64, Array<String>>           outVars{};
 			HashMap<u64, Array<MaterialDataType>> outTypes{};
 			HashSet<u64>                emitting{};
@@ -263,10 +265,18 @@ namespace Skore
 				Array<String> outputExprs;
 				outputExprs.Resize(outputs.Size());
 
+				Array<MaterialDataType> varTypes;
+				varTypes.Resize(outputs.Size());
+				for (u32 o = 0; o < outputs.Size(); ++o)
+				{
+					varTypes[o] = outputs[o].generic ? resolvedType : outputs[o].type;
+				}
+
 				Array<String> statements;
 				u32           nodeIndex = nodeCounter++;
 
-				MaterialCodegenContext ctx{Span<String>(inputExprs), obj.GetVec4(MaterialGraphNodeResource::Value), nodeIndex, outputExprs, statements, &usedTextures};
+				MaterialCodegenContext ctx{Span<String>(inputExprs), obj.GetVec4(MaterialGraphNodeResource::Value), nodeIndex, outputExprs, statements, varTypes, &usedTextures};
+				ctx.vertexStage = vertexStage;
 				if (auto it = nodeOffsets.Find(node.id); it != nodeOffsets.end())
 				{
 					ctx.paramByteOffset = it->second;
@@ -278,17 +288,13 @@ namespace Skore
 					body += String{"    "} + statement + "\n";
 				}
 
-				Array<String>           varNames;
-				Array<MaterialDataType> varTypes;
+				Array<String> varNames;
 				varNames.Resize(outputs.Size());
-				varTypes.Resize(outputs.Size());
 				for (u32 o = 0; o < outputs.Size(); ++o)
 				{
-					MaterialDataType outType = outputs[o].generic ? resolvedType : outputs[o].type;
-					String           varName = "n" + UIntStr(varCounter++);
+					String varName = "n" + UIntStr(varCounter++);
 					varNames[o] = varName;
-					varTypes[o] = outType;
-					body += String{"    "} + MaterialHlslType(outType) + " " + varName + " = " + outputExprs[o] + ";\n";
+					body += String{"    "} + MaterialHlslType(varTypes[o]) + " " + varName + " = " + outputExprs[o] + ";\n";
 				}
 
 				emitting.Erase(node.id);
@@ -296,6 +302,53 @@ namespace Skore
 				outVars.Insert(node.id, Traits::Move(varNames));
 			}
 		};
+
+		struct GraphTopology
+		{
+			HashMap<u64, RID> nodeById{};
+			Array<ConnRec>    conns{};
+			RID               outputNode{};
+		};
+
+		void LoadGraphTopology(ResourceObject& graphObj, GraphTopology& topo)
+		{
+			Span<RID> nodes = graphObj.GetSubObjectList(MaterialGraphResource::Nodes);
+			Span<RID> conns = graphObj.GetSubObjectList(MaterialGraphResource::Connections);
+
+			for (RID n : nodes)
+			{
+				topo.nodeById.Insert(n.id, n);
+			}
+
+			for (RID c : conns)
+			{
+				ResourceObject co = Resources::Read(c);
+				if (!co)
+				{
+					continue;
+				}
+				ConnRec rec;
+				rec.outNode = co.GetReference(MaterialGraphConnectionResource::OutputNode).id;
+				rec.outPin = static_cast<u32>(co.GetUInt(MaterialGraphConnectionResource::OutputPin));
+				rec.inNode = co.GetReference(MaterialGraphConnectionResource::InputNode).id;
+				rec.inPin = static_cast<u32>(co.GetUInt(MaterialGraphConnectionResource::InputPin));
+				topo.conns.EmplaceBack(rec);
+			}
+
+			topo.outputNode = graphObj.GetReference(MaterialGraphResource::OutputNode);
+			if (!topo.outputNode)
+			{
+				for (RID n : nodes)
+				{
+					ResourceObject no = Resources::Read(n);
+					if (no && no.GetString(MaterialGraphNodeResource::Type) == MaterialNodeRegistry::OutputTypeId())
+					{
+						topo.outputNode = n;
+						break;
+					}
+				}
+			}
+		}
 
 		//Replaces the first occurrence of `token` in `templateText` with `replacement`; returns the
 		//template unchanged when the token is absent.
@@ -536,48 +589,13 @@ namespace Skore
 			return "";
 		}
 
-		Span<RID> nodes = graphObj.GetSubObjectList(MaterialGraphResource::Nodes);
-		Span<RID> conns = graphObj.GetSubObjectList(MaterialGraphResource::Connections);
-
-		HashMap<u64, RID> nodeById;
-		for (RID n : nodes)
-		{
-			nodeById.Insert(n.id, n);
-		}
-
-		Array<ConnRec> connRecs;
-		for (RID c : conns)
-		{
-			ResourceObject co = Resources::Read(c);
-			if (!co)
-			{
-				continue;
-			}
-			ConnRec rec;
-			rec.outNode = co.GetReference(MaterialGraphConnectionResource::OutputNode).id;
-			rec.outPin = static_cast<u32>(co.GetUInt(MaterialGraphConnectionResource::OutputPin));
-			rec.inNode = co.GetReference(MaterialGraphConnectionResource::InputNode).id;
-			rec.inPin = static_cast<u32>(co.GetUInt(MaterialGraphConnectionResource::InputPin));
-			connRecs.EmplaceBack(rec);
-		}
-
-		RID outputNode = graphObj.GetReference(MaterialGraphResource::OutputNode);
-		if (!outputNode)
-		{
-			for (RID n : nodes)
-			{
-				ResourceObject no = Resources::Read(n);
-				if (no && no.GetString(MaterialGraphNodeResource::Type) == MaterialNodeRegistry::OutputTypeId())
-				{
-					outputNode = n;
-					break;
-				}
-			}
-		}
+		GraphTopology topo;
+		LoadGraphTopology(graphObj, topo);
+		RID outputNode = topo.outputNode;
 
 		{
 			HashMap<String, String> paramTypes;
-			for (RID n : nodes)
+			for (RID n : graphObj.GetSubObjectList(MaterialGraphResource::Nodes))
 			{
 				ResourceObject no = Resources::Read(n);
 				if (!no)
@@ -612,7 +630,7 @@ namespace Skore
 			if (outputNode)
 			{
 				bool anyIntoOutput = false;
-				for (const ConnRec& rec : connRecs)
+				for (const ConnRec& rec : topo.conns)
 				{
 					if (rec.inNode == outputNode.id)
 					{
@@ -629,7 +647,7 @@ namespace Skore
 
 		MaterialNode* outDef = MaterialNodeRegistry::Find(MaterialNodeRegistry::OutputTypeId());
 
-		Emitter emitter{nodeById, connRecs, log};
+		Emitter emitter{topo.nodeById, topo.conns, log};
 		emitter.nodeOffsets = MaterialParamLayout::Build(graph).nodeOffsets;
 
 		MaterialGraphResource::GraphAlphaMode alphaMode = graphObj.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
@@ -704,9 +722,60 @@ namespace Skore
 		return body;
 	}
 
+	String MaterialGraphCompiler::GenerateVertexBody(RID graph, String& log)
+	{
+		ResourceObject graphObj = Resources::Read(graph);
+		if (!graphObj)
+		{
+			return "";
+		}
+
+		GraphTopology topo;
+		LoadGraphTopology(graphObj, topo);
+		if (!topo.outputNode)
+		{
+			return "";
+		}
+
+		bool wpoConnected = false;
+		for (const ConnRec& rec : topo.conns)
+		{
+			if (rec.inNode == topo.outputNode.id && rec.inPin == MaterialNodeRegistry::WorldPositionOffset)
+			{
+				wpoConnected = true;
+				break;
+			}
+		}
+		if (!wpoConnected)
+		{
+			return "";
+		}
+
+		MaterialNode* outDef = MaterialNodeRegistry::Find(MaterialNodeRegistry::OutputTypeId());
+		if (!outDef)
+		{
+			return "";
+		}
+
+		Emitter emitter{topo.nodeById, topo.conns, log};
+		emitter.vertexStage = true;
+		emitter.nodeOffsets = MaterialParamLayout::Build(graph).nodeOffsets;
+
+		String offsetExpr = emitter.ResolveInput(topo.outputNode, *outDef, MaterialNodeRegistry::WorldPositionOffset);
+
+		String body = emitter.body;
+		if (!body.Empty())
+		{
+			body += "\n";
+		}
+		body += "    worldPositionOffset = " + offsetExpr + ";\n";
+		return body;
+	}
+
 	String MaterialGraphCompiler::GenerateShader(RID graph, StringView templateText, String& log)
 	{
 		String body = GenerateBody(graph, log);
+		String vertexBody = GenerateVertexBody(graph, log);
 		String globals = GenerateParamGlobals(MaterialParamLayout::Build(graph));
 
 		if (ResourceObject graphObj = Resources::Read(graph);
@@ -716,7 +785,8 @@ namespace Skore
 		}
 
 		String result = SpliceToken(templateText, GlobalsToken, globals);
-		return SpliceToken(result, BodyToken, body);
+		result = SpliceToken(result, BodyToken, body);
+		return SpliceToken(result, VertexBodyToken, vertexBody);
 	}
 
 	MaterialGraphCompileResult MaterialGraphCompiler::Compile(RID graph)

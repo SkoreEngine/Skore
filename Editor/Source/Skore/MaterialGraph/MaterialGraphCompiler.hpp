@@ -27,6 +27,11 @@ namespace Skore
 		//Generates only the material node network: the temporaries plus the surface.* output assignments
 		//that get injected at the template's // @SK_MATERIAL_GRAPH@ marker.
 		static String GenerateBody(RID graph, String& log);
+
+		//Generates the vertex-stage network feeding the World Position Offset output pin, injected at the
+		//template's // @SK_MATERIAL_VERTEX_GRAPH@ marker. Empty when the pin is unconnected; hosts without
+		//the marker (compute / ray-tracing material shaders) ignore it entirely.
+		static String GenerateVertexBody(RID graph, String& log);
 	};
 
 	SK_API void RegisterMaterialVariantResolver();

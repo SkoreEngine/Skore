@@ -4,9 +4,14 @@
 struct MaterialInputs
 {
 	float2 texCoord;
+	float2 texCoord1;
 	float3 normal;
 	float3 worldPos;
 	float3 vertexColor;
+	float3 viewDir;
+	float3 cameraPosition;
+	float3 objectPosition;
+	float  time;
 };
 
 struct SurfaceOutput

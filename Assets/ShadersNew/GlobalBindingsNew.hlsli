@@ -90,6 +90,13 @@ float2 GetVertexUV(uint vertexByteOffset, uint layoutIdx, uint vertexId)
 	return asfloat(MeshDataBuffer.Load2(vertexByteOffset + vertexId * layout.stride + layout.uvOffset));
 }
 
+float2 GetVertexUV1(uint vertexByteOffset, uint layoutIdx, uint vertexId)
+{
+	VertexLayoutOffset layout = VertexLayouts[NonUniformResourceIndex(layoutIdx)];
+	if (layout.uv1Offset == 0xFFFFFFFF) return GetVertexUV(vertexByteOffset, layoutIdx, vertexId);
+	return asfloat(MeshDataBuffer.Load2(vertexByteOffset + vertexId * layout.stride + layout.uv1Offset));
+}
+
 float3 GetVertexColor(uint vertexByteOffset, uint layoutIdx, uint vertexId)
 {
 	VertexLayoutOffset layout = VertexLayouts[NonUniformResourceIndex(layoutIdx)];

@@ -171,12 +171,13 @@ namespace
 		MaterialNode* output = MaterialNodeRegistry::Find("output");
 		REQUIRE(output != nullptr);
 		CHECK(output->IsOutput());
-		CHECK(output->GetInputs().Size() == 8);
+		CHECK(output->GetInputs().Size() == 9);
 		CHECK(output->GetOutputs().Size() == 0);
 		CHECK(output->GetInputs()[MaterialNodeRegistry::BaseColor].type == MaterialDataType::Vec3);
 		CHECK(output->GetInputs()[MaterialNodeRegistry::Metallic].type == MaterialDataType::Float);
 		CHECK(output->GetInputs()[MaterialNodeRegistry::Normal].type == MaterialDataType::Vec3);
 		CHECK(output->GetInputs()[MaterialNodeRegistry::Opacity].type == MaterialDataType::Float);
+		CHECK(output->GetInputs()[MaterialNodeRegistry::WorldPositionOffset].type == MaterialDataType::Vec3);
 
 		MaterialNode* sampleTexture = MaterialNodeRegistry::Find("sample_texture");
 		REQUIRE(sampleTexture != nullptr);
@@ -496,7 +497,7 @@ namespace
 		CHECK(Contains(body, "= MatParamTexture(0u);"));
 		CHECK(Contains(body, "BindlessTextures[NonUniformResourceIndex(texIdx"));
 		CHECK(Contains(body, ".Sample(Samplers[MatParamSampler(4u)], uv"));
-		CHECK(Contains(body, "WriteMipmapFeedback(pushConstants.materialIndex"));
+		CHECK(Contains(body, "WriteMipmapFeedback(SK_MaterialIndex"));
 		// sample_texture defaults to linear (Value.x == 0): no sRGB decode is emitted
 		CHECK(!Contains(body, "pow("));
 		// unconnected UV falls back to the mesh UVs via the pin's default expression
@@ -784,6 +785,328 @@ namespace
 		ResourceShutdown();
 	}
 
+	TEST_CASE("MaterialGraph::Tier1NodeRegistry")
+	{
+		ResourceInit();
+		RegisterMaterialNodes();
+
+		// The Tier 1 completion batch: constants, geometric/scene inputs, and vector utilities.
+		for (const char* typeId : {"constant_vec3", "constant_vec4", "vertex_color", "world_normal",
+			 "world_position", "view_direction", "time", "camera_position", "object_position",
+			 "fresnel", "combine", "split", "component_mask"})
+		{
+			CHECK_MESSAGE(MaterialNodeRegistry::Find(typeId) != nullptr, typeId);
+		}
+
+		// Texture Coordinate gained a UV Set property (0 = UV0, 1 = UV1).
+		MaterialNode* texCoord = MaterialNodeRegistry::Find("tex_coord");
+		REQUIRE(texCoord != nullptr);
+		REQUIRE(texCoord->GetProperties().Size() == 1);
+		CHECK(texCoord->GetProperties()[0].type == MaterialNodePropertyType::Int);
+
+		MaterialNode* vertexColor = MaterialNodeRegistry::Find("vertex_color");
+		CHECK(vertexColor->GetCategory() == "Inputs");
+		CHECK(vertexColor->GetOutputs()[0].type == MaterialDataType::Vec3);
+
+		// Combine packs floats into all three vector widths at once.
+		MaterialNode* combine = MaterialNodeRegistry::Find("combine");
+		CHECK(combine->GetCategory() == "Vector");
+		REQUIRE(combine->GetInputs().Size() == 4);
+		REQUIRE(combine->GetOutputs().Size() == 3);
+		CHECK(combine->GetOutputs()[0].type == MaterialDataType::Vec2);
+		CHECK(combine->GetOutputs()[1].type == MaterialDataType::Vec3);
+		CHECK(combine->GetOutputs()[2].type == MaterialDataType::Vec4);
+
+		MaterialNode* split = MaterialNodeRegistry::Find("split");
+		REQUIRE(split->GetInputs().Size() == 1);
+		CHECK(split->GetInputs()[0].type == MaterialDataType::Vec4);
+		REQUIRE(split->GetOutputs().Size() == 4);
+		CHECK(split->GetOutputs()[0].type == MaterialDataType::Float);
+
+		// Component Mask exposes one Bool per Value component; each toggle targets its own lane.
+		MaterialNode* mask = MaterialNodeRegistry::Find("component_mask");
+		REQUIRE(mask->GetProperties().Size() == 4);
+		for (u32 i = 0; i < 4; ++i)
+		{
+			CHECK(mask->GetProperties()[i].type == MaterialNodePropertyType::Bool);
+			CHECK(mask->GetProperties()[i].component == i);
+		}
+
+		MaterialNode* fresnel = MaterialNodeRegistry::Find("fresnel");
+		REQUIRE(fresnel->GetInputs().Size() == 2);
+		CHECK(fresnel->GetOutputs()[0].type == MaterialDataType::Float);
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::InputNodesCodegen")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+		{
+			ResourceObject graphObj = Resources::Write(graph);
+			graphObj.SetEnum(MaterialGraphResource::AlphaMode, MaterialGraphResource::GraphAlphaMode::Blend);
+			graphObj.Commit();
+		}
+
+		// Every scene/geometry input node reads a field of the host-provided MaterialInputs struct.
+		Connect(graph, AddNode(graph, "vertex_color", Vec4{}), 0, outputNode, MaterialNodeRegistry::BaseColor);
+		Connect(graph, AddNode(graph, "view_direction", Vec4{}), 0, outputNode, MaterialNodeRegistry::Metallic);
+		Connect(graph, AddNode(graph, "time", Vec4{}), 0, outputNode, MaterialNodeRegistry::Roughness);
+		Connect(graph, AddNode(graph, "camera_position", Vec4{}), 0, outputNode, MaterialNodeRegistry::Emissive);
+		Connect(graph, AddNode(graph, "world_normal", Vec4{}), 0, outputNode, MaterialNodeRegistry::Normal);
+		Connect(graph, AddNode(graph, "object_position", Vec4{}), 0, outputNode, MaterialNodeRegistry::Occlusion);
+		Connect(graph, AddNode(graph, "world_position", Vec4{}), 0, outputNode, MaterialNodeRegistry::Opacity);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		CHECK(Contains(body, "mat.vertexColor"));
+		CHECK(Contains(body, "mat.viewDir"));
+		CHECK(Contains(body, "mat.time"));
+		CHECK(Contains(body, "mat.cameraPosition"));
+		CHECK(Contains(body, "normalize(mat.normal)"));
+		CHECK(Contains(body, "mat.objectPosition"));
+		CHECK(Contains(body, "mat.worldPos"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::TexCoordUVSet")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		// UV Set 1 reads the second UV channel; the sampler consumes it through its UV input pin.
+		RID uv1 = AddNode(graph, "tex_coord", Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+		RID texNode = AddNode(graph, "sample_texture", Vec4{});
+		Connect(graph, uv1, 0, texNode, 0);
+		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+		CHECK(Contains(body, "mat.texCoord1"));
+
+		RID outputNode2;
+		RID graph2 = NewGraph(outputNode2);
+		RID uv0 = AddNode(graph2, "tex_coord", Vec4{});
+		Connect(graph2, uv0, 0, outputNode2, MaterialNodeRegistry::Roughness);
+
+		String body2 = MaterialGraphCompiler::GenerateBody(graph2, log);
+		CHECK(Contains(body2, "= mat.texCoord;"));
+		CHECK(!Contains(body2, "mat.texCoord1"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::FresnelCodegen")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+		Connect(graph, AddNode(graph, "fresnel", Vec4{}), 0, outputNode, MaterialNodeRegistry::Metallic);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		// Unconnected pins fall back to the exponent literal and the world-space vertex normal.
+		CHECK(Contains(body, "pow(1.0 - saturate(dot(normalize(mat.normal), mat.viewDir)), 5)"));
+		CHECK(Contains(body, "surface.metallic  ="));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::CombineCodegen")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		RID a = AddNode(graph, "constant_float", Vec4{0.25f, 0.0f, 0.0f, 0.0f});
+		RID b = AddNode(graph, "constant_float", Vec4{0.5f, 0.0f, 0.0f, 0.0f});
+		RID combine = AddNode(graph, "combine", Vec4{});
+		Connect(graph, a, 0, combine, 0);
+		Connect(graph, b, 0, combine, 1);
+		// pin 1 is the Vec3 output; the unconnected Z falls back to its 0 literal
+		Connect(graph, combine, 1, outputNode, MaterialNodeRegistry::BaseColor);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		CHECK(Contains(body, "float3 n3 = float3(n0, n1, 0);"));
+		CHECK(Contains(body, "surface.baseColor = n3"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::SplitCodegen")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		RID color = AddNode(graph, "constant_color", Vec4{0.1f, 0.2f, 0.3f, 1.0f});
+		RID split = AddNode(graph, "split", Vec4{});
+		Connect(graph, color, 0, split, 0);
+		// pin 1 is the Y component
+		Connect(graph, split, 1, outputNode, MaterialNodeRegistry::Roughness);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		// The Vec3 source is padded up to the Vec4 input, snapshotted once, then split per component.
+		CHECK(Contains(body, "float4 sp1 = float4(n0, 0.0);"));
+		CHECK(Contains(body, "float n2 = sp1.y;"));
+		CHECK(Contains(body, "surface.roughness = n2"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::ComponentMaskCodegen")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		// X and Z selected: the masked output is a float2 swizzle of the input.
+		RID color = AddNode(graph, "constant_color", Vec4{0.1f, 0.2f, 0.3f, 1.0f});
+		RID mask = AddNode(graph, "component_mask", Vec4{1.0f, 0.0f, 1.0f, 0.0f});
+		Connect(graph, color, 0, mask, 0);
+		Connect(graph, mask, 0, outputNode, MaterialNodeRegistry::Roughness);
+
+		String log;
+		String body = MaterialGraphCompiler::GenerateBody(graph, log);
+
+		CHECK(Contains(body, "float2 n1 = (float4(n0, 0.0)).xz;"));
+		CHECK(Contains(body, "surface.roughness = (n1).x"));
+
+		// No component selected degenerates to a scalar zero instead of invalid HLSL.
+		RID outputNode2;
+		RID graph2 = NewGraph(outputNode2);
+		RID color2 = AddNode(graph2, "constant_color", Vec4{0.1f, 0.2f, 0.3f, 1.0f});
+		RID mask2 = AddNode(graph2, "component_mask", Vec4{0.0f, 0.0f, 0.0f, 0.0f});
+		Connect(graph2, color2, 0, mask2, 0);
+		Connect(graph2, mask2, 0, outputNode2, MaterialNodeRegistry::Roughness);
+
+		String body2 = MaterialGraphCompiler::GenerateBody(graph2, log);
+		CHECK(Contains(body2, "float n1 = 0.0;"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::WorldPositionOffsetVertexBody")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		String log;
+
+		// Nothing wired into World Position Offset: no vertex body at all.
+		CHECK(MaterialGraphCompiler::GenerateVertexBody(graph, log).Empty());
+
+		RID offset = AddNode(graph, "constant_vec3", Vec4{0.0f, 1.0f, 0.0f, 0.0f});
+		Connect(graph, offset, 0, outputNode, MaterialNodeRegistry::WorldPositionOffset);
+
+		String vertexBody = MaterialGraphCompiler::GenerateVertexBody(graph, log);
+		CHECK(Contains(vertexBody, "float3 n0 = float3(0, 1, 0);"));
+		CHECK(Contains(vertexBody, "worldPositionOffset = n0;"));
+
+		// The pixel body never touches the vertex-stage output.
+		String pixelBody = MaterialGraphCompiler::GenerateBody(graph, log);
+		CHECK(!Contains(pixelBody, "worldPositionOffset"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::WorldPositionOffsetShaderSplice")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		const char* templateText =
+			"// @SK_MATERIAL_GLOBALS@\n"
+			"float3 EvaluateWorldPositionOffset(MaterialInputs mat)\n{\n"
+			"    float3 worldPositionOffset = float3(0.0, 0.0, 0.0);\n"
+			"    // @SK_MATERIAL_VERTEX_GRAPH@\n"
+			"    return worldPositionOffset;\n}\n"
+			"void Eval()\n{\n"
+			"    // @SK_MATERIAL_GRAPH@\n}\n";
+
+		String log;
+
+		// The marker is consumed even when the pin is unconnected (empty splice).
+		String unconnected = MaterialGraphCompiler::GenerateShader(graph, templateText, log);
+		CHECK(!Contains(unconnected, "@SK_MATERIAL_VERTEX_GRAPH@"));
+		CHECK(!Contains(unconnected, "worldPositionOffset = n"));
+
+		RID offset = AddNode(graph, "constant_vec3", Vec4{0.0f, 2.0f, 0.0f, 0.0f});
+		Connect(graph, offset, 0, outputNode, MaterialNodeRegistry::WorldPositionOffset);
+
+		String connected = MaterialGraphCompiler::GenerateShader(graph, templateText, log);
+		CHECK(!Contains(connected, "@SK_MATERIAL_VERTEX_GRAPH@"));
+		CHECK(Contains(connected, "worldPositionOffset = n0;"));
+
+		ResourceShutdown();
+	}
+
+	TEST_CASE("MaterialGraph::WorldPositionOffsetTextureUsesSampleLevel")
+	{
+		ResourceInit();
+		SetupMaterialGraphTypes();
+		RegisterMaterialNodes();
+
+		RID outputNode;
+		RID graph = NewGraph(outputNode);
+
+		// The same texture feeds a pixel output and the vertex-stage offset: the pixel body samples
+		// with gradients + mipmap feedback, the vertex body must sample mip 0 without gradients.
+		RID texNode = AddNode(graph, "sample_texture", Vec4{});
+		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::BaseColor);
+		Connect(graph, texNode, 0, outputNode, MaterialNodeRegistry::WorldPositionOffset);
+
+		String log;
+		String pixelBody = MaterialGraphCompiler::GenerateBody(graph, log);
+		CHECK(Contains(pixelBody, ".Sample("));
+		CHECK(Contains(pixelBody, "WriteMipmapFeedback"));
+
+		String vertexBody = MaterialGraphCompiler::GenerateVertexBody(graph, log);
+		CHECK(Contains(vertexBody, ".SampleLevel("));
+		CHECK(!Contains(vertexBody, ".Sample("));
+		CHECK(!Contains(vertexBody, "WriteMipmapFeedback"));
+		CHECK(!Contains(vertexBody, "ddx_coarse"));
+		CHECK(Contains(vertexBody, "worldPositionOffset = "));
+
+		ResourceShutdown();
+	}
+
 	TEST_CASE("MaterialGraph::ValidationWarnings")
 	{
 		ResourceInit();
@@ -884,6 +1207,19 @@ namespace
 		Connect(graph, chanParam, 0, chanSelect, 1);
 		Connect(graph, chanSelect, 0, outputNode, MaterialNodeRegistry::Occlusion);
 
+		// UV1 into the texture sample: exercises the second UV channel end-to-end.
+		RID uv1 = AddNode(graph, "tex_coord", Vec4{1.0f, 0.0f, 0.0f, 0.0f});
+		Connect(graph, uv1, 0, texNode, 0);
+
+		// Time + Fresnel packed into a Vec3 driving World Position Offset: exercises the vertex-stage
+		// splice (mat.time / mat.viewDir / mat.normal in MainVS) through the live compile below.
+		RID timeNode = AddNode(graph, "time", Vec4{});
+		RID fresnelNode = AddNode(graph, "fresnel", Vec4{});
+		RID combineNode = AddNode(graph, "combine", Vec4{});
+		Connect(graph, timeNode, 0, combineNode, 0);
+		Connect(graph, fresnelNode, 0, combineNode, 1);
+		Connect(graph, combineNode, 1, outputNode, MaterialNodeRegistry::WorldPositionOffset);
+
 		#ifndef SK_SHADERS_NEW_DIR
 		REQUIRE(false);
 		#endif
@@ -895,12 +1231,15 @@ namespace
 		String log;
 		String hlsl = MaterialGraphCompiler::GenerateShader(graph, templateText, log);
 
-		// the generated body and param globals were spliced into the template, replacing the markers
+		// the generated bodies and param globals were spliced into the template, replacing the markers
 		CHECK(Contains(hlsl, "EvaluateMaterial"));
 		CHECK(Contains(hlsl, "surface.baseColor ="));
 		CHECK(Contains(hlsl, "SK_MaterialParamBuffer"));
 		CHECK(Contains(hlsl, "BindlessTextures[NonUniformResourceIndex("));
+		CHECK(Contains(hlsl, "worldPositionOffset = "));
+		CHECK(Contains(hlsl, "mat.texCoord1"));
 		CHECK_FALSE(Contains(hlsl, "// @SK_MATERIAL_GRAPH@"));
+		CHECK_FALSE(Contains(hlsl, "// @SK_MATERIAL_VERTEX_GRAPH@"));
 		CHECK_FALSE(Contains(hlsl, "// @SK_MATERIAL_GLOBALS@"));
 
 		// Live SPIR-V compilation needs dxcompiler.dll in the working directory. ShaderManagerInit

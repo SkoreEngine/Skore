@@ -15,20 +15,53 @@ struct PushConstants
 [[vk::push_constant]] PushConstants pushConstants;
 
 //material-graph code reads material params through this (see MaterialGraphCompiler);
-//assigned from the interpolated instance/push-constant material index at the top of MainPS
+//assigned from the interpolated instance/push-constant material index at the top of MainVS/MainPS
 static uint SK_MaterialIndex = 0;
 
 struct PixelInput
 {
-	float4 position : SV_POSITION;
-	float3 normal   : NORMAL;
-	float2 texCoord : TEXCOORD0;
-	float3 color    : COLOR;
-	float3 worldPos : POSITION1;
-	float4 tangent  : TANGENT;
+	float4 position  : SV_POSITION;
+	float3 normal    : NORMAL;
+	float2 texCoord  : TEXCOORD0;
+	float2 texCoord1 : TEXCOORD1;
+	float3 color     : COLOR;
+	float3 worldPos  : POSITION1;
+	float4 tangent   : TANGENT;
 
-	nointerpolation uint matIndex : MATERIAL1;
+	nointerpolation float3 objectPos : POSITION2;
+	nointerpolation uint   matIndex  : MATERIAL1;
 };
+
+// @SK_MATERIAL_GLOBALS@
+
+#ifndef SK_MATERIAL_UNLIT
+#define SK_MATERIAL_UNLIT 0
+#endif
+
+SurfaceOutput EvaluateMaterial(MaterialInputs mat)
+{
+	SurfaceOutput surface = (SurfaceOutput)0;
+	surface.baseColor = float3(0.8, 0.8, 0.8);
+	surface.metallic  = 0.0;
+	surface.roughness = 0.5;
+	surface.emissive  = float3(0.0, 0.0, 0.0);
+	surface.normal    = float3(0.0, 0.0, 1.0);
+	surface.occlusion = 1.0;
+	surface.opacity   = 1.0;
+
+	// @SK_MATERIAL_GRAPH@
+
+	return surface;
+}
+
+float3 EvaluateWorldPositionOffset(MaterialInputs mat)
+{
+	float3 worldPositionOffset = float3(0.0, 0.0, 0.0);
+
+	// @SK_MATERIAL_VERTEX_GRAPH@
+
+	return worldPositionOffset;
+}
 
 PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] uint baseInstance : SV_StartInstanceLocation)
 {
@@ -60,12 +93,28 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 
 	float4 worldPosition = mul(world, float4(position, 1.0));
 
+	float3x3 normalMat = (float3x3)world;
+	float3   worldNormal = normalize(mul(normalMat, normal));
+
+	SK_MaterialIndex = materialIndex;
+
+	MaterialInputs mat;
+	mat.texCoord       = GetVertexUV(vboff, layoutIdx, vertexId);
+	mat.texCoord1      = GetVertexUV1(vboff, layoutIdx, vertexId);
+	mat.normal         = worldNormal;
+	mat.worldPos       = worldPosition.xyz;
+	mat.vertexColor    = GetVertexColor(vboff, layoutIdx, vertexId);
+	mat.viewDir        = normalize(cameraPosition - worldPosition.xyz);
+	mat.cameraPosition = cameraPosition;
+	mat.objectPosition = mul(world, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+	mat.time           = time;
+
+	worldPosition.xyz += EvaluateWorldPositionOffset(mat);
+
 	PixelInput output;
 	output.position = mul(viewProjection, worldPosition);
 	output.worldPos = worldPosition.xyz;
-
-	float3x3 normalMat = (float3x3)world;
-	output.normal = normalize(mul(normalMat, normal));
+	output.normal   = worldNormal;
 
 	//w carries the bitangent sign; w == 0 marks a mesh without tangents
 	output.tangent = float4(0.0, 0.0, 0.0, 0.0);
@@ -74,9 +123,11 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 		output.tangent = float4(normalize(mul(normalMat, tangent.xyz)), tangent.w);
 	}
 
-	output.texCoord = GetVertexUV(vboff, layoutIdx, vertexId);
-	output.color    = GetVertexColor(vboff, layoutIdx, vertexId);
-	output.matIndex = materialIndex;
+	output.texCoord  = mat.texCoord;
+	output.texCoord1 = mat.texCoord1;
+	output.color     = mat.vertexColor;
+	output.objectPos = mat.objectPosition;
+	output.matIndex  = materialIndex;
 
 	return output;
 }
@@ -118,43 +169,27 @@ float3 ShadeForward(SurfaceOutput surface, float3 baseColor, float3 N, float3 V,
 	return color + surface.emissive;
 }
 
-// @SK_MATERIAL_GLOBALS@
-
-#ifndef SK_MATERIAL_UNLIT
-#define SK_MATERIAL_UNLIT 0
-#endif
-
-SurfaceOutput EvaluateMaterial(MaterialInputs mat)
-{
-	SurfaceOutput surface = (SurfaceOutput)0;
-	surface.baseColor = float3(0.8, 0.8, 0.8);
-	surface.metallic  = 0.0;
-	surface.roughness = 0.5;
-	surface.emissive  = float3(0.0, 0.0, 0.0);
-	surface.normal    = float3(0.0, 0.0, 1.0);
-	surface.occlusion = 1.0;
-	surface.opacity   = 1.0;
-
-	// @SK_MATERIAL_GRAPH@
-
-	return surface;
-}
-
 float4 MainPS(PixelInput input) : SV_Target0
 {
 	SK_MaterialIndex = input.matIndex;
 
+	float3 V = normalize(cameraPosition - input.worldPos);
+
 	MaterialInputs mat;
-	mat.texCoord    = input.texCoord;
-	mat.normal      = input.normal;
-	mat.worldPos    = input.worldPos;
-	mat.vertexColor = input.color;
+	mat.texCoord       = input.texCoord;
+	mat.texCoord1      = input.texCoord1;
+	mat.normal         = input.normal;
+	mat.worldPos       = input.worldPos;
+	mat.vertexColor    = input.color;
+	mat.viewDir        = V;
+	mat.cameraPosition = cameraPosition;
+	mat.objectPosition = input.objectPos;
+	mat.time           = time;
 
 	SurfaceOutput surface = EvaluateMaterial(mat);
 
 	float3 baseColor = surface.baseColor * input.color;
 	float3 N = ResolveWorldNormal(surface.normal, input.normal, input.tangent);
-	float3 V = normalize(cameraPosition - input.worldPos);
 
 #if SK_MATERIAL_UNLIT
 	float3 color = baseColor;

@@ -129,7 +129,9 @@ Current checks (empty parameter names, duplicate names across parameter types, u
 cycles, unknown node types, missing output) are **log-only**. Missing:
 
 - Valid pin indices + one-connection-per-input enforcement.
-- Stage compatibility checks (matters once vertex-stage outputs exist).
+- Stage compatibility checks — now live: the World Position Offset subgraph is compiled as vertex
+  stage, so pixel-only constructs need flagging (texture sampling is already handled via
+  `SampleLevel`, but future pixel-only nodes won't be).
 - Dead/unreachable node warnings.
 - Surfacing errors on the actual node/pin in `MaterialGraphEditorWindow` instead of the build log.
 
@@ -143,10 +145,10 @@ generated shader contract as runtime rendering) and per-node preview of the *com
 
 ### 3.3 Test gates
 
-21 editor test cases exist (codegen, bindless/sRGB, validation, live SPIR-V compile). Missing:
-golden generated-HLSL snapshots, serialization/migration tests, parameter layout/override tests, an
-alpha-mode variant test, and a real render smoke test (GPU test infra exists — see
-`Tests/Source/GPU/`).
+35 editor test cases exist (codegen incl. Tier 1 nodes + vertex-stage WPO, bindless/sRGB,
+validation, live SPIR-V compile of both stages). Missing: golden generated-HLSL snapshots,
+serialization/migration tests, parameter layout/override tests, an alpha-mode variant test, and a
+real render smoke test (GPU test infra exists — see `Tests/Source/GPU/`).
 
 ---
 
@@ -155,8 +157,9 @@ alpha-mode variant test, and a real render smoke test (GPU test infra exists —
 ### 4.1 Type + stage model expansion (gates everything below)
 
 `MaterialDataType` is scalar/vector only. Add pin categories for bool/int values, texture/sampler
-objects, and shader-stage availability (pixel / vertex / shared). Prerequisite for Custom HLSL,
-static switches, and vertex-stage outputs.
+objects, and shader-stage availability (pixel / vertex / shared). Prerequisite for Custom HLSL and
+static switches. (A narrow vertex-stage path shipped with World Position Offset —
+`MaterialCodegenContext::vertexStage` — but per-pin stage tagging is still this item.)
 
 ### 4.2 Custom HLSL node → Static Switches → Material Functions
 
@@ -170,15 +173,17 @@ static switches, and vertex-stage outputs.
 
 ### 4.3 Node library gaps
 
-- **Tier 1:** Vertex Color · World Normal · World Position · View Direction · Time · Camera/Object
-  Position · Fresnel · Make/Combine · Split/Break · Component Mask (swizzle) · Constant Vec3/Vec4 ·
-  UV1 on Texture Coordinate.
+- **Tier 1: done (2026-07-02)** — Vertex Color, World Normal/Position, View Direction, Time,
+  Camera/Object Position, Fresnel, Combine/Split/Component Mask, Constant Vec3/Vec4, and UV1 all
+  landed, plus the **World Position Offset** output with its vertex-stage codegen
+  (`@SK_MATERIAL_VERTEX_GRAPH@` splice; ignored by compute/RT hosts; shadows don't apply WPO yet).
+  Input nodes read the shared `MaterialInputs` struct, so non-raster material hosts support them by
+  filling the struct.
 - **Tier 2:** math batch (Abs/Floor/Frac/Fmod/Sqrt/Sign/Sin/Cos/Cross/Reflect/Distance/Atan2),
   color ops (desaturate, HSV↔RGB, sRGB↔linear, blend modes), UV ops (panner, rotator, flipbook,
   polar), cubemap/array/triplanar sampling, logic (if/comparison, boolean, switch).
 - **Tier 3:** procedural noise, normal blend/from-height, dither, parallax/POM, depth fade,
   posterize.
-- **World Position Offset** output — requires vertex-stage codegen (after 4.1).
 
 Mostly mechanical: subclass + `Reflection::Type<>()` in `RegisterMaterialNodes()`.
 
@@ -212,3 +217,6 @@ Nothing in the 2026-07 batches has been checked visually yet:
   re-configure so the embedded package picks up the new asset.
 - The sky path end-to-end (skybox render + IBL bake) now that the sky is a `TextureResource` on
   `EnvironmentComponent`, not a material.
+- The Tier 1 node batch in a real scene: a Time-driven World Position Offset (vertex animation —
+  also confirms the un-offset shadow limitation is acceptable), Fresnel rim on a sphere, UV1
+  sampling on a mesh that has a second UV set, and vertex color / object position reads.

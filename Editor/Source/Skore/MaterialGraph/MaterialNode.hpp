@@ -38,6 +38,7 @@ namespace Skore
 	{
 		String                   name{};
 		MaterialNodePropertyType type = MaterialNodePropertyType::Texture;
+		u8                       component = 0; //Value component (x..w) edited by single-scalar property kinds (Float/Int/Bool/Channel)
 	};
 
 	struct MaterialNodePin
@@ -61,18 +62,25 @@ namespace Skore
 	//matching input pin type), `value`, and `nodeIndex` (a unique per-node id). A node writes one HLSL
 	//expression per output pin via SetOutput(), may emit helper statements that run before the output
 	//variables via AddStatement(), and signals texture usage via UseTextures() + TextureSlot().
+	//`outputTypes` arrives pre-filled with each pin's resolved type; a node whose output type depends on
+	//its properties (e.g. Component Mask) overrides it via SetOutputType(). `vertexStage` is true when
+	//the node is emitted into the vertex-stage body (World Position Offset subgraph): texture samples
+	//must use SampleLevel and gradient-dependent code must be skipped there.
 	struct MaterialCodegenContext
 	{
-		Span<String>   inputs{};
-		Vec4           value{};
-		u32            nodeIndex = 0;
-		Array<String>& outputs;
-		Array<String>& statements;
-		bool*          usesTextures = nullptr;
-		u32            paramByteOffset = U32_MAX;
+		Span<String>              inputs{};
+		Vec4                      value{};
+		u32                       nodeIndex = 0;
+		Array<String>&            outputs;
+		Array<String>&            statements;
+		Array<MaterialDataType>&  outputTypes;
+		bool*                     usesTextures = nullptr;
+		u32                       paramByteOffset = U32_MAX;
+		bool                      vertexStage = false;
 
 		StringView Input(u32 index) const { return inputs[index]; }
 		void       SetOutput(u32 index, StringView expr) { outputs[index] = expr; }
+		void       SetOutputType(u32 index, MaterialDataType type) { outputTypes[index] = type; }
 		void       AddStatement(StringView statement) { statements.EmplaceBack(String{statement}); }
 		void       UseTextures() { if (usesTextures) *usesTextures = true; }
 		u32        TextureSlot() const { return nodeIndex; }
@@ -117,7 +125,7 @@ namespace Skore
 		virtual void DefineProperties() {}
 		void         AddInput(StringView name, MaterialDataType type, Vec4 defaultValue = {}, StringView defaultExpr = {}, bool color = false, bool generic = false);
 		void         AddOutput(StringView name, MaterialDataType type, bool generic = false);
-		void         AddProperty(StringView name, MaterialNodePropertyType type);
+		void         AddProperty(StringView name, MaterialNodePropertyType type, u8 component = 0);
 
 	private:
 		Array<MaterialNodePin>      m_inputs{};
@@ -132,16 +140,19 @@ namespace Skore
 		static MaterialNode*       Find(StringView typeId);
 
 		//Fixed input pin layout of the output (master) node, mapped to surface fields by the compiler.
+		//WorldPositionOffset is the only vertex-stage pin: it feeds the @SK_MATERIAL_VERTEX_GRAPH@ splice
+		//and is ignored by hosts without that token (compute / ray-tracing material shaders).
 		enum OutputPin
 		{
-			BaseColor   = 0,
-			Metallic    = 1,
-			Roughness   = 2,
-			Emissive    = 3,
-			Normal      = 4,
-			Occlusion   = 5,
-			Opacity     = 6,
-			OpacityMask = 7,
+			BaseColor           = 0,
+			Metallic            = 1,
+			Roughness           = 2,
+			Emissive            = 3,
+			Normal              = 4,
+			Occlusion           = 5,
+			Opacity             = 6,
+			OpacityMask         = 7,
+			WorldPositionOffset = 8,
 		};
 
 		static StringView OutputTypeId();

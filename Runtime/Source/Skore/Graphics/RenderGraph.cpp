@@ -2,6 +2,7 @@
 
 #include "Graphics.hpp"
 #include "RenderSceneObjects.hpp"
+#include "Skore/App.hpp"
 #include "Skore/Core/Hash.hpp"
 #include "Skore/Core/Allocator.hpp"
 #include "Skore/Core/Algorithm.hpp"
@@ -24,7 +25,8 @@ namespace Skore
 		f32   farClip;
 
 		IVec2 outputSize;
-		Vec2  pad1;
+		f32   time;
+		f32   pad1;
 
 		Vec2  jitter;
 		Vec2  prevJitter;
@@ -2197,6 +2199,7 @@ namespace Skore
 			.cameraPosition = camera.cameraPosition,
 			.farClip = camera.farClip,
 			.outputSize = IVec2{static_cast<i32>(outputSize.width), static_cast<i32>(outputSize.height)},
+			.time = static_cast<f32>(App::ElapsedTime()),
 			.jitter = camera.jitter,
 			.prevJitter = camera.previousJitter,
 			.instanceCount = instanceCount,

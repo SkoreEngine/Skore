@@ -1536,12 +1536,16 @@ namespace Skore
 		}
 	}
 
-	void PropertiesWindow::DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type)
+	void PropertiesWindow::DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type, u8 component)
 	{
 		ResourceObject nodeObj = Resources::Read(node);
 		if (!nodeObj) return;
 
 		Vec4 v = (m_nodeValueEditing && m_nodeValueNode == node) ? m_nodeValueEdit : nodeObj.GetVec4(MaterialGraphNodeResource::Value);
+
+		//single-scalar property kinds edit the Value component the node declared for them, so one node
+		//can expose up to four independent scalars (e.g. the Component Mask X/Y/Z/W toggles)
+		f32& scalar = (&v.x)[component > 3 ? 0 : component];
 
 		ImGui::PushID(static_cast<i32>(id));
 
@@ -1551,24 +1555,24 @@ namespace Skore
 		switch (type)
 		{
 			case MaterialNodePropertyType::Float:
-				changed = ImGui::DragFloat("##v", &v.x, 0.01f);
+				changed = ImGui::DragFloat("##v", &scalar, 0.01f);
 				break;
 			case MaterialNodePropertyType::Int:
 			{
-				int iv = static_cast<int>(v.x);
+				int iv = static_cast<int>(scalar);
 				if (ImGui::DragInt("##v", &iv, 1.0f))
 				{
-					v.x = static_cast<f32>(iv);
+					scalar = static_cast<f32>(iv);
 					changed = true;
 				}
 				break;
 			}
 			case MaterialNodePropertyType::Bool:
 			{
-				bool bv = v.x != 0.0f;
+				bool bv = scalar != 0.0f;
 				if (ImGui::Checkbox("##v", &bv))
 				{
-					v.x = bv ? 1.0f : 0.0f;
+					scalar = bv ? 1.0f : 0.0f;
 					changed = true;
 					commit = true; //a checkbox has no drag to settle, so persist the toggle immediately
 				}
@@ -1588,10 +1592,10 @@ namespace Skore
 				break;
 			case MaterialNodePropertyType::Channel:
 			{
-				int iv = static_cast<int>(v.x);
+				int iv = static_cast<int>(scalar);
 				if (ImGui::Combo("##v", &iv, "Red\0Green\0Blue\0Alpha\0"))
 				{
-					v.x = static_cast<f32>(iv);
+					scalar = static_cast<f32>(iv);
 					changed = true;
 					commit = true; //a combo has no drag to settle, so persist the selection immediately
 				}
@@ -1802,7 +1806,7 @@ namespace Skore
 						case MaterialNodePropertyType::Vec3:
 						case MaterialNodePropertyType::Vec4:
 						case MaterialNodePropertyType::Channel:
-							DrawNodeValueProperty(propId, node, prop.type);
+							DrawNodeValueProperty(propId, node, prop.type, prop.component);
 							break;
 					}
 				}
