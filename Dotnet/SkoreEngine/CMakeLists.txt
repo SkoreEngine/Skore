@@ -1,4 +1,9 @@
-find_program(SK_DOTNET_EXECUTABLE NAMES dotnet REQUIRED)
+find_program(SK_DOTNET_EXECUTABLE NAMES dotnet)
+
+if(NOT SK_DOTNET_EXECUTABLE)
+	message(STATUS "dotnet not found; skipping managed SkoreEngine build")
+	return()
+endif()
 
 set(SK_MANAGED_PROJECT ${CMAKE_CURRENT_SOURCE_DIR}/SkoreEngine.csproj)
 set(SK_MANAGED_OUTPUT_DIR ${CMAKE_BINARY_DIR}/bin/managed)
