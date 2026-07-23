@@ -11,11 +11,25 @@
 #include "Skore/Events.hpp"
 #include "Skore/IO/Input.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
+#include "Skore/Scene/Components/UIContext.hpp"
 #include "Skore/Scene/SceneManager.hpp"
 
 namespace Skore
 {
 	static Logger& logger = Logger::GetLogger("Skore::SceneEditor");
+
+	static void SetSceneUIContextsVisible(Scene* scene, bool visible)
+	{
+		if (!scene || !scene->HasIterable<UIContext>())
+		{
+			return;
+		}
+
+		scene->Iterate<UIContext>([visible](UIContext* context)
+		{
+			context->SetVisible(visible);
+		});
+	}
 
 	struct SceneEditorState
 	{
@@ -556,8 +570,8 @@ namespace Skore
 			}
 		}
 
-		if (UIContext* simContext = m_simulationScene ? m_simulationScene->uiContext : nullptr) simContext->SetVisible(SceneManager::GetActiveScene() == m_simulationScene.get());
-		if (UIContext* editorContext = m_editorScene ? m_editorScene->uiContext : nullptr) editorContext->SetVisible(SceneManager::GetActiveScene() == nullptr && HasSelectedUIDocument());
+		SetSceneUIContextsVisible(m_simulationScene.get(), SceneManager::GetActiveScene() == m_simulationScene.get());
+		SetSceneUIContextsVisible(m_editorScene.get(), SceneManager::GetActiveScene() == nullptr && HasSelectedUIDocument());
 
 		m_shouldStartSimulation = false;
 		m_shouldStopSimulation = false;

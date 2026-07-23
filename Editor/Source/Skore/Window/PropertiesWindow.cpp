@@ -10,9 +10,9 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
+#include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
-#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
 #include "Skore/ImGui/Icons.h"
 #include "Skore/ImGui/ImGui.hpp"
 #include "Skore/MaterialGraph/MaterialNode.hpp"
@@ -29,8 +29,6 @@
 
 namespace Skore
 {
-	struct PreviewRenderPipeline;
-
 	namespace
 	{
 		u32 MipSize(u32 base, u32 mip)
@@ -70,23 +68,6 @@ namespace Skore
 		}
 	}
 
-	struct PreviewOutputModule : RenderPipelineModule
-	{
-		SK_CLASS(PreviewOutputModule, RenderPipelineModule);
-
-		Array<RenderPipelineResource> GetResources() override
-		{
-			Array<RenderPipelineResource> resources;
-			resources.EmplaceBack(RenderPipelineResource{.name = OutputColorName, .type = RenderPipelineResourceType::Attachment, .format = Format::RGBA8_UNORM, .samples = 1});
-			return resources;
-		}
-
-		RenderPipelineModuleSetup GetSetup() override
-		{
-			return {};
-		}
-	};
-
 	PropertiesWindow::PropertiesWindow()
 	{
 		Event::Bind<OnEntitySelection, &PropertiesWindow::EntitySelection>(this);
@@ -116,7 +97,7 @@ namespace Skore
 		ReleaseTextureResources();
 		if (m_context)
 		{
-			m_context->Destroy();
+			DestroyAndFree(m_context);
 			m_context = nullptr;
 		}
 		if (m_scene)
@@ -172,7 +153,7 @@ namespace Skore
 			nearFar = Math::GerNearFarFromAABB(aabb, view);
 		}
 
-		m_context->UpdateCamera(nearFar.x, nearFar.y, m_fov, Projection::Perspective, view, cameraPos);
+		m_context->GetRenderGraph().UpdateCamera(nearFar.x, nearFar.y, m_fov, Projection::Perspective, view, cameraPos);
 		m_context->Execute(cmd, m_scene);
 	}
 
@@ -969,20 +950,9 @@ namespace Skore
 	{
 		if (m_context == nullptr)
 		{
-			RenderPipelineContextSettings settings;
-			settings.initialOutputSize = extent;
-			settings.userData = this;
-
-			Array<TypeID> modules;
-			modules.EmplaceBack(sktypeid(PreviewOutputModule));
-
-			m_context = RenderPipeline::CreateContext(sktypeid(PreviewRenderPipeline), modules, settings);
-			m_context->SetColorOutput(OutputColorName);
+			m_context = RenderPipelineContext::Create(sktypeid(DefaultRenderPipeline));
 		}
-		else
-		{
-			m_context->SetOutputSize(extent);
-		}
+		m_context->GetRenderGraph().SetOutputSize(extent);
 
 		m_outputSize = extent;
 	}
@@ -995,7 +965,7 @@ namespace Skore
 		{
 			EnsureContext(Extent{static_cast<u32>(avail.x), static_cast<u32>(avail.y)});
 
-			if (GPUTexture* color = m_context->GetColorOutput())
+			if (GPUTexture* color = m_context->GetRenderGraph().GetColorOutput())
 			{
 				ImGuiTextureItem(color, ImVec2(avail.x, avail.y));
 
@@ -1301,7 +1271,7 @@ namespace Skore
 		{
 			if (m_context)
 			{
-				m_context->Destroy();
+				DestroyAndFree(m_context);
 				m_context = nullptr;
 			}
 
@@ -1536,12 +1506,16 @@ namespace Skore
 		}
 	}
 
-	void PropertiesWindow::DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type)
+	void PropertiesWindow::DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type, u8 component)
 	{
 		ResourceObject nodeObj = Resources::Read(node);
 		if (!nodeObj) return;
 
 		Vec4 v = (m_nodeValueEditing && m_nodeValueNode == node) ? m_nodeValueEdit : nodeObj.GetVec4(MaterialGraphNodeResource::Value);
+
+		//single-scalar property kinds edit the Value component the node declared for them, so one node
+		//can expose up to four independent scalars (e.g. the Component Mask X/Y/Z/W toggles)
+		f32& scalar = (&v.x)[component > 3 ? 0 : component];
 
 		ImGui::PushID(static_cast<i32>(id));
 
@@ -1551,24 +1525,24 @@ namespace Skore
 		switch (type)
 		{
 			case MaterialNodePropertyType::Float:
-				changed = ImGui::DragFloat("##v", &v.x, 0.01f);
+				changed = ImGui::DragFloat("##v", &scalar, 0.01f);
 				break;
 			case MaterialNodePropertyType::Int:
 			{
-				int iv = static_cast<int>(v.x);
+				int iv = static_cast<int>(scalar);
 				if (ImGui::DragInt("##v", &iv, 1.0f))
 				{
-					v.x = static_cast<f32>(iv);
+					scalar = static_cast<f32>(iv);
 					changed = true;
 				}
 				break;
 			}
 			case MaterialNodePropertyType::Bool:
 			{
-				bool bv = v.x != 0.0f;
+				bool bv = scalar != 0.0f;
 				if (ImGui::Checkbox("##v", &bv))
 				{
-					v.x = bv ? 1.0f : 0.0f;
+					scalar = bv ? 1.0f : 0.0f;
 					changed = true;
 					commit = true; //a checkbox has no drag to settle, so persist the toggle immediately
 				}
@@ -1586,6 +1560,17 @@ namespace Skore
 			case MaterialNodePropertyType::Vec4:
 				changed = ImGui::DragFloat4("##v", &v.x, 0.01f);
 				break;
+			case MaterialNodePropertyType::Channel:
+			{
+				int iv = static_cast<int>(scalar);
+				if (ImGui::Combo("##v", &iv, "Red\0Green\0Blue\0Alpha\0"))
+				{
+					scalar = static_cast<f32>(iv);
+					changed = true;
+					commit = true; //a combo has no drag to settle, so persist the selection immediately
+				}
+				break;
+			}
 			default:
 				ImGui::PopID();
 				return;
@@ -1612,12 +1597,23 @@ namespace Skore
 
 	void PropertiesWindow::DrawMaterialOutputProperties(RID graph)
 	{
-		MaterialGraphResource::GraphAlphaMode mode = MaterialGraphResource::GraphAlphaMode::Opaque;
-		f32                                   cutoff = 0.5f;
+		MaterialGraphResource::GraphShadingModel shadingModel = MaterialGraphResource::GraphShadingModel::DefaultLit;
+		MaterialGraphResource::GraphAlphaMode    mode = MaterialGraphResource::GraphAlphaMode::Opaque;
+		MaterialGraphResource::GraphRenderFace   renderFace = MaterialGraphResource::GraphRenderFace::Front;
+		f32                                      cutoff = 0.5f;
+		bool                                     depthWrite = true;
+		i32                                      depthTest = static_cast<i32>(CompareOp::Greater);
 		if (ResourceObject graphObj = Resources::Read(graph))
 		{
+			shadingModel = graphObj.GetEnum<MaterialGraphResource::GraphShadingModel>(MaterialGraphResource::ShadingModel);
 			mode = graphObj.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+			renderFace = graphObj.GetEnum<MaterialGraphResource::GraphRenderFace>(MaterialGraphResource::RenderFace);
 			cutoff = graphObj.GetFloat(MaterialGraphResource::MaskCutoff);
+			depthWrite = graphObj.HasValue(MaterialGraphResource::DepthWrite) ? graphObj.GetBool(MaterialGraphResource::DepthWrite) : mode != MaterialGraphResource::GraphAlphaMode::Blend;
+			if (graphObj.HasValue(MaterialGraphResource::DepthTest))
+			{
+				depthTest = static_cast<i32>(graphObj.GetEnum<CompareOp>(MaterialGraphResource::DepthTest));
+			}
 		}
 		else
 		{
@@ -1629,6 +1625,20 @@ namespace Skore
 		{
 			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 0.4f);
 			ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Material");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+			i32 shadingIndex = static_cast<i32>(shadingModel);
+			if (ImGui::Combo("##shadingmodel", &shadingIndex, "Default Lit\0Unlit\0"))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Material Shading");
+				ResourceObject write = Resources::Write(graph);
+				write.SetEnum(MaterialGraphResource::ShadingModel, static_cast<MaterialGraphResource::GraphShadingModel>(shadingIndex));
+				write.Commit(scope);
+			}
 
 			ImGui::TableNextColumn();
 			ImGui::AlignTextToFramePadding();
@@ -1658,6 +1668,45 @@ namespace Skore
 					write.SetFloat(MaterialGraphResource::MaskCutoff, cutoff);
 					write.Commit(scope);
 				}
+			}
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Render Face");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+			i32 faceIndex = static_cast<i32>(renderFace);
+			if (ImGui::Combo("##renderface", &faceIndex, "Front\0Back\0Both\0"))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Render Face");
+				ResourceObject write = Resources::Write(graph);
+				write.SetEnum(MaterialGraphResource::RenderFace, static_cast<MaterialGraphResource::GraphRenderFace>(faceIndex));
+				write.Commit(scope);
+			}
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Depth Write");
+			ImGui::TableNextColumn();
+			if (ImGui::Checkbox("##depthwrite", &depthWrite))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Depth Write");
+				ResourceObject write = Resources::Write(graph);
+				write.SetBool(MaterialGraphResource::DepthWrite, depthWrite);
+				write.Commit(scope);
+			}
+
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Depth Test");
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-1);
+			if (ImGui::Combo("##depthtest", &depthTest, "Never\0Less\0Equal\0Less Equal\0Greater\0Not Equal\0Greater Equal\0Always\0"))
+			{
+				UndoRedoScope* scope = Editor::CreateUndoRedoScope("Set Depth Test");
+				ResourceObject write = Resources::Write(graph);
+				write.SetEnum(MaterialGraphResource::DepthTest, static_cast<CompareOp>(depthTest));
+				write.Commit(scope);
 			}
 
 			ImGui::EndTable();
@@ -1726,7 +1775,8 @@ namespace Skore
 						case MaterialNodePropertyType::Vec2:
 						case MaterialNodePropertyType::Vec3:
 						case MaterialNodePropertyType::Vec4:
-							DrawNodeValueProperty(propId, node, prop.type);
+						case MaterialNodePropertyType::Channel:
+							DrawNodeValueProperty(propId, node, prop.type, prop.component);
 							break;
 					}
 				}
@@ -1941,6 +1991,17 @@ namespace Skore
 			case MaterialNodePropertyType::Vec4:
 				changed = ImGui::DragFloat4("##v", &v.x, 0.01f);
 				break;
+			case MaterialNodePropertyType::Channel:
+			{
+				int iv = static_cast<int>(v.x);
+				if (ImGui::Combo("##v", &iv, "Red\0Green\0Blue\0Alpha\0"))
+				{
+					v.x = static_cast<f32>(iv);
+					changed = true;
+					commit = true; //a combo has no drag to settle, so persist the selection immediately
+				}
+				break;
+			}
 			default:
 				ImGui::PopID();
 				return;
@@ -2194,8 +2255,4 @@ namespace Skore
 		});
 	}
 
-	void RegisterPreviewModule()
-	{
-		Reflection::Type<PreviewOutputModule>();
-	}
 }

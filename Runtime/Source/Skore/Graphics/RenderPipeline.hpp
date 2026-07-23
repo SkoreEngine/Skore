@@ -1,471 +1,82 @@
 #pragma once
 
-#include "Device.hpp"
-#include "GraphicsCommon.hpp"
-#include "Skore/Core/Math.hpp"
+#include "Skore/Common.hpp"
 #include "Skore/Core/Object.hpp"
-#include "Skore/Core/Span.hpp"
-#include "Skore/Core/HashMap.hpp"
-#include "Skore/Core/HashSet.hpp"
-
-#include <variant>
+#include "Skore/Core/Array.hpp"
 
 namespace Skore
 {
 	class Scene;
-	class RenderPipelineContext;
-	struct RenderPipeline;
+	class RenderGraph;
 	class GPUCommandBuffer;
 
-	using PipelineOption = std::variant<bool, i64, u64, f64, std::string>;
-
-	typedef void (*RenderPipelineContextSubmitFn)(GPUCommandBuffer* cmd, VoidPtr userData);
-
-	enum class RenderPipelinePassType
+	struct RenderStage
 	{
-		Other    = 0,
-		Graphics = 1,
-		Compute  = 2,
-		Raytrace = 3
-	};
-
-	enum class RenderPipelineTextureAccess
-	{
-		None      = 0,
-		Read      = 1,
-		Write     = 2,
-		ReadWrite = 3,
-	};
-
-	enum class RenderPipelineResourceType
-	{
-		None        = 0,
-		Texture     = 1,
-		TextureView = 2,
-		Attachment  = 3,
-		Buffer      = 4,
-		Reference   = 5,
-		Instance    = 6,
-	};
-
-	struct RenderPipelineResource
-	{
-		String                     name{};
-		RenderPipelineResourceType type = RenderPipelineResourceType::None;
-
-		//texture
-		Format format = Format::Unknown;
-		Extent        extent{};
-		Vec2          scale = Vec2(1.0f);
-		u32           arrayLayers = 1;
-		u32           samples = 1;
-		u32           mipLevels = 1;
-		ResourceUsage textureUsage = ResourceUsage::None;
-		bool					pingPong = false;
-
-		//texture view
-		String          textureName;
-		TextureViewType viewType = TextureViewType::Undefined;
-		u32             baseMipLevel = 0;
-		u32             levelCount = 1;
-		u32             baseArrayLayer = 0;
-		u32             layerCount = 1;
-
-		//attachment
-		Vec4 clearColor = Vec4(0.0f);
-
-		//buffer
-		usize         size;
-		ResourceUsage usage;
-		bool          hostVisible{true};
-		bool          persistentMapped{false};
-
-		//Reference
-		VoidPtr data = nullptr;
-
-		//instance
-		TypeID instanceTypeId;
-	};
-
-	struct RenderPipelinePassDependency
-	{
-		String                      name{};
-		RenderPipelineTextureAccess access = RenderPipelineTextureAccess::None;
-	};
-
-	struct RenderPipelinePassSetup
-	{
-		RenderPipelinePassType              type = RenderPipelinePassType::Other;
-		bool                                invertViewport = false;
-		bool																requireJitter = false;
-		bool																requireMotionVector = false;
-		i32                                 stage = 0;
-		Array<RenderPipelinePassDependency> dependencies;
-		Array<String>                       resolve;
-		HashMap<String, PipelineOption>			options;
-	};
-
-	struct SK_API RenderPipelinePass : Object
-	{
-		SK_CLASS(RenderPipelinePass, Object);
-
-		RenderPipelineContext* context = nullptr;
-		GPURenderPass*         renderPass = nullptr;
-
-		virtual RenderPipelinePassSetup GetPassSetup() = 0;
-
-		//checked every frame; when the returned value changes the render graph is rebuilt
-		virtual bool IsEnabled() { return true; }
-
-		//called right after creation, no resources, passes are created at this usage
-		virtual void Create() {}
-
-		//called after resource creation (at this stage it's possible to get render pass and resources)
-		virtual void Init() {}
-
-		virtual void Update() {}
-		virtual void Render(Scene* scene, GPUCommandBuffer* cmd) {}
-		virtual void Destroy() {}
-		virtual void OnResize(Extent size) {}
-	};
-
-	struct RenderPipelineModuleSetup
-	{
-		Array<TypeID> passes;
-		Array<String> resolve;
-		HashMap<String, PipelineOption> options;
-	};
-
-	struct SK_API RenderPipelineModule : Object
-	{
-		SK_CLASS(RenderPipelineModule, Object);
-
-		RenderPipelineContext* context = nullptr;
-
-		virtual Array<RenderPipelineResource> GetResources()
-		{
-			return {};
-		}
-
-		virtual RenderPipelineModuleSetup GetSetup() = 0;
-
-		//checked every frame; when the returned value changes the render graph is rebuilt
-		virtual bool IsEnabled() { return true; }
-
-		virtual void Init() {}
-		virtual void Destroy() {}
-		virtual void Update(Scene* scene) {}
-	};
-
-	struct RenderPipelineSetup
-	{
-		Array<TypeID> modules;
-	};
-
-	struct RenderPipelineContextSettings
-	{
-		Extent  initialOutputSize = {};
-		VoidPtr userData = nullptr;
+		constexpr static i32 Culling = 100;
+		constexpr static i32 ShadowPass = 200;
+		constexpr static i32 DepthPrePass = 300;
+		constexpr static i32 GBuffer = 400;
+		constexpr static i32 DepthLinearize = 500;
+		constexpr static i32 Lighting = 600;
+		constexpr static i32 Forward = 700;
+		constexpr static i32 Transparent = 750;
+		constexpr static i32 Indirect = 800;
+		constexpr static i32 Composite = 900;
+		constexpr static i32 PostProcess = 1000;
+		constexpr static i32 Tools = 1100;
+		constexpr static i32 UI = 1200;
+		constexpr static i32 Swapchain = 1300;
 	};
 
 	struct SK_API RenderPipeline : Object
 	{
 		SK_CLASS(RenderPipeline, Object);
 
-		virtual RenderPipelineSetup   GetPipelineSetup() = 0;
-		static RenderPipelineContext* CreateContext(TypeID pipelineTypeId, Span<TypeID> extraModules, const RenderPipelineContextSettings& settings = {});
-		static RenderPipelineContext* GetMainContext();
-		static void                   SetMainContext(RenderPipelineContext* context);
+		virtual void BuildRenderGraph(RenderGraph& renderGraph) = 0;
 	};
 
+	struct SK_API DefaultPipelinePass : Object
+	{
+		SK_CLASS(DefaultPipelinePass, Object);
+
+		virtual void BuildRenderGraph(RenderGraph& renderGraph) = 0;
+	};
+
+	struct SK_API DefaultRenderPipeline : RenderPipeline
+	{
+		SK_CLASS(DefaultRenderPipeline, RenderPipeline);
+
+		~DefaultRenderPipeline() override;
+
+		void BuildRenderGraph(RenderGraph& renderGraph) override;
+
+	private:
+		Array<DefaultPipelinePass*> passes;
+		bool                           discovered = false;
+	};
 
 	class SK_API RenderPipelineContext : public Object
 	{
 	public:
 		SK_CLASS(RenderPipelineContext, Object);
-		SK_NO_COPY_CONSTRUCTOR(RenderPipelineContext)
-		RenderPipelineContext(RenderPipeline* pipeline, Span<TypeID> extraModules, const RenderPipelineContextSettings& settings);
+		SK_NO_COPY_CONSTRUCTOR(RenderPipelineContext);
 
-		void UpdateCamera(f32 nearClip, f32 farClip, f32 fov, Projection projection, const Mat4& view, const Vec3& cameraPosition, bool updateFrustum = true);
-		void SetTexture(StringView textureName, GPUTexture* texture);
+		explicit RenderPipelineContext(TypeID pipelineTypeId);
+		~RenderPipelineContext() override;
 
-		GPUTexture* GetTexture(StringView textureName);
-		GPUTexture* GetPrevTexture(StringView textureName);
-		VoidPtr     GetInstanceData(StringView name);
-		GPUBuffer*  GetBuffer(StringView name);
-
-		PipelineOption                         GetOption(StringView name) const;
-		void                                   SetOption(StringView name, const PipelineOption& value);
-		const HashMap<String, PipelineOption>& GetOptions() const;
-
-		//output
-		void SetOutputAttachments(StringView name, Span<GPUTexture*> attachments, ResourceState requiredState);
-		void SetOutputViewsPerAttachment(u32 viewCount);
-		void SetCurrentOutputIndex(u32 index);
-		void SetOutputSize(Extent size);
-
-		Extent GetOutputSize() const
-		{
-			return outputSize;
-		}
-
-		GPUTexture* GetColorOutput() const;
-		GPUTexture* GetDepthOutput() const;
-
-		void SetColorOutput(StringView name);
-		void SetDepthOutput(StringView name);
-
-		//scene currently being rendered (set each frame by Execute). null before the first frame.
-		//modules/passes can query it from IsEnabled() to toggle themselves based on scene components.
-		Scene* GetScene() const
-		{
-			return currentScene;
-		}
-
-		//true when any currently enabled pass declares requireMotionVector in its setup.
-		//queried by MotionVectorModule::IsEnabled() so it only runs when something consumes motion vectors.
-		bool IsMotionVectorRequired() const;
-
-		void DisableContext(bool disabled);
-
-		TypeID GetPipelineTypeId() const;
+		RenderGraph&       GetRenderGraph() const;
+		RenderPipeline* GetPipeline() const;
 
 		void Execute(GPUCommandBuffer* cmd, Scene* scene);
-		void Destroy();
 
-		struct
-		{
-			f32 nearClip = 0.0;
-			f32 farClip = 0.0;
+		static RenderPipelineContext* Create(TypeID pipelineTypeId);
 
-			Mat4 view = Mat4(1.0);
-			Mat4 invView = Mat4(1.0);
-			Mat4 projection = Mat4(1.0);
-			Mat4 invProjection = Mat4(1.0);
-			Mat4 viewProjection = Mat4(1.0);
-			Mat4 invViewProj = Mat4(1.0);
-			Mat4 previousViewProjection = Mat4(1.0);
-
-			Mat4 projectionNoJitter = Mat4(1.0);
-			Mat4 viewProjectionNoJitter = Mat4(1.0);
-			Mat4 previousViewProjectionNoJitter = Mat4(1.0);
-
-			Vec3 cameraPosition = {};
-
-			i32  jitterIndex = 0;
-			i32  jitterPeriod = 8;
-			Vec2 jitter{};
-			Vec2 previousJitter{};
-			Vec2 jitterXy = {};
-			Vec2 previousJitterXy = {};
-
-			Frustum frustum;
-
-			u64 cullingMask = ~0ULL;
-		} camera;
-
-		RenderPipelineContextSettings settings;
-
-		GPUBuffer* sceneBuffer = nullptr;
-
-		template <typename T>
-		T* GetInstanceData(StringView name)
-		{
-			return static_cast<T*>(GetInstanceData(name));
-		}
-
-		GPUDescriptorSet* GetSceneDescriptorSet() const;
-		GPUDescriptorSet* GetSceneDescriptorSet(u32 frame) const;
-
-		u32 GetCurrentFrame() const
-		{
-			return currentFrame;
-		}
-
-		u64 GetSceneBufferOffset() const
-		{
-			return sceneBufferFrameSize * currentFrame;
-		}
-
-		u64 GetSceneBufferSize() const
-		{
-			return sceneBufferFrameSize;
-		}
-
-
-		struct PipelineResourceStorage
-		{
-			RenderPipelineResource desc;
-			RenderPipelineContext* context;
-
-			GPUTexture*     textures[2] = {nullptr, nullptr};
-			GPUTextureView* textureView = nullptr;
-			GPUBuffer*      buffer = nullptr;
-
-			VoidPtr instanceData = nullptr;
-			TypeID  instanceTypeId;
-
-			bool ownsResource = false;
-
-			//true when this resource was declared by a module's GetResources(); reconciled when modules toggle
-			bool moduleDeclared = false;
-
-			Array<GPUTexture*> outputAttachments;
-
-			ResourceState requiredState = ResourceState::Undefined;
-			u32           lastWrite = U32_MAX;
-
-			TextureDesc textureDesc = {};
-			bool        textureUseOutputSize = {};
-
-			void Destroy();
-
-			GPUTexture* GetTexture(u8 frame) const
-			{
-				if (textures[1] == nullptr)
-				{
-					return textures[0];
-				}
-				return textures[frame];
-			}
-
-			bool HasTexture() const
-			{
-				return textures[0] != nullptr;
-			}
-
-			GPUTexture* GetResourceTexture(u8 frame)
-			{
-				if (GPUTexture* texture = GetTexture(frame))
-				{
-					return texture;
-				}
-
-				if (textureView)
-				{
-					return textureView->GetTexture();
-				}
-				if (!outputAttachments.Empty())
-				{
-					return outputAttachments[context->currentOutputIndex];
-				}
-
-				return nullptr;
-			}
-
-
-			template <typename T>
-			void IterateTextures(T&& func)
-			{
-				if (GPUTexture* texture = textures[0])
-				{
-					func(texture, 0);
-				}
-				else if (textureView)
-				{
-					func(textureView->GetTexture(), 0);
-				}
-				else if (!outputAttachments.Empty())
-				{
-					for (int i = 0; i < outputAttachments.Size(); ++i)
-					{
-						func(outputAttachments[i], i);
-					}
-				}
-			}
-		};
+		//context that receives camera updates from scene Camera components (game/simulation view)
+		static RenderPipelineContext* GetMainContext();
+		static void                      SetMainContext(RenderPipelineContext* context);
 
 	private:
-		bool              contextDisabled = false;
-		Scene*            currentScene = nullptr;
-		RenderPipeline*   renderPipeline{};
-		u64               sceneBufferFrameSize = 0;
-		GPUDescriptorSet* sceneDescriptorSets[SK_FRAMES_IN_FLIGHT] = {nullptr, nullptr};
-		bool							applyJitter = false;
-
-		struct PassBarrier
-		{
-			String        resource;
-			ResourceState srcState;
-			ResourceState dstState;
-		};
-
-		struct PassStorage
-		{
-			String                  name;
-			RenderPipelinePass*     pass = nullptr;
-			RenderPipelinePassSetup setup;
-			RenderPipelineModule*   module = nullptr;
-
-			//cached from setup.dependencies, used to build the dependency graph
-			Array<String> writes;
-			Array<String> reads;
-
-			//true while the pass is part of the active graph (Create()/Init() have run)
-			bool active = false;
-
-			Array<GPUFramebuffer*> framebuffers;
-
-			Array<PassBarrier> preBarriers;
-			Array<PassBarrier> postBarriers;
-
-			GPUFramebuffer* GetCurrentFramebuffer(u32 index) const;
-
-			void CreateFrameBuffers(RenderPipelineContext* context);
-		};
-
-		Array<PassStorage>             passStorages;       //all passes (persistent, created once)
-		Array<PassStorage*>            passes;             //active passes in execution order
-		Array<RenderPipelineModule*>   allModules;         //all modules (persistent, created once)
-		Array<RenderPipelineModule*>   modules;            //active modules in execution order
-		HashSet<RenderPipelineModule*> activeModulesSet;   //modules currently initialized
-
-		Extent outputSize;
-
-		u32 ViewCount = 1;
-
-		u32 currentFrame = 0;
-		u32 prevFrame = 0;
-		u32 currentOutputIndex = 0;
-
-		String depthOutputName;
-		String colorOutputName;
-
-
-		HashMap<String, PipelineResourceStorage> resources;
-		HashMap<String, PipelineOption>          options;
-		Array<PassBarrier>                       initializationBarriers;
-		bool                                     resourceCreated = false;
-		bool                                     resourceDirty = false;
-
-		//(re)builds the execution graph from the currently enabled passes/modules.
-		//firstBuild=true is the initial build from the constructor; otherwise the previous
-		//graph is diffed: newly enabled passes/modules are Created/Init'd, disabled ones Destroyed.
-		void BuildGraph(bool firstBuild);
-
-		//creates resources newly required by the active modules and destroys the ones no longer used.
-		void ReconcileResources(const HashSet<RenderPipelineModule*>& activeModules);
-
-		//returns true if any pass/module IsEnabled() differs from the current active graph.
-		bool HasEnabledStateChanged();
-
-		void CreateContextResources();
-		void CreatePasses();
-		void CreateBarriers();
-		void Resize();
-
-		struct ResourceUsageInfo
-		{
-			u32                         passIndex = U32_MAX;
-			RenderPipelineTextureAccess access = RenderPipelineTextureAccess::None;
-		};
-
-		ResourceUsageInfo GetNextUsageInfo(u32 currentPass, StringView attachmentName) const;
-		ResourceUsageInfo GetPreviousUsageInfo(u32 currentPass, StringView attachmentName) const;
-		ResourceUsageInfo GetLastUsageInfo(StringView attachmentName) const;
-		ResourceUsageInfo GetFirstUsageInfo(StringView attachmentName) const;
-
-	public:
-		Array<PipelineResourceStorage> GetResources() const;
+		RenderGraph*       renderGraph = nullptr;
+		RenderPipeline* pipeline = nullptr;
 	};
 }

@@ -1,27 +1,19 @@
-#include "Common.hlsli"
 #include "SceneBindings.hlsli"
-#include "VertexPulling.hlsli"
-#ifdef HAS_MASK
 #include "GlobalBindings.hlsli"
-#endif
 
-cbuffer CameraBuffer : register(b0, space2)
+cbuffer CascadeBuffer : register(b0, space0)
 {
 	matrix cascadeViewProjection;
 	uint   disableMask;
-	uint3  cameraPad;
+	uint3  cascadePad;
 };
-
-#ifdef HAS_BONES
-StructuredBuffer<float4x4> BoneMatrices[] : register(t0, space3);
-#endif
 
 struct PixelInput
 {
-    float4 position : SV_POSITION;
+	float4 position : SV_POSITION;
 #ifdef HAS_MASK
-    float2 texCoord : TEXCOORD0;
-    nointerpolation uint matIndex : MATERIAL1;
+	float2 texCoord : TEXCOORD0;
+	nointerpolation uint matIndex : MATERIAL1;
 #endif
 };
 
@@ -31,34 +23,18 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 
 	InstanceData instance = instances[NonUniformResourceIndex(idx)];
 
-	uint vboff     = instance.vertexByteOffset;
+	uint vboff = instance.vertexByteOffset;
 	uint layoutIdx = instance.vertexLayoutIndex;
 
-	float3 inputPosition = GetVertexPosition(vboff, layoutIdx, vertexId);
+	float3 position = GetVertexPosition(vboff, layoutIdx, vertexId);
 
-#ifdef HAS_BONES
-	float3 position = inputPosition;
-	if (instance.boneBufferIndex != 0xFFFFFFFF)
+	if (IsSkinned(instance.boneBufferIndex))
 	{
-		position = 0.0;
-		uint4 boneIndices = GetVertexBoneIndices(vboff, layoutIdx, vertexId);
-		float4 boneWeights = GetVertexBoneWeights(vboff, layoutIdx, vertexId);
-
-		[unroll]
-		for (int i = 0; i < 4; i++)
-		{
-			float weight = boneWeights[i];
-			matrix boneTransform = BoneMatrices[NonUniformResourceIndex(instance.boneBufferIndex)][boneIndices[i]];
-
-			float4 localPosition = mul(boneTransform, float4(inputPosition, 1.0f));
-			position += localPosition.xyz * weight;
-		}
+		float4x4 skin = GetSkinningMatrix(instance.boneBufferIndex, vboff, layoutIdx, vertexId);
+		position = mul(skin, float4(position, 1.0)).xyz;
 	}
-#else
-	float3 position = inputPosition;
-#endif
 
-	float4 worldPosition = mul(instance.transform, float4(position, 1.0f));
+	float4 worldPosition = mul(instance.transform, float4(position, 1.0));
 	output.position = mul(cascadeViewProjection, worldPosition);
 
 #ifdef HAS_MASK
@@ -66,7 +42,7 @@ PixelInput MainVS(uint vertexId : SV_VertexID, [[vk::builtin("BaseInstance")]] u
 	output.matIndex = instance.materialIndex;
 #endif
 
-    return output;
+	return output;
 }
 
 void MainPS(PixelInput input)
@@ -79,7 +55,7 @@ void MainPS(PixelInput input)
 		float  alpha = 1.0;
 		if (mat.baseColorTexture >= 0)
 		{
-			alpha = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].Sample(samplers[mat.GetBaseColorSamplerIndex()], uv).a;
+			alpha = BindlessTextures[NonUniformResourceIndex(mat.baseColorTexture)].Sample(Samplers[mat.GetBaseColorSamplerIndex()], uv).a;
 		}
 		if (alpha < mat.alphaCutoff)
 		{

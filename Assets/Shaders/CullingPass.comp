@@ -1,98 +1,102 @@
-
 #include "SceneBindings.hlsli"
-#include "VertexPulling.hlsli"
-
+#include "GlobalBindings.hlsli"
 
 struct IndexedIndirectCommand
 {
 	uint indexCount;
 	uint instanceCount;
 	uint firstIndex;
-	int vertexOffset;
+	int  vertexOffset;
 	uint startInstanceLocation;
 };
 
-RWStructuredBuffer<IndexedIndirectCommand> indirectDraws[] : register(u0, space2);
-RWStructuredBuffer<uint> indirectCount : register(u1, space2);
+//all pipelines share one flat draw buffer; drawOffsets[pipelineIndex] is the segment start in commands
+RWStructuredBuffer<IndexedIndirectCommand> indirectDraws : register(u0);
+RWStructuredBuffer<uint>                   indirectCount : register(u1);
+StructuredBuffer<uint>                     drawOffsets   : register(t2);
 
 struct CullDebugPushConstants
 {
-    int forcedLod;
+	int forcedLod;
 };
 [[vk::push_constant]] CullDebugPushConstants cullDebug;
 
-
 bool AABBOnFrustum(float3 aabbMin, float3 aabbMax)
 {
-    [unroll]
-    for (uint i = 0; i < 6; ++i)
-    {
-        float4 plane = frustumPlanes[i];
-        // Positive vertex: the AABB corner farthest along the plane normal.
-        float3 positiveVertex;
-        positiveVertex.x = plane.x >= 0 ? aabbMax.x : aabbMin.x;
-        positiveVertex.y = plane.y >= 0 ? aabbMax.y : aabbMin.y;
-        positiveVertex.z = plane.z >= 0 ? aabbMax.z : aabbMin.z;
+	[unroll]
+	for (uint i = 0; i < 6; ++i)
+	{
+		float4 plane = frustumPlanes[i];
+		// Positive vertex: the AABB corner farthest along the plane normal.
+		float3 positiveVertex;
+		positiveVertex.x = plane.x >= 0 ? aabbMax.x : aabbMin.x;
+		positiveVertex.y = plane.y >= 0 ? aabbMax.y : aabbMin.y;
+		positiveVertex.z = plane.z >= 0 ? aabbMax.z : aabbMin.z;
 
-        if (dot(plane.xyz, positiveVertex) + plane.w < 0)
-        {
-            return false;
-        }
-    }
-    return true;
+		if (dot(plane.xyz, positiveVertex) + plane.w < 0)
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 float ComputeDistanceFactor(float3 aabbMin, float3 aabbMax)
 {
-    float3 center = (aabbMin + aabbMax) * 0.5;
-    float  radius = max(length((aabbMax - aabbMin) * 0.5), 0.001);
-    float  dist   = length(cameraPosition - center);
-    return dist / radius;
+	float3 center = (aabbMin + aabbMax) * 0.5;
+	float  radius = max(length((aabbMax - aabbMin) * 0.5), 0.001);
+	float  dist = length(cameraPosition - center);
+	return dist / radius;
 }
-
 
 [numthreads(16, 1, 1)]
 void MainCS(uint idx : SV_DispatchThreadID)
 {
-    if (idx >= instanceCount) return;
+	if (idx >= instanceCount) return;
 
-    InstanceData data = instances[NonUniformResourceIndex(idx)];
-    if (data.transparent == 1) return;
-    if (!any(data.layerMask & cullingMask)) return;
-    if (data.primitiveInfoIndex == 0xFFFFFFFF) return;
+	InstanceData data = instances[NonUniformResourceIndex(idx)];
+	if (data.transparent == 1) return;
+	if (!any(data.layerMask & cullingMask)) return;
+	if (data.primitiveInfoIndex == 0xFFFFFFFF) return;
 
-    if (!AABBOnFrustum(data.aabbMin, data.aabbMax)) return;
+	//0xFFFFFFFF marks pipelines without a culling segment this frame
+	if (data.pipelineIndex >= 256) return;
+	uint drawOffset = drawOffsets[data.pipelineIndex];
+	if (drawOffset == 0xFFFFFFFF) return;
 
-    MeshPrimitiveInfo info = MeshLODBuffer[NonUniformResourceIndex(data.primitiveInfoIndex)];
-    if (info.lodCount == 0) return;
+	if (!AABBOnFrustum(data.aabbMin, data.aabbMax)) return;
 
-    float distFactor = ComputeDistanceFactor(data.aabbMin, data.aabbMax);
+	MeshPrimitiveInfo info = MeshLODBuffer[NonUniformResourceIndex(data.primitiveInfoIndex)];
+	if (info.lodCount == 0) return;
 
-    uint lod = info.lodCount - 1;
-    while (lod > 0 && distFactor < info.lods[lod].screenSize)
-    {
-        lod--;
-    }
+	float distFactor = ComputeDistanceFactor(data.aabbMin, data.aabbMax);
 
-    if (cullDebug.forcedLod >= 0)
-    {
-        lod = min((uint)cullDebug.forcedLod, info.lodCount - 1);
-    }
+	uint lod = info.lodCount - 1;
+	while (lod > 0 && distFactor < info.lods[lod].screenSize)
+	{
+		lod--;
+	}
 
-    MeshLODInfo lodInfo = info.lods[lod];
-    while (lodInfo.indexCount == 0 && lod > 0)
-    {
-        lod--;
-        lodInfo = info.lods[lod];
-    }
-    if (lodInfo.indexCount == 0) return;
+	if (cullDebug.forcedLod >= 0)
+	{
+		lod = min((uint)cullDebug.forcedLod, info.lodCount - 1);
+	}
 
-    uint index;
-    InterlockedAdd(indirectCount[data.pipelineIndex], 1, index);
+	MeshLODInfo lodInfo = info.lods[lod];
+	while (lodInfo.indexCount == 0 && lod > 0)
+	{
+		lod--;
+		lodInfo = info.lods[lod];
+	}
+	if (lodInfo.indexCount == 0) return;
 
-    indirectDraws[data.pipelineIndex][index].indexCount = lodInfo.indexCount;
-    indirectDraws[data.pipelineIndex][index].instanceCount = 1;
-    indirectDraws[data.pipelineIndex][index].firstIndex = lodInfo.firstIndex;
-    indirectDraws[data.pipelineIndex][index].vertexOffset = 0;
-    indirectDraws[data.pipelineIndex][index].startInstanceLocation = idx;
+	uint index;
+	InterlockedAdd(indirectCount[data.pipelineIndex], 1, index);
+
+	uint slot = drawOffset + index;
+	indirectDraws[slot].indexCount = lodInfo.indexCount;
+	indirectDraws[slot].instanceCount = 1;
+	indirectDraws[slot].firstIndex = lodInfo.firstIndex;
+	indirectDraws[slot].vertexOffset = 0;
+	indirectDraws[slot].startInstanceLocation = idx;
 }

@@ -485,7 +485,8 @@ namespace Skore
 					{
 						if (AssetPayload* assetPayload = static_cast<AssetPayload*>(ImGui::GetDragDropPayload()->Data))
 						{
-							if (Resources::GetType(assetPayload->asset)->GetID() == typeId)
+							TypeID assetType = Resources::GetType(assetPayload->asset)->GetID();
+							if (assetType == typeId)
 							{
 								if (ImGui::AcceptDragDropPayload(SK_ASSET_PAYLOAD))
 								{

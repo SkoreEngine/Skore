@@ -1,5 +1,5 @@
 #include "Skore://Shaders/Common.hlsli"
-#include "Skore://Shaders/Tonemapping.hlsli"
+#include "Skore://Shaders/Editor/Tonemapping.hlsli"
 
 struct SkyboxConstants
 {
@@ -8,6 +8,7 @@ struct SkyboxConstants
 
 [[vk::push_constant]] SkyboxConstants skyboxConstants;
 
+// Per-material data (skybox is bound at space3).
 Texture2D     panoramicTexture : register(t0, space3);
 SamplerState  samplerState  : register(s1, space3);
 
@@ -45,6 +46,7 @@ PSInput MainVS(uint vertexID : SV_VertexID)
 
 	uint index = vertexID % 36;
 	float3 position = CubePositions[CubeIndices[index]];
+	// reverse-Z: force the skybox to the far plane (z = 0) instead of standard-Z z = w.
 	float4 clip = mul(skyboxConstants.viewProjection, float4(position, 1.0));
 	output.Position = float4(clip.xy, 0.0, clip.w);
 	output.TexCoord = position;
@@ -55,10 +57,12 @@ float4 MainPS(PSInput input) : SV_TARGET
 {
 	float3 dir = normalize(input.TexCoord);
 
+	// Convert direction vector to equirectangular coordinates
 	float2 uv;
 	uv.x = 0.5 + (atan2(dir.z, dir.x) / (2.0 * PI));
 	uv.y = 0.5 - (asin(dir.y) / PI);
 
+	// the preview pipeline has no post-process pass, so tonemap inline
 	float3 color = panoramicTexture.SampleLevel(samplerState, uv, 0).rgb;
 	color = ApplyTonemapping(color, 1.4);
 	return float4(color, 1.0);

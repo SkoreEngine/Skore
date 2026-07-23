@@ -1,5 +1,5 @@
 #include "RmlUI.hpp"
-#include "Skore/Scene/Components/UIDocument.hpp"
+#include "Skore/Scene/Components/UIContext.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -20,9 +20,10 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
-#include "Skore/Graphics/Pipelines/DefaultRenderPipeline/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipeline/PipelineCommon.hpp"
 #include "Skore/IO/Input.hpp"
 #include "Skore/IO/InputEvents.hpp"
 #include "Skore/Platform/Platform.hpp"
@@ -805,12 +806,12 @@ namespace Skore
 		Array<ContextEntry*> contexts;
 		std::mutex           contextsMutex;
 
-		ContextEntry* GetContextEntry(UIContext* context)
+		ContextEntry* GetContextEntry(RmlUIContext* context)
 		{
 			return reinterpret_cast<ContextEntry*>(context);
 		}
 
-		Rml::Context* GetRmlContext(UIContext* context)
+		Rml::Context* GetRmlContext(RmlUIContext* context)
 		{
 			if (ContextEntry* entry = GetContextEntry(context))
 			{
@@ -819,16 +820,7 @@ namespace Skore
 			return nullptr;
 		}
 
-		bool IsContextVisible(UIContext* context)
-		{
-			if (ContextEntry* entry = GetContextEntry(context))
-			{
-				return entry->visible;
-			}
-			return false;
-		}
-
-		UIContext* FindContextEntry(Rml::Context* context)
+		RmlUIContext* FindContextEntry(Rml::Context* context)
 		{
 			if (!context)
 			{
@@ -840,7 +832,7 @@ namespace Skore
 			{
 				if (entry->context == context)
 				{
-					return reinterpret_cast<UIContext*>(entry);
+					return reinterpret_cast<RmlUIContext*>(entry);
 				}
 			}
 
@@ -850,7 +842,7 @@ namespace Skore
 		struct DocumentEntry
 		{
 			Rml::ElementDocument* document = nullptr;
-			UIContext*            context = nullptr;
+			RmlUIContext*         context = nullptr;
 			RID                   resource = {};
 			Array<RID>            dependencies = {};
 			bool                  resourceSync = false;
@@ -998,7 +990,7 @@ namespace Skore
 			}
 		}
 
-		void ProcessPendingReloads(UIContext* context)
+		void ProcessPendingReloads(RmlUIContext* context)
 		{
 			for (DocumentEntry* entry : documents)
 			{
@@ -1237,7 +1229,7 @@ namespace Skore
 	}
 
 
-	UIContext* UIContext::Create(StringView name, Extent dimensions, bool enableResourceSync)
+	RmlUIContext* RmlUIContext::Create(StringView name, Extent dimensions, bool enableResourceSync)
 	{
 		Rml::Context* context = Rml::CreateContext(Rml::String(name.Data(), name.Size()),
 		                                           Rml::Vector2i(static_cast<int>(dimensions.width), static_cast<int>(dimensions.height)));
@@ -1253,10 +1245,10 @@ namespace Skore
 			std::scoped_lock lock(contextsMutex);
 			contexts.EmplaceBack(entry);
 		}
-		return reinterpret_cast<UIContext*>(entry);
+		return reinterpret_cast<RmlUIContext*>(entry);
 	}
 
-	void UIContext::Destroy()
+	void RmlUIContext::Destroy()
 	{
 		ContextEntry* entry = GetContextEntry(this);
 		if (!entry)
@@ -1299,7 +1291,7 @@ namespace Skore
 		DestroyAndFree(entry);
 	}
 
-	void UIContext::SetDimensions(Extent dimensions)
+	void RmlUIContext::SetDimensions(Extent dimensions)
 	{
 		if (Rml::Context* rmlContext = GetRmlContext(this))
 		{
@@ -1307,7 +1299,7 @@ namespace Skore
 		}
 	}
 
-	void UIContext::SetDensityIndependentPixelRatio(f32 ratio)
+	void RmlUIContext::SetDensityIndependentPixelRatio(f32 ratio)
 	{
 		if (Rml::Context* rmlContext = GetRmlContext(this))
 		{
@@ -1315,7 +1307,7 @@ namespace Skore
 		}
 	}
 
-	void UIContext::SetInputTransform(Vec2 offset, f32 scale)
+	void RmlUIContext::SetInputTransform(Vec2 offset, f32 scale)
 	{
 		if (ContextEntry* entry = GetContextEntry(this))
 		{
@@ -1324,7 +1316,7 @@ namespace Skore
 		}
 	}
 
-	void UIContext::Update()
+	void RmlUIContext::Update()
 	{
 		ProcessPendingReloads(this);
 
@@ -1334,7 +1326,7 @@ namespace Skore
 		}
 	}
 
-	void UIContext::Render()
+	void RmlUIContext::Render()
 	{
 		if (Rml::Context* rmlContext = GetRmlContext(this))
 		{
@@ -1342,7 +1334,7 @@ namespace Skore
 		}
 	}
 
-	void UIContext::SetVisible(bool visible)
+	void RmlUIContext::SetVisible(bool visible)
 	{
 		if (ContextEntry* entry = GetContextEntry(this))
 		{
@@ -1350,7 +1342,7 @@ namespace Skore
 		}
 	}
 
-	bool UIContext::IsVisible()
+	bool RmlUIContext::IsVisible()
 	{
 		if (ContextEntry* entry = GetContextEntry(this))
 		{
@@ -1359,7 +1351,7 @@ namespace Skore
 		return false;
 	}
 
-	UIElementDocument* UIContext::LoadDocumentFromMemory(StringView content)
+	UIElementDocument* RmlUIContext::LoadDocumentFromMemory(StringView content)
 	{
 		Rml::Context* rmlContext = GetRmlContext(this);
 		if (!rmlContext)
@@ -1380,7 +1372,7 @@ namespace Skore
 		return reinterpret_cast<UIElementDocument*>(entry);
 	}
 
-	UIElementDocument* UIContext::LoadDocumentFromResource(RID document)
+	UIElementDocument* RmlUIContext::LoadDocumentFromResource(RID document)
 	{
 		ContextEntry* contextEntry = GetContextEntry(this);
 		if (!contextEntry || !contextEntry->context || !document)
@@ -1405,7 +1397,7 @@ namespace Skore
 		return reinterpret_cast<UIElementDocument*>(entry);
 	}
 
-	void UIContext::UnloadDocument(UIElementDocument* document)
+	void RmlUIContext::UnloadDocument(UIElementDocument* document)
 	{
 		DocumentEntry* entry = GetDocumentEntry(document);
 		if (!entry)
@@ -1558,7 +1550,7 @@ namespace Skore
 		}
 	}
 
-	UIContext* UIElementDocument::GetContext()
+	RmlUIContext* UIElementDocument::GetContext()
 	{
 		if (Rml::ElementDocument* element = GetRmlDocument(this))
 		{
@@ -2042,7 +2034,7 @@ namespace Skore
 		return nullptr;
 	}
 
-	UIContext* UIElement::GetContext()
+	RmlUIContext* UIElement::GetContext()
 	{
 		if (Rml::Element* el = reinterpret_cast<Rml::Element*>(this))
 		{
@@ -2335,7 +2327,7 @@ namespace Skore
 		}
 	}
 
-	UIDataModelConstructor* UIContext::CreateDataModel(StringView name)
+	UIDataModelConstructor* RmlUIContext::CreateDataModel(StringView name)
 	{
 		Rml::Context* rmlContext = GetRmlContext(this);
 		if (!rmlContext) return nullptr;
@@ -2346,7 +2338,7 @@ namespace Skore
 		return reinterpret_cast<UIDataModelConstructor*>(entry);
 	}
 
-	UIDataModelConstructor* UIContext::GetDataModel(StringView name)
+	UIDataModelConstructor* RmlUIContext::GetDataModel(StringView name)
 	{
 		Rml::Context* rmlContext = GetRmlContext(this);
 		if (!rmlContext) return nullptr;
@@ -2357,7 +2349,7 @@ namespace Skore
 		return reinterpret_cast<UIDataModelConstructor*>(entry);
 	}
 
-	bool UIContext::RemoveDataModel(StringView name)
+	bool RmlUIContext::RemoveDataModel(StringView name)
 	{
 		if (Rml::Context* rmlContext = GetRmlContext(this))
 		{
@@ -2697,57 +2689,63 @@ namespace Skore
 		}
 	}
 
-	struct RmlUiRenderPass : RenderPipelinePass
+	struct RmlUiRenderPass : DefaultPipelinePass
 	{
-		SK_CLASS(RmlUiRenderPass, RenderPipelinePass);
+		SK_CLASS(RmlUiRenderPass, DefaultPipelinePass);
 
-		RenderPipelinePassSetup GetPassSetup() override
+		void BuildRenderGraph(RenderGraph& renderGraph) override
 		{
-			RenderPipelinePassSetup setup;
-			setup.type = RenderPipelinePassType::Graphics;
-			setup.stage = PipelineRenderStage::UI;
-			setup.dependencies.EmplaceBack(RenderPipelinePassDependency{.name = OutputColorName, .access = RenderPipelineTextureAccess::ReadWrite});
-			return setup;
-		}
-
-		bool IsEnabled() override
-		{
-			Scene* scene = context->GetScene();
-			return renderInterface != nullptr && scene != nullptr && IsContextVisible(scene->uiContext) && scene->HasIterable<UIDocument>();
-		}
-
-		void Render(Scene* scene, GPUCommandBuffer* cmd) override
-		{
-			if (!renderInterface || !scene || !IsContextVisible(scene->uiContext))
+			Scene* scene = renderGraph.GetScene();
+			if (renderInterface == nullptr || scene == nullptr || !scene->HasIterable<UIContext>())
 			{
 				return;
 			}
 
-			scene->uiContext->SetDimensions(context->GetOutputSize());
-			scene->uiContext->SetDensityIndependentPixelRatio(Platform::GetWindowDPI(Graphics::GetWindow()));
-			scene->uiContext->Update();
+			bool hasVisibleContext = false;
+			scene->Iterate<UIContext>([&](UIContext* context)
+			{
+				hasVisibleContext = hasVisibleContext || context->IsVisible();
+			});
 
-			renderInterface->BeginFrame(cmd, renderPass, context->GetOutputSize());
-			scene->uiContext->Render();
-			renderInterface->EndFrame();
-		}
-	};
+			if (!hasVisibleContext)
+			{
+				return;
+			}
 
-	struct RmlUiRenderPipelineModule : RenderPipelineModule
-	{
-		SK_CLASS(RmlUiRenderPipelineModule, RenderPipelineModule);
+			renderGraph
+				.AddGraphicsPass("RmlUi")
+				.Stage(RenderStage::UI)
+				.WriteRead(PostProcessOutputName)
+				.Render([](RenderGraphPass& pass, Scene* scene, GPUCommandBuffer* cmd)
+				{
+					if (!renderInterface || !scene || pass.GetRenderPass() == nullptr)
+					{
+						return;
+					}
 
-		RenderPipelineModuleSetup GetSetup() override
-		{
-			RenderPipelineModuleSetup setup;
-			setup.passes.EmplaceBack(sktypeid(RmlUiRenderPass));
-			return setup;
+					Extent outputSize = pass.GetGraph()->GetOutputSize();
+					f32    dipRatio = Platform::GetWindowDPI(Graphics::GetWindow());
+
+					renderInterface->BeginFrame(cmd, pass.GetRenderPass(), outputSize);
+					scene->Iterate<UIContext>([&](UIContext* context)
+					{
+						if (!context->IsVisible())
+						{
+							return;
+						}
+
+						context->SetDimensions(outputSize);
+						context->SetDensityIndependentPixelRatio(dipRatio);
+						context->Update();
+						context->Render();
+					});
+					renderInterface->EndFrame();
+				});
 		}
 	};
 
 	void RegisterRmlUiRenderModule()
 	{
 		Reflection::Type<RmlUiRenderPass>();
-		Reflection::Type<RmlUiRenderPipelineModule>();
 	}
 }

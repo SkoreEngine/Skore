@@ -51,6 +51,7 @@ namespace Skore
 		static void       RequestShutdown();
 		static void       ResetContext();
 		static f64        DeltaTime();
+		static f64        ElapsedTime();
 		static u64        Frame();
 		static f32				GetFPS();
 		static f32				GetFrameTime();

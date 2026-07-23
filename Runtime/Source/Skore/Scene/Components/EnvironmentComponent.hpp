@@ -12,8 +12,8 @@ namespace Skore
 		SK_CLASS(EnvironmentComponent, Component);
 
 		// Skybox getters/setters
-		TypedRID<MaterialResource> GetSkyboxMaterial() const;
-		void                       SetSkyboxMaterial(TypedRID<MaterialResource> skyboxMaterial);
+		TypedRID<TextureResource> GetPanoramicTexture() const;
+		void                      SetPanoramicTexture(TypedRID<TextureResource> panoramicTexture);
 		bool GetUseSkyboxAsBackground() const;
 		void SetUseSkyboxAsBackground(bool use);
 
@@ -31,13 +31,13 @@ namespace Skore
 		f32                  GetReflectedLightIntensity() const;
 		void                 SetReflectedLightIntensity(f32 intensity);
 
-		MaterialResourceCache* GetMaterialCache() const;
+		EnvironmentResourceCache* GetEnvironmentCache() const;
 
 		static void RegisterType(NativeReflectType<EnvironmentComponent>& type);
 
 	private:
-		TypedRID<MaterialResource> m_skyboxMaterial = {};
-		bool                       m_useSkyboxAsBackground = true;
+		TypedRID<TextureResource> m_panoramicTexture = {};
+		bool                      m_useSkyboxAsBackground = true;
 
 		AmbientLightSource m_ambientLightSource = AmbientLightSource::Skybox;
 		Color              m_ambientLightColor = Color::WHITE;
@@ -46,6 +46,6 @@ namespace Skore
 		ReflectedLightSource m_reflectedLightSource = ReflectedLightSource::Skybox;
 		f32                  m_reflectedLightIntensity = 1.0f;
 
-		MaterialResourceCachePtr m_materialCache;
+		EnvironmentResourceCachePtr m_environmentCache;
 	};
 }

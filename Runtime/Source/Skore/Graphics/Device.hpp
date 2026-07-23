@@ -784,6 +784,7 @@ namespace Skore
 	{
 		RID                           shader;
 		String                        variant = "Default";
+		RID                           material = {};
 		PrimitiveTopology             topology{PrimitiveTopology::TriangleList};
 		RasterizerStateDesc           rasterizerState;
 		DepthStencilStateDesc         depthStencilState;

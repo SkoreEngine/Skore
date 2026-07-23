@@ -2,6 +2,7 @@
 
 #include "Graphics.hpp"
 #include "RenderSceneObjects.hpp"
+#include "Skore/App.hpp"
 #include "Skore/Core/Hash.hpp"
 #include "Skore/Core/Allocator.hpp"
 #include "Skore/Core/Algorithm.hpp"
@@ -24,7 +25,8 @@ namespace Skore
 		f32   farClip;
 
 		IVec2 outputSize;
-		Vec2  pad1;
+		f32   time;
+		f32   pad1;
 
 		Vec2  jitter;
 		Vec2  prevJitter;
@@ -393,9 +395,16 @@ namespace Skore
 		else
 		{
 			dependency = &dependencies.EmplaceBack();
+
+			//growth can relocate earlier entries, whose views point into their own storage
+			for (usize i = 0; i < dependencyCount; ++i)
+			{
+				dependencies[i].name = dependencies[i].nameStorage;
+			}
 		}
 
-		SetNameReference(dependency->nameStorage, dependency->name, name);
+		dependency->nameStorage = name;
+		dependency->name = dependency->nameStorage;
 		dependency->access = access;
 		++dependencyCount;
 	}
@@ -410,26 +419,16 @@ namespace Skore
 		else
 		{
 			resolve = &resolves.EmplaceBack();
-		}
 
-		SetNameReference(resolve->nameStorage, resolve->name, name);
-		++resolveCount;
-	}
-
-	void RenderGraphPass::SetNameReference(String& storage, StringView& view, StringView name)
-	{
-		if (graph != nullptr)
-		{
-			StringView resourceName = graph->FindResourceName(name);
-			if (!resourceName.Empty())
+			for (usize i = 0; i < resolveCount; ++i)
 			{
-				view = resourceName;
-				return;
+				resolves[i].name = resolves[i].nameStorage;
 			}
 		}
 
-		storage = name;
-		view = storage;
+		resolve->nameStorage = name;
+		resolve->name = resolve->nameStorage;
+		++resolveCount;
 	}
 
 	bool RenderGraphPass::HasResolve(StringView name) const
@@ -450,7 +449,7 @@ namespace Skore
 		return *this;
 	}
 
-	RenderGraphPass& RenderGraphPass::Render(std::function<void(RenderGraph& rg, Scene* scene, GPUCommandBuffer* cmd)> fn)
+	RenderGraphPass& RenderGraphPass::Render(std::function<void(RenderGraphPass& pass, Scene* scene, GPUCommandBuffer* cmd)> fn)
 	{
 		renderFn = Traits::Move(fn);
 		return *this;
@@ -481,6 +480,11 @@ namespace Skore
 		dispatchY = height;
 		dispatchZ = depth;
 		return *this;
+	}
+
+	RenderGraph* RenderGraphPass::GetGraph() const
+	{
+		return graph;
 	}
 
 	GPUPipeline* RenderGraphPass::GetPipeline() const
@@ -522,12 +526,6 @@ namespace Skore
 	{
 		auto it = resources.Find(name);
 		return it != resources.end() ? &it->second : nullptr;
-	}
-
-	StringView RenderGraph::FindResourceName(StringView name) const
-	{
-		auto it = resources.Find(name);
-		return it != resources.end() ? StringView(it->first) : StringView{};
 	}
 
 	void RenderGraph::Create(StringView name, const RenderGraphTextureDesc& textureDesc)
@@ -1242,7 +1240,12 @@ namespace Skore
 			DescriptorSetLayoutBinding{.binding = 1, .descriptorType = DescriptorType::StorageBuffer},
 			DescriptorSetLayoutBinding{.binding = 2, .descriptorType = DescriptorType::UniformBuffer},
 			DescriptorSetLayoutBinding{.binding = 3, .descriptorType = DescriptorType::SampledImage},
-			DescriptorSetLayoutBinding{.binding = 4, .descriptorType = DescriptorType::Sampler}
+			DescriptorSetLayoutBinding{.binding = 4, .descriptorType = DescriptorType::Sampler},
+			DescriptorSetLayoutBinding{.binding = 5, .descriptorType = DescriptorType::SampledImage, .viewType = TextureViewType::TypeCube},
+			DescriptorSetLayoutBinding{.binding = 7, .descriptorType = DescriptorType::SampledImage, .viewType = TextureViewType::TypeCube},
+			DescriptorSetLayoutBinding{.binding = 8, .descriptorType = DescriptorType::SampledImage},
+			DescriptorSetLayoutBinding{.binding = 9, .descriptorType = DescriptorType::Sampler},
+			DescriptorSetLayoutBinding{.binding = 10, .descriptorType = DescriptorType::StorageBuffer}
 		};
 		if (device->GetFeatures().rayTracing)
 		{
@@ -1278,6 +1281,19 @@ namespace Skore
 		}
 
 		const u32 count = static_cast<u32>(passes.Size());
+
+		for (u32 i = 1; i < count; ++i)
+		{
+			if (passes[i]->stage == 0) continue;
+			RenderGraphPass* current = passes[i];
+			i32              j = static_cast<i32>(i) - 1;
+			while (j >= 0 && passes[j]->stage != 0 && passes[j]->stage > current->stage)
+			{
+				passes[j + 1] = passes[j];
+				--j;
+			}
+			passes[j + 1] = current;
+		}
 
 		usize signature = 0;
 		HashCombine(signature, count);
@@ -1749,7 +1765,7 @@ namespace Skore
 		{
 			const Resource* res = FindResource(name);
 			if (res == nullptr || res->kind != Resource::Kind::Texture) continue;
-			if (res->textureDesc.pingPong) continue;
+			if (res->textureDesc.pingPong || res->textureDesc.persistent) continue;
 			if (name.Compare(colorOutputName) == 0 || name.Compare(depthOutputName) == 0) continue;
 
 			auto            lifetimeIt = lifetimes.Find(name);
@@ -1979,9 +1995,24 @@ namespace Skore
 			{
 				if (!pass->shader) continue;
 
+				//pipelines with bound descriptor sets take the bound set's layout at that slot,
+				//so shaders can use any subset of e.g. the scene set bindings
+				Array<DescriptorSetOverride> overrides;
+				for (usize i = 0; i < pass->boundDescriptorSetCount; ++i)
+				{
+					overrides.EmplaceBack(DescriptorSetOverride{
+						.set = pass->boundDescriptorSets[i].set,
+						.descriptorSet = pass->boundDescriptorSets[i].descriptorSet
+					});
+				}
+
 				usize pipelineKey = 0;
 				HashCombine(pipelineKey, HashValue(pass->shader));
 				HashCombine(pipelineKey, static_cast<usize>(pass->type));
+				for (const DescriptorSetOverride& dsOverride : overrides)
+				{
+					HashCombine(pipelineKey, dsOverride.set);
+				}
 
 				if (auto it = pipelineCache.Find(pipelineKey))
 				{
@@ -1995,6 +2026,7 @@ namespace Skore
 					ComputePipelineDesc pipelineDesc;
 					pipelineDesc.shader = pass->shader;
 					pipelineDesc.debugName = pass->name;
+					pipelineDesc.descriptorSetsOverride = overrides;
 					pipeline = device->CreateComputePipeline(pipelineDesc);
 				}
 				else
@@ -2002,6 +2034,7 @@ namespace Skore
 					RayTracingPipelineDesc pipelineDesc;
 					pipelineDesc.shader = pass->shader;
 					pipelineDesc.debugName = pass->name;
+					pipelineDesc.descriptorSetsOverride = overrides;
 					pipeline = device->CreateRayTracingPipeline(pipelineDesc);
 				}
 
@@ -2157,6 +2190,7 @@ namespace Skore
 			.cameraPosition = camera.cameraPosition,
 			.farClip = camera.farClip,
 			.outputSize = IVec2{static_cast<i32>(outputSize.width), static_cast<i32>(outputSize.height)},
+			.time = static_cast<f32>(App::ElapsedTime()),
 			.jitter = camera.jitter,
 			.prevJitter = camera.previousJitter,
 			.instanceCount = instanceCount,
@@ -2186,6 +2220,10 @@ namespace Skore
 
 	void RenderGraph::Begin(Scene* scene)
 	{
+		//scene buffer + descriptor sets must exist before passes build their graph,
+		//so single-shot graphs (thumbnails) can bind scene data on the first frame
+		CreateSceneResources();
+
 		currentScene = scene;
 		prevFrame = currentFrame;
 		currentFrame = (currentFrame + 1) % SK_FRAMES_IN_FLIGHT;
@@ -2561,16 +2599,37 @@ namespace Skore
 			if (useRenderPass)
 			{
 				ClearValues clearValues = {};
+				bool        colorFound = false;
+				bool        depthFound = false;
 				for (usize dependencyIndex = 0; dependencyIndex < pass->dependencyCount; ++dependencyIndex)
 				{
 					const RenderGraphPass::Dependency& dependency = pass->dependencies[dependencyIndex];
 					if (!WritesResource(dependency.access)) continue;
+
 					const Resource* res = FindResource(dependency.name);
-					if (res != nullptr && res->kind == Resource::Kind::Texture && !IsDepthFormat(res->textureDesc.format))
+					if (res == nullptr) continue;
+					if (res->kind == Resource::Kind::View)
+					{
+						res = FindResource(res->viewDesc.texture);
+						if (res == nullptr) continue;
+					}
+					if (res->kind != Resource::Kind::Texture) continue;
+
+					if (IsDepthFormat(res->textureDesc.format))
+					{
+						if (!depthFound)
+						{
+							clearValues.depth = res->textureDesc.clearDepth;
+							depthFound = true;
+						}
+					}
+					else if (!colorFound)
 					{
 						clearValues.color = res->textureDesc.clearColor;
-						break;
+						colorFound = true;
 					}
+
+					if (colorFound && depthFound) break;
 				}
 
 				BeginRenderPassInfo info;
@@ -2635,7 +2694,7 @@ namespace Skore
 
 			if (pass->renderFn)
 			{
-				pass->renderFn(*this, currentScene, cmd);
+				pass->renderFn(*pass, currentScene, cmd);
 			}
 			else if (pass->pipeline != nullptr)
 			{
