@@ -1,5 +1,10 @@
-# Generated from CLion Inspection settings
+# Skore clang-tidy config (also used by CMake CMAKE_C_CLANG_TIDY / CMAKE_CXX_CLANG_TIDY).
+# Third-party translation units are not analyzed (cmake enables tidy only after thirdparty/).
+# HeaderFilterRegex limits diagnostics from headers included by first-party sources.
 ---
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*[\\/](core|app|player|editor|plugins|tests)[\\/].*'
+FormatStyle: none
 Checks: '-*,
 bugprone-argument-comment,
 bugprone-assert-side-effect,
@@ -130,6 +135,7 @@ readability-make-member-function-const,
 readability-misleading-indentation,
 readability-misplaced-array-index,
 readability-non-const-parameter,
+readability-redundant-casting,
 readability-redundant-control-flow,
 readability-redundant-declaration,
 readability-redundant-function-ptr-dereference,
@@ -142,3 +148,7 @@ readability-static-definition-in-anonymous-namespace,
 readability-string-compare,
 readability-uniqueptr-delete-release,
 readability-use-anyofallof'
+# Treat typedef aliases as their underlying types so (void_ptr_t)void* etc. fail.
+CheckOptions:
+  - key: readability-redundant-casting.IgnoreTypeAliases
+    value: 'true'

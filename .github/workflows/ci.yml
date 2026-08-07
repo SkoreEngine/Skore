@@ -1,0 +1,70 @@
+# Build and run tests on Windows, Linux, and macOS (Debug + Release).
+# Matches project conventions: CMake + Ninja.
+# Debug: SK_TESTS on host and plugins.
+# Release: production binaries; host tests still run (plugin test export omitted).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.config.name }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        config:
+          - name: Windows (MSVC)
+            os: windows-latest
+          - name: Linux (GCC)
+            os: ubuntu-latest
+          - name: macOS (AppleClang)
+            os: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            libx11-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libxrandr-dev libxkbcommon-dev libgl-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja -y
+
+      - name: Setup MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DBUILD_TESTING=ON
+          -DSK_ENABLE_CLANG_TIDY=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --verbose

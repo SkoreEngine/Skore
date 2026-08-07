@@ -1,1 +1,0 @@
-sk_add_executable(SkorePlayer Source/Skore/Main.cpp)

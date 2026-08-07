@@ -1,0 +1,136 @@
+# Skore project clang-format
+# Indent with tabs; wrap only at ColumnLimit (180). K&R braces everywhere.
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+# --- Indent / tabs ---
+UseTab: Always
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+NamespaceIndentation: None
+IndentCaseLabels: false
+IndentCaseBlocks: false
+IndentGotoLabels: true
+IndentPPDirectives: None
+IndentWrappedFunctionNames: false
+PPIndentWidth: -1
+
+# --- Line length: wrap only when past 180 ---
+ColumnLimit: 180
+ReflowComments: false
+
+# Prefer packing so lines stay single-line until the column limit.
+BinPackArguments: true
+BinPackParameters: true
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowAllConstructorInitializersOnNextLine: true
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: No
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: false
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+BreakStringLiterals: true
+PackConstructorInitializers: BinPack
+
+# High break penalties → only break when ColumnLimit forces it.
+PenaltyBreakAssignment: 1000
+PenaltyBreakBeforeFirstCallParameter: 1000
+PenaltyBreakComment: 300
+PenaltyBreakFirstLessLess: 120
+PenaltyBreakOpenParenthesis: 800
+PenaltyBreakString: 1000
+PenaltyBreakTemplateDeclaration: 10
+PenaltyExcessCharacter: 1000000
+PenaltyReturnTypeOnItsOwnLine: 1000
+
+# --- Braces: K&R / Attach (opening brace on same line for all constructs) ---
+BreakBeforeBraces: Attach
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: false
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  BeforeWhile: false
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+
+# --- Pointers / references match existing: Type* name ---
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+
+# --- Spaces ---
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceBeforeSquareBrackets: false
+SpaceInEmptyBlock: false
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 1
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInConditionalStatement: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# --- Short forms: keep braced blocks (match engine style) ---
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: All
+AllowShortLoopsOnASingleLine: false
+
+# --- Alignment ---
+AlignAfterOpenBracket: Align
+AlignArrayOfStructures: None
+AlignConsecutiveAssignments: None
+AlignConsecutiveBitFields: None
+AlignConsecutiveDeclarations: None
+AlignConsecutiveMacros: None
+AlignEscapedNewlines: Left
+AlignOperands: Align
+AlignTrailingComments: true
+
+# --- Includes: preserve intentional project-then-system order ---
+SortIncludes: Never
+IncludeBlocks: Preserve
+SortUsingDeclarations: false
+
+# --- Misc ---
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+KeepEmptyLinesAtEOF: false
+InsertNewlineAtEOF: true
+CompactNamespaces: false
+FixNamespaceComments: true
+QualifierAlignment: Leave
+SeparateDefinitionBlocks: Leave
+Standard: c++17
+...

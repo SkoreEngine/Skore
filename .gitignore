@@ -22,6 +22,10 @@ _deps
 
 #skore
 *.pak
+# Never commit offline apt packages or extracted sysroot workarounds
+*.deb
+.deb-cache/
+.deps/
 # C# bindings are generated into the CMake binary dir, never the source tree
 Dotnet/SkoreEngine/Generated/
 

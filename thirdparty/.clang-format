@@ -1,0 +1,5 @@
+# Do not reformat vendored third-party sources.
+---
+DisableFormat: true
+SortIncludes: false
+...
