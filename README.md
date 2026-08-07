@@ -1,3 +1,6 @@
+> [!WARNING]
+> **This codebase is no longer in active development.** The engine is being rewritten in C on the [`v2`](https://github.com/SkoreEngine/Skore/tree/v2) branch. Prefer that branch for ongoing work; this tree is retained for reference only.
+
 <p align="center">
   <img src="Content/Images/Logo.jpeg" alt="Skore Engine" width="220">
 </p>
