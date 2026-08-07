@@ -1,0 +1,54 @@
+# Apex quality gates for Skore (CMake + Ninja + CTest).
+# Companion format: KalstrixOrg/apex docs/CHECKS_YAML_EXAMPLES.md §4.
+#
+# Rules that bite:
+# - No shell (no &&, pipes, redirection) — argv-split only
+# - Order matters within each stage (fast then deep)
+# - Loaded from origin/<goalBranch>, not a dirty worktree-only copy
+#
+# Runner needs on PATH: cmake, ninja, ctest, a C compiler, bash, clang-format.
+# (format check uses scripts/format.sh; build uses -G Ninja per AGENTS.md.)
+
+version: 1
+
+defaults:
+  timeoutSeconds: 600
+  workdir: .
+
+checks:
+  # --- Layer 1: fast --------------------------------------------------------
+
+  - id: format
+    stage: fast
+    run: bash scripts/format.sh --check
+    fix: bash scripts/format.sh
+    blocking: true
+    timeoutSeconds: 120
+
+  - id: cmake-configure
+    stage: fast
+    run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+    blocking: true
+    timeoutSeconds: 300
+
+  - id: cmake-build
+    stage: fast
+    run: cmake --build build
+    blocking: true
+    timeoutSeconds: 900
+
+  - id: ctest
+    stage: fast
+    run: ctest --test-dir build --output-on-failure
+    blocking: true
+    timeoutSeconds: 900
+
+  # --- Layer 2: deep --------------------------------------------------------
+  # Same suite, higher parallelism after fast is green.
+  # (test-integrity still runs automatically when any check exists.)
+
+  - id: ctest-full
+    stage: deep
+    run: ctest --test-dir build --output-on-failure -j 4
+    blocking: true
+    timeoutSeconds: 1800
