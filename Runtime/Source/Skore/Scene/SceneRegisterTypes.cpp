@@ -61,6 +61,7 @@ namespace Skore
 			entityEventType.Value<EntityEventType::EntityActivated>("EntityActivated");
 			entityEventType.Value<EntityEventType::EntityDeactivated>("EntityDeactivated");
 			entityEventType.Value<EntityEventType::EntityParentChanged>("EntityParentChanged");
+			entityEventType.Value<EntityEventType::UIContextChanged>("UIContextChanged");
 			entityEventType.Value<EntityEventType::TransformUpdated>("TransformUpdated");
 			entityEventType.Value<EntityEventType::ParentTransformUpdated>("ParentTransformUpdated");
 			entityEventType.Value<EntityEventType::CollectPhysicsShapes>("CollectPhysicsShapes");

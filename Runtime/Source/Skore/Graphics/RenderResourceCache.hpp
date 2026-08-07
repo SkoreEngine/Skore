@@ -36,6 +36,7 @@ namespace Skore
 	struct FontResourceCache;
 	struct TextureResourceCache;
 	struct MaterialResourceCache;
+	struct EnvironmentResourceCache;
 	struct SkinResourceCache;
 	struct MeshResourceCache;
 	struct VertexLayoutCache;
@@ -44,6 +45,7 @@ namespace Skore
 	using FontResourceCachePtr     = std::shared_ptr<FontResourceCache>;
 	using TextureResourceCachePtr  = std::shared_ptr<TextureResourceCache>;
 	using MaterialResourceCachePtr = std::shared_ptr<MaterialResourceCache>;
+	using EnvironmentResourceCachePtr = std::shared_ptr<EnvironmentResourceCache>;
 	using SkinResourceCachePtr     = std::shared_ptr<SkinResourceCache>;
 	using MeshResourceCachePtr     = std::shared_ptr<MeshResourceCache>;
 	using VertexLayoutCachePtr     = std::shared_ptr<VertexLayoutCache>;
@@ -117,24 +119,18 @@ namespace Skore
 		MaterialResourceCache(RID rid) : rid(rid) {}
 		~MaterialResourceCache() override;
 
-		MaterialResource::MaterialType type = MaterialResource::MaterialType::Opaque;
 		u32                            materialIndex = U32_MAX;
-		GPUDescriptorSet*              descriptorSet = nullptr;
+		RID                            materialGraph = {};
+		Array<u8>                      materialParamData;
+
+		// Pipeline-state requests resolved from the material's render settings (render face / depth).
+		CullMode  cullMode = CullMode::Back;
+		bool      depthWrite = true;
+		CompareOp depthTest = CompareOp::Greater;
 
 		// Keeps PBR textures alive while this material exists.
 		Array<TextureResourceCachePtr> textures;
 
-		// Skybox-specific.
-		TextureResourceCachePtr skyMaterialTexture;
-
-		GPUTexture*             cubeMapSkyTexture = nullptr;
-		GPUTexture*             diffuseIrradianceTexture = nullptr;
-		GPUTexture*             specularMapTexture = nullptr;
-
-		// Valid while the IBL pre-bake (irradiance + specular) is pending on the worker.
-		std::shared_future<void> iblComplete;
-
-		// MaterialResource::MaterialType needs to be transparent?
 		bool transparent = false;
 		bool masked = false;
 
@@ -147,6 +143,34 @@ namespace Skore
 		bool IsLoaded() const
 		{
 			return materialIndex != U32_MAX;
+		}
+	};
+
+	// Owns the GPU-side environment/sky resources baked from a single equirectangular texture:
+	// a descriptor set (panoramic texture + sampler, space3) for the background draw, plus the
+	// cubemap / diffuse-irradiance / specular-prefilter textures consumed as IBL by the lighting
+	// passes. Keyed by the source texture RID so environments sharing an HDRI share one bake.
+	struct SK_API EnvironmentResourceCache : ResourceCache
+	{
+		RID skyTexture;
+
+		EnvironmentResourceCache(RID skyTexture) : skyTexture(skyTexture) {}
+		~EnvironmentResourceCache() override;
+
+		GPUDescriptorSet* descriptorSet = nullptr;
+
+		TextureResourceCachePtr panoramicTexture;
+
+		GPUTexture* cubeMapSkyTexture = nullptr;
+		GPUTexture* diffuseIrradianceTexture = nullptr;
+		GPUTexture* specularMapTexture = nullptr;
+
+		// Valid while the IBL pre-bake (cubemap + irradiance + specular) is pending on the worker.
+		std::shared_future<void> iblComplete;
+
+		bool IsLoaded() const
+		{
+			return descriptorSet != nullptr;
 		}
 	};
 
@@ -290,12 +314,18 @@ namespace Skore
 		bool                rebuildBlas = false;
 	};
 
+	using FnMaterialVariantResolver = RID (*)(RID shader, RID material, StringView variantName);
+
 	struct SK_API RenderResourceCache
 	{
+		static void SetMaterialVariantResolver(FnMaterialVariantResolver resolver);
+		static RID  EnsureMaterialVariant(RID shader, RID material, StringView variantName);
+
 		static bool                     WorkerIdle();
 		static FontResourceCachePtr     GetFontCache(RID font);
 		static TextureResourceCachePtr  GetTextureCache(RID texture, bool async);
 		static MaterialResourceCachePtr GetMaterialCache(RID material, bool async);
+		static EnvironmentResourceCachePtr GetEnvironmentCache(RID skyTexture, bool async);
 		static MeshResourceCachePtr     GetMeshCache(RID mesh, bool async);
 		static SkinResourceCachePtr     GetSkinCache(RID mesh);
 		static GPUDescriptorSet*        GetGlobalDescriptorSet();

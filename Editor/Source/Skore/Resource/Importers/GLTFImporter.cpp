@@ -1254,16 +1254,16 @@ namespace Skore
 			switch (material->alpha_mode)
 			{
 				case cgltf_alpha_mode_opaque:
-					materialData.alphaMode = MaterialResource::MaterialAlphaMode::Opaque;
+					materialData.alphaMode = MaterialImportAlphaMode::Opaque;
 					break;
 				case cgltf_alpha_mode_mask:
-					materialData.alphaMode = MaterialResource::MaterialAlphaMode::Mask;
+					materialData.alphaMode = MaterialImportAlphaMode::Mask;
 					break;
 				case cgltf_alpha_mode_blend:
-					materialData.alphaMode = MaterialResource::MaterialAlphaMode::Blend;
+					materialData.alphaMode = MaterialImportAlphaMode::Blend;
 					break;
 				default:
-					materialData.alphaMode = MaterialResource::MaterialAlphaMode::None;
+					materialData.alphaMode = MaterialImportAlphaMode::None;
 			}
 
 			{

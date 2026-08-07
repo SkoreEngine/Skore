@@ -32,6 +32,7 @@
 #include "Skore/Window/SceneViewWindow.hpp"
 #include "Skore/Window/GraphEditorWindow.hpp"
 #include "Skore/Window/MaterialGraphEditorWindow.hpp"
+#include "Skore/MaterialGraph/MaterialGraphCompiler.hpp"
 #include "Skore/Window/PackagesWindow.hpp"
 #include "Skore/Project/ProjectManager.hpp"
 #include "Skore/Server/EditorServer.hpp"
@@ -1708,11 +1709,8 @@ namespace Skore
 
 	void RegisterResourceAssetTypes();
 	void RegisterSceneEditorTypes();
-	void RegisterSceneViewPipelineModule();
-	void RegisterThumbnailGenerationTypes();
+	void RegisterSceneViewRenderPipeline();
 	void RegisterAnimatorEditorTypes();
-	void RegisterPreviewModule();
-	void RegisterPreviewRenderPipeline();
 
 	SK_API void EditorTypeRegister()
 	{
@@ -1720,7 +1718,7 @@ namespace Skore
 		RegisterEditorSettingsTypes();
 		RegisterEditorServerTypes();
 		RegisterSceneEditorTypes();
-		RegisterSceneViewPipelineModule();
+		RegisterSceneViewRenderPipeline();
 		Selection::RegisterType();
 
 		Resources::Type<EditorState>()
@@ -1742,14 +1740,12 @@ namespace Skore
 		Reflection::Type<PackagesWindow>();
 		Reflection::Type<GraphEditorWindow>();
 		RegisterMaterialNodes();
+		RegisterMaterialVariantResolver();
 		Reflection::Type<MaterialGraphEditorWindow>();
 		Reflection::Type<DebuggerWindow>();
 		Reflection::Type<AnimatorTreeViewWindow>();
 		Reflection::Type<AnimatorGraphWindow>();
 
-		RegisterThumbnailGenerationTypes();
 		RegisterAnimatorEditorTypes();
-		RegisterPreviewModule();
-		RegisterPreviewRenderPipeline();
 	}
 }

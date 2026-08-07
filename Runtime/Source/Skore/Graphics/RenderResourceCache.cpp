@@ -897,9 +897,9 @@ namespace Skore
 						}
 						case WorkerType::GenerateIBL:
 						{
-							MaterialResourceCachePtr materialCache = std::dynamic_pointer_cast<MaterialResourceCache>(data.resourceCache);
+							EnvironmentResourceCachePtr environmentCache = std::dynamic_pointer_cast<EnvironmentResourceCache>(data.resourceCache);
 
-							if (!materialCache->skyMaterialTexture->IsLoaded())
+							if (!environmentCache->panoramicTexture || !environmentCache->panoramicTexture->IsLoaded())
 							{
 								AddTask(std::move(data));
 								continue;
@@ -909,18 +909,18 @@ namespace Skore
 
 							EquirectangularToCubeMap equirectangularToCubemap;
 							equirectangularToCubemap.Init();
-							equirectangularToCubemap.Execute(computeCmd, materialCache->skyMaterialTexture->texture, materialCache->cubeMapSkyTexture);
+							equirectangularToCubemap.Execute(computeCmd, environmentCache->panoramicTexture->texture, environmentCache->cubeMapSkyTexture);
 
 							SinglePassDownsampler downsampler;
-							downsampler.Init(materialCache->cubeMapSkyTexture);
+							downsampler.Init(environmentCache->cubeMapSkyTexture);
 							downsampler.Execute(computeCmd);
 
 							DiffuseIrradianceGenerator diffuseIrradianceGenerator;
 							diffuseIrradianceGenerator.Init();
-							diffuseIrradianceGenerator.Execute(computeCmd, materialCache->cubeMapSkyTexture, materialCache->diffuseIrradianceTexture);
+							diffuseIrradianceGenerator.Execute(computeCmd, environmentCache->cubeMapSkyTexture, environmentCache->diffuseIrradianceTexture);
 
 							SpecularMapGenerator specularMapGenerator;
-							specularMapGenerator.Init(materialCache->cubeMapSkyTexture, materialCache->specularMapTexture);
+							specularMapGenerator.Init(environmentCache->cubeMapSkyTexture, environmentCache->specularMapTexture);
 							specularMapGenerator.Execute(computeCmd);
 
 							computeCmd->End();
@@ -961,16 +961,18 @@ namespace Skore
 			std::counting_semaphore<>               workSem{0};
 		};
 
-		HashMap<RID, FontResourceCachePtr>                 fontCache;
-		HashMap<RID, std::weak_ptr<TextureResourceCache>>  textureAsyncCache;
-		HashMap<RID, std::weak_ptr<TextureResourceCache>>  textureCache;
-		HashMap<RID, std::weak_ptr<MaterialResourceCache>> materialCache;
-		HashMap<RID, std::weak_ptr<MeshResourceCache>>     meshCache;
-		HashMap<RID, std::weak_ptr<SkinResourceCache>>     skinCache;
+		HashMap<RID, FontResourceCachePtr>                    fontCache;
+		HashMap<RID, std::weak_ptr<TextureResourceCache>>     textureAsyncCache;
+		HashMap<RID, std::weak_ptr<TextureResourceCache>>     textureCache;
+		HashMap<RID, std::weak_ptr<MaterialResourceCache>>    materialCache;
+		HashMap<RID, std::weak_ptr<EnvironmentResourceCache>> environmentCache;
+		HashMap<RID, std::weak_ptr<MeshResourceCache>>        meshCache;
+		HashMap<RID, std::weak_ptr<SkinResourceCache>>        skinCache;
 
 
 		std::mutex fontCacheMutex{};
 		std::mutex materialCacheMutex{};
+		std::mutex environmentCacheMutex{};
 		std::mutex textureCacheMutex{};
 		std::mutex meshCacheMutex{};
 		std::mutex skinCacheMutex{};
@@ -987,6 +989,9 @@ namespace Skore
 		GPUBuffer*        materialMaskReadbackBuffers[SK_FRAMES_IN_FLIGHT] = {};
 		u32               materialDataBufferCapacity = 0;
 		u32               materialDataCount = 0;
+		GPUBuffer*        materialParamBuffer = nullptr;
+		u32               materialParamBufferCapacity = 0;
+		u32               materialParamCount = 0;
 		bool              globalDescriptorSetAlive = false;
 
 		u32 AllocatePrimitiveInfoSlot()
@@ -1212,6 +1217,152 @@ namespace Skore
 		std::mutex           pendingMaterialsMutex;
 		Array<PendingMaterial> pendingMaterials;
 
+		u32 ResolveSamplerIndex(RID textureRID)
+		{
+			if (!textureRID) return 0;
+			ResourceObject textureObject = Resources::Read(textureRID);
+			if (!textureObject) return 0;
+			AddressMode wrap    = textureObject.GetEnum<AddressMode>(TextureResource::WrapMode);
+			FilterMode  filter  = textureObject.GetEnum<FilterMode>(TextureResource::FilterMode);
+			bool        clamp   = wrap == AddressMode::ClampToEdge || wrap == AddressMode::ClampToBorder;
+			bool        nearest = filter == FilterMode::Nearest;
+			if (clamp) return nearest ? 3u : 2u;
+			return nearest ? 1u : 0u;
+		}
+
+		void PackGraphMaterialParams(const MaterialResourceCachePtr& materialCache, const MaterialParamLayout& layout, bool async)
+		{
+			materialCache->materialParamData.Clear();
+			if (layout.size == 0)
+			{
+				return;
+			}
+
+			materialCache->materialParamData.Resize(layout.size, 0);
+			u8* dest = materialCache->materialParamData.Data();
+
+			ResourceObject matObj = Resources::Read(materialCache->rid);
+			bool           isInstance = matObj && matObj.GetEnum<MaterialGraphResource::MaterialKind>(MaterialGraphResource::Kind) == MaterialGraphResource::MaterialKind::Instance;
+
+			for (const MaterialParamEntry& entry : layout.entries)
+			{
+				Vec4 value{};
+				RID  texture{};
+
+				if (ResourceObject nodeObj = Resources::Read(entry.node))
+				{
+					value = nodeObj.GetVec4(MaterialGraphNodeResource::Value);
+					texture = nodeObj.GetReference(MaterialGraphNodeResource::Texture);
+				}
+
+				if (isInstance && !entry.name.Empty())
+				{
+					for (RID overrideRid : matObj.GetSubObjectList(MaterialGraphResource::Parameters))
+					{
+						ResourceObject overrideObj = Resources::Read(overrideRid);
+						if (overrideObj && entry.name == overrideObj.GetString(MaterialParameterOverrideResource::ParameterName))
+						{
+							value = overrideObj.GetVec4(MaterialParameterOverrideResource::Value);
+							if (RID overrideTexture = overrideObj.GetReference(MaterialParameterOverrideResource::Texture))
+							{
+								texture = overrideTexture;
+							}
+							break;
+						}
+					}
+				}
+
+				u8* at = dest + entry.offset;
+				switch (entry.kind)
+				{
+					case MaterialParamKind::Float:
+					{
+						f32 v = value.x;
+						memcpy(at, &v, sizeof(f32));
+						break;
+					}
+					case MaterialParamKind::Vec2:
+					{
+						f32 v[2] = {value.x, value.y};
+						memcpy(at, v, sizeof(v));
+						break;
+					}
+					case MaterialParamKind::Vec3:
+					{
+						f32 v[3] = {value.x, value.y, value.z};
+						memcpy(at, v, sizeof(v));
+						break;
+					}
+					case MaterialParamKind::Vec4:
+					{
+						f32 v[4] = {value.x, value.y, value.z, value.w};
+						memcpy(at, v, sizeof(v));
+						break;
+					}
+					case MaterialParamKind::Texture:
+					{
+						i32 index = -1;
+						if (texture)
+						{
+							TextureResourceCachePtr textureCache = RenderResourceCache::GetTextureCache(texture, async);
+							if (textureCache && textureCache->textureIndex != U32_MAX)
+							{
+								index = static_cast<i32>(textureCache->textureIndex);
+								materialCache->textures.EmplaceBack(std::move(textureCache));
+							}
+						}
+						u32 sampler = ResolveSamplerIndex(texture);
+						memcpy(at, &index, sizeof(i32));
+						memcpy(at + sizeof(i32), &sampler, sizeof(u32));
+						break;
+					}
+				}
+			}
+		}
+
+		void WriteMaterialParamsToBuffer(const MaterialResourceCachePtr& materialCache)
+		{
+			if (materialCache->materialParamData.Empty() || materialCache->materialIndex == U32_MAX)
+			{
+				return;
+			}
+
+			u32 requiredCapacity = materialCache->materialIndex + 1;
+			if (requiredCapacity > materialParamBufferCapacity)
+			{
+				u32 newCapacity = requiredCapacity * 2;
+				if (newCapacity < 64) newCapacity = 64;
+
+				GPUBuffer* newBuffer = Graphics::CreateBuffer(BufferDesc{
+					.size = newCapacity * MaterialParamBlockSize,
+					.usage = ResourceUsage::ShaderResource,
+					.hostVisible = true,
+					.persistentMapped = true,
+					.debugName = "MaterialParamBuffer"
+				});
+
+				if (materialParamBuffer)
+				{
+					memcpy(newBuffer->GetMappedData(), materialParamBuffer->GetMappedData(), materialParamBufferCapacity * MaterialParamBlockSize);
+					materialParamBuffer->Destroy();
+				}
+
+				materialParamBuffer = newBuffer;
+				materialParamBufferCapacity = newCapacity;
+			}
+
+			u8* mapped = static_cast<u8*>(materialParamBuffer->GetMappedData());
+			u8* dest = mapped + static_cast<usize>(materialCache->materialIndex) * MaterialParamBlockSize;
+			memset(dest, 0, MaterialParamBlockSize);
+
+			usize bytes = materialCache->materialParamData.Size();
+			if (bytes > MaterialParamBlockSize) bytes = MaterialParamBlockSize;
+			memcpy(dest, materialCache->materialParamData.Data(), bytes);
+
+			materialParamCount = std::max(materialParamCount, materialCache->materialIndex + 1);
+			globalDescriptorSet->UpdateBuffer(7, materialParamBuffer, 0, materialParamCount * MaterialParamBlockSize);
+		}
+
 		void WriteMaterialDataToBuffer(const MaterialResourceCachePtr& materialCache, const MaterialData& matData)
 		{
 			if (materialCache->materialIndex == U32_MAX)
@@ -1280,6 +1431,11 @@ namespace Skore
 
 			globalDescriptorSet->UpdateBuffer(0, materialDataBuffer, 0, materialDataCount * sizeof(MaterialData));
 			globalDescriptorSet->UpdateBuffer(1, materialMaskBuffer, 0, materialDataCount * sizeof(u32));
+
+			if (materialCache->materialGraph)
+			{
+				WriteMaterialParamsToBuffer(materialCache);
+			}
 		}
 
 		void AddPendingMaterial(MaterialResourceCachePtr cache, const MaterialData& data)
@@ -1296,6 +1452,39 @@ namespace Skore
 			pendingMaterials.EmplaceBack(PendingMaterial{std::move(cache), data});
 		}
 
+		void FlushPendingMaterials()
+		{
+			std::scoped_lock lock(pendingMaterialsMutex);
+			for (usize i = 0; i < pendingMaterials.Size(); )
+			{
+				PendingMaterial& pending = pendingMaterials[i];
+
+				bool allLoaded = true;
+				for (const TextureResourceCachePtr& tex : pending.cache->textures)
+				{
+					if (tex && !tex->IsLoaded())
+					{
+						allLoaded = false;
+						break;
+					}
+				}
+
+				if (allLoaded)
+				{
+					WriteMaterialDataToBuffer(pending.cache, pending.data);
+					if (i + 1 < pendingMaterials.Size())
+					{
+						pendingMaterials[i] = std::move(pendingMaterials.Back());
+					}
+					pendingMaterials.PopBack();
+				}
+				else
+				{
+					++i;
+				}
+			}
+		}
+
 		bool UpdateTexture(GPUDescriptorSet* descriptorSet, const TextureResourceCachePtr& cache, u32 slot)
 		{
 			if (cache && cache->texture)
@@ -1307,95 +1496,69 @@ namespace Skore
 			return false;
 		}
 
+		void WriteMaterialStubData(const MaterialResourceCachePtr& materialCache)
+		{
+			MaterialData matData{};
+			matData.baseColor = Vec3(1.0f, 1.0f, 1.0f);
+			matData.baseColorTexture = -1;
+			matData.normalTexture = -1;
+			matData.roughnessTexture = -1;
+			matData.metallicTexture = -1;
+			matData.emissiveTexture = -1;
+			matData.uvScale = Vec2(1.0f, 1.0f);
+
+			if (materialCache->materialIndex == U32_MAX)
+			{
+				AddPendingMaterial(materialCache, matData);
+			}
+			else
+			{
+				WriteMaterialDataToBuffer(materialCache, matData);
+			}
+		}
+
 		void UpdateMaterialStorageData(const ResourceObject& materialObject, MaterialResourceCachePtr materialCache, bool async)
 		{
-			StringView name = materialObject.GetString(MaterialResource::Name);
-
-			materialCache->type = materialObject.GetEnum<MaterialResource::MaterialType>(MaterialResource::Type);
-
-			//keep textures alive in the scope. so we don't need to reload textures in a material refresh.
-			auto oldtextures = materialCache->textures;
-
-			// Drop previous texture references; rebuild based on the new material data.
-			materialCache->textures.Clear();
-
-			if (materialCache->type == MaterialResource::MaterialType::Opaque)
+			if (Resources::GetType(materialCache->rid) == Resources::FindType<MaterialGraphResource>())
 			{
-				Color baseColor = materialObject.GetColor(MaterialResource::BaseColor);
-				RID   baseColorTexture = materialObject.GetReference(MaterialResource::BaseColorTexture);
-				RID   normalTexture = materialObject.GetReference(MaterialResource::NormalTexture);
-				RID   roughnessTexture = materialObject.GetReference(MaterialResource::RoughnessTexture);
-				RID   metallicTexture = materialObject.GetReference(MaterialResource::MetallicTexture);
-				Color emissiveColor = materialObject.GetColor(MaterialResource::EmissiveColor);
-				f32   emissiveFactor = materialObject.GetFloat(MaterialResource::EmissiveFactor);
-				RID   emissiveTexture = materialObject.GetReference(MaterialResource::EmissiveTexture);
+				MaterialParamLayout layout = MaterialParamLayout::Build(materialCache->rid);
+				materialCache->materialGraph = layout.owningGraph ? layout.owningGraph : materialCache->rid;
 
-				auto resolveTextureIndex = [&materialCache, async](RID textureRID) -> i32
+				// Render settings live on the owning graph, so instances inherit them from their parent.
+				ResourceObject        owningGraphObject = materialCache->materialGraph != materialCache->rid ? Resources::Read(materialCache->materialGraph) : ResourceObject{};
+				const ResourceObject& graphSettings = owningGraphObject ? owningGraphObject : materialObject;
+
+				MaterialGraphResource::GraphAlphaMode alphaMode = graphSettings.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+				materialCache->transparent = alphaMode == MaterialGraphResource::GraphAlphaMode::Blend;
+				materialCache->masked = alphaMode == MaterialGraphResource::GraphAlphaMode::Mask;
+
+				switch (graphSettings.GetEnum<MaterialGraphResource::GraphRenderFace>(MaterialGraphResource::RenderFace))
 				{
-					if (!textureRID) return -1;
-					TextureResourceCachePtr tc = RenderResourceCache::GetTextureCache(textureRID, async);
-					if (tc && tc->textureIndex != U32_MAX)
-					{
-						i32 idx = static_cast<i32>(tc->textureIndex);
-						materialCache->textures.EmplaceBack(Traits::Move(tc));
-						return idx;
-					}
-					return -1;
-				};
-
-				auto resolveSamplerIndex = [](RID textureRID) -> u32
-				{
-					if (!textureRID) return 0;
-					ResourceObject textureObject = Resources::Read(textureRID);
-					if (!textureObject) return 0;
-					AddressMode wrap    = textureObject.GetEnum<AddressMode>(TextureResource::WrapMode);
-					FilterMode  filter  = textureObject.GetEnum<FilterMode>(TextureResource::FilterMode);
-					bool        clamp   = wrap == AddressMode::ClampToEdge || wrap == AddressMode::ClampToBorder;
-					bool        nearest = filter == FilterMode::Nearest;
-					if (clamp) return nearest ? 3u : 2u;
-					return nearest ? 1u : 0u;
-				};
-
-				MaterialData matData{};
-				matData.baseColor = baseColor.ToVec3();
-				matData.roughness = materialObject.GetFloat(MaterialResource::Roughness);
-				matData.metallic = materialObject.GetFloat(MaterialResource::Metallic);
-				matData.baseColorTexture = resolveTextureIndex(baseColorTexture);
-				matData.normalTexture = resolveTextureIndex(normalTexture);
-				matData.roughnessTexture = resolveTextureIndex(roughnessTexture);
-				matData.metallicTexture = resolveTextureIndex(metallicTexture);
-				matData.uvScale = materialObject.GetVec2(MaterialResource::UvScale);
-				matData.emissiveFactor = emissiveFactor;
-				matData.emissiveColor = emissiveColor.ToVec3();
-				matData.emissiveTexture = resolveTextureIndex(emissiveTexture);
-				matData.alphaMode = materialObject.GetEnum(MaterialResource::AlphaMode);
-				matData.alphaCutoff = materialObject.GetFloat(MaterialResource::AlphaCutoff);
-
-				matData.samplerIndices0 = resolveSamplerIndex(baseColorTexture)
-				                        | (resolveSamplerIndex(normalTexture)    << 8)
-				                        | (resolveSamplerIndex(roughnessTexture) << 16)
-				                        | (resolveSamplerIndex(metallicTexture)  << 24);
-
-				matData.samplerIndices1 = resolveSamplerIndex(emissiveTexture);
-
-				MaterialResource::MaterialAlphaMode alphaModeEnum = materialObject.GetEnum<MaterialResource::MaterialAlphaMode>(MaterialResource::AlphaMode);
-				materialCache->transparent = alphaModeEnum == MaterialResource::MaterialAlphaMode::Blend;
-				materialCache->masked = alphaModeEnum == MaterialResource::MaterialAlphaMode::Mask;
-
-				if (materialCache->materialIndex == U32_MAX)
-				{
-					AddPendingMaterial(materialCache, matData);
+					case MaterialGraphResource::GraphRenderFace::Front: materialCache->cullMode = CullMode::Back; break;
+					case MaterialGraphResource::GraphRenderFace::Back:  materialCache->cullMode = CullMode::Front; break;
+					case MaterialGraphResource::GraphRenderFace::Both:  materialCache->cullMode = CullMode::None; break;
 				}
-				else
-				{
-					WriteMaterialDataToBuffer(materialCache, matData);
-				}
+				materialCache->depthWrite = graphSettings.HasValue(MaterialGraphResource::DepthWrite) ? graphSettings.GetBool(MaterialGraphResource::DepthWrite) : !materialCache->transparent;
+				materialCache->depthTest = graphSettings.HasValue(MaterialGraphResource::DepthTest) ? graphSettings.GetEnum<CompareOp>(MaterialGraphResource::DepthTest) : CompareOp::Greater;
+
+				materialCache->textures.Clear();
+				PackGraphMaterialParams(materialCache, layout, async);
+
+				WriteMaterialStubData(materialCache);
+				return;
 			}
-			else if (materialCache->type == MaterialResource::MaterialType::SkyboxEquirectangular)
-			{
-				RID sphericalTexture = materialObject.GetReference(MaterialResource::SphericalTexture);
 
-				materialCache->descriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
+			materialCache->textures.Clear();
+			WriteMaterialStubData(materialCache);
+		}
+
+		// Rebuilds the equirect texture binding + IBL bake for an environment cache. Shared by the
+		// initial GetEnvironmentCache path and the sky-texture reload hook.
+		void UpdateEnvironmentStorageData(const EnvironmentResourceCachePtr& environmentCache, bool async)
+		{
+			if (environmentCache->descriptorSet == nullptr)
+			{
+				environmentCache->descriptorSet = Graphics::CreateDescriptorSet(DescriptorSetDesc{
 					.bindings = {
 						DescriptorSetLayoutBinding{
 							.binding = 0,
@@ -1407,55 +1570,54 @@ namespace Skore
 						}
 					}
 				});
+			}
 
-				materialCache->skyMaterialTexture = sphericalTexture ? RenderResourceCache::GetTextureCache(sphericalTexture, async) : nullptr;
+			environmentCache->panoramicTexture = environmentCache->skyTexture ? RenderResourceCache::GetTextureCache(environmentCache->skyTexture, async) : nullptr;
 
-				UpdateTexture(materialCache->descriptorSet, materialCache->skyMaterialTexture, 0);
-				materialCache->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
+			UpdateTexture(environmentCache->descriptorSet, environmentCache->panoramicTexture, 0);
+			environmentCache->descriptorSet->UpdateSampler(1, Graphics::GetLinearSampler());
 
-				if (materialCache->skyMaterialTexture && materialCache->skyMaterialTexture->texture)
+			if (environmentCache->panoramicTexture && environmentCache->panoramicTexture->texture)
+			{
+				if (!environmentCache->diffuseIrradianceTexture)
 				{
-					if (!materialCache->diffuseIrradianceTexture)
-					{
-						materialCache->diffuseIrradianceTexture = Graphics::CreateTexture(TextureDesc{
-							.extent = {64, 64, 1},
-							.arrayLayers = 6,
-							.format = Format::RGBA16_FLOAT,
-							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
-							.cubemap = true,
-							.debugName = "SceneRendererViewport_irradianceTexture"
-						});
-					}
-
-					if (!materialCache->specularMapTexture)
-					{
-						materialCache->specularMapTexture = Graphics::CreateTexture(TextureDesc{
-							.extent = {256, 256, 1},
-							.mipLevels = 8,
-							.arrayLayers = 6,
-							.format = Format::RGBA16_FLOAT,
-							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
-							.cubemap = true,
-							.debugName = "SceneRendererViewport_SpecularMapTexture"
-						});
-					}
-
-					if (!materialCache->cubeMapSkyTexture)
-					{
-						materialCache->cubeMapSkyTexture = Graphics::CreateTexture(TextureDesc{
-							.extent = {256, 256, 1},
-							.mipLevels = 8,
-							.arrayLayers = 6,
-							.format = Format::RGBA16_FLOAT,
-							.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
-							.cubemap = true,
-							.debugName = "SceneRendererViewport_CubemapTexture"
-						});
-
-					}
-
-					materialCache->iblComplete = worker->AddTask(WorkerType::GenerateIBL, materialCache).share();
+					environmentCache->diffuseIrradianceTexture = Graphics::CreateTexture(TextureDesc{
+						.extent = {64, 64, 1},
+						.arrayLayers = 6,
+						.format = Format::RGBA16_FLOAT,
+						.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+						.cubemap = true,
+						.debugName = "Environment_IrradianceTexture"
+					});
 				}
+
+				if (!environmentCache->specularMapTexture)
+				{
+					environmentCache->specularMapTexture = Graphics::CreateTexture(TextureDesc{
+						.extent = {256, 256, 1},
+						.mipLevels = 8,
+						.arrayLayers = 6,
+						.format = Format::RGBA16_FLOAT,
+						.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+						.cubemap = true,
+						.debugName = "Environment_SpecularMapTexture"
+					});
+				}
+
+				if (!environmentCache->cubeMapSkyTexture)
+				{
+					environmentCache->cubeMapSkyTexture = Graphics::CreateTexture(TextureDesc{
+						.extent = {256, 256, 1},
+						.mipLevels = 8,
+						.arrayLayers = 6,
+						.format = Format::RGBA16_FLOAT,
+						.usage = ResourceUsage::ShaderResource | ResourceUsage::UnorderedAccess,
+						.cubemap = true,
+						.debugName = "Environment_CubemapTexture"
+					});
+				}
+
+				environmentCache->iblComplete = worker->AddTask(WorkerType::GenerateIBL, environmentCache).share();
 			}
 		}
 
@@ -1573,6 +1735,25 @@ namespace Skore
 					UpdateMaterialStorageData(materialObject, m, true);
 				}
 			}
+
+			// Environment caches are keyed by their source texture, so a reload of that texture
+			// rebinds the panoramic descriptor and re-enqueues the IBL bake off the new pixels.
+			Array<EnvironmentResourceCachePtr> affectedEnv;
+			{
+				std::scoped_lock lock(environmentCacheMutex);
+				for (auto& it : environmentCache)
+				{
+					if (auto e = it.second.lock(); e && e->skyTexture == textureRID)
+					{
+						affectedEnv.EmplaceBack(e);
+					}
+				}
+			}
+
+			for (const EnvironmentResourceCachePtr& e : affectedEnv)
+			{
+				UpdateEnvironmentStorageData(e, true);
+			}
 		}
 
 		template<typename V, typename Map, typename Mutex>
@@ -1657,15 +1838,24 @@ namespace Skore
 		void WaitForMaterial(const MaterialResourceCachePtr& mat)
 		{
 			if (!mat) return;
-			if (mat->iblComplete.valid())
-			{
-				mat->iblComplete.wait();
-			}
 			for (const auto& tex : mat->textures)
 			{
 				WaitForTexture(tex);
 			}
-			WaitForTexture(mat->skyMaterialTexture);
+			if (mat->materialIndex == U32_MAX)
+			{
+				FlushPendingMaterials();
+			}
+		}
+
+		void WaitForEnvironment(const EnvironmentResourceCachePtr& env)
+		{
+			if (!env) return;
+			WaitForTexture(env->panoramicTexture);
+			if (env->iblComplete.valid())
+			{
+				env->iblComplete.wait();
+			}
 		}
 
 		void WaitForMesh(const MeshResourceCachePtr& mesh)
@@ -1881,7 +2071,7 @@ namespace Skore
 			}
 			else
 			{
-				meshData->materials.EmplaceBack(RenderResourceCache::GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), async));
+				meshData->materials.EmplaceBack(RenderResourceCache::GetMaterialCache(Resources::FindByPath("Skore://MaterialGraphs/DefaultMaterial.matgraph"), async));
 			}
 
 			return true;
@@ -2026,6 +2216,7 @@ namespace Skore
 			if (ResourceStorage* storage = Resources::GetStorage(rid))
 			{
 				storage->UnregisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
+				storage->UnregisterEvent(ResourceEventType::VersionUpdated, GraphicsResourceStorageMaterialReload, nullptr);
 			}
 			eventRegistered = false;
 		}
@@ -2035,7 +2226,10 @@ namespace Skore
 			freeMaterialIndices.EmplaceBack(materialIndex);
 			materialIndex = U32_MAX;
 		}
+	}
 
+	EnvironmentResourceCache::~EnvironmentResourceCache()
+	{
 		if (descriptorSet) descriptorSet->Destroy();
 		if (diffuseIrradianceTexture) diffuseIrradianceTexture->Destroy();
 		if (specularMapTexture) specularMapTexture->Destroy();
@@ -2102,37 +2296,7 @@ namespace Skore
 			drained.pop();
 		}
 
-		{
-			std::scoped_lock lock(pendingMaterialsMutex);
-			for (usize i = 0; i < pendingMaterials.Size(); )
-			{
-				PendingMaterial& pending = pendingMaterials[i];
-
-				bool allLoaded = true;
-				for (const TextureResourceCachePtr& tex : pending.cache->textures)
-				{
-					if (tex && !tex->IsLoaded())
-					{
-						allLoaded = false;
-						break;
-					}
-				}
-
-				if (allLoaded)
-				{
-					WriteMaterialDataToBuffer(pending.cache, pending.data);
-					if (i + 1 < pendingMaterials.Size())
-					{
-						pendingMaterials[i] = std::move(pendingMaterials.Back());
-					}
-					pendingMaterials.PopBack();
-				}
-				else
-				{
-					++i;
-				}
-			}
-		}
+		FlushPendingMaterials();
 
 		if (materialMaskBuffer && materialDataCount > 0)
 		{
@@ -2389,6 +2553,25 @@ namespace Skore
 		return result;
 	}
 
+	namespace
+	{
+		FnMaterialVariantResolver gMaterialVariantResolver = nullptr;
+	}
+
+	void RenderResourceCache::SetMaterialVariantResolver(FnMaterialVariantResolver resolver)
+	{
+		gMaterialVariantResolver = resolver;
+	}
+
+	RID RenderResourceCache::EnsureMaterialVariant(RID shader, RID material, StringView variantName)
+	{
+		if (gMaterialVariantResolver)
+		{
+			return gMaterialVariantResolver(shader, material, variantName);
+		}
+		return ShaderResource::GetVariant(shader, material, variantName);
+	}
+
 	MaterialResourceCachePtr RenderResourceCache::GetMaterialCache(RID material, bool async)
 	{
 		if (!material) return nullptr;
@@ -2418,6 +2601,7 @@ namespace Skore
 		if (ResourceStorage* storage = Resources::GetStorage(material))
 		{
 			storage->RegisterEvent(ResourceEventType::Changed, GraphicsResourceStorageMaterialReload, nullptr);
+			storage->RegisterEvent(ResourceEventType::VersionUpdated, GraphicsResourceStorageMaterialReload, nullptr);
 			materialData->eventRegistered = true;
 		}
 
@@ -2451,6 +2635,63 @@ namespace Skore
 		if (!async)
 		{
 			WaitForMaterial(result);
+		}
+		return result;
+	}
+
+	EnvironmentResourceCachePtr RenderResourceCache::GetEnvironmentCache(RID skyTexture, bool async)
+	{
+		if (!skyTexture) return nullptr;
+
+		// Phase 1: brief lock — return existing cache if any.
+		{
+			std::unique_lock lock(environmentCacheMutex);
+			auto it = environmentCache.Find(skyTexture);
+			if (it != environmentCache.end())
+			{
+				if (auto sp = it->second.lock())
+				{
+					lock.unlock();
+					if (!async) WaitForEnvironment(sp);
+					return sp;
+				}
+				environmentCache.Erase(it);
+			}
+		}
+
+		// Phase 2: heavy work without the lock — descriptor-set creation, recursive GetTextureCache
+		// and the IBL bake enqueue all live in UpdateEnvironmentStorageData.
+		EnvironmentResourceCachePtr environmentData(Alloc<EnvironmentResourceCache>(skyTexture), MakeCacheDeleter<EnvironmentResourceCache>(environmentCache, environmentCacheMutex, skyTexture));
+
+		UpdateEnvironmentStorageData(environmentData, async);
+
+		// Phase 3: brief lock — race re-check, then insert.
+		EnvironmentResourceCachePtr result;
+		{
+			std::unique_lock lock(environmentCacheMutex);
+			auto it = environmentCache.Find(skyTexture);
+			if (it != environmentCache.end())
+			{
+				if (auto sp = it->second.lock())
+				{
+					result = sp;
+				}
+				else
+				{
+					environmentCache.Erase(it);
+				}
+			}
+
+			if (!result)
+			{
+				environmentCache.Insert(skyTexture, std::weak_ptr(environmentData));
+				result = environmentData;
+			}
+		}
+
+		if (!async)
+		{
+			WaitForEnvironment(result);
 		}
 		return result;
 	}
@@ -2681,7 +2922,7 @@ namespace Skore
 		}
 		else
 		{
-			meshData->materials.EmplaceBack(GetMaterialCache(Resources::FindByPath("Skore://Materials/DefaultMaterial.material"), true));
+			meshData->materials.EmplaceBack(GetMaterialCache(Resources::FindByPath("Skore://MaterialGraphs/DefaultMaterial.matgraph"), true));
 		}
 
 		ResourceWorker::WorkerData wd;
@@ -3011,6 +3252,10 @@ namespace Skore
 					.binding = 6,
 					.descriptorType = DescriptorType::StorageBuffer
 				},
+				DescriptorSetLayoutBinding{
+					.binding = 7,
+					.descriptorType = DescriptorType::StorageBuffer
+				},
 			},
 			.debugName = "GlobalDescriptorSet"
 		});
@@ -3065,6 +3310,12 @@ namespace Skore
 			materialDataBuffer = nullptr;
 		}
 
+		if (materialParamBuffer)
+		{
+			materialParamBuffer->Destroy();
+			materialParamBuffer = nullptr;
+		}
+
 		if (materialMaskBuffer)
 		{
 			materialMaskBuffer->Destroy();
@@ -3110,6 +3361,8 @@ namespace Skore
 		freeTextureIndices.Clear();
 		materialDataBufferCapacity = 0;
 		materialDataCount = 0;
+		materialParamBufferCapacity = 0;
+		materialParamCount = 0;
 
 		worker = {};
 	}

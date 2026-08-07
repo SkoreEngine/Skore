@@ -2222,7 +2222,8 @@ namespace Skore
 						{
 							resourceObject.IterateAllSubObjects([&](u32 index, RID rid)
 							{
-								if (Resources::GetUUID(rid) && Resources::GetType(rid)->GetID() == typeId)
+								TypeID ridType = Resources::GetType(rid)->GetID();
+								if (Resources::GetUUID(rid) && ridType == typeId)
 								{
 									resourceList.EmplaceBack(rid);
 								}

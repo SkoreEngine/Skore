@@ -1,43 +1,124 @@
-#include "Tonemapping.hlsli"
-#include "Common.hlsli"
-
-
-[[vk::image_format("rgba")]] RWTexture2D<float4> outputTexture     : register(u0);
-                             Texture2D           lightingTexture   : register(t1);
-                             SamplerState        nearestSampler    : register(s2);
-                             Texture2D           bloomTexture      : register(t3);
-                             SamplerState        linearSampler     : register(s4);
+[[vk::image_format("rgba8")]]
+RWTexture2D<float4> outputTexture  : register(u0);
+Texture2D           forwardTexture : register(t1);
+Texture2D           bloomTexture   : register(t2);
+SamplerState        bloomSampler   : register(s3);
 
 struct PostProcessPushConstants
 {
-    float bloomIntensity;
+	float bloomIntensity;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<PostProcessPushConstants> pc;
 
+// sRGB => XYZ => D65_2_D60 => AP1 => RRT_SAT
+static const float3x3 ACESInputMat =
+{
+	{0.59719, 0.35458, 0.04823},
+	{0.07600, 0.90834, 0.01566},
+	{0.02840, 0.13383, 0.83777}
+};
+
+// ODT_SAT => XYZ => D60_2_D65 => sRGB
+static const float3x3 ACESOutputMat =
+{
+	{ 1.60475, -0.53108, -0.07367},
+	{-0.10208,  1.10813, -0.00605},
+	{-0.00327, -0.07276,  1.07602}
+};
+
+float3 RRTAndODTFit(float3 v)
+{
+	float3 a = v * (v + 0.0245786f) - 0.000090537f;
+	float3 b = v * (0.983729f * v + 0.4329510f) + 0.238081f;
+	return a / b;
+}
+
+float3 ACESTonemap(float3 color)
+{
+	color = mul(ACESInputMat, color);
+	color = RRTAndODTFit(color);
+	color = mul(ACESOutputMat, color);
+	return saturate(color);
+}
+
+float3 ApplyTonemapping(float3 color, float exposure)
+{
+	color *= exposure;
+	color = ACESTonemap(color);
+	return pow(color, 1.0 / 2.2);
+}
+
+float Luminance(float3 rgb)
+{
+	return 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+}
+
+float3 ApplySharpening(float3 center, float3 top, float3 left, float3 right, float3 bottom)
+{
+	float sharpenAmount = 0.25f;
+
+	float accum = 0.0f;
+	float weight = 0.0f;
+	float result = sqrt(Luminance(center));
+
+	float n0 = sqrt(Luminance(top));
+	float n1 = sqrt(Luminance(bottom));
+	float n2 = sqrt(Luminance(left));
+	float n3 = sqrt(Luminance(right));
+
+	float w0 = max(1.0f - 6.0f * (abs(result - n0) + abs(result - n1)), 0.0f);
+	float w1 = max(1.0f - 6.0f * (abs(result - n2) + abs(result - n3)), 0.0f);
+
+	w0 = min(1.25f * sharpenAmount * w0, w0);
+	w1 = min(1.25f * sharpenAmount * w1, w1);
+
+	accum += n0 * w0;
+	accum += n1 * w0;
+	accum += n2 * w1;
+	accum += n3 * w1;
+
+	weight += 2.0f * w0;
+	weight += 2.0f * w1;
+
+	result = max(result * (weight + 1.0f) - accum, 0.0f);
+	result = result * result;
+
+	return min(center * result / max(Luminance(center), 1e-5f), 1.0f);
+}
+
+float3 LoadClamped(int2 coord, int2 dim)
+{
+	return forwardTexture[clamp(coord, int2(0, 0), dim - 1)].rgb;
+}
+
 [numthreads(8, 8, 1)]
 void MainCS(uint2 px : SV_DispatchThreadID)
 {
-    int2 bufferDimensions;
-    outputTexture.GetDimensions(bufferDimensions.x, bufferDimensions.y);
-    float2 texelSize = 1.0f / bufferDimensions;
-    float2 uv        = (px + 0.5f) * texelSize;
+	int2 dim;
+	outputTexture.GetDimensions(dim.x, dim.y);
 
-    float3 color = lightingTexture.SampleLevel(nearestSampler, uv, 0.0f).xyz;
+	if (any(int2(px) >= dim))
+		return;
 
-    float3 top        = lightingTexture.SampleLevel(nearestSampler, uv + float2( 0.0f,          texelSize.y), 0.0f).xyz;
-    float3 left       = lightingTexture.SampleLevel(nearestSampler, uv + float2(-texelSize.x,  0.0f        ), 0.0f).xyz;
-    float3 right      = lightingTexture.SampleLevel(nearestSampler, uv + float2( texelSize.x,  0.0f        ), 0.0f).xyz;
-    float3 bottom     = lightingTexture.SampleLevel(nearestSampler, uv + float2( 0.0f,         -texelSize.y), 0.0f).xyz;
+	int2 p = int2(px);
 
-    color = ApplySharpening(color, top, left, right, bottom);
+	float3 color  = forwardTexture[p].rgb;
+	float3 top    = LoadClamped(p + int2( 0,  1), dim);
+	float3 left   = LoadClamped(p + int2(-1,  0), dim);
+	float3 right  = LoadClamped(p + int2( 1,  0), dim);
+	float3 bottom = LoadClamped(p + int2( 0, -1), dim);
 
-    // Add bloom before tonemapping
-    float3 bloom = bloomTexture.SampleLevel(linearSampler, uv, 0.0f).rgb;
-    color += bloom * pc.bloomIntensity;
+	color = ApplySharpening(color, top, left, right, bottom);
 
-    color = ApplyTonemapping(color, 1.4);
+	// Add bloom before tonemapping; the sampler defaults to repeat addressing, so clamp to the interior
+	float2 texel = 1.0 / float2(dim);
+	float2 uv = clamp((float2(px) + 0.5) * texel, texel * 0.5, 1.0 - texel * 0.5);
+	float3 bloom = bloomTexture.SampleLevel(bloomSampler, uv, 0.0).rgb;
+	color += bloom * pc.bloomIntensity;
 
-    outputTexture[px] = float4(color, 1.0);
+	color = ApplyTonemapping(color, 1.4);
+
+	outputTexture[px] = float4(color, 1.0);
 }

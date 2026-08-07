@@ -11,7 +11,7 @@
 
 namespace Skore
 {
-	class UIContext;
+	class RmlUIContext;
 	class UIElementDocument;
 	class UIElement;
 	class UIEvent;
@@ -181,7 +181,7 @@ namespace Skore
 		UIElement*         GetChild(i32 index);
 		i32                GetNumChildren();
 		UIElementDocument* GetOwnerDocument();
-		UIContext*         GetContext();
+		RmlUIContext*      GetContext();
 
 		UIElement*        GetElementById(StringView id);
 		UIElement*        QuerySelector(StringView selector);
@@ -212,7 +212,7 @@ namespace Skore
 		bool       IsModal();
 		void       ReloadStyleSheet();
 		void       Update();
-		UIContext* GetContext();
+		RmlUIContext* GetContext();
 		UIElement* FindNextTabElement(UIElement* currentElement, bool forward, bool wrapAround = true);
 
 		UIElement* CreateElement(StringView name);
@@ -281,10 +281,10 @@ namespace Skore
 		}
 	};
 
-	class SK_API UIContext
+	class SK_API RmlUIContext
 	{
 	public:
-		static UIContext* Create(StringView name, Extent dimensions, bool enableResourceSync = false);
+		static RmlUIContext* Create(StringView name, Extent dimensions, bool enableResourceSync = false);
 
 		void Destroy();
 		void SetDimensions(Extent dimensions);

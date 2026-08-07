@@ -3,7 +3,6 @@
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/GraphicsCommon.hpp"
 #include "Skore/Graphics/GraphicsResources.hpp"
-#include "Skore/Graphics/RenderPipeline.hpp"
 #include "Skore/Core/Attributes.hpp"
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Settings.hpp"
@@ -1009,96 +1008,6 @@ namespace Skore
 
 	}
 
-	void RegisterRenderPipelineBaseTypes()
-	{
-		auto renderPipelinePassType = Reflection::Type<RenderPipelinePassType>();
-		renderPipelinePassType.Value<RenderPipelinePassType::Other>("Other");
-		renderPipelinePassType.Value<RenderPipelinePassType::Graphics>("Graphics");
-		renderPipelinePassType.Value<RenderPipelinePassType::Compute>("Compute");
-		renderPipelinePassType.Value<RenderPipelinePassType::Raytrace>("Raytrace");
-
-		auto renderPipelineTextureAccess = Reflection::Type<RenderPipelineTextureAccess>();
-		renderPipelineTextureAccess.Value<RenderPipelineTextureAccess::None>("None");
-		renderPipelineTextureAccess.Value<RenderPipelineTextureAccess::Read>("Read");
-		renderPipelineTextureAccess.Value<RenderPipelineTextureAccess::Write>("Write");
-		renderPipelineTextureAccess.Value<RenderPipelineTextureAccess::ReadWrite>("ReadWrite");
-
-		auto renderPipelineResourceType = Reflection::Type<RenderPipelineResourceType>();
-		renderPipelineResourceType.Value<RenderPipelineResourceType::None>("None");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Texture>("Texture");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::TextureView>("TextureView");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Attachment>("Attachment");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Buffer>("Buffer");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Reference>("Reference");
-		renderPipelineResourceType.Value<RenderPipelineResourceType::Instance>("Instance");
-
-		auto renderPipelineResource = Reflection::Type<RenderPipelineResource>();
-		renderPipelineResource.Field<&RenderPipelineResource::name>("name");
-		renderPipelineResource.Field<&RenderPipelineResource::type>("type");
-		renderPipelineResource.Field<&RenderPipelineResource::format>("format");
-		renderPipelineResource.Field<&RenderPipelineResource::extent>("extent");
-		renderPipelineResource.Field<&RenderPipelineResource::scale>("scale");
-		renderPipelineResource.Field<&RenderPipelineResource::arrayLayers>("arrayLayers");
-		renderPipelineResource.Field<&RenderPipelineResource::samples>("samples");
-		renderPipelineResource.Field<&RenderPipelineResource::mipLevels>("mipLevels");
-		renderPipelineResource.Field<&RenderPipelineResource::textureUsage>("textureUsage");
-		renderPipelineResource.Field<&RenderPipelineResource::textureName>("textureName");
-		renderPipelineResource.Field<&RenderPipelineResource::viewType>("viewType");
-		renderPipelineResource.Field<&RenderPipelineResource::baseMipLevel>("baseMipLevel");
-		renderPipelineResource.Field<&RenderPipelineResource::levelCount>("levelCount");
-		renderPipelineResource.Field<&RenderPipelineResource::baseArrayLayer>("baseArrayLayer");
-		renderPipelineResource.Field<&RenderPipelineResource::layerCount>("layerCount");
-		renderPipelineResource.Field<&RenderPipelineResource::clearColor>("clearColor");
-		renderPipelineResource.Field<&RenderPipelineResource::size>("size");
-		renderPipelineResource.Field<&RenderPipelineResource::usage>("usage");
-		renderPipelineResource.Field<&RenderPipelineResource::hostVisible>("hostVisible");
-		renderPipelineResource.Field<&RenderPipelineResource::persistentMapped>("persistentMapped");
-		renderPipelineResource.Field<&RenderPipelineResource::instanceTypeId>("instanceTypeId");
-
-		auto renderPipelinePassDependency = Reflection::Type<RenderPipelinePassDependency>();
-		renderPipelinePassDependency.Field<&RenderPipelinePassDependency::name>("name");
-		renderPipelinePassDependency.Field<&RenderPipelinePassDependency::access>("access");
-
-		auto renderPipelinePassSetup = Reflection::Type<RenderPipelinePassSetup>();
-		renderPipelinePassSetup.Field<&RenderPipelinePassSetup::type>("type");
-		renderPipelinePassSetup.Field<&RenderPipelinePassSetup::invertViewport>("invertViewport");
-		renderPipelinePassSetup.Field<&RenderPipelinePassSetup::dependencies>("dependencies");
-
-		auto renderPipelineModuleSetup = Reflection::Type<RenderPipelineModuleSetup>();
-		renderPipelineModuleSetup.Field<&RenderPipelineModuleSetup::passes>("passes");
-
-		auto renderPipelineSetup = Reflection::Type<RenderPipelineSetup>();
-		renderPipelineSetup.Field<&RenderPipelineSetup::modules>("modules");
-
-		auto renderPipelineContextSettings = Reflection::Type<RenderPipelineContextSettings>();
-		renderPipelineContextSettings.Field<&RenderPipelineContextSettings::initialOutputSize>("initialOutputSize");
-
-		// Base classes with virtual methods
-		auto renderPipelinePass = Reflection::Type<RenderPipelinePass>();
-		renderPipelinePass.Field<&RenderPipelinePass::context>("context");
-		renderPipelinePass.Field<&RenderPipelinePass::renderPass>("renderPass");
-		renderPipelinePass.Function<&RenderPipelinePass::GetPassSetup>("GetPassSetup").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Create>("Create").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Init>("Init").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Update>("Update").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Render>("Render", "objects", "cmd").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::Destroy>("Destroy").Attribute<VirtualMethod>();
-		renderPipelinePass.Function<&RenderPipelinePass::OnResize>("OnResize", "size").Attribute<VirtualMethod>();
-
-		auto renderPipelineModule = Reflection::Type<RenderPipelineModule>();
-		renderPipelineModule.Field<&RenderPipelineModule::context>("context");
-		renderPipelineModule.Function<&RenderPipelineModule::GetResources>("GetResources").Attribute<VirtualMethod>();
-		renderPipelineModule.Function<&RenderPipelineModule::GetSetup>("GetSetup").Attribute<VirtualMethod>();
-		renderPipelineModule.Function<&RenderPipelineModule::Init>("Init").Attribute<VirtualMethod>();
-		renderPipelineModule.Function<&RenderPipelineModule::Destroy>("Destroy").Attribute<VirtualMethod>();
-		renderPipelineModule.Function<&RenderPipelineModule::Update>("Update", "objects").Attribute<VirtualMethod>();
-
-		auto renderPipeline = Reflection::Type<RenderPipeline>();
-		renderPipeline.Function<&RenderPipeline::GetPipelineSetup>("GetPipelineSetup").Attribute<VirtualMethod>();
-
-		Reflection::Type<RenderPipelineContext>();
-	}
-
 	void RegisterPipelineTypes();
 
 	void RegisterGraphicsTypes()
@@ -1129,20 +1038,19 @@ namespace Skore
 		primitive.Field<&MeshPrimitive::indexCount>("indexCount");
 		primitive.Field<&MeshPrimitive::materialIndex>("materialIndex");
 		//
-		auto materialType = Reflection::Type<MaterialResource::MaterialType>();
-		materialType.Value<MaterialResource::MaterialType::Opaque>("Opaque");
-		materialType.Value<MaterialResource::MaterialType::SkyboxEquirectangular>("SkyboxEquirectangular");
-		//
-		auto alphaMode = Reflection::Type<MaterialResource::MaterialAlphaMode>();
-		alphaMode.Value<MaterialResource::MaterialAlphaMode::None>("None");
-		alphaMode.Value<MaterialResource::MaterialAlphaMode::Opaque>("Opaque");
-		alphaMode.Value<MaterialResource::MaterialAlphaMode::Mask>("Mask");
-		alphaMode.Value<MaterialResource::MaterialAlphaMode::Blend>("Blend");
-		//
 		auto graphAlphaMode = Reflection::Type<MaterialGraphResource::GraphAlphaMode>();
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Opaque>("Opaque");
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Mask>("Mask");
 		graphAlphaMode.Value<MaterialGraphResource::GraphAlphaMode::Blend>("Blend");
+
+		auto graphShadingModel = Reflection::Type<MaterialGraphResource::GraphShadingModel>();
+		graphShadingModel.Value<MaterialGraphResource::GraphShadingModel::DefaultLit>("DefaultLit");
+		graphShadingModel.Value<MaterialGraphResource::GraphShadingModel::Unlit>("Unlit");
+
+		auto graphRenderFace = Reflection::Type<MaterialGraphResource::GraphRenderFace>();
+		graphRenderFace.Value<MaterialGraphResource::GraphRenderFace::Front>("Front");
+		graphRenderFace.Value<MaterialGraphResource::GraphRenderFace::Back>("Back");
+		graphRenderFace.Value<MaterialGraphResource::GraphRenderFace::Both>("Both");
 
 		auto materialKind = Reflection::Type<MaterialGraphResource::MaterialKind>();
 		materialKind.Value<MaterialGraphResource::MaterialKind::Graph>("Graph");
@@ -1168,12 +1076,14 @@ namespace Skore
 			.Field<ShaderVariantResource::Spriv>(ResourceFieldType::Blob)
 			.Field<ShaderVariantResource::PipelineDesc>(ResourceFieldType::SubObject)
 			.Field<ShaderVariantResource::Stages>(ResourceFieldType::SubObjectList)
+			.Field<ShaderVariantResource::Material>(ResourceFieldType::Reference, TypeInfo<MaterialGraphResource>::ID())
 			.Build();
 
 		Resources::Type<ShaderResource>()
 			.Field<ShaderResource::Name>(ResourceFieldType::String)
 			.Field<ShaderResource::Variants>(ResourceFieldType::SubObjectList)
 			.Field<ShaderResource::RayHitGroup>(ResourceFieldType::UInt)
+			.Field<ShaderResource::IsMaterial>(ResourceFieldType::Bool)
 			.Build();
 
 		Resources::Type<TextureImageResource>()
@@ -1195,33 +1105,6 @@ namespace Skore
 			.Field<TextureResource::TotalUncompressedSize>(ResourceFieldType::UInt)
 			.Field<TextureResource::Images>(ResourceFieldType::SubObjectList)
 			.Field<TextureResource::PixelData>(ResourceFieldType::Buffer)
-			.Build();
-
-		Resources::Type<MaterialResource>()
-			.Field<MaterialResource::Name>(ResourceFieldType::String)
-			.Field<MaterialResource::Type>(ResourceFieldType::Enum, TypeInfo<MaterialResource::MaterialType>::ID())
-			.Field<MaterialResource::BaseColor>(ResourceFieldType::Color)
-			.Field<MaterialResource::BaseColorTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::NormalTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::NormalMultiplier>(ResourceFieldType::Float)
-			.Field<MaterialResource::Metallic>(ResourceFieldType::Float)
-			.Field<MaterialResource::MetallicTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::MetallicTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
-			.Field<MaterialResource::Roughness>(ResourceFieldType::Float)
-			.Field<MaterialResource::RoughnessTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::RoughnessTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
-			.Field<MaterialResource::EmissiveColor>(ResourceFieldType::Color)
-			.Field<MaterialResource::EmissiveFactor>(ResourceFieldType::Float)
-			.Field<MaterialResource::EmissiveTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::OcclusionTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::OcclusionStrength>(ResourceFieldType::Float)
-			.Field<MaterialResource::OcclusionTextureChannel>(ResourceFieldType::Enum, TypeInfo<TextureChannel>::ID())
-			.Field<MaterialResource::AlphaCutoff>(ResourceFieldType::Float)
-			.Field<MaterialResource::AlphaMode>(ResourceFieldType::Enum, TypeInfo<MaterialResource::MaterialAlphaMode>::ID())
-			.Field<MaterialResource::UvScale>(ResourceFieldType::Vec2)
-			.Field<MaterialResource::SphericalTexture>(ResourceFieldType::Reference, TypeInfo<TextureResource>::ID())
-			.Field<MaterialResource::Exposure>(ResourceFieldType::Float)
-			.Field<MaterialResource::BackgroundColor>(ResourceFieldType::Color)
 			.Build();
 
 		Resources::Type<MaterialGraphPinValueResource>()
@@ -1261,6 +1144,10 @@ namespace Skore
 			.Field<MaterialGraphResource::Kind>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::MaterialKind>::ID())
 			.Field<MaterialGraphResource::Parent>(ResourceFieldType::Reference, TypeInfo<MaterialGraphResource>::ID())
 			.Field<MaterialGraphResource::Parameters>(ResourceFieldType::SubObjectList, TypeInfo<MaterialParameterOverrideResource>::ID())
+			.Field<MaterialGraphResource::ShadingModel>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphShadingModel>::ID())
+			.Field<MaterialGraphResource::RenderFace>(ResourceFieldType::Enum, TypeInfo<MaterialGraphResource::GraphRenderFace>::ID())
+			.Field<MaterialGraphResource::DepthWrite>(ResourceFieldType::Bool)
+			.Field<MaterialGraphResource::DepthTest>(ResourceFieldType::Enum, TypeInfo<CompareOp>::ID())
 			.Build();
 
 		Resources::Type<VertexAttributeResource>()
@@ -1355,32 +1242,6 @@ namespace Skore
 			.Field<SkinResource::Binds>(ResourceFieldType::SubObjectList)
 			.Build();
 
-		//default material values
-		{
-			RID rid = Resources::Create<MaterialResource>();
-			ResourceObject object = Resources::Write(rid);
-
-			object.SetEnum(MaterialResource::Type, MaterialResource::MaterialType::Opaque);
-			object.SetColor(MaterialResource::BaseColor, Color::WHITE);
-			object.SetFloat(MaterialResource::NormalMultiplier, 1.0);
-			object.SetFloat(MaterialResource::Metallic, 0.0);
-			object.SetFloat(MaterialResource::Roughness, 1.0);
-
-			object.SetColor(MaterialResource::EmissiveColor, Color::BLACK);
-			object.SetFloat(MaterialResource::EmissiveFactor, 1.0);
-
-			object.SetFloat(MaterialResource::OcclusionStrength, 1.0);
-
-			object.SetFloat(MaterialResource::AlphaCutoff, 0.5);
-			object.SetVec2(MaterialResource::UvScale, Vec2(1.0, 1.0));
-
-			object.SetFloat(MaterialResource::Exposure, 1.0);
-
-			object.Commit();
-			Resources::FindType<MaterialResource>()->SetDefaultValue(rid);
-		}
-
-		RegisterRenderPipelineBaseTypes();
 		RegisterPipelineTypes();
 		RegisterAnimationTypes();
 	}

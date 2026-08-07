@@ -3,33 +3,122 @@
 
 #include "Skore/Events.hpp"
 #include "Skore/OpenXRManager.hpp"
+#include "Skore/Core/Allocator.hpp"
 #include "Skore/Core/ArgParser.hpp"
+#include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Settings.hpp"
 #include "Skore/Core/Sinks.hpp"
+#include "Skore/Graphics/Device.hpp"
 #include "Skore/Graphics/Graphics.hpp"
+#include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
+#include "Skore/Graphics/Pipeline/PipelineCommon.hpp"
+#include "Skore/Graphics/Pipeline/ProfilerOverlayPass.hpp"
 #include "Skore/IO/FileSystem.hpp"
 #include "Skore/IO/FileTypes.hpp"
 #include "Skore/IO/Path.hpp"
+#include "Skore/Platform/Platform.hpp"
 #include "Skore/Resource/Resources.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneManager.hpp"
 
 namespace Skore
 {
-	struct SwapchainRenderPipelineModule;
-	struct DefaultRenderPipeline;
-	struct ProfilerOverlayPipelineModule;
+	//default pipeline plus the F5 profiler overlay, rendering straight into the swapchain
+	struct PlayerRenderPipeline : DefaultRenderPipeline
+	{
+		SK_CLASS(PlayerRenderPipeline, DefaultRenderPipeline);
 
+		ProfilerOverlayPass profilerOverlay;
+
+		void BuildRenderGraph(RenderGraph& renderGraph) override
+		{
+			DefaultRenderPipeline::BuildRenderGraph(renderGraph);
+			profilerOverlay.BuildRenderGraph(renderGraph);
+		}
+	};
 
 	StdOutSink stdOutSink{};
 
-	static RenderPipelineContext* pipelineContext;
+	static RenderPipelineContext* pipelineContext = nullptr;
+	static GPUSwapchain*             swapchain = nullptr;
+	static bool                      renderingDisabled = false;
 
 	Logger& logger = Logger::GetLogger("Skore::Player");
 
+	void CreatePlayerSwapchain()
+	{
+		SwapchainDesc swapchainDesc;
+		swapchainDesc.desiredFormat = Format::BGRA8_UNORM;
+		swapchainDesc.vsync = true;
+		swapchainDesc.window = Graphics::GetWindow();
+		swapchainDesc.debugName = "Swapchain";
+
+		swapchain = Graphics::CreateSwapchain(swapchainDesc);
+
+		RenderGraph& renderGraph = pipelineContext->GetRenderGraph();
+		renderGraph.SetOutputAttachments(PostProcessOutputName, swapchain->GetTextures(), ResourceState::Present);
+		renderGraph.SetOutputSize(Platform::GetWindowSize(swapchainDesc.window));
+	}
+
+	void TryResizeSwapchain(bool force)
+	{
+		Extent extent = Platform::GetWindowSize(Graphics::GetWindow());
+
+		if (extent.width == 0 || extent.height == 0)
+		{
+			renderingDisabled = true;
+			return;
+		}
+
+		renderingDisabled = false;
+
+		Extent outputSize = pipelineContext->GetRenderGraph().GetOutputSize();
+		if (!force && outputSize == extent)
+		{
+			return;
+		}
+
+		Graphics::WaitIdle();
+
+		swapchain->Destroy();
+		CreatePlayerSwapchain();
+	}
+
+	void OnPlayerWindowResized(VoidPtr windowHandle)
+	{
+		TryResizeSwapchain(false);
+	}
+
+	void OnPlayerWindowMinimized(VoidPtr windowHandle)
+	{
+		renderingDisabled = true;
+	}
+
+	void OnPlayerWindowRestored(VoidPtr windowHandle)
+	{
+		renderingDisabled = false;
+		TryResizeSwapchain(true);
+	}
+
 	void OnPlayerOnRecordRenderCommands(GPUCommandBuffer* cmd)
 	{
+		if (renderingDisabled || swapchain == nullptr)
+		{
+			return;
+		}
+
+		if (swapchain->AcquireNextImage() == DeviceResult::SwapchainOutOfDate)
+		{
+			TryResizeSwapchain(true);
+			if (renderingDisabled || swapchain->AcquireNextImage() != DeviceResult::Success)
+			{
+				return;
+			}
+		}
+
+		pipelineContext->GetRenderGraph().SetCurrentOutputIndex(swapchain->GetCurrentImageIndex());
+
 		if (Scene* scene = SceneManager::GetActiveScene())
 		{
 			pipelineContext->Execute(cmd, scene);
@@ -38,7 +127,19 @@ namespace Skore
 
 	void OnPlayerShutdown()
 	{
-		pipelineContext->Destroy();
+		Graphics::WaitIdle();
+
+		if (swapchain)
+		{
+			swapchain->Destroy();
+			swapchain = nullptr;
+		}
+
+		if (pipelineContext)
+		{
+			DestroyAndFree(pipelineContext);
+			pipelineContext = nullptr;
+		}
 	}
 
 	void SK_API InitResourceLoaders();
@@ -123,13 +224,15 @@ namespace Skore
 			return result == AppResult::Success ? 0 : 1;
 		}
 
-		Array<TypeID> extraModules;
-		extraModules.EmplaceBack(TypeInfo<SwapchainRenderPipelineModule>::ID());
-		extraModules.EmplaceBack(TypeInfo<ProfilerOverlayPipelineModule>::ID());
+		Reflection::Type<PlayerRenderPipeline>();
 
-		RenderPipelineContextSettings contextSettings;
-		pipelineContext = RenderPipeline::CreateContext(TypeInfo<DefaultRenderPipeline>::ID(), extraModules, contextSettings);
+		pipelineContext = RenderPipelineContext::Create(sktypeid(PlayerRenderPipeline));
+		RenderPipelineContext::SetMainContext(pipelineContext);
+		CreatePlayerSwapchain();
 
+		Event::Bind<OnWindowResized, &OnPlayerWindowResized>();
+		Event::Bind<OnWindowMinimized, &OnPlayerWindowMinimized>();
+		Event::Bind<OnWindowRestored, &OnPlayerWindowRestored>();
 		Event::Bind<OnRecordRenderCommands, &OnPlayerOnRecordRenderCommands>();
 		Event::Bind<OnShutdown, &OnPlayerShutdown>();
 

@@ -117,11 +117,25 @@ namespace Skore
 		ImGui::Checkbox(ICON_FA_CODE " Show HLSL", &m_showCode);
 	}
 
-	bool MaterialGraphEditorWindow::IsOutputOpacityPinDisabled(MaterialNode* def, u32 pinIndex, MaterialGraphResource::GraphAlphaMode alphaMode)
+	bool MaterialGraphEditorWindow::IsOutputPinDisabled(MaterialNode* def, u32 pinIndex, MaterialGraphResource::GraphAlphaMode alphaMode, MaterialGraphResource::GraphShadingModel shadingModel)
 	{
 		if (!def->IsOutput())
 		{
 			return false;
+		}
+		if (shadingModel == MaterialGraphResource::GraphShadingModel::Unlit)
+		{
+			switch (pinIndex)
+			{
+				case static_cast<u32>(MaterialNodeRegistry::Metallic):
+				case static_cast<u32>(MaterialNodeRegistry::Roughness):
+				case static_cast<u32>(MaterialNodeRegistry::Emissive):
+				case static_cast<u32>(MaterialNodeRegistry::Normal):
+				case static_cast<u32>(MaterialNodeRegistry::Occlusion):
+					return true;
+				default:
+					break;
+			}
 		}
 		if (pinIndex == static_cast<u32>(MaterialNodeRegistry::Opacity))
 		{
@@ -134,16 +148,16 @@ namespace Skore
 		return false;
 	}
 
-	void MaterialGraphEditorWindow::DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins, MaterialGraphResource::GraphAlphaMode alphaMode)
+	void MaterialGraphEditorWindow::DrawPinValueWidgets(RID node, MaterialNode* def, const HashSet<u64>& connectedPins, MaterialGraphResource::GraphAlphaMode alphaMode, MaterialGraphResource::GraphShadingModel shadingModel)
 	{
 		Span<MaterialNodePin> inputs = def->GetInputs();
 		for (u32 i = 0; i < inputs.Size(); ++i)
 		{
 			const MaterialNodePin& pin = inputs[i];
 
-			//On the output node the two opacity pins are gated by the material's Alpha Mode: only the pin
-			//relevant to the current mode is connectable/editable; the other is shown greyed out.
-			if (IsOutputOpacityPinDisabled(def, i, alphaMode))
+			//On the output node pins are gated by the material settings: Unlit greys out the lit surface
+			//pins, and the two opacity pins follow the Alpha Mode (only the relevant one stays editable).
+			if (IsOutputPinDisabled(def, i, alphaMode, shadingModel))
 			{
 				m_editor.InputPin(pin.name.CStr(), GraphPinType::Value, PinColor(pin), true);
 				continue;
@@ -381,13 +395,15 @@ namespace Skore
 
 		HashSet<u64> usedTextures;
 
-		RID                                   outputNodeRid;
-		MaterialGraphResource::GraphAlphaMode alphaMode = MaterialGraphResource::GraphAlphaMode::Opaque;
+		RID                                       outputNodeRid;
+		MaterialGraphResource::GraphAlphaMode     alphaMode = MaterialGraphResource::GraphAlphaMode::Opaque;
+		MaterialGraphResource::GraphShadingModel  shadingModel = MaterialGraphResource::GraphShadingModel::DefaultLit;
 
 		if (ResourceObject graphObj = Resources::Read(CurrentGraph()))
 		{
 			outputNodeRid = graphObj.GetReference(MaterialGraphResource::OutputNode);
 			alphaMode = graphObj.GetEnum<MaterialGraphResource::GraphAlphaMode>(MaterialGraphResource::AlphaMode);
+			shadingModel = graphObj.GetEnum<MaterialGraphResource::GraphShadingModel>(MaterialGraphResource::ShadingModel);
 
 			HashSet<u64> connectedPins;
 			graphObj.IterateSubObjectList(MaterialGraphResource::Connections, [&](RID connRid)
@@ -424,7 +440,7 @@ namespace Skore
 					.headerColor = ImColor(color.r, color.g, color.b)
 				});
 
-				DrawPinValueWidgets(nodeRid, def, connectedPins, alphaMode);
+				DrawPinValueWidgets(nodeRid, def, connectedPins, alphaMode, shadingModel);
 
 				for (const MaterialNodePin& pin : def->GetOutputs())
 				{
@@ -543,11 +559,11 @@ namespace Skore
 
 		for (const GraphEditorNewLink& newLink : result.createdLinks)
 		{
-			//Reject links dropped onto an opacity pin that the current Alpha Mode has disabled.
+			//Reject links dropped onto an output pin the current material settings have disabled.
 			if (RID{newLink.inputNodeId} == outputNodeRid)
 			{
 				MaterialNode* outDef = MaterialNodeRegistry::Find(MaterialNodeRegistry::OutputTypeId());
-				if (outDef && IsOutputOpacityPinDisabled(outDef, newLink.inputPinIndex, alphaMode))
+				if (outDef && IsOutputPinDisabled(outDef, newLink.inputPinIndex, alphaMode, shadingModel))
 				{
 					continue;
 				}

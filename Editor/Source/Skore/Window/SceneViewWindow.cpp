@@ -15,10 +15,10 @@
 #include "Skore/Core/StringUtils.hpp"
 #include "Skore/Graphics/Graphics.hpp"
 #include "Skore/Graphics/RenderPipeline.hpp"
-#include "Skore/Graphics/RenderPipelineNew.hpp"
 #include "Skore/Graphics/RenderGraph.hpp"
 #include "Skore/Graphics/RenderResourceCache.hpp"
 #include "Skore/Core/Allocator.hpp"
+#include "Skore/Scene/SceneViewRenderPipeline.hpp"
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
@@ -27,21 +27,14 @@
 #include "Skore/Scene/Components/LightComponent.hpp"
 #include "Skore/Scene/Components/RenderComponents.hpp"
 #include "Skore/Scene/Components/Transform.hpp"
+#include "Skore/Scene/Components/UIContext.hpp"
 #include "Skore/Scene/Scene.hpp"
-#include "Skore/UI/RmlUI.hpp"
 #include "Skore/Utils/StaticContent.hpp"
 
 #include <variant>
 
-#ifndef SK_SCENEVIEW_USE_NEW_PIPELINE
-#define SK_SCENEVIEW_USE_NEW_PIPELINE 1
-#endif
-
 namespace Skore
 {
-	struct DefaultRenderPipeline;
-	struct KajiyaRenderPipeline; // SkoreKajiya plugin pipeline (test hardcode; swap back to DefaultRenderPipeline to restore)
-
 	MenuItemContext SceneViewWindow::menuItemContext = {};
 
 	static SceneViewWindow* lastWindow = nullptr;
@@ -86,18 +79,11 @@ namespace Skore
 			lastWindow = nullptr;
 		}
 
-#if SK_SCENEVIEW_USE_NEW_PIPELINE
-		if (renderPipelineContextNew)
-		{
-			DestroyAndFree(renderPipelineContextNew);
-			renderPipelineContextNew = nullptr;
-		}
-#else
 		if (renderPipelineContext)
 		{
-			renderPipelineContext->Destroy();
+			DestroyAndFree(renderPipelineContext);
+			renderPipelineContext = nullptr;
 		}
-#endif
 	}
 
 	const char* SceneViewWindow::GetTitle() const
@@ -118,35 +104,21 @@ namespace Skore
 
 	GPUTexture* SceneViewWindow::GetDisplayTexture() const
 	{
-#if SK_SCENEVIEW_USE_NEW_PIPELINE
-		if (renderPipelineContextNew == nullptr) return nullptr;
-		RenderGraph& renderGraph = renderPipelineContextNew->GetRenderGraph();
-		return selectedTextureToShow.Empty() ? renderGraph.GetColorOutput() : renderGraph.GetTexture(selectedTextureToShow);
-#else
 		if (renderPipelineContext == nullptr) return nullptr;
-		return selectedTextureToShow.Empty() ? renderPipelineContext->GetColorOutput() : renderPipelineContext->GetTexture(selectedTextureToShow);
-#endif
+		RenderGraph& renderGraph = renderPipelineContext->GetRenderGraph();
+		return selectedTextureToShow.Empty() ? renderGraph.GetColorOutput() : renderGraph.GetTexture(selectedTextureToShow);
 	}
 
 	SceneViewWindow::ViewportCamera SceneViewWindow::GetViewportCamera() const
 	{
 		ViewportCamera viewportCamera{};
-#if SK_SCENEVIEW_USE_NEW_PIPELINE
-		if (renderPipelineContextNew != nullptr)
+		if (renderPipelineContext != nullptr)
 		{
-			RenderGraph& renderGraph = renderPipelineContextNew->GetRenderGraph();
+			RenderGraph& renderGraph = renderPipelineContext->GetRenderGraph();
 			viewportCamera.view = renderGraph.camera.view;
 			viewportCamera.projectionNoJitter = renderGraph.camera.projectionNoJitter;
 			viewportCamera.viewProjectionNoJitter = renderGraph.camera.viewProjectionNoJitter;
 		}
-#else
-		if (renderPipelineContext != nullptr)
-		{
-			viewportCamera.view = renderPipelineContext->camera.view;
-			viewportCamera.projectionNoJitter = renderPipelineContext->camera.projectionNoJitter;
-			viewportCamera.viewProjectionNoJitter = renderPipelineContext->camera.viewProjectionNoJitter;
-		}
-#endif
 		return viewportCamera;
 	}
 
@@ -183,47 +155,32 @@ namespace Skore
 		{
 			if (Scene* scene = sceneEditor->GetCurrentScene())
 			{
-				if (scene->uiContext) scene->uiContext->SetInputTransform(Vec2{(f32)bb.x, (f32)bb.y}, screenScale);
+				scene->Iterate<UIContext>([&](UIContext* context)
+				{
+					context->SetInputTransform(Vec2{(f32)bb.x, (f32)bb.y}, screenScale);
+				});
 			}
 		}
 
 		Extent currentOutputSize = {};
-#if SK_SCENEVIEW_USE_NEW_PIPELINE
-		if (renderPipelineContextNew) currentOutputSize = renderPipelineContextNew->GetRenderGraph().GetOutputSize();
-#else
-		if (renderPipelineContext) currentOutputSize = renderPipelineContext->GetOutputSize();
-#endif
+		if (renderPipelineContext) currentOutputSize = renderPipelineContext->GetRenderGraph().GetOutputSize();
 		bool sizeUpdated = currentOutputSize != extent;
 
-#if SK_SCENEVIEW_USE_NEW_PIPELINE
-		if (renderPipelineContextNew == nullptr)
-		{
-			renderPipelineContextNew = RenderPipelineContextNew::Create(sktypeid(DefaultRenderPipelineNew));
-			renderPipelineContextNew->GetRenderGraph().SetOutputSize(extent);
-		}
-#else
 		if (renderPipelineContext == nullptr)
 		{
-			RenderPipelineContextSettings settings;
-			settings.initialOutputSize = extent;
-			settings.userData = this;
-
-			Array<TypeID> extraModules = {};
-			extraModules.EmplaceBack(sktypeid(SceneViewPipelineModule));
-
-			renderPipelineContext = RenderPipeline::CreateContext(sktypeid(DefaultRenderPipeline), extraModules, settings);
+			renderPipelineContext = RenderPipelineContext::Create(sktypeid(SceneViewRenderPipeline));
+			if (SceneViewRenderPipeline* pipeline = static_cast<SceneViewRenderPipeline*>(renderPipelineContext->GetPipeline()))
+			{
+				pipeline->window = this;
+			}
+			renderPipelineContext->GetRenderGraph().SetOutputSize(extent);
 		}
-#endif
 
 		if (sizeUpdated)
 		{
 			aspectRatio = static_cast<f32>(extent.width) / static_cast<f32>(extent.height);
 			entityPicker.Resize(extent);
-#if SK_SCENEVIEW_USE_NEW_PIPELINE
-			renderPipelineContextNew->GetRenderGraph().SetOutputSize(extent);
-#else
-			renderPipelineContext->SetOutputSize(extent);
-#endif
+			renderPipelineContext->GetRenderGraph().SetOutputSize(extent);
 		}
 
 		if (GPUTexture* displayTexture = GetDisplayTexture())
@@ -838,9 +795,7 @@ namespace Skore
 				if (ImGui::Button(ICON_FA_PLAY, buttonSize) && sceneEditor)
 				{
 					sceneEditor->StartSimulation();
-#if !SK_SCENEVIEW_USE_NEW_PIPELINE
-					RenderPipeline::SetMainContext(renderPipelineContext);
-#endif
+					RenderPipelineContext::SetMainContext(renderPipelineContext);
 					windowStartedSimulation = true;
 				}
 
@@ -862,7 +817,7 @@ namespace Skore
 				{
 					sceneEditor->StopSimulation();
 					windowStartedSimulation = false;
-					RenderPipeline::SetMainContext(nullptr);
+					RenderPipelineContext::SetMainContext(nullptr);
 				}
 
 				if (isSimulating)
@@ -953,96 +908,6 @@ namespace Skore
 				// {
 				// }
 			}
-
-#if !SK_SCENEVIEW_USE_NEW_PIPELINE
-			if (ImGui::BeginMenu("Debug Options"))
-			{
-				bool changed = false;
-
-				static int e = -1;
-				changed |= ImGui::RadioButton("Display Normal", &e, -1);
-
-				Array<RenderPipelineContext::PipelineResourceStorage> resources = renderPipelineContext->GetResources();
-
-				for (int i = 0; i < resources.Size(); ++i)
-				{
-					if (resources[i].HasTexture() && !resources[i].desc.name.Empty())
-					{
-						String formattedName = "Display " + FormatName(resources[i].desc.name);
-						changed |= ImGui::RadioButton(formattedName.CStr(), &e, i);
-					}
-				}
-
-				if (changed)
-				{
-					if (e == -1)
-					{
-						selectedTextureToShow.Clear();
-					}
-					else
-					{
-						selectedTextureToShow = resources[e].desc.name;
-					}
-				}
-
-				ImGui::EndMenu();
-			}
-
-			if (renderPipelineContext && ImGui::BeginMenu("Pipeline Options"))
-			{
-				for (const auto& it : renderPipelineContext->GetOptions())
-				{
-					const String& name = it.first;
-					PipelineOption value = it.second;
-					String         label = FormatName(name) + "##" + name;
-
-					if (bool* b = std::get_if<bool>(&value))
-					{
-						if (ImGui::Checkbox(label.CStr(), b))
-						{
-							renderPipelineContext->SetOption(name, *b);
-						}
-					}
-					else if (i64* i = std::get_if<i64>(&value))
-					{
-						ImGui::SetNextItemWidth(150 * style.ScaleFactor);
-						if (ImGui::InputScalar(label.CStr(), ImGuiDataType_S64, i))
-						{
-							renderPipelineContext->SetOption(name, *i);
-						}
-					}
-					else if (u64* u = std::get_if<u64>(&value))
-					{
-						ImGui::SetNextItemWidth(150 * style.ScaleFactor);
-						if (ImGui::InputScalar(label.CStr(), ImGuiDataType_U64, u))
-						{
-							renderPipelineContext->SetOption(name, *u);
-						}
-					}
-					else if (f64* f = std::get_if<f64>(&value))
-					{
-						ImGui::SetNextItemWidth(150 * style.ScaleFactor);
-						if (ImGui::InputScalar(label.CStr(), ImGuiDataType_Double, f))
-						{
-							renderPipelineContext->SetOption(name, *f);
-						}
-					}
-					else if (std::string* s = std::get_if<std::string>(&value))
-					{
-						char buffer[256];
-						snprintf(buffer, sizeof(buffer), "%s", s->c_str());
-						ImGui::SetNextItemWidth(150 * style.ScaleFactor);
-						if (ImGui::InputText(label.CStr(), buffer, sizeof(buffer)))
-						{
-							renderPipelineContext->SetOption(name, std::string(buffer));
-						}
-					}
-				}
-
-				ImGui::EndMenu();
-			}
-#endif
-
 		}
 		ImGuiEndPopupMenu(popupRes);
 
@@ -1197,25 +1062,14 @@ namespace Skore
 		Scene* scene = sceneEditor->GetCurrentScene();
 		if (!scene) scene = &emptyScene;
 
-#if SK_SCENEVIEW_USE_NEW_PIPELINE
-		if (renderPipelineContextNew)
-		{
-			if (!sceneEditor->IsSimulationRunning() || !windowStartedSimulation)
-			{
-				renderPipelineContextNew->GetRenderGraph().UpdateCamera(0.1f, 300.0f, cameraFov, Projection::Perspective, {freeViewCamera.GetView()}, freeViewCamera.GetPosition(), !lockCameraFrustum);
-			}
-			renderPipelineContextNew->Execute(cmd, scene);
-		}
-#else
 		if (renderPipelineContext)
 		{
 			if (!sceneEditor->IsSimulationRunning() || !windowStartedSimulation)
 			{
-				renderPipelineContext->UpdateCamera(0.1f, 300.0f, cameraFov, Projection::Perspective, {freeViewCamera.GetView()}, freeViewCamera.GetPosition(), !lockCameraFrustum);
+				renderPipelineContext->GetRenderGraph().UpdateCamera(0.1f, 300.0f, cameraFov, Projection::Perspective, {freeViewCamera.GetView()}, freeViewCamera.GetPosition(), !lockCameraFrustum);
 			}
 			renderPipelineContext->Execute(cmd, scene);
 		}
-#endif
 	}
 
 	void SceneViewWindow::ViewEntity(Entity* entity)

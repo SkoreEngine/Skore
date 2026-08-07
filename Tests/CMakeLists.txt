@@ -4,7 +4,7 @@ target_link_libraries(SkoreTests PUBLIC SkoreRuntime SkoreEditor)
 target_include_directories(SkoreTests PUBLIC Source)
 target_include_directories(SkoreTests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/doctest)
 target_compile_definitions(SkoreTests PUBLIC SK_EDITOR_TEST_FILES="${CMAKE_CURRENT_SOURCE_DIR}/Files")
-target_compile_definitions(SkoreTests PUBLIC SK_SHADERS_NEW_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../Assets/ShadersNew")
+target_compile_definitions(SkoreTests PUBLIC SK_SHADERS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../Assets/Shaders")
 
 if (SK_ENABLE_GPU_TESTS)
 	target_compile_definitions(SkoreTests PUBLIC SK_GPU_TESTS=1)

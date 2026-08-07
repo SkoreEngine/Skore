@@ -5,11 +5,6 @@
 #include "Skore/Resource/ResourceAssets.hpp"
 #include "Skore/Resource/Resources.hpp"
 
-// 1: import as a MaterialGraphResource instance of a base graph. 0: legacy standalone MaterialResource.
-#ifndef SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE
-	#define SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE 0
-#endif
-
 namespace Skore
 {
 	namespace
@@ -20,112 +15,8 @@ namespace Skore
 		constexpr const char* BaseMaterialBlend  = "Skore://MaterialGraphs/MaterialBase_Blend.matgraph";
 	}
 
-	// Legacy: standalone MaterialResource.
-	[[maybe_unused]] static RID ImportMaterialResource(const MaterialImportData& material, const SubResourceAllocator& alloc, StringView subId)
-	{
-		UndoRedoScope* scope = alloc.scope;
-		RID materialResource = alloc.Create<MaterialResource>(subId);
-
-		ResourceObject materialObject = Resources::Write(materialResource);
-		materialObject.SetString(MaterialResource::Name, material.name.Empty() ? StringView("Material") : material.name);
-
-		if (material.hasBaseColor)
-		{
-			materialObject.SetColor(MaterialResource::BaseColor, material.baseColor);
-		}
-
-		if (material.hasEmissiveColor)
-		{
-			materialObject.SetColor(MaterialResource::EmissiveColor, material.emissiveColor);
-		}
-
-		if (material.hasMetallic)
-		{
-			materialObject.SetFloat(MaterialResource::Metallic, material.metallic);
-		}
-
-		if (material.hasRoughness)
-		{
-			materialObject.SetFloat(MaterialResource::Roughness, material.roughness);
-		}
-
-		if (material.hasNormalMultiplier)
-		{
-			materialObject.SetFloat(MaterialResource::NormalMultiplier, material.normalMultiplier);
-		}
-
-		if (material.hasEmissiveFactor)
-		{
-			materialObject.SetFloat(MaterialResource::EmissiveFactor, material.emissiveFactor);
-		}
-
-		if (material.hasOcclusionStrength)
-		{
-			materialObject.SetFloat(MaterialResource::OcclusionStrength, material.occlusionStrength);
-		}
-
-		if (material.hasAlphaCutoff)
-		{
-			materialObject.SetFloat(MaterialResource::AlphaCutoff, material.alphaCutoff);
-		}
-
-		if (material.hasAlphaMode)
-		{
-			materialObject.SetEnum(MaterialResource::AlphaMode, material.alphaMode);
-		}
-
-		if (material.baseColorTexture)
-		{
-			materialObject.SetReference(MaterialResource::BaseColorTexture, material.baseColorTexture);
-		}
-
-		if (material.normalTexture)
-		{
-			materialObject.SetReference(MaterialResource::NormalTexture, material.normalTexture);
-		}
-
-		if (material.metallicTexture)
-		{
-			materialObject.SetReference(MaterialResource::MetallicTexture, material.metallicTexture);
-		}
-
-		if (material.roughnessTexture)
-		{
-			materialObject.SetReference(MaterialResource::RoughnessTexture, material.roughnessTexture);
-		}
-
-		if (material.emissiveTexture)
-		{
-			materialObject.SetReference(MaterialResource::EmissiveTexture, material.emissiveTexture);
-		}
-
-		if (material.occlusionTexture)
-		{
-			materialObject.SetReference(MaterialResource::OcclusionTexture, material.occlusionTexture);
-		}
-
-		if (material.hasMetallicTextureChannel)
-		{
-			materialObject.SetEnum(MaterialResource::MetallicTextureChannel, material.metallicTextureChannel);
-		}
-
-		if (material.hasRoughnessTextureChannel)
-		{
-			materialObject.SetEnum(MaterialResource::RoughnessTextureChannel, material.roughnessTextureChannel);
-		}
-
-		if (material.hasOcclusionTextureChannel)
-		{
-			materialObject.SetEnum(MaterialResource::OcclusionTextureChannel, material.occlusionTextureChannel);
-		}
-
-		materialObject.Commit(scope);
-
-		return materialResource;
-	}
-
-	// Instance of a base graph, overriding only the parameters exposed on it (named to match MaterialResource).
-	[[maybe_unused]] static RID ImportMaterialGraphInstance(const MaterialImportData& material, const SubResourceAllocator& alloc, StringView subId)
+	// Imports as an instance of a base graph, overriding only the parameters the base exposes.
+	RID ImportMaterial(const MaterialImportData& material, const SubResourceAllocator& alloc, StringView subId)
 	{
 		UndoRedoScope* scope = alloc.scope;
 
@@ -135,11 +26,11 @@ namespace Skore
 		{
 			switch (material.alphaMode)
 			{
-				case MaterialResource::MaterialAlphaMode::Mask:
+				case MaterialImportAlphaMode::Mask:
 					parentPath = BaseMaterialMasked;
 					graphAlpha = MaterialGraphResource::GraphAlphaMode::Mask;
 					break;
-				case MaterialResource::MaterialAlphaMode::Blend:
+				case MaterialImportAlphaMode::Blend:
 					parentPath = BaseMaterialBlend;
 					graphAlpha = MaterialGraphResource::GraphAlphaMode::Blend;
 					break;
@@ -182,14 +73,23 @@ namespace Skore
 			materialObject.AddToSubObjectList(MaterialGraphResource::Parameters, entry);
 		};
 
+		// The base graphs sample packed maps through channel_select nodes driven by *Channel parameters,
+		// whose values are the TextureChannel indices (0=R 1=G 2=B 3=A).
+		auto addChannel = [&](StringView name, TextureChannel channel)
+		{
+			addScalar(name, Vec4{static_cast<f32>(channel), 0.0f, 0.0f, 0.0f});
+		};
+
 		if (material.hasBaseColor)         addScalar("BaseColor", material.baseColor.ToVec4());
 		if (material.baseColorTexture)     addTexture("BaseColorTexture", material.baseColorTexture);
 
 		if (material.hasMetallic)          addScalar("Metallic", Vec4{material.metallic, 0.0f, 0.0f, 0.0f});
 		if (material.metallicTexture)      addTexture("MetallicTexture", material.metallicTexture);
+		if (material.metallicTexture && material.hasMetallicTextureChannel) addChannel("MetallicChannel", material.metallicTextureChannel);
 
 		if (material.hasRoughness)         addScalar("Roughness", Vec4{material.roughness, 0.0f, 0.0f, 0.0f});
 		if (material.roughnessTexture)     addTexture("RoughnessTexture", material.roughnessTexture);
+		if (material.roughnessTexture && material.hasRoughnessTextureChannel) addChannel("RoughnessChannel", material.roughnessTextureChannel);
 
 		if (material.normalTexture)        addTexture("NormalTexture", material.normalTexture);
 		if (material.hasNormalMultiplier)  addScalar("NormalMultiplier", Vec4{material.normalMultiplier, 0.0f, 0.0f, 0.0f});
@@ -199,19 +99,11 @@ namespace Skore
 		if (material.emissiveTexture)      addTexture("EmissiveTexture", material.emissiveTexture);
 
 		if (material.occlusionTexture)     addTexture("OcclusionTexture", material.occlusionTexture);
+		if (material.occlusionTexture && material.hasOcclusionTextureChannel) addChannel("OcclusionChannel", material.occlusionTextureChannel);
 		if (material.hasOcclusionStrength) addScalar("OcclusionStrength", Vec4{material.occlusionStrength, 0.0f, 0.0f, 0.0f});
 
 		materialObject.Commit(scope);
 
 		return materialResource;
-	}
-
-	RID ImportMaterial(const MaterialImportData& material, const SubResourceAllocator& alloc, StringView subId)
-	{
-#if SK_IMPORT_MATERIAL_AS_GRAPH_INSTANCE
-		return ImportMaterialGraphInstance(material, alloc, subId);
-#else
-		return ImportMaterialResource(material, alloc, subId);
-#endif
 	}
 }

@@ -669,15 +669,26 @@ namespace Skore
 		const u32 indexByteOffset  = obj->meshCache->indexByteOffset;
 		const u32 vertexLayoutIndex = obj->meshCache->vertexLayoutId;
 
-		bool frontFace = Determinant(Mat34(obj->transform)) < 0.0f;
-		CullMode cullMode = !frontFace ? CullMode::Back : CullMode::Front;
+		bool mirrored = Determinant(Mat34(obj->transform)) < 0.0f;
+		CullMode cullMode = material->cullMode;
+		if (mirrored && cullMode == CullMode::Back)
+		{
+			cullMode = CullMode::Front;
+		}
+		else if (mirrored && cullMode == CullMode::Front)
+		{
+			cullMode = CullMode::Back;
+		}
 		bool hasBones = obj->bonesDescriptor != nullptr || obj->boneBufferSlot != U32_MAX;
 
 		DrawPipelineDesc pipelineDesc;
 		pipelineDesc.cullMode = cullMode;
 		pipelineDesc.hasBones = hasBones;
 		pipelineDesc.masked   = material->masked;
+		pipelineDesc.depthWrite = material->depthWrite;
+		pipelineDesc.depthTest  = material->depthTest;
 		pipelineDesc.shader   = obj->shader;
+		pipelineDesc.materialGraph = material->materialGraph;
 
 		Array<DrawPipeline>& pipelineStorage = ref.transparent ? transparentPipelines : opaquePipelines;
 		ref.pipelineIndex = GetOrCreatePipeline(pipelineStorage, pipelineDesc);
@@ -881,6 +892,11 @@ namespace Skore
 		const u32 primitiveCount = static_cast<u32>(obj->meshCache->primitives.Size());
 		if (primitiveCount == 0) return false;
 
+		// A partially-loaded mesh (or one still streaming in on commit) can report 0 vertices; creating a
+		// zero-sized RT buffer returns VK_ERROR_INITIALIZATION_FAILED and the null buffer would later be fed
+		// to BuildBottomLevelAS, losing the device. Skip until the mesh is fully resident and retry next frame.
+		if (obj->meshCache->vertexCount == 0) return false;
+
 		if (obj->skinnedRayTracingVertexBuffer &&
 			obj->skinnedRayTracingVertexCount == obj->meshCache->vertexCount &&
 			obj->skinnedRayTracingBlas.Size() == primitiveCount)
@@ -898,6 +914,12 @@ namespace Skore
 			.persistentMapped = false,
 			.debugName = String(obj->meshCache->debugName) + "_SkinnedRTPositions"
 		});
+
+		if (!obj->skinnedRayTracingVertexBuffer)
+		{
+			DestroySkinnedRayTracingResources(obj);
+			return false;
+		}
 
 		Array<GeometryDesc>      geometries(primitiveCount);
 		Array<BottomLevelASDesc> blasDescs(primitiveCount);
@@ -942,6 +964,12 @@ namespace Skore
 		}
 
 		EnsureSkinnedBlasScratchBuffer(maxScratch);
+		if (maxScratch > 0 && skinnedBlasScratchBuffer == nullptr)
+		{
+			DestroySkinnedRayTracingResources(obj);
+			return false;
+		}
+
 		obj->skinnedRayTracingBuilt = false;
 		return true;
 	}
@@ -968,6 +996,7 @@ namespace Skore
 
 	void RenderSceneObjects::EnsureSkinnedBlasScratchBuffer(u64 requiredSize)
 	{
+		if (requiredSize == 0) return;
 		if (requiredSize <= skinnedBlasScratchSize) return;
 
 		if (skinnedBlasScratchBuffer)
@@ -1028,10 +1057,14 @@ namespace Skore
 			cmd->MemoryBarrier();
 		}
 
+		//BuildBottomLevelAS needs a valid scratch buffer; if its allocation failed there is nothing safe to
+		//build against, so skip the build (the skinned mesh still animates via the raster path).
+		if (skinnedBlasScratchBuffer == nullptr) return;
+
 		bool built = false;
 		for (RenderableObjectStorage* obj : renderables)
 		{
-			if (obj->skinnedRayTracingBlas.Empty() || !obj->bonesBuffer) continue;
+			if (obj->skinnedRayTracingBlas.Empty() || !obj->bonesBuffer || !obj->skinnedRayTracingVertexBuffer) continue;
 
 			for (u32 p = 0; p < obj->skinnedRayTracingBlas.Size(); ++p)
 			{

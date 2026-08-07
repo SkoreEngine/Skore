@@ -288,6 +288,35 @@ namespace Skore
 			materialData.occlusionTexture = it->second;
 		}
 
+		// FBX has no channel metadata: metallic and roughness sharing one texture means glTF-style ORM
+		// packing (B/G); separate textures are grayscale maps read from R.
+		if (materialData.metallicTexture && materialData.metallicTexture == materialData.roughnessTexture)
+		{
+			materialData.hasMetallicTextureChannel = true;
+			materialData.metallicTextureChannel = TextureChannel::Blue;
+			materialData.hasRoughnessTextureChannel = true;
+			materialData.roughnessTextureChannel = TextureChannel::Green;
+		}
+		else
+		{
+			if (materialData.metallicTexture)
+			{
+				materialData.hasMetallicTextureChannel = true;
+				materialData.metallicTextureChannel = TextureChannel::Red;
+			}
+			if (materialData.roughnessTexture)
+			{
+				materialData.hasRoughnessTextureChannel = true;
+				materialData.roughnessTextureChannel = TextureChannel::Red;
+			}
+		}
+
+		if (materialData.occlusionTexture)
+		{
+			materialData.hasOcclusionTextureChannel = true;
+			materialData.occlusionTextureChannel = TextureChannel::Red;
+		}
+
 		if (auto it = fbxData.textures.Find(material->pbr.emission_color.texture))
 		{
 			materialData.emissiveTexture = it->second;

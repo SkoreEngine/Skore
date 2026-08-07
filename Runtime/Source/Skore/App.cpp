@@ -45,8 +45,6 @@ namespace Skore
 
 	void PlatformProcessEvents();
 
-	void CreateGraphicsDefaultValues();
-
 	//openXR
 	void      OpenXRManagerCreateSession();
 	AppResult OpenXrManagerIterate();
@@ -57,6 +55,7 @@ namespace Skore
 		u64 lastFrameTime;
 		u64 perfFrequency;
 		f64 deltaTime = 0.0f;
+		f64 elapsedTime = 0.0;
 
 		// FPS calculation variables
 		Uint32 frameCount = 0;
@@ -209,6 +208,7 @@ namespace Skore
 		u64 currentFrameTime = SDL_GetPerformanceCounter();
 		deltaTime = static_cast<float>(currentFrameTime - lastFrameTime) / perfFrequency;
 		lastFrameTime = currentFrameTime;
+		elapsedTime += deltaTime;
 
 		frameCount++;
 		fpsTimer += deltaTime;
@@ -298,7 +298,6 @@ namespace Skore
 		running = true;
 		requireShutdown = true;
 
-		CreateGraphicsDefaultValues();
 		PhysicsInit();
 		AudioEngineInit();
 		ScriptEngineInit();
@@ -349,6 +348,11 @@ namespace Skore
 	f64 App::DeltaTime()
 	{
 		return deltaTime;
+	}
+
+	f64 App::ElapsedTime()
+	{
+		return elapsedTime;
 	}
 
 	u64 App::Frame()

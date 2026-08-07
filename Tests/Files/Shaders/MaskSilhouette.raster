@@ -1,0 +1,25 @@
+// White silhouette for the selection-outline chain test: mirrors the editor's Unlit mask
+// output (1,1,1,1) drawn over the (1,1,1,0) mask clear, so the edge detection keys on alpha.
+
+struct VSOutput
+{
+    float4 position : SV_Position;
+};
+
+VSOutput MainVS(uint vertexId : SV_VertexID)
+{
+    float2 positions[3] = {
+        float2( 0.0, -0.6),
+        float2( 0.6,  0.6),
+        float2(-0.6,  0.6)
+    };
+
+    VSOutput output;
+    output.position = float4(positions[vertexId], 0.0, 1.0);
+    return output;
+}
+
+float4 MainPS(VSOutput input) : SV_Target
+{
+    return 1.0;
+}

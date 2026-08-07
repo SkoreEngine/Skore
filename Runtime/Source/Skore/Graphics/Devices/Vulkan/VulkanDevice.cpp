@@ -2844,7 +2844,7 @@ namespace Skore
 
 		VulkanRenderPass* vulkanRenderPass = static_cast<VulkanRenderPass*>(desc.renderPass);
 
-		RID variant = ShaderResource::GetVariant(desc.shader, desc.variant);
+		RID variant = ShaderResource::GetVariant(desc.shader, desc.material, desc.variant);
 		SK_ASSERT(variant, "variant not found");
 
 		ResourceObject variantObject = Resources::Read(variant);

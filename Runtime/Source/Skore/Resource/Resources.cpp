@@ -915,13 +915,14 @@ namespace Skore
 
 			ExecuteEvents(ResourceEventType::Changed, storage, ResourceObject(storage, instance), ResourceObject(storage, nullptr), scope);
 
-			toCollectItems.enqueue(DestroyResourcePayload{
-				.instance = instance
-			});
-
 			IterateObjectSubObjects(storage, instance, [scope](u32 index, RID subobject)
 			{
 				Destroy(subobject, scope);
+			});
+
+			toCollectItems.enqueue(DestroyResourcePayload{
+				.type = storage->resourceType,
+				.instance = instance
 			});
 		}
 	}

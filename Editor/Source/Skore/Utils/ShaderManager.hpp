@@ -17,9 +17,19 @@ namespace Skore
 		FnGetShaderInclude getShaderInclude = nullptr;
 	};
 
+	struct ShaderEntryPoint
+	{
+		String        entryPoint;
+		ShaderStage   stage;
+		Array<String> macros;
+		u32           hitGroup = 0;
+	};
+
 	SK_API void ShaderManagerInit();
 	SK_API void ShaderManagerShutdown();
 
 	SK_API bool CompileShader(const ShaderCompileInfo& shaderCompileInfo, Array<u8>& bytes, String& log);
 	SK_API bool GetPipelineLayout(GraphicsAPI api, Span<u8> bytes, Span<ShaderStageInfo> stages, PipelineDesc& pipelineDesc);
+
+	SK_API Array<ShaderEntryPoint> DetectShaderStages(StringView source);
 }

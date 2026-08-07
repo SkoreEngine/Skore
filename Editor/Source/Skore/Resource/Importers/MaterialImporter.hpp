@@ -8,6 +8,14 @@ namespace Skore
 {
 	struct SubResourceAllocator;
 
+	enum class MaterialImportAlphaMode
+	{
+		None,
+		Opaque,
+		Mask,
+		Blend,
+	};
+
 	struct MaterialImportData
 	{
 		StringView name = "Material";
@@ -36,8 +44,8 @@ namespace Skore
 		bool hasAlphaCutoff = false;
 		f32  alphaCutoff = 0.5f;
 
-		bool                                hasAlphaMode = false;
-		MaterialResource::MaterialAlphaMode alphaMode = MaterialResource::MaterialAlphaMode::Opaque;
+		bool                    hasAlphaMode = false;
+		MaterialImportAlphaMode alphaMode = MaterialImportAlphaMode::Opaque;
 
 		RID baseColorTexture;
 		RID normalTexture;

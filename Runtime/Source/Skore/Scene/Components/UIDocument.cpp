@@ -2,18 +2,32 @@
 
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Core/Attributes.hpp"
+#include "Skore/Scene/Entity.hpp"
 #include "Skore/Scene/Scene.hpp"
 #include "Skore/Scene/SceneCommon.hpp"
 
 namespace Skore
 {
+	void UIDocument::OnCreate()
+	{
+		if (!root)
+		{
+			ReloadDocument();
+		}
+	}
+
 	void UIDocument::OnDestroy()
 	{
-		if (root && scene->uiContext)
+		if (root && m_context)
 		{
-			scene->uiContext->UnloadDocument(root);
+			m_context->UnloadDocument(root);
+		}
+		if (m_context)
+		{
+			m_context->UnregisterDocument(this);
 		}
 		root = nullptr;
+		m_context = nullptr;
 	}
 
 	void UIDocument::SetDocument(RID document)
@@ -29,39 +43,93 @@ namespace Skore
 
 	void UIDocument::ProcessEvent(const EntityEventDesc& event)
 	{
-		if (!root) return;
-
 		switch (event.type)
 		{
+			case EntityEventType::EntityParentChanged:
+			case EntityEventType::UIContextChanged:
+				ReloadDocument();
+				break;
 			case EntityEventType::EntityActivated:
-				root->Show();
+				if (root)
+				{
+					root->Show();
+				}
 				break;
 			case EntityEventType::EntityDeactivated:
-				root->Hide();
+				if (root)
+				{
+					root->Hide();
+				}
 				break;
 			default:
 				break;
 		}
 	}
 
+	UIContext* UIDocument::FindContext() const
+	{
+		for (Entity* parent = entity ? entity->GetParent() : nullptr; parent != nullptr; parent = parent->GetParent())
+		{
+			UIContext* context = parent->GetComponent<UIContext>();
+			if (context && context->GetRmlContext())
+			{
+				return context;
+			}
+		}
+
+		return nullptr;
+	}
+
 	void UIDocument::ReloadDocument()
 	{
-		if (root && scene->uiContext)
+		if (root && m_context)
 		{
-			scene->uiContext->UnloadDocument(root);
+			m_context->UnloadDocument(root);
+		}
+		if (m_context)
+		{
+			m_context->UnregisterDocument(this);
 		}
 		root = nullptr;
+		m_context = nullptr;
 
-		if (!m_document || !scene->uiContext)
+		if (!m_document)
 		{
 			return;
 		}
 
-		root = scene->uiContext->LoadDocumentFromResource(m_document);
+		UIContext* context = FindContext();
+		if (!context)
+		{
+			return;
+		}
+
+		root = context->LoadDocumentFromResource(m_document);
 		if (root)
 		{
-			root->Show();
+			m_context = context;
+			m_context->RegisterDocument(this);
+			if (!entity || entity->IsActive())
+			{
+				root->Show();
+			}
 		}
+	}
+
+	void UIDocument::OnContextDestroyed(UIContext* context)
+	{
+		if (m_context != context)
+		{
+			return;
+		}
+
+		if (root)
+		{
+			m_context->UnloadDocument(root);
+		}
+		m_context->UnregisterDocument(this);
+		root = nullptr;
+		m_context = nullptr;
 	}
 
 	void UIDocument::RegisterType(NativeReflectType<UIDocument>& type)

@@ -67,6 +67,7 @@ namespace Skore
 		constexpr static i32 EntityDeactivated = 110;
 		constexpr static i32 EntityParentChanged = 120;
 		constexpr static i32 EntityIsSelectedOnEditor = 130;
+		constexpr static i32 UIContextChanged = 140;
 
 		constexpr static i32 TransformUpdated = 1000;
 		constexpr static i32 ParentTransformUpdated = 1010;

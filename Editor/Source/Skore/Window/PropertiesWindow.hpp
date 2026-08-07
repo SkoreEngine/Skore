@@ -79,7 +79,7 @@ namespace Skore
 		bool        m_previewVisible = false;
 		bool        m_focusRequested = false;
 
-		Scene*                 m_scene = nullptr;
+		Scene*                    m_scene = nullptr;
 		RenderPipelineContext* m_context = nullptr;
 
 		bool m_framePending = false;
@@ -139,7 +139,7 @@ namespace Skore
 		void DrawMaterialOutputProperties(RID graph);
 		void DrawNodeTextureProperty(u64 id, RID node);
 		void DrawNodeNameProperty(u64 id, RID node);
-		void DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type);
+		void DrawNodeValueProperty(u64 id, RID node, MaterialNodePropertyType type, u8 component);
 		void SetNodeTexture(RID node, RID texture);
 
 		void DrawMaterialInstance(u32 id, RID instance);

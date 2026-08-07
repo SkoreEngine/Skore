@@ -1,0 +1,8 @@
+objects:
+  - _uuid: 9b1d3a52-7c48-40e6-8a5f-2d91c07e4b63
+    _type: 'Skore::MaterialGraphResource'
+    Name: DefaultMaterial
+    AlphaMode: Opaque
+    MaskCutoff: 0.5
+    Kind: Instance
+    Parent: bdd89860-816b-5bc5-0492-3dde4c5b414b

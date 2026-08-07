@@ -13,12 +13,10 @@ namespace Skore
 {
 	Scene::Scene()
 	{
-		InitUI();
 	}
 
 	Scene::Scene(RID rid, bool enableResourceSync) : m_enableResourceSync(enableResourceSync), m_sceneRID(rid)
 	{
-		InitUI();
 		if (ResourceObject sceneResource = Resources::Read(rid))
 		{
 			Span<RID> entitiesRID = sceneResource.GetSubObjectList(SceneResource::Entities);
@@ -38,7 +36,6 @@ namespace Skore
 
 	Scene::Scene(TypedRID<EntityResource> rid, bool enableResourceSync) : m_enableResourceSync(enableResourceSync)
 	{
-		InitUI();
 		Entity::Instantiate(this, nullptr, rid, true);
 		if (enableResourceSync)
 		{
@@ -70,7 +67,6 @@ namespace Skore
 		entitiesByRID.Clear();
 		entities.Clear();
 
-		if (uiContext) uiContext->Destroy();
 	}
 
 	bool Scene::IsResourceSyncEnabled() const
@@ -275,12 +271,6 @@ namespace Skore
 		{
 			entity->ReflectionReload();
 		}
-	}
-
-	void Scene::InitUI()
-	{
-		auto contextName = fmt::format("UIContext_{}", PtrToInt(this));
-		uiContext = UIContext::Create(StringView{contextName.c_str(), contextName.size()}, Extent(800, 600), m_enableResourceSync);
 	}
 
 	void Scene::OnSceneResourceChange(ResourceObject& oldValue, ResourceObject& newValue, VoidPtr userData)

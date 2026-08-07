@@ -181,12 +181,12 @@ namespace Skore
 		thisId = std::this_thread::get_id();
 
 		DeviceInitDesc desc;
-		desc.enableDebugLayers = false;
+		desc.enableDebugLayers = true;
 
 		RID settings = Settings::Get(TypeInfo<ProjectSettings>::ID(), sktypeid(GraphicsSettings));
 		if (ResourceObject settingsObject = Resources::Read(settings))
 		{
-			desc.enableDebugLayers = settingsObject.GetBool(GraphicsSettings::EnableValidationLayers);
+			//desc.enableDebugLayers = settingsObject.GetBool(GraphicsSettings::EnableValidationLayers);
 		}
 
 		device = InitVulkan(desc);

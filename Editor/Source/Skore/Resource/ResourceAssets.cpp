@@ -1787,8 +1787,7 @@ namespace Skore
 		}
 		if (!directory) return;
 
-		u32        listIndex = (kind == ExtractKind::Material) ? DCCAsset::Materials : DCCAsset::Textures;
-		StringView extension = (kind == ExtractKind::Material) ? StringView(".material") : StringView(".texture");
+		u32 listIndex = (kind == ExtractKind::Material) ? DCCAsset::Materials : DCCAsset::Textures;
 
 		Array<RID> resources;
 		if (ResourceObject dccObj = Resources::Read(dccAsset))
@@ -1817,11 +1816,17 @@ namespace Skore
 			String name;
 			if (ResourceObject resObj = Resources::Read(resource))
 			{
-				name = resObj.GetString(0); //Name is field 0 for both MaterialResource and TextureResource
+				name = resObj.GetString(0); //Name is field 0 for material, material graph and texture resources
 			}
 			if (name.Empty())
 			{
 				name = (kind == ExtractKind::Material) ? "Material" : "Texture";
+			}
+
+			StringView extension = ".texture";
+			if (kind == ExtractKind::Material)
+			{
+				extension = Resources::GetType(resource) == Resources::FindType<MaterialGraphResource>() ? StringView(".matgraph") : StringView(".material");
 			}
 
 			String newName = ResourceAssets::CreateUniqueAssetName(directory, name, extension, false);
@@ -3143,7 +3148,6 @@ namespace Skore
 	void RegisterAudioHandler();
 	void RegisterEntityHandler();
 	void RegisterSceneHandler();
-	void RegisterMaterialHandler();
 	void RegisterMaterialGraphHandler();
 	void RegisterTextureHandler();
 	void RegisterMeshHandler();
@@ -3246,7 +3250,6 @@ namespace Skore
 		RegisterEntityHandler();
 		RegisterSceneHandler();
 		RegisterTextureHandler();
-		RegisterMaterialHandler();
 		RegisterMaterialGraphHandler();
 		RegisterMeshHandler();
 		RegisterShaderHandler();

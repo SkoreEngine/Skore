@@ -1,5 +1,6 @@
 #include "Skore/Core/Reflection.hpp"
 #include "Skore/Resource/Resources.hpp"
+#include "Skore/Scene/Components/UIContext.hpp"
 #include "Skore/Scene/Components/UIDocument.hpp"
 #include "RmlUI.hpp"
 
@@ -28,22 +29,22 @@ namespace Skore
 		scrollFlagEnum.Value<UIScrollFlag::None>("None");
 		scrollFlagEnum.Value<UIScrollFlag::Auto>("Auto");
 
-		auto uiContext = Reflection::Type<UIContext>();
-		uiContext.Function<&UIContext::Create>("Create", "name", "dimensions", "enableResourceSync");
-		uiContext.Function<&UIContext::Destroy>("Destroy");
-		uiContext.Function<&UIContext::SetDimensions>("SetDimensions", "dimensions");
-		uiContext.Function<&UIContext::SetDensityIndependentPixelRatio>("SetDensityIndependentPixelRatio", "ratio");
-		uiContext.Function<&UIContext::SetInputTransform>("SetInputTransform", "offset", "scale");
-		uiContext.Function<&UIContext::Update>("Update");
-		uiContext.Function<&UIContext::Render>("Render");
-		uiContext.Function<&UIContext::SetVisible>("SetVisible", "visible");
-		uiContext.Function<&UIContext::IsVisible>("IsVisible");
-		uiContext.Function<&UIContext::LoadDocumentFromMemory>("LoadDocumentFromMemory", "content");
-		uiContext.Function<&UIContext::LoadDocumentFromResource>("LoadDocumentFromResource", "document");
-		uiContext.Function<&UIContext::UnloadDocument>("UnloadDocument", "document");
-		uiContext.Function<&UIContext::CreateDataModel>("CreateDataModel", "name");
-		uiContext.Function<&UIContext::GetDataModel>("GetDataModel", "name");
-		uiContext.Function<&UIContext::RemoveDataModel>("RemoveDataModel", "name");
+		auto rmlUIContext = Reflection::Type<RmlUIContext>();
+		rmlUIContext.Function<&RmlUIContext::Create>("Create", "name", "dimensions", "enableResourceSync");
+		rmlUIContext.Function<&RmlUIContext::Destroy>("Destroy");
+		rmlUIContext.Function<&RmlUIContext::SetDimensions>("SetDimensions", "dimensions");
+		rmlUIContext.Function<&RmlUIContext::SetDensityIndependentPixelRatio>("SetDensityIndependentPixelRatio", "ratio");
+		rmlUIContext.Function<&RmlUIContext::SetInputTransform>("SetInputTransform", "offset", "scale");
+		rmlUIContext.Function<&RmlUIContext::Update>("Update");
+		rmlUIContext.Function<&RmlUIContext::Render>("Render");
+		rmlUIContext.Function<&RmlUIContext::SetVisible>("SetVisible", "visible");
+		rmlUIContext.Function<&RmlUIContext::IsVisible>("IsVisible");
+		rmlUIContext.Function<&RmlUIContext::LoadDocumentFromMemory>("LoadDocumentFromMemory", "content");
+		rmlUIContext.Function<&RmlUIContext::LoadDocumentFromResource>("LoadDocumentFromResource", "document");
+		rmlUIContext.Function<&RmlUIContext::UnloadDocument>("UnloadDocument", "document");
+		rmlUIContext.Function<&RmlUIContext::CreateDataModel>("CreateDataModel", "name");
+		rmlUIContext.Function<&RmlUIContext::GetDataModel>("GetDataModel", "name");
+		rmlUIContext.Function<&RmlUIContext::RemoveDataModel>("RemoveDataModel", "name");
 
 		auto uiElementDocument = Reflection::Type<UIElementDocument>();
 		uiElementDocument.Function<&UIElementDocument::Show>("Show", "modalFlag", "focusFlag", "scrollFlag");
@@ -172,6 +173,7 @@ namespace Skore
 
 	void RegisterUITypes()
 	{
+		Reflection::Type<UIContext>();
 		Reflection::Type<UIDocument>();
 
 		RegisterRmlUIType();

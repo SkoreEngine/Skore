@@ -30,6 +30,8 @@
 
 #include <algorithm>
 #include <iostream>
+#include <mutex>
+#include <string_view>
 
 #include "spirv_reflect.h"
 #include "Skore/Core/HashMap.hpp"
@@ -47,6 +49,7 @@ namespace Skore
 		IDxcUtils*            utils;
 		IDxcCompiler3*        compiler;
 		DxcCreateInstanceProc dxcCreateInstance;
+		std::mutex            compilerMutex;
 
 		constexpr auto GetShaderStage(ShaderStage shader)
 		{
@@ -190,6 +193,7 @@ namespace Skore
 			return false;
 		}
 
+		std::scoped_lock compileLock(compilerMutex);
 
 		IDxcBlobEncoding* pSource = {};
 		utils->CreateBlob(shaderCompileInfo.source.CStr(), shaderCompileInfo.source.Size(), CP_UTF8, &pSource);
@@ -706,5 +710,37 @@ namespace Skore
 			SpirvUtils::SortAndAddDescriptors(pipelineLayout, descriptors);
 		}
 		return false;
+	}
+
+	Array<ShaderEntryPoint> DetectShaderStages(StringView source)
+	{
+		std::string_view str{source.CStr(), source.Size()};
+
+		auto has = [&](std::string_view needle)
+		{
+			return str.find(needle) != std::string_view::npos;
+		};
+
+		Array<ShaderEntryPoint> entryPoints;
+
+		if (has("MainVS")) entryPoints.EmplaceBack(ShaderEntryPoint{.entryPoint = "MainVS", .stage = ShaderStage::Vertex});
+		if (has("MainPS")) entryPoints.EmplaceBack(ShaderEntryPoint{.entryPoint = "MainPS", .stage = ShaderStage::Pixel});
+		if (has("MainGS")) entryPoints.EmplaceBack(ShaderEntryPoint{.entryPoint = "MainGS", .stage = ShaderStage::Geometry});
+		if (has("MainCS")) entryPoints.EmplaceBack(ShaderEntryPoint{.entryPoint = "MainCS", .stage = ShaderStage::Compute});
+
+		if (has("[shader(\"raygeneration\")]"))
+		{
+			entryPoints.EmplaceBack(ShaderEntryPoint{.entryPoint = "Main", .stage = ShaderStage::RayGen, .macros = {"RAY_GENERATION=1"}});
+		}
+		if (has("[shader(\"miss\")]"))
+		{
+			entryPoints.EmplaceBack(ShaderEntryPoint{.entryPoint = "Main", .stage = ShaderStage::Miss, .macros = {"RAY_MISS=1"}});
+		}
+		if (has("[shader(\"closesthit\")]"))
+		{
+			entryPoints.EmplaceBack(ShaderEntryPoint{.entryPoint = "Main", .stage = ShaderStage::ClosestHit, .macros = {"RAY_CLOSEST_HIT=1"}});
+		}
+
+		return entryPoints;
 	}
 }
