@@ -1,4 +1,4 @@
-file(GLOB_RECURSE SKORE_CORE_SOURCES *.h *.c)
+file(GLOB_RECURSE SKORE_CORE_SOURCES CONFIGURE_DEPENDS *.h *.c)
 
 # test.c / test.h are the registry harness — production sk-core excludes test.c.
 # sk-test (see below) owns the registry implementation when BUILD_TESTING.
