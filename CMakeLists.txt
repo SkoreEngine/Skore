@@ -23,6 +23,17 @@ sk_embed_type_ids_in_dir(
     ${CMAKE_CURRENT_SOURCE_DIR}/tests
 )
 
+# Public headers must never pull OS threading/mutex headers (OS includes are
+# confined to .c backends). Any violation fails the configure.
+sk_check_header_isolation(
+    ${CMAKE_CURRENT_SOURCE_DIR}/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/player
+    ${CMAKE_CURRENT_SOURCE_DIR}/editor
+    ${CMAKE_CURRENT_SOURCE_DIR}/plugins
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+)
+
 if((CMAKE_CXX_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "GNU"))
     add_compile_options(-fms-extensions)
 endif()

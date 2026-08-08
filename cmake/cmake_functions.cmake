@@ -179,3 +179,33 @@ function(sk_add_plugin name)
     add_library(${_lib} INTERFACE)
     target_include_directories(${_lib} INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 endfunction()
+
+# ---------------------------------------------------------------------------
+# sk_check_header_isolation(<dir>...)
+#   Fail the configure if any public header under <dir> includes an OS
+#   threading/mutex header (<pthread.h>, <windows.h>, <semaphore.h>, <sched.h>,
+#   <mtx.h>, <thread.h>, <threads.h>). Enforces the rule that OS headers live
+#   only in .c implementation files, never in public .h headers. Quoted
+#   project includes ("mutex.h", "thread.h", …) do not match, so this stays
+#   clean for sk_* public headers that include each other.
+# ---------------------------------------------------------------------------
+function(sk_check_header_isolation)
+    set(_pattern
+        "^[ \t]*#[ \t]*include[ \t]*<(pthread|windows|Windows|WINDOWS|semaphore|sched|mtx|thread|threads)[.]h>")
+    foreach(_dir IN LISTS ARGN)
+        if(NOT IS_DIRECTORY "${_dir}")
+            message(WARNING "sk_check_header_isolation: not a directory: ${_dir}")
+            continue()
+        endif()
+        file(GLOB_RECURSE _headers "${_dir}/*.h")
+        foreach(_hdr IN LISTS _headers)
+            file(STRINGS "${_hdr}" _matches REGEX "${_pattern}")
+            if(_matches)
+                message(FATAL_ERROR
+                    "Header-isolation violation: ${_hdr} includes an OS "
+                    "threading/mutex header (${_matches}). OS headers are only "
+                    "allowed in .c implementation files.")
+            endif()
+        endforeach()
+    endforeach()
+endfunction()
