@@ -5,7 +5,7 @@ file(GLOB_RECURSE SKORE_CORE_SOURCES *.h *.c)
 set(SKORE_CORE_TEST_C ${CMAKE_CURRENT_SOURCE_DIR}/test.c)
 list(FILTER SKORE_CORE_SOURCES EXCLUDE REGEX "test\\.c$")
 
-# atomic_isolation.c is a compile-only include-graph fixture proving atomic.h
+# atomic_isolation.c is a compile-only include-graph fixture proving atomics.h
 # pulls no window/UI headers. Excluded from production sk-core like test.c;
 # compiled into sk-core-tests so CI exercises it on every platform.
 set(SKORE_CORE_ISOLATION_C ${CMAKE_CURRENT_SOURCE_DIR}/atomic_isolation.c)
