@@ -10,6 +10,8 @@
 
 #ifdef SK_TESTS
 
+#include "atomic.h"
+
 #include <string.h>
 
 enum { SK_TEST_MAX = 512 };
@@ -132,6 +134,123 @@ SK_TEST(common_win_export_macro_defined_on_win64) {
 #else
 	TEST_PASS_MESSAGE("SK_WIN only required on Win64");
 #endif
+}
+
+/* ---- atomic.h (header-only module) ---- */
+
+SK_TEST(atomic_types_match_integer_sizes) {
+	TEST_ASSERT_EQUAL_size_t(sizeof(u8), sizeof(sk_atomic_u8_t));
+	TEST_ASSERT_EQUAL_size_t(sizeof(u16), sizeof(sk_atomic_u16_t));
+	TEST_ASSERT_EQUAL_size_t(sizeof(u32), sizeof(sk_atomic_u32_t));
+	TEST_ASSERT_EQUAL_size_t(sizeof(u64), sizeof(sk_atomic_u64_t));
+	TEST_ASSERT_EQUAL_size_t(sizeof(i8), sizeof(sk_atomic_i8_t));
+	TEST_ASSERT_EQUAL_size_t(sizeof(i16), sizeof(sk_atomic_i16_t));
+	TEST_ASSERT_EQUAL_size_t(sizeof(i32), sizeof(sk_atomic_i32_t));
+	TEST_ASSERT_EQUAL_size_t(sizeof(i64), sizeof(sk_atomic_i64_t));
+}
+
+SK_TEST(atomic_memory_order_enum_maps_to_c11) {
+	TEST_ASSERT_EQUAL_INT((int)memory_order_relaxed, (int)SK_MEMORY_ORDER_RELAXED);
+	TEST_ASSERT_EQUAL_INT((int)memory_order_consume, (int)SK_MEMORY_ORDER_CONSUME);
+	TEST_ASSERT_EQUAL_INT((int)memory_order_acquire, (int)SK_MEMORY_ORDER_ACQUIRE);
+	TEST_ASSERT_EQUAL_INT((int)memory_order_release, (int)SK_MEMORY_ORDER_RELEASE);
+	TEST_ASSERT_EQUAL_INT((int)memory_order_acq_rel, (int)SK_MEMORY_ORDER_ACQ_REL);
+	TEST_ASSERT_EQUAL_INT((int)memory_order_seq_cst, (int)SK_MEMORY_ORDER_SEQ_CST);
+}
+
+SK_TEST(atomic_load_store_roundtrip) {
+	sk_atomic_u32_t counter = 0u;
+	sk_atomic_store_u32(&counter, 42u, SK_MEMORY_ORDER_RELAXED);
+	TEST_ASSERT_EQUAL_UINT32(42u, sk_atomic_load_u32(&counter, SK_MEMORY_ORDER_RELAXED));
+	sk_atomic_store_u32(&counter, 7u, SK_MEMORY_ORDER_RELEASE);
+	TEST_ASSERT_EQUAL_UINT32(7u, sk_atomic_load_u32(&counter, SK_MEMORY_ORDER_ACQUIRE));
+	sk_atomic_store_u32(&counter, 65536u, SK_MEMORY_ORDER_SEQ_CST);
+	TEST_ASSERT_EQUAL_UINT32(65536u, sk_atomic_load_u32(&counter, SK_MEMORY_ORDER_SEQ_CST));
+}
+
+SK_TEST(atomic_fetch_add_sub_return_previous) {
+	sk_atomic_u64_t counter = 100ull;
+	TEST_ASSERT_EQUAL_UINT64(100ull, sk_atomic_fetch_add_u64(&counter, 25ull, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT64(125ull, sk_atomic_load_u64(&counter, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT64(125ull, sk_atomic_fetch_sub_u64(&counter, 30ull, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT64(95ull, sk_atomic_load_u64(&counter, SK_MEMORY_ORDER_RELAXED));
+}
+
+SK_TEST(atomic_signed_add_sub) {
+	sk_atomic_i64_t counter = 100;
+	TEST_ASSERT_EQUAL_INT64(100, sk_atomic_fetch_add_i64(&counter, -25, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_INT64(75, sk_atomic_load_i64(&counter, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_INT64(75, sk_atomic_fetch_sub_i64(&counter, -25, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_INT64(100, sk_atomic_load_i64(&counter, SK_MEMORY_ORDER_RELAXED));
+}
+
+SK_TEST(atomic_cas_strong_success) {
+	sk_atomic_u32_t a = 1u;
+	u32 expected = 1u;
+	TEST_ASSERT_EQUAL_UINT8(1u, sk_atomic_cas_strong_u32(&a, &expected, 2u, SK_MEMORY_ORDER_ACQ_REL, SK_MEMORY_ORDER_ACQUIRE));
+	TEST_ASSERT_EQUAL_UINT32(2u, sk_atomic_load_u32(&a, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT32(1u, expected);
+}
+
+SK_TEST(atomic_cas_strong_failure_updates_expected) {
+	sk_atomic_u32_t a = 1u;
+	u32 expected = 9u;
+	TEST_ASSERT_EQUAL_UINT8(0u, sk_atomic_cas_strong_u32(&a, &expected, 2u, SK_MEMORY_ORDER_ACQ_REL, SK_MEMORY_ORDER_ACQUIRE));
+	TEST_ASSERT_EQUAL_UINT32(1u, expected);
+	TEST_ASSERT_EQUAL_UINT32(1u, sk_atomic_load_u32(&a, SK_MEMORY_ORDER_RELAXED));
+}
+
+SK_TEST(atomic_cas_weak_retries_until_success) {
+	sk_atomic_u32_t a = 1u;
+	u32 expected = 1u;
+	while (!sk_atomic_cas_weak_u32(&a, &expected, 2u, SK_MEMORY_ORDER_ACQ_REL, SK_MEMORY_ORDER_ACQUIRE)) {
+		expected = sk_atomic_load_u32(&a, SK_MEMORY_ORDER_RELAXED);
+	}
+	TEST_ASSERT_EQUAL_UINT32(2u, sk_atomic_load_u32(&a, SK_MEMORY_ORDER_RELAXED));
+}
+
+SK_TEST(atomic_exchange) {
+	sk_atomic_u32_t a = 1u;
+	TEST_ASSERT_EQUAL_UINT32(1u, sk_atomic_exchange_u32(&a, 9u, SK_MEMORY_ORDER_SEQ_CST));
+	TEST_ASSERT_EQUAL_UINT32(9u, sk_atomic_load_u32(&a, SK_MEMORY_ORDER_RELAXED));
+}
+
+SK_TEST(atomic_bitwise_fetch_ops) {
+	sk_atomic_u32_t a = 0x0F0Fu;
+	TEST_ASSERT_EQUAL_UINT32(0x0F0Fu, sk_atomic_fetch_or_u32(&a, 0xF0F0u, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT32(0xFFFFu, sk_atomic_load_u32(&a, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT32(0xFFFFu, sk_atomic_fetch_and_u32(&a, 0xFF00u, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT32(0xFF00u, sk_atomic_load_u32(&a, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT32(0xFF00u, sk_atomic_fetch_xor_u32(&a, 0xFFFFu, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT32(0x00FFu, sk_atomic_load_u32(&a, SK_MEMORY_ORDER_RELAXED));
+}
+
+SK_TEST(atomic_small_widths) {
+	sk_atomic_u8_t flag = 0u;
+	sk_atomic_store_u8(&flag, 1u, SK_MEMORY_ORDER_RELEASE);
+	TEST_ASSERT_EQUAL_UINT8(1u, sk_atomic_load_u8(&flag, SK_MEMORY_ORDER_ACQUIRE));
+
+	sk_atomic_u16_t index = 0u;
+	TEST_ASSERT_EQUAL_UINT16(0u, sk_atomic_fetch_add_u16(&index, 1u, SK_MEMORY_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT16(1u, sk_atomic_load_u16(&index, SK_MEMORY_ORDER_RELAXED));
+}
+
+SK_TEST(atomic_lock_free_on_desktop) {
+	sk_atomic_u32_t a = 0u;
+	TEST_ASSERT_EQUAL_UINT8(1u, sk_atomic_is_lock_free_u32(&a));
+#if defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) || defined(_M_ARM64)
+	sk_atomic_u64_t b = 0ull;
+	TEST_ASSERT_EQUAL_UINT8(1u, sk_atomic_is_lock_free_u64(&b));
+#else
+	TEST_PASS_MESSAGE("64-bit lock-free not asserted on 32-bit targets");
+#endif
+}
+
+SK_TEST(atomic_thread_fence_runs) {
+	sk_atomic_thread_fence(SK_MEMORY_ORDER_ACQUIRE);
+	sk_atomic_thread_fence(SK_MEMORY_ORDER_RELEASE);
+	sk_atomic_thread_fence(SK_MEMORY_ORDER_SEQ_CST);
+	TEST_PASS_MESSAGE("thread fence executed");
 }
 
 #endif /* SK_TESTS */
