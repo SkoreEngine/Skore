@@ -5,6 +5,9 @@ file(GLOB_RECURSE SKORE_CORE_SOURCES *.h *.c)
 set(SKORE_CORE_TEST_C ${CMAKE_CURRENT_SOURCE_DIR}/test.c)
 list(FILTER SKORE_CORE_SOURCES EXCLUDE REGEX "test\\.c$")
 
+# pthread backend for core/mutex.c (Windows uses SRWLOCK, no extra link).
+find_package(Threads REQUIRED)
+
 add_library(sk-core STATIC ${SKORE_CORE_SOURCES})
 target_include_directories(sk-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -14,6 +17,9 @@ set_target_properties(sk-core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Default heap backend (mimalloc). PRIVATE: hide mimalloc from core consumers;
 # only sk_allocator_t is public.
 target_link_libraries(sk-core PRIVATE mimalloc-static)
+
+# Threads (pthread): PUBLIC so static consumers link it at their final link.
+target_link_libraries(sk-core PUBLIC Threads::Threads)
 
 # libm for sinf/cosf/sqrtf/etc. (required on Linux; typically implicit on MSVC/macOS).
 find_library(SK_LIBM m)
@@ -40,6 +46,7 @@ if(BUILD_TESTING)
     target_include_directories(sk-core-tests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(sk-core-tests PRIVATE SK_TESTS)
     target_link_libraries(sk-core-tests PUBLIC sk-test PRIVATE mimalloc-static)
+    target_link_libraries(sk-core-tests PUBLIC Threads::Threads)
     set_target_properties(sk-core-tests PROPERTIES POSITION_INDEPENDENT_CODE ON)
     if(SK_LIBM)
         target_link_libraries(sk-core-tests PUBLIC ${SK_LIBM})
