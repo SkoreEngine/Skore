@@ -10,6 +10,8 @@
 
 #ifdef SK_TESTS
 
+#include "atomics.h"
+
 #include <string.h>
 
 enum { SK_TEST_MAX = 512 };
@@ -132,6 +134,176 @@ SK_TEST(common_win_export_macro_defined_on_win64) {
 #else
 	TEST_PASS_MESSAGE("SK_WIN only required on Win64");
 #endif
+}
+
+/* ---- atomics.h tests (C11 <stdatomic.h> wrapper; header-only module) ---- */
+
+SK_TEST(atomics_u32_all_orders) {
+	sk_atomic_u32_t a;
+	sk_atomic_u32_init(&a, 7u);
+	TEST_ASSERT_EQUAL_UINT32(7u, sk_atomic_u32_load(&a));
+	TEST_ASSERT_EQUAL_UINT32(7u, sk_atomic_u32_load_acquire(&a));
+	TEST_ASSERT_EQUAL_UINT32(7u, sk_atomic_u32_load_relaxed(&a));
+
+	sk_atomic_u32_store(&a, 10u);
+	TEST_ASSERT_EQUAL_UINT32(10u, sk_atomic_u32_load(&a));
+	sk_atomic_u32_store_release(&a, 11u);
+	TEST_ASSERT_EQUAL_UINT32(11u, sk_atomic_u32_load_acquire(&a));
+	sk_atomic_u32_store_relaxed(&a, 12u);
+	TEST_ASSERT_EQUAL_UINT32(12u, sk_atomic_u32_load_relaxed(&a));
+
+	TEST_ASSERT_EQUAL_UINT32(12u, sk_atomic_u32_exchange(&a, 20u));
+	TEST_ASSERT_EQUAL_UINT32(20u, sk_atomic_u32_exchange_acq_rel(&a, 21u));
+	TEST_ASSERT_EQUAL_UINT32(21u, sk_atomic_u32_exchange_relaxed(&a, 22u));
+	TEST_ASSERT_EQUAL_UINT32(22u, sk_atomic_u32_load(&a));
+}
+
+SK_TEST(atomics_cas_strong_updates_expected_on_failure) {
+	sk_atomic_u32_t a;
+	sk_atomic_u32_init(&a, 30u);
+
+	u32 expected = 30u;
+	TEST_ASSERT_TRUE(sk_atomic_u32_cas_strong(&a, &expected, 40u));
+	TEST_ASSERT_EQUAL_UINT32(40u, sk_atomic_u32_load(&a));
+	TEST_ASSERT_EQUAL_UINT32(30u, expected);
+
+	TEST_ASSERT_FALSE(sk_atomic_u32_cas_strong(&a, &expected, 50u));
+	TEST_ASSERT_EQUAL_UINT32(40u, sk_atomic_u32_load(&a));
+	TEST_ASSERT_EQUAL_UINT32(40u, expected);
+
+	expected = 40u;
+	TEST_ASSERT_TRUE(sk_atomic_u32_cas_strong_acquire(&a, &expected, 60u));
+	expected = 60u;
+	TEST_ASSERT_TRUE(sk_atomic_u32_cas_strong_release(&a, &expected, 61u));
+	expected = 61u;
+	TEST_ASSERT_TRUE(sk_atomic_u32_cas_strong_acq_rel(&a, &expected, 62u));
+	expected = 62u;
+	TEST_ASSERT_TRUE(sk_atomic_u32_cas_strong_relaxed(&a, &expected, 63u));
+	TEST_ASSERT_EQUAL_UINT32(63u, sk_atomic_u32_load(&a));
+}
+
+SK_TEST(atomics_u32_fetch_ops) {
+	sk_atomic_u32_t a;
+	sk_atomic_u32_init(&a, 30u);
+
+	TEST_ASSERT_EQUAL_UINT32(30u, sk_atomic_u32_fetch_add(&a, 5u));
+	TEST_ASSERT_EQUAL_UINT32(35u, sk_atomic_u32_load(&a));
+	TEST_ASSERT_EQUAL_UINT32(35u, sk_atomic_u32_fetch_sub(&a, 3u));
+	TEST_ASSERT_EQUAL_UINT32(32u, sk_atomic_u32_load(&a));
+
+	TEST_ASSERT_EQUAL_UINT32(32u, sk_atomic_u32_fetch_or(&a, 0x0Fu));
+	TEST_ASSERT_EQUAL_UINT32(0x2Fu, sk_atomic_u32_load(&a));
+	TEST_ASSERT_EQUAL_UINT32(0x2Fu, sk_atomic_u32_fetch_and(&a, 0x33u));
+	TEST_ASSERT_EQUAL_UINT32(0x23u, sk_atomic_u32_load(&a));
+
+	TEST_ASSERT_EQUAL_UINT32(0x23u, sk_atomic_u32_fetch_add_acquire(&a, 1u));
+	TEST_ASSERT_EQUAL_UINT32(0x24u, sk_atomic_u32_fetch_add_release(&a, 1u));
+	TEST_ASSERT_EQUAL_UINT32(0x25u, sk_atomic_u32_fetch_add_acq_rel(&a, 1u));
+	TEST_ASSERT_EQUAL_UINT32(0x26u, sk_atomic_u32_fetch_add_relaxed(&a, 1u));
+	TEST_ASSERT_EQUAL_UINT32(0x27u, sk_atomic_u32_load(&a));
+
+	TEST_ASSERT_EQUAL_UINT32(0x27u, sk_atomic_u32_fetch_sub_relaxed(&a, 1u));
+	TEST_ASSERT_EQUAL_UINT32(0x26u, sk_atomic_u32_fetch_or_release(&a, 0x40u));
+	TEST_ASSERT_EQUAL_UINT32(0x66u, sk_atomic_u32_fetch_and_acquire(&a, 0x7Fu));
+	TEST_ASSERT_EQUAL_UINT32(0x66u, sk_atomic_u32_load(&a));
+}
+
+SK_TEST(atomics_u32_fetch_wraps_unsigned) {
+	sk_atomic_u32_t a;
+	sk_atomic_u32_init(&a, 0xFFFFFFFFu);
+	TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, sk_atomic_u32_fetch_add(&a, 1u));
+	TEST_ASSERT_EQUAL_UINT32(0u, sk_atomic_u32_load(&a));
+	TEST_ASSERT_EQUAL_UINT32(0u, sk_atomic_u32_fetch_sub(&a, 1u));
+	TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, sk_atomic_u32_load(&a));
+}
+
+SK_TEST(atomics_i32_signed_ops) {
+	sk_atomic_i32_t a;
+	sk_atomic_i32_init(&a, -7);
+	TEST_ASSERT_EQUAL_INT32(-7, sk_atomic_i32_load(&a));
+	TEST_ASSERT_EQUAL_INT32(-7, sk_atomic_i32_fetch_add(&a, 3));
+	TEST_ASSERT_EQUAL_INT32(-4, sk_atomic_i32_load(&a));
+	TEST_ASSERT_EQUAL_INT32(-4, sk_atomic_i32_fetch_sub(&a, -2));
+	TEST_ASSERT_EQUAL_INT32(-2, sk_atomic_i32_load(&a));
+
+	i32 expected = -2;
+	TEST_ASSERT_TRUE(sk_atomic_i32_cas_strong(&a, &expected, 5));
+	TEST_ASSERT_EQUAL_INT32(5, sk_atomic_i32_load(&a));
+}
+
+SK_TEST(atomics_u64_ops) {
+	sk_atomic_u64_t a;
+	sk_atomic_u64_init(&a, 0x1234567890ABCDEFull);
+	TEST_ASSERT_EQUAL_UINT64(0x1234567890ABCDEFull, sk_atomic_u64_load(&a));
+	TEST_ASSERT_EQUAL_UINT64(0x1234567890ABCDEFull, sk_atomic_u64_load_acquire(&a));
+	sk_atomic_u64_store(&a, 0x0FEDCBA987654321ull);
+	TEST_ASSERT_EQUAL_UINT64(0x0FEDCBA987654321ull, sk_atomic_u64_load(&a));
+
+	TEST_ASSERT_EQUAL_UINT64(0x0FEDCBA987654321ull, sk_atomic_u64_exchange(&a, 1000ull));
+	TEST_ASSERT_EQUAL_UINT64(1000ull, sk_atomic_u64_load(&a));
+	TEST_ASSERT_EQUAL_UINT64(1000ull, sk_atomic_u64_fetch_add(&a, 25ull));
+	TEST_ASSERT_EQUAL_UINT64(1025ull, sk_atomic_u64_fetch_sub(&a, 5ull));
+	TEST_ASSERT_EQUAL_UINT64(1020ull, sk_atomic_u64_load(&a));
+
+	u64 expected = 1020ull;
+	TEST_ASSERT_TRUE(sk_atomic_u64_cas_strong(&a, &expected, 1ull));
+	TEST_ASSERT_EQUAL_UINT64(1ull, sk_atomic_u64_load(&a));
+}
+
+SK_TEST(atomics_i64_signed_ops) {
+	sk_atomic_i64_t a;
+	sk_atomic_i64_init(&a, -1000000ll);
+	TEST_ASSERT_EQUAL_INT64(-1000000ll, sk_atomic_i64_load(&a));
+	TEST_ASSERT_EQUAL_INT64(-1000000ll, sk_atomic_i64_fetch_add(&a, 1000000ll));
+	TEST_ASSERT_EQUAL_INT64(0ll, sk_atomic_i64_load(&a));
+	TEST_ASSERT_EQUAL_INT64(0ll, sk_atomic_i64_fetch_sub(&a, -42ll));
+	TEST_ASSERT_EQUAL_INT64(42ll, sk_atomic_i64_load(&a));
+}
+
+SK_TEST(atomics_ptr_ops) {
+	int value_a = 11;
+	int value_b = 22;
+	sk_atomic_ptr_t p;
+	sk_atomic_ptr_init(&p, NULL);
+	TEST_ASSERT_NULL(sk_atomic_ptr_load(&p));
+	TEST_ASSERT_NULL(sk_atomic_ptr_load_acquire(&p));
+
+	sk_atomic_ptr_store(&p, &value_a);
+	TEST_ASSERT_EQUAL_PTR(&value_a, sk_atomic_ptr_load(&p));
+	sk_atomic_ptr_store_release(&p, &value_b);
+	TEST_ASSERT_EQUAL_PTR(&value_b, sk_atomic_ptr_load_acquire(&p));
+	sk_atomic_ptr_store_relaxed(&p, NULL);
+	TEST_ASSERT_NULL(sk_atomic_ptr_load_relaxed(&p));
+
+	TEST_ASSERT_NULL(sk_atomic_ptr_exchange(&p, &value_a));
+	TEST_ASSERT_EQUAL_PTR(&value_a, sk_atomic_ptr_exchange_acq_rel(&p, &value_b));
+	TEST_ASSERT_EQUAL_PTR(&value_b, sk_atomic_ptr_exchange_relaxed(&p, NULL));
+	TEST_ASSERT_NULL(sk_atomic_ptr_load(&p));
+
+	void_ptr_t expected = NULL;
+	TEST_ASSERT_TRUE(sk_atomic_ptr_cas_strong(&p, &expected, &value_a));
+	TEST_ASSERT_EQUAL_PTR(&value_a, sk_atomic_ptr_load(&p));
+
+	expected = NULL;
+	TEST_ASSERT_FALSE(sk_atomic_ptr_cas_strong(&p, &expected, &value_b));
+	TEST_ASSERT_EQUAL_PTR(&value_a, expected);
+
+	expected = &value_a;
+	TEST_ASSERT_TRUE(sk_atomic_ptr_cas_strong_acquire(&p, &expected, &value_b));
+	expected = &value_b;
+	TEST_ASSERT_TRUE(sk_atomic_ptr_cas_strong_release(&p, &expected, &value_a));
+	expected = &value_a;
+	TEST_ASSERT_TRUE(sk_atomic_ptr_cas_strong_acq_rel(&p, &expected, &value_b));
+	expected = &value_b;
+	TEST_ASSERT_TRUE(sk_atomic_ptr_cas_strong_relaxed(&p, &expected, NULL));
+	TEST_ASSERT_NULL(sk_atomic_ptr_load(&p));
+}
+
+SK_TEST(atomics_fence_helpers_are_callable) {
+	sk_atomic_thread_fence_acquire();
+	sk_atomic_thread_fence_release();
+	sk_atomic_thread_fence_seq_cst();
+	TEST_PASS();
 }
 
 #endif /* SK_TESTS */

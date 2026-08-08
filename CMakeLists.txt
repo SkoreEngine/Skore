@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.22)
 project(skore)
 
+# First-party C targets compile as C11 (CMAKE_C_STANDARD) so <stdatomic.h>
+# atomics work everywhere; on MSVC this maps to /std:c11. Third-party targets
+# keep their own per-target C_STANDARD (glfw: C99, unity/mimalloc/nfd: C11).
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_functions.cmake)
 
 set(SK_ENGINE_VERSION "0.0.1")
