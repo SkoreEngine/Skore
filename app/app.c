@@ -41,6 +41,7 @@ struct sk_app_context_t {
 	f64 elapsed_time;
 	plugin_lib_array_t plugins;
 	sk_logger_t* log;
+	const sk_platform_api_t* platform;
 };
 
 /* ---- app logger (named "app"; lifetime tied to context) ---- */
@@ -157,6 +158,10 @@ sk_app_context_t* sk_app_startup(void) {
 	/* Host platform API: register static table for app_api->get_api lookup. */
 	sk_platform_init(context, &app_api);
 
+	/* Cache the platform table on the context; registered above, valid for the
+	 * context lifetime. Independent contexts (sk_app_create) keep it NULL. */
+	context->platform = (const sk_platform_api_t*)sk_app_get_api_impl(context, SK_PLATFORM_API_TYPE_ID);
+
 	/* Named "app" logger + SK_LOGGER_API_TYPE_ID on the context registry. */
 	if (app_logger_startup(context, &app_api) != 0) {
 		sk_app_destroy(context);
@@ -171,7 +176,7 @@ sk_app_context_t* sk_app_startup(void) {
 
 /** Platform API from the app registry (valid after sk_app_startup). */
 static const sk_platform_api_t* app_platform_api(sk_app_context_t* context) {
-	return (const sk_platform_api_t*)sk_app_get_api_impl(context, SK_PLATFORM_API_TYPE_ID);
+	return context->platform;
 }
 
 static f64 monotonic_seconds(sk_app_context_t* context) {
