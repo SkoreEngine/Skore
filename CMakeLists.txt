@@ -65,6 +65,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Third-party first so it does not inherit first-party warning flags or clang-tidy.
 add_subdirectory(thirdparty)
 
+# First-party C targets target C11 (core/atomics.h requires <stdatomic.h>).
+# Set after thirdparty so vendored libs keep their own C_STANDARD choices.
+# MSVC defaults .c files to C89 and would reject stdatomic.h without this.
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 # ---------------------------------------------------------------------------
 # clang-tidy on first-party targets only (thirdparty is already added above).
 # Any clang-tidy diagnostic is a hard build failure (-warnings-as-errors=*).
