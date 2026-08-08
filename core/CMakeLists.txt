@@ -5,6 +5,12 @@ file(GLOB_RECURSE SKORE_CORE_SOURCES *.h *.c)
 set(SKORE_CORE_TEST_C ${CMAKE_CURRENT_SOURCE_DIR}/test.c)
 list(FILTER SKORE_CORE_SOURCES EXCLUDE REGEX "test\\.c$")
 
+# atomic_isolation.c is a compile-only include-graph fixture proving atomic.h
+# pulls no window/UI headers. Excluded from production sk-core like test.c;
+# compiled into sk-core-tests so CI exercises it on every platform.
+set(SKORE_CORE_ISOLATION_C ${CMAKE_CURRENT_SOURCE_DIR}/atomic_isolation.c)
+list(FILTER SKORE_CORE_SOURCES EXCLUDE REGEX "atomic_isolation\\.c$")
+
 add_library(sk-core STATIC ${SKORE_CORE_SOURCES})
 target_include_directories(sk-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -36,7 +42,7 @@ if(BUILD_TESTING)
     target_link_libraries(sk-test PUBLIC unity)
     set_target_properties(sk-test PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-    add_library(sk-core-tests STATIC ${SKORE_CORE_SOURCES})
+    add_library(sk-core-tests STATIC ${SKORE_CORE_SOURCES} ${SKORE_CORE_ISOLATION_C})
     target_include_directories(sk-core-tests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(sk-core-tests PRIVATE SK_TESTS)
     target_link_libraries(sk-core-tests PUBLIC sk-test PRIVATE mimalloc-static)
