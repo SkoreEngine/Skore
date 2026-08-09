@@ -36,7 +36,7 @@ static void byte_buffer_reserve(byte_buffer_t* buf, const sk_allocator_t* alloca
 	while (new_cap < buf->count + extra) {
 		new_cap *= 2u;
 	}
-	u8* new_data = (u8*)allocator->realloc(allocator->instance, buf->data, (size_t)new_cap);
+	u8* new_data = (u8*)allocator->realloc(allocator->instance, buf->data, new_cap);
 	if (new_data == NULL) {
 		buf->oom = 1;
 		return;
@@ -51,7 +51,7 @@ static void byte_buffer_append(byte_buffer_t* buf, const sk_allocator_t* allocat
 		return;
 	}
 	if (size > 0u) {
-		memcpy(buf->data + buf->count, src, (size_t)size);
+		memcpy(buf->data + buf->count, src, size);
 	}
 	buf->count += size;
 }
