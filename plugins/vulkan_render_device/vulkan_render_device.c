@@ -1454,6 +1454,9 @@ static i32 sk_vkrd_select_adapter(sk_render_device_t dev, sk_adapter_t adapter_h
 		sk_vkrd_chain_feature(&draw_parameters, &device_features2);
 	}
 #if defined(__APPLE__)
+#ifndef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
+#define VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME "VK_KHR_portability_subset"
+#endif
 	sk_vkrd_add_extension(adapter, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, extensions, &extension_count, 32u, NULL, &device_features2);
 #endif
 
