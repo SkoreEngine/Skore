@@ -36,31 +36,36 @@
 
 #if defined(__APPLE__)
 /* NSWindow → contentView → (CAMetal)Layer via the ObjC runtime (no .m TU).
- * objc_msgSend is declared without a prototype in C, so calls go through
- * explicitly typed function pointers (plain clang-tidy otherwise rejects the
- * arg counts against the <objc/message.h> void prototype). */
+ * objc_msgSend is declared without a prototype in <objc/message.h>, so calls
+ * are dispatched through typed function pointers to match the target method
+ * signatures (also the ABI-safe way to pass non-object return types). */
 static void* sk_vk_apple_view_from_window(void* ns_window) {
 	if (ns_window == NULL) {
 		return NULL;
 	}
+	typedef id (*sk_objc_msg_send_0_fn)(id, SEL);
+	typedef void (*sk_objc_msg_send_bool_fn)(id, SEL, BOOL);
+	typedef void (*sk_objc_msg_send_id_fn)(id, SEL, id);
+
+	sk_objc_msg_send_0_fn msg_send_0 = (sk_objc_msg_send_0_fn)(uintptr_t)objc_msgSend;
+	sk_objc_msg_send_bool_fn msg_send_bool = (sk_objc_msg_send_bool_fn)(uintptr_t)objc_msgSend;
+	sk_objc_msg_send_id_fn msg_send_id = (sk_objc_msg_send_id_fn)(uintptr_t)objc_msgSend;
+
 	id window = (id)ns_window;
-	id (*msg_send_id)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
-	void (*msg_send_void_id)(id, SEL, id) = (void (*)(id, SEL, id))objc_msgSend;
-	void (*msg_send_void_int)(id, SEL, int) = (void (*)(id, SEL, int))objc_msgSend;
-	id view = msg_send_id(window, sel_registerName("contentView"));
+	id view = msg_send_0(window, sel_registerName("contentView"));
 	if (view == nil) {
 		return NULL;
 	}
-	id layer = msg_send_id(view, sel_registerName("layer"));
+	id layer = msg_send_0(view, sel_registerName("layer"));
 	if (layer == nil) {
 		Class metal_layer_class = objc_getClass("CAMetalLayer");
 		if (metal_layer_class == nil) {
 			return NULL;
 		}
-		id new_layer = msg_send_id((id)metal_layer_class, sel_registerName("alloc"));
-		new_layer = msg_send_id(new_layer, sel_registerName("init"));
-		msg_send_void_int(view, sel_registerName("setWantsLayer:"), 1);
-		msg_send_void_id(view, sel_registerName("setLayer:"), new_layer);
+		id new_layer = msg_send_0((id)metal_layer_class, sel_registerName("alloc"));
+		new_layer = msg_send_0(new_layer, sel_registerName("init"));
+		msg_send_bool(view, sel_registerName("setWantsLayer:"), 1);
+		msg_send_id(view, sel_registerName("setLayer:"), new_layer);
 		layer = new_layer;
 	}
 	return (void*)layer;
@@ -1368,6 +1373,9 @@ bool sk_vk_platform_get_presentation_support(VkInstance instance, VkPhysicalDevi
 	}
 	return presentation_support(physical, family_index) == VK_TRUE;
 #elif defined(__APPLE__)
+	(void)instance;
+	(void)physical;
+	(void)family_index;
 	return true;
 #else
 	PFN_vkGetPhysicalDeviceXlibPresentationSupportKHR presentation_support = SK_PTR_TO_FN(PFN_vkGetPhysicalDeviceXlibPresentationSupportKHR,
