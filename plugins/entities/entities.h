@@ -309,11 +309,15 @@ SK_FINLINE sk_query_iter_t sk_query_iter_make(const sk_query_t* query) {
 /** Entity column base (row 0) of the current chunk. */
 #define SK_ECS_ITER_ENTITIES(var) ((sk_entity_t*)(var).fields[0])
 
+/* Columns live in chunk byte buffers; the alignment of each typed access is
+ * guaranteed by the archetype layout (offsets are align-up'd to the component
+ * alignment, and chunk bases are chunk_align-aligned). Casting through void*
+ * tells the compiler the alignment is satisfied so -Wcast-align stays quiet. */
 /** Entity handle stored at @p row of the current chunk. */
-#define SK_ECS_ITER_ENTITY(var, row) (*((const sk_entity_t*)((const u8*)(var).fields[0] + (size_t)(row) * (var).strides[0])))
+#define SK_ECS_ITER_ENTITY(var, row) (*((const sk_entity_t*)(const_ptr_t)((const u8*)(var).fields[0] + (size_t)(row) * (var).strides[0])))
 
 /** Entity handle of the current row (inside SK_ECS_ROW_FOREACH). */
-#define SK_ECS_ITER_ENTITY_ROW(var) (*((const sk_entity_t*)((const u8*)(var).fields[0] + (size_t)(var).row * (var).strides[0])))
+#define SK_ECS_ITER_ENTITY_ROW(var) (*((const sk_entity_t*)(const_ptr_t)((const u8*)(var).fields[0] + (size_t)(var).row * (var).strides[0])))
 
 /**
  * Typed pointer to @p term at the current row, or NULL when the term is an
@@ -322,7 +326,7 @@ SK_FINLINE sk_query_iter_t sk_query_iter_make(const sk_query_t* query) {
  * @param term Term index (0 = entity; < term_count).
  * @param Type Component C type (e.g. sk_pos_t).
  */
-#define SK_ECS_ITER_AT(var, term, Type) ((Type*)(((var).fields[(term)] == NULL) ? NULL : ((u8*)(var).fields[(term)] + (size_t)(var).row * (var).strides[(term)])))
+#define SK_ECS_ITER_AT(var, term, Type) ((Type*)(((var).fields[(term)] == NULL) ? NULL : ((void_ptr_t)((u8*)(var).fields[(term)] + (size_t)(var).row * (var).strides[(term)]))))
 
 /**
  * Typed, stride-aware pointer to @p term at row @p row of the current chunk,
@@ -332,7 +336,7 @@ SK_FINLINE sk_query_iter_t sk_query_iter_make(const sk_query_t* query) {
  * @param Type Component C type.
  * @param row  Row index (< SK_ECS_ITER_COUNT(var)).
  */
-#define SK_ECS_ITER_COL(var, term, Type, row) ((Type*)(((var).fields[(term)] == NULL) ? NULL : ((u8*)(var).fields[(term)] + (size_t)(row) * (var).strides[(term)])))
+#define SK_ECS_ITER_COL(var, term, Type, row) ((Type*)(((var).fields[(term)] == NULL) ? NULL : ((void_ptr_t)((u8*)(var).fields[(term)] + (size_t)(row) * (var).strides[(term)]))))
 
 /**
  * Global ECS module API (one table per process after plugin load).

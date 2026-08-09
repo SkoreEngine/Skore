@@ -1598,7 +1598,9 @@ static i32 commands_apply_impl(sk_entitycommands_t* commands, sk_world_t* world)
 		const sk_ecs_command_t* cmd = &commands->commands.items[i];
 		switch (cmd->kind) {
 		case SK_ECS_CMD_SPAWN: {
-			const sk_type_id_t* ids = (cmd->u.spawn.component_count > 0u) ? (const sk_type_id_t*)(commands->scratch.items + cmd->u.spawn.ids_offset) : NULL;
+			/* Scratch offsets are 8-aligned (commands_scratch_reserve); the
+			 * id array is written/read through this cast. */
+			const sk_type_id_t* ids = (cmd->u.spawn.component_count > 0u) ? (const sk_type_id_t*)(const_ptr_t)(commands->scratch.items + cmd->u.spawn.ids_offset) : NULL;
 			const sk_entity_t actual = world_spawn_impl(world, ids, cmd->u.spawn.component_count);
 			commands->pending.items[cmd->u.spawn.pending_index] = actual;
 			if (!sk_entity_is_valid(actual)) {
@@ -1768,8 +1770,17 @@ void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
  * empty builds, add validation / capacity / out-of-range accessors, built-order
  * accessors, write-write and write-read chains, diamond joins, no edges on
  * disjoint or read-read sets, deterministic tie-break, implicit rebuild, and
- * cycle detection on build and run).
+ *  cycle detection on build and run).
  */
+
+/* Clear the module component registry. Tests that register components start
+ * from a clean registry so they pass regardless of the toolchain's
+ * constructor registration order (e.g. the capacity test may run before the
+ * roundtrip/idempotent/conflict tests on MSVC, which would otherwise leave the
+ * registry full and make later register_component calls return -2). */
+static void ecs_component_registry_reset(void) {
+	ecs_component_count = 0u;
+}
 
 SK_TEST(entities_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(entities_api.register_component);
@@ -1822,6 +1833,7 @@ SK_TEST(entities_entity_handle) {
 }
 
 SK_TEST(entities_register_component_roundtrip) {
+	ecs_component_registry_reset();
 	sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.roundtrip", 0x0102030405060708ULL, 0x1112131415161718ULL);
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(id, 12u, 4u, "roundtrip"));
 
@@ -1834,6 +1846,7 @@ SK_TEST(entities_register_component_roundtrip) {
 }
 
 SK_TEST(entities_register_component_idempotent) {
+	ecs_component_registry_reset();
 	sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.idem", 0x2222222222222222ULL, 0x3333333333333333ULL);
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(id, 8u, 8u, "idem"));
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(id, 8u, 8u, "idem-again"));
@@ -1841,6 +1854,7 @@ SK_TEST(entities_register_component_idempotent) {
 }
 
 SK_TEST(entities_register_component_conflict) {
+	ecs_component_registry_reset();
 	sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.conflict", 0x4444444444444444ULL, 0x5555555555555555ULL);
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(id, 8u, 8u, "conflict"));
 	TEST_ASSERT_EQUAL_INT32(-1, entities_api.register_component(id, 16u, 8u, "conflict-other"));
@@ -2704,6 +2718,7 @@ typedef struct ecs_world_tag_t {
 #define TEST_ECS_UNREG_ID SK_TYPE_ID("sk.test.ecs.world.unreg", 0x3B000000000000DDULL, 0x0200000000000001ULL)
 
 static void ecs_world_register_components(void) {
+	ecs_component_registry_reset();
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_POS_ID, (u32)sizeof(ecs_world_pos_t), 4u, "world-pos"));
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_VEL_ID, (u32)sizeof(ecs_world_vel_t), 4u, "world-vel"));
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_TAG_ID, (u32)sizeof(ecs_world_tag_t), 4u, "world-tag"));
@@ -3774,10 +3789,11 @@ SK_TEST(entities_scheduler_run_implicit_build_rejects_cycle) {
 
 /*
  * Exhausts the component registry (SK_ECS_MAX_COMPONENT_TYPES entries).
- * Keep this test last in the file: it fills the module registry for the
- * remainder of the plugin test run.
+ * Starts from a clean registry and fills it to capacity regardless of when
+ * this test runs (constructor registration order is toolchain-dependent).
  */
 SK_TEST(entities_register_component_capacity) {
+	ecs_component_registry_reset();
 	u32 accepted = 0u;
 	i32 last = 0;
 	for (u32 i = 0u; i < (u32)SK_ECS_MAX_COMPONENT_TYPES + 4u; ++i) {
@@ -3788,9 +3804,7 @@ SK_TEST(entities_register_component_capacity) {
 		}
 	}
 
-	/* Earlier tests may have registered a handful of components; the registry
-	 * caps out at SK_ECS_MAX_COMPONENT_TYPES total entries. */
-	TEST_ASSERT_TRUE(accepted >= (u32)SK_ECS_MAX_COMPONENT_TYPES - 16u);
+	TEST_ASSERT_EQUAL_UINT32((u32)SK_ECS_MAX_COMPONENT_TYPES, accepted);
 	TEST_ASSERT_EQUAL_INT32(-2, last);
 
 	sk_type_id_t full_id = SK_TYPE_ID("sk.test.ecs.capacity.full", 0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL);
