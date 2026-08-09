@@ -1,7 +1,9 @@
 #include "repository.h"
 
 #include "array.h"
+#include "atomics.h"
 #include "hashmap.h"
+#include "mutex.h"
 
 #include <string.h>
 
@@ -13,13 +15,24 @@
 #define SK_REPOSITORY_PAGE_SIZE (1u << SK_REPOSITORY_PAGE_BITS)
 #define SK_REPOSITORY_PAGE_MASK (SK_REPOSITORY_PAGE_SIZE - 1u)
 
-/* Opaque storage slot: one live resource inside a page. */
+/* Owned RID list used by storage and propagation bookkeeping. */
+typedef SK_ARRAY(sk_rid_t) sk_rid_list_t;
+
+/* Opaque storage slot: one live resource inside a page. `instance` and
+ * `version` are accessed atomically (lock-free readers); the parent /
+ * prototype linkage is main-thread data. */
 typedef struct sk_resource_storage_t {
 	sk_rid_t rid;
 	sk_uuid_t uuid;
 	sk_resource_type_t* type;
 	char* path; /* NULL when unset */
-	void* instance;
+	void_ptr_t instance;
+	u64 version;
+	sk_rid_t parent;
+	u32 parent_field_index;
+	u32 _pad0;
+	sk_rid_t prototype;
+	sk_rid_list_t prototype_instances;
 } sk_resource_storage_t;
 
 typedef struct sk_repository_page_t {
@@ -27,10 +40,33 @@ typedef struct sk_repository_page_t {
 	u8* used;						 /* [SK_REPOSITORY_PAGE_SIZE] */
 } sk_repository_page_t;
 
+/* Replaced instances wait here until garbage_collect (lock-free readers may
+ * still pin them). */
+typedef struct sk_resource_gc_item_t {
+	sk_resource_type_t* type;
+	void_ptr_t instance;
+} sk_resource_gc_item_t;
+
 typedef SK_HASH_MAP(sk_type_id_t, sk_resource_type_t*) sk_type_id_map_t;
 typedef SK_HASH_MAP(const_chr_t, sk_resource_type_t*) sk_type_name_map_t;
 typedef SK_HASH_MAP(sk_uuid_t, sk_rid_t) sk_uuid_map_t;
 typedef SK_HASH_MAP(const_chr_t, sk_rid_t) sk_path_map_t;
+
+/* Clone / prototype build context: remaps source RIDs inside the origin's
+ * subtree to freshly reserved destination slots. */
+typedef struct sk_clone_entry_t {
+	sk_rid_t dst;
+	sk_uuid_t uuid;
+} sk_clone_entry_t;
+
+typedef SK_HASH_MAP(sk_rid_t, sk_clone_entry_t) sk_clone_map_t;
+
+typedef struct sk_clone_context_t {
+	sk_repository_t* repo;
+	sk_rid_t origin;
+	sk_clone_map_t map;
+	i32 failed;
+} sk_clone_context_t;
 
 struct sk_repository_t {
 	const sk_allocator_t* allocator;
@@ -41,6 +77,9 @@ struct sk_repository_t {
 	sk_type_name_map_t types_by_name;
 	sk_uuid_map_t rids_by_uuid;
 	sk_path_map_t rids_by_path;
+	SK_ARRAY(sk_resource_gc_item_t) to_collect;
+	sk_mutex_t* write_lock;
+	u64 uuid_counter; /* per-repository uuid source; uuid hi seeds by repo */
 };
 
 struct sk_resource_type_t {
@@ -49,8 +88,54 @@ struct sk_resource_type_t {
 	u32 instance_size;
 	u32 field_count;
 	sk_resource_field_t* fields; /* owned array */
-	u8* defaults;				 /* owned deep-copied default instance, or NULL */
+	u32 bitmap_bytes;			 /* (field_count + 7) / 8 */
+	u8* defaults;				 /* owned block (blob + bitmap, all bits set), or NULL */
 };
+
+/* ------------------------------------------------------------------ */
+/*  Instance block helpers                                            */
+/* ------------------------------------------------------------------ */
+
+/* Every instance is one allocation: the caller-laid-out blob followed by the
+ * per-field "has value on this object" bitmap. The instance pointer returned
+ * by resource_instance / read / write is the blob start. */
+
+static const u8* sk_repo_instance_bitmap(const sk_resource_type_t* type, const u8* instance) {
+	return instance + (size_t)type->instance_size;
+}
+
+static int sk_repo_instance_has_value(const sk_resource_type_t* type, const u8* instance, u32 position) {
+	const u8* bitmap = sk_repo_instance_bitmap(type, instance);
+	return (bitmap[position >> 3u] & (u8)(1u << (position & 7u))) != 0u;
+}
+
+static void sk_repo_instance_set_value_bit(const sk_resource_type_t* type, void_ptr_t instance, u32 position, int value) {
+	u8* bitmap = (u8*)instance + (size_t)type->instance_size;
+	if (value != 0) {
+		bitmap[position >> 3u] |= (u8)(1u << (position & 7u));
+	} else {
+		bitmap[position >> 3u] &= (u8) ~(1u << (position & 7u));
+	}
+}
+
+static u8* sk_repo_block_alloc_zero(const sk_repository_t* repository, const sk_resource_type_t* type) {
+	size_t total = (size_t)type->instance_size + (size_t)type->bitmap_bytes;
+	u8* block = (u8*)repository->allocator->alloc(repository->allocator->instance, total);
+	if (block == NULL) {
+		return NULL;
+	}
+	memset(block, 0, total);
+	return block;
+}
+
+static i32 sk_repo_field_position(const sk_resource_type_t* type, u32 index) {
+	for (u32 i = 0u; i < type->field_count; ++i) {
+		if (type->fields[i].index == index) {
+			return (i32)i;
+		}
+	}
+	return -1;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Copy helpers                                                      */
@@ -75,7 +160,8 @@ static char* sk_repo_copy_string(const sk_repository_t* repository, const_chr_t 
 	return dst;
 }
 
-/* Release the indirection payload of one field (String / Blob / RID array). */
+/* Release the indirection payload of one field (String / Blob / RID arrays /
+ * SubObjectList with its removed-from-prototype set). */
 static void sk_repo_field_destroy(const sk_repository_t* repository, const sk_resource_field_t* field, u8* instance) {
 	u8* p = instance + (size_t)field->offset;
 	switch (field->type) {
@@ -95,13 +181,30 @@ static void sk_repo_field_destroy(const sk_repository_t* repository, const sk_re
 		}
 		break;
 	}
-	case SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY:
-	case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST: {
+	case SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY: {
 		sk_field_rid_array_t* a = (sk_field_rid_array_t*)(void_ptr_t)p;
 		if (a->items != NULL) {
 			repository->allocator->free(repository->allocator->instance, a->items);
 			a->items = NULL;
 		}
+		a->count = 0u;
+		a->capacity = 0u;
+		break;
+	}
+	case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST: {
+		sk_field_subobject_list_t* l = (sk_field_subobject_list_t*)(void_ptr_t)p;
+		if (l->items != NULL) {
+			repository->allocator->free(repository->allocator->instance, l->items);
+			l->items = NULL;
+		}
+		l->count = 0u;
+		l->capacity = 0u;
+		if (l->prototype_removed != NULL) {
+			repository->allocator->free(repository->allocator->instance, l->prototype_removed);
+			l->prototype_removed = NULL;
+		}
+		l->prototype_removed_count = 0u;
+		l->prototype_removed_capacity = 0u;
 		break;
 	}
 	/* POD field types own no heap storage. */
@@ -140,28 +243,11 @@ static void sk_repo_instance_destroy(const sk_repository_t* repository, const sk
 	repository->allocator->free(repository->allocator->instance, instance);
 }
 
-/**
- * Deep-copy @p source into a fresh instance blob. Indirection fields get
- * repository-owned copies; all other fields are copied by bytes. On failure
- * the partially copied blob is released and NULL is returned.
- * @param source Source blob of type->instance_size bytes (may be NULL to get a
- *               zeroed blob).
- */
-static u8* sk_repo_instance_copy(const sk_repository_t* repository, const sk_resource_type_t* type, const u8* source) {
-	u32 size = type->instance_size;
-	if (size == 0u) {
-		return NULL;
-	}
-	u8* dest = (u8*)repository->allocator->alloc(repository->allocator->instance, (size_t)size);
-	if (dest == NULL) {
-		return NULL;
-	}
-	memset(dest, 0, (size_t)size);
-
-	if (source == NULL) {
-		return dest;
-	}
-
+/* Deep-copy @p source's blob fields into @p dest (both of type->instance_size
+ * bytes). Indirection fields get repository-owned copies. On failure the
+ * partially copied blob is released (its indirections are destroyed) and
+ * non-zero is returned. */
+static i32 sk_repo_copy_blob_fields(const sk_repository_t* repository, const sk_resource_type_t* type, u8* dest, const u8* source) {
 	for (u32 i = 0u; i < type->field_count; ++i) {
 		const sk_resource_field_t* field = &type->fields[i];
 		u8* dst = dest + (size_t)field->offset;
@@ -189,8 +275,7 @@ static u8* sk_repo_instance_copy(const sk_repository_t* repository, const sk_res
 			}
 			break;
 		}
-		case SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY:
-		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST: {
+		case SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY: {
 			const sk_field_rid_array_t* src = (const sk_field_rid_array_t*)(const_ptr_t)(source + (size_t)field->offset);
 			sk_field_rid_array_t* out = (sk_field_rid_array_t*)(void_ptr_t)dst;
 			if (src->count != 0u && src->items != NULL) {
@@ -200,6 +285,30 @@ static u8* sk_repo_instance_copy(const sk_repository_t* repository, const sk_res
 					goto fail;
 				}
 				out->count = src->count;
+				out->capacity = src->count;
+			}
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST: {
+			const sk_field_subobject_list_t* src = (const sk_field_subobject_list_t*)(const_ptr_t)(source + (size_t)field->offset);
+			sk_field_subobject_list_t* out = (sk_field_subobject_list_t*)(void_ptr_t)dst;
+			if (src->count != 0u && src->items != NULL) {
+				size_t bytes = (size_t)src->count * sizeof(sk_rid_t);
+				out->items = (sk_rid_t*)(void_ptr_t)sk_repo_copy_bytes(repository, src->items, bytes);
+				if (out->items == NULL) {
+					goto fail;
+				}
+				out->count = src->count;
+				out->capacity = src->count;
+			}
+			if (src->prototype_removed_count != 0u && src->prototype_removed != NULL) {
+				size_t bytes = (size_t)src->prototype_removed_count * sizeof(sk_rid_t);
+				out->prototype_removed = (sk_rid_t*)(void_ptr_t)sk_repo_copy_bytes(repository, src->prototype_removed, bytes);
+				if (out->prototype_removed == NULL) {
+					goto fail;
+				}
+				out->prototype_removed_count = src->prototype_removed_count;
+				out->prototype_removed_capacity = src->prototype_removed_count;
 			}
 			break;
 		}
@@ -225,12 +334,43 @@ static u8* sk_repo_instance_copy(const sk_repository_t* repository, const sk_res
 			break;
 		}
 	}
-	return dest;
+	return 0;
 
 fail:
 	sk_repo_instance_destroy_fields(repository, type, dest);
-	repository->allocator->free(repository->allocator->instance, dest);
-	return NULL;
+	return -1;
+}
+
+/* Deep-copy a full instance block (blob + has-value bitmap). @p source may be
+ * NULL to get a zeroed block (all fields unset). */
+static u8* sk_repo_instance_copy(const sk_repository_t* repository, const sk_resource_type_t* type, const u8* source) {
+	u8* dest = sk_repo_block_alloc_zero(repository, type);
+	if (dest == NULL) {
+		return NULL;
+	}
+	if (source == NULL) {
+		return dest;
+	}
+	memcpy(dest + (size_t)type->instance_size, source + (size_t)type->instance_size, (size_t)type->bitmap_bytes);
+	if (sk_repo_copy_blob_fields(repository, type, dest, source) != 0) {
+		repository->allocator->free(repository->allocator->instance, dest);
+		return NULL;
+	}
+	return dest;
+}
+
+/* Deep-copy a raw caller-provided default blob and mark every field as set. */
+static u8* sk_repo_instance_from_raw(const sk_repository_t* repository, const sk_resource_type_t* type, const void* raw) {
+	u8* dest = sk_repo_block_alloc_zero(repository, type);
+	if (dest == NULL) {
+		return NULL;
+	}
+	if (sk_repo_copy_blob_fields(repository, type, dest, (const u8*)raw) != 0) {
+		repository->allocator->free(repository->allocator->instance, dest);
+		return NULL;
+	}
+	memset(dest + (size_t)type->instance_size, 0xFF, (size_t)type->bitmap_bytes);
+	return dest;
 }
 
 static void sk_repo_type_free(const sk_repository_t* repository, sk_resource_type_t* type) {
@@ -245,6 +385,68 @@ static void sk_repo_type_free(const sk_repository_t* repository, sk_resource_typ
 		a->free(a->instance, type->name);
 	}
 	a->free(a->instance, type);
+}
+
+/* ------------------------------------------------------------------ */
+/*  RID list helpers (owned arrays used for prototype_instances,      */
+/*  sub-object lists, reference arrays)                               */
+/* ------------------------------------------------------------------ */
+
+static int sk_repo_rid_list_contains(const sk_rid_t* items, u32 count, sk_rid_t rid) {
+	for (u32 i = 0u; i < count; ++i) {
+		if (SK_RID_EQ(items[i], rid)) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static i32 sk_repo_rid_list_grow(const sk_allocator_t* a, sk_rid_t** items, u32* capacity, u32 need) {
+	if (need <= *capacity) {
+		return 0;
+	}
+	u32 new_cap = *capacity != 0u ? *capacity : 4u;
+	while (new_cap < need) {
+		new_cap *= 2u;
+	}
+	sk_rid_t* new_items = (sk_rid_t*)a->realloc(a->instance, *items, (size_t)new_cap * sizeof(sk_rid_t));
+	if (new_items == NULL) {
+		return -1;
+	}
+	*items = new_items;
+	*capacity = new_cap;
+	return 0;
+}
+
+static void sk_repo_rid_list_add_unique(sk_rid_t** items, u32* count, u32* capacity, const sk_allocator_t* a, sk_rid_t rid) {
+	if (sk_repo_rid_list_contains(*items, *count, rid)) {
+		return;
+	}
+	if (sk_repo_rid_list_grow(a, items, capacity, *count + 1u) != 0) {
+		return;
+	}
+	(*items)[(*count)++] = rid;
+}
+
+static void sk_repo_rid_list_remove(sk_rid_t** items, u32* count, sk_rid_t rid) {
+	for (u32 i = 0u; i < *count; ++i) {
+		if (SK_RID_EQ((*items)[i], rid)) {
+			memmove(&(*items)[i], &(*items)[i + 1u], (size_t)(*count - i - 1u) * sizeof(sk_rid_t));
+			*count -= 1u;
+			return;
+		}
+	}
+}
+
+static void sk_repo_list_add_unique(sk_rid_list_t* list, sk_rid_t rid) {
+	if (sk_repo_rid_list_contains(list->items, list->count, rid)) {
+		return;
+	}
+	(void)sk_array_push(list, rid);
+}
+
+static void sk_repo_list_remove(sk_rid_list_t* list, sk_rid_t rid) {
+	sk_repo_rid_list_remove(&list->items, &list->count, rid);
 }
 
 /* ------------------------------------------------------------------ */
@@ -299,8 +501,81 @@ static sk_resource_storage_t* sk_repo_storage(const sk_repository_t* repository,
 	return &page->elements[offset];
 }
 
+/* Allocate a fresh slot for @p rid and register @p uuid (when non-zero). Does
+ * not touch resource_count. Returns NULL on OOM / duplicate uuid. */
+static sk_resource_storage_t* sk_repo_allocate_slot_id(sk_repository_t* repository, sk_rid_t rid, sk_uuid_t uuid) {
+	u32 page_index = (u32)(rid.id >> SK_REPOSITORY_PAGE_BITS);
+	u32 offset = (u32)(rid.id & SK_REPOSITORY_PAGE_MASK);
+	if (sk_repo_ensure_page(repository, page_index) != 0) {
+		return NULL;
+	}
+	sk_repository_page_t* page = repository->pages.items[page_index];
+	sk_resource_storage_t* storage = &page->elements[offset];
+	page->used[offset] = 1u;
+	memset(storage, 0, sizeof(*storage));
+	storage->rid = rid;
+	storage->uuid = uuid;
+	storage->parent_field_index = (u32)-1;
+	sk_atomic_ptr_init(&storage->instance, NULL);
+	sk_atomic_u64_init(&storage->version, 1u);
+	sk_array_init(&storage->prototype_instances, repository->allocator);
+	if (!SK_UUID_EQ(uuid, SK_UUID_ZERO)) {
+		if (sk_hash_map_put(&repository->rids_by_uuid, uuid, rid) != 0) {
+			sk_array_free(&storage->prototype_instances);
+			page->used[offset] = 0u;
+			memset(storage, 0, sizeof(*storage));
+			return NULL;
+		}
+	}
+	return storage;
+}
+
+/* Allocate the next free slot (RIDs are never recycled). */
+static sk_resource_storage_t* sk_repo_allocate_slot(sk_repository_t* repository, sk_uuid_t uuid, sk_rid_t* out_rid) {
+	u64 next = repository->rid_counter;
+	if (next == 0u) {
+		return NULL;
+	}
+	repository->rid_counter = next + 1u;
+	sk_rid_t rid = {next};
+	sk_resource_storage_t* storage = sk_repo_allocate_slot_id(repository, rid, uuid);
+	if (storage != NULL) {
+		*out_rid = rid;
+	}
+	return storage;
+}
+
+/* Tear down a freshly allocated but failed slot (removes uuid/path mappings,
+ * frees the prototype_instances array, releases the slot). Does not touch
+ * resource_count. */
+static void sk_repo_release_slot(sk_repository_t* repository, sk_rid_t rid) {
+	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
+	if (storage == NULL) {
+		return;
+	}
+	if (!SK_UUID_EQ(storage->uuid, SK_UUID_ZERO)) {
+		sk_hash_map_remove(&repository->rids_by_uuid, storage->uuid);
+	}
+	if (storage->path != NULL) {
+		sk_hash_map_remove(&repository->rids_by_path, storage->path);
+		repository->allocator->free(repository->allocator->instance, storage->path);
+	}
+	if (storage->prototype.id != 0u) {
+		sk_resource_storage_t* prototype = sk_repo_storage(repository, storage->prototype);
+		if (prototype != NULL) {
+			sk_repo_list_remove(&prototype->prototype_instances, rid);
+		}
+	}
+	sk_array_free(&storage->prototype_instances);
+	u32 page_index = (u32)(rid.id >> SK_REPOSITORY_PAGE_BITS);
+	u32 offset = (u32)(rid.id & SK_REPOSITORY_PAGE_MASK);
+	sk_repository_page_t* page = repository->pages.items[page_index];
+	page->used[offset] = 0u;
+	memset(storage, 0, sizeof(*storage));
+}
+
 /* ------------------------------------------------------------------ */
-/*  Repository / type / resource ops                                  */
+/*  Repository lifecycle                                              */
 /* ------------------------------------------------------------------ */
 
 static sk_rid_t repository_find_by_uuid(const sk_repository_t* repository, sk_uuid_t uuid);
@@ -315,6 +590,12 @@ static sk_repository_t* repository_create(const sk_allocator_t* allocator) {
 	repository->allocator = allocator;
 	repository->rid_counter = 1u;
 	sk_array_init(&repository->pages, allocator);
+	sk_array_init(&repository->to_collect, allocator);
+	repository->write_lock = sk_mutex_create();
+	if (repository->write_lock == NULL) {
+		allocator->free(allocator->instance, repository);
+		return NULL;
+	}
 	/* Untyped init with explicit sizes: the typed macro's sizeof of the
 	 * pointer-valued _val_tmp trips bugprone-sizeof-expression. */
 	sk_hash_map_init_(&repository->types_by_id._hm, allocator, (u32)sizeof(sk_type_id_t), (u32)sizeof(sk_resource_type_t*), NULL, NULL);
@@ -342,11 +623,18 @@ static void repository_destroy(sk_repository_t* repository) {
 			if (storage->path != NULL) {
 				a->free(a->instance, storage->path);
 			}
+			sk_array_free(&storage->prototype_instances);
 		}
 		a->free(a->instance, page->elements);
 		a->free(a->instance, page);
 	}
 	sk_array_free(&repository->pages);
+
+	/* Flush instances superseded by Commit / Destroy. */
+	for (u32 i = 0u; i < repository->to_collect.count; ++i) {
+		sk_repo_instance_destroy(repository, repository->to_collect.items[i].type, repository->to_collect.items[i].instance);
+	}
+	sk_array_free(&repository->to_collect);
 
 	for (u32 slot = 0u; slot < repository->types_by_id._hm.capacity; ++slot) {
 		if (!sk_hash_map_slot_occupied_(&repository->types_by_id._hm, slot)) {
@@ -359,8 +647,13 @@ static void repository_destroy(sk_repository_t* repository) {
 	sk_hash_map_free(&repository->types_by_name);
 	sk_hash_map_free(&repository->rids_by_uuid);
 	sk_hash_map_free(&repository->rids_by_path);
+	sk_mutex_destroy(repository->write_lock);
 	a->free(a->instance, repository);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Type registry                                                     */
+/* ------------------------------------------------------------------ */
 
 static const sk_resource_type_t* repository_find_type(const sk_repository_t* repository, sk_type_id_t type_id) {
 	if (SK_TYPE_ID_EQ(type_id, SK_TYPE_ID_ZERO)) {
@@ -424,6 +717,7 @@ static i32 repository_register_type(sk_repository_t* repository, const sk_resour
 	type->type_id = desc->type_id;
 	type->instance_size = desc->instance_size;
 	type->field_count = desc->field_count;
+	type->bitmap_bytes = (desc->field_count + 7u) / 8u;
 
 	type->name = sk_repo_copy_string(repository, desc->name);
 	if (type->name == NULL) {
@@ -440,7 +734,7 @@ static i32 repository_register_type(sk_repository_t* repository, const sk_resour
 		memcpy(type->fields, desc->fields, bytes);
 	}
 	if (desc->defaults != NULL) {
-		type->defaults = sk_repo_instance_copy(repository, type, (const u8*)desc->defaults);
+		type->defaults = sk_repo_instance_from_raw(repository, type, desc->defaults);
 		if (type->defaults == NULL) {
 			sk_repo_type_free(repository, type);
 			return -3;
@@ -458,6 +752,10 @@ static i32 repository_register_type(sk_repository_t* repository, const sk_resour
 	return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Resource lifecycle                                                */
+/* ------------------------------------------------------------------ */
+
 static sk_rid_t repository_create_resource(sk_repository_t* repository, const sk_resource_type_t* type, sk_uuid_t uuid) {
 	if (type->instance_size == 0u) {
 		return SK_RID_ZERO;
@@ -468,87 +766,180 @@ static sk_rid_t repository_create_resource(sk_repository_t* repository, const sk
 			return existing;
 		}
 	}
-	u64 next = repository->rid_counter;
-	if (next == 0u) {
+	sk_rid_t rid = SK_RID_ZERO;
+	sk_resource_storage_t* storage = sk_repo_allocate_slot(repository, uuid, &rid);
+	if (storage == NULL) {
 		return SK_RID_ZERO;
 	}
-	repository->rid_counter = next + 1u;
-	sk_rid_t rid = {next};
-	u32 page_index = (u32)(next >> SK_REPOSITORY_PAGE_BITS);
-	u32 offset = (u32)(next & SK_REPOSITORY_PAGE_MASK);
-	if (sk_repo_ensure_page(repository, page_index) != 0) {
-		return SK_RID_ZERO;
-	}
-	sk_repository_page_t* page = repository->pages.items[page_index];
-	sk_resource_storage_t* storage = &page->elements[offset];
-	page->used[offset] = 1u;
-	storage->rid = rid;
-	storage->uuid = uuid;
 	storage->type = SK_CONST_CAST(sk_resource_type_t*, type);
-	storage->path = NULL;
-	storage->instance = NULL;
-
-	if (!SK_UUID_EQ(uuid, SK_UUID_ZERO)) {
-		if (sk_hash_map_put(&repository->rids_by_uuid, uuid, rid) != 0) {
-			page->used[offset] = 0u;
-			memset(storage, 0, sizeof(*storage));
-			return SK_RID_ZERO;
-		}
-	}
 	void_ptr_t instance = NULL;
 	if (type->defaults != NULL) {
 		instance = sk_repo_instance_copy(repository, type, type->defaults);
 	} else {
-		instance = repository->allocator->alloc(repository->allocator->instance, (size_t)type->instance_size);
-		if (instance != NULL) {
-			memset(instance, 0, (size_t)type->instance_size);
-		}
+		instance = sk_repo_block_alloc_zero(repository, type);
 	}
 	if (instance == NULL) {
-		if (!SK_UUID_EQ(uuid, SK_UUID_ZERO)) {
-			sk_hash_map_remove(&repository->rids_by_uuid, uuid);
-		}
-		page->used[offset] = 0u;
-		memset(storage, 0, sizeof(*storage));
+		sk_repo_release_slot(repository, rid);
 		return SK_RID_ZERO;
 	}
-	storage->instance = instance;
+	sk_atomic_ptr_store(&storage->instance, instance);
 	repository->resource_count += 1u;
 	return rid;
 }
 
+/* Recursively destroy every sub-object of @p instance (used by the destroy
+ * cascade; runs with the instance already retired to the GC queue). */
+static void sk_repo_destroy_instance_subobjects(sk_repository_t* repository, const sk_resource_type_t* type, void_ptr_t instance);
+
+static i32 repository_destroy_resource(sk_repository_t* repository, sk_rid_t rid);
+static sk_resource_object_t repository_write(sk_repository_t* repository, sk_rid_t rid);
+static void repository_commit(sk_resource_object_t view);
+static void sk_repo_remove_subobject(sk_resource_object_t view, u32 index, sk_rid_t rid);
+
+// NOLINTBEGIN(misc-no-recursion) -- the destroy cascade recurses through
+// sub-objects (each acquire/release of the write lock is independent).
+
+static void sk_repo_destroy_instance_subobjects(sk_repository_t* repository, const sk_resource_type_t* type, void_ptr_t instance) {
+	const u8* base = (const u8*)instance;
+	for (u32 i = 0u; i < type->field_count; ++i) {
+		const sk_resource_field_t* field = &type->fields[i];
+		switch (field->type) {
+		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT: {
+			sk_rid_t sub = SK_RID_ZERO;
+			memcpy(&sub, base + (size_t)field->offset, sizeof(sub));
+			if (sub.id != 0u) {
+				(void)repository_destroy_resource(repository, sub);
+			}
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST: {
+			const sk_field_subobject_list_t* list = (const sk_field_subobject_list_t*)(const_ptr_t)(base + (size_t)field->offset);
+			for (u32 k = 0u; k < list->count; ++k) {
+				if (list->items[k].id != 0u) {
+					(void)repository_destroy_resource(repository, list->items[k]);
+				}
+			}
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_NONE:
+		case SK_RESOURCE_FIELD_TYPE_BOOL:
+		case SK_RESOURCE_FIELD_TYPE_INT:
+		case SK_RESOURCE_FIELD_TYPE_UINT:
+		case SK_RESOURCE_FIELD_TYPE_FLOAT:
+		case SK_RESOURCE_FIELD_TYPE_VEC2:
+		case SK_RESOURCE_FIELD_TYPE_VEC3:
+		case SK_RESOURCE_FIELD_TYPE_VEC4:
+		case SK_RESOURCE_FIELD_TYPE_QUAT:
+		case SK_RESOURCE_FIELD_TYPE_MAT4:
+		case SK_RESOURCE_FIELD_TYPE_COLOR:
+		case SK_RESOURCE_FIELD_TYPE_ENUM:
+		case SK_RESOURCE_FIELD_TYPE_STRING:
+		case SK_RESOURCE_FIELD_TYPE_BLOB:
+		case SK_RESOURCE_FIELD_TYPE_REFERENCE:
+		case SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY:
+		case SK_RESOURCE_FIELD_TYPE_BUFFER:
+		case SK_RESOURCE_FIELD_TYPE_TYPE_ID:
+		case SK_RESOURCE_FIELD_TYPE_MAX:
+			break;
+		}
+	}
+}
+
 static i32 repository_destroy_resource(sk_repository_t* repository, sk_rid_t rid) {
-	u64 idx = rid.id;
-	if (idx == 0u) {
+	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
+	if (storage == NULL) {
 		return -1;
 	}
-	u32 page_index = (u32)(idx >> SK_REPOSITORY_PAGE_BITS);
-	u32 offset = (u32)(idx & SK_REPOSITORY_PAGE_MASK);
-	if (page_index >= repository->pages.count) {
-		return -1;
+
+	/* Make room in the GC queue for this instance AND any instance the parent
+	 * detach commit retires, so neither teardown step can fail mid-way. */
+	void_ptr_t instance = sk_atomic_ptr_load(&storage->instance);
+	if (storage->type != NULL && instance != NULL) {
+		if (sk_array_reserve(&repository->to_collect, repository->to_collect.count + 2u) != 0) {
+			return -1; /* OOM: leave the resource intact; retry the destroy later */
+		}
 	}
-	sk_repository_page_t* page = repository->pages.items[page_index];
-	if (page == NULL || !page->used[offset]) {
-		return -1;
+
+	/* Detach from the parent first (Resources::Destroy): the parent is written
+	 * and committed so it stops owning this resource as a sub-object. */
+	if (storage->parent.id != 0u) {
+		sk_rid_t parent_rid = storage->parent;
+		sk_resource_storage_t* parent = sk_repo_storage(repository, parent_rid);
+		if (parent != NULL && sk_atomic_ptr_load(&parent->instance) != NULL) {
+			sk_resource_object_t view = repository_write(repository, parent_rid);
+			if (SK_RESOURCE_OBJECT_IS_VALID(view)) {
+				sk_repo_remove_subobject(view, storage->parent_field_index, rid);
+				repository_commit(view);
+			}
+		}
 	}
-	sk_resource_storage_t* storage = &page->elements[offset];
-	if (storage->instance != NULL) {
-		sk_repo_instance_destroy(repository, storage->type, storage->instance);
+
+	/* Serialize the slot teardown with Write/Commit under the write lock. The
+	 * exchanged instance is queued for GC like a Commit replacement: lock-free
+	 * readers may still pin it, so it stays alive until garbage_collect. */
+	sk_mutex_lock(repository->write_lock);
+
+	storage = sk_repo_storage(repository, rid);
+	if (storage == NULL) {
+		sk_mutex_unlock(repository->write_lock);
+		return 0; /* already torn down by the parent commit chain */
+	}
+	instance = sk_atomic_ptr_load(&storage->instance);
+	if (storage->type != NULL && instance != NULL) {
+		/* Make room for the GC item BEFORE dropping the slot. */
+		if (sk_array_reserve(&repository->to_collect, repository->to_collect.count + 1u) != 0) {
+			sk_mutex_unlock(repository->write_lock);
+			return -1; /* OOM: leave the resource intact; retry the destroy later */
+		}
+	}
+
+	/* Unregister from the prototype's instance set. */
+	if (storage->prototype.id != 0u) {
+		sk_resource_storage_t* prototype = sk_repo_storage(repository, storage->prototype);
+		if (prototype != NULL) {
+			sk_repo_list_remove(&prototype->prototype_instances, rid);
+		}
 	}
 	if (storage->path != NULL) {
 		sk_hash_map_remove(&repository->rids_by_path, storage->path);
 		repository->allocator->free(repository->allocator->instance, storage->path);
+		storage->path = NULL;
 	}
 	if (!SK_UUID_EQ(storage->uuid, SK_UUID_ZERO)) {
 		sk_hash_map_remove(&repository->rids_by_uuid, storage->uuid);
 	}
-	page->used[offset] = 0u;
-	memset(storage, 0, sizeof(*storage));
-	if (repository->resource_count > 0u) {
-		repository->resource_count -= 1u;
+	void_ptr_t exchanged = sk_atomic_ptr_exchange(&storage->instance, NULL);
+	sk_resource_type_t* type = storage->type;
+	if (exchanged != NULL && type != NULL) {
+		(void)sk_array_push(&repository->to_collect, ((sk_resource_gc_item_t){type, exchanged})); /* capacity pre-reserved */
 	}
+	sk_mutex_unlock(repository->write_lock);
+
+	/* Recursively destroy every sub-object of the retired instance. Each
+	 * recursive destroy acquires the write lock on its own. */
+	if (exchanged != NULL && type != NULL) {
+		sk_repo_destroy_instance_subobjects(repository, type, exchanged);
+	}
+
+	/* Release the page slot. */
+	sk_mutex_lock(repository->write_lock);
+	storage = sk_repo_storage(repository, rid);
+	if (storage != NULL) {
+		sk_array_free(&storage->prototype_instances);
+		u32 page_index = (u32)(rid.id >> SK_REPOSITORY_PAGE_BITS);
+		u32 offset = (u32)(rid.id & SK_REPOSITORY_PAGE_MASK);
+		sk_repository_page_t* page = repository->pages.items[page_index];
+		page->used[offset] = 0u;
+		memset(storage, 0, sizeof(*storage));
+		if (repository->resource_count > 0u) {
+			repository->resource_count -= 1u;
+		}
+	}
+	sk_mutex_unlock(repository->write_lock);
 	return 0;
 }
+
+// NOLINTEND(misc-no-recursion)
 
 static i32 repository_has_resource(const sk_repository_t* repository, sk_rid_t rid) {
 	return sk_repo_storage(repository, rid) != NULL ? 1 : 0;
@@ -570,7 +961,7 @@ static sk_uuid_t repository_resource_uuid(const sk_repository_t* repository, sk_
 
 static void_ptr_t repository_resource_instance(sk_repository_t* repository, sk_rid_t rid) {
 	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
-	return storage != NULL ? storage->instance : NULL;
+	return storage != NULL ? sk_atomic_ptr_load(&storage->instance) : NULL;
 }
 
 static sk_rid_t repository_find_by_uuid(const sk_repository_t* repository, sk_uuid_t uuid) {
@@ -632,13 +1023,1492 @@ static sk_rid_t repository_find_by_path(const sk_repository_t* repository, const
 }
 
 /* ------------------------------------------------------------------ */
+/*  Hierarchy accessors                                               */
+/* ------------------------------------------------------------------ */
+
+static sk_rid_t repository_get_parent(sk_repository_t* repository, sk_rid_t rid) {
+	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
+	return storage != NULL ? storage->parent : SK_RID_ZERO;
+}
+
+static sk_rid_t repository_get_prototype(sk_repository_t* repository, sk_rid_t rid) {
+	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
+	return storage != NULL ? storage->prototype : SK_RID_ZERO;
+}
+
+static sk_rid_t repository_get_top_parent(sk_repository_t* repository, sk_rid_t rid) {
+	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
+	if (storage == NULL) {
+		return SK_RID_ZERO;
+	}
+	sk_rid_t top = rid;
+	while (storage->parent.id != 0u) {
+		top = storage->parent;
+		storage = sk_repo_storage(repository, top);
+		if (storage == NULL) {
+			break;
+		}
+	}
+	return top;
+}
+
+static i32 repository_is_parent_of(sk_repository_t* repository, sk_rid_t parent, sk_rid_t child) {
+	const sk_resource_storage_t* current = sk_repo_storage(repository, child);
+	if (current == NULL) {
+		return 0;
+	}
+	while (current->parent.id != 0u) {
+		if (SK_RID_EQ(current->parent, parent)) {
+			return 1;
+		}
+		current = sk_repo_storage(repository, current->parent);
+		if (current == NULL) {
+			return 0;
+		}
+	}
+	return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Read / write / commit                                             */
+/* ------------------------------------------------------------------ */
+
+static void sk_repo_update_subobject_parents(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance);
+static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance);
+static void sk_repo_finalize_commit(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance);
+static i32 repository_add_to_subobject_list(sk_resource_object_t view, u32 index, sk_rid_t rid);
+static u32 repository_remove_from_subobject_list_by_prototype(sk_resource_object_t view, u32 index, sk_rid_t prototype, sk_rid_t* out_items, u32 out_capacity);
+
+static sk_resource_object_t repository_read(sk_repository_t* repository, sk_rid_t rid) {
+	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
+	if (storage == NULL) {
+		return SK_RESOURCE_OBJECT_ZERO;
+	}
+	sk_resource_object_t view;
+	view.repo = repository;
+	view.storage = storage;
+	view.instance = sk_atomic_ptr_load(&storage->instance);
+	view.data_on_write = NULL;
+	view.is_write = 0u;
+	memset(view._pad0, 0, sizeof(view._pad0));
+	return view;
+}
+
+static sk_resource_object_t repository_write(sk_repository_t* repository, sk_rid_t rid) {
+	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
+	if (storage == NULL || storage->type == NULL) {
+		return SK_RESOURCE_OBJECT_ZERO;
+	}
+	sk_mutex_lock(repository->write_lock);
+	void_ptr_t current = sk_atomic_ptr_load(&storage->instance);
+	void_ptr_t copy = sk_repo_instance_copy(repository, storage->type, (const u8*)current);
+	if (copy == NULL) {
+		sk_mutex_unlock(repository->write_lock);
+		return SK_RESOURCE_OBJECT_ZERO;
+	}
+	sk_resource_object_t view;
+	view.repo = repository;
+	view.storage = storage;
+	view.instance = copy;
+	view.data_on_write = current;
+	view.is_write = 1u;
+	memset(view._pad0, 0, sizeof(view._pad0));
+	return view;
+}
+
+/* Bump the version of @p storage and every ancestor in the parent chain. */
+static void sk_repo_update_version_chain(sk_repository_t* repository, sk_resource_storage_t* storage) {
+	sk_resource_storage_t* current = storage;
+	while (current != NULL) {
+		sk_atomic_u64_fetch_add(&current->version, 1ull);
+		if (current->parent.id == 0u) {
+			break;
+		}
+		current = sk_repo_storage(repository, current->parent);
+	}
+}
+
+// NOLINTNEXTLINE(misc-no-recursion) -- commit re-enters via prototype propagation / destroy.
+static void repository_commit(sk_resource_object_t view) {
+	if (view.is_write == 0u || view.storage == NULL || view.instance == NULL || view.repo == NULL) {
+		return;
+	}
+	sk_repository_t* repository = view.repo;
+	sk_resource_storage_t* storage = (sk_resource_storage_t*)view.storage;
+	void_ptr_t expected = view.data_on_write;
+	if (sk_atomic_ptr_compare_exchange(&storage->instance, &expected, view.instance) == 0) {
+		/* Lost the publish race: the uncommitted copy is discarded, no version
+		 * bump. (Under the exclusive write lock this only happens on teardown
+		 * races; kept for multi-commit parity.) */
+		sk_repo_instance_destroy(repository, storage->type, view.instance);
+		sk_mutex_unlock(repository->write_lock);
+		return;
+	}
+	if (expected != NULL) {
+		(void)sk_array_push(&repository->to_collect, ((sk_resource_gc_item_t){storage->type, expected}));
+	}
+	sk_repo_update_version_chain(repository, storage);
+	sk_mutex_unlock(repository->write_lock);
+	sk_repo_finalize_commit(repository, storage, expected, view.instance);
+}
+
+static void repository_discard(sk_resource_object_t view) {
+	if (view.is_write == 0u || view.storage == NULL || view.repo == NULL) {
+		return;
+	}
+	sk_resource_storage_t* storage = (sk_resource_storage_t*)view.storage;
+	if (view.instance != NULL) {
+		sk_repo_instance_destroy(view.repo, storage->type, view.instance);
+	}
+	sk_mutex_unlock(view.repo->write_lock);
+}
+
+static u64 repository_get_version(const sk_repository_t* repository, sk_rid_t rid) {
+	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
+	return storage != NULL ? sk_atomic_u64_load(&storage->version) : 0ull;
+}
+
+static i32 repository_has_value(const sk_repository_t* repository, sk_rid_t rid) {
+	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
+	return storage != NULL && sk_atomic_ptr_load(&storage->instance) != NULL ? 1 : 0;
+}
+
+static void repository_garbage_collect(sk_repository_t* repository) {
+	for (u32 i = 0u; i < repository->to_collect.count; ++i) {
+		sk_repo_instance_destroy(repository, repository->to_collect.items[i].type, repository->to_collect.items[i].instance);
+	}
+	sk_array_clear(&repository->to_collect);
+}
+
+static void repository_end_frame(sk_repository_t* repository) {
+	repository_garbage_collect(repository);
+}
+
+/* Refresh sub-object parent links after a commit: every sub-object reachable
+ * from the new instance points back at @p storage; sub-objects that left the
+ * new instance (present in the old instance only) lose their parent link. */
+static void sk_repo_update_subobject_parents(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance) {
+	if (storage->type == NULL || new_instance == NULL) {
+		return;
+	}
+	const sk_resource_type_t* type = storage->type;
+	const u8* nbase = (const u8*)new_instance;
+	const u8* obase = (old_instance != NULL) ? (const u8*)old_instance : NULL;
+
+	for (u32 i = 0u; i < type->field_count; ++i) {
+		const sk_resource_field_t* field = &type->fields[i];
+		switch (field->type) {
+		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT: {
+			sk_rid_t new_sub = SK_RID_ZERO;
+			memcpy(&new_sub, nbase + (size_t)field->offset, sizeof(new_sub));
+			if (new_sub.id != 0u) {
+				sk_resource_storage_t* sub_storage = sk_repo_storage(repository, new_sub);
+				if (sub_storage != NULL) {
+					sub_storage->parent = storage->rid;
+					sub_storage->parent_field_index = field->index;
+				}
+			}
+			if (obase != NULL) {
+				sk_rid_t old_sub = SK_RID_ZERO;
+				memcpy(&old_sub, obase + (size_t)field->offset, sizeof(old_sub));
+				if (old_sub.id != 0u && !SK_RID_EQ(old_sub, new_sub)) {
+					sk_resource_storage_t* sub_storage = sk_repo_storage(repository, old_sub);
+					if (sub_storage != NULL && SK_RID_EQ(sub_storage->parent, storage->rid)) {
+						sub_storage->parent = SK_RID_ZERO;
+						sub_storage->parent_field_index = (u32)-1;
+					}
+				}
+			}
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST: {
+			const sk_field_subobject_list_t* new_list = (const sk_field_subobject_list_t*)(const_ptr_t)(nbase + (size_t)field->offset);
+			const sk_field_subobject_list_t* old_list = (obase != NULL) ? (const sk_field_subobject_list_t*)(const_ptr_t)(obase + (size_t)field->offset) : NULL;
+			for (u32 k = 0u; k < new_list->count; ++k) {
+				sk_resource_storage_t* sub_storage = sk_repo_storage(repository, new_list->items[k]);
+				if (sub_storage != NULL) {
+					sub_storage->parent = storage->rid;
+					sub_storage->parent_field_index = field->index;
+				}
+			}
+			if (old_list != NULL) {
+				for (u32 k = 0u; k < old_list->count; ++k) {
+					if (!sk_repo_rid_list_contains(new_list->items, new_list->count, old_list->items[k])) {
+						sk_resource_storage_t* sub_storage = sk_repo_storage(repository, old_list->items[k]);
+						if (sub_storage != NULL && SK_RID_EQ(sub_storage->parent, storage->rid)) {
+							sub_storage->parent = SK_RID_ZERO;
+							sub_storage->parent_field_index = (u32)-1;
+						}
+					}
+				}
+			}
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_NONE:
+		case SK_RESOURCE_FIELD_TYPE_BOOL:
+		case SK_RESOURCE_FIELD_TYPE_INT:
+		case SK_RESOURCE_FIELD_TYPE_UINT:
+		case SK_RESOURCE_FIELD_TYPE_FLOAT:
+		case SK_RESOURCE_FIELD_TYPE_VEC2:
+		case SK_RESOURCE_FIELD_TYPE_VEC3:
+		case SK_RESOURCE_FIELD_TYPE_VEC4:
+		case SK_RESOURCE_FIELD_TYPE_QUAT:
+		case SK_RESOURCE_FIELD_TYPE_MAT4:
+		case SK_RESOURCE_FIELD_TYPE_COLOR:
+		case SK_RESOURCE_FIELD_TYPE_ENUM:
+		case SK_RESOURCE_FIELD_TYPE_STRING:
+		case SK_RESOURCE_FIELD_TYPE_BLOB:
+		case SK_RESOURCE_FIELD_TYPE_REFERENCE:
+		case SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY:
+		case SK_RESOURCE_FIELD_TYPE_BUFFER:
+		case SK_RESOURCE_FIELD_TYPE_TYPE_ID:
+		case SK_RESOURCE_FIELD_TYPE_MAX:
+			break;
+		}
+	}
+}
+
+/* After a prototype's SubObjectList field changed, mirror the change on every
+ * registered prototype instance (CreateFromPrototype for additions, Destroy for
+ * removals). Runs on the main thread after the write lock is released. */
+static sk_rid_t sk_repo_create_from_prototype_internal(sk_clone_context_t* ctx, sk_rid_t prototype_rid, sk_uuid_t uuid, sk_resource_storage_t* parent_storage, u32 field_index);
+
+// NOLINTBEGIN(misc-no-recursion) -- propagation re-enters Write/Commit and
+// CreateFromPrototype / Destroy per instance.
+
+static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance) {
+	if (old_instance == NULL || new_instance == NULL || storage->type == NULL) {
+		return;
+	}
+	if (storage->prototype_instances.count == 0u) {
+		return;
+	}
+	const sk_allocator_t* a = repository->allocator;
+	const u8* nbase = (const u8*)new_instance;
+
+	for (u32 i = 0u; i < storage->type->field_count; ++i) {
+		const sk_resource_field_t* field = &storage->type->fields[i];
+		if (field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+			continue;
+		}
+		const sk_field_subobject_list_t* proto_list = (const sk_field_subobject_list_t*)(const_ptr_t)(nbase + (size_t)field->offset);
+
+		u32 instance_count = storage->prototype_instances.count;
+		for (u32 k = 0u; k < instance_count; ++k) {
+			sk_rid_t inst_rid = storage->prototype_instances.items[k];
+			sk_resource_storage_t* inst_storage = sk_repo_storage(repository, inst_rid);
+			if (inst_storage == NULL || inst_storage->type == NULL) {
+				continue;
+			}
+			void_ptr_t inst_current = sk_atomic_ptr_load(&inst_storage->instance);
+			if (inst_current == NULL) {
+				continue;
+			}
+			const sk_field_subobject_list_t* inst_list = (const sk_field_subobject_list_t*)(const_ptr_t)((const u8*)inst_current + (size_t)field->offset);
+
+			sk_rid_list_t to_remove;
+			sk_rid_list_t removed_mirrors;
+			sk_rid_list_t to_add;
+			sk_rid_list_t created;
+			sk_array_init(&to_remove, a);
+			sk_array_init(&removed_mirrors, a);
+			sk_array_init(&to_add, a);
+			sk_array_init(&created, a);
+
+			/* Prototype sub-objects that left the prototype's list must leave
+			 * this instance too (only sub-objects linked to a prototype). */
+			for (u32 m = 0u; m < inst_list->count; ++m) {
+				sk_resource_storage_t* sub_storage = sk_repo_storage(repository, inst_list->items[m]);
+				if (sub_storage == NULL || sub_storage->prototype.id == 0u) {
+					continue;
+				}
+				if (!sk_repo_rid_list_contains(proto_list->items, proto_list->count, sub_storage->prototype)) {
+					sk_repo_list_add_unique(&to_remove, sub_storage->prototype);
+					(void)sk_array_push(&removed_mirrors, inst_list->items[m]);
+				}
+			}
+			/* Prototype sub-objects the instance does not mirror yet, skipping
+			 * prototypes this instance explicitly removed (prototypeRemoved). */
+			for (u32 m = 0u; m < proto_list->count; ++m) {
+				int found = 0;
+				for (u32 n = 0u; n < inst_list->count; ++n) {
+					sk_resource_storage_t* sub_storage = sk_repo_storage(repository, inst_list->items[n]);
+					if (sub_storage != NULL && SK_RID_EQ(sub_storage->prototype, proto_list->items[m])) {
+						found = 1;
+						break;
+					}
+				}
+				if (found || sk_repo_rid_list_contains(inst_list->prototype_removed, inst_list->prototype_removed_count, proto_list->items[m])) {
+					continue;
+				}
+				(void)sk_array_push(&to_add, proto_list->items[m]);
+			}
+
+			if (to_remove.count != 0u || to_add.count != 0u) {
+				/* Create mirrors first: each CreateFromPrototype publishes
+				 * under the write lock, so it must not run while a write view
+				 * on this instance is live. */
+				for (u32 m = 0u; m < to_add.count; ++m) {
+					sk_clone_context_t cctx;
+					cctx.repo = repository;
+					cctx.origin = to_add.items[m];
+					cctx.failed = 0;
+					sk_hash_map_init(&cctx.map, a, NULL, NULL);
+					sk_rid_t mirror = sk_repo_create_from_prototype_internal(&cctx, to_add.items[m], SK_UUID_ZERO, NULL, (u32)-1);
+					sk_hash_map_free(&cctx.map);
+					if (!SK_RID_EQ(mirror, SK_RID_ZERO)) {
+						(void)sk_array_push(&created, mirror);
+						continue;
+					}
+					break; /* stop mirroring on failure (OOM) */
+				}
+
+				sk_resource_object_t view = repository_write(repository, inst_rid);
+				i32 instance_committed = 0;
+				if (SK_RESOURCE_OBJECT_IS_VALID(view)) {
+					for (u32 m = 0u; m < to_remove.count; ++m) {
+						(void)repository_remove_from_subobject_list_by_prototype(view, field->index, to_remove.items[m], NULL, 0u);
+					}
+					for (u32 m = 0u; m < created.count; ++m) {
+						(void)repository_add_to_subobject_list(view, field->index, created.items[m]);
+					}
+					repository_commit(view);
+					instance_committed = 1;
+				}
+
+				/* Destroy the mirrors that left the instance (post-commit:
+				 * their parent link was cleared, so the destroy is clean). */
+				if (instance_committed != 0) {
+					for (u32 m = 0u; m < removed_mirrors.count; ++m) {
+						(void)repository_destroy_resource(repository, removed_mirrors.items[m]);
+					}
+				}
+			}
+
+			sk_array_free(&to_remove);
+			sk_array_free(&removed_mirrors);
+			sk_array_free(&to_add);
+			sk_array_free(&created);
+		}
+	}
+}
+
+static void sk_repo_finalize_commit(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance) {
+	sk_repo_update_subobject_parents(repository, storage, old_instance, new_instance);
+	sk_repo_propagate_prototype_changes(repository, storage, old_instance, new_instance);
+}
+
+// NOLINTEND(misc-no-recursion)
+
+/* ------------------------------------------------------------------ */
+/*  Clone / CreateFromPrototype                                       */
+/* ------------------------------------------------------------------ */
+
+/* Per-repository uuid source (no global state; hi half seeded by the repo
+ * pointer so two repositories never collide). */
+static sk_uuid_t sk_repo_make_uuid(sk_repository_t* repository) {
+	u64 n = sk_atomic_u64_fetch_add(&repository->uuid_counter, 1ull) + 1ull;
+	return (sk_uuid_t){n, (u64)(uintptr_t)repository};
+}
+
+static int sk_repo_clone_find(sk_clone_context_t* ctx, sk_rid_t src, sk_rid_t* out_dst) {
+	sk_clone_entry_t* entry = (sk_clone_entry_t*)sk_hash_map_get_ptr(&ctx->map, src);
+	if (entry == NULL) {
+		return 0;
+	}
+	*out_dst = entry->dst;
+	return 1;
+}
+
+/* UUID for a cloned resource: the caller's uuid, else a fresh one when the
+ * source carries a uuid (the clone must stay unique per repository). */
+static sk_uuid_t sk_repo_clone_uuid(sk_clone_context_t* ctx, sk_rid_t src, sk_uuid_t requested) {
+	if (!SK_UUID_EQ(requested, SK_UUID_ZERO)) {
+		return requested;
+	}
+	const sk_resource_storage_t* src_storage = sk_repo_storage(ctx->repo, src);
+	if (src_storage != NULL && !SK_UUID_EQ(src_storage->uuid, SK_UUID_ZERO)) {
+		return sk_repo_make_uuid(ctx->repo);
+	}
+	return SK_UUID_ZERO;
+}
+
+/* Reserve a fresh dest slot for @p src, remember it in the clone map, register
+ * its uuid (a uuid already owned by another live resource is a hard failure),
+ * and bump the live resource count. Returns 1 on success; 0 on failure (the
+ * caller rolls back via clone_cleanup). */
+static int sk_repo_clone_reserve(sk_clone_context_t* ctx, sk_rid_t src, sk_uuid_t uuid, sk_rid_t* out_dst) {
+	if (!SK_UUID_EQ(uuid, SK_UUID_ZERO)) {
+		sk_rid_t existing = repository_find_by_uuid(ctx->repo, uuid);
+		if (existing.id != 0u) {
+			ctx->failed = 1;
+			return 0;
+		}
+	}
+	sk_rid_t dst;
+	dst.id = ctx->repo->rid_counter;
+	if (dst.id == 0u) {
+		ctx->failed = 1;
+		return 0;
+	}
+	ctx->repo->rid_counter = dst.id + 1u;
+	sk_clone_entry_t entry = {dst, uuid};
+	if (sk_hash_map_put(&ctx->map, src, entry) != 0) {
+		ctx->failed = 1;
+		return 0;
+	}
+	if (sk_repo_allocate_slot_id(ctx->repo, dst, uuid) == NULL) {
+		sk_hash_map_remove(&ctx->map, src);
+		ctx->failed = 1;
+		return 0;
+	}
+	ctx->repo->resource_count += 1u;
+	*out_dst = dst;
+	return 1;
+}
+
+/* Copy @p prototype onto @p storage and register @p storage->rid in that
+ * prototype's instance set, so Commit-side prototype propagation reaches the
+ * new resource. */
+static void sk_repo_link_prototype(sk_repository_t* repository, sk_resource_storage_t* storage, sk_rid_t prototype) {
+	storage->prototype = prototype;
+	if (prototype.id != 0u) {
+		sk_resource_storage_t* proto = sk_repo_storage(repository, prototype);
+		if (proto != NULL) {
+			sk_repo_list_add_unique(&proto->prototype_instances, storage->rid);
+		}
+	}
+}
+
+/* Roll back a failed clone / prototype build: every reserved dest slot is torn
+ * down in place so a partial deep clone leaves no orphaned slots. Pure frees —
+ * never allocates — so it works even while the allocator is failing. */
+static void sk_repo_clone_cleanup(sk_repository_t* repository, sk_clone_context_t* ctx) {
+	for (u32 slot = 0u; slot < ctx->map._hm.capacity; ++slot) {
+		if (!sk_hash_map_slot_occupied_(&ctx->map._hm, slot)) {
+			continue;
+		}
+		sk_rid_t dst = (*(sk_clone_entry_t*)sk_hash_map_value_at_(&ctx->map._hm, slot)).dst;
+		sk_resource_storage_t* storage = sk_repo_storage(repository, dst);
+		if (storage == NULL) {
+			continue;
+		}
+		if (storage->prototype.id != 0u) {
+			sk_resource_storage_t* prototype = sk_repo_storage(repository, storage->prototype);
+			if (prototype != NULL) {
+				sk_repo_list_remove(&prototype->prototype_instances, dst);
+			}
+		}
+		if (!SK_UUID_EQ(storage->uuid, SK_UUID_ZERO)) {
+			sk_hash_map_remove(&repository->rids_by_uuid, storage->uuid);
+		}
+		if (storage->path != NULL) {
+			sk_hash_map_remove(&repository->rids_by_path, storage->path);
+			repository->allocator->free(repository->allocator->instance, storage->path);
+		}
+		if (storage->type != NULL) {
+			void_ptr_t instance = sk_atomic_ptr_load(&storage->instance);
+			if (instance != NULL) {
+				sk_repo_instance_destroy(repository, storage->type, instance);
+			}
+		}
+		if (repository->resource_count > 0u) {
+			repository->resource_count -= 1u;
+		}
+		sk_repo_release_slot(repository, dst);
+	}
+}
+
+static u8* sk_repo_build_instance(sk_clone_context_t* ctx, const sk_resource_type_t* type, const u8* src_block, sk_resource_storage_t* dest_storage, i32 is_prototype);
+static sk_rid_t sk_repo_clone_subobject(sk_clone_context_t* ctx, sk_resource_storage_t* parent_storage, u32 field_index, sk_rid_t origin);
+
+// NOLINTBEGIN(misc-no-recursion) -- clone / prototype build is intentionally
+// recursive over the sub-object tree (guarded by the clone map deduplication).
+
+/* Remap a Reference / ReferenceArray entry when it points inside the cloned
+ * subtree (the origin). Outer references stay unchanged. */
+static sk_rid_t sk_repo_clone_reference(sk_clone_context_t* ctx, sk_rid_t reference) {
+	if (reference.id == 0u) {
+		return reference;
+	}
+	if (!repository_is_parent_of(ctx->repo, ctx->origin, reference)) {
+		return reference;
+	}
+	sk_rid_t dst = SK_RID_ZERO;
+	if (!sk_repo_clone_find(ctx, reference, &dst)) {
+		sk_uuid_t uuid = sk_repo_clone_uuid(ctx, reference, SK_UUID_ZERO);
+		if (!sk_repo_clone_reserve(ctx, reference, uuid, &dst)) {
+			return SK_RID_ZERO;
+		}
+	}
+	return dst;
+}
+
+/* Clone one sub-object of @p origin under @p parent_storage. The clone is
+ * created once (later visits only fill a previously-reserved bare slot). */
+static sk_rid_t sk_repo_clone_subobject(sk_clone_context_t* ctx, sk_resource_storage_t* parent_storage, u32 field_index, sk_rid_t origin) {
+	if (origin.id == 0u) {
+		return origin;
+	}
+	sk_rid_t dst = SK_RID_ZERO;
+	if (!sk_repo_clone_find(ctx, origin, &dst)) {
+		sk_uuid_t uuid = sk_repo_clone_uuid(ctx, origin, SK_UUID_ZERO);
+		if (!sk_repo_clone_reserve(ctx, origin, uuid, &dst)) {
+			return SK_RID_ZERO;
+		}
+	}
+	sk_resource_storage_t* dst_storage = sk_repo_storage(ctx->repo, dst);
+	sk_resource_storage_t* origin_storage = sk_repo_storage(ctx->repo, origin);
+	if (dst_storage == NULL) {
+		return SK_RID_ZERO;
+	}
+	if (dst_storage->type == NULL && origin_storage != NULL && origin_storage->type != NULL) {
+		dst_storage->type = origin_storage->type;
+		sk_repo_link_prototype(ctx->repo, dst_storage, origin_storage->prototype);
+		u8* instance = sk_repo_build_instance(ctx, origin_storage->type, (const u8*)sk_atomic_ptr_load(&origin_storage->instance), dst_storage, 0);
+		if (ctx->failed) {
+			return SK_RID_ZERO;
+		}
+		if (instance != NULL) {
+			sk_atomic_ptr_store(&dst_storage->instance, instance);
+		}
+	}
+	dst_storage->parent = parent_storage->rid;
+	dst_storage->parent_field_index = field_index;
+	return dst;
+}
+
+/* Deep copy @p src's field data for one clone/prototype instance. Sub-objects
+ * are either cloned (is_prototype == 0) or re-created from their prototype
+ * (is_prototype == 1); references inside the cloned subtree are remapped.
+ * Scalar fields are only copied for full clones (prototype instances inherit
+ * them lazily through the prototype chain). With @p src_block == NULL an empty
+ * zeroed instance is produced. */
+static u8* sk_repo_build_instance(sk_clone_context_t* ctx, const sk_resource_type_t* type, const u8* src_block, sk_resource_storage_t* dest_storage, i32 is_prototype) {
+	u8* dst = sk_repo_block_alloc_zero(ctx->repo, type);
+	if (dst == NULL) {
+		ctx->failed = 1;
+		return NULL;
+	}
+	if (src_block == NULL) {
+		return dst;
+	}
+	const sk_allocator_t* a = ctx->repo->allocator;
+	const u8* sbase = src_block;
+	u8* dbase = dst;
+
+	for (u32 i = 0u; i < type->field_count; ++i) {
+		const sk_resource_field_t* field = &type->fields[i];
+		if (!sk_repo_instance_has_value(type, src_block, i)) {
+			continue;
+		}
+		switch (field->type) {
+		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT: {
+			sk_rid_t sub = SK_RID_ZERO;
+			memcpy(&sub, sbase + (size_t)field->offset, sizeof(sub));
+			if (sub.id != 0u) {
+				sub = is_prototype ? sk_repo_create_from_prototype_internal(ctx, sub, SK_UUID_ZERO, dest_storage, field->index) :
+									 sk_repo_clone_subobject(ctx, dest_storage, field->index, sub);
+				if (ctx->failed) {
+					sk_repo_instance_destroy(ctx->repo, type, dst);
+					return NULL;
+				}
+			}
+			memcpy(dbase + (size_t)field->offset, &sub, sizeof(sub));
+			sk_repo_instance_set_value_bit(type, (void_ptr_t)dst, i, 1);
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST: {
+			const sk_field_subobject_list_t* src_list = (const sk_field_subobject_list_t*)(const_ptr_t)(sbase + (size_t)field->offset);
+			sk_field_subobject_list_t out;
+			out.items = NULL;
+			out.count = 0u;
+			out.capacity = 0u;
+			out.prototype_removed = NULL;
+			out.prototype_removed_count = 0u;
+			out.prototype_removed_capacity = 0u;
+			if (src_list->count != 0u) {
+				out.items = (sk_rid_t*)a->alloc(a->instance, (size_t)src_list->count * sizeof(sk_rid_t));
+				if (out.items == NULL) {
+					ctx->failed = 1;
+					sk_repo_instance_destroy(ctx->repo, type, dst);
+					return NULL;
+				}
+				out.capacity = src_list->count;
+				for (u32 k = 0u; k < src_list->count; ++k) {
+					sk_rid_t sub = src_list->items[k];
+					out.items[k] = (sub.id != 0u) ? (is_prototype ? sk_repo_create_from_prototype_internal(ctx, sub, SK_UUID_ZERO, dest_storage, field->index) :
+																	sk_repo_clone_subobject(ctx, dest_storage, field->index, sub)) :
+													sub;
+					if (ctx->failed) {
+						a->free(a->instance, out.items);
+						sk_repo_instance_destroy(ctx->repo, type, dst);
+						return NULL;
+					}
+				}
+				out.count = src_list->count;
+			}
+			/* Copy the removed-from-prototype set only for full clones. */
+			if (!is_prototype && src_list->prototype_removed_count != 0u) {
+				out.prototype_removed = (sk_rid_t*)a->alloc(a->instance, (size_t)src_list->prototype_removed_count * sizeof(sk_rid_t));
+				if (out.prototype_removed == NULL) {
+					a->free(a->instance, out.items);
+					ctx->failed = 1;
+					sk_repo_instance_destroy(ctx->repo, type, dst);
+					return NULL;
+				}
+				memcpy(out.prototype_removed, src_list->prototype_removed, (size_t)src_list->prototype_removed_count * sizeof(sk_rid_t));
+				out.prototype_removed_count = src_list->prototype_removed_count;
+				out.prototype_removed_capacity = src_list->prototype_removed_count;
+			}
+			memcpy(dbase + (size_t)field->offset, &out, sizeof(out));
+			sk_repo_instance_set_value_bit(type, (void_ptr_t)dst, i, 1);
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_REFERENCE: {
+			sk_rid_t ref = SK_RID_ZERO;
+			memcpy(&ref, sbase + (size_t)field->offset, sizeof(ref));
+			sk_rid_t mapped = sk_repo_clone_reference(ctx, ref);
+			if (ctx->failed) {
+				sk_repo_instance_destroy(ctx->repo, type, dst);
+				return NULL;
+			}
+			memcpy(dbase + (size_t)field->offset, &mapped, sizeof(mapped));
+			sk_repo_instance_set_value_bit(type, (void_ptr_t)dst, i, 1);
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY: {
+			const sk_field_rid_array_t* src_arr = (const sk_field_rid_array_t*)(const_ptr_t)(sbase + (size_t)field->offset);
+			sk_field_rid_array_t out;
+			out.items = NULL;
+			out.count = 0u;
+			out.capacity = 0u;
+			if (src_arr->count != 0u) {
+				out.items = (sk_rid_t*)a->alloc(a->instance, (size_t)src_arr->count * sizeof(sk_rid_t));
+				if (out.items == NULL) {
+					ctx->failed = 1;
+					sk_repo_instance_destroy(ctx->repo, type, dst);
+					return NULL;
+				}
+				out.capacity = src_arr->count;
+				for (u32 k = 0u; k < src_arr->count; ++k) {
+					out.items[k] = sk_repo_clone_reference(ctx, src_arr->items[k]);
+					if (ctx->failed) {
+						a->free(a->instance, out.items);
+						sk_repo_instance_destroy(ctx->repo, type, dst);
+						return NULL;
+					}
+				}
+				out.count = src_arr->count;
+			}
+			memcpy(dbase + (size_t)field->offset, &out, sizeof(out));
+			sk_repo_instance_set_value_bit(type, (void_ptr_t)dst, i, 1);
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_STRING: {
+			if (is_prototype) {
+				break; /* scalars inherit lazily through the prototype chain */
+			}
+			const sk_field_string_t* src = (const sk_field_string_t*)(const_ptr_t)(sbase + (size_t)field->offset);
+			sk_field_string_t* out = (sk_field_string_t*)(void_ptr_t)(dbase + (size_t)field->offset);
+			if (src->chars != NULL) {
+				out->chars = sk_repo_copy_string(ctx->repo, src->chars);
+				if (out->chars == NULL) {
+					ctx->failed = 1;
+					sk_repo_instance_destroy(ctx->repo, type, dst);
+					return NULL;
+				}
+			}
+			sk_repo_instance_set_value_bit(type, (void_ptr_t)dst, i, 1);
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_BLOB: {
+			if (is_prototype) {
+				break;
+			}
+			const sk_field_blob_t* src = (const sk_field_blob_t*)(const_ptr_t)(sbase + (size_t)field->offset);
+			sk_field_blob_t* out = (sk_field_blob_t*)(void_ptr_t)(dbase + (size_t)field->offset);
+			if (src->size != 0u && src->data != NULL) {
+				out->data = (u8*)(void_ptr_t)sk_repo_copy_bytes(ctx->repo, src->data, (size_t)src->size);
+				if (out->data == NULL) {
+					ctx->failed = 1;
+					sk_repo_instance_destroy(ctx->repo, type, dst);
+					return NULL;
+				}
+				out->size = src->size;
+			}
+			sk_repo_instance_set_value_bit(type, (void_ptr_t)dst, i, 1);
+			break;
+		}
+		/* POD field types are deep-copied for clones, inherited for prototypes. */
+		case SK_RESOURCE_FIELD_TYPE_NONE:
+		case SK_RESOURCE_FIELD_TYPE_BOOL:
+		case SK_RESOURCE_FIELD_TYPE_INT:
+		case SK_RESOURCE_FIELD_TYPE_UINT:
+		case SK_RESOURCE_FIELD_TYPE_FLOAT:
+		case SK_RESOURCE_FIELD_TYPE_VEC2:
+		case SK_RESOURCE_FIELD_TYPE_VEC3:
+		case SK_RESOURCE_FIELD_TYPE_VEC4:
+		case SK_RESOURCE_FIELD_TYPE_QUAT:
+		case SK_RESOURCE_FIELD_TYPE_MAT4:
+		case SK_RESOURCE_FIELD_TYPE_COLOR:
+		case SK_RESOURCE_FIELD_TYPE_ENUM:
+		case SK_RESOURCE_FIELD_TYPE_BUFFER:
+		case SK_RESOURCE_FIELD_TYPE_TYPE_ID:
+		case SK_RESOURCE_FIELD_TYPE_MAX:
+			if (!is_prototype) {
+				memcpy(dbase + (size_t)field->offset, sbase + (size_t)field->offset, (size_t)field->size);
+				sk_repo_instance_set_value_bit(type, (void_ptr_t)dst, i, 1);
+			}
+			break;
+		}
+	}
+	return dst;
+}
+
+/* Create one prototype instance. The clone map deduplicates a prototype
+ * reached both as a sub-object and through a reference remap. */
+static sk_rid_t sk_repo_create_from_prototype_internal(sk_clone_context_t* ctx, sk_rid_t prototype_rid, sk_uuid_t uuid, sk_resource_storage_t* parent_storage, u32 field_index) {
+	sk_resource_storage_t* prototype_storage = sk_repo_storage(ctx->repo, prototype_rid);
+	if (prototype_storage == NULL || prototype_storage->type == NULL) {
+		return SK_RID_ZERO;
+	}
+
+	sk_rid_t dst = SK_RID_ZERO;
+	if (!sk_repo_clone_find(ctx, prototype_rid, &dst)) {
+		sk_uuid_t dst_uuid = sk_repo_clone_uuid(ctx, prototype_rid, uuid);
+		if (!sk_repo_clone_reserve(ctx, prototype_rid, dst_uuid, &dst)) {
+			return SK_RID_ZERO;
+		}
+	}
+
+	sk_resource_storage_t* storage = sk_repo_storage(ctx->repo, dst);
+	if (storage == NULL) {
+		ctx->failed = 1;
+		return SK_RID_ZERO;
+	}
+	if (storage->type == NULL) {
+		storage->type = prototype_storage->type;
+	}
+	sk_repo_link_prototype(ctx->repo, storage, prototype_rid);
+	if (parent_storage != NULL) {
+		storage->parent = parent_storage->rid;
+		storage->parent_field_index = field_index;
+	}
+
+	if (sk_atomic_ptr_load(&storage->instance) == NULL) {
+		u8* instance = sk_repo_build_instance(ctx, storage->type, (const u8*)sk_atomic_ptr_load(&prototype_storage->instance), storage, 1);
+		if (ctx->failed) {
+			return SK_RID_ZERO;
+		}
+		sk_mutex_lock(ctx->repo->write_lock);
+		sk_atomic_ptr_store(&storage->instance, instance);
+		sk_repo_update_version_chain(ctx->repo, storage);
+		sk_mutex_unlock(ctx->repo->write_lock);
+		sk_repo_finalize_commit(ctx->repo, storage, NULL, instance);
+	}
+	return dst;
+}
+
+// NOLINTEND(misc-no-recursion)
+
+/* Fill a pre-reserved clone slot (the root is reserved by the caller so its
+ * uuid lands in by_uuid with duplicate rejection). */
+static void sk_repo_clone_internal(sk_clone_context_t* ctx, sk_rid_t origin, sk_rid_t dest, sk_resource_storage_t* parent, u32 field_index) {
+	sk_resource_storage_t* origin_storage = sk_repo_storage(ctx->repo, origin);
+	if (origin_storage == NULL || origin_storage->type == NULL) {
+		ctx->failed = 1;
+		return;
+	}
+	sk_resource_storage_t* dest_storage = sk_repo_storage(ctx->repo, dest);
+	if (dest_storage == NULL) {
+		ctx->failed = 1;
+		return;
+	}
+	dest_storage->type = origin_storage->type;
+	sk_repo_link_prototype(ctx->repo, dest_storage, origin_storage->prototype);
+	if (parent != NULL) {
+		dest_storage->parent = parent->rid;
+		dest_storage->parent_field_index = field_index;
+	}
+	if (sk_atomic_ptr_load(&dest_storage->instance) == NULL) {
+		u8* instance = sk_repo_build_instance(ctx, origin_storage->type, (const u8*)sk_atomic_ptr_load(&origin_storage->instance), dest_storage, 0);
+		if (ctx->failed) {
+			return;
+		}
+		if (instance != NULL) {
+			sk_atomic_ptr_store(&dest_storage->instance, instance);
+		}
+	}
+}
+
+static sk_rid_t repository_clone(sk_repository_t* repository, sk_rid_t origin, sk_uuid_t uuid) {
+	sk_resource_storage_t* origin_storage = sk_repo_storage(repository, origin);
+	if (origin_storage == NULL || origin_storage->type == NULL) {
+		return SK_RID_ZERO;
+	}
+
+	sk_clone_context_t ctx;
+	ctx.repo = repository;
+	ctx.origin = origin;
+	ctx.failed = 0;
+	sk_hash_map_init(&ctx.map, repository->allocator, NULL, NULL);
+
+	/* The root is reserved into the clone map like any sub-object so that
+	 * references to the origin's subtree inside the clone remap to their
+	 * clones, and so its uuid lands in by_uuid with duplicate rejection. */
+	sk_uuid_t dest_uuid = sk_repo_clone_uuid(&ctx, origin, uuid);
+	sk_rid_t dest = SK_RID_ZERO;
+	if (!sk_repo_clone_reserve(&ctx, origin, dest_uuid, &dest)) {
+		sk_hash_map_free(&ctx.map);
+		return SK_RID_ZERO;
+	}
+
+	sk_repo_clone_internal(&ctx, origin, dest, NULL, (u32)-1);
+
+	if (ctx.failed) {
+		sk_repo_clone_cleanup(repository, &ctx);
+		sk_hash_map_free(&ctx.map);
+		return SK_RID_ZERO;
+	}
+	sk_hash_map_free(&ctx.map);
+	return dest;
+}
+
+static sk_rid_t repository_create_from_prototype(sk_repository_t* repository, sk_rid_t prototype, sk_uuid_t uuid) {
+	sk_resource_storage_t* prototype_storage = sk_repo_storage(repository, prototype);
+	if (prototype_storage == NULL || prototype_storage->type == NULL) {
+		return SK_RID_ZERO;
+	}
+
+	sk_clone_context_t ctx;
+	ctx.repo = repository;
+	ctx.origin = prototype;
+	ctx.failed = 0;
+	sk_hash_map_init(&ctx.map, repository->allocator, NULL, NULL);
+
+	sk_rid_t rid = sk_repo_create_from_prototype_internal(&ctx, prototype, uuid, NULL, (u32)-1);
+	if (ctx.failed) {
+		sk_repo_clone_cleanup(repository, &ctx);
+		sk_hash_map_free(&ctx.map);
+		return SK_RID_ZERO;
+	}
+	sk_hash_map_free(&ctx.map);
+	return rid;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Field accessors                                                   */
+/* ------------------------------------------------------------------ */
+
+static sk_resource_storage_t* sk_repo_view_storage(sk_resource_object_t view) {
+	return (sk_resource_storage_t*)view.storage;
+}
+
+/* Locate the blob (own instance or an ancestor's published instance) that
+ * carries a value for the field, walking the prototype chain when the field is
+ * unset on this object. Returns NULL when unset everywhere. */
+static const u8* sk_repo_get_field_blob(sk_resource_object_t view, u32 index, const sk_resource_field_t** out_field) {
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	if (storage == NULL || storage->type == NULL) {
+		return NULL;
+	}
+	i32 pos = sk_repo_field_position(storage->type, index);
+	if (pos < 0) {
+		return NULL;
+	}
+	*out_field = &storage->type->fields[pos];
+	const u8* blob = (const u8*)view.instance;
+	sk_resource_storage_t* cur = storage;
+	while (blob != NULL) {
+		if (sk_repo_instance_has_value(storage->type, blob, (u32)pos)) {
+			return blob;
+		}
+		if (cur->prototype.id == 0u) {
+			break;
+		}
+		cur = sk_repo_storage(view.repo, cur->prototype);
+		if (cur == NULL) {
+			break;
+		}
+		blob = (const u8*)sk_atomic_ptr_load(&cur->instance);
+	}
+	return NULL;
+}
+
+/* Shared setter validation: returns the field array position or -1, and a
+ * pointer to the field. Only write views may set. */
+static i32 sk_repo_setup_write_set(sk_resource_object_t view, u32 index, const sk_resource_field_t** out_field) {
+	if (view.is_write == 0u) {
+		return -1;
+	}
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	if (storage == NULL || storage->type == NULL || view.instance == NULL) {
+		return -1;
+	}
+	i32 pos = sk_repo_field_position(storage->type, index);
+	if (pos < 0) {
+		return -1;
+	}
+	*out_field = &storage->type->fields[pos];
+	return pos;
+}
+
+static i32 repository_set_bool(sk_resource_object_t view, u32 index, i32 value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_BOOL) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_int(sk_resource_object_t view, u32 index, i64 value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_INT) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_uint(sk_resource_object_t view, u32 index, u64 value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_UINT) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_float(sk_resource_object_t view, u32 index, f64 value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_FLOAT) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_string(sk_resource_object_t view, u32 index, const_chr_t value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_STRING) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_string_t* s = (sk_field_string_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	char* copy = NULL;
+	if (value != NULL) {
+		copy = sk_repo_copy_string(view.repo, value);
+		if (copy == NULL) {
+			return -3;
+		}
+	}
+	if (s->chars != NULL) {
+		view.repo->allocator->free(view.repo->allocator->instance, s->chars);
+	}
+	s->chars = copy;
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_reference(sk_resource_object_t view, u32 index, sk_rid_t rid) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_REFERENCE) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &rid, sizeof(rid));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_reference_array(sk_resource_object_t view, u32 index, const sk_rid_t* items, u32 count) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_rid_array_t* arr = (sk_field_rid_array_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	sk_rid_t* copy = NULL;
+	if (count != 0u) {
+		copy = (sk_rid_t*)(void_ptr_t)sk_repo_copy_bytes(view.repo, items, (size_t)count * sizeof(sk_rid_t));
+		if (copy == NULL) {
+			return -3;
+		}
+	}
+	if (arr->items != NULL) {
+		view.repo->allocator->free(view.repo->allocator->instance, arr->items);
+	}
+	arr->items = copy;
+	arr->count = count;
+	arr->capacity = count;
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_add_to_reference_array(sk_resource_object_t view, u32 index, sk_rid_t rid) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_rid_array_t* arr = (sk_field_rid_array_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	if (sk_repo_rid_list_grow(view.repo->allocator, &arr->items, &arr->capacity, arr->count + 1u) != 0) {
+		return -3;
+	}
+	arr->items[arr->count] = rid;
+	arr->count += 1u;
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_remove_from_reference_array(sk_resource_object_t view, u32 index, sk_rid_t rid) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_rid_array_t* arr = (sk_field_rid_array_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	sk_repo_rid_list_remove(&arr->items, &arr->count, rid);
+	return 0;
+}
+
+static i32 repository_set_subobject(sk_resource_object_t view, u32 index, sk_rid_t rid) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &rid, sizeof(rid));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_subobject_list(sk_resource_object_t view, u32 index, const sk_rid_t* items, u32 count) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_subobject_list_t* list = (sk_field_subobject_list_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	sk_rid_t* copy = NULL;
+	if (count != 0u) {
+		copy = (sk_rid_t*)(void_ptr_t)sk_repo_copy_bytes(view.repo, items, (size_t)count * sizeof(sk_rid_t));
+		if (copy == NULL) {
+			return -3;
+		}
+	}
+	if (list->items != NULL) {
+		view.repo->allocator->free(view.repo->allocator->instance, list->items);
+	}
+	list->items = copy;
+	list->count = count;
+	list->capacity = count;
+	if (list->prototype_removed != NULL) {
+		view.repo->allocator->free(view.repo->allocator->instance, list->prototype_removed);
+	}
+	list->prototype_removed = NULL;
+	list->prototype_removed_count = 0u;
+	list->prototype_removed_capacity = 0u;
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_add_to_subobject_list(sk_resource_object_t view, u32 index, sk_rid_t rid) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_subobject_list_t* list = (sk_field_subobject_list_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	if (sk_repo_rid_list_grow(view.repo->allocator, &list->items, &list->capacity, list->count + 1u) != 0) {
+		return -3;
+	}
+	list->items[list->count] = rid;
+	list->count += 1u;
+	/* Explicitly re-adding a sub-object cancels its removed-from-prototype
+	 * marker (parity with AddToSubObjectList clearing prototypeRemoved). */
+	sk_resource_storage_t* sub_storage = sk_repo_storage(view.repo, rid);
+	if (sub_storage != NULL && sub_storage->prototype.id != 0u) {
+		sk_repo_rid_list_remove(&list->prototype_removed, &list->prototype_removed_count, sub_storage->prototype);
+	}
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_remove_from_subobject_list(sk_resource_object_t view, u32 index, sk_rid_t rid) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_subobject_list_t* list = (sk_field_subobject_list_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	for (u32 i = 0u; i < list->count; ++i) {
+		if (!SK_RID_EQ(list->items[i], rid)) {
+			continue;
+		}
+		memmove(&list->items[i], &list->items[i + 1u], (size_t)(list->count - i - 1u) * sizeof(sk_rid_t));
+		list->count -= 1u;
+
+		/* Clear the sub-object's parent link. */
+		sk_resource_storage_t* sub_storage = sk_repo_storage(view.repo, rid);
+		if (sub_storage != NULL) {
+			sub_storage->parent = SK_RID_ZERO;
+			sub_storage->parent_field_index = (u32)-1;
+		}
+		/* Record prototypeRemoved when this instance is a prototype instance
+		 * and the removed sub-object mirrors a prototype sub-object. */
+		sk_resource_storage_t* storage = sk_repo_view_storage(view);
+		if (sub_storage != NULL && storage->prototype.id != 0u && sub_storage->prototype.id != 0u) {
+			sk_resource_storage_t* proto_sub = sk_repo_storage(view.repo, sub_storage->prototype);
+			if (proto_sub != NULL && SK_RID_EQ(proto_sub->parent, storage->prototype)) {
+				sk_repo_rid_list_add_unique(&list->prototype_removed, &list->prototype_removed_count, &list->prototype_removed_capacity, view.repo->allocator,
+											sub_storage->prototype);
+			}
+		}
+		return 0;
+	}
+	return 0; /* no-op when absent */
+}
+
+static u32 repository_remove_from_subobject_list_by_prototype(sk_resource_object_t view, u32 index, sk_rid_t prototype, sk_rid_t* out_items, u32 out_capacity) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return 0u;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+		return 0u;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_subobject_list_t* list = (sk_field_subobject_list_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	u32 removed_count = 0u;
+	u32 write_i = 0u;
+	for (u32 i = 0u; i < list->count; ++i) {
+		sk_rid_t item = list->items[i];
+		sk_resource_storage_t* sub_storage = sk_repo_storage(view.repo, item);
+		if (sub_storage != NULL && SK_RID_EQ(sub_storage->prototype, prototype)) {
+			if (out_items != NULL && removed_count < out_capacity) {
+				out_items[removed_count] = item;
+			}
+			removed_count += 1u;
+			sub_storage->parent = SK_RID_ZERO;
+			sub_storage->parent_field_index = (u32)-1;
+		} else {
+			list->items[write_i] = item;
+			write_i += 1u;
+		}
+	}
+	list->count = write_i;
+	return removed_count;
+}
+
+static i32 repository_has_on_subobject_list(sk_resource_object_t view, u32 index, sk_rid_t rid) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+		return 0;
+	}
+	const sk_field_subobject_list_t* list = (const sk_field_subobject_list_t*)(const_ptr_t)(blob + (size_t)field->offset);
+	return sk_repo_rid_list_contains(list->items, list->count, rid);
+}
+
+static u32 repository_subobject_list_count(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+		return 0u;
+	}
+	const sk_field_subobject_list_t* list = (const sk_field_subobject_list_t*)(const_ptr_t)(blob + (size_t)field->offset);
+	return list->count;
+}
+
+static i32 repository_has_value_on_this_object(sk_resource_object_t view, u32 index) {
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	if (storage == NULL || storage->type == NULL || view.instance == NULL) {
+		return 0;
+	}
+	i32 pos = sk_repo_field_position(storage->type, index);
+	if (pos < 0) {
+		return 0;
+	}
+	return sk_repo_instance_has_value(storage->type, view.instance, (u32)pos);
+}
+
+static i32 repository_is_value_overridden(sk_resource_object_t view, u32 index) {
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	if (storage == NULL || storage->prototype.id == 0u) {
+		return 0;
+	}
+	return repository_has_value_on_this_object(view, index);
+}
+
+static i32 repository_get_bool(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_BOOL) {
+		return 0;
+	}
+	i32 value = 0;
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static i64 repository_get_int(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_INT) {
+		return 0;
+	}
+	i64 value = 0;
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static u64 repository_get_uint(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_UINT) {
+		return 0u;
+	}
+	u64 value = 0u;
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static f64 repository_get_float(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_FLOAT) {
+		return 0.0;
+	}
+	f64 value = 0.0;
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static const_chr_t repository_get_string(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_STRING) {
+		return NULL;
+	}
+	const sk_field_string_t* s = (const sk_field_string_t*)(const_ptr_t)(blob + (size_t)field->offset);
+	return s->chars;
+}
+
+static sk_rid_t repository_get_reference(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_REFERENCE) {
+		return SK_RID_ZERO;
+	}
+	sk_rid_t value = SK_RID_ZERO;
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static const sk_rid_t* repository_get_reference_array(sk_resource_object_t view, u32 index, u32* out_count) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (out_count != NULL) {
+		*out_count = 0u;
+	}
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY) {
+		return NULL;
+	}
+	const sk_field_rid_array_t* arr = (const sk_field_rid_array_t*)(const_ptr_t)(blob + (size_t)field->offset);
+	if (out_count != NULL) {
+		*out_count = arr->count;
+	}
+	return arr->items;
+}
+
+static sk_rid_t repository_get_subobject(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT) {
+		return SK_RID_ZERO;
+	}
+	sk_rid_t value = SK_RID_ZERO;
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static const sk_rid_t* repository_get_subobject_list(sk_resource_object_t view, u32 index, u32* out_count) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (out_count != NULL) {
+		*out_count = 0u;
+	}
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+		return NULL;
+	}
+	const sk_field_subobject_list_t* list = (const sk_field_subobject_list_t*)(const_ptr_t)(blob + (size_t)field->offset);
+	if (out_count != NULL) {
+		*out_count = list->count;
+	}
+	return list->items;
+}
+
+/* Clear a sub-object link on a write view (Resources::RemoveSubObject
+ * equivalent): a SubObject field is cleared when it equals @p rid; a
+ * SubObjectList field has @p rid removed. */
+static void sk_repo_remove_subobject(sk_resource_object_t view, u32 index, sk_rid_t rid) {
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	if (storage == NULL || storage->type == NULL || view.instance == NULL) {
+		return;
+	}
+	i32 pos = sk_repo_field_position(storage->type, index);
+	if (pos < 0) {
+		return;
+	}
+	const sk_resource_field_t* field = &storage->type->fields[pos];
+	if (field->type == SK_RESOURCE_FIELD_TYPE_SUB_OBJECT) {
+		sk_rid_t* value = (sk_rid_t*)(void_ptr_t)((u8*)view.instance + (size_t)field->offset);
+		if (SK_RID_EQ(*value, rid)) {
+			*value = SK_RID_ZERO;
+			sk_repo_instance_set_value_bit(storage->type, view.instance, (u32)pos, 0);
+		}
+	} else if (field->type == SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST) {
+		(void)repository_remove_from_subobject_list(view, index, rid);
+	}
+}
+
+/* ------------------------------------------------------------------ */
 /*  Module API table                                                  */
 /* ------------------------------------------------------------------ */
 
 static const sk_repository_api_t repository_api = {
-	repository_create,			 repository_destroy,	  repository_register_type,	 repository_find_type,	   repository_find_type_by_name, repository_create_resource,
-	repository_destroy_resource, repository_has_resource, repository_resource_count, repository_resource_type, repository_resource_uuid,	 repository_resource_instance,
-	repository_find_by_uuid,	 repository_set_path,	  repository_get_path,		 repository_find_by_path,
+	repository_create,
+	repository_destroy,
+	repository_register_type,
+	repository_find_type,
+	repository_find_type_by_name,
+	repository_create_resource,
+	repository_destroy_resource,
+	repository_has_resource,
+	repository_resource_count,
+	repository_resource_type,
+	repository_resource_uuid,
+	repository_resource_instance,
+	repository_find_by_uuid,
+	repository_set_path,
+	repository_get_path,
+	repository_find_by_path,
+	repository_read,
+	repository_write,
+	repository_commit,
+	repository_discard,
+	repository_get_version,
+	repository_has_value,
+	repository_garbage_collect,
+	repository_end_frame,
+	repository_clone,
+	repository_create_from_prototype,
+	repository_get_parent,
+	repository_get_prototype,
+	repository_get_top_parent,
+	repository_is_parent_of,
+	repository_set_bool,
+	repository_set_int,
+	repository_set_uint,
+	repository_set_float,
+	repository_set_string,
+	repository_set_reference,
+	repository_set_reference_array,
+	repository_add_to_reference_array,
+	repository_remove_from_reference_array,
+	repository_set_subobject,
+	repository_set_subobject_list,
+	repository_add_to_subobject_list,
+	repository_remove_from_subobject_list,
+	repository_remove_from_subobject_list_by_prototype,
+	repository_has_on_subobject_list,
+	repository_subobject_list_count,
+	repository_has_value_on_this_object,
+	repository_is_value_overridden,
+	repository_get_bool,
+	repository_get_int,
+	repository_get_uint,
+	repository_get_float,
+	repository_get_string,
+	repository_get_reference,
+	repository_get_reference_array,
+	repository_get_subobject,
+	repository_get_subobject_list,
 };
 
 SK_API const sk_repository_api_t* sk_repository_api(void) {
@@ -648,7 +2518,7 @@ SK_API const sk_repository_api_t* sk_repository_api(void) {
 #ifdef SK_TESTS
 #include "test.h"
 
-#include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 /* Test payload: one scalar field + one indirection (String) field. */
@@ -1009,4 +2879,1196 @@ SK_TEST(repository_oom_safety) {
 
 	api->destroy(repo);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Hierarchy test helpers                                            */
+/* ------------------------------------------------------------------ */
+
+#define RT_FIELD_INT 0u
+#define RT_FIELD_STRING 1u
+#define RT_FIELD_REFERENCE 2u
+#define RT_FIELD_REFERENCE_ARRAY 3u
+#define RT_FIELD_SUBOBJECT 4u
+#define RT_FIELD_SUBOBJECT_LIST 5u
+
+/* Rich test payload exercising every field category the hierarchy layer uses. */
+typedef struct rt_object_t {
+	i64 int_value;
+	u64 uint_value;
+	f64 float_value;
+	i32 bool_value;
+	sk_field_string_t string_value;
+	sk_rid_t reference;
+	sk_field_rid_array_t reference_array;
+	sk_rid_t subobject;
+	sk_field_subobject_list_t subobject_list;
+} rt_object_t;
+
+static const sk_resource_field_t rt_fields[6] = {
+	{"int", RT_FIELD_INT, SK_RESOURCE_FIELD_TYPE_INT, 0u, (u32)sizeof(i64), {0ull, 0ull}},
+	{"string", RT_FIELD_STRING, SK_RESOURCE_FIELD_TYPE_STRING, (u32)offsetof(rt_object_t, string_value), (u32)sizeof(sk_field_string_t), {0ull, 0ull}},
+	{"reference", RT_FIELD_REFERENCE, SK_RESOURCE_FIELD_TYPE_REFERENCE, (u32)offsetof(rt_object_t, reference), (u32)sizeof(sk_rid_t), {0ull, 0ull}},
+	{"refArray", RT_FIELD_REFERENCE_ARRAY, SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY, (u32)offsetof(rt_object_t, reference_array), (u32)sizeof(sk_field_rid_array_t), {0ull, 0ull}},
+	{"subobject", RT_FIELD_SUBOBJECT, SK_RESOURCE_FIELD_TYPE_SUB_OBJECT, (u32)offsetof(rt_object_t, subobject), (u32)sizeof(sk_rid_t), {0ull, 0ull}},
+	{"subobjectList",
+	 RT_FIELD_SUBOBJECT_LIST,
+	 SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST,
+	 (u32)offsetof(rt_object_t, subobject_list),
+	 (u32)sizeof(sk_field_subobject_list_t),
+	 {0ull, 0ull}},
+};
+
+static sk_repository_t* rt_repo_full(const sk_allocator_t* allocator, const sk_resource_type_t** out_type, u64 tag) {
+	const sk_repository_api_t* api = sk_repository_api();
+	sk_repository_t* repo = api->create(allocator);
+	TEST_ASSERT_NOT_NULL(repo);
+	sk_resource_type_desc_t desc;
+	desc.type_id = test_type_id(tag);
+	desc.name = "rt.type";
+	desc.instance_size = (u32)sizeof(rt_object_t);
+	desc.fields = rt_fields;
+	desc.field_count = 6u;
+	desc.defaults = NULL;
+	TEST_ASSERT_EQUAL_INT(0, api->register_type(repo, &desc));
+	*out_type = api->find_type_by_name(repo, "rt.type");
+	TEST_ASSERT_NOT_NULL(*out_type);
+	return repo;
+}
+
+static sk_repository_t* rt_repo(const sk_resource_type_t** out_type, u64 tag) {
+	return rt_repo_full(sk_allocator_default(), out_type, tag);
+}
+
+static sk_rid_t rt_make_sub(const sk_repository_api_t* api, sk_repository_t* repo, const sk_resource_type_t* type, i64 value) {
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+	sk_resource_object_t view = api->write(repo, rid);
+	TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+	TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, value));
+	api->commit(view);
+	return rid;
+}
+
+static void rt_set_int(const sk_repository_api_t* api, sk_repository_t* repo, sk_rid_t rid, i64 value) {
+	sk_resource_object_t view = api->write(repo, rid);
+	TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+	TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, value));
+	api->commit(view);
+}
+
+/* Verify an instance mirrors exactly the given prototype sub-objects: each
+ * list entry links back through GetPrototype to one expected prototype and its
+ * scalar int matches the prototype's. */
+static void rt_verify_mirror(const sk_repository_api_t* api, sk_repository_t* repo, sk_rid_t instance, const sk_rid_t* expected_protos, u32 expected_count) {
+	sk_resource_object_t read = api->read(repo, instance);
+	u32 count = 0u;
+	const sk_rid_t* items = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+	TEST_ASSERT_EQUAL_UINT32(expected_count, count);
+	for (u32 i = 0u; i < count; ++i) {
+		sk_rid_t proto = api->get_prototype(repo, items[i]);
+		TEST_ASSERT_TRUE(proto.id != 0u);
+		int found = 0;
+		for (u32 j = 0u; j < expected_count; ++j) {
+			if (SK_RID_EQ(proto, expected_protos[j])) {
+				found = 1;
+				break;
+			}
+		}
+		TEST_ASSERT_TRUE(found);
+		sk_resource_object_t sub_read = api->read(repo, items[i]);
+		sk_resource_object_t proto_read = api->read(repo, proto);
+		TEST_ASSERT_EQUAL_INT64(api->get_int(proto_read, RT_FIELD_INT), api->get_int(sub_read, RT_FIELD_INT));
+	}
+}
+
+/* ------------------------------------------------------------------ */
+/*  Read / Write / Commit                                             */
+/* ------------------------------------------------------------------ */
+
+SK_TEST(repository_read_write_commit_discard) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 10u);
+
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+	TEST_ASSERT_TRUE(api->has_value(repo, rid)); /* create materializes a zeroed instance */
+	TEST_ASSERT_EQUAL_UINT64(1u, api->get_version(repo, rid));
+
+	/* Write a value, discard it: nothing published, version unchanged. */
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 5));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "discarded"));
+		api->discard(view);
+	}
+	TEST_ASSERT_TRUE(api->has_value(repo, rid));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->get_version(repo, rid));
+	TEST_ASSERT_EQUAL_INT64(0, api->get_int(api->read(repo, rid), RT_FIELD_INT)); /* discarded edit not published */
+
+	/* Commit publishes and bumps the version. */
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 10));
+		api->commit(view);
+	}
+	TEST_ASSERT_TRUE(api->has_value(repo, rid));
+	TEST_ASSERT_EQUAL_UINT64(2u, api->get_version(repo, rid));
+	sk_resource_object_t read = api->read(repo, rid);
+	TEST_ASSERT_EQUAL_INT64(10, api->get_int(read, RT_FIELD_INT));
+
+	/* Second commit bumps again and the read sees the fresh value. */
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 20));
+		api->commit(view);
+	}
+	TEST_ASSERT_EQUAL_UINT64(3u, api->get_version(repo, rid));
+	read = api->read(repo, rid);
+	TEST_ASSERT_EQUAL_INT64(20, api->get_int(read, RT_FIELD_INT));
+
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Prototype hierarchy and scalar inheritance                        */
+/* ------------------------------------------------------------------ */
+
+SK_TEST(repository_prototype_create_hierarchy) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 20u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub = rt_make_sub(api, repo, type, 1);
+	sk_rid_t outer = api->create_resource(repo, type, SK_UUID_ZERO);
+
+	/* prototype owns sub as a sub-object. */
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 7));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub));
+		api->commit(view);
+	}
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, sub), prototype));
+
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(instance.id != 0u);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, instance), prototype));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, instance), SK_RID_ZERO));
+
+	/* The mirror sub-object links back to the prototype sub-object. */
+	sk_resource_object_t read = api->read(repo, instance);
+	u32 count = 0u;
+	const sk_rid_t* items = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+	TEST_ASSERT_EQUAL_UINT32(1u, count);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, items[0]), sub));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, items[0]), instance));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_top_parent(repo, items[0]), instance));
+	TEST_ASSERT_TRUE(api->is_parent_of(repo, instance, items[0]));
+	TEST_ASSERT_FALSE(api->is_parent_of(repo, instance, instance));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_top_parent(repo, sub), prototype));
+
+	/* References to the prototype root stay unremapped (parity with the
+	 * main-branch SubObjectListPrototypes test). */
+	{
+		sk_resource_object_t view = api->write(repo, sub);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, prototype));
+		api->commit(view);
+	}
+	sk_resource_object_t mirror_read = api->read(repo, items[0]);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(mirror_read, RT_FIELD_REFERENCE), prototype));
+
+	/* outer stays unrelated. */
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, outer), SK_RID_ZERO));
+	TEST_ASSERT_FALSE(api->is_parent_of(repo, instance, outer));
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_prototype_scalar_inheritance_and_override) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 21u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	rt_set_int(api, repo, prototype, 10);
+
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(instance.id != 0u);
+
+	/* Unset on the instance, inherited from the prototype. */
+	sk_resource_object_t read = api->read(repo, instance);
+	TEST_ASSERT_EQUAL_INT64(10, api->get_int(read, RT_FIELD_INT));
+	TEST_ASSERT_FALSE(api->has_value_on_this_object(read, RT_FIELD_INT));
+	TEST_ASSERT_FALSE(api->is_value_overridden(read, RT_FIELD_INT));
+
+	/* Instance override shadows the prototype. */
+	rt_set_int(api, repo, instance, 99);
+	read = api->read(repo, instance);
+	TEST_ASSERT_EQUAL_INT64(99, api->get_int(read, RT_FIELD_INT));
+	TEST_ASSERT_TRUE(api->has_value_on_this_object(read, RT_FIELD_INT));
+	TEST_ASSERT_TRUE(api->is_value_overridden(read, RT_FIELD_INT));
+
+	/* Prototype update does not clobber the instance override. */
+	rt_set_int(api, repo, prototype, 30);
+	read = api->read(repo, instance);
+	TEST_ASSERT_EQUAL_INT64(99, api->get_int(read, RT_FIELD_INT));
+
+	/* A fresh instance sees the new prototype value. */
+	sk_rid_t instance2 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	read = api->read(repo, instance2);
+	TEST_ASSERT_EQUAL_INT64(30, api->get_int(read, RT_FIELD_INT));
+	TEST_ASSERT_FALSE(api->is_value_overridden(read, RT_FIELD_INT));
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_prototype_string_inheritance) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 22u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "blegh"));
+		api->commit(view);
+	}
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_resource_object_t read = api->read(repo, instance);
+	TEST_ASSERT_EQUAL_STRING("blegh", api->get_string(read, RT_FIELD_STRING));
+
+	/* Prototype string update propagates to the instance (lazy chain read). */
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "updated"));
+		api->commit(view);
+	}
+	read = api->read(repo, instance);
+	TEST_ASSERT_EQUAL_STRING("updated", api->get_string(read, RT_FIELD_STRING));
+
+	/* Instance override keeps its own value. */
+	{
+		sk_resource_object_t view = api->write(repo, instance);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "mine"));
+		api->commit(view);
+	}
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "again"));
+		api->commit(view);
+	}
+	read = api->read(repo, instance);
+	TEST_ASSERT_EQUAL_STRING("mine", api->get_string(read, RT_FIELD_STRING));
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_prototype_chain_scalars) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 23u);
+
+	/* Prototype chain A → B → C with parallel instances. */
+	sk_rid_t a = api->create_resource(repo, type, SK_UUID_ZERO);
+	rt_set_int(api, repo, a, 10);
+	sk_rid_t b = api->create_from_prototype(repo, a, SK_UUID_ZERO);
+	sk_rid_t c = api->create_from_prototype(repo, b, SK_UUID_ZERO);
+
+	sk_rid_t i1 = api->create_from_prototype(repo, c, SK_UUID_ZERO);
+	sk_rid_t i2 = api->create_from_prototype(repo, c, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, i1), c));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, c), b));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, b), a));
+
+	/* Values inherited through the whole chain. */
+	sk_resource_object_t read = api->read(repo, i1);
+	TEST_ASSERT_EQUAL_INT64(10, api->get_int(read, RT_FIELD_INT));
+	TEST_ASSERT_FALSE(api->has_value_on_this_object(read, RT_FIELD_INT));
+	read = api->read(repo, i2);
+	TEST_ASSERT_EQUAL_INT64(10, api->get_int(read, RT_FIELD_INT));
+
+	/* Prototype update propagates down the chain. */
+	rt_set_int(api, repo, a, 30);
+	read = api->read(repo, i1);
+	TEST_ASSERT_EQUAL_INT64(30, api->get_int(read, RT_FIELD_INT));
+	read = api->read(repo, i2);
+	TEST_ASSERT_EQUAL_INT64(30, api->get_int(read, RT_FIELD_INT));
+
+	/* Mid-chain override shadows the root for everyone below it. */
+	rt_set_int(api, repo, b, 25);
+	read = api->read(repo, i1);
+	TEST_ASSERT_EQUAL_INT64(25, api->get_int(read, RT_FIELD_INT));
+	read = api->read(repo, i2);
+	TEST_ASSERT_EQUAL_INT64(25, api->get_int(read, RT_FIELD_INT));
+
+	/* Instance override beats everything. */
+	rt_set_int(api, repo, i1, 99);
+	read = api->read(repo, i1);
+	TEST_ASSERT_EQUAL_INT64(99, api->get_int(read, RT_FIELD_INT));
+	read = api->read(repo, i2);
+	TEST_ASSERT_EQUAL_INT64(25, api->get_int(read, RT_FIELD_INT));
+
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  SubObjectList prototypes and propagation                          */
+/* ------------------------------------------------------------------ */
+
+/* Parity with the main-branch Resource::SubObjectListPrototypes test. */
+SK_TEST(repository_subobject_list_prototypes) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 30u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub1 = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub2 = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub3 = api->create_resource(repo, type, SK_UUID_ZERO);
+
+	{
+		sk_resource_object_t view = api->write(repo, sub1);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, prototype));
+		api->commit(view);
+	}
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 10));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "blegh"));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
+		api->commit(view);
+	}
+
+	sk_rid_t item = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(item.id != 0u);
+
+	{
+		sk_resource_object_t read = api->read(repo, item);
+		u32 count = 0u;
+		const sk_rid_t* arr = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+		TEST_ASSERT_EQUAL_UINT32(2u, count);
+		TEST_ASSERT_FALSE(SK_RID_EQ(arr[0], sub1));
+		TEST_ASSERT_FALSE(SK_RID_EQ(arr[1], sub2));
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, arr[0]), sub1));
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, arr[1]), sub2));
+
+		/* Mutate a mirror's own scalar: independent of the prototype. */
+		sk_resource_object_t sub_write = api->write(repo, arr[0]);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(sub_write, RT_FIELD_STRING, "str"));
+		api->commit(sub_write);
+
+		sk_resource_object_t sub_read = api->read(repo, arr[0]);
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(sub_read, RT_FIELD_REFERENCE), prototype));
+	}
+
+	{
+		sk_resource_object_t write = api->write(repo, item);
+		u32 count = 0u;
+		const sk_rid_t* arr = api->get_subobject_list(write, RT_FIELD_SUBOBJECT_LIST, &count);
+		TEST_ASSERT_EQUAL_UINT32(2u, count);
+		/* Copy the mirror-of-sub2 RID first: add_to_subobject_list may realloc
+		 * the list, invalidating the borrowed pointer. */
+		sk_rid_t mirror_of_sub2 = SK_RID_ZERO;
+		for (u32 i = 0u; i < count; ++i) {
+			if (SK_RID_EQ(api->get_prototype(repo, arr[i]), sub2)) {
+				mirror_of_sub2 = arr[i];
+			}
+		}
+		TEST_ASSERT_TRUE(mirror_of_sub2.id != 0u);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(write, RT_FIELD_INT, 222));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(write, RT_FIELD_SUBOBJECT_LIST, sub3));
+		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(write, RT_FIELD_SUBOBJECT_LIST, mirror_of_sub2));
+		api->commit(write);
+	}
+
+	{
+		sk_resource_object_t read = api->read(repo, item);
+		TEST_ASSERT_EQUAL_INT64(222, api->get_int(read, RT_FIELD_INT));
+		TEST_ASSERT_EQUAL_STRING("blegh", api->get_string(read, RT_FIELD_STRING));
+		u32 count = 0u;
+		const sk_rid_t* items = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+		TEST_ASSERT_EQUAL_UINT32(2u, count);
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, items[0]), sub1));
+		TEST_ASSERT_TRUE(SK_RID_EQ(items[1], sub3));
+	}
+
+	api->destroy(repo);
+}
+
+/* Parity with the main-branch Resource::SubObjectListPrototypePropagation
+ * test: prototype SubObjectList edits mirror to every prototype instance. */
+SK_TEST(repository_subobject_list_prototype_propagation) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 31u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub1 = rt_make_sub(api, repo, type, 1);
+	sk_rid_t sub2 = rt_make_sub(api, repo, type, 2);
+
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "prototype"));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
+		api->commit(view);
+	}
+
+	sk_rid_t instance1 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t instance2 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t instance3 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(instance1.id != 0u);
+	TEST_ASSERT_TRUE(instance2.id != 0u);
+	TEST_ASSERT_TRUE(instance3.id != 0u);
+
+	{
+		sk_rid_t expected[2] = {sub1, sub2};
+		rt_verify_mirror(api, repo, instance1, expected, 2u);
+		rt_verify_mirror(api, repo, instance2, expected, 2u);
+		rt_verify_mirror(api, repo, instance3, expected, 2u);
+	}
+
+	sk_rid_t sub3 = rt_make_sub(api, repo, type, 3);
+	sk_rid_t sub4 = rt_make_sub(api, repo, type, 4);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub3));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub4));
+		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
+		api->commit(view);
+	}
+	{
+		sk_rid_t expected[3] = {sub2, sub3, sub4};
+		rt_verify_mirror(api, repo, instance1, expected, 3u);
+		rt_verify_mirror(api, repo, instance2, expected, 3u);
+		rt_verify_mirror(api, repo, instance3, expected, 3u);
+	}
+
+	sk_rid_t sub5 = rt_make_sub(api, repo, type, 5);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub5));
+		api->commit(view);
+	}
+	{
+		sk_rid_t expected[3] = {sub3, sub4, sub5};
+		rt_verify_mirror(api, repo, instance1, expected, 3u);
+		rt_verify_mirror(api, repo, instance2, expected, 3u);
+		rt_verify_mirror(api, repo, instance3, expected, 3u);
+	}
+
+	/* The prototype's own list is what the mirrors reflect. */
+	sk_resource_object_t read = api->read(repo, prototype);
+	u32 count = 0u;
+	const sk_rid_t* items = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+	TEST_ASSERT_EQUAL_UINT32(3u, count);
+	int has3 = 0, has4 = 0, has5 = 0;
+	for (u32 i = 0u; i < count; ++i) {
+		if (SK_RID_EQ(items[i], sub3))
+			has3 = 1;
+		if (SK_RID_EQ(items[i], sub4))
+			has4 = 1;
+		if (SK_RID_EQ(items[i], sub5))
+			has5 = 1;
+	}
+	TEST_ASSERT_TRUE(has3);
+	TEST_ASSERT_TRUE(has4);
+	TEST_ASSERT_TRUE(has5);
+
+	api->destroy(repo);
+}
+
+/* An instance that explicitly removes a prototype sub-object keeps that
+ * removal (prototypeRemoved) across later prototype re-adds. */
+SK_TEST(repository_subobject_list_remove_override) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 32u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub1 = rt_make_sub(api, repo, type, 1);
+	sk_rid_t sub2 = rt_make_sub(api, repo, type, 2);
+
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
+		api->commit(view);
+	}
+
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(instance.id != 0u);
+
+	/* Instance removes its mirror of sub2 (an override). */
+	{
+		sk_resource_object_t view = api->write(repo, instance);
+		u32 count = 0u;
+		const sk_rid_t* items = api->get_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, &count);
+		TEST_ASSERT_EQUAL_UINT32(2u, count);
+		sk_rid_t mirror2 = SK_RID_ZERO;
+		for (u32 i = 0u; i < count; ++i) {
+			if (SK_RID_EQ(api->get_prototype(repo, items[i]), sub2)) {
+				mirror2 = items[i];
+			}
+		}
+		TEST_ASSERT_TRUE(mirror2.id != 0u);
+		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, mirror2));
+		api->commit(view);
+	}
+	{
+		sk_rid_t expected[1] = {sub1};
+		rt_verify_mirror(api, repo, instance, expected, 1u);
+	}
+
+	/* Prototype removes then re-adds sub2: the instance's explicit removal
+	 * persists (prototypeRemoved), so it is not resurrected. */
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
+		api->commit(view);
+	}
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
+		api->commit(view);
+	}
+	{
+		sk_rid_t expected[1] = {sub1};
+		rt_verify_mirror(api, repo, instance, expected, 1u);
+	}
+
+	/* Explicitly re-adding a mirror of sub2 cancels the removal override. */
+	sk_rid_t fresh_mirror = api->create_from_prototype(repo, sub2, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(fresh_mirror.id != 0u);
+	{
+		sk_resource_object_t instance_view = api->write(repo, instance);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(instance_view));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(instance_view, RT_FIELD_SUBOBJECT_LIST, fresh_mirror));
+		api->commit(instance_view);
+	}
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
+		api->commit(view);
+	}
+	{
+		sk_rid_t expected[2] = {sub1, sub2};
+		rt_verify_mirror(api, repo, instance, expected, 2u);
+	}
+
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Clone                                                             */
+/* ------------------------------------------------------------------ */
+
+SK_TEST(repository_clone_deep_subtree_remap) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 40u);
+
+	sk_rid_t subobject = api->create_resource(repo, type, SK_UUID_ZERO);
+	{
+		sk_resource_object_t view = api->write(repo, subobject);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "subobject"));
+		api->commit(view);
+	}
+	sk_rid_t subobject_to_list = api->create_resource(repo, type, SK_UUID_ZERO);
+	{
+		sk_resource_object_t view = api->write(repo, subobject_to_list);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "subobjectToSet"));
+		api->commit(view);
+	}
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO);
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 10));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "blegh"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(view, RT_FIELD_SUBOBJECT, subobject));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, subobject_to_list));
+		api->commit(view);
+	}
+
+	sk_rid_t clone = api->clone(repo, rid, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(clone.id != 0u);
+	TEST_ASSERT_FALSE(SK_RID_EQ(clone, rid));
+
+	sk_resource_object_t read_clone = api->read(repo, clone);
+	TEST_ASSERT_EQUAL_INT64(10, api->get_int(read_clone, RT_FIELD_INT));
+	TEST_ASSERT_EQUAL_STRING("blegh", api->get_string(read_clone, RT_FIELD_STRING));
+
+	/* The sub-object was re-created and its content deep-copied. */
+	sk_rid_t subobject_clone = api->get_subobject(read_clone, RT_FIELD_SUBOBJECT);
+	TEST_ASSERT_TRUE(subobject_clone.id != 0u);
+	TEST_ASSERT_FALSE(SK_RID_EQ(subobject_clone, subobject));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, subobject_clone), clone));
+	sk_resource_object_t sub_read = api->read(repo, subobject_clone);
+	TEST_ASSERT_EQUAL_STRING("subobject", api->get_string(sub_read, RT_FIELD_STRING));
+
+	/* The list sub-object was re-created too. */
+	u32 count = 0u;
+	const sk_rid_t* list = api->get_subobject_list(read_clone, RT_FIELD_SUBOBJECT_LIST, &count);
+	TEST_ASSERT_EQUAL_UINT32(1u, count);
+	TEST_ASSERT_FALSE(SK_RID_EQ(list[0], subobject_to_list));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, list[0]), clone));
+	sk_resource_object_t list_read = api->read(repo, list[0]);
+	TEST_ASSERT_EQUAL_STRING("subobjectToSet", api->get_string(list_read, RT_FIELD_STRING));
+
+	api->destroy(repo);
+}
+
+/* A reference into the cloned subtree is remapped to its clone (parity with
+ * the main-branch DuplicateReference test); a reference to the clone root
+ * stays pointing at the original root. */
+SK_TEST(repository_clone_reference_remap) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 41u);
+
+	sk_rid_t parent = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t child = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t ref = api->create_resource(repo, type, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(parent.id != 0u);
+	TEST_ASSERT_TRUE(child.id != 0u);
+	TEST_ASSERT_TRUE(ref.id != 0u);
+
+	{
+		sk_resource_object_t view = api->write(repo, child);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, ref));
+		api->commit(view);
+	}
+	{
+		sk_resource_object_t view = api->write(repo, parent);
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, child));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, ref));
+		api->commit(view);
+	}
+
+	sk_rid_t clone = api->clone(repo, parent, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(clone.id != 0u);
+	TEST_ASSERT_FALSE(SK_RID_EQ(clone, parent));
+
+	sk_resource_object_t read = api->read(repo, clone);
+	u32 count = 0u;
+	const sk_rid_t* list = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+	TEST_ASSERT_EQUAL_UINT32(2u, count);
+	/* The clone preserves sub-object list order: [child, ref]. */
+	sk_rid_t cloned_child = list[0];
+	sk_rid_t cloned_ref = list[1];
+	TEST_ASSERT_FALSE(SK_RID_EQ(cloned_child, child));
+	TEST_ASSERT_FALSE(SK_RID_EQ(cloned_ref, ref));
+
+	/* The cloned child's reference to the (cloned) ref points at the clone. */
+	sk_resource_object_t child_read = api->read(repo, cloned_child);
+	sk_rid_t remapped = api->get_reference(child_read, RT_FIELD_REFERENCE);
+	TEST_ASSERT_TRUE(SK_RID_EQ(cloned_ref, remapped));
+	TEST_ASSERT_FALSE(SK_RID_EQ(remapped, ref));
+
+	/* A reference to the clone root itself stays on the original root (the
+	 * main-branch IsParentOf is strict-descendant). */
+	{
+		sk_resource_object_t view = api->write(repo, child);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, parent));
+		api->commit(view);
+	}
+	sk_rid_t clone2 = api->clone(repo, parent, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(clone2.id != 0u);
+	sk_resource_object_t read2 = api->read(repo, clone2);
+	u32 count2 = 0u;
+	const sk_rid_t* list2 = api->get_subobject_list(read2, RT_FIELD_SUBOBJECT_LIST, &count2);
+	sk_rid_t child_clone2 = list2[0];
+	sk_resource_object_t child_read2 = api->read(repo, child_clone2);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(child_read2, RT_FIELD_REFERENCE), parent));
+
+	api->destroy(repo);
+}
+
+/* A reference array into the cloned subtree is remapped entry by entry. */
+SK_TEST(repository_clone_reference_array_remap) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 42u);
+
+	sk_rid_t parent = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t child = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t outer = api->create_resource(repo, type, SK_UUID_ZERO);
+	{
+		sk_resource_object_t view = api->write(repo, child);
+		sk_rid_t refs[2] = {child, outer}; /* self (descendant of parent) + outer */
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference_array(view, RT_FIELD_REFERENCE_ARRAY, refs, 2u));
+		api->commit(view);
+	}
+	{
+		sk_resource_object_t view = api->write(repo, parent);
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(view, RT_FIELD_SUBOBJECT, child));
+		api->commit(view);
+	}
+
+	sk_rid_t clone = api->clone(repo, parent, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(clone.id != 0u);
+
+	sk_resource_object_t read = api->read(repo, clone);
+	sk_rid_t cloned_child = api->get_subobject(read, RT_FIELD_SUBOBJECT);
+	TEST_ASSERT_TRUE(cloned_child.id != 0u);
+	TEST_ASSERT_FALSE(SK_RID_EQ(cloned_child, child));
+	sk_resource_object_t child_read = api->read(repo, cloned_child);
+	u32 count = 0u;
+	const sk_rid_t* refs = api->get_reference_array(child_read, RT_FIELD_REFERENCE_ARRAY, &count);
+	TEST_ASSERT_EQUAL_UINT32(2u, count);
+	TEST_ASSERT_TRUE(SK_RID_EQ(refs[0], cloned_child)); /* descendant remapped to its clone */
+	TEST_ASSERT_TRUE(SK_RID_EQ(refs[1], outer));		/* outside the subtree, unchanged */
+
+	api->destroy(repo);
+}
+
+/* A clone of a prototype instance keeps its prototype pointer and stays
+ * registered in the prototype's instance set, so later prototype edits
+ * propagate to the clone on Commit. */
+SK_TEST(repository_clone_of_prototype_instance_propagation) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 43u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub1 = rt_make_sub(api, repo, type, 1);
+	sk_rid_t sub2 = rt_make_sub(api, repo, type, 2);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
+		api->commit(view);
+	}
+
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(instance.id != 0u);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, instance), prototype));
+
+	/* Cloning the instance copies the prototype pointer. */
+	sk_rid_t clone = api->clone(repo, instance, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(clone.id != 0u);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, clone), prototype));
+
+	/* A later prototype edit propagates to both the instance and the clone. */
+	sk_rid_t sub3 = rt_make_sub(api, repo, type, 3);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub3));
+		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
+		api->commit(view);
+	}
+	{
+		sk_rid_t expected[2] = {sub2, sub3};
+		rt_verify_mirror(api, repo, instance, expected, 2u);
+		rt_verify_mirror(api, repo, clone, expected, 2u);
+	}
+
+	api->destroy(repo);
+}
+
+/* Clone with an explicit uuid registers it; a duplicate uuid fails the clone
+ * and leaves no orphaned slots. */
+SK_TEST(repository_clone_uuid_uniqueness) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 44u);
+
+	sk_rid_t origin = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t owner = api->create_resource(repo, type, (sk_uuid_t){0x55ull, 0xaaull});
+	TEST_ASSERT_TRUE(origin.id != 0u);
+	TEST_ASSERT_TRUE(owner.id != 0u);
+
+	u64 count_before = api->resource_count(repo);
+
+	/* A uuid already owned by another resource fails the clone. */
+	sk_rid_t failed = api->clone(repo, origin, (sk_uuid_t){0x55ull, 0xaaull});
+	TEST_ASSERT_TRUE(failed.id == 0u);
+	TEST_ASSERT_EQUAL_UINT64(count_before, api->resource_count(repo));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, (sk_uuid_t){0x55ull, 0xaaull}), owner));
+
+	/* A fresh uuid lands in the by-uuid map. */
+	sk_rid_t clone = api->clone(repo, origin, (sk_uuid_t){0x11ull, 0x22ull});
+	TEST_ASSERT_TRUE(clone.id != 0u);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, (sk_uuid_t){0x11ull, 0x22ull}), clone));
+
+	/* create_from_prototype follows the same rule. */
+	sk_rid_t inst_failed = api->create_from_prototype(repo, origin, (sk_uuid_t){0x11ull, 0x22ull});
+	TEST_ASSERT_TRUE(inst_failed.id == 0u);
+	TEST_ASSERT_EQUAL_UINT64(count_before + 1u, api->resource_count(repo));
+
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Destroy cascade and GC                                            */
+/* ------------------------------------------------------------------ */
+
+/* Parity with the main-branch Resource::Subobjects test. */
+SK_TEST(repository_destroy_cascade) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 50u);
+
+	sk_rid_t object = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub1 = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub2 = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub3 = api->create_resource(repo, type, SK_UUID_ZERO);
+	{
+		sk_resource_object_t view = api->write(repo, object);
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(view, RT_FIELD_SUBOBJECT, sub1));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub3));
+		api->commit(view);
+	}
+
+	/* Destroying a sub-object detaches it from the parent first. */
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, sub3));
+	sk_resource_object_t read = api->write(repo, object);
+	TEST_ASSERT_FALSE(api->has_on_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, sub3));
+	api->discard(read);
+
+	TEST_ASSERT_TRUE(api->has_value(repo, object));
+	TEST_ASSERT_TRUE(api->has_value(repo, sub1));
+	TEST_ASSERT_TRUE(api->has_value(repo, sub2));
+	TEST_ASSERT_FALSE(api->has_value(repo, sub3));
+
+	/* Destroying the parent cascades to its sub-objects. */
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, object));
+	TEST_ASSERT_FALSE(api->has_value(repo, object));
+	TEST_ASSERT_FALSE(api->has_value(repo, sub1));
+	TEST_ASSERT_FALSE(api->has_value(repo, sub2));
+	TEST_ASSERT_FALSE(api->has_resource(repo, sub1));
+	TEST_ASSERT_FALSE(api->has_resource(repo, sub2));
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(repo));
+
+	api->end_frame(repo);
+	api->destroy(repo);
+}
+
+/* Counting allocator: tracks live allocation count to prove GC reclaims
+ * instances superseded by successive commits. */
+typedef struct test_counting_alloc_t {
+	const sk_allocator_t* base;
+	u64 live;
+} test_counting_alloc_t;
+
+static void_ptr_t test_counting_alloc(void_ptr_t instance, size_t size) {
+	test_counting_alloc_t* state = (test_counting_alloc_t*)instance;
+	void_ptr_t p = state->base->alloc(state->base->instance, size);
+	if (p != NULL) {
+		state->live += 1u;
+	}
+	return p;
+}
+
+static void test_counting_free(void_ptr_t instance, void_ptr_t ptr) {
+	test_counting_alloc_t* state = (test_counting_alloc_t*)instance;
+	if (ptr != NULL) {
+		state->live -= 1u;
+	}
+	state->base->free(state->base->instance, ptr);
+}
+
+static void_ptr_t test_counting_realloc(void_ptr_t instance, void_ptr_t ptr, size_t size) {
+	test_counting_alloc_t* state = (test_counting_alloc_t*)instance;
+	void_ptr_t p = state->base->realloc(state->base->instance, ptr, size);
+	if (p != NULL && ptr == NULL) {
+		state->live += 1u;
+	}
+	return p;
+}
+
+SK_TEST(repository_garbage_collect_reclaims) {
+	const sk_repository_api_t* api = sk_repository_api();
+	test_counting_alloc_t state = {sk_allocator_default(), 0u};
+	sk_allocator_t counting_allocator = {&state, test_counting_alloc, test_counting_free, test_counting_realloc};
+
+	sk_repository_t* repo = api->create(&counting_allocator);
+	TEST_ASSERT_NOT_NULL(repo);
+	const sk_resource_type_t* type = NULL;
+	{
+		sk_resource_type_desc_t desc = test_payload_desc(test_type_id(51u), "gc.type", NULL);
+		TEST_ASSERT_EQUAL_INT(0, api->register_type(repo, &desc));
+		type = api->find_type_by_name(repo, "gc.type");
+		TEST_ASSERT_NOT_NULL(type);
+	}
+
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO);
+	u64 live_after_create = state.live;
+
+	/* Two commits retire the first two instance blocks to the GC queue. */
+	for (i64 v = 1; v <= 2; ++v) {
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, v));
+		api->commit(view);
+	}
+	u64 live_after_commits = state.live;
+	TEST_ASSERT_TRUE(live_after_commits > live_after_create); /* superseded blocks still live */
+
+	api->garbage_collect(repo);
+	TEST_ASSERT_TRUE(state.live < live_after_commits); /* retired blocks reclaimed */
+	sk_resource_object_t read = api->read(repo, rid);
+	TEST_ASSERT_EQUAL_INT64(2, api->get_int(read, RT_FIELD_INT)); /* current value intact */
+
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  OOM rollback for clone / prototype                                */
+/* ------------------------------------------------------------------ */
+
+SK_TEST(repository_oom_clone_cleanup) {
+	const sk_repository_api_t* api = sk_repository_api();
+	test_fail_alloc_t state = {sk_allocator_default(), 0u, 0xFFFFFFFFu};
+	sk_allocator_t fail_allocator = {&state, test_fail_alloc, test_fail_free, test_fail_realloc};
+
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo_full(&fail_allocator, &type, 52u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub = rt_make_sub(api, repo, type, 1);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 7));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub));
+		api->commit(view);
+	}
+	u64 baseline = api->resource_count(repo);
+	TEST_ASSERT_EQUAL_UINT64(2u, baseline); /* prototype + sub */
+
+	/* Sweep a window of failure points inside clone: every failed attempt must
+	 * leave the repository fully rolled back and usable. */
+	for (u32 fail_offset = 0u; fail_offset < 14u; ++fail_offset) {
+		state.fail_at = state.allocs_done + fail_offset;
+		sk_rid_t clone = api->clone(repo, prototype, SK_UUID_ZERO);
+		if (clone.id == 0u) {
+			TEST_ASSERT_EQUAL_UINT64(baseline, api->resource_count(repo));
+		} else {
+			TEST_ASSERT_EQUAL_UINT64(baseline + 2u, api->resource_count(repo)); /* root + sub clone */
+			state.fail_at = 0xFFFFFFFFu;										/* destroy must not hit the sweep's fail point */
+			TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, clone));
+			TEST_ASSERT_EQUAL_UINT64(baseline, api->resource_count(repo));
+			api->end_frame(repo);
+		}
+	}
+
+	/* The repository stays usable after the failures. */
+	sk_resource_object_t read = api->read(repo, prototype);
+	TEST_ASSERT_EQUAL_INT64(7, api->get_int(read, RT_FIELD_INT));
+	u32 count = 0u;
+	const sk_rid_t* items = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+	TEST_ASSERT_EQUAL_UINT32(1u, count);
+	TEST_ASSERT_TRUE(SK_RID_EQ(items[0], sub)); /* the prototype still owns the original sub */
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_oom_create_from_prototype_cleanup) {
+	const sk_repository_api_t* api = sk_repository_api();
+	test_fail_alloc_t state = {sk_allocator_default(), 0u, 0xFFFFFFFFu};
+	sk_allocator_t fail_allocator = {&state, test_fail_alloc, test_fail_free, test_fail_realloc};
+
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo_full(&fail_allocator, &type, 53u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t sub = rt_make_sub(api, repo, type, 1);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 7));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub));
+		api->commit(view);
+	}
+	u64 baseline = api->resource_count(repo);
+	TEST_ASSERT_EQUAL_UINT64(2u, baseline);
+
+	for (u32 fail_offset = 0u; fail_offset < 14u; ++fail_offset) {
+		state.fail_at = state.allocs_done + fail_offset;
+		sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+		if (instance.id == 0u) {
+			TEST_ASSERT_EQUAL_UINT64(baseline, api->resource_count(repo));
+		} else {
+			TEST_ASSERT_EQUAL_UINT64(baseline + 2u, api->resource_count(repo)); /* instance + mirror */
+			state.fail_at = 0xFFFFFFFFu;										/* destroy must not hit the sweep's fail point */
+			TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, instance));
+			TEST_ASSERT_EQUAL_UINT64(baseline, api->resource_count(repo));
+			api->end_frame(repo);
+		}
+	}
+
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Cross-repository isolation                                        */
+/* ------------------------------------------------------------------ */
+
+SK_TEST(repository_two_repositories_isolation) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type_a = NULL;
+	const sk_resource_type_t* type_b = NULL;
+	sk_repository_t* repo_a = rt_repo(&type_a, 60u);
+	sk_repository_t* repo_b = rt_repo(&type_b, 61u);
+
+	sk_rid_t proto_a = api->create_resource(repo_a, type_a, SK_UUID_ZERO);
+	sk_rid_t proto_b = api->create_resource(repo_b, type_b, SK_UUID_ZERO);
+	rt_set_int(api, repo_a, proto_a, 100);
+	rt_set_int(api, repo_b, proto_b, 200);
+
+	sk_rid_t inst_a = api->create_from_prototype(repo_a, proto_a, SK_UUID_ZERO);
+	sk_rid_t inst_b = api->create_from_prototype(repo_b, proto_b, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(inst_a.id != 0u);
+	TEST_ASSERT_TRUE(inst_b.id != 0u);
+
+	/* Each repository only knows its own resources (numeric rids may alias
+	 * across repositories, so compare by uuid / count, not has_resource). */
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo_a, inst_a), proto_a));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo_b, inst_b), proto_b));
+	u64 count_b = api->resource_count(repo_b);
+
+	sk_resource_object_t read_a = api->read(repo_a, inst_a);
+	TEST_ASSERT_EQUAL_INT64(100, api->get_int(read_a, RT_FIELD_INT));
+	sk_resource_object_t read_b = api->read(repo_b, inst_b);
+	TEST_ASSERT_EQUAL_INT64(200, api->get_int(read_b, RT_FIELD_INT));
+
+	/* Clones stay inside their repository. */
+	sk_rid_t clone_a = api->clone(repo_a, proto_a, SK_UUID_ZERO);
+	TEST_ASSERT_TRUE(clone_a.id != 0u);
+	TEST_ASSERT_EQUAL_UINT64(count_b, api->resource_count(repo_b)); /* repo_b untouched */
+	sk_resource_object_t clone_read = api->read(repo_a, clone_a);
+	TEST_ASSERT_EQUAL_INT64(100, api->get_int(clone_read, RT_FIELD_INT));
+
+	/* A clone in repo_b is independent of repo_a's state. */
+	sk_rid_t clone_b = api->clone(repo_b, proto_b, SK_UUID_ZERO);
+	sk_resource_object_t clone_read_b = api->read(repo_b, clone_b);
+	TEST_ASSERT_EQUAL_INT64(200, api->get_int(clone_read_b, RT_FIELD_INT));
+
+	api->destroy(repo_a);
+	api->destroy(repo_b);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Multi-level Write/Commit under concurrent readers                 */
+/* ------------------------------------------------------------------ */
+
+#include "thread.h"
+
+typedef struct rt_reader_args_t {
+	const sk_repository_api_t* api;
+	sk_repository_t* repo;
+	sk_rid_t* resources;
+	u32 resource_count;
+	i32 stop;
+	i32 violations;
+} rt_reader_args_t;
+
+static i32 rt_reader_thread(void_ptr_t arg) {
+	rt_reader_args_t* args = (rt_reader_args_t*)arg;
+	u32 round = 0u;
+	while (args->stop == 0 && round < 200000u) {
+		for (u32 i = 0u; i < args->resource_count; ++i) {
+			sk_resource_object_t view = args->api->read(args->repo, args->resources[i]);
+			i64 value = args->api->get_int(view, RT_FIELD_INT);
+			const_chr_t text = args->api->get_string(view, RT_FIELD_STRING);
+			if (text != NULL) {
+				char expected[32];
+				snprintf(expected, sizeof(expected), "v%lld", value);
+				if (strcmp(expected, text) != 0) {
+					args->violations += 1;
+				}
+			}
+		}
+		round += 1u;
+	}
+	return 0;
+}
+
+typedef struct rt_writer_args_t {
+	const sk_repository_api_t* api;
+	sk_repository_t* repo;
+	sk_rid_t* resources;
+	u32 resource_count;
+	u32 rounds;
+	i32 done;
+} rt_writer_args_t;
+
+static i32 rt_writer_thread(void_ptr_t arg) {
+	rt_writer_args_t* args = (rt_writer_args_t*)arg;
+	for (u32 r = 0u; r < args->rounds; ++r) {
+		for (u32 i = 0u; i < args->resource_count; ++i) {
+			sk_resource_object_t view = args->api->write(args->repo, args->resources[i]);
+			if (SK_RESOURCE_OBJECT_IS_VALID(view)) {
+				char buffer[32];
+				snprintf(buffer, sizeof(buffer), "v%u", r);
+				(void)args->api->set_int(view, RT_FIELD_INT, (i64)r);
+				(void)args->api->set_string(view, RT_FIELD_STRING, buffer);
+				args->api->commit(view);
+			}
+		}
+	}
+	args->done = 1;
+	return 0;
+}
+
+SK_TEST(repository_concurrent_readers_multi_commit) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 70u);
+
+	const u32 resource_count = 6u;
+	sk_rid_t resources[6];
+	for (u32 i = 0u; i < resource_count; ++i) {
+		resources[i] = api->create_resource(repo, type, SK_UUID_ZERO);
+		TEST_ASSERT_TRUE(resources[i].id != 0u);
+		/* Publish a valid (int, string) pair first so readers never see unset. */
+		sk_resource_object_t view = api->write(repo, resources[i]);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 0));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "v0"));
+		api->commit(view);
+	}
+
+	rt_reader_args_t ra;
+	memset(&ra, 0, sizeof(ra));
+	ra.api = api;
+	ra.repo = repo;
+	ra.resources = resources;
+	ra.resource_count = resource_count;
+	rt_writer_args_t wa;
+	memset(&wa, 0, sizeof(wa));
+	wa.api = api;
+	wa.repo = repo;
+	wa.resources = resources;
+	wa.resource_count = resource_count;
+	wa.rounds = 400u;
+
+	sk_thread_t* writer = sk_thread_create(rt_writer_thread, &wa);
+	sk_thread_t* reader1 = sk_thread_create(rt_reader_thread, &ra);
+	sk_thread_t* reader2 = sk_thread_create(rt_reader_thread, &ra);
+	TEST_ASSERT_NOT_NULL(writer);
+	TEST_ASSERT_NOT_NULL(reader1);
+	TEST_ASSERT_NOT_NULL(reader2);
+
+	TEST_ASSERT_EQUAL_INT(0, sk_thread_join(writer));
+	sk_thread_destroy(writer);
+	ra.stop = 1;
+	TEST_ASSERT_EQUAL_INT(0, sk_thread_join(reader1));
+	TEST_ASSERT_EQUAL_INT(0, sk_thread_join(reader2));
+	sk_thread_destroy(reader1);
+	sk_thread_destroy(reader2);
+
+	/* No reader ever observed a torn (int, string) pair. */
+	TEST_ASSERT_EQUAL_INT(0, ra.violations);
+
+	api->destroy(repo);
+}
+
 #endif /* SK_TESTS */

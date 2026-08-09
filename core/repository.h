@@ -4,11 +4,14 @@
  * @file repository.h
  * @brief Resource storage foundation: manual type registry + paged RID store.
  *
- * C port of the v1 storage model (Resources / ResourceType / ResourceCommon),
- * restricted to the storage layer: stable UUIDs and RIDs, manual field/type
- * descriptors, a page-allocated resource store keyed by RID with UUID and path
- * uniqueness, and default-value deep copy for types that declare defaults.
- * Reflection, events, serialization, and prototypes are intentionally absent.
+ * C port of the main-branch Skore Resources storage model, restricted to the
+ * storage layer: stable UUIDs and RIDs, manual field/type descriptors, a
+ * page-allocated resource store keyed by RID with UUID and path uniqueness,
+ * default-value deep copy, plus the hierarchy layer: lock-free Read, exclusive
+ * Write/Commit with multi-commit CAS publish, Clone, CreateFromPrototype,
+ * parent / prototype linkage, sub-objects with SubObjectList propagation, and
+ * garbage collection of superseded instances. Reflection, events,
+ * serialization, and undo/redo are intentionally absent.
  *
  * All state lives on an explicit sk_repository_t instance created with an
  * allocator — there are no process-global repository tables. The module
@@ -24,6 +27,40 @@
  * resource deep-copies them: indirection fields (String / Blob /
  * ReferenceArray / SubObjectList) get repository-owned heap copies, all other
  * field types are copied by bytes.
+ *
+ * Every instance additionally carries a per-field "has value on this object"
+ * bitmap (repository-owned, after the blob in the same allocation). Scalar
+ * reads fall back through the prototype chain when a field is unset on this
+ * object, so prototype instances inherit values lazily and instance overrides
+ * (Set accessors) shadow later prototype edits. Sub-object and reference
+ * fields are always materialized on prototype instances (mirrors).
+ *
+ * # Concurrency
+ *
+ * Read is lock-free: one atomic load of the current instance pointer pins a
+ * consistent snapshot; readers never block behind writers. Write acquires the
+ * repository write lock and returns an exclusively-owned mutable copy
+ * (copy-on-write); exactly one write view may be live at a time. Commit marks
+ * the copy read-only, CAS-publishes it over the instance it was written on
+ * top of (a lost CAS discards the uncommitted copy), enqueues the replaced
+ * instance for garbage collection, bumps the version, and refreshes parent
+ * links. Replaced instances are only freed by garbage_collect (or end_frame);
+ * do not collect while any read or write view is live.
+ *
+ * # Hierarchy
+ *
+ * Destroy recursively destroys sub-objects, Clone deep-clones a resource with
+ * its whole sub-object tree (references into the cloned subtree are remapped),
+ * and CreateFromPrototype mirrors a prototype resource (sub-objects are
+ * re-created per instance and linked back through GetPrototype; the prototype
+ * tracks its instances so later SubObjectList edits are propagated to them on
+ * Commit). Parent / prototype pointers are main-thread data.
+ *
+ * Intentional gaps for this revision: reflection-driven registration, event
+ * dispatch, serialization loaders, and undo/redo scopes. Per-field has-value
+ * bits ARE implemented (drives prototype inheritance / overrides); the
+ * SubObjectList "removed-from-prototype" set (prototypeRemoved) is implemented
+ * and honored by SubObjectList propagation.
  */
 
 #include "allocator.h"
@@ -108,13 +145,30 @@ typedef struct sk_field_blob_t {
 } sk_field_blob_t;
 
 /**
- * In-blob storage for ReferenceArray / SubObjectList fields: a
- * repository-owned heap array of RIDs.
+ * In-blob storage for ReferenceArray fields: a repository-owned heap array of
+ * RIDs. @p capacity tracks the allocated slots (== @p count on deep copies).
  */
 typedef struct sk_field_rid_array_t {
 	sk_rid_t* items;
 	u32 count;
+	u32 capacity;
 } sk_field_rid_array_t;
+
+/**
+ * In-blob storage for a SubObjectList field: the owned sub-object RID array
+ * plus the owned "removed-from-prototype" set. @p prototype_removed records
+ * prototype RIDs this instance explicitly removed (an override); SubObjectList
+ * propagation skips those so a later prototype re-add does not resurrect them
+ * on this instance. Both arrays are repository-owned heap copies.
+ */
+typedef struct sk_field_subobject_list_t {
+	sk_rid_t* items;
+	u32 count;
+	u32 capacity;
+	sk_rid_t* prototype_removed;
+	u32 prototype_removed_count;
+	u32 prototype_removed_capacity;
+} sk_field_subobject_list_t;
 
 /**
  * Manual field descriptor. Offset/size place the field inside the type's
@@ -128,7 +182,10 @@ typedef struct sk_field_rid_array_t {
  * @field type     Storage category; drives deep-copy / destroy behavior.
  * @field offset   Byte offset of the field value within the instance blob.
  * @field size     Byte size of the stored field value (must be > 0; offset +
- *                 size must not exceed the type's instance_size).
+ *                 size must not exceed the type's instance_size). SubObjectList
+ *                 fields must use the sk_field_subobject_list_t layout, Blob
+ *                 fields sk_field_blob_t, String fields sk_field_string_t, and
+ *                 ReferenceArray fields sk_field_rid_array_t.
  * @field sub_type Optional type id (e.g. referenced resource type or enum
  *                 backing type); SK_TYPE_ID_ZERO when unused.
  */
@@ -177,6 +234,33 @@ typedef struct sk_repository_t sk_repository_t;
 
 /** Opaque registered resource type (descriptor copy owned by a repository). */
 typedef struct sk_resource_type_t sk_resource_type_t;
+
+/**
+ * Resource read/write view (C port of the main-branch ResourceObject).
+ *
+ * - Read views (read) own nothing: @p instance pins the published instance
+ *   snapshot at Read time and is only borrowed.
+ * - Write views (write) exclusively own @p instance (a fresh copy) until
+ *   Commit or Discard; the repository write lock is held for the view's
+ *   lifetime. Field Set/Get on a write view take no repository locks.
+ *
+ * All fields are internal; construct a view via read/write and test validity
+ * with SK_RESOURCE_OBJECT_IS_VALID.
+ */
+typedef struct sk_resource_object_t {
+	sk_repository_t* repo;	  /* owning repository (internal) */
+	void_ptr_t storage;		  /* opaque storage slot (internal) */
+	void_ptr_t instance;	  /* pinned published block (read) / owned write block (write) */
+	void_ptr_t data_on_write; /* instance this write view was copied from (internal) */
+	u8 is_write;
+	u8 _pad0[7];
+} sk_resource_object_t;
+
+/** Zero / invalid resource object view. */
+#define SK_RESOURCE_OBJECT_ZERO ((sk_resource_object_t){NULL, NULL, NULL, NULL, 0u, {0u}})
+
+/** Non-zero when @p view references a live storage slot. */
+#define SK_RESOURCE_OBJECT_IS_VALID(view) ((view).storage != NULL)
 
 /**
  * Global repository module API. One table, filled once in repository.c; call
@@ -324,6 +408,208 @@ typedef struct sk_repository_api_t {
 	 * @return The resource's RID, or SK_RID_ZERO when not found.
 	 */
 	sk_rid_t (*find_by_path)(const sk_repository_t* repository, const_chr_t path);
+
+	/* ---- read / write / commit ---- */
+
+	/**
+	 * Lock-free read: atomically loads and pins the current published instance.
+	 * Never takes the write lock, so concurrent readers and writers never block
+	 * on each other. The returned read view owns nothing and needs no teardown.
+	 * @param repository Repository (must not be NULL).
+	 * @param rid        Resource id.
+	 * @return Read view; an invalid view for an unknown / destroyed rid.
+	 */
+	sk_resource_object_t (*read)(sk_repository_t* repository, sk_rid_t rid);
+
+	/**
+	 * Begin a write transaction: acquires the repository write lock, snapshots
+	 * the current published instance (copy-on-write) or allocates a fresh one,
+	 * and returns an exclusively-owned mutable write view. Field Set/Get on the
+	 * returned view take no repository locks. Exactly one write view may be
+	 * live per repository — commit or discard it before starting another Write.
+	 * @param repository Repository (must not be NULL).
+	 * @param rid        Resource id.
+	 * @return Mutable write view; an invalid view on failure (unknown rid,
+	 *         untyped slot, OOM). The write lock is released on failure.
+	 */
+	sk_resource_object_t (*write)(sk_repository_t* repository, sk_rid_t rid);
+
+	/**
+	 * Publish a write view: mark the instance read-only, CAS-publish it over
+	 * the instance it was written on top of (a lost CAS discards the
+	 * uncommitted copy), enqueue the replaced instance for garbage collection,
+	 * bump the version, refresh sub-object parent links, propagate SubObjectList
+	 * edits to prototype instances, and release the write lock. Calling Commit
+	 * on a read / invalid / already-committed-or-discarded view is a no-op.
+	 * @param view Write view from write.
+	 */
+	void (*commit)(sk_resource_object_t view);
+
+	/**
+	 * Abandon a write view: free the uncommitted instance and release the write
+	 * lock. Safe on read / invalid / already-committed views (no-op).
+	 * @param view Write view from write.
+	 */
+	void (*discard)(sk_resource_object_t view);
+
+	/**
+	 * Current storage version of a live resource (starts at 1; lock-free load).
+	 * @param repository Repository (must not be NULL).
+	 * @param rid        Resource id.
+	 * @return Version, or 0 for an unknown rid.
+	 */
+	u64 (*get_version)(const sk_repository_t* repository, sk_rid_t rid);
+
+	/**
+	 * Whether a live resource has a published instance (lock-free load).
+	 * @param repository Repository (must not be NULL).
+	 * @param rid        Resource id.
+	 * @return Non-zero when published.
+	 */
+	i32 (*has_value)(const sk_repository_t* repository, sk_rid_t rid);
+
+	/**
+	 * Free all instances replaced by Commit / Destroy that were queued for
+	 * garbage collection. Must not run while any read or write view is live
+	 * (read snapshots borrow queued instances). Does not take the write lock.
+	 * @param repository Repository (must not be NULL).
+	 */
+	void (*garbage_collect)(sk_repository_t* repository);
+
+	/**
+	 * End-of-frame helper (Resources::EndFrame equivalent): frees all instances
+	 * superseded by Commit / Destroy since the previous call via garbage_collect.
+	 * @param repository Repository (must not be NULL).
+	 */
+	void (*end_frame)(sk_repository_t* repository);
+
+	/* ---- clone / prototype / hierarchy ---- */
+
+	/**
+	 * Deep clone a resource together with its whole sub-object tree.
+	 *
+	 * Sub-objects of @p origin are re-created as new resources whose parent is
+	 * the cloned resource; Reference / ReferenceArray fields that point at
+	 * resources inside @p origin's sub-object subtree are remapped to their
+	 * clones. Everything else is deep-copied (the clone's per-field has-value
+	 * bits match the origin's). Clones of prototype instances keep their
+	 * prototype pointer and stay registered in that prototype's instance set,
+	 * so later prototype edits propagate to the clone on Commit. When @p uuid
+	 * is valid it is registered in the by-uuid map (a uuid already owned by
+	 * another live resource fails the clone); otherwise a fresh uuid is
+	 * generated when @p origin carries one. On OOM every already-reserved clone
+	 * slot is rolled back and the repository is left usable.
+	 * @param repository Repository (must not be NULL).
+	 * @param origin     Existing resource id.
+	 * @param uuid       Optional uuid; SK_UUID_ZERO to auto-generate.
+	 * @return The new resource's RID, or SK_RID_ZERO on failure.
+	 */
+	sk_rid_t (*clone)(sk_repository_t* repository, sk_rid_t origin, sk_uuid_t uuid);
+
+	/**
+	 * Create a new resource that mirrors @p prototype.
+	 *
+	 * The new instance mirrors the prototype's sub-object tree: sub-objects are
+	 * re-created per instance and linked back to the prototype's sub-objects via
+	 * get_prototype; references into the prototype subtree are remapped; scalar
+	 * fields stay unset on this object and inherit lazily through the prototype
+	 * chain. The new RID is registered in the prototype's instance set so later
+	 * prototype SubObjectList edits propagate to it on Commit. When @p uuid is
+	 * valid it is registered in the by-uuid map (a duplicate fails the call);
+	 * otherwise a fresh uuid is generated when @p prototype carries one. On OOM
+	 * every already-reserved mirror slot is rolled back.
+	 * @param repository Repository (must not be NULL).
+	 * @param prototype  Existing resource used as the prototype (must be typed).
+	 * @param uuid       Optional uuid; SK_UUID_ZERO to auto-generate.
+	 * @return The new resource's RID, or SK_RID_ZERO on failure.
+	 */
+	sk_rid_t (*create_from_prototype)(sk_repository_t* repository, sk_rid_t prototype, sk_uuid_t uuid);
+
+	/**
+	 * @return The RID of the resource that owns @p rid as a sub-object, or
+	 *         SK_RID_ZERO when it has no parent / @p rid is unknown.
+	 */
+	sk_rid_t (*get_parent)(sk_repository_t* repository, sk_rid_t rid);
+
+	/**
+	 * @return The RID this instance was created from via create_from_prototype
+	 *         (or cloned from an instance of one), or SK_RID_ZERO.
+	 */
+	sk_rid_t (*get_prototype)(sk_repository_t* repository, sk_rid_t rid);
+
+	/**
+	 * @return The topmost ancestor of @p rid's parent chain (the root owner),
+	 *         or @p rid itself when it has no parent.
+	 */
+	sk_rid_t (*get_top_parent)(sk_repository_t* repository, sk_rid_t rid);
+
+	/**
+	 * @return Non-zero when @p child is a strict descendant of @p parent through
+	 *         the sub-object parent chain.
+	 */
+	i32 (*is_parent_of)(sk_repository_t* repository, sk_rid_t parent, sk_rid_t child);
+
+	/* ---- field accessors (no reflection; field looked up by registered index) ---- */
+
+	/*
+	 * Set accessors mutate the caller's write instance without any repository
+	 * lock and return 0 on success, non-zero on failure (read view / unknown
+	 * field index / field-type mismatch / OOM). Get accessors work on both read
+	 * and write views and return the stored value (zero / empty when unset);
+	 * scalar fields fall back through the prototype chain when unset on this
+	 * object. @p index must be a field registered on the view's type.
+	 */
+
+	i32 (*set_bool)(sk_resource_object_t view, u32 index, i32 value);
+	i32 (*set_int)(sk_resource_object_t view, u32 index, i64 value);
+	i32 (*set_uint)(sk_resource_object_t view, u32 index, u64 value);
+	i32 (*set_float)(sk_resource_object_t view, u32 index, f64 value);
+	i32 (*set_string)(sk_resource_object_t view, u32 index, const_chr_t value);
+	i32 (*set_reference)(sk_resource_object_t view, u32 index, sk_rid_t rid);
+	/** Replace the whole reference array (items are deep copied). */
+	i32 (*set_reference_array)(sk_resource_object_t view, u32 index, const sk_rid_t* items, u32 count);
+	/** Append one RID to a reference array (grows as needed). */
+	i32 (*add_to_reference_array)(sk_resource_object_t view, u32 index, sk_rid_t rid);
+	/** Remove the first RID equal to @p rid (no-op when absent). */
+	i32 (*remove_from_reference_array)(sk_resource_object_t view, u32 index, sk_rid_t rid);
+	i32 (*set_subobject)(sk_resource_object_t view, u32 index, sk_rid_t rid);
+	/** Replace the whole sub-object list (items are deep copied). */
+	i32 (*set_subobject_list)(sk_resource_object_t view, u32 index, const sk_rid_t* items, u32 count);
+	/** Append one sub-object RID (grows as needed; clears its prototypeRemoved). */
+	i32 (*add_to_subobject_list)(sk_resource_object_t view, u32 index, sk_rid_t rid);
+	/** Remove the first sub-object RID equal to @p rid; records prototypeRemoved
+	 *  when this instance is a prototype instance and the sub-object mirrors a
+	 *  prototype sub-object. */
+	i32 (*remove_from_subobject_list)(sk_resource_object_t view, u32 index, sk_rid_t rid);
+	/** Remove every sub-object whose prototype is @p prototype from a
+	 *  sub-object-list field (used by prototype propagation); removed RIDs are
+	 *  written to @p out_items (up to @p out_capacity) and their parent link is
+	 *  cleared at Commit. @return number removed (0 when none / bad field). */
+	u32 (*remove_from_subobject_list_by_prototype)(sk_resource_object_t view, u32 index, sk_rid_t prototype, sk_rid_t* out_items, u32 out_capacity);
+	/** @return Non-zero when a sub-object-list field contains @p rid. */
+	i32 (*has_on_subobject_list)(sk_resource_object_t view, u32 index, sk_rid_t rid);
+	/** @return Number of live sub-objects in a sub-object-list field. */
+	u32 (*subobject_list_count)(sk_resource_object_t view, u32 index);
+	/** @return Non-zero when the field carries a value on this object (no chain). */
+	i32 (*has_value_on_this_object)(sk_resource_object_t view, u32 index);
+	/** @return Non-zero when the field is set on this object AND this object is
+	 *         a prototype instance (i.e. it shadows the prototype). */
+	i32 (*is_value_overridden)(sk_resource_object_t view, u32 index);
+
+	i32 (*get_bool)(sk_resource_object_t view, u32 index);
+	i64 (*get_int)(sk_resource_object_t view, u32 index);
+	u64 (*get_uint)(sk_resource_object_t view, u32 index);
+	f64 (*get_float)(sk_resource_object_t view, u32 index);
+	/** @return Borrowed NUL-terminated string, or NULL when unset. */
+	const_chr_t (*get_string)(sk_resource_object_t view, u32 index);
+	sk_rid_t (*get_reference)(sk_resource_object_t view, u32 index);
+	/** @return Borrowed items array; @p out_count receives the count (0 when
+	 *         unset; @p out_count may be NULL). */
+	const sk_rid_t* (*get_reference_array)(sk_resource_object_t view, u32 index, u32* out_count);
+	sk_rid_t (*get_subobject)(sk_resource_object_t view, u32 index);
+	/** @return Borrowed items array; @p out_count receives the count (0 when
+	 *         unset; @p out_count may be NULL). */
+	const sk_rid_t* (*get_subobject_list)(sk_resource_object_t view, u32 index, u32* out_count);
 } sk_repository_api_t;
 
 /**
