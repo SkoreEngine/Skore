@@ -181,6 +181,63 @@ function(sk_add_plugin name)
 endfunction()
 
 # ---------------------------------------------------------------------------
+# sk_copy_dxc_shared_library(<target>)
+#   POST_BUILD-copy the platform DirectX Shader Compiler (DXC) shared library
+#   into the plugins output dir used by sk_add_plugin (CMAKE_RUNTIME_OUTPUT_
+#   DIRECTORY/plugins or ${CMAKE_BINARY_DIR}/bin/plugins).
+#
+#   Modeled on skore main's add_binary_file(): WIN32 → bin/win-x64/dxcompiler
+#   .dll, APPLE → bin/macOS/libdxcompiler.dylib, UNIX → bin/linux-x64/
+#   libdxcompiler.so. Only the win-x64 dll is vendored today; the Apple/Unix
+#   sources do not exist in thirdparty/dxc, so those platforms emit a WARNING
+#   and skip the copy (documented gap until upstream binaries are vendored).
+#   Call from a plugin CMakeLists after the plugin target exists.
+# ---------------------------------------------------------------------------
+function(sk_copy_dxc_shared_library target)
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "sk_copy_dxc_shared_library: unknown target ${target}")
+    endif()
+
+    # thirdparty/dxc lives relative to this file (cmake/cmake_functions.cmake).
+    set(_dxc_dir "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../thirdparty/dxc")
+    if(NOT IS_DIRECTORY "${_dxc_dir}")
+        message(FATAL_ERROR "sk_copy_dxc_shared_library: dxc dir not found: ${_dxc_dir}")
+    endif()
+
+    # Same plugins output dir sk_add_plugin writes SHARED plugins to.
+    if(CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+        set(_plugins_dir "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/plugins")
+    else()
+        set(_plugins_dir "${CMAKE_BINARY_DIR}/bin/plugins")
+    endif()
+
+    if(WIN32)
+        set(_dxc_src "${_dxc_dir}/bin/win-x64/dxcompiler.dll")
+    elseif(APPLE)
+        set(_dxc_src "${_dxc_dir}/bin/macOS/libdxcompiler.dylib")
+    elseif(UNIX)
+        set(_dxc_src "${_dxc_dir}/bin/linux-x64/libdxcompiler.so")
+    else()
+        message(FATAL_ERROR "sk_copy_dxc_shared_library: unsupported platform '${CMAKE_SYSTEM_NAME}'")
+    endif()
+
+    if(NOT EXISTS "${_dxc_src}")
+        message(WARNING
+            "sk_copy_dxc_shared_library(${target}): DXC runtime not vendored "
+            "for ${CMAKE_SYSTEM_NAME} (${_dxc_src}). Skipping copy; only "
+            "bin/win-x64/dxcompiler.dll ships today.")
+        return()
+    endif()
+
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_plugins_dir}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_dxc_src}" "${_plugins_dir}"
+        COMMENT "Copying DXC shared library for ${target}"
+    )
+endfunction()
+
+# ---------------------------------------------------------------------------
 # sk_check_header_isolation(<dir>...)
 #   Fail the configure if any public header under <dir> includes an OS
 #   threading/mutex header (<pthread.h>, <windows.h>, <semaphore.h>, <sched.h>,

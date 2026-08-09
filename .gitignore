@@ -42,6 +42,10 @@ cmake-build-*/
 *.exe
 *.pdb
 
+# Vendored DXC runtime binaries must stay tracked (build-output dlls are
+# ignored above, but thirdparty/dxc/bin/* is checked-in source).
+!thirdparty/dxc/bin/win-x64/dxcompiler.dll
+
 #skore
 *.pak
 # Never commit offline apt packages or extracted sysroot workarounds
