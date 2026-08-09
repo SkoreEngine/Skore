@@ -17,6 +17,7 @@ add_executable(sk-integration-tests
     main.c
     vulkan_device.c
     vulkan_triangle.c
+    test_render_device.c
 )
 
 # App host (sk_app_init / registry / filesystem / platform backends) +
@@ -41,9 +42,10 @@ set_target_properties(sk-integration-tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 
-# Ensure the real Vulkan backend + stub render device + DXC compiler exist
-# (and the vendored DXC runtime is copied beside the plugin) before the run.
-add_dependencies(sk-integration-tests sk-vulkan-render-device sk-render-device sk-dxc-compiler)
+# Ensure the real Vulkan backend + stub render device + DXC compiler + the
+# CPU-mock test render device exist (and the vendored DXC runtime is copied
+# beside the plugin) before the run.
+add_dependencies(sk-integration-tests sk-vulkan-render-device sk-render-device sk-test-render-device sk-dxc-compiler)
 
 # Run from bin/ so the copied DXC runtime (plugins/libdxcompiler.so) is found
 # relative to cwd, matching the sk-tests working directory.
