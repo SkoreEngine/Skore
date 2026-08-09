@@ -1,11 +1,8 @@
-# CMake
+# CMake / IDE
 
 .idea*/
-cmake-build-*/
 .vs
 .venv
-out
-build
 .claude/
 
 CMakeLists.txt.user
@@ -19,6 +16,31 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps
+.ninja_deps
+.ninja_log
+
+# Out-of-tree build dirs.
+# Agents invent names (build-asan, build-cov, build-apx21, …); cover them all.
+# Prefer a single canonical `build/` for local and CI work.
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+# Also match non-root names used historically
+build
+cmake-build-*/
+
+# Object files, static libs, shared libs (even if built in-tree by mistake)
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
 
 #skore
 *.pak
