@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app.h"
 #include "common.h"
 
 #ifdef __cplusplus
@@ -12,9 +13,12 @@ extern "C" {
 /*
  * Global module API table for the Vulkan render device backend.
  *
- * Scaffold surface (APX-49): establishes plugin registration plus the
- * volk / VMA / Vulkan-Headers build wiring. The full sk_render_device_api_t
- * implementation lands with the Vulkan device (APX-50).
+ * APX-49 established this plugin + the volk / VMA / Vulkan-Headers build
+ * wiring. APX-50 ports the full Vulkan device implementation from skore main:
+ * the plugin registers the real `sk_render_device_api_t` backend under
+ * SK_RENDER_DEVICE_API_TYPE_ID (see render_device.h), and keeps this smaller
+ * loader surface (volk initialization / VMA wiring proof) registered under
+ * SK_VULKAN_RENDER_DEVICE_API_TYPE_ID.
  */
 typedef struct sk_vulkan_render_device_api_t {
 	/**
@@ -40,6 +44,16 @@ typedef struct sk_vulkan_render_device_api_t {
 	 */
 	u32 (*vma_allocator_size)(void);
 } sk_vulkan_render_device_api_t;
+
+/**
+ * Register this plugin's API tables on the app context.
+ * Called from sk_plugin_entry_point. Registers:
+ *   - sk_render_device_api_t (full Vulkan backend) under SK_RENDER_DEVICE_API_TYPE_ID
+ *   - sk_vulkan_render_device_api_t (loader surface) under SK_VULKAN_RENDER_DEVICE_API_TYPE_ID
+ * @param context App context (must not be NULL).
+ * @param app_api App module table (must not be NULL).
+ */
+void sk_vulkan_render_device_init(sk_app_context_t* context, const sk_app_api_t* app_api);
 
 #ifdef __cplusplus
 }
