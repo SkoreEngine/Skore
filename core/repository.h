@@ -9,9 +9,10 @@
  * page-allocated resource store keyed by RID with UUID and path uniqueness,
  * default-value deep copy, plus the hierarchy layer: lock-free Read, exclusive
  * Write/Commit with multi-commit CAS publish, Clone, CreateFromPrototype,
- * parent / prototype linkage, sub-objects with SubObjectList propagation, and
- * garbage collection of superseded instances. Reflection, events,
- * serialization, and undo/redo are intentionally absent.
+ * parent / prototype linkage, sub-objects with SubObjectList propagation,
+ * garbage collection of superseded instances, and undo/redo scopes that record
+ * before/after instance snapshots for scoped commits and structural mutations.
+ * Reflection, events, and serialization are intentionally absent.
  *
  * All state lives on an explicit sk_repository_t instance created with an
  * allocator — there are no process-global repository tables. The module
@@ -57,10 +58,16 @@
  * Commit). Parent / prototype pointers are main-thread data.
  *
  * Intentional gaps for this revision: reflection-driven registration, event
- * dispatch, serialization loaders, and undo/redo scopes. Per-field has-value
- * bits ARE implemented (drives prototype inheritance / overrides); the
- * SubObjectList "removed-from-prototype" set (prototypeRemoved) is implemented
- * and honored by SubObjectList propagation.
+ * dispatch, and serialization loaders. Undo/redo scopes ARE implemented:
+ * sk_undo_redo_scope_t records deep-copied before/after instance snapshots for
+ * every scoped Commit and structural mutation (create_resource,
+ * destroy_resource, clone, create_from_prototype); Undo restores the before
+ * snapshots in reverse order and Redo reapplies the after snapshots, both
+ * bumping versions. Scope-owned copies stay alive until the scope is destroyed
+ * (they are never collected). Per-field has-value bits ARE implemented (drives
+ * prototype inheritance / overrides); the SubObjectList "removed-from-prototype"
+ * set (prototypeRemoved) is implemented and honored by SubObjectList
+ * propagation.
  */
 
 #include "allocator.h"
@@ -236,6 +243,15 @@ typedef struct sk_repository_t sk_repository_t;
 typedef struct sk_resource_type_t sk_resource_type_t;
 
 /**
+ * Opaque undo/redo scope: records ordered before/after instance snapshots for
+ * every scoped Commit and structural mutation. Undo restores the before
+ * snapshots in reverse order; Redo reapplies the after snapshots. Snapshot
+ * copies are owned by the scope and are never collected by garbage_collect
+ * while the scope is alive; destroy the scope before its repository.
+ */
+typedef struct sk_undo_redo_scope_t sk_undo_redo_scope_t;
+
+/**
  * Resource read/write view (C port of the main-branch ResourceObject).
  *
  * - Read views (read) own nothing: @p instance pins the published instance
@@ -314,22 +330,31 @@ typedef struct sk_repository_api_t {
 	 * Create a resource of @p type. When @p uuid is non-zero and already
 	 * registered to a live resource, returns that resource's RID (idempotent).
 	 * The instance blob is a deep copy of the type's defaults when present,
-	 * otherwise zero-initialized.
+	 * otherwise zero-initialized. When @p scope is non-NULL and the create
+	 * succeeds, a change (before = no value, after = the new instance) is
+	 * pushed so Undo drops the value and Redo restores it.
 	 * @param repository Repository (must not be NULL).
 	 * @param type       Registered type (must belong to @p repository).
 	 * @param uuid       UUID for the resource, or SK_UUID_ZERO for none.
+	 * @param scope      Optional undo/redo scope to record the create into, or
+	 *                   NULL to skip recording.
 	 * @return The new resource's RID, or SK_RID_ZERO on allocation failure.
 	 */
-	sk_rid_t (*create_resource)(sk_repository_t* repository, const sk_resource_type_t* type, sk_uuid_t uuid);
+	sk_rid_t (*create_resource)(sk_repository_t* repository, const sk_resource_type_t* type, sk_uuid_t uuid, sk_undo_redo_scope_t* scope);
 
 	/**
 	 * Destroy a resource: frees its instance and path, unregisters its UUID
-	 * and path, and releases the storage slot.
+	 * and path, and releases the storage slot. When @p scope is non-NULL a
+	 * change (before = the live instance, after = no value) is pushed so Undo
+	 * restores the resource and Redo drops it again. The parent detach and any
+	 * recursively destroyed sub-objects are recorded into the same scope.
 	 * @param repository Repository (must not be NULL).
 	 * @param rid        Live resource RID.
+	 * @param scope      Optional undo/redo scope to record the destroy into, or
+	 *                   NULL to skip recording.
 	 * @return 0 on success, -1 when @p rid is not a live resource.
 	 */
-	i32 (*destroy_resource)(sk_repository_t* repository, sk_rid_t rid);
+	i32 (*destroy_resource)(sk_repository_t* repository, sk_rid_t rid, sk_undo_redo_scope_t* scope);
 
 	/**
 	 * Whether @p rid maps to a live resource.
@@ -439,11 +464,17 @@ typedef struct sk_repository_api_t {
 	 * the instance it was written on top of (a lost CAS discards the
 	 * uncommitted copy), enqueue the replaced instance for garbage collection,
 	 * bump the version, refresh sub-object parent links, propagate SubObjectList
-	 * edits to prototype instances, and release the write lock. Calling Commit
-	 * on a read / invalid / already-committed-or-discarded view is a no-op.
-	 * @param view Write view from write.
+	 * edits to prototype instances, and release the write lock. When @p scope
+	 * is non-NULL and the publish succeeds, a change (before = the instance the
+	 * view was written on top of, after = the published instance) is pushed.
+	 * Prototype propagation performed by this commit is recorded into the same
+	 * scope. Calling Commit on a read / invalid / already-committed-or-discarded
+	 * view is a no-op.
+	 * @param view  Write view from write.
+	 * @param scope Optional undo/redo scope to record the commit into, or NULL
+	 *              to skip recording.
 	 */
-	void (*commit)(sk_resource_object_t view);
+	void (*commit)(sk_resource_object_t view, sk_undo_redo_scope_t* scope);
 
 	/**
 	 * Abandon a write view: free the uncommitted instance and release the write
@@ -498,13 +529,18 @@ typedef struct sk_repository_api_t {
 	 * is valid it is registered in the by-uuid map (a uuid already owned by
 	 * another live resource fails the clone); otherwise a fresh uuid is
 	 * generated when @p origin carries one. On OOM every already-reserved clone
-	 * slot is rolled back and the repository is left usable.
+	 * slot is rolled back and the repository is left usable. When @p scope is
+	 * non-NULL, every freshly created clone slot (root and each cloned
+	 * sub-object) records a change (before = no value, after = the new
+	 * instance).
 	 * @param repository Repository (must not be NULL).
 	 * @param origin     Existing resource id.
 	 * @param uuid       Optional uuid; SK_UUID_ZERO to auto-generate.
+	 * @param scope      Optional undo/redo scope to record the clone into, or
+	 *                   NULL to skip recording.
 	 * @return The new resource's RID, or SK_RID_ZERO on failure.
 	 */
-	sk_rid_t (*clone)(sk_repository_t* repository, sk_rid_t origin, sk_uuid_t uuid);
+	sk_rid_t (*clone)(sk_repository_t* repository, sk_rid_t origin, sk_uuid_t uuid, sk_undo_redo_scope_t* scope);
 
 	/**
 	 * Create a new resource that mirrors @p prototype.
@@ -517,13 +553,17 @@ typedef struct sk_repository_api_t {
 	 * prototype SubObjectList edits propagate to it on Commit. When @p uuid is
 	 * valid it is registered in the by-uuid map (a duplicate fails the call);
 	 * otherwise a fresh uuid is generated when @p prototype carries one. On OOM
-	 * every already-reserved mirror slot is rolled back.
+	 * every already-reserved mirror slot is rolled back. When @p scope is
+	 * non-NULL, every freshly created mirror slot (root and each sub-object
+	 * mirror) records a change (before = no value, after = the new instance).
 	 * @param repository Repository (must not be NULL).
 	 * @param prototype  Existing resource used as the prototype (must be typed).
 	 * @param uuid       Optional uuid; SK_UUID_ZERO to auto-generate.
+	 * @param scope      Optional undo/redo scope to record the create into, or
+	 *                   NULL to skip recording.
 	 * @return The new resource's RID, or SK_RID_ZERO on failure.
 	 */
-	sk_rid_t (*create_from_prototype)(sk_repository_t* repository, sk_rid_t prototype, sk_uuid_t uuid);
+	sk_rid_t (*create_from_prototype)(sk_repository_t* repository, sk_rid_t prototype, sk_uuid_t uuid, sk_undo_redo_scope_t* scope);
 
 	/**
 	 * @return The RID of the resource that owns @p rid as a sub-object, or
@@ -610,6 +650,55 @@ typedef struct sk_repository_api_t {
 	/** @return Borrowed items array; @p out_count receives the count (0 when
 	 *         unset; @p out_count may be NULL). */
 	const sk_rid_t* (*get_subobject_list)(sk_resource_object_t view, u32 index, u32* out_count);
+
+	/* ---- undo / redo scopes ---- */
+
+	/**
+	 * Create an undo/redo scope. The scope owns deep copies of every recorded
+	 * before/after instance snapshot; they are never collected by
+	 * garbage_collect and are released by undo_redo_scope_destroy. A scope must
+	 * be destroyed before the repository its changes reference.
+	 * @param allocator Allocator for the scope's own bookkeeping (must not be
+	 *                  NULL; must outlive the scope).
+	 * @param name      Human-readable scope name; copied (may be NULL).
+	 * @return New scope, or NULL on allocation failure.
+	 */
+	sk_undo_redo_scope_t* (*undo_redo_scope_create)(const sk_allocator_t* allocator, const_chr_t name);
+
+	/**
+	 * Destroy a scope and release its snapshot copies. Safe on NULL. Any
+	 * repository referenced by the scope's changes must outlive the scope.
+	 * @param scope Scope to destroy, or NULL.
+	 */
+	void (*undo_redo_scope_destroy)(sk_undo_redo_scope_t* scope);
+
+	/**
+	 * Undo every change recorded in @p scope in reverse order: for each change
+	 * the storage's published instance is replaced with a fresh deep copy of
+	 * the change's before snapshot (or cleared when the before snapshot is no
+	 * value), the version (and each ancestor's) is bumped, and the superseded
+	 * instance is queued for garbage collection. A destroyed resource's slot is
+	 * re-created (uuid, path, prototype link restored). Changes whose storage
+	 * slot no longer exists and whose before snapshot is no value (rolled-back
+	 * operations) are skipped.
+	 * @param scope Scope to undo (must not be NULL).
+	 */
+	void (*undo_redo_scope_undo)(sk_undo_redo_scope_t* scope);
+
+	/**
+	 * Redo every change recorded in @p scope in forward order: for each change
+	 * the storage's published instance is replaced with a fresh deep copy of
+	 * the change's after snapshot (or cleared when the after snapshot is no
+	 * value), the version chain is bumped, and the superseded instance is
+	 * queued for garbage collection.
+	 * @param scope Scope to redo (must not be NULL).
+	 */
+	void (*undo_redo_scope_redo)(sk_undo_redo_scope_t* scope);
+
+	/**
+	 * @return The scope's name (borrowed; valid until the scope is destroyed).
+	 */
+	const_chr_t (*undo_redo_scope_get_name)(const sk_undo_redo_scope_t* scope);
 } sk_repository_api_t;
 
 /**
