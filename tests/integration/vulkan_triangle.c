@@ -441,8 +441,8 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	begin_info.usage_flags = (u32)SK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT;
 	TEST_ASSERT_EQUAL_INT(0, api->begin_command_buffer(dev, cmd, &begin_info));
 
-	api->update_buffer(dev, cmd, vb, 0u, (u64)sizeof(tri_vertices), tri_vertices);
-	api->update_buffer(dev, cmd, ib, 0u, (u64)sizeof(tri_indices), tri_indices);
+	api->update_buffer(dev, cmd, vb, 0u, sizeof(tri_vertices), tri_vertices);
+	api->update_buffer(dev, cmd, ib, 0u, sizeof(tri_indices), tri_indices);
 	/* Make the update-buffer writes visible to vertex/index fetches. */
 	api->memory_barrier(dev, cmd);
 
