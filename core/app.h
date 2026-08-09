@@ -25,7 +25,8 @@ extern "C" {
 #endif
 
 /**
- * Opaque app instance: owns the type_id → API pointer registry.
+ * Opaque app instance: owns the type_id → API pointer registry (set_api/get_api)
+ * and the type_id → implementation-list registry (add_impl/remove_impl/count/get_all).
  * A context from sk_app_init also owns runtime state (timing, loaded plugins,
  * host "app" logger). Independent contexts from sk_app_create are registry-only.
  */
@@ -54,6 +55,52 @@ typedef struct sk_app_api_t {
      * @return Registered pointer, or NULL if missing / bad args.
      */
 	void_ptr_t (*get_api)(sk_app_context_t* context, sk_type_id_t type_id);
+
+	/**
+     * Register an implementation pointer for @p type_id.
+     * Unlike set_api (which stores a single pointer per type), implementations
+     * accumulate as a list: repeated add_impl calls append entries per type_id.
+     * Adding the same pointer twice records it twice; use remove_impl to drop
+     * an exact match. The context owns the list storage; @p pointer is stored
+     * as an opaque address and never dereferenced here.
+     * @param context App context (must not be NULL).
+     * @param type_id Type id of the implementation surface.
+     * @param pointer Pointer to the implementation (must not be NULL).
+     */
+	void (*add_impl)(sk_app_context_t* context, sk_type_id_t type_id, const_ptr_t pointer);
+
+	/**
+     * Remove the first implementation entry under @p type_id whose stored
+     * pointer equals @p pointer (exact address match). No-op when @p pointer
+     * is not registered or @p type_id has no implementations.
+     * @param context App context (must not be NULL).
+     * @param type_id Type id of the implementation surface.
+     * @param pointer Pointer previously passed to add_impl.
+     */
+	void (*remove_impl)(sk_app_context_t* context, sk_type_id_t type_id, const_ptr_t pointer);
+
+	/**
+     * Number of implementations registered under @p type_id.
+     * @param context App context (must not be NULL).
+     * @param type_id Type id of the implementation surface.
+     * @return Implementation count, or 0 when the type_id is missing/empty.
+     */
+	u32 (*impl_count)(sk_app_context_t* context, sk_type_id_t type_id);
+
+	/**
+     * Copy up to @p out_cap implementation pointers registered under @p type_id
+     * into @p out and return the total count. When @p out is NULL or
+     * @p out_cap is 0, only the count is returned (nothing is written).
+     * Caller owns no storage: entries are copies of internal pointers and stay
+     * valid until removed (or the context is destroyed). The order is
+     * insertion order, but swap-remove may reorder after a remove_impl.
+     * @param context App context (must not be NULL).
+     * @param type_id Type id of the implementation surface.
+     * @param out Destination buffer, or NULL to query the count only.
+     * @param out_cap Capacity of @p out in elements.
+     * @return Total implementation count for @p type_id (may exceed @p out_cap).
+     */
+	u32 (*get_all_impls)(sk_app_context_t* context, sk_type_id_t type_id, const_ptr_t* out, u32 out_cap);
 
 	/**
      * Load a plugin shared library from @p path and call sk_plugin_entry_point.

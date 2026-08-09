@@ -22,6 +22,10 @@ typedef SK_ARRAY(sk_shared_lib_t) plugin_lib_array_t;
 /* Typed registry: sk_type_id_t → opaque API pointer. */
 typedef SK_HASH_MAP(sk_type_id_t, void_ptr_t) sk_app_api_map_t;
 
+/* Multi-implementation registry: sk_type_id_t → list of opaque pointers. */
+typedef SK_ARRAY(void_ptr_t) sk_app_impl_list_t;
+typedef SK_HASH_MAP(sk_type_id_t, sk_app_impl_list_t) sk_app_impl_map_t;
+
 /*
  * App context: API registry plus process runtime when used as the
  * sk_app_init instance. Independent contexts from sk_app_create leave
@@ -29,6 +33,7 @@ typedef SK_HASH_MAP(sk_type_id_t, void_ptr_t) sk_app_api_map_t;
  */
 struct sk_app_context_t {
 	sk_app_api_map_t apis;
+	sk_app_impl_map_t impls;
 
 	/* Runtime (timing, plugins, main-loop flags, host logger). */
 	i32 initialized;
@@ -105,8 +110,62 @@ static void_ptr_t sk_app_get_api_impl(sk_app_context_t* context, sk_type_id_t ty
 	return out;
 }
 
+/* ---- multi-implementation registry backends ---- */
+
+/** Implementation list for @p type_id, or NULL when the type_id is unknown. */
+static sk_app_impl_list_t* impl_list_for(sk_app_context_t* context, sk_type_id_t type_id) {
+	return (sk_app_impl_list_t*)sk_hash_map_get_ptr(&context->impls, type_id);
+}
+
+static void sk_app_add_impl_impl(sk_app_context_t* context, sk_type_id_t type_id, const_ptr_t pointer) {
+	sk_app_impl_list_t* list = impl_list_for(context, type_id);
+	if (list == NULL) {
+		sk_app_impl_list_t fresh;
+		sk_array_init(&fresh, sk_allocator_default());
+		if (sk_hash_map_put(&context->impls, type_id, fresh) != 0) {
+			return;
+		}
+		list = impl_list_for(context, type_id);
+	}
+	/* Duplicates are allowed: each add records another entry. */
+	(void)sk_array_push(list, SK_CONST_CAST(void_ptr_t, pointer));
+}
+
+static void sk_app_remove_impl_impl(sk_app_context_t* context, sk_type_id_t type_id, const_ptr_t pointer) {
+	sk_app_impl_list_t* list = impl_list_for(context, type_id);
+	if (list == NULL) {
+		return;
+	}
+	for (u32 i = 0u; i < list->count; i++) {
+		if ((const_ptr_t)list->items[i] == pointer) {
+			sk_array_swap_remove(list, i);
+			return;
+		}
+	}
+}
+
+static u32 sk_app_impl_count_impl(sk_app_context_t* context, sk_type_id_t type_id) {
+	sk_app_impl_list_t* list = impl_list_for(context, type_id);
+	return (list == NULL) ? 0u : list->count;
+}
+
+static u32 sk_app_get_all_impls_impl(sk_app_context_t* context, sk_type_id_t type_id, const_ptr_t* out, u32 out_cap) {
+	sk_app_impl_list_t* list = impl_list_for(context, type_id);
+	if (list == NULL) {
+		return 0u;
+	}
+	if (out != NULL) {
+		u32 n = (out_cap < list->count) ? out_cap : list->count;
+		for (u32 i = 0u; i < n; i++) {
+			out[i] = (const_ptr_t)list->items[i];
+		}
+	}
+	return list->count;
+}
+
 static const sk_app_api_t app_api = {
-	sk_app_set_api_impl, sk_app_get_api_impl, sk_app_load_plugin_impl, sk_app_request_shutdown_impl, sk_app_delta_time_impl, sk_app_fps_impl, sk_app_elapsed_time_impl,
+	sk_app_set_api_impl,	 sk_app_get_api_impl,		   sk_app_add_impl_impl,   sk_app_remove_impl_impl, sk_app_impl_count_impl,	  sk_app_get_all_impls_impl,
+	sk_app_load_plugin_impl, sk_app_request_shutdown_impl, sk_app_delta_time_impl, sk_app_fps_impl,			sk_app_elapsed_time_impl,
 };
 
 /* ---- context create / destroy / API table ---- */
@@ -120,6 +179,11 @@ sk_app_context_t* sk_app_create(void) {
 	memset(context, 0, sizeof(*context));
 
 	if (sk_hash_map_init(&context->apis, alloc, NULL, NULL) != 0) {
+		alloc->free(alloc->instance, context);
+		return NULL;
+	}
+	if (sk_hash_map_init(&context->impls, alloc, NULL, NULL) != 0) {
+		sk_hash_map_free(&context->apis);
 		alloc->free(alloc->instance, context);
 		return NULL;
 	}
@@ -138,6 +202,15 @@ void sk_app_destroy(sk_app_context_t* context) {
 		sk_array_free(&context->plugins);
 	}
 	app_logger_shutdown(context);
+
+	/* Free every implementation list before the impl map itself. */
+	const sk_hash_map_t* impl_map = &context->impls._hm;
+	for (u32 slot = 0u; slot < impl_map->capacity; slot++) {
+		if (sk_hash_map_slot_occupied_(impl_map, slot) != 0) {
+			sk_array_free((sk_app_impl_list_t*)sk_hash_map_value_at_(&context->impls._hm, slot));
+		}
+	}
+	sk_hash_map_free(&context->impls);
 
 	sk_hash_map_free(&context->apis);
 
@@ -859,6 +932,10 @@ SK_TEST(app_init_creates_context_and_api_table) {
 	TEST_ASSERT_NOT_NULL(sk_app_api());
 	TEST_ASSERT_NOT_NULL(sk_app_api()->set_api);
 	TEST_ASSERT_NOT_NULL(sk_app_api()->get_api);
+	TEST_ASSERT_NOT_NULL(sk_app_api()->add_impl);
+	TEST_ASSERT_NOT_NULL(sk_app_api()->remove_impl);
+	TEST_ASSERT_NOT_NULL(sk_app_api()->impl_count);
+	TEST_ASSERT_NOT_NULL(sk_app_api()->get_all_impls);
 	TEST_ASSERT_NOT_NULL(sk_app_api()->load_plugin);
 	TEST_ASSERT_NOT_NULL(sk_app_api()->request_shutdown);
 	TEST_ASSERT_NOT_NULL(sk_app_api()->delta_time);
@@ -923,6 +1000,157 @@ SK_TEST(app_create_destroy_independent_context) {
 	TEST_ASSERT_NOT_NULL(ctx);
 	sk_app_api()->set_api(ctx, id, &marker);
 	TEST_ASSERT_EQUAL_PTR(&marker, sk_app_api()->get_api(ctx, id));
+	sk_app_destroy(ctx);
+}
+
+/* ---- multi-implementation registry ---- */
+
+SK_TEST(app_impl_add_count_roundtrip) {
+	static char a = 'a', b = 'b', c = 'c';
+	sk_type_id_t id = SK_TYPE_ID("test.multi_impl", 0x1111111111111111ULL, 0x3333333333333333ULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+
+	TEST_ASSERT_EQUAL_UINT32(0u, api->impl_count(ctx, id));
+	api->add_impl(ctx, id, &a);
+	api->add_impl(ctx, id, &b);
+	api->add_impl(ctx, id, &c);
+	TEST_ASSERT_EQUAL_UINT32(3u, api->impl_count(ctx, id));
+
+	const_ptr_t out[8];
+	TEST_ASSERT_EQUAL_UINT32(3u, api->get_all_impls(ctx, id, out, 8u));
+	TEST_ASSERT_EQUAL_PTR(&a, out[0]);
+	TEST_ASSERT_EQUAL_PTR(&b, out[1]);
+	TEST_ASSERT_EQUAL_PTR(&c, out[2]);
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(app_impl_get_all_truncates_to_buffer) {
+	static char a = 'a', b = 'b', c = 'c';
+	sk_type_id_t id = SK_TYPE_ID("test.multi_trunc", 0x1111111111111111ULL, 0x4444444444444444ULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	api->add_impl(ctx, id, &a);
+	api->add_impl(ctx, id, &b);
+	api->add_impl(ctx, id, &c);
+
+	const_ptr_t out[2];
+	TEST_ASSERT_EQUAL_UINT32(3u, api->get_all_impls(ctx, id, out, 2u));
+	TEST_ASSERT_EQUAL_PTR(&a, out[0]);
+	TEST_ASSERT_EQUAL_PTR(&b, out[1]);
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(app_impl_get_all_count_only) {
+	static char a = 'a';
+	sk_type_id_t id = SK_TYPE_ID("test.multi_count_only", 0x1111111111111111ULL, 0x5555555555555555ULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	api->add_impl(ctx, id, &a);
+	TEST_ASSERT_EQUAL_UINT32(1u, api->get_all_impls(ctx, id, NULL, 0u));
+	TEST_ASSERT_EQUAL_UINT32(1u, api->get_all_impls(ctx, id, NULL, 4u));
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(app_impl_missing_type_returns_zero) {
+	sk_type_id_t id = SK_TYPE_ID("test.multi_missing", 0xAAAAAAAAAAAAAAAAULL, 0xCCCCCCCCCCCCCCCCULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	TEST_ASSERT_EQUAL_UINT32(0u, api->impl_count(ctx, id));
+	TEST_ASSERT_EQUAL_UINT32(0u, api->get_all_impls(ctx, id, NULL, 0u));
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(app_impl_remove_by_pointer) {
+	static char a = 'a', b = 'b', c = 'c';
+	sk_type_id_t id = SK_TYPE_ID("test.multi_remove", 0x1111111111111111ULL, 0x6666666666666666ULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	api->add_impl(ctx, id, &a);
+	api->add_impl(ctx, id, &b);
+	api->add_impl(ctx, id, &c);
+
+	api->remove_impl(ctx, id, &b);
+	TEST_ASSERT_EQUAL_UINT32(2u, api->impl_count(ctx, id));
+	const_ptr_t out[8];
+	TEST_ASSERT_EQUAL_UINT32(2u, api->get_all_impls(ctx, id, out, 8u));
+	TEST_ASSERT_EQUAL_PTR(&a, out[0]);
+	TEST_ASSERT_EQUAL_PTR(&c, out[1]);
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(app_impl_remove_does_not_touch_other_types) {
+	static char a = 'a', b = 'b';
+	static char other_x = 'x', other_y = 'y';
+	sk_type_id_t id = SK_TYPE_ID("test.multi_remove_a", 0x1111111111111111ULL, 0x1234123412341234ULL);
+	sk_type_id_t other = SK_TYPE_ID("test.multi_remove_b", 0x5555555555555555ULL, 0x5678567856785678ULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	api->add_impl(ctx, id, &a);
+	api->add_impl(ctx, id, &b);
+	api->add_impl(ctx, other, &other_x);
+	api->add_impl(ctx, other, &other_y);
+
+	api->remove_impl(ctx, id, &a);
+	TEST_ASSERT_EQUAL_UINT32(1u, api->impl_count(ctx, id));
+	TEST_ASSERT_EQUAL_UINT32(2u, api->impl_count(ctx, other));
+
+	const_ptr_t out[4];
+	TEST_ASSERT_EQUAL_UINT32(2u, api->get_all_impls(ctx, other, out, 4u));
+	TEST_ASSERT_EQUAL_PTR(&other_x, out[0]);
+	TEST_ASSERT_EQUAL_PTR(&other_y, out[1]);
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(app_impl_remove_missing_is_noop) {
+	static char a = 'a', b = 'b';
+	sk_type_id_t id = SK_TYPE_ID("test.multi_remove_missing", 0x1111111111111111ULL, 0x7777777777777777ULL);
+	sk_type_id_t missing = SK_TYPE_ID("test.multi_no_type", 0xBBBBBBBBBBBBBBBBULL, 0xDDDDDDDDDDDDDDDDULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	api->add_impl(ctx, id, &a);
+	api->remove_impl(ctx, id, &b);
+	api->remove_impl(ctx, missing, &a);
+	TEST_ASSERT_EQUAL_UINT32(1u, api->impl_count(ctx, id));
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(app_impl_duplicate_pointer_allowed) {
+	static char a = 'a';
+	sk_type_id_t id = SK_TYPE_ID("test.multi_dup", 0x1111111111111111ULL, 0x9999999999999999ULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	api->add_impl(ctx, id, &a);
+	api->add_impl(ctx, id, &a);
+	TEST_ASSERT_EQUAL_UINT32(2u, api->impl_count(ctx, id));
+	api->remove_impl(ctx, id, &a);
+	TEST_ASSERT_EQUAL_UINT32(1u, api->impl_count(ctx, id));
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(app_impl_independent_of_set_get_api) {
+	static char impl = 'i';
+	static int api_val = 7;
+	sk_type_id_t id = SK_TYPE_ID("test.multi_indep", 0x1111111111111111ULL, 0x8888888888888888ULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	api->add_impl(ctx, id, &impl);
+	api->set_api(ctx, id, &api_val);
+
+	TEST_ASSERT_EQUAL_UINT32(1u, api->impl_count(ctx, id));
+	TEST_ASSERT_EQUAL_PTR(&api_val, api->get_api(ctx, id));
+	const_ptr_t out[4];
+	TEST_ASSERT_EQUAL_UINT32(1u, api->get_all_impls(ctx, id, out, 4u));
+	TEST_ASSERT_EQUAL_PTR(&impl, out[0]);
 	sk_app_destroy(ctx);
 }
 
