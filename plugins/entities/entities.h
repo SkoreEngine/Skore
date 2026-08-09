@@ -29,6 +29,18 @@
  * Slots are allocated append-only (next free row) and freed by swap-remove
  * (the last row is moved into the freed row and reported so its location can
  * be updated), keeping every column dense.
+ *
+ * # World / entity lifecycle
+ *
+ * A sk_world_t owns an archetype table (archetypes are created lazily from
+ * component signatures, retained even when empty) and a dense entity index:
+ * each live entity has a slot whose index/generation form its stable
+ * sk_entity_t handle and whose fields cache the entity's current
+ * { archetype, chunk, row } location. Destroyed slots are recycled through a
+ * free list with a bumped generation, so stale handles fail the generation
+ * check. The immediate structural APIs (world_spawn / world_despawn /
+ * world_add_component / world_remove_component) mutate storage right away and
+ * are intentionally separate from the deferred sk_entitycommands_t surface.
  */
 
 #include "common.h"
