@@ -11,9 +11,11 @@
  * entity -> { chunk, row } location.
  *
  * Component identity is wired through sk_type_id_t: a module-level registry
- * maps each component type id to its layout (size/align/name). World / query /
- * system / entitycommands surfaces are declared in entities.h and built out by
- * follow-up work on top of this storage layer.
+ * maps each component type id to its layout (size/align/name). Queries match
+ * archetypes by required/optional/excluded component sets and iterate their
+ * storage through the SK_ECS_* macros. World / system / entitycommands
+ * surfaces are declared in entities.h and built out by follow-up work on top
+ * of this storage layer.
  */
 
 #include "entities.h"
@@ -521,6 +523,204 @@ static i32 chunk_find_impl(const sk_chunk_t* chunk, sk_entity_t entity, u32* out
 	return -1;
 }
 
+/* ---- query API ---- */
+
+/*
+ * Query: required / optional / excluded component sets plus the matched
+ * archetype list. Terms are laid out as term 0 = implicit entity component,
+ * then the required ids in descriptor order, then the optional ids in
+ * descriptor order; required[] records which terms are mandatory (term 0 is
+ * always required). Matched archetypes are appended by query_observe (driven
+ * by the world when an archetype is created); iteration walks their chunks
+ * through query_iter_next, skipping empty chunks.
+ */
+struct sk_query_t {
+	u32 term_count;
+	sk_type_id_t terms[SK_ECS_MAX_QUERY_TERMS];
+	u32 required[SK_ECS_MAX_QUERY_TERMS];
+	u32 excluded_count;
+	sk_type_id_t excluded[SK_ECS_MAX_QUERY_TERMS];
+	SK_ARRAY(sk_archetype_t*) archetypes;
+};
+
+static sk_query_t* query_create_impl(const sk_query_desc_t* desc) {
+	if (desc == NULL) {
+		return NULL;
+	}
+	const u32 term_count = 1u + desc->required_count + desc->optional_count;
+	if (term_count > (u32)SK_ECS_MAX_QUERY_TERMS || desc->excluded_count > (u32)SK_ECS_MAX_QUERY_TERMS) {
+		return NULL;
+	}
+	if ((desc->required_count > 0u && desc->required == NULL) || (desc->optional_count > 0u && desc->optional == NULL) || (desc->excluded_count > 0u && desc->excluded == NULL)) {
+		return NULL;
+	}
+	for (u32 i = 0u; i < desc->required_count; ++i) {
+		if (SK_TYPE_ID_EQ(desc->required[i], SK_TYPE_ID_ZERO)) {
+			return NULL;
+		}
+	}
+	for (u32 i = 0u; i < desc->optional_count; ++i) {
+		if (SK_TYPE_ID_EQ(desc->optional[i], SK_TYPE_ID_ZERO)) {
+			return NULL;
+		}
+	}
+	for (u32 i = 0u; i < desc->excluded_count; ++i) {
+		if (SK_TYPE_ID_EQ(desc->excluded[i], SK_TYPE_ID_ZERO)) {
+			return NULL;
+		}
+	}
+
+	/* A type id may appear at most once among the query terms: each term maps
+	 * 1:1 to a component column, so a duplicate would be ambiguous. */
+	for (u32 i = 0u; i < desc->required_count; ++i) {
+		for (u32 j = i + 1u; j < desc->required_count; ++j) {
+			if (SK_TYPE_ID_EQ(desc->required[i], desc->required[j])) {
+				return NULL;
+			}
+		}
+	}
+	for (u32 i = 0u; i < desc->optional_count; ++i) {
+		for (u32 j = i + 1u; j < desc->optional_count; ++j) {
+			if (SK_TYPE_ID_EQ(desc->optional[i], desc->optional[j])) {
+				return NULL;
+			}
+		}
+		for (u32 j = 0u; j < desc->required_count; ++j) {
+			if (SK_TYPE_ID_EQ(desc->optional[i], desc->required[j])) {
+				return NULL;
+			}
+		}
+	}
+
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_query_t* q = (sk_query_t*)alloc->alloc(alloc->instance, sizeof(sk_query_t));
+	if (q == NULL) {
+		return NULL;
+	}
+	sk_array_init(&q->archetypes, alloc);
+
+	q->term_count = term_count;
+	q->excluded_count = desc->excluded_count;
+	q->terms[0] = SK_ECS_ENTITY_COMPONENT_ID;
+	q->required[0] = 1u;
+	for (u32 i = 0u; i < desc->required_count; ++i) {
+		q->terms[1u + i] = desc->required[i];
+		q->required[1u + i] = 1u;
+	}
+	for (u32 i = 0u; i < desc->optional_count; ++i) {
+		q->terms[1u + desc->required_count + i] = desc->optional[i];
+		q->required[1u + desc->required_count + i] = 0u;
+	}
+	for (u32 i = 0u; i < desc->excluded_count; ++i) {
+		q->excluded[i] = desc->excluded[i];
+	}
+	return q;
+}
+
+static void query_destroy_impl(sk_query_t* query) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_array_free(&query->archetypes);
+	alloc->free(alloc->instance, query);
+}
+
+static u32 query_term_count_impl(const sk_query_t* query) {
+	return query->term_count;
+}
+
+static sk_type_id_t query_term_id_impl(const sk_query_t* query, u32 term) {
+	return query->terms[term];
+}
+
+static i32 query_term_required_impl(const sk_query_t* query, u32 term) {
+	return (i32)query->required[term];
+}
+
+static i32 query_matches_impl(const sk_query_t* query, const sk_archetype_t* archetype) {
+	for (u32 i = 0u; i < query->term_count; ++i) {
+		if (query->required[i] != 0u && !archetype_has_impl(archetype, query->terms[i])) {
+			return 0;
+		}
+	}
+	for (u32 i = 0u; i < query->excluded_count; ++i) {
+		if (archetype_has_impl(archetype, query->excluded[i])) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static i32 query_observe_impl(sk_query_t* query, sk_archetype_t* archetype) {
+	if (!query_matches_impl(query, archetype)) {
+		return 1;
+	}
+	for (u32 i = 0u; i < query->archetypes.count; ++i) {
+		if (query->archetypes.items[i] == archetype) {
+			return 0;
+		}
+	}
+	if (sk_array_push(&query->archetypes, archetype) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
+static u32 query_archetype_count_impl(const sk_query_t* query) {
+	return query->archetypes.count;
+}
+
+static const sk_archetype_t* query_archetype_impl(const sk_query_t* query, u32 index) {
+	if (index >= query->archetypes.count) {
+		return NULL;
+	}
+	return query->archetypes.items[index];
+}
+
+static i32 query_iter_next_impl(sk_query_iter_t* it) {
+	const sk_query_t* query = it->query;
+	if (query == NULL) {
+		return 0;
+	}
+	it->term_count = query->term_count;
+	while (it->archetype_index < query->archetypes.count) {
+		sk_archetype_t* archetype = query->archetypes.items[it->archetype_index];
+		while (it->chunk_index < archetype->chunks.count) {
+			sk_chunk_t* chunk = archetype->chunks.items[it->chunk_index];
+			it->chunk_index += 1u;
+			if (chunk->count == 0u) {
+				continue;
+			}
+			it->count = chunk->count;
+			for (u32 term = 0u; term < query->term_count; ++term) {
+				const i32 column = archetype_column_impl(archetype, query->terms[term]);
+				if (column < 0) {
+					it->fields[term] = NULL;
+					it->strides[term] = 0u;
+				} else {
+					it->fields[term] = chunk_row_ptr_mut(chunk, (u32)column, 0u);
+					it->strides[term] = archetype->column_stride[(u32)column];
+				}
+			}
+			return 1;
+		}
+		it->archetype_index += 1u;
+		it->chunk_index = 0u;
+	}
+	return 0;
+}
+
+static sk_entity_t query_iter_entity_impl(const sk_query_iter_t* it, u32 row) {
+	sk_entity_t entity;
+	memcpy(&entity, (const u8*)it->fields[0] + (size_t)row * it->strides[0], sizeof(sk_entity_t));
+	return entity;
+}
+
+static void_ptr_t query_iter_field_impl(const sk_query_iter_t* it, u32 term, u32 row) {
+	if (it->fields[term] == NULL) {
+		return NULL;
+	}
+	return (void_ptr_t)((u8*)it->fields[term] + (size_t)row * it->strides[term]);
+}
+
 /* ---- API table (table-only; no public free-function mirrors) ---- */
 
 static const sk_entities_api_t entities_api = {
@@ -559,6 +759,19 @@ static const sk_entities_api_t entities_api = {
 	chunk_get_mut_impl,
 	chunk_entity_impl,
 	chunk_find_impl,
+
+	query_create_impl,
+	query_destroy_impl,
+	query_term_count_impl,
+	query_term_id_impl,
+	query_term_required_impl,
+	query_matches_impl,
+	query_observe_impl,
+	query_archetype_count_impl,
+	query_archetype_impl,
+	query_iter_next_impl,
+	query_iter_entity_impl,
+	query_iter_field_impl,
 };
 
 /**
@@ -973,6 +1186,430 @@ SK_TEST(entities_archetype_chunks_and_location) {
 
 	/* archetype_destroy frees the chunks it owns. */
 	entities_api.archetype_destroy(a);
+}
+
+/* ---- query tests ---- */
+
+typedef struct ecs_query_pos_t {
+	f32 x;
+	f32 y;
+} ecs_query_pos_t;
+
+typedef struct ecs_query_vel_t {
+	f32 vx;
+	f32 vy;
+} ecs_query_vel_t;
+
+typedef struct ecs_query_tag_t {
+	u32 flags;
+} ecs_query_tag_t;
+
+#define TEST_QUERY_POS_ID SK_TYPE_ID("sk.test.ecs.query.pos", 0x2A00000000000001ULL, 0x0100000000000001ULL)
+#define TEST_QUERY_VEL_ID SK_TYPE_ID("sk.test.ecs.query.vel", 0x2A00000000000002ULL, 0x0100000000000001ULL)
+#define TEST_QUERY_TAG_ID SK_TYPE_ID("sk.test.ecs.query.tag", 0x2A00000000000003ULL, 0x0100000000000001ULL)
+
+static sk_archetype_t* query_test_archetype(const sk_component_info_t* comps, u32 count) {
+	sk_archetype_t* a = entities_api.archetype_create(comps, count);
+	TEST_ASSERT_NOT_NULL(a);
+	return a;
+}
+
+static sk_chunk_t* query_test_seed_chunk(sk_archetype_t* a, u32 entity_start, u32 n) {
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.archetype_add_chunk(a));
+	sk_chunk_t* chunk = entities_api.archetype_chunk(a, entities_api.archetype_chunk_count(a) - 1u);
+	TEST_ASSERT_NOT_NULL(chunk);
+	for (u32 i = 0u; i < n; ++i) {
+		u32 row = 0u;
+		TEST_ASSERT_EQUAL_INT32(0, entities_api.chunk_allocate(chunk, (sk_entity_t){entity_start + i, 0u}, &row));
+	}
+	return chunk;
+}
+
+SK_TEST(entities_query_create_validation) {
+	TEST_ASSERT_NULL(entities_api.query_create(NULL));
+
+	const sk_type_id_t one[1] = {TEST_QUERY_POS_ID};
+	const sk_query_desc_t null_arr = {NULL, 1u, NULL, 0u, NULL, 0u};
+	TEST_ASSERT_NULL(entities_api.query_create(&null_arr));
+
+	const sk_type_id_t zero[1] = {SK_TYPE_ID_ZERO};
+	const sk_query_desc_t zero_req = {zero, 1u, NULL, 0u, NULL, 0u};
+	TEST_ASSERT_NULL(entities_api.query_create(&zero_req));
+	const sk_query_desc_t zero_opt = {NULL, 0u, zero, 1u, NULL, 0u};
+	TEST_ASSERT_NULL(entities_api.query_create(&zero_opt));
+	const sk_query_desc_t zero_exc = {NULL, 0u, NULL, 0u, zero, 1u};
+	TEST_ASSERT_NULL(entities_api.query_create(&zero_exc));
+
+	const sk_type_id_t dup[2] = {TEST_QUERY_POS_ID, TEST_QUERY_POS_ID};
+	const sk_query_desc_t dup_req = {dup, 2u, NULL, 0u, NULL, 0u};
+	TEST_ASSERT_NULL(entities_api.query_create(&dup_req));
+	const sk_query_desc_t dup_opt = {NULL, 0u, dup, 2u, NULL, 0u};
+	TEST_ASSERT_NULL(entities_api.query_create(&dup_opt));
+	const sk_query_desc_t dup_cross = {one, 1u, one, 1u, NULL, 0u};
+	TEST_ASSERT_NULL(entities_api.query_create(&dup_cross));
+
+	/* 1 + SK_ECS_MAX_QUERY_TERMS required terms exceeds the term cap. */
+	sk_type_id_t too_many[SK_ECS_MAX_QUERY_TERMS];
+	for (u32 i = 0u; i < (u32)SK_ECS_MAX_QUERY_TERMS; ++i) {
+		too_many[i] = SK_TYPE_ID("sk.test.ecs.query.many", (u64)i + 0x1000ULL, 0x01ULL);
+	}
+	const sk_query_desc_t overflow = {too_many, (u32)SK_ECS_MAX_QUERY_TERMS, NULL, 0u, NULL, 0u};
+	TEST_ASSERT_NULL(entities_api.query_create(&overflow));
+
+	/* Excluded set over the cap. */
+	sk_type_id_t excl_many[(u32)SK_ECS_MAX_QUERY_TERMS + 1u];
+	for (u32 i = 0u; i < (u32)SK_ECS_MAX_QUERY_TERMS + 1u; ++i) {
+		excl_many[i] = SK_TYPE_ID("sk.test.ecs.query.excl", (u64)i + 0x2000ULL, 0x01ULL);
+	}
+	const sk_query_desc_t excl_overflow = {NULL, 0u, NULL, 0u, excl_many, (u32)SK_ECS_MAX_QUERY_TERMS + 1u};
+	TEST_ASSERT_NULL(entities_api.query_create(&excl_overflow));
+}
+
+SK_TEST(entities_query_term_metadata) {
+	const sk_type_id_t required[2] = {TEST_QUERY_POS_ID, TEST_QUERY_VEL_ID};
+	const sk_type_id_t optional[1] = {TEST_QUERY_TAG_ID};
+	const sk_query_desc_t desc = {required, 2u, optional, 1u, NULL, 0u};
+	sk_query_t* q = entities_api.query_create(&desc);
+	TEST_ASSERT_NOT_NULL(q);
+
+	/* Term 0 is the entity component, then required ids, then optional ids. */
+	TEST_ASSERT_EQUAL_UINT32(4u, entities_api.query_term_count(q));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_ECS_ENTITY_COMPONENT_ID, entities_api.query_term_id(q, 0u)));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(TEST_QUERY_POS_ID, entities_api.query_term_id(q, 1u)));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(TEST_QUERY_VEL_ID, entities_api.query_term_id(q, 2u)));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(TEST_QUERY_TAG_ID, entities_api.query_term_id(q, 3u)));
+	TEST_ASSERT_TRUE(entities_api.query_term_required(q, 0u));
+	TEST_ASSERT_TRUE(entities_api.query_term_required(q, 1u));
+	TEST_ASSERT_TRUE(entities_api.query_term_required(q, 2u));
+	TEST_ASSERT_FALSE(entities_api.query_term_required(q, 3u));
+
+	entities_api.query_destroy(q);
+
+	/* Empty descriptor: entity term only. */
+	const sk_query_desc_t none = SK_QUERY_DESC_NONE;
+	sk_query_t* qnone = entities_api.query_create(&none);
+	TEST_ASSERT_NOT_NULL(qnone);
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.query_term_count(qnone));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_ECS_ENTITY_COMPONENT_ID, entities_api.query_term_id(qnone, 0u)));
+	TEST_ASSERT_TRUE(entities_api.query_term_required(qnone, 0u));
+	entities_api.query_destroy(qnone);
+}
+
+SK_TEST(entities_query_matches_sets) {
+	const sk_component_info_t pos = {TEST_QUERY_POS_ID, (u32)sizeof(ecs_query_pos_t), 4u, "pos"};
+	const sk_component_info_t vel = {TEST_QUERY_VEL_ID, (u32)sizeof(ecs_query_vel_t), 4u, "vel"};
+	const sk_component_info_t tag = {TEST_QUERY_TAG_ID, (u32)sizeof(ecs_query_tag_t), 4u, "tag"};
+
+	const sk_component_info_t comps_pv[2] = {pos, vel};
+	const sk_component_info_t comps_p[1] = {pos};
+	const sk_component_info_t comps_pt[2] = {pos, tag};
+	const sk_component_info_t comps_t[1] = {tag};
+
+	sk_archetype_t* pv = query_test_archetype(comps_pv, 2u);
+	sk_archetype_t* p = query_test_archetype(comps_p, 1u);
+	sk_archetype_t* pt = query_test_archetype(comps_pt, 2u);
+	sk_archetype_t* t = query_test_archetype(comps_t, 1u);
+
+	const sk_type_id_t req_pos[1] = {TEST_QUERY_POS_ID};
+	const sk_query_desc_t d_pos = {req_pos, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* qpos = entities_api.query_create(&d_pos);
+	TEST_ASSERT_NOT_NULL(qpos);
+	TEST_ASSERT_TRUE(entities_api.query_matches(qpos, pv));
+	TEST_ASSERT_TRUE(entities_api.query_matches(qpos, p));
+	TEST_ASSERT_TRUE(entities_api.query_matches(qpos, pt));
+	TEST_ASSERT_FALSE(entities_api.query_matches(qpos, t));
+	entities_api.query_destroy(qpos);
+
+	const sk_type_id_t req_pv[2] = {TEST_QUERY_POS_ID, TEST_QUERY_VEL_ID};
+	const sk_query_desc_t d_pv = {req_pv, 2u, NULL, 0u, NULL, 0u};
+	sk_query_t* qpv = entities_api.query_create(&d_pv);
+	TEST_ASSERT_NOT_NULL(qpv);
+	TEST_ASSERT_TRUE(entities_api.query_matches(qpv, pv));
+	TEST_ASSERT_FALSE(entities_api.query_matches(qpv, p));
+	TEST_ASSERT_FALSE(entities_api.query_matches(qpv, pt));
+	TEST_ASSERT_FALSE(entities_api.query_matches(qpv, t));
+	entities_api.query_destroy(qpv);
+
+	const sk_type_id_t excl_vel[1] = {TEST_QUERY_VEL_ID};
+	const sk_query_desc_t d_excl = {req_pos, 1u, NULL, 0u, excl_vel, 1u};
+	sk_query_t* qex = entities_api.query_create(&d_excl);
+	TEST_ASSERT_NOT_NULL(qex);
+	TEST_ASSERT_FALSE(entities_api.query_matches(qex, pv));
+	TEST_ASSERT_TRUE(entities_api.query_matches(qex, p));
+	TEST_ASSERT_TRUE(entities_api.query_matches(qex, pt));
+	TEST_ASSERT_FALSE(entities_api.query_matches(qex, t));
+	entities_api.query_destroy(qex);
+
+	const sk_type_id_t req_tag[1] = {TEST_QUERY_TAG_ID};
+	const sk_query_desc_t d_tag = {req_tag, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* qtag = entities_api.query_create(&d_tag);
+	TEST_ASSERT_NOT_NULL(qtag);
+	TEST_ASSERT_FALSE(entities_api.query_matches(qtag, pv));
+	TEST_ASSERT_FALSE(entities_api.query_matches(qtag, p));
+	TEST_ASSERT_TRUE(entities_api.query_matches(qtag, pt));
+	TEST_ASSERT_TRUE(entities_api.query_matches(qtag, t));
+	entities_api.query_destroy(qtag);
+
+	const sk_query_desc_t d_none = SK_QUERY_DESC_NONE;
+	sk_query_t* qnone = entities_api.query_create(&d_none);
+	TEST_ASSERT_NOT_NULL(qnone);
+	TEST_ASSERT_TRUE(entities_api.query_matches(qnone, pv));
+	TEST_ASSERT_TRUE(entities_api.query_matches(qnone, p));
+	TEST_ASSERT_TRUE(entities_api.query_matches(qnone, pt));
+	TEST_ASSERT_TRUE(entities_api.query_matches(qnone, t));
+	entities_api.query_destroy(qnone);
+
+	entities_api.archetype_destroy(pv);
+	entities_api.archetype_destroy(p);
+	entities_api.archetype_destroy(pt);
+	entities_api.archetype_destroy(t);
+}
+
+SK_TEST(entities_query_observe_and_archetype_list) {
+	const sk_component_info_t pos = {TEST_QUERY_POS_ID, (u32)sizeof(ecs_query_pos_t), 4u, "pos"};
+	const sk_component_info_t tag = {TEST_QUERY_TAG_ID, (u32)sizeof(ecs_query_tag_t), 4u, "tag"};
+	const sk_component_info_t comps_p[1] = {pos};
+	const sk_component_info_t comps_t[1] = {tag};
+
+	sk_archetype_t* p = query_test_archetype(comps_p, 1u);
+	sk_archetype_t* t = query_test_archetype(comps_t, 1u);
+
+	const sk_type_id_t req_pos[1] = {TEST_QUERY_POS_ID};
+	const sk_query_desc_t d_pos = {req_pos, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* q = entities_api.query_create(&d_pos);
+	TEST_ASSERT_NOT_NULL(q);
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.query_archetype_count(q));
+
+	/* Matching archetypes are appended once; non-matching are rejected. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_observe(q, p));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_observe(q, p));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.query_observe(q, t));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.query_archetype_count(q));
+	TEST_ASSERT_EQUAL_PTR(p, entities_api.query_archetype(q, 0u));
+	TEST_ASSERT_NULL(entities_api.query_archetype(q, 1u));
+
+	entities_api.query_destroy(q);
+	entities_api.archetype_destroy(p);
+	entities_api.archetype_destroy(t);
+}
+
+SK_TEST(entities_query_iteration_multi_archetype) {
+	const sk_component_info_t pos = {TEST_QUERY_POS_ID, (u32)sizeof(ecs_query_pos_t), 4u, "pos"};
+	const sk_component_info_t vel = {TEST_QUERY_VEL_ID, (u32)sizeof(ecs_query_vel_t), 4u, "vel"};
+	const sk_component_info_t comps_pv[2] = {pos, vel};
+	const sk_component_info_t comps_p[1] = {pos};
+
+	/* Archetype {pos, vel}: entities 1..3. */
+	sk_archetype_t* pv = query_test_archetype(comps_pv, 2u);
+	sk_chunk_t* chunk_pv = query_test_seed_chunk(pv, 1u, 3u);
+	const u32 col_pos_pv = (u32)entities_api.archetype_column(pv, TEST_QUERY_POS_ID);
+	const u32 col_vel_pv = (u32)entities_api.archetype_column(pv, TEST_QUERY_VEL_ID);
+	for (u32 row = 0u; row < 3u; ++row) {
+		ecs_query_pos_t* pp = (ecs_query_pos_t*)entities_api.chunk_get_mut(chunk_pv, col_pos_pv, row);
+		ecs_query_vel_t* vp = (ecs_query_vel_t*)entities_api.chunk_get_mut(chunk_pv, col_vel_pv, row);
+		TEST_ASSERT_NOT_NULL(pp);
+		TEST_ASSERT_NOT_NULL(vp);
+		pp->x = (f32)row;
+		pp->y = (f32)row + 1.0f;
+		vp->vx = 1.0f;
+		vp->vy = 2.0f;
+	}
+
+	/* Archetype {pos}: entities 10..11. */
+	sk_archetype_t* p = query_test_archetype(comps_p, 1u);
+	sk_chunk_t* chunk_p = query_test_seed_chunk(p, 10u, 2u);
+	const u32 col_pos_p = (u32)entities_api.archetype_column(p, TEST_QUERY_POS_ID);
+	for (u32 row = 0u; row < 2u; ++row) {
+		ecs_query_pos_t* pp = (ecs_query_pos_t*)entities_api.chunk_get_mut(chunk_p, col_pos_p, row);
+		TEST_ASSERT_NOT_NULL(pp);
+		pp->x = (f32)row + 100.0f;
+		pp->y = 0.0f;
+	}
+
+	const sk_type_id_t req_pos[1] = {TEST_QUERY_POS_ID};
+	const sk_query_desc_t d_pos = {req_pos, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* q = entities_api.query_create(&d_pos);
+	TEST_ASSERT_NOT_NULL(q);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_observe(q, pv));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_observe(q, p));
+	TEST_ASSERT_EQUAL_UINT32(2u, entities_api.query_archetype_count(q));
+
+	/* SK_ECS_QUERY_EACH walks every matched archetype's live rows. */
+	u32 entities_seen = 0u;
+	f32 sum_x = 0.0f;
+	SK_ECS_QUERY_EACH(&entities_api, q, it) {
+		const ecs_query_pos_t* pp = SK_ECS_ITER_AT(it, 1, ecs_query_pos_t);
+		TEST_ASSERT_NOT_NULL(pp);
+		TEST_ASSERT_TRUE(sk_entity_is_valid(SK_ECS_ITER_ENTITY_ROW(it)));
+		entities_seen += 1u;
+		sum_x += pp->x;
+	}
+	TEST_ASSERT_EQUAL_UINT32(5u, entities_seen);
+	TEST_ASSERT_FLOAT_WITHIN(1e-4f, 204.0f, sum_x);
+
+	entities_api.query_destroy(q);
+	entities_api.archetype_destroy(pv);
+	entities_api.archetype_destroy(p);
+}
+
+SK_TEST(entities_query_iteration_optional_terms) {
+	const sk_component_info_t pos = {TEST_QUERY_POS_ID, (u32)sizeof(ecs_query_pos_t), 4u, "pos"};
+	const sk_component_info_t vel = {TEST_QUERY_VEL_ID, (u32)sizeof(ecs_query_vel_t), 4u, "vel"};
+	const sk_component_info_t comps_pv[2] = {pos, vel};
+	const sk_component_info_t comps_p[1] = {pos};
+
+	/* Archetype {pos, vel} stores the optional term. */
+	sk_archetype_t* pv = query_test_archetype(comps_pv, 2u);
+	sk_chunk_t* chunk_pv = query_test_seed_chunk(pv, 1u, 1u);
+	const u32 col_vel = (u32)entities_api.archetype_column(pv, TEST_QUERY_VEL_ID);
+	((ecs_query_vel_t*)entities_api.chunk_get_mut(chunk_pv, col_vel, 0u))->vx = 9.0f;
+
+	/* Archetype {pos} does not store the optional term. */
+	sk_archetype_t* p = query_test_archetype(comps_p, 1u);
+	query_test_seed_chunk(p, 10u, 1u);
+
+	const sk_type_id_t req_pos[1] = {TEST_QUERY_POS_ID};
+	const sk_type_id_t opt_vel[1] = {TEST_QUERY_VEL_ID};
+	const sk_query_desc_t d_opt = {req_pos, 1u, opt_vel, 1u, NULL, 0u};
+	sk_query_t* q = entities_api.query_create(&d_opt);
+	TEST_ASSERT_NOT_NULL(q);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_observe(q, pv));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_observe(q, p));
+
+	/* The optional term yields a typed pointer or NULL per archetype. */
+	u32 with_vel = 0u;
+	u32 without_vel = 0u;
+	f32 vel_sum = 0.0f;
+	SK_ECS_QUERY_EACH(&entities_api, q, it) {
+		const ecs_query_vel_t* vp = SK_ECS_ITER_AT(it, 2, ecs_query_vel_t);
+		if (vp != NULL) {
+			with_vel += 1u;
+			vel_sum += vp->vx;
+		} else {
+			without_vel += 1u;
+		}
+	}
+	TEST_ASSERT_EQUAL_UINT32(1u, with_vel);
+	TEST_ASSERT_EQUAL_UINT32(1u, without_vel);
+	TEST_ASSERT_FLOAT_WITHIN(1e-4f, 9.0f, vel_sum);
+
+	/* Direct API mirrors the macro path for an absent optional term. */
+	u32 seen_opt = 0u;
+	u32 seen_null = 0u;
+	sk_query_iter_t it = sk_query_iter_make(q);
+	while (entities_api.query_iter_next(&it) != 0) {
+		for (u32 row = 0u; row < it.count; ++row) {
+			seen_opt += 1u;
+			if (entities_api.query_iter_field(&it, 2u, row) == NULL) {
+				seen_null += 1u;
+			}
+		}
+	}
+	TEST_ASSERT_EQUAL_UINT32(2u, seen_opt);
+	TEST_ASSERT_EQUAL_UINT32(1u, seen_null);
+
+	entities_api.query_destroy(q);
+	entities_api.archetype_destroy(pv);
+	entities_api.archetype_destroy(p);
+}
+
+SK_TEST(entities_query_iter_skips_empty_chunks) {
+	const sk_component_info_t pos = {TEST_QUERY_POS_ID, (u32)sizeof(ecs_query_pos_t), 4u, "pos"};
+	const sk_component_info_t comps_p[1] = {pos};
+
+	/* Chunk 0 stays empty; chunk 1 holds one entity. */
+	sk_archetype_t* p = query_test_archetype(comps_p, 1u);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.archetype_add_chunk(p));
+	sk_chunk_t* chunk_p = query_test_seed_chunk(p, 7u, 1u);
+	const u32 col_pos = (u32)entities_api.archetype_column(p, TEST_QUERY_POS_ID);
+	((ecs_query_pos_t*)entities_api.chunk_get_mut(chunk_p, col_pos, 0u))->x = 42.0f;
+	((ecs_query_pos_t*)entities_api.chunk_get_mut(chunk_p, col_pos, 0u))->y = -1.0f;
+
+	const sk_type_id_t req_pos[1] = {TEST_QUERY_POS_ID};
+	const sk_query_desc_t d_pos = {req_pos, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* q = entities_api.query_create(&d_pos);
+	TEST_ASSERT_NOT_NULL(q);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_observe(q, p));
+
+	/* SK_ECS_QUERY_FOREACH yields one chunk despite the empty one. */
+	u32 chunks = 0u;
+	u32 rows = 0u;
+	SK_ECS_QUERY_FOREACH(&entities_api, q, it) {
+		chunks += 1u;
+		rows += SK_ECS_ITER_COUNT(it);
+		TEST_ASSERT_EQUAL_UINT32(2u, it.term_count);
+		const sk_entity_t e0 = SK_ECS_ITER_ENTITY(it, 0u);
+		TEST_ASSERT_TRUE(sk_entity_eq((sk_entity_t){7u, 0u}, e0));
+		TEST_ASSERT_EQUAL_PTR(SK_ECS_ITER_ENTITIES(it), SK_ECS_ITER_COL(it, 0, sk_entity_t, 0));
+	}
+	TEST_ASSERT_EQUAL_UINT32(1u, chunks);
+	TEST_ASSERT_EQUAL_UINT32(1u, rows);
+
+	entities_api.query_destroy(q);
+	entities_api.archetype_destroy(p);
+}
+
+SK_TEST(entities_query_iter_accessors) {
+	const sk_component_info_t pos = {TEST_QUERY_POS_ID, (u32)sizeof(ecs_query_pos_t), 4u, "pos"};
+	const sk_component_info_t comps_p[1] = {pos};
+
+	sk_archetype_t* p = query_test_archetype(comps_p, 1u);
+	sk_chunk_t* chunk_p = query_test_seed_chunk(p, 7u, 1u);
+	const u32 col_pos = (u32)entities_api.archetype_column(p, TEST_QUERY_POS_ID);
+	((ecs_query_pos_t*)entities_api.chunk_get_mut(chunk_p, col_pos, 0u))->x = 42.0f;
+	((ecs_query_pos_t*)entities_api.chunk_get_mut(chunk_p, col_pos, 0u))->y = -1.0f;
+
+	const sk_type_id_t req_pos[1] = {TEST_QUERY_POS_ID};
+	const sk_query_desc_t d_pos = {req_pos, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* q = entities_api.query_create(&d_pos);
+	TEST_ASSERT_NOT_NULL(q);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_observe(q, p));
+
+	sk_query_iter_t it = sk_query_iter_make(q);
+	TEST_ASSERT_TRUE(entities_api.query_iter_next(&it));
+	TEST_ASSERT_EQUAL_UINT32(1u, SK_ECS_ITER_COUNT(it));
+
+	const sk_entity_t e = entities_api.query_iter_entity(&it, 0u);
+	TEST_ASSERT_TRUE(sk_entity_eq((sk_entity_t){7u, 0u}, e));
+
+	const ecs_query_pos_t* pp = (const ecs_query_pos_t*)entities_api.query_iter_field(&it, 1u, 0u);
+	TEST_ASSERT_NOT_NULL(pp);
+	TEST_ASSERT_FLOAT_WITHIN(1e-4f, 42.0f, pp->x);
+	TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.0f, pp->y);
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_iter_next(&it));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_iter_next(&it));
+
+	entities_api.query_destroy(q);
+	entities_api.archetype_destroy(p);
+}
+
+SK_TEST(entities_query_iteration_empty_matches) {
+	const sk_component_info_t pos = {TEST_QUERY_POS_ID, (u32)sizeof(ecs_query_pos_t), 4u, "pos"};
+	const sk_component_info_t tag = {TEST_QUERY_TAG_ID, (u32)sizeof(ecs_query_tag_t), 4u, "tag"};
+	const sk_component_info_t comps_p[1] = {pos};
+	const sk_component_info_t comps_t[1] = {tag};
+
+	sk_archetype_t* p = query_test_archetype(comps_p, 1u);
+	query_test_seed_chunk(p, 1u, 1u);
+	sk_archetype_t* t = query_test_archetype(comps_t, 1u);
+
+	const sk_type_id_t req_tag[1] = {TEST_QUERY_TAG_ID};
+	const sk_query_desc_t d_tag = {req_tag, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* q = entities_api.query_create(&d_tag);
+	TEST_ASSERT_NOT_NULL(q);
+	TEST_ASSERT_FALSE(entities_api.query_matches(q, p));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.query_observe(q, p));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_observe(q, t));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.query_archetype_count(q));
+
+	/* t matches but owns no chunks -> iteration yields nothing. */
+	sk_query_iter_t it = sk_query_iter_make(q);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_iter_next(&it));
+
+	entities_api.query_destroy(q);
+	entities_api.archetype_destroy(p);
+	entities_api.archetype_destroy(t);
 }
 
 /*

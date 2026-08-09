@@ -45,6 +45,8 @@
 
 #include "common.h"
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -139,6 +141,143 @@ typedef struct sk_entity_location_t {
 
 /** Invalid / unmapped entity location sentinel. */
 #define SK_ECS_LOCATION_NONE ((sk_entity_location_t){0xFFFFFFFFu, 0xFFFFFFFFu})
+
+/* ------------------------------------------------------------------ */
+/*  Query                                                             */
+/* ------------------------------------------------------------------ */
+
+/** Maximum query terms (including the implicit entity term 0) and the maximum
+ *  number of excluded ids. */
+#define SK_ECS_MAX_QUERY_TERMS 32u
+
+/**
+ * Query descriptor: match archetypes by required / optional / excluded
+ * component sets identified with sk_type_id_t.
+ *
+ * @field required       Components a matched archetype must store (may be NULL
+ *                       when required_count == 0).
+ * @field required_count Number of required ids; 1 + required_count +
+ *                       optional_count must not exceed SK_ECS_MAX_QUERY_TERMS.
+ * @field optional       Components iterated only when the archetype stores
+ *                       them (may be NULL when optional_count == 0).
+ * @field optional_count Number of optional ids.
+ * @field excluded       Components a matched archetype must not store (may be
+ *                       NULL when excluded_count == 0).
+ * @field excluded_count Number of excluded ids (<= SK_ECS_MAX_QUERY_TERMS).
+ */
+typedef struct sk_query_desc_t {
+	const sk_type_id_t* required;
+	u32 required_count;
+	const sk_type_id_t* optional;
+	u32 optional_count;
+	const sk_type_id_t* excluded;
+	u32 excluded_count;
+} sk_query_desc_t;
+
+/** Empty descriptor: matches every archetype. */
+#define SK_QUERY_DESC_NONE ((sk_query_desc_t){NULL, 0u, NULL, 0u, NULL, 0u})
+
+/**
+ * Query iteration state (public layout so the SK_ECS_ITER_* macros can read
+ * columns directly).
+ *
+ * Iteration walks each matched archetype's chunks in order and, within each
+ * non-empty chunk, the live rows [0, count). query_iter_next precomputes a
+ * per-term column base and stride for the current chunk:
+ *
+ *   - term 0 is always the entity column (column 0 of every chunk),
+ *   - terms 1..required_count are the required ids in descriptor order,
+ *   - the remaining terms are the optional ids in descriptor order.
+ *
+ * An optional term whose id is absent from the current archetype resolves to a
+ * NULL field base with stride 0; the SK_ECS_ITER_* macros then yield NULL.
+ *
+ * @field query           Owning query (NULL for a zeroed / exhausted iterator).
+ * @field archetype_index Current matched archetype.
+ * @field chunk_index     Current chunk within that archetype.
+ * @field row             Current row (0 <= row < count).
+ * @field count           Live rows in the current chunk.
+ * @field term_count      Term count (1 + required_count + optional_count).
+ * @field fields          Per-term column base for the current chunk.
+ * @field strides         Per-term dense stride (bytes) for the current chunk.
+ */
+typedef struct sk_query_iter_t {
+	const sk_query_t* query;
+	u32 archetype_index;
+	u32 chunk_index;
+	u32 row;
+	u32 count;
+	u32 term_count;
+	void_ptr_t fields[SK_ECS_MAX_QUERY_TERMS];
+	u32 strides[SK_ECS_MAX_QUERY_TERMS];
+} sk_query_iter_t;
+
+/** Zeroed iterator positioned before the first match. */
+SK_FINLINE sk_query_iter_t sk_query_iter_make(const sk_query_t* query) {
+	sk_query_iter_t it = {0};
+	it.query = query;
+	return it;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Query iteration macros (flecs-style)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Iterate each matched chunk of @p query that has live rows. The body runs
+ * once per chunk with @p var exposing count / fields / strides; iterate rows
+ * with SK_ECS_ROW_FOREACH or access them directly with SK_ECS_ITER_COL.
+ * @param ecs   sk_entities_api_t table (must not be NULL).
+ * @param query Query to iterate (must not be NULL).
+ * @param var   Iterator variable name.
+ */
+#define SK_ECS_QUERY_FOREACH(ecs, query, var) for (sk_query_iter_t var = sk_query_iter_make(query); (ecs)->query_iter_next(&(var));)
+
+/**
+ * Iterate each live row of the current chunk (used inside the
+ * SK_ECS_QUERY_FOREACH body). Sets @p var.row to each live row in turn.
+ */
+#define SK_ECS_ROW_FOREACH(var) for ((var).row = 0u; (var).row < (var).count; ++(var).row)
+
+/**
+ * Iterate every entity matched by @p query. The body runs once per entity
+ * with @p var.row set; read columns with SK_ECS_ITER_AT /
+ * SK_ECS_ITER_ENTITY_ROW.
+ */
+#define SK_ECS_QUERY_EACH(ecs, query, var) \
+	SK_ECS_QUERY_FOREACH(ecs, query, var)  \
+	SK_ECS_ROW_FOREACH(var)
+
+/** Live rows in the current chunk. */
+#define SK_ECS_ITER_COUNT(var) ((var).count)
+
+/** Entity column base (row 0) of the current chunk. */
+#define SK_ECS_ITER_ENTITIES(var) ((sk_entity_t*)(var).fields[0])
+
+/** Entity handle stored at @p row of the current chunk. */
+#define SK_ECS_ITER_ENTITY(var, row) (*((const sk_entity_t*)((const u8*)(var).fields[0] + (size_t)(row) * (var).strides[0])))
+
+/** Entity handle of the current row (inside SK_ECS_ROW_FOREACH). */
+#define SK_ECS_ITER_ENTITY_ROW(var) (*((const sk_entity_t*)((const u8*)(var).fields[0] + (size_t)(var).row * (var).strides[0])))
+
+/**
+ * Typed pointer to @p term at the current row, or NULL when the term is an
+ * optional component absent from the current archetype.
+ * @param var  Iterator variable.
+ * @param term Term index (0 = entity; < term_count).
+ * @param Type Component C type (e.g. sk_pos_t).
+ */
+#define SK_ECS_ITER_AT(var, term, Type) ((Type*)(((var).fields[(term)] == NULL) ? NULL : ((u8*)(var).fields[(term)] + (size_t)(var).row * (var).strides[(term)])))
+
+/**
+ * Typed, stride-aware pointer to @p term at row @p row of the current chunk,
+ * or NULL when the term is an optional component absent from the archetype.
+ * @param var  Iterator variable.
+ * @param term Term index (0 = entity; < term_count).
+ * @param Type Component C type.
+ * @param row  Row index (< SK_ECS_ITER_COUNT(var)).
+ */
+#define SK_ECS_ITER_COL(var, term, Type, row) ((Type*)(((var).fields[(term)] == NULL) ? NULL : ((u8*)(var).fields[(term)] + (size_t)(row) * (var).strides[(term)])))
 
 /**
  * Global ECS module API (one table per process after plugin load).
@@ -410,6 +549,125 @@ typedef struct sk_entities_api_t {
 	 * @return 0 when found, -1 when not present.
 	 */
 	i32 (*chunk_find)(const sk_chunk_t* chunk, sk_entity_t entity, u32* out_row);
+
+	/* ---- query ---- */
+
+	/**
+	 * Create a query matching archetypes by required / optional / excluded
+	 * component sets.
+	 *
+	 * A query matches an archetype when its signature contains every required
+	 * id and no excluded id; optional ids are consulted only when iterating
+	 * (an absent optional term iterates as a NULL field). Terms are ordered:
+	 * term 0 is the implicit entity component, terms 1..required_count are the
+	 * required ids in descriptor order, and the remaining terms are the
+	 * optional ids in descriptor order.
+	 *
+	 * @param desc Descriptor (must not be NULL). Ids must be non-zero;
+	 *             1 + required_count + optional_count must not exceed
+	 *             SK_ECS_MAX_QUERY_TERMS; excluded_count must not exceed
+	 *             SK_ECS_MAX_QUERY_TERMS; an id array must be non-NULL whenever
+	 *             its count is non-zero.
+	 * @return New query (with no matched archetypes yet), or NULL on invalid
+	 *         arguments or OOM.
+	 */
+	sk_query_t* (*query_create)(const sk_query_desc_t* desc);
+
+	/**
+	 * Destroy a query and its matched archetype set.
+	 * @param query Query (must not be NULL).
+	 */
+	void (*query_destroy)(sk_query_t* query);
+
+	/**
+	 * Number of terms in the query, including the implicit entity term 0.
+	 * @param query Query (must not be NULL).
+	 * @return 1 + required_count + optional_count.
+	 */
+	u32 (*query_term_count)(const sk_query_t* query);
+
+	/**
+	 * Type id of term @p term.
+	 * @param query Query (must not be NULL).
+	 * @param term  Term index (< query_term_count).
+	 * @return Component identity of that term (term 0 is
+	 *         SK_ECS_ENTITY_COMPONENT_ID).
+	 */
+	sk_type_id_t (*query_term_id)(const sk_query_t* query, u32 term);
+
+	/**
+	 * Whether @p term is always present (1) or optional (0).
+	 * @param query Query (must not be NULL).
+	 * @param term  Term index (< query_term_count).
+	 * @return Non-zero for the entity term and every required term.
+	 */
+	i32 (*query_term_required)(const sk_query_t* query, u32 term);
+
+	/**
+	 * Whether @p archetype matches the query: it stores every required id and
+	 * no excluded id. Optional ids are not consulted.
+	 * @param query     Query (must not be NULL).
+	 * @param archetype Archetype (must not be NULL).
+	 * @return Non-zero when the archetype matches.
+	 */
+	i32 (*query_matches)(const sk_query_t* query, const sk_archetype_t* archetype);
+
+	/**
+	 * Observe @p archetype: append it to the query's matched set when it
+	 * matches (idempotent; an already-observed archetype is not duplicated).
+	 * @param query     Query (must not be NULL).
+	 * @param archetype Archetype (must not be NULL).
+	 * @return 0 when matched (added or already known), 1 when it does not
+	 *         match, -1 on allocation failure.
+	 */
+	i32 (*query_observe)(sk_query_t* query, sk_archetype_t* archetype);
+
+	/**
+	 * Number of archetypes currently matched by the query.
+	 * @param query Query (must not be NULL).
+	 * @return Matched archetype count.
+	 */
+	u32 (*query_archetype_count)(const sk_query_t* query);
+
+	/**
+	 * Matched archetype at @p index.
+	 * @param query Query (must not be NULL).
+	 * @param index Archetype index.
+	 * @return The archetype, or NULL when @p index is out of range.
+	 */
+	const sk_archetype_t* (*query_archetype)(const sk_query_t* query, u32 index);
+
+	/**
+	 * Advance a query iterator to the next matched chunk with live rows.
+	 *
+	 * A zeroed iterator (sk_query_iter_make) starts before the first match;
+	 * each non-zero return exposes a chunk whose live rows are [0, count) and
+	 * whose term fields / strides are precomputed for that chunk. Unmatched
+	 * archetypes and empty chunks are skipped. Returns 0 once every matched
+	 * archetype is exhausted (later calls keep returning 0).
+	 *
+	 * @param it Iterator (must not be NULL; must belong to a live query).
+	 * @return Non-zero while a chunk is available, 0 at the end.
+	 */
+	i32 (*query_iter_next)(sk_query_iter_t* it);
+
+	/**
+	 * Entity handle stored at @p row of the iterator's current chunk.
+	 * @param it  Iterator (must not be NULL; must expose a loaded chunk).
+	 * @param row Live row (< SK_ECS_ITER_COUNT(it)).
+	 * @return The entity handle.
+	 */
+	sk_entity_t (*query_iter_entity)(const sk_query_iter_t* it, u32 row);
+
+	/**
+	 * Pointer to @p term's value at @p row of the iterator's current chunk.
+	 * @param it   Iterator (must not be NULL; must expose a loaded chunk).
+	 * @param term Term index (< term_count).
+	 * @param row  Live row (< count).
+	 * @return Stride-aware value pointer, or NULL when an optional term is
+	 *         absent from the current archetype.
+	 */
+	void_ptr_t (*query_iter_field)(const sk_query_iter_t* it, u32 term, u32 row);
 } sk_entities_api_t;
 
 #ifdef __cplusplus
