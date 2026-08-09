@@ -4650,4 +4650,138 @@ SK_TEST(repository_undo_redo_scope_destroy_cascade) {
 	api->destroy(repo);
 }
 
+/* Parity field-matrix coverage for a scoped Commit: every field category the
+ * rt type exposes (scalar, String, Reference, ReferenceArray, SubObject, and
+ * SubObjectList) is snapshot deep-copied by the scope, so Undo restores the
+ * exact pre-commit state and Redo re-applies the committed state. Create and
+ * destroy under the same scope mix structural changes into the change record
+ * so one Undo/Redo round restores the whole scoped edit. */
+SK_TEST(repository_undo_redo_scope_field_matrix) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 87u);
+
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t sub1 = rt_make_sub(api, repo, type, 1);
+	sk_rid_t sub2 = rt_make_sub(api, repo, type, 2);
+	sk_rid_t ref = rt_make_sub(api, repo, type, 3);
+	sk_rid_t solo = rt_make_sub(api, repo, type, 4);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+
+	/* Baseline state (un-scoped): every field category carries a value. */
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 10));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "base"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, ref));
+		sk_rid_t base_refs[1] = {ref};
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference_array(view, RT_FIELD_REFERENCE_ARRAY, base_refs, 1u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(view, RT_FIELD_SUBOBJECT, solo));
+		sk_rid_t base_subs[1] = {sub1};
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, base_subs, 1u));
+		api->commit(view, NULL);
+	}
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, solo), rid));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, sub1), rid));
+
+	sk_undo_redo_scope_t* scope = api->undo_redo_scope_create(sk_allocator_default(), "field matrix");
+	TEST_ASSERT_NOT_NULL(scope);
+
+	/* Scoped commit mutating every field category. */
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 33));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "changed"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, sub2));
+		sk_rid_t refs[2] = {sub1, sub2};
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference_array(view, RT_FIELD_REFERENCE_ARRAY, refs, 2u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(view, RT_FIELD_SUBOBJECT, sub2));
+		sk_rid_t subs[2] = {sub1, sub2};
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, subs, 2u));
+		api->commit(view, scope);
+	}
+
+	/* Structural create under the same scope (value edit committed with scope). */
+	sk_uuid_t created_uuid = {0x73ull, 0x99ull};
+	sk_rid_t created = api->create_resource(repo, type, created_uuid, scope);
+	TEST_ASSERT_TRUE(created.id != 0u);
+	{
+		sk_resource_object_t view = api->write(repo, created);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 77));
+		api->commit(view, scope);
+	}
+
+	/* Structural destroy under the same scope. */
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, solo, scope));
+
+	/* Committed state: all fields changed, created live, solo gone. */
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_INT64(33, api->get_int(read, RT_FIELD_INT));
+		TEST_ASSERT_EQUAL_STRING("changed", api->get_string(read, RT_FIELD_STRING));
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(read, RT_FIELD_REFERENCE), sub2));
+		u32 ref_count = 0u;
+		const sk_rid_t* refs = api->get_reference_array(read, RT_FIELD_REFERENCE_ARRAY, &ref_count);
+		TEST_ASSERT_EQUAL_UINT32(2u, ref_count);
+		TEST_ASSERT_TRUE(SK_RID_EQ(refs[0], sub1));
+		TEST_ASSERT_TRUE(SK_RID_EQ(refs[1], sub2));
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_subobject(read, RT_FIELD_SUBOBJECT), sub2));
+		u32 sub_count = 0u;
+		const sk_rid_t* subs = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &sub_count);
+		TEST_ASSERT_EQUAL_UINT32(2u, sub_count);
+		TEST_ASSERT_TRUE(SK_RID_EQ(subs[0], sub1));
+		TEST_ASSERT_TRUE(SK_RID_EQ(subs[1], sub2));
+	}
+	TEST_ASSERT_TRUE(api->has_resource(repo, created));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, created_uuid), created));
+	TEST_ASSERT_FALSE(api->has_resource(repo, solo));
+
+	/* Undo restores the pre-scope snapshot and rolls back the structural ops. */
+	api->undo_redo_scope_undo(scope);
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_INT64(10, api->get_int(read, RT_FIELD_INT));
+		TEST_ASSERT_EQUAL_STRING("base", api->get_string(read, RT_FIELD_STRING));
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(read, RT_FIELD_REFERENCE), ref));
+		u32 ref_count = 0u;
+		const sk_rid_t* refs = api->get_reference_array(read, RT_FIELD_REFERENCE_ARRAY, &ref_count);
+		TEST_ASSERT_EQUAL_UINT32(1u, ref_count);
+		TEST_ASSERT_TRUE(SK_RID_EQ(refs[0], ref));
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_subobject(read, RT_FIELD_SUBOBJECT), solo));
+		u32 sub_count = 0u;
+		const sk_rid_t* subs = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &sub_count);
+		TEST_ASSERT_EQUAL_UINT32(1u, sub_count);
+		TEST_ASSERT_TRUE(SK_RID_EQ(subs[0], sub1));
+	}
+	TEST_ASSERT_FALSE(api->has_resource(repo, created));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, created_uuid).id == 0u);
+	TEST_ASSERT_TRUE(api->has_resource(repo, solo));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, solo), rid));
+
+	/* Redo re-applies the committed snapshot and the structural ops. */
+	api->undo_redo_scope_redo(scope);
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_INT64(33, api->get_int(read, RT_FIELD_INT));
+		TEST_ASSERT_EQUAL_STRING("changed", api->get_string(read, RT_FIELD_STRING));
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(read, RT_FIELD_REFERENCE), sub2));
+		u32 ref_count = 0u;
+		const sk_rid_t* refs = api->get_reference_array(read, RT_FIELD_REFERENCE_ARRAY, &ref_count);
+		TEST_ASSERT_EQUAL_UINT32(2u, ref_count);
+		TEST_ASSERT_TRUE(SK_RID_EQ(refs[0], sub1));
+		TEST_ASSERT_TRUE(SK_RID_EQ(refs[1], sub2));
+		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_subobject(read, RT_FIELD_SUBOBJECT), sub2));
+	}
+	TEST_ASSERT_TRUE(api->has_resource(repo, created));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, created_uuid), created));
+	TEST_ASSERT_EQUAL_INT64(77, api->get_int(api->read(repo, created), RT_FIELD_INT));
+	TEST_ASSERT_FALSE(api->has_resource(repo, solo));
+
+	api->undo_redo_scope_destroy(scope);
+	api->destroy(repo);
+}
+
 #endif /* SK_TESTS */
