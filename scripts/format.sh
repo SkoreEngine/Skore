@@ -45,13 +45,15 @@ PRUNE_DIRS=(
 	.git
 )
 
-# Build find prune expression: \( -path './thirdparty' -o -path './build' ... \)
+# Build find prune expression: \( -path '*/thirdparty' -o -path '*/build' ... \)
+# Prune matches at any depth so nested vendored/build dirs (e.g.
+# skore-ecs-benchmark/thirdparty) are skipped too.
 prune_args=()
 for d in "${PRUNE_DIRS[@]}"; do
 	if ((${#prune_args[@]})); then
 		prune_args+=(-o)
 	fi
-	prune_args+=(-path "./${d}")
+	prune_args+=(-path "*/${d}")
 done
 
 # Build -name filters for extensions.

@@ -36,6 +36,9 @@ set(SK_ENABLE_CLANG_TIDY OFF CACHE BOOL "Disable Skore clang-tidy gate in benchm
 set(BUILD_TESTING OFF CACHE BOOL "Disable Skore tests in benchmark builds")
 add_subdirectory(thirdparty/skore EXCLUDE_FROM_ALL)
 
+# Flecs 4.1.6 (vendored single-file library) for the comparison backend.
+add_subdirectory(thirdparty/flecs)
+
 add_library(skore_ecs_benchmark_core STATIC
 	src/benchmark/benchmark.cpp
 )
@@ -47,10 +50,16 @@ target_compile_features(skore_ecs_benchmark_core PUBLIC cxx_std_20)
 # Skore engine core: types, allocators, containers, math, app/platform API
 # headers. Static link; also makes sk-core's public headers available.
 target_link_libraries(skore_ecs_benchmark_core PUBLIC sk-core)
+# sk-app implements the app registry / plugin bootstrap (sk_app_init) used by
+# the Skore backend. PUBLIC so the executable links it transitively.
+target_link_libraries(skore_ecs_benchmark_core PUBLIC sk-app)
 # Skore ECS public header (sk_entities_api_t).
 target_include_directories(skore_ecs_benchmark_core PUBLIC
 	${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/skore/plugins/entities
 )
+
+# Flecs public header (flecs.h), pulled in by the Flecs benchmark backend.
+target_link_libraries(skore_ecs_benchmark_core PUBLIC flecs)
 
 add_executable(skore_ecs_benchmark
 	src/benchmark/main.cpp
