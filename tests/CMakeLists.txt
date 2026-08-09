@@ -48,6 +48,9 @@ set_target_properties(sk-tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 
-add_dependencies(sk-tests sk-platform-window sk-entities sk-vulkan-render-device)
+add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device)
 
 add_test(NAME sk-tests COMMAND sk-tests)
+
+# Integration tests: device/resource lifecycle against the real Vulkan backend.
+add_subdirectory(integration)
