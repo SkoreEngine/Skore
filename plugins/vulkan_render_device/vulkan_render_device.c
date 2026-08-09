@@ -3213,7 +3213,7 @@ static bool sk_vkrd_swapchain_recreate(sk_vk_swapchain_t* swapchain, u32 width, 
 	}
 
 	create_info.preTransform = support.capabilities.currentTransform;
-	create_info.compositeAlpha = (VkCompositeAlphaFlagsKHR)composite_alpha;
+	create_info.compositeAlpha = composite_alpha;
 	create_info.presentMode = present_mode;
 	create_info.clipped = VK_TRUE;
 	create_info.oldSwapchain = VK_NULL_HANDLE;
