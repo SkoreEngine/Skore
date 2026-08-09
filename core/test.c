@@ -10,6 +10,8 @@
 
 #ifdef SK_TESTS
 
+#include "atomics.h"
+
 #include <string.h>
 
 enum { SK_TEST_MAX = 512 };
@@ -132,6 +134,179 @@ SK_TEST(common_win_export_macro_defined_on_win64) {
 #else
 	TEST_PASS_MESSAGE("SK_WIN only required on Win64");
 #endif
+}
+
+/* ---- atomics.h (header-only module) ---- */
+
+SK_TEST(atomics_order_enum_has_expected_strength) {
+	/* Ordering strength must strictly increase for backend mapping. */
+	TEST_ASSERT_TRUE(SK_ATOMIC_ORDER_RELAXED < SK_ATOMIC_ORDER_ACQUIRE);
+	TEST_ASSERT_TRUE(SK_ATOMIC_ORDER_ACQUIRE < SK_ATOMIC_ORDER_RELEASE);
+	TEST_ASSERT_TRUE(SK_ATOMIC_ORDER_RELEASE < SK_ATOMIC_ORDER_ACQ_REL);
+	TEST_ASSERT_TRUE(SK_ATOMIC_ORDER_ACQ_REL < SK_ATOMIC_ORDER_SEQ_CST);
+	sk_atomic_thread_fence(SK_ATOMIC_ORDER_SEQ_CST);
+	sk_atomic_thread_fence(SK_ATOMIC_ORDER_ACQ_REL);
+	sk_atomic_thread_fence(SK_ATOMIC_ORDER_ACQUIRE);
+}
+
+SK_TEST(atomics_u32_init_load_store) {
+	u32 counter = 0u;
+	sk_atomic_u32_init(&counter, 41u);
+	TEST_ASSERT_EQUAL_UINT32(41u, sk_atomic_u32_load(&counter));
+	TEST_ASSERT_EQUAL_UINT32(41u, sk_atomic_u32_load_ordered(&counter, SK_ATOMIC_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT32(41u, sk_atomic_u32_load_ordered(&counter, SK_ATOMIC_ORDER_ACQUIRE));
+	sk_atomic_u32_store(&counter, 7u);
+	TEST_ASSERT_EQUAL_UINT32(7u, sk_atomic_u32_load(&counter));
+	sk_atomic_u32_store_ordered(&counter, 8u, SK_ATOMIC_ORDER_RELEASE);
+	TEST_ASSERT_EQUAL_UINT32(8u, sk_atomic_u32_load(&counter));
+	sk_atomic_u32_store_ordered(&counter, 9u, SK_ATOMIC_ORDER_RELAXED);
+	TEST_ASSERT_EQUAL_UINT32(9u, sk_atomic_u32_load(&counter));
+}
+
+SK_TEST(atomics_u32_exchange_returns_old) {
+	u32 slot = 1u;
+	TEST_ASSERT_EQUAL_UINT32(1u, sk_atomic_u32_exchange(&slot, 9u));
+	TEST_ASSERT_EQUAL_UINT32(9u, sk_atomic_u32_exchange(&slot, 2u));
+	TEST_ASSERT_EQUAL_UINT32(2u, sk_atomic_u32_load(&slot));
+	TEST_ASSERT_EQUAL_UINT32(2u, sk_atomic_u32_exchange_ordered(&slot, 5u, SK_ATOMIC_ORDER_ACQ_REL));
+	TEST_ASSERT_EQUAL_UINT32(5u, sk_atomic_u32_load(&slot));
+}
+
+SK_TEST(atomics_u32_compare_exchange_strong) {
+	u32 slot = 10u;
+	u32 expected = 10u;
+
+	TEST_ASSERT_EQUAL_INT(1, sk_atomic_u32_compare_exchange(&slot, &expected, 11u));
+	TEST_ASSERT_EQUAL_UINT32(11u, slot);
+
+	/* Mismatch: expected is updated to the observed value, object unchanged. */
+	expected = 10u;
+	TEST_ASSERT_EQUAL_INT(0, sk_atomic_u32_compare_exchange(&slot, &expected, 12u));
+	TEST_ASSERT_EQUAL_UINT32(11u, slot);
+	TEST_ASSERT_EQUAL_UINT32(11u, expected);
+
+	expected = 11u;
+	TEST_ASSERT_EQUAL_INT(1, sk_atomic_u32_compare_exchange_ordered(&slot, &expected, 13u, SK_ATOMIC_ORDER_RELAXED, SK_ATOMIC_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT32(13u, slot);
+}
+
+SK_TEST(atomics_u32_fetch_ops) {
+	u32 value = 100u;
+	TEST_ASSERT_EQUAL_UINT32(100u, sk_atomic_u32_fetch_add(&value, 5u));
+	TEST_ASSERT_EQUAL_UINT32(105u, value);
+	TEST_ASSERT_EQUAL_UINT32(105u, sk_atomic_u32_fetch_sub(&value, 15u));
+	TEST_ASSERT_EQUAL_UINT32(90u, value);
+	TEST_ASSERT_EQUAL_UINT32(90u, sk_atomic_u32_fetch_or(&value, 0xFu));
+	TEST_ASSERT_EQUAL_UINT32(95u, value);
+	TEST_ASSERT_EQUAL_UINT32(95u, sk_atomic_u32_fetch_and(&value, 0x11u));
+	TEST_ASSERT_EQUAL_UINT32(17u, value);
+
+	TEST_ASSERT_EQUAL_UINT32(17u, sk_atomic_u32_fetch_add_ordered(&value, 3u, SK_ATOMIC_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_UINT32(20u, value);
+	TEST_ASSERT_EQUAL_UINT32(20u, sk_atomic_u32_fetch_sub_ordered(&value, 4u, SK_ATOMIC_ORDER_ACQUIRE));
+	TEST_ASSERT_EQUAL_UINT32(16u, sk_atomic_u32_fetch_or_ordered(&value, 1u, SK_ATOMIC_ORDER_RELEASE));
+	TEST_ASSERT_EQUAL_UINT32(17u, value);
+	TEST_ASSERT_EQUAL_UINT32(17u, sk_atomic_u32_fetch_and_ordered(&value, 15u, SK_ATOMIC_ORDER_ACQ_REL));
+	TEST_ASSERT_EQUAL_UINT32(1u, value);
+}
+
+SK_TEST(atomics_u32_wraparound_ops) {
+	u32 value = 0xFFFFFFFFu;
+	TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, sk_atomic_u32_fetch_add(&value, 1u));
+	TEST_ASSERT_EQUAL_UINT32(0u, value);
+	TEST_ASSERT_EQUAL_UINT32(0u, sk_atomic_u32_fetch_sub(&value, 1u));
+	TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, value);
+}
+
+SK_TEST(atomics_i32_signed_ops) {
+	i32 value = -10;
+	sk_atomic_i32_init(&value, -10);
+	TEST_ASSERT_EQUAL_INT(-10, sk_atomic_i32_load(&value));
+	sk_atomic_i32_store(&value, 5);
+	TEST_ASSERT_EQUAL_INT(5, sk_atomic_i32_exchange(&value, -3));
+	TEST_ASSERT_EQUAL_INT(-3, sk_atomic_i32_fetch_add(&value, 7));
+	TEST_ASSERT_EQUAL_INT(4, value);
+	TEST_ASSERT_EQUAL_INT(4, sk_atomic_i32_fetch_sub(&value, 9));
+	TEST_ASSERT_EQUAL_INT(-5, value);
+	TEST_ASSERT_EQUAL_INT(-5, sk_atomic_i32_fetch_or(&value, 1));
+	TEST_ASSERT_EQUAL_INT(-5, value);
+	TEST_ASSERT_EQUAL_INT(-5, sk_atomic_i32_fetch_and(&value, 7));
+	TEST_ASSERT_EQUAL_INT(3, value);
+}
+
+SK_TEST(atomics_i32_compare_exchange_strong) {
+	i32 slot = 4;
+	i32 expected = 4;
+	TEST_ASSERT_EQUAL_INT(1, sk_atomic_i32_compare_exchange(&slot, &expected, 8));
+	TEST_ASSERT_EQUAL_INT(8, slot);
+	expected = 0;
+	TEST_ASSERT_EQUAL_INT(0, sk_atomic_i32_compare_exchange(&slot, &expected, 9));
+	TEST_ASSERT_EQUAL_INT(8, expected);
+}
+
+SK_TEST(atomics_u64_ops) {
+	u64 value = 0ull;
+	sk_atomic_u64_init(&value, 2ull);
+	TEST_ASSERT_EQUAL_UINT64(2ull, sk_atomic_u64_load(&value));
+	sk_atomic_u64_store(&value, 5ull);
+	TEST_ASSERT_EQUAL_UINT64(5ull, sk_atomic_u64_fetch_add(&value, 3ull));
+	TEST_ASSERT_EQUAL_UINT64(8ull, value);
+	TEST_ASSERT_EQUAL_UINT64(8ull, sk_atomic_u64_fetch_sub(&value, 6ull));
+	TEST_ASSERT_EQUAL_UINT64(2ull, sk_atomic_u64_fetch_or(&value, 4ull));
+	TEST_ASSERT_EQUAL_UINT64(6ull, sk_atomic_u64_fetch_and(&value, 7ull));
+	TEST_ASSERT_EQUAL_UINT64(6ull, value);
+	TEST_ASSERT_EQUAL_UINT64(6ull, sk_atomic_u64_exchange(&value, 0xFFFFFFFFFFFFFFFFull));
+	TEST_ASSERT_EQUAL_UINT64(0xFFFFFFFFFFFFFFFFull, sk_atomic_u64_load(&value));
+
+	u64 expected = 0xFFFFFFFFFFFFFFFFull;
+	TEST_ASSERT_EQUAL_INT(1, sk_atomic_u64_compare_exchange(&value, &expected, 9ull));
+	TEST_ASSERT_EQUAL_UINT64(9ull, value);
+	expected = 1ull;
+	TEST_ASSERT_EQUAL_INT(0, sk_atomic_u64_compare_exchange(&value, &expected, 2ull));
+	TEST_ASSERT_EQUAL_UINT64(9ull, expected);
+}
+
+SK_TEST(atomics_i64_ops) {
+	i64 value = 8;
+	sk_atomic_i64_init(&value, 8);
+	TEST_ASSERT_EQUAL_INT64(8, sk_atomic_i64_load(&value));
+	TEST_ASSERT_EQUAL_INT64(8, sk_atomic_i64_fetch_add(&value, -3));
+	TEST_ASSERT_EQUAL_INT64(5, value);
+	TEST_ASSERT_EQUAL_INT64(5, sk_atomic_i64_fetch_sub(&value, 7));
+	TEST_ASSERT_EQUAL_INT64(-2, value);
+	TEST_ASSERT_EQUAL_INT64(-2, sk_atomic_i64_exchange(&value, 11));
+	TEST_ASSERT_EQUAL_INT64(11, sk_atomic_i64_fetch_and(&value, 5));
+	TEST_ASSERT_EQUAL_INT64(1, sk_atomic_i64_fetch_or(&value, 6));
+	TEST_ASSERT_EQUAL_INT64(7, value);
+}
+
+SK_TEST(atomics_ptr_ops) {
+	int a = 1;
+	int b = 2;
+	void_ptr_t slot = &a;
+	sk_atomic_ptr_init(&slot, &a);
+	TEST_ASSERT_EQUAL_PTR(&a, sk_atomic_ptr_load(&slot));
+	TEST_ASSERT_EQUAL_PTR(&a, sk_atomic_ptr_load_ordered(&slot, SK_ATOMIC_ORDER_ACQUIRE));
+	TEST_ASSERT_EQUAL_PTR(&a, sk_atomic_ptr_exchange(&slot, &b));
+	TEST_ASSERT_EQUAL_PTR(&b, sk_atomic_ptr_load(&slot));
+	sk_atomic_ptr_store(&slot, &a);
+	TEST_ASSERT_EQUAL_PTR(&a, sk_atomic_ptr_load(&slot));
+	sk_atomic_ptr_store_ordered(&slot, &b, SK_ATOMIC_ORDER_RELEASE);
+	TEST_ASSERT_EQUAL_PTR(&b, sk_atomic_ptr_load(&slot));
+	TEST_ASSERT_EQUAL_PTR(&b, sk_atomic_ptr_exchange_ordered(&slot, &a, SK_ATOMIC_ORDER_ACQ_REL));
+	TEST_ASSERT_EQUAL_PTR(&a, sk_atomic_ptr_load(&slot));
+
+	void_ptr_t expected = &a;
+	TEST_ASSERT_EQUAL_INT(1, sk_atomic_ptr_compare_exchange(&slot, &expected, &b));
+	TEST_ASSERT_EQUAL_PTR(&b, slot);
+	expected = &a;
+	TEST_ASSERT_EQUAL_INT(0, sk_atomic_ptr_compare_exchange(&slot, &expected, 0));
+	TEST_ASSERT_EQUAL_PTR(&b, slot);
+	TEST_ASSERT_EQUAL_PTR(&b, expected);
+
+	expected = &b;
+	TEST_ASSERT_EQUAL_INT(1, sk_atomic_ptr_compare_exchange_ordered(&slot, &expected, &a, SK_ATOMIC_ORDER_RELAXED, SK_ATOMIC_ORDER_RELAXED));
+	TEST_ASSERT_EQUAL_PTR(&a, slot);
 }
 
 #endif /* SK_TESTS */
