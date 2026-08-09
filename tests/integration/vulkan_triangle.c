@@ -51,10 +51,13 @@ typedef struct tri_vertex_t {
 	f32 color[4];
 } tri_vertex_t;
 
+/* Vulkan NDC is y-down (origin top-left), so the y coordinates are negated
+ * relative to a y-up convention: the triangle points up, with the red vertex
+ * at the bottom-left, green at the top-center, and blue at the bottom-right. */
 static const tri_vertex_t tri_vertices[3] = {
-	{{-1.0f, -1.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
-	{{0.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
-	{{1.0f, -1.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+	{{-1.0f, 1.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+	{{0.0f, -1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+	{{1.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
 };
 
 static const u32 tri_indices[3] = {0u, 1u, 2u};
@@ -147,10 +150,16 @@ static void tri_write_ppm(const_chr_t dir, const u8* pixels, u32 width, u32 heig
 	if (file == NULL) {
 		return;
 	}
+	/* P6 stores RGB triplets; the readback buffer is RGBA8, so emit only the
+	 * R,G,B bytes of each texel and skip the alpha. */
 	fprintf(file, "P6\n%u %u\n255\n", width, height);
 	for (u32 y = 0u; y < height; ++y) {
 		const u8* row = &pixels[(size_t)y * (size_t)width * TRI_TEXEL_BYTES];
-		fwrite(row, TRI_TEXEL_BYTES, width, file);
+		for (u32 x = 0u; x < width; ++x) {
+			const u8* texel = &row[(size_t)x * TRI_TEXEL_BYTES];
+			const u8 rgb[3] = {texel[0], texel[1], texel[2]};
+			fwrite(rgb, 1u, 3u, file);
+		}
 	}
 	fclose(file);
 }
@@ -400,6 +409,8 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 
 	sk_graphics_pipeline_desc_t pipe_desc;
 	memset(&pipe_desc, 0, sizeof(pipe_desc));
+	/* U32_MAX makes the backend use pipeline.stride (the vertex stride). */
+	pipe_desc.vertex_input_stride = UINT32_MAX;
 	pipe_desc.pipeline.input_variables = inputs;
 	pipe_desc.pipeline.input_variable_count = 2u;
 	pipe_desc.pipeline.stride = (u32)sizeof(tri_vertex_t);
@@ -540,6 +551,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	}
 
 	/* --- Cleanup --- */
+	api->buffer_unmap(dev, rb);
 	if (sk_queue_t_is_valid(queue)) {
 		api->destroy_queue(dev, queue);
 	}
