@@ -65,6 +65,7 @@ typedef struct sk_clone_context_t {
 	sk_repository_t* repo;
 	sk_rid_t origin;
 	sk_clone_map_t map;
+	sk_undo_redo_scope_t* scope; /* optional scope that records each created slot */
 	i32 failed;
 } sk_clone_context_t;
 
@@ -91,6 +92,38 @@ struct sk_resource_type_t {
 	u32 bitmap_bytes;			 /* (field_count + 7) / 8 */
 	u8* defaults;				 /* owned block (blob + bitmap, all bits set), or NULL */
 };
+
+/* One recorded mutation: deep-copied before/after instance snapshots for a
+ * storage slot. `before` / `after` are repository-allocated instance blocks
+ * owned by the scope (NULL = no value); `path` is a scope-owned string (or
+ * NULL) used to restore a destroyed resource's slot on Undo. `structural`
+ * marks mutations that own the slot lifecycle (create / destroy / clone /
+ * create_from_prototype): applying their no-value snapshot fully releases the
+ * slot again instead of leaving an empty one. The type pointer lives in the
+ * repository and must outlive the scope. */
+typedef struct sk_undo_redo_change_t {
+	sk_repository_t* repo;
+	sk_rid_t rid;
+	sk_uuid_t uuid;
+	sk_resource_type_t* type;
+	sk_rid_t prototype;
+	char* path;
+	void_ptr_t before;
+	void_ptr_t after;
+	sk_rid_t parent; /* parent link restored when the slot is re-created */
+	u32 parent_field_index;
+	u8 structural;
+	u8 _pad0[3];
+} sk_undo_redo_change_t;
+
+struct sk_undo_redo_scope_t {
+	const sk_allocator_t* allocator; /* scope struct / name / changes / path strings */
+	char* name;						 /* owned copy */
+	SK_ARRAY(sk_undo_redo_change_t) changes;
+};
+
+static void sk_repo_scope_push_change(sk_undo_redo_scope_t* scope, sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t before, void_ptr_t after,
+									  i32 structural);
 
 /* ------------------------------------------------------------------ */
 /*  Instance block helpers                                            */
@@ -757,7 +790,7 @@ static i32 repository_register_type(sk_repository_t* repository, const sk_resour
 /*  Resource lifecycle                                                */
 /* ------------------------------------------------------------------ */
 
-static sk_rid_t repository_create_resource(sk_repository_t* repository, const sk_resource_type_t* type, sk_uuid_t uuid) {
+static sk_rid_t repository_create_resource(sk_repository_t* repository, const sk_resource_type_t* type, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	if (type->instance_size == 0u) {
 		return SK_RID_ZERO;
 	}
@@ -785,22 +818,25 @@ static sk_rid_t repository_create_resource(sk_repository_t* repository, const sk
 	}
 	sk_atomic_ptr_store(&storage->instance, instance);
 	repository->resource_count += 1u;
+	if (scope != NULL) {
+		sk_repo_scope_push_change(scope, repository, storage, NULL, instance, 1);
+	}
 	return rid;
 }
 
 /* Recursively destroy every sub-object of @p instance (used by the destroy
  * cascade; runs with the instance already retired to the GC queue). */
-static void sk_repo_destroy_instance_subobjects(sk_repository_t* repository, const sk_resource_type_t* type, void_ptr_t instance);
+static void sk_repo_destroy_instance_subobjects(sk_repository_t* repository, const sk_resource_type_t* type, void_ptr_t instance, sk_undo_redo_scope_t* scope);
 
-static i32 repository_destroy_resource(sk_repository_t* repository, sk_rid_t rid);
+static i32 repository_destroy_resource(sk_repository_t* repository, sk_rid_t rid, sk_undo_redo_scope_t* scope);
 static sk_resource_object_t repository_write(sk_repository_t* repository, sk_rid_t rid);
-static void repository_commit(sk_resource_object_t view);
+static void repository_commit(sk_resource_object_t view, sk_undo_redo_scope_t* scope);
 static void sk_repo_remove_subobject(sk_resource_object_t view, u32 index, sk_rid_t rid);
 
 // NOLINTBEGIN(misc-no-recursion) -- the destroy cascade recurses through
 // sub-objects (each acquire/release of the write lock is independent).
 
-static void sk_repo_destroy_instance_subobjects(sk_repository_t* repository, const sk_resource_type_t* type, void_ptr_t instance) {
+static void sk_repo_destroy_instance_subobjects(sk_repository_t* repository, const sk_resource_type_t* type, void_ptr_t instance, sk_undo_redo_scope_t* scope) {
 	const u8* base = (const u8*)instance;
 	for (u32 i = 0u; i < type->field_count; ++i) {
 		const sk_resource_field_t* field = &type->fields[i];
@@ -809,7 +845,7 @@ static void sk_repo_destroy_instance_subobjects(sk_repository_t* repository, con
 			sk_rid_t sub = SK_RID_ZERO;
 			memcpy(&sub, base + (size_t)field->offset, sizeof(sub));
 			if (sub.id != 0u) {
-				(void)repository_destroy_resource(repository, sub);
+				(void)repository_destroy_resource(repository, sub, scope);
 			}
 			break;
 		}
@@ -817,7 +853,7 @@ static void sk_repo_destroy_instance_subobjects(sk_repository_t* repository, con
 			const sk_field_subobject_list_t* list = (const sk_field_subobject_list_t*)(const_ptr_t)(base + (size_t)field->offset);
 			for (u32 k = 0u; k < list->count; ++k) {
 				if (list->items[k].id != 0u) {
-					(void)repository_destroy_resource(repository, list->items[k]);
+					(void)repository_destroy_resource(repository, list->items[k], scope);
 				}
 			}
 			break;
@@ -846,7 +882,7 @@ static void sk_repo_destroy_instance_subobjects(sk_repository_t* repository, con
 	}
 }
 
-static i32 repository_destroy_resource(sk_repository_t* repository, sk_rid_t rid) {
+static i32 repository_destroy_resource(sk_repository_t* repository, sk_rid_t rid, sk_undo_redo_scope_t* scope) {
 	sk_resource_storage_t* storage = sk_repo_storage(repository, rid);
 	if (storage == NULL) {
 		return -1;
@@ -870,7 +906,7 @@ static i32 repository_destroy_resource(sk_repository_t* repository, sk_rid_t rid
 			sk_resource_object_t view = repository_write(repository, parent_rid);
 			if (SK_RESOURCE_OBJECT_IS_VALID(view)) {
 				sk_repo_remove_subobject(view, storage->parent_field_index, rid);
-				repository_commit(view);
+				repository_commit(view, scope);
 			}
 		}
 	}
@@ -892,6 +928,14 @@ static i32 repository_destroy_resource(sk_repository_t* repository, sk_rid_t rid
 			sk_mutex_unlock(repository->write_lock);
 			return -1; /* OOM: leave the resource intact; retry the destroy later */
 		}
+	}
+
+	/* Record the change while the storage still carries its uuid, path, and
+	 * prototype link (Undo needs them to re-create the released slot). The
+	 * before snapshot deep-copies the published instance before it is retired
+	 * to the GC queue. */
+	if (scope != NULL && storage->type != NULL) {
+		sk_repo_scope_push_change(scope, repository, storage, instance, NULL, 1);
 	}
 
 	/* Unregister from the prototype's instance set. */
@@ -919,7 +963,7 @@ static i32 repository_destroy_resource(sk_repository_t* repository, sk_rid_t rid
 	/* Recursively destroy every sub-object of the retired instance. Each
 	 * recursive destroy acquires the write lock on its own. */
 	if (exchanged != NULL && type != NULL) {
-		sk_repo_destroy_instance_subobjects(repository, type, exchanged);
+		sk_repo_destroy_instance_subobjects(repository, type, exchanged, scope);
 	}
 
 	/* Release the page slot. */
@@ -1075,8 +1119,9 @@ static i32 repository_is_parent_of(sk_repository_t* repository, sk_rid_t parent,
 /* ------------------------------------------------------------------ */
 
 static void sk_repo_update_subobject_parents(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance);
-static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance);
-static void sk_repo_finalize_commit(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance);
+static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance,
+												sk_undo_redo_scope_t* scope);
+static void sk_repo_finalize_commit(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance, sk_undo_redo_scope_t* scope);
 static i32 repository_add_to_subobject_list(sk_resource_object_t view, u32 index, sk_rid_t rid);
 static u32 repository_remove_from_subobject_list_by_prototype(sk_resource_object_t view, u32 index, sk_rid_t prototype, sk_rid_t* out_items, u32 out_capacity);
 
@@ -1130,7 +1175,7 @@ static void sk_repo_update_version_chain(sk_repository_t* repository, sk_resourc
 }
 
 // NOLINTNEXTLINE(misc-no-recursion) -- commit re-enters via prototype propagation / destroy.
-static void repository_commit(sk_resource_object_t view) {
+static void repository_commit(sk_resource_object_t view, sk_undo_redo_scope_t* scope) {
 	if (view.is_write == 0u || view.storage == NULL || view.instance == NULL || view.repo == NULL) {
 		return;
 	}
@@ -1145,12 +1190,17 @@ static void repository_commit(sk_resource_object_t view) {
 		sk_mutex_unlock(repository->write_lock);
 		return;
 	}
+	/* Record before / after BEFORE the replaced instance is retired to the GC
+	 * queue (the snapshot deep-copies the still-live instance). */
+	if (scope != NULL) {
+		sk_repo_scope_push_change(scope, repository, storage, expected, view.instance, 0);
+	}
 	if (expected != NULL) {
 		(void)sk_array_push(&repository->to_collect, ((sk_resource_gc_item_t){storage->type, expected}));
 	}
 	sk_repo_update_version_chain(repository, storage);
 	sk_mutex_unlock(repository->write_lock);
-	sk_repo_finalize_commit(repository, storage, expected, view.instance);
+	sk_repo_finalize_commit(repository, storage, expected, view.instance, scope);
 }
 
 static void repository_discard(sk_resource_object_t view) {
@@ -1277,7 +1327,8 @@ static sk_rid_t sk_repo_create_from_prototype_internal(sk_clone_context_t* ctx, 
 // NOLINTBEGIN(misc-no-recursion) -- propagation re-enters Write/Commit and
 // CreateFromPrototype / Destroy per instance.
 
-static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance) {
+static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance,
+												sk_undo_redo_scope_t* scope) {
 	if (old_instance == NULL || new_instance == NULL || storage->type == NULL) {
 		return;
 	}
@@ -1353,6 +1404,7 @@ static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_
 					sk_clone_context_t cctx;
 					cctx.repo = repository;
 					cctx.origin = to_add.items[m];
+					cctx.scope = scope;
 					cctx.failed = 0;
 					sk_hash_map_init(&cctx.map, a, NULL, NULL);
 					sk_rid_t mirror = sk_repo_create_from_prototype_internal(&cctx, to_add.items[m], SK_UUID_ZERO, NULL, (u32)-1);
@@ -1373,7 +1425,7 @@ static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_
 					for (u32 m = 0u; m < created.count; ++m) {
 						(void)repository_add_to_subobject_list(view, field->index, created.items[m]);
 					}
-					repository_commit(view);
+					repository_commit(view, scope);
 					instance_committed = 1;
 				}
 
@@ -1381,7 +1433,7 @@ static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_
 				 * their parent link was cleared, so the destroy is clean). */
 				if (instance_committed != 0) {
 					for (u32 m = 0u; m < removed_mirrors.count; ++m) {
-						(void)repository_destroy_resource(repository, removed_mirrors.items[m]);
+						(void)repository_destroy_resource(repository, removed_mirrors.items[m], scope);
 					}
 				}
 			}
@@ -1394,9 +1446,9 @@ static void sk_repo_propagate_prototype_changes(sk_repository_t* repository, sk_
 	}
 }
 
-static void sk_repo_finalize_commit(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance) {
+static void sk_repo_finalize_commit(sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t old_instance, void_ptr_t new_instance, sk_undo_redo_scope_t* scope) {
 	sk_repo_update_subobject_parents(repository, storage, old_instance, new_instance);
-	sk_repo_propagate_prototype_changes(repository, storage, old_instance, new_instance);
+	sk_repo_propagate_prototype_changes(repository, storage, old_instance, new_instance, scope);
 }
 
 // NOLINTEND(misc-no-recursion)
@@ -1572,6 +1624,9 @@ static sk_rid_t sk_repo_clone_subobject(sk_clone_context_t* ctx, sk_resource_sto
 		}
 		if (instance != NULL) {
 			sk_atomic_ptr_store(&dst_storage->instance, instance);
+			if (ctx->scope != NULL) {
+				sk_repo_scope_push_change(ctx->scope, ctx->repo, dst_storage, NULL, instance, 1);
+			}
 		}
 	}
 	dst_storage->parent = parent_storage->rid;
@@ -1806,7 +1861,10 @@ static sk_rid_t sk_repo_create_from_prototype_internal(sk_clone_context_t* ctx, 
 		sk_atomic_ptr_store(&storage->instance, instance);
 		sk_repo_update_version_chain(ctx->repo, storage);
 		sk_mutex_unlock(ctx->repo->write_lock);
-		sk_repo_finalize_commit(ctx->repo, storage, NULL, instance);
+		if (ctx->scope != NULL) {
+			sk_repo_scope_push_change(ctx->scope, ctx->repo, storage, NULL, instance, 1);
+		}
+		sk_repo_finalize_commit(ctx->repo, storage, NULL, instance, ctx->scope);
 	}
 	return dst;
 }
@@ -1839,11 +1897,14 @@ static void sk_repo_clone_internal(sk_clone_context_t* ctx, sk_rid_t origin, sk_
 		}
 		if (instance != NULL) {
 			sk_atomic_ptr_store(&dest_storage->instance, instance);
+			if (ctx->scope != NULL) {
+				sk_repo_scope_push_change(ctx->scope, ctx->repo, dest_storage, NULL, instance, 1);
+			}
 		}
 	}
 }
 
-static sk_rid_t repository_clone(sk_repository_t* repository, sk_rid_t origin, sk_uuid_t uuid) {
+static sk_rid_t repository_clone(sk_repository_t* repository, sk_rid_t origin, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	sk_resource_storage_t* origin_storage = sk_repo_storage(repository, origin);
 	if (origin_storage == NULL || origin_storage->type == NULL) {
 		return SK_RID_ZERO;
@@ -1852,6 +1913,7 @@ static sk_rid_t repository_clone(sk_repository_t* repository, sk_rid_t origin, s
 	sk_clone_context_t ctx;
 	ctx.repo = repository;
 	ctx.origin = origin;
+	ctx.scope = scope;
 	ctx.failed = 0;
 	sk_hash_map_init(&ctx.map, repository->allocator, NULL, NULL);
 
@@ -1876,7 +1938,7 @@ static sk_rid_t repository_clone(sk_repository_t* repository, sk_rid_t origin, s
 	return dest;
 }
 
-static sk_rid_t repository_create_from_prototype(sk_repository_t* repository, sk_rid_t prototype, sk_uuid_t uuid) {
+static sk_rid_t repository_create_from_prototype(sk_repository_t* repository, sk_rid_t prototype, sk_uuid_t uuid, sk_undo_redo_scope_t* scope) {
 	sk_resource_storage_t* prototype_storage = sk_repo_storage(repository, prototype);
 	if (prototype_storage == NULL || prototype_storage->type == NULL) {
 		return SK_RID_ZERO;
@@ -1885,6 +1947,7 @@ static sk_rid_t repository_create_from_prototype(sk_repository_t* repository, sk
 	sk_clone_context_t ctx;
 	ctx.repo = repository;
 	ctx.origin = prototype;
+	ctx.scope = scope;
 	ctx.failed = 0;
 	sk_hash_map_init(&ctx.map, repository->allocator, NULL, NULL);
 
@@ -2449,6 +2512,217 @@ static void sk_repo_remove_subobject(sk_resource_object_t view, u32 index, sk_ri
 }
 
 /* ------------------------------------------------------------------ */
+/*  Undo / redo scopes                                                 */
+/* ------------------------------------------------------------------ */
+
+/* Record one mutation into @p scope: deep-copy the before / after instance
+ * snapshots (repository-allocated, owned by the scope) plus the storage's
+ * identity (rid, uuid, path, prototype) so a destroyed slot can be re-created
+ * on Undo. Any allocation failure drops the change (the mutation still
+ * succeeds; it simply is not undoable). */
+static void sk_repo_scope_push_change(sk_undo_redo_scope_t* scope, sk_repository_t* repository, sk_resource_storage_t* storage, void_ptr_t before, void_ptr_t after,
+									  i32 structural) {
+	if (scope == NULL || storage->type == NULL) {
+		return;
+	}
+	sk_undo_redo_change_t change;
+	memset(&change, 0, sizeof(change));
+	change.repo = repository;
+	change.rid = storage->rid;
+	change.uuid = storage->uuid;
+	change.type = storage->type;
+	change.prototype = storage->prototype;
+	change.parent = storage->parent;
+	change.parent_field_index = storage->parent_field_index;
+	change.structural = (u8)(structural != 0);
+	if (storage->path != NULL) {
+		size_t len = strlen(storage->path);
+		change.path = (char*)scope->allocator->alloc(scope->allocator->instance, len + 1u);
+		if (change.path == NULL) {
+			return; /* OOM: skip recording */
+		}
+		memcpy(change.path, storage->path, len + 1u);
+	}
+	if (before != NULL) {
+		change.before = sk_repo_instance_copy(repository, storage->type, (const u8*)before);
+		if (change.before == NULL) {
+			if (change.path != NULL) {
+				scope->allocator->free(scope->allocator->instance, change.path);
+			}
+			return;
+		}
+	}
+	if (after != NULL) {
+		change.after = sk_repo_instance_copy(repository, storage->type, (const u8*)after);
+		if (change.after == NULL) {
+			if (change.before != NULL) {
+				sk_repo_instance_destroy(repository, storage->type, change.before);
+			}
+			if (change.path != NULL) {
+				scope->allocator->free(scope->allocator->instance, change.path);
+			}
+			return;
+		}
+	}
+	if (sk_array_push(&scope->changes, change) != 0) {
+		if (change.before != NULL) {
+			sk_repo_instance_destroy(repository, storage->type, change.before);
+		}
+		if (change.after != NULL) {
+			sk_repo_instance_destroy(repository, storage->type, change.after);
+		}
+		if (change.path != NULL) {
+			scope->allocator->free(scope->allocator->instance, change.path);
+		}
+	}
+}
+
+/* Apply one change's @p snapshot to its storage slot under the write lock:
+ * publish a fresh deep copy (or clear when the snapshot is NULL), queue the
+ * superseded instance for GC, bump the version chain, and refresh hierarchy
+ * links without re-running prototype propagation. When the slot was released
+ * (destroyed resource) the slot is re-created first from the change's recorded
+ * identity; a change whose slot is gone and whose snapshot is no value (a
+ * rolled-back create) is skipped. */
+static void sk_repo_scope_apply_change(const sk_undo_redo_change_t* change, void_ptr_t snapshot) {
+	sk_repository_t* repository = change->repo;
+	if (change->type == NULL) {
+		return;
+	}
+	sk_mutex_lock(repository->write_lock);
+
+	sk_resource_storage_t* storage = sk_repo_storage(repository, change->rid);
+	if (storage == NULL) {
+		if (snapshot == NULL) {
+			sk_mutex_unlock(repository->write_lock);
+			return;
+		}
+		storage = sk_repo_allocate_slot_id(repository, change->rid, change->uuid);
+		if (storage == NULL) {
+			sk_mutex_unlock(repository->write_lock);
+			return; /* uuid conflict / OOM: leave the slot gone */
+		}
+		storage->type = change->type;
+		if (change->path != NULL) {
+			char* copy = sk_repo_copy_string(repository, change->path);
+			if (copy != NULL) {
+				if (sk_hash_map_put(&repository->rids_by_path, copy, change->rid) == 0) {
+					storage->path = copy;
+				} else {
+					repository->allocator->free(repository->allocator->instance, copy);
+				}
+			}
+		}
+		if (change->prototype.id != 0u) {
+			storage->prototype = change->prototype;
+			sk_resource_storage_t* prototype = sk_repo_storage(repository, change->prototype);
+			if (prototype != NULL) {
+				sk_repo_list_add_unique(&prototype->prototype_instances, change->rid);
+			}
+		}
+		storage->parent = change->parent;
+		storage->parent_field_index = change->parent_field_index;
+		repository->resource_count += 1u;
+	} else if (storage->type == NULL) {
+		storage->type = change->type;
+	}
+
+	if (snapshot == NULL && change->structural != 0) {
+		/* Undo a create / clone / create_from_prototype or redo a destroy:
+		 * the mutation owns the slot, so applying the no-value snapshot fully
+		 * releases it again (symmetry with the slot re-creation above). */
+		void_ptr_t current = sk_atomic_ptr_load(&storage->instance);
+		if (current != NULL) {
+			(void)sk_array_push(&repository->to_collect, ((sk_resource_gc_item_t){change->type, current}));
+		}
+		sk_repo_release_slot(repository, change->rid);
+		if (repository->resource_count > 0u) {
+			repository->resource_count -= 1u;
+		}
+		sk_mutex_unlock(repository->write_lock);
+		return;
+	}
+
+	void_ptr_t old_instance = sk_atomic_ptr_load(&storage->instance);
+	void_ptr_t new_instance = NULL;
+	if (snapshot != NULL) {
+		new_instance = sk_repo_instance_copy(repository, change->type, (const u8*)snapshot);
+		if (new_instance == NULL) {
+			sk_mutex_unlock(repository->write_lock);
+			return; /* OOM: leave the slot as-is */
+		}
+	}
+	if (old_instance != NULL) {
+		(void)sk_array_push(&repository->to_collect, ((sk_resource_gc_item_t){change->type, old_instance}));
+	}
+	sk_atomic_ptr_store(&storage->instance, new_instance);
+	sk_repo_update_version_chain(repository, storage);
+	sk_mutex_unlock(repository->write_lock);
+	sk_repo_finalize_commit(repository, storage, old_instance, new_instance, NULL);
+}
+
+static sk_undo_redo_scope_t* repository_undo_redo_scope_create(const sk_allocator_t* allocator, const_chr_t name) {
+	sk_undo_redo_scope_t* scope = (sk_undo_redo_scope_t*)allocator->alloc(allocator->instance, sizeof(*scope));
+	if (scope == NULL) {
+		return NULL;
+	}
+	memset(scope, 0, sizeof(*scope));
+	scope->allocator = allocator;
+	sk_array_init(&scope->changes, allocator);
+	if (name != NULL) {
+		size_t len = strlen(name);
+		scope->name = (char*)allocator->alloc(allocator->instance, len + 1u);
+		if (scope->name == NULL) {
+			allocator->free(allocator->instance, scope);
+			return NULL;
+		}
+		memcpy(scope->name, name, len + 1u);
+	}
+	return scope;
+}
+
+static void repository_undo_redo_scope_destroy(sk_undo_redo_scope_t* scope) {
+	if (scope == NULL) {
+		return;
+	}
+	for (u32 i = 0u; i < scope->changes.count; ++i) {
+		const sk_undo_redo_change_t* change = &scope->changes.items[i];
+		if (change->before != NULL) {
+			sk_repo_instance_destroy(change->repo, change->type, change->before);
+		}
+		if (change->after != NULL) {
+			sk_repo_instance_destroy(change->repo, change->type, change->after);
+		}
+		if (change->path != NULL) {
+			scope->allocator->free(scope->allocator->instance, change->path);
+		}
+	}
+	sk_array_free(&scope->changes);
+	if (scope->name != NULL) {
+		scope->allocator->free(scope->allocator->instance, scope->name);
+	}
+	scope->allocator->free(scope->allocator->instance, scope);
+}
+
+static void repository_undo_redo_scope_undo(sk_undo_redo_scope_t* scope) {
+	for (u32 i = scope->changes.count; i > 0u; --i) {
+		const sk_undo_redo_change_t* change = &scope->changes.items[i - 1u];
+		sk_repo_scope_apply_change(change, change->before);
+	}
+}
+
+static void repository_undo_redo_scope_redo(sk_undo_redo_scope_t* scope) {
+	for (u32 i = 0u; i < scope->changes.count; ++i) {
+		const sk_undo_redo_change_t* change = &scope->changes.items[i];
+		sk_repo_scope_apply_change(change, change->after);
+	}
+}
+
+static const_chr_t repository_undo_redo_scope_get_name(const sk_undo_redo_scope_t* scope) {
+	return scope->name;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Module API table                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -2510,6 +2784,11 @@ static const sk_repository_api_t repository_api = {
 	repository_get_reference_array,
 	repository_get_subobject,
 	repository_get_subobject_list,
+	repository_undo_redo_scope_create,
+	repository_undo_redo_scope_destroy,
+	repository_undo_redo_scope_undo,
+	repository_undo_redo_scope_redo,
+	repository_undo_redo_scope_get_name,
 };
 
 SK_API const sk_repository_api_t* sk_repository_api(void) {
@@ -2634,7 +2913,7 @@ SK_TEST(repository_independent_instances) {
 	TEST_ASSERT_NOT_EQUAL_PTR(ta, tb);
 
 	sk_uuid_t uuid = {0x1234ull, 0x5678ull};
-	sk_rid_t rid = api->create_resource(repo_a, ta, uuid);
+	sk_rid_t rid = api->create_resource(repo_a, ta, uuid, NULL);
 	TEST_ASSERT_TRUE(rid.id != 0u);
 	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo_a));
 
@@ -2644,7 +2923,7 @@ SK_TEST(repository_independent_instances) {
 	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(repo_b));
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo_a, uuid), rid));
 
-	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo_a, rid));
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo_a, rid, NULL));
 	TEST_ASSERT_FALSE(api->has_resource(repo_a, rid));
 	TEST_ASSERT_TRUE(api->find_by_uuid(repo_a, uuid).id == 0u);
 
@@ -2663,14 +2942,14 @@ SK_TEST(repository_uuid_uniqueness) {
 	TEST_ASSERT_NOT_NULL(type);
 
 	sk_uuid_t uuid = {0xaabbccddull, 0x11223344ull};
-	sk_rid_t r1 = api->create_resource(repo, type, uuid);
-	sk_rid_t r2 = api->create_resource(repo, type, uuid);
+	sk_rid_t r1 = api->create_resource(repo, type, uuid, NULL);
+	sk_rid_t r2 = api->create_resource(repo, type, uuid, NULL);
 	TEST_ASSERT_TRUE(SK_RID_EQ(r1, r2));
 	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
 
 	/* Zero UUID → no uniqueness constraint; each create is a fresh resource. */
-	sk_rid_t z1 = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t z2 = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t z1 = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t z2 = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_FALSE(SK_RID_EQ(z1, z2));
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, uuid), r1));
 	TEST_ASSERT_EQUAL_UINT64(3u, api->resource_count(repo));
@@ -2691,8 +2970,8 @@ SK_TEST(repository_default_deep_copy) {
 	const sk_resource_type_t* type = api->find_type_by_name(repo, "deep.payload");
 	TEST_ASSERT_NOT_NULL(type);
 
-	sk_rid_t a = api->create_resource(repo, type, (sk_uuid_t){1u, 0u});
-	sk_rid_t b = api->create_resource(repo, type, (sk_uuid_t){2u, 0u});
+	sk_rid_t a = api->create_resource(repo, type, (sk_uuid_t){1u, 0u}, NULL);
+	sk_rid_t b = api->create_resource(repo, type, (sk_uuid_t){2u, 0u}, NULL);
 	TEST_ASSERT_TRUE(a.id != 0u);
 	TEST_ASSERT_TRUE(b.id != 0u);
 
@@ -2712,8 +2991,8 @@ SK_TEST(repository_default_deep_copy) {
 	TEST_ASSERT_EQUAL_INT64(99, pa->value);
 	TEST_ASSERT_EQUAL_INT64(42, pb->value);
 
-	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, a));
-	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, b));
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, a, NULL));
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, b, NULL));
 	api->destroy(repo);
 }
 
@@ -2732,7 +3011,7 @@ SK_TEST(repository_multi_page_rids) {
 	sk_rid_t last = SK_RID_ZERO;
 	for (u32 i = 0u; i < resource_count; ++i) {
 		sk_uuid_t uuid = {(u64)i + 1u, 0u};
-		sk_rid_t rid = api->create_resource(repo, type, uuid);
+		sk_rid_t rid = api->create_resource(repo, type, uuid, NULL);
 		TEST_ASSERT_TRUE(rid.id != 0u);
 		TEST_ASSERT_TRUE(api->has_resource(repo, rid));
 		if (i == 0u) {
@@ -2767,8 +3046,8 @@ SK_TEST(repository_path_uniqueness) {
 	const sk_resource_type_t* type = api->find_type_by_name(repo, "path.type");
 	TEST_ASSERT_NOT_NULL(type);
 
-	sk_rid_t rid1 = api->create_resource(repo, type, (sk_uuid_t){1u, 0u});
-	sk_rid_t rid2 = api->create_resource(repo, type, (sk_uuid_t){2u, 0u});
+	sk_rid_t rid1 = api->create_resource(repo, type, (sk_uuid_t){1u, 0u}, NULL);
+	sk_rid_t rid2 = api->create_resource(repo, type, (sk_uuid_t){2u, 0u}, NULL);
 	TEST_ASSERT_TRUE(rid1.id != 0u);
 	TEST_ASSERT_TRUE(rid2.id != 0u);
 
@@ -2782,7 +3061,7 @@ SK_TEST(repository_path_uniqueness) {
 	TEST_ASSERT_NULL(api->get_path(repo, rid2));
 
 	/* Destroying the owner releases the path. */
-	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, rid1));
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, rid1, NULL));
 	TEST_ASSERT_TRUE(api->find_by_path(repo, "assets/one.foo").id == 0u);
 	TEST_ASSERT_NULL(api->get_path(repo, rid1));
 
@@ -2844,7 +3123,7 @@ SK_TEST(repository_oom_safety) {
 	TEST_ASSERT_NOT_NULL(type);
 
 	/* Warm the page + uuid index so the next create only allocates the blob. */
-	sk_rid_t warm = api->create_resource(repo, type, (sk_uuid_t){1u, 0u});
+	sk_rid_t warm = api->create_resource(repo, type, (sk_uuid_t){1u, 0u}, NULL);
 	TEST_ASSERT_TRUE(warm.id != 0u);
 	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
 
@@ -2856,7 +3135,7 @@ SK_TEST(repository_oom_safety) {
 
 	/* create_resource: instance blob OOM → slot + uuid rolled back. */
 	state.fail_at = state.allocs_done;
-	sk_rid_t failed = api->create_resource(repo, type, (sk_uuid_t){2u, 0u});
+	sk_rid_t failed = api->create_resource(repo, type, (sk_uuid_t){2u, 0u}, NULL);
 	TEST_ASSERT_TRUE(failed.id == 0u);
 	TEST_ASSERT_TRUE(api->find_by_uuid(repo, (sk_uuid_t){2u, 0u}).id == 0u);
 	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
@@ -2941,12 +3220,12 @@ static sk_repository_t* rt_repo(const sk_resource_type_t** out_type, u64 tag) {
 }
 
 static sk_rid_t rt_make_sub(const sk_repository_api_t* api, sk_repository_t* repo, const sk_resource_type_t* type, i64 value) {
-	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(rid.id != 0u);
 	sk_resource_object_t view = api->write(repo, rid);
 	TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
 	TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, value));
-	api->commit(view);
+	api->commit(view, NULL);
 	return rid;
 }
 
@@ -2954,7 +3233,7 @@ static void rt_set_int(const sk_repository_api_t* api, sk_repository_t* repo, sk
 	sk_resource_object_t view = api->write(repo, rid);
 	TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
 	TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, value));
-	api->commit(view);
+	api->commit(view, NULL);
 }
 
 /* Verify an instance mirrors exactly the given prototype sub-objects: each
@@ -2991,7 +3270,7 @@ SK_TEST(repository_read_write_commit_discard) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 10u);
 
-	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(rid.id != 0u);
 	TEST_ASSERT_TRUE(api->has_value(repo, rid)); /* create materializes a zeroed instance */
 	TEST_ASSERT_EQUAL_UINT64(1u, api->get_version(repo, rid));
@@ -3013,7 +3292,7 @@ SK_TEST(repository_read_write_commit_discard) {
 		sk_resource_object_t view = api->write(repo, rid);
 		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
 		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 10));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	TEST_ASSERT_TRUE(api->has_value(repo, rid));
 	TEST_ASSERT_EQUAL_UINT64(2u, api->get_version(repo, rid));
@@ -3025,7 +3304,7 @@ SK_TEST(repository_read_write_commit_discard) {
 		sk_resource_object_t view = api->write(repo, rid);
 		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
 		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 20));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	TEST_ASSERT_EQUAL_UINT64(3u, api->get_version(repo, rid));
 	read = api->read(repo, rid);
@@ -3043,20 +3322,20 @@ SK_TEST(repository_prototype_create_hierarchy) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 20u);
 
-	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	sk_rid_t sub = rt_make_sub(api, repo, type, 1);
-	sk_rid_t outer = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t outer = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 
 	/* prototype owns sub as a sub-object. */
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 7));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, sub), prototype));
 
-	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(instance.id != 0u);
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, instance), prototype));
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, instance), SK_RID_ZERO));
@@ -3078,7 +3357,7 @@ SK_TEST(repository_prototype_create_hierarchy) {
 	{
 		sk_resource_object_t view = api->write(repo, sub);
 		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, prototype));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	sk_resource_object_t mirror_read = api->read(repo, items[0]);
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(mirror_read, RT_FIELD_REFERENCE), prototype));
@@ -3095,10 +3374,10 @@ SK_TEST(repository_prototype_scalar_inheritance_and_override) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 21u);
 
-	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	rt_set_int(api, repo, prototype, 10);
 
-	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(instance.id != 0u);
 
 	/* Unset on the instance, inherited from the prototype. */
@@ -3120,7 +3399,7 @@ SK_TEST(repository_prototype_scalar_inheritance_and_override) {
 	TEST_ASSERT_EQUAL_INT64(99, api->get_int(read, RT_FIELD_INT));
 
 	/* A fresh instance sees the new prototype value. */
-	sk_rid_t instance2 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t instance2 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
 	read = api->read(repo, instance2);
 	TEST_ASSERT_EQUAL_INT64(30, api->get_int(read, RT_FIELD_INT));
 	TEST_ASSERT_FALSE(api->is_value_overridden(read, RT_FIELD_INT));
@@ -3133,13 +3412,13 @@ SK_TEST(repository_prototype_string_inheritance) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 22u);
 
-	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "blegh"));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
-	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
 	sk_resource_object_t read = api->read(repo, instance);
 	TEST_ASSERT_EQUAL_STRING("blegh", api->get_string(read, RT_FIELD_STRING));
 
@@ -3147,7 +3426,7 @@ SK_TEST(repository_prototype_string_inheritance) {
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "updated"));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	read = api->read(repo, instance);
 	TEST_ASSERT_EQUAL_STRING("updated", api->get_string(read, RT_FIELD_STRING));
@@ -3156,12 +3435,12 @@ SK_TEST(repository_prototype_string_inheritance) {
 	{
 		sk_resource_object_t view = api->write(repo, instance);
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "mine"));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "again"));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	read = api->read(repo, instance);
 	TEST_ASSERT_EQUAL_STRING("mine", api->get_string(read, RT_FIELD_STRING));
@@ -3175,13 +3454,13 @@ SK_TEST(repository_prototype_chain_scalars) {
 	sk_repository_t* repo = rt_repo(&type, 23u);
 
 	/* Prototype chain A → B → C with parallel instances. */
-	sk_rid_t a = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t a = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	rt_set_int(api, repo, a, 10);
-	sk_rid_t b = api->create_from_prototype(repo, a, SK_UUID_ZERO);
-	sk_rid_t c = api->create_from_prototype(repo, b, SK_UUID_ZERO);
+	sk_rid_t b = api->create_from_prototype(repo, a, SK_UUID_ZERO, NULL);
+	sk_rid_t c = api->create_from_prototype(repo, b, SK_UUID_ZERO, NULL);
 
-	sk_rid_t i1 = api->create_from_prototype(repo, c, SK_UUID_ZERO);
-	sk_rid_t i2 = api->create_from_prototype(repo, c, SK_UUID_ZERO);
+	sk_rid_t i1 = api->create_from_prototype(repo, c, SK_UUID_ZERO, NULL);
+	sk_rid_t i2 = api->create_from_prototype(repo, c, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, i1), c));
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, c), b));
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, b), a));
@@ -3227,15 +3506,15 @@ SK_TEST(repository_subobject_list_prototypes) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 30u);
 
-	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t sub1 = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t sub2 = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t sub3 = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t sub1 = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t sub2 = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t sub3 = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 
 	{
 		sk_resource_object_t view = api->write(repo, sub1);
 		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, prototype));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
@@ -3243,10 +3522,10 @@ SK_TEST(repository_subobject_list_prototypes) {
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "blegh"));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 
-	sk_rid_t item = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t item = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(item.id != 0u);
 
 	{
@@ -3262,7 +3541,7 @@ SK_TEST(repository_subobject_list_prototypes) {
 		/* Mutate a mirror's own scalar: independent of the prototype. */
 		sk_resource_object_t sub_write = api->write(repo, arr[0]);
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(sub_write, RT_FIELD_STRING, "str"));
-		api->commit(sub_write);
+		api->commit(sub_write, NULL);
 
 		sk_resource_object_t sub_read = api->read(repo, arr[0]);
 		TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(sub_read, RT_FIELD_REFERENCE), prototype));
@@ -3285,7 +3564,7 @@ SK_TEST(repository_subobject_list_prototypes) {
 		TEST_ASSERT_EQUAL_INT(0, api->set_int(write, RT_FIELD_INT, 222));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(write, RT_FIELD_SUBOBJECT_LIST, sub3));
 		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(write, RT_FIELD_SUBOBJECT_LIST, mirror_of_sub2));
-		api->commit(write);
+		api->commit(write, NULL);
 	}
 
 	{
@@ -3309,7 +3588,7 @@ SK_TEST(repository_subobject_list_prototype_propagation) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 31u);
 
-	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	sk_rid_t sub1 = rt_make_sub(api, repo, type, 1);
 	sk_rid_t sub2 = rt_make_sub(api, repo, type, 2);
 
@@ -3318,12 +3597,12 @@ SK_TEST(repository_subobject_list_prototype_propagation) {
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "prototype"));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 
-	sk_rid_t instance1 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
-	sk_rid_t instance2 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
-	sk_rid_t instance3 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t instance1 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
+	sk_rid_t instance2 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
+	sk_rid_t instance3 = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(instance1.id != 0u);
 	TEST_ASSERT_TRUE(instance2.id != 0u);
 	TEST_ASSERT_TRUE(instance3.id != 0u);
@@ -3342,7 +3621,7 @@ SK_TEST(repository_subobject_list_prototype_propagation) {
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub3));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub4));
 		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_rid_t expected[3] = {sub2, sub3, sub4};
@@ -3356,7 +3635,7 @@ SK_TEST(repository_subobject_list_prototype_propagation) {
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub5));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_rid_t expected[3] = {sub3, sub4, sub5};
@@ -3393,7 +3672,7 @@ SK_TEST(repository_subobject_list_remove_override) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 32u);
 
-	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	sk_rid_t sub1 = rt_make_sub(api, repo, type, 1);
 	sk_rid_t sub2 = rt_make_sub(api, repo, type, 2);
 
@@ -3401,10 +3680,10 @@ SK_TEST(repository_subobject_list_remove_override) {
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 
-	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(instance.id != 0u);
 
 	/* Instance removes its mirror of sub2 (an override). */
@@ -3421,7 +3700,7 @@ SK_TEST(repository_subobject_list_remove_override) {
 		}
 		TEST_ASSERT_TRUE(mirror2.id != 0u);
 		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, mirror2));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_rid_t expected[1] = {sub1};
@@ -3433,12 +3712,12 @@ SK_TEST(repository_subobject_list_remove_override) {
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_rid_t expected[1] = {sub1};
@@ -3446,18 +3725,18 @@ SK_TEST(repository_subobject_list_remove_override) {
 	}
 
 	/* Explicitly re-adding a mirror of sub2 cancels the removal override. */
-	sk_rid_t fresh_mirror = api->create_from_prototype(repo, sub2, SK_UUID_ZERO);
+	sk_rid_t fresh_mirror = api->create_from_prototype(repo, sub2, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(fresh_mirror.id != 0u);
 	{
 		sk_resource_object_t instance_view = api->write(repo, instance);
 		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(instance_view));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(instance_view, RT_FIELD_SUBOBJECT_LIST, fresh_mirror));
-		api->commit(instance_view);
+		api->commit(instance_view, NULL);
 	}
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_rid_t expected[2] = {sub1, sub2};
@@ -3476,29 +3755,29 @@ SK_TEST(repository_clone_deep_subtree_remap) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 40u);
 
-	sk_rid_t subobject = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t subobject = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	{
 		sk_resource_object_t view = api->write(repo, subobject);
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "subobject"));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
-	sk_rid_t subobject_to_list = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t subobject_to_list = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	{
 		sk_resource_object_t view = api->write(repo, subobject_to_list);
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "subobjectToSet"));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
-	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	{
 		sk_resource_object_t view = api->write(repo, rid);
 		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 10));
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "blegh"));
 		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(view, RT_FIELD_SUBOBJECT, subobject));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, subobject_to_list));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 
-	sk_rid_t clone = api->clone(repo, rid, SK_UUID_ZERO);
+	sk_rid_t clone = api->clone(repo, rid, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(clone.id != 0u);
 	TEST_ASSERT_FALSE(SK_RID_EQ(clone, rid));
 
@@ -3534,9 +3813,9 @@ SK_TEST(repository_clone_reference_remap) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 41u);
 
-	sk_rid_t parent = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t child = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t ref = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t parent = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t child = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t ref = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(parent.id != 0u);
 	TEST_ASSERT_TRUE(child.id != 0u);
 	TEST_ASSERT_TRUE(ref.id != 0u);
@@ -3544,16 +3823,16 @@ SK_TEST(repository_clone_reference_remap) {
 	{
 		sk_resource_object_t view = api->write(repo, child);
 		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, ref));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_resource_object_t view = api->write(repo, parent);
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, child));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, ref));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 
-	sk_rid_t clone = api->clone(repo, parent, SK_UUID_ZERO);
+	sk_rid_t clone = api->clone(repo, parent, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(clone.id != 0u);
 	TEST_ASSERT_FALSE(SK_RID_EQ(clone, parent));
 
@@ -3578,9 +3857,9 @@ SK_TEST(repository_clone_reference_remap) {
 	{
 		sk_resource_object_t view = api->write(repo, child);
 		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, parent));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
-	sk_rid_t clone2 = api->clone(repo, parent, SK_UUID_ZERO);
+	sk_rid_t clone2 = api->clone(repo, parent, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(clone2.id != 0u);
 	sk_resource_object_t read2 = api->read(repo, clone2);
 	u32 count2 = 0u;
@@ -3598,22 +3877,22 @@ SK_TEST(repository_clone_reference_array_remap) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 42u);
 
-	sk_rid_t parent = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t child = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t outer = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t parent = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t child = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t outer = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	{
 		sk_resource_object_t view = api->write(repo, child);
 		sk_rid_t refs[2] = {child, outer}; /* self (descendant of parent) + outer */
 		TEST_ASSERT_EQUAL_INT(0, api->set_reference_array(view, RT_FIELD_REFERENCE_ARRAY, refs, 2u));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_resource_object_t view = api->write(repo, parent);
 		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(view, RT_FIELD_SUBOBJECT, child));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 
-	sk_rid_t clone = api->clone(repo, parent, SK_UUID_ZERO);
+	sk_rid_t clone = api->clone(repo, parent, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(clone.id != 0u);
 
 	sk_resource_object_t read = api->read(repo, clone);
@@ -3638,22 +3917,22 @@ SK_TEST(repository_clone_of_prototype_instance_propagation) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 43u);
 
-	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	sk_rid_t sub1 = rt_make_sub(api, repo, type, 1);
 	sk_rid_t sub2 = rt_make_sub(api, repo, type, 2);
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 
-	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(instance.id != 0u);
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, instance), prototype));
 
 	/* Cloning the instance copies the prototype pointer. */
-	sk_rid_t clone = api->clone(repo, instance, SK_UUID_ZERO);
+	sk_rid_t clone = api->clone(repo, instance, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(clone.id != 0u);
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, clone), prototype));
 
@@ -3663,7 +3942,7 @@ SK_TEST(repository_clone_of_prototype_instance_propagation) {
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub3));
 		TEST_ASSERT_EQUAL_INT(0, api->remove_from_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub1));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	{
 		sk_rid_t expected[2] = {sub2, sub3};
@@ -3681,26 +3960,26 @@ SK_TEST(repository_clone_uuid_uniqueness) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 44u);
 
-	sk_rid_t origin = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t owner = api->create_resource(repo, type, (sk_uuid_t){0x55ull, 0xaaull});
+	sk_rid_t origin = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t owner = api->create_resource(repo, type, (sk_uuid_t){0x55ull, 0xaaull}, NULL);
 	TEST_ASSERT_TRUE(origin.id != 0u);
 	TEST_ASSERT_TRUE(owner.id != 0u);
 
 	u64 count_before = api->resource_count(repo);
 
 	/* A uuid already owned by another resource fails the clone. */
-	sk_rid_t failed = api->clone(repo, origin, (sk_uuid_t){0x55ull, 0xaaull});
+	sk_rid_t failed = api->clone(repo, origin, (sk_uuid_t){0x55ull, 0xaaull}, NULL);
 	TEST_ASSERT_TRUE(failed.id == 0u);
 	TEST_ASSERT_EQUAL_UINT64(count_before, api->resource_count(repo));
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, (sk_uuid_t){0x55ull, 0xaaull}), owner));
 
 	/* A fresh uuid lands in the by-uuid map. */
-	sk_rid_t clone = api->clone(repo, origin, (sk_uuid_t){0x11ull, 0x22ull});
+	sk_rid_t clone = api->clone(repo, origin, (sk_uuid_t){0x11ull, 0x22ull}, NULL);
 	TEST_ASSERT_TRUE(clone.id != 0u);
 	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, (sk_uuid_t){0x11ull, 0x22ull}), clone));
 
 	/* create_from_prototype follows the same rule. */
-	sk_rid_t inst_failed = api->create_from_prototype(repo, origin, (sk_uuid_t){0x11ull, 0x22ull});
+	sk_rid_t inst_failed = api->create_from_prototype(repo, origin, (sk_uuid_t){0x11ull, 0x22ull}, NULL);
 	TEST_ASSERT_TRUE(inst_failed.id == 0u);
 	TEST_ASSERT_EQUAL_UINT64(count_before + 1u, api->resource_count(repo));
 
@@ -3717,20 +3996,20 @@ SK_TEST(repository_destroy_cascade) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo(&type, 50u);
 
-	sk_rid_t object = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t sub1 = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t sub2 = api->create_resource(repo, type, SK_UUID_ZERO);
-	sk_rid_t sub3 = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t object = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t sub1 = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t sub2 = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t sub3 = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	{
 		sk_resource_object_t view = api->write(repo, object);
 		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(view, RT_FIELD_SUBOBJECT, sub1));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub2));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub3));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 
 	/* Destroying a sub-object detaches it from the parent first. */
-	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, sub3));
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, sub3, NULL));
 	sk_resource_object_t read = api->write(repo, object);
 	TEST_ASSERT_FALSE(api->has_on_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, sub3));
 	api->discard(read);
@@ -3741,7 +4020,7 @@ SK_TEST(repository_destroy_cascade) {
 	TEST_ASSERT_FALSE(api->has_value(repo, sub3));
 
 	/* Destroying the parent cascades to its sub-objects. */
-	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, object));
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, object, NULL));
 	TEST_ASSERT_FALSE(api->has_value(repo, object));
 	TEST_ASSERT_FALSE(api->has_value(repo, sub1));
 	TEST_ASSERT_FALSE(api->has_value(repo, sub2));
@@ -3801,7 +4080,7 @@ SK_TEST(repository_garbage_collect_reclaims) {
 		TEST_ASSERT_NOT_NULL(type);
 	}
 
-	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	u64 live_after_create = state.live;
 
 	/* Two commits retire the first two instance blocks to the GC queue. */
@@ -3809,7 +4088,7 @@ SK_TEST(repository_garbage_collect_reclaims) {
 		sk_resource_object_t view = api->write(repo, rid);
 		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
 		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, v));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	u64 live_after_commits = state.live;
 	TEST_ASSERT_TRUE(live_after_commits > live_after_create); /* superseded blocks still live */
@@ -3834,13 +4113,13 @@ SK_TEST(repository_oom_clone_cleanup) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo_full(&fail_allocator, &type, 52u);
 
-	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	sk_rid_t sub = rt_make_sub(api, repo, type, 1);
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 7));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	u64 baseline = api->resource_count(repo);
 	TEST_ASSERT_EQUAL_UINT64(2u, baseline); /* prototype + sub */
@@ -3849,13 +4128,13 @@ SK_TEST(repository_oom_clone_cleanup) {
 	 * leave the repository fully rolled back and usable. */
 	for (u32 fail_offset = 0u; fail_offset < 14u; ++fail_offset) {
 		state.fail_at = state.allocs_done + fail_offset;
-		sk_rid_t clone = api->clone(repo, prototype, SK_UUID_ZERO);
+		sk_rid_t clone = api->clone(repo, prototype, SK_UUID_ZERO, NULL);
 		if (clone.id == 0u) {
 			TEST_ASSERT_EQUAL_UINT64(baseline, api->resource_count(repo));
 		} else {
 			TEST_ASSERT_EQUAL_UINT64(baseline + 2u, api->resource_count(repo)); /* root + sub clone */
 			state.fail_at = 0xFFFFFFFFu;										/* destroy must not hit the sweep's fail point */
-			TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, clone));
+			TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, clone, NULL));
 			TEST_ASSERT_EQUAL_UINT64(baseline, api->resource_count(repo));
 			api->end_frame(repo);
 		}
@@ -3880,26 +4159,26 @@ SK_TEST(repository_oom_create_from_prototype_cleanup) {
 	const sk_resource_type_t* type = NULL;
 	sk_repository_t* repo = rt_repo_full(&fail_allocator, &type, 53u);
 
-	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO);
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 	sk_rid_t sub = rt_make_sub(api, repo, type, 1);
 	{
 		sk_resource_object_t view = api->write(repo, prototype);
 		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 7));
 		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 	u64 baseline = api->resource_count(repo);
 	TEST_ASSERT_EQUAL_UINT64(2u, baseline);
 
 	for (u32 fail_offset = 0u; fail_offset < 14u; ++fail_offset) {
 		state.fail_at = state.allocs_done + fail_offset;
-		sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO);
+		sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
 		if (instance.id == 0u) {
 			TEST_ASSERT_EQUAL_UINT64(baseline, api->resource_count(repo));
 		} else {
 			TEST_ASSERT_EQUAL_UINT64(baseline + 2u, api->resource_count(repo)); /* instance + mirror */
 			state.fail_at = 0xFFFFFFFFu;										/* destroy must not hit the sweep's fail point */
-			TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, instance));
+			TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, instance, NULL));
 			TEST_ASSERT_EQUAL_UINT64(baseline, api->resource_count(repo));
 			api->end_frame(repo);
 		}
@@ -3919,13 +4198,13 @@ SK_TEST(repository_two_repositories_isolation) {
 	sk_repository_t* repo_a = rt_repo(&type_a, 60u);
 	sk_repository_t* repo_b = rt_repo(&type_b, 61u);
 
-	sk_rid_t proto_a = api->create_resource(repo_a, type_a, SK_UUID_ZERO);
-	sk_rid_t proto_b = api->create_resource(repo_b, type_b, SK_UUID_ZERO);
+	sk_rid_t proto_a = api->create_resource(repo_a, type_a, SK_UUID_ZERO, NULL);
+	sk_rid_t proto_b = api->create_resource(repo_b, type_b, SK_UUID_ZERO, NULL);
 	rt_set_int(api, repo_a, proto_a, 100);
 	rt_set_int(api, repo_b, proto_b, 200);
 
-	sk_rid_t inst_a = api->create_from_prototype(repo_a, proto_a, SK_UUID_ZERO);
-	sk_rid_t inst_b = api->create_from_prototype(repo_b, proto_b, SK_UUID_ZERO);
+	sk_rid_t inst_a = api->create_from_prototype(repo_a, proto_a, SK_UUID_ZERO, NULL);
+	sk_rid_t inst_b = api->create_from_prototype(repo_b, proto_b, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(inst_a.id != 0u);
 	TEST_ASSERT_TRUE(inst_b.id != 0u);
 
@@ -3941,14 +4220,14 @@ SK_TEST(repository_two_repositories_isolation) {
 	TEST_ASSERT_EQUAL_INT64(200, api->get_int(read_b, RT_FIELD_INT));
 
 	/* Clones stay inside their repository. */
-	sk_rid_t clone_a = api->clone(repo_a, proto_a, SK_UUID_ZERO);
+	sk_rid_t clone_a = api->clone(repo_a, proto_a, SK_UUID_ZERO, NULL);
 	TEST_ASSERT_TRUE(clone_a.id != 0u);
 	TEST_ASSERT_EQUAL_UINT64(count_b, api->resource_count(repo_b)); /* repo_b untouched */
 	sk_resource_object_t clone_read = api->read(repo_a, clone_a);
 	TEST_ASSERT_EQUAL_INT64(100, api->get_int(clone_read, RT_FIELD_INT));
 
 	/* A clone in repo_b is independent of repo_a's state. */
-	sk_rid_t clone_b = api->clone(repo_b, proto_b, SK_UUID_ZERO);
+	sk_rid_t clone_b = api->clone(repo_b, proto_b, SK_UUID_ZERO, NULL);
 	sk_resource_object_t clone_read_b = api->read(repo_b, clone_b);
 	TEST_ASSERT_EQUAL_INT64(200, api->get_int(clone_read_b, RT_FIELD_INT));
 
@@ -4011,7 +4290,7 @@ static i32 rt_writer_thread(void_ptr_t arg) {
 				snprintf(buffer, sizeof(buffer), "v%u", r);
 				(void)args->api->set_int(view, RT_FIELD_INT, (i64)r);
 				(void)args->api->set_string(view, RT_FIELD_STRING, buffer);
-				args->api->commit(view);
+				args->api->commit(view, NULL);
 			}
 		}
 	}
@@ -4027,14 +4306,14 @@ SK_TEST(repository_concurrent_readers_multi_commit) {
 	const u32 resource_count = 6u;
 	sk_rid_t resources[6];
 	for (u32 i = 0u; i < resource_count; ++i) {
-		resources[i] = api->create_resource(repo, type, SK_UUID_ZERO);
+		resources[i] = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
 		TEST_ASSERT_TRUE(resources[i].id != 0u);
 		/* Publish a valid (int, string) pair first so readers never see unset. */
 		sk_resource_object_t view = api->write(repo, resources[i]);
 		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
 		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 0));
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "v0"));
-		api->commit(view);
+		api->commit(view, NULL);
 	}
 
 	rt_reader_args_t ra;
@@ -4069,6 +4348,305 @@ SK_TEST(repository_concurrent_readers_multi_commit) {
 	/* No reader ever observed a torn (int, string) pair. */
 	TEST_ASSERT_EQUAL_INT(0, ra.violations);
 
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Undo / redo scopes                                                */
+/* ------------------------------------------------------------------ */
+
+/* Parity with the main-branch Resource::UndoRedo test: a scoped Commit pushes
+ * a change whose Undo restores the previous published value. */
+SK_TEST(repository_undo_redo_scope_commit) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 80u);
+
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t subobject = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t subobject2 = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 10));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "blegh"));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, subobject));
+		api->commit(view, NULL);
+	}
+
+	sk_undo_redo_scope_t* scope = api->undo_redo_scope_create(sk_allocator_default(), "test scope");
+	TEST_ASSERT_NOT_NULL(scope);
+	TEST_ASSERT_EQUAL_STRING("test scope", api->undo_redo_scope_get_name(scope));
+	TEST_ASSERT_NULL(api->undo_redo_scope_get_name(api->undo_redo_scope_create(sk_allocator_default(), NULL)));
+
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 33));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "44"));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, subobject2));
+		api->commit(view, scope);
+	}
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_INT64(33, api->get_int(read, RT_FIELD_INT));
+		TEST_ASSERT_EQUAL_STRING("44", api->get_string(read, RT_FIELD_STRING));
+		u32 count = 0u;
+		(void)api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+		TEST_ASSERT_EQUAL_UINT32(2u, count);
+	}
+
+	api->undo_redo_scope_undo(scope);
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_INT64(10, api->get_int(read, RT_FIELD_INT));
+		TEST_ASSERT_EQUAL_STRING("blegh", api->get_string(read, RT_FIELD_STRING));
+		u32 count = 0u;
+		const sk_rid_t* items = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+		TEST_ASSERT_EQUAL_UINT32(1u, count);
+		TEST_ASSERT_TRUE(SK_RID_EQ(items[0], subobject));
+		/* The scoped commit bumped the version; Undo bumps again. */
+		TEST_ASSERT_TRUE(api->get_version(repo, rid) >= 4u);
+	}
+
+	api->undo_redo_scope_redo(scope);
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_INT64(33, api->get_int(read, RT_FIELD_INT));
+		TEST_ASSERT_EQUAL_STRING("44", api->get_string(read, RT_FIELD_STRING));
+		u32 count = 0u;
+		(void)api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+		TEST_ASSERT_EQUAL_UINT32(2u, count);
+	}
+
+	api->undo_redo_scope_destroy(scope);
+	api->undo_redo_scope_destroy(NULL); /* safe on NULL */
+	api->destroy(repo);
+}
+
+/* A scoped create's Undo releases the slot (uuid unregistered) and Redo
+ * re-creates it with its value and uuid. */
+SK_TEST(repository_undo_redo_scope_create) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 81u);
+
+	sk_undo_redo_scope_t* scope = api->undo_redo_scope_create(sk_allocator_default(), "create");
+	TEST_ASSERT_NOT_NULL(scope);
+
+	sk_uuid_t uuid = {0x10ull, 0x20ull};
+	sk_rid_t rid = api->create_resource(repo, type, uuid, scope);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, uuid), rid));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->has_value(repo, rid));
+
+	api->undo_redo_scope_undo(scope);
+	TEST_ASSERT_FALSE(api->has_resource(repo, rid));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, uuid).id == 0u);
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(repo));
+
+	api->undo_redo_scope_redo(scope);
+	TEST_ASSERT_TRUE(api->has_resource(repo, rid));
+	TEST_ASSERT_TRUE(api->has_value(repo, rid));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, uuid), rid));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
+
+	api->undo_redo_scope_destroy(scope);
+	api->destroy(repo);
+}
+
+/* A scoped destroy records the uuid / path / value; Undo re-creates the slot
+ * with all of them and Redo releases it again. */
+SK_TEST(repository_undo_redo_scope_destroy) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 82u);
+
+	sk_rid_t rid = api->create_resource(repo, type, (sk_uuid_t){1u, 2u}, NULL);
+	TEST_ASSERT_EQUAL_INT(0, api->set_path(repo, rid, "assets/undo.foo"));
+	rt_set_int(api, repo, rid, 7);
+
+	sk_undo_redo_scope_t* scope = api->undo_redo_scope_create(sk_allocator_default(), "destroy");
+	TEST_ASSERT_NOT_NULL(scope);
+
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, rid, scope));
+	TEST_ASSERT_FALSE(api->has_resource(repo, rid));
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, (sk_uuid_t){1u, 2u}).id == 0u);
+	TEST_ASSERT_TRUE(api->find_by_path(repo, "assets/undo.foo").id == 0u);
+
+	api->undo_redo_scope_undo(scope);
+	TEST_ASSERT_TRUE(api->has_resource(repo, rid));
+	TEST_ASSERT_TRUE(api->has_value(repo, rid));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, (sk_uuid_t){1u, 2u}), rid));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_path(repo, "assets/undo.foo"), rid));
+	TEST_ASSERT_EQUAL_INT64(7, api->get_int(api->read(repo, rid), RT_FIELD_INT));
+
+	api->undo_redo_scope_redo(scope);
+	TEST_ASSERT_FALSE(api->has_resource(repo, rid));
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, (sk_uuid_t){1u, 2u}).id == 0u);
+
+	api->undo_redo_scope_destroy(scope);
+	api->destroy(repo);
+}
+
+/* A scoped clone records every new slot; Undo drops the clone and its cloned
+ * sub-objects (leaving the origin subtree intact) and Redo restores them with
+ * their sub-object parent links. */
+SK_TEST(repository_undo_redo_scope_clone) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 83u);
+
+	sk_rid_t origin = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t sub = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	{
+		sk_resource_object_t view = api->write(repo, origin);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 5));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "clone-me"));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub));
+		api->commit(view, NULL);
+	}
+
+	sk_undo_redo_scope_t* scope = api->undo_redo_scope_create(sk_allocator_default(), "clone");
+	sk_rid_t clone = api->clone(repo, origin, SK_UUID_ZERO, scope);
+	TEST_ASSERT_TRUE(clone.id != 0u);
+	TEST_ASSERT_EQUAL_UINT64(4u, api->resource_count(repo)); /* origin + sub + clone + clone-sub */
+
+	api->undo_redo_scope_undo(scope);
+	TEST_ASSERT_EQUAL_UINT64(2u, api->resource_count(repo));
+	TEST_ASSERT_FALSE(api->has_resource(repo, clone));
+
+	api->undo_redo_scope_redo(scope);
+	TEST_ASSERT_EQUAL_UINT64(4u, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->has_resource(repo, clone));
+	sk_resource_object_t read = api->read(repo, clone);
+	TEST_ASSERT_EQUAL_INT64(5, api->get_int(read, RT_FIELD_INT));
+	TEST_ASSERT_EQUAL_STRING("clone-me", api->get_string(read, RT_FIELD_STRING));
+	u32 count = 0u;
+	const sk_rid_t* items = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+	TEST_ASSERT_EQUAL_UINT32(1u, count);
+	TEST_ASSERT_TRUE(api->has_value(repo, items[0]));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, items[0]), clone));
+
+	api->undo_redo_scope_destroy(scope);
+	api->destroy(repo);
+}
+
+/* Scoped create_from_prototype records the instance and its sub-object mirrors;
+ * Undo drops them and Redo restores the mirrors with their prototype link. */
+SK_TEST(repository_undo_redo_scope_create_from_prototype) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 84u);
+
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t sub = rt_make_sub(api, repo, type, 1);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, sub));
+		api->commit(view, NULL);
+	}
+
+	sk_undo_redo_scope_t* scope = api->undo_redo_scope_create(sk_allocator_default(), "proto");
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, scope);
+	TEST_ASSERT_TRUE(instance.id != 0u);
+	TEST_ASSERT_EQUAL_UINT64(4u, api->resource_count(repo)); /* prototype + sub + instance + mirror */
+
+	api->undo_redo_scope_undo(scope);
+	TEST_ASSERT_EQUAL_UINT64(2u, api->resource_count(repo));
+	TEST_ASSERT_FALSE(api->has_resource(repo, instance));
+
+	api->undo_redo_scope_redo(scope);
+	TEST_ASSERT_EQUAL_UINT64(4u, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->has_resource(repo, instance));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, instance), prototype));
+	sk_resource_object_t read = api->read(repo, instance);
+	u32 count = 0u;
+	const sk_rid_t* items = api->get_subobject_list(read, RT_FIELD_SUBOBJECT_LIST, &count);
+	TEST_ASSERT_EQUAL_UINT32(1u, count);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_prototype(repo, items[0]), sub));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, items[0]), instance));
+
+	api->undo_redo_scope_destroy(scope);
+	api->destroy(repo);
+}
+
+/* Scope-owned snapshots survive garbage_collect and end_frame, and the scope
+ * stays redoable/undoable after collection. */
+SK_TEST(repository_undo_redo_scope_gc_safety) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 85u);
+
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	rt_set_int(api, repo, rid, 1);
+
+	sk_undo_redo_scope_t* scope = api->undo_redo_scope_create(sk_allocator_default(), "gc");
+	for (i64 v = 2; v <= 4; ++v) {
+		rt_set_int(api, repo, rid, v); /* un-scoped commits: superseded instances to GC */
+	}
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 5));
+		api->commit(view, scope);
+	}
+	api->garbage_collect(repo);
+	api->end_frame(repo);
+
+	api->undo_redo_scope_undo(scope);
+	TEST_ASSERT_EQUAL_INT64(4, api->get_int(api->read(repo, rid), RT_FIELD_INT));
+	api->undo_redo_scope_redo(scope);
+	TEST_ASSERT_EQUAL_INT64(5, api->get_int(api->read(repo, rid), RT_FIELD_INT));
+
+	api->undo_redo_scope_destroy(scope);
+	api->destroy(repo);
+}
+
+/* Undo / redo of a destroyed parent cascade restores the whole sub-object
+ * tree and re-links parents. */
+SK_TEST(repository_undo_redo_scope_destroy_cascade) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 86u);
+
+	sk_rid_t parent = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t child1 = rt_make_sub(api, repo, type, 11);
+	sk_rid_t child2 = rt_make_sub(api, repo, type, 22);
+	{
+		sk_resource_object_t view = api->write(repo, parent);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 99));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, child1));
+		TEST_ASSERT_EQUAL_INT(0, api->add_to_subobject_list(view, RT_FIELD_SUBOBJECT_LIST, child2));
+		api->commit(view, NULL);
+	}
+
+	sk_undo_redo_scope_t* scope = api->undo_redo_scope_create(sk_allocator_default(), "cascade");
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, parent, scope));
+	TEST_ASSERT_FALSE(api->has_resource(repo, parent));
+	TEST_ASSERT_FALSE(api->has_resource(repo, child1));
+	TEST_ASSERT_FALSE(api->has_resource(repo, child2));
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(repo));
+
+	api->undo_redo_scope_undo(scope);
+	TEST_ASSERT_EQUAL_UINT64(3u, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->has_value(repo, parent));
+	TEST_ASSERT_TRUE(api->has_value(repo, child1));
+	TEST_ASSERT_TRUE(api->has_value(repo, child2));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, child1), parent));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, child2), parent));
+	TEST_ASSERT_EQUAL_INT64(99, api->get_int(api->read(repo, parent), RT_FIELD_INT));
+	TEST_ASSERT_EQUAL_INT64(11, api->get_int(api->read(repo, child1), RT_FIELD_INT));
+	TEST_ASSERT_EQUAL_INT64(22, api->get_int(api->read(repo, child2), RT_FIELD_INT));
+
+	api->undo_redo_scope_redo(scope);
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(repo));
+	TEST_ASSERT_FALSE(api->has_resource(repo, parent));
+	TEST_ASSERT_FALSE(api->has_resource(repo, child1));
+	TEST_ASSERT_FALSE(api->has_resource(repo, child2));
+
+	api->undo_redo_scope_destroy(scope);
 	api->destroy(repo);
 }
 
