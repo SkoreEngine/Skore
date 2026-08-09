@@ -508,7 +508,9 @@ static i32 dxc_compile_impl(const_chr_t entry_point, const_chr_t profile, const_
 		const_chr_t text = errors->vtbl->get_string_pointer(errors);
 		const size_t len = errors->vtbl->get_string_length(errors);
 		dxc_log_append_sized(text, (u32)len, log, log_capacity);
-		dxc_log_error("dxc-compiler: %.64s", (text != NULL) ? text : "");
+		if (text != NULL && len > 0u) {
+			dxc_log_error("dxc-compiler: %.64s", text);
+		}
 	}
 
 	{
@@ -625,5 +627,82 @@ SK_TEST(dxc_compile_fails_cleanly_without_runtime) {
 	const i32 rc = dxc_compile_impl("MainVS", "vs_6_8", hlsl, (u32)strlen(hlsl), spirv, (u32)sizeof(spirv), &spirv_size, log, (u32)sizeof(log));
 	TEST_ASSERT_NOT_EQUAL(0, rc);
 	TEST_ASSERT_NOT_EQUAL(0, (int)log[0]);
+}
+
+/* Minimal HLSL vertex shader fixture for the compile tests. Exercises the DX
+ * layout / position-w flags the plugin passes to DXC. */
+static const_chr_t dxc_test_vertex_hlsl = "struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };\n"
+										  "VSOut mainVS(float3 pos : POSITION, float2 uv : TEXCOORD0) {\n"
+										  "  VSOut o; o.pos = float4(pos, 1.0); o.uv = uv; return o;\n"
+										  "}\n";
+
+/* Returns 1 when the platform DXC runtime cannot be located, so the
+ * HLSL->SPIR-V tests must be skipped (runtime not vendored for this OS, or the
+ * test host did not wire a platform API). Every platform that ships a runtime
+ * must run these tests. */
+static i32 dxc_test_runtime_absent(void) {
+	sk_shared_lib_t probe;
+
+	if (dxc_state.platform == NULL) {
+		return 1;
+	}
+	probe = dxc_state.platform->lib_open(dxc_library_name());
+	if (probe == NULL) {
+		char joined[SK_DXC_LIB_PATH_CAP];
+		const i32 n = sk_path_join(sk_str_view_cstr("plugins"), sk_str_view_cstr(dxc_library_name()), joined, (u32)sizeof(joined));
+		if (n >= 0) {
+			probe = dxc_state.platform->lib_open(joined);
+		}
+	}
+	if (probe == NULL) {
+		return 1;
+	}
+	dxc_state.platform->lib_close(probe);
+	return 0;
+}
+
+SK_TEST(dxc_compiler_hlsl_compiles_to_spirv) {
+	char log[512];
+	u8 spirv[8192];
+	u32 spirv_size = 0u;
+
+	if (dxc_test_runtime_absent()) {
+		TEST_IGNORE_MESSAGE("DXC runtime not vendored for this platform; skipping");
+		return;
+	}
+
+	TEST_ASSERT_EQUAL_INT32(0, dxc_compiler_api.init());
+	{
+		const i32 rc = dxc_compiler_api.compile("mainVS", "vs_6_8", dxc_test_vertex_hlsl, (u32)strlen(dxc_test_vertex_hlsl), spirv, (u32)sizeof(spirv), &spirv_size, log,
+												(u32)sizeof(log));
+		TEST_ASSERT_EQUAL_INT32_MESSAGE(0, rc, log);
+	}
+	TEST_ASSERT_TRUE(spirv_size >= 4u);
+	{
+		const u32 magic = ((u32)spirv[0]) | ((u32)spirv[1] << 8u) | ((u32)spirv[2] << 16u) | ((u32)spirv[3] << 24u);
+		TEST_ASSERT_EQUAL_UINT32(0x07230203u, magic);
+	}
+	dxc_compiler_api.shutdown();
+}
+
+SK_TEST(dxc_compiler_surfaces_compile_errors) {
+	char log[512];
+	u8 spirv[8192];
+	u32 spirv_size = 0u;
+	const_chr_t broken = "void mainVS() { float x = ; }\n";
+
+	if (dxc_test_runtime_absent()) {
+		TEST_IGNORE_MESSAGE("DXC runtime not vendored for this platform; skipping");
+		return;
+	}
+
+	TEST_ASSERT_EQUAL_INT32(0, dxc_compiler_api.init());
+	{
+		const i32 rc = dxc_compiler_api.compile("mainVS", "vs_6_8", broken, (u32)strlen(broken), spirv, (u32)sizeof(spirv), &spirv_size, log, (u32)sizeof(log));
+		TEST_ASSERT_NOT_EQUAL(0, rc);
+		TEST_ASSERT_TRUE(spirv_size == 0u);
+		TEST_ASSERT_TRUE(log[0] != '\0');
+	}
+	dxc_compiler_api.shutdown();
 }
 #endif /* SK_TESTS */

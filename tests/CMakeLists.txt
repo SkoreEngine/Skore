@@ -51,7 +51,9 @@ set_target_properties(sk-tests PROPERTIES
 
 add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler)
 
-add_test(NAME sk-tests COMMAND sk-tests)
+# Run from the runtime output dir ({build}/bin) so plugin shared libraries and
+# the copied DXC runtime (plugins/libdxcompiler.so) are found relative to cwd.
+add_test(NAME sk-tests COMMAND sk-tests WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 
 # Integration tests: device/resource lifecycle against the real Vulkan backend.
 add_subdirectory(integration)

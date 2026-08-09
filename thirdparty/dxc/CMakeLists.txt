@@ -8,8 +8,10 @@
 # dxcompiler at runtime (see cmake/cmake_functions.cmake).
 #
 # Vendored from main: include/dxc/{dxcapi.h,WinAdapter.h} and
-# bin/win-x64/dxcompiler.dll. Upstream ships no license/NOTICE file in main's
-# vendor tree; the dxcapi.h header carries the UIUC/NCSA license notice text.
+# bin/win-x64/dxcompiler.dll. Linux runtime bin/linux-x64/{libdxcompiler.so,
+# libdxil.so} is vendored from the official Microsoft DXC v1.9.2607 linux_x64
+# release (stripped). LICENSE.TXT (LLVM/NCSA) and ThirdPartyNotices.txt are the
+# license/attribution texts from that release tag.
 
 add_library(dxc INTERFACE)
 target_include_directories(dxc INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)

@@ -188,10 +188,11 @@ endfunction()
 #
 #   Modeled on skore main's add_binary_file(): WIN32 → bin/win-x64/dxcompiler
 #   .dll, APPLE → bin/macOS/libdxcompiler.dylib, UNIX → bin/linux-x64/
-#   libdxcompiler.so. Only the win-x64 dll is vendored today; the Apple/Unix
-#   sources do not exist in thirdparty/dxc, so those platforms emit a WARNING
-#   and skip the copy (documented gap until upstream binaries are vendored).
-#   Call from a plugin CMakeLists after the plugin target exists.
+#   libdxcompiler.so. The win-x64 dll and the linux-x64 runtime (libdxcompiler
+#   .so + libdxil.so) are vendored today; macOS still emits a WARNING and skips
+#   the copy (documented gap until an upstream macOS binary is vendored).
+#   libdxil.so is copied alongside so DXC can dlopen it for DXIL validation if
+#   needed. Call from a plugin CMakeLists after the plugin target exists.
 # ---------------------------------------------------------------------------
 function(sk_copy_dxc_shared_library target)
     if(NOT TARGET ${target})
@@ -217,6 +218,7 @@ function(sk_copy_dxc_shared_library target)
         set(_dxc_src "${_dxc_dir}/bin/macOS/libdxcompiler.dylib")
     elseif(UNIX)
         set(_dxc_src "${_dxc_dir}/bin/linux-x64/libdxcompiler.so")
+        set(_dxc_aux "${_dxc_dir}/bin/linux-x64/libdxil.so")
     else()
         message(FATAL_ERROR "sk_copy_dxc_shared_library: unsupported platform '${CMAKE_SYSTEM_NAME}'")
     endif()
@@ -225,16 +227,30 @@ function(sk_copy_dxc_shared_library target)
         message(WARNING
             "sk_copy_dxc_shared_library(${target}): DXC runtime not vendored "
             "for ${CMAKE_SYSTEM_NAME} (${_dxc_src}). Skipping copy; only "
-            "bin/win-x64/dxcompiler.dll ships today.")
+            "bin/win-x64/dxcompiler.dll and bin/linux-x64/libdxcompiler.so "
+            "ship today.")
         return()
     endif()
 
-    add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${_plugins_dir}"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_dxc_src}" "${_plugins_dir}"
-        COMMENT "Copying DXC shared library for ${target}"
-    )
+    if(UNIX AND NOT APPLE AND EXISTS "${_dxc_aux}")
+        # DXC may dlopen libdxil.so at runtime (DXIL validation); ship it
+        # beside libdxcompiler.so so the loader finds it.
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_plugins_dir}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_dxc_src}" "${_plugins_dir}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_dxc_aux}" "${_plugins_dir}"
+            COMMENT "Copying DXC shared libraries for ${target}"
+        )
+    else()
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_plugins_dir}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_dxc_src}" "${_plugins_dir}"
+            COMMENT "Copying DXC shared library for ${target}"
+        )
+    endif()
 endfunction()
 
 # ---------------------------------------------------------------------------

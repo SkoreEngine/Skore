@@ -245,6 +245,7 @@ static i32 load_plugins_from_directory(sk_app_context_t* context, const_chr_t di
 	}
 
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_platform_api_t* plat = app_platform_api(context);
 	sk_directory_iterator_t it = fs->open_directory(dir);
 	if (it == NULL) {
 		if (context->log != NULL) {
@@ -262,6 +263,18 @@ static i32 load_plugins_from_directory(sk_app_context_t* context, const_chr_t di
 			continue;
 		}
 		if (sk_path_join(sk_str_view_cstr(dir), sk_str_view_cstr(name), full_path, (u32)sizeof(full_path)) < 0) {
+			continue;
+		}
+		/* Skip shared libraries that are not plugins (e.g. the vendored DXC
+		 * runtime copied into the plugins dir by sk_copy_dxc_shared_library);
+		 * only real plugins export sk_plugin_entry_point. */
+		sk_shared_lib_t lib = plat->lib_open(full_path);
+		if (lib == NULL) {
+			continue;
+		}
+		void_ptr_t raw = plat->lib_symbol(lib, "sk_plugin_entry_point");
+		plat->lib_close(lib);
+		if (raw == NULL) {
 			continue;
 		}
 		attempted += 1u;

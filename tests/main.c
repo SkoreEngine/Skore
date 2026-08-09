@@ -7,6 +7,7 @@
  *    call sk_plugin_run_tests (plugin-local Unity).
  */
 
+#include "app.h"
 #include "filesystem.h"
 #include "path.h"
 #include "platform.h"
@@ -14,6 +15,8 @@
 
 #include <stdio.h>
 #include <string.h>
+
+typedef int (*sk_plugin_entry_point_fn)(sk_app_context_t* context, const sk_app_api_t* app_api);
 
 static i32 run_host_tests(sk_test_report_t* total) {
 	sk_test_report_t report;
@@ -41,6 +44,17 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 		return 0;
 	}
 
+	/* Bootstrapped context (platform + logger) handed to each plugin entry
+	 * point, mirroring production loading (sk_app_load_plugin). Plugin-local
+	 * tests then see the host-registered APIs they need (e.g. the platform API
+	 * used by sk-dxc-compiler to load its DXC runtime). */
+	sk_app_context_t* context = sk_app_startup();
+	if (context == NULL) {
+		printf("app startup failed for plugin tests (skip plugin tests)\n");
+		fs->close_directory(it);
+		return 0;
+	}
+
 	while (fs->next_directory(it, name, (u32)sizeof(name)) == 0) {
 		sk_test_report_t report;
 
@@ -62,6 +76,15 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 			continue;
 		}
 
+		void_ptr_t entry_raw = plat->lib_symbol(lib, "sk_plugin_entry_point");
+		if (entry_raw == NULL) {
+			printf("missing sk_plugin_entry_point — skip\n");
+			plat->lib_close(lib);
+			continue;
+		}
+		sk_plugin_entry_point_fn entry = SK_PTR_TO_FN(sk_plugin_entry_point_fn, entry_raw);
+		(void)entry(context, sk_app_api());
+
 		void_ptr_t raw = plat->lib_symbol(lib, SK_PLUGIN_RUN_TESTS_NAME);
 		if (raw == NULL) {
 			printf("missing %s — skip\n", SK_PLUGIN_RUN_TESTS_NAME);
@@ -81,6 +104,7 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 	}
 
 	fs->close_directory(it);
+	sk_app_destroy(context);
 	return any_fail;
 }
 
