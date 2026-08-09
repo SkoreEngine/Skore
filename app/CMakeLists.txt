@@ -39,6 +39,9 @@ if(BUILD_TESTING)
     # Integration tests include platform_window.h (plugin public header).
     target_include_directories(sk-app-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/plugins/platform_window)
+    # Integration tests include entities.h (plugin public header).
+    target_include_directories(sk-app-tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/plugins/entities)
     if(UNIX)
         target_link_libraries(sk-app-tests PUBLIC ${CMAKE_DL_LIBS})
     endif()

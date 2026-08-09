@@ -13,6 +13,7 @@ add_executable(sk-tests main.c)
 target_link_libraries(sk-tests PRIVATE
     sk-app-tests
     sk-platform-window-lib
+    sk-entities-lib
 )
 
 # Pull all objects so MSVC/GCC do not drop TUs whose only live symbols are
@@ -46,6 +47,6 @@ set_target_properties(sk-tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 
-add_dependencies(sk-tests sk-platform-window)
+add_dependencies(sk-tests sk-platform-window sk-entities)
 
 add_test(NAME sk-tests COMMAND sk-tests)
