@@ -183,7 +183,7 @@ static void_ptr_t sk_window_get_native_handle(sk_window_t window) {
 #if defined(_WIN32)
 	return (void_ptr_t)glfwGetWin32Window(win);
 #elif defined(__APPLE__)
-	return (void_ptr_t)glfwGetCocoaWindow(win);
+	return glfwGetCocoaWindow(win);
 #else
 	/* X11 Window is an XID (unsigned long); pack into a void* handle. */
 	return (void_ptr_t)glfwGetX11Window(win);

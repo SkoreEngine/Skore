@@ -74,12 +74,14 @@ extern "C" {
  * Ensure capacity is at least @p n elements.
  * @return 0 on success, non-zero on failure (OOM / missing allocator).
  */
+/* NOLINTNEXTLINE(bugprone-sizeof-expression): sizeof(*(arr)->items) is the element size; clang-tidy misreads pointer-element arrays (pointer to aggregate). */
 #define sk_array_reserve(arr, n) sk_array_reserve_((void**)&(arr)->items, &(arr)->capacity, sizeof(*(arr)->items), (u32)(n), (arr)->allocator)
 
 /**
  * Grow or shrink logical length. New elements past the old count are zeroed.
  * @return 0 on success, non-zero on failure.
  */
+/* NOLINTNEXTLINE(bugprone-sizeof-expression): sizeof(*(arr)->items) is the element size; clang-tidy misreads pointer-element arrays (pointer to aggregate). */
 #define sk_array_resize(arr, n) sk_array_resize_((void**)&(arr)->items, &(arr)->count, &(arr)->capacity, sizeof(*(arr)->items), (u32)(n), (arr)->allocator)
 
 /**

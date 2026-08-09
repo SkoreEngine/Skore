@@ -145,9 +145,14 @@ endif()
 # Aggressive warnings on all first-party targets. Any warning is an error.
 # MSVC, GCC, and Clang. Applied after thirdparty so vendored code is exempt.
 # ---------------------------------------------------------------------------
-if(MSVC)
+if(WIN32)
     # Portable ISO C string APIs (strncpy, etc.) — not the MSVC-only *_s variants.
+    # The Windows CRT marks these deprecated unless this define is set; applies
+    # to MSVC and clang-on-Windows alike (CI compiles with clang here).
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+endif()
+
+if(MSVC)
     add_compile_options(
         /W4
         /WX
