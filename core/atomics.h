@@ -200,11 +200,21 @@ SK_FINLINE void sk_atomic_thread_fence(sk_atomic_order_t order) {
 
 // NOLINTEND(bugprone-macro-parentheses)
 
+/*
+ * readability-non-const-parameter cannot see through the __atomic_* builtins:
+ * every generated op mutates *obj (store/exchange/fetch/cmpxchg) or *expected
+ * (cmpxchg failure value), and the builtins require non-const pointers. There
+ * is nothing to const-qualify, so silence the check for the generated bodies.
+ */
+// NOLINTBEGIN(readability-non-const-parameter)
+
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(u32, u32)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(i32, i32)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(u64, u64)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(i64, i64)
 SK_ATOMIC_DEFINE_PTR_GCC(ptr)
+
+// NOLINTEND(readability-non-const-parameter)
 
 #endif /* !_MSC_VER */
 
@@ -345,6 +355,10 @@ SK_ATOMIC_DEFINE_PTR_GCC(ptr)
 
 // NOLINTEND(bugprone-macro-parentheses)
 
+/* Same false positive as the GCC block: _Interlocked* intrinsics mutate the
+ * pointee, so the pointers are intentionally non-const. */
+// NOLINTBEGIN(readability-non-const-parameter)
+
 SK_ATOMIC_DEFINE_INTEGRAL_MSVC(u32, u32, long, _InterlockedExchange, _InterlockedCompareExchange, _InterlockedExchangeAdd, _InterlockedAnd, _InterlockedOr, (0u - value))
 SK_ATOMIC_DEFINE_INTEGRAL_MSVC(i32, i32, long, _InterlockedExchange, _InterlockedCompareExchange, _InterlockedExchangeAdd, _InterlockedAnd, _InterlockedOr, (0 - value))
 SK_ATOMIC_DEFINE_INTEGRAL_MSVC(u64, u64, __int64, _InterlockedExchange64, _InterlockedCompareExchange64, _InterlockedExchangeAdd64, _InterlockedAnd64, _InterlockedOr64,
@@ -352,6 +366,8 @@ SK_ATOMIC_DEFINE_INTEGRAL_MSVC(u64, u64, __int64, _InterlockedExchange64, _Inter
 SK_ATOMIC_DEFINE_INTEGRAL_MSVC(i64, i64, __int64, _InterlockedExchange64, _InterlockedCompareExchange64, _InterlockedExchangeAdd64, _InterlockedAnd64, _InterlockedOr64,
 							   (0 - value))
 SK_ATOMIC_DEFINE_PTR_MSVC(ptr)
+
+// NOLINTEND(readability-non-const-parameter)
 
 #endif /* _MSC_VER */
 
