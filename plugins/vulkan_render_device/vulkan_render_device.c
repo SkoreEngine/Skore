@@ -4138,8 +4138,13 @@ static sk_as_build_sizes_t sk_vkrd_get_blas_build_sizes(sk_render_device_t dev, 
 	vkGetAccelerationStructureBuildSizesKHR(device->device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info, max_primitive_counts, &size_info);
 
 	sizes.acceleration_structure_size = size_info.accelerationStructureSize;
-	sizes.build_scratch_size = size_info.buildScratchSize;
-	sizes.update_scratch_size = size_info.updateScratchSize;
+	/* The build-time scratch address is aligned up to
+	 * minAccelerationStructureScratchOffsetAlignment (see sk_vkrd_aligned_scratch);
+	 * main returns buildScratchSize + alignment so callers size the scratch buffer
+	 * large enough. Mirror that. */
+	u64 scratch_alignment = device->selected_adapter->acceleration_structure_props.minAccelerationStructureScratchOffsetAlignment;
+	sizes.build_scratch_size = size_info.buildScratchSize + scratch_alignment;
+	sizes.update_scratch_size = size_info.updateScratchSize + scratch_alignment;
 
 	device->allocator->free(device->allocator->instance, geometries);
 	device->allocator->free(device->allocator->instance, range_infos);
@@ -4172,8 +4177,11 @@ static sk_as_build_sizes_t sk_vkrd_get_tlas_build_sizes(sk_render_device_t dev, 
 	vkGetAccelerationStructureBuildSizesKHR(device->device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info, &capacity, &size_info);
 
 	sizes.acceleration_structure_size = size_info.accelerationStructureSize;
-	sizes.build_scratch_size = size_info.buildScratchSize;
-	sizes.update_scratch_size = size_info.updateScratchSize;
+	/* Match main's GetAccelerationStructureBuildScratchSize: the build-time
+	 * scratch device address is aligned up, so report scratch + alignment. */
+	u64 scratch_alignment = device->selected_adapter->acceleration_structure_props.minAccelerationStructureScratchOffsetAlignment;
+	sizes.build_scratch_size = size_info.buildScratchSize + scratch_alignment;
+	sizes.update_scratch_size = size_info.updateScratchSize + scratch_alignment;
 	return sizes;
 }
 
