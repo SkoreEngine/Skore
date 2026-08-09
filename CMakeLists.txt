@@ -134,7 +134,7 @@ if(SK_ENABLE_CLANG_TIDY)
         set(CMAKE_CXX_CLANG_TIDY "${SK_CLANG_TIDY_COMMAND}")
         message(STATUS "clang-tidy: ${SK_CLANG_TIDY_EXE} (warnings-as-errors; thirdparty excluded)")
     else()
-        message(WARNING
+        message(FATAL_ERROR
             "SK_ENABLE_CLANG_TIDY is ON but clang-tidy was not found on PATH. "
             "Install LLVM clang-tidy or pass -DSK_ENABLE_CLANG_TIDY=OFF."
         )

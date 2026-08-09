@@ -41,12 +41,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             ninja-build \
+            clang-tidy \
             libx11-dev libxcursor-dev libxi-dev libxinerama-dev \
             libxrandr-dev libxkbcommon-dev libgl-dev
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install ninja
+        run: |
+          brew install ninja llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
@@ -56,12 +59,35 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # clang-tidy is required (SK_ENABLE_CLANG_TIDY defaults ON; hard fail if missing).
+      # Windows: prefer VS-bundled LLVM tidy; fall back to Chocolatey LLVM.
+      - name: Ensure clang-tidy (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\clang-tidy.exe",
+            "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang-tidy.exe",
+            "${env:ProgramFiles}\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\x64\bin\clang-tidy.exe",
+            "${env:ProgramFiles}\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-tidy.exe",
+            "${env:ProgramFiles}\LLVM\bin\clang-tidy.exe"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            choco install llvm -y
+            $found = "${env:ProgramFiles}\LLVM\bin\clang-tidy.exe"
+          }
+          if (-not (Test-Path $found)) { throw "clang-tidy not found after install" }
+          $dir = Split-Path $found -Parent
+          Add-Content -Path $env:GITHUB_PATH -Value $dir
+          & $found --version
+
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DBUILD_TESTING=ON
-          -DSK_ENABLE_CLANG_TIDY=OFF
+          -DSK_ENABLE_CLANG_TIDY=ON
 
       - name: Build
         run: cmake --build build --parallel

@@ -32,6 +32,14 @@
 #include "common.h"
 
 #if defined(_MSC_VER)
+/*
+ * MSVC <intrin.h> uses __declspec(noreturn). C11 <stdnoreturn.h> (and some
+ * clang-tidy + UCRT paths) define `noreturn` as `_Noreturn`, which then breaks
+ * that attribute. Drop the macro for the include only.
+ */
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <intrin.h> /* _Interlocked* */
 #endif
 
@@ -99,88 +107,98 @@ SK_FINLINE void sk_atomic_thread_fence(sk_atomic_order_t order) {
 
 #if !defined(_MSC_VER)
 
+/*
+ * bugprone-macro-parentheses wants (type) around type-token args. That is valid
+ * for casts/expressions but invalid in declarations (e.g. (u32)* obj). These
+ * generators intentionally use type/prefix as tokens; expression uses of value/
+ * order are parenthesized below where it matters for real precedence bugs.
+ */
+// NOLINTBEGIN(bugprone-macro-parentheses)
+
 #define SK_ATOMIC_DEFINE_INTEGRAL_GCC(prefix, type)                                                                                                                           \
 	SK_FINLINE void sk_atomic_##prefix##_init(type* obj, type value) {                                                                                                        \
-		*obj = value;                                                                                                                                                         \
+		*obj = (value);                                                                                                                                                       \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_load_ordered(const type* obj, sk_atomic_order_t order) {                                                                             \
-		return __atomic_load_n(obj, sk_atomic_gcc_order(order));                                                                                                              \
+		return __atomic_load_n((obj), sk_atomic_gcc_order((order)));                                                                                                          \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_load(const type* obj) {                                                                                                              \
-		return sk_atomic_##prefix##_load_ordered(obj, SK_ATOMIC_ORDER_SEQ_CST);                                                                                               \
+		return sk_atomic_##prefix##_load_ordered((obj), SK_ATOMIC_ORDER_SEQ_CST);                                                                                             \
 	}                                                                                                                                                                         \
 	SK_FINLINE void sk_atomic_##prefix##_store_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                      \
-		__atomic_store_n(obj, value, sk_atomic_gcc_order(order));                                                                                                             \
+		__atomic_store_n((obj), (value), sk_atomic_gcc_order((order)));                                                                                                       \
 	}                                                                                                                                                                         \
 	SK_FINLINE void sk_atomic_##prefix##_store(type* obj, type value) {                                                                                                       \
-		sk_atomic_##prefix##_store_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                              \
+		sk_atomic_##prefix##_store_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                                          \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_exchange_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                   \
-		return __atomic_exchange_n(obj, value, sk_atomic_gcc_order(order));                                                                                                   \
+		return __atomic_exchange_n((obj), (value), sk_atomic_gcc_order((order)));                                                                                             \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_exchange(type* obj, type value) {                                                                                                    \
-		return sk_atomic_##prefix##_exchange_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                    \
+		return sk_atomic_##prefix##_exchange_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                                \
 	}                                                                                                                                                                         \
 	SK_FINLINE i32 sk_atomic_##prefix##_compare_exchange_ordered(type* obj, type* expected, type desired, sk_atomic_order_t success_order, sk_atomic_order_t failure_order) { \
-		return __atomic_compare_exchange_n(obj, expected, desired, 0, sk_atomic_gcc_order(success_order), sk_atomic_gcc_order(failure_order));                                \
+		return __atomic_compare_exchange_n((obj), (expected), (desired), 0, sk_atomic_gcc_order((success_order)), sk_atomic_gcc_order((failure_order)));                      \
 	}                                                                                                                                                                         \
 	SK_FINLINE i32 sk_atomic_##prefix##_compare_exchange(type* obj, type* expected, type desired) {                                                                           \
-		return sk_atomic_##prefix##_compare_exchange_ordered(obj, expected, desired, SK_ATOMIC_ORDER_SEQ_CST, SK_ATOMIC_ORDER_SEQ_CST);                                       \
+		return sk_atomic_##prefix##_compare_exchange_ordered((obj), (expected), (desired), SK_ATOMIC_ORDER_SEQ_CST, SK_ATOMIC_ORDER_SEQ_CST);                                 \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_add_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                  \
-		return __atomic_fetch_add(obj, value, sk_atomic_gcc_order(order));                                                                                                    \
+		return __atomic_fetch_add((obj), (value), sk_atomic_gcc_order((order)));                                                                                              \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_add(type* obj, type value) {                                                                                                   \
-		return sk_atomic_##prefix##_fetch_add_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                   \
+		return sk_atomic_##prefix##_fetch_add_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                               \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_sub_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                  \
-		return __atomic_fetch_sub(obj, value, sk_atomic_gcc_order(order));                                                                                                    \
+		return __atomic_fetch_sub((obj), (value), sk_atomic_gcc_order((order)));                                                                                              \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_sub(type* obj, type value) {                                                                                                   \
-		return sk_atomic_##prefix##_fetch_sub_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                   \
+		return sk_atomic_##prefix##_fetch_sub_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                               \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_or_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                   \
-		return __atomic_fetch_or(obj, value, sk_atomic_gcc_order(order));                                                                                                     \
+		return __atomic_fetch_or((obj), (value), sk_atomic_gcc_order((order)));                                                                                               \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_or(type* obj, type value) {                                                                                                    \
-		return sk_atomic_##prefix##_fetch_or_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                    \
+		return sk_atomic_##prefix##_fetch_or_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                                \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_and_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                  \
-		return __atomic_fetch_and(obj, value, sk_atomic_gcc_order(order));                                                                                                    \
+		return __atomic_fetch_and((obj), (value), sk_atomic_gcc_order((order)));                                                                                              \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_and(type* obj, type value) {                                                                                                   \
-		return sk_atomic_##prefix##_fetch_and_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                   \
+		return sk_atomic_##prefix##_fetch_and_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                               \
 	}
 
 #define SK_ATOMIC_DEFINE_PTR_GCC(prefix)                                                                                                                     \
 	SK_FINLINE void sk_atomic_##prefix##_init(void_ptr_t* obj, void_ptr_t value) {                                                                           \
-		*obj = value;                                                                                                                                        \
+		*obj = (value);                                                                                                                                      \
 	}                                                                                                                                                        \
 	SK_FINLINE void_ptr_t sk_atomic_##prefix##_load_ordered(const void_ptr_t* obj, sk_atomic_order_t order) {                                                \
-		return __atomic_load_n(obj, sk_atomic_gcc_order(order));                                                                                             \
+		return __atomic_load_n((obj), sk_atomic_gcc_order((order)));                                                                                         \
 	}                                                                                                                                                        \
 	SK_FINLINE void_ptr_t sk_atomic_##prefix##_load(const void_ptr_t* obj) {                                                                                 \
-		return sk_atomic_##prefix##_load_ordered(obj, SK_ATOMIC_ORDER_SEQ_CST);                                                                              \
+		return sk_atomic_##prefix##_load_ordered((obj), SK_ATOMIC_ORDER_SEQ_CST);                                                                            \
 	}                                                                                                                                                        \
 	SK_FINLINE void sk_atomic_##prefix##_store_ordered(void_ptr_t* obj, void_ptr_t value, sk_atomic_order_t order) {                                         \
-		__atomic_store_n(obj, value, sk_atomic_gcc_order(order));                                                                                            \
+		__atomic_store_n((obj), (value), sk_atomic_gcc_order((order)));                                                                                      \
 	}                                                                                                                                                        \
 	SK_FINLINE void sk_atomic_##prefix##_store(void_ptr_t* obj, void_ptr_t value) {                                                                          \
-		sk_atomic_##prefix##_store_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                             \
+		sk_atomic_##prefix##_store_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                         \
 	}                                                                                                                                                        \
 	SK_FINLINE void_ptr_t sk_atomic_##prefix##_exchange_ordered(void_ptr_t* obj, void_ptr_t value, sk_atomic_order_t order) {                                \
-		return __atomic_exchange_n(obj, value, sk_atomic_gcc_order(order));                                                                                  \
+		return __atomic_exchange_n((obj), (value), sk_atomic_gcc_order((order)));                                                                            \
 	}                                                                                                                                                        \
 	SK_FINLINE void_ptr_t sk_atomic_##prefix##_exchange(void_ptr_t* obj, void_ptr_t value) {                                                                 \
-		return sk_atomic_##prefix##_exchange_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                   \
+		return sk_atomic_##prefix##_exchange_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                               \
 	}                                                                                                                                                        \
 	SK_FINLINE i32 sk_atomic_##prefix##_compare_exchange_ordered(void_ptr_t* obj, void_ptr_t* expected, void_ptr_t desired, sk_atomic_order_t success_order, \
 																 sk_atomic_order_t failure_order) {                                                          \
-		return __atomic_compare_exchange_n(obj, expected, desired, 0, sk_atomic_gcc_order(success_order), sk_atomic_gcc_order(failure_order));               \
+		return __atomic_compare_exchange_n((obj), (expected), (desired), 0, sk_atomic_gcc_order((success_order)), sk_atomic_gcc_order((failure_order)));     \
 	}                                                                                                                                                        \
 	SK_FINLINE i32 sk_atomic_##prefix##_compare_exchange(void_ptr_t* obj, void_ptr_t* expected, void_ptr_t desired) {                                        \
-		return sk_atomic_##prefix##_compare_exchange_ordered(obj, expected, desired, SK_ATOMIC_ORDER_SEQ_CST, SK_ATOMIC_ORDER_SEQ_CST);                      \
+		return sk_atomic_##prefix##_compare_exchange_ordered((obj), (expected), (desired), SK_ATOMIC_ORDER_SEQ_CST, SK_ATOMIC_ORDER_SEQ_CST);                \
 	}
+
+// NOLINTEND(bugprone-macro-parentheses)
 
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(u32, u32)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(i32, i32)
@@ -202,125 +220,130 @@ SK_ATOMIC_DEFINE_PTR_GCC(ptr)
 
 #if defined(_MSC_VER)
 
+/* See GCC block: type/msc_type tokens cannot be parenthesized in declarations. */
+// NOLINTBEGIN(bugprone-macro-parentheses)
+
 #define SK_ATOMIC_DEFINE_INTEGRAL_MSVC(prefix, type, msc_type, xchg_fn, cmpxchg_fn, add_fn, and_fn, or_fn, neg_expr)                                                          \
 	SK_FINLINE void sk_atomic_##prefix##_init(type* obj, type value) {                                                                                                        \
-		*obj = value;                                                                                                                                                         \
+		*obj = (value);                                                                                                                                                       \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_load_ordered(const type* obj, sk_atomic_order_t order) {                                                                             \
-		(void)order;                                                                                                                                                          \
+		(void)(order);                                                                                                                                                        \
 		/* 64-bit atomics require 8-byte alignment (guaranteed for these types). */                                                                                           \
-		type value = *(const volatile type*)obj;                                                                                                                              \
-		if (order != SK_ATOMIC_ORDER_RELAXED) {                                                                                                                               \
-			while (cmpxchg_fn(SK_CONST_CAST(volatile msc_type*, obj), (msc_type)value, (msc_type)value) != (msc_type)value) {                                                 \
-				value = *(const volatile type*)obj;                                                                                                                           \
+		type value = *(const volatile type*)(obj);                                                                                                                            \
+		if ((order) != SK_ATOMIC_ORDER_RELAXED) {                                                                                                                             \
+			while ((cmpxchg_fn)(SK_CONST_CAST(volatile msc_type*, (obj)), (msc_type)(value), (msc_type)(value)) != (msc_type)(value)) {                                       \
+				value = *(const volatile type*)(obj);                                                                                                                         \
 			}                                                                                                                                                                 \
 		}                                                                                                                                                                     \
-		return value;                                                                                                                                                         \
+		return (value);                                                                                                                                                       \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_load(const type* obj) {                                                                                                              \
-		return sk_atomic_##prefix##_load_ordered(obj, SK_ATOMIC_ORDER_SEQ_CST);                                                                                               \
+		return sk_atomic_##prefix##_load_ordered((obj), SK_ATOMIC_ORDER_SEQ_CST);                                                                                             \
 	}                                                                                                                                                                         \
 	SK_FINLINE void sk_atomic_##prefix##_store_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                      \
-		(void)order;                                                                                                                                                          \
-		xchg_fn((volatile msc_type*)obj, (msc_type)value);                                                                                                                    \
+		(void)(order);                                                                                                                                                        \
+		(xchg_fn)((volatile msc_type*)(obj), (msc_type)(value));                                                                                                              \
 	}                                                                                                                                                                         \
 	SK_FINLINE void sk_atomic_##prefix##_store(type* obj, type value) {                                                                                                       \
-		sk_atomic_##prefix##_store_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                              \
+		sk_atomic_##prefix##_store_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                                          \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_exchange_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                   \
-		(void)order;                                                                                                                                                          \
-		return (type)xchg_fn((volatile msc_type*)obj, (msc_type)value);                                                                                                       \
+		(void)(order);                                                                                                                                                        \
+		return (type)(xchg_fn)((volatile msc_type*)(obj), (msc_type)(value));                                                                                                 \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_exchange(type* obj, type value) {                                                                                                    \
-		return sk_atomic_##prefix##_exchange_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                    \
+		return sk_atomic_##prefix##_exchange_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                                \
 	}                                                                                                                                                                         \
 	SK_FINLINE i32 sk_atomic_##prefix##_compare_exchange_ordered(type* obj, type* expected, type desired, sk_atomic_order_t success_order, sk_atomic_order_t failure_order) { \
-		(void)success_order;                                                                                                                                                  \
-		(void)failure_order;                                                                                                                                                  \
-		msc_type read = cmpxchg_fn((volatile msc_type*)obj, (msc_type)desired, (msc_type) * expected);                                                                        \
-		if (read == (msc_type) * expected) {                                                                                                                                  \
+		(void)(success_order);                                                                                                                                                \
+		(void)(failure_order);                                                                                                                                                \
+		msc_type read = (cmpxchg_fn)((volatile msc_type*)(obj), (msc_type)(desired), (msc_type) * (expected));                                                                \
+		if ((read) == (msc_type) * (expected)) {                                                                                                                              \
 			return 1;                                                                                                                                                         \
 		}                                                                                                                                                                     \
-		*expected = (type)read;                                                                                                                                               \
+		*(expected) = (type)(read);                                                                                                                                           \
 		return 0;                                                                                                                                                             \
 	}                                                                                                                                                                         \
 	SK_FINLINE i32 sk_atomic_##prefix##_compare_exchange(type* obj, type* expected, type desired) {                                                                           \
-		return sk_atomic_##prefix##_compare_exchange_ordered(obj, expected, desired, SK_ATOMIC_ORDER_SEQ_CST, SK_ATOMIC_ORDER_SEQ_CST);                                       \
+		return sk_atomic_##prefix##_compare_exchange_ordered((obj), (expected), (desired), SK_ATOMIC_ORDER_SEQ_CST, SK_ATOMIC_ORDER_SEQ_CST);                                 \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_add_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                  \
-		(void)order;                                                                                                                                                          \
-		return (type)add_fn((volatile msc_type*)obj, (msc_type)value);                                                                                                        \
+		(void)(order);                                                                                                                                                        \
+		return (type)(add_fn)((volatile msc_type*)(obj), (msc_type)(value));                                                                                                  \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_add(type* obj, type value) {                                                                                                   \
-		return sk_atomic_##prefix##_fetch_add_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                   \
+		return sk_atomic_##prefix##_fetch_add_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                               \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_sub_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                  \
-		(void)order;                                                                                                                                                          \
-		return (type)add_fn((volatile msc_type*)obj, (msc_type)(neg_expr));                                                                                                   \
+		(void)(order);                                                                                                                                                        \
+		return (type)(add_fn)((volatile msc_type*)(obj), (msc_type)(neg_expr));                                                                                               \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_sub(type* obj, type value) {                                                                                                   \
-		return sk_atomic_##prefix##_fetch_sub_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                   \
+		return sk_atomic_##prefix##_fetch_sub_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                               \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_or_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                   \
-		(void)order;                                                                                                                                                          \
-		return (type)or_fn((volatile msc_type*)obj, (msc_type)value);                                                                                                         \
+		(void)(order);                                                                                                                                                        \
+		return (type)(or_fn)((volatile msc_type*)(obj), (msc_type)(value));                                                                                                   \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_or(type* obj, type value) {                                                                                                    \
-		return sk_atomic_##prefix##_fetch_or_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                    \
+		return sk_atomic_##prefix##_fetch_or_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                                \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_and_ordered(type* obj, type value, sk_atomic_order_t order) {                                                                  \
-		(void)order;                                                                                                                                                          \
-		return (type)and_fn((volatile msc_type*)obj, (msc_type)value);                                                                                                        \
+		(void)(order);                                                                                                                                                        \
+		return (type)(and_fn)((volatile msc_type*)(obj), (msc_type)(value));                                                                                                  \
 	}                                                                                                                                                                         \
 	SK_FINLINE type sk_atomic_##prefix##_fetch_and(type* obj, type value) {                                                                                                   \
-		return sk_atomic_##prefix##_fetch_and_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                                   \
+		return sk_atomic_##prefix##_fetch_and_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                               \
 	}
 
 #define SK_ATOMIC_DEFINE_PTR_MSVC(prefix)                                                                                                                    \
 	SK_FINLINE void sk_atomic_##prefix##_init(void_ptr_t* obj, void_ptr_t value) {                                                                           \
-		*obj = value;                                                                                                                                        \
+		*obj = (value);                                                                                                                                      \
 	}                                                                                                                                                        \
 	SK_FINLINE void_ptr_t sk_atomic_##prefix##_load_ordered(const void_ptr_t* obj, sk_atomic_order_t order) {                                                \
-		(void)order;                                                                                                                                         \
-		void_ptr_t value = *(const volatile void_ptr_t*)obj;                                                                                                 \
-		if (order != SK_ATOMIC_ORDER_RELAXED) {                                                                                                              \
-			while (_InterlockedCompareExchangePointer(SK_CONST_CAST(void_ptr_t volatile*, obj), value, value) != value) {                                    \
-				value = *(const volatile void_ptr_t*)obj;                                                                                                    \
+		(void)(order);                                                                                                                                       \
+		void_ptr_t value = *(const volatile void_ptr_t*)(obj);                                                                                               \
+		if ((order) != SK_ATOMIC_ORDER_RELAXED) {                                                                                                            \
+			while (_InterlockedCompareExchangePointer(SK_CONST_CAST(void_ptr_t volatile*, (obj)), (value), (value)) != (value)) {                            \
+				value = *(const volatile void_ptr_t*)(obj);                                                                                                  \
 			}                                                                                                                                                \
 		}                                                                                                                                                    \
-		return value;                                                                                                                                        \
+		return (value);                                                                                                                                      \
 	}                                                                                                                                                        \
 	SK_FINLINE void_ptr_t sk_atomic_##prefix##_load(const void_ptr_t* obj) {                                                                                 \
-		return sk_atomic_##prefix##_load_ordered(obj, SK_ATOMIC_ORDER_SEQ_CST);                                                                              \
+		return sk_atomic_##prefix##_load_ordered((obj), SK_ATOMIC_ORDER_SEQ_CST);                                                                            \
 	}                                                                                                                                                        \
 	SK_FINLINE void sk_atomic_##prefix##_store_ordered(void_ptr_t* obj, void_ptr_t value, sk_atomic_order_t order) {                                         \
-		(void)order;                                                                                                                                         \
-		_InterlockedExchangePointer(SK_CONST_CAST(void_ptr_t volatile*, obj), value);                                                                        \
+		(void)(order);                                                                                                                                       \
+		_InterlockedExchangePointer(SK_CONST_CAST(void_ptr_t volatile*, (obj)), (value));                                                                    \
 	}                                                                                                                                                        \
 	SK_FINLINE void sk_atomic_##prefix##_store(void_ptr_t* obj, void_ptr_t value) {                                                                          \
-		sk_atomic_##prefix##_store_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                             \
+		sk_atomic_##prefix##_store_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                                         \
 	}                                                                                                                                                        \
 	SK_FINLINE void_ptr_t sk_atomic_##prefix##_exchange_ordered(void_ptr_t* obj, void_ptr_t value, sk_atomic_order_t order) {                                \
-		(void)order;                                                                                                                                         \
-		return _InterlockedExchangePointer(SK_CONST_CAST(void_ptr_t volatile*, obj), value);                                                                 \
+		(void)(order);                                                                                                                                       \
+		return _InterlockedExchangePointer(SK_CONST_CAST(void_ptr_t volatile*, (obj)), (value));                                                             \
 	}                                                                                                                                                        \
 	SK_FINLINE void_ptr_t sk_atomic_##prefix##_exchange(void_ptr_t* obj, void_ptr_t value) {                                                                 \
-		return sk_atomic_##prefix##_exchange_ordered(obj, value, SK_ATOMIC_ORDER_SEQ_CST);                                                                   \
+		return sk_atomic_##prefix##_exchange_ordered((obj), (value), SK_ATOMIC_ORDER_SEQ_CST);                                                               \
 	}                                                                                                                                                        \
 	SK_FINLINE i32 sk_atomic_##prefix##_compare_exchange_ordered(void_ptr_t* obj, void_ptr_t* expected, void_ptr_t desired, sk_atomic_order_t success_order, \
 																 sk_atomic_order_t failure_order) {                                                          \
-		(void)success_order;                                                                                                                                 \
-		(void)failure_order;                                                                                                                                 \
-		void_ptr_t read = _InterlockedCompareExchangePointer(SK_CONST_CAST(void_ptr_t volatile*, obj), desired, *expected);                                  \
-		if (read == *expected) {                                                                                                                             \
+		(void)(success_order);                                                                                                                               \
+		(void)(failure_order);                                                                                                                               \
+		void_ptr_t read = _InterlockedCompareExchangePointer(SK_CONST_CAST(void_ptr_t volatile*, (obj)), (desired), *(expected));                            \
+		if ((read) == *(expected)) {                                                                                                                         \
 			return 1;                                                                                                                                        \
 		}                                                                                                                                                    \
-		*expected = read;                                                                                                                                    \
+		*(expected) = (read);                                                                                                                                \
 		return 0;                                                                                                                                            \
 	}                                                                                                                                                        \
 	SK_FINLINE i32 sk_atomic_##prefix##_compare_exchange(void_ptr_t* obj, void_ptr_t* expected, void_ptr_t desired) {                                        \
-		return sk_atomic_##prefix##_compare_exchange_ordered(obj, expected, desired, SK_ATOMIC_ORDER_SEQ_CST, SK_ATOMIC_ORDER_SEQ_CST);                      \
+		return sk_atomic_##prefix##_compare_exchange_ordered((obj), (expected), (desired), SK_ATOMIC_ORDER_SEQ_CST, SK_ATOMIC_ORDER_SEQ_CST);                \
 	}
+
+// NOLINTEND(bugprone-macro-parentheses)
 
 SK_ATOMIC_DEFINE_INTEGRAL_MSVC(u32, u32, long, _InterlockedExchange, _InterlockedCompareExchange, _InterlockedExchangeAdd, _InterlockedAnd, _InterlockedOr, (0u - value))
 SK_ATOMIC_DEFINE_INTEGRAL_MSVC(i32, i32, long, _InterlockedExchange, _InterlockedCompareExchange, _InterlockedExchangeAdd, _InterlockedAnd, _InterlockedOr, (0 - value))
