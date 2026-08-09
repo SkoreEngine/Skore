@@ -1,12 +1,11 @@
 # Cppcheck suppressions for Skore (used by scripts/cppcheck.sh and CI).
-# Format: errorId:file:line  (wildcards allowed; see cppcheck --doc)
-#
+# Format: errorId:file:line (wildcards allowed; see cppcheck --doc)
+# A lone "#" is invalid in cppcheck 2.13 (comment lines must be longer than 1).
 # Vendored / generated paths (also filtered with -i in the script).
 *:thirdparty/*
 *:*/thirdparty/*
 *:build/*
 *:*/build/*
 *:cmake-build-*/*
-
-# System headers / missing platform SDKs on some runners (analysis still runs on our TUs).
+# System headers / missing platform SDKs on some runners.
 missingIncludeSystem
