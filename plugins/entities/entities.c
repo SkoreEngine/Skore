@@ -142,6 +142,10 @@ static u32 ecs_find_capacity(const sk_component_info_t* comps, u32 count, u32 da
 	for (u32 i = 0u; i < count; ++i) {
 		total_stride += (u64)ecs_align_up(comps[i].size, comps[i].align);
 	}
+	/* Empty archetype / zero-size columns: no dense rows fit a stride of zero. */
+	if (total_stride == 0ull) {
+		return 0u;
+	}
 	/* Upper bound ignoring inter-column alignment padding. */
 	u32 ub = (u32)(((u64)SK_ECS_CHUNK_SIZE - (u64)data_start) / total_stride);
 	u32 lo = 0u;

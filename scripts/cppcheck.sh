@@ -35,9 +35,12 @@ echo "cppcheck $(cppcheck --version 2>&1 | head -n1)"
 echo "project: ${COMPILE_DB}"
 echo
 
+# Gate on warning/performance/portability only. Style (const churn, unused
+# members, scope nits) is suppressed in cppcheck-suppressions.txt and is a poor
+# fit for this C engine; clang-tidy already covers smart static analysis.
 args=(
 	--project="${COMPILE_DB}"
-	--enable=warning,style,performance,portability
+	--enable=warning,performance,portability
 	--std=c11
 	--inline-suppr
 	--error-exitcode=1

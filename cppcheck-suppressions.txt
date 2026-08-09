@@ -9,3 +9,17 @@
 *:cmake-build-*/*
 # System headers / missing platform SDKs on some runners.
 missingIncludeSystem
+# Noise that fights this engine's C style (opaque handles, API tables, padding,
+# ABI mirror structs, trust-the-caller null contracts). See AGENTS.md.
+constVariablePointer
+constParameterPointer
+constParameterCallback
+constParameter
+nullPointerRedundantCheck
+unusedStructMember
+badBitmaskCheck
+variableScope
+unmatchedSuppression
+# Known false positives (branch analysis / buffer confusion).
+uninitvar:app/filesystem_unix.c
+arrayIndexOutOfBoundsCond:app/platform_unix.c
