@@ -1,0 +1,60 @@
+#pragma once
+
+#include "app.h"
+#include "common.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Type id for sk_vulkan_render_device_api_t in the app registry. */
+#define SK_VULKAN_RENDER_DEVICE_API_TYPE_ID SK_TYPE_ID("sk.vulkan_render_device_api", 0xd715e779ce3920b1ULL, 0xa6cd7c937d5c2887ULL)
+
+/*
+ * Global module API table for the Vulkan render device backend.
+ *
+ * APX-49 established this plugin + the volk / VMA / Vulkan-Headers build
+ * wiring. APX-50 ports the full Vulkan device implementation from skore main:
+ * the plugin registers the real `sk_render_device_api_t` backend under
+ * SK_RENDER_DEVICE_API_TYPE_ID (see render_device.h), and keeps this smaller
+ * loader surface (volk initialization / VMA wiring proof) registered under
+ * SK_VULKAN_RENDER_DEVICE_API_TYPE_ID.
+ */
+typedef struct sk_vulkan_render_device_api_t {
+	/**
+	 * Initialize the Vulkan loader (volkInitialize).
+	 * @return 0 on success, non-zero (VK result) on failure.
+	 */
+	i32 (*init)(void);
+
+	/**
+	 * Shut the Vulkan loader down (volkFinalize).
+	 */
+	void (*shutdown)(void);
+
+	/**
+	 * Compiled volk header version.
+	 * @return VOLK_HEADER_VERSION.
+	 */
+	u32 (*volk_version)(void);
+
+	/**
+	 * Size of the VMA allocator handle type (compile-time wiring proof).
+	 * @return sizeof(VmaAllocator).
+	 */
+	u32 (*vma_allocator_size)(void);
+} sk_vulkan_render_device_api_t;
+
+/**
+ * Register this plugin's API tables on the app context.
+ * Called from sk_plugin_entry_point. Registers:
+ *   - sk_render_device_api_t (full Vulkan backend) under SK_RENDER_DEVICE_API_TYPE_ID
+ *   - sk_vulkan_render_device_api_t (loader surface) under SK_VULKAN_RENDER_DEVICE_API_TYPE_ID
+ * @param context App context (must not be NULL).
+ * @param app_api App module table (must not be NULL).
+ */
+void sk_vulkan_render_device_init(sk_app_context_t* context, const sk_app_api_t* app_api);
+
+#ifdef __cplusplus
+}
+#endif

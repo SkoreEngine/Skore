@@ -14,3 +14,9 @@ endif()
 
 # Native File Dialog (open/save/folder). Zenity on Linux, COM on Win, Cocoa on macOS.
 add_subdirectory(nativefiledialog)
+
+# Vulkan stack for the vulkan_render_device plugin (vendored from skore main).
+# Order matters: vulkan (vulkan-sdk headers) must exist before volk links it.
+add_subdirectory(vulkan)
+add_subdirectory(volk)
+add_subdirectory(vma)
