@@ -38,7 +38,6 @@ if((CMAKE_CXX_COMPILER_ID MATCHES "Clang") OR (CMAKE_CXX_COMPILER_ID MATCHES "GN
     add_compile_options(-fms-extensions)
 endif()
 
-<<<<<<< HEAD
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT WIN32)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20")
     if(NOT APPLE)
@@ -46,15 +45,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT WIN32)
         # -stdlib=libc++ explicitly there is unused and fails -Werror builds.
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     endif()
-=======
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    # libc++ is not available under the MSVC toolchain (clang on Windows uses
-    # the MSVC STL; passing -stdlib=libc++ is an unused-argument diagnostic).
-    if(NOT WIN32)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-    endif()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20")
->>>>>>> origin/v2
 endif()
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
