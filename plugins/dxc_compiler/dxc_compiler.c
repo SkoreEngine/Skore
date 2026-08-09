@@ -379,16 +379,17 @@ static i32 dxc_init_impl(void) {
 		return -1;
 	}
 
-	/* The build copies the runtime into the plugins output dir
-	 * (sk_copy_dxc_shared_library). Try the OS loader search path first, then
-	 * a cwd-relative "plugins" folder. */
-	dxc_state.library = platform->lib_open(dxc_library_name());
+	/* The build copies the vendored runtime into the plugins output dir
+	 * (sk_copy_dxc_shared_library), so prefer that deterministic copy over the
+	 * OS loader search path: an unrelated system DXC (e.g. one bundled with
+	 * the toolchain) may lack SPIR-V codegen. */
+	char local_path[SK_DXC_LIB_PATH_CAP];
+	dxc_state.library = NULL;
+	if (sk_path_join(sk_str_view_cstr("plugins"), sk_str_view_cstr(dxc_library_name()), local_path, (u32)sizeof(local_path)) >= 0) {
+		dxc_state.library = platform->lib_open(local_path);
+	}
 	if (dxc_state.library == NULL) {
-		char path[SK_DXC_LIB_PATH_CAP];
-		const i32 n = sk_path_join(sk_str_view_cstr("plugins"), sk_str_view_cstr(dxc_library_name()), path, (u32)sizeof(path));
-		if (n >= 0) {
-			dxc_state.library = platform->lib_open(path);
-		}
+		dxc_state.library = platform->lib_open(dxc_library_name());
 	}
 	if (dxc_state.library == NULL) {
 		dxc_log_error("dxc-compiler: failed to load DXC runtime (%s)", platform->lib_error());
@@ -646,13 +647,15 @@ static i32 dxc_test_runtime_absent(void) {
 	if (dxc_state.platform == NULL) {
 		return 1;
 	}
-	probe = dxc_state.platform->lib_open(dxc_library_name());
+	/* Same preference order as dxc_init_impl: the build-copied runtime in the
+	 * plugins output dir first, then the OS loader search path. */
+	char joined[SK_DXC_LIB_PATH_CAP];
+	probe = NULL;
+	if (sk_path_join(sk_str_view_cstr("plugins"), sk_str_view_cstr(dxc_library_name()), joined, (u32)sizeof(joined)) >= 0) {
+		probe = dxc_state.platform->lib_open(joined);
+	}
 	if (probe == NULL) {
-		char joined[SK_DXC_LIB_PATH_CAP];
-		const i32 n = sk_path_join(sk_str_view_cstr("plugins"), sk_str_view_cstr(dxc_library_name()), joined, (u32)sizeof(joined));
-		if (n >= 0) {
-			probe = dxc_state.platform->lib_open(joined);
-		}
+		probe = dxc_state.platform->lib_open(dxc_library_name());
 	}
 	if (probe == NULL) {
 		return 1;
