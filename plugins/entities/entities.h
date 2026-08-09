@@ -41,6 +41,18 @@
  * check. The immediate structural APIs (world_spawn / world_despawn /
  * world_add_component / world_remove_component) mutate storage right away and
  * are intentionally separate from the deferred sk_entitycommands_t surface.
+ *
+ * # Deferred entity commands
+ *
+ * A sk_entitycommands_t records structural changes (spawn / despawn /
+ * add / remove component) without touching a world; the commands apply in
+ * FIFO order onto a sk_world_t when the buffer is flushed with
+ * commands_apply. Recording never mutates world storage, so commands can be
+ * queued freely while a query is being iterated and applied cleanly
+ * afterwards. commands_spawn returns a placeholder handle that resolves to
+ * the real entity at apply time; other commands may reference that
+ * placeholder (or any live real handle). Every apply/clear resets the buffer
+ * for reuse.
  */
 
 #include "common.h"
@@ -668,6 +680,207 @@ typedef struct sk_entities_api_t {
 	 *         absent from the current archetype.
 	 */
 	void_ptr_t (*query_iter_field)(const sk_query_iter_t* it, u32 term, u32 row);
+
+	/* ---- world (immediate structural ops) ---- */
+
+	/**
+	 * Create a world: an archetype table (created lazily from component
+	 * signatures), a dense entity index with generation-tagged handles, and
+	 * the set of world-managed queries (which observe every archetype the
+	 * world creates).
+	 * @return New world, or NULL on allocation failure.
+	 */
+	sk_world_t* (*world_create)(void);
+
+	/**
+	 * Destroy a world and everything it owns: its archetypes/chunks, its
+	 * world-managed queries, and its entity index. Query objects created via
+	 * world_query_create are owned by the world and must not be freed
+	 * separately.
+	 * @param world World to destroy (must not be NULL).
+	 */
+	void (*world_destroy)(sk_world_t* world);
+
+	/**
+	 * Spawn an entity holding the given component signature.
+	 *
+	 * The signature is the set of user component ids the new entity stores.
+	 * Ids must be registered (see register_component); unregistered ids,
+	 * SK_TYPE_ID_ZERO, the implicit entity component id, and signatures over
+	 * SK_ECS_MAX_ARCHETYPE_COLUMNS make the spawn fail (SK_ENTITY_INVALID).
+	 * The signature is normalized (sorted + deduplicated) and the owning
+	 * archetype is created on demand. All components are zero-initialized.
+	 *
+	 * @param world           World (must not be NULL).
+	 * @param component_ids   Component ids of the signature (may be NULL with
+	 *                        component_count == 0 for an entity-only spawn).
+	 * @param component_count Number of ids (< SK_ECS_MAX_ARCHETYPE_COLUMNS).
+	 * @return Stable entity handle, or SK_ENTITY_INVALID on failure.
+	 */
+	sk_entity_t (*world_spawn)(sk_world_t* world, const sk_type_id_t* component_ids, u32 component_count);
+
+	/**
+	 * Destroy an entity immediately: its slot is recycled with a bumped
+	 * generation (stale handles fail world_alive) and its row is
+	 * swap-removed from its chunk.
+	 * @param world  World (must not be NULL).
+	 * @param entity Entity handle (must be alive).
+	 * @return 0 on success, -1 when @p entity is invalid or dead.
+	 */
+	i32 (*world_despawn)(sk_world_t* world, sk_entity_t entity);
+
+	/**
+	 * Whether @p entity is live in @p world (valid index, matching
+	 * generation, not despawned).
+	 * @return Non-zero when alive.
+	 */
+	i32 (*world_alive)(sk_world_t* world, sk_entity_t entity);
+
+	/**
+	 * Number of live entities in @p world.
+	 * @param world World (must not be NULL).
+	 * @return Live entity count.
+	 */
+	u32 (*world_count)(const sk_world_t* world);
+
+	/**
+	 * Whether a live entity stores a component of @p type_id.
+	 * @param world   World (must not be NULL).
+	 * @param entity  Entity handle (must be alive).
+	 * @param type_id Component identity.
+	 * @return Non-zero when the component is present.
+	 */
+	i32 (*world_has_component)(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id);
+
+	/**
+	 * Add a component to an entity, moving it to the archetype for the new
+	 * signature. Shared component values are preserved; the new component is
+	 * zero-initialized. Adding a component the entity already has is an
+	 * idempotent success.
+	 * @param world   World (must not be NULL).
+	 * @param entity  Entity handle (must be alive).
+	 * @param type_id Component identity (must be registered).
+	 * @return 0 on success, -1 when @p entity is dead or the signature cannot
+	 *         be created (unregistered id, invalid id, OOM).
+	 */
+	i32 (*world_add_component)(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id);
+
+	/**
+	 * Remove a component from an entity, moving it to the archetype for the
+	 * remaining signature. Removing a component the entity does not have is
+	 * an idempotent success.
+	 * @param world   World (must not be NULL).
+	 * @param entity  Entity handle (must be alive).
+	 * @param type_id Component identity.
+	 * @return 0 on success, -1 when @p entity is dead or on OOM.
+	 */
+	i32 (*world_remove_component)(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id);
+
+	/**
+	 * Mutable pointer to a live entity's component value.
+	 * @param world   World (must not be NULL).
+	 * @param entity  Entity handle (must be alive).
+	 * @param type_id Component identity.
+	 * @return Pointer to the value, or NULL when @p entity is dead or lacks
+	 *         the component.
+	 */
+	void_ptr_t (*world_component)(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id);
+
+	/**
+	 * Create a world-managed query. The query observes every archetype the
+	 * world currently owns and every archetype the world creates later.
+	 * The returned query is owned by the world and destroyed with it.
+	 * @param world World (must not be NULL).
+	 * @param desc  Query descriptor (see query_create; must not be NULL).
+	 * @return New query, or NULL on invalid descriptor or OOM.
+	 */
+	sk_query_t* (*world_query_create)(sk_world_t* world, const sk_query_desc_t* desc);
+
+	/* ---- deferred entity commands ---- */
+
+	/**
+	 * Create a deferred command buffer.
+	 * @return New buffer (empty), or NULL on allocation failure.
+	 */
+	sk_entitycommands_t* (*commands_create)(void);
+
+	/**
+	 * Destroy a command buffer and every recorded command (copied values
+	 * included). Does not touch any world.
+	 * @param commands Buffer (must not be NULL).
+	 */
+	void (*commands_destroy)(sk_entitycommands_t* commands);
+
+	/**
+	 * Number of commands currently recorded in @p commands.
+	 * @param commands Buffer (must not be NULL).
+	 * @return Recorded command count (0 after apply/clear).
+	 */
+	u32 (*commands_count)(const sk_entitycommands_t* commands);
+
+	/**
+	 * Record a deferred spawn. No entity is created until the buffer is
+	 * applied. Returns a placeholder handle that only this buffer
+	 * understands: it may be passed to commands_despawn /
+	 * commands_add_component / commands_remove_component and resolves to the
+	 * real entity at apply time. Placeholders are invalid after apply/clear.
+	 * @param commands        Buffer (must not be NULL).
+	 * @param component_ids   Spawn signature (may be NULL with count 0).
+	 * @param component_count Number of signature ids.
+	 * @return Placeholder handle (valid), or SK_ENTITY_INVALID on invalid
+	 *         arguments or OOM.
+	 */
+	sk_entity_t (*commands_spawn)(sk_entitycommands_t* commands, const sk_type_id_t* component_ids, u32 component_count);
+
+	/**
+	 * Record a deferred despawn of @p entity (a live handle or a placeholder
+	 * from commands_spawn). Applied in command order at apply time.
+	 * @return 0 on success, -1 on an invalid handle or OOM.
+	 */
+	i32 (*commands_despawn)(sk_entitycommands_t* commands, sk_entity_t entity);
+
+	/**
+	 * Record a deferred component add. When @p value is non-NULL a copy is
+	 * taken immediately (the component must be registered so its size is
+	 * known); when NULL the component is zero-initialized at apply time.
+	 * @param commands Buffer (must not be NULL).
+	 * @param entity   Entity handle or placeholder.
+	 * @param type_id  Component identity.
+	 * @param value    Initial component value to copy, or NULL for zero-init.
+	 * @return 0 on success, -1 on invalid arguments or OOM.
+	 */
+	i32 (*commands_add_component)(sk_entitycommands_t* commands, sk_entity_t entity, sk_type_id_t type_id, const_ptr_t value);
+
+	/**
+	 * Record a deferred component removal.
+	 * @param commands Buffer (must not be NULL).
+	 * @param entity   Entity handle or placeholder.
+	 * @param type_id  Component identity.
+	 * @return 0 on success, -1 on invalid arguments or OOM.
+	 */
+	i32 (*commands_remove_component)(sk_entitycommands_t* commands, sk_entity_t entity, sk_type_id_t type_id);
+
+	/**
+	 * Apply every recorded command onto @p world in FIFO order, then reset
+	 * the buffer (reusable immediately). Deferred spawns create real
+	 * entities; commands referencing a placeholder resolve through the
+	 * spawn order. Commands whose target entity is no longer alive (e.g.
+	 * despawned earlier in the same buffer) are skipped. Recording never
+	 * mutates world storage, so commands may be queued during query
+	 * iteration and applied cleanly afterwards.
+	 * @param commands Buffer (must not be NULL).
+	 * @param world    Target world (must not be NULL).
+	 * @return 0 when every command applied, non-zero if any command failed
+	 *         (spawn on unregistered components, OOM, etc.).
+	 */
+	i32 (*commands_apply)(sk_entitycommands_t* commands, sk_world_t* world);
+
+	/**
+	 * Drop every recorded command (and copied values) without applying.
+	 * Keeps the buffer's capacity so it can be reused.
+	 * @param commands Buffer (must not be NULL).
+	 */
+	void (*commands_clear)(sk_entitycommands_t* commands);
 } sk_entities_api_t;
 
 #ifdef __cplusplus

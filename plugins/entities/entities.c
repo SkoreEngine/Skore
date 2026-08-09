@@ -13,9 +13,16 @@
  * Component identity is wired through sk_type_id_t: a module-level registry
  * maps each component type id to its layout (size/align/name). Queries match
  * archetypes by required/optional/excluded component sets and iterate their
- * storage through the SK_ECS_* macros. World / system / entitycommands
- * surfaces are declared in entities.h and built out by follow-up work on top
- * of this storage layer.
+ * storage through the SK_ECS_* macros.
+ *
+ * On top of the storage layer sits a sk_world_t (an archetype table created
+ * lazily from spawn signatures, a dense generation-tagged entity index, and
+ * the world-managed query set that observes every new archetype) with
+ * immediate structural ops (world_spawn / world_despawn /
+ * world_add_component / world_remove_component). The deferred
+ * sk_entitycommands_t surface records the same structural changes without
+ * touching the world and applies them in FIFO order with commands_apply, so
+ * commands can be queued during query iteration and flushed afterwards.
  */
 
 #include "entities.h"
@@ -721,6 +728,629 @@ static void_ptr_t query_iter_field_impl(const sk_query_iter_t* it, u32 term, u32
 	return (void_ptr_t)((u8*)it->fields[term] + (size_t)row * it->strides[term]);
 }
 
+/* ---- world ---- */
+
+/*
+ * A world owns an archetype table (created lazily from spawn/add/remove
+ * signatures, retained even when empty), a dense entity index whose slots
+ * carry a generation counter (slot index + 1 == entity.index) and cache the
+ * entity's { archetype, chunk, row } location, a free list of recycled slot
+ * indices, and the world-managed query set that observes every archetype the
+ * world creates. Slots are append-only; despawned slots are recycled with a
+ * bumped generation so stale handles fail the generation check.
+ */
+typedef struct sk_entity_slot_t {
+	u32 generation;
+	u32 archetype_index; /* UINT32_MAX when the slot is dead */
+	u32 chunk;
+	u32 row;
+} sk_entity_slot_t;
+
+struct sk_world_t {
+	SK_ARRAY(sk_archetype_t*) archetypes;
+	SK_ARRAY(sk_entity_slot_t) slots;
+	SK_ARRAY(u32) free_slots;
+	SK_ARRAY(sk_query_t*) queries;
+	u32 alive_count;
+};
+
+/* Live slot for @p entity, or NULL when dead / invalid / stale generation. */
+static sk_entity_slot_t* world_slot_at(sk_world_t* world, sk_entity_t entity) {
+	if (entity.index == 0u) {
+		return NULL;
+	}
+	const u32 slot_index = entity.index - 1u;
+	if (slot_index >= world->slots.count) {
+		return NULL;
+	}
+	sk_entity_slot_t* slot = &world->slots.items[slot_index];
+	if (slot->generation != entity.generation || slot->archetype_index == 0xFFFFFFFFu) {
+		return NULL;
+	}
+	return slot;
+}
+
+/* First chunk with a free row in @p archetype, appending one when needed. */
+static sk_chunk_t* archetype_free_chunk(sk_archetype_t* archetype, u32* out_chunk_index) {
+	for (u32 i = 0u; i < archetype->chunks.count; ++i) {
+		sk_chunk_t* chunk = archetype->chunks.items[i];
+		if (chunk->count < archetype->chunk_capacity) {
+			*out_chunk_index = i;
+			return chunk;
+		}
+	}
+	if (archetype_add_chunk_impl(archetype) != 0) {
+		return NULL;
+	}
+	*out_chunk_index = archetype->chunks.count - 1u;
+	return archetype->chunks.items[*out_chunk_index];
+}
+
+/*
+ * Sort @p ids ascending by type id and drop duplicates into @p out (which
+ * must hold SK_ECS_MAX_ARCHETYPE_COLUMNS entries). Returns the normalized
+ * count, or UINT32_MAX when @p count is too large or any id is
+ * SK_TYPE_ID_ZERO / the implicit entity component.
+ */
+static u32 ecs_normalize_ids(const sk_type_id_t* ids, u32 count, sk_type_id_t* out) {
+	if (count >= (u32)SK_ECS_MAX_ARCHETYPE_COLUMNS) {
+		return 0xFFFFFFFFu;
+	}
+	sk_type_id_t tmp[SK_ECS_MAX_ARCHETYPE_COLUMNS];
+	u32 n = 0u;
+	for (u32 i = 0u; i < count; ++i) {
+		if (SK_TYPE_ID_EQ(ids[i], SK_TYPE_ID_ZERO) || SK_TYPE_ID_EQ(ids[i], SK_ECS_ENTITY_COMPONENT_ID)) {
+			return 0xFFFFFFFFu;
+		}
+		tmp[n++] = ids[i];
+	}
+	for (u32 i = 1u; i < n; ++i) {
+		const sk_type_id_t key = tmp[i];
+		u32 j = i;
+		while (j > 0u && ecs_type_id_lt(key, tmp[j - 1u])) {
+			tmp[j] = tmp[j - 1u];
+			j -= 1u;
+		}
+		tmp[j] = key;
+	}
+	u32 out_count = 0u;
+	for (u32 i = 0u; i < n; ++i) {
+		if (out_count > 0u && SK_TYPE_ID_EQ(out[out_count - 1u], tmp[i])) {
+			continue;
+		}
+		out[out_count++] = tmp[i];
+	}
+	return out_count;
+}
+
+/*
+ * Find the archetype for the normalized signature @p ids (or create it from
+ * the component registry on demand). Newly created archetypes are observed by
+ * every world-managed query. Returns the archetype's index in
+ * world->archetypes, or UINT32_MAX on invalid ids / unregistered components /
+ * OOM.
+ */
+static u32 world_archetype_for(sk_world_t* world, const sk_type_id_t* ids, u32 count) {
+	sk_type_id_t norm[SK_ECS_MAX_ARCHETYPE_COLUMNS];
+	const u32 ncount = ecs_normalize_ids(ids, count, norm);
+	if (ncount == 0xFFFFFFFFu) {
+		return 0xFFFFFFFFu;
+	}
+	for (u32 i = 0u; i < world->archetypes.count; ++i) {
+		const sk_archetype_t* arch = world->archetypes.items[i];
+		if (arch->component_count != ncount + 1u) {
+			continue;
+		}
+		i32 match = 1;
+		for (u32 c = 0u; c < ncount; ++c) {
+			if (!SK_TYPE_ID_EQ(arch->components[c + 1u].type_id, norm[c])) {
+				match = 0;
+				break;
+			}
+		}
+		if (match != 0) {
+			return i;
+		}
+	}
+	sk_component_info_t infos[SK_ECS_MAX_ARCHETYPE_COLUMNS];
+	for (u32 i = 0u; i < ncount; ++i) {
+		if (component_info_impl(norm[i], &infos[i]) != 0) {
+			return 0xFFFFFFFFu;
+		}
+	}
+	sk_archetype_t* arch = archetype_create_impl(infos, ncount);
+	if (arch == NULL) {
+		return 0xFFFFFFFFu;
+	}
+	if (sk_array_push(&world->archetypes, arch) != 0) {
+		archetype_destroy_impl(arch);
+		return 0xFFFFFFFFu;
+	}
+	for (u32 i = 0u; i < world->queries.count; ++i) {
+		query_observe_impl(world->queries.items[i], arch);
+	}
+	return world->archetypes.count - 1u;
+}
+
+/*
+ * Move @p entity from its current archetype to @p new_arch_index: copy every
+ * shared component into a freshly allocated target row, zero-fill new
+ * components, then swap-remove the old row (updating the location of the
+ * entity that fills the gap). The slot is updated to the new location.
+ */
+static i32 world_move_entity(sk_world_t* world, sk_entity_t entity, sk_entity_slot_t* slot, u32 new_arch_index) {
+	const sk_archetype_t* old_arch = world->archetypes.items[slot->archetype_index];
+	sk_chunk_t* old_chunk = old_arch->chunks.items[slot->chunk];
+	const u32 old_row = slot->row;
+
+	sk_archetype_t* new_arch = world->archetypes.items[new_arch_index];
+	u32 new_chunk_index = 0u;
+	sk_chunk_t* new_chunk = archetype_free_chunk(new_arch, &new_chunk_index);
+	if (new_chunk == NULL) {
+		return -1;
+	}
+	const u32 new_row = new_chunk->count;
+
+	memcpy(chunk_row_ptr_mut(new_chunk, 0u, new_row), &entity, sizeof(sk_entity_t));
+	for (u32 column = 1u; column < new_arch->component_count; ++column) {
+		const i32 old_column = archetype_column_impl(old_arch, new_arch->components[column].type_id);
+		void_ptr_t dst = chunk_row_ptr_mut(new_chunk, column, new_row);
+		if (old_column >= 0) {
+			memcpy(dst, chunk_row_ptr_const(old_chunk, (u32)old_column, old_row), new_arch->components[column].size);
+		} else {
+			memset(dst, 0, new_arch->components[column].size);
+		}
+	}
+	new_chunk->count += 1u;
+
+	sk_entity_t moved = SK_ENTITY_INVALID;
+	chunk_remove_impl(old_chunk, old_row, &moved);
+	if (sk_entity_is_valid(moved)) {
+		sk_entity_slot_t* moved_slot = world_slot_at(world, moved);
+		if (moved_slot != NULL) {
+			moved_slot->chunk = slot->chunk;
+			moved_slot->row = old_row;
+		}
+	}
+	slot->archetype_index = new_arch_index;
+	slot->chunk = new_chunk_index;
+	slot->row = new_row;
+	return 0;
+}
+
+static sk_world_t* world_create_impl(void) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_world_t* world = (sk_world_t*)alloc->alloc(alloc->instance, sizeof(sk_world_t));
+	if (world == NULL) {
+		return NULL;
+	}
+	sk_array_init(&world->archetypes, alloc);
+	sk_array_init(&world->slots, alloc);
+	sk_array_init(&world->free_slots, alloc);
+	sk_array_init(&world->queries, alloc);
+	world->alive_count = 0u;
+	return world;
+}
+
+static void world_destroy_impl(sk_world_t* world) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	for (u32 i = 0u; i < world->queries.count; ++i) {
+		query_destroy_impl(world->queries.items[i]);
+	}
+	for (u32 i = 0u; i < world->archetypes.count; ++i) {
+		archetype_destroy_impl(world->archetypes.items[i]);
+	}
+	sk_array_free(&world->queries);
+	sk_array_free(&world->archetypes);
+	sk_array_free(&world->slots);
+	sk_array_free(&world->free_slots);
+	alloc->free(alloc->instance, world);
+}
+
+static sk_entity_t world_spawn_impl(sk_world_t* world, const sk_type_id_t* component_ids, u32 component_count) {
+	if (component_count > 0u && component_ids == NULL) {
+		return SK_ENTITY_INVALID;
+	}
+	const u32 archetype_index = world_archetype_for(world, component_ids, component_count);
+	if (archetype_index == 0xFFFFFFFFu) {
+		return SK_ENTITY_INVALID;
+	}
+	sk_archetype_t* arch = world->archetypes.items[archetype_index];
+	u32 chunk_index = 0u;
+	sk_chunk_t* chunk = archetype_free_chunk(arch, &chunk_index);
+	if (chunk == NULL) {
+		return SK_ENTITY_INVALID;
+	}
+
+	u32 slot_index = 0u;
+	if (world->free_slots.count > 0u) {
+		slot_index = sk_array_pop(&world->free_slots);
+	} else {
+		const sk_entity_slot_t fresh = {0u, 0xFFFFFFFFu, 0u, 0u};
+		if (sk_array_push(&world->slots, fresh) != 0) {
+			return SK_ENTITY_INVALID;
+		}
+		slot_index = world->slots.count - 1u;
+	}
+	sk_entity_slot_t* slot = &world->slots.items[slot_index];
+	if (slot->generation == 0u) {
+		slot->generation = 1u;
+	}
+	const sk_entity_t entity = {slot_index + 1u, slot->generation};
+
+	u32 row = 0u;
+	chunk_allocate_impl(chunk, entity, &row);
+	for (u32 column = 1u; column < arch->component_count; ++column) {
+		memset(chunk_row_ptr_mut(chunk, column, row), 0, arch->components[column].size);
+	}
+	slot->archetype_index = archetype_index;
+	slot->chunk = chunk_index;
+	slot->row = row;
+	world->alive_count += 1u;
+	return entity;
+}
+
+static i32 world_despawn_impl(sk_world_t* world, sk_entity_t entity) {
+	sk_entity_slot_t* slot = world_slot_at(world, entity);
+	if (slot == NULL) {
+		return -1;
+	}
+	const sk_archetype_t* arch = world->archetypes.items[slot->archetype_index];
+	sk_chunk_t* chunk = arch->chunks.items[slot->chunk];
+	const u32 row = slot->row;
+	const u32 slot_index = entity.index - 1u;
+
+	sk_entity_t moved = SK_ENTITY_INVALID;
+	chunk_remove_impl(chunk, row, &moved);
+	if (sk_entity_is_valid(moved)) {
+		sk_entity_slot_t* moved_slot = world_slot_at(world, moved);
+		if (moved_slot != NULL) {
+			moved_slot->chunk = slot->chunk;
+			moved_slot->row = row;
+		}
+	}
+	slot->generation += 1u;
+	if (slot->generation == 0u) {
+		slot->generation = 1u;
+	}
+	slot->archetype_index = 0xFFFFFFFFu;
+	slot->chunk = 0u;
+	slot->row = 0u;
+	if (sk_array_push(&world->free_slots, slot_index) != 0) {
+		/* The slot is lost (already dead); still report a successful despawn. */
+	}
+	world->alive_count -= 1u;
+	return 0;
+}
+
+static i32 world_alive_impl(sk_world_t* world, sk_entity_t entity) {
+	return world_slot_at(world, entity) != NULL;
+}
+
+static u32 world_count_impl(const sk_world_t* world) {
+	return world->alive_count;
+}
+
+static void_ptr_t world_component_impl(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id) {
+	sk_entity_slot_t* slot = world_slot_at(world, entity);
+	if (slot == NULL) {
+		return NULL;
+	}
+	const sk_archetype_t* arch = world->archetypes.items[slot->archetype_index];
+	const i32 column = archetype_column_impl(arch, type_id);
+	if (column < 0) {
+		return NULL;
+	}
+	sk_chunk_t* chunk = arch->chunks.items[slot->chunk];
+	return chunk_row_ptr_mut(chunk, (u32)column, slot->row);
+}
+
+static i32 world_has_component_impl(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id) {
+	return world_component_impl(world, entity, type_id) != NULL;
+}
+
+static i32 world_add_component_impl(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id) {
+	if (SK_TYPE_ID_EQ(type_id, SK_TYPE_ID_ZERO) || SK_TYPE_ID_EQ(type_id, SK_ECS_ENTITY_COMPONENT_ID)) {
+		return -1;
+	}
+	sk_entity_slot_t* slot = world_slot_at(world, entity);
+	if (slot == NULL) {
+		return -1;
+	}
+	const sk_archetype_t* arch = world->archetypes.items[slot->archetype_index];
+	if (archetype_has_impl(arch, type_id)) {
+		return 0;
+	}
+	sk_type_id_t ids[SK_ECS_MAX_ARCHETYPE_COLUMNS];
+	u32 count = arch->component_count - 1u;
+	for (u32 i = 0u; i < count; ++i) {
+		ids[i] = arch->components[i + 1u].type_id;
+	}
+	ids[count++] = type_id;
+	const u32 target = world_archetype_for(world, ids, count);
+	if (target == 0xFFFFFFFFu) {
+		return -1;
+	}
+	return world_move_entity(world, entity, slot, target);
+}
+
+static i32 world_remove_component_impl(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id) {
+	sk_entity_slot_t* slot = world_slot_at(world, entity);
+	if (slot == NULL) {
+		return -1;
+	}
+	const sk_archetype_t* arch = world->archetypes.items[slot->archetype_index];
+	if (!archetype_has_impl(arch, type_id)) {
+		return 0;
+	}
+	sk_type_id_t ids[SK_ECS_MAX_ARCHETYPE_COLUMNS];
+	u32 count = 0u;
+	for (u32 i = 1u; i < arch->component_count; ++i) {
+		if (!SK_TYPE_ID_EQ(arch->components[i].type_id, type_id)) {
+			ids[count++] = arch->components[i].type_id;
+		}
+	}
+	const u32 target = world_archetype_for(world, ids, count);
+	if (target == 0xFFFFFFFFu) {
+		return -1;
+	}
+	return world_move_entity(world, entity, slot, target);
+}
+
+static sk_query_t* world_query_create_impl(sk_world_t* world, const sk_query_desc_t* desc) {
+	sk_query_t* query = query_create_impl(desc);
+	if (query == NULL) {
+		return NULL;
+	}
+	for (u32 i = 0u; i < world->archetypes.count; ++i) {
+		query_observe_impl(query, world->archetypes.items[i]);
+	}
+	if (sk_array_push(&world->queries, query) != 0) {
+		query_destroy_impl(query);
+		return NULL;
+	}
+	return query;
+}
+
+/* ---- deferred entity commands ---- */
+
+/*
+ * Deferred command buffer. Recording appends to a FIFO command list without
+ * touching any world; commands_apply walks the list in order, resolving
+ * placeholder handles (spawned earlier in the same buffer) to their real
+ * entity and applying each op, then resets the buffer for reuse.
+ *
+ * A placeholder handle is an sk_entity_t whose index has the high bit set
+ * (SK_ECS_DEFERRED_BASE) and whose low bits index cmds->pending; real world
+ * handles never carry the high bit (slot indices are far below 2^31).
+ */
+#define SK_ECS_DEFERRED_BASE 0x80000000u
+
+typedef enum sk_ecs_command_kind_t {
+	SK_ECS_CMD_SPAWN,
+	SK_ECS_CMD_DESPAWN,
+	SK_ECS_CMD_ADD_COMPONENT,
+	SK_ECS_CMD_REMOVE_COMPONENT,
+} sk_ecs_command_kind_t;
+
+typedef struct sk_ecs_command_t {
+	sk_ecs_command_kind_t kind;
+	union {
+		struct {
+			u32 pending_index;
+			u32 component_count;
+			u32 ids_offset; /* into cmds->scratch: sk_type_id_t[component_count] */
+		} spawn;
+		struct {
+			sk_entity_t entity;
+		} despawn;
+		struct {
+			sk_entity_t entity;
+			sk_type_id_t type_id;
+			u32 value_offset; /* into cmds->scratch */
+			u32 value_size;
+		} add;
+		struct {
+			sk_entity_t entity;
+			sk_type_id_t type_id;
+		} remove;
+	} u;
+} sk_ecs_command_t;
+
+struct sk_entitycommands_t {
+	SK_ARRAY(sk_ecs_command_t) commands;
+	SK_ARRAY(u8) scratch;		   /* copied component id arrays + values */
+	SK_ARRAY(sk_entity_t) pending; /* deferred index -> real entity (apply time) */
+};
+
+/* Reserve @p size aligned bytes in the buffer's scratch arena. */
+static i32 commands_scratch_reserve(sk_entitycommands_t* commands, u32 size, u32* out_offset) {
+	const u32 aligned = ecs_align_up(commands->scratch.count, 8u);
+	if (sk_array_reserve(&commands->scratch, aligned + size) != 0) {
+		return -1;
+	}
+	commands->scratch.count = aligned + size;
+	*out_offset = aligned;
+	return 0;
+}
+
+static sk_entity_t commands_resolve(const sk_entitycommands_t* commands, sk_entity_t entity) {
+	if ((entity.index & SK_ECS_DEFERRED_BASE) != 0u) {
+		const u32 pending_index = entity.index & ~SK_ECS_DEFERRED_BASE;
+		if (pending_index < commands->pending.count) {
+			return commands->pending.items[pending_index];
+		}
+		return SK_ENTITY_INVALID;
+	}
+	return entity;
+}
+
+static sk_entitycommands_t* commands_create_impl(void) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_entitycommands_t* commands = (sk_entitycommands_t*)alloc->alloc(alloc->instance, sizeof(sk_entitycommands_t));
+	if (commands == NULL) {
+		return NULL;
+	}
+	sk_array_init(&commands->commands, alloc);
+	sk_array_init(&commands->scratch, alloc);
+	sk_array_init(&commands->pending, alloc);
+	return commands;
+}
+
+static void commands_destroy_impl(sk_entitycommands_t* commands) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_array_free(&commands->commands);
+	sk_array_free(&commands->scratch);
+	sk_array_free(&commands->pending);
+	alloc->free(alloc->instance, commands);
+}
+
+static u32 commands_count_impl(const sk_entitycommands_t* commands) {
+	return commands->commands.count;
+}
+
+static sk_entity_t commands_spawn_impl(sk_entitycommands_t* commands, const sk_type_id_t* component_ids, u32 component_count) {
+	if (component_count > 0u && component_ids == NULL) {
+		return SK_ENTITY_INVALID;
+	}
+	for (u32 i = 0u; i < component_count; ++i) {
+		if (SK_TYPE_ID_EQ(component_ids[i], SK_TYPE_ID_ZERO)) {
+			return SK_ENTITY_INVALID;
+		}
+	}
+	const u32 pending_index = commands->pending.count;
+	if (sk_array_push(&commands->pending, SK_ENTITY_INVALID) != 0) {
+		return SK_ENTITY_INVALID;
+	}
+	u32 ids_offset = 0u;
+	if (component_count > 0u) {
+		const u32 bytes = component_count * sizeof(sk_type_id_t);
+		if (commands_scratch_reserve(commands, bytes, &ids_offset) != 0) {
+			const sk_entity_t dropped = sk_array_pop(&commands->pending);
+			(void)dropped;
+			return SK_ENTITY_INVALID;
+		}
+		memcpy(commands->scratch.items + ids_offset, component_ids, bytes);
+	}
+	sk_ecs_command_t cmd;
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.kind = SK_ECS_CMD_SPAWN;
+	cmd.u.spawn.pending_index = pending_index;
+	cmd.u.spawn.component_count = component_count;
+	cmd.u.spawn.ids_offset = ids_offset;
+	if (sk_array_push(&commands->commands, cmd) != 0) {
+		const sk_entity_t dropped = sk_array_pop(&commands->pending);
+		(void)dropped;
+		return SK_ENTITY_INVALID;
+	}
+	return (sk_entity_t){SK_ECS_DEFERRED_BASE | pending_index, 0u};
+}
+
+static i32 commands_despawn_impl(sk_entitycommands_t* commands, sk_entity_t entity) {
+	if (!sk_entity_is_valid(entity)) {
+		return -1;
+	}
+	sk_ecs_command_t cmd;
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.kind = SK_ECS_CMD_DESPAWN;
+	cmd.u.despawn.entity = entity;
+	return sk_array_push(&commands->commands, cmd);
+}
+
+static i32 commands_add_component_impl(sk_entitycommands_t* commands, sk_entity_t entity, sk_type_id_t type_id, const_ptr_t value) {
+	if (!sk_entity_is_valid(entity) || SK_TYPE_ID_EQ(type_id, SK_TYPE_ID_ZERO) || SK_TYPE_ID_EQ(type_id, SK_ECS_ENTITY_COMPONENT_ID)) {
+		return -1;
+	}
+	u32 value_offset = 0u;
+	u32 value_size = 0u;
+	if (value != NULL) {
+		sk_component_info_t info;
+		if (component_info_impl(type_id, &info) != 0 || commands_scratch_reserve(commands, info.size, &value_offset) != 0) {
+			return -1;
+		}
+		memcpy(commands->scratch.items + value_offset, value, info.size);
+		value_size = info.size;
+	}
+	sk_ecs_command_t cmd;
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.kind = SK_ECS_CMD_ADD_COMPONENT;
+	cmd.u.add.entity = entity;
+	cmd.u.add.type_id = type_id;
+	cmd.u.add.value_offset = value_offset;
+	cmd.u.add.value_size = value_size;
+	return sk_array_push(&commands->commands, cmd);
+}
+
+static i32 commands_remove_component_impl(sk_entitycommands_t* commands, sk_entity_t entity, sk_type_id_t type_id) {
+	if (!sk_entity_is_valid(entity) || SK_TYPE_ID_EQ(type_id, SK_TYPE_ID_ZERO) || SK_TYPE_ID_EQ(type_id, SK_ECS_ENTITY_COMPONENT_ID)) {
+		return -1;
+	}
+	sk_ecs_command_t cmd;
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.kind = SK_ECS_CMD_REMOVE_COMPONENT;
+	cmd.u.remove.entity = entity;
+	cmd.u.remove.type_id = type_id;
+	return sk_array_push(&commands->commands, cmd);
+}
+
+static void commands_clear_impl(sk_entitycommands_t* commands) {
+	sk_array_clear(&commands->commands);
+	sk_array_clear(&commands->scratch);
+	sk_array_clear(&commands->pending);
+}
+
+static i32 commands_apply_impl(sk_entitycommands_t* commands, sk_world_t* world) {
+	i32 result = 0;
+	for (u32 i = 0u; i < commands->commands.count; ++i) {
+		const sk_ecs_command_t* cmd = &commands->commands.items[i];
+		switch (cmd->kind) {
+		case SK_ECS_CMD_SPAWN: {
+			const sk_type_id_t* ids = (cmd->u.spawn.component_count > 0u) ? (const sk_type_id_t*)(commands->scratch.items + cmd->u.spawn.ids_offset) : NULL;
+			const sk_entity_t actual = world_spawn_impl(world, ids, cmd->u.spawn.component_count);
+			commands->pending.items[cmd->u.spawn.pending_index] = actual;
+			if (!sk_entity_is_valid(actual)) {
+				result = -1;
+			}
+			break;
+		}
+		case SK_ECS_CMD_DESPAWN: {
+			const sk_entity_t target = commands_resolve(commands, cmd->u.despawn.entity);
+			if (sk_entity_is_valid(target) && world_alive_impl(world, target)) {
+				if (world_despawn_impl(world, target) != 0) {
+					result = -1;
+				}
+			}
+			break;
+		}
+		case SK_ECS_CMD_ADD_COMPONENT: {
+			const sk_entity_t target = commands_resolve(commands, cmd->u.add.entity);
+			if (sk_entity_is_valid(target) && world_alive_impl(world, target)) {
+				if (world_add_component_impl(world, target, cmd->u.add.type_id) != 0) {
+					result = -1;
+				} else if (cmd->u.add.value_size > 0u) {
+					void_ptr_t slot = world_component_impl(world, target, cmd->u.add.type_id);
+					if (slot != NULL) {
+						memcpy(slot, commands->scratch.items + cmd->u.add.value_offset, cmd->u.add.value_size);
+					}
+				}
+			}
+			break;
+		}
+		case SK_ECS_CMD_REMOVE_COMPONENT: {
+			const sk_entity_t target = commands_resolve(commands, cmd->u.remove.entity);
+			if (sk_entity_is_valid(target) && world_alive_impl(world, target)) {
+				if (world_remove_component_impl(world, target, cmd->u.remove.type_id) != 0) {
+					result = -1;
+				}
+			}
+			break;
+		}
+		}
+	}
+	commands_clear_impl(commands);
+	return result;
+}
+
 /* ---- API table (table-only; no public free-function mirrors) ---- */
 
 static const sk_entities_api_t entities_api = {
@@ -772,6 +1402,28 @@ static const sk_entities_api_t entities_api = {
 	query_iter_next_impl,
 	query_iter_entity_impl,
 	query_iter_field_impl,
+
+	world_create_impl,
+	world_destroy_impl,
+	world_spawn_impl,
+	world_despawn_impl,
+	world_alive_impl,
+	world_count_impl,
+	world_has_component_impl,
+	world_add_component_impl,
+	world_remove_component_impl,
+	world_component_impl,
+	world_query_create_impl,
+
+	commands_create_impl,
+	commands_destroy_impl,
+	commands_count_impl,
+	commands_spawn_impl,
+	commands_despawn_impl,
+	commands_add_component_impl,
+	commands_remove_component_impl,
+	commands_apply_impl,
+	commands_clear_impl,
 };
 
 /**
@@ -790,9 +1442,11 @@ void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 /*
  * Unit coverage for the ECS storage layer: type-id wiring, the entity handle,
  * the sk_type_id-keyed component registry, archetype signature normalization,
- * 16 KiB packing bounds / capacity calculation / column layout, and chunk slot
- * allocation / swap-remove / entity-to-location mapping. World / query /
- * system / entitycommands coverage lands with those surfaces.
+ * 16 KiB packing bounds / capacity calculation / column layout, chunk slot
+ * allocation / swap-remove / entity-to-location mapping, the world surface
+ * (spawn / despawn / add / remove with generation handles and archetype
+ * moves), and the deferred entitycommands buffer (FIFO apply, placeholders,
+ * batch create/destroy, deferred-until-apply semantics, reuse/clear).
  */
 
 SK_TEST(entities_api_table_is_complete) {
@@ -1610,6 +2264,417 @@ SK_TEST(entities_query_iteration_empty_matches) {
 	entities_api.query_destroy(q);
 	entities_api.archetype_destroy(p);
 	entities_api.archetype_destroy(t);
+}
+
+/* ---- world + deferred entitycommands tests ---- */
+
+typedef struct ecs_world_pos_t {
+	f32 x;
+	f32 y;
+} ecs_world_pos_t;
+
+typedef struct ecs_world_vel_t {
+	f32 vx;
+	f32 vy;
+} ecs_world_vel_t;
+
+typedef struct ecs_world_tag_t {
+	u32 flags;
+} ecs_world_tag_t;
+
+#define TEST_WORLD_POS_ID SK_TYPE_ID("sk.test.ecs.world.pos", 0x3B00000000000001ULL, 0x0200000000000001ULL)
+#define TEST_WORLD_VEL_ID SK_TYPE_ID("sk.test.ecs.world.vel", 0x3B00000000000002ULL, 0x0200000000000001ULL)
+#define TEST_WORLD_TAG_ID SK_TYPE_ID("sk.test.ecs.world.tag", 0x3B00000000000003ULL, 0x0200000000000001ULL)
+
+static void ecs_world_register_components(void) {
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_POS_ID, (u32)sizeof(ecs_world_pos_t), 4u, "world-pos"));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_VEL_ID, (u32)sizeof(ecs_world_vel_t), 4u, "world-vel"));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_TAG_ID, (u32)sizeof(ecs_world_tag_t), 4u, "world-tag"));
+}
+
+SK_TEST(entities_world_spawn_despawn_generation) {
+	ecs_world_register_components();
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+
+	const sk_type_id_t pos_id[1] = {TEST_WORLD_POS_ID};
+	const sk_type_id_t pv[2] = {TEST_WORLD_POS_ID, TEST_WORLD_VEL_ID};
+
+	sk_entity_t e0 = entities_api.world_spawn(world, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e0));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, e0));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
+
+	sk_entity_t e1 = entities_api.world_spawn(world, pos_id, 1u);
+	sk_entity_t e2 = entities_api.world_spawn(world, pv, 2u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e1));
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e2));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, e1));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, e2));
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.world_count(world));
+
+	/* Despawn frees the slot; stale handles fail the generation check. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_despawn(world, e0));
+	TEST_ASSERT_FALSE(entities_api.world_alive(world, e0));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.world_despawn(world, e0));
+	TEST_ASSERT_EQUAL_UINT32(2u, entities_api.world_count(world));
+
+	/* Slot recycling: a new spawn reuses slot 0 with a bumped generation. */
+	sk_entity_t e3 = entities_api.world_spawn(world, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e3));
+	TEST_ASSERT_EQUAL_UINT32(e0.index, e3.index);
+	TEST_ASSERT_TRUE(e3.generation > e0.generation);
+	TEST_ASSERT_FALSE(sk_entity_eq(e0, e3));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, e3));
+	TEST_ASSERT_FALSE(entities_api.world_alive(world, (sk_entity_t){e3.index, e0.generation}));
+
+	/* Spawn with an unregistered component fails cleanly. */
+	const sk_type_id_t unregistered = SK_TYPE_ID("sk.test.ecs.world.unregistered", 0x3B000000000000FFULL, 0x0200000000000001ULL);
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn(world, &unregistered, 1u)));
+
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.world_count(world));
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_add_remove_component) {
+	ecs_world_register_components();
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t pos_id[1] = {TEST_WORLD_POS_ID};
+	sk_entity_t e = entities_api.world_spawn(world, pos_id, 1u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_POS_ID));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, e, TEST_WORLD_VEL_ID));
+
+	ecs_world_pos_t* p = (ecs_world_pos_t*)entities_api.world_component(world, e, TEST_WORLD_POS_ID);
+	TEST_ASSERT_NOT_NULL(p);
+	p->x = 10.0f;
+	p->y = 20.0f;
+
+	/* Add a component: the move between archetypes preserves existing data. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_add_component(world, e, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_VEL_ID));
+	ecs_world_vel_t* v = (ecs_world_vel_t*)entities_api.world_component(world, e, TEST_WORLD_VEL_ID);
+	TEST_ASSERT_NOT_NULL(v);
+	TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, v->vx); /* zero-initialized */
+	p = (ecs_world_pos_t*)entities_api.world_component(world, e, TEST_WORLD_POS_ID);
+	TEST_ASSERT_NOT_NULL(p);
+	TEST_ASSERT_FLOAT_WITHIN(1e-5f, 10.0f, p->x); /* survived the move */
+	v->vx = 3.0f;
+	v->vy = 4.0f;
+
+	/* Adding an already-present component is idempotent. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_add_component(world, e, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_VEL_ID));
+	v = (ecs_world_vel_t*)entities_api.world_component(world, e, TEST_WORLD_VEL_ID);
+	TEST_ASSERT_NOT_NULL(v);
+	TEST_ASSERT_FLOAT_WITHIN(1e-5f, 3.0f, v->vx);
+
+	/* Remove restores the {pos} archetype. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_remove_component(world, e, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, e, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_NULL(entities_api.world_component(world, e, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_POS_ID));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_remove_component(world, e, TEST_WORLD_VEL_ID));
+
+	/* Ops on dead / invalid entities fail cleanly. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_despawn(world, e));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.world_add_component(world, e, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.world_remove_component(world, e, TEST_WORLD_POS_ID));
+	TEST_ASSERT_NULL(entities_api.world_component(world, e, TEST_WORLD_POS_ID));
+	TEST_ASSERT_FALSE(entities_api.world_alive(world, SK_ENTITY_INVALID));
+
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_query_observes_new_archetypes) {
+	ecs_world_register_components();
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t req_pos[1] = {TEST_WORLD_POS_ID};
+	const sk_query_desc_t d_pos = {req_pos, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* q = entities_api.world_query_create(world, &d_pos);
+	TEST_ASSERT_NOT_NULL(q);
+
+	/* Spawns that create a new {pos} archetype after the query must be seen. */
+	const sk_type_id_t pos_id[1] = {TEST_WORLD_POS_ID};
+	sk_entity_t a = entities_api.world_spawn(world, pos_id, 1u);
+	sk_entity_t b = entities_api.world_spawn(world, pos_id, 1u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(a));
+	TEST_ASSERT_TRUE(sk_entity_is_valid(b));
+	entities_api.world_spawn(world, NULL, 0u); /* no pos: not matched */
+
+	((ecs_world_pos_t*)entities_api.world_component(world, a, TEST_WORLD_POS_ID))->x = 1.0f;
+	((ecs_world_pos_t*)entities_api.world_component(world, b, TEST_WORLD_POS_ID))->x = 2.0f;
+
+	u32 seen = 0u;
+	f32 sum = 0.0f;
+	SK_ECS_QUERY_EACH(&entities_api, q, it) {
+		const ecs_world_pos_t* pp = SK_ECS_ITER_AT(it, 1, ecs_world_pos_t);
+		TEST_ASSERT_NOT_NULL(pp);
+		TEST_ASSERT_TRUE(sk_entity_is_valid(SK_ECS_ITER_ENTITY_ROW(it)));
+		seen += 1u;
+		sum += pp->x;
+	}
+	TEST_ASSERT_EQUAL_UINT32(2u, seen);
+	TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.0f, sum);
+
+	/* The world-managed query is destroyed with the world. */
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_commands_apply_order) {
+	ecs_world_register_components();
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entitycommands_t* cmds = entities_api.commands_create();
+	TEST_ASSERT_NOT_NULL(cmds);
+
+	/* Record a spawn, then component adds referencing the deferred handle,
+	 * then a second spawn that is immediately despawned. */
+	sk_entity_t ph = entities_api.commands_spawn(cmds, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(ph));
+	const ecs_world_vel_t vel = {5.0f, 6.0f};
+	const ecs_world_tag_t tag = {7u};
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_add_component(cmds, ph, TEST_WORLD_VEL_ID, &vel));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_add_component(cmds, ph, TEST_WORLD_TAG_ID, &tag));
+	sk_entity_t ph2 = entities_api.commands_spawn(cmds, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(ph2));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_despawn(cmds, ph2));
+
+	/* Nothing applied while recording: the world is untouched. */
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+	TEST_ASSERT_EQUAL_UINT32(5u, entities_api.commands_count(cmds));
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+
+	/* ph2 was spawned then despawned in FIFO order: only ph survives. */
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.commands_count(cmds));
+
+	/* Locate the survivor and verify the ordered component values. */
+	const sk_query_desc_t d_none = SK_QUERY_DESC_NONE;
+	sk_query_t* q = entities_api.world_query_create(world, &d_none);
+	TEST_ASSERT_NOT_NULL(q);
+	sk_entity_t found = SK_ENTITY_INVALID;
+	u32 seen = 0u;
+	SK_ECS_QUERY_EACH(&entities_api, q, it) {
+		found = SK_ECS_ITER_ENTITY_ROW(it);
+		seen += 1u;
+	}
+	TEST_ASSERT_EQUAL_UINT32(1u, seen);
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, found));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, found, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, found, TEST_WORLD_TAG_ID));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, found, TEST_WORLD_POS_ID));
+	const ecs_world_vel_t* v = (const ecs_world_vel_t*)entities_api.world_component(world, found, TEST_WORLD_VEL_ID);
+	TEST_ASSERT_NOT_NULL(v);
+	TEST_ASSERT_FLOAT_WITHIN(1e-5f, 5.0f, v->vx);
+	TEST_ASSERT_FLOAT_WITHIN(1e-5f, 6.0f, v->vy);
+	const ecs_world_tag_t* tg = (const ecs_world_tag_t*)entities_api.world_component(world, found, TEST_WORLD_TAG_ID);
+	TEST_ASSERT_NOT_NULL(tg);
+	TEST_ASSERT_EQUAL_UINT32(7u, tg->flags);
+
+	entities_api.commands_destroy(cmds);
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_commands_batch_create_destroy) {
+	ecs_world_register_components();
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entitycommands_t* cmds = entities_api.commands_create();
+	TEST_ASSERT_NOT_NULL(cmds);
+
+	const sk_type_id_t pv[2] = {TEST_WORLD_POS_ID, TEST_WORLD_VEL_ID};
+	const u32 total = 100u;
+	sk_entity_t placeholders[100];
+	for (u32 i = 0u; i < total; ++i) {
+		sk_entity_t ph = entities_api.commands_spawn(cmds, pv, 2u);
+		TEST_ASSERT_TRUE(sk_entity_is_valid(ph));
+		placeholders[i] = ph;
+		const ecs_world_pos_t pos = {(f32)i, (f32)i + 1.0f};
+		TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_add_component(cmds, ph, TEST_WORLD_POS_ID, &pos));
+	}
+	/* Despawn every even placeholder: 50 survivors (odd i). */
+	for (u32 i = 0u; i < total; i += 2u) {
+		TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_despawn(cmds, placeholders[i]));
+	}
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+	TEST_ASSERT_EQUAL_UINT32(250u, entities_api.commands_count(cmds)); /* 100 spawn + 100 add + 50 despawn */
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_EQUAL_UINT32(50u, entities_api.world_count(world));
+
+	/* Survivors hold {pos, vel} with the recorded values: sum of odd i. */
+	const sk_type_id_t req_pv[2] = {TEST_WORLD_POS_ID, TEST_WORLD_VEL_ID};
+	const sk_query_desc_t d_pv = {req_pv, 2u, NULL, 0u, NULL, 0u};
+	sk_query_t* q = entities_api.world_query_create(world, &d_pv);
+	TEST_ASSERT_NOT_NULL(q);
+	u32 seen = 0u;
+	f32 sum_x = 0.0f;
+	SK_ECS_QUERY_EACH(&entities_api, q, it) {
+		const ecs_world_pos_t* pp = SK_ECS_ITER_AT(it, 1, ecs_world_pos_t);
+		const ecs_world_vel_t* vp = SK_ECS_ITER_AT(it, 2, ecs_world_vel_t);
+		TEST_ASSERT_NOT_NULL(pp);
+		TEST_ASSERT_NOT_NULL(vp);
+		TEST_ASSERT_TRUE(sk_entity_is_valid(SK_ECS_ITER_ENTITY_ROW(it)));
+		seen += 1u;
+		sum_x += pp->x;
+	}
+	TEST_ASSERT_EQUAL_UINT32(50u, seen);
+	TEST_ASSERT_FLOAT_WITHIN(1e-3f, 2500.0f, sum_x); /* 1 + 3 + ... + 99 */
+
+	entities_api.commands_destroy(cmds);
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_commands_deferred_during_query_iteration) {
+	ecs_world_register_components();
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t pos_id[1] = {TEST_WORLD_POS_ID};
+	for (u32 i = 0u; i < 3u; ++i) {
+		sk_entity_t e = entities_api.world_spawn(world, pos_id, 1u);
+		TEST_ASSERT_TRUE(sk_entity_is_valid(e));
+		((ecs_world_pos_t*)entities_api.world_component(world, e, TEST_WORLD_POS_ID))->x = (f32)(i + 1);
+	}
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.world_count(world));
+
+	const sk_type_id_t req_pos[1] = {TEST_WORLD_POS_ID};
+	const sk_query_desc_t d_pos = {req_pos, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* qpos = entities_api.world_query_create(world, &d_pos);
+	TEST_ASSERT_NOT_NULL(qpos);
+
+	sk_entitycommands_t* cmds = entities_api.commands_create();
+	TEST_ASSERT_NOT_NULL(cmds);
+
+	/* Record structural changes while a query is live; the world must not
+	 * change until apply. */
+	sk_entity_t first = SK_ENTITY_INVALID;
+	u32 rows_seen = 0u;
+	SK_ECS_QUERY_EACH(&entities_api, qpos, it) {
+		const sk_entity_t current = SK_ECS_ITER_ENTITY_ROW(it);
+		if (rows_seen == 0u) {
+			first = current;
+			TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_despawn(cmds, current));
+		}
+		const ecs_world_vel_t vel = {1.0f, 2.0f};
+		TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_add_component(cmds, current, TEST_WORLD_VEL_ID, &vel));
+		rows_seen += 1u;
+	}
+	TEST_ASSERT_EQUAL_UINT32(3u, rows_seen);
+
+	/* One more deferred spawn with {pos, vel}. */
+	const sk_type_id_t pv[2] = {TEST_WORLD_POS_ID, TEST_WORLD_VEL_ID};
+	TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.commands_spawn(cmds, pv, 2u)));
+
+	/* Pending commands never touch the world. */
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.world_count(world));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, first));
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+
+	/* 3 spawned - 1 despawned + 1 spawned = 3 live; the despawned one is gone. */
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.world_count(world));
+	TEST_ASSERT_FALSE(entities_api.world_alive(world, first));
+
+	/* All survivors now hold {pos, vel}. */
+	const sk_type_id_t req_pv[2] = {TEST_WORLD_POS_ID, TEST_WORLD_VEL_ID};
+	const sk_query_desc_t d_pv = {req_pv, 2u, NULL, 0u, NULL, 0u};
+	sk_query_t* qpv = entities_api.world_query_create(world, &d_pv);
+	TEST_ASSERT_NOT_NULL(qpv);
+	u32 seen_pos = 0u;
+	SK_ECS_QUERY_EACH(&entities_api, qpos, it) {
+		seen_pos += 1u;
+	}
+	u32 seen_pv = 0u;
+	SK_ECS_QUERY_EACH(&entities_api, qpv, it) {
+		seen_pv += 1u;
+	}
+	TEST_ASSERT_EQUAL_UINT32(3u, seen_pos);
+	TEST_ASSERT_EQUAL_UINT32(3u, seen_pv);
+
+	entities_api.commands_destroy(cmds);
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_commands_buffer_reuse_and_clear) {
+	ecs_world_register_components();
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entitycommands_t* cmds = entities_api.commands_create();
+	TEST_ASSERT_NOT_NULL(cmds);
+
+	/* Apply resets the buffer; it can be re-recorded immediately. */
+	for (u32 i = 0u; i < 5u; ++i) {
+		TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.commands_spawn(cmds, NULL, 0u)));
+	}
+	TEST_ASSERT_EQUAL_UINT32(5u, entities_api.commands_count(cmds));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_EQUAL_UINT32(5u, entities_api.world_count(world));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.commands_count(cmds));
+
+	/* Clear drops pending commands without touching the world. */
+	for (u32 i = 0u; i < 3u; ++i) {
+		TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.commands_spawn(cmds, NULL, 0u)));
+	}
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.commands_count(cmds));
+	entities_api.commands_clear(cmds);
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.commands_count(cmds));
+	TEST_ASSERT_EQUAL_UINT32(5u, entities_api.world_count(world));
+
+	/* Reuse after clear and after apply. */
+	for (u32 i = 0u; i < 2u; ++i) {
+		TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.commands_spawn(cmds, NULL, 0u)));
+	}
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_EQUAL_UINT32(7u, entities_api.world_count(world));
+	for (u32 i = 0u; i < 4u; ++i) {
+		TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.commands_spawn(cmds, NULL, 0u)));
+	}
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_EQUAL_UINT32(11u, entities_api.world_count(world));
+
+	/* Value copies are taken at record time: mutating the caller's memory
+	 * afterwards must not affect the applied value. */
+	ecs_world_vel_t vel = {9.0f, 9.0f};
+	sk_entity_t ph = entities_api.commands_spawn(cmds, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(ph));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_add_component(cmds, ph, TEST_WORLD_VEL_ID, &vel));
+	vel.vx = 999.0f;
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_EQUAL_UINT32(12u, entities_api.world_count(world));
+
+	const sk_query_desc_t d_none = SK_QUERY_DESC_NONE;
+	sk_query_t* q = entities_api.world_query_create(world, &d_none);
+	TEST_ASSERT_NOT_NULL(q);
+	u32 vel_entities = 0u;
+	SK_ECS_QUERY_EACH(&entities_api, q, it) {
+		const sk_entity_t e = SK_ECS_ITER_ENTITY_ROW(it);
+		if (entities_api.world_has_component(world, e, TEST_WORLD_VEL_ID)) {
+			const ecs_world_vel_t* v = (const ecs_world_vel_t*)entities_api.world_component(world, e, TEST_WORLD_VEL_ID);
+			TEST_ASSERT_NOT_NULL(v);
+			TEST_ASSERT_FLOAT_WITHIN(1e-5f, 9.0f, v->vx);
+			TEST_ASSERT_FLOAT_WITHIN(1e-5f, 9.0f, v->vy);
+			vel_entities += 1u;
+		}
+	}
+	TEST_ASSERT_EQUAL_UINT32(1u, vel_entities);
+
+	entities_api.commands_destroy(cmds);
+	entities_api.world_destroy(world);
 }
 
 /*
