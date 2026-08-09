@@ -526,6 +526,7 @@ i32 sk_app_run(sk_app_context_t* context) {
 #include "platform.h"
 #include "platform_window.h"
 #include "entities.h"
+#include "dxc_compiler.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1146,6 +1147,46 @@ SK_TEST(entities_plugin_registers_api) {
 	TEST_ASSERT_NOT_NULL(ecs);
 	TEST_ASSERT_NOT_NULL(ecs->register_component);
 	TEST_ASSERT_NOT_NULL(ecs->component_info);
+	plat->lib_close(lib);
+	sk_app_destroy(ctx);
+}
+
+/* ---- dxc_compiler plugin ---- */
+
+SK_TEST(app_init_auto_loads_dxc_compiler_plugin) {
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_dxc_compiler_api_t* dxc = (const sk_dxc_compiler_api_t*)sk_app_api()->get_api(ctx, SK_DXC_COMPILER_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL_MESSAGE(dxc, "expected sk-dxc-compiler auto-loaded from app_folder/plugins");
+	TEST_ASSERT_NOT_NULL(dxc->init);
+	TEST_ASSERT_NOT_NULL(dxc->shutdown);
+	TEST_ASSERT_NOT_NULL(dxc->compile);
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(dxc_compiler_plugin_registers_api) {
+	char path[SK_FS_PATH_MAX];
+	typedef int (*entry_fn)(sk_app_context_t*, const sk_app_api_t*);
+#if defined(_WIN32)
+	const_chr_t name = "sk-dxc-compiler.dll";
+#elif defined(__APPLE__)
+	const_chr_t name = "sk-dxc-compiler.dylib";
+#else
+	const_chr_t name = "sk-dxc-compiler.so";
+#endif
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	TEST_ASSERT_EQUAL_INT32(0, test_plugin_path(name, path, (u32)sizeof(path)));
+	const sk_platform_api_t* plat = sk_platform_api();
+	sk_shared_lib_t lib = plat->lib_open(path);
+	TEST_ASSERT_NOT_NULL(lib);
+	void_ptr_t raw = plat->lib_symbol(lib, "sk_plugin_entry_point");
+	TEST_ASSERT_NOT_NULL(raw);
+	TEST_ASSERT_EQUAL_INT(0, (SK_PTR_TO_FN(entry_fn, raw))(ctx, sk_app_api()));
+	const sk_dxc_compiler_api_t* dxc = (const sk_dxc_compiler_api_t*)sk_app_api()->get_api(ctx, SK_DXC_COMPILER_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(dxc);
+	TEST_ASSERT_NOT_NULL(dxc->init);
+	TEST_ASSERT_NOT_NULL(dxc->compile);
 	plat->lib_close(lib);
 	sk_app_destroy(ctx);
 }

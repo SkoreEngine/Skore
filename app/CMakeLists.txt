@@ -42,6 +42,9 @@ if(BUILD_TESTING)
     # Integration tests include entities.h (plugin public header).
     target_include_directories(sk-app-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/plugins/entities)
+    # Integration tests include dxc_compiler.h (plugin public header).
+    target_include_directories(sk-app-tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/plugins/dxc_compiler)
     if(UNIX)
         target_link_libraries(sk-app-tests PUBLIC ${CMAKE_DL_LIBS})
     endif()
