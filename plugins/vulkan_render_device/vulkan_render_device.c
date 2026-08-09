@@ -415,7 +415,7 @@ char* sk_vk_dup_string(const sk_vk_device_t* device, const_chr_t src) {
 }
 
 void_ptr_t sk_vk_alloc(const sk_vk_device_t* device, u64 size) {
-	return device->allocator->alloc(device->allocator->instance, (size_t)size);
+	return device->allocator->alloc(device->allocator->instance, size);
 }
 
 void sk_vk_free(const sk_vk_device_t* device, const void* ptr) {
@@ -1196,8 +1196,8 @@ static u32 sk_vkrd_get_memory_budgets(sk_render_device_t dev, sk_memory_heap_bud
 		heap_count = max_count;
 	}
 	for (u32 i = 0u; i < heap_count; ++i) {
-		out_budgets[i].usage = (u64)budgets[i].usage;
-		out_budgets[i].budget = (u64)budgets[i].budget;
+		out_budgets[i].usage = budgets[i].usage;
+		out_budgets[i].budget = budgets[i].budget;
 		out_budgets[i].device_local = (mem_props.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0u;
 	}
 	return heap_count;
@@ -1289,7 +1289,7 @@ static i32 sk_vkrd_select_adapter(sk_render_device_t dev, sk_adapter_t adapter_h
 	device->properties.limits.max_compute_invocations = limits->maxComputeWorkGroupInvocations;
 	device->properties.limits.max_vertex_input_bindings = limits->maxVertexInputBindings;
 	device->properties.limits.max_vertex_input_attributes = limits->maxVertexInputAttributes;
-	device->properties.limits.max_attachment_samples = sk_vk_get_max_usable_sample_count(&adapter->device_properties.properties);
+	device->properties.limits.max_attachment_samples = (u32)sk_vk_get_max_usable_sample_count(&adapter->device_properties.properties);
 	device->properties.limits.min_memory_map_alignment = limits->minMemoryMapAlignment;
 	device->properties.limits.min_uniform_buffer_offset_alignment = limits->minUniformBufferOffsetAlignment;
 	device->properties.limits.timestamp_period = limits->timestampPeriod;
@@ -1454,6 +1454,9 @@ static i32 sk_vkrd_select_adapter(sk_render_device_t dev, sk_adapter_t adapter_h
 		sk_vkrd_chain_feature(&draw_parameters, &device_features2);
 	}
 #if defined(__APPLE__)
+#ifndef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
+#define VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME "VK_KHR_portability_subset"
+#endif
 	sk_vkrd_add_extension(adapter, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, extensions, &extension_count, 32u, NULL, &device_features2);
 #endif
 
@@ -3203,14 +3206,14 @@ static bool sk_vkrd_swapchain_recreate(sk_vk_swapchain_t* swapchain, u32 width, 
 		VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
 	};
 	for (u32 i = 0u; i < 4u; ++i) {
-		if ((support.capabilities.supportedCompositeAlpha & composite_alpha_flags[i]) != 0u) {
+		if ((support.capabilities.supportedCompositeAlpha & (VkCompositeAlphaFlagsKHR)composite_alpha_flags[i]) != 0u) {
 			composite_alpha = composite_alpha_flags[i];
 			break;
 		}
 	}
 
 	create_info.preTransform = support.capabilities.currentTransform;
-	create_info.compositeAlpha = composite_alpha;
+	create_info.compositeAlpha = (VkCompositeAlphaFlagsKHR)composite_alpha;
 	create_info.presentMode = present_mode;
 	create_info.clipped = VK_TRUE;
 	create_info.oldSwapchain = VK_NULL_HANDLE;
@@ -3721,7 +3724,7 @@ static i32 sk_vkrd_get_query_pool_results(sk_render_device_t dev, sk_query_pool_
 		flags |= VK_QUERY_RESULT_WITH_AVAILABILITY_BIT;
 	}
 
-	VkResult result = vkGetQueryPoolResults(device->device, query_pool->query_pool, first_query, query_count, (size_t)data_size, data, (size_t)stride, flags);
+	VkResult result = vkGetQueryPoolResults(device->device, query_pool->query_pool, first_query, query_count, data_size, data, stride, flags);
 	if (result == VK_SUCCESS || (!wait && result == VK_NOT_READY)) {
 		return 0;
 	}
@@ -4035,7 +4038,7 @@ static sk_tlas_t sk_vkrd_create_top_level_as(sk_render_device_t dev, const sk_tl
 	VkDeviceAddress device_address = vkGetAccelerationStructureDeviceAddressKHR(device->device, &address_info);
 
 	VkBufferCreateInfo instance_buffer_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-	instance_buffer_info.size = (u64)sizeof(VkAccelerationStructureInstanceKHR) * (capacity > 0u ? capacity : 1u);
+	instance_buffer_info.size = sizeof(VkAccelerationStructureInstanceKHR) * (capacity > 0u ? capacity : 1u);
 	instance_buffer_info.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 	instance_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
