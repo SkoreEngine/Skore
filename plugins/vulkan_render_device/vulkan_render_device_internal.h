@@ -19,6 +19,16 @@
 #include "volk.h"
 #include "vk_mem_alloc.h"
 
+#if defined(__APPLE__)
+/* VK_KHR_portability_subset is a beta extension: the Vulkan SDK headers only
+ * define VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME under VK_ENABLE_BETA_EXTENSIONS.
+ * MoltenVK requires the extension by name for a portable device, so supply the
+ * literal when the SDK did not. */
+#ifndef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
+#define VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME "VK_KHR_portability_subset"
+#endif
+#endif
+
 /** Number of in-flight frames resources are deferred before destruction. */
 #define SK_VK_FRAMES_IN_FLIGHT 2u
 
