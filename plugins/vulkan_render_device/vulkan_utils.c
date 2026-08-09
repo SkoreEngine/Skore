@@ -953,7 +953,6 @@ sk_pixel_format_t sk_vk_to_format(VkFormat format) {
 	default:
 		return SK_PIXEL_FORMAT_UNKNOWN;
 	}
-	return SK_PIXEL_FORMAT_UNKNOWN;
 }
 
 VkDeviceAddress sk_vk_get_buffer_device_address(VkDevice device, VkBuffer buffer) {

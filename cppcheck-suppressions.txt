@@ -1,0 +1,12 @@
+# Cppcheck suppressions for Skore (used by scripts/cppcheck.sh and CI).
+# Format: errorId:file:line  (wildcards allowed; see cppcheck --doc)
+#
+# Vendored / generated paths (also filtered with -i in the script).
+*:thirdparty/*
+*:*/thirdparty/*
+*:build/*
+*:*/build/*
+*:cmake-build-*/*
+
+# System headers / missing platform SDKs on some runners (analysis still runs on our TUs).
+missingIncludeSystem

@@ -6,8 +6,8 @@
 # - Order matters within each stage (fast then deep)
 # - Loaded from origin/<goalBranch>, not a dirty worktree-only copy
 #
-# Runner needs on PATH: cmake, ninja, ctest, a C compiler, bash, clang-format.
-# (format check uses scripts/format.sh; build uses -G Ninja per AGENTS.md.)
+# Runner needs on PATH: cmake, ninja, ctest, a C compiler, bash, clang-format,
+# cppcheck. (format / cppcheck use scripts/*; build uses -G Ninja per AGENTS.md.)
 
 version: 1
 
@@ -30,6 +30,12 @@ checks:
     run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
     blocking: true
     timeoutSeconds: 300
+
+  - id: cppcheck
+    stage: fast
+    run: bash scripts/cppcheck.sh
+    blocking: true
+    timeoutSeconds: 600
 
   - id: cmake-build
     stage: fast

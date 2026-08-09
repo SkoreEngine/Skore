@@ -93,3 +93,31 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure --verbose
+
+  # Static analysis: cppcheck once on Linux (compile_commands.json). Not
+  # duplicated across the matrix — first-party only, thirdparty excluded.
+  cppcheck:
+    name: Cppcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            cppcheck \
+            libx11-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libxrandr-dev libxkbcommon-dev libgl-dev
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DBUILD_TESTING=ON
+          -DSK_ENABLE_CLANG_TIDY=OFF
+
+      - name: Cppcheck
+        run: bash scripts/cppcheck.sh
