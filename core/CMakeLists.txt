@@ -18,6 +18,10 @@ set_target_properties(sk-core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # only sk_allocator_t is public.
 target_link_libraries(sk-core PRIVATE mimalloc-static)
 
+# JSON parsing (yyjson, vendored). PRIVATE: yyjson headers never leak into the
+# public sk-core interface; only sk-core internals include yyjson.h.
+target_link_libraries(sk-core PRIVATE yyjson)
+
 # Threads (pthread): PUBLIC so static consumers link it at their final link.
 target_link_libraries(sk-core PUBLIC Threads::Threads)
 
@@ -45,7 +49,7 @@ if(BUILD_TESTING)
     add_library(sk-core-tests STATIC ${SKORE_CORE_SOURCES})
     target_include_directories(sk-core-tests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(sk-core-tests PRIVATE SK_TESTS)
-    target_link_libraries(sk-core-tests PUBLIC sk-test PRIVATE mimalloc-static)
+    target_link_libraries(sk-core-tests PUBLIC sk-test PRIVATE mimalloc-static yyjson)
     target_link_libraries(sk-core-tests PUBLIC Threads::Threads)
     set_target_properties(sk-core-tests PROPERTIES POSITION_INDEPENDENT_CODE ON)
     if(SK_LIBM)
