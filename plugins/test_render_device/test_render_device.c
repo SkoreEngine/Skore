@@ -1898,7 +1898,7 @@ static void sk_trd_update_buffer(sk_render_device_t dev, sk_command_buffer_t cmd
 	(void)cmd;
 	test_buffer_t* buffer = (test_buffer_t*)sk_buffer_t_to_ptr(buf);
 	if (buffer != NULL && data != NULL && offset + size <= buffer->storage_size) {
-		memcpy(buffer->storage + offset, data, (size_t)size);
+		memcpy(buffer->storage + offset, data, size);
 	}
 }
 
