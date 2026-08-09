@@ -1084,6 +1084,30 @@ SK_TEST(app_impl_remove_by_pointer) {
 	sk_app_destroy(ctx);
 }
 
+SK_TEST(app_impl_remove_does_not_touch_other_types) {
+	static char a = 'a', b = 'b';
+	static char other_x = 'x', other_y = 'y';
+	sk_type_id_t id = SK_TYPE_ID("test.multi_remove_a", 0x1111111111111111ULL, 0x1234123412341234ULL);
+	sk_type_id_t other = SK_TYPE_ID("test.multi_remove_b", 0x5555555555555555ULL, 0x5678567856785678ULL);
+	sk_app_context_t* ctx = sk_app_create();
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	api->add_impl(ctx, id, &a);
+	api->add_impl(ctx, id, &b);
+	api->add_impl(ctx, other, &other_x);
+	api->add_impl(ctx, other, &other_y);
+
+	api->remove_impl(ctx, id, &a);
+	TEST_ASSERT_EQUAL_UINT32(1u, api->impl_count(ctx, id));
+	TEST_ASSERT_EQUAL_UINT32(2u, api->impl_count(ctx, other));
+
+	const_ptr_t out[4];
+	TEST_ASSERT_EQUAL_UINT32(2u, api->get_all_impls(ctx, other, out, 4u));
+	TEST_ASSERT_EQUAL_PTR(&other_x, out[0]);
+	TEST_ASSERT_EQUAL_PTR(&other_y, out[1]);
+	sk_app_destroy(ctx);
+}
+
 SK_TEST(app_impl_remove_missing_is_noop) {
 	static char a = 'a', b = 'b';
 	sk_type_id_t id = SK_TYPE_ID("test.multi_remove_missing", 0x1111111111111111ULL, 0x7777777777777777ULL);
