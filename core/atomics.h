@@ -31,7 +31,17 @@
 
 #include "common.h"
 
-#if defined(_MSC_VER)
+/*
+ * _MSC_VER is also defined when clang targets the Windows/MSVC ABI (GNU mode
+ * and clang-cl). Those compilers support the GCC __atomic_* builtins, and the
+ * MS extension token __int64 fails under -Wpedantic, so only the genuine MSVC
+ * compiler (cl.exe) uses the _Interlocked* backend.
+ */
+#if defined(_MSC_VER) && !defined(__clang__)
+#define SK_ATOMIC_MSVC_BACKEND 1
+#endif
+
+#if defined(SK_ATOMIC_MSVC_BACKEND)
 /*
  * MSVC <intrin.h> uses __declspec(noreturn). C11 <stdnoreturn.h> (and some
  * clang-tidy + UCRT paths) define `noreturn` as `_Noreturn`, which then breaks
@@ -64,7 +74,7 @@ typedef enum sk_atomic_order_t {
 	SK_ATOMIC_ORDER_SEQ_CST = 4
 } sk_atomic_order_t;
 
-#if !defined(_MSC_VER)
+#if !defined(SK_ATOMIC_MSVC_BACKEND)
 
 /** Map an sk_atomic_order_t to the matching GCC/Clang __atomic constant. */
 SK_FINLINE int sk_atomic_gcc_order(sk_atomic_order_t order) {
@@ -83,18 +93,18 @@ SK_FINLINE int sk_atomic_gcc_order(sk_atomic_order_t order) {
 	return __ATOMIC_SEQ_CST;
 }
 
-#endif /* !_MSC_VER */
+#endif /* !SK_ATOMIC_MSVC_BACKEND */
 
 /**
  * Thread fence at the given ordering.
  * @param order Ordering strength for the fence.
  */
 SK_FINLINE void sk_atomic_thread_fence(sk_atomic_order_t order) {
-#if defined(_MSC_VER)
+#if defined(SK_ATOMIC_MSVC_BACKEND)
 	(void)order;
 	{
 		volatile u64 fence_word = 0ull;
-		_InterlockedExchange64((volatile __int64*)&fence_word, 0);
+		_InterlockedExchange64((volatile i64*)&fence_word, 0);
 	}
 #else
 	__atomic_thread_fence(sk_atomic_gcc_order(order));
@@ -105,7 +115,7 @@ SK_FINLINE void sk_atomic_thread_fence(sk_atomic_order_t order) {
 /* GCC / Clang backend: __atomic_* builtins                                  */
 /* ------------------------------------------------------------------------- */
 
-#if !defined(_MSC_VER)
+#if !defined(SK_ATOMIC_MSVC_BACKEND)
 
 /*
  * bugprone-macro-parentheses wants (type) around type-token args. That is valid
@@ -217,7 +227,7 @@ SK_ATOMIC_DEFINE_PTR_GCC(ptr)
 
 // NOLINTEND(readability-non-const-parameter)
 
-#endif /* !_MSC_VER */
+#endif /* !SK_ATOMIC_MSVC_BACKEND */
 
 /* ------------------------------------------------------------------------- */
 /* MSVC backend: _Interlocked* intrinsics                                    */
@@ -229,7 +239,7 @@ SK_ATOMIC_DEFINE_PTR_GCC(ptr)
 /* used to implement fetch_sub through _InterlockedExchangeAdd.              */
 /* ------------------------------------------------------------------------- */
 
-#if defined(_MSC_VER)
+#if defined(SK_ATOMIC_MSVC_BACKEND)
 
 /* See GCC block: type/msc_type tokens cannot be parenthesized in declarations. */
 // NOLINTBEGIN(bugprone-macro-parentheses)
@@ -364,7 +374,7 @@ SK_ATOMIC_DEFINE_INTEGRAL_MSVC(i64, i64, __int64, _InterlockedExchange64, _Inter
 							   (0 - value))
 SK_ATOMIC_DEFINE_PTR_MSVC(ptr)
 
-#endif /* _MSC_VER */
+#endif /* SK_ATOMIC_MSVC_BACKEND */
 
 #ifdef __cplusplus
 }

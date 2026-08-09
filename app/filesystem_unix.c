@@ -199,7 +199,7 @@ static u64 get_file_id(const_chr_t path) {
 		return 0ull;
 	}
 	/* Combine device + inode into 64 bits (best-effort). */
-	return ((u64)st.st_dev << 32) ^ (u64)st.st_ino;
+	return ((u64)st.st_dev << 32) ^ st.st_ino;
 }
 
 static i32 create_directory(const_chr_t path) {

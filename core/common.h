@@ -50,7 +50,13 @@ typedef const char* const_chr_t;
 
 /* Force-inline helpers (hot math / accessors). Falls back to static inline. */
 #ifndef SK_FINLINE
-#if defined(_MSC_VER)
+/*
+ * clang defines _MSC_VER when it targets the Windows/MSVC ABI (GNU mode and
+ * clang-cl). __forceinline is an MS extension token there that fails under
+ * -Wpedantic; clang accepts __attribute__((always_inline)) on every platform,
+ * so reserve __forceinline for the genuine MSVC compiler.
+ */
+#if defined(_MSC_VER) && !defined(__clang__)
 #define SK_FINLINE static __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
 #define SK_FINLINE static inline __attribute__((always_inline))

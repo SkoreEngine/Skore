@@ -458,6 +458,7 @@ static i32 sk_repo_ensure_page(sk_repository_t* repository, u32 page_index) {
 	if (page_index < repository->pages.count && repository->pages.items[page_index] != NULL) {
 		return 0;
 	}
+	/* NOLINTNEXTLINE(bugprone-sizeof-expression): array element is sk_repository_page_t*, so the macro's sizeof(*(arr)->items) legitimately sizes a pointer. */
 	if (sk_array_resize(&repository->pages, page_index + 1u) != 0) {
 		return -1;
 	}
