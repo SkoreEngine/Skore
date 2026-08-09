@@ -112,8 +112,13 @@ SK_FINLINE void sk_atomic_thread_fence(sk_atomic_order_t order) {
  * for casts/expressions but invalid in declarations (e.g. (u32)* obj). These
  * generators intentionally use type/prefix as tokens; expression uses of value/
  * order are parenthesized below where it matters for real precedence bugs.
+ * readability-non-const-parameter fires because clang-tidy does not model the
+ * write-through of the __atomic_* builtins: obj/expected below are mutated by
+ * the atomic ops even though the builtins hide the stores, so they cannot be
+ * const. The suggestion is rejected and the noise is suppressed.
  */
 // NOLINTBEGIN(bugprone-macro-parentheses)
+// NOLINTBEGIN(readability-non-const-parameter)
 
 #define SK_ATOMIC_DEFINE_INTEGRAL_GCC(prefix, type)                                                                                                                           \
 	SK_FINLINE void sk_atomic_##prefix##_init(type* obj, type value) {                                                                                                        \
@@ -198,13 +203,14 @@ SK_FINLINE void sk_atomic_thread_fence(sk_atomic_order_t order) {
 		return sk_atomic_##prefix##_compare_exchange_ordered((obj), (expected), (desired), SK_ATOMIC_ORDER_SEQ_CST, SK_ATOMIC_ORDER_SEQ_CST);                \
 	}
 
-// NOLINTEND(bugprone-macro-parentheses)
-
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(u32, u32)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(i32, i32)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(u64, u64)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(i64, i64)
 SK_ATOMIC_DEFINE_PTR_GCC(ptr)
+
+// NOLINTEND(readability-non-const-parameter)
+// NOLINTEND(bugprone-macro-parentheses)
 
 #endif /* !_MSC_VER */
 
