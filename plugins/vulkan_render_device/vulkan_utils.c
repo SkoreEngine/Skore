@@ -35,26 +35,32 @@
 #include <string.h>
 
 #if defined(__APPLE__)
-/* NSWindow → contentView → (CAMetal)Layer via the ObjC runtime (no .m TU). */
+/* NSWindow → contentView → (CAMetal)Layer via the ObjC runtime (no .m TU).
+ * objc_msgSend is declared without a prototype in C, so calls go through
+ * explicitly typed function pointers (plain clang-tidy otherwise rejects the
+ * arg counts against the <objc/message.h> void prototype). */
 static void* sk_vk_apple_view_from_window(void* ns_window) {
 	if (ns_window == NULL) {
 		return NULL;
 	}
 	id window = (id)ns_window;
-	id view = objc_msgSend(window, sel_registerName("contentView"));
+	id (*msg_send_id)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
+	void (*msg_send_void_id)(id, SEL, id) = (void (*)(id, SEL, id))objc_msgSend;
+	void (*msg_send_void_int)(id, SEL, int) = (void (*)(id, SEL, int))objc_msgSend;
+	id view = msg_send_id(window, sel_registerName("contentView"));
 	if (view == nil) {
 		return NULL;
 	}
-	id layer = objc_msgSend(view, sel_registerName("layer"));
+	id layer = msg_send_id(view, sel_registerName("layer"));
 	if (layer == nil) {
-		Class metal_layer_class = (Class)objc_getClass("CAMetalLayer");
+		Class metal_layer_class = objc_getClass("CAMetalLayer");
 		if (metal_layer_class == nil) {
 			return NULL;
 		}
-		id new_layer = objc_msgSend((id)metal_layer_class, sel_registerName("alloc"));
-		new_layer = objc_msgSend(new_layer, sel_registerName("init"));
-		objc_msgSend(view, sel_registerName("setWantsLayer:"), (int)1);
-		objc_msgSend(view, sel_registerName("setLayer:"), new_layer);
+		id new_layer = msg_send_id((id)metal_layer_class, sel_registerName("alloc"));
+		new_layer = msg_send_id(new_layer, sel_registerName("init"));
+		msg_send_void_int(view, sel_registerName("setWantsLayer:"), 1);
+		msg_send_void_id(view, sel_registerName("setLayer:"), new_layer);
 		layer = new_layer;
 	}
 	return (void*)layer;
@@ -1351,14 +1357,16 @@ bool sk_vk_platform_get_required_instance_extensions(const_chr_t* names, u32 max
 }
 
 bool sk_vk_platform_get_presentation_support(VkInstance instance, VkPhysicalDevice physical, u32 family_index) {
+	(void)instance;
+	(void)physical;
+	(void)family_index;
 #if defined(_WIN32)
 	PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR presentation_support = SK_PTR_TO_FN(PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR,
 																						   vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceWin32PresentationSupportKHR"));
 	if (presentation_support == NULL) {
 		return false;
 	}
-	HINSTANCE process_instance = GetModuleHandle(NULL);
-	return presentation_support(physical, family_index, process_instance, NULL) == VK_TRUE;
+	return presentation_support(physical, family_index) == VK_TRUE;
 #elif defined(__APPLE__)
 	return true;
 #else
