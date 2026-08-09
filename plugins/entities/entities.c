@@ -30,6 +30,7 @@
 #include "allocator.h"
 #include "app.h"
 #include "array.h"
+#include "hashmap.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -73,12 +74,13 @@ struct sk_chunk_t {
  * indexes this list). Fixed-capacity arrays (no heap for the hot layout).
  */
 struct sk_archetype_t {
-	u32 component_count; /* incl. the implicit entity column */
-	u32 chunk_capacity;	 /* max rows per chunk */
-	u32 chunk_row_size;	 /* sum of column strides (dense bytes per entity) */
-	u32 chunk_data_size; /* bytes of the dense column region */
-	u32 data_start;		 /* byte offset from chunk base to the first column */
-	u32 chunk_align;	 /* allocation alignment for chunks of this archetype */
+	u32 component_count;  /* incl. the implicit entity column */
+	u32 chunk_capacity;	  /* max rows per chunk */
+	u32 chunk_row_size;	  /* sum of column strides (dense bytes per entity) */
+	u32 chunk_data_size;  /* bytes of the dense column region */
+	u32 data_start;		  /* byte offset from chunk base to the first column */
+	u32 chunk_align;	  /* allocation alignment for chunks of this archetype */
+	u32 first_free_chunk; /* index of the first chunk with a free row (hint) */
 	sk_component_info_t components[SK_ECS_MAX_ARCHETYPE_COLUMNS];
 	u32 column_offsets[SK_ECS_MAX_ARCHETYPE_COLUMNS];
 	u32 column_stride[SK_ECS_MAX_ARCHETYPE_COLUMNS];
@@ -309,6 +311,7 @@ static sk_archetype_t* archetype_create_impl(const sk_component_info_t* componen
 	a->chunk_data_size = data_end - data_start;
 	a->data_start = data_start;
 	a->chunk_align = (max_align > (u32)SK_ECS_CHUNK_ALIGNMENT) ? max_align : (u32)SK_ECS_CHUNK_ALIGNMENT;
+	a->first_free_chunk = 0u;
 	sk_array_init(&a->chunks, alloc);
 	return a;
 }
@@ -339,10 +342,24 @@ static u32 archetype_component_align_impl(const sk_archetype_t* archetype, u32 c
 }
 
 static i32 archetype_column_impl(const sk_archetype_t* archetype, sk_type_id_t type_id) {
-	for (u32 column = 0u; column < archetype->component_count; ++column) {
-		if (SK_TYPE_ID_EQ(archetype->components[column].type_id, type_id)) {
-			return (i32)column;
+	/* Column 0 is the implicit entity component; user columns (1..count-1)
+	 * are sorted ascending by type id, so an exact lookup is a binary search
+	 * instead of a linear scan. */
+	if (SK_TYPE_ID_EQ(type_id, archetype->components[0u].type_id)) {
+		return 0;
+	}
+	u32 lo = 1u;
+	u32 hi = archetype->component_count;
+	while (lo < hi) {
+		const u32 mid = lo + (hi - lo) / 2u;
+		if (ecs_type_id_lt(archetype->components[mid].type_id, type_id)) {
+			lo = mid + 1u;
+		} else {
+			hi = mid;
 		}
+	}
+	if (lo < archetype->component_count && SK_TYPE_ID_EQ(archetype->components[lo].type_id, type_id)) {
+		return (i32)lo;
 	}
 	return -1;
 }
@@ -751,6 +768,7 @@ struct sk_world_t {
 	SK_ARRAY(sk_entity_slot_t) slots;
 	SK_ARRAY(u32) free_slots;
 	SK_ARRAY(sk_query_t*) queries;
+	SK_HASH_MAP(u64, u32) archetype_cache; /* signature hash -> archetypes index */
 	u32 alive_count;
 };
 
@@ -770,11 +788,23 @@ static sk_entity_slot_t* world_slot_at(sk_world_t* world, sk_entity_t entity) {
 	return slot;
 }
 
-/* First chunk with a free row in @p archetype, appending one when needed. */
+/* Record that @p chunk_index now has a free row (a slot was removed there),
+ * so later allocations prefer reusing it over appending a new chunk. */
+static void archetype_note_free_chunk(sk_archetype_t* archetype, u32 chunk_index) {
+	if (chunk_index < archetype->first_free_chunk) {
+		archetype->first_free_chunk = chunk_index;
+	}
+}
+
+/* First chunk with a free row in @p archetype, appending one when needed.
+ * first_free_chunk stays at the first non-full chunk: it is advanced to the
+ * chunk an allocation lands in and pulled back by archetype_note_free_chunk
+ * whenever a row is freed earlier, so the scan only ever walks full chunks. */
 static sk_chunk_t* archetype_free_chunk(sk_archetype_t* archetype, u32* out_chunk_index) {
-	for (u32 i = 0u; i < archetype->chunks.count; ++i) {
+	for (u32 i = archetype->first_free_chunk; i < archetype->chunks.count; ++i) {
 		sk_chunk_t* chunk = archetype->chunks.items[i];
 		if (chunk->count < archetype->chunk_capacity) {
+			archetype->first_free_chunk = i;
 			*out_chunk_index = i;
 			return chunk;
 		}
@@ -782,6 +812,7 @@ static sk_chunk_t* archetype_free_chunk(sk_archetype_t* archetype, u32* out_chun
 	if (archetype_add_chunk_impl(archetype) != 0) {
 		return NULL;
 	}
+	archetype->first_free_chunk = archetype->chunks.count - 1u;
 	*out_chunk_index = archetype->chunks.count - 1u;
 	return archetype->chunks.items[*out_chunk_index];
 }
@@ -823,6 +854,28 @@ static u32 ecs_normalize_ids(const sk_type_id_t* ids, u32 count, sk_type_id_t* o
 	return out_count;
 }
 
+/* Hash a u64 archetype-signature key (hashmap hash_fn wrapper). */
+static u64 ecs_hash_u64_key(const void* key) {
+	return sk_hash_u64(*(const u64*)key);
+}
+
+/* 64-bit hash of a normalized (sorted, deduplicated) component signature.
+ * Equal signatures always hash alike; collisions are possible in theory and
+ * resolved by re-verifying the signature after the cache lookup. Cheap
+ * xor/fold mix: one multiply + two xors per id (the map re-hashes the key
+ * with sk_hash_u64 for table placement). */
+static u64 ecs_signature_hash(const sk_type_id_t* ids, u32 count) {
+	u64 h = 14695981039346656037ull;
+	for (u32 i = 0u; i < count; ++i) {
+		h ^= ids[i].lo;
+		h *= 1099511628211ull;
+		h ^= ids[i].hi;
+		h *= 1099511628211ull;
+	}
+	h ^= (u64)count * 0x9e3779b97f4a7c15ull;
+	return h;
+}
+
 /*
  * Find the archetype for the normalized signature @p ids (or create it from
  * the component registry on demand). Newly created archetypes are observed by
@@ -836,6 +889,28 @@ static u32 world_archetype_for(sk_world_t* world, const sk_type_id_t* ids, u32 c
 	if (ncount == 0xFFFFFFFFu) {
 		return 0xFFFFFFFFu;
 	}
+	const u64 sig_hash = ecs_signature_hash(norm, ncount);
+
+	/* Fast path: the signature hash was cached for an existing archetype.
+	 * The signature is re-verified in case two distinct signatures ever
+	 * collide; a mismatch falls through to the linear scan. */
+	u32 cached = 0u;
+	if (sk_hash_map_get(&world->archetype_cache, sig_hash, &cached) == 0 && cached < world->archetypes.count) {
+		const sk_archetype_t* arch = world->archetypes.items[cached];
+		if (arch->component_count == ncount + 1u) {
+			i32 match = 1;
+			for (u32 c = 0u; c < ncount; ++c) {
+				if (!SK_TYPE_ID_EQ(arch->components[c + 1u].type_id, norm[c])) {
+					match = 0;
+					break;
+				}
+			}
+			if (match != 0) {
+				return cached;
+			}
+		}
+	}
+
 	for (u32 i = 0u; i < world->archetypes.count; ++i) {
 		const sk_archetype_t* arch = world->archetypes.items[i];
 		if (arch->component_count != ncount + 1u) {
@@ -866,6 +941,9 @@ static u32 world_archetype_for(sk_world_t* world, const sk_type_id_t* ids, u32 c
 		archetype_destroy_impl(arch);
 		return 0xFFFFFFFFu;
 	}
+	/* Cache is a performance optimization: an insert failure (OOM) must not
+	 * fail the spawn; the linear scan above remains a correct fallback. */
+	(void)sk_hash_map_put(&world->archetype_cache, sig_hash, world->archetypes.count - 1u);
 	for (u32 i = 0u; i < world->queries.count; ++i) {
 		query_observe_impl(world->queries.items[i], arch);
 	}
@@ -879,8 +957,9 @@ static u32 world_archetype_for(sk_world_t* world, const sk_type_id_t* ids, u32 c
  * entity that fills the gap). The slot is updated to the new location.
  */
 static i32 world_move_entity(sk_world_t* world, sk_entity_t entity, sk_entity_slot_t* slot, u32 new_arch_index) {
-	const sk_archetype_t* old_arch = world->archetypes.items[slot->archetype_index];
-	sk_chunk_t* old_chunk = old_arch->chunks.items[slot->chunk];
+	sk_archetype_t* old_arch = world->archetypes.items[slot->archetype_index];
+	const u32 old_chunk_index = slot->chunk;
+	sk_chunk_t* old_chunk = old_arch->chunks.items[old_chunk_index];
 	const u32 old_row = slot->row;
 
 	sk_archetype_t* new_arch = world->archetypes.items[new_arch_index];
@@ -905,10 +984,11 @@ static i32 world_move_entity(sk_world_t* world, sk_entity_t entity, sk_entity_sl
 
 	sk_entity_t moved = SK_ENTITY_INVALID;
 	chunk_remove_impl(old_chunk, old_row, &moved);
+	archetype_note_free_chunk(old_arch, old_chunk_index);
 	if (sk_entity_is_valid(moved)) {
 		sk_entity_slot_t* moved_slot = world_slot_at(world, moved);
 		if (moved_slot != NULL) {
-			moved_slot->chunk = slot->chunk;
+			moved_slot->chunk = old_chunk_index;
 			moved_slot->row = old_row;
 		}
 	}
@@ -928,6 +1008,10 @@ static sk_world_t* world_create_impl(void) {
 	sk_array_init(&world->slots, alloc);
 	sk_array_init(&world->free_slots, alloc);
 	sk_array_init(&world->queries, alloc);
+	if (sk_hash_map_init(&world->archetype_cache, alloc, ecs_hash_u64_key, NULL) != 0) {
+		alloc->free(alloc->instance, world);
+		return NULL;
+	}
 	world->alive_count = 0u;
 	return world;
 }
@@ -944,6 +1028,7 @@ static void world_destroy_impl(sk_world_t* world) {
 	sk_array_free(&world->archetypes);
 	sk_array_free(&world->slots);
 	sk_array_free(&world->free_slots);
+	sk_hash_map_free(&world->archetype_cache);
 	alloc->free(alloc->instance, world);
 }
 
@@ -995,13 +1080,14 @@ static i32 world_despawn_impl(sk_world_t* world, sk_entity_t entity) {
 	if (slot == NULL) {
 		return -1;
 	}
-	const sk_archetype_t* arch = world->archetypes.items[slot->archetype_index];
+	sk_archetype_t* arch = world->archetypes.items[slot->archetype_index];
 	sk_chunk_t* chunk = arch->chunks.items[slot->chunk];
 	const u32 row = slot->row;
 	const u32 slot_index = entity.index - 1u;
 
 	sk_entity_t moved = SK_ENTITY_INVALID;
 	chunk_remove_impl(chunk, row, &moved);
+	archetype_note_free_chunk(arch, slot->chunk);
 	if (sk_entity_is_valid(moved)) {
 		sk_entity_slot_t* moved_slot = world_slot_at(world, moved);
 		if (moved_slot != NULL) {
@@ -2940,6 +3026,139 @@ SK_TEST(entities_world_move_updates_swapped_slot) {
 	TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.0f, sum);
 
 	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_archetype_cache) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_EQUAL_UINT32(0u, sk_hash_map_count(&world->archetype_cache));
+
+	/* Repeated spawns of one signature share a single cached archetype. */
+	const sk_type_id_t pos_id[1] = {TEST_WORLD_POS_ID};
+	for (u32 i = 0u; i < 10u; ++i) {
+		TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.world_spawn(world, pos_id, 1u)));
+	}
+	TEST_ASSERT_EQUAL_UINT32(1u, world->archetypes.count);
+	TEST_ASSERT_EQUAL_UINT32(1u, sk_hash_map_count(&world->archetype_cache));
+
+	/* Unsorted and sorted spellings of the same set normalize to one entry. */
+	const sk_type_id_t pv[2] = {TEST_WORLD_POS_ID, TEST_WORLD_VEL_ID};
+	const sk_type_id_t vp[2] = {TEST_WORLD_VEL_ID, TEST_WORLD_POS_ID};
+	for (u32 i = 0u; i < 3u; ++i) {
+		TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.world_spawn(world, pv, 2u)));
+		TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.world_spawn(world, vp, 2u)));
+	}
+	TEST_ASSERT_EQUAL_UINT32(2u, world->archetypes.count);
+	TEST_ASSERT_EQUAL_UINT32(2u, sk_hash_map_count(&world->archetype_cache));
+
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_archetype_cache_many_distinct) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	/* All 2^3 component subsets create distinct archetypes, each cached once. */
+	for (u32 mask = 0u; mask < 8u; ++mask) {
+		sk_type_id_t ids[3];
+		u32 n = 0u;
+		if ((mask & 1u) != 0u) {
+			ids[n++] = TEST_WORLD_POS_ID;
+		}
+		if ((mask & 2u) != 0u) {
+			ids[n++] = TEST_WORLD_VEL_ID;
+		}
+		if ((mask & 4u) != 0u) {
+			ids[n++] = TEST_WORLD_TAG_ID;
+		}
+		for (u32 rep = 0u; rep < 3u; ++rep) {
+			TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.world_spawn(world, ids, n)));
+		}
+	}
+	TEST_ASSERT_EQUAL_UINT32(8u, world->archetypes.count);
+	TEST_ASSERT_EQUAL_UINT32(8u, sk_hash_map_count(&world->archetype_cache));
+
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_add_remove_reuses_archetypes) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t pos_id[1] = {TEST_WORLD_POS_ID};
+	sk_entity_t e = entities_api.world_spawn(world, pos_id, 1u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e));
+
+	/* add/remove round-trips must hit the cached target archetypes, not
+	 * accumulate new ones. */
+	for (u32 i = 0u; i < 8u; ++i) {
+		TEST_ASSERT_EQUAL_INT32(0, entities_api.world_add_component(world, e, TEST_WORLD_VEL_ID));
+		TEST_ASSERT_EQUAL_INT32(0, entities_api.world_remove_component(world, e, TEST_WORLD_VEL_ID));
+	}
+	TEST_ASSERT_EQUAL_UINT32(2u, world->archetypes.count); /* {pos}, {pos, vel} */
+	TEST_ASSERT_EQUAL_UINT32(2u, sk_hash_map_count(&world->archetype_cache));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, e));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_POS_ID));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, e, TEST_WORLD_VEL_ID));
+
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_chunk_hint_reuses_freed_rows) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t pv[2] = {TEST_WORLD_POS_ID, TEST_WORLD_VEL_ID};
+	sk_entity_t first = entities_api.world_spawn(world, pv, 2u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(first));
+	sk_archetype_t* arch = world->archetypes.items[0u];
+	const u32 capacity = arch->chunk_capacity;
+
+	/* Fill chunk 0, then overflow into chunk 1. */
+	for (u32 i = 1u; i < capacity; ++i) {
+		TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.world_spawn(world, pv, 2u)));
+	}
+	TEST_ASSERT_EQUAL_UINT32(1u, arch->chunks.count);
+	TEST_ASSERT_EQUAL_UINT32(capacity, arch->chunks.items[0u]->count);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.world_spawn(world, pv, 2u)));
+	TEST_ASSERT_EQUAL_UINT32(2u, arch->chunks.count);
+	TEST_ASSERT_EQUAL_UINT32(1u, arch->chunks.items[1u]->count);
+
+	/* Despawning the earliest entity frees a row in chunk 0; the next spawn
+	 * must reuse that row instead of appending a third chunk. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_despawn(world, first));
+	TEST_ASSERT_EQUAL_UINT32(capacity - 1u, arch->chunks.items[0u]->count);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(entities_api.world_spawn(world, pv, 2u)));
+	TEST_ASSERT_EQUAL_UINT32(2u, arch->chunks.count);
+	TEST_ASSERT_EQUAL_UINT32(capacity, arch->chunks.items[0u]->count);
+	TEST_ASSERT_EQUAL_UINT32(1u, arch->chunks.items[1u]->count);
+
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_archetype_column_binary_search_before_entity_id) {
+	/* User components whose type ids sort on either side of the implicit
+	 * entity component id must still map to their exact (non-zero) column. */
+	const sk_type_id_t low_id = SK_TYPE_ID("sk.test.ecs.col.low", 0x0000000000000001ULL, 0x0000000000000001ULL);
+	const sk_type_id_t high_id = SK_TYPE_ID("sk.test.ecs.col.high", 0xFFFF000000000000ULL, 0x0000000000000001ULL);
+	const sk_component_info_t comps[2] = {
+		{low_id, 4u, 4u, "low"},
+		{high_id, 4u, 4u, "high"},
+	};
+	sk_archetype_t* a = entities_api.archetype_create(comps, 2u);
+	TEST_ASSERT_NOT_NULL(a);
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.archetype_column(a, SK_ECS_ENTITY_COMPONENT_ID));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.archetype_column(a, low_id));
+	TEST_ASSERT_EQUAL_INT32(2, entities_api.archetype_column(a, high_id));
+	TEST_ASSERT_TRUE(entities_api.archetype_has(a, low_id));
+	TEST_ASSERT_FALSE(entities_api.archetype_has(a, SK_TYPE_ID("sk.test.ecs.col.missing", 0x0000000000000002ULL, 0x0000000000000001ULL)));
+
+	entities_api.archetype_destroy(a);
 }
 
 SK_TEST(entities_world_query_observes_new_archetypes) {
