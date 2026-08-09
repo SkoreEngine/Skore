@@ -17,6 +17,48 @@ typedef enum sk_device_result_t {
 	SK_DEVICE_RESULT_ERROR,
 } sk_device_result_t;
 
+/** Underlying graphics API the render device was created for. */
+typedef enum sk_graphics_api_t {
+	SK_GRAPHICS_API_NONE = 0,
+	SK_GRAPHICS_API_VULKAN,
+	SK_GRAPHICS_API_D3D12,
+	SK_GRAPHICS_API_METAL,
+} sk_graphics_api_t;
+
+/** Physical device class reported by the adapter. */
+typedef enum sk_device_type_t {
+	SK_DEVICE_TYPE_OTHER = 0,
+	SK_DEVICE_TYPE_DISCRETE,
+	SK_DEVICE_TYPE_INTEGRATED,
+	SK_DEVICE_TYPE_VIRTUAL,
+	SK_DEVICE_TYPE_CPU,
+} sk_device_type_t;
+
+/* ------------------------------------------------------------------ */
+/* Resource handles (opaque IDs bound to the device)                   */
+/* ------------------------------------------------------------------ */
+
+SK_HANDLER(sk_render_device_t)
+SK_HANDLER(sk_adapter_t)
+SK_HANDLER(sk_texture_t)
+SK_HANDLER(sk_texture_view_t)
+SK_HANDLER(sk_buffer_t)
+SK_HANDLER(sk_shader_t)
+SK_HANDLER(sk_render_pass_t)
+SK_HANDLER(sk_framebuffer_t)
+SK_HANDLER(sk_swapchain_t)
+SK_HANDLER(sk_command_buffer_t)
+SK_HANDLER(sk_sampler_t)
+SK_HANDLER(sk_pipeline_t)
+SK_HANDLER(sk_descriptor_set_t)
+SK_HANDLER(sk_query_pool_t)
+SK_HANDLER(sk_blas_t)
+SK_HANDLER(sk_tlas_t)
+SK_HANDLER(sk_memory_t)
+SK_HANDLER(sk_queue_t)
+SK_HANDLER(sk_fence_t)
+SK_HANDLER(sk_semaphore_t)
+
 /* ------------------------------------------------------------------ */
 /* Public POD types                                                    */
 /* ------------------------------------------------------------------ */
@@ -348,6 +390,13 @@ typedef enum sk_polygon_mode_t {
 	SK_POLYGON_MODE_POINT,
 } sk_polygon_mode_t;
 
+/** Conservative rasterization mode (extension gated on the adapter). */
+typedef enum sk_conservative_rasterization_mode_t {
+	SK_CONSERVATIVE_RASTERIZATION_DISABLED = 0,
+	SK_CONSERVATIVE_RASTERIZATION_OVERESTIMATE,
+	SK_CONSERVATIVE_RASTERIZATION_UNDERESTIMATE,
+} sk_conservative_rasterization_mode_t;
+
 /** Query type. */
 typedef enum sk_query_type_t {
 	SK_QUERY_TYPE_OCCLUSION = 0,
@@ -382,6 +431,23 @@ typedef enum sk_descriptor_type_t {
 	SK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,
 	SK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE,
 } sk_descriptor_type_t;
+
+/** Render-time type of a shader interface variable / descriptor binding. */
+typedef enum sk_render_type_t {
+	SK_RENDER_TYPE_NONE = 0,
+	SK_RENDER_TYPE_VOID,
+	SK_RENDER_TYPE_BOOL,
+	SK_RENDER_TYPE_INT,
+	SK_RENDER_TYPE_FLOAT,
+	SK_RENDER_TYPE_VECTOR,
+	SK_RENDER_TYPE_MATRIX,
+	SK_RENDER_TYPE_IMAGE,
+	SK_RENDER_TYPE_SAMPLER,
+	SK_RENDER_TYPE_SAMPLED_IMAGE,
+	SK_RENDER_TYPE_ARRAY,
+	SK_RENDER_TYPE_RUNTIME_ARRAY,
+	SK_RENDER_TYPE_STRUCT,
+} sk_render_type_t;
 
 /** Pipeline bind point. */
 typedef enum sk_pipeline_bind_point_t {
@@ -453,6 +519,66 @@ typedef struct sk_device_init_desc_t {
 	bool enable_debug_layers;
 } sk_device_init_desc_t;
 
+/**
+ * Adapter capabilities (mirror of main's DeviceFeatures).
+ * Filled from the physical device's feature chain; the device enables the
+ * requested features at select_adapter time.
+ */
+typedef struct sk_device_features_t {
+	bool tessellation_shader;
+	bool geometry_shader;
+	bool compute_shader;
+	bool multi_viewport;
+	bool texture_compression_bc;
+	bool texture_compression_etc2;
+	bool texture_compression_astc;
+	bool independent_blend;
+	bool bindless_texture_supported;
+	bool multiview_enabled;
+	bool bindless_sampler_supported;
+	bool bindless_buffer_supported;
+	bool buffer_device_address;
+	bool draw_indirect_count;
+	bool ray_tracing;
+	bool resolve_depth;
+	bool memory_budget;
+	bool fragment_shader_barycentric;
+} sk_device_features_t;
+
+/** Adapter hardware limits (mirror of main's DeviceLimits). */
+typedef struct sk_device_limits_t {
+	u32 max_texture_size;
+	u32 max_texture_3d_size;
+	u32 max_cube_map_size;
+	u32 max_viewport_dimensions[2];
+	u32 max_compute_work_group_count[3];
+	u32 max_compute_work_group_size[3];
+	u32 max_compute_invocations;
+	u32 max_vertex_input_bindings;
+	u32 max_vertex_input_attributes;
+	u32 max_attachment_samples;
+	u64 min_memory_map_alignment;
+	u64 min_uniform_buffer_offset_alignment;
+	f32 timestamp_period;
+} sk_device_limits_t;
+
+/** Adapter / device properties (type, name, vendor, driver, features, limits). */
+typedef struct sk_device_properties_t {
+	sk_device_type_t device_type;
+	char device_name[256];
+	char vendor_name[128];
+	char driver_version[64];
+	sk_device_features_t features;
+	sk_device_limits_t limits;
+} sk_device_properties_t;
+
+/** Per-heap memory usage/budget snapshot (see get_memory_budgets). */
+typedef struct sk_memory_heap_budget_t {
+	u64 usage;		   /* estimated bytes currently used by the program in this heap */
+	u64 budget;		   /* estimated bytes available to the program in this heap */
+	bool device_local; /* true for dedicated VRAM heaps, false for host/shared heaps */
+} sk_memory_heap_budget_t;
+
 /** Buffer descriptor. */
 typedef struct sk_buffer_desc_t {
 	u64 size;
@@ -487,7 +613,7 @@ typedef enum sk_texture_view_type_t {
 } sk_texture_view_type_t;
 
 typedef struct sk_texture_view_desc_t {
-	void_ptr_t texture;			 /* sk_texture_t (the parent texture) */
+	sk_texture_t texture;		 /* the parent texture */
 	sk_texture_view_type_t type; /* default TYPE_2D */
 	u32 base_mip_level;			 /* default 0 */
 	u32 mip_level_count;		 /* U32_MAX = all remaining mips */
@@ -522,18 +648,14 @@ typedef struct sk_sampler_desc_t {
 	const_chr_t debug_name;					  /* optional */
 } sk_sampler_desc_t;
 
-/** Vertex input layout element (one per vertex attribute). */
-typedef struct sk_input_layout_element_t {
-	u32 location;		 /* shader layout(location) index */
-	i32 component_count; /* 1–4 normalized integers */
-	bool normalized;
-} sk_input_layout_element_t;
-
-/** Vertex input layout describing a single vertex buffer binding. */
-typedef struct sk_input_layout_desc_t {
-	sk_input_layout_element_t* elements;
-	u32 element_count;
-} sk_input_layout_desc_t;
+/** Shader interface variable (vertex input or pipeline output). */
+typedef struct sk_interface_variable_t {
+	u32 location;	  /* shader layout(location) index */
+	u32 offset;		  /* byte offset within the vertex / per-output */
+	const_chr_t name; /* optional, for debug tools */
+	sk_pixel_format_t format;
+	u32 size; /* element size in bytes */
+} sk_interface_variable_t;
 
 /** Push constant range for pipeline uniforms. */
 typedef struct sk_push_constant_range_t {
@@ -546,22 +668,34 @@ typedef struct sk_push_constant_range_t {
 /** Descriptor set layout binding. */
 typedef struct sk_descriptor_set_layout_binding_t {
 	u32 binding;		  /* descriptor set binding index */
-	u32 descriptor_count; /* default 1 */
+	u32 descriptor_count; /* default 1; >1 for arrays, MaxBindless for runtime arrays */
 	const_chr_t name;	  /* optional, for debug tools */
 	sk_descriptor_type_t descriptor_type;
+	sk_render_type_t render_type;	  /* default SK_RENDER_TYPE_NONE; drives bindless sizing */
 	u32 shader_stages;				  /* sk_shader_stage_bit_t OR'd across stages */
 	sk_texture_view_type_t view_type; /* TEXTURE_VIEW_TYPE_2D if sampled image, else N/A */
+	u32 size;						  /* element size in bytes for render_type (runtime arrays) */
 } sk_descriptor_set_layout_binding_t;
 
-/** Pipeline creation parameters. */
+/** Per-set descriptor layout group (one per descriptor set index). */
+typedef struct sk_descriptor_set_layout_t {
+	u32 set; /* descriptor set index this layout belongs to */
+	sk_descriptor_set_layout_binding_t* bindings;
+	u32 binding_count;
+	const_chr_t debug_name; /* optional */
+} sk_descriptor_set_layout_t;
+
+/** Shared pipeline description: variables, descriptor sets, push constants, stride. */
 typedef struct sk_pipeline_desc_t {
-	sk_input_layout_element_t* input_variables; /* vertex attributes; optional for compute */
+	sk_interface_variable_t* input_variables; /* vertex attributes; optional for compute */
 	u32 input_variable_count;
-	const_chr_t push_constant_names; /* array of names parallel to push_constants */
-	u32 push_constant_count;
+	sk_interface_variable_t* output_variables; /* shader outputs; optional */
+	u32 output_variable_count;
+	u32 stride;								 /* vertex input stride in bytes; 0 = tightly packed */
+	sk_descriptor_set_layout_t* descriptors; /* one entry per descriptor set */
+	u32 descriptor_count;
 	sk_push_constant_range_t* push_constants; /* ranges for each push constant block */
-	sk_descriptor_set_layout_binding_t* descriptor_bindings;
-	u32 descriptor_binding_count;
+	u32 push_constant_count;
 	sk_extent3d_t num_threads; /* compute thread group size [1,1,1] default */
 } sk_pipeline_desc_t;
 
@@ -615,49 +749,77 @@ typedef struct sk_depth_stencil_state_desc_t {
 	f32 max_depth_bounds; /* default 0.0f */
 } sk_depth_stencil_state_desc_t;
 
+/** Descriptor set override for a pipeline (caller-resolved, full data). */
+typedef struct sk_descriptor_set_override_t {
+	u32 set_index;
+	sk_descriptor_set_t descriptor_set;
+} sk_descriptor_set_override_t;
+
 /** Graphics pipeline creation parameters. */
 typedef struct sk_graphics_pipeline_desc_t {
-	void_ptr_t vertex_shader;			 /* sk_shader_t handle or opaque RID */
+	sk_pipeline_desc_t pipeline;		 /* shared pipeline info (variables, descriptors, push constants, stride) */
+	sk_shader_t vertex_shader;			 /* RHI-created shader handle (caller resolves RID to handle) */
 	const_chr_t vertex_shader_variant;	 /* default "Default" */
-	void_ptr_t fragment_shader;			 /* sk_shader_t handle or opaque RID */
+	sk_shader_t fragment_shader;		 /* RHI-created shader handle */
 	const_chr_t fragment_shader_variant; /* default "Default" */
+	void_ptr_t material;				 /* caller-owned material handle; RHI never dereferences it (no RID) */
 	sk_primitive_topology_t topology;	 /* default TRIANGLE_LIST */
 	sk_rasterizer_state_desc_t rasterizer_state;
 	sk_depth_stencil_state_desc_t depth_stencil_state;
 	sk_blend_state_desc_t* blend_states; /* one per RT attachment, 0 = disabled blend */
 	u32 blend_state_count;
-	void_ptr_t render_pass;		  /* sk_render_pass_t */
-	const_chr_t debug_name;		  /* optional */
-	void_ptr_t previous_pipeline; /* for pipeline caching/derivation */
+	sk_render_pass_t render_pass;
+	const_chr_t debug_name;									/* optional */
+	sk_pipeline_t previous_pipeline;						/* for pipeline caching/derivation */
+	u32 vertex_input_stride;								/* U32_MAX = use pipeline.stride */
+	bool allow_immediate_set;								/* default false; enables update-after-bind for the immediate set */
+	sk_descriptor_set_override_t* descriptor_sets_override; /* full overrides, not RIDs */
+	u32 descriptor_sets_override_count;
+	sk_conservative_rasterization_mode_t conservative_rasterization_mode; /* default DISABLED */
 } sk_graphics_pipeline_desc_t;
 
 /** Compute pipeline creation parameters. */
 typedef struct sk_compute_pipeline_desc_t {
-	void_ptr_t compute_shader;	  /* sk_shader_t handle or opaque RID */
-	const_chr_t variant;		  /* default "Default" */
-	void_ptr_t previous_pipeline; /* for derivation */
-	const_chr_t debug_name;		  /* optional */
+	sk_pipeline_desc_t pipeline;							/* shared pipeline info (descriptors, push constants, num_threads) */
+	sk_shader_t compute_shader;								/* RHI-created shader handle (caller resolves RID to handle) */
+	const_chr_t variant;									/* default "Default" */
+	sk_pipeline_t previous_pipeline;						/* for derivation */
+	const_chr_t debug_name;									/* optional */
+	bool allow_immediate_set;								/* default false */
+	sk_descriptor_set_override_t* descriptor_sets_override; /* full overrides, not RIDs */
+	u32 descriptor_sets_override_count;
 } sk_compute_pipeline_desc_t;
 
 /** Ray tracing pipeline creation parameters. */
 typedef struct sk_ray_tracing_pipeline_desc_t {
-	u32 max_recursion_depth; /* default 1 */
-	const_chr_t debug_name;	 /* optional */
+	sk_pipeline_desc_t pipeline;							/* shared pipeline info (descriptors, push constants) */
+	sk_shader_t shader;										/* RHI-created ray tracing shader handle */
+	const_chr_t variant;									/* default "Default" */
+	u32 max_recursion_depth;								/* default 1 */
+	sk_pipeline_t previous_pipeline;						/* for derivation */
+	const_chr_t debug_name;									/* optional */
+	sk_descriptor_set_override_t* descriptor_sets_override; /* full overrides, not RIDs */
+	u32 descriptor_sets_override_count;
 } sk_ray_tracing_pipeline_desc_t;
 
 /** Attachment description for a render pass. */
 typedef struct sk_attachment_desc_t {
-	sk_resource_state_t initial_state; /* default UNDEFINED */
-	sk_resource_state_t final_state;   /* default UNDEFINED */
-	sk_attachment_load_op_t load_op;   /* default LOAD */
-	sk_attachment_store_op_t store_op; /* default STORE */
-	sk_pixel_format_t format;		   /* RGBA8_UNORM default */
+	sk_resource_state_t initial_state;		   /* default UNDEFINED */
+	sk_resource_state_t final_state;		   /* default UNDEFINED */
+	sk_attachment_load_op_t load_op;		   /* default LOAD */
+	sk_attachment_store_op_t store_op;		   /* default STORE */
+	sk_attachment_load_op_t stencil_load_op;   /* default DONT_CARE */
+	sk_attachment_store_op_t stencil_store_op; /* default DONT_CARE */
+	u32 sample_count;						   /* default 1 */
+	sk_pixel_format_t format;				   /* RGBA8_UNORM default */
 } sk_attachment_desc_t;
 
 /** Render pass descriptor. */
 typedef struct sk_render_pass_desc_t {
 	sk_attachment_desc_t* attachments;
 	u32 attachment_count;
+	sk_attachment_desc_t* resolve_attachments; /* MSAA resolve attachments, parallel to attachments */
+	u32 resolve_attachment_count;
 	const_chr_t debug_name; /* optional */
 } sk_render_pass_desc_t;
 
@@ -672,53 +834,51 @@ typedef struct sk_clear_values_t {
 
 /** Begin render pass info. */
 typedef struct sk_begin_render_pass_info_t {
-	void_ptr_t render_pass; /* sk_render_pass_t */
-	void_ptr_t framebuffer; /* sk_framebuffer_t */
+	sk_render_pass_t render_pass;
+	sk_framebuffer_t framebuffer;
 	const sk_clear_values_t* clear_values;
 } sk_begin_render_pass_info_t;
 
 /** Framebuffer descriptor. */
 typedef struct sk_framebuffer_desc_t {
-	void_ptr_t render_pass;	 /* sk_render_pass_t */
-	void_ptr_t* attachments; /* array of sk_texture_view_t pointers */
+	sk_render_pass_t render_pass;
+	sk_texture_view_t* attachments; /* array of texture views */
 	u32 attachment_count;
 	const_chr_t debug_name; /* optional */
 } sk_framebuffer_desc_t;
-
-/** Descriptor set override for pipeline. */
-typedef struct sk_descriptor_set_override_t {
-	u32 set_index;
-	void_ptr_t descriptor_set; /* sk_descriptor_set_t */
-} sk_descriptor_set_override_t;
 
 /** Query pool descriptor. */
 typedef struct sk_query_pool_desc_t {
 	sk_query_type_t type;
 	u32 query_count;
 	bool allow_partial_results;
+	bool return_availability;
 	u32 pipeline_statistics; /* sk_pipeline_statistic_flag_bit_t OR'd */
 	const_chr_t debug_name;	 /* optional */
 } sk_query_pool_desc_t;
 
 /** Acceleration structure geometry triangles. */
 typedef struct sk_geometry_triangles_desc_t {
-	void_ptr_t vertex_buffer; /* sk_buffer_t, optional */
-	u64 vertex_offset;		  /* bytes into buffer */
+	sk_buffer_t vertex_buffer; /* optional */
+	u64 vertex_offset;		   /* bytes into buffer */
 	u32 vertex_count;
 	u32 vertex_stride;				 /* bytes per vertex */
 	sk_pixel_format_t vertex_format; /* default RGB32_FLOAT */
 
-	void_ptr_t index_buffer; /* sk_buffer_t, optional */
+	sk_buffer_t index_buffer; /* optional */
 	u64 index_offset;
 	u32 index_count;
 	sk_index_type_t index_type; /* default UINT32 */
+
+	sk_buffer_t transform_buffer; /* optional 3x4 transform per geometry */
+	u64 transform_offset;		  /* bytes into transform buffer */
 
 	bool opaque; /* default true */
 } sk_geometry_triangles_desc_t;
 
 /** Acceleration structure geometry AABBs. */
 typedef struct sk_geometry_aabbs_desc_t {
-	void_ptr_t aabb_buffer; /* sk_buffer_t, optional */
+	sk_buffer_t aabb_buffer; /* optional */
 	u64 aabb_offset;
 	u32 aabb_count;
 	u32 aabb_stride; /* bytes per AABB (6 * 4 = 24) */
@@ -742,7 +902,7 @@ typedef struct sk_blas_desc_t {
 
 /** Top-level acceleration structure instance. */
 typedef struct sk_as_instance_desc_t {
-	void_ptr_t bottom_level_as;				/* sk_blas_t */
+	sk_blas_t bottom_level_as;
 	f32 transform[12];						/* 3x4 affine transform in row-major */
 	u32 instance_id;						/* default 0 */
 	u32 instance_mask;						/* default 0xFF */
@@ -763,9 +923,9 @@ typedef struct sk_tlas_desc_t {
 
 /** Acceleration structure build info. */
 typedef struct sk_as_build_info_t {
-	bool is_update;			   /* default false */
-	void_ptr_t scratch_buffer; /* sk_buffer_t */
-	u64 scratch_offset;		   /* bytes into scratch buffer */
+	bool is_update; /* default false */
+	sk_buffer_t scratch_buffer;
+	u64 scratch_offset; /* bytes into scratch buffer */
 } sk_as_build_info_t;
 
 /** Queue descriptor. */
@@ -786,10 +946,10 @@ typedef struct sk_command_buffer_desc_t {
  * and fill render_pass / subpass (framebuffer optional for inheritance).
  */
 typedef struct sk_command_buffer_begin_info_t {
-	u32 usage_flags;		/* sk_command_buffer_usage_bit_t */
-	void_ptr_t render_pass; /* sk_render_pass_t; secondary inheritance */
+	u32 usage_flags;			  /* sk_command_buffer_usage_bit_t */
+	sk_render_pass_t render_pass; /* secondary inheritance */
 	u32 subpass;
-	void_ptr_t framebuffer; /* sk_framebuffer_t; optional inheritance */
+	sk_framebuffer_t framebuffer; /* optional inheritance */
 } sk_command_buffer_begin_info_t;
 
 /** Viewport with depth range (needed for reverse-Z). */
@@ -845,31 +1005,7 @@ typedef struct sk_swapchain_desc_t {
 } sk_swapchain_desc_t;
 
 /* ------------------------------------------------------------------ */
-/* Resource handles (opaque IDs bound to the device)                   */
-/* ------------------------------------------------------------------ */
-
-SK_HANDLER(sk_render_device_t)
-SK_HANDLER(sk_texture_t)
-SK_HANDLER(sk_texture_view_t)
-SK_HANDLER(sk_buffer_t)
-SK_HANDLER(sk_shader_t)
-SK_HANDLER(sk_render_pass_t)
-SK_HANDLER(sk_framebuffer_t)
-SK_HANDLER(sk_swapchain_t)
-SK_HANDLER(sk_command_buffer_t)
-SK_HANDLER(sk_sampler_t)
-SK_HANDLER(sk_pipeline_t)
-SK_HANDLER(sk_descriptor_set_t)
-SK_HANDLER(sk_query_pool_t)
-SK_HANDLER(sk_blas_t)
-SK_HANDLER(sk_tlas_t)
-SK_HANDLER(sk_memory_t)
-SK_HANDLER(sk_queue_t)
-SK_HANDLER(sk_fence_t)
-SK_HANDLER(sk_semaphore_t)
-
-/* ------------------------------------------------------------------ */
-/* POD types that need handles (defined after SK_HANDLER)              */
+/* POD types that use handles (defined after SK_HANDLER)               */
 /* ------------------------------------------------------------------ */
 
 /** Buffer memory requirements (mirrors texture path). */
@@ -1020,16 +1156,32 @@ typedef struct sk_trace_rays_info_t {
 /**
  * All function pointers are guaranteed non-NULL by the plugin.
  *
- * Coverage notes (KAL-36 review):
+ * Coverage notes (KAL-36 review + APX-47/48 gap closure):
  * - Stub backend only; no GPU work until a real Vulkan/D3D12/Metal backend.
- * - Swapchain, fence/semaphore, query recording, AS build, and typed copy/
- *   descriptor writes complete the previously half-declared surface.
+ * - Pass-through design: pipelines and descriptor sets receive FULL info
+ *   (typed handles + complete descs). The RHI never resolves RID-typed
+ *   pipeline/descriptor resources; callers resolve shader/material RIDs and
+ *   pass the resulting handles/data. RID migration is deferred.
+ * - Gap A: adapter enumeration/selection, device properties/features/limits,
+ *   memory budgets, and resource desc/mapped-data getters.
+ * - Gap B: descriptor bindings now carry render_type/size and are grouped per
+ *   set (sk_descriptor_set_layout_t); pipeline descs carry output variables
+ *   and vertex stride; graphics/compute/raytracing descs carry material,
+ *   vertexInputStride, allowImmediateSet, descriptorSetsOverride, and
+ *   conservative rasterization; query pools expose returnAvailability;
+ *   attachments expose stencil ops + sampleCount; render passes expose
+ *   resolveAttachments; triangles expose transform buffer.
+ * - Gap C: memory_barrier, BLAS/TLAS resource barriers, BLAS/TLAS copy, and
+ *   GPU-side copy_query_pool_results.
+ * - Gap D: swapchain extent/format/image-count/current-index/textures,
+ *   BLAS compacted queries, TLAS instance update, queue submit_and_wait.
  * - Command buffer: create/begin/end/reset/destroy lifecycle, secondary
  *   execute, viewport depth range, dynamic state, update_buffer, MSAA
  *   resolve, clear_attachments, indirect count draws, debug labels.
  * - Still deferred: multi-queue ownership transfer detail, timeline
- *   semaphores, mesh/task draws, dynamic rendering helpers,
- *   stencil-separate load/store, subpasses, and capability/feature queries.
+ *   semaphores, mesh/task draws, dynamic rendering helpers, subpasses, and
+ *   inline descriptor writes (SetTexture/SetBuffer/… stay RID-based in main
+ *   and are replaced here by full update_descriptor_set).
  */
 typedef struct sk_render_device_api_t {
 	/* --- Device lifecycle --- */
@@ -1043,11 +1195,43 @@ typedef struct sk_render_device_api_t {
 	/** Block until all device work completes. @return 0 on success. */
 	i32 (*wait_idle)(sk_render_device_t dev);
 
+	/* --- Adapter / device queries --- */
+	/** Number of physical adapters enumerated at init. */
+	u32 (*get_adapter_count)(sk_render_device_t dev);
+	/** Adapter handle at index; valid for the device lifetime. */
+	sk_adapter_t (*get_adapter)(sk_render_device_t dev, u32 index);
+	/**
+	 * Select the adapter used by the device (recreates device queues/limits).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*select_adapter)(sk_render_device_t dev, sk_adapter_t adapter);
+	/** Adapter suitability score (higher = preferred). */
+	u32 (*get_adapter_score)(sk_render_device_t dev, sk_adapter_t adapter);
+	/** Adapter name (device name string). */
+	const_chr_t (*get_adapter_name)(sk_render_device_t dev, sk_adapter_t adapter);
+	/** Selected device properties (type, name, vendor, driver, features, limits). */
+	sk_device_properties_t (*get_properties)(sk_render_device_t dev);
+	/** Selected device features. */
+	sk_device_features_t (*get_features)(sk_render_device_t dev);
+	/** Graphics API this device was created for. */
+	sk_graphics_api_t (*get_api)(sk_render_device_t dev);
+	/**
+	 * Fill memory heap budgets.
+	 * @param out_budgets Caller array; receives heap snapshots.
+	 * @param max_count Capacity of out_budgets.
+	 * @return Number of heaps written.
+	 */
+	u32 (*get_memory_budgets)(sk_render_device_t dev, sk_memory_heap_budget_t* out_budgets, u32 max_count);
+
 	/* --- Buffer management --- */
 	sk_buffer_t (*create_buffer)(sk_render_device_t dev, const sk_buffer_desc_t* desc);
 	void (*destroy_buffer)(sk_render_device_t dev, sk_buffer_t buf);
 	void* (*buffer_map)(sk_render_device_t dev, sk_buffer_t buf);
 	void (*buffer_unmap)(sk_render_device_t dev, sk_buffer_t buf);
+	/** Desc the buffer was created with. */
+	sk_buffer_desc_t (*get_buffer_desc)(sk_render_device_t dev, sk_buffer_t buf);
+	/** Persistently mapped data pointer (valid if persistent_mapped). */
+	void_ptr_t (*get_buffer_mapped_data)(sk_render_device_t dev, sk_buffer_t buf);
 
 	/* --- Texture management --- */
 	sk_texture_t (*create_texture)(sk_render_device_t dev, const sk_texture_desc_t* desc);
@@ -1056,11 +1240,15 @@ typedef struct sk_render_device_api_t {
 	void (*destroy_texture_view)(sk_render_device_t dev, sk_texture_view_t view);
 	sk_sampler_t (*create_sampler)(sk_render_device_t dev, const sk_sampler_desc_t* desc);
 	void (*destroy_sampler)(sk_render_device_t dev, sk_sampler_t sampler);
+	sk_texture_desc_t (*get_texture_desc)(sk_render_device_t dev, sk_texture_t tex);
+	sk_texture_view_desc_t (*get_texture_view_desc)(sk_render_device_t dev, sk_texture_view_t view);
+	sk_sampler_desc_t (*get_sampler_desc)(sk_render_device_t dev, sk_sampler_t sampler);
 
 	/* --- Memory allocation --- */
 	sk_memory_t (*create_memory)(sk_render_device_t dev, u64 size, u64 alignment, u32 memory_type_bits);
 	void (*destroy_memory)(sk_render_device_t dev, sk_memory_t mem);
 	sk_texture_t (*create_aliased_texture)(sk_render_device_t dev, const sk_texture_desc_t* desc, sk_memory_t mem, u64 offset);
+	u64 (*get_memory_size)(sk_render_device_t dev, sk_memory_t mem);
 
 	/* --- Shader management --- */
 	sk_shader_t (*create_shader)(sk_render_device_t dev, const_chr_t src, u32 src_size, u32 shader_stage);
@@ -1071,17 +1259,25 @@ typedef struct sk_render_device_api_t {
 	sk_pipeline_t (*create_compute_pipeline)(sk_render_device_t dev, const sk_compute_pipeline_desc_t* desc);
 	sk_pipeline_t (*create_ray_tracing_pipeline)(sk_render_device_t dev, const sk_ray_tracing_pipeline_desc_t* desc);
 	void (*destroy_pipeline)(sk_render_device_t dev, sk_pipeline_t pipeline);
+	/** Shared pipeline desc the pipeline was created from. */
+	sk_pipeline_desc_t (*get_pipeline_desc)(sk_render_device_t dev, sk_pipeline_t pipeline);
+	/** Pipeline bind point. */
+	sk_pipeline_bind_point_t (*get_pipeline_bind_point)(sk_render_device_t dev, sk_pipeline_t pipeline);
 
 	/* --- Descriptor set management --- */
 	sk_descriptor_set_t (*create_descriptor_set)(sk_render_device_t dev, const sk_descriptor_set_desc_t* desc);
 	void (*update_descriptor_set)(sk_render_device_t dev, sk_descriptor_set_t set, const sk_descriptor_write_t* writes, u32 write_count);
 	void (*destroy_descriptor_set)(sk_render_device_t dev, sk_descriptor_set_t set);
+	sk_descriptor_set_desc_t (*get_descriptor_set_desc)(sk_render_device_t dev, sk_descriptor_set_t set);
 
 	/* --- Render pass / framebuffer --- */
 	sk_render_pass_t (*create_render_pass)(sk_render_device_t dev, const sk_render_pass_desc_t* desc);
 	void (*destroy_render_pass)(sk_render_device_t dev, sk_render_pass_t pass);
 	sk_framebuffer_t (*create_framebuffer)(sk_render_device_t dev, const sk_framebuffer_desc_t* desc);
 	void (*destroy_framebuffer)(sk_render_device_t dev, sk_framebuffer_t fb);
+	sk_render_pass_desc_t (*get_render_pass_desc)(sk_render_device_t dev, sk_render_pass_t pass);
+	sk_framebuffer_desc_t (*get_framebuffer_desc)(sk_render_device_t dev, sk_framebuffer_t fb);
+	sk_extent3d_t (*get_framebuffer_extent)(sk_render_device_t dev, sk_framebuffer_t fb);
 
 	/* --- Swapchain / present --- */
 	sk_swapchain_t (*create_swapchain)(sk_render_device_t dev, const sk_swapchain_desc_t* desc);
@@ -1096,6 +1292,21 @@ typedef struct sk_render_device_api_t {
 	sk_device_result_t (*acquire_next_image)(sk_render_device_t dev, const sk_acquire_info_t* info, u32* out_image_index);
 	/** Texture handle for a swapchain image (valid until resize/destroy). */
 	sk_texture_t (*get_swapchain_image)(sk_render_device_t dev, sk_swapchain_t swapchain, u32 image_index);
+	/** Current swapchain extent (0 on error / not created). */
+	sk_extent3d_t (*get_swapchain_extent)(sk_render_device_t dev, sk_swapchain_t swapchain);
+	/** Current swapchain image format. */
+	sk_pixel_format_t (*get_swapchain_format)(sk_render_device_t dev, sk_swapchain_t swapchain);
+	/** Number of swapchain images. */
+	u32 (*get_swapchain_image_count)(sk_render_device_t dev, sk_swapchain_t swapchain);
+	/** Index of the last acquired (current) image. */
+	u32 (*get_swapchain_current_image_index)(sk_render_device_t dev, sk_swapchain_t swapchain);
+	/**
+	 * Fill the swapchain image textures.
+	 * @param out_textures Caller array; receives texture handles.
+	 * @param max_count Capacity of out_textures.
+	 * @return Number of images written.
+	 */
+	u32 (*get_swapchain_textures)(sk_render_device_t dev, sk_swapchain_t swapchain, sk_texture_t* out_textures, u32 max_count);
 	/**
 	 * Present an acquired image.
 	 * @return sk_device_result_t (SUCCESS, SWAPCHAIN_OUT_OF_DATE, or ERROR).
@@ -1136,10 +1347,16 @@ typedef struct sk_render_device_api_t {
 	void (*set_depth_bias)(sk_render_device_t dev, sk_command_buffer_t cmd, f32 constant_factor, f32 clamp, f32 slope_factor);
 	void (*set_depth_bounds)(sk_render_device_t dev, sk_command_buffer_t cmd, f32 min_depth, f32 max_depth);
 	void (*bind_pipeline)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_pipeline_bind_point_t bind_point, sk_pipeline_t pipeline);
+	/**
+	 * Bind a descriptor set. The set layout comes from the descriptor set
+	 * handle (RHI-owned); the pipeline handle is only the pipeline-layout
+	 * owner. No RID resolution inside the RHI.
+	 */
 	void (*bind_descriptor_set)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_pipeline_bind_point_t bind_point, sk_pipeline_t pipeline, u32 set_index,
 								sk_descriptor_set_t desc_set, const u32* dynamic_offsets, u32 offset_count);
 	void (*bind_vertex_buffer)(sk_render_device_t dev, sk_command_buffer_t cmd, u32 first_binding, const sk_buffer_t* buffers, const u64* offsets, u32 buffer_count);
 	void (*bind_index_buffer)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_buffer_t buf, u64 offset, sk_index_type_t index_type);
+	/** Pipeline handle is only the pipeline-layout owner; stages/offset/size/data carry the full push range. */
 	void (*push_constants)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_pipeline_t pipeline, u32 shader_stages, u32 offset, u32 size, const void* data);
 
 	/* --- Draw / dispatch --- */
@@ -1184,6 +1401,14 @@ typedef struct sk_render_device_api_t {
 									u32 dst_scope);
 	void (*resource_barrier_texture)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_texture_t tex, sk_resource_state_t old_state, sk_resource_state_t new_state,
 									 u32 base_mip_level, u32 mip_level_count, u32 base_array_layer, u32 array_layer_count, u32 src_scope, u32 dst_scope);
+	/** BLAS resource barrier (states: GENERAL / SHADER_READ / COPY_DEST / ACCELERATION_STRUCTURE). */
+	void (*resource_barrier_bottom_level_as)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_blas_t blas, sk_resource_state_t old_state, sk_resource_state_t new_state,
+											 u32 src_scope, u32 dst_scope);
+	/** TLAS resource barrier (states: GENERAL / SHADER_READ / COPY_DEST / ACCELERATION_STRUCTURE). */
+	void (*resource_barrier_top_level_as)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_tlas_t tlas, sk_resource_state_t old_state, sk_resource_state_t new_state,
+										  u32 src_scope, u32 dst_scope);
+	/** Full device memory barrier (all stages, all accesses). */
+	void (*memory_barrier)(sk_render_device_t dev, sk_command_buffer_t cmd);
 
 	/* --- Debug labels (command buffer; no-op when backend debug layers off) --- */
 	void (*begin_debug_label)(sk_render_device_t dev, sk_command_buffer_t cmd, const_chr_t name, f32 r, f32 g, f32 b, f32 a);
@@ -1197,6 +1422,9 @@ typedef struct sk_render_device_api_t {
 	void (*begin_query)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_query_pool_t pool, u32 query);
 	void (*end_query)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_query_pool_t pool, u32 query);
 	void (*write_timestamp)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_query_pool_t pool, u32 query);
+	/** GPU-side copy of query results into a device buffer (for GPU-driven feedback). */
+	void (*copy_query_pool_results)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_query_pool_t pool, u32 first_query, u32 query_count, sk_buffer_t dst_buffer, u64 dst_offset,
+									u64 stride);
 	/**
 	 * Read query results to host memory.
 	 * @param data Destination buffer (layout depends on query type).
@@ -1215,6 +1443,25 @@ typedef struct sk_render_device_api_t {
 	sk_as_build_sizes_t (*get_tlas_build_sizes)(sk_render_device_t dev, const sk_tlas_desc_t* desc);
 	void (*build_bottom_level_as)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_blas_t blas, const sk_blas_desc_t* desc, const sk_as_build_info_t* build_info);
 	void (*build_top_level_as)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_tlas_t tlas, const sk_tlas_desc_t* desc, const sk_as_build_info_t* build_info);
+	/** BLAS was built as compacted. */
+	bool (*is_bottom_level_as_compacted)(sk_render_device_t dev, sk_blas_t blas);
+	/** Size in bytes of the compacted BLAS (valid after compaction copy). */
+	u64 (*get_bottom_level_as_compacted_size)(sk_render_device_t dev, sk_blas_t blas);
+	sk_blas_desc_t (*get_blas_desc)(sk_render_device_t dev, sk_blas_t blas);
+	sk_tlas_desc_t (*get_tlas_desc)(sk_render_device_t dev, sk_tlas_t tlas);
+	/** Copy BLAS src→dst; compress=true requests compaction. */
+	void (*copy_bottom_level_as)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_blas_t src, sk_blas_t dst, bool compress);
+	/** Copy TLAS src→dst; compress=true requests compaction. */
+	void (*copy_top_level_as)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_tlas_t src, sk_tlas_t dst, bool compress);
+	/**
+	 * Update all TLAS instances (CPU-side instance buffer rewrite).
+	 * @return true on success.
+	 */
+	bool (*update_top_level_as_instances)(sk_render_device_t dev, sk_tlas_t tlas, const sk_as_instance_desc_t* instances, u32 instance_count);
+	/** Update a single TLAS instance in-place. */
+	void (*update_top_level_as_instance)(sk_render_device_t dev, sk_tlas_t tlas, u32 index, const sk_as_instance_desc_t* instance);
+	/** Set active instance count for the TLAS build. */
+	void (*set_top_level_as_instance_count)(sk_render_device_t dev, sk_tlas_t tlas, u32 count);
 
 	/* --- Queue / submit --- */
 	sk_queue_t (*create_queue)(sk_render_device_t dev, const sk_queue_desc_t* desc);
@@ -1223,6 +1470,8 @@ typedef struct sk_render_device_api_t {
 	void (*submit_command_buffer)(sk_render_device_t dev, sk_queue_t queue, sk_command_buffer_t cmd);
 	/** Full submit with optional wait/signal semaphores and fence. @return 0 on success. */
 	i32 (*submit)(sk_render_device_t dev, sk_queue_t queue, const sk_submit_info_t* info);
+	/** Submit and block until that submit completes. @return 0 on success. */
+	i32 (*submit_and_wait)(sk_render_device_t dev, sk_queue_t queue, sk_command_buffer_t cmd);
 	/** Block until queue work completes. @return 0 on success. */
 	i32 (*queue_wait_idle)(sk_render_device_t dev, sk_queue_t queue);
 
