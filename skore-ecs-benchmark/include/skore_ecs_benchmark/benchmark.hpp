@@ -4,8 +4,7 @@
 
 #include <string>
 
-namespace skore_ecs_benchmark
-{
+namespace skore_ecs_benchmark {
 
 std::string benchmark_hello();
 

@@ -1,0 +1,4 @@
+[submodule "skore-ecs-benchmark/thirdparty/skore"]
+	path = skore-ecs-benchmark/thirdparty/skore
+	url = https://github.com/SkoreEngine/Skore.git
+	branch = v2
