@@ -715,19 +715,19 @@ SK_TEST(filesystem_create_write_read_remove) {
 	sk_file_handle_t file = api->open_file(path_a, SK_FILE_ACCESS_WRITE);
 	TEST_ASSERT_NOT_NULL(file);
 	u64 n = api->write_file(file, payload, sizeof(payload) - 1u);
-	TEST_ASSERT_EQUAL_UINT64((u64)(sizeof(payload) - 1u), n);
-	TEST_ASSERT_EQUAL_UINT64((u64)(sizeof(payload) - 1u), api->get_file_size(file));
+	TEST_ASSERT_EQUAL_UINT64(sizeof(payload) - 1u, n);
+	TEST_ASSERT_EQUAL_UINT64(sizeof(payload) - 1u, api->get_file_size(file));
 	api->close_file(file);
 
 	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, api->get_file_status(path_a));
-	TEST_ASSERT_EQUAL_UINT64((u64)(sizeof(payload) - 1u), api->get_path_size(path_a));
+	TEST_ASSERT_EQUAL_UINT64(sizeof(payload) - 1u, api->get_path_size(path_a));
 	TEST_ASSERT_TRUE(api->get_file_id(path_a) != 0ull);
 
 	file = api->open_file(path_a, SK_FILE_ACCESS_READ);
 	TEST_ASSERT_NOT_NULL(file);
 	memset(read_buf, 0, sizeof(read_buf));
 	n = api->read_file(file, read_buf, sizeof(read_buf));
-	TEST_ASSERT_EQUAL_UINT64((u64)(sizeof(payload) - 1u), n);
+	TEST_ASSERT_EQUAL_UINT64(sizeof(payload) - 1u, n);
 	TEST_ASSERT_EQUAL_MEMORY(payload, read_buf, (size_t)n);
 	memset(read_buf, 0, sizeof(read_buf));
 	n = api->read_file_at(file, read_buf, 5u, 6ull);
@@ -765,7 +765,7 @@ SK_TEST(filesystem_file_mapping_roundtrip) {
 	sk_file_handle_t file = api->open_file(path_a, SK_FILE_ACCESS_READ_WRITE);
 	TEST_ASSERT_NOT_NULL(file);
 	u64 n = api->write_file(file, payload, sizeof(payload) - 1u);
-	TEST_ASSERT_EQUAL_UINT64((u64)(sizeof(payload) - 1u), n);
+	TEST_ASSERT_EQUAL_UINT64(sizeof(payload) - 1u, n);
 	sk_file_handle_t mapping = api->create_file_mapping(file, SK_FILE_ACCESS_READ, 0ull);
 	TEST_ASSERT_NOT_NULL(mapping);
 	view = api->map_view_of_file(mapping);

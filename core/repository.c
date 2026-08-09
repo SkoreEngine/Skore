@@ -1409,7 +1409,7 @@ static void sk_repo_finalize_commit(sk_repository_t* repository, sk_resource_sto
  * pointer so two repositories never collide). */
 static sk_uuid_t sk_repo_make_uuid(sk_repository_t* repository) {
 	u64 n = sk_atomic_u64_fetch_add(&repository->uuid_counter, 1ull) + 1ull;
-	return (sk_uuid_t){n, (u64)(uintptr_t)repository};
+	return (sk_uuid_t){n, (uintptr_t)repository};
 }
 
 static int sk_repo_clone_find(sk_clone_context_t* ctx, sk_rid_t src, sk_rid_t* out_dst) {

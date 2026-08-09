@@ -126,7 +126,7 @@ typedef struct sk_type_id_t {
 	}                                               \
                                                     \
 	SK_FINLINE Name Name##_from_ptr(void_ptr_t p) { \
-		return (Name){(u64)(uintptr_t)p};           \
+		return (Name){(uintptr_t)p};                  \
 	}                                               \
                                                     \
 	SK_FINLINE Name Name##_from_u64(u64 v) {        \
