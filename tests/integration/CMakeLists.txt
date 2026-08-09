@@ -1,11 +1,13 @@
-# Integration tests (APX-61): real device/resource lifecycle against the
-# sk-vulkan-render-device plugin through the app registry.
+# Integration tests (APX-61/APX-79): real device/resource lifecycle and a full
+# offscreen triangle render against the sk-vulkan-render-device + sk-dxc-compiler
+# plugins through the app registry.
 #
-# Runs as its own ctest so the Vulkan path can be exercised without a window or
-# shaders. sk_app_init auto-loads the plugin DLLs from {app_folder}/plugins;
-# the executable is placed next to them in bin/ (same layout as sk-tests).
+# Runs as its own ctest so the Vulkan path can be exercised without a window.
+# sk_app_init auto-loads the plugin DLLs from {app_folder}/plugins; the
+# executable is placed next to them in bin/ (same layout as sk-tests). The
+# DXC-compiled shader tests skip cleanly when the runtime is absent.
 #
-# Skips cleanly when no Vulkan loader/ICD is present (e.g. CI without Vulkan).
+# Skips cleanly when no Vulkan loader/ICD or DXC runtime is present.
 
 if(NOT BUILD_TESTING)
     return()
@@ -14,14 +16,22 @@ endif()
 add_executable(sk-integration-tests
     main.c
     vulkan_device.c
+    vulkan_triangle.c
 )
 
 # App host (sk_app_init / registry / filesystem / platform backends) +
-# test registry/Unity (SK_TESTS via sk-test) + render_device.h headers.
+# test registry/Unity (SK_TESTS via sk-test) + render_device.h + dxc_compiler.h
+# headers (sk-render-device-lib / sk-dxc-compiler-lib).
 target_link_libraries(sk-integration-tests PRIVATE
     sk-app
     sk-test
     sk-render-device-lib
+    sk-dxc-compiler-lib
+)
+
+# Where the render test writes its PPM artifact (bin/, next to the exe).
+target_compile_definitions(sk-integration-tests PRIVATE
+    SK_INTEGRATION_ARTIFACT_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
 )
 
 # Place next to plugins/ so app_folder resolution finds the plugin DLLs.
@@ -31,7 +41,10 @@ set_target_properties(sk-integration-tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 
-# Ensure the real Vulkan backend + stub plugins exist before the test runs.
-add_dependencies(sk-integration-tests sk-vulkan-render-device sk-render-device)
+# Ensure the real Vulkan backend + stub render device + DXC compiler exist
+# (and the vendored DXC runtime is copied beside the plugin) before the run.
+add_dependencies(sk-integration-tests sk-vulkan-render-device sk-render-device sk-dxc-compiler)
 
-add_test(NAME sk-integration-tests COMMAND sk-integration-tests)
+# Run from bin/ so the copied DXC runtime (plugins/libdxcompiler.so) is found
+# relative to cwd, matching the sk-tests working directory.
+add_test(NAME sk-integration-tests COMMAND sk-integration-tests WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
