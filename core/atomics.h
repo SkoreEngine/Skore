@@ -200,11 +200,22 @@ SK_FINLINE void sk_atomic_thread_fence(sk_atomic_order_t order) {
 
 // NOLINTEND(bugprone-macro-parentheses)
 
+/*
+ * readability-non-const-parameter fires on the generated functions because the
+ * GCC __atomic_* builtins are opaque to the checker: it cannot see the writes
+ * through `obj` (store/exchange/RMW) or `expected` (compare_exchange writes the
+ * observed value back on failure). The pointers are intentionally non-const, so
+ * suppress at the instantiations.
+ */
+// NOLINTBEGIN(readability-non-const-parameter)
+
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(u32, u32)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(i32, i32)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(u64, u64)
 SK_ATOMIC_DEFINE_INTEGRAL_GCC(i64, i64)
 SK_ATOMIC_DEFINE_PTR_GCC(ptr)
+
+// NOLINTEND(readability-non-const-parameter)
 
 #endif /* !_MSC_VER */
 
