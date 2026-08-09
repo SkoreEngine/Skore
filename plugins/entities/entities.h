@@ -3,7 +3,8 @@
 /**
  * @file entities.h
  * @brief ECS module: archetype + chunk storage, world/entity lifecycle,
- *        queries, systems, and deferred entity commands.
+ *        queries, systems with a dependency-graph scheduler, and deferred
+ *        entity commands.
  *
  * Implemented by the sk-entities plugin (SHARED, statically linked sk-core).
  * The plugin registers a static sk_entities_api_t on the app context; hosts
@@ -120,8 +121,11 @@ typedef struct sk_chunk_t sk_chunk_t;
 /** Opaque query over component sets (matched against archetypes). */
 typedef struct sk_query_t sk_query_t;
 
-/** Opaque system: a callback plus its read/write component sets. */
+/** Opaque system: a callback plus its declared read/write component sets. */
 typedef struct sk_system_t sk_system_t;
+
+/** Opaque scheduler: systems + a deterministic dependency-graph run order. */
+typedef struct sk_scheduler_t sk_scheduler_t;
 
 /** Opaque deferred command buffer (structural changes applied on flush). */
 typedef struct sk_entitycommands_t sk_entitycommands_t;
@@ -153,6 +157,45 @@ typedef struct sk_entity_location_t {
 
 /** Invalid / unmapped entity location sentinel. */
 #define SK_ECS_LOCATION_NONE ((sk_entity_location_t){0xFFFFFFFFu, 0xFFFFFFFFu})
+
+/* ------------------------------------------------------------------ */
+/*  Systems and the dependency-graph scheduler                         */
+/* ------------------------------------------------------------------ */
+
+/** Maximum component ids one system may declare in its read set. */
+#define SK_ECS_MAX_SYSTEM_COMPONENTS 32u
+
+/** Maximum systems a scheduler may hold. */
+#define SK_ECS_MAX_SYSTEMS 128u
+
+/**
+ * System descriptor: a callback plus the component sets it declares.
+ *
+ * The scheduler orders systems by these sets: a system that writes a
+ * component must run before any system that also writes it (write-write) or
+ * reads it (write-read); a system that only reads a component imposes no
+ * order on other readers. Systems with disjoint sets stay unordered relative
+ * to each other.
+ *
+ * @field callback   Per-frame entry point. Must not be NULL.
+ * @field reads      Component ids the system reads (may be NULL with
+ *                   read_count == 0).
+ * @field read_count Number of read ids (<= SK_ECS_MAX_SYSTEM_COMPONENTS).
+ * @field writes     Component ids the system writes (may be NULL with
+ *                   write_count == 0).
+ * @field write_count Number of write ids (<= SK_ECS_MAX_SYSTEM_COMPONENTS).
+ * @field name       Optional human-readable name (may be NULL).
+ * @field user_data  Opaque value passed back to @p callback (may be NULL).
+ */
+typedef struct sk_system_desc_t {
+	void (*callback)(sk_world_t* world, f32 delta_time, void_ptr_t user_data);
+	const sk_type_id_t* reads;
+	u32 read_count;
+	const sk_type_id_t* writes;
+	u32 write_count;
+	const_chr_t name;
+	void_ptr_t user_data;
+} sk_system_desc_t;
 
 /* ------------------------------------------------------------------ */
 /*  Query                                                             */
@@ -795,6 +838,174 @@ typedef struct sk_entities_api_t {
 	 * @return New query, or NULL on invalid descriptor or OOM.
 	 */
 	sk_query_t* (*world_query_create)(sk_world_t* world, const sk_query_desc_t* desc);
+
+	/* ---- systems ---- */
+
+	/**
+	 * Create a system from a descriptor. The read/write component sets are
+	 * copied into the system; a type id may appear at most once per set (an id
+	 * in both the read and write set of the same system is allowed and means
+	 * the system reads what it modifies in place).
+	 * @param desc Descriptor (must not be NULL; callback must not be NULL).
+	 *             Ids must be non-zero; read_count / write_count must not
+	 *             exceed SK_ECS_MAX_SYSTEM_COMPONENTS; an id array must be
+	 *             non-NULL whenever its count is non-zero.
+	 * @return New system, or NULL on invalid arguments or OOM.
+	 */
+	sk_system_t* (*system_create)(const sk_system_desc_t* desc);
+
+	/**
+	 * Destroy a system. A destroyed system must have been removed from (or
+	 * never added to) every scheduler.
+	 * @param system System to destroy (must not be NULL).
+	 */
+	void (*system_destroy)(sk_system_t* system);
+
+	/**
+	 * Number of read ids declared by a system.
+	 * @param system System (must not be NULL).
+	 * @return Read count.
+	 */
+	u32 (*system_read_count)(const sk_system_t* system);
+
+	/**
+	 * Number of write ids declared by a system.
+	 * @param system System (must not be NULL).
+	 * @return Write count.
+	 */
+	u32 (*system_write_count)(const sk_system_t* system);
+
+	/**
+	 * Read id declared by a system.
+	 * @param system System (must not be NULL).
+	 * @param index  Read index (< system_read_count).
+	 * @return The component id.
+	 */
+	sk_type_id_t (*system_read_id)(const sk_system_t* system, u32 index);
+
+	/**
+	 * Write id declared by a system.
+	 * @param system System (must not be NULL).
+	 * @param index  Write index (< system_write_count).
+	 * @return The component id.
+	 */
+	sk_type_id_t (*system_write_id)(const sk_system_t* system, u32 index);
+
+	/**
+	 * Name of a system.
+	 * @param system System (must not be NULL).
+	 * @return The descriptor name (may be NULL).
+	 */
+	const_chr_t (*system_name)(const sk_system_t* system);
+
+	/**
+	 * Invoke a system's callback once.
+	 * @param system     System (must not be NULL).
+	 * @param world      World handed to the callback (must not be NULL).
+	 * @param delta_time Per-frame delta handed to the callback.
+	 */
+	void (*system_run)(sk_system_t* system, sk_world_t* world, f32 delta_time);
+
+	/* ---- scheduler ---- */
+
+	/**
+	 * Create an empty scheduler.
+	 * @return New scheduler, or NULL on allocation failure.
+	 */
+	sk_scheduler_t* (*scheduler_create)(void);
+
+	/**
+	 * Destroy a scheduler and its built order. Does not destroy the systems
+	 * added to it (they stay owned by the caller).
+	 * @param scheduler Scheduler to destroy (must not be NULL).
+	 */
+	void (*scheduler_destroy)(sk_scheduler_t* scheduler);
+
+	/**
+	 * Append a system to a scheduler. Adding a system invalidates any
+	 * previously built run order; the next scheduler_build / scheduler_run
+	 * recomputes it.
+	 * @param scheduler Scheduler (must not be NULL).
+	 * @param system    System to add (must not be NULL; must outlive the
+	 *                  scheduler).
+	 * @return The system's index (0-based registration order) on success,
+	 *         -1 on NULL arguments, -2 when the scheduler is full
+	 *         (SK_ECS_MAX_SYSTEMS), -3 on allocation failure.
+	 */
+	i32 (*scheduler_add)(sk_scheduler_t* scheduler, sk_system_t* system);
+
+	/**
+	 * Number of systems in a scheduler.
+	 * @param scheduler Scheduler (must not be NULL).
+	 * @return System count.
+	 */
+	u32 (*scheduler_system_count)(const sk_scheduler_t* scheduler);
+
+	/**
+	 * System at @p index of a scheduler (registration order).
+	 * @param scheduler Scheduler (must not be NULL).
+	 * @param index     System index.
+	 * @return The system, or NULL when @p index is out of range.
+	 */
+	sk_system_t* (*scheduler_system)(const sk_scheduler_t* scheduler, u32 index);
+
+	/**
+	 * Build (or rebuild) the dependency graph and compute a deterministic
+	 * topological run order.
+	 *
+	 * Edges are added only for real conflicts: for each component shared by
+	 * two systems, a write-write or write-read overlap orders the earlier
+	 * (lower index) writer before the later one / before the reader. Systems
+	 * whose sets are disjoint share no edge. The order is deterministic:
+	 * among systems whose dependencies are already satisfied, the lowest
+	 * system index (registration order) runs first.
+	 *
+	 * On a cycle the graph cannot be fully ordered: this returns -1, sets
+	 * has_cycle, and keeps the prefix ordered before the cycle (order_count
+	 * is smaller than system_count). scheduler_run refuses to execute while a
+	 * cycle is present.
+	 * @param scheduler Scheduler (must not be NULL).
+	 * @return 0 on success, -1 when the dependency graph contains a cycle,
+	 *         -2 on allocation failure.
+	 */
+	i32 (*scheduler_build)(sk_scheduler_t* scheduler);
+
+	/**
+	 * Whether the last scheduler_build found a cycle.
+	 * @param scheduler Scheduler (must not be NULL).
+	 * @return Non-zero after a build that hit a cycle, 0 otherwise.
+	 */
+	i32 (*scheduler_has_cycle)(const sk_scheduler_t* scheduler);
+
+	/**
+	 * Number of systems in the built run order.
+	 * @param scheduler Scheduler (must not be NULL).
+	 * @return Systems ordered by the last build (system_count when it
+	 *         succeeded, less when a cycle truncated the order, 0 before
+	 *         any build).
+	 */
+	u32 (*scheduler_order_count)(const sk_scheduler_t* scheduler);
+
+	/**
+	 * System at run position @p position of the built order.
+	 * @param scheduler Scheduler (must not be NULL).
+	 * @param position  Run position (< scheduler_order_count).
+	 * @return The system, or NULL when @p position is out of range.
+	 */
+	sk_system_t* (*scheduler_order_at)(const sk_scheduler_t* scheduler, u32 position);
+
+	/**
+	 * Run every system in the built deterministic order, once each. Rebuilds
+	 * the order when systems were added since the last build.
+	 * @param scheduler  Scheduler (must not be NULL).
+	 * @param world      World handed to every system callback (must not be
+	 *                   NULL).
+	 * @param delta_time Delta handed to every system callback.
+	 * @return 0 when every system ran, -1 when the dependency graph has a
+	 *         cycle (no callback is invoked), -2 on allocation failure during
+	 *         an implicit rebuild.
+	 */
+	i32 (*scheduler_run)(sk_scheduler_t* scheduler, sk_world_t* world, f32 delta_time);
 
 	/* ---- deferred entity commands ---- */
 

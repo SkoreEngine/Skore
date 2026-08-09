@@ -1112,6 +1112,299 @@ static sk_query_t* world_query_create_impl(sk_world_t* world, const sk_query_des
 	return query;
 }
 
+/* ---- systems ---- */
+
+/*
+ * A system is a callback plus its declared read/write component sets (copied
+ * at creation). The sets drive the scheduler's dependency graph: a shared
+ * component that one side writes orders that side first; read-read overlaps
+ * impose no order.
+ */
+struct sk_system_t {
+	void (*callback)(sk_world_t* world, f32 delta_time, void_ptr_t user_data);
+	sk_type_id_t reads[SK_ECS_MAX_SYSTEM_COMPONENTS];
+	u32 read_count;
+	sk_type_id_t writes[SK_ECS_MAX_SYSTEM_COMPONENTS];
+	u32 write_count;
+	const_chr_t name;
+	void_ptr_t user_data;
+};
+
+/* Non-zero when @p ids is a valid component set: count in range, non-NULL
+ * array when non-empty, no zero id, no duplicates within the set. */
+static i32 ecs_system_ids_valid(const sk_type_id_t* ids, u32 count) {
+	if (count > (u32)SK_ECS_MAX_SYSTEM_COMPONENTS) {
+		return 0;
+	}
+	if (count > 0u && ids == NULL) {
+		return 0;
+	}
+	for (u32 i = 0u; i < count; ++i) {
+		if (SK_TYPE_ID_EQ(ids[i], SK_TYPE_ID_ZERO)) {
+			return 0;
+		}
+		for (u32 j = i + 1u; j < count; ++j) {
+			if (SK_TYPE_ID_EQ(ids[i], ids[j])) {
+				return 0;
+			}
+		}
+	}
+	return 1;
+}
+
+static sk_system_t* system_create_impl(const sk_system_desc_t* desc) {
+	if (desc == NULL || desc->callback == NULL) {
+		return NULL;
+	}
+	if (!ecs_system_ids_valid(desc->reads, desc->read_count) || !ecs_system_ids_valid(desc->writes, desc->write_count)) {
+		return NULL;
+	}
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_system_t* system = (sk_system_t*)alloc->alloc(alloc->instance, sizeof(sk_system_t));
+	if (system == NULL) {
+		return NULL;
+	}
+	system->callback = desc->callback;
+	system->read_count = desc->read_count;
+	system->write_count = desc->write_count;
+	system->name = desc->name;
+	system->user_data = desc->user_data;
+	if (desc->read_count > 0u) {
+		memcpy(system->reads, desc->reads, (size_t)desc->read_count * sizeof(sk_type_id_t));
+	}
+	if (desc->write_count > 0u) {
+		memcpy(system->writes, desc->writes, (size_t)desc->write_count * sizeof(sk_type_id_t));
+	}
+	return system;
+}
+
+static void system_destroy_impl(sk_system_t* system) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	alloc->free(alloc->instance, system);
+}
+
+static u32 system_read_count_impl(const sk_system_t* system) {
+	return system->read_count;
+}
+
+static u32 system_write_count_impl(const sk_system_t* system) {
+	return system->write_count;
+}
+
+static sk_type_id_t system_read_id_impl(const sk_system_t* system, u32 index) {
+	return system->reads[index];
+}
+
+static sk_type_id_t system_write_id_impl(const sk_system_t* system, u32 index) {
+	return system->writes[index];
+}
+
+static const_chr_t system_name_impl(const sk_system_t* system) {
+	return system->name;
+}
+
+static void system_run_impl(sk_system_t* system, sk_world_t* world, f32 delta_time) {
+	system->callback(world, delta_time, system->user_data);
+}
+
+/* ---- scheduler (dependency-graph topo sort) ---- */
+
+/*
+ * A scheduler owns its systems and a flat N*N adjacency matrix (adj[i*N+j]
+ * == 1 means system i must run before system j). The matrix, indegree array,
+ * and the built order are recomputed by scheduler_build whenever systems are
+ * added. The order is deterministic: Kahn's algorithm always picks the
+ * lowest-index zero-indegree system, so registration order breaks ties among
+ * independent systems.
+ */
+struct sk_scheduler_t {
+	SK_ARRAY(sk_system_t*) systems;
+	SK_ARRAY(u8) adj;		/* N*N flat matrix (N = systems.count) */
+	SK_ARRAY(u32) indegree; /* per-system remaining predecessor count */
+	SK_ARRAY(u32) order;	/* built run order (system indices) */
+	u32 matrix_n;			/* systems.count at the last build */
+	i32 built;				/* order is fresh w.r.t. systems */
+	i32 has_cycle;
+};
+
+/*
+ * Whether system @p i must run before system @p j.
+ *
+ * Only real conflicts produce an edge:
+ *  - write-write: both write the same id; both directions are in conflict, so
+ *    the earlier-registered (lower index) system runs first.
+ *  - write-read: @p i writes an id @p j reads.
+ * The read-write mirror is covered when the pair is tested the other way
+ * around (a reader never gets an edge onto a writer). Read-read overlaps and
+ * disjoint sets add no edge.
+ */
+static i32 ecs_systems_conflict(const sk_scheduler_t* scheduler, u32 i, u32 j) {
+	const sk_system_t* a = scheduler->systems.items[i];
+	const sk_system_t* b = scheduler->systems.items[j];
+	for (u32 wi = 0u; wi < a->write_count; ++wi) {
+		for (u32 wj = 0u; wj < b->write_count; ++wj) {
+			if (SK_TYPE_ID_EQ(a->writes[wi], b->writes[wj])) {
+				return (i < j) ? 1 : 0;
+			}
+		}
+	}
+	for (u32 wi = 0u; wi < a->write_count; ++wi) {
+		for (u32 rj = 0u; rj < b->read_count; ++rj) {
+			if (SK_TYPE_ID_EQ(a->writes[wi], b->reads[rj])) {
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+static i32 scheduler_rebuild(sk_scheduler_t* scheduler) {
+	const u32 n = scheduler->systems.count;
+
+	scheduler->built = 0;
+	scheduler->has_cycle = 0;
+	scheduler->matrix_n = n;
+	sk_array_clear(&scheduler->order);
+
+	if (n == 0u) {
+		scheduler->built = 1;
+		return 0;
+	}
+	if (sk_array_resize(&scheduler->adj, n * n) != 0 || sk_array_resize(&scheduler->indegree, n) != 0) {
+		return -2;
+	}
+	if (sk_array_reserve(&scheduler->order, n) != 0) {
+		return -2;
+	}
+	memset(scheduler->adj.items, 0, (size_t)n * n);
+	memset(scheduler->indegree.items, 0, (size_t)n * sizeof(u32));
+
+	for (u32 i = 0u; i < n; ++i) {
+		for (u32 j = 0u; j < n; ++j) {
+			if (i == j || ecs_systems_conflict(scheduler, i, j) == 0) {
+				continue;
+			}
+			scheduler->adj.items[i * n + j] = 1u;
+			scheduler->indegree.items[j] += 1u;
+		}
+	}
+
+	u8 processed[SK_ECS_MAX_SYSTEMS];
+	memset(processed, 0, sizeof(processed));
+
+	for (u32 emitted = 0u; emitted < n; ++emitted) {
+		u32 pick = n;
+		for (u32 i = 0u; i < n; ++i) {
+			if (processed[i] == 0u && scheduler->indegree.items[i] == 0u) {
+				pick = i;
+				break;
+			}
+		}
+		if (pick == n) {
+			scheduler->has_cycle = 1;
+			scheduler->built = 1;
+			return -1;
+		}
+		processed[pick] = 1u;
+		if (sk_array_push(&scheduler->order, pick) != 0) {
+			return -2;
+		}
+		for (u32 j = 0u; j < n; ++j) {
+			if (scheduler->adj.items[pick * n + j] != 0u) {
+				scheduler->indegree.items[j] -= 1u;
+			}
+		}
+	}
+	scheduler->built = 1;
+	return 0;
+}
+
+static sk_scheduler_t* scheduler_create_impl(void) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_scheduler_t* scheduler = (sk_scheduler_t*)alloc->alloc(alloc->instance, sizeof(sk_scheduler_t));
+	if (scheduler == NULL) {
+		return NULL;
+	}
+	sk_array_init(&scheduler->systems, alloc);
+	sk_array_init(&scheduler->adj, alloc);
+	sk_array_init(&scheduler->indegree, alloc);
+	sk_array_init(&scheduler->order, alloc);
+	scheduler->matrix_n = 0u;
+	scheduler->built = 0;
+	scheduler->has_cycle = 0;
+	return scheduler;
+}
+
+static void scheduler_destroy_impl(sk_scheduler_t* scheduler) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_array_free(&scheduler->systems);
+	sk_array_free(&scheduler->adj);
+	sk_array_free(&scheduler->indegree);
+	sk_array_free(&scheduler->order);
+	alloc->free(alloc->instance, scheduler);
+}
+
+static i32 scheduler_add_impl(sk_scheduler_t* scheduler, sk_system_t* system) {
+	if (scheduler == NULL || system == NULL) {
+		return -1;
+	}
+	if (scheduler->systems.count >= (u32)SK_ECS_MAX_SYSTEMS) {
+		return -2;
+	}
+	if (sk_array_push(&scheduler->systems, system) != 0) {
+		return -3;
+	}
+	scheduler->built = 0;
+	return (i32)(scheduler->systems.count - 1u);
+}
+
+static u32 scheduler_system_count_impl(const sk_scheduler_t* scheduler) {
+	return scheduler->systems.count;
+}
+
+static sk_system_t* scheduler_system_impl(const sk_scheduler_t* scheduler, u32 index) {
+	if (index >= scheduler->systems.count) {
+		return NULL;
+	}
+	return scheduler->systems.items[index];
+}
+
+static i32 scheduler_build_impl(sk_scheduler_t* scheduler) {
+	return scheduler_rebuild(scheduler);
+}
+
+static i32 scheduler_has_cycle_impl(const sk_scheduler_t* scheduler) {
+	return scheduler->has_cycle;
+}
+
+static u32 scheduler_order_count_impl(const sk_scheduler_t* scheduler) {
+	return scheduler->order.count;
+}
+
+static sk_system_t* scheduler_order_at_impl(const sk_scheduler_t* scheduler, u32 position) {
+	if (position >= scheduler->order.count) {
+		return NULL;
+	}
+	return scheduler->systems.items[scheduler->order.items[position]];
+}
+
+static i32 scheduler_run_impl(sk_scheduler_t* scheduler, sk_world_t* world, f32 delta_time) {
+	if (!scheduler->built) {
+		const i32 rc = scheduler_rebuild(scheduler);
+		if (rc != 0) {
+			return rc;
+		}
+	}
+	if (scheduler->has_cycle) {
+		return -1;
+	}
+	for (u32 p = 0u; p < scheduler->order.count; ++p) {
+		sk_system_t* system = scheduler->systems.items[scheduler->order.items[p]];
+		system->callback(world, delta_time, system->user_data);
+	}
+	return 0;
+}
+
 /* ---- deferred entity commands ---- */
 
 /*
@@ -1415,6 +1708,26 @@ static const sk_entities_api_t entities_api = {
 	world_component_impl,
 	world_query_create_impl,
 
+	system_create_impl,
+	system_destroy_impl,
+	system_read_count_impl,
+	system_write_count_impl,
+	system_read_id_impl,
+	system_write_id_impl,
+	system_name_impl,
+	system_run_impl,
+
+	scheduler_create_impl,
+	scheduler_destroy_impl,
+	scheduler_add_impl,
+	scheduler_system_count_impl,
+	scheduler_system_impl,
+	scheduler_build_impl,
+	scheduler_has_cycle_impl,
+	scheduler_order_count_impl,
+	scheduler_order_at_impl,
+	scheduler_run_impl,
+
 	commands_create_impl,
 	commands_destroy_impl,
 	commands_count_impl,
@@ -1445,8 +1758,11 @@ void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
  * 16 KiB packing bounds / capacity calculation / column layout, chunk slot
  * allocation / swap-remove / entity-to-location mapping, the world surface
  * (spawn / despawn / add / remove with generation handles and archetype
- * moves), and the deferred entitycommands buffer (FIFO apply, placeholders,
- * batch create/destroy, deferred-until-apply semantics, reuse/clear).
+ * moves), the deferred entitycommands buffer (FIFO apply, placeholders,
+ * batch create/destroy, deferred-until-apply semantics, reuse/clear), and
+ * the systems / dependency-graph scheduler (registration validation,
+ * write-write and write-read chains, diamond joins, no edges on disjoint or
+ * read-read sets, deterministic tie-break, and cycle detection).
  */
 
 SK_TEST(entities_api_table_is_complete) {
@@ -1463,6 +1779,15 @@ SK_TEST(entities_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(entities_api.chunk_get);
 	TEST_ASSERT_NOT_NULL(entities_api.chunk_get_mut);
 	TEST_ASSERT_NOT_NULL(entities_api.chunk_find);
+	TEST_ASSERT_NOT_NULL(entities_api.system_create);
+	TEST_ASSERT_NOT_NULL(entities_api.system_destroy);
+	TEST_ASSERT_NOT_NULL(entities_api.system_run);
+	TEST_ASSERT_NOT_NULL(entities_api.scheduler_create);
+	TEST_ASSERT_NOT_NULL(entities_api.scheduler_destroy);
+	TEST_ASSERT_NOT_NULL(entities_api.scheduler_add);
+	TEST_ASSERT_NOT_NULL(entities_api.scheduler_build);
+	TEST_ASSERT_NOT_NULL(entities_api.scheduler_run);
+	TEST_ASSERT_NOT_NULL(entities_api.scheduler_order_count);
 }
 
 SK_TEST(entities_api_type_id_nonzero) {
@@ -2675,6 +3000,342 @@ SK_TEST(entities_commands_buffer_reuse_and_clear) {
 
 	entities_api.commands_destroy(cmds);
 	entities_api.world_destroy(world);
+}
+
+/* ---- systems / scheduler test harness ---- */
+
+/* A recorded run: each system appends its (unique) user_data id when run. */
+typedef struct ecs_test_run_t {
+	u32 ids[SK_ECS_MAX_SYSTEMS];
+	u32 count;
+} ecs_test_run_t;
+
+static void ecs_test_run_callback(sk_world_t* world, f32 delta_time, void_ptr_t user_data) {
+	(void)world;
+	(void)delta_time;
+	ecs_test_run_t* run = (ecs_test_run_t*)user_data;
+	TEST_ASSERT_TRUE(run->count < (u32)SK_ECS_MAX_SYSTEMS);
+	run->ids[run->count] = run->count + 1u;
+	run->count += 1u;
+}
+
+static ecs_test_run_t ecs_test_run_make(void) {
+	ecs_test_run_t run = {0};
+	return run;
+}
+
+static void ecs_test_assert_run(const ecs_test_run_t* run, const u32* expected, u32 expected_count) {
+	TEST_ASSERT_EQUAL_UINT32(expected_count, run->count);
+	for (u32 i = 0u; i < expected_count; ++i) {
+		TEST_ASSERT_EQUAL_UINT32(expected[i], run->ids[i]);
+	}
+}
+
+/* Component ids used by the system / scheduler tests (never registered; the
+ * scheduler only compares them, it does not require component registration). */
+#define TEST_SYS_A_ID SK_TYPE_ID("sk.test.ecs.sys.a", 0x3D00000000000001ULL, 0x0700000000000001ULL)
+#define TEST_SYS_B_ID SK_TYPE_ID("sk.test.ecs.sys.b", 0x3D00000000000002ULL, 0x0700000000000001ULL)
+#define TEST_SYS_C_ID SK_TYPE_ID("sk.test.ecs.sys.c", 0x3D00000000000003ULL, 0x0700000000000001ULL)
+#define TEST_SYS_D_ID SK_TYPE_ID("sk.test.ecs.sys.d", 0x3D00000000000004ULL, 0x0700000000000001ULL)
+
+/* Build a system descriptor for the shared run-record callback. */
+static sk_system_desc_t ecs_test_sys_desc(ecs_test_run_t* run, const sk_type_id_t* reads, u32 read_count, const sk_type_id_t* writes, u32 write_count) {
+	sk_system_desc_t desc = {0};
+	desc.callback = ecs_test_run_callback;
+	desc.reads = reads;
+	desc.read_count = read_count;
+	desc.writes = writes;
+	desc.write_count = write_count;
+	desc.user_data = run;
+	return desc;
+}
+
+SK_TEST(entities_system_create_validation) {
+	TEST_ASSERT_NULL(entities_api.system_create(NULL));
+
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t desc = ecs_test_sys_desc(&run, NULL, 0u, NULL, 0u);
+	desc.callback = NULL;
+	TEST_ASSERT_NULL(entities_api.system_create(&desc));
+
+	/* A count with a NULL id array is invalid. */
+	desc = ecs_test_sys_desc(&run, NULL, 1u, NULL, 0u);
+	TEST_ASSERT_NULL(entities_api.system_create(&desc));
+
+	/* A zero id in either set is invalid. */
+	const sk_type_id_t zero_ids[1] = {SK_TYPE_ID_ZERO};
+	desc = ecs_test_sys_desc(&run, zero_ids, 1u, NULL, 0u);
+	TEST_ASSERT_NULL(entities_api.system_create(&desc));
+
+	/* Duplicate ids within one set are invalid. */
+	const sk_type_id_t dup_ids[2] = {TEST_SYS_A_ID, TEST_SYS_A_ID};
+	desc = ecs_test_sys_desc(&run, NULL, 0u, dup_ids, 2u);
+	TEST_ASSERT_NULL(entities_api.system_create(&desc));
+
+	/* The same id in both the read and write set of one system is allowed
+	 * (the system modifies a component in place). */
+	const sk_type_id_t rw_ids[1] = {TEST_SYS_A_ID};
+	desc = ecs_test_sys_desc(&run, rw_ids, 1u, rw_ids, 1u);
+	sk_system_t* system = entities_api.system_create(&desc);
+	TEST_ASSERT_NOT_NULL(system);
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.system_read_count(system));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.system_write_count(system));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(TEST_SYS_A_ID, entities_api.system_read_id(system, 0u)));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(TEST_SYS_A_ID, entities_api.system_write_id(system, 0u)));
+	entities_api.system_destroy(system);
+}
+
+SK_TEST(entities_system_reads_writes_roundtrip) {
+	sk_type_id_t reads[2] = {TEST_SYS_A_ID, TEST_SYS_B_ID};
+	const sk_type_id_t writes[1] = {TEST_SYS_C_ID};
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t desc = ecs_test_sys_desc(&run, reads, 2u, writes, 1u);
+	desc.name = "roundtrip";
+	sk_system_t* system = entities_api.system_create(&desc);
+	TEST_ASSERT_NOT_NULL(system);
+
+	TEST_ASSERT_EQUAL_UINT32(2u, entities_api.system_read_count(system));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.system_write_count(system));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(TEST_SYS_A_ID, entities_api.system_read_id(system, 0u)));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(TEST_SYS_B_ID, entities_api.system_read_id(system, 1u)));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(TEST_SYS_C_ID, entities_api.system_write_id(system, 0u)));
+	TEST_ASSERT_EQUAL_STRING("roundtrip", entities_api.system_name(system));
+
+	/* The declared sets are copied: the caller's arrays may go stale. */
+	reads[0] = SK_TYPE_ID_ZERO;
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(TEST_SYS_A_ID, entities_api.system_read_id(system, 0u)));
+
+	/* Invoking the callback runs exactly once with the stored user_data. */
+	TEST_ASSERT_EQUAL_UINT32(0u, run.count);
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	entities_api.system_run(system, world, 1.0f);
+	TEST_ASSERT_EQUAL_UINT32(1u, run.count);
+	TEST_ASSERT_EQUAL_UINT32(1u, run.ids[0]);
+	entities_api.world_destroy(world);
+
+	entities_api.system_destroy(system);
+}
+
+SK_TEST(entities_scheduler_simple_chain_write_read) {
+	const sk_type_id_t a[1] = {TEST_SYS_A_ID};
+	const sk_type_id_t b[1] = {TEST_SYS_B_ID};
+
+	/* writer(a) -> reader(a)+writer(b) -> reader(b). */
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t w_a = ecs_test_sys_desc(&run, NULL, 0u, a, 1u);
+	sk_system_desc_t rw_b = ecs_test_sys_desc(&run, a, 1u, b, 1u);
+	sk_system_desc_t r_c = ecs_test_sys_desc(&run, b, 1u, NULL, 0u);
+
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_NOT_NULL(scheduler);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_add(scheduler, entities_api.system_create(&w_a)));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.scheduler_add(scheduler, entities_api.system_create(&rw_b)));
+	TEST_ASSERT_EQUAL_INT32(2, entities_api.scheduler_add(scheduler, entities_api.system_create(&r_c)));
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.scheduler_system_count(scheduler));
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_build(scheduler));
+	TEST_ASSERT_FALSE(entities_api.scheduler_has_cycle(scheduler));
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.scheduler_order_count(scheduler));
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_run(scheduler, world, 0.0f));
+	const u32 expected[3] = {1u, 2u, 3u};
+	ecs_test_assert_run(&run, expected, 3u);
+	entities_api.world_destroy(world);
+
+	for (u32 i = 0u; i < 3u; ++i) {
+		entities_api.system_destroy(entities_api.scheduler_system(scheduler, i));
+	}
+	entities_api.scheduler_destroy(scheduler);
+}
+
+SK_TEST(entities_scheduler_simple_chain_write_write) {
+	const sk_type_id_t a[1] = {TEST_SYS_A_ID};
+	const sk_type_id_t b[1] = {TEST_SYS_B_ID};
+
+	/* Two writers of the same component: the earlier-registered runs first
+	 * (write-write conflict). reader(c) after both stays last. */
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t w_a0 = ecs_test_sys_desc(&run, NULL, 0u, a, 1u);
+	sk_system_desc_t w_a1 = ecs_test_sys_desc(&run, NULL, 0u, a, 1u);
+	sk_system_desc_t r_c = ecs_test_sys_desc(&run, b, 1u, NULL, 0u);
+
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_add(scheduler, entities_api.system_create(&w_a0)));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.scheduler_add(scheduler, entities_api.system_create(&w_a1)));
+	TEST_ASSERT_EQUAL_INT32(2, entities_api.scheduler_add(scheduler, entities_api.system_create(&r_c)));
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_build(scheduler));
+	TEST_ASSERT_EQUAL_UINT32(3u, entities_api.scheduler_order_count(scheduler));
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_run(scheduler, world, 0.0f));
+	const u32 expected[3] = {1u, 2u, 3u};
+	ecs_test_assert_run(&run, expected, 3u);
+	entities_api.world_destroy(world);
+
+	for (u32 i = 0u; i < 3u; ++i) {
+		entities_api.system_destroy(entities_api.scheduler_system(scheduler, i));
+	}
+	entities_api.scheduler_destroy(scheduler);
+}
+
+SK_TEST(entities_scheduler_diamond_graph) {
+	const sk_type_id_t a[1] = {TEST_SYS_A_ID};
+	const sk_type_id_t b[1] = {TEST_SYS_B_ID};
+	const sk_type_id_t c[1] = {TEST_SYS_C_ID};
+
+	/* writer(a) -> { reader(a)+writer(b), reader(a)+writer(c) } -> reader(b,c).
+	 * The two middle systems are independent (only read a), so the order
+	 * among them is deterministic by registration index (tie-break). */
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t w_a = ecs_test_sys_desc(&run, NULL, 0u, a, 1u);
+	sk_system_desc_t rw_b = ecs_test_sys_desc(&run, a, 1u, b, 1u);
+	sk_system_desc_t rw_c = ecs_test_sys_desc(&run, a, 1u, c, 1u);
+	sk_system_desc_t r_bc = ecs_test_sys_desc(&run, b, 2u, NULL, 0u);
+
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_add(scheduler, entities_api.system_create(&w_a)));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.scheduler_add(scheduler, entities_api.system_create(&rw_b)));
+	TEST_ASSERT_EQUAL_INT32(2, entities_api.scheduler_add(scheduler, entities_api.system_create(&rw_c)));
+	TEST_ASSERT_EQUAL_INT32(3, entities_api.scheduler_add(scheduler, entities_api.system_create(&r_bc)));
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_build(scheduler));
+	TEST_ASSERT_FALSE(entities_api.scheduler_has_cycle(scheduler));
+	TEST_ASSERT_EQUAL_UINT32(4u, entities_api.scheduler_order_count(scheduler));
+
+	/* Deterministic: registration-order tie-break among the independent
+	 * middle systems gives 0,1,2,3. */
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_run(scheduler, world, 0.0f));
+	const u32 expected[4] = {1u, 2u, 3u, 4u};
+	ecs_test_assert_run(&run, expected, 4u);
+
+	/* Rebuild is deterministic: another build yields the same order. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_build(scheduler));
+	run = ecs_test_run_make();
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_run(scheduler, world, 0.0f));
+	ecs_test_assert_run(&run, expected, 4u);
+	entities_api.world_destroy(world);
+
+	for (u32 i = 0u; i < 4u; ++i) {
+		entities_api.system_destroy(entities_api.scheduler_system(scheduler, i));
+	}
+	entities_api.scheduler_destroy(scheduler);
+}
+
+SK_TEST(entities_scheduler_no_false_edges_disjoint_sets) {
+	const sk_type_id_t a[1] = {TEST_SYS_A_ID};
+	const sk_type_id_t b[1] = {TEST_SYS_B_ID};
+
+	/* Pure readers of the same component share no edge (read-read). */
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t r_a0 = ecs_test_sys_desc(&run, a, 1u, NULL, 0u);
+	sk_system_desc_t r_a1 = ecs_test_sys_desc(&run, a, 1u, NULL, 0u);
+
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_add(scheduler, entities_api.system_create(&r_a0)));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.scheduler_add(scheduler, entities_api.system_create(&r_a1)));
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_build(scheduler));
+	TEST_ASSERT_FALSE(entities_api.scheduler_has_cycle(scheduler));
+	TEST_ASSERT_EQUAL_UINT32(2u, entities_api.scheduler_order_count(scheduler));
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_run(scheduler, world, 0.0f));
+	const u32 expected_rr[2] = {1u, 2u};
+	ecs_test_assert_run(&run, expected_rr, 2u);
+	for (u32 i = 0u; i < 2u; ++i) {
+		entities_api.system_destroy(entities_api.scheduler_system(scheduler, i));
+	}
+	entities_api.scheduler_destroy(scheduler);
+
+	/* Fully disjoint systems (different writes) share no edge. */
+	run = ecs_test_run_make();
+	sk_system_desc_t w_a = ecs_test_sys_desc(&run, NULL, 0u, a, 1u);
+	sk_system_desc_t w_b = ecs_test_sys_desc(&run, NULL, 0u, b, 1u);
+
+	scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_add(scheduler, entities_api.system_create(&w_a)));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.scheduler_add(scheduler, entities_api.system_create(&w_b)));
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_build(scheduler));
+	TEST_ASSERT_FALSE(entities_api.scheduler_has_cycle(scheduler));
+	TEST_ASSERT_EQUAL_UINT32(2u, entities_api.scheduler_order_count(scheduler));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_run(scheduler, world, 0.0f));
+	const u32 expected_disjoint[2] = {1u, 2u};
+	ecs_test_assert_run(&run, expected_disjoint, 2u);
+	entities_api.world_destroy(world);
+	for (u32 i = 0u; i < 2u; ++i) {
+		entities_api.system_destroy(entities_api.scheduler_system(scheduler, i));
+	}
+	entities_api.scheduler_destroy(scheduler);
+}
+
+SK_TEST(entities_scheduler_cycle_detected) {
+	const sk_type_id_t a[1] = {TEST_SYS_A_ID};
+	const sk_type_id_t b[1] = {TEST_SYS_B_ID};
+
+	/* a -> b -> a: writer(a)+reader(b), then writer(b)+reader(a). */
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t s0 = ecs_test_sys_desc(&run, b, 1u, a, 1u);
+	sk_system_desc_t s1 = ecs_test_sys_desc(&run, a, 1u, b, 1u);
+
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_add(scheduler, entities_api.system_create(&s0)));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.scheduler_add(scheduler, entities_api.system_create(&s1)));
+
+	/* Build detects the cycle and returns an error. */
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.scheduler_build(scheduler));
+	TEST_ASSERT_TRUE(entities_api.scheduler_has_cycle(scheduler));
+	TEST_ASSERT_TRUE(entities_api.scheduler_order_count(scheduler) < entities_api.scheduler_system_count(scheduler));
+
+	/* Running while a cycle is present refuses to execute any callback. */
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.scheduler_run(scheduler, world, 0.0f));
+	TEST_ASSERT_EQUAL_UINT32(0u, run.count);
+	entities_api.world_destroy(world);
+
+	for (u32 i = 0u; i < 2u; ++i) {
+		entities_api.system_destroy(entities_api.scheduler_system(scheduler, i));
+	}
+	entities_api.scheduler_destroy(scheduler);
+}
+
+SK_TEST(entities_scheduler_rebuilds_on_add) {
+	const sk_type_id_t a[1] = {TEST_SYS_A_ID};
+	const sk_type_id_t b[1] = {TEST_SYS_B_ID};
+
+	/* scheduler_run implicitly rebuilds when systems were added after the
+	 * last build, so the new system joins the run order. */
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t w_a = ecs_test_sys_desc(&run, NULL, 0u, a, 1u);
+	sk_system_desc_t r_b = ecs_test_sys_desc(&run, b, 1u, NULL, 0u);
+
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_add(scheduler, entities_api.system_create(&w_a)));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_build(scheduler));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.scheduler_order_count(scheduler));
+
+	/* Adding a second system invalidates the order; run rebuilds it. */
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.scheduler_add(scheduler, entities_api.system_create(&r_b)));
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_run(scheduler, world, 0.0f));
+	TEST_ASSERT_EQUAL_UINT32(2u, entities_api.scheduler_order_count(scheduler));
+	const u32 expected[2] = {1u, 2u};
+	ecs_test_assert_run(&run, expected, 2u);
+	entities_api.world_destroy(world);
+
+	for (u32 i = 0u; i < 2u; ++i) {
+		entities_api.system_destroy(entities_api.scheduler_system(scheduler, i));
+	}
+	entities_api.scheduler_destroy(scheduler);
 }
 
 /*
