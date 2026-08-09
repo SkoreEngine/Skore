@@ -1753,16 +1753,22 @@ void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 #include "test.h"
 
 /*
- * Unit coverage for the ECS storage layer: type-id wiring, the entity handle,
- * the sk_type_id-keyed component registry, archetype signature normalization,
- * 16 KiB packing bounds / capacity calculation / column layout, chunk slot
- * allocation / swap-remove / entity-to-location mapping, the world surface
- * (spawn / despawn / add / remove with generation handles and archetype
- * moves), the deferred entitycommands buffer (FIFO apply, placeholders,
- * batch create/destroy, deferred-until-apply semantics, reuse/clear), and
- * the systems / dependency-graph scheduler (registration validation,
- * write-write and write-read chains, diamond joins, no edges on disjoint or
- * read-read sets, deterministic tie-break, and cycle detection).
+ * Unit coverage for the ECS storage layer: type-id wiring (equal-lo/high-half
+ * ordering), the entity handle, the sk_type_id-keyed component registry,
+ * archetype signature normalization (sort, dedup, duplicate / zero / entity-id
+ * rejection, 16 KiB packing bounds down to capacity 0), chunk slot allocation
+ * / swap-remove / entity-to-location mapping, the world surface (spawn /
+ * despawn / add / remove with generation handles, signature normalization,
+ * unregistered and unfittable-layout failures, out-of-range handles, and the
+ * swap-remove slot rewrite during archetype moves), the deferred
+ * entitycommands buffer (FIFO apply, placeholders, record-time validation,
+ * removal commands, unknown-placeholder skipping, apply-time failure
+ * reporting, deferred-until-apply semantics, reuse/clear), and the systems /
+ * dependency-graph scheduler (registration validation incl. set-size caps,
+ * empty builds, add validation / capacity / out-of-range accessors, built-order
+ * accessors, write-write and write-read chains, diamond joins, no edges on
+ * disjoint or read-read sets, deterministic tie-break, implicit rebuild, and
+ * cycle detection on build and run).
  */
 
 SK_TEST(entities_api_table_is_complete) {
@@ -1985,6 +1991,53 @@ SK_TEST(entities_archetype_align16_layout) {
 	entities_api.archetype_destroy(a);
 }
 
+SK_TEST(entities_type_id_equal_lo_sort) {
+	/* Two ids sharing lo but differing hi: the signature sort must compare the
+	 * high half so the ascending order is by hi. */
+	const sk_component_info_t comps[2] = {
+		{SK_TYPE_ID("sk.test.ecs.sorthi.b", 0x1000000000000F00ULL, 0x0000000000000002ULL), 4u, 4u, "hi2"},
+		{SK_TYPE_ID("sk.test.ecs.sorthi.a", 0x1000000000000F00ULL, 0x0000000000000001ULL), 4u, 4u, "hi1"},
+	};
+	sk_archetype_t* a = entities_api.archetype_create(comps, 2u);
+	TEST_ASSERT_NOT_NULL(a);
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_TYPE_ID("sk.test.ecs.sorthi.a", 0x1000000000000F00ULL, 0x0000000000000001ULL), entities_api.archetype_component_id(a, 1u)));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_TYPE_ID("sk.test.ecs.sorthi.b", 0x1000000000000F00ULL, 0x0000000000000002ULL), entities_api.archetype_component_id(a, 2u)));
+	entities_api.archetype_destroy(a);
+}
+
+SK_TEST(entities_archetype_packing_bound_and_capacity_zero) {
+	/* Inter-column alignment padding can push the greedy upper bound past the
+	 * 16 KiB block, so the binary search must descend to a smaller capacity. */
+	const sk_component_info_t tight[3] = {
+		{SK_TYPE_ID("sk.test.ecs.fit.pad", 0x1000000000000E01ULL, 0x01ULL), 1u, 1u, "pad"},
+		{SK_TYPE_ID("sk.test.ecs.fit.big", 0x1000000000000E02ULL, 0x01ULL), 4096u, 4096u, "big"},
+		{SK_TYPE_ID("sk.test.ecs.fit.tail", 0x1000000000000E03ULL, 0x01ULL), 4u, 4u, "tail"},
+	};
+	sk_archetype_t* a = entities_api.archetype_create(tight, 3u);
+	TEST_ASSERT_NOT_NULL(a);
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.archetype_chunk_capacity(a));
+	entities_api.archetype_destroy(a);
+
+	/* An alignment larger than the 16 KiB chunk cannot host a single row. */
+	const sk_component_info_t huge_align = {SK_TYPE_ID("sk.test.ecs.fit.hugealign", 0x1000000000000E04ULL, 0x01ULL), 8u, 32768u, "huge-align"};
+	TEST_ASSERT_NULL(entities_api.archetype_create(&huge_align, 1u));
+
+	/* A column wider than the 16 KiB chunk cannot host a single row. */
+	const sk_component_info_t huge_size = {SK_TYPE_ID("sk.test.ecs.fit.hugesize", 0x1000000000000E05ULL, 0x01ULL), 16384u, 1u, "huge-size"};
+	TEST_ASSERT_NULL(entities_api.archetype_create(&huge_size, 1u));
+}
+
+SK_TEST(entities_archetype_component_align_roundtrip) {
+	const sk_component_info_t comps[1] = {
+		{SK_TYPE_ID("sk.test.ecs.calign.c", 0x1000000000000D01ULL, 0x01ULL), 8u, 16u, "c"},
+	};
+	sk_archetype_t* a = entities_api.archetype_create(comps, 1u);
+	TEST_ASSERT_NOT_NULL(a);
+	TEST_ASSERT_EQUAL_UINT32(16u, entities_api.archetype_component_align(a, 1u));
+	TEST_ASSERT_EQUAL_UINT32(SK_ECS_ENTITY_ALIGN, entities_api.archetype_component_align(a, 0u));
+	entities_api.archetype_destroy(a);
+}
+
 SK_TEST(entities_chunk_allocate_and_packing_bounds) {
 	const sk_component_info_t comps[2] = {
 		{SK_TYPE_ID("sk.test.ecs.pack.a", 0x1000000000000080ULL, 0x01ULL), 4u, 4u, "a"},
@@ -2164,6 +2217,32 @@ SK_TEST(entities_archetype_chunks_and_location) {
 	TEST_ASSERT_EQUAL_INT32(-1, entities_api.archetype_location(a, (sk_entity_t){99u, 0u}, &loc));
 
 	/* archetype_destroy frees the chunks it owns. */
+	entities_api.archetype_destroy(a);
+}
+
+SK_TEST(entities_chunk_archetype_and_column_mut) {
+	const sk_component_info_t comps[1] = {
+		{SK_TYPE_ID("sk.test.ecs.cmut.c", 0x1000000000000C01ULL, 0x01ULL), 4u, 4u, "c"},
+	};
+	sk_archetype_t* a = entities_api.archetype_create(comps, 1u);
+	TEST_ASSERT_NOT_NULL(a);
+	sk_chunk_t* chunk = entities_api.chunk_create(a);
+	TEST_ASSERT_NOT_NULL(chunk);
+
+	/* A chunk reports its owning archetype. */
+	TEST_ASSERT_EQUAL_PTR((const_ptr_t)a, entities_api.chunk_archetype(chunk));
+
+	/* The mutable column base aliases row 0 of that column. */
+	const u32 col_c = (u32)entities_api.archetype_column(a, SK_TYPE_ID("sk.test.ecs.cmut.c", 0x1000000000000C01ULL, 0x01ULL));
+	u32 row = 0u;
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.chunk_allocate(chunk, (sk_entity_t){5u, 0u}, &row));
+	void_ptr_t col = entities_api.chunk_column_mut(chunk, col_c);
+	TEST_ASSERT_NOT_NULL(col);
+	TEST_ASSERT_EQUAL_PTR(entities_api.chunk_get_mut(chunk, col_c, 0u), col);
+	((u32*)col)[0] = 123u;
+	TEST_ASSERT_EQUAL_UINT32(123u, *(const u32*)entities_api.chunk_get(chunk, col_c, 0u));
+
+	entities_api.chunk_destroy(chunk);
 	entities_api.archetype_destroy(a);
 }
 
@@ -2591,6 +2670,13 @@ SK_TEST(entities_query_iteration_empty_matches) {
 	entities_api.archetype_destroy(t);
 }
 
+SK_TEST(entities_query_iter_null_query) {
+	/* A zeroed iterator with no query is immediately exhausted. */
+	sk_query_iter_t it = sk_query_iter_make(NULL);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_iter_next(&it));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.query_iter_next(&it));
+}
+
 /* ---- world + deferred entitycommands tests ---- */
 
 typedef struct ecs_world_pos_t {
@@ -2610,6 +2696,12 @@ typedef struct ecs_world_tag_t {
 #define TEST_WORLD_POS_ID SK_TYPE_ID("sk.test.ecs.world.pos", 0x3B00000000000001ULL, 0x0200000000000001ULL)
 #define TEST_WORLD_VEL_ID SK_TYPE_ID("sk.test.ecs.world.vel", 0x3B00000000000002ULL, 0x0200000000000001ULL)
 #define TEST_WORLD_TAG_ID SK_TYPE_ID("sk.test.ecs.world.tag", 0x3B00000000000003ULL, 0x0200000000000001ULL)
+
+/* Registered on demand by the spawn-validation test: a layout that cannot fit
+ * inside a 16 KiB chunk. */
+#define TEST_ECS_HUGE_ID SK_TYPE_ID("sk.test.ecs.world.huge", 0x3B000000000000EEULL, 0x0200000000000001ULL)
+/* Deliberately never registered: drives the unregistered-component failure paths. */
+#define TEST_ECS_UNREG_ID SK_TYPE_ID("sk.test.ecs.world.unreg", 0x3B000000000000DDULL, 0x0200000000000001ULL)
 
 static void ecs_world_register_components(void) {
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_POS_ID, (u32)sizeof(ecs_world_pos_t), 4u, "world-pos"));
@@ -2712,6 +2804,125 @@ SK_TEST(entities_world_add_remove_component) {
 	TEST_ASSERT_EQUAL_INT32(-1, entities_api.world_remove_component(world, e, TEST_WORLD_POS_ID));
 	TEST_ASSERT_NULL(entities_api.world_component(world, e, TEST_WORLD_POS_ID));
 	TEST_ASSERT_FALSE(entities_api.world_alive(world, SK_ENTITY_INVALID));
+
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_spawn_validation) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	/* A NULL id array with a positive count. */
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn(world, NULL, 1u)));
+
+	/* Zero / entity component ids are rejected by signature normalization. */
+	const sk_type_id_t zero[1] = {SK_TYPE_ID_ZERO};
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn(world, zero, 1u)));
+	const sk_type_id_t entity_comp[1] = {SK_ECS_ENTITY_COMPONENT_ID};
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn(world, entity_comp, 1u)));
+
+	/* Signatures at/over the column limit fail. */
+	sk_type_id_t too_many[SK_ECS_MAX_ARCHETYPE_COLUMNS];
+	for (u32 i = 0u; i < (u32)SK_ECS_MAX_ARCHETYPE_COLUMNS; ++i) {
+		too_many[i] = SK_TYPE_ID("sk.test.ecs.wspawn.many", (u64)i + 0x100ULL, 0x0200000000000002ULL);
+	}
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn(world, too_many, (u32)SK_ECS_MAX_ARCHETYPE_COLUMNS)));
+
+	/* Unsorted + duplicate ids normalize (sort + dedup) to one archetype. */
+	const sk_type_id_t messy[4] = {TEST_WORLD_TAG_ID, TEST_WORLD_POS_ID, TEST_WORLD_VEL_ID, TEST_WORLD_POS_ID};
+	sk_entity_t e = entities_api.world_spawn(world, messy, 4u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_POS_ID));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_TAG_ID));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
+
+	/* A registered component whose layout cannot fit 16 KiB fails to spawn. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_ECS_HUGE_ID, 16384u, 1u, "huge"));
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn(world, &TEST_ECS_HUGE_ID, 1u)));
+
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_alive_out_of_range) {
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	/* Handles beyond the slot table and stale slot indices are dead. */
+	TEST_ASSERT_FALSE(entities_api.world_alive(world, (sk_entity_t){0x40000000u, 0u}));
+	TEST_ASSERT_FALSE(entities_api.world_alive(world, (sk_entity_t){1u, 0u}));
+	TEST_ASSERT_FALSE(entities_api.world_alive(world, SK_ENTITY_INVALID));
+
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_add_component_validation) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t pos_id[1] = {TEST_WORLD_POS_ID};
+	sk_entity_t e = entities_api.world_spawn(world, pos_id, 1u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e));
+
+	/* Zero / entity component ids are rejected before any archetype lookup. */
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.world_add_component(world, e, SK_TYPE_ID_ZERO));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.world_add_component(world, e, SK_ECS_ENTITY_COMPONENT_ID));
+
+	/* An unregistered id fails the target-archetype lookup. */
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.world_add_component(world, e, TEST_ECS_UNREG_ID));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, e, TEST_ECS_UNREG_ID));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, e));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_POS_ID));
+
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_query_create_rejects_invalid_desc) {
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_NULL(entities_api.world_query_create(world, NULL));
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_world_move_updates_swapped_slot) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t pos_id[1] = {TEST_WORLD_POS_ID};
+	sk_entity_t a = entities_api.world_spawn(world, pos_id, 1u);
+	sk_entity_t b = entities_api.world_spawn(world, pos_id, 1u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(a));
+	TEST_ASSERT_TRUE(sk_entity_is_valid(b));
+	((ecs_world_pos_t*)entities_api.world_component(world, a, TEST_WORLD_POS_ID))->x = 1.0f;
+	((ecs_world_pos_t*)entities_api.world_component(world, b, TEST_WORLD_POS_ID))->x = 2.0f;
+
+	/* Moving `a` (row 0) out swaps the last entity `b` (row 1) into row 0;
+	 * b's cached location must be rewritten or its component reads break. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_add_component(world, a, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, b));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, b, TEST_WORLD_POS_ID));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, b, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_FLOAT_WITHIN(1e-5f, 2.0f, ((const ecs_world_pos_t*)entities_api.world_component(world, b, TEST_WORLD_POS_ID))->x);
+	TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, ((const ecs_world_pos_t*)entities_api.world_component(world, a, TEST_WORLD_POS_ID))->x);
+
+	/* Both a ({pos, vel}) and b ({pos}) match the pos query. */
+	const sk_type_id_t req_pos[1] = {TEST_WORLD_POS_ID};
+	const sk_query_desc_t d_pos = {req_pos, 1u, NULL, 0u, NULL, 0u};
+	sk_query_t* q = entities_api.world_query_create(world, &d_pos);
+	TEST_ASSERT_NOT_NULL(q);
+	u32 seen = 0u;
+	f32 sum = 0.0f;
+	SK_ECS_QUERY_EACH(&entities_api, q, it) {
+		const ecs_world_pos_t* pp = SK_ECS_ITER_AT(it, 1, ecs_world_pos_t);
+		TEST_ASSERT_NOT_NULL(pp);
+		seen += 1u;
+		sum += pp->x;
+	}
+	TEST_ASSERT_EQUAL_UINT32(2u, seen);
+	TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.0f, sum);
 
 	entities_api.world_destroy(world);
 }
@@ -2997,6 +3208,139 @@ SK_TEST(entities_commands_buffer_reuse_and_clear) {
 		}
 	}
 	TEST_ASSERT_EQUAL_UINT32(1u, vel_entities);
+
+	entities_api.commands_destroy(cmds);
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_commands_spawn_validation) {
+	sk_entitycommands_t* cmds = entities_api.commands_create();
+	TEST_ASSERT_NOT_NULL(cmds);
+
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.commands_spawn(cmds, NULL, 1u)));
+	const sk_type_id_t zero[1] = {SK_TYPE_ID_ZERO};
+	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.commands_spawn(cmds, zero, 1u)));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.commands_count(cmds));
+
+	entities_api.commands_destroy(cmds);
+}
+
+SK_TEST(entities_commands_target_validation) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entitycommands_t* cmds = entities_api.commands_create();
+	TEST_ASSERT_NOT_NULL(cmds);
+
+	const ecs_world_vel_t vel = {1.0f, 2.0f};
+	const sk_entity_t handle = {1u, 0u};
+
+	/* Invalid handles are rejected at record time. */
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_despawn(cmds, SK_ENTITY_INVALID));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_add_component(cmds, SK_ENTITY_INVALID, TEST_WORLD_VEL_ID, &vel));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_remove_component(cmds, SK_ENTITY_INVALID, TEST_WORLD_VEL_ID));
+
+	/* Zero / entity component ids are rejected for add/remove. */
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_add_component(cmds, handle, SK_TYPE_ID_ZERO, &vel));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_add_component(cmds, handle, SK_ECS_ENTITY_COMPONENT_ID, &vel));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_remove_component(cmds, handle, SK_TYPE_ID_ZERO));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_remove_component(cmds, handle, SK_ECS_ENTITY_COMPONENT_ID));
+
+	/* Copying a value for an unregistered type fails at record time. */
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_add_component(cmds, handle, TEST_ECS_UNREG_ID, &vel));
+
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.commands_count(cmds));
+	entities_api.commands_destroy(cmds);
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_commands_remove_component_roundtrip) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entitycommands_t* cmds = entities_api.commands_create();
+	TEST_ASSERT_NOT_NULL(cmds);
+
+	/* Deferred spawn {pos, vel}, then remove vel before apply. */
+	const sk_type_id_t pv[2] = {TEST_WORLD_POS_ID, TEST_WORLD_VEL_ID};
+	sk_entity_t ph = entities_api.commands_spawn(cmds, pv, 2u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(ph));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_remove_component(cmds, ph, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
+	const sk_query_desc_t d_none = SK_QUERY_DESC_NONE;
+	sk_query_t* q = entities_api.world_query_create(world, &d_none);
+	TEST_ASSERT_NOT_NULL(q);
+	sk_entity_t e = SK_ENTITY_INVALID;
+	SK_ECS_QUERY_EACH(&entities_api, q, it) {
+		e = SK_ECS_ITER_ENTITY_ROW(it);
+	}
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e));
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, e, TEST_WORLD_POS_ID));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, e, TEST_WORLD_VEL_ID));
+
+	/* Removing a component the entity lacks is an idempotent success. */
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_remove_component(cmds, e, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, e));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, e, TEST_WORLD_VEL_ID));
+
+	/* Removing from an entity despawned earlier in the same buffer is skipped. */
+	sk_entity_t ph2 = entities_api.commands_spawn(cmds, pv, 2u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(ph2));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_despawn(cmds, ph2));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_remove_component(cmds, ph2, TEST_WORLD_POS_ID));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
+
+	entities_api.commands_destroy(cmds);
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_commands_unknown_placeholder_skipped) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entitycommands_t* cmds = entities_api.commands_create();
+	TEST_ASSERT_NOT_NULL(cmds);
+
+	/* A placeholder whose pending index never existed resolves to INVALID and
+	 * its ops are skipped at apply. */
+	const sk_entity_t bogus = {SK_ECS_DEFERRED_BASE | 0x1000u, 0u};
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_despawn(cmds, bogus));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_add_component(cmds, bogus, TEST_WORLD_VEL_ID, NULL));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_remove_component(cmds, bogus, TEST_WORLD_VEL_ID));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.commands_count(cmds));
+
+	entities_api.commands_destroy(cmds);
+	entities_api.world_destroy(world);
+}
+
+SK_TEST(entities_commands_apply_reports_failures) {
+	ecs_world_register_components();
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entitycommands_t* cmds = entities_api.commands_create();
+	TEST_ASSERT_NOT_NULL(cmds);
+
+	/* A deferred spawn carrying an unregistered component fails at apply. */
+	sk_entity_t ph = entities_api.commands_spawn(cmds, &TEST_ECS_UNREG_ID, 1u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(ph));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.world_count(world));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.commands_count(cmds));
+
+	/* Adding an unregistered component (recorded with a NULL value, which is
+	 * not looked up until apply) fails at apply. */
+	sk_entity_t e = entities_api.world_spawn(world, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(e));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.commands_add_component(cmds, e, TEST_ECS_UNREG_ID, NULL));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.commands_apply(cmds, world));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, e));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, e, TEST_ECS_UNREG_ID));
 
 	entities_api.commands_destroy(cmds);
 	entities_api.world_destroy(world);
@@ -3338,6 +3682,96 @@ SK_TEST(entities_scheduler_rebuilds_on_add) {
 	entities_api.scheduler_destroy(scheduler);
 }
 
+SK_TEST(entities_system_read_count_overflow) {
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_type_id_t reads[SK_ECS_MAX_SYSTEM_COMPONENTS + 1u];
+	for (u32 i = 0u; i < (u32)SK_ECS_MAX_SYSTEM_COMPONENTS + 1u; ++i) {
+		reads[i] = SK_TYPE_ID("sk.test.ecs.sys.over", (u64)i + 0x10ULL, 0x01ULL);
+	}
+	sk_system_desc_t desc = ecs_test_sys_desc(&run, reads, (u32)SK_ECS_MAX_SYSTEM_COMPONENTS + 1u, NULL, 0u);
+	TEST_ASSERT_NULL(entities_api.system_create(&desc));
+}
+
+SK_TEST(entities_scheduler_empty_build) {
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_NOT_NULL(scheduler);
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.scheduler_system_count(scheduler));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_build(scheduler));
+	TEST_ASSERT_FALSE(entities_api.scheduler_has_cycle(scheduler));
+	TEST_ASSERT_EQUAL_UINT32(0u, entities_api.scheduler_order_count(scheduler));
+	entities_api.scheduler_destroy(scheduler);
+}
+
+SK_TEST(entities_scheduler_add_validation_and_capacity) {
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t desc = ecs_test_sys_desc(&run, NULL, 0u, NULL, 0u);
+	sk_system_t* system = entities_api.system_create(&desc);
+	TEST_ASSERT_NOT_NULL(system);
+
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.scheduler_add(NULL, system));
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_NOT_NULL(scheduler);
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.scheduler_add(scheduler, NULL));
+
+	/* Filling the scheduler returns -2 once the cap is reached. */
+	i32 last = 0;
+	for (u32 i = 0u; i <= (u32)SK_ECS_MAX_SYSTEMS; ++i) {
+		last = entities_api.scheduler_add(scheduler, system);
+	}
+	TEST_ASSERT_EQUAL_INT32(-2, last);
+	TEST_ASSERT_EQUAL_UINT32((u32)SK_ECS_MAX_SYSTEMS, entities_api.scheduler_system_count(scheduler));
+
+	/* Out-of-range system access returns NULL. */
+	TEST_ASSERT_NULL(entities_api.scheduler_system(scheduler, (u32)SK_ECS_MAX_SYSTEMS));
+	TEST_ASSERT_NULL(entities_api.scheduler_system(scheduler, 0x40000000u));
+
+	entities_api.system_destroy(system);
+	entities_api.scheduler_destroy(scheduler);
+}
+
+SK_TEST(entities_scheduler_order_accessors) {
+	const sk_type_id_t a[1] = {TEST_SYS_A_ID};
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t w_a = ecs_test_sys_desc(&run, NULL, 0u, a, 1u);
+	sk_system_t* s0 = entities_api.system_create(&w_a);
+	TEST_ASSERT_NOT_NULL(s0);
+
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_add(scheduler, s0));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_build(scheduler));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.scheduler_order_count(scheduler));
+	TEST_ASSERT_EQUAL_PTR((const_ptr_t)s0, (const_ptr_t)entities_api.scheduler_order_at(scheduler, 0u));
+	TEST_ASSERT_NULL(entities_api.scheduler_order_at(scheduler, 1u));
+	TEST_ASSERT_NULL(entities_api.scheduler_order_at(scheduler, 0x40000000u));
+
+	entities_api.system_destroy(s0);
+	entities_api.scheduler_destroy(scheduler);
+}
+
+SK_TEST(entities_scheduler_run_implicit_build_rejects_cycle) {
+	const sk_type_id_t a[1] = {TEST_SYS_A_ID};
+	const sk_type_id_t b[1] = {TEST_SYS_B_ID};
+	ecs_test_run_t run = ecs_test_run_make();
+	sk_system_desc_t s0 = ecs_test_sys_desc(&run, b, 1u, a, 1u);
+	sk_system_desc_t s1 = ecs_test_sys_desc(&run, a, 1u, b, 1u);
+
+	sk_scheduler_t* scheduler = entities_api.scheduler_create();
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.scheduler_add(scheduler, entities_api.system_create(&s0)));
+	TEST_ASSERT_EQUAL_INT32(1, entities_api.scheduler_add(scheduler, entities_api.system_create(&s1)));
+
+	/* Never build: scheduler_run's implicit rebuild detects the cycle. */
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.scheduler_run(scheduler, world, 0.0f));
+	TEST_ASSERT_EQUAL_UINT32(0u, run.count);
+	entities_api.world_destroy(world);
+
+	for (u32 i = 0u; i < 2u; ++i) {
+		entities_api.system_destroy(entities_api.scheduler_system(scheduler, i));
+	}
+	entities_api.scheduler_destroy(scheduler);
+}
+
 /*
  * Exhausts the component registry (SK_ECS_MAX_COMPONENT_TYPES entries).
  * Keep this test last in the file: it fills the module registry for the
@@ -3354,9 +3788,9 @@ SK_TEST(entities_register_component_capacity) {
 		}
 	}
 
-	/* Earlier tests may have registered a few components; the registry caps
-	 * out at SK_ECS_MAX_COMPONENT_TYPES total entries. */
-	TEST_ASSERT_TRUE(accepted >= (u32)SK_ECS_MAX_COMPONENT_TYPES - 8u);
+	/* Earlier tests may have registered a handful of components; the registry
+	 * caps out at SK_ECS_MAX_COMPONENT_TYPES total entries. */
+	TEST_ASSERT_TRUE(accepted >= (u32)SK_ECS_MAX_COMPONENT_TYPES - 16u);
 	TEST_ASSERT_EQUAL_INT32(-2, last);
 
 	sk_type_id_t full_id = SK_TYPE_ID("sk.test.ecs.capacity.full", 0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL);
