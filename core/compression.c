@@ -263,10 +263,12 @@ const sk_compression_codec_t* sk_compression_codec_at(u32 index) {
 }
 
 #ifdef SK_TESTS
-#include "test.h"
-
+/* Parse system headers before test.h: unity pulls in <stdnoreturn.h>, whose
+ * `noreturn` macro breaks UCRT <stdlib.h>'s __declspec(noreturn) under the
+ * Windows clang-tidy driver (same class of issue as core/atomics.h). */
 #include <limits.h> /* INT_MIN / INT_MAX (level-clamp test) */
 #include <stdlib.h> /* malloc / free (test scratch only) */
+#include "test.h"
 
 /* Counting allocator stub: records internal allocation attempts. The identity
  * codec never allocates, so zero calls prove no allocation bypasses the
