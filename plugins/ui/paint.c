@@ -353,6 +353,22 @@ static i32 ui_paint_add_rounded_rect_filled(ui_paint_emitter_t* em, f32 x, f32 y
 		return ui_paint_add_solid_quad(em, x, y, x1, y1, color);
 	}
 
+	/*
+	 * Solid body as three axis-aligned quads (center + top/bottom strips between
+	 * corners), plus four quarter-circle fans from each corner center. A single
+	 * fan from the rect center only covers corner arcs and leaves the flat sides
+	 * hollow — do not use that approach.
+	 */
+	if (ui_paint_add_solid_quad(em, x + r, y, x1 - r, y + r, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_solid_quad(em, x, y + r, x1, y1 - r, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_solid_quad(em, x + r, y1 - r, x1 - r, y1, color) != 0) {
+		return -1;
+	}
+
 	/* Corner centers: TL, TR, BR, BL. Angles start at outer arc. */
 	cx[0] = x + r;
 	cy[0] = y + r;
@@ -367,32 +383,20 @@ static i32 ui_paint_add_rounded_rect_filled(ui_paint_emitter_t* em, f32 x, f32 y
 	cy[3] = y1 - r;
 	a0[3] = UI_PAINT_PI * 0.5f; /* bottom → left */
 
-	/* Center of rect used as fan origin for the body. */
-	{
-		const f32 midx = x + w * 0.5f;
-		const f32 midy = y + h * 0.5f;
-
-		for (c = 0u; c < 4u; ++c) {
-			for (s = 0u; s < (u32)UI_PAINT_CORNER_SEGS; ++s) {
-				f32 t0 = (f32)s / (f32)UI_PAINT_CORNER_SEGS;
-				f32 t1 = (f32)(s + 1u) / (f32)UI_PAINT_CORNER_SEGS;
-				f32 ang0 = a0[c] + t0 * (UI_PAINT_PI * 0.5f);
-				f32 ang1 = a0[c] + t1 * (UI_PAINT_PI * 0.5f);
-				f32 px0 = cx[c] + cosf(ang0) * r;
-				f32 py0 = cy[c] + sinf(ang0) * r;
-				f32 px1 = cx[c] + cosf(ang1) * r;
-				f32 py1 = cy[c] + sinf(ang1) * r;
-				if (ui_paint_add_triangle(em, midx, midy, px0, py0, px1, py1, color) != 0) {
-					return -1;
-				}
+	for (c = 0u; c < 4u; ++c) {
+		for (s = 0u; s < (u32)UI_PAINT_CORNER_SEGS; ++s) {
+			f32 t0 = (f32)s / (f32)UI_PAINT_CORNER_SEGS;
+			f32 t1 = (f32)(s + 1u) / (f32)UI_PAINT_CORNER_SEGS;
+			f32 ang0 = a0[c] + t0 * (UI_PAINT_PI * 0.5f);
+			f32 ang1 = a0[c] + t1 * (UI_PAINT_PI * 0.5f);
+			f32 px0 = cx[c] + cosf(ang0) * r;
+			f32 py0 = cy[c] + sinf(ang0) * r;
+			f32 px1 = cx[c] + cosf(ang1) * r;
+			f32 py1 = cy[c] + sinf(ang1) * r;
+			if (ui_paint_add_triangle(em, cx[c], cy[c], px0, py0, px1, py1, color) != 0) {
+				return -1;
 			}
 		}
-
-		/* Connect corner endpoints along the four sides (already covered by arcs
-		 * spanning full perimeter into the fan; side mid-segments are included
-		 * because consecutive corner arcs meet at the side points). */
-		(void)midx;
-		(void)midy;
 	}
 	return 0;
 }
@@ -1058,6 +1062,49 @@ SK_TEST(ui_paint_reuse_when_tree_unchanged) {
 	ui->context_destroy(ctx);
 }
 
+/**
+ * Bounds of all vertices matching @p color (axis-aligned).
+ * @return Number of matching vertices.
+ */
+static u32 ui_paint_color_bounds(const sk_ui_draw_list_t* dl, u32 color, f32* out_min_x, f32* out_min_y, f32* out_max_x, f32* out_max_y) {
+	u32 i;
+	u32 found = 0u;
+	f32 min_x = 1.0e9f;
+	f32 min_y = 1.0e9f;
+	f32 max_x = -1.0e9f;
+	f32 max_y = -1.0e9f;
+	for (i = 0u; i < dl->vertex_count; ++i) {
+		if (dl->vertices[i].color == color) {
+			found += 1u;
+			if (dl->vertices[i].x < min_x) {
+				min_x = dl->vertices[i].x;
+			}
+			if (dl->vertices[i].y < min_y) {
+				min_y = dl->vertices[i].y;
+			}
+			if (dl->vertices[i].x > max_x) {
+				max_x = dl->vertices[i].x;
+			}
+			if (dl->vertices[i].y > max_y) {
+				max_y = dl->vertices[i].y;
+			}
+		}
+	}
+	if (out_min_x != NULL) {
+		*out_min_x = min_x;
+	}
+	if (out_min_y != NULL) {
+		*out_min_y = min_y;
+	}
+	if (out_max_x != NULL) {
+		*out_max_x = max_x;
+	}
+	if (out_max_y != NULL) {
+		*out_max_y = max_y;
+	}
+	return found;
+}
+
 SK_TEST(ui_paint_physical_pixels_scale_once) {
 	const sk_ui_api_t* ui = ui_paint_test_api();
 	sk_ui_context_t* ctx = ui->context_create(NULL);
@@ -1065,12 +1112,10 @@ SK_TEST(ui_paint_physical_pixels_scale_once) {
 	sk_ui_node_t a;
 	const sk_ui_draw_list_t* dl;
 	u32 color;
-	f32 min_x = 1.0e9f;
-	f32 min_y = 1.0e9f;
-	f32 max_x = -1.0e9f;
-	f32 max_y = -1.0e9f;
-	u32 i;
-	u32 found = 0u;
+	f32 min_x1, min_y1, max_x1, max_y1;
+	f32 min_x2, min_y2, max_x2, max_y2;
+	f32 min_x3, min_y3, max_x3, max_y3;
+	u32 found;
 
 	ui_paint_set_size(ui, ctx, root, 100.0f, 50.0f);
 	{
@@ -1091,65 +1136,43 @@ SK_TEST(ui_paint_physical_pixels_scale_once) {
 
 	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
 	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 100.0f, 50.0f));
-	/* Logical child at (10,5) size 40x20; scale 2 → physical (20,10) 80x40. */
+
+	/* 1x: logical child at (10,5) size 40x20 → physical same. */
+	TEST_ASSERT_EQUAL_INT(0, ui->layout_apply_scale(ctx, 1.0f, 1.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->paint(ctx, NULL));
+	dl = ui->get_draw_list(ctx);
+	found = ui_paint_color_bounds(dl, color, &min_x1, &min_y1, &max_x1, &max_y1);
+	TEST_ASSERT_TRUE(found >= 4u);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, 10.0f, min_x1);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, 5.0f, min_y1);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, 50.0f, max_x1);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, 25.0f, max_y1);
+
+	/* 2x: same logical tree → geometry is exactly 2× the 1x output (scale once). */
 	TEST_ASSERT_EQUAL_INT(0, ui->layout_apply_scale(ctx, 2.0f, 2.0f));
 	TEST_ASSERT_EQUAL_INT(0, ui->paint(ctx, NULL));
-
 	dl = ui->get_draw_list(ctx);
-	for (i = 0u; i < dl->vertex_count; ++i) {
-		if (dl->vertices[i].color == color) {
-			found += 1u;
-			if (dl->vertices[i].x < min_x) {
-				min_x = dl->vertices[i].x;
-			}
-			if (dl->vertices[i].y < min_y) {
-				min_y = dl->vertices[i].y;
-			}
-			if (dl->vertices[i].x > max_x) {
-				max_x = dl->vertices[i].x;
-			}
-			if (dl->vertices[i].y > max_y) {
-				max_y = dl->vertices[i].y;
-			}
-		}
-	}
+	found = ui_paint_color_bounds(dl, color, &min_x2, &min_y2, &max_x2, &max_y2);
 	TEST_ASSERT_TRUE(found >= 4u);
-	TEST_ASSERT_FLOAT_WITHIN(0.51f, 20.0f, min_x);
-	TEST_ASSERT_FLOAT_WITHIN(0.51f, 10.0f, min_y);
-	TEST_ASSERT_FLOAT_WITHIN(0.51f, 100.0f, max_x); /* 20 + 80 */
-	TEST_ASSERT_FLOAT_WITHIN(0.51f, 50.0f, max_y);	/* 10 + 40 */
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, min_x1 * 2.0f, min_x2);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, min_y1 * 2.0f, min_y2);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, max_x1 * 2.0f, max_x2);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, max_y1 * 2.0f, max_y2);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, 20.0f, min_x2);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, 10.0f, min_y2);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, 100.0f, max_x2);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, 50.0f, max_y2);
 
-	/* Scale change invalidates reuse and multiplies once more — not twice. */
+	/* 3x: still multiply logical once — not compound on prior physical. */
 	TEST_ASSERT_EQUAL_INT(0, ui->layout_apply_scale(ctx, 3.0f, 3.0f));
 	TEST_ASSERT_EQUAL_INT(0, ui->paint(ctx, NULL));
 	dl = ui->get_draw_list(ctx);
-	min_x = 1.0e9f;
-	min_y = 1.0e9f;
-	max_x = -1.0e9f;
-	max_y = -1.0e9f;
-	found = 0u;
-	for (i = 0u; i < dl->vertex_count; ++i) {
-		if (dl->vertices[i].color == color) {
-			found += 1u;
-			if (dl->vertices[i].x < min_x) {
-				min_x = dl->vertices[i].x;
-			}
-			if (dl->vertices[i].y < min_y) {
-				min_y = dl->vertices[i].y;
-			}
-			if (dl->vertices[i].x > max_x) {
-				max_x = dl->vertices[i].x;
-			}
-			if (dl->vertices[i].y > max_y) {
-				max_y = dl->vertices[i].y;
-			}
-		}
-	}
+	found = ui_paint_color_bounds(dl, color, &min_x3, &min_y3, &max_x3, &max_y3);
 	TEST_ASSERT_TRUE(found >= 4u);
-	TEST_ASSERT_FLOAT_WITHIN(0.51f, 30.0f, min_x); /* 10 * 3 */
-	TEST_ASSERT_FLOAT_WITHIN(0.51f, 15.0f, min_y); /* 5 * 3 */
-	TEST_ASSERT_FLOAT_WITHIN(0.51f, 150.0f, max_x);
-	TEST_ASSERT_FLOAT_WITHIN(0.51f, 75.0f, max_y);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, min_x1 * 3.0f, min_x3);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, min_y1 * 3.0f, min_y3);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, max_x1 * 3.0f, max_x3);
+	TEST_ASSERT_FLOAT_WITHIN(0.51f, max_y1 * 3.0f, max_y3);
 
 	ui->context_destroy(ctx);
 }
