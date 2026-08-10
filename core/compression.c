@@ -931,7 +931,9 @@ static u64 harness_zstd_v1_bound(u64 src_size) {
 }
 
 static i32 harness_zstd_v1_compress(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
-	const size_t rc = ZSTD_compress(dest, (size_t)dest_cap, src, (size_t)src_size, 3);
+	/* No (size_t) cast: u64 is unsigned long long (common.h), same as size_t on
+	 * LLP64; cast trips readability-redundant-casting as error on MSVC CI. */
+	const size_t rc = ZSTD_compress(dest, dest_cap, src, src_size, 3);
 	if (ZSTD_isError(rc)) {
 		*out_written = 0u;
 		return zstd_status(rc);
@@ -941,7 +943,7 @@ static i32 harness_zstd_v1_compress(const u8* src, u64 src_size, u8* dest, u64 d
 }
 
 static i32 harness_zstd_v1_decompress(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
-	const size_t rc = ZSTD_decompress(dest, (size_t)dest_cap, src, (size_t)src_size);
+	const size_t rc = ZSTD_decompress(dest, dest_cap, src, src_size);
 	if (ZSTD_isError(rc)) {
 		*out_written = 0u;
 		return zstd_status(rc);
@@ -1059,7 +1061,7 @@ static u32 harness_corpus_build(compression_harness_corpus_t* out, u32 out_cap) 
 			pre = a->alloc(a->instance, bound);
 			TEST_ASSERT_NOT_NULL(pre);
 			{
-				const size_t rc = ZSTD_compress(pre, (size_t)bound, raw, (size_t)raw_size, 3);
+				const size_t rc = ZSTD_compress(pre, bound, raw, raw_size, 3);
 				TEST_ASSERT_FALSE(ZSTD_isError(rc));
 				pre_size = rc;
 			}
@@ -1195,7 +1197,7 @@ static void harness_assert_v2_roundtrip(const sk_compression_codec_t* codec, con
 
 	TEST_ASSERT_EQUAL_UINT64(entry->size, restored_size);
 	if (entry->size > 0u) {
-		TEST_ASSERT_EQUAL_MEMORY(entry->data, restored, (size_t)entry->size);
+		TEST_ASSERT_EQUAL_MEMORY(entry->data, restored, entry->size);
 	}
 
 	/* Informational only — not a pass/fail gate (APX-173). */
@@ -1242,7 +1244,7 @@ static void harness_assert_v1_v2_wire(const sk_compression_codec_t* codec, const
 		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompress(a, v1_compressed, v1_size, restored, entry->size, &restored_size));
 		TEST_ASSERT_EQUAL_UINT64(entry->size, restored_size);
 		if (entry->size > 0u) {
-			TEST_ASSERT_EQUAL_MEMORY(entry->data, restored, (size_t)entry->size);
+			TEST_ASSERT_EQUAL_MEMORY(entry->data, restored, entry->size);
 		}
 
 		/* Also measure v2 compress size for delta reporting (not a gate). */
@@ -1272,7 +1274,8 @@ static void harness_assert_v1_v2_wire(const sk_compression_codec_t* codec, const
 		TEST_ASSERT_NOT_NULL(v1->wire_note);
 		{
 			const i32 st = codec->decompress(a, v1_compressed, v1_size, restored, entry->size, &restored_size);
-			const i32 recovered_equal = (st == SK_COMPRESSION_OK && restored_size == entry->size && (entry->size == 0u || memcmp(entry->data, restored, (size_t)entry->size) == 0));
+			const i32 recovered_equal =
+				(st == SK_COMPRESSION_OK && restored_size == entry->size && (entry->size == 0u || memcmp(entry->data, restored, entry->size) == 0));
 			TEST_ASSERT_FALSE(recovered_equal);
 			printf("[compression-parity] codec=%s corpus=%s intentional wire incompatibility confirmed: %s (status=%d)\n", codec->name, entry->name, v1->wire_note, st);
 		}
