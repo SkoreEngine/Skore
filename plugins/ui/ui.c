@@ -1303,6 +1303,18 @@ static const sk_ui_api_t ui_api = {
 	ui_pointer_capture_set_impl,
 	ui_wants_mouse_impl,
 	ui_wants_keyboard_impl,
+	ui_font_system_create_impl,
+	ui_font_system_destroy_impl,
+	ui_font_load_path_impl,
+	ui_font_load_memory_impl,
+	ui_font_destroy_impl,
+	ui_font_get_metrics_impl,
+	ui_font_glyph_index_impl,
+	ui_font_get_glyph_impl,
+	ui_font_atlas_page_count_impl,
+	ui_font_atlas_get_page_impl,
+	ui_font_cache_count_impl,
+	ui_font_cache_stats_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {

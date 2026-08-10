@@ -10,8 +10,10 @@ endif()
 add_executable(sk-tests main.c)
 
 # sk-app-tests pulls sk-core-tests + sk-test transitively.
+# sk-editor-tests covers editor project open/import as a core-API consumer.
 target_link_libraries(sk-tests PRIVATE
     sk-app-tests
+    sk-editor-tests
     sk-platform-window-lib
     sk-entities-lib
     sk-vulkan-render-device-lib
@@ -42,12 +44,14 @@ if(MSVC)
     target_link_options(sk-tests PRIVATE
         "/WHOLEARCHIVE:$<TARGET_FILE:sk-core-tests>"
         "/WHOLEARCHIVE:$<TARGET_FILE:sk-app-tests>"
+        "/WHOLEARCHIVE:$<TARGET_FILE:sk-editor-tests>"
         "/WHOLEARCHIVE:$<TARGET_FILE:sk-test>"
     )
 elseif(APPLE)
     target_link_options(sk-tests PRIVATE
         "LINKER:-force_load,$<TARGET_FILE:sk-core-tests>"
         "LINKER:-force_load,$<TARGET_FILE:sk-app-tests>"
+        "LINKER:-force_load,$<TARGET_FILE:sk-editor-tests>"
         "LINKER:-force_load,$<TARGET_FILE:sk-test>"
     )
 else()
@@ -55,6 +59,7 @@ else()
         "LINKER:--whole-archive"
         "$<TARGET_FILE:sk-core-tests>"
         "$<TARGET_FILE:sk-app-tests>"
+        "$<TARGET_FILE:sk-editor-tests>"
         "$<TARGET_FILE:sk-test>"
         "LINKER:--no-whole-archive"
     )

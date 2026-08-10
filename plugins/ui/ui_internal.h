@@ -220,3 +220,20 @@ i32 ui_wants_keyboard_impl(const sk_ui_context_t* ctx);
 
 /** Process-local API table (for in-plugin unit tests). */
 const sk_ui_api_t* ui_get_api_table(void);
+
+/* -------------------------------------------------------------------------- */
+/* Font system (font.c)                                                       */
+/* -------------------------------------------------------------------------- */
+
+sk_ui_font_system_t* ui_font_system_create_impl(const sk_allocator_t* allocator, u32 page_width, u32 page_height);
+void ui_font_system_destroy_impl(sk_ui_font_system_t* system);
+sk_ui_font_t* ui_font_load_path_impl(sk_ui_font_system_t* system, const sk_filesystem_api_t* fs, const_chr_t path);
+sk_ui_font_t* ui_font_load_memory_impl(sk_ui_font_system_t* system, const u8* data, u32 size);
+void ui_font_destroy_impl(sk_ui_font_t* font);
+i32 ui_font_get_metrics_impl(const sk_ui_font_t* font, u32 pixel_size, sk_ui_font_metrics_t* out);
+u32 ui_font_glyph_index_impl(const sk_ui_font_t* font, u32 codepoint);
+i32 ui_font_get_glyph_impl(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, u32 glyph_index, sk_ui_glyph_t* out);
+u32 ui_font_atlas_page_count_impl(const sk_ui_font_system_t* system);
+i32 ui_font_atlas_get_page_impl(const sk_ui_font_system_t* system, u32 page_index, sk_ui_atlas_page_t* out);
+u32 ui_font_cache_count_impl(const sk_ui_font_system_t* system);
+void ui_font_cache_stats_impl(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);

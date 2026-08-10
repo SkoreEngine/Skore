@@ -23,6 +23,7 @@
 #include "allocator.h"
 #include "app.h"
 #include "common.h"
+#include "filesystem.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +31,86 @@ extern "C" {
 
 /** Type id for sk_ui_api_t in the app registry. */
 #define SK_UI_API_TYPE_ID SK_TYPE_ID("sk.ui_api", 0xc9c0d15c0efdbacbULL, 0x2376391989195a63ULL)
+
+/* ------------------------------------------------------------------ */
+/*  Font / glyph atlas (CPU FreeType + stb_rect_pack; no GPU upload)  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Opaque font face (one TTF/OTF). Owned by the font system that created it.
+ * Destroy with font_destroy, or when the font system is destroyed.
+ */
+typedef struct sk_ui_font_t sk_ui_font_t;
+
+/**
+ * Opaque font system: FreeType library, loaded faces, R8 atlas pages, glyph cache.
+ * CPU-only — GPU texture upload is a later task (APX-134).
+ */
+typedef struct sk_ui_font_system_t sk_ui_font_system_t;
+
+/**
+ * Font-level metrics at a specific pixel size (physical pixels).
+ * Ascent is typically positive, descent negative (FreeType convention scaled to px).
+ * line_height is the recommended baseline-to-baseline distance (positive).
+ */
+typedef struct sk_ui_font_metrics_t {
+	f32 ascent;
+	f32 descent;
+	f32 line_height;
+	f32 pixel_size;
+} sk_ui_font_metrics_t;
+
+/**
+ * Per-glyph metrics and atlas placement after rasterization (physical pixels).
+ * UV rect is normalized [0,1] within the atlas page bitmap.
+ */
+typedef struct sk_ui_glyph_t {
+	u32 glyph_index;
+	f32 advance_x;	/**< Horizontal advance in pixels. */
+	f32 advance_y;	/**< Vertical advance (usually 0 for horizontal layout). */
+	f32 bearing_x;	/**< Left side bearing (bitmap left of pen). */
+	f32 bearing_y;	/**< Top side bearing (bitmap top above baseline). */
+	u32 width;		/**< Bitmap width in pixels (0 for empty/space). */
+	u32 height;		/**< Bitmap height in pixels. */
+	f32 u0;			/**< Atlas UV left. */
+	f32 v0;			/**< Atlas UV top. */
+	f32 u1;			/**< Atlas UV right. */
+	f32 v1;			/**< Atlas UV bottom. */
+	u32 page_index; /**< Index into font_system atlas pages. */
+} sk_ui_glyph_t;
+
+/**
+ * One CPU-side atlas page (R8 coverage). pixels is owned by the font system;
+ * valid until the system is destroyed or that page is grown (generation bumps).
+ */
+typedef struct sk_ui_atlas_page_t {
+	u32 width;
+	u32 height;
+	u32 generation;	  /**< Increments when the page bitmap is reallocated/grown. */
+	const u8* pixels; /**< R8, row-major, pitch == width. NULL if empty. */
+} sk_ui_atlas_page_t;
+
+/**
+ * Derive physical pixel size from logical font size and content scale.
+ * Matches HiDPI rule: round(logical * scale), at least 1 when logical > 0.
+ * content_scale is typically from get_window_content_scale / monitor scale (1.0 = 96 DPI).
+ */
+SK_FINLINE u32 sk_ui_font_pixel_size(f32 logical_font_size, f32 content_scale) {
+	f32 s = content_scale;
+	f32 px;
+	if (s < 0.0f) {
+		s = 0.0f;
+	}
+	px = logical_font_size * s;
+	if (px <= 0.0f) {
+		return 0u;
+	}
+	/* nearest: (i32)(x + 0.5) for non-negative */
+	{
+		const u32 rounded = (u32)(px + 0.5f);
+		return rounded < 1u ? 1u : rounded;
+	}
+}
 
 /* ------------------------------------------------------------------ */
 /*  Node handle                                                       */
@@ -1110,6 +1191,84 @@ typedef struct sk_ui_api_t {
 	 * Non-zero if a focusable node holds focus (UI wants keyboard / text).
 	 */
 	i32 (*wants_keyboard)(const sk_ui_context_t* ctx);
+
+	/* ---- font system (FreeType raster + stb_rect_pack atlas, CPU only) ---- */
+
+	/**
+	 * Create a font system with an initial atlas page of @p page_width x @p page_height
+	 * (R8). Pass 0,0 for default 512x512. Owns FreeType state and glyph cache.
+	 * @param allocator Optional; NULL uses the process default.
+	 * @return New system, or NULL on failure.
+	 */
+	sk_ui_font_system_t* (*font_system_create)(const sk_allocator_t* allocator, u32 page_width, u32 page_height);
+
+	/**
+	 * Destroy a font system, every font it owns, atlas pages, and glyph cache.
+	 * Safe on NULL.
+	 */
+	void (*font_system_destroy)(sk_ui_font_system_t* system);
+
+	/**
+	 * Load a TTF/OTF from @p path using the engine filesystem API (open/read/close).
+	 * Bytes are copied into the font; the file is not kept open.
+	 * @param system Font system (must not be NULL).
+	 * @param fs     Filesystem table (e.g. sk_filesystem_api()). Must not be NULL.
+	 * @param path   UTF-8 path to a font file.
+	 * @return Font face, or NULL if the file cannot be read or FreeType rejects it.
+	 */
+	sk_ui_font_t* (*font_load_path)(sk_ui_font_system_t* system, const sk_filesystem_api_t* fs, const_chr_t path);
+
+	/**
+	 * Load a TTF/OTF from memory. Copies @p data (@p size bytes) into the font.
+	 * @return Font face, or NULL on failure.
+	 */
+	sk_ui_font_t* (*font_load_memory)(sk_ui_font_system_t* system, const u8* data, u32 size);
+
+	/**
+	 * Destroy one font face and drop its glyphs from the cache. Atlas pages keep
+	 * packed bitmaps (UV holes are acceptable). Safe on NULL.
+	 */
+	void (*font_destroy)(sk_ui_font_t* font);
+
+	/**
+	 * Font metrics at @p pixel_size (from sk_ui_font_pixel_size or equivalent).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*font_get_metrics)(const sk_ui_font_t* font, u32 pixel_size, sk_ui_font_metrics_t* out);
+
+	/**
+	 * Map a Unicode codepoint to a glyph index (0 if missing / .notdef).
+	 */
+	u32 (*font_glyph_index)(const sk_ui_font_t* font, u32 codepoint);
+
+	/**
+	 * Get a glyph from the cache or rasterize + pack it.
+	 * Cache key: (font, pixel_size, glyph_index). On miss: FreeType render,
+	 * stb_rect_pack into the current atlas page; grow the page or add a page
+	 * when full. Empty glyphs (space) succeed with width/height 0 and no UV.
+	 * @return 0 on success, non-zero on failure (OOM, FreeType error, etc.).
+	 */
+	i32 (*font_get_glyph)(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, u32 glyph_index, sk_ui_glyph_t* out);
+
+	/** Number of atlas pages currently allocated. */
+	u32 (*font_atlas_page_count)(const sk_ui_font_system_t* system);
+
+	/**
+	 * Snapshot one atlas page (CPU R8). @p out->pixels is system-owned.
+	 * @return 0 on success, non-zero if index is out of range.
+	 */
+	i32 (*font_atlas_get_page)(const sk_ui_font_system_t* system, u32 page_index, sk_ui_atlas_page_t* out);
+
+	/**
+	 * Glyph cache entry count (for tests / diagnostics).
+	 */
+	u32 (*font_cache_count)(const sk_ui_font_system_t* system);
+
+	/**
+	 * Cumulative cache hits and misses since system create (for tests).
+	 * Either out pointer may be NULL.
+	 */
+	void (*font_cache_stats)(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);
 } sk_ui_api_t;
 
 /**
