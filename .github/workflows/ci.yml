@@ -94,6 +94,15 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --verbose
 
+      # APX-174: the migrated compression call site runs behind a runtime
+      # feature flag defaulting to the v1 path. The default run above exercises
+      # the v1 path (no regression); this run forces the v2 path via config
+      # (SK_COMPRESSION_USE_V2) so both flag states are exercised in CI.
+      - name: Test (compression v2 flag on)
+        env:
+          SK_COMPRESSION_USE_V2: "1"
+        run: ctest --test-dir build --output-on-failure --verbose
+
   # Windows LLP64 type/cast checks on Linux (MinGW sysroot + clang-tidy).
   # Catches agent-blind issues (e.g. readability-redundant-casting) without MSVC.
   windows-abi:

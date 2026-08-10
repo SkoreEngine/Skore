@@ -270,6 +270,31 @@ u32 sk_compression_codec_count(void);
  */
 const sk_compression_codec_t* sk_compression_codec_at(u32 index);
 
+/**
+ * APX-174: runtime feature flag for the v1→v2 call-site migration.
+ *
+ * Exactly one existing compression call site (the zstd parity-harness v1
+ * adapter in compression.c) is migrated to the v2 descriptor interface and
+ * consults this flag. It defaults to the v1 path (0); when non-zero the
+ * migrated call site routes through the v2 codec descriptor (allocator-
+ * injected, explicit status codes) instead of the legacy raw-codec calls.
+ * Before the first sk_compression_v2_enabled() query, the
+ * SK_COMPRESSION_USE_V2 environment variable ("0" or "1") selects the
+ * process default, so opting in or reverting is a config change, not a code
+ * change. Set from the main thread before first use; after the first query
+ * the state is a plain cached read.
+ *
+ * @param enabled Non-zero routes the migrated call site through the v2
+ *                descriptor interface.
+ */
+void sk_compression_set_v2_enabled(i32 enabled);
+
+/**
+ * Current state of the v1→v2 migration flag (see sk_compression_set_v2_enabled).
+ * @return Non-zero when the migrated call site uses the v2 interface.
+ */
+i32 sk_compression_v2_enabled(void);
+
 #ifdef __cplusplus
 }
 #endif

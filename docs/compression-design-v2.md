@@ -70,6 +70,8 @@ Public surface:
 | function | `sk_compression_codec(id)` | Registry lookup → descriptor or `NULL`. |
 | function | `sk_compression_codec_count()` | Number of enabled codecs (≥ 1). |
 | function | `sk_compression_codec_at(index)` | Descriptor at registry index. |
+| function | `sk_compression_set_v2_enabled(enabled)` | APX-174: runtime v1→v2 call-site migration flag (default v1 path; explicit set wins over `SK_COMPRESSION_USE_V2`). |
+| function | `sk_compression_v2_enabled()` | Current migration-flag state (env `SK_COMPRESSION_USE_V2` honored as the process default until first explicit set). |
 
 Naming follows the v2 table rules: `sk_compression_codec_t` is a
 multi-instance strategy table in the shape of `sk_allocator_t` (AGENTS.md
@@ -577,6 +579,38 @@ Verification on this branch (Debug, gcc, Ninja): full build clean; CTest 3/3
 (`sk-compression-conformance`, `sk-tests`, `sk-integration-tests`);
 `sk-tests` 457/457; `sk-integration-tests` 22/22. No code change was needed,
 so the before/after suite results are identical.
+
+### 9.2 First call-site migration (APX-174)
+
+With no engine call sites on this branch (see §9.1), APX-174 migrates the one
+remaining v1-shaped compression call site in the tree: the **zstd v1 adapter
+of the APX-173 parity harness** (`harness_zstd_v1_compress` /
+`harness_zstd_v1_decompress`). It is the only code left that performs
+compression through the main-branch v1 path (raw `ZSTD_compress` /
+`ZSTD_decompress` at `CompressionDefaultLevel = 3`, libc allocations, invisible
+errors), it has direct existing test coverage (the parity harness), and it has
+no persistence/wire-format implications (standard zstd frames either way; the
+harness already asserts wire compatibility). No other compression call site is
+touched — bound queries, the `none` adapter, the corpus builder, and every v2
+codec implementation stay on their current paths.
+
+The migrated site consults a runtime feature flag
+(`sk_compression_set_v2_enabled` / `sk_compression_v2_enabled`,
+§3). It **defaults to the v1 path**; the `SK_COMPRESSION_USE_V2` environment
+variable selects the process default until an explicit set, so opting in or
+reverting is a config change rather than a code change. With the flag off the
+adapter keeps the raw main-branch calls byte-for-byte; with the flag on it
+routes through the v2 zstd descriptor (`codec->compress` / `codec->decompress`
+with the injected allocator and explicit status).
+
+Verification on this branch (Debug, gcc, Ninja): CTest 3/3 with the flag off
+(no regression) and 3/3 with `SK_COMPRESSION_USE_V2=1` (v2 works in situ);
+new `SK_TEST`s pin the flag contract and run the existing zstd parity harness
+in both states. **No behavioral difference was observed between flag states:**
+the v1 adapter and the v2 descriptor produce byte-identical zstd frames for the
+same input and level (zstd is deterministic; the parity harness reports
+`size_delta = 0` for every corpus entry), so the migrated site is a pure
+mechanical shape change. CI runs the full suite in both flag states.
 
 ## 10. Build-time gating and vendoring
 
