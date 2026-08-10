@@ -5710,4 +5710,542 @@ SK_TEST(render_graph_execute_with_rhi_mock_alias_and_barriers) {
 	rg_mock_rhi_api.destroy(dev);
 }
 
+/* ------------------------------------------------------------------ */
+/* Feature inventory gaps (APX-154): dedicated coverage for each audit */
+/* inventory item. Phase-organized; complements the per-phase suite.   */
+/* ------------------------------------------------------------------ */
+
+SK_TEST(render_graph_build_all_pass_types) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_pass_t* compute;
+	sk_rg_pass_t* graphics;
+	sk_rg_pass_t* raytrace;
+	sk_rg_pass_t* transfer;
+	sk_rg_pass_info_t pi;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+
+	compute = render_graph_api.add_pass(g, "compute", SK_RG_PASS_COMPUTE);
+	graphics = render_graph_api.add_pass(g, "graphics", SK_RG_PASS_GRAPHICS);
+	raytrace = render_graph_api.add_pass(g, "raytrace", SK_RG_PASS_RAYTRACE);
+	transfer = render_graph_api.add_pass(g, "transfer", SK_RG_PASS_TRANSFER);
+	TEST_ASSERT_NOT_NULL(compute);
+	TEST_ASSERT_NOT_NULL(graphics);
+	TEST_ASSERT_NOT_NULL(raytrace);
+	TEST_ASSERT_NOT_NULL(transfer);
+	TEST_ASSERT_EQUAL_UINT32(4u, render_graph_api.get_pass_count(g));
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, 0u, &pi));
+	TEST_ASSERT_EQUAL_INT(SK_RG_PASS_COMPUTE, pi.type);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, 1u, &pi));
+	TEST_ASSERT_EQUAL_INT(SK_RG_PASS_GRAPHICS, pi.type);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, 2u, &pi));
+	TEST_ASSERT_EQUAL_INT(SK_RG_PASS_RAYTRACE, pi.type);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, 3u, &pi));
+	TEST_ASSERT_EQUAL_INT(SK_RG_PASS_TRANSFER, pi.type);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_build_access_combinations) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* p;
+	sk_rg_dep_info_t di;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "ro", &tex);
+	render_graph_api.create_texture(g, "wo", &tex);
+	render_graph_api.create_texture(g, "rw", &tex);
+
+	p = render_graph_api.add_pass(g, "accesses", SK_RG_PASS_COMPUTE);
+	TEST_ASSERT_NOT_NULL(p);
+	render_graph_api.pass_read(p, "ro");
+	render_graph_api.pass_write(p, "wo");
+	render_graph_api.pass_read_write(p, "rw");
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_last_error(g));
+	TEST_ASSERT_EQUAL_UINT32(3u, p->dep_count);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_dep_info(g, 0u, 0u, &di));
+	TEST_ASSERT_EQUAL_STRING("ro", di.resource_name);
+	TEST_ASSERT_EQUAL_INT(SK_RG_ACCESS_READ, di.access);
+	TEST_ASSERT_EQUAL_INT(0, di.is_resolve);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_dep_info(g, 0u, 1u, &di));
+	TEST_ASSERT_EQUAL_STRING("wo", di.resource_name);
+	TEST_ASSERT_EQUAL_INT(SK_RG_ACCESS_WRITE, di.access);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_dep_info(g, 0u, 2u, &di));
+	TEST_ASSERT_EQUAL_STRING("rw", di.resource_name);
+	TEST_ASSERT_EQUAL_INT(SK_RG_ACCESS_READ_WRITE, di.access);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_build_all_resource_kinds) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_buffer_desc_t buf = rg_test_buf_desc(512ull);
+	sk_rg_view_desc_t view;
+	sk_texture_t images[1];
+	void_ptr_t inst;
+	sk_rg_resource_info_t ri;
+	u32 i;
+	i32 saw_tex = 0;
+	i32 saw_buf = 0;
+	i32 saw_view = 0;
+	i32 saw_imp = 0;
+	i32 saw_inst = 0;
+
+	memset(&view, 0, sizeof(view));
+	view.texture_name = "color";
+	view.view_type = SK_TEXTURE_VIEW_TYPE_2D;
+	view.mip_level_count = 1u;
+	view.array_layer_count = 1u;
+	images[0] = sk_texture_t_from_ptr((void_ptr_t)(uintptr_t)0x55u);
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "color", &tex);
+	render_graph_api.create_buffer(g, "ubo", &buf);
+	render_graph_api.create_view(g, "color_view", &view);
+	render_graph_api.import_textures(g, "swapchain", images, 1u, SK_RESOURCE_STATE_PRESENT);
+	inst = render_graph_api.create_instance(g, "blackboard", 128ull);
+	TEST_ASSERT_NOT_NULL(inst);
+	TEST_ASSERT_EQUAL_PTR(inst, render_graph_api.get_instance(g, "blackboard"));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_last_error(g));
+	TEST_ASSERT_EQUAL_UINT32(5u, render_graph_api.get_resource_count(g));
+
+	for (i = 0u; i < render_graph_api.get_resource_count(g); ++i) {
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_info(g, i, &ri));
+		if (ri.kind == SK_RG_RESOURCE_TEXTURE) {
+			saw_tex = 1;
+		} else if (ri.kind == SK_RG_RESOURCE_BUFFER) {
+			saw_buf = 1;
+		} else if (ri.kind == SK_RG_RESOURCE_VIEW) {
+			saw_view = 1;
+		} else if (ri.kind == SK_RG_RESOURCE_IMPORTED) {
+			saw_imp = 1;
+			TEST_ASSERT_TRUE((ri.flags & SK_RG_RESOURCE_FLAG_IMPORTED) != 0u);
+		} else if (ri.kind == SK_RG_RESOURCE_INSTANCE) {
+			saw_inst = 1;
+		}
+	}
+	TEST_ASSERT_TRUE(saw_tex && saw_buf && saw_view && saw_imp && saw_inst);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_build_imported_vs_transient) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_texture_t img = sk_texture_t_from_ptr((void_ptr_t)(uintptr_t)0x77u);
+	sk_rg_resource_info_t ri_tex;
+	sk_rg_resource_info_t ri_imp;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "transient", &tex);
+	render_graph_api.import_textures(g, "imported", &img, 1u, SK_RESOURCE_STATE_COLOR_ATTACHMENT);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_info(g, 0u, &ri_tex));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_info(g, 1u, &ri_imp));
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_RESOURCE_TEXTURE, ri_tex.kind);
+	TEST_ASSERT_TRUE((ri_tex.flags & SK_RG_RESOURCE_FLAG_IMPORTED) == 0u);
+	TEST_ASSERT_EQUAL_INT(SK_RG_RESOURCE_IMPORTED, ri_imp.kind);
+	TEST_ASSERT_TRUE((ri_imp.flags & SK_RG_RESOURCE_FLAG_IMPORTED) != 0u);
+	TEST_ASSERT_EQUAL_UINT32(1u, ri_imp.imported_count);
+	TEST_ASSERT_EQUAL_INT(SK_RESOURCE_STATE_COLOR_ATTACHMENT, ri_imp.imported_state);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_build_resolve_attachment) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* p;
+	sk_rg_dep_info_t di;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "msaa", &tex);
+	render_graph_api.create_texture(g, "resolved", &tex);
+	p = render_graph_api.add_pass(g, "gbuffer", SK_RG_PASS_GRAPHICS);
+	TEST_ASSERT_NOT_NULL(p);
+	render_graph_api.pass_write(p, "msaa");
+	render_graph_api.pass_resolve(p, "resolved");
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_last_error(g));
+	TEST_ASSERT_EQUAL_UINT32(2u, p->dep_count);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_dep_info(g, 0u, 1u, &di));
+	TEST_ASSERT_EQUAL_STRING("resolved", di.resource_name);
+	TEST_ASSERT_EQUAL_INT(1, di.is_resolve);
+	TEST_ASSERT_EQUAL_INT(SK_RG_ACCESS_WRITE, di.access);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_build_view_extends_parent_lifetime) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_view_desc_t view;
+	sk_rg_pass_t* a;
+	sk_rg_pass_t* b;
+	sk_rg_lifetime_info_t life;
+	u32 parent_idx = SK_RG_INVALID_USE;
+	u32 i;
+
+	memset(&view, 0, sizeof(view));
+	view.texture_name = "color";
+	view.view_type = SK_TEXTURE_VIEW_TYPE_2D;
+	view.mip_level_count = 1u;
+	view.array_layer_count = 1u;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "color", &tex);
+	render_graph_api.create_view(g, "color_mip0", &view);
+	a = render_graph_api.add_pass(g, "write_parent", SK_RG_PASS_COMPUTE);
+	b = render_graph_api.add_pass(g, "read_view", SK_RG_PASS_COMPUTE);
+	render_graph_api.pass_stage(a, 100);
+	render_graph_api.pass_stage(b, 200);
+	render_graph_api.pass_write(a, "color");
+	/* View access resolves to the parent texture for lifetime tracking. */
+	render_graph_api.pass_read(b, "color_mip0");
+	/* Keep both passes: view deps do not yet build writer edges on the parent. */
+	render_graph_api.pass_set_side_effects(a, 1);
+	render_graph_api.pass_set_side_effects(b, 1);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	TEST_ASSERT_EQUAL_UINT32(2u, render_graph_api.get_compiled_pass_count(g));
+
+	for (i = 0u; i < render_graph_api.get_resource_count(g); ++i) {
+		sk_rg_resource_info_t ri;
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_info(g, i, &ri));
+		if (ri.kind == SK_RG_RESOURCE_TEXTURE && ri.name != NULL && strcmp(ri.name, "color") == 0) {
+			parent_idx = i;
+		}
+	}
+	TEST_ASSERT_TRUE(parent_idx != SK_RG_INVALID_USE);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_lifetime(g, parent_idx, &life));
+	TEST_ASSERT_TRUE(life.used);
+	/* Parent lifetime spans both write and view-read (resolved through parent). */
+	TEST_ASSERT_EQUAL_UINT32(0u, life.first_use);
+	TEST_ASSERT_EQUAL_UINT32(1u, life.last_use);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_empty_graph) {
+	sk_render_graph_t* g = rg_test_create_graph();
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_resource_count(g));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	TEST_ASSERT_TRUE(render_graph_api.is_compiled(g));
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_compiled_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_culled_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_alias_assignment_count(g));
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_resource_lifetimes) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* a;
+	sk_rg_pass_t* b;
+	sk_rg_pass_t* c;
+	sk_rg_lifetime_info_t life_r0;
+	sk_rg_lifetime_info_t life_r1;
+	sk_rg_lifetime_info_t life_unused;
+	u32 idx_r0 = SK_RG_INVALID_USE;
+	u32 idx_r1 = SK_RG_INVALID_USE;
+	u32 idx_unused = SK_RG_INVALID_USE;
+	u32 i;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "r0", &tex);
+	render_graph_api.create_texture(g, "r1", &tex);
+	render_graph_api.create_texture(g, "unused", &tex);
+	a = render_graph_api.add_pass(g, "a", SK_RG_PASS_COMPUTE);
+	b = render_graph_api.add_pass(g, "b", SK_RG_PASS_COMPUTE);
+	c = render_graph_api.add_pass(g, "c", SK_RG_PASS_COMPUTE);
+	render_graph_api.pass_write(a, "r0");
+	render_graph_api.pass_read(b, "r0");
+	render_graph_api.pass_write(b, "r1");
+	render_graph_api.pass_read(c, "r1");
+	render_graph_api.pass_set_side_effects(c, 1);
+	/* unused never touched — culled producer chain does not touch it either. */
+	(void)render_graph_api.add_pass(g, "dead", SK_RG_PASS_COMPUTE);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+
+	for (i = 0u; i < render_graph_api.get_resource_count(g); ++i) {
+		sk_rg_resource_info_t ri;
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_info(g, i, &ri));
+		if (ri.name != NULL && strcmp(ri.name, "r0") == 0) {
+			idx_r0 = i;
+		} else if (ri.name != NULL && strcmp(ri.name, "r1") == 0) {
+			idx_r1 = i;
+		} else if (ri.name != NULL && strcmp(ri.name, "unused") == 0) {
+			idx_unused = i;
+		}
+	}
+	TEST_ASSERT_TRUE(idx_r0 != SK_RG_INVALID_USE && idx_r1 != SK_RG_INVALID_USE && idx_unused != SK_RG_INVALID_USE);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_lifetime(g, idx_r0, &life_r0));
+	TEST_ASSERT_TRUE(life_r0.used);
+	TEST_ASSERT_EQUAL_UINT32(0u, life_r0.first_use);
+	TEST_ASSERT_EQUAL_UINT32(1u, life_r0.last_use);
+	TEST_ASSERT_TRUE(life_r0.first_use_is_write_only);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_lifetime(g, idx_r1, &life_r1));
+	TEST_ASSERT_TRUE(life_r1.used);
+	TEST_ASSERT_EQUAL_UINT32(1u, life_r1.first_use);
+	TEST_ASSERT_EQUAL_UINT32(2u, life_r1.last_use);
+	TEST_ASSERT_TRUE(life_r1.first_use_is_write_only);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_lifetime(g, idx_unused, &life_unused));
+	TEST_ASSERT_FALSE(life_unused.used);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_alias_lifetimes_never_overlap) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* p0;
+	sk_rg_pass_t* p1;
+	sk_rg_pass_t* p2;
+	u32 i;
+	u32 j;
+	u32 n;
+
+	tex.extent.width = 64u;
+	tex.extent.height = 64u;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){64u, 64u});
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "A", &tex);
+	render_graph_api.create_texture(g, "B", &tex);
+	render_graph_api.create_texture(g, "C", &tex);
+	p0 = render_graph_api.add_pass(g, "produce", SK_RG_PASS_COMPUTE);
+	p1 = render_graph_api.add_pass(g, "process", SK_RG_PASS_COMPUTE);
+	p2 = render_graph_api.add_pass(g, "finalize", SK_RG_PASS_COMPUTE);
+	render_graph_api.pass_write(p0, "A");
+	render_graph_api.pass_read(p1, "A");
+	render_graph_api.pass_write(p1, "B");
+	render_graph_api.pass_read(p2, "B");
+	render_graph_api.pass_write(p2, "C");
+	render_graph_api.pass_set_side_effects(p2, 1);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	n = render_graph_api.get_alias_assignment_count(g);
+	TEST_ASSERT_TRUE(n >= 2u);
+
+	/* Any two aliased resources that share bucket and overlapping memory ranges
+	 * must have disjoint first_use..last_use intervals. */
+	for (i = 0u; i < n; ++i) {
+		sk_rg_alias_assignment_t a;
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_alias_assignment(g, i, &a));
+		for (j = i + 1u; j < n; ++j) {
+			sk_rg_alias_assignment_t b;
+			i32 life_overlap;
+			i32 mem_overlap;
+			TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_alias_assignment(g, j, &b));
+			if (a.bucket != b.bucket) {
+				continue;
+			}
+			mem_overlap = !(a.offset + a.size <= b.offset || b.offset + b.size <= a.offset);
+			if (!mem_overlap) {
+				continue;
+			}
+			life_overlap = (a.first_use <= b.last_use && b.first_use <= a.last_use);
+			TEST_ASSERT_FALSE(life_overlap);
+		}
+	}
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_execute_empty_graph) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	i32 dispatches = 0;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	/* No resources, no passes — execute is a no-op that still completes. */
+	render_graph_api.execute(g, sk_command_buffer_t_zero());
+	TEST_ASSERT_EQUAL_INT(0, dispatches);
+	TEST_ASSERT_TRUE(render_graph_api.is_compiled(g));
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_compiled_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_barrier_count(g));
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_execute_read_write_access_barrier) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* p;
+	u32 i;
+	i32 saw_general = 0;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){64u, 64u});
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "hist", &tex);
+	p = render_graph_api.add_pass(g, "accumulate", SK_RG_PASS_COMPUTE);
+	render_graph_api.pass_read_write(p, "hist");
+	render_graph_api.pass_set_side_effects(p, 1);
+	render_graph_api.pass_set_record(p, rg_test_record_count, NULL);
+	render_graph_api.execute(g, sk_command_buffer_t_zero());
+
+	for (i = 0u; i < render_graph_api.get_barrier_count(g); ++i) {
+		sk_rg_barrier_info_t bi;
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_barrier_info(g, i, &bi));
+		if (bi.kind == SK_RG_BARRIER_TEXTURE && bi.new_state == SK_RESOURCE_STATE_GENERAL) {
+			saw_general = 1;
+		}
+	}
+	TEST_ASSERT_TRUE(saw_general);
+
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_execute_graphics_color_attachment_barrier) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* p;
+	u32 i;
+	i32 saw_color = 0;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){64u, 64u});
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "color", &tex);
+	p = render_graph_api.add_pass(g, "draw", SK_RG_PASS_GRAPHICS);
+	render_graph_api.pass_write(p, "color");
+	render_graph_api.set_color_output(g, "color");
+	render_graph_api.pass_set_record(p, rg_test_record_count, NULL);
+	render_graph_api.execute(g, sk_command_buffer_t_zero());
+
+	for (i = 0u; i < render_graph_api.get_barrier_count(g); ++i) {
+		sk_rg_barrier_info_t bi;
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_barrier_info(g, i, &bi));
+		if (bi.kind == SK_RG_BARRIER_TEXTURE && bi.new_state == SK_RESOURCE_STATE_COLOR_ATTACHMENT) {
+			saw_color = 1;
+			TEST_ASSERT_EQUAL_INT(SK_BARRIER_SYNC_GRAPHICS, (int)bi.dst_scope);
+		}
+	}
+	TEST_ASSERT_TRUE(saw_color);
+
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_execute_transfer_copy_barrier) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* src_p;
+	sk_rg_pass_t* dst_p;
+	u32 i;
+	i32 saw_copy_src = 0;
+	i32 saw_copy_dst = 0;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){64u, 64u});
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "src", &tex);
+	render_graph_api.create_texture(g, "dst", &tex);
+	/* Seed src with a compute write so transfer read is not first touch only. */
+	src_p = render_graph_api.add_pass(g, "seed", SK_RG_PASS_COMPUTE);
+	dst_p = render_graph_api.add_pass(g, "blit", SK_RG_PASS_TRANSFER);
+	render_graph_api.pass_write(src_p, "src");
+	render_graph_api.pass_read(dst_p, "src");
+	render_graph_api.pass_write(dst_p, "dst");
+	render_graph_api.pass_set_side_effects(dst_p, 1);
+	render_graph_api.pass_set_record(src_p, rg_test_record_count, NULL);
+	render_graph_api.pass_set_record(dst_p, rg_test_record_count, NULL);
+	render_graph_api.execute(g, sk_command_buffer_t_zero());
+
+	for (i = 0u; i < render_graph_api.get_barrier_count(g); ++i) {
+		sk_rg_barrier_info_t bi;
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_barrier_info(g, i, &bi));
+		if (bi.kind != SK_RG_BARRIER_TEXTURE) {
+			continue;
+		}
+		if (bi.new_state == SK_RESOURCE_STATE_COPY_SOURCE) {
+			saw_copy_src = 1;
+			TEST_ASSERT_EQUAL_INT(SK_BARRIER_SYNC_TRANSFER, (int)bi.dst_scope);
+		}
+		if (bi.new_state == SK_RESOURCE_STATE_COPY_DEST) {
+			saw_copy_dst = 1;
+			TEST_ASSERT_EQUAL_INT(SK_BARRIER_SYNC_TRANSFER, (int)bi.dst_scope);
+		}
+	}
+	TEST_ASSERT_TRUE(saw_copy_src);
+	TEST_ASSERT_TRUE(saw_copy_dst);
+
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_execute_single_queue_no_async) {
+	/*
+	 * Audit §1.7 / §1.10: the legacy graph is single command buffer / single
+	 * queue. There is no multi-queue or async compute schedule in the C port.
+	 * This test documents that contract: one execute(cmd) walks all compiled
+	 * passes on the supplied buffer only.
+	 */
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* compute;
+	sk_rg_pass_t* graphics;
+	sk_rg_pass_t* transfer;
+	i32 dispatches = 0;
+	u32 order_count;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){64u, 64u});
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "a", &tex);
+	render_graph_api.create_texture(g, "b", &tex);
+	render_graph_api.create_texture(g, "c", &tex);
+	compute = render_graph_api.add_pass(g, "compute", SK_RG_PASS_COMPUTE);
+	graphics = render_graph_api.add_pass(g, "graphics", SK_RG_PASS_GRAPHICS);
+	transfer = render_graph_api.add_pass(g, "transfer", SK_RG_PASS_TRANSFER);
+	render_graph_api.pass_write(compute, "a");
+	render_graph_api.pass_read(graphics, "a");
+	render_graph_api.pass_write(graphics, "b");
+	render_graph_api.pass_read(transfer, "b");
+	render_graph_api.pass_write(transfer, "c");
+	render_graph_api.pass_set_side_effects(transfer, 1);
+	render_graph_api.pass_set_record(compute, rg_test_record_count, &dispatches);
+	render_graph_api.pass_set_record(graphics, rg_test_record_count, &dispatches);
+	render_graph_api.pass_set_record(transfer, rg_test_record_count, &dispatches);
+
+	/* Single command buffer handle for the whole graph. */
+	render_graph_api.execute(g, sk_command_buffer_t_zero());
+	order_count = render_graph_api.get_compiled_pass_count(g);
+	TEST_ASSERT_EQUAL_UINT32(3u, order_count);
+	TEST_ASSERT_EQUAL_INT(3, dispatches);
+	/* No queue-split API exists on sk_render_graph_api_t (compile-time contract). */
+	TEST_ASSERT_NOT_NULL(render_graph_api.execute);
+
+	render_graph_api.destroy(g);
+}
+
 #endif /* SK_TESTS */
