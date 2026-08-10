@@ -8,6 +8,9 @@
  *   - Persistent growable arrays: edge list + barrier list (count cleared per frame).
  * Growth (heap) is allowed only during setup or between frames (in_frame == 0).
  * Mid-frame exhaustion returns SK_RG_ERR_OUT_OF_SPACE — never silent malloc.
+ * Instrumentation (APX-155): set_heap_allocator installs a counting (or other)
+ * sk_allocator_t for create + all graph heap growth so tests prove zero-malloc
+ * steady-state frames rather than only trusting internal counters.
  *
  * Build phase (APX-151):
  *   - begin → create/import resources, add_pass, pass_read/write, end/execute.
@@ -34,6 +37,7 @@
 #include "allocator.h"
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 /* ------------------------------------------------------------------ */
@@ -364,9 +368,20 @@ struct sk_render_graph_t {
 static sk_app_context_t* g_rg_app_context = NULL;
 static const sk_app_api_t* g_rg_app_api = NULL;
 
+/**
+ * Optional process-wide heap override for create + frame-memory growth.
+ * NULL → sk_allocator_default(). Tests install a counting allocator via
+ * set_heap_allocator so steady-state malloc regressions fail loudly.
+ */
+static const sk_allocator_t* g_rg_heap_allocator = NULL;
+
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
+
+static const sk_allocator_t* rg_heap_allocator(void) {
+	return g_rg_heap_allocator != NULL ? g_rg_heap_allocator : sk_allocator_default();
+}
 
 static u64 rg_align_up(u64 value, u64 alignment) {
 	/* alignment is power-of-two (caller contract for non-default). */
@@ -793,7 +808,7 @@ static i32 rg_memory_init(sk_rg_memory_t* mem, const sk_rg_memory_config_t* conf
 	i32 rc;
 
 	memset(mem, 0, sizeof(*mem));
-	mem->heap = sk_allocator_default();
+	mem->heap = rg_heap_allocator();
 
 	cfg = *config;
 	rg_memory_config_apply_defaults(&cfg);
@@ -1945,10 +1960,18 @@ static i32 render_graph_init_impl(void) {
 
 static void render_graph_shutdown_impl(void) {}
 
+static void render_graph_set_heap_allocator_impl(const sk_allocator_t* allocator) {
+	g_rg_heap_allocator = allocator;
+}
+
+static const sk_allocator_t* render_graph_get_heap_allocator_impl(void) {
+	return rg_heap_allocator();
+}
+
 static sk_render_graph_t* render_graph_create_with_config_impl(sk_render_device_t device, const sk_rg_memory_config_t* config) {
 	sk_rg_memory_config_t cfg;
 	sk_render_graph_t* graph;
-	const sk_allocator_t* heap = sk_allocator_default();
+	const sk_allocator_t* heap = rg_heap_allocator();
 	i32 rc;
 
 	memset(&cfg, 0, sizeof(cfg));
@@ -3619,6 +3642,8 @@ static const sk_render_graph_api_t render_graph_api = {
 	render_graph_end_impl,
 	render_graph_compile_impl,
 	render_graph_execute_impl,
+	render_graph_set_heap_allocator_impl,
+	render_graph_get_heap_allocator_impl,
 	render_graph_topology_build_count_impl,
 	render_graph_get_memory_stats_impl,
 	render_graph_get_last_error_impl,
@@ -3758,6 +3783,8 @@ SK_TEST(render_graph_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(render_graph_api.end);
 	TEST_ASSERT_NOT_NULL(render_graph_api.compile);
 	TEST_ASSERT_NOT_NULL(render_graph_api.execute);
+	TEST_ASSERT_NOT_NULL(render_graph_api.set_heap_allocator);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_heap_allocator);
 	TEST_ASSERT_NOT_NULL(render_graph_api.topology_build_count);
 	TEST_ASSERT_NOT_NULL(render_graph_api.get_memory_stats);
 	TEST_ASSERT_NOT_NULL(render_graph_api.get_last_error);
@@ -6246,6 +6273,493 @@ SK_TEST(render_graph_execute_single_queue_no_async) {
 	TEST_ASSERT_NOT_NULL(render_graph_api.execute);
 
 	render_graph_api.destroy(g);
+}
+
+/* ------------------------------------------------------------------ */
+/* Instrumented allocation discipline (APX-155)                        */
+/* Counting allocator installed on the plugin heap path proves         */
+/* steady-state frames never malloc, buffers are reused, capacity      */
+/* retention, mid-frame OOS, and arena reset between frames.           */
+/* ------------------------------------------------------------------ */
+
+typedef struct rg_counting_heap_t {
+	const sk_allocator_t* base;
+	/** Successful alloc calls (new blocks). */
+	u32 alloc_ops;
+	/** Successful realloc calls (may grow or move). */
+	u32 realloc_ops;
+	/** Free calls with non-NULL ptr. */
+	u32 free_ops;
+	/** alloc_ops + realloc_ops — any heap growth surface. */
+	u32 heap_ops;
+} rg_counting_heap_t;
+
+/* File-scope so a failed assert does not leave a dangling stack allocator. */
+static rg_counting_heap_t g_rg_count_heap;
+static sk_allocator_t g_rg_count_allocator;
+
+static void_ptr_t rg_counting_alloc(void_ptr_t instance, size_t size) {
+	rg_counting_heap_t* state = (rg_counting_heap_t*)instance;
+	void_ptr_t p = state->base->alloc(state->base->instance, size);
+	if (p != NULL) {
+		state->alloc_ops += 1u;
+		state->heap_ops += 1u;
+	}
+	return p;
+}
+
+static void rg_counting_free(void_ptr_t instance, void_ptr_t ptr) {
+	rg_counting_heap_t* state = (rg_counting_heap_t*)instance;
+	if (ptr != NULL) {
+		state->free_ops += 1u;
+	}
+	state->base->free(state->base->instance, ptr);
+}
+
+static void_ptr_t rg_counting_realloc(void_ptr_t instance, void_ptr_t ptr, size_t size) {
+	rg_counting_heap_t* state = (rg_counting_heap_t*)instance;
+	void_ptr_t p = state->base->realloc(state->base->instance, ptr, size);
+	if (p != NULL) {
+		state->realloc_ops += 1u;
+		state->heap_ops += 1u;
+	}
+	return p;
+}
+
+static void rg_test_install_counting_heap(void) {
+	memset(&g_rg_count_heap, 0, sizeof(g_rg_count_heap));
+	g_rg_count_heap.base = sk_allocator_default();
+	g_rg_count_allocator.instance = &g_rg_count_heap;
+	g_rg_count_allocator.alloc = rg_counting_alloc;
+	g_rg_count_allocator.free = rg_counting_free;
+	g_rg_count_allocator.realloc = rg_counting_realloc;
+	render_graph_api.set_heap_allocator(&g_rg_count_allocator);
+}
+
+static void rg_test_uninstall_counting_heap(void) {
+	render_graph_api.set_heap_allocator(NULL);
+}
+
+/** Representative multi-pass graph used for steady-state allocation probes. */
+static void rg_test_declare_representative_frame(sk_render_graph_t* g) {
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_buffer_desc_t buf = rg_test_buf_desc(256ull);
+	sk_rg_pass_t* root;
+	sk_rg_pass_t* left;
+	sk_rg_pass_t* right;
+	sk_rg_pass_t* merge;
+
+	render_graph_api.create_texture(g, "shared", &tex);
+	render_graph_api.create_texture(g, "left", &tex);
+	render_graph_api.create_texture(g, "right", &tex);
+	render_graph_api.create_texture(g, "output", &tex);
+	render_graph_api.create_buffer(g, "scratch", &buf);
+
+	root = render_graph_api.add_pass(g, "root", SK_RG_PASS_GRAPHICS);
+	left = render_graph_api.add_pass(g, "left_p", SK_RG_PASS_COMPUTE);
+	right = render_graph_api.add_pass(g, "right_p", SK_RG_PASS_COMPUTE);
+	merge = render_graph_api.add_pass(g, "merge", SK_RG_PASS_GRAPHICS);
+	TEST_ASSERT_NOT_NULL(root);
+	TEST_ASSERT_NOT_NULL(left);
+	TEST_ASSERT_NOT_NULL(right);
+	TEST_ASSERT_NOT_NULL(merge);
+
+	render_graph_api.pass_write(root, "shared");
+	render_graph_api.pass_set_record(root, rg_test_record_count, NULL);
+	render_graph_api.pass_read(left, "shared");
+	render_graph_api.pass_write(left, "left");
+	render_graph_api.pass_read_write(left, "scratch");
+	render_graph_api.pass_set_record(left, rg_test_record_count, NULL);
+	render_graph_api.pass_read(right, "shared");
+	render_graph_api.pass_write(right, "right");
+	render_graph_api.pass_set_record(right, rg_test_record_count, NULL);
+	render_graph_api.pass_read(merge, "left");
+	render_graph_api.pass_read(merge, "right");
+	render_graph_api.pass_write(merge, "output");
+	render_graph_api.pass_set_side_effects(merge, 1);
+	render_graph_api.pass_set_record(merge, rg_test_record_count, NULL);
+	render_graph_api.set_color_output(g, "output");
+}
+
+/** Persistent name storage: declare phase keeps non-owning name views. */
+static char rg_test_wc_tex_names[32][24];
+static char rg_test_wc_pass_names[32][24];
+
+/** Large chain used to establish peak capacity / high-water before a small frame. */
+static void rg_test_declare_worst_case_frame(sk_render_graph_t* g, u32 chain_len) {
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	u32 i;
+	sk_rg_pass_t* prev = NULL;
+
+	TEST_ASSERT_TRUE(chain_len >= 2u);
+	TEST_ASSERT_TRUE(chain_len <= 32u);
+	for (i = 0u; i < chain_len; ++i) {
+		sk_rg_pass_t* p;
+		(void)snprintf(rg_test_wc_tex_names[i], sizeof(rg_test_wc_tex_names[i]), "wc_tex_%u", i);
+		(void)snprintf(rg_test_wc_pass_names[i], sizeof(rg_test_wc_pass_names[i]), "wc_pass_%u", i);
+		render_graph_api.create_texture(g, rg_test_wc_tex_names[i], &tex);
+		p = render_graph_api.add_pass(g, rg_test_wc_pass_names[i], SK_RG_PASS_COMPUTE);
+		TEST_ASSERT_NOT_NULL(p);
+		if (prev != NULL) {
+			render_graph_api.pass_read(p, rg_test_wc_tex_names[i - 1u]);
+		}
+		render_graph_api.pass_write(p, rg_test_wc_tex_names[i]);
+		render_graph_api.pass_set_record(p, rg_test_record_count, NULL);
+		if (i + 1u == chain_len) {
+			render_graph_api.pass_set_side_effects(p, 1);
+			render_graph_api.set_color_output(g, rg_test_wc_tex_names[i]);
+		}
+		prev = p;
+	}
+}
+
+/**
+ * Small frame reuses a resource name from the worst-case set so the physical
+ * pool finds an existing entry (no new name strdup / table growth).
+ */
+static void rg_test_declare_small_frame(sk_render_graph_t* g) {
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* p;
+
+	render_graph_api.create_texture(g, rg_test_wc_tex_names[0], &tex);
+	p = render_graph_api.add_pass(g, "tiny_pass", SK_RG_PASS_COMPUTE);
+	TEST_ASSERT_NOT_NULL(p);
+	render_graph_api.pass_write(p, rg_test_wc_tex_names[0]);
+	render_graph_api.pass_set_side_effects(p, 1);
+	render_graph_api.pass_set_record(p, rg_test_record_count, NULL);
+	render_graph_api.set_color_output(g, rg_test_wc_tex_names[0]);
+}
+
+SK_TEST(render_graph_heap_allocator_hook_installs) {
+	const sk_allocator_t* before;
+	const sk_allocator_t* installed;
+
+	before = render_graph_api.get_heap_allocator();
+	TEST_ASSERT_NOT_NULL(before);
+
+	rg_test_install_counting_heap();
+	installed = render_graph_api.get_heap_allocator();
+	TEST_ASSERT_EQUAL_PTR(&g_rg_count_allocator, installed);
+
+	rg_test_uninstall_counting_heap();
+	TEST_ASSERT_EQUAL_PTR(sk_allocator_default(), render_graph_api.get_heap_allocator());
+}
+
+/**
+ * (1) Representative graph for N consecutive frames after warm-up:
+ *     counting-allocator heap_ops and graph heap_alloc_count stay flat
+ *     (exactly zero new heap ops per frame).
+ */
+SK_TEST(render_graph_instrumented_zero_heap_steady_state) {
+	sk_rg_memory_config_t cfg = rg_test_default_cfg;
+	sk_render_graph_t* g;
+	sk_rg_memory_stats_t stats;
+	u32 heap_ops_after_warm;
+	u32 heap_count_after_warm;
+	u32 frame;
+	const u32 steady_frames = 8u;
+
+	rg_test_install_counting_heap();
+	cfg.frame_arena_bytes = 64ull * 1024ull;
+	cfg.pass_capacity = 32u;
+	cfg.resource_capacity = 64u;
+	cfg.edge_capacity = 128u;
+	cfg.barrier_capacity = 128u;
+
+	g = render_graph_api.create_with_config(sk_render_device_t_zero(), &cfg);
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){128u, 128u});
+
+	/* Warm-up: physical pool / name tables may allocate once. */
+	render_graph_api.begin(g, NULL);
+	rg_test_declare_representative_frame(g);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_last_error(g));
+	render_graph_api.execute(g, sk_command_buffer_t_zero());
+
+	render_graph_api.get_memory_stats(g, &stats);
+	heap_ops_after_warm = g_rg_count_heap.heap_ops;
+	heap_count_after_warm = stats.heap_alloc_count;
+	TEST_ASSERT_TRUE(heap_ops_after_warm >= 1u);
+
+	for (frame = 0u; frame < steady_frames; ++frame) {
+		u32 ops_at_begin = g_rg_count_heap.heap_ops;
+		u32 count_at_begin;
+
+		render_graph_api.begin(g, NULL);
+		render_graph_api.get_memory_stats(g, &stats);
+		count_at_begin = stats.heap_alloc_count;
+
+		rg_test_declare_representative_frame(g);
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+		render_graph_api.execute(g, sk_command_buffer_t_zero());
+
+		render_graph_api.get_memory_stats(g, &stats);
+		/* Exactly zero heap ops on the instrumented path for this frame. */
+		TEST_ASSERT_EQUAL_UINT32(ops_at_begin, g_rg_count_heap.heap_ops);
+		TEST_ASSERT_EQUAL_UINT32(count_at_begin, stats.heap_alloc_count);
+		TEST_ASSERT_EQUAL_UINT32(heap_ops_after_warm, g_rg_count_heap.heap_ops);
+		TEST_ASSERT_EQUAL_UINT32(heap_count_after_warm, stats.heap_alloc_count);
+	}
+
+	render_graph_api.destroy(g);
+	rg_test_uninstall_counting_heap();
+}
+
+/**
+ * (2) Arena high-water stops growing and growth_events stay flat in steady state
+ *     (buffers reused, not reallocated).
+ */
+SK_TEST(render_graph_instrumented_high_water_and_growth_flat) {
+	sk_rg_memory_config_t cfg = rg_test_default_cfg;
+	sk_render_graph_t* g;
+	sk_rg_memory_stats_t stats;
+	u64 arena_hw_after_warm;
+	u32 pass_hw_after_warm;
+	u32 res_hw_after_warm;
+	u32 edge_hw_after_warm;
+	u32 barrier_hw_after_warm;
+	u32 growth_after_warm;
+	u32 heap_ops_after_warm;
+	u32 frame;
+
+	rg_test_install_counting_heap();
+	g = render_graph_api.create_with_config(sk_render_device_t_zero(), &cfg);
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){64u, 64u});
+
+	render_graph_api.begin(g, NULL);
+	rg_test_declare_representative_frame(g);
+	render_graph_api.execute(g, sk_command_buffer_t_zero());
+
+	render_graph_api.get_memory_stats(g, &stats);
+	arena_hw_after_warm = stats.frame_arena_high_water;
+	pass_hw_after_warm = stats.pass_high_water;
+	res_hw_after_warm = stats.resource_high_water;
+	edge_hw_after_warm = stats.edge_high_water;
+	barrier_hw_after_warm = stats.barrier_high_water;
+	growth_after_warm = stats.growth_events;
+	heap_ops_after_warm = g_rg_count_heap.heap_ops;
+	TEST_ASSERT_TRUE(arena_hw_after_warm > 0ull);
+	TEST_ASSERT_TRUE(pass_hw_after_warm >= 4u);
+	TEST_ASSERT_TRUE(res_hw_after_warm >= 5u);
+
+	for (frame = 0u; frame < 5u; ++frame) {
+		render_graph_api.begin(g, NULL);
+		rg_test_declare_representative_frame(g);
+		render_graph_api.execute(g, sk_command_buffer_t_zero());
+
+		render_graph_api.get_memory_stats(g, &stats);
+		TEST_ASSERT_EQUAL_UINT64(arena_hw_after_warm, stats.frame_arena_high_water);
+		TEST_ASSERT_EQUAL_UINT32(pass_hw_after_warm, stats.pass_high_water);
+		TEST_ASSERT_EQUAL_UINT32(res_hw_after_warm, stats.resource_high_water);
+		TEST_ASSERT_EQUAL_UINT32(edge_hw_after_warm, stats.edge_high_water);
+		TEST_ASSERT_EQUAL_UINT32(barrier_hw_after_warm, stats.barrier_high_water);
+		TEST_ASSERT_EQUAL_UINT32(growth_after_warm, stats.growth_events);
+		TEST_ASSERT_EQUAL_UINT32(heap_ops_after_warm, g_rg_count_heap.heap_ops);
+	}
+
+	render_graph_api.destroy(g);
+	rg_test_uninstall_counting_heap();
+}
+
+/**
+ * (3) Worst-case graph first, then a small graph: capacity retained and reused
+ *     (no shrink, no re-malloc for the small frame).
+ */
+SK_TEST(render_graph_instrumented_capacity_retained_after_worst_case) {
+	sk_rg_memory_config_t cfg;
+	sk_render_graph_t* g;
+	sk_rg_memory_stats_t stats;
+	u64 arena_cap_after_worst;
+	u32 pass_cap_after_worst;
+	u32 res_cap_after_worst;
+	u32 edge_cap_after_worst;
+	u32 barrier_cap_after_worst;
+	u64 arena_hw_after_worst;
+	u32 growth_after_worst;
+	u32 heap_ops_after_worst;
+	u32 frame;
+
+	rg_test_install_counting_heap();
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.frame_arena_bytes = 128ull * 1024ull;
+	cfg.pass_capacity = 32u;
+	cfg.resource_capacity = 32u;
+	cfg.edge_capacity = 64u;
+	cfg.barrier_capacity = 64u;
+
+	g = render_graph_api.create_with_config(sk_render_device_t_zero(), &cfg);
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){64u, 64u});
+
+	/* Worst-case frame establishes high-water and warms physical tables. */
+	render_graph_api.begin(g, NULL);
+	rg_test_declare_worst_case_frame(g, 16u);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_last_error(g));
+	render_graph_api.execute(g, sk_command_buffer_t_zero());
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_last_error(g));
+
+	render_graph_api.get_memory_stats(g, &stats);
+	arena_cap_after_worst = stats.frame_arena_capacity;
+	pass_cap_after_worst = stats.pass_capacity;
+	res_cap_after_worst = stats.resource_capacity;
+	edge_cap_after_worst = stats.edge_capacity;
+	barrier_cap_after_worst = stats.barrier_capacity;
+	arena_hw_after_worst = stats.frame_arena_high_water;
+	growth_after_worst = stats.growth_events;
+	heap_ops_after_worst = g_rg_count_heap.heap_ops;
+	TEST_ASSERT_TRUE(stats.pass_high_water >= 16u);
+	TEST_ASSERT_TRUE(stats.resource_high_water >= 16u);
+	TEST_ASSERT_TRUE(arena_hw_after_worst > 0ull);
+
+	/* Small frames must reuse the same capacities without further heap growth. */
+	for (frame = 0u; frame < 4u; ++frame) {
+		render_graph_api.begin(g, NULL);
+		rg_test_declare_small_frame(g);
+		render_graph_api.execute(g, sk_command_buffer_t_zero());
+
+		render_graph_api.get_memory_stats(g, &stats);
+		TEST_ASSERT_EQUAL_UINT64(arena_cap_after_worst, stats.frame_arena_capacity);
+		TEST_ASSERT_EQUAL_UINT32(pass_cap_after_worst, stats.pass_capacity);
+		TEST_ASSERT_EQUAL_UINT32(res_cap_after_worst, stats.resource_capacity);
+		TEST_ASSERT_EQUAL_UINT32(edge_cap_after_worst, stats.edge_capacity);
+		TEST_ASSERT_EQUAL_UINT32(barrier_cap_after_worst, stats.barrier_capacity);
+		/* High-water retains the worst-case peak (does not shrink). */
+		TEST_ASSERT_EQUAL_UINT64(arena_hw_after_worst, stats.frame_arena_high_water);
+		TEST_ASSERT_EQUAL_UINT32(growth_after_worst, stats.growth_events);
+		TEST_ASSERT_EQUAL_UINT32(heap_ops_after_worst, g_rg_count_heap.heap_ops);
+	}
+
+	render_graph_api.destroy(g);
+	rg_test_uninstall_counting_heap();
+}
+
+/**
+ * (4) Exceeding configured capacity mid-frame → defined error, no silent alloc
+ *     (counting allocator heap_ops unchanged).
+ */
+SK_TEST(render_graph_instrumented_mid_frame_capacity_error) {
+	sk_rg_memory_config_t cfg;
+	sk_render_graph_t* g;
+	sk_rg_memory_stats_t stats;
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* pass;
+	u32 heap_ops_at_begin;
+	u32 heap_count_at_begin;
+	u32 i;
+
+	rg_test_install_counting_heap();
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.frame_arena_bytes = 256ull;
+	cfg.pass_capacity = 2u;
+	cfg.resource_capacity = 2u;
+	cfg.edge_capacity = 2u;
+	cfg.barrier_capacity = 2u;
+
+	g = render_graph_api.create_with_config(sk_render_device_t_zero(), &cfg);
+	TEST_ASSERT_NOT_NULL(g);
+
+	render_graph_api.begin(g, NULL);
+	render_graph_api.get_memory_stats(g, &stats);
+	heap_ops_at_begin = g_rg_count_heap.heap_ops;
+	heap_count_at_begin = stats.heap_alloc_count;
+
+	render_graph_api.create_texture(g, "r0", &tex);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_last_error(g));
+	render_graph_api.create_texture(g, "r1", &tex);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_last_error(g));
+	/* Resource pool full → OUT_OF_SPACE, not malloc. */
+	render_graph_api.create_texture(g, "r2", &tex);
+	TEST_ASSERT_EQUAL_INT(SK_RG_ERR_OUT_OF_SPACE, render_graph_api.get_last_error(g));
+	TEST_ASSERT_EQUAL_UINT32(heap_ops_at_begin, g_rg_count_heap.heap_ops);
+	TEST_ASSERT_EQUAL_UINT32(heap_count_at_begin, g->memory.heap_alloc_count);
+
+	pass = render_graph_api.add_pass(g, "p0", SK_RG_PASS_COMPUTE);
+	TEST_ASSERT_NOT_NULL(pass);
+	pass = render_graph_api.add_pass(g, "p1", SK_RG_PASS_COMPUTE);
+	TEST_ASSERT_NOT_NULL(pass);
+	pass = render_graph_api.add_pass(g, "p2", SK_RG_PASS_COMPUTE);
+	TEST_ASSERT_NULL(pass);
+	TEST_ASSERT_EQUAL_INT(SK_RG_ERR_OUT_OF_SPACE, render_graph_api.get_last_error(g));
+	TEST_ASSERT_EQUAL_UINT32(heap_ops_at_begin, g_rg_count_heap.heap_ops);
+
+	/* Arena exhaustion without silent grow. */
+	for (i = 0u; i < 64u; ++i) {
+		void_ptr_t p = rg_arena_alloc(&g->memory, 64ull, 8ull);
+		if (p == NULL) {
+			break;
+		}
+	}
+	TEST_ASSERT_EQUAL_INT(SK_RG_ERR_OUT_OF_SPACE, g->memory.last_error);
+	TEST_ASSERT_EQUAL_UINT32(heap_ops_at_begin, g_rg_count_heap.heap_ops);
+	TEST_ASSERT_EQUAL_UINT32(heap_count_at_begin, g->memory.heap_alloc_count);
+
+	/* Growth blocked mid-frame. */
+	TEST_ASSERT_EQUAL_INT(SK_RG_ERR_GROW_BLOCKED, rg_arena_grow(&g->memory, 8192ull));
+	TEST_ASSERT_EQUAL_UINT32(heap_ops_at_begin, g_rg_count_heap.heap_ops);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+	rg_test_uninstall_counting_heap();
+}
+
+/**
+ * (5) Arena fully reset between frames (used bytes do not leak across begin).
+ */
+SK_TEST(render_graph_instrumented_arena_reset_between_frames) {
+	sk_rg_memory_config_t cfg = rg_test_default_cfg;
+	sk_render_graph_t* g;
+	sk_rg_memory_stats_t stats;
+	u64 used_after_work;
+	u64 used_mid_steady;
+	u32 heap_ops_after_warm;
+	u32 frame;
+
+	rg_test_install_counting_heap();
+	g = render_graph_api.create_with_config(sk_render_device_t_zero(), &cfg);
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){64u, 64u});
+
+	/* Warm-up frame. */
+	render_graph_api.begin(g, NULL);
+	rg_test_declare_representative_frame(g);
+	/* Capture used after declare (before execute also bumps arena). */
+	render_graph_api.get_memory_stats(g, &stats);
+	used_after_work = stats.frame_arena_used;
+	TEST_ASSERT_TRUE(used_after_work > 0ull);
+	render_graph_api.execute(g, sk_command_buffer_t_zero());
+	heap_ops_after_warm = g_rg_count_heap.heap_ops;
+
+	for (frame = 0u; frame < 5u; ++frame) {
+		/* begin must zero used (capacity + high-water retained). */
+		render_graph_api.begin(g, NULL);
+		render_graph_api.get_memory_stats(g, &stats);
+		TEST_ASSERT_EQUAL_UINT64(0ull, stats.frame_arena_used);
+		TEST_ASSERT_EQUAL_INT(1, stats.in_frame);
+		TEST_ASSERT_EQUAL_UINT32(0u, stats.pass_live);
+		TEST_ASSERT_EQUAL_UINT32(0u, stats.resource_live);
+		TEST_ASSERT_EQUAL_UINT32(0u, stats.edge_count);
+		TEST_ASSERT_EQUAL_UINT32(0u, stats.barrier_count);
+
+		rg_test_declare_representative_frame(g);
+		render_graph_api.get_memory_stats(g, &stats);
+		used_mid_steady = stats.frame_arena_used;
+		TEST_ASSERT_TRUE(used_mid_steady > 0ull);
+		/* Same topology → used matches warm-up declare footprint (no leak). */
+		TEST_ASSERT_EQUAL_UINT64(used_after_work, used_mid_steady);
+
+		render_graph_api.execute(g, sk_command_buffer_t_zero());
+		TEST_ASSERT_EQUAL_UINT32(heap_ops_after_warm, g_rg_count_heap.heap_ops);
+	}
+
+	/* After end/execute, next begin still resets fully. */
+	render_graph_api.begin(g, NULL);
+	render_graph_api.get_memory_stats(g, &stats);
+	TEST_ASSERT_EQUAL_UINT64(0ull, stats.frame_arena_used);
+	render_graph_api.end(g);
+
+	render_graph_api.destroy(g);
+	rg_test_uninstall_counting_heap();
 }
 
 #endif /* SK_TESTS */

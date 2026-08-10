@@ -33,6 +33,7 @@
  * not heap-allocate after warm-up.
  */
 
+#include "allocator.h"
 #include "app.h"
 #include "common.h"
 #include "render_device.h" /* handles + resource state / format enums */
@@ -477,6 +478,20 @@ typedef struct sk_render_graph_api_t {
 	void (*execute)(sk_render_graph_t* g, sk_command_buffer_t cmd);
 
 	/* debug / tests / introspection */
+	/**
+	 * Install a process-wide heap allocator used by graph create and all
+	 * frame-memory growth (arena, pools, physical tables). Tests install a
+	 * counting allocator to prove steady-state frames never malloc; production
+	 * leaves the default (mimalloc via sk_allocator_default).
+	 * @p allocator NULL restores sk_allocator_default(). Call only when no live
+	 * graphs still hold memory from the previous allocator.
+	 */
+	void (*set_heap_allocator)(const sk_allocator_t* allocator);
+	/**
+	 * Current plugin heap allocator (never NULL).
+	 * Defaults to sk_allocator_default() until set_heap_allocator overrides it.
+	 */
+	const sk_allocator_t* (*get_heap_allocator)(void);
 	/** Number of successful topology rebuilds (increments each compile that sorts). */
 	u32 (*topology_build_count)(const sk_render_graph_t* g);
 	/**

@@ -66,6 +66,12 @@ plugin and runs its suite with the standard test command.
 | Zero heap during build phase | `render_graph_build_phase_zero_heap_allocs` | build |
 | Zero heap during compile phase | `render_graph_compile_zero_heap_allocs` | compile |
 | Zero heap steady-state execute after warm-up | `render_graph_execute_zero_heap_after_warmup` | execute |
+| Instrumented heap hook (counting allocator) | `render_graph_heap_allocator_hook_installs` | memory |
+| Instrumented zero-heap N-frame steady state | `render_graph_instrumented_zero_heap_steady_state` | memory |
+| Instrumented high-water + growth flat | `render_graph_instrumented_high_water_and_growth_flat` | memory |
+| Instrumented capacity retained after worst-case | `render_graph_instrumented_capacity_retained_after_worst_case` | memory |
+| Instrumented mid-frame OOS (no silent malloc) | `render_graph_instrumented_mid_frame_capacity_error` | memory |
+| Instrumented arena reset between frames | `render_graph_instrumented_arena_reset_between_frames` | memory |
 | API table completeness + type id | `render_graph_api_table_is_complete`, `render_graph_api_type_id_nonzero` | smoke |
 | Create/destroy defaults + begin pool reset | `render_graph_create_destroy_defaults`, `render_graph_begin_resets_pools_and_marks_in_frame` | smoke |
 
