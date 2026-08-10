@@ -334,6 +334,70 @@ SK_TEST(compression_registry_unknown_id_unsupported) {
 	TEST_ASSERT_TRUE(status != SK_COMPRESSION_OK);
 }
 
+SK_TEST(compression_registry_each_codec_resolves_by_id) {
+	/* Registration contract (design §5, §3.2): every registered descriptor
+	 * resolves from its stable id and no two descriptors share an id, so an
+	 * on-disk id always maps to exactly one codec. */
+	const u32 count = sk_compression_codec_count();
+
+	TEST_ASSERT_TRUE(count >= 1u);
+	for (u32 i = 0u; i < count; ++i) {
+		const sk_compression_codec_t* codec = sk_compression_codec_at(i);
+
+		TEST_ASSERT_NOT_NULL(codec);
+		TEST_ASSERT_EQUAL_PTR(codec, sk_compression_codec(codec->id));
+		for (u32 j = i + 1u; j < count; ++j) {
+			TEST_ASSERT_TRUE(codec->id != sk_compression_codec_at(j)->id);
+		}
+	}
+}
+
+/* One-shot round-trip through any descriptor: compress into a bound-sized
+ * buffer, decompress back, and require byte-identical recovery (design §4 —
+ * the one-shot surface every enabled codec must implement). */
+static void compression_assert_one_shot_roundtrip(const sk_compression_codec_t* codec, const u8* payload, u64 payload_size) {
+	const sk_allocator_t* scratch = sk_allocator_default();
+	const u64 bound = codec->compress_bound(payload_size);
+	u8* compressed = scratch->alloc(scratch->instance, bound);
+	u8* restored = scratch->alloc(scratch->instance, payload_size);
+	u64 compressed_size = 0u;
+	u64 restored_size = 0u;
+
+	TEST_ASSERT_NOT_NULL(compressed);
+	TEST_ASSERT_NOT_NULL(restored);
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(scratch, SK_COMPRESSION_LEVEL_DEFAULT, payload, payload_size, compressed, bound, &compressed_size));
+	TEST_ASSERT_TRUE(compressed_size <= bound);
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompress(scratch, compressed, compressed_size, restored, payload_size, &restored_size));
+	TEST_ASSERT_EQUAL_UINT64(payload_size, restored_size);
+	if (payload_size > 0u) {
+		TEST_ASSERT_EQUAL_MEMORY(payload, restored, payload_size);
+	}
+
+	scratch->free(scratch->instance, compressed);
+	scratch->free(scratch->instance, restored);
+}
+
+SK_TEST(compression_roundtrip_all_registered_codecs) {
+	/* Every codec in the registry (currently none + zstd) round-trips a fixed
+	 * corpus byte-for-byte; a future codec is covered automatically. */
+	const u8 small[] = "one-shot registry roundtrip payload payload payload payload payload";
+	u8 large[8192];
+
+	for (u32 i = 0u; i < sizeof(large); ++i) {
+		large[i] = (u8)((i % 37u) + ((i % 11u == 0u) ? 0x80u : 0u));
+	}
+
+	for (u32 i = 0u; i < sk_compression_codec_count(); ++i) {
+		const sk_compression_codec_t* codec = sk_compression_codec_at(i);
+
+		compression_assert_one_shot_roundtrip(codec, NULL, 0u);
+		compression_assert_one_shot_roundtrip(codec, small, sizeof(small));
+		compression_assert_one_shot_roundtrip(codec, large, sizeof(large));
+	}
+}
+
 #ifdef SK_COMPRESSION_HAS_ZSTD
 SK_TEST(compression_registry_zstd_lookup) {
 	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD);
