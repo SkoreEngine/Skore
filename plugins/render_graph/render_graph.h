@@ -24,7 +24,13 @@
  * cycles, culls dead passes (unless side-effects), computes resource first/last
  * use intervals, and packs non-overlapping transient textures into alias heaps.
  * Working sets are pre-sized pools + frame-arena scratch; no heap during compile.
- * Barriers and GPU resource creation land in later tasks.
+ *
+ * Execute phase (APX-153): walk compiled pass order, realize physical resources
+ * from a reused pool (including alias heaps), emit state transitions/barriers
+ * (including alias activation memory barriers), invoke each pass record
+ * callback with the RHI command buffer, then restore imported states. Barrier
+ * batches and per-pass scratch are arena-allocated; steady-state execute does
+ * not heap-allocate after warm-up.
  */
 
 #include "app.h"
@@ -284,6 +290,34 @@ typedef struct sk_rg_alias_bucket_info_t {
 	u32 memory_type_bits;
 } sk_rg_alias_bucket_info_t;
 
+/** Kind of a barrier recorded during execute (diagnostics / tests). */
+typedef enum sk_rg_barrier_kind_t {
+	SK_RG_BARRIER_TEXTURE = 0,
+	SK_RG_BARRIER_BUFFER = 1,
+	/** Full-device memory barrier (alias activation). */
+	SK_RG_BARRIER_MEMORY = 2,
+} sk_rg_barrier_kind_t;
+
+/**
+ * One barrier emitted during the last execute (valid until next begin/execute).
+ * Memory barriers leave resource fields at SK_RG_INVALID_USE / NULL.
+ */
+typedef struct sk_rg_barrier_info_t {
+	sk_rg_barrier_kind_t kind;
+	u32 resource_index;
+	const_chr_t resource_name;
+	sk_resource_state_t old_state;
+	sk_resource_state_t new_state;
+	u32 src_scope;
+	u32 dst_scope;
+	/** Compiled-order index of the pass that requested the barrier. */
+	u32 pass_order_index;
+	u32 base_mip_level;
+	u32 mip_level_count;
+	u32 base_array_layer;
+	u32 array_layer_count;
+} sk_rg_barrier_info_t;
+
 /** Sentinel for unused lifetime ends (matches internal SK_RG_INVALID_INDEX). */
 #define SK_RG_INVALID_USE ((u32)0xffffffffu)
 
@@ -345,8 +379,8 @@ typedef struct sk_rg_memory_stats_t {
 
 /**
  * Global render-graph module API (one table per process after plugin load).
- * Every entry is non-null. Frame memory, build declare, and compile are live;
- * GPU execute / barriers land later.
+ * Every entry is non-null. Frame memory, build, compile, and execute (barriers
+ * + RHI recording) are live.
  */
 typedef struct sk_render_graph_api_t {
 	/* module lifecycle (plugin-global) */
@@ -433,6 +467,13 @@ typedef struct sk_render_graph_api_t {
 	 *         SK_RG_ERR_INVALID_ARGUMENT / SK_RG_ERR_INVALID_STATE.
 	 */
 	i32 (*compile)(sk_render_graph_t* g);
+	/**
+	 * Execute the compiled graph into @p cmd: realize physical resources,
+	 * emit barriers for declared usages (and alias activations), invoke each
+	 * non-culled pass's record callback (or auto-dispatch when set), restore
+	 * imported states. Compiles first when needed. Ends the frame (same as end).
+	 * Steady-state execute after warm-up does not heap-allocate (graph memory).
+	 */
 	void (*execute)(sk_render_graph_t* g, sk_command_buffer_t cmd);
 
 	/* debug / tests / introspection */
@@ -483,6 +524,12 @@ typedef struct sk_render_graph_api_t {
 	u64 (*get_alias_standalone_bytes)(const sk_render_graph_t* g);
 	/** Sum of packed bucket sizes after packing. */
 	u64 (*get_alias_aliased_bytes)(const sk_render_graph_t* g);
+
+	/* execute results (valid after execute until next begin) */
+	/** Number of barriers recorded by the last execute. */
+	u32 (*get_barrier_count)(const sk_render_graph_t* g);
+	/** Barrier at @p index from the last execute (0..get_barrier_count-1). */
+	i32 (*get_barrier_info)(const sk_render_graph_t* g, u32 index, sk_rg_barrier_info_t* out);
 } sk_render_graph_api_t;
 
 /**
