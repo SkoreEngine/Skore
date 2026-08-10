@@ -795,6 +795,237 @@ SK_TEST(compression_roundtrip_all_registered_codecs) {
 	}
 }
 
+/* ==========================================================================
+ * APX-163: codec-generic edge-case suite
+ *
+ * One set of contract checks run against every registered descriptor
+ * (sk_compression_codec_at), so a future codec inherits the full matrix:
+ * empty / one-byte / highly-compressible / incompressible / large
+ * multi-megabyte inputs; exact-bound and undersized output buffers;
+ * truncated and corrupted compressed input; unknown-codec-id dispatch.
+ * ========================================================================== */
+
+/* Compress @p payload into exactly compress_bound() bytes and decompress into
+ * exactly the declared original size; require byte-identical recovery and
+ * exact size queries (design §4 buffer contract). */
+static void compression_generic_assert_exact_bound(const sk_compression_codec_t* codec, const u8* payload, u64 payload_size) {
+	const sk_allocator_t* a = sk_allocator_default();
+	const u64 bound = codec->compress_bound(payload_size);
+	u8* compressed = a->alloc(a->instance, bound > 0u ? bound : 1u);
+	u8* restored = NULL;
+	u64 compressed_size = 0u;
+	u64 declared = 0u;
+	u64 restored_size = 0u;
+
+	TEST_ASSERT_NOT_NULL(compressed);
+	TEST_ASSERT_TRUE(bound != SK_COMPRESSION_SIZE_UNKNOWN);
+
+	/* Compressing into exactly the bound must succeed — the bound is the
+	 * documented minimum destination size, not a "too small" case. */
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(a, SK_COMPRESSION_LEVEL_DEFAULT, payload, payload_size, compressed, bound, &compressed_size));
+	TEST_ASSERT_TRUE(compressed_size <= bound);
+
+	/* Size queries must agree with the payload (design §4). */
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompressed_size(compressed, compressed_size, &declared));
+	TEST_ASSERT_EQUAL_UINT64(payload_size, declared);
+	TEST_ASSERT_TRUE(codec->decompress_bound(compressed, compressed_size) >= declared);
+
+	restored = a->alloc(a->instance, declared > 0u ? declared : 1u);
+	TEST_ASSERT_NOT_NULL(restored);
+	/* Decompressing into exactly the declared size must succeed. */
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompress(a, compressed, compressed_size, restored, declared, &restored_size));
+	TEST_ASSERT_EQUAL_UINT64(declared, restored_size);
+	if (declared > 0u) {
+		TEST_ASSERT_EQUAL_MEMORY(payload, restored, declared);
+	}
+
+	a->free(a->instance, compressed);
+	a->free(a->instance, restored);
+}
+
+SK_TEST(compression_generic_exact_bound_buffers) {
+	const u8 payload[] = "exact-bound contract: size every destination with compress_bound / decompressed_size (design section 4)";
+
+	for (u32 i = 0u; i < sk_compression_codec_count(); ++i) {
+		compression_generic_assert_exact_bound(sk_compression_codec_at(i), payload, sizeof(payload));
+	}
+}
+
+SK_TEST(compression_generic_roundtrip_edge_inputs) {
+	/* Deterministic corpus: one byte, a 256 KiB run of one repeated byte (the
+	 * most compressible case), 64 KiB of xorshift noise (incompressible), and
+	 * 2 MiB of mixed data spanning many codec-internal blocks. */
+	const u8 one_byte[] = {0x5Au};
+	const u32 compressible_size = 256u * 1024u;
+	const u32 random_size = 64u * 1024u;
+	const u32 large_size = 2u * 1024u * 1024u;
+	const sk_allocator_t* a = sk_allocator_default();
+	u8* compressible = a->alloc(a->instance, compressible_size);
+	u8* random_bytes = a->alloc(a->instance, random_size);
+	u8* large = a->alloc(a->instance, large_size);
+	u32 state = 0x1639A11Bu; /* deterministic xorshift seed */
+
+	TEST_ASSERT_NOT_NULL(compressible);
+	TEST_ASSERT_NOT_NULL(random_bytes);
+	TEST_ASSERT_NOT_NULL(large);
+	memset(compressible, 0x41u, compressible_size);
+	for (u32 i = 0u; i < random_size; ++i) {
+		state ^= state << 13u;
+		state ^= state >> 17u;
+		state ^= state << 5u;
+		random_bytes[i] = (u8)(state >> 24u);
+	}
+	for (u32 i = 0u; i < large_size; ++i) {
+		large[i] = (u8)((i % 97u) + ((i % 13u == 0u) ? 0x80u : 0u));
+	}
+
+	for (u32 i = 0u; i < sk_compression_codec_count(); ++i) {
+		const sk_compression_codec_t* codec = sk_compression_codec_at(i);
+
+		compression_assert_one_shot_roundtrip(codec, NULL, 0u);
+		compression_assert_one_shot_roundtrip(codec, one_byte, sizeof(one_byte));
+		compression_assert_one_shot_roundtrip(codec, compressible, compressible_size);
+		compression_assert_one_shot_roundtrip(codec, random_bytes, random_size);
+		compression_assert_one_shot_roundtrip(codec, large, large_size);
+	}
+
+	a->free(a->instance, compressible);
+	a->free(a->instance, random_bytes);
+	a->free(a->instance, large);
+}
+
+SK_TEST(compression_generic_undersized_output_fails_cleanly) {
+	/* dest_cap below the documented bound must fail with
+	 * INSUFFICIENT_OUTPUT and claim zero bytes written — never overflow
+	 * (design §7). Sized with the real codec frame, so every registered
+	 * codec must honor the same contract. */
+	const u8 payload[] = "undersized destination contract: report INSUFFICIENT_OUTPUT and write nothing (design section 7)";
+	const u32 repeat_size = 4096u;
+	const sk_allocator_t* a = sk_allocator_default();
+	u8* repeat = a->alloc(a->instance, repeat_size);
+	u8 sink[4];
+
+	TEST_ASSERT_NOT_NULL(repeat);
+	memset(repeat, 0x42u, repeat_size);
+
+	for (u32 i = 0u; i < sk_compression_codec_count(); ++i) {
+		const sk_compression_codec_t* codec = sk_compression_codec_at(i);
+		const u64 bound = codec->compress_bound(sizeof(payload));
+		u8* compressed = a->alloc(a->instance, bound > 0u ? bound : 1u);
+		u8* restored = NULL;
+		u64 compressed_size = 0u;
+		u64 written = 0u;
+		u64 declared = 0u;
+
+		TEST_ASSERT_NOT_NULL(compressed);
+
+		/* Compression into a 4-byte sink: no codec fits a 4096-byte repeated
+		 * payload there (the smallest zstd frame header is larger). */
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT, codec->compress(a, SK_COMPRESSION_LEVEL_DEFAULT, repeat, repeat_size, sink, sizeof(sink), &written));
+		TEST_ASSERT_EQUAL_UINT64(0u, written);
+
+		/* Decompression one byte short of the declared size: same contract. */
+		written = 0u;
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(a, SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), compressed, bound, &compressed_size));
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompressed_size(compressed, compressed_size, &declared));
+		TEST_ASSERT_TRUE(declared > 0u);
+		restored = a->alloc(a->instance, declared);
+		TEST_ASSERT_NOT_NULL(restored);
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT, codec->decompress(a, compressed, compressed_size, restored, declared - 1u, &written));
+		TEST_ASSERT_EQUAL_UINT64(0u, written);
+
+		a->free(a->instance, compressed);
+		a->free(a->instance, restored);
+	}
+
+	a->free(a->instance, repeat);
+}
+
+SK_TEST(compression_generic_truncated_and_corrupt_input) {
+	/* The identity codec has no framing: decompress is a raw copy, so it can
+	 * neither truncate nor detect bit flips. Every real codec must reject
+	 * both per design §7 (CORRUPT_DATA, zero bytes written). */
+	const u8 payload[] = "codec-generic corruption contract: truncation and a flipped compressed byte must be rejected (design section 7)";
+	const sk_allocator_t* a = sk_allocator_default();
+
+	for (u32 i = 0u; i < sk_compression_codec_count(); ++i) {
+		const sk_compression_codec_t* codec = sk_compression_codec_at(i);
+		const u64 bound = codec->compress_bound(sizeof(payload));
+		u8* compressed = a->alloc(a->instance, bound > 0u ? bound : 1u);
+		u8* restored = a->alloc(a->instance, sizeof(payload));
+		u64 compressed_size = 0u;
+		u64 written = 0u;
+
+		TEST_ASSERT_NOT_NULL(compressed);
+		TEST_ASSERT_NOT_NULL(restored);
+		if (codec->id == SK_COMPRESSION_CODEC_NONE) {
+			a->free(a->instance, compressed);
+			a->free(a->instance, restored);
+			continue;
+		}
+
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(a, SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), compressed, bound, &compressed_size));
+		TEST_ASSERT_TRUE(compressed_size > 1u);
+
+		/* Truncated frame: half the bytes can never be a complete frame. */
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompress(a, compressed, compressed_size / 2u, restored, sizeof(payload), &written));
+		TEST_ASSERT_EQUAL_UINT64(0u, written);
+
+		/* One flipped byte. Built-ins: the zstd frame magic (byte 0) and the
+		 * size-prefixed codecs' first block byte (past the u64 prefix) are
+		 * always detected; future codecs inherit the same contract. */
+		written = 0u;
+		{
+			u64 flip_index = compressed_size / 2u;
+			if (codec->id == SK_COMPRESSION_CODEC_ZSTD) {
+				flip_index = 0u;
+			} else if (codec->id == SK_COMPRESSION_CODEC_LZ4 || codec->id == SK_COMPRESSION_CODEC_ZLIB) {
+				flip_index = COMPRESSION_SIZE_PREFIX_BYTES;
+			}
+			TEST_ASSERT_TRUE(flip_index < compressed_size);
+			compressed[flip_index] ^= 0xFFu;
+		}
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompress(a, compressed, compressed_size, restored, sizeof(payload), &written));
+		TEST_ASSERT_EQUAL_UINT64(0u, written);
+
+		a->free(a->instance, compressed);
+		a->free(a->instance, restored);
+	}
+}
+
+SK_TEST(compression_generic_unknown_id_dispatch) {
+	/* Dispatch contract (design §5): every registered id resolves to exactly
+	 * one descriptor; ids with no enabled descriptor (including unknown
+	 * values) decode to NULL, which the caller maps to
+	 * SK_COMPRESSION_ERR_UNSUPPORTED_CODEC. */
+	const u32 count = sk_compression_codec_count();
+
+	for (u32 i = 0u; i < count; ++i) {
+		const sk_compression_codec_t* codec = sk_compression_codec_at(i);
+		TEST_ASSERT_NOT_NULL(codec);
+		TEST_ASSERT_EQUAL_PTR(codec, sk_compression_codec(codec->id));
+	}
+	{
+		/* The full enum (0..3): exactly the registered ids resolve. */
+		const sk_compression_codec_id_t known[] = {
+			SK_COMPRESSION_CODEC_NONE,
+			SK_COMPRESSION_CODEC_ZSTD,
+			SK_COMPRESSION_CODEC_LZ4,
+			SK_COMPRESSION_CODEC_ZLIB,
+		};
+		u32 resolved = 0u;
+		for (u32 i = 0u; i < (u32)(sizeof(known) / sizeof(known[0])); ++i) {
+			if (sk_compression_codec(known[i]) != NULL) {
+				resolved += 1u;
+			}
+		}
+		TEST_ASSERT_EQUAL_UINT32(count, resolved);
+	}
+	/* Arbitrary / out-of-enum ids never register. */
+	TEST_ASSERT_NULL(sk_compression_codec((sk_compression_codec_id_t)0x7FFFu));
+	TEST_ASSERT_NULL(sk_compression_codec_at(count));
+}
+
 #ifdef SK_COMPRESSION_HAS_ZSTD
 SK_TEST(compression_registry_zstd_lookup) {
 	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD);

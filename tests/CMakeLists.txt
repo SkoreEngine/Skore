@@ -41,6 +41,23 @@ set_target_properties(sk-compression-conformance PROPERTIES
 add_test(NAME sk-compression-conformance COMMAND sk-compression-conformance
     WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 
+# APX-163: codec benchmark host tool. Reports ratio + compress/decompress
+# throughput for every registered codec over representative engine corpora
+# (deterministic synthetic data). Registered with CTest as a smoke run: the
+# printed numbers are informational, the exit code is the round-trip
+# contract. Run directly for the full report:
+#   ./build/bin/sk-compression-bench
+add_executable(sk-compression-bench benchmarks/compression_bench.c)
+target_link_libraries(sk-compression-bench PRIVATE sk-core)
+set_target_properties(sk-compression-bench PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+add_test(NAME sk-compression-bench COMMAND sk-compression-bench
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set_tests_properties(sk-compression-bench PROPERTIES LABELS "benchmark")
+
 add_executable(sk-tests main.c)
 
 # sk-app-tests pulls sk-core-tests + sk-test transitively.
