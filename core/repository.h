@@ -36,6 +36,10 @@
  * (Set accessors) shadow later prototype edits. Sub-object and reference
  * fields are always materialized on prototype instances (mirrors).
  *
+ * Indirection fields (String / Blob / Buffer / ReferenceArray /
+ * SubObjectList) hold repository-owned heap payloads deep-copied from the
+ * descriptor defaults; all other field types are copied by bytes.
+ *
  * # Concurrency
  *
  * Read is lock-free: one atomic load of the current instance pointer pins a
@@ -153,6 +157,23 @@ typedef struct sk_field_blob_t {
 } sk_field_blob_t;
 
 /**
+ * In-blob storage for a Buffer field: a repository-owned heap byte range.
+ *
+ * Ownership contract: the repository deep-copies the caller's bytes on
+ * set_buffer (allocated with the repository's allocator), so the caller keeps
+ * ownership of its input and may free or mutate it immediately after the call.
+ * get_buffer returns a borrowed pointer valid until the next write / commit on
+ * the resource (or the resource's destruction). An empty buffer (set with
+ * size 0) is distinct from an unset buffer: both read back as NULL / size 0,
+ * but the empty buffer has its has-value bit set, so has_value_on_this_object
+ * distinguishes the two and the empty buffer shadows a prototype value.
+ */
+typedef struct sk_field_buffer_t {
+	u8* data;
+	u32 size;
+} sk_field_buffer_t;
+
+/**
  * In-blob storage for ReferenceArray fields: a repository-owned heap array of
  * RIDs. @p capacity tracks the allocated slots (== @p count on deep copies).
  */
@@ -192,8 +213,9 @@ typedef struct sk_field_subobject_list_t {
  * @field size     Byte size of the stored field value (must be > 0; offset +
  *                 size must not exceed the type's instance_size). SubObjectList
  *                 fields must use the sk_field_subobject_list_t layout, Blob
- *                 fields sk_field_blob_t, String fields sk_field_string_t, and
- *                 ReferenceArray fields sk_field_rid_array_t.
+ *                 fields sk_field_blob_t, Buffer fields sk_field_buffer_t,
+ *                 String fields sk_field_string_t, and ReferenceArray fields
+ *                 sk_field_rid_array_t.
  * @field sub_type Optional type id (e.g. referenced resource type or enum
  *                 backing type); SK_TYPE_ID_ZERO when unused.
  */
@@ -616,6 +638,13 @@ typedef struct sk_repository_api_t {
 	/** Replace the whole blob (bytes are deep copied; @p data may be NULL when
 	 *  @p size is 0, which clears the field). */
 	i32 (*set_blob)(sk_resource_object_t view, u32 index, const void* data, u32 size);
+	/** Replace the whole buffer payload. The bytes are deep copied with the
+	 *  repository's allocator — the repository owns the copy and the caller
+	 *  keeps ownership of @p data, which may be freed or mutated immediately
+	 *  after the call. @p data may be NULL when @p size is 0, which sets an
+	 *  EMPTY buffer (has-value bit set; distinct from unset, shadows a
+	 *  prototype value). Overwriting releases the previous payload. */
+	i32 (*set_buffer)(sk_resource_object_t view, u32 index, const void* data, u32 size);
 	i32 (*set_type_id)(sk_resource_object_t view, u32 index, sk_type_id_t value);
 	i32 (*set_reference)(sk_resource_object_t view, u32 index, sk_rid_t rid);
 	/** Replace the whole reference array (items are deep copied). */
@@ -664,6 +693,14 @@ typedef struct sk_repository_api_t {
 	/** @return Borrowed blob bytes, or NULL when unset / empty; @p out_size
 	 *         receives the size (0 when unset; @p out_size may be NULL). */
 	const u8* (*get_blob)(sk_resource_object_t view, u32 index, u32* out_size);
+	/** @return Borrowed buffer bytes (repository-owned; valid until the next
+	 *         write / commit on the resource or its destruction), or NULL when
+	 *         unset / empty; @p out_size receives the size (0 when unset or
+	 *         empty; @p out_size may be NULL). Falls back through the
+	 *         prototype chain when unset on this object. Use
+	 *         has_value_on_this_object to distinguish an empty-but-set buffer
+	 *         from an unset one. */
+	const u8* (*get_buffer)(sk_resource_object_t view, u32 index, u32* out_size);
 	sk_type_id_t (*get_type_id)(sk_resource_object_t view, u32 index);
 	sk_rid_t (*get_reference)(sk_resource_object_t view, u32 index);
 	/** @return Borrowed items array; @p out_count receives the count (0 when
