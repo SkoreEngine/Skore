@@ -9,17 +9,56 @@
  * structs (data + function pointers), plus the ResourceAssets manager rewritten
  * against sk_repository_t and sk_app_api_t::add_impl multi-impl registration.
  *
- * Concrete handlers/importers are static table instances registered with:
- *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &handler);
- *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_IMPORTER_TYPE_ID, &importer);
+ * ## Canonical handler registration pattern
+ *
+ * Define one long-lived (usually file-static) table, then register it on the
+ * app multi-impl list. The engine discovers handlers via get_all_impls and
+ * indexes them by extension / resource type:
+ *
+ * @code
+ * static const_chr_t my_extension(void_ptr_t user_data) {
+ *     (void)user_data;
+ *     return ".mesh";
+ * }
+ * // ... other table callbacks ...
+ *
+ * static sk_resource_asset_handler_t my_handler = {
+ *     .user_data = NULL,
+ *     .extension = my_extension,
+ *     .open_asset = NULL,
+ *     .get_resource_type_id = my_get_resource_type_id,
+ *     .get_desc = my_get_desc,
+ *     .load = my_load,
+ *     .save = my_save,
+ *     .create = my_create,
+ *     .reloaded = NULL,
+ *     .after_move = NULL,
+ *     .export_object = NULL,
+ *     .get_icon = my_get_icon,
+ *     .get_load_order = NULL,
+ *     .get_asset_name = NULL,
+ * };
+ *
+ * app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &my_handler);
+ * // Importers use SK_RESOURCE_ASSET_IMPORTER_TYPE_ID the same way.
+ * @endcode
+ *
+ * Built-ins call this for every table in
+ * sk_resource_asset_builtins_register_impls(). Hosts resolve with
+ * sk_resource_asset_handler_find_by_extension / _find_by_resource_type or
+ * sk_resource_assets_api_t::get_asset_handler_for_extension, then invoke
+ * callbacks only through the null-safe free functions (sk_resource_asset_handler_*).
+ *
+ * Thumbnail / PreviewGenerator generation is intentionally not part of this
+ * system (no handler field, no cache, no dispatch). See
+ * docs/repository-assets-thumbnail-drop.md and inventory §3.
  *
  * The engine (sk_resource_assets_api_t) discovers those tables, indexes them by
  * extension / resource type, scans package Assets/ trees into ResourceAsset*
  * resources, and runs import (legacy import_asset or generic ingest/cook).
  *
  * Function pointers follow the multi-instance core pattern (sk_allocator_t):
- * the first parameter is the table's opaque user_data. Thumbnail /
- * PreviewGenerator surface is intentionally omitted.
+ * the first parameter is the table's opaque user_data.
  *
  * Core has no dependency on editor-only modules.
  */

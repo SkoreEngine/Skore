@@ -6,14 +6,14 @@
  * plus the ResourceAssets engine: package scanning, create/move, import
  * (direct import_asset or generic ingest/cook), and by-type asset index.
  *
+ * Canonical registration (see resource_assets.h): a static
+ * sk_resource_asset_handler_t literal plus
+ *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &handler);
+ *
+ * Thumbnail generation is intentionally not part of this system.
  * Thumbnails, efsw file watching, and Serialize/Deserialize load paths are
- * intentionally omitted (see docs/repository-assets-inventory.md §3 for
- * thumbnail call sites on main that are not reimplemented here).
- */
-
-/**
- * @file resource_assets.c
- * @brief Asset handler registry lookup and null-safe dispatch over add_impl.
+ * omitted (see docs/repository-assets-inventory.md §3 and
+ * docs/repository-assets-thumbnail-drop.md).
  */
 
 #include "resource_assets.h"

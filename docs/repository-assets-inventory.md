@@ -381,7 +381,51 @@ Do **not** carry thumbnail generation into the initial repository-asset port. Ke
 
 ---
 
-## 4. Suggested v2 mapping (inventory only)
+## 4. Canonical handler registration (v2, implemented)
+
+Use a **static** `sk_resource_asset_handler_t` literal and register it with `add_impl`.
+The engine indexes by extension / resource type and dispatches only through the
+null-safe free functions in `resource_assets.h` / `resource_assets.c`.
+
+```c
+static sk_resource_asset_handler_t handler = {
+    .user_data = NULL,
+    .extension = my_extension,               /* e.g. returns ".mesh" */
+    .open_asset = NULL,                      /* optional */
+    .get_resource_type_id = my_type_id,
+    .get_desc = my_desc,
+    .load = my_load,
+    .save = my_save,
+    .create = my_create,
+    .reloaded = NULL,
+    .after_move = NULL,
+    .export_object = NULL,
+    .get_icon = my_icon,
+    .get_load_order = NULL,
+    .get_asset_name = NULL,
+};
+
+app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &handler);
+/* Importers: app_api->add_impl(ctx, SK_RESOURCE_ASSET_IMPORTER_TYPE_ID, &importer); */
+```
+
+Production builtins: `sk_resource_asset_builtins_register_impls` in
+`core/resource_asset_builtins.c`. Tests that exercise this path:
+
+| Coverage | Test |
+| --- | --- |
+| `add_impl` registration | `resource_asset_handler_add_impl_lookup_and_dispatch` |
+| Extension-based resolution | same + `resource_assets_engine_handler_discovery` |
+| Dispatch through fp table | same (every handler fp via null-safe free functions) |
+| End-to-end asset import | `resource_assets_engine_import_dispatch` |
+
+**Thumbnail generation is intentionally not part of this system** (no
+`GetPreviewGenerator` field, no thumbnail cache, no generate/update API). See
+§3 and `docs/repository-assets-thumbnail-drop.md`.
+
+---
+
+## 5. Suggested v2 mapping (inventory only)
 
 | main | v2 direction |
 | --- | --- |
@@ -394,7 +438,7 @@ Do **not** carry thumbnail generation into the initial repository-asset port. Ke
 
 ---
 
-## 5. File index (main, editor resource system)
+## 6. File index (main, editor resource system)
 
 ```
 Editor/Source/Skore/Resource/ResourceAssets.hpp
