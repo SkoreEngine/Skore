@@ -106,7 +106,9 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y mingw-w64 clang-tidy
+          # clang provides -print-resource-dir (intrinsics); do not use GCC's
+          # lib/gcc/.../include with clang-tidy — that conflicts with builtins.
+          sudo apt-get install -y mingw-w64 clang clang-tidy g++-mingw-w64-x86-64
 
       - name: Windows ABI check
         run: bash scripts/check-windows-abi.sh

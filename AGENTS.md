@@ -609,10 +609,10 @@ cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build --
 
 | Distro | Install |
 |--------|---------|
-| Debian / Ubuntu | `sudo apt-get install -y mingw-w64 clang-tidy` |
-| Fedora / RHEL | `sudo dnf install -y mingw64-gcc mingw64-headers clang-tools-extra` |
+| Debian / Ubuntu | `sudo apt-get install -y mingw-w64 clang clang-tidy g++-mingw-w64-x86-64` |
+| Fedora / RHEL | `sudo dnf install -y mingw64-gcc mingw64-headers clang clang-tools-extra` |
 
-`clang-tidy` may already be installed for the normal `-DSK_ENABLE_CLANG_TIDY=ON` build; **MinGW is the extra dependency**. You do **not** need MSVC, Wine, or a Windows VM for this script.
+Needs **clang** (resource-dir / intrinsics), **clang-tidy**, and **MinGW** headers. Do not feed GCC’s `lib/gcc/.../include` into clang-tidy — that breaks `<windows.h>` parses. You do **not** need MSVC, Wine, or a Windows VM.
 
 Optional: pass specific files (`./scripts/check-windows-abi.sh core/stacktrace.c`) or `JOBS=8` for parallelism.
 
