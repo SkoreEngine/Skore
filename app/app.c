@@ -625,6 +625,8 @@ i32 sk_app_run(sk_app_context_t* context) {
 #include "platform_window.h"
 #include "entities.h"
 #include "dxc_compiler.h"
+#include "render_graph.h"
+#include "render_pipeline.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1440,6 +1442,53 @@ SK_TEST(dxc_compiler_plugin_registers_api) {
 	TEST_ASSERT_NOT_NULL(dxc);
 	TEST_ASSERT_NOT_NULL(dxc->init);
 	TEST_ASSERT_NOT_NULL(dxc->compile);
+	plat->lib_close(lib);
+	sk_app_destroy(ctx);
+}
+
+/* ---- render_graph plugin (C++ main call-site migration) ---- */
+
+SK_TEST(app_init_auto_loads_render_graph_plugin) {
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_render_graph_api_t* rg = sk_render_graph_api_from_app(ctx, sk_app_api());
+	TEST_ASSERT_NOT_NULL_MESSAGE(rg, "expected sk-render-graph auto-loaded from app_folder/plugins");
+	TEST_ASSERT_NOT_NULL(rg->init);
+	TEST_ASSERT_NOT_NULL(rg->shutdown);
+	TEST_ASSERT_NOT_NULL(rg->create);
+	TEST_ASSERT_NOT_NULL(rg->destroy);
+	TEST_ASSERT_NOT_NULL(rg->begin);
+	TEST_ASSERT_NOT_NULL(rg->execute);
+	TEST_ASSERT_NOT_NULL(rg->compile);
+	TEST_ASSERT_NOT_NULL(rg->add_pass);
+	TEST_ASSERT_NOT_NULL(rg->create_texture);
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(render_graph_plugin_registers_api) {
+	char path[SK_FS_PATH_MAX];
+	typedef int (*entry_fn)(sk_app_context_t*, const sk_app_api_t*);
+#if defined(_WIN32)
+	const_chr_t name = "sk-render-graph.dll";
+#elif defined(__APPLE__)
+	const_chr_t name = "sk-render-graph.dylib";
+#else
+	const_chr_t name = "sk-render-graph.so";
+#endif
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	TEST_ASSERT_EQUAL_INT32(0, test_plugin_path(name, path, (u32)sizeof(path)));
+	const sk_platform_api_t* plat = sk_platform_api();
+	sk_shared_lib_t lib = plat->lib_open(path);
+	TEST_ASSERT_NOT_NULL(lib);
+	void_ptr_t raw = plat->lib_symbol(lib, "sk_plugin_entry_point");
+	TEST_ASSERT_NOT_NULL(raw);
+	TEST_ASSERT_EQUAL_INT(0, (SK_PTR_TO_FN(entry_fn, raw))(ctx, sk_app_api()));
+	const sk_render_graph_api_t* rg = sk_render_graph_api_from_app(ctx, sk_app_api());
+	TEST_ASSERT_NOT_NULL(rg);
+	TEST_ASSERT_NOT_NULL(rg->create);
+	TEST_ASSERT_NOT_NULL(rg->begin);
+	TEST_ASSERT_NOT_NULL(rg->execute);
 	plat->lib_close(lib);
 	sk_app_destroy(ctx);
 }

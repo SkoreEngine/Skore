@@ -17,8 +17,10 @@ if(APPLE)
     target_link_options(sk-player PRIVATE "LINKER:-export_dynamic")
 endif()
 
-# Header-only access to sk_platform_window_api_t (plugin is loaded at runtime).
-# Include path used instead of sk-platform-window-lib because player is
+# Header-only access to plugin APIs (plugins are loaded at runtime).
+# Include paths used instead of plugin-lib targets because player is
 # added before plugins/ in the root CMakeLists.
 target_include_directories(sk-player PRIVATE
-    ${CMAKE_SOURCE_DIR}/plugins/platform_window)
+    ${CMAKE_SOURCE_DIR}/plugins/platform_window
+    ${CMAKE_SOURCE_DIR}/plugins/render_graph
+    ${CMAKE_SOURCE_DIR}/plugins/render_device)
