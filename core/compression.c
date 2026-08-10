@@ -561,6 +561,52 @@ static void_ptr_t zstd_stub_realloc(void_ptr_t instance, void_ptr_t ptr, size_t 
 	return realloc(ptr, size);
 }
 
+SK_TEST(compression_zstd_unknown_content_size) {
+	/* A frame written without a content-size header (ZSTD_c_contentSizeFlag=0)
+	 * exercises the v2 split bound queries (design §3.2): decompressed_size
+	 * reports SK_COMPRESSION_SIZE_UNKNOWN while decompress_bound still gives a
+	 * safe upper bound and the one-shot decompress succeeds. Crafted with the
+	 * stable zstd API because the codec intentionally always writes the header. */
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD);
+	const u8 payload[] = "unknown content size frame payload payload payload payload payload";
+	const u64 bound = codec->compress_bound(sizeof(payload));
+	u8* frame = sk_allocator_default()->alloc(NULL, bound);
+	u8* restored = sk_allocator_default()->alloc(NULL, sizeof(payload));
+	ZSTD_CCtx* ctx = ZSTD_createCCtx_advanced(zstd_custom_mem(sk_allocator_default()));
+	size_t frame_size = 0;
+	u64 declared = 0u;
+	u64 written = 0u;
+
+	TEST_ASSERT_NOT_NULL(frame);
+	TEST_ASSERT_NOT_NULL(restored);
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	TEST_ASSERT_FALSE(ZSTD_isError(ZSTD_CCtx_setParameter(ctx, ZSTD_c_compressionLevel, 3)));
+	TEST_ASSERT_FALSE(ZSTD_isError(ZSTD_CCtx_setParameter(ctx, ZSTD_c_contentSizeFlag, 0)));
+	frame_size = ZSTD_compress2(ctx, frame, bound, payload, sizeof(payload));
+	TEST_ASSERT_FALSE(ZSTD_isError(frame_size));
+	ZSTD_freeCCtx(ctx);
+
+	/* Exact size is unknown: the frame header declares no content size. */
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompressed_size(frame, frame_size, &declared));
+	TEST_ASSERT_EQUAL_UINT64(SK_COMPRESSION_SIZE_UNKNOWN, declared);
+
+	/* The bound query still provides a usable upper bound, and the frame
+	 * decompresses byte-for-byte when sized from it. */
+	{
+		const u64 dbound = codec->decompress_bound(frame, frame_size);
+		TEST_ASSERT_TRUE(dbound != SK_COMPRESSION_SIZE_UNKNOWN);
+		TEST_ASSERT_TRUE(dbound >= sizeof(payload));
+	}
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompress(sk_allocator_default(), frame, frame_size, restored, sizeof(payload), &written));
+	TEST_ASSERT_EQUAL_UINT64(sizeof(payload), written);
+	TEST_ASSERT_EQUAL_MEMORY(payload, restored, sizeof(payload));
+
+	sk_allocator_default()->free(NULL, frame);
+	sk_allocator_default()->free(NULL, restored);
+}
+
 SK_TEST(compression_zstd_allocator_injection) {
 	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD);
 	sk_allocator_t stub = {NULL, zstd_stub_alloc, zstd_stub_free, zstd_stub_realloc};
