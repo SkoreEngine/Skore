@@ -7,7 +7,7 @@
  *
  * Registers the full sk_render_graph_api_t fn table under
  * SK_RENDER_GRAPH_API_TYPE_ID via sk_render_graph_init. Hosts look it up with
- * app_api->get_api. Table slots are stubbed until graph logic lands.
+ * app_api->get_api. Frame memory is live; pass/GPU logic lands in later tasks.
  *
  * @param context Process app context (API registry). Must not be NULL.
  * @param app_api App module table (set_api/get_api). Must not be NULL.

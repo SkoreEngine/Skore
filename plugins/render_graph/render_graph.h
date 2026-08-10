@@ -2,7 +2,7 @@
 
 /**
  * @file render_graph.h
- * @brief Render graph module API (fn-table skeleton).
+ * @brief Render graph module API (fn-table).
  *
  * Implemented by the sk-render-graph plugin (SHARED, statically linked
  * sk-core). The plugin registers a static sk_render_graph_api_t on the app
@@ -12,9 +12,12 @@
  *       (const sk_render_graph_api_t*)app_api->get_api(
  *           ctx, SK_RENDER_GRAPH_API_TYPE_ID);
  *
- * Entry points match the migration audit API sketch. This slice is
- * risk-isolation only: stubs return not-implemented / null / zero handles.
- * No pass sorting, barriers, or GPU resource creation yet.
+ * Frame memory model (APX-150): each graph owns a linear bump frame arena
+ * (reset, not freed, at begin) and persistent object/array pools that grow
+ * only during setup or between frames. Steady-state frames never heap-allocate.
+ * Mid-frame capacity failure is a defined error (no silent malloc).
+ *
+ * Pass sorting, barriers, and GPU resource creation land in later tasks.
  */
 
 #include "app.h"
@@ -108,6 +111,72 @@ typedef struct sk_rg_extent_t {
 } sk_rg_extent_t;
 
 /* ------------------------------------------------------------------ */
+/* Frame memory config + diagnostics                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Result codes for the graph frame-memory substrate.
+ * Mid-frame exhaustion is SK_RG_MEMORY_OUT_OF_SPACE (never silent malloc).
+ */
+typedef enum sk_rg_memory_result_t {
+	SK_RG_MEMORY_OK = 0,
+	/** Capacity exceeded while in-frame (or fixed-capacity path). */
+	SK_RG_MEMORY_OUT_OF_SPACE = 1,
+	/** Growth attempted while a frame is active. */
+	SK_RG_MEMORY_GROW_BLOCKED = 2,
+	/** Heap allocation failed during an allowed (out-of-frame) growth. */
+	SK_RG_MEMORY_OOM = 3,
+} sk_rg_memory_result_t;
+
+/**
+ * Capacities reserved at graph creation (or grown only between frames).
+ * Zero fields are replaced with plugin defaults. Remembered so that after
+ * warm-up / explicit growth, steady-state frames do not allocate again.
+ */
+typedef struct sk_rg_memory_config_t {
+	/** Linear frame-arena bytes for per-frame scratch (strings, sort temps). */
+	u64 frame_arena_bytes;
+	/** Free-list pool slots for pass nodes. */
+	u32 pass_capacity;
+	/** Free-list pool slots for resource descriptors. */
+	u32 resource_capacity;
+	/** Growable-only-outside-frame edge list capacity (elements). */
+	u32 edge_capacity;
+	/** Growable-only-outside-frame barrier list capacity (elements). */
+	u32 barrier_capacity;
+} sk_rg_memory_config_t;
+
+/**
+ * Internal stats/diagnostics for the frame-memory model (tests + tooling).
+ * Filled by get_memory_stats; all fields are snapshots of current state.
+ */
+typedef struct sk_rg_memory_stats_t {
+	u64 frame_arena_capacity;
+	u64 frame_arena_used;
+	u64 frame_arena_high_water;
+	u32 pass_capacity;
+	u32 pass_live;
+	u32 pass_high_water;
+	u32 resource_capacity;
+	u32 resource_live;
+	u32 resource_high_water;
+	u32 edge_capacity;
+	u32 edge_count;
+	u32 edge_high_water;
+	u32 barrier_capacity;
+	u32 barrier_count;
+	u32 barrier_high_water;
+	/** Count of successful capacity growths (arena or pools) via heap. */
+	u32 growth_events;
+	/** Total heap alloc/realloc operations performed by the memory system. */
+	u32 heap_alloc_count;
+	/** Non-zero while between begin and the next begin (frame active). */
+	i32 in_frame;
+	/** Last memory result from a failed op (0 if none / last succeeded). */
+	i32 last_error;
+} sk_rg_memory_stats_t;
+
+/* ------------------------------------------------------------------ */
 /* Callbacks (fn + userdata — no std::function)                        */
 /* ------------------------------------------------------------------ */
 
@@ -126,7 +195,7 @@ typedef void (*sk_rg_constants_fn)(sk_render_graph_t* graph, void_ptr_t dst, voi
 
 /**
  * Global render-graph module API (one table per process after plugin load).
- * Skeleton: every entry is non-null; graph logic lands in later tasks.
+ * Every entry is non-null. Frame memory is live; full pass/GPU logic lands later.
  */
 typedef struct sk_render_graph_api_t {
 	/* module lifecycle (plugin-global) */
@@ -134,7 +203,13 @@ typedef struct sk_render_graph_api_t {
 	void (*shutdown)(void);
 
 	/* graph object */
+	/** Create with default memory capacities. */
 	sk_render_graph_t* (*create)(sk_render_device_t device);
+	/**
+	 * Create with explicit memory capacities (@p config may be NULL → defaults).
+	 * Zero fields in @p config are filled with the same defaults as create().
+	 */
+	sk_render_graph_t* (*create_with_config)(sk_render_device_t device, const sk_rg_memory_config_t* config);
 	void (*destroy)(sk_render_graph_t* graph);
 
 	/* declare resources (names valid until next begin or retained intern pool) */
@@ -175,11 +250,22 @@ typedef struct sk_render_graph_api_t {
 	sk_rg_extent_t (*get_output_size)(const sk_render_graph_t* g);
 	void (*set_current_output_index)(sk_render_graph_t* g, u32 index);
 
+	/**
+	 * Start a frame: reset the linear frame arena (offset → 0, capacity retained),
+	 * return pass nodes to the free-list, and clear edge/barrier counts (capacity
+	 * retained). Marks the graph in-frame so pool/arena growth is blocked.
+	 */
 	void (*begin)(sk_render_graph_t* g, void_ptr_t scene /* optional opaque */);
 	void (*execute)(sk_render_graph_t* g, sk_command_buffer_t cmd);
 
 	/* debug / tests */
 	u32 (*topology_build_count)(const sk_render_graph_t* g);
+	/**
+	 * Fill @p out with frame-memory diagnostics (bytes used, high-water,
+	 * growth events, heap-alloc count, in-frame flag, last error).
+	 * @p out must not be NULL.
+	 */
+	void (*get_memory_stats)(const sk_render_graph_t* g, sk_rg_memory_stats_t* out);
 } sk_render_graph_api_t;
 
 /**
