@@ -7,6 +7,13 @@ if(NOT BUILD_TESTING)
     return()
 endif()
 
+# Frozen public-interface check (APX-169): compile core/compression.h in a
+# trivial TU under the project's warnings-as-errors flags so include-order /
+# self-containment regressions fail the build. Build check only - defines
+# nothing, never links or runs.
+add_library(sk-header-checks OBJECT header_checks/compression_header.c)
+target_include_directories(sk-header-checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../core)
+
 add_executable(sk-tests main.c)
 
 # sk-app-tests pulls sk-core-tests + sk-test transitively.
