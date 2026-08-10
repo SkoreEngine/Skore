@@ -14,6 +14,27 @@ endif()
 add_library(sk-header-checks OBJECT header_checks/compression_header.c)
 target_include_directories(sk-header-checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../core)
 
+# Symbol-mapping conformance check (APX-171): encodes the APX-165 design-doc
+# section 11 main-branch -> v2 compression mapping table and verifies every
+# mapped replacement exists and is callable with the documented signature, and
+# that no-planned-equivalent symbols are declared intentional gaps. Links the
+# production sk-core (the shipped surface, no SK_TESTS). Runs in Debug and
+# Release CI so a renamed/dropped public symbol fails loudly.
+add_executable(sk-compression-conformance conformance/compression_mapping.c)
+target_link_libraries(sk-compression-conformance PRIVATE sk-core)
+# Mirror core/CMakeLists.txt: the conformance TU must know whether the linked
+# production sk-core compiled the zstd codec in (its define is PRIVATE).
+if(SK_COMPRESSION_ZSTD)
+    target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_ZSTD)
+endif()
+set_target_properties(sk-compression-conformance PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+add_test(NAME sk-compression-conformance COMMAND sk-compression-conformance
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+
 add_executable(sk-tests main.c)
 
 # sk-app-tests pulls sk-core-tests + sk-test transitively.

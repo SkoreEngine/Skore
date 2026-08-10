@@ -612,6 +612,14 @@ Symbols with no v2 equivalent in the table are deliberate: reflection/metadata
 belongs to the future reflection layer, and the LZ4 branches were dead code on
 main.
 
+The table above is a **maintained artifact**, not a snapshot: the executable
+conformance check at `tests/conformance/compression_mapping.c` (APX-171) freezes
+every row — mapped replacements must exist and be callable with the documented
+signature (compile-time type checks + runtime calls), and the three
+no-planned-equivalent symbols must stay declared as intentional gaps. The check
+builds and runs as `sk-compression-conformance` in Debug and Release CI, so a
+renamed or dropped public symbol fails loudly instead of drifting.
+
 ## 12. Test plan (implementation follow-up)
 
 In-source `SK_TEST`s in `core/compression.c` (under `#ifdef SK_TESTS`), plus
