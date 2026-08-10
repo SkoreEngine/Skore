@@ -19,6 +19,22 @@ target_link_libraries(sk-tests PRIVATE
     sk-render-graph-lib
 )
 
+# Export only the stacktrace test helpers so dladdr can resolve their names in
+# the test executable. Full --export-dynamic would leak the host's
+# statically-linked sk-core / sk-test / mimalloc copies into the global scope,
+# interposing over the plugins' own static copies at dlopen time (plugins must
+# keep their registries and allocators private; see AGENTS.md "Plugins are
+# SHARED libraries that statically link sk-core").
+if(UNIX AND NOT APPLE)
+    target_link_options(sk-tests PRIVATE
+        "LINKER:--export-dynamic-symbol=stacktrace_test_leaf"
+        "LINKER:--export-dynamic-symbol=stacktrace_test_middle")
+elseif(APPLE)
+    # macOS dladdr resolves executable symbols from the Mach-O symbol table
+    # (dyld's dladdr returns dli_sname for unstripped executables), so no
+    # export flags are needed here.
+endif()
+
 # Pull all objects so MSVC/GCC do not drop TUs whose only live symbols are
 # constructor-registered SK_TEST functions.
 if(MSVC)

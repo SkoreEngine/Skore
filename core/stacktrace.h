@@ -10,9 +10,11 @@
  * one-time setup (e.g. Win32 dbghelp) hook in through sk_stacktrace_init /
  * sk_stacktrace_shutdown.
  *
- * No platform backend is implemented yet; every platform currently uses the
- * fallback backend, which captures zero frames and formats a clear
- * "stacktrace unavailable on this platform" message. It never fails hard.
+ * Backends: POSIX (Linux, Apple) captures via backtrace()/_Unwind_Backtrace
+ * and symbolizes via dladdr (module, nearest symbol, byte offsets); Windows
+ * still uses the fallback backend, which captures zero frames and formats a
+ * clear "stacktrace unavailable on this platform" message. The fallback
+ * never fails hard.
  */
 
 #include "common.h"
@@ -85,10 +87,11 @@ void sk_stacktrace_shutdown(void);
  *
  * @param frames      Destination array; may be NULL only when @p capacity == 0.
  * @param capacity    Maximum number of frames to write.
- * @param skip_frames Number of innermost frames to skip (0 = capture the
- *                    immediate caller of this function; backends may shift by
- *                    one frame of their own, so pass 1-2 when hiding the
- *                    capture helper is desired).
+ * @param skip_frames Number of innermost frames to skip after the backend
+ *                    drops its own capture frame (0 = keep the
+ *                    sk_stacktrace_capture wrapper as frame[0]; 1 = start at
+ *                    the immediate caller of sk_stacktrace_capture; pass 1-2
+ *                    when hiding the capture helper is desired).
  * @return Number of frames written (<= @p capacity); 0 when the platform
  *         backend is unavailable (fallback).
  */
