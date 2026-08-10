@@ -1,6 +1,6 @@
 /**
  * @file render_graph.c
- * @brief sk-render-graph plugin: fn table, frame memory, build-phase declare.
+ * @brief sk-render-graph plugin: fn table, frame memory, build, compile.
  *
  * Frame memory (APX-150):
  *   - Linear/bump frame arena: preallocated block, reset (not freed) at begin.
@@ -13,6 +13,12 @@
  *   - begin → create/import resources, add_pass, pass_read/write, end/execute.
  *   - Dep lists + imported texture handle arrays live in the frame arena.
  *   - Producer→consumer edges are recorded into the edge array pool.
+ *
+ * Compile phase (APX-152):
+ *   - Topological order (stage tie-break), cycle → SK_RG_ERR_CYCLE.
+ *   - Cull passes whose outputs are never consumed (unless SIDE_EFFECTS).
+ *   - Per-resource first/last use in compiled order; alias pack for transients.
+ *   - Compile scratch + results live in pre-sized persistent tables (reused).
  */
 
 #include "render_graph.h"
@@ -62,6 +68,7 @@ struct sk_rg_pass_t {
 	sk_rg_pass_type_t type;
 	i32 stage;
 	u32 index;
+	u32 flags; /* sk_rg_pass_flag_bit_t */
 	u32 dep_count;
 	sk_rg_dep_node_t* deps_head;
 	sk_rg_dep_node_t* deps_tail;
@@ -80,6 +87,64 @@ struct sk_rg_pass_t {
 	sk_buffer_t dispatch_indirect;
 	u32 generation; /* matches graph frame_generation while live */
 };
+
+/** Per-resource lifetime slot (compile result; index = resource index). */
+typedef struct sk_rg_lifetime_slot_t {
+	u32 first_use;
+	u32 last_use;
+	i32 used;
+	i32 first_use_is_write_only;
+	i32 first_pass_writes;
+	i32 first_pass_reads;
+} sk_rg_lifetime_slot_t;
+
+/** Alias-eligible resource + placement (compile result). */
+typedef struct sk_rg_alias_slot_t {
+	u32 resource_index;
+	u32 first_use;
+	u32 last_use;
+	u64 size;
+	u64 alignment;
+	u32 memory_type_bits;
+	u32 bucket;
+	u64 offset;
+} sk_rg_alias_slot_t;
+
+/** Alias heap bucket (compile result). */
+typedef struct sk_rg_alias_bucket_slot_t {
+	u64 size;
+	u64 alignment;
+	u32 memory_type_bits;
+} sk_rg_alias_bucket_slot_t;
+
+/**
+ * Compile working sets + results. All tables sized at graph create from
+ * pass/resource capacities and reused every frame (no mid-compile heap).
+ */
+typedef struct sk_rg_compile_state_t {
+	/* results */
+	u32* order; /* [pass_capacity] declaration indices in exec order */
+	u32 order_count;
+	u32* culled; /* [pass_capacity] declaration indices culled */
+	u32 culled_count;
+	sk_rg_lifetime_slot_t* lifetimes; /* [resource_capacity] */
+	sk_rg_alias_slot_t* aliases;	  /* [resource_capacity] eligible set */
+	u32 alias_count;
+	sk_rg_alias_bucket_slot_t* buckets; /* [resource_capacity] */
+	u32 bucket_count;
+	u64 standalone_bytes;
+	u64 aliased_bytes;
+	i32 compiled;
+
+	/* scratch (reused each compile) */
+	u32* indegree;	  /* [pass_capacity] */
+	u8* needed;		  /* [pass_capacity] */
+	u8* emitted;	  /* [pass_capacity] */
+	u32* topo_order;  /* [pass_capacity] full topo before cull */
+	u32* alias_order; /* [resource_capacity] sort keys for packer */
+	u32 pass_capacity;
+	u32 resource_capacity;
+} sk_rg_compile_state_t;
 
 /** Resource descriptor slot (free-list pool element). */
 typedef struct sk_rg_resource_node_t {
@@ -181,6 +246,7 @@ typedef struct sk_rg_memory_t {
 struct sk_render_graph_t {
 	sk_render_device_t device;
 	sk_rg_memory_t memory;
+	sk_rg_compile_state_t compile;
 	sk_rg_extent_t output_size;
 	u32 topology_build_count;
 	u32 current_output_index;
@@ -706,6 +772,63 @@ static void rg_memory_fill_stats(const sk_rg_memory_t* mem, sk_rg_memory_stats_t
 }
 
 /* ------------------------------------------------------------------ */
+/* Compile state (pre-sized; reused across frames)                     */
+/* ------------------------------------------------------------------ */
+
+static void rg_compile_clear_results(sk_rg_compile_state_t* c) {
+	c->order_count = 0u;
+	c->culled_count = 0u;
+	c->alias_count = 0u;
+	c->bucket_count = 0u;
+	c->standalone_bytes = 0ull;
+	c->aliased_bytes = 0ull;
+	c->compiled = 0;
+}
+
+static i32 rg_compile_state_init(sk_rg_memory_t* mem, sk_rg_compile_state_t* c, u32 pass_cap, u32 resource_cap) {
+	memset(c, 0, sizeof(*c));
+	c->pass_capacity = pass_cap;
+	c->resource_capacity = resource_cap;
+
+	if (pass_cap > 0u) {
+		c->order = (u32*)rg_heap_alloc(mem, (size_t)pass_cap * sizeof(u32));
+		c->culled = (u32*)rg_heap_alloc(mem, (size_t)pass_cap * sizeof(u32));
+		c->indegree = (u32*)rg_heap_alloc(mem, (size_t)pass_cap * sizeof(u32));
+		c->needed = (u8*)rg_heap_alloc(mem, (size_t)pass_cap * sizeof(u8));
+		c->emitted = (u8*)rg_heap_alloc(mem, (size_t)pass_cap * sizeof(u8));
+		c->topo_order = (u32*)rg_heap_alloc(mem, (size_t)pass_cap * sizeof(u32));
+		if (c->order == NULL || c->culled == NULL || c->indegree == NULL || c->needed == NULL || c->emitted == NULL || c->topo_order == NULL) {
+			return SK_RG_ERR_OOM;
+		}
+	}
+	if (resource_cap > 0u) {
+		c->lifetimes = (sk_rg_lifetime_slot_t*)rg_heap_alloc(mem, (size_t)resource_cap * sizeof(sk_rg_lifetime_slot_t));
+		c->aliases = (sk_rg_alias_slot_t*)rg_heap_alloc(mem, (size_t)resource_cap * sizeof(sk_rg_alias_slot_t));
+		c->buckets = (sk_rg_alias_bucket_slot_t*)rg_heap_alloc(mem, (size_t)resource_cap * sizeof(sk_rg_alias_bucket_slot_t));
+		c->alias_order = (u32*)rg_heap_alloc(mem, (size_t)resource_cap * sizeof(u32));
+		if (c->lifetimes == NULL || c->aliases == NULL || c->buckets == NULL || c->alias_order == NULL) {
+			return SK_RG_ERR_OOM;
+		}
+	}
+	rg_compile_clear_results(c);
+	return SK_RG_OK;
+}
+
+static void rg_compile_state_shutdown(sk_rg_memory_t* mem, sk_rg_compile_state_t* c) {
+	rg_heap_free(mem, c->order);
+	rg_heap_free(mem, c->culled);
+	rg_heap_free(mem, c->indegree);
+	rg_heap_free(mem, c->needed);
+	rg_heap_free(mem, c->emitted);
+	rg_heap_free(mem, c->topo_order);
+	rg_heap_free(mem, c->lifetimes);
+	rg_heap_free(mem, c->aliases);
+	rg_heap_free(mem, c->buckets);
+	rg_heap_free(mem, c->alias_order);
+	memset(c, 0, sizeof(*c));
+}
+
+/* ------------------------------------------------------------------ */
 /* Build-phase helpers                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -957,6 +1080,7 @@ static sk_render_graph_t* render_graph_create_with_config_impl(sk_render_device_
 	if (config != NULL) {
 		cfg = *config;
 	}
+	rg_memory_config_apply_defaults(&cfg);
 
 	graph = (sk_render_graph_t*)heap->alloc(heap->instance, sizeof(sk_render_graph_t));
 	if (graph == NULL) {
@@ -967,6 +1091,13 @@ static sk_render_graph_t* render_graph_create_with_config_impl(sk_render_device_
 
 	rc = rg_memory_init(&graph->memory, &cfg);
 	if (rc != SK_RG_OK) {
+		heap->free(heap->instance, graph);
+		return NULL;
+	}
+	rc = rg_compile_state_init(&graph->memory, &graph->compile, cfg.pass_capacity, cfg.resource_capacity);
+	if (rc != SK_RG_OK) {
+		rg_compile_state_shutdown(&graph->memory, &graph->compile);
+		rg_memory_shutdown(&graph->memory);
 		heap->free(heap->instance, graph);
 		return NULL;
 	}
@@ -985,6 +1116,7 @@ static void render_graph_destroy_impl(sk_render_graph_t* graph) {
 		return;
 	}
 	heap = graph->memory.heap;
+	rg_compile_state_shutdown(&graph->memory, &graph->compile);
 	rg_memory_shutdown(&graph->memory);
 	heap->free(heap->instance, graph);
 }
@@ -1124,6 +1256,7 @@ static sk_rg_pass_t* render_graph_add_pass_impl(sk_render_graph_t* g, const_chr_
 	pass->name = name;
 	pass->type = type;
 	pass->stage = 0;
+	pass->flags = SK_RG_PASS_FLAG_NONE;
 	pass->index = rg_object_pool_index(&g->memory.passes, pass);
 	pass->dep_count = 0u;
 	pass->deps_head = NULL;
@@ -1156,6 +1289,21 @@ static void render_graph_pass_stage_impl(sk_rg_pass_t* p, i32 stage) {
 		return;
 	}
 	p->stage = stage;
+	rg_memory_set_error(&p->graph->memory, SK_RG_OK);
+}
+
+static void render_graph_pass_set_side_effects_impl(sk_rg_pass_t* p, i32 enabled) {
+	if (!rg_pass_is_live(p)) {
+		if (p != NULL && p->graph != NULL) {
+			rg_memory_set_error(&p->graph->memory, SK_RG_ERR_INVALID_PASS);
+		}
+		return;
+	}
+	if (enabled) {
+		p->flags |= SK_RG_PASS_FLAG_SIDE_EFFECTS;
+	} else {
+		p->flags &= ~(u32)SK_RG_PASS_FLAG_SIDE_EFFECTS;
+	}
 	rg_memory_set_error(&p->graph->memory, SK_RG_OK);
 }
 
@@ -1326,6 +1474,7 @@ static void render_graph_begin_impl(sk_render_graph_t* g, void_ptr_t scene) {
 	}
 	g->color_output = NULL;
 	g->depth_output = NULL;
+	rg_compile_clear_results(&g->compile);
 	rg_memory_begin_frame(&g->memory);
 }
 
@@ -1333,9 +1482,15 @@ static void render_graph_end_impl(sk_render_graph_t* g) {
 	rg_memory_end_frame(&g->memory);
 }
 
+/* Forward declaration — defined with the compile phase. */
+static i32 render_graph_compile_impl(sk_render_graph_t* g);
+
 static void render_graph_execute_impl(sk_render_graph_t* g, sk_command_buffer_t cmd) {
 	(void)cmd;
-	/* Topology / barriers / record land in later tasks. End frame so growth is allowed again. */
+	/* Compile if not yet done this frame; barriers / record land later. */
+	if (!g->compile.compiled) {
+		(void)render_graph_compile_impl(g);
+	}
 	rg_memory_end_frame(&g->memory);
 }
 
@@ -1379,6 +1534,7 @@ static i32 render_graph_get_pass_info_impl(const sk_render_graph_t* g, u32 index
 	out->stage = pass->stage;
 	out->index = pass->index;
 	out->dep_count = pass->dep_count;
+	out->flags = pass->flags;
 	out->record_fn = pass->record_fn;
 	out->record_user = pass->record_user;
 	return SK_RG_OK;
@@ -1468,6 +1624,745 @@ static i32 render_graph_get_edge_info_impl(const sk_render_graph_t* g, u32 index
 }
 
 /* ------------------------------------------------------------------ */
+/* Compile phase (APX-152)                                             */
+/* ------------------------------------------------------------------ */
+
+/** Rough bytes-per-pixel for alias size estimates (compile has no RHI yet). */
+static u32 rg_format_bytes_per_pixel(sk_pixel_format_t format) {
+	if (format == SK_PIXEL_FORMAT_R8_UNORM || format == SK_PIXEL_FORMAT_R8_SNORM || format == SK_PIXEL_FORMAT_R8_UINT || format == SK_PIXEL_FORMAT_R8_SINT ||
+		format == SK_PIXEL_FORMAT_R8_SRGB) {
+		return 1u;
+	}
+	if (format == SK_PIXEL_FORMAT_R16_UNORM || format == SK_PIXEL_FORMAT_R16_SNORM || format == SK_PIXEL_FORMAT_R16_UINT || format == SK_PIXEL_FORMAT_R16_SINT ||
+		format == SK_PIXEL_FORMAT_R16_FLOAT || format == SK_PIXEL_FORMAT_RG8_UNORM || format == SK_PIXEL_FORMAT_RG8_SNORM || format == SK_PIXEL_FORMAT_RG8_UINT ||
+		format == SK_PIXEL_FORMAT_RG8_SINT || format == SK_PIXEL_FORMAT_RG8_SRGB || format == SK_PIXEL_FORMAT_D16_UNORM) {
+		return 2u;
+	}
+	if (format == SK_PIXEL_FORMAT_RG32_UINT || format == SK_PIXEL_FORMAT_RG32_SINT || format == SK_PIXEL_FORMAT_RG32_FLOAT || format == SK_PIXEL_FORMAT_RGBA16_UNORM ||
+		format == SK_PIXEL_FORMAT_RGBA16_SNORM || format == SK_PIXEL_FORMAT_RGBA16_UINT || format == SK_PIXEL_FORMAT_RGBA16_SINT || format == SK_PIXEL_FORMAT_RGBA16_FLOAT ||
+		format == SK_PIXEL_FORMAT_D32_FLOAT_S8_UINT || format == SK_PIXEL_FORMAT_RGB16_UNORM || format == SK_PIXEL_FORMAT_RGB16_SNORM || format == SK_PIXEL_FORMAT_RGB16_UINT ||
+		format == SK_PIXEL_FORMAT_RGB16_SINT || format == SK_PIXEL_FORMAT_RGB16_FLOAT) {
+		/* RGB16 is 6 Bpp; treat as 8 for conservative alias sizing. */
+		return 8u;
+	}
+	if (format == SK_PIXEL_FORMAT_RGB32_UINT || format == SK_PIXEL_FORMAT_RGB32_SINT || format == SK_PIXEL_FORMAT_RGB32_FLOAT) {
+		return 12u;
+	}
+	if (format == SK_PIXEL_FORMAT_RGBA32_UINT || format == SK_PIXEL_FORMAT_RGBA32_SINT || format == SK_PIXEL_FORMAT_RGBA32_FLOAT) {
+		return 16u;
+	}
+	/* Default / compressed / common 32-bit packings. */
+	return 4u;
+}
+
+/** Resolve a dependency resource index through views to the parent texture. */
+static u32 rg_resolve_dep_resource_index(const sk_render_graph_t* g, u32 resource_index) {
+	const sk_rg_resource_node_t* res;
+	if (resource_index == SK_RG_INVALID_INDEX) {
+		return SK_RG_INVALID_INDEX;
+	}
+	res = rg_resource_at(g, resource_index);
+	if (res == NULL) {
+		return SK_RG_INVALID_INDEX;
+	}
+	if (res->kind == SK_RG_RESOURCE_VIEW && !rg_name_empty(res->u.view.texture_name)) {
+		const sk_rg_resource_node_t* parent = rg_find_resource(g, res->u.view.texture_name);
+		if (parent != NULL) {
+			return parent->index;
+		}
+	}
+	return resource_index;
+}
+
+static u64 rg_estimate_texture_bytes(const sk_render_graph_t* g, const sk_rg_resource_node_t* res) {
+	const sk_rg_texture_desc_t* d;
+	u32 w;
+	u32 h;
+	u32 depth;
+	u32 layers;
+	u32 samples;
+	u32 mips;
+	u32 bpp;
+	u64 level_bytes;
+	u64 total;
+	u32 m;
+	u32 lw;
+	u32 lh;
+
+	if (res == NULL || res->kind != SK_RG_RESOURCE_TEXTURE) {
+		return 0ull;
+	}
+	d = &res->u.texture;
+	w = d->extent.width;
+	h = d->extent.height;
+	if (w == 0u || h == 0u) {
+		w = (u32)((f32)g->output_size.width * (d->scale_x > 0.0f ? d->scale_x : 1.0f));
+		h = (u32)((f32)g->output_size.height * (d->scale_y > 0.0f ? d->scale_y : 1.0f));
+	}
+	if (w == 0u) {
+		w = 1u;
+	}
+	if (h == 0u) {
+		h = 1u;
+	}
+	depth = d->extent.depth != 0u ? d->extent.depth : 1u;
+	layers = d->array_layers != 0u ? d->array_layers : 1u;
+	samples = d->samples != 0u ? d->samples : 1u;
+	mips = d->mip_levels != 0u ? d->mip_levels : 1u;
+	bpp = rg_format_bytes_per_pixel(d->format);
+
+	total = 0ull;
+	lw = w;
+	lh = h;
+	for (m = 0u; m < mips; ++m) {
+		level_bytes = (u64)lw * (u64)lh * (u64)depth * (u64)layers * (u64)samples * (u64)bpp;
+		total += level_bytes;
+		if (lw > 1u) {
+			lw >>= 1u;
+		}
+		if (lh > 1u) {
+			lh >>= 1u;
+		}
+	}
+	return total;
+}
+
+static u64 rg_align_u64(u64 value, u64 alignment) {
+	if (alignment == 0ull) {
+		return value;
+	}
+	return (value + (alignment - 1ull)) / alignment * alignment;
+}
+
+static i32 rg_pass_writes_named_output(const sk_rg_pass_t* pass, const_chr_t output_name) {
+	const sk_rg_dep_node_t* dep;
+	if (rg_name_empty(output_name)) {
+		return 0;
+	}
+	for (dep = pass->deps_head; dep != NULL; dep = dep->next) {
+		if (!rg_name_eq(dep->resource_name, output_name)) {
+			continue;
+		}
+		if (dep->access == SK_RG_ACCESS_WRITE || dep->access == SK_RG_ACCESS_READ_WRITE || dep->is_resolve) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static i32 rg_pass_is_root(const sk_render_graph_t* g, const sk_rg_pass_t* pass) {
+	if ((pass->flags & SK_RG_PASS_FLAG_SIDE_EFFECTS) != 0u) {
+		return 1;
+	}
+	if (rg_pass_writes_named_output(pass, g->color_output)) {
+		return 1;
+	}
+	if (rg_pass_writes_named_output(pass, g->depth_output)) {
+		return 1;
+	}
+	return 0;
+}
+
+/**
+ * Topological sort of all passes using declared edges.
+ * Stage is the tie-break among zero-indegree candidates (lower stage first;
+ * equal stage keeps lower declaration index).
+ * On cycle returns SK_RG_ERR_CYCLE. Writes full order into compile.topo_order.
+ */
+static i32 rg_compile_topo_sort(sk_render_graph_t* g) {
+	sk_rg_compile_state_t* c = &g->compile;
+	const u32 n = g->memory.passes.live;
+	u32 i;
+	u32 sorted = 0u;
+
+	if (n > c->pass_capacity) {
+		rg_memory_set_error(&g->memory, SK_RG_ERR_OUT_OF_SPACE);
+		return SK_RG_ERR_OUT_OF_SPACE;
+	}
+
+	for (i = 0u; i < n; ++i) {
+		c->indegree[i] = 0u;
+		c->emitted[i] = 0u;
+	}
+	for (i = 0u; i < g->memory.edges.count; ++i) {
+		const sk_rg_edge_t* e = (const sk_rg_edge_t*)rg_array_pool_at(&g->memory.edges, i);
+		if (e == NULL || e->to >= n) {
+			continue;
+		}
+		c->indegree[e->to] += 1u;
+	}
+
+	while (sorted < n) {
+		u32 next = SK_RG_INVALID_INDEX;
+		const sk_rg_pass_t* next_pass = NULL;
+
+		for (i = 0u; i < n; ++i) {
+			const sk_rg_pass_t* pass;
+			if (c->emitted[i] != 0u || c->indegree[i] != 0u) {
+				continue;
+			}
+			pass = rg_pass_at(g, i);
+			if (pass == NULL) {
+				continue;
+			}
+			if (next == SK_RG_INVALID_INDEX) {
+				next = i;
+				next_pass = pass;
+				continue;
+			}
+			/* Lower stage wins; declaration index breaks remaining ties. */
+			if (pass->stage < next_pass->stage || (pass->stage == next_pass->stage && i < next)) {
+				next = i;
+				next_pass = pass;
+			}
+		}
+
+		if (next == SK_RG_INVALID_INDEX) {
+			rg_memory_set_error(&g->memory, SK_RG_ERR_CYCLE);
+			return SK_RG_ERR_CYCLE;
+		}
+
+		c->emitted[next] = 1u;
+		c->topo_order[sorted] = next;
+		sorted += 1u;
+
+		for (i = 0u; i < g->memory.edges.count; ++i) {
+			const sk_rg_edge_t* e = (const sk_rg_edge_t*)rg_array_pool_at(&g->memory.edges, i);
+			if (e == NULL || e->from != next || e->to >= n) {
+				continue;
+			}
+			if (c->indegree[e->to] > 0u) {
+				c->indegree[e->to] -= 1u;
+			}
+		}
+	}
+
+	return SK_RG_OK;
+}
+
+/**
+ * Mark passes needed for outputs / side effects and propagate producers via edges.
+ * If no roots exist, keep every pass (culling is a no-op).
+ */
+static void rg_compile_cull(sk_render_graph_t* g) {
+	sk_rg_compile_state_t* c = &g->compile;
+	const u32 n = g->memory.passes.live;
+	u32 i;
+	i32 changed;
+	i32 any_root = 0;
+
+	for (i = 0u; i < n; ++i) {
+		sk_rg_pass_t* pass = rg_pass_at(g, i);
+		c->needed[i] = 0u;
+		if (pass != NULL) {
+			pass->flags &= ~(u32)SK_RG_PASS_FLAG_CULLED;
+			if (rg_pass_is_root(g, pass)) {
+				c->needed[i] = 1u;
+				any_root = 1;
+			}
+		}
+	}
+
+	if (!any_root) {
+		for (i = 0u; i < n; ++i) {
+			c->needed[i] = 1u;
+		}
+		return;
+	}
+
+	/* Reverse reachability: if consumer needed, producer is needed. */
+	do {
+		changed = 0;
+		for (i = 0u; i < g->memory.edges.count; ++i) {
+			const sk_rg_edge_t* e = (const sk_rg_edge_t*)rg_array_pool_at(&g->memory.edges, i);
+			if (e == NULL || e->from >= n || e->to >= n) {
+				continue;
+			}
+			if (c->needed[e->to] != 0u && c->needed[e->from] == 0u) {
+				c->needed[e->from] = 1u;
+				changed = 1;
+			}
+		}
+	} while (changed);
+
+	for (i = 0u; i < n; ++i) {
+		sk_rg_pass_t* pass = rg_pass_at(g, i);
+		if (pass == NULL) {
+			continue;
+		}
+		if (c->needed[i] == 0u) {
+			pass->flags |= SK_RG_PASS_FLAG_CULLED;
+		}
+	}
+}
+
+static void rg_compile_build_order_lists(sk_render_graph_t* g, u32 topo_count) {
+	sk_rg_compile_state_t* c = &g->compile;
+	u32 i;
+
+	c->order_count = 0u;
+	c->culled_count = 0u;
+	for (i = 0u; i < topo_count; ++i) {
+		u32 pass_index = c->topo_order[i];
+		if (c->needed[pass_index] != 0u) {
+			c->order[c->order_count] = pass_index;
+			c->order_count += 1u;
+		} else {
+			c->culled[c->culled_count] = pass_index;
+			c->culled_count += 1u;
+		}
+	}
+}
+
+static void rg_compile_compute_lifetimes(sk_render_graph_t* g) {
+	sk_rg_compile_state_t* c = &g->compile;
+	const u32 res_n = g->memory.resources.live;
+	u32 oi;
+	u32 r;
+
+	if (res_n > c->resource_capacity) {
+		return;
+	}
+	for (r = 0u; r < res_n; ++r) {
+		c->lifetimes[r].first_use = SK_RG_INVALID_INDEX;
+		c->lifetimes[r].last_use = SK_RG_INVALID_INDEX;
+		c->lifetimes[r].used = 0;
+		c->lifetimes[r].first_use_is_write_only = 0;
+		c->lifetimes[r].first_pass_writes = 0;
+		c->lifetimes[r].first_pass_reads = 0;
+	}
+
+	for (oi = 0u; oi < c->order_count; ++oi) {
+		const sk_rg_pass_t* pass = rg_pass_at(g, c->order[oi]);
+		const sk_rg_dep_node_t* dep;
+		if (pass == NULL) {
+			continue;
+		}
+		for (dep = pass->deps_head; dep != NULL; dep = dep->next) {
+			u32 ri = rg_resolve_dep_resource_index(g, dep->resource_index);
+			sk_rg_lifetime_slot_t* life;
+			i32 writes;
+			i32 reads;
+			if (ri == SK_RG_INVALID_INDEX || ri >= res_n) {
+				continue;
+			}
+			life = &c->lifetimes[ri];
+			writes = (dep->access == SK_RG_ACCESS_WRITE || dep->access == SK_RG_ACCESS_READ_WRITE || dep->is_resolve);
+			reads = (dep->access == SK_RG_ACCESS_READ || dep->access == SK_RG_ACCESS_READ_WRITE);
+			if (!life->used) {
+				life->first_use = oi;
+				life->last_use = oi;
+				life->first_pass_writes = writes;
+				life->first_pass_reads = reads;
+				life->used = 1;
+			} else {
+				if (oi == life->first_use) {
+					life->first_pass_writes = life->first_pass_writes || writes;
+					life->first_pass_reads = life->first_pass_reads || reads;
+				}
+				if (oi > life->last_use) {
+					life->last_use = oi;
+				}
+			}
+		}
+	}
+
+	for (r = 0u; r < res_n; ++r) {
+		sk_rg_lifetime_slot_t* life = &c->lifetimes[r];
+		if (life->used) {
+			life->first_use_is_write_only = life->first_pass_writes && !life->first_pass_reads;
+		}
+	}
+}
+
+/**
+ * Place @p r into bucket @p h among already-placed lifetime-overlapping tenants.
+ * First-fit gap search (offsets sorted via repeated min selection).
+ */
+static u64 rg_alias_find_offset(const sk_rg_compile_state_t* c, u32 h, const sk_rg_alias_slot_t* r, u32 self_idx) {
+	u64 candidate = 0ull;
+	const u32 n = c->alias_count;
+
+	for (;;) {
+		u64 next_start = 0xffffffffffffffffull;
+		u64 next_end = 0ull;
+		i32 found = 0;
+		u32 b;
+
+		candidate = rg_align_u64(candidate, r->alignment);
+
+		for (b = 0u; b < n; ++b) {
+			const sk_rg_alias_slot_t* t = &c->aliases[b];
+			if (b == self_idx || t->bucket != h) {
+				continue;
+			}
+			/* Lifetime overlap? */
+			if (!(r->first_use <= t->last_use && t->first_use <= r->last_use)) {
+				continue;
+			}
+			if (t->offset + t->size <= candidate) {
+				continue;
+			}
+			if (t->offset < next_start) {
+				next_start = t->offset;
+				next_end = t->offset + t->size;
+				found = 1;
+			}
+		}
+
+		if (!found) {
+			return candidate;
+		}
+		if (candidate + r->size <= next_start) {
+			return candidate;
+		}
+		candidate = next_end;
+	}
+}
+
+/**
+ * First-fit alias packer matching main's ComputeRenderGraphAliasPlan:
+ * size-desc order, non-overlapping lifetime tenants per bucket, memory type bits.
+ */
+static void rg_compile_pack_aliases(sk_render_graph_t* g) {
+	sk_rg_compile_state_t* c = &g->compile;
+	u32 n = c->alias_count;
+	u32 i;
+	u32 a;
+
+	c->bucket_count = 0u;
+	c->standalone_bytes = 0ull;
+	c->aliased_bytes = 0ull;
+	if (n == 0u) {
+		return;
+	}
+
+	for (i = 0u; i < n; ++i) {
+		c->alias_order[i] = i;
+		c->standalone_bytes += c->aliases[i].size;
+		c->aliases[i].bucket = SK_RG_INVALID_INDEX;
+		c->aliases[i].offset = 0ull;
+	}
+
+	/* Insertion sort: larger size first, then earlier first_use, then index. */
+	for (i = 1u; i < n; ++i) {
+		u32 key = c->alias_order[i];
+		const sk_rg_alias_slot_t* rk = &c->aliases[key];
+		i32 j = (i32)i - 1;
+		while (j >= 0) {
+			const sk_rg_alias_slot_t* rj = &c->aliases[c->alias_order[(u32)j]];
+			i32 less;
+			if (rk->size != rj->size) {
+				less = rk->size > rj->size;
+			} else if (rk->first_use != rj->first_use) {
+				less = rk->first_use < rj->first_use;
+			} else if (rk->last_use != rj->last_use) {
+				less = rk->last_use < rj->last_use;
+			} else {
+				less = key < c->alias_order[(u32)j];
+			}
+			if (!less) {
+				break;
+			}
+			c->alias_order[(u32)j + 1u] = c->alias_order[(u32)j];
+			--j;
+		}
+		c->alias_order[(u32)j + 1u] = key;
+	}
+
+	for (a = 0u; a < n; ++a) {
+		u32 idx = c->alias_order[a];
+		sk_rg_alias_slot_t* r = &c->aliases[idx];
+		u32 chosen_heap = SK_RG_INVALID_INDEX;
+		u64 chosen_offset = 0ull;
+		u32 h;
+
+		for (h = 0u; h < c->bucket_count; ++h) {
+			if ((c->buckets[h].memory_type_bits & r->memory_type_bits) == 0u) {
+				continue;
+			}
+			chosen_offset = rg_alias_find_offset(c, h, r, idx);
+			chosen_heap = h;
+			break; /* first-fit heap */
+		}
+
+		if (chosen_heap == SK_RG_INVALID_INDEX) {
+			if (c->bucket_count >= c->resource_capacity) {
+				chosen_heap = 0u;
+				chosen_offset = 0ull;
+			} else {
+				chosen_heap = c->bucket_count;
+				chosen_offset = 0ull;
+				c->buckets[chosen_heap].size = 0ull;
+				c->buckets[chosen_heap].alignment = r->alignment;
+				c->buckets[chosen_heap].memory_type_bits = r->memory_type_bits;
+				c->bucket_count += 1u;
+			}
+		}
+
+		r->bucket = chosen_heap;
+		r->offset = chosen_offset;
+		if (chosen_offset + r->size > c->buckets[chosen_heap].size) {
+			c->buckets[chosen_heap].size = chosen_offset + r->size;
+		}
+		if (r->alignment > c->buckets[chosen_heap].alignment) {
+			c->buckets[chosen_heap].alignment = r->alignment;
+		}
+		c->buckets[chosen_heap].memory_type_bits &= r->memory_type_bits;
+	}
+
+	for (i = 0u; i < c->bucket_count; ++i) {
+		c->aliased_bytes += c->buckets[i].size;
+	}
+}
+
+static void rg_compile_select_alias_resources(sk_render_graph_t* g) {
+	sk_rg_compile_state_t* c = &g->compile;
+	const u32 res_n = g->memory.resources.live;
+	u32 r;
+
+	c->alias_count = 0u;
+	for (r = 0u; r < res_n && r < c->resource_capacity; ++r) {
+		sk_rg_resource_node_t* res = rg_resource_at(g, r);
+		const sk_rg_lifetime_slot_t* life;
+		sk_rg_alias_slot_t* slot;
+		u64 bytes;
+
+		if (res == NULL) {
+			continue;
+		}
+		res->flags &= ~(u32)SK_RG_RESOURCE_FLAG_ALIASED;
+		if (res->kind != SK_RG_RESOURCE_TEXTURE) {
+			continue;
+		}
+		if (res->u.texture.ping_pong || res->u.texture.persistent) {
+			continue;
+		}
+		if ((res->flags & (SK_RG_RESOURCE_FLAG_COLOR_OUTPUT | SK_RG_RESOURCE_FLAG_DEPTH_OUTPUT | SK_RG_RESOURCE_FLAG_IMPORTED)) != 0u) {
+			continue;
+		}
+		if (!rg_name_empty(g->color_output) && rg_name_eq(res->name, g->color_output)) {
+			continue;
+		}
+		if (!rg_name_empty(g->depth_output) && rg_name_eq(res->name, g->depth_output)) {
+			continue;
+		}
+
+		life = &c->lifetimes[r];
+		if (!life->used || !life->first_use_is_write_only) {
+			continue;
+		}
+
+		bytes = rg_estimate_texture_bytes(g, res);
+		if (bytes == 0ull) {
+			continue;
+		}
+
+		slot = &c->aliases[c->alias_count];
+		slot->resource_index = r;
+		slot->first_use = life->first_use;
+		slot->last_use = life->last_use;
+		slot->size = bytes;
+		slot->alignment = 256ull;
+		slot->memory_type_bits = 0xffffffffu;
+		slot->bucket = SK_RG_INVALID_INDEX;
+		slot->offset = 0ull;
+		c->alias_count += 1u;
+		res->flags |= SK_RG_RESOURCE_FLAG_ALIASED;
+	}
+
+	rg_compile_pack_aliases(g);
+}
+
+static i32 render_graph_compile_impl(sk_render_graph_t* g) {
+	sk_rg_compile_state_t* c;
+	u32 n;
+	i32 rc;
+	u32 i;
+
+	if (g == NULL) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	c = &g->compile;
+	n = g->memory.passes.live;
+
+	/* Reset previous compile results for this call. */
+	c->order_count = 0u;
+	c->culled_count = 0u;
+	c->alias_count = 0u;
+	c->bucket_count = 0u;
+	c->standalone_bytes = 0ull;
+	c->aliased_bytes = 0ull;
+	c->compiled = 0;
+
+	if (n > c->pass_capacity || g->memory.resources.live > c->resource_capacity) {
+		rg_memory_set_error(&g->memory, SK_RG_ERR_OUT_OF_SPACE);
+		return SK_RG_ERR_OUT_OF_SPACE;
+	}
+
+	/* Clear culled flags from any prior compile. */
+	for (i = 0u; i < n; ++i) {
+		sk_rg_pass_t* pass = rg_pass_at(g, i);
+		if (pass != NULL) {
+			pass->flags &= ~(u32)SK_RG_PASS_FLAG_CULLED;
+		}
+	}
+
+	if (n == 0u) {
+		/* Empty graph is a successful compile. */
+		c->compiled = 1;
+		g->topology_build_count += 1u;
+		rg_memory_set_error(&g->memory, SK_RG_OK);
+		return SK_RG_OK;
+	}
+
+	if (n == 1u) {
+		c->topo_order[0] = 0u;
+	} else {
+		rc = rg_compile_topo_sort(g);
+		if (rc != SK_RG_OK) {
+			return rc;
+		}
+	}
+
+	rg_compile_cull(g);
+	rg_compile_build_order_lists(g, n);
+	rg_compile_compute_lifetimes(g);
+	rg_compile_select_alias_resources(g);
+
+	c->compiled = 1;
+	g->topology_build_count += 1u;
+	rg_memory_set_error(&g->memory, SK_RG_OK);
+	return SK_RG_OK;
+}
+
+static i32 render_graph_is_compiled_impl(const sk_render_graph_t* g) {
+	return g != NULL && g->compile.compiled ? 1 : 0;
+}
+
+static u32 render_graph_get_compiled_pass_count_impl(const sk_render_graph_t* g) {
+	if (g == NULL || !g->compile.compiled) {
+		return 0u;
+	}
+	return g->compile.order_count;
+}
+
+static i32 render_graph_get_compiled_pass_order_impl(const sk_render_graph_t* g, u32 order_index, u32* out_pass_index) {
+	if (g == NULL || out_pass_index == NULL || !g->compile.compiled) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	if (order_index >= g->compile.order_count) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	*out_pass_index = g->compile.order[order_index];
+	return SK_RG_OK;
+}
+
+static u32 render_graph_get_culled_pass_count_impl(const sk_render_graph_t* g) {
+	if (g == NULL || !g->compile.compiled) {
+		return 0u;
+	}
+	return g->compile.culled_count;
+}
+
+static i32 render_graph_get_culled_pass_order_impl(const sk_render_graph_t* g, u32 culled_index, u32* out_pass_index) {
+	if (g == NULL || out_pass_index == NULL || !g->compile.compiled) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	if (culled_index >= g->compile.culled_count) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	*out_pass_index = g->compile.culled[culled_index];
+	return SK_RG_OK;
+}
+
+static i32 render_graph_get_resource_lifetime_impl(const sk_render_graph_t* g, u32 resource_index, sk_rg_lifetime_info_t* out) {
+	const sk_rg_lifetime_slot_t* life;
+	if (g == NULL || out == NULL || !g->compile.compiled) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	if (resource_index >= g->memory.resources.live) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	life = &g->compile.lifetimes[resource_index];
+	memset(out, 0, sizeof(*out));
+	out->resource_index = resource_index;
+	out->used = life->used;
+	out->first_use = life->used ? life->first_use : SK_RG_INVALID_USE;
+	out->last_use = life->used ? life->last_use : SK_RG_INVALID_USE;
+	out->first_use_is_write_only = life->first_use_is_write_only;
+	return SK_RG_OK;
+}
+
+static u32 render_graph_get_alias_assignment_count_impl(const sk_render_graph_t* g) {
+	if (g == NULL || !g->compile.compiled) {
+		return 0u;
+	}
+	return g->compile.alias_count;
+}
+
+static i32 render_graph_get_alias_assignment_impl(const sk_render_graph_t* g, u32 index, sk_rg_alias_assignment_t* out) {
+	const sk_rg_alias_slot_t* slot;
+	const sk_rg_resource_node_t* res;
+	if (g == NULL || out == NULL || !g->compile.compiled) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	if (index >= g->compile.alias_count) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	slot = &g->compile.aliases[index];
+	res = rg_resource_at(g, slot->resource_index);
+	memset(out, 0, sizeof(*out));
+	out->resource_index = slot->resource_index;
+	out->resource_name = res != NULL ? res->name : NULL;
+	out->first_use = slot->first_use;
+	out->last_use = slot->last_use;
+	out->size = slot->size;
+	out->alignment = slot->alignment;
+	out->memory_type_bits = slot->memory_type_bits;
+	out->bucket = slot->bucket;
+	out->offset = slot->offset;
+	return SK_RG_OK;
+}
+
+static u32 render_graph_get_alias_bucket_count_impl(const sk_render_graph_t* g) {
+	if (g == NULL || !g->compile.compiled) {
+		return 0u;
+	}
+	return g->compile.bucket_count;
+}
+
+static i32 render_graph_get_alias_bucket_info_impl(const sk_render_graph_t* g, u32 bucket_index, sk_rg_alias_bucket_info_t* out) {
+	const sk_rg_alias_bucket_slot_t* b;
+	if (g == NULL || out == NULL || !g->compile.compiled) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	if (bucket_index >= g->compile.bucket_count) {
+		return SK_RG_ERR_INVALID_ARGUMENT;
+	}
+	b = &g->compile.buckets[bucket_index];
+	out->index = bucket_index;
+	out->size = b->size;
+	out->alignment = b->alignment;
+	out->memory_type_bits = b->memory_type_bits;
+	return SK_RG_OK;
+}
+
+static u64 render_graph_get_alias_standalone_bytes_impl(const sk_render_graph_t* g) {
+	if (g == NULL || !g->compile.compiled) {
+		return 0ull;
+	}
+	return g->compile.standalone_bytes;
+}
+
+static u64 render_graph_get_alias_aliased_bytes_impl(const sk_render_graph_t* g) {
+	if (g == NULL || !g->compile.compiled) {
+		return 0ull;
+	}
+	return g->compile.aliased_bytes;
+}
+
+/* ------------------------------------------------------------------ */
 /* Static function table                                               */
 /* ------------------------------------------------------------------ */
 
@@ -1489,6 +2384,7 @@ static const sk_render_graph_api_t render_graph_api = {
 	render_graph_pass_read_write_impl,
 	render_graph_pass_resolve_impl,
 	render_graph_pass_stage_impl,
+	render_graph_pass_set_side_effects_impl,
 	render_graph_pass_set_pipeline_impl,
 	render_graph_pass_set_descriptor_set_impl,
 	render_graph_pass_set_record_impl,
@@ -1509,6 +2405,7 @@ static const sk_render_graph_api_t render_graph_api = {
 	render_graph_set_current_output_index_impl,
 	render_graph_begin_impl,
 	render_graph_end_impl,
+	render_graph_compile_impl,
 	render_graph_execute_impl,
 	render_graph_topology_build_count_impl,
 	render_graph_get_memory_stats_impl,
@@ -1520,6 +2417,18 @@ static const sk_render_graph_api_t render_graph_api = {
 	render_graph_get_pass_dep_info_impl,
 	render_graph_get_edge_count_impl,
 	render_graph_get_edge_info_impl,
+	render_graph_is_compiled_impl,
+	render_graph_get_compiled_pass_count_impl,
+	render_graph_get_compiled_pass_order_impl,
+	render_graph_get_culled_pass_count_impl,
+	render_graph_get_culled_pass_order_impl,
+	render_graph_get_resource_lifetime_impl,
+	render_graph_get_alias_assignment_count_impl,
+	render_graph_get_alias_assignment_impl,
+	render_graph_get_alias_bucket_count_impl,
+	render_graph_get_alias_bucket_info_impl,
+	render_graph_get_alias_standalone_bytes_impl,
+	render_graph_get_alias_aliased_bytes_impl,
 };
 
 void sk_render_graph_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
@@ -1610,6 +2519,7 @@ SK_TEST(render_graph_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(render_graph_api.pass_read_write);
 	TEST_ASSERT_NOT_NULL(render_graph_api.pass_resolve);
 	TEST_ASSERT_NOT_NULL(render_graph_api.pass_stage);
+	TEST_ASSERT_NOT_NULL(render_graph_api.pass_set_side_effects);
 	TEST_ASSERT_NOT_NULL(render_graph_api.pass_set_pipeline);
 	TEST_ASSERT_NOT_NULL(render_graph_api.pass_set_descriptor_set);
 	TEST_ASSERT_NOT_NULL(render_graph_api.pass_set_record);
@@ -1630,6 +2540,7 @@ SK_TEST(render_graph_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(render_graph_api.set_current_output_index);
 	TEST_ASSERT_NOT_NULL(render_graph_api.begin);
 	TEST_ASSERT_NOT_NULL(render_graph_api.end);
+	TEST_ASSERT_NOT_NULL(render_graph_api.compile);
 	TEST_ASSERT_NOT_NULL(render_graph_api.execute);
 	TEST_ASSERT_NOT_NULL(render_graph_api.topology_build_count);
 	TEST_ASSERT_NOT_NULL(render_graph_api.get_memory_stats);
@@ -1641,6 +2552,18 @@ SK_TEST(render_graph_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(render_graph_api.get_pass_dep_info);
 	TEST_ASSERT_NOT_NULL(render_graph_api.get_edge_count);
 	TEST_ASSERT_NOT_NULL(render_graph_api.get_edge_info);
+	TEST_ASSERT_NOT_NULL(render_graph_api.is_compiled);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_compiled_pass_count);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_compiled_pass_order);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_culled_pass_count);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_culled_pass_order);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_resource_lifetime);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_alias_assignment_count);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_alias_assignment);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_alias_bucket_count);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_alias_bucket_info);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_alias_standalone_bytes);
+	TEST_ASSERT_NOT_NULL(render_graph_api.get_alias_aliased_bytes);
 }
 
 SK_TEST(render_graph_api_type_id_nonzero) {
@@ -2463,6 +3386,424 @@ SK_TEST(render_graph_buffer_and_view_declare) {
 
 	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_info(g, 2u, &ri));
 	TEST_ASSERT_EQUAL_INT(SK_RG_RESOURCE_VIEW, ri.kind);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+/* ------------------------------------------------------------------ */
+/* Compile phase                                                       */
+/* ------------------------------------------------------------------ */
+
+SK_TEST(render_graph_compile_topo_stage_order) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* late;
+	sk_rg_pass_t* early;
+	sk_rg_pass_t* mid;
+	u32 p0;
+	u32 p1;
+	u32 p2;
+	sk_rg_pass_info_t pi;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "a", &tex);
+	render_graph_api.create_texture(g, "b", &tex);
+	render_graph_api.create_texture(g, "c", &tex);
+
+	/* Declaration order intentionally not stage order. */
+	late = render_graph_api.add_pass(g, "late", SK_RG_PASS_COMPUTE);
+	early = render_graph_api.add_pass(g, "early", SK_RG_PASS_COMPUTE);
+	mid = render_graph_api.add_pass(g, "mid", SK_RG_PASS_COMPUTE);
+	TEST_ASSERT_NOT_NULL(late);
+	TEST_ASSERT_NOT_NULL(early);
+	TEST_ASSERT_NOT_NULL(mid);
+
+	render_graph_api.pass_stage(late, 300);
+	render_graph_api.pass_stage(early, 100);
+	render_graph_api.pass_stage(mid, 200);
+	render_graph_api.pass_write(late, "c");
+	render_graph_api.pass_write(early, "a");
+	render_graph_api.pass_write(mid, "b");
+	/* Independent writes — stage tie-break alone decides order. */
+	render_graph_api.set_color_output(g, "c");
+	/* Keep all three: mid/early produce nothing consumed, so mark side effects
+	 * only on early+mid would cull them. Color output is "c" written by late.
+	 * Give early and mid side effects so they stay for the stage-order check. */
+	render_graph_api.pass_set_side_effects(early, 1);
+	render_graph_api.pass_set_side_effects(mid, 1);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	TEST_ASSERT_TRUE(render_graph_api.is_compiled(g));
+	TEST_ASSERT_EQUAL_UINT32(3u, render_graph_api.get_compiled_pass_count(g));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_compiled_pass_order(g, 0u, &p0));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_compiled_pass_order(g, 1u, &p1));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_compiled_pass_order(g, 2u, &p2));
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, p0, &pi));
+	TEST_ASSERT_EQUAL_STRING("early", pi.name);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, p1, &pi));
+	TEST_ASSERT_EQUAL_STRING("mid", pi.name);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, p2, &pi));
+	TEST_ASSERT_EQUAL_STRING("late", pi.name);
+	TEST_ASSERT_TRUE(render_graph_api.topology_build_count(g) >= 1u);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_linear_chain_order) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* a;
+	sk_rg_pass_t* b;
+	sk_rg_pass_t* c;
+	u32 p0;
+	u32 p1;
+	u32 p2;
+	sk_rg_lifetime_info_t life;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "r0", &tex);
+	render_graph_api.create_texture(g, "r1", &tex);
+	render_graph_api.create_texture(g, "r2", &tex);
+
+	a = render_graph_api.add_pass(g, "pass_a", SK_RG_PASS_COMPUTE);
+	b = render_graph_api.add_pass(g, "pass_b", SK_RG_PASS_COMPUTE);
+	c = render_graph_api.add_pass(g, "pass_c", SK_RG_PASS_COMPUTE);
+	render_graph_api.pass_write(a, "r0");
+	render_graph_api.pass_read(b, "r0");
+	render_graph_api.pass_write(b, "r1");
+	render_graph_api.pass_read(c, "r1");
+	render_graph_api.pass_write(c, "r2");
+	render_graph_api.set_color_output(g, "r2");
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	TEST_ASSERT_EQUAL_UINT32(3u, render_graph_api.get_compiled_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_culled_pass_count(g));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_compiled_pass_order(g, 0u, &p0));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_compiled_pass_order(g, 1u, &p1));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_compiled_pass_order(g, 2u, &p2));
+	TEST_ASSERT_EQUAL_UINT32(0u, p0);
+	TEST_ASSERT_EQUAL_UINT32(1u, p1);
+	TEST_ASSERT_EQUAL_UINT32(2u, p2);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_lifetime(g, 0u, &life));
+	TEST_ASSERT_TRUE(life.used);
+	TEST_ASSERT_EQUAL_UINT32(0u, life.first_use);
+	TEST_ASSERT_EQUAL_UINT32(1u, life.last_use);
+	TEST_ASSERT_TRUE(life.first_use_is_write_only);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_resource_lifetime(g, 2u, &life));
+	TEST_ASSERT_EQUAL_UINT32(2u, life.first_use);
+	TEST_ASSERT_EQUAL_UINT32(2u, life.last_use);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_cycle_is_defined_error) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* a;
+	sk_rg_pass_t* b;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "x", &tex);
+	render_graph_api.create_texture(g, "y", &tex);
+	a = render_graph_api.add_pass(g, "a", SK_RG_PASS_COMPUTE);
+	b = render_graph_api.add_pass(g, "b", SK_RG_PASS_COMPUTE);
+	render_graph_api.pass_write(a, "x");
+	render_graph_api.pass_read(b, "x");
+	render_graph_api.pass_write(b, "y");
+	render_graph_api.pass_read(a, "y"); /* creates B→A edge → cycle with A→B */
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_ERR_CYCLE, render_graph_api.compile(g));
+	TEST_ASSERT_EQUAL_INT(SK_RG_ERR_CYCLE, render_graph_api.get_last_error(g));
+	TEST_ASSERT_FALSE(render_graph_api.is_compiled(g));
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_culls_unused_pass) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* dead;
+	sk_rg_pass_t* live;
+	sk_rg_pass_info_t pi;
+	u32 culled0;
+	u32 order0;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "unused", &tex);
+	render_graph_api.create_texture(g, "color", &tex);
+
+	dead = render_graph_api.add_pass(g, "dead", SK_RG_PASS_COMPUTE);
+	live = render_graph_api.add_pass(g, "live", SK_RG_PASS_GRAPHICS);
+	TEST_ASSERT_NOT_NULL(dead);
+	TEST_ASSERT_NOT_NULL(live);
+	render_graph_api.pass_write(dead, "unused");
+	render_graph_api.pass_write(live, "color");
+	render_graph_api.set_color_output(g, "color");
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	TEST_ASSERT_EQUAL_UINT32(1u, render_graph_api.get_compiled_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(1u, render_graph_api.get_culled_pass_count(g));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_compiled_pass_order(g, 0u, &order0));
+	TEST_ASSERT_EQUAL_UINT32(1u, order0); /* live */
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_culled_pass_order(g, 0u, &culled0));
+	TEST_ASSERT_EQUAL_UINT32(0u, culled0); /* dead */
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, 0u, &pi));
+	TEST_ASSERT_TRUE((pi.flags & SK_RG_PASS_FLAG_CULLED) != 0u);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, 1u, &pi));
+	TEST_ASSERT_TRUE((pi.flags & SK_RG_PASS_FLAG_CULLED) == 0u);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_side_effects_never_cull) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* side;
+	sk_rg_pass_t* live;
+	sk_rg_pass_info_t pi;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "scratch", &tex);
+	render_graph_api.create_texture(g, "color", &tex);
+
+	side = render_graph_api.add_pass(g, "side", SK_RG_PASS_TRANSFER);
+	live = render_graph_api.add_pass(g, "live", SK_RG_PASS_GRAPHICS);
+	render_graph_api.pass_write(side, "scratch");
+	render_graph_api.pass_set_side_effects(side, 1);
+	render_graph_api.pass_write(live, "color");
+	render_graph_api.set_color_output(g, "color");
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	TEST_ASSERT_EQUAL_UINT32(2u, render_graph_api.get_compiled_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_culled_pass_count(g));
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_pass_info(g, 0u, &pi));
+	TEST_ASSERT_TRUE((pi.flags & SK_RG_PASS_FLAG_SIDE_EFFECTS) != 0u);
+	TEST_ASSERT_TRUE((pi.flags & SK_RG_PASS_FLAG_CULLED) == 0u);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_alias_disjoint_lifetimes) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* p0;
+	sk_rg_pass_t* p1;
+	sk_rg_pass_t* p2;
+	sk_rg_alias_assignment_t a0;
+	sk_rg_alias_assignment_t a1;
+	sk_rg_alias_assignment_t a2;
+	u32 i;
+	u32 found_a = 0u;
+	u32 found_c = 0u;
+	u64 off_a = 0ull;
+	u64 off_c = 0ull;
+
+	/* 64x64 RGBA8 → 16384 bytes each (extent in desc). */
+	tex.extent.width = 64u;
+	tex.extent.height = 64u;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.set_output_size(g, (sk_rg_extent_t){64u, 64u});
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "A", &tex);
+	render_graph_api.create_texture(g, "B", &tex);
+	render_graph_api.create_texture(g, "C", &tex);
+
+	p0 = render_graph_api.add_pass(g, "produce", SK_RG_PASS_COMPUTE);
+	p1 = render_graph_api.add_pass(g, "process", SK_RG_PASS_COMPUTE);
+	p2 = render_graph_api.add_pass(g, "finalize", SK_RG_PASS_COMPUTE);
+	render_graph_api.pass_write(p0, "A");
+	render_graph_api.pass_read(p1, "A");
+	render_graph_api.pass_write(p1, "B");
+	render_graph_api.pass_read(p2, "B");
+	render_graph_api.pass_write(p2, "C");
+	/* No color output roots → keep all passes (no cull roots). */
+	render_graph_api.pass_set_side_effects(p2, 1);
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	TEST_ASSERT_EQUAL_UINT32(3u, render_graph_api.get_compiled_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(3u, render_graph_api.get_alias_assignment_count(g));
+	TEST_ASSERT_EQUAL_UINT32(1u, render_graph_api.get_alias_bucket_count(g));
+	TEST_ASSERT_TRUE(render_graph_api.get_alias_aliased_bytes(g) < render_graph_api.get_alias_standalone_bytes(g));
+
+	for (i = 0u; i < 3u; ++i) {
+		sk_rg_alias_assignment_t as;
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_alias_assignment(g, i, &as));
+		if (as.resource_name != NULL && strcmp(as.resource_name, "A") == 0) {
+			found_a = 1u;
+			off_a = as.offset;
+			a0 = as;
+		} else if (as.resource_name != NULL && strcmp(as.resource_name, "B") == 0) {
+			a1 = as;
+		} else if (as.resource_name != NULL && strcmp(as.resource_name, "C") == 0) {
+			found_c = 1u;
+			off_c = as.offset;
+			a2 = as;
+		}
+	}
+	TEST_ASSERT_TRUE(found_a);
+	TEST_ASSERT_TRUE(found_c);
+	/* A and C have disjoint lifetimes → same offset in one heap. */
+	TEST_ASSERT_EQUAL_UINT32(a0.bucket, a2.bucket);
+	TEST_ASSERT_EQUAL_UINT64(off_a, off_c);
+	/* B overlaps A and C → different offset. */
+	TEST_ASSERT_TRUE(a1.offset != off_a);
+	(void)a0;
+	(void)a1;
+	(void)a2;
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_alias_excludes_outputs_and_persistent) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_texture_desc_t hist = rg_test_tex_desc();
+	sk_rg_pass_t* p;
+	u32 i;
+	i32 saw_output = 0;
+	i32 saw_hist = 0;
+	i32 saw_transient = 0;
+
+	hist.ping_pong = 1;
+	tex.extent.width = 64u;
+	tex.extent.height = 64u;
+	hist.extent.width = 64u;
+	hist.extent.height = 64u;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "History", &hist);
+	render_graph_api.create_texture(g, "Transient", &tex);
+	render_graph_api.create_texture(g, "Output", &tex);
+
+	p = render_graph_api.add_pass(g, "acc", SK_RG_PASS_COMPUTE);
+	render_graph_api.pass_read_write(p, "History");
+	render_graph_api.pass_write(p, "Transient");
+	render_graph_api.pass_write(p, "Output");
+	render_graph_api.set_color_output(g, "Output");
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+
+	for (i = 0u; i < render_graph_api.get_alias_assignment_count(g); ++i) {
+		sk_rg_alias_assignment_t as;
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.get_alias_assignment(g, i, &as));
+		if (as.resource_name != NULL && strcmp(as.resource_name, "Output") == 0) {
+			saw_output = 1;
+		}
+		if (as.resource_name != NULL && strcmp(as.resource_name, "History") == 0) {
+			saw_hist = 1;
+		}
+		if (as.resource_name != NULL && strcmp(as.resource_name, "Transient") == 0) {
+			saw_transient = 1;
+		}
+	}
+	TEST_ASSERT_FALSE(saw_output);
+	TEST_ASSERT_FALSE(saw_hist);
+	TEST_ASSERT_TRUE(saw_transient);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_zero_heap_allocs) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_memory_stats_t stats;
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* a;
+	sk_rg_pass_t* b;
+	sk_rg_pass_t* c;
+	sk_rg_pass_t* dead;
+	u32 heap_before;
+	u32 heap_after_declare;
+	u32 topo0;
+
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.get_memory_stats(g, &stats);
+	heap_before = stats.heap_alloc_count;
+
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "r0", &tex);
+	render_graph_api.create_texture(g, "r1", &tex);
+	render_graph_api.create_texture(g, "r2", &tex);
+	render_graph_api.create_texture(g, "dead_tex", &tex);
+
+	a = render_graph_api.add_pass(g, "a", SK_RG_PASS_COMPUTE);
+	b = render_graph_api.add_pass(g, "b", SK_RG_PASS_COMPUTE);
+	c = render_graph_api.add_pass(g, "c", SK_RG_PASS_COMPUTE);
+	dead = render_graph_api.add_pass(g, "dead", SK_RG_PASS_COMPUTE);
+	render_graph_api.pass_write(a, "r0");
+	render_graph_api.pass_read(b, "r0");
+	render_graph_api.pass_write(b, "r1");
+	render_graph_api.pass_read(c, "r1");
+	render_graph_api.pass_write(c, "r2");
+	render_graph_api.pass_write(dead, "dead_tex");
+	render_graph_api.set_color_output(g, "r2");
+
+	render_graph_api.get_memory_stats(g, &stats);
+	heap_after_declare = stats.heap_alloc_count;
+	TEST_ASSERT_EQUAL_UINT32(heap_before, heap_after_declare);
+
+	topo0 = render_graph_api.topology_build_count(g);
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	TEST_ASSERT_EQUAL_UINT32(topo0 + 1u, render_graph_api.topology_build_count(g));
+	TEST_ASSERT_EQUAL_UINT32(3u, render_graph_api.get_compiled_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(1u, render_graph_api.get_culled_pass_count(g));
+
+	render_graph_api.get_memory_stats(g, &stats);
+	TEST_ASSERT_EQUAL_UINT32(heap_after_declare, stats.heap_alloc_count);
+
+	/* Second compile same frame also heap-free. */
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	render_graph_api.get_memory_stats(g, &stats);
+	TEST_ASSERT_EQUAL_UINT32(heap_after_declare, stats.heap_alloc_count);
+
+	render_graph_api.end(g);
+	render_graph_api.destroy(g);
+}
+
+SK_TEST(render_graph_compile_keeps_producer_chain) {
+	sk_render_graph_t* g = rg_test_create_graph();
+	sk_rg_texture_desc_t tex = rg_test_tex_desc();
+	sk_rg_pass_t* a;
+	sk_rg_pass_t* b;
+	sk_rg_pass_t* c;
+
+	/* a→b→c with only c writing color output — a and b must be kept as producers. */
+	TEST_ASSERT_NOT_NULL(g);
+	render_graph_api.begin(g, NULL);
+	render_graph_api.create_texture(g, "t0", &tex);
+	render_graph_api.create_texture(g, "t1", &tex);
+	render_graph_api.create_texture(g, "color", &tex);
+	a = render_graph_api.add_pass(g, "a", SK_RG_PASS_COMPUTE);
+	b = render_graph_api.add_pass(g, "b", SK_RG_PASS_COMPUTE);
+	c = render_graph_api.add_pass(g, "c", SK_RG_PASS_GRAPHICS);
+	render_graph_api.pass_write(a, "t0");
+	render_graph_api.pass_read(b, "t0");
+	render_graph_api.pass_write(b, "t1");
+	render_graph_api.pass_read(c, "t1");
+	render_graph_api.pass_write(c, "color");
+	render_graph_api.set_color_output(g, "color");
+
+	TEST_ASSERT_EQUAL_INT(SK_RG_OK, render_graph_api.compile(g));
+	TEST_ASSERT_EQUAL_UINT32(3u, render_graph_api.get_compiled_pass_count(g));
+	TEST_ASSERT_EQUAL_UINT32(0u, render_graph_api.get_culled_pass_count(g));
 
 	render_graph_api.end(g);
 	render_graph_api.destroy(g);

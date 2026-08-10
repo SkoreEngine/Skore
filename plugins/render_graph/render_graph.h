@@ -19,7 +19,12 @@
  *
  * Build phase (APX-151): begin → declare resources / add passes / read-write
  * deps → end (or execute). Storage comes from the frame arena and pools.
- * Topology sort, barriers, and GPU resource creation land in later tasks.
+ *
+ * Compile phase (APX-152): compile() topologically orders passes, detects
+ * cycles, culls dead passes (unless side-effects), computes resource first/last
+ * use intervals, and packs non-overlapping transient textures into alias heaps.
+ * Working sets are pre-sized pools + frame-arena scratch; no heap during compile.
+ * Barriers and GPU resource creation land in later tasks.
  */
 
 #include "app.h"
@@ -86,6 +91,10 @@ typedef enum sk_rg_result_t {
 	SK_RG_ERR_UNKNOWN_RESOURCE = 8,
 	/** NULL desc, empty name, or other invalid build argument. */
 	SK_RG_ERR_INVALID_ARGUMENT = 9,
+	/** Pass dependency graph contains a cycle (compile). */
+	SK_RG_ERR_CYCLE = 10,
+	/** compile() called with no graph / empty invalid state. */
+	SK_RG_ERR_INVALID_STATE = 11,
 } sk_rg_result_t;
 
 /** @deprecated Prefer SK_RG_OK / SK_RG_ERR_* — kept as APX-150 aliases. */
@@ -102,7 +111,21 @@ typedef enum sk_rg_resource_flag_bit_t {
 	SK_RG_RESOURCE_FLAG_READ_ONLY = 1u << 1,
 	SK_RG_RESOURCE_FLAG_COLOR_OUTPUT = 1u << 2,
 	SK_RG_RESOURCE_FLAG_DEPTH_OUTPUT = 1u << 3,
+	/** Eligible for transient memory aliasing after compile. */
+	SK_RG_RESOURCE_FLAG_ALIASED = 1u << 4,
 } sk_rg_resource_flag_bit_t;
+
+/** Pass flags (declare + compile). */
+typedef enum sk_rg_pass_flag_bit_t {
+	SK_RG_PASS_FLAG_NONE = 0,
+	/**
+	 * Pass has external side effects (or otherwise must always run).
+	 * Compile will never cull a pass with this flag.
+	 */
+	SK_RG_PASS_FLAG_SIDE_EFFECTS = 1u << 0,
+	/** Set by compile when the pass was removed as dead. */
+	SK_RG_PASS_FLAG_CULLED = 1u << 1,
+} sk_rg_pass_flag_bit_t;
 
 /* ------------------------------------------------------------------ */
 /* Opaque objects                                                      */
@@ -188,6 +211,7 @@ typedef struct sk_rg_pass_info_t {
 	i32 stage;
 	u32 index;
 	u32 dep_count;
+	u32 flags; /* sk_rg_pass_flag_bit_t */
 	sk_rg_record_fn record_fn;
 	void_ptr_t record_user;
 } sk_rg_pass_info_t;
@@ -223,6 +247,45 @@ typedef struct sk_rg_edge_info_t {
 	u32 from_pass;
 	u32 to_pass;
 } sk_rg_edge_info_t;
+
+/**
+ * First/last use of a resource in the *compiled* pass order
+ * (indices into get_compiled_pass_order, not declaration order).
+ * first_use/last_use are SK_RG_INVALID_USE when the resource is unused
+ * by any non-culled pass.
+ */
+typedef struct sk_rg_lifetime_info_t {
+	u32 resource_index;
+	u32 first_use; /* compiled order index */
+	u32 last_use;  /* compiled order index */
+	i32 used;
+	/** Non-zero when first touch writes and does not read (alias eligibility). */
+	i32 first_use_is_write_only;
+} sk_rg_lifetime_info_t;
+
+/** One transient resource placement in the alias plan (post-compile). */
+typedef struct sk_rg_alias_assignment_t {
+	u32 resource_index;
+	const_chr_t resource_name;
+	u32 first_use;
+	u32 last_use;
+	u64 size;
+	u64 alignment;
+	u32 memory_type_bits;
+	u32 bucket;
+	u64 offset;
+} sk_rg_alias_assignment_t;
+
+/** Physical heap bucket produced by the alias packer. */
+typedef struct sk_rg_alias_bucket_info_t {
+	u32 index;
+	u64 size;
+	u64 alignment;
+	u32 memory_type_bits;
+} sk_rg_alias_bucket_info_t;
+
+/** Sentinel for unused lifetime ends (matches internal SK_RG_INVALID_INDEX). */
+#define SK_RG_INVALID_USE ((u32)0xffffffffu)
 
 /* ------------------------------------------------------------------ */
 /* Frame memory config + diagnostics                                   */
@@ -282,8 +345,8 @@ typedef struct sk_rg_memory_stats_t {
 
 /**
  * Global render-graph module API (one table per process after plugin load).
- * Every entry is non-null. Frame memory + build-phase declare are live;
- * topology sort / GPU execute land later.
+ * Every entry is non-null. Frame memory, build declare, and compile are live;
+ * GPU execute / barriers land later.
  */
 typedef struct sk_render_graph_api_t {
 	/* module lifecycle (plugin-global) */
@@ -321,6 +384,11 @@ typedef struct sk_render_graph_api_t {
 	void (*pass_read_write)(sk_rg_pass_t* p, const_chr_t name);
 	void (*pass_resolve)(sk_rg_pass_t* p, const_chr_t name);
 	void (*pass_stage)(sk_rg_pass_t* p, i32 stage);
+	/**
+	 * Mark pass as having side effects / never cull (SK_RG_PASS_FLAG_SIDE_EFFECTS).
+	 * @p enabled non-zero sets the flag; zero clears it.
+	 */
+	void (*pass_set_side_effects)(sk_rg_pass_t* p, i32 enabled);
 	void (*pass_set_pipeline)(sk_rg_pass_t* p, sk_pipeline_t pipeline);
 	void (*pass_set_descriptor_set)(sk_rg_pass_t* p, u32 set, sk_descriptor_set_t ds);
 	void (*pass_set_record)(sk_rg_pass_t* p, sk_rg_record_fn fn, void_ptr_t user);
@@ -355,9 +423,20 @@ typedef struct sk_render_graph_api_t {
 	 * capacity growth is allowed again. execute() also ends the frame.
 	 */
 	void (*end)(sk_render_graph_t* g);
+	/**
+	 * Compile the graph declared since begin: topological order (stage
+	 * tie-break), cycle detection, dead-pass culling, resource lifetimes, and
+	 * transient texture alias packing. Working sets use pre-sized pools and the
+	 * frame arena — no heap growth during a successful compile after warm-up.
+	 * Safe to call mid-frame or after end (results valid until next begin).
+	 * @return SK_RG_OK, SK_RG_ERR_CYCLE, SK_RG_ERR_OUT_OF_SPACE, or
+	 *         SK_RG_ERR_INVALID_ARGUMENT / SK_RG_ERR_INVALID_STATE.
+	 */
+	i32 (*compile)(sk_render_graph_t* g);
 	void (*execute)(sk_render_graph_t* g, sk_command_buffer_t cmd);
 
 	/* debug / tests / introspection */
+	/** Number of successful topology rebuilds (increments each compile that sorts). */
 	u32 (*topology_build_count)(const sk_render_graph_t* g);
 	/**
 	 * Fill @p out with frame-memory diagnostics (bytes used, high-water,
@@ -365,7 +444,7 @@ typedef struct sk_render_graph_api_t {
 	 * @p out must not be NULL.
 	 */
 	void (*get_memory_stats)(const sk_render_graph_t* g, sk_rg_memory_stats_t* out);
-	/** Last build/memory result (SK_RG_OK if last op succeeded). */
+	/** Last build/memory/compile result (SK_RG_OK if last op succeeded). */
 	i32 (*get_last_error)(const sk_render_graph_t* g);
 	u32 (*get_pass_count)(const sk_render_graph_t* g);
 	/** Fill @p out for pass at declaration order @p index. Returns SK_RG_OK. */
@@ -375,6 +454,35 @@ typedef struct sk_render_graph_api_t {
 	i32 (*get_pass_dep_info)(const sk_render_graph_t* g, u32 pass_index, u32 dep_index, sk_rg_dep_info_t* out);
 	u32 (*get_edge_count)(const sk_render_graph_t* g);
 	i32 (*get_edge_info)(const sk_render_graph_t* g, u32 index, sk_rg_edge_info_t* out);
+
+	/* compile results (valid after successful compile until next begin) */
+	/** Non-zero after a successful compile this frame. */
+	i32 (*is_compiled)(const sk_render_graph_t* g);
+	/** Number of non-culled passes in final execution order. */
+	u32 (*get_compiled_pass_count)(const sk_render_graph_t* g);
+	/**
+	 * Declaration-order pass index at compiled order slot @p order_index.
+	 * Returns SK_RG_OK and writes @p out_pass_index.
+	 */
+	i32 (*get_compiled_pass_order)(const sk_render_graph_t* g, u32 order_index, u32* out_pass_index);
+	/** Number of passes marked culled by the last compile. */
+	u32 (*get_culled_pass_count)(const sk_render_graph_t* g);
+	/**
+	 * Declaration-order pass index of the culled pass at @p culled_index
+	 * (0..get_culled_pass_count-1).
+	 */
+	i32 (*get_culled_pass_order)(const sk_render_graph_t* g, u32 culled_index, u32* out_pass_index);
+	/** Lifetime for resource @p resource_index after compile. */
+	i32 (*get_resource_lifetime)(const sk_render_graph_t* g, u32 resource_index, sk_rg_lifetime_info_t* out);
+	/** Number of resources placed in the alias plan (eligible transients only). */
+	u32 (*get_alias_assignment_count)(const sk_render_graph_t* g);
+	i32 (*get_alias_assignment)(const sk_render_graph_t* g, u32 index, sk_rg_alias_assignment_t* out);
+	u32 (*get_alias_bucket_count)(const sk_render_graph_t* g);
+	i32 (*get_alias_bucket_info)(const sk_render_graph_t* g, u32 bucket_index, sk_rg_alias_bucket_info_t* out);
+	/** Sum of alias-eligible resource sizes before packing. */
+	u64 (*get_alias_standalone_bytes)(const sk_render_graph_t* g);
+	/** Sum of packed bucket sizes after packing. */
+	u64 (*get_alias_aliased_bytes)(const sk_render_graph_t* g);
 } sk_render_graph_api_t;
 
 /**
