@@ -198,11 +198,11 @@ Output extensions for cooked imports are also registered onto `ImportedAssetHand
 
 | main concept | v2 today |
 | --- | --- |
-| Editor `ResourceAssets` / handlers / importers | **Absent** (C rewrite; no editor asset browser yet) |
-| Runtime `Resources` store | Partially ported as **`core/repository.h`** (`sk_repository_t`, RID/UUID, hierarchy, undo scopes) — storage only, no handlers |
-| Handler registration via reflection | No C++ reflection; intended multi-impl surface is **`sk_app_api_t::add_impl`** (see §2) |
-| Import pipeline / efsw watch | **Absent** |
-| Thumbnails / PreviewGenerator | **Absent** (call sites listed only in §3) |
+| Editor `ResourceAssets` / handlers / importers | **In core** (`sk_resource_assets_api_t` + `resource_asset_builtins`); editor is a **consumer only** (`editor/project.c`, `sk-editor`) — no parallel hierarchy |
+| Runtime `Resources` store | **`core/repository.h`** (`sk_repository_t`, RID/UUID, hierarchy, undo scopes) |
+| Handler registration via reflection | **`sk_app_api_t::add_impl`** + `sk_resource_asset_builtins_register_impls` (see §2) |
+| Import pipeline / efsw watch | Import **in core**; efsw watch still absent |
+| Thumbnails / PreviewGenerator | **Dropped** — see `docs/repository-assets-thumbnail-drop.md` |
 
 ---
 
