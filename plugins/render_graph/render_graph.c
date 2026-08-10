@@ -3604,9 +3604,10 @@ SK_TEST(render_graph_compile_alias_disjoint_lifetimes) {
 	sk_rg_pass_t* p0;
 	sk_rg_pass_t* p1;
 	sk_rg_pass_t* p2;
-	sk_rg_alias_assignment_t a0;
-	sk_rg_alias_assignment_t a1;
-	sk_rg_alias_assignment_t a2;
+	/* Zero-init: filled in the loop below; cppcheck cannot prove all three names are found. */
+	sk_rg_alias_assignment_t a0 = {0};
+	sk_rg_alias_assignment_t a1 = {0};
+	sk_rg_alias_assignment_t a2 = {0};
 	u32 i;
 	u32 found_a = 0u;
 	u32 found_c = 0u;
