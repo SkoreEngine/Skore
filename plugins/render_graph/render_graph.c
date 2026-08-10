@@ -1017,6 +1017,12 @@ static const sk_render_device_api_t* rg_resolve_rhi(sk_render_graph_t* g) {
 	if (g->rhi != NULL) {
 		return g->rhi;
 	}
+	/* Only bind a registry RHI when the graph owns a device. Zero-device graphs
+	 * (unit tests) must not call into a host-registered table that may already
+	 * have been unloaded after the render-device plugin closed. */
+	if (!sk_render_device_t_is_valid(g->device)) {
+		return NULL;
+	}
 	if (g_rg_app_context != NULL && g_rg_app_api != NULL) {
 		g->rhi = (const sk_render_device_api_t*)g_rg_app_api->get_api(g_rg_app_context, SK_RENDER_DEVICE_API_TYPE_ID);
 	}
@@ -1576,7 +1582,10 @@ static i32 rg_realize_resources(sk_render_graph_t* g) {
 				tex = res->u.imported.textures[slot];
 			}
 			phys->textures[0] = tex;
-			if (sk_texture_t_is_valid(tex) && rhi != NULL) {
+			/* Query desc only with a live RHI device. Tests may import a fake
+			 * texture handle with a zero device while the host registry still
+			 * has a render-device table (or a dangling one after lib unload). */
+			if (sk_texture_t_is_valid(tex) && rhi != NULL && sk_render_device_t_is_valid(g->device)) {
 				sk_texture_desc_t td = rhi->get_texture_desc(g->device, tex);
 				u32 mips = td.mip_levels != 0u ? td.mip_levels : 1u;
 				u32 layers = td.array_layers != 0u ? td.array_layers : 1u;
@@ -5064,12 +5073,11 @@ SK_TEST(render_graph_execute_records_texture_barrier_sequence) {
 	sk_rg_texture_desc_t tex = rg_test_tex_desc();
 	sk_rg_pass_t* a;
 	sk_rg_pass_t* b;
-	sk_rg_barrier_info_t bi0;
-	sk_rg_barrier_info_t bi1;
 	u32 i;
 	u32 tex_barriers = 0u;
-	sk_rg_barrier_info_t first;
-	sk_rg_barrier_info_t second;
+	/* Zero-init: assigned in the loop; cppcheck cannot prove both are found. */
+	sk_rg_barrier_info_t first = {0};
+	sk_rg_barrier_info_t second = {0};
 	i32 saw_first = 0;
 	i32 saw_second = 0;
 
@@ -5109,8 +5117,6 @@ SK_TEST(render_graph_execute_records_texture_barrier_sequence) {
 	TEST_ASSERT_EQUAL_INT(SK_RESOURCE_STATE_GENERAL, (int)first.new_state);
 	TEST_ASSERT_EQUAL_INT(SK_RESOURCE_STATE_GENERAL, (int)second.old_state);
 	TEST_ASSERT_EQUAL_INT(SK_RESOURCE_STATE_SHADER_READ, (int)second.new_state);
-	(void)bi0;
-	(void)bi1;
 
 	render_graph_api.destroy(g);
 }
