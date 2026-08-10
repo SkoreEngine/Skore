@@ -12,8 +12,8 @@
 /** Capacity of the frame array the handler captures into (536 B/frame on 64-bit). */
 #define CRASH_MAX_FRAMES 64u
 
-/** One output line; lines are flushed to stderr as they complete. */
-#define CRASH_LINE_CAP 512u
+/** One output line; sized for "#i 0xaddr  symbol (module +off) at file:line". */
+#define CRASH_LINE_CAP 1024u
 
 static sk_stacktrace_frame_t crash_frames[CRASH_MAX_FRAMES];
 static char crash_line[CRASH_LINE_CAP];
@@ -121,25 +121,69 @@ static void crash_flush_line(void) {
 	crash_reset_line();
 }
 
-/** Capture and print the numbered raw-address frame list. */
+/**
+ * Print one frame. Matches sk_stacktrace_format layout but uses the fault-safe
+ * line builder (no printf): "#i 0xaddr  symbol (module +off) at file:line".
+ * Address always prints; names are best-effort from a prior resolve.
+ */
+static void crash_print_one_frame(u32 index, const sk_stacktrace_frame_t* frame) {
+	crash_reset_line();
+	crash_append_cstr("#");
+	crash_append_u64(index);
+	crash_append_cstr(" ");
+	crash_append_hex((u64)frame->address);
+
+	if (frame->symbol_name[0] != '\0') {
+		crash_append_cstr("  ");
+		crash_append_cstr(frame->symbol_name);
+		if (frame->symbol_offset != 0u) {
+			crash_append_cstr(" +");
+			crash_append_hex(frame->symbol_offset);
+		}
+	}
+	if (frame->module_name[0] != '\0') {
+		crash_append_cstr(" (");
+		crash_append_cstr(frame->module_name);
+		if (frame->module_offset != 0u) {
+			crash_append_cstr(" +");
+			crash_append_hex(frame->module_offset);
+		}
+		crash_append_cstr(")");
+	}
+	if (frame->source_file[0] != '\0') {
+		crash_append_cstr(" at ");
+		crash_append_cstr(frame->source_file);
+		if (frame->line != 0u) {
+			crash_append_cstr(":");
+			crash_append_u64(frame->line);
+		}
+	}
+	crash_append_cstr("\n");
+	crash_flush_line();
+}
+
+/**
+ * Capture the stack, best-effort symbolize, then print. Resolve may use
+ * dladdr/DbgHelp (not strictly async-signal-safe); install pre-inits the
+ * backend so the common path avoids first-use setup mid-fault. If resolve
+ * fails or returns empty fields, addresses still print.
+ */
 static void crash_print_frames(void) {
 	u32 count = sk_stacktrace_capture(crash_frames, CRASH_MAX_FRAMES, 1u);
 
+	/* Best-effort: prefer names when available. Never required for output. */
+	(void)sk_stacktrace_init();
+	sk_stacktrace_resolve(crash_frames, count);
+
 	crash_reset_line();
-	crash_append_cstr("stacktrace (raw addresses):\n");
+	crash_append_cstr("stacktrace:\n");
 	crash_flush_line();
 
 	for (u32 i = 0u; i < count; ++i) {
 		if (crash_frames[i].address == NULL) {
 			continue;
 		}
-		crash_reset_line();
-		crash_append_cstr("#");
-		crash_append_u64(i);
-		crash_append_cstr(" ");
-		crash_append_hex((u64)crash_frames[i].address);
-		crash_append_cstr("\n");
-		crash_flush_line();
+		crash_print_one_frame(i, &crash_frames[i]);
 	}
 }
 
@@ -604,25 +648,31 @@ static void crash_uninstall_platform(void) {
 }
 #endif
 
-static u32 crash_installed;
+/* Nested install/uninstall pairs (e.g. test host + sk_app_init, or multi-context).
+ * Platform registration runs only on 0→1; teardown only on 1→0. */
+static u32 crash_install_count;
 
 i32 sk_crash_install(void) {
-	if (crash_installed != 0u) {
-		return 0;
+	if (crash_install_count == 0u) {
+		if (crash_install_platform() != 0) {
+			return -1;
+		}
+		/* Warm DbgHelp / backend before any fault so resolve is not first-use
+		 * inside the handler. Failure is non-fatal: module+RVA still works. */
+		(void)sk_stacktrace_init();
 	}
-	if (crash_install_platform() != 0) {
-		return -1;
-	}
-	crash_installed = 1u;
+	crash_install_count += 1u;
 	return 0;
 }
 
 void sk_crash_uninstall(void) {
-	if (crash_installed == 0u) {
+	if (crash_install_count == 0u) {
 		return;
 	}
-	crash_uninstall_platform();
-	crash_installed = 0u;
+	crash_install_count -= 1u;
+	if (crash_install_count == 0u) {
+		crash_uninstall_platform();
+	}
 }
 
 /* ------------------------------------------------------------------------- */
@@ -634,7 +684,9 @@ void sk_crash_uninstall(void) {
 
 #include <stdio.h>
 
-SK_TEST(crash_install_uninstall_idempotent) {
+SK_TEST(crash_install_uninstall_refcount) {
+	/* Nested pairs: each install needs a matching uninstall. Leave the process
+	 * count unchanged relative to entry (test host may already hold a ref). */
 	TEST_ASSERT_EQUAL_INT(0, sk_crash_install());
 	TEST_ASSERT_EQUAL_INT(0, sk_crash_install());
 	sk_crash_uninstall();
@@ -645,23 +697,23 @@ SK_TEST(crash_install_uninstall_idempotent) {
 
 /*
  * Child-process crash integration via the BUILD_TESTING-only sk-crash-trigger
- * tool. Asserts the report header and at least one numbered raw-address frame
- * (the handler never symbolizes: dladdr/DbgHelp are not fault-safe). Symbol
- * checks live in stacktrace.c and skip cleanly when the toolchain cannot
- * symbolize (stripped binaries, missing PDB).
+ * tool. Asserts the report header and at least one numbered frame. Names are
+ * best-effort (DbgHelp/dladdr); full symbol checks live in stacktrace.c and
+ * skip cleanly when the toolchain cannot symbolize (stripped binaries, missing PDB).
  */
 
 /** Capacity of the stderr capture buffer for child crash reports. */
 #define CRASH_TEST_OUTPUT_CAP 8192u
 
 /**
- * Assert the shared crash-report shape: banner, thread id, raw-address
- * stacktrace header, and at least one numbered frame (#0 0x…).
+ * Assert the shared crash-report shape: banner, thread id, stacktrace header,
+ * and at least one numbered frame (#0 0x…). Symbol/module names are best-effort
+ * (PDB / export table) and are not required for the shape check.
  */
 static void crash_test_assert_report_shape(const char* output) {
 	TEST_ASSERT_NOT_NULL(strstr(output, "=== skore crash handler ==="));
 	TEST_ASSERT_NOT_NULL(strstr(output, "thread id"));
-	TEST_ASSERT_NOT_NULL(strstr(output, "stacktrace (raw addresses)"));
+	TEST_ASSERT_NOT_NULL(strstr(output, "stacktrace:"));
 	TEST_ASSERT_NOT_NULL(strstr(output, "#0 0x"));
 }
 
@@ -835,6 +887,19 @@ SK_TEST(crash_windows_null_prints_stacktrace) {
 	}
 }
 
+/** Child-process demo: print a real crash report so humans can eyeball the format. */
+SK_TEST(crash_demo_print_null_stacktrace) {
+	char output[CRASH_TEST_OUTPUT_CAP];
+	DWORD exit_code = 0u;
+	if (crash_test_spawn_trigger("null", output, (u32)sizeof(output), &exit_code) != 0) {
+		TEST_IGNORE_MESSAGE("sk-crash-trigger.exe not available (cwd must be build/bin)");
+		return;
+	}
+	TEST_ASSERT_TRUE(exit_code != 0u);
+	crash_test_assert_report_shape(output);
+	printf("\n-------- crash demo (null deref) stderr --------\n%s-------- end crash demo --------\n", output);
+}
+
 SK_TEST(crash_windows_abort_terminates) {
 	/* abort() terminates via the CRT and does not always pass through the
 	 * unhandled-exception filter, so a full crash report is best-effort only. */
@@ -958,6 +1023,19 @@ SK_TEST(crash_posix_null_prints_stacktrace_and_signal_death) {
 		/* At least a few frames so the walk is non-trivial. */
 		TEST_ASSERT_NOT_NULL(strstr(output, "#2 0x"));
 	}
+}
+
+/** Child-process demo: print a real crash report so humans can eyeball the format. */
+SK_TEST(crash_demo_print_null_stacktrace) {
+	char output[CRASH_TEST_OUTPUT_CAP];
+	int status = 0;
+	if (crash_test_spawn_trigger("null", output, (u32)sizeof(output), &status) != 0) {
+		TEST_IGNORE_MESSAGE("sk-crash-trigger not available (cwd must be build/bin)");
+		return;
+	}
+	TEST_ASSERT_TRUE(WIFSIGNALED(status));
+	crash_test_assert_report_shape(output);
+	printf("\n-------- crash demo (null deref) stderr --------\n%s-------- end crash demo --------\n", output);
 }
 
 SK_TEST(crash_posix_abort_prints_stacktrace_and_signal_death) {

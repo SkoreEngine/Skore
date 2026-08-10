@@ -59,7 +59,7 @@ sk_stacktrace_shutdown();
 
 **Windows**: `SetUnhandledExceptionFilter` (primary), a first-chance vectored observer (reentrancy backstop only), and on MSVC the CRT invalid-parameter / purecall hooks. Returns `EXCEPTION_CONTINUE_SEARCH` so Windows Error Reporting still runs.
 
-**Fault-safety:** the crash path never allocates and never calls `printf` / `dladdr` / DbgHelp. Frames are **raw addresses only**. Symbolize offline (debugger, `addr2line`, `llvm-symbolizer`) if needed.
+**Crash path:** never allocates and never calls `printf`. Capture is allocation-free; the handler then **best-effort** calls `sk_stacktrace_resolve` so frames can include module / symbol / `file:line` when the backend has info (DbgHelp + PDB on Windows, `dladdr` on POSIX). Addresses always print. `sk_crash_install` pre-inits the stacktrace backend so first-use setup is not mid-fault. Resolve is not strictly async-signal-safe; if it fails, you still get addresses (offline: debugger, `addr2line`, `llvm-symbolizer`).
 
 ---
 
@@ -96,7 +96,7 @@ sk_crash_uninstall();
 | Resolve symbols in **your executable** | Export the symbols you care about (`-rdynamic`, or targeted `--export-dynamic-symbol=name`). Full `--export-dynamic` on hosts that `dlopen` plugins can interpose over each plugin’s static `sk-core` — prefer exporting only specific symbols (see `tests/CMakeLists.txt` for `sk-tests`). |
 | Resolve symbols in **shared plugins** | Default visibility (`SK_API`) is enough for those DSO exports. |
 
-`sk-player` deliberately does **not** use full `--export-dynamic` on Linux for the interposition reason above; crash reports still print raw addresses, and module + offset remain available after resolve when the mapping is known.
+`sk-player` deliberately does **not** use full `--export-dynamic` on Linux for the interposition reason above; crash reports still print addresses, and module + offset (plus `dladdr` symbols when exports allow) are filled by resolve when available.
 
 ### Apple (Mach-O)
 
@@ -120,8 +120,8 @@ sk_crash_uninstall();
 
 | Limitation | Detail |
 |------------|--------|
-| No symbolization in the crash handler | `dladdr` / DbgHelp are not async-signal / fault safe. Crash output is raw PCs only. |
-| No C++ demangling | POSIX emits mangled names as `dladdr` returns them. Windows uses `SYMOPT_UNDNAME` for undecorated C/C++ where DbgHelp supports it. |
+| Resolve in the crash handler is best-effort | `dladdr` / DbgHelp are not async-signal / fault safe. Crash still always prints addresses; names fill when resolve succeeds. |
+| No C++ demangling on POSIX | `dladdr` emits mangled names as-is. Windows uses `SYMOPT_UNDNAME` where DbgHelp supports it. |
 | Release / LTO / inlining | Frames may be missing or attributed to an outer function. Helpers used in tests are `noinline`. |
 | Stripped binaries | POSIX: empty `symbol_name`. Windows: module + RVA only without PDB. |
 | No source lines on POSIX | `dladdr` has no debug-line API; use `addr2line` / `llvm-symbolizer` offline. |
@@ -166,7 +166,7 @@ Captured with `./build/bin/sk-crash-trigger null` (Debug, unstripped):
 signal: SIGSEGV (segmentation violation) (SEGV_MAPERR)
 faulting address: 0x0
 thread id: 3107630
-stacktrace (raw addresses):
+stacktrace:
 #0 0x5e1296ba590a
 #1 0x5e1296ba5d86
 #2 0x5e1296ba5f0c
@@ -184,7 +184,7 @@ stacktrace (raw addresses):
 === skore crash handler ===
 signal: SIGFPE (floating-point exception)
 thread id: 3108504
-stacktrace (raw addresses):
+stacktrace:
 #0 0x57621dd4290a
 #1 0x57621dd42d86
 #2 0x57621dd42f0c
@@ -200,7 +200,7 @@ Same POSIX backend and report shape as Linux (`thread id` from `pthread_threadid
 signal: SIGSEGV (segmentation violation) (SEGV_MAPERR)
 faulting address: 0x0
 thread id: 0x1f3a4b
-stacktrace (raw addresses):
+stacktrace:
 #0 0x104a01f20
 #1 0x104a01f80
 #2 0x104a02010
@@ -216,7 +216,7 @@ Captured with `sk-crash-trigger null` (Debug + PDB; exception filter path):
 exception: 0xc0000005 (ACCESS_VIOLATION)
 faulting address: 0x0
 thread id: 8420
-stacktrace (raw addresses):
+stacktrace:
 #0 0x7ff612340120
 #1 0x7ff6123401a0
 #2 0x7ff6123402c0
