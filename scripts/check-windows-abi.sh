@@ -93,23 +93,105 @@ fi
 # lib/gcc/.../include (print-file-name=include) — clang + those intrinsics
 # headers produce thousands of clang-diagnostic-error noise and fail every
 # TU that pulls <windows.h>.
+#
+# resource-dir major version MUST match clang-tidy. A common agent setup has
+# PATH clang-tidy from a pip wheel (LLVM N) while system clang is M — mismatched
+# mmintrin.h then yields "__m64 ... integer type 'int' of different size" parse
+# failures on every windows.h TU. Prefer same-major clang / llvm layout first.
+TIDY_MAJOR="$("${CLANG_TIDY}" --version 2>/dev/null | sed -n 's/.*[Vv]ersion \([0-9][0-9]*\).*/\1/p' | head -n1 || true)"
+
 RESOURCE_DIR=""
-if command -v "${CLANG}" >/dev/null 2>&1; then
-	RESOURCE_DIR="$("${CLANG}" -print-resource-dir 2>/dev/null || true)"
-fi
-if [[ -z "${RESOURCE_DIR}" || ! -d "${RESOURCE_DIR}/include" ]]; then
-	# Fallback: common distro layouts when only clang-tidy is on PATH.
+resolve_resource_dir() {
+	local cand clang_bin
+	# 1) Explicit CLANG if set and available.
+	if command -v "${CLANG}" >/dev/null 2>&1; then
+		cand="$("${CLANG}" -print-resource-dir 2>/dev/null || true)"
+		if [[ -n "${cand}" && -d "${cand}/include" ]]; then
+			# Accept only when major matches tidy (or tidy version unknown).
+			if [[ -z "${TIDY_MAJOR}" || "${cand}" == *"/clang/${TIDY_MAJOR}"* || "${cand}" == *"/clang/${TIDY_MAJOR}."* ]]; then
+				RESOURCE_DIR="${cand}"
+				return 0
+			fi
+		fi
+	fi
+	# 2) clang binary with the same major as clang-tidy.
+	if [[ -n "${TIDY_MAJOR}" ]]; then
+		for clang_bin in "clang-${TIDY_MAJOR}" "clang++-${TIDY_MAJOR}" "/usr/lib/llvm-${TIDY_MAJOR}/bin/clang"; do
+			if command -v "${clang_bin}" >/dev/null 2>&1 || [[ -x "${clang_bin}" ]]; then
+				cand="$("${clang_bin}" -print-resource-dir 2>/dev/null || true)"
+				if [[ -n "${cand}" && -d "${cand}/include" ]]; then
+					RESOURCE_DIR="${cand}"
+					return 0
+				fi
+			fi
+		done
+		# 3) Distro / pip clang_tidy data layouts for that major.
+		for cand in \
+			"/usr/lib/llvm-${TIDY_MAJOR}/lib/clang/${TIDY_MAJOR}" \
+			"/usr/lib/clang/${TIDY_MAJOR}" \
+			"/usr/lib/llvm-${TIDY_MAJOR}/lib/clang/"* \
+			"/usr/lib/clang/"*; do
+			if [[ -d "${cand}/include" ]]; then
+				case "${cand}" in
+					*/clang/"${TIDY_MAJOR}" | */clang/"${TIDY_MAJOR}".* )
+						RESOURCE_DIR="${cand}"
+						return 0
+						;;
+				esac
+			fi
+		done
+		# pip clang-tidy wheel ships headers next to the entrypoint.
+		if command -v python3 >/dev/null 2>&1; then
+			cand="$(
+				python3 - "${TIDY_MAJOR}" <<'PY' 2>/dev/null || true
+import sys
+from pathlib import Path
+major = sys.argv[1]
+try:
+    import clang_tidy
+except Exception:
+    sys.exit(1)
+root = Path(clang_tidy.__file__).resolve().parent / "data" / "lib" / "clang"
+for child in sorted(root.glob(major + "*")) if root.is_dir() else []:
+    if (child / "include").is_dir():
+        print(child)
+        sys.exit(0)
+sys.exit(1)
+PY
+			)"
+			if [[ -n "${cand}" && -d "${cand}/include" ]]; then
+				RESOURCE_DIR="${cand}"
+				return 0
+			fi
+		fi
+	fi
+	# 4) Last resort: any clang on PATH, then glob (may mismatch — best-effort).
+	if command -v clang >/dev/null 2>&1; then
+		cand="$(clang -print-resource-dir 2>/dev/null || true)"
+		if [[ -n "${cand}" && -d "${cand}/include" ]]; then
+			RESOURCE_DIR="${cand}"
+			return 0
+		fi
+	fi
 	for cand in /usr/lib/llvm-*/lib/clang/* /usr/lib/clang/*; do
 		if [[ -d "${cand}/include" ]]; then
 			RESOURCE_DIR="${cand}"
-			break
+			return 0
 		fi
 	done
-fi
-if [[ -z "${RESOURCE_DIR}" || ! -d "${RESOURCE_DIR}/include" ]]; then
-	echo "error: could not locate clang resource-dir (need clang installed)" >&2
+	return 1
+}
+if ! resolve_resource_dir; then
+	echo "error: could not locate clang resource-dir (need clang headers matching clang-tidy${TIDY_MAJOR:+ major ${TIDY_MAJOR}})" >&2
 	echo "  Debian/Ubuntu: sudo apt-get install -y clang" >&2
+	echo "  Or set CLANG to a binary whose -print-resource-dir matches clang-tidy." >&2
 	exit 1
+fi
+# Soft-warn when we could not prove a major match (still try; parse may fail).
+if [[ -n "${TIDY_MAJOR}" && "${RESOURCE_DIR}" != *"/clang/${TIDY_MAJOR}"* && "${RESOURCE_DIR}" != *"/clang/${TIDY_MAJOR}."* ]]; then
+	echo "warning: clang resource-dir major may not match clang-tidy ${TIDY_MAJOR}:" >&2
+	echo "  resource-dir=${RESOURCE_DIR}" >&2
+	echo "  (mmintrin / windows.h TUs often fail on mismatched LLVM majors)" >&2
 fi
 
 # Optional MinGW libstdc++ for first-party .cpp (e.g. thin VMA TU).
