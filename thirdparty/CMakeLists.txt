@@ -26,3 +26,7 @@ add_subdirectory(vma)
 # macOS dylib, linux-x64 .so). Plugins copy the matching shared library to
 # the plugins output dir via sk_copy_dxc_shared_library().
 add_subdirectory(dxc)
+
+# FreeType (font rasterization) + stb_rect_pack (glyph atlas packing) for ui.
+add_subdirectory(freetype)
+add_subdirectory(stb_rect_pack)
