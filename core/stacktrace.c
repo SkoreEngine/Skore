@@ -149,7 +149,7 @@ static void format_frame(trace_writer_t* w, u32 index, const sk_stacktrace_frame
 	char line[SK_STACKTRACE_FILE_CAP + 224u];
 	u32 pos = 0u;
 
-	line_append(line, (u32)sizeof(line), &pos, "#%u 0x%llx", index, (unsigned long long)(uintptr_t)frame->address);
+	line_append(line, (u32)sizeof(line), &pos, "#%u 0x%llx", index, (unsigned long long)frame->address);
 	if (frame->symbol_name[0] != '\0') {
 		line_append(line, (u32)sizeof(line), &pos, "  %s", frame->symbol_name);
 	}
