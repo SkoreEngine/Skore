@@ -48,6 +48,10 @@ extern "C" {
 typedef enum sk_compression_codec_id_t {
 	SK_COMPRESSION_CODEC_NONE = 0,
 	SK_COMPRESSION_CODEC_ZSTD = 1,
+	/** Raw LZ4 block with a little-endian u64 original-size prefix. */
+	SK_COMPRESSION_CODEC_LZ4 = 2,
+	/** RFC 1950 zlib stream with a little-endian u64 original-size prefix. */
+	SK_COMPRESSION_CODEC_ZLIB = 3,
 } sk_compression_codec_id_t;
 
 /**

@@ -5,13 +5,34 @@
  * Implements the v2 compression interface (see docs/compression-design-v2.md).
  * Codecs are registered at build time in a static const table — no runtime
  * registration, no free-running constructors. The always-present identity
- * "none" codec plus the baseline zstd codec (gated behind
- * SK_COMPRESSION_HAS_ZSTD) ship with the registry lookup surface.
+ * "none" codec plus the gated codecs (zstd, lz4, zlib/miniz) ship with the
+ * registry lookup surface (docs/compression-codecs-evaluation.md §6–§7).
  */
 
 #include "compression.h"
 
+#include <limits.h> /* INT_MAX (LZ4 int-sized APIs) */
 #include <string.h> /* memcpy */
+
+/* Shared little-endian u64 helpers for the size-prefixed LZ4/zlib frames. */
+static void compression_write_u64_le(u8* dest, u64 value) {
+	dest[0] = (u8)(value);
+	dest[1] = (u8)(value >> 8u);
+	dest[2] = (u8)(value >> 16u);
+	dest[3] = (u8)(value >> 24u);
+	dest[4] = (u8)(value >> 32u);
+	dest[5] = (u8)(value >> 40u);
+	dest[6] = (u8)(value >> 48u);
+	dest[7] = (u8)(value >> 56u);
+}
+
+static u64 compression_read_u64_le(const u8* src) {
+	return ((u64)src[0]) | ((u64)src[1] << 8u) | ((u64)src[2] << 16u) | ((u64)src[3] << 24u) | ((u64)src[4] << 32u) | ((u64)src[5] << 40u) | ((u64)src[6] << 48u) |
+		   ((u64)src[7] << 56u);
+}
+
+/* Size of the original-size prefix shared by the LZ4 and zlib on-disk frames. */
+#define COMPRESSION_SIZE_PREFIX_BYTES 8u
 
 /* ---- identity codec (SK_COMPRESSION_CODEC_NONE) ------------------------- */
 
@@ -228,6 +249,309 @@ static const sk_compression_codec_t zstd_codec = {
 };
 #endif /* SK_COMPRESSION_HAS_ZSTD */
 
+#ifdef SK_COMPRESSION_HAS_LZ4
+/* ---- LZ4 codec (SK_COMPRESSION_CODEC_LZ4) -------------------------------- */
+
+/*
+ * On-disk frame: little-endian u64 original_size + raw LZ4 block
+ * (LZ4_compress_fast / LZ4_decompress_safe). The size prefix makes
+ * decompressed_size exact; the one-shot LZ4 block API is heap-free so the
+ * injected allocator is unused (docs/compression-codecs-evaluation.md §7).
+ */
+#include "lz4.h"
+
+/* Level is the LZ4 acceleration factor: 1 = default (best ratio among the
+ * fast API), higher = faster / worse ratio. Clamp after resolving the sentinel. */
+static i32 lz4_resolve_level(i32 level) {
+	if (level == SK_COMPRESSION_LEVEL_DEFAULT) {
+		level = 1;
+	}
+	if (level < 1) {
+		return 1;
+	}
+	if (level > 16) {
+		return 16;
+	}
+	return level;
+}
+
+static u64 lz4_compress_bound(u64 src_size) {
+	/* LZ4 one-shot APIs take int and reject inputs above LZ4_MAX_INPUT_SIZE. */
+	if (src_size > (u64)LZ4_MAX_INPUT_SIZE) {
+		return SK_COMPRESSION_SIZE_UNKNOWN;
+	}
+	{
+		const int block_bound = LZ4_compressBound((int)src_size);
+		if (block_bound <= 0) {
+			return SK_COMPRESSION_SIZE_UNKNOWN;
+		}
+		return COMPRESSION_SIZE_PREFIX_BYTES + (u64)block_bound;
+	}
+}
+
+static i32 lz4_compress(const sk_allocator_t* allocator, i32 level, const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
+	const u64 bound = lz4_compress_bound(src_size);
+	(void)allocator;
+
+	if (bound == SK_COMPRESSION_SIZE_UNKNOWN) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_CODEC_FAILURE;
+	}
+	if (dest_cap < bound) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT;
+	}
+
+	compression_write_u64_le(dest, src_size);
+	if (src_size == 0u) {
+		/* Empty payload: size prefix only (no LZ4 block bytes). */
+		*out_written = COMPRESSION_SIZE_PREFIX_BYTES;
+		return SK_COMPRESSION_OK;
+	}
+
+	{
+		const int acceleration = lz4_resolve_level(level);
+		const int max_dst = (int)(dest_cap - COMPRESSION_SIZE_PREFIX_BYTES);
+		const int rc = LZ4_compress_fast((const char*)src, (char*)(dest + COMPRESSION_SIZE_PREFIX_BYTES), (int)src_size, max_dst, acceleration);
+		if (rc <= 0) {
+			/* Sized with compress_bound, so failure is an internal error. */
+			*out_written = 0u;
+			return SK_COMPRESSION_ERR_CODEC_FAILURE;
+		}
+		*out_written = COMPRESSION_SIZE_PREFIX_BYTES + (u64)rc;
+		return SK_COMPRESSION_OK;
+	}
+}
+
+static i32 lz4_decompressed_size(const u8* src, u64 src_size, u64* out_size) {
+	if (src_size < COMPRESSION_SIZE_PREFIX_BYTES) {
+		return SK_COMPRESSION_ERR_CORRUPT_DATA;
+	}
+	*out_size = compression_read_u64_le(src);
+	return SK_COMPRESSION_OK;
+}
+
+static u64 lz4_decompress_bound(const u8* src, u64 src_size) {
+	u64 declared = 0u;
+	if (lz4_decompressed_size(src, src_size, &declared) != SK_COMPRESSION_OK) {
+		return SK_COMPRESSION_SIZE_UNKNOWN;
+	}
+	return declared;
+}
+
+static i32 lz4_decompress(const sk_allocator_t* allocator, const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
+	u64 original_size = 0u;
+	(void)allocator;
+
+	if (src_size < COMPRESSION_SIZE_PREFIX_BYTES) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_CORRUPT_DATA;
+	}
+	original_size = compression_read_u64_le(src);
+	if (dest_cap < original_size) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT;
+	}
+	if (original_size == 0u) {
+		/* Empty payload: only the size prefix is required. */
+		*out_written = 0u;
+		return SK_COMPRESSION_OK;
+	}
+	if (original_size > (u64)LZ4_MAX_INPUT_SIZE) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_CORRUPT_DATA;
+	}
+	if (src_size == COMPRESSION_SIZE_PREFIX_BYTES) {
+		/* Non-empty original size with no block bytes is corrupt. */
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_CORRUPT_DATA;
+	}
+	if (src_size - COMPRESSION_SIZE_PREFIX_BYTES > (u64)INT_MAX) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_CORRUPT_DATA;
+	}
+
+	{
+		const int compressed_size = (int)(src_size - COMPRESSION_SIZE_PREFIX_BYTES);
+		const int rc = LZ4_decompress_safe((const char*)(src + COMPRESSION_SIZE_PREFIX_BYTES), (char*)dest, compressed_size, (int)original_size);
+		if (rc < 0 || (u64)rc != original_size) {
+			*out_written = 0u;
+			return SK_COMPRESSION_ERR_CORRUPT_DATA;
+		}
+		*out_written = original_size;
+		return SK_COMPRESSION_OK;
+	}
+}
+
+static const sk_compression_codec_t lz4_codec = {
+	SK_COMPRESSION_CODEC_LZ4,
+	"lz4",
+	1,	/* level_min — acceleration floor */
+	16, /* level_max — acceleration ceiling */
+	1,	/* level_default — LZ4_compress_default equivalent */
+	lz4_compress_bound,
+	lz4_compress,
+	lz4_decompressed_size,
+	lz4_decompress_bound,
+	lz4_decompress,
+	NULL, /* stream_init — streaming deferred; one-shot only */
+	NULL, /* stream_update */
+	NULL, /* stream_finish */
+	NULL, /* stream_destroy */
+};
+#endif /* SK_COMPRESSION_HAS_LZ4 */
+
+#ifdef SK_COMPRESSION_HAS_MINIZ
+/* ---- zlib/miniz codec (SK_COMPRESSION_CODEC_ZLIB) ------------------------ */
+
+/*
+ * On-disk frame: little-endian u64 original_size + RFC 1950 zlib stream
+ * produced by miniz tdefl (TDEFL_WRITE_ZLIB_HEADER). The size prefix makes
+ * decompressed_size exact. Compressor state is allocated through the injected
+ * allocator; tinfl_decompress_mem_to_mem is heap-free
+ * (docs/compression-codecs-evaluation.md §7).
+ */
+#include "miniz.h"
+
+static i32 zlib_resolve_level(i32 level) {
+	if (level == SK_COMPRESSION_LEVEL_DEFAULT) {
+		level = MZ_DEFAULT_LEVEL; /* 6 — zlib default */
+	}
+	if (level < 0) {
+		return 0;
+	}
+	if (level > 9) {
+		return 9;
+	}
+	return level;
+}
+
+static u64 zlib_compress_bound(u64 src_size) {
+	/* mz_compressBound formula is conservative; add the size prefix. */
+	return COMPRESSION_SIZE_PREFIX_BYTES + (u64)mz_compressBound((mz_ulong)src_size);
+}
+
+static i32 zlib_compress(const sk_allocator_t* allocator, i32 level, const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
+	const u64 bound = zlib_compress_bound(src_size);
+	tdefl_compressor* comp = NULL;
+	mz_uint flags = 0u;
+	size_t in_size = 0u;
+	size_t out_size = 0u;
+	tdefl_status status;
+
+	if (dest_cap < bound) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT;
+	}
+
+	compression_write_u64_le(dest, src_size);
+	if (src_size == 0u) {
+		/* Empty payload: size prefix only (matches the LZ4 empty frame). */
+		*out_written = COMPRESSION_SIZE_PREFIX_BYTES;
+		return SK_COMPRESSION_OK;
+	}
+
+	comp = (tdefl_compressor*)allocator->alloc(allocator->instance, sizeof(tdefl_compressor));
+	if (comp == NULL) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_OUT_OF_MEMORY;
+	}
+
+	/* window_bits > 0 selects a zlib-wrapped stream (header + adler32). */
+	flags = tdefl_create_comp_flags_from_zip_params(zlib_resolve_level(level), MZ_DEFAULT_WINDOW_BITS, MZ_DEFAULT_STRATEGY);
+	if (tdefl_init(comp, NULL, NULL, (int)flags) != TDEFL_STATUS_OKAY) {
+		allocator->free(allocator->instance, comp);
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_CODEC_FAILURE;
+	}
+
+	in_size = (size_t)src_size;
+	out_size = (size_t)(dest_cap - COMPRESSION_SIZE_PREFIX_BYTES);
+	status = tdefl_compress(comp, src, &in_size, dest + COMPRESSION_SIZE_PREFIX_BYTES, &out_size, TDEFL_FINISH);
+	allocator->free(allocator->instance, comp);
+
+	if (status != TDEFL_STATUS_DONE || in_size != (size_t)src_size) {
+		*out_written = 0u;
+		/* Bound-sized destination should always succeed; map residual buffer
+		 * exhaustion to INSUFFICIENT_OUTPUT for the contract, else failure. */
+		if (status == TDEFL_STATUS_OKAY || status == TDEFL_STATUS_PUT_BUF_FAILED) {
+			return SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT;
+		}
+		return SK_COMPRESSION_ERR_CODEC_FAILURE;
+	}
+
+	*out_written = COMPRESSION_SIZE_PREFIX_BYTES + (u64)out_size;
+	return SK_COMPRESSION_OK;
+}
+
+static i32 zlib_decompressed_size(const u8* src, u64 src_size, u64* out_size) {
+	if (src_size < COMPRESSION_SIZE_PREFIX_BYTES) {
+		return SK_COMPRESSION_ERR_CORRUPT_DATA;
+	}
+	*out_size = compression_read_u64_le(src);
+	return SK_COMPRESSION_OK;
+}
+
+static u64 zlib_decompress_bound(const u8* src, u64 src_size) {
+	u64 declared = 0u;
+	if (zlib_decompressed_size(src, src_size, &declared) != SK_COMPRESSION_OK) {
+		return SK_COMPRESSION_SIZE_UNKNOWN;
+	}
+	return declared;
+}
+
+static i32 zlib_decompress(const sk_allocator_t* allocator, const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
+	u64 original_size = 0u;
+	size_t rc = 0u;
+	(void)allocator;
+
+	if (src_size < COMPRESSION_SIZE_PREFIX_BYTES) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_CORRUPT_DATA;
+	}
+	original_size = compression_read_u64_le(src);
+	if (dest_cap < original_size) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT;
+	}
+	if (original_size == 0u) {
+		/* Empty payload: size prefix only (matches compress). */
+		*out_written = 0u;
+		return SK_COMPRESSION_OK;
+	}
+	if (src_size == COMPRESSION_SIZE_PREFIX_BYTES) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_CORRUPT_DATA;
+	}
+
+	rc = tinfl_decompress_mem_to_mem(dest, (size_t)original_size, src + COMPRESSION_SIZE_PREFIX_BYTES, (size_t)(src_size - COMPRESSION_SIZE_PREFIX_BYTES),
+									 TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+	if (rc == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED || (u64)rc != original_size) {
+		*out_written = 0u;
+		return SK_COMPRESSION_ERR_CORRUPT_DATA;
+	}
+	*out_written = original_size;
+	return SK_COMPRESSION_OK;
+}
+
+static const sk_compression_codec_t zlib_codec = {
+	SK_COMPRESSION_CODEC_ZLIB,
+	"zlib",
+	0, /* level_min — store / no compression */
+	9, /* level_max — best zlib-compatible compression */
+	6, /* level_default — MZ_DEFAULT_LEVEL */
+	zlib_compress_bound,
+	zlib_compress,
+	zlib_decompressed_size,
+	zlib_decompress_bound,
+	zlib_decompress,
+	NULL, /* stream_init — streaming deferred; one-shot only */
+	NULL, /* stream_update */
+	NULL, /* stream_finish */
+	NULL, /* stream_destroy */
+};
+#endif /* SK_COMPRESSION_HAS_MINIZ */
+
 /* ---- build-time registry -------------------------------------------------- */
 
 /*
@@ -241,6 +565,12 @@ static const sk_compression_codec_t* codecs[] = {
 	&none_codec,
 #ifdef SK_COMPRESSION_HAS_ZSTD
 	&zstd_codec,
+#endif
+#ifdef SK_COMPRESSION_HAS_LZ4
+	&lz4_codec,
+#endif
+#ifdef SK_COMPRESSION_HAS_MINIZ
+	&zlib_codec,
 #endif
 };
 
@@ -386,13 +716,22 @@ static void compression_assert_one_shot_roundtrip(const sk_compression_codec_t* 
 }
 
 SK_TEST(compression_roundtrip_all_registered_codecs) {
-	/* Every codec in the registry (currently none + zstd) round-trips a fixed
-	 * corpus byte-for-byte; a future codec is covered automatically. */
+	/* Every codec in the registry (none + gated codecs) round-trips a fixed
+	 * corpus byte-for-byte; a future codec is covered automatically. Covers
+	 * empty, non-trivial compressible, and incompressible inputs. */
 	const u8 small[] = "one-shot registry roundtrip payload payload payload payload payload";
 	u8 large[8192];
+	u8 incompressible[4096];
+	u32 state = 0xA5A5F00Du;
 
 	for (u32 i = 0u; i < sizeof(large); ++i) {
 		large[i] = (u8)((i % 37u) + ((i % 11u == 0u) ? 0x80u : 0u));
+	}
+	for (u32 i = 0u; i < sizeof(incompressible); ++i) {
+		state ^= state << 13u;
+		state ^= state >> 17u;
+		state ^= state << 5u;
+		incompressible[i] = (u8)(state >> 24u);
 	}
 
 	for (u32 i = 0u; i < sk_compression_codec_count(); ++i) {
@@ -401,6 +740,7 @@ SK_TEST(compression_roundtrip_all_registered_codecs) {
 		compression_assert_one_shot_roundtrip(codec, NULL, 0u);
 		compression_assert_one_shot_roundtrip(codec, small, sizeof(small));
 		compression_assert_one_shot_roundtrip(codec, large, sizeof(large));
+		compression_assert_one_shot_roundtrip(codec, incompressible, sizeof(incompressible));
 	}
 }
 
@@ -737,6 +1077,230 @@ SK_TEST(compression_zstd_main_frame_compat) {
 	TEST_ASSERT_EQUAL_MEMORY(payload, restored, sizeof(payload) - 1u);
 }
 #endif /* SK_COMPRESSION_HAS_ZSTD */
+
+#if defined(SK_COMPRESSION_HAS_LZ4) || defined(SK_COMPRESSION_HAS_MINIZ)
+/* Shared round-trip helper for size-prefixed frames (LZ4 + zlib). */
+static void size_prefixed_assert_roundtrip(const sk_compression_codec_t* codec, const u8* payload, u64 payload_size, i32 level) {
+	const sk_allocator_t* scratch = sk_allocator_default();
+	const u64 bound = codec->compress_bound(payload_size);
+	u8* compressed = scratch->alloc(scratch->instance, bound);
+	u8* restored = scratch->alloc(scratch->instance, payload_size > 0u ? payload_size : 1u);
+	u64 compressed_size = 0u;
+	u64 restored_size = 0u;
+	u64 declared = 0u;
+
+	TEST_ASSERT_NOT_NULL(compressed);
+	TEST_ASSERT_NOT_NULL(restored);
+	TEST_ASSERT_TRUE(bound != SK_COMPRESSION_SIZE_UNKNOWN);
+	TEST_ASSERT_TRUE(bound >= COMPRESSION_SIZE_PREFIX_BYTES);
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(sk_allocator_default(), level, payload, payload_size, compressed, bound, &compressed_size));
+	TEST_ASSERT_TRUE(compressed_size >= COMPRESSION_SIZE_PREFIX_BYTES);
+	TEST_ASSERT_TRUE(compressed_size <= bound);
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompressed_size(compressed, compressed_size, &declared));
+	TEST_ASSERT_EQUAL_UINT64(payload_size, declared);
+	TEST_ASSERT_EQUAL_UINT64(payload_size, codec->decompress_bound(compressed, compressed_size));
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompress(sk_allocator_default(), compressed, compressed_size, restored, payload_size, &restored_size));
+	TEST_ASSERT_EQUAL_UINT64(payload_size, restored_size);
+	if (payload_size > 0u) {
+		TEST_ASSERT_EQUAL_MEMORY(payload, restored, payload_size);
+	}
+
+	scratch->free(scratch->instance, compressed);
+	scratch->free(scratch->instance, restored);
+}
+#endif /* SK_COMPRESSION_HAS_LZ4 || SK_COMPRESSION_HAS_MINIZ */
+
+#ifdef SK_COMPRESSION_HAS_LZ4
+SK_TEST(compression_registry_lz4_lookup) {
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_LZ4);
+
+	TEST_ASSERT_NOT_NULL(codec);
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_CODEC_LZ4, codec->id);
+	TEST_ASSERT_EQUAL_STRING("lz4", codec->name);
+	TEST_ASSERT_EQUAL_INT(1, codec->level_default);
+	TEST_ASSERT_EQUAL_INT(1, codec->level_min);
+	TEST_ASSERT_EQUAL_INT(16, codec->level_max);
+	TEST_ASSERT_NULL(codec->stream_init);
+	TEST_ASSERT_NOT_NULL(codec->compress_bound);
+	TEST_ASSERT_TRUE(codec->compress_bound(0u) >= COMPRESSION_SIZE_PREFIX_BYTES);
+}
+
+SK_TEST(compression_lz4_roundtrip_nontrivial) {
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_LZ4);
+	u8 payload[16384];
+
+	for (u32 i = 0u; i < sizeof(payload); ++i) {
+		payload[i] = (u8)((i % 101u) + ((i % 17u == 0u) ? 0xA0u : 0u));
+	}
+	size_prefixed_assert_roundtrip(codec, payload, sizeof(payload), SK_COMPRESSION_LEVEL_DEFAULT);
+}
+
+SK_TEST(compression_lz4_roundtrip_empty_and_incompressible) {
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_LZ4);
+	u8 payload[8192];
+	u32 state = 0x6D2B79F5u;
+	const u8 one_byte[] = {0x42u};
+
+	for (u32 i = 0u; i < sizeof(payload); ++i) {
+		state ^= state << 13u;
+		state ^= state >> 17u;
+		state ^= state << 5u;
+		payload[i] = (u8)(state >> 24u);
+	}
+	size_prefixed_assert_roundtrip(codec, NULL, 0u, SK_COMPRESSION_LEVEL_DEFAULT);
+	size_prefixed_assert_roundtrip(codec, one_byte, sizeof(one_byte), SK_COMPRESSION_LEVEL_DEFAULT);
+	size_prefixed_assert_roundtrip(codec, payload, sizeof(payload), 1);
+	size_prefixed_assert_roundtrip(codec, payload, sizeof(payload), 16);
+}
+
+SK_TEST(compression_lz4_insufficient_output_and_corrupt) {
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_LZ4);
+	const u8 payload[] = "lz4 insufficient and corrupt checks payload payload payload";
+	const u64 bound = codec->compress_bound(sizeof(payload));
+	u8* compressed = sk_allocator_default()->alloc(NULL, bound);
+	u8 sink[4];
+	u64 written = 0u;
+	u64 compressed_size = 0u;
+
+	TEST_ASSERT_NOT_NULL(compressed);
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT,
+						  codec->compress(sk_allocator_default(), SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), sink, sizeof(sink), &written));
+	TEST_ASSERT_EQUAL_UINT64(0u, written);
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(sk_allocator_default(), SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), compressed, bound, &compressed_size));
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT, codec->decompress(sk_allocator_default(), compressed, compressed_size, sink, sizeof(sink), &written));
+	TEST_ASSERT_EQUAL_UINT64(0u, written);
+
+	/* Flip a compressed-block byte (past the size prefix). */
+	if (compressed_size > COMPRESSION_SIZE_PREFIX_BYTES) {
+		compressed[COMPRESSION_SIZE_PREFIX_BYTES] ^= 0xFFu;
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompress(sk_allocator_default(), compressed, compressed_size, sink, sizeof(payload), &written));
+		TEST_ASSERT_EQUAL_UINT64(0u, written);
+	}
+
+	/* Truncated prefix. */
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompressed_size(compressed, 3u, &written));
+
+	sk_allocator_default()->free(NULL, compressed);
+}
+#endif /* SK_COMPRESSION_HAS_LZ4 */
+
+#ifdef SK_COMPRESSION_HAS_MINIZ
+SK_TEST(compression_registry_zlib_lookup) {
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZLIB);
+
+	TEST_ASSERT_NOT_NULL(codec);
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_CODEC_ZLIB, codec->id);
+	TEST_ASSERT_EQUAL_STRING("zlib", codec->name);
+	TEST_ASSERT_EQUAL_INT(6, codec->level_default);
+	TEST_ASSERT_EQUAL_INT(0, codec->level_min);
+	TEST_ASSERT_EQUAL_INT(9, codec->level_max);
+	TEST_ASSERT_NULL(codec->stream_init);
+	TEST_ASSERT_TRUE(codec->compress_bound(0u) >= COMPRESSION_SIZE_PREFIX_BYTES);
+}
+
+SK_TEST(compression_zlib_roundtrip_nontrivial) {
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZLIB);
+	u8 payload[16384];
+
+	for (u32 i = 0u; i < sizeof(payload); ++i) {
+		payload[i] = (u8)((i % 101u) + ((i % 17u == 0u) ? 0xA0u : 0u));
+	}
+	size_prefixed_assert_roundtrip(codec, payload, sizeof(payload), SK_COMPRESSION_LEVEL_DEFAULT);
+}
+
+SK_TEST(compression_zlib_roundtrip_empty_and_incompressible) {
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZLIB);
+	u8 payload[8192];
+	u32 state = 0xC0FFEEu;
+	const u8 one_byte[] = {0x7Eu};
+
+	for (u32 i = 0u; i < sizeof(payload); ++i) {
+		state ^= state << 13u;
+		state ^= state >> 17u;
+		state ^= state << 5u;
+		payload[i] = (u8)(state >> 24u);
+	}
+	size_prefixed_assert_roundtrip(codec, NULL, 0u, SK_COMPRESSION_LEVEL_DEFAULT);
+	size_prefixed_assert_roundtrip(codec, one_byte, sizeof(one_byte), SK_COMPRESSION_LEVEL_DEFAULT);
+	size_prefixed_assert_roundtrip(codec, payload, sizeof(payload), 1);
+	size_prefixed_assert_roundtrip(codec, payload, sizeof(payload), 9);
+}
+
+SK_TEST(compression_zlib_insufficient_output_and_corrupt) {
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZLIB);
+	const u8 payload[] = "zlib insufficient and corrupt checks payload payload payload";
+	const u64 bound = codec->compress_bound(sizeof(payload));
+	u8* compressed = sk_allocator_default()->alloc(NULL, bound);
+	u8 sink[4];
+	u64 written = 0u;
+	u64 compressed_size = 0u;
+
+	TEST_ASSERT_NOT_NULL(compressed);
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT,
+						  codec->compress(sk_allocator_default(), SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), sink, sizeof(sink), &written));
+	TEST_ASSERT_EQUAL_UINT64(0u, written);
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(sk_allocator_default(), SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), compressed, bound, &compressed_size));
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT, codec->decompress(sk_allocator_default(), compressed, compressed_size, sink, sizeof(sink), &written));
+	TEST_ASSERT_EQUAL_UINT64(0u, written);
+
+	if (compressed_size > COMPRESSION_SIZE_PREFIX_BYTES) {
+		compressed[COMPRESSION_SIZE_PREFIX_BYTES] ^= 0xFFu;
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompress(sk_allocator_default(), compressed, compressed_size, sink, sizeof(payload), &written));
+		TEST_ASSERT_EQUAL_UINT64(0u, written);
+	}
+
+	sk_allocator_default()->free(NULL, compressed);
+}
+
+/* Counting allocator: zlib one-shot must allocate compressor state through it. */
+static u32 zlib_stub_alloc_calls = 0u;
+static u32 zlib_stub_free_calls = 0u;
+
+static void_ptr_t zlib_stub_alloc(void_ptr_t instance, size_t size) {
+	(void)instance;
+	zlib_stub_alloc_calls += 1u;
+	return malloc(size);
+}
+
+static void zlib_stub_free(void_ptr_t instance, void_ptr_t ptr) {
+	(void)instance;
+	zlib_stub_free_calls += 1u;
+	free(ptr);
+}
+
+static void_ptr_t zlib_stub_realloc(void_ptr_t instance, void_ptr_t ptr, size_t size) {
+	(void)instance;
+	return realloc(ptr, size);
+}
+
+SK_TEST(compression_zlib_allocator_injection) {
+	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZLIB);
+	sk_allocator_t stub = {NULL, zlib_stub_alloc, zlib_stub_free, zlib_stub_realloc};
+	const u8 payload[] = "zlib allocator injection payload payload payload payload";
+	const u64 bound = codec->compress_bound(sizeof(payload));
+	u8* compressed = malloc(bound);
+	u8 restored[256];
+	u64 written = 0u;
+
+	TEST_ASSERT_NOT_NULL(compressed);
+	zlib_stub_alloc_calls = 0u;
+	zlib_stub_free_calls = 0u;
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(&stub, SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), compressed, bound, &written));
+	TEST_ASSERT_TRUE(zlib_stub_alloc_calls > 0u);
+	TEST_ASSERT_EQUAL_UINT32(zlib_stub_alloc_calls, zlib_stub_free_calls);
+
+	/* Decompress is heap-free (tinfl); allocator may go unused. */
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompress(&stub, compressed, written, restored, sizeof(restored), &written));
+
+	free(compressed);
+}
+#endif /* SK_COMPRESSION_HAS_MINIZ */
 
 SK_TEST(compression_status_codes_contract) {
 	/* 0 = success, non-zero = failure; error codes are distinct (design §7). */
@@ -1274,8 +1838,7 @@ static void harness_assert_v1_v2_wire(const sk_compression_codec_t* codec, const
 		TEST_ASSERT_NOT_NULL(v1->wire_note);
 		{
 			const i32 st = codec->decompress(a, v1_compressed, v1_size, restored, entry->size, &restored_size);
-			const i32 recovered_equal =
-				(st == SK_COMPRESSION_OK && restored_size == entry->size && (entry->size == 0u || memcmp(entry->data, restored, entry->size) == 0));
+			const i32 recovered_equal = (st == SK_COMPRESSION_OK && restored_size == entry->size && (entry->size == 0u || memcmp(entry->data, restored, entry->size) == 0));
 			TEST_ASSERT_FALSE(recovered_equal);
 			printf("[compression-parity] codec=%s corpus=%s intentional wire incompatibility confirmed: %s (status=%d)\n", codec->name, entry->name, v1->wire_note, st);
 		}

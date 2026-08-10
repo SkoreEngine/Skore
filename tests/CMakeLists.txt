@@ -22,10 +22,16 @@ target_include_directories(sk-header-checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/
 # Release CI so a renamed/dropped public symbol fails loudly.
 add_executable(sk-compression-conformance conformance/compression_mapping.c)
 target_link_libraries(sk-compression-conformance PRIVATE sk-core)
-# Mirror core/CMakeLists.txt: the conformance TU must know whether the linked
-# production sk-core compiled the zstd codec in (its define is PRIVATE).
+# Mirror core/CMakeLists.txt: the conformance TU must know which codecs the
+# linked production sk-core compiled in (those defines are PRIVATE on sk-core).
 if(SK_COMPRESSION_ZSTD)
     target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_ZSTD)
+endif()
+if(SK_COMPRESSION_LZ4)
+    target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_LZ4)
+endif()
+if(SK_COMPRESSION_MINIZ)
+    target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_MINIZ)
 endif()
 set_target_properties(sk-compression-conformance PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"

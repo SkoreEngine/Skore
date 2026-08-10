@@ -139,6 +139,8 @@ static size_t expected_gap_count(void) {
 static void check_stable_values(void) {
 	check_true(SK_COMPRESSION_CODEC_NONE == 0, "SK_COMPRESSION_CODEC_NONE == 0 (on-disk id)");
 	check_true(SK_COMPRESSION_CODEC_ZSTD == 1, "SK_COMPRESSION_CODEC_ZSTD == 1 (on-disk id)");
+	check_true(SK_COMPRESSION_CODEC_LZ4 == 2, "SK_COMPRESSION_CODEC_LZ4 == 2 (on-disk id)");
+	check_true(SK_COMPRESSION_CODEC_ZLIB == 3, "SK_COMPRESSION_CODEC_ZLIB == 3 (on-disk id)");
 	check_true(SK_COMPRESSION_LEVEL_DEFAULT == -1, "SK_COMPRESSION_LEVEL_DEFAULT == -1 (sentinel)");
 	check_true(SK_COMPRESSION_SIZE_UNKNOWN == (u64)-1, "SK_COMPRESSION_SIZE_UNKNOWN == (u64)-1");
 }

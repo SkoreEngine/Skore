@@ -22,12 +22,21 @@ target_link_libraries(sk-core PRIVATE mimalloc-static)
 # public sk-core interface; only sk-core internals include yyjson.h.
 target_link_libraries(sk-core PRIVATE yyjson)
 
-# Baseline compression codec (zstd, vendored). PRIVATE: zstd headers never leak
-# into the public sk-core interface; core/compression.c includes zstd.h only
-# under SK_COMPRESSION_HAS_ZSTD (docs/compression-design-v2.md §5, §6).
+# Compression codecs (vendored). PRIVATE: third-party headers never leak into
+# the public sk-core interface; core/compression.c includes them only under
+# SK_COMPRESSION_HAS_* (docs/compression-design-v2.md §5, §6;
+# docs/compression-codecs-evaluation.md §7).
 if(SK_COMPRESSION_ZSTD)
     target_compile_definitions(sk-core PRIVATE SK_COMPRESSION_HAS_ZSTD)
     target_link_libraries(sk-core PRIVATE zstd)
+endif()
+if(SK_COMPRESSION_LZ4)
+    target_compile_definitions(sk-core PRIVATE SK_COMPRESSION_HAS_LZ4)
+    target_link_libraries(sk-core PRIVATE lz4)
+endif()
+if(SK_COMPRESSION_MINIZ)
+    target_compile_definitions(sk-core PRIVATE SK_COMPRESSION_HAS_MINIZ)
+    target_link_libraries(sk-core PRIVATE miniz)
 endif()
 
 # Threads (pthread): PUBLIC so static consumers link it at their final link.
@@ -78,6 +87,14 @@ if(BUILD_TESTING)
     if(SK_COMPRESSION_ZSTD)
         target_compile_definitions(sk-core-tests PRIVATE SK_COMPRESSION_HAS_ZSTD)
         target_link_libraries(sk-core-tests PRIVATE zstd)
+    endif()
+    if(SK_COMPRESSION_LZ4)
+        target_compile_definitions(sk-core-tests PRIVATE SK_COMPRESSION_HAS_LZ4)
+        target_link_libraries(sk-core-tests PRIVATE lz4)
+    endif()
+    if(SK_COMPRESSION_MINIZ)
+        target_compile_definitions(sk-core-tests PRIVATE SK_COMPRESSION_HAS_MINIZ)
+        target_link_libraries(sk-core-tests PRIVATE miniz)
     endif()
     if(SK_LIBM)
         target_link_libraries(sk-core-tests PUBLIC ${SK_LIBM})
