@@ -2,6 +2,7 @@
 
 #include "allocator.h"
 #include "array.h"
+#include "crash.h"
 #include "filesystem.h"
 #include "hashmap.h"
 #include "logger.h"
@@ -191,6 +192,10 @@ sk_app_context_t* sk_app_create(void) {
 }
 
 void sk_app_destroy(sk_app_context_t* context) {
+	/* Restore pre-app crash handling; safe when never installed (registry-only
+	 * contexts) and idempotent across repeated destroys. */
+	sk_crash_uninstall();
+
 	/* Unload plugins before free; process re-entry is explicit destroy + new init. */
 	if (context->plugins.items != NULL) {
 		const sk_platform_api_t* plat = (const sk_platform_api_t*)sk_app_get_api_impl(context, SK_PLATFORM_API_TYPE_ID);
@@ -549,6 +554,13 @@ sk_app_context_t* sk_app_init(int argc, char* argv[]) {
 		sk_app_destroy(context);
 		return NULL;
 	}
+	/* Fatal-fault reporting: print a stacktrace to stderr, then die with the
+	 * platform's normal termination. Best-effort: a failed install must not
+	 * prevent the app from starting. Embedders opt out via sk_crash_uninstall. */
+	if (sk_crash_install() != 0 && context->log != NULL) {
+		sk_log_warn(sk_logger_api(), context->log, "crash handler install failed");
+	}
+
 	if (context->log != NULL) {
 		sk_log_info(sk_logger_api(), context->log, "app init complete");
 	}
