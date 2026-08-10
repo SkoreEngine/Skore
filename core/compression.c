@@ -120,10 +120,16 @@ static i32 zstd_status(size_t code) {
 	return SK_COMPRESSION_ERR_CODEC_FAILURE;
 }
 
-/* Clamp to [ZSTD_minCLevel(), ZSTD_maxCLevel()] (design §3.2). */
-static i32 zstd_clamp_level(i32 level) {
+/* Resolve SK_COMPRESSION_LEVEL_DEFAULT to the zstd descriptor default (3),
+ * then clamp to [ZSTD_minCLevel(), ZSTD_maxCLevel()] (design §3.2, §9). */
+static i32 zstd_resolve_level(i32 level) {
 	const i32 min_level = ZSTD_minCLevel();
 	const i32 max_level = ZSTD_maxCLevel();
+	/* Sentinel must map to level_default before clamp: -1 is a valid (fast)
+	 * zstd level, so clamping alone would not select the codec default. */
+	if (level == SK_COMPRESSION_LEVEL_DEFAULT) {
+		level = 3; /* zstd_codec.level_default / main CompressionDefaultLevel */
+	}
 	if (level < min_level) {
 		return min_level;
 	}
@@ -144,7 +150,7 @@ static i32 zstd_compress(const sk_allocator_t* allocator, i32 level, const u8* s
 		return SK_COMPRESSION_ERR_OUT_OF_MEMORY;
 	}
 	{
-		const size_t param_rc = ZSTD_CCtx_setParameter(ctx, ZSTD_c_compressionLevel, zstd_clamp_level(level));
+		const size_t param_rc = ZSTD_CCtx_setParameter(ctx, ZSTD_c_compressionLevel, zstd_resolve_level(level));
 		if (ZSTD_isError(param_rc)) {
 			ZSTD_freeCCtx(ctx);
 			return zstd_status(param_rc);
@@ -856,5 +862,522 @@ SK_TEST(compression_allocator_injection) {
 	TEST_ASSERT_EQUAL_MEMORY(payload, restored, sizeof(payload));
 	TEST_ASSERT_EQUAL_UINT32(0u, stub_alloc_calls);
 }
+
+/* ==========================================================================
+ * APX-173: reusable v1-vs-v2 roundtrip + parity harness
+ *
+ * Parameterized by codec name. Every registered sk_compression_codec_t is
+ * covered automatically for v2 round-trips (future codecs need no harness
+ * changes). Optional v1 adapters, keyed by codec->name, add wire/backward-
+ * compat checks against the main-branch path. Size and throughput deltas are
+ * printed for review and never used as pass/fail gates.
+ * ========================================================================== */
+
+#include <stdio.h> /* printf (delta report only) */
+#include <time.h>  /* clock (portable throughput) */
+
+/* zstd default block size: size-boundary corpus entries sit around this. */
+#define COMPRESSION_HARNESS_ZSTD_BLOCK (128u * 1024u)
+/* Iterations for measurable clock() throughput on small payloads. */
+#define COMPRESSION_HARNESS_TIMING_ITERS 64u
+
+/** One fixed corpus entry: name + owned buffer (heap or static). */
+typedef struct compression_harness_corpus_t {
+	const_chr_t name;
+	const u8* data;
+	u64 size;
+	u8* owned; /* non-NULL when data was heap-allocated by the harness */
+} compression_harness_corpus_t;
+
+/**
+ * Optional legacy (v1 / main-branch) path for a codec, looked up by name.
+ * When wire_compatible is non-zero, v2 must decompress v1-produced payloads.
+ * When zero, the harness asserts the documented intentional incompatibility
+ * instead of silently skipping (APX-173).
+ */
+typedef struct compression_harness_v1_adapter_t {
+	const_chr_t name;
+	u64 (*compress_bound)(u64 src_size);
+	i32 (*compress)(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written);
+	i32 (*decompress)(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written);
+	i32 wire_compatible;
+	const_chr_t wire_note; /* required when wire_compatible == 0 */
+	/** Non-zero when a single flipped compressed byte must be rejected. */
+	i32 detects_corruption;
+} compression_harness_v1_adapter_t;
+
+/* ---- v1 adapters: main-branch shapes (design §9 / §11) ------------------- */
+
+/* none: main stored raw bytes when mode==None (callers skipped Compress).
+ * On-disk payload is identity; v2 identity codec is wire-compatible with that. */
+static u64 harness_none_v1_bound(u64 src_size) {
+	return src_size;
+}
+
+static i32 harness_none_v1_compress(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
+	return none_copy(src, src_size, dest, dest_cap, out_written);
+}
+
+static i32 harness_none_v1_decompress(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
+	return none_copy(src, src_size, dest, dest_cap, out_written);
+}
+
+#ifdef SK_COMPRESSION_HAS_ZSTD
+/* zstd v1: main's Compression::Compress/Decompress used plain ZSTD_compress /
+ * ZSTD_decompress at CompressionDefaultLevel (3). Wire format is the standard
+ * zstd frame — v2 must decode it (design §9). */
+static u64 harness_zstd_v1_bound(u64 src_size) {
+	return ZSTD_compressBound(src_size);
+}
+
+static i32 harness_zstd_v1_compress(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
+	const size_t rc = ZSTD_compress(dest, (size_t)dest_cap, src, (size_t)src_size, 3);
+	if (ZSTD_isError(rc)) {
+		*out_written = 0u;
+		return zstd_status(rc);
+	}
+	*out_written = rc;
+	return SK_COMPRESSION_OK;
+}
+
+static i32 harness_zstd_v1_decompress(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
+	const size_t rc = ZSTD_decompress(dest, (size_t)dest_cap, src, (size_t)src_size);
+	if (ZSTD_isError(rc)) {
+		*out_written = 0u;
+		return zstd_status(rc);
+	}
+	*out_written = rc;
+	return SK_COMPRESSION_OK;
+}
+#endif /* SK_COMPRESSION_HAS_ZSTD */
+
+/* Adapter table keyed by codec name. Extend with one row per future codec that
+ * has a legacy path; codecs without a row still get v2-only roundtrips. */
+static const compression_harness_v1_adapter_t harness_v1_adapters[] = {
+	{"none", harness_none_v1_bound, harness_none_v1_compress, harness_none_v1_decompress, 1, NULL, 0},
+#ifdef SK_COMPRESSION_HAS_ZSTD
+	{"zstd", harness_zstd_v1_bound, harness_zstd_v1_compress, harness_zstd_v1_decompress, 1, NULL, 1},
+#endif
+};
+
+static const compression_harness_v1_adapter_t* harness_v1_for_name(const_chr_t name) {
+	const u32 n = (u32)(sizeof(harness_v1_adapters) / sizeof(harness_v1_adapters[0]));
+	for (u32 i = 0u; i < n; ++i) {
+		if (strcmp(harness_v1_adapters[i].name, name) == 0) {
+			return &harness_v1_adapters[i];
+		}
+	}
+	return NULL;
+}
+
+static const sk_compression_codec_t* harness_codec_by_name(const_chr_t name) {
+	const u32 count = sk_compression_codec_count();
+	for (u32 i = 0u; i < count; ++i) {
+		const sk_compression_codec_t* codec = sk_compression_codec_at(i);
+		if (codec != NULL && strcmp(codec->name, name) == 0) {
+			return codec;
+		}
+	}
+	return NULL;
+}
+
+/* Portable wall/CPU timer for informational throughput only (not a gate). */
+static f64 harness_now_s(void) {
+	return (f64)clock() / (f64)CLOCKS_PER_SEC;
+}
+
+/* Fill @p dest with deterministic high-entropy bytes (already-compressed stand-in). */
+static void harness_fill_entropy(u8* dest, u64 size, u32 seed) {
+	u32 state = seed;
+	for (u64 i = 0u; i < size; ++i) {
+		state ^= state << 13u;
+		state ^= state >> 17u;
+		state ^= state << 5u;
+		dest[i] = (u8)(state >> 24u);
+	}
+}
+
+/* Build the fixed corpus. Caller frees with harness_corpus_free. */
+static u32 harness_corpus_build(compression_harness_corpus_t* out, u32 out_cap) {
+	const sk_allocator_t* a = sk_allocator_default();
+	u32 n = 0u;
+
+	/* Static text payload. */
+	static const u8 text_payload[] = "Skore compression parity corpus: the quick brown fox jumps over the lazy dog. "
+									 "Repeated runs of natural language exercise dictionary matches and literal runs.";
+
+	/* Structured binary (mixed low/high bytes). */
+	static u8 binary_payload[512];
+	static i32 binary_init = 0;
+	if (!binary_init) {
+		for (u32 i = 0u; i < sizeof(binary_payload); ++i) {
+			binary_payload[i] = (u8)((i * 37u) ^ (i >> 3u) ^ 0xA5u);
+		}
+		binary_init = 1;
+	}
+
+	/* Empty. */
+	if (n < out_cap) {
+		out[n].name = "empty";
+		out[n].data = NULL;
+		out[n].size = 0u;
+		out[n].owned = NULL;
+		n += 1u;
+	}
+
+	/* Text. */
+	if (n < out_cap) {
+		out[n].name = "text";
+		out[n].data = text_payload;
+		out[n].size = sizeof(text_payload) - 1u;
+		out[n].owned = NULL;
+		n += 1u;
+	}
+
+	/* Binary. */
+	if (n < out_cap) {
+		out[n].name = "binary";
+		out[n].data = binary_payload;
+		out[n].size = sizeof(binary_payload);
+		out[n].owned = NULL;
+		n += 1u;
+	}
+
+	/* Already-compressed / high-entropy (incompressible). Prefer a real zstd
+	 * frame as the payload when zstd is available so the outer compress sees
+	 * pre-compressed bytes; otherwise use a PRNG stream. */
+	if (n < out_cap) {
+		const u64 raw_size = 4096u;
+		u8* raw = a->alloc(a->instance, raw_size);
+		u8* pre = NULL;
+		u64 pre_size = 0u;
+		TEST_ASSERT_NOT_NULL(raw);
+		harness_fill_entropy(raw, raw_size, 0xC0FFEEu);
+#ifdef SK_COMPRESSION_HAS_ZSTD
+		{
+			const u64 bound = ZSTD_compressBound(raw_size);
+			pre = a->alloc(a->instance, bound);
+			TEST_ASSERT_NOT_NULL(pre);
+			{
+				const size_t rc = ZSTD_compress(pre, (size_t)bound, raw, (size_t)raw_size, 3);
+				TEST_ASSERT_FALSE(ZSTD_isError(rc));
+				pre_size = rc;
+			}
+			a->free(a->instance, raw);
+			out[n].name = "already_compressed";
+			out[n].data = pre;
+			out[n].size = pre_size;
+			out[n].owned = pre;
+			n += 1u;
+		}
+#else
+		out[n].name = "already_compressed";
+		out[n].data = raw;
+		out[n].size = raw_size;
+		out[n].owned = raw;
+		n += 1u;
+		(void)pre;
+		(void)pre_size;
+#endif
+	}
+
+	/* Pathological: all zeros. */
+	if (n < out_cap) {
+		const u64 zeros_size = 16u * 1024u;
+		u8* zeros = a->alloc(a->instance, zeros_size);
+		TEST_ASSERT_NOT_NULL(zeros);
+		memset(zeros, 0, zeros_size);
+		out[n].name = "all_zeros";
+		out[n].data = zeros;
+		out[n].size = zeros_size;
+		out[n].owned = zeros;
+		n += 1u;
+	}
+
+	/* Pathological: highly repetitive. */
+	if (n < out_cap) {
+		const u64 rep_size = 16u * 1024u;
+		u8* rep = a->alloc(a->instance, rep_size);
+		TEST_ASSERT_NOT_NULL(rep);
+		memset(rep, 0xAAu, rep_size);
+		out[n].name = "highly_repetitive";
+		out[n].data = rep;
+		out[n].size = rep_size;
+		out[n].owned = rep;
+		n += 1u;
+	}
+
+	/* Size boundaries around the internal zstd block size (128 KiB). */
+	{
+		const u64 boundaries[] = {
+			COMPRESSION_HARNESS_ZSTD_BLOCK - 1u,
+			COMPRESSION_HARNESS_ZSTD_BLOCK,
+			COMPRESSION_HARNESS_ZSTD_BLOCK + 1u,
+		};
+		static const char* boundary_names[] = {
+			"block_size_minus_1",
+			"block_size",
+			"block_size_plus_1",
+		};
+		for (u32 b = 0u; b < 3u && n < out_cap; ++b) {
+			u8* buf = a->alloc(a->instance, boundaries[b]);
+			TEST_ASSERT_NOT_NULL(buf);
+			for (u64 i = 0u; i < boundaries[b]; ++i) {
+				buf[i] = (u8)((i * 13u) + (i % 251u));
+			}
+			out[n].name = boundary_names[b];
+			out[n].data = buf;
+			out[n].size = boundaries[b];
+			out[n].owned = buf;
+			n += 1u;
+		}
+	}
+
+	/* Tiny single byte. */
+	if (n < out_cap) {
+		static const u8 one[] = {0x7Eu};
+		out[n].name = "one_byte";
+		out[n].data = one;
+		out[n].size = 1u;
+		out[n].owned = NULL;
+		n += 1u;
+	}
+
+	return n;
+}
+
+static void harness_corpus_free(compression_harness_corpus_t* corpus, u32 count) {
+	const sk_allocator_t* a = sk_allocator_default();
+	for (u32 i = 0u; i < count; ++i) {
+		if (corpus[i].owned != NULL) {
+			a->free(a->instance, corpus[i].owned);
+			corpus[i].owned = NULL;
+		}
+	}
+}
+
+/**
+ * Assert v2 decompress(v2 compress(x)) == x for one corpus entry.
+ * Reports compressed size + throughput; never fails on size/throughput alone.
+ */
+static void harness_assert_v2_roundtrip(const sk_compression_codec_t* codec, const compression_harness_corpus_t* entry) {
+	const sk_allocator_t* a = sk_allocator_default();
+	const u64 bound = codec->compress_bound(entry->size);
+	u8* compressed = a->alloc(a->instance, bound > 0u ? bound : 1u);
+	u8* restored = a->alloc(a->instance, entry->size > 0u ? entry->size : 1u);
+	u64 compressed_size = 0u;
+	u64 restored_size = 0u;
+	f64 t0 = 0.0;
+	f64 t1 = 0.0;
+	f64 compress_s = 0.0;
+	f64 decompress_s = 0.0;
+	const u32 iters = (entry->size < 4096u) ? COMPRESSION_HARNESS_TIMING_ITERS : 4u;
+
+	TEST_ASSERT_NOT_NULL(compressed);
+	TEST_ASSERT_NOT_NULL(restored);
+
+	/* Timed multi-iter compress (last iteration keeps the bytes). */
+	t0 = harness_now_s();
+	for (u32 i = 0u; i < iters; ++i) {
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(a, SK_COMPRESSION_LEVEL_DEFAULT, entry->data, entry->size, compressed, bound, &compressed_size));
+	}
+	t1 = harness_now_s();
+	compress_s = (t1 - t0) / (f64)iters;
+
+	TEST_ASSERT_TRUE(compressed_size <= bound);
+
+	t0 = harness_now_s();
+	for (u32 i = 0u; i < iters; ++i) {
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompress(a, compressed, compressed_size, restored, entry->size, &restored_size));
+	}
+	t1 = harness_now_s();
+	decompress_s = (t1 - t0) / (f64)iters;
+
+	TEST_ASSERT_EQUAL_UINT64(entry->size, restored_size);
+	if (entry->size > 0u) {
+		TEST_ASSERT_EQUAL_MEMORY(entry->data, restored, (size_t)entry->size);
+	}
+
+	/* Informational only — not a pass/fail gate (APX-173). */
+	{
+		const f64 ratio = (entry->size > 0u) ? ((f64)compressed_size / (f64)entry->size) : 0.0;
+		const f64 c_mbs = (compress_s > 0.0 && entry->size > 0u) ? ((f64)entry->size / (1024.0 * 1024.0)) / compress_s : 0.0;
+		const f64 d_mbs = (decompress_s > 0.0 && entry->size > 0u) ? ((f64)entry->size / (1024.0 * 1024.0)) / decompress_s : 0.0;
+		/* u64 is always unsigned long long (common.h); use %llu, no cast. */
+		printf("[compression-parity] codec=%s corpus=%s v2: in=%llu out=%llu ratio=%.4f compress=%.3f MB/s decompress=%.3f MB/s\n", codec->name, entry->name, entry->size,
+			   compressed_size, ratio, c_mbs, d_mbs);
+	}
+
+	a->free(a->instance, compressed);
+	a->free(a->instance, restored);
+}
+
+/**
+ * Wire / backward-compat path: v1 compress then v2 decompress, or assert the
+ * intentional incompatibility documented on the adapter.
+ */
+static void harness_assert_v1_v2_wire(const sk_compression_codec_t* codec, const compression_harness_v1_adapter_t* v1, const compression_harness_corpus_t* entry) {
+	const sk_allocator_t* a = sk_allocator_default();
+	const u64 v1_bound = v1->compress_bound(entry->size);
+	u8* v1_compressed = a->alloc(a->instance, v1_bound > 0u ? v1_bound : 1u);
+	u8* restored = a->alloc(a->instance, entry->size > 0u ? entry->size : 1u);
+	u64 v1_size = 0u;
+	u64 restored_size = 0u;
+	u64 v2_size = 0u;
+	f64 t_v1 = 0.0;
+	f64 t_v2 = 0.0;
+	f64 t0 = 0.0;
+	f64 t1 = 0.0;
+
+	TEST_ASSERT_NOT_NULL(v1_compressed);
+	TEST_ASSERT_NOT_NULL(restored);
+
+	t0 = harness_now_s();
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, v1->compress(entry->data, entry->size, v1_compressed, v1_bound, &v1_size));
+	t1 = harness_now_s();
+	t_v1 = t1 - t0;
+
+	if (v1->wire_compatible) {
+		/* Design requires wire compat: v2 must recover the original payload. */
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->decompress(a, v1_compressed, v1_size, restored, entry->size, &restored_size));
+		TEST_ASSERT_EQUAL_UINT64(entry->size, restored_size);
+		if (entry->size > 0u) {
+			TEST_ASSERT_EQUAL_MEMORY(entry->data, restored, (size_t)entry->size);
+		}
+
+		/* Also measure v2 compress size for delta reporting (not a gate). */
+		{
+			const u64 v2_bound = codec->compress_bound(entry->size);
+			u8* v2_compressed = a->alloc(a->instance, v2_bound > 0u ? v2_bound : 1u);
+			TEST_ASSERT_NOT_NULL(v2_compressed);
+			t0 = harness_now_s();
+			TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(a, SK_COMPRESSION_LEVEL_DEFAULT, entry->data, entry->size, v2_compressed, v2_bound, &v2_size));
+			t1 = harness_now_s();
+			t_v2 = t1 - t0;
+
+			{
+				const i64 size_delta = (i64)v2_size - (i64)v1_size;
+				const f64 size_pct = (v1_size > 0u) ? (100.0 * (f64)size_delta / (f64)v1_size) : 0.0;
+				const f64 thr_delta = t_v1 - t_v2; /* positive => v2 faster */
+				/* u64/i64 are always long long (common.h); use %llu/%lld. */
+				printf("[compression-parity] codec=%s corpus=%s v1-vs-v2: v1_out=%llu v2_out=%llu size_delta=%lld (%.2f%%) "
+					   "v1_s=%.6f v2_s=%.6f thr_delta_s=%.6f (positive => v2 faster)\n",
+					   codec->name, entry->name, v1_size, v2_size, size_delta, size_pct, t_v1, t_v2, thr_delta);
+			}
+			a->free(a->instance, v2_compressed);
+		}
+	} else {
+		/* Intentional incompatibility: must not silently skip. Assert v2 does
+		 * not successfully recover a full equal payload from the v1 frame. */
+		TEST_ASSERT_NOT_NULL(v1->wire_note);
+		{
+			const i32 st = codec->decompress(a, v1_compressed, v1_size, restored, entry->size, &restored_size);
+			const i32 recovered_equal = (st == SK_COMPRESSION_OK && restored_size == entry->size && (entry->size == 0u || memcmp(entry->data, restored, (size_t)entry->size) == 0));
+			TEST_ASSERT_FALSE(recovered_equal);
+			printf("[compression-parity] codec=%s corpus=%s intentional wire incompatibility confirmed: %s (status=%d)\n", codec->name, entry->name, v1->wire_note, st);
+		}
+	}
+
+	a->free(a->instance, v1_compressed);
+	a->free(a->instance, restored);
+}
+
+/**
+ * Corruption sensitivity: flip one compressed byte and require failure.
+ * Only for adapters with detects_corruption (identity cannot detect flips).
+ */
+static void harness_assert_mutation_rejected(const sk_compression_codec_t* codec, const compression_harness_v1_adapter_t* v1) {
+	const sk_allocator_t* a = sk_allocator_default();
+	const u8 payload[] = "mutation check payload: flip one compressed byte and expect CORRUPT_DATA";
+	const u64 bound = codec->compress_bound(sizeof(payload));
+	u8* compressed = a->alloc(a->instance, bound);
+	u8 restored[256];
+	u64 compressed_size = 0u;
+	u64 written = 0u;
+
+	if (v1 == NULL || !v1->detects_corruption) {
+		return;
+	}
+
+	TEST_ASSERT_NOT_NULL(compressed);
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, codec->compress(a, SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), compressed, bound, &compressed_size));
+	TEST_ASSERT_TRUE(compressed_size > 0u);
+
+	/* Flip the frame magic/header byte. Mid-payload bit flips can still decode
+	 * under zstd without a content checksum; a mangled magic is always rejected
+	 * (matches compression_zstd_corrupt_frame_rejected). */
+	compressed[0] ^= 0xFFu;
+
+	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompress(a, compressed, compressed_size, restored, sizeof(restored), &written));
+	TEST_ASSERT_EQUAL_UINT64(0u, written);
+
+	a->free(a->instance, compressed);
+}
+
+/**
+ * Run the full harness for one codec (by name) or every registered codec when
+ * @p codec_name_filter is NULL. Future codecs with no v1 adapter still get
+ * automatic v2 round-trip coverage.
+ */
+static void compression_run_parity_harness(const_chr_t codec_name_filter) {
+	compression_harness_corpus_t corpus[16];
+	const u32 corpus_count = harness_corpus_build(corpus, (u32)(sizeof(corpus) / sizeof(corpus[0])));
+	const u32 codec_count = sk_compression_codec_count();
+
+	TEST_ASSERT_TRUE(corpus_count >= 6u);
+	TEST_ASSERT_TRUE(codec_count >= 1u);
+
+	for (u32 ci = 0u; ci < codec_count; ++ci) {
+		const sk_compression_codec_t* codec = sk_compression_codec_at(ci);
+		const compression_harness_v1_adapter_t* v1 = NULL;
+
+		TEST_ASSERT_NOT_NULL(codec);
+		if (codec_name_filter != NULL && strcmp(codec->name, codec_name_filter) != 0) {
+			continue;
+		}
+
+		/* Resolve by name so the harness stays table-driven (APX-173). */
+		TEST_ASSERT_EQUAL_PTR(codec, harness_codec_by_name(codec->name));
+		v1 = harness_v1_for_name(codec->name);
+
+		for (u32 ei = 0u; ei < corpus_count; ++ei) {
+			harness_assert_v2_roundtrip(codec, &corpus[ei]);
+			if (v1 != NULL) {
+				harness_assert_v1_v2_wire(codec, v1, &corpus[ei]);
+			} else {
+				printf("[compression-parity] codec=%s corpus=%s: no v1 adapter; v2-only roundtrip\n", codec->name, corpus[ei].name);
+			}
+		}
+
+		harness_assert_mutation_rejected(codec, v1);
+	}
+
+	harness_corpus_free(corpus, corpus_count);
+}
+
+SK_TEST(compression_parity_harness_all_codecs) {
+	/* NULL filter: every registered codec name. New codecs auto-join. */
+	compression_run_parity_harness(NULL);
+}
+
+SK_TEST(compression_parity_harness_by_name_none) {
+	/* Explicit name parameterization — same path future codecs will use. */
+	compression_run_parity_harness("none");
+}
+
+#ifdef SK_COMPRESSION_HAS_ZSTD
+SK_TEST(compression_parity_harness_by_name_zstd) {
+	compression_run_parity_harness("zstd");
+}
+
+SK_TEST(compression_parity_harness_mutation_fails) {
+	/* Standalone verification: a deliberately mutated zstd frame fails. */
+	const sk_compression_codec_t* codec = harness_codec_by_name("zstd");
+	const compression_harness_v1_adapter_t* v1 = harness_v1_for_name("zstd");
+	TEST_ASSERT_NOT_NULL(codec);
+	TEST_ASSERT_NOT_NULL(v1);
+	harness_assert_mutation_rejected(codec, v1);
+}
+#endif /* SK_COMPRESSION_HAS_ZSTD */
 
 #endif /* SK_TESTS */
