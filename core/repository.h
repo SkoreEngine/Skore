@@ -72,6 +72,7 @@
 
 #include "allocator.h"
 #include "common.h"
+#include "math3d.h"
 
 #include <stddef.h> /* size_t, offsetof */
 
@@ -604,7 +605,18 @@ typedef struct sk_repository_api_t {
 	i32 (*set_int)(sk_resource_object_t view, u32 index, i64 value);
 	i32 (*set_uint)(sk_resource_object_t view, u32 index, u64 value);
 	i32 (*set_float)(sk_resource_object_t view, u32 index, f64 value);
+	i32 (*set_vec2)(sk_resource_object_t view, u32 index, sk_vec2_t value);
+	i32 (*set_vec3)(sk_resource_object_t view, u32 index, sk_vec3_t value);
+	i32 (*set_vec4)(sk_resource_object_t view, u32 index, sk_vec4_t value);
+	i32 (*set_quat)(sk_resource_object_t view, u32 index, sk_quat_t value);
+	i32 (*set_mat4)(sk_resource_object_t view, u32 index, sk_mat44_t value);
+	i32 (*set_color)(sk_resource_object_t view, u32 index, sk_color_t value);
+	i32 (*set_enum)(sk_resource_object_t view, u32 index, u64 value);
 	i32 (*set_string)(sk_resource_object_t view, u32 index, const_chr_t value);
+	/** Replace the whole blob (bytes are deep copied; @p data may be NULL when
+	 *  @p size is 0, which clears the field). */
+	i32 (*set_blob)(sk_resource_object_t view, u32 index, const void* data, u32 size);
+	i32 (*set_type_id)(sk_resource_object_t view, u32 index, sk_type_id_t value);
 	i32 (*set_reference)(sk_resource_object_t view, u32 index, sk_rid_t rid);
 	/** Replace the whole reference array (items are deep copied). */
 	i32 (*set_reference_array)(sk_resource_object_t view, u32 index, const sk_rid_t* items, u32 count);
@@ -640,8 +652,19 @@ typedef struct sk_repository_api_t {
 	i64 (*get_int)(sk_resource_object_t view, u32 index);
 	u64 (*get_uint)(sk_resource_object_t view, u32 index);
 	f64 (*get_float)(sk_resource_object_t view, u32 index);
+	sk_vec2_t (*get_vec2)(sk_resource_object_t view, u32 index);
+	sk_vec3_t (*get_vec3)(sk_resource_object_t view, u32 index);
+	sk_vec4_t (*get_vec4)(sk_resource_object_t view, u32 index);
+	sk_quat_t (*get_quat)(sk_resource_object_t view, u32 index);
+	sk_mat44_t (*get_mat4)(sk_resource_object_t view, u32 index);
+	sk_color_t (*get_color)(sk_resource_object_t view, u32 index);
+	u64 (*get_enum)(sk_resource_object_t view, u32 index);
 	/** @return Borrowed NUL-terminated string, or NULL when unset. */
 	const_chr_t (*get_string)(sk_resource_object_t view, u32 index);
+	/** @return Borrowed blob bytes, or NULL when unset / empty; @p out_size
+	 *         receives the size (0 when unset; @p out_size may be NULL). */
+	const u8* (*get_blob)(sk_resource_object_t view, u32 index, u32* out_size);
+	sk_type_id_t (*get_type_id)(sk_resource_object_t view, u32 index);
 	sk_rid_t (*get_reference)(sk_resource_object_t view, u32 index);
 	/** @return Borrowed items array; @p out_count receives the count (0 when
 	 *         unset; @p out_count may be NULL). */
