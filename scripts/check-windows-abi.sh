@@ -149,12 +149,15 @@ is_unix_only() {
 	return 1
 }
 
-# Default set: library code agents edit under LLP64 risk. Skip test hosts
-# (need SK_TESTS / host-only setup) — they are not the cast/ABI target.
+# Default set: first-party *C* under LLP64 risk. Skip:
+# - tests/ (host-only; need SK_TESTS / full link setup)
+# - *.cpp  (only thirdparty glue here, e.g. VMA; MinGW libstdc++ + clang-tidy
+#           include paths are fragile and not the cast-bug target)
 default_file_ok() {
 	local f="$1"
 	case "${f}" in
 		tests/* | */tests/* ) return 1 ;;
+		*.cpp | *.cc | *.cxx ) return 1 ;;
 		core/* | app/* | player/* | editor/* | plugins/* ) return 0 ;;
 		* ) return 1 ;;
 	esac
@@ -239,9 +242,11 @@ collect_default_files() {
 		fi
 		prune_args+=(-path "./${d}")
 	done
+	# C only in the default scan (see default_file_ok). Explicit CLI paths may
+	# still pass .cpp for ad-hoc runs.
 	find . \
 		\( "${prune_args[@]}" \) -prune -o \
-		-type f \( -name '*.c' -o -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) -print |
+		-type f -name '*.c' -print |
 		sed 's|^\./||' |
 		sort
 }
