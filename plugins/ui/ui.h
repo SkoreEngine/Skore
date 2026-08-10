@@ -13,10 +13,11 @@
  *
  * This surface owns the retained element tree: stable generation handles,
  * parent/child hierarchy, per-node id/class/properties, create/destroy
- * lifecycle, layout vs paint dirty flags with ancestor propagation, and
- * tree traversals for later layout/style/input/paint passes.
+ * lifecycle, layout vs paint dirty flags with ancestor propagation,
+ * tree traversals, and a flexbox layout solver over the tree.
  *
  * Pure CPU — no rendering, no platform window, no GPU.
+ * Layout runs in logical units; apply_scale maps to physical pixels.
  */
 
 #include "allocator.h"
@@ -107,6 +108,156 @@ typedef struct sk_ui_prop_value_t {
 	} data;
 } sk_ui_prop_value_t;
 
+/* ------------------------------------------------------------------ */
+/*  Layout types (logical units)                                      */
+/* ------------------------------------------------------------------ */
+
+/** Axis-aligned rectangle (x/y top-left, width/height). */
+typedef struct sk_ui_rect_t {
+	f32 x;
+	f32 y;
+	f32 width;
+	f32 height;
+} sk_ui_rect_t;
+
+/** Size (width/height). */
+typedef struct sk_ui_size_t {
+	f32 width;
+	f32 height;
+} sk_ui_size_t;
+
+/** Four edges (padding, margin, border widths). */
+typedef struct sk_ui_edges_t {
+	f32 left;
+	f32 top;
+	f32 right;
+	f32 bottom;
+} sk_ui_edges_t;
+
+/** Length unit for width/height/basis/insets. */
+typedef enum sk_ui_length_unit_t {
+	SK_UI_LENGTH_AUTO = 0,	  /**< Resolve from content / flex / stretch. */
+	SK_UI_LENGTH_POINT = 1,	  /**< Logical pixels. */
+	SK_UI_LENGTH_PERCENT = 2, /**< Percent of parent content box on that axis. */
+} sk_ui_length_unit_t;
+
+/** Length value: unit + numeric component (percent is 0..100). */
+typedef struct sk_ui_length_t {
+	sk_ui_length_unit_t unit;
+	f32 value;
+} sk_ui_length_t;
+
+/** @return Length in logical points. */
+SK_FINLINE sk_ui_length_t sk_ui_pt(f32 value) {
+	sk_ui_length_t l;
+	l.unit = SK_UI_LENGTH_POINT;
+	l.value = value;
+	return l;
+}
+
+/** @return Length as percent of parent content axis. */
+SK_FINLINE sk_ui_length_t sk_ui_percent(f32 value) {
+	sk_ui_length_t l;
+	l.unit = SK_UI_LENGTH_PERCENT;
+	l.value = value;
+	return l;
+}
+
+/** @return Auto length. */
+SK_FINLINE sk_ui_length_t sk_ui_auto(void) {
+	sk_ui_length_t l;
+	l.unit = SK_UI_LENGTH_AUTO;
+	l.value = 0.0f;
+	return l;
+}
+
+typedef enum sk_ui_flex_direction_t {
+	SK_UI_FLEX_ROW = 0,
+	SK_UI_FLEX_ROW_REVERSE = 1,
+	SK_UI_FLEX_COLUMN = 2,
+	SK_UI_FLEX_COLUMN_REVERSE = 3,
+} sk_ui_flex_direction_t;
+
+typedef enum sk_ui_flex_wrap_t {
+	SK_UI_FLEX_NOWRAP = 0,
+	SK_UI_FLEX_WRAP = 1,
+	SK_UI_FLEX_WRAP_REVERSE = 2,
+} sk_ui_flex_wrap_t;
+
+typedef enum sk_ui_justify_t {
+	SK_UI_JUSTIFY_FLEX_START = 0,
+	SK_UI_JUSTIFY_FLEX_END = 1,
+	SK_UI_JUSTIFY_CENTER = 2,
+	SK_UI_JUSTIFY_SPACE_BETWEEN = 3,
+	SK_UI_JUSTIFY_SPACE_AROUND = 4,
+	SK_UI_JUSTIFY_SPACE_EVENLY = 5,
+} sk_ui_justify_t;
+
+typedef enum sk_ui_align_t {
+	SK_UI_ALIGN_AUTO = 0, /**< align-self only: inherit align-items. */
+	SK_UI_ALIGN_FLEX_START = 1,
+	SK_UI_ALIGN_FLEX_END = 2,
+	SK_UI_ALIGN_CENTER = 3,
+	SK_UI_ALIGN_STRETCH = 4,
+} sk_ui_align_t;
+
+typedef enum sk_ui_position_t {
+	SK_UI_POSITION_RELATIVE = 0, /**< In-flow (default). Establishes containing block. */
+	SK_UI_POSITION_ABSOLUTE = 1, /**< Out of flex flow; offsets vs nearest positioned ancestor. */
+} sk_ui_position_t;
+
+/**
+ * Per-node layout style (inline flex/box model). Independent of CSS cascade;
+ * style resolution may fill this later. Defaults match a column flex container.
+ */
+typedef struct sk_ui_layout_style_t {
+	sk_ui_flex_direction_t flex_direction;
+	sk_ui_flex_wrap_t flex_wrap;
+	sk_ui_justify_t justify_content;
+	sk_ui_align_t align_items;
+	sk_ui_align_t align_self;
+	sk_ui_align_t align_content;
+
+	f32 flex_grow;
+	f32 flex_shrink;
+	sk_ui_length_t flex_basis;
+
+	sk_ui_length_t width;
+	sk_ui_length_t height;
+	sk_ui_length_t min_width;
+	sk_ui_length_t min_height;
+	sk_ui_length_t max_width;
+	sk_ui_length_t max_height;
+
+	sk_ui_edges_t padding;
+	sk_ui_edges_t margin;
+	sk_ui_edges_t border; /**< Border widths (layout only; paint later). */
+
+	f32 row_gap;
+	f32 column_gap;
+
+	sk_ui_position_t position;
+	sk_ui_length_t left;
+	sk_ui_length_t top;
+	sk_ui_length_t right;
+	sk_ui_length_t bottom;
+} sk_ui_layout_style_t;
+
+/** Measure constraint mode for intrinsic content (text, images). */
+typedef enum sk_ui_measure_mode_t {
+	SK_UI_MEASURE_UNDEFINED = 0, /**< No constraint on this axis. */
+	SK_UI_MEASURE_EXACTLY = 1,	 /**< Size is fixed. */
+	SK_UI_MEASURE_AT_MOST = 2,	 /**< Size must be <= available. */
+} sk_ui_measure_mode_t;
+
+/** Inputs to the measure callback. */
+typedef struct sk_ui_measure_constraint_t {
+	f32 width;
+	f32 height;
+	sk_ui_measure_mode_t width_mode;
+	sk_ui_measure_mode_t height_mode;
+} sk_ui_measure_constraint_t;
+
 /** Opaque UI document / tree context (one root per context). */
 typedef struct sk_ui_context_t sk_ui_context_t;
 
@@ -119,6 +270,19 @@ typedef struct sk_ui_context_t sk_ui_context_t;
  * @return 0 to continue, non-zero to abort the walk early.
  */
 typedef i32 (*sk_ui_traverse_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 depth, void_ptr_t user);
+
+/**
+ * Intrinsic measure callback for text/images and other content the layout
+ * engine does not interpret. Called when a node needs an auto size and no
+ * definite style size is available.
+ *
+ * @param ctx          Context.
+ * @param node         Node being measured.
+ * @param constraints  Available width/height and modes.
+ * @param out_size     Must be filled with desired size in logical units.
+ * @param user         User pointer from set_measure_fn.
+ */
+typedef void (*sk_ui_measure_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, const sk_ui_measure_constraint_t* constraints, sk_ui_size_t* out_size, void_ptr_t user);
 
 /* ------------------------------------------------------------------ */
 /*  Module API                                                        */
@@ -407,6 +571,63 @@ typedef struct sk_ui_api_t {
 	 * @return 0 if the walk completed, or the non-zero status returned by @p fn.
 	 */
 	i32 (*traverse_dirty_preorder)(sk_ui_context_t* ctx, sk_ui_node_t root, u32 dirty_mask, sk_ui_traverse_fn fn, void_ptr_t user);
+
+	/* ---- layout (flexbox, logical units) ---- */
+
+	/**
+	 * Replace the layout style of @p node (copied). Marks layout dirty up the tree.
+	 * @return 0 on success, non-zero if @p node is dead.
+	 */
+	i32 (*node_set_layout_style)(sk_ui_context_t* ctx, sk_ui_node_t node, const sk_ui_layout_style_t* style);
+
+	/**
+	 * Copy the layout style of an alive node into @p out.
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_get_layout_style)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_layout_style_t* out);
+
+	/**
+	 * Border-box and/or content-box rects in **logical** units, relative to the
+	 * parent content origin (root is relative to (0,0) of the root size).
+	 * Either out pointer may be NULL. Valid after a successful layout().
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_get_layout_rect)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content);
+
+	/**
+	 * Same as node_get_layout_rect but after layout_apply_scale (physical px).
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_get_layout_rect_scaled)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content);
+
+	/**
+	 * Install an optional measure callback for intrinsic content. Pass NULL to clear.
+	 * The solver never inspects fonts; text/image nodes must supply sizes via this.
+	 */
+	void (*set_measure_fn)(sk_ui_context_t* ctx, sk_ui_measure_fn fn, void_ptr_t user);
+
+	/**
+	 * Run the flexbox layout solver for the whole tree.
+	 * Root is sized to @p root_width x @p root_height logical units (typically
+	 * the window client size). Clears SK_UI_DIRTY_LAYOUT on all nodes on success.
+	 * Does not apply HiDPI scale — call layout_apply_scale separately.
+	 * @return 0 on success, non-zero on failure (e.g. OOM during scratch alloc).
+	 */
+	i32 (*layout)(sk_ui_context_t* ctx, f32 root_width, f32 root_height);
+
+	/**
+	 * Multiply all logical layout rects by content scale into scaled outputs.
+	 * Layout itself never sees scale; paint/hit-test in physical pixels use
+	 * the scaled rects. Stores the scale on the context for queries.
+	 * @return 0 on success.
+	 */
+	i32 (*layout_apply_scale)(sk_ui_context_t* ctx, f32 scale_x, f32 scale_y);
+
+	/**
+	 * Last content scale applied via layout_apply_scale (defaults 1,1).
+	 * Either out pointer may be NULL.
+	 */
+	void (*layout_get_content_scale)(const sk_ui_context_t* ctx, f32* out_scale_x, f32* out_scale_y);
 } sk_ui_api_t;
 
 /**

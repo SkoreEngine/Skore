@@ -229,28 +229,26 @@ v1 deliberately **does not** reimplement docking, multi-viewport, ImGuizmo, or t
 
 ### 3.2 Flexbox layout (v1 subset)
 
-Yoga/Flexbox-inspired, **not** a full CSS engine.
+Yoga/Flexbox-inspired custom pure-C solver in `plugins/ui/layout.c` (not Yoga — keeps the plugin C-only and integrates `sk_allocator` + measure callbacks without a C++ dep). **Not** a full CSS engine.
 
-**In v1:**
+**In v1 (APX-130):**
 
-- Direction: `row` / `column` (no `row-reverse` / `column-reverse` required).
-- `flex-wrap`: `nowrap` only (single line).
-- `justify-content`: `flex-start`, `flex-end`, `center`, `space-between`.
-- `align-items` / `align-self`: `flex-start`, `flex-end`, `center`, `stretch`.
-- `flex-grow`, `flex-shrink`, `flex-basis` (`auto` | length).
-- Sizing: `width`/`height` as `auto` | `px` | `%` of parent content box.
-- Min/max width/height (px).
-- Padding and margin (px per edge).
-- Gap: single `row_gap` / `column_gap` (px).
-- Position: **flow only** (no absolute/fixed positioning in v1).
-- Overflow: `visible` | `hidden` (hidden contributes scissor at paint; **no scrolling viewport widget yet**, but overflow hidden is required for clip tests).
-- Text measure: width constraint → height from text pipeline; intrinsic min/max for flex basis.
+- Direction: `row` / `column` / `row-reverse` / `column-reverse`.
+- `flex-wrap`: `nowrap` / `wrap` / `wrap-reverse`.
+- `justify-content`: `flex-start`, `flex-end`, `center`, `space-between`, `space-around`, `space-evenly`.
+- `align-items` / `align-self` / `align-content`: `flex-start`, `flex-end`, `center`, `stretch` (`auto` on self).
+- `flex-grow`, `flex-shrink`, `flex-basis` (`auto` | length | %).
+- Sizing: `width`/`height` as `auto` | `px` | `%` of parent content box; min/max.
+- Padding, margin, border widths (per edge); `row_gap` / `column_gap`.
+- Position: flow (`relative`) and **absolute** vs nearest positioned ancestor (padding edge).
+- Measure callback for intrinsic content (text/images); layout never inspects fonts.
+- Logical units only; `layout_apply_scale` is a separate HiDPI step.
 
-**Explicitly deferred:**
+**Still deferred:**
 
-- Multi-line wrap, `space-around` / `space-evenly`, grid, absolute positioning, z-index stacking contexts, percentage padding relative to width quirks beyond simple parent content box, baseline alignment, aspect-ratio.
+- Overflow scroll widgets, grid, z-index stacking contexts, baseline alignment, aspect-ratio, percentage padding width quirks beyond parent content box.
 
-**Pass order:** depth-first measure (text + intrinsic) → flex resolve top-down → store `layout_rect` in node space → optional global transform walk to window/framebuffer space for hit-test and paint.
+**Pass order:** measure (callback) → flex resolve top-down → store border/content rects (parent content-relative, logical) → optional `layout_apply_scale` for physical pixels.
 
 ### 3.3 Style / class model
 

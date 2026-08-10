@@ -6,62 +6,13 @@
  * (same handle spirit as ECS entities). Hierarchy uses parent handles and
  * ordered child id arrays. User ids map through a string hash map. Dirty
  * bits (layout / paint / style) OR onto ancestors so clean parents skip
- * whole subtrees in later passes.
+ * whole subtrees in later passes. Flexbox layout lives in layout.c.
  */
 
 #include "ui.h"
+#include "ui_internal.h"
 
 #include "allocator.h"
-#include "array.h"
-#include "hashmap.h"
-
-#include <string.h>
-
-/* -------------------------------------------------------------------------- */
-/* Internal types                                                             */
-/* -------------------------------------------------------------------------- */
-
-typedef SK_ARRAY(sk_ui_node_t) ui_node_list_t;
-typedef SK_ARRAY(char*) ui_class_list_t;
-
-typedef struct ui_prop_entry_t {
-	char* key;
-	sk_ui_prop_type_t type;
-	union {
-		i32 i32_value;
-		f32 f32_value;
-		char* str_value;
-	} data;
-} ui_prop_entry_t;
-
-typedef SK_ARRAY(ui_prop_entry_t) ui_prop_list_t;
-
-typedef struct ui_node_slot_t {
-	u32 generation;
-	u8 alive;
-	u8 kind;
-	u16 dirty;
-	sk_ui_node_t parent;
-	ui_node_list_t children;
-	char* id;
-	ui_class_list_t classes;
-	ui_prop_list_t props;
-	void_ptr_t user_data;
-	sk_type_id_t user_data_type;
-} ui_node_slot_t;
-
-typedef SK_ARRAY(ui_node_slot_t) ui_slot_array_t;
-typedef SK_ARRAY(u32) ui_freelist_t;
-typedef SK_HASH_MAP(const_chr_t, sk_ui_node_t) ui_id_map_t;
-
-struct sk_ui_context_t {
-	const sk_allocator_t* allocator;
-	ui_slot_array_t slots; /* index 0 unused; live handles use index >= 1 */
-	ui_freelist_t freelist;
-	ui_id_map_t id_map;
-	sk_ui_node_t root;
-	u32 live_count;
-};
 
 /* -------------------------------------------------------------------------- */
 /* String helpers                                                             */
@@ -93,10 +44,10 @@ static i32 ui_cstr_eq(const_chr_t a, const_chr_t b) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Slot access                                                                */
+/* Slot access (shared with layout.c)                                         */
 /* -------------------------------------------------------------------------- */
 
-static ui_node_slot_t* ui_slot_mut(sk_ui_context_t* ctx, sk_ui_node_t node) {
+ui_node_slot_t* ui_slot_mut(sk_ui_context_t* ctx, sk_ui_node_t node) {
 	ui_node_slot_t* slot;
 	if (node.index == 0u || node.index >= ctx->slots.count) {
 		return NULL;
@@ -108,7 +59,7 @@ static ui_node_slot_t* ui_slot_mut(sk_ui_context_t* ctx, sk_ui_node_t node) {
 	return slot;
 }
 
-static const ui_node_slot_t* ui_slot(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+const ui_node_slot_t* ui_slot(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	const ui_node_slot_t* slot;
 	if (node.index == 0u || node.index >= ctx->slots.count) {
 		return NULL;
@@ -120,7 +71,7 @@ static const ui_node_slot_t* ui_slot(const sk_ui_context_t* ctx, sk_ui_node_t no
 	return slot;
 }
 
-static void ui_mark_dirty_up(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags) {
+void ui_mark_dirty_up(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags) {
 	ui_node_slot_t* slot;
 	while (node.index != 0u) {
 		slot = ui_slot_mut(ctx, node);
@@ -175,6 +126,7 @@ static void ui_slot_init_empty(ui_node_slot_t* slot, const sk_allocator_t* a) {
 	sk_array_init(&slot->classes, a);
 	sk_array_init(&slot->props, a);
 	slot->user_data_type = SK_TYPE_ID_ZERO;
+	ui_layout_style_init_default(&slot->layout_style);
 }
 
 static void ui_slot_release_contents(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
@@ -359,6 +311,8 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	}
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->allocator = a;
+	ctx->content_scale_x = 1.0f;
+	ctx->content_scale_y = 1.0f;
 	sk_array_init(&ctx->slots, a);
 	sk_array_init(&ctx->freelist, a);
 	if (sk_hash_map_init(&ctx->id_map, a, sk_hash_cstr, sk_equals_cstr) != 0) {
@@ -1290,10 +1244,22 @@ static const sk_ui_api_t ui_api = {
 	ui_traverse_preorder,
 	ui_traverse_postorder,
 	ui_traverse_dirty_preorder,
+	ui_node_set_layout_style_impl,
+	ui_node_get_layout_style_impl,
+	ui_node_get_layout_rect_impl,
+	ui_node_get_layout_rect_scaled_impl,
+	ui_set_measure_fn_impl,
+	ui_layout_impl,
+	ui_layout_apply_scale_impl,
+	ui_layout_get_content_scale_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	app_api->set_api(context, SK_UI_API_TYPE_ID, (const_ptr_t)&ui_api);
+}
+
+const sk_ui_api_t* ui_get_api_table(void) {
+	return &ui_api;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1316,7 +1282,7 @@ void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 #include "stb_rect_pack.h"
 
 static const sk_ui_api_t* ui_test_api(void) {
-	return &ui_api;
+	return ui_get_api_table();
 }
 
 SK_TEST(ui_stub_init) {
