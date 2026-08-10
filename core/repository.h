@@ -327,6 +327,36 @@ typedef struct sk_repository_api_t {
 	const sk_resource_type_t* (*find_type_by_name)(const sk_repository_t* repository, const_chr_t name);
 
 	/**
+	 * Registered type name (borrowed; valid while the type is registered).
+	 * @param type Registered type (must not be NULL).
+	 * @return Non-NULL type name.
+	 */
+	const_chr_t (*type_name)(const sk_resource_type_t* type);
+
+	/**
+	 * Registered type identity.
+	 * @param type Registered type (must not be NULL).
+	 * @return The type's sk_type_id_t.
+	 */
+	sk_type_id_t (*type_id)(const sk_resource_type_t* type);
+
+	/**
+	 * Number of field descriptors on a registered type.
+	 * @param type Registered type (must not be NULL).
+	 * @return Field count (may be 0).
+	 */
+	u32 (*type_field_count)(const sk_resource_type_t* type);
+
+	/**
+	 * Field descriptor at array position @p position (0 .. field_count-1).
+	 * Position is the registration order, not necessarily field.index.
+	 * @param type     Registered type (must not be NULL).
+	 * @param position Field array index.
+	 * @return Field descriptor, or NULL when @p position is out of range.
+	 */
+	const sk_resource_field_t* (*type_field_at)(const sk_resource_type_t* type, u32 position);
+
+	/**
 	 * Create a resource of @p type. When @p uuid is non-zero and already
 	 * registered to a live resource, returns that resource's RID (idempotent).
 	 * The instance blob is a deep copy of the type's defaults when present,
@@ -650,6 +680,32 @@ typedef struct sk_repository_api_t {
 	/** @return Borrowed items array; @p out_count receives the count (0 when
 	 *         unset; @p out_count may be NULL). */
 	const sk_rid_t* (*get_subobject_list)(sk_resource_object_t view, u32 index, u32* out_count);
+
+	/**
+	 * Replace a Blob field with a deep copy of @p data (repository-owned).
+	 * @p data may be NULL when @p size is 0.
+	 * @return 0 on success, non-zero on failure (type mismatch / OOM / read view).
+	 */
+	i32 (*set_blob)(sk_resource_object_t view, u32 index, const u8* data, u32 size);
+	/**
+	 * @return Borrowed blob bytes (valid until the next write on this resource);
+	 *         NULL when unset/empty. @p out_size receives the byte count (may be
+	 *         NULL).
+	 */
+	const u8* (*get_blob)(sk_resource_object_t view, u32 index, u32* out_size);
+
+	/** Set a TypeID field (16-byte sk_type_id_t). */
+	i32 (*set_type_id)(sk_resource_object_t view, u32 index, sk_type_id_t value);
+	/** @return Stored TypeID, or SK_TYPE_ID_ZERO when unset / wrong type. */
+	sk_type_id_t (*get_type_id)(sk_resource_object_t view, u32 index);
+
+	/**
+	 * Set a Buffer field's opaque u64 handle (full buffer payload layer is
+	 * separate; this only persists the handle id).
+	 */
+	i32 (*set_buffer)(sk_resource_object_t view, u32 index, u64 id);
+	/** @return Buffer handle id, or 0 when unset / wrong type. */
+	u64 (*get_buffer)(sk_resource_object_t view, u32 index);
 
 	/* ---- undo / redo scopes ---- */
 

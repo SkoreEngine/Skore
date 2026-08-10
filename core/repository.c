@@ -2722,6 +2722,136 @@ static const_chr_t repository_undo_redo_scope_get_name(const sk_undo_redo_scope_
 	return scope->name;
 }
 
+static const_chr_t repository_type_name(const sk_resource_type_t* type) {
+	return type->name;
+}
+
+static sk_type_id_t repository_type_id(const sk_resource_type_t* type) {
+	return type->type_id;
+}
+
+static u32 repository_type_field_count(const sk_resource_type_t* type) {
+	return type->field_count;
+}
+
+static const sk_resource_field_t* repository_type_field_at(const sk_resource_type_t* type, u32 position) {
+	if (position >= type->field_count) {
+		return NULL;
+	}
+	return &type->fields[position];
+}
+
+static i32 repository_set_blob(sk_resource_object_t view, u32 index, const u8* data, u32 size) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_BLOB) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_blob_t* b = (sk_field_blob_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	u8* copy = NULL;
+	if (size != 0u) {
+		if (data == NULL) {
+			return -1;
+		}
+		copy = (u8*)(void_ptr_t)sk_repo_copy_bytes(view.repo, data, (size_t)size);
+		if (copy == NULL) {
+			return -3;
+		}
+	}
+	if (b->data != NULL) {
+		view.repo->allocator->free(view.repo->allocator->instance, b->data);
+	}
+	b->data = copy;
+	b->size = size;
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static const u8* repository_get_blob(sk_resource_object_t view, u32 index, u32* out_size) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (out_size != NULL) {
+		*out_size = 0u;
+	}
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_BLOB) {
+		return NULL;
+	}
+	const sk_field_blob_t* b = (const sk_field_blob_t*)(const_ptr_t)(blob + (size_t)field->offset);
+	if (out_size != NULL) {
+		*out_size = b->size;
+	}
+	return b->data;
+}
+
+static i32 repository_set_type_id(sk_resource_object_t view, u32 index, sk_type_id_t value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_TYPE_ID) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static sk_type_id_t repository_get_type_id(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_TYPE_ID) {
+		return SK_TYPE_ID_ZERO;
+	}
+	sk_type_id_t value = SK_TYPE_ID_ZERO;
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static i32 repository_set_buffer(sk_resource_object_t view, u32 index, u64 id) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_BUFFER) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	/* Buffer fields are opaque POD; v1 stores a single u64 handle id. */
+	if (field->size < (u32)sizeof(u64)) {
+		return -2;
+	}
+	memcpy(blob + (size_t)field->offset, &id, sizeof(id));
+	if (field->size > (u32)sizeof(u64)) {
+		memset(blob + (size_t)field->offset + sizeof(id), 0, (size_t)field->size - sizeof(id));
+	}
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static u64 repository_get_buffer(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_BUFFER) {
+		return 0u;
+	}
+	if (field->size < (u32)sizeof(u64)) {
+		return 0u;
+	}
+	u64 id = 0u;
+	memcpy(&id, blob + (size_t)field->offset, sizeof(id));
+	return id;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Module API table                                                  */
 /* ------------------------------------------------------------------ */
@@ -2732,6 +2862,10 @@ static const sk_repository_api_t repository_api = {
 	repository_register_type,
 	repository_find_type,
 	repository_find_type_by_name,
+	repository_type_name,
+	repository_type_id,
+	repository_type_field_count,
+	repository_type_field_at,
 	repository_create_resource,
 	repository_destroy_resource,
 	repository_has_resource,
@@ -2784,6 +2918,12 @@ static const sk_repository_api_t repository_api = {
 	repository_get_reference_array,
 	repository_get_subobject,
 	repository_get_subobject_list,
+	repository_set_blob,
+	repository_get_blob,
+	repository_set_type_id,
+	repository_get_type_id,
+	repository_set_buffer,
+	repository_get_buffer,
 	repository_undo_redo_scope_create,
 	repository_undo_redo_scope_destroy,
 	repository_undo_redo_scope_undo,
