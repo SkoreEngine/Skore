@@ -243,6 +243,133 @@ typedef struct sk_ui_layout_style_t {
 	sk_ui_length_t bottom;
 } sk_ui_layout_style_t;
 
+/* ------------------------------------------------------------------ */
+/*  Style system (class registry + resolve; not CSS)                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * RGBA color in linear 0..1 components (paint space).
+ * Not a CSS color model — plain floats for v1.
+ */
+typedef struct sk_ui_color_t {
+	f32 r;
+	f32 g;
+	f32 b;
+	f32 a;
+} sk_ui_color_t;
+
+/** @return RGBA color. */
+SK_FINLINE sk_ui_color_t sk_ui_rgba(f32 r, f32 g, f32 b, f32 a) {
+	sk_ui_color_t c;
+	c.r = r;
+	c.g = g;
+	c.b = b;
+	c.a = a;
+	return c;
+}
+
+/**
+ * Interaction / pseudo state flags on a node.
+ * Style classes may define property overrides for each state; applied at
+ * resolve time after the class base set (see state order on style_resolve).
+ */
+typedef enum sk_ui_state_flags_t {
+	SK_UI_STATE_NONE = 0,
+	SK_UI_STATE_HOVER = 1u << 0,
+	SK_UI_STATE_ACTIVE = 1u << 1,
+	SK_UI_STATE_FOCUSED = 1u << 2,
+	SK_UI_STATE_DISABLED = 1u << 3,
+} sk_ui_state_flags_t;
+
+/**
+ * Which fields of sk_ui_style_props_t are set (partial property set).
+ * Unset fields do not participate in cascade merge. u64 bit constants
+ * (not an enum — needs full 64-bit range portably).
+ */
+/* Layout → flexbox solver */
+#define SK_UI_SP_FLEX_DIRECTION ((u64)1u << 0)
+#define SK_UI_SP_FLEX_WRAP ((u64)1u << 1)
+#define SK_UI_SP_JUSTIFY_CONTENT ((u64)1u << 2)
+#define SK_UI_SP_ALIGN_ITEMS ((u64)1u << 3)
+#define SK_UI_SP_ALIGN_SELF ((u64)1u << 4)
+#define SK_UI_SP_ALIGN_CONTENT ((u64)1u << 5)
+#define SK_UI_SP_FLEX_GROW ((u64)1u << 6)
+#define SK_UI_SP_FLEX_SHRINK ((u64)1u << 7)
+#define SK_UI_SP_FLEX_BASIS ((u64)1u << 8)
+#define SK_UI_SP_WIDTH ((u64)1u << 9)
+#define SK_UI_SP_HEIGHT ((u64)1u << 10)
+#define SK_UI_SP_MIN_WIDTH ((u64)1u << 11)
+#define SK_UI_SP_MIN_HEIGHT ((u64)1u << 12)
+#define SK_UI_SP_MAX_WIDTH ((u64)1u << 13)
+#define SK_UI_SP_MAX_HEIGHT ((u64)1u << 14)
+#define SK_UI_SP_PADDING ((u64)1u << 15)
+#define SK_UI_SP_MARGIN ((u64)1u << 16)
+#define SK_UI_SP_BORDER_WIDTH ((u64)1u << 17)
+#define SK_UI_SP_ROW_GAP ((u64)1u << 18)
+#define SK_UI_SP_COLUMN_GAP ((u64)1u << 19)
+#define SK_UI_SP_POSITION ((u64)1u << 20)
+#define SK_UI_SP_LEFT ((u64)1u << 21)
+#define SK_UI_SP_TOP ((u64)1u << 22)
+#define SK_UI_SP_RIGHT ((u64)1u << 23)
+#define SK_UI_SP_BOTTOM ((u64)1u << 24)
+
+/* Box appearance */
+#define SK_UI_SP_BACKGROUND_COLOR ((u64)1u << 25)
+#define SK_UI_SP_BORDER_COLOR ((u64)1u << 26)
+#define SK_UI_SP_CORNER_RADIUS ((u64)1u << 27)
+#define SK_UI_SP_OPACITY ((u64)1u << 28)
+
+/* Text (font_family / font_size / color inherit when unset) */
+#define SK_UI_SP_FONT_FAMILY ((u64)1u << 29)
+#define SK_UI_SP_FONT_SIZE ((u64)1u << 30)
+#define SK_UI_SP_COLOR ((u64)1u << 31)
+
+/** All layout property bits (feed the flexbox solver). */
+#define SK_UI_SP_LAYOUT_MASK                                                                                                                                                     \
+	((u64)(SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_FLEX_WRAP | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_ALIGN_SELF | SK_UI_SP_ALIGN_CONTENT | SK_UI_SP_FLEX_GROW |  \
+		   SK_UI_SP_FLEX_SHRINK | SK_UI_SP_FLEX_BASIS | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_MAX_WIDTH | SK_UI_SP_MAX_HEIGHT | \
+		   SK_UI_SP_PADDING | SK_UI_SP_MARGIN | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_ROW_GAP | SK_UI_SP_COLUMN_GAP | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP |              \
+		   SK_UI_SP_RIGHT | SK_UI_SP_BOTTOM))
+
+/** Paint-only appearance bits (no layout geometry). */
+#define SK_UI_SP_PAINT_MASK ((u64)(SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_OPACITY | SK_UI_SP_COLOR))
+
+/** Text properties that inherit down the tree when unset on the child. */
+#define SK_UI_SP_INHERIT_MASK ((u64)(SK_UI_SP_FONT_FAMILY | SK_UI_SP_FONT_SIZE | SK_UI_SP_COLOR))
+
+/**
+ * Partial style property set. Only fields with bits set in @p mask are applied
+ * during cascade merge. font_family, when set, is a non-owning pointer into
+ * caller storage for temporary values; registry/inline storage own copies.
+ */
+typedef struct sk_ui_style_props_t {
+	u64 mask;
+	sk_ui_layout_style_t layout;
+	sk_ui_color_t background_color;
+	sk_ui_color_t border_color;
+	f32 corner_radius;
+	f32 opacity;
+	const_chr_t font_family; /**< Non-owning when used as API input; owned inside registry/node. */
+	f32 font_size;
+	sk_ui_color_t color;
+} sk_ui_style_props_t;
+
+/**
+ * Fully resolved style for one node after cascade + inheritance.
+ * layout is also written into the node's layout_style for the flex solver.
+ * font_family points at node-owned storage (stable until next resolve/destroy).
+ */
+typedef struct sk_ui_computed_style_t {
+	sk_ui_layout_style_t layout;
+	sk_ui_color_t background_color;
+	sk_ui_color_t border_color;
+	f32 corner_radius;
+	f32 opacity;
+	const_chr_t font_family;
+	f32 font_size;
+	sk_ui_color_t color;
+} sk_ui_computed_style_t;
+
 /** Measure constraint mode for intrinsic content (text, images). */
 typedef enum sk_ui_measure_mode_t {
 	SK_UI_MEASURE_UNDEFINED = 0, /**< No constraint on this axis. */
@@ -628,6 +755,90 @@ typedef struct sk_ui_api_t {
 	 * Either out pointer may be NULL.
 	 */
 	void (*layout_get_content_scale)(const sk_ui_context_t* ctx, f32* out_scale_x, f32* out_scale_y);
+
+	/* ---- style registry + resolve ---- */
+
+	/**
+	 * Register or replace a named style class with @p base properties.
+	 * Copies @p base (including font_family string). Existing variants are
+	 * kept when replacing base only via this call — use style_class_set_variant
+	 * for hover/active/focused/disabled. Marks STYLE (+ LAYOUT/PAINT from mask)
+	 * on live nodes that list @p name.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*style_class_register)(sk_ui_context_t* ctx, const_chr_t name, const sk_ui_style_props_t* base);
+
+	/**
+	 * Set or replace a state variant for a registered class.
+	 * @p state must be exactly one of HOVER / ACTIVE / FOCUSED / DISABLED.
+	 * Marks dirty on live nodes that use the class (flags from @p props mask).
+	 * @return 0 on success, non-zero if class missing / bad state / OOM.
+	 */
+	i32 (*style_class_set_variant)(sk_ui_context_t* ctx, const_chr_t name, sk_ui_state_flags_t state, const sk_ui_style_props_t* props);
+
+	/**
+	 * Remove a style class from the registry. Does not remove class names from
+	 * nodes (they simply stop contributing). Marks STYLE dirty on users.
+	 * @return 0 if removed or was absent, non-zero on bad args.
+	 */
+	i32 (*style_class_unregister)(sk_ui_context_t* ctx, const_chr_t name);
+
+	/**
+	 * Non-zero if @p name is registered.
+	 */
+	i32 (*style_class_has)(const sk_ui_context_t* ctx, const_chr_t name);
+
+	/**
+	 * Replace the node's inline style override set (highest cascade layer).
+	 * Pass NULL or empty mask to clear. Copies strings. Marks dirty from mask.
+	 * @return 0 on success, non-zero if node is dead.
+	 */
+	i32 (*node_set_inline_style)(sk_ui_context_t* ctx, sk_ui_node_t node, const sk_ui_style_props_t* props);
+
+	/**
+	 * Merge @p props into the node's inline style (OR mask, overwrite fields).
+	 * Marks dirty from the merged-in mask only.
+	 * @return 0 on success, non-zero if node is dead.
+	 */
+	i32 (*node_merge_inline_style)(sk_ui_context_t* ctx, sk_ui_node_t node, const sk_ui_style_props_t* props);
+
+	/**
+	 * Copy the current inline style props into @p out (font_family points at
+	 * node-owned storage). out may be NULL to query presence only.
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_get_inline_style)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_style_props_t* out);
+
+	/**
+	 * Set interaction state flags (replaces previous). Marks STYLE and, when
+	 * any applied class has a variant for the changed bits, LAYOUT/PAINT from
+	 * those variant masks. Always marks at least STYLE when flags change.
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_set_state)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 state_flags);
+
+	/** Current state flags (0 if dead). */
+	u32 (*node_get_state)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Copy the last computed style into @p out. Valid after style_resolve.
+	 * New nodes start with defaults after first resolve (or after context create
+	 * resolve is not automatic — call style_resolve).
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_get_computed_style)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_computed_style_t* out);
+
+	/**
+	 * Resolve styles for all STYLE-dirty nodes (parent-before-child for
+	 * inheritance). Precedence per property:
+	 *   inline > later class (base then state variants) > earlier class >
+	 *   inherited (text only) > default.
+	 * State variant order within a class: base → hover → focused → active → disabled.
+	 * Writes layout fields into layout_style for the flex solver.
+	 * Clears SK_UI_DIRTY_STYLE on resolved nodes; leaves LAYOUT/PAINT as set.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*style_resolve)(sk_ui_context_t* ctx);
 } sk_ui_api_t;
 
 /**

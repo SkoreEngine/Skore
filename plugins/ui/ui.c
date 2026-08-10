@@ -127,6 +127,7 @@ static void ui_slot_init_empty(ui_node_slot_t* slot, const sk_allocator_t* a) {
 	sk_array_init(&slot->props, a);
 	slot->user_data_type = SK_TYPE_ID_ZERO;
 	ui_layout_style_init_default(&slot->layout_style);
+	ui_node_style_init(slot, a);
 }
 
 static void ui_slot_release_contents(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
@@ -149,6 +150,7 @@ static void ui_slot_release_contents(sk_ui_context_t* ctx, ui_node_slot_t* slot)
 	}
 	sk_array_free(&slot->props);
 	sk_array_free(&slot->children);
+	ui_node_style_release(slot, a);
 	slot->user_data = NULL;
 	slot->user_data_type = SK_TYPE_ID_ZERO;
 	slot->dirty = 0u;
@@ -319,9 +321,11 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 		a->free(a->instance, ctx);
 		return NULL;
 	}
+	ui_style_registry_init(ctx);
 
 	/* Slot 0 is never used — keeps index 0 as the invalid sentinel. */
 	if (sk_array_resize(&ctx->slots, 1u) != 0) {
+		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
 		sk_array_free(&ctx->freelist);
 		sk_array_free(&ctx->slots);
@@ -332,6 +336,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 
 	root = ui_alloc_node(ctx, SK_UI_NODE_KIND_BOX);
 	if (!sk_ui_node_is_valid(root)) {
+		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
 		sk_array_free(&ctx->freelist);
 		sk_array_free(&ctx->slots);
@@ -382,6 +387,7 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 	sk_array_free(&ctx->slots);
 	sk_array_free(&ctx->freelist);
 	sk_hash_map_free(&ctx->id_map);
+	ui_style_registry_shutdown(ctx);
 	a->free(a->instance, ctx);
 }
 
@@ -696,7 +702,8 @@ static i32 ui_node_add_class(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_
 		ctx->allocator->free(ctx->allocator->instance, copy);
 		return -1;
 	}
-	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_ALL);
+	/* Dirty flags depend on the registered class property mask. */
+	ui_mark_dirty_up(ctx, node, ui_style_dirty_for_class_name(ctx, class_name));
 	return 0;
 }
 
@@ -711,6 +718,7 @@ static i32 ui_node_remove_class(sk_ui_context_t* ctx, sk_ui_node_t node, const_c
 	}
 	for (i = 0u; i < slot->classes.count; ++i) {
 		if (ui_cstr_eq(slot->classes.items[i], class_name)) {
+			u32 dirty = ui_style_dirty_for_class_name(ctx, class_name);
 			ctx->allocator->free(ctx->allocator->instance, slot->classes.items[i]);
 			/* Preserve order: shift left. */
 			{
@@ -720,7 +728,7 @@ static i32 ui_node_remove_class(sk_ui_context_t* ctx, sk_ui_node_t node, const_c
 				}
 			}
 			slot->classes.count -= 1u;
-			ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_ALL);
+			ui_mark_dirty_up(ctx, node, dirty);
 			return 0;
 		}
 	}
@@ -1252,6 +1260,17 @@ static const sk_ui_api_t ui_api = {
 	ui_layout_impl,
 	ui_layout_apply_scale_impl,
 	ui_layout_get_content_scale_impl,
+	ui_style_class_register_impl,
+	ui_style_class_set_variant_impl,
+	ui_style_class_unregister_impl,
+	ui_style_class_has_impl,
+	ui_node_set_inline_style_impl,
+	ui_node_merge_inline_style_impl,
+	ui_node_get_inline_style_impl,
+	ui_node_set_state_impl,
+	ui_node_get_state_impl,
+	ui_node_get_computed_style_impl,
+	ui_style_resolve_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
