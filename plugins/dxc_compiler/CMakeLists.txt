@@ -8,7 +8,7 @@ sk_add_plugin(dxc-compiler SOURCES ${SKORE_DXC_COMPILER_SOURCES})
 # include dir is available to this plugin and to sk-dxc-compiler-lib consumers.
 target_link_libraries(sk-dxc-compiler PUBLIC dxc)
 
-# Copy the platform DXC shared library (win-x64/dxcompiler.dll today; Unix/macOS
-# emit a configure WARNING until those runtimes are vendored) into the plugins
-# output dir beside the built plugin, so sk_dxc_compiler_api_t::init can load it.
+# Copy the platform DXC shared library (win-x64/macOS/linux-x64 when vendored)
+# into the plugins output dir beside the built plugin, so
+# sk_dxc_compiler_api_t::init can load it at runtime.
 sk_copy_dxc_shared_library(sk-dxc-compiler)

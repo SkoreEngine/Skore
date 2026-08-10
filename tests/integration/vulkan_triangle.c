@@ -8,9 +8,9 @@
  *   command buffer (uploads, barriers, clear, bind, draw_indexed, copy to
  *   readback) → submit + fence wait → map readback → PPM artifact + asserts.
  *
- * No window / swapchain / presentation is involved. Skipped (TEST_IGNORE)
- * when no Vulkan ICD or DXC runtime is present (e.g. CI without Vulkan, or a
- * platform without a vendored DXC runtime).
+ * No window / swapchain / presentation is involved. DXC runtime is required
+ * (vendored under thirdparty/dxc/bin). Skipped (TEST_IGNORE) only when no
+ * Vulkan ICD / adapter is present (e.g. CI without a GPU).
  */
 
 #include "app.h"
@@ -214,10 +214,12 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 		return;
 	}
 
-	if (dxc->init() != 0) {
-		TEST_IGNORE_MESSAGE("DXC runtime unavailable; skipping offscreen triangle render");
-		sk_app_destroy(ctx);
-		return;
+	{
+		const i32 dxc_init_rc = dxc->init();
+		if (dxc_init_rc != 0) {
+			sk_app_destroy(ctx);
+		}
+		TEST_ASSERT_EQUAL_INT32_MESSAGE(0, dxc_init_rc, "DXC runtime must load (vendored lib missing or not copied to plugins/)");
 	}
 
 	sk_render_device_t dev = api->init(ctx, NULL);

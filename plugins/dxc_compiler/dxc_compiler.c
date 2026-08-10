@@ -637,44 +637,17 @@ static const_chr_t dxc_test_vertex_hlsl = "struct VSOut { float4 pos : SV_Positi
 										  "  VSOut o; o.pos = float4(pos, 1.0); o.uv = uv; return o;\n"
 										  "}\n";
 
-/* Returns 1 when the platform DXC runtime cannot be located, so the
- * HLSL->SPIR-V tests must be skipped (runtime not vendored for this OS, or the
- * test host did not wire a platform API). Every platform that ships a runtime
- * must run these tests. */
-static i32 dxc_test_runtime_absent(void) {
-	sk_shared_lib_t probe;
-
-	if (dxc_state.platform == NULL) {
-		return 1;
-	}
-	/* Same preference order as dxc_init_impl: the build-copied runtime in the
-	 * plugins output dir first, then the OS loader search path. */
-	char joined[SK_DXC_LIB_PATH_CAP];
-	probe = NULL;
-	if (sk_path_join(sk_str_view_cstr("plugins"), sk_str_view_cstr(dxc_library_name()), joined, (u32)sizeof(joined)) >= 0) {
-		probe = dxc_state.platform->lib_open(joined);
-	}
-	if (probe == NULL) {
-		probe = dxc_state.platform->lib_open(dxc_library_name());
-	}
-	if (probe == NULL) {
-		return 1;
-	}
-	dxc_state.platform->lib_close(probe);
-	return 0;
-}
+/* Vendored DXC runtime is required on every supported platform (win-x64 /
+ * macOS / linux-x64 under thirdparty/dxc/bin). Missing copy or failed load is
+ * a hard test failure — do not soft-skip. */
+#define DXC_RUNTIME_REQUIRED_MSG "DXC runtime must load (vendored lib missing or not copied to plugins/)"
 
 SK_TEST(dxc_compiler_hlsl_compiles_to_spirv) {
 	char log[512];
 	u8 spirv[8192];
 	u32 spirv_size = 0u;
 
-	if (dxc_test_runtime_absent()) {
-		TEST_IGNORE_MESSAGE("DXC runtime not vendored for this platform; skipping");
-		return;
-	}
-
-	TEST_ASSERT_EQUAL_INT32(0, dxc_compiler_api.init());
+	TEST_ASSERT_EQUAL_INT32_MESSAGE(0, dxc_compiler_api.init(), DXC_RUNTIME_REQUIRED_MSG);
 	{
 		const i32 rc = dxc_compiler_api.compile("mainVS", "vs_6_8", dxc_test_vertex_hlsl, (u32)strlen(dxc_test_vertex_hlsl), spirv, (u32)sizeof(spirv), &spirv_size, log,
 												(u32)sizeof(log));
@@ -694,12 +667,7 @@ SK_TEST(dxc_compiler_surfaces_compile_errors) {
 	u32 spirv_size = 0u;
 	const_chr_t broken = "void mainVS() { float x = ; }\n";
 
-	if (dxc_test_runtime_absent()) {
-		TEST_IGNORE_MESSAGE("DXC runtime not vendored for this platform; skipping");
-		return;
-	}
-
-	TEST_ASSERT_EQUAL_INT32(0, dxc_compiler_api.init());
+	TEST_ASSERT_EQUAL_INT32_MESSAGE(0, dxc_compiler_api.init(), DXC_RUNTIME_REQUIRED_MSG);
 	{
 		const i32 rc = dxc_compiler_api.compile("mainVS", "vs_6_8", broken, (u32)strlen(broken), spirv, (u32)sizeof(spirv), &spirv_size, log, (u32)sizeof(log));
 		TEST_ASSERT_NOT_EQUAL(0, rc);

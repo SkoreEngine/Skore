@@ -21,7 +21,7 @@ add_subdirectory(vulkan)
 add_subdirectory(volk)
 add_subdirectory(vma)
 
-# DirectX Shader Compiler (DXC) — headers + win-x64 runtime (vendored from
-# skore main ThirdParty/dxc). Plugins copy the platform shared library to the
-# plugins output dir at build time via sk_copy_dxc_shared_library().
+# DirectX Shader Compiler (DXC) — headers + platform runtimes (win-x64 dll,
+# macOS dylib, linux-x64 .so). Plugins copy the matching shared library to
+# the plugins output dir via sk_copy_dxc_shared_library().
 add_subdirectory(dxc)
