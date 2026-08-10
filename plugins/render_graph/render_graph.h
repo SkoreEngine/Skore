@@ -17,7 +17,9 @@
  * only during setup or between frames. Steady-state frames never heap-allocate.
  * Mid-frame capacity failure is a defined error (no silent malloc).
  *
- * Pass sorting, barriers, and GPU resource creation land in later tasks.
+ * Build phase (APX-151): begin → declare resources / add passes / read-write
+ * deps → end (or execute). Storage comes from the frame arena and pools.
+ * Topology sort, barriers, and GPU resource creation land in later tasks.
  */
 
 #include "app.h"
@@ -50,6 +52,58 @@ typedef enum sk_rg_access_t {
 	SK_RG_ACCESS_READ_WRITE = 2,
 } sk_rg_access_t;
 
+/** Kind of a named graph resource (introspection + build storage). */
+typedef enum sk_rg_resource_kind_t {
+	SK_RG_RESOURCE_TEXTURE = 0,
+	SK_RG_RESOURCE_BUFFER = 1,
+	SK_RG_RESOURCE_VIEW = 2,
+	SK_RG_RESOURCE_IMPORTED = 3,
+	SK_RG_RESOURCE_INSTANCE = 4,
+} sk_rg_resource_kind_t;
+
+/**
+ * Result codes for frame-memory and build-phase operations.
+ * Mid-frame exhaustion is SK_RG_ERR_OUT_OF_SPACE (never silent malloc).
+ * Memory-only aliases (SK_RG_MEMORY_*) keep APX-150 call sites readable.
+ */
+typedef enum sk_rg_result_t {
+	SK_RG_OK = 0,
+	/** Capacity exceeded while in-frame (or fixed-capacity path). */
+	SK_RG_ERR_OUT_OF_SPACE = 1,
+	/** Growth attempted while a frame is active. */
+	SK_RG_ERR_GROW_BLOCKED = 2,
+	/** Heap allocation failed during an allowed (out-of-frame) growth. */
+	SK_RG_ERR_OOM = 3,
+	/** Build op called outside begin..end/execute. */
+	SK_RG_ERR_NOT_IN_FRAME = 4,
+	/** Resource (or pass) name already declared this frame. */
+	SK_RG_ERR_DUPLICATE_NAME = 5,
+	/** Write / read-write against an imported read-only resource. */
+	SK_RG_ERR_WRITE_READ_ONLY = 6,
+	/** Pass dependency declared on a stale/invalid pass (outside pass scope). */
+	SK_RG_ERR_INVALID_PASS = 7,
+	/** Named resource not found for a dependency that requires it. */
+	SK_RG_ERR_UNKNOWN_RESOURCE = 8,
+	/** NULL desc, empty name, or other invalid build argument. */
+	SK_RG_ERR_INVALID_ARGUMENT = 9,
+} sk_rg_result_t;
+
+/** @deprecated Prefer SK_RG_OK / SK_RG_ERR_* — kept as APX-150 aliases. */
+typedef sk_rg_result_t sk_rg_memory_result_t;
+#define SK_RG_MEMORY_OK SK_RG_OK
+#define SK_RG_MEMORY_OUT_OF_SPACE SK_RG_ERR_OUT_OF_SPACE
+#define SK_RG_MEMORY_GROW_BLOCKED SK_RG_ERR_GROW_BLOCKED
+#define SK_RG_MEMORY_OOM SK_RG_ERR_OOM
+
+/** Resource node flags (introspection). */
+typedef enum sk_rg_resource_flag_bit_t {
+	SK_RG_RESOURCE_FLAG_NONE = 0,
+	SK_RG_RESOURCE_FLAG_IMPORTED = 1u << 0,
+	SK_RG_RESOURCE_FLAG_READ_ONLY = 1u << 1,
+	SK_RG_RESOURCE_FLAG_COLOR_OUTPUT = 1u << 2,
+	SK_RG_RESOURCE_FLAG_DEPTH_OUTPUT = 1u << 3,
+} sk_rg_resource_flag_bit_t;
+
 /* ------------------------------------------------------------------ */
 /* Opaque objects                                                      */
 /* ------------------------------------------------------------------ */
@@ -57,7 +111,7 @@ typedef enum sk_rg_access_t {
 /** Frame graph instance owned by the module (create/destroy). */
 typedef struct sk_render_graph_t sk_render_graph_t;
 
-/** Pass builder handle valid for the current begin..execute frame. */
+/** Pass builder handle valid for the current begin..end/execute frame. */
 typedef struct sk_rg_pass_t sk_rg_pass_t;
 
 /* ------------------------------------------------------------------ */
@@ -111,22 +165,68 @@ typedef struct sk_rg_extent_t {
 } sk_rg_extent_t;
 
 /* ------------------------------------------------------------------ */
-/* Frame memory config + diagnostics                                   */
+/* Callbacks (fn + userdata — no std::function)                        */
 /* ------------------------------------------------------------------ */
 
-/**
- * Result codes for the graph frame-memory substrate.
- * Mid-frame exhaustion is SK_RG_MEMORY_OUT_OF_SPACE (never silent malloc).
- */
-typedef enum sk_rg_memory_result_t {
-	SK_RG_MEMORY_OK = 0,
-	/** Capacity exceeded while in-frame (or fixed-capacity path). */
-	SK_RG_MEMORY_OUT_OF_SPACE = 1,
-	/** Growth attempted while a frame is active. */
-	SK_RG_MEMORY_GROW_BLOCKED = 2,
-	/** Heap allocation failed during an allowed (out-of-frame) growth. */
-	SK_RG_MEMORY_OOM = 3,
-} sk_rg_memory_result_t;
+/** Record the pass body into @p cmd. */
+typedef void (*sk_rg_record_fn)(sk_rg_pass_t* pass, void_ptr_t scene, sk_command_buffer_t cmd, void_ptr_t user);
+
+/** Called when output size changes between frames. */
+typedef void (*sk_rg_resize_fn)(sk_render_graph_t* graph, sk_rg_extent_t extent, void_ptr_t user);
+
+/** Fill push-constant bytes into @p dst (size set via pass_set_constants). */
+typedef void (*sk_rg_constants_fn)(sk_render_graph_t* graph, void_ptr_t dst, void_ptr_t user);
+
+/* ------------------------------------------------------------------ */
+/* Introspection snapshots (build-phase inspection; POD copies)        */
+/* ------------------------------------------------------------------ */
+
+/** Snapshot of one pass after declaration (valid until next begin). */
+typedef struct sk_rg_pass_info_t {
+	const_chr_t name;
+	sk_rg_pass_type_t type;
+	i32 stage;
+	u32 index;
+	u32 dep_count;
+	sk_rg_record_fn record_fn;
+	void_ptr_t record_user;
+} sk_rg_pass_info_t;
+
+/** Snapshot of one resource after declaration (valid until next begin). */
+typedef struct sk_rg_resource_info_t {
+	const_chr_t name;
+	sk_rg_resource_kind_t kind;
+	u32 flags; /* sk_rg_resource_flag_bit_t */
+	u32 index;
+	u32 usage;			  /* accumulated sk_resource_usage bits */
+	u32 last_writer_pass; /* UINT32_MAX if none */
+	/** Texture desc when kind is TEXTURE (otherwise zeroed). */
+	sk_rg_texture_desc_t texture;
+	/** Buffer desc when kind is BUFFER (otherwise zeroed). */
+	sk_rg_buffer_desc_t buffer;
+	/** Imported texture count when kind is IMPORTED. */
+	u32 imported_count;
+	sk_resource_state_t imported_state;
+} sk_rg_resource_info_t;
+
+/** One pass→resource dependency declared via pass_read / write / … */
+typedef struct sk_rg_dep_info_t {
+	const_chr_t resource_name;
+	sk_rg_access_t access;
+	u32 usage_flags;
+	i32 is_resolve;
+	u32 resource_index; /* UINT32_MAX if unresolved at declare time */
+} sk_rg_dep_info_t;
+
+/** Producer→consumer edge (pass index → pass index) built during declare. */
+typedef struct sk_rg_edge_info_t {
+	u32 from_pass;
+	u32 to_pass;
+} sk_rg_edge_info_t;
+
+/* ------------------------------------------------------------------ */
+/* Frame memory config + diagnostics                                   */
+/* ------------------------------------------------------------------ */
 
 /**
  * Capacities reserved at graph creation (or grown only between frames).
@@ -134,7 +234,7 @@ typedef enum sk_rg_memory_result_t {
  * warm-up / explicit growth, steady-state frames do not allocate again.
  */
 typedef struct sk_rg_memory_config_t {
-	/** Linear frame-arena bytes for per-frame scratch (strings, sort temps). */
+	/** Linear frame-arena bytes for per-frame scratch (imports, deps, temps). */
 	u64 frame_arena_bytes;
 	/** Free-list pool slots for pass nodes. */
 	u32 pass_capacity;
@@ -170,24 +270,11 @@ typedef struct sk_rg_memory_stats_t {
 	u32 growth_events;
 	/** Total heap alloc/realloc operations performed by the memory system. */
 	u32 heap_alloc_count;
-	/** Non-zero while between begin and the next begin (frame active). */
+	/** Non-zero while between begin and the next begin/end/execute. */
 	i32 in_frame;
-	/** Last memory result from a failed op (0 if none / last succeeded). */
+	/** Last result from a failed memory/build op (0 if last succeeded). */
 	i32 last_error;
 } sk_rg_memory_stats_t;
-
-/* ------------------------------------------------------------------ */
-/* Callbacks (fn + userdata — no std::function)                        */
-/* ------------------------------------------------------------------ */
-
-/** Record the pass body into @p cmd. */
-typedef void (*sk_rg_record_fn)(sk_rg_pass_t* pass, void_ptr_t scene, sk_command_buffer_t cmd, void_ptr_t user);
-
-/** Called when output size changes between frames. */
-typedef void (*sk_rg_resize_fn)(sk_render_graph_t* graph, sk_rg_extent_t extent, void_ptr_t user);
-
-/** Fill push-constant bytes into @p dst (size set via pass_set_constants). */
-typedef void (*sk_rg_constants_fn)(sk_render_graph_t* graph, void_ptr_t dst, void_ptr_t user);
 
 /* ------------------------------------------------------------------ */
 /* Module API table                                                    */
@@ -195,7 +282,8 @@ typedef void (*sk_rg_constants_fn)(sk_render_graph_t* graph, void_ptr_t dst, voi
 
 /**
  * Global render-graph module API (one table per process after plugin load).
- * Every entry is non-null. Frame memory is live; full pass/GPU logic lands later.
+ * Every entry is non-null. Frame memory + build-phase declare are live;
+ * topology sort / GPU execute land later.
  */
 typedef struct sk_render_graph_api_t {
 	/* module lifecycle (plugin-global) */
@@ -212,10 +300,16 @@ typedef struct sk_render_graph_api_t {
 	sk_render_graph_t* (*create_with_config)(sk_render_device_t device, const sk_rg_memory_config_t* config);
 	void (*destroy)(sk_render_graph_t* graph);
 
-	/* declare resources (names valid until next begin or retained intern pool) */
+	/* declare resources (names non-owning; valid for the declare phase) */
 	void (*create_texture)(sk_render_graph_t* g, const_chr_t name, const sk_rg_texture_desc_t* desc);
 	void (*create_buffer)(sk_render_graph_t* g, const_chr_t name, const sk_rg_buffer_desc_t* desc);
 	void (*create_view)(sk_render_graph_t* g, const_chr_t name, const sk_rg_view_desc_t* desc);
+	/**
+	 * Import external textures (e.g. swapchain images) under @p name.
+	 * @p state is the state restored after execute. Imported resources whose
+	 * state implies read-only (shader-read, depth-read, copy-src, present)
+	 * reject writes.
+	 */
 	void (*import_textures)(sk_render_graph_t* g, const_chr_t name, const sk_texture_t* textures, u32 count, sk_resource_state_t state);
 	void_ptr_t (*create_instance)(sk_render_graph_t* g, const_chr_t name, u64 size);
 	void_ptr_t (*get_instance)(sk_render_graph_t* g, const_chr_t name);
@@ -236,7 +330,7 @@ typedef struct sk_render_graph_api_t {
 	void (*pass_dispatch_indirect)(sk_rg_pass_t* p, sk_buffer_t indirect);
 	void (*pass_trace_rays)(sk_rg_pass_t* p, u32 w, u32 h, u32 d);
 
-	/* accessors */
+	/* accessors (GPU handles filled after execute path lands) */
 	sk_texture_t (*get_texture)(const sk_render_graph_t* g, const_chr_t name);
 	sk_texture_t (*get_prev_texture)(const sk_render_graph_t* g, const_chr_t name);
 	sk_texture_view_t (*get_texture_view)(const sk_render_graph_t* g, const_chr_t name);
@@ -252,13 +346,18 @@ typedef struct sk_render_graph_api_t {
 
 	/**
 	 * Start a frame: reset the linear frame arena (offset → 0, capacity retained),
-	 * return pass nodes to the free-list, and clear edge/barrier counts (capacity
-	 * retained). Marks the graph in-frame so pool/arena growth is blocked.
+	 * return pass/resource nodes to free-lists, and clear edge/barrier counts
+	 * (capacity retained). Marks the graph in-frame so pool/arena growth is blocked.
 	 */
 	void (*begin)(sk_render_graph_t* g, void_ptr_t scene /* optional opaque */);
+	/**
+	 * End the build phase / frame without recording commands. Clears in_frame so
+	 * capacity growth is allowed again. execute() also ends the frame.
+	 */
+	void (*end)(sk_render_graph_t* g);
 	void (*execute)(sk_render_graph_t* g, sk_command_buffer_t cmd);
 
-	/* debug / tests */
+	/* debug / tests / introspection */
 	u32 (*topology_build_count)(const sk_render_graph_t* g);
 	/**
 	 * Fill @p out with frame-memory diagnostics (bytes used, high-water,
@@ -266,6 +365,16 @@ typedef struct sk_render_graph_api_t {
 	 * @p out must not be NULL.
 	 */
 	void (*get_memory_stats)(const sk_render_graph_t* g, sk_rg_memory_stats_t* out);
+	/** Last build/memory result (SK_RG_OK if last op succeeded). */
+	i32 (*get_last_error)(const sk_render_graph_t* g);
+	u32 (*get_pass_count)(const sk_render_graph_t* g);
+	/** Fill @p out for pass at declaration order @p index. Returns SK_RG_OK. */
+	i32 (*get_pass_info)(const sk_render_graph_t* g, u32 index, sk_rg_pass_info_t* out);
+	u32 (*get_resource_count)(const sk_render_graph_t* g);
+	i32 (*get_resource_info)(const sk_render_graph_t* g, u32 index, sk_rg_resource_info_t* out);
+	i32 (*get_pass_dep_info)(const sk_render_graph_t* g, u32 pass_index, u32 dep_index, sk_rg_dep_info_t* out);
+	u32 (*get_edge_count)(const sk_render_graph_t* g);
+	i32 (*get_edge_info)(const sk_render_graph_t* g, u32 index, sk_rg_edge_info_t* out);
 } sk_render_graph_api_t;
 
 /**
