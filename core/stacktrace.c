@@ -616,16 +616,6 @@ u32 stacktrace_test_middle(stacktrace_capture_fn_t capture, sk_stacktrace_frame_
 
 #if defined(_WIN32)
 
-/** True when DbgHelp resolved at least one symbol (PDB present). */
-static int stacktrace_windows_any_symbol(const sk_stacktrace_frame_t* frames, u32 count) {
-	for (u32 i = 0u; i < count; ++i) {
-		if (frames[i].symbol_name[0] != '\0') {
-			return 1;
-		}
-	}
-	return 0;
-}
-
 /** True when DbgHelp resolved at least one file/line (PDB line info present). */
 static int stacktrace_windows_any_line(const sk_stacktrace_frame_t* frames, u32 count) {
 	for (u32 i = 0u; i < count; ++i) {
@@ -661,9 +651,11 @@ SK_TEST(stacktrace_windows_capture_nested_chain) {
 	TEST_ASSERT_TRUE(frames[0].module_name[0] != '\0');
 	TEST_ASSERT_TRUE(frames[0].module_offset > 0u);
 
-	/* PDBs are present in Debug/RelWithDebInfo: DbgHelp resolves the exported
-	 * helper names and line info. Release (no PDB) falls back to module+RVA. */
-	if (stacktrace_windows_any_symbol(frames, count)) {
+	/* The exe's own frames only carry symbols when sk-tests.exe has a PDB
+	 * (Debug/RelWithDebInfo). Release (no PDB) falls back to module+RVA, but
+	 * DbgHelp may still resolve system DLL exports further down the stack, so
+	 * gate on the innermost frame rather than "any symbol anywhere". */
+	if (frames[0].symbol_name[0] != '\0') {
 		TEST_ASSERT_NOT_NULL(strstr(out, "stacktrace_test_leaf"));
 		TEST_ASSERT_NOT_NULL(strstr(out, "stacktrace_test_middle"));
 		if (stacktrace_windows_any_line(frames, count)) {
