@@ -551,6 +551,33 @@ serialization or the asset pipeline** — no escalation is required:
   a zstd failure silently corrupts the stored blob), so this cannot break
   shipped behavior.
 
+### 9.1 Call-site migration status (APX-168)
+
+APX-168 checked the migration surface on this branch and found **no v2
+compression call sites to migrate and no interim shim to remove**:
+
+- Every consumer in the inventory (§8) lives in the C++ engine on `main`
+  (`.resources`/`.cooked` archive load/save, font blobs, per-mip texture
+  decompress, thumbnails). None of those modules exist on this branch: the v2
+  resource/asset pipeline (`core/resource_assets*`, landed on `origin/v2` as
+  `repository_assets`, commit `1f334e5`) is not part of this feature branch
+  and, as of that commit, contains zero compression calls.
+- A full-tree grep for `sk_compression_*`/`sk_compress*`/`sk_decompress*`
+  matches only the interface (`core/compression.{h,c}`) and its
+  tests/conformance checks; the remaining "compress" hits are GPU
+  acceleration-structure compaction flags and texture-format comments,
+  unrelated to this module.
+- Because migrating the inventory consumers here would require building the v2
+  asset pipeline first (a serialization/pipeline change), APX-168 leaves them
+  on the old path per the task's escalation rule. When that pipeline lands,
+  the migration is the mechanical registry-based shape change described above;
+  the byte-compatibility and error-contract guarantees still hold.
+
+Verification on this branch (Debug, gcc, Ninja): full build clean; CTest 3/3
+(`sk-compression-conformance`, `sk-tests`, `sk-integration-tests`);
+`sk-tests` 457/457; `sk-integration-tests` 22/22. No code change was needed,
+so the before/after suite results are identical.
+
 ## 10. Build-time gating and vendoring
 
 Optional codecs are gated by a CMake option + a vendored third-party lib, per

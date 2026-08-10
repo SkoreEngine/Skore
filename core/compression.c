@@ -1186,8 +1186,7 @@ SK_TEST(compression_lz4_insufficient_output_and_corrupt) {
 	/* Flip a compressed-block byte (past the size prefix). */
 	if (compressed_size > COMPRESSION_SIZE_PREFIX_BYTES) {
 		compressed[COMPRESSION_SIZE_PREFIX_BYTES] ^= 0xFFu;
-		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA,
-							  codec->decompress(sk_allocator_default(), compressed, compressed_size, restored, sizeof(restored), &written));
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompress(sk_allocator_default(), compressed, compressed_size, restored, sizeof(restored), &written));
 		TEST_ASSERT_EQUAL_UINT64(0u, written);
 	}
 
@@ -1263,8 +1262,7 @@ SK_TEST(compression_zlib_insufficient_output_and_corrupt) {
 
 	if (compressed_size > COMPRESSION_SIZE_PREFIX_BYTES) {
 		compressed[COMPRESSION_SIZE_PREFIX_BYTES] ^= 0xFFu;
-		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA,
-							  codec->decompress(sk_allocator_default(), compressed, compressed_size, restored, sizeof(restored), &written));
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompress(sk_allocator_default(), compressed, compressed_size, restored, sizeof(restored), &written));
 		TEST_ASSERT_EQUAL_UINT64(0u, written);
 	}
 
