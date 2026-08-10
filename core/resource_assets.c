@@ -430,6 +430,9 @@ static void reload_handlers(sk_resource_assets_context_t* ctx) {
 		sk_array_init(&impls, ctx->allocator);
 		if (sk_array_resize(&impls, importer_count) == 0) {
 			ctx->app_api->get_all_impls(ctx->app_context, SK_RESOURCE_ASSET_IMPORTER_TYPE_ID, impls.items, importer_count);
+			/* Main ReloadAssetHandlers: non-empty OutputExtension maps onto ImportedAssetHandler. */
+			const sk_resource_asset_handler_t* imported_handler = NULL;
+			(void)handler_type_get(ctx, SK_RESOURCE_IMPORTED_ASSET_TYPE_ID, &imported_handler);
 			for (u32 i = 0u; i < importer_count; ++i) {
 				const sk_resource_asset_importer_t* importer = (const sk_resource_asset_importer_t*)impls.items[i];
 				sk_array_push(&ctx->importers, importer);
@@ -444,6 +447,12 @@ static void reload_handlers(sk_resource_assets_context_t* ctx) {
 				for (u32 k = 0u; k < ext_count; ++k) {
 					if (extensions_buf[k] != NULL) {
 						importer_ext_put(ctx, extensions_buf[k], importer);
+					}
+				}
+				if (importer->output_extension != NULL && imported_handler != NULL) {
+					const_chr_t output_extension = importer->output_extension(importer->user_data);
+					if (output_extension != NULL && output_extension[0] != '\0') {
+						handler_ext_put(ctx, output_extension, imported_handler);
 					}
 				}
 				sk_log_debug(logger_api, log, "registered asset importer for %u extension(s)", ext_count);
