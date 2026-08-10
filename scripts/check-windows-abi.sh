@@ -272,6 +272,8 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
 		"--extra-arg=-I${ROOT}/thirdparty/dxc/include"
 		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
+		"--extra-arg=-I${ROOT}/thirdparty/zstd/src"
+		"--extra-arg=-DSK_COMPRESSION_HAS_ZSTD=1"
 		"--extra-arg=-Wno-unknown-warning-option"
 		"--extra-arg=-std=c11"
 	)

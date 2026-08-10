@@ -22,6 +22,14 @@ target_link_libraries(sk-core PRIVATE mimalloc-static)
 # public sk-core interface; only sk-core internals include yyjson.h.
 target_link_libraries(sk-core PRIVATE yyjson)
 
+# Baseline compression codec (zstd, vendored). PRIVATE: zstd headers never leak
+# into the public sk-core interface; core/compression.c includes zstd.h only
+# under SK_COMPRESSION_HAS_ZSTD (docs/compression-design-v2.md §5, §6).
+if(SK_COMPRESSION_ZSTD)
+    target_compile_definitions(sk-core PRIVATE SK_COMPRESSION_HAS_ZSTD)
+    target_link_libraries(sk-core PRIVATE zstd)
+endif()
+
 # Threads (pthread): PUBLIC so static consumers link it at their final link.
 target_link_libraries(sk-core PUBLIC Threads::Threads)
 
@@ -67,6 +75,10 @@ if(BUILD_TESTING)
     target_link_libraries(sk-core-tests PUBLIC sk-test PRIVATE mimalloc-static yyjson)
     target_link_libraries(sk-core-tests PUBLIC Threads::Threads)
     set_target_properties(sk-core-tests PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    if(SK_COMPRESSION_ZSTD)
+        target_compile_definitions(sk-core-tests PRIVATE SK_COMPRESSION_HAS_ZSTD)
+        target_link_libraries(sk-core-tests PRIVATE zstd)
+    endif()
     if(SK_LIBM)
         target_link_libraries(sk-core-tests PUBLIC ${SK_LIBM})
     endif()

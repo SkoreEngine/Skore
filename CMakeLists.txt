@@ -88,6 +88,11 @@ include(CTest)
 # compile_commands.json for clang-tidy / IDE tooling (Ninja, Make, multi-config).
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Baseline compression codec: vendored zstd 1.5.6 (thirdparty/zstd), gated so
+# builds can drop it; the registry then reports ZSTD as unsupported while the
+# on-disk id stays readable (docs/compression-design-v2.md §5).
+option(SK_COMPRESSION_ZSTD "Build the vendored zstd codec (baseline compression codec)" ON)
+
 # Third-party first so it does not inherit first-party warning flags or clang-tidy.
 add_subdirectory(thirdparty)
 

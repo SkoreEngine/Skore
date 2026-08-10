@@ -5,6 +5,12 @@ add_subdirectory(unity)
 add_subdirectory(mimalloc)
 add_subdirectory(yyjson)
 
+# zstd 1.5.6 (baseline compression codec; BSD-3-Clause). Gated by
+# SK_COMPRESSION_ZSTD so codec-less builds stay possible.
+if(SK_COMPRESSION_ZSTD)
+    add_subdirectory(zstd)
+endif()
+
 # GLFW 3.4 (window / input). Static + PIC for shared plugins.
 include(${CMAKE_CURRENT_SOURCE_DIR}/glfw/skore_glfw.cmake)
 add_subdirectory(glfw)
