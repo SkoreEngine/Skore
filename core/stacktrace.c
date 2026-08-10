@@ -20,6 +20,52 @@
 #endif
 
 /* ------------------------------------------------------------------------- */
+/* Backend-shared helpers                                                    */
+/* ------------------------------------------------------------------------- */
+
+/** Copy @p src into @p dst, bounded by @p cap bytes; always NUL-terminated. */
+static void stacktrace_copy_name(char* dst, u32 cap, const_chr_t src) {
+	if (cap == 0u) {
+		return;
+	}
+	u32 i = 0u;
+	while (i + 1u < cap && src[i] != '\0') {
+		dst[i] = src[i];
+		++i;
+	}
+	dst[i] = '\0';
+}
+
+/** Basename of a native path (after the last '/' or '\\'); whole string when neither. */
+static const_chr_t stacktrace_base_name(const_chr_t path) {
+	const_chr_t base = path;
+	for (const_chr_t p = path; *p != '\0'; ++p) {
+		if (*p == '/' || *p == '\\') {
+			base = p + 1;
+		}
+	}
+	return base;
+}
+
+/** Max frames a backend buffers on the stack during capture (256 * 8 B on 64-bit, fine on a signal handler stack). */
+#define STACKTRACE_MAX_FRAMES 256u
+
+/**
+ * Drop @p skip innermost frames (the backend's own capture frame plus the
+ * caller's skip_frames) and compact the remainder to the front.
+ * @return Number of remaining frames.
+ */
+static u32 stacktrace_apply_skip(sk_stacktrace_frame_t* frames, u32 count, u32 skip) {
+	if (skip >= count) {
+		return 0u;
+	}
+	if (skip > 0u) {
+		memmove(frames, frames + skip, (size_t)(count - skip) * sizeof(*frames));
+	}
+	return count - skip;
+}
+
+/* ------------------------------------------------------------------------- */
 /* Backend interface                                                         */
 /* ------------------------------------------------------------------------- */
 
@@ -41,34 +87,153 @@ typedef struct stacktrace_backend_t {
 
 #if defined(_WIN32)
 
-/* ---- fallback backend: no platform backend available ---- */
+/* ---- Win32 backend (CaptureStackBackTrace + DbgHelp) ---- */
 
-static i32 fallback_init(void) {
-	return 0;
+/* CaptureStackBackTrace is gated on _WIN32_WINNT >= 0x0600 in the Windows
+ * SDK and MinGW-w64 headers; declare the Vista floor before windows.h. */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0601 /* NOLINT(bugprone-reserved-identifier): Win7 floor for CaptureStackBackTrace */
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <dbghelp.h>
+
+/*
+ * DbgHelp is not thread-safe: every Sym* call is serialized through the
+ * critical section below. The section is created by win32_init and only
+ * destroyed by win32_shutdown, so resolve can rely on it existing whenever
+ * dbghelp_initialized is set. init / resolve / shutdown run on the main
+ * thread per the engine default; the lock additionally makes resolve safe
+ * when a future job system symbolizes off-main.
+ */
+static CRITICAL_SECTION dbghelp_cs;
+static BOOL dbghelp_cs_ready;
+static BOOL dbghelp_initialized;
+
+static i32 win32_init(void) {
+	if (dbghelp_initialized != 0) {
+		return 0;
+	}
+	if (dbghelp_cs_ready == 0) {
+		InitializeCriticalSection(&dbghelp_cs);
+		dbghelp_cs_ready = TRUE;
+	}
+
+	EnterCriticalSection(&dbghelp_cs);
+	if (dbghelp_initialized != 0) {
+		LeaveCriticalSection(&dbghelp_cs);
+		return 0;
+	}
+
+	/* Deferred loads + undecorated names + line info (for SymGetLineFromAddr64). */
+	SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME | SYMOPT_LOAD_LINES);
+	i32 rc = 0;
+	if (SymInitialize(GetCurrentProcess(), NULL, TRUE) != 0) {
+		dbghelp_initialized = TRUE;
+	} else {
+		/* No dbghelp / PDBs: capture and the module+RVA fallback still work;
+		 * a later init call retries. */
+		rc = -1;
+	}
+	LeaveCriticalSection(&dbghelp_cs);
+	return rc;
 }
 
-static void fallback_shutdown(void) {
-	/* nothing to release */
+static void win32_shutdown(void) {
+	if (dbghelp_cs_ready == 0) {
+		return;
+	}
+	EnterCriticalSection(&dbghelp_cs);
+	if (dbghelp_initialized != 0) {
+		SymCleanup(GetCurrentProcess());
+		dbghelp_initialized = FALSE;
+	}
+	LeaveCriticalSection(&dbghelp_cs);
+	DeleteCriticalSection(&dbghelp_cs);
+	dbghelp_cs_ready = FALSE;
 }
 
-static u32 fallback_capture(sk_stacktrace_frame_t* frames, u32 capacity, u32 skip_frames) {
-	(void)frames;
-	(void)capacity;
-	(void)skip_frames;
-	return 0u;
+static u32 win32_capture(sk_stacktrace_frame_t* frames, u32 capacity, u32 skip_frames) {
+	if (frames == NULL || capacity == 0u) {
+		return 0u;
+	}
+	if (capacity > STACKTRACE_MAX_FRAMES) {
+		capacity = STACKTRACE_MAX_FRAMES;
+	}
+	/* CaptureStackBackTrace writes a contiguous PVOID array, so collect into
+	 * a local stack buffer first, then copy the addresses into the caller's
+	 * larger frames (sk_stacktrace_frame_t is much larger than void*). No
+	 * allocation, so capture stays safe for crash handlers. */
+	void_ptr_t addrs[STACKTRACE_MAX_FRAMES];
+	USHORT n = CaptureStackBackTrace(0u, (DWORD)capacity, addrs, NULL);
+	if (n == 0u) {
+		return 0u;
+	}
+	for (u32 i = 0u; i < (u32)n; ++i) {
+		frames[i].address = addrs[i];
+	}
+	return stacktrace_apply_skip(frames, (u32)n, skip_frames + 1u);
 }
 
-static void fallback_resolve(sk_stacktrace_frame_t* frames, u32 count) {
-	(void)frames;
-	(void)count;
-	/* nothing to symbolize */
+static void win32_resolve(sk_stacktrace_frame_t* frames, u32 count) {
+	for (u32 i = 0u; i < count; ++i) {
+		sk_stacktrace_frame_t* frame = &frames[i];
+		if (frame->address == NULL) {
+			continue;
+		}
+		uintptr_t addr = (uintptr_t)frame->address;
+		DWORD64 addr64 = addr; /* DbgHelp address (identity on 64-bit Windows) */
+
+		/* Module name + RVA via kernel32 only: works with and without PDBs
+		 * and never depends on DbgHelp's internal module list. */
+		HMODULE module = NULL;
+		if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)addr, &module) != 0) {
+			frame->module_offset = addr - (uintptr_t)module;
+			char path[MAX_PATH];
+			if (GetModuleFileNameA(module, path, (DWORD)sizeof(path)) > 0u) {
+				stacktrace_copy_name(frame->module_name, SK_STACKTRACE_NAME_CAP, stacktrace_base_name(path));
+			}
+		}
+
+		if (dbghelp_initialized == 0) {
+			/* DbgHelp unavailable (init failed or never called): module+RVA only. */
+			continue;
+		}
+		EnterCriticalSection(&dbghelp_cs);
+
+		/* SymFromAddr: nearest symbol + displacement (undecorated via SYMOPT_UNDNAME). */
+		DWORD64 symbol_disp = 0u;
+		union {
+			SYMBOL_INFO info;
+			char bytes[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(char)];
+		} symbol = {0};
+		symbol.info.SizeOfStruct = sizeof(SYMBOL_INFO);
+		symbol.info.MaxNameLen = MAX_SYM_NAME;
+		if (SymFromAddr(GetCurrentProcess(), addr64, &symbol_disp, &symbol.info) != 0) {
+			stacktrace_copy_name(frame->symbol_name, SK_STACKTRACE_NAME_CAP, symbol.info.Name);
+			frame->symbol_offset = symbol_disp;
+		}
+
+		/* SymGetLineFromAddr64: source file + line (needs PDB line info). */
+		IMAGEHLP_LINE64 line_info = {0};
+		line_info.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+		DWORD line_disp = 0u;
+		if (SymGetLineFromAddr64(GetCurrentProcess(), addr64, &line_disp, &line_info) != 0) {
+			stacktrace_copy_name(frame->source_file, SK_STACKTRACE_FILE_CAP, line_info.FileName);
+			frame->line = (u32)line_info.LineNumber;
+		}
+
+		LeaveCriticalSection(&dbghelp_cs);
+	}
 }
 
-static const stacktrace_backend_t fallback_backend = {
-	fallback_init,
-	fallback_shutdown,
-	fallback_capture,
-	fallback_resolve,
+static const stacktrace_backend_t win32_backend = {
+	win32_init,
+	win32_shutdown,
+	win32_capture,
+	win32_resolve,
 };
 
 #endif /* defined(_WIN32) */
@@ -98,64 +263,20 @@ static const stacktrace_backend_t fallback_backend = {
 #endif
 #endif
 
-/** Copy @p src into @p dst, bounded by @p cap bytes; always NUL-terminated. */
-static void stacktrace_copy_name(char* dst, u32 cap, const_chr_t src) {
-	if (cap == 0u) {
-		return;
-	}
-	u32 i = 0u;
-	while (i + 1u < cap && src[i] != '\0') {
-		dst[i] = src[i];
-		++i;
-	}
-	dst[i] = '\0';
-}
-
-/** Basename of a POSIX path (after the last '/'); whole string when no '/'. */
-static const_chr_t stacktrace_base_name(const_chr_t path) {
-	const_chr_t base = path;
-	for (const_chr_t p = path; *p != '\0'; ++p) {
-		if (*p == '/') {
-			base = p + 1;
-		}
-	}
-	return base;
-}
-
-/**
- * Drop @p skip innermost frames (the backend's own capture frame plus the
- * caller's skip_frames) and compact the remainder to the front.
- * @return Number of remaining frames.
- */
-static u32 stacktrace_apply_skip(sk_stacktrace_frame_t* frames, u32 count, u32 skip) {
-	if (skip >= count) {
-		return 0u;
-	}
-	if (skip > 0u) {
-		memmove(frames, frames + skip, (size_t)(count - skip) * sizeof(*frames));
-	}
-	return count - skip;
-}
-
 #if defined(STACKTRACE_POSIX_HAS_EXECINFO)
-
-/** Max frames the execinfo path buffers on the stack (backtrace() writes a
- * contiguous void* array; 256 * 8 B = 2 KiB on 64-bit, fine on a signal
- * handler stack). */
-#define STACKTRACE_POSIX_MAX_FRAMES 256u
 
 static u32 posix_capture(sk_stacktrace_frame_t* frames, u32 capacity, u32 skip_frames) {
 	if (frames == NULL || capacity == 0u) {
 		return 0u;
 	}
-	if (capacity > STACKTRACE_POSIX_MAX_FRAMES) {
-		capacity = STACKTRACE_POSIX_MAX_FRAMES;
+	if (capacity > STACKTRACE_MAX_FRAMES) {
+		capacity = STACKTRACE_MAX_FRAMES;
 	}
 	/* backtrace() fills a contiguous void* array, so collect into a local
 	 * stack buffer first, then copy the addresses into the caller's frames
 	 * (sk_stacktrace_frame_t is much larger than void*). No allocation, so
 	 * capture stays signal-safe. */
-	void_ptr_t addrs[STACKTRACE_POSIX_MAX_FRAMES];
+	void_ptr_t addrs[STACKTRACE_MAX_FRAMES];
 	int n = backtrace(addrs, (int)capacity);
 	if (n <= 0) {
 		return 0u;
@@ -247,9 +368,7 @@ static const stacktrace_backend_t posix_backend = {
 /* ---- backend selection (platform dispatch) ---- */
 
 #if defined(_WIN32)
-/* Win32 backend (CaptureStackBackTrace + dbghelp, needs sk_stacktrace_init)
- * lands in a follow-up task; the fallback backend is used until then. */
-static const stacktrace_backend_t* const stacktrace_backend = &fallback_backend;
+static const stacktrace_backend_t* const stacktrace_backend = &win32_backend;
 #else
 static const stacktrace_backend_t* const stacktrace_backend = &posix_backend;
 #endif
@@ -458,28 +577,18 @@ SK_TEST(stacktrace_format_too_small_buffer) {
 	TEST_ASSERT_EQUAL_STRING("stacktr", out); /* partial, NUL-terminated */
 }
 
-#if defined(_WIN32)
-
-SK_TEST(stacktrace_windows_fallback_capture_returns_zero) {
-	/* No Win32 backend yet: capture yields zero frames on Windows. */
-	sk_stacktrace_frame_t frames[4];
-	memset(frames, 0, sizeof(frames));
-
-	TEST_ASSERT_EQUAL_UINT32(0u, sk_stacktrace_capture(frames, 4u, 0u));
-}
-
-#else /* POSIX backends */
-
 /*
- * Nested-call-chain helpers for the POSIX capture test. They stay non-static
- * so the test host's dynamic symbol table carries their names for dladdr
- * (sk-tests exports exactly these two symbols via
- * --export-dynamic-symbol on Linux; macOS resolves them from the Mach-O
- * symbol table). Noinline plus a non-tail return keep the frames from being
- * inlined or tail-call-eliminated in optimized test builds. Test-only;
- * stripped from Release with the rest of the SK_TESTS section.
+ * Nested-call-chain helpers shared by the POSIX and Win32 capture tests.
+ * They stay non-static so the test host carries their names for the
+ * backends to resolve (dladdr via --export-dynamic-symbol on Linux; DbgHelp
+ * via the executable PDB on Windows). Noinline plus a non-tail return keep
+ * the frames from being inlined or tail-call-eliminated in optimized test
+ * builds. Test-only; stripped from Release with the rest of the SK_TESTS
+ * section.
  */
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(_MSC_VER)
+#define STACKTRACE_TEST_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
 #define STACKTRACE_TEST_NOINLINE __attribute__((noinline))
 #else
 #define STACKTRACE_TEST_NOINLINE
@@ -487,8 +596,10 @@ SK_TEST(stacktrace_windows_fallback_capture_returns_zero) {
 
 typedef u32 (*stacktrace_capture_fn_t)(sk_stacktrace_frame_t* frames, u32 capacity, u32 skip_frames);
 
-u32 stacktrace_test_leaf(stacktrace_capture_fn_t capture, sk_stacktrace_frame_t* frames, u32 capacity) STACKTRACE_TEST_NOINLINE;
-u32 stacktrace_test_middle(stacktrace_capture_fn_t capture, sk_stacktrace_frame_t* frames, u32 capacity) STACKTRACE_TEST_NOINLINE;
+STACKTRACE_TEST_NOINLINE
+u32 stacktrace_test_leaf(stacktrace_capture_fn_t capture, sk_stacktrace_frame_t* frames, u32 capacity);
+STACKTRACE_TEST_NOINLINE
+u32 stacktrace_test_middle(stacktrace_capture_fn_t capture, sk_stacktrace_frame_t* frames, u32 capacity);
 
 STACKTRACE_TEST_NOINLINE
 u32 stacktrace_test_leaf(stacktrace_capture_fn_t capture, sk_stacktrace_frame_t* frames, u32 capacity) {
@@ -502,6 +613,69 @@ u32 stacktrace_test_middle(stacktrace_capture_fn_t capture, sk_stacktrace_frame_
 	u32 count = stacktrace_test_leaf(capture, frames, capacity);
 	return count + (count < 1000u ? 0u : 1u);
 }
+
+#if defined(_WIN32)
+
+/** True when DbgHelp resolved at least one symbol (PDB present). */
+static int stacktrace_windows_any_symbol(const sk_stacktrace_frame_t* frames, u32 count) {
+	for (u32 i = 0u; i < count; ++i) {
+		if (frames[i].symbol_name[0] != '\0') {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/** True when DbgHelp resolved at least one file/line (PDB line info present). */
+static int stacktrace_windows_any_line(const sk_stacktrace_frame_t* frames, u32 count) {
+	for (u32 i = 0u; i < count; ++i) {
+		if (frames[i].source_file[0] != '\0' && frames[i].line != 0u) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+SK_TEST(stacktrace_windows_capture_nested_chain) {
+	/* DbgHelp needs init; repeated init/shutdown must stay harmless. */
+	TEST_ASSERT_EQUAL_INT(0, sk_stacktrace_init());
+	TEST_ASSERT_EQUAL_INT(0, sk_stacktrace_init());
+
+	sk_stacktrace_frame_t frames[32];
+	memset(frames, 0, sizeof(frames));
+
+	u32 count = stacktrace_test_middle(sk_stacktrace_capture, frames, 32u);
+	TEST_ASSERT_TRUE(count > 0u);
+	TEST_ASSERT_TRUE(count <= 32u);
+	TEST_ASSERT_NOT_NULL(frames[0].address);
+
+	/* Symbolize in place, then format. */
+	sk_stacktrace_resolve(frames, count);
+
+	char out[8192];
+	i32 len = sk_stacktrace_format(frames, count, out, (u32)sizeof(out));
+	TEST_ASSERT_TRUE(len > 0);
+	TEST_ASSERT_NOT_NULL(strstr(out, "0x"));
+
+	/* Module + RVA fallback must work with or without PDBs. */
+	TEST_ASSERT_TRUE(frames[0].module_name[0] != '\0');
+	TEST_ASSERT_TRUE(frames[0].module_offset > 0u);
+
+	/* PDBs are present in Debug/RelWithDebInfo: DbgHelp resolves the exported
+	 * helper names and line info. Release (no PDB) falls back to module+RVA. */
+	if (stacktrace_windows_any_symbol(frames, count)) {
+		TEST_ASSERT_NOT_NULL(strstr(out, "stacktrace_test_leaf"));
+		TEST_ASSERT_NOT_NULL(strstr(out, "stacktrace_test_middle"));
+		if (stacktrace_windows_any_line(frames, count)) {
+			TEST_ASSERT_NOT_NULL(strstr(out, ".c:"));
+		}
+	}
+
+	sk_stacktrace_shutdown();
+	sk_stacktrace_shutdown();
+}
+
+#else /* POSIX backends */
 
 SK_TEST(stacktrace_posix_capture_nested_chain) {
 	sk_stacktrace_frame_t frames[32];

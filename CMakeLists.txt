@@ -57,6 +57,16 @@ if ( MSVC )
 
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/lib)
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/lib)
+
+    # ProgramDatabase (.pdb) debug info for Debug/RelWithDebInfo so the
+    # DbgHelp stacktrace backend can resolve symbols from test-host and
+    # player binaries (sk-tests.exe / sk-player.exe). CMake 3.25+ honors
+    # this via policy CMP0141; older CMake already defaults MSVC
+    # Debug/RelWithDebInfo to /Zi, so this is belt-and-braces.
+    if(POLICY CMP0141)
+        cmake_policy(SET CMP0141 NEW)
+    endif()
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT ProgramDatabase)
 endif (MSVC)
 
 if (UNIX AND NOT APPLE)

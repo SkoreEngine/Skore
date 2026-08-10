@@ -34,6 +34,14 @@ if(SK_LIBDL)
     target_link_libraries(sk-core PUBLIC ${SK_LIBDL})
 endif()
 
+# DbgHelp (Win32 stacktrace symbolization: SymInitialize / SymFromAddr /
+# SymGetLineFromAddr64). Import library; PUBLIC so static consumers
+# (sk-app, sk-player, plugins) resolve it at their final link. Works for
+# MSVC (dbghelp.lib), clang-cl, and MinGW (-ldbghelp).
+if(WIN32)
+    target_link_libraries(sk-core PUBLIC dbghelp)
+endif()
+
 # Optional header-only interface (prefer linking sk-core STATIC for code + headers).
 add_library(sk-core-lib INTERFACE)
 target_include_directories(sk-core-lib INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -60,5 +68,8 @@ if(BUILD_TESTING)
     endif()
     if(SK_LIBDL)
         target_link_libraries(sk-core-tests PUBLIC ${SK_LIBDL})
+    endif()
+    if(WIN32)
+        target_link_libraries(sk-core-tests PUBLIC dbghelp)
     endif()
 endif()

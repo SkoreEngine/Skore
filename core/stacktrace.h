@@ -12,9 +12,11 @@
  *
  * Backends: POSIX (Linux, Apple) captures via backtrace()/_Unwind_Backtrace
  * and symbolizes via dladdr (module, nearest symbol, byte offsets); Windows
- * still uses the fallback backend, which captures zero frames and formats a
- * clear "stacktrace unavailable on this platform" message. The fallback
- * never fails hard.
+ * captures via CaptureStackBackTrace and symbolizes via DbgHelp
+ * (SymFromAddr + SymGetLineFromAddr64, falling back to module name + RVA
+ * when no PDB is present). Neither backend fails hard: unknown frames keep
+ * their zeroed / empty fields, and capture always yields zero frames instead
+ * of erroring when a backend is unavailable.
  */
 
 #include "common.h"
