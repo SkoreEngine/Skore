@@ -2,28 +2,26 @@
 
 /**
  * @file resource_assets.h
- * @brief Public C contract for repository asset handlers and importers.
+ * @brief Asset handler/importer tables, ingest/cook contexts, and the
+ *        repository-assets engine (scan, import, registry).
  *
  * Port of main-branch ResourceAssetHandler / ResourceAssetImporter as plain
- * structs: data fields plus one function pointer per former virtual method.
+ * structs (data + function pointers), plus the ResourceAssets manager rewritten
+ * against sk_repository_t and sk_app_api_t::add_impl multi-impl registration.
  *
- * Concrete handlers/importers are static table instances registered on the
- * app context with multi-impl registration (not set_api):
+ * Concrete handlers/importers are static table instances registered with:
+ *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &handler);
+ *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_IMPORTER_TYPE_ID, &importer);
  *
- *   static sk_resource_asset_handler_t dcc_asset_handler = { ... };
- *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &dcc_asset_handler);
+ * The engine (sk_resource_assets_api_t) discovers those tables, indexes them by
+ * extension / resource type, scans package Assets/ trees into ResourceAsset*
+ * resources, and runs import (legacy import_asset or generic ingest/cook).
  *
- * Hosts enumerate with sk_resource_asset_handler_count / get_all, resolve by
- * extension or resource type id, and invoke methods through the null-safe
- * sk_resource_asset_handler_* free functions (a NULL function pointer is a
- * documented default / no-op — never a crash). Importers use a separate type id.
+ * Function pointers follow the multi-instance core pattern (sk_allocator_t):
+ * the first parameter is the table's opaque user_data. Thumbnail /
+ * PreviewGenerator surface is intentionally omitted.
  *
- * Function pointers follow the multi-instance core pattern (sk_allocator_t,
- * sk_log_sink_t, sk_archive_writer_t): the first parameter is the table's
- * opaque user_data / self context. Thumbnail / PreviewGenerator surface is
- * intentionally omitted (out of scope for the repository_assets goal).
- *
- * Standalone and includable from core and editor (and plugins).
+ * Core has no dependency on editor-only modules.
  */
 
 #include "app.h"
@@ -48,22 +46,61 @@ extern "C" {
 #define SK_RESOURCE_ASSET_IMPORTER_TYPE_ID SK_TYPE_ID("sk.resource_asset_importer", 0xa0cc8513be01820dULL, 0x190f2cb78426a105ULL)
 
 /* ------------------------------------------------------------------ */
-/*  Importer contexts (opaque until the import pipeline lands)        */
+/*  Ingest / cook contexts                                            */
 /* ------------------------------------------------------------------ */
 
-/**
- * Opaque ingest context passed to sk_resource_asset_importer_t::ingest.
- * Declares sub-resources and external dependencies during import ingest.
- * Full layout and helpers are defined with the pipeline implementation.
- */
-typedef struct sk_resource_ingest_context_t sk_resource_ingest_context_t;
+/** One sub-resource declared by an importer's Ingest pass. */
+typedef struct sk_resource_asset_sub_resource_decl_t {
+	const_chr_t sub_id;
+	sk_type_id_t type;
+} sk_resource_asset_sub_resource_decl_t;
+
+/** One file dependency recorded by an importer's Ingest pass. */
+typedef struct sk_resource_asset_dependency_decl_t {
+	const_chr_t rel_path;
+	const u8* bytes;
+	u32 size;
+} sk_resource_asset_dependency_decl_t;
 
 /**
- * Opaque cook context passed to sk_resource_asset_importer_t::cook.
- * Produces cooked sub-resources from source bytes / ingest declarations.
- * Full layout and helpers are defined with the pipeline implementation.
+ * Allocates resources inside an imported asset during Cook.
+ * Sub-resources are addressed by a stable sub_id declared during Ingest.
  */
-typedef struct sk_resource_cook_context_t sk_resource_cook_context_t;
+typedef struct sk_sub_resource_allocator_t {
+	sk_rid_t imported_asset;
+	sk_undo_redo_scope_t* scope;
+	void_ptr_t engine;
+	sk_rid_t (*create)(const struct sk_sub_resource_allocator_t* allocator, const_chr_t sub_id, sk_type_id_t type);
+} sk_sub_resource_allocator_t;
+
+/**
+ * Context handed to an importer's Ingest pass (runtime-filled).
+ * Zero-initialized contexts have no helper entry points and must not be used.
+ */
+typedef struct sk_resource_ingest_context_t {
+	sk_rid_t imported_asset;
+	const_chr_t source_path;
+	const u8* source_bytes;
+	u32 source_size;
+	sk_undo_redo_scope_t* scope;
+	sk_uuid_t (*declare_sub_resource)(struct sk_resource_ingest_context_t* ctx, const_chr_t sub_id, sk_type_id_t type);
+	i32 (*add_dependency)(struct sk_resource_ingest_context_t* ctx, const_chr_t rel_path, const u8* bytes, u32 size);
+	i32 (*has_dependency)(struct sk_resource_ingest_context_t* ctx, const_chr_t rel_path);
+} sk_resource_ingest_context_t;
+
+/**
+ * Context handed to an importer's Cook pass (runtime-filled).
+ * Buffer creation / dependency file I/O deferred until those layers land.
+ */
+typedef struct sk_resource_cook_context_t {
+	sk_rid_t imported_asset;
+	sk_rid_t import_settings;
+	const u8* source_bytes;
+	u32 source_size;
+	sk_undo_redo_scope_t* scope;
+	sk_rid_t (*sub_resource)(struct sk_resource_cook_context_t* ctx, const_chr_t sub_id, sk_type_id_t type);
+	sk_sub_resource_allocator_t (*allocator)(struct sk_resource_cook_context_t* ctx);
+} sk_resource_cook_context_t;
 
 /* ------------------------------------------------------------------ */
 /*  Handler                                                            */
@@ -71,128 +108,22 @@ typedef struct sk_resource_cook_context_t sk_resource_cook_context_t;
 
 /**
  * Asset handler table: one static (or long-lived) instance per resource format.
- *
- * Replaces C++ ResourceAssetHandler. Pure virtuals and optional virtuals from
- * main become function pointers; optional entries may be NULL until defaults
- * are provided by host dispatch. user_data is the first argument to every
- * function pointer (same convention as sk_allocator_t::instance).
- *
- * Register with:
- *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &handler);
- *
- * Resolve and invoke with sk_resource_asset_handler_find_by_extension and the
- * null-safe sk_resource_asset_handler_* free functions below.
+ * Register with app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &handler).
  */
 typedef struct sk_resource_asset_handler_t {
-	/** Opaque per-handler state; passed as the first argument to every fp. */
 	void_ptr_t user_data;
-
-	/**
-	 * Disk extension key for this handler (e.g. ".mesh"), including the dot.
-	 * @param user_data Handler user_data.
-	 * @return Non-NULL static extension string (may be empty for wrappers).
-	 */
 	const_chr_t (*extension)(void_ptr_t user_data);
-
-	/**
-	 * Editor open action for an existing asset RID.
-	 * @param user_data Handler user_data.
-	 * @param asset     Asset RID to open.
-	 */
 	void (*open_asset)(void_ptr_t user_data, sk_rid_t asset);
-
-	/**
-	 * Runtime / repository resource type id this handler owns
-	 * (e.g. MeshResource type id).
-	 * @param user_data Handler user_data.
-	 * @return Type id; must not be SK_TYPE_ID_ZERO for concrete handlers.
-	 */
 	sk_type_id_t (*get_resource_type_id)(void_ptr_t user_data);
-
-	/**
-	 * Human-readable description (e.g. "Mesh").
-	 * @param user_data Handler user_data.
-	 * @return Non-NULL static description string.
-	 */
 	const_chr_t (*get_desc)(void_ptr_t user_data);
-
-	/**
-	 * Load object data for @p asset from @p absolute_path on disk.
-	 * @param user_data     Handler user_data.
-	 * @param asset         Asset RID being loaded.
-	 * @param absolute_path Absolute filesystem path (UTF-8, must not be NULL).
-	 * @return Loaded object RID, or SK_RID_ZERO on failure.
-	 */
 	sk_rid_t (*load)(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path);
-
-	/**
-	 * Persist @p object to @p absolute_path on disk.
-	 * @param user_data     Handler user_data.
-	 * @param object        Object RID to save.
-	 * @param absolute_path Absolute filesystem path (UTF-8, must not be NULL).
-	 */
 	void (*save)(void_ptr_t user_data, sk_rid_t object, const_chr_t absolute_path);
-
-	/**
-	 * Create a new asset object of this handler's resource type.
-	 * @param user_data Handler user_data.
-	 * @param uuid      UUID for the new resource (may be zero to let the store assign).
-	 * @param scope     Optional undo/redo scope; NULL if unscoped.
-	 * @return New object RID, or SK_RID_ZERO on failure.
-	 */
 	sk_rid_t (*create)(void_ptr_t user_data, sk_uuid_t uuid, sk_undo_redo_scope_t* scope);
-
-	/**
-	 * Hot-reload notification after the source file at @p absolute_path changed.
-	 * @param user_data     Handler user_data.
-	 * @param asset         Asset RID that reloaded.
-	 * @param absolute_path Absolute path of the changed file (UTF-8).
-	 */
 	void (*reloaded)(void_ptr_t user_data, sk_rid_t asset, const_chr_t absolute_path);
-
-	/**
-	 * Path rename / move side effects after an asset file moves on disk.
-	 * @param user_data         Handler user_data.
-	 * @param asset             Asset RID that moved.
-	 * @param old_absolute_path Previous absolute path (UTF-8).
-	 * @param new_absolute_path New absolute path (UTF-8).
-	 */
 	void (*after_move)(void_ptr_t user_data, sk_rid_t asset, const_chr_t old_absolute_path, const_chr_t new_absolute_path);
-
-	/**
-	 * Package export: write @p object into @p writer.
-	 * Named export_object (not "export") to stay valid as a C identifier.
-	 * @param user_data Handler user_data.
-	 * @param object    Object RID to export.
-	 * @param writer    Archive writer table (must not be NULL; pass writer->instance
-	 *                  through the writer's own function pointers).
-	 */
 	void (*export_object)(void_ptr_t user_data, sk_rid_t object, sk_archive_writer_t* writer);
-
-	/**
-	 * Icon glyph / FontAwesome (or similar) codepoint string for UI.
-	 * @param user_data Handler user_data.
-	 * @return Non-NULL static icon string; empty string when none.
-	 */
 	const_chr_t (*get_icon)(void_ptr_t user_data);
-
-	/**
-	 * Package scan / export sort key. Lower values load earlier.
-	 * Main default was INT32_MAX.
-	 * @param user_data Handler user_data.
-	 * @return Load order rank.
-	 */
 	i32 (*get_load_order)(void_ptr_t user_data);
-
-	/**
-	 * Optional custom display name for @p rid.
-	 * Writes a NUL-terminated name into @p out_name when a custom name is used.
-	 * @param user_data Handler user_data.
-	 * @param rid       Asset or object RID.
-	 * @param out_name  Caller buffer for the name (may be NULL when only probing).
-	 * @param out_cap   Capacity of @p out_name in bytes (including NUL).
-	 * @return Non-zero if a custom name was produced; 0 to use default naming.
-	 */
 	i32 (*get_asset_name)(void_ptr_t user_data, sk_rid_t rid, char* out_name, u32 out_cap);
 } sk_resource_asset_handler_t;
 
@@ -200,237 +131,101 @@ typedef struct sk_resource_asset_handler_t {
 /*  Handler registry: enumerate / resolve over add_impl               */
 /* ------------------------------------------------------------------ */
 
-/**
- * Number of asset handlers registered under SK_RESOURCE_ASSET_HANDLER_TYPE_ID.
- * Thin wrapper over app_api->impl_count.
- *
- * @param context App context (must not be NULL).
- * @param app_api App API table (must not be NULL).
- * @return Registered handler count, or 0 when none.
- */
 u32 sk_resource_asset_handler_count(sk_app_context_t* context, const sk_app_api_t* app_api);
-
-/**
- * Copy up to @p out_cap handler pointers registered under
- * SK_RESOURCE_ASSET_HANDLER_TYPE_ID into @p out and return the total count.
- * Same contract as app_api->get_all_impls (out NULL / out_cap 0 is count-only;
- * insertion order; swap-remove may reorder after remove_impl).
- *
- * @param context App context (must not be NULL).
- * @param app_api App API table (must not be NULL).
- * @param out     Destination buffer of handler pointers, or NULL.
- * @param out_cap Capacity of @p out in elements.
- * @return Total registered handler count (may exceed @p out_cap).
- */
 u32 sk_resource_asset_handler_get_all(sk_app_context_t* context, const sk_app_api_t* app_api, const sk_resource_asset_handler_t** out, u32 out_cap);
-
-/**
- * Resolve the first registered handler whose extension() equals @p extension
- * (exact C-string match, including the leading dot). Handlers with a NULL
- * extension function pointer are skipped.
- *
- * @param context   App context (must not be NULL).
- * @param app_api   App API table (must not be NULL).
- * @param extension Extension key (e.g. ".mesh"); must not be NULL.
- * @return Matching handler, or NULL when none claim @p extension.
- */
 const sk_resource_asset_handler_t* sk_resource_asset_handler_find_by_extension(sk_app_context_t* context, const sk_app_api_t* app_api, const_chr_t extension);
-
-/**
- * Resolve the first registered handler whose get_resource_type_id() equals
- * @p type_id. Handlers with a NULL get_resource_type_id function pointer are
- * skipped. SK_TYPE_ID_ZERO never matches.
- *
- * @param context App context (must not be NULL).
- * @param app_api App API table (must not be NULL).
- * @param type_id Resource type id owned by the handler.
- * @return Matching handler, or NULL when none claim @p type_id.
- */
 const sk_resource_asset_handler_t* sk_resource_asset_handler_find_by_resource_type(sk_app_context_t* context, const sk_app_api_t* app_api, sk_type_id_t type_id);
 
-/* ------------------------------------------------------------------ */
-/*  Null-safe handler dispatch                                         */
-/* ------------------------------------------------------------------ */
-/*
- * Each free function calls the matching function pointer on @p handler when
- * non-NULL; a NULL fp uses the documented default and never dereferences a
- * null function pointer. @p handler itself must not be NULL (caller contract).
- */
-
-/**
- * @param handler Handler table (must not be NULL).
- * @return extension() result, or "" when the fp is NULL / returns NULL.
- */
+/* Null-safe handler dispatch (NULL fp → documented default / no-op). */
 const_chr_t sk_resource_asset_handler_extension(const sk_resource_asset_handler_t* handler);
-
-/**
- * @param handler Handler table (must not be NULL).
- * @param asset   Asset RID to open.
- * No-op when open_asset is NULL.
- */
 void sk_resource_asset_handler_open_asset(const sk_resource_asset_handler_t* handler, sk_rid_t asset);
-
-/**
- * @param handler Handler table (must not be NULL).
- * @return get_resource_type_id() result, or SK_TYPE_ID_ZERO when the fp is NULL.
- */
 sk_type_id_t sk_resource_asset_handler_get_resource_type_id(const sk_resource_asset_handler_t* handler);
-
-/**
- * @param handler Handler table (must not be NULL).
- * @return get_desc() result, or "" when the fp is NULL / returns NULL.
- */
 const_chr_t sk_resource_asset_handler_get_desc(const sk_resource_asset_handler_t* handler);
-
-/**
- * @param handler       Handler table (must not be NULL).
- * @param asset         Asset RID being loaded.
- * @param absolute_path Absolute filesystem path (UTF-8).
- * @return load() result, or SK_RID_ZERO when the fp is NULL.
- */
 sk_rid_t sk_resource_asset_handler_load(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t absolute_path);
-
-/**
- * @param handler       Handler table (must not be NULL).
- * @param object        Object RID to save.
- * @param absolute_path Absolute filesystem path (UTF-8).
- * No-op when save is NULL.
- */
 void sk_resource_asset_handler_save(const sk_resource_asset_handler_t* handler, sk_rid_t object, const_chr_t absolute_path);
-
-/**
- * @param handler Handler table (must not be NULL).
- * @param uuid    UUID for the new resource.
- * @param scope   Optional undo/redo scope; NULL if unscoped.
- * @return create() result, or SK_RID_ZERO when the fp is NULL.
- */
 sk_rid_t sk_resource_asset_handler_create(const sk_resource_asset_handler_t* handler, sk_uuid_t uuid, sk_undo_redo_scope_t* scope);
-
-/**
- * @param handler       Handler table (must not be NULL).
- * @param asset         Asset RID that reloaded.
- * @param absolute_path Absolute path of the changed file (UTF-8).
- * No-op when reloaded is NULL.
- */
 void sk_resource_asset_handler_reloaded(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t absolute_path);
-
-/**
- * @param handler           Handler table (must not be NULL).
- * @param asset             Asset RID that moved.
- * @param old_absolute_path Previous absolute path (UTF-8).
- * @param new_absolute_path New absolute path (UTF-8).
- * No-op when after_move is NULL.
- */
 void sk_resource_asset_handler_after_move(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t old_absolute_path, const_chr_t new_absolute_path);
-
-/**
- * @param handler Handler table (must not be NULL).
- * @param object  Object RID to export.
- * @param writer  Archive writer table.
- * No-op when export_object is NULL.
- */
 void sk_resource_asset_handler_export_object(const sk_resource_asset_handler_t* handler, sk_rid_t object, sk_archive_writer_t* writer);
-
-/**
- * @param handler Handler table (must not be NULL).
- * @return get_icon() result, or "" when the fp is NULL / returns NULL.
- */
 const_chr_t sk_resource_asset_handler_get_icon(const sk_resource_asset_handler_t* handler);
-
-/**
- * @param handler Handler table (must not be NULL).
- * @return get_load_order() result, or 0x7fffffff (INT32_MAX) when the fp is NULL.
- */
 i32 sk_resource_asset_handler_get_load_order(const sk_resource_asset_handler_t* handler);
-
-/**
- * @param handler  Handler table (must not be NULL).
- * @param rid      Asset or object RID.
- * @param out_name Caller buffer for the name (may be NULL when only probing).
- * @param out_cap  Capacity of @p out_name in bytes (including NUL).
- * @return get_asset_name() result, or 0 when the fp is NULL.
- */
 i32 sk_resource_asset_handler_get_asset_name(const sk_resource_asset_handler_t* handler, sk_rid_t rid, char* out_name, u32 out_cap);
 
 /* ------------------------------------------------------------------ */
 /*  Importer                                                           */
 /* ------------------------------------------------------------------ */
 
-/**
- * Asset importer table: one static (or long-lived) instance per source format
- * family (e.g. textures, audio, FBX).
- *
- * Replaces C++ ResourceAssetImporter. Register with:
- *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_IMPORTER_TYPE_ID, &importer);
- *
- * Source extensions are claimed via imported_extensions; a non-empty
- * output_extension routes the host through the ingest/cook path.
- */
 typedef struct sk_resource_asset_importer_t {
-	/** Opaque per-importer state; passed as the first argument to every fp. */
 	void_ptr_t user_data;
-
-	/**
-	 * Source extensions this importer claims (e.g. ".png", ".jpg").
-	 * Copies up to @p out_cap extension string pointers into @p out and returns
-	 * the total count (may exceed @p out_cap). When @p out is NULL or
-	 * @p out_cap is 0, only the count is returned.
-	 * @param user_data Importer user_data.
-	 * @param out       Destination buffer of extension C-string pointers, or NULL.
-	 * @param out_cap   Capacity of @p out in elements.
-	 * @return Total claimed extension count.
-	 */
-	u32 (*imported_extensions)(void_ptr_t user_data, const_chr_t** out, u32 out_cap);
-
-	/**
-	 * Cooked / wrapper asset extension (e.g. ".texture"). Empty string or NULL
-	 * means legacy import_asset path only.
-	 * @param user_data Importer user_data.
-	 * @return Output extension including the dot, or NULL/empty when none.
-	 */
+	u32 (*imported_extensions)(void_ptr_t user_data, const_chr_t* out, u32 out_cap);
 	const_chr_t (*output_extension)(void_ptr_t user_data);
-
-	/**
-	 * Cooker version; bumps invalidate the cooked cache.
-	 * Main default was 1.
-	 * @param user_data Importer user_data.
-	 * @return Positive cooker version.
-	 */
 	u32 (*cooker_version)(void_ptr_t user_data);
-
-	/**
-	 * Optional import-settings resource type id.
-	 * @param user_data Importer user_data.
-	 * @return Settings type id, or SK_TYPE_ID_ZERO when the importer has none.
-	 */
 	sk_type_id_t (*get_settings_type)(void_ptr_t user_data);
-
-	/**
-	 * Ingest phase: declare sub-resources and external dependencies.
-	 * @param user_data Importer user_data.
-	 * @param ctx       Ingest context (must not be NULL).
-	 */
 	void (*ingest)(void_ptr_t user_data, sk_resource_ingest_context_t* ctx);
-
-	/**
-	 * Cook phase: produce cooked sub-resources from source / ingest data.
-	 * @param user_data Importer user_data.
-	 * @param ctx       Cook context (must not be NULL).
-	 */
 	void (*cook)(void_ptr_t user_data, sk_resource_cook_context_t* ctx);
-
-	/**
-	 * Legacy direct import (main default returned false). Prefer ingest/cook
-	 * when output_extension is non-empty.
-	 * @param user_data Importer user_data.
-	 * @param directory Parent directory asset RID.
-	 * @param settings  Optional import settings object pointer (may be NULL).
-	 * @param path      Source filesystem path (UTF-8, must not be NULL).
-	 * @param scope     Optional undo/redo scope; NULL if unscoped.
-	 * @return Non-zero on success; 0 on failure / not implemented.
-	 */
 	i32 (*import_asset)(void_ptr_t user_data, sk_rid_t directory, const_ptr_t settings, const_chr_t path, sk_undo_redo_scope_t* scope);
 } sk_resource_asset_importer_t;
+
+/* ------------------------------------------------------------------ */
+/*  Repository-assets engine                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Opaque engine state: handler/importer maps, by-type asset index, scanned
+ * package. Bound to one sk_repository_t and one app context.
+ */
+typedef struct sk_resource_assets_context_t sk_resource_assets_context_t;
+
+/**
+ * Process-wide repository-assets engine API (implemented in sk-core).
+ * Parent parameters are ResourceAssetDirectory node RIDs. Extensions are
+ * lowercase with a leading dot. No thumbnails, no efsw file watching.
+ */
+typedef struct sk_resource_assets_api_t {
+	sk_resource_assets_context_t* (*create)(sk_repository_t* repository, sk_app_context_t* app_context, const sk_app_api_t* app_api, const sk_allocator_t* allocator);
+	void (*destroy)(sk_resource_assets_context_t* ctx);
+	void (*reload_handlers)(sk_resource_assets_context_t* ctx);
+	/**
+	 * Scan package_path/Assets into an in-memory ResourceAsset graph.
+	 * Hidden entries and .buffer / .buffers / .info files are skipped.
+	 * File contents are not loaded (handler->load deferred until serialization).
+	 */
+	sk_rid_t (*scan_package_from_directory)(sk_resource_assets_context_t* ctx, const_chr_t package_name, const_chr_t package_path);
+	sk_rid_t (*get_package)(const sk_resource_assets_context_t* ctx);
+	sk_rid_t (*get_root_directory)(const sk_resource_assets_context_t* ctx);
+	sk_rid_t (*create_asset)(sk_resource_assets_context_t* ctx, sk_rid_t parent, sk_type_id_t type_id, const_chr_t desired_name, sk_undo_redo_scope_t* scope);
+	sk_rid_t (*create_asset_directory)(sk_resource_assets_context_t* ctx, sk_rid_t parent, const_chr_t desired_name, sk_undo_redo_scope_t* scope);
+	sk_rid_t (*create_asset_file)(sk_resource_assets_context_t* ctx, sk_rid_t parent, const_chr_t desired_name, const_chr_t extension, sk_undo_redo_scope_t* scope);
+	void (*move_asset)(sk_resource_assets_context_t* ctx, sk_rid_t new_parent, sk_rid_t rid, sk_undo_redo_scope_t* scope);
+	const_chr_t (*get_absolute_path)(sk_resource_assets_context_t* ctx, sk_rid_t asset);
+	const_chr_t (*get_path_id)(sk_resource_assets_context_t* ctx, sk_rid_t asset);
+	i32 (*get_absolute_path_from_path_id)(sk_resource_assets_context_t* ctx, const_chr_t path_id, char_ptr_t out, u32 out_cap);
+	sk_rid_t (*get_parent_asset)(sk_resource_assets_context_t* ctx, sk_rid_t rid);
+	i32 (*is_child_of)(sk_resource_assets_context_t* ctx, sk_rid_t parent, sk_rid_t child);
+	sk_rid_t (*get_asset_payload)(sk_resource_assets_context_t* ctx, sk_rid_t rid);
+	const sk_resource_asset_handler_t* (*get_asset_handler)(sk_resource_assets_context_t* ctx, sk_rid_t rid);
+	const sk_resource_asset_handler_t* (*get_asset_handler_for_type)(sk_resource_assets_context_t* ctx, sk_type_id_t type_id);
+	const sk_resource_asset_handler_t* (*get_asset_handler_for_extension)(sk_resource_assets_context_t* ctx, const_chr_t extension);
+	const sk_resource_asset_importer_t* (*get_importer)(sk_resource_assets_context_t* ctx, const_chr_t extension);
+	/**
+	 * Import a file (or every file under a directory) into parent.
+	 * Direct import_asset when non-NULL; else generic ingest/cook wrapper path.
+	 * Reimport: call again on the same source path (updates via unique naming /
+	 * re-ingest on the generic path when content hash changes).
+	 */
+	i32 (*import_asset)(sk_resource_assets_context_t* ctx, sk_rid_t parent, const_chr_t path, sk_undo_redo_scope_t* scope);
+	void (*open_asset)(sk_resource_assets_context_t* ctx, sk_rid_t rid);
+	void (*register_asset_by_type)(sk_resource_assets_context_t* ctx, sk_rid_t asset);
+	void (*unregister_asset_by_type)(sk_resource_assets_context_t* ctx, sk_rid_t asset);
+	u32 (*get_assets)(sk_resource_assets_context_t* ctx, sk_type_id_t type_id, sk_rid_t* out, u32 out_cap);
+	i32 (*create_unique_asset_name)(sk_resource_assets_context_t* ctx, sk_rid_t parent, const_chr_t desired_name, const_chr_t extension, i32 directory, char_ptr_t out,
+									u32 out_cap);
+	i32 (*get_asset_name)(sk_resource_assets_context_t* ctx, sk_rid_t rid, char_ptr_t out, u32 out_cap);
+	i32 (*get_asset_full_name)(sk_resource_assets_context_t* ctx, sk_rid_t rid, char_ptr_t out, u32 out_cap);
+	sk_rid_t (*find_asset_on_directory)(sk_resource_assets_context_t* ctx, sk_rid_t directory, sk_type_id_t type_id, const_chr_t name);
+} sk_resource_assets_api_t;
+
+SK_API const sk_resource_assets_api_t* sk_resource_assets_api(void);
 
 #ifdef __cplusplus
 }
