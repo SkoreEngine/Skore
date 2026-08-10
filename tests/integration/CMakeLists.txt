@@ -5,9 +5,9 @@
 # Runs as its own ctest so the Vulkan path can be exercised without a window.
 # sk_app_init auto-loads the plugin DLLs from {app_folder}/plugins; the
 # executable is placed next to them in bin/ (same layout as sk-tests). The
-# DXC-compiled shader tests skip cleanly when the runtime is absent.
+# vendored DXC runtime is required (missing lib fails the triangle test).
 #
-# Skips cleanly when no Vulkan loader/ICD or DXC runtime is present.
+# Skips cleanly when no Vulkan loader/ICD is present.
 
 if(NOT BUILD_TESTING)
     return()

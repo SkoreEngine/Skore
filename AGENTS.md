@@ -16,6 +16,12 @@ Data-oriented ECS engine. Prefer structure-of-arrays, systems, and plain data ov
 - **Platform abstraction first.** Public and shared code must not call Win32, POSIX, Cocoa, or other OS APIs directly. Use portable project APIs (`sk_*`) and confine OS-specific code to dedicated platform backends / `#ifdef` blocks behind those APIs so the same call sites run on all targets.
 - Design every feature, API, and test to **build and run on all supported platforms** unless the user explicitly scopes work to one OS.
 - Prefer fixed-width types (`u8`…`u64`, `i8`…`i64`, `f32`/`f64`), path helpers, and endian-safe I/O over host-dependent sizes (`long`, bare `int` for layout, `wchar_t` paths in shared code).
+- **Portable casts / printf (LP64 vs LLP64).** Linux/macOS x64 are LP64 (`long` and `uintptr_t` are 64-bit). Windows x64 is LLP64 (`long` is 32-bit; `uintptr_t` is `unsigned long long`). Code that only builds on Linux can still fail Windows clang-tidy (`readability-redundant-casting`) or mis-format values.
+  - Use project fixed widths (`u32`/`u64`) in shared code; do **not** use `long` for sizes, pointers, or file offsets.
+  - For printf of pointers / pointer-sized ints: **one** cast that matches the format — e.g. `(unsigned long long)ptr` with `%llx`, or `(uintptr_t)ptr` with `"%" PRIxPTR` from `<inttypes.h>`.
+  - **Never** stack casts “for portability”: `(unsigned long long)(uintptr_t)x` is often **needed** on Linux and **redundant** on Windows (fails CI tidy). Pick one cast.
+  - Do **not** cast when the expression is already the destination type (e.g. no `(u64)` on a `u64`, no `(unsigned long long)` on a value that is already `unsigned long long` under the active ABI).
+  - After first-party C/C++ edits on a Linux agent: run native build/tests **and** `./scripts/check-windows-abi.sh` (MinGW + clang-tidy LLP64). See **Building**.
 - Use `sk_*_api_t` **only** for a single global module surface (one table for the whole process/module), e.g. `sk_render_device_api_t`. Do **not** use the `_api_t` suffix for ordinary values/objects that happen to hold function pointers (e.g. `sk_allocator_t` — many instances, not one global API).
 - Keep plugins loadable as shared libraries (DLL / `.so` / `.dylib`) that **statically link** `sk-core`.
 - Use `sk_` prefix on public symbols (types, functions). **Do not** prefix file names with `sk_`.
@@ -90,6 +96,7 @@ Data-oriented ECS engine. Prefer structure-of-arrays, systems, and plain data ov
 - Introduce RTTI, exceptions, or C++ heavy containers in core public headers — shared surface stays C and POD-friendly.
 - **Hard-code a single platform** in shared or game-facing code (e.g. raw `LoadLibrary` / `CreateFileW` / `pthread_*` / Cocoa calls outside a platform backend). No `#ifdef _WIN32` sprawl across gameplay, ECS, or plugin logic — keep OS branches in platform abstraction layers only.
 - Ship or accept code that only builds or runs on one OS when the feature is meant to be engine-wide.
+- Stack “portable” printf casts such as `(unsigned long long)(uintptr_t)…` or cast to a type the expression already has — Linux may accept it; Windows LLP64 clang-tidy will fail (`readability-redundant-casting`). Use one cast or `PRIxPTR` / fixed-width types instead.
 - Couple plugins by linking or compiling against each other — only shared headers + core registration.
 - Expose full `struct` definitions in public headers for types that are not part of the module/plugin API — no “I needed the fields in three places” leakage of internal state; keep those opaque and use accessors or free functions.
 - Name every function-pointer struct `sk_*_api_t` — reserve `_api_t` for **one global** module table; multi-instance or pass-by-value FP bags use normal `sk_*_t` names (`sk_allocator_t`, not `sk_allocator_api_t`).
@@ -585,3 +592,30 @@ cmake --build build
 ```
 
 Useful targets: `sk-core`, `sk-app`, `sk-player`, `sk-tests`, `sk-example-plugin`.
+
+### Linux agent / host: Windows ABI check
+
+Native Linux builds do **not** see Windows LLP64 type widths. After changing first-party C/C++:
+
+```bash
+# 1) Normal host build + tests (existing)
+cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure
+
+# 2) Windows data-model tidy (no MSVC; uses MinGW headers + clang-tidy)
+./scripts/check-windows-abi.sh
+```
+
+**Packages on the Linux machine** (one-time):
+
+| Distro | Install |
+|--------|---------|
+| Debian / Ubuntu | `sudo apt-get install -y mingw-w64 clang clang-tidy g++-mingw-w64-x86-64` |
+| Fedora / RHEL | `sudo dnf install -y mingw64-gcc mingw64-headers clang clang-tools-extra` |
+
+Needs **clang** (resource-dir / intrinsics), **clang-tidy**, and **MinGW** headers. Do not feed GCC’s `lib/gcc/.../include` into clang-tidy — that breaks `<windows.h>` parses. You do **not** need MSVC, Wine, or a Windows VM.
+
+Optional: pass specific files (`./scripts/check-windows-abi.sh core/stacktrace.c`) or `JOBS=8` for parallelism.
+
+CI: `.github/workflows/ci.yml` also runs **Windows ABI (MinGW tidy)** and **Cppcheck** on `ubuntu-latest` (alongside the multi-OS build matrix).
+
+Apex: `.apex/checks.yaml` includes a blocking **windows-abi** fast-stage check (`bash scripts/check-windows-abi.sh`) so agent/goal runs hit the same gate before build/test.

@@ -94,8 +94,27 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --verbose
 
-  # Static analysis: cppcheck once on Linux (compile_commands.json). Not
-  # duplicated across the matrix — first-party only, thirdparty excluded.
+  # Windows LLP64 type/cast checks on Linux (MinGW sysroot + clang-tidy).
+  # Catches agent-blind issues (e.g. readability-redundant-casting) without MSVC.
+  windows-abi:
+    name: Windows ABI (MinGW tidy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # clang provides -print-resource-dir (intrinsics); do not use GCC's
+          # lib/gcc/.../include with clang-tidy — that conflicts with builtins.
+          sudo apt-get install -y mingw-w64 clang clang-tidy g++-mingw-w64-x86-64
+
+      - name: Windows ABI check
+        run: bash scripts/check-windows-abi.sh
+
+  # Static analysis: cppcheck once on Linux (compile_commands.json).
+  # First-party only; thirdparty excluded (see scripts/cppcheck.sh).
   cppcheck:
     name: Cppcheck
     runs-on: ubuntu-latest

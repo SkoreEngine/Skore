@@ -188,11 +188,12 @@ endfunction()
 #
 #   Modeled on skore main's add_binary_file(): WIN32 → bin/win-x64/dxcompiler
 #   .dll, APPLE → bin/macOS/libdxcompiler.dylib, UNIX → bin/linux-x64/
-#   libdxcompiler.so. The win-x64 dll and the linux-x64 runtime (libdxcompiler
-#   .so + libdxil.so) are vendored today; macOS still emits a WARNING and skips
-#   the copy (documented gap until an upstream macOS binary is vendored).
-#   libdxil.so is copied alongside so DXC can dlopen it for DXIL validation if
-#   needed. Call from a plugin CMakeLists after the plugin target exists.
+#   libdxcompiler.so. Vendored runtimes: win-x64 (dxcompiler.dll), macOS
+#   (libdxcompiler.dylib, universal x86_64+arm64 from LunarG Vulkan SDK), and
+#   linux-x64 (libdxcompiler.so + libdxil.so from Microsoft DXC linux release).
+#   Missing platform files emit a WARNING and skip the copy. libdxil.so is
+#   copied alongside so DXC can dlopen it for DXIL validation if needed. Call
+#   from a plugin CMakeLists after the plugin target exists.
 # ---------------------------------------------------------------------------
 function(sk_copy_dxc_shared_library target)
     if(NOT TARGET ${target})
@@ -226,9 +227,9 @@ function(sk_copy_dxc_shared_library target)
     if(NOT EXISTS "${_dxc_src}")
         message(WARNING
             "sk_copy_dxc_shared_library(${target}): DXC runtime not vendored "
-            "for ${CMAKE_SYSTEM_NAME} (${_dxc_src}). Skipping copy; only "
-            "bin/win-x64/dxcompiler.dll and bin/linux-x64/libdxcompiler.so "
-            "ship today.")
+            "for ${CMAKE_SYSTEM_NAME} (${_dxc_src}). Skipping copy; expected "
+            "bin/win-x64/dxcompiler.dll, bin/macOS/libdxcompiler.dylib, or "
+            "bin/linux-x64/libdxcompiler.so.")
         return()
     endif()
 

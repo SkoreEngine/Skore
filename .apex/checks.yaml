@@ -7,7 +7,12 @@
 # - Loaded from origin/<goalBranch>, not a dirty worktree-only copy
 #
 # Runner needs on PATH: cmake, ninja, ctest, a C compiler, bash, clang-format,
-# cppcheck. (format / cppcheck use scripts/*; build uses -G Ninja per AGENTS.md.)
+# clang, clang-tidy, cppcheck, and MinGW (x86_64-w64-mingw32-gcc) for windows-abi.
+# (format / cppcheck / windows-abi use scripts/*; build uses -G Ninja per AGENTS.md.)
+#
+# Linux host packages for windows-abi:
+#   Debian/Ubuntu: sudo apt-get install -y mingw-w64 clang clang-tidy g++-mingw-w64-x86-64
+#   Fedora/RHEL:   sudo dnf install -y mingw64-gcc mingw64-headers clang clang-tools-extra
 
 version: 1
 
@@ -24,6 +29,14 @@ checks:
     fix: bash scripts/format.sh
     blocking: true
     timeoutSeconds: 120
+
+  # LLP64 / Windows type-model tidy (no MSVC). Independent of cmake build dir.
+  # Catches Linux-only cast patterns (e.g. readability-redundant-casting) early.
+  - id: windows-abi
+    stage: fast
+    run: bash scripts/check-windows-abi.sh
+    blocking: true
+    timeoutSeconds: 900
 
   - id: cmake-configure
     stage: fast

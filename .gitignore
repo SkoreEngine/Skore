@@ -45,6 +45,7 @@ cmake-build-*/
 # Vendored DXC runtime binaries must stay tracked (build-output dlls are
 # ignored above, but thirdparty/dxc/bin/* is checked-in source).
 !thirdparty/dxc/bin/win-x64/dxcompiler.dll
+!thirdparty/dxc/bin/macOS/libdxcompiler.dylib
 !thirdparty/dxc/bin/linux-x64/libdxcompiler.so
 !thirdparty/dxc/bin/linux-x64/libdxil.so
 
