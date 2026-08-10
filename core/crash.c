@@ -673,10 +673,47 @@ SK_TEST(crash_windows_exception_name_lookup) {
 	TEST_ASSERT_NULL(crash_exception_name(0x12345678u));
 }
 
+/** Max time to wait for sk-crash-trigger.exe before killing it (ms). */
+#define CRASH_TEST_SPAWN_TIMEOUT_MS 15000u
+
+/**
+ * Drain any bytes currently available on @p read_pipe into @p output.
+ * Does not block when the pipe is empty (PeekNamedPipe first).
+ */
+static void crash_test_drain_pipe(HANDLE read_pipe, char* output, u32* total, u32* remaining) {
+	if (output == NULL || remaining == NULL || *remaining == 0u) {
+		return;
+	}
+	for (;;) {
+		DWORD avail = 0u;
+		if (PeekNamedPipe(read_pipe, NULL, 0u, NULL, &avail, NULL) == 0 || avail == 0u) {
+			break;
+		}
+		DWORD to_read = avail;
+		if (to_read > *remaining) {
+			to_read = *remaining;
+		}
+		DWORD got = 0u;
+		if (ReadFile(read_pipe, output + *total, to_read, &got, NULL) == 0 || got == 0u) {
+			break;
+		}
+		*total += got;
+		*remaining -= got;
+		if (*remaining == 0u) {
+			break;
+		}
+	}
+}
+
 /**
  * Spawn sk-crash-trigger.exe with @p kind, capture stderr, return exit code
  * via @p out_exit (STILL_ACTIVE-style process exit). Returns 0 on spawn/wait
  * success, -1 when the tool is missing or CreateProcess fails (caller skips).
+ *
+ * Never blocks forever on ReadFile: the previous helper waited for pipe EOF
+ * before WaitForSingleObject, so a child that hung after writing (Debug CRT
+ * abort dialog, WER) pinned sk-tests until the 1500 s CTest timeout. Poll the
+ * process with a hard deadline and TerminateProcess if it does not exit.
  */
 static i32 crash_test_spawn_trigger(const char* kind, char* output, u32 output_cap, DWORD* out_exit) {
 	SECURITY_ATTRIBUTES sa;
@@ -703,14 +740,17 @@ static i32 crash_test_spawn_trigger(const char* kind, char* output, u32 output_c
 	STARTUPINFOA si;
 	memset(&si, 0, sizeof(si));
 	si.cb = (DWORD)sizeof(si);
-	si.dwFlags = STARTF_USESTDHANDLES;
+	/* Hide any residual UI; stderr is the pipe, not a console window. */
+	si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+	si.wShowWindow = SW_HIDE;
 	si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 	si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
 	si.hStdError = write_pipe;
 
 	PROCESS_INFORMATION pi;
 	memset(&pi, 0, sizeof(pi));
-	BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0u, NULL, NULL, &si, &pi);
+	/* CREATE_NO_WINDOW: no console flash for the deliberate crash child. */
+	BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
 	(void)CloseHandle(write_pipe);
 	if (ok == 0) {
 		(void)CloseHandle(read_pipe);
@@ -718,23 +758,53 @@ static i32 crash_test_spawn_trigger(const char* kind, char* output, u32 output_c
 	}
 
 	u32 total = 0u;
-	if (output_cap > 0u) {
-		u32 remaining = output_cap - 1u;
-		while (remaining > 0u) {
-			DWORD got = 0u;
-			if (ReadFile(read_pipe, output + total, remaining, &got, NULL) == 0 || got == 0u) {
-				break;
+	u32 remaining = (output_cap > 0u) ? (output_cap - 1u) : 0u;
+	const DWORD deadline = GetTickCount() + CRASH_TEST_SPAWN_TIMEOUT_MS;
+	int child_exited = 0;
+
+	for (;;) {
+		crash_test_drain_pipe(read_pipe, output, &total, &remaining);
+
+		DWORD wait = WaitForSingleObject(pi.hProcess, 50u);
+		if (wait == WAIT_OBJECT_0) {
+			child_exited = 1;
+			/* Final drain once the write end is closed by process exit. */
+			if (output_cap > 0u && remaining > 0u) {
+				for (;;) {
+					DWORD got = 0u;
+					if (ReadFile(read_pipe, output + total, remaining, &got, NULL) == 0 || got == 0u) {
+						break;
+					}
+					total += got;
+					remaining -= got;
+					if (remaining == 0u) {
+						break;
+					}
+				}
 			}
-			total += got;
-			remaining -= got;
+			break;
 		}
+
+		/* GetTickCount wrap-safe compare for the short test timeout window. */
+		if ((LONG)(GetTickCount() - deadline) >= 0) {
+			(void)TerminateProcess(pi.hProcess, 1u);
+			(void)WaitForSingleObject(pi.hProcess, 5000u);
+			crash_test_drain_pipe(read_pipe, output, &total, &remaining);
+			break;
+		}
+	}
+
+	if (output_cap > 0u) {
 		output[total] = '\0';
 	}
 	(void)CloseHandle(read_pipe);
 
-	(void)WaitForSingleObject(pi.hProcess, 15000u);
 	DWORD exit_code = 1u;
 	(void)GetExitCodeProcess(pi.hProcess, &exit_code);
+	/* If we had to kill a hung child, still report a non-zero exit for asserts. */
+	if (child_exited == 0 && exit_code == 0u) {
+		exit_code = 1u;
+	}
 	*out_exit = exit_code;
 	(void)CloseHandle(pi.hThread);
 	(void)CloseHandle(pi.hProcess);

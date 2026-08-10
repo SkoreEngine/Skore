@@ -34,6 +34,9 @@
 #endif
 #include <stdlib.h>
 #include <windows.h>
+#if defined(_MSC_VER)
+#include <crtdbg.h> /* _CrtSetReportMode — silence Debug CRT abort/assert UI */
+#endif
 
 #else /* POSIX */
 
@@ -127,6 +130,24 @@ int main(int argc, char* argv[]) {
 		print_usage(argc > 0 ? argv[0] : "sk-crash-trigger");
 		return 2;
 	}
+
+#if defined(_WIN32)
+	/*
+	 * Headless/CI: after the unhandled-exception filter prints and returns
+	 * EXCEPTION_CONTINUE_SEARCH, Windows (and the MSVC Debug CRT on abort)
+	 * may otherwise show a dialog or wait on WER and never exit. Suppress
+	 * those boxes so the process terminates and the parent pipe unblocks.
+	 */
+	(void)SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+#if defined(_MSC_VER)
+	(void)_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#if defined(_DEBUG)
+	(void)_CrtSetReportMode(_CRT_WARN, 0);
+	(void)_CrtSetReportMode(_CRT_ERROR, 0);
+	(void)_CrtSetReportMode(_CRT_ASSERT, 0);
+#endif
+#endif
+#endif
 
 	const char* kind = argv[1];
 	if (sk_crash_install() != 0) {
