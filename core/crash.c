@@ -137,7 +137,7 @@ static void crash_print_frames(void) {
 		crash_append_cstr("#");
 		crash_append_u64(i);
 		crash_append_cstr(" ");
-		crash_append_hex((u64)(uintptr_t)crash_frames[i].address);
+		crash_append_hex((u64)crash_frames[i].address);
 		crash_append_cstr("\n");
 		crash_flush_line();
 	}
@@ -480,7 +480,7 @@ static void crash_print_report(EXCEPTION_POINTERS* info) {
 	if ((code == 0xC0000005u || code == 0xC0000006u) && record->NumberParameters >= 2u) {
 		crash_reset_line();
 		crash_append_cstr("faulting address: ");
-		crash_append_hex((u64)record->ExceptionInformation[1]);
+		crash_append_hex(record->ExceptionInformation[1]);
 		crash_append_cstr("\n");
 		crash_flush_line();
 	}
