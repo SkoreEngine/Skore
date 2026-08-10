@@ -2,12 +2,14 @@
  * @file main.c
  * @brief Test host bootstrap only.
  *
- * 1. Run core + app in-process registry (linked sk-core-tests / sk-app-tests).
- * 2. Scan {exe_dir}/plugins (or argv[1] override), load each shared library,
+ * 1. Install the fatal-fault handler (stacktrace on signal / SEH).
+ * 2. Run core + app in-process registry (linked sk-core-tests / sk-app-tests).
+ * 3. Scan {exe_dir}/plugins (or argv[1] override), load each shared library,
  *    call sk_plugin_run_tests (plugin-local Unity).
  */
 
 #include "app.h"
+#include "crash.h"
 #include "filesystem.h"
 #include "path.h"
 #include "platform.h"
@@ -137,6 +139,12 @@ int main(int argc, char* argv[]) {
 	i32 status = 0;
 
 	memset(&total, 0, sizeof(total));
+
+	/* Process-wide crash reporting for host + plugin tests (same path as sk_app_init).
+	 * Refcounted so sk_app_destroy during individual tests does not strip it. */
+	if (sk_crash_install() != 0) {
+		printf("crash handler install failed (continuing without stacktraces on fault)\n");
+	}
 
 	/* Host registry (core + app objects compiled with SK_TESTS). */
 	if (run_host_tests(&total) != 0) {

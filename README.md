@@ -40,6 +40,16 @@ ctest --test-dir build --output-on-failure
 
 Release builds never compile test bodies into plugins.
 
+### Stacktrace and crash handler
+
+See **[docs/stacktrace.md](docs/stacktrace.md)** for the public API (`sk_stacktrace_*`, `sk_crash_install` / `sk_crash_uninstall`), required link flags (`-rdynamic` / export-dynamic, PDB, `dbghelp`), limitations, and sample output on Linux, macOS, and Windows.
+
+Under `BUILD_TESTING`, `sk-crash-trigger` deliberately raises each handled fault kind (child-process tests and local sample capture only — not shipped in production):
+
+```bash
+./build/bin/sk-crash-trigger null   # or: abort, fpe, ill, bus
+```
+
 ### Prerequisites
 
 All platforms need:
