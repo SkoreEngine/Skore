@@ -6,8 +6,6 @@
  *
  * Port of main-branch ResourceAssetHandler / ResourceAssetImporter as plain
  * structs: data fields plus one function pointer per former virtual method.
- * No runtime behavior lives here — registration, dispatch, and concrete
- * handlers land in later tasks.
  *
  * Concrete handlers/importers are static table instances registered on the
  * app context with multi-impl registration (not set_api):
@@ -15,8 +13,10 @@
  *   static sk_resource_asset_handler_t dcc_asset_handler = { ... };
  *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &dcc_asset_handler);
  *
- * Hosts enumerate with impl_count / get_all_impls and index by extension or
- * resource type. Importers use a separate type id.
+ * Hosts enumerate with sk_resource_asset_handler_count / get_all, resolve by
+ * extension or resource type id, and invoke methods through the null-safe
+ * sk_resource_asset_handler_* free functions (a NULL function pointer is a
+ * documented default / no-op — never a crash). Importers use a separate type id.
  *
  * Function pointers follow the multi-instance core pattern (sk_allocator_t,
  * sk_log_sink_t, sk_archive_writer_t): the first parameter is the table's
@@ -26,6 +26,7 @@
  * Standalone and includable from core and editor (and plugins).
  */
 
+#include "app.h"
 #include "common.h"
 #include "repository.h"
 #include "serialization.h"
@@ -78,6 +79,9 @@ typedef struct sk_resource_cook_context_t sk_resource_cook_context_t;
  *
  * Register with:
  *   app_api->add_impl(ctx, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, &handler);
+ *
+ * Resolve and invoke with sk_resource_asset_handler_find_by_extension and the
+ * null-safe sk_resource_asset_handler_* free functions below.
  */
 typedef struct sk_resource_asset_handler_t {
 	/** Opaque per-handler state; passed as the first argument to every fp. */
@@ -191,6 +195,162 @@ typedef struct sk_resource_asset_handler_t {
 	 */
 	i32 (*get_asset_name)(void_ptr_t user_data, sk_rid_t rid, char* out_name, u32 out_cap);
 } sk_resource_asset_handler_t;
+
+/* ------------------------------------------------------------------ */
+/*  Handler registry: enumerate / resolve over add_impl               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Number of asset handlers registered under SK_RESOURCE_ASSET_HANDLER_TYPE_ID.
+ * Thin wrapper over app_api->impl_count.
+ *
+ * @param context App context (must not be NULL).
+ * @param app_api App API table (must not be NULL).
+ * @return Registered handler count, or 0 when none.
+ */
+u32 sk_resource_asset_handler_count(sk_app_context_t* context, const sk_app_api_t* app_api);
+
+/**
+ * Copy up to @p out_cap handler pointers registered under
+ * SK_RESOURCE_ASSET_HANDLER_TYPE_ID into @p out and return the total count.
+ * Same contract as app_api->get_all_impls (out NULL / out_cap 0 is count-only;
+ * insertion order; swap-remove may reorder after remove_impl).
+ *
+ * @param context App context (must not be NULL).
+ * @param app_api App API table (must not be NULL).
+ * @param out     Destination buffer of handler pointers, or NULL.
+ * @param out_cap Capacity of @p out in elements.
+ * @return Total registered handler count (may exceed @p out_cap).
+ */
+u32 sk_resource_asset_handler_get_all(sk_app_context_t* context, const sk_app_api_t* app_api, const sk_resource_asset_handler_t** out, u32 out_cap);
+
+/**
+ * Resolve the first registered handler whose extension() equals @p extension
+ * (exact C-string match, including the leading dot). Handlers with a NULL
+ * extension function pointer are skipped.
+ *
+ * @param context   App context (must not be NULL).
+ * @param app_api   App API table (must not be NULL).
+ * @param extension Extension key (e.g. ".mesh"); must not be NULL.
+ * @return Matching handler, or NULL when none claim @p extension.
+ */
+const sk_resource_asset_handler_t* sk_resource_asset_handler_find_by_extension(sk_app_context_t* context, const sk_app_api_t* app_api, const_chr_t extension);
+
+/**
+ * Resolve the first registered handler whose get_resource_type_id() equals
+ * @p type_id. Handlers with a NULL get_resource_type_id function pointer are
+ * skipped. SK_TYPE_ID_ZERO never matches.
+ *
+ * @param context App context (must not be NULL).
+ * @param app_api App API table (must not be NULL).
+ * @param type_id Resource type id owned by the handler.
+ * @return Matching handler, or NULL when none claim @p type_id.
+ */
+const sk_resource_asset_handler_t* sk_resource_asset_handler_find_by_resource_type(sk_app_context_t* context, const sk_app_api_t* app_api, sk_type_id_t type_id);
+
+/* ------------------------------------------------------------------ */
+/*  Null-safe handler dispatch                                         */
+/* ------------------------------------------------------------------ */
+/*
+ * Each free function calls the matching function pointer on @p handler when
+ * non-NULL; a NULL fp uses the documented default and never dereferences a
+ * null function pointer. @p handler itself must not be NULL (caller contract).
+ */
+
+/**
+ * @param handler Handler table (must not be NULL).
+ * @return extension() result, or "" when the fp is NULL / returns NULL.
+ */
+const_chr_t sk_resource_asset_handler_extension(const sk_resource_asset_handler_t* handler);
+
+/**
+ * @param handler Handler table (must not be NULL).
+ * @param asset   Asset RID to open.
+ * No-op when open_asset is NULL.
+ */
+void sk_resource_asset_handler_open_asset(const sk_resource_asset_handler_t* handler, sk_rid_t asset);
+
+/**
+ * @param handler Handler table (must not be NULL).
+ * @return get_resource_type_id() result, or SK_TYPE_ID_ZERO when the fp is NULL.
+ */
+sk_type_id_t sk_resource_asset_handler_get_resource_type_id(const sk_resource_asset_handler_t* handler);
+
+/**
+ * @param handler Handler table (must not be NULL).
+ * @return get_desc() result, or "" when the fp is NULL / returns NULL.
+ */
+const_chr_t sk_resource_asset_handler_get_desc(const sk_resource_asset_handler_t* handler);
+
+/**
+ * @param handler       Handler table (must not be NULL).
+ * @param asset         Asset RID being loaded.
+ * @param absolute_path Absolute filesystem path (UTF-8).
+ * @return load() result, or SK_RID_ZERO when the fp is NULL.
+ */
+sk_rid_t sk_resource_asset_handler_load(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t absolute_path);
+
+/**
+ * @param handler       Handler table (must not be NULL).
+ * @param object        Object RID to save.
+ * @param absolute_path Absolute filesystem path (UTF-8).
+ * No-op when save is NULL.
+ */
+void sk_resource_asset_handler_save(const sk_resource_asset_handler_t* handler, sk_rid_t object, const_chr_t absolute_path);
+
+/**
+ * @param handler Handler table (must not be NULL).
+ * @param uuid    UUID for the new resource.
+ * @param scope   Optional undo/redo scope; NULL if unscoped.
+ * @return create() result, or SK_RID_ZERO when the fp is NULL.
+ */
+sk_rid_t sk_resource_asset_handler_create(const sk_resource_asset_handler_t* handler, sk_uuid_t uuid, sk_undo_redo_scope_t* scope);
+
+/**
+ * @param handler       Handler table (must not be NULL).
+ * @param asset         Asset RID that reloaded.
+ * @param absolute_path Absolute path of the changed file (UTF-8).
+ * No-op when reloaded is NULL.
+ */
+void sk_resource_asset_handler_reloaded(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t absolute_path);
+
+/**
+ * @param handler           Handler table (must not be NULL).
+ * @param asset             Asset RID that moved.
+ * @param old_absolute_path Previous absolute path (UTF-8).
+ * @param new_absolute_path New absolute path (UTF-8).
+ * No-op when after_move is NULL.
+ */
+void sk_resource_asset_handler_after_move(const sk_resource_asset_handler_t* handler, sk_rid_t asset, const_chr_t old_absolute_path, const_chr_t new_absolute_path);
+
+/**
+ * @param handler Handler table (must not be NULL).
+ * @param object  Object RID to export.
+ * @param writer  Archive writer table.
+ * No-op when export_object is NULL.
+ */
+void sk_resource_asset_handler_export_object(const sk_resource_asset_handler_t* handler, sk_rid_t object, sk_archive_writer_t* writer);
+
+/**
+ * @param handler Handler table (must not be NULL).
+ * @return get_icon() result, or "" when the fp is NULL / returns NULL.
+ */
+const_chr_t sk_resource_asset_handler_get_icon(const sk_resource_asset_handler_t* handler);
+
+/**
+ * @param handler Handler table (must not be NULL).
+ * @return get_load_order() result, or 0x7fffffff (INT32_MAX) when the fp is NULL.
+ */
+i32 sk_resource_asset_handler_get_load_order(const sk_resource_asset_handler_t* handler);
+
+/**
+ * @param handler  Handler table (must not be NULL).
+ * @param rid      Asset or object RID.
+ * @param out_name Caller buffer for the name (may be NULL when only probing).
+ * @param out_cap  Capacity of @p out_name in bytes (including NUL).
+ * @return get_asset_name() result, or 0 when the fp is NULL.
+ */
+i32 sk_resource_asset_handler_get_asset_name(const sk_resource_asset_handler_t* handler, sk_rid_t rid, char* out_name, u32 out_cap);
 
 /* ------------------------------------------------------------------ */
 /*  Importer                                                           */
