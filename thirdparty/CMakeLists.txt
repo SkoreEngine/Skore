@@ -3,6 +3,7 @@
 
 add_subdirectory(unity)
 add_subdirectory(mimalloc)
+add_subdirectory(yyjson)
 
 # GLFW 3.4 (window / input). Static + PIC for shared plugins.
 include(${CMAKE_CURRENT_SOURCE_DIR}/glfw/skore_glfw.cmake)
