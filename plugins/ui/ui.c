@@ -128,6 +128,7 @@ static void ui_slot_init_empty(ui_node_slot_t* slot, const sk_allocator_t* a) {
 	slot->user_data_type = SK_TYPE_ID_ZERO;
 	ui_layout_style_init_default(&slot->layout_style);
 	ui_node_style_init(slot, a);
+	ui_input_node_defaults(slot, SK_UI_NODE_KIND_BOX);
 }
 
 static void ui_slot_release_contents(sk_ui_context_t* ctx, ui_node_slot_t* slot) {
@@ -236,6 +237,7 @@ static sk_ui_node_t ui_alloc_node(sk_ui_context_t* ctx, sk_ui_node_kind_t kind) 
 	slot->id = NULL;
 	slot->user_data = NULL;
 	slot->user_data_type = SK_TYPE_ID_ZERO;
+	ui_input_node_defaults(slot, kind);
 
 	handle.index = index;
 	handle.generation = generation;
@@ -255,6 +257,9 @@ static void ui_free_node_recursive(sk_ui_context_t* ctx, sk_ui_node_t node) {
 	if (slot == NULL) {
 		return;
 	}
+
+	/* Drop hover/active/focus/capture before the handle becomes stale. */
+	ui_input_on_node_destroy(ctx, node);
 
 	/* Snapshot children first — recursive free mutates the tree. */
 	child_count = slot->children.count;
@@ -315,6 +320,15 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	ctx->allocator = a;
 	ctx->content_scale_x = 1.0f;
 	ctx->content_scale_y = 1.0f;
+	ctx->hover = SK_UI_NODE_INVALID;
+	ctx->active = SK_UI_NODE_INVALID;
+	ctx->focus = SK_UI_NODE_INVALID;
+	ctx->pointer_capture = SK_UI_NODE_INVALID;
+	ctx->pointer_x = 0.0f;
+	ctx->pointer_y = 0.0f;
+	ctx->pointer_buttons = 0u;
+	ctx->wants_mouse = 0;
+	ctx->wants_keyboard = 0;
 	sk_array_init(&ctx->slots, a);
 	sk_array_init(&ctx->freelist, a);
 	if (sk_hash_map_init(&ctx->id_map, a, sk_hash_cstr, sk_equals_cstr) != 0) {
@@ -1271,6 +1285,24 @@ static const sk_ui_api_t ui_api = {
 	ui_node_get_state_impl,
 	ui_node_get_computed_style_impl,
 	ui_style_resolve_impl,
+	ui_hit_test_impl,
+	ui_node_get_abs_rect_impl,
+	ui_node_set_callbacks_impl,
+	ui_node_get_callbacks_impl,
+	ui_node_set_clip_children_impl,
+	ui_node_get_clip_children_impl,
+	ui_node_set_pointer_events_impl,
+	ui_node_get_pointer_events_impl,
+	ui_node_set_focusable_impl,
+	ui_node_get_focusable_impl,
+	ui_focus_set_impl,
+	ui_focus_get_impl,
+	ui_focus_advance_impl,
+	ui_input_dispatch_impl,
+	ui_pointer_capture_get_impl,
+	ui_pointer_capture_set_impl,
+	ui_wants_mouse_impl,
+	ui_wants_keyboard_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {

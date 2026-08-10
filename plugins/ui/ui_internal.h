@@ -86,6 +86,12 @@ typedef struct ui_node_slot_t {
 	sk_ui_rect_t layout_content; /**< Content box relative to parent content origin. */
 	sk_ui_rect_t layout_border_scaled;
 	sk_ui_rect_t layout_content_scaled;
+
+	/* Interaction */
+	u8 focusable;
+	u8 clip_children;  /**< Non-zero: clip hit-test (and later paint) to content box. */
+	u8 pointer_events; /**< sk_ui_pointer_events_t */
+	sk_ui_node_callbacks_t callbacks;
 } ui_node_slot_t;
 
 typedef SK_ARRAY(ui_node_slot_t) ui_slot_array_t;
@@ -113,6 +119,17 @@ struct sk_ui_context_t {
 	f32 root_height;
 	f32 content_scale_x;
 	f32 content_scale_y;
+
+	/* Input routing state (logical units) */
+	sk_ui_node_t hover;
+	sk_ui_node_t active; /**< Pointer-down target while button held. */
+	sk_ui_node_t focus;
+	sk_ui_node_t pointer_capture;
+	f32 pointer_x;
+	f32 pointer_y;
+	u32 pointer_buttons; /**< Bit i set if button i is down. */
+	i32 wants_mouse;
+	i32 wants_keyboard;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -171,6 +188,35 @@ i32 ui_node_set_state_impl(sk_ui_context_t* ctx, sk_ui_node_t node, u32 state_fl
 u32 ui_node_get_state_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_node_get_computed_style_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_computed_style_t* out);
 i32 ui_style_resolve_impl(sk_ui_context_t* ctx);
+
+/* -------------------------------------------------------------------------- */
+/* Input / hit-test / focus (input.c)                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Clear hover/active/focus/capture if they reference @p node (node is dying). */
+void ui_input_on_node_destroy(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+/** Default interaction flags for a newly allocated node of @p kind. */
+void ui_input_node_defaults(ui_node_slot_t* slot, sk_ui_node_kind_t kind);
+
+sk_ui_node_t ui_hit_test_impl(const sk_ui_context_t* ctx, f32 x, f32 y);
+i32 ui_node_get_abs_rect_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content);
+i32 ui_node_set_callbacks_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const sk_ui_node_callbacks_t* callbacks);
+i32 ui_node_get_callbacks_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_callbacks_t* out);
+i32 ui_node_set_clip_children_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 clip);
+i32 ui_node_get_clip_children_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_node_set_pointer_events_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_pointer_events_t mode);
+sk_ui_pointer_events_t ui_node_get_pointer_events_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_node_set_focusable_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 focusable);
+i32 ui_node_get_focusable_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_focus_set_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+sk_ui_node_t ui_focus_get_impl(const sk_ui_context_t* ctx);
+i32 ui_focus_advance_impl(sk_ui_context_t* ctx, i32 reverse);
+i32 ui_input_dispatch_impl(sk_ui_context_t* ctx, const sk_ui_input_event_t* event);
+sk_ui_node_t ui_pointer_capture_get_impl(const sk_ui_context_t* ctx);
+i32 ui_pointer_capture_set_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_wants_mouse_impl(const sk_ui_context_t* ctx);
+i32 ui_wants_keyboard_impl(const sk_ui_context_t* ctx);
 
 /** Process-local API table (for in-plugin unit tests). */
 const sk_ui_api_t* ui_get_api_table(void);

@@ -412,6 +412,168 @@ typedef i32 (*sk_ui_traverse_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, u32 de
 typedef void (*sk_ui_measure_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, const sk_ui_measure_constraint_t* constraints, sk_ui_size_t* out_size, void_ptr_t user);
 
 /* ------------------------------------------------------------------ */
+/*  Input / events (synthetic-first routing core)                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Routed event kinds delivered to node callbacks after hit-test / focus
+ * resolution. Synthetic platform events (see sk_ui_input_event_t) are a
+ * separate ingress shape; routing expands them into these.
+ */
+typedef enum sk_ui_event_type_t {
+	SK_UI_EVENT_POINTER_ENTER = 0,
+	SK_UI_EVENT_POINTER_LEAVE = 1,
+	SK_UI_EVENT_POINTER_MOVE = 2,
+	SK_UI_EVENT_POINTER_DOWN = 3,
+	SK_UI_EVENT_POINTER_UP = 4,
+	SK_UI_EVENT_CLICK = 5,
+	SK_UI_EVENT_WHEEL = 6,
+	SK_UI_EVENT_KEY_DOWN = 7,
+	SK_UI_EVENT_KEY_UP = 8,
+	SK_UI_EVENT_TEXT_INPUT = 9,
+	SK_UI_EVENT_FOCUS_IN = 10,
+	SK_UI_EVENT_FOCUS_OUT = 11,
+} sk_ui_event_type_t;
+
+/**
+ * Propagation phase. Capture walks root → target parent, target is the hit
+ * node, bubble walks target parent → root. Set event->consumed to stop.
+ */
+typedef enum sk_ui_event_phase_t {
+	SK_UI_EVENT_PHASE_CAPTURE = 0,
+	SK_UI_EVENT_PHASE_TARGET = 1,
+	SK_UI_EVENT_PHASE_BUBBLE = 2,
+} sk_ui_event_phase_t;
+
+/** Pointer button indices for sk_ui_event_t / sk_ui_input_event_t. */
+typedef enum sk_ui_pointer_button_t {
+	SK_UI_POINTER_BUTTON_LEFT = 0,
+	SK_UI_POINTER_BUTTON_RIGHT = 1,
+	SK_UI_POINTER_BUTTON_MIDDLE = 2,
+} sk_ui_pointer_button_t;
+
+/** Modifier bit flags for keyboard / pointer events. */
+typedef enum sk_ui_mod_flags_t {
+	SK_UI_MOD_NONE = 0,
+	SK_UI_MOD_SHIFT = 1u << 0,
+	SK_UI_MOD_CTRL = 1u << 1,
+	SK_UI_MOD_ALT = 1u << 2,
+	SK_UI_MOD_SUPER = 1u << 3,
+} sk_ui_mod_flags_t;
+
+/**
+ * Well-known key codes for focus traversal and common controls.
+ * Other keys may use any positive host-defined code; TAB is required for
+ * focus_advance via key events.
+ */
+typedef enum sk_ui_key_t {
+	SK_UI_KEY_UNKNOWN = 0,
+	SK_UI_KEY_TAB = 9,
+	SK_UI_KEY_ENTER = 13,
+	SK_UI_KEY_ESCAPE = 27,
+	SK_UI_KEY_SPACE = 32,
+	SK_UI_KEY_BACKSPACE = 8,
+	SK_UI_KEY_DELETE = 127,
+	SK_UI_KEY_LEFT = 1000,
+	SK_UI_KEY_RIGHT = 1001,
+	SK_UI_KEY_UP = 1002,
+	SK_UI_KEY_DOWN = 1003,
+	SK_UI_KEY_HOME = 1004,
+	SK_UI_KEY_END = 1005,
+} sk_ui_key_t;
+
+/**
+ * Whether a node participates as a pointer hit target.
+ * NONE: skip this node as a target but still test its children (CSS-like).
+ */
+typedef enum sk_ui_pointer_events_t {
+	SK_UI_POINTER_EVENTS_AUTO = 0,
+	SK_UI_POINTER_EVENTS_NONE = 1,
+} sk_ui_pointer_events_t;
+
+/**
+ * Platform / tester ingress event (raw input). Not the same as the routed
+ * sk_ui_event_t delivered to callbacks — input_dispatch expands these into
+ * enter/leave/move/down/up/click/key/text/focus sequences.
+ *
+ * This is the real host and UI-tester API (not a test-only path).
+ */
+typedef enum sk_ui_input_kind_t {
+	SK_UI_INPUT_POINTER_MOVE = 0,
+	SK_UI_INPUT_POINTER_BUTTON = 1,
+	SK_UI_INPUT_WHEEL = 2,
+	SK_UI_INPUT_KEY = 3,
+	SK_UI_INPUT_TEXT = 4,
+} sk_ui_input_kind_t;
+
+typedef struct sk_ui_input_event_t {
+	sk_ui_input_kind_t kind;
+	f32 x;			  /**< Logical pointer x (layout space). */
+	f32 y;			  /**< Logical pointer y (layout space). */
+	f32 scroll_x;	  /**< Wheel: horizontal ticks/pixels. */
+	f32 scroll_y;	  /**< Wheel: vertical ticks/pixels. */
+	i32 button;		  /**< sk_ui_pointer_button_t for POINTER_BUTTON. */
+	i32 down;		  /**< 1 = pressed, 0 = released (button or key). */
+	i32 key;		  /**< sk_ui_key_t or host code for KEY. */
+	u32 mods;		  /**< sk_ui_mod_flags_t bits. */
+	i32 repeat;		  /**< Non-zero if key auto-repeat. */
+	const_chr_t text; /**< UTF-8 for TEXT; non-owning, valid for the dispatch call. */
+} sk_ui_input_event_t;
+
+/**
+ * Routed event seen by node callbacks. Mutate @p consumed to stop further
+ * capture/target/bubble delivery for this event.
+ */
+typedef struct sk_ui_event_t {
+	sk_ui_event_type_t type;
+	sk_ui_event_phase_t phase;
+	sk_ui_node_t target;  /**< Original hit / focus / capture target. */
+	sk_ui_node_t current; /**< Node whose callback is running. */
+	f32 x;
+	f32 y;
+	f32 scroll_x;
+	f32 scroll_y;
+	i32 button;
+	i32 key;
+	u32 mods;
+	i32 down;
+	i32 repeat;
+	const_chr_t text; /**< Non-owning; valid only during the callback. */
+	i32 consumed;	  /**< Set non-zero to stop propagation. */
+} sk_ui_event_t;
+
+/**
+ * Event callback. May set event->consumed to stop remaining phases/nodes.
+ * @param ctx   UI context.
+ * @param node  Node that owns this callback (same as event->current).
+ * @param event Mutable event (phase/current update between calls).
+ * @param user  User pointer from sk_ui_node_callbacks_t.
+ */
+typedef void (*sk_ui_event_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user);
+
+/**
+ * Typed + generic callbacks on a node. NULL entries are skipped.
+ * on_event is invoked for every event type after the typed handler (if any),
+ * still subject to consumption from the typed handler.
+ */
+typedef struct sk_ui_node_callbacks_t {
+	sk_ui_event_fn on_event;
+	sk_ui_event_fn on_pointer_enter;
+	sk_ui_event_fn on_pointer_leave;
+	sk_ui_event_fn on_pointer_move;
+	sk_ui_event_fn on_pointer_down;
+	sk_ui_event_fn on_pointer_up;
+	sk_ui_event_fn on_click;
+	sk_ui_event_fn on_wheel;
+	sk_ui_event_fn on_key_down;
+	sk_ui_event_fn on_key_up;
+	sk_ui_event_fn on_text_input;
+	sk_ui_event_fn on_focus_in;
+	sk_ui_event_fn on_focus_out;
+	void_ptr_t user;
+} sk_ui_node_callbacks_t;
+
+/* ------------------------------------------------------------------ */
 /*  Module API                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -839,6 +1001,115 @@ typedef struct sk_ui_api_t {
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*style_resolve)(sk_ui_context_t* ctx);
+
+	/* ---- input routing / hit testing / focus (synthetic-first) ---- */
+
+	/**
+	 * Top-most node under logical point (x,y) after layout.
+	 * Later siblings are above earlier ones (paint / z order).
+	 * Honors clip-children regions: a point outside an ancestor clip never
+	 * hits that ancestor's descendants. pointer-events:none skips a node as
+	 * a target but still tests its children. Disabled nodes are not targets.
+	 * @return Hit node, or SK_UI_NODE_INVALID if nothing is hit.
+	 */
+	sk_ui_node_t (*hit_test)(const sk_ui_context_t* ctx, f32 x, f32 y);
+
+	/**
+	 * Absolute border-box of @p node in the same logical space as hit_test
+	 * (root content origin = layout root). Either out may be NULL.
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_get_abs_rect)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content);
+
+	/**
+	 * Install typed + generic event callbacks on @p node (copied by value).
+	 * Pass NULL to clear all handlers. user is shared by every callback.
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_set_callbacks)(sk_ui_context_t* ctx, sk_ui_node_t node, const sk_ui_node_callbacks_t* callbacks);
+
+	/**
+	 * Copy current callbacks into @p out (may be NULL to only probe aliveness).
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_get_callbacks)(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_node_callbacks_t* out);
+
+	/**
+	 * When non-zero, descendants outside this node's content box are not
+	 * hit-testable (and later paint will scissor). Marks layout dirty.
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_set_clip_children)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 clip);
+
+	/** Non-zero if @p node clips children (0 if dead). */
+	i32 (*node_get_clip_children)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Set pointer-events mode (AUTO participates as a hit target; NONE skips
+	 * self but still walks children). @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_set_pointer_events)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_pointer_events_t mode);
+
+	/** Current pointer-events mode (AUTO if dead). */
+	sk_ui_pointer_events_t (*node_get_pointer_events)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Mark @p node focusable for tab order and focus_set. Buttons default
+	 * focusable when created; other kinds default non-focusable.
+	 * @return 0 on success, non-zero if dead.
+	 */
+	i32 (*node_set_focusable)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 focusable);
+
+	/** Non-zero if @p node is focusable (0 if dead). */
+	i32 (*node_get_focusable)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Move keyboard focus to @p node (must be focusable and not disabled).
+	 * Pass SK_UI_NODE_INVALID to clear focus. Dispatches FOCUS_OUT / FOCUS_IN
+	 * and updates SK_UI_STATE_FOCUSED.
+	 * @return 0 on success, non-zero if node is dead / not focusable / disabled.
+	 */
+	i32 (*focus_set)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Current focused node, or SK_UI_NODE_INVALID. */
+	sk_ui_node_t (*focus_get)(const sk_ui_context_t* ctx);
+
+	/**
+	 * Advance focus to the next (or previous if @p reverse) focusable node in
+	 * tree preorder tab order, wrapping at the ends. No-op if none focusable.
+	 * @return 0 on success (including no-op), non-zero on failure.
+	 */
+	i32 (*focus_advance)(sk_ui_context_t* ctx, i32 reverse);
+
+	/**
+	 * Inject one synthetic (or platform-translated) input event and route it
+	 * immediately. This is the canonical ingress for hosts and the future UI
+	 * tester — not a test-only hook. Coordinates are logical units matching
+	 * layout(). Side effects: hover enter/leave, pointer capture, active/
+	 * hover state flags, click synthesis, tab focus traversal, wants_* flags.
+	 * @return 0 on success, non-zero on failure (e.g. bad kind).
+	 */
+	i32 (*input_dispatch)(sk_ui_context_t* ctx, const sk_ui_input_event_t* event);
+
+	/** Node currently capturing the pointer (drag), or SK_UI_NODE_INVALID. */
+	sk_ui_node_t (*pointer_capture_get)(const sk_ui_context_t* ctx);
+
+	/**
+	 * Force pointer capture to @p node (or clear with SK_UI_NODE_INVALID).
+	 * Normally set automatically on pointer down. @return 0 on success.
+	 */
+	i32 (*pointer_capture_set)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Non-zero if the last input_dispatch indicated the UI wants mouse input
+	 * (hit a node, has capture, or is mid-drag). Hosts skip gameplay mouse.
+	 */
+	i32 (*wants_mouse)(const sk_ui_context_t* ctx);
+
+	/**
+	 * Non-zero if a focusable node holds focus (UI wants keyboard / text).
+	 */
+	i32 (*wants_keyboard)(const sk_ui_context_t* ctx);
 } sk_ui_api_t;
 
 /**
