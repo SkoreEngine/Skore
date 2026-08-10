@@ -632,6 +632,8 @@ void sk_crash_uninstall(void) {
 #ifdef SK_TESTS
 #include "test.h"
 
+#include <stdio.h>
+
 SK_TEST(crash_install_uninstall_idempotent) {
 	TEST_ASSERT_EQUAL_INT(0, sk_crash_install());
 	TEST_ASSERT_EQUAL_INT(0, sk_crash_install());
@@ -641,12 +643,149 @@ SK_TEST(crash_install_uninstall_idempotent) {
 	sk_crash_uninstall();
 }
 
+/*
+ * Child-process crash integration via the BUILD_TESTING-only sk-crash-trigger
+ * tool. Asserts the report header and at least one numbered raw-address frame
+ * (the handler never symbolizes: dladdr/DbgHelp are not fault-safe). Symbol
+ * checks live in stacktrace.c and skip cleanly when the toolchain cannot
+ * symbolize (stripped binaries, missing PDB).
+ */
+
+/** Capacity of the stderr capture buffer for child crash reports. */
+#define CRASH_TEST_OUTPUT_CAP 8192u
+
+/**
+ * Assert the shared crash-report shape: banner, thread id, raw-address
+ * stacktrace header, and at least one numbered frame (#0 0x…).
+ */
+static void crash_test_assert_report_shape(const char* output) {
+	TEST_ASSERT_NOT_NULL(strstr(output, "=== skore crash handler ==="));
+	TEST_ASSERT_NOT_NULL(strstr(output, "thread id"));
+	TEST_ASSERT_NOT_NULL(strstr(output, "stacktrace (raw addresses)"));
+	TEST_ASSERT_NOT_NULL(strstr(output, "#0 0x"));
+}
+
 #if defined(_WIN32)
 
 SK_TEST(crash_windows_exception_name_lookup) {
 	TEST_ASSERT_EQUAL_STRING("ACCESS_VIOLATION", crash_exception_name(0xC0000005u));
 	TEST_ASSERT_EQUAL_STRING("STACK_OVERFLOW", crash_exception_name(0xC00000FDu));
 	TEST_ASSERT_NULL(crash_exception_name(0x12345678u));
+}
+
+/**
+ * Spawn sk-crash-trigger.exe with @p kind, capture stderr, return exit code
+ * via @p out_exit (STILL_ACTIVE-style process exit). Returns 0 on spawn/wait
+ * success, -1 when the tool is missing or CreateProcess fails (caller skips).
+ */
+static i32 crash_test_spawn_trigger(const char* kind, char* output, u32 output_cap, DWORD* out_exit) {
+	SECURITY_ATTRIBUTES sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.nLength = (DWORD)sizeof(sa);
+	sa.bInheritHandle = TRUE;
+
+	HANDLE read_pipe = NULL;
+	HANDLE write_pipe = NULL;
+	if (CreatePipe(&read_pipe, &write_pipe, &sa, 0u) == 0) {
+		return -1;
+	}
+	/* Parent keeps the read end private. */
+	(void)SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0u);
+
+	char cmdline[256];
+	int n = snprintf(cmdline, sizeof(cmdline), "sk-crash-trigger.exe %s", kind);
+	if (n <= 0 || (u32)n >= (u32)sizeof(cmdline)) {
+		(void)CloseHandle(read_pipe);
+		(void)CloseHandle(write_pipe);
+		return -1;
+	}
+
+	STARTUPINFOA si;
+	memset(&si, 0, sizeof(si));
+	si.cb = (DWORD)sizeof(si);
+	si.dwFlags = STARTF_USESTDHANDLES;
+	si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+	si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+	si.hStdError = write_pipe;
+
+	PROCESS_INFORMATION pi;
+	memset(&pi, 0, sizeof(pi));
+	BOOL ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0u, NULL, NULL, &si, &pi);
+	(void)CloseHandle(write_pipe);
+	if (ok == 0) {
+		(void)CloseHandle(read_pipe);
+		return -1;
+	}
+
+	u32 total = 0u;
+	if (output_cap > 0u) {
+		u32 remaining = output_cap - 1u;
+		while (remaining > 0u) {
+			DWORD got = 0u;
+			if (ReadFile(read_pipe, output + total, remaining, &got, NULL) == 0 || got == 0u) {
+				break;
+			}
+			total += got;
+			remaining -= got;
+		}
+		output[total] = '\0';
+	}
+	(void)CloseHandle(read_pipe);
+
+	(void)WaitForSingleObject(pi.hProcess, 15000u);
+	DWORD exit_code = 1u;
+	(void)GetExitCodeProcess(pi.hProcess, &exit_code);
+	*out_exit = exit_code;
+	(void)CloseHandle(pi.hThread);
+	(void)CloseHandle(pi.hProcess);
+	return 0;
+}
+
+/** Run one kind; skip the whole test when the trigger tool is not on PATH/cwd. */
+static void crash_test_windows_kind(const char* kind, const char* expected_token) {
+	char output[CRASH_TEST_OUTPUT_CAP];
+	DWORD exit_code = 0u;
+	if (crash_test_spawn_trigger(kind, output, (u32)sizeof(output), &exit_code) != 0) {
+		TEST_IGNORE_MESSAGE("sk-crash-trigger.exe not available (cwd must be build/bin)");
+		return;
+	}
+	/* Unhandled exceptions typically exit with the exception code; abort is 3. */
+	TEST_ASSERT_TRUE(exit_code != 0u);
+	crash_test_assert_report_shape(output);
+	TEST_ASSERT_NOT_NULL(strstr(output, expected_token));
+}
+
+SK_TEST(crash_windows_null_prints_stacktrace) {
+	crash_test_windows_kind("null", "ACCESS_VIOLATION");
+	/* Null deref reports a faulting address on ACCESS_VIOLATION. */
+	char output[CRASH_TEST_OUTPUT_CAP];
+	DWORD exit_code = 0u;
+	if (crash_test_spawn_trigger("null", output, (u32)sizeof(output), &exit_code) == 0) {
+		TEST_ASSERT_NOT_NULL(strstr(output, "faulting address"));
+	}
+}
+
+SK_TEST(crash_windows_abort_terminates) {
+	/* abort() terminates via the CRT and does not always pass through the
+	 * unhandled-exception filter, so a full crash report is best-effort only. */
+	char output[CRASH_TEST_OUTPUT_CAP];
+	DWORD exit_code = 0u;
+	if (crash_test_spawn_trigger("abort", output, (u32)sizeof(output), &exit_code) != 0) {
+		TEST_IGNORE_MESSAGE("sk-crash-trigger.exe not available (cwd must be build/bin)");
+		return;
+	}
+	TEST_ASSERT_TRUE(exit_code != 0u);
+	if (strstr(output, "=== skore crash handler ===") != NULL) {
+		crash_test_assert_report_shape(output);
+	}
+}
+
+SK_TEST(crash_windows_fpe_prints_stacktrace) {
+	crash_test_windows_kind("fpe", "INTEGER_DIVIDE_BY_ZERO");
+}
+
+SK_TEST(crash_windows_ill_prints_stacktrace) {
+	crash_test_windows_kind("ill", "ILLEGAL_INSTRUCTION");
 }
 
 #else /* POSIX */
@@ -658,39 +797,139 @@ SK_TEST(crash_posix_signal_name_lookup) {
 	TEST_ASSERT_NULL(crash_signal_code_name(SIGSEGV, 12345));
 }
 
-/*
- * Integration: a child process deliberately null-dereferences with the crash
- * handler installed; the parent checks that a numbered raw-address stacktrace
- * was printed to stderr and that the child died of SIGSEGV (correct status).
- */
-#if !defined(_WIN32)
-
 #include <sys/resource.h> /* setrlimit */
 #include <sys/wait.h>	  /* waitpid, WIFSIGNALED */
+#include <unistd.h>		  /* fork, pipe, read, close, _exit */
 
+/**
+ * Spawn ./sk-crash-trigger @p kind, capture stderr into @p output.
+ * @return 0 on success, -1 when the tool is missing (ENOENT) so the test can skip.
+ */
+static i32 crash_test_spawn_trigger(const char* kind, char* output, u32 output_cap, int* out_status) {
+	int pipe_fds[2];
+	if (pipe(pipe_fds) != 0) {
+		return -1;
+	}
+
+	pid_t pid = fork();
+	if (pid < 0) {
+		(void)close(pipe_fds[0]);
+		(void)close(pipe_fds[1]);
+		return -1;
+	}
+	if (pid == 0) {
+		(void)dup2(pipe_fds[1], STDERR_FILENO);
+		(void)close(pipe_fds[0]);
+		(void)close(pipe_fds[1]);
+
+		/* Suppress core files from deliberate crashes in CI. */
+		struct rlimit limit;
+		limit.rlim_cur = 0;
+		limit.rlim_max = 0;
+		(void)setrlimit(RLIMIT_CORE, &limit);
+
+		/* Replace the child image with the trigger tool (handler installed inside). */
+		execl("./sk-crash-trigger", "sk-crash-trigger", kind, (char*)NULL);
+		/* If exec fails, report errno on stderr then exit. */
+		_exit(127);
+	}
+
+	(void)close(pipe_fds[1]);
+
+	u32 total = 0u;
+	if (output_cap > 0u) {
+		size_t remaining = (size_t)(output_cap - 1u);
+		while (remaining > 0u) {
+			ssize_t n = read(pipe_fds[0], output + total, remaining);
+			if (n <= 0) {
+				break;
+			}
+			u32 got = (u32)n;
+			total += got;
+			remaining -= (size_t)got;
+		}
+		output[total] = '\0';
+	}
+	(void)close(pipe_fds[0]);
+
+	int status = 0;
+	if (waitpid(pid, &status, 0) != pid) {
+		return -1;
+	}
+	*out_status = status;
+
+	/* execl failed: child exited 127 with empty/minimal stderr. */
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+		return -1;
+	}
+	return 0;
+}
+
+/** Assert signal death with @p expected_sig and the shared report shape + token. */
+static void crash_test_posix_kind(const char* kind, int expected_sig, const char* expected_token) {
+	char output[CRASH_TEST_OUTPUT_CAP];
+	int status = 0;
+	if (crash_test_spawn_trigger(kind, output, (u32)sizeof(output), &status) != 0) {
+		TEST_IGNORE_MESSAGE("sk-crash-trigger not available (cwd must be build/bin)");
+		return;
+	}
+	TEST_ASSERT_TRUE(WIFSIGNALED(status));
+	TEST_ASSERT_EQUAL_INT(expected_sig, WTERMSIG(status));
+	crash_test_assert_report_shape(output);
+	TEST_ASSERT_NOT_NULL(strstr(output, expected_token));
+}
+
+SK_TEST(crash_posix_null_prints_stacktrace_and_signal_death) {
+	crash_test_posix_kind("null", SIGSEGV, "SIGSEGV");
+	char output[CRASH_TEST_OUTPUT_CAP];
+	int status = 0;
+	if (crash_test_spawn_trigger("null", output, (u32)sizeof(output), &status) == 0) {
+		TEST_ASSERT_NOT_NULL(strstr(output, "faulting address"));
+		/* At least a few frames so the walk is non-trivial. */
+		TEST_ASSERT_NOT_NULL(strstr(output, "#2 0x"));
+	}
+}
+
+SK_TEST(crash_posix_abort_prints_stacktrace_and_signal_death) {
+	crash_test_posix_kind("abort", SIGABRT, "SIGABRT");
+}
+
+SK_TEST(crash_posix_fpe_prints_stacktrace_and_signal_death) {
+	crash_test_posix_kind("fpe", SIGFPE, "SIGFPE");
+}
+
+SK_TEST(crash_posix_ill_prints_stacktrace_and_signal_death) {
+	crash_test_posix_kind("ill", SIGILL, "SIGILL");
+}
+
+SK_TEST(crash_posix_bus_prints_stacktrace_and_signal_death) {
+	crash_test_posix_kind("bus", SIGBUS, "SIGBUS");
+}
+
+/*
+ * In-process fork path (no external binary): keeps a self-contained SEGV
+ * regression even if sk-crash-trigger is not linked into the test package.
+ */
 #if defined(__GNUC__) || defined(__clang__)
 #define CRASH_TEST_NOINLINE __attribute__((noinline))
 #else
 #define CRASH_TEST_NOINLINE
 #endif
 
-/** Dereference @p addr; callers pass NULL to force a segmentation fault. */
 CRASH_TEST_NOINLINE
 static void crash_test_fault_at(const volatile u64* addr) {
 	(void)*addr;
 }
 
-/** Volatile NULL target: the optimizer cannot constprop the dereference. */
 static u64* volatile crash_test_null_target;
 
-SK_TEST(crash_posix_null_deref_prints_stacktrace_and_signal_death) {
+SK_TEST(crash_posix_inline_null_deref_prints_stacktrace) {
 	int pipe_fds[2];
 	TEST_ASSERT_EQUAL_INT(0, pipe(pipe_fds));
 
 	pid_t pid = fork();
 	TEST_ASSERT_TRUE(pid >= 0);
 	if (pid == 0) {
-		/* Child: install the handler, redirect stderr into the pipe, crash. */
 		(void)dup2(pipe_fds[1], STDERR_FILENO);
 		(void)close(pipe_fds[0]);
 		(void)close(pipe_fds[1]);
@@ -703,12 +942,12 @@ SK_TEST(crash_posix_null_deref_prints_stacktrace_and_signal_death) {
 		(void)sk_crash_install();
 		crash_test_null_target = NULL;
 		crash_test_fault_at(crash_test_null_target);
-		_exit(0); /* unreachable */
+		_exit(0);
 	}
 
 	(void)close(pipe_fds[1]);
 
-	char output[8192];
+	char output[CRASH_TEST_OUTPUT_CAP];
 	size_t remaining = sizeof(output) - 1u;
 	u32 total = 0u;
 	while (remaining > 0u) {
@@ -724,20 +963,13 @@ SK_TEST(crash_posix_null_deref_prints_stacktrace_and_signal_death) {
 	(void)close(pipe_fds[0]);
 
 	int status = 0;
-	pid_t waited = waitpid(pid, &status, 0);
-	TEST_ASSERT_TRUE(waited == pid);
+	TEST_ASSERT_TRUE(waitpid(pid, &status, 0) == pid);
 	TEST_ASSERT_TRUE(WIFSIGNALED(status));
 	TEST_ASSERT_EQUAL_INT(SIGSEGV, WTERMSIG(status));
-
-	/* The report names the signal and prints a numbered frame list. */
+	crash_test_assert_report_shape(output);
 	TEST_ASSERT_NOT_NULL(strstr(output, "SIGSEGV"));
-	TEST_ASSERT_NOT_NULL(strstr(output, "thread id"));
 	TEST_ASSERT_NOT_NULL(strstr(output, "faulting address"));
-	TEST_ASSERT_NOT_NULL(strstr(output, "#0 0x"));
-	TEST_ASSERT_NOT_NULL(strstr(output, "#2 0x"));
 }
 
-#endif /* !defined(_WIN32) */
-
-#endif /* POSIX test section */
+#endif /* defined(_WIN32) */
 #endif /* SK_TESTS */

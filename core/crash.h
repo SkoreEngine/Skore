@@ -22,6 +22,10 @@
  * sk_app_init installs the handler at application startup. Embedders and
  * tests that want to opt out call sk_crash_uninstall (idempotent), and tests
  * that want to verify a fault run their own child process.
+ *
+ * Deliberate fault injection for verification lives in the BUILD_TESTING-only
+ * tool `sk-crash-trigger` (see tests/crash_trigger/ and docs/stacktrace.md).
+ * Production binaries do not ship a crash-trigger code path.
  */
 
 #include "common.h"

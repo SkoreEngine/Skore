@@ -72,5 +72,24 @@ add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vul
 # the copied DXC runtime (plugins/libdxcompiler.so) are found relative to cwd.
 add_test(NAME sk-tests COMMAND sk-tests WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 
+# Opt-in crash-trigger tool: raises each handled fault kind so the crash
+# handler can be exercised deliberately (child-process tests + sample capture).
+# BUILD_TESTING only — never shipped with production binaries.
+add_executable(sk-crash-trigger crash_trigger/main.c)
+target_link_libraries(sk-crash-trigger PRIVATE sk-core)
+set_target_properties(sk-crash-trigger PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+# Export dynamic symbols on ELF so sample captures can later resolve frames
+# offline; Apple resolves unstripped Mach-O without extra flags.
+if(UNIX AND NOT APPLE)
+    target_link_options(sk-crash-trigger PRIVATE "LINKER:--export-dynamic")
+elseif(APPLE)
+    target_link_options(sk-crash-trigger PRIVATE "LINKER:-export_dynamic")
+endif()
+add_dependencies(sk-tests sk-crash-trigger)
+
 # Integration tests: device/resource lifecycle against the real Vulkan backend.
 add_subdirectory(integration)
