@@ -29,7 +29,16 @@ void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 #include "test.h"
 
 /* Vendored deps: prove FreeType and stb_rect_pack link and call correctly.
- * No UI font/atlas logic yet — only the scaffold harness. */
+ * No UI font/atlas logic yet — only the scaffold harness.
+ *
+ * Unity (via test.h) may include <stdnoreturn.h>, which defines
+ * `noreturn` as `_Noreturn`. FreeType's ftstdlib.h then includes
+ * <stdlib.h>; on Windows UCRT that uses `__declspec(noreturn)`, which
+ * breaks under clang-tidy when the macro expands. Same pattern as
+ * core/atomics.h — drop the macro before UCRT headers enter the TU. */
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include "stb_rect_pack.h"
