@@ -9,6 +9,7 @@
 #include "array.h"
 #include "path.h"
 
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -827,116 +828,10 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 	ctx.repository = repository;
 	ctx.package_mode = 1;
 
-	/* Pass 1: create all resources (fields deferred). */
+	/* Create shells + apply scalar fields; queue ref UUID patches for a second
+	 * pass so forward references resolve after every resource exists. */
 	sk_rid_list_t created;
 	sk_array_init(&created, sk_allocator_default());
-
-	/* We need to re-read resources for pass 2. Archive readers are forward-only
-	 * over the sequence; collect JSON is not available. Strategy: create in
-	 * pass 1 with fields empty, but apply fields requires re-parsing.
-	 *
-	 * Work around: apply fields in a second walk by storing nothing — instead
-	 * create+apply in two phases over the same sequence is impossible without
-	 * rewinding. So create first without fields, then we need the field data.
-	 *
-	 * Practical approach: single pass create then immediately store pending
-	 * field apply is hard with one reader. Use two-pass by buffering resource
-	 * map positions — not available.
-	 *
-	 * Solution: create all with UUID/type only (no fields), end_seq, then we
-	 * cannot re-read. So do create+fields in one pass for scalars first... but
-	 * references need all UUIDs created first.
-	 *
-	 * Correct approach with one-way reader: (1) first sequence walk creates
-	 * resources with UUID only (skip fields map content carefully), (2) re-init
-	 * reader from original JSON for second pass.
-	 *
-	 * Package deserialize from string convenience re-inits. For raw reader API,
-	 * document that package deserialize expects to apply in two internal passes
-	 * only when using the string helper — OR we apply fields in pass 1 for non-
-	 * ref fields and pass 2 needs re-entry.
-	 *
-	 * Simplest robust path: require that deserialize_package reads resources in
-	 * pass 1 creating shells; for field apply, open nested "fields" and apply
-	 * only after ALL shells exist — so we must buffer field applications.
-	 *
-	 * Buffering: for each resource, after create, still inside the map, apply
-	 * fields immediately BUT only resolve refs that already exist; for missing
-	 * in package_mode that would fail for forward refs.
-	 *
-	 * Depth-first serialize order means parents appear before children...
-	 * actually collect_reachable pushes parent first then children, so parent
-	 * is first in the array. Refs from parent to child would fail if applied
-	 * immediately. Child-to-parent refs work.
-	 *
-	 * So: pass 1 create only (consume fields map without applying), pass 2
-	 * requires re-parse. Implement package deserialize by always going through
-	 * a buffered approach: use the string helpers for tests; for the reader API
-	 * clone the limitation by doing create-only walk then expecting caller to...
-	 *
-	 * Better: first walk create shells, skipping field values by iterating the
-	 * fields map without applying. Then we need field data again.
-	 *
-	 * Final approach: allocate a temporary list of rids in order matching
-	 * resources[]; first sequence iteration creates shells and skips applying
-	 * by still needing to skip nested content. second iteration is impossible.
-	 *
-	 * Use recursive two-phase with stored JSON strings per resource: during
-	 * pass 1, for each resource map, we cannot easily re-emit.
-	 *
-	 * Practical fix used here: collect all rids after create in order; do field
-	 * apply on a RE-INITIALIZED reader from a copied document. That means the
-	 * raw reader API for package must buffer the full document if we only have
-	 * a reader... The public package deserialize from reader will:
-	 *  1) Not support pure streaming — we document that package load from
-	 *     reader applies create then fields in two logical passes by re-reading
-	 *     via a temporary emit (not available).
-	 *
-	 * Actually the cleanest approach for archive-only: 
-	 * Pass 1: create resources (type+uuid), skip fields by begin_map fields +
-	 * end_map without reading keys... wait, we need to consume nested maps for
-	 * reader stack? Looking at JSON reader — next_map_entry iterates; if we
-	 * begin_map_named fields and immediately end_map without iterating, the
-	 * nested content is fine (not consumed but not on stack).
-	 *
-	 * For pass 2 we need the same JSON again. Store: the string convenience
-	 * re-inits. For the reader API entry point, we'll do create+apply in one
-	 * pass and resolve refs with package_mode: if missing, leave for a second
-	 * resolve pass over live resources only (patch references after all created).
-	 *
-	 * Algorithm:
-	 *  1. First sequence: create each resource (type/uuid), apply ALL fields
-	 *     with package_mode=0 (dangling → zero).
-	 *  2. Second pass over created rids: re-apply only reference fields by
-	 *     re-reading... still need JSON.
-	 *
-	 * OR: store pending UUID strings for each ref field during pass 1, then
-	 * resolve after. That requires a pending structure.
-	 *
-	 * Implement pending ref patches:
-	 *   struct pending { sk_rid_t owner; u32 field_index; sk_resource_field_type_t kind; char uuid_str or array of strings }
-	 * Too heavy.
-	 *
-	 * Simpler: two-pass using string buffer when available; for reader-only,
-	 * deserialize_package_json will apply fields with package_mode=0 on first
-	 * pass, then for each created resource re-walk is impossible.
-	 *
-	 * BEST: resources are applied in two phases inside one sequence walk:
-	 *   Phase A (create): for each entry begin_map, validate, create, store rid,
-	 *     begin fields and SKIP (end_map without apply), end_map.
-	 *   But then field data is gone.
-	 *
-	 * The JSON reader keeps the full yyjson doc alive — begin_map_named looks up
-	 * by name from current node. If we finish the sequence, we can't restart.
-	 *
-	 * Look at json reader begin_seq - once exhausted, done.
-	 *
-	 * I'll implement package deserialize as:
-	 * 1. Create all shells in sequence order, recording rids, while also
-	 *    applying non-reference fields; for reference fields, store UUID
-	 *    strings in a growable pending list.
-	 * 2. After sequence ends, resolve all pending UUID → set_reference/etc.
-	 */
 
 	typedef struct sk_pending_ref_t {
 		sk_rid_t owner;
@@ -1323,6 +1218,127 @@ static void ser_roundtrip_named(const_chr_t type_name, u32 name_field_index, con
 	TEST_ASSERT_EQUAL_UINT64(0x222u, u.hi);
 
 	a->free(a->instance, json);
+	api->destroy(repo);
+}
+
+/* Trivial in-test type: exercises shared plumbing without asset-type coupling. */
+typedef struct sk_ser_trivial_t {
+	sk_field_string_t label;
+	i32 flag;
+	u64 count;
+	i64 signed_value;
+	f64 ratio;
+} sk_ser_trivial_t;
+
+enum {
+	SK_SER_TRIVIAL_FIELD_LABEL = 0u,
+	SK_SER_TRIVIAL_FIELD_FLAG = 1u,
+	SK_SER_TRIVIAL_FIELD_COUNT = 2u,
+	SK_SER_TRIVIAL_FIELD_SIGNED = 3u,
+	SK_SER_TRIVIAL_FIELD_RATIO = 4u,
+};
+
+static const sk_resource_field_t ser_trivial_fields[] = {
+	{"Label", SK_SER_TRIVIAL_FIELD_LABEL, SK_RESOURCE_FIELD_TYPE_STRING, (u32)offsetof(sk_ser_trivial_t, label), (u32)sizeof(sk_field_string_t), {0ull, 0ull}},
+	{"Flag", SK_SER_TRIVIAL_FIELD_FLAG, SK_RESOURCE_FIELD_TYPE_BOOL, (u32)offsetof(sk_ser_trivial_t, flag), (u32)sizeof(i32), {0ull, 0ull}},
+	{"Count", SK_SER_TRIVIAL_FIELD_COUNT, SK_RESOURCE_FIELD_TYPE_UINT, (u32)offsetof(sk_ser_trivial_t, count), (u32)sizeof(u64), {0ull, 0ull}},
+	{"SignedValue", SK_SER_TRIVIAL_FIELD_SIGNED, SK_RESOURCE_FIELD_TYPE_INT, (u32)offsetof(sk_ser_trivial_t, signed_value), (u32)sizeof(i64), {0ull, 0ull}},
+	{"Ratio", SK_SER_TRIVIAL_FIELD_RATIO, SK_RESOURCE_FIELD_TYPE_FLOAT, (u32)offsetof(sk_ser_trivial_t, ratio), (u32)sizeof(f64), {0ull, 0ull}},
+};
+
+static const sk_resource_type_t* ser_register_trivial(sk_repository_t* repo) {
+	const sk_repository_api_t* api = sk_repository_api();
+	sk_type_id_t tid;
+	tid.lo = 0xa11ce001ull;
+	tid.hi = 0xb00b2ull;
+	sk_resource_type_desc_t desc;
+	memset(&desc, 0, sizeof(desc));
+	desc.type_id = tid;
+	desc.name = "SerTrivial";
+	desc.fields = ser_trivial_fields;
+	desc.field_count = (u32)(sizeof(ser_trivial_fields) / sizeof(ser_trivial_fields[0]));
+	desc.instance_size = (u32)sizeof(sk_ser_trivial_t);
+	TEST_ASSERT_EQUAL_INT(0, api->register_type(repo, &desc));
+	const sk_resource_type_t* type = api->find_type_by_name(repo, "SerTrivial");
+	TEST_ASSERT_NOT_NULL(type);
+	return type;
+}
+
+SK_TEST(resource_serialize_trivial_type_roundtrip) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = api->create(a);
+	TEST_ASSERT_NOT_NULL(repo);
+	const sk_resource_type_t* type = ser_register_trivial(repo);
+
+	sk_uuid_t uuid = ser_uuid(0xdeadu, 0xbeefu);
+	sk_rid_t rid = api->create_resource(repo, type, uuid, NULL);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+
+	sk_resource_object_t w = api->write(repo, rid);
+	TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_SER_TRIVIAL_FIELD_LABEL, "hello"));
+	TEST_ASSERT_EQUAL_INT(0, api->set_bool(w, SK_SER_TRIVIAL_FIELD_FLAG, 1));
+	TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_SER_TRIVIAL_FIELD_COUNT, 42u));
+	TEST_ASSERT_EQUAL_INT(0, api->set_int(w, SK_SER_TRIVIAL_FIELD_SIGNED, -7));
+	TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_SER_TRIVIAL_FIELD_RATIO, 1.5));
+	api->commit(w, NULL);
+
+	char* json = NULL;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_serialize_json_alloc(repo, rid, a, &json, NULL));
+	TEST_ASSERT_NOT_NULL(json);
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"format\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, SK_RESOURCE_JSON_FORMAT));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"format_version\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "SerTrivial"));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Label\"")); /* exact field descriptor names */
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"SignedValue\""));
+	TEST_ASSERT_NULL(strstr(json, "signed_value")); /* no snake_case rename */
+
+	api->destroy_resource(repo, rid, NULL);
+
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(json), a, &loaded));
+	TEST_ASSERT_TRUE(loaded.id != 0u);
+	sk_resource_object_t r = api->read(repo, loaded);
+	TEST_ASSERT_EQUAL_STRING("hello", api->get_string(r, SK_SER_TRIVIAL_FIELD_LABEL));
+	TEST_ASSERT_EQUAL_INT(1, api->get_bool(r, SK_SER_TRIVIAL_FIELD_FLAG));
+	TEST_ASSERT_EQUAL_UINT64(42u, api->get_uint(r, SK_SER_TRIVIAL_FIELD_COUNT));
+	TEST_ASSERT_EQUAL_INT64(-7, api->get_int(r, SK_SER_TRIVIAL_FIELD_SIGNED));
+	TEST_ASSERT_EQUAL_DOUBLE(1.5, api->get_float(r, SK_SER_TRIVIAL_FIELD_RATIO));
+	sk_uuid_t got = api->resource_uuid(repo, loaded);
+	TEST_ASSERT_EQUAL_UINT64(0xdeadu, got.lo);
+	TEST_ASSERT_EQUAL_UINT64(0xbeefu, got.hi);
+
+	a->free(a->instance, json);
+	api->destroy(repo);
+}
+
+SK_TEST(resource_serialize_absent_and_unknown_fields) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = api->create(a);
+	TEST_ASSERT_NOT_NULL(repo);
+	(void)ser_register_trivial(repo);
+
+	/* Only Label present; other keys absent (soft default) + unknown key ignored. */
+	const_chr_t json = "{\n"
+					   "  \"format\": \"sk.resource\",\n"
+					   "  \"format_version\": 1,\n"
+					   "  \"type\": \"SerTrivial\",\n"
+					   "  \"uuid\": \"00000000000000aa-00000000000000bb\",\n"
+					   "  \"fields\": {\n"
+					   "    \"Label\": \"partial\",\n"
+					   "    \"FutureKey\": 123\n"
+					   "  }\n"
+					   "}";
+	sk_rid_t rid = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(json), a, &rid));
+	TEST_ASSERT_TRUE(rid.id != 0u);
+	sk_resource_object_t r = api->read(repo, rid);
+	TEST_ASSERT_EQUAL_STRING("partial", api->get_string(r, SK_SER_TRIVIAL_FIELD_LABEL));
+	TEST_ASSERT_EQUAL_INT(0, api->get_bool(r, SK_SER_TRIVIAL_FIELD_FLAG));
+	TEST_ASSERT_EQUAL_UINT64(0u, api->get_uint(r, SK_SER_TRIVIAL_FIELD_COUNT));
+	TEST_ASSERT_EQUAL_INT64(0, api->get_int(r, SK_SER_TRIVIAL_FIELD_SIGNED));
 	api->destroy(repo);
 }
 
