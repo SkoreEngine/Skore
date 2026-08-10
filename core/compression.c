@@ -15,7 +15,13 @@
 #include <stdlib.h> /* getenv (migration flag process default) */
 #include <string.h> /* memcpy */
 
-/* Shared little-endian u64 helpers for the size-prefixed LZ4/zlib frames. */
+/* Shared little-endian u64 helpers for the size-prefixed LZ4/zlib frames.
+ * Only the LZ4 and miniz codecs use this framing, so the helpers are compiled
+ * only when at least one of them is enabled — otherwise an all-codecs-off
+ * build trips -Werror=unused-function. (The prefix macro below stays
+ * unconditional: macros never trip unused warnings, and the size-prefixed
+ * SK_TEST helper in this file reads it under the same guard.) */
+#if defined(SK_COMPRESSION_HAS_LZ4) || defined(SK_COMPRESSION_HAS_MINIZ)
 static void compression_write_u64_le(u8* dest, u64 value) {
 	dest[0] = (u8)(value);
 	dest[1] = (u8)(value >> 8u);
@@ -31,6 +37,7 @@ static u64 compression_read_u64_le(const u8* src) {
 	return ((u64)src[0]) | ((u64)src[1] << 8u) | ((u64)src[2] << 16u) | ((u64)src[3] << 24u) | ((u64)src[4] << 32u) | ((u64)src[5] << 40u) | ((u64)src[6] << 48u) |
 		   ((u64)src[7] << 56u);
 }
+#endif /* SK_COMPRESSION_HAS_LZ4 || SK_COMPRESSION_HAS_MINIZ */
 
 /* Size of the original-size prefix shared by the LZ4 and zlib on-disk frames. */
 #define COMPRESSION_SIZE_PREFIX_BYTES 8u
