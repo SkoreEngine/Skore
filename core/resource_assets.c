@@ -1677,7 +1677,12 @@ static i32 import_single(sk_resource_assets_context_t* ctx, sk_rid_t parent, con
 		}
 		for (size_t i = 0u; i < ext_len; ++i) {
 			char c = ext_view.data[i];
-			extension[i] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+			/* Avoid int→char narrowing (clang-tidy cppcoreguidelines-narrowing-conversions). */
+			if (c >= 'A' && c <= 'Z') {
+				extension[i] = "abcdefghijklmnopqrstuvwxyz"[c - 'A'];
+			} else {
+				extension[i] = c;
+			}
 		}
 		extension[ext_len] = '\0';
 	}
