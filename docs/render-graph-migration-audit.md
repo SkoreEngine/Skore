@@ -247,11 +247,24 @@ until destroy (`RenderPipeline.cpp`).
   `TestRenderDevice` (usage inference, sort, barriers, alias plan, frame ring, …).
 - `Tests/Source/GPU/RenderGraphRenderTest.cpp` — larger render-path tests.
 
-### 2.4 v2 today
+### 2.4 v2 today (APX-156)
 
-- `plugins/render_graph/` registers a **stub** API (`init`/`shutdown` only).
-- **No** player/editor call sites construct or execute a real graph yet
-  (`player/main.c` is still minimal).
+- `plugins/render_graph/` is the **sole** render-graph implementation (full
+  build / compile / execute fn table). There is **no** C++ `RenderGraph`
+  dual path on v2; legacy sources lived only on branch `main` and are not
+  present in this tree.
+- Host call sites acquire the plugin via `app_api->get_api(ctx,
+  SK_RENDER_GRAPH_API_TYPE_ID)` and the thin `render_pipeline.h` helper
+  (ports `RenderPipelineContext::Execute`: begin → build → execute):
+  - `player/main.c` — requires the render_graph table after auto-load
+    (Player/Main.cpp lookup path).
+  - `tests/integration/render_graph.c` — pipeline-context multi-frame,
+    standalone PreviewGenerator path, swapchain import + output index.
+  - `app` SK_TESTs — auto-load / register API smoke.
+- Full C++ pipeline *feature* passes (Bloom, cascade shadows, forward,
+  post-process, editor scene-view, thumbnail materials) still need scene /
+  material systems on v2; they will register as `sk_rg_build_fn` builders
+  when those ports land. Graph orchestration itself is plugin-only.
 
 ---
 
