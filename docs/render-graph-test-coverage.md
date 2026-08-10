@@ -74,6 +74,10 @@ plugin and runs its suite with the standard test command.
 | Instrumented arena reset between frames | `render_graph_instrumented_arena_reset_between_frames` | memory |
 | API table completeness + type id | `render_graph_api_table_is_complete`, `render_graph_api_type_id_nonzero` | smoke |
 | Create/destroy defaults + begin pool reset | `render_graph_create_destroy_defaults`, `render_graph_begin_resets_pools_and_marks_in_frame` | smoke |
+| Host pipeline multi-frame (registry + mock RHI) | `render_graph_host_pipeline_context_frame` (integration) | host |
+| Host pipeline zero-heap steady state after warm-up | `render_graph_host_pipeline_zero_heap_steady_state` (integration) | host |
+| Host standalone PreviewGenerator path | `render_graph_host_standalone_preview_path` (integration) | host |
+| Host swapchain import + output index | `render_graph_host_import_and_output_index` (integration) | host |
 
 ## Notes
 

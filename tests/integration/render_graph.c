@@ -386,4 +386,99 @@ SK_TEST(render_graph_host_import_and_output_index) {
 	sk_app_destroy(ctx);
 }
 
+/*
+ * Real host frame loop (APX-157): same path as player/pipeline context —
+ * create once, then begin → build → execute for many frames. After warm-up,
+ * graph heap_alloc_count and growth_events stay flat (allocation-free frame
+ * path outside the in-plugin unit tests).
+ */
+SK_TEST(render_graph_host_pipeline_zero_heap_steady_state) {
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	const sk_render_graph_api_t* rg = NULL;
+	const sk_render_device_api_t* rhi = NULL;
+	sk_render_device_t dev;
+	sk_command_buffer_t cmd;
+	sk_render_pipeline_context_t pipeline;
+	sk_rg_memory_config_t mem_cfg;
+	sk_rg_memory_stats_t stats;
+	rg_host_build_user_t user;
+	u32 heap_after_warm;
+	u32 growth_after_warm;
+	u32 frame;
+	const u32 warm_frames = 2u;
+	const u32 steady_frames = 8u;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	if (ctx == NULL) {
+		return;
+	}
+	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi));
+	if (rg == NULL || rhi == NULL) {
+		sk_app_destroy(ctx);
+		return;
+	}
+
+	TEST_ASSERT_EQUAL_INT(0, rg->init());
+	dev = rhi->init(ctx, NULL);
+	TEST_ASSERT_TRUE(sk_render_device_t_is_valid(dev));
+	if (!sk_render_device_t_is_valid(dev)) {
+		rg->shutdown();
+		sk_app_destroy(ctx);
+		return;
+	}
+
+	memset(&user, 0, sizeof(user));
+	user.output_w = 96u;
+	user.output_h = 54u;
+
+	/* Capacities sized for the default host pipeline (and headroom). */
+	memset(&mem_cfg, 0, sizeof(mem_cfg));
+	mem_cfg.frame_arena_bytes = 64ull * 1024ull;
+	mem_cfg.pass_capacity = 32u;
+	mem_cfg.resource_capacity = 64u;
+	mem_cfg.edge_capacity = 128u;
+	mem_cfg.barrier_capacity = 128u;
+
+	TEST_ASSERT_EQUAL_INT(0, sk_render_pipeline_context_create_with_config(&pipeline, rg, dev, &mem_cfg, rg_host_build_default_pipeline, &user));
+	TEST_ASSERT_NOT_NULL(pipeline.graph);
+
+	cmd = rhi->create_command_buffer(dev, NULL);
+	TEST_ASSERT_TRUE(sk_command_buffer_t_is_valid(cmd));
+
+	for (frame = 0u; frame < warm_frames; ++frame) {
+		TEST_ASSERT_EQUAL_INT(0, rhi->begin_command_buffer(dev, cmd, NULL));
+		rg->set_current_output_index(pipeline.graph, frame % 2u);
+		sk_render_pipeline_context_execute(&pipeline, cmd, NULL);
+		rhi->end_command_buffer(dev, cmd);
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, rg->get_last_error(pipeline.graph));
+	}
+
+	rg->get_memory_stats(pipeline.graph, &stats);
+	heap_after_warm = stats.heap_alloc_count;
+	growth_after_warm = stats.growth_events;
+
+	for (frame = 0u; frame < steady_frames; ++frame) {
+		TEST_ASSERT_EQUAL_INT(0, rhi->begin_command_buffer(dev, cmd, NULL));
+		rg->set_current_output_index(pipeline.graph, frame % 2u);
+		sk_render_pipeline_context_execute(&pipeline, cmd, NULL);
+		rhi->end_command_buffer(dev, cmd);
+
+		rg->get_memory_stats(pipeline.graph, &stats);
+		TEST_ASSERT_EQUAL_UINT32(heap_after_warm, stats.heap_alloc_count);
+		TEST_ASSERT_EQUAL_UINT32(growth_after_warm, stats.growth_events);
+		TEST_ASSERT_EQUAL_INT(0, stats.in_frame); /* execute ends the frame */
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, rg->get_last_error(pipeline.graph));
+		TEST_ASSERT_TRUE(rg->get_compiled_pass_count(pipeline.graph) >= 1u);
+	}
+
+	/* 2 warm + 8 steady frames, 2 record callbacks each */
+	TEST_ASSERT_EQUAL_INT((i32)((warm_frames + steady_frames) * 2u), user.record_count);
+
+	rhi->destroy_command_buffer(dev, cmd);
+	sk_render_pipeline_context_destroy(&pipeline);
+	rhi->destroy(dev);
+	rg->shutdown();
+	sk_app_destroy(ctx);
+}
+
 #endif /* SK_TESTS */
