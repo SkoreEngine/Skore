@@ -535,8 +535,620 @@ void sk_archive_reader_destroy(sk_archive_reader_t* reader) {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Tests (port of IO::Serialization::BinaryFull / BinaryMapNavigation /      */
-/* Binary + blob coverage)                                                   */
+/* JSON writer (yyjson mutable doc; headers private to this TU)              */
+/* ------------------------------------------------------------------------- */
+
+#include "yyjson.h"
+
+/** Bridge sk_allocator_t into yyjson_alc (ctx = const sk_allocator_t*). */
+static void* json_yy_malloc(void* ctx, size_t size) {
+	const sk_allocator_t* allocator = (const sk_allocator_t*)ctx;
+	return allocator->alloc(allocator->instance, size);
+}
+
+static void* json_yy_realloc(void* ctx, void* ptr, size_t old_size, size_t size) {
+	const sk_allocator_t* allocator = (const sk_allocator_t*)ctx;
+	(void)old_size;
+	return allocator->realloc(allocator->instance, ptr, size);
+}
+
+static void json_yy_free(void* ctx, void* ptr) {
+	const sk_allocator_t* allocator = (const sk_allocator_t*)ctx;
+	allocator->free(allocator->instance, ptr);
+}
+
+static yyjson_alc json_yy_alc(const sk_allocator_t* allocator) {
+	yyjson_alc alc;
+	alc.malloc = json_yy_malloc;
+	alc.realloc = json_yy_realloc;
+	alc.free = json_yy_free;
+	alc.ctx = (void*)(uintptr_t)(const void*)allocator;
+	return alc;
+}
+
+typedef struct json_writer_ctx_t {
+	yyjson_mut_doc* doc;
+	yyjson_mut_val* current;
+	SK_ARRAY(yyjson_mut_val*) stack;
+	const sk_allocator_t* allocator;
+	char* emit_buf;
+	size_t emit_len;
+} json_writer_ctx_t;
+
+static yyjson_mut_val* json_make_key(yyjson_mut_doc* doc, sk_str_view_t key) {
+	return yyjson_mut_strncpy(doc, key.data != NULL ? key.data : "", key.size);
+}
+
+static void json_write_named_value(json_writer_ctx_t* ctx, sk_str_view_t name, yyjson_mut_val* value) {
+	if (ctx->doc == NULL || ctx->current == NULL || value == NULL || !yyjson_mut_is_obj(ctx->current)) {
+		return;
+	}
+	yyjson_mut_val* key = json_make_key(ctx->doc, name);
+	if (key == NULL) {
+		return;
+	}
+	(void)yyjson_mut_obj_add(ctx->current, key, value);
+}
+
+static void json_add_array_value(json_writer_ctx_t* ctx, yyjson_mut_val* value) {
+	if (ctx->doc == NULL || ctx->current == NULL || value == NULL || !yyjson_mut_is_arr(ctx->current)) {
+		return;
+	}
+	(void)yyjson_mut_arr_add_val(ctx->current, value);
+}
+
+static yyjson_mut_val* json_make_blob_arr(json_writer_ctx_t* ctx, const_ptr_t data, u64 size) {
+	yyjson_mut_val* bytes = yyjson_mut_arr(ctx->doc);
+	if (bytes == NULL) {
+		return NULL;
+	}
+	const u8* p = (const u8*)data;
+	for (u64 i = 0u; i < size; ++i) {
+		if (!yyjson_mut_arr_add_uint(ctx->doc, bytes, p != NULL ? p[i] : 0u)) {
+			return NULL;
+		}
+	}
+	return bytes;
+}
+
+static void json_writer_write_bool(void_ptr_t instance, sk_str_view_t name, i32 value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_write_named_value(ctx, name, yyjson_mut_bool(ctx->doc, value != 0));
+}
+
+static void json_writer_write_int(void_ptr_t instance, sk_str_view_t name, i64 value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_write_named_value(ctx, name, yyjson_mut_sint(ctx->doc, value));
+}
+
+static void json_writer_write_uint(void_ptr_t instance, sk_str_view_t name, u64 value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_write_named_value(ctx, name, yyjson_mut_uint(ctx->doc, value));
+}
+
+static void json_writer_write_float(void_ptr_t instance, sk_str_view_t name, f64 value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_write_named_value(ctx, name, yyjson_mut_real(ctx->doc, value));
+}
+
+static void json_writer_write_string(void_ptr_t instance, sk_str_view_t name, sk_str_view_t value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_write_named_value(ctx, name, yyjson_mut_strncpy(ctx->doc, value.data != NULL ? value.data : "", value.size));
+}
+
+static void json_writer_write_blob(void_ptr_t instance, sk_str_view_t name, const_ptr_t data, u64 size) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_write_named_value(ctx, name, json_make_blob_arr(ctx, data, size));
+}
+
+static void json_writer_add_bool(void_ptr_t instance, i32 value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_add_array_value(ctx, yyjson_mut_bool(ctx->doc, value != 0));
+}
+
+static void json_writer_add_int(void_ptr_t instance, i64 value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_add_array_value(ctx, yyjson_mut_sint(ctx->doc, value));
+}
+
+static void json_writer_add_uint(void_ptr_t instance, u64 value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_add_array_value(ctx, yyjson_mut_uint(ctx->doc, value));
+}
+
+static void json_writer_add_float(void_ptr_t instance, f64 value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_add_array_value(ctx, yyjson_mut_real(ctx->doc, value));
+}
+
+static void json_writer_add_string(void_ptr_t instance, sk_str_view_t value) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_add_array_value(ctx, yyjson_mut_strncpy(ctx->doc, value.data != NULL ? value.data : "", value.size));
+}
+
+static void json_writer_add_blob(void_ptr_t instance, const_ptr_t data, u64 size) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	json_add_array_value(ctx, json_make_blob_arr(ctx, data, size));
+}
+
+static void json_writer_begin_map(void_ptr_t instance) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	yyjson_mut_val* map = yyjson_mut_obj(ctx->doc);
+	json_add_array_value(ctx, map);
+	if (sk_array_push(&ctx->stack, ctx->current) != 0) {
+		return;
+	}
+	ctx->current = map;
+}
+
+static void json_writer_begin_map_named(void_ptr_t instance, sk_str_view_t name) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	yyjson_mut_val* map = yyjson_mut_obj(ctx->doc);
+	json_write_named_value(ctx, name, map);
+	if (sk_array_push(&ctx->stack, ctx->current) != 0) {
+		return;
+	}
+	ctx->current = map;
+}
+
+static void json_writer_end_map(void_ptr_t instance) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	if (ctx->stack.count == 0u) {
+		return;
+	}
+	ctx->current = ctx->stack.items[ctx->stack.count - 1u];
+	ctx->stack.count--;
+}
+
+static void json_writer_begin_seq(void_ptr_t instance) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	yyjson_mut_val* seq = yyjson_mut_arr(ctx->doc);
+	json_add_array_value(ctx, seq);
+	if (sk_array_push(&ctx->stack, ctx->current) != 0) {
+		return;
+	}
+	ctx->current = seq;
+}
+
+static void json_writer_begin_seq_named(void_ptr_t instance, sk_str_view_t name) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	yyjson_mut_val* seq = yyjson_mut_arr(ctx->doc);
+	json_write_named_value(ctx, name, seq);
+	if (sk_array_push(&ctx->stack, ctx->current) != 0) {
+		return;
+	}
+	ctx->current = seq;
+}
+
+static void json_writer_end_seq(void_ptr_t instance) {
+	json_writer_end_map(instance);
+}
+
+static void json_writer_free_emit(json_writer_ctx_t* ctx) {
+	if (ctx->emit_buf != NULL) {
+		yyjson_alc alc = json_yy_alc(ctx->allocator);
+		alc.free(alc.ctx, ctx->emit_buf);
+		ctx->emit_buf = NULL;
+		ctx->emit_len = 0u;
+	}
+}
+
+static void json_writer_destroy(void_ptr_t instance) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)instance;
+	const sk_allocator_t* allocator = ctx->allocator;
+	json_writer_free_emit(ctx);
+	if (ctx->doc != NULL) {
+		yyjson_mut_doc_free(ctx->doc);
+		ctx->doc = NULL;
+	}
+	sk_array_free(&ctx->stack);
+	allocator->free(allocator->instance, ctx);
+}
+
+i32 sk_json_archive_writer_init(sk_archive_writer_t* out, const sk_allocator_t* allocator) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)allocator->alloc(allocator->instance, sizeof(*ctx));
+	if (ctx == NULL) {
+		return -1;
+	}
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->allocator = allocator;
+	sk_array_init(&ctx->stack, allocator);
+
+	yyjson_alc alc = json_yy_alc(allocator);
+	ctx->doc = yyjson_mut_doc_new(&alc);
+	if (ctx->doc == NULL) {
+		allocator->free(allocator->instance, ctx);
+		return -1;
+	}
+	ctx->current = yyjson_mut_obj(ctx->doc);
+	if (ctx->current == NULL) {
+		yyjson_mut_doc_free(ctx->doc);
+		allocator->free(allocator->instance, ctx);
+		return -1;
+	}
+	yyjson_mut_doc_set_root(ctx->doc, ctx->current);
+
+	memset(out, 0, sizeof(*out));
+	out->instance = ctx;
+	out->write_bool = json_writer_write_bool;
+	out->write_int = json_writer_write_int;
+	out->write_uint = json_writer_write_uint;
+	out->write_float = json_writer_write_float;
+	out->write_string = json_writer_write_string;
+	out->write_blob = json_writer_write_blob;
+	out->add_bool = json_writer_add_bool;
+	out->add_int = json_writer_add_int;
+	out->add_uint = json_writer_add_uint;
+	out->add_float = json_writer_add_float;
+	out->add_string = json_writer_add_string;
+	out->add_blob = json_writer_add_blob;
+	out->begin_map = json_writer_begin_map;
+	out->begin_map_named = json_writer_begin_map_named;
+	out->end_map = json_writer_end_map;
+	out->begin_seq = json_writer_begin_seq;
+	out->begin_seq_named = json_writer_begin_seq_named;
+	out->end_seq = json_writer_end_seq;
+	out->destroy = json_writer_destroy;
+	return 0;
+}
+
+sk_str_view_t sk_json_archive_writer_emit_as_string(const sk_archive_writer_t* writer) {
+	json_writer_ctx_t* ctx = (json_writer_ctx_t*)writer->instance;
+	json_writer_free_emit(ctx);
+	if (ctx->doc == NULL) {
+		return SK_STR_VIEW_EMPTY;
+	}
+
+	yyjson_alc alc = json_yy_alc(ctx->allocator);
+	yyjson_write_err err;
+	memset(&err, 0, sizeof(err));
+	size_t len = 0u;
+	char* json = yyjson_mut_val_write_opts(yyjson_mut_doc_get_root(ctx->doc), YYJSON_WRITE_ESCAPE_UNICODE | YYJSON_WRITE_PRETTY, &alc, &len, &err);
+	if (json == NULL) {
+		return SK_STR_VIEW_EMPTY;
+	}
+	ctx->emit_buf = json;
+	ctx->emit_len = len;
+	if (len > (size_t)UINT32_MAX) {
+		return SK_STR_VIEW_EMPTY;
+	}
+	return sk_str_view_make(json, (u32)len);
+}
+
+/* ------------------------------------------------------------------------- */
+/* JSON reader (yyjson parse; private headers)                               */
+/* ------------------------------------------------------------------------- */
+
+typedef enum json_iter_type_t {
+	JSON_ITER_MAP = 1,
+	JSON_ITER_SEQ = 2,
+} json_iter_type_t;
+
+typedef struct json_reader_state_t {
+	yyjson_val* node;
+	yyjson_val* current_key;
+	yyjson_val* current_value;
+	yyjson_obj_iter map_iter;
+	yyjson_arr_iter seq_iter;
+	u8 iter_initialized;
+	json_iter_type_t type;
+} json_reader_state_t;
+
+typedef struct json_reader_ctx_t {
+	yyjson_doc* doc;
+	SK_ARRAY(json_reader_state_t) stack;
+	SK_ARRAY(u8) blob_buf;
+	const sk_allocator_t* allocator;
+} json_reader_ctx_t;
+
+static yyjson_val* json_get_current_value(const json_reader_ctx_t* ctx) {
+	if (ctx->stack.count == 0u) {
+		return NULL;
+	}
+	return ctx->stack.items[ctx->stack.count - 1u].current_value;
+}
+
+static yyjson_val* json_find_named_value(const json_reader_ctx_t* ctx, sk_str_view_t name) {
+	if (ctx->stack.count == 0u || name.size == 0u) {
+		return NULL;
+	}
+	yyjson_val* current_node = ctx->stack.items[ctx->stack.count - 1u].node;
+	if (!yyjson_is_obj(current_node)) {
+		return NULL;
+	}
+	return yyjson_obj_getn(current_node, name.data != NULL ? name.data : "", name.size);
+}
+
+static i32 json_read_bool_value(yyjson_val* value) {
+	return value != NULL ? (yyjson_get_bool(value) ? 1 : 0) : 0;
+}
+
+static i64 json_read_int_value(yyjson_val* value) {
+	return value != NULL ? yyjson_get_sint(value) : 0;
+}
+
+static u64 json_read_uint_value(yyjson_val* value) {
+	return value != NULL ? yyjson_get_uint(value) : 0u;
+}
+
+static f64 json_read_float_value(yyjson_val* value) {
+	return value != NULL ? yyjson_get_num(value) : 0.0;
+}
+
+static sk_str_view_t json_read_string_value(yyjson_val* value) {
+	if (value == NULL || !yyjson_is_str(value)) {
+		return SK_STR_VIEW_EMPTY;
+	}
+	const char* s = yyjson_get_str(value);
+	size_t len = yyjson_get_len(value);
+	if (s == NULL || len > (size_t)UINT32_MAX) {
+		return SK_STR_VIEW_EMPTY;
+	}
+	return sk_str_view_make(s, (u32)len);
+}
+
+static sk_blob_view_t json_decode_blob(json_reader_ctx_t* ctx, yyjson_val* value) {
+	sk_array_clear(&ctx->blob_buf);
+	if (value == NULL || !yyjson_is_arr(value)) {
+		return SK_BLOB_VIEW_EMPTY;
+	}
+	size_t n = yyjson_arr_size(value);
+	if (n > (size_t)UINT32_MAX) {
+		return SK_BLOB_VIEW_EMPTY;
+	}
+	if (sk_array_reserve(&ctx->blob_buf, (u32)n) != 0) {
+		return SK_BLOB_VIEW_EMPTY;
+	}
+	size_t idx = 0u;
+	size_t max = 0u;
+	yyjson_val* entry = NULL;
+	yyjson_arr_foreach(value, idx, max, entry) {
+		u8 b = (u8)yyjson_get_uint(entry);
+		if (sk_array_push(&ctx->blob_buf, b) != 0) {
+			sk_array_clear(&ctx->blob_buf);
+			return SK_BLOB_VIEW_EMPTY;
+		}
+	}
+	return (sk_blob_view_t){ctx->blob_buf.items, (u64)ctx->blob_buf.count};
+}
+
+static i32 json_reader_read_bool(void_ptr_t instance, sk_str_view_t name) {
+	return json_read_bool_value(json_find_named_value((json_reader_ctx_t*)instance, name));
+}
+
+static i64 json_reader_read_int(void_ptr_t instance, sk_str_view_t name) {
+	return json_read_int_value(json_find_named_value((json_reader_ctx_t*)instance, name));
+}
+
+static u64 json_reader_read_uint(void_ptr_t instance, sk_str_view_t name) {
+	return json_read_uint_value(json_find_named_value((json_reader_ctx_t*)instance, name));
+}
+
+static f64 json_reader_read_float(void_ptr_t instance, sk_str_view_t name) {
+	return json_read_float_value(json_find_named_value((json_reader_ctx_t*)instance, name));
+}
+
+static sk_str_view_t json_reader_read_string(void_ptr_t instance, sk_str_view_t name) {
+	return json_read_string_value(json_find_named_value((json_reader_ctx_t*)instance, name));
+}
+
+static i32 json_reader_get_bool(void_ptr_t instance) {
+	return json_read_bool_value(json_get_current_value((json_reader_ctx_t*)instance));
+}
+
+static i64 json_reader_get_int(void_ptr_t instance) {
+	return json_read_int_value(json_get_current_value((json_reader_ctx_t*)instance));
+}
+
+static u64 json_reader_get_uint(void_ptr_t instance) {
+	return json_read_uint_value(json_get_current_value((json_reader_ctx_t*)instance));
+}
+
+static f64 json_reader_get_float(void_ptr_t instance) {
+	return json_read_float_value(json_get_current_value((json_reader_ctx_t*)instance));
+}
+
+static sk_str_view_t json_reader_get_string(void_ptr_t instance) {
+	return json_read_string_value(json_get_current_value((json_reader_ctx_t*)instance));
+}
+
+static sk_blob_view_t json_reader_get_blob(void_ptr_t instance) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	return json_decode_blob(ctx, json_get_current_value(ctx));
+}
+
+static void json_reader_begin_seq(void_ptr_t instance) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	yyjson_val* node = json_get_current_value(ctx);
+	if (!yyjson_is_arr(node)) {
+		return;
+	}
+	json_reader_state_t state;
+	memset(&state, 0, sizeof(state));
+	state.node = node;
+	state.type = JSON_ITER_SEQ;
+	(void)sk_array_push(&ctx->stack, state);
+}
+
+static i32 json_reader_begin_seq_named(void_ptr_t instance, sk_str_view_t name) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	yyjson_val* node = json_find_named_value(ctx, name);
+	if (!yyjson_is_arr(node)) {
+		return 0;
+	}
+	json_reader_state_t state;
+	memset(&state, 0, sizeof(state));
+	state.node = node;
+	state.type = JSON_ITER_SEQ;
+	if (sk_array_push(&ctx->stack, state) != 0) {
+		return 0;
+	}
+	return 1;
+}
+
+static i32 json_reader_next_seq_entry(void_ptr_t instance) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	if (ctx->stack.count == 0u) {
+		return 0;
+	}
+	json_reader_state_t* state = &ctx->stack.items[ctx->stack.count - 1u];
+	if (state->type != JSON_ITER_SEQ) {
+		return 0;
+	}
+	if (!state->iter_initialized) {
+		yyjson_arr_iter_init(state->node, &state->seq_iter);
+		state->iter_initialized = 1u;
+	}
+	state->current_value = yyjson_arr_iter_next(&state->seq_iter);
+	return state->current_value != NULL ? 1 : 0;
+}
+
+static void json_reader_begin_map(void_ptr_t instance) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	yyjson_val* node = json_get_current_value(ctx);
+	if (!yyjson_is_obj(node)) {
+		return;
+	}
+	json_reader_state_t state;
+	memset(&state, 0, sizeof(state));
+	state.node = node;
+	state.type = JSON_ITER_MAP;
+	(void)sk_array_push(&ctx->stack, state);
+}
+
+static i32 json_reader_begin_map_named(void_ptr_t instance, sk_str_view_t name) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	yyjson_val* node = json_find_named_value(ctx, name);
+	if (!yyjson_is_obj(node)) {
+		return 0;
+	}
+	json_reader_state_t state;
+	memset(&state, 0, sizeof(state));
+	state.node = node;
+	state.type = JSON_ITER_MAP;
+	if (sk_array_push(&ctx->stack, state) != 0) {
+		return 0;
+	}
+	return 1;
+}
+
+static i32 json_reader_next_map_entry(void_ptr_t instance) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	if (ctx->stack.count == 0u) {
+		return 0;
+	}
+	json_reader_state_t* state = &ctx->stack.items[ctx->stack.count - 1u];
+	if (state->type != JSON_ITER_MAP) {
+		return 0;
+	}
+	if (!state->iter_initialized) {
+		yyjson_obj_iter_init(state->node, &state->map_iter);
+		state->iter_initialized = 1u;
+	}
+	state->current_key = yyjson_obj_iter_next(&state->map_iter);
+	if (state->current_key == NULL) {
+		state->current_value = NULL;
+		return 0;
+	}
+	state->current_value = yyjson_obj_iter_get_val(state->current_key);
+	return state->current_value != NULL ? 1 : 0;
+}
+
+static sk_str_view_t json_reader_get_current_key(void_ptr_t instance) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	if (ctx->stack.count == 0u) {
+		return SK_STR_VIEW_EMPTY;
+	}
+	json_reader_state_t* state = &ctx->stack.items[ctx->stack.count - 1u];
+	return json_read_string_value(state->current_key);
+}
+
+static void json_reader_end_map(void_ptr_t instance) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	if (ctx->stack.count == 0u) {
+		return;
+	}
+	ctx->stack.count--;
+}
+
+static void json_reader_destroy(void_ptr_t instance) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)instance;
+	const sk_allocator_t* allocator = ctx->allocator;
+	if (ctx->doc != NULL) {
+		yyjson_doc_free(ctx->doc);
+		ctx->doc = NULL;
+	}
+	sk_array_free(&ctx->stack);
+	sk_array_free(&ctx->blob_buf);
+	allocator->free(allocator->instance, ctx);
+}
+
+i32 sk_json_archive_reader_init(sk_archive_reader_t* out, sk_str_view_t json, const sk_allocator_t* allocator) {
+	json_reader_ctx_t* ctx = (json_reader_ctx_t*)allocator->alloc(allocator->instance, sizeof(*ctx));
+	if (ctx == NULL) {
+		return -1;
+	}
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->allocator = allocator;
+	sk_array_init(&ctx->stack, allocator);
+	sk_array_init(&ctx->blob_buf, allocator);
+
+	yyjson_alc alc = json_yy_alc(allocator);
+	const char* data = json.data != NULL ? json.data : "";
+	/* yyjson_read_opts takes char*; without INSITU it does not mutate. */
+	ctx->doc = yyjson_read_opts(SK_CONST_CAST(char*, data), json.size, YYJSON_READ_NOFLAG, &alc, NULL);
+	if (ctx->doc == NULL) {
+		allocator->free(allocator->instance, ctx);
+		return -1;
+	}
+
+	yyjson_val* root = yyjson_doc_get_root(ctx->doc);
+	if (!yyjson_is_obj(root)) {
+		yyjson_doc_free(ctx->doc);
+		allocator->free(allocator->instance, ctx);
+		return -1;
+	}
+
+	json_reader_state_t root_state;
+	memset(&root_state, 0, sizeof(root_state));
+	root_state.node = root;
+	root_state.type = JSON_ITER_MAP;
+	if (sk_array_push(&ctx->stack, root_state) != 0) {
+		yyjson_doc_free(ctx->doc);
+		sk_array_free(&ctx->stack);
+		sk_array_free(&ctx->blob_buf);
+		allocator->free(allocator->instance, ctx);
+		return -1;
+	}
+
+	memset(out, 0, sizeof(*out));
+	out->instance = ctx;
+	out->read_bool = json_reader_read_bool;
+	out->read_int = json_reader_read_int;
+	out->read_uint = json_reader_read_uint;
+	out->read_float = json_reader_read_float;
+	out->read_string = json_reader_read_string;
+	out->get_bool = json_reader_get_bool;
+	out->get_int = json_reader_get_int;
+	out->get_uint = json_reader_get_uint;
+	out->get_float = json_reader_get_float;
+	out->get_string = json_reader_get_string;
+	out->get_blob = json_reader_get_blob;
+	out->begin_seq = json_reader_begin_seq;
+	out->begin_seq_named = json_reader_begin_seq_named;
+	out->next_seq_entry = json_reader_next_seq_entry;
+	out->end_seq = json_reader_end_map;
+	out->begin_map = json_reader_begin_map;
+	out->begin_map_named = json_reader_begin_map_named;
+	out->next_map_entry = json_reader_next_map_entry;
+	out->get_current_key = json_reader_get_current_key;
+	out->end_map = json_reader_end_map;
+	out->destroy = json_reader_destroy;
+	return 0;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Tests (port of IO::Serialization Binary/Json feature matrix + cross)      */
 /* ------------------------------------------------------------------------- */
 #ifdef SK_TESTS
 #include "test.h"
@@ -544,6 +1156,20 @@ void sk_archive_reader_destroy(sk_archive_reader_t* reader) {
 static i32 sv_eq_cstr(sk_str_view_t view, const_chr_t s) {
 	sk_str_view_t other = sk_str_view_cstr(s);
 	return view.size == other.size && (view.size == 0u || memcmp(view.data, other.data, view.size) == 0);
+}
+
+/** True if @p hay contains the C string @p needle as a contiguous byte span. */
+static i32 bytes_contains_cstr(const char* hay, u32 hay_size, const_chr_t needle) {
+	sk_str_view_t n = sk_str_view_cstr(needle);
+	if (n.size == 0u || n.size > hay_size) {
+		return 0;
+	}
+	for (u32 i = 0u; i + n.size <= hay_size; ++i) {
+		if (memcmp(hay + i, n.data, n.size) == 0) {
+			return 1;
+		}
+	}
+	return 0;
 }
 
 static void binary_full_write(sk_archive_writer_t* writer) {
@@ -978,5 +1604,243 @@ SK_TEST(serialization_binary_blob_roundtrip) {
 
 	sk_archive_reader_destroy(&reader);
 	sk_archive_writer_destroy(&writer);
+}
+
+/* --- JSON backend (non-YAML matrix from main + EmitAsString + cross) --- */
+
+SK_TEST(serialization_json_full_roundtrip) {
+	const sk_allocator_t* allocator = sk_allocator_default();
+	sk_archive_writer_t writer;
+	sk_archive_reader_t reader;
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_writer_init(&writer, allocator));
+	binary_full_write(&writer);
+
+	sk_str_view_t json = sk_json_archive_writer_emit_as_string(&writer);
+	TEST_ASSERT_TRUE(json.size > 4u);
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_reader_init(&reader, json, allocator));
+	binary_full_check(&reader);
+
+	sk_archive_reader_destroy(&reader);
+	sk_archive_writer_destroy(&writer);
+}
+
+SK_TEST(serialization_json_map_navigation) {
+	const sk_allocator_t* allocator = sk_allocator_default();
+	sk_archive_writer_t writer;
+	sk_archive_reader_t reader;
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_writer_init(&writer, allocator));
+	binary_map_navigation_write(&writer);
+
+	sk_str_view_t json = sk_json_archive_writer_emit_as_string(&writer);
+	TEST_ASSERT_TRUE(json.size > 4u);
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_reader_init(&reader, json, allocator));
+	binary_map_navigation_check(&reader);
+
+	sk_archive_reader_destroy(&reader);
+	sk_archive_writer_destroy(&writer);
+}
+
+SK_TEST(serialization_json_named_map_seq) {
+	const sk_allocator_t* allocator = sk_allocator_default();
+	sk_archive_writer_t writer;
+	sk_archive_reader_t reader;
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_writer_init(&writer, allocator));
+	writer.write_bool(writer.instance, sk_str_view_cstr("testbool"), 1);
+
+	writer.begin_seq_named(writer.instance, sk_str_view_cstr("seq"));
+	writer.add_int(writer.instance, 3);
+	writer.add_int(writer.instance, 4);
+	writer.add_int(writer.instance, 5);
+	writer.end_seq(writer.instance);
+
+	writer.begin_map_named(writer.instance, sk_str_view_cstr("map"));
+	writer.begin_map_named(writer.instance, sk_str_view_cstr("another-map"));
+	writer.write_string(writer.instance, sk_str_view_cstr("zzzz"), sk_str_view_cstr("zzzzzzzzzzzzz"));
+	writer.end_map(writer.instance);
+	writer.write_string(writer.instance, sk_str_view_cstr("huh"), sk_str_view_cstr("huhhuh"));
+	writer.end_map(writer.instance);
+
+	writer.write_string(writer.instance, sk_str_view_cstr("testString"), sk_str_view_cstr("blahblahbbasdasd"));
+
+	sk_str_view_t json = sk_json_archive_writer_emit_as_string(&writer);
+	TEST_ASSERT_TRUE(json.size > 4u);
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_reader_init(&reader, json, allocator));
+	TEST_ASSERT_TRUE(sv_eq_cstr(reader.read_string(reader.instance, sk_str_view_cstr("testString")), "blahblahbbasdasd"));
+	TEST_ASSERT_TRUE(reader.read_bool(reader.instance, sk_str_view_cstr("testbool")) != 0);
+
+	TEST_ASSERT_TRUE(reader.begin_seq_named(reader.instance, sk_str_view_cstr("seq")));
+	TEST_ASSERT_TRUE(reader.next_seq_entry(reader.instance));
+	TEST_ASSERT_EQUAL_INT64(3, reader.get_int(reader.instance));
+	TEST_ASSERT_TRUE(reader.next_seq_entry(reader.instance));
+	TEST_ASSERT_EQUAL_INT64(4, reader.get_int(reader.instance));
+	TEST_ASSERT_TRUE(reader.next_seq_entry(reader.instance));
+	TEST_ASSERT_EQUAL_INT64(5, reader.get_int(reader.instance));
+	TEST_ASSERT_FALSE(reader.next_seq_entry(reader.instance));
+	reader.end_seq(reader.instance);
+
+	TEST_ASSERT_TRUE(reader.begin_map_named(reader.instance, sk_str_view_cstr("map")));
+	TEST_ASSERT_TRUE(sv_eq_cstr(reader.read_string(reader.instance, sk_str_view_cstr("huh")), "huhhuh"));
+	TEST_ASSERT_TRUE(reader.begin_map_named(reader.instance, sk_str_view_cstr("another-map")));
+	TEST_ASSERT_TRUE(sv_eq_cstr(reader.read_string(reader.instance, sk_str_view_cstr("zzzz")), "zzzzzzzzzzzzz"));
+	reader.end_map(reader.instance);
+	reader.end_map(reader.instance);
+
+	sk_archive_reader_destroy(&reader);
+	sk_archive_writer_destroy(&writer);
+}
+
+SK_TEST(serialization_json_blob_roundtrip) {
+	const sk_allocator_t* allocator = sk_allocator_default();
+	sk_archive_writer_t writer;
+	sk_archive_reader_t reader;
+	const u8 blob[] = {0x00u, 0x01u, 0x02u, 0x7fu, 0xffu, 0x80u};
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_writer_init(&writer, allocator));
+	writer.write_string(writer.instance, sk_str_view_cstr("name"), sk_str_view_cstr("blobtest"));
+	writer.write_blob(writer.instance, sk_str_view_cstr("payload"), blob, sizeof(blob));
+
+	sk_str_view_t json = sk_json_archive_writer_emit_as_string(&writer);
+	TEST_ASSERT_TRUE(json.size > 4u);
+	/* Blob encoding: JSON array of byte values (main-compatible). */
+	TEST_ASSERT_TRUE(memchr(json.data, '[', json.size) != NULL);
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_reader_init(&reader, json, allocator));
+	u32 entries = 0u;
+	u32 found_blob = 0u;
+	while (reader.next_map_entry(reader.instance)) {
+		entries++;
+		sk_str_view_t key = reader.get_current_key(reader.instance);
+		if (sv_eq_cstr(key, "payload")) {
+			found_blob = 1u;
+			sk_blob_view_t got = reader.get_blob(reader.instance);
+			TEST_ASSERT_EQUAL_UINT64(sizeof(blob), got.size);
+			TEST_ASSERT_EQUAL_MEMORY(blob, got.data, sizeof(blob));
+		} else {
+			TEST_ASSERT_TRUE(sv_eq_cstr(reader.get_string(reader.instance), "blobtest"));
+		}
+	}
+	TEST_ASSERT_EQUAL_UINT32(2u, entries);
+	TEST_ASSERT_TRUE(found_blob != 0u);
+
+	sk_archive_reader_destroy(&reader);
+	sk_archive_writer_destroy(&writer);
+}
+
+SK_TEST(serialization_json_emit_as_string) {
+	const sk_allocator_t* allocator = sk_allocator_default();
+	sk_archive_writer_t writer;
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_writer_init(&writer, allocator));
+	writer.write_string(writer.instance, sk_str_view_cstr("hello"), sk_str_view_cstr("world"));
+	writer.write_int(writer.instance, sk_str_view_cstr("n"), 42);
+
+	sk_str_view_t json = sk_json_archive_writer_emit_as_string(&writer);
+	TEST_ASSERT_TRUE(json.size > 4u);
+	/* Pretty-printed object with expected keys (EmitAsString contract). */
+	TEST_ASSERT_TRUE(json.data[0] == '{' || (json.size > 1u && json.data[0] == '\n'));
+	TEST_ASSERT_TRUE(bytes_contains_cstr(json.data, json.size, "\"hello\""));
+	TEST_ASSERT_TRUE(bytes_contains_cstr(json.data, json.size, "\"world\""));
+	TEST_ASSERT_TRUE(bytes_contains_cstr(json.data, json.size, "\"n\""));
+
+	/* Second emit replaces the previous buffer; still valid. */
+	sk_str_view_t again = sk_json_archive_writer_emit_as_string(&writer);
+	TEST_ASSERT_EQUAL_UINT32(json.size, again.size);
+
+	sk_archive_writer_destroy(&writer);
+}
+
+/**
+ * Same write/check helpers run against both backends, then a true cross-backend
+ * bridge: binary write -> binary read of values -> json write -> json read.
+ */
+SK_TEST(serialization_cross_backend_shared_interface) {
+	const sk_allocator_t* allocator = sk_allocator_default();
+	sk_archive_writer_t bin_w;
+	sk_archive_reader_t bin_r;
+	sk_archive_writer_t json_w;
+	sk_archive_reader_t json_r;
+
+	/* Shared helpers are backend-agnostic via the function-pointer tables. */
+	TEST_ASSERT_EQUAL_INT(0, sk_binary_archive_writer_init(&bin_w, allocator));
+	binary_full_write(&bin_w);
+	sk_blob_view_t bin_data = sk_binary_archive_writer_data(&bin_w);
+	TEST_ASSERT_TRUE(bin_data.size > 0u);
+	TEST_ASSERT_EQUAL_INT(0, sk_binary_archive_reader_init(&bin_r, bin_data, allocator));
+	binary_full_check(&bin_r);
+
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_writer_init(&json_w, allocator));
+	binary_full_write(&json_w);
+	sk_str_view_t json_text = sk_json_archive_writer_emit_as_string(&json_w);
+	TEST_ASSERT_TRUE(json_text.size > 4u);
+	TEST_ASSERT_EQUAL_INT(0, sk_json_archive_reader_init(&json_r, json_text, allocator));
+	binary_full_check(&json_r);
+
+	sk_archive_reader_destroy(&json_r);
+	sk_archive_writer_destroy(&json_w);
+	sk_archive_reader_destroy(&bin_r);
+	sk_archive_writer_destroy(&bin_w);
+
+	/* Bridge: write with binary, re-emit through shared tables into JSON, read JSON. */
+	{
+		sk_archive_writer_t src_w;
+		sk_archive_reader_t src_r;
+		sk_archive_writer_t dst_w;
+		sk_archive_reader_t dst_r;
+
+		TEST_ASSERT_EQUAL_INT(0, sk_binary_archive_writer_init(&src_w, allocator));
+		src_w.write_bool(src_w.instance, sk_str_view_cstr("flag"), 1);
+		src_w.write_int(src_w.instance, sk_str_view_cstr("count"), -7);
+		src_w.write_uint(src_w.instance, sk_str_view_cstr("id"), 99u);
+		src_w.write_float(src_w.instance, sk_str_view_cstr("ratio"), 1.25);
+		src_w.write_string(src_w.instance, sk_str_view_cstr("label"), sk_str_view_cstr("bridge"));
+		src_w.begin_seq_named(src_w.instance, sk_str_view_cstr("nums"));
+		src_w.add_int(src_w.instance, 10);
+		src_w.add_int(src_w.instance, 20);
+		src_w.end_seq(src_w.instance);
+
+		sk_blob_view_t raw = sk_binary_archive_writer_data(&src_w);
+		TEST_ASSERT_EQUAL_INT(0, sk_binary_archive_reader_init(&src_r, raw, allocator));
+		TEST_ASSERT_EQUAL_INT(0, sk_json_archive_writer_init(&dst_w, allocator));
+
+		/* Copy named primitives + seq via the shared interface only. */
+		dst_w.write_bool(dst_w.instance, sk_str_view_cstr("flag"), src_r.read_bool(src_r.instance, sk_str_view_cstr("flag")));
+		dst_w.write_int(dst_w.instance, sk_str_view_cstr("count"), src_r.read_int(src_r.instance, sk_str_view_cstr("count")));
+		dst_w.write_uint(dst_w.instance, sk_str_view_cstr("id"), src_r.read_uint(src_r.instance, sk_str_view_cstr("id")));
+		dst_w.write_float(dst_w.instance, sk_str_view_cstr("ratio"), src_r.read_float(src_r.instance, sk_str_view_cstr("ratio")));
+		dst_w.write_string(dst_w.instance, sk_str_view_cstr("label"), src_r.read_string(src_r.instance, sk_str_view_cstr("label")));
+		TEST_ASSERT_TRUE(src_r.begin_seq_named(src_r.instance, sk_str_view_cstr("nums")));
+		dst_w.begin_seq_named(dst_w.instance, sk_str_view_cstr("nums"));
+		while (src_r.next_seq_entry(src_r.instance)) {
+			dst_w.add_int(dst_w.instance, src_r.get_int(src_r.instance));
+		}
+		src_r.end_seq(src_r.instance);
+		dst_w.end_seq(dst_w.instance);
+
+		sk_str_view_t bridged = sk_json_archive_writer_emit_as_string(&dst_w);
+		TEST_ASSERT_EQUAL_INT(0, sk_json_archive_reader_init(&dst_r, bridged, allocator));
+		TEST_ASSERT_TRUE(dst_r.read_bool(dst_r.instance, sk_str_view_cstr("flag")) != 0);
+		TEST_ASSERT_EQUAL_INT64(-7, dst_r.read_int(dst_r.instance, sk_str_view_cstr("count")));
+		TEST_ASSERT_EQUAL_UINT64(99u, dst_r.read_uint(dst_r.instance, sk_str_view_cstr("id")));
+		TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.25f, (float)dst_r.read_float(dst_r.instance, sk_str_view_cstr("ratio")));
+		TEST_ASSERT_TRUE(sv_eq_cstr(dst_r.read_string(dst_r.instance, sk_str_view_cstr("label")), "bridge"));
+		TEST_ASSERT_TRUE(dst_r.begin_seq_named(dst_r.instance, sk_str_view_cstr("nums")));
+		TEST_ASSERT_TRUE(dst_r.next_seq_entry(dst_r.instance));
+		TEST_ASSERT_EQUAL_INT64(10, dst_r.get_int(dst_r.instance));
+		TEST_ASSERT_TRUE(dst_r.next_seq_entry(dst_r.instance));
+		TEST_ASSERT_EQUAL_INT64(20, dst_r.get_int(dst_r.instance));
+		TEST_ASSERT_FALSE(dst_r.next_seq_entry(dst_r.instance));
+		dst_r.end_seq(dst_r.instance);
+
+		sk_archive_reader_destroy(&dst_r);
+		sk_archive_writer_destroy(&dst_w);
+		sk_archive_reader_destroy(&src_r);
+		sk_archive_writer_destroy(&src_w);
+	}
 }
 #endif /* SK_TESTS */

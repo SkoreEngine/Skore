@@ -271,6 +271,7 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/thirdparty/vma/include"
 		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
 		"--extra-arg=-I${ROOT}/thirdparty/dxc/include"
+		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
 		"--extra-arg=-Wno-unknown-warning-option"
 		"--extra-arg=-std=c11"
 	)

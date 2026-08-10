@@ -2,7 +2,7 @@
 
 /**
  * @file serialization.h
- * @brief Archive (de)serialization abstraction + binary backend.
+ * @brief Archive (de)serialization abstraction + binary and JSON backends.
  *
  * C port of the main-branch ArchiveWriter / ArchiveReader interface. Writers
  * and readers are multi-instance function-pointer tables (same shape as
@@ -15,6 +15,12 @@
  * prefixed by a u64 byte-count placeholder patched on End, and a bool is a
  * single byte (0/1). Values are written in host byte order (matching main);
  * this is a fast custom format, not a portable interchange format.
+ *
+ * The JSON backend uses yyjson (mutable doc for writing, parse for reading)
+ * privately inside sk-core: yyjson headers never appear in this public API.
+ * Blobs are encoded as JSON arrays of byte values (0..255), matching main.
+ * Emit the document as a pretty-printed string via
+ * sk_json_archive_writer_emit_as_string.
  *
  * Not thread-safe: a writer/reader instance is owned by one thread at a time.
  */
@@ -196,6 +202,41 @@ void sk_archive_reader_destroy(sk_archive_reader_t* reader);
  * @return The serialized buffer.
  */
 sk_blob_view_t sk_binary_archive_writer_data(const sk_archive_writer_t* writer);
+
+/**
+ * Initialize a JSON archive writer (yyjson mutable document; root is an
+ * object). Fills @p out with the same function-pointer table shape as the
+ * binary backend so call sites can swap backends. Destroy with
+ * sk_archive_writer_destroy.
+ *
+ * @param out       Destination writer table (must not be NULL).
+ * @param allocator Allocator for the context, yyjson, and emit buffer.
+ * @return 0 on success, non-zero on allocation failure.
+ */
+i32 sk_json_archive_writer_init(sk_archive_writer_t* out, const sk_allocator_t* allocator);
+
+/**
+ * Pretty-printed JSON text of the document (YYJSON_WRITE_PRETTY |
+ * YYJSON_WRITE_ESCAPE_UNICODE), matching main EmitAsString. Borrowed view into
+ * a buffer owned by the writer: valid until the next emit, further writes, or
+ * destroy. Empty view on failure.
+ *
+ * @param writer JSON writer table (must not be NULL).
+ * @return UTF-8 JSON text (not necessarily null-terminated in the view size).
+ */
+sk_str_view_t sk_json_archive_writer_emit_as_string(const sk_archive_writer_t* writer);
+
+/**
+ * Initialize a JSON archive reader over @p json (copied/parsed by yyjson; the
+ * caller need not keep @p json after init). Root must be a JSON object. Uses
+ * the same function-pointer table as the binary reader.
+ *
+ * @param out       Destination reader table (must not be NULL).
+ * @param json      JSON text produced by a JSON writer (or compatible).
+ * @param allocator Allocator for the context, parse tree, and blob decode buf.
+ * @return 0 on success, non-zero on allocation or parse failure.
+ */
+i32 sk_json_archive_reader_init(sk_archive_reader_t* out, sk_str_view_t json, const sk_allocator_t* allocator);
 
 #ifdef __cplusplus
 }
