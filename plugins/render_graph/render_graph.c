@@ -1562,18 +1562,18 @@ static void rg_test_record_fn(sk_rg_pass_t* pass, void_ptr_t scene, sk_command_b
 	(void)user;
 }
 
+/* File-scope so &cfg is not a local address (avoids cppcheck returnDanglingLifetime FP:
+ * create_with_config copies *config and returns a heap graph, not a pointer into cfg). */
+static const sk_rg_memory_config_t rg_test_default_cfg = {
+	.frame_arena_bytes = 32ull * 1024ull,
+	.pass_capacity = 32u,
+	.resource_capacity = 64u,
+	.edge_capacity = 128u,
+	.barrier_capacity = 64u,
+};
+
 static sk_render_graph_t* rg_test_create_graph(void) {
-	sk_rg_memory_config_t cfg;
-	sk_render_graph_t* g;
-	memset(&cfg, 0, sizeof(cfg));
-	cfg.frame_arena_bytes = 32ull * 1024ull;
-	cfg.pass_capacity = 32u;
-	cfg.resource_capacity = 64u;
-	cfg.edge_capacity = 128u;
-	cfg.barrier_capacity = 64u;
-	/* Assign then return so cfg outlives the call (cppcheck returnDanglingLifetime). */
-	g = render_graph_api.create_with_config(sk_render_device_t_zero(), &cfg);
-	return g;
+	return render_graph_api.create_with_config(sk_render_device_t_zero(), &rg_test_default_cfg);
 }
 
 static i32 rg_test_has_edge(const sk_render_graph_t* g, u32 from, u32 to) {
