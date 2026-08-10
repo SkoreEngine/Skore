@@ -465,12 +465,14 @@ static i32 zlib_compress(const sk_allocator_t* allocator, i32 level, const u8* s
 		return SK_COMPRESSION_ERR_CODEC_FAILURE;
 	}
 
-	in_size = (size_t)src_size;
-	out_size = (size_t)(dest_cap - COMPRESSION_SIZE_PREFIX_BYTES);
+	/* No size_t/u64 casts: on LLP64 both are unsigned long long and
+	 * (size_t)/(u64) trips readability-redundant-casting on MSVC CI. */
+	in_size = src_size;
+	out_size = dest_cap - COMPRESSION_SIZE_PREFIX_BYTES;
 	status = tdefl_compress(comp, src, &in_size, dest + COMPRESSION_SIZE_PREFIX_BYTES, &out_size, TDEFL_FINISH);
 	allocator->free(allocator->instance, comp);
 
-	if (status != TDEFL_STATUS_DONE || in_size != (size_t)src_size) {
+	if (status != TDEFL_STATUS_DONE || in_size != src_size) {
 		*out_written = 0u;
 		/* Bound-sized destination should always succeed; map residual buffer
 		 * exhaustion to INSUFFICIENT_OUTPUT for the contract, else failure. */
@@ -480,7 +482,7 @@ static i32 zlib_compress(const sk_allocator_t* allocator, i32 level, const u8* s
 		return SK_COMPRESSION_ERR_CODEC_FAILURE;
 	}
 
-	*out_written = COMPRESSION_SIZE_PREFIX_BYTES + (u64)out_size;
+	*out_written = COMPRESSION_SIZE_PREFIX_BYTES + out_size;
 	return SK_COMPRESSION_OK;
 }
 
@@ -524,9 +526,10 @@ static i32 zlib_decompress(const sk_allocator_t* allocator, const u8* src, u64 s
 		return SK_COMPRESSION_ERR_CORRUPT_DATA;
 	}
 
-	rc = tinfl_decompress_mem_to_mem(dest, (size_t)original_size, src + COMPRESSION_SIZE_PREFIX_BYTES, (size_t)(src_size - COMPRESSION_SIZE_PREFIX_BYTES),
+	/* No size_t/u64 casts: same LLP64 type as above; implicit conversion is fine. */
+	rc = tinfl_decompress_mem_to_mem(dest, original_size, src + COMPRESSION_SIZE_PREFIX_BYTES, src_size - COMPRESSION_SIZE_PREFIX_BYTES,
 									 TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
-	if (rc == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED || (u64)rc != original_size) {
+	if (rc == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED || rc != original_size) {
 		*out_written = 0u;
 		return SK_COMPRESSION_ERR_CORRUPT_DATA;
 	}
@@ -1162,10 +1165,16 @@ SK_TEST(compression_lz4_insufficient_output_and_corrupt) {
 	const u64 bound = codec->compress_bound(sizeof(payload));
 	u8* compressed = sk_allocator_default()->alloc(NULL, bound);
 	u8 sink[4];
+	/* Full-size restore buffer for the corrupt path: dest_cap must be large
+	 * enough to pass the insufficient-output gate so the codec actually
+	 * attempts decode (and rejects the mangled block). Never pass
+	 * sizeof(payload) as dest_cap with sink[4] — that overflows the stack. */
+	u8 restored[128];
 	u64 written = 0u;
 	u64 compressed_size = 0u;
 
 	TEST_ASSERT_NOT_NULL(compressed);
+	TEST_ASSERT_TRUE(sizeof(restored) >= sizeof(payload));
 	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT,
 						  codec->compress(sk_allocator_default(), SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), sink, sizeof(sink), &written));
 	TEST_ASSERT_EQUAL_UINT64(0u, written);
@@ -1177,7 +1186,8 @@ SK_TEST(compression_lz4_insufficient_output_and_corrupt) {
 	/* Flip a compressed-block byte (past the size prefix). */
 	if (compressed_size > COMPRESSION_SIZE_PREFIX_BYTES) {
 		compressed[COMPRESSION_SIZE_PREFIX_BYTES] ^= 0xFFu;
-		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompress(sk_allocator_default(), compressed, compressed_size, sink, sizeof(payload), &written));
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA,
+							  codec->decompress(sk_allocator_default(), compressed, compressed_size, restored, sizeof(restored), &written));
 		TEST_ASSERT_EQUAL_UINT64(0u, written);
 	}
 
@@ -1236,10 +1246,13 @@ SK_TEST(compression_zlib_insufficient_output_and_corrupt) {
 	const u64 bound = codec->compress_bound(sizeof(payload));
 	u8* compressed = sk_allocator_default()->alloc(NULL, bound);
 	u8 sink[4];
+	/* Full-size restore buffer for the corrupt path (see lz4 test). */
+	u8 restored[128];
 	u64 written = 0u;
 	u64 compressed_size = 0u;
 
 	TEST_ASSERT_NOT_NULL(compressed);
+	TEST_ASSERT_TRUE(sizeof(restored) >= sizeof(payload));
 	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_INSUFFICIENT_OUTPUT,
 						  codec->compress(sk_allocator_default(), SK_COMPRESSION_LEVEL_DEFAULT, payload, sizeof(payload), sink, sizeof(sink), &written));
 	TEST_ASSERT_EQUAL_UINT64(0u, written);
@@ -1250,7 +1263,8 @@ SK_TEST(compression_zlib_insufficient_output_and_corrupt) {
 
 	if (compressed_size > COMPRESSION_SIZE_PREFIX_BYTES) {
 		compressed[COMPRESSION_SIZE_PREFIX_BYTES] ^= 0xFFu;
-		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA, codec->decompress(sk_allocator_default(), compressed, compressed_size, sink, sizeof(payload), &written));
+		TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_ERR_CORRUPT_DATA,
+							  codec->decompress(sk_allocator_default(), compressed, compressed_size, restored, sizeof(restored), &written));
 		TEST_ASSERT_EQUAL_UINT64(0u, written);
 	}
 
