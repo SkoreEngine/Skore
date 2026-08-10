@@ -59,13 +59,18 @@ Header: `plugins/platform_window/platform_window.h`. Backend: GLFW (`platform_wi
 | Present today | Notes |
 | --- | --- |
 | `init` / `shutdown` / `poll_events` | Host must call; no auto-init. |
-| `create_window` / `destroy_window` / `window_should_close` | Client size in **screen coordinates**. |
-| `get_window_size` → `sk_extent_t` | Logical/client size only. |
-| `get_window_dpi` | Average of `glfwGetWindowContentScale` x/y; **1.0 = 96 DPI baseline**. |
+| `create_window` / `destroy_window` / `window_should_close` | Client size in **screen coordinates** (logical points). |
+| `get_window_size` → `sk_extent_t` | **Logical** client size (points). |
+| `get_framebuffer_size` → `sk_extent_t` | **Physical** framebuffer pixels (swapchain / viewport). |
+| `get_window_content_scale` → `sk_content_scale_t` | Separate x/y; **1.0 = 96 DPI baseline**. |
+| `get_window_dpi` | Average of content scale x/y (legacy single factor). |
+| `set_window_content_scale_callback` | Notified on OS scale change / monitor move (via `poll_events`). |
+| Monitors | `get_monitor_count` / `get_primary_monitor` / `get_monitor` / `get_monitor_content_scale`. |
+| Conversion helpers | `sk_extent_logical_to_physical` / `sk_physical_to_logical_*` (header, pure math). |
 | `is_window_minimized`, maximize, cursor lock, icon, native handle | Enough for basic host loop. |
 | File dialogs / message box | Editor tooling, not core UI layout. |
 
-**Missing for UI (see §7):** framebuffer size vs logical size, content-scale change events, monitor list, window resize/focus/DPI callbacks, and **any input** (keys, mouse, text, wheel). GLFW can provide all of these; the public `sk_platform_window_api_t` does not expose them yet.
+**Missing for UI (see §7):** window resize/focus/close **events** (scale is covered), and **any input** (keys, mouse, text, wheel). GLFW can provide these; the public `sk_platform_window_api_t` does not expose them yet.
 
 Host platform shared libs/clocks live in `core/platform.h` (`sk_platform_api_t`: `lib_open` / `lib_symbol` / `monotonic_seconds`) — used by DXC and plugin load, not by UI layout.
 
@@ -325,15 +330,16 @@ sk_ui_event_t {
 | Quantity | Source | Use |
 | --- | --- | --- |
 | Logical size | `get_window_size` | Layout root, hit-test coordinates. |
-| Content scale | `get_window_dpi` (until separate x/y scale API) | Font pixel size, style scale, framebuffer projection. |
-| Framebuffer size | **Gap** — need `get_framebuffer_size` | Swapchain / viewport in physical pixels. |
+| Content scale | `get_window_content_scale` (x/y); `get_window_dpi` averages | Font pixel size, style scale, framebuffer projection. |
+| Framebuffer size | `get_framebuffer_size` | Swapchain / viewport in physical pixels. |
+| Scale change | `set_window_content_scale_callback` (or poll scale) | Rebuild fonts / dirty layout when DPI changes. |
 
 Rules:
 
 - All layout units are logical px.
 - Font raster size = `round(style.font_size * content_scale)` (with hysteresis to avoid thrashing).
 - On scale change: rebuild font atlas for used sizes, mark all layout dirty, recreate pipelines only if needed.
-- Until DPI-change events exist, poll scale each frame and detect delta.
+- Prefer the content-scale callback; polling `get_window_content_scale` each frame remains valid.
 
 ### 3.8 Automation / testability (future UI tester)
 
@@ -426,10 +432,10 @@ Every gap is owned by an **existing** module/plugin (or a named new module that 
 | ID | Gap | Why UI needs it | Owner (fix here) | Priority |
 | --- | --- | --- | --- | --- |
 | G1 | No keyboard / mouse / wheel / text input on `sk_platform_window_api_t`; no key enums; no event callbacks | UI and future game Input both need a single OS event source (main used SDL events). | **`platform_window`** | P0 |
-| G2 | No framebuffer size API (only logical `get_window_size`) | HiDPI projection and swapchain extent; GLFW `glfwGetFramebufferSize`. | **`platform_window`** | P0 |
-| G3 | No content-scale change / resize / focus / close **events** (poll-only) | Avoid missing DPI changes and resize; cleaner than edge-detect alone. | **`platform_window`** | P0 |
-| G4 | No monitor list / primary monitor / per-monitor scale | Multi-monitor editor placement and DPI (can defer past first UI paint). | **`platform_window`** | P2 |
-| G5 | Separate content scale x/y (API only averages today) | Correct non-uniform scaling (rare but real on some setups). | **`platform_window`** | P2 |
+| G2 | ~~No framebuffer size API~~ **Done:** `get_framebuffer_size` | HiDPI projection and swapchain extent. | **`platform_window`** | P0 |
+| G3 | Content-scale callback **done**; still missing resize / focus / close **events** | Avoid missing DPI changes and resize; cleaner than edge-detect alone. | **`platform_window`** | P0 |
+| G4 | ~~No monitor list / per-monitor scale~~ **Done:** `get_monitor*` + `get_monitor_content_scale` | Multi-monitor editor placement and DPI. | **`platform_window`** | P2 |
+| G5 | ~~Separate content scale x/y~~ **Done:** `get_window_content_scale` | Correct non-uniform scaling (rare but real on some setups). | **`platform_window`** | P2 |
 | G6 | No process-wide frame phase / event bus (`OnBeginFrame`, `OnRecordRenderCommands`, …) | Main ImGui hooked these; host currently hard-codes order. UI can be called explicitly in v1, but editor scale wants a bus. | **`sk-app` / core events module** (new small core or app API — **not** ui) | P1 |
 | G7 | No engine `Input` module on v2 | Capture routing, text input active, cursor modes shared with gameplay. | **New `input` plugin or `platform_window` input facade** (prefer dedicated **input** plugin later; platform_window remains OS source) | P1 |
 | G8 | `resource_assets.h` + manager not on HEAD | Shared Font/Texture load/cook/reload; avoid UI-private file formats long term. | **core `resource_assets` + assets manager (app or plugin)** — land the designed header and runtime | P1 |
@@ -448,8 +454,8 @@ Every gap is owned by an **existing** module/plugin (or a named new module that 
 **P0 — block correct UI frame loop**
 
 - [ ] G1 `platform_window`: input events (key/mouse/wheel/text) + enums  
-- [ ] G2 `platform_window`: framebuffer size  
-- [ ] G3 `platform_window`: resize / DPI / focus callbacks or event queue  
+- [x] G2 `platform_window`: framebuffer size  
+- [ ] G3 `platform_window`: resize / focus / close events (DPI/content-scale callback **done**)  
 
 **P1 — block production integration**
 
@@ -460,7 +466,7 @@ Every gap is owned by an **existing** module/plugin (or a named new module that 
 
 **P2 — quality**
 
-- [ ] G4–G5 monitors + non-uniform scale  
+- [x] G4–G5 monitors + non-uniform scale  
 - [ ] G11–G12 core string/color  
 - [ ] G14 texture upload helper  
 

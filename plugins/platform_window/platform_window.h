@@ -13,6 +13,24 @@
  *       (const sk_platform_window_api_t*)app_api->get_api(
  *           ctx, SK_PLATFORM_WINDOW_API_TYPE_ID);
  *   sk_window_t w = win->create_window(...);
+ *
+ * HiDPI conventions (design doc §3.7 / gaps G2–G5):
+ * - **Logical size** (`get_window_size`): client area in screen coordinates /
+ *   points — layout, hit-test, UI root size.
+ * - **Physical size** (`get_framebuffer_size`): framebuffer pixels — swapchain
+ *   extent, viewport, scissor in device pixels.
+ * - **Content scale** (`get_window_content_scale` / per-monitor): multiply
+ *   logical → physical; 1.0 = 96 DPI baseline (GLFW content scale).
+ * - Scale change: `set_window_content_scale_callback` (OS scale change or
+ *   window moved to a monitor with a different DPI). Callers may also poll
+ *   `get_window_content_scale` each frame.
+ *
+ * Manual multi-monitor verification (not automated in CI):
+ * 1. Create a window; log get_window_content_scale and get_framebuffer_size.
+ * 2. Drag the window between a 1x and 2x (or fractional) monitor.
+ * 3. Confirm the content-scale callback fires with the new scale and that
+ *    get_monitor_content_scale for each monitor matches the OS display
+ *    settings. Also toggle OS display scale and re-check.
  */
 
 #include "common.h"
@@ -30,11 +48,35 @@ extern "C" {
  */
 typedef void_ptr_t sk_window_t;
 
-/** Pixel size (client area). */
+/**
+ * Opaque monitor handle (GLFW monitor pointer on the current backend).
+ * NULL / zero is invalid.
+ */
+typedef void_ptr_t sk_monitor_t;
+
+/** Pixel / point size (client area or framebuffer). */
 typedef struct sk_extent_t {
 	u32 width;
 	u32 height;
 } sk_extent_t;
+
+/**
+ * Content-scale factors (1.0 = 96 DPI baseline).
+ * X and Y are usually equal; non-uniform scales exist on some setups.
+ */
+typedef struct sk_content_scale_t {
+	f32 x;
+	f32 y;
+} sk_content_scale_t;
+
+/**
+ * Callback when a window's content scale changes (moved between monitors
+ * with different DPI, or OS display scale changed).
+ * @param window    Window whose scale changed.
+ * @param scale     New content scale (x/y already normalized; > 0).
+ * @param user_data Cookie from set_window_content_scale_callback.
+ */
+typedef void (*sk_window_content_scale_callback_t)(sk_window_t window, sk_content_scale_t scale, void_ptr_t user_data);
 
 /**
  * Window creation flags (bitmask).
@@ -92,6 +134,83 @@ typedef void (*sk_path_callback_t)(const_chr_t path, void_ptr_t user_data);
  */
 typedef void (*sk_paths_callback_t)(const_chr_t* paths, u32 count, void_ptr_t user_data);
 
+/* ---- HiDPI conversion helpers (pure math; no window required) ---- */
+
+/**
+ * Treat non-positive scale as 1.0 (safe for divide / multiply).
+ */
+SK_FINLINE f32 sk_content_scale_axis(f32 scale) {
+	return (scale > 0.0f) ? scale : 1.0f;
+}
+
+/**
+ * Average of x/y content scale (legacy single-factor DPI).
+ */
+SK_FINLINE f32 sk_content_scale_average(sk_content_scale_t scale) {
+	const f32 x = sk_content_scale_axis(scale.x);
+	const f32 y = sk_content_scale_axis(scale.y);
+	return (x + y) * 0.5f;
+}
+
+/**
+ * Scale one logical dimension to physical pixels (nearest).
+ */
+SK_FINLINE u32 sk_logical_to_physical_u32(u32 logical, f32 scale) {
+	const f32 s = sk_content_scale_axis(scale);
+	const f32 p = (f32)logical * s;
+	if (p <= 0.0f) {
+		return 0u;
+	}
+	return (u32)(p + 0.5f);
+}
+
+/**
+ * Scale one physical dimension to logical points (nearest).
+ */
+SK_FINLINE u32 sk_physical_to_logical_u32(u32 physical, f32 scale) {
+	const f32 s = sk_content_scale_axis(scale);
+	const f32 l = (f32)physical / s;
+	if (l <= 0.0f) {
+		return 0u;
+	}
+	return (u32)(l + 0.5f);
+}
+
+/**
+ * Logical extent (points) → physical extent (framebuffer pixels).
+ * Uses scale.x for width and scale.y for height.
+ */
+SK_FINLINE sk_extent_t sk_extent_logical_to_physical(sk_extent_t logical, sk_content_scale_t scale) {
+	sk_extent_t out;
+	out.width = sk_logical_to_physical_u32(logical.width, scale.x);
+	out.height = sk_logical_to_physical_u32(logical.height, scale.y);
+	return out;
+}
+
+/**
+ * Physical extent (framebuffer pixels) → logical extent (points).
+ */
+SK_FINLINE sk_extent_t sk_extent_physical_to_logical(sk_extent_t physical, sk_content_scale_t scale) {
+	sk_extent_t out;
+	out.width = sk_physical_to_logical_u32(physical.width, scale.x);
+	out.height = sk_physical_to_logical_u32(physical.height, scale.y);
+	return out;
+}
+
+/**
+ * Scale a floating logical coordinate to physical (no rounding).
+ */
+SK_FINLINE f32 sk_logical_to_physical_f(f32 logical, f32 scale) {
+	return logical * sk_content_scale_axis(scale);
+}
+
+/**
+ * Scale a floating physical coordinate to logical (no rounding).
+ */
+SK_FINLINE f32 sk_physical_to_logical_f(f32 physical, f32 scale) {
+	return physical / sk_content_scale_axis(scale);
+}
+
 /**
  * Global platform-window module API (one table per process after plugin load).
  * Call init before other window ops; other entry points do not auto-init.
@@ -108,8 +227,8 @@ typedef struct sk_platform_window_api_t {
      * Create a platform window.
      * Requires a prior successful init.
      * @param title  UTF-8 title (NULL → "").
-     * @param width  Client width in screen coordinates (must be > 0).
-     * @param height Client height in screen coordinates (must be > 0).
+     * @param width  Client width in screen coordinates / logical points (must be > 0).
+     * @param height Client height in screen coordinates / logical points (must be > 0).
      * @param flags  sk_window_flags_t bits.
      * @return Window handle, or NULL on failure.
      */
@@ -130,17 +249,74 @@ typedef struct sk_platform_window_api_t {
 
 	/**
      * Content-scale DPI factor for the window (1.0 = 96 DPI baseline).
+     * Average of x/y from get_window_content_scale (legacy single factor).
+     * Prefer get_window_content_scale when x/y may differ.
      * @param window Valid window.
-     * @return Average of x/y content scale, or 1.0 if unknown / invalid.
+     * @return Average content scale, or 1.0 if unknown / invalid.
      */
 	f32 (*get_window_dpi)(sk_window_t window);
 
 	/**
-     * Client-area size in screen coordinates.
+     * Client-area size in **logical** screen coordinates (points).
+     * Use for UI layout and hit-testing. For swapchain / GPU viewport use
+     * get_framebuffer_size (physical pixels).
      * @param window Valid window.
      * @return Size; zeros if invalid.
      */
 	sk_extent_t (*get_window_size)(sk_window_t window);
+
+	/**
+     * Window content scale (x and y). 1.0 = 96 DPI baseline.
+     * @param window Valid window.
+     * @return Scale; {1,1} if unknown.
+     */
+	sk_content_scale_t (*get_window_content_scale)(sk_window_t window);
+
+	/**
+     * Framebuffer size in **physical** pixels (device pixels).
+     * Use for swapchain extent, viewport, and scissor. On HiDPI displays this
+     * is typically logical size × content scale.
+     * @param window Valid window.
+     * @return Size; zeros if invalid.
+     */
+	sk_extent_t (*get_framebuffer_size)(sk_window_t window);
+
+	/**
+     * Register a callback for content-scale changes on @p window.
+     * Invoked from poll_events when the OS reports a new scale (monitor move
+     * or display-scale change). Pass @p callback NULL to clear.
+     * Only one callback per window; replaces any previous registration.
+     * @param window    Valid window.
+     * @param callback  Handler or NULL.
+     * @param user_data Cookie passed to @p callback.
+     */
+	void (*set_window_content_scale_callback)(sk_window_t window, sk_window_content_scale_callback_t callback, void_ptr_t user_data);
+
+	/**
+     * Number of connected monitors. Requires prior init.
+     * @return Count (0 if not initialized or none).
+     */
+	u32 (*get_monitor_count)(void);
+
+	/**
+     * Primary monitor handle. Requires prior init.
+     * @return Monitor, or NULL if none.
+     */
+	sk_monitor_t (*get_primary_monitor)(void);
+
+	/**
+     * Monitor at @p index in [0, get_monitor_count()). Requires prior init.
+     * @param index Zero-based index.
+     * @return Monitor, or NULL if out of range / unavailable.
+     */
+	sk_monitor_t (*get_monitor)(u32 index);
+
+	/**
+     * Content scale for a monitor (1.0 = 96 DPI baseline).
+     * @param monitor Valid monitor from get_primary_monitor / get_monitor.
+     * @return Scale; {1,1} if unknown.
+     */
+	sk_content_scale_t (*get_monitor_content_scale)(sk_monitor_t monitor);
 
 	/**
      * @param window Valid window.
@@ -216,6 +392,8 @@ typedef struct sk_platform_window_api_t {
 
 	/**
      * Poll OS window events (GLFW). Call once per frame from the host loop.
+     * Delivers content-scale callbacks registered via
+     * set_window_content_scale_callback.
      */
 	void (*poll_events)(void);
 
