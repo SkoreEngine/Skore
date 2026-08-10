@@ -102,6 +102,21 @@ typedef SK_HASH_MAP(const_chr_t, sk_ui_node_t) ui_id_map_t;
 /* Context                                                                    */
 /* -------------------------------------------------------------------------- */
 
+typedef SK_ARRAY(sk_ui_draw_vertex_t) ui_draw_vertex_array_t;
+typedef SK_ARRAY(u32) ui_draw_index_array_t;
+typedef SK_ARRAY(sk_ui_draw_cmd_t) ui_draw_cmd_array_t;
+
+/** Mutable draw-list storage owned by the context (public view is const). */
+typedef struct ui_draw_list_store_t {
+	ui_draw_vertex_array_t vertices;
+	ui_draw_index_array_t indices;
+	ui_draw_cmd_array_t commands;
+	sk_ui_draw_list_t view; /**< Public snapshot; pointers into the arrays. */
+	f32 last_scale_x;
+	f32 last_scale_y;
+	i32 valid; /**< Non-zero after at least one successful paint rebuild. */
+} ui_draw_list_store_t;
+
 struct sk_ui_context_t {
 	const sk_allocator_t* allocator;
 	ui_slot_array_t slots; /* index 0 unused; live handles use index >= 1 */
@@ -130,6 +145,9 @@ struct sk_ui_context_t {
 	u32 pointer_buttons; /**< Bit i set if button i is down. */
 	i32 wants_mouse;
 	i32 wants_keyboard;
+
+	/* Paint / draw list (CPU) */
+	ui_draw_list_store_t draw;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -220,6 +238,15 @@ i32 ui_wants_keyboard_impl(const sk_ui_context_t* ctx);
 
 /** Process-local API table (for in-plugin unit tests). */
 const sk_ui_api_t* ui_get_api_table(void);
+
+/* -------------------------------------------------------------------------- */
+/* Paint / draw list (paint.c)                                                */
+/* -------------------------------------------------------------------------- */
+
+void ui_draw_list_store_init(ui_draw_list_store_t* store, const sk_allocator_t* a);
+void ui_draw_list_store_shutdown(ui_draw_list_store_t* store);
+i32 ui_paint_impl(sk_ui_context_t* ctx, const sk_ui_paint_params_t* params);
+const sk_ui_draw_list_t* ui_get_draw_list_impl(const sk_ui_context_t* ctx);
 
 /* -------------------------------------------------------------------------- */
 /* Font system (font.c)                                                       */

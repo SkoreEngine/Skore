@@ -655,6 +655,101 @@ typedef struct sk_ui_node_callbacks_t {
 } sk_ui_node_callbacks_t;
 
 /* ------------------------------------------------------------------ */
+/*  Draw list (paint pass output; CPU only, backend-agnostic)         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Vertex for UI mesh batches. Positions are in **physical pixels**
+ * (framebuffer / swapchain space after content scale). UV is [0,1] in the
+ * bound texture (unused for solid color draws; set to 0). Color is packed
+ * RGBA8 with R in the low byte (matches common GPU upload layouts).
+ */
+typedef struct sk_ui_draw_vertex_t {
+	f32 x;
+	f32 y;
+	f32 u;
+	f32 v;
+	u32 color; /**< Packed RGBA8, R in bits 0..7. */
+} sk_ui_draw_vertex_t;
+
+/** Pack linear 0..1 RGBA floats into a sk_ui_draw_vertex_t color. */
+SK_FINLINE u32 sk_ui_pack_color(sk_ui_color_t c) {
+	f32 r = c.r < 0.0f ? 0.0f : (c.r > 1.0f ? 1.0f : c.r);
+	f32 g = c.g < 0.0f ? 0.0f : (c.g > 1.0f ? 1.0f : c.g);
+	f32 b = c.b < 0.0f ? 0.0f : (c.b > 1.0f ? 1.0f : c.b);
+	f32 a = c.a < 0.0f ? 0.0f : (c.a > 1.0f ? 1.0f : c.a);
+	return ((u32)(r * 255.0f + 0.5f)) | (((u32)(g * 255.0f + 0.5f)) << 8) | (((u32)(b * 255.0f + 0.5f)) << 16) | (((u32)(a * 255.0f + 0.5f)) << 24);
+}
+
+/**
+ * Draw-list command kinds. MESH references a contiguous index range in the
+ * list's index buffer (triangle list). PUSH/POP_CLIP maintain a scissor stack
+ * for overflow and scroll containers (tests assert nesting; backends may use
+ * either the stack or the clip stored on MESH).
+ */
+typedef enum sk_ui_draw_cmd_kind_t {
+	SK_UI_DRAW_CMD_MESH = 0,
+	SK_UI_DRAW_CMD_PUSH_CLIP = 1,
+	SK_UI_DRAW_CMD_POP_CLIP = 2,
+} sk_ui_draw_cmd_kind_t;
+
+/**
+ * Texture binding kind for a MESH command. NONE = solid (vertex color only).
+ * FONT = R8 atlas page (texture_id = page_index). IMAGE = host texture
+ * (texture_id = host-defined id from the image node property).
+ */
+typedef enum sk_ui_draw_texture_kind_t {
+	SK_UI_DRAW_TEX_NONE = 0,
+	SK_UI_DRAW_TEX_FONT = 1,
+	SK_UI_DRAW_TEX_IMAGE = 2,
+} sk_ui_draw_texture_kind_t;
+
+/**
+ * One command in the paint stream. For MESH: index_offset/index_count select
+ * triangles; texture_kind/texture_id select the bind; clip is the active
+ * scissor in physical pixels (intersection of the clip stack). For PUSH_CLIP:
+ * clip is the pushed rect (before intersection). POP_CLIP ignores other fields.
+ */
+typedef struct sk_ui_draw_cmd_t {
+	sk_ui_draw_cmd_kind_t kind;
+	sk_ui_draw_texture_kind_t texture_kind;
+	u32 texture_id;
+	u32 index_offset;
+	u32 index_count;
+	sk_ui_rect_t clip; /**< Physical-pixel scissor; full viewport when unconstrained. */
+} sk_ui_draw_cmd_t;
+
+/**
+ * Backend-agnostic draw list: contiguous vertex/index arrays plus a command
+ * stream. Arrays are owned by the UI context; valid until the next rebuild
+ * paint or context destroy. Ready for direct GPU buffer upload (APX-134).
+ */
+typedef struct sk_ui_draw_list_t {
+	const sk_ui_draw_vertex_t* vertices;
+	u32 vertex_count;
+	const u32* indices;
+	u32 index_count;
+	const sk_ui_draw_cmd_t* commands;
+	u32 command_count;
+	/**
+	 * Monotonic rebuild counter. Unchanged across paint() calls that reuse
+	 * the previous list (tree and content scale clean).
+	 */
+	u32 generation;
+	/** Non-zero if the last paint() reused this list without rebuilding. */
+	i32 reused;
+} sk_ui_draw_list_t;
+
+/**
+ * Optional inputs for the paint walk (fonts for text glyphs).
+ * All fields may be NULL / zero when unused.
+ */
+typedef struct sk_ui_paint_params_t {
+	sk_ui_font_system_t* font_system; /**< Required to emit text glyph quads. */
+	sk_ui_font_t* font;				  /**< Default face for TEXT nodes. */
+} sk_ui_paint_params_t;
+
+/* ------------------------------------------------------------------ */
 /*  Module API                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -1191,6 +1286,34 @@ typedef struct sk_ui_api_t {
 	 * Non-zero if a focusable node holds focus (UI wants keyboard / text).
 	 */
 	i32 (*wants_keyboard)(const sk_ui_context_t* ctx);
+
+	/* ---- paint / draw list (CPU only; no GPU) ---- */
+
+	/**
+	 * Walk the laid-out, styled tree and rebuild the context draw list when
+	 * needed. Geometry is emitted in **physical pixels** (logical × content
+	 * scale applied exactly once). No GPU upload or draw calls.
+	 *
+	 * Rebuild when any node is PAINT-dirty or content scale changed since the
+	 * last successful paint; otherwise reuses the previous list in place
+	 * (generation unchanged, get_draw_list()->reused == 1).
+	 *
+	 * Clears SK_UI_DIRTY_PAINT on all nodes after a rebuild. Call after
+	 * style_resolve, layout, and layout_apply_scale (or accept default 1× scale).
+	 *
+	 * @param ctx    Context (must not be NULL).
+	 * @param params Optional; NULL uses empty defaults (no text glyphs / fonts).
+	 * @return 0 on success, non-zero on failure (e.g. OOM).
+	 */
+	i32 (*paint)(sk_ui_context_t* ctx, const sk_ui_paint_params_t* params);
+
+	/**
+	 * Last draw list produced by paint() for @p ctx.
+	 * Pointers remain valid until the next rebuild paint, context_destroy, or
+	 * until paint fails mid-rebuild (list may be empty). Never free the arrays.
+	 * @return Non-NULL while the context is live (may be empty before first paint).
+	 */
+	const sk_ui_draw_list_t* (*get_draw_list)(const sk_ui_context_t* ctx);
 
 	/* ---- font system (FreeType raster + stb_rect_pack atlas, CPU only) ---- */
 

@@ -1084,6 +1084,16 @@ i32 ui_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 
 i32 ui_layout_apply_scale_impl(sk_ui_context_t* ctx, f32 scale_x, f32 scale_y) {
 	u32 i;
+	u32 old_x_bits;
+	u32 old_y_bits;
+	u32 new_x_bits;
+	u32 new_y_bits;
+	i32 scale_changed;
+	memcpy(&old_x_bits, &ctx->content_scale_x, sizeof(old_x_bits));
+	memcpy(&old_y_bits, &ctx->content_scale_y, sizeof(old_y_bits));
+	memcpy(&new_x_bits, &scale_x, sizeof(new_x_bits));
+	memcpy(&new_y_bits, &scale_y, sizeof(new_y_bits));
+	scale_changed = (old_x_bits != new_x_bits) || (old_y_bits != new_y_bits) ? 1 : 0;
 	ctx->content_scale_x = scale_x;
 	ctx->content_scale_y = scale_y;
 	for (i = 1u; i < ctx->slots.count; ++i) {
@@ -1099,6 +1109,10 @@ i32 ui_layout_apply_scale_impl(sk_ui_context_t* ctx, f32 scale_x, f32 scale_y) {
 		slot->layout_content_scaled.y = slot->layout_content.y * scale_y;
 		slot->layout_content_scaled.width = slot->layout_content.width * scale_x;
 		slot->layout_content_scaled.height = slot->layout_content.height * scale_y;
+	}
+	/* Geometry in the draw list is physical; scale changes force a repaint. */
+	if (scale_changed != 0 && sk_ui_node_is_valid(ctx->root)) {
+		ui_mark_dirty_up(ctx, ctx->root, (u32)SK_UI_DIRTY_PAINT);
 	}
 	return 0;
 }

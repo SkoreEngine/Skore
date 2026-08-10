@@ -336,9 +336,11 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 		return NULL;
 	}
 	ui_style_registry_init(ctx);
+	ui_draw_list_store_init(&ctx->draw, a);
 
 	/* Slot 0 is never used — keeps index 0 as the invalid sentinel. */
 	if (sk_array_resize(&ctx->slots, 1u) != 0) {
+		ui_draw_list_store_shutdown(&ctx->draw);
 		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
 		sk_array_free(&ctx->freelist);
@@ -350,6 +352,7 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 
 	root = ui_alloc_node(ctx, SK_UI_NODE_KIND_BOX);
 	if (!sk_ui_node_is_valid(root)) {
+		ui_draw_list_store_shutdown(&ctx->draw);
 		ui_style_registry_shutdown(ctx);
 		sk_hash_map_free(&ctx->id_map);
 		sk_array_free(&ctx->freelist);
@@ -402,6 +405,7 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 	sk_array_free(&ctx->freelist);
 	sk_hash_map_free(&ctx->id_map);
 	ui_style_registry_shutdown(ctx);
+	ui_draw_list_store_shutdown(&ctx->draw);
 	a->free(a->instance, ctx);
 }
 
@@ -1303,6 +1307,8 @@ static const sk_ui_api_t ui_api = {
 	ui_pointer_capture_set_impl,
 	ui_wants_mouse_impl,
 	ui_wants_keyboard_impl,
+	ui_paint_impl,
+	ui_get_draw_list_impl,
 	ui_font_system_create_impl,
 	ui_font_system_destroy_impl,
 	ui_font_load_path_impl,
