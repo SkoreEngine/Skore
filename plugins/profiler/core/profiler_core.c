@@ -6,10 +6,15 @@
  *  - The default clock has one platform backend per v2 target (Win32 QPC /
  *    POSIX CLOCK_MONOTONIC) plus a coarse fallback, isolated behind #ifdef
  *    blocks so the rest of the module is platform-neutral.
- *  - Every thread owns a thread-local sk_profiler_thread_ctx_t backed by
- *    pre-allocated storage (ring + open stack). begin/end only touch TLS:
- *    no locks, no allocation. Worker registration is a single atomic
- *    fetch-add (buffers exist already), so it is lock-free too.
+ *  - Every thread owns a sk_profiler_thread_ctx_t backed by pre-allocated
+ *    storage (ring + open stack). The ctx structs themselves live in
+ *    core-owned memory (thread_states, allocated at init); TLS only caches
+ *    the pointer to this thread's ctx. That keeps the hot path lock-free
+ *    and allocation-free, and it keeps the state readable for end_frame
+ *    after a worker has exited (a TLS address would dangle: the owning
+ *    thread's TLS block is reclaimed at thread exit). Worker registration
+ *    is a single atomic fetch-add (buffers exist already), so it is
+ *    lock-free too.
  *  - The per-thread ring holds the zones written since the last drain; the
  *    open zones form a contiguous LIFO segment inside it, so end_zone pops
  *    through a small open-stack. end_frame drains closed zones (chronological
@@ -71,7 +76,15 @@ typedef struct sk_profiler_thread_ctx_t {
 	u8 _pad[3];						  /* explicit padding */
 } sk_profiler_thread_ctx_t;
 
-static SK_PROFILER_CORE_TLS sk_profiler_thread_ctx_t thread_ctx;
+/*
+ * The ctx structs are stored in core-owned memory (core->thread_states,
+ * pre-allocated at init); the TLS slot only caches this thread's pointer.
+ * Publishing a TLS address for the recording thread to drain would dangle:
+ * the owning thread's TLS block is reclaimed when the thread exits, so a
+ * post-join drain would read stale/zeroed state (seen on macOS arm64).
+ */
+static SK_PROFILER_CORE_TLS sk_profiler_thread_ctx_t* thread_ctx; /* NULL = not registered */
+static SK_PROFILER_CORE_TLS sk_profiler_core_t* thread_ctx_owner; /* core this thread resolved for */
 
 /* ---- default clock (platform backends) ---- */
 
@@ -141,12 +154,15 @@ struct sk_profiler_core_t {
 	sk_logger_t* logger;
 
 	/* Per-thread storage (pre-allocated at init; registration is lock-free).
-	 * threads[] publishes each registering thread's TLS ctx (atomic). */
+	 * threads[] publishes each registering thread's ctx pointer (atomic); the
+	 * ctx structs themselves live in thread_states (core-owned heap memory),
+	 * so end_frame can drain them after a worker thread has exited. */
 	void_ptr_t* threads;				   /* max_threads entries, NULL until registered */
-	sk_profiler_core_zone_t* thread_rings; /* max_threads * zones_per_thread */
-	u32* thread_stacks;					   /* max_threads * zones_per_thread */
-	u32 next_thread_index;				   /* atomic; 0 = recording thread (init) */
-	u32 thread_overflows;				   /* atomic: threads beyond max_threads */
+	sk_profiler_thread_ctx_t* thread_states; /* max_threads ctx structs (heap) */
+	sk_profiler_core_zone_t* thread_rings;	/* max_threads * zones_per_thread */
+	u32* thread_stacks;				   /* max_threads * zones_per_thread */
+	u32 next_thread_index;			   /* atomic; 0 = recording thread (init) */
+	u32 thread_overflows;			   /* atomic: threads beyond max_threads */
 
 	/* Last built frame (recording thread only). */
 	sk_profiler_core_zone_t* frame_ring; /* frame_zones_cap entries (ring) */
@@ -213,11 +229,12 @@ static void copy_category(char dst[SK_PROFILER_CORE_CATEGORY_CAP], const_chr_t c
  *         distinct threads than max_threads; counted once).
  */
 static sk_profiler_thread_ctx_t* acquire_thread_ctx(sk_profiler_core_t* core) {
-	if (thread_ctx.core == core) {
-		return &thread_ctx;
+	if (thread_ctx_owner == core) {
+		return thread_ctx; /* registered, or overflow-remembered (NULL) */
 	}
 
 	u32 idx = sk_atomic_u32_fetch_add(&core->next_thread_index, 1u);
+	thread_ctx_owner = core; /* remember the outcome for later calls */
 	if (idx >= core->max_threads) {
 		sk_atomic_u32_fetch_add(&core->thread_overflows, 1u);
 		if (!core->thread_overflow_warned) {
@@ -225,26 +242,26 @@ static sk_profiler_thread_ctx_t* acquire_thread_ctx(sk_profiler_core_t* core) {
 			core_log(core, SK_LOGGER_TYPE_WARN, "thread buffer pool exhausted (%u threads); further threads cannot record zones", core->max_threads);
 		}
 		/* Remember the outcome so later calls on this thread stay silent. */
-		thread_ctx.core = core;
-		thread_ctx.capacity = 0u;
+		thread_ctx = NULL;
 		return NULL;
 	}
 
-	thread_ctx.core = core;
-	thread_ctx.records = &core->thread_rings[(size_t)idx * (size_t)core->zones_per_thread];
-	thread_ctx.open_stack = &core->thread_stacks[(size_t)idx * (size_t)core->zones_per_thread];
-	thread_ctx.capacity = core->zones_per_thread;
-	thread_ctx.head = 0u;
-	thread_ctx.written = 0u;
-	thread_ctx.live = 0u;
-	thread_ctx.pending_phantom = 0u;
-	thread_ctx.thread_index = idx;
-	thread_ctx.dropped = 0u;
-	thread_ctx.mismatched_ends = 0u;
-	thread_ctx.drop_warned = false;
+	thread_ctx = &core->thread_states[idx];
+	thread_ctx->core = core;
+	thread_ctx->records = &core->thread_rings[(size_t)idx * (size_t)core->zones_per_thread];
+	thread_ctx->open_stack = &core->thread_stacks[(size_t)idx * (size_t)core->zones_per_thread];
+	thread_ctx->capacity = core->zones_per_thread;
+	thread_ctx->head = 0u;
+	thread_ctx->written = 0u;
+	thread_ctx->live = 0u;
+	thread_ctx->pending_phantom = 0u;
+	thread_ctx->thread_index = idx;
+	thread_ctx->dropped = 0u;
+	thread_ctx->mismatched_ends = 0u;
+	thread_ctx->drop_warned = false;
 	/* Publish the fully initialized ctx; end_frame drains through this slot. */
-	sk_atomic_ptr_store_ordered(&core->threads[idx], &thread_ctx, SK_ATOMIC_ORDER_RELEASE);
-	return &thread_ctx;
+	sk_atomic_ptr_store_ordered(&core->threads[idx], thread_ctx, SK_ATOMIC_ORDER_RELEASE);
+	return thread_ctx;
 }
 
 /* ---- frame ring ---- */
@@ -471,14 +488,16 @@ i32 sk_profiler_core_init(sk_profiler_core_t* core, const sk_profiler_core_confi
 	size_t ring_count = (size_t)cfg.max_threads * (size_t)cfg.zones_per_thread;
 
 	core->threads = (void_ptr_t*)core->alloc->alloc(core->alloc->instance, (size_t)cfg.max_threads * sizeof(void_ptr_t));
+	core->thread_states = (sk_profiler_thread_ctx_t*)core->alloc->alloc(core->alloc->instance, (size_t)cfg.max_threads * sizeof(sk_profiler_thread_ctx_t));
 	core->thread_rings = (sk_profiler_core_zone_t*)core->alloc->alloc(core->alloc->instance, ring_count * zone_size);
 	core->thread_stacks = (u32*)core->alloc->alloc(core->alloc->instance, ring_count * sizeof(u32));
 	core->frame_ring = (sk_profiler_core_zone_t*)core->alloc->alloc(core->alloc->instance, (size_t)cfg.frame_zones * zone_size);
 	core->tasks = (sk_profiler_core_task_t*)core->alloc->alloc(core->alloc->instance, (size_t)cfg.max_tasks * task_size);
-	if (core->threads == NULL || core->thread_rings == NULL || core->thread_stacks == NULL || core->frame_ring == NULL || core->tasks == NULL) {
+	if (core->threads == NULL || core->thread_states == NULL || core->thread_rings == NULL || core->thread_stacks == NULL || core->frame_ring == NULL || core->tasks == NULL) {
 		/* initialized is still false: free the partial set directly. */
 		const sk_allocator_t* alloc = core->alloc;
 		alloc->free(alloc->instance, core->threads);
+		alloc->free(alloc->instance, core->thread_states);
 		alloc->free(alloc->instance, core->thread_rings);
 		alloc->free(alloc->instance, core->thread_stacks);
 		alloc->free(alloc->instance, core->frame_ring);
@@ -490,22 +509,25 @@ i32 sk_profiler_core_init(sk_profiler_core_t* core, const sk_profiler_core_confi
 		return -1;
 	}
 	memset(core->threads, 0, (size_t)cfg.max_threads * sizeof(void_ptr_t));
+	memset(core->thread_states, 0, (size_t)cfg.max_threads * sizeof(sk_profiler_thread_ctx_t));
 
 	/* The calling thread becomes the recording thread (index 0). */
 	sk_atomic_u32_init(&core->next_thread_index, 1u);
-	thread_ctx.core = core;
-	thread_ctx.records = core->thread_rings;
-	thread_ctx.open_stack = core->thread_stacks;
-	thread_ctx.capacity = cfg.zones_per_thread;
-	thread_ctx.head = 0u;
-	thread_ctx.written = 0u;
-	thread_ctx.live = 0u;
-	thread_ctx.pending_phantom = 0u;
-	thread_ctx.thread_index = 0u;
-	thread_ctx.dropped = 0u;
-	thread_ctx.mismatched_ends = 0u;
-	thread_ctx.drop_warned = false;
-	core->threads[0] = &thread_ctx; /* plain store: same thread, not yet shared */
+	thread_ctx = &core->thread_states[0];
+	thread_ctx_owner = core;
+	thread_ctx->core = core;
+	thread_ctx->records = core->thread_rings;
+	thread_ctx->open_stack = core->thread_stacks;
+	thread_ctx->capacity = cfg.zones_per_thread;
+	thread_ctx->head = 0u;
+	thread_ctx->written = 0u;
+	thread_ctx->live = 0u;
+	thread_ctx->pending_phantom = 0u;
+	thread_ctx->thread_index = 0u;
+	thread_ctx->dropped = 0u;
+	thread_ctx->mismatched_ends = 0u;
+	thread_ctx->drop_warned = false;
+	core->threads[0] = thread_ctx; /* plain store: same thread, not yet shared */
 
 	core->active = false;
 	core->initialized = true;
@@ -522,6 +544,7 @@ void sk_profiler_core_shutdown(sk_profiler_core_t* core) {
 
 	const sk_allocator_t* alloc = core->alloc;
 	alloc->free(alloc->instance, core->threads);
+	alloc->free(alloc->instance, core->thread_states);
 	alloc->free(alloc->instance, core->thread_rings);
 	alloc->free(alloc->instance, core->thread_stacks);
 	alloc->free(alloc->instance, core->frame_ring);
@@ -532,8 +555,9 @@ void sk_profiler_core_shutdown(sk_profiler_core_t* core) {
 		logger_api->destroy_logger(core->logger);
 	}
 
-	if (thread_ctx.core == core) {
-		memset(&thread_ctx, 0, sizeof(thread_ctx));
+	if (thread_ctx != NULL && thread_ctx->core == core) {
+		thread_ctx = NULL; /* drop the TLS cache; the state memory is freed */
+		thread_ctx_owner = NULL;
 	}
 	/* Keep the allocator pointer so destroy can free the instance after a
 	 * shutdown; initialized is the live/not-live guard. */
@@ -552,11 +576,11 @@ void sk_profiler_core_set_active(sk_profiler_core_t* core, bool active) {
 		core->frame_wall_time = 0.0;
 		memset(&core->frame_stats, 0, sizeof(core->frame_stats));
 		/* The recording thread's own pending zones are discarded too. */
-		if (thread_ctx.core == core) {
-			thread_ctx.head = 0u;
-			thread_ctx.written = 0u;
-			thread_ctx.live = 0u;
-			thread_ctx.pending_phantom = 0u;
+		if (thread_ctx != NULL && thread_ctx->core == core) {
+			thread_ctx->head = 0u;
+			thread_ctx->written = 0u;
+			thread_ctx->live = 0u;
+			thread_ctx->pending_phantom = 0u;
 		}
 	}
 }
@@ -622,8 +646,8 @@ void sk_profiler_core_end_zone(sk_profiler_core_t* core) {
 		return;
 	}
 
-	sk_profiler_thread_ctx_t* ctx = &thread_ctx;
-	if (ctx->core != core || ctx->capacity == 0u) {
+	sk_profiler_thread_ctx_t* ctx = thread_ctx;
+	if (ctx == NULL || ctx->core != core || ctx->capacity == 0u) {
 		return; /* not registered with this core (or overflowed thread) */
 	}
 
