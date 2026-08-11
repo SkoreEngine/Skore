@@ -526,7 +526,9 @@ SK_TEST(ui_integration_layout_nested) {
 	}
 
 	/* Structural 4: both buttons exist in the header row, separated by the
-	 * space-between gap: the joint bbox spans the full row width. */
+	 * space-between gap: the joint bbox spans the full row width.
+	 * APX-248 / D2: fills ~94x26 each inside panel content (max x ~229, max y
+	 * ~51) — not pad-expanded ~108x40 overflowing past panel right ~239. */
 	{
 		sk_ui_bbox_expected_t e;
 		memset(&e, 0, sizeof(e));
@@ -539,6 +541,11 @@ SK_TEST(ui_integration_layout_nested) {
 		e.min_pixels = 4000u; /* two 94x26 fills ≈ 4900 */
 		TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_bbox(&img, uii_region(0u, 0u, 256u, 192u), UII_MATCH(UII_COLOR_BUTTON_BG, 2u), &e, NULL));
 	}
+
+	/* Structural 4b (APX-248): no button fill past panel content right edge or
+	 * below the 28px header row (old defect painted to x=251, y=65). */
+	TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_coverage(&img, uii_region(232u, 24u, 256u, 70u), UII_MATCH(UII_COLOR_BUTTON_BG, 2u), 0.0f, 0.001f, NULL));
+	TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_coverage(&img, uii_region(24u, 54u, 234u, 70u), UII_MATCH(UII_COLOR_BUTTON_BG, 2u), 0.0f, 0.001f, NULL));
 
 	/* Structural 5: button fill coverage inside the header row region. */
 	TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_coverage(&img, uii_region(24u, 24u, 234u, 54u), UII_MATCH(UII_COLOR_BUTTON_BG, 2u), 0.70f, 0.95f, NULL));

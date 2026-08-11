@@ -44,7 +44,7 @@ Each defect is a separate goal task assigned to the **coder** worker.
 - **Fix:** `plugins/ui/clay_adapter.c` — when parent `align_items` / child `align_self` is STRETCH and the cross-axis size is AUTO, map that axis as GROW so the child fills the parent content size. `ui-panel` class also sets `align_items: STRETCH` explicitly.
 - **Verified (APX-240 / APX-247):** live body fill bbox `(25,53)-(230,92)` (206×40), ~8240 body-red pixels, histogram body-red fraction ~0.17; `ui_integration_layout_nested` PASS; units `ui_clay_column_stretch_empty_box_fills_content_width` and `ui_clay_nested_border_box_stretch_space_between` lock content width 206.
 
-### D2 — APX-248 — header buttons oversized and overflow panel — **FIXED (APX-240)**
+### D2 — APX-248 — header buttons oversized and overflow panel — **FIXED (APX-240 / APX-248)**
 
 - **Snapshot:** `ui_integration_layout_nested.png`
 - **Region:** `btn-a` / `btn-b` in `row-header`
@@ -53,8 +53,8 @@ Each defect is a separate goal task assigned to the **coder** worker.
 - **Root cause (two parts):**
   1. In-flow POINT sizes were expanded by padding+border (content-box) so ui-button 96×28 with pad 6 + border 1 became ~110×42 outer.
   2. `justify-content: space-between` collapsed to flex-start under Clay (no native packing), so free space was not distributed and the oversized pair still packed left — but the pad expansion alone was enough to overflow.
-- **Fix:** `plugins/ui/clay_adapter.c` — POINT width/height map 1:1 as border-box (Clay FIXED is outer); space-between approximated with anonymous main-axis GROW spacers (authored gap as spacer min, Clay childGap zeroed to avoid double gap).
-- **Verified (APX-240):** button fills `(26–119)` and `(136–229)` y `26–51` (94×26 fill = 96×28 outer − 1px border); joint bbox ends at x 229 (inside panel); unit test asserts outer 96×28 and trailing-edge placement.
+- **Fix:** `plugins/ui/clay_adapter.c` — POINT width/height map 1:1 as border-box (Clay FIXED is outer); space-between approximated with anonymous main-axis GROW spacers (authored gap as spacer min, Clay childGap zeroed to avoid double gap). `ui-button` class documents border-box POINT sizing.
+- **Verified (APX-240 / APX-248):** joint button fill bbox `(26,26)-(229,51)` (204×26, 4888 pixels); fills stay inside panel content (no button pixels at x≥232 or y≥54). Units `ui_clay_button_point_size_is_border_box` (outer 96×28, content 82×14) and `ui_clay_nested_border_box_stretch_space_between` (trailing-edge placement, no overflow). `ui_integration_layout_nested` PASS vs golden.
 
 ## Notes for later rounds
 

@@ -269,7 +269,9 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 
-	/* Button */
+	/* Button: style POINT width/height are the outer border box — padding and
+	 * border sit inside the authored size (APX-248 / vision D2). Pre-fix
+	 * content-box mapping made pad 6 + border 1 expand 96x28 → ~108x40. */
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE |
 				SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT;

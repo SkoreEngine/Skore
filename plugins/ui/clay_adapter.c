@@ -1577,6 +1577,50 @@ SK_TEST(ui_clay_column_stretch_empty_box_fills_content_width) {
 }
 
 /*
+ * APX-248 / vision D2 only: ui-button POINT width/height is the outer border
+ * box. Default class pad 6 + border 1 sit *inside* authored 96x28 — they must
+ * not expand the outer size to ~108x40 (content-box). layout_nested header
+ * buttons overflowed the panel when this regressed.
+ */
+SK_TEST(ui_clay_button_point_size_is_border_box) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t btn;
+	sk_ui_rect_t border;
+	sk_ui_rect_t content;
+	sk_ui_style_props_t p;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	btn = ui->widget_button(ctx, root, "A", "d2-btn");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(btn));
+	/* Keep class defaults (pad 6, border 1, min_height 28); set outer size. */
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(96.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, btn, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 256.0f, 192.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, btn, &border, &content));
+
+	/* Outer stays 96x28 (not pad-expanded ~108x40). */
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 96.0f, border.width);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 28.0f, border.height);
+	/* Content = outer − 2*(border 1 + pad 6) = 96−14 = 82, 28−14 = 14. */
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 82.0f, content.width);
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 14.0f, content.height);
+	/* Guard against content-box regression: outer must stay under 100x32. */
+	TEST_ASSERT_TRUE(border.width < 100.0f);
+	TEST_ASSERT_TRUE(border.height < 32.0f);
+
+	ui->context_destroy(ctx);
+}
+
+/*
  * APX-240 / vision audit D1+D2 (APX-247, APX-248): layout contracts that
  * ui_integration_layout_nested depends on.
  *
