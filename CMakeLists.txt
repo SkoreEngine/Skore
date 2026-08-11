@@ -191,6 +191,7 @@ if(MSVC)
         /W4
         /WX
         /permissive-
+        /wd4702 # unreachable code (common after early return / noreturn paths)
         /w14242 # conversion possible loss of data
         /w14254 # bit-field conversion possible loss of data
         /w14263 # member function does not override any base class virtual
