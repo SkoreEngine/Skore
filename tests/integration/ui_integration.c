@@ -24,13 +24,14 @@
  *      (nesting, flex row with space-between, stretch): bboxes for every
  *      widget + coverage + histogram + golden.
  *   4. ui_integration_text_glyphs  — TEXT node over a panel with the
- *      fixture TTF (deterministic glyph raster): text-color coverage +
+ *      vendored DejaVuSans.ttf (APX-250 harness load_test_font; fixed
+ *      pixel size / content scale / FreeType raster): text-color coverage +
  *      bbox inside the label box + panel coverage + golden.
  *
  * Determinism: fixed viewport, fixed clear color, fixed logical time 0,
- * fixture font only, no wall clocks, no randomness (the harness contract).
- * Every coordinate asserted below is a fixed constant, never sampled
- * randomly.
+ * pinned DejaVuSans.ttf only (no system/built-in font fallback), no wall
+ * clocks, no randomness (the harness contract). Every coordinate asserted
+ * below is a fixed constant, never sampled randomly.
  *
  * Plugin lifetime: the harness tears down its own app context (and unloads
  * the plugin DLLs) before returning, so the sk_ui_api_t table it handed the
@@ -53,7 +54,6 @@
 #include "test.h"
 #include "ui.h"
 #include "ui_capture_harness.h"
-#include "skore_test_font_ttf.h"
 
 /*
  * Unity (via test.h) may include <stdnoreturn.h>, which defines `noreturn`
@@ -585,15 +585,16 @@ SK_TEST(ui_integration_layout_nested) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Scene 4: text rendering (fixture TTF, deterministic glyph raster)          */
+/* Scene 4: text rendering (vendored DejaVuSans.ttf, deterministic raster)    */
 /* -------------------------------------------------------------------------- */
 
 /*
  * 192x96 frame. Root fill (26,31,41); ui-panel at (8,8), 176x80; label
  * "UI 42" (ui-label: color (242,242,250)) inside the panel content box at
- * (17,17), 160x32, font size 20. The scene opts into the fixture font, so
- * paint emits real glyph quads; glyph rasterization (FreeType + stb_rect_pack
- * atlas, fixed seed-free packing) is deterministic.
+ * (17,17), 160x32, font size = SK_UI_CAPTURE_HARNESS_FONT_LOGICAL_SIZE (20)
+ * so physical size is SK_UI_CAPTURE_HARNESS_FONT_PIXEL_SIZE at content scale
+ * 1.0. Font is installed by the harness (params.load_test_font) from
+ * plugins/ui/testdata/DejaVuSans.ttf — never a system or embedded built-in.
  */
 static i32 uii_scene_text_glyphs(sk_ui_capture_scene_t* scene, void* user) {
 	const sk_ui_api_t* ui = scene->ui;
@@ -604,17 +605,11 @@ static i32 uii_scene_text_glyphs(sk_ui_capture_scene_t* scene, void* user) {
 	sk_ui_style_props_t props;
 
 	(void)user;
-	if (scene->font_system == NULL) {
-		scene->font_system = ui->font_system_create(NULL, 256u, 256u);
-		if (scene->font_system == NULL) {
-			return -1;
-		}
-	}
-	if (scene->font == NULL) {
-		scene->font = ui->font_load_memory(scene->font_system, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
-		if (scene->font == NULL) {
-			return -1;
-		}
+	/* Harness must have loaded DejaVuSans via load_test_font; refuse silent
+	 * built-in fallback if a caller forgets the param. */
+	if (scene->font_system == NULL || scene->font == NULL) {
+		fprintf(stderr, "ui_integration_text_glyphs: pinned test font missing (set params.load_test_font)\n");
+		return -1;
 	}
 
 	memset(&props, 0, sizeof(props));
@@ -644,7 +639,7 @@ static i32 uii_scene_text_glyphs(sk_ui_capture_scene_t* scene, void* user) {
 	memset(&props, 0, sizeof(props));
 	props.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
 	props.color = sk_ui_rgba(0.95f, 0.95f, 0.98f, 1.0f);
-	props.font_size = 20.0f;
+	props.font_size = SK_UI_CAPTURE_HARNESS_FONT_LOGICAL_SIZE;
 	props.layout.width = sk_ui_pt(160.0f);
 	props.layout.height = sk_ui_pt(32.0f);
 	ui->node_set_inline_style(ctx, label, &props);
@@ -670,6 +665,7 @@ SK_TEST(ui_integration_text_glyphs) {
 	params.width = 192u;
 	params.height = 96u;
 	params.time_seconds = 0.0;
+	params.load_test_font = 1; /* vendored DejaVuSans.ttf; fail if missing */
 
 	uii_capture(&params, uii_scene_text_glyphs, &img);
 

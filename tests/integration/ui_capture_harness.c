@@ -1,5 +1,5 @@
 /*
- * ui_capture_harness.c — reusable UI capture test harness (APX-228).
+ * ui_capture_harness.c — reusable UI capture test harness (APX-228 / APX-250).
  *
  * Wraps the low-level headless capture (plugins/ui/capture.c, APX-226) and
  * the PNG artifact writers (plugins/ui/image_write.c, APX-227) behind a
@@ -16,6 +16,12 @@
  *
  * The PNG is written before the caller receives the image, so a later
  * assertion failure still leaves an inspectable artifact on disk.
+ *
+ * Fonts (APX-250): when params.load_test_font is set, the harness loads
+ * plugins/ui/testdata/DejaVuSans.ttf (exact file from main) at a fixed
+ * atlas size. Missing or wrong-sized assets fail hard — there is no
+ * fallback to a system font or the embedded skore_test_font subset.
+ * Content scale is always SK_UI_CAPTURE_HARNESS_CONTENT_SCALE (1.0).
  */
 
 #include "ui_capture_harness.h"
@@ -126,9 +132,11 @@ static sk_adapter_t uich_select_adapter(const sk_render_device_api_t* api, sk_re
 /* -------------------------------------------------------------------------- */
 
 /* Fixed pipeline settings (documented contract, see header): content scale
- * 1x, no fonts unless the scene opts in, full-surface viewport. */
+ * SK_UI_CAPTURE_HARNESS_CONTENT_SCALE (1x / 96 DPI), optional pinned font
+ * via load_test_font, full-surface viewport. Never queries host DPI/scale. */
 static i32 uich_refresh(const sk_ui_api_t* ui, sk_ui_context_t* ctx, u32 width, u32 height, sk_ui_font_system_t* fonts, sk_ui_font_t* font) {
 	sk_ui_paint_params_t paint_params;
+	const f32 scale = SK_UI_CAPTURE_HARNESS_CONTENT_SCALE;
 
 	if (ui->style_resolve(ctx) != 0) {
 		return -1;
@@ -136,7 +144,7 @@ static i32 uich_refresh(const sk_ui_api_t* ui, sk_ui_context_t* ctx, u32 width, 
 	if (ui->layout(ctx, (f32)width, (f32)height) != 0) {
 		return -1;
 	}
-	if (ui->layout_apply_scale(ctx, 1.0f, 1.0f) != 0) {
+	if (ui->layout_apply_scale(ctx, scale, scale) != 0) {
 		return -1;
 	}
 	memset(&paint_params, 0, sizeof(paint_params));
@@ -151,6 +159,131 @@ static i32 uich_refresh(const sk_ui_api_t* ui, sk_ui_context_t* ctx, u32 width, 
 /* -------------------------------------------------------------------------- */
 /* Public API                                                                 */
 /* -------------------------------------------------------------------------- */
+
+i32 sk_ui_capture_harness_test_font_path(char* out, u32 out_cap) {
+	i32 n;
+
+	if (out == NULL || out_cap == 0u) {
+		return -1;
+	}
+	out[0] = '\0';
+
+#if defined(SK_UI_GOLDEN_DIR)
+	/* Compile-time absolute (or source-relative) path to plugins/ui/testdata. */
+	n = snprintf(out, out_cap, "%s/%s", SK_UI_GOLDEN_DIR, SK_UI_CAPTURE_HARNESS_FONT_FILENAME);
+	if (n < 0 || (u32)n >= out_cap) {
+		out[0] = '\0';
+		return -1;
+	}
+	return 0;
+#else
+	/* Fallback: {app_folder|cwd}/plugins/ui/testdata/DejaVuSans.ttf */
+	{
+		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		char base[SK_FS_PATH_MAX];
+		sk_str_view_t parts[5];
+
+		if (fs->app_folder(base, (u32)sizeof(base)) != 0 || base[0] == '\0') {
+			if (fs->current_dir(base, (u32)sizeof(base)) != 0) {
+				return -1;
+			}
+		}
+		parts[0] = sk_str_view_cstr(base);
+		parts[1] = sk_str_view_cstr("plugins");
+		parts[2] = sk_str_view_cstr("ui");
+		parts[3] = sk_str_view_cstr("testdata");
+		parts[4] = sk_str_view_cstr(SK_UI_CAPTURE_HARNESS_FONT_FILENAME);
+		n = sk_path_join_n(parts, 5u, out, out_cap);
+		if (n < 0) {
+			out[0] = '\0';
+			return -1;
+		}
+	}
+	return 0;
+#endif
+}
+
+i32 sk_ui_capture_harness_load_test_font(const sk_ui_api_t* ui, sk_ui_font_system_t** out_system, sk_ui_font_t** out_font) {
+	const sk_filesystem_api_t* fs;
+	char path[SK_FS_PATH_MAX];
+	sk_file_handle_t file;
+	u64 size_u64;
+	sk_ui_font_system_t* sys = NULL;
+	sk_ui_font_t* font = NULL;
+
+	if (out_system != NULL) {
+		*out_system = NULL;
+	}
+	if (out_font != NULL) {
+		*out_font = NULL;
+	}
+	if (ui == NULL || out_system == NULL || out_font == NULL) {
+		return -1;
+	}
+
+	if (sk_ui_capture_harness_test_font_path(path, (u32)sizeof(path)) != 0 || path[0] == '\0') {
+		fprintf(stderr, "ui_capture_harness: failed to resolve path for %s\n", SK_UI_CAPTURE_HARNESS_FONT_FILENAME);
+		return -1;
+	}
+
+	fs = sk_filesystem_api();
+	if (fs->get_file_status(path) != SK_FILE_STATUS_FILE) {
+		fprintf(stderr,
+				"ui_capture_harness: missing vendored test font '%s' "
+				"(expected under UI test assets; copy from main Content/Fonts/DejaVuSans.ttf — no system/built-in fallback)\n",
+				path);
+		return -1;
+	}
+
+	file = fs->open_file(path, SK_FILE_ACCESS_READ);
+	if (file == NULL) {
+		fprintf(stderr, "ui_capture_harness: cannot open test font '%s'\n", path);
+		return -1;
+	}
+	size_u64 = fs->get_file_size(file);
+	fs->close_file(file);
+	if (size_u64 != (u64)SK_UI_CAPTURE_HARNESS_FONT_FILE_SIZE) {
+		/* size fits u32 for the pinned asset; cast for portable printf. */
+		const u32 actual = size_u64 > 0xFFFFFFFFull ? 0xFFFFFFFFu : (u32)size_u64;
+		fprintf(stderr,
+				"ui_capture_harness: test font '%s' size %u != pinned %u "
+				"(refusing built-in/subset fallback; restore main Content/Fonts/DejaVuSans.ttf)\n",
+				path, actual, SK_UI_CAPTURE_HARNESS_FONT_FILE_SIZE);
+		return -1;
+	}
+
+	sys = ui->font_system_create(NULL, SK_UI_CAPTURE_HARNESS_FONT_ATLAS_W, SK_UI_CAPTURE_HARNESS_FONT_ATLAS_H);
+	if (sys == NULL) {
+		fprintf(stderr, "ui_capture_harness: font_system_create failed\n");
+		return -1;
+	}
+	font = ui->font_load_path(sys, fs, path);
+	if (font == NULL) {
+		fprintf(stderr, "ui_capture_harness: font_load_path failed for '%s' (no built-in fallback)\n", path);
+		ui->font_system_destroy(sys);
+		return -1;
+	}
+
+	/* Sanity: face must provide ASCII glyphs (guards empty/corrupt TTF). */
+	if (ui->font_glyph_index(font, (u32)'A') == 0u || ui->font_glyph_index(font, (u32)'U') == 0u) {
+		fprintf(stderr, "ui_capture_harness: test font '%s' missing expected glyphs\n", path);
+		ui->font_destroy(font);
+		ui->font_system_destroy(sys);
+		return -1;
+	}
+
+	/* Pin: physical pixel size at harness content scale must match constant. */
+	if (sk_ui_font_pixel_size(SK_UI_CAPTURE_HARNESS_FONT_LOGICAL_SIZE, SK_UI_CAPTURE_HARNESS_CONTENT_SCALE) != SK_UI_CAPTURE_HARNESS_FONT_PIXEL_SIZE) {
+		fprintf(stderr, "ui_capture_harness: font pixel-size pin mismatch\n");
+		ui->font_destroy(font);
+		ui->font_system_destroy(sys);
+		return -1;
+	}
+
+	*out_system = sys;
+	*out_font = font;
+	return 0;
+}
 
 i32 sk_ui_capture_harness_capture(const sk_ui_capture_harness_params_t* params, sk_ui_capture_scene_fn scene, void* user, sk_ui_cpu_image_t* out_image) {
 	sk_app_context_t* app = NULL;
@@ -250,9 +383,21 @@ i32 sk_ui_capture_harness_capture(const sk_ui_capture_harness_params_t* params, 
 	scene_info.time_seconds = params->time_seconds;
 	scene_info.width = params->width;
 	scene_info.height = params->height;
+
+	/* Optional pinned DejaVuSans.ttf — loaded before the scene so text nodes
+	 * can paint immediately. Missing asset fails the capture (no fallback). */
+	if (params->load_test_font != 0) {
+		if (sk_ui_capture_harness_load_test_font(ui, &fonts, &font) != 0) {
+			goto out;
+		}
+		scene_info.font_system = fonts;
+		scene_info.font = font;
+	}
+
 	if (scene != NULL && scene(&scene_info, user) != 0) {
 		goto out;
 	}
+	/* Scene may replace the font pair; take ownership of whatever is set. */
 	fonts = scene_info.font_system;
 	font = scene_info.font;
 	if (uich_refresh(ui, ui_ctx, params->width, params->height, fonts, font) != 0) {
@@ -560,6 +705,171 @@ SK_TEST(ui_capture_harness_clear_color) {
 		}
 	}
 	sk_ui_capture_harness_image_free(&img);
+}
+
+/*
+ * APX-250 guard: the vendored DejaVuSans.ttf must exist at the pinned size,
+ * load through the harness helper, and never be replaced by a silent
+ * built-in/system fallback. Fails loudly with stderr diagnostics from
+ * sk_ui_capture_harness_load_test_font when the asset is missing/wrong.
+ */
+SK_TEST(ui_capture_harness_test_font_asset_guard) {
+	sk_app_context_t* app = NULL;
+	const sk_ui_api_t* ui = NULL;
+	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	char path[SK_FS_PATH_MAX];
+	sk_file_handle_t file;
+	u64 size_u64;
+	sk_ui_font_system_t* sys = NULL;
+	sk_ui_font_t* font = NULL;
+	sk_ui_font_metrics_t metrics;
+	u32 px;
+	u32 gi;
+
+	/* 1. Path resolution + file present. */
+	TEST_ASSERT_EQUAL_INT(0, sk_ui_capture_harness_test_font_path(path, (u32)sizeof(path)));
+	TEST_ASSERT_TRUE_MESSAGE(path[0] != '\0', "test font path must be non-empty");
+	TEST_ASSERT_EQUAL_INT_MESSAGE(SK_FILE_STATUS_FILE, fs->get_file_status(path),
+								   "DejaVuSans.ttf missing under UI test assets — copy from main Content/Fonts/DejaVuSans.ttf (no system/built-in fallback)");
+
+	/* 2. Exact byte size pin (rejects subset/built-in stand-ins). */
+	file = fs->open_file(path, SK_FILE_ACCESS_READ);
+	TEST_ASSERT_NOT_NULL(file);
+	size_u64 = fs->get_file_size(file);
+	fs->close_file(file);
+	TEST_ASSERT_EQUAL_UINT_MESSAGE(SK_UI_CAPTURE_HARNESS_FONT_FILE_SIZE, (u32)size_u64,
+									"DejaVuSans.ttf size must match main Content/Fonts/DejaVuSans.ttf (757076 bytes)");
+
+	/* 3. Harness loader succeeds (hard-fails on missing/wrong asset). */
+	app = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(app);
+	ui = uich_load_ui_api(app);
+	TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui plugin API required for font guard");
+	if (ui == NULL) {
+		sk_app_destroy(app);
+		return;
+	}
+	TEST_ASSERT_EQUAL_INT(0, ui->init());
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, sk_ui_capture_harness_load_test_font(ui, &sys, &font),
+								   "harness must load vendored DejaVuSans.ttf — must not fall back to embedded skore_test_font");
+	TEST_ASSERT_NOT_NULL(sys);
+	TEST_ASSERT_NOT_NULL(font);
+
+	/* 4. Fixed pixel-size / content-scale pins. */
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, SK_UI_CAPTURE_HARNESS_CONTENT_SCALE);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 96.0f, SK_UI_CAPTURE_HARNESS_DPI);
+	px = sk_ui_font_pixel_size(SK_UI_CAPTURE_HARNESS_FONT_LOGICAL_SIZE, SK_UI_CAPTURE_HARNESS_CONTENT_SCALE);
+	TEST_ASSERT_EQUAL_UINT(SK_UI_CAPTURE_HARNESS_FONT_PIXEL_SIZE, px);
+	TEST_ASSERT_EQUAL_INT(0, ui->font_get_metrics(font, px, &metrics));
+	TEST_ASSERT_TRUE(metrics.ascent > 0.0f);
+	TEST_ASSERT_TRUE(metrics.line_height > 0.0f);
+
+	/* 5. Distinguish from the tiny embedded subset: full DejaVu face has many
+	 * more glyphs; 'A' and non-ASCII must resolve (subset may lack some). */
+	gi = ui->font_glyph_index(font, (u32)'A');
+	TEST_ASSERT_TRUE(gi != 0u);
+	/* Em dash / Latin-1: present in full DejaVuSans, absent from ASCII subset. */
+	TEST_ASSERT_TRUE_MESSAGE(ui->font_glyph_index(font, 0x2014u) != 0u || ui->font_glyph_index(font, 0x00E9u) != 0u,
+							  "loaded face looks like the built-in ASCII subset, not full DejaVuSans.ttf");
+
+	/* 6. capture with load_test_font must not skip/error when the asset is present
+	 * (Vulkan may still skip — only assert that font load itself is not the cause
+	 * of RC_ERROR when we force a clear-only scene without GPU work via helper). */
+	{
+		sk_ui_font_system_t* sys2 = NULL;
+		sk_ui_font_t* font2 = NULL;
+		/* Second load: proves the path is stable across repeated calls (no
+		 * once-only init, no shared mutable font state). */
+		TEST_ASSERT_EQUAL_INT(0, sk_ui_capture_harness_load_test_font(ui, &sys2, &font2));
+		TEST_ASSERT_NOT_NULL(sys2);
+		TEST_ASSERT_NOT_NULL(font2);
+		ui->font_destroy(font2);
+		ui->font_system_destroy(sys2);
+	}
+
+	ui->font_destroy(font);
+	ui->font_system_destroy(sys);
+	ui->shutdown();
+	sk_app_destroy(app);
+}
+
+/*
+ * APX-250: two consecutive captures of the same text scene with the pinned
+ * DejaVuSans face must be byte-identical (scale 1x, fixed atlas, fixed FT
+ * raster flags). Skips cleanly without a Vulkan ICD.
+ */
+static i32 uich_scene_text_pinned(sk_ui_capture_scene_t* scene, void* user) {
+	const sk_ui_api_t* ui = scene->ui;
+	sk_ui_context_t* ctx = scene->ctx;
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t label;
+	sk_ui_style_props_t props;
+
+	(void)user;
+	/* Font must already be installed by load_test_font — never load built-in. */
+	if (scene->font_system == NULL || scene->font == NULL) {
+		fprintf(stderr, "ui_capture_harness: text scene missing pinned test font (load_test_font required)\n");
+		return -1;
+	}
+
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	props.background_color = sk_ui_rgba(0.10f, 0.12f, 0.16f, 1.0f);
+	props.layout.width = sk_ui_pt((f32)scene->width);
+	props.layout.height = sk_ui_pt((f32)scene->height);
+	ui->node_set_inline_style(ctx, root, &props);
+
+	label = ui->widget_label(ctx, root, "UI 42", "lbl-pin");
+	if (!sk_ui_node_is_valid(label)) {
+		return -1;
+	}
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP;
+	props.color = sk_ui_rgba(0.95f, 0.95f, 0.98f, 1.0f);
+	props.font_size = SK_UI_CAPTURE_HARNESS_FONT_LOGICAL_SIZE;
+	props.layout.width = sk_ui_pt(160.0f);
+	props.layout.height = sk_ui_pt(32.0f);
+	props.layout.position = SK_UI_POSITION_ABSOLUTE;
+	props.layout.left = sk_ui_pt(16.0f);
+	props.layout.top = sk_ui_pt(16.0f);
+	ui->node_set_inline_style(ctx, label, &props);
+	return 0;
+}
+
+SK_TEST(ui_capture_harness_text_font_byte_stable) {
+	sk_ui_capture_harness_params_t params;
+	sk_ui_cpu_image_t a;
+	sk_ui_cpu_image_t b;
+	i32 rc;
+	size_t nbytes;
+
+	memset(&params, 0, sizeof(params));
+	params.scene_name = "ui_capture_harness_text_font_byte_stable";
+	params.width = 192u;
+	params.height = 96u;
+	params.time_seconds = 0.0;
+	params.load_test_font = 1; /* pinned DejaVuSans.ttf only */
+
+	rc = sk_ui_capture_harness_capture(&params, uich_scene_text_pinned, NULL, &a);
+	if (rc == SK_UI_CAPTURE_HARNESS_RC_SKIPPED) {
+		TEST_IGNORE_MESSAGE("no Vulkan ICD; skipping UI capture harness text stability test");
+	}
+	TEST_ASSERT_EQUAL_INT(SK_UI_CAPTURE_HARNESS_RC_OK, rc);
+	TEST_ASSERT_NOT_NULL(a.pixels);
+
+	rc = sk_ui_capture_harness_capture(&params, uich_scene_text_pinned, NULL, &b);
+	TEST_ASSERT_EQUAL_INT(SK_UI_CAPTURE_HARNESS_RC_OK, rc);
+	TEST_ASSERT_NOT_NULL(b.pixels);
+	TEST_ASSERT_EQUAL_UINT(a.width, b.width);
+	TEST_ASSERT_EQUAL_UINT(a.height, b.height);
+	TEST_ASSERT_EQUAL_UINT(a.channels, b.channels);
+
+	nbytes = (size_t)a.width * a.height * a.channels;
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, memcmp(a.pixels, b.pixels, nbytes),
+								   "two consecutive DejaVuSans text captures must be byte-identical");
+
+	sk_ui_capture_harness_image_free(&a);
+	sk_ui_capture_harness_image_free(&b);
 }
 
 #endif /* SK_TESTS */

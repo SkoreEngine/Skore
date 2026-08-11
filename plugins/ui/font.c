@@ -36,6 +36,14 @@ enum {
 	UI_FONT_PACK_NODES_MIN = 64u,
 };
 
+/*
+ * Fixed FreeType load/raster flags for byte-stable glyph bitmaps across
+ * machines (same vendored FreeType). No system hinter / LCD filter / light
+ * target — only the normal grayscale target with render. UI capture harness
+ * tests pin content scale 1x so physical pixel size equals logical size.
+ */
+#define UI_FONT_LOAD_FLAGS (FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL)
+
 /* -------------------------------------------------------------------------- */
 /* Internal types                                                             */
 /* -------------------------------------------------------------------------- */
@@ -691,7 +699,7 @@ i32 ui_font_get_glyph_impl(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 
 		return -1;
 	}
 
-	if (FT_Load_Glyph(font->face, glyph_index, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL) != 0) {
+	if (FT_Load_Glyph(font->face, glyph_index, UI_FONT_LOAD_FLAGS) != 0) {
 		return -1;
 	}
 	slot = font->face->glyph;
