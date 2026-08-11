@@ -9,6 +9,7 @@
 
 #include "app.h"
 #include "platform_window.h"
+#include "profiler.h"
 #include "render_graph.h"
 #include "render_pipeline.h"
 
@@ -20,10 +21,14 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	/* Plugins auto-loaded from {app_folder}/plugins (window, render_graph, …). */
+	/* Plugins auto-loaded from {app_folder}/plugins (window, render_graph, …).
+	 * The profiler table is optional: lifecycle (init/begin_frame/end_frame)
+	 * is host-driven by sk-app when the plugin is present, and the zone macro
+	 * below compiles to a no-op unless SK_ENABLE_PROFILER is on. */
 	const sk_app_api_t* app_api = sk_app_api();
 	const sk_platform_window_api_t* win_api = app_api->get_api(ctx, SK_PLATFORM_WINDOW_API_TYPE_ID);
 	const sk_render_graph_api_t* rg_api = sk_render_graph_api_from_app(ctx, app_api);
+	const sk_profiler_api_t* prof_api = app_api->get_api(ctx, SK_PROFILER_API_TYPE_ID);
 
 	if (win_api->init() != 0) {
 		sk_app_destroy(ctx);
@@ -57,6 +62,7 @@ int main(int argc, char* argv[]) {
 	(void)window;
 
 	while (sk_app_tick(ctx)) {
+		SK_PROFILE_CPU_ZONE(prof_api, "player frame");
 		win_api->poll_events();
 
 		if (win_api->window_should_close(window)) {

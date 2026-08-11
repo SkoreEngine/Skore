@@ -23,4 +23,5 @@ endif()
 target_include_directories(sk-player PRIVATE
     ${CMAKE_SOURCE_DIR}/plugins/platform_window
     ${CMAKE_SOURCE_DIR}/plugins/render_graph
-    ${CMAKE_SOURCE_DIR}/plugins/render_device)
+    ${CMAKE_SOURCE_DIR}/plugins/render_device
+    ${CMAKE_SOURCE_DIR}/plugins/profiler)

@@ -8,6 +8,7 @@
 #include "logger.h"
 #include "path.h"
 #include "platform.h"
+#include "profiler.h"
 
 #include <string.h>
 
@@ -48,6 +49,10 @@ struct sk_app_context_t {
 	plugin_lib_array_t plugins;
 	sk_logger_t* log;
 	const sk_platform_api_t* platform;
+
+	/* Profiler table cached when sk-profiler registers (see load_plugin);
+	 * drives init/shutdown and the per-frame begin/end delimiters. */
+	const sk_profiler_api_t* profiler_api;
 };
 
 /* ---- app logger (named "app"; lifetime tied to context) ---- */
@@ -89,6 +94,7 @@ static f64 sk_app_fps_impl(sk_app_context_t* context);
 static f64 sk_app_elapsed_time_impl(sk_app_context_t* context);
 static i32 sk_app_bootstrap_init(sk_app_context_t* context);
 static void sk_app_bootstrap_shutdown(sk_app_context_t* context);
+static void app_profiler_shutdown(sk_app_context_t* context);
 
 /* ---- registry backends ---- */
 
@@ -196,6 +202,9 @@ void sk_app_destroy(sk_app_context_t* context) {
 	 * contexts) and idempotent across repeated destroys. */
 	sk_crash_uninstall();
 
+	/* Profiler teardown before the plugin libraries unload. */
+	app_profiler_shutdown(context);
+
 	/* Unload plugins before free; process re-entry is explicit destroy + new init. */
 	if (context->plugins.items != NULL) {
 		const sk_platform_api_t* plat = (const sk_platform_api_t*)sk_app_get_api_impl(context, SK_PLATFORM_API_TYPE_ID);
@@ -286,6 +295,23 @@ static void bootstrap_tick_timing(sk_app_context_t* context) {
 		context->elapsed_time = 0.0;
 	}
 	context->fps = (dt > 0.0) ? (1.0 / dt) : 0.0;
+}
+
+/* ---- profiler lifecycle (host-driven; plugin registers its table at load) ---- */
+
+/**
+ * Shut the profiler plugin down and drop the cached table.
+ * Safe when the plugin never loaded (profiler_api == NULL).
+ */
+static void app_profiler_shutdown(sk_app_context_t* context) {
+	if (context->profiler_api == NULL) {
+		return;
+	}
+	if (context->log != NULL) {
+		sk_log_debug(sk_logger_api(), context->log, "profiler shutdown");
+	}
+	context->profiler_api->shutdown();
+	context->profiler_api = NULL;
 }
 
 static void unload_plugins(sk_app_context_t* context) {
@@ -445,6 +471,8 @@ static void sk_app_bootstrap_shutdown(sk_app_context_t* context) {
 		sk_log_info(sk_logger_api(), context->log, "bootstrap shutdown");
 	}
 
+	/* Profiler teardown must run before the plugin libraries unload. */
+	app_profiler_shutdown(context);
 	unload_plugins(context);
 	context->initialized = 0;
 	context->shutdown_requested = 0;
@@ -503,6 +531,20 @@ static i32 sk_app_load_plugin_impl(sk_app_context_t* context, const_chr_t path) 
 		}
 		plat->lib_close(lib);
 		return -1;
+	}
+
+	/* Profiler lifecycle: cache its table and run init right after the entry
+	 * point registers it. init(sk_render_device_t_zero()) is CPU-only; the
+	 * host re-calls init(dev) once a render device exists to attach GPU
+	 * timestamp pools (idempotent). */
+	if (context->profiler_api == NULL) {
+		context->profiler_api = (const sk_profiler_api_t*)sk_app_get_api_impl(context, SK_PROFILER_API_TYPE_ID);
+		if (context->profiler_api != NULL) {
+			if (context->log != NULL) {
+				sk_log_debug(logger_api, context->log, "profiler init");
+			}
+			(void)context->profiler_api->init(sk_render_device_t_zero());
+		}
 	}
 
 	if (context->log != NULL) {
@@ -594,7 +636,15 @@ i32 sk_app_tick(sk_app_context_t* context) {
 	}
 
 	bootstrap_tick_timing(context);
-	/* Future: frame phases / systems. Nothing else in empty bootstrap. */
+
+	/* Profiler frame delimiters: begin/end bracket the frame work so the
+	 * triple buffers rotate exactly once per tick and per-frame data is
+	 * delimited correctly (buffers are recycled each frame). */
+	if (context->profiler_api != NULL) {
+		context->profiler_api->begin_frame();
+		/* Future: frame phases / systems. Nothing else in empty bootstrap. */
+		context->profiler_api->end_frame();
+	}
 
 	if (context->shutdown_requested != 0) {
 		if (context->log != NULL) {
@@ -1403,6 +1453,51 @@ SK_TEST(entities_plugin_registers_api) {
 	TEST_ASSERT_NOT_NULL(ecs->register_component);
 	TEST_ASSERT_NOT_NULL(ecs->component_info);
 	plat->lib_close(lib);
+	sk_app_destroy(ctx);
+}
+
+/* ---- profiler plugin ---- */
+
+SK_TEST(app_init_auto_loads_profiler_plugin) {
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_profiler_api_t* prof = (const sk_profiler_api_t*)sk_app_api()->get_api(ctx, SK_PROFILER_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL_MESSAGE(prof, "expected sk-profiler auto-loaded from app_folder/plugins");
+	TEST_ASSERT_NOT_NULL(prof->init);
+	TEST_ASSERT_NOT_NULL(prof->shutdown);
+	TEST_ASSERT_NOT_NULL(prof->begin_frame);
+	TEST_ASSERT_NOT_NULL(prof->end_frame);
+	TEST_ASSERT_NOT_NULL(prof->begin_cpu_sample);
+	TEST_ASSERT_NOT_NULL(prof->end_cpu_sample);
+	TEST_ASSERT_NOT_NULL(prof->begin_gpu_sample);
+	TEST_ASSERT_NOT_NULL(prof->end_gpu_sample);
+	TEST_ASSERT_NOT_NULL(prof->get_cpu_tasks);
+	TEST_ASSERT_NOT_NULL(prof->get_gpu_tasks);
+	TEST_ASSERT_NOT_NULL(prof->get_cpu_frame_stats);
+	TEST_ASSERT_NOT_NULL(prof->get_gpu_frame_stats);
+	TEST_ASSERT_NOT_NULL(prof->reset_stats);
+	TEST_ASSERT_NOT_NULL(prof->set_active);
+	TEST_ASSERT_NOT_NULL(prof->is_active);
+	sk_app_destroy(ctx);
+}
+
+SK_TEST(app_tick_delivers_profiler_frames) {
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_profiler_api_t* prof = (const sk_profiler_api_t*)sk_app_api()->get_api(ctx, SK_PROFILER_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(prof);
+
+	/* Each tick must begin/end a profiler frame: with recording on, the CPU
+	 * frame stats accumulate per tick (first tick is the baseline). */
+	prof->set_active(false);
+	prof->set_active(true);
+	for (i32 i = 0; i < 3; i++) {
+		TEST_ASSERT_TRUE(sk_app_tick(ctx) != 0);
+	}
+	sk_profiler_frame_stats_t stats = prof->get_cpu_frame_stats();
+	TEST_ASSERT_TRUE(stats.count >= 1u);
+	TEST_ASSERT_TRUE(stats.current >= 0.0);
+	prof->set_active(false);
 	sk_app_destroy(ctx);
 }
 
