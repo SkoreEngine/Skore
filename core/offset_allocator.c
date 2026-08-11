@@ -543,6 +543,16 @@ static void oa_remove_node_from_bin(sk_offset_allocator_t* allocator, u32 node_i
 #ifdef SK_TESTS
 #include "test.h"
 
+/*
+ * UCRT <stdlib.h> declares exit()/abort()/... as __declspec(noreturn).
+ * Some clang-tidy + UCRT header paths (pulled in via <assert.h>/unity.h)
+ * define `noreturn` as `_Noreturn` (C11 <stdnoreturn.h>), which then breaks
+ * that attribute ("__declspec attributes must be an identifier or string
+ * literal"). Same fix as core/atomics.h: drop the macro for the include only.
+ */
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <stdlib.h> /* malloc/free for the leak-checking allocator stub */
 #include <string.h> /* memset */
 
