@@ -1,7 +1,7 @@
 /**
  * @file clay_adapter.c
  * @brief Clay-backed layout adapter for retained sk-ui trees
- *        (APX-214 / APX-232 / APX-233 / APX-234 / APX-216).
+ *        (APX-214 / APX-232 / APX-233 / APX-234 / APX-235 / APX-216).
  *
  * Maps the per-frame layout pass onto Clay's immediate-mode lifecycle in a
  * single whole-tree pass and writes resulting boxes back into slot layout
@@ -16,13 +16,24 @@
  * are omitted from the Clay tree and zeroed so hit-test ignores them. Clipped
  * menu regions use Clay clip on the popup when clip_children is set.
  *
+ * APX-235 (docking / editor window surfaces): dock_space, dock_node, splitter,
+ * tab_bar, tab, editor_window, window_title_bar, and window_content always
+ * receive stable Clay IDs so drag/resize/tab-select pointer state resolves
+ * during multi-frame drags. Nested dock containers and window_content map
+ * clip_children to Clay clip; scrolling regions under window_content use the
+ * same scroll_view clip path. Floating undocked editor_window (absolute)
+ * maps to Clay floating; multi-viewport OS hosts are not supported (single
+ * context root only).
+ *
  * Known Clay box-model deltas vs the old custom solver (logged once per
  * context via ui_clay_log_limitation): flex-wrap unsupported, reverse axes
  * unsupported, margins ignored, justify-content space-between/around/evenly
  * collapse to start, absolute positioning approximated via Clay floating
  * (left/top offsets only, relative to the parent border box), and min/max
- * constraints on percent-sized axes dropped. Menus also lack multi-viewport
- * popups (single context root only).
+ * constraints on percent-sized axes dropped. Menus and docking also lack
+ * multi-viewport hosts (single context root only). Clay has no native
+ * splitter primitive — splitters are fixed-size flex children with stable
+ * ids; ratio is engine prop state updated by pointer capture.
  */
 
 #include "ui_internal.h"
@@ -46,6 +57,7 @@ struct ui_clay_frame_t {
 	u8* present;		   /**< Non-zero if node was declared this pass. */
 	u32 cap;			   /**< Capacity of the parallel arrays. */
 	i32 menu_layout_count; /**< Menu surface nodes declared this frame (APX-234). */
+	i32 dock_layout_count; /**< Dock / editor window surfaces this frame (APX-235). */
 	i32 limitation_logged; /**< Avoid spamming the logger every frame. */
 };
 
@@ -136,6 +148,33 @@ static i32 ui_clay_is_menu_popup(const_chr_t widget) {
 	return 0;
 }
 
+/**
+ * Docking / editor window inventory surfaces (APX-235): nested containers,
+ * splitters, tabs, and window chrome. Drag/resize/tab-select targets need
+ * stable Clay IDs so pointer capture and hover survive across frames.
+ */
+static i32 ui_clay_is_dock_surface(const_chr_t widget) {
+	if (widget == NULL) {
+		return 0;
+	}
+	if (strcmp(widget, "dock_space") == 0 || strcmp(widget, "dock_node") == 0 || strcmp(widget, "splitter") == 0 || strcmp(widget, "tab_bar") == 0 || strcmp(widget, "tab") == 0 ||
+		strcmp(widget, "editor_window") == 0 || strcmp(widget, "window_title_bar") == 0 || strcmp(widget, "window_content") == 0) {
+		return 1;
+	}
+	return 0;
+}
+
+/** Drag / resize / tab-select interactive targets that must keep stable ids. */
+static i32 ui_clay_is_dock_drag_target(const_chr_t widget) {
+	if (widget == NULL) {
+		return 0;
+	}
+	if (strcmp(widget, "splitter") == 0 || strcmp(widget, "tab") == 0 || strcmp(widget, "window_title_bar") == 0) {
+		return 1;
+	}
+	return 0;
+}
+
 static i32 ui_clay_menu_is_open(const ui_node_slot_t* slot) {
 	i32 open;
 	i32 hidden;
@@ -199,6 +238,10 @@ static i32 ui_clay_needs_stable_id(const ui_node_slot_t* slot) {
 	}
 	/* Menu inventory surfaces always keep stable IDs (hover → nested popup). */
 	if (ui_clay_is_menu_surface(w)) {
+		return 1;
+	}
+	/* Dock / editor chrome: stable IDs for nested clip + drag/resize/tab. */
+	if (ui_clay_is_dock_surface(w)) {
 		return 1;
 	}
 	return 0;
@@ -506,6 +549,8 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	i32 is_text_kind;
 	i32 is_menu;
 	i32 is_menu_popup;
+	i32 is_dock;
+	i32 is_dock_drag;
 	i32 wrap;
 	i32 force_id;
 
@@ -520,6 +565,8 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	widget = ui_clay_prop_str(slot, "widget");
 	is_menu = ui_clay_is_menu_surface(widget);
 	is_menu_popup = ui_clay_is_menu_popup(widget);
+	is_dock = ui_clay_is_dock_surface(widget);
+	is_dock_drag = ui_clay_is_dock_drag_target(widget);
 	/* Closed / hidden menu popups: omit from Clay so hover cannot land on them;
 	 * zero layout so engine hit-test and paint skip the overlay. */
 	if (is_menu_popup != 0 && ui_clay_menu_is_open(slot) == 0) {
@@ -532,10 +579,18 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	if (is_menu != 0) {
 		fr->menu_layout_count += 1;
 	}
+	if (is_dock != 0) {
+		fr->dock_layout_count += 1;
+	}
+	/* Nested dock containers, window content, and scroll views all clip. */
+	/* Scroll views and any clip_children node (dock_space / dock_node /
+	 * window_content set the bit in factories) map to Clay clip. */
 	is_scroll = (widget != NULL && strcmp(widget, "scroll_view") == 0) || slot->clip_children != 0u;
 	is_text_kind = (slot->kind == (u8)SK_UI_NODE_KIND_TEXT) || (widget != NULL && strcmp(widget, "label") == 0) ||
-				   (widget != NULL && (strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0));
+				   (widget != NULL && (strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "tab") == 0 ||
+									   strcmp(widget, "window_title_bar") == 0));
 	wrap = ui_clay_prop_i32(slot, "wrap", 0);
+	(void)is_dock_drag;
 
 	if (ls->flex_wrap == SK_UI_FLEX_WRAP || ls->flex_wrap == SK_UI_FLEX_WRAP_REVERSE) {
 		if (limitations != NULL) {
@@ -639,8 +694,9 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		 * writeback stores unshifted rects (no double shift). */
 	}
 
-	/* Menu popups are always floating overlays even if style is relative
-	 * (widget factories set absolute; defense in depth for composed trees). */
+	/* Menu popups and floating editor windows are overlays even if style is
+	 * relative for popups (widget factories set absolute; defense in depth).
+	 * Multi-viewport OS windows remain unmigrated — Clay is single-root only. */
 	if (ls->position == SK_UI_POSITION_ABSOLUTE || is_menu_popup != 0) {
 		/* Match old absolute: offsets are from the parent padding-box top-left
 		 * (content origin + parent padding). Clay attaches to the parent outer
@@ -648,9 +704,10 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		 * from the outer top-left equals padding-box offset only if we add the
 		 * parent's border. We use parent content-relative coords in writeback,
 		 * so offset left/top as-is (tests use zero parent padding). */
-		i32 z = ui_clay_prop_i32(slot, "z_index", is_menu_popup != 0 ? 100 : 0);
-		/* context_menu: attach to root so left/top are viewport-relative. */
-		if (widget != NULL && strcmp(widget, "context_menu") == 0) {
+		i32 z_default = is_menu_popup != 0 ? 100 : (widget != NULL && strcmp(widget, "editor_window") == 0 ? 50 : 0);
+		i32 z = ui_clay_prop_i32(slot, "z_index", z_default);
+		/* context_menu and free-floating editor_window: root attach. */
+		if (widget != NULL && (strcmp(widget, "context_menu") == 0 || strcmp(widget, "editor_window") == 0)) {
 			decl.floating.attachTo = CLAY_ATTACH_TO_ROOT;
 		} else {
 			decl.floating.attachTo = CLAY_ATTACH_TO_PARENT;
@@ -669,12 +726,13 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 			decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
 			decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_TOP;
 		}
+		/* Capture pointer on floating chrome so title-bar drags stay on target. */
 		decl.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_CAPTURE;
 		if (z != 0) {
 			decl.floating.zIndex = (int16_t)(z < -32768 ? -32768 : (z > 32767 ? 32767 : z));
 		}
 		/* Clip absolute / floating children when the parent clip_children bit
-		 * is set, or when the popup itself requests clipping (long menus). */
+		 * is set, or when the popup / window content itself clips. */
 		if (slot->clip_children != 0u) {
 			decl.clip.horizontal = true;
 			decl.clip.vertical = true;
@@ -718,7 +776,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		}
 		if (widget != NULL &&
 			(strcmp(widget, "button") == 0 || strcmp(widget, "text_input") == 0 || strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 ||
-			 strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0) &&
+			 strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "tab") == 0 || strcmp(widget, "window_title_bar") == 0) &&
 			fully_fixed == 0) {
 			need_text = 1;
 		}
@@ -1036,6 +1094,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	}
 	fr = ctx->clay_frame;
 	fr->menu_layout_count = 0;
+	fr->dock_layout_count = 0;
 	if (ui_clay_ensure_init(ctx->allocator, root_width, root_height, NULL, NULL) != 0) {
 		return -1;
 	}
@@ -1043,13 +1102,18 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	Clay_ResetMeasureTextCache();
 
 	/* Feed pointer + accumulated wheel deltas so Clay hover/scroll state
-	 * resolves across frames (engine paint/hit-test still apply scroll once). */
+	 * resolves across frames (engine paint/hit-test still apply scroll once).
+	 * Skip UpdateScrollContainers when idle so stale scroll rows from a prior
+	 * tree (e.g. dock/editor clip after context destroy) are not walked before
+	 * the next BeginLayout rebuilds them. */
 	pointer.x = ctx->pointer_x;
 	pointer.y = ctx->pointer_y;
 	Clay_SetPointerState(pointer, (ctx->pointer_buttons & 1u) != 0u);
 	scroll_delta.x = ctx->scroll_delta_x;
 	scroll_delta.y = ctx->scroll_delta_y;
-	Clay_UpdateScrollContainers(false, scroll_delta, 1.0f / 60.0f);
+	if (fabsf(scroll_delta.x) > 1.0e-6f || fabsf(scroll_delta.y) > 1.0e-6f || (ctx->pointer_buttons & 1u) != 0u) {
+		Clay_UpdateScrollContainers(false, scroll_delta, 1.0f / 60.0f);
+	}
 	ctx->scroll_delta_x = 0.0f;
 	ctx->scroll_delta_y = 0.0f;
 
@@ -1762,6 +1826,202 @@ SK_TEST(ui_clay_menu_dropdown_clip_and_closed_hidden) {
 	TEST_ASSERT_TRUE(ctx->clay_frame->present[popup.index] == 0u);
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, popup, &rp, NULL));
 	TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, rp.width);
+
+	ui->context_destroy(ctx);
+}
+
+/* --- APX-235: docking / editor window surfaces (stable IDs, nested clip) --- */
+
+SK_TEST(ui_clay_dock_space_node_splitter_stable_ids) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t space;
+	sk_ui_node_t left;
+	sk_ui_node_t split;
+	sk_ui_node_t right;
+	sk_ui_style_props_t p;
+	Clay_ElementData ed;
+	f32 ratio;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	space = ui->widget_dock_space(ctx, root, "dock-root");
+	left = ui->widget_dock_node(ctx, space, 1, "dock-left");
+	split = ui->widget_splitter(ctx, space, 0, "dock-split");
+	right = ui->widget_dock_node(ctx, space, 1, "dock-right");
+
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(400.0f);
+	p.layout.height = sk_ui_pt(240.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, space, &p));
+	p.layout.width = sk_ui_pt(160.0f);
+	p.layout.height = sk_ui_pt(240.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, left, &p));
+	p.layout.width = sk_ui_pt(200.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, right, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 480.0f, 320.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->dock_layout_count >= 4);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[space.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[left.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[split.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[right.index] != 0u);
+
+	/* Nested dock containers clip via Clay. */
+	TEST_ASSERT_EQUAL_INT(1, ui->node_get_clip_children(ctx, space));
+	TEST_ASSERT_EQUAL_INT(1, ui->node_get_clip_children(ctx, left));
+
+	/* Stable Clay IDs for drag/resize targets. */
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("dock-root")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("dock-split")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("dock-left")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	/* Splitter ratio survives a second layout frame (pointer state continuity). */
+	TEST_ASSERT_EQUAL_INT(0, ui->splitter_set_ratio(ctx, split, 0.35f));
+	ratio = ui->splitter_get_ratio(ctx, split);
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.35f, ratio);
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 480.0f, 320.0f));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.35f, ui->splitter_get_ratio(ctx, split));
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("dock-split")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_clay_tab_bar_select_stable_ids) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t bar;
+	sk_ui_node_t t0;
+	sk_ui_node_t t1;
+	sk_ui_style_props_t p;
+	Clay_ElementData ed;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	bar = ui->widget_tab_bar(ctx, root, "tabs");
+	t0 = ui->widget_tab(ctx, bar, "Scene", "tab-scene");
+	t1 = ui->widget_tab(ctx, bar, "Game", "tab-game");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(200.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, bar, &p));
+	p.layout.width = sk_ui_pt(80.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, t0, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, t1, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 300.0f, 100.0f));
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->dock_layout_count >= 3);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[bar.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[t0.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[t1.index] != 0u);
+
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("tab-scene")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("tab-game")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_set_active(ctx, bar, t1));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, t0));
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, t1));
+
+	/* Second frame: active prop + Clay ids remain. */
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 300.0f, 100.0f));
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, t1));
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("tab-game")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_clay_editor_window_chrome_nested_clip) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t win;
+	sk_ui_node_t title;
+	sk_ui_node_t content;
+	sk_ui_node_t body_scroll;
+	sk_ui_style_props_t p;
+	sk_ui_layout_style_t ls;
+	Clay_ElementData ed;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	/* In-flow docked editor window. */
+	win = ui->widget_editor_window(ctx, root, "Console", "win-console");
+	title = ui->editor_window_title_bar(ctx, win);
+	content = ui->editor_window_content(ctx, win);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(title));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(content));
+	TEST_ASSERT_EQUAL_INT(1, ui->node_get_clip_children(ctx, content));
+
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(280.0f);
+	p.layout.height = sk_ui_pt(160.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, win, &p));
+
+	/* Nested scroll region under clipped window content. */
+	body_scroll = ui->widget_scroll_view(ctx, content, "win-console-scroll");
+	p.layout.width = sk_ui_pt(260.0f);
+	p.layout.height = sk_ui_pt(100.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, body_scroll, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_set_content_size(ctx, body_scroll, 260.0f, 400.0f));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->dock_layout_count >= 3);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[win.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[title.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[content.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[body_scroll.index] != 0u);
+
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("win-console")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("win-console-title")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("win-console-content")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("win-console-scroll")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->editor_window_set_title(ctx, win, "Console*"));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("win-console-title")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	/* Floating undocked window: absolute → Clay floating, same stable ids. */
+	ui_layout_style_init_default(&ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.left = sk_ui_pt(40.0f);
+	ls.top = sk_ui_pt(30.0f);
+	ls.width = sk_ui_pt(200.0f);
+	ls.height = sk_ui_pt(120.0f);
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, win, &ls));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, win, "z_index", 50));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[win.index] != 0u);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("win-console-title")));
+	TEST_ASSERT_TRUE(ed.found);
 
 	ui->context_destroy(ctx);
 }

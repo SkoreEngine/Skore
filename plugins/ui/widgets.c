@@ -4,9 +4,11 @@
  *
  * Widgets compose the retained element tree (BOX/TEXT/IMAGE/BUTTON) with
  * default style classes, stable test ids/classes, and behavior handlers for
- * checkbox/slider/text_input/scroll_view and menu surfaces (menu_bar, menu,
- * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234). Not full
- * ImGui parity — no docking, tables, or trees.
+ * checkbox/slider/text_input/scroll_view, menu surfaces (menu_bar, menu,
+ * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234), and
+ * docking / editor window chrome (dock_space, dock_node, splitter, tab_bar,
+ * tab, editor_window, window_title_bar, window_content — APX-235). Not full
+ * ImGui parity — no tables, trees, or multi-viewport docking.
  */
 
 #include "ui_internal.h"
@@ -30,6 +32,9 @@ enum {
 	UI_WD_MENU = 6,
 	UI_WD_SUBMENU = 7,
 	UI_WD_DROPDOWN = 8,
+	UI_WD_SPLITTER = 9,
+	UI_WD_TAB = 10,
+	UI_WD_WINDOW_TITLE = 11,
 };
 
 typedef struct ui_widget_data_t {
@@ -468,6 +473,130 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 	if (ui->style_class_register(ctx, SK_UI_CLASS_CONTEXT_MENU, &base) != 0) {
+		return -1;
+	}
+
+	/* Dock space host (clips nested dock tree) */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW;
+	base.background_color = sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f);
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.height = sk_ui_percent(100.0f);
+	base.layout.flex_grow = 1.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_DOCK_SPACE, &base) != 0) {
+		return -1;
+	}
+
+	/* Dock node (nested container region) */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_FLEX_GROW | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT;
+	base.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.flex_grow = 1.0f;
+	base.layout.min_width = sk_ui_pt(40.0f);
+	base.layout.min_height = sk_ui_pt(40.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_DOCK_NODE, &base) != 0) {
+		return -1;
+	}
+
+	/* Splitter drag handle */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT;
+	base.background_color = sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f);
+	base.layout.min_width = sk_ui_pt(4.0f);
+	base.layout.min_height = sk_ui_pt(4.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_SPLITTER, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.34f, 0.50f, 0.82f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SPLITTER, SK_UI_STATE_HOVER, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SPLITTER, SK_UI_STATE_ACTIVE, &var);
+
+	/* Tab bar strip */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH;
+	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
+	base.layout.min_height = sk_ui_pt(26.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TAB_BAR, &base) != 0) {
+		return -1;
+	}
+
+	/* Tab select target */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS |
+				SK_UI_SP_BORDER_WIDTH | SK_UI_SP_BORDER_COLOR;
+	base.background_color = sk_ui_rgba(0.18f, 0.19f, 0.22f, 1.0f);
+	ui_style_fill_layout_pad(&base, 6.0f);
+	base.color = sk_ui_rgba(0.75f, 0.76f, 0.78f, 1.0f);
+	base.font_size = 13.0f;
+	base.layout.min_height = sk_ui_pt(26.0f);
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.border_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
+	base.layout.border.bottom = 1.0f;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TAB, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
+	var.background_color = sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f);
+	var.color = sk_ui_rgba(0.95f, 0.96f, 0.98f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TAB, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
+	var.color = sk_ui_rgba(1.0f, 1.0f, 1.0f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TAB, SK_UI_STATE_ACTIVE, &var);
+
+	/* Editor window chrome shell */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_MIN_WIDTH | SK_UI_SP_MIN_HEIGHT;
+	base.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
+	base.border_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.min_width = sk_ui_pt(80.0f);
+	base.layout.min_height = sk_ui_pt(60.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_EDITOR_WINDOW, &base) != 0) {
+		return -1;
+	}
+
+	/* Window title bar (drag target) */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS |
+				SK_UI_SP_FLEX_DIRECTION;
+	base.background_color = sk_ui_rgba(0.20f, 0.22f, 0.26f, 1.0f);
+	ui_style_fill_layout_pad(&base, 6.0f);
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 13.0f;
+	base.layout.min_height = sk_ui_pt(24.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_WINDOW_TITLE_BAR, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.26f, 0.36f, 0.58f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_WINDOW_TITLE_BAR, SK_UI_STATE_ACTIVE, &var);
+
+	/* Window content body (clipped nested region) */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_FLEX_GROW | SK_UI_SP_WIDTH | SK_UI_SP_PADDING;
+	base.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.flex_grow = 1.0f;
+	base.layout.width = sk_ui_percent(100.0f);
+	ui_style_fill_layout_pad(&base, 4.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_WINDOW_CONTENT, &base) != 0) {
 		return -1;
 	}
 
@@ -1244,6 +1373,424 @@ i32 ui_menu_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 
 sk_ui_node_t ui_menu_get_popup_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	return ui_menu_find_popup_child(ctx, node);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Docking / editor window surfaces (APX-235)                                 */
+/* -------------------------------------------------------------------------- */
+
+static void ui_splitter_apply_ratio(sk_ui_context_t* ctx, sk_ui_node_t node, f32 ratio, i32 fire_cb) {
+	const sk_ui_api_t* ui = ui_wapi();
+	ui_widget_data_t* wd;
+	ratio = ui_clampf(ratio, 0.0f, 1.0f);
+	(void)ui->node_set_prop_f32(ctx, node, "ratio", ratio);
+	ui_mark_dirty_up(ctx, node, (u32)(SK_UI_DIRTY_LAYOUT | SK_UI_DIRTY_PAINT));
+	if (fire_cb == 0) {
+		return;
+	}
+	wd = ui_widget_data(ctx, node);
+	if (wd != NULL && wd->on_float != NULL) {
+		wd->on_float(ctx, node, ratio, wd->cb_user);
+	}
+}
+
+static void ui_splitter_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	const sk_ui_api_t* ui = ui_wapi();
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 axis = 0;
+	sk_ui_rect_t parent_border;
+	sk_ui_node_t parent;
+	f32 span;
+	f32 origin;
+	f32 ratio;
+
+	if (slot == NULL) {
+		return;
+	}
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	(void)ui_prop_i32_const(slot, "axis", &axis);
+
+	if (event->type == SK_UI_EVENT_POINTER_DOWN && event->button == SK_UI_POINTER_BUTTON_LEFT) {
+		if (wd != NULL) {
+			wd->dragging = 1;
+			wd->drag_last_x = event->x;
+			wd->drag_last_y = event->y;
+		}
+		(void)ui->pointer_capture_set(ctx, node);
+		(void)ui->node_set_state(ctx, node, ui->node_get_state(ctx, node) | (u32)SK_UI_STATE_ACTIVE);
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_UP) {
+		if (wd != NULL) {
+			wd->dragging = 0;
+		}
+		if (sk_ui_node_eq(ui->pointer_capture_get(ctx), node)) {
+			(void)ui->pointer_capture_set(ctx, SK_UI_NODE_INVALID);
+		}
+		(void)ui->node_set_state(ctx, node, ui->node_get_state(ctx, node) & ~(u32)SK_UI_STATE_ACTIVE);
+		event->consumed = 1;
+		return;
+	}
+	if (event->type != SK_UI_EVENT_POINTER_MOVE) {
+		return;
+	}
+	if (wd == NULL || wd->dragging == 0) {
+		return;
+	}
+
+	parent = ui->node_parent(ctx, node);
+	if (!sk_ui_node_is_valid(parent) || ui->node_get_abs_rect(ctx, parent, &parent_border, NULL) != 0) {
+		/* Fallback: use own abs rect span when parent missing. */
+		if (ui->node_get_abs_rect(ctx, node, &parent_border, NULL) != 0) {
+			return;
+		}
+	}
+	if (axis != 0) {
+		span = parent_border.height;
+		origin = parent_border.y;
+		ratio = span > 0.0f ? (event->y - origin) / span : 0.0f;
+	} else {
+		span = parent_border.width;
+		origin = parent_border.x;
+		ratio = span > 0.0f ? (event->x - origin) / span : 0.0f;
+	}
+	wd->drag_last_x = event->x;
+	wd->drag_last_y = event->y;
+	ui_splitter_apply_ratio(ctx, node, ratio, 1);
+	event->consumed = 1;
+}
+
+static void ui_tab_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	(void)user;
+	if ((ui_wapi()->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	(void)ui_tab_bar_set_active_impl(ctx, SK_UI_NODE_INVALID, node);
+	if (event != NULL) {
+		event->consumed = 1;
+	}
+}
+
+static void ui_window_title_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	const sk_ui_api_t* ui = ui_wapi();
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	sk_ui_node_t window;
+	const ui_node_slot_t* win_slot;
+	sk_ui_layout_style_t ls;
+	f32 dx;
+	f32 dy;
+
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+
+	if (event->type == SK_UI_EVENT_POINTER_DOWN && event->button == SK_UI_POINTER_BUTTON_LEFT) {
+		if (wd != NULL) {
+			wd->dragging = 1;
+			wd->drag_last_x = event->x;
+			wd->drag_last_y = event->y;
+		}
+		(void)ui->pointer_capture_set(ctx, node);
+		(void)ui->node_set_state(ctx, node, ui->node_get_state(ctx, node) | (u32)SK_UI_STATE_ACTIVE);
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_UP) {
+		if (wd != NULL) {
+			wd->dragging = 0;
+		}
+		if (sk_ui_node_eq(ui->pointer_capture_get(ctx), node)) {
+			(void)ui->pointer_capture_set(ctx, SK_UI_NODE_INVALID);
+		}
+		(void)ui->node_set_state(ctx, node, ui->node_get_state(ctx, node) & ~(u32)SK_UI_STATE_ACTIVE);
+		event->consumed = 1;
+		return;
+	}
+	if (event->type != SK_UI_EVENT_POINTER_MOVE || wd == NULL || wd->dragging == 0) {
+		return;
+	}
+
+	/* Drag floating editor_window (absolute) by updating left/top; in-flow
+	 * docked windows ignore drag (ratio/layout owned by dock tree). */
+	window = ui->node_parent(ctx, node);
+	win_slot = ui_slot(ctx, window);
+	if (win_slot == NULL || win_slot->layout_style.position != SK_UI_POSITION_ABSOLUTE) {
+		wd->drag_last_x = event->x;
+		wd->drag_last_y = event->y;
+		event->consumed = 1;
+		return;
+	}
+	dx = event->x - wd->drag_last_x;
+	dy = event->y - wd->drag_last_y;
+	wd->drag_last_x = event->x;
+	wd->drag_last_y = event->y;
+	ls = win_slot->layout_style;
+	if (ls.left.unit != SK_UI_LENGTH_POINT) {
+		ls.left = sk_ui_pt(0.0f);
+	}
+	if (ls.top.unit != SK_UI_LENGTH_POINT) {
+		ls.top = sk_ui_pt(0.0f);
+	}
+	ls.left.value += dx;
+	ls.top.value += dy;
+	(void)ui->node_set_layout_style(ctx, window, &ls);
+	(void)ui->node_set_prop_f32(ctx, node, "drag_x", ls.left.value);
+	(void)ui->node_set_prop_f32(ctx, node, "drag_y", ls.top.value);
+	event->consumed = 1;
+}
+
+static sk_ui_node_t ui_find_child_widget(const sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t widget) {
+	const ui_node_slot_t* slot = ui_slot(ctx, parent);
+	u32 i;
+	if (slot == NULL || widget == NULL) {
+		return SK_UI_NODE_INVALID;
+	}
+	for (i = 0u; i < slot->children.count; ++i) {
+		const ui_node_slot_t* ch = ui_slot(ctx, slot->children.items[i]);
+		const_chr_t w;
+		if (ch == NULL) {
+			continue;
+		}
+		w = ui_prop_str_const(ch, "widget");
+		if (w != NULL && strcmp(w, widget) == 0) {
+			return slot->children.items[i];
+		}
+	}
+	return SK_UI_NODE_INVALID;
+}
+
+sk_ui_node_t ui_widget_dock_space_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_DOCK_SPACE, "dock_space", "ui-dock-space", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_clip_children(ctx, n, 1);
+	return n;
+}
+
+sk_ui_node_t ui_widget_dock_node_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 orientation, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_layout_style_t ls;
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_DOCK_NODE, "dock_node", "ui-dock-node", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_i32(ctx, n, "orientation", orientation != 0 ? 1 : 0);
+	(void)ui->node_set_clip_children(ctx, n, 1);
+	if (ui->node_get_layout_style(ctx, n, &ls) == 0) {
+		ls.flex_direction = orientation != 0 ? SK_UI_FLEX_COLUMN : SK_UI_FLEX_ROW;
+		ls.flex_grow = 1.0f;
+		(void)ui->node_set_layout_style(ctx, n, &ls);
+	}
+	return n;
+}
+
+sk_ui_node_t ui_widget_splitter_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 axis, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	sk_ui_layout_style_t ls;
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_SPLITTER, "splitter", "ui-splitter", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_i32(ctx, n, "axis", axis != 0 ? 1 : 0);
+	(void)ui->node_set_prop_f32(ctx, n, "ratio", 0.5f);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	if (ui->node_get_layout_style(ctx, n, &ls) == 0) {
+		if (axis != 0) {
+			/* Horizontal bar: fixed height, grow width. */
+			ls.width = sk_ui_percent(100.0f);
+			ls.height = sk_ui_pt(6.0f);
+			ls.flex_grow = 0.0f;
+		} else {
+			/* Vertical bar: fixed width, grow height. */
+			ls.width = sk_ui_pt(6.0f);
+			ls.height = sk_ui_percent(100.0f);
+			ls.flex_grow = 0.0f;
+		}
+		(void)ui->node_set_layout_style(ctx, n, &ls);
+	}
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_SPLITTER);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_event = ui_splitter_on_event;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	return n;
+}
+
+sk_ui_node_t ui_widget_tab_bar_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id) {
+	return ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_TAB_BAR, "tab_bar", "ui-tab-bar", id);
+}
+
+sk_ui_node_t ui_widget_tab_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_TAB, "tab", "ui-tab", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", label != NULL ? label : "");
+	(void)ui->node_set_prop_i32(ctx, n, "active", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_TAB);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = ui_tab_on_click;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	return n;
+}
+
+sk_ui_node_t ui_widget_editor_window_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	sk_ui_node_t win;
+	sk_ui_node_t title_bar;
+	sk_ui_node_t content;
+	char title_id[80];
+	char content_id[80];
+
+	win = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_EDITOR_WINDOW, "editor_window", "ui-editor-window", id);
+	if (!sk_ui_node_is_valid(win)) {
+		return win;
+	}
+
+	if (id != NULL && id[0] != '\0') {
+		(void)snprintf(title_id, sizeof(title_id), "%s-title", id);
+		(void)snprintf(content_id, sizeof(content_id), "%s-content", id);
+	} else {
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(title_id, sizeof(title_id), "ui-window-title-%u", ctx->widget_id_seq);
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(content_id, sizeof(content_id), "ui-window-content-%u", ctx->widget_id_seq);
+	}
+
+	title_bar = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, win, SK_UI_CLASS_WINDOW_TITLE_BAR, "window_title_bar", "ui-window-title-bar", title_id);
+	if (sk_ui_node_is_valid(title_bar)) {
+		(void)ui->node_set_prop_str(ctx, title_bar, "text", title != NULL ? title : "");
+		(void)ui->node_set_prop_i32(ctx, title_bar, "text_align", 0);
+		(void)ui->node_set_prop_i32(ctx, title_bar, "vertical_align", 1);
+		(void)ui->node_set_focusable(ctx, title_bar, 1);
+		wd = ui_widget_data_ensure(ctx, title_bar, UI_WD_WINDOW_TITLE);
+		memset(&cbs, 0, sizeof(cbs));
+		cbs.on_event = ui_window_title_on_event;
+		cbs.user = wd;
+		(void)ui->node_set_callbacks(ctx, title_bar, &cbs);
+	}
+
+	content = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, win, SK_UI_CLASS_WINDOW_CONTENT, "window_content", "ui-window-content", content_id);
+	if (sk_ui_node_is_valid(content)) {
+		(void)ui->node_set_clip_children(ctx, content, 1);
+	}
+	return win;
+}
+
+sk_ui_node_t ui_editor_window_title_bar_impl(const sk_ui_context_t* ctx, sk_ui_node_t window) {
+	return ui_find_child_widget(ctx, window, "window_title_bar");
+}
+
+sk_ui_node_t ui_editor_window_content_impl(const sk_ui_context_t* ctx, sk_ui_node_t window) {
+	return ui_find_child_widget(ctx, window, "window_content");
+}
+
+i32 ui_editor_window_set_title_impl(sk_ui_context_t* ctx, sk_ui_node_t window, const_chr_t title) {
+	sk_ui_node_t bar = ui_editor_window_title_bar_impl(ctx, window);
+	if (!sk_ui_node_is_valid(bar)) {
+		return -1;
+	}
+	return ui_wapi()->node_set_prop_str(ctx, bar, "text", title != NULL ? title : "");
+}
+
+i32 ui_tab_set_active_impl(sk_ui_context_t* ctx, sk_ui_node_t tab, i32 active) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 st;
+	if (ui->node_set_prop_i32(ctx, tab, "active", active != 0 ? 1 : 0) != 0) {
+		return -1;
+	}
+	st = ui->node_get_state(ctx, tab);
+	if (active != 0) {
+		st |= (u32)SK_UI_STATE_ACTIVE;
+	} else {
+		st &= ~(u32)SK_UI_STATE_ACTIVE;
+	}
+	(void)ui->node_set_state(ctx, tab, st);
+	ui_mark_dirty_up(ctx, tab, (u32)SK_UI_DIRTY_PAINT);
+	return 0;
+}
+
+i32 ui_tab_get_active_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab) {
+	const ui_node_slot_t* slot = ui_slot(ctx, tab);
+	i32 active = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	if (ui_prop_i32_const(slot, "active", &active) == 0 && active != 0) {
+		return 1;
+	}
+	return 0;
+}
+
+i32 ui_tab_bar_set_active_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, sk_ui_node_t tab) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* bar_slot;
+	u32 i;
+	if (!sk_ui_node_is_valid(tab)) {
+		return -1;
+	}
+	if (!sk_ui_node_is_valid(tab_bar)) {
+		tab_bar = ui->node_parent(ctx, tab);
+	}
+	bar_slot = ui_slot(ctx, tab_bar);
+	if (bar_slot != NULL) {
+		for (i = 0u; i < bar_slot->children.count; ++i) {
+			sk_ui_node_t ch = bar_slot->children.items[i];
+			const ui_node_slot_t* cs = ui_slot(ctx, ch);
+			const_chr_t w;
+			if (cs == NULL) {
+				continue;
+			}
+			w = ui_prop_str_const(cs, "widget");
+			if (w == NULL || strcmp(w, "tab") != 0) {
+				continue;
+			}
+			(void)ui_tab_set_active_impl(ctx, ch, sk_ui_node_eq(ch, tab) ? 1 : 0);
+		}
+	} else {
+		(void)ui_tab_set_active_impl(ctx, tab, 1);
+	}
+	return 0;
+}
+
+i32 ui_splitter_set_ratio_impl(sk_ui_context_t* ctx, sk_ui_node_t splitter, f32 ratio) {
+	ui_splitter_apply_ratio(ctx, splitter, ratio, 1);
+	return 0;
+}
+
+f32 ui_splitter_get_ratio_impl(const sk_ui_context_t* ctx, sk_ui_node_t splitter) {
+	const ui_node_slot_t* slot = ui_slot(ctx, splitter);
+	if (slot == NULL) {
+		return 0.0f;
+	}
+	return ui_prop_f32_const(slot, "ratio", 0.5f);
+}
+
+i32 ui_splitter_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t splitter, sk_ui_widget_float_fn fn, void_ptr_t user) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, splitter, UI_WD_SPLITTER);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->on_float = fn;
+	wd->cb_user = user;
+	return 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2461,6 +3008,81 @@ SK_TEST(ui_widget_goldens_default_hover_disabled) {
 		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, n, &p));
 	}
 	paint_widget_golden(ui, ctx, n, "label_default", 0);
+	ui->context_destroy(ctx);
+}
+
+static void ui_test_splitter_on_change(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value, void_ptr_t user) {
+	f32* out = (f32*)user;
+	(void)ctx;
+	(void)node;
+	if (out != NULL) {
+		*out = value;
+	}
+}
+
+SK_TEST(ui_widget_dock_splitter_tab_interaction) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx;
+	sk_ui_node_t root;
+	sk_ui_node_t space;
+	sk_ui_node_t split;
+	sk_ui_node_t bar;
+	sk_ui_node_t t0;
+	sk_ui_node_t t1;
+	sk_ui_node_t win;
+	sk_ui_node_t content;
+	sk_ui_style_props_t p;
+	f32 seen = -1.0f;
+
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	space = ui->widget_dock_space(ctx, root, "w-dock");
+	(void)ui->widget_dock_node(ctx, space, 0, "w-left");
+	split = ui->widget_splitter(ctx, space, 0, "w-split");
+	(void)ui->widget_dock_node(ctx, space, 0, "w-right");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(300.0f);
+	p.layout.height = sk_ui_pt(120.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, space, &p));
+
+	bar = ui->widget_tab_bar(ctx, root, "w-tabs");
+	t0 = ui->widget_tab(ctx, bar, "A", "w-tab-a");
+	t1 = ui->widget_tab(ctx, bar, "B", "w-tab-b");
+	p.layout.width = sk_ui_pt(160.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, bar, &p));
+
+	win = ui->widget_editor_window(ctx, root, "Panel", "w-win");
+	content = ui->editor_window_content(ctx, win);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(content));
+	p.layout.width = sk_ui_pt(200.0f);
+	p.layout.height = sk_ui_pt(100.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, win, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
+
+	/* Splitter on_change fires when ratio is set. */
+	TEST_ASSERT_EQUAL_INT(0, ui->splitter_set_on_change(ctx, split, ui_test_splitter_on_change, &seen));
+	TEST_ASSERT_EQUAL_INT(0, ui->splitter_set_ratio(ctx, split, 0.25f));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.25f, ui->splitter_get_ratio(ctx, split));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.25f, seen);
+
+	/* Tab select deactivates siblings. */
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, t0));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_set_active(ctx, bar, t0));
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, t0));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, t1));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_bar_set_active(ctx, bar, t1));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, t0));
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, t1));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->editor_window_set_title(ctx, win, "Panel*"));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->editor_window_title_bar(ctx, win)));
+
 	ui->context_destroy(ctx);
 }
 
