@@ -1,0 +1,16 @@
+{
+  "format": "sk.resource_object_fixture",
+  "format_version": 1,
+  "id": "buffer_empty",
+  "type": "TestBufferResource",
+  "uuid": "0000000000000003-00000000000000b3",
+  "fields": {
+    "Name": "buffer_empty",
+    "Data": {
+      "kind": "buffer",
+      "state": "empty",
+      "size": 0,
+      "payload_file": "buffer_empty.bin"
+    }
+  }
+}

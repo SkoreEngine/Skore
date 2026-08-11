@@ -62,6 +62,11 @@ typedef struct sk_mat44_t {
 	f32 m[16];
 } sk_mat44_t;
 
+/** RGBA color, linear-space float components (0..1 range by convention). */
+typedef struct sk_color_t {
+	f32 r, g, b, a;
+} sk_color_t;
+
 /**
  * Euler axis sequence (cglm-style packing).
  * Bits 0–1: first axis, 2–3: second, 4–5: third. Axes: 0=X, 1=Y, 2=Z.

@@ -1,2 +1,8 @@
 * linguist-detectable=true
 *.svg linguist-detectable=false
+
+# Golden images and other binary fixtures must never be treated as text
+# (avoids CRLF mangling and UTF-8 decode faults in tooling).
+*.png binary
+*.ppm binary
+plugins/ui/testdata/** binary
