@@ -1,6 +1,7 @@
 /**
  * @file clay_adapter.c
- * @brief Clay-backed layout adapter for retained sk-ui trees (APX-214 / APX-232 / APX-216).
+ * @brief Clay-backed layout adapter for retained sk-ui trees
+ *        (APX-214 / APX-232 / APX-233 / APX-234 / APX-216).
  *
  * Maps the per-frame layout pass onto Clay's immediate-mode lifecycle in a
  * single whole-tree pass and writes resulting boxes back into slot layout
@@ -8,12 +9,20 @@
  * The custom flex solver (layout.c) is deleted; Clay is the only layout
  * engine behind the public layout API.
  *
+ * APX-234 (menu surfaces): menu_bar, menu, menu_item, menu_popup, dropdown,
+ * context_menu, and submenu always receive stable Clay IDs so hover/open
+ * state resolves across frames. Popup/overlay containers map to Clay
+ * floating (z-index, parent or root attach); closed popups (open=0 / hidden=1)
+ * are omitted from the Clay tree and zeroed so hit-test ignores them. Clipped
+ * menu regions use Clay clip on the popup when clip_children is set.
+ *
  * Known Clay box-model deltas vs the old custom solver (logged once per
  * context via ui_clay_log_limitation): flex-wrap unsupported, reverse axes
  * unsupported, margins ignored, justify-content space-between/around/evenly
  * collapse to start, absolute positioning approximated via Clay floating
  * (left/top offsets only, relative to the parent border box), and min/max
- * constraints on percent-sized axes dropped.
+ * constraints on percent-sized axes dropped. Menus also lack multi-viewport
+ * popups (single context root only).
  */
 
 #include "ui_internal.h"
@@ -36,6 +45,7 @@ struct ui_clay_frame_t {
 	Clay_BoundingBox* abs; /**< Clay absolute bounding box per slot. */
 	u8* present;		   /**< Non-zero if node was declared this pass. */
 	u32 cap;			   /**< Capacity of the parallel arrays. */
+	i32 menu_layout_count; /**< Menu surface nodes declared this frame (APX-234). */
 	i32 limitation_logged; /**< Avoid spamming the logger every frame. */
 };
 
@@ -99,6 +109,74 @@ static i32 ui_clay_prop_i32(const ui_node_slot_t* slot, const_chr_t key, i32 fal
 	return fallback;
 }
 
+/**
+ * Menu inventory surfaces (APX-234): bar, items, and popup/overlay containers.
+ * Nested hover depends on stable IDs so Clay pointer-over and engine open
+ * props stay consistent frame-to-frame.
+ */
+static i32 ui_clay_is_menu_surface(const_chr_t widget) {
+	if (widget == NULL) {
+		return 0;
+	}
+	if (strcmp(widget, "menu_bar") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu_popup") == 0 ||
+		strcmp(widget, "dropdown") == 0 || strcmp(widget, "context_menu") == 0 || strcmp(widget, "submenu") == 0) {
+		return 1;
+	}
+	return 0;
+}
+
+/** Floating/overlay popup containers that nest under menu triggers. */
+static i32 ui_clay_is_menu_popup(const_chr_t widget) {
+	if (widget == NULL) {
+		return 0;
+	}
+	if (strcmp(widget, "menu_popup") == 0 || strcmp(widget, "context_menu") == 0) {
+		return 1;
+	}
+	return 0;
+}
+
+static i32 ui_clay_menu_is_open(const ui_node_slot_t* slot) {
+	i32 open;
+	i32 hidden;
+	if (slot == NULL) {
+		return 0;
+	}
+	hidden = ui_clay_prop_i32(slot, "hidden", 0);
+	if (hidden != 0) {
+		return 0;
+	}
+	/* Default open=1 for non-popup containers; popups default closed (open=0). */
+	open = ui_clay_prop_i32(slot, "open", ui_clay_is_menu_popup(ui_clay_prop_str(slot, "widget")) ? 0 : 1);
+	return open != 0 ? 1 : 0;
+}
+
+static void ui_clay_zero_layout(ui_node_slot_t* slot) {
+	if (slot == NULL) {
+		return;
+	}
+	slot->layout_border.x = 0.0f;
+	slot->layout_border.y = 0.0f;
+	slot->layout_border.width = 0.0f;
+	slot->layout_border.height = 0.0f;
+	slot->layout_content = slot->layout_border;
+	slot->dirty = (u16)((u32)slot->dirty & ~(u32)SK_UI_DIRTY_LAYOUT);
+}
+
+// NOLINTBEGIN(misc-no-recursion)
+static void ui_clay_zero_subtree(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	ui_node_slot_t* slot = ui_slot_mut(ctx, node);
+	u32 i;
+	if (slot == NULL) {
+		return;
+	}
+	ui_clay_zero_layout(slot);
+	for (i = 0u; i < slot->children.count; ++i) {
+		ui_clay_zero_subtree(ctx, slot->children.items[i]);
+	}
+}
+// NOLINTEND(misc-no-recursion)
+
 static i32 ui_clay_needs_stable_id(const ui_node_slot_t* slot) {
 	const_chr_t w;
 	if (slot == NULL) {
@@ -108,7 +186,7 @@ static i32 ui_clay_needs_stable_id(const ui_node_slot_t* slot) {
 	if (slot->focusable != 0u || slot->clip_children != 0u) {
 		return 1;
 	}
-	if (slot->callbacks.on_click != NULL || slot->callbacks.on_event != NULL || slot->callbacks.on_pointer_enter != NULL) {
+	if (slot->callbacks.on_click != NULL || slot->callbacks.on_event != NULL || slot->callbacks.on_pointer_enter != NULL || slot->callbacks.on_pointer_leave != NULL) {
 		return 1;
 	}
 	w = ui_clay_prop_str(slot, "widget");
@@ -116,7 +194,11 @@ static i32 ui_clay_needs_stable_id(const ui_node_slot_t* slot) {
 		return 0;
 	}
 	if (strcmp(w, "panel") == 0 || strcmp(w, "button") == 0 || strcmp(w, "checkbox") == 0 || strcmp(w, "slider") == 0 || strcmp(w, "text_input") == 0 ||
-		strcmp(w, "scroll_view") == 0 || strcmp(w, "scroll_content") == 0) {
+		strcmp(w, "scroll_view") == 0 || strcmp(w, "scroll_content") == 0 || strcmp(w, "label") == 0 || strcmp(w, "image") == 0 || strcmp(w, "view") == 0) {
+		return 1;
+	}
+	/* Menu inventory surfaces always keep stable IDs (hover → nested popup). */
+	if (ui_clay_is_menu_surface(w)) {
 		return 1;
 	}
 	return 0;
@@ -422,6 +504,8 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	const_chr_t widget;
 	i32 is_scroll;
 	i32 is_text_kind;
+	i32 is_menu;
+	i32 is_menu_popup;
 	i32 wrap;
 	i32 force_id;
 
@@ -434,8 +518,23 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 
 	ls = &slot->layout_style;
 	widget = ui_clay_prop_str(slot, "widget");
+	is_menu = ui_clay_is_menu_surface(widget);
+	is_menu_popup = ui_clay_is_menu_popup(widget);
+	/* Closed / hidden menu popups: omit from Clay so hover cannot land on them;
+	 * zero layout so engine hit-test and paint skip the overlay. */
+	if (is_menu_popup != 0 && ui_clay_menu_is_open(slot) == 0) {
+		ui_clay_zero_subtree(ctx, node);
+		fr->present[node.index] = 0u;
+		/* Still hash a stable id so open frames resolve the same CLAY_SID. */
+		fr->ids[node.index] = ui_clay_make_id(slot, node, sibling_index);
+		return;
+	}
+	if (is_menu != 0) {
+		fr->menu_layout_count += 1;
+	}
 	is_scroll = (widget != NULL && strcmp(widget, "scroll_view") == 0) || slot->clip_children != 0u;
-	is_text_kind = (slot->kind == (u8)SK_UI_NODE_KIND_TEXT) || (widget != NULL && strcmp(widget, "label") == 0);
+	is_text_kind = (slot->kind == (u8)SK_UI_NODE_KIND_TEXT) || (widget != NULL && strcmp(widget, "label") == 0) ||
+				   (widget != NULL && (strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0));
 	wrap = ui_clay_prop_i32(slot, "wrap", 0);
 
 	if (ls->flex_wrap == SK_UI_FLEX_WRAP || ls->flex_wrap == SK_UI_FLEX_WRAP_REVERSE) {
@@ -540,19 +639,46 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		 * writeback stores unshifted rects (no double shift). */
 	}
 
-	if (ls->position == SK_UI_POSITION_ABSOLUTE) {
+	/* Menu popups are always floating overlays even if style is relative
+	 * (widget factories set absolute; defense in depth for composed trees). */
+	if (ls->position == SK_UI_POSITION_ABSOLUTE || is_menu_popup != 0) {
 		/* Match old absolute: offsets are from the parent padding-box top-left
 		 * (content origin + parent padding). Clay attaches to the parent outer
 		 * box; when parent Clay padding already encodes border+padding, offset
 		 * from the outer top-left equals padding-box offset only if we add the
 		 * parent's border. We use parent content-relative coords in writeback,
 		 * so offset left/top as-is (tests use zero parent padding). */
-		decl.floating.attachTo = CLAY_ATTACH_TO_PARENT;
-		decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
-		decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_TOP;
+		i32 z = ui_clay_prop_i32(slot, "z_index", is_menu_popup != 0 ? 100 : 0);
+		/* context_menu: attach to root so left/top are viewport-relative. */
+		if (widget != NULL && strcmp(widget, "context_menu") == 0) {
+			decl.floating.attachTo = CLAY_ATTACH_TO_ROOT;
+		} else {
+			decl.floating.attachTo = CLAY_ATTACH_TO_PARENT;
+		}
+		/* Dropdown / submenu popups hang below (or to the right of) the trigger. */
+		if (widget != NULL && strcmp(widget, "menu_popup") == 0) {
+			i32 attach = ui_clay_prop_i32(slot, "attach", 0); /* 0=below, 1=right (submenu) */
+			if (attach == 1) {
+				decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
+				decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_RIGHT_TOP;
+			} else {
+				decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
+				decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_BOTTOM;
+			}
+		} else {
+			decl.floating.attachPoints.element = CLAY_ATTACH_POINT_LEFT_TOP;
+			decl.floating.attachPoints.parent = CLAY_ATTACH_POINT_LEFT_TOP;
+		}
 		decl.floating.pointerCaptureMode = CLAY_POINTER_CAPTURE_MODE_CAPTURE;
-		/* Clip absolute children when the parent clip_children bit is set so
-		 * protruding regions match engine hit-test / paint scissor. */
+		if (z != 0) {
+			decl.floating.zIndex = (int16_t)(z < -32768 ? -32768 : (z > 32767 ? 32767 : z));
+		}
+		/* Clip absolute / floating children when the parent clip_children bit
+		 * is set, or when the popup itself requests clipping (long menus). */
+		if (slot->clip_children != 0u) {
+			decl.clip.horizontal = true;
+			decl.clip.vertical = true;
+		}
 		if (sk_ui_node_is_valid(slot->parent)) {
 			const ui_node_slot_t* pslot = ui_slot(ctx, slot->parent);
 			if (pslot != NULL && pslot->clip_children != 0u) {
@@ -590,7 +716,10 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		if (is_text_kind != 0 && (wrap != 0 || fully_fixed == 0)) {
 			need_text = 1;
 		}
-		if (widget != NULL && (strcmp(widget, "button") == 0 || strcmp(widget, "text_input") == 0) && fully_fixed == 0) {
+		if (widget != NULL &&
+			(strcmp(widget, "button") == 0 || strcmp(widget, "text_input") == 0 || strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 ||
+			 strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0) &&
+			fully_fixed == 0) {
 			need_text = 1;
 		}
 		if (need_text != 0 && ui_clay_prop_str(slot, "text") != NULL) {
@@ -906,6 +1035,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 		return -1;
 	}
 	fr = ctx->clay_frame;
+	fr->menu_layout_count = 0;
 	if (ui_clay_ensure_init(ctx->allocator, root_width, root_height, NULL, NULL) != 0) {
 		return -1;
 	}
@@ -1359,6 +1489,279 @@ SK_TEST(ui_clay_widget_scroll_and_slider_surfaces) {
 	eid = Clay_GetElementId(ui_clay_cstr("clay-sv"));
 	ed = Clay_GetElementData(eid);
 	TEST_ASSERT_TRUE(ed.found);
+
+	ui->context_destroy(ctx);
+}
+
+/* --- APX-234: menu surfaces (stable IDs, floating popups, open across frames) */
+
+SK_TEST(ui_clay_menu_bar_popup_stable_ids_and_open) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t bar;
+	sk_ui_node_t file_item;
+	sk_ui_node_t popup;
+	sk_ui_node_t open_item;
+	sk_ui_node_t save_item;
+	sk_ui_style_props_t p;
+	sk_ui_layout_style_t ls;
+	Clay_ElementId eid_bar;
+	Clay_ElementId eid_item;
+	Clay_ElementId eid_popup;
+	Clay_ElementData ed;
+	sk_ui_rect_t rp;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	/* menu_bar */
+	bar = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, root);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, bar, "menubar"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, bar, "widget", "menu_bar"));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_PADDING | SK_UI_SP_BORDER_WIDTH;
+	p.layout.width = sk_ui_pt(320.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	p.layout.flex_direction = SK_UI_FLEX_ROW;
+	p.layout.padding.left = p.layout.padding.right = p.layout.padding.top = p.layout.padding.bottom = 0.0f;
+	p.layout.border.left = p.layout.border.right = p.layout.border.top = p.layout.border.bottom = 0.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, bar, &p));
+
+	/* menu_item File */
+	file_item = ui->node_create(ctx, SK_UI_NODE_KIND_BUTTON, bar);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, file_item, "menu-file"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, file_item, "widget", "menu_item"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, file_item, "text", "File"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_focusable(ctx, file_item, 1));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(64.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, file_item, &p));
+
+	/* Closed popup first: not present in Clay, zero rect. */
+	popup = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, file_item);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, popup, "menu-file-popup"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, popup, "widget", "menu_popup"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, popup, "open", 0));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, popup, "z_index", 100));
+	ui_layout_style_init_default(&ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.left = sk_ui_pt(0.0f);
+	ls.top = sk_ui_pt(28.0f);
+	ls.width = sk_ui_pt(140.0f);
+	ls.height = sk_ui_pt(60.0f);
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, popup, &ls));
+
+	open_item = ui->node_create(ctx, SK_UI_NODE_KIND_BUTTON, popup);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, open_item, "menu-file-open"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, open_item, "widget", "menu_item"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, open_item, "text", "Open"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_focusable(ctx, open_item, 1));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(140.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, open_item, &p));
+
+	save_item = ui->node_create(ctx, SK_UI_NODE_KIND_BUTTON, popup);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, save_item, "menu-file-save"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, save_item, "widget", "menu_item"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, save_item, "text", "Save"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_focusable(ctx, save_item, 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, save_item, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->menu_layout_count >= 1);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[bar.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[file_item.index] != 0u);
+	/* Closed popup omitted from Clay. */
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[popup.index] == 0u);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, popup, &rp, NULL));
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, rp.width);
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, rp.height);
+
+	eid_bar = Clay_GetElementId(ui_clay_cstr("menubar"));
+	eid_item = Clay_GetElementId(ui_clay_cstr("menu-file"));
+	ed = Clay_GetElementData(eid_bar);
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(eid_item);
+	TEST_ASSERT_TRUE(ed.found);
+
+	/* Open popup: declare as Clay floating; ids stable across a second frame. */
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, popup, "open", 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[popup.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[open_item.index] != 0u);
+	eid_popup = Clay_GetElementId(ui_clay_cstr("menu-file-popup"));
+	ed = Clay_GetElementData(eid_popup);
+	TEST_ASSERT_TRUE(ed.found);
+	TEST_ASSERT_TRUE(ed.boundingBox.width >= 1.0f);
+
+	/* Second frame: open state + same Clay ids survive. */
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
+	TEST_ASSERT_EQUAL_INT(1, ui_clay_prop_i32(ui_slot(ctx, popup), "open", 0));
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[popup.index] != 0u);
+	ed = Clay_GetElementData(eid_popup);
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("menu-file-open")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("menu-file-save")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_clay_menu_submenu_and_context_floating) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t submenu;
+	sk_ui_node_t sub_popup;
+	sk_ui_node_t ctx_menu;
+	sk_ui_node_t ctx_item;
+	sk_ui_style_props_t p;
+	sk_ui_layout_style_t ls;
+	Clay_ElementData ed;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	/* submenu trigger + nested popup (attach=right). */
+	submenu = ui->node_create(ctx, SK_UI_NODE_KIND_BUTTON, root);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, submenu, "submenu-recent"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, submenu, "widget", "submenu"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, submenu, "text", "Recent"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_focusable(ctx, submenu, 1));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(100.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, submenu, &p));
+
+	sub_popup = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, submenu);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, sub_popup, "submenu-recent-popup"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, sub_popup, "widget", "menu_popup"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, sub_popup, "open", 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, sub_popup, "attach", 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, sub_popup, "z_index", 110));
+	ui_layout_style_init_default(&ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.left = sk_ui_pt(100.0f);
+	ls.top = sk_ui_pt(0.0f);
+	ls.width = sk_ui_pt(120.0f);
+	ls.height = sk_ui_pt(40.0f);
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, sub_popup, &ls));
+
+	/* context_menu at root (viewport floating). */
+	ctx_menu = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, root);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, ctx_menu, "ctx-menu"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, ctx_menu, "widget", "context_menu"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, ctx_menu, "open", 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, ctx_menu, "z_index", 200));
+	ui_layout_style_init_default(&ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.left = sk_ui_pt(40.0f);
+	ls.top = sk_ui_pt(80.0f);
+	ls.width = sk_ui_pt(100.0f);
+	ls.height = sk_ui_pt(36.0f);
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, ctx_menu, &ls));
+
+	ctx_item = ui->node_create(ctx, SK_UI_NODE_KIND_BUTTON, ctx_menu);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, ctx_item, "ctx-delete"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, ctx_item, "widget", "menu_item"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, ctx_item, "text", "Delete"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_focusable(ctx, ctx_item, 1));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(100.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, ctx_item, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->menu_layout_count >= 3);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[submenu.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[sub_popup.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[ctx_menu.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[ctx_item.index] != 0u);
+
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("submenu-recent-popup")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("ctx-menu")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("ctx-delete")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	/* Hover open: set pointer over submenu and re-layout; ids still resolve. */
+	ctx->pointer_x = 10.0f;
+	ctx->pointer_y = 10.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[sub_popup.index] != 0u);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("submenu-recent")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_clay_menu_dropdown_clip_and_closed_hidden) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t dd;
+	sk_ui_node_t popup;
+	sk_ui_style_props_t p;
+	sk_ui_layout_style_t ls;
+	sk_ui_rect_t rp;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	dd = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, root);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, dd, "dropdown-1"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, dd, "widget", "dropdown"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, dd, "text", "Choose"));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(120.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, dd, &p));
+
+	popup = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, dd);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, popup, "dropdown-1-popup"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, popup, "widget", "menu_popup"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, popup, "open", 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_clip_children(ctx, popup, 1));
+	ui_layout_style_init_default(&ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.left = sk_ui_pt(0.0f);
+	ls.top = sk_ui_pt(28.0f);
+	ls.width = sk_ui_pt(120.0f);
+	ls.height = sk_ui_pt(80.0f);
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_layout_style(ctx, popup, &ls));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 300.0f, 200.0f));
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[dd.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[popup.index] != 0u);
+
+	/* hidden=1 collapses like closed. */
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_i32(ctx, popup, "hidden", 1));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 300.0f, 200.0f));
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[popup.index] == 0u);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, popup, &rp, NULL));
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, rp.width);
 
 	ui->context_destroy(ctx);
 }

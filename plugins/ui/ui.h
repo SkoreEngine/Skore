@@ -783,6 +783,14 @@ typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f
 #define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
 #define SK_UI_CLASS_SCROLL_VIEW "ui-scroll-view"
 #define SK_UI_CLASS_IMAGE "ui-image"
+/** Menu surfaces (APX-234): bar, items, floating popups / dropdowns / context. */
+#define SK_UI_CLASS_MENU_BAR "ui-menu-bar"
+#define SK_UI_CLASS_MENU "ui-menu"
+#define SK_UI_CLASS_MENU_ITEM "ui-menu-item"
+#define SK_UI_CLASS_MENU_POPUP "ui-menu-popup"
+#define SK_UI_CLASS_DROPDOWN "ui-dropdown"
+#define SK_UI_CLASS_CONTEXT_MENU "ui-context-menu"
+#define SK_UI_CLASS_SUBMENU "ui-submenu"
 
 /* ------------------------------------------------------------------ */
 /*  Headless harness (automation / UI tester foundation)              */
@@ -1547,9 +1555,10 @@ typedef struct sk_ui_api_t {
 
 	/**
 	 * Register default style classes for the v1 widget set (panel, view, label,
-	 * button, checkbox, slider, text_input, scroll_view, image) including
-	 * hover/active/focused/disabled variants. Idempotent. Called automatically
-	 * from context_create; safe to call again after unregistering a class.
+	 * button, checkbox, slider, text_input, scroll_view, image, menu surfaces)
+	 * including hover/active/focused/disabled variants. Idempotent. Called
+	 * automatically from context_create; safe to call again after unregistering
+	 * a class.
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*widgets_register_defaults)(sk_ui_context_t* ctx);
@@ -1588,6 +1597,63 @@ typedef struct sk_ui_api_t {
 
 	/** Image node bound to host texture id (IMAGE + class ui-image). */
 	sk_ui_node_t (*widget_image)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, const_chr_t id);
+
+	/**
+	 * Horizontal menu bar container (row flex, widget=menu_bar). Hosts menu /
+	 * menu_item children. Stable Clay id for hover across frames.
+	 */
+	sk_ui_node_t (*widget_menu_bar)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Top-level menu root: labeled trigger + child menu_popup (closed until
+	 * menu_set_open). Click toggles open. widget=menu.
+	 */
+	sk_ui_node_t (*widget_menu)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Selectable menu row (widget=menu_item). Optional nested menu_popup for
+	 * submenus (use widget_submenu or attach a popup and set open on hover).
+	 */
+	sk_ui_node_t (*widget_menu_item)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Floating overlay popup (widget=menu_popup, absolute + Clay floating).
+	 * open prop (0/1) survives frames; closed popups are omitted from Clay.
+	 * @p attach 0 = below parent, 1 = to the right (submenu).
+	 */
+	sk_ui_node_t (*widget_menu_popup)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 attach, const_chr_t id);
+
+	/**
+	 * Dropdown: labeled trigger + menu_popup child (widget=dropdown). Same open
+	 * model as widget_menu.
+	 */
+	sk_ui_node_t (*widget_dropdown)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Context menu overlay attached to the tree root via Clay floating
+	 * (widget=context_menu). Position with layout left/top (viewport).
+	 */
+	sk_ui_node_t (*widget_context_menu)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Submenu item with nested menu_popup attached to the right (widget=submenu).
+	 * Pointer enter opens; leave closes when pointer exits the item+popup chain.
+	 */
+	sk_ui_node_t (*widget_submenu)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Open/close a menu, dropdown, submenu, menu_popup, or context_menu.
+	 * open != 0 shows the floating popup; state is a retained prop (survives
+	 * frames). Returns 0 on success.
+	 */
+	i32 (*menu_set_open)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open);
+	/** Non-zero if the menu/popup open prop is set. */
+	i32 (*menu_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * First child with widget=menu_popup under @p node (menu, dropdown, submenu).
+	 * SK_UI_NODE_INVALID if none.
+	 */
+	sk_ui_node_t (*menu_get_popup)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 
 	/** Set/get label text (prop "text"). */
 	i32 (*label_set_text)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);

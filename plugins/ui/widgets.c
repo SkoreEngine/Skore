@@ -4,8 +4,9 @@
  *
  * Widgets compose the retained element tree (BOX/TEXT/IMAGE/BUTTON) with
  * default style classes, stable test ids/classes, and behavior handlers for
- * checkbox/slider/text_input/scroll_view. Not ImGui parity — no docking,
- * tables, trees, or menus.
+ * checkbox/slider/text_input/scroll_view and menu surfaces (menu_bar, menu,
+ * menu_item, menu_popup, dropdown, context_menu, submenu — APX-234). Not full
+ * ImGui parity — no docking, tables, or trees.
  */
 
 #include "ui_internal.h"
@@ -26,6 +27,9 @@ enum {
 	UI_WD_TEXT_INPUT = 3,
 	UI_WD_SCROLL = 4,
 	UI_WD_BUTTON = 5,
+	UI_WD_MENU = 6,
+	UI_WD_SUBMENU = 7,
+	UI_WD_DROPDOWN = 8,
 };
 
 typedef struct ui_widget_data_t {
@@ -384,6 +388,86 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	base.layout.min_width = sk_ui_pt(16.0f);
 	base.layout.min_height = sk_ui_pt(16.0f);
 	if (ui->style_class_register(ctx, SK_UI_CLASS_IMAGE, &base) != 0) {
+		return -1;
+	}
+
+	/* Menu bar (horizontal strip) */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH;
+	base.background_color = sk_ui_rgba(0.18f, 0.19f, 0.22f, 1.0f);
+	base.layout.flex_direction = SK_UI_FLEX_ROW;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.min_height = sk_ui_pt(28.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MENU_BAR, &base) != 0) {
+		return -1;
+	}
+
+	/* Menu / dropdown trigger (in-bar or standalone) */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS |
+				SK_UI_SP_POSITION;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	ui_style_fill_layout_pad(&base, 6.0f);
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 14.0f;
+	base.layout.min_height = sk_ui_pt(28.0f);
+	base.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	base.layout.position = SK_UI_POSITION_RELATIVE;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MENU, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_DROPDOWN, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_SUBMENU, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.28f, 0.42f, 0.72f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_MENU, SK_UI_STATE_HOVER, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_DROPDOWN, SK_UI_STATE_HOVER, &var);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SUBMENU, SK_UI_STATE_HOVER, &var);
+
+	/* Menu item row */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f);
+	ui_style_fill_layout_pad(&base, 6.0f);
+	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
+	base.font_size = 14.0f;
+	base.layout.min_height = sk_ui_pt(28.0f);
+	base.layout.width = sk_ui_percent(100.0f);
+	base.layout.align_items = SK_UI_ALIGN_CENTER;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MENU_ITEM, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.28f, 0.42f, 0.72f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_MENU_ITEM, SK_UI_STATE_HOVER, &var);
+
+	/* Floating popup / context menu panel */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION |
+				SK_UI_SP_MIN_WIDTH | SK_UI_SP_POSITION;
+	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	base.border_color = sk_ui_rgba(0.32f, 0.34f, 0.40f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.corner_radius = 3.0f;
+	ui_style_fill_layout_pad(&base, 4.0f);
+	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.min_width = sk_ui_pt(120.0f);
+	base.layout.position = SK_UI_POSITION_ABSOLUTE;
+	if (ui->style_class_register(ctx, SK_UI_CLASS_MENU_POPUP, &base) != 0) {
+		return -1;
+	}
+	if (ui->style_class_register(ctx, SK_UI_CLASS_CONTEXT_MENU, &base) != 0) {
 		return -1;
 	}
 
@@ -868,6 +952,298 @@ sk_ui_node_t ui_widget_image_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32
 	}
 	(void)ui->node_set_prop_i32(ctx, n, "texture_id", texture_id);
 	return n;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Menu surfaces (APX-234)                                                    */
+/* -------------------------------------------------------------------------- */
+
+static sk_ui_node_t ui_menu_find_popup_child(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	u32 i;
+	if (slot == NULL) {
+		return SK_UI_NODE_INVALID;
+	}
+	for (i = 0u; i < slot->children.count; ++i) {
+		const ui_node_slot_t* ch = ui_slot(ctx, slot->children.items[i]);
+		const_chr_t w;
+		if (ch == NULL) {
+			continue;
+		}
+		w = ui_prop_str_const(ch, "widget");
+		if (w != NULL && (strcmp(w, "menu_popup") == 0 || strcmp(w, "context_menu") == 0)) {
+			return slot->children.items[i];
+		}
+	}
+	return SK_UI_NODE_INVALID;
+}
+
+static void ui_menu_set_popup_open(sk_ui_context_t* ctx, sk_ui_node_t owner, i32 open) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t popup = ui_menu_find_popup_child(ctx, owner);
+	(void)ui->node_set_prop_i32(ctx, owner, "open", open != 0 ? 1 : 0);
+	if (sk_ui_node_is_valid(popup)) {
+		(void)ui->node_set_prop_i32(ctx, popup, "open", open != 0 ? 1 : 0);
+		(void)ui->node_set_prop_i32(ctx, popup, "hidden", open != 0 ? 0 : 1);
+	}
+	ui_mark_dirty_up(ctx, owner, (u32)(SK_UI_DIRTY_LAYOUT | SK_UI_DIRTY_PAINT));
+}
+
+static void ui_menu_toggle_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	i32 open = 0;
+	(void)user;
+	(void)event;
+	if ((ui_wapi()->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	(void)ui_prop_i32_const(ui_slot(ctx, node), "open", &open);
+	ui_menu_set_popup_open(ctx, node, open != 0 ? 0 : 1);
+	if (event != NULL) {
+		event->consumed = 1;
+	}
+}
+
+static void ui_submenu_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	(void)user;
+	if ((ui_wapi()->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	/* Hover opens nested popup so open state propagates across frames via props. */
+	if (event->type == SK_UI_EVENT_POINTER_ENTER) {
+		ui_menu_set_popup_open(ctx, node, 1);
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_LEAVE) {
+		/* Keep open if pointer moved into the popup child (engine hover may be
+		 * the popup). Close only when neither the item nor its popup is hovered. */
+		sk_ui_node_t popup = ui_menu_find_popup_child(ctx, node);
+		sk_ui_node_t hover = ctx->hover;
+		if (sk_ui_node_is_valid(popup) && (sk_ui_node_eq(hover, popup) || sk_ui_node_eq(hover, node))) {
+			return;
+		}
+		/* Walk ancestors of hover: stay open if still inside popup subtree. */
+		if (sk_ui_node_is_valid(popup) && sk_ui_node_is_valid(hover)) {
+			const ui_node_slot_t* hs = ui_slot(ctx, hover);
+			while (hs != NULL && sk_ui_node_is_valid(hs->parent)) {
+				if (sk_ui_node_eq(hs->parent, popup) || sk_ui_node_eq(hs->parent, node)) {
+					return;
+				}
+				hs = ui_slot(ctx, hs->parent);
+			}
+		}
+		ui_menu_set_popup_open(ctx, node, 0);
+	}
+}
+
+static sk_ui_node_t ui_menu_make_popup(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 attach, i32 z_index, const_chr_t id_prefix, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_layout_style_t ls;
+	char auto_id[80];
+	const_chr_t popup_id = id;
+	sk_ui_node_t n;
+
+	if (id == NULL || id[0] == '\0') {
+		ctx->widget_id_seq += 1u;
+		(void)snprintf(auto_id, sizeof(auto_id), "%s-popup-%u", id_prefix != NULL ? id_prefix : "menu", ctx->widget_id_seq);
+		popup_id = auto_id;
+	}
+	n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_MENU_POPUP, "menu_popup", "ui-menu-popup", popup_id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_i32(ctx, n, "open", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "hidden", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "attach", attach != 0 ? 1 : 0);
+	(void)ui->node_set_prop_i32(ctx, n, "z_index", z_index);
+	ui_layout_style_init_default(&ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	ls.min_width = sk_ui_pt(120.0f);
+	if (attach != 0) {
+		ls.left = sk_ui_pt(0.0f); /* writeback uses style; Clay attach=right for hover */
+		ls.top = sk_ui_pt(0.0f);
+	} else {
+		ls.left = sk_ui_pt(0.0f);
+		ls.top = sk_ui_pt(28.0f);
+	}
+	(void)ui->node_set_layout_style(ctx, n, &ls);
+	return n;
+}
+
+sk_ui_node_t ui_widget_menu_bar_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id) {
+	return ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_MENU_BAR, "menu_bar", "ui-menu-bar", id);
+}
+
+sk_ui_node_t ui_widget_menu_item_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_MENU_ITEM, "menu_item", "ui-menu-item", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", label != NULL ? label : "");
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	return n;
+}
+
+sk_ui_node_t ui_widget_menu_popup_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 attach, const_chr_t id) {
+	return ui_menu_make_popup(ctx, parent, attach, attach != 0 ? 110 : 100, "menu", id);
+}
+
+sk_ui_node_t ui_widget_menu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	sk_ui_node_t n;
+	sk_ui_node_t popup;
+	char popup_id[80];
+
+	n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_MENU, "menu", "ui-menu", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", label != NULL ? label : "");
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "open", 0);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	if (id != NULL && id[0] != '\0') {
+		(void)snprintf(popup_id, sizeof(popup_id), "%s-popup", id);
+		popup = ui_menu_make_popup(ctx, n, 0, 100, id, popup_id);
+	} else {
+		popup = ui_menu_make_popup(ctx, n, 0, 100, "menu", NULL);
+	}
+	(void)popup;
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_MENU);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = ui_menu_toggle_on_click;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	return n;
+}
+
+sk_ui_node_t ui_widget_dropdown_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	sk_ui_node_t n;
+	char popup_id[80];
+
+	n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_DROPDOWN, "dropdown", "ui-dropdown", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", label != NULL ? label : "");
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "open", 0);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	if (id != NULL && id[0] != '\0') {
+		(void)snprintf(popup_id, sizeof(popup_id), "%s-popup", id);
+		(void)ui_menu_make_popup(ctx, n, 0, 100, id, popup_id);
+	} else {
+		(void)ui_menu_make_popup(ctx, n, 0, 100, "dropdown", NULL);
+	}
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_DROPDOWN);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = ui_menu_toggle_on_click;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	return n;
+}
+
+sk_ui_node_t ui_widget_context_menu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_layout_style_t ls;
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_CONTEXT_MENU, "context_menu", "ui-context-menu", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_i32(ctx, n, "open", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "hidden", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "z_index", 200);
+	ui_layout_style_init_default(&ls);
+	ls.position = SK_UI_POSITION_ABSOLUTE;
+	ls.flex_direction = SK_UI_FLEX_COLUMN;
+	ls.min_width = sk_ui_pt(120.0f);
+	ls.left = sk_ui_pt(0.0f);
+	ls.top = sk_ui_pt(0.0f);
+	(void)ui->node_set_layout_style(ctx, n, &ls);
+	return n;
+}
+
+sk_ui_node_t ui_widget_submenu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	sk_ui_node_t n;
+	char popup_id[80];
+
+	n = ui_widget_base(ctx, SK_UI_NODE_KIND_BUTTON, parent, SK_UI_CLASS_SUBMENU, "submenu", "ui-submenu", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_str(ctx, n, "text", label != NULL ? label : "");
+	(void)ui->node_set_prop_i32(ctx, n, "text_align", 0);
+	(void)ui->node_set_prop_i32(ctx, n, "vertical_align", 1);
+	(void)ui->node_set_prop_i32(ctx, n, "open", 0);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	if (id != NULL && id[0] != '\0') {
+		(void)snprintf(popup_id, sizeof(popup_id), "%s-popup", id);
+		(void)ui_menu_make_popup(ctx, n, 1, 110, id, popup_id);
+	} else {
+		(void)ui_menu_make_popup(ctx, n, 1, 110, "submenu", NULL);
+	}
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_SUBMENU);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_event = ui_submenu_on_event;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	return n;
+}
+
+i32 ui_menu_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	const_chr_t w;
+	if (slot == NULL) {
+		return -1;
+	}
+	w = ui_prop_str_const(slot, "widget");
+	if (w != NULL && (strcmp(w, "menu_popup") == 0 || strcmp(w, "context_menu") == 0)) {
+		const sk_ui_api_t* ui = ui_wapi();
+		(void)ui->node_set_prop_i32(ctx, node, "open", open != 0 ? 1 : 0);
+		(void)ui->node_set_prop_i32(ctx, node, "hidden", open != 0 ? 0 : 1);
+		ui_mark_dirty_up(ctx, node, (u32)(SK_UI_DIRTY_LAYOUT | SK_UI_DIRTY_PAINT));
+		return 0;
+	}
+	ui_menu_set_popup_open(ctx, node, open);
+	return 0;
+}
+
+i32 ui_menu_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 open = 0;
+	sk_ui_node_t popup;
+	if (slot == NULL) {
+		return 0;
+	}
+	if (ui_prop_i32_const(slot, "open", &open) == 0 && open != 0) {
+		return 1;
+	}
+	popup = ui_menu_find_popup_child(ctx, node);
+	if (sk_ui_node_is_valid(popup)) {
+		const ui_node_slot_t* ps = ui_slot(ctx, popup);
+		open = 0;
+		if (ps != NULL && ui_prop_i32_const(ps, "open", &open) == 0 && open != 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+sk_ui_node_t ui_menu_get_popup_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	return ui_menu_find_popup_child(ctx, node);
 }
 
 /* -------------------------------------------------------------------------- */

@@ -1079,7 +1079,8 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		if (kind == SK_UI_NODE_KIND_TEXT || kind == SK_UI_NODE_KIND_BUTTON) {
 			emit = 1;
 		}
-		if (wtype != NULL && (strcmp(wtype, "text_input") == 0 || strcmp(wtype, "label") == 0 || strcmp(wtype, "button") == 0)) {
+		if (wtype != NULL && (strcmp(wtype, "text_input") == 0 || strcmp(wtype, "label") == 0 || strcmp(wtype, "button") == 0 || strcmp(wtype, "menu_item") == 0 ||
+							  strcmp(wtype, "menu") == 0 || strcmp(wtype, "submenu") == 0 || strcmp(wtype, "dropdown") == 0)) {
 			emit = 1;
 		}
 		if (emit && ui_paint_prop_str(slot, "text") != NULL) {
