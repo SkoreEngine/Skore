@@ -263,19 +263,31 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/app"
 		"--extra-arg=-I${ROOT}/player"
 		"--extra-arg=-I${ROOT}/editor"
-		"--extra-arg=-I${ROOT}/thirdparty/mimalloc/include"
-		"--extra-arg=-I${ROOT}/thirdparty/unity/src"
-		"--extra-arg=-I${ROOT}/thirdparty/glfw/include"
-		"--extra-arg=-I${ROOT}/thirdparty/vulkan/include"
-		"--extra-arg=-I${ROOT}/thirdparty/volk/src"
-		"--extra-arg=-I${ROOT}/thirdparty/vma/include"
-		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
-		"--extra-arg=-I${ROOT}/thirdparty/dxc/include"
-		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
-		"--extra-arg=-I${ROOT}/thirdparty/zstd/src"
-		"--extra-arg=-DSK_COMPRESSION_HAS_ZSTD=1"
 		"--extra-arg=-Wno-unknown-warning-option"
 		"--extra-arg=-std=c11"
+	)
+	# Vendored deps: auto-pick thirdparty/*/include (freetype, glfw, mimalloc, ...).
+	# Only first-party TUs are scanned; these -I paths exist so #includes parse.
+	# Layouts that are not */include stay explicit below.
+	local inc
+	while IFS= read -r -d '' inc; do
+		EXTRA_ARGS+=("--extra-arg=-I${inc}")
+	done < <(find "${ROOT}/thirdparty" -mindepth 2 -maxdepth 2 -type d -name include -print0 2>/dev/null | sort -z || true)
+	# Non-standard include roots (not thirdparty/<name>/include).
+	EXTRA_ARGS+=(
+		"--extra-arg=-I${ROOT}/thirdparty/unity/src"
+		"--extra-arg=-I${ROOT}/thirdparty/volk/src"
+		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
+		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
+		"--extra-arg=-I${ROOT}/thirdparty/stb_rect_pack"
+		# Mirrors player/CMakeLists.txt (sk_player target) so player/main.c
+		# resolves the embedded font fixture header.
+		"--extra-arg=-I${ROOT}/plugins/ui/testdata"
+		# Compression codec (sk-core links zstd PRIVATE; headers live under
+		# thirdparty/zstd/src and core/compression.c gates the include on
+		# SK_COMPRESSION_HAS_ZSTD, mirroring core/CMakeLists.txt).
+		"--extra-arg=-I${ROOT}/thirdparty/zstd/src"
+		"--extra-arg=-DSK_COMPRESSION_HAS_ZSTD=1"
 	)
 	if [[ -n "${CXX_INC_ROOT}" ]]; then
 		EXTRA_ARGS+=(
@@ -288,6 +300,11 @@ build_extra_args() {
 	while IFS= read -r -d '' pdir; do
 		EXTRA_ARGS+=("--extra-arg=-I${pdir}")
 	done < <(find "${ROOT}/plugins" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null || true)
+	# Plugin-local data dirs (e.g. ui testdata embeds a font header that
+	# player/main.c includes).
+	while IFS= read -r -d '' pdir; do
+		EXTRA_ARGS+=("--extra-arg=-I${pdir}")
+	done < <(find "${ROOT}/plugins" -mindepth 2 -maxdepth 2 -type d -name testdata -print0 2>/dev/null || true)
 }
 
 tidy_one() {

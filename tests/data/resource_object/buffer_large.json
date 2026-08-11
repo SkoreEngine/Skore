@@ -1,0 +1,16 @@
+{
+  "format": "sk.resource_object_fixture",
+  "format_version": 1,
+  "id": "buffer_large",
+  "type": "TestBufferResource",
+  "uuid": "0000000000000002-00000000000000b2",
+  "fields": {
+    "Name": "buffer_large",
+    "Data": {
+      "kind": "buffer",
+      "state": "present",
+      "size": 1048577,
+      "payload_file": "buffer_large.bin"
+    }
+  }
+}

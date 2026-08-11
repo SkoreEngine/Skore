@@ -36,6 +36,35 @@ GLFWAPI unsigned long glfwGetX11Window(GLFWwindow* window);
 
 static i32 glfw_ready = 0;
 
+/**
+ * Per-window state stored in GLFW user pointer (content-scale callback).
+ * Allocated on create_window; freed on destroy_window.
+ */
+typedef struct sk_window_state_t {
+	sk_window_content_scale_callback_t content_scale_cb;
+	void_ptr_t content_scale_user_data;
+} sk_window_state_t;
+
+/* ---- scale helpers (backend) ---- */
+
+static sk_content_scale_t sk_normalize_content_scale(float xscale, float yscale) {
+	sk_content_scale_t scale;
+	scale.x = (xscale > 0.0f) ? xscale : 1.0f;
+	scale.y = (yscale > 0.0f) ? yscale : 1.0f;
+	return scale;
+}
+
+static void sk_glfw_content_scale_callback(GLFWwindow* win, float xscale, float yscale) {
+	sk_window_state_t* state = (sk_window_state_t*)glfwGetWindowUserPointer(win);
+	sk_content_scale_t scale;
+
+	if (state == NULL || state->content_scale_cb == NULL) {
+		return;
+	}
+	scale = sk_normalize_content_scale(xscale, yscale);
+	state->content_scale_cb((sk_window_t)win, scale, state->content_scale_user_data);
+}
+
 /* ---- window ops ---- */
 
 static i32 sk_window_init(void) {
@@ -84,9 +113,20 @@ static sk_window_t sk_window_create(const_chr_t title, u32 width, u32 height, u3
 
 	const char* t = (title != NULL) ? title : "";
 	GLFWwindow* win = glfwCreateWindow((int)width, (int)height, t, NULL, NULL);
+	sk_window_state_t* state;
+
 	if (win == NULL) {
 		return NULL;
 	}
+
+	state = (sk_window_state_t*)calloc(1u, sizeof(sk_window_state_t));
+	if (state == NULL) {
+		glfwDestroyWindow(win);
+		return NULL;
+	}
+	glfwSetWindowUserPointer(win, state);
+	/* Always install; forwards only when user callback is set. */
+	glfwSetWindowContentScaleCallback(win, sk_glfw_content_scale_callback);
 
 #if defined(_WIN32)
 	{
@@ -99,20 +139,34 @@ static sk_window_t sk_window_create(const_chr_t title, u32 width, u32 height, u3
 }
 
 static void sk_window_destroy(sk_window_t window) {
-	glfwDestroyWindow(as_glfw(window));
+	GLFWwindow* win = as_glfw(window);
+	sk_window_state_t* state;
+
+	if (win == NULL) {
+		return;
+	}
+	state = (sk_window_state_t*)glfwGetWindowUserPointer(win);
+	glfwSetWindowUserPointer(win, NULL);
+	glfwSetWindowContentScaleCallback(win, NULL);
+	free(state);
+	glfwDestroyWindow(win);
 }
 
 static i32 sk_window_should_close(sk_window_t window) {
 	return glfwWindowShouldClose(as_glfw(window)) ? 1 : 0;
 }
 
-static f32 sk_window_get_dpi(sk_window_t window) {
+static sk_content_scale_t sk_window_get_content_scale(sk_window_t window) {
 	GLFWwindow* win = as_glfw(window);
 	float xscale = 1.0f;
 	float yscale = 1.0f;
 
 	glfwGetWindowContentScale(win, &xscale, &yscale);
-	return (xscale + yscale) * 0.5f;
+	return sk_normalize_content_scale(xscale, yscale);
+}
+
+static f32 sk_window_get_dpi(sk_window_t window) {
+	return sk_content_scale_average(sk_window_get_content_scale(window));
 }
 
 static sk_extent_t sk_window_get_size(sk_window_t window) {
@@ -121,6 +175,7 @@ static sk_extent_t sk_window_get_size(sk_window_t window) {
 	int w = 0;
 	int h = 0;
 
+	/* Logical size (screen coordinates / points). */
 	glfwGetWindowSize(win, &w, &h);
 	if (w < 0) {
 		w = 0;
@@ -131,6 +186,78 @@ static sk_extent_t sk_window_get_size(sk_window_t window) {
 	extent.width = (u32)w;
 	extent.height = (u32)h;
 	return extent;
+}
+
+static sk_extent_t sk_window_get_framebuffer_size(sk_window_t window) {
+	sk_extent_t extent = {0u, 0u};
+	GLFWwindow* win = as_glfw(window);
+	int w = 0;
+	int h = 0;
+
+	/* Physical size (device pixels). */
+	glfwGetFramebufferSize(win, &w, &h);
+	if (w < 0) {
+		w = 0;
+	}
+	if (h < 0) {
+		h = 0;
+	}
+	extent.width = (u32)w;
+	extent.height = (u32)h;
+	return extent;
+}
+
+static void sk_window_set_content_scale_callback(sk_window_t window, sk_window_content_scale_callback_t callback, void_ptr_t user_data) {
+	GLFWwindow* win = as_glfw(window);
+	sk_window_state_t* state = (sk_window_state_t*)glfwGetWindowUserPointer(win);
+
+	if (state == NULL) {
+		return;
+	}
+	state->content_scale_cb = callback;
+	state->content_scale_user_data = user_data;
+}
+
+static u32 sk_window_get_monitor_count(void) {
+	int count = 0;
+
+	if (!glfw_ready) {
+		return 0u;
+	}
+	(void)glfwGetMonitors(&count);
+	if (count < 0) {
+		return 0u;
+	}
+	return (u32)count;
+}
+
+static sk_monitor_t sk_window_get_primary_monitor(void) {
+	if (!glfw_ready) {
+		return NULL;
+	}
+	return (sk_monitor_t)glfwGetPrimaryMonitor();
+}
+
+static sk_monitor_t sk_window_get_monitor(u32 index) {
+	int count = 0;
+	GLFWmonitor** monitors;
+
+	if (!glfw_ready) {
+		return NULL;
+	}
+	monitors = glfwGetMonitors(&count);
+	if (monitors == NULL || count <= 0 || index >= (u32)count) {
+		return NULL;
+	}
+	return (sk_monitor_t)monitors[index];
+}
+
+static sk_content_scale_t sk_window_get_monitor_content_scale(sk_monitor_t monitor) {
+	float xscale = 1.0f;
+	float yscale = 1.0f;
+
+	glfwGetMonitorContentScale((GLFWmonitor*)monitor, &xscale, &yscale);
+	return sk_normalize_content_scale(xscale, yscale);
 }
 
 static i32 sk_window_is_minimized(sk_window_t window) {
@@ -511,6 +638,39 @@ static void sk_window_poll_events(void) {
 	glfwPollEvents();
 }
 
+static void sk_window_get_cursor_pos(sk_window_t window, f32* out_x, f32* out_y) {
+	GLFWwindow* win = as_glfw(window);
+	double x = 0.0;
+	double y = 0.0;
+	if (win != NULL) {
+		glfwGetCursorPos(win, &x, &y);
+	}
+	if (out_x != NULL) {
+		*out_x = (f32)x;
+	}
+	if (out_y != NULL) {
+		*out_y = (f32)y;
+	}
+}
+
+static i32 sk_window_get_mouse_button(sk_window_t window, i32 button) {
+	GLFWwindow* win = as_glfw(window);
+	int glfw_button;
+	if (win == NULL) {
+		return 0;
+	}
+	if (button == SK_MOUSE_BUTTON_LEFT) {
+		glfw_button = GLFW_MOUSE_BUTTON_LEFT;
+	} else if (button == SK_MOUSE_BUTTON_RIGHT) {
+		glfw_button = GLFW_MOUSE_BUTTON_RIGHT;
+	} else if (button == SK_MOUSE_BUTTON_MIDDLE) {
+		glfw_button = GLFW_MOUSE_BUTTON_MIDDLE;
+	} else {
+		return 0;
+	}
+	return glfwGetMouseButton(win, glfw_button) == GLFW_PRESS ? 1 : 0;
+}
+
 static void sk_window_shutdown(void) {
 	if (!glfw_ready) {
 		return;
@@ -528,6 +688,13 @@ static const sk_platform_window_api_t platform_window_api = {
 	sk_window_should_close,
 	sk_window_get_dpi,
 	sk_window_get_size,
+	sk_window_get_content_scale,
+	sk_window_get_framebuffer_size,
+	sk_window_set_content_scale_callback,
+	sk_window_get_monitor_count,
+	sk_window_get_primary_monitor,
+	sk_window_get_monitor,
+	sk_window_get_monitor_content_scale,
 	sk_window_is_minimized,
 	sk_window_set_cursor_lock_mode,
 	sk_window_maximize,
@@ -539,6 +706,8 @@ static const sk_platform_window_api_t platform_window_api = {
 	sk_window_open_dialog_multiple,
 	sk_window_pick_folder,
 	sk_window_poll_events,
+	sk_window_get_cursor_pos,
+	sk_window_get_mouse_button,
 	sk_window_shutdown,
 };
 
@@ -568,6 +737,13 @@ SK_TEST(platform_window_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(platform_window_api.window_should_close);
 	TEST_ASSERT_NOT_NULL(platform_window_api.get_window_dpi);
 	TEST_ASSERT_NOT_NULL(platform_window_api.get_window_size);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_window_content_scale);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_framebuffer_size);
+	TEST_ASSERT_NOT_NULL(platform_window_api.set_window_content_scale_callback);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_monitor_count);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_primary_monitor);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_monitor);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_monitor_content_scale);
 	TEST_ASSERT_NOT_NULL(platform_window_api.is_window_minimized);
 	TEST_ASSERT_NOT_NULL(platform_window_api.set_window_cursor_lock_mode);
 	TEST_ASSERT_NOT_NULL(platform_window_api.maximize_window);
@@ -576,10 +752,87 @@ SK_TEST(platform_window_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(platform_window_api.show_simple_message_box);
 	TEST_ASSERT_NOT_NULL(platform_window_api.save_dialog);
 	TEST_ASSERT_NOT_NULL(platform_window_api.open_dialog);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_cursor_pos);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_mouse_button);
 	TEST_ASSERT_NOT_NULL(platform_window_api.open_dialog_multiple);
 	TEST_ASSERT_NOT_NULL(platform_window_api.pick_folder);
 	TEST_ASSERT_NOT_NULL(platform_window_api.poll_events);
 	TEST_ASSERT_NOT_NULL(platform_window_api.shutdown);
+}
+
+SK_TEST(content_scale_helpers_axis_and_average) {
+	sk_content_scale_t s;
+
+	TEST_ASSERT_EQUAL_FLOAT(1.0f, sk_content_scale_axis(0.0f));
+	TEST_ASSERT_EQUAL_FLOAT(1.0f, sk_content_scale_axis(-2.0f));
+	TEST_ASSERT_EQUAL_FLOAT(1.5f, sk_content_scale_axis(1.5f));
+
+	s.x = 2.0f;
+	s.y = 2.0f;
+	TEST_ASSERT_EQUAL_FLOAT(2.0f, sk_content_scale_average(s));
+
+	s.x = 1.0f;
+	s.y = 2.0f;
+	TEST_ASSERT_EQUAL_FLOAT(1.5f, sk_content_scale_average(s));
+
+	s.x = 0.0f;
+	s.y = 0.0f;
+	TEST_ASSERT_EQUAL_FLOAT(1.0f, sk_content_scale_average(s));
+}
+
+SK_TEST(content_scale_helpers_logical_physical_u32) {
+	/* 1x identity */
+	TEST_ASSERT_EQUAL_UINT(1280u, sk_logical_to_physical_u32(1280u, 1.0f));
+	TEST_ASSERT_EQUAL_UINT(720u, sk_physical_to_logical_u32(720u, 1.0f));
+
+	/* 2x Retina-style */
+	TEST_ASSERT_EQUAL_UINT(2560u, sk_logical_to_physical_u32(1280u, 2.0f));
+	TEST_ASSERT_EQUAL_UINT(1440u, sk_logical_to_physical_u32(720u, 2.0f));
+	TEST_ASSERT_EQUAL_UINT(1280u, sk_physical_to_logical_u32(2560u, 2.0f));
+	TEST_ASSERT_EQUAL_UINT(720u, sk_physical_to_logical_u32(1440u, 2.0f));
+
+	/* 1.5x fractional (nearest) */
+	TEST_ASSERT_EQUAL_UINT(1920u, sk_logical_to_physical_u32(1280u, 1.5f));
+	TEST_ASSERT_EQUAL_UINT(1280u, sk_physical_to_logical_u32(1920u, 1.5f));
+
+	/* Zero / invalid scale treated as 1.0 */
+	TEST_ASSERT_EQUAL_UINT(100u, sk_logical_to_physical_u32(100u, 0.0f));
+	TEST_ASSERT_EQUAL_UINT(100u, sk_physical_to_logical_u32(100u, -1.0f));
+	TEST_ASSERT_EQUAL_UINT(0u, sk_logical_to_physical_u32(0u, 2.0f));
+}
+
+SK_TEST(content_scale_helpers_extent_roundtrip) {
+	sk_content_scale_t scale;
+	sk_extent_t logical;
+	sk_extent_t physical;
+	sk_extent_t back;
+
+	scale.x = 2.0f;
+	scale.y = 2.0f;
+	logical.width = 800u;
+	logical.height = 600u;
+	physical = sk_extent_logical_to_physical(logical, scale);
+	TEST_ASSERT_EQUAL_UINT(1600u, physical.width);
+	TEST_ASSERT_EQUAL_UINT(1200u, physical.height);
+	back = sk_extent_physical_to_logical(physical, scale);
+	TEST_ASSERT_EQUAL_UINT(logical.width, back.width);
+	TEST_ASSERT_EQUAL_UINT(logical.height, back.height);
+
+	/* Non-uniform scale uses x for width, y for height. */
+	scale.x = 2.0f;
+	scale.y = 1.5f;
+	logical.width = 100u;
+	logical.height = 100u;
+	physical = sk_extent_logical_to_physical(logical, scale);
+	TEST_ASSERT_EQUAL_UINT(200u, physical.width);
+	TEST_ASSERT_EQUAL_UINT(150u, physical.height);
+}
+
+SK_TEST(content_scale_helpers_float) {
+	TEST_ASSERT_EQUAL_FLOAT(200.0f, sk_logical_to_physical_f(100.0f, 2.0f));
+	TEST_ASSERT_EQUAL_FLOAT(50.0f, sk_physical_to_logical_f(100.0f, 2.0f));
+	TEST_ASSERT_EQUAL_FLOAT(100.0f, sk_logical_to_physical_f(100.0f, 0.0f));
+	TEST_ASSERT_EQUAL_FLOAT(100.0f, sk_physical_to_logical_f(100.0f, -3.0f));
 }
 
 SK_TEST(platform_window_init_is_idempotent) {
@@ -588,6 +841,71 @@ SK_TEST(platform_window_init_is_idempotent) {
 		return;
 	}
 	TEST_ASSERT_EQUAL_INT(0, platform_window_api.init());
+	platform_window_api.shutdown();
+}
+
+/*
+ * Manual multi-monitor verification (not run in CI — needs interactive display):
+ * 1. init + create_window; print get_window_content_scale / get_framebuffer_size.
+ * 2. Register set_window_content_scale_callback; drag window across monitors.
+ * 3. Expect callback with new scale; get_monitor_content_scale per monitor matches OS.
+ * 4. Change OS display scaling; expect callback or updated get_window_content_scale
+ *    after poll_events.
+ */
+SK_TEST(hidpi_window_scale_and_framebuffer_smoke) {
+	sk_window_t window;
+	sk_content_scale_t scale;
+	sk_extent_t logical;
+	sk_extent_t physical;
+	sk_extent_t expected;
+	u32 monitor_count;
+	sk_monitor_t primary;
+
+	if (platform_window_api.init() != 0) {
+		return; /* headless CI */
+	}
+
+	window = platform_window_api.create_window("hidpi-test", 320u, 240u, SK_WINDOW_FLAG_HIDDEN);
+	if (window == NULL) {
+		platform_window_api.shutdown();
+		return;
+	}
+
+	scale = platform_window_api.get_window_content_scale(window);
+	TEST_ASSERT_TRUE(scale.x > 0.0f);
+	TEST_ASSERT_TRUE(scale.y > 0.0f);
+	TEST_ASSERT_EQUAL_FLOAT(sk_content_scale_average(scale), platform_window_api.get_window_dpi(window));
+
+	logical = platform_window_api.get_window_size(window);
+	physical = platform_window_api.get_framebuffer_size(window);
+	TEST_ASSERT_TRUE(logical.width > 0u);
+	TEST_ASSERT_TRUE(logical.height > 0u);
+	TEST_ASSERT_TRUE(physical.width > 0u);
+	TEST_ASSERT_TRUE(physical.height > 0u);
+
+	/* Framebuffer is typically logical × scale (platform may round). */
+	expected = sk_extent_logical_to_physical(logical, scale);
+	TEST_ASSERT_TRUE(physical.width == expected.width || physical.width == logical.width);
+	TEST_ASSERT_TRUE(physical.height == expected.height || physical.height == logical.height);
+
+	/* Callback registration is a no-crash smoke path (no OS scale event here). */
+	platform_window_api.set_window_content_scale_callback(window, NULL, NULL);
+
+	monitor_count = platform_window_api.get_monitor_count();
+	primary = platform_window_api.get_primary_monitor();
+	if (monitor_count > 0u) {
+		sk_monitor_t m0 = platform_window_api.get_monitor(0u);
+		sk_content_scale_t mscale;
+
+		TEST_ASSERT_NOT_NULL(primary);
+		TEST_ASSERT_NOT_NULL(m0);
+		mscale = platform_window_api.get_monitor_content_scale(m0);
+		TEST_ASSERT_TRUE(mscale.x > 0.0f);
+		TEST_ASSERT_TRUE(mscale.y > 0.0f);
+		TEST_ASSERT_NULL(platform_window_api.get_monitor(monitor_count));
+	}
+
+	platform_window_api.destroy_window(window);
 	platform_window_api.shutdown();
 }
 
