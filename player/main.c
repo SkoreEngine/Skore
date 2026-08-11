@@ -15,6 +15,7 @@
 #include "dxc_compiler.h"
 #include "logger.h"
 #include "platform_window.h"
+#include "profiler.h"
 #include "render_device.h"
 #include "render_graph.h"
 #include "render_pipeline.h"
@@ -967,6 +968,7 @@ int main(int argc, char* argv[]) {
 	const sk_platform_window_api_t* win_api;
 	const sk_render_graph_api_t* rg_api;
 	const sk_logger_api_t* logger_api;
+	const sk_profiler_api_t* prof_api;
 	sk_window_t window;
 	player_ui_state_t ui_state;
 
@@ -974,10 +976,15 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
+	/* Plugins auto-loaded from {app_folder}/plugins (window, ui, render_graph, …).
+	 * The profiler table is optional: lifecycle (init/begin_frame/end_frame)
+	 * is host-driven by sk-app when the plugin is present, and the zone macro
+	 * below compiles to a no-op unless SK_ENABLE_PROFILER is on. */
 	app_api = sk_app_api();
 	logger_api = sk_logger_api();
 	win_api = app_api->get_api(ctx, SK_PLATFORM_WINDOW_API_TYPE_ID);
 	rg_api = sk_render_graph_api_from_app(ctx, app_api);
+	prof_api = app_api->get_api(ctx, SK_PROFILER_API_TYPE_ID);
 
 	if (win_api == NULL || win_api->init() != 0) {
 		sk_app_destroy(ctx);
@@ -1019,6 +1026,8 @@ int main(int argc, char* argv[]) {
 	}
 
 	while (sk_app_tick(ctx)) {
+		SK_PROFILE_CPU_ZONE(prof_api, "player frame");
+		SK_PROFILE_CPU_ZONE(prof_api, "poll events");
 		win_api->poll_events();
 		player_ui_frame(&ui_state, win_api, window);
 

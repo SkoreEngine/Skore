@@ -16,6 +16,13 @@ endif()
 add_library(sk-app STATIC ${SKORE_APP_SOURCES})
 target_include_directories(sk-app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Host lifecycle wiring includes plugins/profiler (sk_profiler_api_t table +
+# render_device handles for the CPU-only init call). Header-only; the plugin
+# itself is loaded at runtime from the plugins folder.
+target_include_directories(sk-app PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/profiler
+    ${CMAKE_SOURCE_DIR}/plugins/render_device)
+
 # App is the host-facing layer; it always uses core.
 target_link_libraries(sk-app PUBLIC sk-core)
 
@@ -49,6 +56,9 @@ if(BUILD_TESTING)
     target_include_directories(sk-app-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/plugins/render_graph
         ${CMAKE_SOURCE_DIR}/plugins/render_device)
+    # Integration tests include profiler.h (plugin public header).
+    target_include_directories(sk-app-tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/plugins/profiler)
     if(UNIX)
         target_link_libraries(sk-app-tests PUBLIC ${CMAKE_DL_LIBS})
     endif()

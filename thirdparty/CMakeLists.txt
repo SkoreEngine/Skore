@@ -5,6 +5,24 @@ add_subdirectory(unity)
 add_subdirectory(mimalloc)
 add_subdirectory(yyjson)
 
+# zstd 1.5.6 (baseline compression codec; BSD-3-Clause). Gated by
+# SK_COMPRESSION_ZSTD so codec-less builds stay possible.
+if(SK_COMPRESSION_ZSTD)
+    add_subdirectory(zstd)
+endif()
+
+# LZ4 1.10.0 (fast one-shot block codec; BSD-2-Clause). Gated by
+# SK_COMPRESSION_LZ4 (docs/compression-codecs-evaluation.md §6).
+if(SK_COMPRESSION_LZ4)
+    add_subdirectory(lz4)
+endif()
+
+# miniz 3.0.2 (zlib/deflate one-shot codec; MIT). Gated by
+# SK_COMPRESSION_MINIZ (docs/compression-codecs-evaluation.md §6).
+if(SK_COMPRESSION_MINIZ)
+    add_subdirectory(miniz)
+endif()
+
 # GLFW 3.4 (window / input). Static + PIC for shared plugins.
 include(${CMAKE_CURRENT_SOURCE_DIR}/glfw/skore_glfw.cmake)
 add_subdirectory(glfw)

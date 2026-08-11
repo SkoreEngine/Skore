@@ -7,6 +7,57 @@ if(NOT BUILD_TESTING)
     return()
 endif()
 
+# Frozen public-interface check (APX-169): compile core/compression.h in a
+# trivial TU under the project's warnings-as-errors flags so include-order /
+# self-containment regressions fail the build. Build check only - defines
+# nothing, never links or runs.
+add_library(sk-header-checks OBJECT header_checks/compression_header.c)
+target_include_directories(sk-header-checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../core)
+
+# Symbol-mapping conformance check (APX-171): encodes the APX-165 design-doc
+# section 11 main-branch -> v2 compression mapping table and verifies every
+# mapped replacement exists and is callable with the documented signature, and
+# that no-planned-equivalent symbols are declared intentional gaps. Links the
+# production sk-core (the shipped surface, no SK_TESTS). Runs in Debug and
+# Release CI so a renamed/dropped public symbol fails loudly.
+add_executable(sk-compression-conformance conformance/compression_mapping.c)
+target_link_libraries(sk-compression-conformance PRIVATE sk-core)
+# Mirror core/CMakeLists.txt: the conformance TU must know which codecs the
+# linked production sk-core compiled in (those defines are PRIVATE on sk-core).
+if(SK_COMPRESSION_ZSTD)
+    target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_ZSTD)
+endif()
+if(SK_COMPRESSION_LZ4)
+    target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_LZ4)
+endif()
+if(SK_COMPRESSION_MINIZ)
+    target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_MINIZ)
+endif()
+set_target_properties(sk-compression-conformance PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+add_test(NAME sk-compression-conformance COMMAND sk-compression-conformance
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+
+# APX-163: codec benchmark host tool. Reports ratio + compress/decompress
+# throughput for every registered codec over representative engine corpora
+# (deterministic synthetic data). Registered with CTest as a smoke run: the
+# printed numbers are informational, the exit code is the round-trip
+# contract. Run directly for the full report:
+#   ./build/bin/sk-compression-bench
+add_executable(sk-compression-bench benchmarks/compression_bench.c)
+target_link_libraries(sk-compression-bench PRIVATE sk-core)
+set_target_properties(sk-compression-bench PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+add_test(NAME sk-compression-bench COMMAND sk-compression-bench
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set_tests_properties(sk-compression-bench PROPERTIES LABELS "benchmark")
+
 add_executable(sk-tests main.c)
 
 # sk-app-tests pulls sk-core-tests + sk-test transitively.
@@ -19,6 +70,7 @@ target_link_libraries(sk-tests PRIVATE
     sk-vulkan-render-device-lib
     sk-dxc-compiler-lib
     sk-render-graph-lib
+    sk-profiler-lib
     sk-ui-lib
 )
 
@@ -72,7 +124,7 @@ set_target_properties(sk-tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 
-add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph sk-ui)
+add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph sk-profiler sk-ui)
 
 # Run from the runtime output dir ({build}/bin) so plugin shared libraries and
 # the copied DXC runtime (plugins/libdxcompiler.so) are found relative to cwd.
