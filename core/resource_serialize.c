@@ -4660,4 +4660,213 @@ SK_TEST(resource_serialize_it_save_modify_reload_disk_wins) {
 	ser_it_cleanup(dir, path);
 }
 
+/* ================================================================== */
+/*  APX-196: asset repository save/load integration acceptance        */
+/*                                                                    */
+/*  Goal cases (in-source SK_TEST, same registration as unit tests):  */
+/*   1. Multi-type assets + inter-asset refs → serialize whole graph  */
+/*      → load into a fresh repository → full contents + refs survive */
+/*   2. Empty repository / empty package round-trip                   */
+/*   3. Corrupted/truncated payload fails via contract error model    */
+/*      without leaving the repository half-populated                 */
+/* ================================================================== */
+
+/**
+ * APX-196 case 1: populate a repository with multiple asset types and
+ * inter-asset references, serialize the reachable package graph, load into a
+ * brand-new repository instance, and assert contents + reference graph.
+ */
+SK_TEST(resource_serialize_apx196_multi_type_graph_fresh_repo) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+
+	sk_repository_t* src = ser_test_repo();
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(src));
+	sk_rid_t package = ser_it_build_interlinked_package(src);
+	TEST_ASSERT_TRUE(package.id != 0u);
+	/* Package + directory + dir asset + mesh asset + mat asset + mesh + material + file. */
+	TEST_ASSERT_TRUE(api->resource_count(src) >= 8u);
+
+	char* json = NULL;
+	u32 size = 0u;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(src, package, a, &json, &size));
+	TEST_ASSERT_NOT_NULL(json);
+	TEST_ASSERT_TRUE(size > 0u);
+	/* Distinct types in the emitted graph (never raw RID integers as handles). */
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"type\": \"ResourceAssetPackage\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"type\": \"ResourceAssetDirectory\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"type\": \"ResourceAsset\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"type\": \"ResourceAssetFile\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"type\": \"MeshResource\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"type\": \"MaterialGraphResource\""));
+	TEST_ASSERT_NULL(strstr(json, "\"AssetRef\": 1")); /* no integer RID encoding */
+	api->destroy(src);
+
+	/* Fresh repository: types registered, zero live assets before load. */
+	sk_repository_t* dst = ser_test_repo();
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(dst));
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(dst, sk_str_view_make(json, size), a, &loaded));
+	TEST_ASSERT_TRUE(loaded.id != 0u);
+	TEST_ASSERT_TRUE(api->resource_count(dst) >= 8u);
+	ser_it_assert_interlinked_equivalent(dst, loaded);
+
+	/* Disk path of the same graph (real filesystem I/O). */
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "apx196_graph.json", path, (u32)sizeof(path));
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(dst, loaded, path));
+	api->destroy(dst);
+
+	sk_repository_t* disk_dst = ser_test_repo();
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(disk_dst));
+	sk_rid_t disk_root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(disk_dst, path, &disk_root));
+	ser_it_assert_interlinked_equivalent(disk_dst, disk_root);
+	api->destroy(disk_dst);
+
+	a->free(a->instance, json);
+	ser_it_cleanup(dir, path);
+}
+
+/**
+ * APX-196 case 2: empty-repository / empty-package save → load.
+ * Source holds only a package shell (no Files, no Root children); destination
+ * starts empty; after load only the empty package is present.
+ */
+SK_TEST(resource_serialize_apx196_empty_repository_roundtrip) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+
+	sk_repository_t* src = ser_test_repo();
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(src));
+	sk_rid_t package = ser_create(src, "ResourceAssetPackage", ser_uuid(0xa196e001ull, 0xb196e001ull));
+	{
+		sk_resource_object_t w = api->write(src, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "EmptyRepoPkg"));
+		/* Leave AbsolutePath / Files / Root at defaults (empty / zero). */
+		api->commit(w, NULL);
+	}
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(src));
+
+	char* json = NULL;
+	u32 size = 0u;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(src, package, a, &json, &size));
+	TEST_ASSERT_NOT_NULL(json);
+	TEST_ASSERT_NOT_NULL(strstr(json, "EmptyRepoPkg"));
+	/* Single resource entry: only the package itself. */
+	{
+		u32 n_type = 0u;
+		const char* p = json;
+		while ((p = strstr(p, "\"type\": \"ResourceAssetPackage\"")) != NULL) {
+			n_type += 1u;
+			p += 1;
+		}
+		TEST_ASSERT_EQUAL_UINT32(1u, n_type);
+	}
+	api->destroy(src);
+
+	sk_repository_t* dst = ser_test_repo();
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(dst));
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(dst, sk_str_view_make(json, size), a, &loaded));
+	TEST_ASSERT_TRUE(loaded.id != 0u);
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(dst));
+	TEST_ASSERT_TRUE(SK_UUID_EQ(api->resource_uuid(dst, loaded), ser_uuid(0xa196e001ull, 0xb196e001ull)));
+	sk_resource_object_t r = api->read(dst, loaded);
+	TEST_ASSERT_EQUAL_STRING("EmptyRepoPkg", api->get_string(r, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+	TEST_ASSERT_TRUE(api->get_subobject(r, SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT).id == 0u);
+	u32 files = 0u;
+	(void)api->get_subobject_list(r, SK_RESOURCE_ASSET_PACKAGE_FIELD_FILES, &files);
+	TEST_ASSERT_EQUAL_UINT32(0u, files);
+
+	/* Disk empty-package path as well. */
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "apx196_empty.json", path, (u32)sizeof(path));
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(dst, loaded, path));
+	api->destroy(dst);
+
+	sk_repository_t* disk_dst = ser_test_repo();
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(disk_dst));
+	sk_rid_t disk_root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(disk_dst, path, &disk_root));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(disk_dst));
+	TEST_ASSERT_EQUAL_STRING("EmptyRepoPkg", api->get_string(api->read(disk_dst, disk_root), SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+	api->destroy(disk_dst);
+
+	a->free(a->instance, json);
+	ser_it_cleanup(dir, path);
+}
+
+/**
+ * APX-196 case 3: corrupted / truncated payload fails through the contract
+ * error model (non-zero i32, out_root = SK_RID_ZERO) and must not leave the
+ * repository half-populated — pre-seeded assets stay intact and no shells
+ * from the truncated document appear.
+ */
+SK_TEST(resource_serialize_apx196_truncated_does_not_half_populate) {
+	const sk_repository_api_t* api = sk_repository_api();
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "apx196_truncated.json", path, (u32)sizeof(path));
+
+	/* Truncated mid-resources array (invalid JSON). */
+	const char truncated[] = "{\"format\":\"sk.resource_package\",\"format_version\":1,"
+							 "\"root_uuid\":\"00000000a196c001-00000000b196c001\","
+							 "\"resources\":[{\"format\":\"sk.resource\",\"format_version\":1,"
+							 "\"type\":\"ResourceAsset\",\"uuid\":\"00000000a196c001-00000000b196c001\","
+							 "\"fields\":{\"Name\":\"partial";
+	ser_it_write_raw(path, truncated, sizeof(truncated) - 1u);
+
+	sk_repository_t* repo = ser_test_repo();
+	/* Pre-existing assets that must survive the failed load. */
+	sk_rid_t keep_a = ser_create(repo, "ResourceAsset", ser_uuid(0xa196a001ull, 0xb196a001ull));
+	sk_rid_t keep_b = ser_create(repo, "MeshResource", ser_uuid(0xa196a002ull, 0xb196a002ull));
+	{
+		sk_resource_object_t w = api->write(repo, keep_a);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "seeded-asset"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_FIELD_OBJECT, keep_b));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, keep_b);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, 0u, "seeded-mesh"));
+		api->commit(w, NULL);
+	}
+	const u64 count_before = api->resource_count(repo);
+	const u64 version_a = api->get_version(repo, keep_a);
+	const u64 version_b = api->get_version(repo, keep_b);
+	TEST_ASSERT_TRUE(count_before >= 2u);
+
+	sk_rid_t root = SK_RID_ZERO;
+	const i32 rc = sk_resource_deserialize_package_json_from_file(repo, path, &root);
+	/* Contract error model: non-zero status, zero out handle (not OK / not silent). */
+	TEST_ASSERT_NOT_EQUAL_INT(SK_RES_SER_OK, rc);
+	TEST_ASSERT_TRUE(rc == SK_RES_SER_ERR || rc == SK_RES_SER_INVALID);
+	TEST_ASSERT_EQUAL_UINT64(0u, root.id);
+
+	/* Not half-populated: count, pre-seeded content, and versions unchanged. */
+	TEST_ASSERT_EQUAL_UINT64(count_before, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, ser_uuid(0xa196c001ull, 0xb196c001ull)).id == 0u);
+	TEST_ASSERT_TRUE(api->has_resource(repo, keep_a));
+	TEST_ASSERT_TRUE(api->has_resource(repo, keep_b));
+	TEST_ASSERT_EQUAL_STRING("seeded-asset", api->get_string(api->read(repo, keep_a), SK_RESOURCE_ASSET_FIELD_NAME));
+	TEST_ASSERT_EQUAL_STRING("seeded-mesh", api->get_string(api->read(repo, keep_b), 0u));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_subobject(api->read(repo, keep_a), SK_RESOURCE_ASSET_FIELD_OBJECT), keep_b));
+	TEST_ASSERT_EQUAL_UINT64(version_a, api->get_version(repo, keep_a));
+	TEST_ASSERT_EQUAL_UINT64(version_b, api->get_version(repo, keep_b));
+
+	/* Repository remains usable after the failed load. */
+	sk_rid_t after = ser_create(repo, "MaterialGraphResource", ser_uuid(0xa196a003ull, 0xb196a003ull));
+	TEST_ASSERT_TRUE(after.id != 0u);
+	TEST_ASSERT_EQUAL_UINT64(count_before + 1u, api->resource_count(repo));
+
+	api->destroy(repo);
+	ser_it_cleanup(dir, path);
+}
+
 #endif /* SK_TESTS */
