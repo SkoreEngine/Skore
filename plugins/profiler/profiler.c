@@ -844,7 +844,9 @@ static i32 mock_get_query_pool_results(sk_render_device_t dev, sk_query_pool_t p
 	u8* dst = (u8*)data;
 	for (u32 i = 0u; i < query_count; i++) {
 		u64 offset = (u64)i * stride;
-		if (offset + (u64)sizeof(u64) > data_size) {
+		/* size_t is u64 already on LLP64 (MSVC); the cast would be redundant
+		 * there, and on LP64 the value widens implicitly — no cast needed. */
+		if (offset + sizeof(u64) > data_size) {
 			break;
 		}
 		u64 ticks = 1000ull + (u64)(first_query + i);
