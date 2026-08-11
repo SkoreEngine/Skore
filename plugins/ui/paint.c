@@ -1134,7 +1134,7 @@ static void ui_paint_clear_dirty(sk_ui_context_t* ctx, sk_ui_node_t node) {
 	for (i = 0u; i < slot->children.count; ++i) {
 		ui_paint_clear_dirty(ctx, slot->children.items[i]);
 	}
-	slot->dirty = (u16)(slot->dirty & (u16)(~(u32)SK_UI_DIRTY_PAINT));
+	slot->dirty = (u16)((u32)slot->dirty & ~(u32)SK_UI_DIRTY_PAINT);
 }
 // NOLINTEND(misc-no-recursion)
 

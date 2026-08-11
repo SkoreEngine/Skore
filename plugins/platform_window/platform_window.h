@@ -100,6 +100,15 @@ typedef enum sk_cursor_lock_mode_t {
 } sk_cursor_lock_mode_t;
 
 /**
+ * Mouse button indices for get_mouse_button (matches sk_ui_pointer_button_t).
+ */
+typedef enum sk_mouse_button_t {
+	SK_MOUSE_BUTTON_LEFT = 0,
+	SK_MOUSE_BUTTON_RIGHT = 1,
+	SK_MOUSE_BUTTON_MIDDLE = 2,
+} sk_mouse_button_t;
+
+/**
  * Simple message-box severity.
  */
 typedef enum sk_message_box_type_t {
@@ -396,6 +405,23 @@ typedef struct sk_platform_window_api_t {
      * set_window_content_scale_callback.
      */
 	void (*poll_events)(void);
+
+	/**
+     * Cursor position in **logical** client coordinates (same space as
+     * get_window_size / UI layout). Either out pointer may be NULL.
+     * @param window Valid window.
+     * @param out_x  Logical x (optional).
+     * @param out_y  Logical y (optional).
+     */
+	void (*get_cursor_pos)(sk_window_t window, f32* out_x, f32* out_y);
+
+	/**
+     * Whether a mouse button is currently pressed on @p window.
+     * @param window Valid window.
+     * @param button sk_mouse_button_t (or raw 0/1/2).
+     * @return Non-zero if pressed, 0 if released / invalid.
+     */
+	i32 (*get_mouse_button)(sk_window_t window, i32 button);
 
 	/**
      * Shutdown the window subsystem (destroy leftover windows, terminate GLFW).

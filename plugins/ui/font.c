@@ -595,7 +595,7 @@ void ui_font_destroy_impl(sk_ui_font_t* font) {
 		ui_glyph_cache_key_t* keys = (ui_glyph_cache_key_t*)system->cache._hm.keys;
 		const u32 cap = system->cache._hm.capacity;
 		i32 found = 0;
-		ui_glyph_cache_key_t to_remove;
+		ui_glyph_cache_key_t to_remove = {0};
 		for (slot = 0u; slot < cap; ++slot) {
 			if (controls[slot] != 1u) {
 				continue;

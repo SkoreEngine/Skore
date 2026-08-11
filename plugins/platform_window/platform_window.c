@@ -638,6 +638,39 @@ static void sk_window_poll_events(void) {
 	glfwPollEvents();
 }
 
+static void sk_window_get_cursor_pos(sk_window_t window, f32* out_x, f32* out_y) {
+	GLFWwindow* win = as_glfw(window);
+	double x = 0.0;
+	double y = 0.0;
+	if (win != NULL) {
+		glfwGetCursorPos(win, &x, &y);
+	}
+	if (out_x != NULL) {
+		*out_x = (f32)x;
+	}
+	if (out_y != NULL) {
+		*out_y = (f32)y;
+	}
+}
+
+static i32 sk_window_get_mouse_button(sk_window_t window, i32 button) {
+	GLFWwindow* win = as_glfw(window);
+	int glfw_button;
+	if (win == NULL) {
+		return 0;
+	}
+	if (button == SK_MOUSE_BUTTON_LEFT) {
+		glfw_button = GLFW_MOUSE_BUTTON_LEFT;
+	} else if (button == SK_MOUSE_BUTTON_RIGHT) {
+		glfw_button = GLFW_MOUSE_BUTTON_RIGHT;
+	} else if (button == SK_MOUSE_BUTTON_MIDDLE) {
+		glfw_button = GLFW_MOUSE_BUTTON_MIDDLE;
+	} else {
+		return 0;
+	}
+	return glfwGetMouseButton(win, glfw_button) == GLFW_PRESS ? 1 : 0;
+}
+
 static void sk_window_shutdown(void) {
 	if (!glfw_ready) {
 		return;
@@ -673,6 +706,8 @@ static const sk_platform_window_api_t platform_window_api = {
 	sk_window_open_dialog_multiple,
 	sk_window_pick_folder,
 	sk_window_poll_events,
+	sk_window_get_cursor_pos,
+	sk_window_get_mouse_button,
 	sk_window_shutdown,
 };
 
@@ -717,6 +752,8 @@ SK_TEST(platform_window_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(platform_window_api.show_simple_message_box);
 	TEST_ASSERT_NOT_NULL(platform_window_api.save_dialog);
 	TEST_ASSERT_NOT_NULL(platform_window_api.open_dialog);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_cursor_pos);
+	TEST_ASSERT_NOT_NULL(platform_window_api.get_mouse_button);
 	TEST_ASSERT_NOT_NULL(platform_window_api.open_dialog_multiple);
 	TEST_ASSERT_NOT_NULL(platform_window_api.pick_folder);
 	TEST_ASSERT_NOT_NULL(platform_window_api.poll_events);

@@ -1069,7 +1069,7 @@ static void ui_walk_clear_layout(sk_ui_context_t* ctx, sk_ui_node_t node) {
 	for (i = 0u; i < slot->children.count; ++i) {
 		ui_walk_clear_layout(ctx, slot->children.items[i]);
 	}
-	slot->dirty = (u16)(slot->dirty & (u16)(~(u32)SK_UI_DIRTY_LAYOUT));
+	slot->dirty = (u16)((u32)slot->dirty & ~(u32)SK_UI_DIRTY_LAYOUT);
 }
 // NOLINTEND(misc-no-recursion)
 
