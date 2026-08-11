@@ -30,3 +30,6 @@ add_subdirectory(dxc)
 # FreeType (font rasterization) + stb_rect_pack (glyph atlas packing) for ui.
 add_subdirectory(freetype)
 add_subdirectory(stb_rect_pack)
+
+# Clay v0.14 (immediate-mode layout, single header) for ui (APX-213).
+add_subdirectory(clay)

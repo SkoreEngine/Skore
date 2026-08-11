@@ -340,6 +340,25 @@ i32 ui_scroll_view_set_content_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node
 i32 ui_image_set_texture_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 texture_id);
 
 /* -------------------------------------------------------------------------- */
+/* Clay immediate-mode layout bridge (clay.c)                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Initialize the Clay context (vendored thirdparty/clay). The arena is
+ * allocated through @p allocator (NULL = process default); @p viewport_width /
+ * @p viewport_height are the current layout dimensions. @p font_system /
+ * @p font (both optional, must be NULL or non-NULL together) back
+ * Clay_SetMeasureTextFunction with engine font metrics.
+ * @return 0 on success, non-zero on failure or if already initialized.
+ */
+i32 ui_clay_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewport_height, sk_ui_font_system_t* font_system, sk_ui_font_t* font);
+
+/**
+ * Free the Clay arena and logger. Safe on uninitialized state.
+ */
+void ui_clay_shutdown(void);
+
+/* -------------------------------------------------------------------------- */
 /* Automation / harness (automation.c)                                        */
 /* -------------------------------------------------------------------------- */
 

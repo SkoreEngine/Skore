@@ -10,6 +10,7 @@ sk_add_plugin(ui SOURCES ${SKORE_UI_SOURCES})
 target_link_libraries(sk-ui PRIVATE
     freetype
     stb_rect_pack
+    clay
     sk-render-device-lib
     sk-dxc-compiler-lib
 )

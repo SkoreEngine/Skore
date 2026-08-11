@@ -280,6 +280,7 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
 		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_rect_pack"
+		"--extra-arg=-I${ROOT}/thirdparty/clay"
 		# Plugin fixture data headers (e.g. skore_test_font_ttf.h), mirroring
 		# player/CMakeLists.txt / tests/integration/CMakeLists.txt.
 		"--extra-arg=-I${ROOT}/plugins/ui/testdata"
