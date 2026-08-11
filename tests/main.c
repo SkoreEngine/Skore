@@ -33,12 +33,21 @@ static i32 run_host_tests(sk_test_report_t* total) {
 	return (report.failed != 0) ? 1 : 0;
 }
 
+/* Cap on concurrently held plugin handles for one test pass. Production keeps
+ * every plugin loaded for the process lifetime; the host mirrors that so API
+ * tables registered via set_api stay valid for later plugins (e.g. entities
+ * resolving sk-profiler under SK_ENABLE_PROFILER=ON). Closing mid-scan left
+ * dangling table pointers and segfaulted instrumented call sites. */
+enum { SK_TEST_HOST_MAX_OPEN_PLUGINS = 64 };
+
 static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* total) {
 	const sk_platform_api_t* plat = sk_platform_api();
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
 	char name[SK_FS_PATH_MAX];
 	char full_path[SK_FS_PATH_MAX];
 	i32 any_fail = 0;
+	sk_shared_lib_t open_libs[SK_TEST_HOST_MAX_OPEN_PLUGINS];
+	u32 open_count = 0u;
 
 	sk_directory_iterator_t it = fs->open_directory(plugins_dir);
 	if (it == NULL) {
@@ -84,13 +93,20 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 			plat->lib_close(lib);
 			continue;
 		}
+		/* Keep the module mapped for the rest of the pass (see open_libs). */
+		if (open_count < (u32)SK_TEST_HOST_MAX_OPEN_PLUGINS) {
+			open_libs[open_count++] = lib;
+		} else {
+			printf("warning: open-plugin cap (%d) exceeded; closing %s early (API tables may dangle)\n", SK_TEST_HOST_MAX_OPEN_PLUGINS, name);
+		}
+
 		sk_plugin_entry_point_fn entry = SK_PTR_TO_FN(sk_plugin_entry_point_fn, entry_raw);
 		(void)entry(context, sk_app_api());
 
 		void_ptr_t raw = plat->lib_symbol(lib, SK_PLUGIN_RUN_TESTS_NAME);
 		if (raw == NULL) {
 			printf("missing %s — skip\n", SK_PLUGIN_RUN_TESTS_NAME);
-			plat->lib_close(lib);
+			/* Still held in open_libs until teardown so any set_api tables remain live. */
 			continue;
 		}
 
@@ -102,11 +118,14 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 		printf("plugin %s: ran=%d failed=%d\n", name, report.ran, report.failed);
 		total->ran += report.ran;
 		total->failed += report.failed;
-		plat->lib_close(lib);
 	}
 
 	fs->close_directory(it);
+	/* Destroy the context first so no code walks registered tables after unmap. */
 	sk_app_destroy(context);
+	for (u32 i = 0u; i < open_count; i++) {
+		plat->lib_close(open_libs[i]);
+	}
 	return any_fail;
 }
 

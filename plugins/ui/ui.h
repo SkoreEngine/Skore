@@ -878,6 +878,251 @@ typedef struct sk_ui_renderer_encode_info_t {
 } sk_ui_renderer_encode_info_t;
 
 /* ------------------------------------------------------------------ */
+/*  Headless capture (offscreen render target + CPU readback)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Simple CPU image: row-major RGBA8 with R in the low byte (byte order
+ * matches sk_ui_draw_vertex_t::color and the GPU upload layout).
+ * The buffer is always tightly packed: row stride = width * channels.
+ * Pixels are straight (non-premultiplied) alpha as authored by the UI.
+ */
+typedef struct sk_ui_cpu_image_t {
+	u32 width;
+	u32 height;
+	u32 channels; /**< Always 4 for UI captures (RGBA8). */
+	u8* pixels;	  /**< Tightly packed RGBA8; stride = width * channels. */
+} sk_ui_cpu_image_t;
+
+/* ------------------------------------------------------------------ */
+/*  Golden image comparison (harness / capture tests)                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Return codes from cpu_image_compare / cpu_image_compare_golden.
+ * OK is 0 so callers can use `if (rc != 0) fail`. Non-zero values are
+ * stable categories for assertion messages.
+ */
+#define SK_UI_IMAGE_COMPARE_OK 0			 /**< Within tolerance (or golden blessed). */
+#define SK_UI_IMAGE_COMPARE_MISMATCH 1		 /**< Pixel differences exceed thresholds. */
+#define SK_UI_IMAGE_COMPARE_SIZE_MISMATCH 2	 /**< Width/height differ; no pixel scan. */
+#define SK_UI_IMAGE_COMPARE_MISSING_GOLDEN 3 /**< Golden PNG missing or unreadable. */
+#define SK_UI_IMAGE_COMPARE_ERROR (-1)		 /**< Hard failure (I/O, OOM, bad args). */
+
+/**
+ * Comparison thresholds and options. Zero-init is strict equality:
+ * channel_tolerance=0, max_diff_fraction=0, update_golden=0.
+ * Blessing is also enabled when SK_UI_REGEN_GOLDENS is set and not "0"
+ * (env never becomes the silent default — must be set deliberately).
+ */
+typedef struct sk_ui_image_compare_params_t {
+	u32 channel_tolerance; /**< Max abs per-channel delta still treated as match. */
+	f32 max_diff_fraction; /**< Max fraction of pixels allowed beyond tolerance [0,1]. */
+	i32 update_golden;	   /**< Non-zero: overwrite golden with actual (bless). Default 0. */
+	const_chr_t name;	   /**< Base name for failure artifacts under the test-artifact root. */
+} sk_ui_image_compare_params_t;
+
+/**
+ * Actionable summary filled by compare APIs (ASCII-printable fields only).
+ * Bounding box is inclusive pixel coords of the differing region when
+ * differ_count > 0; all zeros otherwise.
+ */
+typedef struct sk_ui_image_compare_stats_t {
+	u32 actual_width;
+	u32 actual_height;
+	u32 expected_width;
+	u32 expected_height;
+	u32 pixel_count;	   /**< actual_width * actual_height when sizes match; else 0. */
+	u32 differ_count;	   /**< Pixels exceeding channel_tolerance. */
+	u32 max_channel_delta; /**< Max abs channel delta across all compared channels. */
+	u32 bbox_min_x;
+	u32 bbox_min_y;
+	u32 bbox_max_x;
+	u32 bbox_max_y;
+	i32 size_mismatch; /**< Non-zero when dimensions differ. */
+	i32 updated;	   /**< Non-zero when golden was rewritten (bless mode). */
+	/* Null-terminated paths of failure artifacts when written; empty otherwise. */
+	char actual_path[SK_FS_PATH_MAX];
+	char expected_path[SK_FS_PATH_MAX];
+	char diff_path[SK_FS_PATH_MAX];
+} sk_ui_image_compare_stats_t;
+
+/**
+ * Opaque headless GPU capture: owns an offscreen RGBA8 color target (a
+ * device-owned texture — no swapchain, window, or surface involved), the
+ * standard UI GPU renderer bound to it, a host-visible readback buffer, and
+ * the queue / command buffers / fences needed to draw and copy back to CPU.
+ */
+typedef struct sk_ui_capture_t sk_ui_capture_t;
+
+/**
+ * Creation parameters for sk_ui_api_t::capture_create.
+ * @p device_api / @p device / @p dxc must be valid; the UI renderer is
+ * created internally against the offscreen pass (see renderer_create).
+ * @p width / @p height are the fixed viewport size in pixels (>= 1).
+ * @p clear_color is the explicit clear color applied on every frame before
+ * the draw list is encoded (convert 0..1 floats to RGBA8_UNORM).
+ */
+typedef struct sk_ui_capture_desc_t {
+	const sk_render_device_api_t* device_api; /**< Non-NULL engine RHI table. */
+	sk_render_device_t device;				  /**< Live device (adapter selected). */
+	const sk_dxc_compiler_api_t* dxc;		  /**< Non-NULL; used to compile embedded HLSL. */
+	u32 width;								  /**< Viewport width in pixels. */
+	u32 height;								  /**< Viewport height in pixels. */
+	sk_clear_values_t clear_color;			  /**< Explicit clear color per frame. */
+	const sk_allocator_t* allocator;		  /**< Optional; NULL = process default. */
+	const_chr_t debug_name;					  /**< Optional; prefix for resource debug names. */
+} sk_ui_capture_desc_t;
+
+/**
+ * Per-frame parameters for sk_ui_api_t::capture_frame.
+ * Same content as renderer_prepare / renderer_encode inputs; the capture
+ * drives both internally (prepare on an upload command buffer, encode inside
+ * the offscreen render pass).
+ */
+typedef struct sk_ui_capture_frame_info_t {
+	const sk_ui_draw_list_t* draw_list; /**< From paint/get_draw_list; may be empty. */
+	sk_ui_font_system_t* font_system;	/**< Optional; required for FONT texture cmds. */
+	sk_ui_renderer_images_t images;		/**< Optional host image views. */
+} sk_ui_capture_frame_info_t;
+
+/* ------------------------------------------------------------------ */
+/*  Structural image assertions (beyond pixel sampling; APX-230)       */
+/* ------------------------------------------------------------------ */
+
+/** Return codes for the structural image assertion APIs. */
+#define SK_UI_IMAGE_ASSERT_OK 0		  /**< Assertion passed. */
+#define SK_UI_IMAGE_ASSERT_FAIL 1	  /**< Assertion failed; stats + log carry the measured values. */
+#define SK_UI_IMAGE_ASSERT_ERROR (-1) /**< Bad arguments / unreadable image. */
+
+/** Max dominant colors a histogram reports / an assertion expects. */
+#define SK_UI_COLOR_HIST_MAX_ENTRIES 16
+
+/** Half-open pixel region [x0,x1) x [y0,y1), clamped to the image bounds. */
+typedef struct sk_ui_region_t {
+	u32 x0;
+	u32 y0;
+	u32 x1;
+	u32 y1;
+} sk_ui_region_t;
+
+/**
+ * Color match predicate: per-channel absolute tolerance. A pixel matches
+ * when |pixel.ch - color.ch| <= tolerance for R, G, B and (when
+ * include_alpha != 0) A. Images with 3 channels treat alpha as 255.
+ */
+typedef struct sk_ui_color_match_t {
+	u8 r;
+	u8 g;
+	u8 b;
+	u8 a;
+	u8 tolerance;	   /**< Max abs per-channel delta still considered a match. */
+	i32 include_alpha; /**< Non-zero: alpha participates in the match. */
+} sk_ui_color_match_t;
+
+/** Tight bounding box of matching pixels (inclusive pixel coords). */
+typedef struct sk_ui_bbox_t {
+	u32 min_x;
+	u32 min_y;
+	u32 max_x;
+	u32 max_y;
+	u32 pixel_count; /**< Matching pixels inside the box (<= box area). */
+	i32 found;		 /**< Non-zero when at least one pixel matched. */
+} sk_ui_bbox_t;
+
+/** Measured result of cpu_image_assert_solid. */
+typedef struct sk_ui_solid_stats_t {
+	u32 region_pixels;		  /**< Effective region area (clamped to image). */
+	u32 nonmatching;		  /**< Pixels outside tolerance. */
+	u32 max_channel_delta;	  /**< Largest channel delta vs the expected color. */
+	sk_ui_bbox_t bad_bbox;	  /**< Tight bbox of nonmatching pixels (found=0 when clean). */
+	f32 nonmatching_fraction; /**< nonmatching / region_pixels (0..1). */
+} sk_ui_solid_stats_t;
+
+/** Measured result of cpu_image_assert_coverage. */
+typedef struct sk_ui_coverage_stats_t {
+	u32 region_pixels;
+	u32 matching; /**< Pixels matching the color spec. */
+	f32 coverage; /**< matching / region_pixels (0..1). */
+} sk_ui_coverage_stats_t;
+
+/** Expected geometry for cpu_image_assert_bbox. */
+typedef struct sk_ui_bbox_expected_t {
+	u32 min_x;
+	u32 min_y;
+	u32 max_x;
+	u32 max_y;				/**< Inclusive expected bbox. */
+	u32 position_tolerance; /**< Allowed shift of the min corner per axis (px). */
+	u32 size_tolerance;		/**< Allowed width/height delta (px). */
+	u32 min_pixels;			/**< Required matching pixel count (0 = skip; 1 typical). */
+	i32 expect_empty;		/**< Non-zero: assert NO pixel matches (geometry ignored). */
+} sk_ui_bbox_expected_t;
+
+/** Measured result of cpu_image_assert_bbox. */
+typedef struct sk_ui_bbox_assert_stats_t {
+	sk_ui_bbox_t actual; /**< Measured bbox of matching pixels. */
+	u32 expected_min_x;
+	u32 expected_min_y;
+	u32 expected_max_x;
+	u32 expected_max_y;
+	u32 expected_min_pixels;
+	i32 expect_empty;
+	i32 empty_mismatch;	   /**< Expected empty but pixels were found. */
+	i32 missing;		   /**< Expected pixels but none were found. */
+	i32 min_pixels_fail;   /**< Found, but below expected->min_pixels. */
+	i32 position_mismatch; /**< Min-corner shift beyond position_tolerance. */
+	i32 size_mismatch;	   /**< Width/height delta beyond size_tolerance. */
+	u32 delta_x;		   /**< |actual.min_x - expected.min_x|. */
+	u32 delta_y;		   /**< |actual.min_y - expected.min_y|. */
+	u32 delta_w;		   /**< |actual width - expected width|. */
+	u32 delta_h;		   /**< |actual height - expected height|. */
+} sk_ui_bbox_assert_stats_t;
+
+/** One dominant color with its measured share of the region. */
+typedef struct sk_ui_color_hist_entry_t {
+	u8 r;
+	u8 g;
+	u8 b;
+	u8 a;
+	u32 count;	  /**< Pixels of this (merged) color in the region. */
+	f32 fraction; /**< count / total_pixels (0..1). */
+} sk_ui_color_hist_entry_t;
+
+/** Measured histogram: dominant colors sorted by count descending. */
+typedef struct sk_ui_color_histogram_t {
+	u32 entry_count;
+	sk_ui_color_hist_entry_t entries[SK_UI_COLOR_HIST_MAX_ENTRIES];
+	u32 total_pixels; /**< Pixels the histogram spans (clamped region area). */
+} sk_ui_color_histogram_t;
+
+/** Expected dominant color with its allowed fraction range (inclusive). */
+typedef struct sk_ui_hist_expectation_t {
+	sk_ui_color_match_t color;
+	f32 min_fraction;
+	f32 max_fraction;
+} sk_ui_hist_expectation_t;
+
+/** Tuning for cpu_image_assert_histogram (NULL = defaults). */
+typedef struct sk_ui_hist_assert_params_t {
+	u32 max_entries;			 /**< Dominant colors to keep (default 16, capped at 16). */
+	u8 merge_tolerance;			 /**< Per-channel tolerance when merging measured colors (default 16). */
+	f32 max_unexpected_fraction; /**< Max total share of colors matching no expectation (default 0.05). */
+} sk_ui_hist_assert_params_t;
+
+/** Measured result of cpu_image_assert_histogram. */
+typedef struct sk_ui_hist_assert_stats_t {
+	sk_ui_color_histogram_t actual; /**< Measured dominant colors (top-K). */
+	u32 expected_count;
+	u32 missing_count;		 /**< Expected colors with no measured match. */
+	u32 out_of_range_count;	 /**< Expected colors present but fraction outside [min,max]. */
+	u32 unexpected_count;	 /**< Measured colors matching no expectation. */
+	f32 unexpected_fraction; /**< Total share of unexpected measured colors. */
+	/** Per-expected measured share/count (0 when the color was absent). */
+	f32 measured_fraction[SK_UI_COLOR_HIST_MAX_ENTRIES];
+	u32 measured_count[SK_UI_COLOR_HIST_MAX_ENTRIES];
+} sk_ui_hist_assert_stats_t;
+
+/* ------------------------------------------------------------------ */
 /*  Module API                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -1560,6 +1805,77 @@ typedef struct sk_ui_api_t {
 	 */
 	i32 (*renderer_encode)(sk_ui_renderer_t* renderer, const sk_ui_renderer_encode_info_t* info);
 
+	/* ---- headless capture (offscreen target + CPU readback) ---- */
+
+	/**
+	 * Create a headless capture: offscreen RGBA8 color target of fixed
+	 * caller-specified size, explicit clear color, internal UI renderer,
+	 * host-visible readback buffer, queue, and command buffers. No
+	 * swapchain/window/surface is required — the target is a device-owned
+	 * texture with COPY_SOURCE final state for readback.
+	 * @return Capture, or NULL on failure.
+	 */
+	sk_ui_capture_t* (*capture_create)(const sk_ui_capture_desc_t* desc);
+
+	/** Destroy a capture and every GPU/CPU resource it owns. Safe on NULL. */
+	void (*capture_destroy)(sk_ui_capture_t* capture);
+
+	/**
+	 * Render @p info.draw_list into the offscreen target (cleared first with
+	 * the desc clear color) and read the pixels back into @p out_image.
+	 *
+	 * Pipeline: renderer_prepare (upload, submitted + waited) →
+	 * begin_render_pass (CLEAR) → renderer_encode → end_render_pass →
+	 * memory_barrier → copy_texture_to_buffer → submit + wait → buffer_map →
+	 * row-wise copy (readback rows are unpacked into tight rows).
+	 *
+	 * @p out_image is tightly packed row-major RGBA8 (stride = width * 4),
+	 * top-left origin. The alpha is straight (NOT premultiplied): draw-list
+	 * colors are authored straight and the UI pipeline blends with standard
+	 * straight-alpha factors, so the cleared target + draw list compose to
+	 * straight alpha. @p out_image->pixels is owned by the capture and stays
+	 * valid until the next capture_frame or capture_destroy.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*capture_frame)(sk_ui_capture_t* capture, const sk_ui_capture_frame_info_t* info, sk_ui_cpu_image_t* out_image);
+
+	/* ---- CPU image PNG write (stb_image_write) + test artifact paths ---- */
+
+	/**
+	 * Write a tightly packed @p image (typically from capture_frame) as a PNG
+	 * at the caller-specified @p path. Creates parent directories as needed
+	 * via @p fs (pass sk_filesystem_api() from hosts/tests that link sk-app).
+	 * On failure, logs a clear error through the process logger and returns
+	 * non-zero. @p image->channels must be 1..4 (UI captures use 4 = RGBA8).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*cpu_image_write_png)(const sk_ui_cpu_image_t* image, const sk_filesystem_api_t* fs, const_chr_t path);
+
+	/**
+	 * Resolve the single shared root directory for all test artifacts.
+	 * Never returns a path under the source tree by default.
+	 *
+	 * Resolution order:
+	 *   1. SK_TEST_ARTIFACT_DIR environment variable (if non-empty)
+	 *   2. Compile-time SK_TEST_ARTIFACT_DIR (build/test-artifacts)
+	 *   3. {fs->temp_folder}/skore-test-artifacts
+	 *
+	 * @p fs is required only for the temp fallback (step 3); may be NULL when
+	 * an env or compile-time root is available.
+	 * @return 0 on success (null-terminated path in @p out), non-zero on failure.
+	 */
+	i32 (*test_artifact_root)(const sk_filesystem_api_t* fs, char* out, u32 out_cap);
+
+	/**
+	 * Build a deterministic PNG path under the test-artifact root:
+	 *   {root}/{sanitized_name}.png
+	 * @p name is a test or scene name; path separators and unsafe characters
+	 * are replaced so the result is a single file component under the root.
+	 * Does not create directories (cpu_image_write_png does).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*test_artifact_png_path)(const sk_filesystem_api_t* fs, const_chr_t name, char* out, u32 out_cap);
+
 	/* ---- v1 widgets (compose tree + default styles + behavior) ---- */
 
 	/**
@@ -1934,6 +2250,122 @@ typedef struct sk_ui_api_t {
 	 * (320 x 240). Either out pointer may be NULL.
 	 */
 	void (*sample_menu_logical_size)(f32* out_width, f32* out_height);
+
+	/* ---- Golden image comparison (APX-229) ---- */
+
+	/**
+	 * Compare two tightly packed RGBA8 (or 1–4 channel) images in memory.
+	 * Mismatched dimensions fail immediately (SIZE_MISMATCH) with no pixel
+	 * scan. Otherwise compares per-pixel with @p channel_tolerance and
+	 * fails with MISMATCH when the fraction of differing pixels exceeds
+	 * @p max_diff_fraction. Optional @p out_diff_rgba (same size as actual)
+	 * is filled with a visual diff: dim actual for matches, bright red for
+	 * failures. Optional @p out_stats receives counts, max channel delta,
+	 * and the bounding box of the differing region.
+	 * @return SK_UI_IMAGE_COMPARE_OK / MISMATCH / SIZE_MISMATCH / ERROR.
+	 */
+	i32 (*cpu_image_compare)(const sk_ui_cpu_image_t* actual, const sk_ui_cpu_image_t* expected, u32 channel_tolerance, f32 max_diff_fraction,
+							 sk_ui_image_compare_stats_t* out_stats, u8* out_diff_rgba);
+
+	/**
+	 * Compare a captured @p actual image against a committed golden PNG at
+	 * @p golden_path. Loads the golden via stb_image. On MISMATCH writes three
+	 * artifacts under the test-artifact root ({name}_actual/expected/diff.png)
+	 * and logs an ASCII summary (differ count, max channel delta, bbox, paths).
+	 * Size mismatches fail immediately with a clear message (actual + expected
+	 * still written when possible).
+	 *
+	 * Bless / update mode (never the default): set params->update_golden != 0
+	 * or export SK_UI_REGEN_GOLDENS=1 — writes @p actual over @p golden_path and
+	 * returns OK with stats.updated=1. Review the image before committing.
+	 *
+	 * @p params may be NULL (strict equality, no bless, name "image_compare").
+	 * @p fs is used for parent-dir creation when writing artifacts/goldens.
+	 * @return SK_UI_IMAGE_COMPARE_* code.
+	 */
+	i32 (*cpu_image_compare_golden)(const sk_ui_cpu_image_t* actual, const_chr_t golden_path, const sk_ui_image_compare_params_t* params, const sk_filesystem_api_t* fs,
+									sk_ui_image_compare_stats_t* out_stats);
+
+	/* ---- structural image assertions beyond pixel sampling (APX-230) ---- */
+
+	/**
+	 * Assert that every pixel in @p region matches @p color within tolerance
+	 * (uniform fill). Fails when any pixel is outside tolerance; stats carry
+	 * the nonmatching count, max channel delta, and the tight bbox of the
+	 * offending pixels. Region is clamped to the image; an empty clamped
+	 * region is an ERROR (likely a test bug).
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_solid)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_color_match_t* color, sk_ui_solid_stats_t* out_stats);
+
+	/**
+	 * Assert that the fraction of @p region pixels matching @p color lies in
+	 * [min_fraction, max_fraction] (inclusive). Catches widgets that shrank,
+	 * bled, or disappeared without requiring a golden. Stats carry the
+	 * measured matching count and coverage.
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_coverage)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_color_match_t* color, f32 min_fraction, f32 max_fraction,
+									 sk_ui_coverage_stats_t* out_stats);
+
+	/**
+	 * Find the tight bounding box of all @p region pixels matching @p color.
+	 * Pure extraction (never fails on content); out_bbox->found is 0 and the
+	 * box is zeroed when nothing matches.
+	 * @return 0 on success, SK_UI_IMAGE_ASSERT_ERROR on bad arguments.
+	 */
+	i32 (*cpu_image_find_bbox)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_color_match_t* color, sk_ui_bbox_t* out_bbox);
+
+	/**
+	 * Assert the tight bbox of matching pixels matches @p expected within
+	 * position/size tolerances. Catches drift and misalignment (a shifted
+	 * widget keeps its colors, so pixel sampling misses it). Set
+	 * expected->expect_empty to assert the region contains no matching pixel.
+	 * Stats carry the measured bbox plus per-axis deltas.
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_bbox)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_color_match_t* color, const sk_ui_bbox_expected_t* expected,
+								 sk_ui_bbox_assert_stats_t* out_stats);
+
+	/**
+	 * Measure the dominant colors of @p region: colors within
+	 * @p merge_tolerance per channel are merged, then the top @p max_entries
+	 * are reported sorted by count descending (ties by color ascending, so
+	 * results are deterministic). Cheap introspection for debugging and for
+	 * building expectations.
+	 * @return 0 on success, SK_UI_IMAGE_ASSERT_ERROR on bad arguments.
+	 */
+	i32 (*cpu_image_histogram)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, u8 merge_tolerance, u32 max_entries, sk_ui_color_histogram_t* out_hist);
+
+	/**
+	 * Assert the dominant colors of @p region match @p expected: every
+	 * expected color must be present with measured fraction in
+	 * [min_fraction, max_fraction], and the total share of measured colors
+	 * matching no expectation must not exceed params->max_unexpected_fraction.
+	 * Catches wrong theming (colors appear that should not) and missing
+	 * widgets (an expected color disappears). Stats carry the full measured
+	 * histogram plus per-expected measured fractions/counts.
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_histogram)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_hist_assert_params_t* params, const sk_ui_hist_expectation_t* expected,
+									  u32 expected_count, sk_ui_hist_assert_stats_t* out_stats);
+
+	/**
+	 * Stable FNV-1a 64-bit hash of the @p region bytes (dimensions folded
+	 * in, @p seed mixed in). Deterministic across runs and platforms; cheap
+	 * enough for per-frame change detection of a region before deciding
+	 * whether to run heavier assertions.
+	 * @return 0 on success, SK_UI_IMAGE_ASSERT_ERROR on bad arguments.
+	 */
+	i32 (*cpu_image_region_hash)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, u64 seed, u64* out_hash);
+
+	/**
+	 * Assert the region hash equals @p expected_hash (e.g. the value
+	 * previously returned by cpu_image_region_hash). Failures log and report
+	 * the actual hash, not just a boolean.
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_region_hash)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, u64 expected_hash, u64* out_actual_hash);
 } sk_ui_api_t;
 
 /**

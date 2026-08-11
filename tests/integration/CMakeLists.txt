@@ -20,10 +20,24 @@ add_executable(sk-integration-tests
     vulkan_triangle.c
     test_render_device.c
     ui_render.c
+    ui_capture.c
+    ui_capture_harness.c
+    ui_integration.c
     render_graph.c
     resource_object_fixtures.c
     resource_object_buffer.c
 )
+add_executable(sk-isolate-tests
+    main.c
+    ui_integration.c
+    ui_capture_harness.c
+)
+target_link_libraries(sk-isolate-tests PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
+target_include_directories(sk-isolate-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
+target_compile_definitions(sk-isolate-tests PRIVATE SK_TESTS SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts" SK_UI_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
+set_target_properties(sk-isolate-tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+add_dependencies(sk-isolate-tests sk-vulkan-render-device sk-render-device sk-test-render-device sk-dxc-compiler sk-ui sk-render-graph)
+
 
 # App host (sk_app_init / registry / filesystem / platform backends) +
 # test registry/Unity (SK_TESTS via sk-test) + render_device.h + dxc_compiler.h
@@ -45,11 +59,15 @@ target_include_directories(sk-integration-tests PRIVATE
 )
 
 # Where the render test writes its PPM / PNG artifacts (bin/, next to the exe).
+# SK_TEST_ARTIFACT_DIR is the single shared root for all test image/PNG
+# artifacts (env-var overridable at runtime; never under the source tree).
 # SK_TEST_DATA_DIR points at the source-tree tests/data so fixture path
 # resolution works when the binary runs from {build}/bin (CTest cwd).
 # Golden source dir is the checked-in testdata (not the build tree).
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test-artifacts")
 target_compile_definitions(sk-integration-tests PRIVATE
     SK_INTEGRATION_ARTIFACT_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+    SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts"
     SK_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data"
     SK_UI_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/plugins/ui/testdata"
 )
@@ -75,3 +93,11 @@ add_dependencies(sk-integration-tests
 # Run from bin/ so the copied DXC runtime (plugins/libdxcompiler.so) is found
 # relative to cwd, matching the sk-tests working directory.
 add_test(NAME sk-integration-tests COMMAND sk-integration-tests WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+
+# TEMP repro: repeated harness cycles (remove before commit)
+add_executable(sk-repro-cycles repro_cycles.c ui_capture_harness.c)
+target_link_libraries(sk-repro-cycles PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
+target_include_directories(sk-repro-cycles PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
+target_compile_definitions(sk-repro-cycles PRIVATE SK_TESTS SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts")
+set_target_properties(sk-repro-cycles PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+add_dependencies(sk-repro-cycles sk-vulkan-render-device sk-render-device sk-test-render-device sk-dxc-compiler sk-ui sk-render-graph)

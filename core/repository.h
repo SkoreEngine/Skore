@@ -62,7 +62,8 @@
  * Commit). Parent / prototype pointers are main-thread data.
  *
  * Intentional gaps for this revision: reflection-driven registration, event
- * dispatch, and serialization loaders. Undo/redo scopes ARE implemented:
+ * dispatch, and serialization loaders (JSON load/save lives in
+ * resource_serialize.h). Undo/redo scopes ARE implemented:
  * sk_undo_redo_scope_t records deep-copied before/after instance snapshots for
  * every scoped Commit and structural mutation (create_resource,
  * destroy_resource, clone, create_from_prototype); Undo restores the before
@@ -72,6 +73,25 @@
  * prototype inheritance / overrides); the SubObjectList "removed-from-prototype"
  * set (prototypeRemoved) is implemented and honored by SubObjectList
  * propagation.
+ *
+ * # Handle semantics (RID / UUID / path)
+ *
+ * - RIDs are dense page indexes; slot 0 is invalid (SK_RID_ZERO). **RIDs are
+ *   never recycled** — after destroy_resource the same numeric RID stays dead
+ *   for the life of the repository (stale handles do not alias a new resource).
+ * - There is **no reference counting**: a RID is not an owned handle. Soft
+ *   REFERENCE fields do not keep the target alive. SUB_OBJECT / SubObjectList
+ *   express ownership: destroy_resource cascades to owned sub-objects.
+ * - UUID uniqueness is enforced for non-zero UUIDs (create with an existing
+ *   UUID is idempotent and returns the live RID). Paths are unique among live
+ *   resources (set_path returns -2 on conflict).
+ * - **No clear() or public enumerate/foreach.** Clearing is destroy(repository)
+ *   (or destroy each resource). Live count is resource_count; there is no
+ *   ordered walk API and no iteration-order guarantee claimed by this module.
+ * - In-place replace: write + commit on an existing RID publishes new data;
+ *   the RID stays valid and subsequent read views observe the new instance
+ *   (version bumps). Reloading the same UUID via create_resource reuses the
+ *   RID; field apply then mutates that live resource.
  */
 
 #include "allocator.h"
@@ -348,6 +368,36 @@ typedef struct sk_repository_api_t {
 	 * @return The type, or NULL when not registered.
 	 */
 	const sk_resource_type_t* (*find_type_by_name)(const sk_repository_t* repository, const_chr_t name);
+
+	/**
+	 * Registered type name (borrowed; valid while the type is registered).
+	 * @param type Registered type (must not be NULL).
+	 * @return Non-NULL type name.
+	 */
+	const_chr_t (*type_name)(const sk_resource_type_t* type);
+
+	/**
+	 * Registered type identity.
+	 * @param type Registered type (must not be NULL).
+	 * @return The type's sk_type_id_t.
+	 */
+	sk_type_id_t (*type_id)(const sk_resource_type_t* type);
+
+	/**
+	 * Number of field descriptors on a registered type.
+	 * @param type Registered type (must not be NULL).
+	 * @return Field count (may be 0).
+	 */
+	u32 (*type_field_count)(const sk_resource_type_t* type);
+
+	/**
+	 * Field descriptor at array position @p position (0 .. field_count-1).
+	 * Position is the registration order, not necessarily field.index.
+	 * @param type     Registered type (must not be NULL).
+	 * @param position Field array index.
+	 * @return Field descriptor, or NULL when @p position is out of range.
+	 */
+	const sk_resource_field_t* (*type_field_at)(const sk_resource_type_t* type, u32 position);
 
 	/**
 	 * Create a resource of @p type. When @p uuid is non-zero and already

@@ -290,6 +290,47 @@ i32 ui_renderer_prepare_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_pr
 i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_encode_info_t* info);
 
 /* -------------------------------------------------------------------------- */
+/* Headless capture (capture.c)                                               */
+/* -------------------------------------------------------------------------- */
+
+sk_ui_capture_t* ui_capture_create_impl(const sk_ui_capture_desc_t* desc);
+void ui_capture_destroy_impl(sk_ui_capture_t* capture);
+i32 ui_capture_frame_impl(sk_ui_capture_t* capture, const sk_ui_capture_frame_info_t* info, sk_ui_cpu_image_t* out_image);
+
+/* -------------------------------------------------------------------------- */
+/* CPU image PNG write (image_write.c)                                        */
+/* -------------------------------------------------------------------------- */
+
+i32 ui_cpu_image_write_png_impl(const sk_ui_cpu_image_t* image, const sk_filesystem_api_t* fs, const_chr_t path);
+i32 ui_test_artifact_root_impl(const sk_filesystem_api_t* fs, char* out, u32 out_cap);
+i32 ui_test_artifact_png_path_impl(const sk_filesystem_api_t* fs, const_chr_t name, char* out, u32 out_cap);
+
+/* -------------------------------------------------------------------------- */
+/* Golden image comparison (image_compare.c)                                  */
+/* -------------------------------------------------------------------------- */
+
+i32 ui_cpu_image_compare_impl(const sk_ui_cpu_image_t* actual, const sk_ui_cpu_image_t* expected, u32 channel_tolerance, f32 max_diff_fraction,
+							  sk_ui_image_compare_stats_t* out_stats, u8* out_diff_rgba);
+i32 ui_cpu_image_compare_golden_impl(const sk_ui_cpu_image_t* actual, const_chr_t golden_path, const sk_ui_image_compare_params_t* params, const sk_filesystem_api_t* fs,
+									 sk_ui_image_compare_stats_t* out_stats);
+
+/* -------------------------------------------------------------------------- */
+/* Structural image assertions (image_structure.c)                            */
+/* -------------------------------------------------------------------------- */
+
+i32 ui_cpu_image_assert_solid_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_color_match_t* color, sk_ui_solid_stats_t* out_stats);
+i32 ui_cpu_image_assert_coverage_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_color_match_t* color, f32 min_fraction, f32 max_fraction,
+									  sk_ui_coverage_stats_t* out_stats);
+i32 ui_cpu_image_find_bbox_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_color_match_t* color, sk_ui_bbox_t* out_bbox);
+i32 ui_cpu_image_assert_bbox_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_color_match_t* color, const sk_ui_bbox_expected_t* expected,
+								  sk_ui_bbox_assert_stats_t* out_stats);
+i32 ui_cpu_image_histogram_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, u8 merge_tolerance, u32 max_entries, sk_ui_color_histogram_t* out_hist);
+i32 ui_cpu_image_assert_histogram_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_hist_assert_params_t* params, const sk_ui_hist_expectation_t* expected,
+									   u32 expected_count, sk_ui_hist_assert_stats_t* out_stats);
+i32 ui_cpu_image_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, u64 seed, u64* out_hash);
+i32 ui_cpu_image_assert_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, u64 expected_hash, u64* out_actual_hash);
+
+/* -------------------------------------------------------------------------- */
 /* Widgets (widgets.c)                                                        */
 /* -------------------------------------------------------------------------- */
 

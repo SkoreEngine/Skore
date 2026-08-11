@@ -281,9 +281,16 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_rect_pack"
 		"--extra-arg=-I${ROOT}/thirdparty/clay"
+		"--extra-arg=-I${ROOT}/thirdparty/stb_image_write"
+		"--extra-arg=-I${ROOT}/thirdparty/stb_image"
 		# Plugin fixture data headers (e.g. skore_test_font_ttf.h), mirroring
 		# player/CMakeLists.txt / tests/integration/CMakeLists.txt.
 		"--extra-arg=-I${ROOT}/plugins/ui/testdata"
+		# Compression codec (sk-core links zstd PRIVATE; headers live under
+		# thirdparty/zstd/src and core/compression.c gates the include on
+		# SK_COMPRESSION_HAS_ZSTD, mirroring core/CMakeLists.txt).
+		"--extra-arg=-I${ROOT}/thirdparty/zstd/src"
+		"--extra-arg=-DSK_COMPRESSION_HAS_ZSTD=1"
 	)
 	if [[ -n "${CXX_INC_ROOT}" ]]; then
 		EXTRA_ARGS+=(
@@ -296,6 +303,11 @@ build_extra_args() {
 	while IFS= read -r -d '' pdir; do
 		EXTRA_ARGS+=("--extra-arg=-I${pdir}")
 	done < <(find "${ROOT}/plugins" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null || true)
+	# Plugin-local data dirs (e.g. ui testdata embeds a font header that
+	# player/main.c includes).
+	while IFS= read -r -d '' pdir; do
+		EXTRA_ARGS+=("--extra-arg=-I${pdir}")
+	done < <(find "${ROOT}/plugins" -mindepth 2 -maxdepth 2 -type d -name testdata -print0 2>/dev/null || true)
 }
 
 tidy_one() {
