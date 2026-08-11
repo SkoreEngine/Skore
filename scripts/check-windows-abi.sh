@@ -263,17 +263,23 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/app"
 		"--extra-arg=-I${ROOT}/player"
 		"--extra-arg=-I${ROOT}/editor"
-		"--extra-arg=-I${ROOT}/thirdparty/mimalloc/include"
-		"--extra-arg=-I${ROOT}/thirdparty/unity/src"
-		"--extra-arg=-I${ROOT}/thirdparty/glfw/include"
-		"--extra-arg=-I${ROOT}/thirdparty/vulkan/include"
-		"--extra-arg=-I${ROOT}/thirdparty/volk/src"
-		"--extra-arg=-I${ROOT}/thirdparty/vma/include"
-		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
-		"--extra-arg=-I${ROOT}/thirdparty/dxc/include"
-		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
 		"--extra-arg=-Wno-unknown-warning-option"
 		"--extra-arg=-std=c11"
+	)
+	# Vendored deps: auto-pick thirdparty/*/include (freetype, glfw, mimalloc, ...).
+	# Only first-party TUs are scanned; these -I paths exist so #includes parse.
+	# Layouts that are not */include stay explicit below.
+	local inc
+	while IFS= read -r -d '' inc; do
+		EXTRA_ARGS+=("--extra-arg=-I${inc}")
+	done < <(find "${ROOT}/thirdparty" -mindepth 2 -maxdepth 2 -type d -name include -print0 2>/dev/null | sort -z || true)
+	# Non-standard include roots (not thirdparty/<name>/include).
+	EXTRA_ARGS+=(
+		"--extra-arg=-I${ROOT}/thirdparty/unity/src"
+		"--extra-arg=-I${ROOT}/thirdparty/volk/src"
+		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
+		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
+		"--extra-arg=-I${ROOT}/thirdparty/stb_rect_pack"
 	)
 	if [[ -n "${CXX_INC_ROOT}" ]]; then
 		EXTRA_ARGS+=(
