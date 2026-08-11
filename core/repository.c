@@ -3065,6 +3065,25 @@ static const_chr_t repository_undo_redo_scope_get_name(const sk_undo_redo_scope_
 	return scope->name;
 }
 
+static const_chr_t repository_type_name(const sk_resource_type_t* type) {
+	return type->name;
+}
+
+static sk_type_id_t repository_type_id(const sk_resource_type_t* type) {
+	return type->type_id;
+}
+
+static u32 repository_type_field_count(const sk_resource_type_t* type) {
+	return type->field_count;
+}
+
+static const sk_resource_field_t* repository_type_field_at(const sk_resource_type_t* type, u32 position) {
+	if (position >= type->field_count) {
+		return NULL;
+	}
+	return &type->fields[position];
+}
+
 /* ------------------------------------------------------------------ */
 /*  Module API table                                                  */
 /* ------------------------------------------------------------------ */
@@ -3075,6 +3094,10 @@ static const sk_repository_api_t repository_api = {
 	repository_register_type,
 	repository_find_type,
 	repository_find_type_by_name,
+	repository_type_name,
+	repository_type_id,
+	repository_type_field_count,
+	repository_type_field_at,
 	repository_create_resource,
 	repository_destroy_resource,
 	repository_has_resource,
@@ -5148,6 +5171,294 @@ SK_TEST(repository_undo_redo_scope_field_matrix) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Lifecycle + handle semantics (APX-189)                              */
+/*  Independent of file I/O: create/lookup/path/uuid, stale RID after  */
+/*  destroy, in-place replace via write/commit, soft refs, ownership,  */
+/*  clear via destroy(repository), no public enumerate API.            */
+/* ------------------------------------------------------------------ */
+
+SK_TEST(repository_lifecycle_add_and_retrieve_by_handle_uuid_path) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 800u);
+
+	sk_uuid_t uuid = {0xabcdu, 0x1234u};
+	sk_rid_t rid = api->create_resource(repo, type, uuid, NULL);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+	TEST_ASSERT_TRUE(api->has_resource(repo, rid));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
+	TEST_ASSERT_EQUAL_PTR(type, api->resource_type(repo, rid));
+	TEST_ASSERT_TRUE(SK_UUID_EQ(api->resource_uuid(repo, rid), uuid));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_uuid(repo, uuid), rid));
+	TEST_ASSERT_NOT_NULL(api->resource_instance(repo, rid));
+
+	TEST_ASSERT_EQUAL_INT(0, api->set_path(repo, rid, "assets/hero.entity"));
+	TEST_ASSERT_EQUAL_STRING("assets/hero.entity", api->get_path(repo, rid));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_path(repo, "assets/hero.entity"), rid));
+
+	/* Handle (RID) read observes published data after write/commit. */
+	rt_set_int(api, repo, rid, 42);
+	TEST_ASSERT_EQUAL_INT64(42, api->get_int(api->read(repo, rid), RT_FIELD_INT));
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_lifecycle_duplicate_uuid_and_path) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 801u);
+
+	sk_uuid_t uuid = {0xd11eull, 0x1ull};
+	sk_rid_t a = api->create_resource(repo, type, uuid, NULL);
+	sk_rid_t b = api->create_resource(repo, type, uuid, NULL);
+	TEST_ASSERT_TRUE(SK_RID_EQ(a, b));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
+
+	sk_rid_t c = api->create_resource(repo, type, (sk_uuid_t){0xd11eull, 0x2ull}, NULL);
+	TEST_ASSERT_FALSE(SK_RID_EQ(a, c));
+	TEST_ASSERT_EQUAL_INT(0, api->set_path(repo, a, "assets/shared.path"));
+	TEST_ASSERT_NOT_EQUAL(0, api->set_path(repo, c, "assets/shared.path"));
+	TEST_ASSERT_NULL(api->get_path(repo, c));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_path(repo, "assets/shared.path"), a));
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_lifecycle_nonexistent_lookups) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 802u);
+
+	sk_rid_t ghost = (sk_rid_t){99999ull};
+	TEST_ASSERT_FALSE(api->has_resource(repo, ghost));
+	TEST_ASSERT_FALSE(api->has_resource(repo, SK_RID_ZERO));
+	TEST_ASSERT_NULL(api->resource_type(repo, ghost));
+	TEST_ASSERT_NULL(api->resource_instance(repo, ghost));
+	TEST_ASSERT_NULL(api->get_path(repo, ghost));
+	TEST_ASSERT_EQUAL_UINT64(0u, api->get_version(repo, ghost));
+	TEST_ASSERT_FALSE(api->has_value(repo, ghost));
+	TEST_ASSERT_EQUAL_INT(-1, api->destroy_resource(repo, ghost, NULL));
+	TEST_ASSERT_FALSE(SK_RESOURCE_OBJECT_IS_VALID(api->read(repo, ghost)));
+	TEST_ASSERT_FALSE(SK_RESOURCE_OBJECT_IS_VALID(api->write(repo, ghost)));
+
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, (sk_uuid_t){1ull, 2ull}).id == 0u);
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, SK_UUID_ZERO).id == 0u);
+	TEST_ASSERT_TRUE(api->find_by_path(repo, "assets/missing.foo").id == 0u);
+	TEST_ASSERT_TRUE(api->find_by_path(repo, "").id == 0u);
+
+	(void)type;
+	api->destroy(repo);
+}
+
+SK_TEST(repository_lifecycle_stale_handle_after_destroy) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 803u);
+
+	sk_uuid_t uuid = {0x57a1eull, 0x1ull};
+	sk_rid_t rid = api->create_resource(repo, type, uuid, NULL);
+	TEST_ASSERT_EQUAL_INT(0, api->set_path(repo, rid, "assets/stale.asset"));
+	rt_set_int(api, repo, rid, 7);
+	const u64 rid_id = rid.id;
+
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, rid, NULL));
+	TEST_ASSERT_FALSE(api->has_resource(repo, rid));
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, uuid).id == 0u);
+	TEST_ASSERT_TRUE(api->find_by_path(repo, "assets/stale.asset").id == 0u);
+	TEST_ASSERT_NULL(api->resource_instance(repo, rid));
+	TEST_ASSERT_FALSE(SK_RESOURCE_OBJECT_IS_VALID(api->read(repo, rid)));
+	TEST_ASSERT_FALSE(SK_RESOURCE_OBJECT_IS_VALID(api->write(repo, rid)));
+	TEST_ASSERT_EQUAL_INT(-1, api->destroy_resource(repo, rid, NULL));
+
+	/* RIDs are never recycled: a new create gets a different id; the stale
+	 * handle does not alias the new resource (documented handle semantics). */
+	sk_rid_t next = api->create_resource(repo, type, (sk_uuid_t){0x57a1eull, 0x2ull}, NULL);
+	TEST_ASSERT_TRUE(next.id != 0u);
+	TEST_ASSERT_FALSE(SK_RID_EQ(next, rid));
+	TEST_ASSERT_TRUE(next.id > rid_id);
+	TEST_ASSERT_FALSE(api->has_resource(repo, rid));
+	TEST_ASSERT_TRUE(api->has_resource(repo, next));
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_lifecycle_replace_in_place_rid_stable) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 804u);
+
+	sk_rid_t rid = api->create_resource(repo, type, (sk_uuid_t){0x4e91ull, 0x1ull}, NULL);
+	rt_set_int(api, repo, rid, 1);
+	TEST_ASSERT_EQUAL_UINT64(2u, api->get_version(repo, rid)); /* create=1, first commit bumps */
+
+	/* Existing holders of @rid observe new data after commit (same handle). */
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_int(view, RT_FIELD_INT, 99));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(view, RT_FIELD_STRING, "replaced"));
+		api->commit(view, NULL);
+	}
+	TEST_ASSERT_TRUE(api->has_resource(repo, rid));
+	TEST_ASSERT_EQUAL_UINT64(3u, api->get_version(repo, rid));
+	sk_resource_object_t read = api->read(repo, rid);
+	TEST_ASSERT_EQUAL_INT64(99, api->get_int(read, RT_FIELD_INT));
+	TEST_ASSERT_EQUAL_STRING("replaced", api->get_string(read, RT_FIELD_STRING));
+
+	/* UUID-idempotent create returns the same RID (reload shell). */
+	sk_rid_t same = api->create_resource(repo, type, (sk_uuid_t){0x4e91ull, 0x1ull}, NULL);
+	TEST_ASSERT_TRUE(SK_RID_EQ(same, rid));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_lifecycle_reference_missing_and_self) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 805u);
+
+	sk_rid_t a = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t b = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(a.id != 0u);
+	TEST_ASSERT_TRUE(b.id != 0u);
+
+	/* Soft reference to a live peer. */
+	{
+		sk_resource_object_t view = api->write(repo, a);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, b));
+		api->commit(view, NULL);
+	}
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(api->read(repo, a), RT_FIELD_REFERENCE), b));
+
+	/* Self-reference is allowed (soft link; no ownership / no cycle destroy). */
+	{
+		sk_resource_object_t view = api->write(repo, a);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, a));
+		api->commit(view, NULL);
+	}
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(api->read(repo, a), RT_FIELD_REFERENCE), a));
+
+	/* Missing / zero target stores SK_RID_ZERO (soft refs do not keep targets alive). */
+	{
+		sk_resource_object_t view = api->write(repo, a);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, SK_RID_ZERO));
+		api->commit(view, NULL);
+	}
+	TEST_ASSERT_TRUE(api->get_reference(api->read(repo, a), RT_FIELD_REFERENCE).id == 0u);
+
+	/* Destroying a soft-referenced target leaves a dangling RID in the field
+	 * (no refcount); has_resource on the dangling id is false. */
+	{
+		sk_resource_object_t view = api->write(repo, a);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, b));
+		api->commit(view, NULL);
+	}
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, b, NULL));
+	sk_rid_t dangling = api->get_reference(api->read(repo, a), RT_FIELD_REFERENCE);
+	TEST_ASSERT_TRUE(SK_RID_EQ(dangling, b));
+	TEST_ASSERT_FALSE(api->has_resource(repo, dangling));
+	/* Owner @a is still live — soft REFERENCE does not cascade. */
+	TEST_ASSERT_TRUE(api->has_resource(repo, a));
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_lifecycle_ownership_subobject_vs_reference) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 806u);
+
+	sk_rid_t parent = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t owned = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t soft = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	{
+		sk_resource_object_t view = api->write(repo, parent);
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(view, RT_FIELD_SUBOBJECT, owned));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(view, RT_FIELD_REFERENCE, soft));
+		api->commit(view, NULL);
+	}
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, owned), parent));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_parent(repo, soft), SK_RID_ZERO));
+
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, parent, NULL));
+	TEST_ASSERT_FALSE(api->has_resource(repo, parent));
+	TEST_ASSERT_FALSE(api->has_resource(repo, owned)); /* cascade ownership */
+	TEST_ASSERT_TRUE(api->has_resource(repo, soft));   /* soft ref not owned */
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_lifecycle_clear_via_destroy_repository) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 807u);
+
+	sk_rid_t r1 = api->create_resource(repo, type, (sk_uuid_t){1ull, 0ull}, NULL);
+	sk_rid_t r2 = api->create_resource(repo, type, (sk_uuid_t){2ull, 0ull}, NULL);
+	TEST_ASSERT_EQUAL_INT(0, api->set_path(repo, r1, "a"));
+	TEST_ASSERT_EQUAL_INT(0, api->set_path(repo, r2, "b"));
+	TEST_ASSERT_EQUAL_UINT64(2u, api->resource_count(repo));
+
+	/* No clear() API: destroy(repository) drops every resource, path, and type.
+	 * Handles obtained before destroy must not be used afterward. */
+	api->destroy(repo);
+
+	/* Fresh repository is empty (isolation already covered elsewhere). */
+	repo = api->create(sk_allocator_default());
+	TEST_ASSERT_NOT_NULL(repo);
+	TEST_ASSERT_EQUAL_UINT64(0u, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->find_by_path(repo, "a").id == 0u);
+	TEST_ASSERT_NULL(api->find_type_by_name(repo, "rt.type"));
+	api->destroy(repo);
+	(void)type;
+}
+
+SK_TEST(repository_lifecycle_no_enumeration_order_api) {
+	/* Contract: resource_count reports live count; there is no public
+	 * for_each / iterate_resources. RID assignment is sequential and never
+	 * recycled, but callers must not treat dense RID ranges as an enumerator
+	 * (gaps appear after destroy). Documented: no iteration-order guarantee. */
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 808u);
+
+	sk_rid_t a = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t b = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	sk_rid_t c = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(a.id + 1u == b.id);
+	TEST_ASSERT_TRUE(b.id + 1u == c.id);
+	TEST_ASSERT_EQUAL_INT(0, api->destroy_resource(repo, b, NULL));
+	TEST_ASSERT_EQUAL_UINT64(2u, api->resource_count(repo));
+	/* Gap: b is dead; scanning [a.id, c.id] would see a hole — not an API. */
+	TEST_ASSERT_TRUE(api->has_resource(repo, a));
+	TEST_ASSERT_FALSE(api->has_resource(repo, b));
+	TEST_ASSERT_TRUE(api->has_resource(repo, c));
+
+	api->destroy(repo);
+}
+
+SK_TEST(repository_lifecycle_failed_create_leaves_repo_usable) {
+	/* OOM / failed structural ops must not leave half-registered state
+	 * (see repository_oom_safety). Also: failed set_path does not change maps. */
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = rt_repo(&type, 809u);
+
+	sk_rid_t rid = api->create_resource(repo, type, (sk_uuid_t){1ull, 0ull}, NULL);
+	TEST_ASSERT_EQUAL_INT(0, api->set_path(repo, rid, "keep.me"));
+	TEST_ASSERT_NOT_EQUAL(0, api->set_path(repo, rid, NULL)); /* contract: NULL path fails */
+	TEST_ASSERT_EQUAL_STRING("keep.me", api->get_path(repo, rid));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->find_by_path(repo, "keep.me"), rid));
+
+	/* Destroy of non-live is a no-op failure; live resources untouched. */
+	TEST_ASSERT_EQUAL_INT(-1, api->destroy_resource(repo, (sk_rid_t){0ull}, NULL));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
+
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Extended field-type accessor tests (APX-181)                      */
 /* ------------------------------------------------------------------ */
 
@@ -5660,5 +5971,6 @@ SK_TEST(repository_buffer_field_accessors) {
 	api->destroy(repo);
 	TEST_ASSERT_EQUAL_UINT64(0u, state.live);
 }
+
 
 #endif /* SK_TESTS */
