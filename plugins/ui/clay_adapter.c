@@ -1455,15 +1455,15 @@ SK_TEST(ui_clay_panel_row_and_stable_ids) {
 
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, left, &rl, NULL));
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, right, &rr, NULL));
-	/* Content-box: style 80x40 + button default pad(6)*2 + border(1)*2 = 94x54. */
-	ui_clay_assert_rect_near(&rl, 0.0f, 0.0f, 94.0f, 54.0f);
-	ui_clay_assert_rect_near(&rr, 94.0f, 0.0f, 94.0f, 54.0f);
+	/* Border-box: style POINT 80x40 is the outer size (pad/border sit inside). */
+	ui_clay_assert_rect_near(&rl, 0.0f, 0.0f, 80.0f, 40.0f);
+	ui_clay_assert_rect_near(&rr, 80.0f, 0.0f, 80.0f, 40.0f);
 
 	/* Stable string ids resolve through Clay after the layout pass. */
 	eid = Clay_GetElementId(ui_clay_cstr("row-left"));
 	ed = Clay_GetElementData(eid);
 	TEST_ASSERT_TRUE(ed.found);
-	TEST_ASSERT_FLOAT_WITHIN(1.0f, 94.0f, ed.boundingBox.width);
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 80.0f, ed.boundingBox.width);
 
 	ui->context_destroy(ctx);
 }
@@ -2218,7 +2218,7 @@ SK_TEST(ui_clay_scroll_container_stable_id_and_offset) {
 	eid_sv = Clay_GetElementId(ui_clay_cstr("apx236-sv"));
 	ed = Clay_GetElementData(eid_sv);
 	TEST_ASSERT_TRUE(ed.found);
-	/* Content-box: style 100 + border 0 = 100. */
+	/* Border-box: style POINT width 100 is outer size. */
 	TEST_ASSERT_FLOAT_WITHIN(1.0f, 100.0f, ed.boundingBox.width);
 
 	id_hash = eid_sv.id;

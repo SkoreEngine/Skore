@@ -2883,7 +2883,8 @@ SK_TEST(ui_widget_scroll_view_wheel_and_clamp) {
 	TEST_ASSERT_TRUE(sy > 0.0f);
 	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_set_scroll(ctx, sv, 0.0f, 9999.0f));
 	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_get_scroll(ctx, sv, &sx, &sy));
-	TEST_ASSERT_FLOAT_WITHIN(0.5f, 140.0f, sy); /* 200-60 */
+	/* Border-box 60h with 1px top/bottom border → content viewport 58; max = 200-58. */
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 142.0f, sy);
 	ui->context_destroy(ctx);
 }
 
