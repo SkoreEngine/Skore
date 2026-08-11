@@ -967,6 +967,7 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 				if (!reader->begin_seq_named(reader->instance, sk_str_view_cstr(field->name))) {
 					continue;
 				}
+				u32 queued = 0u;
 				while (fail_rc == SK_RES_SER_OK && reader->next_seq_entry(reader->instance)) {
 					sk_str_view_t us = reader->get_string(reader->instance);
 					if (us.size == 0u) {
@@ -991,9 +992,21 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 						fail_rc = SK_RES_SER_ERR;
 						break;
 					}
+					queued += 1u;
 				}
 				if (fail_rc == SK_RES_SER_OK) {
 					reader->end_seq(reader->instance);
+					/* Empty arrays must still mark has_value so re-serialize
+					 * emits [] (round-trip identity for present empty lists). */
+					if (queued == 0u) {
+						i32 src = (field->type == SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY) ? api->set_reference_array(view, field->index, NULL, 0u) :
+																							api->set_subobject_list(view, field->index, NULL, 0u);
+						if (src != 0) {
+							api->discard(view);
+							fail_rc = SK_RES_SER_FIELD;
+							break;
+						}
+					}
 				}
 				continue;
 			}
@@ -2706,6 +2719,372 @@ SK_TEST(resource_serialize_package_resources_order_bfs) {
 	TEST_ASSERT_TRUE(p_parent < p_child);
 
 	a->free(a->instance, json);
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  APX-193: every field of every asset type + contract schema keys     */
+/* ------------------------------------------------------------------ */
+
+/** Assert @p json contains `"FieldName"` as a JSON object key (PascalCase). */
+static void ser_assert_json_has_field_key(const char* json, const_chr_t field_name) {
+	char needle[128];
+	i32 n = snprintf(needle, sizeof(needle), "\"%s\"", field_name);
+	TEST_ASSERT_TRUE(n > 0 && (u32)n < (u32)sizeof(needle));
+	TEST_ASSERT_NOT_NULL(strstr(json, needle));
+}
+
+/**
+ * Set every non-NONE field on @p rid to a non-default value so serialize emits
+ * the full schema. Cross-resource edges point at @p peer when non-zero.
+ */
+static void ser_fill_all_fields(sk_repository_t* repo, sk_rid_t rid, sk_rid_t peer) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = api->resource_type(repo, rid);
+	TEST_ASSERT_NOT_NULL(type);
+	sk_resource_object_t w = api->write(repo, rid);
+	TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(w));
+	u32 field_count = api->type_field_count(type);
+	for (u32 fi = 0u; fi < field_count; ++fi) {
+		const sk_resource_field_t* field = api->type_field_at(type, fi);
+		TEST_ASSERT_NOT_NULL(field);
+		switch (field->type) {
+		case SK_RESOURCE_FIELD_TYPE_NONE:
+			break;
+		case SK_RESOURCE_FIELD_TYPE_BOOL:
+			TEST_ASSERT_EQUAL_INT(0, api->set_bool(w, field->index, 1));
+			break;
+		case SK_RESOURCE_FIELD_TYPE_INT:
+			TEST_ASSERT_EQUAL_INT(0, api->set_int(w, field->index, -42));
+			break;
+		case SK_RESOURCE_FIELD_TYPE_UINT:
+			TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, field->index, 7u));
+			break;
+		case SK_RESOURCE_FIELD_TYPE_FLOAT:
+			TEST_ASSERT_EQUAL_INT(0, api->set_float(w, field->index, 1.25));
+			break;
+		case SK_RESOURCE_FIELD_TYPE_STRING:
+			TEST_ASSERT_EQUAL_INT(0, api->set_string(w, field->index, "filled"));
+			break;
+		case SK_RESOURCE_FIELD_TYPE_BLOB: {
+			const u8 bytes[] = {9u, 8u, 7u};
+			TEST_ASSERT_EQUAL_INT(0, api->set_blob(w, field->index, bytes, 3u));
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_BUFFER:
+			TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, field->index, 55u));
+			break;
+		case SK_RESOURCE_FIELD_TYPE_TYPE_ID: {
+			sk_type_id_t tid = SK_TEXTURE_RESOURCE_TYPE_ID;
+			TEST_ASSERT_EQUAL_INT(0, api->set_type_id(w, field->index, tid));
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_REFERENCE:
+			if (peer.id != 0u) {
+				TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, field->index, peer));
+			}
+			break;
+		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT:
+			if (peer.id != 0u) {
+				TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, field->index, peer));
+			}
+			break;
+		case SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY:
+			if (peer.id != 0u) {
+				TEST_ASSERT_EQUAL_INT(0, api->set_reference_array(w, field->index, &peer, 1u));
+			} else {
+				TEST_ASSERT_EQUAL_INT(0, api->set_reference_array(w, field->index, NULL, 0u));
+			}
+			break;
+		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT_LIST:
+			if (peer.id != 0u) {
+				TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, field->index, &peer, 1u));
+			} else {
+				TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, field->index, NULL, 0u));
+			}
+			break;
+		case SK_RESOURCE_FIELD_TYPE_VEC2:
+		case SK_RESOURCE_FIELD_TYPE_VEC3:
+		case SK_RESOURCE_FIELD_TYPE_VEC4:
+		case SK_RESOURCE_FIELD_TYPE_QUAT:
+		case SK_RESOURCE_FIELD_TYPE_MAT4:
+		case SK_RESOURCE_FIELD_TYPE_COLOR:
+		case SK_RESOURCE_FIELD_TYPE_ENUM:
+		case SK_RESOURCE_FIELD_TYPE_MAX:
+			/* Not used by asset types under APX-186. */
+			break;
+		}
+	}
+	api->commit(w, NULL);
+}
+
+/**
+ * Serialize @p rid and assert every non-NONE field with has_value appears as a
+ * JSON key. Zero refs are omitted by contract.
+ */
+static void ser_assert_schema_keys(sk_repository_t* repo, sk_rid_t rid, const char* json) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = api->resource_type(repo, rid);
+	TEST_ASSERT_NOT_NULL(type);
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"format\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, SK_RESOURCE_JSON_FORMAT));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"format_version\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"fields\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, api->type_name(type)));
+
+	sk_resource_object_t view = api->read(repo, rid);
+	u32 field_count = api->type_field_count(type);
+	for (u32 fi = 0u; fi < field_count; ++fi) {
+		const sk_resource_field_t* field = api->type_field_at(type, fi);
+		TEST_ASSERT_NOT_NULL(field);
+		if (field->type == SK_RESOURCE_FIELD_TYPE_NONE) {
+			continue;
+		}
+		if (!api->has_value_on_this_object(view, field->index)) {
+			continue;
+		}
+		if ((field->type == SK_RESOURCE_FIELD_TYPE_REFERENCE || field->type == SK_RESOURCE_FIELD_TYPE_SUB_OBJECT)) {
+			sk_rid_t child = (field->type == SK_RESOURCE_FIELD_TYPE_REFERENCE) ? api->get_reference(view, field->index) : api->get_subobject(view, field->index);
+			if (child.id == 0u) {
+				continue;
+			}
+		}
+		ser_assert_json_has_field_key(json, field->name);
+	}
+}
+
+/**
+ * For every APX-186 asset type: fill all settable fields, serialize, assert
+ * contract schema keys, deserialize (package when refs present), re-serialize
+ * identity. Buffer is opaque id-only; Type/NONE is omitted.
+ */
+SK_TEST(resource_serialize_every_asset_type_all_fields_schema) {
+	static const_chr_t types[] = {
+		"ResourceAssetPackage",	   "ResourceAssetFile",
+		"ResourceAsset",		   "ResourceAssetDirectory",
+		"ResourceImportedAsset",   "ResourceSubIdEntry",
+		"ResourceDependencyEntry", "ResourceExtractedEntry",
+		"AnimationClipResource",   "AnimationControllerResource",
+		"CSharpScriptResource",	   "DCCAsset",
+		"EntityResource",		   "FontResource",
+		"MaterialGraphResource",   "MeshResource",
+		"SceneResource",		   "TextureResource",
+		"TextureImportSettings",   "FBXImportSettings",
+		"GLTFImportSettings",	   "ObjImportSettings",
+		"UIDocumentResource",	   "UIStyleResource",
+		"ShaderResource",		   "AudioResource",
+	};
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+
+	for (u32 i = 0u; i < (u32)(sizeof(types) / sizeof(types[0])); ++i) {
+		sk_repository_t* repo = ser_test_repo();
+		sk_rid_t peer = ser_create(repo, "MeshResource", ser_uuid(0x9000u + i, 0x1u));
+		{
+			sk_resource_object_t w = api->write(repo, peer);
+			TEST_ASSERT_EQUAL_INT(0, api->set_string(w, 0u, "peer"));
+			api->commit(w, NULL);
+		}
+
+		sk_rid_t rid = ser_create(repo, types[i], ser_uuid(0xa000u + i, 0x2u));
+		const i32 needs_peer = (strcmp(types[i], "ResourceAssetPackage") == 0 || strcmp(types[i], "ResourceAssetFile") == 0 || strcmp(types[i], "ResourceAsset") == 0 ||
+								strcmp(types[i], "ResourceAssetDirectory") == 0 || strcmp(types[i], "ResourceImportedAsset") == 0) ?
+								   1 :
+								   0;
+		ser_fill_all_fields(repo, rid, needs_peer ? peer : SK_RID_ZERO);
+
+		char* json = NULL;
+		if (needs_peer) {
+			TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(repo, rid, a, &json, NULL));
+			TEST_ASSERT_NOT_NULL(strstr(json, types[i]));
+			ser_assert_schema_keys(repo, rid, json);
+			api->destroy(repo);
+			repo = ser_test_repo();
+			sk_rid_t loaded = SK_RID_ZERO;
+			TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(repo, sk_str_view_cstr(json), a, &loaded));
+			TEST_ASSERT_TRUE(loaded.id != 0u);
+			char* json2 = NULL;
+			TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(repo, loaded, a, &json2, NULL));
+			TEST_ASSERT_EQUAL_STRING(json, json2);
+			a->free(a->instance, json2);
+		} else {
+			TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_json_alloc(repo, rid, a, &json, NULL));
+			ser_assert_schema_keys(repo, rid, json);
+			ser_assert_double_serialize_identity(repo, rid, a);
+		}
+
+		if (strcmp(types[i], "ResourceDependencyEntry") == 0 || strcmp(types[i], "ResourceImportedAsset") == 0) {
+			TEST_ASSERT_NOT_NULL(strstr(json, "\"id\""));
+		}
+		if (strcmp(types[i], "AudioResource") == 0) {
+			TEST_ASSERT_NOT_NULL(strstr(json, "\"Bytes\""));
+			TEST_ASSERT_NOT_NULL(strstr(json, "9"));
+		}
+
+		a->free(a->instance, json);
+		api->destroy(repo);
+	}
+}
+
+/**
+ * Full package graph covering ResourceAssetPackage + Directory + File + Asset
+ * with every contract field set (including list edges).
+ */
+SK_TEST(resource_serialize_package_all_container_fields) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+
+	sk_rid_t mesh = ser_create(repo, "MeshResource", ser_uuid(0xb001u, 1u));
+	sk_rid_t asset = ser_create(repo, "ResourceAsset", ser_uuid(0xb002u, 2u));
+	sk_rid_t file = ser_create(repo, "ResourceAssetFile", ser_uuid(0xb003u, 3u));
+	sk_rid_t dir_asset = ser_create(repo, "ResourceAsset", ser_uuid(0xb004u, 4u));
+	sk_rid_t child_dir = ser_create(repo, "ResourceAssetDirectory", ser_uuid(0xb005u, 5u));
+	sk_rid_t root_dir = ser_create(repo, "ResourceAssetDirectory", ser_uuid(0xb006u, 6u));
+	sk_rid_t package = ser_create(repo, "ResourceAssetPackage", ser_uuid(0xb007u, 7u));
+
+	{
+		sk_resource_object_t w = api->write(repo, mesh);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, 0u, "CubeMesh"));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, dir_asset);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "AssetsDir"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_bool(w, SK_RESOURCE_ASSET_FIELD_DIRECTORY, 1));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, asset);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "Cube"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_EXTENSION, ".mesh"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_FIELD_OBJECT, mesh));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_PATH_ID, "Assets/Cube.mesh"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_bool(w, SK_RESOURCE_ASSET_FIELD_DIRECTORY, 0));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_ASSET_FILE, file));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_SOURCE_PATH, ""));
+		TEST_ASSERT_EQUAL_INT(0, api->set_bool(w, SK_RESOURCE_ASSET_FIELD_READ_ONLY, 0));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, file);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FILE_FIELD_ASSET_REF, asset));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FILE_FIELD_ABSOLUTE_PATH, "/proj/Assets/Cube.mesh"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FILE_FIELD_RELATIVE_PATH, "Assets/Cube.mesh"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_ASSET_FILE_FIELD_PERSISTED_VERSION, 2u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_ASSET_FILE_FIELD_TOTAL_SIZE_IN_DISK, 128u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_ASSET_FILE_FIELD_LAST_MODIFIED_TIME, 99u));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, child_dir);
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, NULL, 0u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORIES, NULL, 0u));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, root_dir);
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORY_ASSET, dir_asset));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORIES, &child_dir, 1u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, &asset, 1u));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "DemoPkg"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_ABSOLUTE_PATH, "/proj"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_FILES, &file, 1u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT, root_dir));
+		api->commit(w, NULL);
+	}
+
+	char* json = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(repo, package, a, &json, NULL));
+	TEST_ASSERT_NOT_NULL(json);
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"AbsolutePath\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Files\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Root\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"DirectoryAsset\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Directories\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Assets\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"AssetRef\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"PersistedVersion\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"TotalSizeInDisk\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"LastModifiedTime\""));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Name\""));
+	/* UUID reference encoding (contract placeholder; deeper handles are APX-194). */
+	TEST_ASSERT_NOT_NULL(strstr(json, "000000000000b002-0000000000000002"));
+
+	api->destroy(repo);
+	repo = ser_test_repo();
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(repo, sk_str_view_cstr(json), a, &loaded));
+	sk_resource_object_t pr = api->read(repo, loaded);
+	TEST_ASSERT_EQUAL_STRING("DemoPkg", api->get_string(pr, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+	TEST_ASSERT_EQUAL_STRING("/proj", api->get_string(pr, SK_RESOURCE_ASSET_PACKAGE_FIELD_ABSOLUTE_PATH));
+	u32 file_count = 0u;
+	const sk_rid_t* files = api->get_subobject_list(pr, SK_RESOURCE_ASSET_PACKAGE_FIELD_FILES, &file_count);
+	TEST_ASSERT_EQUAL_UINT32(1u, file_count);
+	sk_resource_object_t fr = api->read(repo, files[0]);
+	TEST_ASSERT_EQUAL_UINT64(128u, api->get_uint(fr, SK_RESOURCE_ASSET_FILE_FIELD_TOTAL_SIZE_IN_DISK));
+	TEST_ASSERT_EQUAL_UINT64(99u, api->get_uint(fr, SK_RESOURCE_ASSET_FILE_FIELD_LAST_MODIFIED_TIME));
+	sk_rid_t loaded_root = api->get_subobject(pr, SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT);
+	TEST_ASSERT_TRUE(loaded_root.id != 0u);
+	u32 dir_count = 0u;
+	(void)api->get_subobject_list(api->read(repo, loaded_root), SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORIES, &dir_count);
+	TEST_ASSERT_EQUAL_UINT32(1u, dir_count);
+	u32 asset_count = 0u;
+	const sk_rid_t* assets = api->get_subobject_list(api->read(repo, loaded_root), SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, &asset_count);
+	TEST_ASSERT_EQUAL_UINT32(1u, asset_count);
+	TEST_ASSERT_EQUAL_STRING("Cube", api->get_string(api->read(repo, assets[0]), SK_RESOURCE_ASSET_FIELD_NAME));
+
+	char* json2 = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(repo, loaded, a, &json2, NULL));
+	TEST_ASSERT_EQUAL_STRING(json, json2);
+
+	a->free(a->instance, json);
+	a->free(a->instance, json2);
+	api->destroy(repo);
+}
+
+/**
+ * Explicit report: ResourceAsset.Type (NONE) is never written; Buffer is opaque
+ * id only (no byte array improvisation).
+ */
+SK_TEST(resource_serialize_reports_unrepresentable_and_opaque_fields) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+
+	sk_rid_t asset = ser_create(repo, "ResourceAsset", ser_uuid(0xc001u, 1u));
+	{
+		sk_resource_object_t w = api->write(repo, asset);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "typed"));
+		api->commit(w, NULL);
+	}
+	char* asset_json = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_json_alloc(repo, asset, a, &asset_json, NULL));
+	TEST_ASSERT_NOT_NULL(strstr(asset_json, "\"type\""));
+	TEST_ASSERT_NOT_NULL(strstr(asset_json, "ResourceAsset"));
+	const char* fields = strstr(asset_json, "\"fields\"");
+	TEST_ASSERT_NOT_NULL(fields);
+	TEST_ASSERT_NULL(strstr(fields, "\"Type\""));
+	a->free(a->instance, asset_json);
+
+	sk_rid_t dep = ser_create(repo, "ResourceDependencyEntry", ser_uuid(0xc002u, 2u));
+	{
+		sk_resource_object_t w = api->write(repo, dep);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_REL_PATH, "x.bin"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_DATA, 1234u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_SIZE, 16u));
+		api->commit(w, NULL);
+	}
+	char* dep_json = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_json_alloc(repo, dep, a, &dep_json, NULL));
+	TEST_ASSERT_NOT_NULL(strstr(dep_json, "\"Data\""));
+	TEST_ASSERT_NOT_NULL(strstr(dep_json, "\"id\""));
+	TEST_ASSERT_NOT_NULL(strstr(dep_json, "1234"));
+	a->free(a->instance, dep_json);
 	api->destroy(repo);
 }
 

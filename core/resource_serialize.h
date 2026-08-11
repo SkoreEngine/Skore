@@ -13,6 +13,29 @@
  * Uses sk_archive_writer_t / sk_archive_reader_t (JSON backend via yyjson inside
  * sk-core). Callers typically init a JSON writer/reader, call these helpers, then
  * emit or destroy.
+ *
+ * ## Per-type field coverage (APX-186 / APX-193)
+ *
+ * Every registered repository asset type is (de)serialized by walking its
+ * sk_resource_field_t descriptors — not by hand-written per-type tables.
+ * JSON keys are the exact PascalCase descriptor names (Name, PathId, …).
+ *
+ * ## Reference / handle encoding (placeholder for APX-194)
+ *
+ * Cross-resource Reference, SubObject, ReferenceArray, and SubObjectList fields
+ * are encoded as canonical UUID strings (`%016llx-%016llx` of lo/hi), or omitted
+ * when SK_RID_ZERO. RIDs are never written. Deeper handle identity / path-based
+ * reference resolution beyond this contract placeholder is deferred to APX-194.
+ *
+ * ## Fields that cannot be fully represented under the contract
+ *
+ * | Kind / field | Representation | Note |
+ * | --- | --- | --- |
+ * | ResourceAsset.Type (NONE) | omitted from `fields` | Reserved parity slot; no JSON value |
+ * | Buffer (OriginalData, Dependency.Data) | `{"id": <u64>}` only | Opaque handle; byte payload is out of band until a buffer layer lands |
+ * | SubObjectList.prototype_removed | omitted in v1 | Editor/runtime override state, not durable asset JSON |
+ * | Non-finite Float (NaN / Inf) | not representable | Standard JSON has no NaN/Inf; serialize returns non-zero |
+ * | Vectors / quats / mat / color / enum | not used by asset types | Generic kinds reserved; not required for APX-186 types |
  */
 
 #include "common.h"
