@@ -1775,6 +1775,31 @@ typedef struct sk_ui_api_t {
 
 	/** Draw list from the last paint inside harness_step (may be empty). */
 	const sk_ui_draw_list_t* (*harness_draw_list)(const sk_ui_harness_t* harness);
+
+	/* ---- sample in-game UI scene (main menu; host / HiDPI consumer) ---- */
+
+	/**
+	 * Register style classes used by the sample main menu (menu-screen,
+	 * menu-card, menu-title, …). Idempotent. Called automatically by
+	 * sample_menu_build; hosts may call earlier to customize.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*sample_menu_register_styles)(sk_ui_context_t* ctx);
+
+	/**
+	 * Build the sample main menu under @p parent (or the context root when
+	 * @p parent is SK_UI_NODE_INVALID). Uses every v1 widget; layout and
+	 * appearance come from style classes only. Stable test ids: menu-screen,
+	 * menu-card, menu-title, menu-play, menu-volume, …
+	 * @return Root screen node, or SK_UI_NODE_INVALID on failure.
+	 */
+	sk_ui_node_t (*sample_menu_build)(sk_ui_context_t* ctx, sk_ui_node_t parent);
+
+	/**
+	 * Logical size used by sample goldens and as a host default
+	 * (320 x 240). Either out pointer may be NULL.
+	 */
+	void (*sample_menu_logical_size)(f32* out_width, f32* out_height);
 } sk_ui_api_t;
 
 /**

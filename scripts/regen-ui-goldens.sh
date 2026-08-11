@@ -36,3 +36,5 @@ else
 fi
 
 echo "regen-ui-goldens: done (check plugins/ui/testdata/ui_fixture_golden.png)"
+echo "sample menu goldens (1x/2x): also set SK_UI_REGEN_GOLDENS=1 and run sk-tests"
+echo "  → plugins/ui/testdata/sample/menu_1x.png and menu_2x.png"

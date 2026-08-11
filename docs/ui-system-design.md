@@ -420,6 +420,7 @@ Host owns: window, swapchain, command buffer lifetime, plugin load order.
 5. Text + atlas.
 6. Input dispatch + hover/click.
 7. Editor/player host integration (still no full ImGui parity).
+8. **APX-138 (done):** sample in-game main menu (`sample_menu_build`) using every v1 widget, style classes only, wired into `sk-player` host loop; headless 1x/2x soft-render goldens and runtime content-scale re-layout / glyph re-raster tests under `plugins/ui/testdata/sample/`.
 
 ---
 

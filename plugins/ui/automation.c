@@ -707,7 +707,9 @@ i32 ui_harness_set_content_scale_impl(sk_ui_harness_t* harness, f32 scale) {
 		harness->content_scale = scale;
 	}
 	ui = auto_api();
-	(void)ui->node_mark_dirty(harness->ctx, ui->context_root(harness->ctx), (u32)SK_UI_DIRTY_PAINT);
+	/* Layout stays logical; paint + scaled rects rebuild on the next step.
+	 * Mark layout+paint so dirty-gated hosts still re-run the full pipeline. */
+	(void)ui->node_mark_dirty(harness->ctx, ui->context_root(harness->ctx), (u32)SK_UI_DIRTY_ALL);
 	return 0;
 }
 

@@ -1394,6 +1394,9 @@ static const sk_ui_api_t ui_api = {
 	ui_harness_pixel_size_impl,
 	ui_harness_set_font_impl,
 	ui_harness_draw_list_impl,
+	ui_sample_menu_register_styles_impl,
+	ui_sample_menu_build_impl,
+	ui_sample_menu_logical_size_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {

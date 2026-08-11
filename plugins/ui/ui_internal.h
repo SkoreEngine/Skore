@@ -373,3 +373,11 @@ const u8* ui_harness_pixels_impl(const sk_ui_harness_t* harness);
 void ui_harness_pixel_size_impl(const sk_ui_harness_t* harness, u32* out_w, u32* out_h);
 void ui_harness_set_font_impl(sk_ui_harness_t* harness, sk_ui_font_system_t* system, sk_ui_font_t* font);
 const sk_ui_draw_list_t* ui_harness_draw_list_impl(const sk_ui_harness_t* harness);
+
+/* -------------------------------------------------------------------------- */
+/* Sample main menu scene (sample_menu.c)                                     */
+/* -------------------------------------------------------------------------- */
+
+i32 ui_sample_menu_register_styles_impl(sk_ui_context_t* ctx);
+sk_ui_node_t ui_sample_menu_build_impl(sk_ui_context_t* ctx, sk_ui_node_t parent);
+void ui_sample_menu_logical_size_impl(f32* out_width, f32* out_height);
