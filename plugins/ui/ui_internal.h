@@ -117,6 +117,9 @@ typedef struct ui_draw_list_store_t {
 	i32 valid; /**< Non-zero after at least one successful paint rebuild. */
 } ui_draw_list_store_t;
 
+/** Opaque Clay adapter frame state (clay_adapter.c). NULL until first layout. */
+typedef struct ui_clay_frame_t ui_clay_frame_t;
+
 struct sk_ui_context_t {
 	const sk_allocator_t* allocator;
 	ui_slot_array_t slots; /* index 0 unused; live handles use index >= 1 */
@@ -126,6 +129,11 @@ struct sk_ui_context_t {
 	ui_style_registry_t style_registry;
 	sk_ui_node_t root;
 	u32 live_count;
+
+	/* Clay adapter (clay_adapter.c): per-context frame state. */
+	ui_clay_frame_t* clay_frame;
+	f32 scroll_delta_x; /**< Wheel input accumulated since last layout (Clay scroll update). */
+	f32 scroll_delta_y;
 
 	sk_ui_measure_fn measure_fn;
 	void_ptr_t measure_user;
@@ -357,6 +365,51 @@ i32 ui_clay_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewpo
  * Free the Clay arena and logger. Safe on uninitialized state.
  */
 void ui_clay_shutdown(void);
+
+/**
+ * Idempotent init used by the Clay adapter (clay_adapter.c): initializes Clay
+ * on first call and otherwise keeps the arena; viewport dimensions and the
+ * font binding are refreshed from the arguments on every call. Fonts are
+ * optional (NULL = keep the current binding, or fallback estimation when no
+ * font was ever bound).
+ * @return 0 on success, non-zero on failure.
+ */
+i32 ui_clay_ensure_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewport_height, sk_ui_font_system_t* font_system, sk_ui_font_t* font);
+
+/**
+ * Rebind the fonts used by the Clay measure callback (NULL/NULL clears).
+ * Does not re-initialize Clay; affects the next layout pass.
+ */
+void ui_clay_set_font(sk_ui_font_system_t* font_system, sk_ui_font_t* font);
+
+/**
+ * Whether Clay has been initialized (used by the adapter to skip redundant
+ * init work and by tests to assert lifecycle ordering).
+ */
+i32 ui_clay_is_initialized(void);
+
+/* -------------------------------------------------------------------------- */
+/* Clay-backed adapter (clay_adapter.c)                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Clay-backed layout() implementation (replaces ui_layout_impl in the API
+ * table): maps the whole per-frame layout pass onto Clay's lifecycle and
+ * writes the resulting boxes back into the slot layout rects so hit-testing,
+ * scale application and queries keep working unchanged.
+ */
+i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height);
+
+/**
+ * Clay-backed paint() implementation (replaces ui_paint_impl in the API
+ * table): translates the render command array produced by the last Clay
+ * layout into the engine draw list, then emits engine widget decorations
+ * (scrollbars, slider, checkbox check, caret) on top.
+ */
+i32 ui_clay_paint_impl(sk_ui_context_t* ctx, const sk_ui_paint_params_t* params);
+
+/** Free per-context Clay adapter state (called from context destroy). */
+void ui_clay_context_shutdown(sk_ui_context_t* ctx);
 
 /* -------------------------------------------------------------------------- */
 /* Automation / harness (automation.c)                                        */

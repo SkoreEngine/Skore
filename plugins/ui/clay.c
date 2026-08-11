@@ -241,6 +241,36 @@ void ui_clay_shutdown(void) {
 	memset(&ui_clay_state, 0, sizeof(ui_clay_state));
 }
 
+i32 ui_clay_is_initialized(void) {
+	return ui_clay_state.initialized;
+}
+
+void ui_clay_set_font(sk_ui_font_system_t* font_system, sk_ui_font_t* font) {
+	ui_clay_state.font_system = font_system;
+	ui_clay_state.font = font;
+}
+
+i32 ui_clay_ensure_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewport_height, sk_ui_font_system_t* font_system, sk_ui_font_t* font) {
+	Clay_Dimensions dims;
+	if (!ui_clay_state.initialized) {
+		if (ui_clay_init(allocator, viewport_width, viewport_height, font_system, font) != 0) {
+			return -1;
+		}
+		return 0;
+	}
+	/* Already initialized: refresh viewport + font binding for this frame. */
+	ui_clay_state.viewport_width = viewport_width;
+	ui_clay_state.viewport_height = viewport_height;
+	if (font_system != NULL || font != NULL) {
+		ui_clay_state.font_system = font_system;
+		ui_clay_state.font = font;
+	}
+	dims.width = viewport_width;
+	dims.height = viewport_height;
+	Clay_SetLayoutDimensions(dims);
+	return 0;
+}
+
 #ifdef SK_TESTS
 #include "test.h"
 #include "testdata/skore_test_font_ttf.h"
