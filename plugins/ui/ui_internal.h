@@ -308,6 +308,22 @@ i32 ui_cpu_image_compare_golden_impl(const sk_ui_cpu_image_t* actual, const_chr_
 									 sk_ui_image_compare_stats_t* out_stats);
 
 /* -------------------------------------------------------------------------- */
+/* Structural image assertions (image_structure.c)                            */
+/* -------------------------------------------------------------------------- */
+
+i32 ui_cpu_image_assert_solid_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_color_match_t* color, sk_ui_solid_stats_t* out_stats);
+i32 ui_cpu_image_assert_coverage_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_color_match_t* color, f32 min_fraction, f32 max_fraction,
+									  sk_ui_coverage_stats_t* out_stats);
+i32 ui_cpu_image_find_bbox_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_color_match_t* color, sk_ui_bbox_t* out_bbox);
+i32 ui_cpu_image_assert_bbox_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_color_match_t* color, const sk_ui_bbox_expected_t* expected,
+								  sk_ui_bbox_assert_stats_t* out_stats);
+i32 ui_cpu_image_histogram_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, u8 merge_tolerance, u32 max_entries, sk_ui_color_histogram_t* out_hist);
+i32 ui_cpu_image_assert_histogram_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, const sk_ui_hist_assert_params_t* params, const sk_ui_hist_expectation_t* expected,
+									   u32 expected_count, sk_ui_hist_assert_stats_t* out_stats);
+i32 ui_cpu_image_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, u64 seed, u64* out_hash);
+i32 ui_cpu_image_assert_region_hash_impl(const sk_ui_cpu_image_t* img, sk_ui_region_t region, u64 expected_hash, u64* out_actual_hash);
+
+/* -------------------------------------------------------------------------- */
 /* Widgets (widgets.c)                                                        */
 /* -------------------------------------------------------------------------- */
 

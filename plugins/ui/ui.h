@@ -970,6 +970,142 @@ typedef struct sk_ui_capture_frame_info_t {
 } sk_ui_capture_frame_info_t;
 
 /* ------------------------------------------------------------------ */
+/*  Structural image assertions (beyond pixel sampling; APX-230)       */
+/* ------------------------------------------------------------------ */
+
+/** Return codes for the structural image assertion APIs. */
+#define SK_UI_IMAGE_ASSERT_OK 0		  /**< Assertion passed. */
+#define SK_UI_IMAGE_ASSERT_FAIL 1	  /**< Assertion failed; stats + log carry the measured values. */
+#define SK_UI_IMAGE_ASSERT_ERROR (-1) /**< Bad arguments / unreadable image. */
+
+/** Max dominant colors a histogram reports / an assertion expects. */
+#define SK_UI_COLOR_HIST_MAX_ENTRIES 16
+
+/** Half-open pixel region [x0,x1) x [y0,y1), clamped to the image bounds. */
+typedef struct sk_ui_region_t {
+	u32 x0;
+	u32 y0;
+	u32 x1;
+	u32 y1;
+} sk_ui_region_t;
+
+/**
+ * Color match predicate: per-channel absolute tolerance. A pixel matches
+ * when |pixel.ch - color.ch| <= tolerance for R, G, B and (when
+ * include_alpha != 0) A. Images with 3 channels treat alpha as 255.
+ */
+typedef struct sk_ui_color_match_t {
+	u8 r;
+	u8 g;
+	u8 b;
+	u8 a;
+	u8 tolerance;	   /**< Max abs per-channel delta still considered a match. */
+	i32 include_alpha; /**< Non-zero: alpha participates in the match. */
+} sk_ui_color_match_t;
+
+/** Tight bounding box of matching pixels (inclusive pixel coords). */
+typedef struct sk_ui_bbox_t {
+	u32 min_x;
+	u32 min_y;
+	u32 max_x;
+	u32 max_y;
+	u32 pixel_count; /**< Matching pixels inside the box (<= box area). */
+	i32 found;		 /**< Non-zero when at least one pixel matched. */
+} sk_ui_bbox_t;
+
+/** Measured result of cpu_image_assert_solid. */
+typedef struct sk_ui_solid_stats_t {
+	u32 region_pixels;		  /**< Effective region area (clamped to image). */
+	u32 nonmatching;		  /**< Pixels outside tolerance. */
+	u32 max_channel_delta;	  /**< Largest channel delta vs the expected color. */
+	sk_ui_bbox_t bad_bbox;	  /**< Tight bbox of nonmatching pixels (found=0 when clean). */
+	f32 nonmatching_fraction; /**< nonmatching / region_pixels (0..1). */
+} sk_ui_solid_stats_t;
+
+/** Measured result of cpu_image_assert_coverage. */
+typedef struct sk_ui_coverage_stats_t {
+	u32 region_pixels;
+	u32 matching; /**< Pixels matching the color spec. */
+	f32 coverage; /**< matching / region_pixels (0..1). */
+} sk_ui_coverage_stats_t;
+
+/** Expected geometry for cpu_image_assert_bbox. */
+typedef struct sk_ui_bbox_expected_t {
+	u32 min_x;
+	u32 min_y;
+	u32 max_x;
+	u32 max_y;				/**< Inclusive expected bbox. */
+	u32 position_tolerance; /**< Allowed shift of the min corner per axis (px). */
+	u32 size_tolerance;		/**< Allowed width/height delta (px). */
+	u32 min_pixels;			/**< Required matching pixel count (0 = skip; 1 typical). */
+	i32 expect_empty;		/**< Non-zero: assert NO pixel matches (geometry ignored). */
+} sk_ui_bbox_expected_t;
+
+/** Measured result of cpu_image_assert_bbox. */
+typedef struct sk_ui_bbox_assert_stats_t {
+	sk_ui_bbox_t actual; /**< Measured bbox of matching pixels. */
+	u32 expected_min_x;
+	u32 expected_min_y;
+	u32 expected_max_x;
+	u32 expected_max_y;
+	u32 expected_min_pixels;
+	i32 expect_empty;
+	i32 empty_mismatch;	   /**< Expected empty but pixels were found. */
+	i32 missing;		   /**< Expected pixels but none were found. */
+	i32 min_pixels_fail;   /**< Found, but below expected->min_pixels. */
+	i32 position_mismatch; /**< Min-corner shift beyond position_tolerance. */
+	i32 size_mismatch;	   /**< Width/height delta beyond size_tolerance. */
+	u32 delta_x;		   /**< |actual.min_x - expected.min_x|. */
+	u32 delta_y;		   /**< |actual.min_y - expected.min_y|. */
+	u32 delta_w;		   /**< |actual width - expected width|. */
+	u32 delta_h;		   /**< |actual height - expected height|. */
+} sk_ui_bbox_assert_stats_t;
+
+/** One dominant color with its measured share of the region. */
+typedef struct sk_ui_color_hist_entry_t {
+	u8 r;
+	u8 g;
+	u8 b;
+	u8 a;
+	u32 count;	  /**< Pixels of this (merged) color in the region. */
+	f32 fraction; /**< count / total_pixels (0..1). */
+} sk_ui_color_hist_entry_t;
+
+/** Measured histogram: dominant colors sorted by count descending. */
+typedef struct sk_ui_color_histogram_t {
+	u32 entry_count;
+	sk_ui_color_hist_entry_t entries[SK_UI_COLOR_HIST_MAX_ENTRIES];
+	u32 total_pixels; /**< Pixels the histogram spans (clamped region area). */
+} sk_ui_color_histogram_t;
+
+/** Expected dominant color with its allowed fraction range (inclusive). */
+typedef struct sk_ui_hist_expectation_t {
+	sk_ui_color_match_t color;
+	f32 min_fraction;
+	f32 max_fraction;
+} sk_ui_hist_expectation_t;
+
+/** Tuning for cpu_image_assert_histogram (NULL = defaults). */
+typedef struct sk_ui_hist_assert_params_t {
+	u32 max_entries;			 /**< Dominant colors to keep (default 16, capped at 16). */
+	u8 merge_tolerance;			 /**< Per-channel tolerance when merging measured colors (default 16). */
+	f32 max_unexpected_fraction; /**< Max total share of colors matching no expectation (default 0.05). */
+} sk_ui_hist_assert_params_t;
+
+/** Measured result of cpu_image_assert_histogram. */
+typedef struct sk_ui_hist_assert_stats_t {
+	sk_ui_color_histogram_t actual; /**< Measured dominant colors (top-K). */
+	u32 expected_count;
+	u32 missing_count;		 /**< Expected colors with no measured match. */
+	u32 out_of_range_count;	 /**< Expected colors present but fraction outside [min,max]. */
+	u32 unexpected_count;	 /**< Measured colors matching no expectation. */
+	f32 unexpected_fraction; /**< Total share of unexpected measured colors. */
+	/** Per-expected measured share/count (0 when the color was absent). */
+	f32 measured_fraction[SK_UI_COLOR_HIST_MAX_ENTRIES];
+	u32 measured_count[SK_UI_COLOR_HIST_MAX_ENTRIES];
+} sk_ui_hist_assert_stats_t;
+
+/* ------------------------------------------------------------------ */
 /*  Module API                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -2015,6 +2151,87 @@ typedef struct sk_ui_api_t {
 	 */
 	i32 (*cpu_image_compare_golden)(const sk_ui_cpu_image_t* actual, const_chr_t golden_path, const sk_ui_image_compare_params_t* params, const sk_filesystem_api_t* fs,
 									sk_ui_image_compare_stats_t* out_stats);
+
+	/* ---- structural image assertions beyond pixel sampling (APX-230) ---- */
+
+	/**
+	 * Assert that every pixel in @p region matches @p color within tolerance
+	 * (uniform fill). Fails when any pixel is outside tolerance; stats carry
+	 * the nonmatching count, max channel delta, and the tight bbox of the
+	 * offending pixels. Region is clamped to the image; an empty clamped
+	 * region is an ERROR (likely a test bug).
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_solid)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_color_match_t* color, sk_ui_solid_stats_t* out_stats);
+
+	/**
+	 * Assert that the fraction of @p region pixels matching @p color lies in
+	 * [min_fraction, max_fraction] (inclusive). Catches widgets that shrank,
+	 * bled, or disappeared without requiring a golden. Stats carry the
+	 * measured matching count and coverage.
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_coverage)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_color_match_t* color, f32 min_fraction, f32 max_fraction,
+									 sk_ui_coverage_stats_t* out_stats);
+
+	/**
+	 * Find the tight bounding box of all @p region pixels matching @p color.
+	 * Pure extraction (never fails on content); out_bbox->found is 0 and the
+	 * box is zeroed when nothing matches.
+	 * @return 0 on success, SK_UI_IMAGE_ASSERT_ERROR on bad arguments.
+	 */
+	i32 (*cpu_image_find_bbox)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_color_match_t* color, sk_ui_bbox_t* out_bbox);
+
+	/**
+	 * Assert the tight bbox of matching pixels matches @p expected within
+	 * position/size tolerances. Catches drift and misalignment (a shifted
+	 * widget keeps its colors, so pixel sampling misses it). Set
+	 * expected->expect_empty to assert the region contains no matching pixel.
+	 * Stats carry the measured bbox plus per-axis deltas.
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_bbox)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_color_match_t* color, const sk_ui_bbox_expected_t* expected,
+								 sk_ui_bbox_assert_stats_t* out_stats);
+
+	/**
+	 * Measure the dominant colors of @p region: colors within
+	 * @p merge_tolerance per channel are merged, then the top @p max_entries
+	 * are reported sorted by count descending (ties by color ascending, so
+	 * results are deterministic). Cheap introspection for debugging and for
+	 * building expectations.
+	 * @return 0 on success, SK_UI_IMAGE_ASSERT_ERROR on bad arguments.
+	 */
+	i32 (*cpu_image_histogram)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, u8 merge_tolerance, u32 max_entries, sk_ui_color_histogram_t* out_hist);
+
+	/**
+	 * Assert the dominant colors of @p region match @p expected: every
+	 * expected color must be present with measured fraction in
+	 * [min_fraction, max_fraction], and the total share of measured colors
+	 * matching no expectation must not exceed params->max_unexpected_fraction.
+	 * Catches wrong theming (colors appear that should not) and missing
+	 * widgets (an expected color disappears). Stats carry the full measured
+	 * histogram plus per-expected measured fractions/counts.
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_histogram)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, const sk_ui_hist_assert_params_t* params, const sk_ui_hist_expectation_t* expected,
+									  u32 expected_count, sk_ui_hist_assert_stats_t* out_stats);
+
+	/**
+	 * Stable FNV-1a 64-bit hash of the @p region bytes (dimensions folded
+	 * in, @p seed mixed in). Deterministic across runs and platforms; cheap
+	 * enough for per-frame change detection of a region before deciding
+	 * whether to run heavier assertions.
+	 * @return 0 on success, SK_UI_IMAGE_ASSERT_ERROR on bad arguments.
+	 */
+	i32 (*cpu_image_region_hash)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, u64 seed, u64* out_hash);
+
+	/**
+	 * Assert the region hash equals @p expected_hash (e.g. the value
+	 * previously returned by cpu_image_region_hash). Failures log and report
+	 * the actual hash, not just a boolean.
+	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
+	 */
+	i32 (*cpu_image_assert_region_hash)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, u64 expected_hash, u64* out_actual_hash);
 } sk_ui_api_t;
 
 /**

@@ -187,6 +187,8 @@ Soft-render is intentional for headless goldens; GPU capture remains a separate 
 
 Assert pixels with `cpu_image_compare` / `cpu_image_compare_golden` (APX-229): per-channel tolerance, max differing-pixel fraction, size-mismatch fail-fast, and on failure `{name}_actual` / `_expected` / `_diff` PNGs plus differ count, max channel delta, and bbox. **Blessing is opt-in only** (`params.update_golden` or `SK_UI_REGEN_GOLDENS=1`); review the three artifacts, rewrite the golden, then commit. See `docs/ui-plugin.md` §9.3.
 
+For layout/theme regressions that survive pixel sampling (drift, shrinkage, wrong tints), assert **structure** instead of a golden (APX-230, `docs/ui-plugin.md` §9.4): `cpu_image_assert_solid`, `cpu_image_assert_coverage`, `cpu_image_find_bbox` / `cpu_image_assert_bbox`, `cpu_image_histogram` / `cpu_image_assert_histogram`, and `cpu_image_region_hash` / `cpu_image_assert_region_hash`. All failures log the actual measured values.
+
 ### 6.4 Fonts for text goldens
 
 ```c

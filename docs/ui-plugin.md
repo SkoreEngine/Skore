@@ -838,6 +838,54 @@ i32 rc = ui->cpu_image_compare_golden(&img, "plugins/ui/testdata/my_scene.png",
 
 Do not leave `update_golden=1` or the env set in CI; blessing is opt-in only.
 
+### 9.4 Structural image assertions (beyond goldens)
+
+Golden comparison needs a committed golden and fails on any pixel difference. For layout / theme regressions that keep individual pixels moving, use the structural assertion APIs (APX-230) on `sk_ui_api_t` — they check **structure** and need no golden. Regions are half-open pixel rects `{x0, y0, x1, y1}` clamped to the image; colors are `sk_ui_color_match_t` (per-channel abs tolerance, optional alpha).
+
+| Assertion | API | Catches |
+| --- | --- | --- |
+| Uniform fill | `cpu_image_assert_solid` | A panel/button that is no longer a solid block (torn fill, wrong tint) |
+| Coverage | `cpu_image_assert_coverage` | A widget that shrank, bled, or vanished (fraction of matching pixels out of range) |
+| Bounding box | `cpu_image_find_bbox` + `cpu_image_assert_bbox` | Drift and misalignment — a shifted widget keeps its colors, so pixel sampling misses it |
+| Dominant colors | `cpu_image_histogram` + `cpu_image_assert_histogram` | Wrong theming (unexpected colors) and missing widgets (expected colors absent), with approximate proportions |
+| Region hash | `cpu_image_region_hash` + `cpu_image_assert_region_hash` | Cheap change detection: stable FNV-1a 64-bit per region; run before heavier asserts |
+
+```c
+sk_ui_region_t r = { 0, 0, 320, 240 };
+sk_ui_color_match_t c = { 0 }; /* r=g=b=a=0, tolerance=0 */
+c.r = 20; c.g = 24; c.b = 28; c.a = 255; c.tolerance = 2;
+
+/* 1. A status bar is uniformly dark gray. */
+TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK,
+    ui->cpu_image_assert_solid(&img, r, &c, NULL));
+
+/* 2. The play button fills ~25% of its region. */
+TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK,
+    ui->cpu_image_assert_coverage(&img, r, &c, 0.20f, 0.30f, NULL));
+
+/* 3. The accent bar still sits at its exact position/size. */
+sk_ui_bbox_expected_t e = { 0 };
+e.min_x = 40; e.min_y = 16; e.max_x = 279; e.max_y = 23;
+e.position_tolerance = 1; e.size_tolerance = 1; e.min_pixels = 200;
+TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK,
+    ui->cpu_image_assert_bbox(&img, r, &c, &e, NULL));
+
+/* 4. Theme check: dark gray ~70%, accent ~25%, rest <= 5%. */
+sk_ui_hist_expectation_t ex[2];
+sk_ui_color_match_t accent = c; accent.r = 220; accent.g = 120; accent.b = 0; /* orange */
+ex[0].color = c; ex[0].min_fraction = 0.65f; ex[0].max_fraction = 0.75f;
+ex[1].color = accent; ex[1].min_fraction = 0.20f; ex[1].max_fraction = 0.30f;
+TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK,
+    ui->cpu_image_assert_histogram(&img, r, NULL, ex, 2, NULL));
+
+/* 5. Cheap per-frame change gate. */
+u64 h = 0;
+ui->cpu_image_region_hash(&img, r, 0, &h);
+if (h != last_hash) { /* region changed → run the heavy asserts */ }
+```
+
+**Every failure logs the actual measured values** (nonmatching count, fraction, bbox + deltas, dominant colors with proportions, hash) — a CI log alone is actionable. Return codes: `SK_UI_IMAGE_ASSERT_OK` (0), `FAIL` (1), `ERROR` (-1, bad args such as a degenerate region). NULL `params`/`out_stats` use defaults / are optional.
+
 ---
 
 ## 10. v1 limitations (deliberately absent)

@@ -1405,6 +1405,14 @@ static const sk_ui_api_t ui_api = {
 	ui_sample_menu_logical_size_impl,
 	ui_cpu_image_compare_impl,
 	ui_cpu_image_compare_golden_impl,
+	ui_cpu_image_assert_solid_impl,
+	ui_cpu_image_assert_coverage_impl,
+	ui_cpu_image_find_bbox_impl,
+	ui_cpu_image_assert_bbox_impl,
+	ui_cpu_image_histogram_impl,
+	ui_cpu_image_assert_histogram_impl,
+	ui_cpu_image_region_hash_impl,
+	ui_cpu_image_assert_region_hash_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
