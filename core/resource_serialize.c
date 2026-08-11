@@ -7,6 +7,7 @@
 
 #include "allocator.h"
 #include "array.h"
+#include "filesystem.h"
 #include "path.h"
 
 #include <stddef.h>
@@ -19,6 +20,9 @@
 #include "test.h"
 
 #include <math.h>
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
 #endif
 
 /* Error codes (non-zero = failure; match core convention). */
@@ -1162,6 +1166,73 @@ i32 sk_resource_deserialize_package_json_string(sk_repository_t* repository, sk_
 	}
 	i32 rc = sk_resource_deserialize_package_json(repository, &reader, out_root);
 	sk_archive_reader_destroy(&reader);
+	return rc;
+}
+
+i32 sk_resource_serialize_package_json_to_file(sk_repository_t* repository, sk_rid_t root_rid, const_chr_t path) {
+	if (path == NULL || path[0] == '\0') {
+		return SK_RES_SER_ERR;
+	}
+	const sk_allocator_t* allocator = sk_allocator_default();
+	char* json = NULL;
+	u32 size = 0u;
+	i32 rc = sk_resource_serialize_package_json_alloc(repository, root_rid, allocator, &json, &size);
+	if (rc != SK_RES_SER_OK) {
+		return rc;
+	}
+
+	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	sk_file_handle_t file = fs->open_file(path, SK_FILE_ACCESS_WRITE);
+	if (file == NULL) {
+		allocator->free(allocator->instance, json);
+		return SK_RES_SER_ERR;
+	}
+	u64 written = fs->write_file(file, json, size);
+	fs->close_file(file);
+	allocator->free(allocator->instance, json);
+	if (written != size) {
+		return SK_RES_SER_ERR;
+	}
+	return SK_RES_SER_OK;
+}
+
+i32 sk_resource_deserialize_package_json_from_file(sk_repository_t* repository, const_chr_t path, sk_rid_t* out_root) {
+	*out_root = SK_RID_ZERO;
+	if (path == NULL || path[0] == '\0') {
+		return SK_RES_SER_ERR;
+	}
+
+	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	sk_file_handle_t file = fs->open_file(path, SK_FILE_ACCESS_READ);
+	if (file == NULL) {
+		return SK_RES_SER_ERR;
+	}
+
+	u64 file_size = fs->get_file_size(file);
+	/* Cap to u32 so buffer sizes stay portable across LP64 and LLP64. */
+	if (file_size == 0u || file_size > 0x7fffffffu) {
+		fs->close_file(file);
+		return SK_RES_SER_ERR;
+	}
+	u32 nbytes = (u32)file_size;
+
+	const sk_allocator_t* allocator = sk_allocator_default();
+	char* buffer = (char*)allocator->alloc(allocator->instance, nbytes + 1u);
+	if (buffer == NULL) {
+		fs->close_file(file);
+		return SK_RES_SER_ERR;
+	}
+
+	u64 read_n = fs->read_file(file, buffer, nbytes);
+	fs->close_file(file);
+	if (read_n != nbytes) {
+		allocator->free(allocator->instance, buffer);
+		return SK_RES_SER_ERR;
+	}
+	buffer[nbytes] = '\0';
+
+	i32 rc = sk_resource_deserialize_package_json_string(repository, sk_str_view_make(buffer, nbytes), allocator, out_root);
+	allocator->free(allocator->instance, buffer);
 	return rc;
 }
 
@@ -3086,6 +3157,481 @@ SK_TEST(resource_serialize_reports_unrepresentable_and_opaque_fields) {
 	TEST_ASSERT_NOT_NULL(strstr(dep_json, "1234"));
 	a->free(a->instance, dep_json);
 	api->destroy(repo);
+}
+
+/* ================================================================== */
+/*  Disk integration: package save/load through real files (APX-190)  */
+/* ================================================================== */
+
+/**
+ * Per-test temp directory fixture: unique under the OS temp folder (no CWD
+ * dependence, no shared global paths). Caller cleans with ser_it_cleanup.
+ */
+static u32 ser_it_seq;
+
+static void ser_it_make_temp_dir(char* dir, u32 dir_cap) {
+	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	char temp[SK_FS_PATH_MAX];
+	TEST_ASSERT_EQUAL_INT(0, fs->temp_folder(temp, (u32)sizeof(temp)));
+	ser_it_seq += 1u;
+	int n = snprintf(dir, dir_cap, "%s/skore_asset_it_%u", temp, ser_it_seq);
+	TEST_ASSERT_TRUE(n > 0 && (u32)n < dir_cap);
+	/* Best-effort remove leftovers from a prior crashed run with the same name. */
+	(void)fs->remove(dir);
+	TEST_ASSERT_EQUAL_INT(0, fs->create_directory(dir));
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_DIRECTORY, fs->get_file_status(dir));
+}
+
+static void ser_it_join(const_chr_t dir, const_chr_t name, char* out, u32 out_cap) {
+	TEST_ASSERT_TRUE(sk_path_join(sk_str_view_cstr(dir), sk_str_view_cstr(name), out, out_cap) >= 0);
+}
+
+static void ser_it_cleanup(const_chr_t dir, const_chr_t file_path) {
+	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	if (file_path != NULL && file_path[0] != '\0') {
+		(void)fs->remove(file_path);
+	}
+	if (dir != NULL && dir[0] != '\0') {
+		(void)fs->remove(dir);
+	}
+}
+
+static void ser_it_write_raw(const_chr_t path, const void* data, size_t size) {
+	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	sk_file_handle_t file = fs->open_file(path, SK_FILE_ACCESS_WRITE);
+	TEST_ASSERT_NOT_NULL(file);
+	TEST_ASSERT_EQUAL_UINT64((u64)size, fs->write_file(file, data, size));
+	fs->close_file(file);
+}
+
+/** Build an interlinked package graph: package → dir → assets → payloads + file refs. */
+static sk_rid_t ser_it_build_interlinked_package(sk_repository_t* repo) {
+	const sk_repository_api_t* api = sk_repository_api();
+
+	sk_rid_t package = ser_create(repo, "ResourceAssetPackage", ser_uuid(0xa1900001ull, 0xb1900001ull));
+	sk_rid_t root_dir = ser_create(repo, "ResourceAssetDirectory", ser_uuid(0xa1900002ull, 0xb1900002ull));
+	sk_rid_t dir_asset = ser_create(repo, "ResourceAsset", ser_uuid(0xa1900003ull, 0xb1900003ull));
+	sk_rid_t mesh_asset = ser_create(repo, "ResourceAsset", ser_uuid(0xa1900004ull, 0xb1900004ull));
+	sk_rid_t mat_asset = ser_create(repo, "ResourceAsset", ser_uuid(0xa1900005ull, 0xb1900005ull));
+	sk_rid_t mesh = ser_create(repo, "MeshResource", ser_uuid(0xa1900006ull, 0xb1900006ull));
+	sk_rid_t material = ser_create(repo, "MaterialGraphResource", ser_uuid(0xa1900007ull, 0xb1900007ull));
+	sk_rid_t file_meta = ser_create(repo, "ResourceAssetFile", ser_uuid(0xa1900008ull, 0xb1900008ull));
+
+	{
+		sk_resource_object_t w = api->write(repo, mesh);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, 0u, "HeroMesh"));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, material);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, 0u, "HeroMat"));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, file_meta);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FILE_FIELD_ABSOLUTE_PATH, "/pkg/Assets/Hero.mesh"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FILE_FIELD_RELATIVE_PATH, "Assets/Hero.mesh"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_ASSET_FILE_FIELD_PERSISTED_VERSION, 3u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FILE_FIELD_ASSET_REF, mesh_asset));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, mesh_asset);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "Hero"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_EXTENSION, ".mesh"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_PATH_ID, "Assets/Hero.mesh"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_FIELD_OBJECT, mesh));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_ASSET_FILE, file_meta));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_PARENT, dir_asset));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, mat_asset);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "HeroMaterial"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_EXTENSION, ".material"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_PATH_ID, "Assets/Hero.material"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_FIELD_OBJECT, material));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_PARENT, dir_asset));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, dir_asset);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "Assets"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_bool(w, SK_RESOURCE_ASSET_FIELD_DIRECTORY, 1));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_PATH_ID, "Assets"));
+		api->commit(w, NULL);
+	}
+	{
+		sk_rid_t assets[2];
+		assets[0] = mesh_asset;
+		assets[1] = mat_asset;
+		sk_resource_object_t w = api->write(repo, root_dir);
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORY_ASSET, dir_asset));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, assets, 2u));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "HeroPkg"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_ABSOLUTE_PATH, "/pkg"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT, root_dir));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_FILES, &file_meta, 1u));
+		api->commit(w, NULL);
+	}
+	return package;
+}
+
+/** Assert loaded graph matches the interlinked package built by ser_it_build_*. */
+static void ser_it_assert_interlinked_equivalent(sk_repository_t* repo, sk_rid_t root) {
+	const sk_repository_api_t* api = sk_repository_api();
+	TEST_ASSERT_TRUE(root.id != 0u);
+	TEST_ASSERT_TRUE(api->has_resource(repo, root));
+
+	sk_uuid_t root_uuid = api->resource_uuid(repo, root);
+	TEST_ASSERT_EQUAL_UINT64(0xa1900001ull, root_uuid.lo);
+	TEST_ASSERT_EQUAL_UINT64(0xb1900001ull, root_uuid.hi);
+
+	sk_resource_object_t pr = api->read(repo, root);
+	TEST_ASSERT_EQUAL_STRING("HeroPkg", api->get_string(pr, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+	TEST_ASSERT_EQUAL_STRING("/pkg", api->get_string(pr, SK_RESOURCE_ASSET_PACKAGE_FIELD_ABSOLUTE_PATH));
+
+	sk_rid_t loaded_dir = api->get_subobject(pr, SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT);
+	TEST_ASSERT_TRUE(loaded_dir.id != 0u);
+	TEST_ASSERT_TRUE(SK_UUID_EQ(api->resource_uuid(repo, loaded_dir), ser_uuid(0xa1900002ull, 0xb1900002ull)));
+
+	u32 file_count = 0u;
+	const sk_rid_t* files = api->get_subobject_list(pr, SK_RESOURCE_ASSET_PACKAGE_FIELD_FILES, &file_count);
+	TEST_ASSERT_EQUAL_UINT32(1u, file_count);
+	TEST_ASSERT_NOT_NULL(files);
+	sk_resource_object_t fr = api->read(repo, files[0]);
+	TEST_ASSERT_EQUAL_STRING("Assets/Hero.mesh", api->get_string(fr, SK_RESOURCE_ASSET_FILE_FIELD_RELATIVE_PATH));
+	TEST_ASSERT_EQUAL_UINT64(3u, api->get_uint(fr, SK_RESOURCE_ASSET_FILE_FIELD_PERSISTED_VERSION));
+
+	sk_resource_object_t dr = api->read(repo, loaded_dir);
+	sk_rid_t dir_asset = api->get_subobject(dr, SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORY_ASSET);
+	TEST_ASSERT_TRUE(dir_asset.id != 0u);
+	TEST_ASSERT_EQUAL_STRING("Assets", api->get_string(api->read(repo, dir_asset), SK_RESOURCE_ASSET_FIELD_NAME));
+
+	u32 asset_count = 0u;
+	const sk_rid_t* assets = api->get_subobject_list(dr, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, &asset_count);
+	TEST_ASSERT_EQUAL_UINT32(2u, asset_count);
+	TEST_ASSERT_NOT_NULL(assets);
+
+	/* Find mesh / material assets by stable UUID (order is BFS field walk). */
+	sk_rid_t mesh_asset = api->find_by_uuid(repo, ser_uuid(0xa1900004ull, 0xb1900004ull));
+	sk_rid_t mat_asset = api->find_by_uuid(repo, ser_uuid(0xa1900005ull, 0xb1900005ull));
+	TEST_ASSERT_TRUE(mesh_asset.id != 0u);
+	TEST_ASSERT_TRUE(mat_asset.id != 0u);
+	TEST_ASSERT_TRUE(SK_RID_EQ(assets[0], mesh_asset) || SK_RID_EQ(assets[1], mesh_asset));
+	TEST_ASSERT_TRUE(SK_RID_EQ(assets[0], mat_asset) || SK_RID_EQ(assets[1], mat_asset));
+
+	sk_resource_object_t mar = api->read(repo, mesh_asset);
+	TEST_ASSERT_EQUAL_STRING("Hero", api->get_string(mar, SK_RESOURCE_ASSET_FIELD_NAME));
+	TEST_ASSERT_EQUAL_STRING(".mesh", api->get_string(mar, SK_RESOURCE_ASSET_FIELD_EXTENSION));
+	TEST_ASSERT_EQUAL_STRING("Assets/Hero.mesh", api->get_string(mar, SK_RESOURCE_ASSET_FIELD_PATH_ID));
+	sk_rid_t mesh = api->get_subobject(mar, SK_RESOURCE_ASSET_FIELD_OBJECT);
+	TEST_ASSERT_TRUE(mesh.id != 0u);
+	TEST_ASSERT_EQUAL_STRING("HeroMesh", api->get_string(api->read(repo, mesh), 0u));
+	/* Cross-reference: AssetFile → mesh_asset and mesh_asset → AssetFile resolved. */
+	sk_rid_t back_file = api->get_reference(mar, SK_RESOURCE_ASSET_FIELD_ASSET_FILE);
+	TEST_ASSERT_TRUE(SK_RID_EQ(back_file, files[0]));
+	sk_rid_t file_ref = api->get_reference(fr, SK_RESOURCE_ASSET_FILE_FIELD_ASSET_REF);
+	TEST_ASSERT_TRUE(SK_RID_EQ(file_ref, mesh_asset));
+	sk_rid_t parent = api->get_reference(mar, SK_RESOURCE_ASSET_FIELD_PARENT);
+	TEST_ASSERT_TRUE(SK_RID_EQ(parent, dir_asset));
+
+	sk_resource_object_t matar = api->read(repo, mat_asset);
+	TEST_ASSERT_EQUAL_STRING("HeroMaterial", api->get_string(matar, SK_RESOURCE_ASSET_FIELD_NAME));
+	sk_rid_t material = api->get_subobject(matar, SK_RESOURCE_ASSET_FIELD_OBJECT);
+	TEST_ASSERT_TRUE(material.id != 0u);
+	TEST_ASSERT_EQUAL_STRING("HeroMat", api->get_string(api->read(repo, material), 0u));
+}
+
+SK_TEST(resource_serialize_it_interlinked_save_load_disk) {
+	const sk_repository_api_t* api = sk_repository_api();
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "package.json", path, (u32)sizeof(path));
+
+	sk_repository_t* src = ser_test_repo();
+	sk_rid_t package = ser_it_build_interlinked_package(src);
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(src, package, path));
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_filesystem_api()->get_file_status(path));
+	TEST_ASSERT_TRUE(sk_filesystem_api()->get_path_size(path) > 0ull);
+	api->destroy(src);
+
+	sk_repository_t* dst = ser_test_repo();
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(dst, path, &loaded));
+	ser_it_assert_interlinked_equivalent(dst, loaded);
+	api->destroy(dst);
+
+	ser_it_cleanup(dir, path);
+}
+
+SK_TEST(resource_serialize_it_empty_package_save_load_disk) {
+	const sk_repository_api_t* api = sk_repository_api();
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "empty_package.json", path, (u32)sizeof(path));
+
+	sk_repository_t* src = ser_test_repo();
+	/* Empty repository package: package root only, no Files / Root children. */
+	sk_rid_t package = ser_create(src, "ResourceAssetPackage", ser_uuid(0xa190e001ull, 0xb190e001ull));
+	{
+		sk_resource_object_t w = api->write(src, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "EmptyPkg"));
+		api->commit(w, NULL);
+	}
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(src, package, path));
+	api->destroy(src);
+
+	sk_repository_t* dst = ser_test_repo();
+	const u64 before = api->resource_count(dst);
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(dst, path, &loaded));
+	TEST_ASSERT_TRUE(loaded.id != 0u);
+	TEST_ASSERT_TRUE(api->resource_count(dst) > before);
+	sk_resource_object_t r = api->read(dst, loaded);
+	TEST_ASSERT_EQUAL_STRING("EmptyPkg", api->get_string(r, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+	TEST_ASSERT_TRUE(api->get_subobject(r, SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT).id == 0u);
+	u32 files = 0u;
+	(void)api->get_subobject_list(r, SK_RESOURCE_ASSET_PACKAGE_FIELD_FILES, &files);
+	TEST_ASSERT_EQUAL_UINT32(0u, files);
+	api->destroy(dst);
+
+	ser_it_cleanup(dir, path);
+}
+
+SK_TEST(resource_serialize_it_load_missing_directory) {
+	const sk_repository_api_t* api = sk_repository_api();
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	/* Path under a directory that was never created. */
+	ser_it_join(dir, "no_such_subdir", path, (u32)sizeof(path));
+	char missing[SK_FS_PATH_MAX];
+	ser_it_join(path, "package.json", missing, (u32)sizeof(missing));
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_NOT_FOUND, sk_filesystem_api()->get_file_status(path));
+
+	sk_repository_t* repo = ser_test_repo();
+	const u64 before = api->resource_count(repo);
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_NOT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(repo, missing, &root));
+	TEST_ASSERT_EQUAL_UINT64(0u, root.id);
+	TEST_ASSERT_EQUAL_UINT64(before, api->resource_count(repo));
+	/* Repository remains usable after the failed load. */
+	sk_rid_t still_ok = ser_create(repo, "MeshResource", ser_uuid(0xa190f001ull, 0xb190f001ull));
+	TEST_ASSERT_TRUE(still_ok.id != 0u);
+	api->destroy(repo);
+
+	ser_it_cleanup(dir, NULL);
+}
+
+SK_TEST(resource_serialize_it_load_no_read_permission) {
+	const sk_repository_api_t* api = sk_repository_api();
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "locked.json", path, (u32)sizeof(path));
+
+	sk_repository_t* src = ser_test_repo();
+	sk_rid_t package = ser_create(src, "ResourceAssetPackage", ser_uuid(0xa190a101ull, 0xb190a101ull));
+	{
+		sk_resource_object_t w = api->write(src, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "Locked"));
+		api->commit(w, NULL);
+	}
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(src, package, path));
+	api->destroy(src);
+
+#if defined(_WIN32)
+	/* ACL-based no-read is not portable in CI; skip cleanly. */
+	(void)api;
+	ser_it_cleanup(dir, path);
+	TEST_IGNORE_MESSAGE("no-read permission cannot be simulated portably on Windows");
+#else
+	if (chmod(path, 0) != 0) {
+		ser_it_cleanup(dir, path);
+		TEST_IGNORE_MESSAGE("chmod failed; cannot simulate no-read permission on this platform");
+	}
+
+	sk_repository_t* repo = ser_test_repo();
+	const u64 before = api->resource_count(repo);
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_NOT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(repo, path, &root));
+	TEST_ASSERT_EQUAL_UINT64(0u, root.id);
+	TEST_ASSERT_EQUAL_UINT64(before, api->resource_count(repo));
+	/* Remains usable. */
+	sk_rid_t ok = ser_create(repo, "MeshResource", ser_uuid(0xa190a102ull, 0xb190a102ull));
+	TEST_ASSERT_TRUE(ok.id != 0u);
+	api->destroy(repo);
+
+	/* Restore permissions so cleanup can remove the file. */
+	(void)chmod(path, 0600);
+	ser_it_cleanup(dir, path);
+#endif
+}
+
+SK_TEST(resource_serialize_it_load_corrupted_truncated_file) {
+	const sk_repository_api_t* api = sk_repository_api();
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "truncated.json", path, (u32)sizeof(path));
+
+	const char truncated[] = "{\"format\":\"sk.resource_package\",\"format_version\":1,\"root_uuid\":\"0000000000000001-0000000000000001\",\"resources\":[";
+	ser_it_write_raw(path, truncated, sizeof(truncated) - 1u);
+
+	sk_repository_t* repo = ser_test_repo();
+	const u64 before = api->resource_count(repo);
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_NOT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(repo, path, &root));
+	TEST_ASSERT_EQUAL_UINT64(0u, root.id);
+	TEST_ASSERT_EQUAL_UINT64(before, api->resource_count(repo));
+
+	/* Repository reports the error and remains usable for subsequent work. */
+	sk_rid_t package = ser_create(repo, "ResourceAssetPackage", ser_uuid(0xa190c101ull, 0xb190c101ull));
+	{
+		sk_resource_object_t w = api->write(repo, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "AfterCorrupt"));
+		api->commit(w, NULL);
+	}
+	char path_ok[SK_FS_PATH_MAX];
+	ser_it_join(dir, "ok.json", path_ok, (u32)sizeof(path_ok));
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(repo, package, path_ok));
+	sk_rid_t reloaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(repo, path_ok, &reloaded));
+	TEST_ASSERT_EQUAL_STRING("AfterCorrupt", api->get_string(api->read(repo, reloaded), SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+	api->destroy(repo);
+
+	(void)sk_filesystem_api()->remove(path);
+	(void)sk_filesystem_api()->remove(path_ok);
+	(void)sk_filesystem_api()->remove(dir);
+}
+
+SK_TEST(resource_serialize_it_load_missing_referenced_asset) {
+	const sk_repository_api_t* api = sk_repository_api();
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "missing_ref.json", path, (u32)sizeof(path));
+
+	/* Package whose Object field points at a UUID not present in resources[]. */
+	const char bad[] = "{\n"
+					   "  \"format\": \"sk.resource_package\",\n"
+					   "  \"format_version\": 1,\n"
+					   "  \"root_uuid\": \"000000000000a190-0000000000000001\",\n"
+					   "  \"resources\": [\n"
+					   "    {\n"
+					   "      \"format\": \"sk.resource\",\n"
+					   "      \"format_version\": 1,\n"
+					   "      \"type\": \"ResourceAsset\",\n"
+					   "      \"uuid\": \"000000000000a190-0000000000000001\",\n"
+					   "      \"fields\": {\n"
+					   "        \"Name\": \"Dangling\",\n"
+					   "        \"Object\": \"000000000000dead-000000000000beef\"\n"
+					   "      }\n"
+					   "    }\n"
+					   "  ]\n"
+					   "}";
+	ser_it_write_raw(path, bad, sizeof(bad) - 1u);
+
+	sk_repository_t* repo = ser_test_repo();
+	const u64 before = api->resource_count(repo);
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_MISSING_REF, sk_resource_deserialize_package_json_from_file(repo, path, &root));
+	TEST_ASSERT_EQUAL_UINT64(0u, root.id);
+	TEST_ASSERT_EQUAL_UINT64(before, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, ser_uuid(0xa190ull, 1u)).id == 0u);
+	/* Usable after failure. */
+	sk_rid_t mesh = ser_create(repo, "MeshResource", ser_uuid(0xa190d001ull, 0xb190d001ull));
+	TEST_ASSERT_TRUE(mesh.id != 0u);
+	api->destroy(repo);
+
+	ser_it_cleanup(dir, path);
+}
+
+SK_TEST(resource_serialize_it_overwrite_existing_saved_package) {
+	const sk_repository_api_t* api = sk_repository_api();
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "overwrite.json", path, (u32)sizeof(path));
+
+	/* First save. */
+	{
+		sk_repository_t* src = ser_test_repo();
+		sk_rid_t package = ser_create(src, "ResourceAssetPackage", ser_uuid(0xa190b001ull, 0xb190b001ull));
+		sk_resource_object_t w = api->write(src, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "First"));
+		api->commit(w, NULL);
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(src, package, path));
+		api->destroy(src);
+	}
+
+	/* Overwrite same path with different content / UUID. */
+	{
+		sk_repository_t* src = ser_test_repo();
+		sk_rid_t package = ser_create(src, "ResourceAssetPackage", ser_uuid(0xa190b002ull, 0xb190b002ull));
+		sk_resource_object_t w = api->write(src, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "Second"));
+		api->commit(w, NULL);
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(src, package, path));
+		api->destroy(src);
+	}
+
+	sk_repository_t* dst = ser_test_repo();
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(dst, path, &loaded));
+	TEST_ASSERT_EQUAL_STRING("Second", api->get_string(api->read(dst, loaded), SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+	sk_uuid_t u = api->resource_uuid(dst, loaded);
+	TEST_ASSERT_EQUAL_UINT64(0xa190b002ull, u.lo);
+	TEST_ASSERT_EQUAL_UINT64(0xb190b002ull, u.hi);
+	/* First UUID must not appear after overwrite. */
+	TEST_ASSERT_TRUE(api->find_by_uuid(dst, ser_uuid(0xa190b001ull, 0xb190b001ull)).id == 0u);
+	api->destroy(dst);
+
+	ser_it_cleanup(dir, path);
+}
+
+SK_TEST(resource_serialize_it_save_modify_reload_disk_wins) {
+	const sk_repository_api_t* api = sk_repository_api();
+	char dir[SK_FS_PATH_MAX];
+	char path[SK_FS_PATH_MAX];
+	ser_it_make_temp_dir(dir, (u32)sizeof(dir));
+	ser_it_join(dir, "reload_wins.json", path, (u32)sizeof(path));
+
+	sk_repository_t* repo = ser_test_repo();
+	sk_rid_t package = ser_it_build_interlinked_package(repo);
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(repo, package, path));
+
+	/* Mutate live repository after save — disk still holds original. */
+	{
+		sk_resource_object_t w = api->write(repo, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "MutatedInMemory"));
+		api->commit(w, NULL);
+	}
+	TEST_ASSERT_EQUAL_STRING("MutatedInMemory", api->get_string(api->read(repo, package), SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+
+	/* Reload from disk into a fresh repository: disk snapshot wins. */
+	sk_repository_t* reloaded_repo = ser_test_repo();
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(reloaded_repo, path, &loaded));
+	ser_it_assert_interlinked_equivalent(reloaded_repo, loaded);
+	TEST_ASSERT_EQUAL_STRING("HeroPkg", api->get_string(api->read(reloaded_repo, loaded), SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+
+	/* Also reload into the mutated repo (UUID reuse): disk values overwrite live fields. */
+	sk_rid_t same = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_from_file(repo, path, &same));
+	TEST_ASSERT_TRUE(SK_RID_EQ(same, package));
+	TEST_ASSERT_EQUAL_STRING("HeroPkg", api->get_string(api->read(repo, package), SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+
+	api->destroy(reloaded_repo);
+	api->destroy(repo);
+	ser_it_cleanup(dir, path);
 }
 
 #endif /* SK_TESTS */

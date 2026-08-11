@@ -149,6 +149,30 @@ i32 sk_resource_serialize_package_json_alloc(sk_repository_t* repository, sk_rid
  */
 i32 sk_resource_deserialize_package_json_string(sk_repository_t* repository, sk_str_view_t json, const sk_allocator_t* allocator, sk_rid_t* out_root);
 
+/**
+ * Serialize a package graph to a single JSON file at @p path (creates/truncates).
+ * Uses the host filesystem API (requires sk-app linked).
+ *
+ * @param repository Repository (must not be NULL).
+ * @param root_rid   Package root (or graph root).
+ * @param path       UTF-8 destination file path (must not be NULL/empty).
+ * @return 0 on success; non-zero on serialize or I/O failure.
+ */
+i32 sk_resource_serialize_package_json_to_file(sk_repository_t* repository, sk_rid_t root_rid, const_chr_t path);
+
+/**
+ * Deserialize a package graph from a JSON file at @p path.
+ * Missing path, unreadable file, parse errors, and validation failures all
+ * return non-zero; on failure @p out_root is SK_RID_ZERO and the repository is
+ * not left partially mutated (same transaction rules as the string API).
+ *
+ * @param repository Repository (must not be NULL; types must be registered).
+ * @param path       UTF-8 source file path (must not be NULL/empty).
+ * @param out_root   Receives the root resource RID (must not be NULL).
+ * @return 0 on success; non-zero on I/O / parse / validation failure.
+ */
+i32 sk_resource_deserialize_package_json_from_file(sk_repository_t* repository, const_chr_t path, sk_rid_t* out_root);
+
 #ifdef __cplusplus
 }
 #endif
