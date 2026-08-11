@@ -26,6 +26,7 @@
 #include "profiler.h"
 
 #include "app.h"
+#include "logger.h"
 #include "platform.h"
 
 #include <stdio.h>
@@ -51,6 +52,7 @@ typedef struct sk_profiler_buffer_t {
 	sk_query_pool_t query_pool;
 	u32 query_index;
 	bool query_pool_reset;
+	f64 frame_wall_time; /* wall-clock time of the frame this buffer recorded */
 } sk_profiler_buffer_t;
 
 typedef struct sk_profiler_context_t {
@@ -252,6 +254,8 @@ static void build_tasks(sk_profiler_context_t* ctx, bool gpu) {
 		ctx->tasks[i].cpu_time = 0.0;
 		ctx->tasks[i].gpu_time = 0.0;
 		ctx->tasks[i].has_gpu = false;
+		ctx->tasks[i].cpu_calls = 0u;
+		ctx->tasks[i].gpu_calls = 0u;
 	}
 
 	i32 path_stack[SK_PROFILER_MAX_SAMPLES];
@@ -297,11 +301,14 @@ static void build_tasks(sk_profiler_context_t* ctx, bool gpu) {
 			created->gpu_count = 0u;
 			created->has_gpu = false;
 			created->present = false;
+			created->cpu_calls = 0u;
+			created->gpu_calls = 0u;
 		}
 
 		sk_profiler_task_entry_t* task = &ctx->tasks[idx];
 		task->present = true;
 		task->cpu_time += sample->cpu_end - sample->cpu_start;
+		task->cpu_calls++;
 
 		if (sample->has_gpu && has_gpu_results) {
 			u64 start_tick = gpu_timestamps[sample->gpu_query_start];
@@ -310,6 +317,7 @@ static void build_tasks(sk_profiler_context_t* ctx, bool gpu) {
 			if (end_tick > start_tick) {
 				task->gpu_time += (f64)(end_tick - start_tick) * (f64)timestamp_period * 1e-9;
 				task->has_gpu = true;
+				task->gpu_calls++;
 			}
 		}
 
@@ -439,8 +447,12 @@ static void profiler_begin_frame(void) {
 
 	f64 now = platform_api->monotonic_seconds();
 	if (has_last_frame) {
-		/* Wall-clock frame time is the CPU profiler's frame stat. */
-		accumulate_frame_stat(&cpu_ctx, now - frame_start_seconds);
+		f64 delta = now - frame_start_seconds;
+		/* Wall-clock frame time is the CPU profiler's frame stat. Tag the
+		 * buffer that recorded the just-ended frame so reports can express
+		 * task times as a percentage of their own frame's wall time. */
+		accumulate_frame_stat(&cpu_ctx, delta);
+		cpu_ctx.buffers[(cpu_ctx.write_idx + SK_PROFILER_BUFFER_COUNT - 1) % SK_PROFILER_BUFFER_COUNT].frame_wall_time = delta;
 	}
 	has_last_frame = true;
 	frame_start_seconds = now;
@@ -505,6 +517,272 @@ static sk_profiler_frame_stats_t profiler_get_gpu_frame_stats(void) {
 	return stats;
 }
 
+/* ---- reporting (text + JSON + log; dump_report / dump_report_json / log_report) ---- */
+
+/* Line sink: renderers emit complete lines through this callback so the same
+ * text renderer backs the file dump and the console/log form. */
+typedef void (*sk_profiler_report_emit_fn)(void* user, const_chr_t line);
+
+static void report_emit_to_file(void* user, const_chr_t line) {
+	fputs(line, (FILE*)user);
+	fputc('\n', (FILE*)user);
+}
+
+static void report_emit_to_log(void* user, const_chr_t line) {
+	sk_log_info(sk_logger_api(), (sk_logger_t*)user, "%s", line);
+}
+
+static f64 report_pct_of(f64 part, f64 total) {
+	return (total > 0.0) ? (part / total) * 100.0 : 0.0;
+}
+
+/* Which side of a task entry a section renders (cpu_* vs gpu_* fields). */
+typedef struct sk_profiler_report_side_t {
+	bool gpu;
+	f64 frame_time;		  /* the built frame's own time (seconds); %% reference */
+	f64 frame_total_time; /* cumulative reference: avg frame time x frames */
+} sk_profiler_report_side_t;
+
+/* Cumulative-summary ordering: largest cumulative total first (stable
+ * tie-break on task index). Insertion sort: at most SK_PROFILER_MAX_SAMPLES
+ * entries, no external sort dependency. */
+static void report_sort_order(u32* order, u32 count, const sk_profiler_task_entry_t* tasks, bool gpu) {
+	for (u32 i = 1u; i < count; i++) {
+		u32 key = order[i];
+		f64 key_total = (gpu ? tasks[key].gpu_avg : tasks[key].cpu_avg) * (f64)(gpu ? tasks[key].gpu_count : tasks[key].cpu_count);
+		i32 j = (i32)i - 1;
+		while (j >= 0) {
+			u32 other = order[j];
+			f64 other_total = (gpu ? tasks[other].gpu_avg : tasks[other].cpu_avg) * (f64)(gpu ? tasks[other].gpu_count : tasks[other].cpu_count);
+			/* -Wfloat-equal is on: express equality without ==. */
+			bool equal = !(other_total > key_total) && !(key_total > other_total);
+			if (other_total > key_total || (equal && other < key)) {
+				order[j + 1] = order[j];
+				j--;
+			} else {
+				break;
+			}
+		}
+		order[j + 1] = key;
+	}
+}
+
+/* One per-frame task-tree line: nesting indent, name, total, % of frame,
+ * per-frame call count, rolling count/min/max/avg, cumulative total + % of
+ * the average frame. */
+static void report_task_line(char* line, u32 line_cap, const sk_profiler_task_entry_t* task, const sk_profiler_report_side_t* side) {
+	f64 total = side->gpu ? task->gpu_time : task->cpu_time;
+	f64 tmin = side->gpu ? task->gpu_min : task->cpu_min;
+	f64 tmax = side->gpu ? task->gpu_max : task->cpu_max;
+	f64 tavg = side->gpu ? task->gpu_avg : task->cpu_avg;
+	u32 calls = side->gpu ? task->gpu_calls : task->cpu_calls;
+	u32 count = side->gpu ? task->gpu_count : task->cpu_count;
+	f64 cumulative = tavg * (f64)count;
+
+	int n = snprintf(line, line_cap, "%*s%s  %s %9.3f ms  %6.2f%% frame  (calls %u, %u frames, avg %7.3f, min %7.3f, max %7.3f)  cum %9.3f ms (%6.2f%%)", (int)task->depth * 2, "",
+					 task->name, side->gpu ? "gpu" : "cpu", total * 1000.0, report_pct_of(total, side->frame_time), calls, count, tavg * 1000.0, tmin * 1000.0, tmax * 1000.0,
+					 cumulative * 1000.0, report_pct_of(cumulative, side->frame_total_time));
+	if (n >= 0 && task->category[0] != '\0' && (u32)n + 2u < line_cap) {
+		snprintf(line + n, line_cap - (u32)n, "  [%s]", task->category);
+	}
+}
+
+static void report_render_side_text(sk_profiler_report_emit_fn emit, void* user, const_chr_t side_name, const sk_profiler_task_entry_t* tasks, u32 task_count,
+									const sk_profiler_report_side_t* side) {
+	char line[512];
+	u32 present_count = 0u;
+
+	snprintf(line, sizeof(line), "%s tasks (last built frame, %% of frame):", side_name);
+	emit(user, line);
+	for (u32 i = 0u; i < task_count; i++) {
+		if (!tasks[i].present) {
+			continue;
+		}
+		report_task_line(line, (u32)sizeof(line), &tasks[i], side);
+		emit(user, line);
+		present_count++;
+	}
+	if (present_count == 0u) {
+		emit(user, "  (no tasks in the last built frame)");
+	}
+
+	/* Cumulative summary: every task ever recorded, largest total first. */
+	u32 order[SK_PROFILER_MAX_SAMPLES];
+	u32 order_count = 0u;
+	for (u32 i = 0u; i < task_count; i++) {
+		u32 count = side->gpu ? tasks[i].gpu_count : tasks[i].cpu_count;
+		if (count > 0u) {
+			order[order_count++] = i;
+		}
+	}
+	report_sort_order(order, order_count, tasks, side->gpu);
+
+	snprintf(line, sizeof(line), "Cumulative %s summary (all recorded frames, %% of avg frame):", side_name);
+	emit(user, line);
+	if (order_count == 0u) {
+		emit(user, "  (no tasks recorded)");
+	}
+	for (u32 i = 0u; i < order_count; i++) {
+		const sk_profiler_task_entry_t* task = &tasks[order[i]];
+		f64 tmin = side->gpu ? task->gpu_min : task->cpu_min;
+		f64 tmax = side->gpu ? task->gpu_max : task->cpu_max;
+		f64 tavg = side->gpu ? task->gpu_avg : task->cpu_avg;
+		u32 count = side->gpu ? task->gpu_count : task->cpu_count;
+		f64 cumulative = tavg * (f64)count;
+		snprintf(line, sizeof(line), "  %-24s total %9.3f ms   avg %7.3f   min %7.3f   max %7.3f   %4u frames   %6.2f%% of avg frame", task->name, cumulative * 1000.0,
+				 tavg * 1000.0, tmin * 1000.0, tmax * 1000.0, count, report_pct_of(cumulative, side->frame_total_time));
+		emit(user, line);
+	}
+}
+
+static void profiler_render_text(sk_profiler_report_emit_fn emit, void* user) {
+	char line[512];
+
+	emit(user, "Skore profiler report");
+	emit(user, "=====================");
+	snprintf(line, sizeof(line), "Recording: %s", profiler_is_active() ? "active" : "inactive");
+	emit(user, line);
+
+	/* CPU section: rolling frame stats + per-frame tree + cumulative summary.
+	 * The per-frame %% reference is the built frame's own wall time (the
+	 * rolling "current" stat belongs to a newer, possibly unbuilt frame). */
+	sk_profiler_frame_stats_t cpu_stats = profiler_get_cpu_frame_stats();
+	snprintf(line, sizeof(line), "CPU frame: current %.3f ms, min %.3f ms, max %.3f ms, avg %.3f ms (%u frames)", cpu_stats.current * 1000.0, cpu_stats.min * 1000.0,
+			 cpu_stats.max * 1000.0, cpu_stats.avg * 1000.0, cpu_stats.count);
+	emit(user, line);
+
+	u32 cpu_count = 0u;
+	const sk_profiler_task_entry_t* cpu_tasks = NULL;
+	profiler_get_cpu_tasks(&cpu_tasks, &cpu_count);
+	sk_profiler_report_side_t cpu_side;
+	cpu_side.gpu = false;
+	cpu_side.frame_time = cpu_ctx.buffers[cpu_ctx.read_idx].frame_wall_time;
+	cpu_side.frame_total_time = cpu_stats.avg * (f64)cpu_stats.count;
+	report_render_side_text(emit, user, "CPU", cpu_tasks, cpu_count, &cpu_side);
+
+	/* GPU section. */
+	sk_profiler_frame_stats_t gpu_stats = profiler_get_gpu_frame_stats();
+	snprintf(line, sizeof(line), "\nGPU frame: current %.3f ms, min %.3f ms, max %.3f ms, avg %.3f ms (%u frames)", gpu_stats.current * 1000.0, gpu_stats.min * 1000.0,
+			 gpu_stats.max * 1000.0, gpu_stats.avg * 1000.0, gpu_stats.count);
+	emit(user, line);
+
+	u32 gpu_count = 0u;
+	const sk_profiler_task_entry_t* gpu_tasks = NULL;
+	profiler_get_gpu_tasks(&gpu_tasks, &gpu_count);
+	sk_profiler_report_side_t gpu_side;
+	gpu_side.gpu = true;
+	gpu_side.frame_time = gpu_stats.current;
+	gpu_side.frame_total_time = gpu_stats.avg * (f64)gpu_stats.count;
+	report_render_side_text(emit, user, "GPU", gpu_tasks, gpu_count, &gpu_side);
+}
+
+/* JSON: escape a string into a buffer (quotes, backslashes, control chars). */
+static void report_json_escape(char* dst, u32 dst_cap, const_chr_t src) {
+	u32 o = 0u;
+	for (const_chr_t p = src; *p != '\0' && o + 6u < dst_cap; p++) {
+		unsigned char c = (unsigned char)*p;
+		switch (c) {
+		case '"':
+			dst[o++] = '\\';
+			dst[o++] = '"';
+			break;
+		case '\\':
+			dst[o++] = '\\';
+			dst[o++] = '\\';
+			break;
+		case '\n':
+			dst[o++] = '\\';
+			dst[o++] = 'n';
+			break;
+		case '\r':
+			dst[o++] = '\\';
+			dst[o++] = 'r';
+			break;
+		case '\t':
+			dst[o++] = '\\';
+			dst[o++] = 't';
+			break;
+		default:
+			if (c < 0x20u) {
+				dst[o++] = '\\';
+				dst[o++] = 'u';
+				o += (u32)snprintf(dst + o, dst_cap - o, "%04x", (unsigned)c);
+			} else {
+				dst[o++] = (char)c;
+			}
+		}
+	}
+	dst[o] = '\0';
+}
+
+static void report_json_task(FILE* out, const sk_profiler_task_entry_t* task, const sk_profiler_report_side_t* side, bool last) {
+	char name[SK_PROFILER_NAME_CAP * 2u + 2u];
+	char category[SK_PROFILER_CATEGORY_CAP * 2u + 2u];
+	f64 total = side->gpu ? task->gpu_time : task->cpu_time;
+	f64 tmin = side->gpu ? task->gpu_min : task->cpu_min;
+	f64 tmax = side->gpu ? task->gpu_max : task->cpu_max;
+	f64 tavg = side->gpu ? task->gpu_avg : task->cpu_avg;
+	u32 calls = side->gpu ? task->gpu_calls : task->cpu_calls;
+	u32 count = side->gpu ? task->gpu_count : task->cpu_count;
+	f64 cumulative = tavg * (f64)count;
+
+	report_json_escape(name, (u32)sizeof(name), task->name);
+	report_json_escape(category, (u32)sizeof(category), task->category);
+
+	fprintf(out,
+			"\t\t{\"name\":\"%s\",\"category\":\"%s\",\"depth\":%d,\"color\":%u,\"present\":%s,\"calls\":%u,\"count\":%u,\"frame_total_ms\":%.6f,\"min_ms\":%.6f,\"max_ms\":%.6f,"
+			"\"avg_ms\":%.6f,\"frame_pct\":%.6f,\"cumulative_ms\":%.6f,\"cumulative_pct\":%.6f}%s\n",
+			name, category, task->depth, task->color, task->present ? "true" : "false", calls, count, total * 1000.0, tmin * 1000.0, tmax * 1000.0, tavg * 1000.0,
+			report_pct_of(total, side->frame_time), cumulative * 1000.0, report_pct_of(cumulative, side->frame_total_time), last ? "" : ",");
+}
+
+static void report_render_side_json(FILE* out, const_chr_t side_name, const sk_profiler_task_entry_t* tasks, u32 task_count, const sk_profiler_report_side_t* side,
+									sk_profiler_frame_stats_t stats) {
+	fprintf(out, "\t\"%s\": {\n", side_name);
+	fprintf(out, "\t\t\"frame_stats_ms\": {\"current\":%.6f,\"min\":%.6f,\"max\":%.6f,\"avg\":%.6f,\"count\":%u},\n", stats.current * 1000.0, stats.min * 1000.0,
+			stats.max * 1000.0, stats.avg * 1000.0, stats.count);
+	fprintf(out, "\t\t\"tasks\": [\n");
+	u32 emitted = 0u;
+	for (u32 i = 0u; i < task_count; i++) {
+		report_json_task(out, &tasks[i], side, i + 1u == task_count);
+		emitted++;
+	}
+	if (emitted == 0u) {
+		fprintf(out, "\t\t\t{\"name\":\"\",\"category\":\"\",\"depth\":0,\"color\":0,\"present\":false,\"calls\":0,\"count\":0,\"frame_total_ms\":0.0,\"min_ms\":0.0,\"max_ms\":0."
+					 "0,\"avg_ms\":0.0,\"frame_pct\":0.0,\"cumulative_ms\":0.0,\"cumulative_pct\":0.0}\n");
+	}
+	fprintf(out, "\t\t]\n\t}\n");
+}
+
+static void profiler_render_json(FILE* out) {
+	fprintf(out, "{\n");
+	fprintf(out, "\t\"format\": \"skore.profiler.report\",\n");
+	fprintf(out, "\t\"version\": 1,\n");
+	fprintf(out, "\t\"recording\": %s,\n", profiler_is_active() ? "true" : "false");
+
+	sk_profiler_frame_stats_t cpu_stats = profiler_get_cpu_frame_stats();
+	u32 cpu_count = 0u;
+	const sk_profiler_task_entry_t* cpu_tasks = NULL;
+	profiler_get_cpu_tasks(&cpu_tasks, &cpu_count);
+	sk_profiler_report_side_t cpu_side;
+	cpu_side.gpu = false;
+	cpu_side.frame_time = cpu_ctx.buffers[cpu_ctx.read_idx].frame_wall_time;
+	cpu_side.frame_total_time = cpu_stats.avg * (f64)cpu_stats.count;
+	report_render_side_json(out, "cpu", cpu_tasks, cpu_count, &cpu_side, cpu_stats);
+	fprintf(out, ",\n");
+
+	sk_profiler_frame_stats_t gpu_stats = profiler_get_gpu_frame_stats();
+	u32 gpu_count = 0u;
+	const sk_profiler_task_entry_t* gpu_tasks = NULL;
+	profiler_get_gpu_tasks(&gpu_tasks, &gpu_count);
+	sk_profiler_report_side_t gpu_side;
+	gpu_side.gpu = true;
+	gpu_side.frame_time = gpu_stats.current;
+	gpu_side.frame_total_time = gpu_stats.avg * (f64)gpu_stats.count;
+	report_render_side_json(out, "gpu", gpu_tasks, gpu_count, &gpu_side, gpu_stats);
+	fprintf(out, "}\n");
+}
+
 static i32 profiler_dump_report(const_chr_t path) {
 	if (path == NULL) {
 		return -1;
@@ -514,58 +792,36 @@ static i32 profiler_dump_report(const_chr_t path) {
 	if (out == NULL) {
 		return -1;
 	}
-
-	fputs("Skore profiler report\n=====================\n", out);
-	fprintf(out, "Recording: %s\n\n", profiler_is_active() ? "active" : "inactive");
-
-	/* CPU section: rolling frame stats + task tree. */
-	sk_profiler_frame_stats_t cpu_stats = profiler_get_cpu_frame_stats();
-	fprintf(out, "CPU frame: current %.3f ms, min %.3f ms, max %.3f ms, avg %.3f ms (%u frames)\n", cpu_stats.current * 1000.0, cpu_stats.min * 1000.0, cpu_stats.max * 1000.0,
-			cpu_stats.avg * 1000.0, cpu_stats.count);
-	fputs("CPU tasks:\n", out);
-
-	u32 cpu_count = 0u;
-	const sk_profiler_task_entry_t* cpu_tasks = NULL;
-	profiler_get_cpu_tasks(&cpu_tasks, &cpu_count);
-	for (u32 i = 0u; i < cpu_count; i++) {
-		const sk_profiler_task_entry_t* task = &cpu_tasks[i];
-		if (!task->present) {
-			continue;
-		}
-		fprintf(out, "%*s%s  cpu %.3f ms (avg %.3f, min %.3f, max %.3f, %u frames, color 0x%08X)", (int)task->depth * 2, "", task->name, task->cpu_time * 1000.0,
-				task->cpu_avg * 1000.0, task->cpu_min * 1000.0, task->cpu_max * 1000.0, task->cpu_count, task->color);
-		if (task->category[0] != '\0') {
-			fprintf(out, " [%s]", task->category);
-		}
-		if (task->has_gpu) {
-			fprintf(out, "  gpu %.3f ms", task->gpu_time * 1000.0);
-		}
-		fputc('\n', out);
-	}
-
-	/* GPU section: rolling frame stats + task tree. */
-	sk_profiler_frame_stats_t gpu_stats = profiler_get_gpu_frame_stats();
-	fprintf(out, "\nGPU frame: current %.3f ms, min %.3f ms, max %.3f ms, avg %.3f ms (%u frames)\n", gpu_stats.current * 1000.0, gpu_stats.min * 1000.0, gpu_stats.max * 1000.0,
-			gpu_stats.avg * 1000.0, gpu_stats.count);
-	fputs("GPU tasks:\n", out);
-
-	u32 gpu_count = 0u;
-	const sk_profiler_task_entry_t* gpu_tasks = NULL;
-	profiler_get_gpu_tasks(&gpu_tasks, &gpu_count);
-	for (u32 i = 0u; i < gpu_count; i++) {
-		const sk_profiler_task_entry_t* task = &gpu_tasks[i];
-		if (!task->present) {
-			continue;
-		}
-		fprintf(out, "%*s%s  gpu %.3f ms (avg %.3f, min %.3f, max %.3f, %u frames, color 0x%08X)", (int)task->depth * 2, "", task->name, task->gpu_time * 1000.0,
-				task->gpu_avg * 1000.0, task->gpu_min * 1000.0, task->gpu_max * 1000.0, task->gpu_count, task->color);
-		if (task->category[0] != '\0') {
-			fprintf(out, " [%s]", task->category);
-		}
-		fputc('\n', out);
-	}
-
+	profiler_render_text(report_emit_to_file, out);
 	fclose(out);
+	return 0;
+}
+
+static i32 profiler_dump_report_json(const_chr_t path) {
+	if (path == NULL) {
+		return -1;
+	}
+
+	FILE* out = fopen(path, "w");
+	if (out == NULL) {
+		return -1;
+	}
+	profiler_render_json(out);
+	fclose(out);
+	return 0;
+}
+
+static i32 profiler_log_report(void) {
+	const sk_logger_api_t* logger_api = sk_logger_api();
+	if (logger_api == NULL) {
+		return -1;
+	}
+	sk_logger_t* log = logger_api->create_logger("profiler");
+	if (log == NULL) {
+		return -1;
+	}
+	profiler_render_text(report_emit_to_log, log);
+	logger_api->destroy_logger(log);
 	return 0;
 }
 
@@ -618,6 +874,8 @@ static const sk_profiler_api_t profiler_api = {
 	.get_cpu_frame_stats = profiler_get_cpu_frame_stats,
 	.get_gpu_frame_stats = profiler_get_gpu_frame_stats,
 	.dump_report = profiler_dump_report,
+	.dump_report_json = profiler_dump_report_json,
+	.log_report = profiler_log_report,
 	.reset_stats = profiler_reset_stats,
 	.set_active = profiler_set_active,
 	.is_active = profiler_is_active,
@@ -668,6 +926,8 @@ SK_TEST(profiler_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(api->get_cpu_frame_stats);
 	TEST_ASSERT_NOT_NULL(api->get_gpu_frame_stats);
 	TEST_ASSERT_NOT_NULL(api->dump_report);
+	TEST_ASSERT_NOT_NULL(api->dump_report_json);
+	TEST_ASSERT_NOT_NULL(api->log_report);
 	TEST_ASSERT_NOT_NULL(api->reset_stats);
 	TEST_ASSERT_NOT_NULL(api->set_active);
 	TEST_ASSERT_NOT_NULL(api->is_active);
@@ -1065,6 +1325,8 @@ SK_TEST(profiler_dump_report_writes_text) {
 	TEST_ASSERT_NOT_NULL(f);
 	bool found_zone = false;
 	bool found_category = false;
+	bool found_pct = false;
+	bool found_cumulative = false;
 	char line[256];
 	while (fgets(line, sizeof(line), f) != NULL) {
 		if (strstr(line, "dumpzone") != NULL) {
@@ -1073,11 +1335,120 @@ SK_TEST(profiler_dump_report_writes_text) {
 		if (strstr(line, "[io]") != NULL) {
 			found_category = true;
 		}
+		if (strstr(line, "% frame") != NULL || strstr(line, "% of frame") != NULL) {
+			found_pct = true;
+		}
+		if (strstr(line, "Cumulative") != NULL) {
+			found_cumulative = true;
+		}
 	}
 	fclose(f);
 	(void)remove(path);
 	TEST_ASSERT_TRUE(found_zone);
 	TEST_ASSERT_TRUE(found_category);
+	TEST_ASSERT_TRUE(found_pct);
+	TEST_ASSERT_TRUE(found_cumulative);
+	api->set_active(false);
+}
+
+SK_TEST(profiler_dump_report_json_writes_machine_readable) {
+	const sk_profiler_api_t* api = sk_profiler_test_table();
+	profiler_test_reset(api);
+
+	/* NULL path is rejected without crashing. */
+	TEST_ASSERT_TRUE(api->dump_report_json(NULL) != 0);
+
+	api->begin_frame(); /* frame 0 */
+	api->begin_cpu_sample("jsonzone", "net", 0u);
+	api->end_cpu_sample();
+	api->begin_frame();
+	api->begin_frame(); /* builds frame 0 */
+
+	const char* path = "sk_profiler_dump_test.json";
+	TEST_ASSERT_EQUAL_INT(0, api->dump_report_json(path));
+
+	FILE* f = fopen(path, "r");
+	TEST_ASSERT_NOT_NULL(f);
+	bool found_format = false;
+	bool found_zone = false;
+	bool found_frame_pct = false;
+	bool found_cumulative_pct = false;
+	char line[512];
+	while (fgets(line, sizeof(line), f) != NULL) {
+		if (strstr(line, "\"format\"") != NULL && strstr(line, "skore.profiler.report") != NULL) {
+			found_format = true;
+		}
+		if (strstr(line, "\"name\":\"jsonzone\"") != NULL) {
+			found_zone = true;
+		}
+		if (strstr(line, "\"frame_pct\"") != NULL) {
+			found_frame_pct = true;
+		}
+		if (strstr(line, "\"cumulative_pct\"") != NULL) {
+			found_cumulative_pct = true;
+		}
+	}
+	fclose(f);
+	(void)remove(path);
+	TEST_ASSERT_TRUE(found_format);
+	TEST_ASSERT_TRUE(found_zone);
+	TEST_ASSERT_TRUE(found_frame_pct);
+	TEST_ASSERT_TRUE(found_cumulative_pct);
+	api->set_active(false);
+}
+
+/* Capture sink for log_report: records every emitted line. */
+typedef struct sk_profiler_capture_sink_t {
+	char lines[64][128];
+	u32 count;
+} sk_profiler_capture_sink_t;
+
+static void profiler_capture_print(void_ptr_t user_data, sk_logger_type_t level, const_chr_t logger_name, const_chr_t message) {
+	sk_profiler_capture_sink_t* cap = (sk_profiler_capture_sink_t*)user_data;
+	(void)level;
+	(void)logger_name;
+	if (cap->count < 64u) {
+		(void)snprintf(cap->lines[cap->count], 128u, "%s", message);
+		cap->count++;
+	}
+}
+
+SK_TEST(profiler_log_report_emits_console_form) {
+	const sk_profiler_api_t* api = sk_profiler_test_table();
+	profiler_test_reset(api);
+
+	api->begin_frame(); /* frame 0 */
+	api->begin_cpu_sample("logzone", NULL, 0u);
+	api->end_cpu_sample();
+	api->begin_frame();
+	api->begin_frame(); /* builds frame 0 */
+
+	const sk_logger_api_t* logger_api = sk_logger_api();
+	TEST_ASSERT_NOT_NULL(logger_api);
+	sk_profiler_capture_sink_t cap;
+	memset(&cap, 0, sizeof(cap));
+	sk_log_sink_t sink;
+	memset(&sink, 0, sizeof(sink));
+	sink.user_data = &cap;
+	sink.print = profiler_capture_print;
+	TEST_ASSERT_EQUAL_INT(0, logger_api->add_sink(&sink));
+
+	TEST_ASSERT_EQUAL_INT(0, api->log_report());
+	TEST_ASSERT_EQUAL_INT(0, logger_api->remove_sink(&sink));
+
+	TEST_ASSERT_TRUE(cap.count > 0u);
+	bool found_header = false;
+	bool found_zone = false;
+	for (u32 i = 0u; i < cap.count; i++) {
+		if (strstr(cap.lines[i], "Skore profiler report") != NULL) {
+			found_header = true;
+		}
+		if (strstr(cap.lines[i], "logzone") != NULL) {
+			found_zone = true;
+		}
+	}
+	TEST_ASSERT_TRUE(found_header);
+	TEST_ASSERT_TRUE(found_zone);
 	api->set_active(false);
 }
 

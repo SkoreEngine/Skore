@@ -438,3 +438,13 @@ only).
   optional Tracy** — all have straightforward C or “do not port” answers.
 - Proceed with `sk-profiler` under `plugins/profiler/` in a follow-up
   implementation task; this audit is documentation only.
+
+---
+
+## 7. Follow-up status
+
+| Task | Result |
+| ---- | ------ |
+| APX-198 | C API contract frozen: `sk_profiler_api_t` with zone category/color, `dump_report` entry point, `_EX` macros. |
+| APX-199/200 | Plugin lifecycle integrated (host begin/end frame in `sk_app_tick`), compile-switchable `SK_PROFILE_*` macros, player frame zone. |
+| APX-201 | Report path live: `dump_report` (text), `dump_report_json` (versioned JSON), `log_report` (console/log) with per-frame + cumulative aggregation (call counts, total/min/max/avg, % of frame, nesting). Engine call sites instrumented: main-loop phases (`app tick` → `tick timing`), ECS (`ecs spawn` / `ecs despawn` / `ecs scheduler run`), render graph (`rg begin` / `rg compile` / `rg execute`). Verified end to end with `SK_ENABLE_PROFILER=ON` (see `app_profiler_report_end_to_end`). Still no Tracy / third-party backend. |

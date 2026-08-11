@@ -10,6 +10,7 @@
 #include "platform.h"
 #include "profiler.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* Platform backend: register static table on the app context (not in core). */
@@ -334,15 +335,43 @@ static void unload_plugins(sk_app_context_t* context) {
 
 /* ---- auto-load shared libraries from {app_folder}/plugins ---- */
 
+/* Filename collection for deterministic load order (see below). */
+typedef struct sk_plugin_file_t {
+	char name[SK_FS_PATH_MAX];
+} sk_plugin_file_t;
+
+enum { SK_PLUGIN_FILE_CAP = 64u };
+
+static void sort_plugin_files(sk_plugin_file_t* files, u32 count) {
+	/* Insertion sort by filename (strcmp). Small lists; keeps the load order
+	 * deterministic across filesystems (readdir order is not). */
+	for (u32 i = 1u; i < count; i++) {
+		sk_plugin_file_t key = files[i];
+		i32 j = (i32)i - 1;
+		while (j >= 0 && strcmp(files[j].name, key.name) > 0) {
+			files[j + 1] = files[j];
+			j--;
+		}
+		files[j + 1] = key;
+	}
+}
+
 /**
  * Scan @p dir for shared libraries and load each via sk_app_load_plugin_impl.
  * Missing files / bad plugins are skipped (best-effort). Always returns 0.
+ *
+ * Files are loaded in sorted filename order: plugin entry points register
+ * tables on the app registry, and instrumented plugins (sk-entities,
+ * sk-render-graph) cache the sk-profiler table when they register — a
+ * deterministic order (sk-profiler before sk-render-graph) makes that
+ * resolution reliable on every filesystem.
  */
 static i32 load_plugins_from_directory(sk_app_context_t* context, const_chr_t dir) {
-	char name[SK_FS_PATH_MAX];
 	char full_path[SK_FS_PATH_MAX];
 	u32 attempted = 0u;
 	u32 loaded = 0u;
+	sk_plugin_file_t files[SK_PLUGIN_FILE_CAP];
+	u32 file_count = 0u;
 
 	if (dir[0] == '\0') {
 		return 0;
@@ -362,11 +391,19 @@ static i32 load_plugins_from_directory(sk_app_context_t* context, const_chr_t di
 		sk_log_info(sk_logger_api(), context->log, "scanning plugins directory: %s", dir);
 	}
 
-	while (fs->next_directory(it, name, (u32)sizeof(name)) == 0) {
-		if (!sk_is_shared_library_filename(name)) {
-			continue;
+	/* Collect candidate filenames straight into the array (next_directory is
+	 * an out-param writer; no intermediate buffer needed). */
+	while (file_count < SK_PLUGIN_FILE_CAP && fs->next_directory(it, files[file_count].name, (u32)sizeof(files[file_count].name)) == 0) {
+		if (!sk_is_shared_library_filename(files[file_count].name)) {
+			continue; /* same slot is overwritten by the next entry */
 		}
-		if (sk_path_join(sk_str_view_cstr(dir), sk_str_view_cstr(name), full_path, (u32)sizeof(full_path)) < 0) {
+		file_count++;
+	}
+	fs->close_directory(it);
+	sort_plugin_files(files, file_count);
+
+	for (u32 i = 0u; i < file_count; i++) {
+		if (sk_path_join(sk_str_view_cstr(dir), sk_str_view_cstr(files[i].name), full_path, (u32)sizeof(full_path)) < 0) {
 			continue;
 		}
 		/* Skip shared libraries that are not plugins (e.g. the vendored DXC
@@ -388,7 +425,6 @@ static i32 load_plugins_from_directory(sk_app_context_t* context, const_chr_t di
 		}
 	}
 
-	fs->close_directory(it);
 	if (context->log != NULL) {
 		sk_log_info(sk_logger_api(), context->log, "plugins directory scan done: loaded %u of %u", loaded, attempted);
 	}
@@ -637,12 +673,25 @@ i32 sk_app_tick(sk_app_context_t* context) {
 
 	bootstrap_tick_timing(context);
 
-	/* Profiler frame delimiters: begin/end bracket the frame work so the
-	 * triple buffers rotate exactly once per tick and per-frame data is
-	 * delimited correctly (buffers are recycled each frame). */
+	/* Profiler frame delimiters: begin/end bracket the whole tick (timing
+	 * update and frame work) so the triple buffers rotate exactly once per
+	 * tick and every main-loop phase is sampled inside the frame. */
 	if (context->profiler_api != NULL) {
 		context->profiler_api->begin_frame();
-		/* Future: frame phases / systems. Nothing else in empty bootstrap. */
+	}
+
+	/* Main-loop phase instrumentation (sk-profiler; no-ops when the plugin
+	 * is absent or SK_ENABLE_PROFILER is off). Zones close before end_frame
+	 * below (cleanup runs at block exit) so end stamps stay inside the
+	 * frame. */
+	{
+		SK_PROFILE_CPU_ZONE(context->profiler_api, "app tick");
+		SK_PROFILE_CPU_ZONE(context->profiler_api, "tick timing");
+		bootstrap_tick_timing(context);
+		/* Future: frame phases / systems land here, between begin/end. */
+	}
+
+	if (context->profiler_api != NULL) {
 		context->profiler_api->end_frame();
 	}
 
@@ -1498,6 +1547,270 @@ SK_TEST(app_tick_delivers_profiler_frames) {
 	TEST_ASSERT_TRUE(stats.count >= 1u);
 	TEST_ASSERT_TRUE(stats.current >= 0.0);
 	prof->set_active(false);
+	sk_app_destroy(ctx);
+}
+
+/* End-to-end profiler reporting evidence: drive the real main loop plus hot
+ * subsystems (ECS, render graph) between profiler frame delimiters, then
+ * dump the text, JSON, and console/log forms and verify the aggregation
+ * (nesting, call counts, times, % of frame, cumulative summary) is present
+ * with non-zero, plausible timings. Zone-presence assertions only apply to
+ * SK_ENABLE_PROFILER builds — without the compile-time switch the macros
+ * compile away and no samples exist (by design). */
+
+typedef struct app_profiler_ecs_workload_t {
+	const sk_entities_api_t* ecs;
+	sk_query_t* query;
+	f64 checksum;
+} app_profiler_ecs_workload_t;
+
+static void app_profiler_ecs_system(sk_world_t* world, f32 delta_time, void_ptr_t user_data) {
+	app_profiler_ecs_workload_t* wl = (app_profiler_ecs_workload_t*)user_data;
+	(void)world;
+	(void)delta_time;
+	/* Real query iteration over every position component (hot ECS path). */
+	SK_ECS_QUERY_FOREACH(wl->ecs, wl->query, it) {
+		const f32* pos = (const f32*)wl->ecs->query_iter_field(&it, 1u, 0u);
+		const u32 elem_stride = it.strides[1u] / (u32)sizeof(f32);
+		for (u32 row = 0u; row < it.count; row++) {
+			wl->checksum += (f64)pos[row * elem_stride] + (f64)pos[row * elem_stride + 1u] + (f64)pos[row * elem_stride + 2u];
+		}
+	}
+}
+
+SK_TEST(app_profiler_report_end_to_end) {
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* api = sk_app_api();
+	const sk_profiler_api_t* prof = (const sk_profiler_api_t*)api->get_api(ctx, SK_PROFILER_API_TYPE_ID);
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)api->get_api(ctx, SK_ENTITIES_API_TYPE_ID);
+	const sk_render_graph_api_t* rg = sk_render_graph_api_from_app(ctx, api);
+	TEST_ASSERT_NOT_NULL(prof);
+	TEST_ASSERT_NOT_NULL(ecs);
+	TEST_ASSERT_NOT_NULL(rg);
+
+	/* ECS workload: position components, a query, and a scheduler system. */
+	const sk_type_id_t pos_id = SK_TYPE_ID("app.test.position", 0x1337c0de1337c0deULL, 0x0ddba11c0ddba11cULL);
+	TEST_ASSERT_EQUAL_INT32(0, ecs->register_component(pos_id, 3u * (u32)sizeof(f32), 4u, "position"));
+
+	sk_world_t* world = ecs->world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t reads[1] = {pos_id};
+	sk_query_desc_t qdesc;
+	memset(&qdesc, 0, sizeof(qdesc));
+	qdesc.required = reads;
+	qdesc.required_count = 1u;
+	sk_query_t* query = ecs->world_query_create(world, &qdesc);
+	TEST_ASSERT_NOT_NULL(query);
+
+	app_profiler_ecs_workload_t workload;
+	memset(&workload, 0, sizeof(workload));
+	workload.ecs = ecs;
+	workload.query = query;
+
+	sk_system_desc_t sdesc;
+	memset(&sdesc, 0, sizeof(sdesc));
+	sdesc.callback = app_profiler_ecs_system;
+	sdesc.reads = reads;
+	sdesc.read_count = 1u;
+	sdesc.name = "iterate positions";
+	sdesc.user_data = &workload;
+
+	sk_scheduler_t* scheduler = ecs->scheduler_create();
+	TEST_ASSERT_NOT_NULL(scheduler);
+	sk_system_t* system = ecs->system_create(&sdesc);
+	TEST_ASSERT_NOT_NULL(system);
+	TEST_ASSERT_EQUAL_INT32(0, ecs->scheduler_add(scheduler, system));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->scheduler_build(scheduler));
+
+	/* Render-graph workload: a small headless graph (zero device/cmd, the
+	 * same unit-test mode the plugin's own execute tests use). */
+	TEST_ASSERT_EQUAL_INT(0, rg->init());
+	sk_render_graph_t* graph = rg->create(sk_render_device_t_zero());
+	TEST_ASSERT_NOT_NULL(graph);
+	rg->set_output_size(graph, (sk_rg_extent_t){512u, 512u});
+	sk_rg_texture_desc_t tex;
+	memset(&tex, 0, sizeof(tex));
+	tex.format = SK_PIXEL_FORMAT_RGBA8_UNORM;
+	tex.extent.width = 256u;
+	tex.extent.height = 256u;
+	tex.extent.depth = 1u;
+	tex.scale_x = 1.0f;
+	tex.scale_y = 1.0f;
+	tex.array_layers = 1u;
+	tex.samples = 1u;
+	tex.mip_levels = 1u;
+	/* Per-frame declare phase runs inside begin/execute below (passes and
+	 * resource declarations are frame-scoped in the render graph). */
+
+	/* Recording on; alternate real main-loop ticks with engine work frames
+	 * so the last built frame (dumped below) shows the hot subsystems and
+	 * the cumulative summary covers the main-loop phases too. */
+	prof->set_active(false);
+	prof->set_active(true);
+
+	const u32 spawn_per_frame = 100u;
+	sk_entity_t spawned[100];
+	bool all_valid = true;
+	for (i32 frame = 0; frame < 40; frame++) {
+		TEST_ASSERT_TRUE(sk_app_tick(ctx) != 0);
+
+		prof->begin_frame();
+		for (u32 k = 0u; k < spawn_per_frame; k++) {
+			spawned[k] = ecs->world_spawn(world, &pos_id, 1u);
+			all_valid = all_valid && sk_entity_is_valid(spawned[k]) != 0;
+		}
+		TEST_ASSERT_EQUAL_INT32(0, ecs->scheduler_run(scheduler, world, 0.016f));
+		rg->begin(graph, NULL);
+		rg->create_texture(graph, "Scene", &tex);
+		sk_rg_pass_t* pass = rg->add_pass(graph, "Lighting", SK_RG_PASS_COMPUTE);
+		TEST_ASSERT_NOT_NULL(pass);
+		rg->pass_write(pass, "Scene");
+		rg->pass_set_side_effects(pass, 1);
+		TEST_ASSERT_EQUAL_INT(SK_RG_OK, rg->compile(graph));
+		rg->execute(graph, sk_command_buffer_t_zero());
+		for (u32 k = 0u; k < spawn_per_frame; k++) {
+			TEST_ASSERT_EQUAL_INT32(0, ecs->world_despawn(world, spawned[k]));
+		}
+		prof->end_frame();
+	}
+	TEST_ASSERT_TRUE(all_valid);
+	TEST_ASSERT_TRUE(workload.checksum >= 0.0);
+
+	/* Dump all three report forms (files land in {build}/bin, the test cwd). */
+	const char* report_path = "sk_profiler_end_to_end.txt";
+	const char* json_path = "sk_profiler_end_to_end.json";
+	TEST_ASSERT_EQUAL_INT(0, prof->dump_report(report_path));
+	TEST_ASSERT_EQUAL_INT(0, prof->dump_report_json(json_path));
+	TEST_ASSERT_EQUAL_INT(0, prof->log_report());
+
+	/* Human-readable form: aggregation headers + instrumented zones. */
+	FILE* f = fopen(report_path, "r");
+	TEST_ASSERT_NOT_NULL(f);
+	bool found_frame_stats = false;
+	bool found_cumulative = false;
+	bool found_pct = false;
+#if defined(SK_PROFILER_ENABLED)
+	bool found_app_tick = false;
+	bool found_tick_timing = false;
+	bool found_ecs_spawn = false;
+	bool found_ecs_despawn = false;
+	bool found_ecs_scheduler = false;
+	bool found_rg_begin = false;
+	bool found_rg_compile = false;
+	bool found_rg_execute = false;
+#endif
+	char line[512];
+	while (fgets(line, sizeof(line), f) != NULL) {
+		if (strstr(line, "CPU frame:") != NULL || strstr(line, "GPU frame:") != NULL) {
+			found_frame_stats = true;
+		}
+		if (strstr(line, "Cumulative") != NULL) {
+			found_cumulative = true;
+		}
+		if (strstr(line, "% frame") != NULL || strstr(line, "% of avg frame") != NULL) {
+			found_pct = true;
+		}
+#if defined(SK_PROFILER_ENABLED)
+		if (strstr(line, "app tick") != NULL) {
+			found_app_tick = true;
+		}
+		if (strstr(line, "tick timing") != NULL) {
+			found_tick_timing = true;
+		}
+		if (strstr(line, "ecs spawn") != NULL) {
+			found_ecs_spawn = true;
+		}
+		if (strstr(line, "ecs despawn") != NULL) {
+			found_ecs_despawn = true;
+		}
+		if (strstr(line, "ecs scheduler run") != NULL) {
+			found_ecs_scheduler = true;
+		}
+		if (strstr(line, "rg begin") != NULL) {
+			found_rg_begin = true;
+		}
+		if (strstr(line, "rg compile") != NULL) {
+			found_rg_compile = true;
+		}
+		if (strstr(line, "rg execute") != NULL) {
+			found_rg_execute = true;
+		}
+#endif
+	}
+	fclose(f);
+	TEST_ASSERT_TRUE(found_frame_stats);
+	TEST_ASSERT_TRUE(found_cumulative);
+	TEST_ASSERT_TRUE(found_pct);
+#if defined(SK_PROFILER_ENABLED)
+	TEST_ASSERT_TRUE(found_app_tick);
+	TEST_ASSERT_TRUE(found_tick_timing);
+	TEST_ASSERT_TRUE(found_ecs_spawn);
+	TEST_ASSERT_TRUE(found_ecs_despawn);
+	TEST_ASSERT_TRUE(found_ecs_scheduler);
+	TEST_ASSERT_TRUE(found_rg_begin);
+	TEST_ASSERT_TRUE(found_rg_compile);
+	TEST_ASSERT_TRUE(found_rg_execute);
+#endif
+
+	/* Machine-readable form: versioned JSON with per-task aggregation. */
+	f = fopen(json_path, "r");
+	TEST_ASSERT_NOT_NULL(f);
+	bool found_json_format = false;
+	bool found_json_task = false;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		if (strstr(line, "\"format\": \"skore.profiler.report\"") != NULL) {
+			found_json_format = true;
+		}
+		if (strstr(line, "\"frame_pct\"") != NULL && strstr(line, "\"cumulative_pct\"") != NULL) {
+			found_json_task = true;
+		}
+	}
+	fclose(f);
+	TEST_ASSERT_TRUE(found_json_format);
+	TEST_ASSERT_TRUE(found_json_task);
+
+	/* Non-zero, plausible timings: only checkable when instrumentation is
+	 * compiled in (without SK_ENABLE_PROFILER the macros compile away). */
+#if defined(SK_PROFILER_ENABLED)
+	u32 count = 0u;
+	const sk_profiler_task_entry_t* tasks = NULL;
+	prof->get_cpu_tasks(&tasks, &count);
+	TEST_ASSERT_TRUE(count > 0u);
+	bool any_present_nonzero = false;
+	i32 app_tick_idx = -1;
+	i32 tick_timing_idx = -1;
+	for (u32 i = 0u; i < count; i++) {
+		if (tasks[i].present && tasks[i].cpu_time > 0.0) {
+			any_present_nonzero = true;
+		}
+		if (strcmp(tasks[i].name, "app tick") == 0) {
+			app_tick_idx = (i32)i;
+		}
+		if (strcmp(tasks[i].name, "tick timing") == 0) {
+			tick_timing_idx = (i32)i;
+		}
+	}
+	TEST_ASSERT_TRUE(any_present_nonzero);
+	/* Nesting: the main-loop phase tree is app tick -> tick timing. */
+	TEST_ASSERT_TRUE(app_tick_idx >= 0);
+	TEST_ASSERT_TRUE(tick_timing_idx >= 0);
+	TEST_ASSERT_EQUAL_INT32(0, tasks[app_tick_idx].depth);
+	TEST_ASSERT_EQUAL_INT32(1, tasks[tick_timing_idx].depth);
+	TEST_ASSERT_TRUE(tasks[app_tick_idx].cpu_count >= 1u);
+	TEST_ASSERT_TRUE(tasks[tick_timing_idx].cpu_count >= 1u);
+#endif
+
+	(void)remove(report_path);
+	(void)remove(json_path);
+
+	prof->set_active(false);
+	ecs->system_destroy(system);
+	ecs->scheduler_destroy(scheduler);
+	ecs->world_destroy(world);
+	rg->destroy(graph);
+	rg->shutdown();
 	sk_app_destroy(ctx);
 }
 

@@ -63,6 +63,7 @@ int main(int argc, char* argv[]) {
 
 	while (sk_app_tick(ctx)) {
 		SK_PROFILE_CPU_ZONE(prof_api, "player frame");
+		SK_PROFILE_CPU_ZONE(prof_api, "poll events");
 		win_api->poll_events();
 
 		if (win_api->window_should_close(window)) {
