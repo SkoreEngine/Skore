@@ -21,6 +21,7 @@ add_executable(sk-integration-tests
     test_render_device.c
     ui_render.c
     ui_capture.c
+    ui_capture_harness.c
     render_graph.c
     resource_object_fixtures.c
     resource_object_buffer.c
