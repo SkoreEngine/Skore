@@ -1,6 +1,6 @@
-# msdf-atlas-gen 1.3.0 + msdfgen — vendored (MIT; see VENDORING.md + LICENSE.txt).
+# msdf-atlas-gen 1.3.0 + msdfgen — vendored (MIT; see README.md + LICENSE.txt).
 #
-# Upstream pins (byte-identical sources; see VENDORING.md):
+# Upstream pins (byte-identical sources; see README.md §2):
 #   msdf-atlas-gen  https://github.com/Chlumsky/msdf-atlas-gen  77804c2f4108f49eb73491cda9296a2afb714d4c
 #   msdfgen         https://github.com/Chlumsky/msdfgen         a4dafbac1c29021613fbc89768963f3a7e2105aa
 #
@@ -8,7 +8,7 @@
 # static + PIC for shared plugins, SYSTEM PUBLIC includes, -fvisibility=hidden,
 # explicit per-target CXX_STANDARD 20.
 #
-# Optional features compiled out (manifest §5–§6): no artery-font-format
+# Optional features compiled out (see README.md §3–§4): no artery-font-format
 # (MSDF_ATLAS_NO_ARTERY_FONT=1), no tinyxml2/libpng/lodepng/skia/OpenMP/CLI.
 # CLI-only and optional TUs are omitted from the source lists and removed from
 # the tree; umbrella headers that reference them remain for include compatibility.
