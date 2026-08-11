@@ -409,6 +409,7 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 	sk_hash_map_free(&ctx->id_map);
 	ui_style_registry_shutdown(ctx);
 	ui_draw_list_store_shutdown(&ctx->draw);
+	ui_clay_context_shutdown(ctx);
 	a->free(a->instance, ctx);
 }
 
@@ -1278,7 +1279,7 @@ static const sk_ui_api_t ui_api = {
 	ui_node_get_layout_rect_impl,
 	ui_node_get_layout_rect_scaled_impl,
 	ui_set_measure_fn_impl,
-	ui_layout_impl,
+	ui_clay_layout_impl,
 	ui_layout_apply_scale_impl,
 	ui_layout_get_content_scale_impl,
 	ui_style_class_register_impl,

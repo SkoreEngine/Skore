@@ -26,8 +26,11 @@
 /* State                                                                      */
 /* -------------------------------------------------------------------------- */
 
-/** Headroom above Clay_MinMemorySize() so smoke layouts never hit capacity. */
-#define UI_CLAY_ARENA_HEADROOM (4u * 1024u * 1024u)
+/** Headroom above Clay_MinMemorySize() so panel trees + text never hit capacity. */
+#define UI_CLAY_ARENA_HEADROOM (32u * 1024u * 1024u)
+
+/** Element budget for retained trees (menus, console, sample panels). */
+#define UI_CLAY_MAX_ELEMENTS 16384
 
 /** Fallback text height when no engine font is bound (matches 16 px UI default). */
 #define UI_CLAY_FALLBACK_FONT_SIZE 16.0f
@@ -197,8 +200,11 @@ i32 ui_clay_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewpo
 		allocator = sk_allocator_default();
 	}
 
+	/* Raise element budget before MinMemorySize so the arena matches it. */
+	Clay_SetMaxElementCount(UI_CLAY_MAX_ELEMENTS);
+
 	/* Arena comes from the engine allocator, sized for Clay's minimum plus
-	 * headroom so simple layouts never trip the capacity error handler. */
+	 * headroom so panel trees + text measurement never trip capacity errors. */
 	min_size = (size_t)Clay_MinMemorySize();
 	capacity = min_size + UI_CLAY_ARENA_HEADROOM;
 	memory = allocator->alloc(allocator->instance, capacity);
@@ -223,6 +229,8 @@ i32 ui_clay_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewpo
 
 	Clay_Initialize(arena, dims, handler);
 	Clay_SetMeasureTextFunction(ui_clay_measure_text, &ui_clay_state);
+	/* Do not call Clay_SetMaxElementCount after Initialize: it only bumps the
+	 * counter without resizing persistent arrays (would desync capacity). */
 
 	ui_clay_state.initialized = 1;
 	return 0;
@@ -232,6 +240,8 @@ void ui_clay_shutdown(void) {
 	if (!ui_clay_state.initialized) {
 		return;
 	}
+	/* Drop Clay's global context before freeing the arena it points into. */
+	Clay_SetCurrentContext(NULL);
 	if (ui_clay_state.allocator != NULL && ui_clay_state.arena_memory != NULL) {
 		ui_clay_state.allocator->free(ui_clay_state.allocator->instance, ui_clay_state.arena_memory);
 	}
@@ -338,7 +348,11 @@ SK_TEST(ui_clay_smoke_parent_two_children_grow_fixed) {
 	font = ui_font_load_memory_impl(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
 	TEST_ASSERT_NOT_NULL(font);
 
-	/* Arena from the engine allocator; Clay viewport = 800x600. */
+	/* Arena from the engine allocator; Clay viewport = 800x600.
+	 * Prior tests may have left Clay initialized via the panel adapter. */
+	if (ui_clay_is_initialized()) {
+		ui_clay_shutdown();
+	}
 	TEST_ASSERT_EQUAL_INT(0, ui_clay_init(allocator, 800.0f, 600.0f, sys, font));
 
 	Clay_BeginLayout();
