@@ -1,6 +1,6 @@
 /**
  * @file clay_adapter.c
- * @brief Clay-backed layout adapter for retained sk-ui trees (APX-214 / APX-232).
+ * @brief Clay-backed layout adapter for retained sk-ui trees (APX-214 / APX-232 / APX-233).
  *
  * Maps the per-frame layout pass onto Clay's immediate-mode lifecycle and
  * writes resulting boxes back into slot layout rects so hit-testing, scale,
@@ -11,6 +11,16 @@
  * re-declared as Clay elements with stable IDs so hover/click/scroll state
  * resolves across frames. Nested containers become full Clay equivalents —
  * no hybrid custom/Clay subtrees under a migrated panel.
+ *
+ * APX-233 (widget surfaces): leaf/composite widgets (button, checkbox, slider,
+ * text_input, label, scroll_view, image, view, and list-row style children)
+ * are routed through the same adapter. Interactive widgets always get a
+ * stable Clay ID (explicit string → CLAY_SID; else CLAY_SIDI / CLAY_IDI with
+ * sibling loop index so repeated rows stay stable frame-to-frame). Wrapped
+ * label text is declared as Clay text elements (WRAP_WORDS) so sizing goes
+ * through Clay measure rather than the old layout measure path. Standalone
+ * widgets not under a panel get their own Clay pass; widgets under panels
+ * are already covered by the panel pass.
  */
 
 #include "ui_internal.h"
@@ -29,12 +39,13 @@
 /* -------------------------------------------------------------------------- */
 
 struct ui_clay_frame_t {
-	Clay_ElementId* ids;	/**< Parallel to slots: clay id per slot index. */
-	Clay_BoundingBox* abs;	/**< Clay absolute bounding box per slot. */
-	u8* present;			/**< Non-zero if node was declared this pass. */
-	u32 cap;				/**< Capacity of the parallel arrays. */
-	i32 panel_layout_count; /**< Panels laid out via Clay this frame. */
-	i32 limitation_logged;	/**< Avoid spamming the logger every frame. */
+	Clay_ElementId* ids;	 /**< Parallel to slots: clay id per slot index. */
+	Clay_BoundingBox* abs;	 /**< Clay absolute bounding box per slot. */
+	u8* present;			 /**< Non-zero if node was declared this pass. */
+	u32 cap;				 /**< Capacity of the parallel arrays. */
+	i32 panel_layout_count;	 /**< Panels laid out via Clay this frame. */
+	i32 widget_layout_count; /**< Standalone widget surfaces laid out via Clay this frame. */
+	i32 limitation_logged;	 /**< Avoid spamming the logger every frame. */
 };
 
 /* -------------------------------------------------------------------------- */
@@ -83,6 +94,20 @@ static f32 ui_clay_prop_f32(const ui_node_slot_t* slot, const_chr_t key, f32 fal
 	return fallback;
 }
 
+static i32 ui_clay_prop_i32(const ui_node_slot_t* slot, const_chr_t key, i32 fallback) {
+	u32 i;
+	if (slot == NULL || key == NULL) {
+		return fallback;
+	}
+	for (i = 0u; i < slot->props.count; ++i) {
+		const ui_prop_entry_t* e = &slot->props.items[i];
+		if (e->type == SK_UI_PROP_I32 && e->key != NULL && strcmp(e->key, key) == 0) {
+			return e->data.i32_value;
+		}
+	}
+	return fallback;
+}
+
 static i32 ui_clay_is_panel_slot(const ui_node_slot_t* slot) {
 	const_chr_t w;
 	u32 i;
@@ -101,6 +126,30 @@ static i32 ui_clay_is_panel_slot(const ui_node_slot_t* slot) {
 	return 0;
 }
 
+/**
+ * Widget surface from the v1 inventory (APX-233): leaf + composite controls.
+ * Excludes:
+ *  - panel (APX-232)
+ *  - view (generic container; under panels it is declared as a Clay child, but
+ *    it must not own a standalone pass that would re-layout nested panels)
+ *  - scroll_content (internal child of scroll_view)
+ */
+static i32 ui_clay_is_widget_surface_slot(const ui_node_slot_t* slot) {
+	const_chr_t w;
+	if (slot == NULL) {
+		return 0;
+	}
+	w = ui_clay_prop_str(slot, "widget");
+	if (w == NULL) {
+		return 0;
+	}
+	if (strcmp(w, "button") == 0 || strcmp(w, "checkbox") == 0 || strcmp(w, "slider") == 0 || strcmp(w, "text_input") == 0 || strcmp(w, "label") == 0 ||
+		strcmp(w, "scroll_view") == 0 || strcmp(w, "image") == 0) {
+		return 1;
+	}
+	return 0;
+}
+
 static i32 ui_clay_needs_stable_id(const ui_node_slot_t* slot) {
 	const_chr_t w;
 	if (slot == NULL) {
@@ -110,15 +159,16 @@ static i32 ui_clay_needs_stable_id(const ui_node_slot_t* slot) {
 	if (slot->focusable != 0u || slot->clip_children != 0u) {
 		return 1;
 	}
-	if (slot->callbacks.on_click != NULL || slot->callbacks.on_event != NULL || slot->callbacks.on_pointer_enter != NULL) {
+	if (slot->callbacks.on_click != NULL || slot->callbacks.on_event != NULL || slot->callbacks.on_pointer_enter != NULL || slot->callbacks.on_pointer_leave != NULL) {
 		return 1;
 	}
 	w = ui_clay_prop_str(slot, "widget");
 	if (w == NULL) {
 		return 0;
 	}
-	if (strcmp(w, "panel") == 0 || strcmp(w, "button") == 0 || strcmp(w, "checkbox") == 0 || strcmp(w, "slider") == 0 || strcmp(w, "text_input") == 0 ||
-		strcmp(w, "scroll_view") == 0 || strcmp(w, "scroll_content") == 0) {
+	/* Every widget inventory surface + scroll internals. */
+	if (strcmp(w, "panel") == 0 || strcmp(w, "button") == 0 || strcmp(w, "checkbox") == 0 || strcmp(w, "slider") == 0 || strcmp(w, "text_input") == 0 || strcmp(w, "label") == 0 ||
+		strcmp(w, "scroll_view") == 0 || strcmp(w, "scroll_content") == 0 || strcmp(w, "image") == 0 || strcmp(w, "view") == 0) {
 		return 1;
 	}
 	return 0;
@@ -139,13 +189,26 @@ static Clay_String ui_clay_cstr(const_chr_t s) {
 
 /**
  * Stable Clay element id for a retained node.
- * Prefer the public node id string (CLAY_SID); otherwise CLAY_SIDI("skui_n", index).
- * Loop rows with explicit ids (menu-log-0) or auto indices both hash stably.
+ * Prefer the public node id string (CLAY_SID). For repeated widgets without an
+ * explicit id, use CLAY_SIDI(widget_type, sibling_index) / CLAY_IDI-equivalent
+ * so list rows keep the same hash frame-to-frame when the freelist reorders
+ * slot indices. Last resort: CLAY_SIDI("skui_n", node.index).
+ *
+ * @param sibling_index  Child index under the parent (loop index), or UINT32_MAX if unknown.
  */
-static Clay_ElementId ui_clay_make_id(const ui_node_slot_t* slot, sk_ui_node_t node) {
+static Clay_ElementId ui_clay_make_id(const ui_node_slot_t* slot, sk_ui_node_t node, u32 sibling_index) {
 	static const Clay_String k_fallback = {.isStaticallyAllocated = true, .length = 6, .chars = "skui_n"};
+	const_chr_t widget;
 	if (slot != NULL && slot->id != NULL && slot->id[0] != '\0') {
 		return CLAY_SID(ui_clay_cstr(slot->id));
+	}
+	widget = ui_clay_prop_str(slot, "widget");
+	if (widget != NULL && widget[0] != '\0' && sibling_index != UINT32_MAX) {
+		/* Dynamic string + loop index (same hash family as CLAY_IDI for literals). */
+		return CLAY_SIDI(ui_clay_cstr(widget), sibling_index);
+	}
+	if (sibling_index != UINT32_MAX) {
+		return CLAY_SIDI(k_fallback, sibling_index);
 	}
 	return CLAY_SIDI(k_fallback, node.index);
 }
@@ -336,7 +399,7 @@ static i32 ui_clay_frame_ensure(sk_ui_context_t* ctx, u32 need) {
 	return 0;
 }
 
-static void ui_clay_log_limitation(ui_clay_frame_t* fr, const_chr_t panel_id, const_chr_t detail) {
+static void ui_clay_log_limitation(ui_clay_frame_t* fr, const_chr_t surface_id, const_chr_t detail) {
 	sk_logger_t* logger;
 	if (fr == NULL || fr->limitation_logged != 0) {
 		return;
@@ -344,37 +407,51 @@ static void ui_clay_log_limitation(ui_clay_frame_t* fr, const_chr_t panel_id, co
 	fr->limitation_logged = 1;
 	logger = sk_logger_api()->create_logger("clay_adapter");
 	if (logger != NULL) {
-		sk_log_message(sk_logger_api(), SK_LOGGER_TYPE_WARN, logger, "panel '%s' Clay limitation: %s (kept best-effort mapping)", panel_id != NULL ? panel_id : "(anon)",
+		sk_log_message(sk_logger_api(), SK_LOGGER_TYPE_WARN, logger, "surface '%s' Clay limitation: %s (kept best-effort mapping)", surface_id != NULL ? surface_id : "(anon)",
 					   detail != NULL ? detail : "unknown");
 		sk_logger_api()->destroy_logger(logger);
 	}
 }
 
 /* Forward */
-static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 parent_w, f32 parent_h, i32 parent_def, const_chr_t panel_id, i32* limitations);
+static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 parent_w, f32 parent_h, i32 parent_def, const_chr_t surface_id, i32* limitations, u32 sibling_index);
 
+/**
+ * Declare text as a Clay text element so wrap/sizing uses Clay measure.
+ * wrap prop 1 → CLAY_TEXT_WRAP_WORDS; otherwise no wrap (glyphs still measured).
+ */
 static void ui_clay_declare_text_content(const ui_node_slot_t* slot) {
 	const_chr_t text = ui_clay_prop_str(slot, "text");
 	Clay_TextElementConfig cfg;
 	Clay_String s;
 	f32 font_size;
+	i32 wrap;
+	i32 text_align;
 	if (text == NULL) {
 		text = "";
 	}
 	font_size = slot->computed.font_size > 0.0f ? slot->computed.font_size : 14.0f;
+	wrap = ui_clay_prop_i32(slot, "wrap", 0);
+	text_align = ui_clay_prop_i32(slot, "text_align", 0);
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.fontId = 0u;
 	cfg.fontSize = ui_clay_u16_clamp(font_size);
 	cfg.textColor = ui_clay_color(slot->computed.color);
-	/* WRAP_NONE avoids per-word measure-cache blowups on long labels. */
-	cfg.wrapMode = CLAY_TEXT_WRAP_NONE;
-	cfg.textAlignment = CLAY_TEXT_ALIGN_LEFT;
+	/* Wrapped labels use Clay word-wrap instead of the old layout measure path. */
+	cfg.wrapMode = wrap != 0 ? CLAY_TEXT_WRAP_WORDS : CLAY_TEXT_WRAP_NONE;
+	if (text_align == 1) {
+		cfg.textAlignment = CLAY_TEXT_ALIGN_CENTER;
+	} else if (text_align == 2) {
+		cfg.textAlignment = CLAY_TEXT_ALIGN_RIGHT;
+	} else {
+		cfg.textAlignment = CLAY_TEXT_ALIGN_LEFT;
+	}
 	s = ui_clay_cstr(text);
 	Clay__OpenTextElement(s, Clay__StoreTextElementConfig(cfg));
 }
 
 // NOLINTBEGIN(misc-no-recursion)
-static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 parent_w, f32 parent_h, i32 parent_def, const_chr_t panel_id, i32* limitations) {
+static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 parent_w, f32 parent_h, i32 parent_def, const_chr_t surface_id, i32* limitations, u32 sibling_index) {
 	ui_node_slot_t* slot = ui_slot_mut(ctx, node);
 	ui_clay_frame_t* fr = ctx->clay_frame;
 	Clay_ElementDeclaration decl;
@@ -390,6 +467,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	const_chr_t widget;
 	i32 is_scroll;
 	i32 is_text_kind;
+	i32 wrap;
 	i32 force_id;
 
 	if (slot == NULL || fr == NULL) {
@@ -403,29 +481,30 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	widget = ui_clay_prop_str(slot, "widget");
 	is_scroll = (widget != NULL && strcmp(widget, "scroll_view") == 0) || slot->clip_children != 0u;
 	is_text_kind = (slot->kind == (u8)SK_UI_NODE_KIND_TEXT) || (widget != NULL && strcmp(widget, "label") == 0);
+	wrap = ui_clay_prop_i32(slot, "wrap", 0);
 
 	if (ls->flex_wrap == SK_UI_FLEX_WRAP || ls->flex_wrap == SK_UI_FLEX_WRAP_REVERSE) {
 		if (limitations != NULL) {
 			*limitations |= 1;
 		}
-		ui_clay_log_limitation(fr, panel_id, "flex-wrap is not supported by Clay; children stay on a single line");
+		ui_clay_log_limitation(fr, surface_id, "flex-wrap is not supported by Clay; children stay on a single line");
 	}
 	if (ls->position == SK_UI_POSITION_ABSOLUTE) {
 		if (limitations != NULL) {
 			*limitations |= 2;
 		}
-		ui_clay_log_limitation(fr, panel_id, "absolute positioning mapped via Clay floating; constraints may differ");
+		ui_clay_log_limitation(fr, surface_id, "absolute positioning mapped via Clay floating; constraints may differ");
 	}
 	if (ls->margin.left > 0.0001f || ls->margin.right > 0.0001f || ls->margin.top > 0.0001f || ls->margin.bottom > 0.0001f) {
 		if (limitations != NULL) {
 			*limitations |= 4;
 		}
-		ui_clay_log_limitation(fr, panel_id, "margins are not a Clay primitive; margin is ignored under panel Clay path");
+		ui_clay_log_limitation(fr, surface_id, "margins are not a Clay primitive; margin is ignored under Clay path");
 	}
 
 	memset(&decl, 0, sizeof(decl));
 	force_id = ui_clay_needs_stable_id(slot);
-	eid = ui_clay_make_id(slot, node);
+	eid = ui_clay_make_id(slot, node, sibling_index);
 	/* Always assign a stable id so writeback, hover, and tests can resolve the node. */
 	decl.id = eid;
 	fr->ids[node.index] = eid;
@@ -436,7 +515,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		if (limitations != NULL) {
 			*limitations |= 8;
 		}
-		ui_clay_log_limitation(fr, panel_id, "flex reverse directions are not supported by Clay; using forward axis");
+		ui_clay_log_limitation(fr, surface_id, "flex reverse directions are not supported by Clay; using forward axis");
 	}
 	ui_clay_map_child_align(ls, &decl.layout.childAlignment);
 
@@ -506,16 +585,23 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	Clay__ConfigureOpenElement(decl);
 	fr->present[node.index] = 1u;
 
-	/* Intrinsic text only when the box is not fully fixed-sized (FIT needs it).
-	 * Fully fixed boxes skip Clay text leaves — engine paint draws the glyphs. */
+	/*
+	 * Text content:
+	 * - Wrapped labels always go through Clay text (measure replaces old path).
+	 * - Other text widgets declare Clay text when the box is not fully fixed
+	 *   (FIT/GROW needs intrinsic size). Fully fixed boxes still paint glyphs
+	 *   via the engine path; Clay leaf is optional for sizing.
+	 */
 	{
 		i32 fixed_w = ls->width.unit == SK_UI_LENGTH_POINT ? 1 : 0;
 		i32 fixed_h = ls->height.unit == SK_UI_LENGTH_POINT ? 1 : 0;
+		i32 fully_fixed = (fixed_w != 0 && fixed_h != 0) ? 1 : 0;
 		i32 need_text = 0;
-		if (is_text_kind && !(fixed_w && fixed_h)) {
+		/* Wrapped labels always use Clay text; other text needs it for FIT sizing. */
+		if (is_text_kind != 0 && (wrap != 0 || fully_fixed == 0)) {
 			need_text = 1;
 		}
-		if (widget != NULL && (strcmp(widget, "button") == 0 || strcmp(widget, "text_input") == 0) && !(fixed_w && fixed_h)) {
+		if (widget != NULL && (strcmp(widget, "button") == 0 || strcmp(widget, "text_input") == 0) && fully_fixed == 0) {
 			need_text = 1;
 		}
 		if (need_text != 0 && ui_clay_prop_str(slot, "text") != NULL) {
@@ -553,8 +639,9 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 			}
 		}
 
+		/* Sibling loop index → stable CLAY_IDI / CLAY_SIDI for repeated widgets. */
 		for (i = 0u; i < slot->children.count; ++i) {
-			ui_clay_declare_node(ctx, slot->children.items[i], child_pw, child_ph, child_def, panel_id, limitations);
+			ui_clay_declare_node(ctx, slot->children.items[i], child_pw, child_ph, child_def, surface_id, limitations, i);
 		}
 	}
 
@@ -740,7 +827,7 @@ static i32 ui_clay_relayout_panel(sk_ui_context_t* ctx, sk_ui_node_t panel) {
 		Clay__ConfigureOpenElement(root_decl);
 
 		for (i = 0u; i < slot->children.count; ++i) {
-			ui_clay_declare_node(ctx, slot->children.items[i], cw, ch, 1, panel_id, &limitations);
+			ui_clay_declare_node(ctx, slot->children.items[i], cw, ch, 1, panel_id, &limitations, i);
 		}
 
 		Clay__CloseElement();
@@ -759,7 +846,7 @@ static i32 ui_clay_relayout_panel(sk_ui_context_t* ctx, sk_ui_node_t panel) {
 }
 
 // NOLINTBEGIN(misc-no-recursion)
-static i32 ui_clay_panel_has_panel_ancestor(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+static i32 ui_clay_has_panel_ancestor(const sk_ui_context_t* ctx, sk_ui_node_t node) {
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
 	if (slot == NULL) {
 		return 0;
@@ -770,6 +857,30 @@ static i32 ui_clay_panel_has_panel_ancestor(const sk_ui_context_t* ctx, sk_ui_no
 			break;
 		}
 		if (ui_clay_is_panel_slot(ps)) {
+			return 1;
+		}
+		slot = ps;
+	}
+	return 0;
+}
+// NOLINTEND(misc-no-recursion)
+
+/**
+ * True if an ancestor is a widget surface (outermost composite owns nested widgets).
+ * Panels are handled separately and are not treated as widget surfaces here.
+ */
+// NOLINTBEGIN(misc-no-recursion)
+static i32 ui_clay_has_widget_surface_ancestor(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	if (slot == NULL) {
+		return 0;
+	}
+	while (sk_ui_node_is_valid(slot->parent)) {
+		const ui_node_slot_t* ps = ui_slot(ctx, slot->parent);
+		if (ps == NULL) {
+			break;
+		}
+		if (ui_clay_is_widget_surface_slot(ps)) {
 			return 1;
 		}
 		slot = ps;
@@ -792,10 +903,198 @@ static void ui_clay_relayout_all_panels(sk_ui_context_t* ctx) {
 		}
 		node.index = i;
 		node.generation = slot->generation;
-		if (ui_clay_panel_has_panel_ancestor(ctx, node)) {
+		if (ui_clay_has_panel_ancestor(ctx, node)) {
 			continue;
 		}
 		(void)ui_clay_relayout_panel(ctx, node);
+	}
+}
+
+/**
+ * Re-layout one standalone widget surface (not under a panel) via Clay.
+ * Baseline border box sizes the Clay root; the widget's x/y under its parent
+ * is preserved after writeback so non-panel parents keep custom placement.
+ */
+static i32 ui_clay_relayout_widget_surface(sk_ui_context_t* ctx, sk_ui_node_t widget) {
+	ui_node_slot_t* slot = ui_slot_mut(ctx, widget);
+	ui_clay_frame_t* fr;
+	f32 bw;
+	f32 bh;
+	f32 save_x;
+	f32 save_y;
+	f32 save_w;
+	f32 save_h;
+	const_chr_t surface_id;
+	i32 limitations = 0;
+	Clay_Vector2 pointer;
+	i32 pointer_down;
+	u32 sibling_index = UINT32_MAX;
+
+	if (slot == NULL) {
+		return -1;
+	}
+	bw = slot->layout_border.width;
+	bh = slot->layout_border.height;
+	if (bw < 1.0f && bh < 1.0f) {
+		return 0;
+	}
+	if (bw < 1.0f) {
+		bw = 1.0f;
+	}
+	if (bh < 1.0f) {
+		bh = 1.0f;
+	}
+
+	/* Preserve full baseline border box; Clay may expand padding/text differently. */
+	save_x = slot->layout_border.x;
+	save_y = slot->layout_border.y;
+	save_w = slot->layout_border.width;
+	save_h = slot->layout_border.height;
+
+	/* Sibling index among parent children for stable CLAY_IDI when id is empty. */
+	if (sk_ui_node_is_valid(slot->parent)) {
+		const ui_node_slot_t* pslot = ui_slot(ctx, slot->parent);
+		u32 si;
+		if (pslot != NULL) {
+			for (si = 0u; si < pslot->children.count; ++si) {
+				if (pslot->children.items[si].index == widget.index && pslot->children.items[si].generation == widget.generation) {
+					sibling_index = si;
+					break;
+				}
+			}
+		}
+	}
+
+	if (ui_clay_frame_ensure(ctx, ctx->slots.count) != 0) {
+		return -1;
+	}
+	fr = ctx->clay_frame;
+	surface_id = slot->id != NULL ? slot->id : ui_clay_prop_str(slot, "widget");
+
+	if (ui_clay_ensure_init(ctx->allocator, bw, bh, NULL, NULL) != 0) {
+		return -1;
+	}
+	Clay_ResetMeasureTextCache();
+
+	pointer.x = ctx->pointer_x;
+	pointer.y = ctx->pointer_y;
+	{
+		f32 abs_x = slot->layout_border.x;
+		f32 abs_y = slot->layout_border.y;
+		sk_ui_node_t walk = slot->parent;
+		while (sk_ui_node_is_valid(walk)) {
+			const ui_node_slot_t* ps = ui_slot(ctx, walk);
+			if (ps == NULL) {
+				break;
+			}
+			abs_x += ps->layout_content.x;
+			abs_y += ps->layout_content.y;
+			walk = ps->parent;
+		}
+		pointer.x = ctx->pointer_x - abs_x;
+		pointer.y = ctx->pointer_y - abs_y;
+	}
+	pointer_down = (ctx->pointer_buttons & 1u) != 0u ? 1 : 0;
+	Clay_SetPointerState(pointer, pointer_down != 0);
+	{
+		Clay_Vector2 scroll_delta;
+		scroll_delta.x = ctx->scroll_delta_x;
+		scroll_delta.y = ctx->scroll_delta_y;
+		Clay_UpdateScrollContainers(false, scroll_delta, 1.0f / 60.0f);
+		/* Only the first surface pass consumes wheel; later passes see zeros. */
+		ctx->scroll_delta_x = 0.0f;
+		ctx->scroll_delta_y = 0.0f;
+	}
+
+	Clay_BeginLayout();
+
+	/* Synthetic root matches the baseline border box; declare the widget as the sole child. */
+	{
+		Clay_ElementDeclaration root_decl;
+		static const Clay_String k_root = {.isStaticallyAllocated = true, .length = 14, .chars = "sk_widget_root"};
+		memset(&root_decl, 0, sizeof(root_decl));
+		root_decl.id = CLAY_SIDI(k_root, widget.index);
+		root_decl.layout.sizing.width = CLAY_SIZING_FIXED(bw);
+		root_decl.layout.sizing.height = CLAY_SIZING_FIXED(bh);
+		root_decl.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+		root_decl.userData = (void*)(uintptr_t)widget.index;
+
+		Clay__OpenElement();
+		Clay__ConfigureOpenElement(root_decl);
+
+		/* Force the surface widget to fill the root (baseline already resolved size). */
+		{
+			sk_ui_layout_style_t saved = slot->layout_style;
+			slot->layout_style.width = sk_ui_pt(bw);
+			slot->layout_style.height = sk_ui_pt(bh);
+			ui_clay_declare_node(ctx, widget, bw, bh, 1, surface_id, &limitations, sibling_index);
+			slot->layout_style = saved;
+		}
+
+		Clay__CloseElement();
+	}
+
+	(void)Clay_EndLayout();
+
+	ui_clay_writeback_node(ctx, widget, 0.0f, 0.0f);
+
+	/*
+	 * Restore the surface's baseline border box (placement + size under the
+	 * non-Clay parent). Clay writeback is authoritative for nested children
+	 * (scroll content, list rows) relative to the surface content origin;
+	 * the surface box itself stays on the custom baseline so padding/text
+	 * measure differences do not shift neighboring custom layout.
+	 */
+	slot = ui_slot_mut(ctx, widget);
+	if (slot != NULL) {
+		f32 border_l = slot->layout_style.border.left;
+		f32 border_r = slot->layout_style.border.right;
+		f32 border_t = slot->layout_style.border.top;
+		f32 border_b = slot->layout_style.border.bottom;
+		f32 pad_l = slot->layout_style.padding.left;
+		f32 pad_r = slot->layout_style.padding.right;
+		f32 pad_t = slot->layout_style.padding.top;
+		f32 pad_b = slot->layout_style.padding.bottom;
+		slot->layout_border.x = save_x;
+		slot->layout_border.y = save_y;
+		slot->layout_border.width = save_w > 0.0f ? save_w : slot->layout_border.width;
+		slot->layout_border.height = save_h > 0.0f ? save_h : slot->layout_border.height;
+		slot->layout_content.x = slot->layout_border.x + border_l + pad_l;
+		slot->layout_content.y = slot->layout_border.y + border_t + pad_t;
+		slot->layout_content.width = ui_clay_fmaxf(0.0f, slot->layout_border.width - border_l - border_r - pad_l - pad_r);
+		slot->layout_content.height = ui_clay_fmaxf(0.0f, slot->layout_border.height - border_t - border_b - pad_t - pad_b);
+	}
+
+	fr->widget_layout_count += 1;
+	(void)limitations;
+	return 0;
+}
+
+static void ui_clay_relayout_all_widgets(sk_ui_context_t* ctx) {
+	u32 i;
+	/*
+	 * Outermost widget surfaces only. Nested widgets (e.g. buttons under a
+	 * view, labels under scroll_view) are declared as Clay children of the
+	 * outer surface. Widgets under panels were already migrated by the panel pass.
+	 */
+	for (i = 1u; i < ctx->slots.count; ++i) {
+		ui_node_slot_t* slot = &ctx->slots.items[i];
+		sk_ui_node_t node;
+		if (slot->alive == 0u) {
+			continue;
+		}
+		if (!ui_clay_is_widget_surface_slot(slot)) {
+			continue;
+		}
+		node.index = i;
+		node.generation = slot->generation;
+		if (ui_clay_has_panel_ancestor(ctx, node)) {
+			continue;
+		}
+		if (ui_clay_has_widget_surface_ancestor(ctx, node)) {
+			continue;
+		}
+		(void)ui_clay_relayout_widget_surface(ctx, node);
 	}
 }
 
@@ -809,15 +1108,17 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 		return -1;
 	}
 	/*
-	 * Baseline: custom flex solver for the whole tree (keeps non-panel tests
-	 * and unsupported features working). Then migrate every panel surface —
-	 * and its nested containers — onto Clay.
+	 * Baseline: custom flex solver for the whole tree (keeps non-migrated
+	 * tests and unsupported features working). Then:
+	 *  1) panel surfaces + nested containers (APX-232)
+	 *  2) standalone widget surfaces not under a panel (APX-233)
 	 */
 	rc = ui_layout_impl(ctx, root_width, root_height);
 	if (rc != 0) {
 		return rc;
 	}
 	ui_clay_relayout_all_panels(ctx);
+	ui_clay_relayout_all_widgets(ctx);
 	return 0;
 }
 
@@ -1022,6 +1323,189 @@ SK_TEST(ui_clay_nested_container_under_panel) {
 	/* Children relative to row content origin. */
 	ui_clay_assert_rect_near(&r0, 0.0f, 0.0f, 100.0f, 40.0f);
 	ui_clay_assert_rect_near(&r1, 100.0f, 0.0f, 100.0f, 40.0f);
+
+	ui->context_destroy(ctx);
+}
+
+/* --- APX-233: standalone widget surfaces ---------------------------------- */
+
+SK_TEST(ui_clay_widget_button_stable_id) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t btn;
+	sk_ui_rect_t rb;
+	sk_ui_style_props_t p;
+	Clay_ElementId eid;
+	Clay_ElementData ed;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	btn = ui->widget_button(ctx, root, "OK", "clay-btn");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(80.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, btn, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 100.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->widget_layout_count >= 1);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, btn, &rb, NULL));
+	/* Custom flex treats style width as inner; border box adds padding+border. */
+	TEST_ASSERT_TRUE(rb.width >= 80.0f);
+	TEST_ASSERT_TRUE(rb.height >= 28.0f);
+
+	eid = Clay_GetElementId(ui_clay_cstr("clay-btn"));
+	ed = Clay_GetElementData(eid);
+	TEST_ASSERT_TRUE(ed.found);
+	/* Clay-local box is registered; engine layout rect stays on baseline size. */
+	TEST_ASSERT_TRUE(ed.boundingBox.width >= 1.0f);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_clay_widget_list_loop_index_ids) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t col;
+	sk_ui_node_t rows[3];
+	sk_ui_style_props_t p;
+	u32 i;
+	Clay_ElementId eid0;
+	Clay_ElementId eid1;
+	Clay_ElementData ed0;
+	Clay_ElementData ed1;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	/* Panel surface so all rows share one Clay pass (loop indices in one tree). */
+	col = ui->widget_panel(ctx, root, "list-col");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ROW_GAP | SK_UI_SP_PADDING | SK_UI_SP_BORDER_WIDTH;
+	p.layout.width = sk_ui_pt(120.0f);
+	p.layout.height = sk_ui_pt(120.0f);
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	p.layout.row_gap = 4.0f;
+	p.layout.padding.left = p.layout.padding.right = p.layout.padding.top = p.layout.padding.bottom = 0.0f;
+	p.layout.border.left = p.layout.border.right = p.layout.border.top = p.layout.border.bottom = 0.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, col, &p));
+
+	for (i = 0u; i < 3u; ++i) {
+		/* Raw nodes: widget prop set, no id — Clay uses CLAY_SIDI("button", loop_i). */
+		rows[i] = ui->node_create(ctx, SK_UI_NODE_KIND_BUTTON, col);
+		TEST_ASSERT_TRUE(sk_ui_node_is_valid(rows[i]));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, rows[i], "widget", "button"));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, rows[i], "text", "row"));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_set_focusable(ctx, rows[i], 1));
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+		p.layout.width = sk_ui_pt(120.0f);
+		p.layout.height = sk_ui_pt(28.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, rows[i], &p));
+	}
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 200.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->panel_layout_count >= 1);
+
+	/* Sibling loop index hashes: CLAY_SIDI("button", 0/1) — stable without string ids. */
+	eid0 = CLAY_SIDI(ui_clay_cstr("button"), 0u);
+	eid1 = CLAY_SIDI(ui_clay_cstr("button"), 1u);
+	ed0 = Clay_GetElementData(eid0);
+	ed1 = Clay_GetElementData(eid1);
+	TEST_ASSERT_TRUE(ed0.found);
+	TEST_ASSERT_TRUE(ed1.found);
+	TEST_ASSERT_TRUE(ed0.boundingBox.y + 1.0f < ed1.boundingBox.y);
+
+	/* Second layout pass keeps the same hashed ids (stable frame-to-frame). */
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 200.0f));
+	ed0 = Clay_GetElementData(eid0);
+	ed1 = Clay_GetElementData(eid1);
+	TEST_ASSERT_TRUE(ed0.found);
+	TEST_ASSERT_TRUE(ed1.found);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_clay_widget_wrapped_label_text_element) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t label;
+	sk_ui_rect_t rl;
+	sk_ui_style_props_t p;
+	Clay_ElementId eid;
+	Clay_ElementData ed;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	/* Default wrap=1 from widget_label → Clay text uses CLAY_TEXT_WRAP_WORDS. */
+	label = ui->widget_label(ctx, root, "The quick brown fox jumps over the lazy dog", "wrap-lbl");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FONT_SIZE;
+	p.layout.width = sk_ui_pt(80.0f);
+	/* Fixed height keeps baseline non-degenerate; wrap still declares Clay text. */
+	p.layout.height = sk_ui_pt(48.0f);
+	p.font_size = 12.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, label, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 200.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->widget_layout_count >= 1);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, label, &rl, NULL));
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 80.0f, rl.width);
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 48.0f, rl.height);
+
+	eid = Clay_GetElementId(ui_clay_cstr("wrap-lbl"));
+	ed = Clay_GetElementData(eid);
+	TEST_ASSERT_TRUE(ed.found);
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 80.0f, ed.boundingBox.width);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_clay_widget_scroll_and_slider_surfaces) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t sl;
+	sk_ui_node_t sv;
+	sk_ui_style_props_t p;
+	Clay_ElementId eid;
+	Clay_ElementData ed;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	sl = ui->widget_slider(ctx, root, 0.0f, 1.0f, 0.5f, "clay-sl");
+	sv = ui->widget_scroll_view(ctx, root, "clay-sv");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(100.0f);
+	p.layout.height = sk_ui_pt(20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, sl, &p));
+	p.layout.height = sk_ui_pt(60.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, sv, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 200.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->widget_layout_count >= 2);
+
+	/* Last standalone surface in the scan order is still resolvable via Clay. */
+	eid = Clay_GetElementId(ui_clay_cstr("clay-sv"));
+	ed = Clay_GetElementData(eid);
+	TEST_ASSERT_TRUE(ed.found);
 
 	ui->context_destroy(ctx);
 }
