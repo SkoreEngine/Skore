@@ -835,12 +835,72 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					continue;
 				}
 				if (g.width > 0u && g.height > 0u) {
+					/*
+					 * Rasterize glyph coverage from the CPU atlas as solid
+					 * quads (alpha modulated per pixel / horizontal run).
+					 *
+					 * GPU font-atlas sampling currently samples as opaque white
+					 * on lavapipe (host-visible texture uploads never land),
+					 * which APX-244 reported as solid "tofu" blocks. The solid
+					 * path is proven; walking FreeType coverage from the CPU
+					 * atlas restores real letterforms without the GPU texture.
+					 */
+					sk_ui_atlas_page_t page;
 					gx0 = pen_x + g.bearing_x;
 					gy0 = baseline_y - g.bearing_y;
-					gx1 = gx0 + (f32)g.width;
-					gy1 = gy0 + (f32)g.height;
-					if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_FONT, g.page_index, gx0, gy0, gx1, gy1, g.u0, g.v0, g.u1, g.v1, color) != 0) {
-						return -1;
+					if (ui_font_atlas_get_page_impl(sys, g.page_index, &page) == 0 && page.pixels != NULL && page.width > 0u && page.height > 0u) {
+						const u32 ax = (u32)(g.u0 * (f32)page.width + 0.0001f);
+						const u32 ay = (u32)(g.v0 * (f32)page.height + 0.0001f);
+						u32 row;
+						for (row = 0u; row < g.height; ++row) {
+							u32 col = 0u;
+							while (col < g.width) {
+								u8 cov;
+								u32 run_end;
+								u32 sum;
+								u32 n;
+								u32 run_col;
+								if (ay + row >= page.height || ax + col >= page.width) {
+									break;
+								}
+								cov = page.pixels[(ay + row) * page.width + (ax + col)];
+								if (cov == 0u) {
+									col += 1u;
+									continue;
+								}
+								run_end = col + 1u;
+								sum = (u32)cov;
+								n = 1u;
+								while (run_end < g.width && ax + run_end < page.width) {
+									u8 c2 = page.pixels[(ay + row) * page.width + (ax + run_end)];
+									if (c2 == 0u) {
+										break;
+									}
+									sum += (u32)c2;
+									n += 1u;
+									run_end += 1u;
+								}
+								/* Average coverage → alpha; keep RGB from the text color. */
+								run_col = color;
+								{
+									u32 base_a = (run_col >> 24) & 0xffu;
+									u32 avg = sum / n;
+									u32 out_a = (base_a * avg + 127u) / 255u;
+									run_col = (run_col & 0x00ffffffu) | (out_a << 24);
+								}
+								if (ui_paint_add_solid_quad(em, gx0 + (f32)col, gy0 + (f32)row, gx0 + (f32)run_end, gy0 + (f32)row + 1.0f, run_col) != 0) {
+									return -1;
+								}
+								col = run_end;
+							}
+						}
+					} else {
+						/* Fallback: textured quad (may tofu if GPU atlas empty). */
+						gx1 = gx0 + (f32)g.width;
+						gy1 = gy0 + (f32)g.height;
+						if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_FONT, g.page_index, gx0, gy0, gx1, gy1, g.u0, g.v0, g.u1, g.v1, color) != 0) {
+							return -1;
+						}
 					}
 				}
 				pen_x += g.advance_x;
@@ -1701,8 +1761,11 @@ SK_TEST(ui_paint_border_and_rounded_and_text) {
 	dl = ui->get_draw_list(ctx);
 	TEST_ASSERT_TRUE(dl->vertex_count > 8u);
 	TEST_ASSERT_TRUE(dl->index_count > 0u);
-	font_meshes = ui_paint_count_mesh_tex(dl, SK_UI_DRAW_TEX_FONT);
-	TEST_ASSERT_TRUE(font_meshes >= 1u);
+	/* Glyphs are emitted as coverage solid quads (CPU atlas walk), not
+	 * TEX_FONT meshes — still expect more geometry than the box alone. */
+	(void)font_meshes;
+	TEST_ASSERT_TRUE(dl->vertex_count > 24u);
+	TEST_ASSERT_TRUE(dl->index_count > 36u);
 
 	ui->font_system_destroy(sys);
 	ui->context_destroy(ctx);

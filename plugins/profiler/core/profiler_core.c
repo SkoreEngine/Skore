@@ -157,12 +157,12 @@ struct sk_profiler_core_t {
 	 * threads[] publishes each registering thread's ctx pointer (atomic); the
 	 * ctx structs themselves live in thread_states (core-owned heap memory),
 	 * so end_frame can drain them after a worker thread has exited. */
-	void_ptr_t* threads;				   /* max_threads entries, NULL until registered */
+	void_ptr_t* threads;					 /* max_threads entries, NULL until registered */
 	sk_profiler_thread_ctx_t* thread_states; /* max_threads ctx structs (heap) */
-	sk_profiler_core_zone_t* thread_rings;	/* max_threads * zones_per_thread */
-	u32* thread_stacks;				   /* max_threads * zones_per_thread */
-	u32 next_thread_index;			   /* atomic; 0 = recording thread (init) */
-	u32 thread_overflows;			   /* atomic: threads beyond max_threads */
+	sk_profiler_core_zone_t* thread_rings;	 /* max_threads * zones_per_thread */
+	u32* thread_stacks;						 /* max_threads * zones_per_thread */
+	u32 next_thread_index;					 /* atomic; 0 = recording thread (init) */
+	u32 thread_overflows;					 /* atomic: threads beyond max_threads */
 
 	/* Last built frame (recording thread only). */
 	sk_profiler_core_zone_t* frame_ring; /* frame_zones_cap entries (ring) */

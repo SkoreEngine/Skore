@@ -232,9 +232,11 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 
-	/* Panel */
+	/* Panel: column + cross-axis STRETCH so AUTO-width children (e.g. empty
+	 * body BOX under panel-main) fill content width — APX-247 / vision D1. */
 	ui_style_props_clear(&base);
-	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION;
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION |
+				SK_UI_SP_ALIGN_ITEMS;
 	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
 	base.border_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
 	base.layout.border.left = 1.0f;
@@ -244,6 +246,7 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	base.corner_radius = 4.0f;
 	ui_style_fill_layout_pad(&base, 8.0f);
 	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_PANEL, &base) != 0) {
 		return -1;
 	}
@@ -266,7 +269,9 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 
-	/* Button */
+	/* Button: style POINT width/height are the outer border box — padding and
+	 * border sit inside the authored size (APX-248 / vision D2). Pre-fix
+	 * content-box mapping made pad 6 + border 1 expand 96x28 → ~108x40. */
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE |
 				SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_MIN_HEIGHT;
@@ -2883,7 +2888,8 @@ SK_TEST(ui_widget_scroll_view_wheel_and_clamp) {
 	TEST_ASSERT_TRUE(sy > 0.0f);
 	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_set_scroll(ctx, sv, 0.0f, 9999.0f));
 	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_get_scroll(ctx, sv, &sx, &sy));
-	TEST_ASSERT_FLOAT_WITHIN(0.5f, 140.0f, sy); /* 200-60 */
+	/* Border-box 60h with 1px top/bottom border → content viewport 58; max = 200-58. */
+	TEST_ASSERT_FLOAT_WITHIN(0.5f, 142.0f, sy);
 	ui->context_destroy(ctx);
 }
 
