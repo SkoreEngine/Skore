@@ -126,6 +126,12 @@ static lib / deleted from the vendored tree (headers may stay if the umbrella
 - `msdf-atlas-gen/utf8.{h,cpp}` — used only by `charset-parser.cpp`
 - `msdf-atlas-gen/utils.hpp` — header-only helpers for GridAtlasPacker/DynamicAtlas
 
+> Correction (found while wiring the v2 build): `size-selectors.cpp` is NOT
+> CLI-only — `TightAtlasPacker.cpp` calls `packRectangles<SquarePowerOfTwoSizeSelector>`
+> / `<PowerOfTwoSizeSelector>` / `<SquareSizeSelector<4|2|1>>`, and the
+> non-template member definitions of the first two live in `size-selectors.cpp`.
+> It must stay in the library build.
+
 Required library sources (keep): `AtlasGenerator.h`, `AtlasStorage.h`,
 `BitmapAtlasStorage.{h,hpp}`, `Charset.{h,cpp}`, `FontGeometry.{h,cpp}`,
 `GlyphBox.h`, `GlyphGeometry.{h,cpp}`, `ImmediateAtlasGenerator.{h,hpp}`,
