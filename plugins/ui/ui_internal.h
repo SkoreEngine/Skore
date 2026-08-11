@@ -2,7 +2,7 @@
 
 /**
  * @file ui_internal.h
- * @brief Private UI plugin state shared by ui.c and layout.c.
+ * @brief Private UI plugin state shared by the ui plugin translation units.
  *
  * Not part of the public sk-ui surface. Do not include from hosts or other plugins.
  */
@@ -174,7 +174,7 @@ const ui_node_slot_t* ui_slot(const sk_ui_context_t* ctx, sk_ui_node_t node);
 void ui_mark_dirty_up(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
 
 /* -------------------------------------------------------------------------- */
-/* Layout API implementations (layout.c)                                      */
+/* Layout style / query API (ui.c; Clay-backed solver in clay_adapter.c)       */
 /* -------------------------------------------------------------------------- */
 
 void ui_layout_style_init_default(sk_ui_layout_style_t* style);
@@ -185,7 +185,6 @@ i32 ui_node_get_layout_rect_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, 
 i32 ui_node_get_layout_rect_scaled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content);
 
 void ui_set_measure_fn_impl(sk_ui_context_t* ctx, sk_ui_measure_fn fn, void_ptr_t user);
-i32 ui_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height);
 i32 ui_layout_apply_scale_impl(sk_ui_context_t* ctx, f32 scale_x, f32 scale_y);
 void ui_layout_get_content_scale_impl(const sk_ui_context_t* ctx, f32* out_scale_x, f32* out_scale_y);
 
@@ -393,20 +392,13 @@ i32 ui_clay_is_initialized(void);
 /* -------------------------------------------------------------------------- */
 
 /**
- * Clay-backed layout() implementation (replaces ui_layout_impl in the API
- * table): maps the whole per-frame layout pass onto Clay's lifecycle and
- * writes the resulting boxes back into the slot layout rects so hit-testing,
- * scale application and queries keep working unchanged.
+ * Clay-backed layout() implementation (replaces the deleted custom solver in
+ * the API table): maps the whole retained tree onto Clay's immediate-mode
+ * lifecycle in one pass and writes the resulting boxes back into the slot
+ * layout rects so hit-testing, scale application, paint, and queries keep
+ * working unchanged.
  */
 i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height);
-
-/**
- * Clay-backed paint() implementation (replaces ui_paint_impl in the API
- * table): translates the render command array produced by the last Clay
- * layout into the engine draw list, then emits engine widget decorations
- * (scrollbars, slider, checkbox check, caret) on top.
- */
-i32 ui_clay_paint_impl(sk_ui_context_t* ctx, const sk_ui_paint_params_t* params);
 
 /** Free per-context Clay adapter state (called from context destroy). */
 void ui_clay_context_shutdown(sk_ui_context_t* ctx);
