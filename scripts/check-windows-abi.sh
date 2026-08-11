@@ -283,6 +283,11 @@ build_extra_args() {
 		# Mirrors player/CMakeLists.txt (sk_player target) so player/main.c
 		# resolves the embedded font fixture header.
 		"--extra-arg=-I${ROOT}/plugins/ui/testdata"
+		# Compression codec (sk-core links zstd PRIVATE; headers live under
+		# thirdparty/zstd/src and core/compression.c gates the include on
+		# SK_COMPRESSION_HAS_ZSTD, mirroring core/CMakeLists.txt).
+		"--extra-arg=-I${ROOT}/thirdparty/zstd/src"
+		"--extra-arg=-DSK_COMPRESSION_HAS_ZSTD=1"
 	)
 	if [[ -n "${CXX_INC_ROOT}" ]]; then
 		EXTRA_ARGS+=(

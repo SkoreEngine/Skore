@@ -50,6 +50,10 @@ Under `BUILD_TESTING`, `sk-crash-trigger` deliberately raises each handled fault
 ./build/bin/sk-crash-trigger null   # or: abort, fpe, ill, bus
 ```
 
+### Compression
+
+See **[docs/compression-api.md](docs/compression-api.md)** for the compression codec abstraction (`sk_compression_codec_*`): one-shot usage examples, the (deferred) streaming contract, codec selection guidance (none / zstd / lz4 / zlib), and the `SK_COMPRESSION_ZSTD` / `SK_COMPRESSION_LZ4` / `SK_COMPRESSION_MINIZ` build flags for the optional codecs. The authoritative design and the main-branch migration record are in `docs/compression-design-v2.md`; the codec evaluation with measurements is in `docs/compression-codecs-evaluation.md`.
+
 ### Prerequisites
 
 All platforms need:

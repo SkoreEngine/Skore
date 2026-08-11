@@ -99,6 +99,14 @@ include(CTest)
 # compile_commands.json for clang-tidy / IDE tooling (Ninja, Make, multi-config).
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Compression codecs: vendored under thirdparty/, each gated so builds can
+# drop individual codecs; the registry then reports those ids as unsupported
+# while the on-disk ids stay readable (docs/compression-design-v2.md §5;
+# docs/compression-codecs-evaluation.md §6).
+option(SK_COMPRESSION_ZSTD "Build the vendored zstd codec (baseline compression codec)" ON)
+option(SK_COMPRESSION_LZ4 "Build the vendored LZ4 codec (fast one-shot block codec)" ON)
+option(SK_COMPRESSION_MINIZ "Build the vendored miniz zlib/deflate codec" ON)
+
 # Third-party first so it does not inherit first-party warning flags or clang-tidy.
 add_subdirectory(thirdparty)
 
