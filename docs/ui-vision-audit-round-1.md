@@ -34,24 +34,30 @@ export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
 
 Each defect is a separate goal task assigned to the **coder** worker.
 
-### D1 — APX-247 — missing body-red BOX
+### D1 — APX-247 — missing body-red BOX — **FIXED (APX-240)**
 
 - **Snapshot:** `ui_integration_layout_nested.png`
 - **Region:** body BOX under `panel-main` (expected ~`[24,52]..[231,93]`)
 - **Wrong:** zero pixels near `rgba(217,76,51)`; lower panel content is empty panel-gray
-- **Correct:** solid body-red bar height ~40, stretched to panel content width, under header row (matches golden `plugins/ui/testdata/ui_integration_layout_nested.png`)
-- **Likely sources:** `tests/integration/ui_integration.c`, `plugins/ui/paint.c`, `plugins/ui/clay.c` / `clay_adapter.c`, `plugins/ui/widgets.c`, `plugins/ui/ui.c`
+- **Correct:** solid body-red bar height ~40, stretched to panel content width, under header row
+- **Root cause:** Clay adapter mapped AUTO-width in-flow children as FIT. Empty body BOX (height only, no text) collapsed to zero width under a column panel whose default `align_items` is STRETCH.
+- **Fix:** `plugins/ui/clay_adapter.c` — when parent `align_items` / child `align_self` is STRETCH and the cross-axis size is AUTO, map that axis as GROW so the child fills the parent content size.
+- **Verified (APX-240):** live body fill bbox `(25,53)-(230,92)` (206×40), histogram body-red fraction ~0.17; `ui_integration_layout_nested` PASS; unit `ui_clay_nested_border_box_stretch_space_between` locks content width 206.
 
-### D2 — APX-248 — header buttons oversized and overflow panel
+### D2 — APX-248 — header buttons oversized and overflow panel — **FIXED (APX-240)**
 
 - **Snapshot:** `ui_integration_layout_nested.png`
 - **Region:** `btn-a` / `btn-b` in `row-header`
 - **Wrong:** live fills ~108×40 at `(26–133,26–65)` and `(144–251,26–65)`; `btn-b` past panel right (~239). Authored size is 96×28.
-- **Correct:** both buttons fully inside panel content (golden fills ~`(26–126)` / `(129–229)`, y `26–52`)
-- **Likely sources:** `plugins/ui/widgets.c` (button padding/box model), `plugins/ui/clay.c` / `clay_adapter.c`, `plugins/ui/style.c`, `tests/integration/ui_integration.c`
+- **Correct:** both buttons fully inside panel content; outer 96×28; fills ~`(26–119)` / `(136–229)`, y `26–51`
+- **Root cause (two parts):**
+  1. In-flow POINT sizes were expanded by padding+border (content-box) so ui-button 96×28 with pad 6 + border 1 became ~110×42 outer.
+  2. `justify-content: space-between` collapsed to flex-start under Clay (no native packing), so free space was not distributed and the oversized pair still packed left — but the pad expansion alone was enough to overflow.
+- **Fix:** `plugins/ui/clay_adapter.c` — POINT width/height map 1:1 as border-box (Clay FIXED is outer); space-between approximated with anonymous main-axis GROW spacers (authored gap as spacer min, Clay childGap zeroed to avoid double gap).
+- **Verified (APX-240):** button fills `(26–119)` and `(136–229)` y `26–51` (94×26 fill = 96×28 outer − 1px border); joint bbox ends at x 229 (inside panel); unit test asserts outer 96×28 and trailing-edge placement.
 
 ## Notes for later rounds
 
 - Compare new captures against this list by **D# / APX key**, not only by pixel delta.
 - Fixture font `plugins/ui/testdata/skore_test_font.ttf` intentionally uses 4-point rectangular contours per glyph — solid white blocks for text are not a defect.
-- Golden `ui_integration_layout_nested.png` still has the body bar; live capture does not (golden is stale relative to current layout bug, or layout regressed after bless).
+- After APX-240, live `ui_integration_layout_nested.png` matches the committed golden (body bar present, buttons in-bounds).

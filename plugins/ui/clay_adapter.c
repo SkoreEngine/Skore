@@ -1524,6 +1524,111 @@ SK_TEST(ui_clay_nested_container_under_panel) {
 	ui->context_destroy(ctx);
 }
 
+/*
+ * APX-240 / vision audit D1+D2 (APX-247, APX-248): layout contracts that
+ * ui_integration_layout_nested depends on.
+ *
+ * D1 — column parent with default align_items STRETCH must give AUTO-width
+ *      children the full content width (empty body BOX used to collapse).
+ * D2 — ui-button POINT width/height is the outer border box (padding+border
+ *      sit inside; pre-fix content-box expansion made 96x28 → ~108x40 and
+ *      overflowed the panel). space-between places the second button at the
+ *      trailing edge of the row content.
+ *
+ * Geometry mirrors the integration scene without GPU: panel content 206 wide
+ * (224 outer − 1 border − 8 pad each side), row 28 tall, two 96x28 buttons,
+ * body height 40 with AUTO width.
+ */
+SK_TEST(ui_clay_nested_border_box_stretch_space_between) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t panel;
+	sk_ui_node_t row;
+	sk_ui_node_t btn_a;
+	sk_ui_node_t btn_b;
+	sk_ui_node_t body;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	sk_ui_rect_t rbody;
+	sk_ui_rect_t rrow;
+	sk_ui_style_props_t p;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	panel = ui->widget_panel(ctx, root, "d-panel");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(panel));
+	ui_style_props_clear(&p);
+	/* Keep default panel pad 8 + border 1 (class defaults); set outer size. */
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP;
+	p.layout.width = sk_ui_pt(224.0f);
+	p.layout.height = sk_ui_pt(160.0f);
+	p.layout.position = SK_UI_POSITION_ABSOLUTE;
+	p.layout.left = sk_ui_pt(16.0f);
+	p.layout.top = sk_ui_pt(16.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, panel, &p));
+
+	row = ui->widget_view(ctx, panel, "d-row");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(row));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ROW_GAP;
+	p.layout.height = sk_ui_pt(28.0f);
+	p.layout.flex_direction = SK_UI_FLEX_ROW;
+	p.layout.justify_content = SK_UI_JUSTIFY_SPACE_BETWEEN;
+	p.layout.row_gap = 8.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, row, &p));
+
+	btn_a = ui->widget_button(ctx, row, "A", "d-btn-a");
+	btn_b = ui->widget_button(ctx, row, "B", "d-btn-b");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(btn_a));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(btn_b));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(96.0f);
+	p.layout.height = sk_ui_pt(28.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, btn_a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, btn_b, &p));
+
+	/* Body: height only — width must stretch (D1). */
+	body = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, panel);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(body));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_HEIGHT;
+	p.background_color = sk_ui_rgba(0.85f, 0.30f, 0.20f, 1.0f);
+	p.layout.height = sk_ui_pt(40.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, body, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 256.0f, 192.0f));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, row, &rrow, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, btn_a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, btn_b, &rb, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, body, &rbody, NULL));
+
+	/* D2 border-box: outer size stays 96x28 despite button pad 6 + border 1. */
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 96.0f, ra.width);
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 28.0f, ra.height);
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 96.0f, rb.width);
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 28.0f, rb.height);
+
+	/* D2 no overflow: both buttons fully inside row content (206 wide). */
+	TEST_ASSERT_TRUE(ra.x >= -0.5f);
+	TEST_ASSERT_TRUE(rb.x + rb.width <= rrow.width + 0.5f);
+	/* D2 space-between: first at start, second at end, gap between them. */
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 0.0f, ra.x);
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, rrow.width - 96.0f, rb.x);
+	TEST_ASSERT_TRUE((rb.x - (ra.x + ra.width)) >= 7.0f);
+
+	/* D1 stretch: body width fills panel content (224 - 2*(1+8) = 206). */
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 40.0f, rbody.height);
+	TEST_ASSERT_FLOAT_WITHIN(1.5f, 206.0f, rbody.width);
+	TEST_ASSERT_TRUE(rbody.width > 100.0f); /* not collapsed FIT */
+
+	ui->context_destroy(ctx);
+}
+
 /* --- Widget surfaces (stable IDs + wrap text via whole-tree Clay) ---------- */
 
 SK_TEST(ui_clay_widget_button_stable_id) {
