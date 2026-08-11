@@ -5972,5 +5972,4 @@ SK_TEST(repository_buffer_field_accessors) {
 	TEST_ASSERT_EQUAL_UINT64(0u, state.live);
 }
 
-
 #endif /* SK_TESTS */

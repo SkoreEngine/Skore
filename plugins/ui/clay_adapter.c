@@ -37,13 +37,15 @@
  *
  * Known Clay box-model deltas vs the old custom solver (logged once per
  * context via ui_clay_log_limitation): flex-wrap unsupported, reverse axes
- * unsupported, margins ignored, justify-content space-between/around/evenly
- * collapse to start, absolute positioning approximated via Clay floating
- * (left/top offsets only, relative to the parent border box), and min/max
- * constraints on percent-sized axes dropped. Menus and docking also lack
- * multi-viewport hosts (single context root only). Clay has no native
- * splitter primitive — splitters are fixed-size flex children with stable
- * ids; ratio is engine prop state updated by pointer capture.
+ * unsupported, margins ignored, justify-content space-around/evenly collapse
+ * to start (space-between is approximated with main-axis GROW spacers),
+ * absolute positioning approximated via Clay floating (left/top offsets only,
+ * relative to the parent border box), and min/max constraints on percent-sized
+ * axes dropped. POINT sizes are border-box. Cross-axis stretch (align_items /
+ * align_self) maps AUTO axes to GROW. Menus and docking also lack multi-viewport
+ * hosts (single context root only). Clay has no native splitter primitive —
+ * splitters are fixed-size flex children with stable ids; ratio is engine prop
+ * state updated by pointer capture.
  *
  * APX-236 remaining on the engine path (blocking Clay limitations):
  *  - Scroll offset application: paint + hit-test read scroll_x/scroll_y and
@@ -349,7 +351,8 @@ static Clay_LayoutDirection ui_clay_map_direction(sk_ui_flex_direction_t d, i32*
 }
 
 static void ui_clay_map_child_align(const sk_ui_layout_style_t* s, Clay_ChildAlignment* out) {
-	/* Main-axis packing is only approximated: Clay has no space-between/evenly. */
+	/* Main-axis packing: start/center/end map here; space-between uses GROW
+	 * spacers in declare_node; space-around/evenly stay start-aligned. */
 	out->x = CLAY_ALIGN_X_LEFT;
 	out->y = CLAY_ALIGN_Y_TOP;
 	switch (s->justify_content) {
@@ -369,10 +372,9 @@ static void ui_clay_map_child_align(const sk_ui_layout_style_t* s, Clay_ChildAli
 			out->y = CLAY_ALIGN_Y_BOTTOM;
 		}
 		break;
-	case SK_UI_JUSTIFY_SPACE_BETWEEN:
-	case SK_UI_JUSTIFY_SPACE_AROUND:
+	case SK_UI_JUSTIFY_SPACE_BETWEEN: /* GROW spacers in declare_node */
+	case SK_UI_JUSTIFY_SPACE_AROUND:  /* not approximated; start packing */
 	case SK_UI_JUSTIFY_SPACE_EVENLY:
-		/* Clay has no main-axis space distribution; keep start alignment. */
 		break;
 	}
 	switch (s->align_items) {
@@ -400,33 +402,33 @@ static void ui_clay_map_child_align(const sk_ui_layout_style_t* s, Clay_ChildAli
 /**
  * Map sk_ui length + grow/shrink into a Clay sizing axis.
  *
- * Box model: the old custom solver treated style POINT width/height as the
- * *content* (inner) size for in-flow flex items — border box = inner +
- * padding + border. Clay FIXED is the outer element size, so POINT lengths
- * are expanded by @p pad_extra (border+padding on that axis) before mapping.
- * Absolute nodes pass pad_extra=0 so POINT stays border-box (matches the old
- * absolute path). PERCENT is outer fraction of the parent content size.
+ * Box model: style POINT width/height is the *border box* (outer size) for both
+ * in-flow and absolute nodes — padding and border sit inside the fixed size.
+ * Clay FIXED is also outer, so POINT maps 1:1 (no pad expansion). This matches
+ * child content-width estimates (POINT - pads), absolute placement, and widget
+ * authors who set e.g. button 96x28 expecting that painted outer size.
+ * PERCENT is outer fraction of the parent content size.
  * AUTO + grow → GROW, else FIT.
  */
-static Clay_SizingAxis ui_clay_map_axis(sk_ui_length_t len, sk_ui_length_t min_l, sk_ui_length_t max_l, f32 grow, f32 parent_size, i32 parent_def, f32 pad_extra) {
+static Clay_SizingAxis ui_clay_map_axis(sk_ui_length_t len, sk_ui_length_t min_l, sk_ui_length_t max_l, f32 grow, f32 parent_size, i32 parent_def) {
 	Clay_SizingAxis axis;
 	f32 min_v = 0.0f;
 	f32 max_v = 0.0f;
 	memset(&axis, 0, sizeof(axis));
 
 	if (min_l.unit == SK_UI_LENGTH_POINT) {
-		min_v = min_l.value + pad_extra;
+		min_v = min_l.value;
 	} else if (min_l.unit == SK_UI_LENGTH_PERCENT && parent_def) {
 		min_v = parent_size * (min_l.value / 100.0f);
 	}
 	if (max_l.unit == SK_UI_LENGTH_POINT) {
-		max_v = max_l.value + pad_extra;
+		max_v = max_l.value;
 	} else if (max_l.unit == SK_UI_LENGTH_PERCENT && parent_def) {
 		max_v = parent_size * (max_l.value / 100.0f);
 	}
 
 	if (len.unit == SK_UI_LENGTH_POINT) {
-		f32 outer = len.value + pad_extra;
+		f32 outer = len.value;
 		if (outer < 0.0f) {
 			outer = 0.0f;
 		}
@@ -456,6 +458,41 @@ static Clay_SizingAxis ui_clay_map_axis(sk_ui_length_t len, sk_ui_length_t min_l
 	axis.size.minMax.min = min_v;
 	axis.size.minMax.max = max_v > 0.0f ? max_v : 0.0f;
 	return axis;
+}
+
+/** True when flex direction is a horizontal main axis. */
+static i32 ui_clay_is_row_dir(sk_ui_flex_direction_t d) {
+	return (d == SK_UI_FLEX_ROW || d == SK_UI_FLEX_ROW_REVERSE) ? 1 : 0;
+}
+
+/**
+ * Anonymous main-axis GROW spacer used to approximate justify space-between.
+ * Min size carries the authored row/column gap so items stay at least @p min_gap
+ * apart while free space distributes between them (Clay has no native
+ * space-between).
+ */
+static void ui_clay_declare_main_axis_spacer(i32 row_main, f32 min_gap) {
+	Clay_ElementDeclaration spacer;
+	f32 min_v = min_gap > 0.0f ? min_gap : 0.0f;
+	memset(&spacer, 0, sizeof(spacer));
+	if (row_main != 0) {
+		spacer.layout.sizing.width.type = CLAY__SIZING_TYPE_GROW;
+		spacer.layout.sizing.width.size.minMax.min = min_v;
+		spacer.layout.sizing.width.size.minMax.max = 0.0f;
+		spacer.layout.sizing.height.type = CLAY__SIZING_TYPE_FIXED;
+		spacer.layout.sizing.height.size.minMax.min = 0.0f;
+		spacer.layout.sizing.height.size.minMax.max = 0.0f;
+	} else {
+		spacer.layout.sizing.height.type = CLAY__SIZING_TYPE_GROW;
+		spacer.layout.sizing.height.size.minMax.min = min_v;
+		spacer.layout.sizing.height.size.minMax.max = 0.0f;
+		spacer.layout.sizing.width.type = CLAY__SIZING_TYPE_FIXED;
+		spacer.layout.sizing.width.size.minMax.min = 0.0f;
+		spacer.layout.sizing.width.size.minMax.max = 0.0f;
+	}
+	Clay__OpenElement();
+	Clay__ConfigureOpenElement(spacer);
+	Clay__CloseElement();
 }
 
 static Clay_Color ui_clay_color(sk_ui_color_t c) {
@@ -536,7 +573,8 @@ static void ui_clay_log_limitation(ui_clay_frame_t* fr, const_chr_t node_id, con
 }
 
 /* Forward */
-static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 parent_w, f32 parent_h, i32 parent_def, const_chr_t surface_id, i32* limitations, u32 sibling_index);
+static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 parent_w, f32 parent_h, i32 parent_def, sk_ui_flex_direction_t parent_dir,
+								 sk_ui_align_t parent_align_items, const_chr_t surface_id, i32* limitations, u32 sibling_index);
 
 /**
  * Declare text as a Clay text element so wrap/sizing uses Clay measure.
@@ -573,7 +611,8 @@ static void ui_clay_declare_text_content(const ui_node_slot_t* slot) {
 }
 
 // NOLINTBEGIN(misc-no-recursion)
-static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 parent_w, f32 parent_h, i32 parent_def, const_chr_t surface_id, i32* limitations, u32 sibling_index) {
+static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 parent_w, f32 parent_h, i32 parent_def, sk_ui_flex_direction_t parent_dir,
+								 sk_ui_align_t parent_align_items, const_chr_t surface_id, i32* limitations, u32 sibling_index) {
 	ui_node_slot_t* slot = ui_slot_mut(ctx, node);
 	ui_clay_frame_t* fr = ctx->clay_frame;
 	Clay_ElementDeclaration decl;
@@ -584,7 +623,11 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	f32 pad_t;
 	f32 pad_b;
 	f32 gap;
+	f32 grow_w;
+	f32 grow_h;
 	i32 reverse = 0;
+	i32 space_between = 0;
+	i32 row_main = 0;
 	u32 i;
 	const_chr_t widget;
 	i32 is_scroll_container;
@@ -597,6 +640,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	i32 wrap;
 	i32 force_id;
 	i32 has_scroll_props;
+	sk_ui_align_t cross_align;
 
 	if (slot == NULL || fr == NULL) {
 		return;
@@ -707,24 +751,51 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	if (gap <= 0.0f) {
 		gap = ui_clay_fmaxf(ls->row_gap, ls->column_gap);
 	}
-	decl.layout.childGap = ui_clay_u16_clamp(gap);
-
-	/* Absolute: style POINT sizes are border-box (pad_extra 0). In-flow: content-box. */
-	{
-		f32 pad_extra_w = 0.0f;
-		f32 pad_extra_h = 0.0f;
-		if (ls->position != SK_UI_POSITION_ABSOLUTE) {
-			pad_extra_w = pad_l + pad_r;
-			pad_extra_h = pad_t + pad_b;
+	/*
+	 * space-between: Clay has no native packing. Approximate with anonymous
+	 * main-axis GROW spacers between real children; carry the authored gap as
+	 * the spacer minimum and zero Clay childGap so gaps are not double-applied.
+	 * space-around / space-evenly remain start-aligned (logged below).
+	 */
+	space_between = (ls->justify_content == SK_UI_JUSTIFY_SPACE_BETWEEN && slot->children.count >= 2u && ls->position != SK_UI_POSITION_ABSOLUTE) ? 1 : 0;
+	row_main = ui_clay_is_row_dir(ls->flex_direction);
+	if (space_between != 0) {
+		decl.layout.childGap = 0u;
+	} else {
+		decl.layout.childGap = ui_clay_u16_clamp(gap);
+	}
+	if (ls->justify_content == SK_UI_JUSTIFY_SPACE_AROUND || ls->justify_content == SK_UI_JUSTIFY_SPACE_EVENLY) {
+		if (limitations != NULL) {
+			*limitations |= 32;
 		}
-		decl.layout.sizing.width = ui_clay_map_axis(ls->width, ls->min_width, ls->max_width, ls->flex_grow, parent_w, parent_def, pad_extra_w);
-		decl.layout.sizing.height = ui_clay_map_axis(ls->height, ls->min_height, ls->max_height, ls->flex_grow, parent_h, parent_def, pad_extra_h);
+		ui_clay_log_limitation(fr, surface_id, "justify space-around/evenly collapse to start under Clay");
 	}
 
-	/* Stretch on cross axis: approximate with GROW when align_items is stretch and size is auto. */
-	if (ls->align_self == SK_UI_ALIGN_STRETCH || (ls->align_self == SK_UI_ALIGN_AUTO /* parent stretch handled on parent children only */)) {
-		/* no-op here; stretch is a parent concern */
+	/* Cross-axis stretch: parent align_items (or align_self) STRETCH + AUTO
+	 * size → GROW on that axis so empty boxes fill the content width/height. */
+	grow_w = ls->flex_grow;
+	grow_h = ls->flex_grow;
+	cross_align = ls->align_self;
+	if (cross_align == SK_UI_ALIGN_AUTO) {
+		cross_align = parent_align_items;
 	}
+	if (cross_align == SK_UI_ALIGN_STRETCH && ls->position != SK_UI_POSITION_ABSOLUTE) {
+		if (ui_clay_is_row_dir(parent_dir) != 0) {
+			/* Row parent: cross axis is height. */
+			if (ls->height.unit == SK_UI_LENGTH_AUTO && grow_h < 1.0f) {
+				grow_h = 1.0f;
+			}
+		} else {
+			/* Column parent: cross axis is width. */
+			if (ls->width.unit == SK_UI_LENGTH_AUTO && grow_w < 1.0f) {
+				grow_w = 1.0f;
+			}
+		}
+	}
+
+	/* POINT sizes are border-box (outer); see ui_clay_map_axis. */
+	decl.layout.sizing.width = ui_clay_map_axis(ls->width, ls->min_width, ls->max_width, grow_w, parent_w, parent_def);
+	decl.layout.sizing.height = ui_clay_map_axis(ls->height, ls->min_height, ls->max_height, grow_h, parent_h, parent_def);
 
 	if (slot->computed.background_color.a > 0.001f) {
 		decl.backgroundColor = ui_clay_color(slot->computed.background_color);
@@ -885,7 +956,11 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		}
 
 		for (i = 0u; i < slot->children.count; ++i) {
-			ui_clay_declare_node(ctx, slot->children.items[i], child_pw, child_ph, child_def, surface_id, limitations, i);
+			ui_clay_declare_node(ctx, slot->children.items[i], child_pw, child_ph, child_def, ls->flex_direction, ls->align_items, surface_id, limitations, i);
+			/* Free space between items (space-between); min gap from style. */
+			if (space_between != 0 && (i + 1u) < slot->children.count) {
+				ui_clay_declare_main_axis_spacer(row_main, gap);
+			}
 		}
 	}
 
@@ -1237,7 +1312,8 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	Clay__OpenElement();
 	Clay__ConfigureOpenElement(root_decl);
 	for (i = 0u; i < root_slot->children.count; ++i) {
-		ui_clay_declare_node(ctx, root_slot->children.items[i], root_w - pad_l - pad_r, root_h - pad_t - pad_b, 1, root_slot->id, &limitations, i);
+		ui_clay_declare_node(ctx, root_slot->children.items[i], root_w - pad_l - pad_r, root_h - pad_t - pad_b, 1, rs->flex_direction, rs->align_items, root_slot->id, &limitations,
+							 i);
 	}
 	Clay__CloseElement();
 
