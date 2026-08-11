@@ -139,7 +139,11 @@ static i32 it_file_write_all(const_chr_t path, const void* data, u64 size) {
 		fs->remove(path);
 		return -1;
 	}
-	u64 written = fs->write_file(file, data, (size_t)size);
+	/* size_t is unsigned long long on Windows (LLP64), so an explicit
+	 * (size_t) cast would be redundant there; the implicit conversion is
+	 * value-preserving on every supported platform (matches
+	 * resource_asset_builtins.c). */
+	u64 written = fs->write_file(file, data, size);
 	fs->close_file(file);
 	if (written != size) {
 		fs->remove(path);
@@ -155,7 +159,7 @@ static i32 it_file_read_all(const_chr_t path, void* data, u64 size) {
 	if (file == NULL) {
 		return -1;
 	}
-	u64 got = fs->read_file(file, data, (size_t)size);
+	u64 got = fs->read_file(file, data, size);
 	fs->close_file(file);
 	return got == size ? 0 : -1;
 }
