@@ -280,6 +280,8 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
 		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_rect_pack"
+		"--extra-arg=-I${ROOT}/thirdparty/stb_image_write"
+		"--extra-arg=-I${ROOT}/thirdparty/stb_image"
 		# Mirrors player/CMakeLists.txt (sk_player target) so player/main.c
 		# resolves the embedded font fixture header.
 		"--extra-arg=-I${ROOT}/plugins/ui/testdata"

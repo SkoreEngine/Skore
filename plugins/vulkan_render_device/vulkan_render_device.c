@@ -1651,6 +1651,14 @@ static void sk_vkrd_destroy_buffer(sk_render_device_t dev, sk_buffer_t buf) {
 		return;
 	}
 
+	/* Unmap before deferred destroy: VMA requires MapCount == 0 at
+	 * vmaDestroyBuffer (debug assert), including persistently mapped
+	 * buffers (mapped at create). */
+	if (buffer->mapped_data != NULL) {
+		vmaUnmapMemory(device->vma_allocator, buffer->allocation);
+		buffer->mapped_data = NULL;
+	}
+
 	sk_vk_destructor_t destructor = {0};
 	destructor.buffer = buffer->buffer;
 	destructor.allocation = buffer->allocation;

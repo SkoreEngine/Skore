@@ -49,6 +49,10 @@ add_subdirectory(dxc)
 add_subdirectory(freetype)
 add_subdirectory(stb_rect_pack)
 
+# stb_image_write — PNG (and other) writers for UI capture / test artifacts.
+add_subdirectory(stb_image_write)
+# stb_image — PNG reader for capture write round-trip verification (and future loads).
+add_subdirectory(stb_image)
 # msdf-atlas-gen + msdfgen (MSDF glyph atlas generation for font resources).
 # Reuses freetype from above; PNG/SVG/skia/artery-font paths compiled out.
 add_subdirectory(msdf-atlas-gen)
