@@ -12,7 +12,6 @@
 #include "compression.h"
 
 #include <limits.h> /* INT_MAX (LZ4 int-sized APIs) */
-#include <stdlib.h> /* getenv (migration flag process default) */
 #include <string.h> /* memcpy */
 
 /* Shared little-endian u64 helpers for the size-prefixed LZ4/zlib frames.
@@ -609,44 +608,19 @@ const sk_compression_codec_t* sk_compression_codec_at(u32 index) {
 }
 
 /* ---------------------------------------------------------------------------
- * APX-174: v1→v2 call-site migration feature flag.
+ * APX-164: call-site migration completed.
  *
- * Exactly one call site (the zstd v1 adapter in the parity harness below) is
- * migrated to the v2 descriptor interface and consults this flag. It defaults
- * to the v1 path. sk_compression_set_v2_enabled() overrides the process
- * default; until the first explicit set, the SK_COMPRESSION_USE_V2
- * environment variable ("0" / "1") selects the default so opting in or
- * reverting is a config change rather than a code change.
- *
- * Ownership: main-thread. The first sk_compression_v2_enabled() call reads
- * the environment once; afterwards it is a plain cached read. Set the flag
- * before first use from a single thread.
+ * The v1→v2 migration flag introduced by APX-174 was removed once the last
+ * v1-shaped compression call site in the tree (the parity-harness zstd v1
+ * adapter) was migrated to the v2 descriptor interface: the adapter is gone,
+ * the corpus builder compresses through the registry, and the frozen APX-176
+ * compatibility vectors are the wire-compat gate (docs/compression-design-v2.md
+ * §9.3). The only raw-codec uses left in this file are deliberate:
+ *   - the unknown-content-size test crafts a no-content-size zstd frame with
+ *     the stable zstd API, which the v2 codec intentionally never emits;
+ *   - scripts/gen-compression-vectors.c produces the frozen reference frames
+ *     from the reference libraries by design.
  * ------------------------------------------------------------------------- */
-static i32 compression_use_v2 = 0;	   /* value after an explicit set */
-static i32 compression_use_v2_set = 0; /* 1 once sk_compression_set_v2_enabled ran */
-static i32 compression_use_v2_env_read = 0;
-static i32 compression_use_v2_env_value = 0;
-
-static i32 compression_env_use_v2(void) {
-	if (compression_use_v2_env_read == 0) {
-		const char* value = getenv("SK_COMPRESSION_USE_V2");
-		compression_use_v2_env_value = (value != NULL && value[0] == '1') ? 1 : 0;
-		compression_use_v2_env_read = 1;
-	}
-	return compression_use_v2_env_value;
-}
-
-void sk_compression_set_v2_enabled(i32 enabled) {
-	compression_use_v2 = enabled ? 1 : 0;
-	compression_use_v2_set = 1;
-}
-
-i32 sk_compression_v2_enabled(void) {
-	if (compression_use_v2_set != 0) {
-		return compression_use_v2;
-	}
-	return compression_env_use_v2();
-}
 
 #ifdef SK_TESTS
 /* Parse system headers before test.h: unity pulls in <stdnoreturn.h>, whose
@@ -1259,7 +1233,9 @@ SK_TEST(compression_zstd_unknown_content_size) {
 	 * exercises the v2 split bound queries (design §3.2): decompressed_size
 	 * reports SK_COMPRESSION_SIZE_UNKNOWN while decompress_bound still gives a
 	 * safe upper bound and the one-shot decompress succeeds. Crafted with the
-	 * stable zstd API because the codec intentionally always writes the header. */
+	 * stable zstd API because the codec intentionally always writes the header
+	 * (APX-164: the one deliberate raw-zstd use left in this file; see the
+	 * migration-completion note above the test section). */
 	const sk_compression_codec_t* codec = sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD);
 	const u8 payload[] = "unknown content size frame payload payload payload payload payload";
 	const u64 bound = codec->compress_bound(sizeof(payload));
@@ -2178,14 +2154,17 @@ typedef struct compression_harness_v1_adapter_t {
 	i32 (*decompress)(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written);
 	i32 wire_compatible;
 	const_chr_t wire_note; /* required when wire_compatible == 0 */
-	/** Non-zero when a single flipped compressed byte must be rejected. */
-	i32 detects_corruption;
 } compression_harness_v1_adapter_t;
 
 /* ---- v1 adapters: main-branch shapes (design §9 / §11) ------------------- */
 
 /* none: main stored raw bytes when mode==None (callers skipped Compress).
- * On-disk payload is identity; v2 identity codec is wire-compatible with that. */
+ * On-disk payload is identity; v2 identity codec is wire-compatible with that.
+ * This is the only remaining v1 adapter: it models the identity semantics,
+ * not a compression library, so it is not legacy compression code. The zstd
+ * v1 adapter was migrated to the v2 descriptor and removed by APX-164; wire
+ * compatibility with main's zstd output is frozen by the APX-176 vectors
+ * (design §9.3, §13). */
 static u64 harness_none_v1_bound(u64 src_size) {
 	return src_size;
 }
@@ -2198,55 +2177,11 @@ static i32 harness_none_v1_decompress(const u8* src, u64 src_size, u8* dest, u64
 	return none_copy(src, src_size, dest, dest_cap, out_written);
 }
 
-#ifdef SK_COMPRESSION_HAS_ZSTD
-/* zstd v1: main's Compression::Compress/Decompress used plain ZSTD_compress /
- * ZSTD_decompress at CompressionDefaultLevel (3). Wire format is the standard
- * zstd frame — v2 must decode it (design §9).
- *
- * APX-174: this pair is the migrated call site. The default path (flag off)
- * keeps the raw main-branch calls byte-for-byte; when sk_compression_v2_enabled()
- * is set, the same site routes through the v2 zstd descriptor (allocator-
- * injected, explicit status). The parity harness below runs both states. */
-static u64 harness_zstd_v1_bound(u64 src_size) {
-	return ZSTD_compressBound(src_size);
-}
-
-static i32 harness_zstd_v1_compress(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
-	if (sk_compression_v2_enabled()) {
-		return sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD)->compress(sk_allocator_default(), 3, src, src_size, dest, dest_cap, out_written);
-	}
-	/* No (size_t) cast: u64 is unsigned long long (common.h), same as size_t on
-	 * LLP64; cast trips readability-redundant-casting as error on MSVC CI. */
-	const size_t rc = ZSTD_compress(dest, dest_cap, src, src_size, 3);
-	if (ZSTD_isError(rc)) {
-		*out_written = 0u;
-		return zstd_status(rc);
-	}
-	*out_written = rc;
-	return SK_COMPRESSION_OK;
-}
-
-static i32 harness_zstd_v1_decompress(const u8* src, u64 src_size, u8* dest, u64 dest_cap, u64* out_written) {
-	if (sk_compression_v2_enabled()) {
-		return sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD)->decompress(sk_allocator_default(), src, src_size, dest, dest_cap, out_written);
-	}
-	const size_t rc = ZSTD_decompress(dest, dest_cap, src, src_size);
-	if (ZSTD_isError(rc)) {
-		*out_written = 0u;
-		return zstd_status(rc);
-	}
-	*out_written = rc;
-	return SK_COMPRESSION_OK;
-}
-#endif /* SK_COMPRESSION_HAS_ZSTD */
-
-/* Adapter table keyed by codec name. Extend with one row per future codec that
- * has a legacy path; codecs without a row still get v2-only roundtrips. */
+/* Adapter table keyed by codec name. Only the identity codec has a v1-shaped
+ * reference row; every real codec is covered by the v2 roundtrips below plus
+ * the frozen APX-176 compat vectors (APX-164). */
 static const compression_harness_v1_adapter_t harness_v1_adapters[] = {
-	{"none", harness_none_v1_bound, harness_none_v1_compress, harness_none_v1_decompress, 1, NULL, 0},
-#ifdef SK_COMPRESSION_HAS_ZSTD
-	{"zstd", harness_zstd_v1_bound, harness_zstd_v1_compress, harness_zstd_v1_decompress, 1, NULL, 1},
-#endif
+	{"none", harness_none_v1_bound, harness_none_v1_compress, harness_none_v1_decompress, 1, NULL},
 };
 
 static const compression_harness_v1_adapter_t* harness_v1_for_name(const_chr_t name) {
@@ -2344,14 +2279,19 @@ static u32 harness_corpus_build(compression_harness_corpus_t* out, u32 out_cap) 
 		harness_fill_entropy(raw, raw_size, 0xC0FFEEu);
 #ifdef SK_COMPRESSION_HAS_ZSTD
 		{
-			const u64 bound = ZSTD_compressBound(raw_size);
+			/* APX-164: the corpus builder compresses through the v2 zstd
+			 * descriptor (registry lookup + explicit status), not raw
+			 * ZSTD_compress; the emitted frame is byte-identical to main's
+			 * level-3 output (APX-176 vectors). */
+			const sk_compression_codec_t* zstd = sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD);
+			const u64 bound = zstd->compress_bound(raw_size);
+			u64 written = 0u;
+
+			TEST_ASSERT_NOT_NULL(zstd);
 			pre = a->alloc(a->instance, bound);
 			TEST_ASSERT_NOT_NULL(pre);
-			{
-				const size_t rc = ZSTD_compress(pre, bound, raw, raw_size, 3);
-				TEST_ASSERT_FALSE(ZSTD_isError(rc));
-				pre_size = rc;
-			}
+			TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, zstd->compress(a, 3, raw, raw_size, pre, bound, &written));
+			pre_size = written;
 			a->free(a->instance, raw);
 			out[n].name = "already_compressed";
 			out[n].data = pre;
@@ -2573,9 +2513,9 @@ static void harness_assert_v1_v2_wire(const sk_compression_codec_t* codec, const
 
 /**
  * Corruption sensitivity: flip one compressed byte and require failure.
- * Only for adapters with detects_corruption (identity cannot detect flips).
+ * The identity codec cannot detect flips (raw copy), so it is skipped.
  */
-static void harness_assert_mutation_rejected(const sk_compression_codec_t* codec, const compression_harness_v1_adapter_t* v1) {
+static void harness_assert_mutation_rejected(const sk_compression_codec_t* codec) {
 	const sk_allocator_t* a = sk_allocator_default();
 	const u8 payload[] = "mutation check payload: flip one compressed byte and expect CORRUPT_DATA";
 	const u64 bound = codec->compress_bound(sizeof(payload));
@@ -2584,7 +2524,7 @@ static void harness_assert_mutation_rejected(const sk_compression_codec_t* codec
 	u64 compressed_size = 0u;
 	u64 written = 0u;
 
-	if (v1 == NULL || !v1->detects_corruption) {
+	if (codec->id == SK_COMPRESSION_CODEC_NONE) {
 		return;
 	}
 
@@ -2638,7 +2578,7 @@ static void compression_run_parity_harness(const_chr_t codec_name_filter) {
 			}
 		}
 
-		harness_assert_mutation_rejected(codec, v1);
+		harness_assert_mutation_rejected(codec);
 	}
 
 	harness_corpus_free(corpus, corpus_count);
@@ -2662,88 +2602,46 @@ SK_TEST(compression_parity_harness_by_name_zstd) {
 SK_TEST(compression_parity_harness_mutation_fails) {
 	/* Standalone verification: a deliberately mutated zstd frame fails. */
 	const sk_compression_codec_t* codec = harness_codec_by_name("zstd");
-	const compression_harness_v1_adapter_t* v1 = harness_v1_for_name("zstd");
 	TEST_ASSERT_NOT_NULL(codec);
-	TEST_ASSERT_NOT_NULL(v1);
-	harness_assert_mutation_rejected(codec, v1);
+	harness_assert_mutation_rejected(codec);
 }
 #endif /* SK_COMPRESSION_HAS_ZSTD */
 
 /* ==========================================================================
- * APX-174: v1→v2 migration-flag tests
+ * APX-164: migration-completion tests
  *
- * The zstd v1 adapter above is the single migrated call site. These tests pin
- * the flag contract (default v1, env-configurable process default, explicit
- * set wins) and prove the site's existing parity tests pass in both flag
- * states with byte-identical output.
+ * The v1→v2 call-site migration is complete: the last v1-shaped compression
+ * call site (the parity-harness zstd adapter) now routes through the v2
+ * descriptor, the APX-174 feature flag was removed, and wire compatibility
+ * with main's output is frozen by the APX-176 compat vectors
+ * (docs/compression-design-v2.md §9.3). These tests pin the completed state
+ * so a future codec cannot reintroduce a legacy path silently.
  * ========================================================================== */
 
-SK_TEST(compression_migration_flag_defaults_to_v1) {
-	/* Start from a pristine state: earlier tests may have toggled the flag,
-	 * and a previous run may have cached the env default. */
-	compression_use_v2 = 0;
-	compression_use_v2_set = 0;
-	compression_use_v2_env_read = 0;
-	compression_use_v2_env_value = 0;
+SK_TEST(compression_migration_completed_no_legacy_adapters) {
+	/* Only the identity codec keeps a v1-shaped reference row (raw-bytes
+	 * semantics — not a compression library, so not legacy compression code).
+	 * No real codec has a legacy adapter left. */
+	TEST_ASSERT_NOT_NULL(harness_v1_for_name("none"));
+	TEST_ASSERT_NULL(harness_v1_for_name("zstd"));
+	TEST_ASSERT_NULL(harness_v1_for_name("lz4"));
+	TEST_ASSERT_NULL(harness_v1_for_name("zlib"));
 
-	/* Process default: v1 path unless SK_COMPRESSION_USE_V2 enables v2. */
-	{
-		const char* env = getenv("SK_COMPRESSION_USE_V2");
-		const i32 expected = (env != NULL && env[0] == '1') ? 1 : 0;
-		TEST_ASSERT_EQUAL_INT(expected, sk_compression_v2_enabled());
-	}
-
-	/* An explicit set wins over the process default and sticks. */
-	sk_compression_set_v2_enabled(1);
-	TEST_ASSERT_EQUAL_INT(1, sk_compression_v2_enabled());
-	sk_compression_set_v2_enabled(0);
-	TEST_ASSERT_EQUAL_INT(0, sk_compression_v2_enabled());
+	/* Every registered codec still round-trips through the registry with no
+	 * legacy side path; codecs without a v1 row get v2-only coverage. */
+	compression_run_parity_harness(NULL);
 }
 
 #ifdef SK_COMPRESSION_HAS_ZSTD
-/* Compress @p payload through the migrated v1 adapter (which dispatches on
- * the migration flag); returns the compressed size. @p out must fit
- * v1->compress_bound(payload_size). */
-static u64 harness_migration_probe(const compression_harness_v1_adapter_t* v1, const u8* payload, u64 payload_size, u8* out, u64 out_cap) {
-	u64 written = 0u;
-	const u64 bound = v1->compress_bound(payload_size);
-
-	TEST_ASSERT_TRUE(bound <= out_cap);
-	TEST_ASSERT_EQUAL_INT(SK_COMPRESSION_OK, v1->compress(payload, payload_size, out, out_cap, &written));
-	TEST_ASSERT_TRUE(written > 0u);
-	return written;
-}
-
-SK_TEST(compression_migration_flag_v2_path_in_situ) {
+SK_TEST(compression_migration_zstd_routes_through_registry) {
+	/* The former v1 call site (the parity-harness zstd adapter) is now the v2
+	 * descriptor itself: the harness resolves it exactly like any registry
+	 * lookup, and the full zstd parity corpus runs on that single path. */
 	const sk_compression_codec_t* codec = harness_codec_by_name("zstd");
-	const compression_harness_v1_adapter_t* v1 = harness_v1_for_name("zstd");
-	const i32 saved = sk_compression_v2_enabled();
-	static const u8 payload[] = "APX-174 migration probe: the same call site must emit identical frames on the v1 path and the v2 path.";
-	u8 probe_off[4096];
-	u8 probe_on[4096];
-	u64 size_off = 0u;
-	u64 size_on = 0u;
 
 	TEST_ASSERT_NOT_NULL(codec);
-	TEST_ASSERT_NOT_NULL(v1);
-
-	/* Flag off = v1 path (default). The existing parity tests for the migrated
-	 * call site pass unchanged — no regression. */
-	sk_compression_set_v2_enabled(0);
+	TEST_ASSERT_EQUAL_PTR(codec, sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD));
 	compression_run_parity_harness("zstd");
-	size_off = harness_migration_probe(v1, payload, sizeof(payload), probe_off, sizeof(probe_off));
-
-	/* Flag on = v2 path (opt-in). The same tests pass again — v2 works in
-	 * situ — and the migrated site emits byte-identical output (zstd is
-	 * deterministic for the same input and level). */
-	sk_compression_set_v2_enabled(1);
-	compression_run_parity_harness("zstd");
-	size_on = harness_migration_probe(v1, payload, sizeof(payload), probe_on, sizeof(probe_on));
-
-	TEST_ASSERT_EQUAL_UINT64(size_off, size_on);
-	TEST_ASSERT_EQUAL_MEMORY(probe_off, probe_on, size_off);
-
-	sk_compression_set_v2_enabled(saved);
 }
 #endif /* SK_COMPRESSION_HAS_ZSTD */
 

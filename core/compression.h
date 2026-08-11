@@ -4,17 +4,43 @@
  * @file compression.h
  * @brief Compression codec abstraction (one-shot + optional streaming).
  *
- * C port of the main-branch Compression.hpp abstraction; the authoritative
- * design is docs/compression-design-v2.md. Codecs are described by a
- * multi-instance function-pointer table (sk_compression_codec_t, same shape
- * as sk_allocator_t — NOT a process-global sk_*_api_t): callers look up a
- * codec by its stable id from the build-time registry and call through the
- * descriptor.
+ * C port of the main-branch C++ Compression.hpp abstraction. Codecs are
+ * described by a multi-instance function-pointer table (sk_compression_codec_t,
+ * same shape as sk_allocator_t — NOT a process-global sk_*_api_t): callers
+ * look up a codec by its stable id from the build-time registry and call
+ * through the descriptor. The authoritative design is
+ * docs/compression-design-v2.md; a user-facing guide with worked examples is
+ * docs/compression-api.md.
  *
- * All buffers are caller-owned: the module never allocates output. Size every
+ * Registry: sk_compression_codec(id) / _count / _at expose the enabled codecs.
+ * The identity codec (SK_COMPRESSION_CODEC_NONE) is always present; the
+ * optional codecs are compiled in per build flag (see "Build flags" below)
+ * and decode to NULL when disabled (callers map NULL to
+ * SK_COMPRESSION_ERR_UNSUPPORTED_CODEC). Codec ids are stable on-disk values:
+ * never renumber or reuse (docs/compression-design-v2.md §5).
+ *
+ * One-shot (required surface, implemented by every codec):
+ *   compress_bound -> compress -> decompressed_size/decompress_bound -> decompress.
+ * Streaming (optional surface, deferred): stream_init / stream_update /
+ * stream_finish / stream_destroy; a NULL stream_init means the codec has no
+ * streaming implementation (docs/compression-design-v2.md §4).
+ *
+ * Buffers: all caller-owned — the module never allocates output. Size every
  * destination with compress_bound / decompressed_size / decompress_bound and
  * read the actual length from *out_written. Byte sizes are u64; src and dest
- * must not overlap.
+ * must not overlap. Status: 0 = success, non-zero = recoverable failure
+ * (see sk_compression_status_t). Levels are clamped per codec;
+ * SK_COMPRESSION_LEVEL_DEFAULT selects the codec default.
+ *
+ * Built-in codecs (docs/compression-codecs-evaluation.md):
+ *   NONE  identity (copy in / copy out); always present.
+ *   ZSTD  standard zstd frame (default, same bytes as main's level-3 output).
+ *   LZ4   u64-LE original-size prefix + raw LZ4 block (fast decompress).
+ *   ZLIB  u64-LE original-size prefix + RFC 1950 zlib stream (miniz).
+ *
+ * Build flags (root CMakeLists.txt): SK_COMPRESSION_ZSTD / SK_COMPRESSION_LZ4 /
+ * SK_COMPRESSION_MINIZ, default ON. With a flag OFF the matching descriptor is
+ * excluded from the registry and its id decodes to NULL.
  *
  * Threading: the one-shot entries are safe to call from worker threads
  * (zstd one-shot is thread-safe). A streaming session is owned by one thread
@@ -269,31 +295,6 @@ u32 sk_compression_codec_count(void);
  * @return Non-NULL descriptor, or NULL when index >= count.
  */
 const sk_compression_codec_t* sk_compression_codec_at(u32 index);
-
-/**
- * APX-174: runtime feature flag for the v1→v2 call-site migration.
- *
- * Exactly one existing compression call site (the zstd parity-harness v1
- * adapter in compression.c) is migrated to the v2 descriptor interface and
- * consults this flag. It defaults to the v1 path (0); when non-zero the
- * migrated call site routes through the v2 codec descriptor (allocator-
- * injected, explicit status codes) instead of the legacy raw-codec calls.
- * Before the first sk_compression_v2_enabled() query, the
- * SK_COMPRESSION_USE_V2 environment variable ("0" or "1") selects the
- * process default, so opting in or reverting is a config change, not a code
- * change. Set from the main thread before first use; after the first query
- * the state is a plain cached read.
- *
- * @param enabled Non-zero routes the migrated call site through the v2
- *                descriptor interface.
- */
-void sk_compression_set_v2_enabled(i32 enabled);
-
-/**
- * Current state of the v1→v2 migration flag (see sk_compression_set_v2_enabled).
- * @return Non-zero when the migrated call site uses the v2 interface.
- */
-i32 sk_compression_v2_enabled(void);
 
 #ifdef __cplusplus
 }

@@ -70,8 +70,6 @@ Public surface:
 | function | `sk_compression_codec(id)` | Registry lookup → descriptor or `NULL`. |
 | function | `sk_compression_codec_count()` | Number of enabled codecs (≥ 1). |
 | function | `sk_compression_codec_at(index)` | Descriptor at registry index. |
-| function | `sk_compression_set_v2_enabled(enabled)` | APX-174: runtime v1→v2 call-site migration flag (default v1 path; explicit set wins over `SK_COMPRESSION_USE_V2`). |
-| function | `sk_compression_v2_enabled()` | Current migration-flag state (env `SK_COMPRESSION_USE_V2` honored as the process default until first explicit set). |
 
 Naming follows the v2 table rules: `sk_compression_codec_t` is a
 multi-instance strategy table in the shape of `sk_allocator_t` (AGENTS.md
@@ -580,37 +578,61 @@ Verification on this branch (Debug, gcc, Ninja): full build clean; CTest 3/3
 `sk-tests` 457/457; `sk-integration-tests` 22/22. No code change was needed,
 so the before/after suite results are identical.
 
-### 9.2 First call-site migration (APX-174)
+### 9.2 First call-site migration (APX-174) — superseded by §9.3
 
-With no engine call sites on this branch (see §9.1), APX-174 migrates the one
-remaining v1-shaped compression call site in the tree: the **zstd v1 adapter
-of the APX-173 parity harness** (`harness_zstd_v1_compress` /
-`harness_zstd_v1_decompress`). It is the only code left that performs
-compression through the main-branch v1 path (raw `ZSTD_compress` /
-`ZSTD_decompress` at `CompressionDefaultLevel = 3`, libc allocations, invisible
-errors), it has direct existing test coverage (the parity harness), and it has
-no persistence/wire-format implications (standard zstd frames either way; the
-harness already asserts wire compatibility). No other compression call site is
-touched — bound queries, the `none` adapter, the corpus builder, and every v2
-codec implementation stay on their current paths.
+*Historical record.* With no engine call sites on this branch (see §9.1),
+APX-174 migrated the one remaining v1-shaped compression call site in the tree
+— the **zstd v1 adapter of the APX-173 parity harness**
+(`harness_zstd_v1_compress` / `harness_zstd_v1_decompress`, raw
+`ZSTD_compress` / `ZSTD_decompress` at `CompressionDefaultLevel = 3`) — behind
+a runtime feature flag (`sk_compression_set_v2_enabled` /
+`sk_compression_v2_enabled`, `SK_COMPRESSION_USE_V2` env default) that
+**defaulted to the v1 path**. APX-174 proved the flag states produce
+byte-identical frames and ran the suite in both states. **APX-164 (below)
+removed the flag and the v1 path** once the migration was complete; the flag
+API is no longer part of the public surface (§3).
 
-The migrated site consults a runtime feature flag
-(`sk_compression_set_v2_enabled` / `sk_compression_v2_enabled`,
-§3). It **defaults to the v1 path**; the `SK_COMPRESSION_USE_V2` environment
-variable selects the process default until an explicit set, so opting in or
-reverting is a config change rather than a code change. With the flag off the
-adapter keeps the raw main-branch calls byte-for-byte; with the flag on it
-routes through the v2 zstd descriptor (`codec->compress` / `codec->decompress`
-with the injected allocator and explicit status).
+### 9.3 Call-site migration completed (APX-164)
 
-Verification on this branch (Debug, gcc, Ninja): CTest 3/3 with the flag off
-(no regression) and 3/3 with `SK_COMPRESSION_USE_V2=1` (v2 works in situ);
-new `SK_TEST`s pin the flag contract and run the existing zstd parity harness
-in both states. **No behavioral difference was observed between flag states:**
-the v1 adapter and the v2 descriptor produce byte-identical zstd frames for the
-same input and level (zstd is deterministic; the parity harness reports
-`size_delta = 0` for every corpus entry), so the migrated site is a pure
-mechanical shape change. CI runs the full suite in both flag states.
+APX-164 completed the migration using the audit call-site list
+(`docs/compression-inventory.md` §8) as the checklist:
+
+- **Checklist result:** every inventory call site lives in the C++ engine on
+  `main` (`.resources`/`.cooked` archives, font blobs, per-mip texture
+  decompress, thumbnails) and none of those modules exist on this branch (§9.1)
+  — there are no v2 engine call sites to migrate. The only v1-shaped
+  compression code in the v2 tree was the parity harness: the zstd v1 adapter
+  (§9.2) and the corpus builder's raw `ZSTD_compress` call. Both now route
+  through the v2 descriptor interface:
+  - the parity-harness zstd adapter was **removed** — the harness resolves
+    codecs only via `sk_compression_codec*` and the zstd parity corpus runs on
+    the registry descriptor (pinned by `compression_migration_zstd_routes_through_registry`);
+  - the `already_compressed` corpus entry compresses through
+    `sk_compression_codec(SK_COMPRESSION_CODEC_ZSTD)->compress` (byte-identical
+    frames; APX-176 vectors);
+  - the APX-174 feature flag (`sk_compression_set_v2_enabled` /
+    `sk_compression_v2_enabled`, `SK_COMPRESSION_USE_V2` env, CI double-run)
+    was **removed** as now-dead legacy machinery — no legacy compression entry
+    point remains in v2.
+- **No on-disk / on-wire format change:** the migrated calls emit and consume
+  exactly the same frames as before (standard zstd frames at level 3); APX-174
+  proved byte-identity between the v1 and v2 paths, and the frozen APX-176
+  compat vectors (§13) are the permanent wire-compatibility gate. No escalation
+  was required.
+- **Remaining raw-codec uses are deliberate and documented:**
+  `scripts/gen-compression-vectors.c` produces the frozen reference frames
+  from the reference libraries by design (its output is checked in, not
+  linked), and the `compression_zstd_unknown_content_size` test crafts a
+  no-content-size zstd frame with the stable zstd API because the v2 codec
+  intentionally always writes the content-size header.
+- The parity harness keeps the identity v1 reference row (raw-bytes semantics
+  — not a compression library) for the `none` wire check; real codecs rely on
+  the v2 round-trips plus the frozen vectors.
+
+Verification on this branch (Debug, gcc, Ninja): full build clean (including
+clang-tidy warnings-as-errors); CTest 4/4 (`sk-compression-conformance`,
+`sk-compression-bench`, `sk-tests`, `sk-integration-tests`) — no regressions;
+the migration-completion tests pin that no legacy adapter or flag API remains.
 
 ## 10. Build-time gating and vendoring
 
