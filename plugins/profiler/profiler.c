@@ -35,10 +35,12 @@
 
 typedef struct sk_profiler_sample_t {
 	char name[SK_PROFILER_NAME_CAP];
+	char category[SK_PROFILER_CATEGORY_CAP];
 	f64 cpu_start;
 	f64 cpu_end;
 	u32 gpu_query_start;
 	u32 gpu_query_end;
+	u32 color; /* explicit color, or palette color derived from the name hash when 0 was passed */
 	bool has_gpu;
 	i32 depth;
 } sk_profiler_sample_t;
@@ -166,9 +168,22 @@ static void copy_name(char dst[SK_PROFILER_NAME_CAP], const_chr_t name) {
 	dst[len] = '\0';
 }
 
+static void copy_category(char dst[SK_PROFILER_CATEGORY_CAP], const_chr_t category) {
+	if (category == NULL || category[0] == '\0') {
+		dst[0] = '\0';
+		return;
+	}
+	size_t len = strlen(category);
+	if (len >= SK_PROFILER_CATEGORY_CAP) {
+		len = SK_PROFILER_CATEGORY_CAP - 1u;
+	}
+	memcpy(dst, category, len);
+	dst[len] = '\0';
+}
+
 /* ---- sampling ---- */
 
-static void begin_sample(sk_profiler_context_t* ctx, const_chr_t name, sk_command_buffer_t cmd) {
+static void begin_sample(sk_profiler_context_t* ctx, const_chr_t name, const_chr_t category, u32 color, sk_command_buffer_t cmd) {
 	if (!active) {
 		return;
 	}
@@ -182,6 +197,8 @@ static void begin_sample(sk_profiler_context_t* ctx, const_chr_t name, sk_comman
 	sk_profiler_sample_t* sample = &buf->samples[idx];
 
 	copy_name(sample->name, name);
+	copy_category(sample->category, category);
+	sample->color = (color != 0u) ? color : color_for_name(name);
 	sample->cpu_start = elapsed_seconds();
 	sample->depth = ctx->stack_depth;
 
@@ -265,7 +282,8 @@ static void build_tasks(sk_profiler_context_t* ctx, bool gpu) {
 			idx = insert_at;
 			sk_profiler_task_entry_t* created = &ctx->tasks[idx];
 			copy_name(created->name, sample->name);
-			created->color = color_for_name(sample->name);
+			copy_category(created->category, sample->category);
+			created->color = sample->color;
 			created->depth = sample->depth;
 			created->cpu_time = 0.0;
 			created->gpu_time = 0.0;
@@ -371,6 +389,7 @@ static void advance_context(sk_profiler_context_t* ctx, bool gpu) {
 
 static i32 profiler_init(sk_render_device_t dev);
 static void profiler_shutdown(void);
+static bool profiler_is_active(void);
 
 static i32 profiler_init(sk_render_device_t dev) {
 	profiler_shutdown();
@@ -432,16 +451,16 @@ static void profiler_end_frame(void) {
 	/* No-op today; kept as the frame delimiter counterpart. */
 }
 
-static void profiler_begin_cpu_sample(const_chr_t name) {
-	begin_sample(&cpu_ctx, name, sk_command_buffer_t_zero());
+static void profiler_begin_cpu_sample(const_chr_t name, const_chr_t category, u32 color) {
+	begin_sample(&cpu_ctx, name, category, color, sk_command_buffer_t_zero());
 }
 
 static void profiler_end_cpu_sample(void) {
 	end_sample(&cpu_ctx, sk_command_buffer_t_zero());
 }
 
-static void profiler_begin_gpu_sample(const_chr_t name, sk_command_buffer_t cmd) {
-	begin_sample(&gpu_ctx, name, cmd);
+static void profiler_begin_gpu_sample(const_chr_t name, const_chr_t category, u32 color, sk_command_buffer_t cmd) {
+	begin_sample(&gpu_ctx, name, category, color, cmd);
 }
 
 static void profiler_end_gpu_sample(sk_command_buffer_t cmd) {
@@ -484,6 +503,70 @@ static sk_profiler_frame_stats_t profiler_get_gpu_frame_stats(void) {
 	stats.avg = gpu_ctx.frame_time_avg;
 	stats.count = gpu_ctx.frame_time_count;
 	return stats;
+}
+
+static i32 profiler_dump_report(const_chr_t path) {
+	if (path == NULL) {
+		return -1;
+	}
+
+	FILE* out = fopen(path, "w");
+	if (out == NULL) {
+		return -1;
+	}
+
+	fputs("Skore profiler report\n=====================\n", out);
+	fprintf(out, "Recording: %s\n\n", profiler_is_active() ? "active" : "inactive");
+
+	/* CPU section: rolling frame stats + task tree. */
+	sk_profiler_frame_stats_t cpu_stats = profiler_get_cpu_frame_stats();
+	fprintf(out, "CPU frame: current %.3f ms, min %.3f ms, max %.3f ms, avg %.3f ms (%u frames)\n", cpu_stats.current * 1000.0, cpu_stats.min * 1000.0, cpu_stats.max * 1000.0,
+			cpu_stats.avg * 1000.0, cpu_stats.count);
+	fputs("CPU tasks:\n", out);
+
+	u32 cpu_count = 0u;
+	const sk_profiler_task_entry_t* cpu_tasks = NULL;
+	profiler_get_cpu_tasks(&cpu_tasks, &cpu_count);
+	for (u32 i = 0u; i < cpu_count; i++) {
+		const sk_profiler_task_entry_t* task = &cpu_tasks[i];
+		if (!task->present) {
+			continue;
+		}
+		fprintf(out, "%*s%s  cpu %.3f ms (avg %.3f, min %.3f, max %.3f, %u frames, color 0x%08X)", (int)task->depth * 2, "", task->name, task->cpu_time * 1000.0,
+				task->cpu_avg * 1000.0, task->cpu_min * 1000.0, task->cpu_max * 1000.0, task->cpu_count, task->color);
+		if (task->category[0] != '\0') {
+			fprintf(out, " [%s]", task->category);
+		}
+		if (task->has_gpu) {
+			fprintf(out, "  gpu %.3f ms", task->gpu_time * 1000.0);
+		}
+		fputc('\n', out);
+	}
+
+	/* GPU section: rolling frame stats + task tree. */
+	sk_profiler_frame_stats_t gpu_stats = profiler_get_gpu_frame_stats();
+	fprintf(out, "\nGPU frame: current %.3f ms, min %.3f ms, max %.3f ms, avg %.3f ms (%u frames)\n", gpu_stats.current * 1000.0, gpu_stats.min * 1000.0, gpu_stats.max * 1000.0,
+			gpu_stats.avg * 1000.0, gpu_stats.count);
+	fputs("GPU tasks:\n", out);
+
+	u32 gpu_count = 0u;
+	const sk_profiler_task_entry_t* gpu_tasks = NULL;
+	profiler_get_gpu_tasks(&gpu_tasks, &gpu_count);
+	for (u32 i = 0u; i < gpu_count; i++) {
+		const sk_profiler_task_entry_t* task = &gpu_tasks[i];
+		if (!task->present) {
+			continue;
+		}
+		fprintf(out, "%*s%s  gpu %.3f ms (avg %.3f, min %.3f, max %.3f, %u frames, color 0x%08X)", (int)task->depth * 2, "", task->name, task->gpu_time * 1000.0,
+				task->gpu_avg * 1000.0, task->gpu_min * 1000.0, task->gpu_max * 1000.0, task->gpu_count, task->color);
+		if (task->category[0] != '\0') {
+			fprintf(out, " [%s]", task->category);
+		}
+		fputc('\n', out);
+	}
+
+	fclose(out);
+	return 0;
 }
 
 static void profiler_reset_stats(void) {
@@ -534,6 +617,7 @@ static const sk_profiler_api_t profiler_api = {
 	.get_gpu_tasks = profiler_get_gpu_tasks,
 	.get_cpu_frame_stats = profiler_get_cpu_frame_stats,
 	.get_gpu_frame_stats = profiler_get_gpu_frame_stats,
+	.dump_report = profiler_dump_report,
 	.reset_stats = profiler_reset_stats,
 	.set_active = profiler_set_active,
 	.is_active = profiler_is_active,
@@ -583,6 +667,7 @@ SK_TEST(profiler_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(api->get_gpu_tasks);
 	TEST_ASSERT_NOT_NULL(api->get_cpu_frame_stats);
 	TEST_ASSERT_NOT_NULL(api->get_gpu_frame_stats);
+	TEST_ASSERT_NOT_NULL(api->dump_report);
 	TEST_ASSERT_NOT_NULL(api->reset_stats);
 	TEST_ASSERT_NOT_NULL(api->set_active);
 	TEST_ASSERT_NOT_NULL(api->is_active);
@@ -597,7 +682,7 @@ SK_TEST(profiler_inactive_records_nothing) {
 	api->set_active(false);
 	TEST_ASSERT_FALSE(api->is_active());
 
-	api->begin_cpu_sample("ghost");
+	api->begin_cpu_sample("ghost", NULL, 0u);
 	api->end_cpu_sample();
 	api->begin_frame();
 	api->begin_frame();
@@ -616,8 +701,8 @@ SK_TEST(profiler_cpu_zones_nested_build_tasks) {
 	profiler_test_reset(api);
 
 	api->begin_frame(); /* frame 0 */
-	api->begin_cpu_sample("a");
-	api->begin_cpu_sample("b");
+	api->begin_cpu_sample("a", NULL, 0u);
+	api->begin_cpu_sample("b", NULL, 0u);
 	api->end_cpu_sample();
 	api->end_cpu_sample();
 	api->begin_frame(); /* frame 1 */
@@ -642,7 +727,7 @@ SK_TEST(profiler_read_lag_is_two_frames) {
 	profiler_test_reset(api);
 
 	api->begin_frame(); /* frame 0 */
-	api->begin_cpu_sample("f0zone");
+	api->begin_cpu_sample("f0zone", NULL, 0u);
 	api->end_cpu_sample();
 	api->begin_frame(); /* frame 1 */
 	api->begin_frame(); /* frame 2: builds frame 0 */
@@ -670,12 +755,12 @@ SK_TEST(profiler_same_name_samples_merge) {
 	profiler_test_reset(api);
 
 	api->begin_frame(); /* frame 0: two same-name samples sum into one task */
-	api->begin_cpu_sample("merged");
+	api->begin_cpu_sample("merged", NULL, 0u);
 	api->end_cpu_sample();
-	api->begin_cpu_sample("merged");
+	api->begin_cpu_sample("merged", NULL, 0u);
 	api->end_cpu_sample();
 	api->begin_frame(); /* frame 1: one more sample */
-	api->begin_cpu_sample("merged");
+	api->begin_cpu_sample("merged", NULL, 0u);
 	api->end_cpu_sample();
 	api->begin_frame(); /* frame 2: builds frame 0 */
 
@@ -703,7 +788,7 @@ SK_TEST(profiler_sample_cap_drops_overflow) {
 	for (u32 i = 0u; i < SK_PROFILER_MAX_SAMPLES + 64u; i++) {
 		char name[32];
 		(void)snprintf(name, sizeof(name), "zone%u", i);
-		api->begin_cpu_sample(name);
+		api->begin_cpu_sample(name, NULL, 0u);
 		api->end_cpu_sample();
 	}
 	api->begin_frame();
@@ -737,7 +822,7 @@ SK_TEST(profiler_reset_stats_clears_rolling_counts) {
 	profiler_test_reset(api);
 
 	api->begin_frame();
-	api->begin_cpu_sample("stat");
+	api->begin_cpu_sample("stat", NULL, 0u);
 	api->end_cpu_sample();
 	api->begin_frame();
 	api->begin_frame(); /* builds frame 0 */
@@ -761,7 +846,7 @@ SK_TEST(profiler_set_active_false_clears_state) {
 	profiler_test_reset(api);
 
 	api->begin_frame();
-	api->begin_cpu_sample("gone");
+	api->begin_cpu_sample("gone", NULL, 0u);
 	api->end_cpu_sample();
 	api->begin_frame();
 	api->begin_frame();
@@ -785,7 +870,7 @@ SK_TEST(profiler_gpu_zones_cpu_only_without_device) {
 	profiler_test_reset(api);
 
 	api->begin_frame(); /* frame 0 */
-	api->begin_gpu_sample("gzone", sk_command_buffer_t_from_u64(0x42u));
+	api->begin_gpu_sample("gzone", NULL, 0u, sk_command_buffer_t_from_u64(0x42u));
 	api->end_gpu_sample(sk_command_buffer_t_from_u64(0x42u));
 	api->begin_frame();
 	api->begin_frame(); /* builds frame 0 */
@@ -875,7 +960,7 @@ SK_TEST(profiler_gpu_zones_read_timestamp_pairs) {
 	profiler_test_reset(api);
 
 	api->begin_frame(); /* frame 0 */
-	api->begin_gpu_sample("gpu1", sk_command_buffer_t_from_u64(0x77u));
+	api->begin_gpu_sample("gpu1", NULL, 0u, sk_command_buffer_t_from_u64(0x77u));
 	api->end_gpu_sample(sk_command_buffer_t_from_u64(0x77u));
 	api->begin_frame();
 	api->begin_frame(); /* builds frame 0: query pair (0,1) -> 1 ns */
@@ -917,7 +1002,7 @@ SK_TEST(profiler_macros_match_compile_time_switch) {
 	api->begin_frame(); /* frame 0 */
 	/* In no-op mode these must compile away and record nothing. */
 	SK_PROFILE_CPU_ZONE(api, "macrozone");
-	SK_PROFILE_BEGIN_CPU_SAMPLE(api, "explicit");
+	SK_PROFILE_BEGIN_CPU_SAMPLE(api, "explicit", NULL, 0u);
 	SK_PROFILE_END_CPU_SAMPLE(api);
 	api->begin_frame();
 	api->begin_frame(); /* builds frame 0 */
@@ -932,6 +1017,67 @@ SK_TEST(profiler_macros_match_compile_time_switch) {
 #else
 	TEST_ASSERT_EQUAL_UINT32(0u, count);
 #endif
+	api->set_active(false);
+}
+
+SK_TEST(profiler_category_and_color_stored) {
+	const sk_profiler_api_t* api = sk_profiler_test_table();
+	profiler_test_reset(api);
+
+	api->begin_frame(); /* frame 0 */
+	api->begin_cpu_sample("catzone", "render", 0xFF102030u);
+	api->end_cpu_sample();
+	api->begin_cpu_sample("autozone", NULL, 0u); /* auto color + no category */
+	api->end_cpu_sample();
+	api->begin_frame();
+	api->begin_frame(); /* builds frame 0 */
+
+	u32 count = 0u;
+	const sk_profiler_task_entry_t* tasks = NULL;
+	api->get_cpu_tasks(&tasks, &count);
+	TEST_ASSERT_EQUAL_UINT32(2u, count);
+	TEST_ASSERT_EQUAL_STRING("catzone", tasks[0].name);
+	TEST_ASSERT_EQUAL_STRING("render", tasks[0].category);
+	TEST_ASSERT_EQUAL_UINT32(0xFF102030u, tasks[0].color);
+	TEST_ASSERT_EQUAL_STRING("autozone", tasks[1].name);
+	TEST_ASSERT_EQUAL_STRING("", tasks[1].category);
+	TEST_ASSERT_TRUE(tasks[1].color != 0u); /* auto palette color derived from the name */
+	api->set_active(false);
+}
+
+SK_TEST(profiler_dump_report_writes_text) {
+	const sk_profiler_api_t* api = sk_profiler_test_table();
+	profiler_test_reset(api);
+
+	/* NULL path is rejected without crashing. */
+	TEST_ASSERT_TRUE(api->dump_report(NULL) != 0);
+
+	api->begin_frame(); /* frame 0 */
+	api->begin_cpu_sample("dumpzone", "io", 0u);
+	api->end_cpu_sample();
+	api->begin_frame();
+	api->begin_frame(); /* builds frame 0 */
+
+	const char* path = "sk_profiler_dump_test.txt";
+	TEST_ASSERT_EQUAL_INT(0, api->dump_report(path));
+
+	FILE* f = fopen(path, "r");
+	TEST_ASSERT_NOT_NULL(f);
+	bool found_zone = false;
+	bool found_category = false;
+	char line[256];
+	while (fgets(line, sizeof(line), f) != NULL) {
+		if (strstr(line, "dumpzone") != NULL) {
+			found_zone = true;
+		}
+		if (strstr(line, "[io]") != NULL) {
+			found_category = true;
+		}
+	}
+	fclose(f);
+	(void)remove(path);
+	TEST_ASSERT_TRUE(found_zone);
+	TEST_ASSERT_TRUE(found_category);
 	api->set_active(false);
 }
 

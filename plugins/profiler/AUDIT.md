@@ -375,7 +375,8 @@ plugins/profiler/
   profiler.c               # contexts, triple buffer, register set_api
 ```
 
-Suggested registration:
+Suggested registration (now frozen by APX-198; zone begins take an optional
+category label and color, and a text report/dump entry point was added):
 
 ```c
 #define SK_PROFILER_API_TYPE_ID SK_TYPE_ID("sk.profiler_api", /* cmake fills hashes */)
@@ -385,14 +386,15 @@ typedef struct sk_profiler_api_t {
   void (*shutdown)(void);
   void (*begin_frame)(void);
   void (*end_frame)(void);
-  void (*begin_cpu_sample)(const_chr_t name);
+  void (*begin_cpu_sample)(const_chr_t name, const_chr_t category, u32 color); /* category NULL/color 0 optional */
   void (*end_cpu_sample)(void);    /* drop unused name param */
-  void (*begin_gpu_sample)(const_chr_t name, sk_command_buffer_t cmd);
+  void (*begin_gpu_sample)(const_chr_t name, const_chr_t category, u32 color, sk_command_buffer_t cmd);
   void (*end_gpu_sample)(sk_command_buffer_t cmd);
   void (*get_cpu_tasks)(const sk_profiler_task_entry_t** out, u32* count);
   void (*get_gpu_tasks)(const sk_profiler_task_entry_t** out, u32* count);
   sk_profiler_frame_stats_t (*get_cpu_frame_stats)(void);
   sk_profiler_frame_stats_t (*get_gpu_frame_stats)(void);
+  i32 (*dump_report)(const_chr_t path);  /* text report of last built frame; later tasks add formats */
   void (*reset_stats)(void);
   void (*set_active)(bool active);
   bool (*is_active)(void);

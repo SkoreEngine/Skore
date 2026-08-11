@@ -77,9 +77,9 @@ SK_TEST(profiler_macro_explicit_begin_end_pair) {
 	api->set_active(true);
 	api->begin_frame(); /* frame 0 */
 
-	SK_PROFILE_BEGIN_CPU_SAMPLE(api, "explicit");
+	SK_PROFILE_BEGIN_CPU_SAMPLE(api, "explicit", NULL, 0u);
 	SK_PROFILE_END_CPU_SAMPLE(api);
-	SK_PROFILE_BEGIN_GPU_SAMPLE(api, "gpuonly", sk_command_buffer_t_from_u64(0x42u));
+	SK_PROFILE_BEGIN_GPU_SAMPLE(api, "gpuonly", NULL, 0u, sk_command_buffer_t_from_u64(0x42u));
 	SK_PROFILE_END_GPU_SAMPLE(api, sk_command_buffer_t_from_u64(0x42u));
 
 	api->begin_frame();
@@ -98,6 +98,27 @@ SK_TEST(profiler_macro_explicit_begin_end_pair) {
 	/* No render device attached: CPU stamps only. */
 	TEST_ASSERT_FALSE(tasks[0].has_gpu);
 	TEST_ASSERT_TRUE(tasks[0].cpu_time >= 0.0);
+	api->set_active(false);
+}
+
+SK_TEST(profiler_macro_ex_zone_carries_category_color) {
+	const sk_profiler_api_t* api = sk_profiler_test_table();
+	api->set_active(false);
+	api->set_active(true);
+	api->begin_frame(); /* frame 0 */
+	{
+		SK_PROFILE_CPU_ZONE_EX(api, "exzone", "scene", 0x11223344u);
+	}
+	api->begin_frame();
+	api->begin_frame(); /* builds frame 0 */
+
+	u32 count = 0u;
+	const sk_profiler_task_entry_t* tasks = NULL;
+	api->get_cpu_tasks(&tasks, &count);
+	TEST_ASSERT_EQUAL_UINT32(1u, count);
+	TEST_ASSERT_EQUAL_STRING("exzone", tasks[0].name);
+	TEST_ASSERT_EQUAL_STRING("scene", tasks[0].category);
+	TEST_ASSERT_EQUAL_UINT32(0x11223344u, tasks[0].color);
 	api->set_active(false);
 }
 

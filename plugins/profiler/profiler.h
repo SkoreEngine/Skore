@@ -31,6 +31,17 @@
  * at most SK_PROFILER_MAX_SAMPLES zones per frame are recorded (further
  * begins are silently dropped).
  *
+ * Zones carry an optional category label and color: pass NULL (or "") for
+ * uncategorized and 0 for the automatic palette color derived from the name
+ * hash (FNV-1a). The category/color of the first zone that creates an
+ * aggregated task entry win; later same-name zones merge into that entry.
+ *
+ * dump_report(path) writes a human-readable text snapshot of the last built
+ * frame (CPU/GPU task trees and rolling frame stats, in milliseconds) to a
+ * file. It is safe to call at any time — an inactive or empty profiler
+ * yields a valid header-only report — and is the reporting entry point
+ * later tasks extend with structured output formats.
+ *
  * --- Instrumentation macros -------------------------------------------------
  *
  * The macros are the user-facing instrumentation surface. They call through
@@ -44,10 +55,12 @@
  * __attribute__((cleanup)) helper so the end sample runs when the enclosing
  * block exits (including early returns); elsewhere a one-shot for-loop guard
  * provides the same one-liner (break/return inside the body skip the end
- * there — use the explicit begin/end form instead). The documented fallback
- * for any environment is the explicit pair:
+ * there — use the explicit begin/end form instead). The plain zone macros
+ * are the name-only convenience (category NULL, color 0 = auto); the _EX
+ * variants pass an explicit category label and ABGR color (0 = auto). The
+ * documented fallback for any environment is the explicit pair:
  *
- *   SK_PROFILE_BEGIN_CPU_SAMPLE(prof, "Update");
+ *   SK_PROFILE_BEGIN_CPU_SAMPLE(prof, "Update", NULL, 0u);
  *   ...work...
  *   SK_PROFILE_END_CPU_SAMPLE(prof);
  *
@@ -59,8 +72,9 @@
  * to be present in the plugins folder at runtime.
  *
  * Limitations shared with main: one zone per source line (the generated
- * variable names use __LINE__), names longer than 63 chars are truncated,
- * and at most 256 zones per frame are recorded.
+ * variable names use __LINE__), names longer than 63 chars and categories
+ * longer than 31 chars are truncated, and at most 256 zones per frame are
+ * recorded.
  */
 
 #include "app.h"
@@ -79,6 +93,7 @@ enum {
 	SK_PROFILER_MAX_SAMPLES = 256u,
 	SK_PROFILER_BUFFER_COUNT = 3u,
 	SK_PROFILER_NAME_CAP = 64u,
+	SK_PROFILER_CATEGORY_CAP = 32u,
 };
 
 /**
@@ -97,8 +112,9 @@ typedef struct sk_profiler_task_entry_t {
 	f64 gpu_avg;
 	u32 cpu_count;
 	u32 gpu_count;
-	u32 color; /* palette index derived from the name hash (ABGR-ish) */
+	u32 color; /* explicit ABGR-ish color, or palette index from the name hash when 0 was passed */
 	char name[SK_PROFILER_NAME_CAP];
+	char category[SK_PROFILER_CATEGORY_CAP]; /* zone category label; "" when uncategorized */
 	i32 depth;
 	bool has_gpu;
 	bool present; /* seen in the last built frame */
@@ -141,8 +157,15 @@ typedef struct sk_profiler_api_t {
 	/** Frame delimiter counterpart (reserved; no-op today). */
 	void (*end_frame)(void);
 
-	/** Open a nested CPU sample; @p name is copied (63+NUL). */
-	void (*begin_cpu_sample)(const_chr_t name);
+	/**
+	 * Open a nested CPU sample.
+	 * @param name Zone name, copied into a fixed 63+NUL buffer.
+	 * @param category Optional category label, copied into a 31+NUL buffer;
+	 *                 NULL or "" means uncategorized.
+	 * @param color Optional explicit ABGR-ish task color; 0 selects the
+	 *              automatic palette color derived from the name hash.
+	 */
+	void (*begin_cpu_sample)(const_chr_t name, const_chr_t category, u32 color);
 
 	/** Close the most recently opened CPU sample (@p name is not needed). */
 	void (*end_cpu_sample)(void);
@@ -151,8 +174,12 @@ typedef struct sk_profiler_api_t {
 	 * Open a nested GPU sample: CPU wall stamps + timestamp query pair on
 	 * @p cmd when GPU pools are attached (init with a device), otherwise a
 	 * CPU-only sample flagged has_gpu=false.
+	 * @param name Zone name (copied, 63+NUL).
+	 * @param category Optional category label (NULL/"" = uncategorized).
+	 * @param color Optional explicit ABGR-ish task color; 0 = auto palette.
+	 * @param cmd Command buffer the timestamp query pair is recorded on.
 	 */
-	void (*begin_gpu_sample)(const_chr_t name, sk_command_buffer_t cmd);
+	void (*begin_gpu_sample)(const_chr_t name, const_chr_t category, u32 color, sk_command_buffer_t cmd);
 
 	/** Close the most recently opened GPU sample on @p cmd. */
 	void (*end_gpu_sample)(sk_command_buffer_t cmd);
@@ -172,6 +199,19 @@ typedef struct sk_profiler_api_t {
 
 	/** Rolling GPU frame stats (sum of depth-0 GPU task times per read frame). */
 	sk_profiler_frame_stats_t (*get_gpu_frame_stats)(void);
+
+	/**
+	 * Write a human-readable text report of the last built frame — CPU and
+	 * GPU task trees plus rolling frame stats, times in milliseconds — to
+	 * @p path. Safe to call at any time: an inactive or empty profiler
+	 * produces a valid header-only report. The format is informational and
+	 * may evolve; structured machine-readable output builds on this entry
+	 * point later.
+	 * @param path Output file path (must not be NULL).
+	 * @return 0 on success; non-zero if @p path is NULL or the file could
+	 *         not be opened.
+	 */
+	i32 (*dump_report)(const_chr_t path);
 
 	/** Clear per-task and per-frame rolling statistics (keeps task names). */
 	void (*reset_stats)(void);
@@ -216,8 +256,8 @@ typedef struct sk_profiler_gpu_zone_t {
 	sk_command_buffer_t cmd;
 } sk_profiler_gpu_zone_t;
 
-static inline sk_profiler_cpu_zone_t sk_profiler_cpu_zone_begin(const sk_profiler_api_t* api, const_chr_t name) {
-	api->begin_cpu_sample(name);
+static inline sk_profiler_cpu_zone_t sk_profiler_cpu_zone_begin(const sk_profiler_api_t* api, const_chr_t name, const_chr_t category, u32 color) {
+	api->begin_cpu_sample(name, category, color);
 	sk_profiler_cpu_zone_t zone;
 	zone.api = api;
 	return zone;
@@ -227,8 +267,8 @@ static inline void sk_profiler_cpu_zone_end(sk_profiler_cpu_zone_t* zone) {
 	zone->api->end_cpu_sample();
 }
 
-static inline sk_profiler_gpu_zone_t sk_profiler_gpu_zone_begin(const sk_profiler_api_t* api, const_chr_t name, sk_command_buffer_t cmd) {
-	api->begin_gpu_sample(name, cmd);
+static inline sk_profiler_gpu_zone_t sk_profiler_gpu_zone_begin(const sk_profiler_api_t* api, const_chr_t name, const_chr_t category, u32 color, sk_command_buffer_t cmd) {
+	api->begin_gpu_sample(name, category, color, cmd);
 	sk_profiler_gpu_zone_t zone;
 	zone.api = api;
 	zone.cmd = cmd;
@@ -249,17 +289,31 @@ static inline void sk_profiler_gpu_zone_end(sk_profiler_gpu_zone_t* zone) {
 /**
  * Scoped CPU zone (GCC/Clang): opens the sample at the declaration and closes
  * it when the enclosing block exits — including early returns. Use as a
- * statement; one zone per source line (__LINE__-named variable).
+ * statement; one zone per source line (__LINE__-named variable). Category is
+ * NULL and color is 0 (auto) — see SK_PROFILE_CPU_ZONE_EX for explicit values.
  */
-#define SK_PROFILE_CPU_ZONE(api, name) \
-	sk_profiler_cpu_zone_t SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__) __attribute__((cleanup(sk_profiler_cpu_zone_end))) = sk_profiler_cpu_zone_begin((api), (name))
+#define SK_PROFILE_CPU_ZONE(api, name)                                        \
+	sk_profiler_cpu_zone_t SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__) \
+		__attribute__((cleanup(sk_profiler_cpu_zone_end))) = sk_profiler_cpu_zone_begin((api), (name), NULL, 0u)
+
+/** Scoped CPU zone with an explicit category label and ABGR color (0 = auto). */
+#define SK_PROFILE_CPU_ZONE_EX(api, name, category, color)                    \
+	sk_profiler_cpu_zone_t SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__) \
+		__attribute__((cleanup(sk_profiler_cpu_zone_end))) = sk_profiler_cpu_zone_begin((api), (name), (category), (color))
 
 /**
  * Scoped GPU zone (GCC/Clang): same scoping as SK_PROFILE_CPU_ZONE with a
- * timestamp query pair recorded on @p cmd.
+ * timestamp query pair recorded on @p cmd. Category NULL, color 0 (auto) —
+ * see SK_PROFILE_GPU_ZONE_EX for explicit values.
  */
-#define SK_PROFILE_GPU_ZONE(api, name, cmd) \
-	sk_profiler_gpu_zone_t SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__) __attribute__((cleanup(sk_profiler_gpu_zone_end))) = sk_profiler_gpu_zone_begin((api), (name), (cmd))
+#define SK_PROFILE_GPU_ZONE(api, name, cmd)                                   \
+	sk_profiler_gpu_zone_t SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__) \
+		__attribute__((cleanup(sk_profiler_gpu_zone_end))) = sk_profiler_gpu_zone_begin((api), (name), NULL, 0u, (cmd))
+
+/** Scoped GPU zone with an explicit category label and ABGR color (0 = auto). */
+#define SK_PROFILE_GPU_ZONE_EX(api, name, category, color, cmd)               \
+	sk_profiler_gpu_zone_t SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__) \
+		__attribute__((cleanup(sk_profiler_gpu_zone_end))) = sk_profiler_gpu_zone_begin((api), (name), (category), (color), (cmd))
 
 #else /* !__GNUC__ && !__clang__ (e.g. MSVC): portable one-shot for-loop guard */
 
@@ -268,24 +322,38 @@ static inline void sk_profiler_gpu_zone_end(sk_profiler_gpu_zone_t* zone) {
  * sample, runs the body once, and closes the sample afterwards. `continue`
  * inside the body is safe; `break`/`return` skip the end — use the explicit
  * begin/end form there. Use as a statement; one zone per source line.
+ * Category NULL, color 0 (auto) — see SK_PROFILE_CPU_ZONE_EX for explicit
+ * values.
  */
-#define SK_PROFILE_CPU_ZONE(api, name)                                                                                          \
-	for (sk_profiler_cpu_zone_t SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__) = sk_profiler_cpu_zone_begin((api), (name)); \
-		 SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__).api != NULL;                                                        \
+#define SK_PROFILE_CPU_ZONE(api, name)                                                                                                    \
+	for (sk_profiler_cpu_zone_t SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__) = sk_profiler_cpu_zone_begin((api), (name), NULL, 0u); \
+		 SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__).api != NULL;                                                                  \
+		 (sk_profiler_cpu_zone_end(&SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__)), SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__).api = NULL))
+
+/** Scoped CPU zone with an explicit category label and ABGR color (0 = auto). */
+#define SK_PROFILE_CPU_ZONE_EX(api, name, category, color)                                                                                           \
+	for (sk_profiler_cpu_zone_t SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__) = sk_profiler_cpu_zone_begin((api), (name), (category), (color)); \
+		 SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__).api != NULL;                                                                             \
 		 (sk_profiler_cpu_zone_end(&SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__)), SK_PROFILER_CONCAT(sk_profile_cpu_zone_, __LINE__).api = NULL))
 
 /** Scoped GPU zone (portable fallback; same semantics as the CPU form). */
-#define SK_PROFILE_GPU_ZONE(api, name, cmd)                                                                                            \
-	for (sk_profiler_gpu_zone_t SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__) = sk_profiler_gpu_zone_begin((api), (name), (cmd)); \
-		 SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__).api != NULL;                                                               \
+#define SK_PROFILE_GPU_ZONE(api, name, cmd)                                                                                                      \
+	for (sk_profiler_gpu_zone_t SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__) = sk_profiler_gpu_zone_begin((api), (name), NULL, 0u, (cmd)); \
+		 SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__).api != NULL;                                                                         \
+		 (sk_profiler_gpu_zone_end(&SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__)), SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__).api = NULL))
+
+/** Scoped GPU zone with an explicit category label and ABGR color (0 = auto). */
+#define SK_PROFILE_GPU_ZONE_EX(api, name, category, color, cmd)                                                                                             \
+	for (sk_profiler_gpu_zone_t SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__) = sk_profiler_gpu_zone_begin((api), (name), (category), (color), (cmd)); \
+		 SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__).api != NULL;                                                                                    \
 		 (sk_profiler_gpu_zone_end(&SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__)), SK_PROFILER_CONCAT(sk_profile_gpu_zone_, __LINE__).api = NULL))
 
 #endif /* __GNUC__ || __clang__ */
 
 /** Explicit begin/end instrumentation (documented fallback + programmatic zones). */
-#define SK_PROFILE_BEGIN_CPU_SAMPLE(api, name) ((api)->begin_cpu_sample(name))
+#define SK_PROFILE_BEGIN_CPU_SAMPLE(api, name, category, color) ((api)->begin_cpu_sample(name, category, color))
 #define SK_PROFILE_END_CPU_SAMPLE(api) ((api)->end_cpu_sample())
-#define SK_PROFILE_BEGIN_GPU_SAMPLE(api, name, cmd) ((api)->begin_gpu_sample(name, cmd))
+#define SK_PROFILE_BEGIN_GPU_SAMPLE(api, name, category, color, cmd) ((api)->begin_gpu_sample(name, category, color, cmd))
 #define SK_PROFILE_END_GPU_SAMPLE(api, cmd) ((api)->end_gpu_sample(cmd))
 #define SK_PROFILE_BEGIN_FRAME(api) ((api)->begin_frame())
 #define SK_PROFILE_END_FRAME(api) ((api)->end_frame())
@@ -294,10 +362,12 @@ static inline void sk_profiler_gpu_zone_end(sk_profiler_gpu_zone_t* zone) {
        * evaluated so call-site variables stay used). */
 
 #define SK_PROFILE_CPU_ZONE(api, name) ((void)(api), (void)(name))
+#define SK_PROFILE_CPU_ZONE_EX(api, name, category, color) ((void)(api), (void)(name), (void)(category), (void)(color))
 #define SK_PROFILE_GPU_ZONE(api, name, cmd) ((void)(api), (void)(name), (void)(cmd))
-#define SK_PROFILE_BEGIN_CPU_SAMPLE(api, name) ((void)(api), (void)(name))
+#define SK_PROFILE_GPU_ZONE_EX(api, name, category, color, cmd) ((void)(api), (void)(name), (void)(category), (void)(color), (void)(cmd))
+#define SK_PROFILE_BEGIN_CPU_SAMPLE(api, name, category, color) ((void)(api), (void)(name), (void)(category), (void)(color))
 #define SK_PROFILE_END_CPU_SAMPLE(api) ((void)(api))
-#define SK_PROFILE_BEGIN_GPU_SAMPLE(api, name, cmd) ((void)(api), (void)(name), (void)(cmd))
+#define SK_PROFILE_BEGIN_GPU_SAMPLE(api, name, category, color, cmd) ((void)(api), (void)(name), (void)(category), (void)(color), (void)(cmd))
 #define SK_PROFILE_END_GPU_SAMPLE(api, cmd) ((void)(api), (void)(cmd))
 #define SK_PROFILE_BEGIN_FRAME(api) ((void)(api))
 #define SK_PROFILE_END_FRAME(api) ((void)(api))
