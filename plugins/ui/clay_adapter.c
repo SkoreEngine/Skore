@@ -1356,18 +1356,147 @@ void ui_clay_context_shutdown(sk_ui_context_t* ctx) {
 #ifdef SK_TESTS
 #include "test.h"
 
-static void ui_clay_assert_rect_near(const sk_ui_rect_t* r, f32 x, f32 y, f32 w, f32 h) {
-	TEST_ASSERT_FLOAT_WITHIN(1.0f, x, r->x);
-	TEST_ASSERT_FLOAT_WITHIN(1.0f, y, r->y);
-	TEST_ASSERT_FLOAT_WITHIN(1.0f, w, r->width);
-	TEST_ASSERT_FLOAT_WITHIN(1.0f, h, r->height);
+#include <stdio.h>
+
+/*
+ * APX-256 — systematic flexbox geometry matrix.
+ *
+ * Pure BOX nodes with explicit styles (no widget class pad/border). Asserts
+ * parent-content-relative border boxes numerically so a one-pixel solver
+ * regression fails with exact deltas. Tolerance is sub-pixel (0.01).
+ *
+ * Clay adapter limitations are asserted as current behavior:
+ *   reverse axes → forward packing
+ *   flex-wrap → single line
+ *   space-around / space-evenly → start packing
+ *   margins → ignored for flex packing (in-flow)
+ *   flex_shrink / flex_basis → not mapped (POINT sizes stay fixed)
+ */
+
+#define UIFX_TOL 0.01f
+
+static void uifx_assert_rect(const sk_ui_rect_t* r, f32 x, f32 y, f32 w, f32 h, const char* label) {
+	char msg[384];
+	snprintf(msg, sizeof(msg), "%s.x exp=%.2f got=%.2f d=%.3f", label, (double)x, (double)r->x, (double)(r->x - x));
+	TEST_ASSERT_FLOAT_WITHIN_MESSAGE(UIFX_TOL, x, r->x, msg);
+	snprintf(msg, sizeof(msg), "%s.y exp=%.2f got=%.2f d=%.3f", label, (double)y, (double)r->y, (double)(r->y - y));
+	TEST_ASSERT_FLOAT_WITHIN_MESSAGE(UIFX_TOL, y, r->y, msg);
+	snprintf(msg, sizeof(msg), "%s.w exp=%.2f got=%.2f d=%.3f", label, (double)w, (double)r->width, (double)(r->width - w));
+	TEST_ASSERT_FLOAT_WITHIN_MESSAGE(UIFX_TOL, w, r->width, msg);
+	snprintf(msg, sizeof(msg), "%s.h exp=%.2f got=%.2f d=%.3f", label, (double)h, (double)r->height, (double)(r->height - h));
+	TEST_ASSERT_FLOAT_WITHIN_MESSAGE(UIFX_TOL, h, r->height, msg);
 }
 
-SK_TEST(ui_clay_panel_column_children_laid_out) {
+static sk_ui_node_t uifx_box(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t parent) {
+	sk_ui_node_t n = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, parent);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(n));
+	return n;
+}
+
+/* Fixed outer size, zero pad/border, explicit flex container props. */
+static void uifx_style_container(sk_ui_style_props_t* p, f32 w, f32 h, sk_ui_flex_direction_t dir, sk_ui_justify_t justify, sk_ui_align_t align_items, sk_ui_flex_wrap_t wrap,
+								 f32 row_gap, f32 col_gap) {
+	ui_style_props_clear(p);
+	p->mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_JUSTIFY_CONTENT | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_FLEX_WRAP | SK_UI_SP_PADDING |
+			  SK_UI_SP_BORDER_WIDTH | SK_UI_SP_ROW_GAP | SK_UI_SP_COLUMN_GAP;
+	p->layout.width = sk_ui_pt(w);
+	p->layout.height = sk_ui_pt(h);
+	p->layout.flex_direction = dir;
+	p->layout.justify_content = justify;
+	p->layout.align_items = align_items;
+	p->layout.flex_wrap = wrap;
+	p->layout.row_gap = row_gap;
+	p->layout.column_gap = col_gap;
+	p->layout.padding.left = p->layout.padding.right = p->layout.padding.top = p->layout.padding.bottom = 0.0f;
+	p->layout.border.left = p->layout.border.right = p->layout.border.top = p->layout.border.bottom = 0.0f;
+}
+
+static void uifx_style_fixed_child(sk_ui_style_props_t* p, f32 w, f32 h) {
+	ui_style_props_clear(p);
+	p->mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_ALIGN_SELF;
+	p->layout.width = sk_ui_pt(w);
+	p->layout.height = sk_ui_pt(h);
+	p->layout.flex_grow = 0.0f;
+	p->layout.flex_shrink = 0.0f;
+	p->layout.align_self = SK_UI_ALIGN_FLEX_START;
+}
+
+static void uifx_run(const sk_ui_api_t* ui, sk_ui_context_t* ctx, f32 vw, f32 vh) {
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, vw, vh));
+}
+
+/* ---- Direction: row / column / reverse (reverse maps to forward under Clay) ---- */
+
+SK_TEST(ui_flex_matrix_direction_row_column) {
 	const sk_ui_api_t* ui = ui_get_api_table();
 	sk_ui_context_t* ctx = ui->context_create(NULL);
 	sk_ui_node_t root;
-	sk_ui_node_t panel;
+	sk_ui_node_t row;
+	sk_ui_node_t col;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_node_t c;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	sk_ui_rect_t rc;
+	sk_ui_style_props_t p;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	/* Row: three 40x20 fixed children in a 200x40 container. */
+	row = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, row, &p));
+	a = uifx_box(ui, ctx, row);
+	b = uifx_box(ui, ctx, row);
+	c = uifx_box(ui, ctx, row);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c, &rc, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "row.a");
+	uifx_assert_rect(&rb, 40.0f, 0.0f, 40.0f, 20.0f, "row.b");
+	uifx_assert_rect(&rc, 80.0f, 0.0f, 40.0f, 20.0f, "row.c");
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[row.index] != 0u);
+	ui->context_destroy(ctx);
+
+	/* Column: same children stack vertically. */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	col = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 80.0f, 200.0f, SK_UI_FLEX_COLUMN, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, col, &p));
+	a = uifx_box(ui, ctx, col);
+	b = uifx_box(ui, ctx, col);
+	c = uifx_box(ui, ctx, col);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c, &rc, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "col.a");
+	uifx_assert_rect(&rb, 0.0f, 20.0f, 40.0f, 20.0f, "col.b");
+	uifx_assert_rect(&rc, 0.0f, 40.0f, 40.0f, 20.0f, "col.c");
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_flex_matrix_direction_reverse_maps_forward) {
+	/* Clay has no reverse packing: ROW_REVERSE / COLUMN_REVERSE behave like forward. */
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t cont;
 	sk_ui_node_t a;
 	sk_ui_node_t b;
 	sk_ui_rect_t ra;
@@ -1376,46 +1505,661 @@ SK_TEST(ui_clay_panel_column_children_laid_out) {
 
 	TEST_ASSERT_NOT_NULL(ctx);
 	root = ui->context_root(ctx);
-	panel = ui->widget_panel(ctx, root, "clay-panel");
-	TEST_ASSERT_TRUE(sk_ui_node_is_valid(panel));
-
-	ui_style_props_clear(&p);
-	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_PADDING;
-	p.layout.width = sk_ui_pt(200.0f);
-	p.layout.height = sk_ui_pt(120.0f);
-	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
-	p.layout.padding.left = p.layout.padding.right = p.layout.padding.top = p.layout.padding.bottom = 0.0f;
-	/* Clear default panel padding/border so child y positions are exact. */
-	p.mask |= SK_UI_SP_BORDER_WIDTH;
-	p.layout.border.left = p.layout.border.right = p.layout.border.top = p.layout.border.bottom = 0.0f;
-	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, panel, &p));
-
-	a = ui->widget_view(ctx, panel, "clay-child-a");
-	b = ui->widget_view(ctx, panel, "clay-child-b");
-	ui_style_props_clear(&p);
-	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
-	p.layout.width = sk_ui_pt(200.0f);
-	p.layout.height = sk_ui_pt(40.0f);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW_REVERSE, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
 	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
 	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
-
-	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
-	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
-
+	uifx_run(ui, ctx, 400.0f, 300.0f);
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
-	/* Column under panel content: A at top, B below A. */
-	ui_clay_assert_rect_near(&ra, 0.0f, 0.0f, 200.0f, 40.0f);
-	ui_clay_assert_rect_near(&rb, 0.0f, 40.0f, 200.0f, 40.0f);
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "row_rev.a");
+	uifx_assert_rect(&rb, 40.0f, 0.0f, 40.0f, 20.0f, "row_rev.b");
+	ui->context_destroy(ctx);
 
-	/* Clay path must have been exercised (frame state allocated and the
-	 * panel declared with a stable id). */
-	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
-	TEST_ASSERT_TRUE(ctx->clay_frame->present[panel.index] != 0u);
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 80.0f, 200.0f, SK_UI_FLEX_COLUMN_REVERSE, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "col_rev.a");
+	uifx_assert_rect(&rb, 0.0f, 20.0f, 40.0f, 20.0f, "col_rev.b");
+	ui->context_destroy(ctx);
+}
+
+/* ---- Wrap: nowrap packs single line; wrap still single-line under Clay ---- */
+
+SK_TEST(ui_flex_matrix_wrap_and_nowrap) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t cont;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_node_t c;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	sk_ui_rect_t rc;
+	sk_ui_style_props_t p;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	/* Container 100 wide, three 40-wide children — would wrap in true flex. */
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 100.0f, 80.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	c = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c, &rc, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "nowrap.a");
+	uifx_assert_rect(&rb, 40.0f, 0.0f, 40.0f, 20.0f, "nowrap.b");
+	uifx_assert_rect(&rc, 80.0f, 0.0f, 40.0f, 20.0f, "nowrap.c");
+	ui->context_destroy(ctx);
+
+	/* WRAP: Clay keeps a single line (same packing as nowrap). */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 100.0f, 80.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_WRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	c = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c, &rc, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "wrap.a");
+	uifx_assert_rect(&rb, 40.0f, 0.0f, 40.0f, 20.0f, "wrap.b");
+	uifx_assert_rect(&rc, 80.0f, 0.0f, 40.0f, 20.0f, "wrap.c");
+	/* All share y=0 (no second flex line). */
+	TEST_ASSERT_FLOAT_WITHIN(UIFX_TOL, ra.y, rb.y);
+	TEST_ASSERT_FLOAT_WITHIN(UIFX_TOL, rb.y, rc.y);
+	ui->context_destroy(ctx);
+}
+
+/* ---- justify-content: all six values (around/evenly → start under Clay) ---- */
+
+SK_TEST(ui_flex_matrix_justify_content) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	/* Container 200x40, three 40x20 children, free main space = 80. */
+	typedef struct {
+		sk_ui_justify_t justify;
+		f32 x0;
+		f32 x1;
+		f32 x2;
+		const char* name;
+	} justify_case_t;
+	const justify_case_t cases[] = {
+		{SK_UI_JUSTIFY_FLEX_START, 0.0f, 40.0f, 80.0f, "start"},
+		{SK_UI_JUSTIFY_FLEX_END, 80.0f, 120.0f, 160.0f, "end"},
+		{SK_UI_JUSTIFY_CENTER, 40.0f, 80.0f, 120.0f, "center"},
+		/* space-between via GROW spacers: free 80 / 2 gaps → +40 between items. */
+		{SK_UI_JUSTIFY_SPACE_BETWEEN, 0.0f, 80.0f, 160.0f, "between"},
+		/* Clay collapses around/evenly to start packing. */
+		{SK_UI_JUSTIFY_SPACE_AROUND, 0.0f, 40.0f, 80.0f, "around"},
+		{SK_UI_JUSTIFY_SPACE_EVENLY, 0.0f, 40.0f, 80.0f, "evenly"},
+	};
+	u32 ci;
+
+	for (ci = 0u; ci < (u32)(sizeof(cases) / sizeof(cases[0])); ++ci) {
+		sk_ui_context_t* ctx = ui->context_create(NULL);
+		sk_ui_node_t root;
+		sk_ui_node_t cont;
+		sk_ui_node_t a;
+		sk_ui_node_t b;
+		sk_ui_node_t c;
+		sk_ui_rect_t ra;
+		sk_ui_rect_t rb;
+		sk_ui_rect_t rc;
+		sk_ui_style_props_t p;
+		char label[64];
+
+		TEST_ASSERT_NOT_NULL(ctx);
+		root = ui->context_root(ctx);
+		cont = uifx_box(ui, ctx, root);
+		uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, cases[ci].justify, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+		a = uifx_box(ui, ctx, cont);
+		b = uifx_box(ui, ctx, cont);
+		c = uifx_box(ui, ctx, cont);
+		uifx_style_fixed_child(&p, 40.0f, 20.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c, &p));
+		uifx_run(ui, ctx, 400.0f, 300.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c, &rc, NULL));
+		snprintf(label, sizeof(label), "justify.%s.a", cases[ci].name);
+		uifx_assert_rect(&ra, cases[ci].x0, 0.0f, 40.0f, 20.0f, label);
+		snprintf(label, sizeof(label), "justify.%s.b", cases[ci].name);
+		uifx_assert_rect(&rb, cases[ci].x1, 0.0f, 40.0f, 20.0f, label);
+		snprintf(label, sizeof(label), "justify.%s.c", cases[ci].name);
+		uifx_assert_rect(&rc, cases[ci].x2, 0.0f, 40.0f, 20.0f, label);
+		ui->context_destroy(ctx);
+	}
+}
+
+/* ---- align-items + align-self (row cross-axis) ---- */
+
+SK_TEST(ui_flex_matrix_align_items_and_self) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	typedef struct {
+		sk_ui_align_t align;
+		f32 y;
+		f32 h;
+		const char* name;
+	} align_case_t;
+	/* Container 100x60, child 40x20 fixed height (stretch only when height AUTO). */
+	const align_case_t cases[] = {
+		{SK_UI_ALIGN_FLEX_START, 0.0f, 20.0f, "start"},
+		{SK_UI_ALIGN_FLEX_END, 40.0f, 20.0f, "end"},
+		{SK_UI_ALIGN_CENTER, 20.0f, 20.0f, "center"},
+		/* STRETCH with fixed height keeps authored 20 (not auto-stretch). */
+		{SK_UI_ALIGN_STRETCH, 0.0f, 20.0f, "stretch_fixed"},
+	};
+	u32 ci;
+	sk_ui_context_t* ctx;
+	sk_ui_node_t root;
+	sk_ui_node_t cont;
+	sk_ui_node_t child;
+	sk_ui_node_t self_child;
+	sk_ui_rect_t r;
+	sk_ui_style_props_t p;
+	char label[64];
+
+	for (ci = 0u; ci < (u32)(sizeof(cases) / sizeof(cases[0])); ++ci) {
+		ctx = ui->context_create(NULL);
+		TEST_ASSERT_NOT_NULL(ctx);
+		root = ui->context_root(ctx);
+		cont = uifx_box(ui, ctx, root);
+		uifx_style_container(&p, 100.0f, 60.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, cases[ci].align, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+		child = uifx_box(ui, ctx, cont);
+		uifx_style_fixed_child(&p, 40.0f, 20.0f);
+		/* align_self AUTO so container align_items applies. */
+		p.layout.align_self = SK_UI_ALIGN_AUTO;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, child, &p));
+		uifx_run(ui, ctx, 400.0f, 300.0f);
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, child, &r, NULL));
+		snprintf(label, sizeof(label), "align_items.%s", cases[ci].name);
+		uifx_assert_rect(&r, 0.0f, cases[ci].y, 40.0f, cases[ci].h, label);
+		ui->context_destroy(ctx);
+	}
+
+	/* STRETCH + AUTO height → child fills cross size (60). */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 100.0f, 60.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_STRETCH, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	child = uifx_box(ui, ctx, cont);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_SELF;
+	p.layout.width = sk_ui_pt(40.0f);
+	p.layout.align_self = SK_UI_ALIGN_AUTO;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, child, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, child, &r, NULL));
+	uifx_assert_rect(&r, 0.0f, 0.0f, 40.0f, 60.0f, "align_items.stretch_auto");
+	ui->context_destroy(ctx);
+
+	/* align_self overrides container align_items: container END, self CENTER. */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 100.0f, 60.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_END, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	self_child = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	p.layout.align_self = SK_UI_ALIGN_CENTER;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, self_child, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, self_child, &r, NULL));
+	/* Note: Clay childAlignment is on the container only; align_self stretch
+	 * maps to GROW, but start/center/end self overrides are limited. Current
+	 * adapter does not remap per-child main/cross packing for center/end —
+	 * container END places y=40 unless stretch GROW applies. Assert actual. */
+	uifx_assert_rect(&r, 0.0f, 40.0f, 40.0f, 20.0f, "align_self.center_vs_end");
+	ui->context_destroy(ctx);
+}
+
+/* ---- flex-grow / shrink / basis (including zero-basis + shrink-below) ---- */
+
+SK_TEST(ui_flex_matrix_grow_shrink_basis) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx;
+	sk_ui_node_t root;
+	sk_ui_node_t cont;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	sk_ui_style_props_t p;
+
+	/* Grow: fixed 40 + grow fills remaining 160 in 200-wide row. */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_ALIGN_SELF;
+	p.layout.height = sk_ui_pt(20.0f);
+	p.layout.flex_grow = 1.0f;
+	p.layout.flex_shrink = 0.0f;
+	p.layout.align_self = SK_UI_ALIGN_FLEX_START;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "grow.fixed");
+	uifx_assert_rect(&rb, 40.0f, 0.0f, 160.0f, 20.0f, "grow.fill");
+	ui->context_destroy(ctx);
+
+	/* Two equal growers split free space (100 each in 200). */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_ALIGN_SELF;
+	p.layout.height = sk_ui_pt(20.0f);
+	p.layout.flex_grow = 1.0f;
+	p.layout.align_self = SK_UI_ALIGN_FLEX_START;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 100.0f, 20.0f, "grow2.a");
+	uifx_assert_rect(&rb, 100.0f, 0.0f, 100.0f, 20.0f, "grow2.b");
+	ui->context_destroy(ctx);
+
+	/* Zero flex-basis (AUTO) + grow: still GROW (basis not mapped to Clay). */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_BASIS | SK_UI_SP_ALIGN_SELF;
+	p.layout.height = sk_ui_pt(20.0f);
+	p.layout.flex_grow = 1.0f;
+	p.layout.flex_basis = sk_ui_pt(0.0f);
+	p.layout.align_self = SK_UI_ALIGN_FLEX_START;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 200.0f, 20.0f, "zero_basis.grow");
+	ui->context_destroy(ctx);
+
+	/* Shrink-below-content: POINT children are FIXED — overflow, no shrink.
+	 * Two 80-wide children in 100-wide row keep 80 each (shrink not mapped). */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 100.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_SHRINK | SK_UI_SP_ALIGN_SELF;
+	p.layout.width = sk_ui_pt(80.0f);
+	p.layout.height = sk_ui_pt(20.0f);
+	p.layout.flex_shrink = 1.0f;
+	p.layout.align_self = SK_UI_ALIGN_FLEX_START;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 80.0f, 20.0f, "noshrink.a");
+	uifx_assert_rect(&rb, 80.0f, 0.0f, 80.0f, 20.0f, "noshrink.b");
+	ui->context_destroy(ctx);
+}
+
+/* ---- gap / row-gap / column-gap ---- */
+
+SK_TEST(ui_flex_matrix_gaps) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx;
+	sk_ui_node_t root;
+	sk_ui_node_t cont;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_node_t c;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	sk_ui_rect_t rc;
+	sk_ui_style_props_t p;
+
+	/* Row column_gap=10 → x = 0, 50, 100 for 40-wide children. */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 10.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	c = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c, &rc, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "col_gap.a");
+	uifx_assert_rect(&rb, 50.0f, 0.0f, 40.0f, 20.0f, "col_gap.b");
+	uifx_assert_rect(&rc, 100.0f, 0.0f, 40.0f, 20.0f, "col_gap.c");
+	ui->context_destroy(ctx);
+
+	/* Column row_gap=8 → y = 0, 28, 56 for 20-tall children. */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 80.0f, 200.0f, SK_UI_FLEX_COLUMN, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 8.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	c = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c, &rc, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "row_gap.a");
+	uifx_assert_rect(&rb, 0.0f, 28.0f, 40.0f, 20.0f, "row_gap.b");
+	uifx_assert_rect(&rc, 0.0f, 56.0f, 40.0f, 20.0f, "row_gap.c");
+	ui->context_destroy(ctx);
+
+	/* space-between + gap: spacer min carries gap; free space still distributes. */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_SPACE_BETWEEN, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 8.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "between_gap.a");
+	uifx_assert_rect(&rb, 160.0f, 0.0f, 40.0f, 20.0f, "between_gap.b");
+	TEST_ASSERT_TRUE((rb.x - (ra.x + ra.width)) >= 8.0f - UIFX_TOL);
+	ui->context_destroy(ctx);
+}
+
+/* ---- padding and margin interaction ---- */
+
+SK_TEST(ui_flex_matrix_padding_margin) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx;
+	sk_ui_node_t root;
+	sk_ui_node_t cont;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	sk_ui_rect_t rcont;
+	sk_ui_rect_t content;
+	sk_ui_style_props_t p;
+
+	/* Padding insets content: children start at (pad_l, pad_t) in border box
+	 * and report parent-content-relative coords (0,0) for the first child. */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_PADDING | SK_UI_SP_BORDER_WIDTH;
+	p.layout.width = sk_ui_pt(200.0f);
+	p.layout.height = sk_ui_pt(100.0f);
+	p.layout.flex_direction = SK_UI_FLEX_ROW;
+	p.layout.align_items = SK_UI_ALIGN_FLEX_START;
+	p.layout.padding.left = 10.0f;
+	p.layout.padding.top = 6.0f;
+	p.layout.padding.right = 4.0f;
+	p.layout.padding.bottom = 2.0f;
+	p.layout.border.left = p.layout.border.right = p.layout.border.top = p.layout.border.bottom = 0.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, cont, &rcont, &content));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	uifx_assert_rect(&rcont, 0.0f, 0.0f, 200.0f, 100.0f, "pad.cont_border");
+	/* Content box = border − padding. */
+	uifx_assert_rect(&content, 10.0f, 6.0f, 186.0f, 92.0f, "pad.cont_content");
+	/* Children relative to parent content origin. */
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "pad.a");
+	uifx_assert_rect(&rb, 40.0f, 0.0f, 40.0f, 20.0f, "pad.b");
+	ui->context_destroy(ctx);
+
+	/* Margin on in-flow flex children is ignored (Clay limitation). */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_MARGIN | SK_UI_SP_ALIGN_SELF;
+	p.layout.width = sk_ui_pt(40.0f);
+	p.layout.height = sk_ui_pt(20.0f);
+	p.layout.margin.left = 12.0f;
+	p.layout.margin.top = 8.0f;
+	p.layout.align_self = SK_UI_ALIGN_FLEX_START;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	/* Same packing as zero-margin: margin does not offset in-flow flex kids. */
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "margin_ignored.a");
+	uifx_assert_rect(&rb, 40.0f, 0.0f, 40.0f, 20.0f, "margin_ignored.b");
+	ui->context_destroy(ctx);
+}
+
+/* ---- min / max size clamping on GROW axes ---- */
+
+SK_TEST(ui_flex_matrix_min_max_clamp) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx;
+	sk_ui_node_t root;
+	sk_ui_node_t cont;
+	sk_ui_node_t a;
+	sk_ui_node_t b;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	sk_ui_style_props_t p;
+
+	/* max_width clamps grow: child wants free 160 but max 100. */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	b = uifx_box(ui, ctx, cont);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_MAX_WIDTH | SK_UI_SP_ALIGN_SELF;
+	p.layout.height = sk_ui_pt(20.0f);
+	p.layout.flex_grow = 1.0f;
+	p.layout.max_width = sk_ui_pt(100.0f);
+	p.layout.align_self = SK_UI_ALIGN_FLEX_START;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, b, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, b, &rb, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 40.0f, 20.0f, "max_w.fixed");
+	uifx_assert_rect(&rb, 40.0f, 0.0f, 100.0f, 20.0f, "max_w.clamped");
+	ui->context_destroy(ctx);
+
+	/* min_width on grow child: alone in 200, min 150 still grows to 200. */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	cont = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 200.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, cont, &p));
+	a = uifx_box(ui, ctx, cont);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_MIN_WIDTH | SK_UI_SP_ALIGN_SELF;
+	p.layout.height = sk_ui_pt(20.0f);
+	p.layout.flex_grow = 1.0f;
+	p.layout.min_width = sk_ui_pt(150.0f);
+	p.layout.align_self = SK_UI_ALIGN_FLEX_START;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, a, &ra, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 200.0f, 20.0f, "min_w.grow_full");
+	ui->context_destroy(ctx);
+
+	/* Root max_width clamps root border box (viewport 400, max 120). */
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_MAX_WIDTH | SK_UI_SP_MAX_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS;
+	p.layout.max_width = sk_ui_pt(120.0f);
+	p.layout.max_height = sk_ui_pt(80.0f);
+	p.layout.flex_direction = SK_UI_FLEX_ROW;
+	p.layout.align_items = SK_UI_ALIGN_FLEX_START;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, root, &p));
+	a = uifx_box(ui, ctx, root);
+	uifx_style_fixed_child(&p, 40.0f, 20.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, a, &p));
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, root, &ra, NULL));
+	uifx_assert_rect(&ra, 0.0f, 0.0f, 120.0f, 80.0f, "root.max_clamp");
+	ui->context_destroy(ctx);
+}
+
+/* ---- Nested containers (two levels) + stable widget ids (row regression) ---- */
+
+SK_TEST(ui_flex_matrix_nested_two_levels) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t outer;
+	sk_ui_node_t row;
+	sk_ui_node_t c0;
+	sk_ui_node_t c1;
+	sk_ui_node_t body;
+	sk_ui_rect_t router;
+	sk_ui_rect_t rrow;
+	sk_ui_rect_t r0;
+	sk_ui_rect_t r1;
+	sk_ui_rect_t rbody;
+	sk_ui_style_props_t p;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	/* outer column 220x100 → row (flex row, space-between) + body (stretch). */
+	outer = uifx_box(ui, ctx, root);
+	uifx_style_container(&p, 220.0f, 100.0f, SK_UI_FLEX_COLUMN, SK_UI_JUSTIFY_FLEX_START, SK_UI_ALIGN_STRETCH, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, outer, &p));
+
+	row = uifx_box(ui, ctx, outer);
+	uifx_style_container(&p, 220.0f, 40.0f, SK_UI_FLEX_ROW, SK_UI_JUSTIFY_SPACE_BETWEEN, SK_UI_ALIGN_FLEX_START, SK_UI_FLEX_NOWRAP, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, row, &p));
+
+	c0 = uifx_box(ui, ctx, row);
+	c1 = uifx_box(ui, ctx, row);
+	uifx_style_fixed_child(&p, 60.0f, 30.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c0, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c1, &p));
+
+	body = uifx_box(ui, ctx, outer);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_HEIGHT | SK_UI_SP_ALIGN_SELF;
+	p.layout.height = sk_ui_pt(40.0f);
+	p.layout.align_self = SK_UI_ALIGN_AUTO; /* stretch width under column */
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, body, &p));
+
+	uifx_run(ui, ctx, 400.0f, 300.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, outer, &router, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, row, &rrow, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c0, &r0, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c1, &r1, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, body, &rbody, NULL));
+
+	uifx_assert_rect(&router, 0.0f, 0.0f, 220.0f, 100.0f, "nest.outer");
+	uifx_assert_rect(&rrow, 0.0f, 0.0f, 220.0f, 40.0f, "nest.row");
+	/* Level-2 children relative to row content. */
+	uifx_assert_rect(&r0, 0.0f, 0.0f, 60.0f, 30.0f, "nest.c0");
+	uifx_assert_rect(&r1, 160.0f, 0.0f, 60.0f, 30.0f, "nest.c1");
+	/* Body under outer: y=40, full width stretch 220, height 40. */
+	uifx_assert_rect(&rbody, 0.0f, 40.0f, 220.0f, 40.0f, "nest.body");
 
 	ui->context_destroy(ctx);
 }
 
+/* Widget row + stable Clay ids (replaces thin panel_row_and_stable_ids geometry). */
 SK_TEST(ui_clay_panel_row_and_stable_ids) {
 	const sk_ui_api_t* ui = ui_get_api_table();
 	sk_ui_context_t* ctx = ui->context_create(NULL);
@@ -1455,71 +2199,13 @@ SK_TEST(ui_clay_panel_row_and_stable_ids) {
 
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, left, &rl, NULL));
 	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, right, &rr, NULL));
-	/* Border-box: style POINT 80x40 is the outer size (pad/border sit inside). */
-	ui_clay_assert_rect_near(&rl, 0.0f, 0.0f, 80.0f, 40.0f);
-	ui_clay_assert_rect_near(&rr, 80.0f, 0.0f, 80.0f, 40.0f);
+	uifx_assert_rect(&rl, 0.0f, 0.0f, 80.0f, 40.0f, "stable_row.left");
+	uifx_assert_rect(&rr, 80.0f, 0.0f, 80.0f, 40.0f, "stable_row.right");
 
-	/* Stable string ids resolve through Clay after the layout pass. */
 	eid = Clay_GetElementId(ui_clay_cstr("row-left"));
 	ed = Clay_GetElementData(eid);
 	TEST_ASSERT_TRUE(ed.found);
-	TEST_ASSERT_FLOAT_WITHIN(1.0f, 80.0f, ed.boundingBox.width);
-
-	ui->context_destroy(ctx);
-}
-
-SK_TEST(ui_clay_nested_container_under_panel) {
-	const sk_ui_api_t* ui = ui_get_api_table();
-	sk_ui_context_t* ctx = ui->context_create(NULL);
-	sk_ui_node_t root;
-	sk_ui_node_t panel;
-	sk_ui_node_t row;
-	sk_ui_node_t c0;
-	sk_ui_node_t c1;
-	sk_ui_rect_t rr;
-	sk_ui_rect_t r0;
-	sk_ui_rect_t r1;
-	sk_ui_style_props_t p;
-
-	TEST_ASSERT_NOT_NULL(ctx);
-	root = ui->context_root(ctx);
-	panel = ui->widget_panel(ctx, root, "nest-panel");
-	ui_style_props_clear(&p);
-	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_PADDING | SK_UI_SP_BORDER_WIDTH;
-	p.layout.width = sk_ui_pt(220.0f);
-	p.layout.height = sk_ui_pt(80.0f);
-	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
-	p.layout.padding.left = p.layout.padding.right = p.layout.padding.top = p.layout.padding.bottom = 0.0f;
-	p.layout.border.left = p.layout.border.right = p.layout.border.top = p.layout.border.bottom = 0.0f;
-	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, panel, &p));
-
-	row = ui->widget_view(ctx, panel, "nest-row");
-	ui_style_props_clear(&p);
-	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION;
-	p.layout.width = sk_ui_pt(220.0f);
-	p.layout.height = sk_ui_pt(40.0f);
-	p.layout.flex_direction = SK_UI_FLEX_ROW;
-	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, row, &p));
-
-	c0 = ui->widget_view(ctx, row, "nest-c0");
-	c1 = ui->widget_view(ctx, row, "nest-c1");
-	ui_style_props_clear(&p);
-	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
-	p.layout.width = sk_ui_pt(100.0f);
-	p.layout.height = sk_ui_pt(40.0f);
-	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c0, &p));
-	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, c1, &p));
-
-	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
-	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 400.0f, 300.0f));
-
-	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, row, &rr, NULL));
-	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c0, &r0, NULL));
-	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, c1, &r1, NULL));
-	ui_clay_assert_rect_near(&rr, 0.0f, 0.0f, 220.0f, 40.0f);
-	/* Children relative to row content origin. */
-	ui_clay_assert_rect_near(&r0, 0.0f, 0.0f, 100.0f, 40.0f);
-	ui_clay_assert_rect_near(&r1, 100.0f, 0.0f, 100.0f, 40.0f);
+	TEST_ASSERT_FLOAT_WITHIN(UIFX_TOL, 80.0f, ed.boundingBox.width);
 
 	ui->context_destroy(ctx);
 }
