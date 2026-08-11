@@ -25,12 +25,16 @@
 #endif
 #endif
 
-/* Error codes (non-zero = failure; match core convention). */
+/*
+ * Error codes (non-zero = failure; match core convention / contract §3.7).
+ * Package loads surface unresolvable UUID targets as SK_RES_SER_MISSING_REF
+ * rather than committing a silent SK_RID_ZERO (APX-194).
+ */
 enum {
 	SK_RES_SER_OK = 0,
 	SK_RES_SER_ERR = -1,		 /* OOM / generic / parse */
 	SK_RES_SER_INVALID = -2,	 /* bad format / version / type / shape */
-	SK_RES_SER_MISSING_REF = -3, /* package: unresolved UUID */
+	SK_RES_SER_MISSING_REF = -3, /* package: unresolved UUID target */
 	SK_RES_SER_FIELD = -4,		 /* field set failure */
 };
 
@@ -396,6 +400,15 @@ typedef struct sk_res_ser_resolve_ctx_t {
 	i32 package_mode; /* hard-fail missing UUIDs when non-zero */
 } sk_res_ser_resolve_ctx_t;
 
+/**
+ * Resolve a canonical UUID text handle to a live RID.
+ *
+ * - Empty text → SK_RID_ZERO (omit / null / absent).
+ * - Malformed text → SK_RES_SER_INVALID.
+ * - Well-formed but not live: package_mode → SK_RES_SER_MISSING_REF (hard
+ *   fail; never leave a silent dangling handle); single-document → OK with
+ *   SK_RID_ZERO (contract §3.6 single-asset policy).
+ */
 static i32 resolve_uuid_to_rid(sk_res_ser_resolve_ctx_t* ctx, sk_str_view_t text, sk_rid_t* out_rid) {
 	const sk_repository_api_t* api = sk_repository_api();
 	*out_rid = SK_RID_ZERO;
@@ -407,12 +420,17 @@ static i32 resolve_uuid_to_rid(sk_res_ser_resolve_ctx_t* ctx, sk_str_view_t text
 	if (prc != SK_RES_SER_OK) {
 		return prc;
 	}
+	/* Zero UUID is never a durable identity; treat as empty handle. */
+	if (SK_UUID_EQ(uuid, SK_UUID_ZERO)) {
+		return SK_RES_SER_OK;
+	}
 	sk_rid_t rid = api->find_by_uuid(ctx->repository, uuid);
 	if (rid.id == 0u) {
 		if (ctx->package_mode) {
 			return SK_RES_SER_MISSING_REF;
 		}
-		return SK_RES_SER_OK; /* dangling allowed for single-document loads */
+		/* Single-document: dangling ref becomes SK_RID_ZERO (no hard fail). */
+		return SK_RES_SER_OK;
 	}
 	*out_rid = rid;
 	return SK_RES_SER_OK;
@@ -2648,6 +2666,282 @@ SK_TEST(resource_serialize_self_reference_package) {
 	api->destroy(repo);
 }
 
+/* ------------------------------------------------------------------ */
+/*  APX-194: encode + resolve handles / inter-asset references         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Two assets that soft-reference each other (A.Parent=B, B.Parent=A).
+ * Serialize as a package, destroy the repository, reload into a fresh instance.
+ * UUIDs are stable; RIDs are session-local and must rematch via find_by_uuid.
+ */
+SK_TEST(resource_serialize_mutual_refs_fresh_repository) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* src = ser_test_repo();
+
+	const sk_uuid_t uuid_a = ser_uuid(0xa1940001ull, 0xb1940001ull);
+	const sk_uuid_t uuid_b = ser_uuid(0xa1940002ull, 0xb1940002ull);
+	sk_rid_t a_rid = ser_create(src, "ResourceAsset", uuid_a);
+	sk_rid_t b_rid = ser_create(src, "ResourceAsset", uuid_b);
+	TEST_ASSERT_TRUE(a_rid.id != 0u);
+	TEST_ASSERT_TRUE(b_rid.id != 0u);
+	/* Capture session-local RIDs so we can prove they are not persisted. */
+	const u64 src_a_id = a_rid.id;
+	const u64 src_b_id = b_rid.id;
+
+	{
+		sk_resource_object_t w = api->write(src, a_rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "AssetA"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_PATH_ID, "Assets/A"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_PARENT, b_rid));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(src, b_rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "AssetB"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_PATH_ID, "Assets/B"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_PARENT, a_rid));
+		api->commit(w, NULL);
+	}
+
+	char* json = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(src, a_rid, a, &json, NULL));
+	TEST_ASSERT_NOT_NULL(json);
+	/* On-disk form is UUID text, never the session RID integer. */
+	TEST_ASSERT_NOT_NULL(strstr(json, "00000000a1940001-00000000b1940001"));
+	TEST_ASSERT_NOT_NULL(strstr(json, "00000000a1940002-00000000b1940002"));
+	TEST_ASSERT_NOT_NULL(strstr(json, "\"Parent\""));
+	{
+		char rid_needle[32];
+		(void)snprintf(rid_needle, sizeof(rid_needle), "\"Parent\": %llu", (unsigned long long)src_a_id);
+		TEST_ASSERT_NULL(strstr(json, rid_needle));
+		(void)snprintf(rid_needle, sizeof(rid_needle), "\"Parent\": %llu", (unsigned long long)src_b_id);
+		TEST_ASSERT_NULL(strstr(json, rid_needle));
+	}
+
+	api->destroy(src);
+
+	/* Fresh repository instance: only the JSON snapshot is available. */
+	sk_repository_t* dst = ser_test_repo();
+	sk_rid_t loaded_root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(dst, sk_str_view_cstr(json), a, &loaded_root));
+	TEST_ASSERT_TRUE(loaded_root.id != 0u);
+
+	sk_rid_t loaded_a = api->find_by_uuid(dst, uuid_a);
+	sk_rid_t loaded_b = api->find_by_uuid(dst, uuid_b);
+	TEST_ASSERT_TRUE(loaded_a.id != 0u);
+	TEST_ASSERT_TRUE(loaded_b.id != 0u);
+	TEST_ASSERT_TRUE(SK_RID_EQ(loaded_root, loaded_a));
+
+	/* Mutual soft links re-resolve to live handles in the new session. */
+	sk_rid_t a_parent = api->get_reference(api->read(dst, loaded_a), SK_RESOURCE_ASSET_FIELD_PARENT);
+	sk_rid_t b_parent = api->get_reference(api->read(dst, loaded_b), SK_RESOURCE_ASSET_FIELD_PARENT);
+	TEST_ASSERT_TRUE(SK_RID_EQ(a_parent, loaded_b));
+	TEST_ASSERT_TRUE(SK_RID_EQ(b_parent, loaded_a));
+	TEST_ASSERT_EQUAL_STRING("AssetA", api->get_string(api->read(dst, loaded_a), SK_RESOURCE_ASSET_FIELD_NAME));
+	TEST_ASSERT_EQUAL_STRING("AssetB", api->get_string(api->read(dst, loaded_b), SK_RESOURCE_ASSET_FIELD_NAME));
+
+	/* Re-serialize from the fresh repo; UUID graph identity is preserved. */
+	char* json2 = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(dst, loaded_a, a, &json2, NULL));
+	TEST_ASSERT_NOT_NULL(strstr(json2, "00000000a1940001-00000000b1940001"));
+	TEST_ASSERT_NOT_NULL(strstr(json2, "00000000a1940002-00000000b1940002"));
+
+	a->free(a->instance, json);
+	a->free(a->instance, json2);
+	api->destroy(dst);
+}
+
+/**
+ * Hand-crafted package where resources[0] references resources[1] (forward
+ * reference relative to load order). Two-pass create-then-resolve must succeed.
+ */
+SK_TEST(resource_serialize_forward_ref_later_in_load_order) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+
+	/* Root is listed first and points at a child that appears later in resources[]. */
+	const_chr_t json = "{\n"
+					   "  \"format\": \"sk.resource_package\",\n"
+					   "  \"format_version\": 1,\n"
+					   "  \"root_uuid\": \"00000000a1941001-00000000b1941001\",\n"
+					   "  \"resources\": [\n"
+					   "    {\n"
+					   "      \"format\": \"sk.resource\",\n"
+					   "      \"format_version\": 1,\n"
+					   "      \"type\": \"ResourceAsset\",\n"
+					   "      \"uuid\": \"00000000a1941001-00000000b1941001\",\n"
+					   "      \"fields\": {\n"
+					   "        \"Name\": \"early\",\n"
+					   "        \"Object\": \"00000000a1941002-00000000b1941002\",\n"
+					   "        \"Parent\": \"00000000a1941003-00000000b1941003\"\n"
+					   "      }\n"
+					   "    },\n"
+					   "    {\n"
+					   "      \"format\": \"sk.resource\",\n"
+					   "      \"format_version\": 1,\n"
+					   "      \"type\": \"MeshResource\",\n"
+					   "      \"uuid\": \"00000000a1941002-00000000b1941002\",\n"
+					   "      \"fields\": { \"Name\": \"later-mesh\" }\n"
+					   "    },\n"
+					   "    {\n"
+					   "      \"format\": \"sk.resource\",\n"
+					   "      \"format_version\": 1,\n"
+					   "      \"type\": \"ResourceAsset\",\n"
+					   "      \"uuid\": \"00000000a1941003-00000000b1941003\",\n"
+					   "      \"fields\": { \"Name\": \"later-parent\" }\n"
+					   "    }\n"
+					   "  ]\n"
+					   "}";
+
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(repo, sk_str_view_cstr(json), a, &root));
+	TEST_ASSERT_TRUE(root.id != 0u);
+
+	sk_rid_t mesh = api->find_by_uuid(repo, ser_uuid(0xa1941002ull, 0xb1941002ull));
+	sk_rid_t parent = api->find_by_uuid(repo, ser_uuid(0xa1941003ull, 0xb1941003ull));
+	TEST_ASSERT_TRUE(mesh.id != 0u);
+	TEST_ASSERT_TRUE(parent.id != 0u);
+
+	sk_resource_object_t r = api->read(repo, root);
+	TEST_ASSERT_EQUAL_STRING("early", api->get_string(r, SK_RESOURCE_ASSET_FIELD_NAME));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_subobject(r, SK_RESOURCE_ASSET_FIELD_OBJECT), mesh));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(r, SK_RESOURCE_ASSET_FIELD_PARENT), parent));
+	TEST_ASSERT_EQUAL_STRING("later-mesh", api->get_string(api->read(repo, mesh), 0u));
+	TEST_ASSERT_EQUAL_STRING("later-parent", api->get_string(api->read(repo, parent), SK_RESOURCE_ASSET_FIELD_NAME));
+	api->destroy(repo);
+}
+
+/**
+ * Cross-type mutual soft links (ResourceAssetFile.AssetRef ↔ ResourceAsset.AssetFile)
+ * plus Parent, saved and reloaded in a fresh repository — integration form of APX-194.
+ */
+SK_TEST(resource_serialize_cross_type_mutual_refs_fresh_repo) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* src = ser_test_repo();
+
+	sk_rid_t asset = ser_create(src, "ResourceAsset", ser_uuid(0xa1942001ull, 0xb1942001ull));
+	sk_rid_t file = ser_create(src, "ResourceAssetFile", ser_uuid(0xa1942002ull, 0xb1942002ull));
+	sk_rid_t mesh = ser_create(src, "MeshResource", ser_uuid(0xa1942003ull, 0xb1942003ull));
+	{
+		sk_resource_object_t w = api->write(src, mesh);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, 0u, "MutualMesh"));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(src, asset);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "MutualAsset"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_FIELD_OBJECT, mesh));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_ASSET_FILE, file));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(src, file);
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FILE_FIELD_ASSET_REF, asset));
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FILE_FIELD_RELATIVE_PATH, "Assets/M.mesh"));
+		api->commit(w, NULL);
+	}
+
+	char* json = NULL;
+	/* Root at asset: collect_reachable must still pull in the soft-linked file. */
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(src, asset, a, &json, NULL));
+	TEST_ASSERT_NOT_NULL(strstr(json, "00000000a1942001-00000000b1942001"));
+	TEST_ASSERT_NOT_NULL(strstr(json, "00000000a1942002-00000000b1942002"));
+	api->destroy(src);
+
+	sk_repository_t* dst = ser_test_repo();
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(dst, sk_str_view_cstr(json), a, &root));
+	sk_rid_t loaded_asset = api->find_by_uuid(dst, ser_uuid(0xa1942001ull, 0xb1942001ull));
+	sk_rid_t loaded_file = api->find_by_uuid(dst, ser_uuid(0xa1942002ull, 0xb1942002ull));
+	sk_rid_t loaded_mesh = api->find_by_uuid(dst, ser_uuid(0xa1942003ull, 0xb1942003ull));
+	TEST_ASSERT_TRUE(SK_RID_EQ(root, loaded_asset));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(api->read(dst, loaded_asset), SK_RESOURCE_ASSET_FIELD_ASSET_FILE), loaded_file));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(api->read(dst, loaded_file), SK_RESOURCE_ASSET_FILE_FIELD_ASSET_REF), loaded_asset));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_subobject(api->read(dst, loaded_asset), SK_RESOURCE_ASSET_FIELD_OBJECT), loaded_mesh));
+	TEST_ASSERT_EQUAL_STRING("MutualMesh", api->get_string(api->read(dst, loaded_mesh), 0u));
+
+	a->free(a->instance, json);
+	api->destroy(dst);
+}
+
+/**
+ * Explicit JSON null on a Reference field is SK_RID_ZERO (contract §3.5).
+ * Package still hard-fails on a non-null UUID that does not resolve.
+ */
+SK_TEST(resource_serialize_null_ref_and_unresolvable_error_model) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+
+	/* Single-doc: explicit null Parent → zero handle, success. */
+	{
+		sk_repository_t* repo = ser_test_repo();
+		const_chr_t json = "{\n"
+						   "  \"format\": \"sk.resource\",\n"
+						   "  \"format_version\": 1,\n"
+						   "  \"type\": \"ResourceAsset\",\n"
+						   "  \"uuid\": \"00000000a1943001-00000000b1943001\",\n"
+						   "  \"fields\": { \"Name\": \"null-parent\", \"Parent\": null }\n"
+						   "}";
+		sk_rid_t rid = SK_RID_ZERO;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(json), a, &rid));
+		TEST_ASSERT_EQUAL_UINT64(0u, api->get_reference(api->read(repo, rid), SK_RESOURCE_ASSET_FIELD_PARENT).id);
+		api->destroy(repo);
+	}
+
+	/* Package: unresolvable non-null UUID → MISSING_REF, no partial shells. */
+	{
+		sk_repository_t* repo = ser_test_repo();
+		const u64 before = api->resource_count(repo);
+		const_chr_t bad = "{\n"
+						  "  \"format\": \"sk.resource_package\",\n"
+						  "  \"format_version\": 1,\n"
+						  "  \"root_uuid\": \"00000000a1943002-00000000b1943002\",\n"
+						  "  \"resources\": [\n"
+						  "    {\n"
+						  "      \"format\": \"sk.resource\",\n"
+						  "      \"format_version\": 1,\n"
+						  "      \"type\": \"ResourceAsset\",\n"
+						  "      \"uuid\": \"00000000a1943002-00000000b1943002\",\n"
+						  "      \"fields\": {\n"
+						  "        \"Name\": \"missing-target\",\n"
+						  "        \"Parent\": \"00000000deadbeef-00000000deadbeef\"\n"
+						  "      }\n"
+						  "    }\n"
+						  "  ]\n"
+						  "}";
+		sk_rid_t root = SK_RID_ZERO;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_MISSING_REF, sk_resource_deserialize_package_json_string(repo, sk_str_view_cstr(bad), a, &root));
+		TEST_ASSERT_EQUAL_UINT64(0u, root.id);
+		TEST_ASSERT_EQUAL_UINT64(before, api->resource_count(repo));
+		TEST_ASSERT_TRUE(api->find_by_uuid(repo, ser_uuid(0xa1943002ull, 0xb1943002ull)).id == 0u);
+		api->destroy(repo);
+	}
+
+	/* Single-doc dangling UUID → success with SK_RID_ZERO (not a silent partial type). */
+	{
+		sk_repository_t* repo = ser_test_repo();
+		const_chr_t json = "{\n"
+						   "  \"format\": \"sk.resource\",\n"
+						   "  \"format_version\": 1,\n"
+						   "  \"type\": \"ResourceAsset\",\n"
+						   "  \"uuid\": \"00000000a1943003-00000000b1943003\",\n"
+						   "  \"fields\": {\n"
+						   "    \"Name\": \"dangling\",\n"
+						   "    \"Parent\": \"00000000cafebabe-00000000cafebabe\"\n"
+						   "  }\n"
+						   "}";
+		sk_rid_t rid = SK_RID_ZERO;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(json), a, &rid));
+		TEST_ASSERT_TRUE(rid.id != 0u);
+		TEST_ASSERT_EQUAL_UINT64(0u, api->get_reference(api->read(repo, rid), SK_RESOURCE_ASSET_FIELD_PARENT).id);
+		api->destroy(repo);
+	}
+}
+
 SK_TEST(resource_serialize_reload_same_uuid_reuses_rid) {
 	const sk_repository_api_t* api = sk_repository_api();
 	const sk_allocator_t* a = sk_allocator_default();
@@ -3083,7 +3377,7 @@ SK_TEST(resource_serialize_package_all_container_fields) {
 	TEST_ASSERT_NOT_NULL(strstr(json, "\"TotalSizeInDisk\""));
 	TEST_ASSERT_NOT_NULL(strstr(json, "\"LastModifiedTime\""));
 	TEST_ASSERT_NOT_NULL(strstr(json, "\"Name\""));
-	/* UUID reference encoding (contract placeholder; deeper handles are APX-194). */
+	/* UUID reference encoding (APX-194): stable lo-hi form, never raw RID. */
 	TEST_ASSERT_NOT_NULL(strstr(json, "000000000000b002-0000000000000002"));
 
 	api->destroy(repo);

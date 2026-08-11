@@ -20,12 +20,22 @@
  * sk_resource_field_t descriptors — not by hand-written per-type tables.
  * JSON keys are the exact PascalCase descriptor names (Name, PathId, …).
  *
- * ## Reference / handle encoding (placeholder for APX-194)
+ * ## Reference / handle encoding (APX-194)
  *
- * Cross-resource Reference, SubObject, ReferenceArray, and SubObjectList fields
- * are encoded as canonical UUID strings (`%016llx-%016llx` of lo/hi), or omitted
- * when SK_RID_ZERO. RIDs are never written. Deeper handle identity / path-based
- * reference resolution beyond this contract placeholder is deferred to APX-194.
+ * In-memory handles are session-local RIDs (`sk_rid_t`); they are **never**
+ * written to JSON. Cross-resource Reference, SubObject, ReferenceArray, and
+ * SubObjectList fields encode as canonical UUID strings
+ * (`%016llx-%016llx` of lo/hi), or are omitted when `SK_RID_ZERO`.
+ *
+ * On load, UUID strings resolve to live RIDs via `find_by_uuid`:
+ * - **Package documents** use a two-pass algorithm (create every shell first,
+ *   then apply refs) so forward references and mutual soft links resolve
+ *   regardless of `resources[]` order. Missing targets return non-zero
+ *   (`SK_RES_SER_MISSING_REF` class) and the load is rolled back — no silent
+ *   null/dangling handles.
+ * - **Single-resource documents** resolve when the target is already live;
+ *   otherwise leave `SK_RID_ZERO` (self-contained package loads are required
+ *   for graphs; single-doc dumps are not).
  *
  * ## Fields that cannot be fully represented under the contract
  *
