@@ -2191,7 +2191,10 @@ void Clay__InitializePersistentMemory(Clay_Context* context) {
     int32_t maxMeasureTextCacheWordCount = context->maxMeasureTextCacheWordCount;
     Clay_Arena *arena = &context->internalArena;
 
-    context->scrollContainerDatas = Clay__ScrollContainerDataInternalArray_Allocate_Arena(10, arena);
+    /* sk-ui: raised from 10 — retained trees accumulate clip/scroll rows across
+     * multi-test Clay contexts (dock + menu + scroll + pure clip). Capacity 10
+     * OOB'd under the full sk-ui suite once more surfaces mapped clip. */
+    context->scrollContainerDatas = Clay__ScrollContainerDataInternalArray_Allocate_Arena(256, arena);
     context->layoutElementsHashMapInternal = Clay__LayoutElementHashMapItemArray_Allocate_Arena(maxElementCount, arena);
     context->layoutElementsHashMap = Clay__int32_tArray_Allocate_Arena(maxElementCount, arena);
     context->measureTextHashMapInternal = Clay__MeasureTextCacheItemArray_Allocate_Arena(maxElementCount, arena);

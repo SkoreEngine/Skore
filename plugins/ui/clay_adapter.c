@@ -1,7 +1,7 @@
 /**
  * @file clay_adapter.c
  * @brief Clay-backed layout adapter for retained sk-ui trees
- *        (APX-214 / APX-232 / APX-233 / APX-234 / APX-235 / APX-216).
+ *        (APX-214 / APX-232 / APX-233 / APX-234 / APX-235 / APX-236 / APX-216).
  *
  * Maps the per-frame layout pass onto Clay's immediate-mode lifecycle in a
  * single whole-tree pass and writes resulting boxes back into slot layout
@@ -25,6 +25,16 @@
  * maps to Clay floating; multi-viewport OS hosts are not supported (single
  * context root only).
  *
+ * APX-236 (remaining scroll / clip / wrap helpers): every scroll_view and
+ * clip_children node maps to Clay clip with a stable element id so Clay
+ * scroll-container rows persist across frames. Scroll containers (scroll_view
+ * or nodes with scroll_x/scroll_y props) are counted separately from pure
+ * clip regions. Wrapped text declares Clay text (CLAY_TEXT_WRAP_WORDS) for
+ * measure. scroll_content size comes from set_content_size → POINT layout
+ * (content_* props remain paint/clamp metadata). Engine paint and hit-test
+ * still apply scroll_x/scroll_y once; Clay childOffset stays zero to avoid
+ * double-shifting writeback rects (blocking limitation recorded below).
+ *
  * Known Clay box-model deltas vs the old custom solver (logged once per
  * context via ui_clay_log_limitation): flex-wrap unsupported, reverse axes
  * unsupported, margins ignored, justify-content space-between/around/evenly
@@ -34,6 +44,20 @@
  * multi-viewport hosts (single context root only). Clay has no native
  * splitter primitive — splitters are fixed-size flex children with stable
  * ids; ratio is engine prop state updated by pointer capture.
+ *
+ * APX-236 remaining on the engine path (blocking Clay limitations):
+ *  - Scroll offset application: paint + hit-test read scroll_x/scroll_y and
+ *    shift children; Clay clip.childOffset is left at zero so writeback keeps
+ *    unshifted parent-relative rects. Full Clay-owned scroll (childOffset =
+ *    Clay_GetScrollOffset) would double-apply unless paint/hit-test drop
+ *    engine offsets.
+ *  - Wheel deltas are not fed into Clay_UpdateScrollContainers via
+ *    ctx->scroll_delta_* — that path runs before BeginLayout and can walk
+ *    stale scroll-container rows across context destroy (Clay internal OOB).
+ *    Engine scroll_view on_event remains the scroll source of truth.
+ *  - Soft wrap glyph placement at paint time still uses the engine line
+ *    breaker; Clay owns wrap measure/sizing only.
+ *  - flex-wrap (container multi-line) remains unsupported by Clay.
  */
 
 #include "ui_internal.h"
@@ -52,13 +76,16 @@
 /* -------------------------------------------------------------------------- */
 
 struct ui_clay_frame_t {
-	Clay_ElementId* ids;   /**< Parallel to slots: clay id per slot index. */
-	Clay_BoundingBox* abs; /**< Clay absolute bounding box per slot. */
-	u8* present;		   /**< Non-zero if node was declared this pass. */
-	u32 cap;			   /**< Capacity of the parallel arrays. */
-	i32 menu_layout_count; /**< Menu surface nodes declared this frame (APX-234). */
-	i32 dock_layout_count; /**< Dock / editor window surfaces this frame (APX-235). */
-	i32 limitation_logged; /**< Avoid spamming the logger every frame. */
+	Clay_ElementId* ids;	 /**< Parallel to slots: clay id per slot index. */
+	Clay_BoundingBox* abs;	 /**< Clay absolute bounding box per slot. */
+	u8* present;			 /**< Non-zero if node was declared this pass. */
+	u32 cap;				 /**< Capacity of the parallel arrays. */
+	i32 menu_layout_count;	 /**< Menu surface nodes declared this frame (APX-234). */
+	i32 dock_layout_count;	 /**< Dock / editor window surfaces this frame (APX-235). */
+	i32 scroll_layout_count; /**< Scroll containers (Clay clip + stable id) this frame (APX-236). */
+	i32 clip_layout_count;	 /**< Pure clip_children nodes (no scroll props) this frame. */
+	i32 wrap_layout_count;	 /**< Wrapped-text Clay text elements this frame. */
+	i32 limitation_logged;	 /**< Avoid spamming the logger every frame. */
 };
 
 /* -------------------------------------------------------------------------- */
@@ -119,6 +146,21 @@ static i32 ui_clay_prop_i32(const ui_node_slot_t* slot, const_chr_t key, i32 fal
 		}
 	}
 	return fallback;
+}
+
+/** Non-zero if slot has an f32 prop named @p key (value may be zero). */
+static i32 ui_clay_has_prop_f32(const ui_node_slot_t* slot, const_chr_t key) {
+	u32 i;
+	if (slot == NULL || key == NULL) {
+		return 0;
+	}
+	for (i = 0u; i < slot->props.count; ++i) {
+		const ui_prop_entry_t* e = &slot->props.items[i];
+		if (e->type == SK_UI_PROP_F32 && e->key != NULL && strcmp(e->key, key) == 0) {
+			return 1;
+		}
+	}
+	return 0;
 }
 
 /**
@@ -545,7 +587,8 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	i32 reverse = 0;
 	u32 i;
 	const_chr_t widget;
-	i32 is_scroll;
+	i32 is_scroll_container;
+	i32 is_clip;
 	i32 is_text_kind;
 	i32 is_menu;
 	i32 is_menu_popup;
@@ -553,6 +596,7 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	i32 is_dock_drag;
 	i32 wrap;
 	i32 force_id;
+	i32 has_scroll_props;
 
 	if (slot == NULL || fr == NULL) {
 		return;
@@ -582,10 +626,21 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	if (is_dock != 0) {
 		fr->dock_layout_count += 1;
 	}
-	/* Nested dock containers, window content, and scroll views all clip. */
-	/* Scroll views and any clip_children node (dock_space / dock_node /
-	 * window_content set the bit in factories) map to Clay clip. */
-	is_scroll = (widget != NULL && strcmp(widget, "scroll_view") == 0) || slot->clip_children != 0u;
+	/*
+	 * APX-236: scroll vs pure clip.
+	 * - scroll_view (or any node with scroll_x/scroll_y props) → Clay scroll
+	 *   container (clip + stable id). Engine props remain the offset source.
+	 * - clip_children alone (dock_space / dock_node / window_content / menu
+	 *   popups) → Clay clip without scroll-container offset semantics.
+	 */
+	has_scroll_props = (ui_clay_has_prop_f32(slot, "scroll_x") != 0 || ui_clay_has_prop_f32(slot, "scroll_y") != 0 || (widget != NULL && strcmp(widget, "scroll_view") == 0));
+	is_scroll_container = has_scroll_props != 0 ? 1 : 0;
+	is_clip = (slot->clip_children != 0u) || is_scroll_container != 0;
+	if (is_scroll_container != 0) {
+		fr->scroll_layout_count += 1;
+	} else if (is_clip != 0) {
+		fr->clip_layout_count += 1;
+	}
 	is_text_kind = (slot->kind == (u8)SK_UI_NODE_KIND_TEXT) || (widget != NULL && strcmp(widget, "label") == 0) ||
 				   (widget != NULL && (strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 || strcmp(widget, "submenu") == 0 || strcmp(widget, "tab") == 0 ||
 									   strcmp(widget, "window_title_bar") == 0));
@@ -686,12 +741,21 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 		decl.border.width.bottom = ui_clay_u16_clamp(ls->border.bottom);
 	}
 
-	if (is_scroll) {
+	if (is_clip != 0) {
 		decl.clip.horizontal = true;
 		decl.clip.vertical = true;
-		/* Engine scroll offsets are applied exactly once by paint and hit-test
-		 * from the "scroll_x"/"scroll_y" props. Clay childOffset stays zero so
-		 * writeback stores unshifted rects (no double shift). */
+		/*
+		 * Stable id (set above) keys Clay's scroll-container row so it
+		 * persists across frames. Engine scroll_x/scroll_y are applied
+		 * exactly once by paint and hit-test. Clay childOffset stays zero
+		 * so writeback stores unshifted parent-relative rects (no double
+		 * shift). Feeding Clay_GetScrollOffset here would require paint
+		 * and hit-test to stop applying engine offsets (APX-236 limitation).
+		 */
+		if (is_scroll_container != 0) {
+			decl.clip.childOffset.x = 0.0f;
+			decl.clip.childOffset.y = 0.0f;
+		}
 	}
 
 	/* Menu popups and floating editor windows are overlays even if style is
@@ -759,29 +823,34 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	fr->present[node.index] = 1u;
 
 	/*
-	 * Text content:
-	 * - Wrapped labels always go through Clay text (measure replaces old path).
+	 * Text content (APX-236):
+	 * - wrap=1 always goes through Clay text (CLAY_TEXT_WRAP_WORDS measure),
+	 *   including fully fixed boxes so wrap sizing is consistent.
 	 * - Other text widgets declare Clay text when the box is not fully fixed
-	 *   (FIT/GROW needs intrinsic size). Fully fixed boxes still paint glyphs
-	 *   via the engine path; Clay leaf is optional for sizing.
+	 *   (FIT/GROW needs intrinsic size). Fully fixed + wrap=0 still paint
+	 *   glyphs via the engine path; Clay leaf is optional for sizing.
 	 */
 	{
 		i32 fixed_w = ls->width.unit == SK_UI_LENGTH_POINT ? 1 : 0;
 		i32 fixed_h = ls->height.unit == SK_UI_LENGTH_POINT ? 1 : 0;
 		i32 fully_fixed = (fixed_w != 0 && fixed_h != 0) ? 1 : 0;
 		i32 need_text = 0;
-		/* Wrapped labels always use Clay text; other text needs it for FIT sizing. */
+		const_chr_t text_prop = ui_clay_prop_str(slot, "text");
+		/* wrap=1 on text kinds always uses Clay word-wrap measure; other text
+		 * when not fully fixed (FIT/GROW intrinsic size). */
 		if (is_text_kind != 0 && (wrap != 0 || fully_fixed == 0)) {
 			need_text = 1;
 		}
-		if (widget != NULL &&
+		if (widget != NULL && fully_fixed == 0 &&
 			(strcmp(widget, "button") == 0 || strcmp(widget, "text_input") == 0 || strcmp(widget, "menu_item") == 0 || strcmp(widget, "menu") == 0 ||
-			 strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "tab") == 0 || strcmp(widget, "window_title_bar") == 0) &&
-			fully_fixed == 0) {
+			 strcmp(widget, "submenu") == 0 || strcmp(widget, "dropdown") == 0 || strcmp(widget, "tab") == 0 || strcmp(widget, "window_title_bar") == 0)) {
 			need_text = 1;
 		}
-		if (need_text != 0 && ui_clay_prop_str(slot, "text") != NULL) {
+		if (need_text != 0 && text_prop != NULL) {
 			ui_clay_declare_text_content(slot);
+			if (wrap != 0) {
+				fr->wrap_layout_count += 1;
+			}
 		}
 	}
 
@@ -803,15 +872,15 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 			child_ph = ui_clay_fmaxf(0.0f, parent_h * (ls->height.value / 100.0f) - pad_t - pad_b);
 		}
 
-		/* Scroll content: prefer explicit content_width/height props when set. */
-		if (widget != NULL && strcmp(widget, "scroll_content") == 0) {
-			/* Parent scroll_view holds content size props — read from parent. */
-			const ui_node_slot_t* pslot = sk_ui_node_is_valid(slot->parent) ? ui_slot(ctx, slot->parent) : NULL;
+		/* scroll_content size comes from set_content_size → POINT layout_style
+		 * (mapped above). content_width/height props are paint/clamp metadata. */
+		if (widget != NULL && strcmp(widget, "scroll_content") == 0 && sk_ui_node_is_valid(slot->parent)) {
+			const ui_node_slot_t* pslot = ui_slot(ctx, slot->parent);
 			if (pslot != NULL) {
-				f32 cw = ui_clay_prop_f32(pslot, "content_width", 0.0f);
-				f32 ch = ui_clay_prop_f32(pslot, "content_height", 0.0f);
-				(void)cw;
-				(void)ch;
+				/* Touch props so paint/clamp metadata stays discoverable; sizing
+				 * already comes from layout_style POINT written by set_content_size. */
+				(void)ui_clay_prop_f32(pslot, "content_width", 0.0f);
+				(void)ui_clay_prop_f32(pslot, "content_height", 0.0f);
 			}
 		}
 
@@ -1095,6 +1164,9 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	fr = ctx->clay_frame;
 	fr->menu_layout_count = 0;
 	fr->dock_layout_count = 0;
+	fr->scroll_layout_count = 0;
+	fr->clip_layout_count = 0;
+	fr->wrap_layout_count = 0;
 	if (ui_clay_ensure_init(ctx->allocator, root_width, root_height, NULL, NULL) != 0) {
 		return -1;
 	}
@@ -2022,6 +2094,197 @@ SK_TEST(ui_clay_editor_window_chrome_nested_clip) {
 	TEST_ASSERT_TRUE(ctx->clay_frame->present[win.index] != 0u);
 	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("win-console-title")));
 	TEST_ASSERT_TRUE(ed.found);
+
+	ui->context_destroy(ctx);
+}
+
+/* --- APX-236: remaining scroll / clip / wrap regions ----------------------- */
+
+SK_TEST(ui_clay_scroll_container_stable_id_and_offset) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t sv;
+	sk_ui_node_t content;
+	sk_ui_style_props_t p;
+	Clay_ElementId eid_sv;
+	Clay_ElementId eid_content;
+	Clay_ElementData ed;
+	f32 sx;
+	f32 sy;
+	u32 id_hash;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+	sv = ui->widget_scroll_view(ctx, root, "apx236-sv");
+	content = ui->scroll_view_content(ctx, sv);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(content));
+
+	/* Clear default scroll_view border so POINT sizes are exact border boxes. */
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_PADDING;
+	p.layout.width = sk_ui_pt(100.0f);
+	p.layout.height = sk_ui_pt(60.0f);
+	p.layout.border.left = p.layout.border.right = p.layout.border.top = p.layout.border.bottom = 0.0f;
+	p.layout.padding.left = p.layout.padding.right = p.layout.padding.top = p.layout.padding.bottom = 0.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, sv, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_set_content_size(ctx, sv, 100.0f, 240.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_set_scroll(ctx, sv, 0.0f, 48.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 200.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->scroll_layout_count >= 1);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[sv.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[content.index] != 0u);
+	TEST_ASSERT_EQUAL_INT(1, ui->node_get_clip_children(ctx, sv));
+
+	eid_sv = Clay_GetElementId(ui_clay_cstr("apx236-sv"));
+	ed = Clay_GetElementData(eid_sv);
+	TEST_ASSERT_TRUE(ed.found);
+	/* Content-box: style 100 + border 0 = 100. */
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 100.0f, ed.boundingBox.width);
+
+	id_hash = eid_sv.id;
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_get_scroll(ctx, sv, &sx, &sy));
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, 48.0f, sy);
+
+	/* Second frame: same Clay id hash + engine scroll offset persist. */
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 200.0f));
+	eid_sv = Clay_GetElementId(ui_clay_cstr("apx236-sv"));
+	TEST_ASSERT_EQUAL_UINT(id_hash, eid_sv.id);
+	ed = Clay_GetElementData(eid_sv);
+	TEST_ASSERT_TRUE(ed.found);
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_get_scroll(ctx, sv, &sx, &sy));
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, 48.0f, sy);
+	TEST_ASSERT_TRUE(ctx->clay_frame->scroll_layout_count >= 1);
+
+	/* scroll_content remains present with a stable Clay id across frames. */
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[content.index] != 0u);
+	eid_content = ctx->clay_frame->ids[content.index];
+	ed = Clay_GetElementData(eid_content);
+	TEST_ASSERT_TRUE(ed.found);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_clay_pure_clip_region_and_wrap_text) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t clipper;
+	sk_ui_node_t label;
+	sk_ui_style_props_t p;
+	Clay_ElementData ed;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	/* Pure clip (no scroll props): counts as clip, not scroll container. */
+	clipper = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, root);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, clipper, "apx236-clip"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_clip_children(ctx, clipper, 1));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	p.layout.width = sk_ui_pt(80.0f);
+	p.layout.height = sk_ui_pt(40.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, clipper, &p));
+
+	/* wrap=1 → Clay text element even with fully fixed box. */
+	label = ui->widget_label(ctx, clipper, "Wrapped soft line text for Clay measure path", "apx236-wrap");
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FONT_SIZE;
+	p.layout.width = sk_ui_pt(72.0f);
+	p.layout.height = sk_ui_pt(36.0f);
+	p.font_size = 11.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, label, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->label_set_wrap(ctx, label, 1));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 120.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->clip_layout_count >= 1);
+	TEST_ASSERT_TRUE(ctx->clay_frame->wrap_layout_count >= 1);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[clipper.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[label.index] != 0u);
+
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("apx236-clip")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("apx236-wrap")));
+	TEST_ASSERT_TRUE(ed.found);
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 72.0f, ed.boundingBox.width);
+
+	/* Second frame: wrap + clip counts and ids remain. */
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 120.0f));
+	TEST_ASSERT_TRUE(ctx->clay_frame->wrap_layout_count >= 1);
+	TEST_ASSERT_TRUE(ctx->clay_frame->clip_layout_count >= 1);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("apx236-wrap")));
+	TEST_ASSERT_TRUE(ed.found);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_clay_nested_scroll_under_clip_stable) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t outer_clip;
+	sk_ui_node_t sv;
+	sk_ui_style_props_t p;
+	Clay_ElementData ed;
+	f32 sx;
+	f32 sy;
+	u32 id_hash;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	outer_clip = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, root);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_id(ctx, outer_clip, "apx236-outer-clip"));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_clip_children(ctx, outer_clip, 1));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION;
+	p.layout.width = sk_ui_pt(120.0f);
+	p.layout.height = sk_ui_pt(80.0f);
+	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, outer_clip, &p));
+
+	sv = ui->widget_scroll_view(ctx, outer_clip, "apx236-nested-sv");
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_BORDER_WIDTH;
+	p.layout.width = sk_ui_pt(100.0f);
+	p.layout.height = sk_ui_pt(60.0f);
+	p.layout.border.left = p.layout.border.right = p.layout.border.top = p.layout.border.bottom = 0.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, sv, &p));
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_set_content_size(ctx, sv, 100.0f, 200.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_set_scroll(ctx, sv, 0.0f, 20.0f));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 160.0f));
+
+	TEST_ASSERT_NOT_NULL(ctx->clay_frame);
+	TEST_ASSERT_TRUE(ctx->clay_frame->scroll_layout_count >= 1);
+	TEST_ASSERT_TRUE(ctx->clay_frame->clip_layout_count >= 1);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[outer_clip.index] != 0u);
+	TEST_ASSERT_TRUE(ctx->clay_frame->present[sv.index] != 0u);
+
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("apx236-outer-clip")));
+	TEST_ASSERT_TRUE(ed.found);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("apx236-nested-sv")));
+	TEST_ASSERT_TRUE(ed.found);
+	id_hash = Clay_GetElementId(ui_clay_cstr("apx236-nested-sv")).id;
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_get_scroll(ctx, sv, &sx, &sy));
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, 20.0f, sy);
+
+	/* Second frame: nested clip + scroll ids and engine offset persist. */
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 200.0f, 160.0f));
+	TEST_ASSERT_EQUAL_UINT(id_hash, Clay_GetElementId(ui_clay_cstr("apx236-nested-sv")).id);
+	ed = Clay_GetElementData(Clay_GetElementId(ui_clay_cstr("apx236-nested-sv")));
+	TEST_ASSERT_TRUE(ed.found);
+	TEST_ASSERT_TRUE(ctx->clay_frame->scroll_layout_count >= 1);
+	TEST_ASSERT_TRUE(ctx->clay_frame->clip_layout_count >= 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_get_scroll(ctx, sv, &sx, &sy));
+	TEST_ASSERT_FLOAT_WITHIN(0.1f, 20.0f, sy);
 
 	ui->context_destroy(ctx);
 }

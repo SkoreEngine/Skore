@@ -841,6 +841,9 @@ static void ui_handle_wheel(sk_ui_context_t* ctx, f32 x, f32 y, f32 sx, f32 sy, 
 		ev.mods = mods;
 		ui_dispatch_event(ctx, &ev);
 	}
+	/* APX-236: do not feed wheel into ctx->scroll_delta_* for Clay
+	 * UpdateScrollContainers (stale scroll rows across contexts → Clay OOB).
+	 * Engine scroll_view props remain the scroll source of truth. */
 }
 
 static void ui_handle_key(sk_ui_context_t* ctx, i32 key, i32 down, u32 mods, i32 repeat) {
