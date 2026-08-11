@@ -1,0 +1,35 @@
+{
+  "format": "sk.resource_object_fixture_manifest",
+  "format_version": 1,
+  "description": "On-disk dummy resources for sk_resource_object_t BUFFER field integration tests (APX-183).",
+  "fixtures": [
+    {
+      "id": "buffer_small",
+      "resource_file": "buffer_small.json",
+      "buffer_state": "present",
+      "payload_file": "buffer_small.bin",
+      "payload_size": 32
+    },
+    {
+      "id": "buffer_large",
+      "resource_file": "buffer_large.json",
+      "buffer_state": "present",
+      "payload_file": "buffer_large.bin",
+      "payload_size": 1048577
+    },
+    {
+      "id": "buffer_empty",
+      "resource_file": "buffer_empty.json",
+      "buffer_state": "empty",
+      "payload_file": "buffer_empty.bin",
+      "payload_size": 0
+    },
+    {
+      "id": "buffer_absent",
+      "resource_file": "buffer_absent.json",
+      "buffer_state": "absent",
+      "payload_file": null,
+      "payload_size": 0
+    }
+  ]
+}
