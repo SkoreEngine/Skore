@@ -39,9 +39,32 @@ static i32 ui_node_is_disabled(const ui_node_slot_t* slot) {
 	return (slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u ? 1 : 0;
 }
 
+/** Scroll offset props (ScrollView / overflow). Default 0. */
+static f32 ui_slot_scroll_x(const ui_node_slot_t* slot) {
+	u32 i;
+	for (i = 0u; i < slot->props.count; ++i) {
+		const ui_prop_entry_t* e = &slot->props.items[i];
+		if (e->type == SK_UI_PROP_F32 && e->key != NULL && strcmp(e->key, "scroll_x") == 0) {
+			return e->data.f32_value;
+		}
+	}
+	return 0.0f;
+}
+
+static f32 ui_slot_scroll_y(const ui_node_slot_t* slot) {
+	u32 i;
+	for (i = 0u; i < slot->props.count; ++i) {
+		const ui_prop_entry_t* e = &slot->props.items[i];
+		if (e->type == SK_UI_PROP_F32 && e->key != NULL && strcmp(e->key, "scroll_y") == 0) {
+			return e->data.f32_value;
+		}
+	}
+	return 0.0f;
+}
+
 /**
  * Absolute border + content rects in root space.
- * Parent content origin is the reference for each child's layout_* rects.
+ * Accounts for ancestor scroll offsets (paint/hit-test share this space).
  */
 static i32 ui_abs_rects(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content) {
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
@@ -69,14 +92,14 @@ static i32 ui_abs_rects(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rec
 		}
 	}
 
-	/* Walk root → parent, accumulating content origins. */
+	/* Walk root → parent: content origin minus that ancestor's scroll. */
 	for (i = depth; i > 0u; --i) {
 		const ui_node_slot_t* p = ui_slot(ctx, chain[i - 1u]);
 		if (p == NULL) {
 			return -1;
 		}
-		ox += p->layout_content.x;
-		oy += p->layout_content.y;
+		ox += p->layout_content.x - ui_slot_scroll_x(p);
+		oy += p->layout_content.y - ui_slot_scroll_y(p);
 	}
 
 	if (out_border != NULL) {
@@ -167,9 +190,9 @@ static sk_ui_node_t ui_hit_test_walk(const sk_ui_context_t* ctx, f32 x, f32 y) {
 				continue;
 			}
 
-			/* Child rects are relative to this node's content origin. */
-			cox = fr->origin_x;
-			coy = fr->origin_y;
+			/* Child rects relative to parent content origin, minus parent scroll. */
+			cox = fr->origin_x - ui_slot_scroll_x(slot);
+			coy = fr->origin_y - ui_slot_scroll_y(slot);
 			child_border.x = cox + child_slot->layout_border.x;
 			child_border.y = coy + child_slot->layout_border.y;
 			child_border.width = child_slot->layout_border.width;
@@ -281,6 +304,7 @@ void ui_input_node_defaults(ui_node_slot_t* slot, sk_ui_node_kind_t kind) {
 	memset(&slot->callbacks, 0, sizeof(slot->callbacks));
 	slot->clip_children = 0u;
 	slot->pointer_events = (u8)SK_UI_POINTER_EVENTS_AUTO;
+	/* Buttons and text fields participate in tab focus by default. */
 	slot->focusable = (kind == SK_UI_NODE_KIND_BUTTON) ? 1u : 0u;
 }
 

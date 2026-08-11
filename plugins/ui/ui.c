@@ -152,6 +152,7 @@ static void ui_slot_release_contents(sk_ui_context_t* ctx, ui_node_slot_t* slot)
 	sk_array_free(&slot->props);
 	sk_array_free(&slot->children);
 	ui_node_style_release(slot, a);
+	ui_widget_release_user_data(ctx, slot);
 	slot->user_data = NULL;
 	slot->user_data_type = SK_TYPE_ID_ZERO;
 	slot->dirty = 0u;
@@ -361,6 +362,8 @@ static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 		return NULL;
 	}
 	ctx->root = root;
+	/* Default widget styles so factories work without hand-styling. */
+	(void)ui_widgets_register_defaults_impl(ctx);
 	return ctx;
 }
 
@@ -1326,6 +1329,44 @@ static const sk_ui_api_t ui_api = {
 	ui_renderer_set_render_pass_impl,
 	ui_renderer_prepare_impl,
 	ui_renderer_encode_impl,
+	ui_widgets_register_defaults_impl,
+	ui_set_clipboard_fns_impl,
+	ui_widget_panel_impl,
+	ui_widget_view_impl,
+	ui_widget_label_impl,
+	ui_widget_button_impl,
+	ui_widget_checkbox_impl,
+	ui_widget_slider_impl,
+	ui_widget_text_input_impl,
+	ui_widget_scroll_view_impl,
+	ui_widget_image_impl,
+	ui_label_set_text_impl,
+	ui_label_get_text_impl,
+	ui_label_set_wrap_impl,
+	ui_label_set_align_impl,
+	ui_button_set_label_impl,
+	ui_button_set_disabled_impl,
+	ui_checkbox_set_checked_impl,
+	ui_checkbox_get_checked_impl,
+	ui_checkbox_set_on_change_impl,
+	ui_slider_set_value_impl,
+	ui_slider_get_value_impl,
+	ui_slider_set_range_impl,
+	ui_slider_set_on_change_impl,
+	ui_text_input_set_text_impl,
+	ui_text_input_get_text_impl,
+	ui_text_input_get_caret_impl,
+	ui_text_input_set_selection_impl,
+	ui_text_input_insert_impl,
+	ui_text_input_delete_selection_impl,
+	ui_text_input_copy_impl,
+	ui_text_input_cut_impl,
+	ui_text_input_paste_impl,
+	ui_scroll_view_content_impl,
+	ui_scroll_view_set_scroll_impl,
+	ui_scroll_view_get_scroll_impl,
+	ui_scroll_view_set_content_size_impl,
+	ui_image_set_texture_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {

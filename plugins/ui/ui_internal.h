@@ -148,6 +148,13 @@ struct sk_ui_context_t {
 
 	/* Paint / draw list (CPU) */
 	ui_draw_list_store_t draw;
+
+	/* Widget set */
+	u32 widget_id_seq; /**< Auto test-id counter for widgets without explicit id. */
+	sk_ui_clipboard_get_fn clipboard_get;
+	sk_ui_clipboard_set_fn clipboard_set;
+	void_ptr_t clipboard_user;
+	i32 widgets_defaults_registered;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -274,3 +281,60 @@ void ui_renderer_destroy_impl(sk_ui_renderer_t* renderer);
 i32 ui_renderer_set_render_pass_impl(sk_ui_renderer_t* renderer, sk_render_pass_t render_pass);
 i32 ui_renderer_prepare_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_prepare_info_t* info);
 i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_encode_info_t* info);
+
+/* -------------------------------------------------------------------------- */
+/* Widgets (widgets.c)                                                        */
+/* -------------------------------------------------------------------------- */
+
+/** Type id for widget-owned user_data (freed on node destroy). */
+#define SK_UI_WIDGET_DATA_TYPE_ID SK_TYPE_ID("sk.ui_widget_data", 0xa1b2c3d4e5f60718ULL, 0x918273645a5b6c7dULL)
+
+/** Free widget user_data if present (called from slot release). */
+void ui_widget_release_user_data(sk_ui_context_t* ctx, ui_node_slot_t* slot);
+
+i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx);
+void ui_set_clipboard_fns_impl(sk_ui_context_t* ctx, sk_ui_clipboard_get_fn get_fn, sk_ui_clipboard_set_fn set_fn, void_ptr_t user);
+
+sk_ui_node_t ui_widget_panel_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_label_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+sk_ui_node_t ui_widget_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+sk_ui_node_t ui_widget_checkbox_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
+sk_ui_node_t ui_widget_slider_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value, const_chr_t id);
+sk_ui_node_t ui_widget_text_input_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+sk_ui_node_t ui_widget_scroll_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_image_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, const_chr_t id);
+
+i32 ui_label_set_text_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
+const_chr_t ui_label_get_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_label_set_wrap_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 wrap);
+i32 ui_label_set_align_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 text_align, i32 vertical_align);
+
+i32 ui_button_set_label_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+i32 ui_button_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+i32 ui_checkbox_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
+i32 ui_checkbox_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_checkbox_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
+i32 ui_slider_set_value_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value);
+f32 ui_slider_get_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_slider_set_range_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 min_v, f32 max_v);
+i32 ui_slider_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_float_fn fn, void_ptr_t user);
+
+i32 ui_text_input_set_text_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
+const_chr_t ui_text_input_get_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_get_caret_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_set_selection_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 start, i32 end);
+i32 ui_text_input_insert_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t utf8);
+i32 ui_text_input_delete_selection_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_copy_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_cut_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_text_input_paste_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+sk_ui_node_t ui_scroll_view_content_impl(const sk_ui_context_t* ctx, sk_ui_node_t scroll_view);
+i32 ui_scroll_view_set_scroll_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 scroll_x, f32 scroll_y);
+i32 ui_scroll_view_get_scroll_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out_x, f32* out_y);
+i32 ui_scroll_view_set_content_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+
+i32 ui_image_set_texture_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 texture_id);

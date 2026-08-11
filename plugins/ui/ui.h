@@ -760,6 +760,31 @@ typedef struct sk_ui_paint_params_t {
 } sk_ui_paint_params_t;
 
 /* ------------------------------------------------------------------ */
+/*  Widget callbacks / clipboard (v1 widget set)                      */
+/* ------------------------------------------------------------------ */
+
+/** Clipboard get: fill @p buf with UTF-8, set @p out_len, return 0 on success. */
+typedef i32 (*sk_ui_clipboard_get_fn)(void_ptr_t user, char* buf, u32 cap, u32* out_len);
+/** Clipboard set: store UTF-8 @p text, return 0 on success. */
+typedef i32 (*sk_ui_clipboard_set_fn)(void_ptr_t user, const_chr_t text);
+
+/** Widget bool change (checkbox). */
+typedef void (*sk_ui_widget_bool_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 value, void_ptr_t user);
+/** Widget float change (slider). */
+typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value, void_ptr_t user);
+
+/** Default style class names (stable automation surface). */
+#define SK_UI_CLASS_PANEL "ui-panel"
+#define SK_UI_CLASS_VIEW "ui-view"
+#define SK_UI_CLASS_LABEL "ui-label"
+#define SK_UI_CLASS_BUTTON "ui-button"
+#define SK_UI_CLASS_CHECKBOX "ui-checkbox"
+#define SK_UI_CLASS_SLIDER "ui-slider"
+#define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
+#define SK_UI_CLASS_SCROLL_VIEW "ui-scroll-view"
+#define SK_UI_CLASS_IMAGE "ui-image"
+
+/* ------------------------------------------------------------------ */
 /*  GPU renderer (draw list → render_device)                           */
 /* ------------------------------------------------------------------ */
 
@@ -1492,6 +1517,90 @@ typedef struct sk_ui_api_t {
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*renderer_encode)(sk_ui_renderer_t* renderer, const sk_ui_renderer_encode_info_t* info);
+
+	/* ---- v1 widgets (compose tree + default styles + behavior) ---- */
+
+	/**
+	 * Register default style classes for the v1 widget set (panel, view, label,
+	 * button, checkbox, slider, text_input, scroll_view, image) including
+	 * hover/active/focused/disabled variants. Idempotent. Called automatically
+	 * from context_create; safe to call again after unregistering a class.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*widgets_register_defaults)(sk_ui_context_t* ctx);
+
+	/**
+	 * Optional platform clipboard hooks for TextInput cut/copy/paste.
+	 * Pass NULL get/set to clear. @p user is forwarded to both callbacks.
+	 * get: write UTF-8 into @p buf (capacity @p cap), set @p out_len, return 0.
+	 * set: store UTF-8 @p text, return 0 on success.
+	 */
+	void (*set_clipboard_fns)(sk_ui_context_t* ctx, sk_ui_clipboard_get_fn get_fn, sk_ui_clipboard_set_fn set_fn, void_ptr_t user);
+
+	/** Styled container (BOX + class ui-panel). @p id optional stable test id. */
+	sk_ui_node_t (*widget_panel)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/** Lightweight container (BOX + class ui-view). */
+	sk_ui_node_t (*widget_view)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/** Text label with optional wrap/align props (TEXT + class ui-label). */
+	sk_ui_node_t (*widget_label)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Button with hover/active/disabled styles (BUTTON + class ui-button). */
+	sk_ui_node_t (*widget_button)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/** Checkbox; @p checked non-zero starts checked (BOX + class ui-checkbox). */
+	sk_ui_node_t (*widget_checkbox)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
+
+	/** Horizontal slider clamped to [min_v, max_v]. */
+	sk_ui_node_t (*widget_slider)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value, const_chr_t id);
+
+	/** Single-line text field with caret/selection editing. */
+	sk_ui_node_t (*widget_text_input)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
+
+	/** Clipped scroll container with wheel/drag scrolling and painted scrollbars. */
+	sk_ui_node_t (*widget_scroll_view)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/** Image node bound to host texture id (IMAGE + class ui-image). */
+	sk_ui_node_t (*widget_image)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, const_chr_t id);
+
+	/** Set/get label text (prop "text"). */
+	i32 (*label_set_text)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
+	const_chr_t (*label_get_text)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** wrap: 0=off 1=on. text_align/vertical_align: 0=start 1=center 2=end. */
+	i32 (*label_set_wrap)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 wrap);
+	i32 (*label_set_align)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 text_align, i32 vertical_align);
+
+	i32 (*button_set_label)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t label);
+	i32 (*button_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+
+	i32 (*checkbox_set_checked)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
+	i32 (*checkbox_get_checked)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Fires after toggle; @p user stored for the callback. */
+	i32 (*checkbox_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
+	i32 (*slider_set_value)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value);
+	f32 (*slider_get_value)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*slider_set_range)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 min_v, f32 max_v);
+	i32 (*slider_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_float_fn fn, void_ptr_t user);
+
+	i32 (*text_input_set_text)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
+	const_chr_t (*text_input_get_text)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_get_caret)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_set_selection)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 start, i32 end);
+	i32 (*text_input_insert)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t utf8);
+	i32 (*text_input_delete_selection)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_copy)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_cut)(sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*text_input_paste)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/** Content root under a ScrollView — parent children here. */
+	sk_ui_node_t (*scroll_view_content)(const sk_ui_context_t* ctx, sk_ui_node_t scroll_view);
+	i32 (*scroll_view_set_scroll)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 scroll_x, f32 scroll_y);
+	i32 (*scroll_view_get_scroll)(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out_x, f32* out_y);
+	i32 (*scroll_view_set_content_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
+
+	i32 (*image_set_texture)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 texture_id);
 } sk_ui_api_t;
 
 /**
