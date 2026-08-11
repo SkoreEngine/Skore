@@ -3144,12 +3144,13 @@ static bool sk_vkrd_swapchain_recreate(sk_vk_swapchain_t* swapchain, u32 width, 
 		if (device->app_api != NULL && device->context != NULL) {
 			const sk_platform_window_api_t* win_api = (const sk_platform_window_api_t*)device->app_api->get_api(device->context, SK_PLATFORM_WINDOW_API_TYPE_ID);
 			if (win_api != NULL) {
-				sk_extent_t window_size = win_api->get_window_size(swapchain->desc.window);
+				/* Physical framebuffer pixels (HiDPI); not logical client size. */
+				sk_extent_t fb_size = win_api->get_framebuffer_size(swapchain->desc.window);
 				if (chosen_width == 0u) {
-					chosen_width = window_size.width;
+					chosen_width = fb_size.width;
 				}
 				if (chosen_height == 0u) {
-					chosen_height = window_size.height;
+					chosen_height = fb_size.height;
 				}
 			}
 		}

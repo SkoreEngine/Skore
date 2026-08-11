@@ -18,23 +18,32 @@ add_executable(sk-integration-tests
     vulkan_device.c
     vulkan_triangle.c
     test_render_device.c
+    ui_render.c
     render_graph.c
 )
 
 # App host (sk_app_init / registry / filesystem / platform backends) +
 # test registry/Unity (SK_TESTS via sk-test) + render_device.h + dxc_compiler.h
-# + render_graph.h headers (plugin libs are header INTERFACE only).
+# + ui.h + render_graph.h headers (plugin libs are header INTERFACE only).
 target_link_libraries(sk-integration-tests PRIVATE
     sk-app
     sk-test
     sk-render-device-lib
     sk-dxc-compiler-lib
+    sk-ui-lib
     sk-render-graph-lib
 )
 
-# Where the render test writes its PPM artifact (bin/, next to the exe).
+# Fixture font header lives under plugins/ui/testdata/.
+target_include_directories(sk-integration-tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/plugins/ui/testdata"
+)
+
+# Where the render test writes its PPM / PNG artifacts (bin/, next to the exe).
+# Golden source dir is the checked-in testdata (not the build tree).
 target_compile_definitions(sk-integration-tests PRIVATE
     SK_INTEGRATION_ARTIFACT_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+    SK_UI_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/plugins/ui/testdata"
 )
 
 # Place next to plugins/ so app_folder resolution finds the plugin DLLs.
@@ -45,13 +54,14 @@ set_target_properties(sk-integration-tests PROPERTIES
 )
 
 # Ensure the real Vulkan backend + stub render device + DXC compiler + the
-# CPU-mock test render device + render_graph plugin exist (and the vendored
-# DXC runtime is copied beside the plugin) before the run.
+# CPU-mock test render device + UI + render_graph plugins exist (and the
+# vendored DXC runtime is copied beside the plugin) before the run.
 add_dependencies(sk-integration-tests
     sk-vulkan-render-device
     sk-render-device
     sk-test-render-device
     sk-dxc-compiler
+    sk-ui
     sk-render-graph)
 
 # Run from bin/ so the copied DXC runtime (plugins/libdxcompiler.so) is found
