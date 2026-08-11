@@ -338,3 +338,38 @@ i32 ui_scroll_view_get_scroll_impl(const sk_ui_context_t* ctx, sk_ui_node_t node
 i32 ui_scroll_view_set_content_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
 
 i32 ui_image_set_texture_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 texture_id);
+
+/* -------------------------------------------------------------------------- */
+/* Automation / harness (automation.c)                                        */
+/* -------------------------------------------------------------------------- */
+
+sk_ui_node_t ui_query_by_test_id_impl(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t test_id);
+sk_ui_node_t ui_query_by_class_impl(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t class_name);
+sk_ui_node_t ui_query_by_widget_impl(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t widget_type);
+sk_ui_node_t ui_query_by_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t text);
+u32 ui_query_all_by_class_impl(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t class_name, sk_ui_node_t* out, u32 max_out);
+u32 ui_query_all_by_widget_impl(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t widget_type, sk_ui_node_t* out, u32 max_out);
+u32 ui_query_all_by_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t text, sk_ui_node_t* out, u32 max_out);
+
+i32 ui_node_is_visible_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_node_is_enabled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+const_chr_t ui_node_get_visible_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+i32 ui_action_click_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_action_type_text_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
+i32 ui_action_scroll_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 scroll_x, f32 scroll_y);
+i32 ui_action_focus_impl(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+sk_ui_harness_t* ui_harness_create_impl(const sk_ui_harness_desc_t* desc);
+void ui_harness_destroy_impl(sk_ui_harness_t* harness);
+sk_ui_context_t* ui_harness_context_impl(sk_ui_harness_t* harness);
+i32 ui_harness_step_impl(sk_ui_harness_t* harness, f32 delta_seconds);
+f64 ui_harness_time_impl(const sk_ui_harness_t* harness);
+f32 ui_harness_last_delta_impl(const sk_ui_harness_t* harness);
+u32 ui_harness_frame_index_impl(const sk_ui_harness_t* harness);
+i32 ui_harness_set_size_impl(sk_ui_harness_t* harness, f32 width, f32 height);
+i32 ui_harness_set_content_scale_impl(sk_ui_harness_t* harness, f32 scale);
+const u8* ui_harness_pixels_impl(const sk_ui_harness_t* harness);
+void ui_harness_pixel_size_impl(const sk_ui_harness_t* harness, u32* out_w, u32* out_h);
+void ui_harness_set_font_impl(sk_ui_harness_t* harness, sk_ui_font_system_t* system, sk_ui_font_t* font);
+const sk_ui_draw_list_t* ui_harness_draw_list_impl(const sk_ui_harness_t* harness);

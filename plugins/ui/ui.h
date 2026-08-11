@@ -785,6 +785,31 @@ typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f
 #define SK_UI_CLASS_IMAGE "ui-image"
 
 /* ------------------------------------------------------------------ */
+/*  Headless harness (automation / UI tester foundation)              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Opaque headless harness: owns a UI context, a deterministic clock, and
+ * optionally an offscreen RGBA soft-render buffer for golden comparison.
+ * No window, GPU, or wall-clock dependency — tests advance frames with
+ * harness_step(delta).
+ */
+typedef struct sk_ui_harness_t sk_ui_harness_t;
+
+/**
+ * Creation parameters for sk_ui_api_t::harness_create.
+ * width/height are logical root size; content_scale maps to physical pixels
+ * for layout_apply_scale and soft-render buffer size.
+ */
+typedef struct sk_ui_harness_desc_t {
+	const sk_allocator_t* allocator; /**< Optional; NULL = process default. */
+	f32 width;						 /**< Logical width (default 800 when <= 0). */
+	f32 height;						 /**< Logical height (default 600 when <= 0). */
+	f32 content_scale;				 /**< HiDPI scale (default 1 when <= 0). */
+	i32 soft_render;				 /**< Non-zero: allocate RGBA8 offscreen buffer. */
+} sk_ui_harness_desc_t;
+
+/* ------------------------------------------------------------------ */
 /*  GPU renderer (draw list → render_device)                           */
 /* ------------------------------------------------------------------ */
 
@@ -1601,6 +1626,155 @@ typedef struct sk_ui_api_t {
 	i32 (*scroll_view_set_content_size)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
 
 	i32 (*image_set_texture)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 texture_id);
+
+	/* ---- automation / UI tester contract (query, accessors, actions) ---- */
+
+	/**
+	 * Find the first live node under @p scope whose user id (test id) equals
+	 * @p test_id. Pass SK_UI_NODE_INVALID for @p scope to search the whole tree
+	 * (same as find_by_id when ids are unique). Node ids assigned via
+	 * node_set_id / widget factories are the stable test ids.
+	 * @return Handle, or SK_UI_NODE_INVALID if not found / not under scope.
+	 */
+	sk_ui_node_t (*query_by_test_id)(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t test_id);
+
+	/**
+	 * First live node under @p scope that has style class @p class_name
+	 * (preorder). SK_UI_NODE_INVALID scope = whole tree from root.
+	 */
+	sk_ui_node_t (*query_by_class)(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t class_name);
+
+	/**
+	 * First live node under @p scope with prop "widget" equal to @p widget_type
+	 * (e.g. "button", "text_input", "scroll_view").
+	 */
+	sk_ui_node_t (*query_by_widget)(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t widget_type);
+
+	/**
+	 * First live node under @p scope whose visible text (prop "text") equals
+	 * @p text exactly. Labels, buttons, and text inputs expose this prop.
+	 */
+	sk_ui_node_t (*query_by_text)(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t text);
+
+	/**
+	 * Collect up to @p max_out matches under @p scope into @p out (preorder).
+	 * @return Number of matches written (may be < total if truncated).
+	 *         When @p out is NULL or @p max_out is 0, returns the full count.
+	 */
+	u32 (*query_all_by_class)(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t class_name, sk_ui_node_t* out, u32 max_out);
+	u32 (*query_all_by_widget)(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t widget_type, sk_ui_node_t* out, u32 max_out);
+	u32 (*query_all_by_text)(const sk_ui_context_t* ctx, sk_ui_node_t scope, const_chr_t text, sk_ui_node_t* out, u32 max_out);
+
+	/**
+	 * Non-zero if @p node is considered visible to automation: alive, not
+	 * marked hidden (prop "hidden" != 1), computed opacity > 0, and after
+	 * layout has a non-empty absolute border box.
+	 */
+	i32 (*node_is_visible)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Non-zero if @p node is enabled (alive and SK_UI_STATE_DISABLED clear).
+	 */
+	i32 (*node_is_enabled)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Visible text string of @p node (prop "text"), or "" if unset / dead.
+	 * Points at node-owned storage; do not free.
+	 */
+	const_chr_t (*node_get_visible_text)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Programmatic click: synthesizes pointer move + left button down/up at
+	 * the element's absolute center via input_dispatch (same path as hosts).
+	 * Requires a prior layout so hit-test geometry is valid.
+	 * @return 0 on success, non-zero if dead / no layout rect.
+	 */
+	i32 (*action_click)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Focus @p node then inject UTF-8 text via SK_UI_INPUT_TEXT through
+	 * input_dispatch (caret/selection and widget handlers run as for users).
+	 * @return 0 on success, non-zero if focus or dispatch fails.
+	 */
+	i32 (*action_type_text)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
+
+	/**
+	 * Synthesize a wheel event over @p node's center (scroll_x/scroll_y as
+	 * for SK_UI_INPUT_WHEEL). ScrollView and other wheel handlers run normally.
+	 * @return 0 on success, non-zero if dead / no layout rect.
+	 */
+	i32 (*action_scroll)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 scroll_x, f32 scroll_y);
+
+	/**
+	 * Set keyboard focus via focus_set (FOCUS_OUT / FOCUS_IN, state flags).
+	 * Pass SK_UI_NODE_INVALID to clear. Same entry as host tab/click focus.
+	 * @return 0 on success, non-zero if not focusable / disabled / dead.
+	 */
+	i32 (*action_focus)(sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/* ---- headless harness (construct / drive / optional soft-render) ---- */
+
+	/**
+	 * Create a headless UI harness: context + stable clock + optional RGBA
+	 * soft-render buffer for golden comparison. Does not open a window or GPU.
+	 * @param desc Non-NULL; width/height are logical root size (defaults 800x600).
+	 * @return Harness, or NULL on failure.
+	 */
+	sk_ui_harness_t* (*harness_create)(const sk_ui_harness_desc_t* desc);
+
+	/** Destroy harness, context, fonts, and pixel buffer. Safe on NULL. */
+	void (*harness_destroy)(sk_ui_harness_t* harness);
+
+	/** Owned UI context (valid until harness_destroy). */
+	sk_ui_context_t* (*harness_context)(sk_ui_harness_t* harness);
+
+	/**
+	 * Advance one frame with @p delta_seconds (must be >= 0). Updates the
+	 * stable clock (no wall time), then style_resolve → layout →
+	 * layout_apply_scale → paint → optional soft-render. Tests must never
+	 * depend on OS clocks — only this delta.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*harness_step)(sk_ui_harness_t* harness, f32 delta_seconds);
+
+	/** Stable harness time in seconds (sum of deltas from create / reset). */
+	f64 (*harness_time)(const sk_ui_harness_t* harness);
+
+	/** Last delta passed to harness_step (0 before first step). */
+	f32 (*harness_last_delta)(const sk_ui_harness_t* harness);
+
+	/** Frame counter (increments on each successful harness_step). */
+	u32 (*harness_frame_index)(const sk_ui_harness_t* harness);
+
+	/**
+	 * Change logical root size (and soft-render buffer if enabled).
+	 * Marks layout dirty; takes effect on the next harness_step.
+	 * @return 0 on success.
+	 */
+	i32 (*harness_set_size)(sk_ui_harness_t* harness, f32 width, f32 height);
+
+	/** Content scale used by layout_apply_scale / soft-render size. */
+	i32 (*harness_set_content_scale)(sk_ui_harness_t* harness, f32 scale);
+
+	/**
+	 * Soft-render RGBA8 pixels after the last harness_step (NULL if
+	 * soft_render was disabled). Row-major, pitch = width * 4. Physical size
+	 * is logical * content_scale (rounded).
+	 */
+	const u8* (*harness_pixels)(const sk_ui_harness_t* harness);
+
+	/** Soft-render buffer size in pixels (0 if disabled). Either out may be NULL. */
+	void (*harness_pixel_size)(const sk_ui_harness_t* harness, u32* out_w, u32* out_h);
+
+	/**
+	 * Optional paint font params (font_system + default face). When set, text
+	 * glyphs are emitted on harness_step paint. Pass NULL system to clear.
+	 * Ownership remains with the caller (destroyed before harness_destroy).
+	 */
+	void (*harness_set_font)(sk_ui_harness_t* harness, sk_ui_font_system_t* system, sk_ui_font_t* font);
+
+	/** Draw list from the last paint inside harness_step (may be empty). */
+	const sk_ui_draw_list_t* (*harness_draw_list)(const sk_ui_harness_t* harness);
 } sk_ui_api_t;
 
 /**

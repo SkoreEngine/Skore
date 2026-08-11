@@ -339,20 +339,20 @@ Rules:
 - On scale change: rebuild font atlas for used sizes, mark all layout dirty, recreate pipelines only if needed.
 - Prefer the content-scale callback; polling `get_window_content_scale` each frame remains valid.
 
-### 3.8 Automation / testability (future UI tester)
+### 3.8 Automation / testability (UI tester foundation)
 
-v1 ships hooks so a later tester does not need to scrape pixels only:
+Shipped as **APX-137** — see **`docs/ui-automation-api.md`** for the full contract the future Selenium-style tester will consume.
 
 | Surface | Purpose |
 | --- | --- |
-| Stable `node_id` + optional `test_id` string attribute | Query by name (`find_by_test_id`). |
-| `get_layout_rect` / `get_computed_style` / `get_text` | Assert layout and content. |
-| `dump_tree` (debug text or JSON via serialization) | Golden tree snapshots. |
-| Synthetic `queue_event` | Drive clicks/keys without a real window. |
-| Headless context | Init UI with logical size only; layout + hit-test without GPU. Paint tests use `test_render_device` or skip flush. |
-| Deterministic font fixture | Fixed TTF in `tests/` for measure/layout goldens. |
+| `query_by_test_id` / `query_by_class` / `query_by_widget` / `query_by_text` (+ `query_all_*`, scoped) | Find elements without scraping pixels. |
+| `node_get_abs_rect` / `node_get_computed_style` / `node_is_visible` / `node_is_enabled` / `node_get_visible_text` | Assert layout, style, and state. |
+| `action_click` / `action_type_text` / `action_scroll` / `action_focus` | Drive UI via synthesized `input_dispatch` (same path as hosts). |
+| `harness_create` / `harness_step(delta)` / stable clock | Headless construct + deterministic frames (no wall time). |
+| Optional soft-render RGBA + `harness_pixels` | Golden comparison without GPU. |
+| Deterministic font fixture | Embedded TTF under `plugins/ui/testdata/`. |
 
-**Out of v1:** full scripted recorder, accessibility tree export, visual regression harness (can be added on the same hooks).
+**Still out of scope:** full scripted recorder, accessibility tree export, complete tester binary.
 
 ---
 
