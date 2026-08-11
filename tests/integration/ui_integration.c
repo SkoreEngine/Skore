@@ -55,6 +55,15 @@
 #include "ui_capture_harness.h"
 #include "skore_test_font_ttf.h"
 
+/*
+ * Unity (via test.h) may include <stdnoreturn.h>, which defines `noreturn`
+ * as `_Noreturn`. Windows UCRT <stdlib.h> uses `__declspec(noreturn)`, which
+ * breaks under clang-tidy when the macro expands to `_Noreturn` (same fix as
+ * tests/integration/ui_render.c and core/offset_allocator.c).
+ */
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
