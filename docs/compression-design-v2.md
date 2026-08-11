@@ -707,7 +707,43 @@ host integration coverage, per the v2 testing rules:
   archive blob on one side, reload and decompress on the other — proves the
   module works across the plugin/host boundary.
 
-## 13. Open questions
+## 13. Cross-engine compatibility vectors (APX-176)
+
+Before any call-site migration, the v2 codecs must be proven wire-compatible
+with the C++ engine on `main`. `core/compression.c` (SK_TESTS section) checks
+in **frozen frames** for every enabled codec and asserts both directions:
+
+- **decode** — `compression_compat_vectors_decode`: each frozen frame (produced
+  by the reference implementation, not by v2's codec glue) decompresses to its
+  corpus byte-for-byte, with `decompressed_size` / `decompress_bound` agreeing;
+- **encode** — `compression_compat_vectors_encode`: v2 at the default level
+  re-emits the frozen frame byte-for-byte (the checked-in expected-output
+  comparison; identical bytes mean the C++ engine / reference decoder recovers
+  the payload unchanged);
+- **robustness** — `compression_compat_vectors_truncated_and_corrupt`:
+  truncated and bit-flipped frames return `SK_COMPRESSION_ERR_CORRUPT_DATA`
+  with zero bytes written (guarded output buffers prove no out-of-bounds
+  write); zstd's empty-input quirk (`ZSTD_decompress` accepts 0 bytes as an
+  empty frame, matching main) is asserted as the compatible result.
+
+Frame provenance (see `scripts/gen-compression-vectors.c`):
+
+| Codec | Reference producer | Notes |
+|---|---|---|
+| zstd | `ZSTD_compress(dst, cap, src, size, 3)` — main `Compression.cpp` `case ZSTD` | Byte-identical v2 output at the default level (same zstd 1.5.6, level 3). |
+| lz4 | `LZ4_compress_default` + v2 u64-LE size prefix — main's commented-out LZ4 branch | v2 emits the same bytes (LZ4_compress_fast, acceleration 1). |
+| zlib | `mz_compress2(..., 6)` (RFC 1950) + v2 u64-LE size prefix | Same miniz tdefl flags v2 uses; decodable by any RFC 1950 zlib. |
+
+The vectors are a **gate, not a snapshot**: if a codec's output format drifts
+the suite fails loudly, and the frozen bytes must never be edited to match v2
+output — the mismatch is the finding to fix. Empty payloads are covered too:
+v2 emits the reference libraries' canonical empty frames (zstd 9-byte frame,
+LZ4 `0x00` block, zlib `78 9C 03 00 00 00 00 01` stream), while still decoding
+the older prefix-only empty frames for backward compatibility. Regenerate the
+arrays with `./scripts/gen-compression-vectors.sh core/compression.c` (the
+script verifies nothing by itself — re-run the full suite afterwards).
+
+## 14. Open questions
 
 - Resource header metadata: main stored only the codec mode. v2 can also store
   the level once the resource pipeline lands; the API already accepts one.
