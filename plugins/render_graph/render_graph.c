@@ -35,6 +35,7 @@
 #include "render_graph.h"
 
 #include "allocator.h"
+#include "profiler.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -364,9 +365,12 @@ struct sk_render_graph_t {
 	u32 frame_phys_map_cap;
 };
 
-/** App registry from plugin init — used to resolve sk_render_device_api_t. */
+/** App registry from plugin init — used to resolve sk_render_device_api_t
+ *  and the sk-profiler table (sk-app loads plugins in sorted filename order,
+ *  so sk-render-graph registers after sk-profiler). */
 static sk_app_context_t* g_rg_app_context = NULL;
 static const sk_app_api_t* g_rg_app_api = NULL;
+static const sk_profiler_api_t* g_rg_profiler_api = NULL;
 
 /**
  * Optional process-wide heap override for create + frame-memory growth.
@@ -2428,6 +2432,7 @@ static void render_graph_set_current_output_index_impl(sk_render_graph_t* g, u32
 }
 
 static void render_graph_begin_impl(sk_render_graph_t* g, void_ptr_t scene) {
+	SK_PROFILE_CPU_ZONE(g_rg_profiler_api, "rg begin");
 	g->scene = scene;
 	g->frame_generation += 1u;
 	if (g->frame_generation == 0u) {
@@ -2451,6 +2456,7 @@ static void render_graph_end_impl(sk_render_graph_t* g) {
 static i32 render_graph_compile_impl(sk_render_graph_t* g);
 
 static void render_graph_execute_impl(sk_render_graph_t* g, sk_command_buffer_t cmd) {
+	SK_PROFILE_CPU_ZONE(g_rg_profiler_api, "rg execute");
 	const sk_render_device_api_t* rhi;
 	sk_rg_compile_state_t* c;
 	u8* pass_activates_alias;
@@ -3370,6 +3376,7 @@ static void rg_compile_select_alias_resources(sk_render_graph_t* g) {
 }
 
 static i32 render_graph_compile_impl(sk_render_graph_t* g) {
+	SK_PROFILE_CPU_ZONE(g_rg_profiler_api, "rg compile");
 	sk_rg_compile_state_t* c;
 	u32 n;
 	i32 rc;
@@ -3673,6 +3680,7 @@ static const sk_render_graph_api_t render_graph_api = {
 void sk_render_graph_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	g_rg_app_context = context;
 	g_rg_app_api = app_api;
+	g_rg_profiler_api = (const sk_profiler_api_t*)app_api->get_api(context, SK_PROFILER_API_TYPE_ID);
 	app_api->set_api(context, SK_RENDER_GRAPH_API_TYPE_ID, (const_ptr_t)&render_graph_api);
 }
 

@@ -31,6 +31,7 @@
 #include "app.h"
 #include "array.h"
 #include "hashmap.h"
+#include "profiler.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -188,6 +189,27 @@ static void ecs_chunk_free(sk_chunk_t* chunk) {
 
 static sk_component_info_t ecs_component_registry[SK_ECS_MAX_COMPONENT_TYPES];
 static u32 ecs_component_count = 0u;
+
+/* Instrumentation: the sk-profiler table is resolved at plugin entry and
+ * re-checked at world_create (sk-app loads plugins in sorted filename order,
+ * so sk-entities registers before sk-profiler; worlds are only created by
+ * hosts after bootstrap, by which point the profiler is registered). The hot
+ * getter is a plain cached load so uninstrumented builds (and hosts without
+ * sk-profiler, e.g. the ECS benchmark) pay nothing per call; all zone macros
+ * are NULL-safe no-ops when the profiler is absent. */
+static sk_app_context_t* g_ecs_app_context = NULL;
+static const sk_app_api_t* g_ecs_app_api = NULL;
+static const sk_profiler_api_t* g_ecs_profiler_api = NULL;
+
+static inline const sk_profiler_api_t* ecs_profiler_api(void) {
+	return g_ecs_profiler_api;
+}
+
+static void ecs_resolve_profiler(void) {
+	if (g_ecs_profiler_api == NULL && g_ecs_app_api != NULL) {
+		g_ecs_profiler_api = (const sk_profiler_api_t*)g_ecs_app_api->get_api(g_ecs_app_context, SK_PROFILER_API_TYPE_ID);
+	}
+}
 
 static i32 register_component_impl(sk_type_id_t type_id, u32 size, u32 align, const_chr_t name) {
 	if (SK_TYPE_ID_EQ(type_id, SK_TYPE_ID_ZERO) || size == 0u || align == 0u) {
@@ -1003,6 +1025,7 @@ static i32 world_move_entity(sk_world_t* world, sk_entity_t entity, sk_entity_sl
 }
 
 static sk_world_t* world_create_impl(void) {
+	ecs_resolve_profiler();
 	const sk_allocator_t* alloc = sk_allocator_default();
 	sk_world_t* world = (sk_world_t*)alloc->alloc(alloc->instance, sizeof(sk_world_t));
 	if (world == NULL) {
@@ -1037,6 +1060,7 @@ static void world_destroy_impl(sk_world_t* world) {
 }
 
 static sk_entity_t world_spawn_impl(sk_world_t* world, const sk_type_id_t* component_ids, u32 component_count) {
+	SK_PROFILE_CPU_ZONE(ecs_profiler_api(), "ecs spawn");
 	if (component_count > 0u && component_ids == NULL) {
 		return SK_ENTITY_INVALID;
 	}
@@ -1080,6 +1104,7 @@ static sk_entity_t world_spawn_impl(sk_world_t* world, const sk_type_id_t* compo
 }
 
 static i32 world_despawn_impl(sk_world_t* world, sk_entity_t entity) {
+	SK_PROFILE_CPU_ZONE(ecs_profiler_api(), "ecs despawn");
 	sk_entity_slot_t* slot = world_slot_at(world, entity);
 	if (slot == NULL) {
 		return -1;
@@ -1479,6 +1504,7 @@ static sk_system_t* scheduler_order_at_impl(const sk_scheduler_t* scheduler, u32
 }
 
 static i32 scheduler_run_impl(sk_scheduler_t* scheduler, sk_world_t* world, f32 delta_time) {
+	SK_PROFILE_CPU_ZONE(ecs_profiler_api(), "ecs scheduler run");
 	if (!scheduler->built) {
 		const i32 rc = scheduler_rebuild(scheduler);
 		if (rc != 0) {
@@ -1838,6 +1864,11 @@ static const sk_entities_api_t entities_api = {
 void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api);
 
 void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
+	g_ecs_app_context = context;
+	g_ecs_app_api = app_api;
+	/* Best-effort: the profiler may not be registered yet (sk-entities sorts
+	 * before sk-profiler); ecs_profiler_api() re-checks at world_create. */
+	g_ecs_profiler_api = (const sk_profiler_api_t*)app_api->get_api(context, SK_PROFILER_API_TYPE_ID);
 	app_api->set_api(context, SK_ENTITIES_API_TYPE_ID, &entities_api);
 }
 

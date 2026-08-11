@@ -19,6 +19,7 @@ target_link_libraries(sk-tests PRIVATE
     sk-vulkan-render-device-lib
     sk-dxc-compiler-lib
     sk-render-graph-lib
+    sk-profiler-lib
     sk-ui-lib
 )
 
@@ -72,7 +73,7 @@ set_target_properties(sk-tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 
-add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph sk-ui)
+add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph sk-profiler sk-ui)
 
 # Run from the runtime output dir ({build}/bin) so plugin shared libraries and
 # the copied DXC runtime (plugins/libdxcompiler.so) are found relative to cwd.

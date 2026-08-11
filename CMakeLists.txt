@@ -9,6 +9,17 @@ add_compile_definitions(SK_ENGINE_VERSION="${SK_ENGINE_VERSION}")
 string(TIMESTAMP TODAY "%Y%m%d")
 add_compile_definitions(SK_VERSION="${SK_ENGINE_VERSION}-${TODAY}")
 
+# ---------------------------------------------------------------------------
+# Profiler: compile-time switch for the instrumentation macros (plugins/profiler).
+# OFF (default): every SK_PROFILE_* macro reduces to a no-op and no call site
+# references the profiler plugin. ON: macros call the sk_profiler_api_t table
+# and sk-profiler must be present in the plugins folder at runtime.
+# ---------------------------------------------------------------------------
+option(SK_ENABLE_PROFILER "Compile-time enable profiler instrumentation macros" OFF)
+if(SK_ENABLE_PROFILER)
+    add_compile_definitions(SK_PROFILER_ENABLED)
+endif()
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
