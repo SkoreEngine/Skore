@@ -350,6 +350,14 @@ sk_ui_node_t ui_sample_menu_build_impl(sk_ui_context_t* ctx, sk_ui_node_t parent
 #include "test.h"
 #include "testdata/skore_test_font_ttf.h"
 
+/*
+ * Unity (via test.h) may include <stdnoreturn.h>, which defines `noreturn`
+ * as `_Noreturn`. Windows UCRT <stdlib.h> uses `__declspec(noreturn)`, which
+ * breaks under clang-tidy when the macro expands to `_Noreturn`.
+ */
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 
