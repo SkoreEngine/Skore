@@ -11,6 +11,7 @@ sk_add_plugin(ui SOURCES ${SKORE_UI_SOURCES})
 target_link_libraries(sk-ui PRIVATE
     freetype
     stb_rect_pack
+    clay
     stb_image_write
     stb_image
     sk-render-device-lib

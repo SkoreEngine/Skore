@@ -6,7 +6,8 @@
  * (same handle spirit as ECS entities). Hierarchy uses parent handles and
  * ordered child id arrays. User ids map through a string hash map. Dirty
  * bits (layout / paint / style) OR onto ancestors so clean parents skip
- * whole subtrees in later passes. Flexbox layout lives in layout.c.
+ * whole subtrees in later passes. Layout is Clay-backed (clay_adapter.c); the
+ * public layout style/query API lives here.
  */
 
 #include "ui.h"
@@ -44,7 +45,7 @@ static i32 ui_cstr_eq(const_chr_t a, const_chr_t b) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Slot access (shared with layout.c)                                         */
+/* Slot access (shared across the plugin)                                     */
 /* -------------------------------------------------------------------------- */
 
 ui_node_slot_t* ui_slot_mut(sk_ui_context_t* ctx, sk_ui_node_t node) {
@@ -81,6 +82,132 @@ void ui_mark_dirty_up(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags) {
 		slot->dirty = (u16)(slot->dirty | (u16)flags);
 		node = slot->parent;
 	}
+}
+
+/* -------------------------------------------------------------------------- */
+/* Layout style / query API (public surface; Clay-backed solver)              */
+/* -------------------------------------------------------------------------- */
+
+void ui_layout_style_init_default(sk_ui_layout_style_t* style) {
+	memset(style, 0, sizeof(*style));
+	style->flex_direction = SK_UI_FLEX_COLUMN;
+	style->flex_wrap = SK_UI_FLEX_NOWRAP;
+	style->justify_content = SK_UI_JUSTIFY_FLEX_START;
+	style->align_items = SK_UI_ALIGN_STRETCH;
+	style->align_self = SK_UI_ALIGN_AUTO;
+	style->align_content = SK_UI_ALIGN_FLEX_START;
+	style->flex_grow = 0.0f;
+	style->flex_shrink = 1.0f;
+	style->flex_basis = sk_ui_auto();
+	style->width = sk_ui_auto();
+	style->height = sk_ui_auto();
+	style->min_width = sk_ui_pt(0.0f);
+	style->min_height = sk_ui_pt(0.0f);
+	style->max_width = sk_ui_auto();
+	style->max_height = sk_ui_auto();
+	style->position = SK_UI_POSITION_RELATIVE;
+	style->left = sk_ui_auto();
+	style->top = sk_ui_auto();
+	style->right = sk_ui_auto();
+	style->bottom = sk_ui_auto();
+}
+
+i32 ui_node_set_layout_style_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const sk_ui_layout_style_t* style) {
+	ui_node_slot_t* slot = ui_slot_mut(ctx, node);
+	if (slot == NULL) {
+		return -1;
+	}
+	slot->layout_style = *style;
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_LAYOUT);
+	return 0;
+}
+
+i32 ui_node_get_layout_style_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_layout_style_t* out) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	if (slot == NULL) {
+		return -1;
+	}
+	if (out != NULL) {
+		*out = slot->layout_style;
+	}
+	return 0;
+}
+
+i32 ui_node_get_layout_rect_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	if (slot == NULL) {
+		return -1;
+	}
+	if (out_border != NULL) {
+		*out_border = slot->layout_border;
+	}
+	if (out_content != NULL) {
+		*out_content = slot->layout_content;
+	}
+	return 0;
+}
+
+i32 ui_node_get_layout_rect_scaled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	if (slot == NULL) {
+		return -1;
+	}
+	if (out_border != NULL) {
+		*out_border = slot->layout_border_scaled;
+	}
+	if (out_content != NULL) {
+		*out_content = slot->layout_content_scaled;
+	}
+	return 0;
+}
+
+void ui_set_measure_fn_impl(sk_ui_context_t* ctx, sk_ui_measure_fn fn, void_ptr_t user) {
+	ctx->measure_fn = fn;
+	ctx->measure_user = user;
+}
+
+void ui_layout_get_content_scale_impl(const sk_ui_context_t* ctx, f32* out_scale_x, f32* out_scale_y) {
+	if (out_scale_x != NULL) {
+		*out_scale_x = ctx->content_scale_x;
+	}
+	if (out_scale_y != NULL) {
+		*out_scale_y = ctx->content_scale_y;
+	}
+}
+
+i32 ui_layout_apply_scale_impl(sk_ui_context_t* ctx, f32 scale_x, f32 scale_y) {
+	u32 i;
+	u32 old_x_bits;
+	u32 old_y_bits;
+	u32 new_x_bits;
+	u32 new_y_bits;
+	i32 scale_changed;
+	memcpy(&old_x_bits, &ctx->content_scale_x, sizeof(old_x_bits));
+	memcpy(&old_y_bits, &ctx->content_scale_y, sizeof(old_y_bits));
+	memcpy(&new_x_bits, &scale_x, sizeof(new_x_bits));
+	memcpy(&new_y_bits, &scale_y, sizeof(new_y_bits));
+	scale_changed = (old_x_bits != new_x_bits) || (old_y_bits != new_y_bits) ? 1 : 0;
+	ctx->content_scale_x = scale_x;
+	ctx->content_scale_y = scale_y;
+	for (i = 1u; i < ctx->slots.count; ++i) {
+		ui_node_slot_t* slot = &ctx->slots.items[i];
+		if (slot->alive == 0u) {
+			continue;
+		}
+		slot->layout_border_scaled.x = slot->layout_border.x * scale_x;
+		slot->layout_border_scaled.y = slot->layout_border.y * scale_y;
+		slot->layout_border_scaled.width = slot->layout_border.width * scale_x;
+		slot->layout_border_scaled.height = slot->layout_border.height * scale_y;
+		slot->layout_content_scaled.x = slot->layout_content.x * scale_x;
+		slot->layout_content_scaled.y = slot->layout_content.y * scale_y;
+		slot->layout_content_scaled.width = slot->layout_content.width * scale_x;
+		slot->layout_content_scaled.height = slot->layout_content.height * scale_y;
+	}
+	/* Geometry in the draw list is physical; scale changes force a repaint. */
+	if (scale_changed != 0 && sk_ui_node_is_valid(ctx->root)) {
+		ui_mark_dirty_up(ctx, ctx->root, (u32)SK_UI_DIRTY_PAINT);
+	}
+	return 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -409,6 +536,7 @@ static void ui_context_destroy(sk_ui_context_t* ctx) {
 	sk_hash_map_free(&ctx->id_map);
 	ui_style_registry_shutdown(ctx);
 	ui_draw_list_store_shutdown(&ctx->draw);
+	ui_clay_context_shutdown(ctx);
 	a->free(a->instance, ctx);
 }
 
@@ -1278,7 +1406,7 @@ static const sk_ui_api_t ui_api = {
 	ui_node_get_layout_rect_impl,
 	ui_node_get_layout_rect_scaled_impl,
 	ui_set_measure_fn_impl,
-	ui_layout_impl,
+	ui_clay_layout_impl,
 	ui_layout_apply_scale_impl,
 	ui_layout_get_content_scale_impl,
 	ui_style_class_register_impl,
@@ -1346,6 +1474,31 @@ static const sk_ui_api_t ui_api = {
 	ui_widget_text_input_impl,
 	ui_widget_scroll_view_impl,
 	ui_widget_image_impl,
+	ui_widget_menu_bar_impl,
+	ui_widget_menu_impl,
+	ui_widget_menu_item_impl,
+	ui_widget_menu_popup_impl,
+	ui_widget_dropdown_impl,
+	ui_widget_context_menu_impl,
+	ui_widget_submenu_impl,
+	ui_menu_set_open_impl,
+	ui_menu_get_open_impl,
+	ui_menu_get_popup_impl,
+	ui_widget_dock_space_impl,
+	ui_widget_dock_node_impl,
+	ui_widget_splitter_impl,
+	ui_widget_tab_bar_impl,
+	ui_widget_tab_impl,
+	ui_widget_editor_window_impl,
+	ui_editor_window_title_bar_impl,
+	ui_editor_window_content_impl,
+	ui_editor_window_set_title_impl,
+	ui_tab_set_active_impl,
+	ui_tab_get_active_impl,
+	ui_tab_bar_set_active_impl,
+	ui_splitter_set_ratio_impl,
+	ui_splitter_get_ratio_impl,
+	ui_splitter_set_on_change_impl,
 	ui_label_set_text_impl,
 	ui_label_get_text_impl,
 	ui_label_set_wrap_impl,

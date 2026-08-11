@@ -280,10 +280,11 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
 		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_rect_pack"
+		"--extra-arg=-I${ROOT}/thirdparty/clay"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_image_write"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_image"
-		# Mirrors player/CMakeLists.txt (sk_player target) so player/main.c
-		# resolves the embedded font fixture header.
+		# Plugin fixture data headers (e.g. skore_test_font_ttf.h), mirroring
+		# player/CMakeLists.txt / tests/integration/CMakeLists.txt.
 		"--extra-arg=-I${ROOT}/plugins/ui/testdata"
 		# Compression codec (sk-core links zstd PRIVATE; headers live under
 		# thirdparty/zstd/src and core/compression.c gates the include on

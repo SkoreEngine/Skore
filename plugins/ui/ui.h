@@ -783,6 +783,23 @@ typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f
 #define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
 #define SK_UI_CLASS_SCROLL_VIEW "ui-scroll-view"
 #define SK_UI_CLASS_IMAGE "ui-image"
+/** Menu surfaces (APX-234): bar, items, floating popups / dropdowns / context. */
+#define SK_UI_CLASS_MENU_BAR "ui-menu-bar"
+#define SK_UI_CLASS_MENU "ui-menu"
+#define SK_UI_CLASS_MENU_ITEM "ui-menu-item"
+#define SK_UI_CLASS_MENU_POPUP "ui-menu-popup"
+#define SK_UI_CLASS_DROPDOWN "ui-dropdown"
+#define SK_UI_CLASS_CONTEXT_MENU "ui-context-menu"
+#define SK_UI_CLASS_SUBMENU "ui-submenu"
+/** Docking / editor window surfaces (APX-235): nodes, splitters, tabs, chrome. */
+#define SK_UI_CLASS_DOCK_SPACE "ui-dock-space"
+#define SK_UI_CLASS_DOCK_NODE "ui-dock-node"
+#define SK_UI_CLASS_SPLITTER "ui-splitter"
+#define SK_UI_CLASS_TAB_BAR "ui-tab-bar"
+#define SK_UI_CLASS_TAB "ui-tab"
+#define SK_UI_CLASS_EDITOR_WINDOW "ui-editor-window"
+#define SK_UI_CLASS_WINDOW_TITLE_BAR "ui-window-title-bar"
+#define SK_UI_CLASS_WINDOW_CONTENT "ui-window-content"
 
 /* ------------------------------------------------------------------ */
 /*  Headless harness (automation / UI tester foundation)              */
@@ -1863,9 +1880,10 @@ typedef struct sk_ui_api_t {
 
 	/**
 	 * Register default style classes for the v1 widget set (panel, view, label,
-	 * button, checkbox, slider, text_input, scroll_view, image) including
-	 * hover/active/focused/disabled variants. Idempotent. Called automatically
-	 * from context_create; safe to call again after unregistering a class.
+	 * button, checkbox, slider, text_input, scroll_view, image, menu surfaces,
+	 * docking / editor window chrome) including hover/active/focused/disabled
+	 * variants. Idempotent. Called automatically from context_create; safe to
+	 * call again after unregistering a class.
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*widgets_register_defaults)(sk_ui_context_t* ctx);
@@ -1904,6 +1922,122 @@ typedef struct sk_ui_api_t {
 
 	/** Image node bound to host texture id (IMAGE + class ui-image). */
 	sk_ui_node_t (*widget_image)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, const_chr_t id);
+
+	/**
+	 * Horizontal menu bar container (row flex, widget=menu_bar). Hosts menu /
+	 * menu_item children. Stable Clay id for hover across frames.
+	 */
+	sk_ui_node_t (*widget_menu_bar)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Top-level menu root: labeled trigger + child menu_popup (closed until
+	 * menu_set_open). Click toggles open. widget=menu.
+	 */
+	sk_ui_node_t (*widget_menu)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Selectable menu row (widget=menu_item). Optional nested menu_popup for
+	 * submenus (use widget_submenu or attach a popup and set open on hover).
+	 */
+	sk_ui_node_t (*widget_menu_item)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Floating overlay popup (widget=menu_popup, absolute + Clay floating).
+	 * open prop (0/1) survives frames; closed popups are omitted from Clay.
+	 * @p attach 0 = below parent, 1 = to the right (submenu).
+	 */
+	sk_ui_node_t (*widget_menu_popup)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 attach, const_chr_t id);
+
+	/**
+	 * Dropdown: labeled trigger + menu_popup child (widget=dropdown). Same open
+	 * model as widget_menu.
+	 */
+	sk_ui_node_t (*widget_dropdown)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Context menu overlay attached to the tree root via Clay floating
+	 * (widget=context_menu). Position with layout left/top (viewport).
+	 */
+	sk_ui_node_t (*widget_context_menu)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Submenu item with nested menu_popup attached to the right (widget=submenu).
+	 * Pointer enter opens; leave closes when pointer exits the item+popup chain.
+	 */
+	sk_ui_node_t (*widget_submenu)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Open/close a menu, dropdown, submenu, menu_popup, or context_menu.
+	 * open != 0 shows the floating popup; state is a retained prop (survives
+	 * frames). Returns 0 on success.
+	 */
+	i32 (*menu_set_open)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open);
+	/** Non-zero if the menu/popup open prop is set. */
+	i32 (*menu_get_open)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/**
+	 * First child with widget=menu_popup under @p node (menu, dropdown, submenu).
+	 * SK_UI_NODE_INVALID if none.
+	 */
+	sk_ui_node_t (*menu_get_popup)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+	/**
+	 * Root docking host (widget=dock_space). Clips nested dock nodes; hosts
+	 * dock_node / splitter trees. Stable Clay id for pointer during drags.
+	 */
+	sk_ui_node_t (*widget_dock_space)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Dock region (widget=dock_node). Nested container with clip_children.
+	 * @p orientation 0 = row children (horizontal split), 1 = column.
+	 */
+	sk_ui_node_t (*widget_dock_node)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 orientation, const_chr_t id);
+
+	/**
+	 * Resize handle between dock regions (widget=splitter). Stable Clay id so
+	 * pointer capture / drag state resolves across frames.
+	 * @p axis 0 = vertical bar (resize width), 1 = horizontal bar (resize height).
+	 * Prop "ratio" (0..1) updated while dragging; optional float on_change.
+	 */
+	sk_ui_node_t (*widget_splitter)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 axis, const_chr_t id);
+
+	/**
+	 * Horizontal tab strip (widget=tab_bar). Hosts tab children; stable Clay id.
+	 */
+	sk_ui_node_t (*widget_tab_bar)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+
+	/**
+	 * Selectable tab (widget=tab). Prop "active" (0/1); click activates and
+	 * clears active on sibling tabs under the same tab_bar.
+	 */
+	sk_ui_node_t (*widget_tab)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+
+	/**
+	 * Editor window chrome (widget=editor_window): column with window_title_bar
+	 * (drag target) and window_content (clipped body). Nested containers route
+	 * through Clay with stable ids for title drag and content scroll/clip.
+	 */
+	sk_ui_node_t (*widget_editor_window)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id);
+
+	/** Title bar child under an editor_window (widget=window_title_bar). */
+	sk_ui_node_t (*editor_window_title_bar)(const sk_ui_context_t* ctx, sk_ui_node_t window);
+	/** Content body child under an editor_window (widget=window_content). */
+	sk_ui_node_t (*editor_window_content)(const sk_ui_context_t* ctx, sk_ui_node_t window);
+	/** Set title bar text (prop "text" on the title bar). */
+	i32 (*editor_window_set_title)(sk_ui_context_t* ctx, sk_ui_node_t window, const_chr_t title);
+
+	/** Set/get tab active prop (0/1). */
+	i32 (*tab_set_active)(sk_ui_context_t* ctx, sk_ui_node_t tab, i32 active);
+	i32 (*tab_get_active)(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+	/**
+	 * Activate @p tab under @p tab_bar and clear active on sibling tabs.
+	 * Pass SK_UI_NODE_INVALID for tab_bar to use the tab's parent.
+	 */
+	i32 (*tab_bar_set_active)(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, sk_ui_node_t tab);
+
+	/** Splitter ratio (0..1); clamped. Fires on_change when set programmatically too. */
+	i32 (*splitter_set_ratio)(sk_ui_context_t* ctx, sk_ui_node_t splitter, f32 ratio);
+	f32 (*splitter_get_ratio)(const sk_ui_context_t* ctx, sk_ui_node_t splitter);
+	i32 (*splitter_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t splitter, sk_ui_widget_float_fn fn, void_ptr_t user);
 
 	/** Set/get label text (prop "text"). */
 	i32 (*label_set_text)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);

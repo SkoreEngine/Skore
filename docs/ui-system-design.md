@@ -229,7 +229,7 @@ v1 deliberately **does not** reimplement docking, multi-viewport, ImGuizmo, or t
 
 ### 3.2 Flexbox layout (v1 subset)
 
-Yoga/Flexbox-inspired custom pure-C solver in `plugins/ui/layout.c` (not Yoga — keeps the plugin C-only and integrates `sk_allocator` + measure callbacks without a C++ dep). **Not** a full CSS engine.
+Backed by the **vendored Clay engine** (`thirdparty/clay`, v0.14) through the adapter in `plugins/ui/clay_adapter.c` — keeps the plugin C-only and integrates the engine allocator + font metrics without a C++ dependency. The earlier custom pure-C solver (`plugins/ui/layout.c`) was deleted once the Clay adapter covered the whole tree (APX-216). **Not** a full CSS engine.
 
 **In v1 (APX-130):**
 

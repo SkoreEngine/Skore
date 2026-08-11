@@ -214,7 +214,7 @@ Layout runs in **logical units** (window client points). HiDPI is a separate ste
 | `position` | `RELATIVE` (in-flow) or `ABSOLUTE` (out of flex flow) |
 | `left` / `top` / `right` / `bottom` | absolute offsets vs nearest positioned ancestor |
 
-**Not in v1 layout:** CSS Grid, baseline alignment, aspect-ratio, z-index stacking contexts, percentage padding quirks beyond parent content box, Yoga as a dependency (solver is pure C in `layout.c`).
+**Not in v1 layout:** CSS Grid, baseline alignment, aspect-ratio, z-index stacking contexts, percentage padding quirks beyond parent content box, Yoga as a dependency (layout is backed by the vendored Clay engine in `thirdparty/clay`, see `clay_adapter.c`).
 
 ### 4.2 Lengths and defaults
 

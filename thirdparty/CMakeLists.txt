@@ -49,6 +49,9 @@ add_subdirectory(dxc)
 add_subdirectory(freetype)
 add_subdirectory(stb_rect_pack)
 
+# Clay v0.14 (immediate-mode layout, single header) for ui (APX-213).
+add_subdirectory(clay)
+
 # stb_image_write — PNG (and other) writers for UI capture / test artifacts.
 add_subdirectory(stb_image_write)
 # stb_image — PNG reader for capture write round-trip verification (and future loads).

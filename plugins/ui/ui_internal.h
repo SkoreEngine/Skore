@@ -2,7 +2,7 @@
 
 /**
  * @file ui_internal.h
- * @brief Private UI plugin state shared by ui.c and layout.c.
+ * @brief Private UI plugin state shared by the ui plugin translation units.
  *
  * Not part of the public sk-ui surface. Do not include from hosts or other plugins.
  */
@@ -117,6 +117,9 @@ typedef struct ui_draw_list_store_t {
 	i32 valid; /**< Non-zero after at least one successful paint rebuild. */
 } ui_draw_list_store_t;
 
+/** Opaque Clay adapter frame state (clay_adapter.c). NULL until first layout. */
+typedef struct ui_clay_frame_t ui_clay_frame_t;
+
 struct sk_ui_context_t {
 	const sk_allocator_t* allocator;
 	ui_slot_array_t slots; /* index 0 unused; live handles use index >= 1 */
@@ -126,6 +129,11 @@ struct sk_ui_context_t {
 	ui_style_registry_t style_registry;
 	sk_ui_node_t root;
 	u32 live_count;
+
+	/* Clay adapter (clay_adapter.c): per-context frame state. */
+	ui_clay_frame_t* clay_frame;
+	f32 scroll_delta_x; /**< Wheel input accumulated since last layout (Clay scroll update). */
+	f32 scroll_delta_y;
 
 	sk_ui_measure_fn measure_fn;
 	void_ptr_t measure_user;
@@ -166,7 +174,7 @@ const ui_node_slot_t* ui_slot(const sk_ui_context_t* ctx, sk_ui_node_t node);
 void ui_mark_dirty_up(sk_ui_context_t* ctx, sk_ui_node_t node, u32 flags);
 
 /* -------------------------------------------------------------------------- */
-/* Layout API implementations (layout.c)                                      */
+/* Layout style / query API (ui.c; Clay-backed solver in clay_adapter.c)       */
 /* -------------------------------------------------------------------------- */
 
 void ui_layout_style_init_default(sk_ui_layout_style_t* style);
@@ -177,7 +185,6 @@ i32 ui_node_get_layout_rect_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, 
 i32 ui_node_get_layout_rect_scaled_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_rect_t* out_border, sk_ui_rect_t* out_content);
 
 void ui_set_measure_fn_impl(sk_ui_context_t* ctx, sk_ui_measure_fn fn, void_ptr_t user);
-i32 ui_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height);
 i32 ui_layout_apply_scale_impl(sk_ui_context_t* ctx, f32 scale_x, f32 scale_y);
 void ui_layout_get_content_scale_impl(const sk_ui_context_t* ctx, f32* out_scale_x, f32* out_scale_y);
 
@@ -346,6 +353,33 @@ sk_ui_node_t ui_widget_text_input_impl(sk_ui_context_t* ctx, sk_ui_node_t parent
 sk_ui_node_t ui_widget_scroll_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 sk_ui_node_t ui_widget_image_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, const_chr_t id);
 
+sk_ui_node_t ui_widget_menu_bar_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_menu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+sk_ui_node_t ui_widget_menu_item_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+sk_ui_node_t ui_widget_menu_popup_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 attach, const_chr_t id);
+sk_ui_node_t ui_widget_dropdown_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+sk_ui_node_t ui_widget_context_menu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_submenu_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+i32 ui_menu_set_open_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 open);
+i32 ui_menu_get_open_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+sk_ui_node_t ui_menu_get_popup_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+
+sk_ui_node_t ui_widget_dock_space_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_dock_node_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 orientation, const_chr_t id);
+sk_ui_node_t ui_widget_splitter_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 axis, const_chr_t id);
+sk_ui_node_t ui_widget_tab_bar_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
+sk_ui_node_t ui_widget_tab_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
+sk_ui_node_t ui_widget_editor_window_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t title, const_chr_t id);
+sk_ui_node_t ui_editor_window_title_bar_impl(const sk_ui_context_t* ctx, sk_ui_node_t window);
+sk_ui_node_t ui_editor_window_content_impl(const sk_ui_context_t* ctx, sk_ui_node_t window);
+i32 ui_editor_window_set_title_impl(sk_ui_context_t* ctx, sk_ui_node_t window, const_chr_t title);
+i32 ui_tab_set_active_impl(sk_ui_context_t* ctx, sk_ui_node_t tab, i32 active);
+i32 ui_tab_get_active_impl(const sk_ui_context_t* ctx, sk_ui_node_t tab);
+i32 ui_tab_bar_set_active_impl(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, sk_ui_node_t tab);
+i32 ui_splitter_set_ratio_impl(sk_ui_context_t* ctx, sk_ui_node_t splitter, f32 ratio);
+f32 ui_splitter_get_ratio_impl(const sk_ui_context_t* ctx, sk_ui_node_t splitter);
+i32 ui_splitter_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t splitter, sk_ui_widget_float_fn fn, void_ptr_t user);
+
 i32 ui_label_set_text_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
 const_chr_t ui_label_get_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_label_set_wrap_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 wrap);
@@ -379,6 +413,63 @@ i32 ui_scroll_view_get_scroll_impl(const sk_ui_context_t* ctx, sk_ui_node_t node
 i32 ui_scroll_view_set_content_size_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 width, f32 height);
 
 i32 ui_image_set_texture_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 texture_id);
+
+/* -------------------------------------------------------------------------- */
+/* Clay immediate-mode layout bridge (clay.c)                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Initialize the Clay context (vendored thirdparty/clay). The arena is
+ * allocated through @p allocator (NULL = process default); @p viewport_width /
+ * @p viewport_height are the current layout dimensions. @p font_system /
+ * @p font (both optional, must be NULL or non-NULL together) back
+ * Clay_SetMeasureTextFunction with engine font metrics.
+ * @return 0 on success, non-zero on failure or if already initialized.
+ */
+i32 ui_clay_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewport_height, sk_ui_font_system_t* font_system, sk_ui_font_t* font);
+
+/**
+ * Free the Clay arena and logger. Safe on uninitialized state.
+ */
+void ui_clay_shutdown(void);
+
+/**
+ * Idempotent init used by the Clay adapter (clay_adapter.c): initializes Clay
+ * on first call and otherwise keeps the arena; viewport dimensions and the
+ * font binding are refreshed from the arguments on every call. Fonts are
+ * optional (NULL = keep the current binding, or fallback estimation when no
+ * font was ever bound).
+ * @return 0 on success, non-zero on failure.
+ */
+i32 ui_clay_ensure_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewport_height, sk_ui_font_system_t* font_system, sk_ui_font_t* font);
+
+/**
+ * Rebind the fonts used by the Clay measure callback (NULL/NULL clears).
+ * Does not re-initialize Clay; affects the next layout pass.
+ */
+void ui_clay_set_font(sk_ui_font_system_t* font_system, sk_ui_font_t* font);
+
+/**
+ * Whether Clay has been initialized (used by the adapter to skip redundant
+ * init work and by tests to assert lifecycle ordering).
+ */
+i32 ui_clay_is_initialized(void);
+
+/* -------------------------------------------------------------------------- */
+/* Clay-backed adapter (clay_adapter.c)                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Clay-backed layout() implementation (replaces the deleted custom solver in
+ * the API table): maps the whole retained tree onto Clay's immediate-mode
+ * lifecycle in one pass and writes the resulting boxes back into the slot
+ * layout rects so hit-testing, scale application, paint, and queries keep
+ * working unchanged.
+ */
+i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height);
+
+/** Free per-context Clay adapter state (called from context destroy). */
+void ui_clay_context_shutdown(sk_ui_context_t* ctx);
 
 /* -------------------------------------------------------------------------- */
 /* Automation / harness (automation.c)                                        */
