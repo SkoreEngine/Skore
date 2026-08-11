@@ -21,6 +21,7 @@ add_executable(sk-integration-tests
     test_render_device.c
     render_graph.c
     resource_object_fixtures.c
+    resource_object_buffer.c
 )
 
 # App host (sk_app_init / registry / filesystem / platform backends) +
