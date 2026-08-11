@@ -30,3 +30,8 @@ add_subdirectory(dxc)
 # FreeType (font rasterization) + stb_rect_pack (glyph atlas packing) for ui.
 add_subdirectory(freetype)
 add_subdirectory(stb_rect_pack)
+
+# stb_image_write — PNG (and other) writers for UI capture / test artifacts.
+add_subdirectory(stb_image_write)
+# stb_image — PNG reader for capture write round-trip verification (and future loads).
+add_subdirectory(stb_image)

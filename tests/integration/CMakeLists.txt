@@ -46,11 +46,15 @@ target_include_directories(sk-integration-tests PRIVATE
 )
 
 # Where the render test writes its PPM / PNG artifacts (bin/, next to the exe).
+# SK_TEST_ARTIFACT_DIR is the single shared root for all test image/PNG
+# artifacts (env-var overridable at runtime; never under the source tree).
 # SK_TEST_DATA_DIR points at the source-tree tests/data so fixture path
 # resolution works when the binary runs from {build}/bin (CTest cwd).
 # Golden source dir is the checked-in testdata (not the build tree).
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test-artifacts")
 target_compile_definitions(sk-integration-tests PRIVATE
     SK_INTEGRATION_ARTIFACT_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+    SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts"
     SK_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data"
     SK_UI_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/plugins/ui/testdata"
 )

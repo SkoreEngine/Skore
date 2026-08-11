@@ -291,6 +291,14 @@ void ui_capture_destroy_impl(sk_ui_capture_t* capture);
 i32 ui_capture_frame_impl(sk_ui_capture_t* capture, const sk_ui_capture_frame_info_t* info, sk_ui_cpu_image_t* out_image);
 
 /* -------------------------------------------------------------------------- */
+/* CPU image PNG write (image_write.c)                                        */
+/* -------------------------------------------------------------------------- */
+
+i32 ui_cpu_image_write_png_impl(const sk_ui_cpu_image_t* image, const sk_filesystem_api_t* fs, const_chr_t path);
+i32 ui_test_artifact_root_impl(const sk_filesystem_api_t* fs, char* out, u32 out_cap);
+i32 ui_test_artifact_png_path_impl(const sk_filesystem_api_t* fs, const_chr_t name, char* out, u32 out_cap);
+
+/* -------------------------------------------------------------------------- */
 /* Widgets (widgets.c)                                                        */
 /* -------------------------------------------------------------------------- */
 

@@ -451,6 +451,14 @@ SK_TEST(ui_capture_offscreen_readback) {
 	ui_cap_assert_pixel(&img, 0u, 0u, UI_CAP_PX_RED);
 	ui_cap_assert_pixel(&img, UI_CAP_W - 1u, UI_CAP_H - 1u, UI_CAP_PX_RED);
 
+	/* PNG artifact under the single test-artifact root (APX-227). */
+	{
+		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		char png_path[SK_FS_PATH_MAX];
+		TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path(fs, "ui_capture_offscreen_readback", png_path, (u32)sizeof(png_path)));
+		TEST_ASSERT_EQUAL_INT_MESSAGE(0, ui->cpu_image_write_png(&img, fs, png_path), "failed to write capture PNG artifact");
+	}
+
 	/* Clean teardown: repeated create/destroy cycles in one process. */
 	ui->capture_destroy(capture);
 	capture = NULL;

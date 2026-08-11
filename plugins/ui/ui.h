@@ -1633,6 +1633,43 @@ typedef struct sk_ui_api_t {
 	 */
 	i32 (*capture_frame)(sk_ui_capture_t* capture, const sk_ui_capture_frame_info_t* info, sk_ui_cpu_image_t* out_image);
 
+	/* ---- CPU image PNG write (stb_image_write) + test artifact paths ---- */
+
+	/**
+	 * Write a tightly packed @p image (typically from capture_frame) as a PNG
+	 * at the caller-specified @p path. Creates parent directories as needed
+	 * via @p fs (pass sk_filesystem_api() from hosts/tests that link sk-app).
+	 * On failure, logs a clear error through the process logger and returns
+	 * non-zero. @p image->channels must be 1..4 (UI captures use 4 = RGBA8).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*cpu_image_write_png)(const sk_ui_cpu_image_t* image, const sk_filesystem_api_t* fs, const_chr_t path);
+
+	/**
+	 * Resolve the single shared root directory for all test artifacts.
+	 * Never returns a path under the source tree by default.
+	 *
+	 * Resolution order:
+	 *   1. SK_TEST_ARTIFACT_DIR environment variable (if non-empty)
+	 *   2. Compile-time SK_TEST_ARTIFACT_DIR (build/test-artifacts)
+	 *   3. {fs->temp_folder}/skore-test-artifacts
+	 *
+	 * @p fs is required only for the temp fallback (step 3); may be NULL when
+	 * an env or compile-time root is available.
+	 * @return 0 on success (null-terminated path in @p out), non-zero on failure.
+	 */
+	i32 (*test_artifact_root)(const sk_filesystem_api_t* fs, char* out, u32 out_cap);
+
+	/**
+	 * Build a deterministic PNG path under the test-artifact root:
+	 *   {root}/{sanitized_name}.png
+	 * @p name is a test or scene name; path separators and unsafe characters
+	 * are replaced so the result is a single file component under the root.
+	 * Does not create directories (cpu_image_write_png does).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*test_artifact_png_path)(const sk_filesystem_api_t* fs, const_chr_t name, char* out, u32 out_cap);
+
 	/* ---- v1 widgets (compose tree + default styles + behavior) ---- */
 
 	/**
