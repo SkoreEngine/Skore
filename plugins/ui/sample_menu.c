@@ -948,3 +948,35 @@ SK_TEST(ui_sample_menu_layout_scale_independent_and_runtime_scale) {
 }
 
 #endif /* SK_TESTS */
+
+#ifdef SK_TESTS
+SK_TEST(zz_probe_menu_rects) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	(void)ui->sample_menu_build(ctx, SK_UI_NODE_INVALID);
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 320.0f, 240.0f));
+	{
+		const char* ids[] = {"menu-screen",	 "menu-card",	"menu-title",	"menu-header",	   "menu-logo",	   "menu-fields", "menu-name",	   "menu-vol-row",
+							 "menu-vol-lbl", "menu-volume", "menu-options", "menu-fullscreen", "menu-fs-lbl",  "menu-vsync",  "menu-vs-lbl",   "menu-changelog",
+							 "menu-log-0",	 "menu-log-1",	"menu-log-2",	"menu-log-3",	   "menu-actions", "menu-play",	  "menu-settings", "menu-quit"};
+		u32 i;
+		for (i = 0; i < sizeof(ids) / sizeof(ids[0]); ++i) {
+			sk_ui_node_t n = ui->find_by_id(ctx, ids[i]);
+			sk_ui_rect_t b, c;
+			if (!sk_ui_node_is_valid(n)) {
+				printf("MISSING %s\n", ids[i]);
+				continue;
+			}
+			if (ui->node_get_layout_rect(ctx, n, &b, &c) != 0) {
+				printf("NORECT %s\n", ids[i]);
+				continue;
+			}
+			fprintf(stderr, "%-16s border=(%6.2f,%6.2f %6.2fx%6.2f) content=(%6.2f,%6.2f %6.2fx%6.2f)\n", ids[i], (double)b.x, (double)b.y, (double)b.width, (double)b.height,
+					(double)c.x, (double)c.y, (double)c.width, (double)c.height);
+		}
+	}
+	ui->context_destroy(ctx);
+}
+#endif
