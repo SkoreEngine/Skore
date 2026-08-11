@@ -19,6 +19,7 @@ target_link_libraries(sk-tests PRIVATE
     sk-vulkan-render-device-lib
     sk-dxc-compiler-lib
     sk-render-graph-lib
+    sk-ui-lib
 )
 
 # Export only the stacktrace test helpers so dladdr can resolve their names in
@@ -71,7 +72,7 @@ set_target_properties(sk-tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 
-add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph)
+add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vulkan-render-device sk-dxc-compiler sk-render-graph sk-ui)
 
 # Run from the runtime output dir ({build}/bin) so plugin shared libraries and
 # the copied DXC runtime (plugins/libdxcompiler.so) are found relative to cwd.
@@ -95,6 +96,27 @@ elseif(APPLE)
     target_link_options(sk-crash-trigger PRIVATE "LINKER:-export_dynamic")
 endif()
 add_dependencies(sk-tests sk-crash-trigger)
+
+# Vendored msdf-atlas-gen smoke check (APX-224): generates an MTSDF atlas from
+# the sample font (plugins/ui/testdata/skore_test_font.ttf) with the vendored
+# msdf-atlas-gen + msdfgen libraries and asserts the atlas bitmap and glyph
+# layout artifacts are produced. Raw bitmap + text layout are written to
+# {build}/bin next to the binary.
+add_executable(sk-msdf-atlas-smoke msdf_atlas_smoke.cpp)
+target_link_libraries(sk-msdf-atlas-smoke PRIVATE
+    msdf-atlas-gen
+    freetype
+)
+target_compile_definitions(sk-msdf-atlas-smoke PRIVATE
+    SK_MSDF_SMOKE_FONT_PATH="${CMAKE_SOURCE_DIR}/plugins/ui/testdata/skore_test_font.ttf"
+    SK_MSDF_SMOKE_ARTIFACT_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+)
+set_target_properties(sk-msdf-atlas-smoke PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+add_test(NAME sk-msdf-atlas-smoke COMMAND sk-msdf-atlas-smoke WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 
 # Integration tests: device/resource lifecycle against the real Vulkan backend.
 add_subdirectory(integration)

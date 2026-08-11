@@ -337,10 +337,10 @@ static i32 write_field_value(sk_repository_t* repository, sk_resource_object_t v
 	}
 
 	case SK_RESOURCE_FIELD_TYPE_BUFFER: {
-		u64 id = api->get_buffer(view, field->index);
-		writer->begin_map_named(writer->instance, name);
-		writer->write_uint(writer->instance, sk_str_view_cstr("id"), id);
-		writer->end_map(writer->instance);
+		/* v2 Buffer owns a payload (sk_field_buffer_t), same wire form as Blob. */
+		u32 size = 0u;
+		const u8* data = api->get_buffer(view, field->index, &size);
+		writer->write_blob(writer->instance, name, data, (u64)size);
 		return SK_RES_SER_OK;
 	}
 
@@ -653,13 +653,38 @@ static i32 apply_field_value(sk_res_ser_resolve_ctx_t* ctx, sk_resource_object_t
 	}
 
 	case SK_RESOURCE_FIELD_TYPE_BUFFER: {
-		if (!reader->begin_map_named(reader->instance, name)) {
+		/* Accept byte-array form (v2 payload). Legacy {"id": u64} maps are
+		 * ignored as empty so older fixtures do not hard-fail the load. */
+		if (reader->begin_seq_named(reader->instance, name)) {
+			const sk_allocator_t* a = sk_allocator_default();
+			SK_ARRAY(u8) bytes;
+			sk_array_init(&bytes, a);
+			while (reader->next_seq_entry(reader->instance)) {
+				u64 v = reader->get_uint(reader->instance);
+				if (v > 255u) {
+					sk_array_free(&bytes);
+					reader->end_seq(reader->instance);
+					return SK_RES_SER_INVALID;
+				}
+				if (sk_array_push(&bytes, (u8)v) != 0) {
+					sk_array_free(&bytes);
+					reader->end_seq(reader->instance);
+					return SK_RES_SER_ERR;
+				}
+			}
+			reader->end_seq(reader->instance);
+			i32 rc = api->set_buffer(view, field->index, bytes.items, bytes.count);
+			sk_array_free(&bytes);
+			if (rc != 0) {
+				return SK_RES_SER_FIELD;
+			}
 			return SK_RES_SER_OK;
 		}
-		u64 id = reader->read_uint(reader->instance, sk_str_view_cstr("id"));
-		reader->end_map(reader->instance);
-		if (api->set_buffer(view, field->index, id) != 0) {
-			return SK_RES_SER_FIELD;
+		if (reader->begin_map_named(reader->instance, name)) {
+			/* Legacy opaque-id object: consume and leave field unset/empty. */
+			(void)reader->read_uint(reader->instance, sk_str_view_cstr("id"));
+			reader->end_map(reader->instance);
+			return SK_RES_SER_OK;
 		}
 		return SK_RES_SER_OK;
 	}
@@ -1616,7 +1641,8 @@ SK_TEST(resource_serialize_resource_imported_asset_roundtrip) {
 	TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_CONTENT_HASH, "abc"));
 	TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_COOKER_VERSION, 3u));
 	TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_SIZE, 8192u));
-	TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_DATA, 99u));
+	const u8 orig_data[] = {99u};
+	TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_DATA, orig_data, 1u));
 	sk_type_id_t tid = SK_TEXTURE_RESOURCE_TYPE_ID;
 	TEST_ASSERT_EQUAL_INT(0, api->set_type_id(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_IMPORTER_ID, tid));
 	/* Lists left empty; ImportSettings null — still durable on single-doc. */
@@ -1636,7 +1662,13 @@ SK_TEST(resource_serialize_resource_imported_asset_roundtrip) {
 	TEST_ASSERT_EQUAL_STRING("abc", api->get_string(r, SK_RESOURCE_IMPORTED_ASSET_FIELD_CONTENT_HASH));
 	TEST_ASSERT_EQUAL_UINT64(3u, api->get_uint(r, SK_RESOURCE_IMPORTED_ASSET_FIELD_COOKER_VERSION));
 	TEST_ASSERT_EQUAL_UINT64(8192u, api->get_uint(r, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_SIZE));
-	TEST_ASSERT_EQUAL_UINT64(99u, api->get_buffer(r, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_DATA));
+	{
+		u32 size = 0u;
+		const u8* data = api->get_buffer(r, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_DATA, &size);
+		TEST_ASSERT_EQUAL_UINT32(1u, size);
+		TEST_ASSERT_NOT_NULL(data);
+		TEST_ASSERT_EQUAL_UINT8(99u, data[0]);
+	}
 	sk_type_id_t got = api->get_type_id(r, SK_RESOURCE_IMPORTED_ASSET_FIELD_IMPORTER_ID);
 	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(got, tid));
 	TEST_ASSERT_EQUAL_UINT64(0u, api->get_subobject(r, SK_RESOURCE_IMPORTED_ASSET_FIELD_IMPORT_SETTINGS).id);
@@ -1684,7 +1716,8 @@ SK_TEST(resource_serialize_dependency_entry_roundtrip) {
 	sk_rid_t rid = ser_create(repo, "ResourceDependencyEntry", ser_uuid(0xb0u, 0xc0u));
 	sk_resource_object_t w = api->write(repo, rid);
 	TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_REL_PATH, "deps/a.png"));
-	TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_DATA, 42u));
+	const u8 dep_data[] = {42u};
+	TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_DATA, dep_data, 1u));
 	TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_SIZE, 1024u));
 	api->commit(w, NULL);
 
@@ -1695,7 +1728,13 @@ SK_TEST(resource_serialize_dependency_entry_roundtrip) {
 	TEST_ASSERT_EQUAL_INT(0, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(json), a, &loaded));
 	sk_resource_object_t r = api->read(repo, loaded);
 	TEST_ASSERT_EQUAL_STRING("deps/a.png", api->get_string(r, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_REL_PATH));
-	TEST_ASSERT_EQUAL_UINT64(42u, api->get_buffer(r, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_DATA));
+	{
+		u32 size = 0u;
+		const u8* data = api->get_buffer(r, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_DATA, &size);
+		TEST_ASSERT_EQUAL_UINT32(1u, size);
+		TEST_ASSERT_NOT_NULL(data);
+		TEST_ASSERT_EQUAL_UINT8(42u, data[0]);
+	}
 	TEST_ASSERT_EQUAL_UINT64(1024u, api->get_uint(r, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_SIZE));
 	a->free(a->instance, json);
 	api->destroy(repo);
@@ -2629,7 +2668,7 @@ SK_TEST(resource_serialize_imported_asset_all_fields_and_lists) {
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_CONTENT_HASH, ""));
 		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_COOKER_VERSION, 0u));
 		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_IMPORT_SETTINGS, settings));
-		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_DATA, 0u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_DATA, NULL, 0u));
 		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_ORIGINAL_SIZE, 0u));
 		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_SUB_RESOURCES, &sub, 1u));
 		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_IMPORTED_ASSET_FIELD_DEPENDENCIES, &dep, 1u));
@@ -3195,9 +3234,11 @@ static void ser_fill_all_fields(sk_repository_t* repo, sk_rid_t rid, sk_rid_t pe
 			TEST_ASSERT_EQUAL_INT(0, api->set_blob(w, field->index, bytes, 3u));
 			break;
 		}
-		case SK_RESOURCE_FIELD_TYPE_BUFFER:
-			TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, field->index, 55u));
+		case SK_RESOURCE_FIELD_TYPE_BUFFER: {
+			const u8 bytes[] = {55u, 54u, 53u};
+			TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, field->index, bytes, 3u));
 			break;
+		}
 		case SK_RESOURCE_FIELD_TYPE_TYPE_ID: {
 			sk_type_id_t tid = SK_TEXTURE_RESOURCE_TYPE_ID;
 			TEST_ASSERT_EQUAL_INT(0, api->set_type_id(w, field->index, tid));
@@ -3280,7 +3321,7 @@ static void ser_assert_schema_keys(sk_repository_t* repo, sk_rid_t rid, const ch
 /**
  * For every APX-186 asset type: fill all settable fields, serialize, assert
  * contract schema keys, deserialize (package when refs present), re-serialize
- * identity. Buffer is opaque id-only; Type/NONE is omitted.
+ * identity. Buffer is a byte-array payload (v2); Type/NONE is omitted.
  */
 SK_TEST(resource_serialize_every_asset_type_all_fields_schema) {
 	static const_chr_t types[] = {
@@ -3337,8 +3378,14 @@ SK_TEST(resource_serialize_every_asset_type_all_fields_schema) {
 			ser_assert_double_serialize_identity(repo, rid, a);
 		}
 
-		if (strcmp(types[i], "ResourceDependencyEntry") == 0 || strcmp(types[i], "ResourceImportedAsset") == 0) {
-			TEST_ASSERT_NOT_NULL(strstr(json, "\"id\""));
+		if (strcmp(types[i], "ResourceDependencyEntry") == 0) {
+			/* Buffer fields serialize as byte arrays (v2 payload), not {"id":…}. */
+			TEST_ASSERT_NOT_NULL(strstr(json, "\"Data\""));
+			TEST_ASSERT_NOT_NULL(strstr(json, "55"));
+		}
+		if (strcmp(types[i], "ResourceImportedAsset") == 0) {
+			TEST_ASSERT_NOT_NULL(strstr(json, "\"OriginalData\""));
+			TEST_ASSERT_NOT_NULL(strstr(json, "55"));
 		}
 		if (strcmp(types[i], "AudioResource") == 0) {
 			TEST_ASSERT_NOT_NULL(strstr(json, "\"Bytes\""));
@@ -3432,9 +3479,19 @@ static void ser_assert_fields_equal(sk_repository_t* repo_a, sk_rid_t rid_a, sk_
 			}
 			break;
 		}
-		case SK_RESOURCE_FIELD_TYPE_BUFFER:
-			TEST_ASSERT_EQUAL_UINT64(api->get_buffer(va, field->index), api->get_buffer(vb, field->index));
+		case SK_RESOURCE_FIELD_TYPE_BUFFER: {
+			u32 sa = 0u;
+			u32 sb = 0u;
+			const u8* ba = api->get_buffer(va, field->index, &sa);
+			const u8* bb = api->get_buffer(vb, field->index, &sb);
+			TEST_ASSERT_EQUAL_UINT32(sa, sb);
+			if (sa > 0u) {
+				TEST_ASSERT_NOT_NULL(ba);
+				TEST_ASSERT_NOT_NULL(bb);
+				TEST_ASSERT_EQUAL_UINT8_ARRAY(ba, bb, sa);
+			}
 			break;
+		}
 		case SK_RESOURCE_FIELD_TYPE_TYPE_ID: {
 			sk_type_id_t ta = api->get_type_id(va, field->index);
 			sk_type_id_t tb = api->get_type_id(vb, field->index);
@@ -3773,8 +3830,8 @@ SK_TEST(resource_serialize_package_all_container_fields) {
 }
 
 /**
- * Explicit report: ResourceAsset.Type (NONE) is never written; Buffer is opaque
- * id only (no byte array improvisation).
+ * Explicit report: ResourceAsset.Type (NONE) is never written; Buffer payload
+ * is emitted as a byte array (same wire form as Blob on v2).
  */
 SK_TEST(resource_serialize_reports_unrepresentable_and_opaque_fields) {
 	const sk_repository_api_t* api = sk_repository_api();
@@ -3800,15 +3857,20 @@ SK_TEST(resource_serialize_reports_unrepresentable_and_opaque_fields) {
 	{
 		sk_resource_object_t w = api->write(repo, dep);
 		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_REL_PATH, "x.bin"));
-		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_DATA, 1234u));
+		const u8 payload[] = {1u, 2u, 3u, 4u};
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_DATA, payload, 4u));
 		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RESOURCE_DEPENDENCY_ENTRY_FIELD_SIZE, 16u));
 		api->commit(w, NULL);
 	}
 	char* dep_json = NULL;
 	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_json_alloc(repo, dep, a, &dep_json, NULL));
 	TEST_ASSERT_NOT_NULL(strstr(dep_json, "\"Data\""));
-	TEST_ASSERT_NOT_NULL(strstr(dep_json, "\"id\""));
-	TEST_ASSERT_NOT_NULL(strstr(dep_json, "1234"));
+	/* Payload bytes appear as a JSON array (pretty or compact), not legacy {"id":…}. */
+	TEST_ASSERT_NULL(strstr(dep_json, "\"id\""));
+	TEST_ASSERT_NOT_NULL(strstr(dep_json, "1"));
+	TEST_ASSERT_NOT_NULL(strstr(dep_json, "2"));
+	TEST_ASSERT_NOT_NULL(strstr(dep_json, "3"));
+	TEST_ASSERT_NOT_NULL(strstr(dep_json, "4"));
 	a->free(a->instance, dep_json);
 	api->destroy(repo);
 }

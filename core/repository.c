@@ -214,6 +214,14 @@ static void sk_repo_field_destroy(const sk_repository_t* repository, const sk_re
 		}
 		break;
 	}
+	case SK_RESOURCE_FIELD_TYPE_BUFFER: {
+		sk_field_buffer_t* b = (sk_field_buffer_t*)(void_ptr_t)p;
+		if (b->data != NULL) {
+			repository->allocator->free(repository->allocator->instance, b->data);
+			b->data = NULL;
+		}
+		break;
+	}
 	case SK_RESOURCE_FIELD_TYPE_REFERENCE_ARRAY: {
 		sk_field_rid_array_t* a = (sk_field_rid_array_t*)(void_ptr_t)p;
 		if (a->items != NULL) {
@@ -255,7 +263,6 @@ static void sk_repo_field_destroy(const sk_repository_t* repository, const sk_re
 	case SK_RESOURCE_FIELD_TYPE_ENUM:
 	case SK_RESOURCE_FIELD_TYPE_REFERENCE:
 	case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT:
-	case SK_RESOURCE_FIELD_TYPE_BUFFER:
 	case SK_RESOURCE_FIELD_TYPE_TYPE_ID:
 	case SK_RESOURCE_FIELD_TYPE_MAX:
 		break;
@@ -299,6 +306,18 @@ static i32 sk_repo_copy_blob_fields(const sk_repository_t* repository, const sk_
 		case SK_RESOURCE_FIELD_TYPE_BLOB: {
 			const sk_field_blob_t* src = (const sk_field_blob_t*)(const_ptr_t)(source + (size_t)field->offset);
 			sk_field_blob_t* out = (sk_field_blob_t*)(void_ptr_t)dst;
+			if (src->size != 0u && src->data != NULL) {
+				out->data = (u8*)(void_ptr_t)sk_repo_copy_bytes(repository, src->data, (size_t)src->size);
+				if (out->data == NULL) {
+					goto fail;
+				}
+				out->size = src->size;
+			}
+			break;
+		}
+		case SK_RESOURCE_FIELD_TYPE_BUFFER: {
+			const sk_field_buffer_t* src = (const sk_field_buffer_t*)(const_ptr_t)(source + (size_t)field->offset);
+			sk_field_buffer_t* out = (sk_field_buffer_t*)(void_ptr_t)dst;
 			if (src->size != 0u && src->data != NULL) {
 				out->data = (u8*)(void_ptr_t)sk_repo_copy_bytes(repository, src->data, (size_t)src->size);
 				if (out->data == NULL) {
@@ -360,7 +379,6 @@ static i32 sk_repo_copy_blob_fields(const sk_repository_t* repository, const sk_
 		case SK_RESOURCE_FIELD_TYPE_ENUM:
 		case SK_RESOURCE_FIELD_TYPE_REFERENCE:
 		case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT:
-		case SK_RESOURCE_FIELD_TYPE_BUFFER:
 		case SK_RESOURCE_FIELD_TYPE_TYPE_ID:
 		case SK_RESOURCE_FIELD_TYPE_MAX:
 			memcpy(dst, source + (size_t)field->offset, (size_t)field->size);
@@ -1796,6 +1814,24 @@ static u8* sk_repo_build_instance(sk_clone_context_t* ctx, const sk_resource_typ
 			sk_repo_instance_set_value_bit(type, (void_ptr_t)dst, i, 1);
 			break;
 		}
+		case SK_RESOURCE_FIELD_TYPE_BUFFER: {
+			if (is_prototype) {
+				break; /* buffer payloads inherit lazily through the prototype chain */
+			}
+			const sk_field_buffer_t* src = (const sk_field_buffer_t*)(const_ptr_t)(sbase + (size_t)field->offset);
+			sk_field_buffer_t* out = (sk_field_buffer_t*)(void_ptr_t)(dbase + (size_t)field->offset);
+			if (src->size != 0u && src->data != NULL) {
+				out->data = (u8*)(void_ptr_t)sk_repo_copy_bytes(ctx->repo, src->data, (size_t)src->size);
+				if (out->data == NULL) {
+					ctx->failed = 1;
+					sk_repo_instance_destroy(ctx->repo, type, dst);
+					return NULL;
+				}
+				out->size = src->size;
+			}
+			sk_repo_instance_set_value_bit(type, (void_ptr_t)dst, i, 1);
+			break;
+		}
 		/* POD field types are deep-copied for clones, inherited for prototypes. */
 		case SK_RESOURCE_FIELD_TYPE_NONE:
 		case SK_RESOURCE_FIELD_TYPE_BOOL:
@@ -1809,7 +1845,6 @@ static u8* sk_repo_build_instance(sk_clone_context_t* ctx, const sk_resource_typ
 		case SK_RESOURCE_FIELD_TYPE_MAT4:
 		case SK_RESOURCE_FIELD_TYPE_COLOR:
 		case SK_RESOURCE_FIELD_TYPE_ENUM:
-		case SK_RESOURCE_FIELD_TYPE_BUFFER:
 		case SK_RESOURCE_FIELD_TYPE_TYPE_ID:
 		case SK_RESOURCE_FIELD_TYPE_MAX:
 			if (!is_prototype) {
@@ -2082,6 +2117,118 @@ static i32 repository_set_float(sk_resource_object_t view, u32 index, f64 value)
 	return 0;
 }
 
+static i32 repository_set_vec2(sk_resource_object_t view, u32 index, sk_vec2_t value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_VEC2) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_vec3(sk_resource_object_t view, u32 index, sk_vec3_t value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_VEC3) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_vec4(sk_resource_object_t view, u32 index, sk_vec4_t value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_VEC4) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_quat(sk_resource_object_t view, u32 index, sk_quat_t value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_QUAT) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_mat4(sk_resource_object_t view, u32 index, sk_mat44_t value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_MAT4) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_color(sk_resource_object_t view, u32 index, sk_color_t value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_COLOR) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_enum(sk_resource_object_t view, u32 index, u64 value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_ENUM) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
 static i32 repository_set_string(sk_resource_object_t view, u32 index, const_chr_t value) {
 	const sk_resource_field_t* field = NULL;
 	i32 pos = sk_repo_setup_write_set(view, index, &field);
@@ -2104,6 +2251,81 @@ static i32 repository_set_string(sk_resource_object_t view, u32 index, const_chr
 		view.repo->allocator->free(view.repo->allocator->instance, s->chars);
 	}
 	s->chars = copy;
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_blob(sk_resource_object_t view, u32 index, const void* data, u32 size) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_BLOB) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_blob_t* b = (sk_field_blob_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	u8* copy = NULL;
+	if (size != 0u) {
+		copy = sk_repo_copy_bytes(view.repo, data, (size_t)size);
+		if (copy == NULL) {
+			return -3;
+		}
+	}
+	if (b->data != NULL) {
+		view.repo->allocator->free(view.repo->allocator->instance, b->data);
+	}
+	b->data = copy;
+	b->size = size;
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_buffer(sk_resource_object_t view, u32 index, const void* data, u32 size) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_BUFFER) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	sk_field_buffer_t* b = (sk_field_buffer_t*)(void_ptr_t)(blob + (size_t)field->offset);
+	/* Deep copy: the repository owns the payload, the caller keeps @p data
+	 * (see the ownership contract on sk_field_buffer_t). A NULL / size-0
+	 * input sets an EMPTY buffer (has-value bit set; shadows a prototype). */
+	u8* copy = NULL;
+	if (size != 0u) {
+		copy = sk_repo_copy_bytes(view.repo, data, (size_t)size);
+		if (copy == NULL) {
+			return -3;
+		}
+	}
+	if (b->data != NULL) {
+		view.repo->allocator->free(view.repo->allocator->instance, b->data);
+	}
+	b->data = copy;
+	b->size = size;
+	sk_resource_storage_t* storage = sk_repo_view_storage(view);
+	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
+	return 0;
+}
+
+static i32 repository_set_type_id(sk_resource_object_t view, u32 index, sk_type_id_t value) {
+	const sk_resource_field_t* field = NULL;
+	i32 pos = sk_repo_setup_write_set(view, index, &field);
+	if (pos < 0) {
+		return -1;
+	}
+	if (field->type != SK_RESOURCE_FIELD_TYPE_TYPE_ID) {
+		return -2;
+	}
+	u8* blob = (u8*)view.instance;
+	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
 	sk_resource_storage_t* storage = sk_repo_view_storage(view);
 	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
 	return 0;
@@ -2423,6 +2645,84 @@ static f64 repository_get_float(sk_resource_object_t view, u32 index) {
 	return value;
 }
 
+static sk_vec2_t repository_get_vec2(sk_resource_object_t view, u32 index) {
+	sk_vec2_t value = {0.0f, 0.0f};
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_VEC2) {
+		return value;
+	}
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static sk_vec3_t repository_get_vec3(sk_resource_object_t view, u32 index) {
+	sk_vec3_t value = {0.0f, 0.0f, 0.0f};
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_VEC3) {
+		return value;
+	}
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static sk_vec4_t repository_get_vec4(sk_resource_object_t view, u32 index) {
+	sk_vec4_t value = {0.0f, 0.0f, 0.0f, 0.0f};
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_VEC4) {
+		return value;
+	}
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static sk_quat_t repository_get_quat(sk_resource_object_t view, u32 index) {
+	sk_quat_t value = {0.0f, 0.0f, 0.0f, 0.0f};
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_QUAT) {
+		return value;
+	}
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static sk_mat44_t repository_get_mat4(sk_resource_object_t view, u32 index) {
+	sk_mat44_t value;
+	memset(&value, 0, sizeof(value));
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_MAT4) {
+		return value;
+	}
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static sk_color_t repository_get_color(sk_resource_object_t view, u32 index) {
+	sk_color_t value = {0.0f, 0.0f, 0.0f, 0.0f};
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_COLOR) {
+		return value;
+	}
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
+static u64 repository_get_enum(sk_resource_object_t view, u32 index) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_ENUM) {
+		return 0u;
+	}
+	u64 value = 0u;
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
+}
+
 static const_chr_t repository_get_string(sk_resource_object_t view, u32 index) {
 	const sk_resource_field_t* field = NULL;
 	const u8* blob = sk_repo_get_field_blob(view, index, &field);
@@ -2431,6 +2731,49 @@ static const_chr_t repository_get_string(sk_resource_object_t view, u32 index) {
 	}
 	const sk_field_string_t* s = (const sk_field_string_t*)(const_ptr_t)(blob + (size_t)field->offset);
 	return s->chars;
+}
+
+static const u8* repository_get_blob(sk_resource_object_t view, u32 index, u32* out_size) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (out_size != NULL) {
+		*out_size = 0u;
+	}
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_BLOB) {
+		return NULL;
+	}
+	const sk_field_blob_t* b = (const sk_field_blob_t*)(const_ptr_t)(blob + (size_t)field->offset);
+	if (out_size != NULL) {
+		*out_size = b->size;
+	}
+	return b->data;
+}
+
+static const u8* repository_get_buffer(sk_resource_object_t view, u32 index, u32* out_size) {
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (out_size != NULL) {
+		*out_size = 0u;
+	}
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_BUFFER) {
+		return NULL;
+	}
+	const sk_field_buffer_t* b = (const sk_field_buffer_t*)(const_ptr_t)(blob + (size_t)field->offset);
+	if (out_size != NULL) {
+		*out_size = b->size;
+	}
+	return b->data;
+}
+
+static sk_type_id_t repository_get_type_id(sk_resource_object_t view, u32 index) {
+	sk_type_id_t value = SK_TYPE_ID_ZERO;
+	const sk_resource_field_t* field = NULL;
+	const u8* blob = sk_repo_get_field_blob(view, index, &field);
+	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_TYPE_ID) {
+		return value;
+	}
+	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
+	return value;
 }
 
 static sk_rid_t repository_get_reference(sk_resource_object_t view, u32 index) {
@@ -2741,117 +3084,6 @@ static const sk_resource_field_t* repository_type_field_at(const sk_resource_typ
 	return &type->fields[position];
 }
 
-static i32 repository_set_blob(sk_resource_object_t view, u32 index, const u8* data, u32 size) {
-	const sk_resource_field_t* field = NULL;
-	i32 pos = sk_repo_setup_write_set(view, index, &field);
-	if (pos < 0) {
-		return -1;
-	}
-	if (field->type != SK_RESOURCE_FIELD_TYPE_BLOB) {
-		return -2;
-	}
-	u8* blob = (u8*)view.instance;
-	sk_field_blob_t* b = (sk_field_blob_t*)(void_ptr_t)(blob + (size_t)field->offset);
-	u8* copy = NULL;
-	if (size != 0u) {
-		if (data == NULL) {
-			return -1;
-		}
-		copy = (u8*)(void_ptr_t)sk_repo_copy_bytes(view.repo, data, (size_t)size);
-		if (copy == NULL) {
-			return -3;
-		}
-	}
-	if (b->data != NULL) {
-		view.repo->allocator->free(view.repo->allocator->instance, b->data);
-	}
-	b->data = copy;
-	b->size = size;
-	sk_resource_storage_t* storage = sk_repo_view_storage(view);
-	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
-	return 0;
-}
-
-static const u8* repository_get_blob(sk_resource_object_t view, u32 index, u32* out_size) {
-	const sk_resource_field_t* field = NULL;
-	const u8* blob = sk_repo_get_field_blob(view, index, &field);
-	if (out_size != NULL) {
-		*out_size = 0u;
-	}
-	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_BLOB) {
-		return NULL;
-	}
-	const sk_field_blob_t* b = (const sk_field_blob_t*)(const_ptr_t)(blob + (size_t)field->offset);
-	if (out_size != NULL) {
-		*out_size = b->size;
-	}
-	return b->data;
-}
-
-static i32 repository_set_type_id(sk_resource_object_t view, u32 index, sk_type_id_t value) {
-	const sk_resource_field_t* field = NULL;
-	i32 pos = sk_repo_setup_write_set(view, index, &field);
-	if (pos < 0) {
-		return -1;
-	}
-	if (field->type != SK_RESOURCE_FIELD_TYPE_TYPE_ID) {
-		return -2;
-	}
-	u8* blob = (u8*)view.instance;
-	memcpy(blob + (size_t)field->offset, &value, sizeof(value));
-	sk_resource_storage_t* storage = sk_repo_view_storage(view);
-	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
-	return 0;
-}
-
-static sk_type_id_t repository_get_type_id(sk_resource_object_t view, u32 index) {
-	const sk_resource_field_t* field = NULL;
-	const u8* blob = sk_repo_get_field_blob(view, index, &field);
-	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_TYPE_ID) {
-		return SK_TYPE_ID_ZERO;
-	}
-	sk_type_id_t value = SK_TYPE_ID_ZERO;
-	memcpy(&value, blob + (size_t)field->offset, sizeof(value));
-	return value;
-}
-
-static i32 repository_set_buffer(sk_resource_object_t view, u32 index, u64 id) {
-	const sk_resource_field_t* field = NULL;
-	i32 pos = sk_repo_setup_write_set(view, index, &field);
-	if (pos < 0) {
-		return -1;
-	}
-	if (field->type != SK_RESOURCE_FIELD_TYPE_BUFFER) {
-		return -2;
-	}
-	u8* blob = (u8*)view.instance;
-	/* Buffer fields are opaque POD; v1 stores a single u64 handle id. */
-	if (field->size < (u32)sizeof(u64)) {
-		return -2;
-	}
-	memcpy(blob + (size_t)field->offset, &id, sizeof(id));
-	if (field->size > (u32)sizeof(u64)) {
-		memset(blob + (size_t)field->offset + sizeof(id), 0, (size_t)field->size - sizeof(id));
-	}
-	sk_resource_storage_t* storage = sk_repo_view_storage(view);
-	sk_repo_instance_set_value_bit(storage->type, (void_ptr_t)blob, (u32)pos, 1);
-	return 0;
-}
-
-static u64 repository_get_buffer(sk_resource_object_t view, u32 index) {
-	const sk_resource_field_t* field = NULL;
-	const u8* blob = sk_repo_get_field_blob(view, index, &field);
-	if (blob == NULL || field->type != SK_RESOURCE_FIELD_TYPE_BUFFER) {
-		return 0u;
-	}
-	if (field->size < (u32)sizeof(u64)) {
-		return 0u;
-	}
-	u64 id = 0u;
-	memcpy(&id, blob + (size_t)field->offset, sizeof(id));
-	return id;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Module API table                                                  */
 /* ------------------------------------------------------------------ */
@@ -2895,7 +3127,17 @@ static const sk_repository_api_t repository_api = {
 	repository_set_int,
 	repository_set_uint,
 	repository_set_float,
+	repository_set_vec2,
+	repository_set_vec3,
+	repository_set_vec4,
+	repository_set_quat,
+	repository_set_mat4,
+	repository_set_color,
+	repository_set_enum,
 	repository_set_string,
+	repository_set_blob,
+	repository_set_buffer,
+	repository_set_type_id,
 	repository_set_reference,
 	repository_set_reference_array,
 	repository_add_to_reference_array,
@@ -2913,17 +3155,21 @@ static const sk_repository_api_t repository_api = {
 	repository_get_int,
 	repository_get_uint,
 	repository_get_float,
+	repository_get_vec2,
+	repository_get_vec3,
+	repository_get_vec4,
+	repository_get_quat,
+	repository_get_mat4,
+	repository_get_color,
+	repository_get_enum,
 	repository_get_string,
+	repository_get_blob,
+	repository_get_buffer,
+	repository_get_type_id,
 	repository_get_reference,
 	repository_get_reference_array,
 	repository_get_subobject,
 	repository_get_subobject_list,
-	repository_set_blob,
-	repository_get_blob,
-	repository_set_type_id,
-	repository_get_type_id,
-	repository_set_buffer,
-	repository_get_buffer,
 	repository_undo_redo_scope_create,
 	repository_undo_redo_scope_destroy,
 	repository_undo_redo_scope_undo,
@@ -5211,5 +5457,520 @@ SK_TEST(repository_lifecycle_failed_create_leaves_repo_usable) {
 
 	api->destroy(repo);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Extended field-type accessor tests (APX-181)                      */
+/* ------------------------------------------------------------------ */
+
+/* Test payload covering every accessor added for the non-buffer field
+ * types: VEC2 / VEC3 / VEC4 / QUAT / MAT4 / COLOR / ENUM / BLOB / TYPE_ID. */
+typedef struct ext_object_t {
+	sk_vec2_t vec2;
+	sk_vec3_t vec3;
+	sk_vec4_t vec4;
+	sk_quat_t quat;
+	sk_mat44_t mat4;
+	sk_color_t color;
+	u64 enum_value;
+	sk_field_blob_t blob;
+	sk_type_id_t type_id;
+} ext_object_t;
+
+#define EXT_FIELD_VEC2 0u
+#define EXT_FIELD_VEC3 1u
+#define EXT_FIELD_VEC4 2u
+#define EXT_FIELD_QUAT 3u
+#define EXT_FIELD_MAT4 4u
+#define EXT_FIELD_COLOR 5u
+#define EXT_FIELD_ENUM 6u
+#define EXT_FIELD_BLOB 7u
+#define EXT_FIELD_TYPE_ID 8u
+
+static const sk_resource_field_t ext_fields[9] = {
+	{"vec2", EXT_FIELD_VEC2, SK_RESOURCE_FIELD_TYPE_VEC2, (u32)offsetof(ext_object_t, vec2), (u32)sizeof(sk_vec2_t), {0ull, 0ull}},
+	{"vec3", EXT_FIELD_VEC3, SK_RESOURCE_FIELD_TYPE_VEC3, (u32)offsetof(ext_object_t, vec3), (u32)sizeof(sk_vec3_t), {0ull, 0ull}},
+	{"vec4", EXT_FIELD_VEC4, SK_RESOURCE_FIELD_TYPE_VEC4, (u32)offsetof(ext_object_t, vec4), (u32)sizeof(sk_vec4_t), {0ull, 0ull}},
+	{"quat", EXT_FIELD_QUAT, SK_RESOURCE_FIELD_TYPE_QUAT, (u32)offsetof(ext_object_t, quat), (u32)sizeof(sk_quat_t), {0ull, 0ull}},
+	{"mat4", EXT_FIELD_MAT4, SK_RESOURCE_FIELD_TYPE_MAT4, (u32)offsetof(ext_object_t, mat4), (u32)sizeof(sk_mat44_t), {0ull, 0ull}},
+	{"color", EXT_FIELD_COLOR, SK_RESOURCE_FIELD_TYPE_COLOR, (u32)offsetof(ext_object_t, color), (u32)sizeof(sk_color_t), {0ull, 0ull}},
+	{"enum", EXT_FIELD_ENUM, SK_RESOURCE_FIELD_TYPE_ENUM, (u32)offsetof(ext_object_t, enum_value), (u32)sizeof(u64), {0ull, 0ull}},
+	{"blob", EXT_FIELD_BLOB, SK_RESOURCE_FIELD_TYPE_BLOB, (u32)offsetof(ext_object_t, blob), (u32)sizeof(sk_field_blob_t), {0ull, 0ull}},
+	{"typeId", EXT_FIELD_TYPE_ID, SK_RESOURCE_FIELD_TYPE_TYPE_ID, (u32)offsetof(ext_object_t, type_id), (u32)sizeof(sk_type_id_t), {0ull, 0ull}},
+};
+
+static sk_repository_t* ext_repo(const sk_resource_type_t** out_type, u64 tag) {
+	const sk_repository_api_t* api = sk_repository_api();
+	sk_repository_t* repo = api->create(sk_allocator_default());
+	TEST_ASSERT_NOT_NULL(repo);
+	sk_resource_type_desc_t desc;
+	desc.type_id = test_type_id(tag);
+	desc.name = "ext.type";
+	desc.instance_size = (u32)sizeof(ext_object_t);
+	desc.fields = ext_fields;
+	desc.field_count = 9u;
+	desc.defaults = NULL;
+	TEST_ASSERT_EQUAL_INT(0, api->register_type(repo, &desc));
+	*out_type = api->find_type_by_name(repo, "ext.type");
+	TEST_ASSERT_NOT_NULL(*out_type);
+	return repo;
+}
+
+SK_TEST(repository_extended_field_accessors) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = ext_repo(&type, 88u);
+
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+
+	const sk_vec2_t v2 = {1.5f, -2.25f};
+	const sk_vec3_t v3 = {3.0f, 4.0f, 5.0f};
+	const sk_vec4_t v4 = {0.25f, 0.5f, 0.75f, 1.0f};
+	const sk_quat_t quat = {0.0f, 0.0f, 0.0f, 1.0f};
+	sk_mat44_t mat4;
+	memset(&mat4, 0, sizeof(mat4));
+	mat4.m[0] = 1.0f;
+	mat4.m[5] = 1.0f;
+	mat4.m[10] = 1.0f;
+	mat4.m[15] = 1.0f;
+	const sk_color_t color = {1.0f, 0.5f, 0.25f, 0.125f};
+	const u8 blob_bytes[6] = {1u, 2u, 3u, 4u, 5u, 6u};
+	const sk_type_id_t type_id = {0x1111222233334444ull, 0x5555666677778888ull};
+	const u64 enum_value = 42u;
+
+	/* Default / unset behavior on a fresh instance. */
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(read));
+		sk_vec2_t got = api->get_vec2(read, EXT_FIELD_VEC2);
+		TEST_ASSERT_EQUAL_FLOAT(0.0f, got.x);
+		TEST_ASSERT_EQUAL_FLOAT(0.0f, got.y);
+		sk_vec3_t got3 = api->get_vec3(read, EXT_FIELD_VEC3);
+		TEST_ASSERT_EQUAL_FLOAT(0.0f, got3.z);
+		sk_vec4_t got4 = api->get_vec4(read, EXT_FIELD_VEC4);
+		TEST_ASSERT_EQUAL_FLOAT(0.0f, got4.w);
+		sk_quat_t gotq = api->get_quat(read, EXT_FIELD_QUAT);
+		TEST_ASSERT_EQUAL_FLOAT(0.0f, gotq.w);
+		sk_mat44_t gotm = api->get_mat4(read, EXT_FIELD_MAT4);
+		for (u32 i = 0u; i < 16u; ++i) {
+			TEST_ASSERT_EQUAL_FLOAT(0.0f, gotm.m[i]);
+		}
+		sk_color_t gotc = api->get_color(read, EXT_FIELD_COLOR);
+		TEST_ASSERT_EQUAL_FLOAT(0.0f, gotc.a);
+		TEST_ASSERT_EQUAL_UINT64(0u, api->get_enum(read, EXT_FIELD_ENUM));
+		u32 size = 123u;
+		TEST_ASSERT_NULL(api->get_blob(read, EXT_FIELD_BLOB, &size));
+		TEST_ASSERT_EQUAL_UINT32(0u, size);
+		TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(api->get_type_id(read, EXT_FIELD_TYPE_ID), SK_TYPE_ID_ZERO));
+		TEST_ASSERT_FALSE(api->has_value_on_this_object(read, EXT_FIELD_VEC2));
+	}
+
+	/* Set + get round-trip on the write view, then on a fresh read view. */
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec2(view, EXT_FIELD_VEC2, v2));
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec3(view, EXT_FIELD_VEC3, v3));
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec4(view, EXT_FIELD_VEC4, v4));
+		TEST_ASSERT_EQUAL_INT(0, api->set_quat(view, EXT_FIELD_QUAT, quat));
+		TEST_ASSERT_EQUAL_INT(0, api->set_mat4(view, EXT_FIELD_MAT4, mat4));
+		TEST_ASSERT_EQUAL_INT(0, api->set_color(view, EXT_FIELD_COLOR, color));
+		TEST_ASSERT_EQUAL_INT(0, api->set_enum(view, EXT_FIELD_ENUM, enum_value));
+		TEST_ASSERT_EQUAL_INT(0, api->set_blob(view, EXT_FIELD_BLOB, blob_bytes, 6u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_type_id(view, EXT_FIELD_TYPE_ID, type_id));
+
+		sk_vec2_t got = api->get_vec2(view, EXT_FIELD_VEC2);
+		TEST_ASSERT_EQUAL_FLOAT(v2.x, got.x);
+		TEST_ASSERT_EQUAL_FLOAT(v2.y, got.y);
+		sk_vec3_t got3 = api->get_vec3(view, EXT_FIELD_VEC3);
+		TEST_ASSERT_EQUAL_FLOAT(v3.z, got3.z);
+		sk_vec4_t got4 = api->get_vec4(view, EXT_FIELD_VEC4);
+		TEST_ASSERT_EQUAL_FLOAT(v4.w, got4.w);
+		sk_quat_t gotq = api->get_quat(view, EXT_FIELD_QUAT);
+		TEST_ASSERT_EQUAL_FLOAT(quat.w, gotq.w);
+		sk_mat44_t gotm = api->get_mat4(view, EXT_FIELD_MAT4);
+		TEST_ASSERT_EQUAL_FLOAT(mat4.m[0], gotm.m[0]);
+		TEST_ASSERT_EQUAL_FLOAT(mat4.m[15], gotm.m[15]);
+		sk_color_t gotc = api->get_color(view, EXT_FIELD_COLOR);
+		TEST_ASSERT_EQUAL_FLOAT(color.a, gotc.a);
+		TEST_ASSERT_EQUAL_UINT64(enum_value, api->get_enum(view, EXT_FIELD_ENUM));
+		u32 size = 0u;
+		const u8* data = api->get_blob(view, EXT_FIELD_BLOB, &size);
+		TEST_ASSERT_EQUAL_UINT32(6u, size);
+		TEST_ASSERT_EQUAL_MEMORY(blob_bytes, data, 6u);
+		TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(type_id, api->get_type_id(view, EXT_FIELD_TYPE_ID)));
+		TEST_ASSERT_TRUE(api->has_value_on_this_object(view, EXT_FIELD_VEC2));
+		api->commit(view, NULL);
+	}
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(read));
+		sk_vec2_t got = api->get_vec2(read, EXT_FIELD_VEC2);
+		TEST_ASSERT_EQUAL_FLOAT(v2.x, got.x);
+		TEST_ASSERT_EQUAL_FLOAT(v2.y, got.y);
+		sk_vec3_t got3 = api->get_vec3(read, EXT_FIELD_VEC3);
+		TEST_ASSERT_EQUAL_FLOAT(v3.z, got3.z);
+		sk_vec4_t got4 = api->get_vec4(read, EXT_FIELD_VEC4);
+		TEST_ASSERT_EQUAL_FLOAT(v4.w, got4.w);
+		sk_quat_t gotq = api->get_quat(read, EXT_FIELD_QUAT);
+		TEST_ASSERT_EQUAL_FLOAT(quat.w, gotq.w);
+		sk_mat44_t gotm = api->get_mat4(read, EXT_FIELD_MAT4);
+		TEST_ASSERT_EQUAL_FLOAT(mat4.m[0], gotm.m[0]);
+		TEST_ASSERT_EQUAL_FLOAT(mat4.m[15], gotm.m[15]);
+		sk_color_t gotc = api->get_color(read, EXT_FIELD_COLOR);
+		TEST_ASSERT_EQUAL_FLOAT(color.a, gotc.a);
+		TEST_ASSERT_EQUAL_UINT64(enum_value, api->get_enum(read, EXT_FIELD_ENUM));
+		u32 size = 0u;
+		const u8* data = api->get_blob(read, EXT_FIELD_BLOB, &size);
+		TEST_ASSERT_EQUAL_UINT32(6u, size);
+		TEST_ASSERT_EQUAL_MEMORY(blob_bytes, data, 6u);
+		TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(type_id, api->get_type_id(read, EXT_FIELD_TYPE_ID)));
+	}
+
+	/* Error paths: read view, unknown index, field-type mismatch. */
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_INT(-1, api->set_vec2(read, EXT_FIELD_VEC2, v2));
+		TEST_ASSERT_EQUAL_INT(-1, api->set_blob(read, EXT_FIELD_BLOB, blob_bytes, 6u));
+		TEST_ASSERT_EQUAL_INT(-1, api->set_type_id(read, EXT_FIELD_TYPE_ID, type_id));
+	}
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(-1, api->set_vec3(view, 999u, v3));
+		TEST_ASSERT_EQUAL_INT(-2, api->set_vec2(view, EXT_FIELD_VEC3, v2));
+		TEST_ASSERT_EQUAL_INT(-2, api->set_blob(view, EXT_FIELD_MAT4, blob_bytes, 6u));
+		TEST_ASSERT_EQUAL_INT(-2, api->set_type_id(view, EXT_FIELD_ENUM, type_id));
+		TEST_ASSERT_EQUAL_INT(-2, api->set_enum(view, EXT_FIELD_TYPE_ID, enum_value));
+		api->discard(view);
+	}
+
+	/* Blob deep copy: the repository owns its own bytes, so mutating the
+	 * caller's buffer after the set cannot affect the stored value. */
+	{
+		u8 mutated[6];
+		memcpy(mutated, blob_bytes, sizeof(mutated));
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_blob(view, EXT_FIELD_BLOB, mutated, 6u));
+		mutated[0] = 200u;
+		u32 size = 0u;
+		const u8* data = api->get_blob(view, EXT_FIELD_BLOB, &size);
+		TEST_ASSERT_EQUAL_UINT32(6u, size);
+		TEST_ASSERT_EQUAL_MEMORY(blob_bytes, data, 6u);
+
+		/* Overwrite with a smaller blob, then clear (NULL + 0). */
+		const u8 tail[2] = {9u, 9u};
+		TEST_ASSERT_EQUAL_INT(0, api->set_blob(view, EXT_FIELD_BLOB, tail, 2u));
+		size = 0u;
+		data = api->get_blob(view, EXT_FIELD_BLOB, &size);
+		TEST_ASSERT_EQUAL_UINT32(2u, size);
+		TEST_ASSERT_EQUAL_MEMORY(tail, data, 2u);
+		TEST_ASSERT_EQUAL_INT(0, api->set_blob(view, EXT_FIELD_BLOB, NULL, 0u));
+		size = 123u;
+		TEST_ASSERT_NULL(api->get_blob(view, EXT_FIELD_BLOB, &size));
+		TEST_ASSERT_EQUAL_UINT32(0u, size);
+		TEST_ASSERT_TRUE(api->has_value_on_this_object(view, EXT_FIELD_BLOB));
+		api->discard(view); /* the published blob stays the committed 6 bytes */
+	}
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		u32 size = 0u;
+		const u8* data = api->get_blob(read, EXT_FIELD_BLOB, &size);
+		TEST_ASSERT_EQUAL_UINT32(6u, size);
+		TEST_ASSERT_EQUAL_MEMORY(blob_bytes, data, 6u);
+	}
+
+	/* Prototype-chain fallback: unset on the instance, inherited from the
+	 * prototype; an instance override shadows it. */
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(prototype.id != 0u);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec4(view, EXT_FIELD_VEC4, v4));
+		TEST_ASSERT_EQUAL_INT(0, api->set_enum(view, EXT_FIELD_ENUM, 7u));
+		TEST_ASSERT_EQUAL_INT(0, api->set_type_id(view, EXT_FIELD_TYPE_ID, type_id));
+		TEST_ASSERT_EQUAL_INT(0, api->set_blob(view, EXT_FIELD_BLOB, blob_bytes, 6u));
+		api->commit(view, NULL);
+	}
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(instance.id != 0u);
+	{
+		sk_resource_object_t read = api->read(repo, instance);
+		TEST_ASSERT_FALSE(api->has_value_on_this_object(read, EXT_FIELD_VEC4));
+		TEST_ASSERT_FALSE(api->is_value_overridden(read, EXT_FIELD_VEC4));
+		sk_vec4_t got = api->get_vec4(read, EXT_FIELD_VEC4);
+		TEST_ASSERT_EQUAL_FLOAT(v4.x, got.x);
+		TEST_ASSERT_EQUAL_FLOAT(v4.y, got.y);
+		TEST_ASSERT_EQUAL_FLOAT(v4.z, got.z);
+		TEST_ASSERT_EQUAL_FLOAT(v4.w, got.w);
+		TEST_ASSERT_EQUAL_UINT64(7u, api->get_enum(read, EXT_FIELD_ENUM));
+		TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(type_id, api->get_type_id(read, EXT_FIELD_TYPE_ID)));
+		u32 size = 0u;
+		const u8* data = api->get_blob(read, EXT_FIELD_BLOB, &size);
+		TEST_ASSERT_EQUAL_UINT32(6u, size);
+		TEST_ASSERT_EQUAL_MEMORY(blob_bytes, data, 6u);
+	}
+	{
+		sk_resource_object_t view = api->write(repo, instance);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		const sk_vec4_t own = {9.0f, 9.0f, 9.0f, 9.0f};
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec4(view, EXT_FIELD_VEC4, own));
+		TEST_ASSERT_EQUAL_INT(0, api->set_blob(view, EXT_FIELD_BLOB, NULL, 0u)); /* clear shadows the prototype */
+		api->commit(view, NULL);
+	}
+	{
+		sk_resource_object_t read = api->read(repo, instance);
+		TEST_ASSERT_TRUE(api->is_value_overridden(read, EXT_FIELD_VEC4));
+		sk_vec4_t got = api->get_vec4(read, EXT_FIELD_VEC4);
+		TEST_ASSERT_EQUAL_FLOAT(9.0f, got.x);
+		TEST_ASSERT_TRUE(api->has_value_on_this_object(read, EXT_FIELD_BLOB));
+		u32 size = 123u;
+		TEST_ASSERT_NULL(api->get_blob(read, EXT_FIELD_BLOB, &size));
+		TEST_ASSERT_EQUAL_UINT32(0u, size);
+	}
+
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Buffer field accessor tests (APX-182)                             */
+/* ------------------------------------------------------------------ */
+
+/* Test payload: one Buffer field plus a Blob field (for cross-type
+ * mismatch checks). */
+typedef struct buf_object_t {
+	sk_field_buffer_t buffer;
+	sk_field_blob_t blob;
+} buf_object_t;
+
+#define BUF_FIELD_BUFFER 0u
+#define BUF_FIELD_BLOB 1u
+
+static const sk_resource_field_t buf_fields[2] = {
+	{"buffer", BUF_FIELD_BUFFER, SK_RESOURCE_FIELD_TYPE_BUFFER, (u32)offsetof(buf_object_t, buffer), (u32)sizeof(sk_field_buffer_t), {0ull, 0ull}},
+	{"blob", BUF_FIELD_BLOB, SK_RESOURCE_FIELD_TYPE_BLOB, (u32)offsetof(buf_object_t, blob), (u32)sizeof(sk_field_blob_t), {0ull, 0ull}},
+};
+
+static sk_repository_t* buf_repo(const sk_resource_type_t** out_type, const sk_allocator_t* allocator, u64 tag) {
+	const sk_repository_api_t* api = sk_repository_api();
+	sk_repository_t* repo = api->create(allocator);
+	TEST_ASSERT_NOT_NULL(repo);
+	sk_resource_type_desc_t desc;
+	desc.type_id = test_type_id(tag);
+	desc.name = "buf.type";
+	desc.instance_size = (u32)sizeof(buf_object_t);
+	desc.fields = buf_fields;
+	desc.field_count = 2u;
+	desc.defaults = NULL;
+	TEST_ASSERT_EQUAL_INT(0, api->register_type(repo, &desc));
+	*out_type = api->find_type_by_name(repo, "buf.type");
+	TEST_ASSERT_NOT_NULL(*out_type);
+	return repo;
+}
+
+SK_TEST(repository_buffer_field_accessors) {
+	const sk_repository_api_t* api = sk_repository_api();
+	/* Counting allocator proves overwrites / destroys release payloads. */
+	test_counting_alloc_t state = {sk_allocator_default(), 0u};
+	sk_allocator_t counting_allocator = {&state, test_counting_alloc, test_counting_free, test_counting_realloc};
+	const sk_resource_type_t* type = NULL;
+	sk_repository_t* repo = buf_repo(&type, &counting_allocator, 89u);
+
+	sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+	u64 live_after_create = state.live;
+	TEST_ASSERT_TRUE(live_after_create > 0u); /* instance block + bitmap live */
+
+	static const u8 payload[8] = {0x10u, 0x20u, 0x30u, 0x40u, 0x50u, 0x60u, 0x70u, 0x80u};
+	const u8 small[3] = {9u, 8u, 7u};
+
+	/* Unset: borrowed NULL + size 0, no has-value bit. */
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(read));
+		u32 size = 123u;
+		TEST_ASSERT_NULL(api->get_buffer(read, BUF_FIELD_BUFFER, &size));
+		TEST_ASSERT_EQUAL_UINT32(0u, size);
+		TEST_ASSERT_FALSE(api->has_value_on_this_object(read, BUF_FIELD_BUFFER));
+	}
+
+	/* Set from caller bytes: the repository deep-copies, so mutating the
+	 * caller's bytes after the set cannot affect the stored value. */
+	{
+		u8 mutable_bytes[8];
+		memcpy(mutable_bytes, payload, sizeof(mutable_bytes));
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(view, BUF_FIELD_BUFFER, mutable_bytes, 8u));
+		mutable_bytes[0] = 0xFFu;
+		u32 size = 0u;
+		const u8* data = api->get_buffer(view, BUF_FIELD_BUFFER, &size);
+		TEST_ASSERT_EQUAL_UINT32(8u, size);
+		TEST_ASSERT_EQUAL_MEMORY(payload, data, 8u);
+		TEST_ASSERT_TRUE(api->has_value_on_this_object(view, BUF_FIELD_BUFFER));
+		api->commit(view, NULL);
+	}
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		u32 size = 0u;
+		const u8* data = api->get_buffer(read, BUF_FIELD_BUFFER, &size);
+		TEST_ASSERT_EQUAL_UINT32(8u, size);
+		TEST_ASSERT_EQUAL_MEMORY(payload, data, 8u);
+	}
+
+	/* Overwrite: a larger payload, then a smaller one; each set releases the
+	 * previous payload (no leak) and the committed value matches the last
+	 * set. */
+	{
+		u8 big[64];
+		memset(big, 0xABu, sizeof(big));
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(view, BUF_FIELD_BUFFER, big, 64u));
+		u32 size = 0u;
+		const u8* data = api->get_buffer(view, BUF_FIELD_BUFFER, &size);
+		TEST_ASSERT_EQUAL_UINT32(64u, size);
+		TEST_ASSERT_EQUAL_MEMORY(big, data, 64u);
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(view, BUF_FIELD_BUFFER, small, 3u));
+		size = 0u;
+		data = api->get_buffer(view, BUF_FIELD_BUFFER, &size);
+		TEST_ASSERT_EQUAL_UINT32(3u, size);
+		TEST_ASSERT_EQUAL_MEMORY(small, data, 3u);
+		api->commit(view, NULL);
+	}
+
+	/* Empty (NULL + size 0) is distinct from unset: the has-value bit stays
+	 * set, reads return NULL / 0, and the field still owns nothing. */
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(view, BUF_FIELD_BUFFER, NULL, 0u));
+		u32 size = 123u;
+		TEST_ASSERT_NULL(api->get_buffer(view, BUF_FIELD_BUFFER, &size));
+		TEST_ASSERT_EQUAL_UINT32(0u, size);
+		TEST_ASSERT_TRUE(api->has_value_on_this_object(view, BUF_FIELD_BUFFER));
+		api->discard(view); /* published value stays the committed 3 bytes */
+	}
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		u32 size = 0u;
+		const u8* data = api->get_buffer(read, BUF_FIELD_BUFFER, &size);
+		TEST_ASSERT_EQUAL_UINT32(3u, size);
+		TEST_ASSERT_EQUAL_MEMORY(small, data, 3u);
+	}
+
+	/* Error paths: read view, unknown index, field-type mismatch, OOM. */
+	{
+		sk_resource_object_t read = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_INT(-1, api->set_buffer(read, BUF_FIELD_BUFFER, payload, 8u));
+	}
+	{
+		sk_resource_object_t view = api->write(repo, rid);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(-1, api->set_buffer(view, 999u, payload, 8u));
+		TEST_ASSERT_EQUAL_INT(-2, api->set_buffer(view, BUF_FIELD_BLOB, payload, 8u));
+		TEST_ASSERT_EQUAL_INT(-2, api->set_blob(view, BUF_FIELD_BUFFER, payload, 8u));
+		u32 size = 55u;
+		TEST_ASSERT_NULL(api->get_buffer(view, BUF_FIELD_BLOB, &size));
+		TEST_ASSERT_EQUAL_UINT32(0u, size);
+		TEST_ASSERT_NULL(api->get_blob(view, BUF_FIELD_BUFFER, &size));
+		TEST_ASSERT_EQUAL_UINT32(0u, size);
+		api->discard(view);
+	}
+
+	/* Prototype chain: an instance inherits the prototype's payload (borrowed,
+	 * not copied); an empty override shadows it; a real override shadows too. */
+	sk_rid_t prototype = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(prototype.id != 0u);
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(view, BUF_FIELD_BUFFER, payload, 8u));
+		api->commit(view, NULL);
+	}
+	sk_rid_t instance = api->create_from_prototype(repo, prototype, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(instance.id != 0u);
+	{
+		sk_resource_object_t read = api->read(repo, instance);
+		TEST_ASSERT_FALSE(api->has_value_on_this_object(read, BUF_FIELD_BUFFER));
+		TEST_ASSERT_FALSE(api->is_value_overridden(read, BUF_FIELD_BUFFER));
+		u32 size = 0u;
+		const u8* data = api->get_buffer(read, BUF_FIELD_BUFFER, &size);
+		TEST_ASSERT_EQUAL_UINT32(8u, size);
+		TEST_ASSERT_EQUAL_MEMORY(payload, data, 8u);
+	}
+	{
+		sk_resource_object_t view = api->write(repo, instance);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		/* Empty override: shadows the prototype while staying NULL / 0. */
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(view, BUF_FIELD_BUFFER, NULL, 0u));
+		api->commit(view, NULL);
+	}
+	{
+		sk_resource_object_t read = api->read(repo, instance);
+		TEST_ASSERT_TRUE(api->is_value_overridden(read, BUF_FIELD_BUFFER));
+		u32 size = 123u;
+		TEST_ASSERT_NULL(api->get_buffer(read, BUF_FIELD_BUFFER, &size));
+		TEST_ASSERT_EQUAL_UINT32(0u, size);
+	}
+
+	/* Clone deep-copies the payload: mutating the origin after cloning cannot
+	 * affect the clone, and the clone owns its own bytes. */
+	{
+		sk_resource_object_t view = api->write(repo, prototype);
+		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+		u8 other[5] = {1u, 2u, 3u, 4u, 5u};
+		TEST_ASSERT_EQUAL_INT(0, api->set_buffer(view, BUF_FIELD_BUFFER, other, 5u));
+		api->commit(view, NULL);
+	}
+	sk_rid_t clone = api->clone(repo, prototype, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(clone.id != 0u);
+	{
+		const u8 other[5] = {1u, 2u, 3u, 4u, 5u};
+		sk_resource_object_t read = api->read(repo, clone);
+		u32 size = 0u;
+		const u8* data = api->get_buffer(read, BUF_FIELD_BUFFER, &size);
+		TEST_ASSERT_EQUAL_UINT32(5u, size);
+		TEST_ASSERT_EQUAL_MEMORY(other, data, 5u);
+	}
+
+	/* OOM: set_buffer fails with -3 and leaves the previous payload intact. */
+	{
+		test_fail_alloc_t fail_state = {sk_allocator_default(), 0u, 0xFFFFFFFFu};
+		sk_allocator_t fail_allocator = {&fail_state, test_fail_alloc, test_fail_free, test_fail_realloc};
+		const sk_resource_type_t* fail_type = NULL;
+		sk_repository_t* fail_repo = buf_repo(&fail_type, &fail_allocator, 90u);
+		sk_rid_t fail_rid = api->create_resource(fail_repo, fail_type, SK_UUID_ZERO, NULL);
+		TEST_ASSERT_TRUE(fail_rid.id != 0u);
+		{
+			sk_resource_object_t view = api->write(fail_repo, fail_rid);
+			TEST_ASSERT_EQUAL_INT(0, api->set_buffer(view, BUF_FIELD_BUFFER, payload, 8u));
+			api->commit(view, NULL);
+		}
+		{
+			sk_resource_object_t view = api->write(fail_repo, fail_rid);
+			TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
+			fail_state.fail_at = fail_state.allocs_done; /* next alloc fails */
+			u8 big[32];
+			memset(big, 0x77u, sizeof(big));
+			TEST_ASSERT_EQUAL_INT(-3, api->set_buffer(view, BUF_FIELD_BUFFER, big, 32u));
+			u32 size = 0u;
+			const u8* data = api->get_buffer(view, BUF_FIELD_BUFFER, &size);
+			TEST_ASSERT_EQUAL_UINT32(8u, size);
+			TEST_ASSERT_EQUAL_MEMORY(payload, data, 8u);
+			api->discard(view);
+		}
+		api->destroy(fail_repo);
+	}
+
+	/* No leaks: GC reclaims superseded instance payloads, and destroying the
+	 * repository returns every live allocation. */
+	api->garbage_collect(repo);
+	api->destroy(repo);
+	TEST_ASSERT_EQUAL_UINT64(0u, state.live);
+}
+
 
 #endif /* SK_TESTS */

@@ -117,7 +117,7 @@ Storage mapping (from `resource_assets_types.h`):
 | Reference / SubObject | `sk_rid_t` |
 | SubObjectList | `sk_field_subobject_list_t` |
 | TypeID | `sk_type_id_t` (16 bytes) |
-| Buffer | `sk_resource_asset_buffer_t { u64 id }` (opaque; full buffer layer later) |
+| Buffer | `sk_field_buffer_t { u8* data; u32 size }` (repository-owned payload; same storage as `sk_resource_asset_buffer_t`) |
 | Blob | `sk_field_blob_t` |
 | None | reserved placeholder |
 
@@ -175,7 +175,7 @@ Storage mapping (from `resource_assets_types.h`):
 | 3 | `ImporterId` | TypeID |
 | 4 | `CookerVersion` | UInt |
 | 5 | `ImportSettings` | SubObject |
-| 6 | `OriginalData` | Buffer (opaque handle today) |
+| 6 | `OriginalData` | Buffer (byte payload) |
 | 7 | `OriginalSize` | UInt |
 | 8 | `SubResources` | SubObjectList → ResourceSubIdEntry |
 | 9 | `Dependencies` | SubObjectList → ResourceDependencyEntry |
@@ -309,7 +309,7 @@ Use `sk_archive_writer_t` / `sk_archive_reader_t` so binary and JSON stay aligne
 | Float | JSON number (f64) |
 | String | JSON string (empty string allowed) |
 | Blob | JSON **array of byte values 0..255** (existing `sk_json_archive` blob convention) |
-| Buffer | Object `{"id": <u64>}` for the opaque handle **or** null when unset; full byte payload out of band until buffer layer lands |
+| Buffer | JSON **array of byte values 0..255** (same convention as Blob). Empty array is a set-empty buffer. Load also accepts legacy `{"id": <u64>}` objects as a no-op (field left unset) for older fixtures |
 | TypeID | Object `{"lo": <u64>, "hi": <u64>}` **or** string type name when the id is a registered resource/importer type and name is preferred for readability. **v1 recommendation:** emit both `{"name":"…","lo":…,"hi":…}` when name is known; on load prefer `name` via `find_type_by_name`, else lo/hi |
 | Reference / SubObject | UUID string, or `null` / omit when `SK_RID_ZERO` |
 | ReferenceArray | JSON array of UUID strings (skip zeros) |
