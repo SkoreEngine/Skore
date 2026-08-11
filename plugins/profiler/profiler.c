@@ -1253,31 +1253,66 @@ SK_TEST(profiler_init_shutdown_idempotent) {
 
 /* ---- instrumentation macros (mode depends on the build's compile-time
  * switch; the forced-enabled TU profiler_macro_tests.c always tests the real
- * bodies, and this section asserts whichever mode this TU compiled with). ---- */
+ * bodies, and this section asserts whichever mode this TU compiled with).
+ * When SK_PROFILER_ENABLED is off, every SK_PROFILE_* macro must compile to a
+ * no-op that still evaluates its arguments (so call-site variables stay used)
+ * and never records a sample. ---- */
 
 SK_TEST(profiler_macros_match_compile_time_switch) {
 	const sk_profiler_api_t* api = sk_profiler_test_table();
 	profiler_test_reset(api);
 
-	api->begin_frame(); /* frame 0 */
-	/* In no-op mode these must compile away and record nothing. */
-	SK_PROFILE_CPU_ZONE(api, "macrozone");
-	SK_PROFILE_BEGIN_CPU_SAMPLE(api, "explicit", NULL, 0u);
-	SK_PROFILE_END_CPU_SAMPLE(api);
+	/* Keep locals live so the disabled macro bodies must evaluate them. */
+	const_chr_t category = "test";
+	u32 color = 0x11223344u;
+	sk_command_buffer_t cmd = sk_command_buffer_t_from_u64(0x77u);
+
+	api->begin_frame(); /* frame 0 — host delimiter, not the macro */
+	/* Exercise every sample SK_PROFILE_* macro. Distinct names avoid merge
+	 * ambiguity when asserting category/color. Frame macros are checked
+	 * after deactivate so they cannot advance the triple buffer mid-record. */
+	{
+		SK_PROFILE_CPU_ZONE(api, "macrozone");
+		SK_PROFILE_CPU_ZONE_EX(api, "macroex", category, color);
+		SK_PROFILE_GPU_ZONE(api, "gmacro", cmd);
+		SK_PROFILE_GPU_ZONE_EX(api, "gmacroex", category, color, cmd);
+		SK_PROFILE_BEGIN_CPU_SAMPLE(api, "explicit", category, color);
+		SK_PROFILE_END_CPU_SAMPLE(api);
+		SK_PROFILE_BEGIN_GPU_SAMPLE(api, "gexplicit", category, color, cmd);
+		SK_PROFILE_END_GPU_SAMPLE(api, cmd);
+	}
 	api->begin_frame();
 	api->begin_frame(); /* builds frame 0 */
 
-	u32 count = 0u;
-	const sk_profiler_task_entry_t* tasks = NULL;
-	api->get_cpu_tasks(&tasks, &count);
+	u32 cpu_count = 0u;
+	u32 gpu_count = 0u;
+	const sk_profiler_task_entry_t* cpu_tasks = NULL;
+	const sk_profiler_task_entry_t* gpu_tasks = NULL;
+	api->get_cpu_tasks(&cpu_tasks, &cpu_count);
+	api->get_gpu_tasks(&gpu_tasks, &gpu_count);
 #if defined(SK_PROFILER_ENABLED)
-	TEST_ASSERT_EQUAL_UINT32(2u, count);
-	TEST_ASSERT_EQUAL_STRING("macrozone", tasks[0].name);
-	TEST_ASSERT_EQUAL_STRING("explicit", tasks[1].name);
+	/* Real bodies: three CPU samples + three GPU samples (CPU-only without a
+	 * device). First CPU entry is the plain zone; EX carries category/color. */
+	TEST_ASSERT_EQUAL_UINT32(3u, cpu_count);
+	TEST_ASSERT_EQUAL_UINT32(3u, gpu_count);
+	TEST_ASSERT_EQUAL_STRING("macrozone", cpu_tasks[0].name);
+	TEST_ASSERT_EQUAL_STRING("macroex", cpu_tasks[1].name);
+	TEST_ASSERT_EQUAL_STRING(category, cpu_tasks[1].category);
+	TEST_ASSERT_EQUAL_UINT32(color, cpu_tasks[1].color);
+	TEST_ASSERT_EQUAL_STRING("explicit", cpu_tasks[2].name);
 #else
-	TEST_ASSERT_EQUAL_UINT32(0u, count);
+	/* Disabled: every macro compiled away — no samples, no side effects. */
+	TEST_ASSERT_EQUAL_UINT32(0u, cpu_count);
+	TEST_ASSERT_EQUAL_UINT32(0u, gpu_count);
+	(void)cpu_tasks;
+	(void)gpu_tasks;
+	(void)color;
 #endif
+	/* Frame macros must also compile (and be no-ops when inactive / disabled). */
 	api->set_active(false);
+	SK_PROFILE_BEGIN_FRAME(api);
+	SK_PROFILE_END_FRAME(api);
+	TEST_ASSERT_EQUAL_UINT32(0u, api->get_cpu_frame_stats().count);
 }
 
 SK_TEST(profiler_category_and_color_stored) {
