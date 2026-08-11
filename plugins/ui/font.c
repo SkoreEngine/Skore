@@ -332,6 +332,8 @@ static i32 ui_atlas_pack_bitmap(sk_ui_font_system_t* system, const u8* src, u32 
 				for (y = 0u; y < bh; ++y) {
 					memcpy(page->pixels + (size_t)(y0 + y) * (size_t)page->width + (size_t)x0, src + (size_t)y * (size_t)src_pitch, (size_t)bw);
 				}
+				/* New ink invalidates any GPU upload of this page. */
+				page->generation += 1u;
 				out->width = bw;
 				out->height = bh;
 				out->page_index = page_i;

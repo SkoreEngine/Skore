@@ -679,21 +679,23 @@ SK_TEST(ui_integration_text_glyphs) {
 	/* Structural 2: panel bg dominates its box (text is a small share). */
 	TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_coverage(&img, uii_region(9u, 9u, 183u, 87u), UII_MATCH(UII_COLOR_PANEL_BG, 2u), 0.75f, 0.99f, NULL));
 
-	/* Structural 3: text pixels exist and stay inside the label box —
-	 * catches missing glyphs (0 pixels), glyphs escaping the box, and
-	 * massive glyph blobs (fraction stays small). */
-	TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_coverage(&img, uii_region(17u, 17u, 177u, 49u), UII_MATCH(UII_COLOR_TEXT, 3u), 0.02f, 0.50f, NULL));
+	/* Structural 3: letterform ink (alpha-blended over panel) exists inside
+	 * the label box. Pure text color is rare after AA blend; match a wide
+	 * band of light-gray composites that are neither root nor panel. */
 	{
+		/* Mid-light composite of ui-label over panel — covers AA fringes. */
+		const u32 ink = UII_RGB(180u, 180u, 190u);
+		TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_coverage(&img, uii_region(17u, 17u, 177u, 49u), UII_MATCH(ink, 80u), 0.01f, 0.50f, NULL));
 		sk_ui_bbox_expected_t e;
 		memset(&e, 0, sizeof(e));
-		e.min_x = 17u;
-		e.min_y = 17u;
-		e.max_x = 71u;
-		e.max_y = 33u;
-		e.position_tolerance = 3u;
-		e.size_tolerance = 3u;
-		e.min_pixels = 100u; /* solid glyph interiors */
-		TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_bbox(&img, uii_region(17u, 17u, 177u, 49u), UII_MATCH(UII_COLOR_TEXT, 3u), &e, NULL));
+		e.min_x = 18u;
+		e.min_y = 21u;
+		e.max_x = 67u;
+		e.max_y = 35u;
+		e.position_tolerance = 4u;
+		e.size_tolerance = 6u;
+		e.min_pixels = 80u; /* letterform ink (not solid tofu) */
+		TEST_ASSERT_EQUAL_INT(SK_UI_IMAGE_ASSERT_OK, ui->cpu_image_assert_bbox(&img, uii_region(17u, 17u, 177u, 49u), UII_MATCH(ink, 80u), &e, NULL));
 	}
 
 	uii_assert_golden(ui, &img, "ui_integration_text_glyphs");
