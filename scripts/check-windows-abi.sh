@@ -286,6 +286,11 @@ build_extra_args() {
 	while IFS= read -r -d '' pdir; do
 		EXTRA_ARGS+=("--extra-arg=-I${pdir}")
 	done < <(find "${ROOT}/plugins" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null || true)
+	# Plugin-local data dirs (e.g. ui testdata embeds a font header that
+	# player/main.c includes).
+	while IFS= read -r -d '' pdir; do
+		EXTRA_ARGS+=("--extra-arg=-I${pdir}")
+	done < <(find "${ROOT}/plugins" -mindepth 2 -maxdepth 2 -type d -name testdata -print0 2>/dev/null || true)
 }
 
 tidy_one() {
