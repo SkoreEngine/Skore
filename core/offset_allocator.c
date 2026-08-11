@@ -539,3 +539,777 @@ static void oa_remove_node_from_bin(sk_offset_allocator_t* allocator, u32 node_i
 
 	allocator->free_storage -= node->data_size;
 }
+
+#ifdef SK_TESTS
+#include "test.h"
+
+#include <stdlib.h> /* malloc/free for the leak-checking allocator stub */
+#include <string.h> /* memset */
+
+/*
+ * Unit tests: every upstream scenario from sebbbi's offsetAllocatorTests.cpp
+ * plus the extra coverage the pure C port needs (NO_SPACE, node-pool
+ * exhaustion, reset, boundary sizes, destroy-with-live-allocations).
+ *
+ * Expected values are the upstream ones verbatim: they are what make the
+ * 8-bit float-like bin-rounding logic verifiable.
+ *
+ * Notes on deliberate upstream semantics that the expectations encode:
+ * - storageReport().largest_free_region is the lower bound of the bin the
+ *   largest free region landed in (floatToUint of the bin index), not the
+ *   exact region byte count; storageReport().total_free_space is exact.
+ * - A request is served only when roundUp(request) <= roundDown(region): a
+ *   free region of exactly N bytes can only serve a request of N when N is
+ *   bin-exact (e.g. a power of two). This is upstream behavior, not a port
+ *   artifact — that is why the full-arena reallocations below use bin-exact
+ *   arena sizes.
+ * - A request larger than 0xf0000000 rounds up past the last usable bin
+ *   (239); bin 240's lower bound would overflow u32. Same as upstream.
+ */
+
+/* Sum of free-region counts across all bins (total number of free regions). */
+static u32 oa_test_free_region_count(const sk_offset_allocator_t* oa) {
+	sk_offset_allocator_storage_report_full_t full = sk_offset_allocator_storage_report_full(oa);
+	u32 count = 0u;
+	for (u32 i = 0u; i < SK_OFFSET_ALLOCATOR_NUM_LEAF_BINS; i++) {
+		count += full.free_regions[i].count;
+	}
+	return count;
+}
+
+SK_TEST(offset_allocator_small_float_numbers) {
+	/* Denorms, exp=1 and exp=2 + mantissa = 0 are all precise.
+	 * Assumes an 8 value (3 bit) mantissa. */
+	for (u32 i = 0u; i < 17u; i++) {
+		TEST_ASSERT_EQUAL_UINT32(i, oa_uint_to_float_round_up(i));
+		TEST_ASSERT_EQUAL_UINT32(i, oa_uint_to_float_round_down(i));
+		TEST_ASSERT_EQUAL_UINT32(i, oa_float_to_uint(i));
+	}
+
+	/* Randomly picked numbers (upstream test vectors, exact up/down bins). */
+	static const struct {
+		u32 number;
+		u32 up;
+		u32 down;
+	} test_data[] = {
+		{17u, 17u, 16u}, {118u, 39u, 38u}, {1024u, 64u, 64u}, {65536u, 112u, 112u}, {529445u, 137u, 136u}, {1048575u, 144u, 143u},
+	};
+	for (u32 i = 0u; i < (u32)(sizeof(test_data) / sizeof(test_data[0])); i++) {
+		TEST_ASSERT_EQUAL_UINT32(test_data[i].up, oa_uint_to_float_round_up(test_data[i].number));
+		TEST_ASSERT_EQUAL_UINT32(test_data[i].down, oa_uint_to_float_round_down(test_data[i].number));
+	}
+
+	/* float -> uint -> float round trip for every bin index.
+	 * Values < 240 only: bin 240 decodes to 2^32, which overflows u32. */
+	for (u32 i = 0u; i < 240u; i++) {
+		u32 v = oa_float_to_uint(i);
+		TEST_ASSERT_EQUAL_UINT32(i, oa_uint_to_float_round_up(v));
+		TEST_ASSERT_EQUAL_UINT32(i, oa_uint_to_float_round_down(v));
+	}
+}
+
+SK_TEST(offset_allocator_basic_alloc_free) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	/* Pristine: the whole arena is one free region. */
+	sk_offset_allocator_storage_report_t report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.largest_free_region);
+
+	/* Single allocation at offset 0; 256 is bin-exact so both report fields
+	 * stay exact after the split. */
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 256u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	TEST_ASSERT_EQUAL_UINT32(256u, sk_offset_allocator_allocation_size(oa, a));
+
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(768u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(768u, report.largest_free_region);
+
+	/* Free restores the full region. */
+	sk_offset_allocator_free(oa, a);
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.largest_free_region);
+	sk_offset_allocator_destroy(oa);
+
+	/* Upstream "basic": 256MB arena, allocate 1337 at offset 0, free. */
+	sk_offset_allocator_t* big = sk_offset_allocator_create(1024u * 1024u * 256u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(big);
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(big, 1337u);
+	TEST_ASSERT_EQUAL_UINT32(0u, b.offset);
+	sk_offset_allocator_free(big, b);
+	sk_offset_allocator_destroy(big);
+}
+
+SK_TEST(offset_allocator_allocate_simple) {
+	/* Upstream "simple": free merges neighbor empty nodes, so the next
+	 * allocation lands at the previous free offset. */
+	const u32 arena = 1024u * 1024u * 256u;
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(arena, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 0u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 1u);
+	TEST_ASSERT_EQUAL_UINT32(0u, b.offset);
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 123u);
+	TEST_ASSERT_EQUAL_UINT32(1u, c.offset);
+	sk_offset_allocator_allocation_t d = sk_offset_allocator_allocate(oa, 1234u);
+	TEST_ASSERT_EQUAL_UINT32(124u, d.offset);
+
+	sk_offset_allocator_free(oa, a);
+	sk_offset_allocator_free(oa, b);
+	sk_offset_allocator_free(oa, c);
+	sk_offset_allocator_free(oa, d);
+
+	/* Zero fragmentation: the full arena comes back as one region at 0. */
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, arena);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset);
+	sk_offset_allocator_free(oa, full);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_merge_trivial) {
+	/* Upstream "merge trivial": alloc/free/alloc returns the same offset. */
+	const u32 arena = 1024u * 1024u * 256u;
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(arena, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 1337u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	sk_offset_allocator_free(oa, a);
+
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 1337u);
+	TEST_ASSERT_EQUAL_UINT32(0u, b.offset);
+	sk_offset_allocator_free(oa, b);
+
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, arena);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset);
+	sk_offset_allocator_free(oa, full);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_reuse_trivial) {
+	/* Upstream "reuse trivial": allocation C fits in the same bin as the
+	 * freed A (pow2 size), so A's node is reused at offset 0. */
+	const u32 arena = 1024u * 1024u * 256u;
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(arena, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 3456u);
+	TEST_ASSERT_EQUAL_UINT32(1024u, b.offset);
+
+	sk_offset_allocator_free(oa, a);
+
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, c.offset);
+
+	sk_offset_allocator_free(oa, c);
+	sk_offset_allocator_free(oa, b);
+
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, arena);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset);
+	sk_offset_allocator_free(oa, full);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_reuse_complex) {
+	/* Upstream "reuse complex": C does not fit A's freed bin, but the
+	 * smaller D and E do, so they reuse A's node. */
+	const u32 arena = 1024u * 1024u * 256u;
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(arena, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 3456u);
+	TEST_ASSERT_EQUAL_UINT32(1024u, b.offset);
+
+	sk_offset_allocator_free(oa, a);
+
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 2345u);
+	TEST_ASSERT_EQUAL_UINT32(1024u + 3456u, c.offset);
+	sk_offset_allocator_allocation_t d = sk_offset_allocator_allocate(oa, 456u);
+	TEST_ASSERT_EQUAL_UINT32(0u, d.offset);
+	sk_offset_allocator_allocation_t e = sk_offset_allocator_allocate(oa, 512u);
+	TEST_ASSERT_EQUAL_UINT32(456u, e.offset);
+
+	sk_offset_allocator_storage_report_t report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(arena - 3456u - 2345u - 456u - 512u, report.total_free_space);
+	TEST_ASSERT_NOT_EQUAL_UINT32(report.total_free_space, report.largest_free_region);
+
+	sk_offset_allocator_free(oa, c);
+	sk_offset_allocator_free(oa, d);
+	sk_offset_allocator_free(oa, b);
+	sk_offset_allocator_free(oa, e);
+
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, arena);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset);
+	sk_offset_allocator_free(oa, full);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_zero_fragmentation) {
+	/* Upstream "zero fragmentation": 256x 1MB fills the 256MB arena; free
+	 * four random slots plus four contiguous slots, reallocate (the
+	 * contiguous four as one 4MB block) — all must stay zero-fragmentation. */
+	const u32 arena = 1024u * 1024u * 256u;
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(arena, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	sk_offset_allocator_allocation_t allocations[256];
+	for (u32 i = 0u; i < 256u; i++) {
+		allocations[i] = sk_offset_allocator_allocate(oa, 1024u * 1024u);
+		TEST_ASSERT_EQUAL_UINT32(i * 1024u * 1024u, allocations[i].offset);
+	}
+
+	sk_offset_allocator_storage_report_t report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(0u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(0u, report.largest_free_region);
+
+	/* Free four random slots. */
+	sk_offset_allocator_free(oa, allocations[243]);
+	sk_offset_allocator_free(oa, allocations[5]);
+	sk_offset_allocator_free(oa, allocations[123]);
+	sk_offset_allocator_free(oa, allocations[95]);
+
+	/* Free four contiguous slots (the allocator must merge them). */
+	sk_offset_allocator_free(oa, allocations[151]);
+	sk_offset_allocator_free(oa, allocations[152]);
+	sk_offset_allocator_free(oa, allocations[153]);
+	sk_offset_allocator_free(oa, allocations[154]);
+
+	allocations[243] = sk_offset_allocator_allocate(oa, 1024u * 1024u);
+	allocations[5] = sk_offset_allocator_allocate(oa, 1024u * 1024u);
+	allocations[123] = sk_offset_allocator_allocate(oa, 1024u * 1024u);
+	allocations[95] = sk_offset_allocator_allocate(oa, 1024u * 1024u);
+	allocations[151] = sk_offset_allocator_allocate(oa, 1024u * 1024u * 4u); /* 4x larger */
+	TEST_ASSERT_NOT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, allocations[243].offset);
+	TEST_ASSERT_NOT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, allocations[5].offset);
+	TEST_ASSERT_NOT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, allocations[123].offset);
+	TEST_ASSERT_NOT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, allocations[95].offset);
+	TEST_ASSERT_NOT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, allocations[151].offset);
+
+	for (u32 i = 0u; i < 256u; i++) {
+		if (i < 152u || i > 154u) {
+			sk_offset_allocator_free(oa, allocations[i]);
+		}
+	}
+
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(arena, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(arena, report.largest_free_region);
+
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, arena);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset);
+	sk_offset_allocator_free(oa, full);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_free_front_first) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t d = sk_offset_allocator_allocate(oa, 100u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	TEST_ASSERT_EQUAL_UINT32(100u, b.offset);
+	TEST_ASSERT_EQUAL_UINT32(200u, c.offset);
+	TEST_ASSERT_EQUAL_UINT32(300u, d.offset);
+
+	sk_offset_allocator_storage_report_t report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(624u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(576u, report.largest_free_region); /* bin lower bound */
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_free(oa, a); /* front first */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(724u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(576u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(2u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_free(oa, b); /* merges with a -> [0, 200) */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(824u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(576u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(2u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_free(oa, c); /* merges -> [0, 300) */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(924u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(576u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(2u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_free(oa, d); /* merges everything -> [0, 1024) */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset);
+	sk_offset_allocator_free(oa, full);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_free_middle_first) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t d = sk_offset_allocator_allocate(oa, 100u);
+
+	sk_offset_allocator_free(oa, b); /* hole at [100, 200) */
+	sk_offset_allocator_storage_report_t report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(724u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(576u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(2u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_free(oa, c); /* adjacent to b -> merged [100, 300) */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(824u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(576u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(2u, oa_test_free_region_count(oa)); /* 2 regions, not 3: coalesced */
+
+	sk_offset_allocator_free(oa, d); /* merges into [100, 1024) */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(924u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(896u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_free(oa, a); /* everything coalesced */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset);
+	sk_offset_allocator_free(oa, full);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_free_back_first) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t d = sk_offset_allocator_allocate(oa, 100u);
+
+	sk_offset_allocator_free(oa, d); /* merges with the tail remainder -> [300, 1024) */
+	sk_offset_allocator_storage_report_t report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(724u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(704u, report.largest_free_region); /* bin lower bound */
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_free(oa, c); /* -> [200, 1024) */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(824u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(768u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_free(oa, b); /* -> [100, 1024) */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(924u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(896u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_free(oa, a); /* -> [0, 1024) */
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.largest_free_region);
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset);
+	sk_offset_allocator_free(oa, full);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_allocation_size) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	/* allocationSize returns the requested size (the port stores the request
+	 * verbatim, like upstream), not the bin-rounded size. */
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 17u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	TEST_ASSERT_EQUAL_UINT32(17u, sk_offset_allocator_allocation_size(oa, a));
+
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 118u);
+	TEST_ASSERT_EQUAL_UINT32(17u, b.offset);
+	TEST_ASSERT_EQUAL_UINT32(118u, sk_offset_allocator_allocation_size(oa, b));
+
+	/* 135 bytes are used; the 889-byte remainder cannot serve 1024. */
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, c.offset);
+	TEST_ASSERT_EQUAL_UINT32(0u, sk_offset_allocator_allocation_size(oa, c));
+
+	sk_offset_allocator_free(oa, a);
+	sk_offset_allocator_free(oa, b);
+
+	/* Coalescing restored the whole arena. */
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset);
+	TEST_ASSERT_EQUAL_UINT32(1024u, sk_offset_allocator_allocation_size(oa, full));
+	sk_offset_allocator_free(oa, full);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_storage_report_full) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	/* Bin lower bounds (floatToUint) must be exact at the spot checks. */
+	sk_offset_allocator_storage_report_full_t full = sk_offset_allocator_storage_report_full(oa);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.free_regions[0].size);
+	TEST_ASSERT_EQUAL_UINT32(7u, full.free_regions[7].size);
+	TEST_ASSERT_EQUAL_UINT32(8u, full.free_regions[8].size);
+	TEST_ASSERT_EQUAL_UINT32(512u, full.free_regions[56].size);
+	TEST_ASSERT_EQUAL_UINT32(960u, full.free_regions[63].size);
+	TEST_ASSERT_EQUAL_UINT32(1024u, full.free_regions[64].size);
+	TEST_ASSERT_EQUAL_UINT32(268435456u, full.free_regions[208].size);
+
+	/* Pristine 1024-byte arena: exactly one region, in bin 64 (holds 1024). */
+	TEST_ASSERT_EQUAL_UINT32(1u, full.free_regions[64].count);
+	for (u32 i = 0u; i < SK_OFFSET_ALLOCATOR_NUM_LEAF_BINS; i++) {
+		if (i != 64u) {
+			TEST_ASSERT_EQUAL_UINT32(0u, full.free_regions[i].count);
+		}
+	}
+
+	/* allocate(1) splits off a 1023-byte remainder, which rounds down to
+	 * bin 63 (holds 960..1023). */
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 1u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	full = sk_offset_allocator_storage_report_full(oa);
+	TEST_ASSERT_EQUAL_UINT32(1u, full.free_regions[63].count);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.free_regions[64].count);
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+
+	/* Free puts the merged region back into bin 64. */
+	sk_offset_allocator_free(oa, a);
+	full = sk_offset_allocator_storage_report_full(oa);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.free_regions[63].count);
+	TEST_ASSERT_EQUAL_UINT32(1u, full.free_regions[64].count);
+	TEST_ASSERT_EQUAL_UINT32(1u, oa_test_free_region_count(oa));
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_no_space_arena_exhausted) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	/* Consume the whole arena (1024 is bin-exact). */
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+
+	/* No space: the NO_SPACE sentinel, not a crash or a bogus offset. */
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 1u);
+	TEST_ASSERT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, b.offset);
+	TEST_ASSERT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, b.metadata);
+
+	/* Node slots remain, so the report is a truthful 0/0. */
+	sk_offset_allocator_storage_report_t report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(0u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(0u, report.largest_free_region);
+
+	/* The allocator stays usable after the failed request. */
+	sk_offset_allocator_free(oa, a);
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, c.offset);
+	sk_offset_allocator_free(oa, c);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_no_space_node_pool_exhausted) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+
+	/* max_allocs = 3 is the documented minimum: one live allocation plus its
+	 * split remainder already fill the pool, even though space is free. */
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 3u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 1u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 1u);
+	TEST_ASSERT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, b.offset);
+	TEST_ASSERT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, b.metadata);
+
+	/* Freeing recycles the nodes; the allocator works again. */
+	sk_offset_allocator_free(oa, a);
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 1u);
+	TEST_ASSERT_EQUAL_UINT32(0u, c.offset);
+	sk_offset_allocator_free(oa, c);
+	sk_offset_allocator_destroy(oa);
+
+	/* max_allocs = 5: three 1-byte allocations exhaust the pool. */
+	sk_offset_allocator_t* oa5 = sk_offset_allocator_create(1024u, 5u, alloc);
+	TEST_ASSERT_NOT_NULL(oa5);
+	sk_offset_allocator_allocation_t x = sk_offset_allocator_allocate(oa5, 1u);
+	sk_offset_allocator_allocation_t y = sk_offset_allocator_allocate(oa5, 1u);
+	sk_offset_allocator_allocation_t z = sk_offset_allocator_allocate(oa5, 1u);
+	TEST_ASSERT_EQUAL_UINT32(0u, x.offset);
+	TEST_ASSERT_EQUAL_UINT32(1u, y.offset);
+	TEST_ASSERT_EQUAL_UINT32(2u, z.offset);
+	sk_offset_allocator_allocation_t w = sk_offset_allocator_allocate(oa5, 1u);
+	TEST_ASSERT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, w.offset);
+
+	/* All frees coalesce back to a single region; the pool recovers. */
+	sk_offset_allocator_free(oa5, x);
+	sk_offset_allocator_free(oa5, y);
+	sk_offset_allocator_free(oa5, z);
+	sk_offset_allocator_allocation_t v = sk_offset_allocator_allocate(oa5, 1u);
+	TEST_ASSERT_EQUAL_UINT32(0u, v.offset);
+	sk_offset_allocator_free(oa5, v);
+	sk_offset_allocator_destroy(oa5);
+}
+
+SK_TEST(offset_allocator_reset_pristine) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+
+	/* Fragment the allocator first: three live allocations, middle freed. */
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 100u);
+	sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 100u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	TEST_ASSERT_EQUAL_UINT32(100u, b.offset);
+	TEST_ASSERT_EQUAL_UINT32(200u, c.offset);
+	sk_offset_allocator_free(oa, b);
+	sk_offset_allocator_storage_report_t report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(824u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(704u, report.largest_free_region);
+
+	/* reset() restores the pristine state regardless of the fragmentation. */
+	sk_offset_allocator_reset(oa);
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.largest_free_region);
+	sk_offset_allocator_allocation_t full = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, full.offset); /* offsets restart at 0 */
+	sk_offset_allocator_free(oa, full);
+
+	/* reset() with live allocations outstanding also returns to pristine. */
+	sk_offset_allocator_allocation_t live = sk_offset_allocator_allocate(oa, 777u);
+	TEST_ASSERT_EQUAL_UINT32(0u, live.offset);
+	sk_offset_allocator_reset(oa);
+	report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(1024u, report.largest_free_region);
+	sk_offset_allocator_allocation_t full2 = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, full2.offset);
+	sk_offset_allocator_free(oa, full2);
+	sk_offset_allocator_destroy(oa);
+}
+
+SK_TEST(offset_allocator_boundary_sizes) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+
+	/* Size 1 and size == arena size (1024 is bin-exact). */
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+	sk_offset_allocator_allocation_t s1 = sk_offset_allocator_allocate(oa, 1u);
+	TEST_ASSERT_EQUAL_UINT32(0u, s1.offset);
+	TEST_ASSERT_EQUAL_UINT32(1u, sk_offset_allocator_allocation_size(oa, s1));
+	sk_offset_allocator_free(oa, s1);
+	sk_offset_allocator_allocation_t whole = sk_offset_allocator_allocate(oa, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, whole.offset);
+	sk_offset_allocator_allocation_t nope = sk_offset_allocator_allocate(oa, 1u);
+	TEST_ASSERT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, nope.offset);
+	sk_offset_allocator_free(oa, whole);
+	sk_offset_allocator_destroy(oa);
+
+	/* Sizes straddling the 2^8 and 2^10 rounding boundaries. Requests are
+	 * served contiguously from the tail remainder; offsets are exact. */
+	sk_offset_allocator_t* oa2 = sk_offset_allocator_create(4096u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa2);
+	static const u32 straddle_sizes[] = {255u, 256u, 257u, 1023u, 1024u, 1025u};
+	static const u32 straddle_offsets[] = {0u, 255u, 511u, 768u, 1791u, 2815u};
+	sk_offset_allocator_allocation_t straddle[6];
+	for (u32 i = 0u; i < 6u; i++) {
+		straddle[i] = sk_offset_allocator_allocate(oa2, straddle_sizes[i]);
+		TEST_ASSERT_EQUAL_UINT32(straddle_offsets[i], straddle[i].offset);
+		TEST_ASSERT_EQUAL_UINT32(straddle_sizes[i], sk_offset_allocator_allocation_size(oa2, straddle[i]));
+	}
+	for (u32 i = 0u; i < 6u; i++) {
+		sk_offset_allocator_free(oa2, straddle[i]);
+	}
+	sk_offset_allocator_allocation_t full2 = sk_offset_allocator_allocate(oa2, 4096u);
+	TEST_ASSERT_EQUAL_UINT32(0u, full2.offset);
+	sk_offset_allocator_free(oa2, full2);
+	sk_offset_allocator_destroy(oa2);
+
+	/* Sizes straddling the 2^20 boundary in a 16MB arena. */
+	const u32 arena16m = 16u * 1024u * 1024u;
+	sk_offset_allocator_t* oa3 = sk_offset_allocator_create(arena16m, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa3);
+	static const u32 big_straddle[] = {1048575u, 1048576u, 1048577u};
+	u32 expected_offset = 0u;
+	sk_offset_allocator_allocation_t big_alloc[3];
+	for (u32 i = 0u; i < 3u; i++) {
+		big_alloc[i] = sk_offset_allocator_allocate(oa3, big_straddle[i]);
+		TEST_ASSERT_EQUAL_UINT32(expected_offset, big_alloc[i].offset);
+		TEST_ASSERT_EQUAL_UINT32(big_straddle[i], sk_offset_allocator_allocation_size(oa3, big_alloc[i]));
+		expected_offset += big_straddle[i];
+	}
+	for (u32 i = 0u; i < 3u; i++) {
+		sk_offset_allocator_free(oa3, big_alloc[i]);
+	}
+	sk_offset_allocator_allocation_t full3 = sk_offset_allocator_allocate(oa3, arena16m);
+	TEST_ASSERT_EQUAL_UINT32(0u, full3.offset);
+	sk_offset_allocator_free(oa3, full3);
+	sk_offset_allocator_destroy(oa3);
+
+	/* 3-bit mantissa step at exponent 10: bins 56..64 step by 64 bytes
+	 * (512, 576, ..., 1024). A 576-byte region (bin 57, lower bound 576)
+	 * serves a 576-byte request but not a 577-byte one (rounds up to
+	 * bin 58, lower bound 640). */
+	sk_offset_allocator_t* oa4 = sk_offset_allocator_create(1600u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa4);
+	sk_offset_allocator_allocation_t base = sk_offset_allocator_allocate(oa4, 1024u);
+	TEST_ASSERT_EQUAL_UINT32(0u, base.offset); /* leaves exactly 576 free */
+	sk_offset_allocator_allocation_t step_over = sk_offset_allocator_allocate(oa4, 577u);
+	TEST_ASSERT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, step_over.offset);
+	sk_offset_allocator_allocation_t step_exact = sk_offset_allocator_allocate(oa4, 576u);
+	TEST_ASSERT_EQUAL_UINT32(1024u, step_exact.offset);
+	sk_offset_allocator_free(oa4, step_exact);
+	sk_offset_allocator_free(oa4, base);
+	/* 1600 is not bin-exact, so the full-arena request must be 1536 (bin 68
+	 * lower bound), which the coalesced 1600-byte region serves. */
+	sk_offset_allocator_allocation_t step_full = sk_offset_allocator_allocate(oa4, 1536u);
+	TEST_ASSERT_EQUAL_UINT32(0u, step_full.offset);
+	sk_offset_allocator_free(oa4, step_full);
+	sk_offset_allocator_destroy(oa4);
+}
+
+SK_TEST(offset_allocator_large_size_near_u32) {
+	const sk_allocator_t* alloc = sk_allocator_default();
+
+	/* 0xf0000000 is the largest bin-representable arena (bin 239 lower
+	 * bound). The arena type is u32, so this is the near-u32 case. */
+	sk_offset_allocator_t* oa = sk_offset_allocator_create(0xf0000000u, 0u, alloc);
+	TEST_ASSERT_NOT_NULL(oa);
+	sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 0xf0000000u);
+	TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+	TEST_ASSERT_EQUAL_UINT32(0xf0000000u, sk_offset_allocator_allocation_size(oa, a));
+
+	/* Requests above 0xf0000000 round up past the last usable bin (239) —
+	 * bin 240's lower bound would be 2^32, overflowing u32. Same inherent
+	 * limitation as upstream; the sentinel comes back, not a bogus offset. */
+	sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 0xffffffffu);
+	TEST_ASSERT_EQUAL_UINT32(SK_OFFSET_ALLOCATOR_NO_SPACE, b.offset);
+
+	sk_offset_allocator_free(oa, a);
+	sk_offset_allocator_storage_report_t report = sk_offset_allocator_storage_report(oa);
+	TEST_ASSERT_EQUAL_UINT32(0xf0000000u, report.total_free_space);
+	TEST_ASSERT_EQUAL_UINT32(0xf0000000u, report.largest_free_region);
+	sk_offset_allocator_destroy(oa);
+}
+
+/* ---- leak-checking allocator stub (the project has no sanitizer CI job) ---- */
+
+#define OA_TEST_MAX_SLOTS 16u
+
+typedef struct oa_test_counting_allocator_t {
+	void_ptr_t slots[OA_TEST_MAX_SLOTS];
+	size_t slot_sizes[OA_TEST_MAX_SLOTS];
+	u32 slot_count;
+	u32 alloc_calls;
+	u32 free_calls;
+} oa_test_counting_allocator_t;
+
+static void_ptr_t oa_test_counting_alloc(void_ptr_t instance, size_t size) {
+	oa_test_counting_allocator_t* counter = (oa_test_counting_allocator_t*)instance;
+	TEST_ASSERT_TRUE(counter->slot_count < OA_TEST_MAX_SLOTS);
+	void_ptr_t p = malloc(size);
+	TEST_ASSERT_NOT_NULL(p);
+	counter->slots[counter->slot_count] = p;
+	counter->slot_sizes[counter->slot_count] = size;
+	counter->slot_count++;
+	counter->alloc_calls++;
+	return p;
+}
+
+static void oa_test_counting_free(void_ptr_t instance, void_ptr_t ptr) {
+	oa_test_counting_allocator_t* counter = (oa_test_counting_allocator_t*)instance;
+	for (u32 i = 0u; i < counter->slot_count; i++) {
+		if (counter->slots[i] == ptr) {
+			counter->slots[i] = counter->slots[counter->slot_count - 1u];
+			counter->slot_sizes[i] = counter->slot_sizes[counter->slot_count - 1u];
+			counter->slot_count--;
+			free(ptr);
+			counter->free_calls++;
+			return;
+		}
+	}
+	TEST_FAIL_MESSAGE("counting allocator: free of unknown pointer");
+}
+
+static void_ptr_t oa_test_counting_realloc(void_ptr_t instance, void_ptr_t ptr, size_t size) {
+	(void)instance;
+	(void)ptr;
+	(void)size;
+	TEST_FAIL_MESSAGE("counting allocator: unexpected realloc");
+	return NULL;
+}
+
+SK_TEST(offset_allocator_destroy_live_allocations_no_leak) {
+	/* destroy() must release every internal array even when allocations are
+	 * still live. The counting allocator proves alloc/free balance and zero
+	 * live bytes deterministically (no sanitizer job in this project). */
+	oa_test_counting_allocator_t counter;
+	sk_allocator_t counting;
+	counting.instance = &counter;
+	counting.alloc = oa_test_counting_alloc;
+	counting.free = oa_test_counting_free;
+	counting.realloc = oa_test_counting_realloc;
+
+	for (u32 cycle = 0u; cycle < 3u; cycle++) {
+		memset(&counter, 0, sizeof(counter));
+
+		sk_offset_allocator_t* oa = sk_offset_allocator_create(1024u, 64u, &counting);
+		TEST_ASSERT_NOT_NULL(oa);
+		u32 created_allocations = counter.alloc_calls; /* the 3 internal arrays */
+		TEST_ASSERT_EQUAL_UINT32(3u, created_allocations);
+
+		sk_offset_allocator_allocation_t a = sk_offset_allocator_allocate(oa, 100u);
+		sk_offset_allocator_allocation_t b = sk_offset_allocator_allocate(oa, 200u);
+		sk_offset_allocator_allocation_t c = sk_offset_allocator_allocate(oa, 300u);
+		TEST_ASSERT_EQUAL_UINT32(0u, a.offset);
+		TEST_ASSERT_EQUAL_UINT32(100u, b.offset);
+		TEST_ASSERT_EQUAL_UINT32(300u, c.offset);
+
+		/* allocate()/free() never touch the heap: call counts unchanged. */
+		TEST_ASSERT_EQUAL_UINT32(created_allocations, counter.alloc_calls);
+
+		/* a, b, c are still live when destroy() runs. */
+		sk_offset_allocator_destroy(oa);
+		TEST_ASSERT_EQUAL_UINT32(created_allocations, counter.free_calls);
+		TEST_ASSERT_EQUAL_UINT32(0u, counter.slot_count);
+	}
+}
+
+#endif /* SK_TESTS */
