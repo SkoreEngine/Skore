@@ -232,9 +232,11 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 
-	/* Panel */
+	/* Panel: column + cross-axis STRETCH so AUTO-width children (e.g. empty
+	 * body BOX under panel-main) fill content width — APX-247 / vision D1. */
 	ui_style_props_clear(&base);
-	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION;
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION |
+				SK_UI_SP_ALIGN_ITEMS;
 	base.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
 	base.border_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
 	base.layout.border.left = 1.0f;
@@ -244,6 +246,7 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	base.corner_radius = 4.0f;
 	ui_style_fill_layout_pad(&base, 8.0f);
 	base.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	base.layout.align_items = SK_UI_ALIGN_STRETCH;
 	if (ui->style_class_register(ctx, SK_UI_CLASS_PANEL, &base) != 0) {
 		return -1;
 	}

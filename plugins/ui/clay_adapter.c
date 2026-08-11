@@ -1525,6 +1525,58 @@ SK_TEST(ui_clay_nested_container_under_panel) {
 }
 
 /*
+ * APX-247 / vision D1 only: empty BOX with height + AUTO width under a column
+ * panel must stretch to the full content width (not FIT-collapse to 0).
+ * ui_integration_layout_nested body-red bar depends on this.
+ */
+SK_TEST(ui_clay_column_stretch_empty_box_fills_content_width) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root;
+	sk_ui_node_t panel;
+	sk_ui_node_t body;
+	sk_ui_rect_t rbody;
+	sk_ui_rect_t rpanel;
+	sk_ui_style_props_t p;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->context_root(ctx);
+
+	panel = ui->widget_panel(ctx, root, "d1-panel");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(panel));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP;
+	p.layout.width = sk_ui_pt(224.0f);
+	p.layout.height = sk_ui_pt(160.0f);
+	p.layout.position = SK_UI_POSITION_ABSOLUTE;
+	p.layout.left = sk_ui_pt(16.0f);
+	p.layout.top = sk_ui_pt(16.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, panel, &p));
+
+	body = ui->node_create(ctx, SK_UI_NODE_KIND_BOX, panel);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(body));
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_HEIGHT;
+	p.background_color = sk_ui_rgba(0.85f, 0.30f, 0.20f, 1.0f);
+	p.layout.height = sk_ui_pt(40.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, body, &p));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 256.0f, 192.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, panel, &rpanel, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_rect(ctx, body, &rbody, NULL));
+
+	/* Outer panel 224x160; content width 224 - 2*(1 border + 8 pad) = 206. */
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 224.0f, rpanel.width);
+	TEST_ASSERT_FLOAT_WITHIN(1.0f, 40.0f, rbody.height);
+	TEST_ASSERT_FLOAT_WITHIN(1.5f, 206.0f, rbody.width);
+	TEST_ASSERT_TRUE(rbody.width > 100.0f); /* not collapsed FIT zero-width */
+	TEST_ASSERT_TRUE(rbody.height > 1.0f);
+
+	ui->context_destroy(ctx);
+}
+
+/*
  * APX-240 / vision audit D1+D2 (APX-247, APX-248): layout contracts that
  * ui_integration_layout_nested depends on.
  *

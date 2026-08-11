@@ -34,15 +34,15 @@ export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
 
 Each defect is a separate goal task assigned to the **coder** worker.
 
-### D1 — APX-247 — missing body-red BOX — **FIXED (APX-240)**
+### D1 — APX-247 — missing body-red BOX — **FIXED (APX-240 / APX-247)**
 
 - **Snapshot:** `ui_integration_layout_nested.png`
 - **Region:** body BOX under `panel-main` (expected ~`[24,52]..[231,93]`)
 - **Wrong:** zero pixels near `rgba(217,76,51)`; lower panel content is empty panel-gray
 - **Correct:** solid body-red bar height ~40, stretched to panel content width, under header row
 - **Root cause:** Clay adapter mapped AUTO-width in-flow children as FIT. Empty body BOX (height only, no text) collapsed to zero width under a column panel whose default `align_items` is STRETCH.
-- **Fix:** `plugins/ui/clay_adapter.c` — when parent `align_items` / child `align_self` is STRETCH and the cross-axis size is AUTO, map that axis as GROW so the child fills the parent content size.
-- **Verified (APX-240):** live body fill bbox `(25,53)-(230,92)` (206×40), histogram body-red fraction ~0.17; `ui_integration_layout_nested` PASS; unit `ui_clay_nested_border_box_stretch_space_between` locks content width 206.
+- **Fix:** `plugins/ui/clay_adapter.c` — when parent `align_items` / child `align_self` is STRETCH and the cross-axis size is AUTO, map that axis as GROW so the child fills the parent content size. `ui-panel` class also sets `align_items: STRETCH` explicitly.
+- **Verified (APX-240 / APX-247):** live body fill bbox `(25,53)-(230,92)` (206×40), ~8240 body-red pixels, histogram body-red fraction ~0.17; `ui_integration_layout_nested` PASS; units `ui_clay_column_stretch_empty_box_fills_content_width` and `ui_clay_nested_border_box_stretch_space_between` lock content width 206.
 
 ### D2 — APX-248 — header buttons oversized and overflow panel — **FIXED (APX-240)**
 
