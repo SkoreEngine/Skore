@@ -164,3 +164,59 @@ obsolete and must be revisited by the serializer task.
 
 5. **`TYPE_ID`** — **resolved by APX-181:** by-value `sk_type_id_t` with the
    same prototype-chain fallback as the other scalar getters.
+
+---
+
+## 4. APX-185 full build and regression (v2 / feature branch)
+
+Verification only; no accessor or buffer behavior change.
+
+### Commands
+
+```bash
+# Clean Debug (clang-tidy ON, -Werror on first-party)
+rm -rf build
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DBUILD_TESTING=ON -DSK_ENABLE_CLANG_TIDY=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure --verbose
+
+# Clean Release (same flags as CI matrix)
+rm -rf build-release
+cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=ON -DSK_ENABLE_CLANG_TIDY=ON
+cmake --build build-release --parallel
+ctest --test-dir build-release --output-on-failure
+
+# Windows LLP64 tidy gate
+bash scripts/check-windows-abi.sh
+
+# Optional ASan/UBSan (no project sanitizer preset; manual flags)
+rm -rf build-asan
+cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DBUILD_TESTING=ON -DSK_ENABLE_CLANG_TIDY=OFF \
+  -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+  -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+  -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined' \
+  -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build-asan --parallel --target sk-tests sk-integration-tests
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+  ctest --test-dir build-asan --output-on-failure
+```
+
+### Results
+
+| Gate | Result |
+| --- | --- |
+| Debug clean build | Pass (122 objects). First-party: no compiler warnings. Only pre-existing thirdparty `nfd_zenity.c` format-truncation. |
+| Debug `ctest` | Pass — `sk-tests` + `sk-integration-tests` (0 failures). |
+| Release clean build + `ctest` | Pass (0 failures). |
+| Windows ABI (`check-windows-abi.sh`) | Pass (`checked: 38  failed: 0`). |
+| Accessor unit tests | `repository_extended_field_accessors` PASS; `repository_buffer_field_accessors` PASS. |
+| Buffer integration tests | All five `resource_object_buffer_*` + three fixture tests PASS. |
+| ASan/UBSan (`detect_leaks=0`) | Full suite PASS; no UAF/OOB/UB on buffer or extended field paths. |
+| ASan + LeakSanitizer (`detect_leaks=1`) | Unity suite still 0 Failures; process exit reports leaks from plugin `dlopen` / Vulkan paths (e.g. `lib_open` → `load_plugins_from_directory`). **Pre-existing, unrelated to ResourceObject accessors/buffers — not fixed here.** |
+| Valgrind | Not installed on the agent host; no project valgrind CMake preset. |
+
+**Conclusion:** Missing `sk_resource_object_t` field-type accessors (APX-181/182) and BUFFER fixtures/tests (APX-183/184) are complete and green under clean Debug/Release regression. No accessor/buffer regressions required a code fix.
