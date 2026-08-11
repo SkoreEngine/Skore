@@ -807,6 +807,37 @@ ui->harness_destroy(h);
 
 Shipped coverage lives under `#ifdef SK_TESTS` in `plugins/ui/*.c` (layout, style, input, widgets, automation, sample menu). GPU goldens: `tests/integration/ui_render.c` and `scripts/regen-ui-goldens.sh`.
 
+### 9.3 Golden image comparison (review and bless)
+
+Use `cpu_image_compare` / `cpu_image_compare_golden` on `sk_ui_api_t` (APX-229) after capture or soft-render:
+
+```c
+sk_ui_image_compare_params_t p;
+sk_ui_image_compare_stats_t stats;
+memset(&p, 0, sizeof(p));
+p.channel_tolerance = 2;      /* per-channel abs delta still “equal” */
+p.max_diff_fraction = 0.0f;   /* fraction of pixels allowed beyond tolerance */
+p.name = "my_scene";          /* failure artifact base name */
+p.update_golden = 0;          /* never default to 1 */
+
+i32 rc = ui->cpu_image_compare_golden(&img, "plugins/ui/testdata/my_scene.png",
+                                      &p, sk_filesystem_api(), &stats);
+/* OK / MISMATCH / SIZE_MISMATCH / MISSING_GOLDEN */
+```
+
+**On mismatch** the helper writes three PNGs under the shared test-artifact root (`SK_TEST_ARTIFACT_DIR` or `build/test-artifacts`): `{name}_actual.png`, `{name}_expected.png`, and `{name}_diff.png` (dim actual + red failing pixels). Logs include differ count, max channel delta, and the bounding box of the differing region. Size mismatches fail immediately with a clear message (no silent pixel scan).
+
+**Review and bless (update goldens):**
+
+1. Open the three failure artifacts and confirm the change is intentional.
+2. Regenerate deliberately — **never automatic**:
+   - `params.update_golden = 1`, or
+   - `SK_UI_REGEN_GOLDENS=1` (same env used by `scripts/regen-ui-goldens.sh`).
+3. Re-run the test so the golden PNG under `plugins/ui/testdata/` (or your path) is overwritten.
+4. Visually check the new golden, then commit the PNG with the code change.
+
+Do not leave `update_golden=1` or the env set in CI; blessing is opt-in only.
+
 ---
 
 ## 10. v1 limitations (deliberately absent)

@@ -877,6 +877,59 @@ typedef struct sk_ui_cpu_image_t {
 	u8* pixels;	  /**< Tightly packed RGBA8; stride = width * channels. */
 } sk_ui_cpu_image_t;
 
+/* ------------------------------------------------------------------ */
+/*  Golden image comparison (harness / capture tests)                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Return codes from cpu_image_compare / cpu_image_compare_golden.
+ * OK is 0 so callers can use `if (rc != 0) fail`. Non-zero values are
+ * stable categories for assertion messages.
+ */
+#define SK_UI_IMAGE_COMPARE_OK 0			 /**< Within tolerance (or golden blessed). */
+#define SK_UI_IMAGE_COMPARE_MISMATCH 1		 /**< Pixel differences exceed thresholds. */
+#define SK_UI_IMAGE_COMPARE_SIZE_MISMATCH 2	 /**< Width/height differ; no pixel scan. */
+#define SK_UI_IMAGE_COMPARE_MISSING_GOLDEN 3 /**< Golden PNG missing or unreadable. */
+#define SK_UI_IMAGE_COMPARE_ERROR (-1)		 /**< Hard failure (I/O, OOM, bad args). */
+
+/**
+ * Comparison thresholds and options. Zero-init is strict equality:
+ * channel_tolerance=0, max_diff_fraction=0, update_golden=0.
+ * Blessing is also enabled when SK_UI_REGEN_GOLDENS is set and not "0"
+ * (env never becomes the silent default — must be set deliberately).
+ */
+typedef struct sk_ui_image_compare_params_t {
+	u32 channel_tolerance; /**< Max abs per-channel delta still treated as match. */
+	f32 max_diff_fraction; /**< Max fraction of pixels allowed beyond tolerance [0,1]. */
+	i32 update_golden;	   /**< Non-zero: overwrite golden with actual (bless). Default 0. */
+	const_chr_t name;	   /**< Base name for failure artifacts under the test-artifact root. */
+} sk_ui_image_compare_params_t;
+
+/**
+ * Actionable summary filled by compare APIs (ASCII-printable fields only).
+ * Bounding box is inclusive pixel coords of the differing region when
+ * differ_count > 0; all zeros otherwise.
+ */
+typedef struct sk_ui_image_compare_stats_t {
+	u32 actual_width;
+	u32 actual_height;
+	u32 expected_width;
+	u32 expected_height;
+	u32 pixel_count;	   /**< actual_width * actual_height when sizes match; else 0. */
+	u32 differ_count;	   /**< Pixels exceeding channel_tolerance. */
+	u32 max_channel_delta; /**< Max abs channel delta across all compared channels. */
+	u32 bbox_min_x;
+	u32 bbox_min_y;
+	u32 bbox_max_x;
+	u32 bbox_max_y;
+	i32 size_mismatch; /**< Non-zero when dimensions differ. */
+	i32 updated;	   /**< Non-zero when golden was rewritten (bless mode). */
+	/* Null-terminated paths of failure artifacts when written; empty otherwise. */
+	char actual_path[SK_FS_PATH_MAX];
+	char expected_path[SK_FS_PATH_MAX];
+	char diff_path[SK_FS_PATH_MAX];
+} sk_ui_image_compare_stats_t;
+
 /**
  * Opaque headless GPU capture: owns an offscreen RGBA8 color target (a
  * device-owned texture — no swapchain, window, or surface involved), the
@@ -1927,6 +1980,41 @@ typedef struct sk_ui_api_t {
 	 * (320 x 240). Either out pointer may be NULL.
 	 */
 	void (*sample_menu_logical_size)(f32* out_width, f32* out_height);
+
+	/* ---- Golden image comparison (APX-229) ---- */
+
+	/**
+	 * Compare two tightly packed RGBA8 (or 1–4 channel) images in memory.
+	 * Mismatched dimensions fail immediately (SIZE_MISMATCH) with no pixel
+	 * scan. Otherwise compares per-pixel with @p channel_tolerance and
+	 * fails with MISMATCH when the fraction of differing pixels exceeds
+	 * @p max_diff_fraction. Optional @p out_diff_rgba (same size as actual)
+	 * is filled with a visual diff: dim actual for matches, bright red for
+	 * failures. Optional @p out_stats receives counts, max channel delta,
+	 * and the bounding box of the differing region.
+	 * @return SK_UI_IMAGE_COMPARE_OK / MISMATCH / SIZE_MISMATCH / ERROR.
+	 */
+	i32 (*cpu_image_compare)(const sk_ui_cpu_image_t* actual, const sk_ui_cpu_image_t* expected, u32 channel_tolerance, f32 max_diff_fraction,
+							 sk_ui_image_compare_stats_t* out_stats, u8* out_diff_rgba);
+
+	/**
+	 * Compare a captured @p actual image against a committed golden PNG at
+	 * @p golden_path. Loads the golden via stb_image. On MISMATCH writes three
+	 * artifacts under the test-artifact root ({name}_actual/expected/diff.png)
+	 * and logs an ASCII summary (differ count, max channel delta, bbox, paths).
+	 * Size mismatches fail immediately with a clear message (actual + expected
+	 * still written when possible).
+	 *
+	 * Bless / update mode (never the default): set params->update_golden != 0
+	 * or export SK_UI_REGEN_GOLDENS=1 — writes @p actual over @p golden_path and
+	 * returns OK with stats.updated=1. Review the image before committing.
+	 *
+	 * @p params may be NULL (strict equality, no bless, name "image_compare").
+	 * @p fs is used for parent-dir creation when writing artifacts/goldens.
+	 * @return SK_UI_IMAGE_COMPARE_* code.
+	 */
+	i32 (*cpu_image_compare_golden)(const sk_ui_cpu_image_t* actual, const_chr_t golden_path, const sk_ui_image_compare_params_t* params, const sk_filesystem_api_t* fs,
+									sk_ui_image_compare_stats_t* out_stats);
 } sk_ui_api_t;
 
 /**

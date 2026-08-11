@@ -299,6 +299,15 @@ i32 ui_test_artifact_root_impl(const sk_filesystem_api_t* fs, char* out, u32 out
 i32 ui_test_artifact_png_path_impl(const sk_filesystem_api_t* fs, const_chr_t name, char* out, u32 out_cap);
 
 /* -------------------------------------------------------------------------- */
+/* Golden image comparison (image_compare.c)                                  */
+/* -------------------------------------------------------------------------- */
+
+i32 ui_cpu_image_compare_impl(const sk_ui_cpu_image_t* actual, const sk_ui_cpu_image_t* expected, u32 channel_tolerance, f32 max_diff_fraction,
+							  sk_ui_image_compare_stats_t* out_stats, u8* out_diff_rgba);
+i32 ui_cpu_image_compare_golden_impl(const sk_ui_cpu_image_t* actual, const_chr_t golden_path, const sk_ui_image_compare_params_t* params, const sk_filesystem_api_t* fs,
+									 sk_ui_image_compare_stats_t* out_stats);
+
+/* -------------------------------------------------------------------------- */
 /* Widgets (widgets.c)                                                        */
 /* -------------------------------------------------------------------------- */
 

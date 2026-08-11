@@ -185,6 +185,8 @@ When `soft_render != 0`:
 
 Soft-render is intentional for headless goldens; GPU capture remains a separate integration path (`tests/integration/ui_render.c`).
 
+Assert pixels with `cpu_image_compare` / `cpu_image_compare_golden` (APX-229): per-channel tolerance, max differing-pixel fraction, size-mismatch fail-fast, and on failure `{name}_actual` / `_expected` / `_diff` PNGs plus differ count, max channel delta, and bbox. **Blessing is opt-in only** (`params.update_golden` or `SK_UI_REGEN_GOLDENS=1`); review the three artifacts, rewrite the golden, then commit. See `docs/ui-plugin.md` §9.3.
+
 ### 6.4 Fonts for text goldens
 
 ```c
