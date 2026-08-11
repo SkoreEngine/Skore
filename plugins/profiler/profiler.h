@@ -417,11 +417,15 @@ static inline void sk_profiler_gpu_zone_end(sk_profiler_gpu_zone_t* zone) {
  * arguments are still evaluated so call-site variables stay used, and the
  * table call is skipped.
  */
-#define SK_PROFILE_BEGIN_CPU_SAMPLE(api, name, category, color) ((void)((void)(name), (void)(category), (void)(color), (api) != NULL ? ((api)->begin_cpu_sample((name), (category), (color)), 0) : 0))
+/* Argument-discard idiom: each operand is cast to void separately (the
+ * canonical "evaluate and discard" form). A single comma expression would
+ * trip -Wunused-value on newer GCC/Clang when call sites pass literals. */
+#define SK_PROFILE_BEGIN_CPU_SAMPLE(api, name, category, color) \
+	((void)(name), (void)(category), (void)(color), (void)((api) != NULL ? ((api)->begin_cpu_sample((name), (category), (color)), 0) : 0))
 #define SK_PROFILE_END_CPU_SAMPLE(api) ((void)((api) != NULL ? ((api)->end_cpu_sample(), 0) : 0))
 #define SK_PROFILE_BEGIN_GPU_SAMPLE(api, name, category, color, cmd) \
-	((void)((void)(name), (void)(category), (void)(color), (void)(cmd), (api) != NULL ? ((api)->begin_gpu_sample((name), (category), (color), (cmd)), 0) : 0))
-#define SK_PROFILE_END_GPU_SAMPLE(api, cmd) ((void)((void)(cmd), (api) != NULL ? ((api)->end_gpu_sample((cmd)), 0) : 0))
+	((void)(name), (void)(category), (void)(color), (void)(cmd), (void)((api) != NULL ? ((api)->begin_gpu_sample((name), (category), (color), (cmd)), 0) : 0))
+#define SK_PROFILE_END_GPU_SAMPLE(api, cmd) ((void)(cmd), (void)((api) != NULL ? ((api)->end_gpu_sample((cmd)), 0) : 0))
 #define SK_PROFILE_BEGIN_FRAME(api) ((void)((api) != NULL ? ((api)->begin_frame(), 0) : 0))
 #define SK_PROFILE_END_FRAME(api) ((void)((api) != NULL ? ((api)->end_frame(), 0) : 0))
 
