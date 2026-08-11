@@ -1321,6 +1321,11 @@ static const sk_ui_api_t ui_api = {
 	ui_font_atlas_get_page_impl,
 	ui_font_cache_count_impl,
 	ui_font_cache_stats_impl,
+	ui_renderer_create_impl,
+	ui_renderer_destroy_impl,
+	ui_renderer_set_render_pass_impl,
+	ui_renderer_prepare_impl,
+	ui_renderer_encode_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {

@@ -264,3 +264,13 @@ u32 ui_font_atlas_page_count_impl(const sk_ui_font_system_t* system);
 i32 ui_font_atlas_get_page_impl(const sk_ui_font_system_t* system, u32 page_index, sk_ui_atlas_page_t* out);
 u32 ui_font_cache_count_impl(const sk_ui_font_system_t* system);
 void ui_font_cache_stats_impl(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);
+
+/* -------------------------------------------------------------------------- */
+/* GPU renderer (render.c)                                                    */
+/* -------------------------------------------------------------------------- */
+
+sk_ui_renderer_t* ui_renderer_create_impl(const sk_ui_renderer_desc_t* desc);
+void ui_renderer_destroy_impl(sk_ui_renderer_t* renderer);
+i32 ui_renderer_set_render_pass_impl(sk_ui_renderer_t* renderer, sk_render_pass_t render_pass);
+i32 ui_renderer_prepare_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_prepare_info_t* info);
+i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_encode_info_t* info);

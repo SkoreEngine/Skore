@@ -16,14 +16,17 @@
  * lifecycle, layout vs paint dirty flags with ancestor propagation,
  * tree traversals, and a flexbox layout solver over the tree.
  *
- * Pure CPU — no rendering, no platform window, no GPU.
+ * Tree/layout/paint are pure CPU. GPU upload and draws live on the optional
+ * sk_ui_renderer_t path (render_device + DXC only; no parallel device layer).
  * Layout runs in logical units; apply_scale maps to physical pixels.
  */
 
 #include "allocator.h"
 #include "app.h"
 #include "common.h"
+#include "dxc_compiler.h"
 #include "filesystem.h"
+#include "render_device.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,9 +47,16 @@ typedef struct sk_ui_font_t sk_ui_font_t;
 
 /**
  * Opaque font system: FreeType library, loaded faces, R8 atlas pages, glyph cache.
- * CPU-only — GPU texture upload is a later task (APX-134).
+ * CPU-side atlas; GPU upload is owned by sk_ui_renderer_t.
  */
 typedef struct sk_ui_font_system_t sk_ui_font_system_t;
+
+/**
+ * Opaque GPU renderer for UI draw lists.
+ * Owns pipelines, dynamic VB/IB, font atlas GPU textures, and samplers.
+ * Uses only sk_render_device_api_t (no parallel device layer).
+ */
+typedef struct sk_ui_renderer_t sk_ui_renderer_t;
 
 /**
  * Font-level metrics at a specific pixel size (physical pixels).
@@ -750,6 +760,57 @@ typedef struct sk_ui_paint_params_t {
 } sk_ui_paint_params_t;
 
 /* ------------------------------------------------------------------ */
+/*  GPU renderer (draw list → render_device)                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Creation parameters for the UI GPU renderer.
+ * @p device_api / @p device / @p dxc / @p render_pass must be valid.
+ * @p render_pass must match the pass used when encoding draws (swapchain or
+ * offscreen). Recreate the renderer (or call renderer_set_render_pass) when
+ * the target format/pass changes.
+ */
+typedef struct sk_ui_renderer_desc_t {
+	const sk_render_device_api_t* device_api; /**< Non-NULL engine RHI table. */
+	sk_render_device_t device;				  /**< Live device (adapter selected). */
+	const sk_dxc_compiler_api_t* dxc;		  /**< Non-NULL; used to compile embedded HLSL. */
+	sk_render_pass_t render_pass;			  /**< Compatible with the encode target. */
+	const sk_allocator_t* allocator;		  /**< Optional; NULL = process default. */
+} sk_ui_renderer_desc_t;
+
+/**
+ * Host image bindings for SK_UI_DRAW_TEX_IMAGE mesh commands.
+ * texture_id on the draw command indexes this array (out of range → white).
+ */
+typedef struct sk_ui_renderer_images_t {
+	const sk_texture_view_t* views; /**< May be NULL when count is 0. */
+	u32 count;
+} sk_ui_renderer_images_t;
+
+/**
+ * Parameters for renderer_prepare (transfer work outside a render pass).
+ * Uploads dynamic vertex/index buffers and dirty font atlas pages.
+ */
+typedef struct sk_ui_renderer_prepare_info_t {
+	sk_command_buffer_t cmd;			/**< Recording command buffer (not in a pass). */
+	const sk_ui_draw_list_t* draw_list; /**< From paint/get_draw_list; may be empty. */
+	sk_ui_font_system_t* font_system;	/**< Optional; required for FONT texture cmds. */
+} sk_ui_renderer_prepare_info_t;
+
+/**
+ * Parameters for renderer_encode (draw work inside a render pass).
+ * Host must have begun a render pass compatible with the create-time pass.
+ * Sets full-target viewport and per-mesh scissor; issues batched draw_indexed.
+ */
+typedef struct sk_ui_renderer_encode_info_t {
+	sk_command_buffer_t cmd;			/**< Inside a compatible render pass. */
+	const sk_ui_draw_list_t* draw_list; /**< Same list prepared for this frame. */
+	u32 target_width;					/**< Framebuffer width in pixels. */
+	u32 target_height;					/**< Framebuffer height in pixels. */
+	sk_ui_renderer_images_t images;		/**< Optional host image views. */
+} sk_ui_renderer_encode_info_t;
+
+/* ------------------------------------------------------------------ */
 /*  Module API                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -1392,6 +1453,45 @@ typedef struct sk_ui_api_t {
 	 * Either out pointer may be NULL.
 	 */
 	void (*font_cache_stats)(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);
+
+	/* ---- GPU renderer (draw list → sk_render_device_api_t only) ---- */
+
+	/**
+	 * Create a GPU renderer: compile embedded HLSL via DXC, build pipelines
+	 * (alpha blend, scissor), allocate dynamic VB/IB, white texture, sampler.
+	 * @return Renderer, or NULL on failure (shader compile, pipeline create, OOM).
+	 */
+	sk_ui_renderer_t* (*renderer_create)(const sk_ui_renderer_desc_t* desc);
+
+	/**
+	 * Destroy a renderer and all GPU resources it owns. Safe on NULL.
+	 * Does not destroy the device, render pass, or font system.
+	 */
+	void (*renderer_destroy)(sk_ui_renderer_t* renderer);
+
+	/**
+	 * Rebuild graphics pipelines for a new render pass (e.g. swapchain format
+	 * change). Invalidates nothing else (buffers/atlas stay valid).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*renderer_set_render_pass)(sk_ui_renderer_t* renderer, sk_render_pass_t render_pass);
+
+	/**
+	 * Upload draw-list geometry and dirty font atlas pages.
+	 * Must be recorded **outside** a render pass (transfer / update_buffer).
+	 * Call once per frame before begin_render_pass when the list may have changed.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*renderer_prepare)(sk_ui_renderer_t* renderer, const sk_ui_renderer_prepare_info_t* info);
+
+	/**
+	 * Bind UI pipeline state and issue batched draw_indexed for MESH commands.
+	 * Must be recorded **inside** a render pass compatible with create / set_render_pass.
+	 * Applies viewport (full target), scissor per mesh, alpha blending, and
+	 * texture binds (white / font atlas page / host image).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*renderer_encode)(sk_ui_renderer_t* renderer, const sk_ui_renderer_encode_info_t* info);
 } sk_ui_api_t;
 
 /**
