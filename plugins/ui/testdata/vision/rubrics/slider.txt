@@ -1,0 +1,11 @@
+Widget family: SLIDER
+
+Strict visual criteria (PASS only if ALL hold):
+
+1. A horizontal track is visible (thin bar spanning most of the control width).
+2. A distinct grab handle / thumb is visible on the track — a separable knob (rounded rect or circle) that is thicker than the track itself.
+3. Optional filled portion of the track (from start to thumb) may be present and must end at the handle.
+4. FAIL if: only a solid bar with no separable handle, only endpoints with no thumb, a bare progress bar, or empty/missing control.
+5. When DISABLED: track and handle are visibly dimmed (lower contrast) vs enabled.
+
+HOVER may emphasize the handle/track slightly without removing the handle.

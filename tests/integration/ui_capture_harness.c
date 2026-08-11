@@ -730,15 +730,14 @@ SK_TEST(ui_capture_harness_test_font_asset_guard) {
 	TEST_ASSERT_EQUAL_INT(0, sk_ui_capture_harness_test_font_path(path, (u32)sizeof(path)));
 	TEST_ASSERT_TRUE_MESSAGE(path[0] != '\0', "test font path must be non-empty");
 	TEST_ASSERT_EQUAL_INT_MESSAGE(SK_FILE_STATUS_FILE, fs->get_file_status(path),
-								   "DejaVuSans.ttf missing under UI test assets — copy from main Content/Fonts/DejaVuSans.ttf (no system/built-in fallback)");
+								  "DejaVuSans.ttf missing under UI test assets — copy from main Content/Fonts/DejaVuSans.ttf (no system/built-in fallback)");
 
 	/* 2. Exact byte size pin (rejects subset/built-in stand-ins). */
 	file = fs->open_file(path, SK_FILE_ACCESS_READ);
 	TEST_ASSERT_NOT_NULL(file);
 	size_u64 = fs->get_file_size(file);
 	fs->close_file(file);
-	TEST_ASSERT_EQUAL_UINT_MESSAGE(SK_UI_CAPTURE_HARNESS_FONT_FILE_SIZE, (u32)size_u64,
-									"DejaVuSans.ttf size must match main Content/Fonts/DejaVuSans.ttf (757076 bytes)");
+	TEST_ASSERT_EQUAL_UINT_MESSAGE(SK_UI_CAPTURE_HARNESS_FONT_FILE_SIZE, (u32)size_u64, "DejaVuSans.ttf size must match main Content/Fonts/DejaVuSans.ttf (757076 bytes)");
 
 	/* 3. Harness loader succeeds (hard-fails on missing/wrong asset). */
 	app = sk_app_init(0, NULL);
@@ -751,7 +750,7 @@ SK_TEST(ui_capture_harness_test_font_asset_guard) {
 	}
 	TEST_ASSERT_EQUAL_INT(0, ui->init());
 	TEST_ASSERT_EQUAL_INT_MESSAGE(0, sk_ui_capture_harness_load_test_font(ui, &sys, &font),
-								   "harness must load vendored DejaVuSans.ttf — must not fall back to embedded skore_test_font");
+								  "harness must load vendored DejaVuSans.ttf — must not fall back to embedded skore_test_font");
 	TEST_ASSERT_NOT_NULL(sys);
 	TEST_ASSERT_NOT_NULL(font);
 
@@ -770,7 +769,7 @@ SK_TEST(ui_capture_harness_test_font_asset_guard) {
 	TEST_ASSERT_TRUE(gi != 0u);
 	/* Em dash / Latin-1: present in full DejaVuSans, absent from ASCII subset. */
 	TEST_ASSERT_TRUE_MESSAGE(ui->font_glyph_index(font, 0x2014u) != 0u || ui->font_glyph_index(font, 0x00E9u) != 0u,
-							  "loaded face looks like the built-in ASCII subset, not full DejaVuSans.ttf");
+							 "loaded face looks like the built-in ASCII subset, not full DejaVuSans.ttf");
 
 	/* 6. capture with load_test_font must not skip/error when the asset is present
 	 * (Vulkan may still skip — only assert that font load itself is not the cause
@@ -865,8 +864,7 @@ SK_TEST(ui_capture_harness_text_font_byte_stable) {
 	TEST_ASSERT_EQUAL_UINT(a.channels, b.channels);
 
 	nbytes = (size_t)a.width * a.height * a.channels;
-	TEST_ASSERT_EQUAL_INT_MESSAGE(0, memcmp(a.pixels, b.pixels, nbytes),
-								   "two consecutive DejaVuSans text captures must be byte-identical");
+	TEST_ASSERT_EQUAL_INT_MESSAGE(0, memcmp(a.pixels, b.pixels, nbytes), "two consecutive DejaVuSans text captures must be byte-identical");
 
 	sk_ui_capture_harness_image_free(&a);
 	sk_ui_capture_harness_image_free(&b);

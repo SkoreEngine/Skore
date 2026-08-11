@@ -1,0 +1,14 @@
+Widget family: RADIO
+
+Strict visual criteria (PASS only if ALL hold for the claimed state):
+
+UNCHECKED:
+1. A circular radio control is visible (round outer ring, not a square checkbox).
+2. Interior has no filled inner disc/dot that reads as selected.
+
+CHECKED / SELECTED:
+1. Outer circular ring remains visible.
+2. A filled inner circle (disc) is centered inside the ring — solid and clearly smaller than the outer ring.
+3. FAIL if: empty ring only, square checkbox with X/check, a single pixel speck, an X mark, or a filled square.
+
+DISABLED: control and mark (if any) are visibly dimmed vs enabled.

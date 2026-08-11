@@ -1,0 +1,8 @@
+Widget family: SCROLL VIEW
+
+Strict visual criteria (PASS only if ALL hold):
+
+1. A rectangular viewport/panel is visible with a clear content area.
+2. When content overflows and scrollbars are claimed: at least one scrollbar with a distinct thumb is visible.
+3. Content inside the viewport is clipped to the view (no unbounded spill outside the panel border).
+4. FAIL if: empty missing panel, content drawn outside the viewport chrome, or overflow without any scrollbar when the scene claims one is shown.

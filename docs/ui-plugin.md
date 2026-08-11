@@ -886,6 +886,20 @@ if (h != last_hash) { /* region changed → run the heavy asserts */ }
 
 **Every failure logs the actual measured values** (nonmatching count, fraction, bbox + deltas, dominant colors with proportions, hash) — a CI log alone is actionable. Return codes: `SK_UI_IMAGE_ASSERT_OK` (0), `FAIL` (1), `ERROR` (-1, bad args such as a degenerate region). NULL `params`/`out_stats` use defaults / are optional.
 
+### 9.5 Per-widget vision rubrics (APX-251)
+
+Structural asserts catch geometry and color; **fine mark styles** (checkbox is an X not a checkmark, radio has a filled inner disc, slider has a grab handle, disabled is dimmed) need a vision grade. Use `tests/integration/ui_vision_assert.h`:
+
+```c
+sk_ui_vision_result_t vr;
+i32 vrc = sk_ui_vision_assert_path(ui, frame_png, NULL,
+    SK_UI_VISION_WIDGET_CHECKBOX, "checked", "widget_checkbox_checked",
+    sk_filesystem_api(), &vr);
+/* OK / FAIL (saves {name}_vision_fail.png) / SKIPPED (no API key) / ERROR */
+```
+
+Rubric catalog: `plugins/ui/testdata/vision/rubrics/` and `docs/ui-vision-rubrics.md`. Backend: `scripts/ui_vision_assert.py` (grok vision via `XAI_API_KEY`). Mock: `SK_UI_VISION_BACKEND=mock` + `SK_UI_VISION_MOCK_RESPONSE`.
+
 ---
 
 ## 10. v1 limitations (deliberately absent)

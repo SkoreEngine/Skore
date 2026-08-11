@@ -1,0 +1,15 @@
+Widget family: TOGGLE (switch)
+
+Strict visual criteria (PASS only if ALL hold for the claimed state):
+
+1. A horizontal switch track is visible (pill/rounded bar), not a square checkbox or circular radio alone.
+2. A distinct thumb/knob is visible on the track and is separable from the track fill.
+
+OFF:
+- Thumb sits toward the start (typically left); track is muted/dim compared to ON.
+
+ON:
+- Thumb sits toward the end (typically right); track shows a stronger/filled accent compared to OFF.
+
+DISABLED: whole control is visibly dimmed; thumb and track lose contrast.
+FAIL if: looks like a checkbox X, a bare slider with no switch silhouette, or ON/OFF are indistinguishable.
