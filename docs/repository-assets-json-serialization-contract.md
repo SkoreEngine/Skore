@@ -261,7 +261,7 @@ Recommended top-level envelope (resource document, one file or one logical objec
 1. Be **inlined** as nested resource objects (same envelope without repeating `format` if nested under a well-known key), or  
 2. Be **referenced by UUID** with a sibling/top-level table of resource objects.
 
-**Preferred for package save (v1):** UUID references in fields + a flat `resources` array on the package document for all owned sub-objects (stable order: depth-first package tree). This matches RID remapping on load and avoids deep nesting limits.
+**Preferred for package save (v1):** UUID references in fields + a flat `resources` array on the package document for all owned sub-objects (stable order: **BFS reachable order from the root** — root first, then children in field-walk order). This matches RID remapping on load and avoids deep nesting limits.
 
 Package document sketch:
 
@@ -337,6 +337,17 @@ Align with archive readers and prototype inheritance:
 3. Second pass: resolve UUID strings to RIDs via `find_by_uuid`; `set_reference` / `set_subobject` / list setters.  
 4. Fail with non-zero if a **required** reference target UUID is missing from the document **and** not already live in the repository (policy: package loads are self-contained; single-asset loads may allow dangling refs as `SK_RID_ZERO` + non-zero warning code only if we introduce one — **v1 package: hard fail on missing UUID**).  
 5. Never write RID integers into JSON.
+
+**Failed-load atomicity (v1 decision):**
+
+| API | On failure |
+| --- | --- |
+| `sk_resource_deserialize_json` | `out_rid = SK_RID_ZERO`. If this call **created** a new shell, it is `destroy_resource`d. If the UUID already lived in the repository, the write view is discarded and pre-existing data is unchanged. |
+| `sk_resource_deserialize_package_json` | Internal undo/redo scope records every create and field commit; any non-zero return **undo**s the scope before returning so the repository is not left partially mutated (resource set and field values match the pre-load state for resources touched by the load). |
+
+**Self-references:** a reference UUID equal to the resource's own UUID is valid; after the second pass the field holds that resource's RID (soft link, not ownership).
+
+**Reload / replace in place:** deserializing a document whose `uuid` already exists reuses the live RID (`create_resource` is idempotent). Committed field sets update that resource; existing holders of the RID observe the new data via subsequent `read` (version bumps). RIDs are never recycled after `destroy_resource` — stale RIDs stay invalid.
 
 **UUID string form (canonical):** lowercase hex  
 `%016llx-%016llx` of `(lo, hi)` — 16 hex digits, hyphen, 16 hex digits (matches two `u64` halves). Empty / missing uuid only for non-durable tests.

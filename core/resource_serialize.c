@@ -727,26 +727,39 @@ static i32 deserialize_one_resource(sk_res_ser_resolve_ctx_t* ctx, sk_archive_re
 		}
 	}
 
+	/* Detect create vs UUID-idempotent reuse so a failed field apply can roll
+	 * back only a resource this call introduced (no partial mutation). */
+	const i32 existed = (!SK_UUID_EQ(uuid, SK_UUID_ZERO) && api->find_by_uuid(ctx->repository, uuid).id != 0u) ? 1 : 0;
 	sk_rid_t rid = api->create_resource(ctx->repository, type, uuid, NULL);
 	if (rid.id == 0u) {
 		return SK_RES_SER_ERR;
 	}
-	*out_rid = rid;
 
 	if (!apply_fields) {
+		*out_rid = rid;
 		return SK_RES_SER_OK;
 	}
 
 	sk_resource_object_t view = api->write(ctx->repository, rid);
 	if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
+		if (!existed) {
+			(void)api->destroy_resource(ctx->repository, rid, NULL);
+		}
 		return SK_RES_SER_ERR;
 	}
 	i32 arc = apply_fields_map(ctx, view, type, reader);
 	if (arc != SK_RES_SER_OK) {
 		api->discard(view);
+		/* New shell stays defaulted only; drop it so the repository is unchanged
+		 * aside from any UUID-reused live resource (which was never committed). */
+		if (!existed) {
+			(void)api->destroy_resource(ctx->repository, rid, NULL);
+		}
+		*out_rid = SK_RID_ZERO;
 		return arc;
 	}
 	api->commit(view, NULL);
+	*out_rid = rid;
 	return SK_RES_SER_OK;
 }
 
@@ -826,15 +839,20 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 		return SK_RES_SER_INVALID;
 	}
 
+	/* Transaction scope: any failure undoes creates and field commits so the
+	 * repository is not left partially mutated by a failed package load. */
+	sk_undo_redo_scope_t* scope = api->undo_redo_scope_create(sk_allocator_default(), "resource_package_load");
+	if (scope == NULL) {
+		reader->end_seq(reader->instance);
+		return SK_RES_SER_ERR;
+	}
+
 	sk_res_ser_resolve_ctx_t ctx;
 	ctx.repository = repository;
 	ctx.package_mode = 1;
 
 	/* Create shells + apply scalar fields; queue ref UUID patches for a second
 	 * pass so forward references resolve after every resource exists. */
-	sk_rid_list_t created;
-	sk_array_init(&created, sk_allocator_default());
-
 	typedef struct sk_pending_ref_t {
 		sk_rid_t owner;
 		u32 field_index;
@@ -847,25 +865,23 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 	sk_pending_ref_list_t pending;
 	sk_array_init(&pending, sk_allocator_default());
 
-	while (reader->next_seq_entry(reader->instance)) {
+	i32 fail_rc = SK_RES_SER_OK;
+
+	while (fail_rc == SK_RES_SER_OK && reader->next_seq_entry(reader->instance)) {
 		reader->begin_map(reader->instance);
 
 		i32 env = validate_envelope(reader, SK_RESOURCE_JSON_FORMAT, NULL);
 		if (env != SK_RES_SER_OK) {
 			reader->end_map(reader->instance);
-			reader->end_seq(reader->instance);
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return env;
+			fail_rc = env;
+			break;
 		}
 
 		sk_str_view_t type_name = reader->read_string(reader->instance, sk_str_view_cstr("type"));
 		if (type_name.size == 0u || type_name.size >= 256u) {
 			reader->end_map(reader->instance);
-			reader->end_seq(reader->instance);
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_INVALID;
+			fail_rc = SK_RES_SER_INVALID;
+			break;
 		}
 		char type_buf[256];
 		memcpy(type_buf, type_name.data, (size_t)type_name.size);
@@ -873,58 +889,41 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 		const sk_resource_type_t* type = api->find_type_by_name(repository, type_buf);
 		if (type == NULL) {
 			reader->end_map(reader->instance);
-			reader->end_seq(reader->instance);
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_INVALID;
+			fail_rc = SK_RES_SER_INVALID;
+			break;
 		}
 
 		sk_uuid_t uuid = SK_UUID_ZERO;
 		sk_str_view_t uuid_s = reader->read_string(reader->instance, sk_str_view_cstr("uuid"));
 		if (uuid_s.size > 0u && uuid_parse(uuid_s, &uuid) != SK_RES_SER_OK) {
 			reader->end_map(reader->instance);
-			reader->end_seq(reader->instance);
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_INVALID;
+			fail_rc = SK_RES_SER_INVALID;
+			break;
 		}
 
-		sk_rid_t rid = api->create_resource(repository, type, uuid, NULL);
+		sk_rid_t rid = api->create_resource(repository, type, uuid, scope);
 		if (rid.id == 0u) {
 			reader->end_map(reader->instance);
-			reader->end_seq(reader->instance);
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_ERR;
-		}
-		if (sk_array_push(&created, rid) != 0) {
-			reader->end_map(reader->instance);
-			reader->end_seq(reader->instance);
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_ERR;
+			fail_rc = SK_RES_SER_ERR;
+			break;
 		}
 
 		/* Apply non-ref fields now; queue refs. */
 		if (!reader->begin_map_named(reader->instance, sk_str_view_cstr("fields"))) {
 			reader->end_map(reader->instance);
-			reader->end_seq(reader->instance);
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_INVALID;
+			fail_rc = SK_RES_SER_INVALID;
+			break;
 		}
 
 		sk_resource_object_t view = api->write(repository, rid);
 		if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
-			reader->end_map(reader->instance);
-			reader->end_map(reader->instance);
-			reader->end_seq(reader->instance);
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_ERR;
+			reader->end_map(reader->instance); /* fields */
+			reader->end_map(reader->instance); /* resource */
+			fail_rc = SK_RES_SER_ERR;
+			break;
 		}
 
-		while (reader->next_map_entry(reader->instance)) {
+		while (fail_rc == SK_RES_SER_OK && reader->next_map_entry(reader->instance)) {
 			sk_str_view_t key = reader->get_current_key(reader->instance);
 			const sk_resource_field_t* field = NULL;
 			u32 fc = api->type_field_count(type);
@@ -947,12 +946,8 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 				sk_uuid_t target = SK_UUID_ZERO;
 				if (uuid_parse(us, &target) != SK_RES_SER_OK) {
 					api->discard(view);
-					reader->end_map(reader->instance);
-					reader->end_map(reader->instance);
-					reader->end_seq(reader->instance);
-					sk_array_free(&pending);
-					sk_array_free(&created);
-					return SK_RES_SER_INVALID;
+					fail_rc = SK_RES_SER_INVALID;
+					break;
 				}
 				sk_pending_ref_t p;
 				memset(&p, 0, sizeof(p));
@@ -962,12 +957,8 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 				p.uuid = target;
 				if (sk_array_push(&pending, p) != 0) {
 					api->discard(view);
-					reader->end_map(reader->instance);
-					reader->end_map(reader->instance);
-					reader->end_seq(reader->instance);
-					sk_array_free(&pending);
-					sk_array_free(&created);
-					return SK_RES_SER_ERR;
+					fail_rc = SK_RES_SER_ERR;
+					break;
 				}
 				continue;
 			}
@@ -976,7 +967,7 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 				if (!reader->begin_seq_named(reader->instance, sk_str_view_cstr(field->name))) {
 					continue;
 				}
-				while (reader->next_seq_entry(reader->instance)) {
+				while (fail_rc == SK_RES_SER_OK && reader->next_seq_entry(reader->instance)) {
 					sk_str_view_t us = reader->get_string(reader->instance);
 					if (us.size == 0u) {
 						continue;
@@ -985,12 +976,8 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 					if (uuid_parse(us, &target) != SK_RES_SER_OK) {
 						api->discard(view);
 						reader->end_seq(reader->instance);
-						reader->end_map(reader->instance);
-						reader->end_map(reader->instance);
-						reader->end_seq(reader->instance);
-						sk_array_free(&pending);
-						sk_array_free(&created);
-						return SK_RES_SER_INVALID;
+						fail_rc = SK_RES_SER_INVALID;
+						break;
 					}
 					sk_pending_ref_t p;
 					memset(&p, 0, sizeof(p));
@@ -1001,15 +988,13 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 					if (sk_array_push(&pending, p) != 0) {
 						api->discard(view);
 						reader->end_seq(reader->instance);
-						reader->end_map(reader->instance);
-						reader->end_map(reader->instance);
-						reader->end_seq(reader->instance);
-						sk_array_free(&pending);
-						sk_array_free(&created);
-						return SK_RES_SER_ERR;
+						fail_rc = SK_RES_SER_ERR;
+						break;
 					}
 				}
-				reader->end_seq(reader->instance);
+				if (fail_rc == SK_RES_SER_OK) {
+					reader->end_seq(reader->instance);
+				}
 				continue;
 			}
 
@@ -1018,34 +1003,33 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 			i32 arc = apply_field_value(&ctx, view, field, reader);
 			if (arc != SK_RES_SER_OK) {
 				api->discard(view);
-				reader->end_map(reader->instance);
-				reader->end_map(reader->instance);
-				reader->end_seq(reader->instance);
-				sk_array_free(&pending);
-				sk_array_free(&created);
-				return arc;
+				fail_rc = arc;
+				break;
 			}
 		}
+		if (fail_rc != SK_RES_SER_OK) {
+			reader->end_map(reader->instance); /* fields (if still open) */
+			reader->end_map(reader->instance); /* resource */
+			break;
+		}
 		reader->end_map(reader->instance); /* fields */
-		api->commit(view, NULL);
+		api->commit(view, scope);
 		reader->end_map(reader->instance); /* resource */
 	}
 	reader->end_seq(reader->instance);
 
 	/* Resolve pending references now that every UUID shell exists. */
-	for (u32 i = 0u; i < pending.count; ++i) {
+	for (u32 i = 0u; fail_rc == SK_RES_SER_OK && i < pending.count; ++i) {
 		sk_pending_ref_t* p = &pending.items[i];
 		sk_rid_t target = api->find_by_uuid(repository, p->uuid);
 		if (target.id == 0u) {
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_MISSING_REF;
+			fail_rc = SK_RES_SER_MISSING_REF;
+			break;
 		}
 		sk_resource_object_t view = api->write(repository, p->owner);
 		if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_ERR;
+			fail_rc = SK_RES_SER_ERR;
+			break;
 		}
 		i32 src = 0;
 		if (p->kind == 0u) {
@@ -1059,20 +1043,30 @@ i32 sk_resource_deserialize_package_json(sk_repository_t* repository, sk_archive
 		}
 		if (src != 0) {
 			api->discard(view);
-			sk_array_free(&pending);
-			sk_array_free(&created);
-			return SK_RES_SER_FIELD;
+			fail_rc = SK_RES_SER_FIELD;
+			break;
 		}
-		api->commit(view, NULL);
+		api->commit(view, scope);
 	}
 
 	sk_array_free(&pending);
-	sk_array_free(&created);
+
+	if (fail_rc != SK_RES_SER_OK) {
+		api->undo_redo_scope_undo(scope);
+		api->undo_redo_scope_destroy(scope);
+		*out_root = SK_RID_ZERO;
+		return fail_rc;
+	}
 
 	sk_rid_t root = api->find_by_uuid(repository, root_uuid);
 	if (root.id == 0u) {
+		api->undo_redo_scope_undo(scope);
+		api->undo_redo_scope_destroy(scope);
 		return SK_RES_SER_MISSING_REF;
 	}
+
+	/* Keep published creates/commits; scope only held snapshots for rollback. */
+	api->undo_redo_scope_destroy(scope);
 	*out_root = root;
 	return SK_RES_SER_OK;
 }
@@ -2393,8 +2387,10 @@ SK_TEST(resource_serialize_rejects_blob_byte_out_of_range) {
 }
 
 SK_TEST(resource_serialize_package_rejects_missing_uuid_target) {
+	const sk_repository_api_t* api = sk_repository_api();
 	const sk_allocator_t* a = sk_allocator_default();
 	sk_repository_t* repo = ser_test_repo();
+	const u64 count_before = api->resource_count(repo);
 	/* Package with a resource that references a UUID not in the document → MISSING_REF. */
 	const_chr_t bad = "{\n"
 					  "  \"format\": \"sk.resource_package\",\n"
@@ -2413,7 +2409,10 @@ SK_TEST(resource_serialize_package_rejects_missing_uuid_target) {
 	sk_rid_t root = SK_RID_ZERO;
 	TEST_ASSERT_EQUAL_INT(SK_RES_SER_MISSING_REF, sk_resource_deserialize_package_json_string(repo, sk_str_view_cstr(bad), a, &root));
 	TEST_ASSERT_EQUAL_UINT64(0u, root.id);
-	sk_repository_api()->destroy(repo);
+	/* Failed package load must not leave partial shells (transactional undo). */
+	TEST_ASSERT_EQUAL_UINT64(count_before, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, ser_uuid(1u, 1u)).id == 0u);
+	api->destroy(repo);
 }
 
 SK_TEST(resource_serialize_package_rejects_bad_format_and_version) {
@@ -2504,6 +2503,209 @@ SK_TEST(resource_serialize_imported_asset_all_fields_and_lists) {
 
 	a->free(a->instance, json);
 	a->free(a->instance, json2);
+	api->destroy(repo);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Asset repository lifecycle via serialize (APX-189 integration)     */
+/* ------------------------------------------------------------------ */
+
+SK_TEST(resource_serialize_single_doc_missing_ref_is_zero) {
+	/* Single-document policy: missing reference UUID → SK_RID_ZERO, success. */
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+	const_chr_t json = "{\n"
+					   "  \"format\": \"sk.resource\",\n"
+					   "  \"format_version\": 1,\n"
+					   "  \"type\": \"ResourceAsset\",\n"
+					   "  \"uuid\": \"00000000000000aa-00000000000000bb\",\n"
+					   "  \"fields\": {\n"
+					   "    \"Name\": \"orphan-ref\",\n"
+					   "    \"Parent\": \"0000000000000099-0000000000000099\"\n"
+					   "  }\n"
+					   "}";
+	sk_rid_t rid = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(json), a, &rid));
+	TEST_ASSERT_TRUE(rid.id != 0u);
+	sk_resource_object_t r = api->read(repo, rid);
+	TEST_ASSERT_EQUAL_STRING("orphan-ref", api->get_string(r, SK_RESOURCE_ASSET_FIELD_NAME));
+	TEST_ASSERT_EQUAL_UINT64(0u, api->get_reference(r, SK_RESOURCE_ASSET_FIELD_PARENT).id);
+	api->destroy(repo);
+}
+
+SK_TEST(resource_serialize_self_reference_package) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+	/* ResourceAsset.Parent is a soft REFERENCE; self-UUID is valid. */
+	const_chr_t json = "{\n"
+					   "  \"format\": \"sk.resource_package\",\n"
+					   "  \"format_version\": 1,\n"
+					   "  \"root_uuid\": \"00000000000000c1-00000000000000c1\",\n"
+					   "  \"resources\": [\n"
+					   "    {\n"
+					   "      \"format\": \"sk.resource\",\n"
+					   "      \"format_version\": 1,\n"
+					   "      \"type\": \"ResourceAsset\",\n"
+					   "      \"uuid\": \"00000000000000c1-00000000000000c1\",\n"
+					   "      \"fields\": {\n"
+					   "        \"Name\": \"self\",\n"
+					   "        \"Parent\": \"00000000000000c1-00000000000000c1\"\n"
+					   "      }\n"
+					   "    }\n"
+					   "  ]\n"
+					   "}";
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(repo, sk_str_view_cstr(json), a, &root));
+	TEST_ASSERT_TRUE(root.id != 0u);
+	sk_rid_t parent = api->get_reference(api->read(repo, root), SK_RESOURCE_ASSET_FIELD_PARENT);
+	TEST_ASSERT_TRUE(SK_RID_EQ(parent, root));
+	api->destroy(repo);
+}
+
+SK_TEST(resource_serialize_reload_same_uuid_reuses_rid) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+
+	sk_rid_t rid = ser_create(repo, "ResourceAsset", ser_uuid(0x6001u, 0x1u));
+	{
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "before"));
+		api->commit(w, NULL);
+	}
+	const u64 version_before = api->get_version(repo, rid);
+
+	const_chr_t json = "{\n"
+					   "  \"format\": \"sk.resource\",\n"
+					   "  \"format_version\": 1,\n"
+					   "  \"type\": \"ResourceAsset\",\n"
+					   "  \"uuid\": \"0000000000006001-0000000000000001\",\n"
+					   "  \"fields\": { \"Name\": \"after-reload\" }\n"
+					   "}";
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(json), a, &loaded));
+	/* UUID idempotent create: same live RID; holders observe new data. */
+	TEST_ASSERT_TRUE(SK_RID_EQ(loaded, rid));
+	TEST_ASSERT_EQUAL_UINT64(1u, api->resource_count(repo));
+	TEST_ASSERT_EQUAL_STRING("after-reload", api->get_string(api->read(repo, rid), SK_RESOURCE_ASSET_FIELD_NAME));
+	TEST_ASSERT_TRUE(api->get_version(repo, rid) > version_before);
+	api->destroy(repo);
+}
+
+SK_TEST(resource_serialize_failed_package_does_not_partially_mutate) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+
+	/* Pre-existing resource must survive a failed package load that also
+	 * creates shells before hitting MISSING_REF. */
+	sk_rid_t keep = ser_create(repo, "ResourceAsset", ser_uuid(0x7001u, 0x1u));
+	{
+		sk_resource_object_t w = api->write(repo, keep);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "keep-me"));
+		api->commit(w, NULL);
+	}
+	const u64 count_before = api->resource_count(repo);
+	const u64 version_before = api->get_version(repo, keep);
+
+	/* Two resources: first is valid scalars; second references missing UUID. */
+	const_chr_t bad = "{\n"
+					  "  \"format\": \"sk.resource_package\",\n"
+					  "  \"format_version\": 1,\n"
+					  "  \"root_uuid\": \"00000000000000f1-00000000000000f1\",\n"
+					  "  \"resources\": [\n"
+					  "    {\n"
+					  "      \"format\": \"sk.resource\",\n"
+					  "      \"format_version\": 1,\n"
+					  "      \"type\": \"ResourceAsset\",\n"
+					  "      \"uuid\": \"00000000000000f1-00000000000000f1\",\n"
+					  "      \"fields\": { \"Name\": \"partial-a\" }\n"
+					  "    },\n"
+					  "    {\n"
+					  "      \"format\": \"sk.resource\",\n"
+					  "      \"format_version\": 1,\n"
+					  "      \"type\": \"ResourceAsset\",\n"
+					  "      \"uuid\": \"00000000000000f2-00000000000000f2\",\n"
+					  "      \"fields\": {\n"
+					  "        \"Name\": \"partial-b\",\n"
+					  "        \"Parent\": \"00000000000000ff-00000000000000ff\"\n"
+					  "      }\n"
+					  "    }\n"
+					  "  ]\n"
+					  "}";
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_MISSING_REF, sk_resource_deserialize_package_json_string(repo, sk_str_view_cstr(bad), a, &root));
+	TEST_ASSERT_EQUAL_UINT64(0u, root.id);
+	TEST_ASSERT_EQUAL_UINT64(count_before, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, ser_uuid(0xf1u, 0xf1u)).id == 0u);
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, ser_uuid(0xf2u, 0xf2u)).id == 0u);
+	TEST_ASSERT_TRUE(api->has_resource(repo, keep));
+	TEST_ASSERT_EQUAL_STRING("keep-me", api->get_string(api->read(repo, keep), SK_RESOURCE_ASSET_FIELD_NAME));
+	TEST_ASSERT_EQUAL_UINT64(version_before, api->get_version(repo, keep));
+	api->destroy(repo);
+}
+
+SK_TEST(resource_serialize_failed_single_doc_rolls_back_new_shell) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+	const u64 count_before = api->resource_count(repo);
+
+	/* Unknown type fails before create — still assert empty. */
+	const_chr_t bad_type = "{ \"format\": \"sk.resource\", \"format_version\": 1, \"type\": \"NoSuchType\", \"uuid\": \"00000000000000e1-00000000000000e1\", \"fields\": {} }";
+	sk_rid_t rid = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_INVALID, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(bad_type), a, &rid));
+	TEST_ASSERT_EQUAL_UINT64(0u, rid.id);
+	TEST_ASSERT_EQUAL_UINT64(count_before, api->resource_count(repo));
+
+	/* Bad blob byte out of range fails after create → shell destroyed. */
+	const_chr_t bad_blob = "{\n"
+						   "  \"format\": \"sk.resource\",\n"
+						   "  \"format_version\": 1,\n"
+						   "  \"type\": \"AudioResource\",\n"
+						   "  \"uuid\": \"00000000000000e2-00000000000000e2\",\n"
+						   "  \"fields\": { \"Name\": \"x\", \"Bytes\": [999] }\n"
+						   "}";
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_INVALID, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(bad_blob), a, &rid));
+	TEST_ASSERT_EQUAL_UINT64(0u, rid.id);
+	TEST_ASSERT_EQUAL_UINT64(count_before, api->resource_count(repo));
+	TEST_ASSERT_TRUE(api->find_by_uuid(repo, ser_uuid(0xe2u, 0xe2u)).id == 0u);
+	api->destroy(repo);
+}
+
+SK_TEST(resource_serialize_package_resources_order_bfs) {
+	/* Contract: package resources[] is BFS from the root (root first). */
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+
+	sk_rid_t child = ser_create(repo, "ResourceAsset", ser_uuid(0x8102u, 2u));
+	sk_rid_t parent = ser_create(repo, "ResourceAsset", ser_uuid(0x8101u, 1u));
+	{
+		sk_resource_object_t w = api->write(repo, child);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "child"));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(repo, parent);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "parent"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_FIELD_OBJECT, child));
+		api->commit(w, NULL);
+	}
+
+	char* json = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(repo, parent, a, &json, NULL));
+	TEST_ASSERT_NOT_NULL(json);
+	/* Root appears before its reachable child in the flat resources array. */
+	const char* p_parent = strstr(json, "0000000000008101-0000000000000001");
+	const char* p_child = strstr(json, "0000000000008102-0000000000000002");
+	TEST_ASSERT_NOT_NULL(p_parent);
+	TEST_ASSERT_NOT_NULL(p_child);
+	TEST_ASSERT_TRUE(p_parent < p_child);
+
+	a->free(a->instance, json);
 	api->destroy(repo);
 }
 

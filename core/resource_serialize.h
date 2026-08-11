@@ -57,16 +57,18 @@ i32 sk_resource_serialize_json(sk_repository_t* repository, sk_rid_t rid, sk_arc
  * @param out_rid    Receives the created/loaded RID (must not be NULL).
  * @return 0 on success; non-zero on bad format, unsupported version, unknown
  *         type, OOM, or field apply failure. On failure @p out_rid is
- *         SK_RID_ZERO and no partially-applied resource is left intentionally
- *         (create may have registered a UUID slot that is left zeroed if field
- *         apply fails mid-way — callers should treat non-zero as fail-closed).
+ *         SK_RID_ZERO. A resource shell created by this call is destroyed on
+ *         failure so the repository is not left partially mutated. UUID-
+ *         idempotent reuse of an already-live resource discards the write view
+ *         without committing, so pre-existing data is unchanged.
  */
 i32 sk_resource_deserialize_json(sk_repository_t* repository, sk_archive_reader_t* reader, sk_rid_t* out_rid);
 
 /**
  * Serialize @p root_rid and every resource reachable through Reference,
  * ReferenceArray, SubObject, and SubObjectList fields into a package document
- * (format sk.resource_package, flat resources array, depth-first order).
+ * (format sk.resource_package, flat resources array, BFS reachable order
+ * from the root — root first, then children in field-walk order).
  *
  * @param repository Repository (must not be NULL).
  * @param root_rid   Package root (or any resource graph root).
@@ -79,6 +81,9 @@ i32 sk_resource_serialize_package_json(sk_repository_t* repository, sk_rid_t roo
  * Deserialize a package document: create every resource in resources[], then
  * apply fields. Missing reference UUID targets that are not live in the
  * repository fail with a non-zero code (package loads are self-contained).
+ * The load is transactional: creates and field commits are recorded on an
+ * internal undo scope and rolled back on any failure so the repository is not
+ * left partially mutated (pre-load resource set and field values restored).
  *
  * @param repository Repository (must not be NULL).
  * @param reader     Archive reader over a package JSON object (must not be NULL).

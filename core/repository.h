@@ -58,7 +58,8 @@
  * Commit). Parent / prototype pointers are main-thread data.
  *
  * Intentional gaps for this revision: reflection-driven registration, event
- * dispatch, and serialization loaders. Undo/redo scopes ARE implemented:
+ * dispatch, and serialization loaders (JSON load/save lives in
+ * resource_serialize.h). Undo/redo scopes ARE implemented:
  * sk_undo_redo_scope_t records deep-copied before/after instance snapshots for
  * every scoped Commit and structural mutation (create_resource,
  * destroy_resource, clone, create_from_prototype); Undo restores the before
@@ -68,6 +69,25 @@
  * prototype inheritance / overrides); the SubObjectList "removed-from-prototype"
  * set (prototypeRemoved) is implemented and honored by SubObjectList
  * propagation.
+ *
+ * # Handle semantics (RID / UUID / path)
+ *
+ * - RIDs are dense page indexes; slot 0 is invalid (SK_RID_ZERO). **RIDs are
+ *   never recycled** — after destroy_resource the same numeric RID stays dead
+ *   for the life of the repository (stale handles do not alias a new resource).
+ * - There is **no reference counting**: a RID is not an owned handle. Soft
+ *   REFERENCE fields do not keep the target alive. SUB_OBJECT / SubObjectList
+ *   express ownership: destroy_resource cascades to owned sub-objects.
+ * - UUID uniqueness is enforced for non-zero UUIDs (create with an existing
+ *   UUID is idempotent and returns the live RID). Paths are unique among live
+ *   resources (set_path returns -2 on conflict).
+ * - **No clear() or public enumerate/foreach.** Clearing is destroy(repository)
+ *   (or destroy each resource). Live count is resource_count; there is no
+ *   ordered walk API and no iteration-order guarantee claimed by this module.
+ * - In-place replace: write + commit on an existing RID publishes new data;
+ *   the RID stays valid and subsequent read views observe the new instance
+ *   (version bumps). Reloading the same UUID via create_resource reuses the
+ *   RID; field apply then mutates that live resource.
  */
 
 #include "allocator.h"
