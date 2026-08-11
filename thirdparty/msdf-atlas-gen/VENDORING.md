@@ -17,6 +17,11 @@ the written manifest the vendoring task must follow.
   `a4dafba` — which is exactly the msdfgen submodule pin of msdf-atlas-gen
   `77804c2` (checked `.gitmodules`/gitlink). It is the full upstream msdfgen
   repo tree, not a trimmed subset.
+- Post-vendoring (commits `a76f352`, `0af4517`): the tree was trimmed per §6 —
+  CLI-only/optional `.cpp` TUs were deleted and only the library surface
+  remains. The "byte-identical" claims above now apply to the kept subset;
+  headers referenced by the umbrella `msdf-atlas-gen.h` were kept even when
+  their `.cpp` was dropped.
 - Vendored `LICENSE.txt` is byte-identical to upstream `LICENSE.txt` at `77804c2`.
 - Do NOT tag along the later upstream msdf-atlas-gen commits
   (`94390ed` "Update to MSDFgen 1.13", `6148900` "Variable font axis addressing"):
@@ -82,6 +87,27 @@ Required compile definitions (the complete set on main):
 - `MSDF_ATLAS_NO_ARTERY_FONT=1` on `msdf-atlas-gen`
 - Nothing else. No `MSDF_ATLAS_*` version defines, no `MSDFGEN_USE_*` defines.
 
+Corrections recorded while wiring the v2 build (APX-224):
+- `find_package(Threads REQUIRED)` + `target_link_libraries(msdf-atlas-gen
+  PUBLIC msdfgen Threads::Threads)` must be in the v2 shim itself. §5's note
+  that "v2 core links Threads::Threads PUBLIC" is true but insufficient:
+  thirdparty targets are self-contained and must not reach into core's link
+  interface.
+- The final v2 shim (post-trim) lists sources explicitly instead of globbing:
+  19 msdfgen TUs (`core/*` + `ext/import-font.cpp`) and 10 msdf-atlas-gen TUs
+  (`Charset`, `FontGeometry`, `GlyphGeometry`, `Padding`, `RectanglePacker`,
+  `TightAtlasPacker`, `Workload`, `bitmap-blit`, `glyph-generators`,
+  `size-selectors`). This matches the kept tree exactly (`diff` of CMake
+  source list vs. tree is clean) and avoids globbing stale headers.
+- v2 conventions add `_CRT_SECURE_NO_WARNINGS` + `_CRT_NONSTDC_NO_WARNINGS`
+  (PRIVATE, WIN32 only) and `-fvisibility=hidden` / `CXX_VISIBILITY_PRESET
+  hidden` (Clang/GNU) — the latter two also make the `MSDFGEN_PUBLIC=` and
+  default-visibility export macros irrelevant for the static lib.
+- API note (verified by the smoke check): `TightAtlasPacker::setPixelRange`
+  takes a symmetric `msdfgen::Range` — `Range(2.0)` = [-1, 1] is the correct
+  2-px field; `Range(2.0, 2.0)` produces a zero-span interval (degenerate
+  field). The main-branch consumer's `setPixelRange(2.0)` is correct.
+
 Notes:
 - `msdfgen` links `freetype` **PRIVATE**; the freetype include dirs are not
   needed by consumers (ext/import-font.h does not include freetype headers).
@@ -104,7 +130,7 @@ Notes:
 | libpng | NO — referenced only behind `MSDFGEN_USE_LIBPNG` (msdfgen `ext/save-png.cpp`, msdf-atlas-gen `image-encode.cpp`); never defined on main; `image-encode.cpp` falls back to BMP-only | — | not needed |
 | Skia | NO — `MSDFGEN_USE_SKIA` never defined; msdfgen `ext/resolve-shape-geometry.cpp` and atlas `GlyphGeometry.cpp` Skia blocks compile out | — | not needed |
 | LodePNG | NO — `MSDFGEN_USE_LODEPNG` never defined, not vendored | — | not needed |
-| Threads | YES (link-time only) — `Workload.cpp` (`std::thread`) | implicit on main | v2 core links `Threads::Threads` PUBLIC |
+| Threads | YES (link-time only) — `Workload.cpp` (`std::thread`) | implicit on main | v2 core links `Threads::Threads` PUBLIC; the v2 shim nevertheless does its own `find_package(Threads REQUIRED)` + PUBLIC `Threads::Threads` (thirdparty targets must be self-contained, see §4 corrections) |
 | OpenMP / vcpkg / standalone CLI | NO — upstream options, all off/unused on main | — | — |
 
 ## 6. Optional features to compile out (minimize vendored surface)
@@ -203,3 +229,46 @@ thirdparty/msdf-atlas-gen/
 The v2 consumer point already exists: `core/resource_asset_builtins.c` creates a
 "FontResource shell" with MSDF atlas generation deferred, and `plugins/ui` links
 `freetype` today.
+
+## 10. Verification on v2 (APX-224)
+
+Status: the vendored build is wired and verified. `thirdparty/CMakeLists.txt`
+registers `add_subdirectory(msdf-atlas-gen)`; the shim builds `msdfgen` and
+`msdf-atlas-gen` as static libs with the §4 flags, `Threads::Threads` PUBLIC,
+`CXX_STANDARD 20`, PIC, hidden visibility, and MSVC CRT define suppressions.
+
+- **Clean build**: both targets compile warning-free on GCC 13 (Linux) in
+  Debug and Release, and the full `skore` tree builds with the shim in place
+  (first-party `-Werror` + clang-tidy pass; thirdparty is exempt). MSVC and
+  AppleClang were not run here; the shim's MSVC defines and AppleClang
+  visibility guards follow the §8 conventions used by the other vendored libs.
+- **Smoke check** (`tests/msdf_atlas_smoke.cpp`, ctest `sk-msdf-atlas-smoke`):
+  loads `plugins/ui/testdata/skore_test_font.ttf` via FreeType, loads all 38
+  glyphs, edge-colors, packs with `TightAtlasPacker` (2-px symmetric range,
+  power-of-two-square, 32×32), and generates an MTSDF atlas with
+  `ImmediateAtlasGenerator<float,4,mtsdfGenerator,BitmapAtlasStorage>` using a
+  2-thread `Workload`. It asserts the atlas bitmap (non-null pixels, correct
+  dimensions, non-zero content) and the layout array (one `GlyphBox` per
+  loaded glyph, all boxes inside the atlas), and dumps the artifacts
+  `msdf_atlas_smoke.raw` + `msdf_atlas_smoke_layout.txt` next to the test
+  binary. This exercises the exact library pipeline the engine's font
+  importer uses on main (§3).
+- **Link reality**: the smoke executable links only `msdf-atlas-gen` +
+  `freetype` explicitly — `msdfgen` and `Threads::Threads` arrive via the
+  PUBLIC/`LINK_ONLY` interfaces, confirming §4/§5's dependency graph.
+
+Manifest inaccuracies found and corrected while building:
+1. §5's "v2 core links Threads::Threads PUBLIC" is true but not sufficient for
+   a self-contained thirdparty target — the shim must (and does) call
+   `find_package(Threads REQUIRED)` itself (corrected in §4/§5).
+2. §4's "complete set of compile definitions" was complete for the library
+   semantics but v2 conventions additionally add the two MSVC CRT
+   define-suppressions (PRIVATE, WIN32) — recorded in §4.
+3. §4's GLOB-based shim no longer describes the final v2 shim: after the §6
+   trim the shim lists the 19 + 10 TUs explicitly (verified to match the tree
+   exactly). Recorded in §4.
+4. §1's "byte-identical" claims now apply to the post-trim kept subset, not
+   the original 54-file directory — recorded in §1.
+5. API-usage pitfall (not an inaccuracy, but worth recording):
+   `TightAtlasPacker::setPixelRange` wants a symmetric `msdfgen::Range`;
+   `Range(2.0)` = [-1, 1]. A `{2,2}` range yields a zero-span field. See §4.
