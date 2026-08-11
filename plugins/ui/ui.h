@@ -861,6 +861,62 @@ typedef struct sk_ui_renderer_encode_info_t {
 } sk_ui_renderer_encode_info_t;
 
 /* ------------------------------------------------------------------ */
+/*  Headless capture (offscreen render target + CPU readback)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Simple CPU image: row-major RGBA8 with R in the low byte (byte order
+ * matches sk_ui_draw_vertex_t::color and the GPU upload layout).
+ * The buffer is always tightly packed: row stride = width * channels.
+ * Pixels are straight (non-premultiplied) alpha as authored by the UI.
+ */
+typedef struct sk_ui_cpu_image_t {
+	u32 width;
+	u32 height;
+	u32 channels; /**< Always 4 for UI captures (RGBA8). */
+	u8* pixels;	  /**< Tightly packed RGBA8; stride = width * channels. */
+} sk_ui_cpu_image_t;
+
+/**
+ * Opaque headless GPU capture: owns an offscreen RGBA8 color target (a
+ * device-owned texture — no swapchain, window, or surface involved), the
+ * standard UI GPU renderer bound to it, a host-visible readback buffer, and
+ * the queue / command buffers / fences needed to draw and copy back to CPU.
+ */
+typedef struct sk_ui_capture_t sk_ui_capture_t;
+
+/**
+ * Creation parameters for sk_ui_api_t::capture_create.
+ * @p device_api / @p device / @p dxc must be valid; the UI renderer is
+ * created internally against the offscreen pass (see renderer_create).
+ * @p width / @p height are the fixed viewport size in pixels (>= 1).
+ * @p clear_color is the explicit clear color applied on every frame before
+ * the draw list is encoded (convert 0..1 floats to RGBA8_UNORM).
+ */
+typedef struct sk_ui_capture_desc_t {
+	const sk_render_device_api_t* device_api; /**< Non-NULL engine RHI table. */
+	sk_render_device_t device;				  /**< Live device (adapter selected). */
+	const sk_dxc_compiler_api_t* dxc;		  /**< Non-NULL; used to compile embedded HLSL. */
+	u32 width;								  /**< Viewport width in pixels. */
+	u32 height;								  /**< Viewport height in pixels. */
+	sk_clear_values_t clear_color;			  /**< Explicit clear color per frame. */
+	const sk_allocator_t* allocator;		  /**< Optional; NULL = process default. */
+	const_chr_t debug_name;					  /**< Optional; prefix for resource debug names. */
+} sk_ui_capture_desc_t;
+
+/**
+ * Per-frame parameters for sk_ui_api_t::capture_frame.
+ * Same content as renderer_prepare / renderer_encode inputs; the capture
+ * drives both internally (prepare on an upload command buffer, encode inside
+ * the offscreen render pass).
+ */
+typedef struct sk_ui_capture_frame_info_t {
+	const sk_ui_draw_list_t* draw_list; /**< From paint/get_draw_list; may be empty. */
+	sk_ui_font_system_t* font_system;	/**< Optional; required for FONT texture cmds. */
+	sk_ui_renderer_images_t images;		/**< Optional host image views. */
+} sk_ui_capture_frame_info_t;
+
+/* ------------------------------------------------------------------ */
 /*  Module API                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -1542,6 +1598,40 @@ typedef struct sk_ui_api_t {
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*renderer_encode)(sk_ui_renderer_t* renderer, const sk_ui_renderer_encode_info_t* info);
+
+	/* ---- headless capture (offscreen target + CPU readback) ---- */
+
+	/**
+	 * Create a headless capture: offscreen RGBA8 color target of fixed
+	 * caller-specified size, explicit clear color, internal UI renderer,
+	 * host-visible readback buffer, queue, and command buffers. No
+	 * swapchain/window/surface is required — the target is a device-owned
+	 * texture with COPY_SOURCE final state for readback.
+	 * @return Capture, or NULL on failure.
+	 */
+	sk_ui_capture_t* (*capture_create)(const sk_ui_capture_desc_t* desc);
+
+	/** Destroy a capture and every GPU/CPU resource it owns. Safe on NULL. */
+	void (*capture_destroy)(sk_ui_capture_t* capture);
+
+	/**
+	 * Render @p info.draw_list into the offscreen target (cleared first with
+	 * the desc clear color) and read the pixels back into @p out_image.
+	 *
+	 * Pipeline: renderer_prepare (upload, submitted + waited) →
+	 * begin_render_pass (CLEAR) → renderer_encode → end_render_pass →
+	 * memory_barrier → copy_texture_to_buffer → submit + wait → buffer_map →
+	 * row-wise copy (readback rows are unpacked into tight rows).
+	 *
+	 * @p out_image is tightly packed row-major RGBA8 (stride = width * 4),
+	 * top-left origin. The alpha is straight (NOT premultiplied): draw-list
+	 * colors are authored straight and the UI pipeline blends with standard
+	 * straight-alpha factors, so the cleared target + draw list compose to
+	 * straight alpha. @p out_image->pixels is owned by the capture and stays
+	 * valid until the next capture_frame or capture_destroy.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*capture_frame)(sk_ui_capture_t* capture, const sk_ui_capture_frame_info_t* info, sk_ui_cpu_image_t* out_image);
 
 	/* ---- v1 widgets (compose tree + default styles + behavior) ---- */
 

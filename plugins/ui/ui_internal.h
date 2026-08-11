@@ -283,6 +283,14 @@ i32 ui_renderer_prepare_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_pr
 i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_encode_info_t* info);
 
 /* -------------------------------------------------------------------------- */
+/* Headless capture (capture.c)                                               */
+/* -------------------------------------------------------------------------- */
+
+sk_ui_capture_t* ui_capture_create_impl(const sk_ui_capture_desc_t* desc);
+void ui_capture_destroy_impl(sk_ui_capture_t* capture);
+i32 ui_capture_frame_impl(sk_ui_capture_t* capture, const sk_ui_capture_frame_info_t* info, sk_ui_cpu_image_t* out_image);
+
+/* -------------------------------------------------------------------------- */
 /* Widgets (widgets.c)                                                        */
 /* -------------------------------------------------------------------------- */
 
