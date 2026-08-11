@@ -357,10 +357,7 @@ static i32 player_ui_build(player_ui_state_t* st) {
 	(void)ui->scroll_view_set_content_size(ctx, st->scroll, 360.0f, 120.0f);
 	for (i = 0u; i < 5u; ++i) {
 		static const char* lines[5] = {
-			"Tip: click Click Me and watch the counter",
-			"Tip: drag the volume slider",
-			"Tip: toggle Fullscreen checkbox",
-			"Tip: scroll this list with the wheel",
+			"Tip: click Click Me and watch the counter",  "Tip: drag the volume slider", "Tip: toggle Fullscreen checkbox", "Tip: scroll this list with the wheel",
 			"Tip: type in the name field (keyboard TBD)",
 		};
 		char id[32];
