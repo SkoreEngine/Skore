@@ -24,8 +24,8 @@
  *   - SubObject    → sk_rid_t
  *   - SubObjectList→ sk_field_subobject_list_t
  *   - TypeID       → sk_type_id_t (16 bytes)
- *   - Buffer       → sk_resource_asset_buffer_t (opaque handle; the buffer /
- *                    serialization layer that interprets it lands later)
+ *   - Buffer       → sk_resource_asset_buffer_t (owned byte payload; see
+ *                    below)
  *   - None         → reserved u64 placeholder (mirrors main's untyped
  *                    ResourceAsset::Type field)
  *
@@ -126,13 +126,14 @@ enum sk_resource_extracted_entry_field_t {
 
 /**
  * In-blob storage for a Buffer field (C port of the main-branch ResourceBuffer
- * handle). This revision stores an opaque handle only; the buffer /
- * serialization layer that interprets it lands later. The repository treats
- * Buffer fields as POD (copied by bytes).
+ * payload). The repository owns the byte payload: set_buffer deep-copies
+ * caller bytes with the repository allocator, get_buffer returns a borrowed
+ * view (see sk_field_buffer_t in repository.h for the ownership contract),
+ * and instance copy / destroy handle the payload like Blob fields. An empty
+ * buffer (size 0, data NULL) with its has-value bit set is distinct from an
+ * unset buffer.
  */
-typedef struct sk_resource_asset_buffer_t {
-	u64 id;
-} sk_resource_asset_buffer_t;
+typedef sk_field_buffer_t sk_resource_asset_buffer_t;
 
 typedef struct sk_resource_asset_package_t {
 	sk_field_string_t name;			 /* SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME */

@@ -1,0 +1,10 @@
+{
+  "format": "sk.resource_object_fixture",
+  "format_version": 1,
+  "id": "buffer_absent",
+  "type": "TestBufferResource",
+  "uuid": "0000000000000004-00000000000000b4",
+  "fields": {
+    "Name": "buffer_absent"
+  }
+}
