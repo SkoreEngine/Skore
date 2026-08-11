@@ -1,10 +1,19 @@
-# msdf-atlas-gen 1.3.0 + msdfgen (a4dafba) — vendored (MIT, see VENDORING.md).
-# Project-owned CMake mirroring the skore main shim, following v2 thirdparty
-# conventions: static + PIC for shared plugins, SYSTEM PUBLIC includes,
-# -fvisibility=hidden, explicit per-target CXX_STANDARD.
-# Optional paths are compiled out by not listing them (no PNG/SVG/skia, no
-# artery-font-format: MSDF_ATLAS_NO_ARTERY_FONT=1, no tinyxml2/libpng/lodepng).
-# freetype is reused from thirdparty/freetype (already vendored on v2).
+# msdf-atlas-gen 1.3.0 + msdfgen — vendored (MIT; see VENDORING.md + LICENSE.txt).
+#
+# Upstream pins (byte-identical sources; see VENDORING.md):
+#   msdf-atlas-gen  https://github.com/Chlumsky/msdf-atlas-gen  77804c2f4108f49eb73491cda9296a2afb714d4c
+#   msdfgen         https://github.com/Chlumsky/msdfgen         a4dafbac1c29021613fbc89768963f3a7e2105aa
+#
+# Project-owned CMake (not upstream builds). v2 thirdparty conventions:
+# static + PIC for shared plugins, SYSTEM PUBLIC includes, -fvisibility=hidden,
+# explicit per-target CXX_STANDARD 20.
+#
+# Optional features compiled out (manifest §5–§6): no artery-font-format
+# (MSDF_ATLAS_NO_ARTERY_FONT=1), no tinyxml2/libpng/lodepng/skia/OpenMP/CLI.
+# CLI-only and optional TUs are omitted from the source lists and removed from
+# the tree; umbrella headers that reference them remain for include compatibility.
+# size-selectors.cpp is required (TightAtlasPacker instantiates its selectors).
+# freetype is reused from thirdparty/freetype (already on v2) — not duplicated.
 
 add_library(msdfgen STATIC
     msdfgen/core/Contour.cpp
@@ -37,7 +46,7 @@ target_compile_definitions(msdfgen PUBLIC
     MSDFGEN_PUBLIC=
 )
 
-# FreeType is PRIVATE: only ext/import-font.cpp needs its headers.
+# FreeType is PRIVATE: only ext/import-font.cpp needs its headers/link.
 target_link_libraries(msdfgen PRIVATE freetype)
 
 add_library(msdf-atlas-gen STATIC
@@ -62,7 +71,10 @@ target_compile_definitions(msdf-atlas-gen PUBLIC
     MSDF_ATLAS_NO_ARTERY_FONT=1
 )
 
-target_link_libraries(msdf-atlas-gen PUBLIC msdfgen)
+# Workload.cpp uses std::thread; find_package(Threads) is already done by
+# other thirdparty deps (glfw). Link PUBLIC so consumers get it.
+find_package(Threads REQUIRED)
+target_link_libraries(msdf-atlas-gen PUBLIC msdfgen Threads::Threads)
 
 # --- Common properties (v2 thirdparty conventions) ---
 foreach(_target IN ITEMS msdfgen msdf-atlas-gen)
