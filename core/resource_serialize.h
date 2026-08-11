@@ -37,6 +37,31 @@
  *   otherwise leave `SK_RID_ZERO` (self-contained package loads are required
  *   for graphs; single-doc dumps are not).
  *
+ * ## Cycles, depth, and large graphs (APX-191)
+ *
+ * Package reachability is a **non-recursive BFS** over Reference / SubObject /
+ * ReferenceArray / SubObjectList edges with a visited set. Soft-reference
+ * cycles (self-ref, mutual A↔B, multi-node A→B→C→A) **terminate** and do not
+ * stack-overflow; each resource is emitted once. Deep ownership chains and
+ * large flat asset sets are bounded by heap, not call-stack depth.
+ *
+ * ## Threading (APX-191)
+ *
+ * These APIs **do not claim multi-thread safety**. Callers must serialize all
+ * use of a given `sk_repository_t` with this module on a single thread (or
+ * under an external lock). The repository itself supports lock-free concurrent
+ * `read` with at most one exclusive `write` (see repository.h Concurrency);
+ * resource (de)serialize mixes `read` / `write` / create and is not a
+ * concurrent public surface — no internal locks are added here.
+ *
+ * ## Binary / non-UTF-8 data (APX-191)
+ *
+ * Arbitrary bytes belong in **Blob** fields (JSON array of 0..255 integers).
+ * **String** fields are UTF-8 text (JSON string encoding). Non-UTF-8 binary
+ * in String fields is **unsupported**. Embedded NULs cannot round-trip through
+ * C string accessors. Buffer fields store only an opaque handle id (payload
+ * out of band).
+ *
  * ## Fields that cannot be fully represented under the contract
  *
  * | Kind / field | Representation | Note |
@@ -45,7 +70,10 @@
  * | Buffer (OriginalData, Dependency.Data) | `{"id": <u64>}` only | Opaque handle; byte payload is out of band until a buffer layer lands |
  * | SubObjectList.prototype_removed | omitted in v1 | Editor/runtime override state, not durable asset JSON |
  * | Non-finite Float (NaN / Inf) | not representable | Standard JSON has no NaN/Inf; serialize returns non-zero |
+ * | Non-UTF-8 String payloads | unsupported | Use Blob for arbitrary bytes |
+ * | SubObject ownership cycles | unsupported | Hierarchy parent chain assumes a tree/DAG; soft REFERENCE cycles are fine |
  * | Vectors / quats / mat / color / enum | not used by asset types | Generic kinds reserved; not required for APX-186 types |
+ * | Concurrent multi-thread (de)serialize | unsupported | Single-thread / external lock only (see Threading) |
  */
 
 #include "common.h"

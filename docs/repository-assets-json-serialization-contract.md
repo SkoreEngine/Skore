@@ -62,7 +62,7 @@ Imported-asset linkage already stores cross-resource identity as **strings** on 
 | `sk_archive_writer_t` / `sk_archive_reader_t` | **Present** (`core/serialization.h`). Multi-instance fp tables (like `sk_allocator_t`). |
 | Binary backend | `sk_binary_archive_*` — main-compatible custom format, host endian. |
 | JSON backend | `sk_json_archive_*` — **yyjson** linked **PRIVATE** into `sk-core` (`core/CMakeLists.txt`). Public headers never include `yyjson.h`. |
-| Resource Serialize/Deserialize | **Not implemented.** `repository.h` states reflection/events/serialization are intentional gaps. `resource_assets.c` defers Serialize/Deserialize load paths. |
+| Resource Serialize/Deserialize | **Implemented** in `core/resource_serialize.h` / `.c` (JSON via yyjson archive). See header for cycles/depth/threading (APX-191). |
 | Handler hooks | `load` / `save` / `export_object(…, sk_archive_writer_t*)` exist; builtins mostly NULL (exceptions: C# skeleton save, shader content load). |
 
 **JSON library to use:** existing **yyjson** only, through `sk_json_archive_*` (or the same private yyjson usage pattern). Do not add a second JSON dependency.

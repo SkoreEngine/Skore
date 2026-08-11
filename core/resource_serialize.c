@@ -8,6 +8,7 @@
 #include "allocator.h"
 #include "array.h"
 #include "filesystem.h"
+#include "hashmap.h"
 #include "path.h"
 
 #include <stddef.h>
@@ -104,19 +105,19 @@ static i32 str_eq_cstr(sk_str_view_t view, const_chr_t cstr) {
 /* ---- collect reachable resources for package serialize ---- */
 
 typedef SK_ARRAY(sk_rid_t) sk_rid_list_t;
+typedef SK_HASH_SET(sk_rid_t) sk_rid_set_t;
 
-static i32 rid_list_contains(const sk_rid_list_t* list, sk_rid_t rid) {
-	for (u32 i = 0u; i < list->count; ++i) {
-		if (SK_RID_EQ(list->items[i], rid)) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
-static i32 rid_list_push_unique(sk_rid_list_t* list, sk_rid_t rid) {
-	if (rid.id == 0u || rid_list_contains(list, rid)) {
+/**
+ * Push @p rid into BFS order when not yet visited.
+ * Visited set is O(1) membership so large cyclic graphs stay linear-time
+ * (APX-191: large asset sets / soft-reference cycles).
+ */
+static i32 rid_list_push_unique(sk_rid_list_t* list, sk_rid_set_t* visited, sk_rid_t rid) {
+	if (rid.id == 0u || sk_hash_set_contains(visited, rid)) {
 		return SK_RES_SER_OK;
+	}
+	if (sk_hash_set_add(visited, rid) != 0) {
+		return SK_RES_SER_ERR;
 	}
 	if (sk_array_push(list, rid) != 0) {
 		return SK_RES_SER_ERR;
@@ -124,13 +125,21 @@ static i32 rid_list_push_unique(sk_rid_list_t* list, sk_rid_t rid) {
 	return SK_RES_SER_OK;
 }
 
-/* BFS (non-recursive) collect of resources reachable via ref / subobject edges. */
+/* BFS (non-recursive) collect of resources reachable via ref / subobject edges.
+ * Soft-reference cycles terminate via the visited set (no stack recursion). */
 static i32 collect_reachable(sk_repository_t* repository, sk_rid_t root, sk_rid_list_t* out) {
 	const sk_repository_api_t* api = sk_repository_api();
 	if (!api->has_resource(repository, root)) {
 		return SK_RES_SER_INVALID;
 	}
-	if (rid_list_push_unique(out, root) != SK_RES_SER_OK) {
+
+	sk_rid_set_t visited;
+	if (sk_hash_set_init(&visited, sk_allocator_default(), NULL, NULL) != 0) {
+		return SK_RES_SER_ERR;
+	}
+
+	if (rid_list_push_unique(out, &visited, root) != SK_RES_SER_OK) {
+		sk_hash_set_free(&visited);
 		return SK_RES_SER_ERR;
 	}
 
@@ -152,7 +161,8 @@ static i32 collect_reachable(sk_repository_t* repository, sk_rid_t root, sk_rid_
 			case SK_RESOURCE_FIELD_TYPE_SUB_OBJECT: {
 				sk_rid_t child = (field->type == SK_RESOURCE_FIELD_TYPE_REFERENCE) ? api->get_reference(view, field->index) : api->get_subobject(view, field->index);
 				if (child.id != 0u && api->has_resource(repository, child)) {
-					if (rid_list_push_unique(out, child) != SK_RES_SER_OK) {
+					if (rid_list_push_unique(out, &visited, child) != SK_RES_SER_OK) {
+						sk_hash_set_free(&visited);
 						return SK_RES_SER_ERR;
 					}
 				}
@@ -163,7 +173,8 @@ static i32 collect_reachable(sk_repository_t* repository, sk_rid_t root, sk_rid_
 				const sk_rid_t* items = api->get_reference_array(view, field->index, &count);
 				for (u32 i = 0u; i < count; ++i) {
 					if (items[i].id != 0u && api->has_resource(repository, items[i])) {
-						if (rid_list_push_unique(out, items[i]) != SK_RES_SER_OK) {
+						if (rid_list_push_unique(out, &visited, items[i]) != SK_RES_SER_OK) {
+							sk_hash_set_free(&visited);
 							return SK_RES_SER_ERR;
 						}
 					}
@@ -175,7 +186,8 @@ static i32 collect_reachable(sk_repository_t* repository, sk_rid_t root, sk_rid_
 				const sk_rid_t* items = api->get_subobject_list(view, field->index, &count);
 				for (u32 i = 0u; i < count; ++i) {
 					if (items[i].id != 0u && api->has_resource(repository, items[i])) {
-						if (rid_list_push_unique(out, items[i]) != SK_RES_SER_OK) {
+						if (rid_list_push_unique(out, &visited, items[i]) != SK_RES_SER_OK) {
+							sk_hash_set_free(&visited);
 							return SK_RES_SER_ERR;
 						}
 					}
@@ -203,6 +215,7 @@ static i32 collect_reachable(sk_repository_t* repository, sk_rid_t root, sk_rid_
 			}
 		}
 	}
+	sk_hash_set_free(&visited);
 	return SK_RES_SER_OK;
 }
 
@@ -3889,6 +3902,378 @@ SK_TEST(resource_serialize_it_overwrite_existing_saved_package) {
 	api->destroy(dst);
 
 	ser_it_cleanup(dir, path);
+}
+
+/* ================================================================== */
+/*  APX-191 edge-case hardening                                       */
+/* ================================================================== */
+
+/**
+ * Three-node soft-reference cycle A→B→C→A via ResourceAsset.Parent.
+ * Package serialize must terminate (BFS + visited set), emit each UUID once,
+ * and reload with the cycle restored — no stack overflow.
+ */
+SK_TEST(resource_serialize_edge_cycle_three_node_package) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* src = ser_test_repo();
+
+	const sk_uuid_t ua = ser_uuid(0xa191c001ull, 0xb191c001ull);
+	const sk_uuid_t ub = ser_uuid(0xa191c002ull, 0xb191c002ull);
+	const sk_uuid_t uc = ser_uuid(0xa191c003ull, 0xb191c003ull);
+	sk_rid_t a_rid = ser_create(src, "ResourceAsset", ua);
+	sk_rid_t b_rid = ser_create(src, "ResourceAsset", ub);
+	sk_rid_t c_rid = ser_create(src, "ResourceAsset", uc);
+
+	{
+		sk_resource_object_t w = api->write(src, a_rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "A"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_PARENT, b_rid));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(src, b_rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "B"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_PARENT, c_rid));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(src, c_rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "C"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_PARENT, a_rid));
+		api->commit(w, NULL);
+	}
+
+	char* json = NULL;
+	u32 size = 0u;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(src, a_rid, a, &json, &size));
+	TEST_ASSERT_NOT_NULL(json);
+	TEST_ASSERT_TRUE(size > 0u);
+	/* Exactly one occurrence of each UUID (envelope uuid + Parent ref each share text; count resources entries). */
+	TEST_ASSERT_NOT_NULL(strstr(json, "00000000a191c001-00000000b191c001"));
+	TEST_ASSERT_NOT_NULL(strstr(json, "00000000a191c002-00000000b191c002"));
+	TEST_ASSERT_NOT_NULL(strstr(json, "00000000a191c003-00000000b191c003"));
+	/* Three resource objects only (format sk.resource appears once per entry). */
+	{
+		u32 n_res = 0u;
+		const char* p = json;
+		while ((p = strstr(p, "\"type\": \"ResourceAsset\"")) != NULL) {
+			n_res += 1u;
+			p += 1;
+		}
+		TEST_ASSERT_EQUAL_UINT32(3u, n_res);
+	}
+	api->destroy(src);
+
+	sk_repository_t* dst = ser_test_repo();
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(dst, sk_str_view_make(json, size), a, &root));
+	sk_rid_t la = api->find_by_uuid(dst, ua);
+	sk_rid_t lb = api->find_by_uuid(dst, ub);
+	sk_rid_t lc = api->find_by_uuid(dst, uc);
+	TEST_ASSERT_TRUE(la.id != 0u && lb.id != 0u && lc.id != 0u);
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(api->read(dst, la), SK_RESOURCE_ASSET_FIELD_PARENT), lb));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(api->read(dst, lb), SK_RESOURCE_ASSET_FIELD_PARENT), lc));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(api->read(dst, lc), SK_RESOURCE_ASSET_FIELD_PARENT), la));
+
+	/* Re-serialize cyclic graph a second time — still terminates and stays stable. */
+	char* json2 = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(dst, la, a, &json2, NULL));
+	TEST_ASSERT_EQUAL_STRING(json, json2);
+
+	a->free(a->instance, json);
+	a->free(a->instance, json2);
+	api->destroy(dst);
+}
+
+/**
+ * Deep SubObjectList ownership chain (package → root dir → … → leaf).
+ * BFS walk and load must succeed without stack overflow at depth 64.
+ */
+SK_TEST(resource_serialize_edge_deeply_nested_directories) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* src = ser_test_repo();
+
+	enum { DEPTH = 64 };
+	sk_rid_t package = ser_create(src, "ResourceAssetPackage", ser_uuid(0xa191d000ull, 0xb191d000ull));
+	sk_rid_t dirs[DEPTH];
+	for (u32 i = 0u; i < (u32)DEPTH; ++i) {
+		dirs[i] = ser_create(src, "ResourceAssetDirectory", ser_uuid(0xa191d100ull + (u64)i, 0xb191d100ull + (u64)i));
+	}
+	/* Wire leaf → parent links: dirs[i] owns dirs[i+1] via Directories list. */
+	for (u32 i = 0u; i + 1u < (u32)DEPTH; ++i) {
+		sk_resource_object_t w = api->write(src, dirs[i]);
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORIES, &dirs[i + 1u], 1u));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(src, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "DeepNest"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT, dirs[0]));
+		api->commit(w, NULL);
+	}
+
+	char* json = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(src, package, a, &json, NULL));
+	/* Package + DEPTH directories. */
+	{
+		u32 n_dir = 0u;
+		const char* p = json;
+		while ((p = strstr(p, "\"type\": \"ResourceAssetDirectory\"")) != NULL) {
+			n_dir += 1u;
+			p += 1;
+		}
+		TEST_ASSERT_EQUAL_UINT32((u32)DEPTH, n_dir);
+	}
+	api->destroy(src);
+
+	sk_repository_t* dst = ser_test_repo();
+	sk_rid_t root = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(dst, sk_str_view_cstr(json), a, &root));
+	TEST_ASSERT_EQUAL_STRING("DeepNest", api->get_string(api->read(dst, root), SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
+
+	/* Walk the loaded chain DEPTH levels. */
+	sk_rid_t cur = api->get_subobject(api->read(dst, root), SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT);
+	TEST_ASSERT_TRUE(cur.id != 0u);
+	for (u32 i = 0u; i + 1u < (u32)DEPTH; ++i) {
+		u32 count = 0u;
+		const sk_rid_t* kids = api->get_subobject_list(api->read(dst, cur), SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORIES, &count);
+		TEST_ASSERT_EQUAL_UINT32(1u, count);
+		TEST_ASSERT_NOT_NULL(kids);
+		cur = kids[0];
+	}
+	/* Leaf has no further directories. */
+	{
+		u32 count = 1u;
+		(void)api->get_subobject_list(api->read(dst, cur), SK_RESOURCE_ASSET_DIRECTORY_FIELD_DIRECTORIES, &count);
+		TEST_ASSERT_EQUAL_UINT32(0u, count);
+	}
+
+	a->free(a->instance, json);
+	api->destroy(dst);
+}
+
+/**
+ * Wide package: root directory owns N ResourceAssets (flat SubObjectList).
+ * Exercises large reachable sets and linear-time BFS visited membership.
+ */
+SK_TEST(resource_serialize_edge_large_asset_set) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* src = ser_test_repo();
+
+	enum { N = 256 };
+	sk_rid_t package = ser_create(src, "ResourceAssetPackage", ser_uuid(0xa191e000ull, 0xb191e000ull));
+	sk_rid_t root_dir = ser_create(src, "ResourceAssetDirectory", ser_uuid(0xa191e001ull, 0xb191e001ull));
+	sk_rid_t* assets = (sk_rid_t*)a->alloc(a->instance, sizeof(sk_rid_t) * (size_t)N);
+	TEST_ASSERT_NOT_NULL(assets);
+
+	for (u32 i = 0u; i < (u32)N; ++i) {
+		assets[i] = ser_create(src, "ResourceAsset", ser_uuid(0xa191e100ull + (u64)i, 0xb191e100ull + (u64)i));
+		char name[32];
+		(void)snprintf(name, sizeof(name), "Asset%u", i);
+		sk_resource_object_t w = api->write(src, assets[i]);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, name));
+		/* Soft self-ref cycle on each node — must not explode collect. */
+		TEST_ASSERT_EQUAL_INT(0, api->set_reference(w, SK_RESOURCE_ASSET_FIELD_PARENT, assets[i]));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(src, root_dir);
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject_list(w, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, assets, (u32)N));
+		api->commit(w, NULL);
+	}
+	{
+		sk_resource_object_t w = api->write(src, package);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME, "WidePkg"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_subobject(w, SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT, root_dir));
+		api->commit(w, NULL);
+	}
+
+	char* json = NULL;
+	u32 size = 0u;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(src, package, a, &json, &size));
+	TEST_ASSERT_NOT_NULL(json);
+	TEST_ASSERT_TRUE(size > 1000u);
+	{
+		u32 n_asset = 0u;
+		const char* p = json;
+		while ((p = strstr(p, "\"type\": \"ResourceAsset\"")) != NULL) {
+			n_asset += 1u;
+			p += 1;
+		}
+		TEST_ASSERT_EQUAL_UINT32((u32)N, n_asset);
+	}
+	api->destroy(src);
+
+	sk_repository_t* dst = ser_test_repo();
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(dst, sk_str_view_make(json, size), a, &loaded));
+	sk_rid_t dir = api->get_subobject(api->read(dst, loaded), SK_RESOURCE_ASSET_PACKAGE_FIELD_ROOT);
+	u32 count = 0u;
+	const sk_rid_t* got = api->get_subobject_list(api->read(dst, dir), SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, &count);
+	TEST_ASSERT_EQUAL_UINT32((u32)N, count);
+	TEST_ASSERT_NOT_NULL(got);
+	/* Spot-check first / last names and self-Parent cycle. */
+	TEST_ASSERT_EQUAL_STRING("Asset0", api->get_string(api->read(dst, got[0]), SK_RESOURCE_ASSET_FIELD_NAME));
+	TEST_ASSERT_EQUAL_STRING("Asset255", api->get_string(api->read(dst, got[N - 1u]), SK_RESOURCE_ASSET_FIELD_NAME));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(api->read(dst, got[0]), SK_RESOURCE_ASSET_FIELD_PARENT), got[0]));
+	TEST_ASSERT_TRUE(SK_RID_EQ(api->get_reference(api->read(dst, got[N - 1u]), SK_RESOURCE_ASSET_FIELD_PARENT), got[N - 1u]));
+
+	a->free(a->instance, assets);
+	a->free(a->instance, json);
+	api->destroy(dst);
+}
+
+/**
+ * Repeated package save → load → save cycles produce byte-identical JSON
+ * (format stability / deterministic BFS emission order).
+ */
+SK_TEST(resource_serialize_edge_multi_cycle_byte_identical) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+	sk_rid_t package = ser_it_build_interlinked_package(repo);
+
+	char* baseline = NULL;
+	u32 baseline_size = 0u;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(repo, package, a, &baseline, &baseline_size));
+	TEST_ASSERT_NOT_NULL(baseline);
+	TEST_ASSERT_TRUE(baseline_size > 0u);
+	api->destroy(repo);
+
+	enum { ROUNDS = 8 };
+	char* prev = baseline;
+	u32 prev_size = baseline_size;
+	for (u32 round = 0u; round < (u32)ROUNDS; ++round) {
+		sk_repository_t* next_repo = ser_test_repo();
+		sk_rid_t root = SK_RID_ZERO;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_package_json_string(next_repo, sk_str_view_make(prev, prev_size), a, &root));
+		char* emitted = NULL;
+		u32 emitted_size = 0u;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_alloc(next_repo, root, a, &emitted, &emitted_size));
+		TEST_ASSERT_EQUAL_UINT32(baseline_size, emitted_size);
+		TEST_ASSERT_EQUAL_MEMORY(baseline, emitted, baseline_size);
+		api->destroy(next_repo);
+		if (prev != baseline) {
+			a->free(a->instance, prev);
+		}
+		prev = emitted;
+		prev_size = emitted_size;
+	}
+	if (prev != baseline) {
+		a->free(a->instance, prev);
+	}
+	a->free(a->instance, baseline);
+}
+
+/**
+ * Blob fields carry arbitrary binary (including 0x00 and full 0..255 range).
+ * Empty blob and full-range blob round-trip byte-for-byte.
+ * Non-UTF-8 text in String fields is intentionally unsupported (use Blob).
+ */
+SK_TEST(resource_serialize_edge_binary_blob_full_range) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+
+	/* Empty blob (has_value set, zero length). */
+	{
+		sk_rid_t rid = ser_create(repo, "AudioResource", ser_uuid(0xa191b001ull, 0xb191b001ull));
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_NAMED_RESOURCE_FIELD_NAME, "empty"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_blob(w, SK_NAMED_RESOURCE_FIELD_BYTES, NULL, 0u));
+		api->commit(w, NULL);
+
+		char* json = NULL;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_json_alloc(repo, rid, a, &json, NULL));
+		TEST_ASSERT_NOT_NULL(strstr(json, "\"Bytes\""));
+		api->destroy_resource(repo, rid, NULL);
+		sk_rid_t loaded = SK_RID_ZERO;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(json), a, &loaded));
+		u32 size = 1u;
+		const u8* got = api->get_blob(api->read(repo, loaded), SK_NAMED_RESOURCE_FIELD_BYTES, &size);
+		TEST_ASSERT_EQUAL_UINT32(0u, size);
+		(void)got;
+		a->free(a->instance, json);
+	}
+
+	/* Full 0..255 byte range (includes NUL and high non-UTF8 bytes). */
+	{
+		u8 bytes[256];
+		for (u32 i = 0u; i < 256u; ++i) {
+			bytes[i] = (u8)i;
+		}
+		sk_rid_t rid = ser_create(repo, "AudioResource", ser_uuid(0xa191b002ull, 0xb191b002ull));
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_NAMED_RESOURCE_FIELD_NAME, "full"));
+		TEST_ASSERT_EQUAL_INT(0, api->set_blob(w, SK_NAMED_RESOURCE_FIELD_BYTES, bytes, 256u));
+		api->commit(w, NULL);
+
+		char* json = NULL;
+		u32 jsize = 0u;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_json_alloc(repo, rid, a, &json, &jsize));
+		/* Byte array encoding: leading 0 and trailing 255 present as JSON numbers. */
+		TEST_ASSERT_NOT_NULL(strstr(json, "0"));
+		TEST_ASSERT_NOT_NULL(strstr(json, "255"));
+		api->destroy_resource(repo, rid, NULL);
+
+		sk_rid_t loaded = SK_RID_ZERO;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_json_string(repo, sk_str_view_make(json, jsize), a, &loaded));
+		u32 size = 0u;
+		const u8* got = api->get_blob(api->read(repo, loaded), SK_NAMED_RESOURCE_FIELD_BYTES, &size);
+		TEST_ASSERT_EQUAL_UINT32(256u, size);
+		TEST_ASSERT_NOT_NULL(got);
+		TEST_ASSERT_EQUAL_MEMORY(bytes, got, 256u);
+
+		/* Double-serialize identity for binary payload. */
+		char* json2 = NULL;
+		TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_json_alloc(repo, loaded, a, &json2, NULL));
+		TEST_ASSERT_EQUAL_STRING(json, json2);
+		a->free(a->instance, json);
+		a->free(a->instance, json2);
+	}
+
+	api->destroy(repo);
+}
+
+/**
+ * Document single-thread requirement: resource_serialize is not a concurrent
+ * public surface. This test records the contract in executable form (comment +
+ * sequential multi-op smoke) rather than adding locks. Concurrent writers on
+ * the same repository remain unsupported (repository write lock is exclusive;
+ * serialize/deserialize are caller-serialized).
+ */
+SK_TEST(resource_serialize_edge_single_thread_contract) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	sk_repository_t* repo = ser_test_repo();
+
+	/* Sequential serialize then deserialize on one thread is the supported path. */
+	sk_rid_t rid = ser_create(repo, "ResourceAsset", ser_uuid(0xa191f001ull, 0xb191f001ull));
+	{
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_string(w, SK_RESOURCE_ASSET_FIELD_NAME, "main-thread-only"));
+		api->commit(w, NULL);
+	}
+	char* json = NULL;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_json_alloc(repo, rid, a, &json, NULL));
+	api->destroy_resource(repo, rid, NULL);
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_deserialize_json_string(repo, sk_str_view_cstr(json), a, &loaded));
+	TEST_ASSERT_EQUAL_STRING("main-thread-only", api->get_string(api->read(repo, loaded), SK_RESOURCE_ASSET_FIELD_NAME));
+
+	/*
+	 * Unsupported (documented, not exercised under race):
+	 * - concurrent sk_resource_serialize_* + sk_resource_deserialize_* on one repo
+	 * - concurrent write views (repository allows only one exclusive write)
+	 * No mutexes are added in this module; external serialization is required.
+	 */
+	TEST_ASSERT_TRUE(1);
+
+	a->free(a->instance, json);
+	api->destroy(repo);
 }
 
 SK_TEST(resource_serialize_it_save_modify_reload_disk_wins) {
