@@ -13,6 +13,8 @@
 # CLI-only and optional TUs are omitted from the source lists and removed from
 # the tree; umbrella headers that reference them remain for include compatibility.
 # size-selectors.cpp is required (TightAtlasPacker instantiates its selectors).
+# GridAtlasPacker.cpp is restored from the pinned upstream tree: the C API
+# (c_api, APX-219/220) exposes grid packing, which needs this TU.
 # freetype is reused from thirdparty/freetype (already on v2) — not duplicated.
 
 add_library(msdfgen STATIC
@@ -53,6 +55,7 @@ add_library(msdf-atlas-gen STATIC
     msdf-atlas-gen/Charset.cpp
     msdf-atlas-gen/FontGeometry.cpp
     msdf-atlas-gen/GlyphGeometry.cpp
+    msdf-atlas-gen/GridAtlasPacker.cpp
     msdf-atlas-gen/Padding.cpp
     msdf-atlas-gen/RectanglePacker.cpp
     msdf-atlas-gen/TightAtlasPacker.cpp
@@ -76,8 +79,52 @@ target_compile_definitions(msdf-atlas-gen PUBLIC
 find_package(Threads REQUIRED)
 target_link_libraries(msdf-atlas-gen PUBLIC msdfgen Threads::Threads)
 
+# ---------------------------------------------------------------------------
+# msdf-atlas-c — public C99 API wrapper over msdf-atlas-gen (APX-220).
+#
+# Pure C++ TU implementing <msdf_atlas_c.h>. MSDF_ATLAS_C_STATIC is PUBLIC so
+# consumers of this static library never see dllimport/dllexport; on GCC/Clang
+# the header's visibility("default") attribute still exports the API symbols
+# from hidden-visibility objects (so the wrapper can be linked into SHARED
+# plugins and keep its entry points reachable).
+# ---------------------------------------------------------------------------
+add_library(msdf-atlas-c STATIC
+    c_api/src/msdf_atlas_c.cpp
+)
+
+target_include_directories(msdf-atlas-c SYSTEM PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/c_api/include
+)
+
+target_compile_definitions(msdf-atlas-c PUBLIC
+    MSDF_ATLAS_C_STATIC=1
+)
+
+target_link_libraries(msdf-atlas-c PUBLIC msdf-atlas-gen)
+
+# Smoke test: exercises the full pipeline (font -> charset -> glyphset ->
+# packer -> generator -> layout/bitmap) in pure C99, plus all destroy calls.
+if(BUILD_TESTING)
+    add_executable(msdf-atlas-c-smoke
+        c_api/tests/msdf_atlas_c_smoke.c
+    )
+    target_link_libraries(msdf-atlas-c-smoke PRIVATE msdf-atlas-c)
+    target_compile_definitions(msdf-atlas-c-smoke PRIVATE
+        MSDF_ATLAS_C_SMOKE_FONT_PATH="${CMAKE_SOURCE_DIR}/plugins/ui/testdata/skore_test_font.ttf"
+    )
+    set_target_properties(msdf-atlas-c-smoke PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED ON
+        C_EXTENSIONS OFF
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+    )
+    add_test(NAME msdf-atlas-c-smoke COMMAND msdf-atlas-c-smoke)
+endif()
+
 # --- Common properties (v2 thirdparty conventions) ---
-foreach(_target IN ITEMS msdfgen msdf-atlas-gen)
+foreach(_target IN ITEMS msdfgen msdf-atlas-gen msdf-atlas-c)
     # Keep symbols private when linked into SHARED plugins.
     if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
         target_compile_options(${_target} PRIVATE -fvisibility=hidden)
