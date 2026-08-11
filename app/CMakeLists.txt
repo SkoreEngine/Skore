@@ -45,6 +45,10 @@ if(BUILD_TESTING)
     # Integration tests include dxc_compiler.h (plugin public header).
     target_include_directories(sk-app-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/plugins/dxc_compiler)
+    # Integration tests include render_graph.h (plugin public header).
+    target_include_directories(sk-app-tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/plugins/render_graph
+        ${CMAKE_SOURCE_DIR}/plugins/render_device)
     if(UNIX)
         target_link_libraries(sk-app-tests PUBLIC ${CMAKE_DL_LIBS})
     endif()

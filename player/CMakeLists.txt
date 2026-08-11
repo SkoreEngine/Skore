@@ -17,13 +17,14 @@ if(APPLE)
     target_link_options(sk-player PRIVATE "LINKER:-export_dynamic")
 endif()
 
-# Header-only access to platform_window / ui APIs (plugins load at runtime).
-# Include paths used instead of plugin -lib targets because player is
+# Header-only access to plugin APIs (plugins are loaded at runtime).
+# Include paths used instead of plugin-lib targets because player is
 # added before plugins/ in the root CMakeLists. ui.h pulls render_device and
 # dxc_compiler headers for the GPU renderer types (not linked here).
 target_include_directories(sk-player PRIVATE
     ${CMAKE_SOURCE_DIR}/plugins/platform_window
     ${CMAKE_SOURCE_DIR}/plugins/ui
+    ${CMAKE_SOURCE_DIR}/plugins/render_graph
     ${CMAKE_SOURCE_DIR}/plugins/render_device
     ${CMAKE_SOURCE_DIR}/plugins/dxc_compiler)
 

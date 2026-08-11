@@ -5,8 +5,10 @@
 /**
  * Plugin load entry: resolved via host platform lib_symbol after app init.
  *
- * Registers sk_render_graph_api_t under SK_RENDER_GRAPH_API_TYPE_ID via
- * sk_render_graph_init. Hosts look it up with app_api->get_api.
+ * Registers the full sk_render_graph_api_t fn table under
+ * SK_RENDER_GRAPH_API_TYPE_ID via sk_render_graph_init. Hosts look it up with
+ * app_api->get_api only (no free-function mirrors). Replaces the C++ main
+ * RenderGraph class for all call sites on v2.
  *
  * @param context Process app context (API registry). Must not be NULL.
  * @param app_api App module table (set_api/get_api). Must not be NULL.

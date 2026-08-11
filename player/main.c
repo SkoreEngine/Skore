@@ -4,13 +4,20 @@
  * in-game UI consumer (APX-138):
  *   poll_events → content scale → style_resolve → layout → apply_scale → paint
  *
+ * Also acquires the render_graph plugin fn table via the app registry (port of
+ * C++ main Player RenderGraph call sites). Full swapchain + RHI frame execute
+ * lands when the player device path is wired; pipeline-context ownership
+ * matches main's RenderPipelineContext usage today.
+ *
  * Layout uses logical window size; HiDPI content scale is applied after layout
- * and drives glyph re-rasterization. GPU present is not required for this
+ * and drives glyph re-rasterization. GPU present is not required for the UI
  * sample — the CPU pipeline matches what a full renderer would encode.
  */
 
 #include "app.h"
 #include "platform_window.h"
+#include "render_graph.h"
+#include "render_pipeline.h"
 #include "ui.h"
 
 #include <stddef.h>
@@ -132,6 +139,7 @@ int main(int argc, char* argv[]) {
 	sk_app_context_t* ctx = sk_app_init(argc, argv);
 	const sk_app_api_t* app_api;
 	const sk_platform_window_api_t* win_api;
+	const sk_render_graph_api_t* rg_api;
 	sk_window_t window;
 	player_ui_state_t ui_state;
 
@@ -139,20 +147,41 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	/* Platform window plugin is auto-loaded from {app_folder}/plugins. */
+	/* Plugins auto-loaded from {app_folder}/plugins (window, ui, render_graph, …). */
 	app_api = sk_app_api();
 	win_api = app_api->get_api(ctx, SK_PLATFORM_WINDOW_API_TYPE_ID);
+	rg_api = sk_render_graph_api_from_app(ctx, app_api);
 
 	if (win_api->init() != 0) {
 		sk_app_destroy(ctx);
 		return 1;
 	}
 
-	window = win_api->create_window("Skore", 1280u, 720u, (u32)(SK_WINDOW_FLAG_RESIZABLE | SK_WINDOW_FLAG_MAXIMIZED));
-	if (window == NULL) {
+	/* Require the migrated render_graph plugin (replaces C++ RenderGraph). */
+	if (rg_api == NULL || rg_api->create == NULL || rg_api->begin == NULL || rg_api->execute == NULL) {
 		sk_app_destroy(ctx);
 		return 1;
 	}
+	if (rg_api->init() != 0) {
+		sk_app_destroy(ctx);
+		return 1;
+	}
+
+	window = win_api->create_window("Skore", 1280u, 720u, (u32)(SK_WINDOW_FLAG_RESIZABLE | SK_WINDOW_FLAG_MAXIMIZED));
+	if (window == NULL) {
+		rg_api->shutdown();
+		sk_app_destroy(ctx);
+		return 1;
+	}
+
+	/*
+	 * Pipeline context owns the graph for the process lifetime (main's
+	 * RenderPipelineContext). Graph create needs a render_device handle;
+	 * when the player RHI/swapchain path is online, call
+	 * sk_render_pipeline_context_create + per-frame
+	 * set_current_output_index / set_output_size / Execute as on main.
+	 */
+	(void)window;
 
 	if (player_ui_init(ctx, &ui_state) == 0) {
 		sk_content_scale_t sc = win_api->get_window_content_scale(window);
@@ -171,6 +200,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	player_ui_shutdown(&ui_state);
+	rg_api->shutdown();
 	sk_app_destroy(ctx);
 	return 0;
 }
