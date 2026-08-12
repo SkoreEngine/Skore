@@ -28,6 +28,7 @@ add_executable(sk-integration-tests
     ui_flexbox_vision.c
     ui_test_authoring.c
     ui_interaction_suite.c
+    ui_text_screenshot.c
     "${CMAKE_SOURCE_DIR}/plugins/ui/ui_test.c"
     render_graph.c
     resource_object_fixtures.c
@@ -120,6 +121,64 @@ add_test(
 )
 set_tests_properties(sk-ui-integration-suites PROPERTIES
     LABELS "ui;ui-integration;ui-vision"
+    TIMEOUT 1800
+)
+
+# APX-268: deterministic text rendering screenshot harness.
+#
+# Standalone entry point: renders the fixed text-sample suite through the
+# headless offscreen renderer and writes PNG captures into
+# {SK_TEST_ARTIFACT_DIR}/text-screenshot/{freetype,msdf}/ so the legacy
+# FreeType path and the MSDF path can be compared side by side. --verify
+# re-captures every sample and byte-compares (raw readback + PNG bytes);
+# re-running the same command twice must produce byte-identical trees.
+add_executable(sk-text-screenshot
+    ui_text_screenshot_main.c
+    ui_text_screenshot.c
+    ui_capture_harness.c
+)
+target_link_libraries(sk-text-screenshot PRIVATE
+    sk-app
+    sk-render-device-lib
+    sk-dxc-compiler-lib
+    sk-ui-lib
+)
+target_include_directories(sk-text-screenshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
+target_compile_definitions(sk-text-screenshot PRIVATE
+    SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts"
+    SK_UI_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/plugins/ui/testdata"
+)
+set_target_properties(sk-text-screenshot PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
+)
+add_dependencies(sk-text-screenshot
+    sk-vulkan-render-device
+    sk-render-device
+    sk-test-render-device
+    sk-dxc-compiler
+    sk-ui
+    sk-render-graph)
+
+# Both path modes captured with the determinism re-check, into the shared
+# artifact root. Skips cleanly when no Vulkan ICD is present (exit 2).
+add_test(
+    NAME sk-text-screenshot-freetype
+    COMMAND ${CMAKE_COMMAND} -E env
+        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
+        $<TARGET_FILE:sk-text-screenshot> --mode freetype --verify
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+)
+add_test(
+    NAME sk-text-screenshot-msdf
+    COMMAND ${CMAKE_COMMAND} -E env
+        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
+        $<TARGET_FILE:sk-text-screenshot> --mode msdf --verify
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+)
+set_tests_properties(sk-text-screenshot-freetype sk-text-screenshot-msdf PROPERTIES
+    LABELS "ui;ui-integration;ui-text-screenshot"
     TIMEOUT 1800
 )
 

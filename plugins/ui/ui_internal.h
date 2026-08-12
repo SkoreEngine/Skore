@@ -371,6 +371,7 @@ i32 ui_capture_frame_impl(sk_ui_capture_t* capture, const sk_ui_capture_frame_in
 i32 ui_cpu_image_write_png_impl(const sk_ui_cpu_image_t* image, const sk_filesystem_api_t* fs, const_chr_t path);
 i32 ui_test_artifact_root_impl(const sk_filesystem_api_t* fs, char* out, u32 out_cap);
 i32 ui_test_artifact_png_path_impl(const sk_filesystem_api_t* fs, const_chr_t name, char* out, u32 out_cap);
+i32 ui_test_artifact_png_path_in_impl(const sk_filesystem_api_t* fs, const_chr_t subdir, const_chr_t name, char* out, u32 out_cap);
 
 /* -------------------------------------------------------------------------- */
 /* Golden image comparison (image_compare.c)                                  */

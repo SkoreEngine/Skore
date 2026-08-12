@@ -91,9 +91,25 @@ Source files under `tests/integration/`:
 | `ui_integration_layout_nested` | `ui_integration.c` | Yes (via harness) | `ui_integration_layout_nested.png` |
 | `ui_integration_text_glyphs` | `ui_integration.c` | Yes (via harness) | `ui_integration_text_glyphs.png` |
 | `ui_offscreen_draw_list_golden` | `ui_render.c` | **No** on pass | Only mismatch/regen under `build/bin/` / testdata golden |
+| `ui_text_screenshot_determinism` | `ui_text_screenshot.c` | Yes | `ui_text_screenshot_determinism_{a,b}.png` |
+| `ui_text_screenshot_suite_completeness` | `ui_text_screenshot.c` | Yes (full suite) | `{root}/text-screenshot/{freetype,msdf}/*` |
 
 Related non-snapshot note: `vulkan_offscreen_triangle_render` writes a **PPM**
 (`build/bin/sk-triangle-render.ppm`), not a PNG.
+
+### Deterministic text screenshot suite (APX-268)
+
+Standalone entry: `sk-text-screenshot --mode freetype|msdf|both [--verify]`.
+Writes a complete capture set under `{SK_TEST_ARTIFACT_DIR}/text-screenshot/{mode}/`:
+
+- `pangram.png`, `sizes.png`, `colors_alpha.png`, `scaled.png`, `glyph_grid.png`
+- `atlas_freetype.png` or `atlas_msdf.png` (raw atlas dump)
+- `manifest.txt` (name + byte size)
+
+`--verify` re-captures each sample and byte-compares raw readback + PNG
+(and the atlas dump on `glyph_grid`). CTest: `sk-text-screenshot-freetype`,
+`sk-text-screenshot-msdf`. Rotation is not supported by the UI (no transform
+API); the suite covers 2× content-scale instead.
 
 ---
 

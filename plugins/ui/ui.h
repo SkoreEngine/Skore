@@ -2057,6 +2057,17 @@ typedef struct sk_ui_api_t {
 	 */
 	i32 (*test_artifact_png_path)(const sk_filesystem_api_t* fs, const_chr_t name, char* out, u32 out_cap);
 
+	/**
+	 * Like test_artifact_png_path but under an optional subdirectory:
+	 *   {root}/{subdir}/{sanitized_name}.png
+	 * @p subdir NULL/empty behaves exactly like test_artifact_png_path.
+	 * Useful for mode-scoped capture suites (e.g. "text-screenshot/freetype"
+	 * vs "text-screenshot/msdf") so side-by-side runs land in separate
+	 * folders. Subdirectory separators are preserved (not sanitized).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*test_artifact_png_path_in)(const sk_filesystem_api_t* fs, const_chr_t subdir, const_chr_t name, char* out, u32 out_cap);
+
 	/* ---- v1 widgets (compose tree + default styles + behavior) ---- */
 
 	/**

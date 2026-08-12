@@ -26,16 +26,25 @@
  *   - fixed clear color: params.clear_color when clear_color_set is
  *     non-zero, else the documented fixed default
  *     (SK_UI_CAPTURE_HARNESS_DEFAULT_CLEAR_COLOR — opaque white);
- *   - fixed content scale / DPI: always 1.0x / 96 DPI
- *     (SK_UI_CAPTURE_HARNESS_CONTENT_SCALE / _DPI) — never host scale;
+ *   - default content scale / DPI: 1.0x / 96 DPI
+ *     (SK_UI_CAPTURE_HARNESS_CONTENT_SCALE / _DPI) unless params.content_scale
+ *     is set; never host scale. Layout is in logical units (physical / scale);
  *   - fixed text font when load_test_font != 0: vendored DejaVuSans.ttf
  *     under the UI test-assets dir (see SK_UI_CAPTURE_HARNESS_FONT_*),
  *     loaded at a fixed atlas size; no system-font or embedded built-in
  *     fallback (missing asset → RC_ERROR);
  *   - fixed FreeType raster flags in the font pipeline
  *     (FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL);
- *   - MSDF text is opt-in (ui->set_text_renderer / SK_UI_TEXT_RENDERER=msdf);
- *     default remains the FreeType coverage path so goldens stay comparable;
+ *   - text renderer is explicit per capture: params.text_renderer
+ *     (DEFAULT resolves to FreeType, the harness's documented default so
+ *     goldens stay comparable). MSDF captures bake the pinned test font
+ *     automatically. The process-wide renderer is always restored to
+ *     FreeType before the call returns;
+ *   - fixed content scale: params.content_scale (0 → the pinned 1.0x / 96
+ *     DPI constant) — never host scale;
+ *   - optional params.output_subdir routes the PNG artifact to
+ *     {root}/{subdir}/{sanitized_name}.png so mode-scoped suites land in
+ *     separate folders (e.g. "text-screenshot/freetype" vs "msdf");
  *   - no wall-clock or frame-counter dependent state anywhere: every call
  *     uses a fresh app context, device, capture, and UI context, and the
  *     scene callback only sees the fixed logical time
@@ -118,6 +127,28 @@ typedef struct sk_ui_capture_harness_params_t {
 	 * font_system/font; ownership of any final pair remains with the harness.
 	 */
 	i32 load_test_font;
+	/**
+	 * Content scale applied to layout/paint for this capture
+	 * (0 = pinned SK_UI_CAPTURE_HARNESS_CONTENT_SCALE, the 1.0x / 96 DPI
+	 * reference). Fixed per call — never the host scale. Scenes are
+	 * authored in logical units; paint + readback stay in physical pixels.
+	 */
+	f32 content_scale;
+	/**
+	 * Text renderer for this capture. SK_UI_TEXT_RENDERER_DEFAULT resolves
+	 * to SK_UI_TEXT_RENDERER_FREETYPE (harness default). MSDF captures
+	 * bake the pinned test font (when load_test_font) before the scene
+	 * callback runs. The process-wide renderer is restored to FreeType
+	 * before the call returns.
+	 */
+	sk_ui_text_renderer_t text_renderer;
+	/**
+	 * Optional subdirectory under the test-artifact root; when set the PNG
+	 * artifact is written to {root}/{subdir}/{sanitized_name}.png instead of
+	 * {root}/{sanitized_name}.png (cpu_image_write_png creates parents).
+	 * NULL/empty = artifact root. Example: "text-screenshot/freetype".
+	 */
+	const_chr_t output_subdir;
 } sk_ui_capture_harness_params_t;
 
 /**
