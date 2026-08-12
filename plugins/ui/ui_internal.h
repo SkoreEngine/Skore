@@ -348,6 +348,8 @@ sk_ui_node_t ui_widget_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, cons
 sk_ui_node_t ui_widget_label_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
 sk_ui_node_t ui_widget_checkbox_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
+sk_ui_node_t ui_widget_radio_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
+sk_ui_node_t ui_widget_toggle_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 on, const_chr_t id);
 sk_ui_node_t ui_widget_slider_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value, const_chr_t id);
 sk_ui_node_t ui_widget_text_input_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_scroll_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
@@ -391,6 +393,15 @@ i32 ui_button_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 dis
 i32 ui_checkbox_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
 i32 ui_checkbox_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_checkbox_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
+i32 ui_radio_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
+i32 ui_radio_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_radio_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
+i32 ui_toggle_set_on_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on);
+i32 ui_toggle_get_on_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_toggle_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+i32 ui_toggle_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
 
 i32 ui_slider_set_value_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value);
 f32 ui_slider_get_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);

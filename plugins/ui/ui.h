@@ -779,6 +779,8 @@ typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f
 #define SK_UI_CLASS_LABEL "ui-label"
 #define SK_UI_CLASS_BUTTON "ui-button"
 #define SK_UI_CLASS_CHECKBOX "ui-checkbox"
+#define SK_UI_CLASS_RADIO "ui-radio"
+#define SK_UI_CLASS_TOGGLE "ui-toggle"
 #define SK_UI_CLASS_SLIDER "ui-slider"
 #define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
 #define SK_UI_CLASS_SCROLL_VIEW "ui-scroll-view"
@@ -1911,6 +1913,18 @@ typedef struct sk_ui_api_t {
 	/** Checkbox; @p checked non-zero starts checked (BOX + class ui-checkbox). */
 	sk_ui_node_t (*widget_checkbox)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
 
+	/**
+	 * Radio button; @p checked non-zero starts selected (BOX + class ui-radio).
+	 * Paint draws a filled inner disc when checked; outer ring is circular chrome.
+	 */
+	sk_ui_node_t (*widget_radio)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
+
+	/**
+	 * Toggle switch; @p on non-zero starts ON (BOX + class ui-toggle).
+	 * Paint draws a pill track + distinct thumb; ON places the thumb toward the end.
+	 */
+	sk_ui_node_t (*widget_toggle)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 on, const_chr_t id);
+
 	/** Horizontal slider clamped to [min_v, max_v]. */
 	sk_ui_node_t (*widget_slider)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value, const_chr_t id);
 
@@ -2053,6 +2067,17 @@ typedef struct sk_ui_api_t {
 	i32 (*checkbox_get_checked)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 	/** Fires after toggle; @p user stored for the callback. */
 	i32 (*checkbox_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
+	i32 (*radio_set_checked)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
+	i32 (*radio_get_checked)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Fires when the radio becomes selected. */
+	i32 (*radio_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
+	i32 (*toggle_set_on)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on);
+	i32 (*toggle_get_on)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*toggle_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+	/** Fires after the switch flips; @p user stored for the callback. */
+	i32 (*toggle_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
 
 	i32 (*slider_set_value)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value);
 	f32 (*slider_get_value)(const sk_ui_context_t* ctx, sk_ui_node_t node);

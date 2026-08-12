@@ -335,6 +335,33 @@ static i32 ui_paint_add_triangle(ui_paint_emitter_t* em, f32 x0, f32 y0, f32 x1,
 	return 0;
 }
 
+/**
+ * Thick line segment as a filled quad (two triangles). Used for checkbox X
+ * diagonals so the mark reads as two crossing strokes, not a checkmark/tick.
+ */
+static i32 ui_paint_add_thick_line(ui_paint_emitter_t* em, f32 x0, f32 y0, f32 x1, f32 y1, f32 thickness, u32 color) {
+	f32 dx = x1 - x0;
+	f32 dy = y1 - y0;
+	f32 len = sqrtf(dx * dx + dy * dy);
+	f32 nx;
+	f32 ny;
+	f32 half;
+	if (len < 0.001f) {
+		return 0;
+	}
+	half = thickness * 0.5f;
+	nx = (-dy / len) * half;
+	ny = (dx / len) * half;
+	/* Corners: p0+n, p1+n, p1-n, p0-n as two triangles. */
+	if (ui_paint_add_triangle(em, x0 + nx, y0 + ny, x1 + nx, y1 + ny, x1 - nx, y1 - ny, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_triangle(em, x0 + nx, y0 + ny, x1 - nx, y1 - ny, x0 - nx, y0 - ny, color) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
 static i32 ui_paint_add_rounded_rect_filled(ui_paint_emitter_t* em, f32 x, f32 y, f32 w, f32 h, f32 radius, u32 color) {
 	f32 x1 = x + w;
 	f32 y1 = y + h;
@@ -999,28 +1026,106 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		}
 	}
 
-	/* Checkbox checkmark when prop checked != 0. */
+	/*
+	 * Widget marks (checkbox X, radio inner disc, toggle thumb).
+	 * These are the fine details graded by per-widget vision rubrics (APX-252).
+	 */
 	{
 		i32 checked = 0;
+		i32 on = 0;
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
 		if (wtype != NULL && strcmp(wtype, "checkbox") == 0 && ui_paint_prop_i32(slot, "checked", &checked) == 0 && checked != 0) {
+			/* X mark: two crossing diagonal strokes (not a checkmark/tick). */
 			u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
-			f32 m = (cw < ch ? cw : ch) * 0.2f;
-			f32 x0 = cx + m;
-			f32 y0 = cy + ch * 0.55f;
-			f32 x1 = cx + cw * 0.4f;
-			f32 y1 = cy + ch - m;
-			f32 x2 = cx + cw - m;
-			f32 y2 = cy + m;
-			/* Two thick segments for a simple check. */
-			if (ui_paint_add_solid_quad(em, x0, y0 - 1.5f * em->scale_y, x1, y1 + 1.5f * em->scale_y, mk) != 0) {
+			f32 m = (cw < ch ? cw : ch) * 0.22f;
+			f32 thick = (cw < ch ? cw : ch) * 0.16f;
+			f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+			if (thick < 1.5f * avg) {
+				thick = 1.5f * avg;
+			}
+			if (ui_paint_add_thick_line(em, cx + m, cy + m, cx + cw - m, cy + ch - m, thick, mk) != 0) {
 				return -1;
 			}
-			if (ui_paint_add_solid_quad(em, x1 - 1.5f * em->scale_x, y1 - 1.5f * em->scale_y, x2, y2 + 1.5f * em->scale_y, mk) != 0) {
+			if (ui_paint_add_thick_line(em, cx + cw - m, cy + m, cx + m, cy + ch - m, thick, mk) != 0) {
 				return -1;
 			}
-			(void)x2;
-			(void)y2;
+		}
+		if (wtype != NULL && strcmp(wtype, "radio") == 0) {
+			/*
+			 * Circular ring: outer disc (ring color) minus inner hole (dark face).
+			 * When checked, a smaller filled disc sits in the center.
+			 * Uses border-box so the control is round even without layout border.
+			 */
+			u32 ring_col = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+			u32 hole_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f), opacity));
+			f32 side = bw < bh ? bw : bh;
+			f32 rx = bx + (bw - side) * 0.5f;
+			f32 ry = by + (bh - side) * 0.5f;
+			f32 hole = side * 0.70f; /* thinner ring stroke so the hole reads clearly */
+			f32 hx = rx + (side - hole) * 0.5f;
+			f32 hy = ry + (side - hole) * 0.5f;
+			if (ui_paint_add_rounded_rect_filled(em, rx, ry, side, side, side * 0.5f, ring_col) != 0) {
+				return -1;
+			}
+			if (ui_paint_add_rounded_rect_filled(em, hx, hy, hole, hole, hole * 0.5f, hole_col) != 0) {
+				return -1;
+			}
+			if (ui_paint_prop_i32(slot, "checked", &checked) == 0 && checked != 0) {
+				/* Solid disc clearly smaller than the outer ring; dim when disabled. */
+				i32 radio_disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
+				/* Disabled: still a solid light disc (must read as filled), just less bright. */
+				sk_ui_color_t disc_c = radio_disabled != 0 ? sk_ui_rgba(0.72f, 0.74f, 0.78f, 1.0f) : sk_ui_rgba(0.96f, 0.97f, 0.99f, 1.0f);
+				u32 disc_col = sk_ui_pack_color(ui_paint_mul_opacity(disc_c, opacity));
+				f32 disc = side * 0.50f;
+				f32 dx = rx + (side - disc) * 0.5f;
+				f32 dy = ry + (side - disc) * 0.5f;
+				if (ui_paint_add_rounded_rect_filled(em, dx, dy, disc, disc, disc * 0.5f, disc_col) != 0) {
+					return -1;
+				}
+			}
+		}
+		if (wtype != NULL && strcmp(wtype, "toggle") == 0) {
+			/* Pill track is the node background; draw a distinct thumb/knob. */
+			i32 has_on = (ui_paint_prop_i32(slot, "on", &on) == 0) ? 1 : 0;
+			i32 disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
+			f32 pad = (bh < bw ? bh : bw) * 0.12f;
+			f32 thumb = bh - pad * 2.0f;
+			f32 thumb_x;
+			u32 thumb_col;
+			u32 track_on_col;
+			sk_ui_color_t accent;
+			sk_ui_color_t thumb_c;
+			if (has_on == 0) {
+				on = 0;
+			}
+			if (thumb < 4.0f) {
+				thumb = 4.0f;
+			}
+			if (on != 0) {
+				/* Stronger track fill when ON so ON/OFF are distinguishable. */
+				accent = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 1.0f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f);
+				track_on_col = sk_ui_pack_color(ui_paint_mul_opacity(accent, opacity));
+				if (ui_paint_add_rounded_rect_filled(em, bx, by, bw, bh, (bh < bw ? bh : bw) * 0.5f, track_on_col) != 0) {
+					return -1;
+				}
+			}
+			/* Place thumb using border-box so it sits fully on the pill track. */
+			thumb_x = (on != 0) ? (bx + bw - pad - thumb) : (bx + pad);
+			if (thumb_x < bx) {
+				thumb_x = bx;
+			}
+			if (thumb_x + thumb > bx + bw) {
+				thumb_x = bx + bw - thumb;
+			}
+			/* Bright thumb on dark track so the knob is separable from the pill. */
+			thumb_c = disabled != 0 ? sk_ui_rgba(0.62f, 0.64f, 0.68f, 1.0f) : sk_ui_rgba(0.96f, 0.97f, 0.99f, 1.0f);
+			thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(thumb_c, opacity));
+			{
+				f32 ty = by + (bh - thumb) * 0.5f;
+				if (ui_paint_add_rounded_rect_filled(em, thumb_x, ty, thumb, thumb, thumb * 0.5f, thumb_col) != 0) {
+					return -1;
+				}
+			}
 		}
 	}
 

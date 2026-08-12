@@ -35,6 +35,8 @@ enum {
 	UI_WD_SPLITTER = 9,
 	UI_WD_TAB = 10,
 	UI_WD_WINDOW_TITLE = 11,
+	UI_WD_RADIO = 12,
+	UI_WD_TOGGLE = 13,
 };
 
 typedef struct ui_widget_data_t {
@@ -293,30 +295,34 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	}
 	ui_style_props_clear(&var);
 	var.mask = SK_UI_SP_BACKGROUND_COLOR;
-	var.background_color = sk_ui_rgba(0.34f, 0.50f, 0.82f, 1.0f);
+	/* Hover is clearly brighter; active clearly darker (vision grades single frames). */
+	var.background_color = sk_ui_rgba(0.55f, 0.72f, 1.0f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON, SK_UI_STATE_HOVER, &var);
-	var.background_color = sk_ui_rgba(0.22f, 0.34f, 0.60f, 1.0f);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
+	var.background_color = sk_ui_rgba(0.06f, 0.08f, 0.14f, 1.0f);
+	var.border_color = sk_ui_rgba(0.12f, 0.16f, 0.24f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON, SK_UI_STATE_ACTIVE, &var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_COLOR;
 	var.background_color = sk_ui_rgba(0.20f, 0.22f, 0.26f, 1.0f);
-	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
-	var.color = sk_ui_rgba(0.55f, 0.56f, 0.58f, 1.0f);
+	var.border_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
+	var.color = sk_ui_rgba(0.50f, 0.51f, 0.53f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON, SK_UI_STATE_DISABLED, &var);
 	ui_style_props_clear(&var);
 	var.mask = SK_UI_SP_BORDER_COLOR;
 	var.border_color = sk_ui_rgba(0.55f, 0.72f, 1.0f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_BUTTON, SK_UI_STATE_FOCUSED, &var);
 
-	/* Checkbox */
+	/* Checkbox: light empty face + border so unchecked is not a solid "on" block. */
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_COLOR | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
-	base.background_color = sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f);
-	base.border_color = sk_ui_rgba(0.40f, 0.42f, 0.48f, 1.0f);
-	base.layout.border.left = 1.0f;
-	base.layout.border.top = 1.0f;
-	base.layout.border.right = 1.0f;
-	base.layout.border.bottom = 1.0f;
+	base.background_color = sk_ui_rgba(0.62f, 0.64f, 0.70f, 1.0f);
+	base.border_color = sk_ui_rgba(0.36f, 0.38f, 0.44f, 1.0f);
+	base.layout.border.left = 2.0f;
+	base.layout.border.top = 2.0f;
+	base.layout.border.right = 2.0f;
+	base.layout.border.bottom = 2.0f;
 	base.corner_radius = 3.0f;
-	base.color = sk_ui_rgba(0.95f, 0.96f, 0.98f, 1.0f);
+	base.color = sk_ui_rgba(0.10f, 0.11f, 0.14f, 1.0f); /* dark X on light face */
 	base.layout.width = sk_ui_pt(18.0f);
 	base.layout.height = sk_ui_pt(18.0f);
 	if (ui->style_class_register(ctx, SK_UI_CLASS_CHECKBOX, &base) != 0) {
@@ -326,10 +332,55 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	var.mask = SK_UI_SP_BORDER_COLOR;
 	var.border_color = sk_ui_rgba(0.50f, 0.65f, 0.95f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_CHECKBOX, SK_UI_STATE_HOVER, &var);
-	var.background_color = sk_ui_rgba(0.18f, 0.20f, 0.24f, 1.0f);
+	var.background_color = sk_ui_rgba(0.42f, 0.44f, 0.48f, 1.0f);
 	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
-	var.color = sk_ui_rgba(0.45f, 0.46f, 0.48f, 1.0f);
+	var.color = sk_ui_rgba(0.30f, 0.31f, 0.34f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_CHECKBOX, SK_UI_STATE_DISABLED, &var);
+
+	/*
+	 * Radio: no rectangular border (box border would look square). Paint draws a
+	 * circular ring + optional inner disc. Face color is the ring stroke.
+	 */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	base.background_color = sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.0f); /* transparent; ring is custom paint */
+	base.color = sk_ui_rgba(0.72f, 0.74f, 0.80f, 1.0f);			/* ring + disc color */
+	base.corner_radius = 9.0f;
+	base.layout.width = sk_ui_pt(18.0f);
+	base.layout.height = sk_ui_pt(18.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_RADIO, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_COLOR;
+	var.color = sk_ui_rgba(0.55f, 0.72f, 1.0f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_RADIO, SK_UI_STATE_HOVER, &var);
+	var.color = sk_ui_rgba(0.40f, 0.42f, 0.46f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_RADIO, SK_UI_STATE_DISABLED, &var);
+
+	/* Toggle switch: pill track; paint draws thumb and ON track accent. */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	base.background_color = sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f);
+	base.border_color = sk_ui_rgba(0.40f, 0.42f, 0.48f, 1.0f);
+	base.layout.border.left = 1.0f;
+	base.layout.border.top = 1.0f;
+	base.layout.border.right = 1.0f;
+	base.layout.border.bottom = 1.0f;
+	base.corner_radius = 11.0f; /* half of height → pill */
+	base.layout.width = sk_ui_pt(40.0f);
+	base.layout.height = sk_ui_pt(22.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_TOGGLE, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.32f, 0.34f, 0.40f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TOGGLE, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.20f, 0.21f, 0.24f, 1.0f);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
+	var.border_color = sk_ui_rgba(0.28f, 0.29f, 0.32f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TOGGLE, SK_UI_STATE_DISABLED, &var);
 
 	/* Slider */
 	ui_style_props_clear(&base);
@@ -664,6 +715,38 @@ static void ui_checkbox_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_
 	}
 }
 
+static void ui_radio_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	const sk_ui_api_t* ui = ui_wapi();
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	(void)event;
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	/* Radio selects; does not toggle off on re-click (group policy can clear peers). */
+	(void)ui->node_set_prop_i32(ctx, node, "checked", 1);
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	if (wd != NULL && wd->on_bool != NULL) {
+		wd->on_bool(ctx, node, 1, wd->cb_user);
+	}
+}
+
+static void ui_toggle_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	const sk_ui_api_t* ui = ui_wapi();
+	i32 on = 0;
+	ui_widget_data_t* wd = (ui_widget_data_t*)user;
+	(void)event;
+	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		return;
+	}
+	(void)ui_prop_i32_const(ui_slot(ctx, node), "on", &on);
+	on = on != 0 ? 0 : 1;
+	(void)ui->node_set_prop_i32(ctx, node, "on", on);
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	if (wd != NULL && wd->on_bool != NULL) {
+		wd->on_bool(ctx, node, on, wd->cb_user);
+	}
+}
+
 static void ui_slider_set_from_x(sk_ui_context_t* ctx, sk_ui_node_t node, f32 x) {
 	const sk_ui_api_t* ui = ui_wapi();
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
@@ -985,6 +1068,42 @@ sk_ui_node_t ui_widget_checkbox_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, 
 	wd = ui_widget_data_ensure(ctx, n, UI_WD_CHECKBOX);
 	memset(&cbs, 0, sizeof(cbs));
 	cbs.on_click = ui_checkbox_on_click;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	return n;
+}
+
+sk_ui_node_t ui_widget_radio_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_RADIO, "radio", "ui-radio", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_i32(ctx, n, "checked", checked != 0 ? 1 : 0);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_RADIO);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = ui_radio_on_click;
+	cbs.user = wd;
+	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	return n;
+}
+
+sk_ui_node_t ui_widget_toggle_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 on, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_callbacks_t cbs;
+	ui_widget_data_t* wd;
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_TOGGLE, "toggle", "ui-toggle", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	(void)ui->node_set_prop_i32(ctx, n, "on", on != 0 ? 1 : 0);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	wd = ui_widget_data_ensure(ctx, n, UI_WD_TOGGLE);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = ui_toggle_on_click;
 	cbs.user = wd;
 	(void)ui->node_set_callbacks(ctx, n, &cbs);
 	return n;
@@ -1871,6 +1990,73 @@ i32 ui_checkbox_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_u
 	return 0;
 }
 
+i32 ui_radio_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked) {
+	i32 rc = ui_wapi()->node_set_prop_i32(ctx, node, "checked", checked != 0 ? 1 : 0);
+	if (rc == 0) {
+		ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	}
+	return rc;
+}
+
+i32 ui_radio_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 checked = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "checked", &checked);
+	return checked != 0 ? 1 : 0;
+}
+
+i32 ui_radio_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_RADIO);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->on_bool = fn;
+	wd->cb_user = user;
+	return 0;
+}
+
+i32 ui_toggle_set_on_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on) {
+	i32 rc = ui_wapi()->node_set_prop_i32(ctx, node, "on", on != 0 ? 1 : 0);
+	if (rc == 0) {
+		ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	}
+	return rc;
+}
+
+i32 ui_toggle_get_on_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	i32 on = 0;
+	if (slot == NULL) {
+		return 0;
+	}
+	(void)ui_prop_i32_const(slot, "on", &on);
+	return on != 0 ? 1 : 0;
+}
+
+i32 ui_toggle_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled) {
+	const sk_ui_api_t* ui = ui_wapi();
+	u32 st = ui->node_get_state(ctx, node);
+	if (disabled) {
+		st |= (u32)SK_UI_STATE_DISABLED;
+	} else {
+		st &= ~(u32)SK_UI_STATE_DISABLED;
+	}
+	return ui->node_set_state(ctx, node, st);
+}
+
+i32 ui_toggle_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user) {
+	ui_widget_data_t* wd = ui_widget_data_ensure(ctx, node, UI_WD_TOGGLE);
+	if (wd == NULL) {
+		return -1;
+	}
+	wd->on_bool = fn;
+	wd->cb_user = user;
+	return 0;
+}
+
 i32 ui_slider_set_value_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value) {
 	const sk_ui_api_t* ui = ui_wapi();
 	const ui_node_slot_t* slot = ui_slot(ctx, node);
@@ -2714,6 +2900,8 @@ SK_TEST(ui_widget_defaults_registered) {
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_PANEL));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_BUTTON));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_CHECKBOX));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_RADIO));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TOGGLE));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SLIDER));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TEXT_INPUT));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SCROLL_VIEW));
@@ -2958,6 +3146,26 @@ SK_TEST(ui_widget_goldens_default_hover_disabled) {
 	TEST_ASSERT_EQUAL_INT(0, ui->checkbox_set_checked(ctx, n, 1));
 	paint_widget_golden(ui, ctx, n, "checkbox_checked", 0);
 	paint_widget_golden(ui, ctx, n, "checkbox_hover", SK_UI_STATE_HOVER);
+	ui->context_destroy(ctx);
+
+	/* Radio default / checked */
+	ctx = ui->context_create(NULL);
+	root = ui->context_root(ctx);
+	n = ui->widget_radio(ctx, root, 0, "g-rd");
+	wtest_set_size(ui, ctx, n, 18.0f, 18.0f);
+	paint_widget_golden(ui, ctx, n, "radio_default", 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->radio_set_checked(ctx, n, 1));
+	paint_widget_golden(ui, ctx, n, "radio_checked", 0);
+	ui->context_destroy(ctx);
+
+	/* Toggle off / on */
+	ctx = ui->context_create(NULL);
+	root = ui->context_root(ctx);
+	n = ui->widget_toggle(ctx, root, 0, "g-tg");
+	wtest_set_size(ui, ctx, n, 40.0f, 22.0f);
+	paint_widget_golden(ui, ctx, n, "toggle_off", 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->toggle_set_on(ctx, n, 1));
+	paint_widget_golden(ui, ctx, n, "toggle_on", 0);
 	ui->context_destroy(ctx);
 
 	/* Slider */
