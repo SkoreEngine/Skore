@@ -1,0 +1,7 @@
+pangram 18754
+sizes 28072
+colors_alpha 21229
+scaled 18791
+glyph_grid 20802
+atlas_freetype 6709
+manifest.txt 95
