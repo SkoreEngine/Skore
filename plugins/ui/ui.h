@@ -46,8 +46,9 @@ extern "C" {
 typedef struct sk_ui_font_t sk_ui_font_t;
 
 /**
- * Opaque font system: FreeType library, loaded faces, R8 atlas pages, glyph cache.
- * CPU-side atlas; GPU upload is owned by sk_ui_renderer_t.
+ * Opaque font system: FreeType library, loaded faces, R8 atlas pages, glyph cache,
+ * and optional per-font MSDF atlases (APX-265). CPU-side atlas; GPU upload is
+ * owned by sk_ui_renderer_t.
  */
 typedef struct sk_ui_font_system_t sk_ui_font_system_t;
 
@@ -92,6 +93,7 @@ typedef struct sk_ui_glyph_t {
 /**
  * One CPU-side atlas page (R8 coverage). pixels is owned by the font system;
  * valid until the system is destroyed or that page is grown (generation bumps).
+ * FreeType paint path still uses this R8 format; MSDF atlases use sk_ui_msdf_atlas_t.
  */
 typedef struct sk_ui_atlas_page_t {
 	u32 width;
@@ -99,6 +101,43 @@ typedef struct sk_ui_atlas_page_t {
 	u32 generation;	  /**< Increments when the page bitmap is reallocated/grown. */
 	const u8* pixels; /**< R8, row-major, pitch == width. NULL if empty. */
 } sk_ui_atlas_page_t;
+
+/**
+ * MSDF glyph atlas snapshot (RGB8 multi-channel signed distance field).
+ * pixels are font-owned; valid until the font is destroyed or rebaked.
+ * Distance range is symmetric px_range (default 2.0). Sampler contract for
+ * future GPU upload: linear min/mag, no mipmaps (max_lod 0), clamp-to-edge.
+ */
+typedef struct sk_ui_msdf_atlas_t {
+	u32 width;
+	u32 height;
+	u32 channels;	  /**< 3 for MSDF RGB8. */
+	u32 glyph_count;  /**< Glyphs packed into this atlas (ASCII bake size). */
+	u32 generation;	  /**< Bumps on bake/rebake. */
+	f32 px_range;	  /**< Pixel distance range used at generation (e.g. 2.0). */
+	f32 pack_scale;	  /**< Packer glyph scale (ems → atlas pixels). */
+	f32 em_size;	  /**< Font em size in font units. */
+	f32 ascender_em;  /**< Ascender in em units (typically > 0). */
+	f32 descender_em; /**< Descender in em units (typically < 0). */
+	f32 line_height_em;
+	const u8* pixels; /**< RGB8, row-major, pitch == width * channels. NULL if not baked. */
+} sk_ui_msdf_atlas_t;
+
+/**
+ * One glyph from a baked MSDF atlas. Metrics are em-normalized (scale by
+ * pixel_size / em_size at layout time). UV rect is normalized [0,1] top-left
+ * origin within the MSDF atlas bitmap. Plane bounds are the quad in em space
+ * (left, bottom, right, top) relative to the pen on the baseline.
+ */
+typedef struct sk_ui_msdf_glyph_t {
+	u32 codepoint;
+	u32 glyph_index;
+	f32 advance_em;							/**< Horizontal advance in ems. */
+	f32 plane_l, plane_b, plane_r, plane_t; /**< Quad bounds in em space. */
+	f32 u0, v0, u1, v1;						/**< Atlas UV (top-left origin). */
+	i32 atlas_x, atlas_y, atlas_w, atlas_h; /**< Integer box in atlas pixels. */
+	i32 is_whitespace;						/**< Non-zero if no geometry (e.g. space). */
+} sk_ui_msdf_glyph_t;
 
 /**
  * Derive physical pixel size from logical font size and content scale.
@@ -1828,6 +1867,35 @@ typedef struct sk_ui_api_t {
 	 * Either out pointer may be NULL.
 	 */
 	void (*font_cache_stats)(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);
+
+	/**
+	 * Bake an MSDF glyph atlas for the font (printable ASCII + space) via
+	 * msdf-atlas-c. Idempotent when an atlas is already present. Does not
+	 * change the FreeType R8 paint path. Owns RGB8 pixels and glyph metrics
+	 * on the font; frees prior bake on rebake.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*font_msdf_bake)(sk_ui_font_t* font);
+
+	/**
+	 * Snapshot the baked MSDF atlas. @p out->pixels is font-owned.
+	 * @return 0 on success, non-zero if not baked or args invalid.
+	 */
+	i32 (*font_msdf_get_atlas)(const sk_ui_font_t* font, sk_ui_msdf_atlas_t* out);
+
+	/**
+	 * Look up a codepoint in the baked MSDF atlas (em-normalized metrics).
+	 * @return 0 on success, non-zero if not baked / missing glyph / bad args.
+	 */
+	i32 (*font_msdf_get_glyph)(const sk_ui_font_t* font, u32 codepoint, sk_ui_msdf_glyph_t* out);
+
+	/**
+	 * Debug/dev dump of the baked MSDF atlas: writes @p path_prefix.raw (RGB8
+	 * bytes) and @p path_prefix.json (glyph metrics + atlas metadata). Bakes
+	 * first if needed. Creates parent directories when @p fs is non-NULL.
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*font_msdf_dump)(sk_ui_font_t* font, const sk_filesystem_api_t* fs, const_chr_t path_prefix);
 
 	/* ---- GPU renderer (draw list → sk_render_device_api_t only) ---- */
 

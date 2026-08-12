@@ -706,6 +706,9 @@ sk_ui_renderer_t* ui_renderer_create_impl(const sk_ui_renderer_desc_t* desc) {
 		return NULL;
 	}
 
+	/* Linear min/mag, no mipmaps (max_lod 0): required for MSDF atlases so
+	 * bilinear filtering does not introduce mipmap-induced distance bleed.
+	 * Also correct for the current R8 FreeType coverage path. */
 	memset(&sdesc, 0, sizeof(sdesc));
 	sdesc.min_filter = SK_FILTER_MODE_LINEAR;
 	sdesc.mag_filter = SK_FILTER_MODE_LINEAR;

@@ -279,6 +279,26 @@ i32 ui_font_atlas_get_page_impl(const sk_ui_font_system_t* system, u32 page_inde
 u32 ui_font_cache_count_impl(const sk_ui_font_system_t* system);
 void ui_font_cache_stats_impl(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);
 
+/* MSDF atlas (font_msdf.c / font.c) — bake, query, dump; FreeType paint path unchanged. */
+typedef struct ui_msdf_atlas_live_t ui_msdf_atlas_live_t;
+void ui_msdf_atlas_release(const sk_allocator_t* a, ui_msdf_atlas_live_t* atlas);
+i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_size, ui_msdf_atlas_live_t** out_atlas);
+i32 ui_msdf_atlas_get_public(const ui_msdf_atlas_live_t* atlas, sk_ui_msdf_atlas_t* out);
+i32 ui_msdf_atlas_find_codepoint(const ui_msdf_atlas_live_t* atlas, u32 codepoint, sk_ui_msdf_glyph_t* out);
+i32 ui_msdf_atlas_dump(const ui_msdf_atlas_live_t* atlas, const sk_filesystem_api_t* fs, const_chr_t path_prefix);
+
+i32 ui_font_msdf_bake_impl(sk_ui_font_t* font);
+i32 ui_font_msdf_get_atlas_impl(const sk_ui_font_t* font, sk_ui_msdf_atlas_t* out);
+i32 ui_font_msdf_get_glyph_impl(const sk_ui_font_t* font, u32 codepoint, sk_ui_msdf_glyph_t* out);
+i32 ui_font_msdf_dump_impl(sk_ui_font_t* font, const sk_filesystem_api_t* fs, const_chr_t path_prefix);
+
+/* font.c accessors for MSDF attachment (opaque font internals). */
+const sk_allocator_t* ui_font_allocator(const sk_ui_font_t* font);
+const u8* ui_font_file_bytes(const sk_ui_font_t* font);
+u32 ui_font_file_size(const sk_ui_font_t* font);
+ui_msdf_atlas_live_t* ui_font_msdf_ptr(const sk_ui_font_t* font);
+void ui_font_msdf_set(sk_ui_font_t* font, ui_msdf_atlas_live_t* atlas);
+
 /* -------------------------------------------------------------------------- */
 /* GPU renderer (render.c)                                                    */
 /* -------------------------------------------------------------------------- */

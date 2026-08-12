@@ -434,9 +434,10 @@ static void uwv_run_state(const sk_ui_api_t* ui, const_chr_t scene_name, u32 fra
 	params.height = frame_h;
 	params.time_seconds = 0.0;
 	params.load_test_font = load_font;
-	/* Dark clear so light faces / thumbs / labels read clearly (matches vision fixtures). */
+	/* Near-black clear so muted OFF tracks (toggle/slider) stay separable from the
+	 * canvas and light thumbs/faces read clearly for vision. */
 	params.clear_color_set = 1;
-	params.clear_color = sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f);
+	params.clear_color = sk_ui_rgba(0.04f, 0.045f, 0.055f, 1.0f);
 
 	uwv_capture(&params, uwv_scene_build, cfg, &img);
 	TEST_ASSERT_EQUAL_UINT(frame_w, img.width);

@@ -6,6 +6,9 @@
  * physical pixel size (logical size × content scale), pack into R8 atlas pages
  * (grow page or add pages when full), cache by (font, pixel_size, glyph_index).
  * GPU upload is intentionally out of scope (APX-134).
+ *
+ * MSDF atlas bake/dump (APX-265) lives in font_msdf.c and attaches to each
+ * font face without changing this FreeType paint path yet.
  */
 
 #include "ui.h"
@@ -68,6 +71,7 @@ struct sk_ui_font_t {
 	u8* file_bytes;
 	u32 file_size;
 	FT_Face face;
+	ui_msdf_atlas_live_t* msdf; /* optional MSDF atlas (APX-265); paint still uses FreeType R8 */
 };
 
 typedef SK_ARRAY(sk_ui_font_t*) ui_font_ptr_array_t;
@@ -516,6 +520,10 @@ void ui_font_system_destroy_impl(sk_ui_font_system_t* system) {
 		if (font == NULL) {
 			continue;
 		}
+		if (font->msdf != NULL) {
+			ui_msdf_atlas_release(a, font->msdf);
+			font->msdf = NULL;
+		}
 		if (font->face != NULL) {
 			FT_Done_Face(font->face);
 			font->face = NULL;
@@ -633,6 +641,10 @@ void ui_font_destroy_impl(sk_ui_font_t* font) {
 		}
 	}
 
+	if (font->msdf != NULL) {
+		ui_msdf_atlas_release(a, font->msdf);
+		font->msdf = NULL;
+	}
 	if (font->face != NULL) {
 		FT_Done_Face(font->face);
 	}
@@ -640,6 +652,31 @@ void ui_font_destroy_impl(sk_ui_font_t* font) {
 		a->free(a->instance, font->file_bytes);
 	}
 	a->free(a->instance, font);
+}
+
+const sk_allocator_t* ui_font_allocator(const sk_ui_font_t* font) {
+	if (font == NULL || font->system == NULL) {
+		return sk_allocator_default();
+	}
+	return font->system->allocator;
+}
+
+const u8* ui_font_file_bytes(const sk_ui_font_t* font) {
+	return font != NULL ? font->file_bytes : NULL;
+}
+
+u32 ui_font_file_size(const sk_ui_font_t* font) {
+	return font != NULL ? font->file_size : 0u;
+}
+
+ui_msdf_atlas_live_t* ui_font_msdf_ptr(const sk_ui_font_t* font) {
+	return font != NULL ? font->msdf : NULL;
+}
+
+void ui_font_msdf_set(sk_ui_font_t* font, ui_msdf_atlas_live_t* atlas) {
+	if (font != NULL) {
+		font->msdf = atlas;
+	}
 }
 
 i32 ui_font_get_metrics_impl(const sk_ui_font_t* font, u32 pixel_size, sk_ui_font_metrics_t* out) {
