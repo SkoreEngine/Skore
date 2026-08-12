@@ -106,13 +106,29 @@ typedef struct sk_logger_api_t {
 #define SK_LOGGER_API_TYPE_ID SK_TYPE_ID("sk.logger_api", 0xd920710f8a86861fULL, 0xf95f424d6e26e084ULL)
 
 /**
- * Process-wide logger API function table.
- * @return Non-NULL pointer to a static sk_logger_api_t.
+ * Logger API function table for this module instance.
+ *
+ * Plugins statically link sk-core, so each DLL has its own sink list by
+ * default. Hosts call sk_logger_bind_api (via lib_symbol after LoadLibrary)
+ * so plugin code that uses sk_logger_api() shares the host sink list (stdout,
+ * file sinks, editor console, etc.).
+ *
+ * @return Non-NULL pointer to the bound host table if set, else this module's table.
  */
 const sk_logger_api_t* sk_logger_api(void);
 
 /**
- * Fill @p out with the default logger API table.
+ * Point this module's sk_logger_api() at another table (usually the host's).
+ * Pass NULL to clear the binding and use this module's own table again.
+ * sk-app load_plugin resolves this symbol in each plugin DLL and binds the
+ * host table so host-registered sinks receive plugin sk_log_* traffic.
+ *
+ * @param api Host logger table (must outlive the plugin), or NULL to unbind.
+ */
+SK_API void sk_logger_bind_api(const sk_logger_api_t* api);
+
+/**
+ * Fill @p out with the active logger API table (bound host table if any).
  * @param out Destination table; must not be NULL.
  */
 void sk_logger_get_api(sk_logger_api_t* out);
@@ -125,6 +141,55 @@ void sk_logger_get_api(sk_logger_api_t* out);
  * @return Non-NULL pointer to a static sk_log_sink_t.
  */
 const sk_log_sink_t* sk_logger_stdout_sink(void);
+
+/**
+ * Opaque rotating file log sink (stdio-backed).
+ * Owns an open FILE and rotation state. Register with add_sink via
+ * sk_log_file_sink_sink(), then remove_sink + destroy on shutdown.
+ */
+typedef struct sk_log_file_sink_t sk_log_file_sink_t;
+
+/**
+ * Default max bytes per log file when create is passed 0 (5 MiB).
+ */
+enum { SK_LOG_FILE_SINK_DEFAULT_MAX_BYTES = 5u * 1024u * 1024u };
+
+/**
+ * Default number of files kept when create is passed 0 (active + 4 archives).
+ */
+enum { SK_LOG_FILE_SINK_DEFAULT_MAX_FILES = 5u };
+
+/**
+ * Create a rotating file sink writing to @p path.
+ * Opens/creates the file for append. When the active file reaches @p max_bytes,
+ * it is rotated: path → path.1 → path.2 → … → path.(max_files-1); oldest is
+ * deleted. Parent directory must already exist.
+ *
+ * @param path      UTF-8 base log path (e.g. "logs/player.log"). Copied.
+ * @param max_bytes Bytes per file before rotation; 0 → SK_LOG_FILE_SINK_DEFAULT_MAX_BYTES.
+ * @param max_files Total files to keep including the active file; 0 →
+ *                  SK_LOG_FILE_SINK_DEFAULT_MAX_FILES. Clamped to at least 1.
+ * @return New sink, or NULL if path is empty/too long, allocation fails, or
+ *         the file cannot be opened.
+ */
+sk_log_file_sink_t* sk_log_file_sink_create(const_chr_t path, u64 max_bytes, u32 max_files);
+
+/**
+ * Close the file and free a sink from sk_log_file_sink_create.
+ * Unregister from the logger first if still added. Passing NULL is a no-op.
+ * @param sink Sink to destroy.
+ */
+void sk_log_file_sink_destroy(sk_log_file_sink_t* sink);
+
+/**
+ * sk_log_sink_t descriptor for registration with api->add_sink.
+ * Valid until sk_log_file_sink_destroy. Same format as the stdout sink:
+ *   [YYYY-MM-DD HH:MM:SS] [LEVEL] [logger-name] message
+ *
+ * @param sink File sink (must not be NULL).
+ * @return Non-NULL pointer to the embedded sink descriptor.
+ */
+const sk_log_sink_t* sk_log_file_sink_sink(sk_log_file_sink_t* sink);
 
 /**
  * Human-readable name for a log level (e.g. "ERROR").

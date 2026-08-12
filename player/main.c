@@ -13,7 +13,9 @@
 
 #include "app.h"
 #include "dxc_compiler.h"
+#include "filesystem.h"
 #include "logger.h"
+#include "path.h"
 #include "platform_window.h"
 #include "profiler.h"
 #include "render_device.h"
@@ -1092,6 +1094,41 @@ static void player_ui_frame(player_ui_state_t* st, const sk_platform_window_api_
 	}
 }
 
+/**
+ * Attach a rotating file sink under {app_folder}/logs/player.log.
+ * Parent dir is created if missing. Returns NULL if setup fails (stdout still works).
+ */
+static sk_log_file_sink_t* player_attach_file_log(const sk_logger_api_t* logger_api) {
+	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	char app_dir[SK_FS_PATH_MAX];
+	char logs_dir[SK_FS_PATH_MAX];
+	char log_path[SK_FS_PATH_MAX];
+	sk_log_file_sink_t* file_sink;
+
+	if (fs->app_folder(app_dir, (u32)sizeof(app_dir)) != 0 || app_dir[0] == '\0') {
+		return NULL;
+	}
+	if (sk_path_join(sk_str_view_cstr(app_dir), sk_str_view_cstr("logs"), logs_dir, (u32)sizeof(logs_dir)) < 0) {
+		return NULL;
+	}
+	if (fs->create_directory(logs_dir) != 0 && fs->get_file_status(logs_dir) != SK_FILE_STATUS_DIRECTORY) {
+		return NULL;
+	}
+	if (sk_path_join(sk_str_view_cstr(logs_dir), sk_str_view_cstr("player.log"), log_path, (u32)sizeof(log_path)) < 0) {
+		return NULL;
+	}
+
+	file_sink = sk_log_file_sink_create(log_path, (u64)SK_LOG_FILE_SINK_DEFAULT_MAX_BYTES, (u32)SK_LOG_FILE_SINK_DEFAULT_MAX_FILES);
+	if (file_sink == NULL) {
+		return NULL;
+	}
+	if (logger_api->add_sink(sk_log_file_sink_sink(file_sink)) != 0) {
+		sk_log_file_sink_destroy(file_sink);
+		return NULL;
+	}
+	return file_sink;
+}
+
 int main(int argc, char* argv[]) {
 	sk_app_context_t* ctx = sk_app_init(argc, argv);
 	const sk_app_api_t* app_api;
@@ -1101,6 +1138,7 @@ int main(int argc, char* argv[]) {
 	const sk_profiler_api_t* prof_api;
 	sk_window_t window;
 	player_ui_state_t ui_state;
+	sk_log_file_sink_t* file_sink = NULL;
 
 	if (ctx == NULL) {
 		return 1;
@@ -1112,20 +1150,33 @@ int main(int argc, char* argv[]) {
 	 * below compiles to a no-op unless SK_ENABLE_PROFILER is on. */
 	app_api = sk_app_api();
 	logger_api = sk_logger_api();
+	file_sink = player_attach_file_log(logger_api);
 	win_api = app_api->get_api(ctx, SK_PLATFORM_WINDOW_API_TYPE_ID);
 	rg_api = sk_render_graph_api_from_app(ctx, app_api);
 	prof_api = app_api->get_api(ctx, SK_PROFILER_API_TYPE_ID);
 
 	if (win_api == NULL || win_api->init() != 0) {
+		if (file_sink != NULL) {
+			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+			sk_log_file_sink_destroy(file_sink);
+		}
 		sk_app_destroy(ctx);
 		return 1;
 	}
 
 	if (rg_api == NULL || rg_api->create == NULL || rg_api->begin == NULL || rg_api->execute == NULL) {
+		if (file_sink != NULL) {
+			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+			sk_log_file_sink_destroy(file_sink);
+		}
 		sk_app_destroy(ctx);
 		return 1;
 	}
 	if (rg_api->init() != 0) {
+		if (file_sink != NULL) {
+			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+			sk_log_file_sink_destroy(file_sink);
+		}
 		sk_app_destroy(ctx);
 		return 1;
 	}
@@ -1133,6 +1184,10 @@ int main(int argc, char* argv[]) {
 	window = win_api->create_window("Skore — UI Widget Playground", 960u, 640u, (u32)SK_WINDOW_FLAG_RESIZABLE);
 	if (window == NULL) {
 		rg_api->shutdown();
+		if (file_sink != NULL) {
+			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+			sk_log_file_sink_destroy(file_sink);
+		}
 		sk_app_destroy(ctx);
 		return 1;
 	}
@@ -1158,6 +1213,9 @@ int main(int argc, char* argv[]) {
 			/* logical × scale must equal physical, or layout misses the window. */
 			sk_log_info(logger_api, ui_state.log, "window: logical=%ux%u physical=%ux%u scale=%.2fx%.2f", logical.width, logical.height, physical.width, physical.height,
 						(double)ui_state.last_scale_x, (double)ui_state.last_scale_y);
+			if (file_sink != NULL) {
+				sk_log_info(logger_api, ui_state.log, "file log sink active under app_folder/logs/player.log");
+			}
 		}
 	} else if (ui_state.log != NULL) {
 		sk_log_warn(logger_api, ui_state.log, "ui init failed (is sk-ui plugin in plugins/?)");
@@ -1178,6 +1236,11 @@ int main(int argc, char* argv[]) {
 	if (ui_state.log != NULL) {
 		logger_api->destroy_logger(ui_state.log);
 		ui_state.log = NULL;
+	}
+	if (file_sink != NULL) {
+		(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
+		sk_log_file_sink_destroy(file_sink);
+		file_sink = NULL;
 	}
 	rg_api->shutdown();
 	sk_app_destroy(ctx);

@@ -551,6 +551,17 @@ static i32 sk_app_load_plugin_impl(sk_app_context_t* context, const_chr_t path) 
 		return -1;
 	}
 
+	/* Redirect the plugin's static-linked logger module to the host table so
+	 * host-registered sinks (file, editor console, …) receive plugin sk_log_*.
+	 * Symbol is optional: older / stripped plugins keep a private stdout sink. */
+	{
+		void_ptr_t bind_raw = plat->lib_symbol(lib, "sk_logger_bind_api");
+		if (bind_raw != NULL) {
+			typedef void (*sk_logger_bind_api_fn)(const sk_logger_api_t* api);
+			SK_PTR_TO_FN(sk_logger_bind_api_fn, bind_raw)(logger_api);
+		}
+	}
+
 	sk_plugin_entry_point_fn entry = SK_PTR_TO_FN(sk_plugin_entry_point_fn, raw);
 	i32 rc = entry(context, sk_app_api());
 	if (rc != 0) {
