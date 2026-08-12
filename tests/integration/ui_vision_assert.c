@@ -260,6 +260,81 @@ static i32 ui_vision_join3(const_chr_t a, const_chr_t b, const_chr_t c, char* ou
 	return (n < 0) ? -1 : 0;
 }
 
+/**
+ * Resolve a writable temp directory (never hard-codes POSIX /tmp).
+ * Preference: SK_TEST_ARTIFACT_DIR → compile-time artifact dir → fs->temp_folder
+ * → TMPDIR / TEMP / TMP → ".".
+ * @return 0 on success, non-zero if @p out is unusable.
+ */
+static i32 ui_vision_resolve_tmpdir(char* out, u32 out_cap) {
+	const char* env;
+	const sk_filesystem_api_t* fs;
+
+	if (out == NULL || out_cap == 0u) {
+		return -1;
+	}
+	out[0] = '\0';
+
+	env = getenv("SK_TEST_ARTIFACT_DIR");
+	if (env != NULL && env[0] != '\0') {
+		if (snprintf(out, out_cap, "%s", env) < 0 || out[0] == '\0') {
+			return -1;
+		}
+		return 0;
+	}
+#ifdef SK_TEST_ARTIFACT_DIR
+	{
+		const char* root = SK_TEST_ARTIFACT_DIR;
+		if (root != NULL && root[0] != '\0') {
+			if (snprintf(out, out_cap, "%s", root) < 0 || out[0] == '\0') {
+				return -1;
+			}
+			return 0;
+		}
+	}
+#endif
+
+	fs = sk_filesystem_api();
+	if (fs != NULL && fs->temp_folder != NULL && fs->temp_folder(out, out_cap) == 0 && out[0] != '\0') {
+		return 0;
+	}
+
+	env = getenv("TMPDIR");
+	if (env == NULL || env[0] == '\0') {
+		env = getenv("TEMP");
+	}
+	if (env == NULL || env[0] == '\0') {
+		env = getenv("TMP");
+	}
+	if (env != NULL && env[0] != '\0') {
+		if (snprintf(out, out_cap, "%s", env) < 0 || out[0] == '\0') {
+			return -1;
+		}
+		return 0;
+	}
+
+	if (out_cap < 2u) {
+		return -1;
+	}
+	out[0] = '.';
+	out[1] = '\0';
+	return 0;
+}
+
+/** Join @p name under a resolved temp dir into @p out. */
+static i32 ui_vision_temp_path(const_chr_t name, char* out, u32 out_cap) {
+	char dir[SK_FS_PATH_MAX];
+	const sk_filesystem_api_t* fs;
+	if (ui_vision_resolve_tmpdir(dir, (u32)sizeof(dir)) != 0) {
+		return -1;
+	}
+	fs = sk_filesystem_api();
+	if (fs != NULL && fs->create_directory != NULL) {
+		(void)fs->create_directory(dir);
+	}
+	return (sk_path_join(sk_str_view_cstr(dir), sk_str_view_cstr(name), out, out_cap) < 0) ? -1 : 0;
+}
+
 i32 sk_ui_vision_rubric_file_path(sk_ui_vision_widget_family_t family, char* out, u32 out_cap) {
 	const_chr_t name;
 	char file[64];
@@ -526,24 +601,12 @@ static i32 ui_vision_save_fail_frame(const sk_ui_api_t* ui, const sk_filesystem_
 		}
 	}
 	if (!have_dest) {
-		const char* root = getenv("SK_TEST_ARTIFACT_DIR");
-		const char* tmp = getenv("TMPDIR");
-		if (root == NULL || root[0] == '\0') {
-#ifdef SK_TEST_ARTIFACT_DIR
-			root = SK_TEST_ARTIFACT_DIR;
-#else
-			root = NULL;
-#endif
+		char file[128];
+		sn = snprintf(file, sizeof(file), "%s.png", name);
+		if (sn < 0 || (u32)sn >= (u32)sizeof(file)) {
+			return -1;
 		}
-		if (root == NULL || root[0] == '\0') {
-			root = (tmp != NULL && tmp[0] != '\0') ? tmp : "/tmp";
-		}
-		/* Best-effort mkdir of the artifact root (ignore errors; write may still work). */
-		if (fs != NULL && fs->create_directory != NULL) {
-			(void)fs->create_directory(root);
-		}
-		sn = snprintf(dest, sizeof(dest), "%s/%s.png", root, name);
-		if (sn < 0 || (u32)sn >= (u32)sizeof(dest)) {
+		if (ui_vision_temp_path(file, dest, (u32)sizeof(dest)) != 0) {
 			return -1;
 		}
 		have_dest = 1;
@@ -650,13 +713,10 @@ static i32 ui_vision_run_script(const_chr_t image_path, sk_ui_vision_widget_fami
 		} else {
 			/* Embed rubric via a here-doc alternative: write temp file. */
 			char tmp_rubric[SK_FS_PATH_MAX];
+			char tmp_name[64];
 			FILE* tf;
-			const char* tmpdir = getenv("TMPDIR");
-			if (tmpdir == NULL || tmpdir[0] == '\0') {
-				tmpdir = "/tmp";
-			}
-			status = snprintf(tmp_rubric, sizeof(tmp_rubric), "%s/skore_ui_vision_rubric_%d.txt", tmpdir, (int)ui_vision_getpid());
-			if (status < 0 || (u32)status >= (u32)sizeof(tmp_rubric)) {
+			status = snprintf(tmp_name, sizeof(tmp_name), "skore_ui_vision_rubric_%d.txt", (int)ui_vision_getpid());
+			if (status < 0 || (u32)status >= (u32)sizeof(tmp_name) || ui_vision_temp_path(tmp_name, tmp_rubric, (u32)sizeof(tmp_rubric)) != 0) {
 				snprintf(out->reason, sizeof(out->reason), "temp rubric path overflow");
 				return SK_UI_VISION_ASSERT_ERROR;
 			}
@@ -955,9 +1015,13 @@ SK_TEST(ui_vision_assert_mock_pass_and_fail_saves_frame) {
 	img.pixels = pixels;
 
 	/* Placeholder file for image_path; mock backend does not decode pixels. */
-	snprintf(path, sizeof(path), "%s/skore_ui_vision_mock_frame_%d.png", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp", (int)ui_vision_getpid());
+	{
+		char tmp_name[64];
+		snprintf(tmp_name, sizeof(tmp_name), "skore_ui_vision_mock_frame_%d.png", (int)ui_vision_getpid());
+		TEST_ASSERT_EQUAL_INT(0, ui_vision_temp_path(tmp_name, path, (u32)sizeof(path)));
+	}
 	f = fopen(path, "wb");
-	TEST_ASSERT_TRUE(f != NULL);
+	TEST_ASSERT_TRUE_MESSAGE(f != NULL, "cannot open mock frame under temp/artifact dir");
 	fwrite("PNG", 1, 3, f);
 	fclose(f);
 
