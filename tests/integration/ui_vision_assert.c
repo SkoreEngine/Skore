@@ -29,26 +29,7 @@
 #define ui_vision_getpid() _getpid()
 #define popen _popen
 #define pclose _pclose
-/* Minimal setenv/unsetenv for tests and optional backend selection. */
-static int ui_vision_setenv(const char* k, const char* v, int overwrite) {
-	char buf[2048];
-	(void)overwrite;
-	if (k == NULL) {
-		return -1;
-	}
-	if (v == NULL) {
-		v = "";
-	}
-	if (snprintf(buf, sizeof(buf), "%s=%s", k, v) < 0) {
-		return -1;
-	}
-	return _putenv(buf);
-}
-static int ui_vision_unsetenv(const char* k) {
-	return ui_vision_setenv(k, "", 1);
-}
-#define setenv ui_vision_setenv
-#define unsetenv ui_vision_unsetenv
+/* setenv/unsetenv: portable shims from ui_vision_assert.h */
 #else
 #include <sys/wait.h>
 #include <unistd.h>

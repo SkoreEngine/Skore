@@ -29,6 +29,48 @@
 
 #include "filesystem.h"
 
+/*
+ * Portable setenv/unsetenv for integration tests.
+ * POSIX provides both; Windows only has _putenv (always overwrites).
+ * Any TU that includes this header can call setenv/unsetenv on all platforms.
+ *
+ * Unity (via test.h) may define `noreturn` as `_Noreturn`. Windows UCRT
+ * <stdlib.h> uses `__declspec(noreturn)`; under clang-tidy that is invalid.
+ */
+#if defined(_WIN32)
+#ifdef noreturn
+#undef noreturn
+#endif
+#include <stdio.h>
+#include <stdlib.h>
+
+static inline int sk_ui_test_setenv(const char* k, const char* v, int overwrite) {
+	char buf[2048];
+	(void)overwrite;
+	if (k == NULL) {
+		return -1;
+	}
+	if (v == NULL) {
+		v = "";
+	}
+	if (snprintf(buf, sizeof(buf), "%s=%s", k, v) < 0) {
+		return -1;
+	}
+	return _putenv(buf);
+}
+
+static inline int sk_ui_test_unsetenv(const char* k) {
+	return sk_ui_test_setenv(k, "", 1);
+}
+
+#ifndef setenv
+#define setenv sk_ui_test_setenv
+#endif
+#ifndef unsetenv
+#define unsetenv sk_ui_test_unsetenv
+#endif
+#endif /* _WIN32 */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
