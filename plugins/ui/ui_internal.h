@@ -99,6 +99,59 @@ typedef SK_ARRAY(u32) ui_freelist_t;
 typedef SK_HASH_MAP(const_chr_t, sk_ui_node_t) ui_id_map_t;
 
 /* -------------------------------------------------------------------------- */
+/* Dock model (dock.c)                                                        */
+/* -------------------------------------------------------------------------- */
+
+enum { UI_DOCK_KIND_LEAF = 0, UI_DOCK_KIND_SPLIT = 1 };
+
+typedef struct ui_dock_slot_t {
+	u32 generation;
+	u8 alive;
+	u8 kind;	 /**< UI_DOCK_KIND_LEAF or UI_DOCK_KIND_SPLIT. */
+	u8 _pad0[2]; /**< Align flags. */
+	u32 flags;
+	sk_ui_dock_node_t parent;
+	sk_ui_dock_split_t axis;
+	f32 ratio;
+	sk_ui_dock_node_t child[2];
+	char* tabs[SK_UI_DOCK_LEAF_TABS_MAX];
+	u32 tab_count;
+	u32 active_index;
+	char* stable_id;
+	sk_ui_node_t host;
+	sk_ui_node_t splitter;
+	sk_ui_node_t tab_bar;
+	sk_ui_node_t content;
+	sk_ui_rect_t rect;
+	sk_ui_rect_t splitter_rect;
+} ui_dock_slot_t;
+
+typedef SK_ARRAY(ui_dock_slot_t) ui_dock_slot_array_t;
+typedef SK_HASH_MAP(const_chr_t, sk_ui_dock_node_t) ui_dock_window_map_t;
+typedef SK_HASH_MAP(const_chr_t, sk_ui_node_t) ui_dock_tab_map_t;
+
+typedef struct ui_dock_pending_t {
+	char* window_id; /**< Copied; matches node_set_id / find_by_id. */
+	sk_ui_dock_node_t node;
+	sk_ui_dock_dir_t dir;
+} ui_dock_pending_t;
+
+typedef struct ui_dockspace_t {
+	char* id;
+	u32 flags;
+	u8 dirty;
+	u8 laid_out;
+	u8 _pad0[2]; /**< Align root handle. */
+	sk_ui_dock_node_t root;
+	sk_ui_node_t host; /* widget_dock_space */
+	sk_ui_node_t drop;
+	sk_ui_rect_t last_rect;
+	ui_dock_pending_t pending[SK_UI_DOCK_PENDING_MAX];
+	u32 pending_count;
+	u8 _pad1[4]; /**< Align struct to 8. */
+} ui_dockspace_t;
+
+/* -------------------------------------------------------------------------- */
 /* Context                                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -163,6 +216,23 @@ struct sk_ui_context_t {
 	sk_ui_clipboard_set_fn clipboard_set;
 	void_ptr_t clipboard_user;
 	i32 widgets_defaults_registered;
+
+	/* Dock model (dock.c). Unused when dockspace_count == 0. */
+	ui_dock_slot_array_t dock_slots;
+	ui_freelist_t dock_freelist;
+	ui_dockspace_t dockspaces[SK_UI_DOCKSPACE_MAX];
+	u32 dockspace_count;
+	sk_ui_dock_node_t dock_current;
+	sk_ui_dock_node_t dock_builder_root;
+	i32 dock_builder_open;
+	i32 dock_applying;
+	ui_dock_window_map_t dock_window_map;
+	ui_dock_tab_map_t dock_tab_nodes;
+	sk_ui_dock_tab_fn dock_tab_cb;
+	void_ptr_t dock_tab_user;
+	u32 dock_leaf_count;
+	u32 dock_split_count;
+	u32 dock_apply_count;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -568,3 +638,53 @@ i32 ui_test_engine_focus_impl(sk_ui_test_engine_t* engine, const_chr_t test_id);
 i32 ui_sample_menu_register_styles_impl(sk_ui_context_t* ctx);
 sk_ui_node_t ui_sample_menu_build_impl(sk_ui_context_t* ctx, sk_ui_node_t parent);
 void ui_sample_menu_logical_size_impl(f32* out_width, f32* out_height);
+
+/* -------------------------------------------------------------------------- */
+/* Dock model + layout solver (dock.c)                                        */
+/* -------------------------------------------------------------------------- */
+
+i32 ui_dock_context_init(sk_ui_context_t* ctx);
+void ui_dock_context_shutdown(sk_ui_context_t* ctx);
+void ui_dock_on_window_destroy(sk_ui_context_t* ctx, sk_ui_node_t node);
+void ui_dock_on_node_set_id(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t id);
+
+sk_ui_dock_node_t ui_dockspace_begin_impl(sk_ui_context_t* ctx, sk_ui_node_t host, const_chr_t id, u32 flags);
+i32 ui_dockspace_end_impl(sk_ui_context_t* ctx);
+sk_ui_dock_node_t ui_dockspace_create_impl(sk_ui_context_t* ctx, sk_ui_node_t host, const_chr_t id, u32 flags);
+i32 ui_dockspace_apply_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace);
+sk_ui_dock_node_t ui_dockspace_find_impl(const sk_ui_context_t* ctx, const_chr_t id);
+sk_ui_node_t ui_dockspace_host_node_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace);
+i32 ui_dockspace_destroy_impl(sk_ui_context_t* ctx, const_chr_t id);
+
+i32 ui_dock_window_to_node_impl(sk_ui_context_t* ctx, const_chr_t window_id, sk_ui_dock_node_t node, sk_ui_dock_dir_t dir);
+i32 ui_dock_window_undock_impl(sk_ui_context_t* ctx, const_chr_t window_id);
+i32 ui_dock_tab_close_impl(sk_ui_context_t* ctx, const_chr_t window_id);
+i32 ui_dock_tab_reorder_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t leaf, u32 from_index, u32 to_index);
+i32 ui_dock_tab_set_active_impl(sk_ui_context_t* ctx, const_chr_t window_id);
+void ui_dock_set_tab_callback_impl(sk_ui_context_t* ctx, sk_ui_dock_tab_fn fn, void_ptr_t user);
+
+i32 ui_dock_builder_begin_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace);
+i32 ui_dock_builder_split_node_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t node, sk_ui_dock_dir_t dir, f32 ratio, sk_ui_dock_node_t* out_at_dir, sk_ui_dock_node_t* out_opposite);
+i32 ui_dock_builder_dock_window_impl(sk_ui_context_t* ctx, const_chr_t window_id, sk_ui_dock_node_t node);
+i32 ui_dock_builder_set_node_id_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t node, const_chr_t id);
+i32 ui_dock_builder_set_node_flags_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t node, u32 flags);
+i32 ui_dock_builder_finish_impl(sk_ui_context_t* ctx);
+
+sk_ui_dock_node_t ui_dock_node_at_point_impl(const sk_ui_context_t* ctx, f32 x, f32 y, sk_ui_dock_dir_t* out_dir);
+sk_ui_dock_node_t ui_dock_find_node_for_window_impl(const sk_ui_context_t* ctx, const_chr_t window_id);
+i32 ui_dock_leaf_tabs_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t leaf, const_chr_t* out_ids, u32 max_out, u32* out_count, u32* out_active);
+i32 ui_dock_node_is_leaf_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+i32 ui_dock_node_is_split_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+sk_ui_dock_split_t ui_dock_split_get_axis_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+f32 ui_dock_split_get_ratio_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+i32 ui_dock_split_set_ratio_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t node, f32 ratio);
+sk_ui_dock_node_t ui_dock_split_child_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, u32 index);
+sk_ui_node_t ui_dock_node_host_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node);
+i32 ui_dock_window_is_docked_impl(const sk_ui_context_t* ctx, const_chr_t window_id);
+
+i32 ui_dock_layout_save_json_impl(const sk_ui_context_t* ctx, const_chr_t dockspace_id, char* out, u32 cap, u32* out_len);
+i32 ui_dock_layout_load_json_impl(sk_ui_context_t* ctx, const_chr_t dockspace_id, const_chr_t json, u32 len);
+
+i32 ui_dockspace_layout_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace, const sk_ui_rect_t* space);
+i32 ui_dock_node_get_rect_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, sk_ui_rect_t* out);
+i32 ui_dock_split_get_splitter_rect_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, sk_ui_rect_t* out);

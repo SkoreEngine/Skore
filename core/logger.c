@@ -4,15 +4,14 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
-enum {
-	SK_LOGGER_NAME_MAX = 64,
-	SK_LOGGER_MAX_SINKS = 16,
-	SK_LOG_MESSAGE_MAX = 2048,
-	SK_LOG_FILE_PATH_MAX = 1024,
-	SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16
-};
+#if defined(_WIN32)
+#include <io.h>
+#endif
+
+enum { SK_LOGGER_NAME_MAX = 64, SK_LOGGER_MAX_SINKS = 16, SK_LOG_MESSAGE_MAX = 2048, SK_LOG_FILE_PATH_MAX = 1024, SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16 };
 
 struct sk_logger_t {
 	char name[SK_LOGGER_NAME_MAX];
@@ -90,19 +89,27 @@ static void file_sink_build_rotated_path(const char* base, u32 index, char* out,
 }
 
 static i32 file_sink_open_append(sk_log_file_sink_t* fs) {
-	long pos;
+	/* Append mode ignores fseek; size comes from the inode (fstat), not ftell. */
+#if defined(_WIN32)
+	struct _stat64 st;
+#else
+	struct stat st;
+#endif
 
 	fs->file = fopen(fs->path, "a");
 	if (fs->file == NULL) {
 		return -1;
 	}
-	if (fseek(fs->file, 0, SEEK_END) != 0) {
+#if defined(_WIN32)
+	if (_fstat64(_fileno(fs->file), &st) != 0) {
+#else
+	if (fstat(fileno(fs->file), &st) != 0) {
+#endif
 		fclose(fs->file);
 		fs->file = NULL;
 		return -1;
 	}
-	pos = ftell(fs->file);
-	fs->current_size = (pos > 0) ? (u64)pos : 0ull;
+	fs->current_size = (st.st_size > 0) ? (u64)st.st_size : 0ull;
 	return 0;
 }
 
