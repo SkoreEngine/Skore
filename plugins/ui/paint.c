@@ -659,57 +659,65 @@ static i32 ui_paint_font_use_msdf(const ui_paint_emitter_t* em, sk_ui_font_t* fo
 	return ui_font_msdf_ptr(font) != NULL ? 1 : 0;
 }
 
-static f32 ui_paint_codepoint_advance(const ui_paint_emitter_t* em, sk_ui_font_system_t* sys, sk_ui_font_t* font, u32 pixel_size, u32 cp) {
-	if (ui_paint_font_use_msdf(em, font)) {
-		sk_ui_msdf_glyph_t g;
-		if (ui_font_msdf_get_glyph_impl(font, cp, &g) == 0) {
-			return g.advance_em * (f32)pixel_size;
-		}
+static i32 ui_paint_emit_notdef_box(ui_paint_emitter_t* em, f32 x0, f32 y0, f32 x1, f32 y1, u32 color) {
+	f32 w = x1 - x0;
+	f32 h = y1 - y0;
+	f32 t;
+	if (w < 1.0f) {
+		w = 1.0f;
+		x1 = x0 + w;
+	}
+	if (h < 1.0f) {
+		h = 1.0f;
+		y1 = y0 + h;
+	}
+	t = w < h ? w : h;
+	t *= 0.12f;
+	if (t < 1.0f) {
+		t = 1.0f;
+	}
+	if (t * 2.0f >= w) {
+		t = w * 0.25f;
+	}
+	if (t * 2.0f >= h) {
+		t = h * 0.25f;
+	}
+	if (ui_paint_add_solid_quad(em, x0, y0, x1, y0 + t, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_solid_quad(em, x0, y1 - t, x1, y1, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_solid_quad(em, x0, y0 + t, x0 + t, y1 - t, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_solid_quad(em, x1 - t, y0 + t, x1, y1 - t, color) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
+static i32 ui_paint_shape(const ui_paint_emitter_t* em, sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32 prev_cp, u32 cp, ui_text_layout_glyph_t* out) {
+	return ui_text_layout_shape(sys, font, px, prev_cp, cp, ui_paint_font_use_msdf(em, font), out);
+}
+
+static f32 ui_paint_next_advance(const ui_paint_emitter_t* em, sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32* prev_cp, u32 cp) {
+	ui_text_layout_glyph_t g;
+	if (ui_paint_shape(em, sys, font, px, *prev_cp, cp, &g) != 0) {
+		*prev_cp = 0u;
 		return 0.0f;
 	}
-	{
-		u32 gi = ui_font_glyph_index_impl(font, cp);
-		sk_ui_glyph_t g;
-		if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
-			return g.advance_x;
-		}
-	}
-	return 0.0f;
+	*prev_cp = g.is_fallback != 0 ? 0u : cp;
+	return g.advance_x;
 }
 
-static i32 ui_paint_font_metrics(const ui_paint_emitter_t* em, sk_ui_font_t* font, u32 pixel_size, sk_ui_font_metrics_t* out) {
-	if (ui_paint_font_use_msdf(em, font)) {
-		sk_ui_msdf_atlas_t atlas;
-		if (ui_font_msdf_get_atlas_impl(font, &atlas) == 0) {
-			out->ascent = atlas.ascender_em * (f32)pixel_size;
-			out->descent = atlas.descender_em * (f32)pixel_size;
-			out->line_height = atlas.line_height_em * (f32)pixel_size;
-			out->pixel_size = (f32)pixel_size;
-			return 0;
-		}
-	}
-	return ui_font_get_metrics_impl(font, pixel_size, out);
+static i32 ui_paint_font_metrics(const ui_paint_emitter_t* em, sk_ui_font_t* font, f32 px, sk_ui_font_metrics_t* out) {
+	return ui_text_layout_metrics(font, px, ui_paint_font_use_msdf(em, font), out);
 }
 
-/** Measure advance of a UTF-8 range [begin,end) at pixel_size. */
-static f32 ui_paint_measure_advance(const ui_paint_emitter_t* em, sk_ui_font_system_t* sys, sk_ui_font_t* font, u32 pixel_size, const u8* begin, const u8* end) {
-	f32 w = 0.0f;
-	const u8* p = begin;
-	while (p < end) {
-		u32 cp;
-		const u8* prev = p;
-		if (!ui_paint_utf8_next(&p, &cp) || p == prev) {
-			if (p == prev) {
-				p += 1;
-			}
-			continue;
-		}
-		if (cp == (u32)'\n') {
-			break;
-		}
-		w += ui_paint_codepoint_advance(em, sys, font, pixel_size, cp);
-	}
-	return w;
+/** Measure advance of a UTF-8 range [begin,end) at px (same path as paint). */
+static f32 ui_paint_measure_advance(const ui_paint_emitter_t* em, sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const u8* begin, const u8* end) {
+	return ui_text_layout_measure_width(sys, font, px, begin, end, ui_paint_font_use_msdf(em, font));
 }
 
 /**
@@ -723,6 +731,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 	sk_ui_font_system_t* sys;
 	sk_ui_font_t* font;
 	u32 pixel_size;
+	f32 px;
 	sk_ui_font_metrics_t metrics;
 	u32 color;
 	const u8* p;
@@ -803,7 +812,19 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 	if (pixel_size == 0u) {
 		return 0;
 	}
-	if (ui_paint_font_metrics(em, font, pixel_size, &metrics) != 0) {
+	/* MSDF: scale one atlas by the physical size. Prefer the unrounded
+	 * logical×scale so non-integer content scales stay linearly spaced;
+	 * Clay still measures at integer fontSize (logical) and paint applies
+	 * content scale here. */
+	if (ui_paint_font_use_msdf(em, font)) {
+		px = slot->computed.font_size * avg_scale;
+		if (px < 1.0f) {
+			px = 1.0f;
+		}
+	} else {
+		px = (f32)pixel_size;
+	}
+	if (ui_paint_font_metrics(em, font, px, &metrics) != 0) {
 		return 0;
 	}
 
@@ -824,17 +845,19 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 		}
 
 		if (wrap != 0 && content_w > 0.0f) {
+			u32 prev_cp = 0u;
 			while (*q != 0u && *q != (u8)'\n') {
 				const u8* cp_start = q;
 				u32 cp;
 				f32 adv;
 				if (!ui_paint_utf8_next(&q, &cp)) {
+					prev_cp = 0u;
 					continue;
 				}
 				if (cp == (u32)' ' || cp == (u32)'\t') {
 					word_break = q;
 				}
-				adv = ui_paint_codepoint_advance(em, sys, font, pixel_size, cp);
+				adv = ui_paint_next_advance(em, sys, font, px, &prev_cp, cp);
 				if (line_w + adv > content_w && line_end > line_begin) {
 					if (word_break != NULL && word_break > line_begin) {
 						line_end = word_break;
@@ -862,7 +885,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			line_end = q;
 		}
 
-		line_w = ui_paint_measure_advance(em, sys, font, pixel_size, line_begin, line_end);
+		line_w = ui_paint_measure_advance(em, sys, font, px, line_begin, line_end);
 		if (line_count < 32u) {
 			line_starts[line_count] = line_begin;
 			line_ends[line_count] = line_end;
@@ -927,6 +950,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			f32 x0 = pen_x;
 			f32 x1 = pen_x;
 			i32 started = 0;
+			u32 sel_prev = 0u;
 			while (t < b) {
 				u32 cp;
 				const u8* prev = t;
@@ -937,7 +961,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					}
 					continue;
 				}
-				adv = ui_paint_codepoint_advance(em, sys, font, pixel_size, cp);
+				adv = ui_paint_next_advance(em, sys, font, px, &sel_prev, cp);
 				if (i1 >= sel_a && i1 < sel_b) {
 					if (!started) {
 						x0 = pen_x + (f32)(i1 - code_index) * 0.0f + (pen_x - line_x0) + line_x0;
@@ -956,6 +980,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			x0 = pen_x;
 			x1 = pen_x;
 			started = 0;
+			sel_prev = 0u;
 			t = a;
 			while (t < b) {
 				u32 cp;
@@ -967,7 +992,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					}
 					continue;
 				}
-				adv = ui_paint_codepoint_advance(em, sys, font, pixel_size, cp);
+				adv = ui_paint_next_advance(em, sys, font, px, &sel_prev, cp);
 				if (i1 >= sel_a && i1 < sel_b) {
 					if (!started) {
 						x0 = pen_x;
@@ -992,6 +1017,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 		pen_x = line_x0;
 		{
 			const u8* t = a;
+			u32 layout_prev = 0u;
 			while (t < b) {
 				u32 cp;
 				u32 gi;
@@ -1013,20 +1039,31 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					continue;
 				}
 				if (ui_paint_font_use_msdf(em, font)) {
-					sk_ui_msdf_glyph_t mg;
-					const f32 px = (f32)pixel_size;
-					if (ui_font_msdf_get_glyph_impl(font, cp, &mg) != 0) {
+					ui_text_layout_glyph_t sg;
+					if (ui_paint_shape(em, sys, font, px, layout_prev, cp, &sg) != 0) {
+						layout_prev = 0u;
 						code_index += 1;
 						continue;
 					}
-					if (mg.is_whitespace == 0 && mg.atlas_w > 0 && mg.atlas_h > 0) {
+					layout_prev = sg.is_fallback != 0 ? 0u : cp;
+					gx0 = pen_x + sg.quad_l;
+					gy0 = baseline_y - sg.quad_t;
+					gx1 = pen_x + sg.quad_r;
+					gy1 = baseline_y - sg.quad_b;
+					if (sg.is_fallback != 0 && sg.has_quad == 0) {
+						if (ui_paint_emit_notdef_box(em, gx0, gy0, gx1, gy1, color) != 0) {
+							return -1;
+						}
+					} else if (sg.has_quad != 0) {
 						sk_ui_msdf_atlas_t atlas;
-						gx0 = pen_x + mg.plane_l * px;
-						gy0 = baseline_y - mg.plane_t * px;
-						gx1 = pen_x + mg.plane_r * px;
-						gy1 = baseline_y - mg.plane_b * px;
+						sk_ui_msdf_glyph_t mg;
+						memset(&mg, 0, sizeof(mg));
+						mg.u0 = sg.u0;
+						mg.v0 = sg.v0;
+						mg.u1 = sg.u1;
+						mg.v1 = sg.v1;
 						if (ui_paint_msdf_gpu_quads() != 0) {
-							if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_MSDF, ui_font_id(font), gx0, gy0, gx1, gy1, mg.u0, mg.v0, mg.u1, mg.v1, color) != 0) {
+							if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_MSDF, ui_font_id(font), gx0, gy0, gx1, gy1, sg.u0, sg.v0, sg.u1, sg.v1, color) != 0) {
 								return -1;
 							}
 						} else if (ui_font_msdf_get_atlas_impl(font, &atlas) == 0) {
@@ -1035,7 +1072,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 							}
 						}
 					}
-					pen_x += mg.advance_em * px;
+					pen_x += sg.advance_x;
 					code_index += 1;
 					continue;
 				}

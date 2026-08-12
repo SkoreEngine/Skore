@@ -1505,6 +1505,7 @@ static const sk_ui_api_t ui_api = {
 	ui_font_msdf_get_atlas_impl,
 	ui_font_msdf_get_glyph_impl,
 	ui_font_msdf_dump_impl,
+	ui_font_measure_text_impl,
 	ui_set_text_renderer_impl,
 	ui_get_text_renderer_impl,
 	ui_renderer_create_impl,

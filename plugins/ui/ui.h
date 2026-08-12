@@ -63,6 +63,8 @@ typedef struct sk_ui_renderer_t sk_ui_renderer_t;
  * Font-level metrics at a specific pixel size (physical pixels).
  * Ascent is typically positive, descent negative (FreeType convention scaled to px).
  * line_height is the recommended baseline-to-baseline distance (positive).
+ * When the text renderer is MSDF these come from atlas em metrics × pixel_size
+ * (one atlas, any size). FreeType raster metrics are used on the legacy path.
  */
 typedef struct sk_ui_font_metrics_t {
 	f32 ascent;
@@ -1852,6 +1854,8 @@ typedef struct sk_ui_api_t {
 
 	/**
 	 * Font metrics at @p pixel_size (from sk_ui_font_pixel_size or equivalent).
+	 * FreeType face metrics. Widget sizing / wrap / align use font_measure_text
+	 * (MSDF atlas metrics when that renderer is selected).
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*font_get_metrics)(const sk_ui_font_t* font, u32 pixel_size, sk_ui_font_metrics_t* out);
@@ -1918,6 +1922,16 @@ typedef struct sk_ui_api_t {
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*font_msdf_dump)(sk_ui_font_t* font, const sk_filesystem_api_t* fs, const_chr_t path_prefix);
+
+	/**
+	 * Measure UTF-8 @p utf8 at @p pixel_size. Width is the typographic advance
+	 * (wrap / align / Clay sizing). Height is line_height for a single line.
+	 * Uses MSDF atlas em metrics × pixel_size (plus kerning, .notdef fallback)
+	 * when the process text renderer is MSDF; otherwise FreeType advances.
+	 * Missing glyphs contribute a defined .notdef box advance (never skipped).
+	 * @return 0 on success, non-zero on failure.
+	 */
+	i32 (*font_measure_text)(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, const_chr_t utf8, f32* out_width, f32* out_height);
 
 	/**
 	 * Process-wide text renderer used when paint_params.text_renderer is

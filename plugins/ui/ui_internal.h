@@ -12,6 +12,7 @@
 #include "array.h"
 #include "hashmap.h"
 
+#include <stddef.h>
 #include <string.h>
 
 /* -------------------------------------------------------------------------- */
@@ -280,7 +281,7 @@ i32 ui_font_atlas_get_page_impl(const sk_ui_font_system_t* system, u32 page_inde
 u32 ui_font_cache_count_impl(const sk_ui_font_system_t* system);
 void ui_font_cache_stats_impl(const sk_ui_font_system_t* system, u32* out_hits, u32* out_misses);
 
-/* MSDF atlas (font_msdf.c / font.c) — bake, query, dump; FreeType paint path unchanged. */
+/* MSDF atlas (font_msdf.c / font.c) — bake, query, dump; layout scales one atlas. */
 typedef struct ui_msdf_atlas_live_t ui_msdf_atlas_live_t;
 void ui_msdf_atlas_release(const sk_allocator_t* a, ui_msdf_atlas_live_t* atlas);
 i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_size, ui_msdf_atlas_live_t** out_atlas);
@@ -292,6 +293,36 @@ i32 ui_font_msdf_bake_impl(sk_ui_font_t* font);
 i32 ui_font_msdf_get_atlas_impl(const sk_ui_font_t* font, sk_ui_msdf_atlas_t* out);
 i32 ui_font_msdf_get_glyph_impl(const sk_ui_font_t* font, u32 codepoint, sk_ui_msdf_glyph_t* out);
 i32 ui_font_msdf_dump_impl(sk_ui_font_t* font, const sk_filesystem_api_t* fs, const_chr_t path_prefix);
+i32 ui_font_measure_text_impl(sk_ui_font_system_t* system, sk_ui_font_t* font, u32 pixel_size, const_chr_t utf8, f32* out_width, f32* out_height);
+
+/**
+ * One shaped codepoint at a requested pixel size. Advances / bearings / plane
+ * quads are already scaled. advance_x includes kerning from prev when MSDF.
+ */
+typedef struct ui_text_layout_glyph_t {
+	u32 codepoint;
+	u32 glyph_index;
+	f32 advance_x;
+	f32 kerning_x; /**< Pair adjustment already included in advance_x. */
+	f32 bearing_x;
+	f32 bearing_y;
+	f32 quad_l;
+	f32 quad_b;
+	f32 quad_r;
+	f32 quad_t;
+	f32 u0, v0, u1, v1;
+	i32 has_quad;	   /**< Sample the atlas (ink). */
+	i32 is_fallback;   /**< Missing cmap → .notdef / box. */
+	i32 is_whitespace; /**< Advance only (space). */
+} ui_text_layout_glyph_t;
+
+i32 ui_text_utf8_next(const u8* s, size_t len, size_t* index, u32* out_cp);
+i32 ui_text_layout_metrics(sk_ui_font_t* font, f32 px, i32 use_msdf, sk_ui_font_metrics_t* out);
+i32 ui_text_layout_shape(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, u32 prev_cp, u32 cp, i32 use_msdf, ui_text_layout_glyph_t* out);
+f32 ui_text_layout_measure_width(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const u8* begin, const u8* end, i32 use_msdf);
+i32 ui_text_layout_measure(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, i32 use_msdf, f32* out_width, f32* out_height);
+i32 ui_text_layout_measure_extent(sk_ui_font_system_t* sys, sk_ui_font_t* font, f32 px, const_chr_t utf8, i32 use_msdf, f32* out_advance, f32* out_min_x, f32* out_max_x,
+								  f32* out_height);
 
 /* CPU-side MSDF decode matching the fragment shader (mode 2). */
 f32 ui_msdf_median3(f32 r, f32 g, f32 b);

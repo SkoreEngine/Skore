@@ -8,7 +8,9 @@
  * GPU upload is intentionally out of scope (APX-134).
  *
  * MSDF atlas bake/dump (APX-265) lives in font_msdf.c. Paint (APX-266) can
- * emit MSDF quads when the text-renderer switch is MSDF.
+ * emit MSDF quads when the text-renderer switch is MSDF. Layout/measure
+ * (APX-267) scale atlas em metrics (advance, bearings, kerning, line metrics)
+ * to the requested pixel size instead of re-rasterizing with FreeType.
  */
 
 #include "ui.h"
