@@ -1,0 +1,9 @@
+Widget family: LABEL / TEXT
+
+Strict visual criteria (PASS only if ALL hold):
+
+1. Glyphs/ink for the claimed text are visible (not a blank region where text should be).
+2. Text is roughly left-to-right horizontal (unless the scene claims otherwise).
+3. Ink color contrasts enough against the background to be readable at a glance.
+4. When a font is pinned (DejaVuSans): text looks like real letterforms, not solid full-cell blocks unless the fixture font is known to be block glyphs.
+5. FAIL if: missing text, unreadable zero-contrast ink, or text clipped into illegibility.

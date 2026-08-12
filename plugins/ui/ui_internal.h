@@ -348,7 +348,11 @@ sk_ui_node_t ui_widget_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, cons
 sk_ui_node_t ui_widget_label_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_button_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t label, const_chr_t id);
 sk_ui_node_t ui_widget_checkbox_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
+sk_ui_node_t ui_widget_radio_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
+sk_ui_node_t ui_widget_toggle_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 on, const_chr_t id);
 sk_ui_node_t ui_widget_slider_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value, const_chr_t id);
+sk_ui_node_t ui_widget_range_slider_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value_low, f32 value_high, const_chr_t id);
+sk_ui_node_t ui_widget_progress_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 fraction, const_chr_t id);
 sk_ui_node_t ui_widget_text_input_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 sk_ui_node_t ui_widget_scroll_view_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t id);
 sk_ui_node_t ui_widget_image_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 texture_id, const_chr_t id);
@@ -392,10 +396,25 @@ i32 ui_checkbox_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 ch
 i32 ui_checkbox_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_checkbox_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
 
+i32 ui_radio_set_checked_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
+i32 ui_radio_get_checked_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_radio_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
+i32 ui_toggle_set_on_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on);
+i32 ui_toggle_get_on_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
+i32 ui_toggle_set_disabled_impl(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+i32 ui_toggle_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
 i32 ui_slider_set_value_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value);
 f32 ui_slider_get_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 i32 ui_slider_set_range_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 min_v, f32 max_v);
 i32 ui_slider_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_float_fn fn, void_ptr_t user);
+
+i32 ui_range_slider_set_values_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value_low, f32 value_high);
+i32 ui_range_slider_get_values_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out_low, f32* out_high);
+
+i32 ui_progress_set_value_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 fraction);
+f32 ui_progress_get_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
 
 i32 ui_text_input_set_text_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
 const_chr_t ui_text_input_get_text_impl(const sk_ui_context_t* ctx, sk_ui_node_t node);
@@ -505,6 +524,42 @@ const u8* ui_harness_pixels_impl(const sk_ui_harness_t* harness);
 void ui_harness_pixel_size_impl(const sk_ui_harness_t* harness, u32* out_w, u32* out_h);
 void ui_harness_set_font_impl(sk_ui_harness_t* harness, sk_ui_font_system_t* system, sk_ui_font_t* font);
 const sk_ui_draw_list_t* ui_harness_draw_list_impl(const sk_ui_harness_t* harness);
+
+/* -------------------------------------------------------------------------- */
+/* Test engine (test_engine.c) — item registry + frame control                */
+/* -------------------------------------------------------------------------- */
+
+sk_ui_test_engine_t* ui_test_engine_create_impl(const sk_ui_test_engine_desc_t* desc);
+void ui_test_engine_destroy_impl(sk_ui_test_engine_t* engine);
+sk_ui_context_t* ui_test_engine_context_impl(sk_ui_test_engine_t* engine);
+sk_ui_harness_t* ui_test_engine_harness_impl(sk_ui_test_engine_t* engine);
+i32 ui_test_engine_step_impl(sk_ui_test_engine_t* engine, f32 delta_seconds);
+i32 ui_test_engine_yield_frames_impl(sk_ui_test_engine_t* engine, u32 frame_count, f32 delta_seconds);
+i32 ui_test_engine_run_until_impl(sk_ui_test_engine_t* engine, sk_ui_test_predicate_fn pred, void_ptr_t user, u32 max_frames, f32 delta_seconds);
+f64 ui_test_engine_time_impl(const sk_ui_test_engine_t* engine);
+u32 ui_test_engine_frame_index_impl(const sk_ui_test_engine_t* engine);
+const sk_ui_test_item_t* ui_test_engine_find_by_id_impl(const sk_ui_test_engine_t* engine, const_chr_t test_id);
+const sk_ui_test_item_t* ui_test_engine_find_by_path_impl(const sk_ui_test_engine_t* engine, const_chr_t id_path);
+u32 ui_test_engine_item_count_impl(const sk_ui_test_engine_t* engine);
+const sk_ui_test_item_t* ui_test_engine_item_at_impl(const sk_ui_test_engine_t* engine, u32 index);
+const_chr_t ui_test_engine_last_error_impl(const sk_ui_test_engine_t* engine);
+
+i32 ui_test_engine_input_impl(sk_ui_test_engine_t* engine, const sk_ui_input_event_t* event);
+i32 ui_test_engine_mouse_move_impl(sk_ui_test_engine_t* engine, f32 x, f32 y);
+i32 ui_test_engine_mouse_button_impl(sk_ui_test_engine_t* engine, i32 button, i32 down, u32 mods);
+i32 ui_test_engine_scroll_wheel_impl(sk_ui_test_engine_t* engine, f32 scroll_x, f32 scroll_y, u32 mods);
+i32 ui_test_engine_key_impl(sk_ui_test_engine_t* engine, i32 key, i32 down, u32 mods);
+i32 ui_test_engine_text_impl(sk_ui_test_engine_t* engine, const_chr_t text);
+i32 ui_test_engine_hover_impl(sk_ui_test_engine_t* engine, const_chr_t test_id);
+i32 ui_test_engine_click_impl(sk_ui_test_engine_t* engine, const_chr_t test_id);
+i32 ui_test_engine_click_ex_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods);
+i32 ui_test_engine_double_click_impl(sk_ui_test_engine_t* engine, const_chr_t test_id);
+i32 ui_test_engine_press_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods);
+i32 ui_test_engine_release_impl(sk_ui_test_engine_t* engine, i32 button, u32 mods);
+i32 ui_test_engine_drag_impl(sk_ui_test_engine_t* engine, f32 x0, f32 y0, f32 x1, f32 y1, u32 motion_frames, f32 delta_seconds);
+i32 ui_test_engine_type_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, const_chr_t text);
+i32 ui_test_engine_scroll_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, f32 scroll_x, f32 scroll_y);
+i32 ui_test_engine_focus_impl(sk_ui_test_engine_t* engine, const_chr_t test_id);
 
 /* -------------------------------------------------------------------------- */
 /* Sample main menu scene (sample_menu.c)                                     */

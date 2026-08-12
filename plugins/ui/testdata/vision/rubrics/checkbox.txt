@@ -1,0 +1,19 @@
+Widget family: CHECKBOX
+
+Strict visual criteria (PASS only if ALL hold for the claimed state):
+
+UNCHECKED:
+1. A square checkbox control is visible (square outer edge, not a circle).
+2. Interior is empty or only a flat face — no X, checkmark, dot, or solid fill that reads as "on".
+
+CHECKED:
+1. A square checkbox control is still visible.
+2. The interior shows a clear X mark made of two crossing diagonal strokes.
+3. FAIL if the mark is any of: a filled solid square/block, a single centered dot, a checkmark/tick glyph (✓ / V shape), a letter, or missing entirely.
+4. The X must be readable as two diagonals, not a solid blob.
+
+DISABLED (any checkedness):
+1. The control is visibly dimmed (lower contrast border/fill/mark than the enabled counterpart).
+2. FAIL if it looks full-strength enabled.
+
+HOVER: border or face is slightly emphasized vs default, without changing the mark style rules above.

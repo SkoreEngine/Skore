@@ -779,7 +779,11 @@ typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f
 #define SK_UI_CLASS_LABEL "ui-label"
 #define SK_UI_CLASS_BUTTON "ui-button"
 #define SK_UI_CLASS_CHECKBOX "ui-checkbox"
+#define SK_UI_CLASS_RADIO "ui-radio"
+#define SK_UI_CLASS_TOGGLE "ui-toggle"
 #define SK_UI_CLASS_SLIDER "ui-slider"
+#define SK_UI_CLASS_RANGE_SLIDER "ui-range-slider"
+#define SK_UI_CLASS_PROGRESS "ui-progress"
 #define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
 #define SK_UI_CLASS_SCROLL_VIEW "ui-scroll-view"
 #define SK_UI_CLASS_IMAGE "ui-image"
@@ -825,6 +829,65 @@ typedef struct sk_ui_harness_desc_t {
 	f32 content_scale;				 /**< HiDPI scale (default 1 when <= 0). */
 	i32 soft_render;				 /**< Non-zero: allocate RGBA8 offscreen buffer. */
 } sk_ui_harness_desc_t;
+
+/* ------------------------------------------------------------------ */
+/*  Code-driven test engine (item registry + frame control)           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Opaque headless test engine (APX-259/260). Owns a harness, a per-frame item
+ * registry (stable test ids / id paths → rect + interaction state),
+ * deterministic frame stepping, and synthetic input that always enters via
+ * input_dispatch (same path as hosts). No OS event loop.
+ */
+typedef struct sk_ui_test_engine_t sk_ui_test_engine_t;
+
+/**
+ * Creation parameters for sk_ui_api_t::test_engine_create.
+ * Mirrors sk_ui_harness_desc_t (the engine wraps a harness).
+ */
+typedef struct sk_ui_test_engine_desc_t {
+	const sk_allocator_t* allocator; /**< Optional; NULL = process default. */
+	f32 width;						 /**< Logical width (default 800 when <= 0). */
+	f32 height;						 /**< Logical height (default 600 when <= 0). */
+	f32 content_scale;				 /**< HiDPI scale (default 1 when <= 0). */
+	i32 soft_render;				 /**< Non-zero: harness soft-render buffer. */
+} sk_ui_test_engine_desc_t;
+
+/**
+ * Snapshot of one registered UI item after the last successful engine step.
+ * String pointers and the struct itself are owned by the engine and remain
+ * valid only until the next step / destroy.
+ */
+typedef struct sk_ui_test_item_t {
+	sk_ui_node_t node;	 /**< Live handle at registration time. */
+	const_chr_t id;		 /**< Node test id (never NULL when registered). */
+	const_chr_t id_path; /**< Slash-separated ancestor+self ids (e.g. "panel/btn"). */
+	sk_ui_rect_t rect;	 /**< Absolute border box (logical units after layout). */
+	u32 state_flags;	 /**< SK_UI_STATE_* bits at last step. */
+	i32 hovered;		 /**< Non-zero if SK_UI_STATE_HOVER set. */
+	i32 active;			 /**< Non-zero if SK_UI_STATE_ACTIVE set. */
+	i32 focused;		 /**< Non-zero if SK_UI_STATE_FOCUSED set. */
+	i32 disabled;		 /**< Non-zero if SK_UI_STATE_DISABLED set. */
+	i32 visible;		 /**< Non-zero if node_is_visible at last step. */
+} sk_ui_test_item_t;
+
+/**
+ * Predicate for test_engine_run_until: return non-zero when the wait condition
+ * holds (stop stepping). Called before the first step and after each step.
+ */
+typedef i32 (*sk_ui_test_predicate_fn)(sk_ui_test_engine_t* engine, void_ptr_t user);
+
+/** Success. */
+#define SK_UI_TEST_OK 0
+/** Frame budget exhausted without predicate becoming true. */
+#define SK_UI_TEST_ERR_TIMEOUT 1
+/** harness_step / pipeline failed during yield or run_until. */
+#define SK_UI_TEST_ERR_STEP 2
+/** test_id / path did not resolve to a live node. */
+#define SK_UI_TEST_ERR_NOT_FOUND 3
+/** input_dispatch or focus failed during synthetic injection. */
+#define SK_UI_TEST_ERR_INPUT 4
 
 /* ------------------------------------------------------------------ */
 /*  GPU renderer (draw list → render_device)                           */
@@ -1911,8 +1974,32 @@ typedef struct sk_ui_api_t {
 	/** Checkbox; @p checked non-zero starts checked (BOX + class ui-checkbox). */
 	sk_ui_node_t (*widget_checkbox)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
 
+	/**
+	 * Radio button; @p checked non-zero starts selected (BOX + class ui-radio).
+	 * Paint draws a filled inner disc when checked; outer ring is circular chrome.
+	 */
+	sk_ui_node_t (*widget_radio)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 checked, const_chr_t id);
+
+	/**
+	 * Toggle switch; @p on non-zero starts ON (BOX + class ui-toggle).
+	 * Paint draws a pill track + distinct thumb; ON places the thumb toward the end.
+	 */
+	sk_ui_node_t (*widget_toggle)(sk_ui_context_t* ctx, sk_ui_node_t parent, i32 on, const_chr_t id);
+
 	/** Horizontal slider clamped to [min_v, max_v]. */
 	sk_ui_node_t (*widget_slider)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value, const_chr_t id);
+
+	/**
+	 * Dual-thumb range slider on [min_v, max_v] with low/high values (widget=range_slider).
+	 * Paint draws a track, filled span between thumbs, and two distinct grab handles.
+	 */
+	sk_ui_node_t (*widget_range_slider)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value_low, f32 value_high, const_chr_t id);
+
+	/**
+	 * Progress bar (display only; no grab handle). @p fraction is clamped to [0,1]
+	 * (widget=progress). Paint fills left→right by fraction; vision grades 0/partial/full.
+	 */
+	sk_ui_node_t (*widget_progress)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 fraction, const_chr_t id);
 
 	/** Single-line text field with caret/selection editing. */
 	sk_ui_node_t (*widget_text_input)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
@@ -2054,10 +2141,29 @@ typedef struct sk_ui_api_t {
 	/** Fires after toggle; @p user stored for the callback. */
 	i32 (*checkbox_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
 
+	i32 (*radio_set_checked)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 checked);
+	i32 (*radio_get_checked)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	/** Fires when the radio becomes selected. */
+	i32 (*radio_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
+	i32 (*toggle_set_on)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 on);
+	i32 (*toggle_get_on)(const sk_ui_context_t* ctx, sk_ui_node_t node);
+	i32 (*toggle_set_disabled)(sk_ui_context_t* ctx, sk_ui_node_t node, i32 disabled);
+	/** Fires after the switch flips; @p user stored for the callback. */
+	i32 (*toggle_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_bool_fn fn, void_ptr_t user);
+
 	i32 (*slider_set_value)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value);
 	f32 (*slider_get_value)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 	i32 (*slider_set_range)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 min_v, f32 max_v);
 	i32 (*slider_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_float_fn fn, void_ptr_t user);
+
+	/** Range slider low/high (clamped and ordered so low <= high). */
+	i32 (*range_slider_set_values)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value_low, f32 value_high);
+	i32 (*range_slider_get_values)(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out_low, f32* out_high);
+
+	/** Progress fraction [0,1]. */
+	i32 (*progress_set_value)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 fraction);
+	f32 (*progress_get_value)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 
 	i32 (*text_input_set_text)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
 	const_chr_t (*text_input_get_text)(const sk_ui_context_t* ctx, sk_ui_node_t node);
@@ -2366,6 +2472,198 @@ typedef struct sk_ui_api_t {
 	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
 	 */
 	i32 (*cpu_image_assert_region_hash)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, u64 expected_hash, u64* out_actual_hash);
+
+	/* ---- code-driven test engine (item registry + frame control; APX-259) ---- */
+
+	/**
+	 * Create a headless test engine: harness + empty item registry.
+	 * @param desc Optional; NULL uses default 800x600, scale 1, no soft-render.
+	 * @return Engine, or NULL on failure.
+	 */
+	sk_ui_test_engine_t* (*test_engine_create)(const sk_ui_test_engine_desc_t* desc);
+
+	/** Destroy engine, registry, and harness. Safe on NULL. */
+	void (*test_engine_destroy)(sk_ui_test_engine_t* engine);
+
+	/** UI context owned by the engine harness (valid until destroy). */
+	sk_ui_context_t* (*test_engine_context)(sk_ui_test_engine_t* engine);
+
+	/** Underlying harness (clock, soft-render, font). Valid until destroy. */
+	sk_ui_harness_t* (*test_engine_harness)(sk_ui_test_engine_t* engine);
+
+	/**
+	 * Advance one frame (harness_step) then rebuild the item registry from
+	 * the submitted tree: every live node with a non-empty test id is mapped
+	 * by id and by slash-separated id path to its abs rect and state flags.
+	 * @return 0 on success, non-zero on pipeline failure.
+	 */
+	i32 (*test_engine_step)(sk_ui_test_engine_t* engine, f32 delta_seconds);
+
+	/**
+	 * Run @p frame_count successful steps. When @p delta_seconds <= 0, uses
+	 * 1/60. frame_count 0 is a no-op success.
+	 * @return 0 on success, SK_UI_TEST_ERR_STEP if any step fails.
+	 */
+	i32 (*test_engine_yield_frames)(sk_ui_test_engine_t* engine, u32 frame_count, f32 delta_seconds);
+
+	/**
+	 * Step until @p pred returns non-zero or @p max_frames steps are taken.
+	 * Evaluates the predicate before the first step and after each step.
+	 * On timeout sets last_error to a clear budget message and returns
+	 * SK_UI_TEST_ERR_TIMEOUT. Step failure returns SK_UI_TEST_ERR_STEP.
+	 * When @p delta_seconds <= 0, uses 1/60.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_TIMEOUT, or SK_UI_TEST_ERR_STEP.
+	 */
+	i32 (*test_engine_run_until)(sk_ui_test_engine_t* engine, sk_ui_test_predicate_fn pred, void_ptr_t user, u32 max_frames, f32 delta_seconds);
+
+	/** Stable engine time (sum of step deltas; same as harness_time). */
+	f64 (*test_engine_time)(const sk_ui_test_engine_t* engine);
+
+	/** Frame index after the last successful step (0 before first step). */
+	u32 (*test_engine_frame_index)(const sk_ui_test_engine_t* engine);
+
+	/**
+	 * Look up a registered item by exact test id (from the last successful
+	 * step). @return Item snapshot, or NULL if not found / empty registry.
+	 */
+	const sk_ui_test_item_t* (*test_engine_find_by_id)(const sk_ui_test_engine_t* engine, const_chr_t test_id);
+
+	/**
+	 * Look up by slash-separated id path (e.g. "panel-main/btn-go"). When the
+	 * path has no '/', falls back to find_by_id for convenience.
+	 * @return Item snapshot, or NULL if not found.
+	 */
+	const sk_ui_test_item_t* (*test_engine_find_by_path)(const sk_ui_test_engine_t* engine, const_chr_t id_path);
+
+	/** Number of items registered after the last successful step. */
+	u32 (*test_engine_item_count)(const sk_ui_test_engine_t* engine);
+
+	/**
+	 * Item at dense index [0, item_count). NULL if out of range.
+	 * Order is preorder of id-bearing nodes under the context root.
+	 */
+	const sk_ui_test_item_t* (*test_engine_item_at)(const sk_ui_test_engine_t* engine, u32 index);
+
+	/**
+	 * Last timeout / step failure message (never NULL; empty when no error).
+	 * Valid until the next step that succeeds or destroy.
+	 */
+	const_chr_t (*test_engine_last_error)(const sk_ui_test_engine_t* engine);
+
+	/* ---- synthetic input (APX-260; always via input_dispatch) ---- */
+
+	/**
+	 * Dispatch a raw platform-shaped input event through input_dispatch.
+	 * Same ingress as hosts; expands to enter/leave/move/down/up/click/key/text.
+	 * @return SK_UI_TEST_OK, or SK_UI_TEST_ERR_INPUT on failure.
+	 */
+	i32 (*test_engine_input)(sk_ui_test_engine_t* engine, const sk_ui_input_event_t* event);
+
+	/**
+	 * Move the pointer to absolute logical coordinates (hit-test + hover).
+	 * Does not step a frame; state flags update immediately on the node.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_mouse_move)(sk_ui_test_engine_t* engine, f32 x, f32 y);
+
+	/**
+	 * Press (down != 0) or release (down == 0) a pointer button at the last
+	 * mouse position. @p button is sk_ui_pointer_button_t; @p mods is
+	 * sk_ui_mod_flags_t. Left-button release over the press target synthesizes
+	 * SK_UI_EVENT_CLICK as in production.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_mouse_button)(sk_ui_test_engine_t* engine, i32 button, i32 down, u32 mods);
+
+	/**
+	 * Scroll wheel at the last pointer position (SK_UI_INPUT_WHEEL).
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_scroll_wheel)(sk_ui_test_engine_t* engine, f32 scroll_x, f32 scroll_y, u32 mods);
+
+	/**
+	 * Key press (down != 0) or release at the focused node, with modifiers.
+	 * @p key is sk_ui_key_t or a host code; @p mods is sk_ui_mod_flags_t.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_key)(sk_ui_test_engine_t* engine, i32 key, i32 down, u32 mods);
+
+	/**
+	 * UTF-8 text entry at the focused node (SK_UI_INPUT_TEXT). Focus first via
+	 * test_engine_focus / test_engine_type / a prior click.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_text)(sk_ui_test_engine_t* engine, const_chr_t text);
+
+	/**
+	 * Move the pointer to the absolute center of the live node with @p test_id.
+	 * Requires a prior layout (engine step) so hit-test geometry is valid.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_hover)(sk_ui_test_engine_t* engine, const_chr_t test_id);
+
+	/**
+	 * Left-click the item: pointer move to center, button down, button up via
+	 * input_dispatch. Does not advance frames — interleave test_engine_step to
+	 * observe hover/active style and registry flags between phases, or use
+	 * press/release explicitly for multi-frame sequences.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_click)(sk_ui_test_engine_t* engine, const_chr_t test_id);
+
+	/**
+	 * Click with explicit @p button (sk_ui_pointer_button_t) and @p mods.
+	 * Only left-button release over the press target yields SK_UI_EVENT_CLICK.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_click_ex)(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods);
+
+	/**
+	 * Two sequential left-click sequences at the item center (double-click).
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_double_click)(sk_ui_test_engine_t* engine, const_chr_t test_id);
+
+	/**
+	 * Pointer button down at the item center without release (for drag / hold).
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_press)(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods);
+
+	/**
+	 * Pointer button up at the last mouse position.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_release)(sk_ui_test_engine_t* engine, i32 button, u32 mods);
+
+	/**
+	 * Drag left button from (x0,y0) to (x1,y1): move, press, intermediate
+	 * motion frames (linear samples), release. When @p motion_frames is 0,
+	 * performs a single move to the end before release. When
+	 * @p delta_seconds > 0, runs test_engine_step after each motion sample so
+	 * style/layout/paint see intermediate positions (production multi-frame
+	 * drag). When delta_seconds <= 0, only input_dispatch runs between samples.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_INPUT, or SK_UI_TEST_ERR_STEP.
+	 */
+	i32 (*test_engine_drag)(sk_ui_test_engine_t* engine, f32 x0, f32 y0, f32 x1, f32 y1, u32 motion_frames, f32 delta_seconds);
+
+	/**
+	 * Focus the item by test id then inject UTF-8 text (same as action_type_text).
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_type)(sk_ui_test_engine_t* engine, const_chr_t test_id, const_chr_t text);
+
+	/**
+	 * Wheel event over the item center.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_scroll)(sk_ui_test_engine_t* engine, const_chr_t test_id, f32 scroll_x, f32 scroll_y);
+
+	/**
+	 * Set keyboard focus via focus_set (FOCUS_OUT / FOCUS_IN).
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_focus)(sk_ui_test_engine_t* engine, const_chr_t test_id);
 } sk_ui_api_t;
 
 /**

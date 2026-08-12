@@ -23,6 +23,12 @@ add_executable(sk-integration-tests
     ui_capture.c
     ui_capture_harness.c
     ui_integration.c
+    ui_vision_assert.c
+    ui_widget_vision.c
+    ui_flexbox_vision.c
+    ui_test_authoring.c
+    ui_interaction_suite.c
+    "${CMAKE_SOURCE_DIR}/plugins/ui/ui_test.c"
     render_graph.c
     resource_object_fixtures.c
     resource_object_buffer.c
@@ -31,6 +37,12 @@ add_executable(sk-isolate-tests
     main.c
     ui_integration.c
     ui_capture_harness.c
+    ui_vision_assert.c
+    ui_widget_vision.c
+    ui_flexbox_vision.c
+    ui_test_authoring.c
+    ui_interaction_suite.c
+    "${CMAKE_SOURCE_DIR}/plugins/ui/ui_test.c"
 )
 target_link_libraries(sk-isolate-tests PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
 target_include_directories(sk-isolate-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
@@ -93,6 +105,23 @@ add_dependencies(sk-integration-tests
 # Run from bin/ so the copied DXC runtime (plugins/libdxcompiler.so) is found
 # relative to cwd, matching the sk-tests working directory.
 add_test(NAME sk-integration-tests COMMAND sk-integration-tests WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+
+# APX-263: focused UI suites (widget-vision + flexbox + interaction bridge).
+# Prefer scripts/run-ui-integration-tests.sh for the full one-command workflow
+# (also runs plugin interaction tests via sk-tests and prints vision skip notes).
+# Prefix wildcards require SK_TEST_FILTER trailing-'*' support in core/test.c.
+add_test(
+    NAME sk-ui-integration-suites
+    COMMAND ${CMAKE_COMMAND} -E env
+        "SK_TEST_FILTER=ui_widget_vision_*,ui_flexbox_vision_*,ui_ix_*,ui_vision_assert_*,ui_vision_rubrics_*"
+        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
+        $<TARGET_FILE:sk-integration-tests>
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+)
+set_tests_properties(sk-ui-integration-suites PROPERTIES
+    LABELS "ui;ui-integration;ui-vision"
+    TIMEOUT 1800
+)
 
 # TEMP repro: repeated harness cycles (remove before commit)
 add_executable(sk-repro-cycles repro_cycles.c ui_capture_harness.c)

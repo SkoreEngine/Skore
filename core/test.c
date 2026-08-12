@@ -12,6 +12,17 @@
 
 #include "atomics.h"
 
+/*
+ * Unity (via test.h) may include <stdnoreturn.h>, which defines `noreturn` as
+ * `_Noreturn`. Windows UCRT <stdlib.h> uses `__declspec(noreturn)`; under the
+ * Windows clang-tidy driver that expands to `__declspec(_Noreturn)` and fails
+ * with "__declspec attributes must be an identifier or string literal".
+ * Same fix as core/offset_allocator.c / core/atomics.h.
+ */
+#ifdef noreturn
+#undef noreturn
+#endif
+#include <stdlib.h>
 #include <string.h>
 
 enum { SK_TEST_MAX = 512 };
@@ -39,15 +50,69 @@ void sk_test_register(const_chr_t name, void (*fn)(void)) {
 	test_count += 1u;
 }
 
+/**
+ * Match a test name against one SK_TEST_FILTER token.
+ * - exact name: "ui_widget_vision_tab"
+ * - prefix wildcard (trailing '*'): "ui_widget_vision_*"
+ * Exact tokens never use substring matching (avoids tab vs table collisions).
+ */
+static i32 sk_test_filter_token_matches(const_chr_t name, const char* token, size_t token_len) {
+	size_t name_len;
+
+	if (name == NULL || token == NULL || token_len == 0u) {
+		return 0;
+	}
+	name_len = strlen(name);
+	if (token[token_len - 1u] == '*') {
+		size_t prefix_len = token_len - 1u;
+		if (prefix_len == 0u) {
+			return 1; /* bare "*" matches everything */
+		}
+		return (name_len >= prefix_len && strncmp(name, token, prefix_len) == 0) ? 1 : 0;
+	}
+	return (name_len == token_len && strncmp(name, token, token_len) == 0) ? 1 : 0;
+}
+
 void sk_test_run_all(sk_test_report_t* out) {
+	const char* filter = getenv("SK_TEST_FILTER");
+	i32 ran = 0;
+
 	UNITY_BEGIN();
 	for (u32 i = 0u; i < test_count; ++i) {
+		/*
+		 * Optional name filter. Comma-separated list of exact names and/or
+		 * trailing-'*' prefixes (e.g. SK_TEST_FILTER=ui_widget_vision_*,ui_ix_vision_checkbox_after_click).
+		 * Exact match only for non-wildcard tokens — bare substrings would collide (tab vs table).
+		 */
+		if (filter != NULL && filter[0] != '\0') {
+			const char* p = filter;
+			i32 matched = 0;
+			while (*p != '\0') {
+				const char* start = p;
+				size_t len;
+				while (*p != '\0' && *p != ',') {
+					p++;
+				}
+				len = (size_t)(p - start);
+				if (sk_test_filter_token_matches(tests[i].name, start, len) != 0) {
+					matched = 1;
+					break;
+				}
+				if (*p == ',') {
+					p++;
+				}
+			}
+			if (matched == 0) {
+				continue;
+			}
+		}
 		UnityDefaultTestRun(tests[i].fn, tests[i].name, (int)i);
+		ran += 1;
 	}
 	i32 failed = (i32)UNITY_END();
 
 	if (out != NULL) {
-		out->ran = (i32)test_count;
+		out->ran = ran;
 		out->failed = failed;
 	}
 }

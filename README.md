@@ -40,6 +40,17 @@ ctest --test-dir build --output-on-failure
 
 Release builds never compile test bodies into plugins.
 
+**UI integration suites** (widget vision, flexbox vision, interaction engine) —
+one command, CI artifact upload, vision credential gating:
+
+```bash
+./scripts/run-ui-integration-tests.sh
+```
+
+See **[docs/ui-integration-test-workflow.md](docs/ui-integration-test-workflow.md)**
+for how to add a widget test, how vision rubrics work, and how to write
+interaction tests with the engine.
+
 ### Stacktrace and crash handler
 
 See **[docs/stacktrace.md](docs/stacktrace.md)** for the public API (`sk_stacktrace_*`, `sk_crash_install` / `sk_crash_uninstall`), required link flags (`-rdynamic` / export-dynamic, PDB, `dbghelp`), limitations, and sample output on Linux, macOS, and Windows.

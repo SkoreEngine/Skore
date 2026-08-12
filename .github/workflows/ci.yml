@@ -44,7 +44,8 @@ jobs:
             ninja-build \
             clang-tidy \
             libx11-dev libxcursor-dev libxi-dev libxinerama-dev \
-            libxrandr-dev libxkbcommon-dev libgl-dev
+            libxrandr-dev libxkbcommon-dev libgl-dev \
+            mesa-vulkan-drivers vulkan-tools
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -93,8 +94,73 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Test
+      - name: Test (Linux + lavapipe)
+        if: runner.os == 'Linux'
         run: ctest --test-dir build --output-on-failure --verbose
+        env:
+          # Headless Vulkan for UI capture / integration tests.
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+
+      - name: Test
+        if: runner.os != 'Linux'
+        run: ctest --test-dir build --output-on-failure --verbose
+
+      - name: Upload test artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-${{ matrix.config.name }}-${{ matrix.build_type }}
+          path: build/test-artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # APX-263: dedicated UI integration job (widget-vision, flexbox, interaction).
+  # Structural + behavioural always run. Live vision grades only when the
+  # optional XAI_API_KEY secret is present; otherwise vision SKIP is logged
+  # clearly (Unity IGNORE) — never a silent pass. Fail frames upload below.
+  ui-integration:
+    name: UI integration suites (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            python3 \
+            libx11-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libxrandr-dev libxkbcommon-dev libgl-dev \
+            mesa-vulkan-drivers vulkan-tools
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DBUILD_TESTING=ON
+          -DSK_ENABLE_CLANG_TIDY=OFF
+
+      - name: Run UI integration suites
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+          SK_TEST_ARTIFACT_DIR: ${{ github.workspace }}/build/test-artifacts
+          # Optional org/repo secret — when absent, vision grades SKIP with a clear message.
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          SK_UI_VISION_API_KEY: ${{ secrets.SK_UI_VISION_API_KEY }}
+        run: bash scripts/run-ui-integration-tests.sh
+
+      - name: Upload UI test artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-integration-test-artifacts
+          path: |
+            build/test-artifacts/
+            build/test-artifacts/**/*_vision_fail.png
+          if-no-files-found: ignore
+          retention-days: 14
 
   # APX-174 ran the suite twice (default v1 path + SK_COMPRESSION_USE_V2=1) to
   # exercise both sides of the staged v1→v2 migration flag. APX-164 completed

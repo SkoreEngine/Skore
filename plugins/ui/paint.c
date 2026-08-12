@@ -335,6 +335,33 @@ static i32 ui_paint_add_triangle(ui_paint_emitter_t* em, f32 x0, f32 y0, f32 x1,
 	return 0;
 }
 
+/**
+ * Thick line segment as a filled quad (two triangles). Used for checkbox X
+ * diagonals so the mark reads as two crossing strokes, not a checkmark/tick.
+ */
+static i32 ui_paint_add_thick_line(ui_paint_emitter_t* em, f32 x0, f32 y0, f32 x1, f32 y1, f32 thickness, u32 color) {
+	f32 dx = x1 - x0;
+	f32 dy = y1 - y0;
+	f32 len = sqrtf(dx * dx + dy * dy);
+	f32 nx;
+	f32 ny;
+	f32 half;
+	if (len < 0.001f) {
+		return 0;
+	}
+	half = thickness * 0.5f;
+	nx = (-dy / len) * half;
+	ny = (dx / len) * half;
+	/* Corners: p0+n, p1+n, p1-n, p0-n as two triangles. */
+	if (ui_paint_add_triangle(em, x0 + nx, y0 + ny, x1 + nx, y1 + ny, x1 - nx, y1 - ny, color) != 0) {
+		return -1;
+	}
+	if (ui_paint_add_triangle(em, x0 + nx, y0 + ny, x1 - nx, y1 - ny, x0 - nx, y0 - ny, color) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
 static i32 ui_paint_add_rounded_rect_filled(ui_paint_emitter_t* em, f32 x, f32 y, f32 w, f32 h, f32 radius, u32 color) {
 	f32 x1 = x + w;
 	f32 y1 = y + h;
@@ -589,6 +616,12 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 		if (ui_paint_prop_i32(slot, "sel_end", &v) == 0) {
 			sel_b = v;
 		}
+	}
+	/* Disabled fields: no caret/selection chrome (dimmed text only) — APX-253. */
+	if ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) {
+		draw_caret = 0;
+		sel_a = -1;
+		sel_b = -1;
 	}
 	if (sel_a >= 0 && sel_b >= 0 && sel_a > sel_b) {
 		i32 tmp = sel_a;
@@ -999,28 +1032,106 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 		}
 	}
 
-	/* Checkbox checkmark when prop checked != 0. */
+	/*
+	 * Widget marks (checkbox X, radio inner disc, toggle thumb).
+	 * These are the fine details graded by per-widget vision rubrics (APX-252).
+	 */
 	{
 		i32 checked = 0;
+		i32 on = 0;
 		const_chr_t wtype = ui_paint_prop_str(slot, "widget");
 		if (wtype != NULL && strcmp(wtype, "checkbox") == 0 && ui_paint_prop_i32(slot, "checked", &checked) == 0 && checked != 0) {
+			/* X mark: two crossing diagonal strokes (not a checkmark/tick). */
 			u32 mk = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
-			f32 m = (cw < ch ? cw : ch) * 0.2f;
-			f32 x0 = cx + m;
-			f32 y0 = cy + ch * 0.55f;
-			f32 x1 = cx + cw * 0.4f;
-			f32 y1 = cy + ch - m;
-			f32 x2 = cx + cw - m;
-			f32 y2 = cy + m;
-			/* Two thick segments for a simple check. */
-			if (ui_paint_add_solid_quad(em, x0, y0 - 1.5f * em->scale_y, x1, y1 + 1.5f * em->scale_y, mk) != 0) {
+			f32 m = (cw < ch ? cw : ch) * 0.22f;
+			f32 thick = (cw < ch ? cw : ch) * 0.16f;
+			f32 avg = (em->scale_x + em->scale_y) * 0.5f;
+			if (thick < 1.5f * avg) {
+				thick = 1.5f * avg;
+			}
+			if (ui_paint_add_thick_line(em, cx + m, cy + m, cx + cw - m, cy + ch - m, thick, mk) != 0) {
 				return -1;
 			}
-			if (ui_paint_add_solid_quad(em, x1 - 1.5f * em->scale_x, y1 - 1.5f * em->scale_y, x2, y2 + 1.5f * em->scale_y, mk) != 0) {
+			if (ui_paint_add_thick_line(em, cx + cw - m, cy + m, cx + m, cy + ch - m, thick, mk) != 0) {
 				return -1;
 			}
-			(void)x2;
-			(void)y2;
+		}
+		if (wtype != NULL && strcmp(wtype, "radio") == 0) {
+			/*
+			 * Circular ring: outer disc (ring color) minus inner hole (dark face).
+			 * When checked, a smaller filled disc sits in the center.
+			 * Uses border-box so the control is round even without layout border.
+			 */
+			u32 ring_col = sk_ui_pack_color(ui_paint_mul_opacity(slot->computed.color, opacity));
+			u32 hole_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.12f, 0.13f, 0.15f, 1.0f), opacity));
+			f32 side = bw < bh ? bw : bh;
+			f32 rx = bx + (bw - side) * 0.5f;
+			f32 ry = by + (bh - side) * 0.5f;
+			f32 hole = side * 0.70f; /* thinner ring stroke so the hole reads clearly */
+			f32 hx = rx + (side - hole) * 0.5f;
+			f32 hy = ry + (side - hole) * 0.5f;
+			if (ui_paint_add_rounded_rect_filled(em, rx, ry, side, side, side * 0.5f, ring_col) != 0) {
+				return -1;
+			}
+			if (ui_paint_add_rounded_rect_filled(em, hx, hy, hole, hole, hole * 0.5f, hole_col) != 0) {
+				return -1;
+			}
+			if (ui_paint_prop_i32(slot, "checked", &checked) == 0 && checked != 0) {
+				/* Solid disc clearly smaller than the outer ring; dim when disabled. */
+				i32 radio_disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
+				/* Disabled: still a solid light disc (must read as filled), just less bright. */
+				sk_ui_color_t disc_c = radio_disabled != 0 ? sk_ui_rgba(0.72f, 0.74f, 0.78f, 1.0f) : sk_ui_rgba(0.96f, 0.97f, 0.99f, 1.0f);
+				u32 disc_col = sk_ui_pack_color(ui_paint_mul_opacity(disc_c, opacity));
+				f32 disc = side * 0.50f;
+				f32 dx = rx + (side - disc) * 0.5f;
+				f32 dy = ry + (side - disc) * 0.5f;
+				if (ui_paint_add_rounded_rect_filled(em, dx, dy, disc, disc, disc * 0.5f, disc_col) != 0) {
+					return -1;
+				}
+			}
+		}
+		if (wtype != NULL && strcmp(wtype, "toggle") == 0) {
+			/* Pill track is the node background; draw a distinct thumb/knob. */
+			i32 has_on = (ui_paint_prop_i32(slot, "on", &on) == 0) ? 1 : 0;
+			i32 disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
+			f32 pad = (bh < bw ? bh : bw) * 0.12f;
+			f32 thumb = bh - pad * 2.0f;
+			f32 thumb_x;
+			u32 thumb_col;
+			u32 track_on_col;
+			sk_ui_color_t accent;
+			sk_ui_color_t thumb_c;
+			if (has_on == 0) {
+				on = 0;
+			}
+			if (thumb < 4.0f) {
+				thumb = 4.0f;
+			}
+			if (on != 0) {
+				/* Stronger track fill when ON so ON/OFF are distinguishable. */
+				accent = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 1.0f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f);
+				track_on_col = sk_ui_pack_color(ui_paint_mul_opacity(accent, opacity));
+				if (ui_paint_add_rounded_rect_filled(em, bx, by, bw, bh, (bh < bw ? bh : bw) * 0.5f, track_on_col) != 0) {
+					return -1;
+				}
+			}
+			/* Place thumb using border-box so it sits fully on the pill track. */
+			thumb_x = (on != 0) ? (bx + bw - pad - thumb) : (bx + pad);
+			if (thumb_x < bx) {
+				thumb_x = bx;
+			}
+			if (thumb_x + thumb > bx + bw) {
+				thumb_x = bx + bw - thumb;
+			}
+			/* Bright thumb on dark track so the knob is separable from the pill. */
+			thumb_c = disabled != 0 ? sk_ui_rgba(0.62f, 0.64f, 0.68f, 1.0f) : sk_ui_rgba(0.96f, 0.97f, 0.99f, 1.0f);
+			thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(thumb_c, opacity));
+			{
+				f32 ty = by + (bh - thumb) * 0.5f;
+				if (ui_paint_add_rounded_rect_filled(em, thumb_x, ty, thumb, thumb, thumb * 0.5f, thumb_col) != 0) {
+					return -1;
+				}
+			}
 		}
 	}
 
@@ -1036,9 +1147,14 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			f32 track_y;
 			f32 fill_w;
 			f32 thumb_w;
+			f32 thumb_h;
 			f32 thumb_x;
+			f32 thumb_y;
 			u32 fill_col;
 			u32 thumb_col;
+			i32 disabled = ((slot->state_flags & (u32)SK_UI_STATE_DISABLED) != 0u) ? 1 : 0;
+			sk_ui_color_t fill_c;
+			sk_ui_color_t thumb_c;
 			if (vmax <= vmin) {
 				vmax = vmin + 1.0f;
 			}
@@ -1049,22 +1165,31 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				val = vmax;
 			}
 			t = (val - vmin) / (vmax - vmin);
-			track_h = ch * 0.25f;
+			/* Thin track so the grab knob is clearly thicker (vision: not a bare bar). */
+			track_h = ch * 0.22f;
 			if (track_h < 2.0f) {
 				track_h = 2.0f;
 			}
 			track_y = cy + (ch - track_h) * 0.5f;
 			fill_w = cw * t;
-			fill_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f), opacity));
-			thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.95f, 0.95f, 0.98f, 1.0f), opacity));
+			/* Disabled: muted fill + thumb (vision grades dimming) — APX-253. */
+			fill_c = disabled != 0 ? sk_ui_rgba(0.22f, 0.32f, 0.48f, 1.0f) : sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f);
+			thumb_c = disabled != 0 ? sk_ui_rgba(0.55f, 0.56f, 0.58f, 1.0f) : sk_ui_rgba(0.95f, 0.95f, 0.98f, 1.0f);
+			fill_col = sk_ui_pack_color(ui_paint_mul_opacity(fill_c, opacity));
+			thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(thumb_c, opacity));
 			if (fill_w > 0.0f) {
 				if (ui_paint_add_solid_quad(em, cx, track_y, cx + fill_w, track_y + track_h, fill_col) != 0) {
 					return -1;
 				}
 			}
-			thumb_w = ch * 0.7f;
-			if (thumb_w < 6.0f) {
-				thumb_w = 6.0f;
+			/* Distinct rounded grab handle — taller than the track, not an end-cap. */
+			thumb_w = ch * 0.55f;
+			thumb_h = ch * 0.90f;
+			if (thumb_w < 8.0f) {
+				thumb_w = 8.0f;
+			}
+			if (thumb_h < 10.0f) {
+				thumb_h = 10.0f;
 			}
 			thumb_x = cx + fill_w - thumb_w * 0.5f;
 			if (thumb_x < cx) {
@@ -1073,8 +1198,131 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			if (thumb_x + thumb_w > cx + cw) {
 				thumb_x = cx + cw - thumb_w;
 			}
-			if (ui_paint_add_solid_quad(em, thumb_x, cy + ch * 0.15f, thumb_x + thumb_w, cy + ch * 0.85f, thumb_col) != 0) {
+			thumb_y = cy + (ch - thumb_h) * 0.5f;
+			if (ui_paint_add_rounded_rect_filled(em, thumb_x, thumb_y, thumb_w, thumb_h, thumb_w * 0.35f, thumb_col) != 0) {
 				return -1;
+			}
+		}
+		/*
+		 * Range slider: track fill between value_low/value_high + two grab handles
+		 * (APX-253). Distinct from progress (no thumbs) and single slider (one thumb).
+		 */
+		if (wtype != NULL && strcmp(wtype, "range_slider") == 0) {
+			f32 vmin = ui_paint_prop_f32_or(slot, "min", 0.0f);
+			f32 vmax = ui_paint_prop_f32_or(slot, "max", 1.0f);
+			f32 vlow = ui_paint_prop_f32_or(slot, "value_low", 0.0f);
+			f32 vhigh = ui_paint_prop_f32_or(slot, "value_high", 1.0f);
+			f32 t0, t1;
+			f32 track_h;
+			f32 track_y;
+			f32 x0, x1;
+			f32 thumb_w;
+			f32 thumb_y0;
+			f32 thumb_y1;
+			u32 fill_col;
+			u32 thumb_col;
+			if (vmax <= vmin) {
+				vmax = vmin + 1.0f;
+			}
+			if (vlow < vmin) {
+				vlow = vmin;
+			}
+			if (vhigh > vmax) {
+				vhigh = vmax;
+			}
+			if (vlow > vhigh) {
+				f32 tmp = vlow;
+				vlow = vhigh;
+				vhigh = tmp;
+			}
+			t0 = (vlow - vmin) / (vmax - vmin);
+			t1 = (vhigh - vmin) / (vmax - vmin);
+			track_h = ch * 0.22f;
+			if (track_h < 2.0f) {
+				track_h = 2.0f;
+			}
+			track_y = cy + (ch - track_h) * 0.5f;
+			x0 = cx + cw * t0;
+			x1 = cx + cw * t1;
+			fill_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.30f, 0.55f, 0.95f, 1.0f), opacity));
+			thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.95f, 0.95f, 0.98f, 1.0f), opacity));
+			if (x1 > x0) {
+				if (ui_paint_add_solid_quad(em, x0, track_y, x1, track_y + track_h, fill_col) != 0) {
+					return -1;
+				}
+			}
+			thumb_w = ch * 0.55f;
+			if (thumb_w < 8.0f) {
+				thumb_w = 8.0f;
+			}
+			thumb_y0 = cy + ch * 0.05f;
+			thumb_y1 = cy + ch * 0.95f;
+			/* Low thumb. */
+			{
+				f32 tx = x0 - thumb_w * 0.5f;
+				f32 th = thumb_y1 - thumb_y0;
+				if (tx < cx) {
+					tx = cx;
+				}
+				if (tx + thumb_w > cx + cw) {
+					tx = cx + cw - thumb_w;
+				}
+				if (ui_paint_add_rounded_rect_filled(em, tx, thumb_y0, thumb_w, th, thumb_w * 0.35f, thumb_col) != 0) {
+					return -1;
+				}
+			}
+			/* High thumb. */
+			{
+				f32 tx = x1 - thumb_w * 0.5f;
+				f32 th = thumb_y1 - thumb_y0;
+				if (tx < cx) {
+					tx = cx;
+				}
+				if (tx + thumb_w > cx + cw) {
+					tx = cx + cw - thumb_w;
+				}
+				if (ui_paint_add_rounded_rect_filled(em, tx, thumb_y0, thumb_w, th, thumb_w * 0.35f, thumb_col) != 0) {
+					return -1;
+				}
+			}
+		}
+		/*
+		 * Progress bar: filled fraction only — no grab handle (APX-253).
+		 * Distinguishes from slider in vision rubrics.
+		 */
+		if (wtype != NULL && strcmp(wtype, "progress") == 0) {
+			f32 frac = ui_paint_prop_f32_or(slot, "value", 0.0f);
+			f32 fill_w;
+			f32 inset;
+			u32 fill_col;
+			u32 empty_col;
+			if (frac < 0.0f) {
+				frac = 0.0f;
+			}
+			if (frac > 1.0f) {
+				frac = 1.0f;
+			}
+			/*
+			 * Inset fill slightly so the track chrome remains visible on the right
+			 * when partial — helps vision distinguish partial vs full (APX-253).
+			 */
+			inset = 1.0f * ((em->scale_x + em->scale_y) * 0.5f);
+			if (inset > ch * 0.25f) {
+				inset = ch * 0.25f;
+			}
+			fill_w = (cw > inset * 2.0f) ? (cw - inset * 2.0f) * frac : cw * frac;
+			empty_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f), opacity));
+			fill_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.32f, 0.58f, 0.96f, 1.0f), opacity));
+			/* Unfilled remainder: slightly lighter than the outer track so empty reads. */
+			if (frac < 0.999f && cw > fill_w + inset + 0.5f) {
+				if (ui_paint_add_solid_quad(em, cx + inset + fill_w, cy + inset, cx + cw - inset, cy + ch - inset, empty_col) != 0) {
+					return -1;
+				}
+			}
+			if (fill_w > 0.5f) {
+				if (ui_paint_add_solid_quad(em, cx + inset, cy + inset, cx + inset + fill_w, cy + ch - inset, fill_col) != 0) {
+					return -1;
+				}
 			}
 		}
 	}
@@ -1087,25 +1335,31 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 			f32 content_w = ui_paint_prop_f32_or(slot, "content_width", 0.0f);
 			f32 scy = ui_paint_prop_f32_or(slot, "scroll_y", 0.0f);
 			f32 scx = ui_paint_prop_f32_or(slot, "scroll_x", 0.0f);
-			u32 bar_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.0f, 0.0f, 0.0f, 0.25f), opacity));
-			u32 thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.75f, 0.75f, 0.80f, 0.9f), opacity));
-			f32 bar_w = 6.0f * ((em->scale_x + em->scale_y) * 0.5f);
+			/* Opaque track so thumb is separable (vision: not a solid full-length bar). */
+			u32 bar_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.10f, 0.11f, 0.13f, 1.0f), opacity));
+			u32 thumb_col = sk_ui_pack_color(ui_paint_mul_opacity(sk_ui_rgba(0.72f, 0.74f, 0.80f, 1.0f), opacity));
+			f32 bar_w = 8.0f * ((em->scale_x + em->scale_y) * 0.5f);
 			if (content_h > slot->layout_content.height + 0.5f && slot->layout_content.height > 0.0f) {
 				f32 view_h = ch;
 				f32 max_scroll = content_h - slot->layout_content.height;
 				f32 thumb_h = view_h * (slot->layout_content.height / content_h);
 				f32 thumb_y;
-				if (thumb_h < 8.0f * em->scale_y) {
-					thumb_h = 8.0f * em->scale_y;
+				f32 pad = 1.0f * em->scale_y;
+				/* Cap thumb so it stays clearly shorter than the track. */
+				if (thumb_h < 12.0f * em->scale_y) {
+					thumb_h = 12.0f * em->scale_y;
+				}
+				if (thumb_h > view_h * 0.55f) {
+					thumb_h = view_h * 0.55f;
 				}
 				if (max_scroll < 1.0f) {
 					max_scroll = 1.0f;
 				}
-				thumb_y = cy + (view_h - thumb_h) * (scy / max_scroll);
+				thumb_y = cy + pad + (view_h - thumb_h - pad * 2.0f) * (scy / max_scroll);
 				if (ui_paint_add_solid_quad(em, cx + cw - bar_w, cy, cx + cw, cy + ch, bar_col) != 0) {
 					return -1;
 				}
-				if (ui_paint_add_solid_quad(em, cx + cw - bar_w, thumb_y, cx + cw, thumb_y + thumb_h, thumb_col) != 0) {
+				if (ui_paint_add_solid_quad(em, cx + cw - bar_w + 1.0f * em->scale_x, thumb_y, cx + cw - 1.0f * em->scale_x, thumb_y + thumb_h, thumb_col) != 0) {
 					return -1;
 				}
 			}
@@ -1114,17 +1368,21 @@ static i32 ui_paint_node(ui_paint_emitter_t* em, sk_ui_node_t node, f32 origin_x
 				f32 max_scroll = content_w - slot->layout_content.width;
 				f32 thumb_w = view_w * (slot->layout_content.width / content_w);
 				f32 thumb_x;
-				if (thumb_w < 8.0f * em->scale_x) {
-					thumb_w = 8.0f * em->scale_x;
+				f32 pad = 1.0f * em->scale_x;
+				if (thumb_w < 12.0f * em->scale_x) {
+					thumb_w = 12.0f * em->scale_x;
+				}
+				if (thumb_w > view_w * 0.55f) {
+					thumb_w = view_w * 0.55f;
 				}
 				if (max_scroll < 1.0f) {
 					max_scroll = 1.0f;
 				}
-				thumb_x = cx + (view_w - thumb_w) * (scx / max_scroll);
+				thumb_x = cx + pad + (view_w - thumb_w - pad * 2.0f) * (scx / max_scroll);
 				if (ui_paint_add_solid_quad(em, cx, cy + ch - bar_w, cx + cw, cy + ch, bar_col) != 0) {
 					return -1;
 				}
-				if (ui_paint_add_solid_quad(em, thumb_x, cy + ch - bar_w, thumb_x + thumb_w, cy + ch, thumb_col) != 0) {
+				if (ui_paint_add_solid_quad(em, thumb_x, cy + ch - bar_w + 1.0f * em->scale_y, thumb_x + thumb_w, cy + ch - 1.0f * em->scale_y, thumb_col) != 0) {
 					return -1;
 				}
 			}
