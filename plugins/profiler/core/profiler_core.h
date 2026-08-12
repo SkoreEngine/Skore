@@ -11,7 +11,7 @@
  * This module is the engine-independent layer behind the frozen public
  * contract (sk_profiler_api_t in profiler.h). It has no dependency on the
  * app context, the plugin registry, or the render device: it only uses
- * sk-core utilities (common.h types, the engine allocator, the process
+ * sk-foundation utilities (common.h types, the engine allocator, the process
  * logger). The plugin layer (profiler.c) owns the registry wiring, GPU
  * timestamp queries and the report formats; this module owns timing, zone
  * capture and accumulation.

@@ -110,7 +110,7 @@ const sk_platform_api_t* sk_platform_api(void) {
 
 /**
  * Register the default platform API on the app context.
- * Not declared in core headers; called from sk-app initialization.
+ * Not declared in public headers; called from sk-foundation initialization.
  */
 void sk_platform_init(sk_app_context_t* context, const sk_app_api_t* app_api);
 

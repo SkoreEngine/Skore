@@ -9,7 +9,7 @@
  * A default stdout sink (timestamp, level, logger name, message) is registered
  * when the module is first used.
  *
- * Pure engine utility: implemented in sk-core (not sk-app).
+ * Pure engine utility: implemented in sk-foundation.
  */
 
 #include "common.h"
@@ -108,7 +108,7 @@ typedef struct sk_logger_api_t {
 /**
  * Logger API function table for this module instance.
  *
- * Plugins statically link sk-core, so each DLL has its own sink list by
+ * Plugins statically link sk-foundation, so each DLL has its own sink list by
  * default. Hosts call sk_logger_bind_api (via lib_symbol after LoadLibrary)
  * so plugin code that uses sk_logger_api() shares the host sink list (stdout,
  * file sinks, editor console, etc.).
@@ -120,7 +120,7 @@ const sk_logger_api_t* sk_logger_api(void);
 /**
  * Point this module's sk_logger_api() at another table (usually the host's).
  * Pass NULL to clear the binding and use this module's own table again.
- * sk-app load_plugin resolves this symbol in each plugin DLL and binds the
+ * Host load_plugin resolves this symbol in each plugin DLL and binds the
  * host table so host-registered sinks receive plugin sk_log_* traffic.
  *
  * @param api Host logger table (must outlive the plugin), or NULL to unbind.

@@ -3,7 +3,7 @@
  * @brief Test host bootstrap only.
  *
  * 1. Install the fatal-fault handler (stacktrace on signal / SEH).
- * 2. Run core + app in-process registry (linked sk-core-tests / sk-app-tests).
+ * 2. Run foundation in-process registry (linked sk-foundation-tests).
  * 3. Scan {exe_dir}/plugins (or argv[1] override), load each shared library,
  *    call sk_plugin_run_tests (plugin-local Unity).
  */

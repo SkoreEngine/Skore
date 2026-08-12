@@ -157,7 +157,7 @@ function(sk_add_plugin name)
     # (not libsk-…); host scan and tests use the unprefixed name on every OS.
     add_library(${_plugin} SHARED ${SK_PLUGIN_SOURCES})
     target_include_directories(${_plugin} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(${_plugin} PRIVATE sk-core)
+    target_link_libraries(${_plugin} PRIVATE sk-foundation)
     set_target_properties(${_plugin} PROPERTIES
         PREFIX ""
         LIBRARY_OUTPUT_DIRECTORY "${_plugins_dir}"
@@ -172,7 +172,7 @@ function(sk_add_plugin name)
         RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${_plugins_dir}"
     )
     # Host load_plugin GetProcAddress/dlsym("sk_logger_bind_api") must see the
-    # plugin-local copy (static sk-core). Force export: the symbol is otherwise
+    # plugin-local copy (static sk-foundation). Force export: the symbol is otherwise
     # easy to drop (unused from plugin .c) on MSVC / --gc-sections.
     if(MSVC)
         target_link_options(${_plugin} PRIVATE "/EXPORT:sk_logger_bind_api")

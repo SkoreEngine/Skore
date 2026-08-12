@@ -216,7 +216,7 @@ typedef struct sk_resource_asset_importer_t {
 typedef struct sk_resource_assets_context_t sk_resource_assets_context_t;
 
 /**
- * Process-wide repository-assets engine API (implemented in sk-core).
+ * Process-wide repository-assets engine API (implemented in sk-foundation).
  * Parent parameters are ResourceAssetDirectory node RIDs. Extensions are
  * lowercase with a leading dot. No thumbnails, no efsw file watching.
  */

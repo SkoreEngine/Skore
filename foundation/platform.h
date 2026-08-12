@@ -4,9 +4,9 @@
  * @file platform.h
  * @brief Host platform module API (shared-library load / symbol resolve, clocks).
  *
- * Types and free-function declarations live in sk-core. The OS backends
- * (Win32 / Unix) that fill sk_platform_api_t are implemented in sk-app.
- * sk_app_init registers the default table under SK_PLATFORM_API_TYPE_ID.
+ * Types, free-function declarations, and OS backends (Win32 / Unix) that
+ * fill sk_platform_api_t live in sk-foundation. sk_app_init registers the
+ * default table under SK_PLATFORM_API_TYPE_ID.
  *
  * Hosts obtain the table via the app registry after init:
  *
@@ -14,7 +14,7 @@
  *       (const sk_platform_api_t*)app_api->get_api(ctx, SK_PLATFORM_API_TYPE_ID);
  *
  * sk_platform_api() / sk_platform_get_api() expose the static table used for
- * registration (link sk-app). Prefer the app registry for production lookup.
+ * registration (link sk-foundation). Prefer the app registry for production lookup.
  */
 
 #include "common.h"
@@ -36,7 +36,7 @@ typedef void_ptr_t sk_shared_lib_t;
  * Global platform module API (one process-wide table).
  *
  * Shared-library load/resolve/unload, last-error text, and host clocks.
- * Registered on the app context by sk_platform_init (sk-app); look up with
+ * Registered on the app context by sk_platform_init (sk-foundation); look up with
  * app_api->get_api(ctx, SK_PLATFORM_API_TYPE_ID).
  */
 typedef struct sk_platform_api_t {
@@ -84,7 +84,7 @@ typedef struct sk_platform_api_t {
 
 /**
  * Fill @p out with the default host platform API table.
- * Implemented in sk-app.
+ * Implemented in sk-foundation.
  *
  * @param out Destination table; NULL is a no-op.
  */
@@ -92,7 +92,7 @@ void sk_platform_get_api(sk_platform_api_t* out);
 
 /**
  * Return a process-lifetime pointer to the default platform API table.
- * Same backend as sk_platform_get_api. Implemented in sk-app.
+ * Same backend as sk_platform_get_api. Implemented in sk-foundation.
  *
  * @return Non-NULL pointer to a static sk_platform_api_t.
  */

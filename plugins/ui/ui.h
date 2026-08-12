@@ -4,7 +4,7 @@
  * @file ui.h
  * @brief Retained-mode UI module API.
  *
- * Implemented by the sk-ui plugin (SHARED, statically linked sk-core).
+ * Implemented by the sk-ui plugin (SHARED, statically linked sk-foundation).
  * The plugin registers a static sk_ui_api_t on the app context; hosts
  * obtain it **only** via the app registry:
  *
@@ -1907,7 +1907,7 @@ typedef struct sk_ui_api_t {
 	/**
 	 * Write a tightly packed @p image (typically from capture_frame) as a PNG
 	 * at the caller-specified @p path. Creates parent directories as needed
-	 * via @p fs (pass sk_filesystem_api() from hosts/tests that link sk-app).
+	 * via @p fs (pass sk_filesystem_api() from hosts/tests that link sk-foundation).
 	 * On failure, logs a clear error through the process logger and returns
 	 * non-zero. @p image->channels must be 1..4 (UI captures use 4 = RGBA8).
 	 * @return 0 on success, non-zero on failure.

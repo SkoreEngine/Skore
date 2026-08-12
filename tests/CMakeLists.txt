@@ -1,5 +1,5 @@
 # Test host bootstrap only. Test bodies live next to production code under
-# `#ifdef SK_TESTS` (see core/test.h and AGENTS.md).
+# `#ifdef SK_TESTS` (see foundation/test.h and AGENTS.md).
 
 enable_testing()
 
@@ -7,23 +7,23 @@ if(NOT BUILD_TESTING)
     return()
 endif()
 
-# Frozen public-interface check (APX-169): compile core/compression.h in a
+# Frozen public-interface check (APX-169): compile foundation/compression.h in a
 # trivial TU under the project's warnings-as-errors flags so include-order /
 # self-containment regressions fail the build. Build check only - defines
 # nothing, never links or runs.
 add_library(sk-header-checks OBJECT header_checks/compression_header.c)
-target_include_directories(sk-header-checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../core)
+target_include_directories(sk-header-checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../foundation)
 
 # Symbol-mapping conformance check (APX-171): encodes the APX-165 design-doc
 # section 11 main-branch -> v2 compression mapping table and verifies every
 # mapped replacement exists and is callable with the documented signature, and
 # that no-planned-equivalent symbols are declared intentional gaps. Links the
-# production sk-core (the shipped surface, no SK_TESTS). Runs in Debug and
+# production sk-foundation (the shipped surface, no SK_TESTS). Runs in Debug and
 # Release CI so a renamed/dropped public symbol fails loudly.
 add_executable(sk-compression-conformance conformance/compression_mapping.c)
-target_link_libraries(sk-compression-conformance PRIVATE sk-core)
-# Mirror core/CMakeLists.txt: the conformance TU must know which codecs the
-# linked production sk-core compiled in (those defines are PRIVATE on sk-core).
+target_link_libraries(sk-compression-conformance PRIVATE sk-foundation)
+# Mirror foundation/CMakeLists.txt: the conformance TU must know which codecs the
+# linked production sk-foundation compiled in (those defines are PRIVATE).
 if(SK_COMPRESSION_ZSTD)
     target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_ZSTD)
 endif()
@@ -48,7 +48,7 @@ add_test(NAME sk-compression-conformance COMMAND sk-compression-conformance
 # contract. Run directly for the full report:
 #   ./build/bin/sk-compression-bench
 add_executable(sk-compression-bench benchmarks/compression_bench.c)
-target_link_libraries(sk-compression-bench PRIVATE sk-core)
+target_link_libraries(sk-compression-bench PRIVATE sk-foundation)
 set_target_properties(sk-compression-bench PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
@@ -60,10 +60,10 @@ set_tests_properties(sk-compression-bench PROPERTIES LABELS "benchmark")
 
 add_executable(sk-tests main.c)
 
-# sk-app-tests pulls sk-core-tests + sk-test transitively.
-# sk-editor-tests covers editor project open/import as a core-API consumer.
+# sk-foundation-tests pulls sk-test transitively.
+# sk-editor-tests covers editor project open/import as a foundation-API consumer.
 target_link_libraries(sk-tests PRIVATE
-    sk-app-tests
+    sk-foundation-tests
     sk-editor-tests
     sk-platform-window-lib
     sk-entities-lib
@@ -76,10 +76,10 @@ target_link_libraries(sk-tests PRIVATE
 
 # Export only the stacktrace test helpers so dladdr can resolve their names in
 # the test executable. Full --export-dynamic would leak the host's
-# statically-linked sk-core / sk-test / mimalloc copies into the global scope,
+# statically-linked sk-foundation / sk-test / mimalloc copies into the global scope,
 # interposing over the plugins' own static copies at dlopen time (plugins must
 # keep their registries and allocators private; see AGENTS.md "Plugins are
-# SHARED libraries that statically link sk-core").
+# SHARED libraries that statically link sk-foundation").
 if(UNIX AND NOT APPLE)
     target_link_options(sk-tests PRIVATE
         "LINKER:--export-dynamic-symbol=stacktrace_test_leaf"
@@ -94,23 +94,20 @@ endif()
 # constructor-registered SK_TEST functions.
 if(MSVC)
     target_link_options(sk-tests PRIVATE
-        "/WHOLEARCHIVE:$<TARGET_FILE:sk-core-tests>"
-        "/WHOLEARCHIVE:$<TARGET_FILE:sk-app-tests>"
+        "/WHOLEARCHIVE:$<TARGET_FILE:sk-foundation-tests>"
         "/WHOLEARCHIVE:$<TARGET_FILE:sk-editor-tests>"
         "/WHOLEARCHIVE:$<TARGET_FILE:sk-test>"
     )
 elseif(APPLE)
     target_link_options(sk-tests PRIVATE
-        "LINKER:-force_load,$<TARGET_FILE:sk-core-tests>"
-        "LINKER:-force_load,$<TARGET_FILE:sk-app-tests>"
+        "LINKER:-force_load,$<TARGET_FILE:sk-foundation-tests>"
         "LINKER:-force_load,$<TARGET_FILE:sk-editor-tests>"
         "LINKER:-force_load,$<TARGET_FILE:sk-test>"
     )
 else()
     target_link_options(sk-tests PRIVATE
         "LINKER:--whole-archive"
-        "$<TARGET_FILE:sk-core-tests>"
-        "$<TARGET_FILE:sk-app-tests>"
+        "$<TARGET_FILE:sk-foundation-tests>"
         "$<TARGET_FILE:sk-editor-tests>"
         "$<TARGET_FILE:sk-test>"
         "LINKER:--no-whole-archive"
@@ -134,7 +131,7 @@ add_test(NAME sk-tests COMMAND sk-tests WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPU
 # handler can be exercised deliberately (child-process tests + sample capture).
 # BUILD_TESTING only — never shipped with production binaries.
 add_executable(sk-crash-trigger crash_trigger/main.c)
-target_link_libraries(sk-crash-trigger PRIVATE sk-core)
+target_link_libraries(sk-crash-trigger PRIVATE sk-foundation)
 set_target_properties(sk-crash-trigger PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"

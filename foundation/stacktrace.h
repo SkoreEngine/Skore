@@ -4,7 +4,7 @@
  * @file stacktrace.h
  * @brief Platform-agnostic stacktrace capture, symbolization and formatting.
  *
- * Pure engine utility implemented in sk-core. The capture path never
+ * Pure engine utility implemented in sk-foundation. The capture path never
  * allocates: callers supply a fixed-size frame array and, for formatting, a
  * char buffer; frame string fields are fixed capacity. Backends that need
  * one-time setup (e.g. Win32 dbghelp) hook in through sk_stacktrace_init /

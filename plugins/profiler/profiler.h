@@ -11,7 +11,7 @@
  *   const sk_profiler_api_t* prof =
  *       (const sk_profiler_api_t*)app_api->get_api(ctx, SK_PROFILER_API_TYPE_ID);
  *
- * Lifecycle (host wiring lives in sk-app):
+ * Lifecycle (host wiring lives in sk-foundation):
  *   - prof->init(dev) after plugins are loaded; pass a render device handle to
  *     attach GPU timestamp query pools, or sk_render_device_t_zero() for a
  *     CPU-only session. Re-call later with a real device to attach GPU pools

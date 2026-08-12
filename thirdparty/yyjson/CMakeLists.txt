@@ -1,7 +1,7 @@
 # yyjson — YaoYuan (vendored, MIT)
 # Minimal static build: single translation unit (src/yyjson.c).
-# sk-core links yyjson PRIVATE so the yyjson headers never leak to consumers
-# (same pattern as mimalloc-static); only sk-core internals include yyjson.h.
+# sk-foundation links yyjson PRIVATE so the yyjson headers never leak to consumers
+# (same pattern as mimalloc-static); only sk-foundation internals include yyjson.h.
 
 add_library(yyjson STATIC
     src/yyjson.c

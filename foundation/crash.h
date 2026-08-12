@@ -6,7 +6,7 @@
  * platform terminate the process normally so the exit status, core dump, and
  * OS crash reporting (WER) are preserved.
  *
- * Pure engine utility implemented in sk-core. sk_crash_install registers
+ * Pure engine utility implemented in sk-foundation. sk_crash_install registers
  * POSIX sigaction handlers (SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT) on a
  * dedicated sigaltstack so stack-overflow faults still produce output, or the
  * Win32 unhandled-exception filter (plus a first-chance vectored observer and

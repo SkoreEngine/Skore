@@ -11,7 +11,7 @@
  * validation failure (no exceptions, no partial silent construction).
  *
  * Uses sk_archive_writer_t / sk_archive_reader_t (JSON backend via yyjson inside
- * sk-core). Callers typically init a JSON writer/reader, call these helpers, then
+ * sk-foundation). Callers typically init a JSON writer/reader, call these helpers, then
  * emit or destroy.
  *
  * ## Per-type field coverage (APX-186 / APX-193)
@@ -189,7 +189,7 @@ i32 sk_resource_deserialize_package_json_string(sk_repository_t* repository, sk_
 
 /**
  * Serialize a package graph to a single JSON file at @p path (creates/truncates).
- * Uses the host filesystem API (requires sk-app linked).
+ * Uses the host filesystem API (requires sk-foundation linked).
  *
  * @param repository Repository (must not be NULL).
  * @param root_rid   Package root (or graph root).

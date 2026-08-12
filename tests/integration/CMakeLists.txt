@@ -44,7 +44,7 @@ add_executable(sk-isolate-tests
     ui_interaction_suite.c
     "${CMAKE_SOURCE_DIR}/plugins/ui/ui_test.c"
 )
-target_link_libraries(sk-isolate-tests PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
+target_link_libraries(sk-isolate-tests PRIVATE sk-foundation sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
 target_include_directories(sk-isolate-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
 target_compile_definitions(sk-isolate-tests PRIVATE SK_TESTS SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts" SK_UI_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
 set_target_properties(sk-isolate-tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -55,7 +55,7 @@ add_dependencies(sk-isolate-tests sk-vulkan-render-device sk-render-device sk-te
 # test registry/Unity (SK_TESTS via sk-test) + render_device.h + dxc_compiler.h
 # + ui.h + render_graph.h headers (plugin libs are header INTERFACE only).
 target_link_libraries(sk-integration-tests PRIVATE
-    sk-app
+    sk-foundation
     sk-test
     sk-render-device-lib
     sk-dxc-compiler-lib
@@ -109,7 +109,7 @@ add_test(NAME sk-integration-tests COMMAND sk-integration-tests WORKING_DIRECTOR
 # APX-263: focused UI suites (widget-vision + flexbox + interaction bridge).
 # Prefer scripts/run-ui-integration-tests.sh for the full one-command workflow
 # (also runs plugin interaction tests via sk-tests and prints vision skip notes).
-# Prefix wildcards require SK_TEST_FILTER trailing-'*' support in core/test.c.
+# Prefix wildcards require SK_TEST_FILTER trailing-'*' support in foundation/test.c.
 add_test(
     NAME sk-ui-integration-suites
     COMMAND ${CMAKE_COMMAND} -E env
@@ -125,7 +125,7 @@ set_tests_properties(sk-ui-integration-suites PROPERTIES
 
 # TEMP repro: repeated harness cycles (remove before commit)
 add_executable(sk-repro-cycles repro_cycles.c ui_capture_harness.c)
-target_link_libraries(sk-repro-cycles PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
+target_link_libraries(sk-repro-cycles PRIVATE sk-foundation sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
 target_include_directories(sk-repro-cycles PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")
 target_compile_definitions(sk-repro-cycles PRIVATE SK_TESTS SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts")
 set_target_properties(sk-repro-cycles PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

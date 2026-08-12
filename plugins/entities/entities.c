@@ -191,7 +191,7 @@ static sk_component_info_t ecs_component_registry[SK_ECS_MAX_COMPONENT_TYPES];
 static u32 ecs_component_count = 0u;
 
 /* Instrumentation: the sk-profiler table is resolved at plugin entry and
- * re-checked at world_create (sk-app loads plugins in sorted filename order,
+ * re-checked at world_create (the host loads plugins in sorted filename order,
  * so sk-entities registers before sk-profiler; worlds are only created by
  * hosts after bootstrap, by which point the profiler is registered). The hot
  * getter is a plain cached load so uninstrumented builds (and hosts without

@@ -17,7 +17,7 @@
  * this is a fast custom format, not a portable interchange format.
  *
  * The JSON backend uses yyjson (mutable doc for writing, parse for reading)
- * privately inside sk-core: yyjson headers never appear in this public API.
+ * privately inside sk-foundation: yyjson headers never appear in this public API.
  * Blobs are encoded as JSON arrays of byte values (0..255), matching main.
  * Emit the document as a pretty-printed string via
  * sk_json_archive_writer_emit_as_string.

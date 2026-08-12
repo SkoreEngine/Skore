@@ -1193,7 +1193,7 @@ int main(int argc, char* argv[]) {
 
 	/* Plugins auto-loaded from {app_folder}/plugins (window, ui, render_graph, …).
 	 * The profiler table is optional: lifecycle (init/begin_frame/end_frame)
-	 * is host-driven by sk-app when the plugin is present, and the zone macro
+	 * is host-driven by sk-foundation when the plugin is present, and the zone macro
 	 * below compiles to a no-op unless SK_ENABLE_PROFILER is on. */
 	app_api = sk_app_api();
 	logger_api = sk_logger_api();

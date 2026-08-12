@@ -23,13 +23,13 @@ Data-oriented ECS engine. Prefer structure-of-arrays, systems, and plain data ov
   - Do **not** cast when the expression is already the destination type (e.g. no `(u64)` on a `u64`, no `(unsigned long long)` on a value that is already `unsigned long long` under the active ABI).
   - After first-party C/C++ edits on a Linux agent: run native build/tests **and** `./scripts/check-windows-abi.sh` (MinGW + clang-tidy LLP64). See **Building**.
 - Use `sk_*_api_t` **only** for a single global module surface (one table for the whole process/module), e.g. `sk_render_device_api_t`. Do **not** use the `_api_t` suffix for ordinary values/objects that happen to hold function pointers (e.g. `sk_allocator_t` — many instances, not one global API).
-- Keep plugins loadable as shared libraries (DLL / `.so` / `.dylib`) that **statically link** `sk-core`.
+- Keep plugins loadable as shared libraries (DLL / `.so` / `.dylib`) that **statically link** `sk-foundation`.
 - Use `sk_` prefix on public symbols (types, functions). **Do not** prefix file names with `sk_`.
 - Plugins **register** data + systems from `sk_plugin_entry_point` (components, systems, resources via APIs) — no free-running global constructors or hidden side effects at load beyond registration.
-- Couple plugins only through core-registered IDs, events, and headers — never by including another plugin’s `.c` or linking its binary.
+- Couple plugins only through foundation-registered IDs, events, and headers — never by including another plugin’s `.c` or linking its binary.
 - **Search the project before adding a utility.** Reuse existing helpers. If something new is needed, implement it for **broad reuse**, not a one-off for a single call site.
-- Prefer placing shared utilities in **`core`** when they are engine-general.
-- **Host / module API implementations live in `app` (`sk-app`).** Core may hold the public header (types, `sk_*_api_t` layout, free-function prototypes) for process lifecycle and host-facing module APIs; implement those symbols in `app/` (not in `sk-core`). Pure engine utilities (math, containers, default allocator) still implement in `core/`.
+- Prefer placing shared utilities in **`foundation`** when they are engine-general.
+- **Host lifecycle and engine utilities live in `foundation` (`sk-foundation`).** Process lifecycle (`sk_app_init`), OS backends (`platform_*.c`, `filesystem_*.c`), and pure engine utilities (math, containers, default allocator) all implement in `foundation/`. Plugins statically link `sk-foundation`; they must not call `sk_app_init`.
 - If logic is shared by **several plugins** but not core-wide, add a **common plugin** (e.g. `common-render`, `common-audio`) that those plugins depend on via headers / registration — do not copy-paste the same helper into each plugin.
 - Third-party code (only when explicitly requested) is **vendored under `thirdparty/`** — see that section below. No package managers, no `FetchContent`, no git submodules.
 - **Prefer opaque / forward type declarations.** In headers, use `typedef struct sk_foo_t sk_foo_t;` (incomplete type) and pass pointers. Define the full `struct sk_foo_t { ... }` in the `.c` (or a private header) unless the type’s **layout is part of the module/plugin public API** (e.g. POD components, a global `sk_*_api_t`, other data callers must size or field-access). Do not leak implementation structs just for convenience.
@@ -86,18 +86,17 @@ Data-oriented ECS engine. Prefer structure-of-arrays, systems, and plain data ov
 
 **Project / modules**
 
-- Link plugins against `sk-core-lib` only (headers without the static library) — plugins and apps must **statically link** `sk-core`.
-- Put app process lifecycle (`sk_app_init`) in `sk-core` — that belongs in `app` (`sk-app`).
-- Put **API implementations** (bodies for free functions and `sk_*_api_t` tables whose types/decls live in core headers — e.g. `sk_app_*`, `sk_platform_*`) in `sk-core` — those **must** be implemented in `app` (`sk-app`). Core may declare types and signatures; `sk-app` owns the `.c` backends.
+- Link plugins against `sk-foundation-lib` only (headers without the static library) — plugins and apps must **statically link** `sk-foundation`.
+- Call `sk_app_init` / `sk_app_run` from a plugin — those are host-only (`player` / `editor` / test hosts).
 - Skip `extern "C"` on public headers.
 - Introduce C++ in public headers without a clear exception.
 - Use unprefixed public types/functions.
 - Prefix variables with `sk_`, `sk_g_`, `g_`, etc. (`sk_g_platform_err` → wrong; use `platform_err`).
-- Introduce RTTI, exceptions, or C++ heavy containers in core public headers — shared surface stays C and POD-friendly.
+- Introduce RTTI, exceptions, or C++ heavy containers in foundation public headers — shared surface stays C and POD-friendly.
 - **Hard-code a single platform** in shared or game-facing code (e.g. raw `LoadLibrary` / `CreateFileW` / `pthread_*` / Cocoa calls outside a platform backend). No `#ifdef _WIN32` sprawl across gameplay, ECS, or plugin logic — keep OS branches in platform abstraction layers only.
 - Ship or accept code that only builds or runs on one OS when the feature is meant to be engine-wide.
 - Stack “portable” printf casts such as `(unsigned long long)(uintptr_t)…` or cast to a type the expression already has — Linux may accept it; Windows LLP64 clang-tidy will fail (`readability-redundant-casting`). Use one cast or `PRIxPTR` / fixed-width types instead.
-- Couple plugins by linking or compiling against each other — only shared headers + core registration.
+- Couple plugins by linking or compiling against each other — only shared headers + foundation registration.
 - Expose full `struct` definitions in public headers for types that are not part of the module/plugin API — no “I needed the fields in three places” leakage of internal state; keep those opaque and use accessors or free functions.
 - Name every function-pointer struct `sk_*_api_t` — reserve `_api_t` for **one global** module table; multi-instance or pass-by-value FP bags use normal `sk_*_t` names (`sk_allocator_t`, not `sk_allocator_api_t`).
 - **Mirror a whole `sk_*_api_t` as free functions** (`sk_window_create` + `api->create_window`, etc.) — table only; implementations are `static` in the providing `.c`.
@@ -106,8 +105,8 @@ Data-oriented ECS engine. Prefer structure-of-arrays, systems, and plain data ov
 - Name source/header files with an `sk_` prefix — use plain module names (`math3d.h`, `common.h`, not `sk_math.h`). Avoid names that shadow C library headers (do not use `math.h`).
 - **Do not add external libraries** to solve a problem unless the user explicitly asks for that dependency.
 - When a library **is** requested: copy its **source into `thirdparty/<lib_name>/`**, strip non-essential baggage (`.git`, docs, examples, upstream tests, CI, etc.), **always keep the license** (and required NOTICE/COPYING), add a CMake target, and register it with `add_subdirectory(<lib_name>)` in `thirdparty/CMakeLists.txt` (and ensure the root builds `thirdparty`). Do **not** use package managers, CMake `FetchContent`, git submodules, or other network/download dependency hooks. If it cannot be vendored that way, **do not add it** — stop and say so.
-- Do not invent a narrow one-shot helper without checking for an existing one; do not duplicate the same utility across plugins — lift to `core` or a `common-*` plugin.
-- Ship features **without tests**, or only “happy path” checks for core/ECS/plugin behavior that can fail in subtle ways (handles, structural changes, deferred commands, plugin load).
+- Do not invent a narrow one-shot helper without checking for an existing one; do not duplicate the same utility across plugins — lift to `foundation` or a `common-*` plugin.
+- Ship features **without tests**, or only “happy path” checks for foundation/ECS/plugin behavior that can fail in subtle ways (handles, structural changes, deferred commands, plugin load).
 - Skip integration coverage because unit tests exist (or the reverse) — **both** layers are required.
 
 **Memory / layout**
@@ -137,13 +136,12 @@ Data-oriented ECS engine. Prefer structure-of-arrays, systems, and plain data ov
 
 ```
 skore-new/
-├── CMakeLists.txt          # root: add_subdirectory(core, app, editor, player, plugins, …)
-├── core/                   # static library sk-core (+ optional header interface sk-core-lib)
+├── CMakeLists.txt          # root: add_subdirectory(foundation, editor, player, plugins, …)
+├── foundation/             # static library sk-foundation (+ optional header interface sk-foundation-lib)
 │   ├── common.h            # fixed-width types, platform macros, SK_API
-│   └── *.h / *.c           # module files without sk_ file prefix (decls + pure core impl)
-├── app/                    # static library sk-app (process lifecycle + host API backends)
-│   ├── app.c               # sk_app_* registry, init/run, bootstrap runtime
-│   └── platform_*.c        # sk_platform_api_t backends (OS-specific)
+│   ├── app.h / app.c       # sk_app_* registry, init/run, bootstrap runtime
+│   ├── platform_*.c        # sk_platform_api_t backends (OS-specific)
+│   └── *.h / *.c           # module files without sk_ file prefix
 ├── player/                 # executable sk-player (game runner)
 ├── editor/                 # editor app (WIP)
 ├── plugins/
@@ -158,15 +156,13 @@ skore-new/
 
 | Target | Kind | Links | Role |
 |--------|------|-------|------|
-| `sk-core` | STATIC | — | Engine library (types, modules, ECS, …); linked by apps, sk-app, plugins (**no** `SK_TESTS`) |
-| `sk-core-lib` | INTERFACE | headers only | Optional header-only access; prefer linking `sk-core` |
+| `sk-foundation` | STATIC | — | Engine + host lifecycle (types, modules, `sk_app_init`, OS backends); linked by apps and plugins (**no** `SK_TESTS`) |
+| `sk-foundation-lib` | INTERFACE | headers only | Optional header-only access; prefer linking `sk-foundation` |
 | `sk-test` | STATIC | unity | Test registry only (`BUILD_TESTING`); not linked into Release plugins / player |
-| `sk-core-tests` | STATIC | `sk-test` | Core sources with `SK_TESTS` — host tests only |
-| `sk-app` | STATIC | `sk-core` (static) | Host app layer (`sk_app_init`, app/platform API impl); used by player / editor |
-| `sk-app-tests` | STATIC | `sk-core-tests` | App sources with `SK_TESTS` — host tests only |
-| `sk-player` | EXECUTABLE | `sk-app` (static, pulls `sk-core`) | Game entry (`main` → `sk_app_init`) |
-| `sk-tests` | EXECUTABLE | `sk-app-tests` | Test host: in-process core/app + scan plugins for `sk_plugin_run_tests` |
-| `sk-*-plugin` | SHARED | `sk-core` (static); + `sk-test` when non-Release testing | Dynamically loaded DLL; no static twin |
+| `sk-foundation-tests` | STATIC | `sk-test` | Foundation sources with `SK_TESTS` — host tests only |
+| `sk-player` | EXECUTABLE | `sk-foundation` (static) | Game entry (`main` → `sk_app_init`) |
+| `sk-tests` | EXECUTABLE | `sk-foundation-tests` | Test host: in-process foundation + scan plugins for `sk_plugin_run_tests` |
+| `sk-*-plugin` | SHARED | `sk-foundation` (static); + `sk-test` when non-Release testing | Dynamically loaded DLL; no static twin |
 | `sk-*-plugin-lib` | INTERFACE | plugin headers | Optional header export for that plugin |
 
 ## Third-party vendoring (`thirdparty/`)
@@ -210,10 +206,10 @@ Tests live **in the same `.c` file as production code** (Rust/Zig style), not in
 
 | Piece | Role |
 |-------|------|
-| `core/test.h` / `sk-test` | Registry macros (`SK_TEST`), constructor auto-registration, `sk_test_run_all`, report types. Links Unity. |
-| `SK_TESTS` compile def | Enables test bodies. **Never set on Release / MinSizeRel plugins or production `sk-core` / `sk-player`.** |
+| `foundation/test.h` / `sk-test` | Registry macros (`SK_TEST`), constructor auto-registration, `sk_test_run_all`, report types. Links Unity. |
+| `SK_TESTS` compile def | Enables test bodies. **Never set on Release / MinSizeRel plugins or production `sk-foundation` / `sk-player`.** |
 | `#ifdef SK_TESTS` … `#endif` | Wraps every test section so Release preprocessor-strips them entirely. |
-| `sk-core-tests` / `sk-app-tests` | Same sources as production, compiled **with** `SK_TESTS`. Host-only. |
+| `sk-foundation-tests` | Same sources as production, compiled **with** `SK_TESTS`. Host-only. |
 | `sk-tests` executable | Runs host registry, then loads each plugin DLL and calls `sk_plugin_run_tests`. |
 | Plugin `sk_plugin_run_tests` | Exported only under `SK_TESTS`. Host skips the symbol when missing (Release). |
 
@@ -223,7 +219,7 @@ Tests live **in the same `.c` file as production code** (Rust/Zig style), not in
 
 ```
 sk-tests (host)
-  1. sk_test_run_all()          — core + app (linked sk-*-tests, whole-archive)
+  1. sk_test_run_all()          — foundation (linked sk-foundation-tests, whole-archive)
   2. for each dll in {app_folder}/plugins:
        load → sk_plugin_run_tests(&report) → unload
   3. aggregate ran/failed → process exit code
@@ -248,7 +244,7 @@ SK_TEST(vec3_dot_unit_axes)
 - Name describes behavior (`vec3_dot_unit_axes`), not `test_1`.
 - Use Unity asserts (`TEST_ASSERT_*`) inside `SK_TEST`.
 - Always wrap the whole section in `#ifdef SK_TESTS`.
-- Header-only modules (e.g. `common.h`): put tests in `core/test.c` (the registry TU).
+- Header-only modules (e.g. `common.h`): put tests in `foundation/test.c` (the registry TU).
 
 ### Plugin export
 
@@ -284,9 +280,9 @@ Both layers are **always** expected.
 ### Placement
 
 ```
-core/math3d.c              # production + #ifdef SK_TESTS { SK_TEST(...) }
-core/test.h / test.c       # registry + common.h tests (sk-test target)
-app/app.c                  # host/app + platform/fs/bootstrap integration tests
+foundation/math3d.c        # production + #ifdef SK_TESTS { SK_TEST(...) }
+foundation/test.h / test.c # registry + common.h tests (sk-test target)
+foundation/app.c           # host/app + platform/fs/bootstrap integration tests
 plugins/foo/foo.c          # plugin unit tests in-file
 plugins/foo/plugin_entry_point.c  # sk_plugin_entry_point + sk_plugin_run_tests
 tests/main.c               # bootstrap only (host run + plugin scan)
@@ -308,7 +304,7 @@ ctest --test-dir build --output-on-failure
 
 - Optional: `sk-tests [plugins_dir]` overrides the plugins folder (default `{app_folder}/plugins`).
 - Unity is vendored under `thirdparty/unity/` (project already includes it).
-- Host links `sk-core-tests` / `sk-app-tests` with **whole-archive** so constructor-registered tests are not dropped by the linker.
+- Host links `sk-foundation-tests` with **whole-archive** so constructor-registered tests are not dropped by the linker.
 
 ### Do / don’t (tests)
 
@@ -330,12 +326,12 @@ ctest --test-dir build --output-on-failure
 
 ## Architecture rules
 
-1. **`sk-core` is always statically linked.** Apps (`player` / `editor`), `sk-app`, and plugins link production `sk-core` (no `SK_TESTS`). The test host links `sk-core-tests` / `sk-app-tests` instead. Free functions from static-linked core are available after that link.
+1. **`sk-foundation` is always statically linked.** Apps (`player` / `editor`) and plugins link production `sk-foundation` (no `SK_TESTS`). The test host links `sk-foundation-tests` instead. Free functions from static-linked foundation are available after that link.
 2. **No DLL import linking for host↔plugin engine APIs.** Prefer a **single global** function-pointer table (`sk_*_api_t`) for a module surface that crosses a shared-library boundary without a static link (e.g. host fill of `sk_render_device_api_t`, host callbacks into a plugin). Callers fill/use that one table rather than importing symbols from another DLL. This naming/pattern is **not** for every struct that embeds function pointers — see Naming.
-3. **Plugins are SHARED libraries that statically link `sk-core`.** A plugin is built as SHARED and `target_link_libraries(... PRIVATE sk-core)`. It is still loaded at runtime (`LoadLibrary` / `GetProcAddress` on Win32; Linux/macOS equivalents). Do not link other plugins. Plugins do **not** link `sk-app`.
+3. **Plugins are SHARED libraries that statically link `sk-foundation`.** A plugin is built as SHARED and `target_link_libraries(... PRIVATE sk-foundation)`. It is still loaded at runtime (`LoadLibrary` / `GetProcAddress` on Win32; Linux/macOS equivalents). Do not link other plugins. Plugins must **not** call `sk_app_init`.
 3b. **Plugin / host module APIs are table-only.** Publish a `sk_*_api_t` (types + table layout in a header), fill one static table in the `.c`, register it with `app_api->set_api`. Hosts call **only** through pointers from `get_api` (or the table they registered). **Never** add free-function mirrors of every table entry (`sk_window_create` next to `api->create_window`, etc.), and **never** expose public `sk_*_get_api` / `sk_*_api()` accessors on plugins for host use — registration + registry lookup is enough. Implementations of table entries stay `static` in the plugin `.c`.
-4. **`sk-app` owns process lifecycle and host API implementations.** `sk_app_init` and the backends for host-facing APIs declared in core (`sk_app_*`, `sk_platform_*`, future `sk_*_api_t` free functions meant for the host process) live in `sk-app` (not `sk-core`). `player` / `editor` link `sk-app` (which PUBLIC-links `sk-core`).
-5. **Core declares; app implements (for host/module APIs).** Public headers for those surfaces may live in `core/` (types, `sk_*_api_t` layouts, free-function prototypes). Their **implementations** (`.c` that define the symbols / fill the tables) **must** live in `app/`. Do not ship those backends inside `sk-core`. Pure engine utilities (math, containers, allocators) still implement in `core/`.
+4. **`sk-foundation` owns process lifecycle and host API implementations.** `sk_app_init`, OS backends (`platform_*.c`, `filesystem_*.c`), and engine utilities all live in `sk-foundation`. `player` / `editor` link `sk-foundation`.
+5. **One foundation module.** Public headers and their implementations live together under `foundation/` (types, `sk_*_api_t` layouts, free-function prototypes, and the `.c` backends). Include style stays `#include "app.h"` (PUBLIC include dir = `foundation/`).
 6. **Plugin entry points** (exported from every SHARED plugin):
    ```c
    SK_API int sk_plugin_entry_point(sk_app_context_t* context, const sk_app_api_t* app_api);
@@ -343,11 +339,11 @@ ctest --test-dir build --output-on-failure
    SK_API i32 sk_plugin_run_tests(sk_test_report_t* out); /* not present when !SK_TESTS */
    #endif
    ```
-7. **App entry** lives in `player` (or editor). `sk-app` owns init:
+7. **App entry** lives in `player` (or editor). `sk-foundation` owns init:
    ```c
    i32 sk_app_init(int argc, char* argv[]);
    ```
-8. **Tests are in-source** (`SK_TEST` under `#ifdef SK_TESTS`). Host `tests/main.c` runs core/app then scans plugins via `sk_plugin_run_tests`. Never ship tests in Release — see **Tests**.
+8. **Tests are in-source** (`SK_TEST` under `#ifdef SK_TESTS`). Host `tests/main.c` runs foundation then scans plugins via `sk_plugin_run_tests`. Never ship tests in Release — see **Tests**.
 
 ## Naming
 
@@ -357,7 +353,7 @@ ctest --test-dir build --output-on-failure
 | Types / structs | `sk_{name}_t` | `sk_vec3_t`, `sk_allocator_t` |
 | Global API tables | `sk_{name}_api_t` — **only** a single process/module-wide table of entry points | `sk_render_device_api_t` |
 | Free functions | `sk_{module}_{action}` | `sk_vec3_dot`, `sk_allocator_default` |
-| CMake targets | `sk-{name}` | `sk-core`, `sk-app`, `sk-player`, `sk-example-plugin` |
+| CMake targets | `sk-{name}` | `sk-foundation`, `sk-player`, `sk-example-plugin` |
 | Fixed integers | `u8` `u16` `u32` `u64` `i8` `i16` `i32` `i64` | from `common.h` |
 | Fixed floats | `f32` `f64` | from `common.h` |
 | Pointer aliases | `void_ptr_t` `const_ptr_t` `char_ptr_t` `const_chr_t` | from `common.h` |
@@ -384,7 +380,7 @@ typedef struct sk_render_device_api_t {
 } sk_render_device_api_t;
 ```
 
-**Not every FP table is an `_api_t`.** If the type is a **value/object** (many instances, copied or passed as data, backends swapped per use), use a normal `sk_*_t` name even when it holds function pointers + instance state. The allocator is the canonical example (see `core/allocator.h`):
+**Not every FP table is an `_api_t`.** If the type is a **value/object** (many instances, copied or passed as data, backends swapped per use), use a normal `sk_*_t` name even when it holds function pointers + instance state. The allocator is the canonical example (see `foundation/allocator.h`):
 
 ```c
 /* Multi-instance / pass-by-value — NOT sk_allocator_api_t */
@@ -401,7 +397,7 @@ typedef struct sk_allocator_t {
 | Single global module entry table | `sk_{name}_api_t` | Host↔plugin or “the” device/module API for the process |
 | Object / strategy / backend bag with FPs | `sk_{name}_t` | Multiple instances, pluggable backends, passed as data (`sk_allocator_t`) |
 
-Free functions remain fine for **pure utilities** statically linked from `sk-core` (math, containers, paths). Do **not** invent an `_api_t` just because a type has function pointers.
+Free functions remain fine for **pure utilities** statically linked from `sk-foundation` (math, containers, paths). Do **not** invent an `_api_t` just because a type has function pointers.
 
 **Never** duplicate a global `sk_*_api_t` as free functions. If the surface is an API table, call sites use the table (especially plugins / host modules that cross process or DLL boundaries via the app registry).
 
@@ -477,8 +473,8 @@ typedef struct sk_foo_api_t {
 } sk_foo_api_t;
 
 /*
- * Free functions from sk-core are fine for plugins/apps that statically
- * link sk-core. Use a single sk_*_api_t only for global module surfaces
+ * Free functions from sk-foundation are fine for plugins/apps that statically
+ * link sk-foundation. Use a single sk_*_api_t only for global module surfaces
  * that cross DLL boundaries without a static link.
  */
 
@@ -512,7 +508,7 @@ i32 sk_foo_sum(i32 a, i32 b)
 }
 ```
 
-**Multi-instance FP object** (not `*_api_t`) — same idea as `core/allocator.h`:
+**Multi-instance FP object** (not `*_api_t`) — same idea as `foundation/allocator.h`:
 
 ```c
 typedef struct sk_allocator_t {
@@ -542,24 +538,21 @@ typedef struct sk_allocator_t {
 
 - Minimum CMake **3.22**; project name `skore`.
 - Collect sources with `file(GLOB_RECURSE ... *.h *.c)` per target (matches existing examples).
-- **Core**
-  - `add_library(sk-core STATIC ...)`
-  - `target_include_directories(sk-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})`
-  - `POSITION_INDEPENDENT_CODE ON` so core can be linked into shared plugins.
-  - Optional companion `sk-core-lib` INTERFACE (headers only); prefer linking `sk-core`.
-- **App**
-  - `add_library(sk-app STATIC ...)`
-  - `target_link_libraries(sk-app PUBLIC sk-core)`
-  - Owns `sk_app_init`, app registry backends, platform API backends, and other host API implementations declared in core.
+- **Foundation**
+  - `add_library(sk-foundation STATIC ...)`
+  - `target_include_directories(sk-foundation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})`
+  - `POSITION_INDEPENDENT_CODE ON` so foundation can be linked into shared plugins.
+  - Optional companion `sk-foundation-lib` INTERFACE (headers only); prefer linking `sk-foundation`.
+  - Owns `sk_app_init`, app registry backends, platform/filesystem OS backends, and engine utilities.
 - **Player / apps**
   - `add_executable(...)`
-  - `target_link_libraries(... PRIVATE sk-app)` (pulls `sk-core` transitively)
+  - `target_link_libraries(... PRIVATE sk-foundation)`
 - **Plugins**
   - `add_library(sk-... SHARED ...)`
   - Private includes for the plugin dir.
-  - `target_link_libraries(... PRIVATE sk-core)` — **always** statically link core into plugins (not `sk-app`).
+  - `target_link_libraries(... PRIVATE sk-foundation)` — **always** statically link foundation into plugins. Plugins must not call `sk_app_init`.
   - Optional `sk-...-lib` INTERFACE to re-export that plugin’s headers.
-- Root `CMakeLists.txt` adds subdirs: `core`, `app`, `editor`, `player`, `plugins`, and `thirdparty` when vendored libs are in use.
+- Root `CMakeLists.txt` adds subdirs: `foundation`, `editor`, `player`, `plugins`, and `thirdparty` when vendored libs are in use.
 - New plugins: add a folder under `plugins/`, `add_subdirectory` from `plugins/CMakeLists.txt`, copy the `example_plugin` pattern.
 - New third-party libs: folder under `thirdparty/<lib_name>/` with sources + `CMakeLists.txt`, then `add_subdirectory(<lib_name>)` in `thirdparty/CMakeLists.txt`.
 
@@ -569,16 +562,16 @@ Patterns for types, global `sk_*_api_t`, free functions, `static` helpers, and m
 
 | File | What it demonstrates |
 |------|----------------------|
-| `core/common.h` | Integer/float aliases, `SK_API`, platform defines |
-| `core/math3d.h` / `core/math3d.c` | Module pair, public POD types, free functions, in-source `SK_TEST`s |
-| `core/test.h` / `core/test.c` | Test registry, `SK_TEST`, `sk_plugin_run_tests` contract |
-| `core/allocator.h` | Multi-instance FP bag as `sk_allocator_t` (not `*_api_t`) |
-| `core/app.h` / `app/app.c` | Core declares app registry API; `sk-app` implements it (+ host integration tests) |
-| `core/platform.h` / `app/platform_*.c` | Core declares platform API; `sk-app` implements OS backends |
-| `app/app.c` | App registry, process entry (`sk_app_init` / `sk_app_run`), bootstrap |
+| `foundation/common.h` | Integer/float aliases, `SK_API`, platform defines |
+| `foundation/math3d.h` / `foundation/math3d.c` | Module pair, public POD types, free functions, in-source `SK_TEST`s |
+| `foundation/test.h` / `foundation/test.c` | Test registry, `SK_TEST`, `sk_plugin_run_tests` contract |
+| `foundation/allocator.h` | Multi-instance FP bag as `sk_allocator_t` (not `*_api_t`) |
+| `foundation/app.h` / `foundation/app.c` | App registry API (+ host integration tests) |
+| `foundation/platform.h` / `foundation/platform_*.c` | Platform API + OS backends |
+| `foundation/app.c` | App registry, process entry (`sk_app_init` / `sk_app_run`), bootstrap |
 | `player/main.c` | Thin `main` calling `sk_app_init` |
 | `plugins/example_plugin/plugin_entry_point.c` | `sk_plugin_entry_point` + `sk_plugin_run_tests` |
-| `plugins/example_plugin/CMakeLists.txt` | SHARED + static link `sk-core` via `sk_add_plugin` |
+| `plugins/example_plugin/CMakeLists.txt` | SHARED + static link `sk-foundation` via `sk_add_plugin` |
 | `tests/main.c` | Test host bootstrap only |
 | `plugins/example_plugin/README.md` | Dynamically loaded plugins that statically link core |
 
@@ -591,7 +584,7 @@ cmake -S . -B build -G Ninja
 cmake --build build
 ```
 
-Useful targets: `sk-core`, `sk-app`, `sk-player`, `sk-tests`, `sk-example-plugin`.
+Useful targets: `sk-foundation`, `sk-player`, `sk-tests`, `sk-example-plugin`.
 
 ### Linux agent / host: Windows ABI check
 
@@ -614,7 +607,7 @@ cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build --
 
 Needs **clang** (resource-dir / intrinsics), **clang-tidy**, and **MinGW** headers. Do not feed GCC’s `lib/gcc/.../include` into clang-tidy — that breaks `<windows.h>` parses. You do **not** need MSVC, Wine, or a Windows VM.
 
-Optional: pass specific files (`./scripts/check-windows-abi.sh core/stacktrace.c`) or `JOBS=8` for parallelism.
+Optional: pass specific files (`./scripts/check-windows-abi.sh foundation/stacktrace.c`) or `JOBS=8` for parallelism.
 
 CI: `.github/workflows/ci.yml` also runs **Windows ABI (MinGW tidy)** and **Cppcheck** on `ubuntu-latest` (alongside the multi-OS build matrix).
 

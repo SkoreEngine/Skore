@@ -3,7 +3,7 @@
  * @brief Test registry + common.h unit tests (only active with SK_TESTS).
  *
  * Built as sk-test STATIC and linked only into sk-tests host and Debug plugins.
- * Never linked into Release plugins or production sk-core / sk-player.
+ * Never linked into Release plugins or production sk-foundation / sk-player.
  */
 
 #include "test.h"

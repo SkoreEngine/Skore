@@ -3,7 +3,7 @@ file(GLOB_RECURSE SKORE_UI_SOURCES *.h *.c)
 sk_add_plugin(ui SOURCES ${SKORE_UI_SOURCES})
 
 # FreeType + stb_rect_pack + stb_image_write: vendored static libs linked into
-# the SHARED plugin. sk_add_plugin already statically links sk-core. PRIVATE so
+# the SHARED plugin. sk_add_plugin already statically links sk-foundation. PRIVATE so
 # third-party symbols stay inside the plugin binary (public UI headers do not
 # expose them). render_device / dxc_compiler: header-only coupling for the GPU
 # renderer API (runtime lookup of tables via the app registry; no link to

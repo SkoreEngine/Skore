@@ -4,18 +4,17 @@
  * @file app.h
  * @brief App context: typed API registry shared by host and plugins.
  *
- * Types and the sk_app_api_t table shape live in sk-core. The context storage
- * and set_api/get_api implementations live in sk-app (created by sk_app_init).
- * Plugins do not link sk-app; they receive the context (and use the API table
- * passed at entry) to register/lookup module APIs by sk_type_id_t.
- *
- * Rule: free-function / module-API *implementations* for surfaces declared
- * here belong in sk-app, not in sk-core (see AGENTS.md).
+ * Types, the sk_app_api_t table shape, context storage, and set_api/get_api
+ * implementations live in sk-foundation (created by sk_app_init). Plugins
+ * statically link sk-foundation; they receive the context (and use the API
+ * table passed at entry) to register/lookup module APIs by sk_type_id_t.
+ * Plugins must not call sk_app_init.
  *
  * Runtime (main loop, timing state, plugin handles) and process lifecycle
- * (sk_app_init / sk_app_tick / sk_app_run) are implemented in sk-app (app/app.c).
- * Public entry points for plugins sit on sk_app_api_t; every table entry that
- * needs runtime state takes sk_app_context_t* — no process-global context.
+ * (sk_app_init / sk_app_tick / sk_app_run) are implemented in
+ * foundation/app.c. Public entry points for plugins sit on sk_app_api_t;
+ * every table entry that needs runtime state takes sk_app_context_t* — no
+ * process-global context.
  */
 
 #include "common.h"
@@ -34,7 +33,7 @@ typedef struct sk_app_context_t sk_app_context_t;
 
 /**
  * Global module API table for the app (one process-wide surface of entry points).
- * Host fills this; plugins call through the table (no static link to sk-app).
+ * Host fills this; plugins call through the table (they must not call sk_app_init).
  * Runtime state lives on the sk_app_context_t passed into each entry — not in
  * a process-global variable.
  */
@@ -150,7 +149,7 @@ typedef struct sk_app_api_t {
 
 /**
  * Create an empty app context (API registry).
- * Implemented in sk-app; link sk-app (or an executable that does).
+ * Implemented in sk-foundation; link sk-foundation (or an executable that does).
  *
  * @return New context, or NULL on allocation failure.
  */
@@ -176,7 +175,7 @@ const sk_app_api_t* sk_app_api(void);
 /**
  * Create an app context with platform + host logger registered.
  * Does not bootstrap plugins/timing. Caller owns the returned context
- * (destroy with sk_app_destroy). Implemented in sk-app.
+ * (destroy with sk_app_destroy). Implemented in sk-foundation.
  *
  * @return New context, or NULL on failure.
  */
@@ -184,8 +183,7 @@ sk_app_context_t* sk_app_startup(void);
 
 /**
  * Application process entry used by player / editor (and tests).
- * Lives in sk-app so sk-core stays free of app-process lifecycle and API
- * implementations (see AGENTS.md: core declares; app implements).
+ * Lives in sk-foundation with the rest of the engine (see AGENTS.md).
  * Creates a new app context (API registry + runtime), initializes timing and
  * auto-loads {app_folder}/plugins. Does not enter the main loop; call
  * sk_app_tick(context) (or sk_app_run(context)) after a successful init.

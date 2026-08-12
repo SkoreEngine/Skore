@@ -21,5 +21,5 @@ badBitmaskCheck
 variableScope
 unmatchedSuppression
 # Known false positives (branch analysis / buffer confusion).
-uninitvar:app/filesystem_unix.c
-arrayIndexOutOfBoundsCond:app/platform_unix.c
+uninitvar:foundation/filesystem_unix.c
+arrayIndexOutOfBoundsCond:foundation/platform_unix.c

@@ -16,11 +16,10 @@ Useful targets:
 
 | Target | Kind | Role |
 |--------|------|------|
-| `sk-core` | static lib | Engine core (linked by apps, sk-app, plugins) |
-| `sk-app` | static lib | Host app layer (`sk_app_init`, platform API impl) |
+| `sk-foundation` | static lib | Engine + host lifecycle (`sk_app_init`, platform APIs; linked by apps and plugins) |
 | `sk-player` | executable | Game runner |
 | `sk-tests` | executable | Test host (in-source tests + plugin `sk_plugin_run_tests`) |
-| `sk-example-plugin` | shared lib | Example plugin (`.dll` / `.so` / `.dylib`; static-links core) |
+| `sk-example-plugin` | shared lib | Example plugin (`.dll` / `.so` / `.dylib`; static-links foundation) |
 
 Build a single target:
 
@@ -30,7 +29,7 @@ cmake --build build --target sk-player
 
 ### Tests
 
-In-source `SK_TEST` blocks (see `AGENTS.md`). Host runs core/app then each plugin DLL.
+In-source `SK_TEST` blocks (see `AGENTS.md`). Host runs foundation then each plugin DLL.
 
 ```bash
 cmake --build build --target sk-tests
