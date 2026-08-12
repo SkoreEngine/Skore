@@ -233,6 +233,20 @@ struct sk_ui_context_t {
 	u32 dock_leaf_count;
 	u32 dock_split_count;
 	u32 dock_apply_count;
+	/* Live chrome layers (last children of context_root). */
+	sk_ui_node_t dock_stash;
+	sk_ui_node_t dock_overlay;
+	/* Active dock-drag session (tab tear-off or floating title-bar). */
+	u8 dock_drag_active;
+	u8 dock_drag_torn;
+	u8 _dock_drag_pad[2]; /**< Align start coords. */
+	f32 dock_drag_start_x;
+	f32 dock_drag_start_y;
+	sk_ui_node_t dock_drag_tab;
+	sk_ui_node_t dock_drag_window;
+	sk_ui_dock_node_t dock_drag_hover;
+	sk_ui_dock_dir_t dock_drag_dir;
+	char dock_drag_window_id[64];
 };
 
 /* -------------------------------------------------------------------------- */
@@ -688,3 +702,12 @@ i32 ui_dock_layout_load_json_impl(sk_ui_context_t* ctx, const_chr_t dockspace_id
 i32 ui_dockspace_layout_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace, const sk_ui_rect_t* space);
 i32 ui_dock_node_get_rect_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, sk_ui_rect_t* out);
 i32 ui_dock_split_get_splitter_rect_impl(const sk_ui_context_t* ctx, sk_ui_dock_node_t node, sk_ui_rect_t* out);
+
+/** Apply dirty AUTO_APPLY dockspaces before Clay (forgotten-end safety net). */
+void ui_dock_layout_begin(sk_ui_context_t* ctx);
+/** Copy chrome abs rects into the model after Clay writeback. */
+void ui_dock_layout_end(sk_ui_context_t* ctx);
+/** Floating title-bar pointer hook (move/up) — drop overlay + redock. */
+void ui_dock_on_float_pointer(sk_ui_context_t* ctx, sk_ui_node_t window, sk_ui_event_t* event);
+/** Continue a torn-off dock drag after chrome recycle clears capture. */
+void ui_dock_drag_tick(sk_ui_context_t* ctx, f32 x, f32 y, i32 button_up);

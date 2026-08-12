@@ -656,9 +656,9 @@ static void ui_clay_declare_node(sk_ui_context_t* ctx, sk_ui_node_t node, f32 pa
 	is_menu_popup = ui_clay_is_menu_popup(widget);
 	is_dock = ui_clay_is_dock_surface(widget);
 	is_dock_drag = ui_clay_is_dock_drag_target(widget);
-	/* Closed / hidden menu popups: omit from Clay so hover cannot land on them;
-	 * zero layout so engine hit-test and paint skip the overlay. */
-	if (is_menu_popup != 0 && ui_clay_menu_is_open(slot) == 0) {
+	/* Hidden nodes (stash, closed popups, inactive drop overlay) omit from
+	 * Clay so they do not participate in flex or hit-test. */
+	if (ui_clay_prop_i32(slot, "hidden", 0) != 0 || (is_menu_popup != 0 && ui_clay_menu_is_open(slot) == 0)) {
 		ui_clay_zero_subtree(ctx, node);
 		fr->present[node.index] = 0u;
 		/* Still hash a stable id so open frames resolve the same CLAY_SID. */
@@ -1227,6 +1227,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	if (ctx == NULL || !sk_ui_node_is_valid(ctx->root)) {
 		return -1;
 	}
+	ui_dock_layout_begin(ctx);
 	root_slot = ui_slot_mut(ctx, ctx->root);
 	if (root_slot == NULL) {
 		return -1;
@@ -1324,6 +1325,7 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	 * tree (root included) so paint, hit-test, scale, and queries see the
 	 * same geometry as before. */
 	ui_clay_writeback_node(ctx, ctx->root, 0.0f, 0.0f);
+	ui_dock_layout_end(ctx);
 
 	(void)limitations;
 	return 0;

@@ -1,10 +1,12 @@
 /**
  * @file dock.c
- * @brief Retained dock node tree, public dockspace API, and headless layout.
+ * @brief Retained dock node tree, chrome projection, and live drag/drop.
  *
  * Binary split/leaf model owned by the UI context (APX-287). Layout resolves
- * a dockspace rect into per-node screen boxes plus 6pt splitter bands without
- * Clay or a renderer (APX-288). Chrome projection is a later apply step.
+ * a dockspace rect into per-node screen boxes plus 6pt splitter bands
+ * (APX-288). Apply projects the model onto dock/tab/splitter chrome, and
+ * pointer handlers implement tab tear-off, drop overlays, and floating
+ * redock (APX-289).
  */
 
 #include "ui_internal.h"
@@ -13,11 +15,20 @@
 #include "logger.h"
 
 #include <assert.h>
+#include <stdio.h>
 #include <string.h>
 
 #define UI_DOCK_WALK_MAX 128u
 #define UI_DOCK_EDGE_RATIO 0.25f
 #define UI_DOCK_INNER_FRAC 0.6f
+#define UI_DOCK_TEAR_PT 8.0f
+#define UI_DOCK_OUTER_BAND_PT 16.0f
+#define UI_DOCK_FLOAT_W 360.0f
+#define UI_DOCK_FLOAT_H 240.0f
+#define UI_DOCK_FLOAT_Z 50
+#define UI_DOCK_DROP_Z 300
+#define UI_DOCK_ZONE_PT 28.0f
+#define UI_DOCK_APPEND 0xFFFFFFFFu
 
 enum { UI_DOCK_KIND_LEAF_U8 = (u8)UI_DOCK_KIND_LEAF, UI_DOCK_KIND_SPLIT_U8 = (u8)UI_DOCK_KIND_SPLIT };
 
@@ -154,11 +165,41 @@ static void ui_dock_slot_clear_contents(sk_ui_context_t* ctx, ui_dock_slot_t* sl
 	memset(&slot->splitter_rect, 0, sizeof(slot->splitter_rect));
 }
 
+static void ui_dock_salvage_windows(sk_ui_context_t* ctx, sk_ui_node_t root, sk_ui_node_t dest);
+
+static i32 ui_dock_node_protected(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	if (!sk_ui_node_is_valid(node)) {
+		return 0;
+	}
+	if (sk_ui_node_eq(ctx->pointer_capture, node) || sk_ui_node_eq(ctx->focus, node)) {
+		return 1;
+	}
+	return 0;
+}
+
+static void ui_dock_destroy_slot_chrome(sk_ui_context_t* ctx, ui_dock_slot_t* slot) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	if (slot == NULL) {
+		return;
+	}
+	if (sk_ui_node_is_valid(slot->host) && ui_slot(ctx, slot->host) != NULL) {
+		ui_dock_salvage_windows(ctx, slot->host, ctx->dock_stash);
+		if (ui_dock_node_protected(ctx, slot->host) == 0) {
+			(void)ui->node_destroy(ctx, slot->host);
+		}
+	}
+	slot->host = SK_UI_NODE_INVALID;
+	slot->splitter = SK_UI_NODE_INVALID;
+	slot->tab_bar = SK_UI_NODE_INVALID;
+	slot->content = SK_UI_NODE_INVALID;
+}
+
 static void ui_dock_recycle(sk_ui_context_t* ctx, sk_ui_dock_node_t node) {
 	ui_dock_slot_t* slot = ui_dock_slot_mut(ctx, node);
 	if (slot == NULL) {
 		return;
 	}
+	ui_dock_destroy_slot_chrome(ctx, slot);
 	if (slot->kind == UI_DOCK_KIND_LEAF_U8) {
 		if (ctx->dock_leaf_count > 0u) {
 			ctx->dock_leaf_count -= 1u;
@@ -1153,16 +1194,1008 @@ sk_ui_node_t ui_dockspace_host_node_impl(const sk_ui_context_t* ctx, sk_ui_dock_
 	return space != NULL ? space->host : SK_UI_NODE_INVALID;
 }
 
+static const_chr_t ui_dock_prop_str(const sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t key) {
+	sk_ui_prop_value_t prop;
+	const sk_ui_api_t* ui = ui_get_api_table();
+	if (ui->node_get_prop(ctx, node, key, &prop) != 0 || prop.type != SK_UI_PROP_STR) {
+		return NULL;
+	}
+	return prop.data.str_value;
+}
+
+static i32 ui_dock_prop_i32(const sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t key, i32 fallback) {
+	sk_ui_prop_value_t prop;
+	const sk_ui_api_t* ui = ui_get_api_table();
+	if (ui->node_get_prop(ctx, node, key, &prop) != 0 || prop.type != SK_UI_PROP_I32) {
+		return fallback;
+	}
+	return prop.data.i32_value;
+}
+
+static i32 ui_dock_is_widget(const sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t widget) {
+	const_chr_t w = ui_dock_prop_str(ctx, node, "widget");
+	return (w != NULL && widget != NULL && strcmp(w, widget) == 0) ? 1 : 0;
+}
+
+static void ui_dock_walk_set_input(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_pointer_events_t pe, i32 focusable) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_node_t stack[UI_DOCK_WALK_MAX];
+	u32 sp = 0u;
+	if (!sk_ui_node_is_valid(node)) {
+		return;
+	}
+	stack[sp++] = node;
+	while (sp > 0u) {
+		sk_ui_node_t cur = stack[--sp];
+		const ui_node_slot_t* slot;
+		u32 i;
+		(void)ui->node_set_pointer_events(ctx, cur, pe);
+		(void)ui->node_set_focusable(ctx, cur, focusable);
+		slot = ui_slot(ctx, cur);
+		if (slot == NULL) {
+			continue;
+		}
+		for (i = 0u; i < slot->children.count && sp < UI_DOCK_WALK_MAX; ++i) {
+			stack[sp++] = slot->children.items[i];
+		}
+	}
+}
+
+static void ui_dock_set_hidden(sk_ui_context_t* ctx, sk_ui_node_t node, i32 hidden) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	if (!sk_ui_node_is_valid(node) || ui_slot(ctx, node) == NULL) {
+		return;
+	}
+	(void)ui->node_set_prop_i32(ctx, node, "hidden", hidden != 0 ? 1 : 0);
+}
+
+static void ui_dock_collect_editor_windows(const sk_ui_context_t* ctx, sk_ui_node_t root, sk_ui_node_t* out, u32 cap, u32* out_n) {
+	sk_ui_node_t stack[UI_DOCK_WALK_MAX];
+	u32 sp = 0u;
+	u32 n = 0u;
+	if (!sk_ui_node_is_valid(root)) {
+		*out_n = 0u;
+		return;
+	}
+	stack[sp++] = root;
+	while (sp > 0u) {
+		sk_ui_node_t cur = stack[--sp];
+		const ui_node_slot_t* slot = ui_slot(ctx, cur);
+		u32 i;
+		if (slot == NULL) {
+			continue;
+		}
+		if (ui_dock_is_widget(ctx, cur, "editor_window") != 0) {
+			if (n < cap) {
+				out[n] = cur;
+			}
+			n += 1u;
+			continue;
+		}
+		for (i = 0u; i < slot->children.count && sp < UI_DOCK_WALK_MAX; ++i) {
+			stack[sp++] = slot->children.items[i];
+		}
+	}
+	*out_n = n;
+}
+
+static void ui_dock_salvage_windows(sk_ui_context_t* ctx, sk_ui_node_t root, sk_ui_node_t dest) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_node_t found[64];
+	u32 n = 0u;
+	u32 i;
+	if (!sk_ui_node_is_valid(dest) || ui_slot(ctx, dest) == NULL) {
+		return;
+	}
+	ui_dock_collect_editor_windows(ctx, root, found, 64u, &n);
+	if (n > 64u) {
+		n = 64u;
+	}
+	for (i = 0u; i < n; ++i) {
+		if (!sk_ui_node_eq(ui->node_parent(ctx, found[i]), dest)) {
+			(void)ui->node_reparent(ctx, found[i], dest, UI_DOCK_APPEND);
+		}
+	}
+}
+
+static i32 ui_dock_slot_abs_rect(const sk_ui_context_t* ctx, const ui_dock_slot_t* slot, sk_ui_rect_t* out) {
+	if (slot == NULL || out == NULL) {
+		return -1;
+	}
+	if (sk_ui_node_is_valid(slot->host) && ui_node_get_abs_rect_impl(ctx, slot->host, out, NULL) == 0 && out->width > 0.5f && out->height > 0.5f) {
+		return 0;
+	}
+	*out = slot->rect;
+	return (out->width > 0.0f && out->height > 0.0f) ? 0 : -1;
+}
+
+static i32 ui_dock_space_abs_rect(const sk_ui_context_t* ctx, const ui_dockspace_t* space, sk_ui_rect_t* out) {
+	if (space == NULL || out == NULL) {
+		return -1;
+	}
+	if (sk_ui_node_is_valid(space->host) && ui_node_get_abs_rect_impl(ctx, space->host, out, NULL) == 0 && out->width > 0.5f && out->height > 0.5f) {
+		return 0;
+	}
+	if (space->laid_out != 0u) {
+		*out = space->last_rect;
+		return 0;
+	}
+	return -1;
+}
+
+static sk_ui_rect_t ui_dock_dir_preview_rect(const sk_ui_rect_t* target, sk_ui_dock_dir_t dir) {
+	sk_ui_rect_t r = *target;
+	const f32 ratio = UI_DOCK_EDGE_RATIO;
+	if (dir == SK_UI_DOCK_DIR_LEFT) {
+		r.width *= ratio;
+	} else if (dir == SK_UI_DOCK_DIR_RIGHT) {
+		r.x += r.width * (1.0f - ratio);
+		r.width *= ratio;
+	} else if (dir == SK_UI_DOCK_DIR_UP) {
+		r.height *= ratio;
+	} else if (dir == SK_UI_DOCK_DIR_DOWN) {
+		r.y += r.height * (1.0f - ratio);
+		r.height *= ratio;
+	}
+	return r;
+}
+
+static void ui_dock_merge_layout(sk_ui_context_t* ctx, sk_ui_node_t node, const sk_ui_style_props_t* props) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	if (!sk_ui_node_is_valid(node) || props == NULL) {
+		return;
+	}
+	(void)ui->node_merge_inline_style(ctx, node, props);
+	{
+		sk_ui_layout_style_t ls;
+		if (ui->node_get_layout_style(ctx, node, &ls) == 0) {
+			if ((props->mask & SK_UI_SP_FLEX_DIRECTION) != 0u) {
+				ls.flex_direction = props->layout.flex_direction;
+			}
+			if ((props->mask & SK_UI_SP_FLEX_GROW) != 0u) {
+				ls.flex_grow = props->layout.flex_grow;
+			}
+			if ((props->mask & SK_UI_SP_FLEX_SHRINK) != 0u) {
+				ls.flex_shrink = props->layout.flex_shrink;
+			}
+			if ((props->mask & SK_UI_SP_WIDTH) != 0u) {
+				ls.width = props->layout.width;
+			}
+			if ((props->mask & SK_UI_SP_HEIGHT) != 0u) {
+				ls.height = props->layout.height;
+			}
+			if ((props->mask & SK_UI_SP_MIN_WIDTH) != 0u) {
+				ls.min_width = props->layout.min_width;
+			}
+			if ((props->mask & SK_UI_SP_MIN_HEIGHT) != 0u) {
+				ls.min_height = props->layout.min_height;
+			}
+			if ((props->mask & SK_UI_SP_POSITION) != 0u) {
+				ls.position = props->layout.position;
+			}
+			if ((props->mask & SK_UI_SP_LEFT) != 0u) {
+				ls.left = props->layout.left;
+			}
+			if ((props->mask & SK_UI_SP_TOP) != 0u) {
+				ls.top = props->layout.top;
+			}
+			(void)ui->node_set_layout_style(ctx, node, &ls);
+		}
+	}
+}
+
+static void ui_dock_set_abs_box(sk_ui_context_t* ctx, sk_ui_node_t node, f32 x, f32 y, f32 w, f32 h) {
+	sk_ui_style_props_t p;
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK;
+	p.layout.position = SK_UI_POSITION_ABSOLUTE;
+	p.layout.left = sk_ui_pt(x);
+	p.layout.top = sk_ui_pt(y);
+	p.layout.width = sk_ui_pt(w);
+	p.layout.height = sk_ui_pt(h);
+	p.layout.flex_grow = 0.0f;
+	p.layout.flex_shrink = 0.0f;
+	ui_dock_merge_layout(ctx, node, &p);
+}
+
+static void ui_dock_set_fill_flex(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_flex_direction_t dir, f32 grow) {
+	sk_ui_style_props_t p;
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_POSITION | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK;
+	p.layout.position = SK_UI_POSITION_RELATIVE;
+	p.layout.flex_direction = dir;
+	p.layout.flex_grow = grow;
+	p.layout.flex_shrink = 1.0f;
+	ui_dock_merge_layout(ctx, node, &p);
+}
+
+static void ui_dock_title_hidden(sk_ui_context_t* ctx, sk_ui_node_t window, i32 hidden) {
+	sk_ui_node_t bar = ui_editor_window_title_bar_impl(ctx, window);
+	ui_dock_set_hidden(ctx, bar, hidden);
+}
+
+static void ui_dock_style_docked(sk_ui_context_t* ctx, sk_ui_node_t window) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_style_props_t p;
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW;
+	p.layout.position = SK_UI_POSITION_RELATIVE;
+	p.layout.left = sk_ui_auto();
+	p.layout.top = sk_ui_auto();
+	p.layout.width = sk_ui_percent(100.0f);
+	p.layout.height = sk_ui_percent(100.0f);
+	p.layout.flex_grow = 1.0f;
+	ui_dock_merge_layout(ctx, window, &p);
+	(void)ui->node_set_prop_i32(ctx, window, "z_index", 0);
+	ui_dock_set_hidden(ctx, window, 0);
+	ui_dock_title_hidden(ctx, window, 1);
+	ui_dock_walk_set_input(ctx, window, SK_UI_POINTER_EVENTS_AUTO, 1);
+}
+
+static void ui_dock_style_float(sk_ui_context_t* ctx, sk_ui_node_t window, f32 x, f32 y, f32 w, f32 h, i32 z) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_style_props_t p;
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK;
+	p.layout.position = SK_UI_POSITION_ABSOLUTE;
+	p.layout.left = sk_ui_pt(x);
+	p.layout.top = sk_ui_pt(y);
+	p.layout.width = sk_ui_pt(w);
+	p.layout.height = sk_ui_pt(h);
+	p.layout.flex_grow = 0.0f;
+	p.layout.flex_shrink = 0.0f;
+	ui_dock_merge_layout(ctx, window, &p);
+	(void)ui->node_set_prop_i32(ctx, window, "z_index", z);
+	ui_dock_set_hidden(ctx, window, 0);
+	ui_dock_title_hidden(ctx, window, 0);
+	ui_dock_walk_set_input(ctx, window, SK_UI_POINTER_EVENTS_AUTO, 1);
+}
+
+static void ui_dock_style_stash(sk_ui_context_t* ctx, sk_ui_node_t window) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	ui_dock_set_hidden(ctx, window, 1);
+	ui_dock_walk_set_input(ctx, window, SK_UI_POINTER_EVENTS_NONE, 0);
+	if (sk_ui_node_is_valid(ctx->focus)) {
+		sk_ui_node_t cur = ctx->focus;
+		while (sk_ui_node_is_valid(cur)) {
+			if (sk_ui_node_eq(cur, window)) {
+				(void)ui->focus_set(ctx, SK_UI_NODE_INVALID);
+				break;
+			}
+			cur = ui->node_parent(ctx, cur);
+		}
+	}
+}
+
+static u32 ui_dock_float_count(const sk_ui_context_t* ctx) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	const ui_node_slot_t* slot;
+	u32 i;
+	u32 n = 0u;
+	if (!sk_ui_node_is_valid(ctx->dock_overlay)) {
+		return 0u;
+	}
+	slot = ui_slot(ctx, ctx->dock_overlay);
+	if (slot == NULL) {
+		return 0u;
+	}
+	for (i = 0u; i < slot->children.count; ++i) {
+		if (ui_dock_is_widget(ctx, slot->children.items[i], "editor_window") != 0) {
+			n += 1u;
+		}
+	}
+	(void)ui;
+	return n;
+}
+
+static void ui_dock_raise_float(sk_ui_context_t* ctx, sk_ui_node_t window) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	u32 count;
+	if (!sk_ui_node_is_valid(ctx->dock_overlay) || !sk_ui_node_is_valid(window)) {
+		return;
+	}
+	if (!sk_ui_node_eq(ui->node_parent(ctx, window), ctx->dock_overlay)) {
+		(void)ui->node_reparent(ctx, window, ctx->dock_overlay, UI_DOCK_APPEND);
+	} else {
+		count = ui->node_child_count(ctx, ctx->dock_overlay);
+		if (count > 0u) {
+			(void)ui->node_set_child_index(ctx, ctx->dock_overlay, window, count - 1u);
+		}
+	}
+	(void)ui->node_set_prop_i32(ctx, window, "z_index", UI_DOCK_FLOAT_Z + (i32)ui_dock_float_count(ctx));
+}
+
+static sk_ui_node_t ui_dock_ensure_layer(sk_ui_context_t* ctx, sk_ui_node_t existing, const_chr_t id, i32 stash) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_node_t n = existing;
+	if (!sk_ui_node_is_valid(n) || ui_slot(ctx, n) == NULL) {
+		n = ui_widget_view_impl(ctx, ctx->root, id);
+		if (!sk_ui_node_is_valid(n)) {
+			return SK_UI_NODE_INVALID;
+		}
+	} else if (!sk_ui_node_eq(ui->node_parent(ctx, n), ctx->root)) {
+		(void)ui->node_reparent(ctx, n, ctx->root, UI_DOCK_APPEND);
+	}
+	{
+		sk_ui_style_props_t p;
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_POSITION | SK_UI_SP_FLEX_GROW;
+		p.layout.position = SK_UI_POSITION_ABSOLUTE;
+		p.layout.flex_grow = 0.0f;
+		if (stash != 0) {
+			p.mask |= SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_LEFT | SK_UI_SP_TOP;
+			p.layout.width = sk_ui_pt(0.0f);
+			p.layout.height = sk_ui_pt(0.0f);
+			p.layout.left = sk_ui_pt(0.0f);
+			p.layout.top = sk_ui_pt(0.0f);
+		}
+		ui_dock_merge_layout(ctx, n, &p);
+	}
+	if (stash != 0) {
+		(void)ui->node_set_clip_children(ctx, n, 1);
+		(void)ui->node_set_pointer_events(ctx, n, SK_UI_POINTER_EVENTS_NONE);
+		ui_dock_set_hidden(ctx, n, 1);
+	} else {
+		(void)ui->node_set_pointer_events(ctx, n, SK_UI_POINTER_EVENTS_AUTO);
+		ui_dock_set_hidden(ctx, n, 0);
+	}
+	return n;
+}
+
+static void ui_dock_ensure_root_layers(sk_ui_context_t* ctx) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	i32 created_stash = (!sk_ui_node_is_valid(ctx->dock_stash) || ui_slot(ctx, ctx->dock_stash) == NULL) ? 1 : 0;
+	i32 created_overlay = (!sk_ui_node_is_valid(ctx->dock_overlay) || ui_slot(ctx, ctx->dock_overlay) == NULL) ? 1 : 0;
+	ctx->dock_stash = ui_dock_ensure_layer(ctx, ctx->dock_stash, "ui-dock-stash", 1);
+	ctx->dock_overlay = ui_dock_ensure_layer(ctx, ctx->dock_overlay, "ui-dock-overlay", 0);
+	if ((created_stash != 0 || created_overlay != 0) && sk_ui_node_is_valid(ctx->dock_stash) && sk_ui_node_is_valid(ctx->dock_overlay)) {
+		u32 n = ui->node_child_count(ctx, ctx->root);
+		if (n > 0u) {
+			(void)ui->node_set_child_index(ctx, ctx->root, ctx->dock_stash, n - 1u);
+			n = ui->node_child_count(ctx, ctx->root);
+			(void)ui->node_set_child_index(ctx, ctx->root, ctx->dock_overlay, n - 1u);
+		}
+	}
+}
+
+static sk_ui_node_t ui_dock_ensure_named(sk_ui_context_t* ctx, sk_ui_node_t parent, sk_ui_node_t existing, const_chr_t id, i32 kind) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_node_t n = existing;
+	if (sk_ui_node_is_valid(n) && ui_slot(ctx, n) != NULL) {
+		if (!sk_ui_node_eq(ui->node_parent(ctx, n), parent)) {
+			(void)ui->node_reparent(ctx, n, parent, UI_DOCK_APPEND);
+		}
+		return n;
+	}
+	if (kind == 0) {
+		n = ui_widget_dock_node_impl(ctx, parent, 0, id);
+	} else if (kind == 1) {
+		n = ui_widget_splitter_impl(ctx, parent, 0, id);
+	} else if (kind == 2) {
+		n = ui_widget_tab_bar_impl(ctx, parent, id);
+	} else {
+		n = ui_widget_view_impl(ctx, parent, id);
+	}
+	return n;
+}
+
+static void ui_dock_tab_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user);
+static void ui_dock_tab_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user);
+static void ui_dock_splitter_changed(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value, void_ptr_t user);
+static void ui_dock_refresh_drop(sk_ui_context_t* ctx, ui_dockspace_t* space);
+static void ui_dock_hit_drop(const sk_ui_context_t* ctx, f32 x, f32 y, sk_ui_dock_node_t* out_node, sk_ui_dock_dir_t* out_dir);
+
+static sk_ui_node_t ui_dock_ensure_tab(sk_ui_context_t* ctx, sk_ui_node_t tab_bar, const_chr_t window_id, const_chr_t label) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_node_t tab = SK_UI_NODE_INVALID;
+	sk_ui_node_callbacks_t cbs;
+	char tab_id[96];
+	if (window_id == NULL || window_id[0] == '\0') {
+		return SK_UI_NODE_INVALID;
+	}
+	if (sk_hash_map_get(&ctx->dock_tab_nodes, window_id, &tab) != 0 || ui_slot(ctx, tab) == NULL) {
+		(void)snprintf(tab_id, sizeof(tab_id), "%s-dock-tab", window_id);
+		tab = ui_widget_tab_impl(ctx, tab_bar, label != NULL ? label : window_id, tab_id);
+		if (sk_ui_node_is_valid(tab)) {
+			(void)sk_hash_map_put(&ctx->dock_tab_nodes, window_id, tab);
+		}
+	} else if (!sk_ui_node_eq(ui->node_parent(ctx, tab), tab_bar)) {
+		(void)ui->node_reparent(ctx, tab, tab_bar, UI_DOCK_APPEND);
+	}
+	if (!sk_ui_node_is_valid(tab)) {
+		return tab;
+	}
+	(void)ui->node_set_prop_str(ctx, tab, "text", label != NULL ? label : window_id);
+	(void)ui->node_set_prop_str(ctx, tab, "dock_window_id", window_id);
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = ui_dock_tab_on_click;
+	cbs.on_event = ui_dock_tab_on_event;
+	(void)ui->node_set_callbacks(ctx, tab, &cbs);
+	ui_dock_set_hidden(ctx, tab, 0);
+	return tab;
+}
+
+static const_chr_t ui_dock_window_title(const sk_ui_context_t* ctx, sk_ui_node_t window, const_chr_t fallback) {
+	sk_ui_node_t bar = ui_editor_window_title_bar_impl(ctx, window);
+	const_chr_t text = ui_dock_prop_str(ctx, bar, "text");
+	if (text != NULL && text[0] != '\0') {
+		return text;
+	}
+	return fallback;
+}
+
+static void ui_dock_bind_splitter(sk_ui_context_t* ctx, sk_ui_node_t splitter, sk_ui_dock_node_t split, i32 axis) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_style_props_t p;
+	(void)ui->node_set_prop_i32(ctx, splitter, "axis", axis);
+	(void)ui->node_set_prop_i32(ctx, splitter, "dock_index", (i32)split.index);
+	(void)ui->node_set_prop_i32(ctx, splitter, "dock_generation", (i32)split.generation);
+	ui_style_props_clear(&p);
+	p.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK;
+	if (axis != 0) {
+		p.layout.width = sk_ui_percent(100.0f);
+		p.layout.height = sk_ui_pt(SK_UI_DOCK_SPLITTER_PT);
+	} else {
+		p.layout.width = sk_ui_pt(SK_UI_DOCK_SPLITTER_PT);
+		p.layout.height = sk_ui_percent(100.0f);
+	}
+	p.layout.flex_grow = 0.0f;
+	p.layout.flex_shrink = 0.0f;
+	ui_dock_merge_layout(ctx, splitter, &p);
+	if (ui_dock_prop_i32(ctx, splitter, "dock_bound", 0) == 0) {
+		(void)ui_splitter_set_on_change_impl(ctx, splitter, ui_dock_splitter_changed, NULL);
+		(void)ui->node_set_prop_i32(ctx, splitter, "dock_bound", 1);
+	}
+}
+
+static sk_ui_node_t ui_dock_ensure_drop(sk_ui_context_t* ctx, ui_dockspace_t* space) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_node_t drop = space->drop;
+	sk_ui_node_t preview;
+	char id[80];
+	sk_ui_style_props_t style;
+	u32 z;
+	if (!sk_ui_node_is_valid(space->host)) {
+		return SK_UI_NODE_INVALID;
+	}
+	(void)snprintf(id, sizeof(id), "%s-drop", space->id != NULL ? space->id : "dock");
+	if (!sk_ui_node_is_valid(drop) || ui_slot(ctx, drop) == NULL) {
+		drop = ui_widget_view_impl(ctx, space->host, id);
+		space->drop = drop;
+	} else if (!sk_ui_node_eq(ui->node_parent(ctx, drop), space->host)) {
+		(void)ui->node_reparent(ctx, drop, space->host, UI_DOCK_APPEND);
+	}
+	if (!sk_ui_node_is_valid(drop)) {
+		return SK_UI_NODE_INVALID;
+	}
+	(void)ui->node_set_prop_str(ctx, drop, "widget", "dock_drop");
+	(void)ui->node_set_prop_i32(ctx, drop, "z_index", UI_DOCK_DROP_Z);
+	{
+		sk_ui_style_props_t fill;
+		ui_style_props_clear(&fill);
+		fill.mask = SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_GROW | SK_UI_SP_FLEX_SHRINK;
+		fill.layout.position = SK_UI_POSITION_ABSOLUTE;
+		fill.layout.left = sk_ui_pt(0.0f);
+		fill.layout.top = sk_ui_pt(0.0f);
+		fill.layout.width = sk_ui_percent(100.0f);
+		fill.layout.height = sk_ui_percent(100.0f);
+		fill.layout.flex_grow = 0.0f;
+		fill.layout.flex_shrink = 0.0f;
+		ui_dock_merge_layout(ctx, drop, &fill);
+	}
+	(void)snprintf(id, sizeof(id), "%s-drop-preview", space->id != NULL ? space->id : "dock");
+	preview = ui->find_by_id(ctx, id);
+	if (!sk_ui_node_is_valid(preview)) {
+		preview = ui_widget_view_impl(ctx, drop, id);
+	}
+	if (sk_ui_node_is_valid(preview)) {
+		memset(&style, 0, sizeof(style));
+		style.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS;
+		style.background_color = sk_ui_rgba(0.25f, 0.55f, 0.95f, 0.35f);
+		style.border_color = sk_ui_rgba(0.40f, 0.70f, 1.00f, 0.85f);
+		style.layout.border.left = 2.0f;
+		style.layout.border.top = 2.0f;
+		style.layout.border.right = 2.0f;
+		style.layout.border.bottom = 2.0f;
+		style.corner_radius = 3.0f;
+		(void)ui->node_merge_inline_style(ctx, preview, &style);
+		(void)ui->node_set_prop_str(ctx, preview, "widget", "dock_drop_preview");
+	}
+	for (z = 0u; z < 9u; ++z) {
+		static const char* const k_zone[9] = {"center", "left", "right", "up", "down", "outer-left", "outer-right", "outer-up", "outer-down"};
+		sk_ui_node_t zone;
+		(void)snprintf(id, sizeof(id), "%s-zone-%s", space->id != NULL ? space->id : "dock", k_zone[z]);
+		zone = ui->find_by_id(ctx, id);
+		if (!sk_ui_node_is_valid(zone)) {
+			zone = ui_widget_view_impl(ctx, drop, id);
+		}
+		if (sk_ui_node_is_valid(zone)) {
+			memset(&style, 0, sizeof(style));
+			style.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS;
+			style.background_color = sk_ui_rgba(0.20f, 0.40f, 0.80f, 0.45f);
+			style.border_color = sk_ui_rgba(0.85f, 0.92f, 1.00f, 0.90f);
+			style.layout.border.left = 1.0f;
+			style.layout.border.top = 1.0f;
+			style.layout.border.right = 1.0f;
+			style.layout.border.bottom = 1.0f;
+			style.corner_radius = 2.0f;
+			(void)ui->node_merge_inline_style(ctx, zone, &style);
+			(void)ui->node_set_prop_str(ctx, zone, "widget", "dock_drop_zone");
+			ui_dock_set_hidden(ctx, zone, 1);
+		}
+	}
+	{
+		u32 count = ui->node_child_count(ctx, space->host);
+		if (count > 0u) {
+			(void)ui->node_set_child_index(ctx, space->host, drop, count - 1u);
+		}
+	}
+	return drop;
+}
+
+static void ui_dock_place_zone(sk_ui_context_t* ctx, ui_dockspace_t* space, const_chr_t suffix, const sk_ui_rect_t* host, f32 x, f32 y, f32 w, f32 h, i32 show) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	char id[80];
+	sk_ui_node_t zone;
+	(void)snprintf(id, sizeof(id), "%s-zone-%s", space->id != NULL ? space->id : "dock", suffix);
+	zone = ui->find_by_id(ctx, id);
+	if (!sk_ui_node_is_valid(zone)) {
+		return;
+	}
+	if (show == 0) {
+		ui_dock_set_hidden(ctx, zone, 1);
+		return;
+	}
+	ui_dock_set_hidden(ctx, zone, 0);
+	ui_dock_set_abs_box(ctx, zone, x - host->x, y - host->y, w, h);
+}
+
+static void ui_dock_refresh_drop(sk_ui_context_t* ctx, ui_dockspace_t* space) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_node_t drop;
+	sk_ui_node_t preview;
+	sk_ui_rect_t host_r;
+	sk_ui_rect_t target_r;
+	sk_ui_rect_t preview_r;
+	char id[80];
+	i32 live;
+	i32 i;
+	static const char* const k_zone[9] = {"center", "left", "right", "up", "down", "outer-left", "outer-right", "outer-up", "outer-down"};
+
+	drop = ui_dock_ensure_drop(ctx, space);
+	if (!sk_ui_node_is_valid(drop)) {
+		return;
+	}
+	live = (ctx->dock_drag_active != 0u && ctx->dock_drag_torn != 0u) ? 1 : 0;
+	ui_dock_set_hidden(ctx, drop, live == 0 ? 1 : 0);
+	(void)ui->node_set_pointer_events(ctx, drop, live != 0 ? SK_UI_POINTER_EVENTS_AUTO : SK_UI_POINTER_EVENTS_NONE);
+	(void)snprintf(id, sizeof(id), "%s-drop-preview", space->id != NULL ? space->id : "dock");
+	preview = ui->find_by_id(ctx, id);
+	if (live == 0 || ui_dock_space_abs_rect(ctx, space, &host_r) != 0) {
+		for (i = 0; i < 9; ++i) {
+			ui_dock_place_zone(ctx, space, k_zone[i], &host_r, 0.0f, 0.0f, 0.0f, 0.0f, 0);
+		}
+		if (sk_ui_node_is_valid(preview)) {
+			ui_dock_set_hidden(ctx, preview, 1);
+		}
+		return;
+	}
+	if (sk_ui_dock_node_is_valid(ctx->dock_drag_hover) && ui_dock_slot_abs_rect(ctx, ui_dock_slot(ctx, ctx->dock_drag_hover), &target_r) == 0) {
+		preview_r = ui_dock_dir_preview_rect(&target_r, ctx->dock_drag_dir);
+		if (sk_ui_node_is_valid(preview)) {
+			ui_dock_set_hidden(ctx, preview, 0);
+			ui_dock_set_abs_box(ctx, preview, preview_r.x - host_r.x, preview_r.y - host_r.y, preview_r.width, preview_r.height);
+		}
+	} else if (sk_ui_node_is_valid(preview)) {
+		ui_dock_set_hidden(ctx, preview, 1);
+	}
+
+	{
+		const ui_dock_slot_t* hover = ui_dock_slot(ctx, ctx->dock_drag_hover);
+		sk_ui_rect_t leaf_r;
+		f32 zx;
+		f32 zy;
+		f32 zs = UI_DOCK_ZONE_PT;
+		i32 show_inner = 0;
+		if (hover != NULL && ui_dock_slot_abs_rect(ctx, hover, &leaf_r) == 0) {
+			show_inner = 1;
+			zx = leaf_r.x + (leaf_r.width - zs) * 0.5f;
+			zy = leaf_r.y + (leaf_r.height - zs) * 0.5f;
+			ui_dock_place_zone(ctx, space, "center", &host_r, zx, zy, zs, zs, show_inner);
+			ui_dock_place_zone(ctx, space, "left", &host_r, leaf_r.x + 4.0f, zy, zs, zs, show_inner);
+			ui_dock_place_zone(ctx, space, "right", &host_r, leaf_r.x + leaf_r.width - zs - 4.0f, zy, zs, zs, show_inner);
+			ui_dock_place_zone(ctx, space, "up", &host_r, zx, leaf_r.y + 4.0f, zs, zs, show_inner);
+			ui_dock_place_zone(ctx, space, "down", &host_r, zx, leaf_r.y + leaf_r.height - zs - 4.0f, zs, zs, show_inner);
+		} else {
+			ui_dock_place_zone(ctx, space, "center", &host_r, 0, 0, 0, 0, 0);
+			ui_dock_place_zone(ctx, space, "left", &host_r, 0, 0, 0, 0, 0);
+			ui_dock_place_zone(ctx, space, "right", &host_r, 0, 0, 0, 0, 0);
+			ui_dock_place_zone(ctx, space, "up", &host_r, 0, 0, 0, 0, 0);
+			ui_dock_place_zone(ctx, space, "down", &host_r, 0, 0, 0, 0, 0);
+		}
+		ui_dock_place_zone(ctx, space, "outer-left", &host_r, host_r.x, host_r.y + host_r.height * 0.5f - zs * 0.5f, UI_DOCK_OUTER_BAND_PT, zs, 1);
+		ui_dock_place_zone(ctx, space, "outer-right", &host_r, host_r.x + host_r.width - UI_DOCK_OUTER_BAND_PT, host_r.y + host_r.height * 0.5f - zs * 0.5f, UI_DOCK_OUTER_BAND_PT,
+						   zs, 1);
+		ui_dock_place_zone(ctx, space, "outer-up", &host_r, host_r.x + host_r.width * 0.5f - zs * 0.5f, host_r.y, zs, UI_DOCK_OUTER_BAND_PT, 1);
+		ui_dock_place_zone(ctx, space, "outer-down", &host_r, host_r.x + host_r.width * 0.5f - zs * 0.5f, host_r.y + host_r.height - UI_DOCK_OUTER_BAND_PT, zs,
+						   UI_DOCK_OUTER_BAND_PT, 1);
+	}
+}
+
+static void ui_dock_hit_drop(const sk_ui_context_t* ctx, f32 x, f32 y, sk_ui_dock_node_t* out_node, sk_ui_dock_dir_t* out_dir) {
+	u32 s;
+	sk_ui_dock_node_t node = SK_UI_DOCK_NODE_INVALID;
+	sk_ui_dock_dir_t dir = SK_UI_DOCK_DIR_NONE;
+	for (s = 0u; s < ctx->dockspace_count; ++s) {
+		const ui_dockspace_t* space = &ctx->dockspaces[s];
+		sk_ui_rect_t space_r;
+		sk_ui_dock_node_t hit;
+		sk_ui_dock_dir_t sug = SK_UI_DOCK_DIR_NONE;
+		if (ui_dock_space_abs_rect(ctx, space, &space_r) != 0 || !ui_dock_rect_contains(&space_r, x, y)) {
+			continue;
+		}
+		if (x < space_r.x + UI_DOCK_OUTER_BAND_PT) {
+			node = space->root;
+			dir = SK_UI_DOCK_DIR_LEFT;
+			break;
+		}
+		if (x > space_r.x + space_r.width - UI_DOCK_OUTER_BAND_PT) {
+			node = space->root;
+			dir = SK_UI_DOCK_DIR_RIGHT;
+			break;
+		}
+		if (y < space_r.y + UI_DOCK_OUTER_BAND_PT) {
+			node = space->root;
+			dir = SK_UI_DOCK_DIR_UP;
+			break;
+		}
+		if (y > space_r.y + space_r.height - UI_DOCK_OUTER_BAND_PT) {
+			node = space->root;
+			dir = SK_UI_DOCK_DIR_DOWN;
+			break;
+		}
+		hit = ui_dock_node_at_point_impl(ctx, x, y, &sug);
+		if (sk_ui_dock_node_is_valid(hit)) {
+			node = hit;
+			dir = sug;
+			break;
+		}
+		node = space->root;
+		dir = SK_UI_DOCK_DIR_CENTER;
+		break;
+	}
+	if (out_node != NULL) {
+		*out_node = node;
+	}
+	if (out_dir != NULL) {
+		*out_dir = dir;
+	}
+}
+
+static void ui_dock_update_drag_hover(sk_ui_context_t* ctx, f32 x, f32 y) {
+	u32 s;
+	ui_dock_hit_drop(ctx, x, y, &ctx->dock_drag_hover, &ctx->dock_drag_dir);
+	for (s = 0u; s < ctx->dockspace_count; ++s) {
+		ui_dock_refresh_drop(ctx, &ctx->dockspaces[s]);
+	}
+}
+
+static void ui_dock_clear_drag(sk_ui_context_t* ctx) {
+	u32 s;
+	ctx->dock_drag_active = 0u;
+	ctx->dock_drag_torn = 0u;
+	ctx->dock_drag_tab = SK_UI_NODE_INVALID;
+	ctx->dock_drag_window = SK_UI_NODE_INVALID;
+	ctx->dock_drag_hover = SK_UI_DOCK_NODE_INVALID;
+	ctx->dock_drag_dir = SK_UI_DOCK_DIR_NONE;
+	ctx->dock_drag_window_id[0] = '\0';
+	for (s = 0u; s < ctx->dockspace_count; ++s) {
+		ui_dock_refresh_drop(ctx, &ctx->dockspaces[s]);
+	}
+}
+
+static void ui_dock_copy_id(char* dst, u32 cap, const_chr_t src) {
+	size_t n;
+	if (dst == NULL || cap == 0u) {
+		return;
+	}
+	dst[0] = '\0';
+	if (src == NULL) {
+		return;
+	}
+	n = strlen(src);
+	if (n >= (size_t)cap) {
+		n = (size_t)cap - 1u;
+	}
+	memcpy(dst, src, n);
+	dst[n] = '\0';
+}
+
+static void ui_dock_move_float_to_pointer(sk_ui_context_t* ctx, sk_ui_node_t window, f32 x, f32 y) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_layout_style_t ls;
+	sk_ui_rect_t br;
+	f32 w = UI_DOCK_FLOAT_W;
+	f32 h = UI_DOCK_FLOAT_H;
+	if (ui->node_get_abs_rect(ctx, window, &br, NULL) == 0 && br.width > 1.0f && br.height > 1.0f) {
+		w = br.width;
+		h = br.height;
+	} else if (ui->node_get_layout_style(ctx, window, &ls) == 0) {
+		if (ls.width.unit == SK_UI_LENGTH_POINT && ls.width.value > 1.0f) {
+			w = ls.width.value;
+		}
+		if (ls.height.unit == SK_UI_LENGTH_POINT && ls.height.value > 1.0f) {
+			h = ls.height.value;
+		}
+	}
+	ui_dock_style_float(ctx, window, x - 40.0f, y - 12.0f, w, h, UI_DOCK_FLOAT_Z + (i32)ui_dock_float_count(ctx));
+}
+
+static i32 ui_dock_commit_drop(sk_ui_context_t* ctx) {
+	sk_ui_dock_node_t node = ctx->dock_drag_hover;
+	sk_ui_dock_dir_t dir = ctx->dock_drag_dir;
+	const_chr_t id = ctx->dock_drag_window_id;
+	if (id[0] == '\0' || !sk_ui_dock_node_is_valid(node) || dir == SK_UI_DOCK_DIR_NONE) {
+		return -1;
+	}
+	return ui_dock_window_to_node_impl(ctx, id, node, dir);
+}
+
+// NOLINTBEGIN(misc-no-recursion)
+static i32 ui_dock_apply_node(sk_ui_context_t* ctx, ui_dockspace_t* space, sk_ui_dock_node_t node, sk_ui_node_t parent) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	ui_dock_slot_t* slot = ui_dock_slot_mut(ctx, node);
+	char id[80];
+	sk_ui_node_t host;
+	if (slot == NULL || !sk_ui_node_is_valid(parent)) {
+		return -1;
+	}
+	(void)snprintf(id, sizeof(id), "%s/%u", space->id != NULL ? space->id : "dock", node.index);
+	host = ui_dock_ensure_named(ctx, parent, slot->host, id, 0);
+	if (!sk_ui_node_is_valid(host)) {
+		return -1;
+	}
+	slot->host = host;
+	if (slot->kind == UI_DOCK_KIND_SPLIT_U8) {
+		char sid[80];
+		sk_ui_node_t split_bar;
+		sk_ui_node_t c0;
+		sk_ui_node_t c1;
+		i32 axis = slot->axis == SK_UI_DOCK_SPLIT_VERTICAL ? 1 : 0;
+		(void)ui->node_set_prop_i32(ctx, host, "orientation", axis);
+		ui_dock_set_fill_flex(ctx, host, axis != 0 ? SK_UI_FLEX_COLUMN : SK_UI_FLEX_ROW, 1.0f);
+		(void)snprintf(sid, sizeof(sid), "%s/%u-split", space->id != NULL ? space->id : "dock", node.index);
+		split_bar = ui_dock_ensure_named(ctx, host, slot->splitter, sid, 1);
+		slot->splitter = split_bar;
+		if (sk_ui_node_is_valid(split_bar)) {
+			ui_dock_bind_splitter(ctx, split_bar, node, axis);
+			(void)ui->node_set_prop_f32(ctx, split_bar, "ratio", slot->ratio);
+		}
+		if (ui_dock_apply_node(ctx, space, slot->child[0], host) != 0) {
+			return -1;
+		}
+		if (ui_dock_apply_node(ctx, space, slot->child[1], host) != 0) {
+			return -1;
+		}
+		c0 = ui_dock_node_host_impl(ctx, slot->child[0]);
+		c1 = ui_dock_node_host_impl(ctx, slot->child[1]);
+		if (sk_ui_node_is_valid(c0)) {
+			sk_ui_style_props_t p;
+			ui_dock_set_fill_flex(ctx, c0, SK_UI_FLEX_COLUMN, slot->ratio);
+			ui_style_props_clear(&p);
+			if (axis == 0) {
+				p.mask = SK_UI_SP_HEIGHT;
+				p.layout.height = sk_ui_percent(100.0f);
+			} else {
+				p.mask = SK_UI_SP_WIDTH;
+				p.layout.width = sk_ui_percent(100.0f);
+			}
+			ui_dock_merge_layout(ctx, c0, &p);
+			(void)ui->node_set_child_index(ctx, host, c0, 0u);
+		}
+		if (sk_ui_node_is_valid(split_bar)) {
+			(void)ui->node_set_child_index(ctx, host, split_bar, 1u);
+		}
+		if (sk_ui_node_is_valid(c1)) {
+			sk_ui_style_props_t p;
+			ui_dock_set_fill_flex(ctx, c1, SK_UI_FLEX_COLUMN, 1.0f - slot->ratio);
+			ui_style_props_clear(&p);
+			if (axis == 0) {
+				p.mask = SK_UI_SP_HEIGHT;
+				p.layout.height = sk_ui_percent(100.0f);
+			} else {
+				p.mask = SK_UI_SP_WIDTH;
+				p.layout.width = sk_ui_percent(100.0f);
+			}
+			ui_dock_merge_layout(ctx, c1, &p);
+			(void)ui->node_set_child_index(ctx, host, c1, 2u);
+		}
+		return 0;
+	}
+
+	{
+		char tid[80];
+		char cid[80];
+		sk_ui_node_t bar;
+		sk_ui_node_t content;
+		u32 i;
+		i32 show_tabs = ((slot->flags & SK_UI_DOCK_NODE_NO_TAB_BAR) == 0u && slot->tab_count > 0u) ? 1 : 0;
+		ui_dock_set_fill_flex(ctx, host, SK_UI_FLEX_COLUMN, 1.0f);
+		(void)ui->node_set_prop_i32(ctx, host, "orientation", 1);
+		(void)snprintf(tid, sizeof(tid), "%s/%u-tabs", space->id != NULL ? space->id : "dock", node.index);
+		bar = ui_dock_ensure_named(ctx, host, slot->tab_bar, tid, 2);
+		slot->tab_bar = bar;
+		if (sk_ui_node_is_valid(bar)) {
+			sk_ui_style_props_t p;
+			ui_style_props_clear(&p);
+			p.mask = SK_UI_SP_WIDTH | SK_UI_SP_FLEX_GROW | SK_UI_SP_MIN_HEIGHT;
+			p.layout.width = sk_ui_percent(100.0f);
+			p.layout.flex_grow = 0.0f;
+			p.layout.min_height = sk_ui_pt(26.0f);
+			ui_dock_merge_layout(ctx, bar, &p);
+			ui_dock_set_hidden(ctx, bar, show_tabs == 0 ? 1 : 0);
+		}
+		(void)snprintf(cid, sizeof(cid), "%s/%u-content", space->id != NULL ? space->id : "dock", node.index);
+		content = ui_dock_ensure_named(ctx, host, slot->content, cid, 3);
+		slot->content = content;
+		if (sk_ui_node_is_valid(content)) {
+			sk_ui_style_props_t p;
+			(void)ui->node_set_clip_children(ctx, content, 1);
+			ui_style_props_clear(&p);
+			p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_FLEX_GROW | SK_UI_SP_WIDTH;
+			p.layout.flex_direction = SK_UI_FLEX_COLUMN;
+			p.layout.flex_grow = 1.0f;
+			p.layout.width = sk_ui_percent(100.0f);
+			ui_dock_merge_layout(ctx, content, &p);
+		}
+		if ((space->flags & SK_UI_DOCKSPACE_PASSTHRU_CENTER) != 0u && (slot->flags & SK_UI_DOCK_NODE_CENTRAL) != 0u && slot->tab_count == 0u) {
+			(void)ui->node_set_pointer_events(ctx, host, SK_UI_POINTER_EVENTS_NONE);
+		} else {
+			(void)ui->node_set_pointer_events(ctx, host, SK_UI_POINTER_EVENTS_AUTO);
+		}
+		if (sk_ui_node_is_valid(bar) && show_tabs != 0) {
+			sk_ui_node_t active_tab = SK_UI_NODE_INVALID;
+			for (i = 0u; i < slot->tab_count; ++i) {
+				sk_ui_node_t win = ui->find_by_id(ctx, slot->tabs[i]);
+				const_chr_t label = ui_dock_window_title(ctx, win, slot->tabs[i]);
+				sk_ui_node_t tab = ui_dock_ensure_tab(ctx, bar, slot->tabs[i], label);
+				if (sk_ui_node_is_valid(tab)) {
+					(void)ui->node_set_child_index(ctx, bar, tab, i);
+					if (i == slot->active_index) {
+						active_tab = tab;
+					}
+				}
+			}
+			if (sk_ui_node_is_valid(active_tab)) {
+				(void)ui_tab_bar_set_active_impl(ctx, bar, active_tab);
+			}
+			(void)ui->node_set_child_index(ctx, host, bar, 0u);
+		}
+		if (sk_ui_node_is_valid(content)) {
+			(void)ui->node_set_child_index(ctx, host, content, sk_ui_node_is_valid(bar) ? 1u : 0u);
+		}
+		for (i = 0u; i < slot->tab_count; ++i) {
+			sk_ui_node_t win = ui->find_by_id(ctx, slot->tabs[i]);
+			if (!sk_ui_node_is_valid(win)) {
+				continue;
+			}
+			if (i == slot->active_index && sk_ui_node_is_valid(content)) {
+				if (!sk_ui_node_eq(ui->node_parent(ctx, win), content)) {
+					(void)ui->node_reparent(ctx, win, content, UI_DOCK_APPEND);
+				}
+				ui_dock_style_docked(ctx, win);
+			} else if (sk_ui_node_is_valid(ctx->dock_stash)) {
+				if (!sk_ui_node_eq(ui->node_parent(ctx, win), ctx->dock_stash)) {
+					(void)ui->node_reparent(ctx, win, ctx->dock_stash, UI_DOCK_APPEND);
+				}
+				ui_dock_style_stash(ctx, win);
+			}
+		}
+	}
+	return 0;
+}
+// NOLINTEND(misc-no-recursion)
+
+static void ui_dock_hide_unused_tabs(sk_ui_context_t* ctx, ui_dockspace_t* space) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	sk_ui_dock_node_t stack[UI_DOCK_WALK_MAX];
+	u32 sp = 0u;
+	if (!sk_ui_dock_node_is_valid(space->root)) {
+		return;
+	}
+	stack[sp++] = space->root;
+	while (sp > 0u) {
+		sk_ui_dock_node_t cur = stack[--sp];
+		const ui_dock_slot_t* slot = ui_dock_slot(ctx, cur);
+		u32 i;
+		if (slot == NULL) {
+			continue;
+		}
+		if (slot->kind == UI_DOCK_KIND_SPLIT_U8) {
+			if (sk_ui_dock_node_is_valid(slot->child[1]) && sp < UI_DOCK_WALK_MAX) {
+				stack[sp++] = slot->child[1];
+			}
+			if (sk_ui_dock_node_is_valid(slot->child[0]) && sp < UI_DOCK_WALK_MAX) {
+				stack[sp++] = slot->child[0];
+			}
+			continue;
+		}
+		if (!sk_ui_node_is_valid(slot->tab_bar)) {
+			continue;
+		}
+		{
+			const ui_node_slot_t* bar = ui_slot(ctx, slot->tab_bar);
+			if (bar == NULL) {
+				continue;
+			}
+			for (i = 0u; i < bar->children.count; ++i) {
+				sk_ui_node_t tab = bar->children.items[i];
+				const_chr_t wid = ui_dock_prop_str(ctx, tab, "dock_window_id");
+				i32 keep = 0;
+				u32 t;
+				if (wid == NULL) {
+					continue;
+				}
+				for (t = 0u; t < slot->tab_count; ++t) {
+					if (ui_dock_cstr_eq(slot->tabs[t], wid)) {
+						keep = 1;
+						break;
+					}
+				}
+				if (keep == 0) {
+					if (ui_dock_node_protected(ctx, tab) != 0 || sk_ui_node_eq(ctx->dock_drag_tab, tab)) {
+						ui_dock_set_hidden(ctx, tab, 1);
+					} else {
+						(void)sk_hash_map_remove(&ctx->dock_tab_nodes, wid);
+						(void)ui->node_destroy(ctx, tab);
+						bar = ui_slot(ctx, slot->tab_bar);
+						if (bar == NULL) {
+							break;
+						}
+						i = (i == 0u) ? 0u : i - 1u;
+					}
+				}
+			}
+		}
+	}
+}
+
 i32 ui_dockspace_apply_impl(sk_ui_context_t* ctx, sk_ui_dock_node_t dockspace) {
 	ui_dockspace_t* space = ui_dock_space_for_node(ctx, dockspace);
 	if (space == NULL) {
 		return 0;
 	}
 	ctx->dock_applying = 1;
+	ui_dock_ensure_root_layers(ctx);
+	if (sk_ui_node_is_valid(space->host)) {
+		ui_dock_salvage_windows(ctx, space->host, ctx->dock_stash);
+	}
 	ui_dock_resolve_pending(ctx, space);
 	ui_dock_collapse_space(ctx, space);
+	if (sk_ui_node_is_valid(space->host) && sk_ui_dock_node_is_valid(space->root)) {
+		if (ui_dock_apply_node(ctx, space, space->root, space->host) != 0) {
+			ctx->dock_applying = 0;
+			return -1;
+		}
+		{
+			sk_ui_node_t root_host = ui_dock_node_host_impl(ctx, space->root);
+			if (sk_ui_node_is_valid(root_host)) {
+				(void)ui_get_api_table()->node_set_child_index(ctx, space->host, root_host, 0u);
+			}
+		}
+	}
+	ui_dock_hide_unused_tabs(ctx, space);
+	(void)ui_dock_ensure_drop(ctx, space);
+	ui_dock_refresh_drop(ctx, space);
 	if (space->laid_out != 0u) {
 		ui_dock_layout_tree(ctx, space->root, &space->last_rect);
+	} else if (sk_ui_node_is_valid(space->host)) {
+		sk_ui_rect_t hr;
+		if (ui_node_get_abs_rect_impl(ctx, space->host, &hr, NULL) == 0 && hr.width > 0.5f && hr.height > 0.5f) {
+			space->last_rect = hr;
+			space->laid_out = 1u;
+			ui_dock_layout_tree(ctx, space->root, &space->last_rect);
+		}
 	}
 	space->dirty = 0u;
 	ctx->dock_apply_count += 1u;
@@ -1208,6 +2241,10 @@ i32 ui_dockspace_destroy_impl(sk_ui_context_t* ctx, const_chr_t id) {
 	if (ctx->dock_builder_open != 0 && (sk_ui_dock_node_eq(ctx->dock_builder_root, space->root) || sk_ui_dock_node_eq(ui_dock_root_of(ctx, ctx->dock_builder_root), space->root))) {
 		ctx->dock_builder_open = 0;
 		ctx->dock_builder_root = SK_UI_DOCK_NODE_INVALID;
+	}
+	ui_dock_ensure_root_layers(ctx);
+	if (sk_ui_node_is_valid(space->host)) {
+		ui_dock_salvage_windows(ctx, space->host, ctx->dock_stash);
 	}
 	ui_dock_free_tree(ctx, space->root);
 	ui_dock_space_clear_pending(ctx, space);
@@ -1291,8 +2328,39 @@ i32 ui_dock_window_undock_impl(sk_ui_context_t* ctx, const_chr_t window_id) {
 	if (((space->flags & SK_UI_DOCKSPACE_NO_UNDOCK) != 0u || (slot != NULL && (slot->flags & SK_UI_DOCK_NODE_NO_UNDOCK) != 0u)) && ctx->dock_builder_open == 0) {
 		return -1;
 	}
-	if (ui_dock_remove_window(ctx, window_id) != 0) {
-		return -1;
+	{
+		const sk_ui_api_t* ui = ui_get_api_table();
+		sk_ui_node_t win = ui->find_by_id(ctx, window_id);
+		sk_ui_rect_t src;
+		f32 x = ctx->pointer_x;
+		f32 y = ctx->pointer_y;
+		f32 w = UI_DOCK_FLOAT_W;
+		f32 h = UI_DOCK_FLOAT_H;
+		if (ui_dock_slot_abs_rect(ctx, slot, &src) == 0) {
+			if (!(ctx->dock_drag_active != 0u)) {
+				x = src.x + 24.0f;
+				y = src.y + 24.0f;
+			}
+			if (src.width > 40.0f) {
+				w = src.width;
+			}
+			if (src.height > 40.0f) {
+				h = src.height;
+			}
+		}
+		if (sk_ui_node_is_valid(win) && ui->node_get_abs_rect(ctx, win, &src, NULL) == 0 && src.width > 1.0f) {
+			w = src.width;
+			h = src.height;
+		}
+		if (ui_dock_remove_window(ctx, window_id) != 0) {
+			return -1;
+		}
+		ui_dock_ensure_root_layers(ctx);
+		if (sk_ui_node_is_valid(win) && sk_ui_node_is_valid(ctx->dock_overlay)) {
+			(void)ui->node_reparent(ctx, win, ctx->dock_overlay, UI_DOCK_APPEND);
+			ui_dock_style_float(ctx, win, x, y, w, h, UI_DOCK_FLOAT_Z + (i32)ui_dock_float_count(ctx));
+			ui_dock_raise_float(ctx, win);
+		}
 	}
 	ui_dock_mark_dirty(space);
 	ui_dock_maybe_apply(ctx, space);
@@ -1311,8 +2379,17 @@ i32 ui_dock_tab_close_impl(sk_ui_context_t* ctx, const_chr_t window_id) {
 		return -1;
 	}
 	space = ui_dock_space_for_node(ctx, leaf);
-	if (ui_dock_remove_window(ctx, window_id) != 0) {
-		return -1;
+	{
+		const sk_ui_api_t* ui = ui_get_api_table();
+		sk_ui_node_t win = ui->find_by_id(ctx, window_id);
+		if (ui_dock_remove_window(ctx, window_id) != 0) {
+			return -1;
+		}
+		ui_dock_ensure_root_layers(ctx);
+		if (sk_ui_node_is_valid(win) && sk_ui_node_is_valid(ctx->dock_stash)) {
+			(void)ui->node_reparent(ctx, win, ctx->dock_stash, UI_DOCK_APPEND);
+			ui_dock_style_stash(ctx, win);
+		}
 	}
 	cb = ctx->dock_tab_cb;
 	user = ctx->dock_tab_user;
@@ -1393,6 +2470,122 @@ i32 ui_dock_tab_set_active_impl(sk_ui_context_t* ctx, const_chr_t window_id) {
 void ui_dock_set_tab_callback_impl(sk_ui_context_t* ctx, sk_ui_dock_tab_fn fn, void_ptr_t user) {
 	ctx->dock_tab_cb = fn;
 	ctx->dock_tab_user = user;
+}
+
+static void ui_dock_tab_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	const_chr_t id = ui_dock_prop_str(ctx, node, "dock_window_id");
+	(void)user;
+	if (id != NULL && id[0] != '\0' && ctx->dock_drag_torn == 0u) {
+		(void)ui_dock_tab_set_active_impl(ctx, id);
+	}
+	if (event != NULL) {
+		event->consumed = 1;
+	}
+}
+
+static void ui_dock_tab_on_event(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	const_chr_t id = ui_dock_prop_str(ctx, node, "dock_window_id");
+	sk_ui_node_t bar;
+	sk_ui_rect_t bar_r;
+	f32 dx;
+	f32 dy;
+	(void)user;
+	if (event == NULL || id == NULL || id[0] == '\0') {
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_DOWN && event->button == SK_UI_POINTER_BUTTON_LEFT) {
+		ctx->dock_drag_active = 1u;
+		ctx->dock_drag_torn = 0u;
+		ctx->dock_drag_tab = node;
+		ctx->dock_drag_start_x = event->x;
+		ctx->dock_drag_start_y = event->y;
+		ui_dock_copy_id(ctx->dock_drag_window_id, (u32)sizeof(ctx->dock_drag_window_id), id);
+		ctx->dock_drag_window = ui->find_by_id(ctx, id);
+		(void)ui->pointer_capture_set(ctx, node);
+		event->consumed = 1;
+		return;
+	}
+	if (ctx->dock_drag_active == 0u || !sk_ui_node_eq(ctx->dock_drag_tab, node)) {
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_MOVE) {
+		dx = event->x - ctx->dock_drag_start_x;
+		dy = event->y - ctx->dock_drag_start_y;
+		bar = ui->node_parent(ctx, node);
+		if (ctx->dock_drag_torn == 0u) {
+			i32 in_bar = 0;
+			if (sk_ui_node_is_valid(bar) && ui->node_get_abs_rect(ctx, bar, &bar_r, NULL) == 0) {
+				bar_r.y -= UI_DOCK_TEAR_PT;
+				bar_r.height += UI_DOCK_TEAR_PT * 2.0f;
+				in_bar = ui_dock_rect_contains(&bar_r, event->x, event->y);
+			}
+			if (in_bar != 0) {
+				const ui_node_slot_t* bslot = ui_slot(ctx, bar);
+				u32 i;
+				u32 from = 0u;
+				u32 to = 0u;
+				sk_ui_dock_node_t leaf = ui_dock_find_node_for_window_impl(ctx, id);
+				if (bslot != NULL && sk_ui_dock_node_is_valid(leaf)) {
+					for (i = 0u; i < bslot->children.count; ++i) {
+						if (sk_ui_node_eq(bslot->children.items[i], node)) {
+							from = i;
+						}
+					}
+					to = from;
+					for (i = 0u; i < bslot->children.count; ++i) {
+						sk_ui_rect_t tr;
+						if (ui->node_get_abs_rect(ctx, bslot->children.items[i], &tr, NULL) != 0) {
+							continue;
+						}
+						if (event->x >= tr.x && event->x < tr.x + tr.width) {
+							to = i;
+						}
+					}
+					if (to != from) {
+						(void)ui_dock_tab_reorder_impl(ctx, leaf, from, to);
+					}
+				}
+			} else if ((dx * dx + dy * dy) >= (UI_DOCK_TEAR_PT * UI_DOCK_TEAR_PT)) {
+				sk_ui_node_t win = ui->find_by_id(ctx, id);
+				if (ui_dock_window_undock_impl(ctx, id) == 0) {
+					ctx->dock_drag_torn = 1u;
+					ctx->dock_drag_window = sk_ui_node_is_valid(win) ? win : ui->find_by_id(ctx, id);
+					if (sk_ui_node_is_valid(ctx->dock_drag_window)) {
+						ui_dock_raise_float(ctx, ctx->dock_drag_window);
+						ui_dock_move_float_to_pointer(ctx, ctx->dock_drag_window, event->x, event->y);
+					}
+					ui_dock_update_drag_hover(ctx, event->x, event->y);
+				}
+			}
+		} else if (sk_ui_node_is_valid(ctx->dock_drag_window)) {
+			ui_dock_move_float_to_pointer(ctx, ctx->dock_drag_window, event->x, event->y);
+			ui_dock_update_drag_hover(ctx, event->x, event->y);
+		}
+		event->consumed = 1;
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_UP) {
+		if (ctx->dock_drag_torn != 0u) {
+			ui_dock_update_drag_hover(ctx, event->x, event->y);
+			(void)ui_dock_commit_drop(ctx);
+		}
+		if (sk_ui_node_eq(ui->pointer_capture_get(ctx), node)) {
+			(void)ui->pointer_capture_set(ctx, SK_UI_NODE_INVALID);
+		}
+		ui_dock_clear_drag(ctx);
+		event->consumed = 1;
+	}
+}
+
+static void ui_dock_splitter_changed(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value, void_ptr_t user) {
+	sk_ui_dock_node_t split;
+	(void)user;
+	split.index = (u32)ui_dock_prop_i32(ctx, node, "dock_index", 0);
+	split.generation = (u32)ui_dock_prop_i32(ctx, node, "dock_generation", 0);
+	if (sk_ui_dock_node_is_valid(split)) {
+		(void)ui_dock_split_set_ratio_impl(ctx, split, value);
+	}
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1495,25 +2688,27 @@ sk_ui_dock_node_t ui_dock_node_at_point_impl(const sk_ui_context_t* ctx, f32 x, 
 		const ui_dockspace_t* space = &ctx->dockspaces[s];
 		sk_ui_dock_node_t stack[UI_DOCK_WALK_MAX];
 		u32 sp = 0u;
-		if (space->laid_out == 0u || !ui_dock_rect_contains(&space->last_rect, x, y)) {
+		sk_ui_rect_t space_r;
+		if (ui_dock_space_abs_rect(ctx, space, &space_r) != 0 || !ui_dock_rect_contains(&space_r, x, y)) {
 			continue;
 		}
 		stack[sp++] = space->root;
 		while (sp > 0u) {
 			sk_ui_dock_node_t cur = stack[--sp];
 			const ui_dock_slot_t* slot = ui_dock_slot(ctx, cur);
-			if (slot == NULL || !ui_dock_rect_contains(&slot->rect, x, y)) {
+			sk_ui_rect_t box;
+			if (slot == NULL || ui_dock_slot_abs_rect(ctx, slot, &box) != 0 || !ui_dock_rect_contains(&box, x, y)) {
 				continue;
 			}
 			if (slot->kind == UI_DOCK_KIND_LEAF_U8) {
 				if (out_dir != NULL) {
-					*out_dir = ui_dock_suggest_dir(&slot->rect, x, y);
+					*out_dir = ui_dock_suggest_dir(&box, x, y);
 				}
 				return cur;
 			}
 			if (ui_dock_rect_contains(&slot->splitter_rect, x, y)) {
 				if (out_dir != NULL) {
-					*out_dir = ui_dock_suggest_dir(&slot->rect, x, y);
+					*out_dir = ui_dock_suggest_dir(&box, x, y);
 				}
 				return cur;
 			}
@@ -1670,6 +2865,130 @@ i32 ui_dock_layout_load_json_impl(sk_ui_context_t* ctx, const_chr_t dockspace_id
 		return -1;
 	}
 	return -1;
+}
+
+void ui_dock_layout_begin(sk_ui_context_t* ctx) {
+	u32 i;
+	if (ctx->dockspace_count == 0u || ctx->dock_builder_open != 0 || ctx->dock_applying != 0) {
+		return;
+	}
+	for (i = 0u; i < ctx->dockspace_count; ++i) {
+		ui_dockspace_t* space = &ctx->dockspaces[i];
+		if (space->dirty != 0u && (space->flags & SK_UI_DOCKSPACE_AUTO_APPLY) != 0u) {
+			(void)ui_dockspace_apply_impl(ctx, space->root);
+		}
+	}
+}
+
+void ui_dock_layout_end(sk_ui_context_t* ctx) {
+	u32 i;
+	for (i = 0u; i < ctx->dockspace_count; ++i) {
+		ui_dockspace_t* space = &ctx->dockspaces[i];
+		sk_ui_rect_t hr;
+		sk_ui_dock_node_t stack[UI_DOCK_WALK_MAX];
+		u32 sp = 0u;
+		if (ui_dock_space_abs_rect(ctx, space, &hr) == 0) {
+			space->last_rect = hr;
+			space->laid_out = 1u;
+			ui_dock_layout_tree(ctx, space->root, &hr);
+		}
+		if (!sk_ui_dock_node_is_valid(space->root)) {
+			continue;
+		}
+		stack[sp++] = space->root;
+		while (sp > 0u) {
+			sk_ui_dock_node_t cur = stack[--sp];
+			ui_dock_slot_t* slot = ui_dock_slot_mut(ctx, cur);
+			sk_ui_rect_t box;
+			if (slot == NULL) {
+				continue;
+			}
+			if (sk_ui_node_is_valid(slot->host) && ui_node_get_abs_rect_impl(ctx, slot->host, &box, NULL) == 0) {
+				slot->rect = box;
+			}
+			if (slot->kind == UI_DOCK_KIND_SPLIT_U8) {
+				if (sk_ui_node_is_valid(slot->splitter) && ui_node_get_abs_rect_impl(ctx, slot->splitter, &box, NULL) == 0) {
+					slot->splitter_rect = box;
+				}
+				if (sk_ui_dock_node_is_valid(slot->child[1]) && sp < UI_DOCK_WALK_MAX) {
+					stack[sp++] = slot->child[1];
+				}
+				if (sk_ui_dock_node_is_valid(slot->child[0]) && sp < UI_DOCK_WALK_MAX) {
+					stack[sp++] = slot->child[0];
+				}
+			}
+		}
+		if (ctx->dock_drag_active != 0u) {
+			ui_dock_refresh_drop(ctx, space);
+		}
+	}
+}
+
+void ui_dock_on_float_pointer(sk_ui_context_t* ctx, sk_ui_node_t window, sk_ui_event_t* event) {
+	const sk_ui_api_t* ui = ui_get_api_table();
+	const ui_node_slot_t* slot;
+	const_chr_t id;
+	if (ctx->dockspace_count == 0u || event == NULL || !sk_ui_node_is_valid(window)) {
+		return;
+	}
+	slot = ui_slot(ctx, window);
+	if (slot == NULL || slot->layout_style.position != SK_UI_POSITION_ABSOLUTE) {
+		return;
+	}
+	if (ui_dock_is_widget(ctx, window, "editor_window") == 0) {
+		return;
+	}
+	id = slot->id;
+	if (id == NULL || id[0] == '\0') {
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_DOWN) {
+		ctx->dock_drag_active = 1u;
+		ctx->dock_drag_torn = 1u;
+		ctx->dock_drag_window = window;
+		ctx->dock_drag_tab = SK_UI_NODE_INVALID;
+		ctx->dock_drag_start_x = event->x;
+		ctx->dock_drag_start_y = event->y;
+		ui_dock_copy_id(ctx->dock_drag_window_id, (u32)sizeof(ctx->dock_drag_window_id), id);
+		ui_dock_raise_float(ctx, window);
+		ui_dock_update_drag_hover(ctx, event->x, event->y);
+		return;
+	}
+	if (ctx->dock_drag_active == 0u || !sk_ui_node_eq(ctx->dock_drag_window, window)) {
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_MOVE) {
+		ui_dock_update_drag_hover(ctx, event->x, event->y);
+		return;
+	}
+	if (event->type == SK_UI_EVENT_POINTER_UP) {
+		f32 mdx = event->x - ctx->dock_drag_start_x;
+		f32 mdy = event->y - ctx->dock_drag_start_y;
+		ui_dock_update_drag_hover(ctx, event->x, event->y);
+		if ((mdx * mdx + mdy * mdy) >= (UI_DOCK_TEAR_PT * UI_DOCK_TEAR_PT)) {
+			(void)ui_dock_commit_drop(ctx);
+		}
+		ui_dock_clear_drag(ctx);
+		(void)ui;
+	}
+}
+
+void ui_dock_drag_tick(sk_ui_context_t* ctx, f32 x, f32 y, i32 button_up) {
+	if (ctx->dock_drag_active == 0u || ctx->dock_drag_torn == 0u) {
+		return;
+	}
+	if (sk_ui_node_is_valid(ctx->dock_drag_window)) {
+		ui_dock_move_float_to_pointer(ctx, ctx->dock_drag_window, x, y);
+	}
+	ui_dock_update_drag_hover(ctx, x, y);
+	if (button_up != 0) {
+		f32 mdx = x - ctx->dock_drag_start_x;
+		f32 mdy = y - ctx->dock_drag_start_y;
+		if ((mdx * mdx + mdy * mdy) >= (UI_DOCK_TEAR_PT * UI_DOCK_TEAR_PT)) {
+			(void)ui_dock_commit_drop(ctx);
+		}
+		ui_dock_clear_drag(ctx);
+	}
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2113,6 +3432,266 @@ SK_TEST(ui_dockspace_cap_and_rebind_host) {
 		TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "rebind", 0u), ds));
 		TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dockspace_begin(ctx, a, "rebind", 0u), ds));
 	}
+
+	ui->context_destroy(ctx);
+}
+
+static void ui_dock_test_ptr(sk_ui_input_event_t* ev, sk_ui_input_kind_t kind, f32 x, f32 y, i32 down) {
+	memset(ev, 0, sizeof(*ev));
+	ev->kind = kind;
+	ev->x = x;
+	ev->y = y;
+	ev->button = SK_UI_POINTER_BUTTON_LEFT;
+	ev->down = down;
+}
+
+static void ui_dock_test_layout(const sk_ui_api_t* ui, sk_ui_context_t* ctx, f32 w, f32 h) {
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, w, h));
+}
+
+SK_TEST(ui_dock_apply_projects_tabs_and_click_activate) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	sk_ui_node_t scene;
+	sk_ui_node_t game;
+	sk_ui_node_t tab_scene;
+	sk_ui_node_t tab_game;
+	sk_ui_rect_t tr;
+	sk_ui_input_event_t ev;
+	sk_ui_node_t stash;
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	scene = ui->widget_editor_window(ctx, ui->context_root(ctx), "Scene", "scene");
+	game = ui->widget_editor_window(ctx, ui->context_root(ctx), "Game", "game");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "live", SK_UI_DOCKSPACE_KEEP_CENTRAL);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "scene", root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "game", root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+	ui_dock_test_layout(ui, ctx, 800.0f, 500.0f);
+
+	tab_scene = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "scene-dock-tab");
+	tab_game = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "game-dock-tab");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(tab_scene));
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(tab_game));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, tab_scene));
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, tab_game));
+	TEST_ASSERT_TRUE(ui->node_alive(ctx, scene));
+	TEST_ASSERT_TRUE(ui->node_alive(ctx, game));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, tab_scene, &tr, NULL));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, tr.x + tr.width * 0.5f, tr.y + tr.height * 0.5f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, tr.x + tr.width * 0.5f, tr.y + tr.height * 0.5f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, tr.x + tr.width * 0.5f, tr.y + tr.height * 0.5f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_layout(ui, ctx, 800.0f, 500.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->tab_get_active(ctx, tab_scene));
+	TEST_ASSERT_EQUAL_INT(0, ui->tab_get_active(ctx, tab_game));
+
+	stash = ui->find_by_id(ctx, "ui-dock-stash");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(stash));
+	TEST_ASSERT_TRUE(sk_ui_node_eq(ui->node_parent(ctx, game), stash));
+	TEST_ASSERT_FALSE(sk_ui_node_eq(ui->node_parent(ctx, scene), stash));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_splitter_drag_resizes_siblings) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t left;
+	sk_ui_dock_node_t rest;
+	sk_ui_dock_node_t split;
+	sk_ui_node_t splitter;
+	sk_ui_rect_t sr;
+	sk_ui_input_event_t ev;
+	f32 before;
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "H", "hierarchy");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "S", "scene");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "split-live", 0u);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_split_node(ctx, root, SK_UI_DOCK_DIR_LEFT, 0.25f, &left, &rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "hierarchy", left));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "scene", rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+	ui_dock_test_layout(ui, ctx, 800.0f, 500.0f);
+
+	split = ui->dockspace_find(ctx, "split-live");
+	TEST_ASSERT_TRUE(ui->dock_node_is_split(ctx, split));
+	splitter = ui->dock_node_host(ctx, split);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(splitter));
+	{
+		const ui_dock_slot_t* slot = ui_dock_slot(ctx, split);
+		TEST_ASSERT_NOT_NULL(slot);
+		splitter = slot->splitter;
+	}
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(splitter));
+	before = ui->dock_split_get_ratio(ctx, split);
+	TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.25f, before);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, splitter, &sr, NULL));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, sr.x + sr.width * 0.5f, sr.y + sr.height * 0.5f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, sr.x + sr.width * 0.5f, sr.y + sr.height * 0.5f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, sr.x + 120.0f, sr.y + sr.height * 0.5f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, sr.x + 120.0f, sr.y + sr.height * 0.5f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_layout(ui, ctx, 800.0f, 500.0f);
+	TEST_ASSERT_TRUE(ui->dock_split_get_ratio(ctx, split) > before + 0.02f);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_tab_tear_off_drop_and_float_hit) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t left;
+	sk_ui_dock_node_t rest;
+	sk_ui_node_t hier;
+	sk_ui_node_t scene;
+	sk_ui_node_t tab;
+	sk_ui_node_t drop;
+	sk_ui_node_t overlay;
+	sk_ui_rect_t tr;
+	sk_ui_rect_t lr;
+	sk_ui_input_event_t ev;
+	sk_ui_node_t hit;
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	hier = ui->widget_editor_window(ctx, ui->context_root(ctx), "H", "hierarchy");
+	scene = ui->widget_editor_window(ctx, ui->context_root(ctx), "S", "scene");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "dnd", SK_UI_DOCKSPACE_KEEP_CENTRAL);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_split_node(ctx, root, SK_UI_DOCK_DIR_LEFT, 0.35f, &left, &rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "hierarchy", left));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "scene", rest));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+	ui_dock_test_layout(ui, ctx, 800.0f, 500.0f);
+
+	tab = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "hierarchy-dock-tab");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(tab));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, tab, &tr, NULL));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, tr.x + 8.0f, tr.y + 8.0f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, tr.x + 8.0f, tr.y + 8.0f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, tr.x + 8.0f, tr.y + 80.0f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_layout(ui, ctx, 800.0f, 500.0f);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "hierarchy"));
+	overlay = ui->find_by_id(ctx, "ui-dock-overlay");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(overlay));
+	TEST_ASSERT_TRUE(sk_ui_node_eq(ui->node_parent(ctx, hier), overlay));
+	drop = ui->find_by_id(ctx, "dnd-drop");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(drop));
+	TEST_ASSERT_EQUAL_INT(0, ui_dock_prop_i32(ctx, drop, "hidden", 1));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, rest, &lr));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, lr.x + lr.width * 0.5f, lr.y + lr.height * 0.5f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_layout(ui, ctx, 800.0f, 500.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui_dock_prop_i32(ctx, ui->find_by_id(ctx, "dnd-drop-preview"), "hidden", 1));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, lr.x + lr.width * 0.5f, lr.y + lr.height * 0.5f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_layout(ui, ctx, 800.0f, 500.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "hierarchy"));
+	TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dock_find_node_for_window(ctx, "hierarchy"), rest));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_undock(ctx, "scene"));
+	ui_dock_test_layout(ui, ctx, 800.0f, 500.0f);
+	{
+		sk_ui_rect_t fr;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, scene, &fr, NULL));
+		hit = ui->hit_test(ctx, fr.x + fr.width * 0.5f, fr.y + 8.0f);
+		TEST_ASSERT_TRUE(sk_ui_node_is_valid(hit));
+		/* Float title / window is above the docked tree. */
+		{
+			sk_ui_node_t cur = hit;
+			i32 found = 0;
+			while (sk_ui_node_is_valid(cur)) {
+				if (sk_ui_node_eq(cur, scene)) {
+					found = 1;
+					break;
+				}
+				cur = ui->node_parent(ctx, cur);
+			}
+			TEST_ASSERT_EQUAL_INT(1, found);
+		}
+	}
+	TEST_ASSERT_TRUE(ui->node_alive(ctx, hier));
+	TEST_ASSERT_TRUE(ui->node_alive(ctx, scene));
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_tab_drag_reorder_and_title_redock) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	sk_ui_node_t tab_a;
+	sk_ui_node_t tab_b;
+	sk_ui_node_t title;
+	sk_ui_rect_t a;
+	sk_ui_rect_t b;
+	sk_ui_input_event_t ev;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 0u;
+	sk_ui_node_t win_b;
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "A", "win-a");
+	win_b = ui->widget_editor_window(ctx, ui->context_root(ctx), "B", "win-b");
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "reorder", 0u);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "win-a", root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "win-b", root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+	ui_dock_test_layout(ui, ctx, 640.0f, 400.0f);
+
+	tab_a = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "win-a-dock-tab");
+	tab_b = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, "win-b-dock-tab");
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, tab_a, &a, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, tab_b, &b, NULL));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, a.x + 4.0f, a.y + 8.0f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, a.x + 4.0f, a.y + 8.0f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, b.x + b.width * 0.5f, b.y + 8.0f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, b.x + b.width * 0.5f, b.y + 8.0f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("win-b", ids[0]);
+	TEST_ASSERT_EQUAL_STRING("win-a", ids[1]);
+
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_undock(ctx, "win-b"));
+	ui_dock_test_layout(ui, ctx, 640.0f, 400.0f);
+	title = ui->editor_window_title_bar(ctx, win_b);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(title));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, title, &a, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, root, &b));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, a.x + 10.0f, a.y + 6.0f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, a.x + 10.0f, a.y + 6.0f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_MOVE, b.x + b.width * 0.5f, b.y + b.height * 0.5f, 1);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_ptr(&ev, SK_UI_INPUT_POINTER_BUTTON, b.x + b.width * 0.5f, b.y + b.height * 0.5f, 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->input_dispatch(ctx, &ev));
+	ui_dock_test_layout(ui, ctx, 640.0f, 400.0f);
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "win-b"));
 
 	ui->context_destroy(ctx);
 }
