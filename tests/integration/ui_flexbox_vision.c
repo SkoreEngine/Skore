@@ -11,7 +11,8 @@
  *      the unit matrix) so pixel geometry and vision grade stay in lockstep.
  *   3. Grades the qualitative arrangement with sk_ui_vision_assert_image
  *      (family FLEXBOX + a human-readable state hint). Vision SKIPPED without
- *      credentials does not fail the suite; structural rects still guard.
+ *      credentials is gated clearly (IGNORE / REQUIRED fail); structural rects
+ *      still guard (APX-263).
  *
  * Catches cases where numeric rects are self-consistent but the painted result
  * is wrong (wrong packing, missing grow fill, collapsed gap, etc.).
@@ -144,6 +145,7 @@ static void ufx_env_init(ufx_env_t* env) {
 #else
 	const_chr_t plugin_name = "sk-ui.so";
 #endif
+	sk_ui_vision_gate_begin();
 	memset(env, 0, sizeof(*env));
 	env->app = sk_app_init(0, NULL);
 	if (env->app == NULL) {
@@ -160,6 +162,8 @@ static void ufx_env_destroy(ufx_env_t* env) {
 		sk_app_destroy(env->app);
 	}
 	memset(env, 0, sizeof(*env));
+	/* After all structural samples: IGNORE (or FAIL if REQUIRED) when vision skipped. */
+	sk_ui_vision_gate_finish();
 }
 
 static void ufx_capture(const sk_ui_capture_harness_params_t* params, sk_ui_capture_scene_fn scene, void* user, sk_ui_cpu_image_t* out) {
@@ -176,31 +180,50 @@ static void ufx_free(sk_ui_cpu_image_t* img) {
 }
 
 /**
- * Grade with vision when credentials exist; SKIPPED is soft.
+ * Grade with vision when credentials exist.
+ * SKIPPED is recorded via sk_ui_vision_gate_* (clear message; never silent PASS).
  * FAIL fails the test with the model's reason (retry once for flukes).
  */
+static void ufx_vision_restore_env(const char* prev_backend, const char* prev_mock) {
+	if (prev_backend != NULL && prev_backend[0] != '\0') {
+		setenv("SK_UI_VISION_BACKEND", prev_backend, 1);
+	} else {
+		unsetenv("SK_UI_VISION_BACKEND");
+	}
+	if (prev_mock != NULL && prev_mock[0] != '\0') {
+		setenv("SK_UI_VISION_MOCK_RESPONSE", prev_mock, 1);
+	} else {
+		unsetenv("SK_UI_VISION_MOCK_RESPONSE");
+	}
+}
+
 static void ufx_vision_grade(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* img, const_chr_t state_hint, const_chr_t scene_name) {
 	sk_ui_vision_result_t result;
 	i32 rc;
 	const char* old_backend;
 	const char* old_mock;
+	char prev_backend[64];
+	char prev_mock[512];
 
+	prev_backend[0] = '\0';
+	prev_mock[0] = '\0';
 	old_backend = getenv("SK_UI_VISION_BACKEND");
 	old_mock = getenv("SK_UI_VISION_MOCK_RESPONSE");
+	if (old_backend != NULL) {
+		(void)snprintf(prev_backend, sizeof(prev_backend), "%s", old_backend);
+	}
+	if (old_mock != NULL) {
+		(void)snprintf(prev_mock, sizeof(prev_mock), "%s", old_mock);
+	}
 	unsetenv("SK_UI_VISION_BACKEND");
 	unsetenv("SK_UI_VISION_MOCK_RESPONSE");
 
 	memset(&result, 0, sizeof(result));
 	rc = sk_ui_vision_assert_image(ui, img, SK_UI_VISION_WIDGET_FLEXBOX, state_hint, scene_name, sk_filesystem_api(), &result);
 
-	if (old_backend != NULL && old_backend[0] != '\0') {
-		setenv("SK_UI_VISION_BACKEND", old_backend, 1);
-	}
-	if (old_mock != NULL && old_mock[0] != '\0') {
-		setenv("SK_UI_VISION_MOCK_RESPONSE", old_mock, 1);
-	}
-
 	if (rc == SK_UI_VISION_ASSERT_SKIPPED) {
+		ufx_vision_restore_env(prev_backend, prev_mock);
+		sk_ui_vision_gate_note_skipped(scene_name, result.reason[0] != '\0' ? result.reason : "no vision credentials");
 		return;
 	}
 	if (rc == SK_UI_VISION_ASSERT_ERROR || rc == SK_UI_VISION_ASSERT_FAIL || result.passed == 0) {
@@ -209,13 +232,18 @@ static void ufx_vision_grade(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* img
 		memset(&retry, 0, sizeof(retry));
 		rc2 = sk_ui_vision_assert_image(ui, img, SK_UI_VISION_WIDGET_FLEXBOX, state_hint, scene_name, sk_filesystem_api(), &retry);
 		if (rc2 == SK_UI_VISION_ASSERT_OK && retry.passed != 0) {
+			ufx_vision_restore_env(prev_backend, prev_mock);
 			return;
 		}
 		if (rc2 == SK_UI_VISION_ASSERT_SKIPPED) {
+			ufx_vision_restore_env(prev_backend, prev_mock);
+			sk_ui_vision_gate_note_skipped(scene_name, retry.reason[0] != '\0' ? retry.reason : "no vision credentials");
 			return;
 		}
+		ufx_vision_restore_env(prev_backend, prev_mock);
 		if (rc == SK_UI_VISION_ASSERT_ERROR && rc2 == SK_UI_VISION_ASSERT_ERROR) {
 			fprintf(stderr, "vision assert ERROR for %s: %s\n", scene_name, retry.reason[0] != '\0' ? retry.reason : result.reason);
+			sk_ui_vision_gate_note_skipped(scene_name, "vision backend ERROR after retries");
 			return;
 		}
 		fprintf(stderr, "vision FAIL %s (flexbox): %s\n", scene_name, retry.reason[0] != '\0' ? retry.reason : result.reason);
@@ -227,6 +255,7 @@ static void ufx_vision_grade(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* img
 		TEST_FAIL_MESSAGE("vision FAIL: flexbox qualitative arrangement did not match claim (see stderr)");
 		return;
 	}
+	ufx_vision_restore_env(prev_backend, prev_mock);
 	TEST_ASSERT_EQUAL_INT(SK_UI_VISION_ASSERT_OK, rc);
 	TEST_ASSERT_EQUAL_INT(1, result.passed);
 }

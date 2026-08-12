@@ -837,6 +837,76 @@ i32 sk_ui_vision_assert_image(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* im
 }
 
 /* -------------------------------------------------------------------------- */
+/* Per-test vision credential gate (APX-263)                                  */
+/* -------------------------------------------------------------------------- */
+
+static i32 vision_gate_skips = 0;
+static char vision_gate_scene[128];
+static char vision_gate_reason[256];
+
+void sk_ui_vision_gate_begin(void) {
+	vision_gate_skips = 0;
+	vision_gate_scene[0] = '\0';
+	vision_gate_reason[0] = '\0';
+}
+
+void sk_ui_vision_gate_note_skipped(const_chr_t scene_name, const_chr_t reason) {
+	const_chr_t scene = (scene_name != NULL && scene_name[0] != '\0') ? scene_name : "(unnamed)";
+	const_chr_t why = (reason != NULL && reason[0] != '\0') ? reason : "no vision credentials / backend unavailable";
+
+	vision_gate_skips += 1;
+	if (vision_gate_scene[0] == '\0') {
+		(void)snprintf(vision_gate_scene, sizeof(vision_gate_scene), "%s", scene);
+	}
+	(void)snprintf(vision_gate_reason, sizeof(vision_gate_reason), "%s", why);
+	/*
+	 * Always print a clear line so CI logs never look like a silent vision pass.
+	 * Structural / interaction asserts still run; finish() decides IGNORE vs FAIL.
+	 */
+	fprintf(stderr, "VISION SKIPPED: scene=%s reason=%s (set XAI_API_KEY or SK_UI_VISION_API_KEY for live grades)\n", scene, why);
+	fflush(stderr);
+}
+
+i32 sk_ui_vision_gate_had_skip(void) {
+	return (vision_gate_skips > 0) ? 1 : 0;
+}
+
+void sk_ui_vision_gate_finish(void) {
+	char msg[640];
+	const char* required;
+	i32 skips;
+
+	skips = vision_gate_skips;
+	if (skips <= 0) {
+		return;
+	}
+	vision_gate_skips = 0;
+
+	(void)snprintf(msg, sizeof(msg),
+				   "vision grades SKIPPED (%d): no API credentials (first scene=%s); structural asserts ran - set XAI_API_KEY or "
+				   "SK_UI_VISION_API_KEY (or SK_UI_VISION_REQUIRED=1 to fail instead of ignore)",
+				   skips, vision_gate_scene[0] != '\0' ? vision_gate_scene : "(none)");
+	fprintf(stderr, "%s\n", msg);
+	fflush(stderr);
+
+#ifdef SK_TESTS
+	/* Preserve a hard failure if structural asserts already failed this test. */
+	if (Unity.CurrentTestFailed != 0) {
+		return;
+	}
+	required = getenv("SK_UI_VISION_REQUIRED");
+	if (required != NULL && required[0] == '1') {
+		TEST_FAIL_MESSAGE(msg);
+		return;
+	}
+	TEST_IGNORE_MESSAGE(msg);
+#else
+	(void)required;
+	(void)msg;
+#endif
+}
+
+/* -------------------------------------------------------------------------- */
 /* Unit / integration tests (APX-251)                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -927,14 +997,11 @@ SK_TEST(ui_vision_assert_mock_pass_and_fail_saves_frame) {
 	setenv("SK_UI_VISION_MOCK_RESPONSE", "{\"pass\":false,\"reason\":\"mock fail: filled square, not X\"}", 1);
 	memset(&result, 0, sizeof(result));
 	rc = sk_ui_vision_assert_path(NULL, path, &img, SK_UI_VISION_WIDGET_CHECKBOX, "checked", "vision_mock_fail", fs, &result);
-	TEST_ASSERT_EQUAL_INT(SK_UI_VISION_ASSERT_FAIL, rc);
-	TEST_ASSERT_EQUAL_INT(0, result.passed);
-	TEST_ASSERT_TRUE(strstr(result.reason, "filled square") != NULL);
-	TEST_ASSERT_TRUE(result.saved_frame_path[0] != '\0');
-	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, fs->get_file_status(result.saved_frame_path));
-	remove(result.saved_frame_path);
 
-	/* Restore env */
+	/*
+	 * Restore env BEFORE asserts that can longjmp out of this test. Leaving
+	 * MOCK_RESPONSE set would make every later live vision grade use mock.
+	 */
 	if (prev_mock[0] != '\0') {
 		setenv("SK_UI_VISION_MOCK_RESPONSE", prev_mock, 1);
 	} else {
@@ -946,6 +1013,13 @@ SK_TEST(ui_vision_assert_mock_pass_and_fail_saves_frame) {
 		unsetenv("SK_UI_VISION_BACKEND");
 	}
 	remove(path);
+
+	TEST_ASSERT_EQUAL_INT(SK_UI_VISION_ASSERT_FAIL, rc);
+	TEST_ASSERT_EQUAL_INT(0, result.passed);
+	TEST_ASSERT_TRUE(strstr(result.reason, "filled square") != NULL);
+	TEST_ASSERT_TRUE_MESSAGE(result.saved_frame_path[0] != '\0', "mock fail must save offending frame under SK_TEST_ARTIFACT_DIR");
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, fs->get_file_status(result.saved_frame_path));
+	remove(result.saved_frame_path);
 }
 
 /*

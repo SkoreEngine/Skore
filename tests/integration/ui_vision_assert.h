@@ -129,6 +129,31 @@ i32 sk_ui_vision_assert_path(const sk_ui_api_t* ui, const_chr_t image_path, cons
 i32 sk_ui_vision_assert_image(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* image, sk_ui_vision_widget_family_t family, const_chr_t state_hint, const_chr_t scene_name,
 							  const sk_filesystem_api_t* fs, sk_ui_vision_result_t* out_result);
 
+/**
+ * Per-test vision credential gate (APX-263).
+ *
+ * Suites that mix structural asserts with live vision grades should:
+ *   1. sk_ui_vision_gate_begin() at test start (or env init)
+ *   2. sk_ui_vision_gate_note_skipped(scene, reason) when assert returns SKIPPED
+ *   3. sk_ui_vision_gate_finish() at test end (after all structural work)
+ *
+ * finish() marks the Unity test as IGNORE (clear message) when any vision
+ * grade was skipped for missing credentials — never a silent PASS for
+ * vision-dependent coverage. Structural asserts still ran and can fail.
+ *
+ * If SK_UI_VISION_REQUIRED=1, missing credentials FAIL instead of IGNORE
+ * (used by vision-required CI jobs).
+ */
+void sk_ui_vision_gate_begin(void);
+void sk_ui_vision_gate_note_skipped(const_chr_t scene_name, const_chr_t reason);
+/** @return 1 if any skip was recorded since begin (before finish clears). */
+i32 sk_ui_vision_gate_had_skip(void);
+/**
+ * If skips were noted: FAIL when SK_UI_VISION_REQUIRED=1, else TEST_IGNORE
+ * with a clear message. No-op when no skips (or when the test already failed).
+ */
+void sk_ui_vision_gate_finish(void);
+
 #ifdef __cplusplus
 }
 #endif

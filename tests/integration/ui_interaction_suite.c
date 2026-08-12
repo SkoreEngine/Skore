@@ -7,7 +7,9 @@
  * plugin (ui_interaction_tests.c); this TU bridges vision on soft-render
  * captures after real clicks/drags.
  *
- * Vision SKIPPED without credentials does not fail the suite.
+ * Vision SKIPPED without credentials is gated clearly via sk_ui_vision_gate_*
+ * (Unity IGNORE, or FAIL if SK_UI_VISION_REQUIRED=1) — never a silent PASS
+ * (APX-263). Behavioural asserts still run either way.
  */
 
 #include "app.h"
@@ -22,6 +24,7 @@
 #undef noreturn
 #endif
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef SK_TESTS
@@ -59,6 +62,7 @@ static i32 ixs_boot(ixs_env_t* env) {
 #else
 	const_chr_t plugin_name = "sk-ui.so";
 #endif
+	sk_ui_vision_gate_begin();
 	memset(env, 0, sizeof(*env));
 	env->app = sk_app_init(0, NULL);
 	if (env->app == NULL) {
@@ -82,6 +86,8 @@ static void ixs_shutdown(ixs_env_t* env) {
 		env->app = NULL;
 		env->ui = NULL;
 	}
+	/* After behavioural asserts: IGNORE (or FAIL if REQUIRED) when vision skipped. */
+	sk_ui_vision_gate_finish();
 }
 
 static void ixs_place(sk_ui_test_t* t, sk_ui_node_t node, f32 x, f32 y, f32 w, f32 h) {
@@ -107,7 +113,23 @@ static void ixs_place(sk_ui_test_t* t, sk_ui_node_t node, f32 x, f32 y, f32 w, f
 }
 
 /**
- * Grade soft-render buffer after interactions. SKIPPED is OK without API keys.
+ * Tight soft-render viewport so the widget fills enough of the frame for
+ * reliable vision grades (default 400x300 makes a 24px checkbox look like a
+ * speck and flukes the model — see widget vision 80x80 pattern).
+ */
+static void ixs_vision_desc(sk_ui_test_engine_desc_t* desc, f32 width, f32 height) {
+	memset(desc, 0, sizeof(*desc));
+	desc->width = width;
+	desc->height = height;
+	desc->content_scale = 1.0f;
+	desc->soft_render = 1;
+}
+
+/**
+ * Grade soft-render buffer after interactions.
+ * SKIPPED is recorded via sk_ui_vision_gate_* (clear message; never silent PASS).
+ * Call sk_ui_vision_gate_finish() before test end so IGNORE/REQUIRED applies.
+ * One retry on FAIL absorbs model flukes (same policy as widget/flexbox vision).
  */
 static void ixs_vision_after_capture(sk_ui_test_t* t, sk_ui_vision_widget_family_t family, const_chr_t state_hint, const_chr_t scene) {
 	const sk_ui_api_t* ui = t->ui;
@@ -117,6 +139,7 @@ static void ixs_vision_after_capture(sk_ui_test_t* t, sk_ui_vision_widget_family
 	sk_ui_cpu_image_t img;
 	sk_ui_vision_result_t vr;
 	i32 rc;
+	i32 attempt;
 
 	TEST_ASSERT_EQUAL_INT(0, sk_ui_test_capture_frame(t, "vision"));
 	h = ui->test_engine_harness(t->engine);
@@ -131,40 +154,58 @@ static void ixs_vision_after_capture(sk_ui_test_t* t, sk_ui_vision_widget_family
 	img.channels = 4u;
 	img.pixels = (u8*)SK_CONST_CAST(void*, px);
 
-	memset(&vr, 0, sizeof(vr));
-	rc = sk_ui_vision_assert_image(ui, &img, family, state_hint, scene, sk_filesystem_api(), &vr);
-	if (rc == SK_UI_VISION_ASSERT_SKIPPED) {
-		/* Live vision optional; soft-render + model state already asserted. */
-		return;
-	}
-	if (rc == SK_UI_VISION_ASSERT_OK) {
-		TEST_ASSERT_TRUE(vr.passed != 0);
-		return;
-	}
-	if (rc == SK_UI_VISION_ASSERT_FAIL) {
+	/* Clear inherited mock so a prior helper test cannot poison live grades. */
+	unsetenv("SK_UI_VISION_BACKEND");
+	unsetenv("SK_UI_VISION_MOCK_RESPONSE");
+
+	for (attempt = 0; attempt < 2; ++attempt) {
+		memset(&vr, 0, sizeof(vr));
+		rc = sk_ui_vision_assert_image(ui, &img, family, state_hint, scene, sk_filesystem_api(), &vr);
+		if (rc == SK_UI_VISION_ASSERT_SKIPPED) {
+			/* Behavioural asserts already ran; gate finishes as IGNORE without credentials. */
+			sk_ui_vision_gate_note_skipped(scene, vr.reason[0] != '\0' ? vr.reason : "no vision credentials");
+			return;
+		}
+		if (rc == SK_UI_VISION_ASSERT_OK && vr.passed != 0) {
+			return;
+		}
+		if (rc == SK_UI_VISION_ASSERT_ERROR) {
+			/* ERROR: do not hard-fail CI on backend plumbing; model state is the gate. */
+			sk_ui_vision_gate_note_skipped(scene, "vision backend ERROR");
+			return;
+		}
+		/* FAIL: retry once for model flukes, then hard-fail with the reason. */
+		if (attempt == 0) {
+			fprintf(stderr, "vision FAIL %s (retry once): %s\n", scene, vr.reason[0] != '\0' ? vr.reason : "(no reason)");
+			continue;
+		}
+		if (vr.saved_frame_path[0] != '\0') {
+			fprintf(stderr, "  failing frame: %s\n", vr.saved_frame_path);
+		}
 		TEST_FAIL_MESSAGE(vr.reason[0] != '\0' ? vr.reason : "vision assert failed after interaction");
 	}
-	/* ERROR: do not hard-fail CI on backend plumbing; model state is the gate. */
-	(void)rc;
 }
 
 /**
  * Checkbox click → checked, then vision grade on post-interaction frame.
+ * 80x80 canvas matches ui_widget_vision_checkbox so the 24px box is gradeable.
  */
 SK_TEST(ui_ix_vision_checkbox_after_click) {
 	ixs_env_t env;
 	sk_ui_test_t t;
 	sk_ui_node_t root;
 	sk_ui_node_t cb;
+	sk_ui_test_engine_desc_t desc;
 
 	if (ixs_boot(&env) != 0) {
 		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip interaction vision)");
 		return;
 	}
-	TEST_ASSERT_EQUAL_INT(0, sk_ui_test_begin(&t, env.ui, "ix_vision_checkbox", NULL));
+	ixs_vision_desc(&desc, 80.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, sk_ui_test_begin(&t, env.ui, "ix_vision_checkbox", &desc));
 	root = env.ui->context_root(t.ctx);
 	cb = env.ui->widget_checkbox(t.ctx, root, 0, "v-cb");
-	ixs_place(&t, cb, 40.0f, 40.0f, 24.0f, 24.0f);
+	ixs_place(&t, cb, 28.0f, 28.0f, 24.0f, 24.0f);
 
 	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, sk_ui_test_step(&t));
 	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, sk_ui_click_item(&t, "v-cb"));
@@ -187,15 +228,18 @@ SK_TEST(ui_ix_vision_slider_after_drag) {
 	sk_ui_node_t sl;
 	sk_ui_rect_t border;
 	f32 value;
+	sk_ui_test_engine_desc_t desc;
 
 	if (ixs_boot(&env) != 0) {
 		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip interaction vision)");
 		return;
 	}
-	TEST_ASSERT_EQUAL_INT(0, sk_ui_test_begin(&t, env.ui, "ix_vision_slider", NULL));
+	/* Track is 200px wide; keep a modest frame so the handle is still readable. */
+	ixs_vision_desc(&desc, 240.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, sk_ui_test_begin(&t, env.ui, "ix_vision_slider", &desc));
 	root = env.ui->context_root(t.ctx);
 	sl = env.ui->widget_slider(t.ctx, root, 0.0f, 1.0f, 0.1f, "v-sl");
-	ixs_place(&t, sl, 30.0f, 60.0f, 200.0f, 24.0f);
+	ixs_place(&t, sl, 20.0f, 28.0f, 200.0f, 24.0f);
 
 	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, sk_ui_test_step(&t));
 	TEST_ASSERT_EQUAL_INT(0, env.ui->node_get_abs_rect(t.ctx, sl, &border, NULL));
@@ -221,15 +265,17 @@ SK_TEST(ui_ix_vision_radio_after_select) {
 	sk_ui_node_t group;
 	sk_ui_node_t r0;
 	sk_ui_node_t r1;
+	sk_ui_test_engine_desc_t desc;
 
 	if (ixs_boot(&env) != 0) {
 		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip interaction vision)");
 		return;
 	}
-	TEST_ASSERT_EQUAL_INT(0, sk_ui_test_begin(&t, env.ui, "ix_vision_radio", NULL));
+	ixs_vision_desc(&desc, 100.0f, 100.0f);
+	TEST_ASSERT_EQUAL_INT(0, sk_ui_test_begin(&t, env.ui, "ix_vision_radio", &desc));
 	root = env.ui->context_root(t.ctx);
 	group = env.ui->widget_panel(t.ctx, root, "v-rg");
-	ixs_place(&t, group, 24.0f, 24.0f, 80.0f, 64.0f);
+	ixs_place(&t, group, 16.0f, 16.0f, 68.0f, 68.0f);
 	{
 		sk_ui_layout_style_t ls;
 		TEST_ASSERT_EQUAL_INT(0, env.ui->node_get_layout_style(t.ctx, group, &ls));
@@ -268,15 +314,17 @@ SK_TEST(ui_ix_vision_button_after_hover) {
 	sk_ui_test_t t;
 	sk_ui_node_t root;
 	sk_ui_node_t btn;
+	sk_ui_test_engine_desc_t desc;
 
 	if (ixs_boot(&env) != 0) {
 		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip interaction vision)");
 		return;
 	}
-	TEST_ASSERT_EQUAL_INT(0, sk_ui_test_begin(&t, env.ui, "ix_vision_button", NULL));
+	ixs_vision_desc(&desc, 160.0f, 80.0f);
+	TEST_ASSERT_EQUAL_INT(0, sk_ui_test_begin(&t, env.ui, "ix_vision_button", &desc));
 	root = env.ui->context_root(t.ctx);
 	btn = env.ui->widget_button(t.ctx, root, "OK", "v-btn");
-	ixs_place(&t, btn, 48.0f, 48.0f, 100.0f, 32.0f);
+	ixs_place(&t, btn, 30.0f, 24.0f, 100.0f, 32.0f);
 
 	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, sk_ui_test_step(&t));
 	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, sk_ui_hover_item(&t, "v-btn"));

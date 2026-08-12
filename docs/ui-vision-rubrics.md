@@ -136,10 +136,16 @@ Exit `2` = skipped (no credentials). Exit `0` = graded (inspect JSON for pass/fa
 1. Capture a single-widget frame with `sk_ui_capture_harness_capture` (pinned
    DejaVuSans when text is involved — APX-250).
 2. Call `sk_ui_vision_assert_path` / `_image` with the matching family + state hint.
-3. `TEST_ASSERT_EQUAL_INT(SK_UI_VISION_ASSERT_OK, rc)` (or ignore on SKIPPED if
-   the suite is optional without keys).
-4. On FAIL, open `{scene}_vision_fail.png` under `SK_TEST_ARTIFACT_DIR` /
+3. On `SK_UI_VISION_ASSERT_OK`, assert pass; on `FAIL`, fail the test (frame is
+   saved as `{scene}_vision_fail.png`).
+4. On `SKIPPED`, call `sk_ui_vision_gate_note_skipped` and finish the test with
+   `sk_ui_vision_gate_finish` so the result is a clear Unity IGNORE (or FAIL if
+   `SK_UI_VISION_REQUIRED=1`) — never a silent PASS for vision coverage.
+5. On FAIL, open `{scene}_vision_fail.png` under `SK_TEST_ARTIFACT_DIR` /
    `build/test-artifacts` and read `result.reason`.
+
+End-to-end workflow (one-command runner, CI artifacts, interaction suites):
+**`docs/ui-integration-test-workflow.md`**.
 
 ## Flexbox layout samples (APX-257)
 
@@ -149,5 +155,5 @@ with distinctly coloured children in `tests/integration/ui_flexbox_vision.c`.
 Each case asserts parent-content-relative rects numerically, paints solid RGB
 fills, then grades the qualitative arrangement via `SK_UI_VISION_WIDGET_FLEXBOX`
 and a short human-readable `state_hint` (keep hints under ~200 chars — the
-helper’s shell escape buffer is 256). Vision SKIPPED without credentials does
-not fail the suite; numeric + painted bboxes still guard.
+helper’s shell escape buffer is 256). Vision SKIPPED without credentials is
+gated clearly (IGNORE / REQUIRED fail); numeric + painted bboxes still guard.

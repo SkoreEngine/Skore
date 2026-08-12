@@ -106,6 +106,23 @@ add_dependencies(sk-integration-tests
 # relative to cwd, matching the sk-tests working directory.
 add_test(NAME sk-integration-tests COMMAND sk-integration-tests WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 
+# APX-263: focused UI suites (widget-vision + flexbox + interaction bridge).
+# Prefer scripts/run-ui-integration-tests.sh for the full one-command workflow
+# (also runs plugin interaction tests via sk-tests and prints vision skip notes).
+# Prefix wildcards require SK_TEST_FILTER trailing-'*' support in core/test.c.
+add_test(
+    NAME sk-ui-integration-suites
+    COMMAND ${CMAKE_COMMAND} -E env
+        "SK_TEST_FILTER=ui_widget_vision_*,ui_flexbox_vision_*,ui_ix_*,ui_vision_assert_*,ui_vision_rubrics_*"
+        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
+        $<TARGET_FILE:sk-integration-tests>
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+)
+set_tests_properties(sk-ui-integration-suites PROPERTIES
+    LABELS "ui;ui-integration;ui-vision"
+    TIMEOUT 1800
+)
+
 # TEMP repro: repeated harness cycles (remove before commit)
 add_executable(sk-repro-cycles repro_cycles.c ui_capture_harness.c)
 target_link_libraries(sk-repro-cycles PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)

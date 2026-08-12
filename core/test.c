@@ -40,6 +40,29 @@ void sk_test_register(const_chr_t name, void (*fn)(void)) {
 	test_count += 1u;
 }
 
+/**
+ * Match a test name against one SK_TEST_FILTER token.
+ * - exact name: "ui_widget_vision_tab"
+ * - prefix wildcard (trailing '*'): "ui_widget_vision_*"
+ * Exact tokens never use substring matching (avoids tab vs table collisions).
+ */
+static i32 sk_test_filter_token_matches(const_chr_t name, const char* token, size_t token_len) {
+	size_t name_len;
+
+	if (name == NULL || token == NULL || token_len == 0u) {
+		return 0;
+	}
+	name_len = strlen(name);
+	if (token[token_len - 1u] == '*') {
+		size_t prefix_len = token_len - 1u;
+		if (prefix_len == 0u) {
+			return 1; /* bare "*" matches everything */
+		}
+		return (name_len >= prefix_len && strncmp(name, token, prefix_len) == 0) ? 1 : 0;
+	}
+	return (name_len == token_len && strncmp(name, token, token_len) == 0) ? 1 : 0;
+}
+
 void sk_test_run_all(sk_test_report_t* out) {
 	const char* filter = getenv("SK_TEST_FILTER");
 	i32 ran = 0;
@@ -47,9 +70,9 @@ void sk_test_run_all(sk_test_report_t* out) {
 	UNITY_BEGIN();
 	for (u32 i = 0u; i < test_count; ++i) {
 		/*
-		 * Optional exact-name filter. Comma-separated list supported
-		 * (e.g. SK_TEST_FILTER=ui_widget_vision_tab,ui_widget_vision_menu).
-		 * Exact match only — substring would collide (tab vs table).
+		 * Optional name filter. Comma-separated list of exact names and/or
+		 * trailing-'*' prefixes (e.g. SK_TEST_FILTER=ui_widget_vision_*,ui_ix_vision_checkbox_after_click).
+		 * Exact match only for non-wildcard tokens — bare substrings would collide (tab vs table).
 		 */
 		if (filter != NULL && filter[0] != '\0') {
 			const char* p = filter;
@@ -61,7 +84,7 @@ void sk_test_run_all(sk_test_report_t* out) {
 					p++;
 				}
 				len = (size_t)(p - start);
-				if (len > 0u && strlen(tests[i].name) == len && strncmp(tests[i].name, start, len) == 0) {
+				if (sk_test_filter_token_matches(tests[i].name, start, len) != 0) {
 					matched = 1;
 					break;
 				}
