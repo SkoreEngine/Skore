@@ -12,6 +12,16 @@
 
 #include "atomics.h"
 
+/*
+ * Unity (via test.h) may include <stdnoreturn.h>, which defines `noreturn` as
+ * `_Noreturn`. Windows UCRT <stdlib.h> uses `__declspec(noreturn)`; under the
+ * Windows clang-tidy driver that expands to `__declspec(_Noreturn)` and fails
+ * with "__declspec attributes must be an identifier or string literal".
+ * Same fix as core/offset_allocator.c / core/atomics.h.
+ */
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <stdlib.h>
 #include <string.h>
 

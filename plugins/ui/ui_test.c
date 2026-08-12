@@ -14,6 +14,14 @@
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
+/*
+ * ui_test.h pulls in test.h/Unity, which may define `noreturn` as `_Noreturn`.
+ * Windows UCRT <stdlib.h> uses `__declspec(noreturn)`; under clang-tidy that
+ * expands to an invalid attribute. Same fix as core/test.c.
+ */
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <stdlib.h>
 #include <string.h>
 

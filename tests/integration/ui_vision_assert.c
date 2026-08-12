@@ -14,6 +14,13 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+/*
+ * Unity (via test.h) may define `noreturn` as `_Noreturn`. Windows UCRT
+ * <stdlib.h> uses `__declspec(noreturn)`; under clang-tidy that is invalid.
+ */
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <stdlib.h>
 #include <string.h>
 
