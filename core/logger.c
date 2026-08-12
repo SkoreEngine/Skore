@@ -6,13 +6,7 @@
 #include <string.h>
 #include <time.h>
 
-enum {
-	SK_LOGGER_NAME_MAX = 64,
-	SK_LOGGER_MAX_SINKS = 16,
-	SK_LOG_MESSAGE_MAX = 2048,
-	SK_LOG_FILE_PATH_MAX = 1024,
-	SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16
-};
+enum { SK_LOGGER_NAME_MAX = 64, SK_LOGGER_MAX_SINKS = 16, SK_LOG_MESSAGE_MAX = 2048, SK_LOG_FILE_PATH_MAX = 1024, SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16 };
 
 struct sk_logger_t {
 	char name[SK_LOGGER_NAME_MAX];
@@ -96,11 +90,8 @@ static i32 file_sink_open_append(sk_log_file_sink_t* fs) {
 	if (fs->file == NULL) {
 		return -1;
 	}
-	if (fseek(fs->file, 0, SEEK_END) != 0) {
-		fclose(fs->file);
-		fs->file = NULL;
-		return -1;
-	}
+	/* Append mode positions the stream at the end of the file, so the size is
+	 * available directly via ftell; fseek(SEEK_END) would be a no-op here. */
 	pos = ftell(fs->file);
 	fs->current_size = (pos > 0) ? (u64)pos : 0ull;
 	return 0;
