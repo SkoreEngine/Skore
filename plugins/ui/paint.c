@@ -11,6 +11,7 @@
 
 #include "allocator.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* -------------------------------------------------------------------------- */
@@ -78,6 +79,7 @@ void ui_draw_list_store_init(ui_draw_list_store_t* store, const sk_allocator_t* 
 	sk_array_init(&store->commands, a);
 	store->last_scale_x = 1.0f;
 	store->last_scale_y = 1.0f;
+	store->last_text_renderer = SK_UI_TEXT_RENDERER_DEFAULT;
 	store->valid = 0;
 	store->view.vertices = NULL;
 	store->view.vertex_count = 0u;
@@ -129,6 +131,7 @@ typedef struct ui_paint_emitter_t {
 	u32 mesh_tex_id;
 	sk_ui_rect_t mesh_clip;
 	u32 mesh_index_start;
+	sk_ui_text_renderer_t text_renderer; /**< Resolved FREETYPE or MSDF. */
 } ui_paint_emitter_t;
 
 static sk_ui_rect_t ui_paint_full_viewport(const ui_paint_emitter_t* em) {
@@ -520,14 +523,180 @@ static i32 ui_paint_utf8_next(const u8** pp, u32* out_cp) {
 	return 0;
 }
 
+static i32 ui_paint_msdf_gpu_quads(void) {
+	const char* e = getenv("SK_UI_MSDF_GPU");
+	return (e != NULL && (e[0] == '1' || e[0] == 'y' || e[0] == 'Y')) ? 1 : 0;
+}
+
+/*
+ * Evaluate the MSDF shader (median + screen-space range + smoothstep) on the
+ * CPU and emit coverage solid runs. GPU atlas sampling is tofu on lavapipe
+ * (APX-244); this keeps captures/letterforms correct while matching the PS.
+ */
+static i32 ui_paint_emit_msdf_coverage(ui_paint_emitter_t* em, const sk_ui_msdf_atlas_t* atlas, const sk_ui_msdf_glyph_t* mg, f32 gx0, f32 gy0, f32 gx1, f32 gy1, u32 color) {
+	i32 x0;
+	i32 y0;
+	i32 x1;
+	i32 y1;
+	i32 y;
+	f32 qw;
+	f32 qh;
+	f32 fw_u;
+	f32 fw_v;
+	f32 spr;
+	const u32 base_a = (color >> 24) & 0xffu;
+
+	if (gx1 < gx0) {
+		f32 t = gx0;
+		gx0 = gx1;
+		gx1 = t;
+	}
+	if (gy1 < gy0) {
+		f32 t = gy0;
+		gy0 = gy1;
+		gy1 = t;
+	}
+	qw = gx1 - gx0;
+	qh = gy1 - gy0;
+	if (qw <= 0.0f || qh <= 0.0f || atlas == NULL || atlas->pixels == NULL) {
+		return 0;
+	}
+	fw_u = (mg->u1 - mg->u0) / qw;
+	fw_v = (mg->v1 - mg->v0) / qh;
+	if (fw_u < 0.0f) {
+		fw_u = -fw_u;
+	}
+	if (fw_v < 0.0f) {
+		fw_v = -fw_v;
+	}
+	spr = ui_msdf_screen_px_range(atlas->px_range, (f32)atlas->width, (f32)atlas->height, fw_u, fw_v);
+
+	x0 = (i32)gx0;
+	y0 = (i32)gy0;
+	x1 = (i32)gx1 + 1;
+	y1 = (i32)gy1 + 1;
+	if (gx0 < 0.0f) {
+		x0 = (i32)(gx0 - 1.0f);
+	}
+	if (gy0 < 0.0f) {
+		y0 = (i32)(gy0 - 1.0f);
+	}
+	if (x1 < x0) {
+		return 0;
+	}
+	if (y1 < y0) {
+		return 0;
+	}
+
+	for (y = y0; y < y1; ++y) {
+		i32 x = x0;
+		while (x < x1) {
+			f32 px = (f32)x + 0.5f;
+			f32 py = (f32)y + 0.5f;
+			f32 u;
+			f32 v;
+			f32 med;
+			f32 cov;
+			u32 a;
+			i32 run = x + 1;
+			u32 sum = 0u;
+			u32 n = 0u;
+			if (px < gx0 || py < gy0 || px >= gx1 || py >= gy1) {
+				x += 1;
+				continue;
+			}
+			u = mg->u0 + (mg->u1 - mg->u0) * ((px - gx0) / qw);
+			v = mg->v0 + (mg->v1 - mg->v0) * ((py - gy0) / qh);
+			med = ui_msdf_sample_median_bilinear(atlas, u, v);
+			cov = ui_msdf_coverage(med, spr);
+			a = (u32)((f32)base_a * cov + 0.5f);
+			if (a == 0u) {
+				x += 1;
+				continue;
+			}
+			sum = a;
+			n = 1u;
+			while (run < x1) {
+				f32 rpx = (f32)run + 0.5f;
+				f32 ru;
+				f32 rmed;
+				f32 rcov;
+				u32 ra;
+				if (rpx < gx0 || rpx >= gx1) {
+					break;
+				}
+				ru = mg->u0 + (mg->u1 - mg->u0) * ((rpx - gx0) / qw);
+				rmed = ui_msdf_sample_median_bilinear(atlas, ru, v);
+				rcov = ui_msdf_coverage(rmed, spr);
+				ra = (u32)((f32)base_a * rcov + 0.5f);
+				if (ra == 0u || (ra > a + 16u) || (a > ra + 16u)) {
+					break;
+				}
+				sum += ra;
+				n += 1u;
+				run += 1;
+			}
+			{
+				u32 avg = sum / n;
+				u32 run_col = (color & 0x00ffffffu) | (avg << 24);
+				if (ui_paint_add_solid_quad(em, (f32)x, (f32)y, (f32)run, (f32)y + 1.0f, run_col) != 0) {
+					return -1;
+				}
+			}
+			x = run;
+		}
+	}
+	return 0;
+}
+
+static i32 ui_paint_font_use_msdf(const ui_paint_emitter_t* em, sk_ui_font_t* font) {
+	if (em == NULL || font == NULL || em->text_renderer != SK_UI_TEXT_RENDERER_MSDF) {
+		return 0;
+	}
+	if (ui_font_msdf_ptr(font) == NULL) {
+		(void)ui_font_msdf_bake_impl(font);
+	}
+	return ui_font_msdf_ptr(font) != NULL ? 1 : 0;
+}
+
+static f32 ui_paint_codepoint_advance(const ui_paint_emitter_t* em, sk_ui_font_system_t* sys, sk_ui_font_t* font, u32 pixel_size, u32 cp) {
+	if (ui_paint_font_use_msdf(em, font)) {
+		sk_ui_msdf_glyph_t g;
+		if (ui_font_msdf_get_glyph_impl(font, cp, &g) == 0) {
+			return g.advance_em * (f32)pixel_size;
+		}
+		return 0.0f;
+	}
+	{
+		u32 gi = ui_font_glyph_index_impl(font, cp);
+		sk_ui_glyph_t g;
+		if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
+			return g.advance_x;
+		}
+	}
+	return 0.0f;
+}
+
+static i32 ui_paint_font_metrics(const ui_paint_emitter_t* em, sk_ui_font_t* font, u32 pixel_size, sk_ui_font_metrics_t* out) {
+	if (ui_paint_font_use_msdf(em, font)) {
+		sk_ui_msdf_atlas_t atlas;
+		if (ui_font_msdf_get_atlas_impl(font, &atlas) == 0) {
+			out->ascent = atlas.ascender_em * (f32)pixel_size;
+			out->descent = atlas.descender_em * (f32)pixel_size;
+			out->line_height = atlas.line_height_em * (f32)pixel_size;
+			out->pixel_size = (f32)pixel_size;
+			return 0;
+		}
+	}
+	return ui_font_get_metrics_impl(font, pixel_size, out);
+}
+
 /** Measure advance of a UTF-8 range [begin,end) at pixel_size. */
-static f32 ui_paint_measure_advance(sk_ui_font_system_t* sys, sk_ui_font_t* font, u32 pixel_size, const u8* begin, const u8* end) {
+static f32 ui_paint_measure_advance(const ui_paint_emitter_t* em, sk_ui_font_system_t* sys, sk_ui_font_t* font, u32 pixel_size, const u8* begin, const u8* end) {
 	f32 w = 0.0f;
 	const u8* p = begin;
 	while (p < end) {
 		u32 cp;
-		u32 gi;
-		sk_ui_glyph_t g;
 		const u8* prev = p;
 		if (!ui_paint_utf8_next(&p, &cp) || p == prev) {
 			if (p == prev) {
@@ -538,10 +707,7 @@ static f32 ui_paint_measure_advance(sk_ui_font_system_t* sys, sk_ui_font_t* font
 		if (cp == (u32)'\n') {
 			break;
 		}
-		gi = ui_font_glyph_index_impl(font, cp);
-		if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
-			w += g.advance_x;
-		}
+		w += ui_paint_codepoint_advance(em, sys, font, pixel_size, cp);
 	}
 	return w;
 }
@@ -637,7 +803,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 	if (pixel_size == 0u) {
 		return 0;
 	}
-	if (ui_font_get_metrics_impl(font, pixel_size, &metrics) != 0) {
+	if (ui_paint_font_metrics(em, font, pixel_size, &metrics) != 0) {
 		return 0;
 	}
 
@@ -661,8 +827,6 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			while (*q != 0u && *q != (u8)'\n') {
 				const u8* cp_start = q;
 				u32 cp;
-				u32 gi;
-				sk_ui_glyph_t g;
 				f32 adv;
 				if (!ui_paint_utf8_next(&q, &cp)) {
 					continue;
@@ -670,11 +834,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 				if (cp == (u32)' ' || cp == (u32)'\t') {
 					word_break = q;
 				}
-				gi = ui_font_glyph_index_impl(font, cp);
-				adv = 0.0f;
-				if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
-					adv = g.advance_x;
-				}
+				adv = ui_paint_codepoint_advance(em, sys, font, pixel_size, cp);
 				if (line_w + adv > content_w && line_end > line_begin) {
 					if (word_break != NULL && word_break > line_begin) {
 						line_end = word_break;
@@ -702,7 +862,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			line_end = q;
 		}
 
-		line_w = ui_paint_measure_advance(sys, font, pixel_size, line_begin, line_end);
+		line_w = ui_paint_measure_advance(em, sys, font, pixel_size, line_begin, line_end);
 		if (line_count < 32u) {
 			line_starts[line_count] = line_begin;
 			line_ends[line_count] = line_end;
@@ -770,8 +930,6 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			while (t < b) {
 				u32 cp;
 				const u8* prev = t;
-				u32 gi;
-				sk_ui_glyph_t g;
 				f32 adv = 0.0f;
 				if (!ui_paint_utf8_next(&t, &cp) || t == prev) {
 					if (t == prev) {
@@ -779,10 +937,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					}
 					continue;
 				}
-				gi = ui_font_glyph_index_impl(font, cp);
-				if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
-					adv = g.advance_x;
-				}
+				adv = ui_paint_codepoint_advance(em, sys, font, pixel_size, cp);
 				if (i1 >= sel_a && i1 < sel_b) {
 					if (!started) {
 						x0 = pen_x + (f32)(i1 - code_index) * 0.0f + (pen_x - line_x0) + line_x0;
@@ -805,8 +960,6 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 			while (t < b) {
 				u32 cp;
 				const u8* prev = t;
-				u32 gi;
-				sk_ui_glyph_t g;
 				f32 adv = 0.0f;
 				if (!ui_paint_utf8_next(&t, &cp) || t == prev) {
 					if (t == prev) {
@@ -814,10 +967,7 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					}
 					continue;
 				}
-				gi = ui_font_glyph_index_impl(font, cp);
-				if (ui_font_get_glyph_impl(sys, font, pixel_size, gi, &g) == 0) {
-					adv = g.advance_x;
-				}
+				adv = ui_paint_codepoint_advance(em, sys, font, pixel_size, cp);
 				if (i1 >= sel_a && i1 < sel_b) {
 					if (!started) {
 						x0 = pen_x;
@@ -860,6 +1010,33 @@ static i32 ui_paint_emit_text(ui_paint_emitter_t* em, const ui_node_slot_t* slot
 					if (t == prev) {
 						t += 1;
 					}
+					continue;
+				}
+				if (ui_paint_font_use_msdf(em, font)) {
+					sk_ui_msdf_glyph_t mg;
+					const f32 px = (f32)pixel_size;
+					if (ui_font_msdf_get_glyph_impl(font, cp, &mg) != 0) {
+						code_index += 1;
+						continue;
+					}
+					if (mg.is_whitespace == 0 && mg.atlas_w > 0 && mg.atlas_h > 0) {
+						sk_ui_msdf_atlas_t atlas;
+						gx0 = pen_x + mg.plane_l * px;
+						gy0 = baseline_y - mg.plane_t * px;
+						gx1 = pen_x + mg.plane_r * px;
+						gy1 = baseline_y - mg.plane_b * px;
+						if (ui_paint_msdf_gpu_quads() != 0) {
+							if (ui_paint_add_textured_quad(em, SK_UI_DRAW_TEX_MSDF, ui_font_id(font), gx0, gy0, gx1, gy1, mg.u0, mg.v0, mg.u1, mg.v1, color) != 0) {
+								return -1;
+							}
+						} else if (ui_font_msdf_get_atlas_impl(font, &atlas) == 0) {
+							if (ui_paint_emit_msdf_coverage(em, &atlas, &mg, gx0, gy0, gx1, gy1, color) != 0) {
+								return -1;
+							}
+						}
+					}
+					pen_x += mg.advance_em * px;
+					code_index += 1;
 					continue;
 				}
 				gi = ui_font_glyph_index_impl(font, cp);
@@ -1480,10 +1657,12 @@ i32 ui_paint_impl(sk_ui_context_t* ctx, const sk_ui_paint_params_t* params) {
 	ui_paint_emitter_t em;
 	ui_draw_list_store_t* store;
 	sk_ui_paint_params_t empty_params;
+	sk_ui_text_renderer_t resolved;
 
 	store = &ctx->draw;
+	resolved = ui_paint_resolve_text_renderer(params);
 
-	if (ui_paint_needs_rebuild(ctx) == 0) {
+	if (ui_paint_needs_rebuild(ctx) == 0 && store->last_text_renderer == resolved) {
 		store->view.reused = 1;
 		ui_draw_list_publish(store, 1);
 		return 0;
@@ -1509,6 +1688,7 @@ i32 ui_paint_impl(sk_ui_context_t* ctx, const sk_ui_paint_params_t* params) {
 	}
 	em.clip_depth = 0u;
 	em.mesh_open = 0;
+	em.text_renderer = resolved;
 
 	if (ui_paint_node(&em, ctx->root, 0.0f, 0.0f, 1.0f) != 0) {
 		return -1;
@@ -1517,6 +1697,7 @@ i32 ui_paint_impl(sk_ui_context_t* ctx, const sk_ui_paint_params_t* params) {
 
 	store->last_scale_x = ctx->content_scale_x;
 	store->last_scale_y = ctx->content_scale_y;
+	store->last_text_renderer = resolved;
 	store->valid = 1;
 	store->view.generation += 1u;
 	ui_draw_list_publish(store, 0);
@@ -2025,6 +2206,81 @@ SK_TEST(ui_paint_border_and_rounded_and_text) {
 	TEST_ASSERT_TRUE(dl->vertex_count > 24u);
 	TEST_ASSERT_TRUE(dl->index_count > 36u);
 
+	ui->font_system_destroy(sys);
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_paint_msdf_text_switch_emits_textured_quads) {
+	const sk_ui_api_t* ui = ui_paint_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t text;
+	sk_ui_font_system_t* sys;
+	sk_ui_font_t* font;
+	sk_ui_paint_params_t params;
+	const sk_ui_draw_list_t* dl;
+	sk_ui_text_renderer_t prev;
+	u32 msdf_meshes;
+	u32 i;
+
+	prev = ui->get_text_renderer();
+	sys = ui->font_system_create(NULL, 256u, 256u);
+	TEST_ASSERT_NOT_NULL(sys);
+	font = ui->font_load_memory(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
+	TEST_ASSERT_NOT_NULL(font);
+
+	ui_paint_set_size(ui, ctx, root, 220.0f, 80.0f);
+	text = ui->node_create(ctx, SK_UI_NODE_KIND_TEXT, root);
+	ui_paint_set_size(ui, ctx, text, 200.0f, 40.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_prop_str(ctx, text, "text", "Hi"));
+	{
+		sk_ui_style_props_t p;
+		ui_style_props_clear(&p);
+		p.mask = SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE;
+		p.color = sk_ui_rgba(1.0f, 1.0f, 1.0f, 0.8f);
+		p.font_size = 24.0f;
+		TEST_ASSERT_EQUAL_INT(0, ui->node_merge_inline_style(ctx, text, &p));
+	}
+
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, 220.0f, 80.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout_apply_scale(ctx, 1.0f, 1.0f));
+
+	memset(&params, 0, sizeof(params));
+	params.font_system = sys;
+	params.font = font;
+	params.text_renderer = SK_UI_TEXT_RENDERER_FREETYPE;
+	TEST_ASSERT_EQUAL_INT(0, ui->paint(ctx, &params));
+	dl = ui->get_draw_list(ctx);
+	TEST_ASSERT_EQUAL_UINT(0u, ui_paint_count_mesh_tex(dl, SK_UI_DRAW_TEX_MSDF));
+	TEST_ASSERT_TRUE(dl->vertex_count > 8u);
+
+	/* MSDF path (CPU evaluate of the shader): coverage solids, no tofu quads. */
+	params.text_renderer = SK_UI_TEXT_RENDERER_MSDF;
+	TEST_ASSERT_EQUAL_INT(0, ui->paint(ctx, &params));
+	dl = ui->get_draw_list(ctx);
+	msdf_meshes = ui_paint_count_mesh_tex(dl, SK_UI_DRAW_TEX_MSDF);
+	TEST_ASSERT_EQUAL_UINT(0u, msdf_meshes);
+	TEST_ASSERT_TRUE(dl->vertex_count >= 8u);
+	{
+		u32 ink_verts = 0u;
+		const u32 want_rgb = sk_ui_pack_color(sk_ui_rgba(1.0f, 1.0f, 1.0f, 0.8f)) & 0x00ffffffu;
+		for (i = 0u; i < dl->vertex_count; ++i) {
+			if ((dl->vertices[i].color & 0x00ffffffu) == want_rgb && ((dl->vertices[i].color >> 24) & 0xffu) > 0u) {
+				ink_verts += 1u;
+			}
+		}
+		TEST_ASSERT_TRUE(ink_verts >= 8u);
+	}
+
+	/* Toggle back to legacy: MSDF meshes disappear. */
+	params.text_renderer = SK_UI_TEXT_RENDERER_FREETYPE;
+	TEST_ASSERT_EQUAL_INT(0, ui->paint(ctx, &params));
+	dl = ui->get_draw_list(ctx);
+	TEST_ASSERT_EQUAL_UINT(0u, ui_paint_count_mesh_tex(dl, SK_UI_DRAW_TEX_MSDF));
+	TEST_ASSERT_TRUE(dl->vertex_count > 8u);
+
+	ui->set_text_renderer(prev);
 	ui->font_system_destroy(sys);
 	ui->context_destroy(ctx);
 }

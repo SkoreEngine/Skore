@@ -746,12 +746,31 @@ typedef enum sk_ui_draw_cmd_kind_t {
  * Texture binding kind for a MESH command. NONE = solid (vertex color only).
  * FONT = R8 atlas page (texture_id = page_index). IMAGE = host texture
  * (texture_id = host-defined id from the image node property).
+ * MSDF = RGB(A) multi-channel SDF atlas (texture_id = font id).
  */
 typedef enum sk_ui_draw_texture_kind_t {
 	SK_UI_DRAW_TEX_NONE = 0,
 	SK_UI_DRAW_TEX_FONT = 1,
 	SK_UI_DRAW_TEX_IMAGE = 2,
+	SK_UI_DRAW_TEX_MSDF = 3,
 } sk_ui_draw_texture_kind_t;
+
+/**
+ * UI text raster / decode path. Process default is FreeType (legacy R8
+ * coverage) so existing goldens stay comparable. MSDF emits one textured
+ * quad per glyph; the fragment shader takes the median of RGB, converts
+ * to a signed screen-space distance (px_range + fwidth), and covers with
+ * a clamped smoothstep.
+ *
+ * Runtime switch: sk_ui_api_t::set_text_renderer / get_text_renderer, or
+ * env SK_UI_TEXT_RENDERER=msdf|freetype (read on first get when unset).
+ * Paint may override per call via sk_ui_paint_params_t::text_renderer.
+ */
+typedef enum sk_ui_text_renderer_t {
+	SK_UI_TEXT_RENDERER_DEFAULT = 0,  /**< Use process switch / env. */
+	SK_UI_TEXT_RENDERER_FREETYPE = 1, /**< Legacy FreeType R8 coverage. */
+	SK_UI_TEXT_RENDERER_MSDF = 2,	  /**< msdf-atlas-c + MSDF shader. */
+} sk_ui_text_renderer_t;
 
 /**
  * One command in the paint stream. For MESH: index_offset/index_count select
@@ -794,8 +813,9 @@ typedef struct sk_ui_draw_list_t {
  * All fields may be NULL / zero when unused.
  */
 typedef struct sk_ui_paint_params_t {
-	sk_ui_font_system_t* font_system; /**< Required to emit text glyph quads. */
-	sk_ui_font_t* font;				  /**< Default face for TEXT nodes. */
+	sk_ui_font_system_t* font_system;	 /**< Required to emit text glyph quads. */
+	sk_ui_font_t* font;					 /**< Default face for TEXT nodes. */
+	sk_ui_text_renderer_t text_renderer; /**< 0 = process default / env. */
 } sk_ui_paint_params_t;
 
 /* ------------------------------------------------------------------ */
@@ -963,7 +983,8 @@ typedef struct sk_ui_renderer_images_t {
 typedef struct sk_ui_renderer_prepare_info_t {
 	sk_command_buffer_t cmd;			/**< Recording command buffer (not in a pass). */
 	const sk_ui_draw_list_t* draw_list; /**< From paint/get_draw_list; may be empty. */
-	sk_ui_font_system_t* font_system;	/**< Optional; required for FONT texture cmds. */
+	sk_ui_font_system_t* font_system;	/**< Optional; required for FONT / MSDF cmds. */
+	sk_ui_font_t* font;					/**< Optional default face (MSDF atlas fallback). */
 } sk_ui_renderer_prepare_info_t;
 
 /**
@@ -1084,7 +1105,8 @@ typedef struct sk_ui_capture_desc_t {
  */
 typedef struct sk_ui_capture_frame_info_t {
 	const sk_ui_draw_list_t* draw_list; /**< From paint/get_draw_list; may be empty. */
-	sk_ui_font_system_t* font_system;	/**< Optional; required for FONT texture cmds. */
+	sk_ui_font_system_t* font_system;	/**< Optional; required for FONT / MSDF cmds. */
+	sk_ui_font_t* font;					/**< Optional default face (MSDF atlas fallback). */
 	sk_ui_renderer_images_t images;		/**< Optional host image views. */
 } sk_ui_capture_frame_info_t;
 
@@ -1870,9 +1892,9 @@ typedef struct sk_ui_api_t {
 
 	/**
 	 * Bake an MSDF glyph atlas for the font (printable ASCII + space) via
-	 * msdf-atlas-c. Idempotent when an atlas is already present. Does not
-	 * change the FreeType R8 paint path. Owns RGB8 pixels and glyph metrics
-	 * on the font; frees prior bake on rebake.
+	 * msdf-atlas-c. Idempotent when an atlas is already present. Paint uses
+	 * this atlas when the text renderer is MSDF. Owns RGB8 pixels and glyph
+	 * metrics on the font; frees prior bake on rebake.
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*font_msdf_bake)(sk_ui_font_t* font);
@@ -1896,6 +1918,20 @@ typedef struct sk_ui_api_t {
 	 * @return 0 on success, non-zero on failure.
 	 */
 	i32 (*font_msdf_dump)(sk_ui_font_t* font, const sk_filesystem_api_t* fs, const_chr_t path_prefix);
+
+	/**
+	 * Process-wide text renderer used when paint_params.text_renderer is
+	 * SK_UI_TEXT_RENDERER_DEFAULT. Passing DEFAULT re-reads SK_UI_TEXT_RENDERER
+	 * on the next get. Does not dirty live trees; the next paint rebuilds if
+	 * the resolved path changed since the last list.
+	 */
+	void (*set_text_renderer)(sk_ui_text_renderer_t renderer);
+
+	/**
+	 * Resolved process-wide text renderer (never DEFAULT). First call with
+	 * no prior set reads SK_UI_TEXT_RENDERER (msdf / 1 → MSDF, else FreeType).
+	 */
+	sk_ui_text_renderer_t (*get_text_renderer)(void);
 
 	/* ---- GPU renderer (draw list → sk_render_device_api_t only) ---- */
 

@@ -34,6 +34,8 @@
  *     fallback (missing asset → RC_ERROR);
  *   - fixed FreeType raster flags in the font pipeline
  *     (FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL);
+ *   - MSDF text is opt-in (ui->set_text_renderer / SK_UI_TEXT_RENDERER=msdf);
+ *     default remains the FreeType coverage path so goldens stay comparable;
  *   - no wall-clock or frame-counter dependent state anywhere: every call
  *     uses a fresh app context, device, capture, and UI context, and the
  *     scene callback only sees the fixed logical time

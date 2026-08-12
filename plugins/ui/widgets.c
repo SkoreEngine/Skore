@@ -2706,7 +2706,7 @@ static void soft_raster_draw_list(const sk_ui_draw_list_t* dl, u8* px, u32 w, u3
 			continue;
 		}
 		/* Solid + image (treat image as solid using vertex color). Skip pure font AA for goldens. */
-		if (cmd->texture_kind == SK_UI_DRAW_TEX_FONT) {
+		if (cmd->texture_kind == SK_UI_DRAW_TEX_FONT || cmd->texture_kind == SK_UI_DRAW_TEX_MSDF) {
 			continue;
 		}
 		for (i = 0u; i + 2u < cmd->index_count; i += 3u) {

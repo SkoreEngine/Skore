@@ -15,6 +15,8 @@
 
 #include "allocator.h"
 
+#include <stdlib.h>
+
 /* -------------------------------------------------------------------------- */
 /* String helpers                                                             */
 /* -------------------------------------------------------------------------- */
@@ -434,6 +436,53 @@ static i32 ui_init_impl(void) {
 }
 
 static void ui_shutdown_impl(void) {}
+
+/* -------------------------------------------------------------------------- */
+/* Text renderer switch (process-wide; env SK_UI_TEXT_RENDERER)               */
+/* -------------------------------------------------------------------------- */
+
+static i32 g_text_renderer_inited;
+static sk_ui_text_renderer_t g_text_renderer = SK_UI_TEXT_RENDERER_FREETYPE;
+
+static sk_ui_text_renderer_t ui_text_renderer_from_env(void) {
+	const char* e = getenv("SK_UI_TEXT_RENDERER");
+	if (e == NULL || e[0] == '\0') {
+		return SK_UI_TEXT_RENDERER_FREETYPE;
+	}
+	if (e[0] == 'm' || e[0] == 'M' || e[0] == '1') {
+		/* msdf / MSDF / 1 */
+		if (e[0] == '1' && e[1] != '\0') {
+			return SK_UI_TEXT_RENDERER_FREETYPE;
+		}
+		return SK_UI_TEXT_RENDERER_MSDF;
+	}
+	return SK_UI_TEXT_RENDERER_FREETYPE;
+}
+
+void ui_set_text_renderer_impl(sk_ui_text_renderer_t renderer) {
+	if (renderer == SK_UI_TEXT_RENDERER_DEFAULT) {
+		g_text_renderer_inited = 0;
+		g_text_renderer = SK_UI_TEXT_RENDERER_FREETYPE;
+		return;
+	}
+	g_text_renderer_inited = 1;
+	g_text_renderer = renderer;
+}
+
+sk_ui_text_renderer_t ui_get_text_renderer_impl(void) {
+	if (g_text_renderer_inited == 0) {
+		g_text_renderer = ui_text_renderer_from_env();
+		g_text_renderer_inited = 1;
+	}
+	return g_text_renderer;
+}
+
+sk_ui_text_renderer_t ui_paint_resolve_text_renderer(const sk_ui_paint_params_t* params) {
+	if (params != NULL && params->text_renderer != SK_UI_TEXT_RENDERER_DEFAULT) {
+		return params->text_renderer;
+	}
+	return ui_get_text_renderer_impl();
+}
 
 static sk_ui_context_t* ui_context_create(const sk_allocator_t* allocator) {
 	sk_ui_context_t* ctx;
@@ -1456,6 +1505,8 @@ static const sk_ui_api_t ui_api = {
 	ui_font_msdf_get_atlas_impl,
 	ui_font_msdf_get_glyph_impl,
 	ui_font_msdf_dump_impl,
+	ui_set_text_renderer_impl,
+	ui_get_text_renderer_impl,
 	ui_renderer_create_impl,
 	ui_renderer_destroy_impl,
 	ui_renderer_set_render_pass_impl,

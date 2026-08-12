@@ -490,6 +490,10 @@ static void soft_raster_draw_list(const sk_ui_draw_list_t* dl, u8* px, u32 w, u3
 		if (cmd->kind != SK_UI_DRAW_CMD_MESH) {
 			continue;
 		}
+		if (cmd->texture_kind == SK_UI_DRAW_TEX_FONT || cmd->texture_kind == SK_UI_DRAW_TEX_MSDF) {
+			/* Coverage is GPU-decoded (R8 or MSDF); skip solid tofu in soft raster. */
+			continue;
+		}
 		for (i = 0u; i + 2u < cmd->index_count; i += 3u) {
 			u32 i0 = dl->indices[cmd->index_offset + i + 0u];
 			u32 i1 = dl->indices[cmd->index_offset + i + 1u];

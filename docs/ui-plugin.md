@@ -4,7 +4,7 @@
 **API source of truth:** `plugins/ui/ui.h` (`sk_ui_api_t`).  
 **Related docs:** design notes in `docs/ui-system-design.md`, automation contract in `docs/ui-automation-api.md`, editor dual-stack in `docs/ui-editor-migration.md`.
 
-v1 is a **retained, flexbox-based** element tree with style classes, a CPU draw list, FreeType bitmap text, a small widget set, synthetic input routing, and a headless automation harness. It is **not** a full Dear ImGui replacement and **does not** use msdfgen.
+v1 is a **retained, flexbox-based** element tree with style classes, a CPU draw list, dual text paths (legacy FreeType R8 coverage and MSDF atlases from msdf-atlas-c), a small widget set, synthetic input routing, and a headless automation harness. It is **not** a full Dear ImGui replacement.
 
 ---
 
@@ -312,7 +312,9 @@ ui->set_measure_fn(ctx, my_measure, NULL);
 
 ### 5.1 Model
 
-- **CPU path:** FreeType raster + `stb_rect_pack` atlas (R8 pages). Opaque `sk_ui_font_system_t` / `sk_ui_font_t`.
+- **Legacy CPU path:** FreeType raster + `stb_rect_pack` atlas (R8 pages), emitted as coverage solid quads.
+- **MSDF path:** `font_msdf_bake` builds an RGB8 atlas via msdf-atlas-c. Paint emits one `SK_UI_DRAW_TEX_MSDF` quad per glyph. The fragment shader takes the median of RGB, converts to a signed screen-space distance (`px_range` + `fwidth`), and covers with `smoothstep` clamped to [0,1]. Very small text clamps the screen-space range to 1 px so glyphs do not vanish or shimmer. Blend is straight-alpha (`SRC_ALPHA` / `ONE_MINUS_SRC_ALPHA`).
+- **Runtime switch:** `ui->set_text_renderer(SK_UI_TEXT_RENDERER_MSDF)` / `FREETYPE`, per-paint `sk_ui_paint_params_t::text_renderer`, or env `SK_UI_TEXT_RENDERER=msdf|freetype`. Default is FreeType so existing goldens stay comparable. MSDF paint evaluates the same median / fwidth / smoothstep coverage on the CPU (lavapipe cannot sample uploaded atlases). Set `SK_UI_MSDF_GPU=1` to emit `SK_UI_DRAW_TEX_MSDF` quads and use the fragment shader instead.
 - **Logical font size** comes from computed style (`font_size`). Physical raster size:
 
 ```c
@@ -908,7 +910,7 @@ These are **not bugs** — they are out of scope for the basic UI system. Each r
 
 | Absent in v1 | Why / current behavior | Intended follow-up |
 | --- | --- | --- |
-| **msdfgen / MSDF font atlases** | v1 uses FreeType **bitmap** glyphs into an R8 atlas. Sharp scaling is content-scale re-raster, not distance fields. | Optional Font cooker / resource handler with MSDF (or multi-channel SDF) when high-quality scalable UI text is required; keep bitmap path for tools/tests. Design note: `docs/ui-system-design.md` §3.4. |
+| **Cooked `.font` MSDF resources** | Runtime bake via msdf-atlas-c (ASCII) + shader decode is in. There is no editor importer / cooked atlas asset yet. | Font cooker / resource handler; keep the FreeType switch for comparison captures. |
 | **Complex text shaping / BiDi / RTL** | UTF-8 LTR codepoint walk only; no HarfBuzz, no bidirectional reordering, no complex scripts, no required kerning. | Integrate a shaping library (HarfBuzz) behind the font measure/paint path; add direction + locale to computed style; extend text input caret model for clusters. |
 | **Standalone UI tester runtime** | Automation **API + headless harness** ship inside `sk_ui_api_t` (`query_*`, `action_*`, `harness_*`). There is no separate Selenium-style driver binary or scripted recorder. | Build an external tester process/CLI that loads plugins and drives `harness_*` / `input_dispatch` (contract in `docs/ui-automation-api.md`). |
 | **Full ImGui feature parity** (docking, multi-viewport, tables, menus, tree views, property grids, ImGuizmo, demos) | v1 widgets are panel/view/label/button/checkbox/slider/text_input/scroll_view/image only. Editor still uses a dual stack (`docs/ui-editor-migration.md`). | Port panels incrementally onto sk-ui; keep docking/chrome on ImGui (or a future dock host) until a dedicated layout-shell milestone; do not block product UI on parity. |

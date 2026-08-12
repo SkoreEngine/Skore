@@ -5,8 +5,8 @@
  * Builds a scale-independent RGB8 multi-channel SDF atlas for the printable
  * ASCII charset, packs glyphs with a distance range of 2 px, and stores
  * per-glyph UV rects plus em-space plane bounds / advance. FreeType R8 paint
- * path is unchanged; this data is for the upcoming MSDF render path and for
- * offline inspection via font_msdf_dump.
+ * path is unchanged unless the text-renderer switch is MSDF (APX-266).
+ * Offline inspection via font_msdf_dump is unchanged.
  *
  * Memory: all msdf-atlas-c bitmaps/layouts are copied into skore-owned
  * storage before generator/font handles are destroyed (library owns those
@@ -20,6 +20,7 @@
 
 #include <msdf_atlas_c.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -36,6 +37,7 @@ enum {
 #define UI_MSDF_EDGE_ANGLE 3.0
 #define UI_MSDF_MITER 1.0
 #define UI_MSDF_FONT_SCALE_EM 1.0
+#define UI_MSDF_MIN_GLYPH_SCALE 32.0 /* px per em; 64² atlas crushes ASCII to 2px */
 
 /* -------------------------------------------------------------------------- */
 /* Live atlas                                                                 */
@@ -128,16 +130,24 @@ i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_siz
 		return -1;
 	}
 	config.image_type = MSDF_ATLAS_IMAGE_MSDF;
-	config.pixel_format = MSDF_ATLAS_PIXEL_RGB8;
+	/* Generate float, quantize ourselves so 0.5 stays mid-gray (RGB8 C-API
+	 * conversion has been seen to drop interior medians to 0). */
+	config.pixel_format = MSDF_ATLAS_PIXEL_RGB32F;
 	config.y_direction = MSDF_ATLAS_Y_TOP_DOWN;
 	config.packing_style = MSDF_ATLAS_PACKING_TIGHT;
 	config.dimensions_constraint = MSDF_ATLAS_DIMENSIONS_POWER_OF_TWO_SQUARE;
-	config.px_range.lower = UI_MSDF_PX_RANGE;
+	/* C API Range(lower, upper) is endpoints, not C++ Range(width).
+	 * {2,2} is zero-width and yields NaN. {0,2} is width 2; we remap so
+	 * distance 0 (edge) lands at unorm 0.5. */
+	config.px_range.lower = 0.0;
 	config.px_range.upper = UI_MSDF_PX_RANGE;
+	config.min_glyph_scale = UI_MSDF_MIN_GLYPH_SCALE;
 	config.miter_limit = UI_MSDF_MITER;
 	/* Spacing between glyph boxes so linear filtering does not sample neighbors. */
 	config.spacing = UI_MSDF_SPACING_PX;
 	config.thread_count = 1;
+	/* Overlap support without error-correction: the correction pass can
+	 * write NaN/Inf into RGB32F on some glyphs, which quantize to empty. */
 	config.flags = MSDF_ATLAS_CONFIG_ERROR_CORRECTION | MSDF_ATLAS_CONFIG_OVERLAP_SUPPORT;
 
 	if (msdf_atlas_config_validate(&config) != MSDF_ATLAS_OK) {
@@ -207,7 +217,7 @@ i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_siz
 		ui_msdf_destroy_handles(msdf_font, charset, set, packer, generator);
 		return -1;
 	}
-	if (bitmap.channel_count != UI_MSDF_CHANNELS || bitmap.pixel_format != MSDF_ATLAS_PIXEL_RGB8) {
+	if (bitmap.channel_count != UI_MSDF_CHANNELS || bitmap.pixel_format != MSDF_ATLAS_PIXEL_RGB32F) {
 		ui_msdf_destroy_handles(msdf_font, charset, set, packer, generator);
 		return -1;
 	}
@@ -242,13 +252,34 @@ i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_siz
 		ui_msdf_destroy_handles(msdf_font, charset, set, packer, generator);
 		return -1;
 	}
-	/* Copy rows respecting generator row_stride (may be > tight pitch). */
+	/* Quantize signed pixel distances to RGB8 with edge at 0.5. */
 	{
-		const u8* src = (const u8*)bitmap.pixels;
+		const float* src = (const float*)bitmap.pixels;
 		const size_t tight = (size_t)bitmap.width * (size_t)UI_MSDF_CHANNELS;
-		const size_t stride = bitmap.row_stride_bytes > 0 ? (size_t)bitmap.row_stride_bytes : tight;
+		const size_t stride_floats = bitmap.row_stride_bytes > 0 ? (size_t)bitmap.row_stride_bytes / sizeof(float) : tight;
+		const float range = (float)UI_MSDF_PX_RANGE;
 		for (y = 0u; y < atlas->height; ++y) {
-			memcpy(atlas->pixels + (size_t)y * tight, src + (size_t)y * stride, tight);
+			u32 x;
+			const float* row = src + (size_t)y * stride_floats;
+			u8* dst = atlas->pixels + (size_t)y * tight;
+			for (x = 0u; x < atlas->width; ++x) {
+				u32 c;
+				for (c = 0u; c < UI_MSDF_CHANNELS; ++c) {
+					float v = row[x * UI_MSDF_CHANNELS + c];
+					float t;
+					if (!isfinite((double)v) || range <= 0.0f) {
+						t = 0.0f;
+					} else {
+						t = v / range;
+						if (t < -1.0f) {
+							t = -1.0f;
+						} else if (t > 1.0f) {
+							t = 1.0f;
+						}
+					}
+					dst[x * UI_MSDF_CHANNELS + c] = (u8)((0.5f + 0.5f * t) * 255.0f + 0.5f);
+				}
+			}
 		}
 	}
 
@@ -492,6 +523,144 @@ i32 ui_msdf_atlas_dump(const ui_msdf_atlas_live_t* atlas, const sk_filesystem_ap
 	}
 	a->free(a->instance, json);
 	return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Shader-matching coverage (APX-266)                                         */
+/* -------------------------------------------------------------------------- */
+
+f32 ui_msdf_median3(f32 r, f32 g, f32 b) {
+	/* median(r,g,b) = max(min(r,g), min(max(r,g), b)) */
+	const f32 mn = r < g ? r : g;
+	const f32 mx = r > g ? r : g;
+	const f32 mid = mx < b ? mx : (b < mn ? mn : b);
+	return mid;
+}
+
+f32 ui_msdf_screen_px_range(f32 px_range, f32 atlas_w, f32 atlas_h, f32 fwidth_u, f32 fwidth_v) {
+	f32 unit_u;
+	f32 unit_v;
+	f32 screen_u;
+	f32 screen_v;
+	f32 range;
+	if (atlas_w <= 0.0f || atlas_h <= 0.0f) {
+		return 1.0f;
+	}
+	unit_u = px_range / atlas_w;
+	unit_v = px_range / atlas_h;
+	screen_u = fwidth_u > 1.0e-8f ? 1.0f / fwidth_u : 0.0f;
+	screen_v = fwidth_v > 1.0e-8f ? 1.0f / fwidth_v : 0.0f;
+	/* 0.5 * dot(unitRange, screenTexSize); clamp so tiny text stays visible. */
+	range = 0.5f * (unit_u * screen_u + unit_v * screen_v);
+	return range < 1.0f ? 1.0f : range;
+}
+
+f32 ui_msdf_coverage(f32 median, f32 screen_px_range) {
+	/* signed screen-space distance → smoothstep(-0.5, 0.5) clamped to [0,1]. */
+	const f32 sd = screen_px_range * (median - 0.5f);
+	f32 t = (sd + 0.5f); /* (sd - (-0.5)) / 1.0 */
+	if (t < 0.0f) {
+		t = 0.0f;
+	} else if (t > 1.0f) {
+		t = 1.0f;
+	}
+	return t * t * (3.0f - 2.0f * t);
+}
+
+static void ui_msdf_fetch_rgb(const sk_ui_msdf_atlas_t* atlas, i32 x, i32 y, f32 rgb[3]) {
+	const u8* p;
+	if (x < 0) {
+		x = 0;
+	} else if (x >= (i32)atlas->width) {
+		x = (i32)atlas->width - 1;
+	}
+	if (y < 0) {
+		y = 0;
+	} else if (y >= (i32)atlas->height) {
+		y = (i32)atlas->height - 1;
+	}
+	p = atlas->pixels + ((size_t)y * (size_t)atlas->width + (size_t)x) * (size_t)atlas->channels;
+	rgb[0] = (f32)p[0] / 255.0f;
+	rgb[1] = (f32)p[1] / 255.0f;
+	rgb[2] = (f32)p[2] / 255.0f;
+}
+
+f32 ui_msdf_sample_median_bilinear(const sk_ui_msdf_atlas_t* atlas, f32 u, f32 v) {
+	f32 fx;
+	f32 fy;
+	i32 x0;
+	i32 y0;
+	f32 tx;
+	f32 ty;
+	f32 c00[3];
+	f32 c10[3];
+	f32 c01[3];
+	f32 c11[3];
+	f32 r;
+	f32 g;
+	f32 b;
+	if (atlas == NULL || atlas->pixels == NULL || atlas->width == 0u || atlas->height == 0u || atlas->channels < 3u) {
+		return 0.0f;
+	}
+	if (u < 0.0f) {
+		u = 0.0f;
+	} else if (u > 1.0f) {
+		u = 1.0f;
+	}
+	if (v < 0.0f) {
+		v = 0.0f;
+	} else if (v > 1.0f) {
+		v = 1.0f;
+	}
+	fx = u * (f32)atlas->width - 0.5f;
+	fy = v * (f32)atlas->height - 0.5f;
+	x0 = (i32)fx;
+	y0 = (i32)fy;
+	if (fx < 0.0f) {
+		x0 = (i32)(fx - 1.0f);
+	}
+	if (fy < 0.0f) {
+		y0 = (i32)(fy - 1.0f);
+	}
+	tx = fx - (f32)x0;
+	ty = fy - (f32)y0;
+	ui_msdf_fetch_rgb(atlas, x0, y0, c00);
+	ui_msdf_fetch_rgb(atlas, x0 + 1, y0, c10);
+	ui_msdf_fetch_rgb(atlas, x0, y0 + 1, c01);
+	ui_msdf_fetch_rgb(atlas, x0 + 1, y0 + 1, c11);
+	r = c00[0] * (1.0f - tx) * (1.0f - ty) + c10[0] * tx * (1.0f - ty) + c01[0] * (1.0f - tx) * ty + c11[0] * tx * ty;
+	g = c00[1] * (1.0f - tx) * (1.0f - ty) + c10[1] * tx * (1.0f - ty) + c01[1] * (1.0f - tx) * ty + c11[1] * tx * ty;
+	b = c00[2] * (1.0f - tx) * (1.0f - ty) + c10[2] * tx * (1.0f - ty) + c01[2] * (1.0f - tx) * ty + c11[2] * tx * ty;
+	return ui_msdf_median3(r, g, b);
+}
+
+f32 ui_msdf_sample_median_nearest(const sk_ui_msdf_atlas_t* atlas, f32 u, f32 v) {
+	u32 x;
+	u32 y;
+	const u8* p;
+	if (atlas == NULL || atlas->pixels == NULL || atlas->width == 0u || atlas->height == 0u || atlas->channels < 3u) {
+		return 0.0f;
+	}
+	if (u < 0.0f) {
+		u = 0.0f;
+	} else if (u > 1.0f) {
+		u = 1.0f;
+	}
+	if (v < 0.0f) {
+		v = 0.0f;
+	} else if (v > 1.0f) {
+		v = 1.0f;
+	}
+	x = (u32)(u * (f32)(atlas->width - 1u) + 0.5f);
+	y = (u32)(v * (f32)(atlas->height - 1u) + 0.5f);
+	if (x >= atlas->width) {
+		x = atlas->width - 1u;
+	}
+	if (y >= atlas->height) {
+		y = atlas->height - 1u;
+	}
+	p = atlas->pixels + ((size_t)y * (size_t)atlas->width + (size_t)x) * (size_t)atlas->channels;
+	return ui_msdf_median3((f32)p[0] / 255.0f, (f32)p[1] / 255.0f, (f32)p[2] / 255.0f);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -755,6 +924,70 @@ SK_TEST(ui_font_msdf_dump_and_reload_cycle) {
 		TEST_ASSERT_NOT_NULL(strstr(buf, "\"px_range\""));
 		TEST_ASSERT_NOT_NULL(strstr(buf, "msdf-rgb8"));
 	}
+}
+
+SK_TEST(ui_msdf_coverage_screen_space_and_small_text_clamp) {
+	/* Edge (median 0.5) is always ~0.5 coverage after the 1-px smoothstep. */
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, ui_msdf_coverage(0.5f, 1.0f));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, ui_msdf_coverage(0.5f, 8.0f));
+
+	/* Inside / outside of a large glyph: full / empty after clamp to [0,1]. */
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, ui_msdf_coverage(1.0f, 4.0f));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, ui_msdf_coverage(0.0f, 4.0f));
+
+	/* Median of RGB matches the shader helper (channel order independence). */
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.4f, ui_msdf_median3(0.1f, 0.4f, 0.9f));
+	TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.4f, ui_msdf_median3(0.9f, 0.1f, 0.4f));
+
+	/* Tiny on-screen quad (large fwidth) would vanish without the 1-px clamp. */
+	{
+		const f32 unclamped_like = ui_msdf_screen_px_range(2.0f, 256.0f, 256.0f, 0.5f, 0.5f);
+		const f32 tiny = ui_msdf_screen_px_range(2.0f, 256.0f, 256.0f, 2.0f, 2.0f);
+		TEST_ASSERT_TRUE(unclamped_like >= 1.0f);
+		TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, tiny);
+		/* With the clamp, a clearly-inside sample stays visible. */
+		TEST_ASSERT_TRUE(ui_msdf_coverage(0.8f, tiny) > 0.5f);
+	}
+}
+
+SK_TEST(ui_msdf_atlas_letter_has_inside_and_outside) {
+	const sk_ui_api_t* ui = ui_msdf_test_api();
+	sk_ui_font_system_t* sys = ui->font_system_create(NULL, 256u, 256u);
+	sk_ui_font_t* font;
+	sk_ui_msdf_atlas_t atlas;
+	sk_ui_msdf_glyph_t ga;
+	f32 umid;
+	f32 vmid;
+	f32 inside;
+	f32 outside;
+
+	TEST_ASSERT_NOT_NULL(sys);
+	font = ui->font_load_memory(sys, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
+	TEST_ASSERT_NOT_NULL(font);
+	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_bake(font));
+	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_get_atlas(font, &atlas));
+	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_get_glyph(font, (u32)'A', &ga));
+
+	umid = 0.5f * (ga.u0 + ga.u1);
+	vmid = 0.5f * (ga.v0 + ga.v1);
+	inside = ui_msdf_sample_median_nearest(&atlas, umid, vmid);
+	/* Just outside the packed box, toward atlas origin. */
+	outside = ui_msdf_sample_median_nearest(&atlas, ga.u0 > 0.01f ? ga.u0 - 0.01f : 0.0f, ga.v0 > 0.01f ? ga.v0 - 0.01f : 0.0f);
+	TEST_ASSERT_TRUE(inside > 0.5f);
+	TEST_ASSERT_TRUE(outside < 0.55f);
+
+	ui->font_system_destroy(sys);
+}
+
+SK_TEST(ui_text_renderer_switch_api) {
+	const sk_ui_api_t* ui = ui_msdf_test_api();
+	sk_ui_text_renderer_t prev = ui->get_text_renderer();
+
+	ui->set_text_renderer(SK_UI_TEXT_RENDERER_MSDF);
+	TEST_ASSERT_EQUAL_INT((i32)SK_UI_TEXT_RENDERER_MSDF, (i32)ui->get_text_renderer());
+	ui->set_text_renderer(SK_UI_TEXT_RENDERER_FREETYPE);
+	TEST_ASSERT_EQUAL_INT((i32)SK_UI_TEXT_RENDERER_FREETYPE, (i32)ui->get_text_renderer());
+	ui->set_text_renderer(prev);
 }
 
 #endif /* SK_TESTS */

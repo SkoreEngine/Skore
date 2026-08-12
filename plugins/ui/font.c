@@ -7,8 +7,8 @@
  * (grow page or add pages when full), cache by (font, pixel_size, glyph_index).
  * GPU upload is intentionally out of scope (APX-134).
  *
- * MSDF atlas bake/dump (APX-265) lives in font_msdf.c and attaches to each
- * font face without changing this FreeType paint path yet.
+ * MSDF atlas bake/dump (APX-265) lives in font_msdf.c. Paint (APX-266) can
+ * emit MSDF quads when the text-renderer switch is MSDF.
  */
 
 #include "ui.h"
@@ -71,7 +71,7 @@ struct sk_ui_font_t {
 	u8* file_bytes;
 	u32 file_size;
 	FT_Face face;
-	ui_msdf_atlas_live_t* msdf; /* optional MSDF atlas (APX-265); paint still uses FreeType R8 */
+	ui_msdf_atlas_live_t* msdf; /* optional MSDF atlas; paint uses it when the MSDF switch is on */
 };
 
 typedef SK_ARRAY(sk_ui_font_t*) ui_font_ptr_array_t;
@@ -667,6 +667,35 @@ const u8* ui_font_file_bytes(const sk_ui_font_t* font) {
 
 u32 ui_font_file_size(const sk_ui_font_t* font) {
 	return font != NULL ? font->file_size : 0u;
+}
+
+u32 ui_font_id(const sk_ui_font_t* font) {
+	return font != NULL ? font->id : 0u;
+}
+
+sk_ui_font_t* ui_font_system_find(sk_ui_font_system_t* system, u32 font_id) {
+	u32 i;
+	if (system == NULL || font_id == 0u) {
+		return NULL;
+	}
+	for (i = 0u; i < system->fonts.count; ++i) {
+		sk_ui_font_t* font = system->fonts.items[i];
+		if (font != NULL && font->id == font_id) {
+			return font;
+		}
+	}
+	return NULL;
+}
+
+u32 ui_font_system_font_count(const sk_ui_font_system_t* system) {
+	return system != NULL ? system->fonts.count : 0u;
+}
+
+sk_ui_font_t* ui_font_system_font_at(sk_ui_font_system_t* system, u32 index) {
+	if (system == NULL || index >= system->fonts.count) {
+		return NULL;
+	}
+	return system->fonts.items[index];
 }
 
 ui_msdf_atlas_live_t* ui_font_msdf_ptr(const sk_ui_font_t* font) {

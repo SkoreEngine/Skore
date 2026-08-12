@@ -414,6 +414,7 @@ i32 sk_ui_capture_harness_capture(const sk_ui_capture_harness_params_t* params, 
 		finfo.draw_list = &empty_dl;
 	}
 	finfo.font_system = fonts;
+	finfo.font = font;
 	if (ui->capture_frame(capture, &finfo, &img) != 0) {
 		goto out;
 	}

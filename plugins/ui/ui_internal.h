@@ -114,7 +114,8 @@ typedef struct ui_draw_list_store_t {
 	sk_ui_draw_list_t view; /**< Public snapshot; pointers into the arrays. */
 	f32 last_scale_x;
 	f32 last_scale_y;
-	i32 valid; /**< Non-zero after at least one successful paint rebuild. */
+	sk_ui_text_renderer_t last_text_renderer; /**< Resolved path used for the live list. */
+	i32 valid;								  /**< Non-zero after at least one successful paint rebuild. */
 } ui_draw_list_store_t;
 
 /** Opaque Clay adapter frame state (clay_adapter.c). NULL until first layout. */
@@ -292,12 +293,27 @@ i32 ui_font_msdf_get_atlas_impl(const sk_ui_font_t* font, sk_ui_msdf_atlas_t* ou
 i32 ui_font_msdf_get_glyph_impl(const sk_ui_font_t* font, u32 codepoint, sk_ui_msdf_glyph_t* out);
 i32 ui_font_msdf_dump_impl(sk_ui_font_t* font, const sk_filesystem_api_t* fs, const_chr_t path_prefix);
 
+/* CPU-side MSDF decode matching the fragment shader (mode 2). */
+f32 ui_msdf_median3(f32 r, f32 g, f32 b);
+f32 ui_msdf_screen_px_range(f32 px_range, f32 atlas_w, f32 atlas_h, f32 fwidth_u, f32 fwidth_v);
+f32 ui_msdf_coverage(f32 median, f32 screen_px_range);
+f32 ui_msdf_sample_median_nearest(const sk_ui_msdf_atlas_t* atlas, f32 u, f32 v);
+f32 ui_msdf_sample_median_bilinear(const sk_ui_msdf_atlas_t* atlas, f32 u, f32 v);
+
 /* font.c accessors for MSDF attachment (opaque font internals). */
 const sk_allocator_t* ui_font_allocator(const sk_ui_font_t* font);
 const u8* ui_font_file_bytes(const sk_ui_font_t* font);
 u32 ui_font_file_size(const sk_ui_font_t* font);
+u32 ui_font_id(const sk_ui_font_t* font);
+sk_ui_font_t* ui_font_system_find(sk_ui_font_system_t* system, u32 font_id);
+u32 ui_font_system_font_count(const sk_ui_font_system_t* system);
+sk_ui_font_t* ui_font_system_font_at(sk_ui_font_system_t* system, u32 index);
 ui_msdf_atlas_live_t* ui_font_msdf_ptr(const sk_ui_font_t* font);
 void ui_font_msdf_set(sk_ui_font_t* font, ui_msdf_atlas_live_t* atlas);
+
+void ui_set_text_renderer_impl(sk_ui_text_renderer_t renderer);
+sk_ui_text_renderer_t ui_get_text_renderer_impl(void);
+sk_ui_text_renderer_t ui_paint_resolve_text_renderer(const sk_ui_paint_params_t* params);
 
 /* -------------------------------------------------------------------------- */
 /* GPU renderer (render.c)                                                    */
