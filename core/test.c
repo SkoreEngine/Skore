@@ -12,6 +12,7 @@
 
 #include "atomics.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 enum { SK_TEST_MAX = 512 };
@@ -40,14 +41,45 @@ void sk_test_register(const_chr_t name, void (*fn)(void)) {
 }
 
 void sk_test_run_all(sk_test_report_t* out) {
+	const char* filter = getenv("SK_TEST_FILTER");
+	i32 ran = 0;
+
 	UNITY_BEGIN();
 	for (u32 i = 0u; i < test_count; ++i) {
+		/*
+		 * Optional exact-name filter. Comma-separated list supported
+		 * (e.g. SK_TEST_FILTER=ui_widget_vision_tab,ui_widget_vision_menu).
+		 * Exact match only — substring would collide (tab vs table).
+		 */
+		if (filter != NULL && filter[0] != '\0') {
+			const char* p = filter;
+			i32 matched = 0;
+			while (*p != '\0') {
+				const char* start = p;
+				size_t len;
+				while (*p != '\0' && *p != ',') {
+					p++;
+				}
+				len = (size_t)(p - start);
+				if (len > 0u && strlen(tests[i].name) == len && strncmp(tests[i].name, start, len) == 0) {
+					matched = 1;
+					break;
+				}
+				if (*p == ',') {
+					p++;
+				}
+			}
+			if (matched == 0) {
+				continue;
+			}
+		}
 		UnityDefaultTestRun(tests[i].fn, tests[i].name, (int)i);
+		ran += 1;
 	}
 	i32 failed = (i32)UNITY_END();
 
 	if (out != NULL) {
-		out->ran = (i32)test_count;
+		out->ran = ran;
 		out->failed = failed;
 	}
 }
