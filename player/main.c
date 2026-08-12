@@ -173,10 +173,15 @@ static void player_style_screen(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_
 static void player_style_card(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
 	sk_ui_style_props_t p;
 	memset(&p, 0, sizeof(p));
-	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH | SK_UI_SP_MAX_WIDTH | SK_UI_SP_PADDING | SK_UI_SP_ROW_GAP | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR |
-			 SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS;
+	p.mask = SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_WIDTH | SK_UI_SP_MAX_WIDTH | SK_UI_SP_ALIGN_SELF | SK_UI_SP_PADDING | SK_UI_SP_ROW_GAP | SK_UI_SP_BACKGROUND_COLOR |
+			 SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS;
 	p.layout.flex_direction = SK_UI_FLEX_COLUMN;
-	p.layout.width = sk_ui_percent(100.0f);
+	/* Stretch the cross axis (width) up to max_width, keep the height fitting
+	 * the content. A percent width would drop the max (Clay has no min/max on
+	 * percent axes) and span the window; flex_grow would also grow the main
+	 * axis and stretch the card down the whole screen. */
+	p.layout.width = sk_ui_auto();
+	p.layout.align_self = SK_UI_ALIGN_STRETCH;
 	p.layout.max_width = sk_ui_pt(420.0f);
 	p.layout.padding.left = 16.0f;
 	p.layout.padding.top = 16.0f;
@@ -224,6 +229,20 @@ static void player_style_hint(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui
 	p.layout.height = sk_ui_pt(18.0f);
 	p.layout.width = sk_ui_percent(100.0f);
 	(void)ui->node_set_inline_style(ctx, node, &p);
+}
+
+/**
+ * Hint label sitting *inside* a row (volume, checkbox caption).
+ * Width must fit the text: a 100% width would eat the whole row and push the
+ * sibling widget outside the card (Clay does not shrink percent children).
+ */
+static void player_style_hint_inline(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
+	sk_ui_style_props_t p;
+	player_style_hint(ui, ctx, node);
+	memset(&p, 0, sizeof(p));
+	p.mask = SK_UI_SP_WIDTH;
+	p.layout.width = sk_ui_auto();
+	(void)ui->node_merge_inline_style(ctx, node, &p);
 }
 
 static void player_style_field(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t node) {
@@ -340,7 +359,7 @@ static i32 player_ui_build(player_ui_state_t* st) {
 	vol_row = ui->widget_view(ctx, header_col, "player-vol-row");
 	player_style_row(ui, ctx, vol_row);
 	st->volume_label = ui->widget_label(ctx, vol_row, "Volume: 70%", "player-vol-lbl");
-	player_style_hint(ui, ctx, st->volume_label);
+	player_style_hint_inline(ui, ctx, st->volume_label);
 	st->slider = ui->widget_slider(ctx, vol_row, 0.0f, 1.0f, 0.7f, "player-volume");
 	player_style_slider(ui, ctx, st->slider);
 	(void)ui->slider_set_on_change(ctx, st->slider, player_on_slider, st);
@@ -349,7 +368,7 @@ static i32 player_ui_build(player_ui_state_t* st) {
 	player_style_row(ui, ctx, opts);
 	st->checkbox = ui->widget_checkbox(ctx, opts, 0, "player-fullscreen");
 	fs_lbl = ui->widget_label(ctx, opts, "Fullscreen", "player-fs-lbl");
-	player_style_hint(ui, ctx, fs_lbl);
+	player_style_hint_inline(ui, ctx, fs_lbl);
 	(void)ui->checkbox_set_on_change(ctx, st->checkbox, player_on_checkbox, st);
 
 	st->scroll = ui->widget_scroll_view(ctx, card, "player-log");
@@ -358,8 +377,8 @@ static i32 player_ui_build(player_ui_state_t* st) {
 	(void)ui->scroll_view_set_content_size(ctx, st->scroll, 360.0f, 120.0f);
 	for (i = 0u; i < 5u; ++i) {
 		static const char* lines[5] = {
-			"Tip: click Click Me and watch the counter",  "Tip: drag the volume slider", "Tip: toggle Fullscreen checkbox", "Tip: scroll this list with the wheel",
-			"Tip: type in the name field (keyboard TBD)",
+			"Tip: click Click Me and watch the counter", "Tip: drag the volume slider",		   "Tip: toggle Fullscreen checkbox",
+			"Tip: scroll this list with the wheel",		 "Tip: click the name field and type",
 		};
 		char id[32];
 		snprintf(id, sizeof(id), "player-log-%u", i);
@@ -868,6 +887,117 @@ static void player_ui_shutdown(player_ui_state_t* st) {
 	st->ui = NULL;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Platform input → sk-ui ingress                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Platform key code → sk-ui key code. Printable keys share ASCII on both
+ * sides; the named keys are mapped explicitly so neither enum has to depend
+ * on the other.
+ */
+static i32 player_map_key(i32 key) {
+	switch (key) {
+	case SK_KEY_BACKSPACE:
+		return SK_UI_KEY_BACKSPACE;
+	case SK_KEY_TAB:
+		return SK_UI_KEY_TAB;
+	case SK_KEY_ENTER:
+		return SK_UI_KEY_ENTER;
+	case SK_KEY_ESCAPE:
+		return SK_UI_KEY_ESCAPE;
+	case SK_KEY_SPACE:
+		return SK_UI_KEY_SPACE;
+	case SK_KEY_DELETE:
+		return SK_UI_KEY_DELETE;
+	case SK_KEY_LEFT:
+		return SK_UI_KEY_LEFT;
+	case SK_KEY_RIGHT:
+		return SK_UI_KEY_RIGHT;
+	case SK_KEY_UP:
+		return SK_UI_KEY_UP;
+	case SK_KEY_DOWN:
+		return SK_UI_KEY_DOWN;
+	case SK_KEY_HOME:
+		return SK_UI_KEY_HOME;
+	case SK_KEY_END:
+		return SK_UI_KEY_END;
+	default:
+		/* Printable ASCII passes through; anything else stays unknown. */
+		return (key >= 32 && key < 127) ? key : SK_UI_KEY_UNKNOWN;
+	}
+}
+
+/** Platform modifier bits → sk-ui modifier bits. */
+static u32 player_map_mods(u32 mods) {
+	u32 out = (u32)SK_UI_MOD_NONE;
+	if ((mods & (u32)SK_KEY_MOD_SHIFT) != 0u) {
+		out |= (u32)SK_UI_MOD_SHIFT;
+	}
+	if ((mods & (u32)SK_KEY_MOD_CTRL) != 0u) {
+		out |= (u32)SK_UI_MOD_CTRL;
+	}
+	if ((mods & (u32)SK_KEY_MOD_ALT) != 0u) {
+		out |= (u32)SK_UI_MOD_ALT;
+	}
+	if ((mods & (u32)SK_KEY_MOD_SUPER) != 0u) {
+		out |= (u32)SK_UI_MOD_SUPER;
+	}
+	return out;
+}
+
+static void player_on_key(sk_window_t window, i32 key, i32 down, i32 repeat, u32 mods, void_ptr_t user_data) {
+	player_ui_state_t* st = (player_ui_state_t*)user_data;
+	sk_ui_input_event_t ev;
+	(void)window;
+
+	if (st == NULL || st->ui == NULL || st->ctx == NULL) {
+		return;
+	}
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_KEY;
+	ev.x = st->pointer_x;
+	ev.y = st->pointer_y;
+	ev.key = player_map_key(key);
+	ev.down = down;
+	ev.repeat = repeat;
+	ev.mods = player_map_mods(mods);
+	(void)st->ui->input_dispatch(st->ctx, &ev);
+}
+
+static void player_on_char(sk_window_t window, const_chr_t utf8, void_ptr_t user_data) {
+	player_ui_state_t* st = (player_ui_state_t*)user_data;
+	sk_ui_input_event_t ev;
+	(void)window;
+
+	if (st == NULL || st->ui == NULL || st->ctx == NULL || utf8 == NULL) {
+		return;
+	}
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_TEXT;
+	ev.x = st->pointer_x;
+	ev.y = st->pointer_y;
+	ev.text = utf8;
+	(void)st->ui->input_dispatch(st->ctx, &ev);
+}
+
+static void player_on_scroll(sk_window_t window, f32 offset_x, f32 offset_y, void_ptr_t user_data) {
+	player_ui_state_t* st = (player_ui_state_t*)user_data;
+	sk_ui_input_event_t ev;
+	(void)window;
+
+	if (st == NULL || st->ui == NULL || st->ctx == NULL) {
+		return;
+	}
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_WHEEL;
+	ev.x = st->pointer_x;
+	ev.y = st->pointer_y;
+	ev.scroll_x = offset_x;
+	ev.scroll_y = offset_y;
+	(void)st->ui->input_dispatch(st->ctx, &ev);
+}
+
 static void player_ui_dispatch_mouse(player_ui_state_t* st, const sk_platform_window_api_t* win_api, sk_window_t window) {
 	sk_ui_input_event_t ev;
 	f32 x = 0.0f;
@@ -1015,11 +1145,19 @@ int main(int argc, char* argv[]) {
 		ui_state.last_scale_x = sc.x > 0.0f ? sc.x : 1.0f;
 		ui_state.last_scale_y = sc.y > 0.0f ? sc.y : 1.0f;
 		win_api->set_window_content_scale_callback(window, player_on_content_scale, &ui_state);
+		win_api->set_window_key_callback(window, player_on_key, &ui_state);
+		win_api->set_window_char_callback(window, player_on_char, &ui_state);
+		win_api->set_window_scroll_callback(window, player_on_scroll, &ui_state);
 		if (player_gpu_init(ctx, &ui_state, win_api, window) != 0 && ui_state.log != NULL) {
 			sk_log_warn(logger_api, ui_state.log, "GPU present unavailable — CPU UI still runs (window stays blank)");
 		}
 		if (ui_state.log != NULL) {
-			sk_log_info(logger_api, ui_state.log, "widget playground ready (mouse → sk-ui)");
+			sk_extent_t logical = win_api->get_window_size(window);
+			sk_extent_t physical = win_api->get_framebuffer_size(window);
+			sk_log_info(logger_api, ui_state.log, "widget playground ready (mouse/keyboard/wheel → sk-ui)");
+			/* logical × scale must equal physical, or layout misses the window. */
+			sk_log_info(logger_api, ui_state.log, "window: logical=%ux%u physical=%ux%u scale=%.2fx%.2f", logical.width, logical.height, physical.width, physical.height,
+						(double)ui_state.last_scale_x, (double)ui_state.last_scale_y);
 		}
 	} else if (ui_state.log != NULL) {
 		sk_log_warn(logger_api, ui_state.log, "ui init failed (is sk-ui plugin in plugins/?)");

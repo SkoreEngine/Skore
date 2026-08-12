@@ -105,9 +105,10 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		sx = scale.x > 0.0f ? scale.x : 1.0f;
 		sy = scale.y > 0.0f ? scale.y : 1.0f;
 
-		/* Note: platform_window does not yet expose mouse/key events on v2
-		 * (design gap G-input). Dual host accepts synthetic input from tests;
-		 * windowed mode still runs style/layout/paint for both stacks each frame. */
+		/* Note: platform_window now exposes key/char/scroll callbacks and polled
+		 * mouse state (see the player host), but the dual editor host is not
+		 * wired to them yet. It accepts synthetic input from tests; windowed
+		 * mode still runs style/layout/paint for both stacks each frame. */
 		(void)sk_editor_ui_host_frame(host, (f32)logical.width, (f32)logical.height, sx, sy);
 
 		if ((frames++ % 120u) == 0u) {

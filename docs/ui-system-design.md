@@ -60,7 +60,10 @@ Header: `plugins/platform_window/platform_window.h`. Backend: GLFW (`platform_wi
 | --- | --- |
 | `init` / `shutdown` / `poll_events` | Host must call; no auto-init. |
 | `create_window` / `destroy_window` / `window_should_close` | Client size in **screen coordinates** (logical points). |
-| `get_window_size` → `sk_extent_t` | **Logical** client size (points). |
+| `get_window_size` → `sk_extent_t` | **Logical** client size (points) = `get_framebuffer_size / get_window_content_scale`. Not the backend's screen coordinates: GLFW screen coords are points on macOS but **pixels** on Windows, where DPI only shows up in the content scale. |
+| `get_cursor_pos` | Cursor in the same **logical** point space as `get_window_size` (pixels ÷ content scale). |
+| `get_mouse_button` | Polled button state (`sk_mouse_button_t`). |
+| `set_window_key_callback` / `set_window_char_callback` / `set_window_scroll_callback` | Keyboard press/release (`sk_key_t`, `sk_key_mod_flags_t`), composed UTF-8 text entry, and wheel ticks; delivered from `poll_events`. Hosts translate `sk_key_t` → `sk_ui_key_t` (no plugin-to-plugin dependency). |
 | `get_framebuffer_size` → `sk_extent_t` | **Physical** framebuffer pixels (swapchain / viewport). |
 | `get_window_content_scale` → `sk_content_scale_t` | Separate x/y; **1.0 = 96 DPI baseline**. |
 | `get_window_dpi` | Average of content scale x/y (legacy single factor). |
@@ -334,6 +337,7 @@ sk_ui_event_t {
 
 Rules:
 
+- **Invariant: `logical × content_scale == physical`.** The host lays out at `get_window_size`, then `layout_apply_scale(content_scale)`; if the window API returned pixels as "logical", the scale is applied twice and the UI is drawn `content_scale×` too large (clipped by the window) while hit-testing — which uses unscaled layout rects — lands `content_scale×` off the drawn widget.
 - All layout units are logical px.
 - Font raster size = `round(style.font_size * content_scale)` (with hysteresis to avoid thrashing).
 - On scale change: rebuild font atlas for used sizes, mark all layout dirty, recreate pipelines only if needed.
@@ -430,7 +434,7 @@ Every gap is owned by an **existing** module/plugin (or a named new module that 
 
 | ID | Gap | Why UI needs it | Owner (fix here) | Priority |
 | --- | --- | --- | --- | --- |
-| G1 | No keyboard / mouse / wheel / text input on `sk_platform_window_api_t`; no key enums; no event callbacks | UI and future game Input both need a single OS event source (main used SDL events). | **`platform_window`** | P0 |
+| G1 | **Mostly done:** `sk_key_t` / `sk_key_mod_flags_t` enums + `set_window_key_callback` / `set_window_char_callback` / `set_window_scroll_callback`; ~~no input at all~~. Mouse position/buttons are still **polled** (`get_cursor_pos` / `get_mouse_button`) — no button/move event callbacks yet | UI and future game Input both need a single OS event source (main used SDL events). | **`platform_window`** | P0 |
 | G2 | ~~No framebuffer size API~~ **Done:** `get_framebuffer_size` | HiDPI projection and swapchain extent. | **`platform_window`** | P0 |
 | G3 | Content-scale callback **done**; still missing resize / focus / close **events** | Avoid missing DPI changes and resize; cleaner than edge-detect alone. | **`platform_window`** | P0 |
 | G4 | ~~No monitor list / per-monitor scale~~ **Done:** `get_monitor*` + `get_monitor_content_scale` | Multi-monitor editor placement and DPI. | **`platform_window`** | P2 |

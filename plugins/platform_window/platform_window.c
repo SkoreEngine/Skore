@@ -43,6 +43,12 @@ static i32 glfw_ready = 0;
 typedef struct sk_window_state_t {
 	sk_window_content_scale_callback_t content_scale_cb;
 	void_ptr_t content_scale_user_data;
+	sk_window_key_callback_t key_cb;
+	void_ptr_t key_user_data;
+	sk_window_char_callback_t char_cb;
+	void_ptr_t char_user_data;
+	sk_window_scroll_callback_t scroll_cb;
+	void_ptr_t scroll_user_data;
 } sk_window_state_t;
 
 /* ---- scale helpers (backend) ---- */
@@ -63,6 +69,126 @@ static void sk_glfw_content_scale_callback(GLFWwindow* win, float xscale, float 
 	}
 	scale = sk_normalize_content_scale(xscale, yscale);
 	state->content_scale_cb((sk_window_t)win, scale, state->content_scale_user_data);
+}
+
+/* ---- input helpers (backend) ---- */
+
+/** GLFW key code → platform-neutral sk_key_t (ASCII for printable keys). */
+static i32 sk_key_from_glfw(int key) {
+	if (key >= GLFW_KEY_SPACE && key <= GLFW_KEY_GRAVE_ACCENT) {
+		/* GLFW uses ASCII for printable keys (letters are uppercase). */
+		return key;
+	}
+	if (key >= GLFW_KEY_F1 && key <= GLFW_KEY_F12) {
+		return SK_KEY_F1 + (key - GLFW_KEY_F1);
+	}
+	switch (key) {
+	case GLFW_KEY_BACKSPACE:
+		return SK_KEY_BACKSPACE;
+	case GLFW_KEY_TAB:
+		return SK_KEY_TAB;
+	case GLFW_KEY_ENTER:
+	case GLFW_KEY_KP_ENTER:
+		return SK_KEY_ENTER;
+	case GLFW_KEY_ESCAPE:
+		return SK_KEY_ESCAPE;
+	case GLFW_KEY_DELETE:
+		return SK_KEY_DELETE;
+	case GLFW_KEY_LEFT:
+		return SK_KEY_LEFT;
+	case GLFW_KEY_RIGHT:
+		return SK_KEY_RIGHT;
+	case GLFW_KEY_UP:
+		return SK_KEY_UP;
+	case GLFW_KEY_DOWN:
+		return SK_KEY_DOWN;
+	case GLFW_KEY_HOME:
+		return SK_KEY_HOME;
+	case GLFW_KEY_END:
+		return SK_KEY_END;
+	case GLFW_KEY_PAGE_UP:
+		return SK_KEY_PAGE_UP;
+	case GLFW_KEY_PAGE_DOWN:
+		return SK_KEY_PAGE_DOWN;
+	case GLFW_KEY_INSERT:
+		return SK_KEY_INSERT;
+	default:
+		return SK_KEY_UNKNOWN;
+	}
+}
+
+/** GLFW modifier bits → sk_key_mod_flags_t. */
+static u32 sk_key_mods_from_glfw(int mods) {
+	u32 out = (u32)SK_KEY_MOD_NONE;
+	if ((mods & GLFW_MOD_SHIFT) != 0) {
+		out |= (u32)SK_KEY_MOD_SHIFT;
+	}
+	if ((mods & GLFW_MOD_CONTROL) != 0) {
+		out |= (u32)SK_KEY_MOD_CTRL;
+	}
+	if ((mods & GLFW_MOD_ALT) != 0) {
+		out |= (u32)SK_KEY_MOD_ALT;
+	}
+	if ((mods & GLFW_MOD_SUPER) != 0) {
+		out |= (u32)SK_KEY_MOD_SUPER;
+	}
+	return out;
+}
+
+/**
+ * Encode one Unicode code point as NUL-terminated UTF-8.
+ * @param buf Destination, at least 5 bytes.
+ */
+static void sk_utf8_encode(u32 codepoint, char* buf) {
+	if (codepoint < 0x80u) {
+		buf[0] = (char)codepoint;
+		buf[1] = '\0';
+	} else if (codepoint < 0x800u) {
+		buf[0] = (char)(0xC0u | (codepoint >> 6));
+		buf[1] = (char)(0x80u | (codepoint & 0x3Fu));
+		buf[2] = '\0';
+	} else if (codepoint < 0x10000u) {
+		buf[0] = (char)(0xE0u | (codepoint >> 12));
+		buf[1] = (char)(0x80u | ((codepoint >> 6) & 0x3Fu));
+		buf[2] = (char)(0x80u | (codepoint & 0x3Fu));
+		buf[3] = '\0';
+	} else {
+		buf[0] = (char)(0xF0u | (codepoint >> 18));
+		buf[1] = (char)(0x80u | ((codepoint >> 12) & 0x3Fu));
+		buf[2] = (char)(0x80u | ((codepoint >> 6) & 0x3Fu));
+		buf[3] = (char)(0x80u | (codepoint & 0x3Fu));
+		buf[4] = '\0';
+	}
+}
+
+static void sk_glfw_key_callback(GLFWwindow* win, int key, int scancode, int action, int mods) {
+	sk_window_state_t* state = (sk_window_state_t*)glfwGetWindowUserPointer(win);
+	(void)scancode;
+
+	if (state == NULL || state->key_cb == NULL) {
+		return;
+	}
+	state->key_cb((sk_window_t)win, sk_key_from_glfw(key), action != GLFW_RELEASE ? 1 : 0, action == GLFW_REPEAT ? 1 : 0, sk_key_mods_from_glfw(mods), state->key_user_data);
+}
+
+static void sk_glfw_char_callback(GLFWwindow* win, unsigned int codepoint) {
+	sk_window_state_t* state = (sk_window_state_t*)glfwGetWindowUserPointer(win);
+	char utf8[5];
+
+	if (state == NULL || state->char_cb == NULL) {
+		return;
+	}
+	sk_utf8_encode(codepoint, utf8);
+	state->char_cb((sk_window_t)win, utf8, state->char_user_data);
+}
+
+static void sk_glfw_scroll_callback(GLFWwindow* win, double xoffset, double yoffset) {
+	sk_window_state_t* state = (sk_window_state_t*)glfwGetWindowUserPointer(win);
+
+	if (state == NULL || state->scroll_cb == NULL) {
+		return;
+	}
+	state->scroll_cb((sk_window_t)win, (f32)xoffset, (f32)yoffset, state->scroll_user_data);
 }
 
 /* ---- window ops ---- */
@@ -127,6 +253,9 @@ static sk_window_t sk_window_create(const_chr_t title, u32 width, u32 height, u3
 	glfwSetWindowUserPointer(win, state);
 	/* Always install; forwards only when user callback is set. */
 	glfwSetWindowContentScaleCallback(win, sk_glfw_content_scale_callback);
+	glfwSetKeyCallback(win, sk_glfw_key_callback);
+	glfwSetCharCallback(win, sk_glfw_char_callback);
+	glfwSetScrollCallback(win, sk_glfw_scroll_callback);
 
 #if defined(_WIN32)
 	{
@@ -148,6 +277,9 @@ static void sk_window_destroy(sk_window_t window) {
 	state = (sk_window_state_t*)glfwGetWindowUserPointer(win);
 	glfwSetWindowUserPointer(win, NULL);
 	glfwSetWindowContentScaleCallback(win, NULL);
+	glfwSetKeyCallback(win, NULL);
+	glfwSetCharCallback(win, NULL);
+	glfwSetScrollCallback(win, NULL);
 	free(state);
 	glfwDestroyWindow(win);
 }
@@ -169,22 +301,58 @@ static f32 sk_window_get_dpi(sk_window_t window) {
 	return sk_content_scale_average(sk_window_get_content_scale(window));
 }
 
+/**
+ * Framebuffer pixels per GLFW screen coordinate.
+ *
+ * macOS: 2 on a Retina display (screen coords are points). Windows / X11:
+ * 1 (screen coords are already pixels). Falls back to 1 when either size is
+ * unavailable (minimized window).
+ */
+static void sk_window_pixels_per_screen_coord(GLFWwindow* win, f32* out_x, f32* out_y) {
+	int win_w = 0;
+	int win_h = 0;
+	int fb_w = 0;
+	int fb_h = 0;
+
+	*out_x = 1.0f;
+	*out_y = 1.0f;
+	if (win == NULL) {
+		return;
+	}
+	glfwGetWindowSize(win, &win_w, &win_h);
+	glfwGetFramebufferSize(win, &fb_w, &fb_h);
+	if (win_w > 0 && fb_w > 0) {
+		*out_x = (f32)fb_w / (f32)win_w;
+	}
+	if (win_h > 0 && fb_h > 0) {
+		*out_y = (f32)fb_h / (f32)win_h;
+	}
+}
+
 static sk_extent_t sk_window_get_size(sk_window_t window) {
 	sk_extent_t extent = {0u, 0u};
 	GLFWwindow* win = as_glfw(window);
+	sk_content_scale_t scale;
 	int w = 0;
 	int h = 0;
 
-	/* Logical size (screen coordinates / points). */
-	glfwGetWindowSize(win, &w, &h);
+	/*
+	 * Logical points = framebuffer pixels / content scale, not GLFW screen
+	 * coordinates: those are points on macOS but raw pixels on Windows, where
+	 * DPI only shows up in the content scale. Deriving from the framebuffer
+	 * keeps `logical × content_scale == physical` on every backend, so hosts
+	 * that lay out in points and then apply the scale land inside the window.
+	 */
+	glfwGetFramebufferSize(win, &w, &h);
 	if (w < 0) {
 		w = 0;
 	}
 	if (h < 0) {
 		h = 0;
 	}
-	extent.width = (u32)w;
-	extent.height = (u32)h;
+	scale = sk_window_get_content_scale(window);
+	extent.width = sk_physical_to_logical_u32((u32)w, scale.x);
+	extent.height = sk_physical_to_logical_u32((u32)h, scale.y);
 	return extent;
 }
 
@@ -640,16 +808,24 @@ static void sk_window_poll_events(void) {
 
 static void sk_window_get_cursor_pos(sk_window_t window, f32* out_x, f32* out_y) {
 	GLFWwindow* win = as_glfw(window);
+	sk_content_scale_t scale;
+	f32 px_x = 1.0f;
+	f32 px_y = 1.0f;
 	double x = 0.0;
 	double y = 0.0;
+
 	if (win != NULL) {
 		glfwGetCursorPos(win, &x, &y);
 	}
+	/* GLFW reports screen coordinates; convert to pixels, then to logical
+	 * points so the result shares the space of get_window_size / UI layout. */
+	sk_window_pixels_per_screen_coord(win, &px_x, &px_y);
+	scale = sk_window_get_content_scale(window);
 	if (out_x != NULL) {
-		*out_x = (f32)x;
+		*out_x = sk_physical_to_logical_f((f32)x * px_x, scale.x);
 	}
 	if (out_y != NULL) {
-		*out_y = (f32)y;
+		*out_y = sk_physical_to_logical_f((f32)y * px_y, scale.y);
 	}
 }
 
@@ -669,6 +845,36 @@ static i32 sk_window_get_mouse_button(sk_window_t window, i32 button) {
 		return 0;
 	}
 	return glfwGetMouseButton(win, glfw_button) == GLFW_PRESS ? 1 : 0;
+}
+
+static void sk_window_set_key_callback(sk_window_t window, sk_window_key_callback_t callback, void_ptr_t user_data) {
+	sk_window_state_t* state = (sk_window_state_t*)glfwGetWindowUserPointer(as_glfw(window));
+
+	if (state == NULL) {
+		return;
+	}
+	state->key_cb = callback;
+	state->key_user_data = user_data;
+}
+
+static void sk_window_set_char_callback(sk_window_t window, sk_window_char_callback_t callback, void_ptr_t user_data) {
+	sk_window_state_t* state = (sk_window_state_t*)glfwGetWindowUserPointer(as_glfw(window));
+
+	if (state == NULL) {
+		return;
+	}
+	state->char_cb = callback;
+	state->char_user_data = user_data;
+}
+
+static void sk_window_set_scroll_callback(sk_window_t window, sk_window_scroll_callback_t callback, void_ptr_t user_data) {
+	sk_window_state_t* state = (sk_window_state_t*)glfwGetWindowUserPointer(as_glfw(window));
+
+	if (state == NULL) {
+		return;
+	}
+	state->scroll_cb = callback;
+	state->scroll_user_data = user_data;
 }
 
 static void sk_window_shutdown(void) {
@@ -708,6 +914,9 @@ static const sk_platform_window_api_t platform_window_api = {
 	sk_window_poll_events,
 	sk_window_get_cursor_pos,
 	sk_window_get_mouse_button,
+	sk_window_set_key_callback,
+	sk_window_set_char_callback,
+	sk_window_set_scroll_callback,
 	sk_window_shutdown,
 };
 
@@ -754,6 +963,9 @@ SK_TEST(platform_window_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(platform_window_api.open_dialog);
 	TEST_ASSERT_NOT_NULL(platform_window_api.get_cursor_pos);
 	TEST_ASSERT_NOT_NULL(platform_window_api.get_mouse_button);
+	TEST_ASSERT_NOT_NULL(platform_window_api.set_window_key_callback);
+	TEST_ASSERT_NOT_NULL(platform_window_api.set_window_char_callback);
+	TEST_ASSERT_NOT_NULL(platform_window_api.set_window_scroll_callback);
 	TEST_ASSERT_NOT_NULL(platform_window_api.open_dialog_multiple);
 	TEST_ASSERT_NOT_NULL(platform_window_api.pick_folder);
 	TEST_ASSERT_NOT_NULL(platform_window_api.poll_events);
@@ -921,6 +1133,87 @@ SK_TEST(window_flags_and_enums_are_distinct) {
 	TEST_ASSERT_TRUE(SK_CURSOR_LOCK_NONE != SK_CURSOR_LOCK_LOCKED);
 	TEST_ASSERT_TRUE(SK_CURSOR_LOCK_LOCKED != SK_CURSOR_LOCK_CONFINED);
 	TEST_ASSERT_TRUE(SK_MESSAGE_BOX_INFO != SK_MESSAGE_BOX_ERROR);
+}
+
+SK_TEST(key_translation_covers_printable_and_named_keys) {
+	/* Printable keys keep their ASCII code on every backend. */
+	TEST_ASSERT_EQUAL_INT((i32)'A', sk_key_from_glfw(GLFW_KEY_A));
+	TEST_ASSERT_EQUAL_INT((i32)'Z', sk_key_from_glfw(GLFW_KEY_Z));
+	TEST_ASSERT_EQUAL_INT((i32)'0', sk_key_from_glfw(GLFW_KEY_0));
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_SPACE, sk_key_from_glfw(GLFW_KEY_SPACE));
+
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_BACKSPACE, sk_key_from_glfw(GLFW_KEY_BACKSPACE));
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_TAB, sk_key_from_glfw(GLFW_KEY_TAB));
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_ENTER, sk_key_from_glfw(GLFW_KEY_ENTER));
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_ENTER, sk_key_from_glfw(GLFW_KEY_KP_ENTER));
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_DELETE, sk_key_from_glfw(GLFW_KEY_DELETE));
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_LEFT, sk_key_from_glfw(GLFW_KEY_LEFT));
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_END, sk_key_from_glfw(GLFW_KEY_END));
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_F1 + 11, sk_key_from_glfw(GLFW_KEY_F12));
+	TEST_ASSERT_EQUAL_INT((i32)SK_KEY_UNKNOWN, sk_key_from_glfw(GLFW_KEY_LEFT_SHIFT));
+
+	TEST_ASSERT_EQUAL_UINT((u32)SK_KEY_MOD_NONE, sk_key_mods_from_glfw(0));
+	TEST_ASSERT_EQUAL_UINT((u32)SK_KEY_MOD_SHIFT | (u32)SK_KEY_MOD_CTRL, sk_key_mods_from_glfw(GLFW_MOD_SHIFT | GLFW_MOD_CONTROL));
+}
+
+SK_TEST(utf8_encode_covers_code_point_ranges) {
+	char buf[5];
+
+	sk_utf8_encode(0x41u, buf); /* 'A' */
+	TEST_ASSERT_EQUAL_STRING("A", buf);
+
+	sk_utf8_encode(0xE9u, buf); /* 'é' */
+	TEST_ASSERT_EQUAL_UINT(0xC3u, (u32)(u8)buf[0]);
+	TEST_ASSERT_EQUAL_UINT(0xA9u, (u32)(u8)buf[1]);
+	TEST_ASSERT_EQUAL_INT('\0', buf[2]);
+
+	sk_utf8_encode(0x20ACu, buf); /* '€' */
+	TEST_ASSERT_EQUAL_UINT(0xE2u, (u32)(u8)buf[0]);
+	TEST_ASSERT_EQUAL_UINT(0x82u, (u32)(u8)buf[1]);
+	TEST_ASSERT_EQUAL_UINT(0xACu, (u32)(u8)buf[2]);
+	TEST_ASSERT_EQUAL_INT('\0', buf[3]);
+
+	sk_utf8_encode(0x1F600u, buf); /* emoji (4-byte) */
+	TEST_ASSERT_EQUAL_UINT(0xF0u, (u32)(u8)buf[0]);
+	TEST_ASSERT_EQUAL_UINT(0x9Fu, (u32)(u8)buf[1]);
+	TEST_ASSERT_EQUAL_UINT(0x98u, (u32)(u8)buf[2]);
+	TEST_ASSERT_EQUAL_UINT(0x80u, (u32)(u8)buf[3]);
+	TEST_ASSERT_EQUAL_INT('\0', buf[4]);
+}
+
+/*
+ * Logical points must equal framebuffer / content scale so a host that lays
+ * out in points and then applies the scale fills exactly the window.
+ */
+SK_TEST(window_logical_size_matches_framebuffer_over_scale) {
+	sk_window_t window;
+	sk_content_scale_t scale;
+	sk_extent_t logical;
+	sk_extent_t physical;
+
+	if (platform_window_api.init() != 0) {
+		return; /* headless CI */
+	}
+	window = platform_window_api.create_window("logical-size-test", 320u, 240u, SK_WINDOW_FLAG_HIDDEN);
+	if (window == NULL) {
+		platform_window_api.shutdown();
+		return;
+	}
+
+	scale = platform_window_api.get_window_content_scale(window);
+	logical = platform_window_api.get_window_size(window);
+	physical = platform_window_api.get_framebuffer_size(window);
+
+	TEST_ASSERT_EQUAL_UINT(sk_physical_to_logical_u32(physical.width, scale.x), logical.width);
+	TEST_ASSERT_EQUAL_UINT(sk_physical_to_logical_u32(physical.height, scale.y), logical.height);
+
+	/* Callback registration is a no-crash smoke path (no OS input here). */
+	platform_window_api.set_window_key_callback(window, NULL, NULL);
+	platform_window_api.set_window_char_callback(window, NULL, NULL);
+	platform_window_api.set_window_scroll_callback(window, NULL, NULL);
+
+	platform_window_api.destroy_window(window);
+	platform_window_api.shutdown();
 }
 
 SK_TEST(platform_window_type_id_nonzero) {

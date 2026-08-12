@@ -109,6 +109,78 @@ typedef enum sk_mouse_button_t {
 } sk_mouse_button_t;
 
 /**
+ * Keyboard modifier bit flags reported by the key callback.
+ */
+typedef enum sk_key_mod_flags_t {
+	SK_KEY_MOD_NONE = 0,
+	SK_KEY_MOD_SHIFT = 1u << 0,
+	SK_KEY_MOD_CTRL = 1u << 1,
+	SK_KEY_MOD_ALT = 1u << 2,
+	SK_KEY_MOD_SUPER = 1u << 3,
+} sk_key_mod_flags_t;
+
+/**
+ * Platform-neutral key codes for sk_window_key_callback_t.
+ *
+ * Printable keys report their **ASCII** code (uppercase for letters), so
+ * 'A'..'Z', '0'..'9' and ASCII punctuation are valid codes on every backend.
+ * Non-printable keys use the named constants below; anything the backend
+ * cannot classify arrives as SK_KEY_UNKNOWN.
+ *
+ * Hosts translate these into their UI layer's key codes (the window plugin
+ * does not depend on any UI plugin).
+ */
+typedef enum sk_key_t {
+	SK_KEY_UNKNOWN = 0,
+	SK_KEY_BACKSPACE = 8,
+	SK_KEY_TAB = 9,
+	SK_KEY_ENTER = 13,
+	SK_KEY_ESCAPE = 27,
+	SK_KEY_SPACE = 32,
+	SK_KEY_DELETE = 127,
+	SK_KEY_LEFT = 1000,
+	SK_KEY_RIGHT = 1001,
+	SK_KEY_UP = 1002,
+	SK_KEY_DOWN = 1003,
+	SK_KEY_HOME = 1004,
+	SK_KEY_END = 1005,
+	SK_KEY_PAGE_UP = 1006,
+	SK_KEY_PAGE_DOWN = 1007,
+	SK_KEY_INSERT = 1008,
+	SK_KEY_F1 = 1100, /* F2..F12 are SK_KEY_F1 + 1 .. SK_KEY_F1 + 11 */
+} sk_key_t;
+
+/**
+ * Key press / release on a focused window. Delivered from poll_events.
+ * @param window    Window with keyboard focus.
+ * @param key       sk_key_t (printable keys use their ASCII code).
+ * @param down      1 = pressed (or auto-repeat), 0 = released.
+ * @param repeat    Non-zero when this is an auto-repeat press.
+ * @param mods      sk_key_mod_flags_t bits.
+ * @param user_data Cookie from set_window_key_callback.
+ */
+typedef void (*sk_window_key_callback_t)(sk_window_t window, i32 key, i32 down, i32 repeat, u32 mods, void_ptr_t user_data);
+
+/**
+ * Text entry (one code point, already composed by the OS keyboard layout).
+ * Use this — not the key callback — to insert characters into text fields.
+ * @param window    Window with keyboard focus.
+ * @param utf8      NUL-terminated UTF-8 for one code point; valid only during
+ *                  the call (copy to keep it).
+ * @param user_data Cookie from set_window_char_callback.
+ */
+typedef void (*sk_window_char_callback_t)(sk_window_t window, const_chr_t utf8, void_ptr_t user_data);
+
+/**
+ * Mouse wheel / trackpad scroll, in ticks (positive y = scroll up/away).
+ * @param window    Window under the cursor.
+ * @param offset_x  Horizontal ticks.
+ * @param offset_y  Vertical ticks.
+ * @param user_data Cookie from set_window_scroll_callback.
+ */
+typedef void (*sk_window_scroll_callback_t)(sk_window_t window, f32 offset_x, f32 offset_y, void_ptr_t user_data);
+
+/**
  * Simple message-box severity.
  */
 typedef enum sk_message_box_type_t {
@@ -266,9 +338,15 @@ typedef struct sk_platform_window_api_t {
 	f32 (*get_window_dpi)(sk_window_t window);
 
 	/**
-     * Client-area size in **logical** screen coordinates (points).
+     * Client-area size in **logical** points (DPI-independent, 96 DPI baseline).
      * Use for UI layout and hit-testing. For swapchain / GPU viewport use
      * get_framebuffer_size (physical pixels).
+     *
+     * This is always `get_framebuffer_size / get_window_content_scale`, which is
+     * *not* the same as the backend's screen coordinates: GLFW screen coords are
+     * points on macOS but raw pixels on Windows, where DPI shows up only in the
+     * content scale. Returning pixels here would make hosts scale an already
+     * scaled layout (content drawn content_scale× too large).
      * @param window Valid window.
      * @return Size; zeros if invalid.
      */
@@ -407,8 +485,9 @@ typedef struct sk_platform_window_api_t {
 	void (*poll_events)(void);
 
 	/**
-     * Cursor position in **logical** client coordinates (same space as
-     * get_window_size / UI layout). Either out pointer may be NULL.
+     * Cursor position in **logical** client points (same space as
+     * get_window_size / UI layout — physical pixels divided by the content
+     * scale). Either out pointer may be NULL.
      * @param window Valid window.
      * @param out_x  Logical x (optional).
      * @param out_y  Logical y (optional).
@@ -422,6 +501,33 @@ typedef struct sk_platform_window_api_t {
      * @return Non-zero if pressed, 0 if released / invalid.
      */
 	i32 (*get_mouse_button)(sk_window_t window, i32 button);
+
+	/**
+     * Register a key press/release callback on @p window, or NULL to clear.
+     * Invoked from poll_events. One callback per window (replaces previous).
+     * @param window    Valid window.
+     * @param callback  Handler or NULL.
+     * @param user_data Cookie passed to @p callback.
+     */
+	void (*set_window_key_callback)(sk_window_t window, sk_window_key_callback_t callback, void_ptr_t user_data);
+
+	/**
+     * Register a text-entry (code point) callback on @p window, or NULL to
+     * clear. Invoked from poll_events. One callback per window.
+     * @param window    Valid window.
+     * @param callback  Handler or NULL.
+     * @param user_data Cookie passed to @p callback.
+     */
+	void (*set_window_char_callback)(sk_window_t window, sk_window_char_callback_t callback, void_ptr_t user_data);
+
+	/**
+     * Register a mouse-wheel callback on @p window, or NULL to clear.
+     * Invoked from poll_events. One callback per window.
+     * @param window    Valid window.
+     * @param callback  Handler or NULL.
+     * @param user_data Cookie passed to @p callback.
+     */
+	void (*set_window_scroll_callback)(sk_window_t window, sk_window_scroll_callback_t callback, void_ptr_t user_data);
 
 	/**
      * Shutdown the window subsystem (destroy leftover windows, terminate GLFW).
