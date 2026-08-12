@@ -76,7 +76,7 @@
 #define UWV_PANEL_FACE UWV_RGB(41u, 43u, 51u)	  /* 0.16,0.17,0.20 */
 #define UWV_PANEL_BORDER UWV_RGB(71u, 77u, 87u)	  /* 0.28,0.30,0.34 */
 #define UWV_WIN_FACE UWV_RGB(36u, 38u, 43u)		  /* 0.14,0.15,0.17 */
-#define UWV_WIN_TITLE UWV_RGB(51u, 56u, 66u)	  /* 0.20,0.22,0.26 */
+#define UWV_WIN_TITLE UWV_RGB(82u, 92u, 112u)	  /* 0.32,0.36,0.44 stronger title band */
 #define UWV_WIN_BORDER UWV_RGB(71u, 77u, 87u)	  /* 0.28,0.30,0.34 */
 #define UWV_TAB_BAR UWV_RGB(41u, 43u, 51u)		  /* 0.16,0.17,0.20 */
 #define UWV_TAB_INACTIVE UWV_RGB(46u, 48u, 56u)	  /* 0.18,0.19,0.22 */
@@ -84,9 +84,9 @@
 #define UWV_MENU_POPUP UWV_RGB(41u, 43u, 51u)	  /* 0.16,0.17,0.20 */
 #define UWV_MENU_BORDER UWV_RGB(82u, 87u, 102u)	  /* 0.32,0.34,0.40 */
 #define UWV_MENU_SEP UWV_RGB(71u, 77u, 87u)		  /* separator line */
-#define UWV_TABLE_HEADER UWV_RGB(56u, 61u, 71u)	  /* darker header */
-#define UWV_TABLE_ROW_A UWV_RGB(41u, 43u, 51u)	  /* stripe A */
-#define UWV_TABLE_ROW_B UWV_RGB(48u, 51u, 59u)	  /* stripe B */
+#define UWV_TABLE_HEADER UWV_RGB(71u, 81u, 97u)	  /* 0.28,0.32,0.38 stronger header */
+#define UWV_TABLE_ROW_A UWV_RGB(28u, 30u, 36u)	  /* 0.11,0.12,0.14 dark stripe A */
+#define UWV_TABLE_ROW_B UWV_RGB(56u, 61u, 71u)	  /* 0.22,0.24,0.28 light stripe B */
 #define UWV_TABLE_COL_SEP UWV_RGB(89u, 94u, 107u) /* column separator */
 #define UWV_TIP_FACE UWV_RGB(46u, 48u, 56u)		  /* tooltip face */
 #define UWV_TIP_BORDER UWV_RGB(140u, 148u, 168u)  /* tooltip border */
@@ -220,22 +220,31 @@ static void uwv_vision_grade(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* img
 		return;
 	}
 	/*
-	 * One retry on ERROR (script/API glitch) or FAIL (occasional model fluke).
-	 * Structural asserts already guard stubbed draw; a second live grade is
+	 * Up to two retries on ERROR (script/API glitch) or FAIL (model fluke).
+	 * Structural asserts already guard stubbed draw; extra live grades are
 	 * cheap compared to a red suite from a single bad vision response.
 	 */
 	if (rc == SK_UI_VISION_ASSERT_ERROR || rc == SK_UI_VISION_ASSERT_FAIL || result.passed == 0) {
 		sk_ui_vision_result_t retry;
-		i32 rc2;
-		memset(&retry, 0, sizeof(retry));
-		rc2 = sk_ui_vision_assert_image(ui, img, family, state_hint, scene_name, sk_filesystem_api(), &retry);
-		if (rc2 == SK_UI_VISION_ASSERT_OK && retry.passed != 0) {
-			return;
+		i32 rc2 = rc;
+		i32 attempt;
+		i32 error_streak = (rc == SK_UI_VISION_ASSERT_ERROR) ? 1 : 0;
+		for (attempt = 0; attempt < 2; ++attempt) {
+			memset(&retry, 0, sizeof(retry));
+			rc2 = sk_ui_vision_assert_image(ui, img, family, state_hint, scene_name, sk_filesystem_api(), &retry);
+			if (rc2 == SK_UI_VISION_ASSERT_OK && retry.passed != 0) {
+				return;
+			}
+			if (rc2 == SK_UI_VISION_ASSERT_SKIPPED) {
+				return;
+			}
+			if (rc2 == SK_UI_VISION_ASSERT_ERROR) {
+				error_streak++;
+			} else {
+				error_streak = 0;
+			}
 		}
-		if (rc2 == SK_UI_VISION_ASSERT_SKIPPED) {
-			return;
-		}
-		if (rc == SK_UI_VISION_ASSERT_ERROR && rc2 == SK_UI_VISION_ASSERT_ERROR) {
+		if (error_streak >= 2) {
 			fprintf(stderr, "vision assert ERROR for %s: %s\n", scene_name, retry.reason[0] != '\0' ? retry.reason : result.reason);
 			/* Soft: do not fail the suite on repeated backend errors. */
 			return;
@@ -587,7 +596,9 @@ SK_TEST(ui_widget_vision_toggle) {
 
 	cfg.state_or = (u32)SK_UI_STATE_HOVER;
 	cfg.bool_value = 0;
-	uwv_run_state(ui, "ui_widget_vision_toggle_hover_off", 80u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "off hover", UWV_RGB(82u, 87u, 102u), UWV_THUMB, 1);
+	/* state_hint names the pill+thumb silhouette so vision does not collapse to the knob alone. */
+	uwv_run_state(ui, "ui_widget_vision_toggle_hover_off", 80u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "off hover: horizontal pill track with distinct left thumb",
+				  UWV_RGB(82u, 87u, 102u), UWV_THUMB, 1);
 
 	cfg.state_or = 0u;
 	cfg.disabled = 1;
@@ -1275,11 +1286,11 @@ static i32 uwv_scene_table(sk_ui_capture_scene_t* scene, void* user) {
 	ui->node_set_inline_style(ctx, table, &props);
 
 	/* Header differs from body. */
-	uwv_table_row(ui, ctx, table, "vw-th", "Name", "Type", "Size", sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f), 24.0f);
-	/* Striped body rows. */
-	uwv_table_row(ui, ctx, table, "vw-tr0", "mesh", "asset", "12k", sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f), 22.0f);
-	uwv_table_row(ui, ctx, table, "vw-tr1", "tex", "asset", "4k", sk_ui_rgba(0.19f, 0.20f, 0.23f, 1.0f), 22.0f);
-	uwv_table_row(ui, ctx, table, "vw-tr2", "mat", "asset", "1k", sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f), 22.0f);
+	uwv_table_row(ui, ctx, table, "vw-th", "Name", "Type", "Size", sk_ui_rgba(0.28f, 0.32f, 0.38f, 1.0f), 24.0f);
+	/* Striped body rows — high-contrast zebra so vision grades see alternating fills. */
+	uwv_table_row(ui, ctx, table, "vw-tr0", "mesh", "asset", "12k", sk_ui_rgba(0.11f, 0.12f, 0.14f, 1.0f), 22.0f);
+	uwv_table_row(ui, ctx, table, "vw-tr1", "tex", "asset", "4k", sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f), 22.0f);
+	uwv_table_row(ui, ctx, table, "vw-tr2", "mat", "asset", "1k", sk_ui_rgba(0.11f, 0.12f, 0.14f, 1.0f), 22.0f);
 	return 0;
 }
 

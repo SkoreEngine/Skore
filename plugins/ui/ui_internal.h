@@ -526,6 +526,25 @@ void ui_harness_set_font_impl(sk_ui_harness_t* harness, sk_ui_font_system_t* sys
 const sk_ui_draw_list_t* ui_harness_draw_list_impl(const sk_ui_harness_t* harness);
 
 /* -------------------------------------------------------------------------- */
+/* Test engine (test_engine.c) — item registry + frame control                */
+/* -------------------------------------------------------------------------- */
+
+sk_ui_test_engine_t* ui_test_engine_create_impl(const sk_ui_test_engine_desc_t* desc);
+void ui_test_engine_destroy_impl(sk_ui_test_engine_t* engine);
+sk_ui_context_t* ui_test_engine_context_impl(sk_ui_test_engine_t* engine);
+sk_ui_harness_t* ui_test_engine_harness_impl(sk_ui_test_engine_t* engine);
+i32 ui_test_engine_step_impl(sk_ui_test_engine_t* engine, f32 delta_seconds);
+i32 ui_test_engine_yield_frames_impl(sk_ui_test_engine_t* engine, u32 frame_count, f32 delta_seconds);
+i32 ui_test_engine_run_until_impl(sk_ui_test_engine_t* engine, sk_ui_test_predicate_fn pred, void_ptr_t user, u32 max_frames, f32 delta_seconds);
+f64 ui_test_engine_time_impl(const sk_ui_test_engine_t* engine);
+u32 ui_test_engine_frame_index_impl(const sk_ui_test_engine_t* engine);
+const sk_ui_test_item_t* ui_test_engine_find_by_id_impl(const sk_ui_test_engine_t* engine, const_chr_t test_id);
+const sk_ui_test_item_t* ui_test_engine_find_by_path_impl(const sk_ui_test_engine_t* engine, const_chr_t id_path);
+u32 ui_test_engine_item_count_impl(const sk_ui_test_engine_t* engine);
+const sk_ui_test_item_t* ui_test_engine_item_at_impl(const sk_ui_test_engine_t* engine, u32 index);
+const_chr_t ui_test_engine_last_error_impl(const sk_ui_test_engine_t* engine);
+
+/* -------------------------------------------------------------------------- */
 /* Sample main menu scene (sample_menu.c)                                     */
 /* -------------------------------------------------------------------------- */
 

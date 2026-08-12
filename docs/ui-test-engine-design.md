@@ -10,7 +10,9 @@ model/layout/pixel state — without a real OS event loop or human driver.
 It is **not** a Selenium binary, scripted recorder, or accessibility tree.
 Those remain out of scope (see `docs/ui-automation-api.md` §1).
 
-**Status:** design only. No engine implementation in this change.
+**Status:** design complete (APX-258). Foundation implemented (APX-259): item
+registry, id/path lookup, `test_engine_step` / `yield_frames` / `run_until`
+with timeout errors. No input injection in the foundation layer.
 
 ---
 

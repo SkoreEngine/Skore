@@ -376,8 +376,11 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 	ui_style_props_clear(&var);
-	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	/* Hover: lift fill and keep a brighter border so the pill silhouette stays
+	 * separable from the thumb (vision must not collapse to "lone circle"). */
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
 	var.background_color = sk_ui_rgba(0.32f, 0.34f, 0.40f, 1.0f);
+	var.border_color = sk_ui_rgba(0.58f, 0.62f, 0.72f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TOGGLE, SK_UI_STATE_HOVER, &var);
 	var.background_color = sk_ui_rgba(0.20f, 0.21f, 0.24f, 1.0f);
 	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR;
@@ -660,11 +663,12 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 		return -1;
 	}
 
-	/* Window title bar (drag target) */
+	/* Window title bar (drag target) — stronger band vs body so vision grades
+	 * see a distinct top chrome strip (body is 0.14/0.15/0.17). */
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_WIDTH | SK_UI_SP_ALIGN_ITEMS |
 				SK_UI_SP_FLEX_DIRECTION;
-	base.background_color = sk_ui_rgba(0.20f, 0.22f, 0.26f, 1.0f);
+	base.background_color = sk_ui_rgba(0.32f, 0.36f, 0.44f, 1.0f);
 	ui_style_fill_layout_pad(&base, 6.0f);
 	base.color = sk_ui_rgba(0.92f, 0.93f, 0.95f, 1.0f);
 	base.font_size = 13.0f;

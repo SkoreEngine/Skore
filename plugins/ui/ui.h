@@ -831,6 +831,61 @@ typedef struct sk_ui_harness_desc_t {
 } sk_ui_harness_desc_t;
 
 /* ------------------------------------------------------------------ */
+/*  Code-driven test engine (item registry + frame control)           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Opaque headless test engine (APX-259). Owns a harness, a per-frame item
+ * registry (stable test ids / id paths → rect + interaction state), and
+ * deterministic frame stepping. No OS event loop and no input injection in
+ * the foundation layer — tests build a tree, step frames, and look up items.
+ */
+typedef struct sk_ui_test_engine_t sk_ui_test_engine_t;
+
+/**
+ * Creation parameters for sk_ui_api_t::test_engine_create.
+ * Mirrors sk_ui_harness_desc_t (the engine wraps a harness).
+ */
+typedef struct sk_ui_test_engine_desc_t {
+	const sk_allocator_t* allocator; /**< Optional; NULL = process default. */
+	f32 width;						 /**< Logical width (default 800 when <= 0). */
+	f32 height;						 /**< Logical height (default 600 when <= 0). */
+	f32 content_scale;				 /**< HiDPI scale (default 1 when <= 0). */
+	i32 soft_render;				 /**< Non-zero: harness soft-render buffer. */
+} sk_ui_test_engine_desc_t;
+
+/**
+ * Snapshot of one registered UI item after the last successful engine step.
+ * String pointers and the struct itself are owned by the engine and remain
+ * valid only until the next step / destroy.
+ */
+typedef struct sk_ui_test_item_t {
+	sk_ui_node_t node;	 /**< Live handle at registration time. */
+	const_chr_t id;		 /**< Node test id (never NULL when registered). */
+	const_chr_t id_path; /**< Slash-separated ancestor+self ids (e.g. "panel/btn"). */
+	sk_ui_rect_t rect;	 /**< Absolute border box (logical units after layout). */
+	u32 state_flags;	 /**< SK_UI_STATE_* bits at last step. */
+	i32 hovered;		 /**< Non-zero if SK_UI_STATE_HOVER set. */
+	i32 active;			 /**< Non-zero if SK_UI_STATE_ACTIVE set. */
+	i32 focused;		 /**< Non-zero if SK_UI_STATE_FOCUSED set. */
+	i32 disabled;		 /**< Non-zero if SK_UI_STATE_DISABLED set. */
+	i32 visible;		 /**< Non-zero if node_is_visible at last step. */
+} sk_ui_test_item_t;
+
+/**
+ * Predicate for test_engine_run_until: return non-zero when the wait condition
+ * holds (stop stepping). Called before the first step and after each step.
+ */
+typedef i32 (*sk_ui_test_predicate_fn)(sk_ui_test_engine_t* engine, void_ptr_t user);
+
+/** Success. */
+#define SK_UI_TEST_OK 0
+/** Frame budget exhausted without predicate becoming true. */
+#define SK_UI_TEST_ERR_TIMEOUT 1
+/** harness_step / pipeline failed during yield or run_until. */
+#define SK_UI_TEST_ERR_STEP 2
+
+/* ------------------------------------------------------------------ */
 /*  GPU renderer (draw list → render_device)                           */
 /* ------------------------------------------------------------------ */
 
@@ -2413,6 +2468,83 @@ typedef struct sk_ui_api_t {
 	 * @return SK_UI_IMAGE_ASSERT_OK / FAIL / ERROR.
 	 */
 	i32 (*cpu_image_assert_region_hash)(const sk_ui_cpu_image_t* image, sk_ui_region_t region, u64 expected_hash, u64* out_actual_hash);
+
+	/* ---- code-driven test engine (item registry + frame control; APX-259) ---- */
+
+	/**
+	 * Create a headless test engine: harness + empty item registry.
+	 * @param desc Optional; NULL uses default 800x600, scale 1, no soft-render.
+	 * @return Engine, or NULL on failure.
+	 */
+	sk_ui_test_engine_t* (*test_engine_create)(const sk_ui_test_engine_desc_t* desc);
+
+	/** Destroy engine, registry, and harness. Safe on NULL. */
+	void (*test_engine_destroy)(sk_ui_test_engine_t* engine);
+
+	/** UI context owned by the engine harness (valid until destroy). */
+	sk_ui_context_t* (*test_engine_context)(sk_ui_test_engine_t* engine);
+
+	/** Underlying harness (clock, soft-render, font). Valid until destroy. */
+	sk_ui_harness_t* (*test_engine_harness)(sk_ui_test_engine_t* engine);
+
+	/**
+	 * Advance one frame (harness_step) then rebuild the item registry from
+	 * the submitted tree: every live node with a non-empty test id is mapped
+	 * by id and by slash-separated id path to its abs rect and state flags.
+	 * @return 0 on success, non-zero on pipeline failure.
+	 */
+	i32 (*test_engine_step)(sk_ui_test_engine_t* engine, f32 delta_seconds);
+
+	/**
+	 * Run @p frame_count successful steps. When @p delta_seconds <= 0, uses
+	 * 1/60. frame_count 0 is a no-op success.
+	 * @return 0 on success, SK_UI_TEST_ERR_STEP if any step fails.
+	 */
+	i32 (*test_engine_yield_frames)(sk_ui_test_engine_t* engine, u32 frame_count, f32 delta_seconds);
+
+	/**
+	 * Step until @p pred returns non-zero or @p max_frames steps are taken.
+	 * Evaluates the predicate before the first step and after each step.
+	 * On timeout sets last_error to a clear budget message and returns
+	 * SK_UI_TEST_ERR_TIMEOUT. Step failure returns SK_UI_TEST_ERR_STEP.
+	 * When @p delta_seconds <= 0, uses 1/60.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_TIMEOUT, or SK_UI_TEST_ERR_STEP.
+	 */
+	i32 (*test_engine_run_until)(sk_ui_test_engine_t* engine, sk_ui_test_predicate_fn pred, void_ptr_t user, u32 max_frames, f32 delta_seconds);
+
+	/** Stable engine time (sum of step deltas; same as harness_time). */
+	f64 (*test_engine_time)(const sk_ui_test_engine_t* engine);
+
+	/** Frame index after the last successful step (0 before first step). */
+	u32 (*test_engine_frame_index)(const sk_ui_test_engine_t* engine);
+
+	/**
+	 * Look up a registered item by exact test id (from the last successful
+	 * step). @return Item snapshot, or NULL if not found / empty registry.
+	 */
+	const sk_ui_test_item_t* (*test_engine_find_by_id)(const sk_ui_test_engine_t* engine, const_chr_t test_id);
+
+	/**
+	 * Look up by slash-separated id path (e.g. "panel-main/btn-go"). When the
+	 * path has no '/', falls back to find_by_id for convenience.
+	 * @return Item snapshot, or NULL if not found.
+	 */
+	const sk_ui_test_item_t* (*test_engine_find_by_path)(const sk_ui_test_engine_t* engine, const_chr_t id_path);
+
+	/** Number of items registered after the last successful step. */
+	u32 (*test_engine_item_count)(const sk_ui_test_engine_t* engine);
+
+	/**
+	 * Item at dense index [0, item_count). NULL if out of range.
+	 * Order is preorder of id-bearing nodes under the context root.
+	 */
+	const sk_ui_test_item_t* (*test_engine_item_at)(const sk_ui_test_engine_t* engine, u32 index);
+
+	/**
+	 * Last timeout / step failure message (never NULL; empty when no error).
+	 * Valid until the next step that succeeds or destroy.
+	 */
+	const_chr_t (*test_engine_last_error)(const sk_ui_test_engine_t* engine);
 } sk_ui_api_t;
 
 /**

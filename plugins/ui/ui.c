@@ -1581,6 +1581,20 @@ static const sk_ui_api_t ui_api = {
 	ui_cpu_image_assert_histogram_impl,
 	ui_cpu_image_region_hash_impl,
 	ui_cpu_image_assert_region_hash_impl,
+	ui_test_engine_create_impl,
+	ui_test_engine_destroy_impl,
+	ui_test_engine_context_impl,
+	ui_test_engine_harness_impl,
+	ui_test_engine_step_impl,
+	ui_test_engine_yield_frames_impl,
+	ui_test_engine_run_until_impl,
+	ui_test_engine_time_impl,
+	ui_test_engine_frame_index_impl,
+	ui_test_engine_find_by_id_impl,
+	ui_test_engine_find_by_path_impl,
+	ui_test_engine_item_count_impl,
+	ui_test_engine_item_at_impl,
+	ui_test_engine_last_error_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
