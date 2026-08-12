@@ -20,8 +20,10 @@ target_link_libraries(sk-ui PRIVATE
 
 # Single shared test-artifact root under the build tree (never the source tree).
 # Override at runtime with SK_TEST_ARTIFACT_DIR.
+# SK_UI_PLUGIN_BUILD enables authoring sample tests that call ui_get_api_table.
 target_compile_definitions(sk-ui PRIVATE
     SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts"
+    SK_UI_PLUGIN_BUILD=1
 )
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test-artifacts")
 
