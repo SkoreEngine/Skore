@@ -544,6 +544,23 @@ u32 ui_test_engine_item_count_impl(const sk_ui_test_engine_t* engine);
 const sk_ui_test_item_t* ui_test_engine_item_at_impl(const sk_ui_test_engine_t* engine, u32 index);
 const_chr_t ui_test_engine_last_error_impl(const sk_ui_test_engine_t* engine);
 
+i32 ui_test_engine_input_impl(sk_ui_test_engine_t* engine, const sk_ui_input_event_t* event);
+i32 ui_test_engine_mouse_move_impl(sk_ui_test_engine_t* engine, f32 x, f32 y);
+i32 ui_test_engine_mouse_button_impl(sk_ui_test_engine_t* engine, i32 button, i32 down, u32 mods);
+i32 ui_test_engine_scroll_wheel_impl(sk_ui_test_engine_t* engine, f32 scroll_x, f32 scroll_y, u32 mods);
+i32 ui_test_engine_key_impl(sk_ui_test_engine_t* engine, i32 key, i32 down, u32 mods);
+i32 ui_test_engine_text_impl(sk_ui_test_engine_t* engine, const_chr_t text);
+i32 ui_test_engine_hover_impl(sk_ui_test_engine_t* engine, const_chr_t test_id);
+i32 ui_test_engine_click_impl(sk_ui_test_engine_t* engine, const_chr_t test_id);
+i32 ui_test_engine_click_ex_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods);
+i32 ui_test_engine_double_click_impl(sk_ui_test_engine_t* engine, const_chr_t test_id);
+i32 ui_test_engine_press_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods);
+i32 ui_test_engine_release_impl(sk_ui_test_engine_t* engine, i32 button, u32 mods);
+i32 ui_test_engine_drag_impl(sk_ui_test_engine_t* engine, f32 x0, f32 y0, f32 x1, f32 y1, u32 motion_frames, f32 delta_seconds);
+i32 ui_test_engine_type_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, const_chr_t text);
+i32 ui_test_engine_scroll_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, f32 scroll_x, f32 scroll_y);
+i32 ui_test_engine_focus_impl(sk_ui_test_engine_t* engine, const_chr_t test_id);
+
 /* -------------------------------------------------------------------------- */
 /* Sample main menu scene (sample_menu.c)                                     */
 /* -------------------------------------------------------------------------- */

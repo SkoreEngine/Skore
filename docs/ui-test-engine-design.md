@@ -12,7 +12,10 @@ Those remain out of scope (see `docs/ui-automation-api.md` §1).
 
 **Status:** design complete (APX-258). Foundation implemented (APX-259): item
 registry, id/path lookup, `test_engine_step` / `yield_frames` / `run_until`
-with timeout errors. No input injection in the foundation layer.
+with timeout errors. Synthetic input injection implemented (APX-260): mouse
+move/hover, click (all buttons + double-click), press/release, drag with
+intermediate motion frames, scroll wheel, keys with modifiers, and text entry
+— all via `input_dispatch`.
 
 ---
 

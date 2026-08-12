@@ -1595,6 +1595,22 @@ static const sk_ui_api_t ui_api = {
 	ui_test_engine_item_count_impl,
 	ui_test_engine_item_at_impl,
 	ui_test_engine_last_error_impl,
+	ui_test_engine_input_impl,
+	ui_test_engine_mouse_move_impl,
+	ui_test_engine_mouse_button_impl,
+	ui_test_engine_scroll_wheel_impl,
+	ui_test_engine_key_impl,
+	ui_test_engine_text_impl,
+	ui_test_engine_hover_impl,
+	ui_test_engine_click_impl,
+	ui_test_engine_click_ex_impl,
+	ui_test_engine_double_click_impl,
+	ui_test_engine_press_impl,
+	ui_test_engine_release_impl,
+	ui_test_engine_drag_impl,
+	ui_test_engine_type_impl,
+	ui_test_engine_scroll_impl,
+	ui_test_engine_focus_impl,
 };
 
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {

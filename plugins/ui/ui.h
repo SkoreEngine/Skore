@@ -835,10 +835,10 @@ typedef struct sk_ui_harness_desc_t {
 /* ------------------------------------------------------------------ */
 
 /**
- * Opaque headless test engine (APX-259). Owns a harness, a per-frame item
- * registry (stable test ids / id paths → rect + interaction state), and
- * deterministic frame stepping. No OS event loop and no input injection in
- * the foundation layer — tests build a tree, step frames, and look up items.
+ * Opaque headless test engine (APX-259/260). Owns a harness, a per-frame item
+ * registry (stable test ids / id paths → rect + interaction state),
+ * deterministic frame stepping, and synthetic input that always enters via
+ * input_dispatch (same path as hosts). No OS event loop.
  */
 typedef struct sk_ui_test_engine_t sk_ui_test_engine_t;
 
@@ -884,6 +884,10 @@ typedef i32 (*sk_ui_test_predicate_fn)(sk_ui_test_engine_t* engine, void_ptr_t u
 #define SK_UI_TEST_ERR_TIMEOUT 1
 /** harness_step / pipeline failed during yield or run_until. */
 #define SK_UI_TEST_ERR_STEP 2
+/** test_id / path did not resolve to a live node. */
+#define SK_UI_TEST_ERR_NOT_FOUND 3
+/** input_dispatch or focus failed during synthetic injection. */
+#define SK_UI_TEST_ERR_INPUT 4
 
 /* ------------------------------------------------------------------ */
 /*  GPU renderer (draw list → render_device)                           */
@@ -2545,6 +2549,121 @@ typedef struct sk_ui_api_t {
 	 * Valid until the next step that succeeds or destroy.
 	 */
 	const_chr_t (*test_engine_last_error)(const sk_ui_test_engine_t* engine);
+
+	/* ---- synthetic input (APX-260; always via input_dispatch) ---- */
+
+	/**
+	 * Dispatch a raw platform-shaped input event through input_dispatch.
+	 * Same ingress as hosts; expands to enter/leave/move/down/up/click/key/text.
+	 * @return SK_UI_TEST_OK, or SK_UI_TEST_ERR_INPUT on failure.
+	 */
+	i32 (*test_engine_input)(sk_ui_test_engine_t* engine, const sk_ui_input_event_t* event);
+
+	/**
+	 * Move the pointer to absolute logical coordinates (hit-test + hover).
+	 * Does not step a frame; state flags update immediately on the node.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_mouse_move)(sk_ui_test_engine_t* engine, f32 x, f32 y);
+
+	/**
+	 * Press (down != 0) or release (down == 0) a pointer button at the last
+	 * mouse position. @p button is sk_ui_pointer_button_t; @p mods is
+	 * sk_ui_mod_flags_t. Left-button release over the press target synthesizes
+	 * SK_UI_EVENT_CLICK as in production.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_mouse_button)(sk_ui_test_engine_t* engine, i32 button, i32 down, u32 mods);
+
+	/**
+	 * Scroll wheel at the last pointer position (SK_UI_INPUT_WHEEL).
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_scroll_wheel)(sk_ui_test_engine_t* engine, f32 scroll_x, f32 scroll_y, u32 mods);
+
+	/**
+	 * Key press (down != 0) or release at the focused node, with modifiers.
+	 * @p key is sk_ui_key_t or a host code; @p mods is sk_ui_mod_flags_t.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_key)(sk_ui_test_engine_t* engine, i32 key, i32 down, u32 mods);
+
+	/**
+	 * UTF-8 text entry at the focused node (SK_UI_INPUT_TEXT). Focus first via
+	 * test_engine_focus / test_engine_type / a prior click.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_text)(sk_ui_test_engine_t* engine, const_chr_t text);
+
+	/**
+	 * Move the pointer to the absolute center of the live node with @p test_id.
+	 * Requires a prior layout (engine step) so hit-test geometry is valid.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_hover)(sk_ui_test_engine_t* engine, const_chr_t test_id);
+
+	/**
+	 * Left-click the item: pointer move to center, button down, button up via
+	 * input_dispatch. Does not advance frames — interleave test_engine_step to
+	 * observe hover/active style and registry flags between phases, or use
+	 * press/release explicitly for multi-frame sequences.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_click)(sk_ui_test_engine_t* engine, const_chr_t test_id);
+
+	/**
+	 * Click with explicit @p button (sk_ui_pointer_button_t) and @p mods.
+	 * Only left-button release over the press target yields SK_UI_EVENT_CLICK.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_click_ex)(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods);
+
+	/**
+	 * Two sequential left-click sequences at the item center (double-click).
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_double_click)(sk_ui_test_engine_t* engine, const_chr_t test_id);
+
+	/**
+	 * Pointer button down at the item center without release (for drag / hold).
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_press)(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods);
+
+	/**
+	 * Pointer button up at the last mouse position.
+	 * @return SK_UI_TEST_OK or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_release)(sk_ui_test_engine_t* engine, i32 button, u32 mods);
+
+	/**
+	 * Drag left button from (x0,y0) to (x1,y1): move, press, intermediate
+	 * motion frames (linear samples), release. When @p motion_frames is 0,
+	 * performs a single move to the end before release. When
+	 * @p delta_seconds > 0, runs test_engine_step after each motion sample so
+	 * style/layout/paint see intermediate positions (production multi-frame
+	 * drag). When delta_seconds <= 0, only input_dispatch runs between samples.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_INPUT, or SK_UI_TEST_ERR_STEP.
+	 */
+	i32 (*test_engine_drag)(sk_ui_test_engine_t* engine, f32 x0, f32 y0, f32 x1, f32 y1, u32 motion_frames, f32 delta_seconds);
+
+	/**
+	 * Focus the item by test id then inject UTF-8 text (same as action_type_text).
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_type)(sk_ui_test_engine_t* engine, const_chr_t test_id, const_chr_t text);
+
+	/**
+	 * Wheel event over the item center.
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_scroll)(sk_ui_test_engine_t* engine, const_chr_t test_id, f32 scroll_x, f32 scroll_y);
+
+	/**
+	 * Set keyboard focus via focus_set (FOCUS_OUT / FOCUS_IN).
+	 * @return SK_UI_TEST_OK, SK_UI_TEST_ERR_NOT_FOUND, or SK_UI_TEST_ERR_INPUT.
+	 */
+	i32 (*test_engine_focus)(sk_ui_test_engine_t* engine, const_chr_t test_id);
 } sk_ui_api_t;
 
 /**

@@ -559,30 +559,6 @@ static i32 uich_scene_static_pinned(sk_ui_capture_scene_t* scene, void* user) {
 	return 0;
 }
 
-/* Expected artifact path for a simple scene name (mirrors the plugin's
- * documented resolution order: env → compile-time → {temp}/skore-test-artifacts). */
-static void uich_artifact_path(const_chr_t scene_name, char* out, u32 out_cap) {
-	const_chr_t env = getenv("SK_TEST_ARTIFACT_DIR");
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
-	(void)fs; /* only needed by the temp-folder fallback */
-	if (env != NULL && env[0] != '\0') {
-		snprintf(out, out_cap, "%s/%s.png", env, scene_name);
-		return;
-	}
-#if defined(SK_TEST_ARTIFACT_DIR)
-	snprintf(out, out_cap, SK_TEST_ARTIFACT_DIR "/%s.png", scene_name);
-#else
-	{
-		char tmp[SK_FS_PATH_MAX];
-		if (fs->temp_folder(tmp, (u32)sizeof(tmp)) == 0) {
-			snprintf(out, out_cap, "%s/skore-test-artifacts/%s.png", tmp, scene_name);
-			return;
-		}
-		snprintf(out, out_cap, "%s.png", scene_name);
-	}
-#endif
-}
-
 /*
  * APX-228 determinism check: capture the same scene twice in one run and
  * require the two buffers to be byte-identical. Both calls run a complete
@@ -641,12 +617,23 @@ SK_TEST(ui_capture_harness_deterministic) {
 	uich_assert_pixel(&a, 6u, 39u, UI_CH_PX_RED);  /* above bar */
 	uich_assert_pixel(&a, 6u, 48u, UI_CH_PX_RED);  /* below bar */
 
-	/* rc == OK implies the PNG artifact was written; verify on disk. */
+	/* rc == OK implies the PNG artifact was written; verify on disk using the
+	 * same path resolution as the harness (plugin test_artifact_png_path), not
+	 * a reimplementation that can diverge when the plugin was built with a
+	 * different SK_TEST_ARTIFACT_DIR (e.g. parallel build-debug vs build). */
 	{
 		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		sk_app_context_t* app = sk_app_init(0, NULL);
+		const sk_ui_api_t* ui = NULL;
 		char path[SK_FS_PATH_MAX];
-		uich_artifact_path(params.scene_name, path, (u32)sizeof(path));
+
+		TEST_ASSERT_NOT_NULL(app);
+		ui = uich_load_ui_api(app);
+		TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui plugin required to resolve artifact path");
+		TEST_ASSERT_NOT_NULL(ui->test_artifact_png_path);
+		TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path(fs, params.scene_name, path, (u32)sizeof(path)));
 		TEST_ASSERT_EQUAL_INT_MESSAGE(SK_FILE_STATUS_FILE, fs->get_file_status(path), "capture PNG artifact must exist on disk");
+		sk_app_destroy(app);
 	}
 
 	sk_ui_capture_harness_image_free(&a);

@@ -1,14 +1,15 @@
 /**
  * @file test_engine.c
- * @brief Code-driven UI test engine: item registry, lookup, frame stepping.
+ * @brief Code-driven UI test engine: item registry, frame stepping, input.
  *
- * Foundation for imgui_test_engine-style tests (APX-259):
+ * imgui_test_engine-style tests (APX-259/260):
  * - After each controlled frame, register every live id-bearing node with its
  *   abs rect, interaction state, and slash-separated id path.
  * - Lookup by stable test id or id path.
  * - Deterministic yield (N frames) and run-until with a frame budget and a
  *   clear timeout error message.
- * Input injection is intentionally out of scope for this layer.
+ * - Synthetic input (mouse, keys, text, drag) via the same input_dispatch path
+ *   as hosts so hover → active → click state transitions match production.
  */
 
 #include "ui_internal.h"
@@ -35,6 +36,8 @@ struct sk_ui_test_engine_t {
 	ui_test_item_array_t items;
 	ui_test_index_map_t by_id;
 	ui_test_index_map_t by_path;
+	f32 pointer_x; /**< Last synthetic pointer x (logical). */
+	f32 pointer_y; /**< Last synthetic pointer y (logical). */
 	char last_error[256];
 };
 
@@ -468,6 +471,314 @@ const_chr_t ui_test_engine_last_error_impl(const sk_ui_test_engine_t* engine) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Synthetic input (always via input_dispatch)                                */
+/* -------------------------------------------------------------------------- */
+
+static sk_ui_context_t* te_ctx(sk_ui_test_engine_t* engine) {
+	if (engine == NULL || engine->harness == NULL) {
+		return NULL;
+	}
+	return te_api()->harness_context(engine->harness);
+}
+
+static i32 te_dispatch(sk_ui_test_engine_t* engine, const sk_ui_input_event_t* event) {
+	const sk_ui_api_t* ui = te_api();
+	sk_ui_context_t* ctx = te_ctx(engine);
+	if (ctx == NULL || event == NULL) {
+		te_set_error(engine, "test_engine_input: engine or event is invalid");
+		return SK_UI_TEST_ERR_INPUT;
+	}
+	if (ui->input_dispatch(ctx, event) != 0) {
+		te_set_error(engine, "test_engine_input: input_dispatch failed");
+		return SK_UI_TEST_ERR_INPUT;
+	}
+	if (event->kind == SK_UI_INPUT_POINTER_MOVE || event->kind == SK_UI_INPUT_POINTER_BUTTON || event->kind == SK_UI_INPUT_WHEEL) {
+		engine->pointer_x = event->x;
+		engine->pointer_y = event->y;
+	}
+	return SK_UI_TEST_OK;
+}
+
+static i32 te_resolve_node(sk_ui_test_engine_t* engine, const_chr_t test_id, sk_ui_node_t* out_node) {
+	const sk_ui_api_t* ui = te_api();
+	sk_ui_context_t* ctx = te_ctx(engine);
+	sk_ui_node_t node;
+	if (ctx == NULL || test_id == NULL || test_id[0] == '\0' || out_node == NULL) {
+		te_set_error(engine, "test_engine: invalid resolve (null engine/id)");
+		return SK_UI_TEST_ERR_NOT_FOUND;
+	}
+	node = ui->query_by_test_id(ctx, SK_UI_NODE_INVALID, test_id);
+	if (!sk_ui_node_is_valid(node) || !ui->node_alive(ctx, node)) {
+		te_set_error(engine, "test_engine: item not found: %s", test_id);
+		return SK_UI_TEST_ERR_NOT_FOUND;
+	}
+	*out_node = node;
+	return SK_UI_TEST_OK;
+}
+
+static i32 te_node_center(sk_ui_test_engine_t* engine, sk_ui_node_t node, f32* out_x, f32* out_y) {
+	const sk_ui_api_t* ui = te_api();
+	sk_ui_context_t* ctx = te_ctx(engine);
+	sk_ui_rect_t border;
+	if (ctx == NULL || out_x == NULL || out_y == NULL) {
+		return SK_UI_TEST_ERR_INPUT;
+	}
+	if (ui->node_get_abs_rect(ctx, node, &border, NULL) != 0) {
+		te_set_error(engine, "test_engine: node has no layout rect (step first)");
+		return SK_UI_TEST_ERR_INPUT;
+	}
+	if (border.width <= 0.0f || border.height <= 0.0f) {
+		te_set_error(engine, "test_engine: node has empty layout rect");
+		return SK_UI_TEST_ERR_INPUT;
+	}
+	*out_x = border.x + border.width * 0.5f;
+	*out_y = border.y + border.height * 0.5f;
+	return SK_UI_TEST_OK;
+}
+
+i32 ui_test_engine_input_impl(sk_ui_test_engine_t* engine, const sk_ui_input_event_t* event) {
+	te_clear_error(engine);
+	return te_dispatch(engine, event);
+}
+
+i32 ui_test_engine_mouse_move_impl(sk_ui_test_engine_t* engine, f32 x, f32 y) {
+	sk_ui_input_event_t ev;
+	te_clear_error(engine);
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_MOVE;
+	ev.x = x;
+	ev.y = y;
+	return te_dispatch(engine, &ev);
+}
+
+i32 ui_test_engine_mouse_button_impl(sk_ui_test_engine_t* engine, i32 button, i32 down, u32 mods) {
+	sk_ui_input_event_t ev;
+	te_clear_error(engine);
+	if (engine == NULL) {
+		return SK_UI_TEST_ERR_INPUT;
+	}
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_POINTER_BUTTON;
+	ev.x = engine->pointer_x;
+	ev.y = engine->pointer_y;
+	ev.button = button;
+	ev.down = down != 0 ? 1 : 0;
+	ev.mods = mods;
+	return te_dispatch(engine, &ev);
+}
+
+i32 ui_test_engine_scroll_wheel_impl(sk_ui_test_engine_t* engine, f32 scroll_x, f32 scroll_y, u32 mods) {
+	sk_ui_input_event_t ev;
+	te_clear_error(engine);
+	if (engine == NULL) {
+		return SK_UI_TEST_ERR_INPUT;
+	}
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_WHEEL;
+	ev.x = engine->pointer_x;
+	ev.y = engine->pointer_y;
+	ev.scroll_x = scroll_x;
+	ev.scroll_y = scroll_y;
+	ev.mods = mods;
+	return te_dispatch(engine, &ev);
+}
+
+i32 ui_test_engine_key_impl(sk_ui_test_engine_t* engine, i32 key, i32 down, u32 mods) {
+	sk_ui_input_event_t ev;
+	te_clear_error(engine);
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_KEY;
+	ev.key = key;
+	ev.down = down != 0 ? 1 : 0;
+	ev.mods = mods;
+	return te_dispatch(engine, &ev);
+}
+
+i32 ui_test_engine_text_impl(sk_ui_test_engine_t* engine, const_chr_t text) {
+	sk_ui_input_event_t ev;
+	te_clear_error(engine);
+	memset(&ev, 0, sizeof(ev));
+	ev.kind = SK_UI_INPUT_TEXT;
+	ev.text = text != NULL ? text : "";
+	return te_dispatch(engine, &ev);
+}
+
+i32 ui_test_engine_hover_impl(sk_ui_test_engine_t* engine, const_chr_t test_id) {
+	sk_ui_node_t node;
+	f32 x, y;
+	i32 rc;
+	te_clear_error(engine);
+	rc = te_resolve_node(engine, test_id, &node);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	rc = te_node_center(engine, node, &x, &y);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	return ui_test_engine_mouse_move_impl(engine, x, y);
+}
+
+i32 ui_test_engine_click_ex_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods) {
+	sk_ui_node_t node;
+	f32 x, y;
+	i32 rc;
+	te_clear_error(engine);
+	rc = te_resolve_node(engine, test_id, &node);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	rc = te_node_center(engine, node, &x, &y);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	rc = ui_test_engine_mouse_move_impl(engine, x, y);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	rc = ui_test_engine_mouse_button_impl(engine, button, 1, mods);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	return ui_test_engine_mouse_button_impl(engine, button, 0, mods);
+}
+
+i32 ui_test_engine_click_impl(sk_ui_test_engine_t* engine, const_chr_t test_id) {
+	return ui_test_engine_click_ex_impl(engine, test_id, SK_UI_POINTER_BUTTON_LEFT, SK_UI_MOD_NONE);
+}
+
+i32 ui_test_engine_double_click_impl(sk_ui_test_engine_t* engine, const_chr_t test_id) {
+	i32 rc;
+	te_clear_error(engine);
+	rc = ui_test_engine_click_impl(engine, test_id);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	return ui_test_engine_click_impl(engine, test_id);
+}
+
+i32 ui_test_engine_press_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, i32 button, u32 mods) {
+	sk_ui_node_t node;
+	f32 x, y;
+	i32 rc;
+	te_clear_error(engine);
+	rc = te_resolve_node(engine, test_id, &node);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	rc = te_node_center(engine, node, &x, &y);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	rc = ui_test_engine_mouse_move_impl(engine, x, y);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	return ui_test_engine_mouse_button_impl(engine, button, 1, mods);
+}
+
+i32 ui_test_engine_release_impl(sk_ui_test_engine_t* engine, i32 button, u32 mods) {
+	return ui_test_engine_mouse_button_impl(engine, button, 0, mods);
+}
+
+i32 ui_test_engine_drag_impl(sk_ui_test_engine_t* engine, f32 x0, f32 y0, f32 x1, f32 y1, u32 motion_frames, f32 delta_seconds) {
+	i32 rc;
+	u32 i;
+	u32 frames;
+	te_clear_error(engine);
+
+	rc = ui_test_engine_mouse_move_impl(engine, x0, y0);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	rc = ui_test_engine_mouse_button_impl(engine, SK_UI_POINTER_BUTTON_LEFT, 1, SK_UI_MOD_NONE);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+
+	if (motion_frames == 0u) {
+		rc = ui_test_engine_mouse_move_impl(engine, x1, y1);
+		if (rc != SK_UI_TEST_OK) {
+			return rc;
+		}
+	} else {
+		frames = motion_frames;
+		for (i = 1u; i <= frames; ++i) {
+			f32 t = (f32)i / (f32)frames;
+			f32 x = x0 + (x1 - x0) * t;
+			f32 y = y0 + (y1 - y0) * t;
+			rc = ui_test_engine_mouse_move_impl(engine, x, y);
+			if (rc != SK_UI_TEST_OK) {
+				return rc;
+			}
+			if (delta_seconds > 0.0f) {
+				if (ui_test_engine_step_impl(engine, delta_seconds) != SK_UI_TEST_OK) {
+					return SK_UI_TEST_ERR_STEP;
+				}
+			}
+		}
+	}
+
+	return ui_test_engine_mouse_button_impl(engine, SK_UI_POINTER_BUTTON_LEFT, 0, SK_UI_MOD_NONE);
+}
+
+i32 ui_test_engine_type_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, const_chr_t text) {
+	const sk_ui_api_t* ui = te_api();
+	sk_ui_context_t* ctx;
+	sk_ui_node_t node;
+	i32 rc;
+	te_clear_error(engine);
+	rc = te_resolve_node(engine, test_id, &node);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	ctx = te_ctx(engine);
+	if (ui->focus_set(ctx, node) != 0) {
+		te_set_error(engine, "test_engine_type: focus_set failed for %s", test_id);
+		return SK_UI_TEST_ERR_INPUT;
+	}
+	return ui_test_engine_text_impl(engine, text);
+}
+
+i32 ui_test_engine_scroll_impl(sk_ui_test_engine_t* engine, const_chr_t test_id, f32 scroll_x, f32 scroll_y) {
+	sk_ui_node_t node;
+	f32 x, y;
+	i32 rc;
+	te_clear_error(engine);
+	rc = te_resolve_node(engine, test_id, &node);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	rc = te_node_center(engine, node, &x, &y);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	rc = ui_test_engine_mouse_move_impl(engine, x, y);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	return ui_test_engine_scroll_wheel_impl(engine, scroll_x, scroll_y, SK_UI_MOD_NONE);
+}
+
+i32 ui_test_engine_focus_impl(sk_ui_test_engine_t* engine, const_chr_t test_id) {
+	const sk_ui_api_t* ui = te_api();
+	sk_ui_context_t* ctx;
+	sk_ui_node_t node;
+	i32 rc;
+	te_clear_error(engine);
+	rc = te_resolve_node(engine, test_id, &node);
+	if (rc != SK_UI_TEST_OK) {
+		return rc;
+	}
+	ctx = te_ctx(engine);
+	if (ui->focus_set(ctx, node) != 0) {
+		te_set_error(engine, "test_engine_focus: focus_set failed for %s", test_id);
+		return SK_UI_TEST_ERR_INPUT;
+	}
+	return SK_UI_TEST_OK;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Tests                                                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -649,6 +960,232 @@ SK_TEST(ui_te_run_until_waits_for_min_frame) {
 	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_run_until(engine, te_pred_item_visible, &wait, 8u, 1.0f / 60.0f));
 	end_frame = ui->test_engine_frame_index(engine);
 	TEST_ASSERT_TRUE(end_frame >= wait.min_frame);
+
+	ui->test_engine_destroy(engine);
+}
+
+/* ---- APX-260: synthetic input verification -------------------------------- */
+
+static i32 g_te_click_count;
+static i32 g_te_click_button;
+static i32 g_te_right_down_count;
+static i32 g_te_dbl_click_count;
+
+static void te_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	(void)ctx;
+	(void)node;
+	(void)user;
+	g_te_click_count += 1;
+	g_te_click_button = event->button;
+}
+
+static void te_on_pointer_down(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	(void)ctx;
+	(void)node;
+	(void)user;
+	if (event->button == SK_UI_POINTER_BUTTON_RIGHT) {
+		g_te_right_down_count += 1;
+	}
+}
+
+static void te_on_dbl_click_counter(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
+	(void)ctx;
+	(void)node;
+	(void)user;
+	(void)event;
+	g_te_dbl_click_count += 1;
+}
+
+/**
+ * Multi-frame pointer path: hover → step → press → step → release → click.
+ * Callback fires; registry reports hover then active across frames.
+ */
+SK_TEST(ui_te_click_button_callback_and_hover_active_frames) {
+	const sk_ui_api_t* ui = te_test_api();
+	sk_ui_test_engine_desc_t desc;
+	sk_ui_test_engine_t* engine;
+	sk_ui_context_t* ctx;
+	sk_ui_node_t root;
+	sk_ui_node_t btn;
+	sk_ui_node_callbacks_t cbs;
+	const sk_ui_test_item_t* item;
+	u32 st;
+
+	memset(&desc, 0, sizeof(desc));
+	desc.width = 240.0f;
+	desc.height = 120.0f;
+	engine = ui->test_engine_create(&desc);
+	TEST_ASSERT_NOT_NULL(engine);
+	ctx = ui->test_engine_context(engine);
+	root = ui->context_root(ctx);
+	btn = ui->widget_button(ctx, root, "Fire", "btn-fire");
+	te_test_set_size(ui, ctx, btn, 100.0f, 32.0f);
+
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = te_on_click;
+	cbs.on_pointer_down = te_on_pointer_down;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_callbacks(ctx, btn, &cbs));
+
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_step(engine, 1.0f / 60.0f));
+
+	/* Hover only — HOVER set, not ACTIVE yet. */
+	g_te_click_count = 0;
+	g_te_right_down_count = 0;
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_hover(engine, "btn-fire"));
+	st = ui->node_get_state(ctx, btn);
+	TEST_ASSERT_TRUE((st & (u32)SK_UI_STATE_HOVER) != 0u);
+	TEST_ASSERT_TRUE((st & (u32)SK_UI_STATE_ACTIVE) == 0u);
+
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_step(engine, 1.0f / 60.0f));
+	item = ui->test_engine_find_by_id(engine, "btn-fire");
+	TEST_ASSERT_NOT_NULL(item);
+	TEST_ASSERT_TRUE(item->hovered != 0);
+	TEST_ASSERT_TRUE(item->active == 0);
+
+	/* Press — ACTIVE set. */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_press(engine, "btn-fire", SK_UI_POINTER_BUTTON_LEFT, SK_UI_MOD_NONE));
+	st = ui->node_get_state(ctx, btn);
+	TEST_ASSERT_TRUE((st & (u32)SK_UI_STATE_ACTIVE) != 0u);
+	TEST_ASSERT_EQUAL_INT(0, g_te_click_count);
+
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_step(engine, 1.0f / 60.0f));
+	item = ui->test_engine_find_by_id(engine, "btn-fire");
+	TEST_ASSERT_NOT_NULL(item);
+	TEST_ASSERT_TRUE(item->active != 0);
+
+	/* Release — CLICK fires, ACTIVE clears. */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_release(engine, SK_UI_POINTER_BUTTON_LEFT, SK_UI_MOD_NONE));
+	TEST_ASSERT_EQUAL_INT(1, g_te_click_count);
+	TEST_ASSERT_EQUAL_INT(SK_UI_POINTER_BUTTON_LEFT, g_te_click_button);
+	st = ui->node_get_state(ctx, btn);
+	TEST_ASSERT_TRUE((st & (u32)SK_UI_STATE_ACTIVE) == 0u);
+
+	/* Convenience one-shot click also fires the callback. */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_click(engine, "btn-fire"));
+	TEST_ASSERT_EQUAL_INT(2, g_te_click_count);
+
+	/* Right-button press/release: POINTER_DOWN, no SK_UI_EVENT_CLICK. */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_click_ex(engine, "btn-fire", SK_UI_POINTER_BUTTON_RIGHT, SK_UI_MOD_NONE));
+	TEST_ASSERT_EQUAL_INT(1, g_te_right_down_count);
+	TEST_ASSERT_EQUAL_INT(2, g_te_click_count); /* still left-only clicks */
+
+	/* Middle button path (down/up via click_ex). */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_click_ex(engine, "btn-fire", SK_UI_POINTER_BUTTON_MIDDLE, SK_UI_MOD_CTRL));
+
+	/* Double-click: two left clicks. */
+	g_te_dbl_click_count = 0;
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.on_click = te_on_dbl_click_counter;
+	TEST_ASSERT_EQUAL_INT(0, ui->node_set_callbacks(ctx, btn, &cbs));
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_double_click(engine, "btn-fire"));
+	TEST_ASSERT_EQUAL_INT(2, g_te_dbl_click_count);
+
+	/* Missing id → NOT_FOUND. */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_ERR_NOT_FOUND, ui->test_engine_click(engine, "no-such-btn"));
+	TEST_ASSERT_TRUE(strstr(ui->test_engine_last_error(engine), "not found") != NULL);
+
+	ui->test_engine_destroy(engine);
+}
+
+/**
+ * Drag a slider with intermediate motion frames to a target value.
+ */
+SK_TEST(ui_te_drag_slider_to_target_value) {
+	const sk_ui_api_t* ui = te_test_api();
+	sk_ui_test_engine_desc_t desc;
+	sk_ui_test_engine_t* engine;
+	sk_ui_context_t* ctx;
+	sk_ui_node_t root;
+	sk_ui_node_t sl;
+	sk_ui_rect_t border;
+	f32 x0, y0, x1, y1;
+	f32 value;
+
+	memset(&desc, 0, sizeof(desc));
+	desc.width = 320.0f;
+	desc.height = 80.0f;
+	engine = ui->test_engine_create(&desc);
+	TEST_ASSERT_NOT_NULL(engine);
+	ctx = ui->test_engine_context(engine);
+	root = ui->context_root(ctx);
+	sl = ui->widget_slider(ctx, root, 0.0f, 100.0f, 0.0f, "sl-main");
+	te_test_set_size(ui, ctx, sl, 200.0f, 24.0f);
+
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_step(engine, 1.0f / 60.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, sl, &border, NULL));
+	TEST_ASSERT_TRUE(border.width > 0.0f);
+
+	/* Start near left (value ~0), drag to 75% of track with motion frames. */
+	x0 = border.x + 2.0f;
+	y0 = border.y + border.height * 0.5f;
+	x1 = border.x + border.width * 0.75f;
+	y1 = y0;
+
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_drag(engine, x0, y0, x1, y1, 6u, 1.0f / 60.0f));
+	value = ui->slider_get_value(ctx, sl);
+	TEST_ASSERT_FLOAT_WITHIN(3.0f, 75.0f, value);
+
+	/* Zero motion frames: jump-drag still updates value via final move. */
+	TEST_ASSERT_EQUAL_INT(0, ui->slider_set_value(ctx, sl, 10.0f));
+	x1 = border.x + border.width * 0.5f;
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_drag(engine, x0, y0, x1, y1, 0u, 0.0f));
+	value = ui->slider_get_value(ctx, sl);
+	TEST_ASSERT_FLOAT_WITHIN(3.0f, 50.0f, value);
+
+	ui->test_engine_destroy(engine);
+}
+
+/**
+ * Type into a text field; buffer matches. Also key press with modifiers.
+ */
+SK_TEST(ui_te_type_text_field_buffer_and_keys) {
+	const sk_ui_api_t* ui = te_test_api();
+	sk_ui_test_engine_desc_t desc;
+	sk_ui_test_engine_t* engine;
+	sk_ui_context_t* ctx;
+	sk_ui_node_t root;
+	sk_ui_node_t ti;
+	sk_ui_node_t sv;
+	f32 sx, sy;
+
+	memset(&desc, 0, sizeof(desc));
+	desc.width = 400.0f;
+	desc.height = 200.0f;
+	engine = ui->test_engine_create(&desc);
+	TEST_ASSERT_NOT_NULL(engine);
+	ctx = ui->test_engine_context(engine);
+	root = ui->context_root(ctx);
+
+	ti = ui->widget_text_input(ctx, root, "", "ti-name");
+	te_test_set_size(ui, ctx, ti, 180.0f, 28.0f);
+
+	sv = ui->widget_scroll_view(ctx, root, "sv-panel");
+	te_test_set_size(ui, ctx, sv, 100.0f, 60.0f);
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_set_content_size(ctx, sv, 100.0f, 240.0f));
+
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_step(engine, 1.0f / 60.0f));
+
+	/* Focus + type via id-keyed helper. */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_type(engine, "ti-name", "Hello"));
+	TEST_ASSERT_EQUAL_STRING("Hello", ui->text_input_get_text(ctx, ti));
+
+	/* Append via raw text after focus. */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_text(engine, " World"));
+	TEST_ASSERT_EQUAL_STRING("Hello World", ui->text_input_get_text(ctx, ti));
+
+	/* Backspace via key press/release with no modifiers. */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_key(engine, SK_UI_KEY_BACKSPACE, 1, SK_UI_MOD_NONE));
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_key(engine, SK_UI_KEY_BACKSPACE, 0, SK_UI_MOD_NONE));
+	TEST_ASSERT_EQUAL_STRING("Hello Worl", ui->text_input_get_text(ctx, ti));
+
+	/* Key with modifiers (SHIFT+TAB focus advance path — must not crash). */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_key(engine, SK_UI_KEY_TAB, 1, SK_UI_MOD_SHIFT));
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_key(engine, SK_UI_KEY_TAB, 0, SK_UI_MOD_SHIFT));
+
+	/* Scroll wheel over scroll_view id. */
+	TEST_ASSERT_EQUAL_INT(SK_UI_TEST_OK, ui->test_engine_scroll(engine, "sv-panel", 0.0f, -2.0f));
+	TEST_ASSERT_EQUAL_INT(0, ui->scroll_view_get_scroll(ctx, sv, &sx, &sy));
+	TEST_ASSERT_TRUE(sy > 0.0f);
 
 	ui->test_engine_destroy(engine);
 }

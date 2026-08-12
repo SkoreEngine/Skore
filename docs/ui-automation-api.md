@@ -243,14 +243,16 @@ sk_ui_api_t  query_* / action_* / harness_*     ← this contract
 
 Do not add a second “test-only” input path. Automation and production hosts share `input_dispatch`.
 
-### 8.1 Code-driven test engine (APX-259)
+### 8.1 Code-driven test engine (APX-259 / APX-260)
 
 Above the harness, `sk_ui_api_t` also exposes a **test engine** (`test_engine_*`):
 per-frame item registry (stable test ids and slash-separated id paths → abs rect
-and hover/active/focused flags), deterministic multi-frame stepping, and
-`run_until` waits with a frame budget and a clear timeout error. See
-`docs/ui-test-engine-design.md`. Input injection remains on the existing
-`action_*` / `input_dispatch` path (not required for the registry foundation).
+and hover/active/focused flags), deterministic multi-frame stepping,
+`run_until` waits with a frame budget and a clear timeout error, and
+**synthetic input** (mouse move/press/release/click/double-click/drag, scroll
+wheel, keys with modifiers, text) that always enters via `input_dispatch` so
+hover → active → click transitions match production hosts. See
+`docs/ui-test-engine-design.md`.
 
 ---
 
