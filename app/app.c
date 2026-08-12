@@ -1486,6 +1486,7 @@ SK_TEST(app_init_auto_loads_entities_plugin) {
 	TEST_ASSERT_NOT_NULL_MESSAGE(ecs, "expected sk-entities auto-loaded from app_folder/plugins");
 	TEST_ASSERT_NOT_NULL(ecs->register_component);
 	TEST_ASSERT_NOT_NULL(ecs->component_info);
+	TEST_ASSERT_NOT_NULL(ecs->component_desc);
 	sk_app_destroy(ctx);
 }
 
@@ -1512,6 +1513,7 @@ SK_TEST(entities_plugin_registers_api) {
 	TEST_ASSERT_NOT_NULL(ecs);
 	TEST_ASSERT_NOT_NULL(ecs->register_component);
 	TEST_ASSERT_NOT_NULL(ecs->component_info);
+	TEST_ASSERT_NOT_NULL(ecs->component_desc);
 	plat->lib_close(lib);
 	sk_app_destroy(ctx);
 }
@@ -1602,7 +1604,12 @@ SK_TEST(app_profiler_report_end_to_end) {
 
 	/* ECS workload: position components, a query, and a scheduler system. */
 	const sk_type_id_t pos_id = SK_TYPE_ID("app.test.position", 0x1337c0de1337c0deULL, 0x0ddba11c0ddba11cULL);
-	TEST_ASSERT_EQUAL_INT32(0, ecs->register_component(pos_id, 3u * (u32)sizeof(f32), 4u, "position"));
+	sk_component_desc_t pos_desc = {0};
+	pos_desc.type_id = pos_id;
+	pos_desc.size = 3u * (u32)sizeof(f32);
+	pos_desc.align = 4u;
+	pos_desc.name = "position";
+	TEST_ASSERT_EQUAL_INT32(0, ecs->register_component(&pos_desc));
 
 	sk_world_t* world = ecs->world_create();
 	TEST_ASSERT_NOT_NULL(world);

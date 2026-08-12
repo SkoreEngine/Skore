@@ -11,7 +11,8 @@
  * entity -> { chunk, row } location.
  *
  * Component identity is wired through sk_type_id_t: a module-level registry
- * maps each component type id to its layout (size/align/name). Queries match
+ * maps each component type id to its layout (size/align/name) and optional
+ * asset-load hook. Queries match
  * archetypes by required/optional/excluded component sets and iterate their
  * storage through the SK_ECS_* macros.
  *
@@ -187,7 +188,7 @@ static void ecs_chunk_free(sk_chunk_t* chunk) {
 
 /* ---- component registry (sk_type_id_t keyed; main-thread ownership) ---- */
 
-static sk_component_info_t ecs_component_registry[SK_ECS_MAX_COMPONENT_TYPES];
+static sk_component_desc_t ecs_component_registry[SK_ECS_MAX_COMPONENT_TYPES];
 static u32 ecs_component_count = 0u;
 
 /* Instrumentation: the sk-profiler table is resolved at plugin entry and
@@ -211,16 +212,17 @@ static void ecs_resolve_profiler(void) {
 	}
 }
 
-static i32 register_component_impl(sk_type_id_t type_id, u32 size, u32 align, const_chr_t name) {
-	if (SK_TYPE_ID_EQ(type_id, SK_TYPE_ID_ZERO) || size == 0u || align == 0u) {
+static i32 register_component_impl(const sk_component_desc_t* desc) {
+	if (desc == NULL || SK_TYPE_ID_EQ(desc->type_id, SK_TYPE_ID_ZERO) || desc->size == 0u || desc->align == 0u) {
 		return -3;
 	}
 
 	for (u32 i = 0u; i < ecs_component_count; ++i) {
-		if (SK_TYPE_ID_EQ(ecs_component_registry[i].type_id, type_id)) {
-			if (ecs_component_registry[i].size != size || ecs_component_registry[i].align != align) {
+		if (SK_TYPE_ID_EQ(ecs_component_registry[i].type_id, desc->type_id)) {
+			if (ecs_component_registry[i].size != desc->size || ecs_component_registry[i].align != desc->align) {
 				return -1;
 			}
+			/* Idempotent: first name and hooks win. Hook mismatches are not a conflict. */
 			return 0;
 		}
 	}
@@ -229,15 +231,27 @@ static i32 register_component_impl(sk_type_id_t type_id, u32 size, u32 align, co
 		return -2;
 	}
 
-	ecs_component_registry[ecs_component_count].type_id = type_id;
-	ecs_component_registry[ecs_component_count].size = size;
-	ecs_component_registry[ecs_component_count].align = align;
-	ecs_component_registry[ecs_component_count].name = name;
+	ecs_component_registry[ecs_component_count] = *desc;
 	ecs_component_count += 1u;
 	return 0;
 }
 
 static i32 component_info_impl(sk_type_id_t type_id, sk_component_info_t* out) {
+	for (u32 i = 0u; i < ecs_component_count; ++i) {
+		if (SK_TYPE_ID_EQ(ecs_component_registry[i].type_id, type_id)) {
+			if (out != NULL) {
+				out->type_id = ecs_component_registry[i].type_id;
+				out->size = ecs_component_registry[i].size;
+				out->align = ecs_component_registry[i].align;
+				out->name = ecs_component_registry[i].name;
+			}
+			return 0;
+		}
+	}
+	return -1;
+}
+
+static i32 component_desc_impl(sk_type_id_t type_id, sk_component_desc_t* out) {
 	for (u32 i = 0u; i < ecs_component_count; ++i) {
 		if (SK_TYPE_ID_EQ(ecs_component_registry[i].type_id, type_id)) {
 			if (out != NULL) {
@@ -1767,6 +1781,7 @@ static i32 commands_apply_impl(sk_entitycommands_t* commands, sk_world_t* world)
 static const sk_entities_api_t entities_api = {
 	register_component_impl,
 	component_info_impl,
+	component_desc_impl,
 
 	archetype_create_impl,
 	archetype_destroy_impl,
@@ -1903,9 +1918,28 @@ static void ecs_component_registry_reset(void) {
 	ecs_component_count = 0u;
 }
 
+static i32 test_register_component(sk_type_id_t type_id, u32 size, u32 align, const_chr_t name) {
+	sk_component_desc_t desc = {0};
+	desc.type_id = type_id;
+	desc.size = size;
+	desc.align = align;
+	desc.name = name;
+	return entities_api.register_component(&desc);
+}
+
+static i32 test_on_load_asset_stub(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, void_ptr_t instance, sk_rid_t component_resource) {
+	(void)world;
+	(void)entity;
+	(void)repository;
+	(void)instance;
+	(void)component_resource;
+	return 0;
+}
+
 SK_TEST(entities_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(entities_api.register_component);
 	TEST_ASSERT_NOT_NULL(entities_api.component_info);
+	TEST_ASSERT_NOT_NULL(entities_api.component_desc);
 	TEST_ASSERT_NOT_NULL(entities_api.archetype_create);
 	TEST_ASSERT_NOT_NULL(entities_api.archetype_destroy);
 	TEST_ASSERT_NOT_NULL(entities_api.archetype_column);
@@ -1956,7 +1990,7 @@ SK_TEST(entities_entity_handle) {
 SK_TEST(entities_register_component_roundtrip) {
 	ecs_component_registry_reset();
 	sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.roundtrip", 0x0102030405060708ULL, 0x1112131415161718ULL);
-	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(id, 12u, 4u, "roundtrip"));
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(id, 12u, 4u, "roundtrip"));
 
 	sk_component_info_t info;
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.component_info(id, &info));
@@ -1964,22 +1998,30 @@ SK_TEST(entities_register_component_roundtrip) {
 	TEST_ASSERT_EQUAL_UINT32(12u, info.size);
 	TEST_ASSERT_EQUAL_UINT32(4u, info.align);
 	TEST_ASSERT_EQUAL_STRING("roundtrip", info.name);
+
+	sk_component_desc_t stored = {0};
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.component_desc(id, &stored));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(id, stored.type_id));
+	TEST_ASSERT_EQUAL_UINT32(12u, stored.size);
+	TEST_ASSERT_EQUAL_UINT32(4u, stored.align);
+	TEST_ASSERT_EQUAL_STRING("roundtrip", stored.name);
+	TEST_ASSERT_NULL(stored.on_load_asset);
 }
 
 SK_TEST(entities_register_component_idempotent) {
 	ecs_component_registry_reset();
 	sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.idem", 0x2222222222222222ULL, 0x3333333333333333ULL);
-	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(id, 8u, 8u, "idem"));
-	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(id, 8u, 8u, "idem-again"));
-	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(id, 8u, 8u, NULL));
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(id, 8u, 8u, "idem"));
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(id, 8u, 8u, "idem-again"));
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(id, 8u, 8u, NULL));
 }
 
 SK_TEST(entities_register_component_conflict) {
 	ecs_component_registry_reset();
 	sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.conflict", 0x4444444444444444ULL, 0x5555555555555555ULL);
-	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(id, 8u, 8u, "conflict"));
-	TEST_ASSERT_EQUAL_INT32(-1, entities_api.register_component(id, 16u, 8u, "conflict-other"));
-	TEST_ASSERT_EQUAL_INT32(-1, entities_api.register_component(id, 8u, 16u, "conflict-align"));
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(id, 8u, 8u, "conflict"));
+	TEST_ASSERT_EQUAL_INT32(-1, test_register_component(id, 16u, 8u, "conflict-other"));
+	TEST_ASSERT_EQUAL_INT32(-1, test_register_component(id, 8u, 16u, "conflict-align"));
 
 	sk_component_info_t info;
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.component_info(id, &info));
@@ -1988,12 +2030,45 @@ SK_TEST(entities_register_component_conflict) {
 }
 
 SK_TEST(entities_register_component_invalid) {
-	TEST_ASSERT_EQUAL_INT32(-3, entities_api.register_component(SK_TYPE_ID_ZERO, 8u, 8u, "bad-id"));
+	TEST_ASSERT_EQUAL_INT32(-3, entities_api.register_component(NULL));
+	TEST_ASSERT_EQUAL_INT32(-3, test_register_component(SK_TYPE_ID_ZERO, 8u, 8u, "bad-id"));
 
 	sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.invalid", 0x6666666666666666ULL, 0x7777777777777777ULL);
-	TEST_ASSERT_EQUAL_INT32(-3, entities_api.register_component(id, 0u, 8u, "bad-size"));
-	TEST_ASSERT_EQUAL_INT32(-3, entities_api.register_component(id, 8u, 0u, "bad-align"));
+	TEST_ASSERT_EQUAL_INT32(-3, test_register_component(id, 0u, 8u, "bad-size"));
+	TEST_ASSERT_EQUAL_INT32(-3, test_register_component(id, 8u, 0u, "bad-align"));
 	TEST_ASSERT_EQUAL_INT32(-1, entities_api.component_info(id, NULL));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.component_desc(id, NULL));
+}
+
+SK_TEST(entities_register_component_on_load_asset) {
+	ecs_component_registry_reset();
+	sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.onload", 0xAAAAAAAAAAAAAAAAULL, 0xBBBBBBBBBBBBBBBBULL);
+	sk_component_desc_t desc = {0};
+	desc.type_id = id;
+	desc.size = 8u;
+	desc.align = 8u;
+	desc.name = "onload";
+	desc.on_load_asset = test_on_load_asset_stub;
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(&desc));
+
+	sk_component_desc_t stored = {0};
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.component_desc(id, &stored));
+	TEST_ASSERT_TRUE(stored.on_load_asset == test_on_load_asset_stub);
+
+	/* Re-register with a different hook: first registration wins, not a conflict. */
+	sk_component_desc_t again = {0};
+	again.type_id = id;
+	again.size = 8u;
+	again.align = 8u;
+	again.name = "onload-again";
+	again.on_load_asset = NULL;
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(&again));
+
+	sk_component_info_t info;
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.component_info(id, &info));
+	TEST_ASSERT_EQUAL_STRING("onload", info.name);
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.component_desc(id, &stored));
+	TEST_ASSERT_TRUE(stored.on_load_asset == test_on_load_asset_stub);
 }
 
 SK_TEST(entities_component_info_missing) {
@@ -2840,9 +2915,9 @@ typedef struct ecs_world_tag_t {
 
 static void ecs_world_register_components(void) {
 	ecs_component_registry_reset();
-	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_POS_ID, (u32)sizeof(ecs_world_pos_t), 4u, "world-pos"));
-	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_VEL_ID, (u32)sizeof(ecs_world_vel_t), 4u, "world-vel"));
-	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_WORLD_TAG_ID, (u32)sizeof(ecs_world_tag_t), 4u, "world-tag"));
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(TEST_WORLD_POS_ID, (u32)sizeof(ecs_world_pos_t), 4u, "world-pos"));
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(TEST_WORLD_VEL_ID, (u32)sizeof(ecs_world_vel_t), 4u, "world-vel"));
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(TEST_WORLD_TAG_ID, (u32)sizeof(ecs_world_tag_t), 4u, "world-tag"));
 }
 
 SK_TEST(entities_world_spawn_despawn_generation) {
@@ -2975,7 +3050,7 @@ SK_TEST(entities_world_spawn_validation) {
 	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
 
 	/* A registered component whose layout cannot fit 16 KiB fails to spawn. */
-	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(TEST_ECS_HUGE_ID, 16384u, 1u, "huge"));
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(TEST_ECS_HUGE_ID, 16384u, 1u, "huge"));
 	TEST_ASSERT_FALSE(sk_entity_is_valid(entities_api.world_spawn(world, &TEST_ECS_HUGE_ID, 1u)));
 
 	entities_api.world_destroy(world);
@@ -4052,7 +4127,7 @@ SK_TEST(entities_register_component_capacity) {
 	i32 last = 0;
 	for (u32 i = 0u; i < (u32)SK_ECS_MAX_COMPONENT_TYPES + 4u; ++i) {
 		sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.capacity", (u64)(i + 1000u), 0xAAAAAAAAAAAAAAAAULL);
-		last = entities_api.register_component(id, 4u, 4u, "capacity");
+		last = test_register_component(id, 4u, 4u, "capacity");
 		if (last == 0) {
 			accepted += 1u;
 		}
@@ -4062,7 +4137,7 @@ SK_TEST(entities_register_component_capacity) {
 	TEST_ASSERT_EQUAL_INT32(-2, last);
 
 	sk_type_id_t full_id = SK_TYPE_ID("sk.test.ecs.capacity.full", 0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL);
-	TEST_ASSERT_EQUAL_INT32(-2, entities_api.register_component(full_id, 4u, 4u, "full"));
+	TEST_ASSERT_EQUAL_INT32(-2, test_register_component(full_id, 4u, 4u, "full"));
 }
 
 #endif /* SK_TESTS */
