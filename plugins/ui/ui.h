@@ -782,6 +782,8 @@ typedef void (*sk_ui_widget_float_fn)(sk_ui_context_t* ctx, sk_ui_node_t node, f
 #define SK_UI_CLASS_RADIO "ui-radio"
 #define SK_UI_CLASS_TOGGLE "ui-toggle"
 #define SK_UI_CLASS_SLIDER "ui-slider"
+#define SK_UI_CLASS_RANGE_SLIDER "ui-range-slider"
+#define SK_UI_CLASS_PROGRESS "ui-progress"
 #define SK_UI_CLASS_TEXT_INPUT "ui-text-input"
 #define SK_UI_CLASS_SCROLL_VIEW "ui-scroll-view"
 #define SK_UI_CLASS_IMAGE "ui-image"
@@ -1928,6 +1930,18 @@ typedef struct sk_ui_api_t {
 	/** Horizontal slider clamped to [min_v, max_v]. */
 	sk_ui_node_t (*widget_slider)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value, const_chr_t id);
 
+	/**
+	 * Dual-thumb range slider on [min_v, max_v] with low/high values (widget=range_slider).
+	 * Paint draws a track, filled span between thumbs, and two distinct grab handles.
+	 */
+	sk_ui_node_t (*widget_range_slider)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value_low, f32 value_high, const_chr_t id);
+
+	/**
+	 * Progress bar (display only; no grab handle). @p fraction is clamped to [0,1]
+	 * (widget=progress). Paint fills left→right by fraction; vision grades 0/partial/full.
+	 */
+	sk_ui_node_t (*widget_progress)(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 fraction, const_chr_t id);
+
 	/** Single-line text field with caret/selection editing. */
 	sk_ui_node_t (*widget_text_input)(sk_ui_context_t* ctx, sk_ui_node_t parent, const_chr_t text, const_chr_t id);
 
@@ -2083,6 +2097,14 @@ typedef struct sk_ui_api_t {
 	f32 (*slider_get_value)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 	i32 (*slider_set_range)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 min_v, f32 max_v);
 	i32 (*slider_set_on_change)(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_widget_float_fn fn, void_ptr_t user);
+
+	/** Range slider low/high (clamped and ordered so low <= high). */
+	i32 (*range_slider_set_values)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value_low, f32 value_high);
+	i32 (*range_slider_get_values)(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out_low, f32* out_high);
+
+	/** Progress fraction [0,1]. */
+	i32 (*progress_set_value)(sk_ui_context_t* ctx, sk_ui_node_t node, f32 fraction);
+	f32 (*progress_get_value)(const sk_ui_context_t* ctx, sk_ui_node_t node);
 
 	i32 (*text_input_set_text)(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text);
 	const_chr_t (*text_input_get_text)(const sk_ui_context_t* ctx, sk_ui_node_t node);

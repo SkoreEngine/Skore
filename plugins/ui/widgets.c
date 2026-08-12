@@ -37,6 +37,8 @@ enum {
 	UI_WD_WINDOW_TITLE = 11,
 	UI_WD_RADIO = 12,
 	UI_WD_TOGGLE = 13,
+	UI_WD_RANGE_SLIDER = 14,
+	UI_WD_PROGRESS = 15,
 };
 
 typedef struct ui_widget_data_t {
@@ -399,6 +401,38 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	var.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_SLIDER, SK_UI_STATE_DISABLED, &var);
 
+	/* Range slider: same chrome as single slider (two thumbs drawn in paint). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH;
+	base.background_color = sk_ui_rgba(0.20f, 0.22f, 0.26f, 1.0f);
+	base.corner_radius = 4.0f;
+	base.layout.height = sk_ui_pt(20.0f);
+	base.layout.min_width = sk_ui_pt(80.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_RANGE_SLIDER, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.24f, 0.26f, 0.32f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_RANGE_SLIDER, SK_UI_STATE_HOVER, &var);
+	var.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_RANGE_SLIDER, SK_UI_STATE_DISABLED, &var);
+
+	/* Progress bar: track only; fill fraction is custom paint (no grab handle). */
+	ui_style_props_clear(&base);
+	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_HEIGHT | SK_UI_SP_MIN_WIDTH;
+	base.background_color = sk_ui_rgba(0.20f, 0.22f, 0.26f, 1.0f);
+	base.corner_radius = 4.0f;
+	base.layout.height = sk_ui_pt(16.0f);
+	base.layout.min_width = sk_ui_pt(80.0f);
+	if (ui->style_class_register(ctx, SK_UI_CLASS_PROGRESS, &base) != 0) {
+		return -1;
+	}
+	ui_style_props_clear(&var);
+	var.mask = SK_UI_SP_BACKGROUND_COLOR;
+	var.background_color = sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f);
+	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_PROGRESS, SK_UI_STATE_DISABLED, &var);
+
 	/* Text input */
 	ui_style_props_clear(&base);
 	base.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_PADDING | SK_UI_SP_COLOR | SK_UI_SP_FONT_SIZE |
@@ -423,9 +457,11 @@ i32 ui_widgets_register_defaults_impl(sk_ui_context_t* ctx) {
 	var.border_color = sk_ui_rgba(0.45f, 0.60f, 0.95f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TEXT_INPUT, SK_UI_STATE_FOCUSED, &var);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TEXT_INPUT, SK_UI_STATE_HOVER, &var);
-	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_COLOR;
+	/* Disabled: muted face, border, and ink so vision grades clear dimming (APX-253). */
+	var.mask = SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_COLOR;
 	var.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
-	var.color = sk_ui_rgba(0.50f, 0.52f, 0.54f, 1.0f);
+	var.border_color = sk_ui_rgba(0.24f, 0.25f, 0.28f, 1.0f);
+	var.color = sk_ui_rgba(0.38f, 0.40f, 0.42f, 1.0f);
 	(void)ui->style_class_set_variant(ctx, SK_UI_CLASS_TEXT_INPUT, SK_UI_STATE_DISABLED, &var);
 
 	/* Scroll view */
@@ -959,10 +995,23 @@ static void ui_scroll_clamp(sk_ui_context_t* ctx, sk_ui_node_t node) {
 	ch = ui_prop_f32_const(slot, "content_height", 0.0f);
 	vw = slot->layout_content.width;
 	vh = slot->layout_content.height;
-	max_x = cw > vw ? cw - vw : 0.0f;
-	max_y = ch > vh ? ch - vh : 0.0f;
-	sx = ui_clampf(sx, 0.0f, max_x);
-	sy = ui_clampf(sy, 0.0f, max_y);
+	/*
+	 * Before the first layout pass, content box is 0×0. Clamping then would
+	 * force scroll to 0 and drop intentional mid-scroll test setup (APX-253).
+	 * Only clamp an axis once that viewport dimension is known.
+	 */
+	if (vw > 0.5f) {
+		max_x = cw > vw ? cw - vw : 0.0f;
+		sx = ui_clampf(sx, 0.0f, max_x);
+	} else if (sx < 0.0f) {
+		sx = 0.0f;
+	}
+	if (vh > 0.5f) {
+		max_y = ch > vh ? ch - vh : 0.0f;
+		sy = ui_clampf(sy, 0.0f, max_y);
+	} else if (sy < 0.0f) {
+		sy = 0.0f;
+	}
 	(void)ui->node_set_prop_f32(ctx, node, "scroll_x", sx);
 	(void)ui->node_set_prop_f32(ctx, node, "scroll_y", sy);
 	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
@@ -1132,6 +1181,45 @@ sk_ui_node_t ui_widget_slider_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f3
 	cbs.on_event = ui_slider_on_event;
 	cbs.user = wd;
 	(void)ui->node_set_callbacks(ctx, n, &cbs);
+	return n;
+}
+
+sk_ui_node_t ui_widget_range_slider_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 min_v, f32 max_v, f32 value_low, f32 value_high, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_RANGE_SLIDER, "range_slider", "ui-range-slider", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	if (max_v < min_v) {
+		f32 t = min_v;
+		min_v = max_v;
+		max_v = t;
+	}
+	value_low = ui_clampf(value_low, min_v, max_v);
+	value_high = ui_clampf(value_high, min_v, max_v);
+	if (value_low > value_high) {
+		f32 t = value_low;
+		value_low = value_high;
+		value_high = t;
+	}
+	(void)ui->node_set_prop_f32(ctx, n, "min", min_v);
+	(void)ui->node_set_prop_f32(ctx, n, "max", max_v);
+	(void)ui->node_set_prop_f32(ctx, n, "value_low", value_low);
+	(void)ui->node_set_prop_f32(ctx, n, "value_high", value_high);
+	(void)ui->node_set_focusable(ctx, n, 1);
+	(void)ui_widget_data_ensure(ctx, n, UI_WD_RANGE_SLIDER);
+	return n;
+}
+
+sk_ui_node_t ui_widget_progress_impl(sk_ui_context_t* ctx, sk_ui_node_t parent, f32 fraction, const_chr_t id) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t n = ui_widget_base(ctx, SK_UI_NODE_KIND_BOX, parent, SK_UI_CLASS_PROGRESS, "progress", "ui-progress", id);
+	if (!sk_ui_node_is_valid(n)) {
+		return n;
+	}
+	fraction = ui_clampf(fraction, 0.0f, 1.0f);
+	(void)ui->node_set_prop_f32(ctx, n, "value", fraction);
+	(void)ui_widget_data_ensure(ctx, n, UI_WD_PROGRESS);
 	return n;
 }
 
@@ -2110,6 +2198,69 @@ i32 ui_slider_set_on_change_impl(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_
 	return 0;
 }
 
+i32 ui_range_slider_set_values_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 value_low, f32 value_high) {
+	const sk_ui_api_t* ui = ui_wapi();
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	f32 min_v, max_v;
+	if (slot == NULL) {
+		return -1;
+	}
+	min_v = ui_prop_f32_const(slot, "min", 0.0f);
+	max_v = ui_prop_f32_const(slot, "max", 1.0f);
+	if (max_v < min_v) {
+		f32 t = min_v;
+		min_v = max_v;
+		max_v = t;
+	}
+	value_low = ui_clampf(value_low, min_v, max_v);
+	value_high = ui_clampf(value_high, min_v, max_v);
+	if (value_low > value_high) {
+		f32 t = value_low;
+		value_low = value_high;
+		value_high = t;
+	}
+	if (ui->node_set_prop_f32(ctx, node, "value_low", value_low) != 0) {
+		return -1;
+	}
+	if (ui->node_set_prop_f32(ctx, node, "value_high", value_high) != 0) {
+		return -1;
+	}
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	return 0;
+}
+
+i32 ui_range_slider_get_values_impl(const sk_ui_context_t* ctx, sk_ui_node_t node, f32* out_low, f32* out_high) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	if (slot == NULL) {
+		return -1;
+	}
+	if (out_low != NULL) {
+		*out_low = ui_prop_f32_const(slot, "value_low", 0.0f);
+	}
+	if (out_high != NULL) {
+		*out_high = ui_prop_f32_const(slot, "value_high", 0.0f);
+	}
+	return 0;
+}
+
+i32 ui_progress_set_value_impl(sk_ui_context_t* ctx, sk_ui_node_t node, f32 fraction) {
+	const sk_ui_api_t* ui = ui_wapi();
+	fraction = ui_clampf(fraction, 0.0f, 1.0f);
+	if (ui->node_set_prop_f32(ctx, node, "value", fraction) != 0) {
+		return -1;
+	}
+	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
+	return 0;
+}
+
+f32 ui_progress_get_value_impl(const sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const ui_node_slot_t* slot = ui_slot(ctx, node);
+	if (slot == NULL) {
+		return 0.0f;
+	}
+	return ui_clampf(ui_prop_f32_const(slot, "value", 0.0f), 0.0f, 1.0f);
+}
+
 i32 ui_text_input_set_text_impl(sk_ui_context_t* ctx, sk_ui_node_t node, const_chr_t text) {
 	i32 n;
 	if (text == NULL) {
@@ -2903,6 +3054,8 @@ SK_TEST(ui_widget_defaults_registered) {
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_RADIO));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TOGGLE));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SLIDER));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_RANGE_SLIDER));
+	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_PROGRESS));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_TEXT_INPUT));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_SCROLL_VIEW));
 	TEST_ASSERT_TRUE(ui->style_class_has(ctx, SK_UI_CLASS_IMAGE));

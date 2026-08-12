@@ -276,8 +276,9 @@ static i32 ui_clay_needs_stable_id(const ui_node_slot_t* slot) {
 	if (w == NULL) {
 		return 0;
 	}
-	if (strcmp(w, "panel") == 0 || strcmp(w, "button") == 0 || strcmp(w, "checkbox") == 0 || strcmp(w, "slider") == 0 || strcmp(w, "text_input") == 0 ||
-		strcmp(w, "scroll_view") == 0 || strcmp(w, "scroll_content") == 0 || strcmp(w, "label") == 0 || strcmp(w, "image") == 0 || strcmp(w, "view") == 0) {
+	if (strcmp(w, "panel") == 0 || strcmp(w, "button") == 0 || strcmp(w, "checkbox") == 0 || strcmp(w, "radio") == 0 || strcmp(w, "toggle") == 0 || strcmp(w, "slider") == 0 ||
+		strcmp(w, "range_slider") == 0 || strcmp(w, "progress") == 0 || strcmp(w, "text_input") == 0 || strcmp(w, "scroll_view") == 0 || strcmp(w, "scroll_content") == 0 ||
+		strcmp(w, "label") == 0 || strcmp(w, "image") == 0 || strcmp(w, "view") == 0) {
 		return 1;
 	}
 	/* Menu inventory surfaces always keep stable IDs (hover → nested popup). */
