@@ -4,9 +4,9 @@ Per-widget **strict vision rubrics** and a reusable assertion helper that asks
 **grok vision** to confirm fine-grained rendering details — not a vague “does
 this look right”.
 
-This is the grading contract for APX-252…APX-255 (per-widget vision tests) and
-builds on the same grok-vision path used for the snapshot audits
-(`docs/ui-vision-audit-round-*.md`).
+This is the grading contract for APX-252…APX-255 (per-widget vision tests),
+APX-257 (flexbox layout samples), and builds on the same grok-vision path used
+for the snapshot audits (`docs/ui-vision-audit-round-*.md`).
 
 ---
 
@@ -43,6 +43,7 @@ builds on the same grok-vision path used for the snapshot audits
 | `menu` | `menu.txt` | Popup items + claimed separators (APX-254) |
 | `table` | `table.txt` | Header differs from body; striping + column separators (APX-254) |
 | `tooltip` | `tooltip.txt` | Compact floating popup with label (APX-254) |
+| `flexbox` | `flexbox.txt` | Qualitative arrangement of coloured flex children (APX-257) |
 | `disabled` | `disabled.txt` | Cross-cutting dimming rule for any family |
 
 ---
@@ -139,3 +140,14 @@ Exit `2` = skipped (no credentials). Exit `0` = graded (inspect JSON for pass/fa
    the suite is optional without keys).
 4. On FAIL, open `{scene}_vision_fail.png` under `SK_TEST_ARTIFACT_DIR` /
    `build/test-artifacts` and read `result.reason`.
+
+## Flexbox layout samples (APX-257)
+
+Representative subset of the APX-256 flexbox geometry matrix (one case each:
+wrap, justify space-between, align-items center, grow, gap, nesting) is rendered
+with distinctly coloured children in `tests/integration/ui_flexbox_vision.c`.
+Each case asserts parent-content-relative rects numerically, paints solid RGB
+fills, then grades the qualitative arrangement via `SK_UI_VISION_WIDGET_FLEXBOX`
+and a short human-readable `state_hint` (keep hints under ~200 chars — the
+helper’s shell escape buffer is 256). Vision SKIPPED without credentials does
+not fail the suite; numeric + painted bboxes still guard.

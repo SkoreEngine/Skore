@@ -25,6 +25,7 @@ add_executable(sk-integration-tests
     ui_integration.c
     ui_vision_assert.c
     ui_widget_vision.c
+    ui_flexbox_vision.c
     render_graph.c
     resource_object_fixtures.c
     resource_object_buffer.c
@@ -35,6 +36,7 @@ add_executable(sk-isolate-tests
     ui_capture_harness.c
     ui_vision_assert.c
     ui_widget_vision.c
+    ui_flexbox_vision.c
 )
 target_link_libraries(sk-isolate-tests PRIVATE sk-app sk-test sk-render-device-lib sk-dxc-compiler-lib sk-ui-lib)
 target_include_directories(sk-isolate-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/plugins/ui/testdata")

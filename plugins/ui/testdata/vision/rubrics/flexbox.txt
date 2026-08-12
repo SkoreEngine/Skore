@@ -1,0 +1,18 @@
+Widget family: FLEXBOX LAYOUT SAMPLE
+
+Grade the QUALITATIVE arrangement of distinctly coloured solid children against
+the claimed state/scene hint. Children are solid filled rectangles (typically
+red/green/blue or similarly separable hues) inside a darker container on a light
+or neutral canvas. Do NOT measure pixels — judge relative positions, spacing,
+and packing that a human would describe in one sentence.
+
+PASS only if ALL hold:
+1. The claimed number of coloured children is visible and distinguishable.
+2. Their relative order and axis packing match the claim (row vs column,
+   left/right/top/bottom edges, single line vs nested bands).
+3. Spacing claims hold qualitatively (equal gaps, space-between last child
+   touching the far edge, centered on the cross axis, grow fills leftover
+   main-axis space, nested header above body, etc.).
+4. FAIL if rects look self-consistent but the picture clearly contradicts the
+   claim (e.g. packed to the left when space-between is claimed, second flex
+   line when single-line is claimed, grow child same width as fixed sibling).

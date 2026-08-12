@@ -160,6 +160,22 @@ static const ui_vision_rubric_entry_t ui_vision_rubrics[SK_UI_VISION_WIDGET_COUN
 				"Small floating overlay panel above the canvas with a clear border/chrome and\n"
 				"readable label text inside. Distinct from the full-frame background.\n"
 				"FAIL if no floating panel, no text, or fully transparent/missing surface.\n"},
+	{"flexbox", "Widget family: FLEXBOX LAYOUT SAMPLE\n"
+				"Grade the QUALITATIVE arrangement of distinctly coloured solid children against\n"
+				"the claimed state/scene hint. Children are solid filled rectangles (typically\n"
+				"red/green/blue or similarly separable hues) inside a darker container on a light\n"
+				"or neutral canvas. Do NOT measure pixels — judge relative positions, spacing,\n"
+				"and packing that a human would describe in one sentence.\n"
+				"PASS only if ALL hold:\n"
+				"1. The claimed number of coloured children is visible and distinguishable.\n"
+				"2. Their relative order and axis packing match the claim (row vs column,\n"
+				"   left/right/top/bottom edges, single line vs nested bands).\n"
+				"3. Spacing claims hold qualitatively (equal gaps, space-between last child\n"
+				"   touching the far edge, centered on the cross axis, grow fills leftover\n"
+				"   main-axis space, nested header above body, etc.).\n"
+				"4. FAIL if rects look self-consistent but the picture clearly contradicts the\n"
+				"   claim (e.g. packed to the left when space-between is claimed, second flex\n"
+				"   line when single-line is claimed, grow child same width as fixed sibling).\n"},
 	{"disabled", "Cross-cutting: DISABLED state (any widget family)\n"
 				 "Control is visibly dimmed vs enabled (lower-contrast fill/border/mark).\n"
 				 "FAIL if full-strength accent colors still read as enabled.\n"
@@ -222,6 +238,10 @@ i32 sk_ui_vision_widget_family_parse(const_chr_t name, sk_ui_vision_widget_famil
 	}
 	if (strcmp(name, "popup") == 0) {
 		*out_family = SK_UI_VISION_WIDGET_TOOLTIP;
+		return 0;
+	}
+	if (strcmp(name, "layout") == 0 || strcmp(name, "flex") == 0 || strcmp(name, "flex_layout") == 0) {
+		*out_family = SK_UI_VISION_WIDGET_FLEXBOX;
 		return 0;
 	}
 	return -1;
