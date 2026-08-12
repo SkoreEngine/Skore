@@ -31,10 +31,10 @@
 
 enum {
 	UI_MSDF_CHANNELS = 3u,
-	UI_MSDF_SPACING_PX = 2u, /* >= px_range; linear filter bleed margin */
+	UI_MSDF_SPACING_PX = 2u, /* gutter between boxes; field lives inside each box */
 };
 
-#define UI_MSDF_PX_RANGE 2.0
+#define UI_MSDF_PX_RANGE 2.0 /* symmetric width: C API {-1, +1} == C++ Range(2) */
 #define UI_MSDF_EDGE_ANGLE 3.0
 #define UI_MSDF_MITER 1.0
 #define UI_MSDF_FONT_SCALE_EM 1.0
@@ -159,10 +159,12 @@ i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_siz
 	config.packing_style = MSDF_ATLAS_PACKING_TIGHT;
 	config.dimensions_constraint = MSDF_ATLAS_DIMENSIONS_POWER_OF_TWO_SQUARE;
 	/* C API Range(lower, upper) is endpoints, not C++ Range(width).
-	 * {2,2} is zero-width and yields NaN. {0,2} is width 2; we remap so
-	 * distance 0 (edge) lands at unorm 0.5. */
-	config.px_range.lower = 0.0;
-	config.px_range.upper = UI_MSDF_PX_RANGE;
+	 * Symmetric {-half, +half} matches C++ Range(width): wrapBox grows
+	 * by -lower (1 px of outside field), and DistanceMapping writes
+	 * [0, 1] floats with the edge at 0.5. {0, width} leaves lower=0 so
+	 * boxes stay tight to the outline and empty texels stay mid-gray. */
+	config.px_range.lower = -0.5 * UI_MSDF_PX_RANGE;
+	config.px_range.upper = 0.5 * UI_MSDF_PX_RANGE;
 	config.min_glyph_scale = UI_MSDF_MIN_GLYPH_SCALE;
 	config.miter_limit = UI_MSDF_MITER;
 	/* Spacing between glyph boxes so linear filtering does not sample neighbors. */
@@ -259,7 +261,11 @@ i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_siz
 	atlas->height = (u32)bitmap.height;
 	atlas->channels = UI_MSDF_CHANNELS;
 	atlas->generation = 1u;
-	atlas->px_range = (f32)(packed_range.upper > 0.0 ? packed_range.upper : UI_MSDF_PX_RANGE);
+	/* Shader pxRange is the representable width (upper-lower), not an endpoint. */
+	{
+		const double width = packed_range.upper - packed_range.lower;
+		atlas->px_range = (f32)(width > 0.0 ? width : UI_MSDF_PX_RANGE);
+	}
 	atlas->pack_scale = (f32)pack_scale;
 	atlas->em_size = (f32)font_metrics.em_size;
 	atlas->ascender_em = (f32)(font_metrics.ascender_y / font_metrics.em_size);
@@ -274,12 +280,13 @@ i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_siz
 		ui_msdf_destroy_handles(msdf_font, charset, set, packer, generator);
 		return -1;
 	}
-	/* Quantize signed pixel distances to RGB8 with edge at 0.5. */
+	/* Float MSDF is already DistanceMapped into [0, 1] (edge at 0.5).
+	 * Do not divide by px_range again — that crushed interiors to ~0.75
+	 * and left a wide AA band (APX-269 D1/D2). */
 	{
 		const float* src = (const float*)bitmap.pixels;
 		const size_t tight = (size_t)bitmap.width * (size_t)UI_MSDF_CHANNELS;
 		const size_t stride_floats = bitmap.row_stride_bytes > 0 ? (size_t)bitmap.row_stride_bytes / sizeof(float) : tight;
-		const float range = (float)UI_MSDF_PX_RANGE;
 		for (y = 0u; y < atlas->height; ++y) {
 			u32 x;
 			const float* row = src + (size_t)y * stride_floats;
@@ -288,18 +295,12 @@ i32 ui_msdf_atlas_bake(const sk_allocator_t* a, const u8* ttf_bytes, u32 ttf_siz
 				u32 c;
 				for (c = 0u; c < UI_MSDF_CHANNELS; ++c) {
 					float v = row[x * UI_MSDF_CHANNELS + c];
-					float t;
-					if (!isfinite((double)v) || range <= 0.0f) {
-						t = 0.0f;
-					} else {
-						t = v / range;
-						if (t < -1.0f) {
-							t = -1.0f;
-						} else if (t > 1.0f) {
-							t = 1.0f;
-						}
+					if (!isfinite((double)v) || v < 0.0f) {
+						v = 0.0f;
+					} else if (v > 1.0f) {
+						v = 1.0f;
 					}
-					dst[x * UI_MSDF_CHANNELS + c] = (u8)((0.5f + 0.5f * t) * 255.0f + 0.5f);
+					dst[x * UI_MSDF_CHANNELS + c] = (u8)(v * 255.0f + 0.5f);
 				}
 			}
 		}
@@ -1412,8 +1413,10 @@ SK_TEST(ui_msdf_atlas_letter_has_inside_and_outside) {
 	}
 	/* Just outside the packed box, toward atlas origin. */
 	outside = ui_msdf_sample_median_nearest(&atlas, ga.u0 > 0.01f ? ga.u0 - 0.01f : 0.0f, ga.v0 > 0.01f ? ga.v0 - 0.01f : 0.0f);
-	TEST_ASSERT_TRUE(inside > 0.5f);
-	TEST_ASSERT_TRUE(outside < 0.55f);
+	/* Symmetric range + 1:1 unorm: stems near 1.0, gutters near 0.0.
+	 * The old {0,2} + v/range remap left interiors around 0.75. */
+	TEST_ASSERT_TRUE(inside > 0.85f);
+	TEST_ASSERT_TRUE(outside < 0.15f);
 
 	ui->font_system_destroy(sys);
 }

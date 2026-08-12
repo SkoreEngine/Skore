@@ -322,7 +322,8 @@ msdf_atlas_error_t validateConfig(const msdf_atlas_config_t *config) {
         return recordError(MSDF_ATLAS_ERROR_INVALID_ARGUMENT, "config min_glyph_scale is negative");
     if (config->unit_range.lower < 0 || config->unit_range.upper < config->unit_range.lower)
         return recordError(MSDF_ATLAS_ERROR_INVALID_ARGUMENT, "config unit_range is malformed");
-    if (config->px_range.lower < 0 || config->px_range.upper < config->px_range.lower)
+    /* Endpoints, not a width. C++ Range(2) is {-1, +1}; lower may be negative. */
+    if (config->px_range.upper < config->px_range.lower)
         return recordError(MSDF_ATLAS_ERROR_INVALID_ARGUMENT, "config px_range is malformed");
     if (config->miter_limit < 0)
         return recordError(MSDF_ATLAS_ERROR_INVALID_ARGUMENT, "config miter_limit is negative");
