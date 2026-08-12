@@ -135,6 +135,8 @@ typedef struct sk_vk_swapchain_t {
 	sk_vk_texture_t** textures;
 	u32 texture_count;
 	u32 image_index;
+	/* Used when acquire_next_image is called with no caller semaphore/fence. */
+	VkFence acquire_fence;
 } sk_vk_swapchain_t;
 
 /* ------------------------------------------------------------------ */

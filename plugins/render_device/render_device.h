@@ -1115,8 +1115,8 @@ typedef struct sk_submit_info_t {
 typedef struct sk_acquire_info_t {
 	sk_swapchain_t swapchain;
 	u64 timeout_ns;					 /* UINT64_MAX = wait forever */
-	sk_semaphore_t signal_semaphore; /* optional; signaled when image ready */
-	sk_fence_t signal_fence;		 /* optional */
+	sk_semaphore_t signal_semaphore; /* signaled when the image is ready (preferred) */
+	sk_fence_t signal_fence;		 /* CPU-waitable; Vulkan requires semaphore or fence */
 } sk_acquire_info_t;
 
 /** Present swapchain image(s). */
@@ -1286,6 +1286,8 @@ typedef struct sk_render_device_api_t {
 	i32 (*resize_swapchain)(sk_render_device_t dev, sk_swapchain_t swapchain, u32 width, u32 height);
 	/**
 	 * Acquire next presentable image index.
+	 * Prefer signal_semaphore and wait it on the first submit that uses the image.
+	 * Vulkan requires a semaphore or a fence; backends wait an internal fence when both are omitted.
 	 * @param out_image_index Receives image index on success.
 	 * @return sk_device_result_t (SUCCESS, SWAPCHAIN_OUT_OF_DATE, or ERROR).
 	 */
@@ -1390,7 +1392,7 @@ typedef struct sk_render_device_api_t {
 	void (*copy_texture)(sk_render_device_t dev, sk_command_buffer_t cmd, const sk_texture_copy_t* copy_info);
 	void (*blit_texture)(sk_render_device_t dev, sk_command_buffer_t cmd, const sk_texture_blit_t* blit_info);
 	void (*resolve_texture)(sk_render_device_t dev, sk_command_buffer_t cmd, const sk_texture_resolve_t* resolve_info);
-	/** Inline host→device buffer write (size typically ≤ 64 KiB; backend-dependent). */
+	/** Host→device buffer write. Vulkan backends split payloads above 65536 bytes. */
 	void (*update_buffer)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_buffer_t buf, u64 offset, u64 size, const void* data);
 	void (*fill_buffer)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_buffer_t buf, u64 offset, u64 size, u32 data);
 	void (*clear_texture)(sk_render_device_t dev, sk_command_buffer_t cmd, sk_texture_t tex, const sk_clear_values_t* clear, u32 base_mip_level, u32 mip_level_count,

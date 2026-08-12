@@ -3133,6 +3133,10 @@ static sk_extent3d_t sk_vkrd_get_framebuffer_extent(sk_render_device_t dev, sk_f
 
 static void sk_vkrd_swapchain_destroy_internal(sk_vk_swapchain_t* swapchain) {
 	sk_vk_device_t* device = swapchain->device;
+	if (swapchain->swapchain != VK_NULL_HANDLE && device->device != VK_NULL_HANDLE) {
+		(void)vkDeviceWaitIdle(device->device);
+		sk_vk_flush_destructors(device);
+	}
 	for (u32 i = 0u; i < swapchain->texture_count; ++i) {
 		sk_vk_texture_t* texture = swapchain->textures[i];
 		sk_vk_free(device, texture->desc.debug_name);
@@ -3293,6 +3297,7 @@ static bool sk_vkrd_swapchain_recreate(sk_vk_swapchain_t* swapchain, u32 width, 
 	}
 
 	device->allocator->free(device->allocator->instance, images);
+	sk_vk_set_object_name(device, VK_OBJECT_TYPE_SWAPCHAIN_KHR, (u64)swapchain->swapchain, swapchain->desc.debug_name);
 	return true;
 }
 
@@ -3345,6 +3350,19 @@ static sk_swapchain_t sk_vkrd_create_swapchain(sk_render_device_t dev, const sk_
 		return sk_swapchain_t_zero();
 	}
 
+	{
+		VkFenceCreateInfo fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+		if (vkCreateFence(device->device, &fence_info, NULL, &swapchain->acquire_fence) != VK_SUCCESS) {
+			sk_vkrd_swapchain_destroy_internal(swapchain);
+			vkDestroySurfaceKHR(device->instance, swapchain->surface, NULL);
+			sk_vk_platform_destroy_surface_handle(platform_display);
+			sk_vk_free(device, swapchain->desc.debug_name);
+			sk_vk_free(device, swapchain);
+			return sk_swapchain_t_zero();
+		}
+		sk_vk_set_object_name(device, VK_OBJECT_TYPE_FENCE, (u64)swapchain->acquire_fence, "swapchain-acquire-fence");
+	}
+
 	sk_vk_set_object_name(device, VK_OBJECT_TYPE_SWAPCHAIN_KHR, (u64)swapchain->swapchain, desc->debug_name);
 	return sk_swapchain_t_from_ptr(swapchain);
 }
@@ -3357,6 +3375,10 @@ static void sk_vkrd_destroy_swapchain(sk_render_device_t dev, sk_swapchain_t swa
 	}
 
 	sk_vkrd_swapchain_destroy_internal(swapchain);
+	if (swapchain->acquire_fence != VK_NULL_HANDLE) {
+		vkDestroyFence(device->device, swapchain->acquire_fence, NULL);
+		swapchain->acquire_fence = VK_NULL_HANDLE;
+	}
 	if (swapchain->surface != VK_NULL_HANDLE) {
 		vkDestroySurfaceKHR(device->instance, swapchain->surface, NULL);
 	}
@@ -3402,14 +3424,26 @@ static sk_device_result_t sk_vkrd_acquire_next_image(sk_render_device_t dev, con
 		}
 	}
 
+	/* Vulkan forbids both semaphore and fence being VK_NULL_HANDLE. */
+	bool used_internal_fence = false;
+	if (semaphore == VK_NULL_HANDLE && fence == VK_NULL_HANDLE) {
+		fence = swapchain->acquire_fence;
+		used_internal_fence = fence != VK_NULL_HANDLE;
+	}
+
 	VkResult result = vkAcquireNextImageKHR(device->device, swapchain->swapchain, info->timeout_ns, semaphore, fence, &swapchain->image_index);
 	if (out_image_index != NULL) {
 		*out_image_index = swapchain->image_index;
 	}
-	if (result == VK_SUCCESS) {
+	if (used_internal_fence && (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)) {
+		(void)vkWaitForFences(device->device, 1u, &swapchain->acquire_fence, VK_TRUE, UINT64_MAX);
+		(void)vkResetFences(device->device, 1u, &swapchain->acquire_fence);
+	}
+	/* SUBOPTIMAL still returns a valid image (and signals semaphore/fence). */
+	if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
 		return SK_DEVICE_RESULT_SUCCESS;
 	}
-	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 		return SK_DEVICE_RESULT_SWAPCHAIN_OUT_OF_DATE;
 	}
 	return SK_DEVICE_RESULT_ERROR;

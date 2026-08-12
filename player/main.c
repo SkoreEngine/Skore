@@ -48,6 +48,7 @@ typedef struct player_gpu_t {
 	sk_ui_renderer_t* ui_renderer;
 	sk_command_buffer_t cmd;
 	sk_fence_t fence;
+	sk_semaphore_t acquire_sem;
 	i32 ready;
 } player_gpu_t;
 
@@ -522,11 +523,34 @@ static i32 player_gpu_build_frame_targets(player_gpu_t* g) {
 	return 0;
 }
 
+static void player_gpu_wait_idle(player_gpu_t* g) {
+	if (g->api == NULL || !sk_render_device_t_is_valid(g->device)) {
+		return;
+	}
+	(void)g->api->wait_idle(g->device);
+}
+
+static void player_gpu_drain_acquire_sem(player_gpu_t* g) {
+	sk_submit_info_t submit;
+	if (!sk_semaphore_t_is_valid(g->acquire_sem) || !sk_queue_t_is_valid(g->queue) || !sk_fence_t_is_valid(g->fence)) {
+		return;
+	}
+	g->api->reset_fences(g->device, &g->fence, 1u);
+	memset(&submit, 0, sizeof(submit));
+	submit.wait_semaphores = &g->acquire_sem;
+	submit.wait_semaphore_count = 1u;
+	submit.signal_fence = g->fence;
+	if (g->api->submit(g->device, g->queue, &submit) == 0) {
+		(void)g->api->wait_fences(g->device, &g->fence, 1u, true, UINT64_MAX);
+	}
+}
+
 static void player_gpu_shutdown(player_ui_state_t* st) {
 	player_gpu_t* g = &st->gpu;
 	if (g->api == NULL) {
 		return;
 	}
+	player_gpu_wait_idle(g);
 	if (st->ui != NULL && g->ui_renderer != NULL) {
 		st->ui->renderer_destroy(g->ui_renderer);
 		g->ui_renderer = NULL;
@@ -535,6 +559,10 @@ static void player_gpu_shutdown(player_ui_state_t* st) {
 		if (sk_fence_t_is_valid(g->fence)) {
 			g->api->destroy_fence(g->device, g->fence);
 			g->fence = sk_fence_t_zero();
+		}
+		if (sk_semaphore_t_is_valid(g->acquire_sem)) {
+			g->api->destroy_semaphore(g->device, g->acquire_sem);
+			g->acquire_sem = sk_semaphore_t_zero();
 		}
 		if (sk_command_buffer_t_is_valid(g->cmd)) {
 			g->api->destroy_command_buffer(g->device, g->cmd);
@@ -569,6 +597,8 @@ static i32 player_gpu_recreate_swapchain(player_ui_state_t* st, sk_window_t wind
 	if (g->api == NULL || !sk_swapchain_t_is_valid(g->swapchain)) {
 		return -1;
 	}
+	player_gpu_wait_idle(g);
+	player_gpu_destroy_frame_targets(g);
 	if (g->api->resize_swapchain(g->device, g->swapchain, width, height) != 0) {
 		/* recreate from scratch */
 		g->api->destroy_swapchain(g->device, g->swapchain);
@@ -607,6 +637,7 @@ static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, con
 	sk_swapchain_desc_t sc_desc;
 	sk_command_buffer_desc_t cb_desc;
 	sk_fence_desc_t f_desc;
+	sk_semaphore_desc_t sem_desc;
 	sk_ui_renderer_desc_t r_desc;
 
 	memset(g, 0, sizeof(*g));
@@ -701,6 +732,14 @@ static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, con
 		return -1;
 	}
 
+	memset(&sem_desc, 0, sizeof(sem_desc));
+	sem_desc.debug_name = "player-ui-acquire";
+	g->acquire_sem = g->api->create_semaphore(g->device, &sem_desc);
+	if (!sk_semaphore_t_is_valid(g->acquire_sem)) {
+		player_gpu_shutdown(st);
+		return -1;
+	}
+
 	memset(&r_desc, 0, sizeof(r_desc));
 	r_desc.device_api = g->api;
 	r_desc.device = g->device;
@@ -762,12 +801,16 @@ static void player_gpu_present(player_ui_state_t* st, const sk_platform_window_a
 	memset(&acq, 0, sizeof(acq));
 	acq.swapchain = g->swapchain;
 	acq.timeout_ns = UINT64_MAX;
+	acq.signal_semaphore = g->acquire_sem;
 	acq_rc = g->api->acquire_next_image(g->device, &acq, &image_index);
 	if (acq_rc == SK_DEVICE_RESULT_SWAPCHAIN_OUT_OF_DATE) {
 		(void)player_gpu_recreate_swapchain(st, window, fb.width, fb.height);
 		return;
 	}
 	if (acq_rc != SK_DEVICE_RESULT_SUCCESS || image_index >= g->image_count) {
+		if (acq_rc == SK_DEVICE_RESULT_SUCCESS) {
+			player_gpu_drain_acquire_sem(g);
+		}
 		return;
 	}
 
@@ -775,6 +818,7 @@ static void player_gpu_present(player_ui_state_t* st, const sk_platform_window_a
 	memset(&begin_info, 0, sizeof(begin_info));
 	begin_info.usage_flags = (u32)SK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT;
 	if (g->api->begin_command_buffer(g->device, g->cmd, &begin_info) != 0) {
+		player_gpu_drain_acquire_sem(g);
 		return;
 	}
 
@@ -809,8 +853,11 @@ static void player_gpu_present(player_ui_state_t* st, const sk_platform_window_a
 	memset(&submit, 0, sizeof(submit));
 	submit.command_buffers = &g->cmd;
 	submit.command_buffer_count = 1u;
+	submit.wait_semaphores = &g->acquire_sem;
+	submit.wait_semaphore_count = 1u;
 	submit.signal_fence = g->fence;
 	if (g->api->submit(g->device, g->queue, &submit) != 0) {
+		player_gpu_drain_acquire_sem(g);
 		return;
 	}
 	(void)g->api->wait_fences(g->device, &g->fence, 1u, true, UINT64_MAX);

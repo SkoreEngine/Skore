@@ -182,4 +182,140 @@ SK_TEST(vulkan_device_buffer_lifecycle) {
 	sk_app_destroy(ctx);
 }
 
+SK_TEST(vulkan_device_update_buffer_above_64k) {
+	enum { WORD_COUNT = 20000u };
+	enum { BYTE_COUNT = WORD_COUNT * (u32)sizeof(u32) };
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	const sk_render_device_api_t* api;
+	sk_render_device_t dev;
+	sk_adapter_t best = sk_adapter_t_zero();
+	u32 best_score = 0u;
+	u32 i;
+	sk_buffer_desc_t desc;
+	sk_buffer_t gpu_buf;
+	sk_buffer_t readback;
+	sk_queue_t queue;
+	sk_command_buffer_t cmd;
+	sk_command_buffer_begin_info_t begin_info;
+	sk_queue_desc_t q_desc;
+	sk_command_buffer_desc_t cb_desc;
+	static u32 src[WORD_COUNT];
+	const u32* got;
+
+	TEST_ASSERT_TRUE(BYTE_COUNT > 65536u);
+	TEST_ASSERT_NOT_NULL_MESSAGE(ctx, "app bootstrap must succeed");
+	if (ctx == NULL) {
+		return;
+	}
+
+	api = integration_render_device_api(ctx);
+	TEST_ASSERT_NOT_NULL_MESSAGE(api, "vulkan_render_device plugin must register sk_render_device_api_t");
+	if (api == NULL) {
+		sk_app_destroy(ctx);
+		return;
+	}
+
+	dev = api->init(ctx, NULL);
+	if (!sk_render_device_t_is_valid(dev)) {
+		TEST_IGNORE_MESSAGE("no Vulkan ICD available; skipping update_buffer integration test");
+		sk_app_destroy(ctx);
+		return;
+	}
+
+	for (i = 0u; i < api->get_adapter_count(dev); ++i) {
+		sk_adapter_t candidate = api->get_adapter(dev, i);
+		u32 score = api->get_adapter_score(dev, candidate);
+		if (score > best_score) {
+			best_score = score;
+			best = candidate;
+		}
+	}
+	if (!sk_adapter_t_is_valid(best) || api->select_adapter(dev, best) != 0) {
+		api->destroy(dev);
+		sk_app_destroy(ctx);
+		TEST_IGNORE_MESSAGE("no suitable Vulkan adapter; skipping update_buffer integration test");
+		return;
+	}
+
+	for (i = 0u; i < WORD_COUNT; ++i) {
+		src[i] = i * 3u + 1u;
+	}
+
+	memset(&desc, 0, sizeof(desc));
+	desc.size = BYTE_COUNT;
+	desc.usage_flags = (u32)SK_RESOURCE_USAGE_COPY_DEST | (u32)SK_RESOURCE_USAGE_COPY_SOURCE;
+	desc.debug_name = "update-src-gpu";
+	gpu_buf = api->create_buffer(dev, &desc);
+	TEST_ASSERT_TRUE(sk_buffer_t_is_valid(gpu_buf));
+
+	memset(&desc, 0, sizeof(desc));
+	desc.size = BYTE_COUNT;
+	desc.usage_flags = (u32)SK_RESOURCE_USAGE_COPY_DEST;
+	desc.host_visible = true;
+	desc.debug_name = "update-readback";
+	readback = api->create_buffer(dev, &desc);
+	TEST_ASSERT_TRUE(sk_buffer_t_is_valid(readback));
+
+	memset(&q_desc, 0, sizeof(q_desc));
+	q_desc.queue_type = (u32)SK_QUEUE_TYPE_GRAPHICS;
+	queue = api->create_queue(dev, &q_desc);
+	TEST_ASSERT_TRUE(sk_queue_t_is_valid(queue));
+
+	memset(&cb_desc, 0, sizeof(cb_desc));
+	cb_desc.level = SK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	cb_desc.queue_type = (u32)SK_QUEUE_TYPE_GRAPHICS;
+	cb_desc.debug_name = "update-cmd";
+	cmd = api->create_command_buffer(dev, &cb_desc);
+	TEST_ASSERT_TRUE(sk_command_buffer_t_is_valid(cmd));
+
+	if (!sk_buffer_t_is_valid(gpu_buf) || !sk_buffer_t_is_valid(readback) || !sk_queue_t_is_valid(queue) || !sk_command_buffer_t_is_valid(cmd)) {
+		if (sk_command_buffer_t_is_valid(cmd)) {
+			api->destroy_command_buffer(dev, cmd);
+		}
+		if (sk_queue_t_is_valid(queue)) {
+			api->destroy_queue(dev, queue);
+		}
+		if (sk_buffer_t_is_valid(readback)) {
+			api->destroy_buffer(dev, readback);
+		}
+		if (sk_buffer_t_is_valid(gpu_buf)) {
+			api->destroy_buffer(dev, gpu_buf);
+		}
+		api->destroy(dev);
+		sk_app_destroy(ctx);
+		return;
+	}
+
+	memset(&begin_info, 0, sizeof(begin_info));
+	begin_info.usage_flags = (u32)SK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT;
+	TEST_ASSERT_EQUAL_INT(0, api->begin_command_buffer(dev, cmd, &begin_info));
+	api->update_buffer(dev, cmd, gpu_buf, 0u, BYTE_COUNT, src);
+	api->memory_barrier(dev, cmd);
+	api->copy_buffer(dev, cmd, gpu_buf, readback, BYTE_COUNT, 0u, 0u);
+	api->end_command_buffer(dev, cmd);
+	TEST_ASSERT_EQUAL_INT(0, api->submit_and_wait(dev, queue, cmd));
+
+	got = (const u32*)api->buffer_map(dev, readback);
+	TEST_ASSERT_NOT_NULL(got);
+	if (got != NULL) {
+		TEST_ASSERT_EQUAL_UINT32(src[0], got[0]);
+		TEST_ASSERT_EQUAL_UINT32(src[WORD_COUNT / 2u], got[WORD_COUNT / 2u]);
+		TEST_ASSERT_EQUAL_UINT32(src[WORD_COUNT - 1u], got[WORD_COUNT - 1u]);
+		for (i = 0u; i < WORD_COUNT; ++i) {
+			if (got[i] != src[i]) {
+				TEST_FAIL_MESSAGE("update_buffer payload mismatch after 64KiB split");
+				break;
+			}
+		}
+	}
+	api->buffer_unmap(dev, readback);
+
+	api->destroy_command_buffer(dev, cmd);
+	api->destroy_queue(dev, queue);
+	api->destroy_buffer(dev, readback);
+	api->destroy_buffer(dev, gpu_buf);
+	api->destroy(dev);
+	sk_app_destroy(ctx);
+}
+
 #endif /* SK_TESTS */
