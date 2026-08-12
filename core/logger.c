@@ -6,13 +6,7 @@
 #include <string.h>
 #include <time.h>
 
-enum {
-	SK_LOGGER_NAME_MAX = 64,
-	SK_LOGGER_MAX_SINKS = 16,
-	SK_LOG_MESSAGE_MAX = 2048,
-	SK_LOG_FILE_PATH_MAX = 1024,
-	SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16
-};
+enum { SK_LOGGER_NAME_MAX = 64, SK_LOGGER_MAX_SINKS = 16, SK_LOG_MESSAGE_MAX = 2048, SK_LOG_FILE_PATH_MAX = 1024, SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16 };
 
 struct sk_logger_t {
 	char name[SK_LOGGER_NAME_MAX];
@@ -89,20 +83,36 @@ static void file_sink_build_rotated_path(const char* base, u32 index, char* out,
 	out[out_cap - 1u] = '\0';
 }
 
-static i32 file_sink_open_append(sk_log_file_sink_t* fs) {
+static i32 file_sink_measure_existing_size(const char* path, u64* out_size) {
+	FILE* measure;
 	long pos;
 
+	/* Measure on a read stream. Seeking a FILE opened with "a" is a no-op on
+	 * POSIX (cppcheck seekOnAppendedFile) and leaves Windows at position 0
+	 * until the first write. */
+	measure = fopen(path, "rb");
+	if (measure == NULL) {
+		*out_size = 0ull;
+		return 0;
+	}
+	if (fseek(measure, 0, SEEK_END) != 0) {
+		fclose(measure);
+		return -1;
+	}
+	pos = ftell(measure);
+	fclose(measure);
+	*out_size = (pos > 0) ? (u64)pos : 0ull;
+	return 0;
+}
+
+static i32 file_sink_open_append(sk_log_file_sink_t* fs) {
+	if (file_sink_measure_existing_size(fs->path, &fs->current_size) != 0) {
+		return -1;
+	}
 	fs->file = fopen(fs->path, "a");
 	if (fs->file == NULL) {
 		return -1;
 	}
-	if (fseek(fs->file, 0, SEEK_END) != 0) {
-		fclose(fs->file);
-		fs->file = NULL;
-		return -1;
-	}
-	pos = ftell(fs->file);
-	fs->current_size = (pos > 0) ? (u64)pos : 0ull;
 	return 0;
 }
 
@@ -670,6 +680,46 @@ SK_TEST(log_file_sink_rotates_when_over_max_bytes) {
 
 	file_sink_build_rotated_path(base, 1u, rotated, sizeof(rotated));
 	TEST_ASSERT_TRUE(file_sink_test_file_size(base) >= 0);
+	TEST_ASSERT_TRUE(file_sink_test_file_size(rotated) > 0);
+
+	file_sink_test_cleanup(base, 3u);
+}
+
+SK_TEST(log_file_sink_resumes_size_from_existing_file) {
+	const sk_logger_api_t* api = sk_logger_api();
+	static const char* base = "sk_log_file_sink_resume.log";
+	sk_log_file_sink_t* file_sink;
+	sk_logger_t* log;
+	char rotated[SK_LOG_FILE_ROTATED_PATH_MAX];
+
+	file_sink_test_cleanup(base, 3u);
+	/* One formatted line is ~70 bytes; 100 forces a rotate on the second write
+	 * only if create() picks up the existing file size. */
+	file_sink = sk_log_file_sink_create(base, 100ull, 3u);
+	TEST_ASSERT_NOT_NULL(file_sink);
+
+	mute_stdout_sink();
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(sk_log_file_sink_sink(file_sink)));
+	log = api->create_logger("resume");
+	TEST_ASSERT_NOT_NULL(log);
+	sk_log_info(api, log, "resume-line-aaaaaaaaaaaaaaaaaaaa");
+	api->destroy_logger(log);
+	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(sk_log_file_sink_sink(file_sink)));
+	sk_log_file_sink_destroy(file_sink);
+	TEST_ASSERT_TRUE(file_sink_test_file_size(base) > 0);
+
+	file_sink = sk_log_file_sink_create(base, 100ull, 3u);
+	TEST_ASSERT_NOT_NULL(file_sink);
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(sk_log_file_sink_sink(file_sink)));
+	log = api->create_logger("resume");
+	TEST_ASSERT_NOT_NULL(log);
+	sk_log_info(api, log, "resume-line-bbbbbbbbbbbbbbbbbbbb");
+	api->destroy_logger(log);
+	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(sk_log_file_sink_sink(file_sink)));
+	sk_log_file_sink_destroy(file_sink);
+	restore_stdout_sink();
+
+	file_sink_build_rotated_path(base, 1u, rotated, sizeof(rotated));
 	TEST_ASSERT_TRUE(file_sink_test_file_size(rotated) > 0);
 
 	file_sink_test_cleanup(base, 3u);
