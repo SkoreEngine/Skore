@@ -755,6 +755,43 @@ static void ui_checkbox_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_
 	}
 }
 
+/**
+ * Sibling radios under the same parent form an exclusive group: selecting one
+ * clears checked on peer radios. Nested groups use separate parents.
+ */
+static void ui_radio_clear_sibling_peers(sk_ui_context_t* ctx, sk_ui_node_t node) {
+	const sk_ui_api_t* ui = ui_wapi();
+	sk_ui_node_t parent = ui->node_parent(ctx, node);
+	const ui_node_slot_t* parent_slot;
+	u32 i;
+
+	if (!sk_ui_node_is_valid(parent)) {
+		return;
+	}
+	parent_slot = ui_slot(ctx, parent);
+	if (parent_slot == NULL) {
+		return;
+	}
+	for (i = 0u; i < parent_slot->children.count; ++i) {
+		sk_ui_node_t ch = parent_slot->children.items[i];
+		const ui_node_slot_t* cs;
+		const_chr_t w;
+		if (sk_ui_node_eq(ch, node)) {
+			continue;
+		}
+		cs = ui_slot(ctx, ch);
+		if (cs == NULL) {
+			continue;
+		}
+		w = ui_prop_str_const(cs, "widget");
+		if (w == NULL || strcmp(w, "radio") != 0) {
+			continue;
+		}
+		(void)ui->node_set_prop_i32(ctx, ch, "checked", 0);
+		ui_mark_dirty_up(ctx, ch, (u32)SK_UI_DIRTY_PAINT);
+	}
+}
+
 static void ui_radio_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_event_t* event, void_ptr_t user) {
 	const sk_ui_api_t* ui = ui_wapi();
 	ui_widget_data_t* wd = (ui_widget_data_t*)user;
@@ -762,7 +799,8 @@ static void ui_radio_on_click(sk_ui_context_t* ctx, sk_ui_node_t node, sk_ui_eve
 	if ((ui->node_get_state(ctx, node) & (u32)SK_UI_STATE_DISABLED) != 0u) {
 		return;
 	}
-	/* Radio selects; does not toggle off on re-click (group policy can clear peers). */
+	/* Radio selects; does not toggle off on re-click. Group = sibling radios. */
+	ui_radio_clear_sibling_peers(ctx, node);
 	(void)ui->node_set_prop_i32(ctx, node, "checked", 1);
 	ui_mark_dirty_up(ctx, node, (u32)SK_UI_DIRTY_PAINT);
 	if (wd != NULL && wd->on_bool != NULL) {
