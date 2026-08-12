@@ -1,0 +1,8 @@
+Widget family: TOOLTIP / POPUP
+
+Strict visual criteria (PASS only if ALL hold):
+
+1. A small floating overlay panel is visible above the canvas clear color with distinct chrome (face + border).
+2. Readable label text sits inside the panel bounds.
+3. The panel does not fill the entire frame (it is a compact popup, not a full-screen surface).
+4. FAIL if: no floating panel, no text, fully transparent/missing surface, or panel is indistinguishable from the clear color.

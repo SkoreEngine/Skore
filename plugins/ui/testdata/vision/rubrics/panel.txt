@@ -1,8 +1,8 @@
-Widget family: PANEL / VIEW (containers)
+Widget family: PANEL / VIEW
 
 Strict visual criteria (PASS only if ALL hold):
 
 1. A solid rectangular surface is visible (panel background distinct from the canvas clear color when contrast is expected).
-2. Edges are coherent (no torn half-filled regions, no random missing corner chunks).
+2. Edges are coherent with a visible border when a bordered panel is claimed (no torn half-filled regions, no random missing corner chunks).
 3. Nested children (if claimed) sit inside the panel content box, not outside its border.
 4. FAIL if: fully transparent/missing surface when a panel is claimed, or children clearly overflow the panel chrome.

@@ -57,6 +57,11 @@ typedef enum sk_ui_vision_widget_family_t {
 	SK_UI_VISION_WIDGET_PANEL,
 	SK_UI_VISION_WIDGET_LABEL,
 	SK_UI_VISION_WIDGET_IMAGE,
+	SK_UI_VISION_WIDGET_WINDOW,	  /**< Editor window / titled panel chrome (APX-254). */
+	SK_UI_VISION_WIDGET_TAB,	  /**< Tab bar selected vs unselected (APX-254). */
+	SK_UI_VISION_WIDGET_MENU,	  /**< Dropdown / menu popup with items (APX-254). */
+	SK_UI_VISION_WIDGET_TABLE,	  /**< List/table header + body rows (APX-254). */
+	SK_UI_VISION_WIDGET_TOOLTIP,  /**< Tooltip / floating popup (APX-254). */
 	SK_UI_VISION_WIDGET_DISABLED, /**< Cross-cutting disabled-state rubric. */
 	SK_UI_VISION_WIDGET_COUNT
 } sk_ui_vision_widget_family_t;

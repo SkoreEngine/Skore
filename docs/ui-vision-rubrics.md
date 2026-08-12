@@ -35,9 +35,14 @@ builds on the same grok-vision path used for the snapshot audits
 | `text_input` | `text_input.txt` | Field chrome; focused border/caret; disabled dimmed |
 | `scrollbar` | `scrollbar.txt` | Track + thumb shorter than track |
 | `scroll_view` | `scroll_view.txt` | Viewport clip; claimed scrollbars present |
-| `panel` | `panel.txt` | Solid surface; children inside chrome |
+| `panel` | `panel.txt` | Solid surface + border; children inside chrome |
 | `label` | `label.txt` | Readable glyphs |
 | `image` | `image.txt` | Non-zero region; bound texture when claimed |
+| `window` | `window.txt` | Title bar band distinct from body; outer border (APX-254) |
+| `tab` | `tab.txt` | Selected tab visually distinct from unselected (APX-254) |
+| `menu` | `menu.txt` | Popup items + claimed separators (APX-254) |
+| `table` | `table.txt` | Header differs from body; striping + column separators (APX-254) |
+| `tooltip` | `tooltip.txt` | Compact floating popup with label (APX-254) |
 | `disabled` | `disabled.txt` | Cross-cutting dimming rule for any family |
 
 ---

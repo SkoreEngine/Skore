@@ -4,6 +4,9 @@
  * APX-252: button, checkbox, radio, toggle.
  * APX-253: text/number input (caret + selection), single + range sliders,
  *          progress bar (0% / partial / 100%), scrollbars (v/h, proportional thumb).
+ * APX-254: composite containers — panel/window (title bar + border), tab bar
+ *          (selected vs unselected), dropdown/menu (items + separators),
+ *          list/table (header, striping, column separators), tooltip/popup.
  *
  * One isolated SK_TEST per widget family. Each test:
  *   1. Renders a single widget on a clean frame at a known size/position via
@@ -69,6 +72,25 @@
 #define UWV_TI_TEXT UWV_RGB(235u, 237u, 242u)		  /* 0.92,0.93,0.95 */
 #define UWV_SB_THUMB UWV_RGB(191u, 191u, 204u)		  /* ~0.75,0.75,0.80 @ 0.9 */
 #define UWV_SV_FACE UWV_RGB(36u, 38u, 43u)			  /* 0.14,0.15,0.17 */
+/* Composite chrome (APX-254) — matches widgets.c default class colors. */
+#define UWV_PANEL_FACE UWV_RGB(41u, 43u, 51u)	  /* 0.16,0.17,0.20 */
+#define UWV_PANEL_BORDER UWV_RGB(71u, 77u, 87u)	  /* 0.28,0.30,0.34 */
+#define UWV_WIN_FACE UWV_RGB(36u, 38u, 43u)		  /* 0.14,0.15,0.17 */
+#define UWV_WIN_TITLE UWV_RGB(51u, 56u, 66u)	  /* 0.20,0.22,0.26 */
+#define UWV_WIN_BORDER UWV_RGB(71u, 77u, 87u)	  /* 0.28,0.30,0.34 */
+#define UWV_TAB_BAR UWV_RGB(41u, 43u, 51u)		  /* 0.16,0.17,0.20 */
+#define UWV_TAB_INACTIVE UWV_RGB(46u, 48u, 56u)	  /* 0.18,0.19,0.22 */
+#define UWV_TAB_ACTIVE UWV_RGB(36u, 38u, 43u)	  /* 0.14,0.15,0.17 */
+#define UWV_MENU_POPUP UWV_RGB(41u, 43u, 51u)	  /* 0.16,0.17,0.20 */
+#define UWV_MENU_BORDER UWV_RGB(82u, 87u, 102u)	  /* 0.32,0.34,0.40 */
+#define UWV_MENU_SEP UWV_RGB(71u, 77u, 87u)		  /* separator line */
+#define UWV_TABLE_HEADER UWV_RGB(56u, 61u, 71u)	  /* darker header */
+#define UWV_TABLE_ROW_A UWV_RGB(41u, 43u, 51u)	  /* stripe A */
+#define UWV_TABLE_ROW_B UWV_RGB(48u, 51u, 59u)	  /* stripe B */
+#define UWV_TABLE_COL_SEP UWV_RGB(89u, 94u, 107u) /* column separator */
+#define UWV_TIP_FACE UWV_RGB(46u, 48u, 56u)		  /* tooltip face */
+#define UWV_TIP_BORDER UWV_RGB(140u, 148u, 168u)  /* tooltip border */
+#define UWV_TIP_TEXT UWV_RGB(235u, 237u, 242u)	  /* tip label ink */
 
 typedef struct uwv_env_t {
 	sk_app_context_t* app;
@@ -856,6 +878,522 @@ SK_TEST(ui_widget_vision_scrollbar) {
 	cfg.scroll_y = 80.0f;
 	uwv_run_state(ui, "ui_widget_vision_scrollbar_both", 144u, 128u, &cfg, 0, SK_UI_VISION_WIDGET_SCROLLBAR, "both vertical and horizontal scrollbar thumbs shorter than tracks",
 				  UWV_SV_FACE, UWV_RGB(184u, 189u, 204u), 1);
+
+	uwv_env_destroy(&env);
+}
+
+/* -------------------------------------------------------------------------- */
+/* APX-254 composite helpers                                                  */
+/* -------------------------------------------------------------------------- */
+
+static void uwv_abs_box(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t n, f32 x, f32 y, f32 w, f32 h) {
+	sk_ui_style_props_t props;
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP;
+	props.layout.width = sk_ui_pt(w);
+	props.layout.height = sk_ui_pt(h);
+	props.layout.position = SK_UI_POSITION_ABSOLUTE;
+	props.layout.left = sk_ui_pt(x);
+	props.layout.top = sk_ui_pt(y);
+	ui->node_set_inline_style(ctx, n, &props);
+}
+
+static void uwv_size_box(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t n, f32 w, f32 h) {
+	sk_ui_style_props_t props;
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT;
+	props.layout.width = sk_ui_pt(w);
+	props.layout.height = sk_ui_pt(h);
+	(void)ui->node_merge_inline_style(ctx, n, &props);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Panel / window — border + title bar (APX-254)                              */
+/* -------------------------------------------------------------------------- */
+
+static i32 uwv_scene_panel(sk_ui_capture_scene_t* scene, void* user) {
+	const sk_ui_api_t* ui = scene->ui;
+	sk_ui_context_t* ctx = scene->ctx;
+	sk_ui_node_t panel;
+	sk_ui_node_t label;
+	(void)user;
+
+	panel = ui->widget_panel(ctx, ui->context_root(ctx), "vw-panel");
+	if (!sk_ui_node_is_valid(panel)) {
+		return -1;
+	}
+	uwv_abs_box(ui, ctx, panel, 12.0f, 12.0f, 160.0f, 96.0f);
+	label = ui->widget_label(ctx, panel, "Content", "vw-panel-label");
+	if (!sk_ui_node_is_valid(label)) {
+		return -1;
+	}
+	return 0;
+}
+
+static i32 uwv_scene_window(sk_ui_capture_scene_t* scene, void* user) {
+	const sk_ui_api_t* ui = scene->ui;
+	sk_ui_context_t* ctx = scene->ctx;
+	sk_ui_node_t win;
+	sk_ui_node_t content;
+	sk_ui_node_t label;
+	(void)user;
+
+	win = ui->widget_editor_window(ctx, ui->context_root(ctx), "Inspector", "vw-win");
+	if (!sk_ui_node_is_valid(win)) {
+		return -1;
+	}
+	uwv_abs_box(ui, ctx, win, 12.0f, 12.0f, 180.0f, 110.0f);
+	content = ui->editor_window_content(ctx, win);
+	if (!sk_ui_node_is_valid(content)) {
+		return -1;
+	}
+	label = ui->widget_label(ctx, content, "Body", "vw-win-body");
+	if (!sk_ui_node_is_valid(label)) {
+		return -1;
+	}
+	return 0;
+}
+
+SK_TEST(ui_widget_vision_window) {
+	uwv_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_capture_harness_params_t params;
+	sk_ui_cpu_image_t img;
+
+	uwv_env_init(&env);
+	ui = env.ui;
+	TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui plugin API required");
+	if (ui == NULL) {
+		uwv_env_destroy(&env);
+		return;
+	}
+
+	memset(&params, 0, sizeof(params));
+	params.width = 208u;
+	params.height = 140u;
+	params.load_test_font = 1;
+	params.clear_color_set = 1;
+	/* Lighter clear so dark window/panel chrome contrasts for vision + bbox. */
+	params.clear_color = sk_ui_rgba(0.35f, 0.37f, 0.42f, 1.0f);
+
+	/* Plain panel with border + nested content. */
+	params.scene_name = "ui_widget_vision_panel_border";
+	uwv_capture(&params, uwv_scene_panel, NULL, &img);
+	uwv_assert_widget_present(ui, &img, UWV_PANEL_FACE, 12u, 12u, 172u, 108u, "panel face");
+	uwv_assert_mark_ink(ui, &img, UWV_PANEL_BORDER, 12u, 12u, 172u, 108u, "panel border");
+	uwv_vision_grade(ui, &img, SK_UI_VISION_WIDGET_PANEL, "bordered panel with content inside", params.scene_name);
+	uwv_free(&img);
+
+	/* Editor window: title bar band + outer border + body. */
+	params.scene_name = "ui_widget_vision_window_title_bar";
+	params.width = 220u;
+	params.height = 148u;
+	uwv_capture(&params, uwv_scene_window, NULL, &img);
+	uwv_assert_widget_present(ui, &img, UWV_WIN_FACE, 12u, 12u, 192u, 122u, "window face");
+	/* Title bar fill differs from content body. */
+	uwv_assert_mark_ink(ui, &img, UWV_WIN_TITLE, 12u, 12u, 192u, 48u, "title bar band");
+	uwv_assert_mark_ink(ui, &img, UWV_WIN_BORDER, 12u, 12u, 192u, 122u, "window border");
+	/* Title glyphs in the bar. */
+	uwv_assert_mark_ink(ui, &img, UWV_TI_TEXT, 16u, 14u, 180u, 42u, "title text");
+	uwv_vision_grade(ui, &img, SK_UI_VISION_WIDGET_WINDOW, "title bar distinct from body with outer border and title text", params.scene_name);
+	uwv_free(&img);
+
+	uwv_env_destroy(&env);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tab bar — selected vs unselected (APX-254)                                 */
+/* -------------------------------------------------------------------------- */
+
+static i32 uwv_scene_tabs(sk_ui_capture_scene_t* scene, void* user) {
+	const sk_ui_api_t* ui = scene->ui;
+	sk_ui_context_t* ctx = scene->ctx;
+	sk_ui_node_t bar;
+	sk_ui_node_t t0;
+	sk_ui_node_t t1;
+	sk_ui_node_t t2;
+	(void)user;
+
+	bar = ui->widget_tab_bar(ctx, ui->context_root(ctx), "vw-tabs");
+	if (!sk_ui_node_is_valid(bar)) {
+		return -1;
+	}
+	uwv_abs_box(ui, ctx, bar, 8.0f, 16.0f, 220.0f, 32.0f);
+
+	t0 = ui->widget_tab(ctx, bar, "Scene", "vw-tab-scene");
+	t1 = ui->widget_tab(ctx, bar, "Game", "vw-tab-game");
+	t2 = ui->widget_tab(ctx, bar, "Asset", "vw-tab-asset");
+	if (!sk_ui_node_is_valid(t0) || !sk_ui_node_is_valid(t1) || !sk_ui_node_is_valid(t2)) {
+		return -1;
+	}
+	uwv_size_box(ui, ctx, t0, 72.0f, 32.0f);
+	uwv_size_box(ui, ctx, t1, 72.0f, 32.0f);
+	uwv_size_box(ui, ctx, t2, 72.0f, 32.0f);
+
+	/* Middle tab selected so neighbors on both sides are unselected. */
+	if (ui->tab_bar_set_active(ctx, bar, t1) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
+SK_TEST(ui_widget_vision_tab) {
+	uwv_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_capture_harness_params_t params;
+	sk_ui_cpu_image_t img;
+
+	uwv_env_init(&env);
+	ui = env.ui;
+	TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui plugin API required");
+	if (ui == NULL) {
+		uwv_env_destroy(&env);
+		return;
+	}
+
+	memset(&params, 0, sizeof(params));
+	params.scene_name = "ui_widget_vision_tab_selected";
+	params.width = 240u;
+	params.height = 64u;
+	params.load_test_font = 1;
+	params.clear_color_set = 1;
+	params.clear_color = sk_ui_rgba(0.30f, 0.32f, 0.36f, 1.0f);
+
+	uwv_capture(&params, uwv_scene_tabs, NULL, &img);
+	/* Tab bar strip + inactive/active fills present. */
+	uwv_assert_widget_present(ui, &img, UWV_TAB_BAR, 8u, 16u, 228u, 48u, "tab bar");
+	uwv_assert_mark_ink(ui, &img, UWV_TAB_INACTIVE, 8u, 16u, 90u, 48u, "unselected tab fill");
+	/* Active tab fill (middle) differs from inactive. */
+	uwv_assert_mark_ink(ui, &img, UWV_TAB_ACTIVE, 80u, 16u, 160u, 48u, "selected tab fill");
+	uwv_assert_mark_ink(ui, &img, UWV_TI_TEXT, 8u, 16u, 228u, 48u, "tab label glyphs");
+	uwv_vision_grade(ui, &img, SK_UI_VISION_WIDGET_TAB, "middle tab selected visually distinct from unselected neighbors", params.scene_name);
+	uwv_free(&img);
+
+	uwv_env_destroy(&env);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dropdown / menu — items + separators (APX-254)                             */
+/* -------------------------------------------------------------------------- */
+
+static i32 uwv_scene_menu(sk_ui_capture_scene_t* scene, void* user) {
+	const sk_ui_api_t* ui = scene->ui;
+	sk_ui_context_t* ctx = scene->ctx;
+	sk_ui_node_t root = ui->context_root(ctx);
+	sk_ui_node_t menu;
+	sk_ui_node_t popup;
+	sk_ui_node_t item;
+	sk_ui_node_t sep;
+	sk_ui_style_props_t props;
+	(void)user;
+
+	/*
+	 * Standalone open menu popup with items and a separator strip (no table
+	 * widget for separators — a thin full-width panel is the visual divider).
+	 */
+	menu = ui->widget_dropdown(ctx, root, "File", "vw-dd");
+	if (!sk_ui_node_is_valid(menu)) {
+		return -1;
+	}
+	uwv_abs_box(ui, ctx, menu, 12.0f, 8.0f, 72.0f, 28.0f);
+
+	popup = ui->menu_get_popup(ctx, menu);
+	if (!sk_ui_node_is_valid(popup)) {
+		return -1;
+	}
+	/* Size the floating popup so items + separator fit. */
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_MIN_HEIGHT | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP;
+	props.layout.width = sk_ui_pt(140.0f);
+	props.layout.min_height = sk_ui_pt(100.0f);
+	props.layout.position = SK_UI_POSITION_ABSOLUTE;
+	props.layout.left = sk_ui_pt(0.0f);
+	props.layout.top = sk_ui_pt(28.0f);
+	(void)ui->node_merge_inline_style(ctx, popup, &props);
+
+	item = ui->widget_menu_item(ctx, popup, "Open", "vw-mi-open");
+	if (!sk_ui_node_is_valid(item)) {
+		return -1;
+	}
+	uwv_size_box(ui, ctx, item, 132.0f, 26.0f);
+
+	item = ui->widget_menu_item(ctx, popup, "Save", "vw-mi-save");
+	if (!sk_ui_node_is_valid(item)) {
+		return -1;
+	}
+	uwv_size_box(ui, ctx, item, 132.0f, 26.0f);
+
+	/* Horizontal separator between item groups. */
+	sep = ui->widget_panel(ctx, popup, "vw-mi-sep");
+	if (!sk_ui_node_is_valid(sep)) {
+		return -1;
+	}
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_WIDTH | SK_UI_SP_PADDING | SK_UI_SP_CORNER_RADIUS;
+	props.layout.width = sk_ui_pt(128.0f);
+	props.layout.height = sk_ui_pt(2.0f);
+	props.background_color = sk_ui_rgba(0.32f, 0.34f, 0.40f, 1.0f);
+	props.layout.border.left = props.layout.border.top = props.layout.border.right = props.layout.border.bottom = 0.0f;
+	props.layout.padding.left = props.layout.padding.top = props.layout.padding.right = props.layout.padding.bottom = 0.0f;
+	props.corner_radius = 0.0f;
+	(void)ui->node_merge_inline_style(ctx, sep, &props);
+
+	item = ui->widget_menu_item(ctx, popup, "Quit", "vw-mi-quit");
+	if (!sk_ui_node_is_valid(item)) {
+		return -1;
+	}
+	uwv_size_box(ui, ctx, item, 132.0f, 26.0f);
+
+	if (ui->menu_set_open(ctx, menu, 1) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
+SK_TEST(ui_widget_vision_menu) {
+	uwv_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_capture_harness_params_t params;
+	sk_ui_cpu_image_t img;
+
+	uwv_env_init(&env);
+	ui = env.ui;
+	TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui plugin API required");
+	if (ui == NULL) {
+		uwv_env_destroy(&env);
+		return;
+	}
+
+	memset(&params, 0, sizeof(params));
+	params.scene_name = "ui_widget_vision_menu_items_sep";
+	params.width = 200u;
+	params.height = 160u;
+	params.load_test_font = 1;
+	params.clear_color_set = 1;
+	params.clear_color = sk_ui_rgba(0.30f, 0.32f, 0.36f, 1.0f);
+
+	uwv_capture(&params, uwv_scene_menu, NULL, &img);
+	/* Popup face + border + item ink + separator line. */
+	uwv_assert_widget_present(ui, &img, UWV_MENU_POPUP, 8u, 30u, 160u, 150u, "menu popup face");
+	uwv_assert_mark_ink(ui, &img, UWV_MENU_BORDER, 8u, 30u, 160u, 150u, "menu popup border");
+	uwv_assert_mark_ink(ui, &img, UWV_TI_TEXT, 12u, 36u, 150u, 150u, "menu item labels");
+	uwv_assert_mark_ink(ui, &img, UWV_MENU_SEP, 12u, 70u, 150u, 120u, "menu separator");
+	uwv_vision_grade(ui, &img, SK_UI_VISION_WIDGET_MENU, "open dropdown popup with item rows and horizontal separator", params.scene_name);
+	uwv_free(&img);
+
+	uwv_env_destroy(&env);
+}
+
+/* -------------------------------------------------------------------------- */
+/* List / table — header, striping, column separators (APX-254)               */
+/* -------------------------------------------------------------------------- */
+
+static void uwv_table_cell(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t row, const_chr_t text, const_chr_t id, f32 w, f32 h, sk_ui_color_t bg) {
+	sk_ui_node_t cell;
+	sk_ui_node_t label;
+	sk_ui_style_props_t props;
+
+	cell = ui->widget_view(ctx, row, id);
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS;
+	props.layout.width = sk_ui_pt(w);
+	props.layout.height = sk_ui_pt(h);
+	props.background_color = bg;
+	props.layout.padding.left = 4.0f;
+	props.layout.padding.right = 4.0f;
+	props.layout.padding.top = 2.0f;
+	props.layout.padding.bottom = 2.0f;
+	props.layout.flex_direction = SK_UI_FLEX_ROW;
+	props.layout.align_items = SK_UI_ALIGN_CENTER;
+	(void)ui->node_merge_inline_style(ctx, cell, &props);
+	label = ui->widget_label(ctx, cell, text, NULL);
+	(void)label;
+}
+
+static void uwv_table_col_sep(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t row, const_chr_t id, f32 h) {
+	sk_ui_node_t sep;
+	sk_ui_style_props_t props;
+
+	sep = ui->widget_view(ctx, row, id);
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_BACKGROUND_COLOR;
+	props.layout.width = sk_ui_pt(1.0f);
+	props.layout.height = sk_ui_pt(h);
+	props.background_color = sk_ui_rgba(0.35f, 0.37f, 0.42f, 1.0f);
+	(void)ui->node_merge_inline_style(ctx, sep, &props);
+}
+
+static void uwv_table_row(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t table, const_chr_t id, const_chr_t c0, const_chr_t c1, const_chr_t c2, sk_ui_color_t bg,
+						  f32 row_h) {
+	sk_ui_node_t row;
+	sk_ui_style_props_t props;
+	char sep_id[48];
+
+	row = ui->widget_view(ctx, table, id);
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_BACKGROUND_COLOR;
+	props.layout.width = sk_ui_pt(196.0f);
+	props.layout.height = sk_ui_pt(row_h);
+	props.layout.flex_direction = SK_UI_FLEX_ROW;
+	props.background_color = bg;
+	(void)ui->node_merge_inline_style(ctx, row, &props);
+
+	uwv_table_cell(ui, ctx, row, c0, NULL, 64.0f, row_h, bg);
+	(void)snprintf(sep_id, sizeof(sep_id), "%s-s0", id);
+	uwv_table_col_sep(ui, ctx, row, sep_id, row_h);
+	uwv_table_cell(ui, ctx, row, c1, NULL, 64.0f, row_h, bg);
+	(void)snprintf(sep_id, sizeof(sep_id), "%s-s1", id);
+	uwv_table_col_sep(ui, ctx, row, sep_id, row_h);
+	uwv_table_cell(ui, ctx, row, c2, NULL, 64.0f, row_h, bg);
+}
+
+static i32 uwv_scene_table(sk_ui_capture_scene_t* scene, void* user) {
+	const sk_ui_api_t* ui = scene->ui;
+	sk_ui_context_t* ctx = scene->ctx;
+	sk_ui_node_t table;
+	sk_ui_style_props_t props;
+	(void)user;
+
+	/* Composed list/table from panel + row views (no first-class table widget). */
+	table = ui->widget_panel(ctx, ui->context_root(ctx), "vw-table");
+	if (!sk_ui_node_is_valid(table)) {
+		return -1;
+	}
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_PADDING | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_BACKGROUND_COLOR |
+				 SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH;
+	props.layout.width = sk_ui_pt(208.0f);
+	props.layout.height = sk_ui_pt(120.0f);
+	props.layout.position = SK_UI_POSITION_ABSOLUTE;
+	props.layout.left = sk_ui_pt(10.0f);
+	props.layout.top = sk_ui_pt(10.0f);
+	props.layout.padding.left = props.layout.padding.right = props.layout.padding.top = props.layout.padding.bottom = 4.0f;
+	props.layout.flex_direction = SK_UI_FLEX_COLUMN;
+	props.background_color = sk_ui_rgba(0.14f, 0.15f, 0.17f, 1.0f);
+	props.border_color = sk_ui_rgba(0.28f, 0.30f, 0.34f, 1.0f);
+	props.layout.border.left = props.layout.border.top = props.layout.border.right = props.layout.border.bottom = 1.0f;
+	ui->node_set_inline_style(ctx, table, &props);
+
+	/* Header differs from body. */
+	uwv_table_row(ui, ctx, table, "vw-th", "Name", "Type", "Size", sk_ui_rgba(0.22f, 0.24f, 0.28f, 1.0f), 24.0f);
+	/* Striped body rows. */
+	uwv_table_row(ui, ctx, table, "vw-tr0", "mesh", "asset", "12k", sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f), 22.0f);
+	uwv_table_row(ui, ctx, table, "vw-tr1", "tex", "asset", "4k", sk_ui_rgba(0.19f, 0.20f, 0.23f, 1.0f), 22.0f);
+	uwv_table_row(ui, ctx, table, "vw-tr2", "mat", "asset", "1k", sk_ui_rgba(0.16f, 0.17f, 0.20f, 1.0f), 22.0f);
+	return 0;
+}
+
+SK_TEST(ui_widget_vision_table) {
+	uwv_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_capture_harness_params_t params;
+	sk_ui_cpu_image_t img;
+
+	uwv_env_init(&env);
+	ui = env.ui;
+	TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui plugin API required");
+	if (ui == NULL) {
+		uwv_env_destroy(&env);
+		return;
+	}
+
+	memset(&params, 0, sizeof(params));
+	params.scene_name = "ui_widget_vision_table_header_stripe";
+	params.width = 232u;
+	params.height = 144u;
+	params.load_test_font = 1;
+	params.clear_color_set = 1;
+	params.clear_color = sk_ui_rgba(0.30f, 0.32f, 0.36f, 1.0f);
+
+	uwv_capture(&params, uwv_scene_table, NULL, &img);
+	/* Header fill distinct from body stripe A. */
+	uwv_assert_mark_ink(ui, &img, UWV_TABLE_HEADER, 14u, 14u, 210u, 42u, "table header row");
+	uwv_assert_mark_ink(ui, &img, UWV_TABLE_ROW_A, 14u, 40u, 210u, 70u, "table body stripe A");
+	uwv_assert_mark_ink(ui, &img, UWV_TABLE_ROW_B, 14u, 60u, 210u, 95u, "table body stripe B");
+	uwv_assert_mark_ink(ui, &img, UWV_TABLE_COL_SEP, 14u, 14u, 210u, 120u, "column separators");
+	uwv_assert_mark_ink(ui, &img, UWV_TI_TEXT, 14u, 14u, 210u, 120u, "table cell glyphs");
+	uwv_vision_grade(ui, &img, SK_UI_VISION_WIDGET_TABLE, "header differs from body, zebra striping, vertical column separators", params.scene_name);
+	uwv_free(&img);
+
+	uwv_env_destroy(&env);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tooltip / popup (APX-254)                                                  */
+/* -------------------------------------------------------------------------- */
+
+static i32 uwv_scene_tooltip(sk_ui_capture_scene_t* scene, void* user) {
+	const sk_ui_api_t* ui = scene->ui;
+	sk_ui_context_t* ctx = scene->ctx;
+	sk_ui_node_t tip;
+	sk_ui_node_t label;
+	sk_ui_style_props_t props;
+	(void)user;
+
+	/*
+	 * Compact floating popup: absolute panel chrome + label. Menu_popup is
+	 * omitted from Clay while closed and is awkward as a root-level tip; a
+	 * styled panel matches the tooltip visual contract until a dedicated
+	 * tooltip widget lands.
+	 */
+	tip = ui->widget_panel(ctx, ui->context_root(ctx), "vw-tip");
+	if (!sk_ui_node_is_valid(tip)) {
+		return -1;
+	}
+	memset(&props, 0, sizeof(props));
+	props.mask = SK_UI_SP_WIDTH | SK_UI_SP_HEIGHT | SK_UI_SP_POSITION | SK_UI_SP_LEFT | SK_UI_SP_TOP | SK_UI_SP_BACKGROUND_COLOR | SK_UI_SP_BORDER_COLOR | SK_UI_SP_BORDER_WIDTH |
+				 SK_UI_SP_PADDING | SK_UI_SP_CORNER_RADIUS | SK_UI_SP_FLEX_DIRECTION | SK_UI_SP_ALIGN_ITEMS | SK_UI_SP_JUSTIFY_CONTENT;
+	props.layout.width = sk_ui_pt(120.0f);
+	props.layout.height = sk_ui_pt(32.0f);
+	props.layout.position = SK_UI_POSITION_ABSOLUTE;
+	props.layout.left = sk_ui_pt(36.0f);
+	props.layout.top = sk_ui_pt(40.0f);
+	props.background_color = sk_ui_rgba(0.18f, 0.19f, 0.22f, 1.0f);
+	props.border_color = sk_ui_rgba(0.55f, 0.58f, 0.66f, 1.0f);
+	props.layout.border.left = props.layout.border.top = props.layout.border.right = props.layout.border.bottom = 1.0f;
+	props.layout.padding.left = props.layout.padding.right = 8.0f;
+	props.layout.padding.top = props.layout.padding.bottom = 4.0f;
+	props.corner_radius = 3.0f;
+	props.layout.flex_direction = SK_UI_FLEX_ROW;
+	props.layout.align_items = SK_UI_ALIGN_CENTER;
+	props.layout.justify_content = SK_UI_JUSTIFY_CENTER;
+	ui->node_set_inline_style(ctx, tip, &props);
+
+	label = ui->widget_label(ctx, tip, "Hint text", "vw-tip-label");
+	if (!sk_ui_node_is_valid(label)) {
+		return -1;
+	}
+	return 0;
+}
+
+SK_TEST(ui_widget_vision_tooltip) {
+	uwv_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_capture_harness_params_t params;
+	sk_ui_cpu_image_t img;
+
+	uwv_env_init(&env);
+	ui = env.ui;
+	TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui plugin API required");
+	if (ui == NULL) {
+		uwv_env_destroy(&env);
+		return;
+	}
+
+	memset(&params, 0, sizeof(params));
+	params.scene_name = "ui_widget_vision_tooltip_popup";
+	params.width = 192u;
+	params.height = 112u;
+	params.load_test_font = 1;
+	params.clear_color_set = 1;
+	params.clear_color = sk_ui_rgba(0.30f, 0.32f, 0.36f, 1.0f);
+
+	uwv_capture(&params, uwv_scene_tooltip, NULL, &img);
+	uwv_assert_widget_present(ui, &img, UWV_TIP_FACE, 36u, 40u, 156u, 72u, "tooltip face");
+	uwv_assert_mark_ink(ui, &img, UWV_TIP_BORDER, 36u, 40u, 156u, 72u, "tooltip border");
+	uwv_assert_mark_ink(ui, &img, UWV_TIP_TEXT, 40u, 42u, 150u, 70u, "tooltip label");
+	uwv_vision_grade(ui, &img, SK_UI_VISION_WIDGET_TOOLTIP, "compact floating popup with border and hint text", params.scene_name);
+	uwv_free(&img);
 
 	uwv_env_destroy(&env);
 }

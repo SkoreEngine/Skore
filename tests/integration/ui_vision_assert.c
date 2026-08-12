@@ -129,7 +129,8 @@ static const ui_vision_rubric_entry_t ui_vision_rubrics[SK_UI_VISION_WIDGET_COUN
 					"When scrollbars claimed: at least one scrollbar with a distinct thumb.\n"
 					"FAIL if content spills outside panel chrome or overflow lacks claimed scrollbar.\n"},
 	{"panel", "Widget family: PANEL / VIEW\n"
-			  "Solid rectangular surface with coherent edges; children inside content box.\n"
+			  "Solid rectangular surface with coherent edges and a visible border when claimed.\n"
+			  "Children (if any) sit inside the content box, not outside the chrome.\n"
 			  "FAIL if missing surface when claimed or children clearly overflow the chrome.\n"},
 	{"label", "Widget family: LABEL / TEXT\n"
 			  "Glyphs visible and readable against the background; roughly horizontal LTR.\n"
@@ -137,6 +138,28 @@ static const ui_vision_rubric_entry_t ui_vision_rubrics[SK_UI_VISION_WIDGET_COUN
 	{"image", "Widget family: IMAGE\n"
 			  "Rectangular image region; textured content visible when claimed bound.\n"
 			  "FAIL if missing region or claimed textured content is a blank hole.\n"},
+	{"window", "Widget family: WINDOW / TITLED PANEL\n"
+			   "Framed window chrome with a distinct title bar band along the top (different fill\n"
+			   "from the content body) and a visible outer border around the whole window.\n"
+			   "Title text (if claimed) sits inside the title bar. Content area below the bar.\n"
+			   "FAIL if no title bar band, no border, or title bar is indistinguishable from body.\n"},
+	{"tab", "Widget family: TAB BAR\n"
+			"Horizontal strip of two or more tab labels. The selected/active tab must be\n"
+			"visually distinct from unselected tabs (fill, border accent, and/or brighter text).\n"
+			"FAIL if only one tab looks present, selected and unselected are identical, or no strip.\n"},
+	{"menu", "Widget family: MENU / DROPDOWN POPUP\n"
+			 "Floating rectangular menu surface with a border and stacked item rows (labels).\n"
+			 "When separators are claimed: thin horizontal divider lines between item groups.\n"
+			 "FAIL if no popup panel, no item rows, or claimed separators are missing.\n"},
+	{"table", "Widget family: LIST / TABLE\n"
+			  "Grid-like rows of cells. Header row must differ from body rows (stronger fill or\n"
+			  "weight). Body rows show striping when claimed (alternating row fills). Column\n"
+			  "separators (vertical lines or gaps) divide cells when claimed.\n"
+			  "FAIL if header matches body, no rows, missing claimed striping, or no columns.\n"},
+	{"tooltip", "Widget family: TOOLTIP / POPUP\n"
+				"Small floating overlay panel above the canvas with a clear border/chrome and\n"
+				"readable label text inside. Distinct from the full-frame background.\n"
+				"FAIL if no floating panel, no text, or fully transparent/missing surface.\n"},
 	{"disabled", "Cross-cutting: DISABLED state (any widget family)\n"
 				 "Control is visibly dimmed vs enabled (lower-contrast fill/border/mark).\n"
 				 "FAIL if full-strength accent colors still read as enabled.\n"
@@ -179,6 +202,26 @@ i32 sk_ui_vision_widget_family_parse(const_chr_t name, sk_ui_vision_widget_famil
 	}
 	if (strcmp(name, "view") == 0) {
 		*out_family = SK_UI_VISION_WIDGET_PANEL;
+		return 0;
+	}
+	if (strcmp(name, "editor_window") == 0 || strcmp(name, "title_bar") == 0) {
+		*out_family = SK_UI_VISION_WIDGET_WINDOW;
+		return 0;
+	}
+	if (strcmp(name, "tab_bar") == 0 || strcmp(name, "tabs") == 0) {
+		*out_family = SK_UI_VISION_WIDGET_TAB;
+		return 0;
+	}
+	if (strcmp(name, "dropdown") == 0 || strcmp(name, "menu_popup") == 0 || strcmp(name, "context_menu") == 0) {
+		*out_family = SK_UI_VISION_WIDGET_MENU;
+		return 0;
+	}
+	if (strcmp(name, "list") == 0) {
+		*out_family = SK_UI_VISION_WIDGET_TABLE;
+		return 0;
+	}
+	if (strcmp(name, "popup") == 0) {
+		*out_family = SK_UI_VISION_WIDGET_TOOLTIP;
 		return 0;
 	}
 	return -1;

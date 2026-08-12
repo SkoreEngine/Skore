@@ -1,0 +1,9 @@
+Widget family: WINDOW / TITLED PANEL
+
+Strict visual criteria (PASS only if ALL hold):
+
+1. Framed window chrome with a distinct title bar band along the top that differs in fill from the content body below it.
+2. A visible outer border surrounds the whole window (not a free-floating label with no frame).
+3. Title text (if claimed) sits inside the title bar bounds, not in the content body.
+4. Content area occupies the region below the title bar.
+5. FAIL if: no title bar band, title bar is indistinguishable from the body, no border, or missing window surface.
