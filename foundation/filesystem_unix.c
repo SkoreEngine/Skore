@@ -547,14 +547,6 @@ static const sk_filesystem_api_t filesystem_api = {
 	create_file_mapping, map_view_of_file, unmap_view_of_file, close_file_mapping, open_directory, next_directory,	close_directory,
 };
 
-void sk_filesystem_get_api(sk_filesystem_api_t* out) {
-	*out = filesystem_api;
-}
-
-const sk_filesystem_api_t* sk_filesystem_api(void) {
-	return &filesystem_api;
-}
-
 void sk_filesystem_install(sk_app_context_t* ctx) {
 	ctx->filesystem_api = &filesystem_api;
 }

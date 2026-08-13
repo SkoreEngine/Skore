@@ -47,7 +47,7 @@
 /* -------------------------------------------------------------------------- */
 
 static i32 ui_cap_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 	i32 n;
@@ -455,7 +455,7 @@ SK_TEST(ui_capture_offscreen_readback) {
 
 	/* PNG artifact under the single test-artifact root (APX-227). */
 	{
-		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 		char png_path[SK_FS_PATH_MAX];
 		TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path(fs, "ui_capture_offscreen_readback", png_path, (u32)sizeof(png_path)));
 		TEST_ASSERT_EQUAL_INT_MESSAGE(0, ui->cpu_image_write_png(&img, fs, png_path), "failed to write capture PNG artifact");

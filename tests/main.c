@@ -41,19 +41,14 @@ static i32 run_host_tests(sk_test_report_t* total) {
 enum { SK_TEST_HOST_MAX_OPEN_PLUGINS = 64 };
 
 static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* total) {
-	const sk_platform_api_t* plat = sk_platform_api();
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
 	char name[SK_FS_PATH_MAX];
 	char full_path[SK_FS_PATH_MAX];
 	i32 any_fail = 0;
 	sk_shared_lib_t open_libs[SK_TEST_HOST_MAX_OPEN_PLUGINS];
 	u32 open_count = 0u;
-
-	sk_directory_iterator_t it = fs->open_directory(plugins_dir);
-	if (it == NULL) {
-		printf("plugins dir not openable: %s (skip plugin tests)\n", plugins_dir);
-		return 0;
-	}
+	const sk_platform_api_t* plat;
+	const sk_filesystem_api_t* fs;
+	sk_directory_iterator_t it;
 
 	/* Bootstrapped context (platform + logger) handed to each plugin entry
 	 * point, mirroring production loading (sk_app_load_plugin). Plugin-local
@@ -63,7 +58,16 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 	sk_app_context_t* context = boot.context;
 	if (context == NULL) {
 		printf("app startup failed for plugin tests (skip plugin tests)\n");
-		fs->close_directory(it);
+		return 0;
+	}
+
+	plat = boot.api->platform_api(context);
+	fs = boot.api->filesystem_api(context);
+
+	it = fs->open_directory(plugins_dir);
+	if (it == NULL) {
+		printf("plugins dir not openable: %s (skip plugin tests)\n", plugins_dir);
+		sk_app_shutdown(context);
 		return 0;
 	}
 
@@ -131,7 +135,7 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 }
 
 static i32 resolve_plugins_dir(int argc, char* argv[], char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 
 	if (argc >= 2 && argv[1] != NULL && argv[1][0] != '\0') {

@@ -323,7 +323,7 @@ static i32 ui_vision_resolve_tmpdir(char* out, u32 out_cap) {
 	}
 #endif
 
-	fs = sk_filesystem_api();
+	fs = sk_test_filesystem_table();
 	if (fs != NULL && fs->temp_folder != NULL && fs->temp_folder(out, out_cap) == 0 && out[0] != '\0') {
 		return 0;
 	}
@@ -357,7 +357,7 @@ static i32 ui_vision_temp_path(const_chr_t name, char* out, u32 out_cap) {
 	if (ui_vision_resolve_tmpdir(dir, (u32)sizeof(dir)) != 0) {
 		return -1;
 	}
-	fs = sk_filesystem_api();
+	fs = sk_test_filesystem_table();
 	if (fs != NULL && fs->create_directory != NULL) {
 		(void)fs->create_directory(dir);
 	}
@@ -403,7 +403,7 @@ static i32 ui_vision_script_path(char* out, u32 out_cap) {
 			"./scripts/ui_vision_assert.py",
 		};
 		u32 i;
-		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 		for (i = 0u; i < (u32)(sizeof(candidates) / sizeof(candidates[0])); ++i) {
 			if (fs != NULL && fs->get_file_status(candidates[i]) == SK_FILE_STATUS_FILE) {
 				n = snprintf(out, out_cap, "%s", candidates[i]);
@@ -616,7 +616,7 @@ static i32 ui_vision_save_fail_frame(const sk_ui_api_t* ui, const sk_filesystem_
 		out_path[0] = '\0';
 	}
 	if (fs == NULL) {
-		fs = sk_filesystem_api();
+		fs = sk_test_filesystem_table();
 	}
 	sn = snprintf(name, sizeof(name), "%s_vision_fail", (scene_name != NULL && scene_name[0] != '\0') ? scene_name : "vision");
 	if (sn < 0 || (u32)sn >= (u32)sizeof(name)) {
@@ -734,7 +734,7 @@ static i32 ui_vision_run_script(const_chr_t image_path, sk_ui_vision_widget_fami
 	 * first; we fall back to --rubric-text only when the file is absent.
 	 */
 	{
-		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 		i32 have_file = (fs != NULL && fs->get_file_status(rubric_path) == SK_FILE_STATUS_FILE) ? 1 : 0;
 		if (have_file) {
 			status = snprintf(cmd, sizeof(cmd), "python3 '%s' --image '%s' --rubric-file '%s' --family '%s' --state '%s' 2>/dev/null", script, esc_image, esc_rubric, esc_family,
@@ -889,7 +889,7 @@ i32 sk_ui_vision_assert_image(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* im
 		return SK_UI_VISION_ASSERT_ERROR;
 	}
 	if (fs == NULL) {
-		fs = sk_filesystem_api();
+		fs = sk_test_filesystem_table();
 	}
 	sn = snprintf(name, sizeof(name), "%s_vision_tmp", (scene_name != NULL && scene_name[0] != '\0') ? scene_name : "vision");
 	if (sn < 0 || (u32)sn >= (u32)sizeof(name)) {
@@ -1024,7 +1024,7 @@ SK_TEST(ui_vision_assert_mock_pass_and_fail_saves_frame) {
 	 * fail; on fail the helper must save an offending frame under the artifact
 	 * root.
 	 */
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	sk_ui_cpu_image_t img;
 	sk_ui_vision_result_t result;
 	u8 pixels[4 * 8 * 8];
@@ -1138,7 +1138,7 @@ static i32 ui_vision_live_available(void) {
 	{
 		char home_auth[SK_FS_PATH_MAX];
 		const char* home = getenv("HOME");
-		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 		if (home != NULL && fs != NULL) {
 			snprintf(home_auth, sizeof(home_auth), "%s/.grok/auth.json", home);
 			if (fs->get_file_status(home_auth) == SK_FILE_STATUS_FILE) {
@@ -1169,15 +1169,15 @@ SK_TEST(ui_vision_assert_good_pass_corrupt_fail) {
 
 	TEST_ASSERT_EQUAL_INT(0, ui_vision_fixture_path("checkbox_checked_good.png", good_path, (u32)sizeof(good_path)));
 	TEST_ASSERT_EQUAL_INT(0, ui_vision_fixture_path("checkbox_checked_corrupt_filled.png", bad_path, (u32)sizeof(bad_path)));
-	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_filesystem_api()->get_file_status(good_path));
-	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_filesystem_api()->get_file_status(bad_path));
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_test_filesystem_table()->get_file_status(good_path));
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_test_filesystem_table()->get_file_status(bad_path));
 
 	memset(&result, 0, sizeof(result));
-	rc = sk_ui_vision_assert_path(NULL, good_path, NULL, SK_UI_VISION_WIDGET_CHECKBOX, "checked", "vision_cb_good", sk_filesystem_api(), &result);
+	rc = sk_ui_vision_assert_path(NULL, good_path, NULL, SK_UI_VISION_WIDGET_CHECKBOX, "checked", "vision_cb_good", sk_test_filesystem_table(), &result);
 	if (rc == SK_UI_VISION_ASSERT_ERROR) {
 		/* One retry on transient API/script glitches. */
 		memset(&result, 0, sizeof(result));
-		rc = sk_ui_vision_assert_path(NULL, good_path, NULL, SK_UI_VISION_WIDGET_CHECKBOX, "checked", "vision_cb_good", sk_filesystem_api(), &result);
+		rc = sk_ui_vision_assert_path(NULL, good_path, NULL, SK_UI_VISION_WIDGET_CHECKBOX, "checked", "vision_cb_good", sk_test_filesystem_table(), &result);
 	}
 	if (rc == SK_UI_VISION_ASSERT_SKIPPED || rc == SK_UI_VISION_ASSERT_ERROR) {
 		if (old_backend) {
@@ -1192,10 +1192,10 @@ SK_TEST(ui_vision_assert_good_pass_corrupt_fail) {
 	TEST_ASSERT_EQUAL_INT(1, result.passed);
 
 	memset(&result, 0, sizeof(result));
-	rc = sk_ui_vision_assert_path(NULL, bad_path, NULL, SK_UI_VISION_WIDGET_CHECKBOX, "checked", "vision_cb_corrupt", sk_filesystem_api(), &result);
+	rc = sk_ui_vision_assert_path(NULL, bad_path, NULL, SK_UI_VISION_WIDGET_CHECKBOX, "checked", "vision_cb_corrupt", sk_test_filesystem_table(), &result);
 	if (rc == SK_UI_VISION_ASSERT_ERROR) {
 		memset(&result, 0, sizeof(result));
-		rc = sk_ui_vision_assert_path(NULL, bad_path, NULL, SK_UI_VISION_WIDGET_CHECKBOX, "checked", "vision_cb_corrupt", sk_filesystem_api(), &result);
+		rc = sk_ui_vision_assert_path(NULL, bad_path, NULL, SK_UI_VISION_WIDGET_CHECKBOX, "checked", "vision_cb_corrupt", sk_test_filesystem_table(), &result);
 	}
 	if (rc == SK_UI_VISION_ASSERT_ERROR || rc == SK_UI_VISION_ASSERT_SKIPPED) {
 		if (old_backend) {
@@ -1216,10 +1216,10 @@ SK_TEST(ui_vision_assert_good_pass_corrupt_fail) {
 	TEST_ASSERT_EQUAL_INT(0, ui_vision_fixture_path("slider_good.png", good_path, (u32)sizeof(good_path)));
 	TEST_ASSERT_EQUAL_INT(0, ui_vision_fixture_path("slider_corrupt_no_handle.png", bad_path, (u32)sizeof(bad_path)));
 	memset(&result, 0, sizeof(result));
-	rc = sk_ui_vision_assert_path(NULL, good_path, NULL, SK_UI_VISION_WIDGET_SLIDER, "value=0.5", "vision_sl_good", sk_filesystem_api(), &result);
+	rc = sk_ui_vision_assert_path(NULL, good_path, NULL, SK_UI_VISION_WIDGET_SLIDER, "value=0.5", "vision_sl_good", sk_test_filesystem_table(), &result);
 	if (rc == SK_UI_VISION_ASSERT_ERROR) {
 		memset(&result, 0, sizeof(result));
-		rc = sk_ui_vision_assert_path(NULL, good_path, NULL, SK_UI_VISION_WIDGET_SLIDER, "value=0.5", "vision_sl_good", sk_filesystem_api(), &result);
+		rc = sk_ui_vision_assert_path(NULL, good_path, NULL, SK_UI_VISION_WIDGET_SLIDER, "value=0.5", "vision_sl_good", sk_test_filesystem_table(), &result);
 	}
 	if (rc == SK_UI_VISION_ASSERT_ERROR || rc == SK_UI_VISION_ASSERT_SKIPPED) {
 		if (old_backend) {
@@ -1232,10 +1232,10 @@ SK_TEST(ui_vision_assert_good_pass_corrupt_fail) {
 	}
 	TEST_ASSERT_EQUAL_INT_MESSAGE(SK_UI_VISION_ASSERT_OK, rc, result.reason);
 	memset(&result, 0, sizeof(result));
-	rc = sk_ui_vision_assert_path(NULL, bad_path, NULL, SK_UI_VISION_WIDGET_SLIDER, "value=0.5", "vision_sl_corrupt", sk_filesystem_api(), &result);
+	rc = sk_ui_vision_assert_path(NULL, bad_path, NULL, SK_UI_VISION_WIDGET_SLIDER, "value=0.5", "vision_sl_corrupt", sk_test_filesystem_table(), &result);
 	if (rc == SK_UI_VISION_ASSERT_ERROR) {
 		memset(&result, 0, sizeof(result));
-		rc = sk_ui_vision_assert_path(NULL, bad_path, NULL, SK_UI_VISION_WIDGET_SLIDER, "value=0.5", "vision_sl_corrupt", sk_filesystem_api(), &result);
+		rc = sk_ui_vision_assert_path(NULL, bad_path, NULL, SK_UI_VISION_WIDGET_SLIDER, "value=0.5", "vision_sl_corrupt", sk_test_filesystem_table(), &result);
 	}
 	if (rc == SK_UI_VISION_ASSERT_ERROR || rc == SK_UI_VISION_ASSERT_SKIPPED) {
 		if (old_backend) {

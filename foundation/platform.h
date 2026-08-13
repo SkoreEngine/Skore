@@ -8,13 +8,11 @@
  * fill sk_platform_api_t live in sk-foundation. sk_app_init registers the
  * default table under SK_PLATFORM_API_TYPE_ID.
  *
- * Hosts obtain the table via the app registry after init:
+ * Hosts obtain the table from the boot result after startup/init:
  *
- *   const sk_platform_api_t* plat =
- *       (const sk_platform_api_t*)app_api->get_api(ctx, SK_PLATFORM_API_TYPE_ID);
+ *   const sk_platform_api_t* plat = app_api->platform_api(ctx);
  *
- * sk_platform_api() / sk_platform_get_api() expose the static table used for
- * registration (link sk-foundation). Prefer the app registry for production lookup.
+ * There is no `sk_platform_api()` / `sk_platform_get_api()`.
  */
 
 #include "common.h"
@@ -81,22 +79,6 @@ typedef struct sk_platform_api_t {
      */
 	f64 (*monotonic_seconds)(void);
 } sk_platform_api_t;
-
-/**
- * Fill @p out with the default host platform API table.
- * Implemented in sk-foundation.
- *
- * @param out Destination table; NULL is a no-op.
- */
-void sk_platform_get_api(sk_platform_api_t* out);
-
-/**
- * Return a process-lifetime pointer to the default platform API table.
- * Same backend as sk_platform_get_api. Implemented in sk-foundation.
- *
- * @return Non-NULL pointer to a static sk_platform_api_t.
- */
-const sk_platform_api_t* sk_platform_api(void);
 
 #ifdef __cplusplus
 }

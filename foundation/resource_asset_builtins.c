@@ -12,6 +12,7 @@
 #include "resource_asset_builtins.h"
 
 #include "allocator.h"
+#include "app.h"
 #include "filesystem.h"
 #include "path.h"
 #include "resource_assets.h"
@@ -24,6 +25,16 @@
 /* ------------------------------------------------------------------ */
 /*  Bound repository for Create / cook writes                         */
 /* ------------------------------------------------------------------ */
+
+static const sk_filesystem_api_t* builtins_fs_api(void) {
+	static const sk_filesystem_api_t* cached = NULL;
+	if (cached == NULL) {
+		sk_app_boot_t boot = sk_app_create();
+		cached = boot.api->filesystem_api(boot.context);
+		sk_app_shutdown(boot.context);
+	}
+	return cached;
+}
 
 static sk_rid_t builtins_create(sk_repository_t* repository, const sk_repository_api_t* repo, sk_type_id_t type_id, sk_uuid_t uuid, sk_undo_redo_scope_t* scope, const_chr_t name) {
 	const sk_resource_type_t* type = repo->find_type(repository, type_id);
@@ -326,7 +337,7 @@ static void csharp_save(void_ptr_t user_data, sk_repository_t* repository, const
 	(void)repository;
 	(void)repo_api;
 	(void)object;
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = builtins_fs_api();
 	if (fs->get_file_status(absolute_path) == SK_FILE_STATUS_FILE) {
 		return;
 	}
@@ -551,7 +562,7 @@ static sk_resource_asset_handler_t mesh_handler = {
 
 /* Rml UI document / style: content load/save. */
 static sk_rid_t content_load(sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_type_id_t type_id, const_chr_t absolute_path) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = builtins_fs_api();
 	char name[256];
 	if (sk_path_name(sk_str_view_cstr(absolute_path), name, (u32)sizeof(name)) < 0) {
 		name[0] = '\0';
@@ -580,7 +591,7 @@ static sk_rid_t content_load(sk_repository_t* repository, const sk_repository_ap
 
 static void content_save(sk_repository_t* repository, const sk_repository_api_t* repo_api, sk_rid_t object, const_chr_t absolute_path) {
 	const sk_repository_api_t* repo = repo_api;
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = builtins_fs_api();
 	sk_resource_object_t view = repo->read(repository, object);
 	const_chr_t content = repo->get_string(view, SK_NAMED_RESOURCE_FIELD_CONTENT);
 	if (content == NULL) {
@@ -1126,7 +1137,7 @@ static void obj_importer_ingest(void_ptr_t user_data, sk_resource_ingest_context
 	if (ctx->source_bytes == NULL || ctx->source_size == 0u || ctx->source_path == NULL) {
 		return;
 	}
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = builtins_fs_api();
 	char parent[SK_FS_PATH_MAX];
 	if (sk_path_parent(sk_str_view_cstr(ctx->source_path), parent, (u32)sizeof(parent)) < 0) {
 		return;
@@ -1245,7 +1256,7 @@ static void bi_path(const_chr_t a, const_chr_t b, char* out, u32 out_cap) {
 }
 
 static void bi_write(const_chr_t path, const_chr_t text) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = builtins_fs_api();
 	sk_file_handle_t file = fs->open_file(path, SK_FILE_ACCESS_WRITE);
 	TEST_ASSERT_NOT_NULL(file);
 	TEST_ASSERT_TRUE(fs->write_file(file, text, strlen(text)) == strlen(text));
@@ -1380,7 +1391,7 @@ SK_TEST(resource_asset_builtins_create_via_handlers) {
 
 	char root[SK_FS_PATH_MAX];
 	char assets[SK_FS_PATH_MAX];
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = builtins_fs_api();
 	char temp[SK_FS_PATH_MAX];
 	TEST_ASSERT_EQUAL_INT(0, fs->temp_folder(temp, (u32)sizeof(temp)));
 	bi_path(temp, "skore_bi_create", root, (u32)sizeof(root));
@@ -1467,7 +1478,7 @@ SK_TEST(resource_asset_builtins_import_samples_per_importer) {
 	sk_resource_assets_context_t* ctx = NULL;
 	bi_setup(&repository, &app, &ctx);
 	const sk_resource_assets_api_t* api = bi_assets_api();
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = builtins_fs_api();
 
 	char temp[SK_FS_PATH_MAX];
 	char root[SK_FS_PATH_MAX];

@@ -29,7 +29,7 @@ struct sk_editor_project_t {
 };
 
 sk_editor_project_t* sk_editor_project_open(sk_app_context_t* app_context, const sk_app_api_t* app_api, const_chr_t package_name, const_chr_t package_path) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = app_api->filesystem_api(app_context);
 	char assets_dir[SK_FS_PATH_MAX];
 	if (sk_path_join(sk_str_view_cstr(package_path), sk_str_view_cstr("Assets"), assets_dir, (u32)sizeof(assets_dir)) < 0) {
 		return NULL;
@@ -136,7 +136,7 @@ static void ed_path(const_chr_t a, const_chr_t b, char* out, u32 out_cap) {
 }
 
 static void ed_write(const_chr_t path, const_chr_t text) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	sk_file_handle_t file = fs->open_file(path, SK_FILE_ACCESS_WRITE);
 	TEST_ASSERT_NOT_NULL(file);
 	TEST_ASSERT_TRUE(fs->write_file(file, text, strlen(text)) == strlen(text));
@@ -159,7 +159,7 @@ static sk_rid_t ed_find_asset(sk_repository_t* repository, const sk_repository_a
 }
 
 SK_TEST(editor_project_open_scan_and_import_via_core) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char temp[SK_FS_PATH_MAX];
 	char root[SK_FS_PATH_MAX];
 	char assets[SK_FS_PATH_MAX];
@@ -241,7 +241,7 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 }
 
 SK_TEST(editor_project_rejects_missing_assets_dir) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char temp[SK_FS_PATH_MAX];
 	char root[SK_FS_PATH_MAX];
 	TEST_ASSERT_EQUAL_INT(0, fs->temp_folder(temp, (u32)sizeof(temp)));

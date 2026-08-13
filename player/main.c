@@ -1145,8 +1145,7 @@ static void player_ui_frame(player_ui_state_t* st, const sk_platform_window_api_
  * Attach a rotating file sink under {app_folder}/logs/player.log.
  * Parent dir is created if missing. Returns NULL if setup fails (stdout still works).
  */
-static sk_log_file_sink_t* player_attach_file_log(const sk_logger_api_t* logger_api, sk_logger_context_t* log_ctx) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+static sk_log_file_sink_t* player_attach_file_log(const sk_logger_api_t* logger_api, sk_logger_context_t* log_ctx, const sk_filesystem_api_t* fs) {
 	char app_dir[SK_FS_PATH_MAX];
 	char logs_dir[SK_FS_PATH_MAX];
 	char log_path[SK_FS_PATH_MAX];
@@ -1200,7 +1199,7 @@ int main(int argc, char* argv[]) {
 	app_api = boot.api;
 	logger_api = app_api->logger_api(ctx);
 	log_ctx = app_api->logger_context(ctx);
-	file_sink = player_attach_file_log(logger_api, log_ctx);
+	file_sink = player_attach_file_log(logger_api, log_ctx, app_api->filesystem_api(ctx));
 	win_api = app_api->get_api(ctx, SK_PLATFORM_WINDOW_API_TYPE_ID);
 	rg_api = sk_render_graph_api_from_app(ctx, app_api);
 	prof_api = app_api->get_api(ctx, SK_PROFILER_API_TYPE_ID);

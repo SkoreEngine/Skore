@@ -96,7 +96,7 @@ typedef struct uii_env_t {
 } uii_env_t;
 
 static i32 uii_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 	i32 n;
@@ -196,7 +196,7 @@ static void uii_assert_golden(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* im
 	params.update_golden = 0;
 	memset(&stats, 0, sizeof(stats));
 	snprintf(golden_path, sizeof(golden_path), SK_UI_GOLDEN_DIR "/%s.png", base);
-	rc = ui->cpu_image_compare_golden(img, golden_path, &params, sk_filesystem_api(), &stats);
+	rc = ui->cpu_image_compare_golden(img, golden_path, &params, sk_test_filesystem_table(), &stats);
 	TEST_ASSERT_EQUAL_INT_MESSAGE(SK_UI_IMAGE_COMPARE_OK, rc, "golden compare failed; see {base}_actual/_expected/_diff.png under the artifact root");
 }
 

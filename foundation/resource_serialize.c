@@ -3903,7 +3903,7 @@ SK_TEST(resource_serialize_reports_unrepresentable_and_opaque_fields) {
 static u32 ser_it_seq;
 
 static void ser_it_make_temp_dir(char* dir, u32 dir_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char temp[SK_FS_PATH_MAX];
 	TEST_ASSERT_EQUAL_INT(0, fs->temp_folder(temp, (u32)sizeof(temp)));
 	ser_it_seq += 1u;
@@ -3920,7 +3920,7 @@ static void ser_it_join(const_chr_t dir, const_chr_t name, char* out, u32 out_ca
 }
 
 static void ser_it_cleanup(const_chr_t dir, const_chr_t file_path) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	if (file_path != NULL && file_path[0] != '\0') {
 		(void)fs->remove(file_path);
 	}
@@ -3930,7 +3930,7 @@ static void ser_it_cleanup(const_chr_t dir, const_chr_t file_path) {
 }
 
 static void ser_it_write_raw(const_chr_t path, const void* data, size_t size) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	sk_file_handle_t file = fs->open_file(path, SK_FILE_ACCESS_WRITE);
 	TEST_ASSERT_NOT_NULL(file);
 	TEST_ASSERT_EQUAL_UINT64((u64)size, fs->write_file(file, data, size));
@@ -4090,8 +4090,8 @@ SK_TEST(resource_serialize_it_interlinked_save_load_disk) {
 	sk_repository_t* src = ser_test_repo();
 	sk_rid_t package = ser_it_build_interlinked_package(src);
 	TEST_ASSERT_EQUAL_INT(SK_RES_SER_OK, sk_resource_serialize_package_json_to_file(src, ser_test_repo_api(), package, path, ser_test_fs_api()));
-	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_filesystem_api()->get_file_status(path));
-	TEST_ASSERT_TRUE(sk_filesystem_api()->get_path_size(path) > 0ull);
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_test_filesystem_table()->get_file_status(path));
+	TEST_ASSERT_TRUE(sk_test_filesystem_table()->get_path_size(path) > 0ull);
 	api->destroy(src);
 
 	sk_repository_t* dst = ser_test_repo();
@@ -4147,7 +4147,7 @@ SK_TEST(resource_serialize_it_load_missing_directory) {
 	ser_it_join(dir, "no_such_subdir", path, (u32)sizeof(path));
 	char missing[SK_FS_PATH_MAX];
 	ser_it_join(path, "package.json", missing, (u32)sizeof(missing));
-	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_NOT_FOUND, sk_filesystem_api()->get_file_status(path));
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_NOT_FOUND, sk_test_filesystem_table()->get_file_status(path));
 
 	sk_repository_t* repo = ser_test_repo();
 	const u64 before = api->resource_count(repo);
@@ -4240,9 +4240,9 @@ SK_TEST(resource_serialize_it_load_corrupted_truncated_file) {
 	TEST_ASSERT_EQUAL_STRING("AfterCorrupt", api->get_string(api->read(repo, reloaded), SK_RESOURCE_ASSET_PACKAGE_FIELD_NAME));
 	api->destroy(repo);
 
-	(void)sk_filesystem_api()->remove(path);
-	(void)sk_filesystem_api()->remove(path_ok);
-	(void)sk_filesystem_api()->remove(dir);
+	(void)sk_test_filesystem_table()->remove(path);
+	(void)sk_test_filesystem_table()->remove(path_ok);
+	(void)sk_test_filesystem_table()->remove(dir);
 }
 
 SK_TEST(resource_serialize_it_load_missing_referenced_asset) {

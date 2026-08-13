@@ -118,7 +118,7 @@ typedef struct ufx_env_t {
 } ufx_env_t;
 
 static i32 ufx_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 	i32 n;
@@ -220,7 +220,7 @@ static void ufx_vision_grade(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* img
 	unsetenv("SK_UI_VISION_MOCK_RESPONSE");
 
 	memset(&result, 0, sizeof(result));
-	rc = sk_ui_vision_assert_image(ui, img, SK_UI_VISION_WIDGET_FLEXBOX, state_hint, scene_name, sk_filesystem_api(), &result);
+	rc = sk_ui_vision_assert_image(ui, img, SK_UI_VISION_WIDGET_FLEXBOX, state_hint, scene_name, sk_test_filesystem_table(), &result);
 
 	if (rc == SK_UI_VISION_ASSERT_SKIPPED) {
 		ufx_vision_restore_env(prev_backend, prev_mock);
@@ -231,7 +231,7 @@ static void ufx_vision_grade(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* img
 		sk_ui_vision_result_t retry;
 		i32 rc2;
 		memset(&retry, 0, sizeof(retry));
-		rc2 = sk_ui_vision_assert_image(ui, img, SK_UI_VISION_WIDGET_FLEXBOX, state_hint, scene_name, sk_filesystem_api(), &retry);
+		rc2 = sk_ui_vision_assert_image(ui, img, SK_UI_VISION_WIDGET_FLEXBOX, state_hint, scene_name, sk_test_filesystem_table(), &retry);
 		if (rc2 == SK_UI_VISION_ASSERT_OK && retry.passed != 0) {
 			ufx_vision_restore_env(prev_backend, prev_mock);
 			return;

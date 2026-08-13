@@ -5,8 +5,9 @@
  * @brief Host filesystem module API (paths, files, memory maps).
  *
  * Types, free-function declarations, and OS backends (Win32 / Unix) that
- * fill sk_filesystem_api_t live in sk-foundation. Hosts and tests that
- * call sk_filesystem_api() must link sk-foundation.
+ * fill sk_filesystem_api_t live in sk-foundation. Hosts and tests obtain
+ * the table from `app_api->filesystem_api(ctx)` after `sk_app_create` /
+ * `sk_app_startup` / `sk_app_init`. There is no `sk_filesystem_api()`.
  *
  * Paths are UTF-8 C strings (const_chr_t). Path getters write into a
  * caller-provided buffer (null-terminated on success).
@@ -78,7 +79,7 @@ typedef enum sk_file_access_t { SK_FILE_ACCESS_READ = 1, SK_FILE_ACCESS_WRITE = 
 /**
  * Global filesystem module API (one process-wide table).
  *
- * Obtain via sk_filesystem_api() or sk_filesystem_get_api().
+ * Obtain via `app_api->filesystem_api(ctx)`.
  * Implemented in sk-foundation.
  */
 typedef struct sk_filesystem_api_t {
@@ -343,22 +344,6 @@ SK_FINLINE i32 sk_is_shared_library_filename(const_chr_t name) {
 	return (strstr(name, ".so.") != NULL) ? 1 : 0;
 #endif
 }
-
-/**
- * Fill @p out with the default host filesystem API table.
- * Implemented in sk-foundation.
- *
- * @param out Destination table; NULL is a no-op.
- */
-void sk_filesystem_get_api(sk_filesystem_api_t* out);
-
-/**
- * Return a process-lifetime pointer to the default filesystem API table.
- * Same backend as sk_filesystem_get_api. Implemented in sk-foundation.
- *
- * @return Non-NULL pointer to a static sk_filesystem_api_t.
- */
-const sk_filesystem_api_t* sk_filesystem_api(void);
 
 #ifdef __cplusplus
 }

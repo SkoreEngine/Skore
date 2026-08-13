@@ -102,14 +102,6 @@ static const sk_platform_api_t platform_api = {
 	lib_open, lib_symbol, lib_close, lib_error, monotonic_seconds,
 };
 
-void sk_platform_get_api(sk_platform_api_t* out) {
-	*out = platform_api;
-}
-
-const sk_platform_api_t* sk_platform_api(void) {
-	return &platform_api;
-}
-
 void sk_platform_install(sk_app_context_t* ctx) {
 	ctx->platform = &platform_api;
 }

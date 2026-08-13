@@ -323,6 +323,10 @@ static const sk_repository_api_t* resource_repo_api(const sk_resource_assets_con
 	return ctx->repo_api;
 }
 
+static const sk_filesystem_api_t* resource_fs_api(const sk_resource_assets_context_t* ctx) {
+	return ctx->app_api->filesystem_api(ctx->app_context);
+}
+
 static sk_rid_t resource_create(sk_resource_assets_context_t* ctx, const sk_resource_type_t* type, sk_undo_redo_scope_t* scope) {
 	const sk_repository_api_t* repo = resource_repo_api(ctx);
 	return repo->create_resource(ctx->repository, type, SK_UUID_ZERO, scope);
@@ -562,7 +566,7 @@ static sk_rid_t scan_create_file(sk_resource_assets_context_t* ctx, sk_rid_t ass
 
 static sk_rid_t scan_package_from_directory(sk_resource_assets_context_t* ctx, const_chr_t package_name, const_chr_t package_path) {
 	const sk_repository_api_t* repo = resource_repo_api(ctx);
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = resource_fs_api(ctx);
 
 	resource_asset_list_t package_files;
 	sk_array_init(&package_files, ctx->allocator);
@@ -1605,7 +1609,7 @@ static sk_rid_t create_imported_asset_wrapper(sk_resource_assets_context_t* ctx,
 
 static i32 import_generic(sk_resource_assets_context_t* ctx, const sk_resource_asset_importer_t* importer, sk_rid_t parent, const_chr_t path, sk_undo_redo_scope_t* scope) {
 	const sk_repository_api_t* repo = resource_repo_api(ctx);
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = resource_fs_api(ctx);
 
 	sk_file_handle_t file = fs->open_file(path, SK_FILE_ACCESS_READ);
 	if (file == NULL) {
@@ -1730,7 +1734,7 @@ static i32 import_single(sk_resource_assets_context_t* ctx, sk_rid_t parent, con
 }
 
 static i32 import_asset(sk_resource_assets_context_t* ctx, sk_rid_t parent, const_chr_t path, sk_undo_redo_scope_t* scope) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = resource_fs_api(ctx);
 	SK_ARRAY(import_path_t) queue;
 	sk_array_init(&queue, ctx->allocator);
 
@@ -2471,7 +2475,7 @@ static void ra_test_path(const_chr_t a, const_chr_t b, char* out, u32 out_cap) {
 }
 
 static void ra_test_write_file(const_chr_t path, const_chr_t text) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	sk_file_handle_t file = fs->open_file(path, SK_FILE_ACCESS_WRITE);
 	TEST_ASSERT_NOT_NULL(file);
 	TEST_ASSERT_TRUE(fs->write_file(file, text, strlen(text)) == strlen(text));
@@ -2479,7 +2483,7 @@ static void ra_test_write_file(const_chr_t path, const_chr_t text) {
 }
 
 static void ra_test_make_tree(const_chr_t root, const_chr_t assets) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	TEST_ASSERT_EQUAL_INT(0, fs->create_directory(root));
 	TEST_ASSERT_EQUAL_INT(0, fs->create_directory(assets));
 	char textures[SK_FS_PATH_MAX];
@@ -2499,7 +2503,7 @@ static void ra_test_make_tree(const_chr_t root, const_chr_t assets) {
 }
 
 static void ra_test_remove_tree(const_chr_t root, const_chr_t assets) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char file[SK_FS_PATH_MAX];
 	char textures[SK_FS_PATH_MAX];
 	char batch[SK_FS_PATH_MAX];
@@ -2531,7 +2535,7 @@ static void ra_test_remove_tree(const_chr_t root, const_chr_t assets) {
 }
 
 static void ra_test_temp_paths(char* root, u32 root_cap, char* assets, u32 assets_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char temp[SK_FS_PATH_MAX];
 	TEST_ASSERT_EQUAL_INT(0, fs->temp_folder(temp, (u32)sizeof(temp)));
 	ra_test_path(temp, "skore_ra_pkg", root, root_cap);
@@ -2872,7 +2876,7 @@ SK_TEST(resource_assets_engine_import_dispatch) {
 	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
 	const sk_resource_assets_api_t* api = &resource_assets_api;
 	const sk_repository_api_t* repo = ra_test_repo_api();
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = resource_fs_api(ctx);
 
 	char root[SK_FS_PATH_MAX];
 	char assets[SK_FS_PATH_MAX];

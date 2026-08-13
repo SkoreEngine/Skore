@@ -333,6 +333,36 @@ i32 sk_app_tick(sk_app_context_t* context);
  */
 i32 sk_app_run(sk_app_context_t* context);
 
+#ifdef SK_TESTS
+/**
+ * Immutable filesystem table obtained via a temporary `sk_app_create`.
+ * Tests without a live context use this instead of a process-wide accessor.
+ */
+SK_FINLINE const sk_filesystem_api_t* sk_test_filesystem_table(void) {
+	static const sk_filesystem_api_t* cached = NULL;
+	if (cached == NULL) {
+		sk_app_boot_t boot = sk_app_create();
+		cached = boot.api->filesystem_api(boot.context);
+		sk_app_shutdown(boot.context);
+	}
+	return cached;
+}
+
+/**
+ * Immutable platform table obtained via a temporary `sk_app_startup`.
+ * Tests without a live context use this instead of a process-wide accessor.
+ */
+SK_FINLINE const sk_platform_api_t* sk_test_platform_table(void) {
+	static const sk_platform_api_t* cached = NULL;
+	if (cached == NULL) {
+		sk_app_boot_t boot = sk_app_startup();
+		cached = boot.api->platform_api(boot.context);
+		sk_app_shutdown(boot.context);
+	}
+	return cached;
+}
+#endif
+
 #ifdef __cplusplus
 }
 #endif

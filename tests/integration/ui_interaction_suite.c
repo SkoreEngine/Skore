@@ -35,7 +35,7 @@ typedef struct ixs_env_t {
 } ixs_env_t;
 
 static i32 ixs_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 	i32 n;
@@ -161,7 +161,7 @@ static void ixs_vision_after_capture(sk_ui_test_t* t, sk_ui_vision_widget_family
 
 	for (attempt = 0; attempt < 2; ++attempt) {
 		memset(&vr, 0, sizeof(vr));
-		rc = sk_ui_vision_assert_image(ui, &img, family, state_hint, scene, sk_filesystem_api(), &vr);
+		rc = sk_ui_vision_assert_image(ui, &img, family, state_hint, scene, sk_test_filesystem_table(), &vr);
 		if (rc == SK_UI_VISION_ASSERT_SKIPPED) {
 			/* Behavioural asserts already ran; gate finishes as IGNORE without credentials. */
 			sk_ui_vision_gate_note_skipped(scene, vr.reason[0] != '\0' ? vr.reason : "no vision credentials");

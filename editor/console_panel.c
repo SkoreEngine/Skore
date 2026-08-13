@@ -578,7 +578,7 @@ i32 sk_editor_console_panel_abs_rect(const sk_editor_console_panel_t* panel, sk_
 #include <stdio.h>
 
 static i32 editor_test_plugin_path(const_chr_t name, char* out, u32 cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 	if (fs->app_folder(base, (u32)sizeof(base)) != 0 || base[0] == '\0') {

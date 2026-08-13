@@ -760,6 +760,7 @@ i32 sk_app_run(sk_app_context_t* context) {
 #include "dxc_compiler.h"
 #include "render_graph.h"
 #include "render_pipeline.h"
+#include "resource_assets_types.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -767,7 +768,7 @@ i32 sk_app_run(sk_app_context_t* context) {
 /* ---- helpers ---- */
 
 static void test_make_fs_paths(char* dir, u32 dir_cap, char* file_a, u32 a_cap, char* file_b, u32 b_cap) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	char temp[SK_FS_PATH_MAX];
 
 	TEST_ASSERT_EQUAL_INT32(0, api->temp_folder(temp, (u32)sizeof(temp)));
@@ -780,14 +781,14 @@ static void test_make_fs_paths(char* dir, u32 dir_cap, char* file_a, u32 a_cap, 
 }
 
 static void test_cleanup_fs_tree(const char* dir, const char* file_a, const char* file_b) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	(void)api->remove(file_a);
 	(void)api->remove(file_b);
 	(void)api->remove(dir);
 }
 
 static i32 test_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 
@@ -807,7 +808,7 @@ static i32 test_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap)
 /* ---- platform ---- */
 
 SK_TEST(platform_api_table_is_complete) {
-	const sk_platform_api_t* api = sk_platform_api();
+	const sk_platform_api_t* api = sk_test_platform_table();
 	TEST_ASSERT_NOT_NULL(api);
 	TEST_ASSERT_NOT_NULL(api->lib_open);
 	TEST_ASSERT_NOT_NULL(api->lib_symbol);
@@ -816,20 +817,8 @@ SK_TEST(platform_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(api->monotonic_seconds);
 }
 
-SK_TEST(platform_get_api_matches_static_table) {
-	sk_platform_api_t out;
-	memset(&out, 0, sizeof(out));
-	sk_platform_get_api(&out);
-	const sk_platform_api_t* def = sk_platform_api();
-	TEST_ASSERT_EQUAL_PTR(def->lib_open, out.lib_open);
-	TEST_ASSERT_EQUAL_PTR(def->lib_symbol, out.lib_symbol);
-	TEST_ASSERT_EQUAL_PTR(def->lib_close, out.lib_close);
-	TEST_ASSERT_EQUAL_PTR(def->lib_error, out.lib_error);
-	TEST_ASSERT_EQUAL_PTR(def->monotonic_seconds, out.monotonic_seconds);
-}
-
 SK_TEST(platform_lib_open_missing_file_fails) {
-	const sk_platform_api_t* api = sk_platform_api();
+	const sk_platform_api_t* api = sk_test_platform_table();
 	sk_shared_lib_t lib = api->lib_open("skore_definitely_missing_plugin_xyz.so");
 	TEST_ASSERT_NULL(lib);
 	TEST_ASSERT_NOT_NULL(api->lib_error());
@@ -837,11 +826,11 @@ SK_TEST(platform_lib_open_missing_file_fails) {
 }
 
 SK_TEST(platform_lib_error_never_null) {
-	TEST_ASSERT_NOT_NULL(sk_platform_api()->lib_error());
+	TEST_ASSERT_NOT_NULL(sk_test_platform_table()->lib_error());
 }
 
 SK_TEST(platform_monotonic_seconds_advances) {
-	const sk_platform_api_t* api = sk_platform_api();
+	const sk_platform_api_t* api = sk_test_platform_table();
 	f64 a = api->monotonic_seconds();
 	f64 b = api->monotonic_seconds();
 	TEST_ASSERT_TRUE(a >= 0.0);
@@ -855,7 +844,7 @@ SK_TEST(platform_type_id_nonzero) {
 /* ---- filesystem ---- */
 
 SK_TEST(filesystem_api_table_is_complete) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	TEST_ASSERT_NOT_NULL(api);
 	TEST_ASSERT_NOT_NULL(api->setup_temp_folder);
 	TEST_ASSERT_NOT_NULL(api->current_dir);
@@ -884,18 +873,8 @@ SK_TEST(filesystem_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(api->close_directory);
 }
 
-SK_TEST(filesystem_get_api_matches_static_table) {
-	sk_filesystem_api_t out;
-	const sk_filesystem_api_t* def = sk_filesystem_api();
-	memset(&out, 0, sizeof(out));
-	sk_filesystem_get_api(&out);
-	TEST_ASSERT_EQUAL_PTR(def->open_file, out.open_file);
-	TEST_ASSERT_EQUAL_PTR(def->close_file, out.close_file);
-	TEST_ASSERT_EQUAL_PTR(def->get_file_status, out.get_file_status);
-}
-
 SK_TEST(filesystem_path_queries) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	char buf[SK_FS_PATH_MAX];
 	TEST_ASSERT_EQUAL_INT32(0, api->current_dir(buf, (u32)sizeof(buf)));
 	TEST_ASSERT_TRUE(buf[0] != '\0');
@@ -909,7 +888,7 @@ SK_TEST(filesystem_path_queries) {
 }
 
 SK_TEST(filesystem_setup_temp_folder_override) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	char before[SK_FS_PATH_MAX];
 	char after[SK_FS_PATH_MAX];
 	char cwd[SK_FS_PATH_MAX];
@@ -924,7 +903,7 @@ SK_TEST(filesystem_setup_temp_folder_override) {
 }
 
 SK_TEST(filesystem_status_missing_and_null) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_NOT_FOUND, api->get_file_status(""));
 	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_NOT_FOUND, api->get_file_status("skore_definitely_missing_fs_xyz_99"));
 	TEST_ASSERT_EQUAL_UINT64(0ull, api->get_path_size("skore_definitely_missing_fs_xyz_99"));
@@ -932,7 +911,7 @@ SK_TEST(filesystem_status_missing_and_null) {
 }
 
 SK_TEST(filesystem_create_write_read_remove) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	char dir[SK_FS_PATH_MAX];
 	char path_a[SK_FS_PATH_MAX];
 	char path_b[SK_FS_PATH_MAX];
@@ -980,13 +959,13 @@ SK_TEST(filesystem_create_write_read_remove) {
 }
 
 SK_TEST(filesystem_open_rejects_bad_args) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	TEST_ASSERT_NULL(api->open_file("", SK_FILE_ACCESS_READ));
 	TEST_ASSERT_NULL(api->open_file("skore_missing_open_xyz", SK_FILE_ACCESS_READ));
 }
 
 SK_TEST(filesystem_file_mapping_roundtrip) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	char dir[SK_FS_PATH_MAX];
 	char path_a[SK_FS_PATH_MAX];
 	char path_b[SK_FS_PATH_MAX];
@@ -1012,7 +991,7 @@ SK_TEST(filesystem_file_mapping_roundtrip) {
 }
 
 SK_TEST(filesystem_directory_iterator_lists_entries) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	char dir[SK_FS_PATH_MAX];
 	char path_a[SK_FS_PATH_MAX];
 	char path_b[SK_FS_PATH_MAX];
@@ -1050,7 +1029,7 @@ SK_TEST(filesystem_directory_iterator_lists_entries) {
 }
 
 SK_TEST(filesystem_open_directory_missing_fails) {
-	const sk_filesystem_api_t* api = sk_filesystem_api();
+	const sk_filesystem_api_t* api = sk_test_filesystem_table();
 	TEST_ASSERT_NULL(api->open_directory("skore_definitely_missing_dir_xyz_99"));
 	TEST_ASSERT_NULL(api->open_directory(""));
 }
@@ -1131,7 +1110,7 @@ SK_TEST(app_init_registers_platform_api) {
 	const sk_app_api_t* api = boot.api;
 	const sk_platform_api_t* plat = (const sk_platform_api_t*)api->get_api(ctx, SK_PLATFORM_API_TYPE_ID);
 	TEST_ASSERT_NOT_NULL(plat);
-	TEST_ASSERT_EQUAL_PTR(sk_platform_api(), plat);
+	TEST_ASSERT_EQUAL_PTR(api->platform_api(ctx), plat);
 	sk_app_shutdown(ctx);
 }
 
@@ -1370,6 +1349,78 @@ SK_TEST(app_init_returns_independent_contexts) {
 	sk_app_shutdown(second);
 }
 
+static void isolation_sink_print(void_ptr_t user_data, sk_logger_type_t level, const_chr_t logger_name, const_chr_t message) {
+	(void)level;
+	(void)logger_name;
+	(void)message;
+	*((u32*)user_data) += 1u;
+}
+
+SK_TEST(app_two_contexts_isolate_logger_sinks_and_repository) {
+	sk_app_boot_t boot_a = sk_app_startup();
+	sk_app_boot_t boot_b = sk_app_startup();
+	TEST_ASSERT_NOT_NULL(boot_a.context);
+	TEST_ASSERT_NOT_NULL(boot_b.context);
+	TEST_ASSERT_TRUE(boot_a.context != boot_b.context);
+
+	sk_logger_context_t* log_ctx_a = boot_a.api->logger_context(boot_a.context);
+	sk_logger_context_t* log_ctx_b = boot_b.api->logger_context(boot_b.context);
+	TEST_ASSERT_NOT_NULL(log_ctx_a);
+	TEST_ASSERT_NOT_NULL(log_ctx_b);
+	TEST_ASSERT_TRUE(log_ctx_a != log_ctx_b);
+
+	u32 hits_a = 0u;
+	u32 hits_b = 0u;
+	sk_log_sink_t sink_a;
+	sk_log_sink_t sink_b;
+	sink_a.user_data = &hits_a;
+	sink_a.print = isolation_sink_print;
+	sink_b.user_data = &hits_b;
+	sink_b.print = isolation_sink_print;
+
+	const sk_logger_api_t* logger_a = boot_a.api->logger_api(boot_a.context);
+	const sk_logger_api_t* logger_b = boot_b.api->logger_api(boot_b.context);
+	TEST_ASSERT_EQUAL_INT(0, logger_a->add_sink(log_ctx_a, &sink_a));
+	TEST_ASSERT_EQUAL_INT(0, logger_b->add_sink(log_ctx_b, &sink_b));
+
+	sk_log_info(logger_a, boot_a.api->app_logger(boot_a.context), "only-a");
+	TEST_ASSERT_EQUAL_UINT32(1u, hits_a);
+	TEST_ASSERT_EQUAL_UINT32(0u, hits_b);
+
+	sk_log_info(logger_b, boot_b.api->app_logger(boot_b.context), "only-b");
+	TEST_ASSERT_EQUAL_UINT32(1u, hits_a);
+	TEST_ASSERT_EQUAL_UINT32(1u, hits_b);
+
+	const sk_repository_api_t* repo_api = boot_a.api->repository_api(boot_a.context);
+	sk_repository_t* repo_a = repo_api->create(sk_allocator_default());
+	sk_repository_t* repo_b = repo_api->create(sk_allocator_default());
+	TEST_ASSERT_NOT_NULL(repo_a);
+	TEST_ASSERT_NOT_NULL(repo_b);
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo_a, repo_api));
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_assets_register_types(repo_b, repo_api));
+
+	const sk_resource_type_t* type_a = repo_api->find_type(repo_a, SK_RESOURCE_ASSET_PACKAGE_TYPE_ID);
+	const sk_resource_type_t* type_b = repo_api->find_type(repo_b, SK_RESOURCE_ASSET_PACKAGE_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(type_a);
+	TEST_ASSERT_NOT_NULL(type_b);
+
+	sk_rid_t rid_a = repo_api->create_resource(repo_a, type_a, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(rid_a.id != 0u);
+	u64 count_a = repo_api->resource_count(repo_a);
+	TEST_ASSERT_TRUE(count_a >= 1u);
+	TEST_ASSERT_EQUAL_UINT64(0u, repo_api->resource_count(repo_b));
+
+	sk_rid_t rid_b = repo_api->create_resource(repo_b, type_b, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(rid_b.id != 0u);
+	TEST_ASSERT_EQUAL_UINT64(count_a, repo_api->resource_count(repo_a));
+	TEST_ASSERT_TRUE(repo_api->resource_count(repo_b) >= 1u);
+
+	repo_api->destroy(repo_a);
+	repo_api->destroy(repo_b);
+	sk_app_shutdown(boot_a.context);
+	sk_app_shutdown(boot_b.context);
+}
+
 SK_TEST(app_api_exposes_bootstrap_surface) {
 	sk_app_boot_t boot = sk_app_init(0, NULL);
 	sk_app_context_t* ctx = boot.context;
@@ -1492,7 +1543,7 @@ SK_TEST(platform_window_plugin_entry_point_returns_zero) {
 	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL(ctx);
 	TEST_ASSERT_EQUAL_INT32(0, test_plugin_path(name, path, (u32)sizeof(path)));
-	const sk_platform_api_t* plat = sk_platform_api();
+	const sk_platform_api_t* plat = sk_test_platform_table();
 	sk_shared_lib_t lib = plat->lib_open(path);
 	TEST_ASSERT_NOT_NULL(lib);
 	void_ptr_t raw = plat->lib_symbol(lib, "sk_plugin_entry_point");
@@ -1516,7 +1567,7 @@ SK_TEST(platform_window_plugin_registers_api) {
 	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL(ctx);
 	TEST_ASSERT_EQUAL_INT32(0, test_plugin_path(name, path, (u32)sizeof(path)));
-	const sk_platform_api_t* plat = sk_platform_api();
+	const sk_platform_api_t* plat = sk_test_platform_table();
 	sk_shared_lib_t lib = plat->lib_open(path);
 	TEST_ASSERT_NOT_NULL(lib);
 	void_ptr_t raw = plat->lib_symbol(lib, "sk_plugin_entry_point");
@@ -1577,7 +1628,7 @@ SK_TEST(entities_plugin_registers_api) {
 	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL(ctx);
 	TEST_ASSERT_EQUAL_INT32(0, test_plugin_path(name, path, (u32)sizeof(path)));
-	const sk_platform_api_t* plat = sk_platform_api();
+	const sk_platform_api_t* plat = sk_test_platform_table();
 	sk_shared_lib_t lib = plat->lib_open(path);
 	TEST_ASSERT_NOT_NULL(lib);
 	void_ptr_t raw = plat->lib_symbol(lib, "sk_plugin_entry_point");
@@ -1931,7 +1982,7 @@ SK_TEST(dxc_compiler_plugin_registers_api) {
 	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL(ctx);
 	TEST_ASSERT_EQUAL_INT32(0, test_plugin_path(name, path, (u32)sizeof(path)));
-	const sk_platform_api_t* plat = sk_platform_api();
+	const sk_platform_api_t* plat = sk_test_platform_table();
 	sk_shared_lib_t lib = plat->lib_open(path);
 	TEST_ASSERT_NOT_NULL(lib);
 	void_ptr_t raw = plat->lib_symbol(lib, "sk_plugin_entry_point");
@@ -1979,7 +2030,7 @@ SK_TEST(render_graph_plugin_registers_api) {
 	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL(ctx);
 	TEST_ASSERT_EQUAL_INT32(0, test_plugin_path(name, path, (u32)sizeof(path)));
-	const sk_platform_api_t* plat = sk_platform_api();
+	const sk_platform_api_t* plat = sk_test_platform_table();
 	sk_shared_lib_t lib = plat->lib_open(path);
 	TEST_ASSERT_NOT_NULL(lib);
 	void_ptr_t raw = plat->lib_symbol(lib, "sk_plugin_entry_point");

@@ -42,7 +42,7 @@
 /* -------------------------------------------------------------------------- */
 
 static i32 uich_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 	i32 n;
@@ -179,7 +179,7 @@ i32 sk_ui_capture_harness_test_font_path(char* out, u32 out_cap) {
 #else
 	/* Fallback: {app_folder|cwd}/plugins/ui/testdata/DejaVuSans.ttf */
 	{
-		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 		char base[SK_FS_PATH_MAX];
 		sk_str_view_t parts[5];
 
@@ -226,7 +226,7 @@ i32 sk_ui_capture_harness_load_test_font(const sk_ui_api_t* ui, sk_ui_font_syste
 		return -1;
 	}
 
-	fs = sk_filesystem_api();
+	fs = sk_test_filesystem_table();
 	if (fs->get_file_status(path) != SK_FILE_STATUS_FILE) {
 		fprintf(stderr,
 				"ui_capture_harness: missing vendored test font '%s' "
@@ -435,7 +435,7 @@ i32 sk_ui_capture_harness_capture(const sk_ui_capture_harness_params_t* params, 
 
 	/* PNG artifact — written before returning so a later assertion failure
 	 * still leaves an inspectable frame (cpu_image_write_png logs failures). */
-	fs = sk_filesystem_api();
+	fs = sk_test_filesystem_table();
 	if (ui->test_artifact_png_path(fs, params->scene_name, png_path, (u32)sizeof(png_path)) != 0 || ui->cpu_image_write_png(out_image, fs, png_path) != 0) {
 		rc = SK_UI_CAPTURE_HARNESS_RC_ERROR;
 	}
@@ -624,7 +624,7 @@ SK_TEST(ui_capture_harness_deterministic) {
 	 * a reimplementation that can diverge when the plugin was built with a
 	 * different SK_TEST_ARTIFACT_DIR (e.g. parallel build-debug vs build). */
 	{
-		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 		sk_app_boot_t boot = sk_app_init(0, NULL);
 		sk_app_context_t* app = boot.context;
 		const sk_ui_api_t* ui = NULL;
@@ -706,7 +706,7 @@ SK_TEST(ui_capture_harness_clear_color) {
 SK_TEST(ui_capture_harness_test_font_asset_guard) {
 	sk_app_context_t* app = NULL;
 	const sk_ui_api_t* ui = NULL;
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char path[SK_FS_PATH_MAX];
 	sk_file_handle_t file;
 	u64 size_u64;
