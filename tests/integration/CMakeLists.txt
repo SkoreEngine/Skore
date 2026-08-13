@@ -135,3 +135,14 @@ target_include_directories(sk-repro-cycles PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "
 target_compile_definitions(sk-repro-cycles PRIVATE SK_TESTS SK_TEST_ARTIFACT_DIR="${CMAKE_BINARY_DIR}/test-artifacts")
 set_target_properties(sk-repro-cycles PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 add_dependencies(sk-repro-cycles sk-vulkan-render-device sk-render-device sk-test-render-device sk-dxc-compiler sk-ui sk-render-graph)
+
+# APX-268 sk-text-screenshot (added on v2): the harness documents exit code 2
+# as "skipped (no Vulkan loader/ICD available)" and prints
+# "no Vulkan ICD; skipping msdf suite". CTest treats any non-zero exit as a
+# failure unless told otherwise, so macOS/Windows CI (no ICD) failed this test
+# while Linux (lavapipe) passed. Treat exit code 2 as a clean SKIP.
+# Guarded so configuring the goal branch standalone (where the test does not
+# exist yet) remains a no-op; after merge with v2 the test is registered above.
+if(TEST sk-text-screenshot)
+	set_tests_properties(sk-text-screenshot PROPERTIES SKIP_RETURN_CODE 2)
+endif()
