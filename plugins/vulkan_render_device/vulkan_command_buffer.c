@@ -836,48 +836,13 @@ void sk_vkrd_resolve_texture(sk_render_device_t dev, sk_command_buffer_t cmd_han
 	vkCmdResolveImage(command_buffer->command_buffer, src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &resolve_region);
 }
 
-/* vkCmdUpdateBuffer: dataSize must be > 0, a multiple of 4, and <= 65536. */
-enum { SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES = 65536u };
-
-static u32 sk_vkrd_update_buffer_chunk_plan(u64 size, u64* out_sizes, u32 max_chunks) {
-	u32 count = 0u;
-	u64 remaining = size;
-	while (remaining > 0u && count < max_chunks) {
-		u64 chunk = remaining > (u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES ? (u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES : remaining;
-		out_sizes[count] = chunk;
-		count += 1u;
-		remaining -= chunk;
-	}
-	return count;
-}
-
 void sk_vkrd_update_buffer(sk_render_device_t dev, sk_command_buffer_t cmd_handle, sk_buffer_t buf_handle, u64 offset, u64 size, const void* data) {
 	(void)dev;
 	sk_vk_command_buffer_t* command_buffer = (sk_vk_command_buffer_t*)sk_command_buffer_t_to_ptr(cmd_handle);
-	const u8* bytes = (const u8*)data;
-	u64 remaining = size;
-	u64 dst = offset;
-	if (command_buffer == NULL || data == NULL || size == 0u) {
+	if (command_buffer == NULL || data == NULL) {
 		return;
 	}
-	while (remaining > 0u) {
-		u64 planned[1];
-		u64 chunk;
-		if (sk_vkrd_update_buffer_chunk_plan(remaining, planned, 1u) != 1u) {
-			break;
-		}
-		chunk = planned[0];
-		if ((chunk & 3ull) != 0ull) {
-			u8 pad[4] = {0u, 0u, 0u, 0u};
-			memcpy(pad, bytes, chunk);
-			vkCmdUpdateBuffer(command_buffer->command_buffer, sk_vkrd_buffer_vk_handle(buf_handle), dst, 4u, pad);
-			break;
-		}
-		vkCmdUpdateBuffer(command_buffer->command_buffer, sk_vkrd_buffer_vk_handle(buf_handle), dst, chunk, bytes);
-		bytes += chunk;
-		dst += chunk;
-		remaining -= chunk;
-	}
+	vkCmdUpdateBuffer(command_buffer->command_buffer, sk_vkrd_buffer_vk_handle(buf_handle), offset, size, data);
 }
 
 void sk_vkrd_fill_buffer(sk_render_device_t dev, sk_command_buffer_t cmd_handle, sk_buffer_t buf_handle, u64 offset, u64 size, u32 data) {
@@ -1294,52 +1259,3 @@ void sk_vkrd_copy_top_level_as(sk_render_device_t dev, sk_command_buffer_t cmd_h
 	copy_info.mode = compress ? VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR : VK_COPY_ACCELERATION_STRUCTURE_MODE_CLONE_KHR;
 	vkCmdCopyAccelerationStructureKHR(command_buffer->command_buffer, &copy_info);
 }
-
-#ifdef SK_TESTS
-#include "test.h"
-
-SK_TEST(vkrd_update_buffer_chunks_stay_within_vk_limit) {
-	u64 sizes[16];
-	u32 n = sk_vkrd_update_buffer_chunk_plan(0ull, sizes, 16u);
-	TEST_ASSERT_EQUAL_UINT32(0u, n);
-
-	n = sk_vkrd_update_buffer_chunk_plan(4ull, sizes, 16u);
-	TEST_ASSERT_EQUAL_UINT32(1u, n);
-	TEST_ASSERT_EQUAL_UINT64(4ull, sizes[0]);
-
-	n = sk_vkrd_update_buffer_chunk_plan((u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES, sizes, 16u);
-	TEST_ASSERT_EQUAL_UINT32(1u, n);
-	TEST_ASSERT_EQUAL_UINT64((u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES, sizes[0]);
-
-	n = sk_vkrd_update_buffer_chunk_plan((u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES + 4ull, sizes, 16u);
-	TEST_ASSERT_EQUAL_UINT32(2u, n);
-	TEST_ASSERT_EQUAL_UINT64((u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES, sizes[0]);
-	TEST_ASSERT_EQUAL_UINT64(4ull, sizes[1]);
-
-	/* Player UI uploads from player.log: 344960 and 102192. */
-	n = sk_vkrd_update_buffer_chunk_plan(344960ull, sizes, 16u);
-	TEST_ASSERT_TRUE(n > 1u);
-	{
-		u64 sum = 0ull;
-		for (u32 i = 0u; i < n; ++i) {
-			TEST_ASSERT_TRUE(sizes[i] <= (u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES);
-			TEST_ASSERT_EQUAL_UINT64(0ull, sizes[i] & 3ull);
-			sum += sizes[i];
-		}
-		TEST_ASSERT_EQUAL_UINT64(344960ull, sum);
-	}
-
-	n = sk_vkrd_update_buffer_chunk_plan(102192ull, sizes, 16u);
-	TEST_ASSERT_TRUE(n > 1u);
-	{
-		u64 sum = 0ull;
-		for (u32 i = 0u; i < n; ++i) {
-			TEST_ASSERT_TRUE(sizes[i] <= (u64)SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES);
-			TEST_ASSERT_EQUAL_UINT64(0ull, sizes[i] & 3ull);
-			sum += sizes[i];
-		}
-		TEST_ASSERT_EQUAL_UINT64(102192ull, sum);
-	}
-}
-
-#endif /* SK_TESTS */
