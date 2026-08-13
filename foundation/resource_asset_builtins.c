@@ -1284,11 +1284,13 @@ static void bi_setup(sk_repository_t** out_repo, sk_app_context_t** out_app, sk_
 	TEST_ASSERT_EQUAL_INT(0, sk_resource_asset_builtins_register_types(repository));
 	sk_resource_asset_builtins_bind_repository(repository);
 
-	sk_app_context_t* app = sk_app_create();
-	TEST_ASSERT_NOT_NULL(app);
-	sk_resource_asset_builtins_register_impls(app, sk_app_api());
+	sk_app_boot_t boot = sk_app_create();
 
-	sk_resource_assets_context_t* ctx = sk_resource_assets_api()->create(repository, app, sk_app_api(), sk_allocator_default());
+	sk_app_context_t* app = boot.context;
+	TEST_ASSERT_NOT_NULL(app);
+	sk_resource_asset_builtins_register_impls(app, boot.api);
+
+	sk_resource_assets_context_t* ctx = sk_resource_assets_api()->create(repository, app, boot.api, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(ctx);
 
 	*out_repo = repository;
@@ -1298,7 +1300,7 @@ static void bi_setup(sk_repository_t** out_repo, sk_app_context_t** out_app, sk_
 
 static void bi_teardown(sk_repository_t* repository, sk_app_context_t* app, sk_resource_assets_context_t* ctx) {
 	sk_resource_assets_api()->destroy(ctx);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	sk_repository_api()->destroy(repository);
 	sk_resource_asset_builtins_bind_repository(NULL);
 }
@@ -1415,7 +1417,7 @@ SK_TEST(resource_asset_builtins_create_via_handlers) {
 	}
 
 	api->destroy(ctx);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	sk_repository_api()->destroy(repository);
 	sk_resource_asset_builtins_bind_repository(NULL);
 	(void)fs->remove(assets);

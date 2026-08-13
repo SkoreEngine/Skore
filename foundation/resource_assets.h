@@ -72,6 +72,9 @@
 extern "C" {
 #endif
 
+/** Type id for app-context registration of `sk_resource_assets_api_t`. */
+#define SK_RESOURCE_ASSETS_API_TYPE_ID SK_TYPE_ID("sk.resource_assets_api", 0xcceb767bc7a323b7ULL, 0x2d273f5d983e8243ULL)
+
 /**
  * Type id for sk_resource_asset_handler_t implementations in the app multi-impl
  * registry (add_impl / remove_impl / impl_count / get_all_impls).

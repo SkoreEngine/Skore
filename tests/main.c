@@ -59,7 +59,8 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 	 * point, mirroring production loading (sk_app_load_plugin). Plugin-local
 	 * tests then see the host-registered APIs they need (e.g. the platform API
 	 * used by sk-dxc-compiler to load its DXC runtime). */
-	sk_app_context_t* context = sk_app_startup();
+	sk_app_boot_t boot = sk_app_startup();
+	sk_app_context_t* context = boot.context;
 	if (context == NULL) {
 		printf("app startup failed for plugin tests (skip plugin tests)\n");
 		fs->close_directory(it);
@@ -101,7 +102,7 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 		}
 
 		sk_plugin_entry_point_fn entry = SK_PTR_TO_FN(sk_plugin_entry_point_fn, entry_raw);
-		(void)entry(context, sk_app_api());
+		(void)entry(context, boot.api);
 
 		void_ptr_t raw = plat->lib_symbol(lib, SK_PLUGIN_RUN_TESTS_NAME);
 		if (raw == NULL) {
@@ -122,7 +123,7 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 
 	fs->close_directory(it);
 	/* Destroy the context first so no code walks registered tables after unmap. */
-	sk_app_destroy(context);
+	sk_app_shutdown(context);
 	for (u32 i = 0u; i < open_count; i++) {
 		plat->lib_close(open_libs[i]);
 	}

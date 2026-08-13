@@ -341,7 +341,7 @@ ctest --test-dir build --output-on-failure
    ```
 7. **App entry** lives in `player` (or editor). `sk-foundation` owns init:
    ```c
-   i32 sk_app_init(int argc, char* argv[]);
+   sk_app_boot_t sk_app_init(int argc, char* argv[]); /* {context, api}; no sk_app_api() */}
    ```
 8. **Tests are in-source** (`SK_TEST` under `#ifdef SK_TESTS`). Host `tests/main.c` runs foundation then scans plugins via `sk_plugin_run_tests`. Never ship tests in Release — see **Tests**.
 

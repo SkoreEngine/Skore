@@ -25,6 +25,34 @@ extern "C" {
 enum { SK_FS_PATH_MAX = 4096 };
 
 /**
+ * Opaque filesystem-module state owned by `sk_app_context_t`.
+ * Created at startup; NULL on a registry-only context from `sk_app_create`.
+ * Mutable override / mmap-view state still lives in the backend at this stage.
+ */
+typedef struct sk_filesystem_context_t sk_filesystem_context_t;
+
+/** Type id for app-context registration of `sk_filesystem_api_t`. */
+#define SK_FILESYSTEM_API_TYPE_ID SK_TYPE_ID("sk.filesystem_api", 0xb8556b0d8f2c7ef6ULL, 0x53aa55a880068ac1ULL)
+
+typedef struct sk_allocator_t sk_allocator_t;
+
+/**
+ * Allocate a filesystem context. Hosts normally do not call this —
+ * `sk_app_startup` / `sk_app_init` does. Caller owns the result.
+ *
+ * @param allocator Heap used for the context (must not be NULL).
+ * @return New context, or NULL on allocation failure.
+ */
+sk_filesystem_context_t* sk_filesystem_context_create(const sk_allocator_t* allocator);
+
+/**
+ * Free a filesystem context. Passing NULL is a no-op.
+ *
+ * @param fs Context from `sk_filesystem_context_create`.
+ */
+void sk_filesystem_context_destroy(sk_filesystem_context_t* fs);
+
+/**
  * Opaque OS file or file-mapping handle.
  * NULL means invalid / not open.
  */

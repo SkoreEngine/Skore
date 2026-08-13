@@ -76,7 +76,7 @@ static i32 ui_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
 	return (n < 0) ? -1 : 0;
 }
 
-static const sk_render_device_api_t* ui_load_vulkan_api(sk_app_context_t* ctx) {
+static const sk_render_device_api_t* ui_load_vulkan_api(sk_app_context_t* ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t plugin_name = "sk-vulkan-render-device.dll";
@@ -86,12 +86,12 @@ static const sk_render_device_api_t* ui_load_vulkan_api(sk_app_context_t* ctx) {
 	const_chr_t plugin_name = "sk-vulkan-render-device.so";
 #endif
 	if (ui_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(ctx, path);
+		app_api->load_plugin(ctx, path);
 	}
-	return (const sk_render_device_api_t*)sk_app_api()->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
+	return (const sk_render_device_api_t*)app_api->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
 }
 
-static const sk_dxc_compiler_api_t* ui_load_dxc_api(sk_app_context_t* ctx) {
+static const sk_dxc_compiler_api_t* ui_load_dxc_api(sk_app_context_t* ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t plugin_name = "sk-dxc-compiler.dll";
@@ -101,12 +101,12 @@ static const sk_dxc_compiler_api_t* ui_load_dxc_api(sk_app_context_t* ctx) {
 	const_chr_t plugin_name = "sk-dxc-compiler.so";
 #endif
 	if (ui_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(ctx, path);
+		app_api->load_plugin(ctx, path);
 	}
-	return (const sk_dxc_compiler_api_t*)sk_app_api()->get_api(ctx, SK_DXC_COMPILER_API_TYPE_ID);
+	return (const sk_dxc_compiler_api_t*)app_api->get_api(ctx, SK_DXC_COMPILER_API_TYPE_ID);
 }
 
-static const sk_ui_api_t* ui_load_ui_api(sk_app_context_t* ctx) {
+static const sk_ui_api_t* ui_load_ui_api(sk_app_context_t* ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t plugin_name = "sk-ui.dll";
@@ -116,9 +116,9 @@ static const sk_ui_api_t* ui_load_ui_api(sk_app_context_t* ctx) {
 	const_chr_t plugin_name = "sk-ui.so";
 #endif
 	if (ui_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(ctx, path);
+		app_api->load_plugin(ctx, path);
 	}
-	return (const sk_ui_api_t*)sk_app_api()->get_api(ctx, SK_UI_API_TYPE_ID);
+	return (const sk_ui_api_t*)app_api->get_api(ctx, SK_UI_API_TYPE_ID);
 }
 
 static sk_adapter_t ui_select_adapter(const sk_render_device_api_t* api, sk_render_device_t dev, u32* out_count) {
@@ -759,20 +759,22 @@ SK_TEST(ui_offscreen_draw_list_golden) {
 	ui_pixel_diff_stats_t stats;
 	i32 regen;
 
-	ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+
+	ctx = boot.context;
 	TEST_ASSERT_NOT_NULL_MESSAGE(ctx, "app bootstrap must succeed");
 	if (ctx == NULL) {
 		return;
 	}
 
-	api = ui_load_vulkan_api(ctx);
+	api = ui_load_vulkan_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(api, "vulkan render device API required");
-	dxc = ui_load_dxc_api(ctx);
+	dxc = ui_load_dxc_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(dxc, "dxc compiler API required");
-	ui = ui_load_ui_api(ctx);
+	ui = ui_load_ui_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(ui, "ui API required");
 	if (api == NULL || dxc == NULL || ui == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -781,7 +783,7 @@ SK_TEST(ui_offscreen_draw_list_golden) {
 		const i32 dxc_rc = dxc->init();
 		if (dxc_rc != 0) {
 			ui->shutdown();
-			sk_app_destroy(ctx);
+			sk_app_shutdown(ctx);
 		}
 		TEST_ASSERT_EQUAL_INT32_MESSAGE(0, dxc_rc, "DXC runtime must load");
 	}
@@ -791,7 +793,7 @@ SK_TEST(ui_offscreen_draw_list_golden) {
 		dxc->shutdown();
 		ui->shutdown();
 		TEST_IGNORE_MESSAGE("no Vulkan ICD; skipping UI golden render");
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -803,7 +805,7 @@ SK_TEST(ui_offscreen_draw_list_golden) {
 			dxc->shutdown();
 			ui->shutdown();
 			TEST_IGNORE_MESSAGE("no suitable adapter; skipping UI golden render");
-			sk_app_destroy(ctx);
+			sk_app_shutdown(ctx);
 			return;
 		}
 		TEST_ASSERT_EQUAL_INT(0, api->select_adapter(dev, best));
@@ -1117,7 +1119,7 @@ cleanup:
 	if (sk_render_device_t_is_valid(dev)) {
 		api->destroy(dev);
 	}
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 #endif /* SK_TESTS */

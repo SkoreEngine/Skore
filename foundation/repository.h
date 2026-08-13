@@ -104,6 +104,9 @@
 extern "C" {
 #endif
 
+/** Type id for app-context registration of `sk_repository_api_t`. */
+#define SK_REPOSITORY_API_TYPE_ID SK_TYPE_ID("sk.repository_api", 0x529d5721e95fa579ULL, 0x5d7928cd14815381ULL)
+
 /* ------------------------------------------------------------------ */
 /*  Identity types (port of v1 UUID / RID)                            */
 /* ------------------------------------------------------------------ */

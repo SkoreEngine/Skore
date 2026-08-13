@@ -21,9 +21,10 @@
  * pre-inits the stacktrace backend so the common path avoids first-use setup
  * mid-fault. Addresses always print; names are filled when resolve succeeds.
  *
- * sk_app_init installs the handler at application startup; sk_app_destroy
- * balances that with one uninstall. Install/uninstall are refcounted so a
- * process-level install (e.g. the test host) survives nested app_init/destroy.
+ * sk_app_init installs the handler at application startup; sk_app_shutdown
+ * balances that with one uninstall when the context owns the install.
+ * Install/uninstall are refcounted so a process-level install (e.g. the test
+ * host) survives nested app_init/shutdown.
  * Embedders that want to opt out call sk_crash_uninstall until the count hits
  * zero. Tests that want to verify a fault run their own child process.
  *

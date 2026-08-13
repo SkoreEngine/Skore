@@ -380,7 +380,7 @@ static i32 host_test_plugin_path(const_chr_t name, char* out, u32 cap) {
 	return 0;
 }
 
-static const sk_ui_api_t* host_test_load_ui(sk_app_context_t* app_ctx) {
+static const sk_ui_api_t* host_test_load_ui(sk_app_context_t* app_ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t name = "sk-ui.dll";
@@ -390,13 +390,14 @@ static const sk_ui_api_t* host_test_load_ui(sk_app_context_t* app_ctx) {
 	const_chr_t name = "sk-ui.so";
 #endif
 	if (host_test_plugin_path(name, path, (u32)sizeof(path)) == 0) {
-		(void)sk_app_api()->load_plugin(app_ctx, path);
+		(void)app_api->load_plugin(app_ctx, path);
 	}
-	return (const sk_ui_api_t*)sk_app_api()->get_api(app_ctx, SK_UI_API_TYPE_ID);
+	return (const sk_ui_api_t*)app_api->get_api(app_ctx, SK_UI_API_TYPE_ID);
 }
 
 SK_TEST(editor_ui_host_dual_stack_same_frame) {
-	sk_app_context_t* app_ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* app_ctx = boot.context;
 	const sk_ui_api_t* ui;
 	sk_editor_ui_host_t* host;
 	const sk_ui_draw_list_t* sk_dl;
@@ -406,9 +407,9 @@ SK_TEST(editor_ui_host_dual_stack_same_frame) {
 	f32 hx, hy, hw, hh;
 
 	TEST_ASSERT_NOT_NULL(app_ctx);
-	ui = host_test_load_ui(app_ctx);
+	ui = host_test_load_ui(app_ctx, boot.api);
 	if (ui == NULL) {
-		sk_app_destroy(app_ctx);
+		sk_app_shutdown(app_ctx);
 		TEST_IGNORE_MESSAGE("sk-ui plugin not available");
 		return;
 	}
@@ -450,7 +451,7 @@ SK_TEST(editor_ui_host_dual_stack_same_frame) {
 	}
 
 	sk_editor_ui_host_destroy(host);
-	sk_app_destroy(app_ctx);
+	sk_app_shutdown(app_ctx);
 }
 
 SK_TEST(editor_imgui_shell_immediate_selection) {

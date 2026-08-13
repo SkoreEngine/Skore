@@ -220,13 +220,15 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	app = sk_app_init(argc, argv);
+	sk_app_boot_t boot = sk_app_init(argc, argv);
+
+	app = boot.context;
 	if (app == NULL) {
 		fprintf(stderr, "sk-editor: sk_app_init failed\n");
 		return 1;
 	}
 
-	app_api = sk_app_api();
+	app_api = boot.api;
 	logger_api = sk_logger_api();
 	log = logger_api->create_logger("editor");
 
@@ -237,6 +239,6 @@ int main(int argc, char* argv[]) {
 	}
 
 	logger_api->destroy_logger(log);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	return rc;
 }

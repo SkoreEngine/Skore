@@ -20,6 +20,8 @@
 extern "C" {
 #endif
 
+typedef struct sk_allocator_t sk_allocator_t;
+
 /** Opaque named logger instance (forward declaration). */
 typedef struct sk_logger_t sk_logger_t;
 
@@ -104,6 +106,30 @@ typedef struct sk_logger_api_t {
 
 /** Type id for app-context registration of sk_logger_api_t (optional). */
 #define SK_LOGGER_API_TYPE_ID SK_TYPE_ID("sk.logger_api", 0xd920710f8a86861fULL, 0xf95f424d6e26e084ULL)
+
+/**
+ * Opaque logger-module state owned by `sk_app_context_t`.
+ * At this stage the object is a stub that still wraps the existing process
+ * logger internals; sinks have not yet moved off file-scope statics.
+ */
+typedef struct sk_logger_context_t sk_logger_context_t;
+
+/**
+ * Allocate a logger context. Hosts normally do not call this —
+ * `sk_app_startup` / `sk_app_init` does. Caller owns the result.
+ *
+ * @param allocator Heap used for the context (must not be NULL).
+ * @return New context, or NULL on allocation failure.
+ */
+sk_logger_context_t* sk_logger_context_create(const sk_allocator_t* allocator);
+
+/**
+ * Free a logger context. Does not close FILE*s and does not destroy named
+ * `sk_logger_t` instances. Passing NULL is a no-op.
+ *
+ * @param log_ctx Context from `sk_logger_context_create`.
+ */
+void sk_logger_context_destroy(sk_logger_context_t* log_ctx);
 
 /**
  * Logger API function table for this module instance.

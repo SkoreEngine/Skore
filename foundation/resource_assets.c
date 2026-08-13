@@ -19,6 +19,8 @@
 #include "resource_assets.h"
 
 #include "allocator.h"
+#include "internal/app_context.h"
+#include "internal/tables.h"
 
 #include <string.h>
 
@@ -1797,6 +1799,10 @@ SK_API const sk_resource_assets_api_t* sk_resource_assets_api(void) {
 	return &api;
 }
 
+void sk_resource_assets_install(sk_app_context_t* ctx) {
+	ctx->resource_assets_api = sk_resource_assets_api();
+}
+
 #ifdef SK_TESTS
 
 #include "test.h"
@@ -2034,9 +2040,11 @@ SK_TEST(resource_asset_handler_add_impl_lookup_and_dispatch) {
 	handler.get_load_order = dummy_get_load_order;
 	handler.get_asset_name = dummy_get_asset_name;
 
-	ctx = sk_app_create();
+	sk_app_boot_t boot = sk_app_create();
+
+	ctx = boot.context;
 	TEST_ASSERT_NOT_NULL(ctx);
-	api = sk_app_api();
+	api = boot.api;
 	TEST_ASSERT_NOT_NULL(api);
 
 	TEST_ASSERT_EQUAL_UINT32(0u, sk_resource_asset_handler_count(ctx, api));
@@ -2121,7 +2129,7 @@ SK_TEST(resource_asset_handler_add_impl_lookup_and_dispatch) {
 	TEST_ASSERT_EQUAL_UINT32(0u, sk_resource_asset_handler_count(ctx, api));
 	TEST_ASSERT_NULL(sk_resource_asset_handler_find_by_extension(ctx, api, ".dummy"));
 
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 /**
@@ -2397,18 +2405,19 @@ static sk_repository_t* ra_test_repository(void) {
 	return repository;
 }
 
-static sk_app_context_t* ra_test_app_context(void) {
-	sk_app_context_t* app = sk_app_create();
+static sk_app_boot_t ra_test_app_context(void) {
+	sk_app_boot_t boot = sk_app_create();
+	sk_app_context_t* app = boot.context;
 	TEST_ASSERT_NOT_NULL(app);
-	const sk_app_api_t* app_api = sk_app_api();
+	const sk_app_api_t* app_api = boot.api;
 	app_api->add_impl(app, SK_RESOURCE_ASSET_HANDLER_TYPE_ID, (const_ptr_t)&ra_test_handler);
 	app_api->add_impl(app, SK_RESOURCE_ASSET_IMPORTER_TYPE_ID, (const_ptr_t)&ra_test_importer);
 	app_api->add_impl(app, SK_RESOURCE_ASSET_IMPORTER_TYPE_ID, (const_ptr_t)&ra_test_generic_importer);
-	return app;
+	return boot;
 }
 
-static sk_resource_assets_context_t* ra_test_context(sk_repository_t* repository, sk_app_context_t* app) {
-	sk_resource_assets_context_t* ctx = sk_resource_assets_api()->create(repository, app, sk_app_api(), sk_allocator_default());
+static sk_resource_assets_context_t* ra_test_context(sk_repository_t* repository, sk_app_context_t* app, const sk_app_api_t* app_api) {
+	sk_resource_assets_context_t* ctx = sk_resource_assets_api()->create(repository, app, app_api, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(ctx);
 	return ctx;
 }
@@ -2528,21 +2537,23 @@ static sk_uuid_t ra_test_parse_uuid(const char* s) {
 
 SK_TEST(resource_assets_engine_context_lifecycle) {
 	sk_repository_t* repository = ra_test_repository();
-	sk_app_context_t* app = ra_test_app_context();
-	sk_resource_assets_context_t* ctx = sk_resource_assets_api()->create(repository, app, sk_app_api(), sk_allocator_default());
+	sk_app_boot_t app_boot = ra_test_app_context();
+	sk_app_context_t* app = app_boot.context;
+	sk_resource_assets_context_t* ctx = sk_resource_assets_api()->create(repository, app, app_boot.api, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(ctx);
 	TEST_ASSERT_TRUE(SK_RID_EQ(sk_resource_assets_api()->get_package(ctx), SK_RID_ZERO));
 	TEST_ASSERT_TRUE(SK_RID_EQ(sk_resource_assets_api()->get_root_directory(ctx), SK_RID_ZERO));
 	TEST_ASSERT_EQUAL_UINT32(0u, sk_resource_assets_api()->get_assets(ctx, RA_TEST_MATERIAL_TYPE, NULL, 0u));
 	sk_resource_assets_api()->destroy(ctx);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	sk_repository_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_handler_discovery) {
 	sk_repository_t* repository = ra_test_repository();
-	sk_app_context_t* app = ra_test_app_context();
-	sk_resource_assets_context_t* ctx = ra_test_context(repository, app);
+	sk_app_boot_t app_boot = ra_test_app_context();
+	sk_app_context_t* app = app_boot.context;
+	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
 	const sk_resource_assets_api_t* api = sk_resource_assets_api();
 
 	TEST_ASSERT_EQUAL_PTR(&ra_test_handler, api->get_asset_handler_for_extension(ctx, ".testmat"));
@@ -2554,14 +2565,15 @@ SK_TEST(resource_assets_engine_handler_discovery) {
 	TEST_ASSERT_NULL(api->get_importer(ctx, ".nope"));
 
 	api->destroy(ctx);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	sk_repository_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_scan_package) {
 	sk_repository_t* repository = ra_test_repository();
-	sk_app_context_t* app = ra_test_app_context();
-	sk_resource_assets_context_t* ctx = ra_test_context(repository, app);
+	sk_app_boot_t app_boot = ra_test_app_context();
+	sk_app_context_t* app = app_boot.context;
+	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
 	const sk_resource_assets_api_t* api = sk_resource_assets_api();
 	const sk_repository_api_t* repo = sk_repository_api();
 
@@ -2651,15 +2663,16 @@ SK_TEST(resource_assets_engine_scan_package) {
 	TEST_ASSERT_EQUAL_STRING(expected_abs, resolved);
 
 	api->destroy(ctx);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	sk_repository_api()->destroy(repository);
 	ra_test_remove_tree(root, assets);
 }
 
 SK_TEST(resource_assets_engine_create_and_unique_names) {
 	sk_repository_t* repository = ra_test_repository();
-	sk_app_context_t* app = ra_test_app_context();
-	sk_resource_assets_context_t* ctx = ra_test_context(repository, app);
+	sk_app_boot_t app_boot = ra_test_app_context();
+	sk_app_context_t* app = app_boot.context;
+	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
 	const sk_resource_assets_api_t* api = sk_resource_assets_api();
 	const sk_repository_api_t* repo = sk_repository_api();
 
@@ -2712,14 +2725,15 @@ SK_TEST(resource_assets_engine_create_and_unique_names) {
 	TEST_ASSERT_EQUAL_STRING("MyMaterial.testmat", name);
 
 	api->destroy(ctx);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	sk_repository_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_move_asset) {
 	sk_repository_t* repository = ra_test_repository();
-	sk_app_context_t* app = ra_test_app_context();
-	sk_resource_assets_context_t* ctx = ra_test_context(repository, app);
+	sk_app_boot_t app_boot = ra_test_app_context();
+	sk_app_context_t* app = app_boot.context;
+	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
 	const sk_resource_assets_api_t* api = sk_resource_assets_api();
 	const sk_repository_api_t* repo = sk_repository_api();
 
@@ -2760,14 +2774,15 @@ SK_TEST(resource_assets_engine_move_asset) {
 	TEST_ASSERT_EQUAL_INT(0, api->is_child_of(ctx, folder_node, sub_node));
 
 	api->destroy(ctx);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	sk_repository_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_register_by_type) {
 	sk_repository_t* repository = ra_test_repository();
-	sk_app_context_t* app = ra_test_app_context();
-	sk_resource_assets_context_t* ctx = ra_test_context(repository, app);
+	sk_app_boot_t app_boot = ra_test_app_context();
+	sk_app_context_t* app = app_boot.context;
+	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
 	const sk_resource_assets_api_t* api = sk_resource_assets_api();
 
 	sk_rid_t package = api->scan_package_from_directory(ctx, "Game", "/nonexistent_scan_root");
@@ -2802,14 +2817,15 @@ SK_TEST(resource_assets_engine_register_by_type) {
 	TEST_ASSERT_TRUE(SK_RID_EQ(found, payload2));
 
 	api->destroy(ctx);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	sk_repository_api()->destroy(repository);
 }
 
 SK_TEST(resource_assets_engine_import_dispatch) {
 	sk_repository_t* repository = ra_test_repository();
-	sk_app_context_t* app = ra_test_app_context();
-	sk_resource_assets_context_t* ctx = ra_test_context(repository, app);
+	sk_app_boot_t app_boot = ra_test_app_context();
+	sk_app_context_t* app = app_boot.context;
+	sk_resource_assets_context_t* ctx = ra_test_context(repository, app, app_boot.api);
 	const sk_resource_assets_api_t* api = sk_resource_assets_api();
 	const sk_repository_api_t* repo = sk_repository_api();
 	const sk_filesystem_api_t* fs = sk_filesystem_api();
@@ -2885,7 +2901,7 @@ SK_TEST(resource_assets_engine_import_dispatch) {
 	TEST_ASSERT_EQUAL_INT(1, ra_test_direct_import_count);
 
 	api->destroy(ctx);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 	sk_repository_api()->destroy(repository);
 	ra_test_remove_tree(root, assets);
 }

@@ -124,19 +124,20 @@ static void uii_env_init(uii_env_t* env) {
 	const_chr_t plugin_name = "sk-ui.so";
 #endif
 	memset(env, 0, sizeof(*env));
-	env->app = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	env->app = boot.context;
 	if (env->app == NULL) {
 		return;
 	}
 	if (uii_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(env->app, path);
+		boot.api->load_plugin(env->app, path);
 	}
-	env->ui = (const sk_ui_api_t*)sk_app_api()->get_api(env->app, SK_UI_API_TYPE_ID);
+	env->ui = (const sk_ui_api_t*)boot.api->get_api(env->app, SK_UI_API_TYPE_ID);
 }
 
 static void uii_env_destroy(uii_env_t* env) {
 	if (env->app != NULL) {
-		sk_app_destroy(env->app);
+		sk_app_shutdown(env->app);
 	}
 	memset(env, 0, sizeof(*env));
 }

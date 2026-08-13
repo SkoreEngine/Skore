@@ -3,6 +3,8 @@
 #include "array.h"
 #include "atomics.h"
 #include "hashmap.h"
+#include "internal/app_context.h"
+#include "internal/tables.h"
 #include "mutex.h"
 
 #include <string.h>
@@ -3179,6 +3181,10 @@ static const sk_repository_api_t repository_api = {
 
 SK_API const sk_repository_api_t* sk_repository_api(void) {
 	return &repository_api;
+}
+
+void sk_repository_install(sk_app_context_t* ctx) {
+	ctx->repository_api = &repository_api;
 }
 
 #ifdef SK_TESTS

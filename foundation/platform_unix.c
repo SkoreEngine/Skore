@@ -1,6 +1,8 @@
 #include "platform.h"
 
 #include "app.h"
+#include "internal/app_context.h"
+#include "internal/tables.h"
 
 #include <dlfcn.h>
 #include <string.h>
@@ -108,12 +110,6 @@ const sk_platform_api_t* sk_platform_api(void) {
 	return &platform_api;
 }
 
-/**
- * Register the default platform API on the app context.
- * Not declared in public headers; called from sk-foundation initialization.
- */
-void sk_platform_init(sk_app_context_t* context, const sk_app_api_t* app_api);
-
-void sk_platform_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
-	app_api->set_api(context, SK_PLATFORM_API_TYPE_ID, sk_platform_api());
+void sk_platform_install(sk_app_context_t* ctx) {
+	ctx->platform = &platform_api;
 }

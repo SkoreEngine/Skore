@@ -628,8 +628,7 @@ static i32 player_gpu_recreate_swapchain(player_ui_state_t* st, sk_window_t wind
 	return 0;
 }
 
-static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, const sk_platform_window_api_t* win_api, sk_window_t window) {
-	const sk_app_api_t* app_api = sk_app_api();
+static i32 player_gpu_init(sk_app_context_t* app_ctx, player_ui_state_t* st, const sk_platform_window_api_t* win_api, sk_window_t window, const sk_app_api_t* app_api) {
 	player_gpu_t* g = &st->gpu;
 	sk_extent_t fb;
 	sk_adapter_t adapter;
@@ -885,8 +884,7 @@ static void player_on_content_scale(sk_window_t window, sk_content_scale_t scale
 	st->last_scale_y = scale.y;
 }
 
-static i32 player_ui_init(sk_app_context_t* app_ctx, player_ui_state_t* st) {
-	const sk_app_api_t* app_api = sk_app_api();
+static i32 player_ui_init(sk_app_context_t* app_ctx, player_ui_state_t* st, const sk_app_api_t* app_api) {
 	sk_logger_t* log = st->log;
 
 	memset(st, 0, sizeof(*st));
@@ -1177,7 +1175,8 @@ static sk_log_file_sink_t* player_attach_file_log(const sk_logger_api_t* logger_
 }
 
 int main(int argc, char* argv[]) {
-	sk_app_context_t* ctx = sk_app_init(argc, argv);
+	sk_app_boot_t boot = sk_app_init(argc, argv);
+	sk_app_context_t* ctx = boot.context;
 	const sk_app_api_t* app_api;
 	const sk_platform_window_api_t* win_api;
 	const sk_render_graph_api_t* rg_api;
@@ -1195,7 +1194,7 @@ int main(int argc, char* argv[]) {
 	 * The profiler table is optional: lifecycle (init/begin_frame/end_frame)
 	 * is host-driven by sk-foundation when the plugin is present, and the zone macro
 	 * below compiles to a no-op unless SK_ENABLE_PROFILER is on. */
-	app_api = sk_app_api();
+	app_api = boot.api;
 	logger_api = sk_logger_api();
 	file_sink = player_attach_file_log(logger_api);
 	win_api = app_api->get_api(ctx, SK_PLATFORM_WINDOW_API_TYPE_ID);
@@ -1207,7 +1206,7 @@ int main(int argc, char* argv[]) {
 			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
 			sk_log_file_sink_destroy(file_sink);
 		}
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 
@@ -1216,7 +1215,7 @@ int main(int argc, char* argv[]) {
 			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
 			sk_log_file_sink_destroy(file_sink);
 		}
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 	if (rg_api->init() != 0) {
@@ -1224,7 +1223,7 @@ int main(int argc, char* argv[]) {
 			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
 			sk_log_file_sink_destroy(file_sink);
 		}
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 
@@ -1235,14 +1234,14 @@ int main(int argc, char* argv[]) {
 			(void)logger_api->remove_sink(sk_log_file_sink_sink(file_sink));
 			sk_log_file_sink_destroy(file_sink);
 		}
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return 1;
 	}
 
 	memset(&ui_state, 0, sizeof(ui_state));
 	ui_state.log = logger_api->create_logger("player-ui");
 
-	if (player_ui_init(ctx, &ui_state) == 0) {
+	if (player_ui_init(ctx, &ui_state, boot.api) == 0) {
 		sk_content_scale_t sc = win_api->get_window_content_scale(window);
 		ui_state.last_scale_x = sc.x > 0.0f ? sc.x : 1.0f;
 		ui_state.last_scale_y = sc.y > 0.0f ? sc.y : 1.0f;
@@ -1250,7 +1249,7 @@ int main(int argc, char* argv[]) {
 		win_api->set_window_key_callback(window, player_on_key, &ui_state);
 		win_api->set_window_char_callback(window, player_on_char, &ui_state);
 		win_api->set_window_scroll_callback(window, player_on_scroll, &ui_state);
-		if (player_gpu_init(ctx, &ui_state, win_api, window) != 0 && ui_state.log != NULL) {
+		if (player_gpu_init(ctx, &ui_state, win_api, window, boot.api) != 0 && ui_state.log != NULL) {
 			sk_log_warn(logger_api, ui_state.log, "GPU present unavailable — CPU UI still runs (window stays blank)");
 		}
 		if (ui_state.log != NULL) {
@@ -1290,6 +1289,6 @@ int main(int argc, char* argv[]) {
 		file_sink = NULL;
 	}
 	rg_api->shutdown();
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 	return 0;
 }

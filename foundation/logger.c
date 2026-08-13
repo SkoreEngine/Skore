@@ -1,6 +1,8 @@
 #include "logger.h"
 
 #include "allocator.h"
+#include "internal/app_context.h"
+#include "internal/tables.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -10,6 +12,11 @@ enum { SK_LOGGER_NAME_MAX = 64, SK_LOGGER_MAX_SINKS = 16, SK_LOG_MESSAGE_MAX = 2
 
 struct sk_logger_t {
 	char name[SK_LOGGER_NAME_MAX];
+};
+
+/* Stub: still wraps the process-wide sink list in this TU. */
+struct sk_logger_context_t {
+	const sk_allocator_t* allocator;
 };
 
 /* Process-global sink list (main-thread ownership). Per static-linked module
@@ -325,6 +332,36 @@ const sk_logger_api_t* sk_logger_api(void) {
 
 void sk_logger_get_api(sk_logger_api_t* out) {
 	*out = *sk_logger_api();
+}
+
+sk_logger_context_t* sk_logger_context_create(const sk_allocator_t* allocator) {
+	sk_logger_context_t* ctx;
+
+	if (allocator == NULL) {
+		return NULL;
+	}
+	ctx = (sk_logger_context_t*)allocator->alloc(allocator->instance, sizeof(sk_logger_context_t));
+	if (ctx == NULL) {
+		return NULL;
+	}
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->allocator = allocator;
+	ensure_module_ready();
+	return ctx;
+}
+
+void sk_logger_context_destroy(sk_logger_context_t* log_ctx) {
+	const sk_allocator_t* alloc;
+
+	if (log_ctx == NULL) {
+		return;
+	}
+	alloc = log_ctx->allocator;
+	alloc->free(alloc->instance, log_ctx);
+}
+
+void sk_logger_install(sk_app_context_t* ctx) {
+	ctx->logger_api = &logger_api;
 }
 
 const sk_log_sink_t* sk_logger_stdout_sink(void) {

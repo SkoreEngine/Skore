@@ -590,7 +590,7 @@ static i32 editor_test_plugin_path(const_chr_t name, char* out, u32 cap) {
 	return 0;
 }
 
-static const sk_ui_api_t* editor_test_load_ui(sk_app_context_t* app_ctx) {
+static const sk_ui_api_t* editor_test_load_ui(sk_app_context_t* app_ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t name = "sk-ui.dll";
@@ -600,13 +600,14 @@ static const sk_ui_api_t* editor_test_load_ui(sk_app_context_t* app_ctx) {
 	const_chr_t name = "sk-ui.so";
 #endif
 	if (editor_test_plugin_path(name, path, (u32)sizeof(path)) == 0) {
-		(void)sk_app_api()->load_plugin(app_ctx, path);
+		(void)app_api->load_plugin(app_ctx, path);
 	}
-	return (const sk_ui_api_t*)sk_app_api()->get_api(app_ctx, SK_UI_API_TYPE_ID);
+	return (const sk_ui_api_t*)app_api->get_api(app_ctx, SK_UI_API_TYPE_ID);
 }
 
 SK_TEST(editor_console_panel_retained_logs_and_filter) {
-	sk_app_context_t* app_ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* app_ctx = boot.context;
 	const sk_ui_api_t* ui;
 	sk_ui_context_t* ctx = NULL;
 	sk_editor_console_panel_t* panel = NULL;
@@ -614,10 +615,10 @@ SK_TEST(editor_console_panel_retained_logs_and_filter) {
 	sk_ui_node_t clear_btn;
 
 	TEST_ASSERT_NOT_NULL(app_ctx);
-	ui = editor_test_load_ui(app_ctx);
+	ui = editor_test_load_ui(app_ctx, boot.api);
 	if (ui == NULL) {
 		/* Plugin not built/copied next to tests — skip rather than fail CI config. */
-		sk_app_destroy(app_ctx);
+		sk_app_shutdown(app_ctx);
 		TEST_IGNORE_MESSAGE("sk-ui plugin not available");
 		return;
 	}
@@ -657,7 +658,7 @@ SK_TEST(editor_console_panel_retained_logs_and_filter) {
 	sk_editor_console_panel_destroy(panel);
 	ui->context_destroy(ctx);
 	ui->shutdown();
-	sk_app_destroy(app_ctx);
+	sk_app_shutdown(app_ctx);
 }
 
 #endif /* SK_TESTS */

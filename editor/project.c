@@ -191,10 +191,12 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 	ed_path(samples, "hero.fbx", path, (u32)sizeof(path));
 	ed_write(path, "fbx-bytes");
 
-	sk_app_context_t* app = sk_app_create();
+	sk_app_boot_t boot = sk_app_create();
+
+	sk_app_context_t* app = boot.context;
 	TEST_ASSERT_NOT_NULL(app);
 
-	sk_editor_project_t* project = sk_editor_project_open(app, sk_app_api(), "Game", root);
+	sk_editor_project_t* project = sk_editor_project_open(app, boot.api, "Game", root);
 	TEST_ASSERT_NOT_NULL(project);
 	TEST_ASSERT_NOT_NULL(sk_editor_project_assets(project));
 	TEST_ASSERT_NOT_NULL(sk_editor_project_repository(project));
@@ -229,7 +231,7 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 	TEST_ASSERT_NOT_NULL(assets_api->get_asset_handler_for_extension(sk_editor_project_assets(project), ".mesh"));
 
 	sk_editor_project_close(project);
-	sk_app_destroy(app);
+	sk_app_shutdown(app);
 
 	ed_path(samples, "tone.wav", path, (u32)sizeof(path));
 	(void)fs->remove(path);
@@ -252,10 +254,12 @@ SK_TEST(editor_project_rejects_missing_assets_dir) {
 	ed_path(temp, "skore_editor_missing_assets", root, (u32)sizeof(root));
 	(void)fs->create_directory(root);
 
-	sk_app_context_t* app = sk_app_create();
+	sk_app_boot_t boot = sk_app_create();
+
+	sk_app_context_t* app = boot.context;
 	TEST_ASSERT_NOT_NULL(app);
-	TEST_ASSERT_NULL(sk_editor_project_open(app, sk_app_api(), "Game", root));
-	sk_app_destroy(app);
+	TEST_ASSERT_NULL(sk_editor_project_open(app, boot.api, "Game", root));
+	sk_app_shutdown(app);
 	(void)fs->remove(root);
 }
 

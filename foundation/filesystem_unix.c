@@ -1,5 +1,8 @@
 #include "filesystem.h"
 
+#include "internal/app_context.h"
+#include "internal/tables.h"
+
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -550,4 +553,8 @@ void sk_filesystem_get_api(sk_filesystem_api_t* out) {
 
 const sk_filesystem_api_t* sk_filesystem_api(void) {
 	return &filesystem_api;
+}
+
+void sk_filesystem_install(sk_app_context_t* ctx) {
+	ctx->filesystem_api = &filesystem_api;
 }
