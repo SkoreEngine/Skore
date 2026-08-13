@@ -56,6 +56,9 @@ if(BUILD_TESTING)
     target_include_directories(sk-app-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/plugins/render_graph
         ${CMAKE_SOURCE_DIR}/plugins/render_device)
+    # Integration tests include jolt_components.h (plugin public header).
+    target_include_directories(sk-app-tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/plugins/jolt)
     # Integration tests include profiler.h (plugin public header).
     target_include_directories(sk-app-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/plugins/profiler)

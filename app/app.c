@@ -737,6 +737,8 @@ i32 sk_app_run(sk_app_context_t* context) {
 #include "dxc_compiler.h"
 #include "render_graph.h"
 #include "render_pipeline.h"
+#include "jolt_components.h"
+#include "resource_serialize.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1489,6 +1491,34 @@ SK_TEST(app_init_auto_loads_entities_plugin) {
 	sk_app_destroy(ctx);
 }
 
+/* The app auto-loads plugins in sorted filename order (sk-entities before
+ * sk-jolt), so the jolt plugin entry point registers the physics ECS
+ * components with the entities API at load. Verifies the components appear in
+ * the ECS component registry exactly like the entities plugin's own types. */
+SK_TEST(app_init_auto_loads_jolt_plugin) {
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)sk_app_api()->get_api(ctx, SK_ENTITIES_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL_MESSAGE(ecs, "expected sk-entities auto-loaded from app_folder/plugins");
+
+	sk_component_info_t info;
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("rigid_body_config", info.name);
+	TEST_ASSERT_EQUAL_UINT32((u32)sizeof(sk_rigid_body_config_t), info.size);
+
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("rigid_body_state", info.name);
+
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_BOX_COLLIDER_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("box_collider", info.name);
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID, &info));
+	sk_app_destroy(ctx);
+}
+
 SK_TEST(entities_plugin_registers_api) {
 	char path[SK_FS_PATH_MAX];
 	typedef int (*entry_fn)(sk_app_context_t*, const sk_app_api_t*);
@@ -1910,6 +1940,122 @@ SK_TEST(render_graph_plugin_registers_api) {
 	TEST_ASSERT_NOT_NULL(rg->execute);
 	plat->lib_close(lib);
 	sk_app_destroy(ctx);
+}
+
+/* ---- physics components (jolt plugin) ---- */
+
+/* Host-side JSON round-trip for the physics component payload types. The
+ * jolt plugin deliberately does not link resource_serialize (its *_to_file
+ * helpers pull sk_filesystem_api, which only exists in sk-app), so the
+ * serialize/deserialize identity of the component payloads is verified here
+ * where sk_filesystem_api resolves. */
+
+static sk_repository_t* app_jolt_components_repo(void) {
+	const sk_repository_api_t* api = sk_repository_api();
+	sk_repository_t* repo = api->create(sk_allocator_default());
+	TEST_ASSERT_NOT_NULL(repo);
+	TEST_ASSERT_EQUAL_INT(0, sk_jolt_component_types_register(repo));
+	return repo;
+}
+
+/* serialize -> destroy -> deserialize -> re-serialize; JSON must be identical. */
+static void app_jolt_components_assert_double_serialize_identity(sk_repository_t* repo, sk_rid_t rid) {
+	const sk_repository_api_t* api = sk_repository_api();
+	const sk_allocator_t* a = sk_allocator_default();
+	char* json1 = NULL;
+	u32 size1 = 0u;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_serialize_json_alloc(repo, rid, a, &json1, &size1));
+	TEST_ASSERT_NOT_NULL(json1);
+	TEST_ASSERT_TRUE(size1 > 0u);
+
+	sk_uuid_t uuid = api->resource_uuid(repo, rid);
+	api->destroy_resource(repo, rid, NULL);
+
+	sk_rid_t loaded = SK_RID_ZERO;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_deserialize_json_string(repo, sk_str_view_make(json1, size1), a, &loaded));
+	TEST_ASSERT_TRUE(loaded.id != 0u);
+	if (!SK_UUID_EQ(uuid, SK_UUID_ZERO)) {
+		sk_uuid_t got = api->resource_uuid(repo, loaded);
+		TEST_ASSERT_EQUAL_UINT64(uuid.lo, got.lo);
+		TEST_ASSERT_EQUAL_UINT64(uuid.hi, got.hi);
+	}
+
+	char* json2 = NULL;
+	u32 size2 = 0u;
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_serialize_json_alloc(repo, loaded, a, &json2, &size2));
+	TEST_ASSERT_NOT_NULL(json2);
+	TEST_ASSERT_EQUAL_UINT32(size1, size2);
+	TEST_ASSERT_EQUAL_MEMORY(json1, json2, size1);
+
+	a->free(a->instance, json1);
+	a->free(a->instance, json2);
+}
+
+SK_TEST(jolt_components_serialize_roundtrip) {
+	const sk_repository_api_t* api = sk_repository_api();
+	sk_repository_t* repo = app_jolt_components_repo();
+
+	/* Rigid body config: every cold field round-trips through JSON. */
+	{
+		const sk_resource_type_t* type = api->find_type_by_name(repo, "RigidBodyConfigResource");
+		TEST_ASSERT_NOT_NULL(type);
+		sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+		TEST_ASSERT_TRUE(rid.id != 0u);
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_enum(w, SK_RIGID_BODY_CONFIG_FIELD_MOTION_TYPE, SK_JOLT_MOTION_TYPE_KINEMATIC));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_RIGID_BODY_CONFIG_FIELD_MASS, 4.0));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_RIGID_BODY_CONFIG_FIELD_FRICTION, 0.5));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_RIGID_BODY_CONFIG_FIELD_RESTITUTION, 0.1));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_RIGID_BODY_CONFIG_FIELD_LINEAR_DAMPING, 0.01));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_RIGID_BODY_CONFIG_FIELD_ANGULAR_DAMPING, 0.02));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_RIGID_BODY_CONFIG_FIELD_GRAVITY_FACTOR, 1.5));
+		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RIGID_BODY_CONFIG_FIELD_OBJECT_LAYER, SK_JOLT_OBJECT_LAYER_NON_MOVING));
+		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_RIGID_BODY_CONFIG_FIELD_FLAGS, SK_RIGID_BODY_FLAG_ALLOW_SLEEPING));
+		api->commit(w, NULL);
+		app_jolt_components_assert_double_serialize_identity(repo, rid);
+	}
+
+	/* Rigid body state: hot velocities (vec3 wire form). */
+	{
+		const sk_resource_type_t* type = api->find_type_by_name(repo, "RigidBodyStateResource");
+		TEST_ASSERT_NOT_NULL(type);
+		sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+		TEST_ASSERT_TRUE(rid.id != 0u);
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec3(w, SK_RIGID_BODY_STATE_FIELD_LINEAR_VELOCITY, sk_vec3(10.0f, -5.5f, 0.0f)));
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec3(w, SK_RIGID_BODY_STATE_FIELD_ANGULAR_VELOCITY, sk_vec3(0.0f, 0.0f, 2.25f)));
+		api->commit(w, NULL);
+		app_jolt_components_assert_double_serialize_identity(repo, rid);
+	}
+
+	/* Box / sphere / capsule colliders. */
+	{
+		const sk_resource_type_t* type = api->find_type_by_name(repo, "BoxColliderResource");
+		sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec3(w, SK_BOX_COLLIDER_FIELD_HALF_EXTENT, sk_vec3(2.0f, 1.0f, 0.5f)));
+		api->commit(w, NULL);
+		app_jolt_components_assert_double_serialize_identity(repo, rid);
+	}
+	{
+		const sk_resource_type_t* type = api->find_type_by_name(repo, "SphereColliderResource");
+		sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_SPHERE_COLLIDER_FIELD_RADIUS, 1.25));
+		api->commit(w, NULL);
+		app_jolt_components_assert_double_serialize_identity(repo, rid);
+	}
+	{
+		const sk_resource_type_t* type = api->find_type_by_name(repo, "CapsuleColliderResource");
+		sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CAPSULE_COLLIDER_FIELD_HALF_HEIGHT, 1.0));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CAPSULE_COLLIDER_FIELD_RADIUS, 0.4));
+		api->commit(w, NULL);
+		app_jolt_components_assert_double_serialize_identity(repo, rid);
+	}
+
+	api->destroy(repo);
 }
 
 #endif /* SK_TESTS */

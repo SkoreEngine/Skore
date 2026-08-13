@@ -48,6 +48,12 @@
 
 #include <thread>
 
+/* Defined in jolt_components.c (C TU of this plugin): registers the physics
+ * ECS components with the entities API resolved from the app registry.
+ * Idempotent; no-op until the entities plugin has registered its table, so it
+ * may be retried on later API calls (out-of-order plugin loads). */
+extern "C" void sk_jolt_components_register_all(sk_app_context_t* context, const sk_app_api_t* app_api);
+
 /* Host app registry cached at plugin load so in-plugin tests (and later the
  * integration) can resolve this plugin's own table. */
 static sk_app_context_t* g_jolt_app_context = nullptr;
@@ -239,6 +245,10 @@ i32 jolt_init_impl(const sk_jolt_settings_t* settings) noexcept {
 		/* Re-entrant: replace any live world (also cleans a half-built state). */
 		jolt_shutdown_impl();
 
+		/* Physics components register with the ECS once the entities plugin is
+		 * loaded; retry here for out-of-order plugin load orders. */
+		sk_jolt_components_register_all(g_jolt_app_context, g_jolt_app_api);
+
 		sk_jolt_settings_t resolved;
 		jolt_settings_resolve(settings, &resolved);
 
@@ -385,6 +395,7 @@ void sk_jolt_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	g_jolt_app_context = context;
 	g_jolt_app_api = app_api;
 	app_api->set_api(context, SK_JOLT_API_TYPE_ID, &jolt_api);
+	sk_jolt_components_register_all(context, app_api);
 }
 
 /* ---- compile-time checks on the C boundary (all builds) ---- */

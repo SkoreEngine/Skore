@@ -23,6 +23,7 @@ typedef int sk_jolt_tests_tu_anchor_t;
 #ifdef SK_TESTS
 
 #include "jolt.h"
+#include "jolt_components.h"
 
 #include "app.h"
 #include "common.h"
@@ -338,6 +339,98 @@ SK_TEST(jolt_shape_desc_layout) {
 	capsule.shape.capsule.radius = 0.3f;
 	TEST_ASSERT_EQUAL_FLOAT(0.75f, capsule.shape.capsule.half_height);
 	TEST_ASSERT_EQUAL_FLOAT(0.3f, capsule.shape.capsule.radius);
+}
+
+SK_TEST(jolt_components_register_with_ecs) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(context);
+	TEST_ASSERT_NOT_NULL(app_api);
+
+	/* The physics components register with the entities API. In the unsorted
+	 * test host scan sk-jolt may run before sk-entities; then the entities
+	 * table is not registered yet and the full path is covered by the host
+	 * test app_init_auto_loads_jolt_plugin (sorted app auto-load) instead.
+	 * When entities is live, registering again is idempotent (layout match). */
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)app_api->get_api(context, SK_ENTITIES_API_TYPE_ID);
+	if (ecs == NULL) {
+		return; /* entities not loaded yet; see app.c integration test */
+	}
+	TEST_ASSERT_EQUAL_INT32(0, sk_jolt_components_register(ecs));
+
+	/* Cold config component: registered name + layout. */
+	sk_component_info_t info;
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("rigid_body_config", info.name);
+	TEST_ASSERT_EQUAL_UINT32((u32)sizeof(sk_rigid_body_config_t), info.size);
+	TEST_ASSERT_EQUAL_UINT32((u32) _Alignof(sk_rigid_body_config_t), info.align);
+	/* One cache line: cold config stays out of the hot per-frame path. */
+	TEST_ASSERT_TRUE(sizeof(sk_rigid_body_config_t) <= 64u);
+
+	/* Hot per-frame state component (iterated/written independently). */
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("rigid_body_state", info.name);
+	TEST_ASSERT_EQUAL_UINT32((u32)sizeof(sk_rigid_body_state_t), info.size);
+
+	/* Collider components. */
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_BOX_COLLIDER_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("box_collider", info.name);
+	TEST_ASSERT_EQUAL_UINT32((u32)sizeof(sk_box_collider_t), info.size);
+
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("sphere_collider", info.name);
+
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("capsule_collider", info.name);
+
+	/* A body is composed: spawn an entity with config + hot state + a box
+	 * collider and round-trip values through the world storage. */
+	sk_world_t* world = ecs->world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	const sk_type_id_t signature[] = {SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, SK_BOX_COLLIDER_COMPONENT_TYPE_ID};
+	sk_entity_t entity = ecs->world_spawn(world, signature, 3u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(entity));
+
+	sk_rigid_body_config_t* cfg = (sk_rigid_body_config_t*)ecs->world_component(world, entity, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(cfg);
+	cfg->motion_type = SK_JOLT_MOTION_TYPE_DYNAMIC;
+	cfg->mass = 3.0f;
+	cfg->friction = 0.8f;
+	cfg->gravity_factor = 1.0f;
+	cfg->object_layer = SK_JOLT_OBJECT_LAYER_MOVING;
+	cfg->flags = SK_RIGID_BODY_FLAG_ALLOW_SLEEPING;
+	TEST_ASSERT_NULL(cfg->body); /* opaque handle starts NULL */
+
+	sk_rigid_body_state_t* st = (sk_rigid_body_state_t*)ecs->world_component(world, entity, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(st);
+	st->linear_velocity = sk_vec3(1.0f, 2.0f, 3.0f);
+	st->angular_velocity = sk_vec3(0.0f, 0.5f, 0.0f);
+
+	sk_box_collider_t* box = (sk_box_collider_t*)ecs->world_component(world, entity, SK_BOX_COLLIDER_COMPONENT_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(box);
+	box->half_extent = sk_vec3(0.5f, 0.5f, 0.5f);
+
+	/* Read back: the hot state is written/read independently of the config. */
+	const sk_rigid_body_state_t* st_r = (const sk_rigid_body_state_t*)ecs->world_component(world, entity, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(st_r);
+	TEST_ASSERT_EQUAL_FLOAT(1.0f, st_r->linear_velocity.x);
+	TEST_ASSERT_EQUAL_FLOAT(3.0f, st_r->linear_velocity.z);
+	TEST_ASSERT_EQUAL_FLOAT(0.5f, st_r->angular_velocity.y);
+	const sk_rigid_body_config_t* cfg_r = (const sk_rigid_body_config_t*)ecs->world_component(world, entity, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(cfg_r);
+	TEST_ASSERT_EQUAL_FLOAT(3.0f, cfg_r->mass);
+	TEST_ASSERT_EQUAL_FLOAT(0.8f, cfg_r->friction);
+	TEST_ASSERT_EQUAL_UINT32(SK_JOLT_OBJECT_LAYER_MOVING, cfg_r->object_layer);
+
+	TEST_ASSERT_EQUAL_INT32(0, ecs->world_despawn(world, entity));
+	ecs->world_destroy(world);
 }
 
 /**

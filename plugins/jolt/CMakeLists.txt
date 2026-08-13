@@ -8,3 +8,7 @@ sk_add_plugin(jolt SOURCES ${SKORE_JOLT_SOURCES})
 # the Jolt headers/archive are part of this plugin's build and later
 # integration TUs can include <Jolt/...> without touching the build setup.
 target_link_libraries(sk-jolt PRIVATE jolt)
+
+# Physics ECS components register with the entities API (headers only; the
+# entities table is resolved at runtime from the app registry).
+target_link_libraries(sk-jolt PRIVATE sk-entities-lib)

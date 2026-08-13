@@ -14,6 +14,7 @@
 #include "path.h"
 #include "resource_asset_builtins.h"
 #include "resource_assets_types.h"
+#include "resource_jolt_component_types.h"
 
 #include <string.h>
 
@@ -45,7 +46,7 @@ sk_editor_project_t* sk_editor_project_open(sk_app_context_t* app_context, const
 		return NULL;
 	}
 
-	if (sk_resource_assets_register_types(repository) != 0 || sk_resource_asset_builtins_register_types(repository) != 0) {
+	if (sk_resource_assets_register_types(repository) != 0 || sk_resource_asset_builtins_register_types(repository) != 0 || sk_jolt_component_types_register(repository) != 0) {
 		repo_api->destroy(repository);
 		return NULL;
 	}
@@ -199,6 +200,19 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 	TEST_ASSERT_NOT_NULL(sk_editor_project_assets(project));
 	TEST_ASSERT_NOT_NULL(sk_editor_project_repository(project));
 	TEST_ASSERT_TRUE(sk_editor_project_root_directory(project).id != 0u);
+
+	/* Physics component payload types appear in the project type listing
+	 * the same way built-in asset types do (reflection / inspector). */
+	{
+		const sk_repository_api_t* repo = sk_repository_api();
+		sk_repository_t* listing = sk_editor_project_repository(project);
+		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "RigidBodyConfigResource"));
+		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "RigidBodyStateResource"));
+		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "BoxColliderResource"));
+		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "SphereColliderResource"));
+		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "CapsuleColliderResource"));
+		TEST_ASSERT_NOT_NULL(repo->find_type(listing, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID));
+	}
 
 	/* Seeded mesh discovered by core scan (not by an editor-side registry). */
 	sk_rid_t seed = ed_find_asset(sk_editor_project_repository(project), sk_editor_project_root_directory(project), "seed", ".mesh");
