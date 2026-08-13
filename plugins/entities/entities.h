@@ -41,7 +41,8 @@
  * { archetype, chunk, row } location. Destroyed slots are recycled through a
  * free list with a bumped generation, so stale handles fail the generation
  * check. The immediate structural APIs (world_spawn / world_despawn /
- * world_add_component / world_remove_component) mutate storage right away and
+ * world_add_component / world_remove_component /
+ * world_add_component_from_asset) mutate storage right away and
  * are intentionally separate from the deferred sk_entitycommands_t surface.
  *
  * # Deferred entity commands
@@ -876,6 +877,29 @@ typedef struct sk_entities_api_t {
 	 *         the component.
 	 */
 	void_ptr_t (*world_component)(sk_world_t* world, sk_entity_t entity, sk_type_id_t type_id);
+
+	/**
+	 * Instantiate one component onto a live entity from a component resource.
+	 *
+	 * Resolves the resource's repository type id (that id IS the ECS
+	 * component type id), adds the component (zero-initialized), and invokes
+	 * the registered on_load_asset hook with the live instance so it can
+	 * pull authored data from @p repository. A NULL hook is valid: the
+	 * component stays zeroed (tag components).
+	 *
+	 * On hook failure the newly added component is removed so the entity
+	 * is not left with a half-initialized slot.
+	 *
+	 * @param world               World (must not be NULL).
+	 * @param entity              Live entity handle.
+	 * @param repository          Repository that owns @p component_resource
+	 *                            (must not be NULL).
+	 * @param component_resource  RID of the component sub-object.
+	 * @return 0 on success, -1 when the type id cannot be resolved or is
+	 *         not a registered component (or add fails), or the hook's
+	 *         non-zero code when on_load_asset fails.
+	 */
+	i32 (*world_add_component_from_asset)(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, sk_rid_t component_resource);
 
 	/**
 	 * Create a world-managed query. The query observes every archetype the

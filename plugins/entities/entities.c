@@ -20,7 +20,8 @@
  * lazily from spawn signatures, a dense generation-tagged entity index, and
  * the world-managed query set that observes every new archetype) with
  * immediate structural ops (world_spawn / world_despawn /
- * world_add_component / world_remove_component). The deferred
+ * world_add_component / world_remove_component /
+ * world_add_component_from_asset). The deferred
  * sk_entitycommands_t surface records the same structural changes without
  * touching the world and applies them in FIFO order with commands_apply, so
  * commands can be queued during query iteration and flushed afterwards.
@@ -33,7 +34,9 @@
 #include "array.h"
 #include "entities_builtins.h"
 #include "hashmap.h"
+#include "logger.h"
 #include "profiler.h"
+#include "resource_component_types.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -1227,6 +1230,43 @@ static i32 world_remove_component_impl(sk_world_t* world, sk_entity_t entity, sk
 	return world_move_entity(world, entity, slot, target);
 }
 
+static void ecs_report_asset_error(const_chr_t message) {
+	const sk_logger_api_t* logger_api = sk_logger_api();
+	sk_logger_t* log = logger_api->create_logger("Skore::Entities");
+	if (log != NULL) {
+		logger_api->message(SK_LOGGER_TYPE_ERROR, log, message);
+		logger_api->destroy_logger(log);
+	}
+}
+
+static i32 world_add_component_from_asset_impl(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, sk_rid_t component_resource) {
+	const sk_type_id_t type_id = sk_resource_entity_component_type_id(repository, component_resource);
+	sk_component_desc_t desc = {0};
+
+	if (SK_TYPE_ID_EQ(type_id, SK_TYPE_ID_ZERO) || component_desc_impl(type_id, &desc) != 0) {
+		ecs_report_asset_error("failed to instantiate component from asset: unknown type id");
+		return -1;
+	}
+
+	if (world_add_component_impl(world, entity, type_id) != 0) {
+		ecs_report_asset_error("failed to instantiate component from asset: add component failed");
+		return -1;
+	}
+
+	if (desc.on_load_asset == NULL) {
+		return 0;
+	}
+
+	void_ptr_t instance = world_component_impl(world, entity, type_id);
+	const i32 load_rc = desc.on_load_asset(world, entity, repository, instance, component_resource);
+	if (load_rc != 0) {
+		ecs_report_asset_error("failed to instantiate component from asset: on_load_asset failed");
+		(void)world_remove_component_impl(world, entity, type_id);
+		return load_rc;
+	}
+	return 0;
+}
+
 static sk_query_t* world_query_create_impl(sk_world_t* world, const sk_query_desc_t* desc) {
 	sk_query_t* query = query_create_impl(desc);
 	if (query == NULL) {
@@ -1840,6 +1880,7 @@ static const sk_entities_api_t entities_api = {
 	world_add_component_impl,
 	world_remove_component_impl,
 	world_component_impl,
+	world_add_component_from_asset_impl,
 	world_query_create_impl,
 
 	system_create_impl,
@@ -1952,6 +1993,7 @@ SK_TEST(entities_api_table_is_complete) {
 	TEST_ASSERT_NOT_NULL(entities_api.register_component);
 	TEST_ASSERT_NOT_NULL(entities_api.component_info);
 	TEST_ASSERT_NOT_NULL(entities_api.component_desc);
+	TEST_ASSERT_NOT_NULL(entities_api.world_add_component_from_asset);
 	TEST_ASSERT_NOT_NULL(entities_api.archetype_create);
 	TEST_ASSERT_NOT_NULL(entities_api.archetype_destroy);
 	TEST_ASSERT_NOT_NULL(entities_api.archetype_column);
@@ -2081,6 +2123,178 @@ SK_TEST(entities_register_component_on_load_asset) {
 	TEST_ASSERT_EQUAL_STRING("onload", info.name);
 	TEST_ASSERT_EQUAL_INT32(0, entities_api.component_desc(id, &stored));
 	TEST_ASSERT_TRUE(stored.on_load_asset == test_on_load_asset_stub);
+}
+
+/* ---- world_add_component_from_asset (APX-298) ---- */
+
+#define TEST_FAKE_ASSET_COMP_ID SK_TYPE_ID("sk.test.ecs.fake.asset", 0x3C00000000000001ULL, 0x0200000000000001ULL)
+#define TEST_FAKE_UNKNOWN_TYPE_ID SK_TYPE_ID("sk.test.ecs.fake.unknown", 0x3C00000000000002ULL, 0x0200000000000001ULL)
+
+typedef struct fake_asset_comp_t {
+	i32 value;
+} fake_asset_comp_t;
+
+typedef struct fake_load_probe_t {
+	i32 called;
+	i32 return_code;
+	sk_world_t* world;
+	sk_entity_t entity;
+	sk_repository_t* repository;
+	void_ptr_t instance;
+	sk_rid_t component_resource;
+} fake_load_probe_t;
+
+static fake_load_probe_t fake_load_probe;
+
+static i32 fake_on_load_asset(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, void_ptr_t instance, sk_rid_t component_resource) {
+	fake_load_probe.called += 1;
+	fake_load_probe.world = world;
+	fake_load_probe.entity = entity;
+	fake_load_probe.repository = repository;
+	fake_load_probe.instance = instance;
+	fake_load_probe.component_resource = component_resource;
+	if (instance != NULL && fake_load_probe.return_code == 0) {
+		((fake_asset_comp_t*)instance)->value = 42;
+	} else if (instance != NULL) {
+		((fake_asset_comp_t*)instance)->value = -1;
+	}
+	return fake_load_probe.return_code;
+}
+
+static sk_repository_t* test_create_repository(void) {
+	sk_repository_t* repository = sk_repository_api()->create(sk_allocator_default());
+	TEST_ASSERT_NOT_NULL(repository);
+	return repository;
+}
+
+static sk_rid_t test_create_typed_resource(sk_repository_t* repository, sk_type_id_t type_id, const_chr_t name) {
+	const sk_repository_api_t* repo = sk_repository_api();
+	sk_resource_type_desc_t desc = {0};
+	desc.type_id = type_id;
+	desc.name = name;
+	desc.instance_size = (u32)sizeof(fake_asset_comp_t);
+	TEST_ASSERT_EQUAL_INT32(0, repo->register_type(repository, &desc));
+	const sk_resource_type_t* type = repo->find_type(repository, type_id);
+	TEST_ASSERT_NOT_NULL(type);
+	sk_rid_t rid = repo->create_resource(repository, type, SK_UUID_ZERO, NULL);
+	TEST_ASSERT_TRUE(rid.id != 0u);
+	return rid;
+}
+
+SK_TEST(entities_add_component_from_asset_invokes_on_load_asset) {
+	ecs_component_registry_reset();
+	memset(&fake_load_probe, 0, sizeof(fake_load_probe));
+
+	sk_component_desc_t desc = {0};
+	desc.type_id = TEST_FAKE_ASSET_COMP_ID;
+	desc.size = (u32)sizeof(fake_asset_comp_t);
+	desc.align = 4u;
+	desc.name = "fake-asset";
+	desc.on_load_asset = fake_on_load_asset;
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(&desc));
+
+	sk_repository_t* repository = test_create_repository();
+	sk_rid_t rid = test_create_typed_resource(repository, TEST_FAKE_ASSET_COMP_ID, "FakeAssetComp");
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t entity = entities_api.world_spawn(world, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(entity));
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_add_component_from_asset(world, entity, repository, rid));
+
+	TEST_ASSERT_EQUAL_INT32(1, fake_load_probe.called);
+	TEST_ASSERT_TRUE(fake_load_probe.world == world);
+	TEST_ASSERT_TRUE(sk_entity_eq(fake_load_probe.entity, entity));
+	TEST_ASSERT_TRUE(fake_load_probe.repository == repository);
+	TEST_ASSERT_EQUAL_UINT64(rid.id, fake_load_probe.component_resource.id);
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, entity, TEST_FAKE_ASSET_COMP_ID));
+	void_ptr_t live = entities_api.world_component(world, entity, TEST_FAKE_ASSET_COMP_ID);
+	TEST_ASSERT_NOT_NULL(live);
+	TEST_ASSERT_TRUE(fake_load_probe.instance == live);
+	TEST_ASSERT_EQUAL_INT32(42, ((fake_asset_comp_t*)live)->value);
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_add_component_from_asset_unknown_type) {
+	ecs_component_registry_reset();
+	memset(&fake_load_probe, 0, sizeof(fake_load_probe));
+
+	sk_repository_t* repository = test_create_repository();
+	sk_rid_t unknown_rid = test_create_typed_resource(repository, TEST_FAKE_UNKNOWN_TYPE_ID, "FakeUnknownComp");
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t entity = entities_api.world_spawn(world, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(entity));
+
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.world_add_component_from_asset(world, entity, repository, SK_RID_ZERO));
+	TEST_ASSERT_EQUAL_INT32(-1, entities_api.world_add_component_from_asset(world, entity, repository, unknown_rid));
+	TEST_ASSERT_EQUAL_INT32(0, fake_load_probe.called);
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, entity, TEST_FAKE_UNKNOWN_TYPE_ID));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, entity));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_add_component_from_asset_null_on_load_asset) {
+	ecs_component_registry_reset();
+	memset(&fake_load_probe, 0, sizeof(fake_load_probe));
+
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(TEST_FAKE_ASSET_COMP_ID, (u32)sizeof(fake_asset_comp_t), 4u, "fake-zero"));
+
+	sk_repository_t* repository = test_create_repository();
+	sk_rid_t rid = test_create_typed_resource(repository, TEST_FAKE_ASSET_COMP_ID, "FakeZeroComp");
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t entity = entities_api.world_spawn(world, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(entity));
+
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.world_add_component_from_asset(world, entity, repository, rid));
+	TEST_ASSERT_EQUAL_INT32(0, fake_load_probe.called);
+	TEST_ASSERT_TRUE(entities_api.world_has_component(world, entity, TEST_FAKE_ASSET_COMP_ID));
+	const fake_asset_comp_t* live = (const fake_asset_comp_t*)entities_api.world_component(world, entity, TEST_FAKE_ASSET_COMP_ID);
+	TEST_ASSERT_NOT_NULL(live);
+	TEST_ASSERT_EQUAL_INT32(0, live->value);
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
+}
+
+SK_TEST(entities_add_component_from_asset_on_load_asset_failure) {
+	ecs_component_registry_reset();
+	memset(&fake_load_probe, 0, sizeof(fake_load_probe));
+	fake_load_probe.return_code = -7;
+
+	sk_component_desc_t desc = {0};
+	desc.type_id = TEST_FAKE_ASSET_COMP_ID;
+	desc.size = (u32)sizeof(fake_asset_comp_t);
+	desc.align = 4u;
+	desc.name = "fake-fail";
+	desc.on_load_asset = fake_on_load_asset;
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.register_component(&desc));
+
+	sk_repository_t* repository = test_create_repository();
+	sk_rid_t rid = test_create_typed_resource(repository, TEST_FAKE_ASSET_COMP_ID, "FakeFailComp");
+
+	sk_world_t* world = entities_api.world_create();
+	TEST_ASSERT_NOT_NULL(world);
+	sk_entity_t entity = entities_api.world_spawn(world, NULL, 0u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(entity));
+
+	TEST_ASSERT_EQUAL_INT32(-7, entities_api.world_add_component_from_asset(world, entity, repository, rid));
+	TEST_ASSERT_EQUAL_INT32(1, fake_load_probe.called);
+	TEST_ASSERT_TRUE(sk_entity_eq(fake_load_probe.entity, entity));
+	TEST_ASSERT_TRUE(entities_api.world_alive(world, entity));
+	TEST_ASSERT_FALSE(entities_api.world_has_component(world, entity, TEST_FAKE_ASSET_COMP_ID));
+	TEST_ASSERT_EQUAL_UINT32(1u, entities_api.world_count(world));
+
+	entities_api.world_destroy(world);
+	sk_repository_api()->destroy(repository);
 }
 
 SK_TEST(entities_component_info_missing) {
