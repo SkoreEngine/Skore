@@ -55,6 +55,20 @@ typedef struct sk_capsule_collider_resource_t {
 	f64 radius;		 /* FLOAT */
 } sk_capsule_collider_resource_t;
 
+typedef struct sk_character_config_resource_t {
+	f64 radius;			 /* FLOAT */
+	f64 height;			 /* FLOAT */
+	f64 max_slope_angle; /* FLOAT (radians) */
+	f64 step_height;	 /* FLOAT */
+	f64 mass;			 /* FLOAT */
+	u64 object_layer;	 /* UINT */
+} sk_character_config_resource_t;
+
+typedef struct sk_character_state_resource_t {
+	sk_vec3_t velocity; /* VEC3 */
+	u64 ground_state;	/* ENUM (jolt.h sk_jolt_ground_state_t) */
+} sk_character_state_resource_t;
+
 /* ------------------------------------------------------------------ */
 /*  Field descriptors + defaults                                      */
 /* ------------------------------------------------------------------ */
@@ -201,8 +215,62 @@ static const sk_resource_type_desc_t capsule_collider_type_desc = {
 	&capsule_collider_defaults,
 };
 
+static const sk_resource_field_t character_config_fields[] = {
+	{"Radius", SK_CHARACTER_CONFIG_FIELD_RADIUS, SK_RESOURCE_FIELD_TYPE_FLOAT, (u32)offsetof(sk_character_config_resource_t, radius), (u32)sizeof(f64), {0ull, 0ull}},
+	{"Height", SK_CHARACTER_CONFIG_FIELD_HEIGHT, SK_RESOURCE_FIELD_TYPE_FLOAT, (u32)offsetof(sk_character_config_resource_t, height), (u32)sizeof(f64), {0ull, 0ull}},
+	{"MaxSlopeAngle",
+	 SK_CHARACTER_CONFIG_FIELD_MAX_SLOPE_ANGLE,
+	 SK_RESOURCE_FIELD_TYPE_FLOAT,
+	 (u32)offsetof(sk_character_config_resource_t, max_slope_angle),
+	 (u32)sizeof(f64),
+	 {0ull, 0ull}},
+	{"StepHeight", SK_CHARACTER_CONFIG_FIELD_STEP_HEIGHT, SK_RESOURCE_FIELD_TYPE_FLOAT, (u32)offsetof(sk_character_config_resource_t, step_height), (u32)sizeof(f64), {0ull, 0ull}},
+	{"Mass", SK_CHARACTER_CONFIG_FIELD_MASS, SK_RESOURCE_FIELD_TYPE_FLOAT, (u32)offsetof(sk_character_config_resource_t, mass), (u32)sizeof(f64), {0ull, 0ull}},
+	{"ObjectLayer",
+	 SK_CHARACTER_CONFIG_FIELD_OBJECT_LAYER,
+	 SK_RESOURCE_FIELD_TYPE_UINT,
+	 (u32)offsetof(sk_character_config_resource_t, object_layer),
+	 (u32)sizeof(u64),
+	 {0ull, 0ull}},
+};
+
+/* Defaults match character_settings_defaults() in the jolt plugin (radius
+ * 0.3, height 1.8, 50-degree max slope, 0.4 m step, 70 kg, MOVING layer). */
+static const sk_character_config_resource_t character_config_defaults = {
+	0.3,				/* radius */
+	1.8,				/* height */
+	0.8726646259971648, /* max_slope_angle: 50 degrees in radians */
+	0.4,				/* step_height */
+	70.0,				/* mass */
+	1u,					/* object_layer: SK_JOLT_OBJECT_LAYER_MOVING */
+};
+
+static const sk_resource_type_desc_t character_config_type_desc = {
+	{SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID_LO, SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID_HI},
+	"CharacterConfigResource",
+	(u32)sizeof(sk_character_config_resource_t),
+	character_config_fields,
+	(u32)(sizeof(character_config_fields) / sizeof(character_config_fields[0])),
+	&character_config_defaults,
+};
+
+static const sk_resource_field_t character_state_fields[] = {
+	{"Velocity", SK_CHARACTER_STATE_FIELD_VELOCITY, SK_RESOURCE_FIELD_TYPE_VEC3, (u32)offsetof(sk_character_state_resource_t, velocity), (u32)sizeof(sk_vec3_t), {0ull, 0ull}},
+	{"GroundState", SK_CHARACTER_STATE_FIELD_GROUND_STATE, SK_RESOURCE_FIELD_TYPE_ENUM, (u32)offsetof(sk_character_state_resource_t, ground_state), (u32)sizeof(u64), {0ull, 0ull}},
+};
+
+static const sk_resource_type_desc_t character_state_type_desc = {
+	{SK_CHARACTER_STATE_COMPONENT_TYPE_ID_LO, SK_CHARACTER_STATE_COMPONENT_TYPE_ID_HI},
+	"CharacterStateResource",
+	(u32)sizeof(sk_character_state_resource_t),
+	character_state_fields,
+	(u32)(sizeof(character_state_fields) / sizeof(character_state_fields[0])),
+	NULL,
+};
+
 static const sk_resource_type_desc_t* const jolt_component_type_descs[] = {
-	&rigid_body_config_type_desc, &rigid_body_state_type_desc, &box_collider_type_desc, &sphere_collider_type_desc, &capsule_collider_type_desc,
+	&rigid_body_config_type_desc, &rigid_body_state_type_desc, &box_collider_type_desc,	   &sphere_collider_type_desc,
+	&capsule_collider_type_desc,  &character_config_type_desc, &character_state_type_desc,
 };
 
 static const u32 jolt_component_type_desc_count = (u32)(sizeof(jolt_component_type_descs) / sizeof(jolt_component_type_descs[0]));
@@ -238,6 +306,8 @@ SK_TEST(jolt_component_types_register_and_list) {
 		{"BoxColliderResource", SK_BOX_COLLIDER_COMPONENT_TYPE_ID_LO, SK_BOX_COLLIDER_COMPONENT_TYPE_ID_HI, 1u},
 		{"SphereColliderResource", SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID_LO, SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID_HI, 1u},
 		{"CapsuleColliderResource", SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID_LO, SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID_HI, 2u},
+		{"CharacterConfigResource", SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID_LO, SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID_HI, 6u},
+		{"CharacterStateResource", SK_CHARACTER_STATE_COMPONENT_TYPE_ID_LO, SK_CHARACTER_STATE_COMPONENT_TYPE_ID_HI, 2u},
 	};
 
 	for (u32 i = 0u; i < (u32)(sizeof(expected) / sizeof(expected[0])); ++i) {

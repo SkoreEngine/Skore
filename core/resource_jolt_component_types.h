@@ -57,6 +57,14 @@ extern "C" {
 #define SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID_HI 0xf668535766466110ULL
 #define SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID SK_TYPE_ID("sk.capsule_collider_resource", SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID_LO, SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID_HI)
 
+#define SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID_LO 0x6f27071f1646ba1aULL
+#define SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID_HI 0xf9a977f09d27faadULL
+#define SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID SK_TYPE_ID("sk.character_config_resource", SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID_LO, SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID_HI)
+
+#define SK_CHARACTER_STATE_COMPONENT_TYPE_ID_LO 0xb3359b6224427cc2ULL
+#define SK_CHARACTER_STATE_COMPONENT_TYPE_ID_HI 0xab90e5eb104d31c4ULL
+#define SK_CHARACTER_STATE_COMPONENT_TYPE_ID SK_TYPE_ID("sk.character_state_resource", SK_CHARACTER_STATE_COMPONENT_TYPE_ID_LO, SK_CHARACTER_STATE_COMPONENT_TYPE_ID_HI)
+
 /* ------------------------------------------------------------------ */
 /*  Repository payload field indices (mirror the serialized fields)   */
 /* ------------------------------------------------------------------ */
@@ -94,11 +102,26 @@ enum sk_capsule_collider_field_t {
 	SK_CAPSULE_COLLIDER_FIELD_RADIUS = 1,	   /* capsule radius (FLOAT) */
 };
 
+enum sk_character_config_field_t {
+	SK_CHARACTER_CONFIG_FIELD_RADIUS = 0,		   /* capsule radius (FLOAT) */
+	SK_CHARACTER_CONFIG_FIELD_HEIGHT = 1,		   /* total standing height (FLOAT) */
+	SK_CHARACTER_CONFIG_FIELD_MAX_SLOPE_ANGLE = 2, /* radians (FLOAT) */
+	SK_CHARACTER_CONFIG_FIELD_STEP_HEIGHT = 3,	   /* meters (FLOAT) */
+	SK_CHARACTER_CONFIG_FIELD_MASS = 4,			   /* kg (FLOAT) */
+	SK_CHARACTER_CONFIG_FIELD_OBJECT_LAYER = 5,	   /* object layer (UINT) */
+};
+
+enum sk_character_state_field_t {
+	SK_CHARACTER_STATE_FIELD_VELOCITY = 0,	   /* m/s (VEC3) */
+	SK_CHARACTER_STATE_FIELD_GROUND_STATE = 1, /* ground state (ENUM); see jolt.h sk_jolt_ground_state_t */
+};
+
 /**
  * Register every physics component payload type (rigid body config, rigid
- * body state, box / sphere / capsule collider) into @p repository via manual
- * field descriptors (reflection). The registered type ids are the same the
- * sk-jolt plugin registers the ECS components under.
+ * body state, box / sphere / capsule collider, character config / state)
+ * into @p repository via manual field descriptors (reflection). The
+ * registered type ids are the same the sk-jolt plugin registers the ECS
+ * components under.
  * @param repository Target repository (must not be NULL).
  * @return 0 on success, the first register_type error otherwise.
  */

@@ -38,7 +38,11 @@
  * on the next sync; the direct body setters (velocity, force / impulse /
  * torque, teleport, activate / deactivate, motion type) each have a
  * demonstrable effect on the live body with no sync involved.
- * Character controllers are still stubbed.
+ * Character controllers (APX-309) wrap CharacterVirtual: a character
+ * stands on a static floor, walks up a shallow slope and a stair of the
+ * configured step height, is blocked by a wall and a steep slope, and
+ * reports grounded / on steep slope / in air in each case. ECS-synced
+ * static bodies from the sync layer are valid support geometry.
  */
 
 /* Release builds strip every symbol below (SK_TESTS undefined); keep the TU
@@ -55,6 +59,7 @@ typedef int sk_jolt_tests_tu_anchor_t;
 #include "common.h"
 #include "test.h"
 
+#include <math.h>
 #include <string.h>
 
 /* Defined in jolt.cpp (SK_TESTS builds only). */
@@ -381,23 +386,394 @@ SK_TEST(jolt_step_before_init_noop) {
 	TEST_ASSERT_EQUAL_FLOAT(0.0f, api->get_fixed_timestep());
 }
 
-SK_TEST(jolt_character_stubs) {
+static sk_jolt_vec3_t jolt_test_vec3(f32 x, f32 y, f32 z);
+static i32 jolt_test_vec3_near(const sk_jolt_vec3_t* a, const sk_jolt_vec3_t* b, f32 eps);
+static sk_entity_t jolt_test_spawn_box(const sk_entities_api_t* ecs, sk_world_t* world, const sk_type_id_t* ids, u32 id_count, sk_jolt_motion_type_t motion, f32 x, f32 y, f32 z,
+									   f32 half);
+
+static sk_jolt_body_t* jolt_test_static_box(const sk_jolt_api_t* api, f32 x, f32 y, f32 z, f32 hx, f32 hy, f32 hz) {
+	sk_jolt_shape_desc_t desc = {0};
+	desc.kind = SK_JOLT_SHAPE_BOX;
+	desc.shape.box.half_extent[0] = hx;
+	desc.shape.box.half_extent[1] = hy;
+	desc.shape.box.half_extent[2] = hz;
+	sk_jolt_body_t* body = api->body_create(&desc, SK_JOLT_MOTION_TYPE_STATIC, SK_JOLT_OBJECT_LAYER_NON_MOVING);
+	if (body == NULL) {
+		return NULL;
+	}
+	const sk_jolt_vec3_t pos = {x, y, z};
+	(void)api->body_set_position(body, &pos);
+	return body;
+}
+
+static sk_jolt_body_t* jolt_test_static_ramp(const sk_jolt_api_t* api, f32 degrees, f32 x, f32 y, f32 z, f32 hx, f32 hy, f32 hz) {
+	sk_jolt_body_t* body = jolt_test_static_box(api, x, y, z, hx, hy, hz);
+	if (body == NULL) {
+		return NULL;
+	}
+	const f32 rad = degrees * 0.01745329252f;
+	sk_jolt_quat_t rot;
+	rot.x = 0.0f;
+	rot.y = 0.0f;
+	rot.z = sinf(rad * 0.5f);
+	rot.w = cosf(rad * 0.5f);
+	(void)api->body_set_rotation(body, &rot);
+	return body;
+}
+
+static void jolt_test_step_n(const sk_jolt_api_t* api, i32 n) {
+	i32 i;
+	for (i = 0; i < n; ++i) {
+		api->step(1.0f / 60.0f, NULL, NULL);
+	}
+}
+
+SK_TEST(jolt_character_create_destroy_and_accessors) {
 	const sk_jolt_api_t* api = NULL;
 	sk_app_context_t* context = NULL;
 	const sk_app_api_t* app_api = NULL;
 
 	jolt_tests_resolve(&api, &context, &app_api);
 	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_NOT_NULL(api->character_settings_defaults);
+	TEST_ASSERT_NOT_NULL(api->character_create_configured);
+	TEST_ASSERT_NOT_NULL(api->character_move);
+	TEST_ASSERT_NOT_NULL(api->character_get_ground_state);
 
-	/* Character controllers are still stubs: create reports NULL, destroy
-	 * tolerates NULL. (Union members are set explicitly: only the first union
-	 * member can be brace-initialized portably.) */
+	sk_jolt_character_settings_t settings;
+	memset(&settings, 0xAA, sizeof(settings));
+	api->character_settings_defaults(&settings);
+	TEST_ASSERT_EQUAL_FLOAT(0.3f, settings.radius);
+	TEST_ASSERT_EQUAL_FLOAT(1.8f, settings.height);
+	TEST_ASSERT_EQUAL_FLOAT(0.4f, settings.step_height);
+	TEST_ASSERT_EQUAL_FLOAT(70.0f, settings.mass);
+	TEST_ASSERT_EQUAL_UINT32(SK_JOLT_OBJECT_LAYER_MOVING, settings.object_layer);
+
+	/* No world: create fails, destroy is a no-op. */
+	api->shutdown();
+	TEST_ASSERT_NULL(api->character_create_configured(&settings));
+	api->character_destroy(NULL);
+
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
 	sk_jolt_shape_desc_t capsule = {0};
 	capsule.kind = SK_JOLT_SHAPE_CAPSULE;
-	capsule.shape.capsule.half_height = 0.75f;
+	capsule.shape.capsule.half_height = 0.6f;
 	capsule.shape.capsule.radius = 0.3f;
-	TEST_ASSERT_NULL(api->character_create(&capsule, SK_JOLT_OBJECT_LAYER_MOVING));
+	sk_jolt_character_t* ch = api->character_create(&capsule, SK_JOLT_OBJECT_LAYER_MOVING);
+	TEST_ASSERT_NOT_NULL(ch);
+
+	sk_jolt_vec3_t pos = jolt_test_vec3(1.0f, 2.0f, 3.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_set_position(ch, &pos));
+	sk_jolt_vec3_t out = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_position(ch, &out));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&pos, &out, 1.0e-4f));
+
+	sk_jolt_vec3_t vel = jolt_test_vec3(4.0f, 0.5f, -1.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_set_velocity(ch, &vel));
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_velocity(ch, &out));
+	TEST_ASSERT_TRUE(jolt_test_vec3_near(&vel, &out, 1.0e-4f));
+
+	sk_jolt_ground_state_t ground = SK_JOLT_GROUND_STATE_GROUNDED;
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_ground_state(ch, &ground));
+	TEST_ASSERT_EQUAL_INT32(SK_JOLT_GROUND_STATE_IN_AIR, (i32)ground);
+
+	/* Invalid arguments fail cleanly. */
+	TEST_ASSERT_NULL(api->character_create(NULL, SK_JOLT_OBJECT_LAYER_MOVING));
+	TEST_ASSERT_NULL(api->character_create_configured(NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->character_get_position(NULL, &out));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->character_set_position(ch, NULL));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->character_move(NULL, &vel));
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->character_get_ground_state(ch, NULL));
+
+	api->character_destroy(ch);
+	TEST_ASSERT_NOT_EQUAL_INT32(0, api->character_get_position(ch, &out));
+	api->character_destroy(ch);
 	api->character_destroy(NULL);
+	api->shutdown();
+}
+
+/* A character dropped onto a static floor settles and reports GROUNDED. */
+SK_TEST(jolt_character_stands_on_static_floor) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* floor = jolt_test_static_box(api, 0.0f, -0.5f, 0.0f, 20.0f, 0.5f, 20.0f);
+	TEST_ASSERT_NOT_NULL(floor);
+
+	sk_jolt_character_settings_t settings;
+	api->character_settings_defaults(&settings);
+	sk_jolt_character_t* ch = api->character_create_configured(&settings);
+	TEST_ASSERT_NOT_NULL(ch);
+	const sk_jolt_vec3_t start = jolt_test_vec3(0.0f, 1.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_set_position(ch, &start));
+
+	sk_jolt_ground_state_t ground = SK_JOLT_GROUND_STATE_GROUNDED;
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_ground_state(ch, &ground));
+	TEST_ASSERT_EQUAL_INT32(SK_JOLT_GROUND_STATE_IN_AIR, (i32)ground);
+
+	jolt_test_step_n(api, 90);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_ground_state(ch, &ground));
+	TEST_ASSERT_EQUAL_INT32(SK_JOLT_GROUND_STATE_GROUNDED, (i32)ground);
+
+	sk_jolt_vec3_t pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_position(ch, &pos));
+	TEST_ASSERT_FLOAT_WITHIN(0.15f, 0.0f, pos.y);
+	TEST_ASSERT_FLOAT_WITHIN(0.25f, 0.0f, pos.x);
+
+	api->character_destroy(ch);
+	api->body_destroy(floor);
+	api->shutdown();
+}
+
+/* Walk +X up a shallow ramp: height increases and the character stays grounded. */
+SK_TEST(jolt_character_walks_up_shallow_slope) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	/* 20-degree ramp, long enough to walk up. Centered so y ≈ x * tan(20°). */
+	sk_jolt_body_t* ramp = jolt_test_static_ramp(api, 20.0f, 6.0f, 0.0f, 0.0f, 8.0f, 0.25f, 4.0f);
+	TEST_ASSERT_NOT_NULL(ramp);
+
+	sk_jolt_character_settings_t settings;
+	api->character_settings_defaults(&settings);
+	sk_jolt_character_t* ch = api->character_create_configured(&settings);
+	TEST_ASSERT_NOT_NULL(ch);
+	const sk_jolt_vec3_t start = jolt_test_vec3(1.0f, 2.5f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_set_position(ch, &start));
+	jolt_test_step_n(api, 90);
+
+	sk_jolt_ground_state_t ground = SK_JOLT_GROUND_STATE_IN_AIR;
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_ground_state(ch, &ground));
+	TEST_ASSERT_EQUAL_INT32(SK_JOLT_GROUND_STATE_GROUNDED, (i32)ground);
+
+	sk_jolt_vec3_t before = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_position(ch, &before));
+
+	const sk_jolt_vec3_t walk = jolt_test_vec3(3.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_move(ch, &walk));
+	jolt_test_step_n(api, 180);
+
+	sk_jolt_vec3_t after = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_position(ch, &after));
+	TEST_ASSERT_TRUE(after.x > before.x + 1.0f);
+	TEST_ASSERT_TRUE(after.y > before.y + 0.2f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_ground_state(ch, &ground));
+	TEST_ASSERT_EQUAL_INT32(SK_JOLT_GROUND_STATE_GROUNDED, (i32)ground);
+
+	api->character_destroy(ch);
+	api->body_destroy(ramp);
+	api->shutdown();
+}
+
+/* A stair lower than step_height is climbed; the character ends grounded on top. */
+SK_TEST(jolt_character_walks_up_stair) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* floor = jolt_test_static_box(api, -4.0f, -0.5f, 0.0f, 6.0f, 0.5f, 20.0f);
+	/* Long platform: front riser at x=1.5, top at y=0.30 (under step_height). */
+	sk_jolt_body_t* step = jolt_test_static_box(api, 12.0f, 0.15f, 0.0f, 10.5f, 0.15f, 4.0f);
+	TEST_ASSERT_NOT_NULL(floor);
+	TEST_ASSERT_NOT_NULL(step);
+
+	sk_jolt_character_settings_t settings;
+	api->character_settings_defaults(&settings);
+	settings.step_height = 0.4f;
+	sk_jolt_character_t* ch = api->character_create_configured(&settings);
+	TEST_ASSERT_NOT_NULL(ch);
+	const sk_jolt_vec3_t start = jolt_test_vec3(0.0f, 0.05f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_set_position(ch, &start));
+	jolt_test_step_n(api, 60);
+
+	const sk_jolt_vec3_t walk = jolt_test_vec3(4.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_move(ch, &walk));
+	jolt_test_step_n(api, 180);
+
+	sk_jolt_vec3_t pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_position(ch, &pos));
+	TEST_ASSERT_TRUE(pos.x > 2.0f);
+	TEST_ASSERT_TRUE(pos.y > 0.2f);
+	sk_jolt_ground_state_t ground = SK_JOLT_GROUND_STATE_IN_AIR;
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_ground_state(ch, &ground));
+	TEST_ASSERT_EQUAL_INT32(SK_JOLT_GROUND_STATE_GROUNDED, (i32)ground);
+
+	api->character_destroy(ch);
+	api->body_destroy(step);
+	api->body_destroy(floor);
+	api->shutdown();
+}
+
+/* A vertical wall stops horizontal progress; the character stays grounded. */
+SK_TEST(jolt_character_blocked_by_wall) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* floor = jolt_test_static_box(api, 0.0f, -0.5f, 0.0f, 20.0f, 0.5f, 20.0f);
+	sk_jolt_body_t* wall = jolt_test_static_box(api, 3.0f, 2.0f, 0.0f, 0.25f, 2.0f, 4.0f);
+	TEST_ASSERT_NOT_NULL(floor);
+	TEST_ASSERT_NOT_NULL(wall);
+
+	sk_jolt_character_settings_t settings;
+	api->character_settings_defaults(&settings);
+	sk_jolt_character_t* ch = api->character_create_configured(&settings);
+	TEST_ASSERT_NOT_NULL(ch);
+	const sk_jolt_vec3_t start = jolt_test_vec3(0.0f, 0.05f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_set_position(ch, &start));
+	jolt_test_step_n(api, 45);
+
+	const sk_jolt_vec3_t walk = jolt_test_vec3(4.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_move(ch, &walk));
+	jolt_test_step_n(api, 180);
+
+	sk_jolt_vec3_t pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_position(ch, &pos));
+	TEST_ASSERT_TRUE(pos.x < 3.0f - settings.radius);
+	TEST_ASSERT_TRUE(pos.x > 0.5f);
+	sk_jolt_ground_state_t ground = SK_JOLT_GROUND_STATE_IN_AIR;
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_ground_state(ch, &ground));
+	TEST_ASSERT_EQUAL_INT32(SK_JOLT_GROUND_STATE_GROUNDED, (i32)ground);
+
+	api->character_destroy(ch);
+	api->body_destroy(wall);
+	api->body_destroy(floor);
+	api->shutdown();
+}
+
+/* A 70-degree slope is too steep: the character cannot climb it and reports
+ * ON_STEEP_SLOPE when standing on the face. */
+SK_TEST(jolt_character_blocked_by_steep_slope) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+
+	sk_jolt_body_t* floor = jolt_test_static_box(api, -8.0f, -0.5f, 0.0f, 6.0f, 0.5f, 6.0f);
+	/* Isolated 70-degree ramp (no floor under the face). */
+	sk_jolt_body_t* ramp = jolt_test_static_ramp(api, 70.0f, 4.0f, 0.0f, 0.0f, 8.0f, 0.2f, 6.0f);
+	TEST_ASSERT_NOT_NULL(floor);
+	TEST_ASSERT_NOT_NULL(ramp);
+
+	sk_jolt_character_settings_t settings;
+	api->character_settings_defaults(&settings);
+	settings.max_slope_angle = 50.0f * 0.01745329252f;
+	sk_jolt_character_t* ch = api->character_create_configured(&settings);
+	TEST_ASSERT_NOT_NULL(ch);
+	const sk_jolt_vec3_t start = jolt_test_vec3(-4.0f, 0.05f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_set_position(ch, &start));
+	jolt_test_step_n(api, 60);
+
+	const sk_jolt_vec3_t walk = jolt_test_vec3(3.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_move(ch, &walk));
+	jolt_test_step_n(api, 180);
+
+	sk_jolt_vec3_t pos = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_get_position(ch, &pos));
+	/* Must not climb the steep face. */
+	TEST_ASSERT_TRUE(pos.y < 2.0f);
+	TEST_ASSERT_TRUE(pos.x < 4.0f);
+
+	/* 20-degree ramp is known to support the character (see the shallow-slope
+	 * test). With max slope 10 degrees it must report ON_STEEP_SLOPE. */
+	api->character_destroy(ch);
+	settings.max_slope_angle = 10.0f * 0.01745329252f;
+	ch = api->character_create_configured(&settings);
+	TEST_ASSERT_NOT_NULL(ch);
+	sk_jolt_body_t* shallow = jolt_test_static_ramp(api, 20.0f, 6.0f, 0.0f, 8.0f, 8.0f, 0.25f, 4.0f);
+	TEST_ASSERT_NOT_NULL(shallow);
+	const sk_jolt_vec3_t on_face = jolt_test_vec3(4.0f, 3.0f, 8.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->character_set_position(ch, &on_face));
+	{
+		i32 i;
+		i32 saw_steep = 0;
+		for (i = 0; i < 120; ++i) {
+			api->step(1.0f / 60.0f, NULL, NULL);
+			sk_jolt_ground_state_t gs = SK_JOLT_GROUND_STATE_IN_AIR;
+			(void)api->character_get_ground_state(ch, &gs);
+			if (gs == SK_JOLT_GROUND_STATE_ON_STEEP_SLOPE) {
+				saw_steep = 1;
+				break;
+			}
+		}
+		TEST_ASSERT_EQUAL_INT32(1, saw_steep);
+	}
+	api->body_destroy(shallow);
+
+	api->character_destroy(ch);
+	api->body_destroy(ramp);
+	api->body_destroy(floor);
+	api->shutdown();
+}
+
+/* ECS-synced static floor supports a character entity (sync layer interaction). */
+SK_TEST(jolt_character_ecs_stands_on_synced_floor) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)app_api->get_api(context, SK_ENTITIES_API_TYPE_ID);
+	if (ecs == NULL) {
+		return;
+	}
+
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+	sk_world_t* world = ecs->world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t body_ids[] = {SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, SK_TRANSFORM_COMPONENT_TYPE_ID,
+									 SK_BOX_COLLIDER_COMPONENT_TYPE_ID};
+	sk_entity_t floor = jolt_test_spawn_box(ecs, world, body_ids, 4u, SK_JOLT_MOTION_TYPE_STATIC, 0.0f, -0.5f, 0.0f, 0.5f);
+	sk_box_collider_t* floor_box = (sk_box_collider_t*)ecs->world_component(world, floor, SK_BOX_COLLIDER_COMPONENT_TYPE_ID);
+	floor_box->half_extent = sk_vec3(20.0f, 0.5f, 20.0f);
+
+	const sk_type_id_t ch_ids[] = {SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID, SK_CHARACTER_STATE_COMPONENT_TYPE_ID, SK_TRANSFORM_COMPONENT_TYPE_ID};
+	sk_entity_t pawn = ecs->world_spawn(world, ch_ids, 3u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(pawn));
+	sk_character_config_t* cfg = (sk_character_config_t*)ecs->world_component(world, pawn, SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID);
+	cfg->radius = 0.3f;
+	cfg->height = 1.8f;
+	cfg->max_slope_angle = 50.0f * 0.01745329252f;
+	cfg->step_height = 0.4f;
+	cfg->mass = 70.0f;
+	cfg->object_layer = SK_JOLT_OBJECT_LAYER_MOVING;
+	cfg->character = NULL;
+	sk_transform_t* xform = (sk_transform_t*)ecs->world_component(world, pawn, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	xform->position = sk_vec3(0.0f, 1.0f, 0.0f);
+	xform->rotation = sk_quat(0.0f, 0.0f, 0.0f, 1.0f);
+
+	i32 i;
+	for (i = 0; i < 90; ++i) {
+		api->step_world(world, 1.0f / 60.0f);
+	}
+
+	cfg = (sk_character_config_t*)ecs->world_component(world, pawn, SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(cfg->character);
+	sk_character_state_t* state = (sk_character_state_t*)ecs->world_component(world, pawn, SK_CHARACTER_STATE_COMPONENT_TYPE_ID);
+	TEST_ASSERT_EQUAL_INT32(SK_JOLT_GROUND_STATE_GROUNDED, (i32)state->ground_state);
+	xform = (sk_transform_t*)ecs->world_component(world, pawn, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	TEST_ASSERT_FLOAT_WITHIN(0.2f, 0.0f, xform->position.y);
+
+	ecs->world_destroy(world);
+	api->shutdown();
 }
 
 /* ---- rigid bodies (APX-320) ---- */
@@ -1171,6 +1547,13 @@ SK_TEST(jolt_components_register_with_ecs) {
 	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_TRANSFORM_COMPONENT_TYPE_ID, &info));
 	TEST_ASSERT_EQUAL_STRING("transform", info.name);
 	TEST_ASSERT_EQUAL_UINT32((u32)sizeof(sk_transform_t), info.size);
+
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("character_config", info.name);
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CHARACTER_STATE_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("character_state", info.name);
 
 	/* A body is composed: spawn an entity with config + hot state + a box
 	 * collider and round-trip values through the world storage. */

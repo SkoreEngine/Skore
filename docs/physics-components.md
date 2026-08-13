@@ -11,6 +11,8 @@ write only the data they touch:
 | `sk_box_collider_t` | `sk.box_collider_resource` | shape: half extents | composed per body |
 | `sk_sphere_collider_t` | `sk.sphere_collider_resource` | shape: radius | composed per body |
 | `sk_capsule_collider_t` | `sk.capsule_collider_resource` | shape: half height + radius | composed per body |
+| `sk_character_config_t` | `sk.character_config_resource` | cold / authored: capsule radius + height, max slope angle, step height, mass, object layer, opaque CharacterVirtual handle | read by the physics integration; written at spawn |
+| `sk_character_state_t` | `sk.character_state_resource` | hot / per-frame: linear velocity + ground state | iterated and written every tick |
 
 ## Layout
 
@@ -32,11 +34,11 @@ write only the data they touch:
 
 ## Registration
 
-- `sk_jolt_components_register(ecs)` — registers the five components with the
-  entities API (idempotent). Called from the plugin entry point once the
-  entities table is available (retried on first `init` for out-of-order plugin
-  loads).
-- `sk_jolt_component_types_register(repository)` — registers the five payload
+- `sk_jolt_components_register(ecs)` — registers the rigid-body, collider, and
+  character components with the entities API (idempotent). Called from the
+  plugin entry point once the entities table is available (retried on first
+  `init` for out-of-order plugin loads).
+- `sk_jolt_component_types_register(repository)` — registers the payload
   types into a repository via manual field descriptors (reflection; no C++
   Reflection — see `core/repository.h`), making them appear in the repository
   type listing and serialize/deserialize through `core/resource_serialize.h`.

@@ -64,6 +64,14 @@ i32 sk_jolt_components_register(const sk_entities_api_t* ecs) {
 	if (rc != 0) {
 		return rc;
 	}
+	rc = ecs->register_component(SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID, (u32)sizeof(sk_character_config_t), SK_JOLT_COMPONENT_ALIGN(sk_character_config_t), "character_config");
+	if (rc != 0) {
+		return rc;
+	}
+	rc = ecs->register_component(SK_CHARACTER_STATE_COMPONENT_TYPE_ID, (u32)sizeof(sk_character_state_t), SK_JOLT_COMPONENT_ALIGN(sk_character_state_t), "character_state");
+	if (rc != 0) {
+		return rc;
+	}
 	return 0;
 }
 
@@ -131,11 +139,15 @@ SK_TEST(jolt_components_repository_types_registered) {
 	TEST_ASSERT_NOT_NULL(api->find_type_by_name(repo, "BoxColliderResource"));
 	TEST_ASSERT_NOT_NULL(api->find_type_by_name(repo, "SphereColliderResource"));
 	TEST_ASSERT_NOT_NULL(api->find_type_by_name(repo, "CapsuleColliderResource"));
+	TEST_ASSERT_NOT_NULL(api->find_type_by_name(repo, "CharacterConfigResource"));
+	TEST_ASSERT_NOT_NULL(api->find_type_by_name(repo, "CharacterStateResource"));
 
 	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, api->type_id(api->find_type_by_name(repo, "RigidBodyStateResource"))));
 	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_BOX_COLLIDER_COMPONENT_TYPE_ID, api->type_id(api->find_type_by_name(repo, "BoxColliderResource"))));
 	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID, api->type_id(api->find_type_by_name(repo, "SphereColliderResource"))));
 	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID, api->type_id(api->find_type_by_name(repo, "CapsuleColliderResource"))));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID, api->type_id(api->find_type_by_name(repo, "CharacterConfigResource"))));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(SK_CHARACTER_STATE_COMPONENT_TYPE_ID, api->type_id(api->find_type_by_name(repo, "CharacterStateResource"))));
 
 	/* Field descriptor names drive the JSON wire keys (round-trip contract). */
 	t = api->find_type_by_name(repo, "RigidBodyConfigResource");
@@ -265,6 +277,57 @@ SK_TEST(jolt_components_state_and_colliders_roundtrip) {
 		sk_resource_object_t r = api->read(repo, rid);
 		TEST_ASSERT_EQUAL_DOUBLE(0.75, api->get_float(r, SK_CAPSULE_COLLIDER_FIELD_HALF_HEIGHT));
 		TEST_ASSERT_EQUAL_DOUBLE(0.25, api->get_float(r, SK_CAPSULE_COLLIDER_FIELD_RADIUS));
+	}
+
+	api->destroy(repo);
+}
+
+SK_TEST(jolt_components_character_config_and_state_roundtrip) {
+	const sk_repository_api_t* api = sk_repository_api();
+	sk_repository_t* repo = jolt_components_test_repo();
+
+	{
+		const sk_resource_type_t* type = api->find_type_by_name(repo, "CharacterConfigResource");
+		TEST_ASSERT_NOT_NULL(type);
+		TEST_ASSERT_EQUAL_UINT32(6u, api->type_field_count(type));
+		sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+		TEST_ASSERT_TRUE(rid.id != 0u);
+		sk_resource_object_t r = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_DOUBLE(0.3, api->get_float(r, SK_CHARACTER_CONFIG_FIELD_RADIUS));
+		TEST_ASSERT_EQUAL_DOUBLE(1.8, api->get_float(r, SK_CHARACTER_CONFIG_FIELD_HEIGHT));
+		TEST_ASSERT_EQUAL_DOUBLE(0.4, api->get_float(r, SK_CHARACTER_CONFIG_FIELD_STEP_HEIGHT));
+		TEST_ASSERT_EQUAL_DOUBLE(70.0, api->get_float(r, SK_CHARACTER_CONFIG_FIELD_MASS));
+		TEST_ASSERT_EQUAL_UINT64(SK_JOLT_OBJECT_LAYER_MOVING, api->get_uint(r, SK_CHARACTER_CONFIG_FIELD_OBJECT_LAYER));
+
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_RADIUS, 0.35));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_HEIGHT, 2.0));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_MAX_SLOPE_ANGLE, 0.5));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_STEP_HEIGHT, 0.35));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_MASS, 80.0));
+		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_CHARACTER_CONFIG_FIELD_OBJECT_LAYER, SK_JOLT_OBJECT_LAYER_MOVING));
+		api->commit(w, NULL);
+		r = api->read(repo, rid);
+		TEST_ASSERT_EQUAL_DOUBLE(0.35, api->get_float(r, SK_CHARACTER_CONFIG_FIELD_RADIUS));
+		TEST_ASSERT_EQUAL_DOUBLE(2.0, api->get_float(r, SK_CHARACTER_CONFIG_FIELD_HEIGHT));
+		TEST_ASSERT_EQUAL_DOUBLE(0.5, api->get_float(r, SK_CHARACTER_CONFIG_FIELD_MAX_SLOPE_ANGLE));
+		TEST_ASSERT_EQUAL_DOUBLE(80.0, api->get_float(r, SK_CHARACTER_CONFIG_FIELD_MASS));
+	}
+
+	{
+		const sk_resource_type_t* type = api->find_type_by_name(repo, "CharacterStateResource");
+		TEST_ASSERT_NOT_NULL(type);
+		sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+		TEST_ASSERT_TRUE(rid.id != 0u);
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec3(w, SK_CHARACTER_STATE_FIELD_VELOCITY, sk_vec3(1.0f, 0.0f, -2.0f)));
+		TEST_ASSERT_EQUAL_INT(0, api->set_enum(w, SK_CHARACTER_STATE_FIELD_GROUND_STATE, SK_JOLT_GROUND_STATE_GROUNDED));
+		api->commit(w, NULL);
+		sk_resource_object_t r = api->read(repo, rid);
+		sk_vec3_t v = api->get_vec3(r, SK_CHARACTER_STATE_FIELD_VELOCITY);
+		TEST_ASSERT_EQUAL_FLOAT(1.0f, v.x);
+		TEST_ASSERT_EQUAL_FLOAT(-2.0f, v.z);
+		TEST_ASSERT_EQUAL_UINT64(SK_JOLT_GROUND_STATE_GROUNDED, api->get_enum(r, SK_CHARACTER_STATE_FIELD_GROUND_STATE));
 	}
 
 	api->destroy(repo);

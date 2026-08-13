@@ -53,8 +53,9 @@
  * matrix, and the layer set includes the ghost SK_JOLT_OBJECT_LAYER_SENSOR
  * (collides with nothing — passes through floors and bodies). A
  * CollisionListener is deliberately **not** implemented (explicitly out of
- * scope); character controllers remain empty stubs (character_create
- * returns NULL) until a later stage.
+ * scope). Character controllers (APX-309) wrap Jolt CharacterVirtual: a
+ * capsule volume updated each physics step with slope limiting and stair
+ * stepping, colliding against the same rigid bodies the sync layer owns.
  *
  * # Body handles
  *
@@ -178,6 +179,27 @@ typedef enum sk_jolt_motion_type_t {
 } sk_jolt_motion_type_t;
 
 /* ------------------------------------------------------------------ */
+/*  Character ground state                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ground state reported by a character controller (Jolt CharacterVirtual
+ * EGroundState, collapsed to the three host-facing cases).
+ * @field SK_JOLT_GROUND_STATE_GROUNDED       Supported by walkable ground.
+ * @field SK_JOLT_GROUND_STATE_ON_STEEP_SLOPE Supported by a slope steeper
+ *                                            than the configured max slope
+ *                                            angle (cannot walk further up).
+ * @field SK_JOLT_GROUND_STATE_IN_AIR         Not supported (falling, or
+ *                                            only touching a non-supporting
+ *                                            surface such as a wall).
+ */
+typedef enum sk_jolt_ground_state_t {
+	SK_JOLT_GROUND_STATE_GROUNDED = 0,
+	SK_JOLT_GROUND_STATE_ON_STEEP_SLOPE = 1,
+	SK_JOLT_GROUND_STATE_IN_AIR = 2,
+} sk_jolt_ground_state_t;
+
+/* ------------------------------------------------------------------ */
 /*  Shape descriptions (POD)                                          */
 /* ------------------------------------------------------------------ */
 
@@ -229,6 +251,30 @@ typedef struct sk_jolt_shape_desc_t {
 		sk_jolt_capsule_shape_desc_t capsule;
 	} shape;
 } sk_jolt_shape_desc_t;
+
+/**
+ * Character controller settings (capsule volume + movement limits).
+ * Fill via character_settings_defaults() and tweak. height is the total
+ * standing height in meters (feet to top of head); the capsule cylinder
+ * half-height is height/2 - radius, so height must be > 2 * radius.
+ *
+ * @field radius           Capsule radius in meters; must be > 0.
+ * @field height           Total standing height in meters; must be > 2 * radius.
+ * @field max_slope_angle  Max walkable slope in radians (Jolt mMaxSlopeAngle).
+ * @field step_height      Max stair / step height in meters (ExtendedUpdate
+ *                         WalkStairs step-up; 0 disables stair walking).
+ * @field mass             Mass in kg (used when standing on dynamic bodies).
+ * @field object_layer     Object layer the character queries from
+ *                         (SK_JOLT_OBJECT_LAYER_*; typically MOVING).
+ */
+typedef struct sk_jolt_character_settings_t {
+	f32 radius;
+	f32 height;
+	f32 max_slope_angle;
+	f32 step_height;
+	f32 mass;
+	u32 object_layer;
+} sk_jolt_character_settings_t;
 
 /* ------------------------------------------------------------------ */
 /*  Layers and collision-filter constants                             */
@@ -335,7 +381,7 @@ typedef struct sk_jolt_shape_desc_t {
  */
 typedef struct sk_jolt_body_t sk_jolt_body_t;
 
-/** Opaque character controller (Jolt CharacterVirtual behind the stub). */
+/** Opaque character controller (Jolt CharacterVirtual). */
 typedef struct sk_jolt_character_t sk_jolt_character_t;
 
 /** Forward declaration of the ECS world (owned by the entities plugin). */
@@ -436,8 +482,12 @@ typedef void (*sk_jolt_step_callback_fn)(void_ptr_t user_data, f64 physics_time,
  * implemented (APX-322): ray_cast() / sphere_cast() report the closest hit
  * as a POD sk_jolt_query_hit_t, honoring the layer collision matrix
  * (queries are cast from an object layer and only hit colliding layers).
- * Character controllers are not implemented yet: character_create() reports
- * failure (NULL).
+ * Character controllers (APX-309) wrap Jolt CharacterVirtual. character_create()
+ * / character_create_configured() return an opaque handle; character_move()
+ * and character_set_velocity() feed the per-step update (gravity, slope
+ * cancel, WalkStairs / StickToFloor via ExtendedUpdate); character_get_ground_state()
+ * reports grounded / on steep slope / in air. Characters collide with the
+ * rigid bodies owned by the world (including ECS-synced bodies).
  *
  * ECS sync (APX-307): sync_world() / write_back() / step_world() reconcile
  * rigid-body entities with Jolt. The entity↔BodyID map is plugin-private.
@@ -817,18 +867,109 @@ typedef struct sk_jolt_api_t {
 	i32 (*body_is_active)(const sk_jolt_body_t* body, i32* out_active);
 
 	/**
-	 * Create a character controller (capsule-shaped virtual character).
-	 * @param shape        Shape description for the character capsule.
-	 * @param object_layer Object layer the character is placed on (SK_JOLT_OBJECT_LAYER_*).
-	 * @return New character handle, or NULL when creation failed. Stub: always NULL.
+	 * Fill @p out with default character settings (radius 0.3, height 1.8,
+	 * max slope 50 degrees, step height 0.4, mass 70 kg, MOVING layer).
+	 * @param out Destination struct; must not be NULL.
+	 */
+	void (*character_settings_defaults)(sk_jolt_character_settings_t* out);
+
+	/**
+	 * Create a character controller (capsule-shaped Jolt CharacterVirtual)
+	 * from a capsule shape description and object layer. Uses the default
+	 * slope / step / mass values from character_settings_defaults().
+	 * Created at the origin (feet at y=0) with zero velocity. The handle is
+	 * valid until character_destroy() or world shutdown.
+	 * @param shape        Capsule shape (kind must be SK_JOLT_SHAPE_CAPSULE).
+	 * @param object_layer Object layer the character queries from
+	 *                     (SK_JOLT_OBJECT_LAYER_*; typically MOVING).
+	 * @return New character handle, or NULL when the world is not initialized
+	 *         or creation failed (NULL / non-capsule shape, bad dimensions,
+	 *         unknown layer).
 	 */
 	sk_jolt_character_t* (*character_create)(const sk_jolt_shape_desc_t* shape, u32 object_layer);
 
 	/**
-	 * Destroy a character created with character_create.
-	 * @param character Character handle (may be NULL; NULL is a no-op). Stub: no-op.
+	 * Create a character controller from explicit settings (radius / height /
+	 * max slope / step height / mass / layer). Same placement and handle
+	 * contract as character_create().
+	 * @param settings Character settings; must not be NULL.
+	 * @return New character handle, or NULL on failure.
+	 */
+	sk_jolt_character_t* (*character_create_configured)(const sk_jolt_character_settings_t* settings);
+
+	/**
+	 * Destroy a character created with character_create /
+	 * character_create_configured. The handle becomes invalid. Destroying
+	 * NULL or an already destroyed handle is a no-op.
+	 * @param character Character handle (may be NULL).
 	 */
 	void (*character_destroy)(sk_jolt_character_t* character);
+
+	/**
+	 * Read the character's world-space position (meters; the feet / shape
+	 * origin — the capsule sits above this point).
+	 * @param character    Character handle; must be valid.
+	 * @param out_position Output position; must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or @p out_position is NULL (output
+	 *         zeroed when non-NULL).
+	 */
+	i32 (*character_get_position)(const sk_jolt_character_t* character, sk_jolt_vec3_t* out_position);
+
+	/**
+	 * Set the character's world-space position (meters, feet). Refreshes
+	 * ground contacts. Wakes / teleports the controller immediately.
+	 * @param character Character handle; must be valid.
+	 * @param position  Position to set; must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or @p position is NULL.
+	 */
+	i32 (*character_set_position)(sk_jolt_character_t* character, const sk_jolt_vec3_t* position);
+
+	/**
+	 * Read the character's current linear velocity (m/s).
+	 * @param character    Character handle; must be valid.
+	 * @param out_velocity Output velocity; must not be NULL.
+	 * @return 0 on success; non-zero on invalid handle / NULL output
+	 *         (output zeroed when non-NULL).
+	 */
+	i32 (*character_get_velocity)(const sk_jolt_character_t* character, sk_jolt_vec3_t* out_velocity);
+
+	/**
+	 * Set the character's linear velocity (m/s). This is the full 3D
+	 * velocity (use it for jumps / knockback). Clears any pending
+	 * character_move() walk input so the next step integrates this
+	 * velocity plus gravity.
+	 * @param character Character handle; must be valid.
+	 * @param velocity  Velocity to set; must not be NULL.
+	 * @return 0 on success; non-zero on invalid handle / NULL velocity.
+	 */
+	i32 (*character_set_velocity)(sk_jolt_character_t* character, const sk_jolt_vec3_t* velocity);
+
+	/**
+	 * Set a persistent walk / move input (m/s). Each physics step reapplies
+	 * the X/Z components as the desired horizontal velocity (gravity still
+	 * owns the vertical axis unless the character is jumping). Slope
+	 * limiting cancels velocity that would climb a too-steep surface;
+	 * stairs up to the configured step height are climbed automatically.
+	 * @param character        Character handle; must be valid.
+	 * @param desired_velocity Desired walk velocity; must not be NULL. The
+	 *                         Y component is ignored (use set_velocity to
+	 *                         jump).
+	 * @return 0 on success; non-zero on invalid handle / NULL velocity.
+	 */
+	i32 (*character_move)(sk_jolt_character_t* character, const sk_jolt_vec3_t* desired_velocity);
+
+	/**
+	 * Query the character's ground state (grounded / on steep slope / in
+	 * air). Updated by the per-step CharacterVirtual update and by
+	 * character_set_position() (which refreshes contacts).
+	 * @param character Character handle; must be valid.
+	 * @param out_state Output ground state; must not be NULL.
+	 * @return 0 on success; non-zero on invalid handle / NULL output
+	 *         (output set to IN_AIR when non-NULL).
+	 */
+	i32 (*character_get_ground_state)(const sk_jolt_character_t* character, sk_jolt_ground_state_t* out_state);
 
 	/**
 	 * Cast a ray against the world and return the closest hit. The ray is

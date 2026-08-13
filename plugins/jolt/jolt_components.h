@@ -19,6 +19,11 @@
  *   - sk_box_collider_t / sk_sphere_collider_t / sk_capsule_collider_t —
  *     shape data in separate components so a body is composed from whatever
  *     colliders it needs.
+ *   - sk_character_config_t (cold / authored) — capsule radius / height,
+ *     max slope angle, step height, mass, object layer, plus the opaque
+ *     Jolt character handle the integration fills in.
+ *   - sk_character_state_t  (hot / per-frame) — linear velocity and ground
+ *     state (grounded / on steep slope / in air).
  *
  * Each component doubles as a repository payload type (reflection via manual
  * field descriptors, see repository.h): the registered repository type id IS
@@ -161,14 +166,48 @@ typedef struct sk_capsule_collider_t {
 	f32 radius;
 } sk_capsule_collider_t;
 
+/**
+ * Character controller configuration (cold data — authored once). The
+ * capsule is built from radius + total standing height; movement limits
+ * (max slope, step height) and mass / layer feed CharacterVirtual.
+ * @field radius          Capsule radius in meters; must be > 0.
+ * @field height          Total standing height in meters; must be > 2 * radius.
+ * @field max_slope_angle Max walkable slope in radians.
+ * @field step_height     Max stair height in meters.
+ * @field mass            Mass in kg.
+ * @field object_layer    Jolt object layer (SK_JOLT_OBJECT_LAYER_*).
+ * @field character       Opaque CharacterVirtual handle, filled in by the
+ *                        integration; NULL until then. Not serialized.
+ */
+typedef struct sk_character_config_t {
+	f32 radius;
+	f32 height;
+	f32 max_slope_angle;
+	f32 step_height;
+	f32 mass;
+	u32 object_layer;
+	sk_jolt_character_t* character;
+} sk_character_config_t;
+
+/**
+ * Character controller per-frame state (hot data).
+ * @field velocity     Linear velocity in m/s.
+ * @field ground_state SK_JOLT_GROUND_STATE_* (grounded / steep / air).
+ */
+typedef struct sk_character_state_t {
+	sk_vec3_t velocity;
+	sk_jolt_ground_state_t ground_state;
+} sk_character_state_t;
+
 /* ------------------------------------------------------------------ */
 /*  Registration                                                      */
 /* ------------------------------------------------------------------ */
 
 /**
  * Register every physics component (rigid body config, rigid body state,
- * transform, box / sphere / capsule collider) with @p ecs. Config / state /
- * collider ids match the repository payload types; transform is runtime-only.
+ * transform, box / sphere / capsule collider, character config / state)
+ * with @p ecs. Config / state / collider ids match the repository payload
+ * types; transform is runtime-only.
  * Idempotent: re-registration with a matching layout is a no-op, so
  * plugins/hosts/tests may call it repeatedly.
  * @param ecs ECS API table (must not be NULL).

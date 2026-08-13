@@ -46,8 +46,10 @@
  * gameplay marked dirty with entity_require_update (the sync consumes that
  * dirty set every step); body create/destroy from component presence and the
  * hot per-frame channels (transform pose, state velocities) stay automatic.
- * Character controllers
- * remain empty stubs until a later stage.
+ * Character controllers (APX-309) wrap Jolt CharacterVirtual: a capsule
+ * volume with slope limiting and stair stepping, updated after each
+ * PhysicsSystem::Update so it collides with the rigid bodies the sync
+ * layer owns. No CollisionListener.
  *
  * Unit tests live in jolt_tests.c (C, like every other plugin's tests); this
  * TU only exposes SK_TESTS-only accessors for them.
@@ -76,8 +78,11 @@
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Body/MotionProperties.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Collision/CollisionGroup.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
@@ -132,6 +137,12 @@ constexpr f32 kMaxFrameDelta = 0.25f;
  * fixed timestep (e.g. 60 frames of 1/60 s) drain to exactly the right
  * number of steps instead of losing a fraction of a step per frame. */
 constexpr f32 kAccumulatorEpsilon = 1.0e-4f;
+
+/** CharacterVirtual defaults (match character_settings_defaults / Jolt). */
+constexpr f32 kDefaultCharacterRadius = 0.3f;
+constexpr f32 kDefaultCharacterHeight = 1.8f;
+constexpr f32 kDefaultCharacterStepHeight = 0.4f;
+constexpr f32 kDefaultCharacterMass = 70.0f;
 
 /* ---- object-layer / broad-phase-layer collision model ---- */
 
@@ -366,6 +377,63 @@ void jolt_body_registry_clear() noexcept {
 	g_live_bodies.clear();
 }
 
+/* ---- character-controller handle registry (CharacterVirtual) ---- */
+
+struct JoltCharacterHandle {
+	JPH::Ref<JPH::CharacterVirtual> character;
+	u32 object_layer = SK_JOLT_OBJECT_LAYER_MOVING;
+	f32 radius = kDefaultCharacterRadius;
+	f32 height = kDefaultCharacterHeight;
+	f32 max_slope_angle = 0.0f;
+	f32 step_height = kDefaultCharacterStepHeight;
+	f32 mass = kDefaultCharacterMass;
+	JPH::Vec3 walk_velocity = JPH::Vec3::sZero();
+	bool has_walk = false;
+};
+
+std::vector<JoltCharacterHandle*> g_character_handles;
+std::unordered_set<sk_jolt_character_t*> g_live_characters;
+
+struct CharacterBinding {
+	u32 index = 0u;
+	u32 generation = 0u;
+	sk_jolt_character_t* character = nullptr;
+	bool seen = false;
+	f32 radius = 0.0f;
+	f32 height = 0.0f;
+	f32 max_slope_angle = 0.0f;
+	f32 step_height = 0.0f;
+	f32 mass = 0.0f;
+	u32 object_layer = 0u;
+	f32 last_pos[3] = {0.0f, 0.0f, 0.0f};
+	f32 last_vel[3] = {0.0f, 0.0f, 0.0f};
+};
+
+std::unordered_map<u32, CharacterBinding> g_character_bindings;
+
+JoltCharacterHandle* jolt_character_handle(sk_jolt_character_t* character) noexcept {
+	if (g_jolt_world == nullptr || character == nullptr) {
+		return nullptr;
+	}
+	if (g_live_characters.find(character) == g_live_characters.end()) {
+		return nullptr;
+	}
+	return reinterpret_cast<JoltCharacterHandle*>(character);
+}
+
+void jolt_character_registry_clear() noexcept {
+	g_character_bindings.clear();
+	for (JoltCharacterHandle* record : g_character_handles) {
+		record->character = nullptr;
+		delete record;
+	}
+	g_character_handles.clear();
+	g_live_characters.clear();
+}
+
+void jolt_update_all_characters(f32 dt) noexcept;
+void jolt_character_destroy_impl(sk_jolt_character_t* character) noexcept;
+
 /* ---- ECS entity ↔ BodyID map (plugin-private; not stored in engine) ---- */
 
 constexpr f32 kPoseEpsilon = 1.0e-4f;
@@ -409,6 +477,7 @@ std::unordered_set<u32> g_dirty_entities;
 
 void jolt_entity_bindings_reset() noexcept {
 	g_entity_bindings.clear();
+	g_character_bindings.clear();
 	g_dirty_entities.clear();
 	jolt_ecs_reset();
 }
@@ -467,6 +536,8 @@ int jolt_thread_count() {
 void jolt_shutdown_impl() noexcept {
 	/* Drop the entity map first: Jolt bodies die with the world below. */
 	jolt_entity_bindings_reset();
+	/* CharacterVirtual inner bodies must be destroyed before the PhysicsSystem. */
+	jolt_character_registry_clear();
 	if (g_jolt_world != nullptr) {
 		delete g_jolt_world; /* PhysicsSystem → filters → job threads → temp allocator */
 		g_jolt_world = nullptr;
@@ -587,6 +658,10 @@ void jolt_step_impl(f32 delta_time, sk_jolt_step_callback_fn callback, void_ptr_
 		if (error != JPH::EPhysicsUpdateError::None && g_jolt_log != nullptr) {
 			sk_log_warn(sk_logger_api(), g_jolt_log, "physics update error 0x%x (increase max_body_pairs / max_constraints)", static_cast<unsigned>(error));
 		}
+		/* CharacterVirtual is not owned by PhysicsSystem — update after the
+		 * rigid-body step so the controller collides with the latest poses
+		 * (including ECS-synced static / dynamic bodies). */
+		jolt_update_all_characters(world->fixed_timestep);
 
 		world->accumulator -= world->fixed_timestep;
 		world->physics_time += static_cast<f64>(world->fixed_timestep);
@@ -1465,6 +1540,13 @@ void jolt_internal_clear_bindings(void) {
 		jolt_destroy_bind_body(&entry.second);
 	}
 	g_entity_bindings.clear();
+	for (auto& entry : g_character_bindings) {
+		if (entry.second.character != nullptr) {
+			jolt_character_destroy_impl(entry.second.character);
+			entry.second.character = nullptr;
+		}
+	}
+	g_character_bindings.clear();
 	g_dirty_entities.clear();
 }
 
@@ -1474,10 +1556,14 @@ void jolt_internal_mark_dirty(u32 index, u32 generation) {
 	 * recycled slot). Entities without a live body yet are covered by the
 	 * create path, which always applies the current component values. */
 	const auto found = g_entity_bindings.find(index);
-	if (found == g_entity_bindings.end() || found->second.generation != generation) {
+	if (found != g_entity_bindings.end() && found->second.generation == generation) {
+		g_dirty_entities.insert(index);
 		return;
 	}
-	g_dirty_entities.insert(index);
+	const auto ch = g_character_bindings.find(index);
+	if (ch != g_character_bindings.end() && ch->second.generation == generation) {
+		g_dirty_entities.insert(index);
+	}
 }
 
 u32 jolt_internal_writeback_count(void) {
@@ -1563,13 +1649,292 @@ void jolt_step_world_impl(sk_world_t* world, f32 delta_time) noexcept {
 	jolt_step_impl(delta_time, (world != nullptr) ? jolt_step_world_writeback : nullptr, world);
 }
 
-/* ---- character stubs (not implemented at this stage) ---- */
+/* ---- character controller (APX-309, Jolt CharacterVirtual) ---- */
 
-sk_jolt_character_t* jolt_character_create_impl(const sk_jolt_shape_desc_t*, u32) noexcept {
-	return nullptr;
+sk_jolt_ground_state_t jolt_map_ground_state(JPH::CharacterBase::EGroundState state) noexcept {
+	switch (state) {
+	case JPH::CharacterBase::EGroundState::OnGround:
+		return SK_JOLT_GROUND_STATE_GROUNDED;
+	case JPH::CharacterBase::EGroundState::OnSteepGround:
+		return SK_JOLT_GROUND_STATE_ON_STEEP_SLOPE;
+	case JPH::CharacterBase::EGroundState::NotSupported:
+	case JPH::CharacterBase::EGroundState::InAir:
+		return SK_JOLT_GROUND_STATE_IN_AIR;
+	}
+	return SK_JOLT_GROUND_STATE_IN_AIR;
 }
 
-void jolt_character_destroy_impl(sk_jolt_character_t*) noexcept {}
+JPH::RefConst<JPH::Shape> jolt_make_character_shape(f32 radius, f32 height) noexcept {
+	const f32 half_height = 0.5f * height - radius;
+	if (!(radius > 0.0f) || !(half_height >= 0.0f)) {
+		return nullptr;
+	}
+	const JPH::CapsuleShapeSettings capsule(half_height, radius);
+	const JPH::ShapeSettings::ShapeResult capsule_result = capsule.Create();
+	if (!capsule_result.IsValid()) {
+		return nullptr;
+	}
+	/* Offset so the capsule sits on the origin (feet at CharacterVirtual position). */
+	const JPH::RotatedTranslatedShapeSettings offset(JPH::Vec3(0.0f, half_height + radius, 0.0f), JPH::Quat::sIdentity(), capsule_result.Get());
+	const JPH::ShapeSettings::ShapeResult offset_result = offset.Create();
+	if (!offset_result.IsValid()) {
+		return nullptr;
+	}
+	return offset_result.Get();
+}
+
+void jolt_character_settings_defaults(sk_jolt_character_settings_t* out) {
+	if (out == nullptr) {
+		return;
+	}
+	out->radius = kDefaultCharacterRadius;
+	out->height = kDefaultCharacterHeight;
+	out->max_slope_angle = JPH::DegreesToRadians(50.0f);
+	out->step_height = kDefaultCharacterStepHeight;
+	out->mass = kDefaultCharacterMass;
+	out->object_layer = SK_JOLT_OBJECT_LAYER_MOVING;
+}
+
+void jolt_character_refresh(JoltCharacterHandle* record) noexcept {
+	if (record == nullptr || record->character == nullptr || g_jolt_world == nullptr) {
+		return;
+	}
+	JPH::PhysicsSystem& system = g_jolt_world->physics_system;
+	const JPH::ObjectLayer layer = static_cast<JPH::ObjectLayer>(record->object_layer);
+	record->character->RefreshContacts(system.GetDefaultBroadPhaseLayerFilter(layer), system.GetDefaultLayerFilter(layer), JPH::BodyFilter{}, JPH::ShapeFilter{},
+									   g_jolt_world->temp_allocator);
+}
+
+void jolt_character_step_one(JoltCharacterHandle* record, f32 dt, JPH::Vec3Arg gravity) noexcept {
+	JPH::CharacterVirtual* character = record->character.GetPtr();
+	if (character == nullptr || !(dt > 0.0f)) {
+		return;
+	}
+
+	JPH::Vec3 velocity = character->GetLinearVelocity();
+	if (record->has_walk) {
+		velocity.SetX(record->walk_velocity.GetX());
+		velocity.SetZ(record->walk_velocity.GetZ());
+	}
+
+	/* Jolt CharacterVirtual::ExtendedUpdate docs: on walkable ground add
+	 * ground velocity + horizontal input + gravity*dt; in air keep vertical
+	 * and add gravity. Slope cancel + WalkStairs happen inside ExtendedUpdate. */
+	const bool on_ground = character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+	if (on_ground && velocity.GetY() <= 0.0f) {
+		const JPH::Vec3 horizontal(velocity.GetX(), 0.0f, velocity.GetZ());
+		velocity = character->GetGroundVelocity() + horizontal + gravity * dt;
+	} else {
+		velocity += gravity * dt;
+	}
+	character->SetLinearVelocity(velocity);
+
+	JPH::CharacterVirtual::ExtendedUpdateSettings update_settings;
+	const f32 step = (record->step_height > 0.0f) ? record->step_height : 0.0f;
+	update_settings.mWalkStairsStepUp = (step > 0.0f) ? JPH::Vec3(0.0f, step, 0.0f) : JPH::Vec3::sZero();
+	const f32 stick = (step > 0.0f) ? step : 0.1f;
+	update_settings.mStickToFloorStepDown = JPH::Vec3(0.0f, -stick, 0.0f);
+	/* Forward test must clear the capsule radius or WalkStairs lands back on
+	 * the riser instead of the tread. */
+	update_settings.mWalkStairsMinStepForward = record->radius * 0.5f;
+	update_settings.mWalkStairsStepForwardTest = record->radius + 0.25f;
+
+	JPH::PhysicsSystem& system = g_jolt_world->physics_system;
+	const JPH::ObjectLayer layer = static_cast<JPH::ObjectLayer>(record->object_layer);
+	character->ExtendedUpdate(dt, gravity, update_settings, system.GetDefaultBroadPhaseLayerFilter(layer), system.GetDefaultLayerFilter(layer), JPH::BodyFilter{},
+							  JPH::ShapeFilter{}, g_jolt_world->temp_allocator);
+}
+
+void jolt_update_all_characters(f32 dt) noexcept {
+	if (g_jolt_world == nullptr) {
+		return;
+	}
+	const JPH::Vec3 gravity = g_jolt_world->physics_system.GetGravity();
+	for (sk_jolt_character_t* handle : g_live_characters) {
+		JoltCharacterHandle* record = reinterpret_cast<JoltCharacterHandle*>(handle);
+		jolt_character_step_one(record, dt, gravity);
+	}
+}
+
+sk_jolt_character_t* jolt_character_create_from_settings(const sk_jolt_character_settings_t* settings, JPH::RVec3Arg position) noexcept {
+	if (g_jolt_world == nullptr || settings == nullptr) {
+		return nullptr;
+	}
+	if (settings->object_layer >= SK_JOLT_OBJECT_LAYER_COUNT) {
+		return nullptr;
+	}
+	if (!(settings->radius > 0.0f) || !(settings->height > 2.0f * settings->radius) || !(settings->mass >= 0.0f) || !(settings->step_height >= 0.0f) ||
+		!(settings->max_slope_angle >= 0.0f)) {
+		return nullptr;
+	}
+
+	JPH::RefConst<JPH::Shape> shape = jolt_make_character_shape(settings->radius, settings->height);
+	if (shape == nullptr) {
+		return nullptr;
+	}
+
+	JPH::CharacterVirtualSettings virtual_settings;
+	virtual_settings.mShape = shape;
+	virtual_settings.mMass = settings->mass;
+	virtual_settings.mMaxSlopeAngle = settings->max_slope_angle;
+	virtual_settings.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -settings->radius);
+	virtual_settings.mUp = JPH::Vec3::sAxisY();
+	/* Inner kinematic proxy so the character occupies the world and collides
+	 * with ECS-synced rigid bodies the same way a kinematic body would. */
+	virtual_settings.mInnerBodyShape = shape;
+	virtual_settings.mInnerBodyLayer = static_cast<JPH::ObjectLayer>(settings->object_layer);
+
+	JPH::Ref<JPH::CharacterVirtual> character = new JPH::CharacterVirtual(&virtual_settings, position, JPH::Quat::sIdentity(), &g_jolt_world->physics_system);
+	if (character == nullptr) {
+		return nullptr;
+	}
+
+	if (!character->GetInnerBodyID().IsInvalid()) {
+		const JPH::CollisionGroup group(nullptr, SK_JOLT_COLLISION_GROUP_CHARACTER, JPH::CollisionGroup::cInvalidSubGroup);
+		g_jolt_world->physics_system.GetBodyInterface().SetCollisionGroup(character->GetInnerBodyID(), group);
+	}
+
+	auto* record = new JoltCharacterHandle{};
+	record->character = character;
+	record->object_layer = settings->object_layer;
+	record->radius = settings->radius;
+	record->height = settings->height;
+	record->max_slope_angle = settings->max_slope_angle;
+	record->step_height = settings->step_height;
+	record->mass = settings->mass;
+	g_character_handles.push_back(record);
+	sk_jolt_character_t* handle = reinterpret_cast<sk_jolt_character_t*>(record);
+	g_live_characters.insert(handle);
+	jolt_character_refresh(record);
+	return handle;
+}
+
+sk_jolt_character_t* jolt_character_create_configured_impl(const sk_jolt_character_settings_t* settings) noexcept {
+	return jolt_character_create_from_settings(settings, JPH::RVec3::sZero());
+}
+
+sk_jolt_character_t* jolt_character_create_impl(const sk_jolt_shape_desc_t* shape, u32 object_layer) noexcept {
+	if (shape == nullptr || shape->kind != SK_JOLT_SHAPE_CAPSULE) {
+		return nullptr;
+	}
+	sk_jolt_character_settings_t settings;
+	jolt_character_settings_defaults(&settings);
+	settings.radius = shape->shape.capsule.radius;
+	settings.height = 2.0f * (shape->shape.capsule.half_height + shape->shape.capsule.radius);
+	settings.object_layer = object_layer;
+	return jolt_character_create_from_settings(&settings, JPH::RVec3::sZero());
+}
+
+void jolt_character_destroy_impl(sk_jolt_character_t* character) noexcept {
+	if (g_jolt_world == nullptr || character == nullptr || g_live_characters.find(character) == g_live_characters.end()) {
+		return;
+	}
+	auto* record = reinterpret_cast<JoltCharacterHandle*>(character);
+	record->character = nullptr;
+	g_live_characters.erase(character);
+}
+
+i32 jolt_character_get_position_impl(const sk_jolt_character_t* character, sk_jolt_vec3_t* out_position) noexcept {
+	if (out_position != nullptr) {
+		out_position->x = 0.0f;
+		out_position->y = 0.0f;
+		out_position->z = 0.0f;
+	}
+	JoltCharacterHandle* record = jolt_character_handle(const_cast<sk_jolt_character_t*>(character));
+	if (record == nullptr || record->character == nullptr || out_position == nullptr) {
+		return -1;
+	}
+	const JPH::RVec3 position = record->character->GetPosition();
+	out_position->x = position.GetX();
+	out_position->y = position.GetY();
+	out_position->z = position.GetZ();
+	return 0;
+}
+
+i32 jolt_character_set_position_impl(sk_jolt_character_t* character, const sk_jolt_vec3_t* position) noexcept {
+	JoltCharacterHandle* record = jolt_character_handle(character);
+	if (record == nullptr || record->character == nullptr || position == nullptr) {
+		return -1;
+	}
+	record->character->SetPosition(JPH::RVec3(position->x, position->y, position->z));
+	jolt_character_refresh(record);
+	return 0;
+}
+
+i32 jolt_character_get_velocity_impl(const sk_jolt_character_t* character, sk_jolt_vec3_t* out_velocity) noexcept {
+	if (out_velocity != nullptr) {
+		out_velocity->x = 0.0f;
+		out_velocity->y = 0.0f;
+		out_velocity->z = 0.0f;
+	}
+	JoltCharacterHandle* record = jolt_character_handle(const_cast<sk_jolt_character_t*>(character));
+	if (record == nullptr || record->character == nullptr || out_velocity == nullptr) {
+		return -1;
+	}
+	const JPH::Vec3 velocity = record->character->GetLinearVelocity();
+	out_velocity->x = velocity.GetX();
+	out_velocity->y = velocity.GetY();
+	out_velocity->z = velocity.GetZ();
+	return 0;
+}
+
+i32 jolt_character_set_velocity_impl(sk_jolt_character_t* character, const sk_jolt_vec3_t* velocity) noexcept {
+	JoltCharacterHandle* record = jolt_character_handle(character);
+	if (record == nullptr || record->character == nullptr || velocity == nullptr) {
+		return -1;
+	}
+	record->has_walk = false;
+	record->character->SetLinearVelocity(JPH::Vec3(velocity->x, velocity->y, velocity->z));
+	return 0;
+}
+
+i32 jolt_character_move_impl(sk_jolt_character_t* character, const sk_jolt_vec3_t* desired_velocity) noexcept {
+	JoltCharacterHandle* record = jolt_character_handle(character);
+	if (record == nullptr || record->character == nullptr || desired_velocity == nullptr) {
+		return -1;
+	}
+	record->has_walk = true;
+	record->walk_velocity = JPH::Vec3(desired_velocity->x, 0.0f, desired_velocity->z);
+	JPH::Vec3 velocity = record->character->GetLinearVelocity();
+	velocity.SetX(desired_velocity->x);
+	velocity.SetZ(desired_velocity->z);
+	record->character->SetLinearVelocity(velocity);
+	return 0;
+}
+
+i32 jolt_character_get_ground_state_impl(const sk_jolt_character_t* character, sk_jolt_ground_state_t* out_state) noexcept {
+	if (out_state != nullptr) {
+		*out_state = SK_JOLT_GROUND_STATE_IN_AIR;
+	}
+	JoltCharacterHandle* record = jolt_character_handle(const_cast<sk_jolt_character_t*>(character));
+	if (record == nullptr || record->character == nullptr || out_state == nullptr) {
+		return -1;
+	}
+	*out_state = jolt_map_ground_state(record->character->GetGroundState());
+	return 0;
+}
+
+sk_jolt_character_t* jolt_create_spec_character(const sk_jolt_character_sync_spec_t* spec) noexcept {
+	sk_jolt_character_settings_t settings;
+	jolt_character_settings_defaults(&settings);
+	if (spec->radius > 0.0f) {
+		settings.radius = spec->radius;
+	}
+	if (spec->height > 2.0f * settings.radius) {
+		settings.height = spec->height;
+	}
+	if (spec->max_slope_angle > 0.0f) {
+		settings.max_slope_angle = spec->max_slope_angle;
+	}
+	if (spec->step_height >= 0.0f) {
+		settings.step_height = spec->step_height;
+	}
+	if (spec->mass >= 0.0f) {
+		settings.mass = spec->mass;
+	}
+	settings.object_layer = spec->object_layer;
+	return jolt_character_create_from_settings(&settings, JPH::RVec3(spec->pos_x, spec->pos_y, spec->pos_z));
+}
 
 /* ---- API table (table-only; no public free-function mirrors) ---- */
 
@@ -1606,8 +1971,16 @@ const sk_jolt_api_t jolt_api = {
 	jolt_body_activate_impl,
 	jolt_body_deactivate_impl,
 	jolt_body_is_active_impl,
+	jolt_character_settings_defaults,
 	jolt_character_create_impl,
+	jolt_character_create_configured_impl,
 	jolt_character_destroy_impl,
+	jolt_character_get_position_impl,
+	jolt_character_set_position_impl,
+	jolt_character_get_velocity_impl,
+	jolt_character_set_velocity_impl,
+	jolt_character_move_impl,
+	jolt_character_get_ground_state_impl,
 	jolt_ray_cast_impl,
 	jolt_sphere_cast_impl,
 	jolt_sync_world_impl,
@@ -1620,6 +1993,196 @@ const sk_jolt_api_t jolt_api = {
 };
 
 } /* namespace */
+
+extern "C" {
+
+void jolt_internal_character_sync_begin(void) { // NOLINT(modernize-redundant-void-arg)
+	if (g_jolt_world == nullptr) {
+		return;
+	}
+	for (auto& entry : g_character_bindings) {
+		entry.second.seen = false;
+	}
+}
+
+void jolt_internal_character_bind(const sk_jolt_character_sync_spec_t* spec, sk_jolt_character_t** out_character) {
+	if (out_character != nullptr) {
+		*out_character = nullptr;
+	}
+	if (g_jolt_world == nullptr || spec == nullptr) {
+		return;
+	}
+
+	CharacterBinding* bind = nullptr;
+	const auto found = g_character_bindings.find(spec->index);
+	if (found != g_character_bindings.end()) {
+		if (found->second.generation != spec->generation) {
+			if (found->second.character != nullptr) {
+				jolt_character_destroy_impl(found->second.character);
+			}
+			g_character_bindings.erase(found);
+		} else {
+			bind = &found->second;
+		}
+	}
+
+	if (bind == nullptr) {
+		sk_jolt_character_t* character = jolt_create_spec_character(spec);
+		if (character == nullptr) {
+			return;
+		}
+		CharacterBinding created{};
+		created.index = spec->index;
+		created.generation = spec->generation;
+		created.character = character;
+		created.seen = true;
+		created.radius = spec->radius;
+		created.height = spec->height;
+		created.max_slope_angle = spec->max_slope_angle;
+		created.step_height = spec->step_height;
+		created.mass = spec->mass;
+		created.object_layer = spec->object_layer;
+		created.last_pos[0] = spec->pos_x;
+		created.last_pos[1] = spec->pos_y;
+		created.last_pos[2] = spec->pos_z;
+		created.last_vel[0] = spec->vel_x;
+		created.last_vel[1] = spec->vel_y;
+		created.last_vel[2] = spec->vel_z;
+		if (!jolt_f32_near(spec->vel_x, 0.0f, 0.0f) || !jolt_f32_near(spec->vel_y, 0.0f, 0.0f) || !jolt_f32_near(spec->vel_z, 0.0f, 0.0f)) {
+			const sk_jolt_vec3_t vel{spec->vel_x, spec->vel_y, spec->vel_z};
+			(void)jolt_character_set_velocity_impl(character, &vel);
+		}
+		g_character_bindings[spec->index] = created;
+		if (out_character != nullptr) {
+			*out_character = character;
+		}
+		return;
+	}
+
+	bind->seen = true;
+	bind->generation = spec->generation;
+	JoltCharacterHandle* record = jolt_character_handle(bind->character);
+	const bool dirty = g_dirty_entities.find(spec->index) != g_dirty_entities.end();
+	if (dirty && record != nullptr) {
+		const bool rebuild = !jolt_f32_near(bind->radius, spec->radius, 0.0f) || !jolt_f32_near(bind->height, spec->height, 0.0f) || bind->object_layer != spec->object_layer;
+		if (rebuild) {
+			jolt_character_destroy_impl(bind->character);
+			bind->character = jolt_create_spec_character(spec);
+			if (bind->character == nullptr) {
+				g_character_bindings.erase(spec->index);
+				return;
+			}
+			record = jolt_character_handle(bind->character);
+		} else if (record->character != nullptr) {
+			if (!jolt_f32_near(bind->max_slope_angle, spec->max_slope_angle, 0.0f)) {
+				record->character->SetMaxSlopeAngle(spec->max_slope_angle);
+			}
+			if (!jolt_f32_near(bind->mass, spec->mass, 0.0f)) {
+				record->character->SetMass(spec->mass);
+			}
+			record->step_height = spec->step_height;
+			record->max_slope_angle = spec->max_slope_angle;
+			record->mass = spec->mass;
+		}
+		bind->radius = spec->radius;
+		bind->height = spec->height;
+		bind->max_slope_angle = spec->max_slope_angle;
+		bind->step_height = spec->step_height;
+		bind->mass = spec->mass;
+		bind->object_layer = spec->object_layer;
+	}
+
+	if (record != nullptr && record->character != nullptr) {
+		if (!jolt_f32_near(bind->last_pos[0], spec->pos_x, kPoseEpsilon) || !jolt_f32_near(bind->last_pos[1], spec->pos_y, kPoseEpsilon) ||
+			!jolt_f32_near(bind->last_pos[2], spec->pos_z, kPoseEpsilon)) {
+			const sk_jolt_vec3_t pos{spec->pos_x, spec->pos_y, spec->pos_z};
+			(void)jolt_character_set_position_impl(bind->character, &pos);
+			bind->last_pos[0] = spec->pos_x;
+			bind->last_pos[1] = spec->pos_y;
+			bind->last_pos[2] = spec->pos_z;
+		}
+		if (!jolt_f32_near(bind->last_vel[0], spec->vel_x, kPoseEpsilon) || !jolt_f32_near(bind->last_vel[1], spec->vel_y, kPoseEpsilon) ||
+			!jolt_f32_near(bind->last_vel[2], spec->vel_z, kPoseEpsilon)) {
+			const sk_jolt_vec3_t vel{spec->vel_x, spec->vel_y, spec->vel_z};
+			const f32 h2 = spec->vel_x * spec->vel_x + spec->vel_z * spec->vel_z;
+			if (h2 > 1.0e-8f) {
+				(void)jolt_character_move_impl(bind->character, &vel);
+			} else {
+				(void)jolt_character_set_velocity_impl(bind->character, &vel);
+			}
+			bind->last_vel[0] = spec->vel_x;
+			bind->last_vel[1] = spec->vel_y;
+			bind->last_vel[2] = spec->vel_z;
+		}
+	}
+
+	if (out_character != nullptr) {
+		*out_character = bind->character;
+	}
+}
+
+void jolt_internal_character_sync_end(void) { // NOLINT(modernize-redundant-void-arg)
+	if (g_jolt_world == nullptr) {
+		return;
+	}
+	for (auto it = g_character_bindings.begin(); it != g_character_bindings.end();) {
+		if (it->second.seen) {
+			++it;
+			continue;
+		}
+		if (it->second.character != nullptr) {
+			jolt_character_destroy_impl(it->second.character);
+		}
+		it = g_character_bindings.erase(it);
+	}
+}
+
+u32 jolt_internal_character_writeback_count(void) { // NOLINT(modernize-redundant-void-arg)
+	return static_cast<u32>(g_character_bindings.size());
+}
+
+i32 jolt_internal_character_writeback_at(u32 i, sk_jolt_character_sync_pose_t* out) {
+	if (out == nullptr || g_jolt_world == nullptr) {
+		return -1;
+	}
+	if (i >= static_cast<u32>(g_character_bindings.size())) {
+		return -1;
+	}
+	auto it = g_character_bindings.begin();
+	for (u32 n = 0u; n < i; ++n) {
+		++it;
+	}
+	CharacterBinding& bind = it->second;
+	if (bind.character == nullptr) {
+		return -1;
+	}
+	sk_jolt_vec3_t pos;
+	sk_jolt_vec3_t vel;
+	sk_jolt_ground_state_t ground = SK_JOLT_GROUND_STATE_IN_AIR;
+	if (jolt_character_get_position_impl(bind.character, &pos) != 0) {
+		return -1;
+	}
+	(void)jolt_character_get_velocity_impl(bind.character, &vel);
+	(void)jolt_character_get_ground_state_impl(bind.character, &ground);
+	out->index = bind.index;
+	out->generation = bind.generation;
+	out->pos_x = pos.x;
+	out->pos_y = pos.y;
+	out->pos_z = pos.z;
+	out->vel_x = vel.x;
+	out->vel_y = vel.y;
+	out->vel_z = vel.z;
+	out->ground_state = (i32)ground;
+	bind.last_pos[0] = pos.x;
+	bind.last_pos[1] = pos.y;
+	bind.last_pos[2] = pos.z;
+	bind.last_vel[0] = vel.x;
+	bind.last_vel[1] = vel.y;
+	bind.last_vel[2] = vel.z;
+	return 0;
+}
+
+} /* extern "C" */
 
 /**
  * Register the physics API on the app context.
@@ -1657,7 +2220,9 @@ static_assert(std::is_trivial<sk_jolt_quat_t>::value && std::is_standard_layout<
  * handle pointer + vec3s + fraction), so it must stay trivial/standard-layout
  * for a C host. */
 static_assert(std::is_trivial<sk_jolt_query_hit_t>::value && std::is_standard_layout<sk_jolt_query_hit_t>::value);
+static_assert(std::is_trivial<sk_jolt_character_settings_t>::value && std::is_standard_layout<sk_jolt_character_settings_t>::value);
 static_assert(std::is_enum<sk_jolt_motion_type_t>::value && std::is_trivial<sk_jolt_motion_type_t>::value);
+static_assert(std::is_enum<sk_jolt_ground_state_t>::value && std::is_trivial<sk_jolt_ground_state_t>::value);
 
 /* Motion type values mirror JPH::EMotionType; layer/group constants mirror
  * the vendored Jolt defaults so later integration maps 1:1. */

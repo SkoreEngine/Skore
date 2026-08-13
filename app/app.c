@@ -1653,6 +1653,12 @@ SK_TEST(app_init_auto_loads_jolt_plugin) {
 	memset(&info, 0, sizeof(info));
 	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_TRANSFORM_COMPONENT_TYPE_ID, &info));
 	TEST_ASSERT_EQUAL_STRING("transform", info.name);
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("character_config", info.name);
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CHARACTER_STATE_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("character_state", info.name);
 	sk_app_destroy(ctx);
 }
 
@@ -2188,6 +2194,30 @@ SK_TEST(jolt_components_serialize_roundtrip) {
 		sk_resource_object_t w = api->write(repo, rid);
 		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CAPSULE_COLLIDER_FIELD_HALF_HEIGHT, 1.0));
 		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CAPSULE_COLLIDER_FIELD_RADIUS, 0.4));
+		api->commit(w, NULL);
+		app_jolt_components_assert_double_serialize_identity(repo, rid);
+	}
+	{
+		const sk_resource_type_t* type = api->find_type_by_name(repo, "CharacterConfigResource");
+		TEST_ASSERT_NOT_NULL(type);
+		sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_RADIUS, 0.35));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_HEIGHT, 1.9));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_MAX_SLOPE_ANGLE, 0.7));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_STEP_HEIGHT, 0.35));
+		TEST_ASSERT_EQUAL_INT(0, api->set_float(w, SK_CHARACTER_CONFIG_FIELD_MASS, 80.0));
+		TEST_ASSERT_EQUAL_INT(0, api->set_uint(w, SK_CHARACTER_CONFIG_FIELD_OBJECT_LAYER, SK_JOLT_OBJECT_LAYER_MOVING));
+		api->commit(w, NULL);
+		app_jolt_components_assert_double_serialize_identity(repo, rid);
+	}
+	{
+		const sk_resource_type_t* type = api->find_type_by_name(repo, "CharacterStateResource");
+		TEST_ASSERT_NOT_NULL(type);
+		sk_rid_t rid = api->create_resource(repo, type, SK_UUID_ZERO, NULL);
+		sk_resource_object_t w = api->write(repo, rid);
+		TEST_ASSERT_EQUAL_INT(0, api->set_vec3(w, SK_CHARACTER_STATE_FIELD_VELOCITY, sk_vec3(1.0f, 0.0f, -0.5f)));
+		TEST_ASSERT_EQUAL_INT(0, api->set_enum(w, SK_CHARACTER_STATE_FIELD_GROUND_STATE, SK_JOLT_GROUND_STATE_GROUNDED));
 		api->commit(w, NULL);
 		app_jolt_components_assert_double_serialize_identity(repo, rid);
 	}

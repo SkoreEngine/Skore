@@ -17,10 +17,12 @@
 
 static sk_world_t* bound_world = NULL;
 static sk_query_t* bound_query = NULL;
+static sk_query_t* bound_character_query = NULL;
 
 void jolt_ecs_reset(void) {
 	bound_world = NULL;
 	bound_query = NULL;
+	bound_character_query = NULL;
 }
 
 static const sk_entities_api_t* jolt_sync_ecs(void) {
@@ -114,6 +116,7 @@ void jolt_ecs_sync_world(sk_world_t* world) {
 		jolt_internal_clear_bindings();
 		bound_world = world;
 		bound_query = NULL;
+		bound_character_query = NULL;
 	}
 	if (bound_query == NULL) {
 		required[0] = SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID;
@@ -149,6 +152,52 @@ void jolt_ecs_sync_world(sk_world_t* world) {
 		cfg->body = body;
 	}
 	jolt_internal_sync_end();
+
+	if (bound_character_query == NULL) {
+		required[0] = SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID;
+		memset(&desc, 0, sizeof(desc));
+		desc.required = required;
+		desc.required_count = 1u;
+		bound_character_query = ecs->world_query_create(world, &desc);
+		if (bound_character_query == NULL) {
+			return;
+		}
+	}
+
+	jolt_internal_character_sync_begin();
+	SK_ECS_QUERY_EACH(ecs, bound_character_query, it) {
+		const sk_entity_t entity = SK_ECS_ITER_ENTITY_ROW(it);
+		sk_character_config_t* cfg = (sk_character_config_t*)ecs->world_component(world, entity, SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID);
+		const sk_transform_t* xform = (const sk_transform_t*)ecs->world_component(world, entity, SK_TRANSFORM_COMPONENT_TYPE_ID);
+		const sk_character_state_t* state = (const sk_character_state_t*)ecs->world_component(world, entity, SK_CHARACTER_STATE_COMPONENT_TYPE_ID);
+		sk_jolt_character_sync_spec_t spec;
+		sk_jolt_character_t* character = NULL;
+		if (cfg == NULL) {
+			continue;
+		}
+		memset(&spec, 0, sizeof(spec));
+		spec.index = entity.index;
+		spec.generation = entity.generation;
+		spec.radius = cfg->radius;
+		spec.height = cfg->height;
+		spec.max_slope_angle = cfg->max_slope_angle;
+		spec.step_height = cfg->step_height;
+		spec.mass = cfg->mass;
+		spec.object_layer = cfg->object_layer;
+		if (xform != NULL) {
+			spec.pos_x = xform->position.x;
+			spec.pos_y = xform->position.y;
+			spec.pos_z = xform->position.z;
+		}
+		if (state != NULL) {
+			spec.vel_x = state->velocity.x;
+			spec.vel_y = state->velocity.y;
+			spec.vel_z = state->velocity.z;
+		}
+		jolt_internal_character_bind(&spec, &character);
+		cfg->character = character;
+	}
+	jolt_internal_character_sync_end();
 }
 
 void jolt_ecs_write_back(sk_world_t* world) {
@@ -191,6 +240,37 @@ void jolt_ecs_write_back(sk_world_t* world) {
 				state->angular_velocity.x = pose.av_x;
 				state->angular_velocity.y = pose.av_y;
 				state->angular_velocity.z = pose.av_z;
+			}
+		}
+	}
+
+	count = jolt_internal_character_writeback_count();
+	for (i = 0u; i < count; ++i) {
+		sk_jolt_character_sync_pose_t pose;
+		sk_entity_t entity;
+		if (jolt_internal_character_writeback_at(i, &pose) != 0) {
+			continue;
+		}
+		entity.index = pose.index;
+		entity.generation = pose.generation;
+		if (ecs->world_alive(world, entity) == 0) {
+			continue;
+		}
+		{
+			sk_transform_t* xform = (sk_transform_t*)ecs->world_component(world, entity, SK_TRANSFORM_COMPONENT_TYPE_ID);
+			if (xform != NULL) {
+				xform->position.x = pose.pos_x;
+				xform->position.y = pose.pos_y;
+				xform->position.z = pose.pos_z;
+			}
+		}
+		{
+			sk_character_state_t* state = (sk_character_state_t*)ecs->world_component(world, entity, SK_CHARACTER_STATE_COMPONENT_TYPE_ID);
+			if (state != NULL) {
+				state->velocity.x = pose.vel_x;
+				state->velocity.y = pose.vel_y;
+				state->velocity.z = pose.vel_z;
+				state->ground_state = (sk_jolt_ground_state_t)pose.ground_state;
 			}
 		}
 	}

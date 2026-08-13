@@ -211,6 +211,8 @@ SK_TEST(editor_project_open_scan_and_import_via_core) {
 		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "BoxColliderResource"));
 		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "SphereColliderResource"));
 		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "CapsuleColliderResource"));
+		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "CharacterConfigResource"));
+		TEST_ASSERT_NOT_NULL(repo->find_type_by_name(listing, "CharacterStateResource"));
 		TEST_ASSERT_NOT_NULL(repo->find_type(listing, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID));
 	}
 

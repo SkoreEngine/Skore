@@ -73,6 +73,35 @@ typedef struct sk_jolt_sync_pose_t {
 	f32 av_z;
 } sk_jolt_sync_pose_t;
 
+typedef struct sk_jolt_character_sync_spec_t {
+	u32 index;
+	u32 generation;
+	f32 radius;
+	f32 height;
+	f32 max_slope_angle;
+	f32 step_height;
+	f32 mass;
+	u32 object_layer;
+	f32 pos_x;
+	f32 pos_y;
+	f32 pos_z;
+	f32 vel_x;
+	f32 vel_y;
+	f32 vel_z;
+} sk_jolt_character_sync_spec_t;
+
+typedef struct sk_jolt_character_sync_pose_t {
+	u32 index;
+	u32 generation;
+	f32 pos_x;
+	f32 pos_y;
+	f32 pos_z;
+	f32 vel_x;
+	f32 vel_y;
+	f32 vel_z;
+	i32 ground_state;
+} sk_jolt_character_sync_pose_t;
+
 void jolt_internal_sync_begin(void); // NOLINT(modernize-redundant-void-arg) — C ABI
 void jolt_internal_bind(const sk_jolt_sync_spec_t* spec, sk_jolt_body_t** out_body);
 void jolt_internal_sync_end(void);		 // NOLINT(modernize-redundant-void-arg) — C ABI
@@ -85,6 +114,12 @@ i32 jolt_internal_writeback_at(u32 i, sk_jolt_sync_pose_t* out);
  * the next sync. The dirty set is consumed (cleared) at the end of the next
  * sync walk. See jolt.h entity_require_update for when to call it. */
 void jolt_internal_mark_dirty(u32 index, u32 generation);
+
+void jolt_internal_character_sync_begin(void); // NOLINT(modernize-redundant-void-arg) — C ABI
+void jolt_internal_character_bind(const sk_jolt_character_sync_spec_t* spec, sk_jolt_character_t** out_character);
+void jolt_internal_character_sync_end(void);	   // NOLINT(modernize-redundant-void-arg) — C ABI
+u32 jolt_internal_character_writeback_count(void); // NOLINT(modernize-redundant-void-arg) — C ABI
+i32 jolt_internal_character_writeback_at(u32 i, sk_jolt_character_sync_pose_t* out);
 
 void jolt_ecs_sync_world(sk_world_t* world);
 void jolt_ecs_write_back(sk_world_t* world);
