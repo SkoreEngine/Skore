@@ -226,6 +226,61 @@ static GLFWwindow* as_glfw(sk_window_t window) {
 	return (GLFWwindow*)window;
 }
 
+/* Make the framebuffer equal logical × content scale. Windows/X11 GLFW sizes
+ * are pixels; without this, create(1280,720) on 1.5x stays 1280px and the
+ * host either lays out at 853 or paints 1920 into a 1280 window (crop). */
+static void sk_window_realize_logical_size(GLFWwindow* win, u32 logical_w, u32 logical_h) {
+	float sx = 1.0f;
+	float sy = 1.0f;
+	int fb_w = 0;
+	int fb_h = 0;
+	int gw = 0;
+	int gh = 0;
+	u32 want_w;
+	u32 want_h;
+	f32 px_x = 1.0f;
+	f32 px_y = 1.0f;
+
+	glfwGetWindowContentScale(win, &sx, &sy);
+	if (sx <= 0.0f) {
+		sx = 1.0f;
+	}
+	if (sy <= 0.0f) {
+		sy = 1.0f;
+	}
+	glfwGetFramebufferSize(win, &fb_w, &fb_h);
+	if (fb_w <= 0 || fb_h <= 0) {
+		return;
+	}
+	want_w = sk_logical_to_physical_u32(logical_w, sx);
+	want_h = sk_logical_to_physical_u32(logical_h, sy);
+	if (fb_w == (int)want_w && fb_h == (int)want_h) {
+		return;
+	}
+	glfwGetWindowSize(win, &gw, &gh);
+	if (gw > 0 && fb_w > 0) {
+		px_x = (f32)fb_w / (f32)gw;
+	}
+	if (gh > 0 && fb_h > 0) {
+		px_y = (f32)fb_h / (f32)gh;
+	}
+	if (px_x <= 0.0f) {
+		px_x = 1.0f;
+	}
+	if (px_y <= 0.0f) {
+		px_y = 1.0f;
+	}
+	gw = (int)((f32)want_w / px_x + 0.5f);
+	gh = (int)((f32)want_h / px_y + 0.5f);
+	if (gw < 1) {
+		gw = 1;
+	}
+	if (gh < 1) {
+		gh = 1;
+	}
+	glfwSetWindowSize(win, gw, gh);
+}
+
 static sk_window_t sk_window_create(const_chr_t title, u32 width, u32 height, u32 flags) {
 	if (width == 0u || height == 0u) {
 		return NULL;
@@ -236,6 +291,9 @@ static sk_window_t sk_window_create(const_chr_t title, u32 width, u32 height, u3
 	glfwWindowHint(GLFW_DECORATED, (flags & SK_WINDOW_FLAG_BORDERLESS) ? GLFW_FALSE : GLFW_TRUE);
 	glfwWindowHint(GLFW_MAXIMIZED, (flags & SK_WINDOW_FLAG_MAXIMIZED) ? GLFW_TRUE : GLFW_FALSE);
 	glfwWindowHint(GLFW_VISIBLE, (flags & SK_WINDOW_FLAG_HIDDEN) ? GLFW_FALSE : GLFW_TRUE);
+	/* Windows/X11: scale the client area by the monitor content scale so
+	 * width/height stay logical points (macOS already uses points). */
+	glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
 	const char* t = (title != NULL) ? title : "";
 	GLFWwindow* win = glfwCreateWindow((int)width, (int)height, t, NULL, NULL);
@@ -256,6 +314,7 @@ static sk_window_t sk_window_create(const_chr_t title, u32 width, u32 height, u3
 	glfwSetKeyCallback(win, sk_glfw_key_callback);
 	glfwSetCharCallback(win, sk_glfw_char_callback);
 	glfwSetScrollCallback(win, sk_glfw_scroll_callback);
+	sk_window_realize_logical_size(win, width, height);
 
 #if defined(_WIN32)
 	{
@@ -1206,6 +1265,9 @@ SK_TEST(window_logical_size_matches_framebuffer_over_scale) {
 
 	TEST_ASSERT_EQUAL_UINT(sk_physical_to_logical_u32(physical.width, scale.x), logical.width);
 	TEST_ASSERT_EQUAL_UINT(sk_physical_to_logical_u32(physical.height, scale.y), logical.height);
+	/* create_window args are logical points, not raw Windows pixels. */
+	TEST_ASSERT_TRUE(logical.width >= 319u && logical.width <= 321u);
+	TEST_ASSERT_TRUE(logical.height >= 239u && logical.height <= 241u);
 
 	/* Callback registration is a no-crash smoke path (no OS input here). */
 	platform_window_api.set_window_key_callback(window, NULL, NULL);

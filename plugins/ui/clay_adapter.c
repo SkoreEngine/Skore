@@ -1230,13 +1230,13 @@ i32 ui_clay_layout_impl(sk_ui_context_t* ctx, f32 root_width, f32 root_height) {
 	if (ctx == NULL || !sk_ui_node_is_valid(ctx->root)) {
 		return -1;
 	}
-	ui_dock_layout_begin(ctx);
 	root_slot = ui_slot_mut(ctx, ctx->root);
 	if (root_slot == NULL) {
 		return -1;
 	}
 	ctx->root_width = root_width;
 	ctx->root_height = root_height;
+	ui_dock_layout_begin(ctx);
 
 	if (ui_clay_frame_ensure(ctx, ctx->slots.count) != 0) {
 		return -1;

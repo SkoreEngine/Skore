@@ -430,4 +430,38 @@ SK_TEST(ui_sample_dock_demo_rebuild_resets_state) {
 	ui->context_destroy(ctx);
 }
 
+SK_TEST(ui_sample_dock_demo_clay_panels_visible) {
+	const sk_ui_api_t* ui = sample_dock_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_rect_t hier;
+	sk_ui_rect_t scene;
+	sk_ui_rect_t insp;
+	sk_ui_rect_t cons;
+	TEST_ASSERT_NOT_NULL(ctx);
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(ui->sample_dock_demo_build(ctx, SK_UI_NODE_INVALID)));
+	TEST_ASSERT_EQUAL_INT(0, ui->style_resolve(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->layout(ctx, SK_UI_SAMPLE_DOCK_W, SK_UI_SAMPLE_DOCK_H));
+
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->find_by_id(ctx, "dock-demo-hierarchy-fill"), &hier, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->find_by_id(ctx, "dock-demo-scene-fill"), &scene, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->find_by_id(ctx, "dock-demo-inspector-fill"), &insp, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_abs_rect(ctx, ui->find_by_id(ctx, "dock-demo-console-fill"), &cons, NULL));
+
+	TEST_ASSERT_TRUE_MESSAGE(hier.width > 80.0f, "hierarchy width");
+	TEST_ASSERT_TRUE_MESSAGE(hier.height > 80.0f, "hierarchy height");
+	TEST_ASSERT_TRUE_MESSAGE(scene.width > 80.0f, "scene width");
+	TEST_ASSERT_TRUE_MESSAGE(scene.height > 80.0f, "scene height");
+	TEST_ASSERT_TRUE_MESSAGE(insp.width > 80.0f, "inspector width");
+	TEST_ASSERT_TRUE_MESSAGE(insp.height > 80.0f, "inspector height");
+	TEST_ASSERT_TRUE_MESSAGE(cons.width > 80.0f, "console width");
+	TEST_ASSERT_TRUE_MESSAGE(cons.height > 80.0f, "console height");
+
+	TEST_ASSERT_TRUE_MESSAGE(insp.x + 1.0f > scene.x + scene.width * 0.5f, "inspector is right of scene");
+	TEST_ASSERT_TRUE_MESSAGE(cons.y + 1.0f > insp.y + insp.height * 0.25f, "console is below inspector");
+	TEST_ASSERT_TRUE_MESSAGE(insp.x + insp.width <= SK_UI_SAMPLE_DOCK_W + 1.0f, "inspector inside root");
+	TEST_ASSERT_TRUE_MESSAGE(cons.y + cons.height <= SK_UI_SAMPLE_DOCK_H + 1.0f, "console inside root");
+
+	ui->context_destroy(ctx);
+}
+
 #endif /* SK_TESTS */

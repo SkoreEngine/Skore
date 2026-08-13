@@ -308,8 +308,9 @@ typedef struct sk_platform_window_api_t {
      * Create a platform window.
      * Requires a prior successful init.
      * @param title  UTF-8 title (NULL → "").
-     * @param width  Client width in screen coordinates / logical points (must be > 0).
-     * @param height Client height in screen coordinates / logical points (must be > 0).
+     * @param width  Client width in logical points (must be > 0). Physical
+     *               client is width × content scale (1.5x display → 1.5× pixels).
+     * @param height Client height in logical points (must be > 0).
      * @param flags  sk_window_flags_t bits.
      * @return Window handle, or NULL on failure.
      */
