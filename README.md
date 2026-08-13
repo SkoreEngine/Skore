@@ -61,6 +61,10 @@ Under `BUILD_TESTING`, `sk-crash-trigger` deliberately raises each handled fault
 ./build/bin/sk-crash-trigger null   # or: abort, fpe, ill, bus
 ```
 
+### ECS and resource-driven spawning
+
+See **[docs/resource-to-ecs-mapping-contract.md](docs/resource-to-ecs-mapping-contract.md)** for the resource-to-ECS mapping: the component descriptor (`sk_component_desc_t`), the `on_load_asset` contract, the `entity_resource` / `scene_resource` asset layout, the built-in component payloads, and a minimal worked example of authoring a scene asset and spawning it with `world_spawn_from_asset`.
+
 ### Compression
 
 See **[docs/compression-api.md](docs/compression-api.md)** for the compression codec abstraction (`sk_compression_codec_*`): one-shot usage examples, the (deferred) streaming contract, codec selection guidance (none / zstd / lz4 / zlib), and the `SK_COMPRESSION_ZSTD` / `SK_COMPRESSION_LZ4` / `SK_COMPRESSION_MINIZ` build flags for the optional codecs. The authoritative design and the main-branch migration record are in `docs/compression-design-v2.md`; the codec evaluation with measurements is in `docs/compression-codecs-evaluation.md`.

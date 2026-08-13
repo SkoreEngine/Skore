@@ -1,51 +1,62 @@
-# Resource-to-ECS mapping contract
+# Resource-to-ECS mapping
 
-**Task:** APX-294 — agreed contract only; **no runtime behavior change**.
+**Status:** implemented (APX-295 descriptor refactor, APX-296/297 resource
+types, APX-298 component instantiate, APX-299 `world_spawn_from_asset`,
+APX-300 built-in loaders, APX-301 spawn fixtures, APX-302 migration sweep +
+docs). This document is the authoritative reference for creating entities
+from resources (`scene_resource` / `entity_resource`).
 **Goal:** create entities from resources (`scene_resource` / `entity_resource`).
-**Audience:** APX-295 (descriptor refactor), APX-296/297 (resource types),
-APX-298 (component instantiate), APX-299 (`world_spawn_from_asset`), APX-300
-(built-in loaders).
+**Audience:** engine hosts, plugin authors, tooling.
 
 Related:
 
 - ECS registration / storage: `plugins/entities/entities.h`, `entities.c`
 - Repository / RIDs / SubObjectList: `core/repository.h`
-- Existing named shells: `SK_ENTITY_RESOURCE_TYPE_ID`, `SK_SCENE_RESOURCE_TYPE_ID`
-  in `core/resource_asset_builtins.h` (Name-only today)
-
-This note is the shared compile-time contract. Later tasks implement it; they
-must not invent a second callback signature or a second type-id mapping.
+- Entity/Scene payload types: `core/resource_asset_builtins.h`
+  (`SK_ENTITY_RESOURCE_TYPE_ID`, `SK_SCENE_RESOURCE_TYPE_ID`)
+- ResourceAsset wrapper + envelope payload types:
+  `core/resource_assets_types.h` (`SK_RESOURCE_ASSET_TYPE_ID`,
+  `SK_RESOURCE_ASSET_FIELD_OBJECT`)
+- Built-in component payloads: `core/resource_component_types.h`
+- Built-in ECS components: `plugins/entities/entities_builtins.{h,c}`
+- Spawn integration fixtures: `tests/data/entities/`,
+  `tests/integration/entities_fixtures.c`
 
 ---
 
-## 0. Current state (audit)
+## 0. How the pieces fit together
 
 ### 0.1 ECS registration
 
-`sk_entities_api_t::register_component` is positional:
+Component types are identified by `sk_type_id_t` (see `common.h`). Each
+component's compile-time type id maps to its layout (`size` / `align`), an
+optional display name, and an optional asset-load hook. Registration uses one
+caller-owned descriptor:
 
 ```c
-i32 (*register_component)(sk_type_id_t type_id, u32 size, u32 align, const_chr_t name);
+i32 (*register_component)(const sk_component_desc_t* desc);
 ```
 
 Implemented by `register_component_impl` (`entities.c`). A process-global
 registry (`ecs_component_registry[SK_ECS_MAX_COMPONENT_TYPES]`, max 256)
-stores `sk_component_info_t { type_id, size, align, name }`.
+stores the full `sk_component_desc_t` (layout + name + hooks).
 
-| Return | Meaning (keep after the refactor) |
+| Return | Meaning |
 | --- | --- |
 | `0` | Success, or idempotent re-register of the same `type_id` with the same `size`/`align` |
 | `-1` | Same `type_id` already registered with a different `size` or `align` |
 | `-2` | Registry full (`SK_ECS_MAX_COMPONENT_TYPES`) |
-| `-3` | `SK_TYPE_ID_ZERO`, `size == 0`, or `align == 0` |
+| `-3` | `desc == NULL`, `type_id` zero, `size == 0`, or `align == 0` |
 
 Name is not compared on re-register and is not updated (first name wins).
-`component_info` returns the stored layout; it does not carry hooks.
+`component_info` returns the stored layout (`sk_component_info_t`); it does
+not carry hooks. `component_desc` returns the stored descriptor including
+hooks.
 
 Archetypes are sorted `sk_type_id_t` signatures plus implicit column 0
 (`SK_ECS_ENTITY_COMPONENT_ID`). `world_spawn` looks up each id in the
 registry, creates the archetype on demand, and **zero-fills** every user
-column. There is no `world_spawn_from_asset` today.
+column. `world_spawn_from_asset` spawns entity/scene resources (§4.2).
 
 ### 0.2 Repository layer
 
@@ -59,20 +70,21 @@ column. There is no `world_spawn_from_asset` today.
 - Scalar reads fall back through the prototype chain. Loaders must use
   `read` + field getters so inherited values are visible.
 
-### 0.3 Existing EntityResource / SceneResource
+### 0.3 EntityResource / SceneResource payloads
 
-Both are registered as **Name-only** `sk_named_resource_t` shells
-(`.entity` / `.scene` handlers). They have no component list and no
-roots. APX-296 / APX-297 extend those types in place, keeping `Name` at
-field index 0 so existing JSON envelopes stay valid.
+`EntityResource` and `SceneResource` are repository payload types registered
+by `sk_resource_asset_builtins_register_types` (which also registers the
+built-in component payload types, §7). `Name` stays at field index 0 so
+existing JSON envelopes stay valid; the component/roots lists are owned
+`SUB_OBJECT_LIST` fields (§3.1 / §4.1).
 
 ---
 
 ## 1. Component registration descriptor
 
-Replace the four positional arguments with one caller-owned descriptor.
-The table copies what it retains (`type_id`, `size`, `align`, `name`,
-hook pointers). The descriptor may be transient (stack).
+Registration passes one caller-owned descriptor. The registry stores the
+descriptor by value (`type_id`, `size`, `align`, `name`, hook pointers); the
+descriptor may be transient (stack).
 
 ```c
 typedef i32 (*sk_component_on_load_asset_fn)(sk_world_t* world,
@@ -98,13 +110,11 @@ typedef struct sk_component_desc_t {
 } sk_component_desc_t;
 ```
 
-New table entry (APX-295):
+`entities.h` `#include`s `repository.h` so the callback can name
+`sk_repository_t*` and `sk_rid_t`; that is a one-way core dependency
+(entities already statically links `sk-core`).
 
-```c
-i32 (*register_component)(const sk_component_desc_t* desc);
-```
-
-### 1.1 Registration rules (preserve today's codes)
+### 1.1 Registration rules
 
 Callers **must** zero-init then fill fields:
 
@@ -126,17 +136,11 @@ ecs->register_component(&desc);
 | `-3` | `desc == NULL`, `type_id` zero, `size == 0`, or `align == 0` |
 
 On an idempotent re-register: **do not** overwrite `name` or any hook
-(first registration wins), matching today's name behavior. Hook pointer
-mismatches are **not** a conflict so existing tests that re-register
-layout-only stay valid.
+(first registration wins). Hook pointer mismatches are **not** a conflict.
 
 `sk_component_info_t` stays layout-only (`type_id`, `size`, `align`,
 `name`). Hooks live on the registry entry and are looked up by
 `type_id` at spawn time. Archetype columns do not grow.
-
-`entities.h` will `#include "repository.h"` so the callback can name
-`sk_repository_t*` and `sk_rid_t`. That is a one-way core dependency
-(entities already statically links `sk-core`).
 
 ---
 
@@ -174,9 +178,12 @@ Return `0` on success, non-zero on failure.
   `world_spawn_from_asset`, not by loaders.
 - `NULL` `on_load_asset` is valid: the component is part of the spawn
   signature and stays zeroed (tag components).
-- A non-zero return does **not** roll back the entity. The slot stays
-  zeroed / partially written. Spawn still returns the entity. Loaders
-  should leave `instance` usable on failure (leave it zeroed).
+- A non-zero return fails the instantiate of that component:
+  `world_add_component_from_asset` removes the just-added component, and
+  `world_spawn_from_asset` despawns the failed entity, so a half-initialized
+  slot is never left behind. Siblings / scene roots already spawned are not
+  rolled back. Loaders should leave `instance` usable on failure (leave it
+  zeroed).
 - The callback is invoked on the thread that called
   `world_spawn_from_asset` (main thread, same as the registry).
 
@@ -199,13 +206,15 @@ const sk_resource_type_t* type = repo->resource_type(repository, component_rid);
 sk_type_id_t type_id = repo->type_id(type);
 ```
 
-Then `ecs->component_info(type_id, &info)` (and the registry hook) must
-succeed for that id to be placed on the spawn signature.
+or with the built-in resolver `sk_resource_entity_component_type_id`
+(`core/resource_component_types.h`). Then `ecs->component_info(type_id, &info)`
+(and the registry hook) must succeed for that id to be placed on the spawn
+signature.
 
-### 3.1 `entity_resource` fields (APX-296)
+### 3.1 `entity_resource` fields
 
-Keep `Name` at index 0. Append two owned lists. Type id stays
-`SK_ENTITY_RESOURCE_TYPE_ID` / name `"EntityResource"`.
+`Name` is at index 0. The type id stays `SK_ENTITY_RESOURCE_TYPE_ID` / name
+`"EntityResource"`.
 
 | Index | Name | Storage | Contents |
 | --- | --- | --- | --- |
@@ -224,17 +233,17 @@ enum sk_entity_resource_field_t {
 `Components` items are **owned** so destroy/clone/prototype-propagate
 the component payloads with the entity. They are not soft references.
 
-A list entry is skipped when it is `SK_RID_ZERO`, the resource is not
-live, or `resource_type` is NULL. An entry whose type id is **not**
-registered with ECS is a spawn failure for that entity
-(`SK_ENTITY_INVALID` for that subtree; siblings already spawned stay).
-Two entries that resolve to the **same** type id are an authoring error
-and fail that entity (`world_spawn` would only keep one column).
+A list entry is skipped when it is `SK_RID_ZERO`, the resource is not live,
+or `resource_type` is NULL. An entry whose type id is **not** registered
+with ECS is a spawn failure for that entity (`SK_ENTITY_INVALID` for that
+subtree; siblings already spawned stay). Two entries that resolve to the
+**same** type id are an authoring error and fail that entity (`world_spawn`
+would only keep one column).
 
 User component count after dedup must be `< SK_ECS_MAX_ARCHETYPE_COLUMNS`
 (column 0 is the implicit entity component).
 
-### 3.2 Instantiate order (APX-298 / APX-299)
+### 3.2 Instantiate order
 
 For one `entity_resource` payload RID:
 
@@ -243,21 +252,22 @@ For one `entity_resource` payload RID:
 3. `world_spawn(world, ids, count)` — columns start zeroed.
 4. For each component RID, in list order: `instance = world_component(world, entity, type_id)`;
    if the registry hook is non-NULL, call `on_load_asset(world, entity, repository, instance, component_rid)`.
+   On hook failure the entity is despawned (see §2.1).
 5. Recurse `Children` (each item is an `entity_resource` payload). Spawn
    the parent entity **before** its children. Resource children are an
    authoring tree only: this contract does **not** add a Parent ECS
    component (a later Transform/Parent loader may write one).
 6. Cycle: if a child RID already appears on the current ancestor chain,
    skip that child (do not recurse). Do not follow soft references as
-   children.
+   children. Depth is capped at `SK_ECS_MAX_ASSET_SPAWN_DEPTH` (64).
 
 ---
 
 ## 4. How `scene_resource` roots entities
 
-### 4.1 `scene_resource` fields (APX-297)
+### 4.1 `scene_resource` fields
 
-Keep `Name` at index 0. Type id stays `SK_SCENE_RESOURCE_TYPE_ID` /
+`Name` is at index 0. Type id stays `SK_SCENE_RESOURCE_TYPE_ID` /
 name `"SceneResource"`.
 
 | Index | Name | Storage | Contents |
@@ -273,13 +283,13 @@ enum sk_scene_resource_field_t {
 ```
 
 `Roots` are the scene's top-level entities: they have no resource parent
-inside the scene. Each root is an `entity_resource` payload (same type
-as APX-296), so it already carries `Components` + `Children`. The scene
+inside the scene. Each root is an `entity_resource` payload (same
+type as §3.1), so it already carries `Components` + `Children`. The scene
 does **not** invent an implicit ECS "scene entity". Seeding default
 Lighting / PostProcessing prototypes (today's SceneHandler comment) is
 authoring, not part of this mapping.
 
-### 4.2 `world_spawn_from_asset` (APX-299)
+### 4.2 `world_spawn_from_asset`
 
 ```c
 sk_entity_t (*world_spawn_from_asset)(sk_world_t* world,
@@ -301,95 +311,53 @@ repository. `rid` may be either:
 | `SK_SCENE_RESOURCE_TYPE_ID` | Spawn every `Roots` item (and each item's children) as sibling trees | The **first successfully spawned root**, or `SK_ENTITY_INVALID` if the list is empty / every root failed |
 | anything else / `SK_RID_ZERO` / dead | No spawn | `SK_ENTITY_INVALID` |
 
-A failed root does not undo roots already spawned.
+A failed root does not undo roots already spawned. The scene variant is also
+exposed directly as `world_spawn_scene_from_asset` (same unwrap + same
+return contract); `world_spawn_from_asset` dispatches to it for scene RIDs.
 
 ---
 
-## 5. Migration: every `register_component` site
+## 5. Migration status
 
-No production plugin registers components today (`plugin_entry_point`
-only publishes the API table). Every live call is a test. APX-295
-changes the function type and every call that still passes four
-positional arguments.
+The old positional `register_component` signature
+(`i32 (*)(sk_type_id_t, u32 size, u32 align, const_chr_t name)`) has been
+**removed**; there is no code path that still passes four positional
+arguments. All call sites now build a zero-init `sk_component_desc_t`:
 
-### 5.1 API / implementation (must change)
+- `plugins/entities/entities.c` — `register_component_impl` (descriptor),
+  the API table slot, every in-source test (`test_register_component` wraps
+  the descriptor), and the `ecs_world_register_components` test helper.
+- `plugins/entities/entities_builtins.c` — `sk_entities_builtins_register`
+  registers the five built-in components through descriptors (one shared
+  zero-init desc, fields re-filled per component).
+- `app/app.c` — `app_profiler_report_end_to_end` registers a test
+  "position" component through a descriptor; the pointer-only checks
+  (`app_init_auto_loads_entities_plugin`, `entities_plugin_registers_api`)
+  only assert `register_component` / `component_desc` /
+  `world_spawn_from_asset` / `world_spawn_scene_from_asset` are non-NULL.
 
-| File | Line | Role |
-| --- | --- | --- |
-| `plugins/entities/entities.h` | 357 | `sk_entities_api_t::register_component` declaration |
-| `plugins/entities/entities.c` | 214 | `register_component_impl` (positional → `const sk_component_desc_t*`) |
-| `plugins/entities/entities.c` | 1768 | API table slot (`register_component_impl`) |
+`world_spawn_from_asset` (`sk_entity_t (*)(sk_world_t*, sk_repository_t*,
+sk_rid_t)`) is the only spawn-from-asset entry point; there is no legacy
+variant anywhere in the tree. The skore-ecs-benchmark sample (external repo)
+still targets the pre-descriptor `v2` API and is updated separately when v2
+adopts this contract.
 
-### 5.2 Direct call sites (must wrap a `sk_component_desc_t`)
-
-| File | Line | Caller |
-| --- | --- | --- |
-| `plugins/entities/entities.c` | 1959 | `entities_register_component_roundtrip` |
-| `plugins/entities/entities.c` | 1972, 1973, 1974 | `entities_register_component_idempotent` (3 calls) |
-| `plugins/entities/entities.c` | 1980, 1981, 1982 | `entities_register_component_conflict` (3 calls) |
-| `plugins/entities/entities.c` | 1991, 1994, 1995 | `entities_register_component_invalid` (3 calls) |
-| `plugins/entities/entities.c` | 2843, 2844, 2845 | `ecs_world_register_components` helper (pos / vel / tag) |
-| `plugins/entities/entities.c` | 2978 | `entities_world_spawn_validation` (`TEST_ECS_HUGE_ID`) |
-| `plugins/entities/entities.c` | 4055 | `entities_register_component_capacity` loop |
-| `plugins/entities/entities.c` | 4065 | `entities_register_component_capacity` overflow probe |
-| `app/app.c` | 1605 | `app_profiler_report_end_to_end` (`pos_id`) |
-
-`ecs_world_register_components` is the single helper used by these
-tests (they do not call `register_component` themselves):
-`entities_world_spawn_despawn_generation` (2849),
-`entities_world_add_remove_component` (2895),
-`entities_world_spawn_validation` (2948),
-`entities_world_add_component_validation` (2997),
-`entities_world_move_updates_swapped_slot` (3026),
-`entities_world_archetype_cache` (3067),
-`entities_world_archetype_cache_many_distinct` (3094),
-`entities_world_add_remove_reuses_archetypes` (3122),
-`entities_world_chunk_hint_reuses_freed_rows` (3146),
-`entities_world_query_observes_new_archetypes` (3200),
-`entities_commands_apply_order` (3238),
-`entities_commands_batch_create_destroy` (3295),
-`entities_commands_deferred_during_query_iteration` (3346),
-`entities_commands_buffer_reuse_and_clear` (3418),
-`entities_commands_target_validation` (3498),
-`entities_commands_remove_component_roundtrip` (3527),
-`entities_commands_unknown_placeholder_skipped` (3571),
-`entities_commands_apply_reports_failures` (3592).
-
-### 5.3 Pointer-only checks (no argument rewrite)
-
-These only assert the table slot is non-NULL; they compile against the
-new function type without further edits:
-
-| File | Line |
-| --- | --- |
-| `plugins/entities/entities.c` | 1907 (`entities_api_table_is_complete`) |
-| `app/app.c` | 1487 (`app_init_auto_loads_entities_plugin`) |
-| `app/app.c` | 1513 (`entities_plugin_registers_api`) |
-
-### 5.4 Comments that name the old signature
-
-| File | Line | Note |
-| --- | --- | --- |
-| `plugins/entities/entities.h` | 755 | `world_spawn` doc ("see register_component") |
-| `plugins/entities/entities.c` | 1901 | registry-reset comment |
-
-No other tree (`editor/`, `player/`, other plugins) calls
-`register_component` today. Samples added later follow §1.1.
+No other tree (`editor/`, `player/`, other plugins, `tests/benchmarks/`)
+calls `register_component` or the spawn-from-asset entry points.
 
 ---
 
-## 6. Out of scope (this contract)
+## 6. Out of scope (not implemented)
 
-- Implementing the descriptor, resource fields, or spawn path.
-- Built-in component loaders (APX-300).
-- ECS parent/transform hierarchy (resource `Children` only).
-- Invoking reserved save/unload hooks.
-- Changing `sk_component_info_t` or chunk layout.
+- Invoking reserved save/unload hooks (`on_save_asset`, `on_unload_asset`).
+- ECS parent/transform hierarchy (resource `Children` only; a later
+  Transform/Parent loader may write a Parent component).
 - Seeding default scene entities on `SceneHandler::create`.
+- Changing `sk_component_info_t` or chunk layout.
 
 ---
 
-## 7. Built-in components (APX-300)
+## 7. Built-in components
 
 The sk-entities plugin ships a set of built-in components, each pairing a POD
 component struct with a repository payload type whose registered type id IS
@@ -444,3 +412,104 @@ entity holding the component, and invoke the stored hook via
 `component_desc(..., &desc).on_load_asset` — the exact dispatch
 `world_spawn_from_asset` (§4.2 / step 3.2-4) performs — then assert the
 authored values landed in the spawned instance.
+
+---
+
+## 8. Worked example: author a scene asset and spawn it
+
+This is the minimal end-to-end flow: author a `scene_resource` package with
+one root entity carrying a transform, load it into a repository, and spawn it
+into an ECS world.
+
+### 8.1 The scene asset (JSON)
+
+Each fixture is a self-contained `sk.resource_package` document (the engine's
+JSON serialization contract, `docs/repository-assets-json-serialization-contract.md`):
+an envelope with a flat `resources[]` array; cross-resource edges
+(`Components` / `Children` / `Roots` sub-object lists) are UUID strings.
+Vec3 / quat / color encode as JSON float arrays; enums as integers.
+
+```json
+{
+  "format": "sk.resource_package",
+  "format_version": 1,
+  "root_uuid": "0000000000007001-0000000000007001",
+  "resources": [
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "SceneResource",
+      "uuid": "0000000000007001-0000000000007001",
+      "fields": {
+        "Name": "HelloScene",
+        "Roots": ["0000000000007002-0000000000007002"]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000007002-0000000000007002",
+      "fields": {
+        "Name": "Hero",
+        "Components": ["0000000000007003-0000000000007003"],
+        "Children": []
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000007003-0000000000007003",
+      "fields": {
+        "Position": [1.0, 2.0, 3.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    }
+  ]
+}
+```
+
+The tree is: `HelloScene` (SceneResource) → `Hero` (EntityResource) →
+`TransformResource { Position (1,2,3) }`. Real packages can nest arbitrarily
+deeper via `Children`.
+
+### 8.2 Loading and spawning (C)
+
+```c
+#include "app.h"
+#include "entities.h"
+#include "entities_builtins.h"
+#include "resource_asset_builtins.h"
+#include "resource_serialize.h"
+
+/* 1. Repository: register the asset + built-in component payload types
+ *    (EntityResource / SceneResource / TransformResource / …), then load
+ *    the package. sk_app_init auto-loads the sk-entities plugin, which
+ *    registers the ECS API table and the built-in components. */
+sk_repository_t* repository = sk_repository_api()->create(sk_allocator_default());
+sk_resource_assets_register_types(repository);            /* envelopes */
+sk_resource_asset_builtins_register_types(repository);    /* + component payloads */
+
+sk_rid_t scene_rid = SK_RID_ZERO;
+sk_resource_deserialize_package_json_from_file(repository, "hello_scene.json", &scene_rid);
+
+const sk_entities_api_t* ecs =
+    (const sk_entities_api_t*)sk_app_api()->get_api(app, SK_ENTITIES_API_TYPE_ID);
+sk_world_t* world = ecs->world_create();
+
+/* 2. Spawn: one ECS entity per entity_resource node, components populated
+ *    from the authored payloads through their on_load_asset hooks. */
+sk_entity_t hero = ecs->world_spawn_from_asset(world, repository, scene_rid);
+/* sk_entity_is_valid(hero) == 1; world_count(world) == 1 */
+
+/* 3. The authored values landed in the spawned component slot. */
+const sk_transform_t* t = (const sk_transform_t*)ecs->world_component(world, hero, SK_TRANSFORM_COMPONENT_TYPE_ID);
+/* t->position == {1.0f, 2.0f, 3.0f} */
+```
+
+Step 1 is exactly what `sk_entities_fixture_load` does for the on-disk
+fixtures in `tests/data/entities/` (see `tests/integration/entities_fixtures.c`);
+`scene_multiple_roots.json` is a three-root variant of the same shape and
+`entity_parent_children.json` shows nested `Children`.
