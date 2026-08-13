@@ -611,30 +611,30 @@ SK_TEST(ui_widget_vision_toggle) {
 	cfg.kind = "toggle";
 	cfg.w = 56.0f;
 	cfg.h = 28.0f;
-	cfg.x = 12.0f;
+	cfg.x = 36.0f;
 	cfg.y = 18.0f;
 
 	/* OFF: muted track + thumb ink (thumb always painted). */
 	cfg.bool_value = 0;
 	cfg.state_or = 0u;
 	cfg.disabled = 0;
-	uwv_run_state(ui, "ui_widget_vision_toggle_off", 80u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "off", UWV_TOGGLE_OFF, UWV_THUMB, 1);
+	uwv_run_state(ui, "ui_widget_vision_toggle_off", 128u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "off", UWV_TOGGLE_OFF, UWV_THUMB, 1);
 
 	/* ON: accent track + thumb toward the end. */
 	cfg.bool_value = 1;
-	uwv_run_state(ui, "ui_widget_vision_toggle_on", 80u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "on", UWV_TOGGLE_ON, UWV_THUMB, 1);
+	uwv_run_state(ui, "ui_widget_vision_toggle_on", 128u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "on", UWV_TOGGLE_ON, UWV_THUMB, 1);
 
 	cfg.state_or = (u32)SK_UI_STATE_HOVER;
 	cfg.bool_value = 0;
 	/* state_hint names the pill+thumb silhouette so vision does not collapse to the knob alone. */
-	uwv_run_state(ui, "ui_widget_vision_toggle_hover_off", 80u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "off hover: horizontal pill track with distinct left thumb",
+	uwv_run_state(ui, "ui_widget_vision_toggle_hover_off", 128u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "off hover: horizontal pill track with distinct left thumb",
 				  UWV_RGB(82u, 87u, 102u), UWV_THUMB, 1);
 
 	cfg.state_or = 0u;
 	cfg.disabled = 1;
 	cfg.bool_value = 1;
 	/* Disabled ON: muted accent track + dimmer thumb (still present). */
-	uwv_run_state(ui, "ui_widget_vision_toggle_disabled_on", 80u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "disabled on", UWV_RGB(56u, 82u, 122u), UWV_RGB(158u, 163u, 173u), 1);
+	uwv_run_state(ui, "ui_widget_vision_toggle_disabled_on", 128u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "disabled on", UWV_RGB(56u, 82u, 122u), UWV_RGB(158u, 163u, 173u), 1);
 
 	uwv_env_destroy(&env);
 }

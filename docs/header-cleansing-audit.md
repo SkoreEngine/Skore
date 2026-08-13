@@ -312,3 +312,99 @@ cmake --build build && ctest --test-dir build --output-on-failure
    helpers live in the owning `.c`.
 5. **Follow-ups:** 3 renames with 21 in-plugin include-site edits total; 10
    public headers flagged for escalation, never renamed.
+
+---
+
+## 6. APX-276 final verification (landed)
+
+Full clean-build + header-hygiene regression sweep run on this branch
+(`feature/cleansing-header-files`), from empty build directories, exactly as
+`.github/workflows/ci.yml` configures (CMake + Ninja, `BUILD_TESTING=ON`,
+`SK_ENABLE_CLANG_TIDY=ON` warnings-as-errors):
+
+| Step | Result |
+|---|---|
+| Configure Debug + Release | OK (both; `sk_check_header_isolation` configure scan clean) |
+| Build Debug, 307/307 targets | OK — engine `sk-core`, hosts (`sk-app`, `sk-player`, `sk-editor`), all 9 plugins (`sk-dxc-compiler`, `sk-entities`, `sk-platform-window`, `sk-profiler`, `sk-render-device`, `sk-render-graph`, `sk-test-render-device`, `sk-ui`, `sk-vulkan-render-device`), all test binaries, clang-tidy clean |
+| Build Release, 307/307 targets | OK (same set, clang-tidy clean) |
+| `ctest` Release (`VK_ICD_FILENAMES=lvp_icd.json`) | 7/7 passed (msdf-atlas-c-smoke, sk-compression-conformance, sk-compression-bench, sk-tests, sk-msdf-atlas-smoke, sk-integration-tests, sk-ui-integration-suites) |
+| `ctest` Debug | 6/7; `sk-tests` ran=864 failed=3 — golden-image tests, pre-existing (see below) |
+| Install to temp prefix | 35 public headers installed; **0** `*.internal.h` installed |
+
+**Debug `sk-tests` failures (verbatim, pre-existing — identical at the
+pre-refactor merge-base `25cdf8c`; not caused by the header cleansing):**
+
+```
+core/test.c:709:ui_sample_menu_golden_1x:FAIL: Expected 0 Was -1
+core/test.c:709:ui_sample_menu_golden_2x:FAIL: Expected 0 Was -1
+core/test.c:3045:ui_widget_goldens_default_hover_disabled:FAIL: Expected 0 Was -1
+======== TOTAL: ran=864 failed=3 ========
+```
+
+All three failures are golden-pixel comparisons (`plugins/ui/testdata/sample/menu_1x|2x.png`,
+`plugins/ui/testdata/widgets/*`) or the paint/step calls feeding them; the same
+three fail at `25cdf8c` before any cleansing commit and all pass in Release.
+The cleansing branch changed no rendering code and no PNG fixtures, so this is
+an environment-sensitive (float/rasterization) Debug-only artifact, not a
+regression. All other suites are green: host ran=370 failed=0; per plugin
+render-device 25/25, vulkan-render-device 30/30, test-render-device 28/28,
+profiler 60/60, entities 86/86, platform-window 30/30, render-graph 77/77,
+dxc-compiler 26/26, ui 129/132.
+
+**Sweep results (all three checks pass):**
+
+1. **No `static` function declarations/definitions in any `.h`.** Zero
+   non-macro `static` function decls/defs in `core/` + `plugins/` headers.
+   Intentional exceptions, with justification:
+   - `core/test.h` — `SK_TEST` / `SK_TEST_CONSTRUCTOR` macros expand `static
+     void fn(void)` at their invocation sites in `.c` files (body authored in
+     the `.c`); engine test infrastructure, sanctioned pattern.
+   - `tests/integration/ui_vision_assert.h` — `static inline` `_putenv` shims
+     (tests-only, internal linkage).
+   - `plugins/ui/testdata/skore_test_font_ttf.h` — `static const u8` generated
+     font fixture data (not a function).
+   The `SK_FINLINE` accessor surface (`math3d.h`, `atomics.h`, `render_device.h`,
+   `entities.h`, `platform_window.h`, `ui.h`, `path.h`, `filesystem.h`,
+   `common.h`) remains the sanctioned inline API surface (audit §1.2).
+2. **No internal header reachable from the installed/exported set.** `cmake
+   --install` into a fresh prefix installs exactly 35 public headers; the 4
+   `*.internal.h` files (`profiler_core.internal.h`, `ui.internal.h`,
+   `vulkan_render_device.internal.h`, `vulkan_utils.internal.h`) are excluded
+   by pattern at every glob and install site. A transitive include-closure
+   trace from all 35 installed headers resolves only to installed public
+   headers, vendored thirdparty, and system headers — zero internal headers
+   reachable. (Observation: `plugins/ui/testdata/skore_test_font_ttf.h` is a
+   shared data fixture — included by `player/main.c` and
+   `tests/integration/ui_render.c`, not an internal API header — and is
+   installed as data; the audit §5.1 left it as optional.)
+3. **No stale includes of pre-rename filenames.** Zero `#include` of
+   `vulkan_utils.h`, `vulkan_render_device_internal.h`, `ui_internal.h`, or
+   `profiler_core.h` anywhere in first-party source, scripts, or CI config;
+   the old names survive only as historical prose in this audit and older
+   design docs. `scripts/check-windows-abi.sh` discovers plugin dirs and
+   `testdata` dirs generically, so renames stay found.
+
+**CI consistency.** `.github/workflows/ci.yml` configures plain
+`cmake -S . -B build -G Ninja` + `cmake --build` + `ctest` (no install/export
+step), so the changed rules (`.internal.h` exclusion in `sk_add_plugin`, every
+plugin `CMakeLists.txt`, `core/CMakeLists.txt`, and the public-only install
+pattern in the root `CMakeLists.txt`) are consistent with CI; both CI build
+configurations were reproduced locally, Debug and Release, clang-tidy on.
+
+**Final state:** 55 files changed across the 4 cleansing commits (50 modified,
+4 renames, 1 added audit). Headers renamed to the internal-only extension:
+`vulkan_utils.h` → `vulkan_utils.internal.h`, `vulkan_render_device_internal.h`
+→ `vulkan_render_device.internal.h`, `ui_internal.h` → `ui.internal.h`,
+`plugins/profiler/core/profiler_core.h` → `profiler_core.internal.h`. Statics
+relocated: plugin `*_init` registration helpers moved off public plugin
+headers into the owning `.c` + `plugin_entry_point.c` local prototypes;
+host-side `render_pipeline.h` / `profiler.h` helpers converted from `static
+inline` to `SK_FINLINE`; `SK_UI_TEST` macros now expand `SK_UI_TEST_STATIC` so
+plugin test headers contain no literal `static` declaration. Exported header
+list (35, installed under `include/skore/`): all 24 `core/*.h` plus
+`plugins/{dxc_compiler/dxc_compiler.h, entities/entities.h,
+platform_window/platform_window.h, profiler/profiler.h,
+render_device/render_device.h, render_graph/render_graph.h,
+render_graph/render_pipeline.h, ui/ui.h, ui/ui_test.h,
+ui/testdata/skore_test_font_ttf.h (data fixture),
+vulkan_render_device/vulkan_render_device.h}`.

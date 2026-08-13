@@ -806,6 +806,9 @@ static i32 ui_vision_run_script(const_chr_t image_path, sk_ui_vision_widget_fami
 /* Public entry points                                                        */
 /* -------------------------------------------------------------------------- */
 
+/* Forward decl: explicit-opt-in gate defined below (APX-263). */
+static i32 ui_vision_live_available(void);
+
 i32 sk_ui_vision_assert_path(const sk_ui_api_t* ui, const_chr_t image_path, const sk_ui_cpu_image_t* image, sk_ui_vision_widget_family_t family, const_chr_t state_hint,
 							 const_chr_t scene_name, const sk_filesystem_api_t* fs, sk_ui_vision_result_t* out_result) {
 	sk_ui_vision_result_t local;
@@ -823,6 +826,13 @@ i32 sk_ui_vision_assert_path(const sk_ui_api_t* ui, const_chr_t image_path, cons
 
 	if (ui_vision_backend_is_mock()) {
 		rc = ui_vision_run_mock(r);
+	} else if (!ui_vision_live_available()) {
+		/* Live AI grading is explicit opt-in (XAI_API_KEY / SK_UI_VISION_API_KEY
+		 * env or SK_UI_VISION_LIVE=1) so plain ctest runs stay deterministic;
+		 * scripts/run-ui-integration-tests.sh sets SK_UI_VISION_LIVE=1 when it
+		 * wants live grades. Structural pixel asserts still ran before this. */
+		snprintf(r->reason, sizeof(r->reason), "vision backend skipped: no API credentials");
+		rc = SK_UI_VISION_ASSERT_SKIPPED;
 	} else {
 		rc = ui_vision_run_script(image_path, family, state_hint, r);
 	}
@@ -1102,20 +1112,12 @@ static i32 ui_vision_live_available(void) {
 	if (key2 != NULL && key2[0] != '\0') {
 		return 1;
 	}
-	/* Agent environments often have ~/.grok/auth.json — let the script decide. */
+	/* Explicit opt-in only: a discoverable ~/.grok/auth.json does not enable
+	 * live grading for plain ctest runs. The dedicated integration flow
+	 * (scripts/run-ui-integration-tests.sh, CI ui-integration job) opts in
+	 * explicitly via SK_UI_VISION_LIVE=1 or the API-key env vars. */
 	if (force != NULL && force[0] != '\0' && force[0] != '0') {
 		return 1;
-	}
-	{
-		char home_auth[SK_FS_PATH_MAX];
-		const char* home = getenv("HOME");
-		const sk_filesystem_api_t* fs = sk_filesystem_api();
-		if (home != NULL && fs != NULL) {
-			snprintf(home_auth, sizeof(home_auth), "%s/.grok/auth.json", home);
-			if (fs->get_file_status(home_auth) == SK_FILE_STATUS_FILE) {
-				return 1;
-			}
-		}
 	}
 	return 0;
 }
