@@ -79,16 +79,16 @@ i32 sk_entities_fixture_load(sk_repository_t* repository, sk_entities_fixture_id
 	/* Asset + component payload types (EntityResource / SceneResource /
 	 * TransformResource / CameraResource / LightResource / StaticTagResource);
 	 * register once per repository. */
-	if (sk_resource_assets_register_types(repository) != 0) {
+	if (sk_resource_assets_register_types(repository, sk_test_repository_table()) != 0) {
 		return -1;
 	}
-	if (sk_resource_asset_builtins_register_types(repository) != 0) {
+	if (sk_resource_asset_builtins_register_types(repository, sk_test_repository_table()) != 0) {
 		return -1;
 	}
 	if (sk_entities_fixture_resource_path(id, path, (u32)sizeof(path)) != 0) {
 		return -1;
 	}
-	return sk_resource_deserialize_package_json_from_file(repository, path, out_root);
+	return sk_resource_deserialize_package_json_from_file(repository, sk_test_repository_table(), path, out_root, sk_test_filesystem_table());
 }
 
 /* ------------------------------------------------------------------ */
@@ -106,14 +106,15 @@ static void entities_fixture_env_setup(entities_fixture_env_t* env) {
 	memset(env, 0, sizeof(*env));
 	/* sk_app_init auto-loads the plugin DLLs from {app_folder}/plugins; the
 	 * sk-entities plugin registers its API table + the built-in components. */
-	env->app = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	env->app = boot.context;
 	TEST_ASSERT_NOT_NULL(env->app);
 	if (env->app == NULL) {
 		return;
 	}
-	env->ecs = (const sk_entities_api_t*)sk_app_api()->get_api(env->app, SK_ENTITIES_API_TYPE_ID);
+	env->ecs = (const sk_entities_api_t*)boot.api->get_api(env->app, SK_ENTITIES_API_TYPE_ID);
 	TEST_ASSERT_NOT_NULL(env->ecs);
-	env->repository = sk_repository_api()->create(sk_allocator_default());
+	env->repository = boot.api->repository_api(env->app)->create(sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(env->repository);
 	env->world = env->ecs->world_create();
 	TEST_ASSERT_NOT_NULL(env->world);
@@ -124,10 +125,10 @@ static void entities_fixture_env_teardown(entities_fixture_env_t* env) {
 		env->ecs->world_destroy(env->world);
 	}
 	if (env->repository != NULL) {
-		sk_repository_api()->destroy(env->repository);
+		sk_test_repository_table()->destroy(env->repository);
 	}
 	if (env->app != NULL) {
-		sk_app_destroy(env->app);
+		sk_app_shutdown(env->app);
 	}
 	memset(env, 0, sizeof(*env));
 }
@@ -146,7 +147,7 @@ static i32 entities_fixture_env_ok(const entities_fixture_env_t* env) {
  * stack so the fixture harness stays clang-tidy clean; fixtures are
  * cycle-free by authoring and far below the depth cap. */
 static u32 entities_fixture_count_nodes(sk_repository_t* repository, sk_rid_t root) {
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_test_repository_table();
 	enum { MAX_STACK = 64u };
 	sk_rid_t stack[MAX_STACK];
 	u32 sp = 0u;
@@ -239,14 +240,14 @@ SK_TEST(entities_fixture_catalog_and_node_counts) {
 		entities_fixture_env_teardown(&env);
 		return;
 	}
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_test_repository_table();
 
 	char dir[SK_FS_PATH_MAX];
 	TEST_ASSERT_EQUAL_INT(0, sk_entities_fixture_dir(dir, (u32)sizeof(dir)));
 	TEST_ASSERT_TRUE(dir[0] != '\0');
 	char manifest[SK_FS_PATH_MAX];
 	TEST_ASSERT_EQUAL_INT(0, sk_entities_fixture_path("manifest.json", manifest, (u32)sizeof(manifest)));
-	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_filesystem_api()->get_file_status(manifest));
+	TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_test_filesystem_table()->get_file_status(manifest));
 
 	/* Every catalog entry loads as its declared root type and its authored
 	 * node count (manifest truth) matches the repository tree. */
@@ -257,7 +258,7 @@ SK_TEST(entities_fixture_catalog_and_node_counts) {
 
 		char path[SK_FS_PATH_MAX];
 		TEST_ASSERT_EQUAL_INT(0, sk_entities_fixture_resource_path((sk_entities_fixture_id_t)i, path, (u32)sizeof(path)));
-		TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_filesystem_api()->get_file_status(path));
+		TEST_ASSERT_EQUAL_INT(SK_FILE_STATUS_FILE, sk_test_filesystem_table()->get_file_status(path));
 
 		sk_repository_t* fixture_repo = repo->create(sk_allocator_default());
 		TEST_ASSERT_NOT_NULL(fixture_repo);
@@ -345,7 +346,7 @@ SK_TEST(entities_fixture_parent_children_spawns) {
 		return;
 	}
 	const sk_entities_api_t* ecs = env.ecs;
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_test_repository_table();
 
 	sk_rid_t root = SK_RID_ZERO;
 	TEST_ASSERT_EQUAL_INT(0, sk_entities_fixture_load(env.repository, SK_ENTITIES_FIXTURE_PARENT_CHILDREN, &root));
@@ -516,7 +517,7 @@ SK_TEST(entities_fixture_scene_multiple_roots_spawns) {
 	/* Each scene root is an independent tree: RootA + its child spawn as 2
 	 * entities from a fresh world. */
 	{
-		const sk_repository_api_t* repo = sk_repository_api();
+		const sk_repository_api_t* repo = sk_test_repository_table();
 		sk_resource_object_t view = repo->read(env.repository, root);
 		TEST_ASSERT_TRUE(SK_RESOURCE_OBJECT_IS_VALID(view));
 		u32 root_count = 0u;
@@ -549,7 +550,7 @@ SK_TEST(entities_fixture_unregistered_component_fails) {
 		return;
 	}
 	const sk_entities_api_t* ecs = env.ecs;
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_test_repository_table();
 
 	sk_rid_t root = SK_RID_ZERO;
 	TEST_ASSERT_EQUAL_INT(0, sk_entities_fixture_load(env.repository, SK_ENTITIES_FIXTURE_UNREGISTERED_COMPONENT, &root));
@@ -563,8 +564,8 @@ SK_TEST(entities_fixture_unregistered_component_fails) {
 	u32 comp_count = 0u;
 	const sk_rid_t* comps = repo->get_subobject_list(view, SK_ENTITY_RESOURCE_FIELD_COMPONENTS, &comp_count);
 	TEST_ASSERT_EQUAL_UINT32(2u, comp_count);
-	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, comps[0]), SK_MESH_RESOURCE_TYPE_ID));
-	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, comps[1]), SK_TRANSFORM_COMPONENT_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, repo, comps[0]), SK_MESH_RESOURCE_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, repo, comps[1]), SK_TRANSFORM_COMPONENT_TYPE_ID));
 
 	/* mesh_resource is not an ECS component: component_info must fail. */
 	sk_component_info_t info = {0};

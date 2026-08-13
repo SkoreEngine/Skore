@@ -4,7 +4,7 @@
  * @file ui.h
  * @brief Retained-mode UI module API.
  *
- * Implemented by the sk-ui plugin (SHARED, statically linked sk-core).
+ * Implemented by the sk-ui plugin (SHARED, statically linked sk-foundation).
  * The plugin registers a static sk_ui_api_t on the app context; hosts
  * obtain it **only** via the app registry:
  *
@@ -1783,7 +1783,7 @@ typedef struct sk_ui_api_t {
 	 * Load a TTF/OTF from @p path using the engine filesystem API (open/read/close).
 	 * Bytes are copied into the font; the file is not kept open.
 	 * @param system Font system (must not be NULL).
-	 * @param fs     Filesystem table (e.g. sk_filesystem_api()). Must not be NULL.
+	 * @param fs     Filesystem table (e.g. app_api->filesystem_api(ctx)). Must not be NULL.
 	 * @param path   UTF-8 path to a font file.
 	 * @return Font face, or NULL if the file cannot be read or FreeType rejects it.
 	 */
@@ -1930,7 +1930,7 @@ typedef struct sk_ui_api_t {
 	/**
 	 * Write a tightly packed @p image (typically from capture_frame) as a PNG
 	 * at the caller-specified @p path. Creates parent directories as needed
-	 * via @p fs (pass sk_filesystem_api() from hosts/tests that link sk-app).
+	 * via @p fs (pass app_api->filesystem_api(ctx) from the host app context).
 	 * On failure, logs a clear error through the process logger and returns
 	 * non-zero. @p image->channels must be 1..4 (UI captures use 4 = RGBA8).
 	 * @return 0 on success, non-zero on failure.

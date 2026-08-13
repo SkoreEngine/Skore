@@ -99,7 +99,7 @@ typedef struct uii_env_t {
 } uii_env_t;
 
 static i32 uii_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 	i32 n;
@@ -127,19 +127,20 @@ static void uii_env_init(uii_env_t* env) {
 	const_chr_t plugin_name = "sk-ui.so";
 #endif
 	memset(env, 0, sizeof(*env));
-	env->app = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	env->app = boot.context;
 	if (env->app == NULL) {
 		return;
 	}
 	if (uii_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(env->app, path);
+		boot.api->load_plugin(env->app, path);
 	}
-	env->ui = (const sk_ui_api_t*)sk_app_api()->get_api(env->app, SK_UI_API_TYPE_ID);
+	env->ui = (const sk_ui_api_t*)boot.api->get_api(env->app, SK_UI_API_TYPE_ID);
 }
 
 static void uii_env_destroy(uii_env_t* env) {
 	if (env->app != NULL) {
-		sk_app_destroy(env->app);
+		sk_app_shutdown(env->app);
 	}
 	memset(env, 0, sizeof(*env));
 }
@@ -202,7 +203,7 @@ static void uii_assert_golden(const sk_ui_api_t* ui, const sk_ui_cpu_image_t* im
 	params.update_golden = 0;
 	memset(&stats, 0, sizeof(stats));
 	snprintf(golden_path, sizeof(golden_path), SK_UI_GOLDEN_DIR "/%s.png", base);
-	rc = ui->cpu_image_compare_golden(img, golden_path, &params, sk_filesystem_api(), &stats);
+	rc = ui->cpu_image_compare_golden(img, golden_path, &params, sk_test_filesystem_table(), &stats);
 	TEST_ASSERT_EQUAL_INT_MESSAGE(SK_UI_IMAGE_COMPARE_OK, rc, "golden compare failed; see {base}_actual/_expected/_diff.png under the artifact root");
 }
 

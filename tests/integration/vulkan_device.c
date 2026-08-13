@@ -25,7 +25,7 @@
 #ifdef SK_TESTS
 
 static i32 integration_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 
@@ -49,7 +49,7 @@ static i32 integration_plugin_path(const_chr_t plugin_filename, char* out, u32 o
  * dependent. Re-entering the vulkan plugin guarantees the real backend is
  * registered last (set_api replaces).
  */
-static const sk_render_device_api_t* integration_render_device_api(sk_app_context_t* ctx) {
+static const sk_render_device_api_t* integration_render_device_api(sk_app_context_t* ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t plugin_name = "sk-vulkan-render-device.dll";
@@ -59,29 +59,30 @@ static const sk_render_device_api_t* integration_render_device_api(sk_app_contex
 	const_chr_t plugin_name = "sk-vulkan-render-device.so";
 #endif
 	if (integration_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(ctx, path);
+		app_api->load_plugin(ctx, path);
 	}
-	return (const sk_render_device_api_t*)sk_app_api()->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
+	return (const sk_render_device_api_t*)app_api->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
 }
 
 SK_TEST(vulkan_device_create_destroy) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL_MESSAGE(ctx, "app bootstrap must succeed");
 	if (ctx == NULL) {
 		return;
 	}
 
-	const sk_render_device_api_t* api = integration_render_device_api(ctx);
+	const sk_render_device_api_t* api = integration_render_device_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(api, "vulkan_render_device plugin must register sk_render_device_api_t");
 	if (api == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
 	sk_render_device_t dev = api->init(ctx, NULL);
 	if (!sk_render_device_t_is_valid(dev)) {
 		TEST_IGNORE_MESSAGE("no Vulkan ICD available; skipping device integration test");
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -102,7 +103,7 @@ SK_TEST(vulkan_device_create_destroy) {
 	TEST_ASSERT_TRUE(sk_adapter_t_is_valid(best));
 	if (!sk_adapter_t_is_valid(best)) {
 		api->destroy(dev);
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -110,34 +111,35 @@ SK_TEST(vulkan_device_create_destroy) {
 	TEST_ASSERT_EQUAL_INT((int)SK_GRAPHICS_API_VULKAN, (int)api->get_api(dev));
 
 	api->destroy(dev);
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 SK_TEST(vulkan_device_buffer_lifecycle) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL_MESSAGE(ctx, "app bootstrap must succeed");
 	if (ctx == NULL) {
 		return;
 	}
 
-	const sk_render_device_api_t* api = integration_render_device_api(ctx);
+	const sk_render_device_api_t* api = integration_render_device_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(api, "vulkan_render_device plugin must register sk_render_device_api_t");
 	if (api == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
 	sk_render_device_t dev = api->init(ctx, NULL);
 	if (!sk_render_device_t_is_valid(dev)) {
 		TEST_IGNORE_MESSAGE("no Vulkan ICD available; skipping buffer integration test");
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
 	u32 adapter_count = api->get_adapter_count(dev);
 	if (adapter_count == 0u) {
 		api->destroy(dev);
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		TEST_IGNORE_MESSAGE("no Vulkan adapters; skipping buffer integration test");
 		return;
 	}
@@ -155,7 +157,7 @@ SK_TEST(vulkan_device_buffer_lifecycle) {
 	}
 	if (!sk_adapter_t_is_valid(best)) {
 		api->destroy(dev);
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		TEST_IGNORE_MESSAGE("no suitable Vulkan adapter; skipping buffer integration test");
 		return;
 	}
@@ -179,13 +181,14 @@ SK_TEST(vulkan_device_buffer_lifecycle) {
 	}
 
 	api->destroy(dev);
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 SK_TEST(vulkan_device_update_buffer_above_64k) {
 	enum { WORD_COUNT = 20000u };
 	enum { BYTE_COUNT = WORD_COUNT * (u32)sizeof(u32) };
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	const sk_render_device_api_t* api;
 	sk_render_device_t dev;
 	sk_adapter_t best = sk_adapter_t_zero();
@@ -208,17 +211,17 @@ SK_TEST(vulkan_device_update_buffer_above_64k) {
 		return;
 	}
 
-	api = integration_render_device_api(ctx);
+	api = integration_render_device_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(api, "vulkan_render_device plugin must register sk_render_device_api_t");
 	if (api == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
 	dev = api->init(ctx, NULL);
 	if (!sk_render_device_t_is_valid(dev)) {
 		TEST_IGNORE_MESSAGE("no Vulkan ICD available; skipping update_buffer integration test");
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -232,7 +235,7 @@ SK_TEST(vulkan_device_update_buffer_above_64k) {
 	}
 	if (!sk_adapter_t_is_valid(best) || api->select_adapter(dev, best) != 0) {
 		api->destroy(dev);
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		TEST_IGNORE_MESSAGE("no suitable Vulkan adapter; skipping update_buffer integration test");
 		return;
 	}
@@ -282,7 +285,7 @@ SK_TEST(vulkan_device_update_buffer_above_64k) {
 			api->destroy_buffer(dev, gpu_buf);
 		}
 		api->destroy(dev);
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -315,7 +318,7 @@ SK_TEST(vulkan_device_update_buffer_above_64k) {
 	api->destroy_buffer(dev, readback);
 	api->destroy_buffer(dev, gpu_buf);
 	api->destroy(dev);
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 #endif /* SK_TESTS */

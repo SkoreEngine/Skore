@@ -110,6 +110,12 @@ i32 sk_entities_builtins_register(const sk_entities_api_t* ecs);
  */
 const sk_entities_api_t* sk_entities_module_api(void);
 
+/**
+ * INTERNAL: repository table from the plugin's host app context (or, in
+ * SK_TESTS builds without a live plugin init, a temporary sk_app_create).
+ */
+const sk_repository_api_t* sk_entities_repository_table(void);
+
 #ifdef __cplusplus
 }
 #endif

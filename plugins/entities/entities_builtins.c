@@ -5,7 +5,7 @@
  *
  * Implements the loaders that copy authored values from a component resource
  * into a spawned component instance. Each loader follows the mapping contract
- * §2.1: read the component resource through sk_repository_api()->read and the
+ * §2.1: read the component resource through sk_entities_repository_table()->read and the
  * field getters (so prototype inheritance is honored), write only the
  * instance slot, and leave the instance zeroed on failure. The loaders are
  * registered with register_component (sk_component_desc_t.on_load_asset) by
@@ -33,7 +33,7 @@
 static i32 transform_on_load_asset(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, void_ptr_t instance, sk_rid_t component_resource) {
 	(void)world;
 	(void)entity;
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 	sk_resource_object_t view = repo->read(repository, component_resource);
 	if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
 		return -1; /* dead RID: leave the instance zeroed */
@@ -48,7 +48,7 @@ static i32 transform_on_load_asset(sk_world_t* world, sk_entity_t entity, sk_rep
 static i32 camera_on_load_asset(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, void_ptr_t instance, sk_rid_t component_resource) {
 	(void)world;
 	(void)entity;
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 	sk_resource_object_t view = repo->read(repository, component_resource);
 	if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
 		return -1; /* dead RID: leave the instance zeroed */
@@ -64,7 +64,7 @@ static i32 camera_on_load_asset(sk_world_t* world, sk_entity_t entity, sk_reposi
 static i32 light_on_load_asset(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, void_ptr_t instance, sk_rid_t component_resource) {
 	(void)world;
 	(void)entity;
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 	sk_resource_object_t view = repo->read(repository, component_resource);
 	if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
 		return -1; /* dead RID: leave the instance zeroed */
@@ -80,7 +80,7 @@ static i32 light_on_load_asset(sk_world_t* world, sk_entity_t entity, sk_reposit
 static i32 mesh_renderer_on_load_asset(sk_world_t* world, sk_entity_t entity, sk_repository_t* repository, void_ptr_t instance, sk_rid_t component_resource) {
 	(void)world;
 	(void)entity;
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 	sk_resource_object_t view = repo->read(repository, component_resource);
 	if (!SK_RESOURCE_OBJECT_IS_VALID(view)) {
 		return -1; /* dead RID: leave the instance zeroed */
@@ -187,7 +187,7 @@ static const sk_entities_api_t* builtins_ecs(void) {
 }
 
 static void builtins_env_setup(builtins_test_env_t* env) {
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 	memset(env, 0, sizeof(*env));
 	TEST_ASSERT_EQUAL_INT(0, sk_entities_builtins_register(builtins_ecs()));
 	env->repository = repo->create(sk_allocator_default());
@@ -196,19 +196,19 @@ static void builtins_env_setup(builtins_test_env_t* env) {
 	 * the plugin can link and register it (asset handler payload types live
 	 * in resource_asset_builtins, which references sk-app and cannot be
 	 * linked into plugins). */
-	TEST_ASSERT_EQUAL_INT(0, sk_resource_component_types_register(env->repository));
+	TEST_ASSERT_EQUAL_INT(0, sk_resource_component_types_register(env->repository, repo));
 	env->world = builtins_ecs()->world_create();
 	TEST_ASSERT_NOT_NULL(env->world);
 }
 
 static void builtins_env_teardown(builtins_test_env_t* env) {
 	builtins_ecs()->world_destroy(env->world);
-	sk_repository_api()->destroy(env->repository);
+	sk_entities_repository_table()->destroy(env->repository);
 }
 
 /* Create one resource of @p type_id in the fixture repository. */
 static sk_rid_t builtins_create_resource(builtins_test_env_t* env, sk_type_id_t type_id, sk_uuid_t uuid) {
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 	const sk_resource_type_t* type = repo->find_type(env->repository, type_id);
 	TEST_ASSERT_NOT_NULL(type);
 	return repo->create_resource(env->repository, type, uuid, NULL);
@@ -236,7 +236,7 @@ static void builtins_spawn_and_load(builtins_test_env_t* env, sk_type_id_t type_
 SK_TEST(entities_builtins_transform_load_asset) {
 	builtins_test_env_t env;
 	builtins_env_setup(&env);
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 
 	/* Author a transform resource: position (1,2,3), identity rotation,
 	 * scale (2,2,2). */
@@ -252,7 +252,7 @@ SK_TEST(entities_builtins_transform_load_asset) {
 	}
 
 	/* The component resource's repository type id IS the ECS type id. */
-	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, rid), SK_TRANSFORM_COMPONENT_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, sk_entities_repository_table(), rid), SK_TRANSFORM_COMPONENT_TYPE_ID));
 
 	sk_entity_t entity = SK_ENTITY_INVALID;
 	void_ptr_t instance = NULL;
@@ -277,7 +277,7 @@ SK_TEST(entities_builtins_transform_load_asset) {
 SK_TEST(entities_builtins_camera_load_asset) {
 	builtins_test_env_t env;
 	builtins_env_setup(&env);
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 
 	sk_rid_t rid = builtins_create_resource(&env, SK_CAMERA_COMPONENT_TYPE_ID, (sk_uuid_t){0x3002u, 0x3002u});
 	TEST_ASSERT_TRUE(rid.id != 0u);
@@ -291,7 +291,7 @@ SK_TEST(entities_builtins_camera_load_asset) {
 		repo->commit(w, NULL);
 	}
 
-	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, rid), SK_CAMERA_COMPONENT_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, sk_entities_repository_table(), rid), SK_CAMERA_COMPONENT_TYPE_ID));
 
 	sk_entity_t entity = SK_ENTITY_INVALID;
 	void_ptr_t instance = NULL;
@@ -310,7 +310,7 @@ SK_TEST(entities_builtins_camera_load_asset) {
 SK_TEST(entities_builtins_light_load_asset) {
 	builtins_test_env_t env;
 	builtins_env_setup(&env);
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 
 	sk_rid_t rid = builtins_create_resource(&env, SK_LIGHT_COMPONENT_TYPE_ID, (sk_uuid_t){0x3003u, 0x3003u});
 	TEST_ASSERT_TRUE(rid.id != 0u);
@@ -324,7 +324,7 @@ SK_TEST(entities_builtins_light_load_asset) {
 		repo->commit(w, NULL);
 	}
 
-	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, rid), SK_LIGHT_COMPONENT_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, sk_entities_repository_table(), rid), SK_LIGHT_COMPONENT_TYPE_ID));
 
 	sk_entity_t entity = SK_ENTITY_INVALID;
 	void_ptr_t instance = NULL;
@@ -346,7 +346,7 @@ SK_TEST(entities_builtins_light_load_asset) {
 SK_TEST(entities_builtins_mesh_renderer_load_asset) {
 	builtins_test_env_t env;
 	builtins_env_setup(&env);
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 
 	/* Author the referenced mesh / material targets as plain resources (the
 	 * REFERENCE fields store RIDs; the plugin cannot link the asset payload
@@ -365,7 +365,7 @@ SK_TEST(entities_builtins_mesh_renderer_load_asset) {
 		repo->commit(w, NULL);
 	}
 
-	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, rid), SK_MESH_RENDERER_COMPONENT_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, sk_entities_repository_table(), rid), SK_MESH_RENDERER_COMPONENT_TYPE_ID));
 
 	sk_entity_t entity = SK_ENTITY_INVALID;
 	void_ptr_t instance = NULL;
@@ -383,7 +383,7 @@ SK_TEST(entities_builtins_static_tag_no_asset_loader) {
 	builtins_test_env_t env;
 	builtins_env_setup(&env);
 	const sk_entities_api_t* ecs = builtins_ecs();
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 
 	/* Static tag has no authored payload: registered hook must be NULL and
 	 * the repository type must carry zero fields (empty asset shell). */
@@ -400,7 +400,7 @@ SK_TEST(entities_builtins_static_tag_no_asset_loader) {
 	 * zeroed (nothing to load). */
 	sk_rid_t rid = builtins_create_resource(&env, SK_STATIC_TAG_COMPONENT_TYPE_ID, (sk_uuid_t){0x3007u, 0x3007u});
 	TEST_ASSERT_TRUE(rid.id != 0u);
-	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, rid), SK_STATIC_TAG_COMPONENT_TYPE_ID));
+	TEST_ASSERT_TRUE(SK_TYPE_ID_EQ(sk_resource_entity_component_type_id(env.repository, sk_entities_repository_table(), rid), SK_STATIC_TAG_COMPONENT_TYPE_ID));
 
 	const sk_type_id_t tag_id = SK_STATIC_TAG_COMPONENT_TYPE_ID;
 	sk_entity_t entity = ecs->world_spawn(env.world, &tag_id, 1u);
@@ -415,7 +415,7 @@ SK_TEST(entities_builtins_static_tag_no_asset_loader) {
 SK_TEST(entities_builtins_spawn_from_asset_loads_transform) {
 	builtins_test_env_t env;
 	builtins_env_setup(&env);
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = sk_entities_repository_table();
 	const sk_entities_api_t* ecs = builtins_ecs();
 
 	typedef struct spawn_entity_resource_t {

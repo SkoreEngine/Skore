@@ -75,7 +75,9 @@ static void ui_clay_error_handler(Clay_ErrorData error) {
 
 	logger = ui_clay_state.logger;
 	if (logger != NULL) {
-		sk_log_message(sk_logger_api(), SK_LOGGER_TYPE_ERROR, logger, "clay layout error (type %d): %s", (int)error.errorType, buf);
+		if (ui_logger_api() != NULL) {
+			sk_log_message(ui_logger_api(), SK_LOGGER_TYPE_ERROR, logger, "clay layout error (type %d): %s", (int)error.errorType, buf);
+		}
 	}
 }
 
@@ -179,7 +181,11 @@ i32 ui_clay_init(const sk_allocator_t* allocator, f32 viewport_width, f32 viewpo
 	ui_clay_state.viewport_height = viewport_height;
 	ui_clay_state.font_system = font_system;
 	ui_clay_state.font = font;
-	ui_clay_state.logger = sk_logger_api()->create_logger("clay");
+	if (ui_logger_api() != NULL && ui_logger_context() != NULL) {
+		ui_clay_state.logger = ui_logger_api()->create_logger(ui_logger_context(), "clay");
+	} else {
+		ui_clay_state.logger = NULL;
+	}
 
 	Clay_Initialize(arena, dims, handler);
 	Clay_SetMeasureTextFunction(ui_clay_measure_text, &ui_clay_state);
@@ -199,8 +205,8 @@ void ui_clay_shutdown(void) {
 	if (ui_clay_state.allocator != NULL && ui_clay_state.arena_memory != NULL) {
 		ui_clay_state.allocator->free(ui_clay_state.allocator->instance, ui_clay_state.arena_memory);
 	}
-	if (ui_clay_state.logger != NULL) {
-		sk_logger_api()->destroy_logger(ui_clay_state.logger);
+	if (ui_clay_state.logger != NULL && ui_logger_api() != NULL && ui_logger_context() != NULL) {
+		ui_logger_api()->destroy_logger(ui_logger_context(), ui_clay_state.logger);
 	}
 	memset(&ui_clay_state, 0, sizeof(ui_clay_state));
 }

@@ -11,9 +11,15 @@
 
 #include "array.h"
 #include "hashmap.h"
+#include "logger.h"
 
 #include <stddef.h>
 #include <string.h>
+
+/* Host logger captured at sk_ui_init. NULL until the plugin is loaded. */
+const sk_logger_api_t* ui_logger_api(void);
+sk_logger_context_t* ui_logger_context(void);
+void ui_bind_host_logger(const sk_logger_api_t* api, sk_logger_context_t* log_ctx);
 
 /* -------------------------------------------------------------------------- */
 /* Containers                                                                 */

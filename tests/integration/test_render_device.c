@@ -27,7 +27,7 @@
 #ifdef SK_TESTS
 
 static i32 integration_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 
@@ -48,7 +48,7 @@ static i32 integration_plugin_path(const_chr_t plugin_filename, char* out, u32 o
  * Reload the CPU-mock plugin so it registers sk_render_device_api_t last and
  * wins SK_RENDER_DEVICE_API_TYPE_ID regardless of auto-load order.
  */
-static const sk_render_device_api_t* integration_render_device_api(sk_app_context_t* ctx) {
+static const sk_render_device_api_t* integration_render_device_api(sk_app_context_t* ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t plugin_name = "sk-test-render-device.dll";
@@ -58,22 +58,23 @@ static const sk_render_device_api_t* integration_render_device_api(sk_app_contex
 	const_chr_t plugin_name = "sk-test-render-device.so";
 #endif
 	if (integration_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(ctx, path);
+		app_api->load_plugin(ctx, path);
 	}
-	return (const sk_render_device_api_t*)sk_app_api()->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
+	return (const sk_render_device_api_t*)app_api->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
 }
 
 SK_TEST(test_render_device_create_buffer_and_map) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL_MESSAGE(ctx, "app bootstrap must succeed");
 	if (ctx == NULL) {
 		return;
 	}
 
-	const sk_render_device_api_t* api = integration_render_device_api(ctx);
+	const sk_render_device_api_t* api = integration_render_device_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(api, "test_render_device plugin must register sk_render_device_api_t");
 	if (api == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -120,20 +121,21 @@ SK_TEST(test_render_device_create_buffer_and_map) {
 		}
 		api->destroy(dev);
 	}
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 SK_TEST(test_render_device_texture_barrier) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL_MESSAGE(ctx, "app bootstrap must succeed");
 	if (ctx == NULL) {
 		return;
 	}
 
-	const sk_render_device_api_t* api = integration_render_device_api(ctx);
+	const sk_render_device_api_t* api = integration_render_device_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(api, "test_render_device plugin must register sk_render_device_api_t");
 	if (api == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -165,7 +167,7 @@ SK_TEST(test_render_device_texture_barrier) {
 		}
 		api->destroy(dev);
 	}
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 #endif /* SK_TESTS */

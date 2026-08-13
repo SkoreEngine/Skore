@@ -6,7 +6,7 @@
  *        queries, systems with a dependency-graph scheduler, and deferred
  *        entity commands.
  *
- * Implemented by the sk-entities plugin (SHARED, statically linked sk-core).
+ * Implemented by the sk-entities plugin (SHARED, statically linked sk-foundation).
  * The plugin registers a static sk_entities_api_t on the app context; hosts
  * obtain it **only** via the app registry (no free-function mirrors):
  *

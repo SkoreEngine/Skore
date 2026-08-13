@@ -366,7 +366,7 @@ struct sk_render_graph_t {
 };
 
 /** App registry from plugin init — used to resolve sk_render_device_api_t
- *  and the sk-profiler table (sk-app loads plugins in sorted filename order,
+ *  and the sk-profiler table (the host loads plugins in sorted filename order,
  *  so sk-render-graph registers after sk-profiler). */
 static sk_app_context_t* g_rg_app_context = NULL;
 static const sk_app_api_t* g_rg_app_api = NULL;
@@ -5320,7 +5320,7 @@ SK_TEST(render_graph_execute_imported_restores_state) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Minimal in-plugin RHI mock for execute end-to-end (no sk-app link). */
+/* Minimal in-plugin RHI mock for execute end-to-end (no host link). */
 /* ------------------------------------------------------------------ */
 
 typedef struct rg_mock_texture_t {

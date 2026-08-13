@@ -8,6 +8,8 @@
 
 #include "ui_test.h"
 
+#include "app.h"
+#include "allocator.h"
 #include "filesystem.h"
 #include "logger.h"
 
@@ -31,10 +33,27 @@
 /* Logging                                                                    */
 /* -------------------------------------------------------------------------- */
 
+static const sk_logger_api_t* ut_logger_api(void) {
+	static const sk_logger_api_t* api = NULL;
+	if (api == NULL) {
+		sk_app_boot_t boot = sk_app_create();
+		if (boot.api != NULL && boot.context != NULL) {
+			api = boot.api->logger_api(boot.context);
+			sk_app_shutdown(boot.context);
+		}
+	}
+	return api;
+}
+
 static sk_logger_t* ut_logger(void) {
 	static sk_logger_t* log = NULL;
-	if (log == NULL) {
-		log = sk_logger_api()->create_logger("ui-test-author");
+	static sk_logger_context_t* log_ctx = NULL;
+	const sk_logger_api_t* api = ut_logger_api();
+	if (log == NULL && api != NULL) {
+		log_ctx = sk_logger_context_create(sk_allocator_default());
+		if (log_ctx != NULL) {
+			log = api->create_logger(log_ctx, "ui-test-author");
+		}
 	}
 	return log;
 }
@@ -186,7 +205,9 @@ i32 sk_ui_test_capture_frame(sk_ui_test_t* t, const_chr_t tag) {
 	}
 
 	(void)snprintf(t->fail_frame_path, sizeof(t->fail_frame_path), "%s", path);
-	sk_log_message(sk_logger_api(), SK_LOGGER_TYPE_INFO, ut_logger(), "ui test frame captured: %s", path);
+	if (ut_logger_api() != NULL && ut_logger() != NULL) {
+		sk_log_message(ut_logger_api(), SK_LOGGER_TYPE_INFO, ut_logger(), "ui test frame captured: %s", path);
+	}
 	return 0;
 }
 

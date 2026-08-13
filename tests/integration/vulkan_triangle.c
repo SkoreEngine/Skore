@@ -88,7 +88,7 @@ static const_chr_t tri_ps_hlsl = "struct PSInput {\n"
 /* ------------------------------------------------------------------ */
 
 static i32 tri_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 
@@ -107,7 +107,7 @@ static i32 tri_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) 
 
 /* Re-enter the Vulkan plugin so the real backend registers last (the engine
  * auto-loads the stub sk-render-device first; set_api replaces). */
-static const sk_render_device_api_t* tri_render_device_api(sk_app_context_t* ctx) {
+static const sk_render_device_api_t* tri_render_device_api(sk_app_context_t* ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t plugin_name = "sk-vulkan-render-device.dll";
@@ -117,12 +117,12 @@ static const sk_render_device_api_t* tri_render_device_api(sk_app_context_t* ctx
 	const_chr_t plugin_name = "sk-vulkan-render-device.so";
 #endif
 	if (tri_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(ctx, path);
+		app_api->load_plugin(ctx, path);
 	}
-	return (const sk_render_device_api_t*)sk_app_api()->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
+	return (const sk_render_device_api_t*)app_api->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
 }
 
-static const sk_dxc_compiler_api_t* tri_dxc_api(sk_app_context_t* ctx) {
+static const sk_dxc_compiler_api_t* tri_dxc_api(sk_app_context_t* ctx, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 #if defined(_WIN32)
 	const_chr_t plugin_name = "sk-dxc-compiler.dll";
@@ -132,9 +132,9 @@ static const sk_dxc_compiler_api_t* tri_dxc_api(sk_app_context_t* ctx) {
 	const_chr_t plugin_name = "sk-dxc-compiler.so";
 #endif
 	if (tri_plugin_path(plugin_name, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(ctx, path);
+		app_api->load_plugin(ctx, path);
 	}
-	return (const sk_dxc_compiler_api_t*)sk_app_api()->get_api(ctx, SK_DXC_COMPILER_API_TYPE_ID);
+	return (const sk_dxc_compiler_api_t*)app_api->get_api(ctx, SK_DXC_COMPILER_API_TYPE_ID);
 }
 
 /* ------------------------------------------------------------------ */
@@ -194,30 +194,31 @@ static sk_adapter_t tri_select_adapter(const sk_render_device_api_t* api, sk_ren
 /* ------------------------------------------------------------------ */
 
 SK_TEST(vulkan_offscreen_triangle_render) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	TEST_ASSERT_NOT_NULL_MESSAGE(ctx, "app bootstrap must succeed");
 	if (ctx == NULL) {
 		return;
 	}
 
-	const sk_render_device_api_t* api = tri_render_device_api(ctx);
+	const sk_render_device_api_t* api = tri_render_device_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(api, "vulkan_render_device plugin must register sk_render_device_api_t");
 	if (api == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
-	const sk_dxc_compiler_api_t* dxc = tri_dxc_api(ctx);
+	const sk_dxc_compiler_api_t* dxc = tri_dxc_api(ctx, boot.api);
 	TEST_ASSERT_NOT_NULL_MESSAGE(dxc, "dxc_compiler plugin must register sk_dxc_compiler_api_t");
 	if (dxc == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
 	{
 		const i32 dxc_init_rc = dxc->init();
 		if (dxc_init_rc != 0) {
-			sk_app_destroy(ctx);
+			sk_app_shutdown(ctx);
 		}
 		TEST_ASSERT_EQUAL_INT32_MESSAGE(0, dxc_init_rc, "DXC runtime must load (vendored lib missing or not copied to plugins/)");
 	}
@@ -226,7 +227,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	if (!sk_render_device_t_is_valid(dev)) {
 		dxc->shutdown();
 		TEST_IGNORE_MESSAGE("no Vulkan ICD available; skipping offscreen triangle render");
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -236,7 +237,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 		api->destroy(dev);
 		dxc->shutdown();
 		TEST_IGNORE_MESSAGE("no suitable Vulkan adapter; skipping offscreen triangle render");
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 	TEST_ASSERT_EQUAL_INT(0, api->select_adapter(dev, best));
@@ -268,7 +269,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	if (!sk_shader_t_is_valid(vs) || !sk_shader_t_is_valid(ps)) {
 		api->destroy(dev);
 		dxc->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -304,7 +305,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	if (!sk_buffer_t_is_valid(vb) || !sk_buffer_t_is_valid(ib) || !sk_buffer_t_is_valid(rb)) {
 		api->destroy(dev);
 		dxc->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -337,7 +338,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	if (!sk_texture_t_is_valid(color_tex) || !sk_texture_view_t_is_valid(color_view)) {
 		api->destroy(dev);
 		dxc->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -373,7 +374,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	if (!sk_render_pass_t_is_valid(pass) || !sk_framebuffer_t_is_valid(fb)) {
 		api->destroy(dev);
 		dxc->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -430,7 +431,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	if (!sk_pipeline_t_is_valid(pipeline)) {
 		api->destroy(dev);
 		dxc->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -445,7 +446,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	if (!sk_command_buffer_t_is_valid(cmd)) {
 		api->destroy(dev);
 		dxc->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -573,7 +574,7 @@ SK_TEST(vulkan_offscreen_triangle_render) {
 	api->destroy_shader(dev, ps);
 	dxc->shutdown();
 	api->destroy(dev);
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 #endif /* SK_TESTS */

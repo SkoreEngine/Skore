@@ -25,7 +25,7 @@
 #ifdef SK_TESTS
 
 static i32 rg_integration_plugin_path(const_chr_t plugin_filename, char* out, u32 out_cap) {
-	const sk_filesystem_api_t* fs = sk_filesystem_api();
+	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 	char plugins[SK_FS_PATH_MAX];
 
@@ -42,10 +42,10 @@ static i32 rg_integration_plugin_path(const_chr_t plugin_filename, char* out, u3
 	return (n < 0) ? -1 : 0;
 }
 
-static void rg_integration_load_plugin(sk_app_context_t* ctx, const_chr_t plugin_filename) {
+static void rg_integration_load_plugin(sk_app_context_t* ctx, const_chr_t plugin_filename, const sk_app_api_t* app_api) {
 	char path[SK_FS_PATH_MAX];
 	if (rg_integration_plugin_path(plugin_filename, path, (u32)sizeof(path)) == 0) {
-		sk_app_api()->load_plugin(ctx, path);
+		app_api->load_plugin(ctx, path);
 	}
 }
 
@@ -53,7 +53,7 @@ static void rg_integration_load_plugin(sk_app_context_t* ctx, const_chr_t plugin
  * Ensure both plugin tables are registered: render_graph (auto-load or
  * explicit) and test_render_device last for the RHI type id.
  */
-static i32 rg_integration_acquire_apis(sk_app_context_t* ctx, const sk_render_graph_api_t** out_rg, const sk_render_device_api_t** out_rhi) {
+static i32 rg_integration_acquire_apis(sk_app_context_t* ctx, const sk_render_graph_api_t** out_rg, const sk_render_device_api_t** out_rhi, const sk_app_api_t* app_api) {
 #if defined(_WIN32)
 	const_chr_t rg_name = "sk-render-graph.dll";
 	const_chr_t trd_name = "sk-test-render-device.dll";
@@ -64,11 +64,11 @@ static i32 rg_integration_acquire_apis(sk_app_context_t* ctx, const sk_render_gr
 	const_chr_t rg_name = "sk-render-graph.so";
 	const_chr_t trd_name = "sk-test-render-device.so";
 #endif
-	rg_integration_load_plugin(ctx, rg_name);
-	rg_integration_load_plugin(ctx, trd_name);
+	rg_integration_load_plugin(ctx, rg_name, app_api);
+	rg_integration_load_plugin(ctx, trd_name, app_api);
 
-	*out_rg = sk_render_graph_api_from_app(ctx, sk_app_api());
-	*out_rhi = (const sk_render_device_api_t*)sk_app_api()->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
+	*out_rg = sk_render_graph_api_from_app(ctx, app_api);
+	*out_rhi = (const sk_render_device_api_t*)app_api->get_api(ctx, SK_RENDER_DEVICE_API_TYPE_ID);
 	if (*out_rg == NULL || *out_rhi == NULL) {
 		return -1;
 	}
@@ -169,7 +169,8 @@ static void rg_host_build_preview(const sk_render_graph_api_t* api, sk_render_gr
 /* ------------------------------------------------------------------ */
 
 SK_TEST(render_graph_host_acquires_api_via_registry) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	const sk_render_graph_api_t* rg = NULL;
 	const sk_render_device_api_t* rhi = NULL;
 
@@ -178,7 +179,7 @@ SK_TEST(render_graph_host_acquires_api_via_registry) {
 		return;
 	}
 
-	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi));
+	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi, boot.api));
 	TEST_ASSERT_NOT_NULL(rg);
 	TEST_ASSERT_NOT_NULL(rhi);
 	TEST_ASSERT_NOT_NULL(rg->create);
@@ -186,11 +187,12 @@ SK_TEST(render_graph_host_acquires_api_via_registry) {
 	TEST_ASSERT_NOT_NULL(rg->execute);
 	TEST_ASSERT_NOT_NULL(rg->destroy);
 
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 SK_TEST(render_graph_host_pipeline_context_frame) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	const sk_render_graph_api_t* rg = NULL;
 	const sk_render_device_api_t* rhi = NULL;
 	sk_render_device_t dev;
@@ -203,9 +205,9 @@ SK_TEST(render_graph_host_pipeline_context_frame) {
 	if (ctx == NULL) {
 		return;
 	}
-	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi));
+	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi, boot.api));
 	if (rg == NULL || rhi == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -214,7 +216,7 @@ SK_TEST(render_graph_host_pipeline_context_frame) {
 	TEST_ASSERT_TRUE(sk_render_device_t_is_valid(dev));
 	if (!sk_render_device_t_is_valid(dev)) {
 		rg->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -246,11 +248,12 @@ SK_TEST(render_graph_host_pipeline_context_frame) {
 	sk_render_pipeline_context_destroy(&pipeline);
 	rhi->destroy(dev);
 	rg->shutdown();
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 SK_TEST(render_graph_host_standalone_preview_path) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	const sk_render_graph_api_t* rg = NULL;
 	const sk_render_device_api_t* rhi = NULL;
 	sk_render_device_t dev;
@@ -262,9 +265,9 @@ SK_TEST(render_graph_host_standalone_preview_path) {
 	if (ctx == NULL) {
 		return;
 	}
-	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi));
+	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi, boot.api));
 	if (rg == NULL || rhi == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -273,7 +276,7 @@ SK_TEST(render_graph_host_standalone_preview_path) {
 	TEST_ASSERT_TRUE(sk_render_device_t_is_valid(dev));
 	if (!sk_render_device_t_is_valid(dev)) {
 		rg->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -305,11 +308,12 @@ SK_TEST(render_graph_host_standalone_preview_path) {
 	rg->destroy(graph);
 	rhi->destroy(dev);
 	rg->shutdown();
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 SK_TEST(render_graph_host_import_and_output_index) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	const sk_render_graph_api_t* rg = NULL;
 	const sk_render_device_api_t* rhi = NULL;
 	sk_render_device_t dev;
@@ -324,9 +328,9 @@ SK_TEST(render_graph_host_import_and_output_index) {
 	if (ctx == NULL) {
 		return;
 	}
-	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi));
+	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi, boot.api));
 	if (rg == NULL || rhi == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -335,7 +339,7 @@ SK_TEST(render_graph_host_import_and_output_index) {
 	TEST_ASSERT_TRUE(sk_render_device_t_is_valid(dev));
 	if (!sk_render_device_t_is_valid(dev)) {
 		rg->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -383,7 +387,7 @@ SK_TEST(render_graph_host_import_and_output_index) {
 	rhi->destroy_texture(dev, imported[1]);
 	rhi->destroy(dev);
 	rg->shutdown();
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 /*
@@ -393,7 +397,8 @@ SK_TEST(render_graph_host_import_and_output_index) {
  * path outside the in-plugin unit tests).
  */
 SK_TEST(render_graph_host_pipeline_zero_heap_steady_state) {
-	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
 	const sk_render_graph_api_t* rg = NULL;
 	const sk_render_device_api_t* rhi = NULL;
 	sk_render_device_t dev;
@@ -412,9 +417,9 @@ SK_TEST(render_graph_host_pipeline_zero_heap_steady_state) {
 	if (ctx == NULL) {
 		return;
 	}
-	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi));
+	TEST_ASSERT_EQUAL_INT(0, rg_integration_acquire_apis(ctx, &rg, &rhi, boot.api));
 	if (rg == NULL || rhi == NULL) {
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -423,7 +428,7 @@ SK_TEST(render_graph_host_pipeline_zero_heap_steady_state) {
 	TEST_ASSERT_TRUE(sk_render_device_t_is_valid(dev));
 	if (!sk_render_device_t_is_valid(dev)) {
 		rg->shutdown();
-		sk_app_destroy(ctx);
+		sk_app_shutdown(ctx);
 		return;
 	}
 
@@ -478,7 +483,7 @@ SK_TEST(render_graph_host_pipeline_zero_heap_steady_state) {
 	sk_render_pipeline_context_destroy(&pipeline);
 	rhi->destroy(dev);
 	rg->shutdown();
-	sk_app_destroy(ctx);
+	sk_app_shutdown(ctx);
 }
 
 #endif /* SK_TESTS */

@@ -24,6 +24,7 @@
 
 #include "ui_text_screenshot.h"
 
+#include "app.h"
 #include "filesystem.h"
 #include "path.h"
 
@@ -93,7 +94,7 @@ static i32 ts_artifact_root(char* out, u32 out_cap) {
 	}
 #else
 	{
-		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 		char temp[SK_FS_PATH_MAX];
 		if (fs == NULL || fs->temp_folder(temp, (u32)sizeof(temp)) != 0) {
 			return -1;
@@ -178,7 +179,7 @@ static i32 ts_path_raw(const_chr_t subdir, const_chr_t filename, char* out, u32 
 }
 
 static const sk_filesystem_api_t* ts_fs(void) {
-	return sk_filesystem_api();
+	return sk_test_filesystem_table();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -376,7 +377,7 @@ static i32 ts_write_png(const sk_ui_api_t* ui, const_chr_t path, u32 w, u32 h, u
 	img.height = h;
 	img.channels = channels;
 	img.pixels = (u8*)SK_CONST_CAST(void*, px);
-	if (ui->cpu_image_write_png(&img, sk_filesystem_api(), path) != 0) {
+	if (ui->cpu_image_write_png(&img, sk_test_filesystem_table(), path) != 0) {
 		fprintf(stderr, "ui_text_screenshot: atlas PNG write failed: %s\n", path);
 		return -1;
 	}

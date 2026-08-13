@@ -4,8 +4,8 @@ Portable stack capture, symbolization, and fatal-fault reporting for Skore.
 
 | Module | Headers | Library |
 |--------|---------|---------|
-| Stacktrace | `core/stacktrace.h` | `sk-core` |
-| Crash handler | `core/crash.h` | `sk-core` |
+| Stacktrace | `foundation/stacktrace.h` | `sk-foundation` |
+| Crash handler | `foundation/crash.h` | `sk-foundation` |
 
 `sk_app_init` installs the crash handler at process startup. Embedders may call `sk_crash_uninstall()` to opt out.
 
@@ -85,15 +85,15 @@ sk_crash_uninstall();
 
 ### All platforms
 
-- Link **`sk-core`** (static). Crash + stacktrace live there.
+- Link **`sk-foundation`** (static). Crash + stacktrace live there.
 - Prefer **Debug** or **RelWithDebInfo** when you need names/lines in `sk_stacktrace_resolve`.
 
 ### Linux (ELF)
 
 | Need | Setting |
 |------|---------|
-| `dladdr` | Link `libdl` when required (older glibc). CMake already does `find_library(dl)` on `sk-core`. |
-| Resolve symbols in **your executable** | Export the symbols you care about (`-rdynamic`, or targeted `--export-dynamic-symbol=name`). Full `--export-dynamic` on hosts that `dlopen` plugins can interpose over each plugin’s static `sk-core` — prefer exporting only specific symbols (see `tests/CMakeLists.txt` for `sk-tests`). |
+| `dladdr` | Link `libdl` when required (older glibc). CMake already does `find_library(dl)` on `sk-foundation`. |
+| Resolve symbols in **your executable** | Export the symbols you care about (`-rdynamic`, or targeted `--export-dynamic-symbol=name`). Full `--export-dynamic` on hosts that `dlopen` plugins can interpose over each plugin’s static `sk-foundation` — prefer exporting only specific symbols (see `tests/CMakeLists.txt` for `sk-tests`). |
 | Resolve symbols in **shared plugins** | Default visibility (`SK_API`) is enough for those DSO exports. |
 
 `sk-player` deliberately does **not** use full `--export-dynamic` on Linux for the interposition reason above; crash reports still print addresses, and module + offset (plus `dladdr` symbols when exports allow) are filled by resolve when available.
@@ -110,7 +110,7 @@ sk_crash_uninstall();
 | Need | Setting |
 |------|---------|
 | Capture | `CaptureStackBackTrace` (Vista+; project sets `_WIN32_WINNT` ≥ `0x0601`). |
-| Symbolization | Link **`dbghelp`** (`sk-core` PUBLIC-links it). |
+| Symbolization | Link **`dbghelp`** (`sk-foundation` PUBLIC-links it). |
 | PDB | Debug info format **ProgramDatabase** (`/Zi` / CMake `CMAKE_MSVC_DEBUG_INFORMATION_FORMAT`). Root `CMakeLists.txt` sets this for MSVC Debug/RelWithDebInfo. |
 | Release | Without a PDB next to the `.exe`, resolve falls back to **module name + RVA** (still useful). |
 

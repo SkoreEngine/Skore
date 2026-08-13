@@ -29,6 +29,7 @@
 
 #include "ui_text_screenshot.h"
 
+#include "app.h"
 #include "filesystem.h"
 #include "path.h"
 
@@ -101,7 +102,7 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 	{
-		const sk_filesystem_api_t* fs = sk_filesystem_api();
+		const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 		if (fs == NULL) {
 			fprintf(stderr, "error: filesystem API unavailable\n");
 			return 1;

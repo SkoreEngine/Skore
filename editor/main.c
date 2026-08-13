@@ -41,13 +41,13 @@ static void print_usage(const_chr_t argv0) {
 			argv0 != NULL ? argv0 : "sk-editor", argv0 != NULL ? argv0 : "sk-editor");
 }
 
-static i32 count_root_children(sk_editor_project_t* project) {
+static i32 count_root_children(sk_editor_project_t* project, sk_app_context_t* app, const sk_app_api_t* app_api) {
 	sk_repository_t* repository = sk_editor_project_repository(project);
 	sk_rid_t root = sk_editor_project_root_directory(project);
 	if (repository == NULL || root.id == 0u) {
 		return -1;
 	}
-	const sk_repository_api_t* repo = sk_repository_api();
+	const sk_repository_api_t* repo = app_api->repository_api(app);
 	sk_resource_object_t view = repo->read(repository, root);
 	u32 count = 0u;
 	(void)repo->get_subobject_list(view, SK_RESOURCE_ASSET_DIRECTORY_FIELD_ASSETS, &count);
@@ -55,7 +55,7 @@ static i32 count_root_children(sk_editor_project_t* project) {
 }
 
 static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, sk_logger_t* log) {
-	const sk_logger_api_t* logger_api = sk_logger_api();
+	const sk_logger_api_t* logger_api = app_api->logger_api(app);
 	const sk_platform_window_api_t* win_api;
 	const sk_ui_api_t* ui;
 	sk_window_t window;
@@ -84,7 +84,7 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		return 1;
 	}
 
-	host = sk_editor_ui_host_create(ui);
+	host = sk_editor_ui_host_create(ui, logger_api, app_api->logger_context(app));
 	if (host == NULL) {
 		sk_log_error(logger_api, log, "editor UI host create failed");
 		return 1;
@@ -130,7 +130,7 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 
 static i32 run_package_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk_logger_t* log, const_chr_t package_path, const_chr_t package_name, const_chr_t* import_paths,
 							u32 import_count) {
-	const sk_logger_api_t* logger_api = sk_logger_api();
+	const sk_logger_api_t* logger_api = app_api->logger_api(app);
 	sk_editor_project_t* project = sk_editor_project_open(app, app_api, package_name, package_path);
 	i32 child_count;
 	u32 i;
@@ -153,7 +153,7 @@ static i32 run_package_mode(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		sk_log_info(logger_api, log, "imported via core: %s", import_paths[i]);
 	}
 
-	child_count = count_root_children(project);
+	child_count = count_root_children(project, app, app_api);
 	sk_log_info(logger_api, log, "package root has %d child asset node(s); thumbnails not generated (dropped)", child_count);
 
 	sk_editor_project_close(project);
@@ -220,15 +220,17 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	app = sk_app_init(argc, argv);
+	sk_app_boot_t boot = sk_app_init(argc, argv);
+
+	app = boot.context;
 	if (app == NULL) {
 		fprintf(stderr, "sk-editor: sk_app_init failed\n");
 		return 1;
 	}
 
-	app_api = sk_app_api();
-	logger_api = sk_logger_api();
-	log = logger_api->create_logger("editor");
+	app_api = boot.api;
+	logger_api = app_api->logger_api(app);
+	log = logger_api->create_logger(app_api->logger_context(app), "editor");
 
 	if (ui_migration) {
 		rc = run_ui_migration(app, app_api, log);
@@ -236,7 +238,7 @@ int main(int argc, char* argv[]) {
 		rc = run_package_mode(app, app_api, log, package_path, package_name, import_paths, import_count);
 	}
 
-	logger_api->destroy_logger(log);
-	sk_app_destroy(app);
+	logger_api->destroy_logger(app_api->logger_context(app), log);
+	sk_app_shutdown(app);
 	return rc;
 }

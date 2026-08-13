@@ -4,7 +4,7 @@ sk_add_plugin(ui SOURCES ${SKORE_UI_SOURCES})
 
 # FreeType (face load/metrics) + stb_image_write + msdf-atlas-c: vendored static
 # libs linked into the SHARED plugin. sk_add_plugin already statically links
-# sk-core. PRIVATE so third-party symbols stay inside the plugin binary
+# sk-foundation. PRIVATE so third-party symbols stay inside the plugin binary
 # (public UI headers do not expose them). FreeType remains for face loading,
 # glyph index (cmap) queries, and metrics; msdf-atlas-c generates the MSDF
 # atlases (APX-265) and pulls FreeType privately through msdfgen for outline

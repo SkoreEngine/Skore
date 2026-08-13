@@ -4,12 +4,12 @@
 # Compiles scripts/gen-compression-vectors.c against the vendored reference
 # libraries (zstd, lz4, miniz -- the same sources the C++ engine on `main`
 # links for zstd, and the reference implementations for lz4/zlib) and prints
-# the C block to paste into core/compression.c (APX-176 test section).
+# the C block to paste into foundation/compression.c (APX-176 test section).
 #
 # Usage: ./scripts/gen-compression-vectors.sh [output-file]
 #   Without an argument the block goes to stdout.
 #   With an argument the block replaces the APX-176 section in that file
-#   between the BEGIN/END markers (default: core/compression.c).
+#   between the BEGIN/END markers (default: foundation/compression.c).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
