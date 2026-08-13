@@ -19,9 +19,13 @@ target_include_directories(sk-app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # Host lifecycle wiring includes plugins/profiler (sk_profiler_api_t table +
 # render_device handles for the CPU-only init call). Header-only; the plugin
 # itself is loaded at runtime from the plugins folder.
+# Engine physics wiring includes plugins/entities (scene world) + plugins/jolt
+# (physics API table) — also header-only; both load at runtime.
 target_include_directories(sk-app PRIVATE
     ${CMAKE_SOURCE_DIR}/plugins/profiler
-    ${CMAKE_SOURCE_DIR}/plugins/render_device)
+    ${CMAKE_SOURCE_DIR}/plugins/render_device
+    ${CMAKE_SOURCE_DIR}/plugins/entities
+    ${CMAKE_SOURCE_DIR}/plugins/jolt)
 
 # App is the host-facing layer; it always uses core.
 target_link_libraries(sk-app PUBLIC sk-core)

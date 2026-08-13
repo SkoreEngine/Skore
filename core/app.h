@@ -32,6 +32,11 @@ extern "C" {
  */
 typedef struct sk_app_context_t sk_app_context_t;
 
+/* Engine scene world: an ECS world owned by the app context (implemented by
+ * the entities plugin, which is loaded at runtime). core only needs the tag
+ * for the app API table below; the opaque definition lives in plugins/entities. */
+struct sk_world_t;
+
 /**
  * Global module API table for the app (one process-wide surface of entry points).
  * Host fills this; plugins call through the table (no static link to sk-app).
@@ -146,6 +151,22 @@ typedef struct sk_app_api_t {
      * @return Elapsed time in seconds (non-negative).
      */
 	f64 (*elapsed_time)(sk_app_context_t* context);
+
+	/**
+     * The engine's ECS scene world (owned by the app context).
+     *
+     * Created at bootstrap when the entities plugin is loaded; destroyed at
+     * app shutdown. The engine's frame loop (sk_app_tick) drives the jolt
+     * physics plugin's fixed-step update against this world every frame and
+     * writes the simulated poses back onto the owning transform / rigid-body
+     * state components, so hosts spawn scene entities (see sk_entities_api_t)
+     * into this world and let the engine step them. Returns NULL when the
+     * entities plugin is not loaded (or before bootstrap).
+     *
+     * @param context App context from sk_app_init (must not be NULL).
+     * @return The engine scene world, or NULL when unavailable.
+     */
+	struct sk_world_t* (*scene_world)(sk_app_context_t* context);
 } sk_app_api_t;
 
 /**
@@ -198,7 +219,9 @@ sk_app_context_t* sk_app_startup(void);
 sk_app_context_t* sk_app_init(int argc, char* argv[]);
 
 /**
- * Process one application frame (timing update; future phases/systems).
+ * Process one application frame (timing update; engine frame systems — the
+ * jolt physics fixed-step update against the engine scene world with
+ * write-back of simulated transforms, when the physics plugin is loaded).
  * Requires a prior successful sk_app_init on @p context. Hosts drive the loop:
  *
  *   while (sk_app_tick(context)) { }
