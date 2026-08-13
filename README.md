@@ -17,6 +17,9 @@ Useful targets:
 | Target | Kind | Role |
 |--------|------|------|
 | `sk-foundation` | static lib | Engine + host lifecycle (`sk_app_init`, platform APIs; linked by apps and plugins) |
+
+The `app/` + `core/` merge into `foundation/` is a breaking ABI change. See
+**[docs/foundation-refactor-migration.md](docs/foundation-refactor-migration.md)**.
 | `sk-player` | executable | Game runner |
 | `sk-tests` | executable | Test host (in-source tests + plugin `sk_plugin_run_tests`) |
 | `sk-example-plugin` | shared lib | Example plugin (`.dll` / `.so` / `.dylib`; static-links foundation) |

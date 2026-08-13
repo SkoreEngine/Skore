@@ -5,7 +5,7 @@
 | **Title** | APX-278 — Foundation context and API contract |
 | **Author** | — |
 | **Date** | 2026-08-12 |
-| **Status** | Draft |
+| **Status** | Implemented — downstream note: `docs/foundation-refactor-migration.md` (APX-286) |
 | **Ticket** | APX-278 |
 | **Depends on** | `docs/foundation-refactor-inventory.md` (APX-277) |
 | **Header sketches** | `docs/foundation/include/` |
