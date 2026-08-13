@@ -62,8 +62,8 @@ i32 sk_test_set_env(const_chr_t key, const_chr_t value) {
 
 /**
  * Match a test name against one SK_TEST_FILTER token.
- * - exact name: "ui_widget_vision_tab"
- * - prefix wildcard (trailing '*'): "ui_widget_vision_*"
+ * - exact name: "ui_capture_tab"
+ * - prefix wildcard (trailing '*'): "ui_capture_*"
  * Exact tokens never use substring matching (avoids tab vs table collisions).
  */
 static i32 sk_test_filter_token_matches(const_chr_t name, const char* token, size_t token_len) {
@@ -180,9 +180,9 @@ void sk_test_print_runner_help(const_chr_t prog, i32 has_plugins_dir) {
 		printf("  plugins_dir         override {app_folder}/plugins\n");
 	}
 	printf("\n");
-	printf("Default ctest runs unit tests only. Integration binaries skip unless\n");
-	printf("SK_RUN_INTEGRATION=1 (or you invoke the binary directly).\n");
-	printf("  cmake -E env SK_RUN_INTEGRATION=1 ctest --test-dir build -L integration\n");
+	printf("Integration binaries run by default from ctest in skore-test-suite.\n");
+	printf("Set SK_RUN_INTEGRATION=0 to skip them. Direct invocation always runs.\n");
+	printf("  ctest --test-dir build -L integration\n");
 }
 
 void sk_test_apply_cli(const sk_test_cli_t* cli) {
@@ -195,14 +195,17 @@ void sk_test_apply_cli(const sk_test_cli_t* cli) {
 }
 
 i32 sk_test_should_skip_integration(void) {
+	const char* value;
+
 	if (env_flag_on("SK_CTEST_GATE") == 0) {
 		return 0;
 	}
-	if (env_flag_on("SK_RUN_INTEGRATION") != 0) {
-		return 0;
+	value = getenv("SK_RUN_INTEGRATION");
+	if (value != NULL && value[0] == '0' && value[1] == '\0') {
+		printf("SKIP: integration tests (SK_RUN_INTEGRATION=0)\n");
+		return 1;
 	}
-	printf("SKIP: integration tests (set SK_RUN_INTEGRATION=1, or run this binary directly)\n");
-	return 1;
+	return 0;
 }
 
 i32 sk_test_ctest_map_skip(i32 process_rc) {

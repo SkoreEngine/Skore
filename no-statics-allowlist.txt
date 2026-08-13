@@ -121,6 +121,7 @@ foundation/test.c:tests
 plugins/dxc_compiler/dxc_compiler.c:dxc_logger
 plugins/dxc_compiler/dxc_compiler.c:dxc_state
 plugins/entities/entities.c:ecs_component_count
+plugins/entities/entities.c:ecs_component_names
 plugins/entities/entities.c:ecs_component_registry
 plugins/entities/entities.c:g_ecs_app_context
 plugins/jolt/jolt_sync.c:bound_world

@@ -163,8 +163,9 @@ typedef i32 (*sk_component_on_load_asset_fn)(sk_world_t* world, sk_entity_t enti
 
 /**
  * Caller-owned registration descriptor. Zero-init, then fill fields
- * (`sk_component_desc_t desc = {0}`). The registry copies retained fields
- * (type_id, size, align, name, hook pointers); the desc may be transient.
+ * (`sk_component_desc_t desc = {0}`). The registry copies type_id/size/align,
+ * copies the name string into owned storage, and retains hook pointers.
+ * The desc and the name buffer may be transient.
  *
  * Reserved hook slots are stored but not invoked until a later revision
  * defines them. Non-NULL reserved pointers are accepted so a later

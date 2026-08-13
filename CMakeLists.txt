@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
 project(skore)
 
+# Engine source root. Equals CMAKE_SOURCE_DIR when this is the top-level
+# project; when add_subdirectory'd (skore-test-suite) it is this directory.
+set(SKORE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_functions.cmake)
 
 set(SK_ENGINE_VERSION "0.0.1")

@@ -1,9 +1,0 @@
-Cross-cutting: DISABLED state (any widget family)
-
-Apply in addition to the family rubric when the scene claims DISABLED:
-
-1. The control is visibly dimmed relative to a normal enabled control of the same family:
-   - lower-contrast fill and/or border
-   - muted label/mark ink
-2. FAIL if the disabled control still uses full-strength accent colors (e.g. bright primary blue button, full white checkbox X on a lively border) that read as enabled.
-3. Geometry of the control must still match the family (disabled is not "missing").

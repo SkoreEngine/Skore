@@ -13,12 +13,13 @@
  * and calls that export if present (skips when missing — e.g. Release).
  * Never ship SK_TESTS into Release plugin/app artifacts.
  *
- * Default `ctest` is the unit suite (`sk-tests` and cheap smoke tests).
+ * Default `ctest` in skore-test-suite runs unit and integration.
  * GPU / device / UI-capture binaries (`sk-integration-tests`,
  * `sk-text-screenshot`) are registered with label `integration` and skip
- * unless `SK_RUN_INTEGRATION=1` (or the binary is run directly). Filter a
- * registry with `--filter=` / `SK_TEST_FILTER` (comma-separated exact names
- * or `prefix*` tokens). `--list` / `SK_TEST_LIST=1` prints names and exits.
+ * only when `SK_RUN_INTEGRATION=0` under CTest (`SK_CTEST_GATE`). Direct
+ * invocation always runs. Filter a registry with `--filter=` /
+ * `SK_TEST_FILTER` (comma-separated exact names or `prefix*` tokens).
+ * `--list` / `SK_TEST_LIST=1` prints names and exits.
  */
 
 #include "common.h"
@@ -127,8 +128,8 @@ i32 sk_test_name_matches_filter(const_chr_t name, const_chr_t filter);
 
 /**
  * Whether a CTest-gated integration binary should skip.
- * True only when SK_CTEST_GATE is set and SK_RUN_INTEGRATION is unset/0.
- * Direct invocation (no SK_CTEST_GATE) always runs.
+ * True only when SK_CTEST_GATE is set and SK_RUN_INTEGRATION is explicitly 0.
+ * Unset or any other value runs. Direct invocation (no SK_CTEST_GATE) always runs.
  * @return 1 to skip (print a message first), 0 to run.
  */
 i32 sk_test_should_skip_integration(void);

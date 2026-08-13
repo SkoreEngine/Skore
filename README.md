@@ -64,14 +64,15 @@ ctest --test-dir build --output-on-failure
 # or: build/bin/sk-tests --filter=vec3_*
 ```
 
-Default `ctest` is the **unit** suite. Integration binaries (Vulkan, UI capture,
-text screenshots) are registered but **SKIP** unless you opt in:
+Default `ctest` in this engine tree is the **unit** suite. Integration
+binaries (Vulkan, UI capture, text screenshots) live in **skore-test-suite**
+and run there by default (`SK_RUN_INTEGRATION=0` skips them):
 
 ```bash
-cmake -E env SK_RUN_INTEGRATION=1 ctest --test-dir build -L integration --output-on-failure
+ctest --test-dir ../skore-test-suite/build -L integration --output-on-failure
 # or run the binary directly (never gated):
-build/bin/sk-integration-tests
-./scripts/run-integration-tests.sh
+../skore-test-suite/build/bin/sk-integration-tests
+../skore-test-suite/scripts/run-integration-tests.sh
 ```
 
 Release builds never compile test bodies into plugins.
@@ -97,7 +98,7 @@ and the UI shader decodes it with `median(r,g,b)` → screen-space distance
 in the font system only for face loading, glyph-index (cmap) queries, and
 metrics; the legacy R8 raster/bitmap-atlas path is retired. The deterministic
 text screenshot harness (`sk-text-screenshot --verify`, or
-`SK_RUN_INTEGRATION=1 ctest -R sk-text-screenshot`) renders a fixed sample suite and proves
+`ctest -R sk-text-screenshot` in skore-test-suite) renders a fixed sample suite and proves
 byte-identical captures. Full details: **[docs/ui-plugin.md §5](docs/ui-plugin.md)**.
 
 ### Stacktrace and crash handler

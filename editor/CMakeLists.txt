@@ -8,10 +8,10 @@ list(FILTER SKORE_EDITOR_SOURCES EXCLUDE REGEX "main\\.c$")
 # Header-only plugin surfaces (runtime load via app registry). Same pattern as
 # player/: ui.h pulls render_device + dxc_compiler types.
 set(SKORE_EDITOR_PLUGIN_INCLUDES
-    ${CMAKE_SOURCE_DIR}/plugins/platform_window
-    ${CMAKE_SOURCE_DIR}/plugins/ui
-    ${CMAKE_SOURCE_DIR}/plugins/render_device
-    ${CMAKE_SOURCE_DIR}/plugins/dxc_compiler
+    ${SKORE_SOURCE_DIR}/plugins/platform_window
+    ${SKORE_SOURCE_DIR}/plugins/ui
+    ${SKORE_SOURCE_DIR}/plugins/render_device
+    ${SKORE_SOURCE_DIR}/plugins/dxc_compiler
 )
 
 add_library(sk-editor-lib STATIC ${SKORE_EDITOR_SOURCES})

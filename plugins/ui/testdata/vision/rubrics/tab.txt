@@ -1,8 +1,0 @@
-Widget family: TAB BAR
-
-Strict visual criteria (PASS only if ALL hold):
-
-1. A horizontal strip of two or more tab labels is visible.
-2. The selected/active tab is visually distinct from unselected tabs (different fill, border accent, and/or brighter label text).
-3. Tab labels read as text inside their tab bounds when claimed.
-4. FAIL if: only one tab appears, selected and unselected tabs look identical, or no tab strip is present.

@@ -44,7 +44,10 @@
 #include <stddef.h>
 #include <string.h>
 
-enum { SK_ECS_MAX_COMPONENT_TYPES = 256u };
+enum {
+	SK_ECS_MAX_COMPONENT_TYPES = 256u,
+	SK_ECS_COMPONENT_NAME_CAP = 64u,
+};
 
 /* Alignment of sk_entity_t derived from a standard-layout probe struct. */
 typedef struct sk_ecs_align_probe_t {
@@ -196,7 +199,29 @@ static void ecs_chunk_free(sk_chunk_t* chunk) {
 /* ---- component registry (sk_type_id_t keyed; main-thread ownership) ---- */
 
 static sk_component_desc_t ecs_component_registry[SK_ECS_MAX_COMPONENT_TYPES];
+/* Name bytes live here so component_info stays valid after the registering
+ * plugin is remapped (macOS dyld unmaps on last dlclose; the desc only
+ * copies the name pointer). */
+static char ecs_component_names[SK_ECS_MAX_COMPONENT_TYPES][SK_ECS_COMPONENT_NAME_CAP];
 static u32 ecs_component_count = 0u;
+
+static void ecs_component_registry_reset(void) {
+	ecs_component_count = 0u;
+}
+
+static void ecs_store_component_name(u32 slot, const_chr_t name) {
+	if (name == NULL) {
+		ecs_component_names[slot][0] = '\0';
+		ecs_component_registry[slot].name = NULL;
+		return;
+	}
+	u32 i = 0u;
+	for (; i + 1u < (u32)SK_ECS_COMPONENT_NAME_CAP && name[i] != '\0'; i++) {
+		ecs_component_names[slot][i] = name[i];
+	}
+	ecs_component_names[slot][i] = '\0';
+	ecs_component_registry[slot].name = ecs_component_names[slot];
+}
 
 /* Instrumentation: the sk-profiler table is resolved at plugin entry and
  * re-checked at world_create (the host loads plugins in sorted filename order,
@@ -239,6 +264,7 @@ static i32 register_component_impl(const sk_component_desc_t* desc) {
 	}
 
 	ecs_component_registry[ecs_component_count] = *desc;
+	ecs_store_component_name(ecs_component_count, desc->name);
 	ecs_component_count += 1u;
 	return 0;
 }
@@ -2161,6 +2187,11 @@ const sk_repository_api_t* sk_entities_repository_table(void) {
 }
 
 void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
+	/* New app session (dylib often stays mapped across dlclose/dlopen): drop
+	 * leftover registrations so hook/name pointers are not from an old load. */
+	if (g_ecs_app_context != context) {
+		ecs_component_registry_reset();
+	}
 	g_ecs_app_context = context;
 	g_ecs_app_api = app_api;
 	/* Best-effort: the profiler may not be registered yet (sk-entities sorts
@@ -2195,15 +2226,6 @@ void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
  * disjoint or read-read sets, deterministic tie-break, implicit rebuild, and
  *  cycle detection on build and run).
  */
-
-/* Clear the module component registry. Tests that register components start
- * from a clean registry so they pass regardless of the toolchain's
- * constructor registration order (e.g. the capacity test may run before the
- * roundtrip/idempotent/conflict tests on MSVC, which would otherwise leave the
- * registry full and make later register_component calls return -2). */
-static void ecs_component_registry_reset(void) {
-	ecs_component_count = 0u;
-}
 
 static i32 test_register_component(sk_type_id_t type_id, u32 size, u32 align, const_chr_t name) {
 	sk_component_desc_t desc = {0};
@@ -2296,6 +2318,26 @@ SK_TEST(entities_register_component_roundtrip) {
 	TEST_ASSERT_EQUAL_UINT32(4u, stored.align);
 	TEST_ASSERT_EQUAL_STRING("roundtrip", stored.name);
 	TEST_ASSERT_NULL(stored.on_load_asset);
+}
+
+SK_TEST(entities_register_copies_component_name) {
+	ecs_component_registry_reset();
+	sk_type_id_t id = SK_TYPE_ID("sk.test.ecs.namecopy", 0xA1A2A3A4A5A6A7A8ULL, 0xB1B2B3B4B5B6B7B8ULL);
+	char stack_name[8];
+	stack_name[0] = 's';
+	stack_name[1] = 't';
+	stack_name[2] = 'a';
+	stack_name[3] = 'c';
+	stack_name[4] = 'k';
+	stack_name[5] = '\0';
+	TEST_ASSERT_EQUAL_INT32(0, test_register_component(id, 4u, 4u, stack_name));
+	memset(stack_name, 'x', sizeof(stack_name));
+	sk_component_info_t info;
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, entities_api.component_info(id, &info));
+	TEST_ASSERT_NOT_NULL(info.name);
+	TEST_ASSERT_EQUAL_STRING("stack", info.name);
+	TEST_ASSERT_TRUE(info.name != stack_name);
 }
 
 SK_TEST(entities_register_component_idempotent) {

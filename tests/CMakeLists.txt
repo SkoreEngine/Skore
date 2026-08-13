@@ -1,5 +1,7 @@
-# Test host bootstrap only. Test bodies live next to production code under
-# `#ifdef SK_TESTS` (see foundation/test.h and AGENTS.md).
+# Test host bootstrap + reusable harness. Test bodies live next to production
+# code under `#ifdef SK_TESTS` (see foundation/test.h and AGENTS.md).
+# Integration cases (Vulkan / UI capture / physics scene / MSDF smoke) live in
+# the skore-test-suite repo. Harness sources in integration/ stay here.
 
 enable_testing()
 
@@ -20,67 +22,8 @@ else()
     message(WARNING "Python3 not found; sk-no-statics-guard test disabled (run scripts/check-no-statics.py manually)")
 endif()
 
-# Frozen public-interface check (APX-169): compile foundation/compression.h in a
-# trivial TU under the project's warnings-as-errors flags so include-order /
-# self-containment regressions fail the build. Build check only - defines
-# nothing, never links or runs.
-add_library(sk-header-checks OBJECT header_checks/compression_header.c)
-target_include_directories(sk-header-checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../foundation)
-
-# Symbol-mapping conformance check (APX-171): encodes the APX-165 design-doc
-# section 11 main-branch -> v2 compression mapping table and verifies every
-# mapped replacement exists and is callable with the documented signature, and
-# that no-planned-equivalent symbols are declared intentional gaps. Links the
-# production sk-foundation (the shipped surface, no SK_TESTS). Runs in Debug and
-# Release CI so a renamed/dropped public symbol fails loudly.
-add_executable(sk-compression-conformance conformance/compression_mapping.c)
-target_link_libraries(sk-compression-conformance PRIVATE sk-foundation)
-# Mirror foundation/CMakeLists.txt: the conformance TU must know which codecs the
-# linked production sk-foundation compiled in (those defines are PRIVATE).
-if(SK_COMPRESSION_ZSTD)
-    target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_ZSTD)
-endif()
-if(SK_COMPRESSION_LZ4)
-    target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_LZ4)
-endif()
-if(SK_COMPRESSION_MINIZ)
-    target_compile_definitions(sk-compression-conformance PRIVATE SK_COMPRESSION_HAS_MINIZ)
-endif()
-set_target_properties(sk-compression-conformance PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
-)
-add_test(NAME sk-compression-conformance COMMAND sk-compression-conformance
-    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-sk_ctest_mark_unit(sk-compression-conformance)
-
-# APX-310: runnable end-to-end physics validation scene. Builds a ground plane,
-# a stack of dynamic boxes/spheres, a kinematic platform + rider, and a
-# character controller, then simulates it through the sk-jolt plugin via the
-# app-owned ECS scene world (sk_app_init auto-loads the plugins;
-# app_physics_startup inits the jolt world with defaults) with
-# jolt->step_world(world, 1/60) per frame — the same call the engine frame loop
-# makes. Prints the observed behavior (settling, no jitter, no tunneling at the
-# default timestep, platform ride, stair climb, repeat-run determinism) and
-# exits non-zero when an expectation fails. Run directly for the full report:
-#   ./build/bin/sk-physics-scene
-add_executable(sk-physics-scene physics_scene.c)
-target_link_libraries(sk-physics-scene PRIVATE sk-foundation)
-# Plugin public headers (the plugins themselves are loaded at runtime).
-target_include_directories(sk-physics-scene PRIVATE
-    ${CMAKE_SOURCE_DIR}/plugins/entities
-    ${CMAKE_SOURCE_DIR}/plugins/jolt)
-set_target_properties(sk-physics-scene PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
-)
-add_test(NAME sk-physics-scene COMMAND sk-physics-scene
-    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-set_tests_properties(sk-physics-scene PROPERTIES LABELS "physics")
-# Ensure the plugins the scene loads at runtime are built.
-add_dependencies(sk-physics-scene sk-jolt sk-entities)
+# Compression header compile-check (APX-169) and symbol-mapping conformance
+# (APX-171) live in skore-test-suite.
 
 add_executable(sk-tests main.c)
 
@@ -171,34 +114,11 @@ elseif(APPLE)
 endif()
 add_dependencies(sk-tests sk-crash-trigger)
 
-# Vendored msdf-atlas-gen smoke check (APX-224): generates an MTSDF atlas from
-# the sample font (plugins/ui/testdata/skore_test_font.ttf) with the vendored
-# msdf-atlas-gen + msdfgen libraries and asserts the atlas bitmap and glyph
-# layout artifacts are produced. Raw bitmap + text layout are written to
-# {build}/bin next to the binary.
-add_executable(sk-msdf-atlas-smoke msdf_atlas_smoke.cpp)
-target_link_libraries(sk-msdf-atlas-smoke PRIVATE
-    msdf-atlas-gen
-    freetype
-)
-target_compile_definitions(sk-msdf-atlas-smoke PRIVATE
-    SK_MSDF_SMOKE_FONT_PATH="${CMAKE_SOURCE_DIR}/plugins/ui/testdata/skore_test_font.ttf"
-    SK_MSDF_SMOKE_ARTIFACT_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-)
-set_target_properties(sk-msdf-atlas-smoke PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
-)
-add_test(NAME sk-msdf-atlas-smoke COMMAND sk-msdf-atlas-smoke WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-sk_ctest_mark_unit(sk-msdf-atlas-smoke)
-
-# Vendored smoke is registered in thirdparty/; label it with the unit suite.
+# Vendored C-API smoke is registered in thirdparty/; label it with the unit suite.
 if(TEST msdf-atlas-c-smoke)
     sk_ctest_mark_unit(msdf-atlas-c-smoke)
 endif()
 
-# Integration tests: device/resource lifecycle against the real Vulkan backend.
-# Gated at CTest time (SK_RUN_INTEGRATION=1); the binaries always run when
-# invoked directly.
-add_subdirectory(integration)
+# Integration cases live in skore-test-suite. Reusable harness sources remain
+# in integration/ (ui_capture_harness, text-screenshot, fixture loaders,
+# integration main.c) for the test suite and later task runners.
