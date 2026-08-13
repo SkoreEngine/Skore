@@ -341,6 +341,14 @@ typedef struct sk_jolt_character_t sk_jolt_character_t;
 /** Forward declaration of the ECS world (owned by the entities plugin). */
 typedef struct sk_world_t sk_world_t;
 
+/**
+ * Forward declaration of the ECS entity handle (owned by the entities plugin;
+ * POD {u32 index; u32 generation;}, passed by value — see entities.h). The
+ * complete definition is not required here: jolt.h only declares the function
+ * pointer below that takes it by value, and callers already include entities.h.
+ */
+typedef struct sk_entity_t sk_entity_t;
+
 /* ------------------------------------------------------------------ */
 /*  Scene queries (ray / shape casts)                                 */
 /* ------------------------------------------------------------------ */
@@ -433,6 +441,23 @@ typedef void (*sk_jolt_step_callback_fn)(void_ptr_t user_data, f64 physics_time,
  *
  * ECS sync (APX-307): sync_world() / write_back() / step_world() reconcile
  * rigid-body entities with Jolt. The entity↔BodyID map is plugin-private.
+ *
+ * Component changes vs. direct body operations (APX-308): ECS components are
+ * plain data and nothing inside them can notify the sync when gameplay
+ * mutates a field, so cold/authored component mutations (sk_rigid_body_config_t
+ * fields — motion type, mass, friction, restitution, damping, gravity factor,
+ * object layer, flags — and the collider shape fields) reach the Jolt body
+ * ONLY after entity_require_update() marks the entity dirty; the next
+ * sync_world() / step_world() consumes that dirty set and rebuilds or
+ * reconfigures the body from the new component values. Without the call the
+ * mutation is silently ignored. Component add/remove and entity spawn/despawn
+ * are detected automatically (no require-update), and the hot per-frame
+ * channels — the transform pose and the rigid-body-state velocities — are
+ * applied every step. The direct body_* runtime operations (velocity get/set,
+ * forces / impulses / torques, teleport, activate / deactivate, motion type)
+ * act on the live Jolt body immediately: they never read or write ECS
+ * components, so they never need entity_require_update(). See
+ * entity_require_update() and the body_* entries below for the exact split.
  */
 typedef struct sk_jolt_api_t {
 	/**
@@ -632,6 +657,166 @@ typedef struct sk_jolt_api_t {
 	i32 (*body_set_angular_velocity)(sk_jolt_body_t* body, const sk_jolt_vec3_t* velocity);
 
 	/**
+	 * Read the body's motion type (see sk_jolt_motion_type_t). Direct runtime
+	 * query — never needs entity_require_update() (the ECS sync only reapplies
+	 * the config's motion type after entity_require_update(), so a body whose
+	 * motion type was changed here keeps it until then).
+	 * @param body              Body handle; must be valid (created, not destroyed).
+	 * @param out_motion_type   Output motion type; must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or @p out_motion_type is NULL (in that
+	 *         case the output is zeroed when non-NULL).
+	 */
+	i32 (*body_get_motion_type)(const sk_jolt_body_t* body, sk_jolt_motion_type_t* out_motion_type);
+
+	/**
+	 * Change the body's motion type at runtime (static ↔ kinematic ↔ dynamic).
+	 * This is the direct runtime alternative to mutating the rigid-body config
+	 * component's motion_type field + entity_require_update(): it acts on the
+	 * live body immediately and is not gated by the dirty set. Switching to
+	 * STATIC zeroes velocity and cancels forces; switching to DYNAMIC /
+	 * KINEMATIC wakes the body up. Bodies are created with
+	 * mAllowDynamicOrKinematic so every transition is supported (the ECS sync
+	 * path already does the same), and switching to STATIC stops and freezes
+	 * the body (velocity zeroed, forces cancelled).
+	 * @param body        Body handle; must be valid (created, not destroyed).
+	 * @param motion_type One of the three documented sk_jolt_motion_type_t values.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or @p motion_type is not one of the
+	 *         three documented values.
+	 */
+	i32 (*body_set_motion_type)(sk_jolt_body_t* body, sk_jolt_motion_type_t motion_type);
+
+	/**
+	 * Apply a force to the body at its center of mass (world units: newtons).
+	 * Forces accumulate until the next physics step, then integrate into the
+	 * velocity; they are consumed each step. Wakes the body up; ignored for
+	 * static bodies. Direct runtime operation — never needs
+	 * entity_require_update().
+	 * @param body  Body handle; must be valid (created, not destroyed).
+	 * @param force Force vector in newtons; must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or @p force is NULL.
+	 */
+	i32 (*body_add_force)(sk_jolt_body_t* body, const sk_jolt_vec3_t* force);
+
+	/**
+	 * Apply a force at a world-space point (producing force + torque). Same
+	 * contract as body_add_force.
+	 * @param body     Body handle; must be valid (created, not destroyed).
+	 * @param force    Force vector in newtons; must not be NULL.
+	 * @param position World-space point where the force is applied (meters);
+	 *                 must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or any argument is NULL.
+	 */
+	i32 (*body_add_force_at_position)(sk_jolt_body_t* body, const sk_jolt_vec3_t* force, const sk_jolt_vec3_t* position);
+
+	/**
+	 * Apply an impulse to the body at its center of mass (world units: N·s).
+	 * An impulse is an instantaneous velocity change — unlike a force it is
+	 * fully applied at the moment of the call (Δv = impulse / mass) instead of
+	 * accumulating over the next step. Wakes the body up; ignored for static
+	 * bodies. Direct runtime operation — never needs entity_require_update().
+	 * @param body    Body handle; must be valid (created, not destroyed).
+	 * @param impulse Impulse vector in N·s; must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or @p impulse is NULL.
+	 */
+	i32 (*body_add_impulse)(sk_jolt_body_t* body, const sk_jolt_vec3_t* impulse);
+
+	/**
+	 * Apply an impulse at a world-space point (producing impulse + angular
+	 * impulse). Same contract as body_add_impulse.
+	 * @param body     Body handle; must be valid (created, not destroyed).
+	 * @param impulse  Impulse vector in N·s; must not be NULL.
+	 * @param position World-space point where the impulse is applied (meters);
+	 *                 must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or any argument is NULL.
+	 */
+	i32 (*body_add_impulse_at_position)(sk_jolt_body_t* body, const sk_jolt_vec3_t* impulse, const sk_jolt_vec3_t* position);
+
+	/**
+	 * Apply a torque to the body (world units: N·m). Like forces, torques
+	 * accumulate until the next physics step, then integrate into the angular
+	 * velocity. Wakes the body up; ignored for static bodies. Direct runtime
+	 * operation — never needs entity_require_update().
+	 * @param body   Body handle; must be valid (created, not destroyed).
+	 * @param torque Torque vector in N·m; must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or @p torque is NULL.
+	 */
+	i32 (*body_add_torque)(sk_jolt_body_t* body, const sk_jolt_vec3_t* torque);
+
+	/**
+	 * Apply an instantaneous angular impulse to the body (world units: N·m·s).
+	 * Fully applied at the moment of the call (Δω = impulse / inertia). Wakes
+	 * the body up; ignored for static bodies. Direct runtime operation — never
+	 * needs entity_require_update().
+	 * @param body             Body handle; must be valid (created, not destroyed).
+	 * @param angular_impulse  Angular impulse vector in N·m·s; must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or @p angular_impulse is NULL.
+	 */
+	i32 (*body_add_angular_impulse)(sk_jolt_body_t* body, const sk_jolt_vec3_t* angular_impulse);
+
+	/**
+	 * Teleport the body to a new world-space position / rotation in one atomic
+	 * operation (Jolt BodyInterface::SetPositionAndRotation). This is the
+	 * direct runtime replacement for mutating a dynamic body's transform
+	 * component: the placement is immediate and wakes the body up, so it keeps
+	 * simulating from the new pose on the next step. Static / kinematic bodies
+	 * are re-placed the same way. Direct runtime operation — never needs
+	 * entity_require_update().
+	 * @param body     Body handle; must be valid (created, not destroyed).
+	 * @param position New world-space position (meters); must not be NULL.
+	 * @param rotation New world-space rotation (unit quaternion); must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or any argument is NULL.
+	 */
+	i32 (*body_teleport)(sk_jolt_body_t* body, const sk_jolt_vec3_t* position, const sk_jolt_quat_t* rotation);
+
+	/**
+	 * Wake a body up so it resumes simulation on the next physics step (Jolt
+	 * BodyInterface::ActivateBody). Sleeping bodies (see
+	 * body_deactivate / SK_RIGID_BODY_FLAG_ALLOW_SLEEPING) are not integrated
+	 * until activated. Activating an already-active body is a no-op; ignored
+	 * for static bodies (they never simulate). Direct runtime operation — never
+	 * needs entity_require_update().
+	 * @param body Body handle; must be valid (created, not destroyed).
+	 * @return 0 on success; non-zero when the world is not initialized or the
+	 *         handle is NULL / destroyed.
+	 */
+	i32 (*body_activate)(sk_jolt_body_t* body);
+
+	/**
+	 * Put a body to sleep so it stops simulating (Jolt
+	 * BodyInterface::DeactivateBody): its velocity is zeroed and it is removed
+	 * from the active set until body_activate() (or a wake-inducing call like
+	 * a velocity setter, force, impulse, or teleport). Useful to freeze a body
+	 * at a fixed pose. Direct runtime operation — never needs
+	 * entity_require_update().
+	 * @param body Body handle; must be valid (created, not destroyed).
+	 * @return 0 on success; non-zero when the world is not initialized or the
+	 *         handle is NULL / destroyed.
+	 */
+	i32 (*body_deactivate)(sk_jolt_body_t* body);
+
+	/**
+	 * Query whether a body is currently actively simulating (Jolt
+	 * BodyInterface::IsActive): 1 while awake, 0 while asleep (deactivated or
+	 * resting). Static bodies always report 0. Direct runtime query — never
+	 * needs entity_require_update().
+	 * @param body       Body handle; must be valid (created, not destroyed).
+	 * @param out_active Output: 1 = active, 0 = inactive; must not be NULL.
+	 * @return 0 on success; non-zero when the world is not initialized, the
+	 *         handle is NULL / destroyed, or @p out_active is NULL (in that
+	 *         case the output is zeroed when non-NULL).
+	 */
+	i32 (*body_is_active)(const sk_jolt_body_t* body, i32* out_active);
+
+	/**
 	 * Create a character controller (capsule-shaped virtual character).
 	 * @param shape        Shape description for the character capsule.
 	 * @param object_layer Object layer the character is placed on (SK_JOLT_OBJECT_LAYER_*).
@@ -735,6 +920,45 @@ typedef struct sk_jolt_api_t {
 	 * @param delta_time Host frame delta in seconds.
 	 */
 	void (*step_world)(sk_world_t* world, f32 delta_time);
+
+	/**
+	 * Mark an entity's physics state dirty after mutating its cold / authored
+	 * component data, and have the sync consume that dirty set on the next
+	 * step.
+	 *
+	 * ECS components are plain data (POD structs) with no setter hooks, so
+	 * nothing inside them can trigger a physics update automatically. Gameplay
+	 * code that mutates the rigid-body config component (motion type, mass,
+	 * friction, restitution, linear/angular damping, gravity factor, object
+	 * layer, flags) or a collider shape component (box half extent, sphere
+	 * radius, capsule half height / radius) of an entity that already has a
+	 * live Jolt body MUST call this afterwards: the next sync_world() /
+	 * step_world() then rebuilds or reconfigures the body from the new values.
+	 * Without the call those mutations are silently ignored — the body keeps
+	 * its previous configuration (verified: a mutated field without
+	 * entity_require_update leaves the body unchanged).
+	 *
+	 * NOT required (the sync handles these automatically):
+	 *   - spawning / despawning the entity or adding / removing components
+	 *     (structural changes are detected by the sync itself),
+	 *   - mutating the transform component of a static / kinematic body, which
+	 *     is followed every step (the hot per-frame pose channel),
+	 *   - mutating the rigid-body state component (linear / angular velocity),
+	 *     the hot per-frame velocity channel,
+	 *   - any body_* direct runtime operation (velocity get/set, forces /
+	 *     impulses / torques, body_teleport, body_activate / body_deactivate,
+	 *     body_set_motion_type) — these act on the live Jolt body immediately
+	 *     and never go through component mutation.
+	 *
+	 * Marking the same entity repeatedly before a sync is harmless (dirty is a
+	 * set); the set is consumed and cleared by the next sync. The entity must
+	 * be alive and carry a live Jolt body; otherwise the call is a no-op.
+	 * Main-thread only.
+	 * @param world  ECS world the entity belongs to (must not be NULL for work
+	 *               to run; the world last synced).
+	 * @param entity Entity whose rigid-body / collider components changed.
+	 */
+	void (*entity_require_update)(sk_world_t* world, sk_entity_t entity);
 } sk_jolt_api_t;
 
 #ifdef __cplusplus

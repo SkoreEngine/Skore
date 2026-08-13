@@ -80,8 +80,15 @@ void jolt_internal_clear_bindings(void); // NOLINT(modernize-redundant-void-arg)
 u32 jolt_internal_writeback_count(void); // NOLINT(modernize-redundant-void-arg) — C ABI
 i32 jolt_internal_writeback_at(u32 i, sk_jolt_sync_pose_t* out);
 
+/* APX-308: mark the entity (slot index + generation, validated against the
+ * entity map on the C++ side) as requiring a component-data re-application on
+ * the next sync. The dirty set is consumed (cleared) at the end of the next
+ * sync walk. See jolt.h entity_require_update for when to call it. */
+void jolt_internal_mark_dirty(u32 index, u32 generation);
+
 void jolt_ecs_sync_world(sk_world_t* world);
 void jolt_ecs_write_back(sk_world_t* world);
+void jolt_ecs_require_update(sk_world_t* world, sk_entity_t entity);
 void jolt_ecs_reset(void); // NOLINT(modernize-redundant-void-arg) — C ABI
 void sk_jolt_sync_app(sk_app_context_t** out_context, const sk_app_api_t** out_app_api);
 

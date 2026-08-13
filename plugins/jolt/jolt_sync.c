@@ -195,3 +195,20 @@ void jolt_ecs_write_back(sk_world_t* world) {
 		}
 	}
 }
+
+/* APX-308: mark an entity's physics state dirty after gameplay mutated its
+ * cold / authored component data. The entity must be alive (the caller passed
+ * a valid handle); the C++ side cross-checks it against the entity map and
+ * the sync consumes the dirty set at the end of the next walk (jolt.h
+ * entity_require_update documents the exact contract). Implemented here in C
+ * (after jolt_sync_ecs) so the Jolt C++ TU never has to include entities.h. */
+void jolt_ecs_require_update(sk_world_t* world, sk_entity_t entity) {
+	const sk_entities_api_t* ecs = jolt_sync_ecs();
+	if (world == NULL || ecs == NULL) {
+		return;
+	}
+	if (ecs->world_alive(world, entity) == 0) {
+		return;
+	}
+	jolt_internal_mark_dirty(entity.index, entity.generation);
+}

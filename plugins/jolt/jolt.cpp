@@ -26,7 +26,11 @@
  * static/kinematic/dynamic motion type, body_destroy() removes and destroys
  * it, and the transform / velocity accessors round-trip position, rotation,
  * linear velocity and angular velocity through POD structs (sk_jolt_vec3_t /
- * sk_jolt_quat_t, layout-identical to the core math3d types). Every body
+ * sk_jolt_quat_t, layout-identical to the core math3d types). The direct
+ * runtime body operations (APX-308) go straight to the BodyInterface with no
+ * ECS involvement: body_add_force/impulse/torque/angular_impulse (and the
+ * at-position variants), body_teleport, body_activate/deactivate,
+ * body_is_active and body_get/set_motion_type. Every body
  * handle is validated against the live-handle registry, so use-after-destroy
  * (and use after world shutdown) returns an error code instead of crashing;
  * handle records are module-owned and released at shutdown. Scene queries
@@ -36,7 +40,13 @@
  * are cast from an object layer and honor the same collision matrix as the
  * contact filters via dedicated broad-phase / object-layer query filters
  * driven from kLayerCollisionMasks, and hit BodyIDs are mapped back to the
- * public body handles through the handle registry. Character controllers
+ * public body handles through the handle registry. The ECS sync (APX-307 /
+ * APX-308) reconciles rigid-body entities with Jolt bodies and applies cold /
+ * authored component data (config + collider shape) only for entities
+ * gameplay marked dirty with entity_require_update (the sync consumes that
+ * dirty set every step); body create/destroy from component presence and the
+ * hot per-frame channels (transform pose, state velocities) stay automatic.
+ * Character controllers
  * remain empty stubs until a later stage.
  *
  * Unit tests live in jolt_tests.c (C, like every other plugin's tests); this
@@ -388,8 +398,18 @@ struct EntityBinding {
 /** Keyed by entity slot index; generation is stored on the binding. */
 std::unordered_map<u32, EntityBinding> g_entity_bindings;
 
+/**
+ * Entities whose cold / authored component data changed since the last sync
+ * (marked via entity_require_update, APX-308). The sync applies config +
+ * collider changes only for members of this set; the hot per-frame channels
+ * (transform pose, state velocities) are applied for every entity. The set is
+ * consumed (cleared) at the end of each sync walk.
+ */
+std::unordered_set<u32> g_dirty_entities;
+
 void jolt_entity_bindings_reset() noexcept {
 	g_entity_bindings.clear();
+	g_dirty_entities.clear();
 	jolt_ecs_reset();
 }
 
@@ -635,9 +655,13 @@ sk_jolt_body_t* jolt_body_create_impl(const sk_jolt_shape_desc_t* shape, sk_jolt
 	 * hosts place them with the body_set_* accessors before stepping. The
 	 * material/motion properties use the Jolt BodyCreationSettings defaults
 	 * (friction 0.2, restitution 0.0, damping 0.05 each, gravity factor 1.0,
-	 * sleeping allowed). */
-	const JPH::BodyCreationSettings creation(shape_result.Get(), JPH::RVec3::sZero(), JPH::Quat::sIdentity(), static_cast<JPH::EMotionType>(motion_type),
-											 static_cast<JPH::ObjectLayer>(object_layer));
+	 * sleeping allowed). mAllowDynamicOrKinematic stays true so body_set_motion_type
+	 * can switch any body to any motion type at runtime (the ECS sync path
+	 * uses the same setting); it also allocates MotionProperties for static
+	 * bodies, which Jolt ignores while they are static. */
+	JPH::BodyCreationSettings creation(shape_result.Get(), JPH::RVec3::sZero(), JPH::Quat::sIdentity(), static_cast<JPH::EMotionType>(motion_type),
+									   static_cast<JPH::ObjectLayer>(object_layer));
+	creation.mAllowDynamicOrKinematic = true;
 	const JPH::BodyID id = g_jolt_world->physics_system.GetBodyInterface().CreateAndAddBody(creation, JPH::EActivation::Activate);
 	if (id.IsInvalid()) {
 		if (g_jolt_log != nullptr) {
@@ -777,6 +801,139 @@ i32 jolt_body_set_angular_velocity_impl(sk_jolt_body_t* body, const sk_jolt_vec3
 		return -1;
 	}
 	g_jolt_world->physics_system.GetBodyInterface().SetAngularVelocity(record->body_id, JPH::Vec3(velocity->x, velocity->y, velocity->z));
+	return 0;
+}
+
+/* ---- direct runtime body operations (APX-308) ----
+ *
+ * These act on the live Jolt body immediately and never go through (or wait
+ * for) the ECS sync or entity_require_update — see jolt.h for the exact split
+ * between component-driven changes and the direct setters. Every entry
+ * validates the handle first (same contract as the accessors above). */
+
+i32 jolt_body_get_motion_type_impl(const sk_jolt_body_t* body, sk_jolt_motion_type_t* out_motion_type) noexcept {
+	if (out_motion_type != nullptr) {
+		*out_motion_type = SK_JOLT_MOTION_TYPE_STATIC;
+	}
+	JoltBodyHandle* record = jolt_body_handle(const_cast<sk_jolt_body_t*>(body));
+	if (record == nullptr || out_motion_type == nullptr) {
+		return -1;
+	}
+	const JPH::EMotionType motion = g_jolt_world->physics_system.GetBodyInterface().GetMotionType(record->body_id);
+	*out_motion_type = static_cast<sk_jolt_motion_type_t>(motion);
+	return 0;
+}
+
+i32 jolt_body_set_motion_type_impl(sk_jolt_body_t* body, sk_jolt_motion_type_t motion_type) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr) {
+		return -1;
+	}
+	if (motion_type != SK_JOLT_MOTION_TYPE_STATIC && motion_type != SK_JOLT_MOTION_TYPE_KINEMATIC && motion_type != SK_JOLT_MOTION_TYPE_DYNAMIC) {
+		return -1;
+	}
+	/* BodyInterface::SetMotionType deactivates a body that becomes static and
+	 * activates one that becomes dynamic/kinematic; bodies are created with
+	 * mAllowDynamicOrKinematic, so every transition is supported. */
+	g_jolt_world->physics_system.GetBodyInterface().SetMotionType(record->body_id, static_cast<JPH::EMotionType>(motion_type), JPH::EActivation::Activate);
+	return 0;
+}
+
+i32 jolt_body_add_force_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* force) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || force == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().AddForce(record->body_id, JPH::Vec3(force->x, force->y, force->z));
+	return 0;
+}
+
+i32 jolt_body_add_force_at_position_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* force, const sk_jolt_vec3_t* position) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || force == nullptr || position == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().AddForce(record->body_id, JPH::Vec3(force->x, force->y, force->z), JPH::RVec3(position->x, position->y, position->z));
+	return 0;
+}
+
+i32 jolt_body_add_impulse_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* impulse) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || impulse == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().AddImpulse(record->body_id, JPH::Vec3(impulse->x, impulse->y, impulse->z));
+	return 0;
+}
+
+i32 jolt_body_add_impulse_at_position_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* impulse, const sk_jolt_vec3_t* position) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || impulse == nullptr || position == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().AddImpulse(record->body_id, JPH::Vec3(impulse->x, impulse->y, impulse->z), JPH::RVec3(position->x, position->y, position->z));
+	return 0;
+}
+
+i32 jolt_body_add_torque_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* torque) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || torque == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().AddTorque(record->body_id, JPH::Vec3(torque->x, torque->y, torque->z));
+	return 0;
+}
+
+i32 jolt_body_add_angular_impulse_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* angular_impulse) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || angular_impulse == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().AddAngularImpulse(record->body_id, JPH::Vec3(angular_impulse->x, angular_impulse->y, angular_impulse->z));
+	return 0;
+}
+
+i32 jolt_body_teleport_impl(sk_jolt_body_t* body, const sk_jolt_vec3_t* position, const sk_jolt_quat_t* rotation) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr || position == nullptr || rotation == nullptr) {
+		return -1;
+	}
+	/* SetPositionAndRotation is the atomic teleport; it wakes the body so it
+	 * keeps simulating from the new pose. Normalize the quaternion like the
+	 * ECS path does (zero -> identity). */
+	const f32 len2 = rotation->x * rotation->x + rotation->y * rotation->y + rotation->z * rotation->z + rotation->w * rotation->w;
+	const JPH::Quat quat = (len2 > 1.0e-12f) ? JPH::Quat(rotation->x, rotation->y, rotation->z, rotation->w).Normalized() : JPH::Quat::sIdentity();
+	g_jolt_world->physics_system.GetBodyInterface().SetPositionAndRotation(record->body_id, JPH::RVec3(position->x, position->y, position->z), quat, JPH::EActivation::Activate);
+	return 0;
+}
+
+i32 jolt_body_activate_impl(sk_jolt_body_t* body) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().ActivateBody(record->body_id);
+	return 0;
+}
+
+i32 jolt_body_deactivate_impl(sk_jolt_body_t* body) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr) {
+		return -1;
+	}
+	g_jolt_world->physics_system.GetBodyInterface().DeactivateBody(record->body_id);
+	return 0;
+}
+
+i32 jolt_body_is_active_impl(const sk_jolt_body_t* body, i32* out_active) noexcept {
+	if (out_active != nullptr) {
+		*out_active = 0;
+	}
+	JoltBodyHandle* record = jolt_body_handle(const_cast<sk_jolt_body_t*>(body));
+	if (record == nullptr || out_active == nullptr) {
+		return -1;
+	}
+	*out_active = g_jolt_world->physics_system.GetBodyInterface().IsActive(record->body_id) ? 1 : 0;
 	return 0;
 }
 
@@ -1252,23 +1409,32 @@ void jolt_internal_bind(const sk_jolt_sync_spec_t* spec, sk_jolt_body_t** out_bo
 
 	bind->seen = true;
 	bind->generation = spec->generation;
-	if (jolt_spec_needs_rebuild(bind, spec)) {
-		jolt_destroy_bind_body(bind);
-		bind->body = jolt_create_spec_body(spec);
-		if (bind->body == nullptr) {
-			g_entity_bindings.erase(spec->index);
+	/* Cold / authored component data (config + collider shape) is applied only
+	 * for entities gameplay marked dirty with entity_require_update(): ECS
+	 * components are plain data with no setter hooks, so the sync must not
+	 * pull mutations it was never told about (APX-308 — jolt.h documents the
+	 * exact split). The hot per-frame channels below (transform pose, state
+	 * velocities) are applied for every entity, and body create/destroy from
+	 * component presence is structural, also automatic. */
+	if (g_dirty_entities.find(spec->index) != g_dirty_entities.end()) {
+		if (jolt_spec_needs_rebuild(bind, spec)) {
+			jolt_destroy_bind_body(bind);
+			bind->body = jolt_create_spec_body(spec);
+			if (bind->body == nullptr) {
+				g_entity_bindings.erase(spec->index);
+				return;
+			}
+			jolt_binding_store_spec(bind, spec);
+			jolt_store_last_from_spec(bind, spec);
+			if (out_body != nullptr) {
+				*out_body = bind->body;
+			}
 			return;
 		}
-		jolt_binding_store_spec(bind, spec);
-		jolt_store_last_from_spec(bind, spec);
-		if (out_body != nullptr) {
-			*out_body = bind->body;
+		if (jolt_spec_config_dirty(bind, spec)) {
+			jolt_apply_live_spec(bind->body, spec);
+			jolt_binding_store_spec(bind, spec);
 		}
-		return;
-	}
-	if (jolt_spec_config_dirty(bind, spec)) {
-		jolt_apply_live_spec(bind->body, spec);
-		jolt_binding_store_spec(bind, spec);
 	}
 	jolt_push_spec_pose(bind, spec);
 	if (out_body != nullptr) {
@@ -1288,6 +1454,10 @@ void jolt_internal_sync_end(void) {
 		jolt_destroy_bind_body(&it->second);
 		it = g_entity_bindings.erase(it);
 	}
+	/* Consume the dirty set: every mark was either applied during this walk or
+	 * belongs to an entity that no longer has a body; either way the next
+	 * sync starts clean. */
+	g_dirty_entities.clear();
 }
 
 void jolt_internal_clear_bindings(void) {
@@ -1295,6 +1465,19 @@ void jolt_internal_clear_bindings(void) {
 		jolt_destroy_bind_body(&entry.second);
 	}
 	g_entity_bindings.clear();
+	g_dirty_entities.clear();
+}
+
+void jolt_internal_mark_dirty(u32 index, u32 generation) {
+	/* Only entities the sync actually manages can be marked: the binding must
+	 * exist and carry the same generation (a stale handle must not dirty a
+	 * recycled slot). Entities without a live body yet are covered by the
+	 * create path, which always applies the current component values. */
+	const auto found = g_entity_bindings.find(index);
+	if (found == g_entity_bindings.end() || found->second.generation != generation) {
+		return;
+	}
+	g_dirty_entities.insert(index);
 }
 
 u32 jolt_internal_writeback_count(void) {
@@ -1411,6 +1594,18 @@ const sk_jolt_api_t jolt_api = {
 	jolt_body_set_linear_velocity_impl,
 	jolt_body_get_angular_velocity_impl,
 	jolt_body_set_angular_velocity_impl,
+	jolt_body_get_motion_type_impl,
+	jolt_body_set_motion_type_impl,
+	jolt_body_add_force_impl,
+	jolt_body_add_force_at_position_impl,
+	jolt_body_add_impulse_impl,
+	jolt_body_add_impulse_at_position_impl,
+	jolt_body_add_torque_impl,
+	jolt_body_add_angular_impulse_impl,
+	jolt_body_teleport_impl,
+	jolt_body_activate_impl,
+	jolt_body_deactivate_impl,
+	jolt_body_is_active_impl,
 	jolt_character_create_impl,
 	jolt_character_destroy_impl,
 	jolt_ray_cast_impl,
@@ -1418,6 +1613,10 @@ const sk_jolt_api_t jolt_api = {
 	jolt_sync_world_impl,
 	jolt_write_back_impl,
 	jolt_step_world_impl,
+	/* Defined in jolt_sync.c (C): the C++ TU deliberately does not include
+	 * entities.h, so the entity_require_update entry is implemented where the
+	 * ECS API is available and referenced here by its C-linkage name. */
+	jolt_ecs_require_update,
 };
 
 } /* namespace */
