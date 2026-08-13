@@ -349,6 +349,20 @@ SK_FINLINE const sk_filesystem_api_t* sk_test_filesystem_table(void) {
 }
 
 /**
+ * Immutable repository table obtained via a temporary `sk_app_create`.
+ * Tests without a live context use this instead of a process-wide accessor.
+ */
+SK_FINLINE const sk_repository_api_t* sk_test_repository_table(void) {
+	static const sk_repository_api_t* cached = NULL;
+	if (cached == NULL) {
+		sk_app_boot_t boot = sk_app_create();
+		cached = boot.api->repository_api(boot.context);
+		sk_app_shutdown(boot.context);
+	}
+	return cached;
+}
+
+/**
  * Immutable platform table obtained via a temporary `sk_app_startup`.
  * Tests without a live context use this instead of a process-wide accessor.
  */

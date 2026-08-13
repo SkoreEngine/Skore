@@ -1,0 +1,40 @@
+{
+  "format": "sk.resource_package",
+  "format_version": 1,
+  "root_uuid": "0000000000006301-0000000000006301",
+  "resources": [
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "EntityResource",
+      "uuid": "0000000000006301-0000000000006301",
+      "fields": {
+        "Name": "BadEntity",
+        "Components": [
+          "0000000000006302-0000000000006302",
+          "0000000000006303-0000000000006303"
+        ]
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "MeshResource",
+      "uuid": "0000000000006302-0000000000006302",
+      "fields": {
+        "Name": "UnregisteredMeshComp"
+      }
+    },
+    {
+      "format": "sk.resource",
+      "format_version": 1,
+      "type": "TransformResource",
+      "uuid": "0000000000006303-0000000000006303",
+      "fields": {
+        "Position": [1.0, 0.0, 0.0],
+        "Rotation": [0.0, 0.0, 0.0, 1.0],
+        "Scale": [1.0, 1.0, 1.0]
+      }
+    }
+  ]
+}

@@ -107,9 +107,30 @@ enum sk_named_resource_field_t {
 	SK_NAMED_RESOURCE_FIELD_BYTES = 1,
 };
 
+/* EntityResource fields (APX-296, resource-to-ECS mapping contract §3.1).
+ * Name stays at index 0 so existing JSON envelopes stay valid; Components and
+ * Children are owned SubObjectLists (component resources and recursive child
+ * entity_resource payloads respectively). */
+enum sk_entity_resource_field_t {
+	SK_ENTITY_RESOURCE_FIELD_NAME = 0,
+	SK_ENTITY_RESOURCE_FIELD_COMPONENTS = 1,
+	SK_ENTITY_RESOURCE_FIELD_CHILDREN = 2,
+};
+
+/* SceneResource fields (APX-297, resource-to-ECS mapping contract §4.1).
+ * Name stays at index 0 so existing JSON envelopes stay valid; Roots is an
+ * owned SubObjectList of root entity_resource payloads (each root carries its
+ * own Components + Children). The scene does not invent an implicit ECS
+ * scene entity. */
+enum sk_scene_resource_field_t {
+	SK_SCENE_RESOURCE_FIELD_NAME = 0,
+	SK_SCENE_RESOURCE_FIELD_ROOTS = 1,
+};
+
 /**
- * Register minimal payload resource types (Name [+ Content/Bytes]) used by the
- * built-in handlers/importers into @p repository.
+ * Register the payload resource types used by the built-in handlers/importers
+ * (Name [+ Content/Bytes]) plus the built-in ECS component payload types
+ * (registered via sk_resource_component_types_register) into @p repository.
  * @param repository Target repository (must not be NULL).
  * @param repo_api   Repository function table (must not be NULL).
  * @return 0 on success, first register_type error otherwise.

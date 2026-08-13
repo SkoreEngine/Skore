@@ -895,7 +895,7 @@ SK_TEST(ui_offscreen_draw_list_golden) {
 	/* Fixture tree + paint */
 	ui_ctx = ui->context_create(NULL);
 	TEST_ASSERT_NOT_NULL(ui_ctx);
-	fonts = ui->font_system_create(NULL, 256u, 256u);
+	fonts = ui->font_system_create(NULL);
 	TEST_ASSERT_NOT_NULL(fonts);
 	font = ui->font_load_memory(fonts, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
 	TEST_ASSERT_NOT_NULL(font);

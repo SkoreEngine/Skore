@@ -49,7 +49,8 @@ static const char ui_vs_hlsl[] = "struct VSInput {\n"
 								 "struct UIPush {\n"
 								 "    float4 st; /* xy=scale, zw=translate */\n"
 								 "    uint mode;\n"
-								 "    uint3 _pad;\n"
+								 "    float pxRange;\n"
+								 "    uint2 _pad;\n"
 								 "};\n"
 								 "[[vk::push_constant]] UIPush g_push;\n"
 								 "float4 ui_unpack_color(uint c) {\n"
@@ -76,15 +77,37 @@ static const char ui_ps_hlsl[] = "struct PSInput {\n"
 								 "struct UIPush {\n"
 								 "    float4 st;\n"
 								 "    uint mode;\n"
-								 "    uint3 _pad;\n"
+								 "    float pxRange;\n"
+								 "    uint2 _pad;\n"
 								 "};\n"
 								 "[[vk::binding(0, 0)]] Texture2D g_texture : register(t0);\n"
 								 "[[vk::binding(1, 0)]] SamplerState g_sampler : register(s0);\n"
 								 "[[vk::push_constant]] UIPush g_push;\n"
+								 "float ui_msdf_median(float r, float g, float b) {\n"
+								 "    return max(min(r, g), min(max(r, g), b));\n"
+								 "}\n"
+								 "float ui_msdf_screen_px_range(float2 uv) {\n"
+								 "    uint tw = 0u;\n"
+								 "    uint th = 0u;\n"
+								 "    g_texture.GetDimensions(tw, th);\n"
+								 "    float2 texSize = float2((float)tw, (float)th);\n"
+								 "    float2 unitRange = (texSize.x > 0.0f && texSize.y > 0.0f)\n"
+								 "        ? (g_push.pxRange / texSize) : float2(0.0f, 0.0f);\n"
+								 "    float2 fw = fwidth(uv);\n"
+								 "    float2 screenTexSize = float2(\n"
+								 "        fw.x > 1.0e-8f ? 1.0f / fw.x : 0.0f,\n"
+								 "        fw.y > 1.0e-8f ? 1.0f / fw.y : 0.0f);\n"
+								 "    /* Clamp to 1 px so very small text does not vanish or shimmer. */\n"
+								 "    return max(0.5f * dot(unitRange, screenTexSize), 1.0f);\n"
+								 "}\n"
 								 "float4 main(PSInput input) : SV_Target {\n"
 								 "    float4 tex = g_texture.Sample(g_sampler, input.uv);\n"
 								 "    if (g_push.mode == 1u) {\n"
-								 "        return float4(input.color.rgb, input.color.a * tex.r);\n"
+								 "        float med = ui_msdf_median(tex.r, tex.g, tex.b);\n"
+								 "        float spr = ui_msdf_screen_px_range(input.uv);\n"
+								 "        float sd = spr * (med - 0.5f);\n"
+								 "        float coverage = saturate(smoothstep(-0.5f, 0.5f, sd));\n"
+								 "        return float4(input.color.rgb, input.color.a * coverage);\n"
 								 "    }\n"
 								 "    return tex * input.color;\n"
 								 "}\n";
@@ -95,8 +118,8 @@ typedef struct ui_push_t {
 	f32 scale_y;
 	f32 translate_x;
 	f32 translate_y;
-	u32 mode; /* 0 = solid/image, 1 = font */
-	u32 pad0;
+	u32 mode; /* 0 = solid/image, 1 = MSDF */
+	f32 px_range;
 	u32 pad1;
 	u32 pad2;
 } ui_push_t;
@@ -105,27 +128,31 @@ enum {
 	UI_PUSH_SIZE = 32,
 	UI_SPIRV_CAP = 16384u,
 	UI_MODE_COLOR = 0u,
-	UI_MODE_FONT = 1u,
+	UI_MODE_MSDF = 1u,
 	UI_VB_MIN_BYTES = 64u * 1024u,
 	UI_IB_MIN_BYTES = 32u * 1024u,
-	UI_ATLAS_PAGE_CAP = 16u,
+	UI_MSDF_ATLAS_CAP = 8u,
 };
 
 /* Compile-time layout check: push block size. */
 typedef char ui_push_size_check[(sizeof(ui_push_t) == UI_PUSH_SIZE) ? 1 : -1];
 
 /* -------------------------------------------------------------------------- */
-/* GPU atlas page slot                                                        */
+/* GPU atlas slot                                                             */
 /* -------------------------------------------------------------------------- */
 
-typedef struct ui_gpu_atlas_page_t {
+typedef struct ui_gpu_msdf_atlas_t {
 	sk_texture_t texture;
 	sk_texture_view_t view;
+	sk_descriptor_set_t desc_set;
+	u32 font_id;
 	u32 width;
 	u32 height;
-	u32 cpu_generation; /**< Last CPU page generation uploaded. */
-	u32 valid;			/**< Non-zero when texture/view are live. */
-} ui_gpu_atlas_page_t;
+	u32 generation;
+	u32 valid;
+	u32 desc_valid;
+	f32 px_range;
+} ui_gpu_msdf_atlas_t;
 
 /* -------------------------------------------------------------------------- */
 /* Renderer                                                                   */
@@ -140,9 +167,7 @@ struct sk_ui_renderer_t {
 	sk_shader_t vs;
 	sk_shader_t ps;
 	sk_pipeline_t pipeline;
-	sk_descriptor_set_t desc_set_white;					  /**< Solid / image fallback. */
-	sk_descriptor_set_t desc_set_font[UI_ATLAS_PAGE_CAP]; /**< One set per atlas page. */
-	u32 desc_set_font_valid[UI_ATLAS_PAGE_CAP];			  /**< Non-zero when set is live. */
+	sk_descriptor_set_t desc_set_white; /**< Solid / image fallback. */
 	sk_sampler_t sampler;
 
 	sk_texture_t white_tex;
@@ -157,8 +182,8 @@ struct sk_ui_renderer_t {
 	sk_buffer_t staging; /* host-visible staging for atlas / white / geometry uploads */
 	u64 staging_capacity;
 
-	ui_gpu_atlas_page_t atlas_pages[UI_ATLAS_PAGE_CAP];
-	u32 atlas_page_count;
+	ui_gpu_msdf_atlas_t msdf_atlases[UI_MSDF_ATLAS_CAP];
+	u32 msdf_atlas_count;
 
 	/* Cached pipeline layout pieces (rebuilt with pipeline). */
 	sk_descriptor_set_layout_binding_t set_bindings[2];
@@ -208,35 +233,31 @@ static void ui_render_destroy_atlas(sk_ui_renderer_t* r) {
 	const sk_render_device_api_t* api = r->api;
 	sk_render_device_t dev = r->device;
 	u32 i;
-	for (i = 0u; i < UI_ATLAS_PAGE_CAP; ++i) {
-		ui_gpu_atlas_page_t* page = &r->atlas_pages[i];
-		if (page->valid != 0u) {
-			if (sk_texture_view_t_is_valid(page->view)) {
-				api->destroy_texture_view(dev, page->view);
+
+	for (i = 0u; i < UI_MSDF_ATLAS_CAP; ++i) {
+		ui_gpu_msdf_atlas_t* msdf = &r->msdf_atlases[i];
+		if (msdf->desc_valid != 0u && sk_descriptor_set_t_is_valid(msdf->desc_set)) {
+			api->destroy_descriptor_set(dev, msdf->desc_set);
+		}
+		if (msdf->valid != 0u) {
+			if (sk_texture_view_t_is_valid(msdf->view)) {
+				api->destroy_texture_view(dev, msdf->view);
 			}
-			if (sk_texture_t_is_valid(page->texture)) {
-				api->destroy_texture(dev, page->texture);
+			if (sk_texture_t_is_valid(msdf->texture)) {
+				api->destroy_texture(dev, msdf->texture);
 			}
 		}
-		memset(page, 0, sizeof(*page));
+		memset(msdf, 0, sizeof(*msdf));
 	}
-	r->atlas_page_count = 0u;
+	r->msdf_atlas_count = 0u;
 }
 
 static void ui_render_destroy_desc_sets(sk_ui_renderer_t* r) {
 	const sk_render_device_api_t* api = r->api;
 	sk_render_device_t dev = r->device;
-	u32 i;
 	if (sk_descriptor_set_t_is_valid(r->desc_set_white)) {
 		api->destroy_descriptor_set(dev, r->desc_set_white);
 		r->desc_set_white = sk_descriptor_set_t_zero();
-	}
-	for (i = 0u; i < UI_ATLAS_PAGE_CAP; ++i) {
-		if (r->desc_set_font_valid[i] != 0u && sk_descriptor_set_t_is_valid(r->desc_set_font[i])) {
-			api->destroy_descriptor_set(dev, r->desc_set_font[i]);
-		}
-		r->desc_set_font[i] = sk_descriptor_set_t_zero();
-		r->desc_set_font_valid[i] = 0u;
 	}
 }
 
@@ -411,10 +432,6 @@ static i32 ui_render_upload_texture_bytes(sk_ui_renderer_t* r, sk_command_buffer
 	return 0;
 }
 
-static i32 ui_render_upload_texture_r8(sk_ui_renderer_t* r, sk_command_buffer_t cmd, sk_texture_t tex, u32 width, u32 height, const u8* pixels) {
-	return ui_render_upload_texture_bytes(r, cmd, tex, width, height, pixels, 1u);
-}
-
 static i32 ui_render_upload_texture_rgba8(sk_ui_renderer_t* r, sk_command_buffer_t cmd, sk_texture_t tex, u32 width, u32 height, const u8* pixels) {
 	/* Fast path: solid white 1x1 via clear (avoids staging on some ICDs). */
 	if (width == 1u && height == 1u && pixels[0] == 255u && pixels[1] == 255u && pixels[2] == 255u && pixels[3] == 255u) {
@@ -436,24 +453,49 @@ static i32 ui_render_upload_texture_rgba8(sk_ui_renderer_t* r, sk_command_buffer
 	return ui_render_upload_texture_bytes(r, cmd, tex, width, height, pixels, 4u);
 }
 
-static i32 ui_render_ensure_atlas_page(sk_ui_renderer_t* r, sk_command_buffer_t cmd, u32 page_index, const sk_ui_atlas_page_t* cpu) {
+static ui_gpu_msdf_atlas_t* ui_render_msdf_slot(sk_ui_renderer_t* r, u32 font_id) {
+	u32 i;
+	ui_gpu_msdf_atlas_t* empty = NULL;
+	for (i = 0u; i < UI_MSDF_ATLAS_CAP; ++i) {
+		ui_gpu_msdf_atlas_t* slot = &r->msdf_atlases[i];
+		if (slot->valid != 0u && slot->font_id == font_id) {
+			return slot;
+		}
+		if (empty == NULL && slot->valid == 0u) {
+			empty = slot;
+		}
+	}
+	return empty;
+}
+
+static i32 ui_render_ensure_msdf_atlas(sk_ui_renderer_t* r, sk_command_buffer_t cmd, u32 font_id, const sk_ui_msdf_atlas_t* cpu) {
 	const sk_render_device_api_t* api = r->api;
 	sk_render_device_t dev = r->device;
-	ui_gpu_atlas_page_t* gpu;
+	ui_gpu_msdf_atlas_t* gpu;
 	sk_texture_desc_t tdesc;
 	sk_texture_view_desc_t vdesc;
+	u8* rgba;
+	u32 i;
+	u32 px_count;
+	const sk_allocator_t* a;
 
-	if (page_index >= UI_ATLAS_PAGE_CAP || cpu == NULL || cpu->pixels == NULL) {
+	if (font_id == 0u || cpu == NULL || cpu->pixels == NULL || cpu->width == 0u || cpu->height == 0u || cpu->channels < 3u) {
 		return -1;
 	}
-	gpu = &r->atlas_pages[page_index];
+	gpu = ui_render_msdf_slot(r, font_id);
+	if (gpu == NULL) {
+		return -1;
+	}
 
-	if (gpu->valid != 0u && gpu->width == cpu->width && gpu->height == cpu->height && gpu->cpu_generation == cpu->generation) {
+	if (gpu->valid != 0u && gpu->width == cpu->width && gpu->height == cpu->height && gpu->generation == cpu->generation) {
+		gpu->px_range = cpu->px_range > 0.0f ? cpu->px_range : 2.0f;
 		return 0;
 	}
 
-	/* Recreate GPU page when size changes or first time. */
 	if (gpu->valid != 0u && (gpu->width != cpu->width || gpu->height != cpu->height)) {
+		if (gpu->desc_valid != 0u && sk_descriptor_set_t_is_valid(gpu->desc_set)) {
+			api->destroy_descriptor_set(dev, gpu->desc_set);
+		}
 		if (sk_texture_view_t_is_valid(gpu->view)) {
 			api->destroy_texture_view(dev, gpu->view);
 		}
@@ -471,9 +513,9 @@ static i32 ui_render_ensure_atlas_page(sk_ui_renderer_t* r, sk_command_buffer_t 
 		tdesc.mip_levels = 1u;
 		tdesc.array_layers = 1u;
 		tdesc.sample_count = 1u;
-		tdesc.format = SK_PIXEL_FORMAT_R8_UNORM;
+		tdesc.format = SK_PIXEL_FORMAT_RGBA8_UNORM;
 		tdesc.usage_flags = (u32)SK_RESOURCE_USAGE_SHADER_RESOURCE | (u32)SK_RESOURCE_USAGE_COPY_DEST;
-		tdesc.debug_name = "ui-font-atlas-page";
+		tdesc.debug_name = "ui-msdf-atlas";
 		gpu->texture = api->create_texture(dev, &tdesc);
 		if (!sk_texture_t_is_valid(gpu->texture)) {
 			return -1;
@@ -486,7 +528,7 @@ static i32 ui_render_ensure_atlas_page(sk_ui_renderer_t* r, sk_command_buffer_t 
 		vdesc.mip_level_count = 1u;
 		vdesc.base_array_layer = 0u;
 		vdesc.array_layer_count = 1u;
-		vdesc.debug_name = "ui-font-atlas-view";
+		vdesc.debug_name = "ui-msdf-atlas-view";
 		gpu->view = api->create_texture_view(dev, &vdesc);
 		if (!sk_texture_view_t_is_valid(gpu->view)) {
 			api->destroy_texture(dev, gpu->texture);
@@ -495,28 +537,45 @@ static i32 ui_render_ensure_atlas_page(sk_ui_renderer_t* r, sk_command_buffer_t 
 		}
 		gpu->width = cpu->width;
 		gpu->height = cpu->height;
+		gpu->font_id = font_id;
 		gpu->valid = 1u;
-		if (page_index + 1u > r->atlas_page_count) {
-			r->atlas_page_count = page_index + 1u;
+		if (r->msdf_atlas_count < UI_MSDF_ATLAS_CAP) {
+			r->msdf_atlas_count += 1u;
 		}
 	}
 
-	if (ui_render_upload_texture_r8(r, cmd, gpu->texture, cpu->width, cpu->height, cpu->pixels) != 0) {
+	/* Expand RGB8 → RGBA8 (A=255) for the RGBA8_UNORM texture. */
+	a = r->allocator;
+	px_count = cpu->width * cpu->height;
+	rgba = (u8*)a->alloc(a->instance, (size_t)px_count * 4u);
+	if (rgba == NULL) {
 		return -1;
 	}
-	gpu->cpu_generation = cpu->generation;
+	for (i = 0u; i < px_count; ++i) {
+		rgba[i * 4u + 0u] = cpu->pixels[i * cpu->channels + 0u];
+		rgba[i * 4u + 1u] = cpu->pixels[i * cpu->channels + 1u];
+		rgba[i * 4u + 2u] = cpu->pixels[i * cpu->channels + 2u];
+		rgba[i * 4u + 3u] = 255u;
+	}
+	if (ui_render_upload_texture_rgba8(r, cmd, gpu->texture, cpu->width, cpu->height, rgba) != 0) {
+		a->free(a->instance, rgba);
+		return -1;
+	}
+	a->free(a->instance, rgba);
 
-	/* Rebuild font descriptor set for this page (host-side, outside draws). */
-	if (r->desc_set_font_valid[page_index] != 0u && sk_descriptor_set_t_is_valid(r->desc_set_font[page_index])) {
-		r->api->destroy_descriptor_set(r->device, r->desc_set_font[page_index]);
-		r->desc_set_font[page_index] = sk_descriptor_set_t_zero();
-		r->desc_set_font_valid[page_index] = 0u;
+	gpu->generation = cpu->generation;
+	gpu->px_range = cpu->px_range > 0.0f ? cpu->px_range : 2.0f;
+
+	if (gpu->desc_valid != 0u && sk_descriptor_set_t_is_valid(gpu->desc_set)) {
+		api->destroy_descriptor_set(dev, gpu->desc_set);
+		gpu->desc_set = sk_descriptor_set_t_zero();
+		gpu->desc_valid = 0u;
 	}
-	r->desc_set_font[page_index] = ui_render_make_image_set(r, gpu->view);
-	if (!sk_descriptor_set_t_is_valid(r->desc_set_font[page_index])) {
+	gpu->desc_set = ui_render_make_image_set(r, gpu->view);
+	if (!sk_descriptor_set_t_is_valid(gpu->desc_set)) {
 		return -1;
 	}
-	r->desc_set_font_valid[page_index] = 1u;
+	gpu->desc_valid = 1u;
 	return 0;
 }
 
@@ -706,6 +765,8 @@ sk_ui_renderer_t* ui_renderer_create_impl(const sk_ui_renderer_desc_t* desc) {
 		return NULL;
 	}
 
+	/* Linear min/mag, no mipmaps (max_lod 0): required for MSDF atlases so
+	 * bilinear filtering does not introduce mipmap-induced distance bleed. */
 	memset(&sdesc, 0, sizeof(sdesc));
 	sdesc.min_filter = SK_FILTER_MODE_LINEAR;
 	sdesc.mag_filter = SK_FILTER_MODE_LINEAR;
@@ -819,7 +880,6 @@ i32 ui_renderer_prepare_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_pr
 	const sk_ui_draw_list_t* dl;
 	u64 vb_bytes;
 	u64 ib_bytes;
-	u32 i;
 
 	if (renderer == NULL || info == NULL || info->draw_list == NULL) {
 		return -1;
@@ -861,20 +921,41 @@ i32 ui_renderer_prepare_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_pr
 		renderer->white_uploaded = 1u;
 	}
 	if (info->font_system != NULL) {
-		const sk_ui_api_t* ui = ui_get_api_table();
-		for (i = 0u; i < dl->command_count; ++i) {
-			const sk_ui_draw_cmd_t* cmd = &dl->commands[i];
-			sk_ui_atlas_page_t page;
-			if (cmd->kind != SK_UI_DRAW_CMD_MESH || cmd->texture_kind != SK_UI_DRAW_TEX_FONT) {
-				continue;
+		u32 fi;
+		/* Upload every baked MSDF atlas so TEX_MSDF cmds can bind by font id. */
+		{
+			const u32 nfonts = ui_font_system_font_count(info->font_system);
+			i32 uploaded = 0;
+			for (fi = 0u; fi < nfonts; ++fi) {
+				sk_ui_font_t* font = ui_font_system_font_at(info->font_system, fi);
+				sk_ui_msdf_atlas_t atlas;
+				if (font == NULL) {
+					continue;
+				}
+				if (ui_font_msdf_ptr(font) == NULL) {
+					(void)ui_font_msdf_bake_impl(font);
+				}
+				if (ui_font_msdf_get_atlas_impl(font, &atlas) != 0) {
+					continue;
+				}
+				if (ui_render_ensure_msdf_atlas(renderer, info->cmd, ui_font_id(font), &atlas) != 0) {
+					return -1;
+				}
+				uploaded = 1;
 			}
-			if (ui->font_atlas_get_page(info->font_system, cmd->texture_id, &page) != 0) {
-				continue;
+			if (uploaded == 0 && info->font != NULL) {
+				sk_ui_msdf_atlas_t atlas;
+				if (ui_font_msdf_get_atlas_impl(info->font, &atlas) == 0) {
+					if (ui_render_ensure_msdf_atlas(renderer, info->cmd, ui_font_id(info->font), &atlas) != 0) {
+						return -1;
+					}
+				}
 			}
-			if (page.pixels == NULL || page.width == 0u || page.height == 0u) {
-				continue;
-			}
-			if (ui_render_ensure_atlas_page(renderer, info->cmd, cmd->texture_id, &page) != 0) {
+		}
+	} else if (info->font != NULL) {
+		sk_ui_msdf_atlas_t atlas;
+		if (ui_font_msdf_get_atlas_impl(info->font, &atlas) == 0) {
+			if (ui_render_ensure_msdf_atlas(renderer, info->cmd, ui_font_id(info->font), &atlas) != 0) {
 				return -1;
 			}
 		}
@@ -885,9 +966,10 @@ i32 ui_renderer_prepare_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_pr
 }
 
 static sk_descriptor_set_t ui_render_resolve_desc_set(sk_ui_renderer_t* r, const sk_ui_draw_cmd_t* cmd) {
-	if (cmd->texture_kind == SK_UI_DRAW_TEX_FONT) {
-		if (cmd->texture_id < UI_ATLAS_PAGE_CAP && r->desc_set_font_valid[cmd->texture_id] != 0u) {
-			return r->desc_set_font[cmd->texture_id];
+	if (cmd->texture_kind == SK_UI_DRAW_TEX_MSDF) {
+		ui_gpu_msdf_atlas_t* slot = ui_render_msdf_slot(r, cmd->texture_id);
+		if (slot != NULL && slot->desc_valid != 0u) {
+			return slot->desc_set;
 		}
 	}
 	/* IMAGE host textures: v1 falls back to white (host may extend later). */
@@ -895,9 +977,16 @@ static sk_descriptor_set_t ui_render_resolve_desc_set(sk_ui_renderer_t* r, const
 	return r->desc_set_white;
 }
 
-static u32 ui_render_mode_for_cmd(const sk_ui_draw_cmd_t* cmd) {
-	if (cmd->texture_kind == SK_UI_DRAW_TEX_FONT) {
-		return UI_MODE_FONT;
+static u32 ui_render_mode_for_cmd(sk_ui_renderer_t* r, const sk_ui_draw_cmd_t* cmd, f32* out_px_range) {
+	if (cmd->texture_kind == SK_UI_DRAW_TEX_MSDF) {
+		ui_gpu_msdf_atlas_t* slot = ui_render_msdf_slot(r, cmd->texture_id);
+		if (out_px_range != NULL) {
+			*out_px_range = (slot != NULL && slot->px_range > 0.0f) ? slot->px_range : 2.0f;
+		}
+		return UI_MODE_MSDF;
+	}
+	if (out_px_range != NULL) {
+		*out_px_range = 2.0f;
 	}
 	return UI_MODE_COLOR;
 }
@@ -994,6 +1083,7 @@ i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_enc
 	push.translate_x = -1.0f;
 	push.translate_y = -1.0f;
 	push.mode = UI_MODE_COLOR;
+	push.px_range = 2.0f;
 
 	api->bind_pipeline(dev, info->cmd, SK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline);
 	vbs[0] = renderer->vb;
@@ -1010,6 +1100,7 @@ i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_enc
 			const sk_ui_draw_cmd_t* cmd = &dl->commands[i];
 			sk_descriptor_set_t set;
 			u32 mode;
+			f32 px_range = 2.0f;
 			sk_rect2d_t scissor;
 
 			if (cmd->kind != SK_UI_DRAW_CMD_MESH) {
@@ -1021,7 +1112,7 @@ i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_enc
 			}
 
 			set = ui_render_resolve_desc_set(renderer, cmd);
-			mode = ui_render_mode_for_cmd(cmd);
+			mode = ui_render_mode_for_cmd(renderer, cmd, &px_range);
 
 			if (bound == 0 || !sk_descriptor_set_t_eq(set, last_set)) {
 				api->bind_descriptor_set(dev, info->cmd, SK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline, 0u, set, NULL, 0u);
@@ -1031,6 +1122,7 @@ i32 ui_renderer_encode_impl(sk_ui_renderer_t* renderer, const sk_ui_renderer_enc
 
 			if (mode != last_mode) {
 				push.mode = mode;
+				push.px_range = px_range;
 				api->push_constants(dev, info->cmd, renderer->pipeline, (u32)SK_SHADER_STAGE_VERTEX | (u32)SK_SHADER_STAGE_PIXEL, 0u, (u32)UI_PUSH_SIZE, &push);
 				last_mode = mode;
 			}

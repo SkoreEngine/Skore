@@ -861,10 +861,12 @@ void sk_vkrd_update_buffer(sk_render_device_t dev, sk_command_buffer_t cmd_handl
 		return;
 	}
 	while (remaining > 0u) {
+		u64 planned = 0ull;
 		u64 chunk;
-		if (sk_vkrd_update_buffer_chunk_plan(remaining, &chunk, 1u) != 1u) {
+		if (sk_vkrd_update_buffer_chunk_plan(remaining, &planned, 1u) == 0u) {
 			break;
 		}
+		chunk = planned;
 		if ((chunk & 3ull) != 0ull) {
 			u8 pad[4] = {0u, 0u, 0u, 0u};
 			memcpy(pad, bytes, chunk);

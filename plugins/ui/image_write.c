@@ -248,6 +248,38 @@ i32 ui_test_artifact_png_path_impl(const sk_filesystem_api_t* fs, const_chr_t na
 	return (n < 0) ? -1 : 0;
 }
 
+i32 ui_test_artifact_png_path_in_impl(const sk_filesystem_api_t* fs, const_chr_t subdir, const_chr_t name, char* out, u32 out_cap) {
+	char root[SK_FS_PATH_MAX];
+	char base[256];
+	char file[288];
+	char joined[SK_FS_PATH_MAX];
+	i32 n;
+
+	if (out == NULL || out_cap == 0u) {
+		return -1;
+	}
+	out[0] = '\0';
+
+	if (ui_test_artifact_root_impl(fs, root, (u32)sizeof(root)) != 0) {
+		return -1;
+	}
+	ui_sanitize_artifact_name(name, base, (u32)sizeof(base));
+	n = snprintf(file, sizeof(file), "%s.png", base);
+	if (n < 0 || (u32)n >= (u32)sizeof(file)) {
+		return -1;
+	}
+	if (subdir != NULL && subdir[0] != '\0') {
+		n = sk_path_join(sk_str_view_cstr(root), sk_str_view_cstr(subdir), joined, (u32)sizeof(joined));
+		if (n < 0) {
+			return -1;
+		}
+		n = sk_path_join(sk_str_view_cstr(joined), sk_str_view_cstr(file), out, out_cap);
+	} else {
+		n = sk_path_join(sk_str_view_cstr(root), sk_str_view_cstr(file), out, out_cap);
+	}
+	return (n < 0) ? -1 : 0;
+}
+
 /* -------------------------------------------------------------------------- */
 /* PNG write                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -461,6 +493,42 @@ SK_TEST(ui_test_artifact_png_path_sanitizes_name) {
 		TEST_ASSERT_TRUE(strstr(base, ":") == NULL);
 		TEST_ASSERT_TRUE(strstr(base, ".png") != NULL);
 	}
+}
+
+SK_TEST(ui_test_artifact_png_path_in_subdir) {
+	const sk_ui_api_t* ui = ui_image_write_test_api();
+	sk_filesystem_api_t fs;
+	char root[SK_FS_PATH_MAX];
+	char plain[SK_FS_PATH_MAX];
+	char nested[SK_FS_PATH_MAX];
+	const char* base;
+	const char* p;
+
+	ui_iw_fill_mock_fs(&fs);
+	TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_root(&fs, root, (u32)sizeof(root)));
+	TEST_ASSERT_TRUE(root[0] != '\0');
+
+	/* NULL/empty subdir behaves exactly like the plain variant. */
+	TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path(&fs, "textshot_pangram", plain, (u32)sizeof(plain)));
+	TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path_in(&fs, NULL, "textshot_pangram", nested, (u32)sizeof(nested)));
+	TEST_ASSERT_EQUAL_STRING(plain, nested);
+	TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path_in(&fs, "", "textshot_pangram", nested, (u32)sizeof(nested)));
+	TEST_ASSERT_EQUAL_STRING(plain, nested);
+
+	/* Nested: root/text-screenshot/msdf/name.png — file component clean. */
+	TEST_ASSERT_EQUAL_INT(0, ui->test_artifact_png_path_in(&fs, "text-screenshot/msdf", "pangram", nested, (u32)sizeof(nested)));
+	TEST_ASSERT_TRUE(strncmp(nested, root, strlen(root)) == 0);
+	TEST_ASSERT_TRUE(strstr(nested, "text-screenshot") != NULL);
+	TEST_ASSERT_TRUE(strstr(nested, "msdf") != NULL);
+	TEST_ASSERT_TRUE(strstr(nested, "pangram.png") != NULL);
+	base = nested;
+	for (p = nested; *p != '\0'; ++p) {
+		if (sk_path_is_sep(*p)) {
+			base = p + 1;
+		}
+	}
+	TEST_ASSERT_TRUE(strstr(base, "/") == NULL);
+	TEST_ASSERT_TRUE(strstr(base, "\\") == NULL);
 }
 
 SK_TEST(ui_cpu_image_write_png_rejects_bad_image) {

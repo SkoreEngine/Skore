@@ -337,6 +337,7 @@ i32 ui_capture_frame_impl(sk_ui_capture_t* capture, const sk_ui_capture_frame_in
 	prep.cmd = capture->upload_cmd;
 	prep.draw_list = info->draw_list;
 	prep.font_system = info->font_system;
+	prep.font = info->font;
 	if (ui_renderer_prepare_impl(capture->renderer, &prep) != 0) {
 		return -1;
 	}

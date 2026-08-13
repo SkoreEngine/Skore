@@ -23,3 +23,6 @@ unmatchedSuppression
 # Known false positives (branch analysis / buffer confusion).
 uninitvar:foundation/filesystem_unix.c
 arrayIndexOutOfBoundsCond:foundation/platform_unix.c
+# fopen(..., "a") already positions at EOF; fseek(SEEK_END)+ftell is used to
+# read the current size. cppcheck seekOnAppendedFile is a false positive here.
+seekOnAppendedFile:foundation/logger.c
