@@ -4221,6 +4221,12 @@ void ui_dock_drag_tick(sk_ui_context_t* ctx, f32 x, f32 y, i32 button_up) {
 #ifdef SK_TESTS
 #include "test.h"
 
+/* Unity (via test.h) may include <stdnoreturn.h>, which defines `noreturn`
+ * as `_Noreturn`. The Windows UCRT <stdlib.h> then uses `__declspec(noreturn)`,
+ * which breaks under clang-tidy when the macro expands (same as core/ui.c). */
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 
