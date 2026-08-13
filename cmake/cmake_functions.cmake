@@ -186,6 +186,18 @@ function(sk_add_plugin name)
     # In-source tests: non-Release only (never ship tests in Release plugins).
     sk_target_enable_tests(${_plugin})
 
+    # Darwin -exported_symbol is exclusive. v2 also passes
+    # -exported_symbol,_sk_logger_bind_api, which would hide the plugin
+    # entry points from dlsym (macOS CI: "plugin missing sk_plugin_entry_point").
+    # Re-list the host-resolved symbols so they stay visible. run_tests exists
+    # only in non-Release plugin builds.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        target_link_options(${_plugin} PRIVATE
+            "LINKER:-exported_symbol,_sk_plugin_entry_point"
+            "$<$<AND:$<NOT:$<CONFIG:Release>>,$<NOT:$<CONFIG:MinSizeRel>>>:LINKER:-exported_symbol,_sk_plugin_run_tests>"
+        )
+    endif()
+
     # Export public headers for consumers / host tests that include this plugin.
     add_library(${_lib} INTERFACE)
     target_include_directories(${_lib} INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})

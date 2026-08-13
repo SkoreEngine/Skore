@@ -4,7 +4,7 @@
  *
  * Clay is a single-header library: CLAY_IMPLEMENTATION must be defined in
  * exactly one TU before including clay.h. Consumers include clay.h and link
- * this static target (same pattern as stb_rect_pack).
+ * this static target (same pattern as other single-header vendors).
  */
 
 #define CLAY_IMPLEMENTATION

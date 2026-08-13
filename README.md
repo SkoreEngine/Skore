@@ -41,7 +41,7 @@ ctest --test-dir build --output-on-failure
 Release builds never compile test bodies into plugins.
 
 **UI integration suites** (widget vision, flexbox vision, interaction engine) —
-one command, CI artifact upload, vision credential gating:
+*one command, CI artifact upload, vision credential gating:*
 
 ```bash
 ./scripts/run-ui-integration-tests.sh
@@ -50,6 +50,19 @@ one command, CI artifact upload, vision credential gating:
 See **[docs/ui-integration-test-workflow.md](docs/ui-integration-test-workflow.md)**
 for how to add a widget test, how vision rubrics work, and how to write
 interaction tests with the engine.
+
+### Font rendering (MSDF)
+
+All UI text renders through the **MSDF pipeline**: `font_msdf_bake` generates a
+scale-independent RGB8 multi-channel SDF atlas via the vendored msdf-atlas-c
+(printable ASCII, symmetric distance range of 2 px, INKTRAP edge coloring),
+and the UI shader decodes it with `median(r,g,b)` → screen-space distance
+(`pxRange`/atlas-size × `fwidth`) → `smoothstep(-0.5, 0.5)` AA. FreeType stays
+in the font system only for face loading, glyph-index (cmap) queries, and
+metrics; the legacy R8 raster/bitmap-atlas path is retired. The deterministic
+text screenshot harness (`sk-text-screenshot --verify`, or
+`ctest -R sk-text-screenshot`) renders a fixed sample suite and proves
+byte-identical captures. Full details: **[docs/ui-plugin.md §5](docs/ui-plugin.md)**.
 
 ### Stacktrace and crash handler
 

@@ -192,7 +192,7 @@ For layout/theme regressions that survive pixel sampling (drift, shrinkage, wron
 ### 6.4 Fonts for text goldens
 
 ```c
-sk_ui_font_system_t* fs = ui->font_system_create(NULL, 256, 256);
+sk_ui_font_system_t* fs = ui->font_system_create(NULL);
 sk_ui_font_t* font = ui->font_load_memory(fs, ttf_bytes, ttf_size);
 ui->harness_set_font(h, fs, font);
 /* … steps … */

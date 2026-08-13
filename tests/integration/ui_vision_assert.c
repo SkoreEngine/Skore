@@ -93,10 +93,12 @@ static const ui_vision_rubric_entry_t ui_vision_rubrics[SK_UI_VISION_WIDGET_COUN
 			  "FAIL if empty ring only, square checkbox with X/check, speck, X mark, or filled square.\n"
 			  "DISABLED: visibly dimmed vs enabled.\n"},
 	{"toggle", "Widget family: TOGGLE (switch)\n"
-			   "Horizontal switch track (pill) with a distinct thumb/knob separable from the track.\n"
-			   "OFF: thumb toward start, muted track. ON: thumb toward end, stronger track fill.\n"
+			   "ALWAYS a wide horizontal capsule/pill track (clearly wider than tall) with a\n"
+			   "distinct circular thumb/knob sitting ON the track — never a lone circle or gear.\n"
+			   "OFF: thumb toward start/left, muted track. ON: thumb toward end/right, stronger fill.\n"
 			   "DISABLED: whole control visibly dimmed.\n"
-			   "FAIL if looks like a checkbox X or ON/OFF are indistinguishable.\n"},
+			   "FAIL if missing the elongated horizontal track, looks like a checkbox X, or ON/OFF\n"
+			   "are indistinguishable. Anti-aliased thumbs are NOT gears/cogs — do not invent icons.\n"},
 	{"slider", "Widget family: SLIDER\n"
 			   "Horizontal track plus a distinct grab handle/thumb thicker than the track.\n"
 			   "Optional fill ends at the handle. FAIL if only a solid bar with no separable handle,\n"

@@ -4,7 +4,7 @@
 **API source of truth:** `plugins/ui/ui.h` (`sk_ui_api_t`).  
 **Related docs:** design notes in `docs/ui-system-design.md`, automation contract in `docs/ui-automation-api.md`, editor dual-stack in `docs/ui-editor-migration.md`.
 
-v1 is a **retained, flexbox-based** element tree with style classes, a CPU draw list, FreeType bitmap text, a small widget set, synthetic input routing, and a headless automation harness. It is **not** a full Dear ImGui replacement and **does not** use msdfgen.
+v1 is a **retained, flexbox-based** element tree with style classes, a CPU draw list, an MSDF text pipeline (msdf-atlas-c bake + median/smoothstep decode), a small widget set, synthetic input routing, and a headless automation harness. It is **not** a full Dear ImGui replacement.
 
 ---
 
@@ -310,10 +310,76 @@ ui->set_measure_fn(ctx, my_measure, NULL);
 
 ## 5. Text and fonts
 
-### 5.1 Model
+All UI text renders through the **MSDF pipeline** (APX-265/APX-266/APX-271): one
+scale-independent multi-channel signed-distance atlas per face, decoded in the
+fragment shader (or an equivalent CPU evaluate for headless captures). The
+legacy FreeType R8 raster/bitmap-atlas path and its runtime toggle were retired
+in APX-271; FreeType remains in the font system only for **face loading
+(`FT_New_Memory_Face`), glyph-index/cmap queries (`FT_Get_Char_Index`), and
+face metrics** (ascender/descender/height scaled to pixel size).
 
-- **CPU path:** FreeType raster + `stb_rect_pack` atlas (R8 pages). Opaque `sk_ui_font_system_t` / `sk_ui_font_t`.
-- **Logical font size** comes from computed style (`font_size`). Physical raster size:
+### 5.1 Pipeline
+
+**Atlas generation** — `font_msdf_bake` (lazy, on first shape) drives the
+vendored msdf-atlas-c C API (`<msdf_atlas_c.h>`) through:
+
+1. `msdf_atlas_font_open_memory` on the font's private TTF/OTF copy;
+2. `msdf_atlas_charset_create_ascii` — printable ASCII (0x20..0x7E) + space;
+3. `msdf_atlas_glyphset_load_charset` at font scale 1.0 em (a second pass with
+   `MSDF_ATLAS_LOAD_KERNING` fills the pair-kerning table);
+4. `msdf_atlas_glyphset_edge_color` — **INKTRAP**, angle threshold 3.0°;
+5. tight **power-of-two square** pack (`MSDF_ATLAS_PACKING_TIGHT`,
+   `MSDF_ATLAS_DIMENSIONS_POWER_OF_TWO_SQUARE`), **Y_TOP_DOWN**;
+6. `msdf_atlas_generator_generate` → RGB32F bitmap, quantized to **RGB8** with
+   the edge at mid-gray 0.5 and clamped to [0,1] (NaN/Inf → 0).
+
+The result is copied into skore-owned storage before the generator handles are
+destroyed. Per-glyph records store **em-normalized** advance, plane bounds
+(left/bottom/right/top), and atlas UVs; line metrics (ascender/descender/line
+height) are stored per-em too, so **one atlas serves every pixel size**.
+
+**Distance range convention** — the C API takes explicit endpoints
+(`msdf_atlas_range_t { lower, upper }`); the bake pins a **symmetric
+`{-1, +1}`** range, i.e. width **2 px** (`UI_MSDF_PX_RANGE 2.0`). The
+representable width (`upper - lower`) is stored as `px_range` on
+`sk_ui_msdf_atlas_t` and pushed to the shader. Symmetric endpoints grow the
+packed boxes by 1 px of outside field and map the edge to exactly 0.5, so
+interior texels stay near 1.0 and gutters near 0.0 (1:1 unorm, no re-normalize
+at sample time). Sampler contract: linear min/mag, no mipmaps (max_lod 0),
+clamp-to-edge.
+
+**Layout / measure** — `ui_text_layout_*` walks UTF-8 (LTR, no HarfBuzz),
+resolves each codepoint against the atlas (`.notdef` / U+FFFD fallback box for
+missing glyphs), applies pair kerning from the baked table, and scales the
+em metrics by the requested pixel size: `advance = advance_em * px`,
+`quad = plane_bounds * px`. Paint and Clay measure both use this path, so
+measure, wrap, and paint stay aligned at any (fractional) size.
+
+**Shader AA formula** — the MSDF draw (`SK_UI_DRAW_TEX_MSDF`,
+`SK_UI_MODE_MSDF`) samples the RGB8 atlas and computes:
+
+```glsl
+float med = median(tex.r, tex.g, tex.b);            // median of RGB channels
+float unitRange = pxRange / texSize;                // px_range over atlas size
+float screenTexSize = 1.0 / fwidth(uv);             // texels per screen px
+float screenPxRange = max(0.5 * dot(unitRange, screenTexSize), 1.0); // clamp 1 px
+float sd = screenPxRange * (med - 0.5f);            // signed screen-space dist
+float coverage = saturate(smoothstep(-0.5f, 0.5f, sd));
+return float4(color.rgb, color.a * coverage);
+```
+
+The 1-px clamp keeps very small text from vanishing or shimmering. Blend is
+straight-alpha (`SRC_ALPHA` / `ONE_MINUS_SRC_ALPHA`). On headless/lavapipe
+captures (which cannot sample uploaded atlases) `ui_paint_emit_msdf_coverage`
+recomputes the same formula on the CPU from the atlas bytes and emits coverage
+solid quads; set `SK_UI_MSDF_GPU=1` to emit `SK_UI_DRAW_TEX_MSDF` quads and use
+the fragment shader instead. The CPU evaluate is unit-tested against the same
+helpers the shader mirrors (`ui_msdf_median3`, `ui_msdf_screen_px_range`,
+`ui_msdf_coverage`).
+
+**Logical font size** comes from computed style (`font_size`); the physical
+paint size is the unrounded `font_size × content_scale` (min 1 px) so
+non-integer scales stay linearly spaced:
 
 ```c
 u32 px = sk_ui_font_pixel_size(/* logical */ 15.0f, /* content_scale */ 2.0f);
@@ -321,13 +387,15 @@ u32 px = sk_ui_font_pixel_size(/* logical */ 15.0f, /* content_scale */ 2.0f);
 (void)px;
 ```
 
-- **Shaping (v1):** UTF-8 left-to-right codepoint walk; no HarfBuzz, BiDi, or RTL. Soft wrap uses spaces when wrap is enabled on labels.
-- **Paint:** pass fonts into `paint` via `sk_ui_paint_params_t`. Without fonts, text nodes still layout/measure but emit no glyph quads.
+- **Shaping (v1):** UTF-8 left-to-right codepoint walk; no HarfBuzz, BiDi, or
+  RTL. Soft wrap uses spaces when wrap is enabled on labels.
+- **Paint:** pass fonts into `paint` via `sk_ui_paint_params_t`. Without fonts,
+  text nodes still layout/measure but emit no glyph quads.
 
 ### 5.2 Load a face and paint text
 
 ```c
-sk_ui_font_system_t* fonts = ui->font_system_create(NULL, 512u, 512u);
+sk_ui_font_system_t* fonts = ui->font_system_create(NULL);
 if (fonts == NULL) {
     return -1;
 }
@@ -371,9 +439,34 @@ ui->font_destroy(font);
 ui->font_system_destroy(fonts);
 ```
 
-Diagnostics: `font_get_metrics`, `font_glyph_index`, `font_get_glyph`, `font_atlas_get_page`, `font_cache_stats`.
+Diagnostics: `font_get_metrics`, `font_glyph_index`, `font_msdf_get_atlas`,
+`font_msdf_get_glyph`, `font_msdf_dump` (writes `{prefix}.raw` RGB8 bytes +
+`{prefix}.json` with per-glyph em metrics and atlas metadata).
 
-GPU upload of atlas pages is owned by `sk_ui_renderer_t` (`renderer_prepare`), not the font system.
+GPU upload of the MSDF atlas is owned by `sk_ui_renderer_t`
+(`renderer_prepare`), not the font system.
+
+### 5.3 Screenshot harness
+
+The deterministic text screenshot harness (`tests/integration/ui_text_screenshot.c`,
+binary `sk-text-screenshot`) renders a fixed suite of text samples on the
+headless offscreen renderer and writes PNG captures into
+`{artifact-root}/text-screenshot/msdf/` (pangram, size ladder, colors/alpha,
+content-scale 2.0, printable-ASCII glyph grid + raw `atlas_msdf.png` dump).
+Run it standalone with the determinism re-check:
+
+```bash
+# from the build tree; needs a Vulkan loader/ICD (skips with exit 2 without one)
+./bin/sk-text-screenshot --verify
+# or from ctest:
+ctest -R sk-text-screenshot
+```
+
+`--verify` re-captures every sample and byte-compares the two runs (raw RGBA
+readback **and** PNG artifact bytes); re-running the same command twice must
+produce byte-identical trees. The `ui_text_screenshot_*` SK_TESTs inside
+`sk-integration-tests` assert determinism and suite completeness.
+
 
 ---
 
@@ -908,7 +1001,7 @@ These are **not bugs** — they are out of scope for the basic UI system. Each r
 
 | Absent in v1 | Why / current behavior | Intended follow-up |
 | --- | --- | --- |
-| **msdfgen / MSDF font atlases** | v1 uses FreeType **bitmap** glyphs into an R8 atlas. Sharp scaling is content-scale re-raster, not distance fields. | Optional Font cooker / resource handler with MSDF (or multi-channel SDF) when high-quality scalable UI text is required; keep bitmap path for tools/tests. Design note: `docs/ui-system-design.md` §3.4. |
+| **Cooked `.font` MSDF resources** | Runtime bake via msdf-atlas-c (ASCII) + shader decode is in. There is no editor importer / cooked atlas asset yet. | Font cooker / resource handler for cooked atlases. |
 | **Complex text shaping / BiDi / RTL** | UTF-8 LTR codepoint walk only; no HarfBuzz, no bidirectional reordering, no complex scripts, no required kerning. | Integrate a shaping library (HarfBuzz) behind the font measure/paint path; add direction + locale to computed style; extend text input caret model for clusters. |
 | **Standalone UI tester runtime** | Automation **API + headless harness** ship inside `sk_ui_api_t` (`query_*`, `action_*`, `harness_*`). There is no separate Selenium-style driver binary or scripted recorder. | Build an external tester process/CLI that loads plugins and drives `harness_*` / `input_dispatch` (contract in `docs/ui-automation-api.md`). |
 | **Full ImGui feature parity** (docking, multi-viewport, tables, menus, tree views, property grids, ImGuizmo, demos) | v1 widgets are panel/view/label/button/checkbox/slider/text_input/scroll_view/image only. Editor still uses a dual stack (`docs/ui-editor-migration.md`). | Port panels incrementally onto sk-ui; keep docking/chrome on ImGui (or a future dock host) until a dedicated layout-shell milestone; do not block product UI on parity. |
@@ -941,6 +1034,6 @@ These are **not bugs** — they are out of scope for the basic UI system. Each r
 | Tests | `harness_*`, `query_*`, `action_*` |
 
 **Header:** `plugins/ui/ui.h`  
-**Plugin:** `plugins/ui/` (SHARED, statically links `sk-core`, FreeType, stb_rect_pack)  
+**Plugin:** `plugins/ui/` (SHARED, statically links `sk-core`, FreeType for face load/metrics, msdf-atlas-c)  
 **Sample host:** `player/main.c` (`sample_menu_build`)  
 **Editor proof:** `editor/console_panel.c` + `editor/editor_ui_host.c`

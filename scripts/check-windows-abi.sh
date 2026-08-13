@@ -279,10 +279,13 @@ build_extra_args() {
 		"--extra-arg=-I${ROOT}/thirdparty/volk/src"
 		"--extra-arg=-I${ROOT}/thirdparty/nativefiledialog/src/include"
 		"--extra-arg=-I${ROOT}/thirdparty/yyjson/src"
-		"--extra-arg=-I${ROOT}/thirdparty/stb_rect_pack"
 		"--extra-arg=-I${ROOT}/thirdparty/clay"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_image_write"
 		"--extra-arg=-I${ROOT}/thirdparty/stb_image"
+		# msdf-atlas-c public C API (plugins/ui/font_msdf.c); headers live under
+		# thirdparty/msdf-atlas-gen/c_api/include, not thirdparty/*/include.
+		"--extra-arg=-I${ROOT}/thirdparty/msdf-atlas-gen/c_api/include"
+		"--extra-arg=-DMSDF_ATLAS_C_STATIC=1"
 		# Plugin fixture data headers (e.g. skore_test_font_ttf.h), mirroring
 		# player/CMakeLists.txt / tests/integration/CMakeLists.txt.
 		"--extra-arg=-I${ROOT}/plugins/ui/testdata"
