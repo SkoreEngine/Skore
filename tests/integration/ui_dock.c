@@ -872,4 +872,77 @@ SK_TEST(ui_dock_restore_future_version_and_corrupt_fallback) {
 	uidock_shutdown(&env);
 }
 
+SK_TEST(ui_dock_restore_creates_missing_dockspace) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 99u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"startup\",\n"
+					   "    \"flags\": 1,\n"
+					   "    \"root\": { \"kind\": \"leaf\", \"id\": \"root\", \"flags\": 1, \"tabs\": [\"console\"], \"active_index\": 0 },\n"
+					   "    \"floating\": []\n"
+					   "}";
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock startup restore)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Console", "console");
+	TEST_ASSERT_FALSE(sk_ui_dock_node_is_valid(ui->dockspace_find(ctx, "startup")));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "startup", json, (u32)strlen(json)));
+	root = ui->dockspace_find(ctx, "startup");
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("console", ids[0]);
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "console"));
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
+SK_TEST(ui_dock_restore_load_then_create) {
+	uidock_env_t env;
+	const sk_ui_api_t* ui;
+	sk_ui_context_t* ctx;
+	sk_ui_dock_node_t root;
+	sk_ui_node_t later;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 99u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"late\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": { \"kind\": \"leaf\", \"id\": \"root\", \"flags\": 0, \"tabs\": [\"later\"], \"active_index\": 0 },\n"
+					   "    \"floating\": []\n"
+					   "}";
+
+	if (uidock_boot(&env) != 0) {
+		TEST_IGNORE_MESSAGE("sk-ui not available via app registry (skip dock load-then-create)");
+	}
+	ui = env.ui;
+	ctx = ui->context_create(NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "later", NULL, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "late", json, (u32)strlen(json)));
+	root = ui->dockspace_find(ctx, "late");
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("later", ids[0]);
+	later = ui->widget_editor_window(ctx, ui->context_root(ctx), "Later", "later");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(later));
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "later"));
+	TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dock_find_node_for_window(ctx, "later"), root));
+	ui->context_destroy(ctx);
+	uidock_shutdown(&env);
+}
+
 #endif /* SK_TESTS */

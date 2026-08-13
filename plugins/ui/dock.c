@@ -6261,4 +6261,186 @@ SK_TEST(ui_dock_layout_restore_missing_version_rejected) {
 	ui->context_destroy(ctx);
 }
 
+SK_TEST(ui_dock_layout_restore_creates_missing_dockspace) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 99u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"startup\",\n"
+					   "    \"flags\": 1,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"leaf\",\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 1,\n"
+					   "        \"tabs\": [\"console\"],\n"
+					   "        \"active_index\": 0\n"
+					   "    },\n"
+					   "    \"floating\": []\n"
+					   "}";
+	TEST_ASSERT_NOT_NULL(ctx);
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Console", "console");
+	TEST_ASSERT_FALSE(sk_ui_dock_node_is_valid(ui->dockspace_find(ctx, "startup")));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "startup", json, (u32)strlen(json)));
+	root = ui->dockspace_find(ctx, "startup");
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("console", ids[0]);
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "console"));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_layout_restore_load_then_create) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	sk_ui_node_t later;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 99u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"late\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"leaf\",\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 0,\n"
+					   "        \"tabs\": [\"later\"],\n"
+					   "        \"active_index\": 0\n"
+					   "    },\n"
+					   "    \"floating\": []\n"
+					   "}";
+	TEST_ASSERT_NOT_NULL(ctx);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "later", NULL, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "late", json, (u32)strlen(json)));
+	root = ui->dockspace_find(ctx, "late");
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("later", ids[0]);
+	TEST_ASSERT_FALSE(sk_ui_node_is_valid(ui->find_by_id(ctx, "later")));
+	later = ui->widget_editor_window(ctx, ui->context_root(ctx), "Later", "later");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(later));
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "later"));
+	TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dock_find_node_for_window(ctx, "later"), root));
+	TEST_ASSERT_TRUE(ui->node_alive(ctx, later));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_layout_restore_unsaved_after_create) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t left;
+	sk_ui_node_t inspector;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 99u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"late-unsaved\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"split\",\n"
+					   "        \"axis\": 0,\n"
+					   "        \"ratio\": 0.25,\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 0,\n"
+					   "        \"a\": { \"kind\": \"leaf\", \"id\": \"left\", \"flags\": 0, \"tabs\": [\"hierarchy\"], \"active_index\": 0 },\n"
+					   "        \"b\": { \"kind\": \"leaf\", \"id\": \"center\", \"flags\": 1, \"tabs\": [\"scene\"], \"active_index\": 0 }\n"
+					   "    },\n"
+					   "    \"floating\": []\n"
+					   "}";
+	TEST_ASSERT_NOT_NULL(ctx);
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Hierarchy", "hierarchy");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Scene", "scene");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "inspector", "left", NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "late-unsaved", json, (u32)strlen(json)));
+	TEST_ASSERT_FALSE(sk_ui_node_is_valid(ui->find_by_id(ctx, "inspector")));
+	inspector = ui->widget_editor_window(ctx, ui->context_root(ctx), "Inspector", "inspector");
+	TEST_ASSERT_TRUE(sk_ui_node_is_valid(inspector));
+	root = ui->dockspace_find(ctx, "late-unsaved");
+	left = ui->dock_split_child(ctx, root, 0u);
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "inspector"));
+	TEST_ASSERT_TRUE(sk_ui_dock_node_eq(ui->dock_find_node_for_window(ctx, "inspector"), left));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, left, ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("hierarchy", ids[0]);
+	TEST_ASSERT_EQUAL_STRING("inspector", ids[1]);
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_layout_restore_builder_open_rejected) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 99u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"leaf-space\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": { \"kind\": \"leaf\", \"id\": \"root\", \"flags\": 0, \"tabs\": [\"other\"], \"active_index\": 0 },\n"
+					   "    \"floating\": []\n"
+					   "}";
+	TEST_ASSERT_NOT_NULL(ctx);
+	root = ui->dockspace_begin(ctx, SK_UI_NODE_INVALID, "leaf-space", SK_UI_DOCKSPACE_KEEP_CENTRAL);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_begin(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_dock_window(ctx, "console", root));
+	TEST_ASSERT_TRUE(ui->dock_layout_load_json(ctx, "leaf-space", json, (u32)strlen(json)) != 0);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_builder_finish(ctx));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, ui->dockspace_find(ctx, "leaf-space"), ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("console", ids[0]);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "other"));
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_layout_restore_keep_central_empty_after_drop) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t left;
+	const_chr_t ids[4];
+	u32 count = 0u;
+	u32 active = 99u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"keep-central\",\n"
+					   "    \"flags\": 1,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"split\",\n"
+					   "        \"axis\": 0,\n"
+					   "        \"ratio\": 0.3,\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 0,\n"
+					   "        \"a\": { \"kind\": \"leaf\", \"id\": \"left\", \"flags\": 0, \"tabs\": [\"hierarchy\"], \"active_index\": 0 },\n"
+					   "        \"b\": { \"kind\": \"leaf\", \"id\": \"central\", \"flags\": 1, \"tabs\": [\"gone\"], \"active_index\": 0 }\n"
+					   "    },\n"
+					   "    \"floating\": []\n"
+					   "}";
+	TEST_ASSERT_NOT_NULL(ctx);
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Hierarchy", "hierarchy");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "keep-central", json, (u32)strlen(json)));
+	root = ui->dockspace_find(ctx, "keep-central");
+	TEST_ASSERT_TRUE(ui->dock_node_is_split(ctx, root));
+	left = ui->dock_split_child(ctx, root, 0u);
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, left));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, left, ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(1u, count);
+	TEST_ASSERT_EQUAL_STRING("hierarchy", ids[0]);
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, ui->dock_split_child(ctx, root, 1u)));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, ui->dock_split_child(ctx, root, 1u), ids, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(0u, count);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "gone"));
+	TEST_ASSERT_EQUAL_INT(1, ui->dock_window_is_docked(ctx, "hierarchy"));
+	ui->context_destroy(ctx);
+}
+
 #endif /* SK_TESTS */
