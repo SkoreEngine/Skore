@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file profiler_core.h
+ * @file profiler_core.internal.h
  * @brief Engine-independent profiler core: high-resolution monotonic clock,
  *        per-thread zone storage (thread-local buffers, lock-free hot path),
  *        bounded ring buffers with a counted overflow policy, nested zone

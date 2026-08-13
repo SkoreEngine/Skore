@@ -11,7 +11,7 @@
  *     never the default
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "filesystem.h"
 #include "logger.h"

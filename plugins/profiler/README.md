@@ -9,7 +9,7 @@ Source of truth for types and contracts: [`profiler.h`](profiler.h).
 Migration audit (legacy C++ inventory, risks, non-goals): [`AUDIT.md`](AUDIT.md).
 
 Engine-independent capture core (TLS per-thread rings, overflow policy,
-aggregation): [`core/profiler_core.h`](core/profiler_core.h).
+aggregation): [`core/profiler_core.internal.h`](core/profiler_core.internal.h).
 
 ---
 
@@ -354,7 +354,7 @@ plugins/profiler/
   profiler.c                # table implementation, reports, plugin tests
   profiler_macro_tests.c    # forced SK_PROFILER_ENABLED macro tests
   core/
-    profiler_core.h         # engine-independent capture core
+    profiler_core.internal.h  # engine-independent capture core
     profiler_core.c
     profiler_core_tests.c
 ```

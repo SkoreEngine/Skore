@@ -9,7 +9,7 @@
  * for golden comparison without a window or GPU.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 

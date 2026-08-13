@@ -11,7 +11,7 @@
  * ImGui parity — no tables, trees, or multi-viewport docking.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 

@@ -21,9 +21,9 @@
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 
-#include "vulkan_render_device_internal.h"
+#include "vulkan_render_device.internal.h"
 #include "vulkan_render_device.h"
-#include "vulkan_utils.h"
+#include "vulkan_utils.internal.h"
 
 #include "logger.h"
 #include "platform_window.h"

@@ -7,8 +7,8 @@
  * resolved from their typed handles (callers resolved RIDs outside the RHI).
  */
 
-#include "vulkan_render_device_internal.h"
-#include "vulkan_utils.h"
+#include "vulkan_render_device.internal.h"
+#include "vulkan_utils.internal.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -839,6 +839,9 @@ void sk_vkrd_resolve_texture(sk_render_device_t dev, sk_command_buffer_t cmd_han
 /* vkCmdUpdateBuffer: dataSize must be > 0, a multiple of 4, and <= 65536. */
 enum { SK_VK_CMD_UPDATE_BUFFER_MAX_BYTES = 65536u };
 
+/* Test-only helper: exercised by the SK_TESTS chunk plan test below, so it is
+ * compiled only when SK_TESTS is set (avoids -Wunused-function in release). */
+#ifdef SK_TESTS
 static u32 sk_vkrd_update_buffer_chunk_plan(u64 size, u64* out_sizes, u32 max_chunks) {
 	u32 count = 0u;
 	u64 remaining = size;
@@ -850,6 +853,7 @@ static u32 sk_vkrd_update_buffer_chunk_plan(u64 size, u64* out_sizes, u32 max_ch
 	}
 	return count;
 }
+#endif /* SK_TESTS */
 
 void sk_vkrd_update_buffer(sk_render_device_t dev, sk_command_buffer_t cmd_handle, sk_buffer_t buf_handle, u64 offset, u64 size, const void* data) {
 	(void)dev;

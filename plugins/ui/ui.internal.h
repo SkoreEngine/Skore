@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file ui_internal.h
+ * @file ui.internal.h
  * @brief Private UI plugin state shared by the ui plugin translation units.
  *
  * Not part of the public sk-ui surface. Do not include from hosts or other plugins.

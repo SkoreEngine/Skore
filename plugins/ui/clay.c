@@ -16,7 +16,7 @@
  * array count and bounding boxes.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "clay.h"
 

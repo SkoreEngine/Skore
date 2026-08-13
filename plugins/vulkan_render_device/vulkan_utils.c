@@ -7,7 +7,7 @@
  */
 
 /* Platform surface macros must be defined before any Vulkan header is pulled
- * in (via vulkan_utils.h → internal header → volk.h) so the matching
+ * in (via vulkan_utils.internal.h → internal header → volk.h) so the matching
  * VK_KHR_*_surface structs/prototypes are declared. */
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -27,7 +27,7 @@
 #include <X11/Xlib.h>
 #endif
 
-#include "vulkan_utils.h"
+#include "vulkan_utils.internal.h"
 
 #include "platform_window.h"
 

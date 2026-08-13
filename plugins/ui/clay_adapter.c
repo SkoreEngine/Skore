@@ -62,7 +62,7 @@
  *  - flex-wrap (container multi-line) remains unsupported by Clay.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "clay.h"
 

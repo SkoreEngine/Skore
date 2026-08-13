@@ -28,7 +28,7 @@
  * so the cleared target + draw list compose to straight alpha.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "render_device.h"
 

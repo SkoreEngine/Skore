@@ -8,7 +8,7 @@
  * else {temp}/skore-test-artifacts) so nothing is scattered under source.
  */
 
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "filesystem.h"
 #include "logger.h"

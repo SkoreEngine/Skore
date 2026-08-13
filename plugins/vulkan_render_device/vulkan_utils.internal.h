@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file vulkan_utils.h
+ * @file vulkan_utils.internal.h
  * @brief Vulkan conversion / platform helpers for the vulkan_render_device plugin.
  *
  * Port of skore main's `VulkanUtils.cpp` to the C RHI surface: enum→Vk
@@ -12,7 +12,7 @@
  */
 
 #include "common.h"
-#include "vulkan_render_device_internal.h"
+#include "vulkan_render_device.internal.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -9,7 +9,7 @@
  */
 
 #include "ui.h"
-#include "ui_internal.h"
+#include "ui.internal.h"
 
 #include "allocator.h"
 #include "array.h"

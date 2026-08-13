@@ -4,15 +4,10 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
-enum {
-	SK_LOGGER_NAME_MAX = 64,
-	SK_LOGGER_MAX_SINKS = 16,
-	SK_LOG_MESSAGE_MAX = 2048,
-	SK_LOG_FILE_PATH_MAX = 1024,
-	SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16
-};
+enum { SK_LOGGER_NAME_MAX = 64, SK_LOGGER_MAX_SINKS = 16, SK_LOG_MESSAGE_MAX = 2048, SK_LOG_FILE_PATH_MAX = 1024, SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16 };
 
 struct sk_logger_t {
 	char name[SK_LOGGER_NAME_MAX];
@@ -90,19 +85,33 @@ static void file_sink_build_rotated_path(const char* base, u32 index, char* out,
 }
 
 static i32 file_sink_open_append(sk_log_file_sink_t* fs) {
-	long pos;
-
 	fs->file = fopen(fs->path, "a");
 	if (fs->file == NULL) {
 		return -1;
 	}
-	if (fseek(fs->file, 0, SEEK_END) != 0) {
-		fclose(fs->file);
-		fs->file = NULL;
-		return -1;
+	/* Query the on-disk size via fstat: on append-mode files a seek to
+	 * SEEK_END has no effect (and cppcheck flags it as seekOnAppendedFile). */
+#if defined(_WIN32)
+	{
+		struct _stat st;
+		if (_fstat(_fileno(fs->file), &st) != 0) {
+			fclose(fs->file);
+			fs->file = NULL;
+			return -1;
+		}
+		fs->current_size = (st.st_size > 0) ? (u64)st.st_size : 0ull;
 	}
-	pos = ftell(fs->file);
-	fs->current_size = (pos > 0) ? (u64)pos : 0ull;
+#else
+	{
+		struct stat st;
+		if (fstat(fileno(fs->file), &st) != 0) {
+			fclose(fs->file);
+			fs->file = NULL;
+			return -1;
+		}
+		fs->current_size = (st.st_size > 0) ? (u64)st.st_size : 0ull;
+	}
+#endif
 	return 0;
 }
 
