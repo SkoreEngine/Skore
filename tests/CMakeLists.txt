@@ -7,6 +7,18 @@ if(NOT BUILD_TESTING)
     return()
 endif()
 
+# APX-284: no-static-variables + no-deleted-accessor guard for the foundation
+# module and its plugins (scripts/check-no-statics.py + no-statics-allowlist.txt).
+# Runs in every CI matrix cell (all platforms, Debug and Release) via ctest.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME sk-no-statics-guard
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check-no-statics.py
+    )
+else()
+    message(WARNING "Python3 not found; sk-no-statics-guard test disabled (run scripts/check-no-statics.py manually)")
+endif()
+
 # Frozen public-interface check (APX-169): compile foundation/compression.h in a
 # trivial TU under the project's warnings-as-errors flags so include-order /
 # self-containment regressions fail the build. Build check only - defines

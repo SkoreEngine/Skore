@@ -1996,6 +1996,117 @@ SK_TEST(dxc_compiler_plugin_registers_api) {
 	sk_app_shutdown(ctx);
 }
 
+/* ---- APX-284: host and plugin share one logger context ---- */
+
+typedef struct plugin_log_capture_t {
+	u32 hits;
+	char last[256];
+	char last_logger[SK_LOGGER_NAME_MAX];
+} plugin_log_capture_t;
+
+static void plugin_log_capture_print(void_ptr_t user_data, sk_logger_type_t level, const_chr_t logger_name, const_chr_t message) {
+	plugin_log_capture_t* cap = (plugin_log_capture_t*)user_data;
+	size_t n;
+
+	(void)level;
+	cap->hits += 1u;
+	if (logger_name != NULL) {
+		n = strlen(logger_name);
+		if (n >= sizeof(cap->last_logger)) {
+			n = sizeof(cap->last_logger) - 1u;
+		}
+		memcpy(cap->last_logger, logger_name, n);
+		cap->last_logger[n] = '\0';
+	}
+	if (message == NULL) {
+		return;
+	}
+	n = strlen(message);
+	if (n >= sizeof(cap->last)) {
+		n = sizeof(cap->last) - 1u;
+	}
+	memcpy(cap->last, message, n);
+	cap->last[n] = '\0';
+}
+
+/* Regression: plugin log emissions must land on the HOST's logger context.
+ * Plugins statically link their own copy of sk-foundation; before the context
+ * refactor each DSO carried a private static sink array, so host-registered
+ * sinks never saw plugin output. Now the plugin caches app_api->logger_context
+ * at entry and writes into the host-owned sink list. Load a real plugin, add a
+ * host sink, force the plugin to emit, and assert the host sink received it. */
+SK_TEST(plugin_logs_reach_host_sink) {
+	char path[SK_FS_PATH_MAX];
+#if defined(_WIN32)
+	const_chr_t name = "sk-dxc-compiler.dll";
+#elif defined(__APPLE__)
+	const_chr_t name = "sk-dxc-compiler.dylib";
+#else
+	const_chr_t name = "sk-dxc-compiler.so";
+#endif
+	sk_app_boot_t boot = sk_app_init(0, NULL);
+	sk_app_context_t* ctx = boot.context;
+	const sk_logger_api_t* logger_api;
+	sk_logger_context_t* log_ctx;
+	plugin_log_capture_t capture;
+	sk_log_sink_t sink;
+	const sk_dxc_compiler_api_t* dxc;
+
+	TEST_ASSERT_NOT_NULL(ctx);
+	logger_api = boot.api->logger_api(ctx);
+	log_ctx = boot.api->logger_context(ctx);
+	TEST_ASSERT_NOT_NULL(logger_api);
+	TEST_ASSERT_NOT_NULL(log_ctx);
+
+	/* Host registers its own sink on the shared logger context (stdout muted
+	 * so the deliberately-failing compile below does not spam the test log). */
+	memset(&capture, 0, sizeof(capture));
+	sink.user_data = &capture;
+	sink.print = plugin_log_capture_print;
+	TEST_ASSERT_EQUAL_INT(0, logger_api->remove_sink(log_ctx, sk_logger_stdout_sink()));
+	TEST_ASSERT_EQUAL_INT(0, logger_api->add_sink(log_ctx, &sink));
+
+	/* sk_app_init auto-loads the plugin DLLs; the dxc entry point cached
+	 * app_api->logger_context and created its "dxc-compiler" logger on the
+	 * host context at load time. Prove it is loaded (and load it explicitly
+	 * if the folder scan was skipped, e.g. a custom plugins dir). */
+	dxc = (const sk_dxc_compiler_api_t*)boot.api->get_api(ctx, SK_DXC_COMPILER_API_TYPE_ID);
+	if (dxc == NULL) {
+		TEST_ASSERT_EQUAL_INT32(0, test_plugin_path(name, path, (u32)sizeof(path)));
+		TEST_ASSERT_EQUAL_INT32(0, boot.api->load_plugin(ctx, path));
+		dxc = (const sk_dxc_compiler_api_t*)boot.api->get_api(ctx, SK_DXC_COMPILER_API_TYPE_ID);
+	}
+	TEST_ASSERT_NOT_NULL(dxc);
+	TEST_ASSERT_NOT_NULL(dxc->init);
+	TEST_ASSERT_NOT_NULL(dxc->compile);
+
+	/* Emit from the plugin. Whether or not the vendored DXC runtime is
+	 * present, an error is surfaced through the plugin's logger: the runtime
+	 * load failure, or the HLSL diagnostics from the broken shader. Both go
+	 * through the host's logger context — that is the shared-state proof. */
+	(void)dxc->init();
+	{
+		char log_buf[128];
+		u8 spirv[256];
+		u32 spirv_size = 0u;
+		const_chr_t broken = "void mainVS() { float x = ; }\n";
+		(void)dxc->compile("mainVS", "vs_6_8", broken, (u32)strlen(broken), spirv, (u32)sizeof(spirv), &spirv_size, log_buf, (u32)sizeof(log_buf));
+	}
+	dxc->shutdown();
+
+	/* The host sink received the plugin's emission, and it arrived on the
+	 * plugin's own logger ("dxc-compiler", created by the plugin against the
+	 * host logger context at entry) — one shared logger context, not a
+	 * separate per-DLL static sink array. */
+	TEST_ASSERT_TRUE(capture.hits >= 1u);
+	TEST_ASSERT_EQUAL_STRING("dxc-compiler", capture.last_logger);
+	TEST_ASSERT_NOT_NULL(strstr(capture.last, "dxc-compiler:"));
+
+	TEST_ASSERT_EQUAL_INT(0, logger_api->remove_sink(log_ctx, &sink));
+	TEST_ASSERT_EQUAL_INT(0, logger_api->add_sink(log_ctx, sk_logger_stdout_sink()));
+	sk_app_shutdown(ctx);
+}
+
 /* ---- render_graph plugin (C++ main call-site migration) ---- */
 
 SK_TEST(app_init_auto_loads_render_graph_plugin) {
