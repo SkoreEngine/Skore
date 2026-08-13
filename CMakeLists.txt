@@ -33,6 +33,7 @@ sk_embed_type_ids_in_dir(
     ${CMAKE_CURRENT_SOURCE_DIR}/foundation
     ${CMAKE_CURRENT_SOURCE_DIR}/player
     ${CMAKE_CURRENT_SOURCE_DIR}/editor
+    ${CMAKE_CURRENT_SOURCE_DIR}/sandbox
     ${CMAKE_CURRENT_SOURCE_DIR}/plugins
     ${CMAKE_CURRENT_SOURCE_DIR}/tests
 )
@@ -43,6 +44,7 @@ sk_check_header_isolation(
     ${CMAKE_CURRENT_SOURCE_DIR}/foundation
     ${CMAKE_CURRENT_SOURCE_DIR}/player
     ${CMAKE_CURRENT_SOURCE_DIR}/editor
+    ${CMAKE_CURRENT_SOURCE_DIR}/sandbox
     ${CMAKE_CURRENT_SOURCE_DIR}/plugins
     ${CMAKE_CURRENT_SOURCE_DIR}/tests
 )
@@ -264,6 +266,7 @@ add_subdirectory(foundation)
 add_subdirectory(editor)
 add_subdirectory(player)
 add_subdirectory(plugins)
+add_subdirectory(sandbox)
 add_subdirectory(tests)
 
 # ---------------------------------------------------------------------------

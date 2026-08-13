@@ -37,6 +37,7 @@ Data-oriented ECS engine. Prefer structure-of-arrays, systems, and plain data ov
 - **Modules, not micro-files.** Group related types and APIs into a coherent module file (e.g. `math3d.h` / `math3d.c` holding vectors, matrices, quaternions, etc.). Do **not** split one domain into many tiny headers (`vector.h`, `mat4.h`, `quat.h`, …). Prefer extending an existing module over creating a new file. New files only when there is a real new module boundary.
 - **Invest heavily in tests.** New behavior is incomplete without tests. Prefer writing tests early (with or right after the code), not as an afterthought.
 - Ship **both unit tests and integration tests** for every meaningful area (core utilities, ECS, plugins, loaders, etc.). See **Tests** below.
+- **Render work is incomplete without a sandbox PNG check.** Any task that changes what is drawn (UI, docking, GPU encode, fonts, capture, shaders, layout→paint) must add or update a host under `sandbox/` in the style of `sandbox/dock_preview_sandbox.c`, run it, and **read the written image** before calling the task done. This is a host app, not a `SK_TEST`. See **Render sandboxes**.
 
 **Memory**
 
@@ -88,7 +89,7 @@ Data-oriented ECS engine. Prefer structure-of-arrays, systems, and plain data ov
 **Project / modules**
 
 - Link plugins against `sk-foundation-lib` only (headers without the static library) — plugins and apps must **statically link** `sk-foundation`.
-- Call `sk_app_init` / `sk_app_run` from a plugin — those are host-only (`player` / `editor` / test hosts).
+- Call `sk_app_init` / `sk_app_run` from a plugin — those are host-only (`player` / `editor` / `sandbox` / test hosts).
 - Skip `extern "C"` on public headers.
 - Introduce C++ in public headers without a clear exception.
 - Use unprefixed public types/functions.
@@ -109,6 +110,7 @@ Data-oriented ECS engine. Prefer structure-of-arrays, systems, and plain data ov
 - Do not invent a narrow one-shot helper without checking for an existing one; do not duplicate the same utility across plugins — lift to `foundation` or a `common-*` plugin.
 - Ship features **without tests**, or only “happy path” checks for foundation/ECS/plugin behavior that can fail in subtle ways (handles, structural changes, deferred commands, plugin load).
 - Skip integration coverage because unit tests exist (or the reverse) — **both** layers are required.
+- Close a **render** task because unit tests passed or the sandbox binary exited 0 — the PNG must be opened and judged.
 
 **Memory / layout**
 
@@ -145,6 +147,8 @@ skore-new/
 │   └── *.h / *.c           # module files without sk_ file prefix
 ├── player/                 # executable sk-player (game runner)
 ├── editor/                 # editor app (WIP)
+├── sandbox/                # host apps that render offscreen → PNG (not tests)
+│   └── dock_preview_sandbox.c  # sk-sandbox: docking drop-preview capture
 ├── plugins/
 │   └── example_plugin/     # SHARED dll sk-example-plugin (template for all plugins)
 ├── tests/
@@ -162,6 +166,7 @@ skore-new/
 | `sk-test` | STATIC | unity | Test registry only (`BUILD_TESTING`); not linked into Release plugins / player |
 | `sk-foundation-tests` | STATIC | `sk-test` | Foundation sources with `SK_TESTS` — host tests only |
 | `sk-player` | EXECUTABLE | `sk-foundation` (static) | Game entry (`main` → `sk_app_init`) |
+| `sk-sandbox` | EXECUTABLE | `sk-foundation` (static) | Headless render sandbox (`sandbox/dock_preview_sandbox.c`) |
 | `sk-tests` | EXECUTABLE | `sk-foundation-tests` | Test host: in-process foundation + scan plugins for `sk_plugin_run_tests` |
 | `sk-*-plugin` | SHARED | `sk-foundation` (static); + `sk-test` when non-Release testing | Dynamically loaded DLL; no static twin |
 | `sk-*-plugin-lib` | INTERFACE | plugin headers | Optional header export for that plugin |
@@ -338,13 +343,43 @@ ctest --test-dir build --output-on-failure          # unit + smoke (sk-tests)
 - Link Unity into both host and plugins expecting one shared runner state — plugin-local only.
 - Merge with no tests for new behavior; disable failing tests without a replacement.
 
+## Render sandboxes
+
+Render / GPU / UI-paint work is **not done** when unit tests pass. The agent must produce a frame, look at it, and say whether it matches the intended picture.
+
+This is a **host application** under `sandbox/`, same kind as `player` / `editor`. It is **not** a `SK_TEST`, not CTest, and not a skore-test-suite binary.
+
+**When this applies**
+
+Any task that changes what pixels come out: UI widgets, docking, layout→paint, GPU encode, shaders, fonts/MSDF, capture/readback, offscreen targets, clear colors, blend, or a host present path.
+
+**What to do**
+
+1. Add or update a sandbox `.c` under `sandbox/` following `sandbox/dock_preview_sandbox.c` (reuse `sk-sandbox` when the same scene still applies; otherwise add another host in `sandbox/` with the same pattern).
+2. Boot like a real app: `sk_app_init` → plugin APIs via `get_api` → `capture_create` (offscreen RGBA8 texture, no window) → build the scene → `paint` → `capture_frame` → `cpu_image_write_png`.
+3. Build the **engine** tree and run from that `bin/` (so `{app_folder}/plugins` resolves):
+   ```bash
+   cmake --build cmake-build-debug --target sk-sandbox
+   cd cmake-build-debug/bin && ./sk-sandbox [--out dock_preview.png]
+   ```
+   On Windows: `skore\cmake-build-debug\bin\sk-sandbox.exe`.
+4. **Open and read the PNG.** Exit code 0 is not a visual check. Compare the frame to the intended layout/colors/preview. Report what is right and what is wrong. If it is wrong, fix and recapture in the same session.
+
+**Do / don’t**
+
+- Do keep sandboxes as thin hosts that link only `sk-foundation` and load plugins at runtime.
+- Do write the PNG next to cwd / `--out` so the path is printed and inspectable.
+- Do not wrap this in `#ifdef SK_TESTS` or register it with CTest.
+- Do not put it in skore-test-suite or use `ui_capture_harness` / `sk_test_*`.
+- Do not declare a render task complete without having looked at the image.
+
 ## Architecture rules
 
-1. **`sk-foundation` is always statically linked.** Apps (`player` / `editor`) and plugins link production `sk-foundation` (no `SK_TESTS`). The test host links `sk-foundation-tests` instead. Free functions from static-linked foundation are available after that link.
+1. **`sk-foundation` is always statically linked.** Apps (`player` / `editor` / `sandbox`) and plugins link production `sk-foundation` (no `SK_TESTS`). The test host links `sk-foundation-tests` instead. Free functions from static-linked foundation are available after that link.
 2. **No DLL import linking for host↔plugin engine APIs.** Prefer a **single global** function-pointer table (`sk_*_api_t`) for a module surface that crosses a shared-library boundary without a static link (e.g. host fill of `sk_render_device_api_t`, host callbacks into a plugin). Callers fill/use that one table rather than importing symbols from another DLL. This naming/pattern is **not** for every struct that embeds function pointers — see Naming.
 3. **Plugins are SHARED libraries that statically link `sk-foundation`.** A plugin is built as SHARED and `target_link_libraries(... PRIVATE sk-foundation)`. It is still loaded at runtime (`LoadLibrary` / `GetProcAddress` on Win32; Linux/macOS equivalents). Do not link other plugins. Plugins must **not** call `sk_app_init`.
 3b. **Plugin / host module APIs are table-only.** Publish a `sk_*_api_t` (types + table layout in a header), fill one static table in the `.c`, register it with `app_api->set_api`. Hosts call **only** through pointers from `get_api` (or the table they registered). **Never** add free-function mirrors of every table entry (`sk_window_create` next to `api->create_window`, etc.), and **never** expose public `sk_*_get_api` / `sk_*_api()` accessors on plugins for host use — registration + registry lookup is enough. Implementations of table entries stay `static` in the plugin `.c`.
-4. **`sk-foundation` owns process lifecycle and host API implementations.** `sk_app_init`, OS backends (`platform_*.c`, `filesystem_*.c`), and engine utilities all live in `sk-foundation`. `player` / `editor` link `sk-foundation`.
+4. **`sk-foundation` owns process lifecycle and host API implementations.** `sk_app_init`, OS backends (`platform_*.c`, `filesystem_*.c`), and engine utilities all live in `sk-foundation`. `player` / `editor` / `sandbox` link `sk-foundation`.
 5. **One foundation module.** Public headers and their implementations live together under `foundation/` (types, `sk_*_api_t` layouts, free-function prototypes, and the `.c` backends). Include style stays `#include "app.h"` (PUBLIC include dir = `foundation/`).
 6. **Plugin entry points** (exported from every SHARED plugin):
    ```c
@@ -353,7 +388,7 @@ ctest --test-dir build --output-on-failure          # unit + smoke (sk-tests)
    SK_API i32 sk_plugin_run_tests(sk_test_report_t* out); /* not present when !SK_TESTS */
    #endif
    ```
-7. **App entry** lives in `player` (or editor). `sk-foundation` owns init:
+7. **App entry** lives in `player`, `editor`, or `sandbox`. `sk-foundation` owns init:
    ```c
    sk_app_boot_t sk_app_init(int argc, char* argv[]); /* {context, api}; no sk_app_api() */}
    ```
@@ -561,12 +596,13 @@ typedef struct sk_allocator_t {
 - **Player / apps**
   - `add_executable(...)`
   - `target_link_libraries(... PRIVATE sk-foundation)`
+  - Render sandboxes live in `sandbox/` (`sk-sandbox`); same link rules, no `SK_TESTS`.
 - **Plugins**
   - `add_library(sk-... SHARED ...)`
   - Private includes for the plugin dir.
   - `target_link_libraries(... PRIVATE sk-foundation)` — **always** statically link foundation into plugins. Plugins must not call `sk_app_init`.
   - Optional `sk-...-lib` INTERFACE to re-export that plugin’s headers.
-- Root `CMakeLists.txt` adds subdirs: `foundation`, `editor`, `player`, `plugins`, and `thirdparty` when vendored libs are in use.
+- Root `CMakeLists.txt` adds subdirs: `foundation`, `editor`, `player`, `plugins`, `sandbox`, and `thirdparty` when vendored libs are in use.
 - New plugins: add a folder under `plugins/`, `add_subdirectory` from `plugins/CMakeLists.txt`, copy the `example_plugin` pattern.
 - New third-party libs: folder under `thirdparty/<lib_name>/` with sources + `CMakeLists.txt`, then `add_subdirectory(<lib_name>)` in `thirdparty/CMakeLists.txt`.
 
@@ -585,6 +621,7 @@ Patterns for types, global `sk_*_api_t`, free functions, `static` helpers, and m
 | `foundation/platform.h` / `foundation/platform_*.c` | Platform API + OS backends |
 | `foundation/app.c` | App registry, process entry (`sk_app_init` / `sk_app_run`), bootstrap |
 | `player/main.c` | Thin `main` calling `sk_app_init` |
+| `sandbox/dock_preview_sandbox.c` | Render sandbox host: offscreen `capture_create` → PNG |
 | `plugins/example_plugin/plugin_entry_point.c` | `sk_plugin_entry_point` + `sk_plugin_run_tests` |
 | `plugins/example_plugin/CMakeLists.txt` | SHARED + static link `sk-foundation` via `sk_add_plugin` |
 | `tests/main.c` | Test host bootstrap only |
@@ -599,7 +636,7 @@ cmake -S . -B build -G Ninja
 cmake --build build
 ```
 
-Useful targets: `sk-foundation`, `sk-player`, `sk-tests`, `sk-example-plugin`.
+Useful targets: `sk-foundation`, `sk-player`, `sk-sandbox`, `sk-tests`, `sk-example-plugin`.
 
 ### Linux agent / host: Windows ABI check
 
