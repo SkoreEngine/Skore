@@ -54,6 +54,8 @@ typedef int sk_jolt_tests_tu_anchor_t;
 /* Defined in jolt.cpp (SK_TESTS builds only). */
 void sk_jolt_test_context(sk_app_context_t** out_context, const sk_app_api_t** out_app_api);
 const sk_jolt_api_t* sk_jolt_test_api(void);
+u32 sk_jolt_test_bound_count(void);
+sk_jolt_body_t* sk_jolt_test_body_for_entity(u32 index, u32 generation);
 
 /* The plugin test host (tests/main.c) loads each plugin and calls
  * sk_plugin_entry_point before sk_plugin_run_tests, so the registry cached in
@@ -1159,6 +1161,11 @@ SK_TEST(jolt_components_register_with_ecs) {
 	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID, &info));
 	TEST_ASSERT_EQUAL_STRING("capsule_collider", info.name);
 
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_TRANSFORM_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("transform", info.name);
+	TEST_ASSERT_EQUAL_UINT32((u32)sizeof(sk_transform_t), info.size);
+
 	/* A body is composed: spawn an entity with config + hot state + a box
 	 * collider and round-trip values through the world storage. */
 	sk_world_t* world = ecs->world_create();
@@ -1200,6 +1207,288 @@ SK_TEST(jolt_components_register_with_ecs) {
 
 	TEST_ASSERT_EQUAL_INT32(0, ecs->world_despawn(world, entity));
 	ecs->world_destroy(world);
+}
+
+/* ---- ECS ↔ Jolt sync (APX-307) ---- */
+
+static void jolt_test_fill_dynamic_cfg(sk_rigid_body_config_t* cfg) {
+	cfg->motion_type = SK_JOLT_MOTION_TYPE_DYNAMIC;
+	cfg->mass = 1.0f;
+	cfg->friction = 0.2f;
+	cfg->restitution = 0.0f;
+	cfg->linear_damping = 0.05f;
+	cfg->angular_damping = 0.05f;
+	cfg->gravity_factor = 1.0f;
+	cfg->object_layer = SK_JOLT_OBJECT_LAYER_MOVING;
+	cfg->flags = SK_RIGID_BODY_FLAG_ALLOW_SLEEPING;
+	cfg->body = NULL;
+}
+
+static void jolt_test_fill_static_cfg(sk_rigid_body_config_t* cfg) {
+	cfg->motion_type = SK_JOLT_MOTION_TYPE_STATIC;
+	cfg->mass = 0.0f;
+	cfg->friction = 0.2f;
+	cfg->restitution = 0.0f;
+	cfg->linear_damping = 0.0f;
+	cfg->angular_damping = 0.0f;
+	cfg->gravity_factor = 0.0f;
+	cfg->object_layer = SK_JOLT_OBJECT_LAYER_NON_MOVING;
+	cfg->flags = SK_RIGID_BODY_FLAG_NONE;
+	cfg->body = NULL;
+}
+
+static sk_entity_t jolt_test_spawn_box(const sk_entities_api_t* ecs, sk_world_t* world, const sk_type_id_t* ids, u32 id_count, sk_jolt_motion_type_t motion, f32 x, f32 y, f32 z,
+									   f32 half) {
+	sk_entity_t entity = ecs->world_spawn(world, ids, id_count);
+	if (!sk_entity_is_valid(entity)) {
+		return entity;
+	}
+	sk_rigid_body_config_t* cfg = (sk_rigid_body_config_t*)ecs->world_component(world, entity, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID);
+	if (motion == SK_JOLT_MOTION_TYPE_STATIC) {
+		jolt_test_fill_static_cfg(cfg);
+	} else {
+		jolt_test_fill_dynamic_cfg(cfg);
+		cfg->motion_type = motion;
+	}
+	sk_box_collider_t* box = (sk_box_collider_t*)ecs->world_component(world, entity, SK_BOX_COLLIDER_COMPONENT_TYPE_ID);
+	box->half_extent = sk_vec3(half, half, half);
+	sk_transform_t* xform = (sk_transform_t*)ecs->world_component(world, entity, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	xform->position = sk_vec3(x, y, z);
+	xform->rotation = sk_quat(0.0f, 0.0f, 0.0f, 1.0f);
+	return entity;
+}
+
+/* A dynamic ECS body falls under gravity and rests on a static floor; velocities
+ * are written back into the hot state component. */
+SK_TEST(jolt_ecs_dynamic_falls_and_rests) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)app_api->get_api(context, SK_ENTITIES_API_TYPE_ID);
+	if (ecs == NULL) {
+		return; /* unsorted plugin scan; host test covers the same contract */
+	}
+
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+	sk_world_t* world = ecs->world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t ids[] = {SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, SK_TRANSFORM_COMPONENT_TYPE_ID, SK_BOX_COLLIDER_COMPONENT_TYPE_ID};
+	sk_entity_t floor = jolt_test_spawn_box(ecs, world, ids, 4u, SK_JOLT_MOTION_TYPE_STATIC, 0.0f, -1.0f, 0.0f, 1.0f);
+	sk_box_collider_t* floor_box = (sk_box_collider_t*)ecs->world_component(world, floor, SK_BOX_COLLIDER_COMPONENT_TYPE_ID);
+	floor_box->half_extent = sk_vec3(10.0f, 1.0f, 10.0f);
+	sk_entity_t box = jolt_test_spawn_box(ecs, world, ids, 4u, SK_JOLT_MOTION_TYPE_DYNAMIC, 0.0f, 5.0f, 0.0f, 0.5f);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(floor));
+	TEST_ASSERT_TRUE(sk_entity_is_valid(box));
+
+	i32 i;
+	i32 settled = 0;
+	for (i = 0; i < 60; ++i) {
+		api->step_world(world, 1.0f / 60.0f);
+	}
+	sk_transform_t* xform = (sk_transform_t*)ecs->world_component(world, box, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	TEST_ASSERT_TRUE(xform->position.y < 4.0f);
+
+	for (i = 0; i < 1800; ++i) {
+		api->step_world(world, 1.0f / 60.0f);
+		xform = (sk_transform_t*)ecs->world_component(world, box, SK_TRANSFORM_COMPONENT_TYPE_ID);
+		sk_rigid_body_state_t* st = (sk_rigid_body_state_t*)ecs->world_component(world, box, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID);
+		const f32 v2 = st->linear_velocity.x * st->linear_velocity.x + st->linear_velocity.y * st->linear_velocity.y + st->linear_velocity.z * st->linear_velocity.z;
+		if (xform->position.y > 0.4f && xform->position.y < 0.6f && v2 < 0.05f * 0.05f) {
+			settled = 1;
+			break;
+		}
+	}
+	TEST_ASSERT_TRUE(settled);
+	TEST_ASSERT_EQUAL_UINT32(2u, sk_jolt_test_bound_count());
+
+	const sk_transform_t* floor_xf = (const sk_transform_t*)ecs->world_component(world, floor, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, -1.0f, floor_xf->position.y);
+
+	ecs->world_destroy(world);
+	api->shutdown();
+}
+
+/* A kinematic ECS body follows its transform (no gravity response). */
+SK_TEST(jolt_ecs_kinematic_follows_transform) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)app_api->get_api(context, SK_ENTITIES_API_TYPE_ID);
+	if (ecs == NULL) {
+		return;
+	}
+
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+	sk_world_t* world = ecs->world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t ids[] = {SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, SK_TRANSFORM_COMPONENT_TYPE_ID, SK_BOX_COLLIDER_COMPONENT_TYPE_ID};
+	sk_entity_t body = jolt_test_spawn_box(ecs, world, ids, 4u, SK_JOLT_MOTION_TYPE_KINEMATIC, 3.0f, 4.0f, -2.0f, 0.5f);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(body));
+
+	i32 i;
+	for (i = 0; i < 60; ++i) {
+		api->step_world(world, 1.0f / 60.0f);
+	}
+	sk_transform_t* xform = (sk_transform_t*)ecs->world_component(world, body, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 3.0f, xform->position.x);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 4.0f, xform->position.y);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, -2.0f, xform->position.z);
+
+	xform->position = sk_vec3(-1.0f, -2.0f, 5.0f);
+	for (i = 0; i < 30; ++i) {
+		api->step_world(world, 1.0f / 60.0f);
+	}
+	xform = (sk_transform_t*)ecs->world_component(world, body, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, -1.0f, xform->position.x);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, -2.0f, xform->position.y);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 5.0f, xform->position.z);
+
+	ecs->world_destroy(world);
+	api->shutdown();
+}
+
+/* Removing the rigid-body config or the collider destroys the Jolt body;
+ * despawning the entity does too. */
+SK_TEST(jolt_ecs_remove_component_removes_body) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)app_api->get_api(context, SK_ENTITIES_API_TYPE_ID);
+	if (ecs == NULL) {
+		return;
+	}
+
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+	sk_world_t* world = ecs->world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t ids[] = {SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, SK_TRANSFORM_COMPONENT_TYPE_ID, SK_BOX_COLLIDER_COMPONENT_TYPE_ID};
+	sk_entity_t a = jolt_test_spawn_box(ecs, world, ids, 4u, SK_JOLT_MOTION_TYPE_STATIC, 0.0f, 0.0f, -5.0f, 0.5f);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(a));
+	api->sync_world(world);
+	TEST_ASSERT_EQUAL_UINT32(1u, sk_jolt_test_bound_count());
+	TEST_ASSERT_NOT_NULL(sk_jolt_test_body_for_entity(a.index, a.generation));
+
+	sk_jolt_query_hit_t hit;
+	const sk_jolt_vec3_t origin = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	const sk_jolt_vec3_t toward = jolt_test_vec3(0.0f, 0.0f, -1.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_NOT_NULL(hit.body);
+
+	TEST_ASSERT_EQUAL_INT32(0, ecs->world_remove_component(world, a, SK_BOX_COLLIDER_COMPONENT_TYPE_ID));
+	api->sync_world(world);
+	TEST_ASSERT_EQUAL_UINT32(0u, sk_jolt_test_bound_count());
+	sk_rigid_body_config_t* cfg = (sk_rigid_body_config_t*)ecs->world_component(world, a, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(cfg);
+	TEST_ASSERT_NULL(cfg->body);
+	TEST_ASSERT_EQUAL_INT32(1, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+
+	TEST_ASSERT_EQUAL_INT32(0, ecs->world_add_component(world, a, SK_BOX_COLLIDER_COMPONENT_TYPE_ID));
+	sk_box_collider_t* box = (sk_box_collider_t*)ecs->world_component(world, a, SK_BOX_COLLIDER_COMPONENT_TYPE_ID);
+	box->half_extent = sk_vec3(0.5f, 0.5f, 0.5f);
+	api->sync_world(world);
+	TEST_ASSERT_EQUAL_UINT32(1u, sk_jolt_test_bound_count());
+
+	TEST_ASSERT_EQUAL_INT32(0, ecs->world_remove_component(world, a, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID));
+	api->sync_world(world);
+	TEST_ASSERT_EQUAL_UINT32(0u, sk_jolt_test_bound_count());
+
+	sk_entity_t b = jolt_test_spawn_box(ecs, world, ids, 4u, SK_JOLT_MOTION_TYPE_STATIC, 0.0f, 0.0f, -5.0f, 0.5f);
+	api->sync_world(world);
+	TEST_ASSERT_EQUAL_UINT32(1u, sk_jolt_test_bound_count());
+	TEST_ASSERT_EQUAL_INT32(0, ecs->world_despawn(world, b));
+	api->sync_world(world);
+	TEST_ASSERT_EQUAL_UINT32(0u, sk_jolt_test_bound_count());
+
+	ecs->world_destroy(world);
+	api->shutdown();
+}
+
+/* Authored linear velocity is applied on create and read back after a step. */
+SK_TEST(jolt_ecs_velocities_read_back) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	sk_jolt_settings_t s;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)app_api->get_api(context, SK_ENTITIES_API_TYPE_ID);
+	if (ecs == NULL) {
+		return;
+	}
+
+	api->settings_defaults(&s);
+	s.gravity[0] = 0.0f;
+	s.gravity[1] = 0.0f;
+	s.gravity[2] = 0.0f;
+	TEST_ASSERT_EQUAL_INT32(0, api->init(&s));
+	sk_world_t* world = ecs->world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t ids[] = {SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, SK_TRANSFORM_COMPONENT_TYPE_ID, SK_BOX_COLLIDER_COMPONENT_TYPE_ID};
+	sk_entity_t body = jolt_test_spawn_box(ecs, world, ids, 4u, SK_JOLT_MOTION_TYPE_DYNAMIC, 0.0f, 0.0f, 0.0f, 0.5f);
+	sk_rigid_body_state_t* st = (sk_rigid_body_state_t*)ecs->world_component(world, body, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID);
+	st->linear_velocity = sk_vec3(2.0f, 0.0f, 0.0f);
+	st->angular_velocity = sk_vec3(0.0f, 0.5f, 0.0f);
+
+	api->step_world(world, 1.0f / 60.0f);
+	st = (sk_rigid_body_state_t*)ecs->world_component(world, body, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID);
+	TEST_ASSERT_TRUE(st->linear_velocity.x > 1.0f);
+	TEST_ASSERT_FLOAT_WITHIN(0.2f, 0.5f, st->angular_velocity.y);
+
+	sk_transform_t* xform = (sk_transform_t*)ecs->world_component(world, body, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	TEST_ASSERT_TRUE(xform->position.x > 0.0f);
+
+	ecs->world_destroy(world);
+	api->shutdown();
+}
+
+/* Changing collider extents rebuilds the Jolt shape (body stays mapped). */
+SK_TEST(jolt_ecs_collider_change_rebuilds_shape) {
+	const sk_jolt_api_t* api = NULL;
+	sk_app_context_t* context = NULL;
+	const sk_app_api_t* app_api = NULL;
+	jolt_tests_resolve(&api, &context, &app_api);
+	TEST_ASSERT_NOT_NULL(api);
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)app_api->get_api(context, SK_ENTITIES_API_TYPE_ID);
+	if (ecs == NULL) {
+		return;
+	}
+
+	TEST_ASSERT_EQUAL_INT32(0, api->init(NULL));
+	sk_world_t* world = ecs->world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t ids[] = {SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, SK_TRANSFORM_COMPONENT_TYPE_ID, SK_BOX_COLLIDER_COMPONENT_TYPE_ID};
+	sk_entity_t body = jolt_test_spawn_box(ecs, world, ids, 3u, SK_JOLT_MOTION_TYPE_STATIC, 0.0f, 0.0f, -5.0f, 0.5f);
+	api->sync_world(world);
+	sk_jolt_body_t* first = sk_jolt_test_body_for_entity(body.index, body.generation);
+	TEST_ASSERT_NOT_NULL(first);
+
+	sk_box_collider_t* box = (sk_box_collider_t*)ecs->world_component(world, body, SK_BOX_COLLIDER_COMPONENT_TYPE_ID);
+	box->half_extent = sk_vec3(2.0f, 2.0f, 2.0f);
+	api->sync_world(world);
+	sk_jolt_body_t* second = sk_jolt_test_body_for_entity(body.index, body.generation);
+	TEST_ASSERT_NOT_NULL(second);
+	TEST_ASSERT_TRUE(first != second); /* rebuilt: new handle, still one binding */
+	TEST_ASSERT_EQUAL_UINT32(1u, sk_jolt_test_bound_count());
+
+	sk_jolt_query_hit_t hit;
+	const sk_jolt_vec3_t origin = jolt_test_vec3(0.0f, 0.0f, 0.0f);
+	const sk_jolt_vec3_t toward = jolt_test_vec3(0.0f, 0.0f, -1.0f);
+	TEST_ASSERT_EQUAL_INT32(0, api->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-2f, 3.0f, hit.fraction); /* face at z = -5+2 = -3 */
+
+	ecs->world_destroy(world);
+	api->shutdown();
 }
 
 /**

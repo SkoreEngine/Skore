@@ -13,6 +13,9 @@
  *   - sk_rigid_body_state_t   (hot / per-frame) — linear + angular velocity.
  *     Kept in its own component so simulation systems can iterate and write
  *     it independently of the config (no false sharing with cold data).
+ *   - sk_transform_t — world-space pose (position + rotation) the physics
+ *     integration reads (static / kinematic follow it) and writes back
+ *     after each step (dynamic simulated pose).
  *   - sk_box_collider_t / sk_sphere_collider_t / sk_capsule_collider_t —
  *     shape data in separate components so a body is composed from whatever
  *     colliders it needs.
@@ -27,7 +30,8 @@
  *
  * This is the C half of the plugin (POD structs + registration only). It
  * performs no Jolt interaction: the only Jolt type referenced is the opaque
- * body handle. Body/shape creation from these components is a later stage.
+ * body handle. Body creation, the entity↔BodyID map, and write-back live
+ * in the plugin's C++ TU (see jolt.h sync_world / write_back / step_world).
  */
 
 #include "common.h"
@@ -38,6 +42,12 @@
 
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+#ifdef __cplusplus
+static const sk_type_id_t SK_TRANSFORM_COMPONENT_TYPE_ID = {0x7c2a91e04b18d5a3ULL, 0x5e09f3c1a84b6270ULL};
+#else
+#define SK_TRANSFORM_COMPONENT_TYPE_ID SK_TYPE_ID("sk.transform", 0x7c2a91e04b18d5a3ULL, 0x5e09f3c1a84b6270ULL)
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -112,6 +122,18 @@ typedef struct sk_rigid_body_state_t {
 } sk_rigid_body_state_t;
 
 /**
+ * World-space pose the physics integration reads and writes (not a
+ * parented scene-graph transform). Position is meters; rotation is a unit
+ * quaternion (identity = 0,0,0,1). A zeroed rotation (ECS spawn default)
+ * is treated as identity by the integration. Not a repository payload —
+ * pose is runtime / sim state.
+ */
+typedef struct sk_transform_t {
+	sk_vec3_t position;
+	sk_quat_t rotation;
+} sk_transform_t;
+
+/**
  * Box collider shape data (sk.box_collider_resource).
  * @field half_extent Half size of the box in each local axis (Jolt
  *                    BoxShapeSettings mHalfExtent); each component >= 0.
@@ -144,10 +166,11 @@ typedef struct sk_capsule_collider_t {
 /* ------------------------------------------------------------------ */
 
 /**
- * Register every physics component (rigid body config, rigid body state, box
- * / sphere / capsule collider) with @p ecs, using the same type ids the
- * repository payload types register under. Idempotent: re-registration with a
- * matching layout is a no-op, so plugins/hosts/tests may call it repeatedly.
+ * Register every physics component (rigid body config, rigid body state,
+ * transform, box / sphere / capsule collider) with @p ecs. Config / state /
+ * collider ids match the repository payload types; transform is runtime-only.
+ * Idempotent: re-registration with a matching layout is a no-op, so
+ * plugins/hosts/tests may call it repeatedly.
  * @param ecs ECS API table (must not be NULL).
  * @return 0 on success, the first register_component error otherwise.
  */

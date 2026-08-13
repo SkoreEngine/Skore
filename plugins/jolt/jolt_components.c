@@ -48,6 +48,10 @@ i32 sk_jolt_components_register(const sk_entities_api_t* ecs) {
 	if (rc != 0) {
 		return rc;
 	}
+	rc = ecs->register_component(SK_TRANSFORM_COMPONENT_TYPE_ID, (u32)sizeof(sk_transform_t), SK_JOLT_COMPONENT_ALIGN(sk_transform_t), "transform");
+	if (rc != 0) {
+		return rc;
+	}
 	rc = ecs->register_component(SK_BOX_COLLIDER_COMPONENT_TYPE_ID, (u32)sizeof(sk_box_collider_t), SK_JOLT_COMPONENT_ALIGN(sk_box_collider_t), "box_collider");
 	if (rc != 0) {
 		return rc;

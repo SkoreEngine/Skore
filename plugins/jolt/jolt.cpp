@@ -44,6 +44,7 @@
  */
 
 #include "jolt.h"
+#include "jolt_sync.h"
 
 #include "app.h"
 #include "common.h"
@@ -64,9 +65,11 @@
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Body/MotionProperties.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/EActivation.h>
 #include <Jolt/Physics/EPhysicsUpdateError.h>
@@ -74,6 +77,7 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -352,6 +356,43 @@ void jolt_body_registry_clear() noexcept {
 	g_live_bodies.clear();
 }
 
+/* ---- ECS entity ↔ BodyID map (plugin-private; not stored in engine) ---- */
+
+constexpr f32 kPoseEpsilon = 1.0e-4f;
+
+struct EntityBinding {
+	u32 index;
+	u32 generation;
+	sk_jolt_body_t* body;
+	bool seen;
+	i32 motion_type;
+	f32 mass;
+	f32 friction;
+	f32 restitution;
+	f32 linear_damping;
+	f32 angular_damping;
+	f32 gravity_factor;
+	u32 object_layer;
+	u32 flags;
+	u32 shape_mask;
+	f32 box_he[3];
+	f32 sphere_r;
+	f32 cap_hh;
+	f32 cap_r;
+	f32 last_pos[3];
+	f32 last_rot[4];
+	f32 last_lv[3];
+	f32 last_av[3];
+};
+
+/** Keyed by entity slot index; generation is stored on the binding. */
+std::unordered_map<u32, EntityBinding> g_entity_bindings;
+
+void jolt_entity_bindings_reset() noexcept {
+	g_entity_bindings.clear();
+	jolt_ecs_reset();
+}
+
 /* ---- settings helpers ---- */
 
 void jolt_settings_defaults(sk_jolt_settings_t* out) {
@@ -404,6 +445,8 @@ int jolt_thread_count() {
 /* ---- module lifecycle ---- */
 
 void jolt_shutdown_impl() noexcept {
+	/* Drop the entity map first: Jolt bodies die with the world below. */
+	jolt_entity_bindings_reset();
 	if (g_jolt_world != nullptr) {
 		delete g_jolt_world; /* PhysicsSystem → filters → job threads → temp allocator */
 		g_jolt_world = nullptr;
@@ -907,6 +950,436 @@ i32 jolt_sphere_cast_impl(f32 radius, const sk_jolt_vec3_t* origin, const sk_jol
 
 #undef JOLT_QUERY_VALIDATE
 
+/* ---- ECS entity bind internals (APX-307); ECS walk lives in jolt_sync.c ---- */
+
+bool jolt_f32_near(f32 a, f32 b, f32 eps) noexcept {
+	const f32 d = a - b;
+	return d <= eps && -d <= eps;
+}
+
+bool jolt_vec3_near3(const f32 a[3], f32 x, f32 y, f32 z, f32 eps) noexcept {
+	return jolt_f32_near(a[0], x, eps) && jolt_f32_near(a[1], y, eps) && jolt_f32_near(a[2], z, eps);
+}
+
+bool jolt_quat_near4(const f32 a[4], f32 x, f32 y, f32 z, f32 w, f32 eps) noexcept {
+	if (jolt_f32_near(a[0], x, eps) && jolt_f32_near(a[1], y, eps) && jolt_f32_near(a[2], z, eps) && jolt_f32_near(a[3], w, eps)) {
+		return true;
+	}
+	return jolt_f32_near(a[0], -x, eps) && jolt_f32_near(a[1], -y, eps) && jolt_f32_near(a[2], -z, eps) && jolt_f32_near(a[3], -w, eps);
+}
+
+JPH::Quat jolt_quat_from_xyzw(f32 x, f32 y, f32 z, f32 w) noexcept {
+	const f32 len2 = x * x + y * y + z * z + w * w;
+	if (!(len2 > 1.0e-12f)) {
+		return JPH::Quat::sIdentity();
+	}
+	return JPH::Quat(x, y, z, w).Normalized();
+}
+
+bool jolt_spec_needs_rebuild(const EntityBinding* bind, const sk_jolt_sync_spec_t* spec) noexcept {
+	if (bind->motion_type != spec->motion_type || bind->shape_mask != spec->shape_mask) {
+		return true;
+	}
+	if (!jolt_f32_near(bind->mass, spec->mass, 0.0f)) {
+		return true;
+	}
+	if ((spec->shape_mask & SK_JOLT_SYNC_SHAPE_BOX) != 0u &&
+		(!jolt_f32_near(bind->box_he[0], spec->box_x, 0.0f) || !jolt_f32_near(bind->box_he[1], spec->box_y, 0.0f) || !jolt_f32_near(bind->box_he[2], spec->box_z, 0.0f))) {
+		return true;
+	}
+	if ((spec->shape_mask & SK_JOLT_SYNC_SHAPE_SPHERE) != 0u && !jolt_f32_near(bind->sphere_r, spec->sphere_r, 0.0f)) {
+		return true;
+	}
+	if ((spec->shape_mask & SK_JOLT_SYNC_SHAPE_CAPSULE) != 0u && (!jolt_f32_near(bind->cap_hh, spec->cap_hh, 0.0f) || !jolt_f32_near(bind->cap_r, spec->cap_r, 0.0f))) {
+		return true;
+	}
+	return false;
+}
+
+bool jolt_spec_config_dirty(const EntityBinding* bind, const sk_jolt_sync_spec_t* spec) noexcept {
+	return !jolt_f32_near(bind->friction, spec->friction, 0.0f) || !jolt_f32_near(bind->restitution, spec->restitution, 0.0f) ||
+		   !jolt_f32_near(bind->linear_damping, spec->linear_damping, 0.0f) || !jolt_f32_near(bind->angular_damping, spec->angular_damping, 0.0f) ||
+		   !jolt_f32_near(bind->gravity_factor, spec->gravity_factor, 0.0f) || bind->object_layer != spec->object_layer || bind->flags != spec->flags;
+}
+
+void jolt_binding_store_spec(EntityBinding* bind, const sk_jolt_sync_spec_t* spec) noexcept {
+	bind->motion_type = spec->motion_type;
+	bind->mass = spec->mass;
+	bind->friction = spec->friction;
+	bind->restitution = spec->restitution;
+	bind->linear_damping = spec->linear_damping;
+	bind->angular_damping = spec->angular_damping;
+	bind->gravity_factor = spec->gravity_factor;
+	bind->object_layer = spec->object_layer;
+	bind->flags = spec->flags;
+	bind->shape_mask = spec->shape_mask;
+	bind->box_he[0] = spec->box_x;
+	bind->box_he[1] = spec->box_y;
+	bind->box_he[2] = spec->box_z;
+	bind->sphere_r = spec->sphere_r;
+	bind->cap_hh = spec->cap_hh;
+	bind->cap_r = spec->cap_r;
+}
+
+JPH::RefConst<JPH::Shape> jolt_make_spec_shape(const sk_jolt_sync_spec_t* spec) noexcept {
+	JPH::RefConst<JPH::Shape> parts[3];
+	int count = 0;
+	if ((spec->shape_mask & SK_JOLT_SYNC_SHAPE_BOX) != 0u) {
+		const JPH::BoxShapeSettings settings(JPH::Vec3(spec->box_x, spec->box_y, spec->box_z));
+		const JPH::ShapeSettings::ShapeResult result = settings.Create();
+		if (!result.IsValid()) {
+			return nullptr;
+		}
+		parts[count++] = result.Get();
+	}
+	if ((spec->shape_mask & SK_JOLT_SYNC_SHAPE_SPHERE) != 0u) {
+		const JPH::SphereShapeSettings settings(spec->sphere_r);
+		const JPH::ShapeSettings::ShapeResult result = settings.Create();
+		if (!result.IsValid()) {
+			return nullptr;
+		}
+		parts[count++] = result.Get();
+	}
+	if ((spec->shape_mask & SK_JOLT_SYNC_SHAPE_CAPSULE) != 0u) {
+		const JPH::CapsuleShapeSettings settings(spec->cap_hh, spec->cap_r);
+		const JPH::ShapeSettings::ShapeResult result = settings.Create();
+		if (!result.IsValid()) {
+			return nullptr;
+		}
+		parts[count++] = result.Get();
+	}
+	if (count == 0) {
+		return nullptr;
+	}
+	if (count == 1) {
+		return parts[0];
+	}
+	JPH::StaticCompoundShapeSettings compound;
+	for (int i = 0; i < count; ++i) {
+		compound.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), parts[i]);
+	}
+	const JPH::ShapeSettings::ShapeResult result = compound.Create();
+	if (!result.IsValid()) {
+		return nullptr;
+	}
+	return result.Get();
+}
+
+sk_jolt_body_t* jolt_register_body_id(JPH::BodyID id) noexcept {
+	auto* record = new JoltBodyHandle{id};
+	g_body_handles.push_back(record);
+	sk_jolt_body_t* handle = reinterpret_cast<sk_jolt_body_t*>(record);
+	g_live_bodies.insert(handle);
+	return handle;
+}
+
+sk_jolt_body_t* jolt_create_spec_body(const sk_jolt_sync_spec_t* spec) noexcept {
+	JPH::RefConst<JPH::Shape> shape = jolt_make_spec_shape(spec);
+	if (shape == nullptr) {
+		return nullptr;
+	}
+	if (spec->object_layer >= SK_JOLT_OBJECT_LAYER_COUNT) {
+		return nullptr;
+	}
+	if (spec->motion_type != SK_JOLT_MOTION_TYPE_STATIC && spec->motion_type != SK_JOLT_MOTION_TYPE_KINEMATIC && spec->motion_type != SK_JOLT_MOTION_TYPE_DYNAMIC) {
+		return nullptr;
+	}
+	const JPH::RVec3 pos(spec->pos_x, spec->pos_y, spec->pos_z);
+	const JPH::Quat rot = jolt_quat_from_xyzw(spec->rot_x, spec->rot_y, spec->rot_z, spec->rot_w);
+	JPH::BodyCreationSettings creation(shape, pos, rot, static_cast<JPH::EMotionType>(spec->motion_type), static_cast<JPH::ObjectLayer>(spec->object_layer));
+	creation.mAllowDynamicOrKinematic = true;
+	creation.mFriction = spec->friction;
+	creation.mRestitution = spec->restitution;
+	creation.mLinearDamping = (spec->linear_damping >= 0.0f) ? spec->linear_damping : 0.0f;
+	creation.mAngularDamping = (spec->angular_damping >= 0.0f) ? spec->angular_damping : 0.0f;
+	creation.mGravityFactor = spec->gravity_factor;
+	creation.mAllowSleeping = (spec->flags & 2u) != 0u; /* SK_RIGID_BODY_FLAG_ALLOW_SLEEPING */
+	creation.mIsSensor = (spec->flags & 1u) != 0u;		/* SK_RIGID_BODY_FLAG_SENSOR */
+	creation.mMotionQuality = ((spec->flags & 4u) != 0u) ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
+	creation.mLinearVelocity = JPH::Vec3(spec->lv_x, spec->lv_y, spec->lv_z);
+	creation.mAngularVelocity = JPH::Vec3(spec->av_x, spec->av_y, spec->av_z);
+	creation.mUserData = (static_cast<u64>(spec->generation) << 32u) | static_cast<u64>(spec->index);
+	if (spec->mass > 0.0f && spec->motion_type == SK_JOLT_MOTION_TYPE_DYNAMIC) {
+		creation.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+		creation.mMassPropertiesOverride.mMass = spec->mass;
+	}
+	const JPH::BodyID id = g_jolt_world->physics_system.GetBodyInterface().CreateAndAddBody(creation, JPH::EActivation::Activate);
+	if (id.IsInvalid()) {
+		if (g_jolt_log != nullptr) {
+			sk_log_warn(sk_logger_api(), g_jolt_log, "entity body create failed: no free body slots");
+		}
+		return nullptr;
+	}
+	return jolt_register_body_id(id);
+}
+
+void jolt_apply_live_spec(sk_jolt_body_t* body, const sk_jolt_sync_spec_t* spec) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(body);
+	if (record == nullptr) {
+		return;
+	}
+	JPH::BodyInterface& bi = g_jolt_world->physics_system.GetBodyInterface();
+	bi.SetFriction(record->body_id, spec->friction);
+	bi.SetRestitution(record->body_id, spec->restitution);
+	bi.SetGravityFactor(record->body_id, spec->gravity_factor);
+	if (spec->object_layer < SK_JOLT_OBJECT_LAYER_COUNT) {
+		bi.SetObjectLayer(record->body_id, static_cast<JPH::ObjectLayer>(spec->object_layer));
+	}
+	bi.SetIsSensor(record->body_id, (spec->flags & 1u) != 0u);
+	bi.SetMotionQuality(record->body_id, ((spec->flags & 4u) != 0u) ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete);
+
+	JPH::BodyLockWrite lock(g_jolt_world->physics_system.GetBodyLockInterface(), record->body_id);
+	if (!lock.Succeeded()) {
+		return;
+	}
+	JPH::Body& jolt_body = lock.GetBody();
+	JPH::MotionProperties* motion = jolt_body.GetMotionPropertiesUnchecked();
+	if (motion == nullptr) {
+		return;
+	}
+	motion->SetLinearDamping((spec->linear_damping >= 0.0f) ? spec->linear_damping : 0.0f);
+	motion->SetAngularDamping((spec->angular_damping >= 0.0f) ? spec->angular_damping : 0.0f);
+	jolt_body.SetAllowSleeping((spec->flags & 2u) != 0u);
+}
+
+void jolt_destroy_bind_body(EntityBinding* bind) noexcept {
+	if (bind->body == nullptr) {
+		return;
+	}
+	jolt_body_destroy_impl(bind->body);
+	bind->body = nullptr;
+}
+
+void jolt_store_last_from_spec(EntityBinding* bind, const sk_jolt_sync_spec_t* spec) noexcept {
+	bind->last_pos[0] = spec->pos_x;
+	bind->last_pos[1] = spec->pos_y;
+	bind->last_pos[2] = spec->pos_z;
+	bind->last_rot[0] = spec->rot_x;
+	bind->last_rot[1] = spec->rot_y;
+	bind->last_rot[2] = spec->rot_z;
+	bind->last_rot[3] = spec->rot_w;
+	bind->last_lv[0] = spec->lv_x;
+	bind->last_lv[1] = spec->lv_y;
+	bind->last_lv[2] = spec->lv_z;
+	bind->last_av[0] = spec->av_x;
+	bind->last_av[1] = spec->av_y;
+	bind->last_av[2] = spec->av_z;
+}
+
+void jolt_push_spec_pose(EntityBinding* bind, const sk_jolt_sync_spec_t* spec) noexcept {
+	JoltBodyHandle* record = jolt_body_handle(bind->body);
+	if (record == nullptr) {
+		return;
+	}
+	JPH::BodyInterface& bi = g_jolt_world->physics_system.GetBodyInterface();
+	const bool pose_changed = !jolt_vec3_near3(bind->last_pos, spec->pos_x, spec->pos_y, spec->pos_z, kPoseEpsilon) ||
+							  !jolt_quat_near4(bind->last_rot, spec->rot_x, spec->rot_y, spec->rot_z, spec->rot_w, kPoseEpsilon);
+	if (pose_changed) {
+		const JPH::EActivation activate = (spec->motion_type == SK_JOLT_MOTION_TYPE_STATIC) ? JPH::EActivation::DontActivate : JPH::EActivation::Activate;
+		bi.SetPositionAndRotation(record->body_id, JPH::RVec3(spec->pos_x, spec->pos_y, spec->pos_z), jolt_quat_from_xyzw(spec->rot_x, spec->rot_y, spec->rot_z, spec->rot_w),
+								  activate);
+		bind->last_pos[0] = spec->pos_x;
+		bind->last_pos[1] = spec->pos_y;
+		bind->last_pos[2] = spec->pos_z;
+		bind->last_rot[0] = spec->rot_x;
+		bind->last_rot[1] = spec->rot_y;
+		bind->last_rot[2] = spec->rot_z;
+		bind->last_rot[3] = spec->rot_w;
+	}
+	const bool vel_changed = !jolt_vec3_near3(bind->last_lv, spec->lv_x, spec->lv_y, spec->lv_z, kPoseEpsilon) ||
+							 !jolt_vec3_near3(bind->last_av, spec->av_x, spec->av_y, spec->av_z, kPoseEpsilon);
+	if (vel_changed && spec->motion_type != SK_JOLT_MOTION_TYPE_STATIC) {
+		bi.SetLinearAndAngularVelocity(record->body_id, JPH::Vec3(spec->lv_x, spec->lv_y, spec->lv_z), JPH::Vec3(spec->av_x, spec->av_y, spec->av_z));
+		bind->last_lv[0] = spec->lv_x;
+		bind->last_lv[1] = spec->lv_y;
+		bind->last_lv[2] = spec->lv_z;
+		bind->last_av[0] = spec->av_x;
+		bind->last_av[1] = spec->av_y;
+		bind->last_av[2] = spec->av_z;
+	}
+}
+
+} /* namespace */
+
+extern "C" {
+
+void jolt_internal_sync_begin(void) { // NOLINT(modernize-redundant-void-arg)
+	if (g_jolt_world == nullptr) {
+		return;
+	}
+	for (auto& entry : g_entity_bindings) {
+		entry.second.seen = false;
+	}
+}
+
+void jolt_internal_bind(const sk_jolt_sync_spec_t* spec, sk_jolt_body_t** out_body) {
+	if (out_body != nullptr) {
+		*out_body = nullptr;
+	}
+	if (g_jolt_world == nullptr || spec == nullptr || spec->shape_mask == 0u) {
+		return;
+	}
+
+	EntityBinding* bind = nullptr;
+	const auto found = g_entity_bindings.find(spec->index);
+	if (found != g_entity_bindings.end()) {
+		if (found->second.generation != spec->generation) {
+			jolt_destroy_bind_body(&found->second);
+			g_entity_bindings.erase(found);
+		} else {
+			bind = &found->second;
+		}
+	}
+
+	if (bind == nullptr) {
+		sk_jolt_body_t* body = jolt_create_spec_body(spec);
+		if (body == nullptr) {
+			return;
+		}
+		EntityBinding created{};
+		created.index = spec->index;
+		created.generation = spec->generation;
+		created.body = body;
+		created.seen = true;
+		jolt_binding_store_spec(&created, spec);
+		jolt_store_last_from_spec(&created, spec);
+		g_entity_bindings[spec->index] = created;
+		if (out_body != nullptr) {
+			*out_body = body;
+		}
+		return;
+	}
+
+	bind->seen = true;
+	bind->generation = spec->generation;
+	if (jolt_spec_needs_rebuild(bind, spec)) {
+		jolt_destroy_bind_body(bind);
+		bind->body = jolt_create_spec_body(spec);
+		if (bind->body == nullptr) {
+			g_entity_bindings.erase(spec->index);
+			return;
+		}
+		jolt_binding_store_spec(bind, spec);
+		jolt_store_last_from_spec(bind, spec);
+		if (out_body != nullptr) {
+			*out_body = bind->body;
+		}
+		return;
+	}
+	if (jolt_spec_config_dirty(bind, spec)) {
+		jolt_apply_live_spec(bind->body, spec);
+		jolt_binding_store_spec(bind, spec);
+	}
+	jolt_push_spec_pose(bind, spec);
+	if (out_body != nullptr) {
+		*out_body = bind->body;
+	}
+}
+
+void jolt_internal_sync_end(void) {
+	if (g_jolt_world == nullptr) {
+		return;
+	}
+	for (auto it = g_entity_bindings.begin(); it != g_entity_bindings.end();) {
+		if (it->second.seen) {
+			++it;
+			continue;
+		}
+		jolt_destroy_bind_body(&it->second);
+		it = g_entity_bindings.erase(it);
+	}
+}
+
+void jolt_internal_clear_bindings(void) {
+	for (auto& entry : g_entity_bindings) {
+		jolt_destroy_bind_body(&entry.second);
+	}
+	g_entity_bindings.clear();
+}
+
+u32 jolt_internal_writeback_count(void) {
+	return static_cast<u32>(g_entity_bindings.size());
+}
+
+i32 jolt_internal_writeback_at(u32 i, sk_jolt_sync_pose_t* out) {
+	if (out == nullptr || g_jolt_world == nullptr) {
+		return -1;
+	}
+	if (i >= static_cast<u32>(g_entity_bindings.size())) {
+		return -1;
+	}
+	auto it = g_entity_bindings.begin();
+	for (u32 n = 0u; n < i; ++n) {
+		++it;
+	}
+	EntityBinding& bind = it->second;
+	if (bind.body == nullptr) {
+		return -1;
+	}
+	sk_jolt_vec3_t pos;
+	sk_jolt_quat_t rot;
+	sk_jolt_vec3_t lv;
+	sk_jolt_vec3_t av;
+	if (jolt_body_get_position_impl(bind.body, &pos) != 0) {
+		return -1;
+	}
+	(void)jolt_body_get_rotation_impl(bind.body, &rot);
+	(void)jolt_body_get_linear_velocity_impl(bind.body, &lv);
+	(void)jolt_body_get_angular_velocity_impl(bind.body, &av);
+	out->index = bind.index;
+	out->generation = bind.generation;
+	out->pos_x = pos.x;
+	out->pos_y = pos.y;
+	out->pos_z = pos.z;
+	out->rot_x = rot.x;
+	out->rot_y = rot.y;
+	out->rot_z = rot.z;
+	out->rot_w = rot.w;
+	out->lv_x = lv.x;
+	out->lv_y = lv.y;
+	out->lv_z = lv.z;
+	out->av_x = av.x;
+	out->av_y = av.y;
+	out->av_z = av.z;
+	bind.last_pos[0] = pos.x;
+	bind.last_pos[1] = pos.y;
+	bind.last_pos[2] = pos.z;
+	bind.last_rot[0] = rot.x;
+	bind.last_rot[1] = rot.y;
+	bind.last_rot[2] = rot.z;
+	bind.last_rot[3] = rot.w;
+	bind.last_lv[0] = lv.x;
+	bind.last_lv[1] = lv.y;
+	bind.last_lv[2] = lv.z;
+	bind.last_av[0] = av.x;
+	bind.last_av[1] = av.y;
+	bind.last_av[2] = av.z;
+	return 0;
+}
+
+} /* extern "C" */
+
+namespace {
+
+void jolt_sync_world_impl(sk_world_t* world) noexcept {
+	jolt_ecs_sync_world(world);
+}
+
+void jolt_write_back_impl(sk_world_t* world) noexcept {
+	jolt_ecs_write_back(world);
+}
+
+void jolt_step_world_writeback(void_ptr_t user_data, f64, u64) noexcept {
+	jolt_write_back_impl(static_cast<sk_world_t*>(user_data));
+}
+
+void jolt_step_world_impl(sk_world_t* world, f32 delta_time) noexcept {
+	if (world != nullptr) {
+		jolt_sync_world_impl(world);
+	}
+	jolt_step_impl(delta_time, (world != nullptr) ? jolt_step_world_writeback : nullptr, world);
+}
+
 /* ---- character stubs (not implemented at this stage) ---- */
 
 sk_jolt_character_t* jolt_character_create_impl(const sk_jolt_shape_desc_t*, u32) noexcept {
@@ -942,6 +1415,9 @@ const sk_jolt_api_t jolt_api = {
 	jolt_character_destroy_impl,
 	jolt_ray_cast_impl,
 	jolt_sphere_cast_impl,
+	jolt_sync_world_impl,
+	jolt_write_back_impl,
+	jolt_step_world_impl,
 };
 
 } /* namespace */
@@ -957,6 +1433,11 @@ void sk_jolt_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	g_jolt_app_api = app_api;
 	app_api->set_api(context, SK_JOLT_API_TYPE_ID, &jolt_api);
 	sk_jolt_components_register_all(context, app_api);
+}
+
+extern "C" void sk_jolt_sync_app(sk_app_context_t** out_context, const sk_app_api_t** out_app_api) {
+	*out_context = g_jolt_app_context;
+	*out_app_api = g_jolt_app_api;
 }
 
 /* ---- compile-time checks on the C boundary (all builds) ---- */
@@ -1013,5 +1494,20 @@ extern "C" void sk_jolt_test_context(sk_app_context_t** out_context, const sk_ap
 
 extern "C" const sk_jolt_api_t* sk_jolt_test_api(void) {
 	return &jolt_api;
+}
+
+extern "C" u32 sk_jolt_test_bound_count(void);
+extern "C" sk_jolt_body_t* sk_jolt_test_body_for_entity(u32 index, u32 generation);
+
+extern "C" u32 sk_jolt_test_bound_count(void) {
+	return static_cast<u32>(g_entity_bindings.size());
+}
+
+extern "C" sk_jolt_body_t* sk_jolt_test_body_for_entity(u32 index, u32 generation) {
+	const auto found = g_entity_bindings.find(index);
+	if (found == g_entity_bindings.end() || found->second.generation != generation) {
+		return nullptr;
+	}
+	return found->second.body;
 }
 #endif /* SK_TESTS */

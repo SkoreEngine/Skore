@@ -338,6 +338,9 @@ typedef struct sk_jolt_body_t sk_jolt_body_t;
 /** Opaque character controller (Jolt CharacterVirtual behind the stub). */
 typedef struct sk_jolt_character_t sk_jolt_character_t;
 
+/** Forward declaration of the ECS world (owned by the entities plugin). */
+typedef struct sk_world_t sk_world_t;
+
 /* ------------------------------------------------------------------ */
 /*  Scene queries (ray / shape casts)                                 */
 /* ------------------------------------------------------------------ */
@@ -427,6 +430,9 @@ typedef void (*sk_jolt_step_callback_fn)(void_ptr_t user_data, f64 physics_time,
  * (queries are cast from an object layer and only hit colliding layers).
  * Character controllers are not implemented yet: character_create() reports
  * failure (NULL).
+ *
+ * ECS sync (APX-307): sync_world() / write_back() / step_world() reconcile
+ * rigid-body entities with Jolt. The entity↔BodyID map is plugin-private.
  */
 typedef struct sk_jolt_api_t {
 	/**
@@ -693,6 +699,42 @@ typedef struct sk_jolt_api_t {
 	 *         failure modes as ray_cast).
 	 */
 	i32 (*sphere_cast)(f32 radius, const sk_jolt_vec3_t* origin, const sk_jolt_vec3_t* direction, f32 max_distance, u32 object_layer, sk_jolt_query_hit_t* out_hit);
+
+	/**
+	 * Reconcile @p world with the live Jolt scene: create a body when an
+	 * entity has sk_rigid_body_config_t plus at least one collider, destroy
+	 * the body when the entity dies or those components are removed, push
+	 * transform / config changes into Jolt, and rebuild the shape when
+	 * collider data changes. Static and kinematic bodies follow the entity
+	 * transform; dynamic teleports are pushed only when the transform
+	 * differs from the last write-back. Sleeping / activation follow the
+	 * config flags. The entity↔BodyID map is kept in plugin C++ state.
+	 * No-op when the physics world is not initialized or @p world is NULL.
+	 * Main-thread only.
+	 * @param world ECS world to reconcile (must not be NULL for work to run).
+	 */
+	void (*sync_world)(sk_world_t* world);
+
+	/**
+	 * Write simulated pose and velocities back onto ECS entities that have
+	 * a live Jolt body: position / rotation onto sk_transform_t (when
+	 * present) and linear / angular velocity onto sk_rigid_body_state_t
+	 * (when present). Call after step() — or use step_world(), which does
+	 * this after every completed fixed step. No-op without a live world or
+	 * when @p world is NULL. Main-thread only.
+	 * @param world ECS world to write (must be the world last synced, or
+	 *              the same world passed to step_world).
+	 */
+	void (*write_back)(sk_world_t* world);
+
+	/**
+	 * One host-frame physics tick against an ECS world: sync_world(@p world),
+	 * then step(@p delta_time) with write_back after every completed fixed
+	 * step. Main-thread only.
+	 * @param world      ECS world (may be NULL: then only step() runs).
+	 * @param delta_time Host frame delta in seconds.
+	 */
+	void (*step_world)(sk_world_t* world, f32 delta_time);
 } sk_jolt_api_t;
 
 #ifdef __cplusplus

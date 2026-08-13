@@ -1516,6 +1516,9 @@ SK_TEST(app_init_auto_loads_jolt_plugin) {
 	TEST_ASSERT_EQUAL_STRING("box_collider", info.name);
 	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID, &info));
 	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID, &info));
+	memset(&info, 0, sizeof(info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_TRANSFORM_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_STRING("transform", info.name);
 	sk_app_destroy(ctx);
 }
 
@@ -2056,6 +2059,149 @@ SK_TEST(jolt_components_serialize_roundtrip) {
 	}
 
 	api->destroy(repo);
+}
+
+/* Host-side ECS ↔ Jolt sync (APX-307). Plugin-local tests cover the same
+ * paths when sk-entities is already registered; this always runs after
+ * sorted auto-load so both plugins are live. */
+SK_TEST(jolt_ecs_sync_world_gravity_kinematic_remove_velocity) {
+	sk_app_context_t* ctx = sk_app_init(0, NULL);
+	TEST_ASSERT_NOT_NULL(ctx);
+	const sk_app_api_t* host = sk_app_api();
+	const sk_jolt_api_t* jolt = (const sk_jolt_api_t*)host->get_api(ctx, SK_JOLT_API_TYPE_ID);
+	const sk_entities_api_t* ecs = (const sk_entities_api_t*)host->get_api(ctx, SK_ENTITIES_API_TYPE_ID);
+	TEST_ASSERT_NOT_NULL(jolt);
+	TEST_ASSERT_NOT_NULL(ecs);
+	TEST_ASSERT_NOT_NULL(jolt->sync_world);
+	TEST_ASSERT_NOT_NULL(jolt->write_back);
+	TEST_ASSERT_NOT_NULL(jolt->step_world);
+
+	TEST_ASSERT_EQUAL_INT32(0, jolt->init(NULL));
+	sk_world_t* world = ecs->world_create();
+	TEST_ASSERT_NOT_NULL(world);
+
+	const sk_type_id_t ids[] = {SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, SK_TRANSFORM_COMPONENT_TYPE_ID, SK_BOX_COLLIDER_COMPONENT_TYPE_ID};
+
+	/* Static floor at y=-1 (top at y=0) and a dynamic box dropped from y=5. */
+	sk_entity_t floor = ecs->world_spawn(world, ids, 4u);
+	sk_entity_t box = ecs->world_spawn(world, ids, 4u);
+	TEST_ASSERT_TRUE(sk_entity_is_valid(floor));
+	TEST_ASSERT_TRUE(sk_entity_is_valid(box));
+
+	sk_rigid_body_config_t* floor_cfg = (sk_rigid_body_config_t*)ecs->world_component(world, floor, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID);
+	floor_cfg->motion_type = SK_JOLT_MOTION_TYPE_STATIC;
+	floor_cfg->object_layer = SK_JOLT_OBJECT_LAYER_NON_MOVING;
+	floor_cfg->friction = 0.2f;
+	((sk_box_collider_t*)ecs->world_component(world, floor, SK_BOX_COLLIDER_COMPONENT_TYPE_ID))->half_extent = sk_vec3(10.0f, 1.0f, 10.0f);
+	((sk_transform_t*)ecs->world_component(world, floor, SK_TRANSFORM_COMPONENT_TYPE_ID))->position = sk_vec3(0.0f, -1.0f, 0.0f);
+	((sk_transform_t*)ecs->world_component(world, floor, SK_TRANSFORM_COMPONENT_TYPE_ID))->rotation = sk_quat_identity();
+
+	sk_rigid_body_config_t* box_cfg = (sk_rigid_body_config_t*)ecs->world_component(world, box, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID);
+	box_cfg->motion_type = SK_JOLT_MOTION_TYPE_DYNAMIC;
+	box_cfg->mass = 1.0f;
+	box_cfg->friction = 0.2f;
+	box_cfg->linear_damping = 0.05f;
+	box_cfg->angular_damping = 0.05f;
+	box_cfg->gravity_factor = 1.0f;
+	box_cfg->object_layer = SK_JOLT_OBJECT_LAYER_MOVING;
+	box_cfg->flags = SK_RIGID_BODY_FLAG_ALLOW_SLEEPING;
+	((sk_box_collider_t*)ecs->world_component(world, box, SK_BOX_COLLIDER_COMPONENT_TYPE_ID))->half_extent = sk_vec3(0.5f, 0.5f, 0.5f);
+	((sk_transform_t*)ecs->world_component(world, box, SK_TRANSFORM_COMPONENT_TYPE_ID))->position = sk_vec3(0.0f, 5.0f, 0.0f);
+	((sk_transform_t*)ecs->world_component(world, box, SK_TRANSFORM_COMPONENT_TYPE_ID))->rotation = sk_quat_identity();
+
+	i32 i;
+	i32 settled = 0;
+	for (i = 0; i < 60; ++i) {
+		jolt->step_world(world, 1.0f / 60.0f);
+	}
+	TEST_ASSERT_TRUE(((sk_transform_t*)ecs->world_component(world, box, SK_TRANSFORM_COMPONENT_TYPE_ID))->position.y < 4.0f);
+
+	for (i = 0; i < 1800; ++i) {
+		jolt->step_world(world, 1.0f / 60.0f);
+		const sk_transform_t* xf = (const sk_transform_t*)ecs->world_component(world, box, SK_TRANSFORM_COMPONENT_TYPE_ID);
+		const sk_rigid_body_state_t* st = (const sk_rigid_body_state_t*)ecs->world_component(world, box, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID);
+		const f32 v2 = st->linear_velocity.x * st->linear_velocity.x + st->linear_velocity.y * st->linear_velocity.y + st->linear_velocity.z * st->linear_velocity.z;
+		if (xf->position.y > 0.4f && xf->position.y < 0.6f && v2 < 0.05f * 0.05f) {
+			settled = 1;
+			break;
+		}
+	}
+	TEST_ASSERT_TRUE(settled);
+
+	/* Kinematic follows its transform. */
+	sk_entity_t kin = ecs->world_spawn(world, ids, 4u);
+	sk_rigid_body_config_t* kin_cfg = (sk_rigid_body_config_t*)ecs->world_component(world, kin, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID);
+	kin_cfg->motion_type = SK_JOLT_MOTION_TYPE_KINEMATIC;
+	kin_cfg->object_layer = SK_JOLT_OBJECT_LAYER_MOVING;
+	kin_cfg->gravity_factor = 1.0f;
+	((sk_box_collider_t*)ecs->world_component(world, kin, SK_BOX_COLLIDER_COMPONENT_TYPE_ID))->half_extent = sk_vec3(0.5f, 0.5f, 0.5f);
+	sk_transform_t* kin_xf = (sk_transform_t*)ecs->world_component(world, kin, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	kin_xf->position = sk_vec3(8.0f, 3.0f, 0.0f);
+	kin_xf->rotation = sk_quat_identity();
+	for (i = 0; i < 30; ++i) {
+		jolt->step_world(world, 1.0f / 60.0f);
+	}
+	kin_xf = (sk_transform_t*)ecs->world_component(world, kin, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 8.0f, kin_xf->position.x);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 3.0f, kin_xf->position.y);
+	kin_xf->position = sk_vec3(8.0f, 7.0f, 1.0f);
+	for (i = 0; i < 15; ++i) {
+		jolt->step_world(world, 1.0f / 60.0f);
+	}
+	kin_xf = (sk_transform_t*)ecs->world_component(world, kin, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 7.0f, kin_xf->position.y);
+	TEST_ASSERT_FLOAT_WITHIN(1.0e-3f, 1.0f, kin_xf->position.z);
+
+	/* Removing the collider removes the Jolt body (ray no longer hits). */
+	sk_entity_t probe = ecs->world_spawn(world, ids, 4u);
+	sk_rigid_body_config_t* probe_cfg = (sk_rigid_body_config_t*)ecs->world_component(world, probe, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID);
+	probe_cfg->motion_type = SK_JOLT_MOTION_TYPE_STATIC;
+	probe_cfg->object_layer = SK_JOLT_OBJECT_LAYER_NON_MOVING;
+	((sk_box_collider_t*)ecs->world_component(world, probe, SK_BOX_COLLIDER_COMPONENT_TYPE_ID))->half_extent = sk_vec3(0.5f, 0.5f, 0.5f);
+	sk_transform_t* probe_xf = (sk_transform_t*)ecs->world_component(world, probe, SK_TRANSFORM_COMPONENT_TYPE_ID);
+	probe_xf->position = sk_vec3(20.0f, 0.0f, -5.0f);
+	probe_xf->rotation = sk_quat_identity();
+	jolt->sync_world(world);
+	{
+		sk_jolt_query_hit_t hit;
+		sk_jolt_vec3_t origin = {20.0f, 0.0f, 0.0f};
+		sk_jolt_vec3_t toward = {0.0f, 0.0f, -1.0f};
+		TEST_ASSERT_EQUAL_INT32(0, jolt->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+		TEST_ASSERT_NOT_NULL(hit.body);
+		TEST_ASSERT_EQUAL_INT32(0, ecs->world_remove_component(world, probe, SK_BOX_COLLIDER_COMPONENT_TYPE_ID));
+		jolt->sync_world(world);
+		TEST_ASSERT_NULL(((sk_rigid_body_config_t*)ecs->world_component(world, probe, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID))->body);
+		TEST_ASSERT_EQUAL_INT32(1, jolt->ray_cast(&origin, &toward, 10.0f, SK_JOLT_OBJECT_LAYER_MOVING, &hit));
+	}
+
+	/* Velocities authored on the hot component are applied and read back. */
+	jolt->shutdown();
+	sk_jolt_settings_t settings;
+	jolt->settings_defaults(&settings);
+	settings.gravity[0] = 0.0f;
+	settings.gravity[1] = 0.0f;
+	settings.gravity[2] = 0.0f;
+	TEST_ASSERT_EQUAL_INT32(0, jolt->init(&settings));
+	sk_world_t* world2 = ecs->world_create();
+	sk_entity_t flyer = ecs->world_spawn(world2, ids, 4u);
+	sk_rigid_body_config_t* flyer_cfg = (sk_rigid_body_config_t*)ecs->world_component(world2, flyer, SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID);
+	flyer_cfg->motion_type = SK_JOLT_MOTION_TYPE_DYNAMIC;
+	flyer_cfg->mass = 1.0f;
+	flyer_cfg->gravity_factor = 0.0f;
+	flyer_cfg->object_layer = SK_JOLT_OBJECT_LAYER_MOVING;
+	((sk_box_collider_t*)ecs->world_component(world2, flyer, SK_BOX_COLLIDER_COMPONENT_TYPE_ID))->half_extent = sk_vec3(0.5f, 0.5f, 0.5f);
+	((sk_transform_t*)ecs->world_component(world2, flyer, SK_TRANSFORM_COMPONENT_TYPE_ID))->rotation = sk_quat_identity();
+	sk_rigid_body_state_t* flyer_st = (sk_rigid_body_state_t*)ecs->world_component(world2, flyer, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID);
+	flyer_st->linear_velocity = sk_vec3(3.0f, 0.0f, 0.0f);
+	jolt->step_world(world2, 1.0f / 60.0f);
+	flyer_st = (sk_rigid_body_state_t*)ecs->world_component(world2, flyer, SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID);
+	TEST_ASSERT_TRUE(flyer_st->linear_velocity.x > 1.5f);
+	TEST_ASSERT_TRUE(((sk_transform_t*)ecs->world_component(world2, flyer, SK_TRANSFORM_COMPONENT_TYPE_ID))->position.x > 0.0f);
+
+	ecs->world_destroy(world2);
+	ecs->world_destroy(world);
+	jolt->shutdown();
+	sk_app_destroy(ctx);
 }
 
 #endif /* SK_TESTS */
