@@ -638,7 +638,7 @@ SK_TEST(ui_widget_vision_toggle) {
 	cfg.disabled = 1;
 	cfg.bool_value = 1;
 	/* Disabled ON: muted accent track + dimmer thumb (still present). */
-	uwv_run_state(ui, "ui_widget_vision_toggle_disabled_on", 80u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "disabled on", UWV_RGB(56u, 82u, 122u), UWV_RGB(158u, 163u, 173u), 1);
+	uwv_run_state(ui, "ui_widget_vision_toggle_disabled_on", 80u, 64u, &cfg, 0, SK_UI_VISION_WIDGET_TOGGLE, "disabled on", UWV_RGB(46u, 56u, 77u), UWV_RGB(122u, 128u, 138u), 1);
 
 	uwv_env_destroy(&env);
 }

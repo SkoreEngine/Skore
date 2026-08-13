@@ -12,6 +12,7 @@
 #   flexbox      — flexbox layout vision (ui_flexbox_vision.c)
 #   interaction  — behavioural engine suite (plugin) + interaction vision (integration)
 #   vision-helper — ui_vision_assert unit/mock tests
+#   dock         — docking public-API e2e (tests/integration/ui_dock.c)
 #   text-screenshot — APX-268 deterministic MSDF text PNG suite
 #
 # Vision credentials (optional for structural/interaction; required for live grades):
@@ -30,12 +31,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 BUILD_DIR="${BUILD_DIR:-build}"
-SUITES="${SUITES:-widget,flexbox,interaction,vision-helper}"
+SUITES="${SUITES:-widget,flexbox,interaction,vision-helper,dock}"
 DO_BUILD=1
 EXTRA_ARGS=()
 
 usage() {
-  sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 }
 
@@ -119,6 +120,9 @@ for raw in "${suite_list[@]}"; do
     vision-helper|vision_helper|helper|assert)
       integration_tokens+=("ui_vision_assert_*" "ui_vision_rubrics_*")
       ;;
+    dock|docking|ui-dock|ui_dock)
+      integration_tokens+=("ui_dock_*")
+      ;;
     authoring|author)
       integration_tokens+=("ui_author_*")
       plugin_tokens+=("ui_author_*")
@@ -135,6 +139,7 @@ for raw in "${suite_list[@]}"; do
         "ui_vision_assert_*"
         "ui_vision_rubrics_*"
         "ui_author_*"
+        "ui_dock_*"
         "ui_text_screenshot_*"
       )
       plugin_tokens+=("ui_author_ix_*")

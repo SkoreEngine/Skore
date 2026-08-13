@@ -75,6 +75,7 @@ typedef struct player_ui_state_t {
 	i32 pointer_down;
 	u32 click_count;
 	u32 frame;
+	i32 dock_demo;
 	sk_logger_t* log;
 	const sk_logger_api_t* logger_api;
 	player_gpu_t gpu;
@@ -886,11 +887,66 @@ static void player_on_content_scale(sk_window_t window, sk_content_scale_t scale
 	st->last_scale_y = scale.y;
 }
 
+static i32 player_has_arg(int argc, char* argv[], const_chr_t flag) {
+	i32 i;
+	for (i = 1; i < argc; ++i) {
+		if (argv[i] != NULL && strcmp(argv[i], flag) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static i32 player_dump_dock_layout(player_ui_state_t* st) {
+	const sk_ui_api_t* ui = st->ui;
+	sk_ui_context_t* ctx = st->ctx;
+	sk_ui_rect_t space;
+	sk_ui_rect_t left;
+	sk_ui_rect_t center;
+	sk_ui_rect_t right_top;
+	sk_ui_rect_t right_bottom;
+	f32 w = 0.0f;
+	f32 h = 0.0f;
+
+	ui->sample_dock_demo_logical_size(&w, &h);
+	space.x = 0.0f;
+	space.y = 0.0f;
+	space.width = w;
+	space.height = h;
+	if (ui->dockspace_layout(ctx, ui->dockspace_find(ctx, "dock-demo"), &space) != 0) {
+		return -1;
+	}
+	if (ui->dock_node_get_rect(ctx, ui->dock_find_node_for_window(ctx, "dock-demo-hierarchy"), &left) != 0) {
+		return -1;
+	}
+	if (ui->dock_node_get_rect(ctx, ui->dock_find_node_for_window(ctx, "dock-demo-scene"), &center) != 0) {
+		return -1;
+	}
+	if (ui->dock_node_get_rect(ctx, ui->dock_find_node_for_window(ctx, "dock-demo-inspector"), &right_top) != 0) {
+		return -1;
+	}
+	if (ui->dock_node_get_rect(ctx, ui->dock_find_node_for_window(ctx, "dock-demo-console"), &right_bottom) != 0) {
+		return -1;
+	}
+	/* One tagged line so two runs can be compared after stripping logs. */
+	printf("dock-demo-layout: "
+		   "{\"space\":[%.9g,%.9g,%.9g,%.9g],\"left\":[%.9g,%.9g,%.9g,%.9g],\"center\":[%.9g,%.9g,%.9g,%.9g],\"right_top\":[%.9g,%.9g,%.9g,%.9g],\"right_bottom\":[%.9g,%.9g,%.9g,%"
+		   ".9g]}\n",
+		   (double)space.x, (double)space.y, (double)space.width, (double)space.height, (double)left.x, (double)left.y, (double)left.width, (double)left.height, (double)center.x,
+		   (double)center.y, (double)center.width, (double)center.height, (double)right_top.x, (double)right_top.y, (double)right_top.width, (double)right_top.height,
+		   (double)right_bottom.x, (double)right_bottom.y, (double)right_bottom.width, (double)right_bottom.height);
+	return 0;
+}
+
 static i32 player_ui_init(sk_app_context_t* app_ctx, player_ui_state_t* st, const sk_app_api_t* app_api) {
 	sk_logger_t* log = st->log;
+	const sk_logger_api_t* logger_api = st->logger_api;
+	i32 dock_demo = st->dock_demo;
 
 	memset(st, 0, sizeof(*st));
 	st->log = log;
+	st->logger_api = logger_api;
+	st->dock_demo = dock_demo;
 	st->last_scale_x = 1.0f;
 	st->last_scale_y = 1.0f;
 
@@ -912,6 +968,9 @@ static i32 player_ui_init(sk_app_context_t* app_ctx, player_ui_state_t* st, cons
 		st->font = st->ui->font_load_memory(st->fonts, skore_test_font_ttf, (u32)sizeof(skore_test_font_ttf));
 	}
 
+	if (st->dock_demo != 0) {
+		return sk_ui_node_is_valid(st->ui->sample_dock_demo_build(st->ctx, SK_UI_NODE_INVALID)) ? 0 : -1;
+	}
 	return player_ui_build(st);
 }
 
@@ -1187,6 +1246,12 @@ int main(int argc, char* argv[]) {
 	sk_window_t window;
 	player_ui_state_t ui_state;
 	sk_log_file_sink_t* file_sink = NULL;
+	i32 dock_demo = player_has_arg(argc, argv, "--dock-demo");
+	i32 dump_layout = player_has_arg(argc, argv, "--dump-layout");
+	u32 win_w = dock_demo != 0 ? 1280u : 960u;
+	u32 win_h = dock_demo != 0 ? 720u : 640u;
+	u32 win_flags = dock_demo != 0 ? (u32)SK_WINDOW_FLAG_NONE : (u32)SK_WINDOW_FLAG_RESIZABLE;
+	const_chr_t win_title = dock_demo != 0 ? "Skore — Docking Demo" : "Skore — UI Widget Playground";
 
 	if (ctx == NULL) {
 		return 1;
@@ -1199,6 +1264,22 @@ int main(int argc, char* argv[]) {
 	app_api = boot.api;
 	logger_api = app_api->logger_api(ctx);
 	log_ctx = app_api->logger_context(ctx);
+
+	if (dock_demo != 0 && dump_layout != 0) {
+		i32 rc;
+		(void)logger_api->remove_sink(log_ctx, sk_logger_stdout_sink());
+		memset(&ui_state, 0, sizeof(ui_state));
+		ui_state.dock_demo = 1;
+		ui_state.logger_api = logger_api;
+		rc = player_ui_init(ctx, &ui_state, boot.api);
+		if (rc == 0) {
+			rc = player_dump_dock_layout(&ui_state);
+		}
+		player_ui_shutdown(&ui_state);
+		sk_app_shutdown(ctx);
+		return rc == 0 ? 0 : 1;
+	}
+
 	file_sink = player_attach_file_log(logger_api, log_ctx, app_api->filesystem_api(ctx));
 	win_api = app_api->get_api(ctx, SK_PLATFORM_WINDOW_API_TYPE_ID);
 	rg_api = sk_render_graph_api_from_app(ctx, app_api);
@@ -1230,7 +1311,7 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	window = win_api->create_window("Skore — UI Widget Playground", 960u, 640u, (u32)SK_WINDOW_FLAG_RESIZABLE);
+	window = win_api->create_window(win_title, win_w, win_h, win_flags);
 	if (window == NULL) {
 		rg_api->shutdown();
 		if (file_sink != NULL) {
@@ -1242,6 +1323,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	memset(&ui_state, 0, sizeof(ui_state));
+	ui_state.dock_demo = dock_demo;
 	ui_state.logger_api = logger_api;
 	ui_state.log = logger_api->create_logger(log_ctx, "player-ui");
 
@@ -1259,7 +1341,8 @@ int main(int argc, char* argv[]) {
 		if (ui_state.log != NULL) {
 			sk_extent_t logical = win_api->get_window_size(window);
 			sk_extent_t physical = win_api->get_framebuffer_size(window);
-			sk_log_info(logger_api, ui_state.log, "widget playground ready (mouse/keyboard/wheel → sk-ui)");
+			sk_log_info(logger_api, ui_state.log,
+						dock_demo != 0 ? "docking demo ready (fixed 1280x720 layout, no persist)" : "widget playground ready (mouse/keyboard/wheel → sk-ui)");
 			/* logical × scale must equal physical, or layout misses the window. */
 			sk_log_info(logger_api, ui_state.log, "window: logical=%ux%u physical=%ux%u scale=%.2fx%.2f", logical.width, logical.height, physical.width, physical.height,
 						(double)ui_state.last_scale_x, (double)ui_state.last_scale_y);
