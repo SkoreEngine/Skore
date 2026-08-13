@@ -252,8 +252,9 @@ void sk_app_shutdown(sk_app_context_t* context) {
 			plat = (const sk_platform_api_t*)sk_app_get_api_impl(context, SK_PLATFORM_API_TYPE_ID);
 		}
 		if (plat != NULL) {
-			for (u32 i = 0u; i < context->plugins.count; i++) {
-				plat->lib_close(context->plugins.items[i]);
+			/* Reverse load order: dependents (sk-jolt) close before bases (sk-entities). */
+			for (u32 i = context->plugins.count; i > 0u; i--) {
+				plat->lib_close(context->plugins.items[i - 1u]);
 			}
 		}
 		sk_array_free(&context->plugins);
@@ -429,8 +430,9 @@ static void unload_plugins(sk_app_context_t* context) {
 	}
 
 	const sk_platform_api_t* plat = app_platform_api(context);
-	for (u32 i = 0u; i < count; i++) {
-		plat->lib_close(context->plugins.items[i]);
+	/* Reverse load order: dependents close before plugins they called into. */
+	for (u32 i = count; i > 0u; i--) {
+		plat->lib_close(context->plugins.items[i - 1u]);
 	}
 	sk_array_free(&context->plugins);
 }
@@ -1755,28 +1757,37 @@ SK_TEST(app_init_auto_loads_jolt_plugin) {
 	TEST_ASSERT_NOT_NULL_MESSAGE(ecs, "expected sk-entities auto-loaded from app_folder/plugins");
 
 	sk_component_info_t info;
+	sk_type_id_t rigid_cfg = SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID;
+	sk_type_id_t rigid_state = SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID;
+	sk_type_id_t box_col = SK_BOX_COLLIDER_COMPONENT_TYPE_ID;
+	sk_type_id_t sphere_col = SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID;
+	sk_type_id_t capsule_col = SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID;
+	sk_type_id_t xform = SK_TRANSFORM_COMPONENT_TYPE_ID;
+	sk_type_id_t char_cfg = SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID;
+	sk_type_id_t char_state = SK_CHARACTER_STATE_COMPONENT_TYPE_ID;
 	memset(&info, 0, sizeof(info));
-	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_RIGID_BODY_CONFIG_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(rigid_cfg, &info));
+	TEST_ASSERT_NOT_NULL(info.name);
 	TEST_ASSERT_EQUAL_STRING("rigid_body_config", info.name);
 	TEST_ASSERT_EQUAL_UINT32((u32)sizeof(sk_rigid_body_config_t), info.size);
 
 	memset(&info, 0, sizeof(info));
-	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_RIGID_BODY_STATE_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(rigid_state, &info));
 	TEST_ASSERT_EQUAL_STRING("rigid_body_state", info.name);
 
 	memset(&info, 0, sizeof(info));
-	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_BOX_COLLIDER_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(box_col, &info));
 	TEST_ASSERT_EQUAL_STRING("box_collider", info.name);
-	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_SPHERE_COLLIDER_COMPONENT_TYPE_ID, &info));
-	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CAPSULE_COLLIDER_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(sphere_col, &info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(capsule_col, &info));
 	memset(&info, 0, sizeof(info));
-	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_TRANSFORM_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(xform, &info));
 	TEST_ASSERT_EQUAL_STRING("transform", info.name);
 	memset(&info, 0, sizeof(info));
-	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CHARACTER_CONFIG_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(char_cfg, &info));
 	TEST_ASSERT_EQUAL_STRING("character_config", info.name);
 	memset(&info, 0, sizeof(info));
-	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(SK_CHARACTER_STATE_COMPONENT_TYPE_ID, &info));
+	TEST_ASSERT_EQUAL_INT32(0, ecs->component_info(char_state, &info));
 	TEST_ASSERT_EQUAL_STRING("character_state", info.name);
 	sk_app_shutdown(ctx);
 }
