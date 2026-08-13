@@ -16,6 +16,7 @@
 #include "path.h"
 #include "resource_assets.h"
 #include "resource_assets_types.h"
+#include "resource_component_types.h"
 #include "resource_serialize.h"
 
 #include <stdio.h>
@@ -212,16 +213,11 @@ i32 sk_resource_asset_builtins_register_types(sk_repository_t* repository) {
 			return result;
 		}
 	}
-	return 0;
-}
-
-sk_type_id_t sk_resource_entity_component_type_id(const sk_repository_t* repository, sk_rid_t component_rid) {
-	const sk_repository_api_t* api = sk_repository_api();
-	const sk_resource_type_t* type = api->resource_type(repository, component_rid);
-	if (type == NULL) {
-		return SK_TYPE_ID_ZERO;
-	}
-	return api->type_id(type);
+	/* Built-in ECS component payload types (APX-300) — their registered
+	 * repository type id doubles as the ECS component type id (mapping
+	 * contract §3). Registered from a dedicated, app-free core module so the
+	 * sk-entities plugin can also register them into its own repositories. */
+	return sk_resource_component_types_register(repository);
 }
 
 /* ------------------------------------------------------------------ */

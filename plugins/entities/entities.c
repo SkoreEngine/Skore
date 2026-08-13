@@ -31,6 +31,7 @@
 #include "allocator.h"
 #include "app.h"
 #include "array.h"
+#include "entities_builtins.h"
 #include "hashmap.h"
 #include "profiler.h"
 
@@ -1878,6 +1879,12 @@ static const sk_entities_api_t entities_api = {
  */
 void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api);
 
+/* Internal accessor for entities_builtins.c (declared in entities_builtins.h):
+ * hands back the same static table the plugin registers on the app context. */
+const sk_entities_api_t* sk_entities_module_api(void) {
+	return &entities_api;
+}
+
 void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	g_ecs_app_context = context;
 	g_ecs_app_api = app_api;
@@ -1885,6 +1892,11 @@ void sk_entities_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
 	 * before sk-profiler); ecs_profiler_api() re-checks at world_create. */
 	g_ecs_profiler_api = (const sk_profiler_api_t*)app_api->get_api(context, SK_PROFILER_API_TYPE_ID);
 	app_api->set_api(context, SK_ENTITIES_API_TYPE_ID, &entities_api);
+	/* Register the engine's built-in components (transform / camera / light /
+	 * mesh renderer / static tag) with their on_load_asset loaders, per
+	 * AGENTS.md "plugins register components from sk_plugin_entry_point".
+	 * Idempotent; failures are impossible on a fresh registry (5 entries). */
+	(void)sk_entities_builtins_register(&entities_api);
 }
 
 #ifdef SK_TESTS
@@ -4120,7 +4132,8 @@ SK_TEST(entities_scheduler_run_implicit_build_rejects_cycle) {
  * Exhausts the component registry (SK_ECS_MAX_COMPONENT_TYPES entries).
  * Starts from a clean registry and fills it to capacity regardless of when
  * this test runs (constructor registration order is toolchain-dependent).
- */
+ * Leaves the registry clean so later tests (e.g. the built-in component
+ * tests) can register their types. */
 SK_TEST(entities_register_component_capacity) {
 	ecs_component_registry_reset();
 	u32 accepted = 0u;
@@ -4138,6 +4151,9 @@ SK_TEST(entities_register_component_capacity) {
 
 	sk_type_id_t full_id = SK_TYPE_ID("sk.test.ecs.capacity.full", 0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL);
 	TEST_ASSERT_EQUAL_INT32(-2, test_register_component(full_id, 4u, 4u, "full"));
+
+	/* Restore the clean registry (the filled entries were test-only). */
+	ecs_component_registry_reset();
 }
 
 #endif /* SK_TESTS */

@@ -386,3 +386,61 @@ No other tree (`editor/`, `player/`, other plugins) calls
 - Invoking reserved save/unload hooks.
 - Changing `sk_component_info_t` or chunk layout.
 - Seeding default scene entities on `SceneHandler::create`.
+
+---
+
+## 7. Built-in components (APX-300)
+
+The sk-entities plugin ships a set of built-in components, each pairing a POD
+component struct with a repository payload type whose registered type id IS
+the ECS component type id (§3). The repository half lives in
+`core/resource_component_types.{h,c}` (type id constants, field indices,
+payload descriptors, `sk_resource_component_types_register`, and the
+`sk_resource_entity_component_type_id` resolver); the ECS half — component
+structs, `on_load_asset` loaders, `sk_entities_builtins_register` — lives in
+`plugins/entities/entities_builtins.{h,c}`. The plugin registers the ECS
+components from its entry point (`sk_entities_init` → `sk_entities_builtins_register`),
+so the built-ins are "the component types the engine registers today".
+Repositories get the payload types through
+`sk_resource_asset_builtins_register_types` (which delegates to
+`sk_resource_component_types_register`).
+
+Component payload types are deliberately app-dependency-free (no filesystem /
+app API) so the plugin — which statically links sk-core only — can register
+them into a repository for its load tests without pulling sk-app symbols.
+
+### 7.1 Component → payload mapping
+
+| Component struct | Type id (`sk.*_resource`) | Payload fields | Loader |
+| --- | --- | --- | --- |
+| `sk_transform_t` | `sk.transform_resource` | `Position` VEC3, `Rotation` QUAT, `Scale` VEC3 | reads all three |
+| `sk_camera_t` | `sk.camera_resource` | `Projection` ENUM, `FovY` FLOAT, `Near` FLOAT, `Far` FLOAT | reads all four |
+| `sk_light_t` | `sk.light_resource` | `Type` ENUM, `Color` COLOR, `Intensity` FLOAT, `Range` FLOAT | reads all four |
+| `sk_mesh_renderer_t` | `sk.mesh_renderer_resource` | `Mesh` REFERENCE → mesh_resource, `Material` REFERENCE → material_graph_resource | reads both RIDs |
+| `sk_static_tag_t` | `sk.static_tag_resource` | *(none)* | **NULL** |
+
+Field 0 is **not** a Name string on component payloads: components are
+authored inside an EntityResource `Components` list, so the payload starts
+directly with component values (Name-at-0 is an envelope-only convention,
+§3.1 / §4.1).
+
+### 7.2 No meaningful asset representation
+
+`sk_static_tag_t` is a runtime-only query marker: its payload type carries
+zero authored fields (a 1-byte empty instance so the repository accepts the
+type), so its `on_load_asset` is deliberately **NULL** and spawned instances
+stay zeroed. It is still a registered component (query tags need no loader)
+and can appear in a `Components` list; there is simply nothing to load. This
+is the only built-in without a loader.
+
+### 7.3 Loader contract
+
+Every loader follows §2.1: `sk_repository_api()->read(repository, rid)` then
+the typed field getters (so prototype-chain inheritance is honored), writes
+only `instance`, and returns non-zero (leaving the instance zeroed) when the
+component resource is not a live read view. Per-component tests
+(`entities_builtins_*_load_asset`) author a component resource, spawn an
+entity holding the component, and invoke the stored hook via
+`component_desc(..., &desc).on_load_asset` — the exact dispatch
+`world_spawn_from_asset` (§4.2 / step 3.2-4) performs — then assert the
+authored values landed in the spawned instance.

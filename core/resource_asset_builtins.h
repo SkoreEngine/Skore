@@ -118,8 +118,9 @@ enum sk_entity_resource_field_t {
 };
 
 /**
- * Register minimal payload resource types (Name [+ Content/Bytes]) used by the
- * built-in handlers/importers into @p repository.
+ * Register the payload resource types used by the built-in handlers/importers
+ * (Name [+ Content/Bytes]) plus the built-in ECS component payload types
+ * (registered via sk_resource_component_types_register) into @p repository.
  * @return 0 on success, first register_type error otherwise.
  */
 i32 sk_resource_asset_builtins_register_types(sk_repository_t* repository);
@@ -135,22 +136,6 @@ void sk_resource_asset_builtins_bind_repository(sk_repository_t* repository);
  * Safe to call once per app context after plugins/app bootstrap.
  */
 void sk_resource_asset_builtins_register_impls(sk_app_context_t* context, const sk_app_api_t* app_api);
-
-/**
- * Resolve an EntityResource component sub-object to its component type id
- * (resource-to-ECS mapping contract §3): the component resource's registered
- * repository type id IS the ECS component type id, so no extra TypeID field
- * is stored on the component sub-object. Identity is recovered from the live
- * resource's registered type, so prototype-scoped lookups and loaded graphs
- * resolve the same way.
- *
- * @param repository    Repository owning @p component_rid (must not be NULL).
- * @param component_rid RID of a component sub-object from an EntityResource's
- *                      Components list.
- * @return The component's type id, or SK_TYPE_ID_ZERO when @p component_rid
- *         is not a live resource (or has no registered type).
- */
-sk_type_id_t sk_resource_entity_component_type_id(const sk_repository_t* repository, sk_rid_t component_rid);
 
 #ifdef __cplusplus
 }
