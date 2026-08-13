@@ -41,10 +41,13 @@ SUITES=widget,flexbox ./scripts/run-ui-integration-tests.sh
 SUITES=interaction ./scripts/run-ui-integration-tests.sh --no-build
 ```
 
-Equivalent CTest entry (integration binary only, no plugin interaction suite):
+Equivalent CTest / binary filters (integration binary only, no plugin interaction suite).
+Default `ctest` **skips** integration; either run the binary directly or set
+`SK_RUN_INTEGRATION=1`:
 
 ```bash
-ctest --test-dir build -R sk-ui-integration-suites --output-on-failure
+cmake -E env SK_RUN_INTEGRATION=1 ctest --test-dir build -R sk-integration-tests --output-on-failure
+(cd build/bin && ./sk-integration-tests --filter='ui_widget_vision_*,ui_flexbox_vision_*,ui_ix_*')
 ```
 
 Filter tokens (also usable manually):
@@ -116,22 +119,22 @@ so multi-state tests still run all structural captures before IGNORE.
 
 GitHub Actions (`.github/workflows/ci.yml`):
 
-1. **Matrix `build-and-test`** (Linux): installs `mesa-vulkan-drivers`, runs
-   full `ctest` with lavapipe, uploads `build/test-artifacts/` always.
-2. **Job `ui-integration`**: runs `scripts/run-ui-integration-tests.sh` on
-   Linux Debug. Passes optional `secrets.XAI_API_KEY` /
-   `secrets.SK_UI_VISION_API_KEY`. Uploads UI artifacts (including
-   `*_vision_fail.png`) on every run so a red job has a downloadable frame.
+1. **Matrix `build-and-test`**: default `ctest` (unit + smoke). Integration
+   binaries SKIP unless `SK_RUN_INTEGRATION=1`.
+2. **Job `integration`** (Linux + lavapipe): `SK_RUN_INTEGRATION=1 ctest -L integration`.
+   Passes optional `secrets.XAI_API_KEY` / `secrets.SK_UI_VISION_API_KEY`.
+   Uploads `build/test-artifacts/` (including `*_vision_fail.png`) on every run.
 
-Local / Apex gates: `scripts/run-ui-integration-tests.sh` is the same entry
-point; see also CTest label `ui-integration` on `sk-ui-integration-suites`.
+Local: `scripts/run-ui-integration-tests.sh` for focused UI suites (invokes
+the binary directly, so the CTest gate does not apply). Full integration:
+`scripts/run-integration-tests.sh` or `SK_RUN_INTEGRATION=1 ctest -L integration`.
 
 ### Broken widget → failing job + downloadable frame
 
 1. A structural assert (bbox/coverage) fails → test FAIL; capture harness
    already wrote `{scene}.png` under the artifact root.
 2. A live vision grade fails → FAIL + `{scene}_vision_fail.png` + reason on
-   stderr; CI artifact `ui-integration-test-artifacts` contains the PNG.
+   stderr; CI artifact `integration-test-artifacts` contains the PNG.
 3. An authoring assert fails → `sk_ui_test` writes a fail frame path into the
    Unity message (`ui_author_*_fail_*.png`).
 

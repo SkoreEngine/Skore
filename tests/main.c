@@ -2,9 +2,10 @@
  * @file main.c
  * @brief Test host bootstrap only.
  *
- * 1. Install the fatal-fault handler (stacktrace on signal / SEH).
- * 2. Run foundation in-process registry (linked sk-foundation-tests).
- * 3. Scan {exe_dir}/plugins (or argv[1] override), load each shared library,
+ * 1. Parse --list / --filter / optional plugins_dir.
+ * 2. Install the fatal-fault handler (stacktrace on signal / SEH).
+ * 3. Run foundation in-process registry (linked sk-foundation-tests).
+ * 4. Scan {exe_dir}/plugins (or plugins_dir override), load each shared library,
  *    call sk_plugin_run_tests (plugin-local Unity).
  */
 
@@ -134,16 +135,16 @@ static i32 run_plugin_tests_in_dir(const_chr_t plugins_dir, sk_test_report_t* to
 	return any_fail;
 }
 
-static i32 resolve_plugins_dir(int argc, char* argv[], char* out, u32 out_cap) {
+static i32 resolve_plugins_dir(const_chr_t override_dir, char* out, u32 out_cap) {
 	const sk_filesystem_api_t* fs = sk_test_filesystem_table();
 	char base[SK_FS_PATH_MAX];
 
-	if (argc >= 2 && argv[1] != NULL && argv[1][0] != '\0') {
-		size_t len = strlen(argv[1]);
+	if (override_dir != NULL && override_dir[0] != '\0') {
+		size_t len = strlen(override_dir);
 		if (len + 1u > out_cap) {
 			return -1;
 		}
-		memcpy(out, argv[1], len + 1u);
+		memcpy(out, override_dir, len + 1u);
 		return 0;
 	}
 
@@ -158,9 +159,21 @@ static i32 resolve_plugins_dir(int argc, char* argv[], char* out, u32 out_cap) {
 }
 
 int main(int argc, char* argv[]) {
+	sk_test_cli_t cli = {0};
 	sk_test_report_t total;
 	char plugins_dir[SK_FS_PATH_MAX];
 	i32 status = 0;
+
+	if (sk_test_parse_cli(argc, argv, &cli) != 0) {
+		printf("unknown option: %s\n", (cli.unknown_opt != NULL) ? cli.unknown_opt : "");
+		sk_test_print_runner_help(argv[0], 1);
+		return 2;
+	}
+	if (cli.help != 0) {
+		sk_test_print_runner_help(argv[0], 1);
+		return 0;
+	}
+	sk_test_apply_cli(&cli);
 
 	memset(&total, 0, sizeof(total));
 
@@ -175,7 +188,7 @@ int main(int argc, char* argv[]) {
 		status = 1;
 	}
 
-	if (resolve_plugins_dir(argc, argv, plugins_dir, (u32)sizeof(plugins_dir)) != 0) {
+	if (resolve_plugins_dir(cli.plugins_dir, plugins_dir, (u32)sizeof(plugins_dir)) != 0) {
 		printf("could not resolve plugins directory\n");
 		status = 1;
 	} else {
@@ -185,7 +198,9 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	printf("\n======== TOTAL: ran=%d failed=%d ========\n", total.ran, total.failed);
+	if (cli.list_only == 0) {
+		printf("\n======== TOTAL: ran=%d failed=%d ========\n", total.ran, total.failed);
+	}
 	if (total.failed != 0) {
 		status = 1;
 	}

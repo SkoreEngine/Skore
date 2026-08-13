@@ -630,8 +630,8 @@ APX-164 completed the migration using the audit call-site list
   the v2 round-trips plus the frozen vectors.
 
 Verification on this branch (Debug, gcc, Ninja): full build clean (including
-clang-tidy warnings-as-errors); CTest 4/4 (`sk-compression-conformance`,
-`sk-compression-bench`, `sk-tests`, `sk-integration-tests`) — no regressions;
+clang-tidy warnings-as-errors); CTest (`sk-compression-conformance`,
+`sk-tests`, `sk-integration-tests`) — no regressions;
 the migration-completion tests pin that no legacy adapter or flag API remains.
 
 ## 10. Build-time gating and vendoring

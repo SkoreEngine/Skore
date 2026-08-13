@@ -364,7 +364,6 @@ each plugin so the host can find it.
 | `tests/main.c` + `tests/integration/*` (sk-tests) | all six accessors (see §2.1 table) | `sk-tests` → `sk-app-tests` + `sk-editor-tests` + plugin `-lib` interfaces, whole-archive |
 | `tests/header_checks/compression_header.c` | core/compression.h self-containment (OBJECT lib, compile-only) | sk-header-checks |
 | `tests/conformance/compression_mapping.c` | production `sk-core` symbol surface | sk-compression-conformance |
-| `tests/benchmarks/compression_bench.c` | `sk-compression-*` API | sk-compression-bench |
 | `tests/crash_trigger/main.c` | crash handler | sk-crash-trigger → sk-core |
 | `tests/msdf_atlas_smoke.cpp` | atlas tooling | sk-msdf-atlas-smoke |
 | examples/ | **none** — no `examples/` directory exists in this repo | — |
@@ -403,7 +402,6 @@ belong to vendored `thirdparty/glfw` (`thirdparty/glfw/src/CMakeLists.txt:362-36
 | `sk-tests` | EXE | `tests/main.c` | whole-archive sk-core-tests, sk-app-tests, sk-editor-tests, sk-test; plugin `-lib`s; adds plugin build deps | runs from `bin/` (tests/CMakeLists.txt:61-131) |
 | `sk-header-checks` | OBJECT | `tests/header_checks/compression_header.c` | include core/ | APX-169 self-containment check |
 | `sk-compression-conformance` | EXE | `tests/conformance/compression_mapping.c` | production sk-core | APX-171 |
-| `sk-compression-bench` | EXE | `tests/benchmarks/compression_bench.c` | sk-core | benchmark |
 | `sk-crash-trigger` | EXE | `tests/crash_trigger/main.c` | sk-core | crash demo tool |
 | `sk-msdf-atlas-smoke` | EXE | `tests/msdf_atlas_smoke.cpp` | msdf-atlas tooling | |
 

@@ -967,7 +967,7 @@ static sk_render_device_t sk_vkrd_init(void_ptr_t context, const sk_device_init_
 
 	(void)desc->enable_debug_layers;
 
-	bool enable_debug = true; //desc != NULL && desc->enable_debug_layers;
+	bool enable_debug = false; //desc != NULL && desc->enable_debug_layers;
 
 	VkApplicationInfo application_info = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO};
 	application_info.pApplicationName = "Skore Engine";

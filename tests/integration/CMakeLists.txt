@@ -3,6 +3,9 @@
 # sk-dxc-compiler plugins through the app registry, and ResourceObject buffer
 # fixture harness loading.
 #
+# Default ctest SKIPs this binary (SK_CTEST_GATE + no SK_RUN_INTEGRATION).
+# Enable with SK_RUN_INTEGRATION=1 or run the executable directly.
+#
 # Runs as its own ctest so the Vulkan path can be exercised without a window.
 # sk_app_init auto-loads the plugin DLLs from {app_folder}/plugins; the
 # executable is placed next to them in bin/ (same layout as sk-tests). The
@@ -112,38 +115,11 @@ add_dependencies(sk-integration-tests
 
 # Run from bin/ so the copied DXC runtime (plugins/libdxcompiler.so) is found
 # relative to cwd, matching the sk-tests working directory.
+# Focused UI / dock subsets used to be separate CTest entries; they re-ran the
+# same cases already inside this binary. Use --filter or
+# scripts/run-ui-integration-tests.sh for a subset.
 add_test(NAME sk-integration-tests COMMAND sk-integration-tests WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-
-# APX-263: focused UI suites (widget-vision + flexbox + interaction bridge).
-# Prefer scripts/run-ui-integration-tests.sh for the full one-command workflow
-# (also runs plugin interaction tests via sk-tests and prints vision skip notes).
-# Prefix wildcards require SK_TEST_FILTER trailing-'*' support in foundation/test.c.
-add_test(
-    NAME sk-ui-integration-suites
-    COMMAND ${CMAKE_COMMAND} -E env
-        "SK_TEST_FILTER=ui_widget_vision_*,ui_flexbox_vision_*,ui_ix_*,ui_vision_assert_*,ui_vision_rubrics_*"
-        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
-        $<TARGET_FILE:sk-integration-tests>
-    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-)
-set_tests_properties(sk-ui-integration-suites PROPERTIES
-    LABELS "ui;ui-integration;ui-vision"
-    TIMEOUT 1800
-)
-
-# APX-291: docking public-API e2e (headless layout + input_dispatch).
-add_test(
-    NAME sk-ui-dock-integration
-    COMMAND ${CMAKE_COMMAND} -E env
-        "SK_TEST_FILTER=ui_dock_*"
-        "SK_TEST_ARTIFACT_DIR=${CMAKE_BINARY_DIR}/test-artifacts"
-        $<TARGET_FILE:sk-integration-tests>
-    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-)
-set_tests_properties(sk-ui-dock-integration PROPERTIES
-    LABELS "ui;ui-integration;ui-dock"
-    TIMEOUT 180
-)
+sk_ctest_mark_integration(sk-integration-tests)
 
 # APX-268: deterministic text rendering screenshot harness.
 #
@@ -193,10 +169,7 @@ add_test(
         $<TARGET_FILE:sk-text-screenshot> --verify
     WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
 )
-set_tests_properties(sk-text-screenshot PROPERTIES
-    LABELS "ui;ui-integration;ui-text-screenshot"
-    TIMEOUT 1800
-)
+sk_ctest_mark_integration(sk-text-screenshot LABELS "ui;ui-text-screenshot")
 
 # TEMP repro: repeated harness cycles (remove before commit)
 add_executable(sk-repro-cycles repro_cycles.c ui_capture_harness.c)
@@ -206,13 +179,5 @@ target_compile_definitions(sk-repro-cycles PRIVATE SK_TESTS SK_TEST_ARTIFACT_DIR
 set_target_properties(sk-repro-cycles PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 add_dependencies(sk-repro-cycles sk-vulkan-render-device sk-render-device sk-test-render-device sk-dxc-compiler sk-ui sk-render-graph)
 
-# APX-268 sk-text-screenshot (added on v2): the harness documents exit code 2
-# as "skipped (no Vulkan loader/ICD available)" and prints
-# "no Vulkan ICD; skipping msdf suite". CTest treats any non-zero exit as a
-# failure unless told otherwise, so macOS/Windows CI (no ICD) failed this test
-# while Linux (lavapipe) passed. Treat exit code 2 as a clean SKIP.
-# Guarded so configuring the goal branch standalone (where the test does not
-# exist yet) remains a no-op; after merge with v2 the test is registered above.
-if(TEST sk-text-screenshot)
-	set_tests_properties(sk-text-screenshot PROPERTIES SKIP_RETURN_CODE 2)
-endif()
+# No-ICD (standalone exit 2) is mapped to SK_TEST_SKIP_CODE when SK_CTEST_GATE
+# is set (see sk_test_ctest_map_skip). Direct runs still return 2.

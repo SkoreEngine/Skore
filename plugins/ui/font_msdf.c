@@ -25,6 +25,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef SK_TESTS
+#include <stdlib.h>
+#endif
 
 /* -------------------------------------------------------------------------- */
 /* Constants (pinned by APX-264 audit / C API smoke)                          */
@@ -1052,14 +1055,103 @@ f32 ui_msdf_sample_median_nearest(const sk_ui_msdf_atlas_t* atlas, f32 u, f32 v)
 	return ui_msdf_median3((f32)p[0] / 255.0f, (f32)p[1] / 255.0f, (f32)p[2] / 255.0f);
 }
 
+#ifdef SK_TESTS
+/*
+ * Unit tests each load a fresh font and bake. Generating the printable-ASCII
+ * MSDF atlas is ~0.5s, and a full sk-tests pass used to do that ~13 times.
+ * After the first real bake, later bake/dump/paint paths clone this cache.
+ * Function-local so check-no-statics stays clean.
+ */
+static ui_msdf_atlas_live_t** ui_msdf_test_cache_slot(void) {
+	static ui_msdf_atlas_live_t* atlas;
+	return &atlas;
+}
+
+static void ui_msdf_test_cache_atexit(void) {
+	ui_msdf_atlas_live_t** slot = ui_msdf_test_cache_slot();
+	if (*slot != NULL) {
+		ui_msdf_atlas_release(sk_allocator_default(), *slot);
+		*slot = NULL;
+	}
+}
+
+static ui_msdf_atlas_live_t* ui_msdf_atlas_clone(const sk_allocator_t* a, const ui_msdf_atlas_live_t* src) {
+	if (a == NULL) {
+		a = sk_allocator_default();
+	}
+	if (src == NULL || src->pixels == NULL || src->width == 0u || src->height == 0u || src->channels == 0u) {
+		return NULL;
+	}
+	ui_msdf_atlas_live_t* dst = (ui_msdf_atlas_live_t*)a->alloc(a->instance, sizeof(*dst));
+	if (dst == NULL) {
+		return NULL;
+	}
+	*dst = *src;
+	dst->pixels = NULL;
+	dst->glyphs = NULL;
+	dst->kerns = NULL;
+
+	const size_t pix_bytes = (size_t)src->width * (size_t)src->height * (size_t)src->channels;
+	dst->pixels = (u8*)a->alloc(a->instance, pix_bytes);
+	if (dst->pixels == NULL) {
+		ui_msdf_atlas_release(a, dst);
+		return NULL;
+	}
+	memcpy(dst->pixels, src->pixels, pix_bytes);
+
+	if (src->glyph_count > 0u && src->glyphs != NULL) {
+		const size_t n = (size_t)src->glyph_count * sizeof(sk_ui_msdf_glyph_t);
+		dst->glyphs = (sk_ui_msdf_glyph_t*)a->alloc(a->instance, n);
+		if (dst->glyphs == NULL) {
+			ui_msdf_atlas_release(a, dst);
+			return NULL;
+		}
+		memcpy(dst->glyphs, src->glyphs, n);
+	} else {
+		dst->glyph_count = 0u;
+	}
+
+	if (src->kern_count > 0u && src->kerns != NULL) {
+		const size_t n = (size_t)src->kern_count * sizeof(ui_msdf_kern_pair_t);
+		dst->kerns = (ui_msdf_kern_pair_t*)a->alloc(a->instance, n);
+		if (dst->kerns == NULL) {
+			ui_msdf_atlas_release(a, dst);
+			return NULL;
+		}
+		memcpy(dst->kerns, src->kerns, n);
+	} else {
+		dst->kern_count = 0u;
+	}
+	return dst;
+}
+
+static i32 ui_msdf_test_cache_attach(sk_ui_font_t* font) {
+	ui_msdf_atlas_live_t* copy = ui_msdf_atlas_clone(ui_font_allocator(font), *ui_msdf_test_cache_slot());
+	if (copy == NULL) {
+		return -1;
+	}
+	ui_font_msdf_set(font, copy);
+	return 0;
+}
+
+static void ui_msdf_test_cache_seed(const ui_msdf_atlas_live_t* src) {
+	ui_msdf_atlas_live_t** slot = ui_msdf_test_cache_slot();
+	if (*slot != NULL || src == NULL) {
+		return;
+	}
+	*slot = ui_msdf_atlas_clone(sk_allocator_default(), src);
+	if (*slot != NULL) {
+		(void)atexit(ui_msdf_test_cache_atexit);
+	}
+}
+#endif /* SK_TESTS */
+
 /* -------------------------------------------------------------------------- */
 /* Font API wrappers                                                          */
 /* -------------------------------------------------------------------------- */
 
 i32 ui_font_msdf_bake_impl(sk_ui_font_t* font) {
-	const sk_allocator_t* a;
 	ui_msdf_atlas_live_t* atlas = NULL;
-	ui_msdf_atlas_live_t* prev;
 
 	if (font == NULL) {
 		return -1;
@@ -1067,15 +1159,23 @@ i32 ui_font_msdf_bake_impl(sk_ui_font_t* font) {
 	if (ui_font_msdf_ptr(font) != NULL) {
 		return 0; /* already baked */
 	}
-	a = ui_font_allocator(font);
+#ifdef SK_TESTS
+	if (ui_msdf_test_cache_attach(font) == 0) {
+		return 0;
+	}
+#endif
+	const sk_allocator_t* a = ui_font_allocator(font);
 	if (ui_msdf_atlas_bake(a, ui_font_file_bytes(font), ui_font_file_size(font), &atlas) != 0 || atlas == NULL) {
 		return -1;
 	}
-	prev = ui_font_msdf_ptr(font);
+	ui_msdf_atlas_live_t* prev = ui_font_msdf_ptr(font);
 	if (prev != NULL) {
 		ui_msdf_atlas_release(a, prev);
 	}
 	ui_font_msdf_set(font, atlas);
+#ifdef SK_TESTS
+	ui_msdf_test_cache_seed(atlas);
+#endif
 	return 0;
 }
 
@@ -1261,6 +1361,47 @@ SK_TEST(ui_font_msdf_bake_ascii_atlas) {
 	ui->font_system_destroy(sys);
 }
 
+SK_TEST(ui_font_msdf_second_font_reuses_cached_atlas) {
+	const sk_ui_api_t* ui = ui_msdf_test_api();
+	sk_ui_font_system_t* sys_a = ui->font_system_create(NULL);
+	sk_ui_msdf_atlas_t atlas_a;
+	sk_ui_msdf_glyph_t ga;
+
+	TEST_ASSERT_NOT_NULL(sys_a);
+	sk_ui_font_t* font_a = ui->font_load_memory(sys_a, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
+	TEST_ASSERT_NOT_NULL(font_a);
+	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_bake(font_a));
+	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_get_atlas(font_a, &atlas_a));
+	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_get_glyph(font_a, (u32)'A', &ga));
+
+	sk_ui_font_system_t* sys_b = ui->font_system_create(NULL);
+	sk_ui_msdf_atlas_t atlas_b;
+	sk_ui_msdf_glyph_t gb;
+
+	TEST_ASSERT_NOT_NULL(sys_b);
+	sk_ui_font_t* font_b = ui->font_load_memory(sys_b, skore_test_font_ttf, (u32)skore_test_font_ttf_size);
+	TEST_ASSERT_NOT_NULL(font_b);
+	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_bake(font_b));
+	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_get_atlas(font_b, &atlas_b));
+	TEST_ASSERT_EQUAL_INT(0, ui->font_msdf_get_glyph(font_b, (u32)'A', &gb));
+
+	TEST_ASSERT_EQUAL_UINT(atlas_a.width, atlas_b.width);
+	TEST_ASSERT_EQUAL_UINT(atlas_a.height, atlas_b.height);
+	TEST_ASSERT_EQUAL_UINT(atlas_a.channels, atlas_b.channels);
+	TEST_ASSERT_EQUAL_UINT(atlas_a.glyph_count, atlas_b.glyph_count);
+	TEST_ASSERT_TRUE(atlas_a.pixels != atlas_b.pixels);
+	TEST_ASSERT_EQUAL_UINT(ga.codepoint, gb.codepoint);
+	TEST_ASSERT_FLOAT_WITHIN(1e-6f, ga.advance_em, gb.advance_em);
+	TEST_ASSERT_FLOAT_WITHIN(1e-6f, ga.u0, gb.u0);
+	TEST_ASSERT_FLOAT_WITHIN(1e-6f, ga.v0, gb.v0);
+	const f32 inside_a = ui_msdf_sample_median_nearest(&atlas_a, (ga.u0 + ga.u1) * 0.5f, (ga.v0 + ga.v1) * 0.5f);
+	const f32 inside_b = ui_msdf_sample_median_nearest(&atlas_b, (gb.u0 + gb.u1) * 0.5f, (gb.v0 + gb.v1) * 0.5f);
+	TEST_ASSERT_FLOAT_WITHIN(1e-6f, inside_a, inside_b);
+
+	ui->font_system_destroy(sys_a);
+	ui->font_system_destroy(sys_b);
+}
+
 SK_TEST(ui_font_msdf_dump_and_reload_cycle) {
 	const sk_ui_api_t* ui = ui_msdf_test_api();
 	sk_filesystem_api_t fs;
@@ -1285,7 +1426,8 @@ SK_TEST(ui_font_msdf_dump_and_reload_cycle) {
 	TEST_ASSERT_TRUE(snprintf(raw_path, sizeof(raw_path), "%s.raw", prefix) > 0);
 	TEST_ASSERT_TRUE(snprintf(json_path, sizeof(json_path), "%s.json", prefix) > 0);
 
-	/* Repeated load → bake → dump → unload must not assert/leak (ASan when enabled). */
+	/* Repeated load → dump → unload must not assert/leak. Bake runs at most
+	 * once per process (ui_font_msdf_bake_impl clones the test atlas after). */
 	for (cycle = 0u; cycle < 3u; ++cycle) {
 		sys = ui->font_system_create(NULL);
 		TEST_ASSERT_NOT_NULL(sys);

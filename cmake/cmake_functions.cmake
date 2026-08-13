@@ -294,3 +294,37 @@ function(sk_check_header_isolation)
         endforeach()
     endforeach()
 endfunction()
+
+# ---------------------------------------------------------------------------
+# CTest labels / integration gate
+#
+# Default `ctest` still *registers* integration binaries so they show up, but
+# they return SK_TEST_SKIP_CODE (77) unless SK_RUN_INTEGRATION=1. Direct
+# invocation of the binary is never gated. Must match SK_TEST_SKIP_CODE in
+# foundation/test.h.
+# ---------------------------------------------------------------------------
+if(NOT DEFINED SK_TEST_SKIP_CODE)
+    set(SK_TEST_SKIP_CODE 77)
+endif()
+
+function(sk_ctest_mark_unit name)
+    set_tests_properties(${name} PROPERTIES LABELS "unit")
+endfunction()
+
+function(sk_ctest_mark_integration name)
+    set(_labels "integration")
+    set(_timeout 1800)
+    cmake_parse_arguments(SK_IT "" "TIMEOUT" "LABELS" ${ARGN})
+    if(SK_IT_LABELS)
+        set(_labels "integration;${SK_IT_LABELS}")
+    endif()
+    if(SK_IT_TIMEOUT)
+        set(_timeout ${SK_IT_TIMEOUT})
+    endif()
+    set_tests_properties(${name} PROPERTIES
+        LABELS "${_labels}"
+        ENVIRONMENT "SK_CTEST_GATE=1"
+        SKIP_RETURN_CODE ${SK_TEST_SKIP_CODE}
+        TIMEOUT ${_timeout}
+    )
+endfunction()

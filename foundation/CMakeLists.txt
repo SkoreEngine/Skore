@@ -2,8 +2,12 @@ file(GLOB_RECURSE SKORE_FOUNDATION_SOURCES CONFIGURE_DEPENDS *.h *.c)
 
 # test.c / test.h are the registry harness — production sk-foundation excludes
 # test.c. sk-test (see below) owns the registry implementation when BUILD_TESTING.
+# test_cases.c is host-only SK_TESTs (common.h / atomics / harness); not linked
+# into plugins, which already statically link sk-test for the runner.
 set(SKORE_FOUNDATION_TEST_C ${CMAKE_CURRENT_SOURCE_DIR}/test.c)
+set(SKORE_FOUNDATION_TEST_CASES_C ${CMAKE_CURRENT_SOURCE_DIR}/test_cases.c)
 list(FILTER SKORE_FOUNDATION_SOURCES EXCLUDE REGEX "test\\.c$")
+list(FILTER SKORE_FOUNDATION_SOURCES EXCLUDE REGEX "test_cases\\.c$")
 
 # Compile only the platform/filesystem backends for the host OS (win32 vs unix/mac).
 list(FILTER SKORE_FOUNDATION_SOURCES EXCLUDE REGEX "platform_.*\\.c$")
@@ -104,7 +108,7 @@ if(BUILD_TESTING)
     target_link_libraries(sk-test PUBLIC unity)
     set_target_properties(sk-test PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-    add_library(sk-foundation-tests STATIC ${SKORE_FOUNDATION_SOURCES})
+    add_library(sk-foundation-tests STATIC ${SKORE_FOUNDATION_SOURCES} ${SKORE_FOUNDATION_TEST_CASES_C})
     target_include_directories(sk-foundation-tests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(sk-foundation-tests PRIVATE SK_TESTS)
     target_link_libraries(sk-foundation-tests PUBLIC sk-test PRIVATE mimalloc-static yyjson)

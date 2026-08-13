@@ -12,6 +12,13 @@
  * Unity). Host sk-tests runs core/app in-process, then loads each plugin DLL
  * and calls that export if present (skips when missing — e.g. Release).
  * Never ship SK_TESTS into Release plugin/app artifacts.
+ *
+ * Default `ctest` is the unit suite (`sk-tests` and cheap smoke tests).
+ * GPU / device / UI-capture binaries (`sk-integration-tests`,
+ * `sk-text-screenshot`) are registered with label `integration` and skip
+ * unless `SK_RUN_INTEGRATION=1` (or the binary is run directly). Filter a
+ * registry with `--filter=` / `SK_TEST_FILTER` (comma-separated exact names
+ * or `prefix*` tokens). `--list` / `SK_TEST_LIST=1` prints names and exits.
  */
 
 #include "common.h"
@@ -61,6 +68,78 @@ void sk_test_run_all(sk_test_report_t* out);
  * @return 0 on success, non-zero if failures.
  */
 i32 sk_test_run_all_status(sk_test_report_t* out);
+
+/** CTest SKIP_RETURN_CODE for gated integration binaries. */
+enum { SK_TEST_SKIP_CODE = 77 };
+
+/**
+ * Parsed argv for sk-tests / sk-integration-tests.
+ * @p unknown_opt is set when parse fails on a flag.
+ */
+typedef struct sk_test_cli_t {
+	const_chr_t filter;
+	const_chr_t plugins_dir;
+	const_chr_t unknown_opt;
+	i32 list_only;
+	i32 help;
+} sk_test_cli_t;
+
+/**
+ * Parse host/integration runner flags.
+ * @param argc Argument count (including argv[0]).
+ * @param argv Argument vector.
+ * @param out Filled on return; must not be NULL.
+ * @return 0 on success, non-zero if an unknown flag was seen.
+ */
+i32 sk_test_parse_cli(int argc, char** argv, sk_test_cli_t* out);
+
+/**
+ * Print runner usage to stdout.
+ * @param prog argv[0] (may be NULL).
+ * @param has_plugins_dir Non-zero to document the optional plugins_dir operand.
+ */
+void sk_test_print_runner_help(const_chr_t prog, i32 has_plugins_dir);
+
+/**
+ * Apply --filter / --list to the process environment so this registry and
+ * subsequently loaded plugins see the same SK_TEST_FILTER / SK_TEST_LIST.
+ * @param cli Parsed CLI; must not be NULL.
+ */
+void sk_test_apply_cli(const sk_test_cli_t* cli);
+
+/**
+ * Set or clear a process environment variable (test-harness helper).
+ * @param key Variable name. Must not be NULL.
+ * @param value New value, or NULL / empty to unset.
+ * @return 0 on success, non-zero on failure.
+ */
+i32 sk_test_set_env(const_chr_t key, const_chr_t value);
+
+/**
+ * Match a test name against a SK_TEST_FILTER string.
+ * NULL or empty @p filter matches every name. Tokens are comma-separated
+ * exact names or trailing-'*' prefixes (bare "*" matches all).
+ * @param name Test name.
+ * @param filter Filter string (may be NULL).
+ * @return 1 if the name should run, 0 if it should be skipped.
+ */
+i32 sk_test_name_matches_filter(const_chr_t name, const_chr_t filter);
+
+/**
+ * Whether a CTest-gated integration binary should skip.
+ * True only when SK_CTEST_GATE is set and SK_RUN_INTEGRATION is unset/0.
+ * Direct invocation (no SK_CTEST_GATE) always runs.
+ * @return 1 to skip (print a message first), 0 to run.
+ */
+i32 sk_test_should_skip_integration(void);
+
+/**
+ * Map a process exit code for CTest: convert the standalone "no ICD" code 2
+ * to SK_TEST_SKIP_CODE when SK_CTEST_GATE is set.
+ * @param process_rc Exit code from the real work.
+ * @return Code the process should return to CTest.
+ */
+i32 sk_test_ctest_map_skip(i32 process_rc);
 
 /* ---- constructor registration (MSVC CRT$XCU / GCC constructor) ---- */
 

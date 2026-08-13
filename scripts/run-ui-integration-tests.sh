@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Run widget-vision, flexbox, and interaction UI suites with one command (APX-263).
+# Invokes the binaries directly (not gated). Default `ctest` SKIPs integration;
+# use this script or scripts/run-integration-tests.sh to opt in.
 #
 # Usage (from repo root, after configure):
 #   ./scripts/run-ui-integration-tests.sh

@@ -32,7 +32,11 @@
 #include "app.h"
 #include "filesystem.h"
 #include "path.h"
+#include "test.h"
 
+#ifdef noreturn
+#undef noreturn
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,6 +75,10 @@ int main(int argc, char** argv) {
 	i32 verify = 0;
 	i32 rc_total = 0;
 	i32 a;
+
+	if (sk_test_should_skip_integration() != 0) {
+		return SK_TEST_SKIP_CODE;
+	}
 
 	for (a = 1; a < argc; ++a) {
 		if (strcmp(argv[a], "--help") == 0 || strcmp(argv[a], "-h") == 0) {
@@ -127,7 +135,7 @@ int main(int argc, char** argv) {
 		rc = sk_ui_text_screenshot_run(&p);
 		if (rc == SK_UI_TEXT_SCREENSHOT_RC_SKIPPED) {
 			fprintf(stderr, "sk-text-screenshot: no Vulkan ICD; skipping msdf suite\n");
-			return 2;
+			return sk_test_ctest_map_skip(2);
 		}
 		if (rc != SK_UI_TEXT_SCREENSHOT_RC_OK) {
 			fprintf(stderr, "sk-text-screenshot: msdf suite FAILED\n");

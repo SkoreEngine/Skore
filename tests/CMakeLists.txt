@@ -15,6 +15,7 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME sk-no-statics-guard
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check-no-statics.py
     )
+    sk_ctest_mark_unit(sk-no-statics-guard)
 else()
     message(WARNING "Python3 not found; sk-no-statics-guard test disabled (run scripts/check-no-statics.py manually)")
 endif()
@@ -52,23 +53,7 @@ set_target_properties(sk-compression-conformance PROPERTIES
 )
 add_test(NAME sk-compression-conformance COMMAND sk-compression-conformance
     WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-
-# APX-163: codec benchmark host tool. Reports ratio + compress/decompress
-# throughput for every registered codec over representative engine corpora
-# (deterministic synthetic data). Registered with CTest as a smoke run: the
-# printed numbers are informational, the exit code is the round-trip
-# contract. Run directly for the full report:
-#   ./build/bin/sk-compression-bench
-add_executable(sk-compression-bench benchmarks/compression_bench.c)
-target_link_libraries(sk-compression-bench PRIVATE sk-foundation)
-set_target_properties(sk-compression-bench PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
-)
-add_test(NAME sk-compression-bench COMMAND sk-compression-bench
-    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-set_tests_properties(sk-compression-bench PROPERTIES LABELS "benchmark")
+sk_ctest_mark_unit(sk-compression-conformance)
 
 add_executable(sk-tests main.c)
 
@@ -138,6 +123,7 @@ add_dependencies(sk-tests sk-platform-window sk-entities sk-render-device sk-vul
 # Run from the runtime output dir ({build}/bin) so plugin shared libraries and
 # the copied DXC runtime (plugins/libdxcompiler.so) are found relative to cwd.
 add_test(NAME sk-tests COMMAND sk-tests WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+sk_ctest_mark_unit(sk-tests)
 
 # Opt-in crash-trigger tool: raises each handled fault kind so the crash
 # handler can be exercised deliberately (child-process tests + sample capture).
@@ -178,6 +164,14 @@ set_target_properties(sk-msdf-atlas-smoke PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin"
 )
 add_test(NAME sk-msdf-atlas-smoke COMMAND sk-msdf-atlas-smoke WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+sk_ctest_mark_unit(sk-msdf-atlas-smoke)
+
+# Vendored smoke is registered in thirdparty/; label it with the unit suite.
+if(TEST msdf-atlas-c-smoke)
+    sk_ctest_mark_unit(msdf-atlas-c-smoke)
+endif()
 
 # Integration tests: device/resource lifecycle against the real Vulkan backend.
+# Gated at CTest time (SK_RUN_INTEGRATION=1); the binaries always run when
+# invoked directly.
 add_subdirectory(integration)

@@ -219,11 +219,14 @@ Tests live **in the same `.c` file as production code** (Rust/Zig style), not in
 **Flow**
 
 ```
-sk-tests (host)
+sk-tests (host)                 — default ctest / Apex fast
   1. sk_test_run_all()          — foundation (linked sk-foundation-tests, whole-archive)
   2. for each dll in {app_folder}/plugins:
        load → sk_plugin_run_tests(&report) → unload
   3. aggregate ran/failed → process exit code
+
+sk-integration-tests            — opt-in (SK_RUN_INTEGRATION=1 or run the binary)
+  Vulkan / UI capture / resource+entity fixtures. Default ctest SKIPs these.
 ```
 
 Plugin tests are **plugin-local**: each DLL that links `sk-test` has its own registry + Unity instance. The host only aggregates `{ran, failed}`. Do not share Unity globals across the host↔DLL boundary.
@@ -245,7 +248,7 @@ SK_TEST(vec3_dot_unit_axes)
 - Name describes behavior (`vec3_dot_unit_axes`), not `test_1`.
 - Use Unity asserts (`TEST_ASSERT_*`) inside `SK_TEST`.
 - Always wrap the whole section in `#ifdef SK_TESTS`.
-- Header-only modules (e.g. `common.h`): put tests in `foundation/test.c` (the registry TU).
+- Header-only modules (e.g. `common.h`): put tests in `foundation/test_cases.c` (host-only; not linked into plugins).
 
 ### Plugin export
 
@@ -267,7 +270,10 @@ SK_API i32 sk_plugin_run_tests(sk_test_report_t* out);  /* omit entire function 
 | **Unit** | Same `.c` as the module (`SK_TEST` under `#ifdef SK_TESTS`) | Pure helpers, math, containers, API table shape, error codes |
 | **Integration** | Host-side (`app.c` under `SK_TESTS`) and/or plugin-local | Plugin load + registration, app bootstrap, multi-module paths |
 
-Both layers are **always** expected.
+Both layers are **always** expected to exist. Default `ctest` / Apex fast runs
+the **unit** layer only. Integration (GPU, lavapipe, UI capture) is opt-in:
+`SK_RUN_INTEGRATION=1 ctest -L integration`, or run `sk-integration-tests`
+directly. Write both; do not run the GPU suite on every agent iteration.
 
 ### What “invest a lot” means in practice
 
@@ -282,7 +288,8 @@ Both layers are **always** expected.
 
 ```
 foundation/math3d.c        # production + #ifdef SK_TESTS { SK_TEST(...) }
-foundation/test.h / test.c # registry + common.h tests (sk-test target)
+foundation/test.h / test.c # registry (sk-test target; linked by host + plugins)
+foundation/test_cases.c    # host-only common.h / atomics / harness SK_TESTs
 foundation/app.c           # host/app + platform/fs/bootstrap integration tests
 plugins/foo/foo.c          # plugin unit tests in-file
 plugins/foo/plugin_entry_point.c  # sk_plugin_entry_point + sk_plugin_run_tests
@@ -299,11 +306,16 @@ tests/CMakeLists.txt       # sk-tests + CTest
 ```bash
 cmake -S . -B build -G Ninja
 cmake --build build
-ctest --test-dir build --output-on-failure
+ctest --test-dir build --output-on-failure          # unit + smoke (integration SKIPs)
 # or: ./build/bin/sk-tests
+# or: ./build/bin/sk-tests --filter=vec3_*
+# integration (Vulkan / UI capture / lavapipe):
+cmake -E env SK_RUN_INTEGRATION=1 ctest --test-dir build -L integration --output-on-failure
+# or: ./build/bin/sk-integration-tests
+# or: ./scripts/run-integration-tests.sh
 ```
 
-- Optional: `sk-tests [plugins_dir]` overrides the plugins folder (default `{app_folder}/plugins`).
+- Optional: `sk-tests [--list] [--filter=<tokens>] [plugins_dir]` — `plugins_dir` overrides `{app_folder}/plugins`. `--filter` is comma-separated exact names and/or `prefix*` (same as `SK_TEST_FILTER`). `--list` prints registered names and exits.
 - Unity is vendored under `thirdparty/unity/` (project already includes it).
 - Host links `sk-foundation-tests` with **whole-archive** so constructor-registered tests are not dropped by the linker.
 
@@ -565,7 +577,8 @@ Patterns for types, global `sk_*_api_t`, free functions, `static` helpers, and m
 |------|----------------------|
 | `foundation/common.h` | Integer/float aliases, `SK_API`, platform defines |
 | `foundation/math3d.h` / `foundation/math3d.c` | Module pair, public POD types, free functions, in-source `SK_TEST`s |
-| `foundation/test.h` / `foundation/test.c` | Test registry, `SK_TEST`, `sk_plugin_run_tests` contract |
+| `foundation/test.h` / `foundation/test.c` | Test registry, `SK_TEST`, filter/CLI, `sk_plugin_run_tests` contract |
+| `foundation/test_cases.c` | Host-only common.h / atomics / harness SK_TESTs (not linked into plugins) |
 | `foundation/allocator.h` | Multi-instance FP bag as `sk_allocator_t` (not `*_api_t`) |
 | `foundation/app.h` / `foundation/app.c` | App registry API (+ host integration tests) |
 | `foundation/platform.h` / `foundation/platform_*.c` | Platform API + OS backends |
@@ -592,8 +605,10 @@ Useful targets: `sk-foundation`, `sk-player`, `sk-tests`, `sk-example-plugin`.
 Native Linux builds do **not** see Windows LLP64 type widths. After changing first-party C/C++:
 
 ```bash
-# 1) Normal host build + tests (existing)
+# 1) Normal host build + unit tests (existing). Integration is opt-in.
 cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure
+#    SK_RUN_INTEGRATION=1 ctest --test-dir build -L integration --output-on-failure
+# integration (opt-in): cmake -E env SK_RUN_INTEGRATION=1 ctest --test-dir build -L integration --output-on-failure
 
 # 2) Windows data-model tidy (no MSVC; uses MinGW headers + clang-tidy)
 ./scripts/check-windows-abi.sh
