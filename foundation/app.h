@@ -124,6 +124,7 @@ typedef struct sk_app_api_t {
 	 * Load a plugin shared library from @p path and call `sk_plugin_entry_point`.
 	 * Does not search directories; the caller supplies an exact path.
 	 * The library stays loaded until `sk_app_shutdown`.
+	 * Does **not** bind a plugin-local logger (there is no `sk_logger_bind_api`).
 	 *
 	 * @param context App context from `sk_app_init` (must not be NULL; must be bootstrapped).
 	 * @param path Filesystem path to the plugin (UTF-8). Must not be NULL.
@@ -169,8 +170,8 @@ typedef struct sk_app_api_t {
 	 * Host logger context owned by @p context (sinks live here).
 	 * NULL on a registry-only context from `sk_app_create`.
 	 *
-	 * At this stage the returned context may still wrap the existing process
-	 * logger internals; callers obtain it from the table, not a singleton.
+	 * Sinks live on this object. Plugins obtain it from the table given at
+	 * load time, not from a process-wide accessor.
 	 *
 	 * @param context App context (must not be NULL).
 	 * @return Logger context, or NULL if this context never started the logger.

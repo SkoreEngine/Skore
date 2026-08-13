@@ -1613,7 +1613,24 @@ static const sk_ui_api_t ui_api = {
 	ui_test_engine_focus_impl,
 };
 
+static const sk_logger_api_t* g_ui_logger_api;
+static sk_logger_context_t* g_ui_log_ctx;
+
+const sk_logger_api_t* ui_logger_api(void) {
+	return g_ui_logger_api;
+}
+
+sk_logger_context_t* ui_logger_context(void) {
+	return g_ui_log_ctx;
+}
+
+void ui_bind_host_logger(const sk_logger_api_t* api, sk_logger_context_t* log_ctx) {
+	g_ui_logger_api = api;
+	g_ui_log_ctx = log_ctx;
+}
+
 void sk_ui_init(sk_app_context_t* context, const sk_app_api_t* app_api) {
+	ui_bind_host_logger(app_api->logger_api(context), app_api->logger_context(context));
 	app_api->set_api(context, SK_UI_API_TYPE_ID, (const_ptr_t)&ui_api);
 }
 

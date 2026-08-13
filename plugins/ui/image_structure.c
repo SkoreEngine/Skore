@@ -36,16 +36,23 @@
 
 static sk_logger_t* ui_si_logger(void) {
 	static sk_logger_t* log = NULL;
-	if (log == NULL) {
-		log = sk_logger_api()->create_logger("ui-image-structure");
+	const sk_logger_api_t* api = ui_logger_api();
+	sk_logger_context_t* log_ctx = ui_logger_context();
+	if (log == NULL && api != NULL && log_ctx != NULL) {
+		log = api->create_logger(log_ctx, "ui-image-structure");
 	}
 	return log;
 }
 
 static void ui_si_fail(const_chr_t fmt, ...) {
+	const sk_logger_api_t* api = ui_logger_api();
+	sk_logger_t* log = ui_si_logger();
 	va_list args;
+	if (api == NULL || log == NULL) {
+		return;
+	}
 	va_start(args, fmt);
-	sk_log_messagev(sk_logger_api(), SK_LOGGER_TYPE_ERROR, ui_si_logger(), fmt, args);
+	sk_log_messagev(api, SK_LOGGER_TYPE_ERROR, log, fmt, args);
 	va_end(args);
 }
 

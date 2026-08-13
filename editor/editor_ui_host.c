@@ -6,6 +6,7 @@
 #include "editor_ui_host.h"
 
 #include "allocator.h"
+#include "logger.h"
 
 #include <string.h>
 
@@ -14,6 +15,8 @@ struct sk_editor_ui_host_t {
 	sk_ui_context_t* ctx;
 	sk_editor_console_panel_t* console;
 	sk_editor_imgui_shell_t* imgui;
+	const sk_logger_api_t* logger_api;
+	sk_logger_context_t* log_ctx;
 	sk_ui_node_t console_root;
 	sk_ui_node_t layout_root; /* full-window column holding console dock */
 
@@ -84,7 +87,7 @@ static void host_place_console(sk_editor_ui_host_t* host) {
 	p.layout.height = sk_ui_percent(100.0f);
 	(void)ui->node_set_inline_style(host->ctx, left_spacer, &p);
 
-	host->console = sk_editor_console_panel_create(ui, host->ctx, bottom_row);
+	host->console = sk_editor_console_panel_create(ui, host->ctx, bottom_row, host->logger_api, host->log_ctx);
 	if (host->console != NULL) {
 		host->console_root = sk_editor_console_panel_root(host->console);
 		memset(&p, 0, sizeof(p));
@@ -97,11 +100,11 @@ static void host_place_console(sk_editor_ui_host_t* host) {
 	host->layout_root = root;
 }
 
-sk_editor_ui_host_t* sk_editor_ui_host_create(const sk_ui_api_t* ui) {
+sk_editor_ui_host_t* sk_editor_ui_host_create(const sk_ui_api_t* ui, const sk_logger_api_t* logger_api, sk_logger_context_t* log_ctx) {
 	const sk_allocator_t* alloc = sk_allocator_default();
 	sk_editor_ui_host_t* host;
 
-	if (ui == NULL) {
+	if (ui == NULL || logger_api == NULL || log_ctx == NULL) {
 		return NULL;
 	}
 	host = (sk_editor_ui_host_t*)alloc->alloc(alloc->instance, sizeof(sk_editor_ui_host_t));
@@ -110,6 +113,8 @@ sk_editor_ui_host_t* sk_editor_ui_host_create(const sk_ui_api_t* ui) {
 	}
 	memset(host, 0, sizeof(*host));
 	host->ui = ui;
+	host->logger_api = logger_api;
+	host->log_ctx = log_ctx;
 	host->scale_x = 1.0f;
 	host->scale_y = 1.0f;
 	host->width = 1280.0f;
@@ -414,7 +419,7 @@ SK_TEST(editor_ui_host_dual_stack_same_frame) {
 		return;
 	}
 
-	host = sk_editor_ui_host_create(ui);
+	host = sk_editor_ui_host_create(ui, boot.api->logger_api(app_ctx), boot.api->logger_context(app_ctx));
 	TEST_ASSERT_NOT_NULL(host);
 
 	/* One frame: both stacks produce draw output. */

@@ -394,8 +394,9 @@ static i32 importer_ext_get(sk_resource_assets_context_t* ctx, const_chr_t exten
 /* ------------------------------------------------------------------ */
 
 static void reload_handlers(sk_resource_assets_context_t* ctx) {
-	const sk_logger_api_t* logger_api = sk_logger_api();
-	sk_logger_t* log = logger_api->create_logger("Skore::ResourceAssets");
+	const sk_logger_api_t* logger_api = ctx->app_api->logger_api(ctx->app_context);
+	sk_logger_context_t* log_ctx = ctx->app_api->logger_context(ctx->app_context);
+	sk_logger_t* log = (logger_api != NULL && log_ctx != NULL) ? logger_api->create_logger(log_ctx, "Skore::ResourceAssets") : NULL;
 
 	sk_hash_map_clear_(&ctx->handlers_by_extension._hm);
 	sk_hash_map_clear_(&ctx->handlers_by_type._hm);
@@ -420,7 +421,9 @@ static void reload_handlers(sk_resource_assets_context_t* ctx) {
 				if (!SK_TYPE_ID_EQ(type_id, SK_TYPE_ID_ZERO)) {
 					handler_type_put(ctx, type_id, handler);
 				}
-				sk_log_debug(logger_api, log, "registered asset handler for extension '%s'", extension != NULL ? extension : "");
+				if (logger_api != NULL && log != NULL) {
+					sk_log_debug(logger_api, log, "registered asset handler for extension '%s'", extension != NULL ? extension : "");
+				}
 			}
 		}
 		sk_array_free(&impls);
@@ -457,13 +460,17 @@ static void reload_handlers(sk_resource_assets_context_t* ctx) {
 						handler_ext_put(ctx, output_extension, imported_handler);
 					}
 				}
-				sk_log_debug(logger_api, log, "registered asset importer for %u extension(s)", ext_count);
+				if (logger_api != NULL && log != NULL) {
+					sk_log_debug(logger_api, log, "registered asset importer for %u extension(s)", ext_count);
+				}
 			}
 		}
 		sk_array_free(&impls);
 	}
 
-	logger_api->destroy_logger(log);
+	if (logger_api != NULL && log != NULL) {
+		logger_api->destroy_logger(log_ctx, log);
+	}
 }
 
 /* ------------------------------------------------------------------ */
@@ -882,10 +889,13 @@ static sk_rid_t create_asset(sk_resource_assets_context_t* ctx, sk_rid_t parent,
 	const sk_repository_api_t* repo = resource_repo_api();
 	const sk_resource_asset_handler_t* handler = NULL;
 	if (handler_type_get(ctx, type_id, &handler) != 0 || handler == NULL) {
-		const sk_logger_api_t* logger_api = sk_logger_api();
-		sk_logger_t* log = logger_api->create_logger("Skore::ResourceAssets");
-		sk_log_error(logger_api, log, "asset from type cannot be created, no handler found");
-		logger_api->destroy_logger(log);
+		const sk_logger_api_t* logger_api = ctx->app_api->logger_api(ctx->app_context);
+		sk_logger_context_t* log_ctx = ctx->app_api->logger_context(ctx->app_context);
+		sk_logger_t* log = (logger_api != NULL && log_ctx != NULL) ? logger_api->create_logger(log_ctx, "Skore::ResourceAssets") : NULL;
+		if (logger_api != NULL && log != NULL) {
+			sk_log_error(logger_api, log, "asset from type cannot be created, no handler found");
+			logger_api->destroy_logger(log_ctx, log);
+		}
 		return SK_RID_ZERO;
 	}
 

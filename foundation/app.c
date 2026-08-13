@@ -25,7 +25,7 @@ static void app_logger_shutdown(sk_app_context_t* context) {
 		return;
 	}
 	if (context->logger_api != NULL) {
-		context->logger_api->destroy_logger(context->log);
+		context->logger_api->destroy_logger(context->logger_ctx, context->log);
 	}
 	context->log = NULL;
 }
@@ -42,7 +42,7 @@ static i32 app_logger_startup(sk_app_context_t* context) {
 		return -1;
 	}
 
-	context->log = context->logger_api->create_logger("app");
+	context->log = context->logger_api->create_logger(context->logger_ctx, "app");
 	if (context->log == NULL) {
 		sk_logger_context_destroy(context->logger_ctx);
 		context->logger_ctx = NULL;
@@ -580,17 +580,6 @@ static i32 sk_app_load_plugin_impl(sk_app_context_t* context, const_chr_t path) 
 		}
 		plat->lib_close(lib);
 		return -1;
-	}
-
-	/* Redirect the plugin's static-linked logger module to the host table so
-	 * host-registered sinks (file, editor console, …) receive plugin sk_log_*.
-	 * Symbol is optional: older / stripped plugins keep a private stdout sink. */
-	{
-		void_ptr_t bind_raw = plat->lib_symbol(lib, "sk_logger_bind_api");
-		if (bind_raw != NULL) {
-			typedef void (*sk_logger_bind_api_fn)(const sk_logger_api_t* api);
-			SK_PTR_TO_FN(sk_logger_bind_api_fn, bind_raw)(logger_api);
-		}
 	}
 
 	sk_plugin_entry_point_fn entry = SK_PTR_TO_FN(sk_plugin_entry_point_fn, raw);
@@ -1154,16 +1143,18 @@ SK_TEST(app_init_registers_logger_api) {
 
 	const sk_logger_api_t* logger_api = (const sk_logger_api_t*)api->get_api(ctx, SK_LOGGER_API_TYPE_ID);
 	TEST_ASSERT_NOT_NULL_MESSAGE(logger_api, "logger API must be registered on app startup");
-	TEST_ASSERT_EQUAL_PTR(sk_logger_api(), logger_api);
+	TEST_ASSERT_EQUAL_PTR(api->logger_api(ctx), logger_api);
 	TEST_ASSERT_NOT_NULL(logger_api->create_logger);
 	TEST_ASSERT_NOT_NULL(logger_api->destroy_logger);
 	TEST_ASSERT_NOT_NULL(logger_api->message);
 
-	sk_logger_t* log = logger_api->create_logger("integration-test");
+	sk_logger_context_t* log_ctx = api->logger_context(ctx);
+	TEST_ASSERT_NOT_NULL(log_ctx);
+	sk_logger_t* log = logger_api->create_logger(log_ctx, "integration-test");
 	TEST_ASSERT_NOT_NULL(log);
 	TEST_ASSERT_EQUAL_STRING("integration-test", sk_logger_name(log));
 	sk_log_info(logger_api, log, "logger registry smoke");
-	logger_api->destroy_logger(log);
+	logger_api->destroy_logger(log_ctx, log);
 	sk_app_shutdown(ctx);
 }
 

@@ -2,31 +2,19 @@
 
 #include "allocator.h"
 #include "internal/app_context.h"
+#include "internal/logger_context.h"
 #include "internal/tables.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 
-enum { SK_LOGGER_NAME_MAX = 64, SK_LOGGER_MAX_SINKS = 16, SK_LOG_MESSAGE_MAX = 2048, SK_LOG_FILE_PATH_MAX = 1024, SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16 };
+enum { SK_LOG_FILE_PATH_MAX = 1024, SK_LOG_FILE_ROTATED_PATH_MAX = SK_LOG_FILE_PATH_MAX + 16 };
 
 struct sk_logger_t {
 	char name[SK_LOGGER_NAME_MAX];
+	sk_logger_context_t* context;
 };
-
-/* Stub: still wraps the process-wide sink list in this TU. */
-struct sk_logger_context_t {
-	const sk_allocator_t* allocator;
-};
-
-/* Process-global sink list (main-thread ownership). Per static-linked module
- * instance (exe vs each plugin DLL) unless sk_logger_bind_api redirects. */
-static sk_log_sink_t sinks[SK_LOGGER_MAX_SINKS];
-static u32 sink_count = 0;
-static i32 module_ready = 0;
-
-/* When non-NULL, sk_logger_api() returns this (host table bound into a plugin). */
-static const sk_logger_api_t* bound_api = NULL;
 
 /* ---- shared line format (stdout + file) ---- */
 
@@ -60,15 +48,6 @@ static const sk_log_sink_t stdout_sink = {
 	stdout_sink_print,
 };
 
-static void ensure_module_ready(void) {
-	if (module_ready) {
-		return;
-	}
-	sinks[0] = stdout_sink;
-	sink_count = 1;
-	module_ready = 1;
-}
-
 /* ---- rotating file sink ---- */
 
 struct sk_log_file_sink_t {
@@ -78,6 +57,7 @@ struct sk_log_file_sink_t {
 	u64 max_bytes;
 	u32 max_files;
 	u64 current_size;
+	const sk_allocator_t* allocator;
 };
 
 static void file_sink_build_rotated_path(const char* base, u32 index, char* out, size_t out_cap) {
@@ -189,12 +169,11 @@ static void file_sink_print(void_ptr_t user_data, sk_logger_type_t level, const_
 	fflush(fs->file);
 }
 
-sk_log_file_sink_t* sk_log_file_sink_create(const_chr_t path, u64 max_bytes, u32 max_files) {
-	const sk_allocator_t* alloc;
+sk_log_file_sink_t* sk_log_file_sink_create(const_chr_t path, u64 max_bytes, u32 max_files, const sk_allocator_t* allocator) {
 	sk_log_file_sink_t* fs;
 	size_t len;
 
-	if (path == NULL || path[0] == '\0') {
+	if (path == NULL || path[0] == '\0' || allocator == NULL) {
 		return NULL;
 	}
 	len = strlen(path);
@@ -202,14 +181,14 @@ sk_log_file_sink_t* sk_log_file_sink_create(const_chr_t path, u64 max_bytes, u32
 		return NULL;
 	}
 
-	alloc = sk_allocator_default();
-	fs = (sk_log_file_sink_t*)alloc->alloc(alloc->instance, sizeof(sk_log_file_sink_t));
+	fs = (sk_log_file_sink_t*)allocator->alloc(allocator->instance, sizeof(sk_log_file_sink_t));
 	if (fs == NULL) {
 		return NULL;
 	}
 	memset(fs, 0, sizeof(*fs));
 	memcpy(fs->path, path, len);
 	fs->path[len] = '\0';
+	fs->allocator = allocator;
 	fs->max_bytes = (max_bytes == 0ull) ? (u64)SK_LOG_FILE_SINK_DEFAULT_MAX_BYTES : max_bytes;
 	fs->max_files = (max_files == 0u) ? (u32)SK_LOG_FILE_SINK_DEFAULT_MAX_FILES : max_files;
 	if (fs->max_files < 1u) {
@@ -220,7 +199,7 @@ sk_log_file_sink_t* sk_log_file_sink_create(const_chr_t path, u64 max_bytes, u32
 	fs->sink.print = file_sink_print;
 
 	if (file_sink_open_append(fs) != 0) {
-		alloc->free(alloc->instance, fs);
+		allocator->free(allocator->instance, fs);
 		return NULL;
 	}
 	return fs;
@@ -236,7 +215,7 @@ void sk_log_file_sink_destroy(sk_log_file_sink_t* sink) {
 		fclose(sink->file);
 		sink->file = NULL;
 	}
-	alloc = sk_allocator_default();
+	alloc = sink->allocator;
 	alloc->free(alloc->instance, sink);
 }
 
@@ -246,16 +225,22 @@ const sk_log_sink_t* sk_log_file_sink_sink(sk_log_file_sink_t* sink) {
 
 /* ---- API impl ---- */
 
-static sk_logger_t* create_logger_impl(const_chr_t name) {
-	ensure_module_ready();
+static sk_logger_t* create_logger_impl(sk_logger_context_t* log_ctx, const_chr_t name) {
+	const sk_allocator_t* alloc;
+	sk_logger_t* logger;
 
-	const sk_allocator_t* alloc = sk_allocator_default();
-	sk_logger_t* logger = (sk_logger_t*)alloc->alloc(alloc->instance, sizeof(sk_logger_t));
+	if (log_ctx == NULL || log_ctx->allocator == NULL) {
+		return NULL;
+	}
+
+	alloc = log_ctx->allocator;
+	logger = (sk_logger_t*)alloc->alloc(alloc->instance, sizeof(sk_logger_t));
 	if (logger == NULL) {
 		return NULL;
 	}
 
 	memset(logger, 0, sizeof(*logger));
+	logger->context = log_ctx;
 	if (name != NULL) {
 		size_t len = strlen(name);
 		if (len >= (size_t)SK_LOGGER_NAME_MAX) {
@@ -268,44 +253,59 @@ static sk_logger_t* create_logger_impl(const_chr_t name) {
 	return logger;
 }
 
-static void destroy_logger_impl(sk_logger_t* logger) {
+static void destroy_logger_impl(sk_logger_context_t* log_ctx, sk_logger_t* logger) {
+	const sk_allocator_t* alloc;
+
 	if (logger == NULL) {
 		return;
 	}
-	const sk_allocator_t* alloc = sk_allocator_default();
+	alloc = (log_ctx != NULL && log_ctx->allocator != NULL) ? log_ctx->allocator : logger->context != NULL ? logger->context->allocator : NULL;
+	if (alloc == NULL) {
+		return;
+	}
 	alloc->free(alloc->instance, logger);
 }
 
-static void message_impl(sk_logger_type_t type, sk_logger_t* logger, const_chr_t message) {
-	ensure_module_ready();
+static void message_impl(sk_logger_context_t* log_ctx, sk_logger_type_t type, sk_logger_t* logger, const_chr_t message) {
+	u32 i;
 
-	for (u32 i = 0; i < sink_count; ++i) {
-		sinks[i].print(sinks[i].user_data, type, logger->name, message);
+	if (log_ctx == NULL || logger == NULL || message == NULL) {
+		return;
+	}
+
+	for (i = 0; i < log_ctx->sink_count; ++i) {
+		log_ctx->sinks[i].print(log_ctx->sinks[i].user_data, type, logger->name, message);
 	}
 }
 
-static i32 add_sink_impl(const sk_log_sink_t* sink) {
-	ensure_module_ready();
-
-	if (sink_count >= (u32)SK_LOGGER_MAX_SINKS) {
+static i32 add_sink_impl(sk_logger_context_t* log_ctx, const sk_log_sink_t* sink) {
+	if (log_ctx == NULL || sink == NULL || sink->print == NULL) {
+		return -1;
+	}
+	if (log_ctx->sink_count >= (u32)SK_LOGGER_MAX_SINKS) {
 		return -1;
 	}
 
-	sinks[sink_count] = *sink;
-	sink_count += 1u;
+	log_ctx->sinks[log_ctx->sink_count] = *sink;
+	log_ctx->sink_count += 1u;
 	return 0;
 }
 
-static i32 remove_sink_impl(const sk_log_sink_t* sink) {
-	ensure_module_ready();
+static i32 remove_sink_impl(sk_logger_context_t* log_ctx, const sk_log_sink_t* sink) {
+	u32 i;
 
-	for (u32 i = 0; i < sink_count; ++i) {
-		if (sinks[i].print == sink->print && sinks[i].user_data == sink->user_data) {
-			for (u32 j = i + 1u; j < sink_count; ++j) {
-				sinks[j - 1u] = sinks[j];
+	if (log_ctx == NULL || sink == NULL) {
+		return -1;
+	}
+
+	for (i = 0; i < log_ctx->sink_count; ++i) {
+		if (log_ctx->sinks[i].print == sink->print && log_ctx->sinks[i].user_data == sink->user_data) {
+			u32 j;
+			for (j = i + 1u; j < log_ctx->sink_count; ++j) {
+				log_ctx->sinks[j - 1u] = log_ctx->sinks[j];
 			}
-			sink_count -= 1u;
-			memset(&sinks[sink_count], 0, sizeof(sinks[0]));
+			log_ctx->sink_count -= 1u;
+			memset(&log_ctx->sinks[log_ctx->sink_count], 0, sizeof(log_ctx->sinks[0]));
 			return 0;
 		}
 	}
@@ -317,22 +317,6 @@ static const sk_logger_api_t logger_api = {
 };
 
 /* ---- public free functions ---- */
-
-void sk_logger_bind_api(const sk_logger_api_t* api) {
-	bound_api = api;
-}
-
-const sk_logger_api_t* sk_logger_api(void) {
-	if (bound_api != NULL) {
-		return bound_api;
-	}
-	ensure_module_ready();
-	return &logger_api;
-}
-
-void sk_logger_get_api(sk_logger_api_t* out) {
-	*out = *sk_logger_api();
-}
 
 sk_logger_context_t* sk_logger_context_create(const sk_allocator_t* allocator) {
 	sk_logger_context_t* ctx;
@@ -346,7 +330,8 @@ sk_logger_context_t* sk_logger_context_create(const sk_allocator_t* allocator) {
 	}
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->allocator = allocator;
-	ensure_module_ready();
+	ctx->sinks[0] = stdout_sink;
+	ctx->sink_count = 1u;
 	return ctx;
 }
 
@@ -358,6 +343,14 @@ void sk_logger_context_destroy(sk_logger_context_t* log_ctx) {
 	}
 	alloc = log_ctx->allocator;
 	alloc->free(alloc->instance, log_ctx);
+}
+
+const sk_allocator_t* sk_logger_context_allocator(const sk_logger_context_t* log_ctx) {
+	return log_ctx->allocator;
+}
+
+sk_logger_context_t* sk_logger_get_context(const sk_logger_t* logger) {
+	return logger->context;
 }
 
 void sk_logger_install(sk_app_context_t* ctx) {
@@ -404,7 +397,7 @@ void sk_log_messagev(const sk_logger_api_t* api, sk_logger_type_t type, sk_logge
 #pragma GCC diagnostic pop
 #endif
 	buffer[sizeof(buffer) - 1u] = '\0';
-	api->message(type, logger, buffer);
+	api->message(sk_logger_get_context(logger), type, logger, buffer);
 }
 
 void sk_log_message(const sk_logger_api_t* api, sk_logger_type_t type, sk_logger_t* logger, const_chr_t fmt, ...) {
@@ -465,7 +458,6 @@ void sk_log_fatal(const sk_logger_api_t* api, sk_logger_t* logger, const_chr_t f
 
 #ifdef SK_TESTS
 #include "test.h"
-#include "logger.h"
 #include <string.h>
 
 typedef struct capture_sink_state_t {
@@ -486,91 +478,94 @@ static void capture_print(void_ptr_t user_data, sk_logger_type_t level, const_ch
 	state->last_message[sizeof(state->last_message) - 1u] = '\0';
 }
 
-/* Suppress default stdout during capture tests; restore afterward. */
-static void mute_stdout_sink(void) {
-	(void)sk_logger_api()->remove_sink(sk_logger_stdout_sink());
+static void mute_stdout_sink(const sk_logger_api_t* api, sk_logger_context_t* log_ctx) {
+	(void)api->remove_sink(log_ctx, sk_logger_stdout_sink());
 }
 
-static void restore_stdout_sink(void) {
-	const sk_logger_api_t* api = sk_logger_api();
-	/* Idempotent: ignore if already present / full. */
-	(void)api->remove_sink(sk_logger_stdout_sink());
-	(void)api->add_sink(sk_logger_stdout_sink());
+static void restore_stdout_sink(const sk_logger_api_t* api, sk_logger_context_t* log_ctx) {
+	(void)api->remove_sink(log_ctx, sk_logger_stdout_sink());
+	(void)api->add_sink(log_ctx, sk_logger_stdout_sink());
 }
 
 SK_TEST(logger_api_table_is_complete) {
-	const sk_logger_api_t* api = sk_logger_api();
-	TEST_ASSERT_NOT_NULL(api);
-	TEST_ASSERT_NOT_NULL(api->create_logger);
-	TEST_ASSERT_NOT_NULL(api->destroy_logger);
-	TEST_ASSERT_NOT_NULL(api->message);
-	TEST_ASSERT_NOT_NULL(api->add_sink);
-	TEST_ASSERT_NOT_NULL(api->remove_sink);
+	TEST_ASSERT_NOT_NULL(logger_api.create_logger);
+	TEST_ASSERT_NOT_NULL(logger_api.destroy_logger);
+	TEST_ASSERT_NOT_NULL(logger_api.message);
+	TEST_ASSERT_NOT_NULL(logger_api.add_sink);
+	TEST_ASSERT_NOT_NULL(logger_api.remove_sink);
 }
 
-SK_TEST(logger_get_api_matches_static_table) {
-	sk_logger_api_t out;
+SK_TEST(logger_context_create_installs_stdout) {
+	sk_logger_context_t* log_ctx = sk_logger_context_create(sk_allocator_default());
 
-	memset(&out, 0, sizeof(out));
-	sk_logger_get_api(&out);
-	const sk_logger_api_t* api = sk_logger_api();
-
-	TEST_ASSERT_EQUAL_PTR(api->create_logger, out.create_logger);
-	TEST_ASSERT_EQUAL_PTR(api->destroy_logger, out.destroy_logger);
-	TEST_ASSERT_EQUAL_PTR(api->message, out.message);
-	TEST_ASSERT_EQUAL_PTR(api->add_sink, out.add_sink);
-	TEST_ASSERT_EQUAL_PTR(api->remove_sink, out.remove_sink);
+	TEST_ASSERT_NOT_NULL(log_ctx);
+	TEST_ASSERT_EQUAL_PTR(sk_allocator_default(), sk_logger_context_allocator(log_ctx));
+	TEST_ASSERT_EQUAL_UINT(1u, log_ctx->sink_count);
+	TEST_ASSERT_EQUAL_PTR(sk_logger_stdout_sink()->print, log_ctx->sinks[0].print);
+	sk_logger_context_destroy(log_ctx);
 }
 
 SK_TEST(logger_create_destroy_and_name) {
-	const sk_logger_api_t* api = sk_logger_api();
-	sk_logger_t* log = api->create_logger("log-name");
+	const sk_logger_api_t* api = &logger_api;
+	sk_logger_context_t* log_ctx = sk_logger_context_create(sk_allocator_default());
+	sk_logger_t* log;
 
+	TEST_ASSERT_NOT_NULL(log_ctx);
+	log = api->create_logger(log_ctx, "log-name");
 	TEST_ASSERT_NOT_NULL(log);
 	TEST_ASSERT_EQUAL_STRING("log-name", sk_logger_name(log));
-	api->destroy_logger(log);
+	TEST_ASSERT_EQUAL_PTR(log_ctx, sk_logger_get_context(log));
+	api->destroy_logger(log_ctx, log);
+	sk_logger_context_destroy(log_ctx);
 }
 
 SK_TEST(logger_message_reaches_custom_sink) {
-	const sk_logger_api_t* api = sk_logger_api();
+	const sk_logger_api_t* api = &logger_api;
+	sk_logger_context_t* log_ctx = sk_logger_context_create(sk_allocator_default());
 	capture_sink_state_t capture;
 	sk_log_sink_t sink;
+	sk_logger_t* log;
 
+	TEST_ASSERT_NOT_NULL(log_ctx);
 	memset(&capture, 0, sizeof(capture));
 	sink.user_data = &capture;
 	sink.print = capture_print;
 
-	mute_stdout_sink();
-	TEST_ASSERT_EQUAL_INT(0, api->add_sink(&sink));
+	mute_stdout_sink(api, log_ctx);
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(log_ctx, &sink));
 
-	sk_logger_t* log = api->create_logger("log-name");
+	log = api->create_logger(log_ctx, "log-name");
 	TEST_ASSERT_NOT_NULL(log);
 
-	api->message(SK_LOGGER_TYPE_ERROR, log, "blahblah");
+	api->message(log_ctx, SK_LOGGER_TYPE_ERROR, log, "blahblah");
 
 	TEST_ASSERT_EQUAL_INT(1, capture.call_count);
 	TEST_ASSERT_EQUAL_INT(SK_LOGGER_TYPE_ERROR, (int)capture.last_level);
 	TEST_ASSERT_EQUAL_STRING("log-name", capture.last_name);
 	TEST_ASSERT_EQUAL_STRING("blahblah", capture.last_message);
 
-	api->destroy_logger(log);
-	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(&sink));
-	restore_stdout_sink();
+	api->destroy_logger(log_ctx, log);
+	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(log_ctx, &sink));
+	restore_stdout_sink(api, log_ctx);
+	sk_logger_context_destroy(log_ctx);
 }
 
 SK_TEST(log_error_formats_with_va_args) {
-	const sk_logger_api_t* api = sk_logger_api();
+	const sk_logger_api_t* api = &logger_api;
+	sk_logger_context_t* log_ctx = sk_logger_context_create(sk_allocator_default());
 	capture_sink_state_t capture;
 	sk_log_sink_t sink;
+	sk_logger_t* log;
 
+	TEST_ASSERT_NOT_NULL(log_ctx);
 	memset(&capture, 0, sizeof(capture));
 	sink.user_data = &capture;
 	sink.print = capture_print;
 
-	mute_stdout_sink();
-	TEST_ASSERT_EQUAL_INT(0, api->add_sink(&sink));
+	mute_stdout_sink(api, log_ctx);
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(log_ctx, &sink));
 
-	sk_logger_t* log = api->create_logger("fmt");
+	log = api->create_logger(log_ctx, "fmt");
 	sk_log_error(api, log, "blablah %d", 1);
 
 	TEST_ASSERT_EQUAL_INT(1, capture.call_count);
@@ -582,9 +577,48 @@ SK_TEST(log_error_formats_with_va_args) {
 	TEST_ASSERT_EQUAL_INT(SK_LOGGER_TYPE_INFO, (int)capture.last_level);
 	TEST_ASSERT_EQUAL_STRING("hello world", capture.last_message);
 
-	api->destroy_logger(log);
-	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(&sink));
-	restore_stdout_sink();
+	api->destroy_logger(log_ctx, log);
+	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(log_ctx, &sink));
+	restore_stdout_sink(api, log_ctx);
+	sk_logger_context_destroy(log_ctx);
+}
+
+SK_TEST(logger_contexts_are_isolated) {
+	const sk_logger_api_t* api = &logger_api;
+	sk_logger_context_t* a = sk_logger_context_create(sk_allocator_default());
+	sk_logger_context_t* b = sk_logger_context_create(sk_allocator_default());
+	capture_sink_state_t capture_a;
+	capture_sink_state_t capture_b;
+	sk_log_sink_t sink_a;
+	sk_log_sink_t sink_b;
+	sk_logger_t* log_a;
+	sk_logger_t* log_b;
+
+	TEST_ASSERT_NOT_NULL(a);
+	TEST_ASSERT_NOT_NULL(b);
+	memset(&capture_a, 0, sizeof(capture_a));
+	memset(&capture_b, 0, sizeof(capture_b));
+	sink_a.user_data = &capture_a;
+	sink_a.print = capture_print;
+	sink_b.user_data = &capture_b;
+	sink_b.print = capture_print;
+
+	mute_stdout_sink(api, a);
+	mute_stdout_sink(api, b);
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(a, &sink_a));
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(b, &sink_b));
+
+	log_a = api->create_logger(a, "a");
+	log_b = api->create_logger(b, "b");
+	api->message(a, SK_LOGGER_TYPE_INFO, log_a, "only-a");
+	TEST_ASSERT_EQUAL_INT(1, capture_a.call_count);
+	TEST_ASSERT_EQUAL_INT(0, capture_b.call_count);
+	TEST_ASSERT_EQUAL_STRING("only-a", capture_a.last_message);
+
+	api->destroy_logger(a, log_a);
+	api->destroy_logger(b, log_b);
+	sk_logger_context_destroy(a);
+	sk_logger_context_destroy(b);
 }
 
 SK_TEST(logger_type_names) {
@@ -609,12 +643,15 @@ SK_TEST(logger_api_type_id_nonzero) {
 }
 
 SK_TEST(logger_remove_missing_sink_fails) {
-	const sk_logger_api_t* api = sk_logger_api();
+	const sk_logger_api_t* api = &logger_api;
+	sk_logger_context_t* log_ctx = sk_logger_context_create(sk_allocator_default());
 	sk_log_sink_t phantom;
 
+	TEST_ASSERT_NOT_NULL(log_ctx);
 	phantom.user_data = (void_ptr_t)0x1;
 	phantom.print = capture_print;
-	TEST_ASSERT_NOT_EQUAL(0, api->remove_sink(&phantom));
+	TEST_ASSERT_NOT_EQUAL(0, api->remove_sink(log_ctx, &phantom));
+	sk_logger_context_destroy(log_ctx);
 }
 
 static void file_sink_test_cleanup(const_chr_t base, u32 max_files) {
@@ -645,29 +682,32 @@ static i32 file_sink_test_file_size(const_chr_t path) {
 }
 
 SK_TEST(log_file_sink_create_writes_and_destroy) {
-	const sk_logger_api_t* api = sk_logger_api();
+	const sk_logger_api_t* api = &logger_api;
+	sk_logger_context_t* log_ctx = sk_logger_context_create(sk_allocator_default());
 	static const char* base = "sk_log_file_sink_unit.log";
 	sk_log_file_sink_t* file_sink;
 	sk_logger_t* log;
 	i32 size;
 
+	TEST_ASSERT_NOT_NULL(log_ctx);
 	file_sink_test_cleanup(base, 3u);
-	file_sink = sk_log_file_sink_create(base, 64ull * 1024ull, 3u);
+	file_sink = sk_log_file_sink_create(base, 64ull * 1024ull, 3u, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(file_sink);
 	TEST_ASSERT_NOT_NULL(sk_log_file_sink_sink(file_sink));
 	TEST_ASSERT_NOT_NULL(sk_log_file_sink_sink(file_sink)->print);
 
-	mute_stdout_sink();
-	TEST_ASSERT_EQUAL_INT(0, api->add_sink(sk_log_file_sink_sink(file_sink)));
+	mute_stdout_sink(api, log_ctx);
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(log_ctx, sk_log_file_sink_sink(file_sink)));
 
-	log = api->create_logger("file-sink");
+	log = api->create_logger(log_ctx, "file-sink");
 	TEST_ASSERT_NOT_NULL(log);
-	api->message(SK_LOGGER_TYPE_INFO, log, "hello-file-sink");
-	api->destroy_logger(log);
+	api->message(log_ctx, SK_LOGGER_TYPE_INFO, log, "hello-file-sink");
+	api->destroy_logger(log_ctx, log);
 
-	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(sk_log_file_sink_sink(file_sink)));
+	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(log_ctx, sk_log_file_sink_sink(file_sink)));
 	sk_log_file_sink_destroy(file_sink);
-	restore_stdout_sink();
+	restore_stdout_sink(api, log_ctx);
+	sk_logger_context_destroy(log_ctx);
 
 	size = file_sink_test_file_size(base);
 	TEST_ASSERT_TRUE(size > 0);
@@ -689,31 +729,34 @@ SK_TEST(log_file_sink_create_writes_and_destroy) {
 }
 
 SK_TEST(log_file_sink_rotates_when_over_max_bytes) {
-	const sk_logger_api_t* api = sk_logger_api();
+	const sk_logger_api_t* api = &logger_api;
+	sk_logger_context_t* log_ctx = sk_logger_context_create(sk_allocator_default());
 	static const char* base = "sk_log_file_sink_rotate.log";
 	sk_log_file_sink_t* file_sink;
 	sk_logger_t* log;
 	char rotated[SK_LOG_FILE_ROTATED_PATH_MAX];
 	u32 i;
 
+	TEST_ASSERT_NOT_NULL(log_ctx);
 	file_sink_test_cleanup(base, 3u);
 	/* Tiny limit forces rotation after a few lines. */
-	file_sink = sk_log_file_sink_create(base, 120ull, 3u);
+	file_sink = sk_log_file_sink_create(base, 120ull, 3u, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(file_sink);
 
-	mute_stdout_sink();
-	TEST_ASSERT_EQUAL_INT(0, api->add_sink(sk_log_file_sink_sink(file_sink)));
+	mute_stdout_sink(api, log_ctx);
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(log_ctx, sk_log_file_sink_sink(file_sink)));
 
-	log = api->create_logger("rotate");
+	log = api->create_logger(log_ctx, "rotate");
 	TEST_ASSERT_NOT_NULL(log);
 	for (i = 0u; i < 20u; ++i) {
 		sk_log_info(api, log, "rotate-line-%02u-xxxxxxxxxxxxxxxxxxxx", i);
 	}
-	api->destroy_logger(log);
+	api->destroy_logger(log_ctx, log);
 
-	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(sk_log_file_sink_sink(file_sink)));
+	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(log_ctx, sk_log_file_sink_sink(file_sink)));
 	sk_log_file_sink_destroy(file_sink);
-	restore_stdout_sink();
+	restore_stdout_sink(api, log_ctx);
+	sk_logger_context_destroy(log_ctx);
 
 	file_sink_build_rotated_path(base, 1u, rotated, sizeof(rotated));
 	TEST_ASSERT_TRUE(file_sink_test_file_size(base) >= 0);
@@ -723,38 +766,41 @@ SK_TEST(log_file_sink_rotates_when_over_max_bytes) {
 }
 
 SK_TEST(log_file_sink_resumes_size_from_existing_file) {
-	const sk_logger_api_t* api = sk_logger_api();
+	const sk_logger_api_t* api = &logger_api;
+	sk_logger_context_t* log_ctx = sk_logger_context_create(sk_allocator_default());
 	static const char* base = "sk_log_file_sink_resume.log";
 	sk_log_file_sink_t* file_sink;
 	sk_logger_t* log;
 	char rotated[SK_LOG_FILE_ROTATED_PATH_MAX];
 
+	TEST_ASSERT_NOT_NULL(log_ctx);
 	file_sink_test_cleanup(base, 3u);
 	/* One formatted line is ~70 bytes; 100 forces a rotate on the second write
 	 * only if create() picks up the existing file size. */
-	file_sink = sk_log_file_sink_create(base, 100ull, 3u);
+	file_sink = sk_log_file_sink_create(base, 100ull, 3u, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(file_sink);
 
-	mute_stdout_sink();
-	TEST_ASSERT_EQUAL_INT(0, api->add_sink(sk_log_file_sink_sink(file_sink)));
-	log = api->create_logger("resume");
+	mute_stdout_sink(api, log_ctx);
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(log_ctx, sk_log_file_sink_sink(file_sink)));
+	log = api->create_logger(log_ctx, "resume");
 	TEST_ASSERT_NOT_NULL(log);
 	sk_log_info(api, log, "resume-line-aaaaaaaaaaaaaaaaaaaa");
-	api->destroy_logger(log);
-	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(sk_log_file_sink_sink(file_sink)));
+	api->destroy_logger(log_ctx, log);
+	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(log_ctx, sk_log_file_sink_sink(file_sink)));
 	sk_log_file_sink_destroy(file_sink);
 	TEST_ASSERT_TRUE(file_sink_test_file_size(base) > 0);
 
-	file_sink = sk_log_file_sink_create(base, 100ull, 3u);
+	file_sink = sk_log_file_sink_create(base, 100ull, 3u, sk_allocator_default());
 	TEST_ASSERT_NOT_NULL(file_sink);
-	TEST_ASSERT_EQUAL_INT(0, api->add_sink(sk_log_file_sink_sink(file_sink)));
-	log = api->create_logger("resume");
+	TEST_ASSERT_EQUAL_INT(0, api->add_sink(log_ctx, sk_log_file_sink_sink(file_sink)));
+	log = api->create_logger(log_ctx, "resume");
 	TEST_ASSERT_NOT_NULL(log);
 	sk_log_info(api, log, "resume-line-bbbbbbbbbbbbbbbbbbbb");
-	api->destroy_logger(log);
-	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(sk_log_file_sink_sink(file_sink)));
+	api->destroy_logger(log_ctx, log);
+	TEST_ASSERT_EQUAL_INT(0, api->remove_sink(log_ctx, sk_log_file_sink_sink(file_sink)));
 	sk_log_file_sink_destroy(file_sink);
-	restore_stdout_sink();
+	restore_stdout_sink(api, log_ctx);
+	sk_logger_context_destroy(log_ctx);
 
 	file_sink_build_rotated_path(base, 1u, rotated, sizeof(rotated));
 	TEST_ASSERT_TRUE(file_sink_test_file_size(rotated) > 0);
@@ -763,30 +809,16 @@ SK_TEST(log_file_sink_resumes_size_from_existing_file) {
 }
 
 SK_TEST(log_file_sink_create_rejects_empty_path) {
-	TEST_ASSERT_NULL(sk_log_file_sink_create(NULL, 0ull, 0u));
-	TEST_ASSERT_NULL(sk_log_file_sink_create("", 0ull, 0u));
+	TEST_ASSERT_NULL(sk_log_file_sink_create(NULL, 0ull, 0u, sk_allocator_default()));
+	TEST_ASSERT_NULL(sk_log_file_sink_create("", 0ull, 0u, sk_allocator_default()));
+	TEST_ASSERT_NULL(sk_log_file_sink_create("x.log", 0ull, 0u, NULL));
 }
 
 SK_TEST(log_file_sink_destroy_null_is_noop) {
 	sk_log_file_sink_destroy(NULL);
 }
 
-SK_TEST(logger_bind_api_redirects_and_clears) {
-	const sk_logger_api_t* local = sk_logger_api();
-	sk_logger_api_t fake;
-
-	TEST_ASSERT_NOT_NULL(local);
-	memset(&fake, 0, sizeof(fake));
-	fake.create_logger = local->create_logger;
-	fake.destroy_logger = local->destroy_logger;
-	fake.message = local->message;
-	fake.add_sink = local->add_sink;
-	fake.remove_sink = local->remove_sink;
-
-	sk_logger_bind_api(&fake);
-	TEST_ASSERT_EQUAL_PTR(&fake, sk_logger_api());
-
-	sk_logger_bind_api(NULL);
-	TEST_ASSERT_EQUAL_PTR(local, sk_logger_api());
+SK_TEST(logger_context_destroy_null_is_noop) {
+	sk_logger_context_destroy(NULL);
 }
 #endif /* SK_TESTS */

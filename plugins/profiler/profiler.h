@@ -243,7 +243,7 @@ typedef struct sk_profiler_api_t {
 	/**
 	 * Emit the human-readable report (same content as dump_report) through
 	 * the engine logger — the console/log form of the reporting surface.
-	 * Uses the process logger (sk_logger_api) with a "profiler" logger; a
+	 * Uses the host logger from the app context given at plugin load; a
 	 * no-op when the logger is unavailable.
 	 * @return 0 on success; non-zero if the logger could not be used.
 	 */

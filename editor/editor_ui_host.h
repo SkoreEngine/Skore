@@ -36,10 +36,12 @@ typedef enum sk_editor_ui_input_target_t {
 
 /**
  * Create dual host: owns sk-ui context, console panel, and imgui shell.
- * @param ui Live sk_ui_api_t (init already called or will be called here).
+ * @param ui         Live sk_ui_api_t (init already called or will be called here).
+ * @param logger_api Host logger table used to register the console sink.
+ * @param log_ctx    Host logger context that owns sinks.
  * @return Host, or NULL on failure.
  */
-sk_editor_ui_host_t* sk_editor_ui_host_create(const sk_ui_api_t* ui);
+sk_editor_ui_host_t* sk_editor_ui_host_create(const sk_ui_api_t* ui, const sk_logger_api_t* logger_api, sk_logger_context_t* log_ctx);
 
 /** Destroy host and all owned UI resources. Safe on NULL. */
 void sk_editor_ui_host_destroy(sk_editor_ui_host_t* host);

@@ -171,18 +171,6 @@ function(sk_add_plugin name)
         LIBRARY_OUTPUT_DIRECTORY_MINSIZEREL "${_plugins_dir}"
         RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${_plugins_dir}"
     )
-    # Host load_plugin GetProcAddress/dlsym("sk_logger_bind_api") must see the
-    # plugin-local copy (static sk-foundation). Force export: the symbol is otherwise
-    # easy to drop (unused from plugin .c) on MSVC / --gc-sections.
-    if(MSVC)
-        target_link_options(${_plugin} PRIVATE "/EXPORT:sk_logger_bind_api")
-    elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        target_link_options(${_plugin} PRIVATE "LINKER:-exported_symbol,_sk_logger_bind_api")
-    else()
-        # ELF: keep the symbol even if nothing in the plugin .c references it.
-        target_link_options(${_plugin} PRIVATE "LINKER:--export-dynamic-symbol=sk_logger_bind_api")
-    endif()
-
     # In-source tests: non-Release only (never ship tests in Release plugins).
     sk_target_enable_tests(${_plugin})
 

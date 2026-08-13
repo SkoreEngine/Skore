@@ -46,6 +46,8 @@ struct sk_editor_console_panel_t {
 	i32 autoscroll;
 	i32 sink_registered;
 	char last_filter[128];
+	const sk_logger_api_t* logger_api;
+	sk_logger_context_t* log_ctx;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -352,7 +354,8 @@ static void console_on_autoscroll_change(sk_ui_context_t* ctx, sk_ui_node_t node
 /* Public API                                                                 */
 /* -------------------------------------------------------------------------- */
 
-sk_editor_console_panel_t* sk_editor_console_panel_create(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t parent) {
+sk_editor_console_panel_t* sk_editor_console_panel_create(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_node_t parent, const sk_logger_api_t* logger_api,
+														  sk_logger_context_t* log_ctx) {
 	const sk_allocator_t* alloc = sk_allocator_default();
 	sk_editor_console_panel_t* panel;
 	sk_ui_node_t toolbar;
@@ -365,7 +368,7 @@ sk_editor_console_panel_t* sk_editor_console_panel_create(const sk_ui_api_t* ui,
 	static const char* level_ids[6] = {"console-lv-trace", "console-lv-debug", "console-lv-info", "console-lv-warn", "console-lv-error", "console-lv-fatal"};
 	u32 i;
 
-	if (ui == NULL || ctx == NULL) {
+	if (ui == NULL || ctx == NULL || logger_api == NULL || log_ctx == NULL) {
 		return NULL;
 	}
 
@@ -376,6 +379,8 @@ sk_editor_console_panel_t* sk_editor_console_panel_create(const sk_ui_api_t* ui,
 	memset(panel, 0, sizeof(*panel));
 	panel->ui = ui;
 	panel->ctx = ctx;
+	panel->logger_api = logger_api;
+	panel->log_ctx = log_ctx;
 	/* Match main defaults: Info+ on, Trace/Debug off. */
 	panel->show_level[SK_LOGGER_TYPE_TRACE] = 0;
 	panel->show_level[SK_LOGGER_TYPE_DEBUG] = 0;
@@ -444,7 +449,7 @@ sk_editor_console_panel_t* sk_editor_console_panel_create(const sk_ui_api_t* ui,
 	/* Logger sink */
 	sink.user_data = panel;
 	sink.print = console_sink_print;
-	if (sk_logger_api()->add_sink(&sink) == 0) {
+	if (logger_api->add_sink(log_ctx, &sink) == 0) {
 		panel->sink_registered = 1;
 	}
 
@@ -463,7 +468,7 @@ void sk_editor_console_panel_destroy(sk_editor_console_panel_t* panel) {
 	if (panel->sink_registered) {
 		sink.user_data = panel;
 		sink.print = console_sink_print;
-		(void)sk_logger_api()->remove_sink(&sink);
+		(void)panel->logger_api->remove_sink(panel->log_ctx, &sink);
 		panel->sink_registered = 0;
 	}
 	if (panel->ui != NULL && panel->ctx != NULL && sk_ui_node_is_valid(panel->root)) {
@@ -626,7 +631,7 @@ SK_TEST(editor_console_panel_retained_logs_and_filter) {
 	ctx = ui->context_create(NULL);
 	TEST_ASSERT_NOT_NULL(ctx);
 
-	panel = sk_editor_console_panel_create(ui, ctx, SK_UI_NODE_INVALID);
+	panel = sk_editor_console_panel_create(ui, ctx, SK_UI_NODE_INVALID, boot.api->logger_api(app_ctx), boot.api->logger_context(app_ctx));
 	TEST_ASSERT_NOT_NULL(panel);
 	TEST_ASSERT_TRUE(sk_ui_node_is_valid(sk_editor_console_panel_root(panel)));
 	TEST_ASSERT_TRUE(sk_editor_console_panel_line_count(panel) >= 1u);

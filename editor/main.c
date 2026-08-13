@@ -55,7 +55,7 @@ static i32 count_root_children(sk_editor_project_t* project) {
 }
 
 static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, sk_logger_t* log) {
-	const sk_logger_api_t* logger_api = sk_logger_api();
+	const sk_logger_api_t* logger_api = app_api->logger_api(app);
 	const sk_platform_window_api_t* win_api;
 	const sk_ui_api_t* ui;
 	sk_window_t window;
@@ -84,7 +84,7 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 		return 1;
 	}
 
-	host = sk_editor_ui_host_create(ui);
+	host = sk_editor_ui_host_create(ui, logger_api, app_api->logger_context(app));
 	if (host == NULL) {
 		sk_log_error(logger_api, log, "editor UI host create failed");
 		return 1;
@@ -130,7 +130,7 @@ static i32 run_ui_migration(sk_app_context_t* app, const sk_app_api_t* app_api, 
 
 static i32 run_package_mode(sk_app_context_t* app, const sk_app_api_t* app_api, sk_logger_t* log, const_chr_t package_path, const_chr_t package_name, const_chr_t* import_paths,
 							u32 import_count) {
-	const sk_logger_api_t* logger_api = sk_logger_api();
+	const sk_logger_api_t* logger_api = app_api->logger_api(app);
 	sk_editor_project_t* project = sk_editor_project_open(app, app_api, package_name, package_path);
 	i32 child_count;
 	u32 i;
@@ -229,8 +229,8 @@ int main(int argc, char* argv[]) {
 	}
 
 	app_api = boot.api;
-	logger_api = sk_logger_api();
-	log = logger_api->create_logger("editor");
+	logger_api = app_api->logger_api(app);
+	log = logger_api->create_logger(app_api->logger_context(app), "editor");
 
 	if (ui_migration) {
 		rc = run_ui_migration(app, app_api, log);
@@ -238,7 +238,7 @@ int main(int argc, char* argv[]) {
 		rc = run_package_mode(app, app_api, log, package_path, package_name, import_paths, import_count);
 	}
 
-	logger_api->destroy_logger(log);
+	logger_api->destroy_logger(app_api->logger_context(app), log);
 	sk_app_shutdown(app);
 	return rc;
 }

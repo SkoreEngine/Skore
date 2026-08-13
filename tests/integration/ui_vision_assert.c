@@ -7,6 +7,8 @@
 
 #include "ui_vision_assert.h"
 
+#include "app.h"
+#include "allocator.h"
 #include "logger.h"
 #include "path.h"
 
@@ -40,25 +42,52 @@
 /* Logging                                                                    */
 /* -------------------------------------------------------------------------- */
 
+static const sk_logger_api_t* ui_vision_logger_api(void) {
+	static const sk_logger_api_t* api = NULL;
+	if (api == NULL) {
+		sk_app_boot_t boot = sk_app_create();
+		if (boot.api != NULL && boot.context != NULL) {
+			api = boot.api->logger_api(boot.context);
+			sk_app_shutdown(boot.context);
+		}
+	}
+	return api;
+}
+
 static sk_logger_t* ui_vision_logger(void) {
 	static sk_logger_t* log = NULL;
-	if (log == NULL) {
-		log = sk_logger_api()->create_logger("ui-vision-assert");
+	static sk_logger_context_t* log_ctx = NULL;
+	const sk_logger_api_t* api = ui_vision_logger_api();
+	if (log == NULL && api != NULL) {
+		log_ctx = sk_logger_context_create(sk_allocator_default());
+		if (log_ctx != NULL) {
+			log = api->create_logger(log_ctx, "ui-vision-assert");
+		}
 	}
 	return log;
 }
 
 static void ui_vision_fail(const_chr_t fmt, ...) {
+	const sk_logger_api_t* api = ui_vision_logger_api();
+	sk_logger_t* log = ui_vision_logger();
 	va_list args;
+	if (api == NULL || log == NULL) {
+		return;
+	}
 	va_start(args, fmt);
-	sk_log_messagev(sk_logger_api(), SK_LOGGER_TYPE_ERROR, ui_vision_logger(), fmt, args);
+	sk_log_messagev(api, SK_LOGGER_TYPE_ERROR, log, fmt, args);
 	va_end(args);
 }
 
 static void ui_vision_info(const_chr_t fmt, ...) {
+	const sk_logger_api_t* api = ui_vision_logger_api();
+	sk_logger_t* log = ui_vision_logger();
 	va_list args;
+	if (api == NULL || log == NULL) {
+		return;
+	}
 	va_start(args, fmt);
-	sk_log_messagev(sk_logger_api(), SK_LOGGER_TYPE_INFO, ui_vision_logger(), fmt, args);
+	sk_log_messagev(api, SK_LOGGER_TYPE_INFO, log, fmt, args);
 	va_end(args);
 }
 

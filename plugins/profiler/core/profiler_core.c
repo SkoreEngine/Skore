@@ -151,6 +151,8 @@ struct sk_profiler_core_t {
 	u32 max_tasks;
 	sk_profiler_clock_fn now;
 	const sk_allocator_t* alloc;
+	const sk_logger_api_t* logger_api;
+	sk_logger_context_t* logger_ctx;
 	sk_logger_t* logger;
 
 	/* Per-thread storage (pre-allocated at init; registration is lock-free).
@@ -187,13 +189,12 @@ struct sk_profiler_core_t {
 };
 
 static void core_log(const sk_profiler_core_t* core, sk_logger_type_t level, const_chr_t fmt, ...) {
-	const sk_logger_api_t* logger_api = sk_logger_api();
-	if (logger_api == NULL || core->logger == NULL) {
+	if (core->logger_api == NULL || core->logger == NULL) {
 		return;
 	}
 	va_list args;
 	va_start(args, fmt);
-	sk_log_messagev(logger_api, level, core->logger, fmt, args);
+	sk_log_messagev(core->logger_api, level, core->logger, fmt, args);
 	va_end(args);
 }
 
@@ -478,8 +479,9 @@ i32 sk_profiler_core_init(sk_profiler_core_t* core, const sk_profiler_core_confi
 	core->alloc = (cfg.allocator != NULL) ? cfg.allocator : sk_allocator_default();
 	core->now = (cfg.clock.now != NULL) ? cfg.clock.now : clock_now_default;
 
-	const sk_logger_api_t* logger_api = sk_logger_api();
-	core->logger = (logger_api != NULL) ? logger_api->create_logger("profiler") : NULL;
+	core->logger_api = cfg.logger_api;
+	core->logger_ctx = cfg.logger_ctx;
+	core->logger = (cfg.logger_api != NULL && cfg.logger_ctx != NULL) ? cfg.logger_api->create_logger(cfg.logger_ctx, "profiler") : NULL;
 
 	/* All buffers are pre-allocated here (known boundary); the hot path never
 	 * allocates. Free everything on the first failure, then bail out. */
@@ -502,8 +504,8 @@ i32 sk_profiler_core_init(sk_profiler_core_t* core, const sk_profiler_core_confi
 		alloc->free(alloc->instance, core->thread_stacks);
 		alloc->free(alloc->instance, core->frame_ring);
 		alloc->free(alloc->instance, core->tasks);
-		if (logger_api != NULL && core->logger != NULL) {
-			logger_api->destroy_logger(core->logger);
+		if (core->logger_api != NULL && core->logger != NULL) {
+			core->logger_api->destroy_logger(core->logger_ctx, core->logger);
 		}
 		memset(core, 0, sizeof(*core));
 		return -1;
@@ -550,9 +552,8 @@ void sk_profiler_core_shutdown(sk_profiler_core_t* core) {
 	alloc->free(alloc->instance, core->frame_ring);
 	alloc->free(alloc->instance, core->tasks);
 
-	const sk_logger_api_t* logger_api = sk_logger_api();
-	if (logger_api != NULL && core->logger != NULL) {
-		logger_api->destroy_logger(core->logger);
+	if (core->logger_api != NULL && core->logger != NULL) {
+		core->logger_api->destroy_logger(core->logger_ctx, core->logger);
 	}
 
 	if (thread_ctx != NULL && thread_ctx->core == core) {
