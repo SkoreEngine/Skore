@@ -9,7 +9,10 @@
  * redock (APX-289). dock_layout_save_json walks the live node tree into
  * sk_ui_dock_layout_t and emits the versioned JSON document (APX-316);
  * dock_layout_load_json parses that same schema and rebuilds the live tree
- * at startup (APX-317), then reconciles unknown / unsaved windows (APX-314).
+ * at startup (APX-317). Restore then reconciles window-id mismatches (APX-318):
+ * unknown ids are dropped and empty splits/tab groups collapse with leftover
+ * sibling ratios renormalized; registered ids missing from the document dock
+ * at their default target or float at their default rect.
  */
 
 #include "ui_internal.h"
@@ -139,6 +142,7 @@ static sk_logger_t* ui_dock_logger(void) {
 
 static i32 ui_dock_window_known(const sk_ui_context_t* ctx, const_chr_t window_id);
 static void ui_dock_place_unplaced_registered(sk_ui_context_t* ctx, ui_dockspace_t* space);
+static void ui_dock_layout_reconcile_mismatches(sk_ui_context_t* ctx, ui_dockspace_t* space);
 
 /* -------------------------------------------------------------------------- */
 /* Alloc / recycle                                                            */
@@ -721,6 +725,7 @@ static void ui_dock_collapse_space(sk_ui_context_t* ctx, ui_dockspace_t* space) 
 				}
 			}
 			if (sk_ui_dock_node_is_valid(keep)) {
+				/* Surviving sibling inherits the split's full leftover span. */
 				(void)ui_dock_replace_child(ctx, space, parent, split_h, keep);
 				ui_dock_recycle(ctx, drop);
 				ui_dock_recycle(ctx, split_h);
@@ -2984,6 +2989,44 @@ static void ui_dock_place_unplaced_registered(sk_ui_context_t* ctx, ui_dockspace
 	}
 }
 
+/* Reclamp remaining split ratios after an empty sibling is removed so the
+ * leftover span is a valid first-child fraction of whatever still exists. */
+static void ui_dock_renormalize_split_ratios(sk_ui_context_t* ctx, ui_dockspace_t* space) {
+	sk_ui_dock_node_t stack[UI_DOCK_WALK_MAX];
+	u32 sp = 0u;
+	if (space == NULL || !sk_ui_dock_node_is_valid(space->root)) {
+		return;
+	}
+	stack[sp++] = space->root;
+	while (sp > 0u) {
+		sk_ui_dock_node_t cur = stack[--sp];
+		ui_dock_slot_t* slot = ui_dock_slot_mut(ctx, cur);
+		f32 span;
+		if (slot == NULL || slot->kind != UI_DOCK_KIND_SPLIT_U8) {
+			continue;
+		}
+		span = (slot->axis == SK_UI_DOCK_SPLIT_HORIZONTAL) ? slot->rect.width : slot->rect.height;
+		slot->ratio = ui_dock_clamp_ratio(slot->ratio, span);
+		if (sk_ui_dock_node_is_valid(slot->child[1]) && sp < UI_DOCK_WALK_MAX) {
+			stack[sp++] = slot->child[1];
+		}
+		if (sk_ui_dock_node_is_valid(slot->child[0]) && sp < UI_DOCK_WALK_MAX) {
+			stack[sp++] = slot->child[0];
+		}
+	}
+}
+
+/* APX-318: drop emptied structure, then place registered windows the document
+ * did not mention. Collapse first so a default target that vanished floats. */
+static void ui_dock_layout_reconcile_mismatches(sk_ui_context_t* ctx, ui_dockspace_t* space) {
+	if (space == NULL) {
+		return;
+	}
+	ui_dock_collapse_space(ctx, space);
+	ui_dock_renormalize_split_ratios(ctx, space);
+	ui_dock_place_unplaced_registered(ctx, space);
+}
+
 i32 ui_dock_window_register_impl(sk_ui_context_t* ctx, const_chr_t window_id, const_chr_t default_target, const sk_ui_rect_t* default_rect) {
 	ui_dock_window_reg_t* reg;
 	char* id_copy;
@@ -3067,9 +3110,10 @@ i32 ui_dock_split_get_splitter_rect_impl(const sk_ui_context_t* ctx, sk_ui_dock_
 /* Version policy: accept only SK_UI_DOCK_LAYOUT_VERSION. Newer and older     */
 /* documents are rejected (no migration); load leaves the live tree so the    */
 /* host keeps the default layout. Unparseable JSON is the same fallback.      */
-/* Restore drops serialized window ids that are neither live nor registered,  */
-/* collapsing empty leaves (including nested splits). Registered windows      */
-/* missing from the document use their default dock target or float rect.     */
+/* Restore drops serialized window ids that are neither live nor registered   */
+/* (APX-318). Emptied leaves/splits collapse; leftover sibling ratios are     */
+/* renormalized. Registered windows missing from the document use their       */
+/* default dock target or float rect.                                         */
 /*                                                                            */
 /* Root object:                                                               */
 /*   version: integer (SK_UI_DOCK_LAYOUT_VERSION)                             */
@@ -4032,7 +4076,7 @@ i32 ui_dock_layout_load_json_impl(sk_ui_context_t* ctx, const_chr_t dockspace_id
 		return -1;
 	}
 	ctx->dock_restoring = 0u;
-	ui_dock_place_unplaced_registered(ctx, space);
+	ui_dock_layout_reconcile_mismatches(ctx, space);
 	ui_dock_mark_dirty(space);
 	ui_dock_layout_schema_doc_free(ctx->allocator, &doc);
 	return ui_dockspace_apply_impl(ctx, space->root);
@@ -5678,6 +5722,53 @@ SK_TEST(ui_dock_layout_restore_same_context_keeps_windows) {
 	ui->context_destroy(ctx);
 }
 
+static void ui_dock_test_assert_no_empty_groups(const sk_ui_api_t* ui, const sk_ui_context_t* ctx, sk_ui_dock_node_t root) {
+	typedef struct ui_dock_empty_frame_t {
+		sk_ui_dock_node_t node;
+	} ui_dock_empty_frame_t;
+	ui_dock_empty_frame_t stack[128];
+	u32 sp = 0u;
+	TEST_ASSERT_TRUE(sk_ui_dock_node_is_valid(root));
+	stack[sp++].node = root;
+	while (sp > 0u) {
+		sk_ui_dock_node_t cur = stack[--sp].node;
+		if (ui->dock_node_is_split(ctx, cur) != 0) {
+			sk_ui_dock_node_t a = ui->dock_split_child(ctx, cur, 0u);
+			sk_ui_dock_node_t b = ui->dock_split_child(ctx, cur, 1u);
+			TEST_ASSERT_TRUE(sk_ui_dock_node_is_valid(a));
+			TEST_ASSERT_TRUE(sk_ui_dock_node_is_valid(b));
+			if (sp >= 128u) {
+				TEST_FAIL_MESSAGE("dock empty-group walk overflow");
+				return;
+			}
+			stack[sp++].node = b;
+			if (sp >= 128u) {
+				TEST_FAIL_MESSAGE("dock empty-group walk overflow");
+				return;
+			}
+			stack[sp++].node = a;
+			continue;
+		}
+		{
+			const_chr_t tabs[SK_UI_DOCK_LEAF_TABS_MAX];
+			u32 count = 0u;
+			u32 active = 0u;
+			TEST_ASSERT_EQUAL_INT(1, ui->dock_node_is_leaf(ctx, cur));
+			TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, cur, tabs, SK_UI_DOCK_LEAF_TABS_MAX, &count, &active));
+			TEST_ASSERT_TRUE(count > 0u);
+		}
+	}
+}
+
+static void ui_dock_test_assert_fills_space(const sk_ui_api_t* ui, sk_ui_context_t* ctx, sk_ui_dock_node_t node, const sk_ui_rect_t* space) {
+	sk_ui_rect_t box;
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, node, &box));
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, space->x, box.x);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, space->y, box.y);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, space->width, box.width);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, space->height, box.height);
+}
+
 SK_TEST(ui_dock_layout_restore_drop_collapses_split) {
 	const sk_ui_api_t* ui = ui_dock_test_api();
 	sk_ui_context_t* ctx = ui->context_create(NULL);
@@ -5729,6 +5820,16 @@ SK_TEST(ui_dock_layout_restore_drop_collapses_split) {
 	TEST_ASSERT_EQUAL_UINT(1u, count);
 	TEST_ASSERT_EQUAL_STRING("keep-b", tabs[0]);
 	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "gone"));
+	ui_dock_test_assert_no_empty_groups(ui, ctx, root);
+	{
+		sk_ui_rect_t space;
+		space.x = 0.0f;
+		space.y = 0.0f;
+		space.width = 800.0f;
+		space.height = 600.0f;
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(ctx, root, &space));
+		ui_dock_test_assert_fills_space(ui, ctx, root, &space);
+	}
 
 	ui->context_destroy(ctx);
 }
@@ -5775,6 +5876,16 @@ SK_TEST(ui_dock_layout_restore_drop_cascades_nested) {
 	TEST_ASSERT_EQUAL_STRING("keep", tabs[0]);
 	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "gone-1"));
 	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "gone-2"));
+	ui_dock_test_assert_no_empty_groups(ui, ctx, root);
+	{
+		sk_ui_rect_t space;
+		space.x = 0.0f;
+		space.y = 0.0f;
+		space.width = 800.0f;
+		space.height = 600.0f;
+		TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(ctx, root, &space));
+		ui_dock_test_assert_fills_space(ui, ctx, root, &space);
+	}
 
 	ui->context_destroy(ctx);
 }
@@ -5856,6 +5967,178 @@ SK_TEST(ui_dock_layout_restore_unsaved_float) {
 	TEST_ASSERT_FLOAT_WITHIN(0.0001f, ui_dock_layout_len_pt(st.top, 0.0f), def.y);
 	TEST_ASSERT_FLOAT_WITHIN(0.0001f, ui_dock_layout_len_pt(st.width, UI_DOCK_FLOAT_W), def.width);
 	TEST_ASSERT_FLOAT_WITHIN(0.0001f, ui_dock_layout_len_pt(st.height, UI_DOCK_FLOAT_H), def.height);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_layout_restore_removed_window_keeps_sibling_tabs) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 0u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"removed-tab\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"leaf\",\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 0,\n"
+					   "        \"tabs\": [\"keep\", \"gone\", \"also\"],\n"
+					   "        \"active_index\": 1\n"
+					   "    },\n"
+					   "    \"floating\": [ { \"id\": \"ghost\", \"x\": 10, \"y\": 10, \"w\": 100, \"h\": 80, \"z\": 50 } ]\n"
+					   "}";
+	TEST_ASSERT_NOT_NULL(ctx);
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Keep", "keep");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Also", "also");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "keep", NULL, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "also", NULL, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "removed-tab", json, (u32)strlen(json)));
+
+	root = ui->dockspace_find(ctx, "removed-tab");
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("keep", tabs[0]);
+	TEST_ASSERT_EQUAL_STRING("also", tabs[1]);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "gone"));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "ghost"));
+	ui_dock_test_assert_no_empty_groups(ui, ctx, root);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_layout_restore_new_window_default_target_or_float) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t left;
+	sk_ui_node_t profiler;
+	sk_ui_node_t orphan;
+	sk_ui_layout_style_t st;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 0u;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"new-win\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"split\",\n"
+					   "        \"axis\": 0,\n"
+					   "        \"ratio\": 0.3,\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 0,\n"
+					   "        \"a\": { \"kind\": \"leaf\", \"id\": \"gone-side\", \"flags\": 0, \"tabs\": [\"gone\"], \"active_index\": 0 },\n"
+					   "        \"b\": { \"kind\": \"leaf\", \"id\": \"left\", \"flags\": 0, \"tabs\": [\"hierarchy\"], \"active_index\": 0 }\n"
+					   "    },\n"
+					   "    \"floating\": []\n"
+					   "}";
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Hierarchy", "hierarchy");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "Inspector", "inspector");
+	profiler = ui->widget_editor_window(ctx, ui->context_root(ctx), "Profiler", "profiler");
+	orphan = ui->widget_editor_window(ctx, ui->context_root(ctx), "Orphan", "orphan");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "inspector", "left", NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "profiler", NULL, NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_register(ctx, "orphan", "gone-side", NULL));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "new-win", json, (u32)strlen(json)));
+
+	root = ui->dockspace_find(ctx, "new-win");
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, root, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_UINT(2u, count);
+	TEST_ASSERT_EQUAL_STRING("hierarchy", tabs[0]);
+	TEST_ASSERT_EQUAL_STRING("inspector", tabs[1]);
+	left = ui->dock_find_node_for_window(ctx, "inspector");
+	TEST_ASSERT_TRUE(sk_ui_dock_node_eq(left, root));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "profiler"));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "orphan"));
+	TEST_ASSERT_TRUE(sk_ui_node_eq(ui->node_parent(ctx, profiler), ctx->dock_overlay));
+	TEST_ASSERT_TRUE(sk_ui_node_eq(ui->node_parent(ctx, orphan), ctx->dock_overlay));
+	TEST_ASSERT_EQUAL_INT(0, ui->node_get_layout_style(ctx, profiler, &st));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, ui_dock_layout_len_pt(st.left, 0.0f), 80.0f);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, ui_dock_layout_len_pt(st.top, 0.0f), 60.0f);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, ui_dock_layout_len_pt(st.width, UI_DOCK_FLOAT_W), UI_DOCK_FLOAT_W);
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, ui_dock_layout_len_pt(st.height, UI_DOCK_FLOAT_H), UI_DOCK_FLOAT_H);
+	ui_dock_test_assert_no_empty_groups(ui, ctx, root);
+
+	ui->context_destroy(ctx);
+}
+
+SK_TEST(ui_dock_layout_restore_drop_empty_branch_renormalizes) {
+	const sk_ui_api_t* ui = ui_dock_test_api();
+	sk_ui_context_t* ctx = ui->context_create(NULL);
+	sk_ui_dock_node_t root;
+	sk_ui_dock_node_t a;
+	sk_ui_dock_node_t b;
+	sk_ui_rect_t space;
+	sk_ui_rect_t ra;
+	sk_ui_rect_t rb;
+	const_chr_t tabs[4];
+	u32 count = 0u;
+	u32 active = 0u;
+	const f32 leftover = 800.0f - SK_UI_DOCK_SPLITTER_PT;
+	const char* json = "{\n"
+					   "    \"version\": 1,\n"
+					   "    \"id\": \"empty-branch\",\n"
+					   "    \"flags\": 0,\n"
+					   "    \"root\": {\n"
+					   "        \"kind\": \"split\",\n"
+					   "        \"axis\": 0,\n"
+					   "        \"ratio\": 0.25,\n"
+					   "        \"id\": \"root\",\n"
+					   "        \"flags\": 0,\n"
+					   "        \"a\": { \"kind\": \"leaf\", \"id\": \"keep-a\", \"flags\": 0, \"tabs\": [\"keep-a\"], \"active_index\": 0 },\n"
+					   "        \"b\": {\n"
+					   "            \"kind\": \"split\",\n"
+					   "            \"axis\": 0,\n"
+					   "            \"ratio\": 0.4,\n"
+					   "            \"id\": \"dead\",\n"
+					   "            \"flags\": 0,\n"
+					   "            \"a\": { \"kind\": \"leaf\", \"id\": \"gone\", \"flags\": 0, \"tabs\": [\"gone\"], \"active_index\": 0 },\n"
+					   "            \"b\": { \"kind\": \"leaf\", \"id\": \"keep-b\", \"flags\": 0, \"tabs\": [\"keep-b\"], \"active_index\": 0 }\n"
+					   "        }\n"
+					   "    },\n"
+					   "    \"floating\": []\n"
+					   "}";
+	TEST_ASSERT_NOT_NULL(ctx);
+
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "A", "keep-a");
+	(void)ui->widget_editor_window(ctx, ui->context_root(ctx), "B", "keep-b");
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_layout_load_json(ctx, "empty-branch", json, (u32)strlen(json)));
+
+	root = ui->dockspace_find(ctx, "empty-branch");
+	TEST_ASSERT_TRUE(ui->dock_node_is_split(ctx, root));
+	TEST_ASSERT_EQUAL_INT((int)SK_UI_DOCK_SPLIT_HORIZONTAL, (int)ui->dock_split_get_axis(ctx, root));
+	TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.25f, ui->dock_split_get_ratio(ctx, root));
+	a = ui->dock_split_child(ctx, root, 0u);
+	b = ui->dock_split_child(ctx, root, 1u);
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, a));
+	TEST_ASSERT_TRUE(ui->dock_node_is_leaf(ctx, b));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, a, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_STRING("keep-a", tabs[0]);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_leaf_tabs(ctx, b, tabs, 4u, &count, &active));
+	TEST_ASSERT_EQUAL_STRING("keep-b", tabs[0]);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_window_is_docked(ctx, "gone"));
+	ui_dock_test_assert_no_empty_groups(ui, ctx, root);
+
+	space.x = 0.0f;
+	space.y = 0.0f;
+	space.width = 800.0f;
+	space.height = 600.0f;
+	TEST_ASSERT_EQUAL_INT(0, ui->dockspace_layout(ctx, root, &space));
+	ui_dock_test_assert_fills_space(ui, ctx, root, &space);
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, a, &ra));
+	TEST_ASSERT_EQUAL_INT(0, ui->dock_node_get_rect(ctx, b, &rb));
+	TEST_ASSERT_FLOAT_WITHIN(2.0f, leftover * 0.25f, ra.width);
+	TEST_ASSERT_FLOAT_WITHIN(2.0f, leftover * 0.75f, rb.width);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 600.0f, ra.height);
+	TEST_ASSERT_FLOAT_WITHIN(0.01f, 600.0f, rb.height);
 
 	ui->context_destroy(ctx);
 }

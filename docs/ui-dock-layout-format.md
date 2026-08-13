@@ -169,17 +169,20 @@ Each `floating[]` entry:
 3. Hosts treat that non-zero as “use the default layout”: keep the in-memory
    workspace, or run the first-run `dock_builder_*` path. Do not apply a
    partial tree.
-4. **Mismatch — dropped window.** A serialized window id that is neither a
-   live `editor_window` (`find_by_id`) nor `dock_window_register`'d is
-   dropped. Its tab is omitted. An emptied leaf is collapsed: the parent
-   split is replaced by the surviving sibling, remaining sibling ratios stay
-   as stored, and collapse cascades when that replacement empties the next
+4. **Mismatch — dropped window (APX-318).** A serialized window id that is
+   neither a live `editor_window` (`find_by_id`) nor `dock_window_register`'d
+   is dropped. Its tab is omitted. An emptied leaf or emptied split branch is
+   collapsed so no empty tab group or empty split remains: the parent split
+   is replaced by the surviving sibling, leftover sibling ratios are
+   renormalized (first-child fraction re-clamped to the remaining leftover
+   span), and collapse cascades when that replacement empties the next
    parent. Floating entries for the same unknown id are skipped.
-5. **Mismatch — unsaved window.** After the saved tree is applied, each
-   `dock_window_register`'d id that has no saved position is placed at its
-   declared default dock target (stable node id, CENTER tab). If it declares
-   no target, or the target node is gone, it floats at its declared default
-   rect (or `80,60,360,240` when the rect was omitted).
+5. **Mismatch — unsaved window (APX-318).** After the saved tree is applied
+   and emptied nodes have collapsed, each `dock_window_register`'d id that
+   has no saved position is placed at its declared default dock target
+   (stable node id, CENTER tab). If it declares no target, or the target
+   node is gone (including collapsed away), it floats at its declared
+   default rect (or `80,60,360,240` when the rect was omitted).
 6. Registered-but-not-yet-created ids that *are* named in the document still
    become pending binds (cap 64) so load-then-create works.
 

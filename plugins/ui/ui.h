@@ -3015,12 +3015,14 @@ typedef struct sk_ui_api_t {
 	 * the live tree unchanged so the host can keep the default layout.
 	 * Unparseable documents also fail without mutating the live tree.
 	 * Serialized window ids that are neither live (`find_by_id`) nor
-	 * `dock_window_register`'d are dropped and empty leaves collapse
-	 * (cascading through nested splits). Registered windows missing from the
+	 * `dock_window_register`'d are dropped. Emptied leaves and splits
+	 * collapse so no empty tab group or empty split remains; leftover
+	 * sibling ratios are renormalized. Registered windows missing from the
 	 * document fall back to their declared default dock target, or float at
-	 * the declared rect when they have no target. Registered-but-not-yet-
-	 * created ids still become pending binds. Error if a builder session is
-	 * open. Does not destroy editor_window nodes (teardown reparents first).
+	 * the declared rect when they have no target (or the target collapsed).
+	 * Registered-but-not-yet-created ids still become pending binds. Error
+	 * if a builder session is open. Does not destroy editor_window nodes
+	 * (teardown reparents first).
 	 * Rebuilds splits, tab order, the active tab index, and floating window
 	 * rects, then applies. Creates the named dockspace if it does not exist
 	 * yet (startup restore).
